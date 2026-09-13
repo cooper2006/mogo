@@ -14,8 +14,14 @@ Both `./movo up` and `docker compose up -d` pull the seven official MOVO images
 from `ghcr.io/himovo/movo-*` by default. Neither command requires an `.env`
 file. The MOVO launcher pulls images sequentially and keeps retrying registry
 failures until they succeed or the user presses `Ctrl+C`; native Compose retains
-Docker's default parallel pull behavior. To pin a production deployment to the
-checked-out release, set:
+Docker's default parallel pull behavior.
+
+Windows users should follow the [Windows installation guide](windows-installation.md)
+and run the launcher from Ubuntu WSL or Git Bash. The Docker Desktop internal
+`docker-desktop` distribution is not a user shell and does not include the Bash
+environment required by `./movo`.
+
+To pin a production deployment to the checked-out release, set:
 
 ```env
 MOVO_VERSION=vX.Y.Z

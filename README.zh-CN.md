@@ -107,7 +107,7 @@ flowchart LR
 - Docker Desktop，或 Docker Engine 与 Docker Compose v2
 - 至少 8 GB 可用内存
 
-克隆 MOVO，并直接使用官方预构建镜像启动：
+Linux 与 macOS 用户可以克隆 MOVO，并直接使用官方预构建镜像启动：
 
 ```bash
 git clone https://github.com/himovo/movo.git
@@ -118,7 +118,9 @@ chmod +x movo
 
 `./movo up` 会串行拉取已发布的 MOVO 及基础镜像；遇到网络失败时会持续重试，直到拉取成功或用户按 `Ctrl+C` 停止。随后它会启动完整服务、等待健康检查，并输出首次初始化地址。普通用户**不需要在本地构建镜像**。
 
-也可以直接执行 `docker compose up -d` 启动同一套官方预构建镜像，包括在 Windows PowerShell 或命令提示符中使用。这两种方式默认都不需要 `.env` 文件。如需从源码构建本地镜像并启动，请使用 `./movo up --build`。
+Windows 用户推荐使用 Docker Desktop、WSL 2 与 Ubuntu。请先通过 `wsl -l -v` 确认已经安装 Ubuntu，再使用 `wsl -d Ubuntu` 进入；不要在提示符以 `docker-desktop:` 开头的内部发行版中执行 MOVO。完整步骤与常见问题见 [Windows 安装指南](docs/windows-installation.zh-CN.md)。
+
+也可以直接执行 `docker compose up -d` 启动同一套官方预构建镜像，包括在 Windows PowerShell 或命令提示符中使用。这两种方式默认都不需要 `.env` 文件；但原生 Compose 会并发拉取镜像，不包含启动器的持续重试与健康等待。如需从源码构建本地镜像并启动，请使用 `./movo up --build`。
 
 打开：
 

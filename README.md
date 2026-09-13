@@ -107,7 +107,7 @@ The default Docker Compose deployment starts 12 services: the gateway, two Web a
 - Docker Desktop, or Docker Engine with Docker Compose v2
 - at least 8 GB of available memory
 
-Clone MOVO and start it with the prebuilt images:
+On Linux and macOS, clone MOVO and start it with the prebuilt images:
 
 ```bash
 git clone https://github.com/himovo/movo.git
@@ -118,7 +118,9 @@ chmod +x movo
 
 `./movo up` pulls the published MOVO and infrastructure images sequentially and keeps retrying network failures until the pull succeeds or the user presses `Ctrl+C`. It then starts the complete stack, waits for health checks and prints the first-run setup address. Normal users do **not** need to build the images locally.
 
-You can also start the same official prebuilt images directly with `docker compose up -d`, including from Windows PowerShell or Command Prompt. Neither command requires an `.env` file. To build and start local images from source instead, use `./movo up --build`.
+On Windows, use Docker Desktop with WSL 2 and Ubuntu. Check that Ubuntu exists with `wsl -l -v`, then enter it explicitly with `wsl -d Ubuntu`; do not run MOVO from a prompt beginning with `docker-desktop:`. See the complete [Windows installation guide](docs/windows-installation.md).
+
+You can also start the same official prebuilt images directly with `docker compose up -d`, including from Windows PowerShell or Command Prompt. Neither command requires an `.env` file, but native Compose pulls in parallel and does not provide the launcher's continuous retry loop or readiness wait. To build and start local images from source instead, use `./movo up --build`.
 
 Open:
 
