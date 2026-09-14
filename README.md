@@ -15,7 +15,8 @@
 <p align="center">
   <a href="https://www.himovo.com">Official website: https://www.himovo.com</a> ·
   <a href="https://www.himovo.com/en/guide/introduction.html">Documentation</a> ·
-  <a href="https://www.himovo.com/en/guide/getting-started.html">Quick start</a>
+  <a href="https://www.himovo.com/en/guide/getting-started.html">Quick start</a> ·
+  <a href="https://github.com/himovo/movo/discussions">Community</a>
 </p>
 
 MOVO brings DSH Agents from development experiments into enterprise production. It combines the DSH Runtime, Skills, Tools and MCP ecosystem with a deployable user workspace, enterprise knowledge, identity and access control, administration, governance and file delivery.
@@ -26,7 +27,30 @@ MOVO brings DSH Agents from development experiments into enterprise production. 
   <img src="docs/assets/dsh-movo-responsibilities-en.png" alt="How DeepSeek Harness and MOVO divide responsibilities" width="760">
 </p>
 
-This repository contains the self-hosted Community Edition and is the shared source foundation used by MOVO cloud and future enterprise distributions.
+This repository contains the self-hosted MOVO Community Edition.
+
+<p align="center">
+  If MOVO is useful to you, consider giving the project a <a href="https://github.com/himovo/movo">⭐ Star</a>. It helps more developers discover it.
+</p>
+
+## Start in 5 minutes
+
+With Git and Docker Desktop (or Docker Engine with Docker Compose v2) installed:
+
+```bash
+git clone https://github.com/himovo/movo.git
+cd movo
+chmod +x movo
+./movo up
+```
+
+Then open:
+
+```text
+http://localhost:3000/admin/setup
+```
+
+The launcher pulls the official prebuilt images, waits for the services to become healthy and prints the setup address. No `.env` file or local image build is required. Windows users should run MOVO inside an Ubuntu WSL 2 distribution; see the [Windows installation guide](docs/windows-installation.md).
 
 ## Product demo
 
@@ -81,6 +105,15 @@ The self-hosted Web workspace supports chat, research, knowledge, files and cont
 
 MOVO Desktop provides the local browser session, code workspace, project terminal and Git integration required by these capabilities. It is distributed separately as proprietary software; its source code is not included in this repository and is not part of the Community Edition source release.
 
+| Capability | Self-hosted Web | MOVO Desktop |
+| --- | :---: | :---: |
+| Chat, research and enterprise knowledge | ✓ | ✓ |
+| Document understanding and content generation | ✓ | ✓ |
+| Browser Agent | — | ✓ |
+| Code Agent, local projects, terminal and Git | — | ✓ |
+| Requires a self-hosted MOVO service | ✓ | ✓, connects to that service |
+| Source included in this repository | ✓ | —, distributed separately |
+
 ## Architecture
 
 ```mermaid
@@ -99,24 +132,18 @@ flowchart LR
 
 The default Docker Compose deployment starts 12 services: the gateway, two Web applications, three application APIs, the DSH Runtime Host, a document worker, MongoDB, Redis, Weaviate and a one-time secret bootstrap service.
 
-## Quick start with Docker
+## Deployment and operations
 
-### Requirements
+### Requirements and platform notes
 
 - Git
 - Docker Desktop, or Docker Engine with Docker Compose v2
 - at least 8 GB of available memory
+- at least 20 GB of available disk space for images and application data
+- network access to GHCR and Docker Hub during the initial image pull
+- credentials for at least one compatible model API to complete setup
 
-On Linux and macOS, clone MOVO and start it with the prebuilt images:
-
-```bash
-git clone https://github.com/himovo/movo.git
-cd movo
-chmod +x movo
-./movo up
-```
-
-`./movo up` pulls the published MOVO and infrastructure images sequentially and keeps retrying network failures until the pull succeeds or the user presses `Ctrl+C`. It then starts the complete stack, waits for health checks and prints the first-run setup address. Normal users do **not** need to build the images locally.
+The quick-start command above works on Linux and macOS. `./movo up` pulls the published MOVO and infrastructure images sequentially and keeps retrying network failures until the pull succeeds or the user presses `Ctrl+C`. The first startup downloads several container images and can take some time, especially when access to GHCR or Docker Hub is slow. Normal users do **not** need to build the images locally.
 
 On Windows, use Docker Desktop with WSL 2 and Ubuntu. Check that Ubuntu exists with `wsl -l -v`, then enter it explicitly with `wsl -d Ubuntu`; do not run MOVO from a prompt beginning with `docker-desktop:`. See the complete [Windows installation guide](docs/windows-installation.md).
 
@@ -201,6 +228,10 @@ Source builds download Playwright, LibreOffice, Docling and model assets, so the
 
 ## Contributing and support
 
+Issues and feature requests are welcome. Clear use cases and reproducible feedback may be implemented quickly when they benefit the wider community. A recent example is the ability to install external Skills directly from ZIP packages.
+
+- [GitHub Discussions](https://github.com/himovo/movo/discussions) for questions, ideas and deployment experience
+- [GitHub Issues](https://github.com/himovo/movo/issues) for reproducible bugs
 - [Contribution guide](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Community support policy](SUPPORT.md)

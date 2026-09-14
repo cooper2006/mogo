@@ -15,7 +15,8 @@
 <p align="center">
   <a href="https://www.himovo.com/">官方网站</a> ·
   <a href="https://www.himovo.com/guide/introduction.html">产品文档</a> ·
-  <a href="https://www.himovo.com/guide/getting-started.html">快速开始</a>
+  <a href="https://www.himovo.com/guide/getting-started.html">快速开始</a> ·
+  <a href="https://github.com/himovo/movo/discussions">社区交流</a>
 </p>
 
 MOVO 帮助企业将 DSH Agent 从开发验证推进到生产使用。它在 DSH Runtime、Skill、工具和 MCP 生态之上，提供可部署的用户工作台、企业知识、身份与权限、管理治理和文件交付能力。
@@ -26,7 +27,30 @@ MOVO 帮助企业将 DSH Agent 从开发验证推进到生产使用。它在 DSH
   <img src="docs/assets/dsh-movo-responsibilities-zh-cn.png" alt="DeepSeek Harness 与 MOVO 的职责分工" width="760">
 </p>
 
-本仓库包含可私有化部署的 MOVO 社区版，也是 MOVO 云服务和未来企业版本共同依赖的源码基础。
+本仓库包含可私有化部署的 MOVO 社区版。
+
+<p align="center">
+  如果 MOVO 对你有帮助，欢迎点击右上角 <a href="https://github.com/himovo/movo">⭐ Star</a>，让更多开发者发现这个项目。
+</p>
+
+## 5 分钟快速启动
+
+安装 Git 和 Docker Desktop（或 Docker Engine 与 Docker Compose v2）后执行：
+
+```bash
+git clone https://github.com/himovo/movo.git
+cd movo
+chmod +x movo
+./movo --lang zh-CN up
+```
+
+随后打开：
+
+```text
+http://localhost:3000/admin/setup
+```
+
+启动器会拉取官方预构建镜像、等待服务健康并输出初始化地址，无需创建 `.env` 文件，也无需在本地构建镜像。Windows 用户应在 Ubuntu WSL 2 发行版中运行 MOVO，完整步骤见 [Windows 安装指南](docs/windows-installation.zh-CN.md)。
 
 ## 产品演示
 
@@ -81,6 +105,15 @@ MOVO 帮助企业将 DSH Agent 从开发验证推进到生产使用。它在 DSH
 
 MOVO Desktop 为这些能力提供本地浏览器会话、代码工作区、项目终端和 Git 集成。该桌面客户端是独立分发的专有软件，源码不包含在本仓库中，也不属于社区版源码发布范围。
 
+| 能力 | 私有化 Web 端 | MOVO Desktop |
+| --- | :---: | :---: |
+| 对话、研究与企业知识 | ✓ | ✓ |
+| 文档理解与内容生成 | ✓ | ✓ |
+| 浏览器 Agent | — | ✓ |
+| Code Agent、本地项目、终端与 Git | — | ✓ |
+| 是否需要私有化部署 MOVO 服务 | ✓ | ✓，连接该服务 |
+| 源码是否包含在本仓库 | ✓ | —，独立分发 |
+
 ## 系统架构
 
 ```mermaid
@@ -99,24 +132,18 @@ flowchart LR
 
 默认 Docker Compose 部署会启动 12 个服务：统一网关、两个 Web 应用、三个应用 API、DSH Runtime Host、文档 Worker、MongoDB、Redis、Weaviate，以及一次性的密钥初始化服务。
 
-## 使用 Docker 快速开始
+## 部署与运维
 
-### 环境要求
+### 环境要求与平台说明
 
 - Git
 - Docker Desktop，或 Docker Engine 与 Docker Compose v2
 - 至少 8 GB 可用内存
+- 至少 20 GB 可用磁盘空间，用于镜像和应用数据
+- 首次拉取镜像时可以访问 GHCR 和 Docker Hub
+- 至少一个兼容模型 API 的访问凭证，用于完成初始化
 
-Linux 与 macOS 用户可以克隆 MOVO，并直接使用官方预构建镜像启动：
-
-```bash
-git clone https://github.com/himovo/movo.git
-cd movo
-chmod +x movo
-./movo --lang zh-CN up
-```
-
-`./movo up` 会串行拉取已发布的 MOVO 及基础镜像；遇到网络失败时会持续重试，直到拉取成功或用户按 `Ctrl+C` 停止。随后它会启动完整服务、等待健康检查，并输出首次初始化地址。普通用户**不需要在本地构建镜像**。
+上方快速启动命令适用于 Linux 和 macOS。`./movo up` 会串行拉取已发布的 MOVO 及基础镜像；遇到网络失败时会持续重试，直到拉取成功或用户按 `Ctrl+C` 停止。首次启动需要下载多个容器镜像，在 GHCR 或 Docker Hub 访问较慢时可能需要较长时间。普通用户**不需要在本地构建镜像**。
 
 Windows 用户推荐使用 Docker Desktop、WSL 2 与 Ubuntu。请先通过 `wsl -l -v` 确认已经安装 Ubuntu，再使用 `wsl -d Ubuntu` 进入；不要在提示符以 `docker-desktop:` 开头的内部发行版中执行 MOVO。完整步骤与常见问题见 [Windows 安装指南](docs/windows-installation.zh-CN.md)。
 
@@ -200,6 +227,10 @@ PUBLIC_BASE_URL=https://movo.example.com
 
 ## 参与贡献与支持
 
+欢迎提交 Issue 和功能建议。清晰的使用场景和可复现的反馈，如果能够帮助更多社区用户，就有可能被快速实现。例如，近期上线的“通过 ZIP 包直接安装外部 Skill”功能，就来自实际使用需求。
+
+- [GitHub Discussions](https://github.com/himovo/movo/discussions)：使用问题、功能建议和部署经验交流
+- [GitHub Issues](https://github.com/himovo/movo/issues)：提交可以复现的 Bug
 - [贡献指南](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
 - [社区支持策略](SUPPORT.md)
