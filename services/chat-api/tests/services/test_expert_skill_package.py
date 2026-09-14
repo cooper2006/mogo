@@ -72,6 +72,16 @@ def test_compiles_expert_package_into_one_runtime_skill_with_internal_children()
     assert package.warnings[0]["code"] == "expert_child_name_mismatch"
 
 
+def test_persisted_expert_archive_can_be_validated_again_for_sharing():
+    installed = validate_skill_package(expert())
+    shared = validate_skill_package(installed.archive_bytes)
+
+    assert shared.package_kind == "expert_package"
+    assert shared.archive_digest == installed.archive_digest
+    assert shared.markdown == installed.markdown
+    assert shared.children == installed.children
+
+
 def test_rejects_expert_package_when_declared_child_zip_is_missing():
     with pytest.raises(SkillPackageError) as raised:
         validate_skill_package(expert(include_second=False))

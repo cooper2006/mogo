@@ -17,6 +17,7 @@
 
     <n-descriptions bordered :column="1" label-placement="left">
       <n-descriptions-item :label="t('ui.type')">{{ typeLabel }}</n-descriptions-item>
+      <n-descriptions-item v-if="sourceLabel" :label="t('skills.detail.source')">{{ sourceLabel }}</n-descriptions-item>
       <template v-if="skill.package">
         <n-descriptions-item :label="t('skills.detail.slug')">{{ skill.package.slug }}</n-descriptions-item>
         <n-descriptions-item :label="t('skills.detail.version')">{{ skill.package.version }}</n-descriptions-item>
@@ -65,6 +66,28 @@ const typeLabel = computed(() => {
   if (props.skill.type === 'ordinary') return t('skills.type.ordinary');
   if (props.skill.type === 'workflow') return t('skills.type.workflow');
   return t('skills.type.style');
+});
+
+const sourceLabel = computed(() => {
+  const source = props.skill.packageSource;
+  if (!source?.kind) return '';
+  if (source.kind === 'movo_share') {
+    const sender = source.sender?.displayName || source.sender?.username || '';
+    return sender
+      ? t('skills.detail.source_shared_by', { name: sender })
+      : t('skills.detail.source_shared');
+  }
+  if (source.kind === 'skillhub') {
+    return source.coordinate
+      ? t('skills.detail.source_market_named', { name: source.coordinate })
+      : t('skills.detail.source_market');
+  }
+  if (source.kind === 'local_zip') {
+    return source.fileName
+      ? t('skills.detail.source_zip_named', { name: source.fileName })
+      : t('skills.detail.source_zip');
+  }
+  return t('skills.detail.source_imported');
 });
 </script>
 

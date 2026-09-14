@@ -1034,6 +1034,8 @@ class UserSkillService:
         updates["skill_contract"] = contract
         updates["skill_contract_version"] = str(contract.get("version") or "v1")
         updates["skill_lint_warnings"] = list(contract.get("lint_warnings") or [])
+        if str((current.get("package_source") or {}).get("kind") or "") == "movo_share":
+            updates["locally_modified"] = True
         updates["updated_at"] = datetime.datetime.utcnow()
         await db.user_skills.update_one(
             add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id),
@@ -2099,6 +2101,19 @@ class UserSkillService:
             "package_warnings": list(doc.get("package_warnings") or []),
             "package_kind": str(doc.get("package_kind") or "ordinary"),
             "package_children": list(doc.get("package_children") or []),
+            "package_source": dict(doc.get("package_source") or {}),
+            "distribution_id": str(doc.get("distribution_id") or ""),
+            "locally_modified": bool(doc.get("locally_modified", False)),
+            "draft": dict(doc.get("draft") or {}),
+            "authoring_mode": str(doc.get("authoring_mode") or ""),
+            "publication_status": str(doc.get("publication_status") or ""),
+            "published_version": str(doc.get("published_version") or ""),
+            "published_digest": str(doc.get("published_digest") or ""),
+            "published_release_id": str(doc.get("published_release_id") or ""),
+            "published_at": doc.get("published_at"),
+            "draft_revision": int(doc.get("draft_revision") or 0),
+            "draft_updated_at": doc.get("draft_updated_at"),
+            "has_unpublished_changes": bool(doc.get("has_unpublished_changes", False)),
             "model_invocable": bool(doc.get("model_invocable", True)),
             "user_invocable": bool(doc.get("user_invocable", True)),
         }

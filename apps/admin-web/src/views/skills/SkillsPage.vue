@@ -65,6 +65,9 @@
                   <n-tag size="small" :bordered="false" :type="row.enabled ? 'success' : 'default'">
                     {{ row.enabled ? t('已启用') : t('已禁用') }}
                   </n-tag>
+                  <n-tag v-if="row.lifecycle?.authoringMode === 'platform'" size="small" :bordered="false" :type="row.lifecycle.publicationStatus === 'draft' || row.lifecycle.hasUnpublishedChanges ? 'warning' : 'success'">
+                    {{ row.lifecycle.publicationStatus === 'draft' ? t('草稿') : row.lifecycle.hasUnpublishedChanges ? t('有未发布修改') : `v${row.lifecycle.publishedVersion}` }}
+                  </n-tag>
                 </div>
                 <span class="card-time">{{ formatAdminDateTime(row.updatedAt || row.createdAt, t('刚创建')) }}</span>
               </div>
@@ -83,6 +86,11 @@
                       @update:value="handleEnabledUpdate(row, $event)"
                     />
                   </div>
+                  <n-button class="icon-only-btn" size="small" quaternary circle title="查看成员评价" @click.stop="openFeedback(row)">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+                    </svg>
+                  </n-button>
                   <n-button v-if="row.type === 'writing_style' || row.type === 'workflow'" class="icon-only-btn" size="small" quaternary circle :title="t('编辑基础信息')" @click.stop="openEditModal(row)">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M12 20h9" />
@@ -156,6 +164,10 @@
     <SkillPackageDetails v-if="selectedPackage" :skill="selectedPackage" />
   </n-modal>
 
+  <n-modal v-model:show="feedbackVisible" preset="card" :title="`${feedbackSkill?.name || 'Skill'} · 评价`" style="width: 640px">
+    <OrganizationSkillFeedback v-if="feedbackVisible && feedbackSkill" :key="feedbackSkill.id" :skill-id="feedbackSkill.id" />
+  </n-modal>
+
   <n-modal v-model:show="editVisible" preset="card" :title="t('编辑 Skill 基础信息')" style="width: 640px">
     <n-form ref="editFormRef" :model="editForm" :rules="editRules" label-placement="left" label-width="92">
       <n-form-item :label="t('技能名称')" path="name">
@@ -220,6 +232,7 @@ import { formatAdminDateTime, parseAdminDate } from '@/composables/adminTimezone
 import { createSkill, deleteSkill, fetchSkills, setSkillEnabled, updateSkill, type SkillItem, type SkillPayload, type SkillType } from '@/api/skills';
 import SkillZipInstaller from './SkillZipInstaller.vue';
 import SkillPackageDetails from './SkillPackageDetails.vue';
+import OrganizationSkillFeedback from './OrganizationSkillFeedback.vue';
 
 const router = useRouter();
 const message = useMessage();
@@ -233,6 +246,8 @@ const switchingIds = ref<Set<string>>(new Set());
 const installVisible = ref(false);
 const detailsVisible = ref(false);
 const selectedPackage = ref<SkillItem | null>(null);
+const feedbackVisible = ref(false);
+const feedbackSkill = ref<SkillItem | null>(null);
 const zipInstallerRef = ref<{ select: (file?: File) => void } | null>(null);
 
 const createVisible = ref(false);
@@ -365,6 +380,11 @@ function openSkill(row: SkillItem) {
   if (row.type !== 'ordinary' && row.type !== 'expert_package') return goToConfig(row.id);
   selectedPackage.value = row;
   detailsVisible.value = true;
+}
+
+function openFeedback(row: SkillItem) {
+  feedbackSkill.value = row;
+  feedbackVisible.value = true;
 }
 
 function handlePageDrop(event: DragEvent) {

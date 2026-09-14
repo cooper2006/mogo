@@ -66,8 +66,9 @@
                     </svg>
                   </span>
                 </template>
-                {{ t('ui.save') }}
+                {{ t('skills.publish.save_draft') }}
               </n-button>
+              <n-button type="primary" secondary :loading="saving" @click="prepareWorkflowPublish">{{ t('skills.publish.action') }}</n-button>
             </div>
           </div>
 
@@ -399,8 +400,9 @@
                     </svg>
                   </span>
                 </template>
-                {{ t('workflow.save_and_publish') }}
+                {{ t('skills.publish.save_draft') }}
               </n-button>
+              <n-button type="primary" secondary :loading="saving" @click="prepareStylePublish">{{ t('skills.publish.action') }}</n-button>
             </div>
           </div>
 
@@ -769,6 +771,7 @@
       </n-drawer-content>
     </n-drawer>
   </div>
+  <SkillPublishDialog v-model:show="publishVisible" :skill="skill" @published="handlePublished" />
 </template>
 
 <script setup lang="ts">
@@ -822,6 +825,7 @@ import fillTableIcon from '../assets/workflow-node-icons/fill-table.svg?raw';
 import exportDeliveryIcon from '../assets/workflow-node-icons/export-delivery.svg?raw';
 import BrowserAutomationNodeConfig from './workflow/BrowserAutomationNodeConfig.vue';
 import { browserAutomationNodeMeta, looksLikeBrowserAutomation } from '../workflow/browserAutomationNode';
+import SkillPublishDialog from './skills/SkillPublishDialog.vue';
 
 const PythonCodeEditor = defineAsyncComponent(() => import('./PythonCodeEditor.vue'));
 
@@ -893,6 +897,7 @@ const { locale } = useLocale();
 
 const loading = ref(false);
 const saving = ref(false);
+const publishVisible = ref(false);
 const testing = ref(false);
 const optimizing = ref(false);
 const generatingSteps = ref(false);
@@ -2290,16 +2295,16 @@ async function saveScriptAdvancedDrawer() {
   }
 }
 
-async function saveWorkflow() {
-  if (!skill.value) return;
+async function saveWorkflow(): Promise<boolean> {
+  if (!skill.value) return false;
   if (!serializeWorkflowNodes().length) {
     message.warning(t('workflow.at_least_one_step'));
-    return;
+    return false;
   }
   saving.value = true;
   try {
     if (!(await ensureScriptPluginsChecked())) {
-      return;
+      return false;
     }
     const nodes = serializeWorkflowNodes();
     const updated = await persistSkill({
@@ -2314,11 +2319,13 @@ async function saveWorkflow() {
         workflowSteps: serializeWorkflowSteps(),
       },
     });
-    if (!updated) return;
+    if (!updated) return false;
     hydrateWorkflow(updated);
     message.success(t('workflow.save_success'));
+    return true;
   } catch (error: any) {
     message.error(error?.response?.data?.detail || t('workflow.save_failed'));
+    return false;
   } finally {
     saving.value = false;
   }
@@ -2347,8 +2354,8 @@ async function enrichWritingStyle() {
   }
 }
 
-async function saveWritingStyle() {
-  if (!skill.value) return;
+async function saveWritingStyle(): Promise<boolean> {
+  if (!skill.value) return false;
   saving.value = true;
   try {
     const contractJson = buildWritingStyleContractJson();
@@ -2369,15 +2376,21 @@ async function saveWritingStyle() {
         skillMarkdown: styleSkillMarkdown.value,
       },
     });
-    if (!updated) return;
+    if (!updated) return false;
     hydrateWritingStyle(updated);
     message.success(t('workflow.style_save_success'));
+    return true;
   } catch (error: any) {
     message.error(error?.response?.data?.detail || error?.message || t('workflow.save_failed'));
+    return false;
   } finally {
     saving.value = false;
   }
 }
+
+async function prepareWorkflowPublish() { if (await saveWorkflow()) publishVisible.value = true; }
+async function prepareStylePublish() { if (await saveWritingStyle()) publishVisible.value = true; }
+function handlePublished(updated: SkillItem) { skill.value = updated; emit('saved', updated); }
 
 function goBack() {
   emit('back');

@@ -28,11 +28,14 @@
     <n-alert v-else-if="failure" class="install-result" type="error" :title="failureTitle || t('skills.install_failed')">
       {{ failure }}
     </n-alert>
+    <n-alert v-if="upgrade" class="install-result" type="warning" :title="t('skills.upgrade.confirm_title')">
+      {{ t(`skills.upgrade.${upgrade.action}`, { current: upgrade.currentVersion || '-', next: upgrade.incomingVersion || '-' }) }}
+    </n-alert>
     <template #footer>
       <n-space justify="end">
         <n-button v-if="!result" @click="close">{{ t('ui.cancel') }}</n-button>
         <n-button v-if="result" type="primary" @click="close">{{ t('ui.close') }}</n-button>
-        <n-button v-else type="primary" :disabled="!file" :loading="installing" @click="install">{{ t('skills.install_action') }}</n-button>
+        <n-button v-else type="primary" :disabled="!file" :loading="installing" @click="install(Boolean(upgrade))">{{ upgrade ? t('skills.upgrade.confirm_action') : t('skills.install_action') }}</n-button>
       </n-space>
     </template>
   </n-modal>
@@ -41,7 +44,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { NAlert, NButton, NModal, NSpace, NTag } from 'naive-ui';
-import { installPersonalSkillZip, type SkillInstallResult } from '../../api/skills';
+import { installPersonalSkillZip, type SkillInstallResult, type SkillUpgradeInfo } from '../../api/skills';
 import { t } from '../../composables/i18n';
 import { SKILL_ZIP_INSTALL_EVENT } from '../../composables/skillZipInstallBridge';
 import { localizeSkillInstallError, localizeSkillInstallWarning } from './skillInstallError';
@@ -55,6 +58,7 @@ const installing = ref(false);
 const result = ref<SkillInstallResult | null>(null);
 const failure = ref('');
 const failureTitle = ref('');
+const upgrade = ref<SkillUpgradeInfo | null>(null);
 
 function close() { emit('update:show', false); }
 function select(candidate?: File) {
@@ -68,6 +72,7 @@ function select(candidate?: File) {
   }
   file.value = candidate;
   result.value = null;
+  upgrade.value = null;
   failure.value = '';
   failureTitle.value = '';
 }
@@ -77,15 +82,23 @@ function onChoose(event: Event) {
   target.value = '';
 }
 function onDrop(event: DragEvent) { dragging.value = false; select(event.dataTransfer?.files?.[0]); }
-async function install() {
+async function install(confirmReplace = false) {
   if (!file.value) return;
   installing.value = true;
   failure.value = '';
   failureTitle.value = '';
   try {
-    result.value = await installPersonalSkillZip(file.value);
+    result.value = await installPersonalSkillZip(file.value, confirmReplace);
+    upgrade.value = null;
     emit('installed', result.value);
   } catch (error: any) {
+    const detail = error?.response?.data?.detail;
+    if (detail?.code === 'skill_upgrade_confirmation_required' && detail.upgrade) {
+      upgrade.value = detail.upgrade;
+      failure.value = '';
+      failureTitle.value = '';
+      return;
+    }
     const localized = localizeSkillInstallError(error);
     failureTitle.value = localized.title;
     failure.value = localized.message;
@@ -94,7 +107,7 @@ async function install() {
   }
 }
 watch(() => props.show, (visible) => {
-  if (!visible) { file.value = null; result.value = null; failure.value = ''; failureTitle.value = ''; }
+  if (!visible) { file.value = null; result.value = null; upgrade.value = null; failure.value = ''; failureTitle.value = ''; }
 });
 function onMarketplaceInstall(event: Event) {
   const candidate = (event as CustomEvent<{ file?: File }>).detail?.file;

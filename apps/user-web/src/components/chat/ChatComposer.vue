@@ -4,6 +4,8 @@ import type { ChatModelOption } from '../../api/models'
 import { fetchSelectableSkills, type SelectableSkillItem } from '../../api/skills'
 import { t, useLocale } from '../../composables/i18n'
 import type { ChatDocumentKind, PendingDocument } from './types'
+import { NModal } from 'naive-ui'
+import SkillFeedbackPanel from '../skills/SkillFeedbackPanel.vue'
 
 interface PendingImage {
   file: File
@@ -55,6 +57,7 @@ const skillPickerHasMore = ref(false)
 const skillPickerItems = ref<SelectableSkillItem[]>([])
 const activeSkillIndex = ref(-1)
 const selectedSkill = ref<SelectableSkillItem | null>(null)
+const organizationFeedbackVisible = ref(false)
 const skillPickerRef = ref<HTMLElement | null>(null)
 const skillTriggerRange = ref<{ start: number; end: number } | null>(null)
 const isComposingText = ref(false)
@@ -617,6 +620,9 @@ watch(() => props.allowSkills, (allowed) => {
             <path d="m6 6 12 12"></path>
           </svg>
         </button>
+        <button v-if="selectedSkill.sourceScope === 'organization'" type="button" class="inline-flex min-h-9 items-center rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50" @click="organizationFeedbackVisible = true">
+          {{ t('skills.feedback.title') }}
+        </button>
       </div>
       <div class="composer-context-slot"><slot name="context" /></div>
       <div class="composer-card relative flex w-full flex-col border border-gray-200 bg-white px-3 pb-1.5 pt-2.5 rounded-2xl shadow-xl focus-within:ring-1 focus-within:ring-black/5 focus-within:border-gray-300 transition-all duration-300">
@@ -859,6 +865,9 @@ watch(() => props.allowSkills, (allowed) => {
       <slot name="prompt-guide" />
     </div>
   </div>
+  <n-modal v-model:show="organizationFeedbackVisible" preset="card" :title="selectedSkill?.name || 'Skill'" style="width:620px">
+    <SkillFeedbackPanel v-if="selectedSkill?.sourceScope === 'organization'" resource-type="organization_skill" :resource-id="selectedSkill.id" />
+  </n-modal>
 </template>
 
 <style scoped>

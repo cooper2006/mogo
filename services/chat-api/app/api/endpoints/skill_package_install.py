@@ -2,16 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.api.principal import ApiPrincipal, require_api_principal, require_end_user_principal
 from app.services.skill_packages import SkillPackageError, SkillPackageInstaller, validate_skill_package
 from app.services.skill_packages.validator import MAX_ARCHIVE_BYTES
+from app.services.skill_packages.upgrade import SkillPackageUpgradeInspector
+from app.services.skill_sharing.distribution import SkillDistributionService
 from app.utils.uploads import read_upload_with_limit
 
 
 router = APIRouter()
 installer = SkillPackageInstaller()
+upgrade_inspector = SkillPackageUpgradeInspector()
 
 
 def _response(data: dict[str, Any]) -> dict[str, Any]:
@@ -34,18 +37,40 @@ async def _validated_upload(file: UploadFile):
 @router.post("/skills/install-zip")
 async def install_personal_skill_zip(
     file: UploadFile = File(...),
+    confirm_replace: bool = Form(default=False, alias="confirmReplace"),
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> dict[str, Any]:
     package = await _validated_upload(file)
-    result = await installer.install(
+    upgrade = await upgrade_inspector.inspect(
         package, scope="personal", main_id=principal.main_id, user_id=principal.user_id,
     )
-    return _response(result)
+    if upgrade_inspector.requires_confirmation(upgrade) and not confirm_replace:
+        raise HTTPException(status_code=409, detail={
+            "code": "skill_upgrade_confirmation_required",
+            "message": "Confirm before replacing the installed Skill",
+            "upgrade": upgrade,
+        })
+    result = await installer.install(
+        package,
+        scope="personal",
+        main_id=principal.main_id,
+        user_id=principal.user_id,
+        package_source={"kind": "local_zip", "fileName": str(file.filename or "")},
+    )
+    if upgrade_inspector.requires_confirmation(upgrade):
+        await SkillDistributionService().publish_from_skill(
+            main_id=principal.main_id,
+            owner_user_id=principal.user_id,
+            source_skill_id=str(result.get("id") or ""),
+            version=str(result.get("version") or ""),
+        )
+    return _response({**result, "upgrade": upgrade})
 
 
 @router.post("/organization-skills/install-zip")
 async def install_organization_skill_zip(
     file: UploadFile = File(...),
+    confirm_replace: bool = Form(default=False, alias="confirmReplace"),
     principal: ApiPrincipal = Depends(require_api_principal),
 ) -> dict[str, Any]:
     if principal.kind != "admin_service":
@@ -54,5 +79,17 @@ async def install_organization_skill_zip(
             "message": "只有企业管理后台可以安装企业 Skill",
         })
     package = await _validated_upload(file)
-    result = await installer.install(package, scope="organization", main_id=principal.main_id)
-    return _response(result)
+    upgrade = await upgrade_inspector.inspect(package, scope="organization", main_id=principal.main_id)
+    if upgrade_inspector.requires_confirmation(upgrade) and not confirm_replace:
+        raise HTTPException(status_code=409, detail={
+            "code": "skill_upgrade_confirmation_required",
+            "message": "Confirm before replacing the installed Skill",
+            "upgrade": upgrade,
+        })
+    result = await installer.install(
+        package,
+        scope="organization",
+        main_id=principal.main_id,
+        package_source={"kind": "local_zip", "fileName": str(file.filename or "")},
+    )
+    return _response({**result, "upgrade": upgrade})

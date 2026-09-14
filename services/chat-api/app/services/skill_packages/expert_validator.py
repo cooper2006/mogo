@@ -24,6 +24,7 @@ from .validator import (
     _safe_zip_path,
     validate_skill_zip,
 )
+from .expert_canonical import restore_expert_distribution
 
 
 EXPERT_PACKAGE_TYPE = "skillhub-expert-package"
@@ -80,8 +81,21 @@ def validate_expert_package(content: bytes) -> ValidatedSkillPackage:
         slug = str(manifest.get("slug") or "").strip()
         if not SKILL_NAME.fullmatch(slug):
             raise SkillPackageError("invalid_skill_name", "Expert package slug must use DSH kebab-case syntax", file="manifest.json", field="slug")
+        child_slugs = _manifest_child_slugs(manifest)
+        if not child_slugs:
+            raise SkillPackageError("missing_expert_children", "Expert package does not declare child Skills", file="manifest.json", field="skillSlugs")
         descriptor_path = f"skillsets/{slug}.md"
         descriptor_candidates = [name for name in file_names if name.startswith("skillsets/") and name.endswith(".md")]
+        canonical_shape = "skillset.md" in file_names and not descriptor_candidates
+        if canonical_shape:
+            restored = restore_expert_distribution(
+                archive,
+                file_names=file_names,
+                manifest=manifest,
+                slug=slug,
+                child_slugs=child_slugs,
+            )
+            return validate_expert_package(restored)
         if descriptor_path not in descriptor_candidates:
             raise SkillPackageError("missing_expert_descriptor", "Expert package does not contain its skillset descriptor", file=descriptor_path)
         if len(descriptor_candidates) != 1:
@@ -101,9 +115,6 @@ def validate_expert_package(content: bytes) -> ValidatedSkillPackage:
         if not descriptor_body.strip():
             raise SkillPackageError("empty_skill_body", "Expert package descriptor has no orchestration body", file=descriptor_path)
 
-        child_slugs = _manifest_child_slugs(manifest)
-        if not child_slugs:
-            raise SkillPackageError("missing_expert_children", "Expert package does not declare child Skills", file="manifest.json", field="skillSlugs")
         orchestration = descriptor_meta.get("orchestration")
         declared_children = orchestration.get("children") if isinstance(orchestration, dict) else None
         if not isinstance(declared_children, list) or not declared_children:

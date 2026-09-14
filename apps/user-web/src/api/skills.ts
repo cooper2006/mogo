@@ -45,6 +45,37 @@ export interface SkillInstallResult {
     referencedTools: string[]
     warnings: Array<{ code: string; message: string; tool?: string; packageVersion?: string; skillVersion?: string }>
   }
+  upgrade?: SkillUpgradeInfo
+}
+
+export interface SkillUpgradeInfo {
+  action: 'install' | 'duplicate' | 'upgrade' | 'replace' | 'downgrade'
+  currentVersion?: string
+  incomingVersion?: string
+  currentName?: string
+}
+
+export interface SkillLifecycle {
+  authoringMode: 'platform' | 'package'
+  publicationStatus: 'draft' | 'published' | 'package'
+  publishedVersion: string
+  publishedReleaseId: string
+  draftRevision: number
+  hasUnpublishedChanges: boolean
+}
+
+export interface SkillFeedbackChannel {
+  id: string
+  role: 'owner' | 'member'
+  commentCount: number
+  unreadCount: number
+  latestCommentAt: string
+}
+
+export interface SkillFeedbackSummary {
+  commentCount: number
+  unreadCount: number
+  channels: SkillFeedbackChannel[]
 }
 
 export interface SkillItem {
@@ -58,6 +89,19 @@ export interface SkillItem {
   enabled: boolean
   createdAt: string
   updatedAt: string
+  packageSource?: {
+    kind?: string
+    mode?: string
+    fileName?: string
+    coordinate?: string
+    sender?: { userId?: string; displayName?: string; username?: string }
+    distributionId?: string
+    releaseId?: string
+  }
+  distributionId?: string
+  feedback?: SkillFeedbackSummary
+  locallyModified?: boolean
+  lifecycle?: SkillLifecycle
   package?: SkillPackageInfo | null
 }
 
@@ -287,13 +331,24 @@ export async function setSkillEnabled(id: string, userId: string, mainId: string
   return dataOf<SkillItem>(res)
 }
 
-export async function installPersonalSkillZip(file: File): Promise<SkillInstallResult> {
+export async function installPersonalSkillZip(file: File, confirmReplace = false): Promise<SkillInstallResult> {
   const form = new FormData()
   form.append('file', file)
+  form.append('confirmReplace', String(confirmReplace))
   const res = await api.post('/skills/install-zip', form, {
     headers: { 'Content-Type': 'multipart/form-data' }, timeout: 90000,
   })
   return dataOf<SkillInstallResult>(res)
+}
+
+export async function publishSkill(id: string, version = '', releaseNotes = ''): Promise<{ skill: SkillItem; release: { id: string; version: string; digest: string; releaseNotes: string; createdAt: string } }> {
+  const res = await api.post(`/skills/${id}/publish`, { version, releaseNotes })
+  return dataOf(res)
+}
+
+export async function fetchSkillReleases(id: string): Promise<Array<{ id: string; version: string; digest: string; releaseNotes: string; createdAt: string }>> {
+  const res = await api.get(`/skills/${id}/releases`)
+  return dataOf<{ items: any[] }>(res)?.items || []
 }
 
 export async function generateWorkflowSteps(payload: {

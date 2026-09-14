@@ -122,6 +122,11 @@ from app.api.endpoints import (
     site_profiles,
     skills,
     skill_package_install,
+    skill_lifecycle,
+    skill_updates,
+    skill_share_direct,
+    skill_shares,
+    resource_feedback,
     tasks,
     token_usage,
 )
@@ -142,6 +147,11 @@ app.include_router(sessions.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(skills.router, prefix="/api")
 app.include_router(skill_package_install.router, prefix="/api")
+app.include_router(skill_lifecycle.router, prefix="/api")
+app.include_router(skill_updates.router, prefix="/api")
+app.include_router(skill_share_direct.router, prefix="/api")
+app.include_router(skill_shares.router, prefix="/api")
+app.include_router(resource_feedback.router, prefix="/api")
 app.include_router(site_profiles.router, prefix="/api")
 app.include_router(token_usage.router, prefix="/api")
 app.include_router(quota.router, prefix="/api")
@@ -224,6 +234,46 @@ async def startup_event() -> None:
         name="personal_zip_skill_slug",
     )
     await db.skill_packages.create_index([("main_id", 1), ("owner_scope", 1), ("owner_id", 1), ("digest", 1)])
+    await db.skill_shares.create_index([("main_id", 1), ("token_hash", 1)], unique=True)
+    await db.skill_shares.create_index([("main_id", 1), ("owner_user_id", 1), ("source_skill_id", 1), ("created_at", -1)])
+    await db.skill_share_deliveries.create_index(
+        [("main_id", 1), ("recipient_user_id", 1), ("status", 1), ("_id", -1)],
+        name="skill_share_recipient_inbox",
+    )
+    await db.skill_share_deliveries.create_index(
+        [("main_id", 1), ("sender_user_id", 1), ("source_skill_id", 1), ("recipient_user_id", 1), ("status", 1)],
+        name="skill_share_sender_recipient",
+    )
+    await db.skill_releases.create_index([("main_id", 1), ("skill_id", 1), ("version", 1)], unique=True)
+    await db.skill_distributions.create_index(
+        [("main_id", 1), ("owner_user_id", 1), ("source_skill_id", 1), ("status", 1)], unique=True,
+    )
+    await db.skill_distribution_releases.create_index(
+        [("main_id", 1), ("distribution_id", 1), ("digest", 1)], unique=True,
+    )
+    await db.skill_distribution_members.create_index(
+        [("main_id", 1), ("distribution_id", 1), ("recipient_user_id", 1)], unique=True,
+    )
+    await db.skill_update_notifications.create_index(
+        [("main_id", 1), ("recipient_user_id", 1), ("status", 1), ("created_at", -1)],
+    )
+    await db.resource_comments.create_index(
+        [("main_id", 1), ("resource_type", 1), ("resource_id", 1), ("status", 1), ("created_at", 1)],
+    )
+    await db.resource_reactions.create_index(
+        [("main_id", 1), ("resource_type", 1), ("resource_id", 1), ("user_id", 1), ("reaction", 1)], unique=True,
+    )
+    await db.resource_comment_reactions.create_index(
+        [("main_id", 1), ("comment_id", 1), ("user_id", 1), ("reaction", 1)], unique=True,
+    )
+    await db.resource_feedback_notifications.create_index(
+        [("main_id", 1), ("recipient_user_id", 1), ("status", 1), ("created_at", -1)],
+    )
+    await db.end_users.create_index([("main_id", 1), ("status", 1), ("_id", 1)], name="skill_share_member_page")
+    await db.end_users.create_index([("main_id", 1), ("status", 1), ("name", 1)], name="skill_share_member_name")
+    await db.end_users.create_index([("main_id", 1), ("status", 1), ("login_name", 1)], name="skill_share_member_login")
+    await db.end_users.create_index([("main_id", 1), ("status", 1), ("email", 1)], name="skill_share_member_email")
+    await db.end_users.create_index([("main_id", 1), ("status", 1), ("mobile", 1)], name="skill_share_member_mobile")
     await db.site_profiles.create_index([("main_id", 1), ("owner_user_id", 1), ("updated_at", -1)])
     await db.external_tools.create_index([("main_id", 1), ("updated_at", -1)])
     await db.external_tools.create_index([("main_id", 1), ("status", 1), ("type", 1)])

@@ -26,6 +26,7 @@ export interface SkillInstallResult {
     status: 'compatible' | 'warning'; declaredTools: string[]; referencedTools: string[];
     warnings: Array<{ code: string; message: string; tool?: string; packageVersion?: string; skillVersion?: string }>;
   };
+  upgrade?: { action: 'install' | 'duplicate' | 'upgrade' | 'replace' | 'downgrade'; currentVersion?: string; incomingVersion?: string; currentName?: string };
 }
 
 export interface SkillItem {
@@ -39,6 +40,7 @@ export interface SkillItem {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  lifecycle?: { authoringMode: 'platform' | 'package'; publicationStatus: 'draft' | 'published' | 'package'; publishedVersion: string; publishedReleaseId: string; draftRevision: number; hasUnpublishedChanges: boolean };
   package?: SkillPackageInfo | null;
 }
 
@@ -181,9 +183,25 @@ export async function setSkillEnabled(id: string, enabled: boolean): Promise<Ski
   return data;
 }
 
-export async function installSkillZip(file: File): Promise<SkillInstallResult> {
+export async function publishSkill(id: string, version = '', releaseNotes = ''): Promise<{ skill: SkillItem; release: { id: string; version: string } }> {
+  const { data } = await apiClient.post(`/api/skills/${id}/publish`, { version, releaseNotes });
+  return data;
+}
+
+export interface SkillFeedbackSummary {
+  items: Array<{ id: string; content: string; parentId: string; author: { userId?: string; displayName?: string }; likes: number; createdAt: string }>;
+  likes: number;
+}
+
+export async function fetchSkillFeedback(id: string): Promise<SkillFeedbackSummary> {
+  const { data } = await apiClient.get<SkillFeedbackSummary>(`/api/skills/${id}/feedback`);
+  return data;
+}
+
+export async function installSkillZip(file: File, confirmReplace = false): Promise<SkillInstallResult> {
   const form = new FormData();
   form.append('file', file);
+  form.append('confirmReplace', String(confirmReplace));
   const { data } = await apiClient.post<SkillInstallResult>('/api/skills/install-zip', form, {
     headers: { 'Content-Type': 'multipart/form-data' }, timeout: 90000,
   });

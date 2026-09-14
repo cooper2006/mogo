@@ -34,6 +34,7 @@ import { useDshCodeRuntime } from './composables/code/useDshCodeRuntime'
 import { useUserBoundProjects } from './composables/code/userBoundProjects'
 import { useEnterpriseAccessPolicy } from './composables/useEnterpriseAccessPolicy'
 import { useProfileRefreshOnResume } from './composables/useProfileRefreshOnResume'
+import { useSkillShareInboxBadge } from './composables/useSkillShareInboxBadge'
 import { useDesktopToolTabs } from './composables/desktop/useDesktopToolTabs'
 import { clearDesktopAuthSession, restoreDesktopAuthToken } from './composables/desktop/desktopAuthSession'
 
@@ -209,6 +210,17 @@ const {
   canCreateOrganization,
   canUpgradePlan,
 } = useEnterpriseAccessPolicy(userProfile)
+const skillShareInboxScope = computed(() => ({
+  token: authToken.value,
+  mainId: String(userProfile.value?.mainId || ''),
+  userId: String(userProfile.value?.userId || ''),
+  enabled: canUseSkills.value,
+}))
+const {
+  pendingCount: pendingSkillShareCount,
+  actionCount: pendingSkillShareActionCount,
+  refresh: refreshSkillShareCount,
+} = useSkillShareInboxBadge({ scope: skillShareInboxScope })
 const supportsLocalCodeProjects = capabilities.localDshRuntime && capabilities.localWorkspacePicker
 const canSmartFillSkill = computed(() => Boolean(skillName.value.trim() && (skillSummary.value.trim() || skillScenario.value.trim())))
 const trimmedSessionSearchQuery = computed(() => sessionSearchQuery.value.trim())
@@ -947,6 +959,7 @@ async function loadSkills() {
 function openSkillsPage() {
   navigateTo('skills')
   loadSkills()
+  void refreshSkillShareCount()
 }
 
 function closeSkillsPage() {
@@ -986,6 +999,11 @@ function handleCompositeSaved(savedSkill: any) {
   selectedSkill.value = savedSkill || selectedSkill.value
   loadSkills().catch(() => {})
   navigateTo('skills')
+}
+
+function handleSkillConfigSaved(savedSkill: any) {
+  selectedSkill.value = savedSkill || selectedSkill.value
+  loadSkills().catch(() => {})
 }
 
 function closeSkillForm() {
@@ -1852,6 +1870,8 @@ onBeforeUnmount(() => {
     <DesktopWindowChrome
       v-if="capabilities.isDesktop"
       :title="desktopWindowTitle"
+      :show-back="currentView === 'skills'"
+      :back-label="t('skills.back_to_chat')"
       :chat-actions="currentView === 'chat'"
       :session-id="currentSessionId || undefined"
       :workspace="activeCodeState.workspace"
@@ -1877,6 +1897,7 @@ onBeforeUnmount(() => {
       @branch-updated="(branch) => codeRuntime.setWorkspaceBranch(activeChatKey, branch)"
       @open-browser="requestDesktopBrowser"
       @toggle-code-panel="toggleDesktopCodePanel"
+      @back="closeSkillsPage"
     />
     <!-- SIDEBAR -->
     <aside class="app-sidebar w-[260px] bg-[#f8fafc] flex flex-col border-r border-gray-200 shadow-[1px_0_0_rgba(0,0,0,0.02)]">
@@ -2055,6 +2076,12 @@ onBeforeUnmount(() => {
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20 7l.94-2.06L23 4l-2.06-.94L20 1l-.94 2.06L17 4l2.06.94zM8.5 7l.94-2.06L11.5 4l-2.06-.94L8.5 1l-.94 2.06L5.5 4l2.06.94zM20 12.5l-.94 2.06l-2.06.94l2.06.94l.94 2.06l.94-2.06L23 15.5l-2.06-.94zm-2.29-3.38l-2.83-2.83c-.2-.19-.45-.29-.71-.29c-.26 0-.51.1-.71.29L2.29 17.46a.996.996 0 0 0 0 1.41l2.83 2.83c.2.2.45.3.71.3s.51-.1.71-.29l11.17-11.17c.39-.39.39-1.03 0-1.42zm-3.54-.7l1.41 1.41L14.41 11L13 9.59l1.17-1.17zM5.83 19.59l-1.41-1.41L11.59 11L13 12.41l-7.17 7.18z"/></svg>
           </span>
           <span>{{ t('app.sidebar.marketplace') }}</span>
+          <span
+            v-if="pendingSkillShareCount > 0"
+            class="ml-auto inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-sm"
+            :title="t('skills.share.pending_nav', { count: pendingSkillShareCount })"
+            :aria-label="t('skills.share.pending_nav', { count: pendingSkillShareCount })"
+          >{{ pendingSkillShareCount > 99 ? '99+' : pendingSkillShareCount }}</span>
         </button>
         <button
           v-if="canUseTools"
@@ -2263,8 +2290,12 @@ onBeforeUnmount(() => {
           <SkillsPage
             :userId="getUserId()"
             :mainId="getMainId()"
+            :isDesktop="capabilities.isDesktop"
+            :pendingShareCount="pendingSkillShareActionCount"
             @back="closeSkillsPage"
             @configure="openSkillConfig"
+            @login="openLogin"
+            @share-count-change="refreshSkillShareCount"
           />
         </div>
         <div v-else-if="currentView === 'tools'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
@@ -2280,7 +2311,7 @@ onBeforeUnmount(() => {
             :userId="getUserId()"
             :mainId="getMainId()"
             @back="closeSkillConfig"
-            @saved="handleCompositeSaved"
+            @saved="handleSkillConfigSaved"
           />
         </div>
         <div v-else-if="currentView === 'composite-editor'" class="flex-1 min-w-0 min-h-0 overflow-hidden">

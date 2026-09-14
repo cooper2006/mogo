@@ -51,8 +51,9 @@
                 </svg>
               </span>
             </template>
-            {{ t('保存') }}
+            {{ t('保存草稿') }}
           </n-button>
+          <n-button size="small" type="primary" secondary :loading="saving" @click="prepareWorkflowPublish">{{ t('发布') }}</n-button>
         </template>
         <template v-else>
           <n-button
@@ -79,8 +80,9 @@
                 </svg>
               </span>
             </template>
-            {{ t('保存并发布') }}
+            {{ t('保存草稿') }}
           </n-button>
+          <n-button size="small" type="primary" secondary :loading="saving" @click="prepareStylePublish">{{ t('发布') }}</n-button>
         </template>
       </div>
     </Teleport>
@@ -752,6 +754,7 @@
         </template>
       </n-drawer-content>
     </n-drawer>
+    <SkillPublishDialog v-model:show="publishVisible" :skill="skill" @published="handlePublished" />
   </div>
 </template>
 
@@ -795,6 +798,7 @@ import generateContentIcon from '@/assets/workflow-node-icons/generate-content.s
 import translateRewriteIcon from '@/assets/workflow-node-icons/translate-rewrite.svg';
 import fillTableIcon from '@/assets/workflow-node-icons/fill-table.svg';
 import exportDeliveryIcon from '@/assets/workflow-node-icons/export-delivery.svg';
+import SkillPublishDialog from './SkillPublishDialog.vue';
 
 const PythonCodeEditor = defineAsyncComponent(() => import('@/components/PythonCodeEditor.vue'));
 
@@ -859,6 +863,7 @@ const loading = ref(false);
 const headerTeleportReady = ref(false);
 const detailRequestSequence = ref(0);
 const saving = ref(false);
+const publishVisible = ref(false);
 const testing = ref(false);
 const optimizing = ref(false);
 const generatingSteps = ref(false);
@@ -2326,16 +2331,16 @@ async function saveScriptAdvancedDrawer() {
   }
 }
 
-async function saveWorkflow() {
-  if (!skill.value) return;
+async function saveWorkflow(): Promise<boolean> {
+  if (!skill.value) return false;
   if (!serializeWorkflowNodes().length) {
     message.warning(t('请至少填写一个业务步骤'));
-    return;
+    return false;
   }
   saving.value = true;
   try {
     if (!(await ensureScriptPluginsChecked())) {
-      return;
+      return false;
     }
     const nodes = serializeWorkflowNodes();
     const updated = await updateSkill(skill.value.id, {
@@ -2353,8 +2358,10 @@ async function saveWorkflow() {
     skill.value = updated;
     hydrateWorkflow(updated);
     message.success(t('工作流配置已保存'));
+    return true;
   } catch (error: any) {
     message.error(error?.response?.data?.detail || t('保存 Skill 失败'));
+    return false;
   } finally {
     saving.value = false;
   }
@@ -2381,8 +2388,8 @@ async function enrichWritingStyle() {
   }
 }
 
-async function saveWritingStyle() {
-  if (!skill.value) return;
+async function saveWritingStyle(): Promise<boolean> {
+  if (!skill.value) return false;
   saving.value = true;
   try {
     const contractJson = buildWritingStyleContractJson();
@@ -2406,12 +2413,18 @@ async function saveWritingStyle() {
     skill.value = updated;
     hydrateWritingStyle(updated);
     message.success(t('写作规范配置已保存'));
+    return true;
   } catch (error: any) {
     message.error(error?.response?.data?.detail || error?.message || t('保存 Skill 失败'));
+    return false;
   } finally {
     saving.value = false;
   }
 }
+
+async function prepareWorkflowPublish() { if (await saveWorkflow()) publishVisible.value = true; }
+async function prepareStylePublish() { if (await saveWritingStyle()) publishVisible.value = true; }
+function handlePublished(updated: SkillItem) { skill.value = updated; }
 
 function goBack() {
   router.push('/skills');

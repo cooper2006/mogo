@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, dashboard, directory, external_search, knowledge_directories, knowledge_documents, knowledge_settings, models, organizations, page_collection, position_roles, presentation_settings, setup, skills, system, system_audit, tools, traffic_allocations
+from app.api.routes import analytics, auth, dashboard, directory, external_search, knowledge_directories, knowledge_documents, knowledge_settings, models, organizations, page_collection, position_roles, presentation_settings, setup, skill_lifecycle, skills, system, system_audit, tools, traffic_allocations
 
 api_router = APIRouter()
 api_router.include_router(system.router, tags=["system"])
@@ -18,6 +18,7 @@ api_router.include_router(knowledge_settings.router, prefix="/settings/knowledge
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(traffic_allocations.router, prefix="/traffic-allocations", tags=["traffic-allocations"])
 api_router.include_router(skills.router, prefix="/skills", tags=["skills"])
+api_router.include_router(skill_lifecycle.router, prefix="/skills", tags=["skills"])
 api_router.include_router(tools.router, prefix="/tools", tags=["tools"])
 api_router.include_router(external_search.router, prefix="/settings/external-search", tags=["external-search"])
 api_router.include_router(page_collection.router, prefix="/settings/page-collection", tags=["page-collection"])

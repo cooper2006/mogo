@@ -11,6 +11,8 @@ import type { DesktopToolTabKind } from './desktopToolTabs'
 
 defineProps<{
   title: string
+  showBack?: boolean
+  backLabel?: string
   chatActions?: boolean
   sessionId?: string
   workspace?: DshWorkspace | null
@@ -32,6 +34,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (event: 'back'): void
   (event: 'choose-workspace'): void
   (event: 'clear-workspace'): void
   (event: 'worktree', enabled: boolean): void
@@ -52,6 +55,18 @@ const emit = defineEmits<{
     </div>
     <div class="desktop-window-chrome__content">
       <div class="desktop-window-chrome__context">
+        <button
+          v-if="showBack"
+          type="button"
+          class="desktop-window-chrome__back-button"
+          :aria-label="backLabel || 'Back'"
+          :title="backLabel || 'Back'"
+          @click="emit('back')"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
         <div
           v-if="chatActions && codeAvailable && showWorkspaceContext"
           class="desktop-window-chrome__workspace-control"
@@ -178,6 +193,7 @@ const emit = defineEmits<{
 
 .desktop-window-chrome__workspace-control,
 .desktop-window-chrome__branch-control,
+.desktop-window-chrome__back-button,
 .desktop-window-chrome__actions {
   -webkit-app-region: no-drag;
 }
@@ -216,6 +232,34 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 
+.desktop-window-chrome__back-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.desktop-window-chrome__back-button:hover {
+  background: #f1f5f9;
+  color: #1d4ed8;
+}
+
+.desktop-window-chrome__back-button svg {
+  width: 17px;
+  height: 17px;
+}
+
 .desktop-window-chrome__icon-button { position:relative; display:grid; width:36px; height:36px; place-items:center; border:0; border-radius:9px; background:transparent; color:#475569; cursor:pointer; transition:background-color 160ms ease,color 160ms ease; }
 .desktop-window-chrome__icon-button:hover:not(:disabled) { background:#f1f5f9; color:#2563eb; }
 .desktop-window-chrome__icon-button.active { background:#eaf2ff; color:#2563eb; }
@@ -237,6 +281,15 @@ const emit = defineEmits<{
 :global(html.theme-dark) .desktop-window-chrome__brand,
 :global(html.theme-dark) .desktop-window-chrome__title {
   color: #e2e8f0;
+}
+
+:global(html.theme-dark) .desktop-window-chrome__back-button {
+  color: #cbd5e1;
+}
+
+:global(html.theme-dark) .desktop-window-chrome__back-button:hover {
+  background: #1e293b;
+  color: #93c5fd;
 }
 
 :global(html.theme-dark) .desktop-window-chrome__icon-button { color:#94a3b8; }

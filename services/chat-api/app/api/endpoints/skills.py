@@ -497,6 +497,10 @@ def _admin_shape_payload_to_user_payload(
 
 
 def _admin_shape_skill(skill: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.skill_lifecycle import SkillLifecycleService
+
+    lifecycle = SkillLifecycleService()
+    skill = lifecycle.display_snapshot(skill)
     config = _safe_dict(skill.get("config"))
     raw_type = str(skill.get("type") or "").strip().lower()
     if raw_type not in {"writing_style", "workflow", "ordinary", "expert_package"}:
@@ -522,6 +526,10 @@ def _admin_shape_skill(skill: Dict[str, Any]) -> Dict[str, Any]:
         "enabled": _safe_bool(skill.get("enabled"), _safe_bool(skill.get("is_active"), True)),
         "createdAt": _time_text(skill.get("created_at")),
         "updatedAt": _time_text(skill.get("updated_at")),
+        "packageSource": _safe_dict(skill.get("package_source")),
+        "distributionId": str(skill.get("distribution_id") or ""),
+        "feedback": _safe_dict(skill.get("feedback")),
+        "lifecycle": lifecycle.lifecycle_view(skill),
         "package": {
             "slug": str(skill.get("package_slug") or ""),
             "version": str(skill.get("package_version") or ""),
@@ -1953,7 +1961,12 @@ async def list_skills(
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
 ) -> ApiResponse:
     main_id = main_id_snake or main_id
+    from app.services.skill_sharing.legacy_migration import legacy_skill_share_migration
+    await legacy_skill_share_migration.migrate_owned(main_id=main_id, owner_user_id=user_id)
+    await legacy_skill_share_migration.migrate_installed(main_id=main_id, recipient_user_id=user_id)
     skills = await user_skill_service.list_skills(user_id, main_id=main_id)
+    from app.services.resource_feedback.summary import skill_feedback_summary_service
+    await skill_feedback_summary_service.attach(main_id=main_id, user_id=user_id, skills=skills)
     return ApiResponse(code=0, message="success", data=[_admin_shape_skill(item) for item in skills])
 
 
@@ -2028,7 +2041,17 @@ async def create_admin_shape_skill(
         user_id,
         _admin_shape_payload_to_user_payload(payload, user_id=user_id, main_id=resolved_main_id),
     )
-    return ApiResponse(code=0, message="success", data=_admin_shape_skill(created))
+    from app.services.skill_lifecycle import SkillLifecycleService
+    lifecycle = SkillLifecycleService()
+    await lifecycle.initialize_draft(
+        main_id=resolved_main_id,
+        user_id=user_id,
+        skill_id=str(created.get("id") or ""),
+        draft=created,
+        new_skill=True,
+    )
+    current = await user_skill_service.get_skill(user_id, str(created.get("id") or ""), main_id=resolved_main_id)
+    return ApiResponse(code=0, message="success", data=_admin_shape_skill(current or created))
 
 
 @router.get("/skills/{skill_id}", response_model=ApiResponse)
@@ -2055,10 +2078,22 @@ async def update_skill(
 ) -> ApiResponse:
     resolved_main_id = main_id_snake or main_id
     updates = _admin_shape_payload_to_user_payload(payload, user_id=user_id, main_id=resolved_main_id)
-    updated = await user_skill_service.update_skill(user_id, skill_id, updates, main_id=resolved_main_id)
-    if not updated:
+    from app.services.skill_lifecycle import SkillLifecycleError, SkillLifecycleService
+    current = await user_skill_service.get_skill(user_id, skill_id, main_id=resolved_main_id)
+    if not current:
         raise HTTPException(status_code=404, detail="Skill not found")
-    return ApiResponse(code=0, message="success", data=_admin_shape_skill(updated))
+    lifecycle = SkillLifecycleService()
+    if not lifecycle.is_platform_skill(current):
+        updated = await user_skill_service.update_skill(user_id, skill_id, updates, main_id=resolved_main_id)
+        return ApiResponse(code=0, message="success", data=_admin_shape_skill(updated or current))
+    try:
+        await lifecycle.save_draft(
+            main_id=resolved_main_id, user_id=user_id, skill_id=skill_id, draft=updates,
+        )
+    except SkillLifecycleError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+    updated = await user_skill_service.get_skill(user_id, skill_id, main_id=resolved_main_id)
+    return ApiResponse(code=0, message="success", data=_admin_shape_skill(updated or {}))
 
 
 @router.patch("/skills/{skill_id}/enabled", response_model=ApiResponse)
@@ -2073,6 +2108,10 @@ async def set_skill_enabled(
     current = await user_skill_service.get_skill(user_id, skill_id, main_id=resolved_main_id)
     if not current:
         raise HTTPException(status_code=404, detail="Skill not found")
+    if payload.enabled and str(current.get("publication_status") or "") == "draft" and not current.get("published_version"):
+        raise HTTPException(status_code=409, detail={
+            "code": "skill_publish_required", "message": "Publish this Skill before enabling it",
+        })
     updated = await user_skill_service.set_skill_enabled(
         user_id, skill_id, bool(payload.enabled), main_id=resolved_main_id,
     )

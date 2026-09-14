@@ -8,7 +8,7 @@ import urllib.request
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_admin_user
@@ -16,6 +16,7 @@ from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
 from app.services.skill_package_proxy import install_organization_skill_zip
+from app.services.skill_lifecycle import OrganizationSkillLifecycle
 
 router = APIRouter()
 
@@ -54,6 +55,8 @@ def _safe_bool(value: Any, default: bool = True) -> bool:
 
 
 def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
+    lifecycle = OrganizationSkillLifecycle()
+    doc = lifecycle.display(doc)
     return {
         "id": str(doc.get("_id") or ""),
         "mainId": str(doc.get("main_id") or "default"),
@@ -65,6 +68,7 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
         "enabled": _safe_bool(doc.get("enabled"), True),
         "createdAt": _time_text(doc.get("created_at")),
         "updatedAt": _time_text(doc.get("updated_at")),
+        "lifecycle": lifecycle.view(doc),
         "package": {
             "slug": str(doc.get("package_slug") or ""),
             "version": str(doc.get("package_version") or ""),
@@ -258,7 +262,9 @@ async def create_skill(payload: SkillPayload, current_user: dict = Depends(get_c
         "updated_at": now,
     }
     await db.skills.insert_one(doc)
-    return _serialize(doc)
+    if str(doc.get("type") or "") in {"writing_style", "workflow"}:
+        await OrganizationSkillLifecycle().initialize(main_id=main_id, skill_id=doc["_id"], draft=doc)
+    return _serialize(await db.skills.find_one({"_id": doc["_id"], "main_id": main_id}) or doc)
 
 
 @router.post("/generate-workflow-steps")
@@ -427,6 +433,7 @@ async def enrich_writing_style(payload: WritingStyleEnrichPayload, current_user:
 @router.post("/install-zip", status_code=status.HTTP_201_CREATED)
 async def install_skill_zip(
     file: UploadFile = File(...),
+    confirm_replace: bool = Form(default=False, alias="confirmReplace"),
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     filename = str(file.filename or "").strip()
@@ -443,6 +450,7 @@ async def install_skill_zip(
         main_id=str(current_user.get("main_id") or "default"),
         filename=filename,
         content=content,
+        confirm_replace=confirm_replace,
     )
 
 
@@ -469,12 +477,17 @@ async def update_skill(skill_id: str, payload: SkillPayload, current_user: dict 
             scenario=str(normalized_payload.get("scenario") or ""),
             config=_safe_dict(normalized_payload.get("config")),
         )
-    patch = {**normalized_payload, "updated_at": _now()}
-    result = await db.skills.update_one({"_id": str(skill_id), "main_id": main_id}, {"$set": patch})
-    if not result.matched_count:
+    current = await db.skills.find_one({"_id": str(skill_id), "main_id": main_id})
+    if current is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
-    doc = await db.skills.find_one({"_id": str(skill_id), "main_id": main_id})
-    return _serialize(doc or {})
+    if current.get("package_id") or str(current.get("type") or "") not in {"writing_style", "workflow"}:
+        await db.skills.update_one({"_id": str(skill_id), "main_id": main_id}, {"$set": {**normalized_payload, "updated_at": _now()}})
+        return _serialize(await db.skills.find_one({"_id": str(skill_id), "main_id": main_id}) or current)
+    try:
+        doc = await OrganizationSkillLifecycle().save(main_id=main_id, skill_id=str(skill_id), draft=normalized_payload)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
+    return _serialize(doc)
 
 
 @router.patch("/{skill_id}/enabled")
@@ -485,6 +498,9 @@ async def set_skill_enabled(
 ) -> dict[str, Any]:
     main_id = str(current_user.get("main_id") or "default")
     db = get_db()
+    current = await db.skills.find_one({"_id": str(skill_id), "main_id": main_id})
+    if payload.enabled and current and current.get("publication_status") == "draft" and not current.get("published_version"):
+        raise HTTPException(status_code=409, detail="请先发布 Skill，再启用")
     result = await db.skills.update_one(
         {"_id": str(skill_id), "main_id": main_id},
         {"$set": {"enabled": bool(payload.enabled), "updated_at": _now()}},

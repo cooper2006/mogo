@@ -7,6 +7,8 @@ from dataclasses import replace
 
 from app.services.skill_packages import SkillPackageInstaller, validate_skill_zip
 from app.services.skill_packages import installer as installer_module
+from app.services.skill_packages import upgrade as upgrade_module
+from app.services.skill_packages.upgrade import SkillPackageUpgradeInspector
 
 
 class Result:
@@ -124,3 +126,20 @@ def test_duplicate_remote_install_records_its_distribution_source(monkeypatch):
     assert result["duplicate"] is True
     assert next(iter(db.user_skills.rows.values()))["package_source"] == source
     assert next(iter(db.skill_packages.rows.values()))["source"] == source
+
+
+def test_upgrade_inspector_distinguishes_upgrade_replace_and_downgrade(monkeypatch):
+    db = Database()
+    monkeypatch.setattr(installer_module, "get_db", lambda: db)
+    monkeypatch.setattr(upgrade_module, "get_db", lambda: db)
+    installer = SkillPackageInstaller()
+    inspector = SkillPackageUpgradeInspector()
+    asyncio.run(installer.install(package("2.0.0"), scope="personal", main_id="tenant", user_id="user"))
+    duplicate = asyncio.run(inspector.inspect(package("2.0.0"), scope="personal", main_id="tenant", user_id="user"))
+    replacement = asyncio.run(inspector.inspect(package("2.0.0", "Changed"), scope="personal", main_id="tenant", user_id="user"))
+    upgrade = asyncio.run(inspector.inspect(package("2.1.0"), scope="personal", main_id="tenant", user_id="user"))
+    downgrade = asyncio.run(inspector.inspect(package("1.9.0"), scope="personal", main_id="tenant", user_id="user"))
+    assert duplicate["action"] == "duplicate"
+    assert replacement["action"] == "replace"
+    assert upgrade["action"] == "upgrade"
+    assert downgrade["action"] == "downgrade"

@@ -1,6 +1,6 @@
 <template>
   <div class="page-stack skills-page" @dragover.prevent @drop.prevent="handlePageDrop">
-    <header class="skills-header">
+    <header v-if="!isDesktop" class="skills-header">
       <div class="skills-header-left">
         <n-button secondary @click="emit('back')">
           <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
@@ -24,7 +24,8 @@
     </div>
 
     <n-card class="list-card shell-card" :bordered="false" size="large">
-      <div class="list-filter-row">
+      <SkillViewTabs v-model="activeView" :pending-count="pendingShareCount" />
+      <div v-if="activeView === 'mine'" class="list-filter-row">
         <div class="filter-toolbar">
           <n-space align="center" :size="10" class="filter-left">
             <n-input v-model:value="filters.keyword" clearable :placeholder="t('skills.search_placeholder')" class="keyword-input" />
@@ -57,7 +58,7 @@
       </div>
 
       <div class="list-body">
-        <n-spin :show="loading">
+        <n-spin v-if="activeView === 'mine'" :show="loading">
           <div v-if="filteredRows.length" class="skill-grid">
             <button
               v-for="row in filteredRows"
@@ -75,6 +76,10 @@
                   <n-tag size="small" :bordered="false" :type="row.enabled ? 'success' : 'default'">
                     {{ row.enabled ? t('skills.enabled') : t('skills.disabled') }}
                   </n-tag>
+                  <n-tag v-if="row.lifecycle?.authoringMode === 'platform'" size="small" :bordered="false" :type="row.lifecycle.publicationStatus === 'draft' ? 'warning' : row.lifecycle.hasUnpublishedChanges ? 'warning' : 'success'">
+                    {{ row.lifecycle.publicationStatus === 'draft' ? t('skills.publish.draft') : row.lifecycle.hasUnpublishedChanges ? t('skills.publish.changed') : `v${row.lifecycle.publishedVersion}` }}
+                  </n-tag>
+                  <n-tag v-else-if="row.package?.version" size="small" :bordered="false" type="default">v{{ row.package.version }}</n-tag>
                 </div>
                 <span class="card-time">{{ formatAppDateTime(row.updatedAt || row.createdAt, t('skills.just_created')) }}</span>
               </div>
@@ -89,7 +94,7 @@
                     <n-switch
                       size="small"
                       :value="row.enabled"
-                      :loading="switchingIds.has(row.id)"
+                      :loading="Boolean(switchingById[row.id])"
                       @update:value="handleEnabledUpdate(row, $event)"
                     />
                   </div>
@@ -98,6 +103,17 @@
                       <path d="M12 20h9" />
                       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
                     </svg>
+                  </n-button>
+                  <n-button class="icon-only-btn" size="small" quaternary circle :disabled="row.lifecycle?.authoringMode === 'platform' && !row.lifecycle.publishedVersion" :title="t('skills.share.action')" @click.stop="openShare(row)">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                      <path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4" />
+                    </svg>
+                  </n-button>
+                  <n-button v-if="row.feedback?.channels.length" class="feedback-btn" :class="{ 'feedback-btn-unread': row.feedback.unreadCount > 0 }" size="small" quaternary :title="t('skills.feedback.title')" @click.stop="openFeedback(row)">
+                    <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" /></svg>
+                    <span v-if="row.feedback.commentCount" class="feedback-count">{{ row.feedback.commentCount > 99 ? '99+' : row.feedback.commentCount }}</span>
+                    <span v-if="row.feedback.unreadCount" class="feedback-unread-dot"></span>
                   </n-button>
                   <n-button class="icon-only-btn delete-btn" size="small" quaternary circle :title="t('skills.delete_skill')" @click.stop="askDelete(row)">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -127,6 +143,13 @@
             </n-space>
           </div>
         </n-spin>
+        <SharedWithMePanel
+          v-else
+          :active="activeView === 'shared'"
+          :scope-key="`${mainId}:${userId || ''}`"
+          @count-change="handlePendingShareCount"
+          @installed="handleReceivedInstalled"
+        />
       </div>
     </n-card>
   </div>
@@ -162,7 +185,27 @@
 
   <SkillZipInstaller v-model:show="installVisible" @installed="handleInstalled" />
 
-  <n-modal v-model:show="detailsVisible" preset="card" :title="selectedPackage?.name || 'Skill'" style="width: 620px">
+  <SkillShareDialog v-model:show="shareVisible" :skill="sharingSkill" @shared="loadRows" />
+  <n-modal v-model:show="feedbackVisible" preset="card" :title="feedbackSkill?.name || t('skills.feedback.title')" style="width:680px">
+    <SkillFeedbackDialog v-if="feedbackSkill" :skill="feedbackSkill" @read="handleFeedbackRead" @changed="handleFeedbackRead" />
+  </n-modal>
+  <SkillShareInstallDialog
+    :show="Boolean(incomingShareToken)"
+    :token="incomingShareToken"
+    :logged-in="Boolean(userId)"
+    @close="clearIncomingShare"
+    @login="emit('login')"
+    @installed="handleInstalled"
+  />
+
+  <n-modal
+    v-model:show="detailsVisible"
+    preset="card"
+    class="skill-details-modal"
+    :title="selectedPackage?.name || 'Skill'"
+    style="width: 620px"
+    @after-leave="selectedPackage = null"
+  >
     <SkillPackageDetails v-if="selectedPackage" :skill="selectedPackage" />
   </n-modal>
 
@@ -231,16 +274,26 @@ import { t } from '../composables/i18n';
 import { formatAppDateTime, parseAppDate } from '../composables/appTimezone';
 import SkillZipInstaller from './skills/SkillZipInstaller.vue';
 import SkillPackageDetails from './skills/SkillPackageDetails.vue';
+import SkillShareDialog from './skills/SkillShareDialog.vue';
+import SkillShareInstallDialog from './skills/SkillShareInstallDialog.vue';
+import SharedWithMePanel from './skills/SharedWithMePanel.vue';
+import SkillViewTabs from './skills/SkillViewTabs.vue';
+import SkillFeedbackDialog from './skills/SkillFeedbackDialog.vue';
+import { skillActionErrorMessage } from './skills/skillActionErrors';
 import { openSkillZipInstaller } from '../composables/skillZipInstallBridge';
 
 const props = defineProps<{
   userId: string | null
   mainId: string
+  pendingShareCount: number
+  isDesktop: boolean
 }>();
 
 const emit = defineEmits<{
   back: []
   configure: [skill: SkillItem]
+  login: []
+  'share-count-change': [count: number]
 }>();
 
 const message = useMessage();
@@ -250,10 +303,22 @@ const creating = ref(false);
 const updating = ref(false);
 const deleting = ref(false);
 const rows = ref<SkillItem[]>([]);
-const switchingIds = ref<Set<string>>(new Set());
+const switchingById = ref<Record<string, boolean>>({});
 const installVisible = ref(false);
 const detailsVisible = ref(false);
 const selectedPackage = ref<SkillItem | null>(null);
+const shareVisible = ref(false);
+const sharingSkill = ref<SkillItem | null>(null);
+const feedbackVisible = ref(false);
+const feedbackSkill = ref<SkillItem | null>(null);
+const incomingShareToken = ref(
+  typeof window === 'undefined' ? '' : new URL(window.location.href).searchParams.get('share') || '',
+);
+const activeView = ref<'mine' | 'shared'>('mine');
+
+function handlePendingShareCount(count: number) {
+  emit('share-count-change', count);
+}
 
 const createVisible = ref(false);
 const createFormRef = ref<FormInst | null>(null);
@@ -385,7 +450,30 @@ function openSkill(row: SkillItem) {
   detailsVisible.value = true;
 }
 
+function openShare(row: SkillItem) {
+  sharingSkill.value = row;
+  shareVisible.value = true;
+}
+function openFeedback(row: SkillItem) { feedbackSkill.value = row; feedbackVisible.value = true; }
+async function handleFeedbackRead() {
+  emit('share-count-change', props.pendingShareCount)
+  await loadRows()
+  if (feedbackSkill.value) feedbackSkill.value = rows.value.find(row => row.id === feedbackSkill.value?.id) || feedbackSkill.value
+}
+
+function clearIncomingShare() {
+  incomingShareToken.value = '';
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('share');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 async function handleInstalled() {
+  await loadRows();
+}
+
+async function handleReceivedInstalled() {
   await loadRows();
 }
 
@@ -419,6 +507,7 @@ async function loadRows() {
     message.error(error?.response?.data?.detail || t('skills.msg_loading_failed'));
   } finally {
     loading.value = false;
+    switchingById.value = {};
   }
 }
 
@@ -483,23 +572,25 @@ async function confirmDelete() {
 }
 
 async function toggleEnabled(row: SkillItem, enabled: boolean) {
-  if (row.enabled === enabled || switchingIds.value.has(row.id) || !props.userId) return;
-  const next = new Set(switchingIds.value);
-  next.add(row.id);
-  switchingIds.value = next;
+  if (row.enabled === enabled || switchingById.value[row.id] || !props.userId) return;
+  if (enabled && row.lifecycle?.publicationStatus === 'draft' && !row.lifecycle.publishedVersion) {
+    message.warning(t('skills.error.skill_publish_required'));
+    return;
+  }
+  switchingById.value = { ...switchingById.value, [row.id]: true };
   try {
     const updated = await setSkillEnabled(row.id, props.userId, props.mainId, enabled);
     rows.value = rows.value.map((item) => (item.id === row.id ? updated : item));
     message.success(enabled ? t('skills.msg_enabled_success') : t('skills.msg_disabled_success'));
   } catch (error: any) {
-    message.error(
-      error?.response?.data?.detail
-      || (enabled ? t('skills.msg_enable_failed') : t('skills.msg_disable_failed')),
-    );
+    message.error(skillActionErrorMessage(
+      error,
+      enabled ? 'skills.msg_enable_failed' : 'skills.msg_disable_failed',
+    ));
   } finally {
-    const current = new Set(switchingIds.value);
-    current.delete(row.id);
-    switchingIds.value = current;
+    const pending = { ...switchingById.value };
+    delete pending[row.id];
+    switchingById.value = pending;
   }
 }
 
@@ -522,6 +613,11 @@ watch(() => [props.userId, props.mainId], () => {
   gap: 16px;
   background: #f6f8fc;
   padding: 12px;
+}
+
+:global(.skill-details-modal),
+:global(.skill-details-modal *) {
+  -webkit-app-region: no-drag;
 }
 
 .skills-header {
@@ -799,6 +895,32 @@ watch(() => [props.userId, props.mainId], () => {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+.feedback-btn {
+  position: relative;
+  min-width: 30px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: #667085;
+}
+
+.feedback-btn :deep(svg) {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.feedback-btn-unread {
+  color: #2459e8;
+  background: #edf3ff;
+}
+
+.feedback-count { margin-left: 4px; font-size: 11px; font-weight: 700; }
+.feedback-unread-dot { position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border: 1px solid #fff; border-radius: 50%; background: #e5484d; }
 
 .delete-btn:hover {
   color: #d03050;

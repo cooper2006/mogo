@@ -14,11 +14,14 @@
       <ul v-if="result.warnings.length"><li v-for="warning in result.warnings" :key="warning.code + (warning.tool || '')">{{ localizeSkillInstallWarning(warning) }}</li></ul>
     </n-alert>
     <n-alert v-else-if="failure" class="install-result" type="error" :title="failureTitle || t('Skill 安装失败')">{{ failure }}</n-alert>
+    <n-alert v-if="upgrade" class="install-result" type="warning" :title="t('确认更新 Skill')">
+      {{ t('已安装版本') }} {{ upgrade.currentVersion || '-' }} → {{ t('新版本') }} {{ upgrade.incomingVersion || '-' }}
+    </n-alert>
     <template #footer>
       <n-space justify="end">
         <n-button v-if="!result" @click="close">{{ t('取消') }}</n-button>
         <n-button v-if="result" type="primary" @click="close">{{ t('关闭') }}</n-button>
-        <n-button v-else type="primary" :disabled="!file" :loading="installing" @click="install">{{ t('安装 Skill') }}</n-button>
+        <n-button v-else type="primary" :disabled="!file" :loading="installing" @click="install(Boolean(upgrade))">{{ upgrade ? t('确认更新') : t('安装 Skill') }}</n-button>
       </n-space>
     </template>
   </n-modal>
@@ -40,12 +43,13 @@ const installing = ref(false);
 const result = ref<SkillInstallResult | null>(null);
 const failure = ref('');
 const failureTitle = ref('');
+const upgrade = ref<NonNullable<SkillInstallResult['upgrade']> | null>(null);
 function close() { emit('update:show', false); }
-function select(candidate?: File) { if (!candidate) return; if (!candidate.name.toLowerCase().endsWith('.zip')) { file.value = null; result.value = null; failureTitle.value = t('安装包校验未通过'); failure.value = t('请选择 ZIP 格式的 Skill 安装包'); return; } file.value = candidate; result.value = null; failure.value = ''; failureTitle.value = ''; }
+function select(candidate?: File) { if (!candidate) return; if (!candidate.name.toLowerCase().endsWith('.zip')) { file.value = null; result.value = null; failureTitle.value = t('安装包校验未通过'); failure.value = t('请选择 ZIP 格式的 Skill 安装包'); return; } file.value = candidate; result.value = null; upgrade.value = null; failure.value = ''; failureTitle.value = ''; }
 function onChoose(event: Event) { const target = event.target as HTMLInputElement; select(target.files?.[0]); target.value = ''; }
 function onDrop(event: DragEvent) { dragging.value = false; select(event.dataTransfer?.files?.[0]); }
-async function install() { if (!file.value) return; installing.value = true; failure.value = ''; failureTitle.value = ''; try { result.value = await installSkillZip(file.value); emit('installed', result.value); } catch (error: any) { const localized = localizeSkillInstallError(error); failureTitle.value = localized.title; failure.value = localized.message; } finally { installing.value = false; } }
-watch(() => props.show, visible => { if (!visible) { file.value = null; result.value = null; failure.value = ''; failureTitle.value = ''; } });
+async function install(confirmReplace = false) { if (!file.value) return; installing.value = true; failure.value = ''; failureTitle.value = ''; try { result.value = await installSkillZip(file.value, confirmReplace); upgrade.value = null; emit('installed', result.value); } catch (error: any) { const detail = error?.response?.data?.detail; if (detail?.code === 'skill_upgrade_confirmation_required' && detail.upgrade) { upgrade.value = detail.upgrade; return; } const localized = localizeSkillInstallError(error); failureTitle.value = localized.title; failure.value = localized.message; } finally { installing.value = false; } }
+watch(() => props.show, visible => { if (!visible) { file.value = null; result.value = null; upgrade.value = null; failure.value = ''; failureTitle.value = ''; } });
 defineExpose({ select });
 </script>
 
