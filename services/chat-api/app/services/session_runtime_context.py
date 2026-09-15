@@ -25,6 +25,7 @@ async def attach_session_runtime_contexts(
         "conversation_id": 1,
         "execution_location": 1,
         "preset_id": 1,
+        "model_instance_id": 1,
         "source_workspace_id": 1,
         "git_branch": 1,
         "worktree": 1,
@@ -35,6 +36,7 @@ async def attach_session_runtime_contexts(
             continue
         target["execution_location"] = str(binding.get("execution_location") or "server")
         target["runtime_preset_id"] = str(binding.get("preset_id") or "askai-enterprise")
+        target["model_instance_id"] = str(binding.get("model_instance_id") or "") or None
         if target["execution_location"] in {"desktop", "remote_sandbox"}:
             target["code_project"] = {
                 "workspace_id": str(binding.get("source_workspace_id") or ""),

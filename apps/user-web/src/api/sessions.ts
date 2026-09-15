@@ -56,6 +56,7 @@ export type SessionSummary = {
   last_scheduled_run?: { run_id: string; status: string; finished_at?: string } | null
   execution_location?: 'server' | 'desktop' | 'remote_sandbox'
   runtime_preset_id?: string
+  model_instance_id?: string | null
   code_project?: { workspace_id: string; git_branch: string; worktree: boolean } | null
 }
 

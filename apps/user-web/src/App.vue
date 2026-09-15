@@ -2485,6 +2485,7 @@ onBeforeUnmount(() => {
             <ChatWindow
               :initial-messages="pane.messages"
               :session-id="pane.sessionId || undefined"
+              :model-instance-id="pane.modelInstanceId || undefined"
               :active="pane.key === activeChatKey"
               :user-id="getUserId() || undefined"
               :main-id="getMainId()"

@@ -59,6 +59,7 @@ class _Coordinator:
             "binding_id": "binding-new",
             "kernel_session_id": "session-new",
             "profile_version": profile_version,
+            "model_instance_id": model_instance_id,
         }
 
     async def dispose_restored_session(self, binding):
@@ -84,7 +85,7 @@ def test_unchanged_profile_resumes_without_rotation_or_publish_noise() -> None:
         profiles = _Profiles(_profile("rp-old"))
         coordinator = _Coordinator()
         result = await ConversationProfileSynchronizer(profiles, coordinator).synchronize(
-            _binding(), tenant_id="tenant-a", user_id="user-a",
+            _binding(), tenant_id="tenant-a", user_id="user-a", model_instance_id="model-a",
         )
         assert result.changed is False
         assert result.binding["restored"] is True
@@ -108,6 +109,45 @@ def test_changed_profile_rotates_same_conversation_and_disposes_predecessor() ->
         assert profiles.published == ["rp-new"]
         assert coordinator.rotations == [("rp-new", "model-a")]
         assert coordinator.disposed == ["session-old"]
+
+    asyncio.run(run())
+
+
+def test_each_turn_can_rotate_the_same_conversation_to_the_requested_model() -> None:
+    class SelectableProfiles:
+        def __init__(self) -> None:
+            self.published: list[str] = []
+
+        async def compile_model_profile(self, **scope):
+            model_id = scope["model_instance_id"]
+            return _profile(f"rp-{model_id}", model=model_id)
+
+        async def publish_snapshot(self, snapshot, **_scope):
+            self.published.append(snapshot.profile_version)
+
+    async def run() -> None:
+        profiles = SelectableProfiles()
+        coordinator = _Coordinator()
+        synchronizer = ConversationProfileSynchronizer(profiles, coordinator)
+
+        model_b = await synchronizer.synchronize(
+            _binding(), tenant_id="tenant-a", user_id="user-a", model_instance_id="model-b",
+        )
+        assert model_b.binding["conversation_id"] == "conversation-a"
+        assert model_b.binding["model_instance_id"] == "model-b"
+        assert model_b.previous_model_instance_id == "model-a"
+        assert model_b.model_instance_id == "model-b"
+
+        model_a = await synchronizer.synchronize(
+            model_b.binding, tenant_id="tenant-a", user_id="user-a", model_instance_id="model-a",
+        )
+        assert model_a.binding["conversation_id"] == "conversation-a"
+        assert model_a.binding["model_instance_id"] == "model-a"
+        assert model_a.previous_model_instance_id == "model-b"
+        assert model_a.model_instance_id == "model-a"
+        assert coordinator.rotations == [("rp-model-b", "model-b"), ("rp-model-a", "model-a")]
+        assert coordinator.disposed == ["session-old", "session-new"]
+        assert profiles.published == ["rp-model-b", "rp-model-a"]
 
     asyncio.run(run())
 

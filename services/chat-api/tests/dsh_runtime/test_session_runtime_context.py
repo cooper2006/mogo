@@ -39,7 +39,7 @@ class _Db:
 def test_cross_platform_runtime_context_is_safe_and_identifies_desktop_history() -> None:
     db = _Db([{
         "conversation_id": "conversation-a", "execution_location": "desktop",
-        "preset_id": "code", "source_workspace_id": "workspace-a",
+        "preset_id": "code", "model_instance_id": "model-b", "source_workspace_id": "workspace-a",
         "git_branch": "codex/task-a", "worktree": True,
         "device_id": "must-not-leak", "dsh_workspace_id": "/must/not/leak",
     }])
@@ -49,9 +49,11 @@ def test_cross_platform_runtime_context_is_safe_and_identifies_desktop_history()
     ))
     assert sessions[0]["execution_location"] == "desktop"
     assert sessions[0]["runtime_preset_id"] == "code"
+    assert sessions[0]["model_instance_id"] == "model-b"
     assert sessions[0]["code_project"] == {
         "workspace_id": "workspace-a", "git_branch": "codex/task-a", "worktree": True,
     }
     assert "device_id" not in sessions[0]
     assert "dsh_workspace_id" not in sessions[0]
     assert "execution_location" not in sessions[1]
+    assert db.agent_kernel_bindings.projection["model_instance_id"] == 1

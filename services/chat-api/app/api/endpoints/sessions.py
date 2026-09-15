@@ -89,6 +89,7 @@ class SessionSummary(BaseModel):
     pending_approval_count: int = 0
     execution_location: str = "server"
     runtime_preset_id: str = "askai-enterprise"
+    model_instance_id: Optional[str] = None
     code_project: Optional[dict] = None
 
 
@@ -141,6 +142,7 @@ def _serialize_session(doc: dict) -> dict:
         "pending_approval_count": int(doc.get("pending_approval_count") or 0),
         "execution_location": str(doc.get("execution_location") or "server"),
         "runtime_preset_id": str(doc.get("runtime_preset_id") or "askai-enterprise"),
+        "model_instance_id": str(doc.get("model_instance_id") or "") or None,
         "code_project": doc.get("code_project"),
     }
 
@@ -167,6 +169,7 @@ def _serialize_session_summary(doc: dict) -> dict:
         "pending_approval_count": int(doc.get("pending_approval_count") or 0),
         "execution_location": str(doc.get("execution_location") or "server"),
         "runtime_preset_id": str(doc.get("runtime_preset_id") or "askai-enterprise"),
+        "model_instance_id": str(doc.get("model_instance_id") or "") or None,
         "code_project": doc.get("code_project"),
     }
 

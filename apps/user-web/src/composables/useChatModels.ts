@@ -2,7 +2,11 @@ import { computed, ref } from 'vue'
 import { fetchChatModels, type ChatModelOption } from '../api/models'
 import { t, type Locale } from './i18n'
 
-export function useChatModels(options: { getMainId: () => string; getLocale: () => Locale }) {
+export function useChatModels(options: {
+  getMainId: () => string
+  getLocale: () => Locale
+  getPreferredModelId?: () => string
+}) {
   const chatModels = ref<ChatModelOption[]>([])
   const selectedModelId = ref('')
   const modelLoadError = ref('')
@@ -24,7 +28,10 @@ export function useChatModels(options: { getMainId: () => string; getLocale: () 
       modelLoadError.value = ''
       const items = await fetchChatModels(options.getMainId() || 'default')
       chatModels.value = items
-      if (!selectedModelId.value) {
+      const preferredModelId = options.getPreferredModelId?.() || ''
+      if (preferredModelId && items.some((item) => item.id === preferredModelId)) {
+        selectedModelId.value = preferredModelId
+      } else if (!selectedModelId.value) {
         selectedModelId.value = items[0]?.id || ''
       } else if (!items.some((item) => item.id === selectedModelId.value)) {
         selectedModelId.value = items[0]?.id || ''

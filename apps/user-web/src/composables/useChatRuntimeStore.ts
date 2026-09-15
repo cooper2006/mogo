@@ -98,6 +98,7 @@ export type ChatRuntimePane = {
   activeAuthToken: string | null
   executionLocation: 'server' | 'desktop' | 'remote_sandbox'
   runtimePresetId: string
+  modelInstanceId: string
   codeProject: { workspace_id: string; git_branch: string; worktree: boolean } | null
 }
 
@@ -184,6 +185,7 @@ function createPane(input: { key?: string; sessionId: string | null; messages?: 
     activeAuthToken: null,
     executionLocation: 'server',
     runtimePresetId: 'askai-enterprise',
+    modelInstanceId: '',
     codeProject: null,
   }
 }
@@ -256,6 +258,8 @@ function resolvePaneSession(pane: ChatRuntimePane, sessionId: string, callbacks:
     const keeper = keepRunningPane ? pane : duplicate
     const removed = keepRunningPane ? duplicate : pane
     keeper.sessionId = sessionId
+    if (pane.modelInstanceId) keeper.modelInstanceId = pane.modelInstanceId
+    else if (!keeper.modelInstanceId) keeper.modelInstanceId = duplicate.modelInstanceId
     keeper.lastActivatedAt = Math.max(keeper.lastActivatedAt, removed.lastActivatedAt)
     if (!keeper.messages.length && removed.messages.length) keeper.messages = removed.messages
     if (!keeper.activeStream && removed.activeStream) keeper.activeStream = removed.activeStream
@@ -474,6 +478,7 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
       {
         authToken: input.authToken,
         onSessionId: (sid) => {
+          if (input.modelId) pane.modelInstanceId = input.modelId
           assistantMsg._backendSid = sid
           resolvePaneSession(pane, sid, callbacks)
         },
@@ -626,6 +631,7 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     })
     pane.executionLocation = detail.execution_location || 'server'
     pane.runtimePresetId = detail.runtime_preset_id || 'askai-enterprise'
+    pane.modelInstanceId = detail.model_instance_id || ''
     pane.codeProject = detail.code_project || null
     state.panes = [...state.panes, pane]
     setActivePane(pane)

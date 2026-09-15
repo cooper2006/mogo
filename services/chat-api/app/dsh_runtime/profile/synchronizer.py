@@ -19,6 +19,8 @@ class ProfileSyncResult:
     changed: bool
     previous_profile_version: str
     profile_version: str
+    previous_model_instance_id: str
+    model_instance_id: str
 
 
 class ConversationProfileSynchronizer:
@@ -38,13 +40,16 @@ class ConversationProfileSynchronizer:
         *,
         tenant_id: str,
         user_id: str,
+        model_instance_id: str | None = None,
     ) -> ProfileSyncResult:
         restored = await self._coordinator.restore(binding)
         previous_version = str(restored["profile_version"])
+        previous_model_id = str(restored["model_instance_id"])
+        desired_model_id = model_instance_id or previous_model_id
         desired = await self._profiles.compile_model_profile(
             tenant_id=tenant_id,
             user_id=user_id,
-            model_instance_id=str(restored["model_instance_id"]),
+            model_instance_id=desired_model_id,
         )
         if desired.profile_version == previous_version:
             return ProfileSyncResult(
@@ -52,6 +57,8 @@ class ConversationProfileSynchronizer:
                 changed=False,
                 previous_profile_version=previous_version,
                 profile_version=previous_version,
+                previous_model_instance_id=previous_model_id,
+                model_instance_id=previous_model_id,
             )
 
         await self._profiles.publish_snapshot(desired, actor_id=user_id, activate=False)
@@ -62,12 +69,14 @@ class ConversationProfileSynchronizer:
         )
         disposed = await self._coordinator.dispose_restored_session(restored)
         logger.info(
-            "conversation_profile_rotated tenant_id=%s user_id=%s conversation_id=%s old=%s new=%s predecessor_disposed=%s",
+            "conversation_profile_rotated tenant_id=%s user_id=%s conversation_id=%s old=%s new=%s old_model=%s new_model=%s predecessor_disposed=%s",
             tenant_id,
             user_id,
             restored.get("conversation_id"),
             previous_version,
             desired.profile_version,
+            previous_model_id,
+            desired.model_instance_id,
             disposed,
         )
         return ProfileSyncResult(
@@ -75,4 +84,6 @@ class ConversationProfileSynchronizer:
             changed=True,
             previous_profile_version=previous_version,
             profile_version=desired.profile_version,
+            previous_model_instance_id=previous_model_id,
+            model_instance_id=desired.model_instance_id,
         )

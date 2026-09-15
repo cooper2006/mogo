@@ -54,6 +54,7 @@ const props = defineProps<{
   initialMessage?: string
   initialMessages?: Message[]
   sessionId?: string
+  modelInstanceId?: string
   userId?: string
   mainId?: string
   authToken?: string
@@ -319,6 +320,10 @@ const {
 } = useChatModels({
   getMainId: () => props.mainId || 'default',
   getLocale: () => locale.value,
+  getPreferredModelId: () => props.modelInstanceId || '',
+})
+watch(() => props.modelInstanceId, (modelId) => {
+  if (modelId) selectChatModel(modelId)
 })
 watch(() => props.desktopWorkspaceRequest, (value, previous) => {
   if (props.active && value && value !== previous) emit('choose-code-workspace', selectedModelId.value)

@@ -169,8 +169,6 @@ class DshChatService:
                 )
             if str(binding.get("execution_location") or "server") != "server":
                 raise ValueError("this Code task must continue on its bound desktop Runtime")
-            if model_instance_id and model_instance_id != str(binding["model_instance_id"]):
-                raise ValueError("a Conversation keeps its immutable model profile; create a new Conversation to switch model")
             active_status = str((binding.get("active_turn") or {}).get("status") or "")
             if active_status and active_status not in {"completed", "failed", "cancelled"}:
                 binding = await self._terminal_recovery.recover(binding)
@@ -190,6 +188,7 @@ class DshChatService:
                     binding,
                     tenant_id=tenant_id,
                     user_id=user_id,
+                    model_instance_id=model_instance_id,
                 )).binding
             except BindingReplacementConflict as exc:
                 raise ConversationBusyError(
