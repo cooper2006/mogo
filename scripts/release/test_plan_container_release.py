@@ -34,10 +34,15 @@ class ContainerReleasePlanTests(unittest.TestCase):
         changed, _ = select_images(["services/chat-api/app/runtime/runner.py"])
         self.assertEqual(["chat-api"], self.suffixes(changed))
 
-    def test_release_workflow_change_forces_every_image(self):
+    def test_release_workflow_change_reuses_every_image(self):
         changed, unchanged = select_images([".github/workflows/container-release.yml"])
-        self.assertEqual(len(IMAGES), len(changed))
-        self.assertEqual([], unchanged)
+        self.assertEqual([], changed)
+        self.assertEqual(len(IMAGES), len(unchanged))
+
+    def test_release_planner_change_reuses_every_image(self):
+        changed, unchanged = select_images(["scripts/release/plan_container_release.py"])
+        self.assertEqual([], changed)
+        self.assertEqual(len(IMAGES), len(unchanged))
 
     def test_force_all_rebuilds_every_image(self):
         changed, unchanged = select_images([], force_all=True)

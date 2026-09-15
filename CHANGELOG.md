@@ -6,7 +6,10 @@ image.
 
 ## Unreleased
 
-No changes yet.
+### Fixed
+
+- Avoid rebuilding unchanged container images when only the release workflow or
+  release planner changes; full rebuilds now require an explicit operator request.
 
 ## v0.1.13 - 2026-09-15
 

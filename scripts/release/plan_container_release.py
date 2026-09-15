@@ -97,14 +97,6 @@ IMAGES = (
     ),
 )
 
-# A release mechanism change invalidates the planner itself, so the next release
-# deliberately rebuilds every image once.
-GLOBAL_INPUTS = (
-    ".github/workflows/container-release.yml",
-    "scripts/release/plan_container_release.py",
-)
-
-
 def _matches(path: str, pattern: str) -> bool:
     if pattern.endswith("/**"):
         return path.startswith(pattern[:-3].rstrip("/") + "/")
@@ -115,13 +107,12 @@ def select_images(
     changed_paths: Iterable[str], force_all: bool = False
 ) -> tuple[list[ImageDefinition], list[ImageDefinition]]:
     paths = tuple(path.strip() for path in changed_paths if path.strip())
-    rebuild_all = force_all or any(
-        _matches(path, pattern) for path in paths for pattern in GLOBAL_INPUTS
-    )
     changed: list[ImageDefinition] = []
     unchanged: list[ImageDefinition] = []
     for image in IMAGES:
-        affected = rebuild_all or any(
+        # Release orchestration and planner changes do not alter image contents.
+        # A broad rebuild must be an explicit operator decision via --force-all.
+        affected = force_all or any(
             _matches(path, pattern) for path in paths for pattern in image.inputs
         )
         (changed if affected else unchanged).append(image)
