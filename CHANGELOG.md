@@ -4,12 +4,16 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
-## Unreleased
+## v0.1.14 - 2026-09-15
 
 ### Fixed
 
 - Avoid rebuilding unchanged container images when only the release workflow or
   release planner changes; full rebuilds now require an explicit operator request.
+- Apply available Debian security updates to runtime images before publishing.
+- Build and scan immutable candidate images before promoting a release to its
+  version and `latest` tags, and use the last successful container release as
+  the incremental-build baseline.
 
 ## v0.1.13 - 2026-09-15
 

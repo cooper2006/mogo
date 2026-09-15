@@ -15,6 +15,12 @@ RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip uninstall --yes pip wheel \
     && find /usr/local/lib/python3.10/ensurepip/_bundled -type f -delete
 
+ARG MOVO_SECURITY_REFRESH=local
+RUN test -n "${MOVO_SECURITY_REFRESH}" \
+    && apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY app /app/app
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh

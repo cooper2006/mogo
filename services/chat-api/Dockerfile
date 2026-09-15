@@ -47,6 +47,12 @@ RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" = "true" ]; then \
         echo "Skip playwright browser install in build stage (INSTALL_PLAYWRIGHT_AT_BUILD=false)"; \
     fi
 
+ARG MOVO_SECURITY_REFRESH=local
+RUN test -n "${MOVO_SECURITY_REFRESH}" \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 

@@ -19,6 +19,7 @@ FROM node:24-bookworm-slim
 
 ARG MOVO_APT_MIRROR=
 ARG MOVO_APT_SECURITY_MIRROR=
+ARG MOVO_SECURITY_REFRESH=local
 
 ENV NODE_ENV=production
 
@@ -34,7 +35,9 @@ RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \
             fi; \
         done; \
     fi \
+    && test -n "${MOVO_SECURITY_REFRESH}" \
     && apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates gosu \
     && rm -rf /var/lib/apt/lists/* \
     && npm uninstall --global npm

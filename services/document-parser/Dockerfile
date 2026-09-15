@@ -103,6 +103,12 @@ RUN if [ "${INSTALL_DOCLING_MODELS_AT_BUILD}" = "true" ]; then \
         echo "Skip Docling model download and verification (INSTALL_DOCLING_MODELS_AT_BUILD=false)"; \
     fi
 
+ARG MOVO_SECURITY_REFRESH=local
+RUN test -n "${MOVO_SECURITY_REFRESH}" \
+    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV HF_HUB_OFFLINE=1
 
 COPY entrypoint.sh /app/entrypoint.sh

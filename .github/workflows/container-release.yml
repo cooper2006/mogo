@@ -13,10 +13,15 @@ on:
       - "v*"
 
 permissions:
+  actions: read
   contents: read
   packages: write
   id-token: write
   attestations: write
+
+concurrency:
+  group: container-release-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   validate-release:
@@ -44,6 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       base_ref: ${{ steps.plan.outputs.base_ref }}
+      images: ${{ steps.plan.outputs.images }}
       changed: ${{ steps.plan.outputs.changed }}
       changed_count: ${{ steps.plan.outputs.changed_count }}
       unchanged: ${{ steps.plan.outputs.unchanged }}
@@ -54,14 +60,19 @@ jobs:
           fetch-depth: 0
       - name: Find the previous published version
         id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          base_ref=""
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            base_ref="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)"
-          else
-            base_ref="$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)"
-          fi
+          base_ref="$(
+            gh run list \
+              --workflow container-release.yml \
+              --event push \
+              --status success \
+              --limit 1 \
+              --json headBranch \
+              --jq '.[0].headBranch // ""'
+          )"
           echo "ref=${base_ref}" >> "$GITHUB_OUTPUT"
       - name: Calculate image build plan
         id: plan
@@ -80,12 +91,13 @@ jobs:
           python scripts/release/plan_container_release.py "${args[@]}" > "$RUNNER_TEMP/container-plan.json"
           cat "$RUNNER_TEMP/container-plan.json"
           echo "base_ref=$(jq -r '.base_ref' "$RUNNER_TEMP/container-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "images=$(jq -c '.images' "$RUNNER_TEMP/container-plan.json")" >> "$GITHUB_OUTPUT"
           echo "changed=$(jq -c '.changed' "$RUNNER_TEMP/container-plan.json")" >> "$GITHUB_OUTPUT"
           echo "changed_count=$(jq -r '.changed | length' "$RUNNER_TEMP/container-plan.json")" >> "$GITHUB_OUTPUT"
           echo "unchanged=$(jq -c '.unchanged' "$RUNNER_TEMP/container-plan.json")" >> "$GITHUB_OUTPUT"
           echo "unchanged_count=$(jq -r '.unchanged | length' "$RUNNER_TEMP/container-plan.json")" >> "$GITHUB_OUTPUT"
 
-  publish-changed:
+  publish-candidates:
     needs: plan-release
     if: needs.plan-release.outputs.changed_count != '0'
     runs-on: ubuntu-latest
@@ -113,9 +125,7 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=tag
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-') }}
+            type=raw,value=candidate-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -125,10 +135,13 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
+          pull: true
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: ${{ matrix.build_args }}
+          build-args: |
+            ${{ matrix.build_args }}
+            MOVO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           cache-from: type=gha,scope=${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
           provenance: mode=max
@@ -140,7 +153,7 @@ jobs:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
-      - name: Scan published image
+      - name: Scan candidate image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
@@ -149,36 +162,27 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
-  reuse-unchanged:
-    needs: plan-release
-    if: github.event_name == 'push' && needs.plan-release.outputs.unchanged_count != '0'
+  promote-release:
+    needs: [plan-release, publish-candidates]
+    if: >-
+      ${{
+        always() &&
+        github.event_name == 'push' &&
+        needs.plan-release.result == 'success' &&
+        (needs.publish-candidates.result == 'success' || needs.publish-candidates.result == 'skipped')
+      }}
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.plan-release.outputs.unchanged) }}
     steps:
-      - name: Normalize image name
-        id: image
-        shell: bash
-        run: |
-          repository="${GITHUB_REPOSITORY,,}"
-          echo "name=ghcr.io/${repository}-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Reuse the previous image without rebuilding
+      - name: Publish version and latest tags
         env:
-          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          ALL_IMAGES_JSON: ${{ needs.plan-release.outputs.images }}
+          CHANGED_IMAGES_JSON: ${{ needs.plan-release.outputs.changed }}
           BASE_REF: ${{ needs.plan-release.outputs.base_ref }}
-        shell: bash
-        run: |
-          short_sha="${GITHUB_SHA:0:7}"
-          tags=(--tag "${IMAGE_NAME}:${GITHUB_REF_NAME}" --tag "${IMAGE_NAME}:sha-${short_sha}")
-          if [[ "$GITHUB_REF_NAME" != *-* ]]; then
-            tags+=(--tag "${IMAGE_NAME}:latest")
-          fi
-          docker buildx imagetools create "${tags[@]}" "${IMAGE_NAME}:${BASE_REF}"
+        run: bash scripts/release/promote_container_release.sh

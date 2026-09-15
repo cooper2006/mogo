@@ -136,6 +136,7 @@ def build_plan(
     return {
         "base_ref": base_ref or "",
         "changed_paths": paths,
+        "images": [image.matrix_entry() for image in IMAGES],
         "changed": [image.matrix_entry() for image in changed],
         "unchanged": [image.matrix_entry() for image in unchanged],
     }
