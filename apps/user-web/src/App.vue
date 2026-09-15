@@ -219,6 +219,7 @@ const skillShareInboxScope = computed(() => ({
 const {
   pendingCount: pendingSkillShareCount,
   actionCount: pendingSkillShareActionCount,
+  feedbackCount: pendingSkillFeedbackCount,
   refresh: refreshSkillShareCount,
 } = useSkillShareInboxBadge({ scope: skillShareInboxScope })
 const supportsLocalCodeProjects = capabilities.localDshRuntime && capabilities.localWorkspacePicker
@@ -2292,6 +2293,7 @@ onBeforeUnmount(() => {
             :mainId="getMainId()"
             :isDesktop="capabilities.isDesktop"
             :pendingShareCount="pendingSkillShareActionCount"
+            :pendingFeedbackCount="pendingSkillFeedbackCount"
             @back="closeSkillsPage"
             @configure="openSkillConfig"
             @login="openLogin"

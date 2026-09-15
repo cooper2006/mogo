@@ -32,7 +32,7 @@
             <n-select v-model:value="filters.type" clearable :options="typeOptions" :placeholder="t('ui.type')" style="width: 160px" />
           </n-space>
           <n-space :size="10" class="filter-right">
-            <n-button secondary @click="loadRows">
+            <n-button secondary @click="loadRows()">
               <template #icon>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
@@ -289,6 +289,7 @@ const props = defineProps<{
   userId: string | null
   mainId: string
   pendingShareCount: number
+  pendingFeedbackCount: number
   isDesktop: boolean
 }>();
 
@@ -490,12 +491,12 @@ function askDelete(row: SkillItem) {
   deleteConfirmVisible.value = true;
 }
 
-async function loadRows() {
+async function loadRows(options: { silent?: boolean } = {}) {
   if (!props.userId) {
     rows.value = [];
     return;
   }
-  loading.value = true;
+  if (!options.silent) loading.value = true;
   try {
     const data = await fetchSkills(props.userId, props.mainId);
     rows.value = data.sort((a, b) => {
@@ -509,7 +510,7 @@ async function loadRows() {
   } catch (error: any) {
     message.error(error?.response?.data?.detail || t('skills.msg_loading_failed'));
   } finally {
-    loading.value = false;
+    if (!options.silent) loading.value = false;
     switchingById.value = {};
   }
 }
@@ -604,6 +605,10 @@ function handleEnabledUpdate(row: SkillItem, value: boolean) {
 onMounted(loadRows);
 watch(() => [props.userId, props.mainId], () => {
   void loadRows();
+});
+watch(() => props.pendingFeedbackCount, (next, previous) => {
+  if (next === previous) return;
+  void loadRows({ silent: true });
 });
 </script>
 

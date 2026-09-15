@@ -17,6 +17,7 @@ interface SkillShareInboxBadgeOptions {
 export function useSkillShareInboxBadge(options: SkillShareInboxBadgeOptions) {
   const pendingCount = ref(0)
   const actionCount = ref(0)
+  const feedbackCount = ref(0)
   let timer: ReturnType<typeof setInterval> | null = null
   let requestVersion = 0
   let inFlight: Promise<void> | null = null
@@ -30,6 +31,7 @@ export function useSkillShareInboxBadge(options: SkillShareInboxBadgeOptions) {
     if (!isAvailable()) {
       pendingCount.value = 0
       actionCount.value = 0
+      feedbackCount.value = 0
       return Promise.resolve()
     }
     if (inFlight) return inFlight
@@ -40,6 +42,7 @@ export function useSkillShareInboxBadge(options: SkillShareInboxBadgeOptions) {
         if (version === requestVersion && isAvailable()) {
           pendingCount.value = counts.pendingCount
           actionCount.value = counts.sharedCount + counts.updateCount
+          feedbackCount.value = counts.feedbackCount
         }
       })
       .catch(() => {})
@@ -64,6 +67,7 @@ export function useSkillShareInboxBadge(options: SkillShareInboxBadgeOptions) {
       inFlight = null
       pendingCount.value = 0
       actionCount.value = 0
+      feedbackCount.value = 0
       void refresh()
     },
     { immediate: true },
@@ -78,5 +82,5 @@ export function useSkillShareInboxBadge(options: SkillShareInboxBadgeOptions) {
     if (timer) clearInterval(timer)
   })
 
-  return { pendingCount, actionCount, refresh, setPendingCount }
+  return { pendingCount, actionCount, feedbackCount, refresh, setPendingCount }
 }

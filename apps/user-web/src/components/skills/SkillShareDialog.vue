@@ -58,6 +58,7 @@ import { NAlert, NButton, NCollapse, NCollapseItem, NInput, NModal, NSelect, NSp
 import type { SkillItem } from '../../api/skills'
 import { createSkillShare, revokeSkillShare, searchSkillShareMembers, shareSkillWithUsers, type SkillShareCreated, type SkillShareMember } from '../../api/skillSharing'
 import { t } from '../../composables/i18n'
+import { copyTextToClipboard } from '../../utils/copyTextToClipboard'
 import { skillShareErrorMessage } from './skillShareErrors'
 
 const props = defineProps<{ show: boolean; skill: SkillItem | null }>()
@@ -152,7 +153,7 @@ async function createLink() {
 }
 
 async function copyLink() {
-  try { await navigator.clipboard.writeText(shareUrl.value); message.success(t('skills.share.copied')) }
+  try { await copyTextToClipboard(shareUrl.value); message.success(t('skills.share.copied')) }
   catch { message.error(t('skills.share.copy_failed')) }
 }
 

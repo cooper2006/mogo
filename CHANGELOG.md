@@ -4,6 +4,15 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
+## Unreleased
+
+### Fixed
+
+- Refresh Skill feedback state when new feedback notifications arrive without
+  interrupting the current page with a loading state.
+- Copy Skill sharing links in desktop WebViews that expose the Clipboard API
+  but deny direct clipboard writes.
+
 ## v0.1.14 - 2026-09-15
 
 ### Fixed
