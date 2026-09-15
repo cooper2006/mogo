@@ -8,6 +8,35 @@ image.
 
 No changes yet.
 
+## v0.1.13 - 2026-09-15
+
+### Added
+
+- Complete the Skill distribution lifecycle with publishing, direct sharing,
+  update discovery, feedback, and organization-level management.
+- Support installing external Skills from ZIP packages and show their source,
+  version, update status, and local modifications in the Web workspace.
+- Add clearer Windows installation guidance for Docker Desktop, WSL 2, Ubuntu,
+  and common WSL environment mistakes.
+
+### Changed
+
+- Use the official GHCR images by default so both `./movo up` and native
+  `docker compose up -d` work without an `.env` file.
+- Pull container images sequentially and keep retrying interrupted downloads
+  until they succeed or the user stops the launcher.
+- Improve the English and Chinese README onboarding, quick start, capability
+  boundaries, and community feedback entry points.
+
+### Fixed
+
+- Allow users to switch models between turns in the same conversation while
+  preserving the selected model when conversation history is reopened.
+- Correct packaged Skill editing actions and labels so imported Skills are not
+  presented as unpublished authoring drafts.
+- Improve Skill list and detail UI state handling, including safe rendering of
+  optional feedback data and clearer local-change indicators.
+
 ## v0.1.5 - 2026-09-05
 
 ### Security
