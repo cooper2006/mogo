@@ -529,6 +529,7 @@ def _admin_shape_skill(skill: Dict[str, Any]) -> Dict[str, Any]:
         "packageSource": _safe_dict(skill.get("package_source")),
         "distributionId": str(skill.get("distribution_id") or ""),
         "feedback": _safe_dict(skill.get("feedback")),
+        "locallyModified": bool(skill.get("locally_modified", False)),
         "lifecycle": lifecycle.lifecycle_view(skill),
         "package": {
             "slug": str(skill.get("package_slug") or ""),

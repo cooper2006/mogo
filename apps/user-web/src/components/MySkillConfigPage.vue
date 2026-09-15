@@ -26,6 +26,8 @@
                 </svg>
                 <div class="toolbar-title" :title="skill.name">{{ skill.name }}</div>
                 <n-tag size="small" type="warning" :bordered="false">{{ t('skills.type.workflow') }}</n-tag>
+                <n-tag v-if="packageSourceLabel" size="small" :bordered="false">{{ packageSourceLabel }}</n-tag>
+                <n-tag v-if="packageAuthored && skill.locallyModified" size="small" type="warning" :bordered="false">{{ t('skills.package.local_changed') }}</n-tag>
               </div>
             </div>
 
@@ -66,9 +68,9 @@
                     </svg>
                   </span>
                 </template>
-                {{ t('skills.publish.save_draft') }}
+                {{ packageAuthored ? t('ui.save') : t('skills.publish.save_draft') }}
               </n-button>
-              <n-button type="primary" secondary :loading="saving" @click="prepareWorkflowPublish">{{ t('skills.publish.action') }}</n-button>
+              <n-button v-if="!packageAuthored" type="primary" secondary :loading="saving" @click="prepareWorkflowPublish">{{ t('skills.publish.action') }}</n-button>
             </div>
           </div>
 
@@ -362,6 +364,8 @@
               <div class="toolbar-title-row">
                 <div class="toolbar-title">{{ skill.name }}</div>
                 <n-tag :bordered="false" type="info">{{ t('workflow.writing_style') }}</n-tag>
+                <n-tag v-if="packageSourceLabel" size="small" :bordered="false">{{ packageSourceLabel }}</n-tag>
+                <n-tag v-if="packageAuthored && skill.locallyModified" size="small" type="warning" :bordered="false">{{ t('skills.package.local_changed') }}</n-tag>
               </div>
               <div class="page-subtitle">{{ t('workflow.writing_style_desc') }}</div>
             </div>
@@ -400,9 +404,9 @@
                     </svg>
                   </span>
                 </template>
-                {{ t('skills.publish.save_draft') }}
+                {{ packageAuthored ? t('ui.save') : t('skills.publish.save_draft') }}
               </n-button>
-              <n-button type="primary" secondary :loading="saving" @click="prepareStylePublish">{{ t('skills.publish.action') }}</n-button>
+              <n-button v-if="!packageAuthored" type="primary" secondary :loading="saving" @click="prepareStylePublish">{{ t('skills.publish.action') }}</n-button>
             </div>
           </div>
 
@@ -808,6 +812,7 @@ import {
   type WorkflowNodeType,
   type WritingStyleDraft,
 } from '../api/skills';
+import { skillSourceLabel } from './skills/skillSourceLabel';
 import { fetchTools, type ExternalToolItem } from '../api/tools';
 import readMaterialIcon from '../assets/workflow-node-icons/read-material.svg?raw';
 import extractInfoIcon from '../assets/workflow-node-icons/extract-info.svg?raw';
@@ -904,6 +909,10 @@ const generatingSteps = ref(false);
 const supplementingStep = ref(false);
 const styleEnriching = ref(false);
 const skill = ref<SkillItem | null>(props.skill ? { ...props.skill } : null);
+const packageAuthored = computed(() => (
+  skill.value?.lifecycle?.authoringMode === 'package' || Boolean(skill.value?.package)
+));
+const packageSourceLabel = computed(() => skill.value ? skillSourceLabel(skill.value) : '');
 const workflowSteps = ref<WorkflowStep[]>([]);
 const activeStepId = ref('');
 const draggingStepId = ref('');

@@ -80,6 +80,9 @@
                     {{ row.lifecycle.publicationStatus === 'draft' ? t('skills.publish.draft') : row.lifecycle.hasUnpublishedChanges ? t('skills.publish.changed') : `v${row.lifecycle.publishedVersion}` }}
                   </n-tag>
                   <n-tag v-else-if="row.package?.version" size="small" :bordered="false" type="default">v{{ row.package.version }}</n-tag>
+                  <n-tag v-if="row.lifecycle?.authoringMode === 'package' && row.locallyModified" size="small" :bordered="false" type="warning">
+                    {{ t('skills.package.local_changed') }}
+                  </n-tag>
                 </div>
                 <span class="card-time">{{ formatAppDateTime(row.updatedAt || row.createdAt, t('skills.just_created')) }}</span>
               </div>
@@ -110,7 +113,7 @@
                       <path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4" />
                     </svg>
                   </n-button>
-                  <n-button v-if="row.feedback?.channels.length" class="feedback-btn" :class="{ 'feedback-btn-unread': row.feedback.unreadCount > 0 }" size="small" quaternary :title="t('skills.feedback.title')" @click.stop="openFeedback(row)">
+                  <n-button v-if="row.feedback?.channels?.length" class="feedback-btn" :class="{ 'feedback-btn-unread': row.feedback.unreadCount > 0 }" size="small" quaternary :title="t('skills.feedback.title')" @click.stop="openFeedback(row)">
                     <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" /></svg>
                     <span v-if="row.feedback.commentCount" class="feedback-count">{{ row.feedback.commentCount > 99 ? '99+' : row.feedback.commentCount }}</span>
                     <span v-if="row.feedback.unreadCount" class="feedback-unread-dot"></span>

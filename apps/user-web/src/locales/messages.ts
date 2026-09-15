@@ -1140,6 +1140,7 @@ export const messages = {
   'skills.publish.auto_patch': { zh: '自动递增补丁版本', en: 'Increment patch automatically' },
   'skills.publish.action': { zh: '发布', en: 'Publish' },
   'skills.publish.save_draft': { zh: '保存草稿', en: 'Save draft' },
+  'skills.package.local_changed': { zh: '有本地修改', en: 'Local changes' },
   'skills.publish.success': { zh: 'Skill 已发布，新版本可供使用', en: 'Skill published and available' },
   'skills.publish.failed': { zh: 'Skill 发布失败', en: 'Failed to publish Skill' },
   'skills.publish.draft': { zh: '草稿', en: 'Draft' },

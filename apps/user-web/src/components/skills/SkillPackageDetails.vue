@@ -58,6 +58,7 @@ import { NAlert, NDescriptions, NDescriptionsItem, NTag } from 'naive-ui';
 import type { SkillItem } from '../../api/skills';
 import { t } from '../../composables/i18n';
 import { localizeSkillInstallWarning } from './skillInstallError';
+import { skillSourceLabel } from './skillSourceLabel';
 
 const props = defineProps<{ skill: SkillItem }>();
 
@@ -68,27 +69,7 @@ const typeLabel = computed(() => {
   return t('skills.type.style');
 });
 
-const sourceLabel = computed(() => {
-  const source = props.skill.packageSource;
-  if (!source?.kind) return '';
-  if (source.kind === 'movo_share') {
-    const sender = source.sender?.displayName || source.sender?.username || '';
-    return sender
-      ? t('skills.detail.source_shared_by', { name: sender })
-      : t('skills.detail.source_shared');
-  }
-  if (source.kind === 'skillhub') {
-    return source.coordinate
-      ? t('skills.detail.source_market_named', { name: source.coordinate })
-      : t('skills.detail.source_market');
-  }
-  if (source.kind === 'local_zip') {
-    return source.fileName
-      ? t('skills.detail.source_zip_named', { name: source.fileName })
-      : t('skills.detail.source_zip');
-  }
-  return t('skills.detail.source_imported');
-});
+const sourceLabel = computed(() => skillSourceLabel(props.skill));
 </script>
 
 <style scoped>
