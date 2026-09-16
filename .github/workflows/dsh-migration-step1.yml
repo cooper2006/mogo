@@ -28,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
@@ -64,9 +66,9 @@ jobs:
         working-directory: services/chat-api
         run: |
           curl --fail --location --silent --show-error \
-            --output /tmp/dsh-0.1.2-alpha.2.tgz \
-            https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.1.2-alpha.2.tgz
-          python scripts/check_dsh_supply_chain.py --artifact /tmp/dsh-0.1.2-alpha.2.tgz
+            --output /tmp/dsh-0.1.6-alpha.1.tgz \
+            https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.1.6-alpha.1.tgz
+          python scripts/check_dsh_supply_chain.py --artifact /tmp/dsh-0.1.6-alpha.1.tgz
       - name: Reject copied or patched upstream core
         run: |
           test ! -d services/chat-api/dsh/packages

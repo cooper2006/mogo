@@ -87,6 +87,25 @@ def verify_installed_release_train(root: Path, expected: str) -> tuple[CommandRe
     ), normalized
 
 
+def verify_declared_release_train(root: Path, expected: str) -> tuple[CommandResult, dict[str, str]]:
+    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    dependencies = {
+        name: str(version)
+        for name, version in package.get("dependencies", {}).items()
+        if name == "@deepseek-ai/dsh" or name.startswith("@deepseek-ai/dsh-")
+    }
+    mismatched = {name: version for name, version in dependencies.items() if version != expected}
+    passed = bool(dependencies) and not mismatched
+    return CommandResult(
+        name="released_declared_release_train",
+        command=[],
+        returncode=0 if passed else 2,
+        duration_seconds=0,
+        stdout=json.dumps(dict(sorted(dependencies.items())), ensure_ascii=False),
+        stderr="" if passed else f"released Host has unexpected direct DSH versions: {mismatched}",
+    ), dependencies
+
+
 def inventory(name: str, root: Path, node: str) -> tuple[CommandResult, dict[str, Any]]:
     result = run_command(
         name, [node, str(root / "scripts" / "runtime-inventory-probe.mjs")],

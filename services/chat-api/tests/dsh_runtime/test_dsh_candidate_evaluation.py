@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from scripts.dsh_upgrade import checks as upgrade_checks
 from scripts.dsh_upgrade.diffing import capability_delta, dependency_delta, public_api_delta
-from scripts.dsh_upgrade.checks import verify_installed_release_train
+from scripts.dsh_upgrade.checks import verify_declared_release_train, verify_installed_release_train
 from scripts.dsh_upgrade.models import CommandResult, EvaluationReport
 from scripts.dsh_upgrade.reporting import write_report
-from scripts.dsh_upgrade.workspace import CandidateWorkspace
+from scripts.dsh_upgrade.workspace import CandidateWorkspace, ReleasedWorkspace
 
 
 def test_dependency_delta_reports_add_remove_and_change() -> None:
@@ -43,6 +44,38 @@ def test_candidate_workspace_pins_only_dsh_train(tmp_path: Path) -> None:
         assert package["dependencies"]["@deepseek-ai/cordis"] == "4.0.1"
         assert "0.1.1-rc.2" in (candidate / "src" / "host-protocol.mjs").read_text()
     assert host.exists()
+
+
+def test_released_workspace_materializes_an_immutable_git_ref(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repository, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
+    host = repository / "runtime-host"
+    host.mkdir()
+    (host / "package.json").write_text('{"dependencies": {"@deepseek-ai/dsh": "old"}}\n')
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "release"], cwd=repository, check=True)
+    subprocess.run(["git", "tag", "v-old"], cwd=repository, check=True)
+    (host / "package.json").write_text('{"dependencies": {"@deepseek-ai/dsh": "new"}}\n')
+
+    with ReleasedWorkspace(repository, "v-old", Path("runtime-host")) as released:
+        package = json.loads((released / "package.json").read_text())
+        assert package["dependencies"]["@deepseek-ai/dsh"] == "old"
+
+
+def test_declared_release_train_checks_only_published_direct_pins(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(json.dumps({
+        "dependencies": {
+            "@deepseek-ai/dsh": "0.1.2-alpha.2",
+            "@deepseek-ai/dsh-agent": "0.1.2-alpha.2",
+            "@deepseek-ai/cordis": "4.0.2",
+        },
+    }))
+    check, dependencies = verify_declared_release_train(tmp_path, "0.1.2-alpha.2")
+    assert check.passed is True
+    assert set(dependencies) == {"@deepseek-ai/dsh", "@deepseek-ai/dsh-agent"}
 
 
 def test_public_api_and_capability_delta_are_explicit(tmp_path: Path) -> None:
