@@ -17,6 +17,7 @@ from app.core.tenant import add_main_scope, resolve_main_id
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
 from app.services.external_tool_limits import MCP_ENABLED_TOOL_LIMIT, enabled_mcp_tool_names, validate_mcp_activation
+from app.services.mcp_streamable_http import StreamableHttpMcpClient
 
 
 TOOL_TYPES = {"http", "mcp"}
@@ -976,55 +977,12 @@ class ExternalToolService:
                 if str(key).strip() and str(value).strip()
             }
         )
-        payload = {"jsonrpc": "2.0", "id": uuid.uuid4().hex, "method": method, "params": params}
         timeout = float(config.get("timeoutSeconds") or 20)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.post(endpoint, json=payload, headers=headers)
-        try:
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            detail = _short_text(response.text, 1000)
-            raise ValueError(f"MCP 服务返回 HTTP {response.status_code}: {detail}") from exc
-        data = self._parse_mcp_response(response.text)
-        if isinstance(data, dict) and data.get("error"):
-            raise ValueError(_short_text(data.get("error"), 1000))
-        result = data.get("result") if isinstance(data, dict) else data
-        return result if isinstance(result, dict) else {"result": result}
-
-    @staticmethod
-    def _parse_mcp_response(text: str) -> Any:
-        stripped = str(text or "").strip()
-        if not stripped:
-            return {}
-        try:
-            return json.loads(stripped)
-        except json.JSONDecodeError as direct_error:
-            events: List[str] = []
-            current: List[str] = []
-            for raw_line in stripped.splitlines():
-                line = raw_line.strip()
-                if not line:
-                    if current:
-                        events.append("\n".join(current))
-                        current = []
-                    continue
-                if line.startswith(":"):
-                    continue
-                if line.startswith("data:"):
-                    candidate = line.replace("data:", "", 1).strip()
-                    if candidate and candidate != "[DONE]":
-                        current.append(candidate)
-            if current:
-                events.append("\n".join(current))
-
-            for candidate in events:
-                try:
-                    return json.loads(candidate)
-                except json.JSONDecodeError:
-                    continue
-
-            preview = _short_text(stripped, 500)
-            raise ValueError(f"MCP 服务返回非 JSON 响应：{preview}") from direct_error
+        return await StreamableHttpMcpClient(
+            endpoint=endpoint,
+            headers=headers,
+            timeout=timeout,
+        ).call(method, params)
 
 
 external_tool_service = ExternalToolService()

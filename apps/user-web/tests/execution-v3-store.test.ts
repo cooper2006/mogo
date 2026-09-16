@@ -5,8 +5,8 @@ import type { ExecutionEventV3 } from '../src/features/execution-v3/domain/proto
 import { isRef, reactive } from 'vue'
 import { useAuthoritativeMessages } from '../src/components/chat/useAuthoritativeMessages'
 import { refreshAfterRun } from '../src/composables/chatRuntimeRefresh'
-import { activityOutcome, activityStateMessageKey, hasActiveRunningLeaf, runningContainerIds } from '../src/features/execution-v3/domain/activityPresentation'
-import { collapseRepeatedToolCalls, toolActionLabelKey, toolCallDetail, toolCallSummary, toolCapabilityKeys } from '../src/features/execution-v3/domain/repeatedToolCalls'
+import { activityOutcome, activityStateMessageKey, hasActiveRunningLeaf, hasVisibleActiveRunningLeaf, runningContainerIds } from '../src/features/execution-v3/domain/activityPresentation'
+import { collapseRepeatedToolCalls, latestToolGroupKey, toolActionLabelKey, toolCallDetail, toolCallSummary, toolCapabilityKeys } from '../src/features/execution-v3/domain/repeatedToolCalls'
 import { elapsedRunMs, formatRunDuration } from '../src/features/execution-v3/domain/runTiming'
 import { applyAssistantContentEvent } from '../src/features/execution-v3/domain/assistantContent'
 import { decideToolApproval, listPendingToolApprovals } from '../src/api/toolApprovals'
@@ -46,6 +46,12 @@ function event(overrides: Partial<ExecutionEventV3>): ExecutionEventV3 {
   assert.deepEqual(timeline.map((entry) => entry.type), ['item', 'tool-group', 'item'])
   assert.equal(timeline[0].type === 'item' && timeline[0].item.id, 'note')
   assert.equal(timeline[1].type === 'tool-group' && timeline[1].items.length, 2)
+  assert.equal(latestToolGroupKey(timeline), timeline[1].key)
+  assert.equal(latestToolGroupKey([
+    { type: 'tool-group', key: 'older-tool-group', items: [], statusItems: [] },
+    { type: 'tool-group', key: 'latest-tool-group', items: [], statusItems: [] },
+  ]), 'latest-tool-group')
+  assert.equal(latestToolGroupKey(timeline.filter(entry => entry.type === 'item')), null)
   assert.equal(timeline[1].type === 'tool-group' && timeline[1].statusItems.length, 4)
   assert.deepEqual(timeline[1].type === 'tool-group' && timeline[1].items.map(item => item.id), ['bash-1', 'read-1'])
   assert.equal(toolCallSummary(items[3]), '查看根目录')
@@ -268,6 +274,13 @@ const completedHtml = renderAssistantMarkdown(streamed)
   assert.equal(hasActiveRunningLeaf(store.visibleItems.value), false)
   store.applyEvent(event({ type: 'item.started', item_kind: 'tool', item_id: 'browser_click', parent_item_id: 'research', payload: { name: 'browser_click' } }))
   assert.equal(hasActiveRunningLeaf(store.visibleItems.value), true)
+  assert.equal(hasVisibleActiveRunningLeaf(store.visibleItems.value), true)
+  const invisibleActivity = [{
+    id: 'silent', kind: 'activity', status: 'running', revision: 1,
+    startedAt: 0, updatedAt: 0, payload: {},
+  }] as any
+  assert.equal(hasActiveRunningLeaf(invisibleActivity), true)
+  assert.equal(hasVisibleActiveRunningLeaf(invisibleActivity), false)
 }
 
 {

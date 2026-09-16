@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
@@ -9,6 +10,7 @@ VALID_RUNTIME_KINDS = {
     "openai_images",
     "azure_openai_images",
     "dashscope_image",
+    "custom_images",
 }
 
 
@@ -33,6 +35,9 @@ def infer_image_runtime_kind(
 ) -> str:
     if IMAGE_CAPABILITY not in normalize_capabilities(capabilities):
         return ""
+    explicit = str(requested or "").strip()
+    if explicit in VALID_RUNTIME_KINDS:
+        return explicit
     provider_type = str(provider.get("provider_type") or "").strip()
     provider_code = str(provider.get("code") or "").strip().lower()
     endpoint = str(base_url or provider.get("default_base_url") or "").lower()
@@ -40,9 +45,6 @@ def infer_image_runtime_kind(
         return "azure_openai_images"
     if provider_code == "qwen" or "dashscope.aliyuncs.com" in endpoint:
         return "dashscope_image"
-    explicit = str(requested or "").strip()
-    if explicit in VALID_RUNTIME_KINDS:
-        return explicit
     return "openai_images"
 
 
@@ -55,15 +57,41 @@ def normalize_image_settings(
     source = dict(raw or {}) if isinstance(raw, dict) else {}
     if not runtime_kind:
         return {}
-    size = str(source.get("size") or "").strip()
-    quality = str(source.get("quality") or "").strip()
-    if not size:
-        size = default_image_size(runtime_kind, model_name)
-    if not quality:
-        quality = "low" if runtime_kind == "azure_openai_images" or "gpt-image" in model_name.lower() else "standard"
-    result: dict[str, Any] = {"size": size}
-    if runtime_kind != "dashscope_image":
-        result["quality"] = quality
+    del model_name
+    result: dict[str, Any] = {}
+    for key, camel_key in (
+        ("size", "size"),
+        ("quality", "quality"),
+        ("output_format", "outputFormat"),
+        ("response_format", "responseFormat"),
+        ("ratio", "ratio"),
+    ):
+        value = str(source.get(key, source.get(camel_key, "")) or "").strip()
+        if value:
+            result[key] = value
+    raw_n = source.get("n")
+    if raw_n not in (None, ""):
+        count = int(raw_n)
+        if not 1 <= count <= 10:
+            raise ValueError("图片生成数量 n 必须在 1 到 10 之间")
+        result["n"] = count
+    if runtime_kind == "custom_images":
+        request_path = str(source.get("request_path", source.get("requestPath", "")) or "").strip()
+        result["request_path"] = request_path or "/images/generations"
+        result["response_url_path"] = str(
+            source.get("response_url_path", source.get("responseUrlPath", "")) or "data.0.url"
+        ).strip()
+        result["response_base64_path"] = str(
+            source.get("response_base64_path", source.get("responseBase64Path", "")) or "data.0.b64_json"
+        ).strip()
+        raw_extra = source.get("extra_params", source.get("extraParams", source.get("extraParamsJson", {})))
+        if isinstance(raw_extra, str):
+            raw_extra = json.loads(raw_extra or "{}")
+        if not isinstance(raw_extra, dict):
+            raise ValueError("额外请求参数必须是 JSON 对象")
+        if len(json.dumps(raw_extra, ensure_ascii=False)) > 20000:
+            raise ValueError("额外请求参数不能超过 20000 个字符")
+        result["extra_params"] = raw_extra
     if runtime_kind == "azure_openai_images":
         api_style = str(
             source.get("api_style")
@@ -79,10 +107,22 @@ def normalize_image_settings(
 
 
 def serialize_image_settings(settings: dict[str, Any]) -> dict[str, Any]:
-    result = {
-        "size": str(settings.get("size") or ""),
-        "quality": str(settings.get("quality") or ""),
-    }
+    result: dict[str, Any] = {}
+    for key, camel_key in (
+        ("size", "size"),
+        ("quality", "quality"),
+        ("output_format", "outputFormat"),
+        ("response_format", "responseFormat"),
+        ("ratio", "ratio"),
+        ("n", "n"),
+        ("request_path", "requestPath"),
+        ("response_url_path", "responseUrlPath"),
+        ("response_base64_path", "responseBase64Path"),
+    ):
+        if key in settings:
+            result[camel_key] = settings[key]
+    if "extra_params" in settings:
+        result["extraParamsJson"] = json.dumps(settings["extra_params"], ensure_ascii=False, indent=2)
     if "api_style" in settings:
         result["apiStyle"] = str(settings.get("api_style") or "v1")
     if "include_api_version" in settings:

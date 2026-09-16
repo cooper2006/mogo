@@ -197,15 +197,10 @@
             <ImageModelRuntimeFields
               v-model:runtimeKind="form.runtimeKind"
               v-model:imageSettings="form.imageSettings"
-              :provider-code="currentProvider?.code || ''"
               :provider-type="currentProvider?.providerType || ''"
             />
           </n-grid-item>
         </n-grid>
-        <div class="form-hint">
-          {{ t('保存后仅返回脱敏 Key。编辑已有模型时，API Key 留空会保留原值。') }}
-          <template v-if="isAzureProvider"> {{ t('Azure OpenAI 请在“模型 ID”填写 Deployment 名称。') }}</template>
-        </div>
       </n-form>
 
       <aside v-if="editorMode === 'edit'" class="test-panel">
@@ -435,7 +430,6 @@ function resetTestState(text = t('保存模型配置后可测试。')) {
 
 function recommendedImageRuntime(provider?: ModelProviderItem): ImageRuntimeKind {
   if (provider?.providerType === 'azure_openai') return 'azure_openai_images';
-  if (provider?.code === 'qwen' || provider?.defaultBaseUrl.includes('dashscope.aliyuncs.com')) return 'dashscope_image';
   return 'openai_images';
 }
 
@@ -533,6 +527,15 @@ async function saveModel() {
   if (isAzureProvider.value && !form.value.apiVersion.trim()) {
     message.warning(t('Azure OpenAI 需要填写 API Version'));
     return;
+  }
+  if (hasImageCapability.value && form.value.runtimeKind === 'custom_images') {
+    try {
+      const parsed = JSON.parse(String(form.value.imageSettings.extraParamsJson || '{}').trim() || '{}');
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error();
+    } catch {
+      message.warning(t('请输入有效的 JSON 对象'));
+      return;
+    }
   }
   saving.value = true;
   try {
@@ -1097,9 +1100,4 @@ onMounted(reload);
   background: #fff1f2;
 }
 
-.form-hint {
-  margin-left: 96px;
-  color: #687789;
-  font-size: 12px;
-}
 </style>

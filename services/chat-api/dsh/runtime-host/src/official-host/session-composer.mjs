@@ -2,7 +2,8 @@ import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 import { ASKAI_ENTERPRISE_PRESET_ID } from './overlay.mjs'
-import { resolveNativePreset } from './api-compat.mjs'
+import { normalizePersistedPreset, resolveNativePreset } from './api-compat.mjs'
+import { readPersistedSession } from './session-state.mjs'
 import { SKILL_RESOURCE_READ_TOOL } from '../skill-resource-tool.mjs'
 
 function selectedPreset(meta, events) {
@@ -65,10 +66,11 @@ export class OfficialSessionComposer {
   async persistedIdentity(sessionId) {
     const persistence = this.ctx.get('sessionPersistence')
     if (persistence === undefined) throw new Error('official DSH session persistence is unavailable')
-    const inspected = await persistence.inspect(SessionId(sessionId))
+    const inspected = await readPersistedSession(persistence, SessionId(sessionId))
     return {
-      presetId: selectedPreset(inspected.meta, inspected.events),
+      presetId: normalizePersistedPreset(selectedPreset(inspected.meta, inspected.events)),
       cwd: inspected.meta?.cwd,
+      events: inspected.events,
     }
   }
 

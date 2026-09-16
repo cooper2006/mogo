@@ -82,7 +82,7 @@ export async function createDshWorkspaceBranch(_workspaceId: string, _name: stri
 export async function createDshCodeSession(_workspaceId: string, _draftId: string, _title: string, _modelId?: string, _useWorktree?: boolean, _sourceRef?: string): Promise<DshCodeSession> { throw new Error('local Code execution is only available in the desktop app') }
 export async function sendDshCodeTurn(_sessionId: string, _text: string): Promise<{ accepted: boolean; messageId: string }> { throw new Error('local Code execution is only available in the desktop app') }
 export async function attachDshCodeConversation(_conversationId: string): Promise<DshCodeSession | null> { return null }
-export async function cancelDshCodeTurn(_sessionId: string): Promise<{ cancelled: boolean; jobsPending: boolean }> { throw new Error('local Code execution is only available in the desktop app') }
+export async function cancelDshCodeTurn(_sessionId: string): Promise<import('./types').DshTurnCancelResult> { throw new Error('local Code execution is only available in the desktop app') }
 export async function subscribeDshCodeEvents(_sessionId: string, _after?: number): Promise<{ subscribed: boolean }> { throw new Error('local Code execution is only available in the desktop app') }
 export async function unsubscribeDshCodeEvents(_sessionId: string) { return { unsubscribed: true } }
 export function onDshCodeEvent(_listener: (sessionId: string, event: DshExecutionEvent) => void) { return () => {} }

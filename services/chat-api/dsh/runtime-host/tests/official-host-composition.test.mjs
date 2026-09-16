@@ -12,7 +12,11 @@ import {
   ASKAI_ENTERPRISE_PRESET_ID,
   buildAskaiHostOverlay,
 } from '../src/official-host/overlay.mjs'
-import { DSH_CODE_PRESET_ID, resolveNativePreset } from '../src/official-host/api-compat.mjs'
+import {
+  DSH_CODE_PRESET_ID,
+  normalizePersistedPreset,
+  resolveNativePreset,
+} from '../src/official-host/api-compat.mjs'
 import { extractOfficialPresetIsolation } from '../src/official-host/preset-isolation.mjs'
 import {
   collectInsertedEntryIds,
@@ -28,7 +32,7 @@ const REQUIRED_HOST_MODULES = new Set([
   '@deepseek-ai/dsh-user-approval',
   '@deepseek-ai/dsh-tools',
   '@deepseek-ai/dsh-agent-presets',
-  '@deepseek-ai/dsh-code-runtime-worker-thread',
+  '@deepseek-ai/dsh-ptc-runtime-node',
   '@deepseek-ai/dsh-workspace',
   '@deepseek-ai/dsh-host-plugin-inventory',
 ])
@@ -122,6 +126,11 @@ test('plugin inventory compatibility flattens native preset compositions', async
     },
   })
   assert.deepEqual(inventory.entries.map(row => row.moduleName), ['root-module', 'fs-module'])
+})
+
+test('V3 migration keeps the MOVO code preset identity stable', () => {
+  assert.equal(normalizePersistedPreset('ptc'), DSH_CODE_PRESET_ID)
+  assert.equal(normalizePersistedPreset(ASKAI_ENTERPRISE_PRESET_ID), ASKAI_ENTERPRISE_PRESET_ID)
 })
 
 async function withTempRoot(run) {

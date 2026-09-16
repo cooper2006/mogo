@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from scripts.dsh_upgrade import checks as upgrade_checks
 from scripts.dsh_upgrade.diffing import capability_delta, dependency_delta, public_api_delta
 from scripts.dsh_upgrade.checks import verify_installed_release_train
-from scripts.dsh_upgrade.models import EvaluationReport
+from scripts.dsh_upgrade.models import CommandResult, EvaluationReport
 from scripts.dsh_upgrade.reporting import write_report
 from scripts.dsh_upgrade.workspace import CandidateWorkspace
 
@@ -149,3 +150,46 @@ def test_installed_release_train_rejects_mixed_dsh_versions(tmp_path: Path) -> N
     check, inventory = verify_installed_release_train(tmp_path, "new")
     assert check.passed is False
     assert inventory["@deepseek-ai/dsh-tools"] == ["old"]
+
+
+def test_cross_version_resume_rejects_semantic_tool_loss(tmp_path: Path, monkeypatch) -> None:
+    required_tools = sorted(upgrade_checks.CODE_RUNTIME_TOOLS)
+    baseline = {
+        "ok": True,
+        "historyPreserved": True,
+        "continuationCompleted": True,
+        "session": {
+            "presetId": "code",
+            "permissionPreset": "workspace-write",
+            "modelTools": required_tools,
+        },
+    }
+    candidate = {
+        "ok": True,
+        "historyPreserved": True,
+        "continuationCompleted": True,
+        "session": {
+            "presetId": "code",
+            "permissionPreset": "workspace-write",
+            "modelTools": [name for name in required_tools if name != "skill"],
+        },
+    }
+
+    def fake_run(name, *_args, **_kwargs):
+        payload = baseline if name == "baseline_session_create" else candidate
+        return CommandResult(
+            name=name,
+            command=[],
+            returncode=0,
+            duration_seconds=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
+
+    monkeypatch.setattr(upgrade_checks, "run_command", fake_run)
+    result = upgrade_checks.cross_version_session(tmp_path / "old", tmp_path / "new", "node")
+
+    assert result["created"] is True
+    assert result["resumed"] is False
+    semantic_check = next(check for check in result["checks"] if check.name == "candidate_session_semantics")
+    assert "missing tools: ['skill']" in semantic_check.stderr

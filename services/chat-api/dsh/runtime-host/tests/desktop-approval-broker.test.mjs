@@ -4,11 +4,10 @@ import test from 'node:test'
 import { DesktopApprovalBroker } from '../src/desktop-approval-broker.mjs'
 
 function harness() {
-  let listener
+  const listeners = new Map()
   const ctx = { on: (name, callback) => {
-    assert.equal(name, 'approval/request')
-    listener = callback
-    return () => { listener = undefined }
+    listeners.set(name, callback)
+    return () => { listeners.delete(name) }
   } }
   const events = [{
     type: 'approval/asked',
@@ -16,10 +15,14 @@ function harness() {
   }]
   return {
     ctx, events,
-    request: () => listener({
-      agent: { id: 'session-a', session: { events } },
+    request: () => {
+      const event = events.at(-1)
+      listeners.get('session/event')({ id: 'session-a' }, event)
+      return listeners.get('approval/request')({
+      agent: { id: 'session-a' },
       toolName: events.at(-1).data.toolName, callId: events.at(-1).data.callId, reason: 'needs wider access',
-    }, () => Promise.resolve('delegated')),
+      }, () => Promise.resolve('delegated'))
+    },
   }
 }
 

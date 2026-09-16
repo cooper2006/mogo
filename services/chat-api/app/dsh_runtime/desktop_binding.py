@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import time
 from typing import Any
 from uuid import uuid4
 
@@ -218,6 +219,41 @@ class DesktopCodeBindingService:
                 user_id=user_id, message_id=message_id,
             )
         return {"cursor": cursor, "terminal": terminal is not None}
+
+    async def cancel_turn(
+        self, *, tenant_id: str, user_id: str, device_id: str,
+        kernel_session_id: str, reason: str,
+    ) -> dict[str, Any]:
+        """Idempotently close the server projection after Desktop confirmed cancellation."""
+        binding = await self._owned_binding(
+            tenant_id=tenant_id, user_id=user_id, device_id=device_id,
+            kernel_session_id=kernel_session_id,
+        )
+        active = dict(binding.get("active_turn") or {})
+        message_id = str(active.get("message_id") or "")
+        if not message_id or str(active.get("status") or "running") != "running":
+            return {"cancelled": False, "already_terminal": True}
+        current = await self._conversations.message(
+            message_id, tenant_id=tenant_id, user_id=user_id
+        )
+        if current is None:
+            raise LookupError("assistant_message_not_found")
+        cursor = max((
+            int(event.get("stream_seq_end") or event.get("stream_seq") or 0)
+            for event in list(current.get("execution_events") or [])
+        ), default=int(binding.get("last_event_cursor") or 0)) + 1
+        event_id = f"desktop:{message_id}:cancelled"
+        await self.project_events(
+            tenant_id=tenant_id, user_id=user_id, device_id=device_id,
+            kernel_session_id=kernel_session_id, message_id=message_id,
+            events=[{
+                "v": 3, "event_id": event_id, "id": event_id, "ts": int(time() * 1000),
+                "type": "run.cancelled", "revision": max(1, cursor),
+                "stream_seq": cursor, "stream_seq_end": cursor,
+                "payload": {"reason": reason[:200]},
+            }],
+        )
+        return {"cancelled": True, "already_terminal": False}
 
     async def _owned_binding(
         self, *, tenant_id: str, user_id: str, device_id: str, kernel_session_id: str,

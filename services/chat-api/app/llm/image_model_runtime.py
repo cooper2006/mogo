@@ -5,6 +5,9 @@ from urllib.parse import urlparse
 
 
 def resolve_image_runtime_kind(config: dict[str, Any]) -> str:
+    explicit = str(config.get("runtime_kind") or "").strip()
+    if explicit in {"openai_images", "azure_openai_images", "dashscope_image", "custom_images"}:
+        return explicit
     provider_type = str(config.get("provider_type") or "openai_compatible").strip()
     provider_code = str(config.get("provider_code") or "").strip().lower()
     provider_name = str(config.get("provider_name") or "").strip().lower()
@@ -13,9 +16,6 @@ def resolve_image_runtime_kind(config: dict[str, Any]) -> str:
         return "azure_openai_images"
     if provider_code == "qwen" or "通义千问" in provider_name or "dashscope.aliyuncs.com" in endpoint:
         return "dashscope_image"
-    explicit = str(config.get("runtime_kind") or "").strip()
-    if explicit in {"openai_images", "azure_openai_images", "dashscope_image"}:
-        return explicit
     return "openai_images"
 
 

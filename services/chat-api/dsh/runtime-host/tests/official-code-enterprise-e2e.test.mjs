@@ -137,6 +137,67 @@ test('one official Code turn searches enterprise data, reads, writes, and tests 
   }
 })
 
+test('Code analysis normalizes broad glob and redundant standing sandbox mode', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'askai-code-analysis-compat-'))
+  await mkdir(join(root, 'src'))
+  await writeFile(join(root, 'src', 'marker.txt'), 'ANALYSIS_COMPAT_MARKER\n')
+  const modelCalls = []
+  const server = createServer(async (request, response) => {
+    const body = await bodyOf(request)
+    if (request.url !== '/model') return response.writeHead(404).end()
+    modelCalls.push(body)
+    if (modelCalls.length === 1) return ndjson(response, [
+      { type: 'tool-call', id: 'broad-glob', name: 'glob', arguments: JSON.stringify({ pattern: '*', path: root }) },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ])
+    if (modelCalls.length === 2) return ndjson(response, [
+      { type: 'tool-call', id: 'same-mode', name: 'bash', arguments: JSON.stringify({
+        command: 'pwd', description: 'Show current workspace', workdir: root,
+        sandbox_permissions: 'workspace-write', justification: 'Inspect the current project.',
+      }) },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ])
+    return ndjson(response, [
+      { type: 'text-delta', text: 'Project analysis probes completed.' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  const runtime = new KernelRuntime({
+    runtimeId: 'runtime-analysis-compat', isolationKey: 'tenant:analysis-compat',
+    profileVersion: 'profile-code-e2e', storageRoot: root,
+    modelProfile: modelProfile(`http://127.0.0.1:${address.port}`),
+  })
+  try {
+    await runtime.start()
+    await runtime.createSession({
+      sessionId: 'analysis-compat', presetId: 'code', cwd: root, permissionPreset: 'workspace-write',
+    })
+    runtime.send({
+      sessionId: 'analysis-compat', mode: 'prompt',
+      content: [{ type: 'text', data: { text: 'Analyze this project progressively.' } }],
+      temporalContext: {
+        captured_at_utc: '2026-09-16T00:00:00Z', user_local_time: '2026-09-16T08:00:00+08:00',
+        user_timezone: 'Asia/Shanghai',
+      },
+    })
+    await waitFor(() => modelCalls.length >= 3)
+    await waitFor(() => runtime.events('analysis-compat', -1).some(event => event.nativeType === 'turn/end'))
+    const observations = JSON.stringify(modelCalls.slice(1))
+    assert.match(observations, /src\/marker\.txt/)
+    assert.match(observations, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.doesNotMatch(observations, /not strictly wider|subprocess seam retained/)
+    const events = runtime.events('analysis-compat', -1)
+    assert.equal(events.some(event => event.nativeType === 'approval/asked'), false)
+    assert.equal(events.filter(event => event.nativeType === 'tool/result').some(event => event.data?.isError), false)
+  } finally {
+    await runtime.dispose()
+    await new Promise(resolve => server.close(resolve))
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('cancelling a Code Session terminates its official DSH background jobs', async () => {
   const root = await mkdtemp(join(tmpdir(), 'askai-code-cancel-e2e-'))
   const modelCalls = []

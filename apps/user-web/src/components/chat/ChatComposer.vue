@@ -6,6 +6,7 @@ import { t, useLocale } from '../../composables/i18n'
 import type { ChatDocumentKind, PendingDocument } from './types'
 import { NModal } from 'naive-ui'
 import SkillFeedbackPanel from '../skills/SkillFeedbackPanel.vue'
+import ComposerActionButton from './ComposerActionButton.vue'
 
 interface PendingImage {
   file: File
@@ -823,43 +824,13 @@ watch(() => props.allowSkills, (allowed) => {
             </button>
           </div>
         </div>
-        <div class="relative flex h-8 w-8 items-center justify-center">
-          <svg v-if="running" class="ring-svg" viewBox="0 0 44 44">
-            <rect x="4" y="4" width="36" height="36" rx="10" ry="10" fill="none" stroke="rgba(59,130,246,0.2)" stroke-width="2.5"/>
-            <rect
-              class="ring-dash"
-              x="4"
-              y="4"
-              width="36"
-              height="36"
-              rx="10"
-              ry="10"
-              fill="none"
-              stroke="rgba(59,130,246,0.9)"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              pathLength="100"
-              stroke-dasharray="18 90"
-            />
-          </svg>
-          <button
-            @click="sendMessage"
-            :disabled="stopping || (!userInput.trim() && pendingImages.length === 0 && pendingDocuments.length === 0 && !selectedSkill && !running)"
-            :title="stopping ? (locale === 'zh' ? '正在停止…' : 'Stopping…') : undefined"
-            class="relative z-10 flex h-8 w-8 items-center justify-center rounded-lg text-white transition-all duration-200 ease-in-out transform active:scale-95"
-            :class="(userInput.trim() || pendingImages.length > 0 || pendingDocuments.length > 0 || selectedSkill || running) ? 'bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-200' : 'bg-gray-200 cursor-not-allowed'"
-          >
-            <svg v-if="running && !stopping" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-            <svg v-else-if="stopping" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" opacity="0.3" />
-              <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
-            </svg>
-            <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" class="text-white" xmlns="http://www.w3.org/2000/svg"><path d="M7 11L12 6L17 11M12 18V7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </div>
+        <ComposerActionButton
+          :running="running"
+          :stopping="stopping"
+          :disabled="stopping || (!userInput.trim() && pendingImages.length === 0 && pendingDocuments.length === 0 && !selectedSkill && !running)"
+          :locale="locale"
+          @activate="sendMessage"
+        />
         </div>
       </div>
       <slot name="prompt-guide" />
@@ -880,27 +851,4 @@ watch(() => props.allowSkills, (allowed) => {
   border-top-right-radius: 0;
 }
 
-.ring-svg {
-  position: absolute;
-  inset: -2px;
-  width: 36px;
-  height: 36px;
-  pointer-events: none;
-}
-
-.ring-dash {
-  animation: dashLoop 1.2s linear infinite;
-}
-
-@keyframes dashLoop {
-  to {
-    stroke-dashoffset: -100;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ring-dash {
-    animation: none;
-  }
-}
 </style>

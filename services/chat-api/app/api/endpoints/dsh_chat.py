@@ -120,6 +120,12 @@ class DesktopTurnEventsRequest(BaseModel):
     events: list[dict[str, Any]] = Field(max_length=500)
 
 
+class DesktopTurnCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device_id: str = Field(min_length=1, max_length=256)
+    reason: str = Field(default="user_cancelled", min_length=1, max_length=200)
+
+
 class DesktopRuntimeRebindRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     device_id: str = Field(min_length=1, max_length=256)
@@ -417,6 +423,25 @@ async def desktop_turn_events(
             tenant_id=tenant_id, user_id=user_id, device_id=payload.device_id,
             kernel_session_id=kernel_session_id, message_id=payload.message_id,
             events=payload.events,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ApiResponse(code=0, message="ok", data=data)
+
+
+@router.post("/desktop/dsh/sessions/{kernel_session_id}/turns/cancel", response_model=ApiResponse)
+async def desktop_turn_cancel(
+    kernel_session_id: str,
+    payload: DesktopTurnCancelRequest,
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    tenant_id, user_id, _ = await _identity(authorization)
+    try:
+        data = await dsh_runtime_application.require_desktop_bindings().cancel_turn(
+            tenant_id=tenant_id, user_id=user_id, device_id=payload.device_id,
+            kernel_session_id=kernel_session_id, reason=payload.reason,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

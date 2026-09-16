@@ -51,6 +51,13 @@ def _as_time(value: datetime | None) -> str:
     return utc_iso(value)
 
 
+def _validated_image_settings(*, runtime_kind: str, model_name: str, raw: Any) -> dict[str, Any]:
+    try:
+        return normalize_image_settings(runtime_kind=runtime_kind, model_name=model_name, raw=raw)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"图片生成配置无效: {exc}") from exc
+
+
 def _format_provider(doc: dict[str, Any]) -> dict[str, object]:
     return {
         "id": str(doc["_id"]),
@@ -74,7 +81,7 @@ def _format_instance(doc: dict[str, Any], provider_map: dict[str, dict[str, Any]
         capabilities=capabilities,
         base_url=str(doc.get("base_url") or ""),
     )
-    image_settings = normalize_image_settings(
+    image_settings = _validated_image_settings(
         runtime_kind=runtime_kind,
         model_name=str(doc.get("model_name") or ""),
         raw=doc.get("settings"),
@@ -197,7 +204,7 @@ async def post_model_instance(
         capabilities=capabilities,
         base_url=payload.baseUrl,
     )
-    image_settings = normalize_image_settings(
+    image_settings = _validated_image_settings(
         runtime_kind=runtime_kind,
         model_name=payload.modelName,
         raw=payload.imageSettings,
@@ -253,7 +260,7 @@ async def put_model_instance(
         capabilities=capabilities,
         base_url=payload.baseUrl,
     )
-    image_settings = normalize_image_settings(
+    image_settings = _validated_image_settings(
         runtime_kind=runtime_kind,
         model_name=payload.modelName,
         raw=payload.imageSettings,

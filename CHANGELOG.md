@@ -6,8 +6,26 @@ image.
 
 ## Unreleased
 
+## v0.1.15 - 2026-09-16
+
+### Added
+
+- Add configurable image-generation request and response mappings for OpenAI-compatible
+  and custom image model endpoints.
+
+### Changed
+
+- Upgrade the embedded DeepSeek Harness runtime to `0.1.6-alpha.1` and refresh its
+  compatibility adapters, supply-chain evidence, and regression coverage.
+- Improve desktop and Web Code-session recovery, workspace selection, and execution
+  activity presentation.
+
 ### Fixed
 
+- Implement the MCP Streamable HTTP initialization and session lifecycle while
+  retaining compatibility with legacy MCP HTTP endpoints.
+- Send image-model options only when explicitly configured and parse configurable
+  JSON response paths without assuming one provider-specific payload shape.
 - Refresh Skill feedback state when new feedback notifications arrive without
   interrupting the current page with a loading state.
 - Copy Skill sharing links in desktop WebViews that expose the Clipboard API

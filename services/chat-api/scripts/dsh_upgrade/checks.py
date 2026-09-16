@@ -10,6 +10,12 @@ from .models import CommandResult
 from .process import run_command
 
 
+SESSION_CONTINUITY_FIELDS = ("presetId", "permissionPreset")
+CODE_RUNTIME_TOOLS = frozenset({
+    "read", "write", "edit", "glob", "grep", "bash", "skill", "todo_write", "subagent",
+})
+
+
 def last_json(stdout: str) -> dict[str, Any]:
     for line in reversed(stdout.splitlines()):
         try:
@@ -121,12 +127,42 @@ def cross_version_session(host_root: Path, candidate_root: Path, node: str) -> d
         )
         created_payload = last_json(create.stdout) if create.passed else {}
         resumed_payload = last_json(resume.stdout) if resume.passed else {}
+        baseline_session = created_payload.get("session") or {}
+        candidate_session = resumed_payload.get("session") or {}
+        continuity_errors: list[str] = []
+        if resume.passed:
+            if resumed_payload.get("historyPreserved") is not True:
+                continuity_errors.append("persisted conversation history was not preserved")
+            if resumed_payload.get("continuationCompleted") is not True:
+                continuity_errors.append("resumed Session did not complete a continuation turn")
+            for field in SESSION_CONTINUITY_FIELDS:
+                if candidate_session.get(field) != baseline_session.get(field):
+                    continuity_errors.append(
+                        f"{field} changed from {baseline_session.get(field)!r} "
+                        f"to {candidate_session.get(field)!r}"
+                    )
+            missing_tools = sorted(CODE_RUNTIME_TOOLS - set(candidate_session.get("modelTools") or []))
+            if missing_tools:
+                continuity_errors.append(f"resumed Code Session is missing tools: {missing_tools}")
+        else:
+            continuity_errors.append("candidate Session did not resume")
+        continuity = CommandResult(
+            name="candidate_session_semantics",
+            command=[],
+            returncode=0 if not continuity_errors else 2,
+            duration_seconds=0,
+            stdout=json.dumps({
+                "baseline": baseline_session,
+                "candidate": candidate_session,
+            }, ensure_ascii=False),
+            stderr="; ".join(continuity_errors),
+        )
         return {
-            "checks": [create, resume],
+            "checks": [create, resume, continuity],
             "created": bool(created_payload.get("ok")),
-            "resumed": bool(resumed_payload.get("ok")),
-            "baseline_session": created_payload.get("session"),
-            "candidate_session": resumed_payload.get("session"),
+            "resumed": bool(resumed_payload.get("ok")) and continuity.passed,
+            "baseline_session": baseline_session,
+            "candidate_session": candidate_session,
         }
     finally:
         shutil.rmtree(session_root, ignore_errors=True)

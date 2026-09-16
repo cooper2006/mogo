@@ -3,6 +3,33 @@ import { resolve } from 'node:path'
 
 import { KernelRuntime } from '../src/kernel-runtime.mjs'
 
+const HISTORY_MARKER = 'DSH_UPGRADE_HISTORY_MARKER'
+const CONTINUATION_MARKER = 'DSH_UPGRADE_CONTINUATION_MARKER'
+const TEMPORAL_CONTEXT = Object.freeze({
+  captured_at_utc: '2026-09-16T00:00:00Z',
+  user_local_time: '2026-09-16T08:00:00+08:00',
+  user_timezone: 'Asia/Shanghai',
+})
+
+function send(runtime, sessionId, text) {
+  runtime.send({
+    sessionId,
+    mode: 'prompt',
+    content: [{ type: 'text', data: { text } }],
+    temporalContext: TEMPORAL_CONTEXT,
+  })
+}
+
+async function waitForTurn(runtime, sessionId, previousTurns) {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    const turns = runtime.events(sessionId, -1).filter(event => event.nativeType === 'turn/end').length
+    if (turns > previousTurns) return
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error('compatibility probe turn did not finish')
+}
+
 function options(argv) {
   const parsed = {}
   for (let index = 0; index < argv.length; index += 2) {
@@ -37,7 +64,18 @@ try {
         cwd: storageRoot,
       })
     : await runtime.resumeSession(args['session-id'])
-  process.stdout.write(`${JSON.stringify({ ok: true, mode: args.mode, session })}\n`)
+  const priorEvents = runtime.events(args['session-id'], -1)
+  const historyPreserved = args.mode === 'create'
+    || priorEvents.some(event => JSON.stringify(event.data).includes(HISTORY_MARKER))
+  const previousTurns = priorEvents.filter(event => event.nativeType === 'turn/end').length
+  send(runtime, args['session-id'], args.mode === 'create' ? HISTORY_MARKER : CONTINUATION_MARKER)
+  await waitForTurn(runtime, args['session-id'], previousTurns)
+  const marker = args.mode === 'create' ? HISTORY_MARKER : CONTINUATION_MARKER
+  const continuationCompleted = runtime.events(args['session-id'], -1)
+    .some(event => JSON.stringify(event.data).includes(marker))
+  process.stdout.write(`${JSON.stringify({
+    ok: true, mode: args.mode, session, historyPreserved, continuationCompleted,
+  })}\n`)
 } finally {
   await runtime.dispose()
 }

@@ -28,6 +28,10 @@ class AzureGptImageConfig:
     api_version: str = "2024-02-01"
     size: str = "1536x864"
     quality: str = "low"
+    output_format: str = "png"
+    response_format: str = ""
+    n: int | None = 1
+    ratio: str = ""
     api_style: str = "v1"
     include_api_version: bool = False
     max_retries: int = 3
@@ -74,16 +78,23 @@ class AzureGptImageClient:
         if not deployment:
             raise RuntimeError("Azure image model deployment is not configured")
         size = self._config.size
-        self.validate_image_size(size, deployment)
+        if size:
+            self.validate_image_size(size, deployment)
 
         payload = {
             "model": deployment,
             "prompt": prompt,
-            "size": size,
-            "n": 1,
-            "quality": self._config.quality,
-            "output_format": "png",
         }
+        for key, value in (
+            ("size", size),
+            ("quality", self._config.quality),
+            ("output_format", self._config.output_format),
+            ("response_format", self._config.response_format),
+            ("n", self._config.n),
+            ("ratio", self._config.ratio),
+        ):
+            if value not in (None, ""):
+                payload[key] = value
         headers = {
             "api-key": api_key,
             "Content-Type": "application/json",
@@ -95,11 +106,7 @@ class AzureGptImageClient:
             "image_generation_request",
             endpoint=endpoint,
             payload={
-                "size": payload["size"],
-                "n": payload["n"],
-                "model": payload["model"],
-                "quality": payload["quality"],
-                "output_format": payload["output_format"],
+                **payload,
                 "prompt_chars": len(prompt),
                 "prompt_preview": prompt[:500],
             },

@@ -136,6 +136,7 @@ export const messages = {
   'execution.v3.processed': { zh: '已处理', en: 'Processed' },
   'execution.v3.processed_count': { zh: '已处理 · {count} 项活动', en: 'Processed · {count} activities' },
   'execution.v3.processing': { zh: '正在处理', en: 'Working' },
+  'execution.v3.thinking': { zh: '思考中...', en: 'Thinking...' },
   'execution.v3.quality_inconclusive': { zh: '未完成', en: 'Incomplete' },
   'execution.v3.quality_timeout': { zh: '质量校验超时', en: 'Quality check timed out' },
   'execution.v3.quality_needs_repair': { zh: '需要修正', en: 'Needs repair' },

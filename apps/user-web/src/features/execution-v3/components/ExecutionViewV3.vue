@@ -6,8 +6,8 @@ import CommentaryItem from './CommentaryItem.vue'
 import ProvisionalAssistantItem from './ProvisionalAssistantItem.vue'
 import ActivityItem from './ActivityItem.vue'
 import RepeatedToolCallGroup from './RepeatedToolCallGroup.vue'
-import { hasActiveRunningLeaf, runningContainerIds } from '../domain/activityPresentation'
-import { collapseRepeatedToolCalls } from '../domain/repeatedToolCalls'
+import { hasVisibleActiveRunningLeaf, runningContainerIds } from '../domain/activityPresentation'
+import { collapseRepeatedToolCalls, latestToolGroupKey } from '../domain/repeatedToolCalls'
 import { elapsedRunMs, formatRunDuration } from '../domain/runTiming'
 
 const props = defineProps<{ store: ExecutionStoreV3; live?: boolean }>()
@@ -31,8 +31,11 @@ const rows = computed(() => {
 })
 const passiveRunningIds = computed(() => runningContainerIds(rows.value))
 const timeline = computed(() => collapseRepeatedToolCalls(rows.value))
+const liveToolGroupKey = computed(() => props.live ? latestToolGroupKey(timeline.value) : null)
 const showIdlePlaceholder = computed(
-  () => Boolean(props.live) && !hasActiveRunningLeaf(rows.value, passiveRunningIds.value),
+  () => Boolean(props.live)
+    && !liveToolGroupKey.value
+    && !hasVisibleActiveRunningLeaf(rows.value, passiveRunningIds.value),
 )
 const terminalWithoutAnswer = computed(
   () => !props.live && ['failed', 'cancelled', 'blocked'].includes(props.store.state.runStatus),
@@ -103,6 +106,7 @@ function toggle() {
           v-if="entry.type === 'tool-group'"
           :items="entry.items"
           :status-items="entry.statusItems"
+          :live="entry.key === liveToolGroupKey"
         />
         <CommentaryItem v-else-if="entry.item.kind === 'commentary'" :item="entry.item" />
         <ProvisionalAssistantItem v-else-if="entry.item.kind === 'final_answer'" :item="entry.item" />
@@ -114,7 +118,7 @@ function toggle() {
         />
       </template>
       <div v-if="showIdlePlaceholder" class="execution-v3-placeholder" role="status" :aria-label="t('execution.v3.processing')">
-        <span></span><span></span><span></span>
+        <span class="execution-v3-thinking">{{ t('execution.v3.thinking') }}</span>
       </div>
       <div v-if="terminalWithoutAnswer" class="execution-v3-terminal" role="status">
         <span>{{ terminalText }}</span>
@@ -132,15 +136,22 @@ function toggle() {
 .execution-v3-elapsed { min-width:4.5em; color:#7c8798; font-variant-numeric:tabular-nums; font-weight:500; }
 .collapsed .execution-v3-toggle svg { transform:rotate(0deg); }
 .execution-v3-list { display:flex; flex-direction:column; gap:4px; padding:3px 4px 7px; }
-.execution-v3-placeholder { display:flex; gap:4px; align-items:center; min-height:28px; }
-.execution-v3-placeholder span { width:5px; height:5px; border-radius:50%; background:#2563eb; animation:placeholder-pulse 1.2s ease-in-out infinite; }
-.execution-v3-placeholder span:nth-child(2) { animation-delay:.15s; }
-.execution-v3-placeholder span:nth-child(3) { animation-delay:.3s; }
+.execution-v3-placeholder { display:flex; align-items:center; min-height:28px; }
+.execution-v3-thinking {
+  color:transparent;
+  background:linear-gradient(100deg,#64748b 12%,#2563eb 42%,#93c5fd 52%,#2563eb 62%,#64748b 88%);
+  background-size:240% 100%;
+  background-clip:text;
+  -webkit-background-clip:text;
+  font-size:12px;
+  font-weight:600;
+  animation:thinking-sheen 1.7s linear infinite;
+}
 .execution-v3-terminal { display:flex; flex-direction:column; gap:3px; color:#b45309; font-size:13px; padding-bottom:5px; }
 .execution-v3-terminal small { color:#7c5b27; font-size:12px; font-weight:400; }
-@keyframes placeholder-pulse { 50% { opacity:.3; transform:translateY(-2px); } }
+@keyframes thinking-sheen { from { background-position:100% 0; } to { background-position:-140% 0; } }
 @media (prefers-reduced-motion: reduce) {
   .execution-v3-toggle svg { transition:none; }
-  .execution-v3-placeholder span { animation:none; }
+  .execution-v3-thinking { color:#2563eb; background:none; animation:none; }
 }
 </style>

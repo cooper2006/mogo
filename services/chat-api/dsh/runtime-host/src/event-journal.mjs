@@ -36,10 +36,10 @@ export class EventJournal {
     }
   }
 
-  resetFromSession(session) {
-    this.#events.set(session.id, [])
-    for (const event of session.events) {
-      this.append(session.id, event.type, event.data, event.seq)
+  resetFromEvents(sessionId, persistedEvents) {
+    this.#events.set(sessionId, [])
+    for (const event of persistedEvents) {
+      this.append(sessionId, event.type, event.data, event.seq)
     }
   }
 

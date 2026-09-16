@@ -9,7 +9,6 @@ import {
   listDshCodeApprovals,
   listDshWorkspaces,
   onDshCodeEvent,
-  selectDshWorkspace,
   sendDshCodeTurn,
   subscribeDshCodeEvents,
   unsubscribeDshCodeEvents,
@@ -28,6 +27,7 @@ export type CodePaneState = {
   worktree: boolean
   sourceRef: string
   busy: boolean
+  stopping: boolean
   error: string
   cursor: number
   events: DshExecutionEvent[]
@@ -42,7 +42,7 @@ type ChatRuntimeBoundary = {
 function draftState(): CodePaneState {
   return reactive({
     draftId: createClientUuid(), workspace: null, session: null, worktree: false, sourceRef: '',
-    busy: false, error: '', cursor: -1, events: [], approvals: [], approvalBusy: {},
+    busy: false, stopping: false, error: '', cursor: -1, events: [], approvals: [], approvalBusy: {},
   })
 }
 
@@ -70,6 +70,7 @@ export function useDshCodeRuntime(chat: ChatRuntimeBoundary) {
           turn?.finish()
           turns.delete(sessionId)
           entry.busy = false
+          entry.stopping = false
           void refreshApprovals(entry)
           if (turn) void getLatestDshTaskChanges(sessionId).then(changes => {
             if (changes?.files.length) turn.setCodeChanges(changes)
@@ -85,24 +86,6 @@ export function useDshCodeRuntime(chat: ChatRuntimeBoundary) {
       panes.set(key, state)
     }
     return state
-  }
-
-  async function choose(key: string, modelId?: string) {
-    const state = stateFor(key)
-    if (state.session) throw new Error('a started Code task cannot switch Workspace')
-    state.busy = true
-    state.error = ''
-    try {
-      const selected = await selectDshWorkspace(modelId)
-      if (selected) {
-        state.workspace = selected
-        state.sourceRef = selected.git_branch ? `refs/heads/${selected.git_branch}` : 'HEAD'
-      }
-      return selected
-    } catch (error) {
-      state.error = codeRuntimeErrorMessage(error, getLocale())
-      throw error
-    } finally { state.busy = false }
   }
 
   async function attach(key: string, conversationId: string) {
@@ -236,9 +219,37 @@ export function useDshCodeRuntime(chat: ChatRuntimeBoundary) {
   async function stop(key: string) {
     const state = stateFor(key)
     const sessionId = state.session?.kernel_session_id
-    if (!sessionId) return false
-    await cancelDshCodeTurn(sessionId)
-    return true
+    if (!sessionId || state.stopping) return false
+    state.stopping = true
+    state.error = ''
+    try {
+      const result = await cancelDshCodeTurn(sessionId)
+      if (!result.accepted || result.turn_pending || result.jobs_pending) {
+        throw new Error('DSH Runtime did not confirm that the turn stopped')
+      }
+      turns.get(sessionId)?.finish()
+      turns.delete(sessionId)
+      state.busy = false
+      if (result.runtime_recovered) {
+        for (const id of subscribed) await unsubscribeDshCodeEvents(id)
+        subscribed.clear()
+        for (const entry of panes.values()) {
+          const id = entry.session?.kernel_session_id
+          if (!id) continue
+          turns.get(id)?.finish()
+          turns.delete(id)
+          entry.busy = false
+          entry.stopping = false
+          await ensureSubscribed(entry)
+        }
+      }
+      return true
+    } catch (error) {
+      state.error = codeRuntimeErrorMessage(error, getLocale())
+      throw error
+    } finally {
+      state.stopping = false
+    }
   }
 
   async function decide(
@@ -276,5 +287,5 @@ export function useDshCodeRuntime(chat: ChatRuntimeBoundary) {
     for (const sessionId of subscribed) void unsubscribeDshCodeEvents(sessionId)
   })
 
-  return { stateFor, attach, choose, clear, setWorktree, setSourceRef, setWorkspaceBranch, setDraftProject, inheritDraftProject, transferDraft, send, stop, decide, needsAssistance, activeSessions, reset }
+  return { stateFor, attach, clear, setWorktree, setSourceRef, setWorkspaceBranch, setDraftProject, inheritDraftProject, transferDraft, send, stop, decide, needsAssistance, activeSessions, reset }
 }

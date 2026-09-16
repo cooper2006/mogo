@@ -4,6 +4,13 @@ export type ExecutionTimelineEntry =
   | { type: 'item'; key: string; item: ExecutionItemV3 }
   | { type: 'tool-group'; key: string; items: ExecutionItemV3[]; statusItems: ExecutionItemV3[] }
 
+export function latestToolGroupKey(entries: ExecutionTimelineEntry[]): string | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index].type === 'tool-group') return entries[index].key
+  }
+  return null
+}
+
 const SENSITIVE_ARGUMENT = /(?:token|secret|password|authorization|cookie|api[_-]?key)/i
 const INTERNAL_FILE_ARGUMENT = /^(?:object_path|signed_url|download_url|local_path|storage_path|blueprint_object_path)$/i
 const FILE_ARGUMENT = /^(?:artifact|artifacts|file|files|file_path|path|document|documents|image|images|filename)$/i

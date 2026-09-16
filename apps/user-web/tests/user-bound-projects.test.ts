@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { availableUserProjects, reconcileUserBoundProjects } from '../src/composables/code/projectAuthorization'
+import { availableUserProjects, boundProjectWorktree, reconcileUserBoundProjects } from '../src/composables/code/projectAuthorization'
 
 const local = [
   { workspace_id: 'employee-project', title: 'Employee', path: '/employee', status: 'ok', session_ids: [], created_at: '1', updated_at: '3' },
@@ -28,5 +28,10 @@ const unavailable = reconcileUserBoundProjects([
 assert.equal(unavailable[0].status, 'missing-dir')
 assert.equal(unavailable[0].path, '')
 assert.deepEqual(availableUserProjects(unavailable), [])
+
+assert.equal(boundProjectWorktree([
+  { workspace_id: 'employee-project', title: 'My project', worktree: true, created_at: '1', updated_at: '3' },
+], 'employee-project'), true, 'selecting an existing project must restore its saved worktree preference')
+assert.equal(boundProjectWorktree([], 'employee-project'), false)
 
 console.log('user-bound project reconciliation tests passed')

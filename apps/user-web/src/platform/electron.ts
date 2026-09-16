@@ -1,4 +1,4 @@
-import type { AgentStatus, BrowserBounds, BrowserOwner, BrowserPreviewFrame, BrowserPurpose, DesktopUpdateState, DshCodeSession, DshDirectoryEntry, DshExecutionEvent, DshFileDiff, DshFilePreview, DshGitBranchSnapshot, DshGitCommitResult, DshGitPushResult, DshPendingApproval, DshTaskChangeSet, DshTaskFileDiff, DshTerminalEvent, DshWorkspace, DshWorkspaceInspection, DshWorkspaceSummary, EmbeddedBrowserState, EnterpriseConnectionResult, PlatformCapabilities, SaveResult, Settings } from './types'
+import type { AgentStatus, BrowserBounds, BrowserOwner, BrowserPreviewFrame, BrowserPurpose, DesktopUpdateState, DshCodeSession, DshDirectoryEntry, DshExecutionEvent, DshFileDiff, DshFilePreview, DshGitBranchSnapshot, DshGitCommitResult, DshGitPushResult, DshPendingApproval, DshTaskChangeSet, DshTaskFileDiff, DshTerminalEvent, DshTurnCancelResult, DshWorkspace, DshWorkspaceInspection, DshWorkspaceSummary, EmbeddedBrowserState, EnterpriseConnectionResult, PlatformCapabilities, SaveResult, Settings } from './types'
 
 interface ElectronApi {
   settings: { get(): Promise<Settings>; update(next: Settings): Promise<Settings> }
@@ -24,7 +24,7 @@ interface ElectronApi {
   dshCodeSession: {
     attach(conversationId: string): Promise<DshCodeSession | null>
     send(sessionId: string, text: string): Promise<{ accepted: boolean; messageId: string }>
-    cancel(sessionId: string): Promise<{ cancelled: boolean; jobsPending: boolean }>
+    cancel(sessionId: string): Promise<DshTurnCancelResult>
     subscribe(sessionId: string, after?: number): Promise<{ subscribed: boolean }>
     unsubscribe(sessionId: string): Promise<{ unsubscribed: boolean }>
     onEvent(listener: (sessionId: string, event: DshExecutionEvent) => void): () => void

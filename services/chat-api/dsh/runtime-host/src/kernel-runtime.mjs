@@ -15,9 +15,15 @@ import { AskaiWebSearchProvider } from './askai-web-search-provider.mjs'
 import { RuntimeTemporalContext } from './runtime-temporal-context.mjs'
 import { RuntimeTurnContext } from './runtime-turn-context.mjs'
 import { OfficialDshHostComposition } from './official-host/composition.mjs'
+import { compatibleSessionEvents } from './official-host/event-compat.mjs'
 import { ASKAI_ENTERPRISE_PRESET_ID } from './official-host/overlay.mjs'
-import { currentPermissionPreset } from './official-host/api-compat.mjs'
+import { currentPermissionPreset, normalizePersistedPreset } from './official-host/api-compat.mjs'
 import { OfficialSessionComposer, enterpriseToolNames } from './official-host/session-composer.mjs'
+import {
+  inheritedEventCount,
+  liveSessionEvents,
+  sessionCreationLineage,
+} from './official-host/session-state.mjs'
 import { capabilityToolContracts, modelToolContracts } from './official-host/tool-contract-inventory.mjs'
 import { DshWorkspaceService } from './workspace-service.mjs'
 import { cancelSessionWork } from './session-cancellation.mjs'
@@ -105,7 +111,9 @@ export class KernelRuntime {
     this.#workspaces = new DshWorkspaceService(ctx.workspaceRegistry)
 
     ctx.on('session/event', (session, event) => {
-      this.#journal.append(session.id, event.type, event.data, event.seq)
+      for (const compatible of compatibleSessionEvents(event)) {
+        this.#journal.append(session.id, compatible.type, compatible.data, compatible.seq ?? event.seq)
+      }
       const selection = this.#skillInvocations.observe(session.id, event)
       if (selection !== undefined) this.#journal.append(session.id, 'skill/selected', selection)
     }, { global: true })
@@ -129,17 +137,15 @@ export class KernelRuntime {
       ? undefined
       : (await this.#workspaces.get(workspaceId, { requireAvailable: true })).workspace
     const composition = await this.#sessionComposer.prepare(presetId)
+    const lineage = sessionCreationLineage(seed, parentSessionId)
     const handle = await this.#ctx.agents.create({
       sessionId: SessionId(sessionId),
       meta: {
         ...(workspace === undefined && cwd === undefined ? {} : { cwd: workspace?.path ?? resolve(cwd) }),
         agentPreset: composition.presetId,
-        ...(parentSessionId === undefined ? {} : {
-          parentSession: SessionId(parentSessionId),
-          seedLength: seed.length,
-        }),
+        ...lineage.meta,
       },
-      ...(seed === undefined ? {} : { seed }),
+      ...lineage.options,
       agentOptions: this.#agentOptions(),
       setup: composition.setup,
     })
@@ -158,22 +164,25 @@ export class KernelRuntime {
   async exportCompletedSeed(sessionId) {
     const agent = this.#requireAgent(sessionId)
     await agent.whenIdle()
-    return structuredClone(agent.session.events)
+    return structuredClone(liveSessionEvents(agent.session))
   }
 
   async resumeSession(sessionId) {
     this.#assertStarted()
     const live = this.#handles.get(sessionId)
     if (live !== undefined) return await this.describeSession(live.agent)
-    const identity = await this.#sessionComposer.persistedIdentity(sessionId)
-    const composition = await this.#sessionComposer.prepare(identity.presetId)
+    const persisted = await this.#sessionComposer.persistedIdentity(sessionId)
+    const composition = await this.#sessionComposer.prepare(persisted.presetId)
     const handle = await this.#ctx.agents.resume({
       resumeSessionId: SessionId(sessionId),
       agentOptions: this.#agentOptions(),
       setup: composition.setup,
     })
     this.#handles.set(sessionId, handle)
-    this.#journal.resetFromSession(handle.agent.session)
+    this.#journal.resetFromEvents(
+      sessionId,
+      persisted.events.flatMap(event => compatibleSessionEvents(event)),
+    )
     this.#journal.append(sessionId, 'agent/status', { status: handle.agent.status })
     return await this.describeSession(handle.agent)
   }
@@ -251,14 +260,10 @@ export class KernelRuntime {
       status: agent.status,
       profileVersion: this.profileVersion,
       model: { provider: agent.options.provider, model: agent.options.model },
-      presetId: agent.session.header.agentPreset,
-      seedLength: agent.session.header.seedLength ?? 0,
+      presetId: normalizePersistedPreset(agent.session.header.agentPreset),
+      seedLength: inheritedEventCount(agent.session),
       workspaceId: workspace === undefined ? null : String(workspace.id),
-      permissionPreset: currentPermissionPreset(
-        this.#ctx.permissionPresets,
-        agent.session,
-        this.#composition.installation.version,
-      ),
+      permissionPreset: currentPermissionPreset(this.#ctx.permissionPresets, agent.session),
       modelTools: assembly.tools.map(tool => tool.name),
       capabilityTools: this.#ctx.tools.schemas(scopeOf(agent.ctx)).map(tool => tool.name),
     }

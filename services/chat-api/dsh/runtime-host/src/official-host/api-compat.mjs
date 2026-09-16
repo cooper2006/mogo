@@ -1,8 +1,6 @@
 export const DSH_CODE_PRESET_ID = 'code'
 
-function usesSessionPermissionProjection(version) {
-  return /^0\.1\.2(?:-|$)/.test(version)
-}
+const MIGRATED_CODE_PRESET_IDS = new Set(['ptc'])
 
 /** Keep ASKAI's stable `code` contract while DSH evolves preset names. */
 export async function resolveNativePreset(presets, requestedPreset) {
@@ -15,9 +13,12 @@ export async function resolveNativePreset(presets, requestedPreset) {
   }
 }
 
-/** Normalize the permission projection boundary across the approved trains. */
-export function currentPermissionPreset(permissionPresets, session, dshVersion) {
-  return usesSessionPermissionProjection(dshVersion)
-    ? permissionPresets.current(session)
-    : permissionPresets.current(session.events)
+/** Preserve MOVO's public preset identity across DSH's V2-to-V3 rename. */
+export function normalizePersistedPreset(presetId) {
+  return MIGRATED_CODE_PRESET_IDS.has(presetId) ? DSH_CODE_PRESET_ID : presetId
+}
+
+/** Keep the native permission projection behind MOVO's stable Session contract. */
+export function currentPermissionPreset(permissionPresets, session) {
+  return permissionPresets.current(session)
 }

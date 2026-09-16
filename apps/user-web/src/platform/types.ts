@@ -124,6 +124,13 @@ export interface DshCodeSession {
   worktree: boolean
 }
 
+export interface DshTurnCancelResult {
+  accepted: boolean
+  jobs_pending: boolean
+  turn_pending: boolean
+  runtime_recovered: boolean
+}
+
 export interface DshExecutionEvent {
   v: 3
   event_id: string

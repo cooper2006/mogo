@@ -16,13 +16,10 @@ test('reset restores native persisted events without cross-session leakage', () 
   const journal = new EventJournal()
   journal.append('session-a', 'old', {})
   journal.append('session-b', 'other', {})
-  journal.resetFromSession({
-    id: 'session-a',
-    events: [
+  journal.resetFromEvents('session-a', [
       { type: 'user/message', seq: 4, data: { text: 'persisted' } },
       { type: 'assistant/message', seq: 5, data: { text: 'answer' } },
-    ],
-  })
+  ])
 
   assert.deepEqual(journal.replay('session-a', 0).map(event => event.nativeSeq), [4, 5])
   assert.equal(journal.replay('session-b', 0).length, 1)

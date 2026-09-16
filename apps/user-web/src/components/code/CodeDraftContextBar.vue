@@ -11,10 +11,13 @@ defineProps<{
   sourceRef?: string
   modelId?: string
   locale?: 'zh' | 'en'
+  workspaces?: readonly DshWorkspace[]
+  workspacesLoading?: boolean
 }>()
 
 const emit = defineEmits<{
   (event: 'choose'): void
+  (event: 'select', workspace: DshWorkspace): void
   (event: 'clear'): void
   (event: 'worktree', enabled: boolean): void
   (event: 'source-ref', fullRef: string): void
@@ -31,7 +34,10 @@ const emit = defineEmits<{
       :busy="busy"
       :worktree="worktree"
       :locale="locale"
+      :workspaces="workspaces"
+      :workspaces-loading="workspacesLoading"
       @choose="emit('choose')"
+      @select="(selected) => emit('select', selected)"
       @clear="emit('clear')"
       @worktree="(enabled) => emit('worktree', enabled)"
     />

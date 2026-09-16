@@ -1,5 +1,8 @@
 import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 
+import { stableModelRequest } from './official-host/model-request-compat.mjs'
+import { compatibleModelToolCall } from './official-host/model-tool-call-compat.mjs'
+
 async function *readNdjson(response) {
   if (response.body === null) throw new Error('MOVO Model Gateway returned an empty stream')
   const decoder = new TextDecoder()
@@ -48,6 +51,7 @@ export class AskaiModelGatewayAdapter extends LlmAdapter {
   }
 
   async *stream(options) {
+    const request = stableModelRequest(options)
     const response = await fetch(this.config.gatewayUrl, {
       method: 'POST',
       headers: {
@@ -59,8 +63,8 @@ export class AskaiModelGatewayAdapter extends LlmAdapter {
         modelInstanceId: this.config.modelInstanceId,
         provider: options.provider,
         model: options.model,
-        system: options.system,
-        messages: options.messages,
+        system: request.system,
+        messages: request.messages,
         tools: options.tools,
         maxTokens: options.maxTokens,
         sessionId: options.sessionId,
@@ -89,14 +93,15 @@ export class AskaiModelGatewayAdapter extends LlmAdapter {
         text += delta
         yield { type: 'text-delta', index: nextBlockIndex, text: delta }
       } else if (event?.type === 'tool-call') {
+        const compatible = compatibleModelToolCall(event)
         if (textStarted) {
           yield { type: 'block-end', index: nextBlockIndex, block: { type: 'text', text } }
           nextBlockIndex += 1
           textStarted = false
         }
-        const id = String(event.id ?? '')
-        const name = String(event.name ?? '')
-        const args = String(event.arguments ?? '{}')
+        const id = String(compatible.id ?? '')
+        const name = String(compatible.name ?? '')
+        const args = String(compatible.arguments ?? '{}')
         yield { type: 'block-start', index: nextBlockIndex, blockType: 'tool-call' }
         yield { type: 'tool-call-delta', index: nextBlockIndex, id, name, argumentsDelta: args }
         yield { type: 'block-end', index: nextBlockIndex, block: { type: 'tool-call', id, name, arguments: args } }

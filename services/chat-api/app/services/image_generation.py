@@ -20,10 +20,9 @@ from app.llm.configured_models import ModelConfigError
 from app.llm.providers.azure_gpt_image import AzureGptImageClient, AzureGptImageConfig
 from app.llm.image_model_runtime import (
     dashscope_native_endpoint,
-    default_image_quality,
-    default_image_size,
     resolve_image_runtime_kind,
 )
+from app.llm.image_json_protocol import build_image_payload, image_endpoint, response_value
 from app.infrastructure.request_context import get_request_context
 from app.utils.oss_uploader import AliyunOSSUploader
 
@@ -271,6 +270,7 @@ class ConfiguredImageGenerationService:
             output_format=output_format,
             timeout_seconds=timeout_seconds,
             model_source=model_source,
+            runtime_kind=runtime_kind,
         )
 
     async def _generate_with_azure_config(
@@ -292,15 +292,15 @@ class ConfiguredImageGenerationService:
                 api_key=str(config.get("api_key") or ""),
                 api_version=str(config.get("api_version") or settings.get("api_version") or "2024-02-01"),
                 deployment=str(config.get("model_name") or ""),
-                size=_normalize_size(
-                    size or settings.get("size") or default_image_size("azure_openai_images", str(config.get("model_name") or "")),
-                    runtime_kind="azure_openai_images",
+                size=str(size if settings.get("size") and size else settings.get("size") or ""),
+                quality=str(quality if settings.get("quality") and quality else settings.get("quality") or ""),
+                output_format=str(
+                    output_format if settings.get("output_format") and output_format
+                    else settings.get("output_format") or ""
                 ),
-                quality=str(
-                    quality
-                    or settings.get("quality")
-                    or default_image_quality("azure_openai_images", str(config.get("model_name") or ""))
-                ),
+                response_format=str(settings.get("response_format") or ""),
+                n=int(settings["n"]) if settings.get("n") not in (None, "") else None,
+                ratio=str(settings.get("ratio") or ""),
                 api_style=str(settings.get("generation_api_style") or settings.get("api_style") or "v1"),
                 include_api_version=bool(settings.get("include_api_version")),
                 max_retries=int(settings.get("max_retries") or 3),
@@ -337,6 +337,7 @@ class ConfiguredImageGenerationService:
         output_format: str | None,
         timeout_seconds: float | None,
         model_source: str,
+        runtime_kind: str = "openai_images",
     ) -> ImageGenerationResult:
         endpoint = str(config.get("base_url") or "").rstrip("/")
         if not endpoint:
@@ -344,26 +345,14 @@ class ConfiguredImageGenerationService:
         api_key = str(config.get("api_key") or "").strip()
         if not api_key:
             raise ModelConfigError("图片模型 API Key 不能为空")
-        url = f"{endpoint}/images/generations"
-        resolved_format = str(output_format or settings.get("output_format") or "png").strip() or "png"
-        payload = {
-            "model": str(config.get("model_name") or "").strip(),
-            "prompt": prompt,
-            "size": _normalize_size(
-                size or settings.get("size") or default_image_size("openai_images", str(config.get("model_name") or "")),
-                runtime_kind="openai_images",
-            ),
-            "quality": str(
-                quality
-                or settings.get("quality")
-                or default_image_quality("openai_images", str(config.get("model_name") or ""))
-            ),
-            "n": 1,
-            "output_format": resolved_format,
-        }
-        background = str(settings.get("background") or "").strip()
-        if background:
-            payload["background"] = background
+        request_path = settings.get("request_path") if runtime_kind == "custom_images" else "/images/generations"
+        url = image_endpoint(endpoint, str(request_path or "/images/generations"))
+        payload = build_image_payload(
+            model=str(config.get("model_name") or ""),
+            prompt=prompt,
+            settings=settings,
+            overrides={"size": size, "quality": quality, "output_format": output_format},
+        )
         timeout_value = float(timeout_seconds or settings.get("timeout_seconds") or 90.0)
         async with httpx.AsyncClient(timeout=timeout_value, follow_redirects=True) as client:
             resp = await client.post(
@@ -377,13 +366,21 @@ class ConfiguredImageGenerationService:
         if resp.status_code >= 400:
             raise RuntimeError(f"image generation failed http_{resp.status_code}: {resp.text[:1200]}")
         data = resp.json()
-        image_bytes = await self._decode_image_response(data, timeout_seconds=timeout_value)
+        if runtime_kind == "custom_images":
+            image_bytes = await self._decode_configured_image_response(
+                data,
+                url_path=str(settings.get("response_url_path") or "data.0.url"),
+                base64_path=str(settings.get("response_base64_path") or "data.0.b64_json"),
+                timeout_seconds=timeout_value,
+            )
+        else:
+            image_bytes = await self._decode_image_response(data, timeout_seconds=timeout_value)
         return ImageGenerationResult(
             image_bytes=image_bytes,
             response=dict(data or {}),
             request_id=str((data or {}).get("request_id") or ""),
             provider_type=str(config.get("provider_type") or "openai_compatible"),
-            runtime_kind="openai_images",
+            runtime_kind=runtime_kind,
             model_id=str(config.get("id") or config.get("model_name") or ""),
             model_name=str(config.get("model_name") or ""),
             model_source=model_source,
@@ -406,10 +403,7 @@ class ConfiguredImageGenerationService:
         model_name = str(config.get("model_name") or "").strip()
         if not model_name:
             raise ModelConfigError("图片模型 ID 不能为空")
-        resolved_size = _normalize_size(
-            size or settings.get("size") or default_image_size("dashscope_image", model_name),
-            runtime_kind="dashscope_image",
-        )
+        resolved_size = str(size if settings.get("size") and size else settings.get("size") or "").strip()
         timeout_value = float(timeout_seconds or settings.get("timeout_seconds") or 90.0)
         if model_name.startswith("qwen-image") and "edit" not in model_name:
             data = await self._call_dashscope_v1(
@@ -419,6 +413,7 @@ class ConfiguredImageGenerationService:
                 negative_prompt=negative_prompt,
                 model_name=model_name,
                 size=resolved_size,
+                settings=settings,
                 timeout_seconds=timeout_value,
             )
             image_url = self._extract_dashscope_v1_image_url(data)
@@ -438,6 +433,7 @@ class ConfiguredImageGenerationService:
             prompt=prompt,
             negative_prompt=negative_prompt,
             model_name=model_name,
+            settings=settings,
             timeout_seconds=timeout_value,
         )
         image_url = self._extract_dashscope_multimodal_image_url(data)
@@ -462,6 +458,7 @@ class ConfiguredImageGenerationService:
         negative_prompt: str,
         model_name: str,
         size: str,
+        settings: dict[str, Any],
         timeout_seconds: float,
     ) -> dict[str, Any]:
         endpoint = dashscope_native_endpoint(base_url)
@@ -475,13 +472,16 @@ class ConfiguredImageGenerationService:
                     }
                 ]
             },
-            "parameters": {
-                "negative_prompt": str(negative_prompt or "").strip(),
-                "prompt_extend": True,
-                "watermark": False,
-                "size": size,
-            },
+            "parameters": {},
         }
+        parameters = payload["parameters"]
+        if negative_prompt:
+            parameters["negative_prompt"] = str(negative_prompt).strip()
+        for field in ("quality", "output_format", "response_format", "n", "ratio"):
+            if settings.get(field) not in (None, ""):
+                parameters[field] = settings[field]
+        if size:
+            parameters["size"] = size
         async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
             resp = await client.post(
                 endpoint,
@@ -502,24 +502,30 @@ class ConfiguredImageGenerationService:
         prompt: str,
         negative_prompt: str,
         model_name: str,
+        settings: dict[str, Any],
         timeout_seconds: float,
     ) -> dict[str, Any]:
         loop = asyncio.get_running_loop()
         if getattr(dashscope, "base_http_api_url", ""):
             # Preserve existing process-wide behavior while still using the per-model API key.
             dashscope.base_http_api_url = str(dashscope.base_http_api_url)
+        call_options: dict[str, Any] = {
+            "api_key": api_key,
+            "model": model_name,
+            "messages": [{"role": "user", "content": [{"text": prompt}]}],
+            "result_format": "message",
+            "stream": False,
+        }
+        if negative_prompt:
+            call_options["negative_prompt"] = str(negative_prompt).strip()
+        for field in ("size", "quality", "output_format", "response_format", "n", "ratio"):
+            if settings.get(field) not in (None, ""):
+                call_options[field] = settings[field]
         response = await loop.run_in_executor(
             None,
             partial(
                 MultiModalConversation.call,
-                api_key=api_key,
-                model=model_name,
-                messages=[{"role": "user", "content": [{"text": prompt}]}],
-                result_format="message",
-                stream=False,
-                n=1,
-                watermark=False,
-                negative_prompt=str(negative_prompt or "").strip(),
+                **call_options,
             ),
         )
         status_code = int(getattr(response, "status_code", 500) or 500)
@@ -563,6 +569,24 @@ class ConfiguredImageGenerationService:
         if not url:
             raise RuntimeError(f"image response has no b64_json/url: {str(data)[:800]}")
         return await self._download_remote_image(url, timeout_seconds=timeout_seconds)
+
+    async def _decode_configured_image_response(
+        self,
+        data: Dict[str, Any],
+        *,
+        url_path: str,
+        base64_path: str,
+        timeout_seconds: float,
+    ) -> bytes:
+        encoded = response_value(data, base64_path)
+        if encoded:
+            return base64.b64decode(str(encoded))
+        url = str(response_value(data, url_path) or "").strip()
+        if url:
+            return await self._download_remote_image(url, timeout_seconds=timeout_seconds)
+        raise RuntimeError(
+            f"image response does not match configured paths ({url_path}, {base64_path}): {str(data)[:800]}"
+        )
 
     async def _download_remote_image(self, image_url: str, *, timeout_seconds: float) -> bytes:
         src = str(image_url or "").strip()

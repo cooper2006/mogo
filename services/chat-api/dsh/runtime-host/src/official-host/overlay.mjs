@@ -29,7 +29,6 @@ function hostRows({ askaiPresetRoot, shippedPresetRoot, storageDomainRoot, hostF
           name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings',
         }]
       : []),
-    { id: 'code-runtime', name: '@deepseek-ai/dsh-code-runtime-worker-thread' },
     { id: 'storage', name: '@deepseek-ai/dsh-storage' },
     {
       id: 'storage-json',

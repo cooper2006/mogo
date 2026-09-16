@@ -1,28 +1,33 @@
 const OUTCOMES = new Set(['allowed-once', 'rejected', 'cancelled'])
 
-function latestAskedEvent(session, request) {
-  for (let index = session.events.length - 1; index >= 0; index -= 1) {
-    const event = session.events[index]
-    if (event.type !== 'approval/asked') continue
-    if (event.data.toolName !== request.toolName) continue
-    if (request.callId !== undefined && event.data.callId !== request.callId) continue
-    return event
-  }
-  throw new Error('DSH approval request has no matching approval/asked event')
-}
-
 export class DesktopApprovalBroker {
   #pending = new Map()
   #sessionGrants = new Map()
-  #dispose
+  #asked = new Map()
+  #disposeApproval
+  #disposeEvents
 
   constructor(ctx, { excludedTools = [] } = {}) {
     this.excludedTools = new Set(excludedTools)
-    this.#dispose = ctx.on('approval/request', async (request, next) => {
+    this.#disposeEvents = ctx.on('session/event', (session, event) => {
+      if (event.type === 'approval/asked') {
+        const asked = this.#asked.get(session.id) ?? []
+        asked.push(event)
+        this.#asked.set(session.id, asked)
+      } else if (event.type === 'approval/decided') {
+        const asked = this.#asked.get(session.id) ?? []
+        this.#asked.set(session.id, asked.filter(item => item.data.id !== event.data.id))
+      }
+    }, { global: true })
+    this.#disposeApproval = ctx.on('approval/request', async (request, next) => {
       if (this.excludedTools.has(request.toolName)) return next()
       const sessionId = String(request.agent.id)
       if (this.#sessionGrants.get(sessionId)?.has(request.toolName)) return 'allowed-once'
-      const asked = latestAskedEvent(request.agent.session, request)
+      const asked = [...(this.#asked.get(sessionId) ?? [])].reverse().find(event => (
+        event.data.toolName === request.toolName
+        && (request.callId === undefined || event.data.callId === request.callId)
+      ))
+      if (asked === undefined) throw new Error('DSH approval request has no matching approval/asked event')
       const approvalId = String(asked.data.id)
       return await new Promise(resolve => {
         const finish = outcome => {
@@ -70,11 +75,14 @@ export class DesktopApprovalBroker {
       if (pending.sessionId === sessionId) pending.finish('cancelled')
     }
     this.#sessionGrants.delete(sessionId)
+    this.#asked.delete(sessionId)
   }
 
   dispose() {
     for (const pending of [...this.#pending.values()]) pending.finish('cancelled')
     this.#sessionGrants.clear()
-    this.#dispose?.()
+    this.#asked.clear()
+    this.#disposeApproval?.()
+    this.#disposeEvents?.()
   }
 }

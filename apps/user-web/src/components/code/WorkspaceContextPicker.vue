@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { DshWorkspace } from '../../platform/types'
+import WorkspaceChoiceList from './WorkspaceChoiceList.vue'
 
 const props = withDefaults(defineProps<{
   workspace: DshWorkspace | null
@@ -9,15 +10,19 @@ const props = withDefaults(defineProps<{
   worktree?: boolean
   locale?: 'zh' | 'en'
   compact?: boolean
+  workspaces?: readonly DshWorkspace[]
+  workspacesLoading?: boolean
 }>(), { locale: 'zh' })
 
 const emit = defineEmits<{
   (event: 'choose'): void
+  (event: 'select', workspace: DshWorkspace): void
   (event: 'clear'): void
   (event: 'worktree', enabled: boolean): void
 }>()
 
 const open = ref(false)
+const choosing = ref(false)
 const copied = ref(false)
 const pickerRef = ref<HTMLElement | null>(null)
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
@@ -55,6 +60,28 @@ function setMode(enabled: boolean) {
   if (!props.locked) emit('worktree', enabled)
 }
 
+function openMenu() {
+  choosing.value = !props.workspace
+  open.value = !open.value
+}
+
+function openDetails() {
+  choosing.value = false
+  open.value = !open.value
+}
+
+function selectWorkspace(workspace: DshWorkspace) {
+  emit('select', workspace)
+  open.value = false
+  choosing.value = false
+}
+
+function addWorkspace() {
+  emit('choose')
+  open.value = false
+  choosing.value = false
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', closeOnOutsidePointer)
   document.addEventListener('keydown', closeOnEscape)
@@ -77,25 +104,35 @@ onBeforeUnmount(() => {
       :aria-expanded="open"
       :aria-label="label"
       :title="workspace?.path || label"
-      @click="workspace ? (open = !open) : emit('choose')"
+      @click="openMenu"
     >
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5"/></svg>
       <span v-if="locked" class="bound-dot" aria-hidden="true"></span>
     </button>
 
     <div v-else class="composer-context" aria-label="Project context">
-      <button type="button" class="context-segment project" :disabled="busy" :title="workspace?.path || label" @click="workspace ? (open = !open) : emit('choose')">
+      <button type="button" class="context-segment project" :disabled="busy" :title="workspace?.path || label" @click="openMenu">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg>
         <span>{{ busy && !workspace ? (locale === 'en' ? 'Preparing…' : '准备中…') : label }}</span>
         <svg v-if="workspace" class="chevron" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 8 4 4 4-4"/></svg>
       </button>
-      <button v-if="workspace && !locked" type="button" class="context-segment" :disabled="busy" :title="modeLabel" @click="open = !open">
+      <button v-if="workspace && !locked" type="button" class="context-segment" :disabled="busy" :title="modeLabel" @click="openDetails">
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
         <span>{{ modeLabel }}</span>
       </button>
     </div>
 
-    <div v-if="open && workspace" class="workspace-menu" role="dialog" :aria-label="locale === 'en' ? 'Project details' : '项目详情'">
+    <div v-if="open" class="workspace-menu" role="dialog" :aria-label="locale === 'en' ? 'Project selection' : '项目选择'">
+      <WorkspaceChoiceList
+        v-if="choosing || !workspace"
+        :workspaces="workspaces"
+        :current-workspace-id="workspace?.workspace_id"
+        :loading="workspacesLoading"
+        :locale="locale"
+        @select="selectWorkspace"
+        @add="addWorkspace"
+      />
+      <template v-else-if="workspace">
       <div class="workspace-heading">
         <div class="project-mark"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg></div>
         <div class="project-title"><strong>{{ label }}</strong><span>{{ locale === 'en' ? 'Project folder' : '项目目录' }}</span></div>
@@ -114,7 +151,7 @@ onBeforeUnmount(() => {
         <button type="button" :class="{ active: worktree }" @click="setMode(true)"><span class="radio"><i></i></span><span><strong>{{ locale === 'en' ? 'New local worktree' : '新建本地工作树' }}</strong><small>{{ locale === 'en' ? 'Create an isolated folder from the selected starting branch; no branch is created yet.' : '从所选起始分支创建隔离目录，暂不创建新分支。' }}</small></span></button>
       </fieldset>
       <div v-if="!locked" class="menu-actions">
-        <button type="button" @click="emit('choose'); open = false">{{ locale === 'en' ? 'Switch project…' : '切换项目…' }}</button>
+        <button type="button" @click="choosing = true">{{ locale === 'en' ? 'Switch project…' : '切换项目…' }}</button>
         <button
           type="button"
           class="regular-chat"
@@ -122,6 +159,7 @@ onBeforeUnmount(() => {
           @click="emit('clear'); open = false"
         >{{ locale === 'en' ? 'Use regular chat' : '设为普通对话' }}</button>
       </div>
+      </template>
     </div>
   </div>
 </template>

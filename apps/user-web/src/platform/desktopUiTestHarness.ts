@@ -28,17 +28,19 @@ export function installDesktopUiTestHarness() {
       attach: async () => null, subscribe: async () => ({ subscribed: true }), unsubscribe: async () => ({ unsubscribed: true }),
       onEvent: (listener: any) => { listeners.add(listener); return () => listeners.delete(listener) },
       send: async () => {
-        queueMicrotask(() => {
+        // Keep the pre-event running phase observable so visual regression tests
+        // can verify the loading label and the composer progress ring.
+        setTimeout(() => {
           emit('run.started', undefined, undefined, { kernel: 'dsh', source: 'desktop' })
           emit('item.completed', 'commentary', 'commentary-1', { text: '我先检查相关实现和测试，再进行修改。', source: 'model' })
           emit('item.started', 'tool', 'bash-1', { name: 'bash', display_name: 'bash', code_dispatch: true, args: { command: 'npm test' } })
           emit('item.completed', 'tool', 'bash-1', { name: 'bash', display_name: 'bash', code_dispatch: true, args: { command: 'npm test' }, result_summary: '{"exitCode":1,"stderr":"one test failed"}' })
           pending = [{ approval_id: 'approval-ui', session_id: sessionId, tool_name: 'bash', call_id: 'bash-2', reason: '该命令需要扩大当前 Workspace 权限。', created_at: Date.now() }]
           emit('item.started', 'approval', 'approval-ui', { source: 'dsh-local', approval_id: 'approval-ui', tool_name: 'bash', display_name: 'bash', status: 'pending' })
-        })
+        }, 5000)
         return { accepted: true, messageId: 'message-ui' }
       },
-      cancel: async () => ({ cancelled: true, jobsPending: false }), approvals: async () => pending,
+      cancel: async () => ({ accepted: true, jobs_pending: false, turn_pending: false, runtime_recovered: false }), approvals: async () => pending,
       decideApproval: async (_session: string, approvalId: string) => {
         pending = pending.filter(item => item.approval_id !== approvalId)
         emit('item.completed', 'approval', approvalId, { outcome: 'allowed-once', status: 'decided' })

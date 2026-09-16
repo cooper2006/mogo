@@ -35,3 +35,8 @@ export function reconcileUserBoundProjects(
 export function availableUserProjects(workspaces: readonly DshWorkspace[]): DshWorkspace[] {
   return workspaces.filter(workspace => workspace.status === 'ok')
 }
+
+/** Reuses the isolation preference saved when the employee first added a project. */
+export function boundProjectWorktree(projects: readonly DesktopProject[], workspaceId: string): boolean {
+  return projects.find(project => project.workspace_id === workspaceId)?.worktree ?? false
+}

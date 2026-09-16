@@ -57,12 +57,12 @@ test('native replacement stays available to the gateway but is not registered as
 })
 
 test('enterprise tools cannot shadow official DSH Code tool names', () => {
-  const tool = { ...descriptor, name: 'bash' }
+  const tools = ['bash', 'present', 'web_fetch'].map(name => ({ ...descriptor, name }))
   assert.throws(
     () => new AskaiToolBridge({}, {
-      profileVersion: 'profile-a', tools: [tool], gatewayUrl: 'http://gateway.test', accessToken: 'test',
+      profileVersion: 'profile-a', tools, gatewayUrl: 'http://gateway.test', accessToken: 'test',
     }),
-    /collide with DSH Code tools: bash/,
+    /collide with DSH Code tools: bash, present, web_fetch/,
   )
 })
 

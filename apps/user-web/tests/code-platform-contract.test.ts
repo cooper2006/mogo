@@ -102,6 +102,10 @@ const codeRuntime = readFileSync('src/composables/code/useDshCodeRuntime.ts', 'u
 assert.match(codeRuntime, /workspace: null, session: null, worktree: false, sourceRef: ''/)
 assert.match(codeRuntime, /session\.source_workspace_id/)
 assert.match(codeRuntime, /state\.sourceRef \|\| 'HEAD'/)
+assert.match(codeRuntime, /stopping: false/)
+assert.match(codeRuntime, /result\.runtime_recovered/)
+assert.match(codeRuntime, /await unsubscribeDshCodeEvents/)
+assert.match(codeRuntime, /await ensureSubscribed\(entry\)/)
 
 // Empty sessions keep Code context above the composer; once messages exist,
 // App moves the same component into the window toolbar.
@@ -130,6 +134,8 @@ assert.match(chatWindow, /<CodeDraftContextBar/)
 assert.doesNotMatch(chatWindow, /<CodeInspector/)
 assert.doesNotMatch(chatWindow, /<BrowserTestButton/)
 assert.match(appShell, /:agent-policy="userProfile\?\.agentPolicy"/)
+assert.match(appShell, /pane\.stopping \|\| codeRuntime\.stateFor\(pane\.key\)\.stopping/)
+assert.match(appShell, /projectWorkspacesLoading && !projectHistoryGroups\.length/)
 assert.match(appShell, /useEnterpriseAccessPolicy\(userProfile\)/)
 assert.match(appShell, /const supportsLocalCodeProjects = capabilities\.localDshRuntime && capabilities\.localWorkspacePicker/)
 assert.match(appShell, /!supportsLocalCodeProjects \|\| !session\.code_project\?\.workspace_id/)

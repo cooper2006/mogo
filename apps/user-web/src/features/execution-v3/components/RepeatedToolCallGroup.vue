@@ -5,10 +5,11 @@ import { toolActionLabelKey, toolCallSummary, toolCapabilityKeys } from '../doma
 import { t } from '../../../composables/i18n'
 import ActivityIcon from './ActivityIcon.vue'
 
-const props = defineProps<{ items: ExecutionItemV3[]; statusItems: ExecutionItemV3[] }>()
+const props = defineProps<{ items: ExecutionItemV3[]; statusItems: ExecutionItemV3[]; live?: boolean }>()
 const expanded = ref(false)
 const hasFailure = computed(() => props.statusItems.some(item => item.status === 'failed'))
 const isRunning = computed(() => props.statusItems.some(item => item.status === 'running'))
+const showsProgress = computed(() => !hasFailure.value && (isRunning.value || Boolean(props.live)))
 const label = computed(() => toolCapabilityKeys(props.items).map(key => t(key)).join(t('execution.v3.activity_separator')))
 
 function syncExpanded(event: Event) {
@@ -18,9 +19,9 @@ function syncExpanded(event: Event) {
 
 <template>
   <details class="repeated-tool-group" :open="expanded" @toggle="syncExpanded">
-    <summary :class="{ failed: hasFailure, running: isRunning }">
+    <summary :class="{ failed: hasFailure, running: showsProgress }">
       <ActivityIcon category="tool" kind="tool" />
-      <span class="repeated-tool-label" :role="isRunning ? 'status' : undefined" :aria-label="isRunning ? `${label}${t('execution.v3.activity_separator')}${t('execution.v3.processing')}` : undefined">{{ label }}</span>
+      <span class="repeated-tool-label" :role="showsProgress ? 'status' : undefined" :aria-label="showsProgress ? `${label}${t('execution.v3.activity_separator')}${t('execution.v3.processing')}` : undefined">{{ label }}</span>
       <svg class="repeated-tool-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m5 3 5 5-5 5" /></svg>
       <span v-if="hasFailure" class="repeated-tool-status">{{ t('execution.v3.repeated_failed') }}</span>
     </summary>

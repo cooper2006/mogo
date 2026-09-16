@@ -52,3 +52,26 @@ export function hasActiveRunningLeaf(
 ): boolean {
   return items.some((item) => item.status === 'running' && !containerIds.has(item.id))
 }
+
+function hasVisibleProgressContent(item: ExecutionItemV3): boolean {
+  const payload = item.payload || {}
+  if (item.kind === 'tool') return true
+  if (['commentary', 'final_answer'].includes(item.kind)) return Boolean(String(payload.text || '').trim())
+  if (item.kind === 'activity') {
+    return String(payload.category || '') === 'skill' || Boolean(String(payload.label || '').trim())
+  }
+  if (item.kind === 'subagent') return Boolean(String(payload.goal || payload.summary || '').trim())
+  return ['approval', 'browser_handoff', 'error'].includes(item.kind)
+}
+
+/** True only when the active leaf can actually render visible progress in the timeline. */
+export function hasVisibleActiveRunningLeaf(
+  items: ExecutionItemV3[],
+  containerIds = runningContainerIds(items),
+): boolean {
+  return items.some((item) => (
+    item.status === 'running'
+    && !containerIds.has(item.id)
+    && hasVisibleProgressContent(item)
+  ))
+}

@@ -1,12 +1,12 @@
 # MOVO DSH dependency lock policy (format 1)
-# Generated during migration step 1 on 2026-08-15.
-# This file records approved direct artifacts. Step 2 must create pnpm-lock.yaml
-# and verify every transitive package against the same release train.
+# Updated for the admitted DSH 0.1.6-alpha.1 train on 2026-09-16.
+# This file records approved direct artifacts; pnpm-lock.yaml and the SBOM pin
+# the resolved graph, and the release gate rejects a mixed DSH release train.
 
 [upstream]
 repository = "https://github.com/deepseek-ai/deepseek-harness"
-reviewed_commit = "0a53fb55bea101816fa226bb964ae2bed71c343b"
-reviewed_commit_root_version = "0.1.2-alpha.2"
+reviewed_commit = "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d"
+reviewed_commit_root_version = "0.1.6-alpha.1"
 default_branch = "master"
 deploy_from_branch = false
 allow_floating_versions = false
@@ -15,17 +15,17 @@ allow_floating_versions = false
 # installable release train, so source-to-package provenance remains explicitly
 # unverified until DeepSeek publishes that mapping.
 [release_train]
-version = "0.1.2-alpha.2"
+version = "0.1.6-alpha.1"
 source_mapping = "unverified-by-upstream"
-policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.1.2-alpha.2"
+policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.1.6-alpha.1"
 
 [[artifact]]
 name = "@deepseek-ai/dsh"
-version = "0.1.2-alpha.2"
+version = "0.1.6-alpha.1"
 registry = "https://registry.npmjs.org"
-tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.1.2-alpha.2.tgz"
-integrity = "sha512-4TvTC5kRKlgtSU2UTBv+cID9a2Z+6+m6mpvjXWJfVzuTkflCff6s4MsQpFJTCmwFh/k7zNWe7qFXcLYMV/5VvA=="
-shasum = "2652fc9a1bafae85c69da581178b4060a065a40a"
+tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.1.6-alpha.1.tgz"
+integrity = "sha512-i6rIfIF2FEAINJY9TnihdFFuE1CfD/Htjcb7sqpYWujLrfkxwsFp8shyvAUz+Aj2yU28N0zd/HSxMaOnbRhoBw=="
+shasum = "c8cb089890bd22b0dd2054d4a7c102e9a5c49e6d"
 
 [[artifact]]
 name = "@deepseek-ai/cordis"
@@ -65,7 +65,7 @@ shasum = "8b5506a0392079833ea0e49138d0a95cf8e4f97d"
 [license_evidence]
 license = "MIT"
 license_sha256 = "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be"
-third_party_notices_sha256 = "61f68731049dbea19ba91ad8cf363dd2778c5f7b1f9a63496a6a62c1129eefee"
+third_party_notices_sha256 = "82211a06d79227912a4ca76d86b7bf5b18ab260515ce4912fd1787d66995a786"
 
 [step_2_requirements]
 generate_pnpm_lock = true

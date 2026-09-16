@@ -3,13 +3,21 @@ import { useAuthStore } from '@/stores/auth';
 
 export type ModelStatus = 'active' | 'disabled';
 export type HealthStatus = 'unknown' | 'healthy' | 'failed';
-export type ImageRuntimeKind = 'openai_images' | 'azure_openai_images' | 'dashscope_image';
+export type ImageRuntimeKind = 'openai_images' | 'azure_openai_images' | 'dashscope_image' | 'custom_images';
 
 const IMAGE_MODEL_TEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface ImageModelSettings {
   size?: string;
   quality?: string;
+  outputFormat?: string;
+  responseFormat?: string;
+  n?: number | null;
+  ratio?: string;
+  requestPath?: string;
+  responseUrlPath?: string;
+  responseBase64Path?: string;
+  extraParamsJson?: string;
   apiStyle?: 'v1' | 'deployment';
   includeApiVersion?: boolean;
 }

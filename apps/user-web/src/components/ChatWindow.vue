@@ -62,6 +62,8 @@ const props = defineProps<{
   running?: boolean
   stopping?: boolean
   codeWorkspace?: DshWorkspace | null
+  codeWorkspaces?: readonly DshWorkspace[]
+  codeWorkspacesLoading?: boolean
   codeSession?: DshCodeSession | null
   codeEvents?: DshExecutionEvent[]
   codeApprovals?: DshPendingApproval[]
@@ -73,7 +75,6 @@ const props = defineProps<{
   codeHistoryReadOnly?: boolean
   codeHistoryLocation?: 'desktop' | 'remote_sandbox'
   codeHistoryProject?: { workspace_id: string; git_branch: string; worktree: boolean } | null
-  desktopWorkspaceRequest?: number
   desktopBrowserRequest?: number
   browserSessionId?: string
   desktopToolTabs?: DesktopToolTab[]
@@ -119,7 +120,8 @@ const emit = defineEmits<{
   (e: 'stop'): void
   (e: 'clear-intervention'): void
   (e: 'approval-decided'): void
-  (e: 'choose-code-workspace', modelId?: string): void
+  (e: 'choose-code-workspace'): void
+  (e: 'select-code-workspace', workspace: DshWorkspace): void
   (e: 'clear-code-workspace'): void
   (e: 'code-worktree', enabled: boolean): void
   (e: 'code-source-ref', fullRef: string): void
@@ -324,9 +326,6 @@ const {
 })
 watch(() => props.modelInstanceId, (modelId) => {
   if (modelId) selectChatModel(modelId)
-})
-watch(() => props.desktopWorkspaceRequest, (value, previous) => {
-  if (props.active && value && value !== previous) emit('choose-code-workspace', selectedModelId.value)
 })
 watch(() => props.desktopBrowserRequest, (value, previous) => {
   if (props.active && value && value !== previous) isPreviewExpanded.value = true
@@ -554,13 +553,6 @@ function toTimeLabel(value?: string) {
 
 function isAssistantGenerating(idx: number, msg: Message): boolean {
   return !!isLoading.value && msg.role === 'assistant' && idx === displayMessages.value.length - 1
-}
-
-// Breathing dot is obsolete: the Timeline now owns the "live thinking" row
-// with its own animated indicator + ticking duration, so no second spinner
-// is needed. Kept as a no-op stub to avoid touching every call site.
-function shouldShowBreathingLoading(_idx: number, _msg: Message): boolean {
-  return false
 }
 
 function onPermissionResolve(msg: Message, requestId: string, decision: 'allow' | 'deny' | 'always_allow') {
@@ -1082,7 +1074,6 @@ function handleScroll() {
         const containerRect = container.getBoundingClientRect()
         const contentProbe =
           (stickyAssistantEl.querySelector('.assistant-content') as HTMLElement | null)
-          || (stickyAssistantEl.querySelector('.assistant-loading-breathe') as HTMLElement | null)
           || (stickyAssistantEl.firstElementChild as HTMLElement | null)
           || stickyAssistantEl
         const probeRect = contentProbe.getBoundingClientRect()
@@ -1977,12 +1968,6 @@ function formatErrorMessage(raw: string): string {
             <!-- Content -->
             <template v-if="msg.role === 'assistant'">
               <div
-                v-if="shouldShowBreathingLoading(idx, msg)"
-                class="assistant-loading-breathe mt-2 flex items-center gap-2 text-gray-500"
-              >
-                <span class="assistant-loading-dot"></span>
-              </div>
-              <div
                 v-if="msg.content && isPlainAssistantText(msg.content)"
                 class="assistant-content text-[14px] text-gray-900 leading-6 whitespace-pre-wrap"
               >
@@ -2169,7 +2154,10 @@ function formatErrorMessage(raw: string): string {
             :source-ref="props.codeSourceRef"
             :model-id="selectedModelId"
             :locale="locale === 'en' ? 'en' : 'zh'"
-            @choose="emit('choose-code-workspace', selectedModelId)"
+            :workspaces="props.codeWorkspaces"
+            :workspaces-loading="props.codeWorkspacesLoading"
+            @choose="emit('choose-code-workspace')"
+            @select="(workspace) => emit('select-code-workspace', workspace)"
             @clear="emit('clear-code-workspace')"
             @worktree="(enabled) => emit('code-worktree', enabled)"
             @source-ref="(fullRef) => emit('code-source-ref', fullRef)"
@@ -2599,21 +2587,7 @@ function formatErrorMessage(raw: string): string {
   box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
   outline: none;
 }
-.assistant-loading-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 9999px;
-  background: #3b82f6;
-  /* GPU-only animation avoids per-frame box-shadow repaint churn during streaming. */
-  animation: breatheDot 1.2s ease-in-out infinite;
-  will-change: transform, opacity;
-}
-@keyframes breatheDot {
-  0%, 100% { transform: scale(0.9); opacity: 0.8; }
-  50%      { transform: scale(1.05); opacity: 1; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .assistant-loading-dot { animation: none; opacity: 0.9; }
   .prompt-guide-tab,
   .prompt-guide-item,
   .prompt-guide-config-btn {

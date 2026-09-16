@@ -48,7 +48,10 @@ class Bindings:
     async def claim_turn(self, binding_id, **kwargs):
         self.existing["active_turn"] = {"message_id": kwargs["message_id"]}
         return self.existing
-    async def finish_turn(self, binding_id, **kwargs): self.finished = kwargs
+    async def finish_turn(self, binding_id, **kwargs):
+        self.finished = kwargs
+        if self.existing.get("active_turn", {}).get("message_id") == kwargs["message_id"]:
+            self.existing["active_turn"]["status"] = kwargs["status"]
     async def advance_cursor(self, binding_id, cursor): self.cursor = cursor
     async def update_runtime(self, binding_id, **kwargs): self.existing["runtime_id"] = kwargs["runtime_id"]
 
@@ -138,6 +141,35 @@ def test_desktop_turn_projection_persists_ordered_v3_history_and_terminal_state(
         assert bindings.finished["status"] == "completed"
         assert conversations.active is None
         assert conversations.pending_count == 0
+    asyncio.run(run())
+
+
+def test_desktop_cancel_turn_recovers_a_stale_server_running_state_idempotently() -> None:
+    async def run():
+        existing = {
+            "binding_id": "binding-a", "conversation_id": "conversation-a",
+            "kernel_session_id": "session-a", "device_id": "device-a",
+            "execution_location": "desktop", "active_turn": None,
+        }
+        conversations, bindings = Conversations(), Bindings(existing)
+        service = DesktopCodeBindingService(conversations, bindings, Profiles(), kernel_version="v")
+        await service.start_turn(
+            tenant_id="tenant-a", user_id="user-a", device_id="device-a",
+            kernel_session_id="session-a", text="long task", message_id="desktop-msg-stale",
+        )
+        result = await service.cancel_turn(
+            tenant_id="tenant-a", user_id="user-a", device_id="device-a",
+            kernel_session_id="session-a", reason="user_cancelled",
+        )
+        assert result == {"cancelled": True, "already_terminal": False}
+        assert bindings.finished == {"message_id": "desktop-msg-stale", "status": "cancelled"}
+        assert conversations.projection["execution_events"][-1]["type"] == "run.cancelled"
+
+        result = await service.cancel_turn(
+            tenant_id="tenant-a", user_id="user-a", device_id="device-a",
+            kernel_session_id="session-a", reason="user_cancelled",
+        )
+        assert result == {"cancelled": False, "already_terminal": True}
     asyncio.run(run())
 
 

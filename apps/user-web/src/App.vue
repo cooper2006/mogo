@@ -32,6 +32,7 @@ import { formatExactTokenAmount, formatQuotaUsagePercent, formatTokenAmount, quo
 import { useChatRuntimeStore, type PendingRuntimeDocument } from './composables/useChatRuntimeStore'
 import { useDshCodeRuntime } from './composables/code/useDshCodeRuntime'
 import { useUserBoundProjects } from './composables/code/userBoundProjects'
+import { boundProjectWorktree } from './composables/code/projectAuthorization'
 import { useEnterpriseAccessPolicy } from './composables/useEnterpriseAccessPolicy'
 import { useProfileRefreshOnResume } from './composables/useProfileRefreshOnResume'
 import { useSkillShareInboxBadge } from './composables/useSkillShareInboxBadge'
@@ -301,7 +302,6 @@ const codeRuntime = useDshCodeRuntime(chatRuntime)
 const refreshWorkspaceTitles = userBoundProjects.refresh
 const activeChatKey = chatRuntime.activeChatKey
 const currentSessionId = chatRuntime.currentSessionId
-const desktopWorkspaceRequest = ref(0)
 const desktopBrowserRequest = ref(0)
 const desktopCodeReviewPath = ref('')
 const desktopCodeReviewChanges = ref<DshTaskChangeSet | null>(null)
@@ -311,6 +311,7 @@ const createProjectOpen = ref(false)
 const createProjectBusy = ref(false)
 const createProjectWorkspace = ref<DshWorkspace | null>(null)
 const createProjectWorktree = ref(false)
+const createProjectTargetKey = ref<string | null>(null)
 const activeCodeState = computed(() => codeRuntime.stateFor(activeChatKey.value))
 const activeChatHasMessages = computed(() => (
   visibleChatPanes.value.find((pane) => pane.key === activeChatKey.value)?.messages.length || 0
@@ -328,15 +329,30 @@ const desktopWindowTitle = computed(() => {
   }
   return t('app.sidebar.marketplace')
 })
-function requestDesktopWorkspace(): void {
-  if (canUseCode.value && currentView.value === 'chat') desktopWorkspaceRequest.value += 1
+function addProjectToActiveConversation(): void {
+  if (canUseCode.value && currentView.value === 'chat') openProjectCreate(activeChatKey.value)
 }
 
 function createProject(): void {
+  openProjectCreate(null)
+}
+
+function openProjectCreate(targetKey: string | null): void {
   if (!canUseCode.value || !capabilities.localWorkspacePicker) return
+  createProjectTargetKey.value = targetKey
   createProjectWorkspace.value = null
   createProjectWorktree.value = false
   createProjectOpen.value = true
+}
+
+function closeProjectCreate(): void {
+  createProjectOpen.value = false
+  createProjectTargetKey.value = null
+}
+
+function selectBoundProject(key: string, workspace: DshWorkspace): void {
+  if (workspace.status !== 'ok') return
+  codeRuntime.setDraftProject(key, workspace, boundProjectWorktree(userBoundProjects.bindings.value, workspace.workspace_id))
 }
 
 async function chooseProjectFolder(): Promise<void> {
@@ -362,10 +378,12 @@ async function commitProjectCreate(): Promise<void> {
       title: renamed.title,
       worktree: createProjectWorktree.value,
     }, authToken.value || null)
-    const pane = chatRuntime.startLocalSession()
+    const targetKey = createProjectTargetKey.value
+    const pane = targetKey ? visibleChatPanes.value.find(item => item.key === targetKey) : chatRuntime.startLocalSession()
+    if (!pane) throw new Error('the target conversation is no longer available')
     codeRuntime.setDraftProject(pane.key, renamed, createProjectWorktree.value)
     userBoundProjects.add(binding, renamed)
-    createProjectOpen.value = false
+    closeProjectCreate()
     navigateTo('chat')
   } finally { createProjectBusy.value = false }
 }
@@ -1736,7 +1754,7 @@ async function handlePaneSend(
 
 function handlePaneStop(key: string) {
   const codeState = codeRuntime.stateFor(key)
-  if (codeState.session) void codeRuntime.stop(key)
+  if (codeState.session) void codeRuntime.stop(key).catch(() => undefined)
   else chatRuntime.stopGeneration(key)
 }
 
@@ -1866,7 +1884,7 @@ onBeforeUnmount(() => {
       @update:worktree="(value) => createProjectWorktree = value"
       @choose-folder="chooseProjectFolder"
       @create="commitProjectCreate"
-      @close="createProjectOpen = false"
+      @close="closeProjectCreate"
     />
     <DesktopWindowChrome
       v-if="capabilities.isDesktop"
@@ -1891,7 +1909,10 @@ onBeforeUnmount(() => {
       :terminal-available="capabilities.projectTerminal"
       :code-available="canUseCode"
       :browser-available="canUseBrowser"
-      @choose-workspace="requestDesktopWorkspace"
+      :workspaces="projectWorkspaces"
+      :workspaces-loading="projectWorkspacesLoading"
+      @choose-workspace="addProjectToActiveConversation"
+      @select-workspace="(workspace) => selectBoundProject(activeChatKey, workspace)"
       @clear-workspace="codeRuntime.clear(activeChatKey)"
       @worktree="(enabled) => codeRuntime.setWorktree(activeChatKey, enabled)"
       @source-ref="(fullRef) => codeRuntime.setSourceRef(activeChatKey, fullRef)"
@@ -2019,7 +2040,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-        <div v-if="canUseCode && supportsLocalCodeProjects && projectWorkspacesLoading" class="mt-5 flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
+        <div v-if="canUseCode && supportsLocalCodeProjects && projectWorkspacesLoading && !projectHistoryGroups.length" class="mt-5 flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></span>
           <span>{{ locale === 'en' ? 'Loading projects' : '正在加载项目' }}</span>
         </div>
@@ -2493,9 +2514,11 @@ onBeforeUnmount(() => {
               :main-id="getMainId()"
               :auth-token="authToken"
               :running="pane.running"
-              :stopping="pane.stopping"
+              :stopping="pane.stopping || codeRuntime.stateFor(pane.key).stopping"
               :active-intervention="pane.activeIntervention"
               :code-workspace="codeRuntime.stateFor(pane.key).workspace"
+              :code-workspaces="projectWorkspaces"
+              :code-workspaces-loading="projectWorkspacesLoading"
               :code-session="codeRuntime.stateFor(pane.key).session"
               :code-events="codeRuntime.stateFor(pane.key).events"
               :code-approvals="codeRuntime.stateFor(pane.key).approvals"
@@ -2507,7 +2530,6 @@ onBeforeUnmount(() => {
               :code-history-read-only="pane.executionLocation !== 'server' && !codeRuntime.stateFor(pane.key).session"
               :code-history-location="pane.executionLocation === 'server' ? undefined : pane.executionLocation"
               :code-history-project="pane.codeProject"
-              :desktop-workspace-request="desktopWorkspaceRequest"
               :desktop-browser-request="desktopBrowserRequest"
               :browser-session-id="pane.sessionId || pane.key"
               :desktop-tool-tabs="desktopToolTabsFor(pane.key)"
@@ -2524,7 +2546,8 @@ onBeforeUnmount(() => {
               @schedule-message="({ prompt, sessionId }) => openScheduledTasks({ prompt, sessionId, create: true })"
               @clear-intervention="chatRuntime.clearPaneIntervention(pane.key)"
               @approval-decided="refreshSessionSummaries"
-              @choose-code-workspace="(modelId) => codeRuntime.choose(pane.key, modelId)"
+              @choose-code-workspace="() => openProjectCreate(pane.key)"
+              @select-code-workspace="(workspace) => selectBoundProject(pane.key, workspace)"
               @clear-code-workspace="codeRuntime.clear(pane.key)"
               @code-worktree="(enabled) => codeRuntime.setWorktree(pane.key, enabled)"
               @code-source-ref="(fullRef) => codeRuntime.setSourceRef(pane.key, fullRef)"
