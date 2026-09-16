@@ -13,25 +13,34 @@
 </p>
 
 <p align="center">
-  <a href="https://www.himovo.com/">官方网站</a> ·
-  <a href="https://www.himovo.com/guide/introduction.html">产品文档</a> ·
-  <a href="https://www.himovo.com/guide/getting-started.html">快速开始</a> ·
-  <a href="https://github.com/himovo/movo/discussions">社区交流</a>
+  <a href="#5-分钟快速启动"><strong>🚀 快速开始</strong></a> ·
+  <a href="https://movo.oss-cn-beijing.aliyuncs.com/5E22C353-55F1-45AB-B606-0ED16CC99833.mp4"><strong>▶ 产品演示</strong></a> ·
+  <a href="https://www.himovo.com/guide/introduction.html"><strong>📘 使用文档</strong></a> ·
+  <a href="https://github.com/himovo/movo/releases/latest"><strong>🆕 最新更新</strong></a>
 </p>
+
+<p align="center">
+  <a href="https://github.com/himovo/movo"><img src="https://img.shields.io/github/stars/himovo/movo?style=social" alt="GitHub Stars"></a><br>
+  如果 MOVO 对你有帮助，请点击页面右上角的 <strong>Star</strong> 支持项目。
+</p>
+
+<br>
 
 MOVO 帮助企业将 DSH Agent 从开发验证推进到生产使用。它在 DSH Runtime、Skill、工具和 MCP 生态之上，提供可部署的用户工作台、企业知识、身份与权限、管理治理和文件交付能力。
 
+<br>
+
 > **一句话理解 MOVO：** DSH 负责智能体如何运行，MOVO 负责智能体如何进入企业生产环境。
+
+<br>
 
 <p align="center">
   <img src="docs/assets/dsh-movo-responsibilities-zh-cn.png" alt="DeepSeek Harness 与 MOVO 的职责分工" width="760">
 </p>
 
-本仓库包含可私有化部署的 MOVO 社区版。
+<br>
 
-<p align="center">
-  如果 MOVO 对你有帮助，欢迎点击右上角 <a href="https://github.com/himovo/movo">⭐ Star</a>，让更多开发者发现这个项目。
-</p>
+本仓库包含可私有化部署的 MOVO 社区版。
 
 ## 5 分钟快速启动
 
@@ -51,6 +60,8 @@ http://localhost:3000/admin/setup
 ```
 
 启动器会拉取官方预构建镜像、等待服务健康并输出初始化地址，无需创建 `.env` 文件，也无需在本地构建镜像。Windows 用户应在 Ubuntu WSL 2 发行版中运行 MOVO，完整步骤见 [Windows 安装指南](docs/windows-installation.zh-CN.md)。
+
+> 已经成功运行 MOVO？欢迎点击页面右上角的 **Star**，让更多开发者发现这个项目。
 
 ## 产品演示
 

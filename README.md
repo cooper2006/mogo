@@ -13,25 +13,32 @@
 </p>
 
 <p align="center">
-  <a href="https://www.himovo.com">Official website: https://www.himovo.com</a> ·
-  <a href="https://www.himovo.com/en/guide/introduction.html">Documentation</a> ·
-  <a href="https://www.himovo.com/en/guide/getting-started.html">Quick start</a> ·
-  <a href="https://github.com/himovo/movo/discussions">Community</a>
+  <a href="#start-in-5-minutes"><strong>🚀 Quick Start</strong></a> ·
+  <a href="https://movo.oss-cn-beijing.aliyuncs.com/5E22C353-55F1-45AB-B606-0ED16CC99833.mp4"><strong>▶ Watch Demo</strong></a> ·
+  <a href="https://www.himovo.com/en/guide/introduction.html"><strong>📘 Documentation</strong></a> ·
+  <a href="https://github.com/himovo/movo/releases/latest"><strong>🆕 What's New</strong></a>
 </p>
+
+<p align="center">
+  <a href="https://github.com/himovo/movo"><img src="https://img.shields.io/github/stars/himovo/movo?style=social" alt="GitHub Stars"></a><br>
+  If MOVO is useful to you, click <strong>Star</strong> in the upper-right corner to support the project.
+</p>
+
+<br>
 
 MOVO brings DSH Agents from development experiments into enterprise production. It combines the DSH Runtime, Skills, Tools and MCP ecosystem with a deployable user workspace, enterprise knowledge, identity and access control, administration, governance and file delivery.
 
 > **In one sentence:** DSH runs the Agent; MOVO brings the Agent into enterprise production.
 
+<br>
+
 <p align="center">
   <img src="docs/assets/dsh-movo-responsibilities-en.png" alt="How DeepSeek Harness and MOVO divide responsibilities" width="760">
 </p>
 
-This repository contains the self-hosted MOVO Community Edition.
+<br>
 
-<p align="center">
-  If MOVO is useful to you, consider giving the project a <a href="https://github.com/himovo/movo">⭐ Star</a>. It helps more developers discover it.
-</p>
+This repository contains the self-hosted MOVO Community Edition.
 
 ## Start in 5 minutes
 
@@ -51,6 +58,8 @@ http://localhost:3000/admin/setup
 ```
 
 The launcher pulls the official prebuilt images, waits for the services to become healthy and prints the setup address. No `.env` file or local image build is required. Windows users should run MOVO inside an Ubuntu WSL 2 distribution; see the [Windows installation guide](docs/windows-installation.md).
+
+> Got MOVO running? Please click **Star** in the upper-right corner. It helps more developers discover the project.
 
 ## Product demo
 
