@@ -20,6 +20,12 @@ class ContainerMirrorTests(unittest.TestCase):
             docker.write_text(
                 "#!/usr/bin/env bash\n"
                 "printf '%s\\n' \"$*\" >> \"$DOCKER_CALL_LOG\"\n"
+                "if [[ \"$*\" == *'imagetools inspect --raw'* ]]; then\n"
+                "  printf '%s\\n' '{\"schemaVersion\":2,\"manifests\":['"
+                "'{\"digest\":\"sha256:amd64\",\"platform\":{\"os\":\"linux\",\"architecture\":\"amd64\"}},'"
+                "'{\"digest\":\"sha256:arm64\",\"platform\":{\"os\":\"linux\",\"architecture\":\"arm64\"}},'"
+                "'{\"digest\":\"sha256:attestation\",\"platform\":{\"os\":\"unknown\",\"architecture\":\"unknown\"}}]}'\n"
+                "fi\n"
             )
             docker.chmod(0o755)
             env = os.environ | {
@@ -51,6 +57,11 @@ class ContainerMirrorTests(unittest.TestCase):
         self.assertTrue(
             all("imagetools create" in call for call in calls[source_count : source_count * 2])
         )
+        version_copy_calls = calls[source_count : source_count * 2]
+        self.assertTrue(
+            all("@sha256:amd64" in call and "@sha256:arm64" in call for call in version_copy_calls)
+        )
+        self.assertTrue(all("sha256:attestation" not in call for call in version_copy_calls))
         self.assertTrue(
             all("imagetools inspect" in call for call in calls[source_count * 2 :])
         )

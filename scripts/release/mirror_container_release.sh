@@ -40,6 +40,7 @@ dependency_images=(
 
 declare -a source_refs=()
 declare -a destination_refs=()
+declare -a platform_source_refs=()
 
 for suffix in "${self_managed_images[@]}"; do
   source_refs+=("${SOURCE_REPOSITORY}-${suffix}:${SOURCE_VERSION}")
@@ -53,20 +54,54 @@ if [[ "${INCLUDE_DEPENDENCIES}" == "true" ]]; then
   done
 fi
 
+select_linux_platform_manifests() {
+  local source_ref="$1"
+
+  "${DOCKER_BIN}" buildx imagetools inspect --raw "${source_ref}" |
+    python3 -c '
+import json
+import sys
+
+source_ref = sys.argv[1]
+index = json.load(sys.stdin)
+manifests = index.get("manifests", [])
+
+for architecture in ("amd64", "arm64"):
+    matches = [
+        manifest["digest"]
+        for manifest in manifests
+        if manifest.get("platform", {}).get("os") == "linux"
+        and manifest.get("platform", {}).get("architecture") == architecture
+    ]
+    if not matches:
+        raise SystemExit(
+            f"{source_ref} does not provide the required linux/{architecture} image"
+        )
+    print(f"{source_ref}@{matches[0]}")
+' "${source_ref}"
+}
+
 echo "Preflighting ${#source_refs[@]} source images before publishing to ${CN_REGISTRY_HOST}..."
 for source_ref in "${source_refs[@]}"; do
   echo "  checking ${source_ref}"
-  "${DOCKER_BIN}" buildx imagetools inspect "${source_ref}" >/dev/null
+  # ACR Personal Edition rejects the OCI attestation/SBOM manifests attached to
+  # the GHCR image index. Resolve only the two runnable Linux manifests here,
+  # then build a clean destination index from those immutable digests.
+  platform_source_refs+=("$(select_linux_platform_manifests "${source_ref}")")
 done
 
 echo "All sources are available. Copying immutable image versions..."
 for index in "${!source_refs[@]}"; do
   source_ref="${source_refs[$index]}"
   destination_ref="${destination_refs[$index]}"
+  selected_refs=()
+  while IFS= read -r selected_ref; do
+    [[ -n "${selected_ref}" ]] && selected_refs+=("${selected_ref}")
+  done <<< "${platform_source_refs[$index]}"
   echo "  copying ${source_ref} -> ${destination_ref}"
   "${DOCKER_BIN}" buildx imagetools create \
     --tag "${destination_ref}" \
-    "${source_ref}"
+    "${selected_refs[@]}"
 done
 
 echo "Verifying every copied image..."
