@@ -109,7 +109,6 @@ ppt/
 !.github/workflows/dsh-upgrade-candidate.yml
 !.github/workflows/container-release.yml
 !.github/workflows/container-promote.yml
-!.github/workflows/container-mirror-cn.yml
 !.github/ISSUE_TEMPLATE/
 !.github/ISSUE_TEMPLATE/*
 !.github/pull_request_template.md
