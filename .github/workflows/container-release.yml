@@ -34,7 +34,9 @@ jobs:
       - name: Validate publication boundary
         run: python scripts/check_open_source_hygiene.py
       - name: Validate selective container release planner
-        run: python scripts/release/test_plan_container_release.py
+        run: |
+          python scripts/release/test_plan_container_release.py
+          python scripts/release/test_mirror_container_release.py
       - name: Validate Compose variants
         env:
           MOVO_IMAGE_PREFIX: ghcr.io/example/movo
@@ -186,3 +188,13 @@ jobs:
           CHANGED_IMAGES_JSON: ${{ needs.plan-release.outputs.changed }}
           BASE_REF: ${{ needs.plan-release.outputs.base_ref }}
         run: bash scripts/release/promote_container_release.sh
+
+  mirror-cn:
+    needs: promote-release
+    if: ${{ always() && needs.promote-release.result == 'success' }}
+    uses: ./.github/workflows/container-mirror-cn.yml
+    with:
+      source_version: ${{ github.ref_name }}
+      publish_latest: ${{ !contains(github.ref_name, '-') }}
+      include_dependencies: true
+    secrets: inherit

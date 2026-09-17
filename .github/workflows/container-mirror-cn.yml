@@ -1,0 +1,89 @@
+name: Container Mirror CN
+
+on:
+  workflow_call:
+    inputs:
+      source_version:
+        description: Existing GHCR version tag to copy
+        type: string
+        required: true
+      publish_latest:
+        description: Update latest after every versioned image is verified
+        type: boolean
+        required: false
+        default: false
+      include_dependencies:
+        description: Mirror pinned Docker Hub runtime dependencies
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      CN_REGISTRY_HOST:
+        required: true
+      CN_REGISTRY_USERNAME:
+        required: true
+      CN_REGISTRY_PASSWORD:
+        required: true
+  workflow_dispatch:
+    inputs:
+      source_version:
+        description: Existing GHCR version tag to copy
+        type: string
+        required: true
+        default: v0.1.15
+      publish_latest:
+        description: Update latest after every versioned image is verified
+        type: boolean
+        required: false
+        default: true
+      include_dependencies:
+        description: Mirror pinned Docker Hub runtime dependencies
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: container-mirror-cn-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to the CN registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.CN_REGISTRY_HOST }}
+          username: ${{ secrets.CN_REGISTRY_USERNAME }}
+          password: ${{ secrets.CN_REGISTRY_PASSWORD }}
+      - name: Mirror the released multi-platform images
+        env:
+          CN_REGISTRY_HOST: ${{ secrets.CN_REGISTRY_HOST }}
+          CN_REGISTRY_NAMESPACE: himovo
+          SOURCE_REPOSITORY: ghcr.io/himovo/movo
+          SOURCE_VERSION: ${{ inputs.source_version }}
+          PUBLISH_LATEST: ${{ inputs.publish_latest }}
+          INCLUDE_DEPENDENCIES: ${{ inputs.include_dependencies }}
+        run: bash scripts/release/mirror_container_release.sh
+      - name: Verify public anonymous pulls
+        env:
+          CN_REGISTRY_HOST: ${{ secrets.CN_REGISTRY_HOST }}
+          SOURCE_VERSION: ${{ inputs.source_version }}
+        shell: bash
+        run: |
+          docker logout "$CN_REGISTRY_HOST"
+          docker buildx imagetools inspect \
+            "$CN_REGISTRY_HOST/himovo/movo-chat-api:$SOURCE_VERSION" >/dev/null
+          docker buildx imagetools inspect \
+            "$CN_REGISTRY_HOST/himovo/movo-mongo:6.0.20" >/dev/null
