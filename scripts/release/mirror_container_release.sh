@@ -6,6 +6,8 @@ SOURCE_REPOSITORY="${SOURCE_REPOSITORY:-ghcr.io/himovo/movo}"
 CN_REGISTRY_NAMESPACE="${CN_REGISTRY_NAMESPACE:-himovo}"
 PUBLISH_LATEST="${PUBLISH_LATEST:-false}"
 INCLUDE_DEPENDENCIES="${INCLUDE_DEPENDENCIES:-true}"
+COPY_RETRY_ATTEMPTS="${COPY_RETRY_ATTEMPTS:-5}"
+COPY_RETRY_DELAY_SECONDS="${COPY_RETRY_DELAY_SECONDS:-15}"
 
 required_variables=(
   CN_REGISTRY_HOST
@@ -81,6 +83,33 @@ for architecture in ("amd64", "arm64"):
 ' "${source_ref}"
 }
 
+run_with_retry() {
+  local operation="$1"
+  shift
+  local attempt=1
+  local exit_code=0
+  local delay_seconds="${COPY_RETRY_DELAY_SECONDS}"
+
+  while (( attempt <= COPY_RETRY_ATTEMPTS )); do
+    echo "    ${operation} (attempt ${attempt}/${COPY_RETRY_ATTEMPTS})"
+    if "$@"; then
+      return 0
+    else
+      exit_code=$?
+    fi
+
+    if (( attempt == COPY_RETRY_ATTEMPTS )); then
+      echo "${operation} failed after ${COPY_RETRY_ATTEMPTS} attempts" >&2
+      return "${exit_code}"
+    fi
+
+    echo "    transfer interrupted; retrying in ${delay_seconds}s..." >&2
+    sleep "${delay_seconds}"
+    delay_seconds=$((delay_seconds * 2))
+    attempt=$((attempt + 1))
+  done
+}
+
 echo "Preflighting ${#source_refs[@]} source images before publishing to ${CN_REGISTRY_HOST}..."
 for source_ref in "${source_refs[@]}"; do
   echo "  checking ${source_ref}"
@@ -99,9 +128,11 @@ for index in "${!source_refs[@]}"; do
     [[ -n "${selected_ref}" ]] && selected_refs+=("${selected_ref}")
   done <<< "${platform_source_refs[$index]}"
   echo "  copying ${source_ref} -> ${destination_ref}"
-  "${DOCKER_BIN}" buildx imagetools create \
-    --tag "${destination_ref}" \
-    "${selected_refs[@]}"
+  run_with_retry \
+    "copying ${source_ref}" \
+    "${DOCKER_BIN}" buildx imagetools create \
+      --tag "${destination_ref}" \
+      "${selected_refs[@]}"
 done
 
 echo "Verifying every copied image..."
@@ -116,9 +147,11 @@ if [[ "${PUBLISH_LATEST}" == "true" ]]; then
     version_ref="${destination_repository}-${suffix}:${SOURCE_VERSION}"
     latest_ref="${destination_repository}-${suffix}:latest"
     echo "  publishing ${latest_ref}"
-    "${DOCKER_BIN}" buildx imagetools create \
-      --tag "${latest_ref}" \
-      "${version_ref}"
+    run_with_retry \
+      "publishing ${latest_ref}" \
+      "${DOCKER_BIN}" buildx imagetools create \
+        --tag "${latest_ref}" \
+        "${version_ref}"
   done
 
   echo "Verifying every latest tag..."

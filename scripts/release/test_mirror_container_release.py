@@ -12,7 +12,13 @@ SCRIPT = REPOSITORY_ROOT / "scripts/release/mirror_container_release.sh"
 
 
 class ContainerMirrorTests(unittest.TestCase):
-    def run_mirror(self, *, publish_latest: bool, include_dependencies: bool):
+    def run_mirror(
+        self,
+        *,
+        publish_latest: bool,
+        include_dependencies: bool,
+        fail_first_version_copy: bool = False,
+    ):
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary_path = Path(temporary_directory)
             call_log = temporary_path / "docker-calls.log"
@@ -26,6 +32,13 @@ class ContainerMirrorTests(unittest.TestCase):
                 "'{\"digest\":\"sha256:arm64\",\"platform\":{\"os\":\"linux\",\"architecture\":\"arm64\"}},'"
                 "'{\"digest\":\"sha256:attestation\",\"platform\":{\"os\":\"unknown\",\"architecture\":\"unknown\"}}]}'\n"
                 "fi\n"
+                "if [[ \"${FAIL_FIRST_VERSION_COPY:-false}\" == 'true' "
+                "&& \"$*\" == *'imagetools create'* "
+                "&& \"$*\" == *':v1.2.3'* "
+                "&& ! -e \"$DOCKER_RETRY_MARKER\" ]]; then\n"
+                "  touch \"$DOCKER_RETRY_MARKER\"\n"
+                "  exit 42\n"
+                "fi\n"
             )
             docker.chmod(0o755)
             env = os.environ | {
@@ -37,6 +50,9 @@ class ContainerMirrorTests(unittest.TestCase):
                 "INCLUDE_DEPENDENCIES": str(include_dependencies).lower(),
                 "DOCKER_CALL_LOG": str(call_log),
                 "DOCKER_BIN": str(docker),
+                "DOCKER_RETRY_MARKER": str(temporary_path / "retry-marker"),
+                "FAIL_FIRST_VERSION_COPY": str(fail_first_version_copy).lower(),
+                "COPY_RETRY_DELAY_SECONDS": "0",
             }
             subprocess.run(
                 ["bash", str(SCRIPT)],
@@ -82,6 +98,16 @@ class ContainerMirrorTests(unittest.TestCase):
         self.assertTrue(
             all("imagetools inspect" in call for call in latest_verifications)
         )
+
+    def test_retries_an_interrupted_image_copy(self):
+        calls = self.run_mirror(
+            publish_latest=False,
+            include_dependencies=False,
+            fail_first_version_copy=True,
+        )
+        create_calls = [call for call in calls if "imagetools create" in call]
+        self.assertEqual(8, len(create_calls))
+        self.assertEqual(create_calls[0], create_calls[1])
 
     def test_release_mirrors_only_after_ghcr_promotion(self):
         release_workflow = (
