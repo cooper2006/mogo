@@ -23,22 +23,18 @@ def _context(**turn_context) -> CapabilityExecutionContext:
 
 
 def test_knowledge_search_produces_execution_evidence_only_when_items_exist(monkeypatch) -> None:
-    async def search(**kwargs):
-        return RetrievalSearchResult(
-            query=kwargs["query"],
-            retrievalMode="vector",
-            total=1,
-            items=[RetrievalChunkItem(
-                documentId="doc-a",
-                chunkId="chunk-a",
-                text="AskBot supports enterprise knowledge retrieval.",
-                titlePath=["AskBot product guide", "Knowledge"],
-                pageNo=3,
-                score=0.92,
-            )],
-        )
+    async def answer(**kwargs):
+        return {
+            "ok": True, "answer": "AskBot supports enterprise knowledge retrieval.",
+            "retrievedCount": 3, "usedCount": 1,
+            "usedChunks": [{
+                "documentId": "doc-a", "chunkId": "chunk-a",
+                "text": "AskBot supports enterprise knowledge retrieval.",
+                "titlePath": ["AskBot product guide", "Knowledge"], "pageNo": 3, "score": 0.92,
+            }],
+        }
 
-    monkeypatch.setattr(adapters.knowledge_retrieval_client, "search", search)
+    monkeypatch.setattr(adapters.internal_knowledge_qa_service, "answer", answer)
     result = asyncio.run(adapters.knowledge_search(
         {"query": "AskBot knowledge"},
         _context(knowledge_base_ids=["kb-a"]),
@@ -46,7 +42,7 @@ def test_knowledge_search_produces_execution_evidence_only_when_items_exist(monk
 
     bundle = result["_execution_evidence_bundle"]
     assert bundle["tools_used"] == ["knowledge_search"]
-    assert bundle["results"][0]["title"] == "AskBot product guide / Knowledge"
+    assert bundle["results"][0]["title"] == "内部知识：AskBot product guide / Knowledge"
     assert bundle["results"][0]["content"].startswith("AskBot supports")
     assert bundle["results"][0]["meta"]["document_id"] == "doc-a"
     # Knowledge chunks are presented as openable document sources while their
@@ -54,52 +50,40 @@ def test_knowledge_search_produces_execution_evidence_only_when_items_exist(monk
     assert result["evidence_bundle"]["sources"][0]["source_type"] == "document"
 
     async def empty(**kwargs):
-        return RetrievalSearchResult(query=kwargs["query"], items=[], total=0)
+        return {"ok": True, "answer": "", "retrievedCount": 0, "usedCount": 0, "usedChunks": []}
 
-    monkeypatch.setattr(adapters.knowledge_retrieval_client, "search", empty)
+    monkeypatch.setattr(adapters.internal_knowledge_qa_service, "answer", empty)
     empty_result = asyncio.run(adapters.knowledge_search(
         {"query": "missing"}, _context(),
     ))
     assert "_execution_evidence_bundle" not in empty_result
 
 
-def test_knowledge_search_keeps_agent_candidates_but_projects_only_admitted_evidence(monkeypatch) -> None:
-    async def search(**kwargs):
-        return RetrievalSearchResult(
-            query=kwargs["query"],
-            retrievalMode="vector",
-            total=2,
-            items=[
-                RetrievalChunkItem(
-                    documentId="token-report",
-                    chunkId="token-1",
-                    text="Token 是智能服务的计量和定价单位。",
-                    titlePath=["Token 经济报告"],
-                    score=0.7176740400350329,
-                ),
-                RetrievalChunkItem(
-                    documentId="movo-acceptance",
-                    chunkId="acceptance-1",
-                    text="星轨计划文档化验收资料。",
-                    titlePath=["MOVO 文档化验收资料"],
-                    score=0.005949579483329656,
-                ),
-            ],
-        )
+def test_knowledge_search_projects_only_chunks_used_by_final_answer(monkeypatch) -> None:
+    async def answer(**kwargs):
+        return {
+            "ok": True, "answer": "Token 是智能服务的计量和定价单位。",
+            "retrievedCount": 2, "usedCount": 1,
+            "usedChunks": [{
+                "documentId": "token-report", "chunkId": "token-1",
+                "text": "Token 是智能服务的计量和定价单位。",
+                "titlePath": ["Token 经济报告"], "score": 0.7176740400350329,
+            }],
+        }
 
-    monkeypatch.setattr(adapters.knowledge_retrieval_client, "search", search)
+    monkeypatch.setattr(adapters.internal_knowledge_qa_service, "answer", answer)
     result = asyncio.run(adapters.knowledge_search(
         {"query": "Token 经济是什么"},
         _context(),
     ))
 
-    assert len(result["items"]) == 2
-    assert result["retrieved_total"] == 2
-    assert result["evidence_total"] == 1
+    assert len(result["items"]) == 1
+    assert result["retrievedCount"] == 2
+    assert result["usedCount"] == 1
     assert result["evidence_available"] is True
     assert len(result["_execution_evidence_bundle"]["results"]) == 1
-    assert result["_execution_evidence_bundle"]["results"][0]["title"] == "Token 经济报告"
-    assert [source["title"] for source in result["evidence_bundle"]["sources"]] == ["Token 经济报告"]
+    assert result["_execution_evidence_bundle"]["results"][0]["title"] == "内部知识：Token 经济报告"
+    assert [source["title"] for source in result["evidence_bundle"]["sources"]] == ["内部知识：Token 经济报告"]
 
 
 def test_document_parse_produces_bounded_authenticated_document_evidence(monkeypatch) -> None:

@@ -59,18 +59,6 @@ function sourcePageText(item: EvidenceSourceItem): string {
   return t('evidence.page_no', { page: String(page) })
 }
 
-function sourceChunkText(item: EvidenceSourceItem): string {
-  if (!item.chunk_id) return ''
-  const type = String(item.content_type || '').toLowerCase()
-  if (type === 'table_row') return t('evidence.table_row')
-  if (type.includes('table')) return t('evidence.table')
-  return t('evidence.document_fragment')
-}
-
-function sourceLocatorTitle(item: EvidenceSourceItem): string {
-  return item.citation_id || (item.document_id && item.chunk_id ? `${item.document_id}:${item.chunk_id}` : item.chunk_id || '')
-}
-
 function groupCitationLabel(group: EvidenceSourceGroup): string {
   const positions = group.sources
     .map((source) => sources.value.indexOf(source) + 1)
@@ -175,11 +163,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                         {{ t('evidence.fragment_count', { count: group.sources.length }) }}
                       </span>
                       <span v-else-if="sourcePageText(group.primary)" class="rounded-full bg-blue-50 px-2 py-1 text-blue-700">{{ sourcePageText(group.primary) }}</span>
-                      <span
-                        v-if="group.sources.length === 1 && sourceChunkText(group.primary)"
-                        class="rounded-full bg-slate-50 px-2 py-1 text-slate-600"
-                        :title="sourceLocatorTitle(group.primary)"
-                      >{{ sourceChunkText(group.primary) }}</span>
                     </div>
                   </div>
                   <div class="shrink-0 text-xs font-medium text-slate-500">{{ groupCitationLabel(group) || `[${idx + 1}]` }}</div>

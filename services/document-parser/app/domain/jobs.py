@@ -81,6 +81,7 @@ class DeleteDocumentVectorsRequest(BaseModel):
 class RetrievalSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     mainId: str = "default"
+    userId: str = ""
     knowledgeBaseId: str = ""
     topN: int | None = Field(default=None, ge=1, le=100)
     candidateTopK: int | None = Field(default=None, ge=1, le=500)

@@ -1,15 +1,5 @@
 <template>
   <div class="page-stack skills-page" @dragover.prevent @drop.prevent="handlePageDrop">
-    <header v-if="!isDesktop" class="skills-header">
-      <div class="skills-header-left">
-        <n-button secondary @click="emit('back')">
-          <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
-          {{ t('skills.back_to_chat') }}
-        </n-button>
-        <h1>{{ t('skills.title') }}</h1>
-      </div>
-    </header>
-
     <div class="metrics-row">
       <n-card v-for="item in metricCards" :key="item.key" class="metric-card" :bordered="false" size="small">
         <div class="metric-main">
@@ -271,7 +261,6 @@ import {
   type FormInst,
   type FormRules,
 } from 'naive-ui';
-import { ArrowBackOutline } from '@vicons/ionicons5';
 import { createSkill, deleteSkill, fetchSkills, setSkillEnabled, updateSkill, type SkillItem, type SkillPayload, type SkillType } from '../api/skills';
 import { t } from '../composables/i18n';
 import { formatAppDateTime, parseAppDate } from '../composables/appTimezone';
@@ -290,11 +279,9 @@ const props = defineProps<{
   mainId: string
   pendingShareCount: number
   pendingFeedbackCount: number
-  isDesktop: boolean
 }>();
 
 const emit = defineEmits<{
-  back: []
   configure: [skill: SkillItem]
   login: []
   'share-count-change': [count: number]
@@ -626,33 +613,6 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 :global(.skill-details-modal),
 :global(.skill-details-modal *) {
   -webkit-app-region: no-drag;
-}
-
-.skills-header {
-  width: 100%;
-  padding: 14px 18px;
-  border: 1px solid #e6ebf5;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.skills-header h1 {
-  margin: 0;
-  color: #101c3d;
-  font-size: 20px;
-  line-height: 1.2;
-  font-weight: 800;
-}
-
-.skills-header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .shell-card {

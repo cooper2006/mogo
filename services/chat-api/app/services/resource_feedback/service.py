@@ -31,7 +31,7 @@ class ResourceFeedbackError(ValueError):
 
 
 class ResourceFeedbackService:
-    """Flat discussion and likes for version-stable Skill identities."""
+    """Flat discussion and likes for access-controlled, version-stable resources."""
 
     def __init__(self, access: FeedbackAccessResolver | None = None) -> None:
         self._access = access or FeedbackAccessResolver()
@@ -48,6 +48,7 @@ class ResourceFeedbackService:
         rows = await db[COMMENT_COLLECTION].find(comment_query).sort("created_at", -1).limit(page_size + 1).to_list(length=page_size + 1)
         has_more = len(rows) > page_size
         rows = rows[:page_size]
+        comment_count = await db[COMMENT_COLLECTION].count_documents({**query, "status": "active"})
         comment_ids = [str(row.get("_id") or "") for row in rows]
         comment_reactions = await db[COMMENT_REACTION_COLLECTION].find({
             "main_id": resolve_main_id(main_id), "comment_id": {"$in": comment_ids}, "reaction": "like",
@@ -61,6 +62,15 @@ class ResourceFeedbackService:
                 liked_by_me.add(comment_id)
         reaction = await db[REACTION_COLLECTION].find_one({**query, "user_id": str(user_id), "reaction": "like"})
         count = await db[REACTION_COLLECTION].count_documents({**query, "reaction": "like"})
+        unread_rows = await db[NOTIFICATION_COLLECTION].find(
+            {**query, "recipient_user_id": str(user_id), "status": "unread"},
+        ).sort("created_at", -1).limit(1).to_list(length=1)
+        focus = None
+        if unread_rows:
+            focus = {
+                "kind": str(unread_rows[0].get("kind") or ""),
+                "commentId": str(unread_rows[0].get("comment_id") or ""),
+            }
         await db[NOTIFICATION_COLLECTION].update_many(
             {**query, "recipient_user_id": str(user_id), "status": "unread"},
             {"$set": {"status": "read", "read_at": _utcnow()}},
@@ -68,8 +78,8 @@ class ResourceFeedbackService:
         next_cursor = self._cursor(rows[-1].get("created_at")) if has_more and rows else ""
         return {
             "items": [self._comment_view(row, user_id, like_counts, liked_by_me) for row in rows],
-            "likes": count, "likedByMe": reaction is not None,
-            "hasMore": has_more, "nextCursor": next_cursor,
+            "commentCount": comment_count, "likes": count, "likedByMe": reaction is not None,
+            "hasMore": has_more, "nextCursor": next_cursor, "focus": focus,
         }
 
     async def comment(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str, content: str, parent_id: str = "") -> dict[str, Any]:
@@ -95,7 +105,12 @@ class ResourceFeedbackService:
             "created_at": _utcnow(), "updated_at": _utcnow(),
         }
         await db[COMMENT_COLLECTION].insert_one(row)
-        recipient = str((parent or {}).get("user_id") or subject.owner_user_id or "")
+        recipient = str(
+            (parent or {}).get("user_id")
+            or subject.activity_recipient_user_id
+            or subject.owner_user_id
+            or ""
+        )
         recipients = {recipient} - {"", str(user_id)}
         for recipient in recipients:
             await db[NOTIFICATION_COLLECTION].insert_one({
@@ -127,6 +142,13 @@ class ResourceFeedbackService:
         else:
             await db[REACTION_COLLECTION].insert_one({"_id": uuid.uuid4().hex, **query, "created_at": _utcnow()})
             liked = True
+            recipient = str(subject.activity_recipient_user_id or subject.owner_user_id or "")
+            if subject.resource_type == "personal_knowledge" and recipient and recipient != str(user_id):
+                await db[NOTIFICATION_COLLECTION].insert_one({
+                    "_id": uuid.uuid4().hex, **self._query(tenant_id, subject),
+                    "recipient_user_id": recipient, "actor": await self._author(db, tenant_id, str(user_id)),
+                    "comment_id": "", "kind": "like", "status": "unread", "created_at": _utcnow(),
+                })
         count = await db[REACTION_COLLECTION].count_documents({**self._query(tenant_id, subject), "reaction": "like"})
         return {"likedByMe": liked, "likes": count}
 
@@ -144,13 +166,26 @@ class ResourceFeedbackService:
         else:
             await db[COMMENT_REACTION_COLLECTION].insert_one({"_id": uuid.uuid4().hex, **query, "created_at": _utcnow()})
             liked = True
+            if str(comment.get("resource_type") or "") == "personal_knowledge":
+                recipient = str(comment.get("user_id") or "")
+                if recipient and recipient != str(user_id):
+                    await db[NOTIFICATION_COLLECTION].insert_one({
+                        "_id": uuid.uuid4().hex,
+                        "main_id": tenant_id, "resource_type": str(comment.get("resource_type") or ""),
+                        "resource_id": str(comment.get("resource_id") or ""),
+                        "recipient_user_id": recipient, "actor": await self._author(db, tenant_id, str(user_id)),
+                        "comment_id": comment_id, "kind": "like", "status": "unread", "created_at": _utcnow(),
+                    })
         count = await db[COMMENT_REACTION_COLLECTION].count_documents({"main_id": tenant_id, "comment_id": comment_id, "reaction": "like"})
         return {"likedByMe": liked, "likes": count}
 
-    async def unread_count(self, *, main_id: str, user_id: str) -> int:
-        return await get_db()[NOTIFICATION_COLLECTION].count_documents({
+    async def unread_count(self, *, main_id: str, user_id: str, resource_types: list[str] | None = None) -> int:
+        query: dict[str, Any] = {
             "main_id": resolve_main_id(main_id), "recipient_user_id": str(user_id), "status": "unread",
-        })
+        }
+        if resource_types:
+            query["resource_type"] = {"$in": list(resource_types)}
+        return await get_db()[NOTIFICATION_COLLECTION].count_documents(query)
 
     async def notifications(self, *, main_id: str, user_id: str, limit: int = 20) -> dict[str, Any]:
         db, tenant_id = get_db(), resolve_main_id(main_id)
@@ -167,6 +202,9 @@ class ResourceFeedbackService:
             elif resource_type == "organization_skill":
                 skill = await db.skills.find_one({"_id": resource_id, "main_id": tenant_id}) or {}
                 name = str(skill.get("name") or name)
+            elif resource_type == "personal_knowledge":
+                resource = await db.knowledge_resources.find_one({"_id": resource_id, "main_id": tenant_id}) or {}
+                name = str(resource.get("name") or "知识")
             created = row.get("created_at")
             items.append({"id": str(row.get("_id") or ""), "resourceType": resource_type, "resourceId": resource_id,
                 "name": name, "actor": public_identity(row.get("actor")),

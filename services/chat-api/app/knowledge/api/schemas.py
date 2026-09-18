@@ -40,6 +40,7 @@ class KnowledgeCitation(BaseModel):
     source_chunk_ids: List[str] = Field(default_factory=list)
     content_type: str = "text"
     source_anchor: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class KnowledgeQAResult(BaseModel):

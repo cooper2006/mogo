@@ -24,15 +24,17 @@ class KnowledgeRetrievalClient:
         *,
         query: str,
         main_id: str,
+        user_id: str = "",
         knowledge_base_ids: List[str] | None = None,
         top_n: int = 8,
         rerank: bool | None = None,
     ) -> RetrievalSearchResult:
         if not query.strip():
             return RetrievalSearchResult(query=query, items=[], total=0)
-        ids = [str(item).strip() for item in list(knowledge_base_ids or []) if str(item).strip()]
-        if not ids:
-            ids = [""]
+        raw_ids = list(knowledge_base_ids or [])
+        ids = [str(item).strip() for item in raw_ids if str(item).strip()]
+        if not raw_ids or any(not str(item).strip() for item in raw_ids):
+            ids.insert(0, "")
 
         all_items: list[RetrievalChunkItem] = []
         mode = "vector"
@@ -41,6 +43,7 @@ class KnowledgeRetrievalClient:
                 payload = RetrievalSearchPayload(
                     query=query,
                     mainId=main_id,
+                    userId=user_id,
                     knowledgeBaseId=knowledge_base_id,
                     topN=top_n,
                     retrievalMode="vector",

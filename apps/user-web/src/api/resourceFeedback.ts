@@ -18,10 +18,12 @@ export interface FeedbackComment {
 
 export interface FeedbackThread {
   items: FeedbackComment[]
+  commentCount: number
   likes: number
   likedByMe: boolean
   hasMore: boolean
   nextCursor: string
+  focus?: { kind: string; commentId: string } | null
 }
 
 export async function fetchFeedback(type: string, id: string, cursor = '', limit = 30): Promise<FeedbackThread> {

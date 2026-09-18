@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import mimetypes
-from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, status
-from starlette.responses import StreamingResponse
+from fastapi import APIRouter, Header, HTTPException, Request, status
 
 from app.api.endpoints.auth import _resolve_session_user
-from app.core.config import get_settings
 from app.core.db import get_db
+from app.services.knowledge_preview_stream import preview_response
+from app.services.personal_knowledge.access import PersonalKnowledgeAccessService
+from app.product.extensions import get_product_extension
 
 router = APIRouter()
 
@@ -46,64 +46,32 @@ async def _current_scope(authorization: str | None) -> tuple[str, str]:
     return user_id, main_id
 
 
-async def _find_document_or_404(document_id: str, main_id: str) -> dict[str, Any]:
+async def _find_document_or_404(document_id: str, main_id: str, user_id: str = "") -> dict[str, Any]:
     doc = await get_db()[DOCUMENT_COLLECTION].find_one(
         {"_id": document_id, "main_id": main_id, "deleted_at": None}
     )
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
-    return doc
-
-
-def _iter_fileobj(fileobj: BinaryIO):
-    try:
-        while True:
-            chunk = fileobj.read(1024 * 1024)
-            if not chunk:
-                break
-            yield chunk
-    finally:
+    if str(doc.get("scope") or "organization") == "personal":
+        resource_id = str(doc.get("resource_id") or "")
         try:
-            fileobj.close()
-        except Exception:
-            pass
-
-
-def _open_local_file(storage_key: str) -> BinaryIO:
-    settings = get_settings()
-    root = Path(settings.KNOWLEDGE_LOCAL_STORAGE_DIR).expanduser().resolve()
-    path = (root / storage_key.strip().lstrip("/").replace("\\", "/")).resolve()
-    if root not in path.parents and path != root:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid file path")
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file not found")
-    return path.open("rb")
-
-
-def _open_oss_file(storage_key: str) -> BinaryIO:
-    settings = get_settings()
-    endpoint = settings.KNOWLEDGE_OSS_ENDPOINT or settings.OSS_ENDPOINT
-    bucket_name = settings.KNOWLEDGE_OSS_BUCKET or settings.OSS_BUCKET_NAME
-    try:
-        import oss2  # type: ignore
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="oss dependency missing") from exc
-    try:
-        auth = oss2.Auth(settings.OSS_ACCESS_KEY_ID, settings.OSS_ACCESS_KEY_SECRET)
-        bucket = oss2.Bucket(auth, endpoint, bucket_name)
-        return bucket.get_object(storage_key)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file not found") from exc
-
-
-def _open_stored_file(doc: dict[str, Any], key: str) -> BinaryIO:
-    storage_key = str(doc.get(key) or "")
-    if not storage_key:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="preview not ready")
-    storage_type = str(doc.get("storage_type") or get_settings().KNOWLEDGE_STORAGE_TYPE or "local").lower()
-    if storage_type == "oss":
-        return _open_oss_file(storage_key)
-    return _open_local_file(storage_key)
+            await PersonalKnowledgeAccessService().require_view(
+                main_id=main_id, user_id=user_id, resource_id=resource_id,
+            )
+        except (LookupError, PermissionError) as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="knowledge_forbidden") from exc
+    else:
+        access_policy = get_product_extension().knowledge_access_policy
+        if access_policy is not None:
+            try:
+                await access_policy.require_view(
+                    main_id=main_id,
+                    user_id=user_id,
+                    document_id=document_id,
+                )
+            except PermissionError as exc:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="knowledge_forbidden") from exc
+    return doc
 
 
 @router.get("/knowledge/sources/documents/{document_id}")
@@ -111,8 +79,16 @@ async def get_knowledge_source_document(
     document_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _user_id, main_id = await _current_scope(authorization)
-    doc = await _find_document_or_404(document_id, main_id)
+    user_id, main_id = await _current_scope(authorization)
+    doc = await _find_document_or_404(document_id, main_id, user_id)
+    can_download = True
+    if str(doc.get("scope") or "organization") != "personal":
+        access_policy = get_product_extension().knowledge_access_policy
+        check_download = getattr(access_policy, "can_download", None)
+        if callable(check_download):
+            can_download = bool(await check_download(
+                main_id=main_id, user_id=user_id, document_id=document_id,
+            ))
     return {
         "id": str(doc.get("_id") or ""),
         "name": str(doc.get("name") or ""),
@@ -122,6 +98,7 @@ async def get_knowledge_source_document(
         "previewMimeType": str(doc.get("preview_mime_type") or ""),
         "previewStatus": str(doc.get("preview_status") or ""),
         "chunkCount": int(doc.get("chunk_count") or 0),
+        "canDownload": can_download,
     }
 
 
@@ -131,8 +108,8 @@ async def get_knowledge_source_chunk(
     chunk_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    _user_id, main_id = await _current_scope(authorization)
-    await _find_document_or_404(document_id, main_id)
+    user_id, main_id = await _current_scope(authorization)
+    await _find_document_or_404(document_id, main_id, user_id)
     chunk = await get_db()[CHUNK_COLLECTION].find_one(
         {
             "main_id": main_id,
@@ -149,10 +126,11 @@ async def get_knowledge_source_chunk(
 @router.get("/knowledge/sources/documents/{document_id}/preview")
 async def get_knowledge_source_preview(
     document_id: str,
+    request: Request,
     authorization: str | None = Header(default=None),
 ):
-    _user_id, main_id = await _current_scope(authorization)
-    doc = await _find_document_or_404(document_id, main_id)
+    user_id, main_id = await _current_scope(authorization)
+    doc = await _find_document_or_404(document_id, main_id, user_id)
     preview_status = str(doc.get("preview_status") or "")
     if _needs_preview_conversion(str(doc.get("file_ext") or "")):
         if preview_status != "succeeded":
@@ -160,11 +138,15 @@ async def get_knowledge_source_preview(
         storage_field = "preview_key"
     else:
         storage_field = "preview_key" if str(doc.get("preview_key") or "") else "storage_key"
-    fileobj = _open_stored_file(doc, storage_field)
     storage_key = str(doc.get(storage_field) or "")
     mime = (
         str(doc.get("preview_mime_type") or "")
         if storage_field == "preview_key"
         else str(doc.get("mime_type") or "")
     ) or mimetypes.guess_type(storage_key)[0] or "application/octet-stream"
-    return StreamingResponse(_iter_fileobj(fileobj), media_type=mime)
+    return preview_response(
+        document=doc,
+        storage_field=storage_field,
+        media_type=mime,
+        range_header=request.headers.get("range", ""),
+    )

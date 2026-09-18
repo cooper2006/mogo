@@ -127,6 +127,7 @@ from app.api.endpoints import (
     skill_share_direct,
     skill_shares,
     resource_feedback,
+    personal_knowledge,
     tasks,
     token_usage,
 )
@@ -152,6 +153,7 @@ app.include_router(skill_updates.router, prefix="/api")
 app.include_router(skill_share_direct.router, prefix="/api")
 app.include_router(skill_shares.router, prefix="/api")
 app.include_router(resource_feedback.router, prefix="/api")
+app.include_router(personal_knowledge.router, prefix="/api")
 app.include_router(site_profiles.router, prefix="/api")
 app.include_router(token_usage.router, prefix="/api")
 app.include_router(quota.router, prefix="/api")
@@ -268,6 +270,22 @@ async def startup_event() -> None:
     )
     await db.resource_feedback_notifications.create_index(
         [("main_id", 1), ("recipient_user_id", 1), ("status", 1), ("created_at", -1)],
+    )
+    await db.knowledge_resources.create_index(
+        [("main_id", 1), ("owner_user_id", 1), ("directory_id", 1), ("deleted_at", 1), ("updated_at", -1)],
+        name="personal_knowledge_owner_directory",
+    )
+    await db.personal_knowledge_directories.create_index(
+        [("main_id", 1), ("owner_user_id", 1), ("parent_id", 1), ("name", 1)],
+        name="personal_knowledge_directory_name",
+    )
+    await db.resource_grants.create_index(
+        [("main_id", 1), ("resource_type", 1), ("resource_id", 1), ("recipient_user_id", 1)],
+        unique=True, name="resource_grant_recipient",
+    )
+    await db.resource_grants.create_index(
+        [("main_id", 1), ("resource_type", 1), ("recipient_user_id", 1), ("status", 1), ("updated_at", -1)],
+        name="resource_grant_inbox",
     )
     await db.end_users.create_index([("main_id", 1), ("status", 1), ("_id", 1)], name="skill_share_member_page")
     await db.end_users.create_index([("main_id", 1), ("status", 1), ("name", 1)], name="skill_share_member_name")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -12,6 +13,22 @@ from app.services.model_center_runtime import ModelCenterConfigError, resolve_mo
 
 class EmbeddingProviderError(RuntimeError):
     pass
+
+
+_BATCH_LIMIT_PATTERNS = (
+    re.compile(r"should not be larger than\s+(\d+)", re.IGNORECASE),
+    re.compile(r"(?:maximum|max)\s+batch\s+size(?:\s+is|:)?\s+(\d+)", re.IGNORECASE),
+)
+
+
+def _batch_limit_from_error(error: Exception) -> int | None:
+    message = str(error)
+    for pattern in _BATCH_LIMIT_PATTERNS:
+        match = pattern.search(message)
+        if match:
+            limit = int(match.group(1))
+            return limit if limit > 0 else None
+    return None
 
 
 def embed_texts(texts: list[str], config: dict[str, Any]) -> list[list[float]]:
@@ -106,7 +123,8 @@ def _model_center_embed_texts(
         }
     results: list[list[float]] = []
     batch = max(1, min(batch_size, 256))
-    for start in range(0, len(texts), batch):
+    start = 0
+    while start < len(texts):
         current = texts[start : start + batch]
         payload: dict[str, Any] = {"input": current}
         if not is_azure:
@@ -117,7 +135,17 @@ def _model_center_embed_texts(
             headers=headers,
             method="POST",
         )
-        body = _open_json_with_retry(request, timeout=timeout)
+        try:
+            body = _open_json_with_retry(request, timeout=timeout)
+        except EmbeddingProviderError as exc:
+            # OpenAI-compatible providers do not expose a standard batch-limit
+            # capability. If one reports its limit, honor it and retry the same
+            # slice instead of making deployments hard-code provider specifics.
+            reported_limit = _batch_limit_from_error(exc)
+            if reported_limit is None or reported_limit >= len(current):
+                raise
+            batch = min(batch, reported_limit)
+            continue
         data = body.get("data")
         if not isinstance(data, list):
             raise EmbeddingProviderError("模型中心 embedding 返回格式不正确")
@@ -126,6 +154,7 @@ def _model_center_embed_texts(
             if not isinstance(embedding, list):
                 raise EmbeddingProviderError("模型中心 embedding 缺少 embedding 字段")
             results.append([float(value) for value in embedding])
+        start += len(current)
     return results
 
 

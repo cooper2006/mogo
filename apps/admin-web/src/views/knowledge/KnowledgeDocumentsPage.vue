@@ -268,6 +268,13 @@
     </template>
   </n-modal>
 
+  <ProductKnowledgeDirectoryPermissions
+    v-if="ProductKnowledgeDirectoryPermissions"
+    v-model:show="directoryPermissionVisible"
+    :directory-id="permissionDirectoryId"
+    :directory-name="permissionDirectoryName"
+  />
+
   <!-- 目录新建/编辑 Modal -->
   <n-modal v-model:show="dirEditorVisible" preset="card" :title="dirEditorTitle" style="width: 520px">
     <n-form :model="dirForm" label-placement="left" label-width="90">
@@ -434,8 +441,9 @@
 import { computed, h, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import type { DataTableColumns, DataTableRowKey, SelectOption, TreeOption } from 'naive-ui';
-import { NButton, NInputGroup, NProgress, NSpace, NTag, useDialog, useMessage } from 'naive-ui';
+import { NButton, NDropdown, NInputGroup, NProgress, NSpace, NTag, useDialog, useMessage } from 'naive-ui';
 import axios from 'axios';
+import adminProductUiExtension from '@movo-admin-product-extension';
 import FileIcon from '@/components/FileIcon.vue';
 import DocumentStatus from '@/components/DocumentStatus.vue';
 import { t } from '@/composables/i18n';
@@ -482,6 +490,10 @@ const uploading = ref(false);
 const documents = ref<KnowledgeDocumentItem[]>([]);
 const stats = ref<KnowledgeDocumentStats>({ total: 0, indexed: 0, failed: 0, local: 0, oss: 0, totalSize: 0 });
 const uploadVisible = ref(false);
+const ProductKnowledgeDirectoryPermissions = adminProductUiExtension.knowledgeDirectoryPermissions;
+const directoryPermissionVisible = ref(false);
+const permissionDirectoryId = ref('root');
+const permissionDirectoryName = ref('');
 const uploadQueue = ref<UploadQueueItem[]>([]);
 const showFloatPanel = ref(false);
 const uploadDragging = ref(false);
@@ -1351,39 +1363,38 @@ function renderTreeLabel(info: { option: TreeOption & { rawName?: string; totalD
   const name = info.option.rawName || String(info.option.label || '');
   const count = Number(info.option.totalDocumentCount ?? 0);
   const isRoot = info.option.isRoot || false;
+  const menuOptions = [
+    { label: t('新增子目录'), key: 'create' },
+    ...(!isRoot ? [{ label: t('编辑目录'), key: 'edit' }] : []),
+    ...(ProductKnowledgeDirectoryPermissions ? [{ label: t('权限设置'), key: 'permissions' }] : []),
+  ];
+  const handleMenu = (key: string) => {
+    selectedDirKeys.value = [nodeId];
+    if (key === 'create') openCreateDir(nodeId);
+    if (key === 'edit') openEditDir(nodeId);
+    if (key === 'permissions') openDirectoryPermissions(nodeId, name);
+  };
   return h('div', { class: 'dept-node-label' }, [
     h('span', { class: 'dept-node-title' }, `${name} (${count})`),
     h('span', { class: 'dept-node-actions' }, [
-      h(
-        'button',
-        {
+      h(NDropdown, { options: menuOptions, trigger: 'click', onSelect: handleMenu }, {
+        default: () => h('button', {
           class: 'dept-node-action',
-          title: t('新增子目录'),
+          title: t('目录操作'),
           onClick: (event: MouseEvent) => {
             event.preventDefault();
             event.stopPropagation();
-            selectedDirKeys.value = [nodeId];
-            openCreateDir(nodeId);
           },
-        },
-        '+',
-      ),
-      !isRoot ? h(
-        'button',
-        {
-          class: 'dept-node-action',
-          title: t('编辑目录'),
-          onClick: (event: MouseEvent) => {
-            event.preventDefault();
-            event.stopPropagation();
-            selectedDirKeys.value = [nodeId];
-            openEditDir(nodeId);
-          },
-        },
-        '✎',
-      ) : null,
+        }, '•••'),
+      }),
     ]),
   ]);
+}
+
+function openDirectoryPermissions(directoryId: string, directoryName: string) {
+  permissionDirectoryId.value = directoryId;
+  permissionDirectoryName.value = directoryName;
+  directoryPermissionVisible.value = true;
 }
 
 function flattenDirectoryOptions(nodes: KnowledgeDirectoryNode[], includeRoot: boolean, excludeIds: Set<string> = new Set()): SelectOption[] {

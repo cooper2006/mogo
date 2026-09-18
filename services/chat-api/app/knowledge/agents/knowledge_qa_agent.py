@@ -38,6 +38,7 @@ class KnowledgeQAAgent:
         retrieval = await knowledge_retrieval_client.search(
             query=request.query,
             main_id=request.main_id,
+            user_id=request.user_id,
             knowledge_base_ids=request.knowledge_base_ids,
             top_n=request.top_n,
             rerank=None,

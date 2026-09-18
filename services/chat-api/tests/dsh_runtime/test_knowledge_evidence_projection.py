@@ -21,6 +21,11 @@ def test_knowledge_search_evidence_preserves_document_locator() -> None:
                 "titlePath": ["Token 经济", "结论"],
                 "pageNo": 6,
                 "contentType": "text",
+                "metadata": {
+                    "document_title": "Token 经济白皮书",
+                    "knowledge_scope": "personal",
+                    "knowledge_label": "个人知识",
+                },
             }
         ],
     )
@@ -33,7 +38,8 @@ def test_knowledge_search_evidence_preserves_document_locator() -> None:
     assert source["document_id"] == "document-1"
     assert source["chunk_id"] == "chunk-7"
     assert source["page_no"] == 6
-    assert source["title"] == "Token 经济 / 结论"
+    assert source["title"] == "个人知识：Token 经济白皮书"
+    assert source["source_name"] == "个人知识"
 
 
 def test_execution_evidence_projection_returns_openable_sources() -> None:

@@ -61,6 +61,10 @@ def create_app() -> FastAPI:
         await ensure_knowledge_settings_indexes()
         await ensure_knowledge_document_indexes()
         await ensure_knowledge_directory_indexes()
+        for callback in get_admin_product_extension().startup:
+            result = callback()
+            if hasattr(result, "__await__"):
+                await result
 
 
     @app.on_event("shutdown")

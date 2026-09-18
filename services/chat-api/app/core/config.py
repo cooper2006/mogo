@@ -115,6 +115,7 @@ class Settings(BaseSettings):
     PRESENTATION_V5_RAW_RENDER: str = ""
     ASKAI_ADMIN_JWT_SECRET: str = ""
     ADMIN_BACKEND_SERVICE_TOKEN: str = ""
+    ADMIN_API_BASE_URL: str = "http://127.0.0.1:8100"
     DSH_MODEL_GATEWAY_SIGNING_SECRET: str = ""
     DSH_TOOL_GATEWAY_URL: str = "http://127.0.0.1:8000/internal/dsh/tools"
     DSH_RUNTIME_HOST_URL: str = "http://127.0.0.1:8101"

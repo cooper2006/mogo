@@ -55,6 +55,7 @@ def _citation_from_chunk(chunk: KnowledgeChunk) -> KnowledgeCitation:
         source_chunk_ids=chunk.source_chunk_ids,
         content_type=chunk.content_type,
         source_anchor=_source_anchor(chunk),
+        metadata=chunk.metadata,
     )
 
 
@@ -69,12 +70,10 @@ def resolve_citations(chunks: list[KnowledgeChunk], used_chunk_ids: list[str]) -
         by_chunk_id[chunk.chunk_id] = chunk
     output: list[KnowledgeCitation] = []
     seen: set[str] = set()
-    requested_any = False
     for chunk_id in used_chunk_ids:
         key = str(chunk_id or "").strip()
         if not key:
             continue
-        requested_any = True
         if key in seen:
             continue
         chunk = by_citation_id.get(key)
@@ -84,23 +83,30 @@ def resolve_citations(chunks: list[KnowledgeChunk], used_chunk_ids: list[str]) -
             continue
         seen.add(key)
         output.append(_citation_from_chunk(chunk))
-    if not output and not requested_any and chunks:
-        chunk = chunks[0]
-        output.append(_citation_from_chunk(chunk))
     return output
 
 
 def build_evidence_bundle(query: str, citations: list[KnowledgeCitation]) -> dict[str, Any]:
     sources = []
     for item in citations:
-        title = " / ".join(item.title_path) or item.chunk_id
+        metadata = item.metadata or {}
+        document_title = str(
+            metadata.get("document_title")
+            or metadata.get("filename")
+            or metadata.get("title")
+            or ""
+        ).strip()
+        knowledge_label = str(metadata.get("knowledge_label") or "内部知识").strip()
+        title = f"{knowledge_label}：{document_title}" if document_title else (
+            " / ".join(item.title_path) or item.chunk_id
+        )
         citation_id = f"{item.document_id}:{item.chunk_id}"
         sources.append(
             {
                 "id": citation_id,
                 "citation_id": citation_id,
                 "title": title,
-                "source_name": "内部知识库",
+                "source_name": knowledge_label,
                 "snippet": item.text[:500],
                 "content": item.text,
                 "source_type": "document",
@@ -111,6 +117,7 @@ def build_evidence_bundle(query: str, citations: list[KnowledgeCitation]) -> dic
                 "content_type": item.content_type,
                 "source_chunk_ids": item.source_chunk_ids,
                 "source_anchor": item.source_anchor,
+                "metadata": metadata,
             }
         )
     return {

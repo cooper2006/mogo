@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 class RetrievalSearchPayload(BaseModel):
     query: str
     mainId: str
+    userId: str = ""
     knowledgeBaseId: str = ""
     topN: int = 8
     retrievalMode: str = "vector"

@@ -92,6 +92,7 @@ async def count_skill_share_inbox(
     )
     feedback = await ResourceFeedbackService().unread_count(
         main_id=principal.main_id, user_id=principal.user_id,
+        resource_types=["skill_distribution", "organization_skill"],
     )
     return _response({
         "pendingCount": count + int(updates.get("pendingCount") or 0) + feedback,

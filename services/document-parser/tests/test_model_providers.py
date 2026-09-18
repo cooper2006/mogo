@@ -3,6 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import io
+import json
+import urllib.error
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -42,6 +45,36 @@ class ModelProviderTests(TestCase):
             result = _model_center_embed_texts(["hello"], runtime=runtime, batch_size=32, timeout=10)
         self.assertEqual(result, [[0.1, 0.2]])
         self.assertEqual(request.call_args.args[0].full_url, "https://models.example/v1/embeddings")
+
+    def test_embedding_adapts_to_provider_batch_limit(self) -> None:
+        runtime = {
+            "providerType": "openai_compatible",
+            "providerCode": "qwen",
+            "baseUrl": "https://models.example/v1",
+            "apiVersion": "",
+            "apiKey": "secret",
+            "modelName": "embedding-model",
+        }
+        request_sizes: list[int] = []
+
+        def open_url(request: object, timeout: int) -> _Response:
+            del timeout
+            payload = json.loads(request.data.decode("utf-8"))
+            size = len(payload["input"])
+            request_sizes.append(size)
+            if size > 20:
+                detail = b'{"error":{"message":"batch size is invalid, it should not be larger than 20."}}'
+                raise urllib.error.HTTPError(request.full_url, 400, "Bad Request", {}, io.BytesIO(detail))
+            data = [{"index": index, "embedding": [float(index)]} for index in range(size)]
+            return _Response(json.dumps({"data": data}))
+
+        with patch("app.services.embedding_provider.urllib.request.urlopen", side_effect=open_url):
+            result = _model_center_embed_texts(
+                [f"chunk-{index}" for index in range(29)], runtime=runtime, batch_size=32, timeout=10
+            )
+
+        self.assertEqual(request_sizes, [29, 20, 9])
+        self.assertEqual(len(result), 29)
 
     def test_qwen_rerank_uses_dashscope_endpoint(self) -> None:
         runtime = {

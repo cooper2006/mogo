@@ -36,12 +36,14 @@ import { boundProjectWorktree } from './composables/code/projectAuthorization'
 import { useEnterpriseAccessPolicy } from './composables/useEnterpriseAccessPolicy'
 import { useProfileRefreshOnResume } from './composables/useProfileRefreshOnResume'
 import { useSkillShareInboxBadge } from './composables/useSkillShareInboxBadge'
+import { usePersonalKnowledgeBadge } from './composables/usePersonalKnowledgeBadge'
 import { useDesktopToolTabs } from './composables/desktop/useDesktopToolTabs'
 import { clearDesktopAuthSession, restoreDesktopAuthToken } from './composables/desktop/desktopAuthSession'
 
 const ChatWindow = defineAsyncComponent(() => import('./components/ChatWindow.vue'))
 const SkillsPage = defineAsyncComponent(() => import('./components/MySkillsPage.vue'))
 const ToolsPage = defineAsyncComponent(() => import('./components/MyToolsPage.vue'))
+const KnowledgePage = defineAsyncComponent(() => import('./components/MyKnowledgePage.vue'))
 const SkillConfigPage = defineAsyncComponent(() => import('./components/MySkillConfigPage.vue'))
 const CompositeSkillEditor = defineAsyncComponent(() => import('./components/CompositeSkillEditor.vue'))
 const ScheduledTaskPage = defineAsyncComponent(() => import('./components/scheduled-tasks/ScheduledTaskPage.vue'))
@@ -111,7 +113,7 @@ const pendingDeleteSession = ref<SessionSummary | SessionSearchResult | null>(nu
 const editingSessionId = ref<string | null>(null)
 const editingSessionTitle = ref('')
 const renamingSessionId = ref<string | null>(null)
-const currentView = ref<'chat' | 'skills' | 'tools' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks'>('chat')
+const currentView = ref<'chat' | 'skills' | 'tools' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks'>('chat')
 const scheduledTaskInitialPrompt = ref('')
 const scheduledTaskInitialSessionId = ref<string | null>(null)
 const scheduledTaskCreateRequestKey = ref(0)
@@ -223,6 +225,17 @@ const {
   feedbackCount: pendingSkillFeedbackCount,
   refresh: refreshSkillShareCount,
 } = useSkillShareInboxBadge({ scope: skillShareInboxScope })
+const knowledgeBadgeScope = computed(() => ({
+  token: authToken.value,
+  mainId: String(userProfile.value?.mainId || ''),
+  userId: String(userProfile.value?.userId || ''),
+  enabled: canUseTools.value,
+}))
+const {
+  unreadCount: personalKnowledgeUnreadCount,
+  shareCount: personalKnowledgeShareCount,
+  refresh: refreshPersonalKnowledgeCount,
+} = usePersonalKnowledgeBadge(knowledgeBadgeScope)
 const supportsLocalCodeProjects = capabilities.localDshRuntime && capabilities.localWorkspacePicker
 const canSmartFillSkill = computed(() => Boolean(skillName.value.trim() && (skillSummary.value.trim() || skillScenario.value.trim())))
 const trimmedSessionSearchQuery = computed(() => sessionSearchQuery.value.trim())
@@ -322,6 +335,7 @@ const desktopWindowTitle = computed(() => {
     return current ? displaySessionTitle(current) : t('app.sidebar.new_chat')
   }
   if (currentView.value === 'tools') return t('app.sidebar.tools')
+  if (currentView.value === 'knowledge') return t('knowledge.sidebar')
   if (currentView.value === 'scheduled-tasks') return locale.value === 'zh' ? '定时任务' : 'Scheduled tasks'
   if (currentView.value === 'token-usage') return t('app.account.usage')
   if (currentView.value === 'skill-config' || currentView.value === 'composite-editor') {
@@ -859,6 +873,7 @@ function resolveViewFromPath(pathname: string) {
   if (path === '/usage' || path === '/token-usage') return 'token-usage'
   if (path === '/skills') return 'skills'
   if (path === '/tools') return 'tools'
+  if (path === '/knowledge') return 'knowledge'
   if (path === '/scheduled-tasks') return 'scheduled-tasks'
   return 'chat'
 }
@@ -866,6 +881,7 @@ function resolveViewFromPath(pathname: string) {
 function routePathForView(view: typeof currentView.value) {
   if (view === 'token-usage') return '/usage'
   if (view === 'tools') return '/tools'
+  if (view === 'knowledge') return '/knowledge'
   if (view === 'scheduled-tasks') return '/scheduled-tasks'
   if (view === 'skills' || view === 'skill-config' || view === 'composite-editor') return '/skills'
   return '/'
@@ -989,8 +1005,9 @@ function openToolsPage() {
   navigateTo('tools')
 }
 
-function closeToolsPage() {
-  navigateTo('chat')
+function openKnowledgePage() {
+  navigateTo('knowledge')
+  void refreshPersonalKnowledgeCount()
 }
 
 function openSkillConfig(skill: any) {
@@ -2118,6 +2135,18 @@ onBeforeUnmount(() => {
           </span>
           <span>{{ t('app.sidebar.tools') }}</span>
         </button>
+        <button
+          v-if="canUseTools"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'knowledge' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openKnowledgePage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+          </span>
+          <span>{{ t('knowledge.sidebar') }}</span>
+          <span v-if="personalKnowledgeUnreadCount > 0" class="ml-auto inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{{ personalKnowledgeUnreadCount > 99 ? '99+' : personalKnowledgeUnreadCount }}</span>
+        </button>
       </div>
 
       <!-- User Profile (Bottom) -->
@@ -2312,10 +2341,8 @@ onBeforeUnmount(() => {
           <SkillsPage
             :userId="getUserId()"
             :mainId="getMainId()"
-            :isDesktop="capabilities.isDesktop"
             :pendingShareCount="pendingSkillShareActionCount"
             :pendingFeedbackCount="pendingSkillFeedbackCount"
-            @back="closeSkillsPage"
             @configure="openSkillConfig"
             @login="openLogin"
             @share-count-change="refreshSkillShareCount"
@@ -2325,7 +2352,13 @@ onBeforeUnmount(() => {
           <ToolsPage
             :userId="getUserId()"
             :mainId="getMainId()"
-            @back="closeToolsPage"
+          />
+        </div>
+        <div v-else-if="currentView === 'knowledge'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <KnowledgePage
+            :shared-unread-count="personalKnowledgeShareCount"
+            :unread-count="personalKnowledgeUnreadCount"
+            @viewed="refreshPersonalKnowledgeCount"
           />
         </div>
         <div v-else-if="currentView === 'skill-config'" class="flex-1 min-w-0 min-h-0 overflow-hidden">

@@ -14,10 +14,10 @@ from app.enterprise_capabilities.artifacts.resource_result import (
     public_resource_result,
 )
 from app.enterprise_capabilities.browser import browser_task
-from app.knowledge.retrieval.retrieval_client import knowledge_retrieval_client
 from app.knowledge.retrieval.retrieval_client import KnowledgeRetrievalError
-from app.enterprise_capabilities.knowledge_result import available_result, unavailable_result
+from app.enterprise_capabilities.knowledge_result import unavailable_result
 from app.services.runtime_parse_service import runtime_parse_service
+from app.services.rag_service.internal_knowledge_qa_service import internal_knowledge_qa_service
 from app.enterprise_capabilities.research.progressive.provider_router import ProviderRouter
 from app.enterprise_capabilities.research.progressive.agent import ProgressiveResearchAgent
 from app.infrastructure.request_context import reset_request_context, set_request_context
@@ -40,7 +40,6 @@ from app.enterprise_capabilities.presentation import presentation_create
 from app.enterprise_capabilities.pdf_editing import pdf_retain_pages
 from app.enterprise_capabilities.skills import skillhub_install
 from app.enterprise_capabilities.evidence import (
-    admit_knowledge_evidence,
     build_document_evidence_bundle,
     build_knowledge_evidence_bundle,
     public_capability_evidence,
@@ -72,34 +71,42 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
     selected = [str(item) for item in list(context.turn_context.get("knowledge_base_ids") or []) if str(item)]
     query = str(arguments.get("query") or "")
     try:
-        result = await knowledge_retrieval_client.search(
-            query=query, main_id=context.tenant_id,
-            knowledge_base_ids=selected or None, top_n=int(arguments.get("top_n") or 8), rerank=arguments.get("rerank"),
+        payload = await internal_knowledge_qa_service.answer(
+            query=query,
+            main_id=context.tenant_id,
+            user_id=context.user_id,
+            session_id=context.conversation_id,
+            knowledge_ids=selected,
+            top_k=int(arguments.get("top_n") or 8),
         )
     except KnowledgeRetrievalError as exc:
         return unavailable_result(query=query, error=exc)
-    items = []
-    for item in result.items:
-        row = item.model_dump(mode="json")
-        row["citation_ref"] = f"kb://{row.get('documentId', '')}/{row.get('chunkId', '')}"
-        items.append(row)
-    admission = admit_knowledge_evidence(items)
-    admitted_items = list(admission.admitted)
-    bundle = build_knowledge_evidence_bundle(query=result.query, items=admitted_items)
-    payload = available_result(
-        query=result.query,
-        retrieval_mode=result.retrievalMode,
-        total=result.total,
-        items=items,
-    )
-    # Keep the wider candidate set available to the agent, but do not claim
-    # that every retrieval candidate is reliable user-visible evidence.
-    payload["retrieved_total"] = len(items)
-    payload["evidence_total"] = len(admitted_items)
-    payload["evidence_available"] = bool(admitted_items)
-    if items and not admitted_items:
-        payload["message"] = "内部知识检索完成，但候选内容未达到可靠证据准入标准。"
-    if bundle:
+    used_chunks = list(payload.get("usedChunks") or [])
+    evidence_items = []
+    for chunk in used_chunks:
+        if not isinstance(chunk, dict):
+            continue
+        row = {
+            "documentId": chunk.get("documentId"),
+            "chunkId": chunk.get("chunkId"),
+            "text": chunk.get("text"),
+            "contextualText": chunk.get("text"),
+            "titlePath": chunk.get("titlePath") or [],
+            "pageNo": chunk.get("pageNo"),
+            "contentType": chunk.get("contentType"),
+            "score": chunk.get("rerankScore") if chunk.get("rerankScore") is not None else chunk.get("score"),
+            "metadata": dict(chunk.get("metadata") or {}),
+        }
+        evidence_items.append(row)
+    bundle = build_knowledge_evidence_bundle(query=query, items=evidence_items)
+    payload["success"] = bool(payload.get("ok", True))
+    payload["retrieval_status"] = "completed" if payload.get("retrievedCount") else "empty"
+    payload["retrieval_mode"] = "qa"
+    payload["total"] = payload.get("retrievedCount", 0)
+    payload["items"] = used_chunks
+    payload["evidence_available"] = bool(used_chunks)
+    payload["message"] = "内部知识问答完成。" if used_chunks else "内部知识检索已完成，但没有找到可支持答案的依据。"
+    if bundle and used_chunks:
         payload["evidence_bundle"] = public_capability_evidence(bundle)
         payload["_execution_evidence_bundle"] = bundle
     return payload

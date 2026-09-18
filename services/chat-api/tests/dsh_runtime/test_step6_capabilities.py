@@ -207,47 +207,37 @@ def test_failed_browser_terminal_is_not_reported_as_success_from_artifacts() -> 
 def test_knowledge_scope_comes_only_from_trusted_turn_context(monkeypatch) -> None:
     calls = []
 
-    class _Result:
-        query = "q"
-        retrievalMode = "vector"
-        total = 0
-        items = []
-
-    async def fake_search(**kwargs):
+    async def fake_answer(**kwargs):
         calls.append(kwargs)
-        return _Result()
+        return {"ok": True, "retrievedCount": 0, "usedChunks": [], "answer": ""}
 
-    monkeypatch.setattr("app.enterprise_capabilities.runtime.adapters.knowledge_retrieval_client.search", fake_search)
+    monkeypatch.setattr("app.enterprise_capabilities.runtime.adapters.internal_knowledge_qa_service.answer", fake_answer)
     result = asyncio.run(knowledge_search(
         {"query": "q", "knowledge_base_ids": ["model-forged"]},
         _context(knowledge_qa_enabled=True, knowledge_base_ids=["server-selected"]),
     ))
     assert result["success"] is True
-    assert calls[0]["knowledge_base_ids"] == ["server-selected"]
+    assert calls[0]["knowledge_ids"] == ["server-selected"]
     assert calls[0]["main_id"] == "tenant-a"
+    assert calls[0]["user_id"] == "user-a"
 
 
 def test_knowledge_tool_is_available_in_automatic_retrieval_mode(monkeypatch) -> None:
     calls = []
 
-    class _Result:
-        query = "internal policy"
-        retrievalMode = "vector"
-        total = 0
-        items = []
-
-    async def fake_search(**kwargs):
+    async def fake_answer(**kwargs):
         calls.append(kwargs)
-        return _Result()
+        return {"ok": True, "retrievedCount": 0, "usedChunks": [], "answer": ""}
 
-    monkeypatch.setattr("app.enterprise_capabilities.runtime.adapters.knowledge_retrieval_client.search", fake_search)
+    monkeypatch.setattr("app.enterprise_capabilities.runtime.adapters.internal_knowledge_qa_service.answer", fake_answer)
     result = asyncio.run(knowledge_search(
         {"query": "internal policy"},
         _context(knowledge_qa_enabled=False),
     ))
     assert result["success"] is True
     assert calls[0]["main_id"] == "tenant-a"
-    assert calls[0]["knowledge_base_ids"] is None
+    assert calls[0]["user_id"] == "user-a"
+    assert calls[0]["knowledge_ids"] == []
     assert result["retrieval_status"] == "empty"
 
 
@@ -257,7 +247,7 @@ def test_knowledge_service_unavailable_is_not_reported_as_zero_results(monkeypat
     async def unavailable(**_kwargs):
         raise KnowledgeRetrievalError("503 Service Unavailable")
 
-    monkeypatch.setattr("app.enterprise_capabilities.runtime.adapters.knowledge_retrieval_client.search", unavailable)
+    monkeypatch.setattr("app.enterprise_capabilities.runtime.adapters.internal_knowledge_qa_service.answer", unavailable)
     result = asyncio.run(knowledge_search({"query": "internal policy"}, _context()))
     assert result["success"] is True
     assert result["retrieval_status"] == "service_unavailable"

@@ -98,7 +98,8 @@ async def get_directory_tree(current_user: dict = Depends(get_current_admin_user
         {
             "$match": {
                 "main_id": main_id,
-                "deleted_at": None
+                "deleted_at": None,
+                "$or": [{"scope": "organization"}, {"scope": {"$exists": False}}]
             }
         },
         {
@@ -415,7 +416,8 @@ async def delete_directory(
     doc_count = await db[KNOWLEDGE_DOC_COLLECTION].count_documents({
         "main_id": main_id,
         "knowledge_base_id": {"$in": directory_ids},
-        "deleted_at": None
+        "deleted_at": None,
+        "$or": [{"scope": "organization"}, {"scope": {"$exists": False}}]
     })
     if doc_count > 0:
         raise HTTPException(

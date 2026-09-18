@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 import importlib
 import os
-from typing import Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from fastapi import APIRouter
 
@@ -15,6 +15,7 @@ class AdminProductExtension:
     edition: str
     organization_defaults: Mapping[str, object] = field(default_factory=dict)
     routers: Sequence[APIRouter] = field(default_factory=tuple)
+    startup: Sequence[Callable[[], Any]] = field(default_factory=tuple)
 
 
 def community_extension() -> AdminProductExtension:

@@ -7,10 +7,10 @@ from app.core.db import get_db
 from app.domain.jobs import RetrievalSearchRequest
 from app.services.embedding_provider import embed_query
 from app.services.reranker_provider import rerank
+from app.services.retrieval_access_policy import knowledge_retrieval_access_policy
 from app.services.vector_store import get_vector_store
 
 SETTINGS_COLLECTION = "knowledge_document_settings"
-DOCUMENT_COLLECTION = "knowledge_documents"
 
 
 def search_knowledge(request: RetrievalSearchRequest) -> dict[str, Any]:
@@ -22,16 +22,19 @@ def search_knowledge(request: RetrievalSearchRequest) -> dict[str, Any]:
     score_threshold = float(retrieval.get("scoreThreshold") or 0)
     query_vector = embed_query(request.query, config)
     store = get_vector_store(config)
-    candidates = store.search(
+    candidates = _search_authorized_candidates(
+        store=store,
         query_vector=query_vector,
         query=request.query,
         main_id=request.mainId,
+        user_id=request.userId,
         knowledge_base_id=request.knowledgeBaseId,
         mode=mode,
-        limit=candidate_top_k,
+        top_n=top_n,
+        candidate_top_k=candidate_top_k,
+        max_candidate_scan=int(retrieval.get("maxCandidateScan") or 10_000),
         score_threshold=score_threshold,
     )
-    candidates = _filter_active_documents(candidates, request.mainId)
     candidates = _deduplicate(candidates, retrieval)
     use_rerank = bool((retrieval.get("rerank") or {}).get("enabled", False)) if request.rerank is None else bool(request.rerank)
     if use_rerank:
@@ -48,24 +51,59 @@ def search_knowledge(request: RetrievalSearchRequest) -> dict[str, Any]:
     }
 
 
-def _filter_active_documents(items: list[dict[str, Any]], main_id: str) -> list[dict[str, Any]]:
-    document_ids = sorted({str(item.get("documentId") or "") for item in items if str(item.get("documentId") or "")})
-    if not document_ids:
-        return []
-    active_ids = {
-        str(doc.get("_id") or "")
-        for doc in get_db()[DOCUMENT_COLLECTION].find(
-            {
-                "_id": {"$in": document_ids},
-                "main_id": main_id,
-                "deleted_at": None,
-            },
-            {"_id": 1},
+def _search_authorized_candidates(
+    *,
+    store: Any,
+    query_vector: list[float],
+    query: str,
+    main_id: str,
+    user_id: str,
+    knowledge_base_id: str,
+    mode: str,
+    top_n: int,
+    candidate_top_k: int,
+    max_candidate_scan: int,
+    score_threshold: float,
+) -> list[dict[str, Any]]:
+    """Scan tenant-ranked candidates in pages and authorize each page in bulk."""
+    target = max(top_n, candidate_top_k)
+    page_size = min(500, max(50, candidate_top_k))
+    scan_limit = max(page_size, max_candidate_scan)
+    offset = 0
+    authorized: list[dict[str, Any]] = []
+    while offset < scan_limit:
+        limit = min(page_size, scan_limit - offset)
+        raw = store.search(
+            query_vector=query_vector,
+            query=query,
+            main_id=main_id,
+            knowledge_base_id=knowledge_base_id,
+            mode=mode,
+            limit=limit,
+            offset=offset,
+            score_threshold=score_threshold,
         )
-    }
-    if not active_ids:
-        return []
-    return [item for item in items if str(item.get("documentId") or "") in active_ids]
+        authorized.extend(knowledge_retrieval_access_policy.filter_candidates(
+            raw, main_id=main_id, user_id=user_id,
+        ))
+        if len(authorized) >= target or len(raw) < limit:
+            break
+        offset += len(raw)
+    return authorized
+
+
+def _filter_active_documents(
+    items: list[dict[str, Any]],
+    main_id: str,
+    *,
+    user_id: str = "",
+    knowledge_base_id: str = "",
+) -> list[dict[str, Any]]:
+    # Compatibility wrapper for focused tests and older callers. Authorization
+    # no longer depends on whether a resource id was explicitly supplied.
+    return knowledge_retrieval_access_policy.filter_candidates(
+        items, main_id=main_id, user_id=user_id,
+    )
 
 
 def _effective_config(main_id: str) -> dict[str, Any]:
@@ -106,6 +144,7 @@ def _effective_config(main_id: str) -> dict[str, Any]:
         "mode": "vector",
         "topN": 10,
         "candidateTopK": 50,
+        "maxCandidateScan": 10000,
         "scoreThreshold": 0,
         "metadataFiltersEnabled": True,
         "maxChunksPerDocument": 5,

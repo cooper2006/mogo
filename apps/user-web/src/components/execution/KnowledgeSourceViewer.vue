@@ -2,7 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { EvidenceBundleItem, EvidenceSourceItem } from '../../features/execution-v3/domain/delivery'
 import { t } from '../../composables/i18n'
+import { loadPdfjs } from '../../utils/pdfjs'
 import NativeSourcePreview from './NativeSourcePreview.vue'
+import productUiExtension from '@movo-product-extension'
 import {
   fetchKnowledgeSourceChunk,
   fetchKnowledgeSourceDocument,
@@ -12,15 +14,6 @@ import {
 } from '../../api/knowledgeSources'
 
 let pdfjsLib: any = null
-const pdfWorkerUrl = `${import.meta.env.BASE_URL}vendor/pdfjs/pdf.worker.min.mjs`
-
-async function loadPdfjs() {
-  if (!pdfjsLib) {
-    pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-  }
-  return pdfjsLib
-}
 
 const props = defineProps<{
   open: boolean
@@ -32,6 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const activeIndex = ref(0)
+const ProductKnowledgeSourceActions = productUiExtension.knowledgeSourceActions
 const loading = ref(false)
 const errorText = ref('')
 const documentMeta = ref<KnowledgeSourceDocument | null>(null)
@@ -871,7 +865,7 @@ async function renderPdf(blob: Blob) {
   const tableHighlightMode = highlightType === 'table_row' || highlightType.includes('table')
   const targetTexts = highlightTargets.value.map((target) => normalizeText(target)).filter(Boolean)
   try {
-    const pdfjs = await loadPdfjs()
+    const pdfjs = pdfjsLib = await loadPdfjs()
     const buffer = await blob.arrayBuffer()
     const task = pdfjs.getDocument({ data: buffer })
     const pdf = await task.promise
@@ -1086,17 +1080,23 @@ onBeforeUnmount(() => {
               <span v-if="displayPageNo"> · {{ t('evidence.page_no', { page: displayPageNo }) }}</span>
             </div>
           </div>
-          <button
-            type="button"
-            class="flex h-10 w-10 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            :aria-label="t('ui.close')"
-            @click="emit('close')"
-          >
-            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <path d="M18 6 6 18"></path>
-              <path d="m6 6 12 12"></path>
-            </svg>
-          </button>
+          <div class="flex items-center gap-2">
+            <ProductKnowledgeSourceActions
+              v-if="ProductKnowledgeSourceActions && documentMeta"
+              :document="documentMeta"
+            />
+            <button
+              type="button"
+              class="flex h-10 w-10 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              :aria-label="t('ui.close')"
+              @click="emit('close')"
+            >
+              <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M18 6 6 18"></path>
+                <path d="m6 6 12 12"></path>
+              </svg>
+            </button>
+          </div>
         </header>
 
         <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_420px] bg-slate-50">

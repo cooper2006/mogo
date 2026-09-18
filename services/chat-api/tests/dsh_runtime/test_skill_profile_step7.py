@@ -303,6 +303,25 @@ def test_workflow_contract_rejects_duplicate_outputs_and_unknown_tool_arguments(
         ))
 
 
+def test_invalid_workflow_does_not_block_unrelated_valid_skills():
+    invalid = workflow_row("")
+    invalid["skill_contract"]["structure"]["workflow_nodes"][0]["outputAlias"] = "result"
+    invalid["skill_contract"]["structure"]["workflow_nodes"][1]["outputAlias"] = "result"
+    ordinary = {
+        "id": "personal-valid",
+        "name": "知识检索助手",
+        "description": "回答知识库问题",
+        "skill_type": "execution",
+        "skill_markdown": "检索有权限的知识后回答。",
+    }
+
+    compiled = asyncio.run(SkillProfileCompiler(FakeSkillCatalog([invalid, ordinary])).compile(
+        tenant_id="tenant-a", user_id="user-a", tools=(),
+    ))
+
+    assert [item.source_id for item in compiled.skills] == ["personal-valid"]
+
+
 def test_ordinary_skill_is_native_and_does_not_require_taskgraph():
     row = {
         "id": "personal-1", "name": "客户访谈分析", "description": "分析访谈",

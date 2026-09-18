@@ -59,7 +59,9 @@ def _citation_to_used_payload(citation: KnowledgeCitation) -> Dict[str, Any]:
         "documentId": citation.document_id,
         "chunkId": citation.chunk_id,
         "chunkStage": str(citation.source_anchor.get("chunkStage") or "rag"),
-        "title": " / ".join([str(item).strip() for item in citation.title_path if str(item).strip()]) or citation.chunk_id,
+        "title": str((citation.metadata or {}).get("document_title") or "").strip()
+        or " / ".join([str(item).strip() for item in citation.title_path if str(item).strip()])
+        or citation.chunk_id,
         "titlePath": list(citation.title_path or []),
         "text": text,
         "pageNo": citation.page_no,
@@ -67,7 +69,7 @@ def _citation_to_used_payload(citation: KnowledgeCitation) -> Dict[str, Any]:
         "sourceChunkIds": list(citation.source_chunk_ids or []),
         "score": citation.score,
         "distance": None,
-        "metadata": {"sourceAnchor": dict(citation.source_anchor or {})},
+        "metadata": {**dict(citation.metadata or {}), "sourceAnchor": dict(citation.source_anchor or {})},
     }
 
 
@@ -171,12 +173,14 @@ class InternalKnowledgeQAService:
                 "results": [],
             }
 
+        requested_ids = _coerce_list(knowledge_ids)
+
         request = KnowledgeQARequest(
             query=q,
             user_id=str(user_id or "").strip(),
             main_id=str(main_id or "").strip() or "default",
             session_id=str(session_id or "").strip(),
-            knowledge_base_ids=_coerce_list(knowledge_ids),
+            knowledge_base_ids=requested_ids,
             top_n=max(1, min(50, int(top_k or 8))),
         )
         from app.knowledge.agents.knowledge_qa_agent import knowledge_qa_agent

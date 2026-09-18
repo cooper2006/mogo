@@ -189,3 +189,8 @@ export function knowledgeDocumentContentUrl(id: string) {
   const baseURL = import.meta.env.VITE_ADMIN_API_BASE_URL || '/admin-api';
   return `${baseURL}/api/knowledge/documents/${id}/content`;
 }
+
+export function knowledgeDocumentPreviewUrl(id: string) {
+  const baseURL = String(import.meta.env.VITE_ADMIN_API_BASE_URL || '/admin-api').replace(/\/$/, '');
+  return `${baseURL}/api/knowledge/documents/${encodeURIComponent(id)}/preview`;
+}

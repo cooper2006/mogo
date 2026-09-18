@@ -7,6 +7,7 @@ export type ProductUiExtension = {
   loginModal: Component
   billingModal?: Component
   createOrganizationModal?: Component
+  knowledgeSourceActions?: Component
   messages?: ProductLocaleMessages
 }
 

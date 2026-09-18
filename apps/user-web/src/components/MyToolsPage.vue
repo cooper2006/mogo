@@ -1,16 +1,6 @@
 <template>
   <div class="tools-page">
     <template v-if="!editorVisible">
-      <header class="tools-header">
-        <div class="tools-header-left">
-          <n-button secondary @click="emit('back')">
-            <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
-            {{ t('返回对话') }}
-          </n-button>
-          <h1>{{ t('我的 Tools') }}</h1>
-        </div>
-      </header>
-
       <div class="metrics-row">
         <n-card v-for="item in metricCards" :key="item.key" class="metric-card" :bordered="false" size="small">
           <div class="metric-main">
@@ -613,7 +603,6 @@ const props = defineProps<{
   mainId: string
 }>()
 
-const emit = defineEmits<{ back: [] }>()
 const message = useMessage()
 
 const rows = ref<ExternalToolItem[]>([])

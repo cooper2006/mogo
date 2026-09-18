@@ -41,17 +41,19 @@ def build_knowledge_evidence_bundle(
             continue
         metadata = dict(item.get("metadata") or {})
         title_path = [str(value).strip() for value in list(item.get("titlePath") or []) if str(value).strip()]
-        title = str(
+        document_title = str(
             metadata.get("document_title")
             or metadata.get("filename")
             or metadata.get("title")
             or (" / ".join(title_path) if title_path else "")
             or f"内部知识来源 {index}"
         ).strip()
+        knowledge_label = str(metadata.get("knowledge_label") or "内部知识").strip()
+        title = f"{knowledge_label}：{document_title}"
         results.append({
             "tool": "knowledge_search",
             "title": title,
-            "source": "MOVO internal knowledge",
+            "source": knowledge_label,
             "content": content,
             "summary": content,
             "score": item.get("rerankScore") if item.get("rerankScore") is not None else item.get("score"),
@@ -60,6 +62,8 @@ def build_knowledge_evidence_bundle(
                 "chunk_id": str(item.get("chunkId") or ""),
                 "page_no": item.get("pageNo"),
                 "title_path": title_path,
+                "source_name": knowledge_label,
+                "knowledge_scope": str(metadata.get("knowledge_scope") or ""),
                 "provenance": "knowledge_retrieval",
             },
         })

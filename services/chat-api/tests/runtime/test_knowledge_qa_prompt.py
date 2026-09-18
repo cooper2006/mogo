@@ -1,5 +1,6 @@
 from app.knowledge.api.schemas import KnowledgeChunk
 from app.knowledge.prompting.knowledge_qa_prompt import build_knowledge_qa_messages
+from app.knowledge.citations.citation_resolver import resolve_citations
 
 
 def test_knowledge_qa_prompt_enforces_evidence_boundary() -> None:
@@ -42,3 +43,16 @@ def test_knowledge_qa_prompt_keeps_candidate_citation_and_content() -> None:
     assert "citationId: doc-1:chunk_000001" in user
     assert "异常 A 出现时，处理方式是重新扫码。" in user
     assert "请基于上述候选回答，并在 usedChunkIds 中列出实际使用的 chunkId" in user
+
+
+def test_missing_used_chunk_ids_do_not_fabricate_first_candidate_as_evidence() -> None:
+    chunks = [
+        KnowledgeChunk(
+            document_id="candidate-only",
+            chunk_id="chunk_000001",
+            text="这是召回候选，但模型没有声明实际使用。",
+            score=0.9,
+        )
+    ]
+
+    assert resolve_citations(chunks, []) == []

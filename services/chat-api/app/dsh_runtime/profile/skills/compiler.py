@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from typing import Any
 
@@ -13,6 +14,9 @@ from app.enterprise_capabilities.content.styles import is_writing_style
 from .catalog import SkillCatalog
 from .models import CompiledSkillProfile, DshSkillDefinition, WritingStyleDefinition
 from .workflow import compile_workflow_body, workflow_nodes
+
+
+logger = logging.getLogger(__name__)
 
 
 class SkillProfileCompiler:
@@ -26,10 +30,24 @@ class SkillProfileCompiler:
         styles = tuple(self._compile_style(row) for row in rows if is_writing_style(row))
         style_refs = self._style_ref_aliases(styles)
         skills: list[DshSkillDefinition] = []
+        compile_errors: list[Exception] = []
         for row in rows:
             if is_writing_style(row):
                 continue
-            skills.append(self._compile_skill(row, tools=tools, style_refs=style_refs))
+            try:
+                skills.append(self._compile_skill(row, tools=tools, style_refs=style_refs))
+            except (LookupError, PermissionError, ValueError) as exc:
+                # A malformed enabled Skill must fail closed, but it must not
+                # make every unrelated conversation in the tenant unavailable.
+                compile_errors.append(exc)
+                logger.warning(
+                    "skill_profile_compile_skipped source_id=%s name=%s error=%s",
+                    str(row.get("id") or ""),
+                    str(row.get("name") or ""),
+                    str(exc),
+                )
+        if compile_errors and not skills:
+            raise compile_errors[0]
         names = [item.name for item in skills]
         if len(names) != len(set(names)):
             raise ValueError("compiled Skill Profile contains duplicate names")

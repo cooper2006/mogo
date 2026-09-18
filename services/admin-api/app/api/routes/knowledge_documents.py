@@ -15,7 +15,7 @@ import urllib.request
 
 from bson import ObjectId
 from bson.dbref import DBRef
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
@@ -26,6 +26,12 @@ from app.core.db import get_db
 from app.api.routes.knowledge_settings import get_effective_knowledge_settings, get_effective_parse_settings
 from app.repositories.org_user_repository import find_account_by_username
 from app.services.knowledge_storage import get_storage_service
+from app.services.knowledge_preview_stream import preview_response
+from app.services.personal_knowledge_lifecycle import (
+    activate_indexed_document,
+    is_personal_document,
+    update_current_resource,
+)
 
 router = APIRouter()
 
@@ -569,7 +575,10 @@ def _request_document_vector_delete(doc: dict[str, Any], config: dict[str, Any])
 async def get_document_stats(current_user: dict = Depends(get_current_admin_user)) -> dict[str, int]:
     main_id = str(current_user.get("main_id") or "default")
     db = get_db()
-    base = {"main_id": main_id, "deleted_at": None}
+    base = {
+        "main_id": main_id, "deleted_at": None,
+        "$or": [{"scope": "organization"}, {"scope": {"$exists": False}}],
+    }
     total = await db[COLLECTION].count_documents(base)
     indexed = await db[COLLECTION].count_documents({**base, "status": "indexed"})
     failed = await db[COLLECTION].count_documents({**base, "status": "failed"})
@@ -616,6 +625,7 @@ async def list_documents(
         directory_id=directoryId,
         include_deleted=includeDeleted,
     )
+    query["$and"] = [{"$or": [{"scope": "organization"}, {"scope": {"$exists": False}}]}]
     if directoryScopeId and directoryScopeId.strip():
         scope_id = directoryScopeId.strip()
         scope = await db[DIRECTORY_COLLECTION].find_one({
@@ -654,6 +664,9 @@ async def upload_document(
     knowledgeBaseId: str = Form(default=""),
     tags: str = Form(default=""),
     replaceExisting: bool = Form(default=False),
+    documentScope: str = Form(default="organization"),
+    ownerUserId: str = Form(default=""),
+    resourceId: str = Form(default=""),
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     main_id = str(current_user.get("main_id") or "default")
@@ -663,11 +676,19 @@ async def upload_document(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件类型不支持")
 
     actual_dir_id = (directoryId or knowledgeBaseId or "").strip()
+    document_scope = "personal" if documentScope == "personal" else "organization"
     duplicate_query = {
         "main_id": main_id,
         "original_filename": {"$regex": f"^{re.escape(original_filename)}$", "$options": "i"},
         "deleted_at": None,
     }
+    if document_scope == "personal":
+        duplicate_query.update({
+            "scope": "personal", "owner_user_id": str(ownerUserId or ""),
+            "resource_id": str(resourceId or ""),
+        })
+    else:
+        duplicate_query["$or"] = [{"scope": "organization"}, {"scope": {"$exists": False}}]
     existing_documents = await get_db()[COLLECTION].find(duplicate_query).to_list(length=100)
     if existing_documents and not replaceExisting:
         raise HTTPException(
@@ -709,6 +730,9 @@ async def upload_document(
         doc = {
             "_id": document_id,
             "main_id": main_id,
+            "scope": document_scope,
+            "owner_user_id": str(ownerUserId or "") if document_scope == "personal" else "",
+            "resource_id": str(resourceId or "") if document_scope == "personal" else "",
             "knowledge_base_id": actual_dir_id,
             "name": _document_name(original_filename, name),
             "description": str(description or "").strip()[:2000],
@@ -763,7 +787,18 @@ async def upload_document(
         except Exception:
             storage.delete_file(storage_key)
             raise
-        if existing_documents:
+        if document_scope == "personal":
+            await get_db().knowledge_resources.update_one(
+                {
+                    "_id": str(resourceId or ""), "main_id": main_id,
+                    "owner_user_id": str(ownerUserId or ""), "deleted_at": None,
+                },
+                {"$set": {
+                    "status": "uploaded", "error": "",
+                    "processing_document_id": document_id, "updated_at": now,
+                }},
+            )
+        if existing_documents and document_scope != "personal":
             for existing in existing_documents:
                 await _soft_delete_document(
                     existing,
@@ -831,6 +866,9 @@ async def upload_document(
             doc["chunk_status"] = "queued"
             doc["parse_job_id"] = parse_job_id
             doc["parse_updated_at"] = _now()
+            await update_current_resource(
+                get_db(), doc, {"status": "pending_parse", "error": "", "updated_at": _now()},
+            )
         except Exception as exc:
             message = str(exc)[:2000]
             await get_db()[COLLECTION].update_one(
@@ -851,6 +889,9 @@ async def upload_document(
             doc["chunk_status"] = "failed"
             doc["parse_error"] = message
             doc["parse_updated_at"] = _now()
+            await update_current_resource(
+                get_db(), doc, {"status": "failed", "error": message, "updated_at": _now()},
+            )
         return await _serialize_with_account_names(doc)
     finally:
         if temp_path:
@@ -1238,6 +1279,9 @@ async def document_parse_callback(
                 }
             },
         )
+        await update_current_resource(
+            db, doc, {"status": "failed", "error": payload.error[:2000], "updated_at": now},
+        )
         return {"success": True}
 
     default_chunks_key = payload.chunksKey
@@ -1329,6 +1373,9 @@ async def document_parse_callback(
             }
         },
     )
+    await update_current_resource(
+        db, doc, {"status": "parsed", "error": "", "updated_at": now},
+    )
     config = await _knowledge_settings_snapshot(str(doc.get("main_id") or "default"))
     if bool((config.get("index") or {}).get("autoIndexAfterParse", True)) and rag_count > 0:
         index_doc = {
@@ -1348,6 +1395,9 @@ async def document_parse_callback(
                         "updated_at": _now(),
                     }
                 },
+            )
+            await update_current_resource(
+                db, doc, {"status": "failed", "error": str(exc)[:2000], "updated_at": _now()},
             )
         else:
             await db[COLLECTION].update_one(
@@ -1394,6 +1444,9 @@ async def document_index_callback(
                 }
             },
         )
+        await update_current_resource(
+            db, doc, {"status": "failed", "error": payload.error[:2000], "updated_at": now},
+        )
         return {"success": True}
 
     await db[COLLECTION].update_one(
@@ -1411,6 +1464,28 @@ async def document_index_callback(
             }
         },
     )
+    if is_personal_document(doc):
+        activated, previous_document_id = await activate_indexed_document(db, doc, updated_at=now)
+        if not activated:
+            current = await db.knowledge_resources.find_one({
+                "_id": str(doc.get("resource_id") or ""),
+                "main_id": str(doc.get("main_id") or "default"),
+                "deleted_at": None,
+            }) or {}
+            if str(current.get("active_document_id") or "") != document_id:
+                await _soft_delete_document(
+                    doc, main_id=str(doc.get("main_id") or "default"),
+                    updated_by=str(doc.get("owner_user_id") or ""),
+                )
+        elif previous_document_id and previous_document_id != document_id:
+            previous = await db[COLLECTION].find_one({
+                "_id": previous_document_id, "main_id": str(doc.get("main_id") or "default"), "deleted_at": None,
+            })
+            if previous:
+                await _soft_delete_document(
+                    previous, main_id=str(doc.get("main_id") or "default"),
+                    updated_by=str(doc.get("owner_user_id") or ""),
+                )
     return {"success": True}
 
 
@@ -1475,7 +1550,11 @@ async def get_document_content(document_id: str, current_user: dict = Depends(ge
 
 
 @router.get("/{document_id}/preview")
-async def get_document_preview(document_id: str, current_user: dict = Depends(get_current_admin_user)) -> StreamingResponse:
+async def get_document_preview(
+    document_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_admin_user),
+):
     main_id = str(current_user.get("main_id") or "default")
     doc = await _find_document_or_404(document_id, main_id)
     storage = get_storage_service(str(doc.get("storage_type") or "local"))
@@ -1487,18 +1566,16 @@ async def get_document_preview(document_id: str, current_user: dict = Depends(ge
             detail = str(doc.get("preview_error") or "预览文件生成失败，可下载原文件查看。")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     storage_key = preview_key or str(doc.get("storage_key") or "")
-    try:
-        fileobj = storage.open_file(storage_key)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="预览文件不存在") from exc
     media_type = str(doc.get("preview_mime_type") or doc.get("mime_type") or "") or "application/octet-stream"
     filename = str(doc.get("original_filename") or doc.get("name") or "document")
     if media_type == "application/pdf" and not filename.lower().endswith(".pdf"):
         filename = f"{Path(filename).stem}.pdf"
-    return StreamingResponse(
-        _stream_file(fileobj),
+    return preview_response(
+        storage=storage,
+        storage_key=storage_key,
         media_type=media_type,
-        headers={"Content-Disposition": _content_disposition(filename)},
+        filename=filename,
+        range_header=request.headers.get("range", ""),
     )
 
 
@@ -1512,5 +1589,9 @@ async def ensure_indexes() -> None:
     await db[COLLECTION].create_index([("preview_job_id", 1)], name="knowledge_docs_preview_job")
     await db[COLLECTION].create_index([("parse_job_id", 1)], name="knowledge_docs_parse_job")
     await db[COLLECTION].create_index([("main_id", 1), ("knowledge_base_id", 1), ("deleted_at", 1), ("updated_at", -1)], name="knowledge_docs_dir_updated")
+    await db[COLLECTION].create_index(
+        [("main_id", 1), ("scope", 1), ("owner_user_id", 1), ("resource_id", 1), ("deleted_at", 1), ("updated_at", -1)],
+        name="knowledge_docs_personal_resource",
+    )
     await db[CHUNK_COLLECTION].create_index([("main_id", 1), ("document_id", 1), ("chunk_stage", 1), ("ordinal", 1)], name="knowledge_chunks_doc_stage_order")
     await db[CHUNK_COLLECTION].create_index([("main_id", 1), ("knowledge_base_id", 1), ("chunk_stage", 1), ("document_id", 1)], name="knowledge_chunks_kb_stage_doc")

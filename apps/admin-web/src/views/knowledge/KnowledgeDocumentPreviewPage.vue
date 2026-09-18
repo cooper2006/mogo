@@ -54,32 +54,13 @@
           </template>
 
           <template v-else-if="document && objectUrl">
-            <section v-if="previewKind === 'pdf'" class="pdfjs-viewer">
-              <div class="pdfjs-pages">
-                <div ref="pdfCanvasLayerRef" class="pdfjs-canvas-layer"></div>
-                <div v-if="pdfRendering" class="pdfjs-loading" :aria-label="t('加载中')">
-                  <span class="pdfjs-loading-spinner" aria-hidden="true"></span>
-                </div>
-              </div>
-              <div class="pdfjs-floating-controls">
-                <div class="pdfjs-page-count">{{ pdfPageCount ? `${pdfPageCount} ${t('页')}` : t('加载中') }}</div>
-                <n-button size="small" quaternary :disabled="pdfScale <= PDF_MIN_SCALE || pdfRendering" @click="zoomPdf(-0.1)">
-                  <template #icon>
-                    <span class="button-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24"><path d="M5 12h14" /></svg>
-                    </span>
-                  </template>
-                </n-button>
-                <div class="pdfjs-zoom-value">{{ Math.round(pdfScale * 100) }}%</div>
-                <n-button size="small" quaternary :disabled="pdfScale >= PDF_MAX_SCALE || pdfRendering" @click="zoomPdf(0.1)">
-                  <template #icon>
-                    <span class="button-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
-                    </span>
-                  </template>
-                </n-button>
-              </div>
-            </section>
+            <ContinuousPdfPreview
+              v-if="previewKind === 'pdf'"
+              :url="objectUrl"
+              :title="document.name"
+              :http-headers="pdfRequestHeaders"
+              :initial-page="targetPageNo"
+            />
             <div v-else-if="previewKind === 'image'" class="image-preview">
               <img :src="objectUrl" :alt="document.name" />
             </div>
@@ -163,6 +144,10 @@
                   <strong>{{ document?.chunkCount || 0 }}</strong>
                 </div>
               </div>
+              <ProductKnowledgeDocumentPermissions
+                v-if="ProductKnowledgeDocumentPermissions && document"
+                :document-id="document.id"
+              />
             </div>
           </section>
 
@@ -324,15 +309,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import adminProductUiExtension from '@movo-admin-product-extension';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { apiClient } from '@/api/client';
 import {
   fetchKnowledgeDocument,
   fetchKnowledgeDocumentChunk,
   fetchKnowledgeDocumentChunks,
+  knowledgeDocumentPreviewUrl,
   retryKnowledgeDocumentParse,
   type KnowledgeDocumentChunkItem,
   type KnowledgeDocumentItem,
@@ -342,9 +328,9 @@ import { formatAdminDateTime } from '@/composables/adminTimezone';
 import FileIcon from '@/components/FileIcon.vue';
 import DocumentStatus from '@/components/DocumentStatus.vue';
 import NativeDocumentPreview from '@/components/NativeDocumentPreview.vue';
-
-const pdfWorkerUrl = `${import.meta.env.BASE_URL}vendor/pdfjs/pdf.worker.min.mjs`;
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+import ContinuousPdfPreview from '@/components/ContinuousPdfPreview.vue';
+import { useAuthStore } from '@/stores/auth';
+import { loadPdfjs } from '@/utils/pdfjs';
 
 interface DisplayChunkItem extends KnowledgeDocumentChunkItem {
   chunkIds: string[];
@@ -353,6 +339,7 @@ interface DisplayChunkItem extends KnowledgeDocumentChunkItem {
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 const loading = ref(false);
 const document = ref<KnowledgeDocumentItem | null>(null);
 const objectUrl = ref('');
@@ -361,19 +348,9 @@ const errorText = ref('');
 const isConverting = ref(false);
 const pollTimer = ref<number | null>(null);
 const downloading = ref(false);
-const pdfCanvasLayerRef = ref<HTMLDivElement | null>(null);
-const pdfDocument = shallowRef<any>(null);
-const pdfBlob = ref<Blob | null>(null);
-const pdfScale = ref(1);
-const PDF_MIN_SCALE = 0.4;
-const PDF_MAX_SCALE = 1.8;
-const PDF_VIEWER_HORIZONTAL_PADDING = 60;
-const pdfPageCount = ref(0);
-const pdfRendering = ref(false);
-const pdfScaleTouched = ref(false);
-let pdfRenderSeq = 0;
 const headerTeleportReady = ref(false);
 const activePanel = ref<'detail' | 'chunks'>('detail');
+const ProductKnowledgeDocumentPermissions = adminProductUiExtension.knowledgeDocumentPermissions;
 const chunkStage = 'rag';
 const chunksLoading = ref(false);
 const chunks = ref<KnowledgeDocumentChunkItem[]>([]);
@@ -390,6 +367,13 @@ const chunkPagination = reactive({
 });
 
 const documentId = computed(() => String(route.params.id || ''));
+const pdfRequestHeaders = computed<Record<string, string>>(() => {
+  const headers: Record<string, string> = {};
+  if (authStore.token) {
+    headers.Authorization = `Bearer ${authStore.token}`;
+  }
+  return headers;
+});
 const targetChunkId = computed(() => String(route.query.chunkId || '').trim());
 const targetPageNo = computed(() => {
   const value = Number(route.query.pageNo || targetChunk.value?.pageNo || 0);
@@ -477,11 +461,17 @@ async function openChunkSourceImage(chunk: KnowledgeDocumentChunkItem) {
       imagePreviewUrl.value = objectUrl.value;
       return;
     }
-    if (previewKind.value !== 'pdf' || !pdfBlob.value) {
+    if (previewKind.value !== 'pdf' || !objectUrl.value) {
       return;
     }
-    const buffer = await pdfBlob.value.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    const pdfjs = await loadPdfjs();
+    const pdf = await pdfjs.getDocument({
+      url: objectUrl.value,
+      httpHeaders: pdfRequestHeaders.value,
+      rangeChunkSize: 256 * 1024,
+      disableAutoFetch: true,
+      disableStream: true,
+    }).promise;
     try {
       const requestedPage = Number(chunk.pageNo || 1);
       const pageNumber = Math.min(pdf.numPages, Math.max(1, Number.isFinite(requestedPage) ? requestedPage : 1));
@@ -507,33 +497,12 @@ async function openChunkSourceImage(chunk: KnowledgeDocumentChunkItem) {
 
 function revokeObjectUrl() {
   if (objectUrl.value) {
-    URL.revokeObjectURL(objectUrl.value);
+    if (objectUrl.value.startsWith('blob:')) {
+      URL.revokeObjectURL(objectUrl.value);
+    }
     objectUrl.value = '';
   }
-  destroyPdfDocument();
-  pdfBlob.value = null;
-  pdfPageCount.value = 0;
-  pdfScaleTouched.value = false;
-  if (pdfCanvasLayerRef.value) {
-    pdfCanvasLayerRef.value.innerHTML = '';
-  }
-}
-
-function destroyPdfDocument() {
-  pdfRenderSeq += 1;
-  const current = pdfDocument.value;
-  pdfDocument.value = null;
-  if (!current) {
-    return;
-  }
-  try {
-    const result = current.destroy?.();
-    if (result && typeof result.catch === 'function') {
-      result.catch(() => {});
-    }
-  } catch {
-    // PDF.js may throw if a document is destroyed while a page render is being cancelled.
-  }
+  textContent.value = '';
 }
 
 function formatFileSize(bytes: number) {
@@ -646,14 +615,6 @@ function openChunksPanel() {
   }
 }
 
-function scrollToPdfPage(pageNo: number | null = targetPageNo.value) {
-  if (!pageNo || !pdfCanvasLayerRef.value) {
-    return;
-  }
-  const page = pdfCanvasLayerRef.value.querySelector<HTMLElement>(`[data-page-number="${pageNo}"]`);
-  page?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function scrollToTargetChunk() {
   if (!targetChunkId.value) {
     return;
@@ -670,7 +631,6 @@ async function applySourceTarget() {
   activePanel.value = 'chunks';
   await loadTargetChunk();
   await nextTick();
-  scrollToPdfPage();
   scrollToTargetChunk();
 }
 
@@ -727,17 +687,29 @@ function startPolling() {
 async function loadBlob() {
   isConverting.value = false;
   try {
+    revokeObjectUrl();
+    if (previewKind.value === 'pdf') {
+      const status = document.value?.previewStatus;
+      const convertedOfficeFile = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
+        .includes(String(document.value?.fileExt || '').toLowerCase());
+      if (convertedOfficeFile && ['pending', 'queued', 'running'].includes(String(status))) {
+        isConverting.value = true;
+        startPolling();
+        return;
+      }
+      if (convertedOfficeFile && status === 'failed') {
+        throw new Error(document.value?.previewError || t('预览文件生成失败'));
+      }
+      objectUrl.value = knowledgeDocumentPreviewUrl(documentId.value);
+      return;
+    }
     const response = await apiClient.get<Blob>(`/api/knowledge/documents/${documentId.value}/preview`, {
       responseType: 'blob',
       timeout: 120000,
     });
-    revokeObjectUrl();
     const blob = response.data;
     objectUrl.value = URL.createObjectURL(blob);
-    if (previewKind.value === 'pdf') {
-      pdfBlob.value = blob;
-      await renderPdf(blob);
-    } else if (previewKind.value === 'text' || previewKind.value === 'markdown' || previewKind.value === 'html') {
+    if (previewKind.value === 'text' || previewKind.value === 'markdown' || previewKind.value === 'html') {
       textContent.value = await blob.text();
     } else {
       textContent.value = '';
@@ -753,159 +725,6 @@ async function loadBlob() {
     }
     throw error;
   }
-}
-
-async function renderPdf(blob = pdfBlob.value) {
-  if (!blob) {
-    return;
-  }
-  let activeSeq = 0;
-  pdfRendering.value = true;
-  await nextTick();
-  const host = pdfCanvasLayerRef.value;
-  if (!host) {
-    pdfRendering.value = false;
-    return;
-  }
-  host.innerHTML = '';
-  try {
-    destroyPdfDocument();
-    activeSeq = ++pdfRenderSeq;
-    const buffer = await blob.arrayBuffer();
-    const task = pdfjsLib.getDocument({ data: buffer });
-    const pdf = await task.promise;
-    if (activeSeq !== pdfRenderSeq) {
-      await pdf.destroy();
-      return;
-    }
-    pdfDocument.value = markRaw(pdf);
-    pdfPageCount.value = pdf.numPages;
-    const firstPage = await pdf.getPage(1);
-    if (!pdfScaleTouched.value) {
-      applyDefaultPdfScale(firstPage);
-    }
-    const estimatedViewport = firstPage.getViewport({ scale: pdfScale.value });
-    const wrappers = new Map<number, HTMLElement>();
-    const fragment = window.document.createDocumentFragment();
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      const wrapper = window.document.createElement('article');
-      wrapper.className = 'pdfjs-page pdfjs-page-pending';
-      wrapper.dataset.pageNumber = String(pageNumber);
-      wrapper.style.width = `${Math.floor(estimatedViewport.width)}px`;
-      wrapper.style.height = `${Math.floor(estimatedViewport.height)}px`;
-      fragment.appendChild(wrapper);
-      wrappers.set(pageNumber, wrapper);
-    }
-    host.innerHTML = '';
-    host.appendChild(fragment);
-    await nextTick();
-
-    const renderedPages = new Set<number>();
-    const renderPage = async (pageNumber: number) => {
-      if (activeSeq !== pdfRenderSeq || renderedPages.has(pageNumber)) {
-        return;
-      }
-      const wrapper = wrappers.get(pageNumber);
-      if (!wrapper) {
-        return;
-      }
-      renderedPages.add(pageNumber);
-      const page = pageNumber === 1 ? firstPage : await pdf.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: pdfScale.value });
-      wrapper.classList.remove('pdfjs-page-pending');
-      wrapper.innerHTML = '';
-      wrapper.style.width = `${Math.floor(viewport.width)}px`;
-      wrapper.style.height = `${Math.floor(viewport.height)}px`;
-      const canvas = window.document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      const outputScale = window.devicePixelRatio || 1;
-      canvas.width = Math.floor(viewport.width * outputScale);
-      canvas.height = Math.floor(viewport.height * outputScale);
-      canvas.style.width = `${Math.floor(viewport.width)}px`;
-      canvas.style.height = `${Math.floor(viewport.height)}px`;
-      wrapper.appendChild(canvas);
-      if (context) {
-        await page.render({
-          canvas,
-          canvasContext: context,
-          viewport,
-          transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined,
-        }).promise;
-      }
-    };
-
-    const order = createPdfPageRenderOrder(pdf.numPages, targetPageNo.value);
-    const priorityCount = targetPageNo.value ? Math.min(5, order.length) : Math.min(3, order.length);
-    const priorityPages = order.slice(0, priorityCount);
-    const remainingPages = order.slice(priorityCount);
-    for (const pageNumber of priorityPages) {
-      await renderPage(pageNumber);
-    }
-    await nextTick();
-    scrollToPdfPage();
-    pdfRendering.value = false;
-
-    void (async () => {
-      for (const pageNumber of remainingPages) {
-        if (activeSeq !== pdfRenderSeq) {
-          return;
-        }
-        await nextAnimationFrame();
-        await renderPage(pageNumber);
-      }
-    })();
-  } catch (error) {
-    errorText.value = readError(error, t('PDF 渲染失败'));
-  } finally {
-    if (!activeSeq || activeSeq === pdfRenderSeq) {
-      pdfRendering.value = false;
-    }
-  }
-}
-
-function createPdfPageRenderOrder(totalPages: number, targetPage: number | null): number[] {
-  const priority = targetPage
-    ? [targetPage, targetPage - 1, targetPage + 1, targetPage - 2, targetPage + 2]
-    : [1, 2, 3];
-  const seen = new Set<number>();
-  const output: number[] = [];
-  const add = (pageNumber: number) => {
-    if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > totalPages || seen.has(pageNumber)) {
-      return;
-    }
-    seen.add(pageNumber);
-    output.push(pageNumber);
-  };
-  priority.forEach(add);
-  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
-    add(pageNumber);
-  }
-  return output;
-}
-
-function nextAnimationFrame(): Promise<void> {
-  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
-}
-
-function applyDefaultPdfScale(page: any) {
-  const host = pdfCanvasLayerRef.value;
-  if (!host) {
-    return;
-  }
-  const baseViewport = page.getViewport({ scale: 1 });
-  const availableWidth = Math.max(320, host.clientWidth - PDF_VIEWER_HORIZONTAL_PADDING);
-  const nextScale = Math.min(1, Math.max(PDF_MIN_SCALE, availableWidth / baseViewport.width));
-  pdfScale.value = Number(nextScale.toFixed(2));
-}
-
-function zoomPdf(delta: number) {
-  const nextScale = Math.min(PDF_MAX_SCALE, Math.max(PDF_MIN_SCALE, Number((pdfScale.value + delta).toFixed(1))));
-  if (nextScale === pdfScale.value || pdfRendering.value) {
-    return;
-  }
-  pdfScaleTouched.value = true;
-  pdfScale.value = nextScale;
-  void renderPdf();
 }
 
 async function reload() {
@@ -1005,13 +824,9 @@ onBeforeUnmount(() => {
   stopPolling();
 });
 
-watch(activePanel, async (value) => {
+watch(activePanel, (value) => {
   if (value === 'chunks') {
     void loadChunks();
-  }
-  if (previewKind.value === 'pdf' && pdfBlob.value && !pdfScaleTouched.value) {
-    await nextTick();
-    void renderPdf();
   }
 });
 
@@ -1030,7 +845,6 @@ watch(documentId, (next, previous) => {
   targetChunk.value = null;
   chunkPagination.page = 1;
   chunkPagination.total = 0;
-  pdfScaleTouched.value = false;
   void reload();
 });
 </script>
@@ -1600,133 +1414,6 @@ watch(documentId, (next, previous) => {
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.pdfjs-viewer {
-  height: 100%;
-  min-height: 0;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  background: #f5f7fb;
-}
-
-.pdfjs-page-count {
-  color: #687789;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 0 4px;
-}
-
-.pdfjs-zoom-value {
-  width: 54px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #e6ebf5;
-  border-radius: 6px;
-  background: #f8fbff;
-  color: #23324f;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.pdfjs-floating-controls {
-  position: absolute;
-  right: 18px;
-  bottom: 44px;
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid rgba(214, 224, 241, 0.92);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 10px 28px rgba(16, 38, 84, 0.16);
-  backdrop-filter: blur(10px);
-}
-
-.pdfjs-pages {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 18px;
-  position: relative;
-}
-
-.pdfjs-canvas-layer {
-  min-height: 100%;
-  width: max-content;
-  min-width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-}
-
-.pdfjs-canvas-layer :deep(.pdfjs-page) {
-  position: relative;
-  flex: 0 0 auto;
-  box-sizing: content-box;
-  overflow: hidden;
-  border: 1px solid #dfe7f3;
-  border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 8px 22px rgba(16, 38, 84, 0.12);
-}
-
-.pdfjs-canvas-layer :deep(.pdfjs-page-pending::after) {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 4px;
-  background: linear-gradient(90deg, #f2f5fa 0%, #fafcff 45%, #f2f5fa 100%);
-  background-size: 220% 100%;
-  animation: pdfjs-page-pending-shimmer 1.2s ease-in-out infinite;
-}
-
-.pdfjs-canvas-layer :deep(canvas) {
-  display: block;
-}
-
-.pdfjs-loading {
-  position: absolute;
-  top: 80px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #dfe7f3;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 6px 18px rgba(16, 38, 84, 0.08);
-}
-
-.pdfjs-loading-spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #d6e0f1;
-  border-top-color: #366aff;
-  border-radius: 50%;
-  animation: pdfjs-loading-spin 0.8s linear infinite;
-}
-
-@keyframes pdfjs-loading-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes pdfjs-page-pending-shimmer {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: -100% 0;
-  }
 }
 
 .image-preview {

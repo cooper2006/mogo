@@ -62,6 +62,16 @@ class RoutedAccess:
         return FeedbackSubject("skill_distribution", kwargs["resource_id"], owners[kwargs["resource_id"]])
 
 
+class PersonalAccess:
+    async def require(self, **kwargs):
+        return FeedbackSubject("personal_knowledge", kwargs["resource_id"], "B")
+
+
+class ResharedPersonalAccess:
+    async def require(self, **kwargs):
+        return FeedbackSubject("personal_knowledge", kwargs["resource_id"], "A", "B")
+
+
 def test_comments_likes_and_owner_notification(monkeypatch):
     db = Db()
     db.end_users.rows["member"] = {"_id": "member", "main_id": "tenant", "name": "Member"}
@@ -92,6 +102,40 @@ def test_reply_notifies_parent_author_and_supports_comment_likes(monkeypatch):
     listed = asyncio.run(service.list(main_id="tenant", user_id="other", resource_type="skill_distribution", resource_id="dist"))
     root_view = next(item for item in listed["items"] if item["id"] == root["id"])
     assert root_view["likedByMe"] is True and root_view["likes"] == 1
+
+
+def test_personal_knowledge_likes_create_feedback_notifications(monkeypatch):
+    db = Db(); monkeypatch.setattr(feedback_module, "get_db", lambda: db)
+    service = ResourceFeedbackService(PersonalAccess())
+    comment = asyncio.run(service.comment(main_id="tenant", user_id="B", resource_type="personal_knowledge", resource_id="knowledge", content="给 A 的评价"))
+    asyncio.run(service.toggle_comment_like(main_id="tenant", user_id="A", comment_id=comment["id"]))
+    asyncio.run(service.toggle_like(main_id="tenant", user_id="A", resource_type="personal_knowledge", resource_id="knowledge"))
+    notifications = list(db.resource_feedback_notifications.rows.values())
+    assert {row["kind"] for row in notifications} == {"like"}
+    assert {row["recipient_user_id"] for row in notifications} == {"B"}
+
+
+def test_reshared_personal_knowledge_activity_notifies_direct_sharer(monkeypatch):
+    db = Db(); monkeypatch.setattr(feedback_module, "get_db", lambda: db)
+    service = ResourceFeedbackService(ResharedPersonalAccess())
+    comment = asyncio.run(service.comment(
+        main_id="tenant", user_id="C", resource_type="personal_knowledge",
+        resource_id="knowledge", content="C 的评价",
+    ))
+    asyncio.run(service.toggle_like(
+        main_id="tenant", user_id="C", resource_type="personal_knowledge", resource_id="knowledge",
+    ))
+    notifications = list(db.resource_feedback_notifications.rows.values())
+    assert [(row["kind"], row["recipient_user_id"]) for row in notifications] == [
+        ("comment", "B"), ("like", "B"),
+    ]
+    listed = asyncio.run(service.list(
+        main_id="tenant", user_id="B", resource_type="personal_knowledge", resource_id="knowledge",
+    ))
+    assert listed["commentCount"] == 1
+    assert listed["focus"] == {"kind": "like", "commentId": ""}
+    assert db.resource_feedback_notifications.rows[notifications[0]["_id"]]["status"] == "read"
+    assert comment["content"] == "C 的评价"
 
 
 def test_feedback_rejects_non_member(monkeypatch):

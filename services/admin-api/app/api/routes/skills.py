@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.services.skill_package_proxy import install_organization_skill_zip
 from app.services.skill_lifecycle import OrganizationSkillLifecycle
+from app.services.workflow_validation import validate_workflow_config
 
 router = APIRouter()
 
@@ -149,6 +150,11 @@ def _normalize_payload(payload: dict[str, Any], *, partial: bool = False) -> dic
         patch["config"] = _safe_dict(payload.get("config"))
     if not partial or "enabled" in payload:
         patch["enabled"] = _safe_bool(payload.get("enabled"), False)
+    if patch.get("type") == "workflow":
+        try:
+            validate_workflow_config(_safe_dict(patch.get("config")))
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return patch
 
 

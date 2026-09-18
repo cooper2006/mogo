@@ -31,6 +31,7 @@ class ProductExtension:
     routers: Sequence[APIRouter] = field(default_factory=tuple)
     startup: Sequence[Callable[[], Any]] = field(default_factory=tuple)
     shutdown: Sequence[Callable[[], Any]] = field(default_factory=tuple)
+    knowledge_access_policy: Any | None = None
 
     def capability_payload(self) -> dict[str, object]:
         merged = dict(COMMUNITY_FEATURES)

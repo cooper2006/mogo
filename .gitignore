@@ -274,6 +274,7 @@ logs
 !.vscode/extensions.json
 .idea
 .DS_Store
+.movo-dev/
 *.suo
 *.ntvs*
 *.njsproj

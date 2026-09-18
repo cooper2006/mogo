@@ -12,6 +12,7 @@ class FeedbackSubject:
     resource_type: str
     resource_id: str
     owner_user_id: str = ""
+    activity_recipient_user_id: str = ""
 
 
 class FeedbackAccessResolver:
@@ -23,6 +24,8 @@ class FeedbackAccessResolver:
             return await self._distribution(tenant_id, str(user_id), target_id)
         if kind == "organization_skill":
             return await self._organization_skill(tenant_id, str(user_id), target_id)
+        if kind == "personal_knowledge":
+            return await self._personal_knowledge(tenant_id, str(user_id), target_id)
         raise PermissionError("feedback_resource_unsupported")
 
     async def _distribution(self, main_id: str, user_id: str, resource_id: str) -> FeedbackSubject:
@@ -50,3 +53,15 @@ class FeedbackAccessResolver:
         if row is None:
             raise LookupError("feedback_resource_not_found")
         return FeedbackSubject("organization_skill", raw_id)
+
+    async def _personal_knowledge(self, main_id: str, user_id: str, resource_id: str) -> FeedbackSubject:
+        from app.services.personal_knowledge.access import PersonalKnowledgeAccessService
+
+        access = await PersonalKnowledgeAccessService().require_view(
+            main_id=main_id, user_id=user_id, resource_id=resource_id,
+        )
+        owner_user_id = str(access.resource.get("owner_user_id") or "")
+        activity_recipient_user_id = str((access.grant or {}).get("granted_by_user_id") or owner_user_id)
+        return FeedbackSubject(
+            "personal_knowledge", resource_id, owner_user_id, activity_recipient_user_id,
+        )

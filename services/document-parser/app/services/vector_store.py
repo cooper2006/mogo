@@ -151,6 +151,7 @@ class WeaviateVectorStore:
         knowledge_base_id: str,
         mode: str,
         limit: int,
+        offset: int = 0,
         score_threshold: float,
     ) -> list[dict[str, Any]]:
         where_operands = [{"path": ["mainId"], "operator": "Equal", "valueText": main_id}]
@@ -166,7 +167,7 @@ class WeaviateVectorStore:
             selector = f'nearVector: {near_vector}'
         where_text = _graphql_value(where)
         graphql = {
-            "query": f"{{ Get {{ {self.collection}({selector}, where: {where_text}, limit: {int(limit)}) {{ {fields} }} }} }}"
+            "query": f"{{ Get {{ {self.collection}({selector}, where: {where_text}, limit: {int(limit)}, offset: {int(offset)}) {{ {fields} }} }} }}"
         }
         body = self._request_json("POST", "/v1/graphql", graphql)
         if isinstance(body, dict) and body.get("errors"):

@@ -9,6 +9,7 @@ export interface KnowledgeSourceDocument {
   previewMimeType: string
   previewStatus: string
   chunkCount: number
+  canDownload?: boolean
 }
 
 export interface KnowledgeSourceChunk {
@@ -26,12 +27,13 @@ export interface KnowledgeSourceChunk {
   metadata: Record<string, any>
 }
 
-function authHeaders(token?: string | null): Record<string, string> {
-  return token ? { Authorization: `Bearer ${token}` } : {}
+export function knowledgeSourceAuthHeaders(token?: string | null): Record<string, string> {
+  const resolved = token ?? (typeof window !== 'undefined' ? window.localStorage.getItem('auth_token') : '')
+  return resolved ? { Authorization: `Bearer ${resolved}` } : {}
 }
 
 async function readJson<T>(url: string, token?: string | null): Promise<T> {
-  const resp = await fetch(url, { headers: authHeaders(token) })
+  const resp = await fetch(url, { headers: knowledgeSourceAuthHeaders(token) })
   notifyAuthExpiredFromResponse(resp, Boolean(token))
   if (!resp.ok) throw new Error(`Request failed: ${resp.status}`)
   return resp.json() as Promise<T>
@@ -56,7 +58,7 @@ export async function fetchKnowledgeSourceChunk(documentId: string, chunkId: str
 }
 
 export async function fetchKnowledgeSourcePreview(documentId: string, token?: string | null) {
-  const resp = await fetch(knowledgeSourcePreviewUrl(documentId), { headers: authHeaders(token) })
+  const resp = await fetch(knowledgeSourcePreviewUrl(documentId), { headers: knowledgeSourceAuthHeaders(token) })
   notifyAuthExpiredFromResponse(resp, Boolean(token))
   if (!resp.ok) throw new Error(`Request failed: ${resp.status}`)
   return resp.blob()

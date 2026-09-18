@@ -152,7 +152,7 @@ start_admin_web() {
 }
 
 echo "Starting AskAI Platform..."
-movo_prepare_internal_service_auth
+movo_prepare_internal_service_auth "$ROOT_DIR"
 cleanup_ports
 ensure_backend_venv
 ensure_document_processing_venv
