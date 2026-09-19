@@ -20,12 +20,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/himovo/movo"><img src="https://img.shields.io/github/stars/himovo/movo?style=social" alt="GitHub Stars"></a><br>
+  <a href="https://github.com/himovo/movo"><img src="https://img.shields.io/github/stars/himovo/movo?style=social" alt="GitHub Stars"></a> · <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a><br>
   If MOVO is useful to you, click <strong>Star</strong> in the upper-right corner to support the project.
-</p>
-
-<p align="center">
-  <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
 </p>
 
 <br>
