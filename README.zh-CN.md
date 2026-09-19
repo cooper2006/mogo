@@ -24,6 +24,10 @@
   如果 MOVO 对你有帮助，请点击页面右上角的 <strong>Star</strong> 支持项目。
 </p>
 
+<p align="center">
+  <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
+</p>
+
 <br>
 
 MOVO 帮助企业将 DSH Agent 从开发验证推进到生产使用。它在 DSH Runtime、Skill、工具和 MCP 生态之上，提供可部署的用户工作台、企业知识、身份与权限、管理治理和文件交付能力。

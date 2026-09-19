@@ -24,6 +24,10 @@
   If MOVO is useful to you, click <strong>Star</strong> in the upper-right corner to support the project.
 </p>
 
+<p align="center">
+  <a href="https://linux.do" alt="LINUX DO"><img src="https://shorturl.at/ggSqS" /></a>
+</p>
+
 <br>
 
 MOVO brings DSH Agents from development experiments into enterprise production. It combines the DSH Runtime, Skills, Tools and MCP ecosystem with a deployable user workspace, enterprise knowledge, identity and access control, administration, governance and file delivery.
