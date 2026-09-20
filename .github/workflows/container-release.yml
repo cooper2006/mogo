@@ -3,6 +3,10 @@ name: Container Release
 on:
   workflow_dispatch:
     inputs:
+      base_ref:
+        description: Optional prior commit SHA for selective manual rebuilds
+        type: string
+        required: false
       force_rebuild_all:
         description: Rebuild every image instead of reusing unchanged images
         type: boolean
@@ -62,17 +66,24 @@ jobs:
         id: base
         env:
           GH_TOKEN: ${{ github.token }}
+          MANUAL_BASE_REF: ${{ inputs.base_ref }}
         shell: bash
         run: |
-          base_ref="$(
-            gh run list \
-              --workflow container-release.yml \
-              --event push \
-              --status success \
-              --limit 1 \
-              --json headBranch \
-              --jq '.[0].headBranch // ""'
-          )"
+          if [[ -n "$MANUAL_BASE_REF" ]]; then
+            git rev-parse --verify "${MANUAL_BASE_REF}^{commit}" >/dev/null
+            git merge-base --is-ancestor "$MANUAL_BASE_REF" "$GITHUB_SHA"
+            base_ref="$MANUAL_BASE_REF"
+          else
+            base_ref="$(
+              gh run list \
+                --workflow container-release.yml \
+                --event push \
+                --status success \
+                --limit 1 \
+                --json headBranch \
+                --jq '.[0].headBranch // ""'
+            )"
+          fi
           echo "ref=${base_ref}" >> "$GITHUB_OUTPUT"
       - name: Calculate image build plan
         id: plan
