@@ -7,6 +7,7 @@ from typing import Any
 from app.dsh_runtime.bindings import KernelBindingRepository
 from app.dsh_runtime.conversation import ConversationRepository
 from app.dsh_runtime.events import KernelEventRepository, KernelEventWrite
+from app.dsh_runtime.events.persistence_retry import retry_persistence
 from app.dsh_runtime.events.authoritative_delivery import (
     AuthoritativeDeliveryGuard,
     DeliveryStore,
@@ -66,8 +67,21 @@ class TurnTerminalRecovery:
                 conversation_id=str(binding["conversation_id"]),
                 message_id=message_id,
             )
-            await self._bindings.advance_cursor(
-                str(binding["binding_id"]), max(write.event.cursor for write in writes)
+            cursor = max(write.event.cursor for write in writes)
+
+            async def advance_cursor() -> None:
+                await self._bindings.advance_cursor(str(binding["binding_id"]), cursor)
+
+            await retry_persistence(
+                advance_cursor,
+                stage="kernel_event_recovery_cursor",
+                context={
+                    "binding_id": str(binding["binding_id"]),
+                    "tenant_id": str(binding["tenant_id"]),
+                    "user_id": str(binding["user_id"]),
+                    "message_id": message_id,
+                    "cursor": cursor,
+                },
             )
         await self.finalize_persisted_terminal(binding=binding, message_id=message_id)
 

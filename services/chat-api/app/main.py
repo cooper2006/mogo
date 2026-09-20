@@ -118,6 +118,7 @@ from app.api.endpoints import (
     product,
     quota,
     scheduled_tasks,
+    shortcuts,
     sessions,
     site_profiles,
     skills,
@@ -158,6 +159,7 @@ app.include_router(site_profiles.router, prefix="/api")
 app.include_router(token_usage.router, prefix="/api")
 app.include_router(quota.router, prefix="/api")
 app.include_router(scheduled_tasks.router, prefix="/api")
+app.include_router(shortcuts.router, prefix="/api")
 app.include_router(browser_ws_endpoint.router, prefix="/api")
 app.include_router(dsh_model_gateway.router)
 app.include_router(dsh_tool_gateway.internal_router)

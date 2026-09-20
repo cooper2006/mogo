@@ -9,6 +9,7 @@ from typing import Any
 from app.dsh_runtime.bindings import KernelBindingRepository
 
 from .repository import KernelEventRepository, KernelEventWrite
+from .persistence_retry import retry_persistence
 
 
 @dataclass(frozen=True)
@@ -135,9 +136,23 @@ class DurableKernelEventWriter:
             conversation_id=self._conversation_id,
             message_id=self._message_id,
         )
-        await self._bindings.advance_cursor(
-            self._binding_id,
-            max(write.event.cursor for write in batch),
+        cursor = max(write.event.cursor for write in batch)
+
+        async def advance_cursor() -> None:
+            await self._bindings.advance_cursor(self._binding_id, cursor)
+
+        await retry_persistence(
+            advance_cursor,
+            stage="kernel_event_cursor",
+            context={
+                "binding_id": self._binding_id,
+                "tenant_id": self._tenant_id,
+                "user_id": self._user_id,
+                "conversation_id": self._conversation_id,
+                "message_id": self._message_id,
+                "cursor": cursor,
+                "batch_size": len(batch),
+            },
         )
 
     def _fail_waiting_barriers(self, exc: BaseException) -> None:

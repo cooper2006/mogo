@@ -837,13 +837,13 @@ function inferSchemaType(value: unknown): SchemaType {
 
 function readableType(type: SchemaType) {
   const labels: Record<SchemaType, string> = {
-    String: '文本',
-    Integer: '整数',
-    Number: '数值',
-    Boolean: '布尔值',
-    Object: '对象',
-    Array: '数组',
-    ArrayObject: '对象数组',
+    String: t('类型文本'),
+    Integer: t('类型整数'),
+    Number: t('类型数值'),
+    Boolean: t('类型布尔值'),
+    Object: t('类型对象'),
+    Array: t('类型数组'),
+    ArrayObject: t('类型对象数组'),
   };
   return labels[type] || type;
 }
@@ -860,20 +860,20 @@ function commonFieldMeaning(name: string, path: string) {
   const tokens = splitFieldTokens(`${path}_${name}`);
   const tokenSet = new Set(tokens);
   const joined = tokens.join('_');
-  if (tokenSet.has('id') || joined.endsWith('_id')) return '通常表示记录或实体的唯一标识';
-  if (tokenSet.has('name')) return '通常表示名称';
-  if (tokenSet.has('title')) return '通常表示标题';
-  if (tokenSet.has('status') || tokenSet.has('state')) return '通常表示状态';
-  if (tokenSet.has('type') || tokenSet.has('category')) return '通常表示类型或分类';
-  if (tokenSet.has('count') || tokenSet.has('total') || tokenSet.has('num') || tokenSet.has('quantity')) return '通常表示数量或统计值';
-  if (tokenSet.has('amount') || tokenSet.has('price') || tokenSet.has('cost') || tokenSet.has('fee')) return '通常表示金额或价格';
-  if (tokenSet.has('date') || tokenSet.has('time') || tokenSet.has('created') || tokenSet.has('updated')) return '通常表示日期或时间';
-  if (tokenSet.has('url') || tokenSet.has('link') || tokenSet.has('uri')) return '通常表示链接地址';
-  if (tokenSet.has('desc') || tokenSet.has('description') || tokenSet.has('summary')) return '通常表示描述或摘要';
-  if (tokenSet.has('content') || tokenSet.has('text')) return '通常表示正文内容';
-  if (tokenSet.has('message') || tokenSet.has('msg')) return '通常表示消息文本';
-  if (tokenSet.has('code')) return '通常表示编码或返回码';
-  if (tokenSet.has('score') || tokenSet.has('rate') || tokenSet.has('ratio')) return '通常表示分值、比例或评分';
+  if (tokenSet.has('id') || joined.endsWith('_id')) return t('字段含义标识');
+  if (tokenSet.has('name')) return t('字段含义名称');
+  if (tokenSet.has('title')) return t('字段含义标题');
+  if (tokenSet.has('status') || tokenSet.has('state')) return t('字段含义状态');
+  if (tokenSet.has('type') || tokenSet.has('category')) return t('字段含义类型');
+  if (tokenSet.has('count') || tokenSet.has('total') || tokenSet.has('num') || tokenSet.has('quantity')) return t('字段含义数量');
+  if (tokenSet.has('amount') || tokenSet.has('price') || tokenSet.has('cost') || tokenSet.has('fee')) return t('字段含义金额');
+  if (tokenSet.has('date') || tokenSet.has('time') || tokenSet.has('created') || tokenSet.has('updated')) return t('字段含义时间');
+  if (tokenSet.has('url') || tokenSet.has('link') || tokenSet.has('uri')) return t('字段含义链接');
+  if (tokenSet.has('desc') || tokenSet.has('description') || tokenSet.has('summary')) return t('字段含义描述');
+  if (tokenSet.has('content') || tokenSet.has('text')) return t('字段含义正文');
+  if (tokenSet.has('message') || tokenSet.has('msg')) return t('字段含义消息');
+  if (tokenSet.has('code')) return t('字段含义编码');
+  if (tokenSet.has('score') || tokenSet.has('rate') || tokenSet.has('ratio')) return t('字段含义分值');
   return '';
 }
 
@@ -1428,7 +1428,7 @@ async function runDebug() {
     const rawMessage = String(error?.response?.data?.detail || error?.message || '').trim();
     const isTimeout = error?.code === 'ECONNABORTED' || /timeout|timed out|超时/i.test(rawMessage);
     const errorMessage = isTimeout
-      ? `请求超时：超过 ${configuredTimeout} 秒未收到响应`
+      ? t('请求超时', { seconds: configuredTimeout })
       : (rawMessage || t('测试失败'));
     testResult.value = {
       success: false,

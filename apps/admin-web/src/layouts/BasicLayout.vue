@@ -67,7 +67,7 @@
         </div>
         <n-space align="center" :size="12">
           <div id="header-actions-teleport-target" class="header-actions-teleport"></div>
-          <n-dropdown trigger="hover" :options="languageOptions" @select="handleLanguageSelect">
+          <n-dropdown trigger="click" show-arrow :options="languageOptions" @select="handleLanguageSelect">
             <n-button quaternary circle class="header-round-button" :title="`${t('语言')}: ${currentLanguageLabel}`">
               <span class="header-icon" aria-hidden="true">
                 <svg

@@ -1,7 +1,7 @@
 <template>
   <n-modal :show="show" preset="card" :title="t('发布 Skill 版本')" style="width:520px" @update:show="emit('update:show', $event)">
     <n-form label-placement="top"><n-form-item :label="t('版本号（留空自动递增）')"><n-input v-model:value="version" placeholder="1.0.0" /></n-form-item><n-form-item :label="t('版本说明')"><n-input v-model:value="notes" type="textarea" :rows="4" maxlength="2000" show-count /></n-form-item></n-form>
-    <template #footer><n-space justify="end"><n-button @click="emit('update:show', false)">{{ t('取消') }}</n-button><n-button type="primary" :loading="busy" @click="submit">{{ t('发布') }}</n-button></n-space></template>
+    <template #footer><n-space justify="end"><n-button @click="emit('update:show', false)">{{ t('取消') }}</n-button><n-button type="primary" :loading="busy" @click="submit"><template #icon><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12" /><path d="m7 8 5-5 5 5" /><path d="M5 14v5h14v-5" /></svg></span></template>{{ t('发布') }}</n-button></n-space></template>
   </n-modal>
 </template>
 <script setup lang="ts">

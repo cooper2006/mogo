@@ -8,7 +8,7 @@ import urllib.request
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_admin_user
@@ -291,7 +291,7 @@ async def delete_tool(tool_id: str, current_user: dict = Depends(get_current_adm
 
 
 @router.post("/{tool_id}/test")
-async def test_tool(tool_id: str, request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
+async def test_tool(tool_id: str, request: Request, response: Response, current_user: dict = Depends(get_current_admin_user)) -> Any:
     main_id = str(current_user.get("main_id") or "default")
     db = get_db()
     doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
@@ -299,14 +299,26 @@ async def test_tool(tool_id: str, request: Request, current_user: dict = Depends
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="企业工具连接不存在")
     payload = await request.json()
     timeout = _config_timeout_seconds(_safe_dict((doc or {}).get("config")))
-    return _backend_data(_request_backend("POST", f"/{tool_id}/test", main_id, payload, timeout=timeout))
+    result = _backend_data(_request_backend("POST", f"/{tool_id}/test", main_id, payload, timeout=timeout))
+    response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
+    return result
 
 
 @router.post("/test-draft")
-async def test_draft_tool(request: Request, current_user: dict = Depends(get_current_admin_user)) -> Any:
+async def test_draft_tool(request: Request, response: Response, current_user: dict = Depends(get_current_admin_user)) -> Any:
     main_id = str(current_user.get("main_id") or "default")
     payload = await request.json()
-    return _backend_data(_request_backend("POST", "/test-draft", main_id, payload, timeout=_tool_timeout_seconds(payload)))
+    result = _backend_data(_request_backend("POST", "/test-draft", main_id, payload, timeout=_tool_timeout_seconds(payload)))
+    response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
+    return result
+
+
+def _operation_succeeded(result: Any) -> bool:
+    if not isinstance(result, dict):
+        return True
+    if result.get("success") is False or str(result.get("status") or "").lower() in {"failed", "error"}:
+        return False
+    return True
 
 
 @router.post("/{tool_id}/discover")

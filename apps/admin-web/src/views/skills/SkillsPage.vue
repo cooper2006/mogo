@@ -86,7 +86,7 @@
                       @update:value="handleEnabledUpdate(row, $event)"
                     />
                   </div>
-                  <n-button class="icon-only-btn" size="small" quaternary circle title="查看成员评价" @click.stop="openFeedback(row)">
+                  <n-button class="icon-only-btn" size="small" quaternary circle :title="t('查看成员评价')" @click.stop="openFeedback(row)">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
                     </svg>
@@ -138,7 +138,7 @@
         <n-input v-model:value="createForm.description" type="textarea" :rows="3" :placeholder="t('请输入技能描述')" />
       </n-form-item>
       <n-form-item :label="t('使用场景')" path="scenario">
-        <n-input v-model:value="createForm.scenario" type="textarea" :rows="3" placeholder="例如：市场周报写作、销售复盘总结" />
+        <n-input v-model:value="createForm.scenario" type="textarea" :rows="3" :placeholder="t('例如：市场周报写作、销售复盘总结')" />
       </n-form-item>
       <n-form-item :label="t('类型')" path="type">
         <n-radio-group v-model:value="createForm.type">

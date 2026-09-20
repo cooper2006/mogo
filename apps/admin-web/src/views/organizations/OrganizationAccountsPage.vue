@@ -247,7 +247,7 @@ const accountForm = ref<AccountForm>({
   email: '',
   phone: '',
   groupCode: '',
-  roleName: '组织管理员',
+  roleName: t('组织管理员'),
   status: 'active',
   initialPassword: '',
 });
@@ -471,7 +471,7 @@ function openCreateAccount() {
     email: '',
     phone: '',
     groupCode: groups.value[0].code,
-    roleName: '组织管理员',
+    roleName: t('组织管理员'),
     status: 'active',
     initialPassword: '',
   };

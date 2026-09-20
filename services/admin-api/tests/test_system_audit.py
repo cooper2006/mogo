@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.system_audit.middleware import _module_key
+from app.system_audit.middleware import _audit_result, _module_key
 from app.system_audit.query import SystemAuditQuery
 
 
@@ -49,3 +49,9 @@ def test_permission_denial_is_a_failed_agent_activity() -> None:
     assert item["category"] == "agent"
     assert item["result"] == "failed"
     assert item["target"] == "code_generation"
+
+
+def test_audit_prefers_explicit_business_result_over_http_status() -> None:
+    assert _audit_result(200, "failed") == "failed"
+    assert _audit_result(200, "success") == "success"
+    assert _audit_result(502, None) == "failed"

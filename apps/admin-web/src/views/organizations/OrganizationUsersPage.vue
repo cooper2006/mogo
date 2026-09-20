@@ -442,7 +442,13 @@ const users = ref<DirectoryUserItem[]>([]);
 const fieldDefs = ref<UserFieldDef[]>([]);
 const positionRoles = ref<PositionRole[]>([]);
 const roleOptions = computed<SelectOption[]>(() => positionRoles.value.filter(role => role.status === 'active').map(role => ({ label: role.name, value: role.id })));
-const capabilityNames: Record<string, string> = { content_generation: '内容生成', image_generation: '图片生成', code_generation: '代码生成', browser_automation: '浏览器自动运行', internal_knowledge: '内部知识检索' };
+const capabilityNames: Record<string, string> = {
+  content_generation: '内容生成',
+  image_generation: '图片生成',
+  code_generation: '代码生成',
+  browser_automation: '浏览器自动运行',
+  internal_knowledge: '内部知识检索',
+};
 const activeUserFields = computed(() => fieldDefs.value.filter((field) => field.enabled));
 
 const treeKeyword = ref('');
@@ -954,13 +960,18 @@ const inviteForm = ref({
 const inviteCapabilityPreview = computed(() => {
   const selected = positionRoles.value.filter(role => inviteForm.value.roleIds.includes(role.id));
   const capabilitySet = new Set<string>();
-  selected.forEach(role => Object.entries(role.capabilities).forEach(([key, enabled]) => { if (enabled) capabilitySet.add(capabilityNames[key] || key); }));
+  selected.forEach(role => Object.entries(role.capabilities).forEach(([key, enabled]) => {
+    if (enabled) capabilitySet.add(capabilityNames[key] ? t(capabilityNames[key]) : key);
+  }));
   const toolAll = selected.some(role => role.toolAccessMode === 'all');
   const skillAll = selected.some(role => role.skillAccessMode === 'all');
   const toolCount = new Set(selected.flatMap(role => role.toolIds)).size;
   const skillCount = new Set(selected.flatMap(role => role.skillIds)).size;
   if (!selected.length) return '';
-  return `${[...capabilitySet].join('、') || '普通问答'}；${toolAll ? '全部工具' : `${toolCount} 个工具`}；${skillAll ? '全部 Skill' : `${skillCount} 个 Skill`}`;
+  const capabilities = [...capabilitySet].join(t('列表分隔符')) || t('普通问答');
+  const tools = toolAll ? t('全部工具') : t('工具数量', { count: toolCount });
+  const skills = skillAll ? t('全部 Skill') : t('Skill数量', { count: skillCount });
+  return t('能力预览', { capabilities, tools, skills });
 });
 
 function syncPrimaryRole(roleId: string) {

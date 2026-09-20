@@ -101,7 +101,7 @@ onMounted(load);
   <div class="page-stack position-role-page">
     <n-card class="position-role-card" :bordered="false" size="large">
       <div class="position-role-content">
-        <div class="page-head"><PageIntro :title="t('用户岗位角色')" :description="t('按员工职责配置可见且可执行的 Agent 能力。')" /><n-button type="primary" @click="openCreate">创建用户岗位角色</n-button></div>
+        <div class="page-head"><PageIntro :title="t('用户岗位角色')" :description="t('按员工职责配置可见且可执行的 Agent 能力。')" /><n-button type="primary" @click="openCreate">{{ t('创建用户岗位角色') }}</n-button></div>
         <div class="role-table-card"><n-data-table :columns="columns" :data="roles" :loading="loading" :bordered="false" /></div>
       </div>
     </n-card>

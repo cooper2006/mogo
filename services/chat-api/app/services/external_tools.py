@@ -17,6 +17,7 @@ from app.core.tenant import add_main_scope, resolve_main_id
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
 from app.services.external_tool_limits import MCP_ENABLED_TOOL_LIMIT, enabled_mcp_tool_names, validate_mcp_activation
+from app.services.mcp_call_result import build_mcp_call_outcome
 from app.services.mcp_streamable_http import StreamableHttpMcpClient
 
 
@@ -505,22 +506,17 @@ class ExternalToolService:
                     "X-AskAI-User-ID": str(actor_user_id or "").strip(),
                 },
             )
+            outcome = build_mcp_call_outcome(tool_name, result)
+            outcome["durationMs"] = int((time.monotonic() - started) * 1000)
             logger.info(
                 "external_tool_runtime_execute_result main_id=%s tool_id=%s provider_type=mcp mcp_tool_name=%s success=%s duration_ms=%s",
                 main_id,
                 external_tool_id,
                 tool_name,
-                True,
-                int((time.monotonic() - started) * 1000),
+                bool(outcome.get("success")),
+                outcome["durationMs"],
             )
-            return {
-                "success": True,
-                "status": "passed",
-                "message": f"MCP tool {tool_name} 调用成功",
-                "responseSummary": _short_text(result),
-                "raw": result,
-                "durationMs": int((time.monotonic() - started) * 1000),
-            }
+            return outcome
         resolved_input = self._build_http_runtime_input(tool, args)
         result = await self._test_http(tool, resolved_input)
         result["durationMs"] = int((time.monotonic() - started) * 1000)
@@ -937,13 +933,7 @@ class ExternalToolService:
                 "raw": discovered,
             }
         result = await self._mcp_jsonrpc(tool, "tools/call", {"name": tool_name, "arguments": _safe_dict(test_input.get("arguments"))})
-        return {
-            "success": True,
-            "status": "passed",
-            "message": f"MCP tool {tool_name} 调用成功",
-            "responseSummary": _short_text(result),
-            "raw": result,
-        }
+        return build_mcp_call_outcome(tool_name, result)
 
     async def _mcp_jsonrpc(
         self,

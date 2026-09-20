@@ -13,6 +13,8 @@ import AssistantMarkdown from './chat/AssistantMarkdown.vue'
 import type { PendingDocument } from './chat/types'
 import { useAuthoritativeMessages } from './chat/useAuthoritativeMessages'
 import { promptGuideCategories, promptGuideUiIcons, type PromptGuideConfigTarget, type PromptGuideItem } from './chat/promptGuideConfig'
+import { effectiveShortcutEntries, resolveShortcutGuideCategories } from './chat/shortcutGuideResolver'
+import { fetchEffectiveShortcuts } from '../api/shortcuts'
 import PresentationEditor from './PresentationEditor.vue'
 import ExecutionViewV3 from '../features/execution-v3/components/ExecutionViewV3.vue'
 import ArtifactList from './execution/ArtifactList.vue'
@@ -116,6 +118,7 @@ const allowTools = computed(() => {
 const emit = defineEmits<{
   (e: 'open-skills'): void
   (e: 'open-tools'): void
+  (e: 'open-knowledge'): void
   (e: 'send', payload: { text: string; images: File[]; documents: PendingDocument[]; knowledgeQaEnabled: boolean; selectedSkillId?: string; modelId?: string }): void
   (e: 'stop'): void
   (e: 'clear-intervention'): void
@@ -380,6 +383,7 @@ const stickyTurnMinHeightPx = ref(0)
 const isNewSessionView = computed(() => displayMessages.value.length === 0)
 
 const activePromptGuideKey = ref<string | null>(null)
+const effectivePromptGuideCategories = ref(promptGuideCategories)
 const promptGuideNotice = ref<{
   title: string
   description: string
@@ -387,12 +391,19 @@ const promptGuideNotice = ref<{
 } | null>(null)
 let promptGuideCloseTimer: ReturnType<typeof setTimeout> | null = null
 
-const visiblePromptGuideCategories = computed(() => promptGuideCategories.filter((category) => {
-  if (category.key === 'content') return allowContent.value
-  if (category.key === 'internal') return allowKnowledge.value
-  if (category.key === 'systems') return allowTools.value
-  return true
-}))
+const visiblePromptGuideCategories = computed(() => effectivePromptGuideCategories.value
+  .map((category) => category.key === 'favorites'
+    ? { ...category, items: category.items.filter(item =>
+      (item.categoryKey !== 'content' || allowContent.value)
+      && (item.categoryKey !== 'internal' || allowKnowledge.value)
+      && (item.categoryKey !== 'systems' || allowTools.value)) }
+    : category)
+  .filter((category) => {
+    if (category.key === 'content') return allowContent.value
+    if (category.key === 'internal') return allowKnowledge.value
+    if (category.key === 'systems') return allowTools.value
+    return category.items.length > 0
+  }))
 const activePromptGuideCategory = computed(() => (
   visiblePromptGuideCategories.value.find((item) => item.key === activePromptGuideKey.value) || null
 ))
@@ -444,7 +455,27 @@ async function usePromptGuideItem(item: PromptGuideItem) {
   }
   if (!item.prompt) return
   promptGuideNotice.value = null
-  if (activePromptGuideCategory.value?.key === 'internal') {
+  if (item.shortcutType === 'skill') {
+    try {
+      const selected = item.resourceId && await composerRef.value?.selectShortcutSkill(item.resourceId, item.label)
+      if (!selected) {
+        promptGuideNotice.value = {
+          title: t('shortcuts.skill_unavailable'),
+          description: t('shortcuts.skill_unavailable_hint'),
+          target: 'skills',
+        }
+        return
+      }
+    } catch {
+      promptGuideNotice.value = {
+        title: t('shortcuts.skill_unavailable'),
+        description: t('shortcuts.skill_unavailable_hint'),
+        target: 'skills',
+      }
+      return
+    }
+  }
+  if (item.categoryKey === 'internal' || activePromptGuideCategory.value?.key === 'internal') {
     composerRef.value?.enableKnowledgeQa()
   }
   await composerRef.value?.setTextAndFocus(t(item.prompt))
@@ -452,7 +483,25 @@ async function usePromptGuideItem(item: PromptGuideItem) {
 
 function openPromptGuideConfig(target: PromptGuideConfigTarget) {
   if (target === 'skills') emit('open-skills')
+  else if (target === 'knowledge') emit('open-knowledge')
   else emit('open-tools')
+}
+
+async function loadPromptGuideShortcuts() {
+  if (!props.authToken || !props.userId) {
+    effectivePromptGuideCategories.value = promptGuideCategories
+    return
+  }
+  try {
+    const result = await fetchEffectiveShortcuts()
+    effectivePromptGuideCategories.value = resolveShortcutGuideCategories(effectiveShortcutEntries(result), result.configured, result.groups)
+  } catch {
+    effectivePromptGuideCategories.value = promptGuideCategories
+  }
+}
+
+function handleShortcutPreferencesUpdated() {
+  void loadPromptGuideShortcuts()
 }
 
 function stickyLog(...args: any[]) {
@@ -1267,6 +1316,8 @@ onMounted(() => {
   handleScroll()
   recomputeStickyTurnMinHeight()
   loadChatModels()
+  void loadPromptGuideShortcuts()
+  window.addEventListener('shortcut-preferences-updated', handleShortcutPreferencesUpdated)
   window.addEventListener('resize', recomputeStickyTurnMinHeight)
   if (typeof ResizeObserver !== 'undefined') {
     layoutObserver = new ResizeObserver(() => recomputeStickyTurnMinHeight())
@@ -1281,11 +1332,15 @@ onMounted(() => {
 
 watch(() => props.mainId, () => {
   loadChatModels()
+  void loadPromptGuideShortcuts()
 })
+
+watch(() => props.authToken, () => void loadPromptGuideShortcuts())
 
 onBeforeUnmount(() => {
   cancelPromptGuideClose()
   window.removeEventListener('resize', recomputeStickyTurnMinHeight)
+  window.removeEventListener('shortcut-preferences-updated', handleShortcutPreferencesUpdated)
   if (layoutObserver) {
     layoutObserver.disconnect()
     layoutObserver = null

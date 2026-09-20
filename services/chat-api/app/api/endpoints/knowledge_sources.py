@@ -91,6 +91,7 @@ async def get_knowledge_source_document(
             ))
     return {
         "id": str(doc.get("_id") or ""),
+        "scope": str(doc.get("scope") or "organization"),
         "name": str(doc.get("name") or ""),
         "originalFilename": str(doc.get("original_filename") or ""),
         "fileExt": str(doc.get("file_ext") or ""),

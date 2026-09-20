@@ -1,8 +1,8 @@
 <template>
   <section class="continuous-pdf">
     <div class="pdf-toolbar">
-      <span>{{ currentPage }} / {{ pageCount || '--' }} 页</span>
-      <span class="load-hint">滚动自动加载</span>
+      <span>{{ t('页码', { current: currentPage, total: pageCount || '--' }) }}</span>
+      <span class="load-hint">{{ t('滚动自动加载') }}</span>
       <span class="toolbar-spacer"></span>
       <button type="button" :disabled="zoom <= .5" :aria-label="t('缩小')" @click="setZoom(zoom - .1)">−</button>
       <span class="zoom-value">{{ Math.round(zoom * 100) }}%</span>
@@ -10,14 +10,14 @@
     </div>
     <div ref="viewportRef" class="pdf-viewport" @scroll.passive="scheduleCurrentPageUpdate">
       <div v-if="firstLoadedPage > 1" ref="topSentinelRef" class="load-more">
-        {{ loadingMore ? t('加载中') : '向上滚动加载前页' }}
+        {{ loadingMore ? t('加载中') : t('向上滚动加载前页') }}
       </div>
       <article v-for="page in loadedPages" :key="page" class="pdf-page" :data-page-number="page">
         <canvas :ref="element => setCanvasRef(page, element)" :aria-label="`${title} 第 ${page} 页`"></canvas>
         <span>{{ page }}</span>
       </article>
       <div v-if="lastLoadedPage < pageCount" ref="bottomSentinelRef" class="load-more">
-        {{ loadingMore ? t('加载中') : '继续向下滚动' }}
+        {{ loadingMore ? t('加载中') : t('继续向下滚动') }}
       </div>
       <div v-if="loading" class="viewer-state">{{ t('加载中') }}</div>
       <div v-else-if="errorText" class="viewer-state viewer-error">

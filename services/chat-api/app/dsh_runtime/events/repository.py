@@ -12,6 +12,7 @@ from pymongo import UpdateOne
 from app.dsh_runtime.contracts import KernelEventEnvelope
 
 from .projection import KernelEventProjector
+from .persistence_retry import retry_persistence
 
 
 @dataclass(frozen=True)
@@ -112,10 +113,28 @@ class KernelEventRepository:
                 projection_ops.append(
                     UpdateOne({"event_id": row["event_id"]}, {"$setOnInsert": row}, upsert=True)
                 )
-        operations = [self._inbox.bulk_write(inbox_ops, ordered=True)]
-        if projection_ops:
-            operations.append(self._projections.bulk_write(projection_ops, ordered=True))
-        await asyncio.gather(*operations)
+        async def persist() -> None:
+            operations = [self._inbox.bulk_write(inbox_ops, ordered=True)]
+            if projection_ops:
+                operations.append(self._projections.bulk_write(projection_ops, ordered=True))
+            # A retry may observe that one collection already committed. Every
+            # operation uses $setOnInsert and a stable event_id, so replaying
+            # the complete batch safely fills only the missing half.
+            await asyncio.gather(*operations)
+
+        await retry_persistence(
+            persist,
+            stage="kernel_event_batch",
+            context={
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "batch_size": len(writes),
+                "first_cursor": min(write.event.cursor for write in writes),
+                "last_cursor": max(write.event.cursor for write in writes),
+            },
+        )
 
     async def persist_projections(
         self,
@@ -146,7 +165,21 @@ class KernelEventRepository:
             operations.append(
                 UpdateOne({"event_id": row["event_id"]}, {"$setOnInsert": row}, upsert=True)
             )
-        await self._projections.bulk_write(operations, ordered=True)
+        async def persist() -> None:
+            await self._projections.bulk_write(operations, ordered=True)
+
+        await retry_persistence(
+            persist,
+            stage="side_band_projection_batch",
+            context={
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "kernel_session_id": kernel_session_id,
+                "batch_size": len(rows),
+            },
+        )
 
     async def list_for_message(
         self,

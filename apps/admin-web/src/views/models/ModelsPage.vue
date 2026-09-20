@@ -307,8 +307,8 @@ const instances = ref<ModelInstanceItem[]>([]);
 const editorVisible = ref(false);
 const editorMode = ref<'create' | 'edit'>('create');
 const suppressProviderChange = ref(false);
-const testPrompt = ref('请用一句话回复当前模型连接测试。');
-const testResultText = ref('保存模型配置后可测试。');
+const testPrompt = ref(t('测试模型默认提示'));
+const testResultText = ref(t('测试模型未保存'));
 const testResultType = ref<'idle' | 'success' | 'failed'>('idle');
 const testImageUrl = ref('');
 
@@ -720,11 +720,11 @@ watch(
   (enabled) => {
     if (enabled) {
       form.value.runtimeKind = form.value.runtimeKind || recommendedImageRuntime(currentProvider.value);
-      if (testPrompt.value === '请用一句话回复当前模型连接测试。') {
-        testPrompt.value = '生成一张简洁的科技感演示文稿封面，不要文字。';
+      if (testPrompt.value === t('测试模型默认提示')) {
+        testPrompt.value = t('测试模型图片提示');
       }
-    } else if (testPrompt.value === '生成一张简洁的科技感演示文稿封面，不要文字。') {
-      testPrompt.value = '请用一句话回复当前模型连接测试。';
+    } else if (testPrompt.value === t('测试模型图片提示')) {
+      testPrompt.value = t('测试模型默认提示');
     }
     resetTestState(editorMode.value === 'edit' ? t('可在右侧测试当前已保存的配置。') : t('保存模型配置后可测试。'));
   },

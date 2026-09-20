@@ -163,6 +163,18 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '设置', icon: SettingsIcon },
       },
       {
+        path: '/settings/shortcuts',
+        name: 'ShortcutSettings',
+        component: () => import('@/views/settings/ExternalSearchSettingsPage.vue'),
+        meta: { title: '快捷入口', hideInMenu: true },
+      },
+      {
+        path: '/settings/shortcuts/default',
+        name: 'ShortcutDefaultSettings',
+        component: () => import('@/views/settings/ExternalSearchSettingsPage.vue'),
+        meta: { title: '默认快捷入口', hideInMenu: true },
+      },
+      {
         path: '/settings/presentation',
         name: 'PresentationSettings',
         component: () => import('@/views/settings/ExternalSearchSettingsPage.vue'),

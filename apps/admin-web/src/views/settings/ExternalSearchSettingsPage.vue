@@ -22,6 +22,15 @@
       </button>
       <button
         class="settings-nav-item"
+        :class="{ active: activeSection === 'shortcuts' }"
+        type="button"
+        @click="switchSection('shortcuts')"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>{{ t('快捷入口') }}</span>
+      </button>
+      <button
+        class="settings-nav-item"
         :class="{ active: activeSection === 'presentation' }"
         type="button"
         @click="switchSection('presentation')"
@@ -128,6 +137,15 @@
           </n-grid>
         </n-form>
       </div>
+    </main>
+
+    <main v-else-if="activeSection === 'shortcuts'" class="settings-main">
+      <div v-if="hasShortcutSchemes" class="shortcut-page-tabs" role="tablist" :aria-label="t('快捷入口')">
+        <button type="button" :class="{ active: shortcutView === 'schemes' }" @click="switchShortcutView('schemes')">{{ t('方案列表') }}</button>
+        <button type="button" :class="{ active: shortcutView === 'default' }" @click="switchShortcutView('default')">{{ t('默认入口') }}</button>
+      </div>
+      <ShortcutSchemeOverview v-if="hasShortcutSchemes && shortcutView === 'schemes'" :on-edit-default="() => switchShortcutView('default')" />
+      <ShortcutSettingsPanel v-else ref="shortcutSettingsRef" />
     </main>
 
     <main v-else-if="activeSection === 'presentation'" class="settings-main">
@@ -631,13 +649,15 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import axios from 'axios';
-import { useRoute, useRouter } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { t, useLocale } from '@/composables/i18n';
 import { useTheme } from '@/composables/theme';
 import { getAdminTimezone, getBrowserTimezone, setAdminTimezone } from '@/composables/adminTimezone';
 import SearchProviderGuide from '@/components/search-provider/SearchProviderGuide.vue';
 import ModelCapabilitySelect from '@/components/models/ModelCapabilitySelect.vue';
 import PresentationSettingsPanel from '@/components/settings/PresentationSettingsPanel.vue';
+import ShortcutSettingsPanel from '@/components/settings/ShortcutSettingsPanel.vue';
+import ShortcutSchemeOverview from '@/components/settings/ShortcutSchemeOverview.vue';
 import {
   fetchExternalSearchProviders,
   saveExternalSearchProvider,
@@ -657,22 +677,34 @@ import {
   saveKnowledgeSettings,
   type KnowledgeSettings,
 } from '@/api/knowledge-settings';
+import adminProductUiExtension from '@movo-admin-product-extension';
 
 const message = useMessage();
-type SettingsSection = 'general' | 'presentation' | 'external-search' | 'page-collection' | 'knowledge';
+type SettingsSection = 'general' | 'shortcuts' | 'presentation' | 'external-search' | 'page-collection' | 'knowledge';
+type ShortcutView = 'schemes' | 'default';
 
 const route = useRoute();
 const router = useRouter();
 const sectionRouteMap: Record<SettingsSection, string> = {
   general: '/settings',
+  shortcuts: '/settings/shortcuts',
   presentation: '/settings/presentation',
   'external-search': '/settings/external-search',
   'page-collection': '/settings/page-collection',
   knowledge: '/settings/knowledge',
 };
 const activeSection = ref<SettingsSection>('general');
+const hasShortcutSchemes = Boolean(adminProductUiExtension.shortcutSettingsExtension);
+const shortcutView = ref<ShortcutView>(hasShortcutSchemes ? 'schemes' : 'default');
+const shortcutSettingsRef = ref<InstanceType<typeof ShortcutSettingsPanel> | null>(null);
+
+function confirmShortcutNavigation(): boolean {
+  if (activeSection.value !== 'shortcuts' || shortcutView.value !== 'default' || !shortcutSettingsRef.value?.hasUnsavedChanges) return true;
+  return window.confirm(t('快捷入口有未保存的修改，确定放弃并离开吗？'));
+}
 
 function sectionFromPath(path: string): SettingsSection {
+  if (path.includes('/settings/shortcuts')) return 'shortcuts';
   if (path.includes('/settings/presentation')) return 'presentation';
   if (path.includes('/settings/external-search')) return 'external-search';
   if (path.includes('/settings/page-collection')) return 'page-collection';
@@ -680,7 +712,21 @@ function sectionFromPath(path: string): SettingsSection {
   return 'general';
 }
 
+function shortcutViewFromPath(path: string): ShortcutView {
+  if (!hasShortcutSchemes) return 'default';
+  return path.includes('/settings/shortcuts/default') ? 'default' : 'schemes';
+}
+
+function switchShortcutView(view: ShortcutView) {
+  if (view === 'schemes' && !hasShortcutSchemes) return;
+  if (view !== shortcutView.value && !confirmShortcutNavigation()) return;
+  shortcutView.value = view;
+  const target = view === 'default' ? '/settings/shortcuts/default' : '/settings/shortcuts';
+  if (route.path !== target) router.push(target);
+}
+
 function switchSection(section: SettingsSection) {
+  if (section !== activeSection.value && !confirmShortcutNavigation()) return;
   activeSection.value = section;
   const target = sectionRouteMap[section];
   if (route.path !== target) {
@@ -688,10 +734,14 @@ function switchSection(section: SettingsSection) {
   }
 }
 
+onBeforeRouteLeave(() => confirmShortcutNavigation());
+onBeforeRouteUpdate(() => confirmShortcutNavigation());
+
 watch(
   () => route.path,
   (path) => {
     activeSection.value = sectionFromPath(path);
+    shortcutView.value = shortcutViewFromPath(path);
   },
   { immediate: true },
 );
@@ -1155,6 +1205,33 @@ onMounted(() => {
   color: #394150;
   cursor: pointer;
   text-align: left;
+}
+
+.shortcut-page-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 4px;
+  border: 1px solid #e5eaf2;
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+
+.shortcut-page-tabs button {
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 14px;
+  color: #667085;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.shortcut-page-tabs button.active {
+  color: #1d4ed8;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+  font-weight: 600;
 }
 
 .settings-nav-item.active {

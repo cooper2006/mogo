@@ -1,14 +1,14 @@
 <template>
   <n-spin :show="loading">
     <div class="feedback-head">
-      <span>来自企业成员的评价</span>
-      <n-tag :bordered="false" type="info">{{ summary.likes }} 个赞</n-tag>
+      <span>{{ t('来自企业成员的评价') }}</span>
+      <n-tag :bordered="false" type="info">{{ t('点赞数', { count: summary.likes }) }}</n-tag>
     </div>
-    <n-empty v-if="!summary.items.length" description="暂无评论" />
+    <n-empty v-if="!summary.items.length" :description="t('暂无评论')" />
     <div v-else class="comment-list">
       <article v-for="item in summary.items" :key="item.id" class="comment-card">
         <div class="comment-meta">
-          <strong>{{ item.author.displayName || '企业成员' }}</strong>
+          <strong>{{ item.author.displayName || t('企业成员') }}</strong>
           <span>{{ item.likes ? `♥ ${item.likes} · ` : '' }}{{ formatAdminDateTime(item.createdAt, '') }}</span>
         </div>
         <p>{{ item.content }}</p>
@@ -22,6 +22,7 @@ import { onMounted, ref } from 'vue';
 import { NEmpty, NSpin, NTag, useMessage } from 'naive-ui';
 import { fetchSkillFeedback, type SkillFeedbackSummary } from '@/api/skills';
 import { formatAdminDateTime } from '@/composables/adminTimezone';
+import { t } from '@/composables/i18n';
 
 const props = defineProps<{ skillId: string }>();
 const message = useMessage();
@@ -33,7 +34,7 @@ onMounted(async () => {
   try {
     summary.value = await fetchSkillFeedback(props.skillId);
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || '评论加载失败');
+    message.error(error?.response?.data?.detail || error?.message || t('评论加载失败'));
   } finally {
     loading.value = false;
   }

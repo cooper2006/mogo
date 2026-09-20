@@ -26,7 +26,13 @@ class SystemAuditMiddleware(BaseHTTPMiddleware):
         except Exception:
             await _safe_record(request, context, 500, monotonic() - started)
             raise
-        await _safe_record(request, context, response.status_code, monotonic() - started)
+        await _safe_record(
+            request,
+            context,
+            response.status_code,
+            monotonic() - started,
+            operation_result=response.headers.get("X-MOVO-Operation-Result"),
+        )
         return response
 
 
@@ -50,7 +56,13 @@ def _audit_context(request: Request) -> dict[str, str] | None:
     return {"main_id": main_id, "actor": actor}
 
 
-async def _safe_record(request: Request, context: dict[str, str], status_code: int, elapsed: float) -> None:
+async def _safe_record(
+    request: Request,
+    context: dict[str, str],
+    status_code: int,
+    elapsed: float,
+    operation_result: str | None = None,
+) -> None:
     try:
         path = request.url.path
         route = request.scope.get("route")
@@ -65,7 +77,7 @@ async def _safe_record(request: Request, context: dict[str, str], status_code: i
             "method": request.method,
             "route": route_path,
             "target": path,
-            "result": "success" if status_code < 400 else "failed",
+            "result": _audit_result(status_code, operation_result),
             "status_code": status_code,
             "duration_ms": max(0, round(elapsed * 1000)),
             "client_ip": str(request.client.host if request.client else ""),
@@ -73,6 +85,16 @@ async def _safe_record(request: Request, context: dict[str, str], status_code: i
     except Exception:
         # Audit storage must never turn a completed admin operation into a failure.
         return
+
+
+def _audit_result(status_code: int, operation_result: str | None = None) -> str:
+    """Prefer an explicit business result for HTTP-200 operation endpoints."""
+    marker = str(operation_result or "").strip().lower()
+    if marker in {"success", "passed"}:
+        return "success"
+    if marker in {"failed", "failure", "error"}:
+        return "failed"
+    return "success" if status_code < 400 else "failed"
 
 
 def _module_key(path: str) -> str:

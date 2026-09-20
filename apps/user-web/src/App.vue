@@ -2,6 +2,7 @@
 import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect } from 'naive-ui'
 import TokenInput from './components/TokenInput.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import ShortcutPreferencesPanel from './components/settings/ShortcutPreferencesPanel.vue'
 import TokenUsagePage from './components/TokenUsagePage.vue'
 import ProfileModal from './components/ProfileModal.vue'
 import productUiExtension from '@movo-product-extension'
@@ -39,6 +40,7 @@ import { useSkillShareInboxBadge } from './composables/useSkillShareInboxBadge'
 import { usePersonalKnowledgeBadge } from './composables/usePersonalKnowledgeBadge'
 import { useDesktopToolTabs } from './composables/desktop/useDesktopToolTabs'
 import { clearDesktopAuthSession, restoreDesktopAuthToken } from './composables/desktop/desktopAuthSession'
+import { AppsOutline, SettingsOutline } from '@vicons/ionicons5'
 
 const ChatWindow = defineAsyncComponent(() => import('./components/ChatWindow.vue'))
 const SkillsPage = defineAsyncComponent(() => import('./components/MySkillsPage.vue'))
@@ -76,6 +78,7 @@ const billingSummaryLoaded = ref(false)
 const settingsPanelOpen = ref(false)
 const desktopServerState = ref<'checking' | 'required' | 'ready'>(capabilities.isDesktop ? 'checking' : 'ready')
 const personalizationOpen = ref(false)
+const personalizationSection = ref<'general' | 'shortcuts'>('general')
 type ThemeMode = 'light' | 'dark' | 'system'
 const themeModeKey = 'askai.theme-mode'
 const storedThemeMode = localStorage.getItem(themeModeKey)
@@ -739,6 +742,7 @@ function openBilling() {
 }
 
 function openPersonalization() {
+  personalizationSection.value = 'general'
   personalizationOpen.value = true
   closeUserMenu()
 }
@@ -2576,6 +2580,7 @@ onBeforeUnmount(() => {
               @stop="handlePaneStop(pane.key)"
               @open-skills="openSkillsPage"
               @open-tools="openToolsPage"
+              @open-knowledge="openKnowledgePage"
               @schedule-message="({ prompt, sessionId }) => openScheduledTasks({ prompt, sessionId, create: true })"
               @clear-intervention="chatRuntime.clearPaneIntervention(pane.key)"
               @approval-decided="refreshSessionSummaries"
@@ -2780,7 +2785,7 @@ onBeforeUnmount(() => {
     class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]"
     @click.self="closePersonalization"
   >
-    <div class="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+    <div class="max-h-[calc(100vh-48px)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
       <div class="mb-5 flex items-start justify-between gap-4">
         <div>
           <div class="text-lg font-semibold text-gray-900">{{ t('app.account.personalization') }}</div>
@@ -2798,6 +2803,20 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
+      <div class="personalization-layout">
+        <nav class="personalization-nav" :aria-label="t('shortcuts.personalization_menu')">
+          <button type="button" class="personalization-nav-item" :class="{ active: personalizationSection === 'general' }" :aria-current="personalizationSection === 'general' ? 'page' : undefined" @click="personalizationSection = 'general'">
+            <SettingsOutline class="personalization-nav-icon" aria-hidden="true" />
+            <span>{{ t('shortcuts.general_settings') }}</span>
+          </button>
+          <button type="button" class="personalization-nav-item" :class="{ active: personalizationSection === 'shortcuts' }" :aria-current="personalizationSection === 'shortcuts' ? 'page' : undefined" @click="personalizationSection = 'shortcuts'">
+            <AppsOutline class="personalization-nav-icon" aria-hidden="true" />
+            <span>{{ t('shortcuts.title') }}</span>
+          </button>
+        </nav>
+
+        <main class="personalization-content">
+      <div v-show="personalizationSection === 'general'">
       <div class="mb-5">
         <div class="mb-2 text-sm font-medium text-gray-700">{{ t('settings.language') }}</div>
         <div class="grid grid-cols-2 gap-3">
@@ -2858,6 +2877,12 @@ onBeforeUnmount(() => {
           <span>{{ t(option.langKey) }}</span>
         </button>
       </div>
+      </div>
+      <div v-if="personalizationSection === 'shortcuts'" class="mt-5">
+        <ShortcutPreferencesPanel :user-id="getUserId()" :main-id="getMainId()" />
+      </div>
+        </main>
+      </div>
     </div>
   </div>
   <div
@@ -2901,6 +2926,90 @@ onBeforeUnmount(() => {
 .desktop-settings-modal,
 .desktop-settings-modal * {
   -webkit-app-region: no-drag;
+}
+
+.personalization-layout {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid #e8edf5;
+  border-radius: 16px;
+  background: #fbfcfe;
+}
+
+.personalization-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 10px;
+  border-right: 1px solid #e8edf5;
+  background: #f6f8fc;
+}
+
+.personalization-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  color: #64748b;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease;
+}
+
+.personalization-nav-item:hover {
+  color: #2563eb;
+  background: #eef4ff;
+}
+
+.personalization-nav-item.active {
+  color: #2563eb;
+  background: #e8f0ff;
+  font-weight: 600;
+}
+
+.personalization-nav-icon {
+  display: inline-flex;
+  width: 19px;
+  height: 19px;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+
+.personalization-content {
+  min-width: 0;
+  padding: 20px;
+  overflow-y: auto;
+  background: #fff;
+}
+
+@media (max-width: 640px) {
+  .personalization-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .personalization-nav {
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid #e8edf5;
+  }
+
+  .personalization-nav-item {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .personalization-content {
+    padding: 14px;
+  }
 }
 
 @media (max-width: 1100px) {

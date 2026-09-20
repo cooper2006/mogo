@@ -482,9 +482,29 @@ async function setTextAndFocus(text: string) {
   composerInputRef.value?.focus()
 }
 
+async function selectShortcutSkill(skillId: string, label: string): Promise<boolean> {
+  if (!props.userId || props.allowSkills === false || props.running) return false
+  const page = await fetchSelectableSkills({
+    userId: props.userId,
+    mainId: props.mainId || 'default',
+    keyword: label,
+    limit: 50,
+  })
+  const skill = page.items.find(item => sameSkillId(item.id, skillId))
+  if (!skill) return false
+  selectSkill(skill)
+  return true
+}
+
+function sameSkillId(left: string, right: string): boolean {
+  const normalize = (value: string) => value.startsWith('org_skill:') ? value.slice('org_skill:'.length) : value
+  return normalize(left) === normalize(right)
+}
+
 defineExpose({
   enableKnowledgeQa,
   setTextAndFocus,
+  selectShortcutSkill,
 })
 
 onMounted(() => {

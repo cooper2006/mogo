@@ -1,5 +1,6 @@
 import { uncoveredMessages } from './uncoveredMessages'
 import { knowledgeMessages } from './knowledgeMessages'
+import { shortcutMessages } from './shortcutMessages'
 
 export type Locale = 'zh' | 'en'
 export type MessageValue = string | Record<Locale, string>
@@ -7,6 +8,7 @@ export type MessageValue = string | Record<Locale, string>
 export const messages = {
   ...uncoveredMessages,
   ...knowledgeMessages,
+  ...shortcutMessages,
   // Existing execution / generic labels
   'phase.thinking': { zh: '思考中', en: 'Thinking' },
   'phase.searching': { zh: '搜索中', en: 'Searching' },

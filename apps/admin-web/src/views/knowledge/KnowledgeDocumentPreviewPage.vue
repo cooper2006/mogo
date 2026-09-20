@@ -381,7 +381,7 @@ const targetPageNo = computed(() => {
 });
 const chunkTotalText = computed(() => {
   const fallback = document.value?.ragChunkCount || document.value?.chunkCount || 0;
-  return `共 ${chunkPagination.total || fallback} 个分段`;
+  return t('共分段', { count: chunkPagination.total || fallback });
 });
 
 const displayChunks = computed<DisplayChunkItem[]>(() => {

@@ -93,8 +93,8 @@
               <button v-for="todo in todos" :key="todo.title" class="todo-item" type="button" @click="go(todo.route)">
                 <span class="todo-mark" :class="`todo-${todo.level}`"></span>
                 <span class="todo-copy">
-                  <strong>{{ t(todo.title) }}</strong>
-                  <small>{{ t(todo.description) }}</small>
+                  <strong>{{ translateDashboardText(todo.title) }}</strong>
+                  <small>{{ translateDashboardText(todo.description) }}</small>
                 </span>
                 <span class="todo-arrow">›</span>
               </button>
@@ -147,8 +147,9 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
-import { t } from '@/composables/i18n';
+import { t, useLocale } from '@/composables/i18n';
 import { formatAdminShortDateTime } from '@/composables/adminTimezone';
+import { translateDashboardText } from './dashboardText';
 import adminProductUiExtension from '@movo-admin-product-extension';
 
 type HealthStatus = 'healthy' | 'warning' | 'critical';
@@ -204,6 +205,7 @@ interface DashboardOverview {
 }
 
 const router = useRouter();
+const { locale } = useLocale();
 const ProductDashboardBillingActions = adminProductUiExtension.dashboardBillingActions;
 const overview = ref<DashboardOverview | null>(null);
 const loading = ref(false);
@@ -379,6 +381,12 @@ function formatNumber(value: number) {
 
 function formatCompact(value: number) {
   const amount = Number(value || 0);
+  if (locale.value === 'en-US') {
+    if (amount >= 1000000000) return `${(amount / 1000000000).toFixed(1)}B`;
+    if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
+    if (amount >= 1000) return `${(amount / 1000).toFixed(1)}K`;
+    return formatNumber(amount);
+  }
   if (amount >= 100000000) return `${(amount / 100000000).toFixed(1)} 亿`;
   if (amount >= 10000) return `${(amount / 10000).toFixed(1)} 万`;
   return formatNumber(amount);

@@ -32,6 +32,7 @@ class ProductExtension:
     startup: Sequence[Callable[[], Any]] = field(default_factory=tuple)
     shutdown: Sequence[Callable[[], Any]] = field(default_factory=tuple)
     knowledge_access_policy: Any | None = None
+    shortcut_scheme_resolver: Any | None = None
 
     def capability_payload(self) -> dict[str, object]:
         merged = dict(COMMUNITY_FEATURES)

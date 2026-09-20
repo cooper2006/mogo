@@ -53,7 +53,10 @@
             </template>
             {{ t('保存草稿') }}
           </n-button>
-          <n-button size="small" type="primary" secondary :loading="saving" @click="prepareWorkflowPublish">{{ t('发布') }}</n-button>
+          <n-button size="small" type="primary" secondary :loading="saving" @click="prepareWorkflowPublish">
+            <template #icon><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12" /><path d="m7 8 5-5 5 5" /><path d="M5 14v5h14v-5" /></svg></span></template>
+            {{ t('发布') }}
+          </n-button>
         </template>
         <template v-else>
           <n-button
@@ -82,7 +85,10 @@
             </template>
             {{ t('保存草稿') }}
           </n-button>
-          <n-button size="small" type="primary" secondary :loading="saving" @click="prepareStylePublish">{{ t('发布') }}</n-button>
+          <n-button size="small" type="primary" secondary :loading="saving" @click="prepareStylePublish">
+            <template #icon><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v12" /><path d="m7 8 5-5 5 5" /><path d="M5 14v5h14v-5" /></svg></span></template>
+            {{ t('发布') }}
+          </n-button>
         </template>
       </div>
     </Teleport>

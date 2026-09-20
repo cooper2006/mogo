@@ -2,6 +2,7 @@ import { notifyAuthExpiredFromResponse } from './authExpiry'
 
 export interface KnowledgeSourceDocument {
   id: string
+  scope: string
   name: string
   originalFilename: string
   fileExt: string

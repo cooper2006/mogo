@@ -1,4 +1,5 @@
 import type { AdminProfile } from '@/stores/auth';
+import { t } from '@/composables/i18n';
 
 function digitsOnly(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -28,7 +29,7 @@ export function isPlaceholderDisplayName(profile: Pick<AdminProfile, 'name' | 'u
   return nameDigits === digitsOnly(profile?.username) || nameDigits === digitsOnly(profile?.phone);
 }
 
-export function displayAdminName(profile: AdminProfile | null | undefined, fallback = '管理员'): string {
+export function displayAdminName(profile: AdminProfile | null | undefined, fallback = t('管理员')): string {
   const name = (profile?.name || '').trim();
   if (name && !isPlaceholderDisplayName(profile)) {
     return name;

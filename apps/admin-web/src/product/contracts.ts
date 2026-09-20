@@ -5,4 +5,5 @@ export interface AdminProductUiExtension {
   dashboardBillingActions?: Component
   knowledgeDirectoryPermissions?: Component
   knowledgeDocumentPermissions?: Component
+  shortcutSettingsExtension?: Component
 }

@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from time import monotonic
 from types import SimpleNamespace
 
+from pymongo.errors import AutoReconnect
+
 from app.dsh_runtime.chat_service import DshChatService
 from app.dsh_runtime.contracts import KernelEventEnvelope, KernelEventSource
 from app.dsh_runtime.events import KernelEventProjector, KernelEventWrite
@@ -335,6 +337,43 @@ async def _test_durable_writer_batches_in_order_and_commits_one_cursor_per_batch
 
     assert [len(batch) for batch in events.calls] == [64, 64, 2]
     assert bindings.cursors == [64, 128, 130]
+
+
+def test_durable_writer_retries_cursor_without_rewriting_persisted_batch() -> None:
+    async def run() -> None:
+        class _TransientBindings(_Bindings):
+            def __init__(self) -> None:
+                super().__init__()
+                self.attempts = 0
+
+            async def advance_cursor(self, _binding_id: str, cursor: int) -> None:
+                self.attempts += 1
+                if self.attempts == 1:
+                    raise AutoReconnect("temporary cursor write failure")
+                await super().advance_cursor(_binding_id, cursor)
+
+        events = _BatchEvents()
+        bindings = _TransientBindings()
+        writer = DurableKernelEventWriter(
+            events=events,
+            bindings=bindings,
+            binding_id="binding",
+            tenant_id="tenant",
+            user_id="user",
+            conversation_id="conversation",
+            message_id="message",
+            max_batch_delay_seconds=10,
+        )
+        writer.enqueue(
+            KernelEventWrite(event=_event(1, "kernel.native.event", {}), projected=None)
+        )
+        await writer.close()
+
+        assert len(events.calls) == 1
+        assert bindings.attempts == 2
+        assert bindings.cursors == [1]
+
+    asyncio.run(run())
 
 
 def test_durable_writer_flush_deadline_is_measured_from_first_event() -> None:

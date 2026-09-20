@@ -88,7 +88,8 @@ onMounted(load);
   <div class="page-stack audit-page">
     <n-card class="audit-card" :bordered="false" size="large">
       <div class="audit-content">
-        <div class="page-head"><PageIntro :title="t('系统审计')" :description="t('集中查看管理后台操作、Agent 能力使用和权限拒绝记录。')" :tags="[t('企业留痕'), t('统一审计')]" /><n-button type="primary" secondary :loading="loading" @click="load">刷新</n-button></div>
+        <div class="page-head"><PageIntro :title="t('系统审计')" :description="t('集中查看管理后台操作、Agent 能力使用和权限拒绝记录。')" :tags="[t('企业留痕'), t('统一审计')]" /><n-button type="primary" secondary :loading="loading" @click="load">{{ t('刷新') }}
+        </n-button></div>
         <div class="metric-grid">
           <div v-for="item in metrics" :key="item.label" class="metric-card"><span>{{ item.label }}</span><strong :class="{ danger: item.danger }">{{ item.value }}</strong><small>{{ item.hint }}</small></div>
         </div>
