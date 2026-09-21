@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Commit SHA whose sha-xxxxxxx candidate images should be promoted
+        description: Full commit SHA whose candidate images should be promoted
         required: true
         type: string
       image_suffixes:
@@ -34,13 +34,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
-            echo "source_sha must contain 7 to 40 hexadecimal characters" >&2
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "source_sha must be a full 40-character commit SHA" >&2
             exit 2
           fi
 
           repository="${GITHUB_REPOSITORY,,}"
-          candidate_tag="sha-${SOURCE_SHA:0:7}"
+          candidate_tag="candidate-${SOURCE_SHA,,}"
           IFS=',' read -ra suffixes <<< "$IMAGE_SUFFIXES"
 
           for suffix in "${suffixes[@]}"; do
