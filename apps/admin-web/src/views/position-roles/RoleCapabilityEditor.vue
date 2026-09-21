@@ -17,11 +17,11 @@ const draft = computed({
 });
 
 const capabilityOptions: Array<{ key: AgentCapabilityKey; label: string; description: string }> = [
-  { key: 'content_generation', label: t('内容生成'), description: '文章、报告、方案等专业内容生产' },
-  { key: 'image_generation', label: t('图片生成'), description: '直接生成图片或为内容任务生成配图' },
-  { key: 'code_generation', label: t('代码生成'), description: 'Code Agent、项目、文件、终端与 Git 操作' },
-  { key: 'browser_automation', label: t('浏览器自动运行'), description: '允许 Agent 操作本地浏览器完成网页任务' },
-  { key: 'internal_knowledge', label: t('内部知识检索'), description: '在既有知识权限范围内检索企业资料' },
+  { key: 'content_generation', label: t('内容生成'), description: t('文章、报告、方案等专业内容生产') },
+  { key: 'image_generation', label: t('图片生成'), description: t('直接生成图片或为内容任务生成配图') },
+  { key: 'code_generation', label: t('代码生成'), description: t('Code Agent、项目、文件、终端与 Git 操作') },
+  { key: 'browser_automation', label: t('浏览器自动运行'), description: t('允许 Agent 操作本地浏览器完成网页任务') },
+  { key: 'internal_knowledge', label: t('内部知识检索'), description: t('在既有知识权限范围内检索企业资料') },
 ];
 const impactPreview = computed(() => {
   const enabled = capabilityOptions.filter(item => draft.value.capabilities[item.key]).map(item => item.label);

@@ -44,6 +44,7 @@
 import { computed, watch } from 'vue';
 import { t } from '@/composables/i18n';
 import type { SetupModelProvider } from '@/api/setup';
+import { providerLabel } from '@/components/models/providerLabels';
 import type { SetupModelForm } from './types';
 
 const props = defineProps<{
@@ -52,7 +53,7 @@ const props = defineProps<{
 }>();
 const model = defineModel<SetupModelForm>({ required: true });
 
-const providerOptions = computed(() => props.providers.map((item) => ({ label: item.name, value: item.id })));
+const providerOptions = computed(() => props.providers.map((item) => ({ label: providerLabel(item), value: item.id })));
 const selectedProvider = computed(() => props.providers.find((item) => item.id === model.value.providerId));
 const isAzure = computed(() => selectedProvider.value?.providerType === 'azure_openai');
 const modelPlaceholder = computed(() => {
@@ -76,7 +77,7 @@ watch(() => model.value.providerId, (providerId, previousId) => {
   const provider = props.providers.find((item) => item.id === providerId);
   if (!provider) return;
   if (!model.value.baseUrl || previousId) model.value.baseUrl = provider.defaultBaseUrl;
-  if (!model.value.displayName || previousId) model.value.displayName = `${provider.name} ${capabilityName.value}`;
+  if (!model.value.displayName || previousId) model.value.displayName = `${providerLabel(provider)} ${capabilityName.value}`;
   model.value.apiVersion = provider.providerType === 'azure_openai' ? (model.value.apiVersion || '2024-10-21') : '';
 });
 </script>

@@ -86,7 +86,7 @@
               @click="openEdit(model)"
             >
               <div class="card-head">
-                <span class="provider-badge">{{ model.providerName || t('自定义') }}</span>
+                <span class="provider-badge">{{ providerLabel({ code: model.providerCode, name: model.providerName, providerType: model.providerType }) }}</span>
                 <n-space :size="6" class="state-tags">
                   <n-tag :type="model.status === 'active' ? 'success' : 'default'" size="small" :bordered="false">
                     {{ model.status === 'active' ? t('启用') : t('禁用') }}
@@ -208,7 +208,7 @@
         <div class="test-summary">
           <div>
             <span>{{ t('供应商') }}</span>
-            <strong>{{ currentProvider?.name || t('未选择') }}</strong>
+            <strong>{{ providerLabel(currentProvider) }}</strong>
           </div>
           <div>
             <span>{{ t('模型 ID') }}</span>
@@ -287,6 +287,8 @@ import {
   type ImageRuntimeKind,
 } from '@/api/models';
 import { fetchTrafficAllocationOverview } from '@/api/traffic-allocations';
+import { capabilityLabel } from '@/components/models/capabilityLabels';
+import { providerLabel } from '@/components/models/providerLabels';
 
 
 interface ModelForm extends ModelInstancePayload {
@@ -345,18 +347,18 @@ const statusOptions = computed(() => [
 ]);
 
 const capabilityOptions = computed(() => [
-  { label: t('对话 Chat'), value: 'chat' },
-  { label: t('视觉 Vision'), value: 'vision' },
-  { label: t('向量 Embedding'), value: 'embedding' },
-  { label: t('重排 Rerank'), value: 'rerank' },
-  { label: t('图片生成 Image Generation'), value: 'image_generation' },
+  { label: capabilityLabel('chat'), value: 'chat' },
+  { label: capabilityLabel('vision'), value: 'vision' },
+  { label: capabilityLabel('embedding'), value: 'embedding' },
+  { label: capabilityLabel('rerank'), value: 'rerank' },
+  { label: capabilityLabel('image_generation'), value: 'image_generation' },
 ]);
 
 const providerOptions = computed(() =>
   providers.value
     .filter((item) => item.status === 'active')
     .map((item) => ({
-      label: item.name,
+      label: providerLabel(item),
       value: item.id,
     })),
 );
@@ -413,10 +415,6 @@ const filteredInstances = computed(() => {
     return hitKeyword && hitProvider && hitStatus;
   });
 });
-
-function capabilityLabel(value: string) {
-  return capabilityOptions.value.find((item) => item.value === value)?.label.split(' ')[0] || value;
-}
 
 function providerInitial(name: string) {
   return (name || 'M').slice(0, 1).toUpperCase();

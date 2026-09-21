@@ -59,14 +59,14 @@ async function copyRole(role: PositionRole) {
   catch (error: any) { message.error(error?.response?.data?.detail || t('复制失败')); }
 }
 function removeRole(role: PositionRole) {
-  dialog.warning({ title: '删除用户岗位角色', content: `确认删除“${role.name}”吗？`, positiveText: t('删除'), negativeText: t('取消'), async onPositiveClick() { try { await deletePositionRole(role.id); message.success('已删除'); await load(); } catch (error: any) { message.error(error?.response?.data?.detail || t('删除失败')); } } });
+  dialog.warning({ title: t('删除用户岗位角色'), content: t('确认删除用户岗位角色“{name}”吗？', { name: role.name }), positiveText: t('删除'), negativeText: t('取消'), async onPositiveClick() { try { await deletePositionRole(role.id); message.success(t('已删除')); await load(); } catch (error: any) { message.error(error?.response?.data?.detail || t('删除失败')); } } });
 }
 async function toggle(role: PositionRole, enabled: boolean) {
   if (!enabled && role.memberCount > 0) {
     dialog.warning({
       title: t('停用用户岗位角色'),
       content: t('“{name}”仍绑定 {count} 名员工。停用后这些员工将不能继续获得该岗位能力，建议先分配替代岗位。', { name: role.name, count: role.memberCount }),
-      positiveText: '仍然停用', negativeText: t('取消'),
+      positiveText: t('仍然停用'), negativeText: t('取消'),
       onPositiveClick: () => applyRoleStatus(role, enabled),
     });
     return;
@@ -106,7 +106,7 @@ onMounted(load);
       </div>
     </n-card>
     <n-drawer v-model:show="editorVisible" :width="720" placement="right">
-      <n-drawer-content :title="editing ? `编辑 ${editing.name}` : t('创建用户岗位角色')" closable>
+      <n-drawer-content :title="editing ? t('编辑 {name}', { name: editing.name }) : t('创建用户岗位角色')" closable>
         <n-form :model="draft" label-placement="top">
           <n-grid :cols="2" :x-gap="14"><n-grid-item><n-form-item :label="t('用户岗位角色名称')" required><n-input v-model:value="draft.name" /></n-form-item></n-grid-item><n-grid-item><n-form-item :label="t('状态')"><n-select v-model:value="draft.status" :options="[{ label: t('启用'), value: 'active' }, { label: t('停用'), value: 'disabled' }]" /></n-form-item></n-grid-item></n-grid>
           <n-form-item :label="t('说明')"><n-input v-model:value="draft.description" type="textarea" :rows="2" /></n-form-item>

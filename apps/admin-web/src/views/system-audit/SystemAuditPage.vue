@@ -56,7 +56,7 @@ function openDetail(row: SystemAuditLog) { selected.value = row; detailVisible.v
 
 const columns: DataTableColumns<SystemAuditLog> = [
   { title: t('时间'), key: 'occurredAt', width: 170, render: row => formatAdminDateTime(row.occurredAt, '-') },
-  { title: t('类型'), key: 'category', width: 110, render: row => h(NTag, { bordered: false, type: row.category === 'agent' ? 'info' : 'default' }, { default: () => categoryLabel(row.category) }) },
+  { title: t('类型'), key: 'category', width: 140, render: row => h(NTag, { bordered: false, type: row.category === 'agent' ? 'info' : 'default' }, { default: () => categoryLabel(row.category) }) },
   { title: t('模块'), key: 'module', width: 150, ellipsis: { tooltip: true } },
   { title: t('操作'), key: 'action', width: 150, render: row => actionLabels[row.action] || row.action },
   { title: t('操作者 / 员工'), key: 'actor', width: 160, ellipsis: { tooltip: true } },

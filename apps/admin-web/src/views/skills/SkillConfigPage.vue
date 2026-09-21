@@ -1200,7 +1200,7 @@ const workflowTypeMap = computed(() => Object.fromEntries(workflowNodeTypes.valu
 const normalizedStepText = computed(() => workflowSteps.value.map((item) => buildNodeText(item).trim()).filter(Boolean).join('\n'));
 const workflowPreviewNodes = computed(() => workflowSteps.value.map((item) => ({
   id: item.id,
-  label: item.outputAlias || item.businessConfig?.outputAlias || item.title || workflowTypeLabel(item.type),
+  label: workflowTypeLabel(item.type),
   type: item.type,
   color: workflowTypeMeta(item.type).color,
   icon: workflowTypeMeta(item.type).icon,

@@ -218,6 +218,19 @@ const roleOptions = computed(() => [
   { label: t('运营人员'), value: '运营人员' },
 ]);
 
+// Keep compatibility with accounts created by older API versions that persisted
+// the English role label instead of the stable Chinese message key.
+const roleMessageKeys: Record<string, string> = {
+  'Platform Admin': '平台管理员',
+  'Organization Admin': '组织管理员',
+  Auditor: '审计员',
+  Operator: '运营人员',
+};
+
+function roleLabel(value: string) {
+  return t(roleMessageKeys[value] || value);
+}
+
 const statusOptions = computed(() => [
   { label: t('启用'), value: 'active' },
   { label: t('禁用'), value: 'disabled' },
@@ -325,7 +338,7 @@ const accountColumns = computed<DataTableColumns<AccountItem>>(() => [
   { title: t('登录账号'), key: 'username', width: 150, fixed: 'left' },
   { title: t('姓名'), key: 'displayName', width: 130, fixed: 'left' },
   { title: t('账号组'), key: 'groupName', width: 160 },
-  { title: t('角色'), key: 'roleName', width: 140, render: (row) => t(row.roleName) },
+  { title: t('角色'), key: 'roleName', width: 140, render: (row) => roleLabel(row.roleName) },
   { title: t('邮箱'), key: 'email', width: 200 },
   { title: t('手机号'), key: 'phone', width: 140 },
   {
@@ -487,7 +500,7 @@ function openEditAccount(row: AccountItem) {
     email: row.email,
     phone: row.phone,
     groupCode: row.groupCode,
-    roleName: row.roleName,
+    roleName: roleMessageKeys[row.roleName] || row.roleName,
     status: row.status,
     initialPassword: '',
   };

@@ -99,7 +99,7 @@ watch(() => props.show, (visible) => { if (visible) void load(); });
 </script>
 
 <template>
-  <n-modal :show="show" preset="card" :title="`${userName} · 临时能力授权`" style="width: 720px" @update:show="(value: boolean) => emit('update:show', value)">
+  <n-modal :show="show" preset="card" :title="t('{name} · 临时能力授权', { name: userName })" style="width: 720px" @update:show="(value: boolean) => emit('update:show', value)">
     <n-spin :show="loading">
       <n-alert type="info" :bordered="false">{{ t('岗位角色仍是长期权限基线；这里仅用于有明确原因和失效时间的临时例外。') }}</n-alert>
       <n-form label-placement="top" class="override-form">

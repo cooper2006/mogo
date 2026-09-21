@@ -15,6 +15,7 @@
 import { computed, onMounted, ref } from 'vue';
 import type { SelectOption } from 'naive-ui';
 import { fetchModelInstances, type ModelInstanceItem } from '@/api/models';
+import { providerLabel } from '@/components/models/providerLabels';
 import { t } from '@/composables/i18n';
 
 const props = defineProps<{
@@ -36,7 +37,7 @@ const availableInstances = computed(() => instances.value.filter(
 
 const selectOptions = computed<SelectOption[]>(() => {
   const options: SelectOption[] = availableInstances.value.map(item => ({
-    label: `${item.displayName} · ${item.providerName} / ${item.modelName}`,
+    label: `${item.displayName} · ${providerLabel({ code: item.providerCode, name: item.providerName, providerType: item.providerType })} / ${item.modelName}`,
     value: item.id,
   }));
   if (props.modelValue && !options.some(item => item.value === props.modelValue)) {
