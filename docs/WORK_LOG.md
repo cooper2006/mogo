@@ -1,5 +1,13 @@
 # Work Log
 
+## 2026-07-08 深化 019 门禁链对接 + 013 渠道路由
+
+- **019 `harness_config/gate_adapter.py`**（T014）：厚度 profile → 001 门禁链映射——`GatePlan`（模式/层集合/后端/审计粒度/跳过层）+ `build_gate_plan`（**底线守护拒绝违规薄化**）+ `backend_for`（**过渡期挂 transition（approval_runtime/audit），001 就绪后切 gatekeeper**，clarify OQ-3）+ `describe_plan`（审计可序列化）
+- **013 `im_gateway/router.py`**（T010）：统一渠道路由——`ChannelRouter`（注册/惰性构建 adapter + 路由解析）+ **渠道停用拒绝新消息且已有绑定置只读**（FR-9）+ 未知/未实现渠道明确报错 + 启用后恢复
+- **测试**：`tests/harness_config/test_harness_config.py` 新增 7 项 + `tests/im_gateway/test_im_gateway.py` 新增 6 项，全部通过。
+- 勾选 `specs/019/tasks.md` T014、`specs/013/tasks.md` T010。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 深化 010 supervisor/hybrid + registry，011 draft_gen
 
 - **010 `orchestration/supervisor.py`**（T011/T012）：`Supervisor` 监督模式——分派子节点（并发上限）+ 聚合结果 + **失败传播**（监督自身失败→整体失败；子节点失败率 ≥ 阈值（默认 100%=全失败）→ 监督失败；可配阈值）+ `run_hybrid`（顺序前缀 + 并行阶段，前缀输出传并行）

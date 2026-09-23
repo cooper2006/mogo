@@ -34,7 +34,7 @@
 ## Phase 4: User Story 2 (P2) — 统一路由 + 渠道开关
 
 - [x] T009 实现多渠道路由 + 租户级渠道开关
-- [ ] T010 US2 测试：路由 + 停用置只读
+- [x] T010 US2 测试：路由 + 停用置只读
 
 
 ## Polish & Cross-Cutting Concerns

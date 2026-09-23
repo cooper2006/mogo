@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from .layer_switch import CANONICAL_LAYERS, DROPPABLE_LAYERS, REQUIRED_LAYERS, resolve_layers
 from .floor import FloorViolation, assert_floor_intact
+from .gate_adapter import GatePlan, build_gate_plan
 from .profile import HarnessProfile, ProfileResolver
 
 __all__ = [
@@ -26,4 +27,6 @@ __all__ = [
     "assert_floor_intact",
     "HarnessProfile",
     "ProfileResolver",
+    "GatePlan",
+    "build_gate_plan",
 ]

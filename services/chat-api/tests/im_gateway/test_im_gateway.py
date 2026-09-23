@@ -201,3 +201,68 @@ def test_nonce_cache_evicts_after_window() -> None:
 def test_nonce_cache_rejects_empty_nonce() -> None:
     with pytest.raises(WebhookSignatureError):
         NonceCache().check_and_store("", now=1000)
+
+
+# --- router (T010) -----------------------------------------------------------
+
+def test_router_registers_and_routes_feishu() -> None:
+    from app.im_gateway.router import ChannelRouter
+
+    router = ChannelRouter()
+    router.register("feishu")
+    message = router.route(
+        "feishu",
+        {"event": {"message": {"chat_id": "oc_1", "chat_type": "p2p", "content": '{"text": "hi"}'}}},
+    )
+    assert message.channel == "feishu"
+    assert message.text == "hi"
+
+
+def test_router_rejects_disabled_channel() -> None:
+    from app.im_gateway.router import ChannelRouter, RoutingError
+    import pytest as _pytest
+
+    router = ChannelRouter()
+    router.register("feishu")
+    router.disable("feishu")
+    with _pytest.raises(RoutingError):
+        router.route("feishu", {"event": {}})
+
+
+def test_router_disable_marks_bindings_read_only() -> None:
+    from app.im_gateway.router import ChannelRouter
+
+    router = ChannelRouter()
+    router.register("feishu")
+    router.bind_conversation(channel="feishu", conversation_id="oc_1", movo_session_id="s-1")
+    router.disable("feishu")
+    assert router.registry.get("feishu", "oc_1").read_only is True
+
+
+def test_router_rebind_after_enable_works() -> None:
+    from app.im_gateway.router import ChannelRouter
+
+    router = ChannelRouter()
+    router.register("feishu")
+    router.disable("feishu")
+    router.enable("feishu")
+    assert router.is_enabled("feishu") is True
+    binding = router.bind_conversation(channel="feishu", conversation_id="oc_2", movo_session_id="s-2")
+    assert binding.read_only is False
+
+
+def test_router_rejects_unknown_channel() -> None:
+    from app.im_gateway.router import ChannelRouter, RoutingError
+    import pytest as _pytest
+
+    router = ChannelRouter()
+    with _pytest.raises(RoutingError):
+        router.route("telegram", {})
+
+
+def test_router_available_channels() -> None:
+    from app.im_gateway.router import ChannelRouter
+
+    router = ChannelRouter()
+    router.register("feishu")
+    assert router.available_channels() == ["feishu"]

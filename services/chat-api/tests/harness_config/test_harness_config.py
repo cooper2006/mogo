@@ -140,3 +140,68 @@ def test_profile_validation_rejects_illegal_thinning() -> None:
 def test_thin_audit_granularity_is_minimal() -> None:
     assert HarnessProfile(mode="thin").resolved_audit_granularity() == "minimal"
     assert HarnessProfile(mode="thick").resolved_audit_granularity() == "full"
+
+
+# --- gate adapter (T014) -----------------------------------------------------
+
+def test_plan_thick_uses_all_layers_and_gatekeeper() -> None:
+    from app.harness_config.gate_adapter import GATEKEEPER_READY, build_gate_plan
+
+    plan = build_gate_plan(mode="thick", backend=GATEKEEPER_READY)
+    assert plan.layers == list(CANONICAL_LAYERS)
+    assert plan.skipped_layers == []
+    assert plan.backend == GATEKEEPER_READY
+
+
+def test_plan_thin_skips_approval_and_quota_keeps_audit() -> None:
+    from app.harness_config.gate_adapter import build_gate_plan
+
+    plan = build_gate_plan(mode="thin")
+    assert set(plan.skipped_layers) == {"approval", "quota"}
+    assert plan.audit_enabled() is True
+    assert plan.audit_granularity == "minimal"
+
+
+def test_plan_rejects_floor_breach() -> None:
+    from app.harness_config.gate_adapter import build_gate_plan
+    from app.harness_config.floor import FloorViolation
+    import pytest as _pytest
+
+    with _pytest.raises(FloorViolation):
+        build_gate_plan(mode="thin", enabled_layers=["approval", "quota"])
+
+
+def test_plan_rejects_unknown_backend() -> None:
+    from app.harness_config.gate_adapter import GateAdapterError, build_gate_plan
+    import pytest as _pytest
+
+    with _pytest.raises(GateAdapterError):
+        build_gate_plan(mode="thick", backend="magic")
+
+
+def test_backend_transition_until_gatekeeper_ready() -> None:
+    from app.harness_config.gate_adapter import (
+        GATEKEEPER_READY,
+        TRANSITION,
+        backend_for,
+    )
+
+    assert backend_for(False) == TRANSITION
+    assert backend_for(True) == GATEKEEPER_READY
+
+
+def test_describe_plan_is_serializable() -> None:
+    from app.harness_config.gate_adapter import build_gate_plan, describe_plan
+
+    payload = describe_plan(build_gate_plan(mode="thin"))
+    assert payload["mode"] == "thin"
+    assert payload["auditEnabled"] is True
+    assert "approval" in payload["skippedLayers"]
+
+
+def test_required_layers_never_skipped() -> None:
+    from app.harness_config.gate_adapter import build_gate_plan
+
+    plan = build_gate_plan(mode="thin")
+    for required in REQUIRED_LAYERS:
+        assert required not in plan.skipped_layers

@@ -18,6 +18,7 @@ from .adapter_base import (
     chunk_text,
 )
 from .bindings import BindingError, ImSessionBinding, SessionBindingRegistry
+from .router import ChannelRouter, RoutingError
 from .webhook import (
     REPLAY_WINDOW_SECONDS,
     NonceCache,
@@ -40,4 +41,6 @@ __all__ = [
     "verify_signature",
     "WebhookSignatureError",
     "REPLAY_WINDOW_SECONDS",
+    "ChannelRouter",
+    "RoutingError",
 ]
