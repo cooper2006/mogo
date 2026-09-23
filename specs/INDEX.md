@@ -52,7 +52,7 @@
 - spec.md：001–019 全部完成（19 份）
 - plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
 - checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–019 共 15 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态
-- tasks（可执行任务，`/speckit-tasks`）：001、007、008 完成（P0 三份 tasks.md，含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；002/009/010/011 + P2 待补
+- tasks（可执行任务，`/speckit-tasks`）：**001、007、008（P0）+ 002、009、010、011（P1）共 7 份完成**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；P2（012–019）待补
 - clarify（OQ 消解）：001–019 全部完成（19 份），各 spec 新增 "Clarify 记录" 节 + plan "Open Questions（已 clarify 消解）"。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
   - 007：tenacity 既有依赖；退避 1.5s/30s/±10%/3 次；事件落 token_usage_logs
@@ -103,5 +103,5 @@
 
 - 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅ → 后续 `/speckit-tasks` → `/speckit-analyze`
 - 缺口 P0（001/007/008）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ✅（本轮补齐）→ analyze → implement → converge
-- 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ⏳ → analyze → implement → converge
+- 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ✅（本轮补齐）→ analyze → implement → converge
 - P2 后置（012–019）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ⏳ → 按路线图节奏 implement

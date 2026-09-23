@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 生成 P1 缺口特性 002/009/010/011 的 tasks.md（P0+P1 tasks 层齐备）
+
+- 按 `/speckit-tasks` 语义生成 4 份 tasks.md，落点经**实际代码结构核实**（非 plan 假设）：
+  - **002 session-versioning**（22 任务）：落 `chat-api/app/services/session_versioning/` + `api/endpoints/sessions.py`。Phase1 骨架 → Phase2 时间线/秘密/占位符/存储 → US1 commit/log → US2 resume → US3 乐观锁并发 → US4 share → US5 co-presence → Polish。含 clarify（独立 `session_snapshots`、熵≥3.5+前缀、不引入 Redis、share 短时效 token）。
+  - **009 hooks-interception**（19 任务）：落 `chat-api/app/dsh_runtime/hooks/`，挂载 `turn_admission.admit_skill_selection`。Phase1 骨架/规则 schema → Phase2 超时+fail_closed+求值核心 → US1 PreToolUse 三规则 → US2 审计 → US3 会话事件 → US4 规则管理 → Polish。含 clarify（超时 5s、fail_closed 不可配、首期仅 PreToolUse、hook_rules schema）。
+  - **010 dag-orchestration**（22 任务）：落 `chat-api/app/orchestration/`。Phase1 骨架/图模型 → Phase2 拓扑+条件 → US1 graph 并行 → US2 四模式 → US3 条件跳过 → US4 节点重试 → US5 内容规划迁移 → Polish。含 clarify（JSON 条件对象、并发度 4、重试分层、双轨迁移、语法错误 fail_closed）。
+  - **011 dream-cycle**（19 任务）：落 `chat-api/app/self_evolution/`。Phase1 骨架/片段模型 → Phase2 friction/相似度 → US1 捕获 → US2 扫描+草稿 → US3 自动建 MR → US4 低采纳淘汰 → Polish。含 clarify（friction 三类、Jaccard≥0.7+样本≥5、共用 016 标记位、14 天淘汰、生成侧门槛）。
+- **P0+P1 tasks 层齐备**（7 份：001/007/008/002/009/010/011）。
+- 更新 `specs/INDEX.md`：tasks 行改为 7 份完成；P1 SDD 路径标注 tasks 已补齐。
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。仅新增 `specs/**/tasks.md` + `INDEX.md`，未改 services/apps 源码。
+
 ## 2026-07-08 跨特性双向声明轮：清空 15 份 checklist 全部剩余未勾项
 
 - 目标：消解 001/002/007–019 共 15 份 checklist 的剩余未勾项（跨特性两两关系 + 特性自身缺口），让 spec 契约无冲突、进入 implement 就绪。
