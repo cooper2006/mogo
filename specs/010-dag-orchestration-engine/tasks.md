@@ -21,7 +21,7 @@
 
 - [x] T001 创建 `services/chat-api/app/orchestration/__init__.py` + 子模块骨架（graph/topo/engine/conditions/retry/registry）
 - [x] T002 实现 `graph.py`：DAG 节点/边模型（节点数据传递 = 上游输出写共享上下文，下游按 key 读取）
-- [ ] T003 实现 `registry.py`：编排定义声明式管理（节点/边/条件/重试 + `version` 版本字段）
+- [x] T003 实现 `registry.py`：编排定义声明式管理（节点/边/条件/重试 + `version` 版本字段）
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
@@ -44,8 +44,8 @@
 **独立测试**: 四模式各跑通；supervisor 监督失败/子全失败传播正确。
 
 - [x] T010 实现 sequential / hybrid 模式执行器
-- [ ] T011 实现 supervisor 模式（监督节点分派子节点 + 聚合结果 + 失败传播：监督失败→整体失败，子全失败→监督失败，阈值可配）
-- [ ] T012 US2 测试：四模式执行 + supervisor 失败传播
+- [x] T011 实现 supervisor 模式（监督节点分派子节点 + 聚合结果 + 失败传播：监督失败→整体失败，子全失败→监督失败，阈值可配）
+- [x] T012 US2 测试：四模式执行 + supervisor 失败传播
 
 ## Phase 5: User Story 3 (P2) — 条件跳过
 

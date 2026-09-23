@@ -13,6 +13,13 @@ model), so it is unit-testable without the DSH runtime or a database.
 
 from __future__ import annotations
 
+from .draft_gen import (
+    DRAFT_STATUS,
+    SkillDraft,
+    TestSample,
+    generate_draft,
+    quality_gate,
+)
 from .fragment import ExperienceFragment, FragmentStore
 from .friction import FrictionKind, FrictionSignal, detect_friction
 from .scanner import (
@@ -50,4 +57,9 @@ __all__ = [
     "scan_fragments",
     "DEFAULT_SCAN_FREQUENCY",
     "DEFAULT_DRAFT_BACKLOG_LIMIT",
+    "SkillDraft",
+    "TestSample",
+    "generate_draft",
+    "quality_gate",
+    "DRAFT_STATUS",
 ]

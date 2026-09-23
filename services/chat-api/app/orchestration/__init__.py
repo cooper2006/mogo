@@ -20,6 +20,12 @@ from .engine import (
     NodeState,
 )
 from .graph import Edge, Graph, GraphError, Node
+from .registry import (
+    OrchestrationDefinition,
+    OrchestrationRegistry,
+    RegistryError,
+)
+from .supervisor import Supervisor, SupervisorResult, run_hybrid
 from .topo import CycleError, topological_order
 
 __all__ = [
@@ -36,4 +42,10 @@ __all__ = [
     "NodeOutcome",
     "NodeState",
     "DEFAULT_MAX_CONCURRENCY",
+    "Supervisor",
+    "SupervisorResult",
+    "run_hybrid",
+    "OrchestrationDefinition",
+    "OrchestrationRegistry",
+    "RegistryError",
 ]

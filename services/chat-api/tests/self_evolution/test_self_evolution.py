@@ -224,3 +224,64 @@ def test_scan_summary_shape() -> None:
     summary = scan_summary(scan_fragments(frags))
     assert summary["mrEligibleCount"] == 1
     assert summary["frequency"] == "daily"
+
+
+# --- draft generation (T008) -------------------------------------------------
+
+def test_generate_draft_is_never_published_directly() -> None:
+    from app.self_evolution.draft_gen import generate_draft
+    from app.self_evolution.scanner import PatternCluster
+
+    cluster = PatternCluster(
+        fragments=[ExperienceFragment(scene=["a", "b"], actions=["x"], result="done")],
+        similarity=0.9,
+    )
+    draft = generate_draft(cluster)
+    assert draft is not None
+    assert draft.is_draft is True
+    assert draft.status == "draft"
+
+
+def test_generate_draft_requires_test_samples() -> None:
+    from app.self_evolution import draft_gen
+    from app.self_evolution.scanner import PatternCluster
+
+    cluster = PatternCluster(fragments=[ExperienceFragment(scene=["a"])], similarity=0.9)
+    # Force the gate to require more samples than the cluster can provide.
+    draft = draft_gen.generate_draft(cluster, min_samples=5)
+    assert draft is None
+
+
+def test_generate_draft_rejected_when_preview_fails() -> None:
+    from app.self_evolution.draft_gen import generate_draft
+    from app.self_evolution.scanner import PatternCluster
+
+    cluster = PatternCluster(fragments=[ExperienceFragment(scene=["a"], result="r")], similarity=0.9)
+    draft = generate_draft(cluster, preview_runner=lambda _draft: False)
+    assert draft is None
+
+
+def test_generate_draft_preview_pass_marks_flag() -> None:
+    from app.self_evolution.draft_gen import generate_draft
+    from app.self_evolution.scanner import PatternCluster
+
+    cluster = PatternCluster(fragments=[ExperienceFragment(scene=["a"], result="r")], similarity=0.9)
+    draft = generate_draft(cluster, preview_runner=lambda _draft: True)
+    assert draft is not None
+    assert draft.preview_passed is True
+
+
+def test_generate_draft_from_empty_cluster_returns_none() -> None:
+    from app.self_evolution.draft_gen import generate_draft
+    from app.self_evolution.scanner import PatternCluster
+
+    assert generate_draft(PatternCluster()) is None
+
+
+def test_quality_gate_reports_missing_samples() -> None:
+    from app.self_evolution.draft_gen import SkillDraft, quality_gate
+
+    draft = SkillDraft(skill_id="s1")
+    ok, reason = quality_gate(draft, min_samples=1)
+    assert ok is False
+    assert "测试样例" in reason

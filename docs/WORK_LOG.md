@@ -1,5 +1,14 @@
 # Work Log
 
+## 2026-07-08 深化 010 supervisor/hybrid + registry，011 draft_gen
+
+- **010 `orchestration/supervisor.py`**（T011/T012）：`Supervisor` 监督模式——分派子节点（并发上限）+ 聚合结果 + **失败传播**（监督自身失败→整体失败；子节点失败率 ≥ 阈值（默认 100%=全失败）→ 监督失败；可配阈值）+ `run_hybrid`（顺序前缀 + 并行阶段，前缀输出传并行）
+- **010 `orchestration/registry.py`**（T003）：编排定义声明式管理——`OrchestrationDefinition`（声明式节点/边/条件/重试 + **版本字段**）+ `to_graph()` 物化 + `validate()`（**定义期 fail-closed**：悬空边/非法条件拒绝，变量条件放行）+ `update()`（**版本递增 + 归档旧版**）+ `OrchestrationRegistry`（注册/查询/版本历史）
+- **011 `self_evolution/draft_gen.py`**（T008/T010）：Skill 草稿生成——`SkillDraft`（**draft 中间态，永不直接发布**）+ `build_test_samples`（从片段派生可执行样例）+ **生成侧质量门槛**（需测试样例 + 预览运行通过，否则不产草稿，FR-13）+ `generate_draft`
+- **测试**：`tests/orchestration/test_supervisor.py`（17 项）+ `tests/self_evolution/test_self_evolution.py` 新增 6 项，全部通过。
+- 勾选 `specs/010/tasks.md` T003/T011/T012、`specs/011/tasks.md` T008/T010。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 深化 009 钩子注册表 + 011 周期扫描
 
 - **009 `hooks/registry.py`**（T003）：五事件注册表——`HookRegistry`（**首期仅 PreToolUse 启用**，其余注册为目标态，clarify OQ-3）+ `enable`/`disable`（**PreToolUse 不可禁用**，合规拦截点）+ 会话生命周期事件（SessionStart/End/MemoryCommit）与 002 桥接 + 未知事件拒绝
