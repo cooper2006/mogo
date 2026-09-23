@@ -1,5 +1,15 @@
 # Work Log
 
+## 2026-07-08 生成 P0 缺口特性 001/007/008 的 tasks.md（为 implement 铺路）
+
+- 按 `/speckit-tasks` 语义把 spec 用户故事 + plan 模块结构 + 已消解 OQ + checklist 门禁拆成可执行任务，P0 先走：
+  - **001 gatekeeper**（32 任务）：Phase1 骨架/配置/协议/编排 → Phase2 基础表/审计/权限码模型 → US1 六层链 → US2 25 格矩阵 → US3 PII 脱敏 → US4 权限码管理 → US5 配额 → Polish。含 clarify 决策（审批复用 approval_runtime 不建表、MongoDB 配额、PII 全局默认+租户覆盖）+ checklist 门禁说明。
+  - **007 llm-gateway-resilience**（25 任务）：Phase1 resilience 子模块骨架 → Phase2 provider 抽象/退避原语 → US1 failover → US2 降级链 → US3 退避 → US4 计量 → Polish。含 clarify 决策（tenacity 复用、1.5s/30s/±10%/3 次、仅文本模型、事件落 token_usage_logs）。
+  - **008 ops-dashboard**（27 任务）：Phase1 数据源对齐 → Phase2 质量/趋势聚合补齐 → US1 总览 → US2 成本 → US3 使用 → US4 质量 → US5 趋势 → Polish。含 clarify 决策（人工介入率口径、P50/P95 数据源、瓶颈 top-N、N=4、DashboardPage 标签页）。
+- 每份含：故事分阶段 + 依赖图 + 并行点 + MVP 范围 + 实现策略 + checklist 门禁提示；故事间按 P1→P2→P3 排序，MVP 取最核心故事。
+- 更新 `specs/INDEX.md`：完成度统计新增 tasks 行（P0 三份完成），SDD 路径细化 P0/P1/P2 各自 tasks 状态。
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。纯 spec 规划文件，未改 services/apps 源码。
+
 ## 2026-07-08 修正 checklist 暴露的 5 处 spec 缺陷（规约自洽化）
 
 - 按"先修缺陷再进 tasks"，逐个研读对应 spec 段落并修正：
