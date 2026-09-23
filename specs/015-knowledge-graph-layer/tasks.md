@@ -32,9 +32,9 @@
 
 ## Phase 4: User Story 2 (P2) — 多跳推理 + 一致性约束
 
-- [ ] T008 实现 `query.py`（多跳遍历 + 防环 + 跳数上限）
-- [ ] T009 实现 `consistency.py`（互斥/传递/基数）
-- [ ] T010 US2 测试：多跳附路径 + 矛盾标记
+- [x] T008 实现 `query.py`（多跳遍历 + 防环 + 跳数上限）
+- [x] T009 实现 `consistency.py`（互斥/传递/基数）
+- [x] T010 US2 测试：多跳附路径 + 矛盾标记
 
 
 ## Polish & Cross-Cutting Concerns

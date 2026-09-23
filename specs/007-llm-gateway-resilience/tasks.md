@@ -54,10 +54,10 @@
 **Goal**: 主模型失败逐级降档（高性能→中档→轻量），链耗尽明确报错。
 **独立测试**: 主档失败→降下一档成功；逐级失败→链耗尽错误；降档事件可追溯。
 
-- [ ] T011 [P] 实现 `resilience/degradation.py` 降级链（仅文本模型，参考既有 `llm/structured_fallback.py` 的降级思路）
-- [ ] T012 降级链事件：降档前/后模型 + 原因落 `token_usage_logs`（复用 T003 `degradation_step`）
-- [ ] T013 声明式降级链配置（`config.py` 扩展：主/备/降级档由配置驱动，不硬编码，FR-8）
-- [ ] T014 降级集成测试：逐级降档成功 + 链耗尽返回明确错误（不静默）两组 Acceptance
+- [x] T011 [P] 实现 `resilience/degradation.py` 降级链（仅文本模型，参考既有 `llm/structured_fallback.py` 的降级思路）
+- [x] T012 降级链事件：降档前/后模型 + 原因落 `token_usage_logs`（复用 T003 `degradation_step`）
+- [x] T013 声明式降级链配置（`config.py` 扩展：主/备/降级档由配置驱动，不硬编码，FR-8）
+- [x] T014 降级集成测试：逐级降档成功 + 链耗尽返回明确错误（不静默）两组 Acceptance
 
 ---
 

@@ -148,3 +148,112 @@ def test_traverse_relation_filter() -> None:
     result = traverse(store, "a", relation="reference")
     # a -> b is membership, so filtering by reference yields no extension from a
     assert all(len(path) <= 2 for path in result.paths)
+
+
+# --- consistency constraints (T008/T009) -------------------------------------
+
+def _conflict_store():
+    from app.knowledge_graph.schema import KgEdge, KgNode
+    from app.knowledge_graph.store import KgStore
+
+    store = KgStore()
+    store.add_node(KgNode(node_id="n1", attributes={"status": ["active", "archived"]}))
+    store.add_node(KgNode(node_id="n2", attributes={"status": "active"}))
+    store.add_node(KgNode(node_id="a"))
+    store.add_node(KgNode(node_id="b"))
+    store.add_node(KgNode(node_id="c"))
+    store.add_edge(KgEdge("a", "b", "reference"))
+    store.add_edge(KgEdge("b", "c", "reference"))
+    return store
+
+
+def test_mutual_exclusion_detects_conflict() -> None:
+    from app.knowledge_graph.consistency import MutualExclusion, check_mutual_exclusions
+    from app.knowledge_graph.schema import KgError
+    import pytest as _pytest
+
+    store = _conflict_store()
+    conflicts = check_mutual_exclusions(
+        store, [MutualExclusion(attribute="status", conflicting_values=["active", "archived"])]
+    )
+    assert len(conflicts) == 1
+    assert conflicts[0].subject == "n1"
+    assert conflicts[0].kind == "mutual_exclusion"
+
+
+def test_mutual_exclusion_rule_needs_two_values() -> None:
+    from app.knowledge_graph.consistency import ConsistencyError, MutualExclusion
+    import pytest as _pytest
+
+    with _pytest.raises(ConsistencyError):
+        MutualExclusion(attribute="status", conflicting_values=["only"])
+
+
+def test_transitivity_detects_missing_implied_edge() -> None:
+    from app.knowledge_graph.consistency import check_transitivity
+
+    store = _conflict_store()
+    gaps = check_transitivity(store, relation="reference")
+    assert any(gap.kind == "transitivity" for gap in gaps)
+    assert any("a -> c" in gap.detail for gap in gaps)
+
+
+def test_transitivity_silent_when_edge_present() -> None:
+    from app.knowledge_graph.consistency import check_transitivity
+    from app.knowledge_graph.schema import KgEdge
+
+    store = _conflict_store()
+    store.add_edge(KgEdge("a", "c", "reference"))
+    gaps = [gap for gap in check_transitivity(store, relation="reference") if gap.subject == "a"]
+    assert gaps == []
+
+
+def test_cardinality_min_violation() -> None:
+    from app.knowledge_graph.consistency import CardinalityRule, check_cardinality
+
+    store = _conflict_store()
+    conflicts = check_cardinality(store, [CardinalityRule(relation="reference", min_count=1)])
+    # c has no outgoing reference edge
+    assert any(conflict.subject == "c" for conflict in conflicts)
+
+
+def test_cardinality_max_violation() -> None:
+    from app.knowledge_graph.consistency import CardinalityRule, check_cardinality
+    from app.knowledge_graph.schema import KgEdge, KgNode
+
+    store = _conflict_store()
+    store.add_node(KgNode(node_id="d"))
+    store.add_node(KgNode(node_id="e"))
+    store.add_edge(KgEdge("a", "d", "membership"))
+    store.add_edge(KgEdge("a", "e", "membership"))
+    conflicts = check_cardinality(store, [CardinalityRule(relation="membership", max_count=1)])
+    assert any(conflict.subject == "a" for conflict in conflicts)
+
+
+def test_cardinality_rule_validates_bounds() -> None:
+    from app.knowledge_graph.consistency import CardinalityRule, ConsistencyError
+    import pytest as _pytest
+
+    with _pytest.raises(ConsistencyError):
+        CardinalityRule(relation="reference", min_count=5, max_count=2)
+
+
+def test_check_all_and_mark_conflicts_keeps_queryable() -> None:
+    from app.knowledge_graph.consistency import (
+        ConstraintBundle,
+        MutualExclusion,
+        check_all,
+        mark_conflicts,
+    )
+
+    store = _conflict_store()
+    bundle = ConstraintBundle(
+        mutual_exclusions=[MutualExclusion(attribute="status", conflicting_values=["active", "archived"])],
+        transitive_relations=["reference"],
+    )
+    conflicts = check_all(store, bundle)
+    assert conflicts
+    mark_conflicts(store, conflicts)
+    # the node is flagged but still present/queryable (FR-14)
+    assert store.nodes["n1"].conflicted is True
+    assert "n1" in store.nodes

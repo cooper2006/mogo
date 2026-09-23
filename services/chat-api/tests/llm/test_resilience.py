@@ -278,3 +278,88 @@ def test_load_resilience_config_reads_yaml(tmp_path) -> None:
     path.write_text("providers:\n  - name: p1\n", encoding="utf-8")
     document = load_resilience_config(path)
     assert document["providers"][0]["name"] == "p1"
+
+
+# --- degradation chain (T011-T014) -------------------------------------------
+
+def test_default_degradation_chain_order() -> None:
+    from app.llm.resilience.degradation import DEFAULT_DEGRADATION_CHAIN
+
+    assert DEFAULT_DEGRADATION_CHAIN == ("high", "mid", "light")
+
+
+def test_build_chain_maps_models() -> None:
+    from app.llm.resilience.degradation import build_chain
+
+    chain = build_chain(models={"high": "gpt-5.4", "mid": "gpt-5.2"})
+    assert [step.tier for step in chain] == ["high", "mid", "light"]
+    assert chain[0].model == "gpt-5.4"
+
+
+@pytest.mark.asyncio
+async def test_primary_success_no_degradation() -> None:
+    from app.llm.resilience.degradation import build_chain, run_with_degradation
+
+    async def caller(step):
+        return f"ok:{step.tier}"
+
+    output, result = await run_with_degradation(build_chain(), caller)
+    assert output == "ok:high"
+    assert result.degraded is False
+    assert result.step == 1
+
+
+@pytest.mark.asyncio
+async def test_degrades_to_next_tier_on_failure() -> None:
+    from app.llm.resilience.degradation import build_chain, run_with_degradation
+
+    async def caller(step):
+        if step.tier == "high":
+            raise _HTTPError(500)
+        return f"ok:{step.tier}"
+
+    events: list[dict] = []
+    output, result = await run_with_degradation(build_chain(), caller, on_event=events.append)
+    assert output == "ok:mid"
+    assert result.degraded is True
+    assert result.step == 2
+    assert result.log_fields["degradation_step"] == 2
+    assert events and events[0]["degradation_step"] == 1
+
+
+@pytest.mark.asyncio
+async def test_chain_exhausted_raises_clear_error() -> None:
+    from app.llm.resilience.degradation import DegradationError, build_chain, run_with_degradation
+
+    async def caller(step):
+        raise _HTTPError(503)
+
+    with pytest.raises(DegradationError) as excinfo:
+        await run_with_degradation(build_chain(), caller)
+    assert len(excinfo.value.chain) == 3
+    assert all(item["reason"] == "5xx" for item in excinfo.value.failures)
+
+
+@pytest.mark.asyncio
+async def test_auth_failure_aborts_degradation() -> None:
+    from app.llm.resilience.degradation import build_chain, run_with_degradation
+
+    async def caller(step):
+        raise _HTTPError(401)
+
+    with pytest.raises(NonRetryableLLMError):
+        await run_with_degradation(build_chain(), caller)
+
+
+@pytest.mark.asyncio
+async def test_degradation_reason_enumerated() -> None:
+    from app.llm.resilience.degradation import build_chain, run_with_degradation
+
+    async def caller(step):
+        if step.tier == "high":
+            raise _HTTPError(429)
+        return "ok"
+
+    events: list[dict] = []
+    await run_with_degradation(build_chain(), caller, on_event=events.append)
+    assert events[0]["degradation_reason"] == "429"

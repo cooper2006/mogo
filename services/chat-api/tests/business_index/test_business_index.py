@@ -133,3 +133,56 @@ def test_mask_pii_remove_drops_field() -> None:
     masked = mask_pii_fields({"email": "a@b.com", "name": "x"}, strategy="remove")
     assert "email" not in masked
     assert masked["name"] == "x"
+
+
+# --- alignment (T010) --------------------------------------------------------
+
+def test_align_groups_same_key_across_systems() -> None:
+    from app.business_index.alignment import align_entities
+
+    entities = [
+        BizEntity("customer", "crm", "1", {"customer_code": "C-1"}),
+        BizEntity("customer", "finance", "f1", {"customer_code": "C-1"}),
+    ]
+    report = align_entities(entities)
+    assert len(report.groups) == 1
+    assert report.groups[0].is_cross_system is True
+    assert report.groups[0].systems == ["crm", "finance"]
+
+
+def test_align_reports_missing_key_as_unaligned() -> None:
+    from app.business_index.alignment import align_entities
+
+    report = align_entities([BizEntity("customer", "crm", "1", {})])
+    assert len(report.unaligned) == 1
+    assert report.unaligned[0].aligned is False
+
+
+def test_align_separates_different_keys() -> None:
+    from app.business_index.alignment import align_entities
+
+    report = align_entities(
+        [
+            BizEntity("customer", "crm", "1", {"customer_code": "C-1"}),
+            BizEntity("customer", "crm", "2", {"customer_code": "C-2"}),
+        ]
+    )
+    assert len(report.groups) == 2
+
+
+def test_missing_systems_reported() -> None:
+    from app.business_index.alignment import align_entities, missing_systems
+
+    report = align_entities([BizEntity("customer", "crm", "1", {"customer_code": "C-1"})])
+    missing = missing_systems(report.groups[0], expected_systems=["crm", "finance"])
+    assert missing == ["finance"]
+
+
+def test_join_cross_system_labels_missing_systems() -> None:
+    from app.business_index.alignment import align_entities, join_cross_system
+
+    report = align_entities([BizEntity("customer", "crm", "1", {"customer_code": "C-1"})])
+    joined = join_cross_system(report, expected_systems=["crm", "finance"])
+    assert joined[0]["systems"] == ["crm"]
+    assert joined[0]["missingSystems"] == ["finance"]
+    assert joined[0]["crossSystem"] is False

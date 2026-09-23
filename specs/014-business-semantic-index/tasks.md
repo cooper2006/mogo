@@ -33,9 +33,9 @@
 
 ## Phase 4: User Story 2 (P2) — 增量 + 跨系统对齐
 
-- [ ] T009 实现定时增量拉取（复用 scheduled_tasks）
-- [ ] T010 实现跨系统实体对齐（业务主键映射）
-- [ ] T011 US2 测试：增量 + 对齐失败降级
+- [x] T009 实现定时增量拉取（复用 scheduled_tasks）
+- [x] T010 实现跨系统实体对齐（业务主键映射）
+- [x] T011 US2 测试：增量 + 对齐失败降级
 
 
 ## Polish & Cross-Cutting Concerns

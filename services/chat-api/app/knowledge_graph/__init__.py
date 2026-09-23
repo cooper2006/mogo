@@ -17,6 +17,14 @@ from .schema import (
     KgEdge,
     KgNode,
 )
+from .consistency import (
+    CardinalityRule,
+    Conflict,
+    ConstraintBundle,
+    MutualExclusion,
+    check_all,
+    mark_conflicts,
+)
 from .store import KgStore, merge_nodes
 from .query import CycleGuard, MultiHopResult, traverse
 
@@ -31,4 +39,10 @@ __all__ = [
     "traverse",
     "MultiHopResult",
     "CycleGuard",
+    "Conflict",
+    "ConstraintBundle",
+    "MutualExclusion",
+    "CardinalityRule",
+    "check_all",
+    "mark_conflicts",
 ]

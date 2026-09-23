@@ -18,6 +18,12 @@ from .entities import (
     align_key,
     align_pair,
 )
+from .alignment import (
+    AlignmentGroup,
+    AlignmentReport,
+    align_entities,
+    join_cross_system,
+)
 from .sources import (
     DEFAULT_PULL_INTERVAL,
     SourceSpec,
@@ -38,4 +44,8 @@ __all__ = [
     "DEFAULT_PULL_INTERVAL",
     "is_source_unavailable",
     "mask_pii_fields",
+    "align_entities",
+    "join_cross_system",
+    "AlignmentGroup",
+    "AlignmentReport",
 ]

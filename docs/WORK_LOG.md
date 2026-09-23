@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 深化 007 降级链 + 015 一致性约束 + 014 跨系统对齐
+
+- **007 `resilience/degradation.py`**（T011–T014）：模型降级链——`build_chain`（**高性能→中档→轻量**，可配 models，FR-8）+ `run_with_degradation`（可重试失败逐档降级并**发降级事件**，401/403 立即中止，**链耗尽抛 `DegradationError` 明确报错不静默**，FR-2）+ 降级原因枚举（429/5xx/timeout）
+- **015 `knowledge_graph/consistency.py`**（T008–T010）：一致性约束三类——
+  - **互斥**（同实体属性冲突值）+ **传递**（A→B→C 缺 A→C 报告 gap）+ **基数**（关系端点数量上下界）
+  - `ConstraintBundle` + `check_all` + `mark_conflicts`（**标记但仍可查询，不阻断**，FR-14）
+- **014 `business_index/alignment.py`**（T009–T011）：跨系统对齐——`align_entities`（按 实体类型+业务键 分组，同键跨系统成组，**无键标记 unaligned**，FR-6）+ `missing_systems`（缺口系统）+ `join_cross_system`（**跨系统联查带 missingSystems 标注，不拒绝**，FR-5）
+- **测试**：resilience 新增 7 项（18→25）、knowledge_graph 新增 8 项（17→25）、business_index 新增 5 项（17→22），全部通过。
+- 勾选 `specs/007/tasks.md` T011–T014、`specs/015/tasks.md` T008–T010、`specs/014/tasks.md` T009–T011。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 深化 019 门禁链对接 + 013 渠道路由
 
 - **019 `harness_config/gate_adapter.py`**（T014）：厚度 profile → 001 门禁链映射——`GatePlan`（模式/层集合/后端/审计粒度/跳过层）+ `build_gate_plan`（**底线守护拒绝违规薄化**）+ `backend_for`（**过渡期挂 transition（approval_runtime/audit），001 就绪后切 gatekeeper**，clarify OQ-3）+ `describe_plan`（审计可序列化）

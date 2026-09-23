@@ -18,6 +18,13 @@ from .errors import (
     RetryableLLMError,
     classify_error,
 )
+from .degradation import (
+    DEFAULT_DEGRADATION_CHAIN,
+    DegradationError,
+    DegradationResult,
+    build_chain,
+    run_with_degradation,
+)
 from .failover import FailoverResult, ResilientLLMClient
 
 __all__ = [
@@ -26,4 +33,9 @@ __all__ = [
     "classify_error",
     "FailoverResult",
     "ResilientLLMClient",
+    "build_chain",
+    "run_with_degradation",
+    "DegradationResult",
+    "DegradationError",
+    "DEFAULT_DEGRADATION_CHAIN",
 ]
