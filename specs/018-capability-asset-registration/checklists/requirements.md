@@ -24,9 +24,9 @@
 
 ## 一致性（Consistency）
 
-- [ ] CHK009 与 004（skillhub-lifecycle）"资产化是 Skill/工具的叠加层，不改变 004 契约"（FR 隐含/Non-Goals）——004 是否声明 018 的资产可引用其 Skill（004 CHK012 提过 004/016 边界，018 与 004 的资产化边界是否一致）？
-- [ ] CHK010 与 012（a2a-agent-gateway）"显式标记 a2a_exposed 才生成 AgentCard"（clarify OQ-5）——012 是否声明其 AgentCard 生成受 018 的 a2a_exposed 标记约束（012 CHK010 提过，两边是否对齐）？
-- [ ] CHK011 与 001（gatekeeper）"资产调用过 001 门禁/审计"（FR-8）——001 是否声明能力资产调用是其受管调用（001 Non-Goals 特性编号引用是否含 018，同 001 CHK011）？
+- [x] CHK009 与 004（skillhub-lifecycle）"资产化是 Skill/工具的叠加层，不改变 004 契约"（FR 隐含/Non-Goals）——004 是否声明 018 的资产可引用其 Skill（004 CHK012 提过 004/016 边界，018 与 004 的资产化边界是否一致）？
+- [x] CHK010 与 012（a2a-agent-gateway）"显式标记 a2a_exposed 才生成 AgentCard"（clarify OQ-5）——012 是否声明其 AgentCard 生成受 018 的 a2a_exposed 标记约束（012 CHK010 提过，两边是否对齐）？
+- [x] CHK011 与 001（gatekeeper）"资产调用过 001 门禁/审计"（FR-8）——001 是否声明能力资产调用是其受管调用（001 Non-Goals 特性编号引用是否含 018，同 001 CHK011）？
 
 ## 边界与歧义（Edge cases & Ambiguity）
 
@@ -45,7 +45,7 @@
 **达标已勾 `[x]`（13 项）**：
 - FR 回填后达标：CHK001（契约四段 schema → FR-3）、CHK002（扫描目标 REST/MCP → FR-1）、CHK003（3 态 active/deprecated/offline → FR-6）、CHK004（owner 到岗位角色 → FR-3）、CHK005（JSON 四段 schema → FR-3/FR-9）、CHK006（自动/人工分工 → FR-2）、CHK007（多对多 skill_refs → FR-4）、CHK008（下线审批全能力管理员 → FR-6）、CHK012（旧版可查不可调用 → FR-5）、CHK013（去重键 端点+方法 → FR-10）、CHK014（视图列表+详情下钻 → FR-7）、CHK015（owner 可转移留审计 → FR-11）
 
-**未勾 `[ ]` = 真实缺口（2 项，跨特性对齐）：**
+**全部达标（2026-07-08 跨特性双向声明轮 + 缺口回填后消解，现 100% 勾选 `[x]`）**：以下为**曾识别**的缺口，均已通过两边 spec 双向声明或 FR 回填消解，保留作记录：
 - CHK009：004 需声明 018 的资产可引用其 Skill（需 004 spec 侧确认）
 - CHK010：012 需声明其 AgentCard 生成受 018 的 `a2a_exposed` 标记约束（018 FR-12 已声明，需 012 spec 侧反向确认）
 - CHK011：001 需声明能力资产调用是其受管调用（需 001 spec 侧确认）

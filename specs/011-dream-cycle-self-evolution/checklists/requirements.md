@@ -24,10 +24,10 @@
 
 ## 一致性（Consistency）
 
-- [ ] CHK009 与 004（skillhub-lifecycle）"自进化产出进 004 生命周期"（FR-4/Notes）——004 是否反向声明"011 草稿是其上游来源"（沉淀闭环是否双向声明）？
-- [ ] CHK010 与 002（session-versioning）"经验沉淀源来自会话 commit/share"（Notes）——002 是否声明其会话快照是 011 的经验源（数据流是否对齐）？
-- [ ] CHK011 与 016（skill-market-hardening）"低质量标记共用同一标记位"（clarify OQ-4）——016 spec 是否声明与 011 共用 `skill_status.marked_low_quality`（避免双写是否双向声明）？
-- [ ] CHK012 与 010（DAG 编排）"自进化可作为周期任务编排"（Notes）——扫描 job 复用 scheduled_tasks（clarify OQ-5），是否需 010 引擎参与（还是纯 scheduled_tasks 即可，两边口径）？
+- [x] CHK009 与 004（skillhub-lifecycle）"自进化产出进 004 生命周期"（FR-4/Notes）——004 是否反向声明"011 草稿是其上游来源"（沉淀闭环是否双向声明）？
+- [x] CHK010 与 002（session-versioning）"经验沉淀源来自会话 commit/share"（Notes）——002 是否声明其会话快照是 011 的经验源（数据流是否对齐）？
+- [x] CHK011 与 016（skill-market-hardening）"低质量标记共用同一标记位"（clarify OQ-4）——016 spec 是否声明与 011 共用 `skill_status.marked_low_quality`（避免双写是否双向声明）？
+- [x] CHK012 与 010（DAG 编排）"自进化可作为周期任务编排"（Notes）——扫描 job 复用 scheduled_tasks（clarify OQ-5），是否需 010 引擎参与（还是纯 scheduled_tasks 即可，两边口径）？
 
 ## 边界与歧义（Edge cases & Ambiguity）
 
@@ -45,7 +45,7 @@
 **达标已勾 `[x]`（12 项）**：
 - FR 回填后达标：CHK001（片段字段补充 来源会话/反馈 → FR-2）、CHK002（Jaccard + 编辑距离 → FR-3）、CHK003（测试 = 输入输出样例断言 → FR-5）、CHK004（采纳率口径 + 14 天阈值 → FR-6）、CHK005（friction 默认捕获前两类 → FR-1）、CHK006（MR 目标 004 草稿目录 + 人工审阅 → FR-5/FR-9）、CHK007（草稿 vs MR 边界 → FR-10）、CHK008（淘汰恢复重置计数 → FR-11）、CHK013（草稿堆积上限 N=100 → FR-12）、CHK014（同片段 Jaccard 去重 → FR-12）、CHK015（淘汰生效范围 = 标记租户 → FR-11）、CHK016（生成侧质量门槛 = 预览运行通过 → FR-13）
 
-**未勾 `[ ]` = 真实缺口（4 项，跨特性对齐）：**
+**全部达标（2026-07-08 跨特性双向声明轮 + 缺口回填后消解，现 100% 勾选 `[x]`）**：以下为**曾识别**的缺口，均已通过两边 spec 双向声明或 FR 回填消解，保留作记录：
 - CHK009：004 需反向声明"011 草稿是其上游来源"（需 004 spec 侧确认）
 - CHK010：002 需声明其会话快照是 011 的经验源（同 002 CHK011，双向对齐）
 - CHK011：016 需声明与 011 共用 `skill_status.marked_low_quality` 标记位（需 016 spec 侧确认，避免双写）

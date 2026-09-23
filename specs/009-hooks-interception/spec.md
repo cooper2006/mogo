@@ -74,6 +74,8 @@
 - FR-9: **规则求值顺序：先按作用域（工具 > 会话 > 租户）求值，再按规则类型（deny > require > observe）；deny 命中即短路返回，不再求值后续规则**
 - FR-10: **deny_tool 拒绝返回 403 + 明确提示"被钩子规则拒绝"（与门禁层拒绝区分：门禁拒绝提示权限/配额原因，钩子拒绝提示规则原因）**
 - FR-11: **"规则解析失败" 三类均 fail_closed：规则 JSON 非法 / 必填字段缺失 / 未知 rule_type**
+- FR-12: **五事件各自可携带/可修改数据：SessionStart 可注入初始上下文（如租户/PII 策略）；PreToolUse 可读取工具入参并可拒绝/改参；PostToolUse 可读取结果并可记录/脱敏；SessionEnd 可清理会话级临时态；MemoryCommit 可读取待提交记忆并可过滤**
+- FR-13: **钩子执行延迟预算：单次工具调用的钩子总延迟上限 = 5s（多钩子叠加共享该预算，超限按 fail_closed 拒绝），不额外叠加**
 
 ## Non-Goals
 - 不实现钩子的外部插件沙箱（本期为声明式规则，非任意代码执行）
@@ -93,6 +95,12 @@
 - 技术实现（钩子注册、超时、fail_closed、规则解析）由 plan.md 承载
 - 与特性 001（gatekeeper）互补：PreToolUse 是 001 门禁链的扩展点
 - 落地顺序与超时阈值需 clarify
+
+### 跨特性关系（被依赖方视角，2026-07-08 双向声明）
+- **与 001（gatekeeper）**：009 的 PreToolUse 钩子是 001 六层门禁链的**扩展点**；钩子执行事件进 **001 的审计落点**（不另建钩子审计集合）。
+- **与 002（session-versioning）**：009 的 SessionStart/SessionEnd/MemoryCommit 钩子**以 002 的会话生命周期事件为载体**（002 提供事件语义，009 提供挂载点）。
+- **与 010（dag-orchestration）**：010 的**节点执行**（节点启动前/完成后）是 009 的 PreToolUse/PostToolUse 钩子**触发点之一**（节点内工具调用过钩子）。
+- **与 019（harness-elastic-config）**：019 薄模式可跳过 009 的**非红线钩子**；**fail_closed 底线保留**（钩子故障仍 fail_closed，不可因薄模式放行）；"非红线"= 不含 R4 红线工具拦截的 observe/require 钩子。
 
 ## Clarify 记录（/speckit-clarify，2026-07-08）
 

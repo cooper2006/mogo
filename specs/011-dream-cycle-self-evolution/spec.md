@@ -93,6 +93,11 @@ Skill 采纳率（被实际复用次数/推荐次数）低于阈值且长期 →
 - 与特性 004/002/010 的关系已述
 - 阈值与周期需 clarify；P2 后置，落地节奏由路线图定
 
+### 跨特性关系（被依赖方视角，2026-07-08 双向声明）
+- **与 016（skill-market-hardening）**：011 与 016 **共用同一低质量标记位 `skill_status.marked_low_quality`**（避免双写）——011 从"低采纳沉淀侧"标记，016 从"市场运营侧"标记，同一位。
+- **与 004（skillhub-lifecycle）**：011 生成的 Skill 草稿进 004 的草稿态（004 是下游生命周期承载）。
+- **与 010（dag-orchestration）**：011 的周期扫描 job 复用 `scheduled_tasks`（once/daily/weekly），**不依赖 010 DAG 引擎**（纯调度任务）。
+
 ## Clarify 记录（/speckit-clarify，2026-07-08）
 
 ### OQ-1 friction 判定标准

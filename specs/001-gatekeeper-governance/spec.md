@@ -116,6 +116,29 @@
 - 技术实现由 plan.md 承载
 - 与现有 admin-api system_audit、enterprise_capabilities 模块的集成方式见 plan.md
 
+### 25 格 AUTONOMY_MATRIX 完整取值表（L1–L5 × R0–R4）
+
+行 = 自主级别 L（L1 最低 → L5 最高），列 = 风险级 R（R0 最低 → R4 红线）：
+
+| L \ R | R0 | R1 | R2 | R3 | R4 |
+|---|---|---|---|---|---|
+| **L1** | allow | allow | allow | require_approval | deny |
+| **L2** | allow | allow | allow | require_approval | deny |
+| **L3** | allow | allow | require_approval | require_approval | deny |
+| **L4** | allow | allow | require_approval | require_approval | deny |
+| **L5** | allow | allow | allow | require_approval | deny |
+
+**规则**：R4 任意 L = deny（红线不可覆盖）；R0/R1 任意 L = allow；R2 在 L3/L4 = require_approval，L1/L2/L5 = allow；R3 任意 L = require_approval。
+
+### 跨特性关系（被依赖方视角，2026-07-08 双向声明）
+- **与 006（position-rbac）**：006 的岗位角色是 001 细粒度权限码的"预设组"基础；001 的权限码模型以岗位角色为预设组向下兼容（双向声明，见 006 spec）。
+- **与 009（hooks-interception）**：009 的 PreToolUse 钩子是 001 六层门禁链的**扩展点**（在门禁链之前/之内做声明式拦截）；009 的钩子审计事件复用 **001 的审计落点**（不另建钩子审计集合）。
+- **与 012（a2a-agent-gateway）**：012 的 A2A 调用入口（入站被调 + 出站调外部）是 001 门禁链的**受管入口**，100% 过 001 门禁/审计。
+- **与 013（multi-im-entry）**：013 的 IM 渠道入口请求是 001 门禁链的**受管入口**，IM 入口请求 100% 过 001 门禁/审计。
+- **与 018（capability-asset-registration）**：018 注册的能力资产调用是 001 门禁链的**受管调用**，资产调用 100% 过 001 门禁/审计。
+- **与 019（harness-elastic-config）**：019 是 001 六层门禁的"**启用哪几层**"开关层，与 001 六层为**同一"层"概念**（001 层4 审批/层5 配额 = 019 可省层）；001 层语义不因 019 开关而改变。
+- **权限码 resource 扩展**：001 权限码模型支持下游特性注册 resource 维度——**014 的 `bizdata`（业务数据）**、**015 的 `kg`（知识图谱）**；权限码格式 `<resource>:<action>[:<target>]` 不变。
+
 ## Clarify 记录（/speckit-clarify，2026-07-08）
 
 ### OQ-1 审批流程（spec 原 OQ-1）

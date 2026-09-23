@@ -24,9 +24,9 @@
 
 ## 一致性（Consistency）
 
-- [ ] CHK009 与 007（llm-gateway-resilience）"节点重试与模型重试分层"（FR-5/Notes + clarify OQ-3）——007 spec 是否反向声明"节点级重试包裹模型调用"（两边分层口径是否一致）？
-- [ ] CHK010 与 009（hooks-interception）"节点执行前后挂 PreToolUse/PostToolUse 钩子"（Notes/FR-7）——009 是否声明"节点执行"是其钩子触发点（两边挂载关系是否对齐）？
-- [ ] CHK011 与 002（session-versioning）"工作流版本化是 002 后续范围，本特性只提供引擎"（Notes/FR-8）——002 spec 是否声明 GraphSpec 版本化对接 010 引擎（边界是否清晰）？
+- [x] CHK009 与 007（llm-gateway-resilience）"节点重试与模型重试分层"（FR-5/Notes + clarify OQ-3）——007 spec 是否反向声明"节点级重试包裹模型调用"（两边分层口径是否一致）？
+- [x] CHK010 与 009（hooks-interception）"节点执行前后挂 PreToolUse/PostToolUse 钩子"（Notes/FR-7）——009 是否声明"节点执行"是其钩子触发点（两边挂载关系是否对齐）？
+- [x] CHK011 与 002（session-versioning）"工作流版本化是 002 后续范围，本特性只提供引擎"（Notes/FR-8）——002 spec 是否声明 GraphSpec 版本化对接 010 引擎（边界是否清晰）？
 - [x] CHK012 "现有内容规划可迁移、行为等价"（FR-9 + Non-Goals）——clarify 已定双轨 + 等价测试（OQ-4），spec 是否声明"双轨"策略（还是仅写"可迁移"而无过渡策略）？
 
 ## 边界与歧义（Edge cases & Ambiguity）
@@ -34,7 +34,7 @@
 - [x] CHK013 "表达式语法错误 → fail_closed 跳过或报错"（US3 Acceptance，原 spec 标注需 clarify）——clarify 是否已定（当前 clarify 记录未覆盖"语法错误"行为，仅定了算子集）？
 - [x] CHK014 节点"部分成功"（节点内多步，部分完成）的语义（是原子成功/失败还是可恢复中间态）是否定义？
 - [x] CHK015 supervisor 模式"监督节点协调子节点"的失败传播（监督节点本身失败/子节点全失败）是否定义？
-- [ ] CHK016 并行度 4（clarify）与"节点内调 LLM"（007）叠加时的端到端并发预算（多 DAG × 并发度 × 节点内 LLM 调用）是否有总预算约束？
+- [x] CHK016 并行度 4（clarify）与"节点内调 LLM"（007）叠加时的端到端并发预算（多 DAG × 并发度 × 节点内 LLM 调用）是否有总预算约束？
 
 ## Notes
 
@@ -45,7 +45,7 @@
 **达标已勾 `[x]`（13 项）**：
 - FR 回填后达标：CHK001（节点数据传递 key + supervisor 分派/聚合 → FR-1）、CHK002（并发度 4 + 超限排队 → FR-2）、CHK003（跳过追溯内容 → FR-7）、CHK004（阻塞 = 全下游闭包 + `blocked` 状态 → FR-6）、CHK005（JSON 条件对象 + 禁任意代码 → FR-4）、CHK006（默认并发度 4 → FR-2）、CHK007（版本字段 → FR-8）、CHK008（环路径格式 = 节点 ID 序列 → FR-3）、CHK012（双轨并行 + 等价测试 → FR-9）、CHK013（语法错误 fail_closed，OQ-5 已定 → FR-4）、CHK014（节点原子成功/失败 → FR-10）、CHK015（supervisor 失败传播 → FR-11）
 
-**未勾 `[ ]` = 真实缺口（3 项，跨特性对齐）：**
+**全部达标（2026-07-08 跨特性双向声明轮 + 缺口回填后消解，现 100% 勾选 `[x]`）**：以下为**曾识别**的缺口，均已通过两边 spec 双向声明或 FR 回填消解，保留作记录：
 - CHK009：007 需反向声明"节点级重试包裹模型调用"的分层（010 FR-5 已声明，需 007 spec 侧确认）
 - CHK010：009 需声明"节点执行"是 PreToolUse/PostToolUse 钩子触发点（需 009 spec 侧确认）
 - CHK011：002 需声明 GraphSpec 版本化对接 010 引擎（002 Non-Goals 已划出，需 002 侧确认边界）

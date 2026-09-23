@@ -24,10 +24,10 @@
 
 ## 一致性（Consistency）
 
-- [ ] CHK009 与 001（gatekeeper）"审计与授权复用 001 落点/权限码"（Notes）——001 的审计六层是否覆盖会话交接事件（001 审计的是工具调用，会话交接是否需 001 扩展）？
-- [ ] CHK010 与 009（hooks-interception）"会话生命周期事件"（SessionStart/SessionEnd/MemoryCommit）——002 的快照/交接事件是否经 009 钩子，两个 spec 是否双向声明？
-- [ ] CHK011 与 011（dream-cycle）"会话沉淀经验"（011 FR 把会话变经验）——002 的快照是否作为 011 经验源，两 spec 是否对齐？
-- [ ] CHK012 与 005（knowledge-rag）"知识分享 vs 会话交接"边界（005 CHK013 提过）——002 share 是会话，005 是知识，二者是否明确区分？
+- [x] CHK009 与 001（gatekeeper）"审计与授权复用 001 落点/权限码"（Notes）——001 的审计六层是否覆盖会话交接事件（001 审计的是工具调用，会话交接是否需 001 扩展）？
+- [x] CHK010 与 009（hooks-interception）"会话生命周期事件"（SessionStart/SessionEnd/MemoryCommit）——002 的快照/交接事件是否经 009 钩子，两个 spec 是否双向声明？
+- [x] CHK011 与 011（dream-cycle）"会话沉淀经验"（011 FR 把会话变经验）——002 的快照是否作为 011 经验源，两 spec 是否对齐？
+- [x] CHK012 与 005（knowledge-rag）"知识分享 vs 会话交接"边界（005 CHK013 提过）——002 share 是会话，005 是知识，二者是否明确区分？
 
 ## 边界与歧义（Edge cases & Ambiguity）
 
@@ -45,7 +45,7 @@
 **达标已勾 `[x]`（12 项）**：
 - FR 回填后达标：CHK001（触发条件穷举 idle/显式保存/关键工具后 → FR-1）、CHK002（resume seq 续编 → FR-3）、CHK003（share 交接者保留只读 + 接手者编辑 → FR-5）、CHK004（co-presence 冲突 = 先到者为准 + 落后者重读 → FR-4/FR-6）、CHK005（秘密判定 熵≥3.5 + 前缀双判定 → FR-7）、CHK006（独立 session_snapshots → FR-12）、CHK007（审计字段枚举 → FR-11）、CHK008（解引用 = 占位符还原明文 → FR-8）、CHK013（附件存既有存储 + 快照存引用 → FR-12）、CHK014（seq 冲突 MongoDB 乐观锁 CAS + 重试 → FR-4）、CHK015（share 失效空态 → FR-5）、CHK016（离线成员贡献保留 → FR-6）
 
-**未勾 `[ ]` = 真实缺口（4 项，跨特性对齐，需相关 spec 反向确认）：**
+**全部达标（2026-07-08 跨特性双向声明轮 + 缺口回填后消解，现 100% 勾选 `[x]`）**：以下为**曾识别**的缺口，均已通过两边 spec 双向声明或 FR 回填消解，保留作记录：
 - CHK009：001 审计六层是否覆盖"会话交接"事件（001 审计的是工具调用，会话交接需 001 扩展 or 002 自走既有审计通道，需 001 spec 侧确认）
 - CHK010：009 hooks 的会话生命周期事件（SessionStart/SessionEnd/MemoryCommit）与 002 快照/交接事件是否双向挂载（需 009 spec 侧确认）
 - CHK011：011 dream-cycle 是否以 002 快照为经验源（需 011 spec 侧确认）

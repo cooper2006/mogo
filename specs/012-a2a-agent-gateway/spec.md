@@ -76,3 +76,7 @@ MOVO 既能作为 A2A 客户端调用外部 Agent（把外部生态纳入 MOVO �
 - 技术实现（AgentCard 生成、JSON-RPC 端点、客户端封装）由 plan.md 承载
 - 与特性 001/018 的关系已述
 - 协议版本兼容范围需 clarify
+
+### 跨特性关系（被依赖方视角，2026-07-08 双向声明）
+- **与 018（capability-asset-registration）**：012 的 AgentCard **仅对 018 显式标记 `a2a_exposed` 的资产生成**——018 的资产默认不暴露 A2A，标记后方生成 AgentCard（见 018 FR-12）。
+- **与 001（gatekeeper）**：012 的 A2A 调用入口（入站 + 出站）是 001 门禁链的受管入口（见 001 spec 跨特性关系）。

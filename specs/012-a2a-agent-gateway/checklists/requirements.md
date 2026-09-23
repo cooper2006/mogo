@@ -24,8 +24,8 @@
 
 ## 一致性（Consistency）
 
-- [ ] CHK009 与 001（gatekeeper）"A2A 调用入口复用 001 门禁/审计"（FR-6/Notes）——001 是否声明 A2A 入口是其门禁链的受管入口（001 Non-Goals 的特性编号引用是否含 012，同 001 CHK011）？
-- [ ] CHK010 与 018（capability-asset-registration）"对外 Agent 能力可注册为资产"（Notes）——018 是否声明"显式标记 a2a_exposed 才生成 AgentCard"（clarify 018 OQ-5 定了显式标记，012 是否同步该约束）？
+- [x] CHK009 与 001（gatekeeper）"A2A 调用入口复用 001 门禁/审计"（FR-6/Notes）——001 是否声明 A2A 入口是其门禁链的受管入口（001 Non-Goals 的特性编号引用是否含 012，同 001 CHK011）？
+- [x] CHK010 与 018（capability-asset-registration）"对外 Agent 能力可注册为资产"（Notes）——018 是否声明"显式标记 a2a_exposed 才生成 AgentCard"（clarify 018 OQ-5 定了显式标记，012 是否同步该约束）？
 - [x] CHK011 "双向都过 001 审计"（US3/clarify OQ-3）——作为 A2A 客户端调用外部 Agent 时，外部 Agent 是否也需进 001 审计（MOVO 侧发起的出站调用审计口径）是否定义？
 
 ## 边界与歧义（Edge cases & Ambiguity）
@@ -45,7 +45,7 @@
 **达标已勾 `[x]`（13 项）**：
 - FR 回填后达标：CHK001（AgentCard 必含字段 + skills[] → FR-1）、CHK002（方法名 message/send、tasks/get、tasks/result → FR-2）、CHK003（按 agent id 路由 /a2a/{tenant}/{agent_id} → FR-8）、CHK004（超时 30s + failover + 007 退避 → FR-3）、CHK005（A2A latest stable → FR/Notes）、CHK006（Dify 优先 + LangGraph 适配层 → FR-4）、CHK007（能力变更即刷新 → FR-5）、CHK008（同租户可信域边界 → FR-6/Notes）、CHK011（双向过 001 审计 → FR-6）、CHK012（001 拒绝映射 JSON-RPC error → FR-7）、CHK013（task id 幂等 → FR-10）、CHK014（鉴权方式枚举 → FR-9）、CHK015（外部 Agent 注册 = 018 a2a_exposed + 手工登记 → FR-11）
 
-**未勾 `[ ]` = 真实缺口（2 项，跨特性对齐）：**
+**全部达标（2026-07-08 跨特性双向声明轮 + 缺口回填后消解，现 100% 勾选 `[x]`）**：以下为**曾识别**的缺口，均已通过两边 spec 双向声明或 FR 回填消解，保留作记录：
 - CHK009：001 需反向声明 A2A 入口为其门禁链受管入口（需 001 spec 侧确认）
 - CHK010：018 需声明"显式标记 `a2a_exposed` 才生成 AgentCard"（012 FR-11 已引用，需 018 spec 侧反向确认）
 

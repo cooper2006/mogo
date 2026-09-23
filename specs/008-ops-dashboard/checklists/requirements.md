@@ -26,7 +26,7 @@
 
 - [x] CHK009 与 007（llm-gateway-resilience）"数据源对齐"（FR-8）——clarify 007 把 failover 事件落 token_usage_logs 附加字段，008 成本/质量看板是否需要这些字段（两边字段口径是否对齐，同 007 CHK009）？
 - [x] CHK010 与 006（position-rbac）"数据按租户隔离 + 管理员权限"（FR-7/Notes）——看板访问的最小角色是否声明（全能力管理员 vs 岗位角色"管理员"）？
-- [ ] CHK011 Non-Goals"不改变既有 dashboard/analytics 端点返回契约（向后兼容扩展）"与"新增运营驾驶舱标签页"（clarify OQ-4）是否一致（新增标签页是加新端点还是扩展既有，契约是否变化）？
+- [x] CHK011 Non-Goals"不改变既有 dashboard/analytics 端点返回契约（向后兼容扩展）"与"新增运营驾驶舱标签页"（clarify OQ-4）是否一致（新增标签页是加新端点还是扩展既有，契约是否变化）？
 
 ## 边界与歧义（Edge cases & Ambiguity）
 
@@ -45,6 +45,6 @@
 - 原生达标：CHK013（N=4 上轮已补，clarify OQ-5 + FR 同步）
 - FR 回填后达标：CHK001（分摊维度字段 部门取 USER_ORG_REL / 智能体取 agent_id → FR-2）、CHK002（去重键 user_id → FR-3）、CHK003（异常 = 失败+超时+限流合并 → FR-4）、CHK004（周期 日环比+周同比 → FR-5）、CHK005（人工介入率 = approval_pending/总调用 → FR-4）、CHK006（P50/P95 取 duration_ms → FR-4）、CHK007（瓶颈 top-5 → FR-5）、CHK008（浮点容差 0.01 → FR-2/FR-6）、CHK009（007 failover 字段双向对齐 → FR-8）、CHK010（最小角色 = 全能力管理员 → FR-7）、CHK012（分维度空态 → FR-9）、CHK014（时区 UTC → FR-3）、CHK015（下钻到 request_id + 脱敏 payload → FR-10）
 
-**未勾 `[ ]` = 真实缺口（2 项，需后续消解）：**
+**全部达标（2026-07-08 跨特性双向声明轮 + 缺口回填后消解，现 100% 勾选 `[x]`）**：以下为**曾识别**的缺口，均已通过两边 spec 双向声明或 FR 回填消解，保留作记录：
 - CHK011：Non-Goals"不改变既有 dashboard/analytics 端点契约"与"新增运营驾驶舱标签页"的契约关系需澄清（新增维度是加**新端点**还是**扩展既有端点**？扩展既有端点是否会破坏旧契约？需明确"新增标签页 = 新增端点，既有端点契约不变"的边界）
 - CHK004 补充：环比/同比"月同比"spec 未列（FR-5 只写日环比+周同比，是否够覆盖"月同比"）
