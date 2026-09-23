@@ -56,11 +56,11 @@ services/chat-api/app/
 services/chat-api/app/knowledge/retrieval/  # 既有：检索客户端扩展业务实体项
 ```
 
-## Open Questions
-- OQ-1: 首期对接哪个业务系统（CRM/采购/财务）+ 连接方式（DB 直连 vs API）
-- OQ-2: 业务实体 schema 定义（客户/订单/供应商/账目的字段与对齐键，领域相关需按业务定）
-- OQ-3: 增量同步机制（CDC vs 定时拉取，spec 写"增量更新"需定机制）
-- OQ-4: 业务数据脱敏（与 001 PII 脱敏联动，业务实体含 PII 字段时如何）
+## Open Questions（已 clarify 消解）
+- OQ-1 首期业务系统 + 连接方式：**CRM，DB 直连（只读副本）**；采购/财务按节奏补齐。
+- OQ-2 业务实体 schema：**客户/订单/供应商/账目**，对齐键 = 各系统业务主键（客户编号/订单号/供应商编码/账期），schema 可配置（`biz_entities.entity_types`）。
+- OQ-3 增量同步机制：**定时拉取**（复用 `scheduled_tasks` 的 daily/weekly 调度）；不做 CDC（CDC 需业务库支持 binlog 订阅，首期不引入）。
+- OQ-4 业务数据脱敏：**与 001 PII 脱敏联动**——业务实体含 PII 字段（手机号/身份证）走 001 默认策略（mask/hash），索引前脱敏，检索结果不回填明文。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

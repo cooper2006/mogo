@@ -58,11 +58,11 @@ specs/002-session-versioning/
 - 新增 `chat-api/app/services/session_versioning/`：快照存储、线性合并、低熵识别、可逆占位符
 - 复用 001 审计落点（若 001 未实现，先用 system_audit 现有通道）
 
-## Open Questions
-- OQ-1: 快照存储用独立 collection（session_snapshots）还是内嵌 session 文档？（大数据量建议独立）
-- OQ-2: 低熵秘密识别算法（Shannon 熵阈值 + 正则特征）的具体阈值需 clarify
-- OQ-3: co-presence 是否需要 Redis 在线态，还是仅靠 MongoDB 会话状态即可（首期建议不引入 Redis）
-- OQ-4: share 链接的鉴权模型（与 006 RBAC 权限码联动还是独立 token）
+## Open Questions（已 clarify 消解）
+- OQ-1 快照存储：**独立 collection `session_snapshots`，不内嵌 session**（现有 versions 仅保留 12 版即防膨胀；快照需独立查询/导出）。
+- OQ-2 低熵阈值：**Shannon 熵 ≥ 3.5 bits/char 且长度 ≥ 16 + 正则前缀（sk-/ghp_/AKIA/Bearer）双判定**，降普通长 ID 误报。
+- OQ-3 co-presence：**首期不引入 Redis，用 MongoDB 会话状态 + 短轮询；并发续写用 MongoDB 乐观锁（seq 冲突检测）**；Redis 作后续可选。
+- OQ-4 share 鉴权：**短时效 token + 组织内可见范围，与 006 RBAC 权限码联动**，`session_shares{token, session_id, scope, expires_at, granted_by}`。
 
 ## 下一步
-`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze。
+OQ 已 clarify 消解。`/speckit-checklist`（002 补需求质量门禁）→ `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

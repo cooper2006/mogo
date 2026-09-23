@@ -88,19 +88,18 @@ services/admin-api/
 3. **审计复用**：`system_audit/repository.py` 的写入路径复用于 `gate_events`，保持审计单一落点
 4. **审批挂起**：审批表与 admin 端审批流对接（现有 approval 机制，如不存在则新增 `approval_requests` 表）
 
-## Open Questions（需 /speckit-clarify 消解）
+## Open Questions（已 clarify 消解）
 
-- OQ-1: 现有 admin-api 是否已有 approval 流程表？审批挂起的恢复机制是 poll 还是 callback？
-- OQ-2: 配额计量用数据库计数还是 Redis？自托管形态是否允许引入 Redis？
-- OQ-3: PII 策略默认值（手机号 mask / 私钥 remove）是否需要按租户可配置，还是全局固定？
+- OQ-1（审批）：**复用既有 `chat-api/enterprise_capabilities/tools/approval_runtime` + `approval_events` 的 `EnterpriseApproval` 状态机（含 risk_level/scope_label），不新建审批表；恢复机制为 poll（非 callback），挂起默认 5 分钟超时。层 4 实现为对 `ApprovalRuntime` 的封装。**
+- OQ-2（配额）：**用 MongoDB 计数（`quota_counters` 集合，原子 findOneAndUpdate），不引入 Redis。自托管已依赖 MongoDB，配额上限低，Redis 计数增加运维负担。**
+- OQ-3（PII 粒度）：**全局默认策略（手机号 mask / 私钥 remove / 身份证 hash / 银行卡 mask / 邮箱 abstract）+ 租户级可覆盖（`pii_policies` 集合 + 006 授权 + 001 审计）。**
 
 ## 下一步
 
-按 SDD 路径：
-1. `/speckit-clarify`（消解 OQ-1~3）
-2. `/speckit-plan` 完成 Phase 0/1：research.md、data-model.md、contracts/gatekeeper.md、quickstart.md
-3. `/speckit-checklist`（生产特性质量门禁）
-4. `/speckit-tasks`
-5. `/speckit-analyze`（一致性检查）
-6. `/speckit-implement`
-7. `/speckit-converge`
+OQ 已 clarify 消解（见上 + spec.md "Clarify 记录"）。按 SDD 路径：
+1. `/speckit-checklist`（001 补需求质量门禁）
+2. `/speckit-tasks`
+3. `/speckit-analyze`（一致性检查）
+4. `/speckit-implement`
+5. `/speckit-converge`
+

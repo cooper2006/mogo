@@ -57,11 +57,11 @@ services/chat-api/app/
 └── token_usage/               # 既有：计量管线复用
 ```
 
-## Open Questions
-- OQ-1: 指数退避是否引入 `tenacity` 依赖，还是手写（避免新增依赖，倾向手写）
-- OQ-2: 默认最大重试次数 / 退避基数 / 抖动幅度 / 退避上限（spec 已声明需 clarify 定值）
-- OQ-3: 降级链是否同时作用于"多模态/图像模型"（spec Non-Goals 已限定本期仅文本模型）
-- OQ-4: failover 事件是否需要独立 collection（llm_resilience_events），还是复用 token_usage_logs 附加字段
+## Open Questions（已 clarify 消解）
+- OQ-1 退避实现：**用 `tenacity>=8.3.0`（既有依赖，requirements.txt/pyproject 已含；azure_gpt_image.py 已用）**，非手写。
+- OQ-2 默认参数：**退避基数 1.5s / 上限 30s / 抖动 ±10% / 可重试 429+5xx+超时 / 不可重试 401+403 / 最大重试 3（可配）**——沿用 azure_gpt_image 既有值，避免行为漂移。
+- OQ-3 降级链范围：**仅文本模型**（图像走 azure_gpt_image 自身重试，见 spec Non-Goals）。
+- OQ-4 事件落点：**复用 `token_usage_logs` 附加字段（failover_from/failover_to/degradation_step），不新增独立 collection**；008 驾驶舱直接聚合该表。
 
 ## 下一步
-`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。`/speckit-checklist`（007 补需求质量门禁）→ `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

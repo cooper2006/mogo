@@ -57,11 +57,11 @@ services/chat-api/app/api/endpoints/
 └── (新增 im_channels.py：渠道配置/开关管理)
 ```
 
-## Open Questions
-- OQ-1: 首期接入哪个渠道（飞书/钉钉/企业微信/Slack/Teams，按目标企业常用定）
-- OQ-2: IM 卡片/富文本适配深度（纯文本 vs 卡片/按钮，spec 写"卡片适配有限"需定范围）
-- OQ-3: 渠道会话是否纳入 002 会话版本化（spec FR-7 写了，需确认映射方式）
-- OQ-4: 渠道 webhook 签名校验/防重放的具体要求
+## Open Questions（已 clarify 消解）
+- OQ-1 首期渠道：**飞书**（目标企业常用 IM，且 bot/webhook 接入成熟度高）；其余按节奏补齐。
+- OQ-2 卡片/富文本适配深度：**首期纯文本 + 基础卡片（markdown 文本卡片）**，不实现按钮/交互式卡片（避免与既有能力面脱节）。
+- OQ-3 渠道会话纳入 002 版本化：**是**——IM 会话映射到 MOVO 会话（`im_session_bindings`），002 的 commit/share 对 IM 会话同样生效。
+- OQ-4 webhook 签名校验/防重放：**HMAC-SHA256 签名校验 + nonce 去重（Redis/MongoDB 短期去重表）**，防重放窗口 5 分钟。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

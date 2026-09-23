@@ -53,11 +53,11 @@ services/chat-api/app/
 └── enterprise_capabilities/content/planning/   # 既有：作为迁移场景验证
 ```
 
-## Open Questions
-- OQ-1: 条件表达式求值采用何种受限语言（JSON 条件对象 vs 简单表达式 AST；spec 明确"禁用任意代码"）
-- OQ-2: 并行度上限（无依赖节点并行时的并发数，需 clarify）
-- OQ-3: 节点重试与特性 007（LLM 模型级重试）如何分层（节点重试包模型调用，还是独立）
-- OQ-4: 现有内容规划场景迁移是否一次性替换还是双轨并行（建议双轨 + 等价测试）
+## Open Questions（已 clarify 消解）
+- OQ-1 条件表达式语言：**JSON 条件对象**（受限算子 `==/!=/>/>=/</<=/and/or/not/in/has`），不用任意代码 AST；可序列化可审计（与 009 声明式规则同风格）。
+- OQ-2 并行度上限：**默认并发度 = 4**（可配 `dag_max_concurrency`），避免打爆下游 LLM/工具。
+- OQ-3 节点重试与 007 分层：**分层**——007 模型调用级重试，010 节点级重试（包裹 007），不重复套退避。
+- OQ-4 迁移策略：**双轨并行 + 等价测试**（不一次替换）；`content/planning` 作迁移场景验证，新编排走 DAG。
 
 ## 下一步
-`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。`/speckit-checklist`（010 补需求质量门禁）→ `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

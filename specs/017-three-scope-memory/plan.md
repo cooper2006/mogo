@@ -54,12 +54,12 @@ services/chat-api/app/api/endpoints/
 └── (新增 memories.py：记忆 CRUD + 范围指定)
 ```
 
-## Open Questions
-- OQ-1: 默认写入范围策略（spec 写"默认个人级"，需确认是否所有会话沉淀默认 Workspace）
-- OQ-2: 记忆生命周期阈值（衰减周期/清理触发条件，需 clarify）
-- OQ-3: 组织级记忆写入的授权模型（哪个角色可提升为组织级，与 006 岗位角色的映射）
-- OQ-4: 与 005 个人知识的关系（复用底层 vs 独立集合，避免重复存储）
-- OQ-5: 记忆的检索（是否进 RAG 检索范围，与 005 检索如何融合）
+## Open Questions（已 clarify 消解）
+- OQ-1 默认写入范围：**个人会话默认 personal；多人协同会话（002 co-presence）默认 workspace；组织级需显式提升**。
+- OQ-2 记忆生命周期：**衰减周期 30 天（可配 `memory_decay_days`），访问命中重置衰减计时；清理触发 = 衰减到期 + 未被引用**。
+- OQ-3 组织级写入授权：**006 的"全能力管理员"角色可提升为组织级**；普通用户需审批（与 001 审批联动）。
+- OQ-4 与 005 个人知识关系：**复用 005 个人知识底层存储**（personal scope 直接指向 005 资源），不重复建库；workspace/org scope 新建 `memories` 集合。
+- OQ-5 记忆检索：**进 RAG 检索范围**（与 005 检索融合），按 scope 可见性过滤。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

@@ -114,3 +114,20 @@
 ## Further Details
 - 技术实现由 plan.md 承载
 - 与现有 admin-api system_audit、enterprise_capabilities 模块的集成方式见 plan.md
+
+## Clarify 记录（/speckit-clarify，2026-07-08）
+
+### OQ-1 审批流程（spec 原 OQ-1）
+- **决策**：复用 `chat-api/enterprise_capabilities/tools/approval_runtime` + `approval_events` 的既有审批状态机（`EnterpriseApproval` 含 risk_level/scope_label/status），**不新建审批流程表**。
+- **恢复机制**：**poll**（前端轮询 `list_pending`/`decide`），非 callback。`ApprovalRuntime.validate_and_consume` 是"校验并消费"语义，挂起方需主动 poll 取 ticket 结果。
+- **超时**：审批挂起默认 5 分钟（与 019 厚度配置的审计/超时底线对齐，可配置）。
+- **影响**：plan.md 的"审批挂起"层实现为对既有 `ApprovalRuntime` 的封装，`gatekeeper.py` 层 4 不另起炉灶。
+
+### OQ-2 配额存储（spec 原 OQ-2）
+- **决策**：配额计量**用数据库（MongoDB）**，不引入 Redis 计数。理由：自托管形态（movo 交付）已依赖 MongoDB，引入 Redis 仅做计数会增加运维负担；配额上限低（租户/用户/工具三维，时间窗口计数），MongoDB 计数器（原子 `findOneAndUpdate`）足够。
+- **影响**：`quota.py` 层 5 落 `quota_counters` 集合（按 维度 + 时间窗口 键），不依赖 Redis。
+
+### OQ-3 PII 策略粒度（spec 原 OQ-3）
+- **决策**：PII 策略**默认全局固定**（手机号 mask / 私钥 remove / 身份证 hash / 银行卡 mask / 邮箱 abstract），**租户级可覆盖**（白名单 + 策略改配走 006 RBAC 授权 + 001 审计）。即"全局默认 + 租户可选覆盖"，非纯全局或纯租户。
+- **影响**：`pii.py` 内置默认策略表；租户覆盖经 `pii_policies` 集合 + 授权门禁。
+

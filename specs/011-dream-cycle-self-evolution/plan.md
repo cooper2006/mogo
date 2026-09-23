@@ -54,12 +54,12 @@ services/admin-api/app/
 └── services/skill_lifecycle.py # 既有：草稿/发布复用
 ```
 
-## Open Questions
-- OQ-1: friction 判定标准（重试次数/纠错信号/人工介入事件的阈值，需 clarify）
-- OQ-2: 模式发现的相似度算法（Jaccard/编辑距离/语义向量；grep 显示仓库无 jaccard，需确认实现路线）
-- OQ-3: 自动建 MR 的置信阈值与目标仓库/分支策略
-- OQ-4: 低采纳率淘汰阈值（周期/次数）
-- OQ-5: P2 落地节奏（是否可独立延期，不影响 004/002 已交付能力）
+## Open Questions（已 clarify 消解）
+- OQ-1 friction 判定：**失败后成功（重试 ≥ 1）+ 人工纠正/驳回 + 用户显式标记（前两类默认捕获，第三类需主动标记）**。
+- OQ-2 相似度算法：**Jaccard（场景特征向量）+ 编辑距离（动作序列）双指标**，首期不引入向量库（控依赖）；阈值联动 OQ-3。
+- OQ-3 自动建 MR 阈值：**Jaccard ≥ 0.7 且样本 ≥ 5 触发**；目标为当前租户 004 Skill 草稿目录（非直接合入主干，人工审阅后发布）。
+- OQ-4 淘汰阈值：**持续 14 天推荐曝光 ≥ 20 且采纳率 < 10% 标记 deprecated**，与 016 市场标记共用同一标记位（避免双写）。
+- OQ-5 P2 节奏：**可独立延期，不影响 004/002 已交付能力**；扫描 job 复用 `scheduled_tasks`（已支持 once/daily/weekly）。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

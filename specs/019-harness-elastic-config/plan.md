@@ -53,12 +53,12 @@ services/chat-api/app/api/endpoints/
 └── (新增 harness_profiles.py：厚度配置 CRUD + 作用域管理)
 ```
 
-## Open Questions
-- OQ-1: 厚度维度优先级（场景 > 租户 > 工具 的覆盖规则，需 clarify）
-- OQ-2: 薄模式默认跳过哪些层（spec 写"省略非红线层"，需枚举哪些是可省略层）
-- OQ-3: 001 未实现时 019 如何过渡（先挂 approval/audit，还是等 001 完成再做，依赖顺序）
-- OQ-4: 审计"底线"的最低粒度（薄模式至少记录哪些事件，需定最小审计集）
-- OQ-5: 厚/薄切换的生效时机（会话级 vs 工具调用级 vs 租户级，需定粒度）
+## Open Questions（已 clarify 消解）
+- OQ-1 厚度维度优先级：**场景 > 租户 > 工具**（更具体覆盖更宽泛）。
+- OQ-2 薄模式可省略层：**可省略 = 审批（第 4 层）+ 配额（第 5 层）**；**不可省略 = 身份（第 1）+ RBAC（第 2）+ 脱敏（第 3）+ 审计（第 6）+ R4 红线**。即薄模式 = 去掉"审批/配额"，保留"身份/RBAC/脱敏/审计/红线"。
+- OQ-3 与 001 依赖顺序：**019 先挂 `governance/approval_runtime` + `governance/audit`（现有过渡挂载点），001 完成六层链后，019 层开关直接切到 001 gatekeeper**。二者不阻塞，019 可先行做配置层。
+- OQ-4 审计"底线"最低粒度：**薄模式至少记录 身份主体 + 工具名 + 结果（通过/拒绝）+ 时间戳**（最小四元组，`harness_config/floor.py` 守护）。
+- OQ-5 切换生效时机：**工具调用级**（每次工具调用解析当前会话 + 租户 + 工具的厚度 profile）。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ（尤其 OQ-3 与 001 的依赖顺序）→ 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

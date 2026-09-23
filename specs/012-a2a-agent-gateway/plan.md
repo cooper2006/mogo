@@ -53,11 +53,11 @@ services/chat-api/app/api/endpoints/
 └── (新增 a2a.py：AgentCard 拉取 + JSON-RPC 入口路由)
 ```
 
-## Open Questions
-- OQ-1: A2A 协议版本范围（对齐哪个 A2A 标准版本；spec 写"按标准实现端点"需定版本）
-- OQ-2: AgentCard 注册中心是本地（a2a_agent_cards）还是对接外部 registry
-- OQ-3: A2A 双向调用的鉴权模型（双向是否都要 001 门禁，跨域可信如何定）
-- OQ-4: 与 Dify/LangGraph 的兼容优先级（先兼容哪个生态的 AgentCard 字段）
+## Open Questions（已 clarify 消解）
+- OQ-1 A2A 协议版本：**对齐 A2A 标准当前稳定版（AgentCard + JSON-RPC over HTTP）**；spec 写"按标准实现端点"，定版本为协议注册表中的 latest stable。
+- OQ-2 AgentCard 注册中心：**本地 `a2a_agent_cards` 集合**（自托管不依赖外部 registry）；对外发现走端点拉取，非中心注册。
+- OQ-3 双向鉴权模型：**双向都要过 001 门禁/审计**；跨域可信靠既有 006 RBAC 组织边界，不另建跨域信任体系。
+- OQ-4 Dify/LangGraph 兼容优先级：**先兼容 Dify 的 AgentCard 字段**（目标企业常用），LangGraph 字段映射做适配层。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

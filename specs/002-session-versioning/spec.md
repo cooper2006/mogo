@@ -100,3 +100,19 @@
 - 技术实现（快照存储结构、低熵识别算法、并发模型）由 plan.md 承载
 - 与特性 001 gatekeeper 的关系：本特性的审计与授权复用 001 的审计落点与权限码模型
 - 参考 AgentGit "commit / log / resume / share" 语义与"秘密不上链、本地优先、像代码一样交接"的设计取向
+
+## Clarify 记录（/speckit-clarify，2026-07-08）
+
+### OQ-1 快照存储结构
+- **决策**：快照用独立 collection `session_snapshots`，不内嵌 session 文档。
+- **依据**：会话消息量大，内嵌会使 session 文档膨胀（现有 `doc["versions"]` 仅保留最近 12 版即为此考量）；快照需独立查询/导出，独立集合更利于索引与分页。
+
+### OQ-2 低熵秘密识别阈值
+- **决策**：Shannon 熵阈值 ≥ 3.5 bits/char 且长度 ≥ 16 触发"疑似秘密"，叠加正则前缀特征（`sk-`/`ghp_`/`AKIA`/`Bearer ` 等）双判定，降低普通长文档 ID 误报。
+
+### OQ-3 co-presence 是否引入 Redis
+- **决策**：首期不引入 Redis，co-presence 在线态用 MongoDB 会话状态 + 短轮询；Redis 作为后续可选加速。
+- **理由**：自托管已依赖 MongoDB，首期 co-presence 低频（进出/发言），轮询足够；与 001 OQ-2"能不加 Redis 就不加"同源。
+
+### OQ-4 share 链接鉴权模型
+- **决策**：share 用短时效 token + 组织内可见范围，与 006 RBAC 权限码联动，不另起鉴权体系。

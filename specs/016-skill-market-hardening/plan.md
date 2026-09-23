@@ -54,12 +54,12 @@ services/admin-api/app/
 services/chat-api/app/scheduled_tasks/  # 既有：灰度周期调度复用
 ```
 
-## Open Questions
-- OQ-1: 效果分口径（成功率/采纳/纠正的综合权重，需 clarify 定值）
-- OQ-2: 灰度策略（按比例 vs 按用户 vs 按租户，spec 写"按比例/按用户"需定默认）
-- OQ-3: 回滚触发（自动阈值 vs 手动，spec 写"异常率超阈值自动/手动回滚"需定阈值）
-- OQ-4: 低质量标记阈值与周期（持续低分的判定窗口）
-- OQ-5: 与 011"低采纳淘汰"的分工边界（016 市场标记 vs 011 经验侧淘汰，是否同一标记位）
+## Open Questions（已 clarify 消解）
+- OQ-1 效果分口径：**成功率（0.5）+ 采纳率（0.3）+ 纠正率反向（0.2）加权**；权重可配（`skill_scoring_weights`）。
+- OQ-2 灰度策略：**按租户**（首期，最粗粒度，匹配自托管多租户）；按比例/按用户为后续扩展。
+- OQ-3 回滚触发：**异常率 > 20% 自动回滚**（可配阈值 `rollout_auto_rollback_threshold`）+ 手动回滚。
+- OQ-4 低质量标记阈值：**效果分 < 0.4 持续 7 天 → 自动标记低质量**（窗口可配 `quality_mark_window_days`）。
+- OQ-5 与 011 分工边界：**011 做经验侧"低采纳淘汰"（自进化闭环），016 做市场侧"低质量标记/降权"**；二者共用同一标记位 `skill_status.marked_low_quality`，避免双写。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

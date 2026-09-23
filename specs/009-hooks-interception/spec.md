@@ -90,3 +90,20 @@
 - 技术实现（钩子注册、超时、fail_closed、规则解析）由 plan.md 承载
 - 与特性 001（gatekeeper）互补：PreToolUse 是 001 门禁链的扩展点
 - 落地顺序与超时阈值需 clarify
+
+## Clarify 记录（/speckit-clarify，2026-07-08）
+
+### OQ-1 钩子超时阈值默认值
+- **决策**：默认 **5s**，可配置（`hook_timeout_seconds`）。
+- **依据**：`enterprise_capabilities/tools/execution_timeout.py` 已有 `ExecutionTimeoutPolicy`（total_seconds + inactivity 双层），钩子超时复用该策略模式，5s 是声明式规则求值的合理上限。
+
+### OQ-2 fail_closed 默认行为
+- **决策**：超时/异常/规则解析失败**一律 fail_closed 拒绝**（不放行），且**不可配置为放行**。
+- **理由**：constitution 原则 III（Security fail-closed）+ 019 底线守护——钩子故障若默认放行等于绕过治理，合规场景不可接受。仅"observe 规则"可配置为只记录不拦截。
+
+### OQ-3 首期范围
+- **决策**：**首期仅落 PreToolUse 单事件**（规划文档"落地建议 3"），SessionStart/End/MemoryCommit/PostToolUse 按节奏补齐。
+- **依据**：`turn_admission.admit_skill_selection` 是 PreToolUse 的天然切入挂载点，最小代价获得合规拦截能力。
+
+### OQ-4 规则作用域存储 schema
+- **决策**：`hook_rules{scope ∈ {tool, session, tenant}, rule_type ∈ {deny_tool, require_field, observe}, rule_config, enabled}`，作用域字段决定匹配粒度。

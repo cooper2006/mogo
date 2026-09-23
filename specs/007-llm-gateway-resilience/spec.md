@@ -88,3 +88,24 @@ LLM 调用按配置的主/备供应商顺序执行；主供应商失败（超时
 - 技术实现（failover 调度器、退避参数、计量落库）由 plan.md 承载
 - 与特性 008（驾驶舱）的关系：计量上报是成本/使用看板的来源
 - 默认退避与重试参数需 `/speckit-clarify` 定值
+
+## Clarify 记录（/speckit-clarify，2026-07-08）
+
+### OQ-1 退避实现（plan 原 OQ-1）
+- **决策**：引入 `tenacity`（`>=8.3.0`），不手写。
+- **依据**：`services/chat-api/requirements.txt` / `pyproject.toml` 已含 tenacity；`llm/providers/azure_gpt_image.py` 已用 tenacity（`retry_base_seconds=1.5` / `retry_max_seconds=30.0` + `_post_with_retry`）。复用既有依赖，非新增。
+
+### OQ-2 退避/重试默认参数（spec 原"需 clarify 定值"）
+- **决策**（取既有 azure_gpt_image 实测值，保证与既有行为一致）：
+  - 退避基数 `retry_base_seconds = 1.5`，退避上限 `retry_max_seconds = 30.0`
+  - 抖动：±10%（tenacity 默认 + jitter）
+  - 可重试错误：429 / 5xx / 超时；**不可重试**：401 / 403（立即失败）
+  - 最大重试次数默认 3（可配置）
+- **影响**：`llm/resilience/retry.py` 直接沿用这组默认值，避免与既有 provider 行为漂移。
+
+### OQ-3 降级链是否作用于多模态/图像（spec 原 OQ-3）
+- **决策**：**仅文本模型**。spec Non-Goals 已声明"图像走 azure_gpt_image，本期仅文本模型韧性"；degradation_chain 仅对文本 LLM 调用生效，图像调用走既有 provider 自身重试。
+
+### OQ-4 failover 事件落点（plan 原 OQ-4）
+- **决策**：复用 `token_usage_logs` 附加字段（`failover_from` / `failover_to` / `degradation_step`），**不新增独立 collection**。理由：计量与韧性事件同源，合并落库避免双写；驾驶舱（008）查询 token_usage_logs 即可聚合。
+

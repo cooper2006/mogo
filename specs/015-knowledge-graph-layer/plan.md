@@ -52,12 +52,12 @@ services/chat-api/app/
     └── schema.py           # 实体/关系 schema（按领域配置）
 ```
 
-## Open Questions
-- OQ-1: 图谱存储首期用 MongoDB 邻接还是直接上 Neo4j（spec 写"量大再迁"，需定迁移阈值）
-- OQ-2: 实体/关系 schema 领域范围（企业内通用 schema vs 按业务定制，需 clarify）
-- OQ-3: 多跳深度上限（防查询爆炸，需定默认跳数）
-- OQ-4: 一致性约束种类（互斥/传递/基数约束，需枚举）
-- OQ-5: 与 014 业务实体对齐的同步机制（图谱节点是否引用 biz_entities）
+## Open Questions（已 clarify 消解）
+- OQ-1 图谱存储：**首期 MongoDB 邻接**（`kg_nodes` + `kg_edges`），迁移 Neo4j 阈值 = 节点 > 50 万 或 查询 p95 > 500ms。
+- OQ-2 实体/关系 schema：**企业内通用 schema**（人/组织/产品/事件 + 隶属/负责/引用/关联），按业务可扩展（`schema.py` 配置）。
+- OQ-3 多跳深度上限：**默认 3 跳**（可配 `kg_max_hops`），防查询爆炸。
+- OQ-4 一致性约束种类：**互斥（同一实体两类互斥属性）+ 传递（A→B→C 则 A→C）+ 基数（关系端点数量上限）**。
+- OQ-5 与 014 业务实体对齐：**图谱节点可引用 `biz_entities`**（`kg_nodes.source_ref` 指向业务实体 ID），不做数据复制，做指针引用。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

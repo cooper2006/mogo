@@ -49,11 +49,11 @@ apps/admin-web/src/views/dashboard/
 └── (新增 quality/trend 子组件)
 ```
 
-## Open Questions
-- OQ-1: 质量维度（成功率/异常率/人工介入率）的"人工介入"判定标准（是否=审批挂起数，需 clarify）
-- OQ-2: 响应时长 P50/P95 是否从 token_usage_logs 的 duration_ms 聚合（现状 `_duration_ms` 已有）
-- OQ-3: 趋势"瓶颈识别"是 top-N 成本/时长排序，还是需要统计显著性（首期建议简单 top-N）
-- OQ-4: 前端四维是否统一在 DashboardPage 还是独立运营驾驶舱页（spec 写"扩展运营驾驶舱"，倾向独立页）
+## Open Questions（已 clarify 消解）
+- OQ-1 人工介入率：**= 需人工审批调用数/总调用数**；`approval_pending` 复用 001/004 审批机制（`approval_events`）。
+- OQ-2 P50/P95 数据源：**从 `token_usage_logs.duration_ms` 聚合**（`_duration_ms` 已实现，用 Mongo `$percentile`）。
+- OQ-3 瓶颈识别：**首期简单 top-N（按成本/时长排序 top 5），不做统计显著性**。
+- OQ-4 前端组织：**在既有 `DashboardPage.vue` 内新增"运营驾驶舱"标签页（非独立路由），复用既有框架与本地化**。
 
 ## 下一步
-`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。`/speckit-checklist`（008 补需求质量门禁）→ `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

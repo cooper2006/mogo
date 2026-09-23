@@ -54,12 +54,12 @@ services/admin-api/app/api/routes/
 └── (新增 capability_assets.py：资产 CRUD + 治理端点)
 ```
 
-## Open Questions
-- OQ-1: 能力契约 schema（输入/输出/错误/SLA 字段定义，需按 PilotMind GraphSpec 思路定）
-- OQ-2: "发现"是自动扫描 + 人工补全的分工边界（哪些自动识别、哪些必须人工）
-- OQ-3: 资产与 004 Skill/工具的映射（一个资产是否=一个 Skill/工具，还是多对多）
-- OQ-4: 资产下线审批流程（与 006 RBAC 哪个角色可审批）
-- OQ-5: 与 012 A2A 的对外暴露策略（是否所有注册资产都生成 AgentCard，还是显式标记）
+## Open Questions（已 clarify 消解）
+- OQ-1 能力契约 schema：**采用 GraphSpec 思路**（输入/输出/错误/SLA 四段），JSON 声明式，与 009/010 的声明式规则同风格。
+- OQ-2 发现分工：**自动扫描识别标准 REST/MCP 接口契约；非标准能力必须人工补全**（spec 声明"自动扫描 + 人工补全"）。
+- OQ-3 资产与 004 映射：**多对多**（一个 Skill 可含多个能力资产；一个资产可被多个 Skill 引用），用 `capability_assets.skill_refs` 关联。
+- OQ-4 资产下线审批：**006 的"全能力管理员"角色可审批下线**；留 001 审计。
+- OQ-5 与 012 A2A 暴露策略：**显式标记**（`capability_assets.a2a_exposed = true` 才生成 AgentCard），非默认全暴露。
 
 ## 下一步
-P2 后置。`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

@@ -104,3 +104,24 @@
 - 技术实现（聚合查询、分位计算、前端图表组件）由 plan.md 承载
 - 与特性 007（网关韧性）的关系：计量数据源
 - 现状哪些维度已实现需 clarify 后在 plan 中登记
+
+## Clarify 记录（/speckit-clarify，2026-07-08）
+
+### OQ-1 "人工介入率"判定标准（spec 原 OQ-1）
+- **决策**：人工介入率 = 需人工审批的调用数 / 总调用数。
+- **依据**：`dashboard.py::_usage_metrics` 已有 `successRate24h`（成功率）；人工介入以 `approval_pending`（审批挂起）计——复用 001/004 的审批机制（`enterprise_capabilities/tools/approval_events`）。
+- **影响**：质量看板"人工介入率"取 `pending_approval_count / total_calls`。
+
+### OQ-2 响应时长 P50/P95 数据源（spec 原 OQ-2）
+- **决策**：从 `token_usage_logs` 的 `duration_ms` 聚合。
+- **依据**：`dashboard.py::_duration_ms(row)` 已实现（读 `row["duration_ms"]`），`analytics.py` 已按 `duration_ms` 排序。直接 Mongo 聚合 `$percentile`。
+- **影响**：质量看板 P50/P95 = `db.token_usage_logs.aggregate({$percentile: {durationMs: 50/95}})`。
+
+### OQ-3 "瓶颈识别"算法（spec 原 OQ-3）
+- **决策**：首期用简单 top-N（按 成本/时长 排序 top 5 调用），不做统计显著性检验。
+- **影响**：趋势看板"瓶颈"= top-N 列表，标注维度（模型/工具/阶段）。
+
+### OQ-4 前端页面组织（spec 原 OQ-4）
+- **决策**：在既有 `apps/admin-web/src/views/dashboard/DashboardPage.vue` 内新增"运营驾驶舱"标签页（非独立路由页），复用既有 DashboardPage 框架与本地化。
+- **影响**：前端改动集中在 DashboardPage.vue + dashboardText.ts 新增文案 key。
+

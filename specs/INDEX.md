@@ -52,9 +52,15 @@
 - spec.md：001–019 全部完成（19 份）
 - plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
 - checklist（需求质量门禁，`/speckit-checklist`）：003、004、005、006 完成（4 份，`checklists/requirements.md`，全未勾选，reviewer-owned）；007–019 待补
-- checklist（需求质量门禁，`/speckit-checklist`）：003、004、005、006 完成（4 份，`checklists/requirements.md`，全未勾选，reviewer-owned）
-- 待 clarify 的 OQ 集中在：001（审批表/配额存储/PII 粒度）、002（快照存储/熵阈值/co-presence/share 鉴权）、005（个人知识分享范围/重排）、006（权限码联动/能力维度）、007（退避默认值/事件 collection）、009（超时阈值/fail_closed 默认）、010（表达式语言/并行度/迁移双轨）、011（friction 阈值/相似度算法/MR 阈值）
-- 各 checklist 标记的跨特性口径对齐项（003↔001/005、004↔006/001/016、005↔002/003/001、006↔001/004/019）建议在 clarify 阶段统一消解
+- clarify（OQ 消解）：001–019 全部完成（19 份），各 spec 新增 "Clarify 记录" 节 + plan "Open Questions（已 clarify 消解）"。关键消解：
+  - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
+  - 007：tenacity 既有依赖；退避 1.5s/30s/±10%/3 次；事件落 token_usage_logs
+  - 008：人工介入率=审批挂起数；P50/P95 取 token_usage_logs.duration_ms；瓶颈 top-N；DashboardPage 加标签页
+  - 002：独立 session_snapshots；熵 ≥3.5 + 前缀双判定；不引入 Redis；share 联动 006
+  - 009：超时 5s；fail_closed 不可放行；首期仅 PreToolUse
+  - 010：JSON 条件对象（禁代码 AST）；并行度 4；节点/模型重试分层；双轨迁移
+  - 011：Jaccard ≥0.7 + 样本 ≥5 建 MR；14 天低采纳淘汰；与 016 共用标记位
+  - 012–019：各自口径/阈值/依赖顺序已定（019 薄模式保留身份/RBAC/脱敏/审计/红线，可省审批/配额）
 
 ## 六、SDD 路径
 

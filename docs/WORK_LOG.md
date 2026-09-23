@@ -1,5 +1,15 @@
 # Work Log
 
+## 2026-07-08 按 P0→P1→P2 顺序完成 001–019 全部 clarify（OQ 消解）
+
+- 按 `/speckit-clarify` 语义（消解 spec 歧义 + 把答案编码回 spec/plan）逐个消解 19 个特性的 OQ，每个 spec 新增 "Clarify 记录" 节，对应 plan "Open Questions" 改为 "Open Questions（已 clarify 消解）"。OQ 答案基于代码事实，未臆造：
+  - **P0（001/007/008）**：001 审批复用 `approval_runtime`（poll + 5min 超时）、配额用 MongoDB（不引入 Redis）、PII 全局默认 + 租户可覆盖；007 用既有 `tenacity`（requirements 已含，azure_gpt_image 已用）、退避 1.5s/30s/±10%/3 次、事件落 `token_usage_logs`；008 人工介入率=审批挂起数、P50/P95 取 `duration_ms`、瓶颈 top-N、DashboardPage 加标签页。
+  - **P1（002/009/010/011）**：002 独立 `session_snapshots`、熵 ≥3.5 + 前缀双判定、不引入 Redis、share 联动 006；009 超时 5s、fail_closed 不可放行、首期仅 PreToolUse；010 JSON 条件对象（禁代码 AST）、并行度 4、节点/模型重试分层、双轨迁移；011 Jaccard ≥0.7 + 样本 ≥5 建 MR、14 天低采纳淘汰、与 016 共用标记位。
+  - **P2（012–019）**：各自口径/阈值/依赖顺序已定（019 薄模式保留身份/RBAC/脱敏/审计/红线，可省审批/配额）。
+- 关键依据（grep 核实）：`approval_events.py::EnterpriseApproval`（审批状态机 + risk_level）、`azure_gpt_image.py` 的 tenacity 退避参数、`requirements.txt::tenacity>=8.3.0`、`dashboard.py::_duration_ms`、`scheduled_tasks/schedule.py` 的 once/daily/weekly 调度。
+- 更新 `specs/INDEX.md`：完成度统计加入 clarify 19/19 + 关键消解摘要，去掉旧"待 clarify OQ"行。
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。未改 services/apps 源码。
+
 ## 2026-07-08 补 012–019 的 plan.md（完成全部 19 份技术契约）
 
 - 为 8 个 P2 后置缺口特性补 plan.md（基于已研读代码事实的挂载点设计，均标注 P2 后置 + 各自 OQ）：

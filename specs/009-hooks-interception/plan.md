@@ -55,11 +55,11 @@ services/chat-api/app/api/
 └── (新增 hook_rules 管理端点，声明式配置 CRUD)
 ```
 
-## Open Questions
-- OQ-1: 钩子超时阈值默认值（spec 需 clarify；建议 5s 起步可配置）
-- OQ-2: fail_closed 默认行为（超时/异常/规则解析失败是否一律拒绝，还是可配置为放行 + 告警）
-- OQ-3: 首期是否仅落 PreToolUse（规划文档"落地建议 3"倾向是），其余四事件按节奏补齐
-- OQ-4: 钩子规则作用域（按工具/会话/租户）的存储 schema
+## Open Questions（已 clarify 消解）
+- OQ-1 超时阈值：**默认 5s，可配**（`hook_timeout_seconds`），复用 `execution_timeout.py::ExecutionTimeoutPolicy` 双层策略模式。
+- OQ-2 fail_closed 默认：**超时/异常/规则解析失败一律拒绝，不可配为放行**（constitution III + 019 底线）；仅 observe 规则可"只记录不拦截"。
+- OQ-3 首期范围：**仅 PreToolUse 单事件**（挂载点 `turn_admission.admit_skill_selection`），其余四事件按节奏补齐。
+- OQ-4 规则作用域 schema：**`hook_rules{scope(tool/session/tenant), rule_type(deny_tool/require_field/observe), rule_config, enabled}`**。
 
 ## 下一步
-`/speckit-clarify` 消解 OQ → 补 research/data-model/contracts/quickstart → checklist → tasks → analyze → implement → converge。
+OQ 已 clarify 消解。`/speckit-checklist`（009 补需求质量门禁）→ `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。
