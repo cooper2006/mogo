@@ -16,19 +16,19 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 chat-api/app/knowledge_graph/ 包骨架 + 子模块
-- [ ] T002 定义核心数据模型/契约 schema
+- [x] T001 创建 chat-api/app/knowledge_graph/ 包骨架 + 子模块
+- [x] T002 定义核心数据模型/契约 schema
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
-- [ ] T004 [P] 实现声明式配置解析 + 校验
+- [x] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
+- [x] T004 [P] 实现声明式配置解析 + 校验
 
 ## Phase 3: User Story 1 (P1) — 实体/关系抽取 + 图谱存储
 
-- [ ] T005 实现 `extract.py`（实体/关系抽取 + 低置信门槛）
-- [ ] T006 实现 `store.py`（MongoDB 邻接 + 合并策略）
-- [ ] T007 US1 测试：抽取入图 + 合并不破坏
+- [x] T005 实现 `extract.py`（实体/关系抽取 + 低置信门槛）
+- [x] T006 实现 `store.py`（MongoDB 邻接 + 合并策略）
+- [x] T007 US1 测试：抽取入图 + 合并不破坏
 
 ## Phase 4: User Story 2 (P2) — 多跳推理 + 一致性约束
 

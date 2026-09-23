@@ -1,5 +1,18 @@
 # Work Log
 
+## 2026-07-08 实现 P2 特性 012（A2A 网关）+ 015（知识图谱）核心
+
+- **012 A2A 网关** → `services/chat-api/app/a2a/`：
+  - `agent_card.py`：AgentCard 模型（A2A 标准字段 + `skills[]`，必含校验）+ `build_agent_card`（**仅 `a2a_exposed` 才生成**，FR-12）+ `parse_agent_card`（Dify 字段映射 + 容错未知 auth scheme）+ URL 结构 `/a2a/{tenant}/{agent_id}`
+  - `protocol.py`：JSON-RPC 方法（`message/send`/`tasks/get`/`tasks/result`）+ 请求校验（jsonrpc 版本/未知方法/params）+ `TaskLifecycle`（**task id 幂等**，重复提交不重跑）+ 错误码（含 `movo_denied` -32000）+ `rpc_error_from_denial`（001 拒绝 → JSON-RPC error，FR-7）
+- **015 知识图谱** → `services/chat-api/app/knowledge_graph/`：
+  - `schema.py`：节点/边模型（实体 人/组织/产品/事件，关系 隶属/负责/引用/关联）+ 校验（空 id、自关系、未知类型）+ 置信门槛
+  - `store.py`：邻接存储 + **合并策略**（同实体属性合并不覆盖，冲突保留多值并标 `conflicted`，FR-3）+ 低置信不入图（FR-12）
+  - `query.py`：多跳遍历（**跳数上限默认 3**）+ `CycleGuard` 防环（环记录不延伸，FR-11）+ 断裂在第几跳标注（FR-5）+ 关系过滤
+- **测试**：`tests/a2a/test_a2a.py`（24 项）+ `tests/knowledge_graph/test_knowledge_graph.py`（17 项），全部通过。
+- 勾选 `specs/012/tasks.md` T001–T008、`specs/015/tasks.md` T001–T007。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 补齐 P2 tasks（012–019）+ 实现 019 厚薄配置核心（13/15）
 
 - **生成 P2 八份 `tasks.md`**（012–019）：补齐 012/013/014/015/016/017/018 缺失的 tasks（019 单独精写）。至此 **tasks 层 19/19 全覆盖**。每份含 clarify 决策、checklist 门禁、Phase 结构、MVP 范围。

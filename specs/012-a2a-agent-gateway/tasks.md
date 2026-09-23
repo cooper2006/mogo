@@ -16,20 +16,20 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 chat-api/app/a2a/ 包骨架 + 子模块
-- [ ] T002 定义核心数据模型/契约 schema
+- [x] T001 创建 chat-api/app/a2a/ 包骨架 + 子模块
+- [x] T002 定义核心数据模型/契约 schema
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
-- [ ] T004 [P] 实现声明式配置解析 + 校验
+- [x] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
+- [x] T004 [P] 实现声明式配置解析 + 校验
 
 ## Phase 3: User Story 1 (P1) — 对外暴露 AgentCard + JSON-RPC 端点
 
-- [ ] T005 实现 AgentCard 生成/注册（必含字段 + skills[]）
-- [ ] T006 实现 JSON-RPC 端点（message/send、tasks/get、tasks/result）
-- [ ] T007 实现任务幂等（同 task id 去重）
-- [ ] T008 US1 测试：AgentCard 可解析 + 任务全链路
+- [x] T005 实现 AgentCard 生成/注册（必含字段 + skills[]）
+- [x] T006 实现 JSON-RPC 端点（message/send、tasks/get、tasks/result）
+- [x] T007 实现任务幂等（同 task id 去重）
+- [x] T008 US1 测试：AgentCard 可解析 + 任务全链路
 
 ## Phase 4: User Story 2 (P2) — A2A 客户端（对外调用）
 
