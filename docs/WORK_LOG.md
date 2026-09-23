@@ -1,5 +1,10 @@
 # Work Log
 
+## 2026-07-08 创建待确认清单目录 docs/pending-review/
+
+- 按 AGENTS.md 代理操作规约中"无法判断的文件放入待确认清单"的约定，创建 `docs/pending-review/README.md`：定义收录规则（用途不明/疑似临时/与任务冲突/疑似废弃）、条目登记格式（路径/日期/发现者/疑点/建议/状态）、处置流程（用户拍板→代理执行→改 resolved）。
+- 当前无待确认条目，台账为空。未改动 services/apps 源码。
+
 ## 2026-07-08 引入 Spec Kit SDD 规约 + 合并代理操作规约
 
 - 初始化 specify-cli 1.0.8（claude skills 集成），生成 `.specify/`（模板/脚本/workflow）与 `.claude/skills/`（10 个 /speckit-* 技能；`.claude/` 按 .gitignore 不入库）。
