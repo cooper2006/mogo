@@ -1,5 +1,20 @@
 # Work Log
 
+## 2026-07-08 实现 007 LLM 网关韧性 failover MVP（tasks T001–T010）
+
+- **新增 `services/chat-api/app/llm/resilience/` 模块**（007 US1 failover + 退避）：
+  - `errors.py`：错误分类——可重试（429/5xx/408/timeout/连接错误）vs 不可重试（401/403 立即失败）；`AllProvidersFailedError` 携带各供应商失败原因（FR-10）
+  - `events.py`：韧性事件落 `token_usage_logs` **附加字段**（`failover_from`/`failover_to`/`degradation_step`/`degradation_reason`），不新增 collection；降级原因枚举（429/5xx/timeout/manual）
+  - `retry.py`：tenacity 指数退避 + 抖动原语（默认基数 1.5s/上限 30s/±10%/3 次，**沿用既有 `azure_gpt_image` 值**）；401/403 不重试
+  - `failover.py`：`ResilientLLMClient`（实现 `BaseLLMClient`）主/备供应商调度——可重试错误切备、不可重试立即抛、全失败聚合错误；**单供应商严格 no-op**（FR-9 向兼容）；流式 failover 仅在首块失败时切换（避免重复输出）
+  - `providers.py`：从声明式 `app/config/resilience.yaml` 构建 provider 列表；**配置缺失/无 providers 时回退单供应商 = 现状行为**（FR-8/FR-9）
+- **新增配置模板** `services/chat-api/app/config/resilience.yaml`（provider 顺序注释示例 + retry 默认值），默认不启用多供应商。
+- **测试**：新增 `services/chat-api/tests/llm/test_resilience.py`，**18 项全部通过**：错误分类（可/不可重试）、事件字段、降级原因枚举、failover 切备、单供应商 no-op、全失败聚合、**401 不 failover**、退避重试成功/不重试 auth/耗尽重抛、provider 配置解析与回退。
+  - 运行：`PYTHONPATH=. <venv>/bin/python -m pytest tests/llm/test_resilience.py -o asyncio_mode=auto`
+- **可测试性设计**：resilience 模块不顶层依赖 `llm.factory`/motor（延迟 import），使其可独立单测。
+- 勾选 `specs/007-llm-gateway-resilience/tasks.md` 的 T001–T010（MVP 范围）。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 001 gatekeeper MVP（tasks T001–T014，六层链骨架跑通）
 
 - **新增 `services/admin-api/app/governance/` 模块**（001 六层门禁的依赖底座）：

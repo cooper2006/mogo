@@ -21,10 +21,10 @@
 
 **Goal**: 在 `llm/` 下搭 resilience 子模块骨架，作为 failover/降级/退避/事件的共同载体。
 
-- [ ] T001 创建 `services/chat-api/app/llm/resilience/__init__.py`（导出韧性调度入口）
-- [ ] T002 创建 `resilience/errors.py`：韧性错误分类（可重试：429/5xx/超时；不可重试：401/403；链耗尽错误）
-- [ ] T003 创建 `resilience/events.py`：failover/降级/重试事件结构（`failover_from`/`failover_to`/`degradation_step`/`reason`），落 `token_usage_logs` 附加字段
-- [ ] T004 创建韧性调度器 `resilience/failover.py` 占位（主/备供应商调度接口），与既有 `model_router.py` 的"选择语义"对接（保留 intent/stage/node 优先级）
+- [x] T001 创建 `services/chat-api/app/llm/resilience/__init__.py`（导出韧性调度入口）
+- [x] T002 创建 `resilience/errors.py`：韧性错误分类（可重试：429/5xx/超时；不可重试：401/403；链耗尽错误）
+- [x] T003 创建 `resilience/events.py`：failover/降级/重试事件结构（`failover_from`/`failover_to`/`degradation_step`/`reason`），落 `token_usage_logs` 附加字段
+- [x] T004 创建韧性调度器 `resilience/failover.py` 占位（主/备供应商调度接口），与既有 `model_router.py` 的"选择语义"对接（保留 intent/stage/node 优先级）
 
 ---
 
@@ -32,8 +32,8 @@
 
 **Goal**: 建立被各故事依赖的基础设施（provider 抽象、重试原语）。
 
-- [ ] T005 [P] 抽象 provider 调用统一入口：把 `llm/providers/`（azure_openai/azure_responses/azure_gpt_image/default_openai/qwen）封装为可 failover 的"主/备调用单元"（统一超时/错误分类）
-- [ ] T006 [P] 实现指数退避原语 `resilience/retry.py`：tenacity（基数 1.5s/上限 30s/±10% 抖动/重试 3 次，均可配）+ 可/不可重试判定 + 401/403 立即失败
+- [x] T005 [P] 抽象 provider 调用统一入口：把 `llm/providers/`（azure_openai/azure_responses/azure_gpt_image/default_openai/qwen）封装为可 failover 的"主/备调用单元"（统一超时/错误分类）
+- [x] T006 [P] 实现指数退避原语 `resilience/retry.py`：tenacity（基数 1.5s/上限 30s/±10% 抖动/重试 3 次，均可配）+ 可/不可重试判定 + 401/403 立即失败
 
 ---
 
@@ -42,10 +42,10 @@
 **Goal**: 主供应商失败自动切备，事件可观测，单供应商行为不变。
 **独立测试**: 主 500/超时→切备成功；主备均失败→聚合错误；单供应商→行为与现状一致。
 
-- [ ] T007 实现 `failover.py` 主/备调度：按配置主/备顺序执行，主失败（可重试类）切备（复用 T005 抽象 + T006 退避）
-- [ ] T008 failover 事件记录：切换事件落 `token_usage_logs`（供应商/耗时/失败原因/最终命中，复用 T003）
-- [ ] T009 单供应商回归测试：仅配置一个供应商时 failover 为 no-op，行为与现状 0 破坏（Success 基准）
-- [ ] T010 failover 集成测试：主失败切备成功 + 主备均失败聚合错误两组 Acceptance
+- [x] T007 实现 `failover.py` 主/备调度：按配置主/备顺序执行，主失败（可重试类）切备（复用 T005 抽象 + T006 退避）
+- [x] T008 failover 事件记录：切换事件落 `token_usage_logs`（供应商/耗时/失败原因/最终命中，复用 T003）
+- [x] T009 单供应商回归测试：仅配置一个供应商时 failover 为 no-op，行为与现状 0 破坏（Success 基准）
+- [x] T010 failover 集成测试：主失败切备成功 + 主备均失败聚合错误两组 Acceptance
 
 ---
 

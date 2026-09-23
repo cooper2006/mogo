@@ -1,0 +1,29 @@
+# LLM gateway resilience configuration (feature 007).
+#
+# Declares the provider order (primary -> backups) and the backoff retry policy.
+# When this file is ABSENT or declares no `providers`, the resilience layer
+# degrades to a single provider built from the existing LLM factory — i.e. the
+# current behavior is preserved for single-provider deployments (FR-9).
+#
+# Text LLM calls only; image generation keeps its own retry (clarify OQ-3).
+
+# Ordered provider list: the first entry is the primary, the rest are backups.
+# Uncomment and fill in to enable failover. `kind` is informational; the client
+# is built through the existing `get_llm_client(model_name=...)` factory.
+#
+# providers:
+#   - name: primary
+#     kind: default          # default | azure | qwen
+#     model: gpt-5.2
+#   - name: backup
+#     kind: azure
+#     model: gpt-5.2
+
+# Backoff retry policy (Uses tenacity). Defaults match `azure_gpt_image` so
+# behavior does not drift:
+#   base 1.5s, cap 30s, jitter ~+/-10%, max 3 attempts.
+retry:
+  base_seconds: 1.5
+  max_seconds: 30.0
+  max_attempts: 3
+  jitter_seconds: 0.15

@@ -1,0 +1,29 @@
+"""LLM gateway resilience (feature 007).
+
+Wraps the existing ``llm/providers`` clients with:
+
+* provider **failover** (primary -> backup) — US1;
+* **degradation chain** (high -> mid -> light text model) — US2;
+* exponential **backoff retry** (tenacity) — US3;
+* metering of failover / degradation / retry events into ``token_usage_logs``.
+
+Text LLM calls only; image generation keeps its own retry inside
+``azure_gpt_image`` (clarify OQ-3).
+"""
+
+from __future__ import annotations
+
+from .errors import (
+    NonRetryableLLMError,
+    RetryableLLMError,
+    classify_error,
+)
+from .failover import FailoverResult, ResilientLLMClient
+
+__all__ = [
+    "NonRetryableLLMError",
+    "RetryableLLMError",
+    "classify_error",
+    "FailoverResult",
+    "ResilientLLMClient",
+]
