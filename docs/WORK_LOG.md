@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 实现 011 Dream Cycle 自进化核心（tasks T001–T004）
+
+- **新增 `services/chat-api/app/self_evolution/`**（依赖轻，可脱离 DB/运行时单测）：
+  - `fragment.py`：经验片段模型（场景特征/动作序列/结果/时间戳/来源会话 ID/用户反馈，FR-2）+ 内存 `FragmentStore`（按租户隔离）
+  - `friction.py`：friction 检测——**默认自动捕获**"失败后成功（重试≥1）"与"人工纠正"，"用户显式标记"**仅主动触发**；优先级 显式标记 > 人工纠正 > 失败后成功（clarify OQ-1）
+  - `similarity.py`：**Jaccard**（场景 token 集合，归一化大小写/空白）+ **Levenshtein 编辑距离**（动作序列）+ `is_high_confidence`（Jaccard ≥0.7 且样本 ≥5，clarify OQ-3）+ 贪心 `cluster_by_similarity`（首期不引入向量库）
+- **测试**：新增 `services/chat-api/tests/self_evolution/test_self_evolution.py`，**22 项全部通过**：三类 friction 捕获与优先级、自动捕获集合、批量检测、Jaccard（相同/部分/归一化/空）、编辑距离（相同/替换/增删）、归一化相似度边界、高置信阈值、默认常量、聚类分组、片段 store（id/租户隔离/document 字段）。
+- 勾选 `specs/011-dream-cycle-self-evolution/tasks.md` 的 T001–T004；T005+（捕获接入/扫描/草稿/MR/淘汰）待后续。
+- **P1 全部特性（002/009/010/011）核心已落地**。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 010 通用 DAG 引擎核心（tasks T001/T002/T004/T005）
 
 - **新增 `services/chat-api/app/orchestration/`**（依赖轻，可脱离 DB/运行时单测）：

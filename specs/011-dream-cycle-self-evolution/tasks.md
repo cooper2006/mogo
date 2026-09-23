@@ -20,13 +20,13 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 `services/chat-api/app/self_evolution/__init__.py` + 子模块骨架（friction/scanner/draft_gen/mr/deprecation）
-- [ ] T002 实现经验片段模型（场景特征向量/动作序列/结果/时间戳/来源会话 ID/用户反馈）+ 存储集合
+- [x] T001 创建 `services/chat-api/app/self_evolution/__init__.py` + 子模块骨架（friction/scanner/draft_gen/mr/deprecation）
+- [x] T002 实现经验片段模型（场景特征向量/动作序列/结果/时间戳/来源会话 ID/用户反馈）+ 存储集合
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T003 [P] 实现 `friction.py`：friction 检测（默认捕获失败后成功 + 人工纠正；用户显式标记需主动触发）
-- [ ] T004 [P] 实现相似度算法（Jaccard + 编辑距离双指标，首期集合/序列特征，不引入向量库）
+- [x] T003 [P] 实现 `friction.py`：friction 检测（默认捕获失败后成功 + 人工纠正；用户显式标记需主动触发）
+- [x] T004 [P] 实现相似度算法（Jaccard + 编辑距离双指标，首期集合/序列特征，不引入向量库）
 
 ## Phase 3: User Story 1 (P1) — friction 捕获经验片段
 
