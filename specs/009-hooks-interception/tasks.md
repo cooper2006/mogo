@@ -19,23 +19,23 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 `services/chat-api/app/dsh_runtime/hooks/__init__.py` + 子模块骨架（registry/engine/rules/timeout/integration）
-- [ ] T002 实现 `rules.py`：声明式规则 schema（`hook_rules{scope, rule_type, rule_config, enabled}`）+ 校验
+- [x] T001 创建 `services/chat-api/app/dsh_runtime/hooks/__init__.py` + 子模块骨架（registry/engine/rules/timeout/integration）
+- [x] T002 实现 `rules.py`：声明式规则 schema（`hook_rules{scope, rule_type, rule_config, enabled}`）+ 校验
 - [ ] T003 实现 `registry.py`：五事件注册/查找（SessionStart/PreToolUse/PostToolUse/SessionEnd/MemoryCommit；首期仅启用 PreToolUse）
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T004 [P] 实现 `timeout.py`：超时保护（默认 5s，复用 `ExecutionTimeoutPolicy` 模式）+ fail_closed（超时/异常/解析失败均拒绝，不可配放行）
-- [ ] T005 [P] 实现 `engine.py` 规则求值核心：先按作用域（工具>会话>租户）再按类型（deny>require>observe），deny 命中短路
+- [x] T004 [P] 实现 `timeout.py`：超时保护（默认 5s，复用 `ExecutionTimeoutPolicy` 模式）+ fail_closed（超时/异常/解析失败均拒绝，不可配放行）
+- [x] T005 [P] 实现 `engine.py` 规则求值核心：先按作用域（工具>会话>租户）再按类型（deny>require>observe），deny 命中短路
 
 ## Phase 3: User Story 1 (P1) — PreToolUse 声明式规则（首期核心）
 
 **Goal**: deny_tool / require_field / observe 三类规则生效；规则变更即时生效。
 **独立测试**: deny 命中拒绝（403，与门禁拒绝区分）；require_field 缺字段拒绝；observe 只记录不拦截。
 
-- [ ] T006 实现 deny_tool 规则求值 + 拒绝返回（403 + "被钩子规则拒绝"提示，与门禁拒绝区分）
-- [ ] T007 实现 require_field 规则求值（请求缺必填字段 → 拒绝）
-- [ ] T008 实现 observe 规则（仅记录，不改拦截结果）
+- [x] T006 实现 deny_tool 规则求值 + 拒绝返回（403 + "被钩子规则拒绝"提示，与门禁拒绝区分）
+- [x] T007 实现 require_field 规则求值（请求缺必填字段 → 拒绝）
+- [x] T008 实现 observe 规则（仅记录，不改拦截结果）
 - [ ] T009 实现 `integration.py`：挂载 PreToolUse 到 `turn_admission.admit_skill_selection`（工具调用前求值）
 - [ ] T010 US1 测试：三类规则 Acceptance + 规则即时生效
 

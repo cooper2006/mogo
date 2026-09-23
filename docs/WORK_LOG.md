@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 实现 009 五事件钩子 PreToolUse 核心（tasks T001/T002/T004–T008）
+
+- **新增 `services/chat-api/app/dsh_runtime/hooks/`**（依赖轻，可脱离 DB 单测）：
+  - `rules.py`：声明式规则 schema（`hook_rules{scope∈tool/session/tenant, rule_type∈deny_tool/require_field/observe, rule_config, enabled}`）+ 解析；**解析失败 fail-closed**（未知 scope/rule_type、缺字段、非对象均抛 `RuleParseError`）；作用域优先级 tool>session>tenant
+  - `timeout.py`：超时保护（默认 5s，`hook_timeout_seconds` 可配）+ `HookTimeout`；**fail_closed 不可配放行**；共享延迟预算（FR-13）
+  - `engine.py`：PreToolUse 规则求值——先按作用域再按类型排序，**deny 短路优先于 require**，require_field 缺字段拒绝，observe 仅记录；malformed 规则 fail_closed；拒绝返回 403（与门禁拒绝区分）
+- **测试**：新增 `services/chat-api/tests/dsh_runtime/test_hooks.py`，**20 项全部通过**：规则解析（合法/未知 scope/未知类型/缺字段/非对象/禁用跳过）、排序、deny 拦截/仅匹配目标工具、require_field 缺/有字段、observe 不拦截、deny 短路优先、malformed fail-closed、超时（默认 5s/正常/超时抛出/预算）。
+- **测试基建**：新增 `services/chat-api/tests/conftest.py`——**仅当 motor 不可用时**注入 stub（正常环境 no-op）；另在 DSH runtime 包 init 无法导入时将其降级为命名空间包（保留 `__path__`），使 hooks 纯逻辑测试可独立运行。
+- 勾选 `specs/009-hooks-interception/tasks.md` 的 T001/T002/T004–T008；T003（registry）/T009（integration 挂载 turn_admission）/T010+ 待后续。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 002 会话版本化核心纯逻辑（tasks T001/T004/T005/T006）
 
 - **新增 `services/chat-api/app/services/session_versioning/`**（依赖轻，可脱离 DB 单测）：
