@@ -1,5 +1,17 @@
 # Work Log
 
+## 2026-07-08 补齐 P2 tasks（012–019）+ 实现 019 厚薄配置核心（13/15）
+
+- **生成 P2 八份 `tasks.md`**（012–019）：补齐 012/013/014/015/016/017/018 缺失的 tasks（019 单独精写）。至此 **tasks 层 19/19 全覆盖**。每份含 clarify 决策、checklist 门禁、Phase 结构、MVP 范围。
+- **实现 `services/chat-api/app/harness_config/`（019）**（依赖轻，可脱离 DB 单测）：
+  - `layer_switch.py`：六层规范序 + 可省层（approval/quota）+ 必需层（identity/rbac/redaction/audit）；`resolve_layers` 厚=全六层、薄=省审批+配额、显式列表按规范序
+  - `floor.py`：底线守护——禁用必需层/关审计 → `FloorViolation`；R4 任意模式 deny；薄模式最小审计四元组 + `audit_covers_floor` 校验（FR-5/6/8）
+  - `profile.py`：厚度 profile（scope+mode+启用层+审计粒度+超时）+ `ProfileResolver` **维度优先级 场景>租户>工具**、未配置回退**默认厚模式**（FR-3/FR-8 + clarify OQ-1/OQ-5）
+- **测试**：新增 `services/chat-api/tests/harness_config/test_harness_config.py`，**18 项全部通过**：厚/薄层集合、可省层集合、显式列表排序、底线守护（必需层/审计）、R4 全模式 deny、最小审计四元组与校验、默认厚、三维优先级、逐调用切换、非法薄化拒绝、审计粒度。
+- 勾选 `specs/019-harness-elastic-config/tasks.md` 的 T001–T013（13/15）。
+- 更新 `specs/INDEX.md`：tasks 行 → 19/19；新增"实现进度"行。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 011 Dream Cycle 自进化核心（tasks T001–T004）
 
 - **新增 `services/chat-api/app/self_evolution/`**（依赖轻，可脱离 DB/运行时单测）：
