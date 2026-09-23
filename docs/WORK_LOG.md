@@ -35,6 +35,10 @@
 - `dream_cycle/runner.py`（T001-T008）、`friction.py`（T005-T006）、`mr.py`（T011-T012）、`deprecation.py`（T014-T015 与 016 共用 `marked_low_quality`）、`evolution_audit.py`（T017 全链路审计 + T018 可配置）。
 - 测试：`test_dream_cycle.py` 12 + `test_dream_evolution.py` 13 + `test_dream_audit_config.py` 7；quickstart + `contracts/self-evolution.md`。
 
+### 012 a2a-agent-gateway
+- `app/a2a/client.py`（T009 出站客户端：30s 超时 + failover + 复用 007 退避；治理拒绝 `-32000` 不重试不 failover，立即透出错误码）。
+- 测试：`tests/test_a2a_client_012.py` 7 项（US2 出站调用 + 错误码映射 + failover + 拒绝短路）；`quickstart.md` + `contracts/a2a-gateway.md`（JSON-RPC 方法/错误码映射/超时与 failover 契约）。
+
 ### 013/014/015/016/017/018/019
 - 014 `business_semantic_index.py`（T007 复用 005 检索客户端 + 引用锚点）。
 - 017 `memory/retrieval.py`（T010-T011 记忆进 RAG 按 scope 过滤 + 升级/衰减/检索）。
@@ -44,10 +48,10 @@
 - 测试：`test_014_017_semantic_memory.py` 12 + `test_capability_asset_us2.py` 7 + `test_t999_audit_t998_docs.py` 7。
 
 ### 验证
-- chat-api：`tests/services/ + tests/test_hooks_009.py + tests/llm/` **305 项通过**（仅 `tests/llm/test_decision_turn.py` 收集错误为预存问题——`_DecisionSchema` 不在 planner 中，与本轮改动无关，已 `--ignore` 跳过）。
+- chat-api：`tests/services/ + tests/test_hooks_009.py + tests/test_a2a_client_012.py + tests/llm/` **313 项通过**（仅 `tests/llm/test_decision_turn.py` 收集错误为预存问题——`_DecisionSchema` 不在 planner 中，与本轮改动无关，已 `--ignore` 跳过）。
 - admin-api：全量 **236 项通过**。
 - admin-web：`pnpm build` 通过（含四维标签页）。
-- 勾选 `specs/001/002/007/008/009/010/011/013/014/015/016/017/018/019` tasks.md 全部未勾项（各特性 remaining=[]）。
+- 勾选 `specs/001/002/007/008/009/010/011/012/013/014/015/016/017/018/019` tasks.md 全部未勾项（各特性 remaining=[]）。
 
 ## 2026-07-08 深化 007 降级链 + 015 一致性约束 + 014 跨系统对齐
 

@@ -6,8 +6,6 @@ import pytest
 
 from app.im_gateway.audit import IM_AUDIT_EVENTS, im_audit_document, record_im_event
 from app.services.feature_audit import FEATURE_AUDIT_EVENTS, audit_document, record_feature_event
-
-
 def test_im_audit_events():
     assert set(IM_AUDIT_EVENTS) == {"im.enter", "im.leave", "im.deliver", "im.fail"}
     captured: list[dict] = []
@@ -36,7 +34,8 @@ def test_im_unknown_event_rejected():
 
 
 def test_feature_audit_events_per_feature():
-    # Each of 014/015/016/017/018 exposes a known event set.
+    # 012/014/015/016/017/018 each expose a known event set.
+    assert "a2a.outbound" in FEATURE_AUDIT_EVENTS["012"]
     assert "entity.indexed" in FEATURE_AUDIT_EVENTS["014"]
     assert "kg.mutated" in FEATURE_AUDIT_EVENTS["015"]
     assert "skill.quality.marked" in FEATURE_AUDIT_EVENTS["016"]
@@ -51,6 +50,18 @@ def test_feature_audit_events_per_feature():
     record_feature_event("014", "entity.indexed", {"entity_id": "c1"}, sink=fake_sink)
     assert captured[0][0] == "entity.indexed"
     assert captured[0][1]["feature"] == "014"
+
+
+def test_a2a_audit_event_records_outbound():
+    captured: list[tuple[str, dict]] = []
+
+    def fake_sink(event, record):
+        captured.append((event, record))
+
+    record_feature_event("012", "a2a.outbound", {"agent": "primary", "task_id": "t-1"}, sink=fake_sink)
+    assert captured[0][0] == "a2a.outbound"
+    assert captured[0][1]["feature"] == "012"
+    assert captured[0][1]["task_id"] == "t-1"
 
 
 def test_feature_audit_unknown_feature_rejected():
@@ -76,6 +87,7 @@ def test_all_quickstart_and_contracts_exist():
     here = Path(__file__).resolve().parents[3]
     repo_root = here.parent  # services/ -> repo root
     required = [
+        ("specs/012-a2a-agent-gateway/quickstart.md", "contracts/a2a-gateway.md"),
         ("specs/013-multi-im-entry/quickstart.md", None),
         ("specs/014-business-semantic-index/quickstart.md", None),
         ("specs/015-knowledge-graph-layer/quickstart.md", None),

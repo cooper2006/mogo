@@ -33,14 +33,14 @@
 
 ## Phase 4: User Story 2 (P2) — A2A 客户端（对外调用）
 
-- [ ] T009 实现客户端封装（超时 30s + failover + 复用 007 退避）
-- [ ] T010 US2 测试：出站调用 + 错误码映射
+- [x] T009 实现客户端封装（超时 30s + failover + 复用 007 退避）
+- [x] T010 US2 测试：出站调用 + 错误码映射
 
 
 ## Polish & Cross-Cutting Concerns
 
-- [ ] T999 [P] 审计/可观测接入
-- [ ] T998 写 `quickstart.md` + `contracts/` 契约文档
+- [x] T999 [P] 审计/可观测接入
+- [x] T998 写 `quickstart.md` + `contracts/` 契约文档
 
 ---
 

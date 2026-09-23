@@ -15,6 +15,7 @@ from typing import Any, Callable, Optional
 AuditSink = Callable[[str, dict[str, Any]], Any]
 
 FEATURE_AUDIT_EVENTS: dict[str, tuple[str, ...]] = {
+    "012": ("a2a.outbound", "a2a.inbound", "a2a.denied"),
     "014": ("entity.indexed", "entity.searched"),
     "015": ("kg.mutated", "kg.conflict.resolved", "kg.audited"),
     "016": ("skill.quality.marked", "skill.quality.restored"),
