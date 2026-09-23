@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 实现 010 通用 DAG 引擎核心（tasks T001/T002/T004/T005）
+
+- **新增 `services/chat-api/app/orchestration/`**（依赖轻，可脱离 DB/运行时单测）：
+  - `graph.py`：DAG 节点/边模型——节点含 mode/条件/重试配置；校验（空 id、重复节点、边引用不存在、自环）；`downstream_closure`（**传递下游闭包**，用于失败阻塞 FR-6）；`roots`
+  - `topo.py`：Kahn 拓扑排序（确定性 tie-break）+ DFS 环检测，**环以节点 ID 序列报出**（`A -> B -> C -> A`，FR-3）
+  - `conditions.py`：受限 JSON 条件对象求值——算子 `== != > >= < <= in has` + `and/or/not`，支持 `{"var": "path"}` 引用**嵌套上下文**；**禁用任意代码**（未知算子直接 fail-closed）；语法/取值错误抛 `ConditionError`（FR-4 + clarify OQ-1/OQ-5）
+- **发现并修复一个缺陷**：`_resolve` 把无 `op` 的**字面量字典**（如 `{"k": 1}`）误判为非法 operand 而抛错；改为无 `var`/`op` 的字典按字面量返回。
+- **测试**：新增 `services/chat-api/tests/orchestration/test_orchestration.py`，**23 项全部通过**：图校验/闭包/roots、拓扑顺序/确定性、二节点与三节点环检测（含环路径）、条件等值/序关系/in/has/嵌套 var/逻辑运算/未知算子/缺操作数/非列表 operands/禁代码注入。
+- 勾选 `specs/010-dag-orchestration-engine/tasks.md` 的 T001/T002/T004/T005；T003（registry）/T006（执行器）/T007-T022 待后续。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 009 五事件钩子 PreToolUse 核心（tasks T001/T002/T004–T008）
 
 - **新增 `services/chat-api/app/dsh_runtime/hooks/`**（依赖轻，可脱离 DB 单测）：

@@ -19,14 +19,14 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 `services/chat-api/app/orchestration/__init__.py` + 子模块骨架（graph/topo/engine/conditions/retry/registry）
-- [ ] T002 实现 `graph.py`：DAG 节点/边模型（节点数据传递 = 上游输出写共享上下文，下游按 key 读取）
+- [x] T001 创建 `services/chat-api/app/orchestration/__init__.py` + 子模块骨架（graph/topo/engine/conditions/retry/registry）
+- [x] T002 实现 `graph.py`：DAG 节点/边模型（节点数据传递 = 上游输出写共享上下文，下游按 key 读取）
 - [ ] T003 实现 `registry.py`：编排定义声明式管理（节点/边/条件/重试 + `version` 版本字段）
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T004 [P] 实现 `topo.py`：拓扑排序 + 环检测（环报错含环路径，格式 = 节点 ID 序列 `A → B → C → A`）
-- [ ] T005 [P] 实现 `conditions.py`：JSON 条件对象求值器（受限算子，禁任意代码）+ 语法错误 fail_closed（跳过 + 审计）
+- [x] T004 [P] 实现 `topo.py`：拓扑排序 + 环检测（环报错含环路径，格式 = 节点 ID 序列 `A → B → C → A`）
+- [x] T005 [P] 实现 `conditions.py`：JSON 条件对象求值器（受限算子，禁任意代码）+ 语法错误 fail_closed（跳过 + 审计）
 
 ## Phase 3: User Story 1 (P1) — graph 模式执行（拓扑 + 并行）
 
