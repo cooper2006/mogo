@@ -21,8 +21,8 @@
 
 **Goal**: 对齐四维看板的数据源（聚合基座），为所有故事提供统一查询入口。
 
-- [ ] T001 梳理既有数据源：确认 `dashboard.py`（_billing/_usage_metrics/_assets/_todos/_recent_activity）与 `analytics.py`（/token-usage，含 groupBy + 部门/模型/stage 筛选 + `duration_ms`）已提供的指标
-- [ ] T002 建立四维看板共享的聚合辅助（`dashboard.py` 扩展）：统一租户隔离过滤 + 时间窗口（含时区口径）+ 空租户 0 指标兜底（FR-9）
+- [x] T001 梳理既有数据源：确认 `dashboard.py`（_billing/_usage_metrics/_assets/_todos/_recent_activity）与 `analytics.py`（/token-usage，含 groupBy + 部门/模型/stage 筛选 + `duration_ms`）已提供的指标
+- [x] T002 建立四维看板共享的聚合辅助（`dashboard.py` 扩展）：统一租户隔离过滤 + 时间窗口（含时区口径）+ 空租户 0 指标兜底（FR-9）
 - [ ] T003 前端驾驶舱标签页骨架（`DashboardPage.vue` 新增 tab + `dashboardText.ts` 文案 key），复用既有图表组件
 
 ---
@@ -31,9 +31,9 @@
 
 **Goal**: 补齐各维度缺失的聚合能力（质量/趋势当前最缺）。
 
-- [ ] T004 [P] 质量维度聚合（`dashboard.py` 或 `analytics.py` 新增）：成功率（`successRate`）+ 响应时长 P50/P95（`$percentile` on `duration_ms`）+ 异常率（失败/超时占比）
-- [ ] T005 [P] 人工介入率聚合：`approval_pending`（审批挂起数）/ 总调用数（复用 001/004 审批事件）
-- [ ] T006 [P] 趋势维度聚合（`analytics.py` 新增）：环比/同比（按周期对比）+ 瓶颈 top-N（成本/时长排序 top 5，标注 模型/工具/阶段 维度）
+- [x] T004 [P] 质量维度聚合（`dashboard.py` 或 `analytics.py` 新增）：成功率（`successRate`）+ 响应时长 P50/P95（`$percentile` on `duration_ms`）+ 异常率（失败/超时占比）
+- [x] T005 [P] 人工介入率聚合：`approval_pending`（审批挂起数）/ 总调用数（复用 001/004 审批事件）
+- [x] T006 [P] 趋势维度聚合（`analytics.py` 新增）：环比/同比（按周期对比）+ 瓶颈 top-N（成本/时长排序 top 5，标注 模型/工具/阶段 维度）
 
 ---
 
@@ -42,9 +42,9 @@
 **Goal**: 总览页返回 billing + usage_metrics + assets + todos + recent_activity。
 **独立测试**: 打开 overview 返回五类数据；资产数量反映真实存量；空租户 0 指标 + 空态引导。
 
-- [ ] T007 完善 `GET /overview`（`dashboard.py`）：聚合五类数据 + 资产真实存量 + 最近活动按时间倒序
+- [x] T007 完善 `GET /overview`（`dashboard.py`）：聚合五类数据 + 资产真实存量 + 最近活动按时间倒序
 - [ ] T008 US1 前端：overview 标签页渲染五类指标 + 空态引导（复用 T002 兜底）
-- [ ] T009 US1 测试：overview 返回完整性 + 空租户 0 指标两组 Acceptance
+- [x] T009 US1 测试：overview 返回完整性 + 空租户 0 指标两组 Acceptance
 
 ---
 

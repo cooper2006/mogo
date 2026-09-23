@@ -1,5 +1,25 @@
 # Work Log
 
+## 2026-07-08 实现 008 运营驾驶舱后端 MVP（tasks T001/T002/T004–T007/T009）
+
+- **新增 `services/admin-api/app/api/dashboard_metrics.py`**：四维看板共享聚合辅助（纯逻辑，可脱离 DB 单测）——
+  - 租户隔离 `tenant_match`（FR-7）+ UTC 时间窗口 `window_start`/`previous_window`（FR-3）
+  - 质量维度 `build_quality_section`（成功率/异常率/人工介入率/P50/P95，空租户返回 None 不报错，FR-9）
+  - 趋势维度 `build_trend_section`（环比/同比 delta）+ `bottleneck_top_n`（成本/时长排序 top-5，标注维度）
+  - `percentile_stage`/`extract_percentiles`：**从 `start_time`/`end_time`（epoch ms）内联计算 duration** 再取 $percentile（`token_usage_logs` 无 duration_ms 字段）
+- **扩展 `services/admin-api/app/api/routes/dashboard.py`**：
+  - 新增 `_quality_metrics`（US4/FR-4）：成功率 + 异常率（failed+timeout+error 合并）+ P50/P95 + 平均时长；`$percentile` 不可用时降级为仅平均
+  - 新增 `_approval_pending_count`：审批挂起数（无持久审批集合时优雅降级为 0）
+  - 新增 `_trend_metrics`（US5/FR-5）：环比/同比 + 瓶颈 top-5（按模型聚合，成本/时长排序）
+  - `/overview` 接入 `quality` + `trend` 两节（原有 billing/metrics/assets/todos/recentActivity 保留）
+- **测试**：
+  - `tests/test_dashboard_metrics.py`（18 项）：租户隔离/UTC 窗口/rate 空值/质量节/趋势 delta/瓶颈排序/百分位提取
+  - `tests/test_dashboard_routes.py`（6 项）：质量聚合（空租户/计算/租户作用域）、趋势聚合（空值/瓶颈排序）、审批降级
+  - `tests/conftest.py`：**仅当 motor 不可用时**注入 stub（正常环境 no-op），使纯逻辑测试可在不支持 motor 的解释器上运行
+- **验证**：admin-api 52 项 + chat-api 18 项 = **70 项测试全部通过**。
+- 勾选 `specs/008-ops-dashboard/tasks.md` 的 T001/T002/T004–T007/T009（后端 MVP）；T003/T008（前端 Vue）与 T010–T027 待后续。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 007 LLM 网关韧性 failover MVP（tasks T001–T010）
 
 - **新增 `services/chat-api/app/llm/resilience/` 模块**（007 US1 failover + 退避）：

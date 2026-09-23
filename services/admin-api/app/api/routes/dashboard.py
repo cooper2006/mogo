@@ -7,6 +7,17 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_current_admin_user
+from app.api.dashboard_metrics import (
+    DEFAULT_PERIOD_DAYS,
+    build_quality_section,
+    build_trend_section,
+    bottleneck_top_n,
+    extract_percentiles,
+    percentile_stage,
+    previous_window,
+    tenant_match,
+    window_start,
+)
 from app.core.db import get_db
 from app.core.product_edition import billing_enabled, is_community_organization, member_limit
 from app.repositories.directory_repository import DEPARTMENT_COLLECTION, USER_COLLECTION, USER_ORG_REL_COLLECTION
@@ -179,6 +190,212 @@ async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[di
     )
 
 
+async def _quality_metrics(db: Any, main_id: str) -> dict[str, Any]:
+    """Quality dimension (008 US4 / FR-4): success / anomaly / latency / manual.
+
+    P50/P95 are computed from ``start_time``/``end_time`` (epoch millis) via
+    Mongo ``$percentile``. Manual-intervention rate uses the approval-pending
+    count when the persistent approval store is present; the in-memory
+    ``ApprovalRuntime`` has no durable collection, so it degrades to ``None``
+    (an honest "not measurable here") rather than reporting a fabricated 0%.
+    """
+    usage_coll = db[TOKEN_USAGE_COLLECTION]
+    match = tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))
+
+    totals = await usage_coll.aggregate(
+        [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": None,
+                    "calls": {"$sum": 1},
+                    "failed": {"$sum": {"$cond": [{"$eq": ["$status", "failed"]}, 1, 0]}},
+                    "anomalies": {
+                        "$sum": {
+                            "$cond": [
+                                {"$in": [{"$toLower": {"$ifNull": ["$status", ""]}}, ["failed", "timeout", "error"]]},
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                    "duration_sum": {
+                        "$sum": {
+                            "$max": [
+                                0,
+                                {"$subtract": [{"$ifNull": ["$end_time", 0]}, {"$ifNull": ["$start_time", 0]}]},
+                            ]
+                        }
+                    },
+                    "timed_calls": {
+                        "$sum": {
+                            "$cond": [
+                                {
+                                    "$and": [
+                                        {"$gt": [{"$ifNull": ["$start_time", 0]}, 0]},
+                                        {"$gt": [{"$ifNull": ["$end_time", 0]}, 0]},
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                }
+            },
+        ]
+    ).to_list(length=1)
+
+    total_calls = int(totals[0].get("calls") or 0) if totals else 0
+    failed_calls = int(totals[0].get("failed") or 0) if totals else 0
+    anomaly_calls = int(totals[0].get("anomalies") or 0) if totals else 0
+    duration_sum = int(totals[0].get("duration_sum") or 0) if totals else 0
+    timed_calls = int(totals[0].get("timed_calls") or 0) if totals else 0
+    avg_ms = int(duration_sum / timed_calls) if timed_calls else None
+
+    p50_ms: int | None = None
+    p95_ms: int | None = None
+    try:
+        percentile_rows = await usage_coll.aggregate(
+            [{"$match": match}, {"$match": {"end_time": {"$gt": 0}}}, percentile_stage("duration_ms")]
+        ).to_list(length=1)
+        p50_ms, p95_ms = extract_percentiles(percentile_rows[0] if percentile_rows else None)
+    except Exception:
+        # Older Mongo without $percentile: fall back to the average only.
+        p50_ms, p95_ms = None, None
+
+    approval_pending = await _approval_pending_count(db, main_id)
+
+    return build_quality_section(
+        total_calls=total_calls,
+        failed_calls=failed_calls,
+        anomaly_calls=anomaly_calls,
+        approval_pending=approval_pending,
+        p50_ms=p50_ms,
+        p95_ms=p95_ms,
+        avg_ms=avg_ms,
+    )
+
+
+async def _approval_pending_count(db: Any, main_id: str) -> int:
+    """Count pending approvals, if a persistent approval store exists.
+
+    Returns 0 when the collection is absent so the rate degrades gracefully
+    instead of erroring (the runtime approvals live in memory, not Mongo).
+    """
+    for collection_name in ("approval_requests", "approval_events"):
+        try:
+            collection = db[collection_name]
+            return int(
+                await collection.count_documents({"main_id": main_id, "status": "pending"})
+            )
+        except Exception:
+            continue
+    return 0
+
+
+async def _trend_metrics(db: Any, main_id: str, *, current_cost: float) -> dict[str, Any]:
+    """Trend dimension (008 US5 / FR-5): 环比 / 同比 + bottleneck top-5."""
+    usage_coll = db[TOKEN_USAGE_COLLECTION]
+    prev_start, prev_end = previous_window(DEFAULT_PERIOD_DAYS)
+
+    async def _cost_calls(start: datetime, end: datetime) -> tuple[float, int]:
+        rows = await usage_coll.aggregate(
+            [
+                {
+                    "$match": {
+                        "main_id": main_id,
+                        "created_at": {"$gte": start, "$lt": end},
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$model_name",
+                        "calls": {"$sum": 1},
+                        "prompt_tokens": {"$sum": {"$ifNull": ["$prompt_tokens", 0]}},
+                        "completion_tokens": {"$sum": {"$ifNull": ["$completion_tokens", 0]}},
+                    }
+                },
+            ]
+        ).to_list(length=1000)
+        cost = 0.0
+        calls = 0
+        for row in rows:
+            calls += int(row.get("calls") or 0)
+            cost += _cost(
+                str(row.get("_id") or ""),
+                int(row.get("prompt_tokens") or 0),
+                int(row.get("completion_tokens") or 0),
+            )
+        return cost, calls
+
+    prev_cost, prev_calls = await _cost_calls(prev_start, prev_end)
+    current_calls = 0
+    for row in await usage_coll.aggregate(
+        [
+            {"$match": tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))},
+            {"$group": {"_id": None, "calls": {"$sum": 1}}},
+        ]
+    ).to_list(length=1):
+        current_calls = int(row.get("calls") or 0)
+
+    # Bottleneck: aggregate by model in the current window, rank by cost/latency.
+    bottleneck_rows = await usage_coll.aggregate(
+        [
+            {"$match": tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))},
+            {
+                "$group": {
+                    "_id": "$model_name",
+                    "calls": {"$sum": 1},
+                    "prompt_tokens": {"$sum": {"$ifNull": ["$prompt_tokens", 0]}},
+                    "completion_tokens": {"$sum": {"$ifNull": ["$completion_tokens", 0]}},
+                    "duration_sum": {
+                        "$sum": {
+                            "$max": [
+                                0,
+                                {"$subtract": [{"$ifNull": ["$end_time", 0]}, {"$ifNull": ["$start_time", 0]}]},
+                            ]
+                        }
+                    },
+                    "timed_calls": {
+                        "$sum": {
+                            "$cond": [
+                                {
+                                    "$and": [
+                                        {"$gt": [{"$ifNull": ["$start_time", 0]}, 0]},
+                                        {"$gt": [{"$ifNull": ["$end_time", 0]}, 0]},
+                                    ]
+                                },
+                                1,
+                                0,
+                            ]
+                        }
+                    },
+                }
+            },
+        ]
+    ).to_list(length=1000)
+
+    modelled = []
+    for row in bottleneck_rows:
+        model_name = str(row.get("_id") or "")
+        cost = _cost(
+            model_name,
+            int(row.get("prompt_tokens") or 0),
+            int(row.get("completion_tokens") or 0),
+        )
+        modelled.append({**row, "model": model_name, "cost": cost})
+
+    trend = build_trend_section(
+        current_cost=current_cost,
+        previous_cost=prev_cost,
+        current_calls=current_calls,
+        previous_calls=prev_calls,
+    )
+    trend["bottlenecks"] = bottleneck_top_n(modelled, dimension="model")
+    return trend
+
+
 async def _format_recent_activity(db: Any, main_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     user_ids = [str(row.get("user_id") or "") for row in rows if str(row.get("user_id") or "").strip()]
     user_oid_map = {user_id: ObjectId(user_id) for user_id in user_ids if ObjectId.is_valid(user_id)}
@@ -307,6 +524,8 @@ async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict
     billing = await _billing(db, main_id, current_user)
     metrics, recent_activity = await _usage_metrics(db, main_id)
     assets = await _assets(db, main_id)
+    quality = await _quality_metrics(db, main_id)
+    trend = await _trend_metrics(db, main_id, current_cost=float(metrics.get("cost24h") or 0.0))
     todos = _todos(metrics, assets)
     status_text = "critical" if any(item["level"] == "error" for item in todos) else "warning" if todos else "healthy"
     return {
@@ -317,6 +536,8 @@ async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict
         },
         "metrics": metrics,
         "assets": assets,
+        "quality": quality,
+        "trend": trend,
         "todos": todos,
         "recentActivity": recent_activity,
     }
