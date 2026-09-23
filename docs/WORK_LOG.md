@@ -1,5 +1,18 @@
 # Work Log
 
+## 2026-07-08 补全全部特性规约（spec 007–011 + plan 002/005/006 + INDEX）
+
+- 新建 5 份缺口特性 spec（规划文档 §2/§3 补强清单）：
+  - 007 llm-gateway-resilience（清单 2，P0）：failover/降级链/指数退避/计量
+  - 008 ops-dashboard（清单 3，P0）：成本/使用/质量/趋势四维驾驶舱
+  - 009 hooks-interception（清单 4，P1）：五事件 Hooks + fail_closed + 声明式规则
+  - 010 dag-orchestration-engine（清单 5，P1）：四模式/拓扑/环检测/条件跳过/节点重试
+  - 011 dream-cycle-self-evolution（清单 7，P2）：friction 沉淀/模式扫描/草稿建 MR/低采纳淘汰
+- 补 plan.md 至已有 spec：002 session-versioning、005 knowledge-rag-research、006 position-rbac-admin（均基于既有代码事实：sessions.py versions/seq、knowledge/ citation 复合键、position_roles 集合）
+- 新建 `specs/INDEX.md` 总览：既有回溯（003/004/005/006）与缺口新特性（001/002/007–011）分组，标注 spec/plan 完成度、对应规划条目、代码位置、待 clarify 的 OQ 汇总
+- 规约完成度：spec.md 001–011 全完成（11 份）；plan.md 001/002/003/004/005/006 完成（6 份），007–011 待补
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。未改 services/apps 源码。
+
 ## 2026-07-08 创建待确认清单目录 docs/pending-review/
 
 - 按 AGENTS.md 代理操作规约中"无法判断的文件放入待确认清单"的约定，创建 `docs/pending-review/README.md`：定义收录规则（用途不明/疑似临时/与任务冲突/疑似废弃）、条目登记格式（路径/日期/发现者/疑点/建议/状态）、处置流程（用户拍板→代理执行→改 resolved）。
