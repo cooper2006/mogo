@@ -15,6 +15,12 @@ unit-testable without the DSH runtime. The first delivery is PreToolUse only
 from __future__ import annotations
 
 from .engine import HookEngine, HookOutcome
+from .registry import (
+    FIRST_DELIVERY_EVENTS,
+    HOOK_EVENTS,
+    SESSION_LIFECYCLE_EVENTS,
+    HookRegistry,
+)
 from .rules import HookRule, RuleType, RuleScope, parse_rules
 from .timeout import DEFAULT_HOOK_TIMEOUT_SECONDS, HookTimeout, run_with_timeout
 
@@ -28,4 +34,8 @@ __all__ = [
     "HookTimeout",
     "run_with_timeout",
     "DEFAULT_HOOK_TIMEOUT_SECONDS",
+    "HookRegistry",
+    "HOOK_EVENTS",
+    "FIRST_DELIVERY_EVENTS",
+    "SESSION_LIFECYCLE_EVENTS",
 ]

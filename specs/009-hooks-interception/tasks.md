@@ -21,7 +21,7 @@
 
 - [x] T001 创建 `services/chat-api/app/dsh_runtime/hooks/__init__.py` + 子模块骨架（registry/engine/rules/timeout/integration）
 - [x] T002 实现 `rules.py`：声明式规则 schema（`hook_rules{scope, rule_type, rule_config, enabled}`）+ 校验
-- [ ] T003 实现 `registry.py`：五事件注册/查找（SessionStart/PreToolUse/PostToolUse/SessionEnd/MemoryCommit；首期仅启用 PreToolUse）
+- [x] T003 实现 `registry.py`：五事件注册/查找（SessionStart/PreToolUse/PostToolUse/SessionEnd/MemoryCommit；首期仅启用 PreToolUse）
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 

@@ -197,3 +197,53 @@ async def test_run_with_timeout_raises_hook_timeout() -> None:
 def test_total_latency_budget_exceeded() -> None:
     assert total_latency_budget_exceeded(6.0, budget_seconds=5.0)
     assert not total_latency_budget_exceeded(4.0, budget_seconds=5.0)
+
+
+# --- registry ----------------------------------------------------------------
+
+def test_five_hook_events_registered() -> None:
+    from app.dsh_runtime.hooks.registry import HOOK_EVENTS, HookRegistry
+
+    assert len(HOOK_EVENTS) == 5
+    assert set(HookRegistry().all_registered()) == {
+        "SessionStart", "PreToolUse", "PostToolUse", "SessionEnd", "MemoryCommit"
+    }
+
+
+def test_first_delivery_enables_pre_tool_use_only() -> None:
+    from app.dsh_runtime.hooks.registry import HookRegistry
+
+    registry = HookRegistry()
+    assert registry.is_enabled("PreToolUse") is True
+    assert registry.is_enabled("SessionEnd") is False
+
+
+def test_enable_later_event() -> None:
+    from app.dsh_runtime.hooks.registry import HookRegistry
+
+    registry = HookRegistry()
+    registry.enable("SessionStart")
+    assert registry.enabled_events() == ["SessionStart", "PreToolUse"]
+
+
+def test_pre_tool_use_cannot_be_disabled() -> None:
+    from app.dsh_runtime.hooks.registry import HookRegistry
+    from app.dsh_runtime.hooks.registry import RegistryError
+    import pytest as _pytest
+
+    with _pytest.raises(RegistryError):
+        HookRegistry().disable("PreToolUse")
+
+
+def test_unknown_event_rejected() -> None:
+    from app.dsh_runtime.hooks.registry import HookRegistry, RegistryError
+    import pytest as _pytest
+
+    with _pytest.raises(RegistryError):
+        HookRegistry().enable("NoSuchEvent")
+
+
+def test_session_lifecycle_events_bridge_to_002() -> None:
+    from app.dsh_runtime.hooks.registry import HookRegistry
+
+    assert HookRegistry().lifecycle_events() == ["SessionStart", "SessionEnd", "MemoryCommit"]

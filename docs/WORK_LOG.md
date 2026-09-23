@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 深化 009 钩子注册表 + 011 周期扫描
+
+- **009 `hooks/registry.py`**（T003）：五事件注册表——`HookRegistry`（**首期仅 PreToolUse 启用**，其余注册为目标态，clarify OQ-3）+ `enable`/`disable`（**PreToolUse 不可禁用**，合规拦截点）+ 会话生命周期事件（SessionStart/End/MemoryCommit）与 002 桥接 + 未知事件拒绝
+- **011 `self_evolution/scanner.py`**（T007/T009）：周期扫描——
+  - `scan_fragments`：按场景相似度聚类 + **平均 pairwise Jaccard 打分** + 高置信判定（Jaccard≥0.7 且样本≥5）
+  - `ScanConfig`（扫描频率 once/daily/weekly 复用 scheduled_tasks、阈值、**草稿堆积上限 100**，FR-8/FR-12）
+  - `should_generate_draft`（**所有模式都产草稿，仅 MR 受置信门控**）+ `dedupe_drafts`（**同片段保留最高置信**）+ `scan_summary`（审计摘要）
+- **测试**：`tests/dsh_runtime/test_hooks.py` 新增 6 项 + `tests/self_evolution/test_self_evolution.py` 新增 6 项，全部通过。
+- 勾选 `specs/009/tasks.md` T003、`specs/011/tasks.md` T007/T009。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 深化 008 成本看板聚合（US2 / T010–T012）
 
 - **`dashboard_metrics.py` 新增成本维度**：

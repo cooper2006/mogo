@@ -15,6 +15,14 @@ from __future__ import annotations
 
 from .fragment import ExperienceFragment, FragmentStore
 from .friction import FrictionKind, FrictionSignal, detect_friction
+from .scanner import (
+    DEFAULT_DRAFT_BACKLOG_LIMIT,
+    DEFAULT_SCAN_FREQUENCY,
+    PatternCluster,
+    ScanConfig,
+    ScanResult,
+    scan_fragments,
+)
 from .similarity import (
     DEFAULT_JACCARD_THRESHOLD,
     DEFAULT_MIN_SAMPLES,
@@ -36,4 +44,10 @@ __all__ = [
     "is_high_confidence",
     "DEFAULT_JACCARD_THRESHOLD",
     "DEFAULT_MIN_SAMPLES",
+    "PatternCluster",
+    "ScanConfig",
+    "ScanResult",
+    "scan_fragments",
+    "DEFAULT_SCAN_FREQUENCY",
+    "DEFAULT_DRAFT_BACKLOG_LIMIT",
 ]

@@ -159,3 +159,68 @@ def test_fragment_as_document_includes_source_session_and_feedback() -> None:
     assert document["source_session"] == "s-1"
     assert document["feedback"] == "fix units"
     assert document["scene"] == ["a"]
+
+
+# --- scanner (T007/T009) -----------------------------------------------------
+
+def test_scan_clusters_and_marks_high_confidence() -> None:
+    from app.self_evolution.scanner import scan_fragments
+
+    frags = [ExperienceFragment(scene=["a", "b", "c"]) for _ in range(5)]
+    frags.append(ExperienceFragment(scene=["x", "y", "z"]))
+    result = scan_fragments(frags)
+
+    eligible = result.mr_eligible
+    assert len(eligible) == 1
+    assert eligible[0].sample_count == 5
+    assert eligible[0].is_mr_eligible() is True
+
+
+def test_scan_below_min_samples_is_draft_only() -> None:
+    from app.self_evolution.scanner import scan_fragments
+
+    frags = [ExperienceFragment(scene=["a", "b"]) for _ in range(3)]
+    result = scan_fragments(frags)
+    assert result.mr_eligible == []
+    assert len(result.draft_only) == 1
+
+
+def test_scan_config_rejects_bad_frequency() -> None:
+    from app.self_evolution.scanner import ScanConfig
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        ScanConfig(frequency="hourly")
+
+
+def test_should_generate_draft_respects_backlog_limit() -> None:
+    from app.self_evolution.scanner import (
+        DEFAULT_DRAFT_BACKLOG_LIMIT,
+        PatternCluster,
+        ScanConfig,
+        should_generate_draft,
+    )
+
+    cluster = PatternCluster(fragments=[ExperienceFragment(scene=["a"])], similarity=0.9)
+    assert should_generate_draft(cluster, existing_drafts=0) is True
+    assert should_generate_draft(cluster, existing_drafts=DEFAULT_DRAFT_BACKLOG_LIMIT) is False
+    assert ScanConfig().draft_backlog_limit == 100
+
+
+def test_dedupe_drafts_keeps_highest_confidence() -> None:
+    from app.self_evolution.scanner import PatternCluster, dedupe_drafts
+
+    high = PatternCluster(fragments=[ExperienceFragment(scene=["a", "b"]) for _ in range(6)], similarity=0.95)
+    low = PatternCluster(fragments=[ExperienceFragment(scene=["a", "b"]) for _ in range(2)], similarity=0.5)
+    kept = dedupe_drafts([low, high])
+    assert len(kept) == 1
+    assert kept[0].similarity == 0.95
+
+
+def test_scan_summary_shape() -> None:
+    from app.self_evolution.scanner import scan_fragments, scan_summary
+
+    frags = [ExperienceFragment(scene=["a", "b"]) for _ in range(5)]
+    summary = scan_summary(scan_fragments(frags))
+    assert summary["mrEligibleCount"] == 1
+    assert summary["frequency"] == "daily"
