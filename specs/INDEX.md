@@ -51,7 +51,7 @@
 
 - spec.md：001–019 全部完成（19 份）
 - plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
-- checklist（需求质量门禁，`/speckit-checklist`）：003、004、005、006 完成（4 份，`checklists/requirements.md`，全未勾选，reviewer-owned）；007–019 待补
+- checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，全未勾选，reviewer-owned），19/19 规约质量层一致
 - clarify（OQ 消解）：001–019 全部完成（19 份），各 spec 新增 "Clarify 记录" 节 + plan "Open Questions（已 clarify 消解）"。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
   - 007：tenacity 既有依赖；退避 1.5s/30s/±10%/3 次；事件落 token_usage_logs
@@ -62,8 +62,18 @@
   - 011：Jaccard ≥0.7 + 样本 ≥5 建 MR；14 天低采纳淘汰；与 016 共用标记位
   - 012–019：各自口径/阈值/依赖顺序已定（019 薄模式保留身份/RBAC/脱敏/审计/红线，可省审批/配额）
 
+## 五（补）、checklist 暴露的待修正缺陷（reviewer 审阅前需先修 spec）
+
+| 缺陷 | 所在 | 类型 | 说明 |
+|---|---|---|---|
+| 001 Non-Goals 特性编号引用错配 | 001 CHK011 | 一致性 | spec 写"LLM 韧性属 002/DAG 属 003/自进化属 004/会话版本化属 005"，实际 007=LLM 韧性/010=DAG/011=自进化/002=会话版本化；连带 012/013/014 CHK 中"001 Non-Goals 是否含本特性"需按正确编号核实 |
+| 016 FR-4 与 clarify 矛盾 | 016 CHK006 | 一致性 | FR-4 写"灰度按比例/按用户"，但 clarify OQ-2 定"首期按租户"，需按 clarify 修正 FR-4 |
+| 017 FR-3 vs FR-5 默认策略矛盾 | 017 CHK002 | 一致性 | FR-3"写入默认个人级"与 FR-5"会话沉淀默认 Workspace"两条默认冲突，需按 clarify OQ-1"单/多人会话"统一 |
+| 008 成本预测 N 值未定 | 008 CHK013 | 完整性 | US2"成本预测基于近 N 期"的 N 未定义，clarify 未覆盖，建议补 |
+| 010 表达式语法错误策略未定 | 010 CHK013 | 完整性 | US3 标注"语法错误策略需 clarify"，clarify 只定算子集未定错误行为，建议补 |
+
 ## 六、SDD 路径
 
-- 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅（本轮生成，待审阅勾选）→ 后续 `/speckit-tasks` → `/speckit-analyze`
-- 缺口 P0/P1（001/002/007/008/009/010/011）：spec ✅ → plan ✅ → clarify 消解 OQ → checklist → tasks → analyze → implement → converge
-- P2 后置（012–019）：spec ✅ → plan ✅（本轮补齐）→ clarify 消解 OQ → checklist → tasks → analyze → 按路线图节奏 implement
+- 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅（全 19 份 001–019 均已生成，待审阅勾选）→ 后续 `/speckit-tasks` → `/speckit-analyze`
+- 缺口 P0/P1（001/002/007/008/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks → analyze → implement → converge
+- P2 后置（012–019）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks → analyze → 按路线图节奏 implement

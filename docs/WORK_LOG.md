@@ -1,5 +1,17 @@
 # Work Log
 
+## 2026-07-08 为 001–019 补齐需求质量门禁 checklist（19/19 规约质量层一致）
+
+- 按 `/speckit-checklist` 语义（"需求的单元测试"，校验 spec 质量而非实现）为尚无 checklist 的 15 个特性生成 `checklists/requirements.md`（001/002/007/008/009/010/011 + P2 012–019），每份含完整性/清晰度/一致性/边界与歧义四类条目（CHKxxx 编号，全未勾选，reviewer-owned）。与既有 003/004/005/006 保持同口径，**19/19 规约质量层一致**。
+- 门禁作用：`/speckit-implement` 读勾选态作为拦截门禁；未勾选项须先消解。
+- checklist 逐份研读 spec+plan+clarify 记录后生成，暴露 5 个需在 reviewer 审阅前修正的缺陷（登记进 INDEX "五（补）"节）：
+  - **001 CHK011 一致性缺陷**：spec Non-Goals 特性编号引用错配（写"LLM 韧性属 002/DAG 属 003"，实际 007/010），连带 012/013/014 的"001 是否含本特性"需按正确编号核实
+  - **016 CHK006 矛盾**：FR-4"灰度按比例/用户" vs clarify"首期按租户"，需按 clarify 修正 FR-4
+  - **017 CHK002 矛盾**：FR-3"默认个人级" vs FR-5"会话沉淀默认 Workspace"，需按 clarify OQ-1 统一
+  - 008 CHK013 / 010 CHK013：成本预测 N 值、表达式语法错误策略 两处完整性缺口
+- 更新 `specs/INDEX.md`：完成度统计 checklist 改为 19/19；新增"五（补）缺陷登记表"；SDD 路径三行同步。
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。未改 services/apps 源码。
+
 ## 2026-07-08 按 P0→P1→P2 顺序完成 001–019 全部 clarify（OQ 消解）
 
 - 按 `/speckit-clarify` 语义（消解 spec 歧义 + 把答案编码回 spec/plan）逐个消解 19 个特性的 OQ，每个 spec 新增 "Clarify 记录" 节，对应 plan "Open Questions" 改为 "Open Questions（已 clarify 消解）"。OQ 答案基于代码事实，未臆造：
