@@ -16,6 +16,7 @@ from app.api.time_utils import utc_iso
 from app.api.tool_limits import validate_mcp_activation
 from app.core.config import settings
 from app.core.db import get_db
+from app.governance import GateContext, gatekeeper
 from app.services.organization_tools import (
     organization_tool_fields,
     organization_tool_query,
@@ -298,6 +299,7 @@ async def test_tool(tool_id: str, request: Request, response: Response, current_
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="企业工具连接不存在")
     payload = await request.json()
+    await _enforce_gate(str(tool_id), main_id, current_user, payload)
     timeout = _config_timeout_seconds(_safe_dict((doc or {}).get("config")))
     result = _backend_data(_request_backend("POST", f"/{tool_id}/test", main_id, payload, timeout=timeout))
     response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
@@ -308,9 +310,36 @@ async def test_tool(tool_id: str, request: Request, response: Response, current_
 async def test_draft_tool(request: Request, response: Response, current_user: dict = Depends(get_current_admin_user)) -> Any:
     main_id = str(current_user.get("main_id") or "default")
     payload = await request.json()
+    tool_id = str(payload.get("id") or payload.get("tool_id") or "test-draft")
+    await _enforce_gate(tool_id, main_id, current_user, payload)
     result = _backend_data(_request_backend("POST", "/test-draft", main_id, payload, timeout=_tool_timeout_seconds(payload)))
     response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
     return result
+
+
+async def _enforce_gate(tool_id: str, main_id: str, current_user: dict, payload: Any) -> None:
+    """Run the six-layer gatekeeper before executing a tool (feature 001, T006).
+
+    Denials map to HTTP status by layer: identity/RBAC -> 403, approval pending ->
+    409 (+ token), quota -> 429. A tool is identified by its id; the actor is the
+    admin user with its bound position roles.
+    """
+    roles = current_user.get("role_ids") or current_user.get("roles") or []
+    ctx = GateContext(
+        tool=str(tool_id),
+        tenant_id=main_id,
+        user_id=str(current_user.get("user_id") or current_user.get("id") or ""),
+        roles=[str(r) for r in roles],
+        request=_safe_dict(payload),
+        scope="tool",
+    )
+    verdict = await gatekeeper.evaluate(str(tool_id), ctx)
+    if verdict.allowed:
+        return
+    detail: dict[str, Any] = {"layer": verdict.layer, "reason": verdict.reason}
+    if verdict.layer == "approval" and verdict.detail.get("approval_token"):
+        detail["approval_token"] = verdict.detail["approval_token"]
+    raise HTTPException(status_code=verdict.status_code, detail=detail)
 
 
 def _operation_succeeded(result: Any) -> bool:
@@ -342,3 +371,6 @@ async def ensure_indexes() -> None:
     await db.external_tools.create_index([("main_id", 1), ("updated_at", -1)])
     await db.external_tools.create_index([("main_id", 1), ("status", 1), ("type", 1)])
     await db.external_tools.create_index([("main_id", 1), ("scope", 1), ("updated_at", -1)])
+    from app.governance import schema as governance_schema
+
+    await governance_schema.ensure_indexes()

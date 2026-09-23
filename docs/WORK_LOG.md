@@ -1,5 +1,23 @@
 # Work Log
 
+## 2026-07-08 实现 001 gatekeeper MVP（tasks T001–T014，六层链骨架跑通）
+
+- **新增 `services/admin-api/app/governance/` 模块**（001 六层门禁的依赖底座）：
+  - `gatekeeper.py`：`GateContext` / `GateVerdict` 数据类 + `Gatekeeper.evaluate` 六层串行编排 + 短路 + 审计落点；`GateLayer` 协议
+  - `config.py`：声明式配置（层增删/顺序/审计开关，默认厚模式 + 显式降级）+ 必需层守护（禁用 identity/rbac/redaction/audit 或关审计 → 报错）
+  - `rbac_model.py`：权限码 `<resource>:<action>[:<target>]` 解析 + 岗位角色预设组 `expand_role_to_codes`（对接 006 `system_key`/`capabilities`）+ `has_permission`（wildcard/资源通配/目标匹配，未知码 fail-closed）
+  - `schema.py`：6 个集合建索引 + 种子（gate_config / 25 格矩阵 / 默认 PII 策略）
+  - `layers/`：identity（层1，主体解析）/ rbac（层2，权限码判定）/ redaction·approval·quota（US3/2/5 的 pass-through 占位）/ audit（层6，落 `gate_events`）
+- **接入工具调用入口** `app/api/routes/tools.py`：新增 `_enforce_gate`，在 `/{tool_id}/test` 与 `/test-draft` 执行前过门禁；被拒按层映射 HTTP 码（403/409/429）；`ensure_indexes` 挂接 governance 建表。
+- **发现并修复一个真实缺陷**：`Gatekeeper.evaluate` 原先把 audit 层放在链尾并 `continue`，导致**中途拒绝（如 RBAC 拒绝）时 `audit_layer` 仍为 None，拒绝事件不落审计** —— 违反 FR-9。已改为**先把 audit 层从链中分离**再跑其余层，确保通过/拒绝事件都落库。
+- **可测试性设计**：governance 纯逻辑模块（config/rbac_model/gatekeeper）**不顶层依赖 motor**（DB 访问一律延迟 import），使单测无需 DB 驱动。
+- **测试**：新增 3 个测试文件共 **28 项全部通过**（rbac_model 12、config 9、gatekeeper 5 + 参数化）：
+  - `tests/test_governance_rbac_model.py`、`tests/test_governance_config.py`、`tests/test_governance_gatekeeper.py`
+  - 运行方式（本机无 Python 3.10，用临时 venv）：`PYTHONPATH=. <venv>/bin/python -m pytest tests/test_governance_*.py -o asyncio_mode=auto`
+- 勾选 `specs/001-gatekeeper-governance/tasks.md` 的 T001–T014（MVP 范围）。
+- **环境说明**：本机仅有 Python 3.14，而仓库 `motor==2.5.1` 与 3.14 不兼容（`from asyncio import coroutine` 已移除）——既有测试在本机亦无法收集，属**环境限制**非本次改动引入；governance 新测试因不依赖 motor 故可正常跑。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 生成 P1 缺口特性 002/009/010/011 的 tasks.md（P0+P1 tasks 层齐备）
 
 - 按 `/speckit-tasks` 语义生成 4 份 tasks.md，落点经**实际代码结构核实**（非 plan 假设）：

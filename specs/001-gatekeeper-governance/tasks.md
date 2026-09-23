@@ -20,12 +20,12 @@
 
 **Goal**: 搭建 governance 模块骨架与配置基座，为所有故事提供共同入口。
 
-- [ ] T001 创建 `services/admin-api/app/governance/__init__.py` 包骨架（导出 gatekeeper 入口 + 各 layer 注册点）
-- [ ] T002 创建 `services/admin-api/app/governance/config.py`：声明式配置 schema（门禁层增删、启用顺序、审计开关），支持"默认厚模式 + 显式降级"
-- [ ] T003 创建 `services/admin-api/app/governance/layers/__init__.py` + 各层文件占位（identity/rbac/redaction/approval/quota/audit），定义统一 `GateLayer` 协议（`evaluate(ctx) -> GateVerdict`）
-- [ ] T004 定义 `GateContext` / `GateVerdict` 数据类（`services/admin-api/app/governance/gatekeeper.py`）：调用主体、工具、风险级、自主级别、逐层结果、短路原因
-- [ ] T005 实现 `gatekeeper.evaluate(tool, ctx)` 六层串行编排 + 任一层拒绝即短路 + 拒绝原因落审计（串联 T002 配置 + T003 各层）
-- [ ] T006 在 `services/admin-api/app/api/routes/tools.py` 工具调用入口注入 `gatekeeper.evaluate`（被拒返回 403/429/409，审批挂起 409 + 审批 token）
+- [x] T001 创建 `services/admin-api/app/governance/__init__.py` 包骨架（导出 gatekeeper 入口 + 各 layer 注册点）
+- [x] T002 创建 `services/admin-api/app/governance/config.py`：声明式配置 schema（门禁层增删、启用顺序、审计开关），支持"默认厚模式 + 显式降级"
+- [x] T003 创建 `services/admin-api/app/governance/layers/__init__.py` + 各层文件占位（identity/rbac/redaction/approval/quota/audit），定义统一 `GateLayer` 协议（`evaluate(ctx) -> GateVerdict`）
+- [x] T004 定义 `GateContext` / `GateVerdict` 数据类（`services/admin-api/app/governance/gatekeeper.py`）：调用主体、工具、风险级、自主级别、逐层结果、短路原因
+- [x] T005 实现 `gatekeeper.evaluate(tool, ctx)` 六层串行编排 + 任一层拒绝即短路 + 拒绝原因落审计（串联 T002 配置 + T003 各层）
+- [x] T006 在 `services/admin-api/app/api/routes/tools.py` 工具调用入口注入 `gatekeeper.evaluate`（被拒返回 403/429/409，审批挂起 409 + 审批 token）
 
 ---
 
@@ -33,9 +33,9 @@
 
 **Goal**: 建立被所有用户故事依赖的基础设施（数据表、审计落点、权限码模型）。
 
-- [ ] T007 [P] 创建新表/集合 DDL：`gatekeeper_rules`、`risk_tiers`、`autonomy_matrix`、`pii_policies`、`quota_counters`、`gate_events`（`services/admin-api/app/governance/` 建表脚本）
-- [ ] T008 [P] 实现审计落点：`gate_events` 写入路径复用 `system_audit/repository.py`（单一审计落点，含层号/风险级/自主级别/时间戳）
-- [ ] T009 [P] 实现 `rbac_model.py`：权限码 `<resource>:<action>[:<target>]` 解析 + 三级隔离（租户/组织/用户）+ 未知码 fail-closed + `expand_role_to_codes(role)`（岗位角色 → 权限码预设组，对接 `position_roles/service.py`）
+- [x] T007 [P] 创建新表/集合 DDL：`gatekeeper_rules`、`risk_tiers`、`autonomy_matrix`、`pii_policies`、`quota_counters`、`gate_events`（`services/admin-api/app/governance/` 建表脚本）
+- [x] T008 [P] 实现审计落点：`gate_events` 写入路径复用 `system_audit/repository.py`（单一审计落点，含层号/风险级/自主级别/时间戳）
+- [x] T009 [P] 实现 `rbac_model.py`：权限码 `<resource>:<action>[:<target>]` 解析 + 三级隔离（租户/组织/用户）+ 未知码 fail-closed + `expand_role_to_codes(role)`（岗位角色 → 权限码预设组，对接 `position_roles/service.py`）
 
 ---
 
@@ -44,11 +44,11 @@
 **Goal**: 打通"身份→RBAC→脱敏→审批→配额→审计"完整链，任一层短路。
 **独立测试**: 无权限调用 → 第 2 层拒绝；全流程通过 → 六层全过 + 审计记录。
 
-- [ ] T010 实现 `layers/identity.py`（层 1：解析调用主体 = 租户/用户/岗位角色）
-- [ ] T011 实现 `layers/rbac.py`（层 2：权限码判定，复用 T009 `rbac_model`，fail-closed）
-- [ ] T012 实现 `layers/audit.py`（层 6：通过/拒绝事件落 `gate_events`，含层号/风险级/自主级别/时间戳）
-- [ ] T013 串联 US1 三层（identity→rbac→audit）到 `gatekeeper.evaluate`，写六层链集成测试（无权限短路 + 全通过路径）
-- [ ] T014 补 US1 其余三层占位接入（redaction/approval/quota 由后续故事实现，US1 先以 pass-through 占位保证链路完整）
+- [x] T010 实现 `layers/identity.py`（层 1：解析调用主体 = 租户/用户/岗位角色）
+- [x] T011 实现 `layers/rbac.py`（层 2：权限码判定，复用 T009 `rbac_model`，fail-closed）
+- [x] T012 实现 `layers/audit.py`（层 6：通过/拒绝事件落 `gate_events`，含层号/风险级/自主级别/时间戳）
+- [x] T013 串联 US1 三层（identity→rbac→audit）到 `gatekeeper.evaluate`，写六层链集成测试（无权限短路 + 全通过路径）
+- [x] T014 补 US1 其余三层占位接入（redaction/approval/quota 由后续故事实现，US1 先以 pass-through 占位保证链路完整）
 
 ---
 
