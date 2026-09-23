@@ -1,5 +1,15 @@
 # Work Log
 
+## 2026-07-08 实现 P2 特性 014（业务语义索引）核心
+
+- **014 业务语义索引** → `services/chat-api/app/business_index/`：
+  - `entities.py`：业务实体（客户/订单/供应商/账目，4 类，clarify OQ-2）+ **三级来源定位**（系统/类型/记录 ID，FR-3）+ 对齐键（各类型业务主键）+ `align_pair`（**对齐失败标记 unaligned 而非拒绝联查**，FR-6）
+  - `sources.py`：数据源规格（**强制只读**——不写业务库）+ 定时拉取（once/daily/weekly，**不做 CDC**，clarify OQ-3）+ `is_source_unavailable`/`build_unavailable_notice`（**数据源不可用明确标注，不用陈旧数据冒充**，FR-11）+ `mask_pii_fields`（mask/hash/remove，**索引前脱敏**，FR-10）
+- **测试**：`tests/business_index/test_business_index.py`（17 项）：实体类型/对齐键/来源三级/对齐（匹配/不匹配/异类型）、源只读约束/间隔校验/默认日拉、不可用标注、PII mask/hash 确定性/remove。全部通过。
+- 勾选 `specs/014-business-semantic-index/tasks.md` T001–T006/T008。
+- **P2 已实现核心：012 / 014 / 015 / 017 / 019**（013/016/018 待后续）。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 P2 特性 017（三范围记忆）核心
 
 - **017 三范围记忆** → `services/chat-api/app/memory/`：

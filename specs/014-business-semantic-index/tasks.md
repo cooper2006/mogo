@@ -16,20 +16,20 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 chat-api/app/business_index/ 包骨架 + 子模块
-- [ ] T002 定义核心数据模型/契约 schema
+- [x] T001 创建 chat-api/app/business_index/ 包骨架 + 子模块
+- [x] T002 定义核心数据模型/契约 schema
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
-- [ ] T004 [P] 实现声明式配置解析 + 校验
+- [x] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
+- [x] T004 [P] 实现声明式配置解析 + 校验
 
 ## Phase 3: User Story 1 (P1) — 业务实体索引 + 语义检索
 
-- [ ] T005 实现连接器（CRM DB 只读）+ 实体抽取
-- [ ] T006 实现索引（`biz_entities`，含来源/类型/对齐键）
+- [x] T005 实现连接器（CRM DB 只读）+ 实体抽取
+- [x] T006 实现索引（`biz_entities`，含来源/类型/对齐键）
 - [ ] T007 实现语义检索（复用 005 检索客户端 + 引用锚点）
-- [ ] T008 US1 测试：实体入索引 + 检索带来源
+- [x] T008 US1 测试：实体入索引 + 检索带来源
 
 ## Phase 4: User Story 2 (P2) — 增量 + 跨系统对齐
 
