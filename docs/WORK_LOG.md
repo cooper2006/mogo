@@ -1,5 +1,15 @@
 # Work Log
 
+## 2026-07-08 实现 P2 特性 016（Skill 市场强化）核心 —— P2 全覆盖
+
+- **016 Skill 市场强化** → `services/admin-api/app/services/skill_market/`：
+  - `scoring.py`：**效果分 = 成功率 0.5 + 采纳率 0.3 + 纠正率反向 0.2**（权重可配，clarify OQ-1）+ 空样本 0 分不报错 + **低质量判定（<0.4 且持续 ≥7 天，clarify OQ-4）** + 共用标记位常量 `marked_low_quality`（与 011 一致）
+  - `canary.py`：灰度 rollout（**首期按租户**，clarify OQ-2）+ **异常率 >20% 自动回滚**（可配，clarify OQ-3）+ **最小样本门槛 20**（小样本不判定，FR-10）+ 回滚目标 = 上一稳定版本 + `apply_rollback` 审计记录
+- **测试**：`tests/test_skill_market.py`（17 项）：权重常量、满分/零分/混合打分、空样本、权重可配、低质量双条件、canary 阈值常量、计入调用、非法计数、阈值内不回滚、超阈值回滚、样本不足不判定、回滚目标与审计、无需回滚 noop。全部通过。
+- 勾选 `specs/016-skill-market-hardening/tasks.md` T001–T011。
+- **P2（012–019）全部特性核心实现完成**；更新 `specs/INDEX.md` 实现进度行。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 P2 特性 013（多 IM 入口）+ 018（能力资产化）核心
 
 - **013 多 IM 入口** → `services/chat-api/app/im_gateway/`：

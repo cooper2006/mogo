@@ -53,7 +53,7 @@
 - plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
 - checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–019 共 15 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态
 - tasks（可执行任务，`/speckit-tasks`）：**001–019 全部完成（19/19）**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）
-- 实现进度（`/speckit-implement`，2026-07-08）：**P0 三特性 MVP 完成**（001 六层链 14/32、007 failover 10/25、008 总览+质量 7/27）；**P1 四特性核心完成**（002 核心 4/22、009 PreToolUse 7/19、010 DAG 核心 4/22、011 自进化核心 4/19）；**019 厚薄配置 13/15**；合计 **176 项新测试通过**（admin-api 52 + chat-api 124）
+- 实现进度（`/speckit-implement`，2026-07-08）：**19 个特性全部已有实现核心/ MVP**——P0（001/007/008）完整 MVP；P1（002/009/010/011）核心；P2（012–019）核心全部落地。合计 **313 项新测试通过**（admin-api 89 + chat-api 224）
 - clarify（OQ 消解）：001–019 全部完成（19 份），各 spec 新增 "Clarify 记录" 节 + plan "Open Questions（已 clarify 消解）"。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
   - 007：tenacity 既有依赖；退避 1.5s/30s/±10%/3 次；事件落 token_usage_logs
