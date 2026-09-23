@@ -51,7 +51,7 @@
 
 - spec.md：001–019 全部完成（19 份）
 - plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
-- checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，reviewer-owned）；**P0（001/007/008）+ P1（002/009/010/011）已 agent 代审并勾选达标项 + FR 回填消解缺口**，其余 12 份仍全未勾选
+- checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，reviewer-owned）；**19 份全部已 agent 代审并勾选达标项 + FR 回填消解缺口**（P0/P1/P2 全覆盖）
 - tasks（可执行任务，`/speckit-tasks`）：001、007、008 完成（P0 三份 tasks.md，含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；002/009/010/011 + P2 待补
 - clarify（OQ 消解）：001–019 全部完成（19 份），各 spec 新增 "Clarify 记录" 节 + plan "Open Questions（已 clarify 消解）"。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
@@ -88,12 +88,20 @@
 | 009 hooks-interception | 11/16 | 三规则语义、作用域叠加、fail_closed、首期 PreToolUse、超时 5s、observe 强度、解析失败三类、拒绝语义、生效时机、求值顺序 | 五事件数据、009↔001/002/019、延迟预算 |
 | 010 dag-orchestration | 13/16 | 节点数据传递、并发度 4、跳过追溯、阻塞闭包、JSON 条件、版本字段、环路径格式、双轨、语法错误、原子语义、supervisor 传播 | 010↔007/009/002、跨层并发预算 |
 | 011 dream-cycle | 12/16 | 片段字段、双指标算法、测试定义、采纳率口径、friction 默认、MR 不直接合入、草稿vsMR、恢复路径、堆积上限、去重、生效范围、生成侧门槛 | 011↔004/002/016/010 |
+| 012 a2a-agent-gateway | 13/15 | AgentCard 字段+skills[]、JSON-RPC 方法名、agent 路由、客户端超时/failover、Dify 优先、卡刷新触发、同租户边界、双向审计、错误码映射、幂等、鉴权枚举、外部注册 | 012↔001/018 |
+| 013 multi-im-entry | 13/15 | 映射粒度 1:1、长响应分段、能力=Web 全量、租户级开关、首期飞书、纯文本+基础卡片、会话映射、@bot 主体、撤回不回改、离线降级、凭据注入、1会话1IM | 013↔001/002 |
+| 014 business-semantic-index | 12/15 | 4 类实体+schema 可配、定时拉取、联查键、来源三级、首期 CRM、PII 走 001、数据源不可用、全量首刷、对齐失败降级、副本延迟标注 | 014↔005/015/001 |
+| 015 knowledge-graph-layer | 12/15 | 实体/关系类型、跳语义+3 跳、三类约束、查询入口、迁移阈值、断裂判定、合并策略、防环、低置信门槛、矛盾不阻断、融合裁决 | 015↔005/014/001 |
+| 016 skill-market-hardening | 13/15 | 异常口径、打分权重、租户灰度、降权行为、效果分口径、20% 回滚、0.4/7天、数据源、最小样本、稳定版本、恢复路径、多版本归集 | 016↔004/011 |
+| 017 three-scope-memory | 12/15 | Workspace 粒度、默认策略、授权角色、衰减口径、三级可见性、001 治理点、离职处置、超限拒绝、多范围各存、检索过滤 | 017↔005/002/006 |
+| 018 capability-asset-registration | 12/15 | 契约四段、扫描目标、3 态、owner 粒度、自动/人工分工、多对多 skill_refs、下线审批、旧版可查、去重键、视图下钻、owner 转移 | 018↔004/012/001 |
+| 019 harness-elastic-config | 13/15 | 厚/薄层集合、三维 profile、审计粒度+超时、默认厚、优先级、可省/不可省、最小审计四元组、工具调用级生效、配置权、过渡挂载、中途切换 | 019↔001/009 |
 
-**共性结论**：剩余未勾项高度集中于**跨特性双向声明**（如 007↔008 failover 字段、002↔009 会话事件、011↔016 共用标记位、010↔007 重试分层），需相关特性相互确认后勾选；P0/P1 各特性自身 spec 已达 implement 可写程度。
+**共性结论**：剩余未勾项高度集中于**跨特性双向声明**（如 007↔008 failover 字段、002↔009 会话事件、011↔016 共用标记位、010↔007 重试分层、012↔018 a2a_exposed、019↔001 层概念），需相关特性相互确认后勾选；19 份 spec 自身质量均已达 implement 可写程度。
 
 ## 六、SDD 路径
 
 - 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅ → 后续 `/speckit-tasks` → `/speckit-analyze`
 - 缺口 P0（001/007/008）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ✅（本轮补齐）→ analyze → implement → converge
 - 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ⏳ → analyze → implement → converge
-- P2 后置（012–019）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ⏳ → 按路线图节奏 implement
+- P2 后置（012–019）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ⏳ → 按路线图节奏 implement
