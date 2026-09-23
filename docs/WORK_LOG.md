@@ -1,5 +1,18 @@
 # Work Log
 
+## 2026-07-08 补 007–011 的 plan.md + P2 后置清单建 spec（012–019）
+
+- 补 5 份缺口特性 plan.md（基于已研读代码事实）：
+  - 007 llm-gateway-resilience：`llm/resilience/` 子模块（failover/降级链/退避），计量复用既有 token_usage 管线
+  - 008 ops-dashboard：在既有 dashboard.py/analytics.py 上补"质量/趋势"两维度，前端扩四维看板
+  - 009 hooks-interception：`dsh_runtime/hooks/` 五事件注册 + fail_closed，挂载复用 turn_admission/gateway/approval_runtime
+  - 010 dag-orchestration-engine：新增 `orchestration/` 通用引擎，content/planning 作为迁移参照
+  - 011 dream-cycle-self-evolution：新增 `self_evolution/`，复用 scheduled_tasks/skills_specs/004 skill_lifecycle
+- 新建 8 份 P2 后置清单 spec（规划文档 §清单 8–15，对应 12 的沉淀闭环已并入 011）：
+  - 012 a2a-agent-gateway / 013 multi-im-entry / 014 business-semantic-index / 015 knowledge-graph-layer / 016 skill-market-hardening / 017 three-scope-memory / 018 capability-asset-registration / 019 harness-elastic-config
+- 更新 `specs/INDEX.md`：新增"P2 后置清单"分组（012–019），修正完成度统计（spec 001–019 全 19 份；plan 001–011 共 11 份，012–019 待补）与 OQ 汇总
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。未改 services/apps 源码。
+
 ## 2026-07-08 补全全部特性规约（spec 007–011 + plan 002/005/006 + INDEX）
 
 - 新建 5 份缺口特性 spec（规划文档 §2/§3 补强清单）：

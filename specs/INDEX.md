@@ -25,22 +25,36 @@
 | 010 | dag-orchestration-engine（DAG 编排） | 清单 5（§2.4） | P1 | ✅ | ⏳ |
 | 011 | dream-cycle-self-evolution（自进化） | 清单 7（§2.5） | P2 | ✅ | ⏳ |
 
-## 三、已声明但未独立拆分的后续范围
+## 三、P2 规模化生态后置清单（spec 已建，plan 待补）
+
+| 编号 | 特性 | 对应规划 | 优先级 | spec | plan |
+|---|---|---|---|---|---|
+| 012 | a2a-agent-gateway | 清单 8 | P2 | ✅ | ⏳ |
+| 013 | multi-im-entry | 清单 9 | P2 | ✅ | ⏳ |
+| 014 | business-semantic-index | 清单 10 | P2 | ✅ | ⏳ |
+| 015 | knowledge-graph-layer | 清单 11 | P2 | ✅ | ⏳ |
+| 016 | skill-market-hardening | 清单 12（市场强化部分） | P2 | ✅ | ⏳ |
+| 017 | three-scope-memory | 清单 13 | P2 | ✅ | ⏳ |
+| 018 | capability-asset-registration | 清单 14 | P2 | ✅ | ⏳ |
+| 019 | harness-elastic-config | 清单 15 | P2 | ✅ | ⏳ |
+
+> 规划清单 12 的"沉淀闭环（会话→经验→Skill）"已并入 011（Dream Cycle）；016 仅承载"市场强化"部分。
+
+## 四、未独立拆分的后续范围
 
 | 规划清单 | 说明 | 归属 |
 |---|---|---|
 | 清单 6 工作流级版本化 | GraphSpec 可执行契约 + 灰度/回滚/轨迹回放 | 002 后续 + 010 引擎 |
-| 清单 12 Skill 市场强化 | 版本灰度/回滚/低质量自动标记 | 004 后续 + 011 沉淀闭环 |
-| 清单 8/9/10/11/13/14/15 | A2A 网关、多 IM、业务语义索引、知识图谱、Memory 粒度、能力资产化、Harness 弹性 | P2 后置，未建特性目录 |
+| 清单 12 Skill 沉淀闭环 | 会话→经验→Skill 自动沉淀 | 已并入 011 |
 
-## 四、规约完成度统计
+## 五、规约完成度统计
 
-- spec.md：001–011 全部完成（11 份）
-- plan.md：001、002、003、004、005、006 完成（6 份）；007–011 待补
-- 待 clarify 的 OQ 集中在：001（审批表/配额存储/PII 粒度）、002（快照存储/熵阈值/co-presence/share 鉴权）、005（个人知识分享范围/重排）、006（权限码联动/能力维度）
+- spec.md：001–019 全部完成（19 份）
+- plan.md：001、002、003、004、005、006、007、008、009、010、011 完成（11 份）；012–019（P2 后置）待补
+- 待 clarify 的 OQ 集中在：001（审批表/配额存储/PII 粒度）、002（快照存储/熵阈值/co-presence/share 鉴权）、005（个人知识分享范围/重排）、006（权限码联动/能力维度）、007（退避默认值/事件 collection）、009（超时阈值/fail_closed 默认）、010（表达式语言/并行度/迁移双轨）、011（friction 阈值/相似度算法/MR 阈值）
 
-## 五、SDD 路径
+## 六、SDD 路径
 
 - 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → 后续 `/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze`
-- 缺口新特性（001/002）：spec ✅ → plan ✅ → clarify 消解 OQ → checklist → tasks → analyze → implement → converge
-- 缺口新特性（007–011）：spec ✅ → plan ⏳（下一步补齐）→ 同上
+- 缺口 P0/P1（001/002/007/008/009/010/011）：spec ✅ → plan ✅ → clarify 消解 OQ → checklist → tasks → analyze → implement → converge
+- P2 后置（012–019）：spec ✅ → plan ⏳ → 按路线图节奏推进
