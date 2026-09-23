@@ -19,15 +19,15 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 `services/chat-api/app/services/session_versioning/__init__.py` + 子模块骨架（snapshots/store/timeline/secrets/placeholder/co_presence）
+- [x] T001 创建 `services/chat-api/app/services/session_versioning/__init__.py` + 子模块骨架（snapshots/store/timeline/secrets/placeholder/co_presence）
 - [ ] T002 创建快照数据模型（`session_snapshots`：session_id/seq/trigger/actor/summary/changed_refs/attachment_refs/created_at）+ MongoDB 索引（session_id+seq 唯一）
 - [ ] T003 调研既有 `chat-api/app/api/endpoints/sessions.py` 的 session 模型（seq/versions 现状），确认快照与既有会话的挂接点
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T004 [P] 实现 `timeline.py`：线性时间线约束（seq 单调、resume 永不分叉的校验）
-- [ ] T005 [P] 实现 `secrets.py`：低熵识别（熵 ≥3.5 + 长度 ≥16 + 正则前缀双判定）+ 白名单/手动标记
-- [ ] T006 [P] 实现 `placeholder.py`：可逆占位符（替换/还原，仅所有者+全能力管理员可解引用，解引用落审计）
+- [x] T004 [P] 实现 `timeline.py`：线性时间线约束（seq 单调、resume 永不分叉的校验）
+- [x] T005 [P] 实现 `secrets.py`：低熵识别（熵 ≥3.5 + 长度 ≥16 + 正则前缀双判定）+ 白名单/手动标记
+- [x] T006 [P] 实现 `placeholder.py`：可逆占位符（替换/还原，仅所有者+全能力管理员可解引用，解引用落审计）
 - [ ] T007 实现 `store.py`：`session_snapshots` 读写 + 附件引用指针（附件走既有存储）
 
 ## Phase 3: User Story 1 (P1) — commit / log（快照与回看）

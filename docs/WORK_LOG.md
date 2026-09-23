@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 实现 002 会话版本化核心纯逻辑（tasks T001/T004/T005/T006）
+
+- **新增 `services/chat-api/app/services/session_versioning/`**（依赖轻，可脱离 DB 单测）：
+  - `secrets.py`：低熵秘密识别——Shannon 熵 ≥3.5 bits/char **且** 长度 ≥16，叠加凭证前缀（`sk-`/`ghp_`/`AKIA`/`Bearer `）双判定；白名单 + 手动标记抑制误报（FR-7/FR-10）
+  - `placeholder.py`：可逆占位符 `{{secret:<id>}}`——替换/还原，**仅 owner / full_access_admin 可解引用**，解引用落审计（FR-7/FR-8）
+  - `timeline.py`：线性时间线约束（seq 单调、append 拒绝分叉、resume 从快照后续编不重置）+ **MongoDB 乐观锁冲突检测**（`check_and_advance`，重试耗尽 fail-closed）+ 线性合并去重（FR-3/FR-4/FR-6）
+- **发现并修复一个缺陷**：`detect_secrets` 的 prefix 匹配与 generic 高熵候选**不共享去重**（span 不一致），同一 token 被重复上报且标签错乱（`low_entropy` 覆盖 `openai_key`）。改为**重叠检测**（generic 候选与已匹配凭证区域重叠则跳过）。
+- **测试**：新增 `services/chat-api/tests/services/test_session_versioning.py`，**23 项全部通过**：熵计算/长度门槛/三类前缀/低熵文档 ID 不误报/白名单/手动标记/占位符可逆/解引用权限/审计/时间线单调/resume 不分叉/乐观锁冲突与 fail-closed/线性合并。
+- 勾选 `specs/002-session-versioning/tasks.md` 的 T001/T004/T005/T006（核心纯逻辑）；T002/T003/T007-T022（快照存储、端点接入、share/co-presence）待后续。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 008 运营驾驶舱后端 MVP（tasks T001/T002/T004–T007/T009）
 
 - **新增 `services/admin-api/app/api/dashboard_metrics.py`**：四维看板共享聚合辅助（纯逻辑，可脱离 DB 单测）——
