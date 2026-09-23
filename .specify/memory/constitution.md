@@ -31,7 +31,22 @@ MOVO 的定位是将 DSH Agent 带入企业生产环境。任何变更不得引�
 - 代码评审必须核对 constitution 合规性；复杂度需要时必须在规格或计划中论证。
 - 既有代码采用 SDD 时遵循 existing-projects 指南：先为关键既有特性回溯补规格，再走标准 SDD 路径。
 
+## Agent Operating Rules（代理操作规约，NON-NEGOTIABLE）
+所有在本仓库内工作的编码代理（含 DSH Agent、Claude Code、Copilot 等）必须遵守：
+- 默认使用简体中文回复；思考过程与反馈也用中文。
+- 只允许操作当前项目文件夹（movo 工作区内），不越出工作区。
+- 禁止删除任何文件；需要移除时移入"待确认清单"而非删除。
+- 需要确认的操作（不可逆、影响面大、涉及远端仓库）先问用户，不擅自执行。
+- 无法判断归属/用途的文件放入"待确认清单"（docs/pending-review/ 或等价位置），不要强行处理。
+- 每次实际修改后更新 `docs/WORK_LOG.md`（日期 + 做了什么 + 改了哪些文件 + 验证方式）。
+- 每轮只读取 `AGENTS.md`、`WORK_LOG.md` 最新状态和本轮相关文件，不重复扫描整个项目、不重复读无关文档。
+- 只修改当前任务必要文件，不顺手重构、格式化、升级依赖或扩展功能。
+- 已明确的低风险任务一次完成，减少重复确认与拆轮次。
+- 测试只做本轮必要范围，未受影响模块不重复全量测试。
+- 出错先定位原因，再做最小修改，不盲目重写。
+- 远端仓库写入边界：只推送到 cooper2006/mogong；origin（himovo/movo）push 已锁定为 no-push，任何对 origin 的写操作必须显式征得用户同意并临时解锁。
+
 ## Governance
 本宪法优先于其他开发实践。修订宪法需要：记录理由、更新版本号、在 PR 中审批。每次修订更新 Last Amended 日期。规格质量由 /speckit-checklist 与 /speckit-analyze 守护。
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-08 | **Last Amended**: 2026-07-08
+**Version**: 1.1.0 | **Ratified**: 2026-07-08 | **Last Amended**: 2026-07-08
