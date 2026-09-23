@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 修正 checklist 暴露的 5 处 spec 缺陷（规约自洽化）
+
+- 按"先修缺陷再进 tasks"，逐个研读对应 spec 段落并修正：
+  - **001 编号订正**：Non-Goals 4 条特性引用订正（LLM 韧性 002→007、DAG 003→010、自进化 004→011、会话版本化 005→002）。确认 003/005 的交叉引用编号本就正确，错配仅在 001 自身。
+  - **016 FR-4 对齐 clarify**：FR-4 + US3 由"按比例/用户"改为"首期按租户，按比例/用户为后续扩展"，消除与 clarify OQ-2 的矛盾。
+  - **017 FR-3/FR-5 默认策略统一**：按 clarify OQ-1"单/多人会话"改写 FR-3（单人默认 personal、多人默认 workspace）与 FR-5（沉淀随会话类型），消除两条默认冲突。
+  - **008 补 N 值**：US2 成本预测"N = 4 期（可配置 forecast_periods）"，新增 clarify OQ-5。
+  - **010 补语法错误策略**：US3 + FR-4 定为"默认 fail_closed（跳过 + 审计），可配置报错中断"，新增 clarify OQ-5，与 009 钩子 fail_closed 底线一致。
+- 更新 `specs/INDEX.md`"五（补）"节：缺陷表由"待修正"改为"✅ 已修"修正记录。
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。纯 spec 文本订正，未改 services/apps 源码。
+
 ## 2026-07-08 为 001–019 补齐需求质量门禁 checklist（19/19 规约质量层一致）
 
 - 按 `/speckit-checklist` 语义（"需求的单元测试"，校验 spec 质量而非实现）为尚无 checklist 的 15 个特性生成 `checklists/requirements.md`（001/002/007/008/009/010/011 + P2 012–019），每份含完整性/清晰度/一致性/边界与歧义四类条目（CHKxxx 编号，全未勾选，reviewer-owned）。与既有 003/004/005/006 保持同口径，**19/19 规约质量层一致**。

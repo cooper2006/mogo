@@ -30,7 +30,7 @@
 - 展示 Token 总用量（输入/输出分离）
 - 各模型成本占比 → 饼图/列表，合计与总量一致
 - 按部门/智能体分摊 → 可下钻
-- 成本预测 → 基于近 N 期趋势
+- 成本预测 → 基于近 N 期趋势（默认 N = 4 期，可配置）
 - 数据源 → 与特性 007 计量上报、analytics token-usage 端点对齐
 
 ### User Story 3 (P1) — 使用看板（维度②）
@@ -124,4 +124,8 @@
 ### OQ-4 前端页面组织（spec 原 OQ-4）
 - **决策**：在既有 `apps/admin-web/src/views/dashboard/DashboardPage.vue` 内新增"运营驾驶舱"标签页（非独立路由页），复用既有 DashboardPage 框架与本地化。
 - **影响**：前端改动集中在 DashboardPage.vue + dashboardText.ts 新增文案 key。
+
+### OQ-5 成本预测周期 N（checklist CHK013 补齐，2026-07-08）
+- **决策**：成本预测基于**近 4 期**（N = 4，可配置 `forecast_periods`）。
+- **依据**：4 期足以捕捉周/月趋势且不过长引入陈旧数据；与趋势看板"环比/同比"窗口对齐。
 

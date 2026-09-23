@@ -98,10 +98,10 @@
 - FR-10: 门禁链可通过声明式配置增删层，无需改代码（扩展点）
 
 ## Non-Goals
-- 不实现 LLM 网关韧性、failover、degradation_chain（属特性 002）
-- 不实现 DAG 通用编排、拓扑排序、环检测（属特性 003）
-- 不实现自进化 / Dream Cycle（属特性 004）
-- 不实现会话级版本化 / 交接 / 协同（属特性 005）
+- 不实现 LLM 网关韧性、failover、degradation_chain（属特性 007）
+- 不实现 DAG 通用编排、拓扑排序、环检测（属特性 010）
+- 不实现自进化 / Dream Cycle（属特性 011）
+- 不实现会话级版本化 / 交接 / 协同（属特性 002）
 - 不改变现有 DSH 运行时 Agent 执行语义，仅加治理层
 
 ## Success Criteria
