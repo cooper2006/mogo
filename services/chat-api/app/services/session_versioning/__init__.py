@@ -18,6 +18,15 @@ from __future__ import annotations
 
 from .placeholder import dereference, reference
 from .secrets import SecretMatch, detect_secrets
+from .snapshot import (
+    SNAPSHOT_COLLECTION,
+    AttachmentRef,
+    CommitPolicy,
+    CommitTrigger,
+    SessionSnapshot,
+    build_snapshot,
+)
+from .store import SnapshotStore
 from .timeline import LinearTimelineError, Timeline
 
 __all__ = [
@@ -27,4 +36,11 @@ __all__ = [
     "dereference",
     "Timeline",
     "LinearTimelineError",
+    "SessionSnapshot",
+    "AttachmentRef",
+    "CommitPolicy",
+    "CommitTrigger",
+    "build_snapshot",
+    "SnapshotStore",
+    "SNAPSHOT_COLLECTION",
 ]

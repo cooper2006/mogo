@@ -33,17 +33,17 @@
 **Goal**: graph 模式按拓扑执行，无依赖节点并行（并发度 4），节点失败阻塞下游闭包。
 **独立测试**: 拓扑顺序正确；无依赖并行≤4；节点失败 → 全下游闭包 blocked。
 
-- [ ] T006 实现 `engine.py` graph 模式执行器（拓扑调度 + 并发度 4 + 超限排队）
-- [ ] T007 实现节点失败阻塞（全传递下游闭包标记 `blocked`，区别于 `failed`）
-- [ ] T008 实现节点执行事件审计（启动/完成/失败/跳过/重试）
-- [ ] T009 US1 测试：拓扑正确 + 并行度 + 阻塞闭包三组 Acceptance
+- [x] T006 实现 `engine.py` graph 模式执行器（拓扑调度 + 并发度 4 + 超限排队）
+- [x] T007 实现节点失败阻塞（全传递下游闭包标记 `blocked`，区别于 `failed`）
+- [x] T008 实现节点执行事件审计（启动/完成/失败/跳过/重试）
+- [x] T009 US1 测试：拓扑正确 + 并行度 + 阻塞闭包三组 Acceptance
 
 ## Phase 4: User Story 2 (P1) — 四模式（sequential / supervisor / hybrid）
 
 **Goal**: 四种编排模式全部可执行；supervisor 分派/聚合 + 失败传播。
 **独立测试**: 四模式各跑通；supervisor 监督失败/子全失败传播正确。
 
-- [ ] T010 实现 sequential / hybrid 模式执行器
+- [x] T010 实现 sequential / hybrid 模式执行器
 - [ ] T011 实现 supervisor 模式（监督节点分派子节点 + 聚合结果 + 失败传播：监督失败→整体失败，子全失败→监督失败，阈值可配）
 - [ ] T012 US2 测试：四模式执行 + supervisor 失败传播
 

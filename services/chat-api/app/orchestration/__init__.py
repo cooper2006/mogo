@@ -12,6 +12,13 @@ unit-testable without the DSH runtime or a database.
 from __future__ import annotations
 
 from .conditions import ConditionError, evaluate_condition
+from .engine import (
+    DEFAULT_MAX_CONCURRENCY,
+    DagEngine,
+    ExecutionResult,
+    NodeOutcome,
+    NodeState,
+)
 from .graph import Edge, Graph, GraphError, Node
 from .topo import CycleError, topological_order
 
@@ -24,4 +31,9 @@ __all__ = [
     "CycleError",
     "evaluate_condition",
     "ConditionError",
+    "DagEngine",
+    "ExecutionResult",
+    "NodeOutcome",
+    "NodeState",
+    "DEFAULT_MAX_CONCURRENCY",
 ]

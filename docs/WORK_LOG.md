@@ -1,5 +1,20 @@
 # Work Log
 
+## 2026-07-08 深化 010 DAG 执行器 + 002 快照存储
+
+- **010 `orchestration/engine.py`**（T006–T010）：`DagEngine` graph 模式执行器——
+  - **拓扑调度 + 并发度上限**（默认 4，超限排队不拒绝，FR-2）
+  - **节点失败阻塞全传递下游闭包**并标记 `blocked`（区别于 `failed`，FR-6）
+  - 条件跳过（含**语法错误 fail_closed 跳过 + 原因记录**，FR-4）
+  - **执行事件审计**（started/completed/failed/skipped/blocked，FR-7）
+  - `run_sequential`（顺序模式）+ 上游输出写共享上下文供下游读取
+- **002 `session_versioning/snapshot.py` + `store.py`**（T002/T007–T012）：
+  - `SessionSnapshot`（seq/trigger/actor/summary/changed_refs/**附件指针**，clarify OQ-1）+ `CommitPolicy`（**idle 超时/关键工具/分享自动提交**，可配）+ `build_snapshot`（摘要派生）
+  - `SnapshotStore`：commit（自动分配 id）/ `log`（按 seq 时间线，FR-2）/ `latest` / `preview`（摘要预览）/ **`resume_point`（从目标快照后续编，永不重置为 1，FR-3）**
+- **测试**：`tests/orchestration/test_engine.py`（12 项）+ `tests/services/test_session_snapshots.py`（22 项），全部通过。含并发度上界、阻塞闭包、条件 fail-closed、resume 不重置、附件指针等关键断言。
+- 勾选 `specs/010/tasks.md` T006–T010、`specs/002/tasks.md` T002/T007–T012。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 P2 特性 016（Skill 市场强化）核心 —— P2 全覆盖
 
 - **016 Skill 市场强化** → `services/admin-api/app/services/skill_market/`：

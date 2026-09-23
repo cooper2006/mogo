@@ -20,7 +20,7 @@
 ## Phase 1: Setup (Module Skeleton)
 
 - [x] T001 创建 `services/chat-api/app/services/session_versioning/__init__.py` + 子模块骨架（snapshots/store/timeline/secrets/placeholder/co_presence）
-- [ ] T002 创建快照数据模型（`session_snapshots`：session_id/seq/trigger/actor/summary/changed_refs/attachment_refs/created_at）+ MongoDB 索引（session_id+seq 唯一）
+- [x] T002 创建快照数据模型（`session_snapshots`：session_id/seq/trigger/actor/summary/changed_refs/attachment_refs/created_at）+ MongoDB 索引（session_id+seq 唯一）
 - [ ] T003 调研既有 `chat-api/app/api/endpoints/sessions.py` 的 session 模型（seq/versions 现状），确认快照与既有会话的挂接点
 
 ## Phase 2: Foundational (Blocking Prerequisites)
@@ -28,24 +28,24 @@
 - [x] T004 [P] 实现 `timeline.py`：线性时间线约束（seq 单调、resume 永不分叉的校验）
 - [x] T005 [P] 实现 `secrets.py`：低熵识别（熵 ≥3.5 + 长度 ≥16 + 正则前缀双判定）+ 白名单/手动标记
 - [x] T006 [P] 实现 `placeholder.py`：可逆占位符（替换/还原，仅所有者+全能力管理员可解引用，解引用落审计）
-- [ ] T007 实现 `store.py`：`session_snapshots` 读写 + 附件引用指针（附件走既有存储）
+- [x] T007 实现 `store.py`：`session_snapshots` 读写 + 附件引用指针（附件走既有存储）
 
 ## Phase 3: User Story 1 (P1) — commit / log（快照与回看）
 
 **Goal**: 显式+自动 commit 生成快照；log 可回看并预览摘要。
 **独立测试**: commit 后 log 出现快照；预览摘要正确；自动触发（idle/保存/关键工具后）生成快照。
 
-- [ ] T008 实现 `snapshots.py`：commit（手动 + 规则自动触发：idle 超时/显式保存/关键工具后，可配）
-- [ ] T009 实现 log 查询（按时间线列快照 + 预览摘要），接入 `sessions.py` 端点
-- [ ] T010 US1 测试：commit→log→预览 三组 Acceptance
+- [x] T008 实现 `snapshots.py`：commit（手动 + 规则自动触发：idle 超时/显式保存/关键工具后，可配）
+- [x] T009 实现 log 查询（按时间线列快照 + 预览摘要），接入 `sessions.py` 端点
+- [x] T010 US1 测试：commit→log→预览 三组 Acceptance
 
 ## Phase 4: User Story 2 (P1) — resume（恢复续编）
 
 **Goal**: 从指定/最新快照恢复，seq 续编，历史线性无分叉。
 **独立测试**: resume 后 seq 从快照最大 seq 续编；历史无分叉记录。
 
-- [ ] T011 实现 `snapshots.py` resume：从指定快照/最新恢复 + seq 续编（不重置）
-- [ ] T012 US2 测试：resume 起点正确 + seq 续编 + 无分叉断言
+- [x] T011 实现 `snapshots.py` resume：从指定快照/最新恢复 + seq 续编（不重置）
+- [x] T012 US2 测试：resume 起点正确 + seq 续编 + 无分叉断言
 
 ## Phase 5: User Story 3 (P1) — 并发续写（乐观锁）
 
