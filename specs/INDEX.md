@@ -51,7 +51,7 @@
 
 - spec.md：001–019 全部完成（19 份）
 - plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
-- checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，全未勾选，reviewer-owned），19/19 规约质量层一致
+- checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，reviewer-owned）；**P0（001/007/008）+ P1（002/009/010/011）已 agent 代审并勾选达标项 + FR 回填消解缺口**，其余 12 份仍全未勾选
 - tasks（可执行任务，`/speckit-tasks`）：001、007、008 完成（P0 三份 tasks.md，含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；002/009/010/011 + P2 待补
 - clarify（OQ 消解）：001–019 全部完成（19 份），各 spec 新增 "Clarify 记录" 节 + plan "Open Questions（已 clarify 消解）"。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
@@ -75,9 +75,25 @@
 | 008 成本预测 N 值未定 | 008 CHK013 | 完整性 | ✅ 已补：N = 4 期（可配置 forecast_periods）+ clarify OQ-5 |
 | 010 表达式语法错误策略未定 | 010 CHK013 | 完整性 | ✅ 已补：默认 fail_closed（跳过 + 审计）+ clarify OQ-5 + FR-4 同步 |
 
+## 五（补2）、P0/P1 checklist 评审 + FR 回填记录（2026-07-08）
+
+按 `/speckit-checklist` 语义 agent 代审 P0/P1 七份 checklist，**只勾真正达标项**；同时把 clarify 已定但未进 FR 正文的值 + 可消解的边界缺口回填进 spec。
+
+| 特性 | 勾选/总数 | 回填消解项 | 剩余未勾（跨特性对齐为主） |
+|---|---|---|---|
+| 001 gatekeeper | 15/18 | 逐层返回码、级联/回落、配额 MongoDB+UTC、预设组结构、审批 5min+poll+超时动作、R4 全能力管理员、删层重排、脱敏请求体前 | 25格矩阵完整表、001↔006、001↔019 |
+| 007 llm-resilience | 10/15 | 主/备显式声明、降档=文本档位、agent_id 维度、成本单价取 008 MODEL_PRICES、退避默认值、仅文本模型、全故障聚合错误 | 降级原因枚举、007↔001 配额、重试取消、切换计量归属 |
+| 008 ops-dashboard | 13/15 | 分摊字段、去重键、异常枚举、周期、人工介入率、P50/P95 源、top-5、容差、007 failover 字段对齐、最小角色、分维空态、时区、下钻脱敏 | 契约边界、月同比 |
+| 002 session-versioning | 12/16 | 触发条件、resume seq、share 权限转移、co-presence 冲突、秘密判定、独立快照集合、审计字段、解引用定义、附件边界、乐观锁、share 失效、离线贡献 | 002↔001/009/011/005 |
+| 009 hooks-interception | 11/16 | 三规则语义、作用域叠加、fail_closed、首期 PreToolUse、超时 5s、observe 强度、解析失败三类、拒绝语义、生效时机、求值顺序 | 五事件数据、009↔001/002/019、延迟预算 |
+| 010 dag-orchestration | 13/16 | 节点数据传递、并发度 4、跳过追溯、阻塞闭包、JSON 条件、版本字段、环路径格式、双轨、语法错误、原子语义、supervisor 传播 | 010↔007/009/002、跨层并发预算 |
+| 011 dream-cycle | 12/16 | 片段字段、双指标算法、测试定义、采纳率口径、friction 默认、MR 不直接合入、草稿vsMR、恢复路径、堆积上限、去重、生效范围、生成侧门槛 | 011↔004/002/016/010 |
+
+**共性结论**：剩余未勾项高度集中于**跨特性双向声明**（如 007↔008 failover 字段、002↔009 会话事件、011↔016 共用标记位、010↔007 重试分层），需相关特性相互确认后勾选；P0/P1 各特性自身 spec 已达 implement 可写程度。
+
 ## 六、SDD 路径
 
 - 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅ → 后续 `/speckit-tasks` → `/speckit-analyze`
 - 缺口 P0（001/007/008）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ✅（本轮补齐）→ analyze → implement → converge
-- 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ⏳ → analyze → implement → converge
+- 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ⏳ → analyze → implement → converge
 - P2 后置（012–019）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ⏳ → 按路线图节奏 implement

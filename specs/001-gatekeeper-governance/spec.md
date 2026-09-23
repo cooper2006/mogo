@@ -86,16 +86,17 @@
 
 ## Functional Requirements
 
-- FR-1: 工具调用必须经过六层串行门禁链（身份→RBAC→脱敏→审批→配额→审计），任一层拒绝则短路并审计
+- FR-1: 工具调用必须经过六层串行门禁链（身份→RBAC→脱敏→审批→配额→审计），任一层拒绝则短路并审计；各层拒绝返回码：身份/RBAC/红线 → 403，审批挂起 → 409 + 审批 token，配额超限 → 429
 - FR-2: 工具注册时标注风险级 R0–R4，执行上下文有自主级别 L1–L5
-- FR-3: 生成并维护 25 格 `AUTONOMY_MATRIX[L][R]`，值为 allow/require_approval/deny
-- FR-4: R4 工具在 L5 下仍为 deny，管理员不可覆盖红线
-- FR-5: 权限码模型 `<resource>:<action>[:<target>]`，三级隔离（租户/组织/用户），未知权限码 fail-closed
-- FR-6: 现有岗位角色作为权限码预设组，向下兼容
-- FR-7: PII 脱敏按类型配置策略（mask/remove/hash/abstract），审计只存脱敏值与哈希指纹
-- FR-8: 配额三维（租户/用户/工具）独立配置，超限返回明确维度提示
+- FR-3: 生成并维护 25 格 `AUTONOMY_MATRIX[L][R]`，值为 allow/require_approval/deny；矩阵为**完整取值表**（全 25 格有定义，非仅示例）
+- FR-4: R4 工具在 L5 下仍为 deny，**全能力管理员亦不可覆盖红线**
+- FR-5: 权限码模型 `<resource>:<action>[:<target>]`，三级隔离（租户/组织/用户，**上级含下级，用户级未授权时回落组织级再回落租户级**），未知权限码 fail-closed（**拼写错误与未注册码均拒**）
+- FR-6: 现有岗位角色作为权限码预设组（**角色 → 权限码列表映射，可部分覆盖**），向下兼容
+- FR-7: PII 脱敏按类型配置策略（mask/remove/hash/abstract），审计只存脱敏值与哈希指纹；脱敏**作用于工具请求体之前**（remove 后该字段不出现在请求体）
+- FR-8: 配额三维（租户/用户/工具）独立配置，**计数存于 MongoDB（`quota_counters`，原子 findOneAndUpdate，不引入 Redis）**；时间窗口 每分钟/每天/每月，**窗口边界按 UTC 重置，跨窗口新开计数**；超限返回明确维度提示
 - FR-9: 所有门禁通过/拒绝事件落审计日志，含层号、风险级、自主级别、时间戳
-- FR-10: 门禁链可通过声明式配置增删层，无需改代码（扩展点）
+- FR-10: 门禁链可通过声明式配置增删层，无需改代码（扩展点）；**删层后该层短路语义消失，短路链按剩余层重排**
+- FR-11: 审批层（第 4 层）复用 `chat-api/enterprise_capabilities/tools/approval_runtime` 的 `EnterpriseApproval` 状态机（**不新建审批表**），恢复机制为 **poll**，挂起默认 **5 分钟超时，超时自动按 fail-closed 拒绝**
 
 ## Non-Goals
 - 不实现 LLM 网关韧性、failover、degradation_chain（属特性 007）

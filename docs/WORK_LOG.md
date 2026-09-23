@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 回填 + 评审勾选 P1 特性 002/009/010/011 的 checklist（agent 代审）
+
+- 对 P1 四个特性走与 P0 相同流程：先逐条判定 checklist，把"clarify 已定未回填 FR"+"可消解边界缺口"回填进 spec，再勾真正达标项：
+  - **002 session-versioning**（12/16）：回填触发条件 / resume seq 续编 / share 权限转移+失效空态 / co-presence 冲突乐观锁 / 秘密判定 熵≥3.5+前缀 / 独立 `session_snapshots`+附件引用 / 审计字段 / 解引用定义 / 离线贡献保留。余 4 项跨特性（002↔001/009/011/005）。
+  - **009 hooks-interception**（11/16）：回填三规则语义 / 作用域叠加合并 / fail_closed 不可配+observe 例外 / 首期仅 PreToolUse / 超时 5s / 解析失败三类 / deny 返回 403 区分 / 生效时机 / 求值顺序。余 5 项（五事件数据、跨特性 001/002/019、延迟预算）。
+  - **010 dag-orchestration**（13/16）：回填节点数据传递 / 并发度 4+排队 / 跳过追溯 / 阻塞下游闭包+blocked 态 / JSON 条件对象 / 版本字段 / 环路径格式 / 双轨迁移 / 语法错误 fail_closed / 节点原子语义 / supervisor 失败传播。余 3 项跨特性（007/009/002）+ 跨层并发预算。
+  - **011 dream-cycle**（12/16）：回填片段字段 / Jaccard+编辑距离 / 测试定义 / 采纳率口径 / friction 默认捕获 / MR 目标 004 草稿目录 / 草稿vsMR 边界 / 淘汰恢复 / 草稿堆积上限 / 同片段去重 / 淘汰生效范围 / 生成侧质量门槛。余 4 项跨特性（004/002/016/010）。
+- 累计 P0+P1 七份 checklist 已 agent 代审：001 15/18、007 10/15、008 13/15、002 12/16、009 11/16、010 13/16、011 12/16。**剩余未勾项高度集中于跨特性双向声明**，需相关 spec 互相确认。
+- 更新 `specs/INDEX.md`：checklist 行标注 P0/P1 已评审勾选；新增"五（补2）P0/P1 评审 + FR 回填记录"表。
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。改 `specs/**/spec.md`（FR 回填）+ `checklists/requirements.md`（勾选+评审结论）+ `INDEX.md`，未改 services/apps 源码。
+
 ## 2026-07-08 审阅并勾选 P0 特性 001/007/008 的 checklist（agent 代审）
 
 - 按 `/speckit-checklist` 语义逐条判定 001/007/008 的 18+15+15 项需求质量，**只勾真正达标的，未达标如实保留 `[ ]`**（不滥勾）：

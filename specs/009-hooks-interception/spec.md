@@ -63,14 +63,17 @@
 
 ## Functional Requirements
 
-- FR-1: 支持五事件钩子：SessionStart / PreToolUse / PostToolUse / SessionEnd / MemoryCommit
-- FR-2: PreToolUse 支持声明式规则：deny_tool / require_field / observe
-- FR-3: 每个钩子有超时保护，超时/异常/规则解析失败按 fail_closed 拒绝
-- FR-4: 钩子规则声明式配置，无需改代码增删（扩展点）
-- FR-5: 钩子执行事件进入审计通道（与 001 联动）
+- FR-1: 支持五事件钩子：SessionStart / PreToolUse / PostToolUse / SessionEnd / MemoryCommit；**五事件为目标态，首期交付仅 PreToolUse（其余按节奏补齐）**
+- FR-2: PreToolUse 支持声明式规则：deny_tool（**拒绝指定工具调用**）/ require_field（**请求缺必填字段则拒绝**）/ observe（**仅记录不改拦截结果**，唯一可配置为"只记录不拦截"的规则类型）
+- FR-3: 每个钩子有超时保护，**默认 5s（`hook_timeout_seconds` 可配）**；超时/异常/规则解析失败按 fail_closed 拒绝（**不可配置为放行**）
+- FR-4: 钩子规则声明式配置（`hook_rules{scope, rule_type, rule_config, enabled}`），无需改代码增删（扩展点）；**规则变更即时生效（下一工具调用即按新规则求值）**
+- FR-5: 钩子执行事件进入审计通道（与 001 联动，复用 001 审计落点）
 - FR-6: PostToolUse 区分成功/失败路径均执行
 - FR-7: 会话生命周期事件（SessionStart/End/MemoryCommit）与特性 002 联动
-- FR-8: 钩子规则支持作用域（按工具/按会话/按租户）
+- FR-8: 钩子规则支持作用域（按工具/按会话/按租户）；**同一调用命中多作用域时叠加求值，合并语义：任一 deny 命中即拒绝（deny 优先于 require），observe 规则全部记录**
+- FR-9: **规则求值顺序：先按作用域（工具 > 会话 > 租户）求值，再按规则类型（deny > require > observe）；deny 命中即短路返回，不再求值后续规则**
+- FR-10: **deny_tool 拒绝返回 403 + 明确提示"被钩子规则拒绝"（与门禁层拒绝区分：门禁拒绝提示权限/配额原因，钩子拒绝提示规则原因）**
+- FR-11: **"规则解析失败" 三类均 fail_closed：规则 JSON 非法 / 必填字段缺失 / 未知 rule_type**
 
 ## Non-Goals
 - 不实现钩子的外部插件沙箱（本期为声明式规则，非任意代码执行）
