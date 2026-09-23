@@ -28,7 +28,7 @@
 
 - [x] T005 实现连接器（CRM DB 只读）+ 实体抽取
 - [x] T006 实现索引（`biz_entities`，含来源/类型/对齐键）
-- [ ] T007 实现语义检索（复用 005 检索客户端 + 引用锚点）
+- [x] T007 实现语义检索（复用 005 检索客户端 + 引用锚点）
 - [x] T008 US1 测试：实体入索引 + 检索带来源
 
 ## Phase 4: User Story 2 (P2) — 增量 + 跨系统对齐
@@ -40,8 +40,8 @@
 
 ## Polish & Cross-Cutting Concerns
 
-- [ ] T999 [P] 审计/可观测接入
-- [ ] T998 写 `quickstart.md` + `contracts/` 契约文档
+- [x] T999 [P] 审计/可观测接入
+- [x] T998 写 `quickstart.md` + `contracts/` 契约文档
 
 ---
 

@@ -26,6 +26,8 @@ from .degradation import (
     run_with_degradation,
 )
 from .failover import FailoverResult, ResilientLLMClient
+from .metering import aggregate_usage
+from .pricing import DEFAULT_PRICE, MODEL_PRICES, estimate_cost
 
 __all__ = [
     "NonRetryableLLMError",
@@ -38,4 +40,8 @@ __all__ = [
     "DegradationResult",
     "DegradationError",
     "DEFAULT_DEGRADATION_CHAIN",
+    "MODEL_PRICES",
+    "DEFAULT_PRICE",
+    "estimate_cost",
+    "aggregate_usage",
 ]

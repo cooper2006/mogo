@@ -106,6 +106,30 @@ def build_quality_section(
     }
 
 
+def empty_quality_section() -> dict[str, Any]:
+    """T025: empty-tenant fallback for the quality dimension (FR-9): all 0 / None."""
+    return {
+        "totalCalls": 0,
+        "successRate": None,
+        "anomalyRate": None,
+        "manualInterventionRate": None,
+        "p50Ms": None,
+        "p95Ms": None,
+        "avgMs": None,
+        "approvalPending": 0,
+    }
+
+
+def empty_trend_section() -> dict[str, Any]:
+    """T025: empty-tenant fallback for the trend dimension (FR-9)."""
+    return {
+        "costMomPct": None,
+        "callsMomPct": None,
+        "costYoyPct": None,
+        "bottlenecks": [],
+    }
+
+
 def build_trend_section(
     *,
     current_cost: float,

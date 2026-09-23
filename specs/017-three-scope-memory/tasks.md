@@ -34,14 +34,14 @@
 
 - [x] T008 实现范围升级授权（经 006 + 审计）
 - [x] T009 实现衰减/清理（30 天，访问重置）
-- [ ] T010 实现记忆进 RAG 检索（按 scope 过滤）
-- [ ] T011 US2 测试：升级授权 + 衰减 + 检索过滤
+- [x] T010 实现记忆进 RAG 检索（按 scope 过滤）
+- [x] T011 US2 测试：升级授权 + 衰减 + 检索过滤
 
 
 ## Polish & Cross-Cutting Concerns
 
-- [ ] T999 [P] 审计/可观测接入
-- [ ] T998 写 `quickstart.md` + `contracts/` 契约文档
+- [x] T999 [P] 审计/可观测接入
+- [x] T998 写 `quickstart.md` + `contracts/` 契约文档
 
 ---
 

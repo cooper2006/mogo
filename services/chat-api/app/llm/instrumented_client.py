@@ -167,6 +167,22 @@ class InstrumentedLLMClient(BaseLLMClient):
                 response_payload = {"error": error_text}
             raw_response = response.raw_response if response is not None else None
             user_request_id = str(output_spec.get("message_id") or output_spec.get("request_id") or "").strip()
+            # 007 T018/T019: estimated cost = token count x unit price (008 MODEL_PRICES, same table).
+            from app.llm.resilience.pricing import estimate_cost
+
+            provider_meta_model = str(provider_meta.get("model_name") or self._model_name)
+            cost_estimate = estimate_cost(
+                model=provider_meta_model,
+                prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                completion_tokens=int(usage.get("completion_tokens") or 0),
+            )
+            # FR-7: resilience event fields land as extras on the same record
+            # (failover_from/failover_to/degradation_step), no new collection.
+            resilience_extras = {
+                key: provider_meta.get(key)
+                for key in ("failover_from", "failover_to", "degradation_step")
+                if provider_meta.get(key) is not None
+            }
             record = TokenUsageRecord(
                 request_id="llm_%s" % uuid.uuid4().hex[:20],
                 user_request_id=user_request_id,
@@ -190,6 +206,8 @@ class InstrumentedLLMClient(BaseLLMClient):
                 total_tokens=int(usage.get("total_tokens") or 0),
                 prompt_tokens=int(usage.get("prompt_tokens") or 0),
                 completion_tokens=int(usage.get("completion_tokens") or 0),
+                cost_estimate_usd=cost_estimate,
+                resilience_events=resilience_extras or None,
             )
             from app.infrastructure.runtime_services import token_usage_dispatcher
 

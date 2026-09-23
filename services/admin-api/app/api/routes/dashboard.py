@@ -517,6 +517,30 @@ def _todos(metrics: dict[str, Any], assets: dict[str, Any]) -> list[dict[str, st
     return items[:6]
 
 
+async def _usage_tab(db: Any, main_id: str) -> dict[str, Any]:
+    """Usage-dimension dashboard (008 US3 / T014-T016): call time-series + active-user dedup + skill/retrieval ranking.
+
+    * T014: call volume time series (day grain) + active users deduped by user_id (day/week/month)
+    * T015: skill frequency (by skill name) + retrieval frequency (by retrieval type)
+    * Empty tenant / empty data -> 0 metrics + empty lists (T025 / FR-9 fallback).
+    """
+    from app.api.dashboard_usage import active_user_counts, empty_usage_section, rank_frequency, usage_time_series
+
+    try:
+        rows = await db[TOKEN_USAGE_COLLECTION].find(tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))).to_list(length=5000)
+    except Exception:
+        return empty_usage_section()
+    if not rows:
+        return empty_usage_section()
+    return {
+        "calls": sum(1 for _ in rows),
+        "activeUsers": active_user_counts(rows, grains=("day", "week", "month")),
+        "skillRanking": rank_frequency(rows, key="skill_name", top_n=10),
+        "retrievalRanking": rank_frequency(rows, key="retrieval_type", top_n=10),
+        "timeSeries": usage_time_series(rows, grain="day"),
+    }
+
+
 @router.get("/overview")
 async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
     main_id = str(current_user.get("main_id") or "default")
@@ -526,6 +550,7 @@ async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict
     assets = await _assets(db, main_id)
     quality = await _quality_metrics(db, main_id)
     trend = await _trend_metrics(db, main_id, current_cost=float(metrics.get("cost24h") or 0.0))
+    usage = await _usage_tab(db, main_id)
     todos = _todos(metrics, assets)
     status_text = "critical" if any(item["level"] == "error" for item in todos) else "warning" if todos else "healthy"
     return {
@@ -538,6 +563,7 @@ async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict
         "assets": assets,
         "quality": quality,
         "trend": trend,
+        "usage": usage,
         "todos": todos,
         "recentActivity": recent_activity,
     }

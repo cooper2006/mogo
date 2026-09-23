@@ -31,6 +31,11 @@ class TokenUsageRecord(BaseModel):
     completion_tokens: int = 0
     push_status: str = "pending"
     push_error: str = ""
+    # 007 US4 (T018/T019): estimated cost of the call (USD, token count x 008 MODEL_PRICES unit price).
+    cost_estimate_usd: float = 0.0
+    # 007 FR-7: resilience events (failover_from / failover_to / degradation_step)
+    # carried on the same record; None means no resilience event occurred.
+    resilience_events: Optional[Dict[str, Any]] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

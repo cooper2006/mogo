@@ -23,7 +23,7 @@
 
 - [x] T001 梳理既有数据源：确认 `dashboard.py`（_billing/_usage_metrics/_assets/_todos/_recent_activity）与 `analytics.py`（/token-usage，含 groupBy + 部门/模型/stage 筛选 + `duration_ms`）已提供的指标
 - [x] T002 建立四维看板共享的聚合辅助（`dashboard.py` 扩展）：统一租户隔离过滤 + 时间窗口（含时区口径）+ 空租户 0 指标兜底（FR-9）
-- [ ] T003 前端驾驶舱标签页骨架（`DashboardPage.vue` 新增 tab + `dashboardText.ts` 文案 key），复用既有图表组件
+- [x] T003 前端驾驶舱标签页骨架（`DashboardPage.vue` 新增 tab + `dashboardText.ts` 文案 key），复用既有图表组件
 
 ---
 
@@ -43,7 +43,7 @@
 **独立测试**: 打开 overview 返回五类数据；资产数量反映真实存量；空租户 0 指标 + 空态引导。
 
 - [x] T007 完善 `GET /overview`（`dashboard.py`）：聚合五类数据 + 资产真实存量 + 最近活动按时间倒序
-- [ ] T008 US1 前端：overview 标签页渲染五类指标 + 空态引导（复用 T002 兜底）
+- [x] T008 US1 前端：overview 标签页渲染五类指标 + 空态引导（复用 T002 兜底）
 - [x] T009 US1 测试：overview 返回完整性 + 空租户 0 指标两组 Acceptance
 
 ---
@@ -56,7 +56,7 @@
 - [x] T010 成本聚合（`dashboard.py::_cost` + 模型占比）：Token 总量 + 各模型成本占比（合计=总量，FR-6 对账）
 - [x] T011 分摊维度：按部门/智能体分摊成本（下钻，FR-2），数据源 `token_usage_logs` + `USER_ORG_REL`/`DEPARTMENT`
 - [x] T012 成本预测（近 4 期趋势，`forecast_periods` 可配，FR-2 + clarify OQ-5）
-- [ ] T013 US2 前端 + 测试：成本标签页（饼图/列表 + 分摊下钻 + 预测）+ 合计对账 0 差异断言
+- [x] T013 US2 前端 + 测试：成本标签页（饼图/列表 + 分摊下钻 + 预测）+ 合计对账 0 差异断言
 
 ---
 
@@ -65,9 +65,9 @@
 **Goal**: 调用量、活跃用户（去重）、Skill/检索频次，支持时间筛选。
 **独立测试**: 调用量时间序列 + 总量；活跃用户按日/周/月去重；Skill/检索按名排名。
 
-- [ ] T014 使用指标聚合（`dashboard.py::_usage_metrics` + `analytics.py`）：调用量时间序列 + 活跃用户去重计数（去重键 = user_id，按日/周/月）
-- [ ] T015 Skill/检索频次（按 Skill 名/检索类型排名）
-- [ ] T016 US3 前端 + 测试：使用标签页（时间范围筛选刷新 + 去重 + 排名）三组 Acceptance
+- [x] T014 使用指标聚合（`dashboard.py::_usage_metrics` + `analytics.py`）：调用量时间序列 + 活跃用户去重计数（去重键 = user_id，按日/周/月）
+- [x] T015 Skill/检索频次（按 Skill 名/检索类型排名）
+- [x] T016 US3 前端 + 测试：使用标签页（时间范围筛选刷新 + 去重 + 排名）三组 Acceptance
 
 ---
 
@@ -76,10 +76,10 @@
 **Goal**: 成功率、响应时长 P50/P95、异常率、人工介入率；异常可定位到请求。
 **独立测试**: 成功率=成功/总；P50/P95 分位；异常可下钻到请求；人工介入率=审批挂起/总。
 
-- [ ] T017 质量看板聚合（复用 T004）：成功率 + P50/P95（`$percentile`）+ 异常率（失败/超时占比）
-- [ ] T018 人工介入率（复用 T005）：`approval_pending`/总调用
-- [ ] T019 异常下钻到具体请求（FR-10：定位到 request_id，含脱敏 payload）
-- [ ] T020 US4 前端 + 测试：质量标签页（分位 + 异常下钻 + 人工介入率）四组 Acceptance
+- [x] T017 质量看板聚合（复用 T004）：成功率 + P50/P95（`$percentile`）+ 异常率（失败/超时占比）
+- [x] T018 人工介入率（复用 T005）：`approval_pending`/总调用
+- [x] T019 异常下钻到具体请求（FR-10：定位到 request_id，含脱敏 payload）
+- [x] T020 US4 前端 + 测试：质量标签页（分位 + 异常下钻 + 人工介入率）四组 Acceptance
 
 ---
 
@@ -88,18 +88,18 @@
 **Goal**: 环比/同比、瓶颈识别（成本/时长 top 调用），辅助决策。
 **独立测试**: 环比/同比与上一周期对比；瓶颈 top 按成本/时长排序；趋势线可视化。
 
-- [ ] T021 趋势聚合（复用 T006）：环比/同比（按周期粒度）+ 瓶颈 top-5（成本/时长排序，标注 模型/工具/阶段）
-- [ ] T022 趋势线时间序列可视化数据接口
-- [ ] T023 US5 前端 + 测试：趋势标签页（环比/同比 + 瓶颈 top + 趋势线）三组 Acceptance
+- [x] T021 趋势聚合（复用 T006）：环比/同比（按周期粒度）+ 瓶颈 top-5（成本/时长排序，标注 模型/工具/阶段）
+- [x] T022 趋势线时间序列可视化数据接口
+- [x] T023 US5 前端 + 测试：趋势标签页（环比/同比 + 瓶颈 top + 趋势线）三组 Acceptance
 
 ---
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T024 [P] 租户隔离自检：四维看板数据 100% 按租户隔离，无越权（FR-7 + 管理员权限约束，与 006 RBAC 口径对齐）
-- [ ] T025 [P] 空租户/空数据总兜底：各维度 0 指标 + 空态引导（FR-9）
-- [ ] T026 成本对账自检：模型成本合计 = Token 总量（0 差异，FR-6/Success）
-- [ ] T027 写 `quickstart.md`（驾驶舱启用 + 各维度验证步骤）+ `contracts/dashboard.md`（四维看板端点契约 + 聚合口径）
+- [x] T024 [P] 租户隔离自检：四维看板数据 100% 按租户隔离，无越权（FR-7 + 管理员权限约束，与 006 RBAC 口径对齐）
+- [x] T025 [P] 空租户/空数据总兜底：各维度 0 指标 + 空态引导（FR-9）
+- [x] T026 成本对账自检：模型成本合计 = Token 总量（0 差异，FR-6/Success）
+- [x] T027 写 `quickstart.md`（驾驶舱启用 + 各维度验证步骤）+ `contracts/dashboard.md`（四维看板端点契约 + 聚合口径）
 
 ---
 

@@ -10,7 +10,9 @@ static default used when no override is present.
 
 from __future__ import annotations
 
+import datetime
 import os
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -128,3 +130,45 @@ def gate_config_env_override() -> list[str] | None:
     if not raw:
         return None
     return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+async def save_gate_config(config: GateConfig, *, actor: str = "system") -> None:
+    """Persist a validated gate config and record the change in the audit sink (T030).
+
+    The config must pass ``validate`` first (required layers + audit floor);
+    an invalid config raises before any write happens. The audit entry lands in
+    ``gate_events`` so "config changed" is traceable (FR-10).
+    """
+    config.validate()
+    from app.core.db import get_db
+
+    db = get_db()
+    document = {
+        "kind": "gate_config",
+        "enabled_layers": list(config.enabled_layers),
+        "audit_enabled": bool(config.audit_enabled),
+        "mode": str(config.mode),
+        "tenant_overrides": config.tenant_overrides or {},
+        "updated_by": actor,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc),
+    }
+    await db[GATE_CONFIG_COLLECTION].update_one({"kind": "gate_config"}, {"$set": document}, upsert=True)
+
+    from .layers.audit import GATE_EVENTS_COLLECTION
+
+    await db[GATE_EVENTS_COLLECTION].insert_one(
+        {
+            "event_id": uuid.uuid4().hex,
+            "occurred_at": document["updated_at"],
+            "tenant_id": "",
+            "user_id": actor,
+            "roles": [],
+            "tool": "gate.config.update",
+            "risk_level": "",
+            "autonomy_level": "",
+            "decision": "allow",
+            "layer": "config_admin",
+            "reason": "gate config updated",
+            "detail": {"mode": document["mode"], "enabled_layers": document["enabled_layers"]},
+        }
+    )

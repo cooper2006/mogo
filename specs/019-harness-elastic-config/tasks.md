@@ -57,7 +57,7 @@
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [x] T014 [P] 与 001 门禁链对接（层开关切到 001 gatekeeper，过渡期挂 approval_runtime/audit）
-- [ ] T015 写 `quickstart.md` + `contracts/harness-config.md`（profile schema + 层开关契约）
+- [x] T015 写 `quickstart.md` + `contracts/harness-config.md`（profile schema + 层开关契约）
 
 ---
 

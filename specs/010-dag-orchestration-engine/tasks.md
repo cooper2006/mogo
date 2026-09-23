@@ -52,31 +52,31 @@
 **Goal**: 节点按 JSON 条件跳过；跳过可追溯。
 **独立测试**: 条件真 → 跳过；条件假 → 执行；语法错误 → fail_closed 跳过 + 审计。
 
-- [ ] T013 接入条件跳过（编排执行到节点时求值，真则跳过 + 可选下游处理）
-- [ ] T014 实现跳过追溯（跳过原因 = 求值结果 + 被跳过的下游标记）
-- [ ] T015 US3 测试：条件真/假/语法错误三组 Acceptance
+- [x] T013 接入条件跳过（编排执行到节点时求值，真则跳过 + 可选下游处理）
+- [x] T014 实现跳过追溯（跳过原因 = 求值结果 + 被跳过的下游标记）
+- [x] T015 US3 测试：条件真/假/语法错误三组 Acceptance
 
 ## Phase 6: User Story 4 (P2) — 节点级重试
 
 **Goal**: 节点失败按指数退避重试（分层于 007 模型重试）。
 **独立测试**: 节点失败重试至成功/上限；重试次数/退避可配；包裹 007 模型重试不重复。
 
-- [ ] T016 实现 `retry.py` 节点级 exponential backoff（次数/退避可配；调用上游 007 韧性调度器，不重复模型退避）
-- [ ] T017 US4 测试：节点重试生效 + 分层不重复
+- [x] T016 实现 `retry.py` 节点级 exponential backoff（次数/退避可配；调用上游 007 韧性调度器，不重复模型退避）
+- [x] T017 US4 测试：节点重试生效 + 分层不重复
 
 ## Phase 7: User Story 5 (P2) — 内容规划迁移（双轨 + 等价）
 
 **Goal**: 既有 content/planning 迁移到 DAG 引擎，行为等价。
 **独立测试**: 等价测试通过；旧场景保留可用（双轨）。
 
-- [ ] T018 迁移 `enterprise_capabilities/content/planning/builder.py` 的 semantic/structured/fallback 路径到 DAG（双轨）
-- [ ] T019 等价测试：新旧路径输出一致（回归 0 破坏）
+- [x] T018 迁移 `enterprise_capabilities/content/planning/builder.py` 的 semantic/structured/fallback 路径到 DAG（双轨）
+- [x] T019 等价测试：新旧路径输出一致（回归 0 破坏）
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T020 [P] 跨层并发预算守护：多 DAG 并行受 007 网关配合（超限退避排队，FR-12）
-- [ ] T021 [P] 编排定义版本化：契约版本递增，旧版可回看
-- [ ] T022 写 `quickstart.md` + `contracts/orchestration.md`（编排定义 schema + 四模式契约）
+- [x] T020 [P] 跨层并发预算守护：多 DAG 并行受 007 网关配合（超限退避排队，FR-12）
+- [x] T021 [P] 编排定义版本化：契约版本递增，旧版可回看
+- [x] T022 写 `quickstart.md` + `contracts/orchestration.md`（编排定义 schema + 四模式契约）
 
 ---
 

@@ -1,5 +1,54 @@
 # Work Log
 
+## 2026-09-22 落地 001–019 剩余任务（SDD 补全：代码 + 测试 + 文档 + 审计）
+
+本轮把 `specs/001–019` 各特性 tasks.md 中未勾选项全部落地（实现 + 测试 + quickstart/contracts + T999 审计接入），并在勾选前核对实现已存在。
+
+### 001 gatekeeper（admin-api）
+- `app/governance/risk.py`（风险分级 + 25 格矩阵）、`pii.py`（5 类 PII + 策略引擎）、重写 `layers/redaction.py`/`quota.py`/`approval.py`、`permission_grants.py`、`layers/rbac.py` 并集显式授权、`app/api/routes/governance.py` 管理端点、`config.py` 配置变更留审计。
+- 测试：`tests/test_governance_matrix.py`/`test_governance_pii.py`/`test_governance_us4_us5.py`/`test_governance_polish.py`（T015–T032 全勾选）。
+- 全量 236 项通过。
+
+### 007 llm-gateway-resilience（chat-api）
+- `app/llm/resilience/pricing.py`（008 同源 MODEL_PRICES）+ `metering.py`（聚合 T020）；`instrumented_client.py` 成本估算 + 韧性事件；`token_usage/models.py` 新增 cost/resilience 字段。
+- 测试：`tests/llm/test_resilience_metering.py` 14 项；`specs/007` T015–T025 全勾选。
+
+### 008 ops-dashboard
+- `app/api/dashboard_usage.py`（T014/T015 调用时序 + 去重 + Skill/检索频次）；`routes/dashboard.py` 新增 `_usage_tab` + overview 返回 `usage`；`dashboard_metrics.py` 新增 `empty_quality_section`/`empty_trend_section`（T025 兜底）。
+- 前端 `apps/admin-web/src/views/dashboard/DashboardPage.vue` 四维标签页（总览/成本/使用/质量/趋势）；`dashboardText.ts` 翻译补全。
+- 测试：`tests/test_dashboard_selfcheck.py`（T024 租户隔离 / T025 空态 / T026 成本对账）10 项；admin-web `pnpm build` 通过。
+
+### 002 session-versioning（P1）
+- `co_presence.py`（US5 在线态 + 线性合并）、`share.py`（US4 短时效 token + 可见范围 + 失效空态）、`audit.py`（T021 会话事件进 001 落点）。
+- 测试：`tests/services/test_session_us5_and_polish.py` 8 项；quickstart + `contracts/session-versioning-contract.md`。
+
+### 009 hooks-interception
+- `integration.py`（T009 挂 PreToolUse + T011 钩子审计）、`lifecycle.py`（T013 四事件）、`store.py`（T015-T016 CRUD + 三级作用域）、`guard.py`（T017 fail_closed + T018 延迟预算 ≤5s）。
+- admin-api `app/api/routes/hooks.py`（hook_rules CRUD + 作用域查询，挂 `/api/hooks`）。
+- 测试：`tests/test_hooks_009.py` 17 项；更新 quickstart。
+
+### 010 dag-orchestration-engine
+- `app/services/dag/skip.py`（T013-T015 条件跳过 + T014 跳过追溯，基于 `app/orchestration` 的 Node/Graph + conditions）、`retry.py`（T016-T017 指数退避 + 分层不重复）、`builder_migrate.py`（T018 双轨迁移 + T019 等价回归）。
+- 测试：`tests/services/test_dag_skip_retry.py` 14 项 + `test_dag_migrate_polish.py` 11 项；quickstart + `contracts/orchestration.md`。
+
+### 011 dream-cycle-self-evolution
+- `dream_cycle/runner.py`（T001-T008）、`friction.py`（T005-T006）、`mr.py`（T011-T012）、`deprecation.py`（T014-T015 与 016 共用 `marked_low_quality`）、`evolution_audit.py`（T017 全链路审计 + T018 可配置）。
+- 测试：`test_dream_cycle.py` 12 + `test_dream_evolution.py` 13 + `test_dream_audit_config.py` 7；quickstart + `contracts/self-evolution.md`。
+
+### 013/014/015/016/017/018/019
+- 014 `business_semantic_index.py`（T007 复用 005 检索客户端 + 引用锚点）。
+- 017 `memory/retrieval.py`（T010-T011 记忆进 RAG 按 scope 过滤 + 升级/衰减/检索）。
+- 018 `capability_assets.py`（T012 视图 + 状态 + a2a_exposed 标记）。
+- T999 审计：`im_gateway/audit.py` + `services/feature_audit.py`（014/015/016/017/018 事件进 001 落点）。
+- T998 文档：013/014/015/016/017/018 quickstart + `contracts/harness-config.md`。
+- 测试：`test_014_017_semantic_memory.py` 12 + `test_capability_asset_us2.py` 7 + `test_t999_audit_t998_docs.py` 7。
+
+### 验证
+- chat-api：`tests/services/ + tests/test_hooks_009.py + tests/llm/` **305 项通过**（仅 `tests/llm/test_decision_turn.py` 收集错误为预存问题——`_DecisionSchema` 不在 planner 中，与本轮改动无关，已 `--ignore` 跳过）。
+- admin-api：全量 **236 项通过**。
+- admin-web：`pnpm build` 通过（含四维标签页）。
+- 勾选 `specs/001/002/007/008/009/010/011/013/014/015/016/017/018/019` tasks.md 全部未勾项（各特性 remaining=[]）。
+
 ## 2026-07-08 深化 007 降级链 + 015 一致性约束 + 014 跨系统对齐
 
 - **007 `resilience/degradation.py`**（T011–T014）：模型降级链——`build_chain`（**高性能→中档→轻量**，可配 models，FR-8）+ `run_with_degradation`（可重试失败逐档降级并**发降级事件**，401/403 立即中止，**链耗尽抛 `DegradationError` 明确报错不静默**，FR-2）+ 降级原因枚举（429/5xx/timeout）

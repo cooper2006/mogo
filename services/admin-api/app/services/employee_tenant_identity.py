@@ -32,7 +32,7 @@ def authoritative_tenant_names(
 
 
 async def repair_employee_tenant_identities(db: Any | None = None) -> int:
-    database = db or get_db()
+    database = db if db is not None else get_db()
     organizations = await database.organizations.find(
         {"main_id": {"$nin": [None, "", "default"]}}, {"main_id": 1, "org_name": 1}
     ).to_list(length=10000)

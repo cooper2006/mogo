@@ -36,6 +36,25 @@ class RbacLayer:
         )
         return [doc async for doc in cursor]
 
+    async def _explicit_grants(self, ctx: GateContext) -> set[str]:
+        """Explicit fine-grained grants (001 US4 three-level isolation)."""
+        cached = ctx.annotations.get("explicit_grants")
+        if isinstance(cached, set):
+            return cached
+        codes: set[str] = set()
+        try:
+            from ..permission_grants import effective_grant_codes
+
+            codes = await effective_grant_codes(
+                tenant_id=ctx.tenant_id,
+                org_id=str(ctx.annotations.get("org_id") or ""),
+                user_id=ctx.user_id,
+            )
+        except Exception:
+            codes = set()
+        ctx.annotations["explicit_grants"] = codes
+        return codes
+
     async def _effective_codes(self, ctx: GateContext) -> set[str]:
         cached = ctx.annotations.get("effective_codes")
         if isinstance(cached, set):
@@ -44,6 +63,8 @@ class RbacLayer:
         roles = await self._role_documents(ctx.tenant_id, ctx.roles)
         for role in roles:
             codes.update(expand_role_to_codes(role))
+        # US4: explicit grants (tenant/org/user levels) union with role presets.
+        codes.update(await self._explicit_grants(ctx))
         ctx.annotations["effective_codes"] = codes
         return codes
 

@@ -19,7 +19,7 @@ def iso(value: Any) -> str:
 
 class SystemAuditQuery:
     def __init__(self, db: Any | None = None) -> None:
-        self.db = db or get_db()
+        self.db = db if db is not None else get_db()
 
     async def list_logs(
         self,

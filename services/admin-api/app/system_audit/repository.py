@@ -14,7 +14,7 @@ def utcnow() -> datetime:
 
 class SystemAuditRepository:
     def __init__(self, db: Any | None = None) -> None:
-        self.db = db or get_db()
+        self.db = db if db is not None else get_db()
 
     async def ensure_indexes(self) -> None:
         collection = self.db[SYSTEM_AUDIT_COLLECTION]

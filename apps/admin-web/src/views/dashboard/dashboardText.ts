@@ -17,5 +17,11 @@ export function translateDashboardText(value: string | null | undefined): string
   match = text.match(/^(\d+) 次调用失败，建议查看 Token 统计。$/);
   if (match) return t('调用失败建议查看 Token 统计', { count: match[1] });
 
+  match = text.match(/^(\d+) 个 Skill 最近调用最多。$/);
+  if (match) return t('Skill 最近调用最多', { count: match[1] });
+
+  match = text.match(/^(\d+) 种检索类型最近使用最多。$/);
+  if (match) return t('检索类型最近使用最多', { count: match[1] });
+
   return t(text);
 }

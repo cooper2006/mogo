@@ -333,12 +333,23 @@ async def _enforce_gate(tool_id: str, main_id: str, current_user: dict, payload:
         request=_safe_dict(payload),
         scope="tool",
     )
+    # US2: resolve the tool's registered risk tier so the autonomy matrix can act.
+    from app.governance import risk as governance_risk
+
+    ctx.risk_level = await governance_risk.risk_level_for(tenant_id=main_id, tool=str(tool_id))
+    ctx.autonomy_level = str(current_user.get("autonomy_level") or "L3")
     verdict = await gatekeeper.evaluate(str(tool_id), ctx)
     if verdict.allowed:
         return
     detail: dict[str, Any] = {"layer": verdict.layer, "reason": verdict.reason}
-    if verdict.layer == "approval" and verdict.detail.get("approval_token"):
-        detail["approval_token"] = verdict.detail["approval_token"]
+    approval_info = verdict.detail.get("approval") if isinstance(verdict.detail.get("approval"), dict) else None
+    if verdict.layer == "approval" and approval_info:
+        if approval_info.get("token"):
+            detail["approval_token"] = approval_info["token"]
+        if approval_info.get("action_id"):
+            detail["approval_action_id"] = approval_info["action_id"]
+    if verdict.detail.get("scope"):
+        detail["quota"] = verdict.detail
     raise HTTPException(status_code=verdict.status_code, detail=detail)
 
 

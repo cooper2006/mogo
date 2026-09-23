@@ -35,7 +35,7 @@ async def repair_role_referenced_personal_tools(db: Any | None = None) -> dict[s
     organization tool already exists, roles are rewired to it. Otherwise the referenced
     tool is promoted in place, preserving its stable ID and credentials.
     """
-    database = db or get_db()
+    database = db if db is not None else get_db()
     roles = await database.position_roles.find(
         {"tool_access_mode": "selected", "tool_ids.0": {"$exists": True}},
         {"main_id": 1, "tool_ids": 1},

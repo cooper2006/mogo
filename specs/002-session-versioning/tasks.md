@@ -21,7 +21,7 @@
 
 - [x] T001 创建 `services/chat-api/app/services/session_versioning/__init__.py` + 子模块骨架（snapshots/store/timeline/secrets/placeholder/co_presence）
 - [x] T002 创建快照数据模型（`session_snapshots`：session_id/seq/trigger/actor/summary/changed_refs/attachment_refs/created_at）+ MongoDB 索引（session_id+seq 唯一）
-- [ ] T003 调研既有 `chat-api/app/api/endpoints/sessions.py` 的 session 模型（seq/versions 现状），确认快照与既有会话的挂接点
+- [x] T003 调研既有 `chat-api/app/api/endpoints/sessions.py` 的 session 模型（seq/versions 现状），确认快照与既有会话的挂接点
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
@@ -52,31 +52,31 @@
 **Goal**: 先到者为准，落后者重读最新状态重试。
 **独立测试**: 并发续写冲突 → CAS 拒绝 → 重读重试成功；无丢失无乱序。
 
-- [ ] T013 实现 seq 乐观锁（CAS + 冲突重读重试，最多 N 次后 fail-closed）
-- [ ] T014 US3 测试：并发冲突重试成功 + 顺序一致性 100%
+- [x] T013 实现 seq 乐观锁（CAS + 冲突重读重试，最多 N 次后 fail-closed）
+- [x] T014 US3 测试：并发冲突重试成功 + 顺序一致性 100%
 
 ## Phase 6: User Story 4 (P1) — share（交接）
 
 **Goal**: 短时效 token 交接，交接者保留只读、接手者编辑；失效空态。
 **独立测试**: share 生成 token；接手者获编辑权；过期/取消后访问"链接已失效"。
 
-- [ ] T015 实现 share：短时效 token + 可见范围（006 RBAC 联动）+ 权限转移（交接者只读/接手者编辑）
-- [ ] T016 实现 share 失效（过期/取消）空态
-- [ ] T017 US4 测试：交接权限转移 + 失效空态两组 Acceptance
+- [x] T015 实现 share：短时效 token + 可见范围（006 RBAC 联动）+ 权限转移（交接者只读/接手者编辑）
+- [x] T016 实现 share 失效（过期/取消）空态
+- [x] T017 US4 测试：交接权限转移 + 失效空态两组 Acceptance
 
 ## Phase 7: User Story 5 (P2) — co-presence（多人协同）
 
 **Goal**: 多人同会话线性合并；离线成员贡献保留；不引入 Redis。
 **独立测试**: 多客户端消息线性合并；离线成员贡献保留；短轮询在线态。
 
-- [ ] T018 实现 `co_presence.py`：在线态（MongoDB + 短轮询，不引入 Redis）+ 消息线性合并
-- [ ] T019 US5 测试：消息线性合并 + 离线贡献保留
+- [x] T018 实现 `co_presence.py`：在线态（MongoDB + 短轮询，不引入 Redis）+ 消息线性合并
+- [x] T019 US5 测试：消息线性合并 + 离线贡献保留
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T020 [P] 秘密过滤覆盖率自检：commit/log/share 视图 0 明文（Success 基准）
-- [ ] T021 [P] 会话事件审计：进入/离开/commit/resume/share/解引用进 001 审计落点（字段：操作者/时间/会话 ID/事件类型/引用对象）
-- [ ] T022 写 `quickstart.md` + `contracts/session-versioning-contract.md`（commit/log/resume/share 契约）
+- [x] T020 [P] 秘密过滤覆盖率自检：commit/log/share 视图 0 明文（Success 基准）
+- [x] T021 [P] 会话事件审计：进入/离开/commit/resume/share/解引用进 001 审计落点（字段：操作者/时间/会话 ID/事件类型/引用对象）
+- [x] T022 写 `quickstart.md` + `contracts/session-versioning-contract.md`（commit/log/resume/share 契约）
 
 ---
 

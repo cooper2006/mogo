@@ -66,9 +66,9 @@
 **Goal**: 可重试错误按退避+抖动重试，不可重试立即失败。
 **独立测试**: 429→退避重试至成功/上限；401→不重试立即返回；次数/间隔可观测。
 
-- [ ] T015 将 T006 退避原语接入 failover/降级调度（429/5xx/超时重试，401/403 直接失败）
-- [ ] T016 重试次数/间隔日志可观测（Success 基准），默认 3 次可配
-- [ ] T017 退避单测：429 重试成功 + 401 零重试 + 达上限后失败三组 Acceptance
+- [x] T015 将 T006 退避原语接入 failover/降级调度（429/5xx/超时重试，401/403 直接失败）
+- [x] T016 重试次数/间隔日志可观测（Success 基准），默认 3 次可配
+- [x] T017 退避单测：429 重试成功 + 401 零重试 + 达上限后失败三组 Acceptance
 
 ---
 
@@ -77,19 +77,19 @@
 **Goal**: 每次调用记录 token 用量 + 估算成本，按维度聚合供 008 驾驶舱消费。
 **独立测试**: 调用后记录 TokenUsageRecord；按供应商/模型/租户/智能体聚合；计量落库可查。
 
-- [ ] T018 [P] 复用 `token_usage` 管线（`InstrumentedLLMClient` + `TokenUsageDispatcher` + `TokenUsageRepository`）记录每次 LLM 调用的 input/output token + 成本
-- [ ] T019 成本估算（按 token 单价 × 用量，单价口径与 008 MODEL_PRICES 对齐，FR-5）
-- [ ] T020 维度聚合（供应商/模型/租户/智能体）查询端点（FR-6），供 008 消费
-- [ ] T021 计量集成测试：调用记录 + 按维度聚合可查两组 Acceptance
+- [x] T018 [P] 复用 `token_usage` 管线（`InstrumentedLLMClient` + `TokenUsageDispatcher` + `TokenUsageRepository`）记录每次 LLM 调用的 input/output token + 成本
+- [x] T019 成本估算（按 token 单价 × 用量，单价口径与 008 MODEL_PRICES 对齐，FR-5）
+- [x] T020 维度聚合（供应商/模型/租户/智能体）查询端点（FR-6），供 008 消费
+- [x] T021 计量集成测试：调用记录 + 按维度聚合可查两组 Acceptance
 
 ---
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T022 [P] 韧性事件可观测总验证：failover/降级/重试/计量事件 100% 可查（FR-7）
-- [ ] T023 [P] 配置声明式收尾：供应商/降级链/退避参数全配置驱动（FR-8，含 `resilience/config.py`）
-- [ ] T024 计量覆盖率自检：LLM 调用计量记录覆盖率 100%（token + 成本，Success 基准）
-- [ ] T025 写 `quickstart.md`（韧性启用 + 故障注入验证步骤）+ `contracts/resilience.md`（failover/降级/退避/计量 IO 契约）
+- [x] T022 [P] 韧性事件可观测总验证：failover/降级/重试/计量事件 100% 可查（FR-7）
+- [x] T023 [P] 配置声明式收尾：供应商/降级链/退避参数全配置驱动（FR-8，含 `resilience/config.py`）
+- [x] T024 计量覆盖率自检：LLM 调用计量记录覆盖率 100%（token + 成本，Success 基准）
+- [x] T025 写 `quickstart.md`（韧性启用 + 故障注入验证步骤）+ `contracts/resilience.md`（failover/降级/退避/计量 IO 契约）
 
 ---
 

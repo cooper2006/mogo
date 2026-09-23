@@ -36,38 +36,38 @@
 - [x] T006 实现 deny_tool 规则求值 + 拒绝返回（403 + "被钩子规则拒绝"提示，与门禁拒绝区分）
 - [x] T007 实现 require_field 规则求值（请求缺必填字段 → 拒绝）
 - [x] T008 实现 observe 规则（仅记录，不改拦截结果）
-- [ ] T009 实现 `integration.py`：挂载 PreToolUse 到 `turn_admission.admit_skill_selection`（工具调用前求值）
-- [ ] T010 US1 测试：三类规则 Acceptance + 规则即时生效
+- [x] T009 实现 `integration.py`：挂载 PreToolUse 到 `turn_admission.admit_skill_selection`（工具调用前求值）
+- [x] T010 US1 测试：三类规则 Acceptance + 规则即时生效
 
 ## Phase 4: User Story 2 (P2) — 钩子审计与可观测
 
 **Goal**: 钩子执行事件进 001 审计落点；执行可追溯。
 **独立测试**: 每次钩子求值 → 审计记录（身份/工具/结果/时间戳）。
 
-- [ ] T011 实现钩子执行审计（进 001 审计落点，复用既有 `governance/audit.py`；含通过/拒绝 + 规则命中）
-- [ ] T012 US2 测试：钩子执行 100% 进审计
+- [x] T011 实现钩子执行审计（进 001 审计落点，复用既有 `governance/audit.py`；含通过/拒绝 + 规则命中）
+- [x] T012 US2 测试：钩子执行 100% 进审计
 
 ## Phase 5: User Story 3 (P2) — 会话生命周期钩子（SessionStart/End/MemoryCommit）
 
 **Goal**: 三类会话事件钩子与 002 联动。
 **独立测试**: SessionStart 可注入初始上下文；SessionEnd 可清理；MemoryCommit 可过滤待提交记忆。
 
-- [ ] T013 实现 SessionStart/PostToolUse/SessionEnd/MemoryCommit 钩子（与 002 会话事件联动）
-- [ ] T014 US3 测试：四事件触发 + 可携带数据正确（FR-12）
+- [x] T013 实现 SessionStart/PostToolUse/SessionEnd/MemoryCommit 钩子（与 002 会话事件联动）
+- [x] T014 US3 测试：四事件触发 + 可携带数据正确（FR-12）
 
 ## Phase 6: User Story 4 (P2) — 钩子规则管理
 
 **Goal**: 声明式配置增删规则无需改代码；规则 CRUD 端点。
 **独立测试**: 新增/停用规则即时生效；无代码改动。
 
-- [ ] T015 实现 hook_rules CRUD 管理端点（声明式配置，即时生效）
-- [ ] T016 实现规则作用域查询（tool/session/tenant 三级匹配）
+- [x] T015 实现 hook_rules CRUD 管理端点（声明式配置，即时生效）
+- [x] T016 实现规则作用域查询（tool/session/tenant 三级匹配）
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T017 [P] fail_closed 自检：超时/异常/解析失败 100% 拒绝（无越权放行，Success 基准）
-- [ ] T018 [P] 钩子延迟预算守护：单次工具调用钩子总延迟 ≤ 5s（多钩子共享预算，超限 fail_closed，FR-13）
-- [ ] T019 写 `quickstart.md` + `contracts/hooks.md`（五事件 IO 契约 + 规则 schema）
+- [x] T017 [P] fail_closed 自检：超时/异常/解析失败 100% 拒绝（无越权放行，Success 基准）
+- [x] T018 [P] 钩子延迟预算守护：单次工具调用钩子总延迟 ≤ 5s（多钩子共享预算，超限 fail_closed，FR-13）
+- [x] T019 写 `quickstart.md` + `contracts/hooks.md`（五事件 IO 契约 + 规则 schema）
 
 ---
 

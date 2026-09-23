@@ -23,7 +23,7 @@ def utcnow() -> datetime:
 
 class PositionRoleRepository:
     def __init__(self, db: Any | None = None) -> None:
-        self.db = db or get_db()
+        self.db = db if db is not None else get_db()
 
     async def ensure_indexes(self) -> None:
         await self.db[POSITION_ROLE_COLLECTION].create_index(

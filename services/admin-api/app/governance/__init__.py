@@ -11,10 +11,11 @@ via config, without changing code (see ``config.py``).
 
 from __future__ import annotations
 
-from .gatekeeper import GateContext, GateVerdict, Gatekeeper, gatekeeper
+from .gatekeeper import GateContext, GateDecision, GateVerdict, Gatekeeper, gatekeeper
 
 __all__ = [
     "GateContext",
+    "GateDecision",
     "GateVerdict",
     "Gatekeeper",
     "gatekeeper",

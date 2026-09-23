@@ -40,8 +40,8 @@
 
 ## Polish & Cross-Cutting Concerns
 
-- [ ] T999 [P] 审计/可观测接入
-- [ ] T998 写 `quickstart.md` + `contracts/` 契约文档
+- [x] T999 [P] 审计/可观测接入
+- [x] T998 写 `quickstart.md` + `contracts/` 契约文档
 
 ---
 

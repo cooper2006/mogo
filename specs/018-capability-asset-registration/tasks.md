@@ -36,13 +36,13 @@
 - [x] T009 实现全量资产治理视图（列表 + 详情下钻）
 - [x] T010 实现状态管理（active/deprecated/offline + 审批）
 - [x] T011 实现 a2a_exposed 标记（供 012 生成 AgentCard）
-- [ ] T012 US2 测试：视图 + 状态 + 标记
+- [x] T012 US2 测试：视图 + 状态 + 标记
 
 
 ## Polish & Cross-Cutting Concerns
 
-- [ ] T999 [P] 审计/可观测接入
-- [ ] T998 写 `quickstart.md` + `contracts/` 契约文档
+- [x] T999 [P] 审计/可观测接入
+- [x] T998 写 `quickstart.md` + `contracts/` 契约文档
 
 ---
 
