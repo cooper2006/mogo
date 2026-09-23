@@ -1,5 +1,15 @@
 # Work Log
 
+## 2026-07-08 实现 P2 特性 017（三范围记忆）核心
+
+- **017 三范围记忆** → `services/chat-api/app/memory/`：
+  - `scope.py`：三级范围（personal/workspace/org）+ 可见性（owner/members/organization）+ `resolve_default_scope`（**单人会话→personal，多人→workspace**，clarify OQ-1）+ `visible_to`（按 scope 隔离，全能力管理员可读全部，**无越权**）+ `promote_to_org`（**仅全能力管理员可授权提升**，否则 `MemoryAccessError`，FR-4）
+  - `lifecycle.py`：衰减策略（**默认 30 天**，`touch` 访问重置计时，clarify OQ-2）+ `is_expired`/`seconds_until_expiry`（剩余存活时间）+ 清理方式（archive 默认，可配 delete）
+- **测试**：`tests/memory/test_memory.py`（16 项）：默认范围（单/多人）、未知 scope 拒绝、三级可见性隔离、全能力管理员越权可见、提升授权门槛、衰减窗口边界、访问重置、清理默认。全部通过。
+- 勾选 `specs/017-three-scope-memory/tasks.md` T001–T009。
+- **P2 已实现核心：012 / 015 / 017 / 019**（013/014/016/018 待后续）。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 P2 特性 012（A2A 网关）+ 015（知识图谱）核心
 
 - **012 A2A 网关** → `services/chat-api/app/a2a/`：

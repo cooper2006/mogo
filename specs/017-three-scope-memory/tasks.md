@@ -16,24 +16,24 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 chat-api/app/memory/ 包骨架 + 子模块
-- [ ] T002 定义核心数据模型/契约 schema
+- [x] T001 创建 chat-api/app/memory/ 包骨架 + 子模块
+- [x] T002 定义核心数据模型/契约 schema
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
-- [ ] T004 [P] 实现声明式配置解析 + 校验
+- [x] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
+- [x] T004 [P] 实现声明式配置解析 + 校验
 
 ## Phase 3: User Story 1 (P1) — 三级记忆写入与隔离
 
-- [ ] T005 实现 scope 模型（personal/workspace/org）+ 存储隔离
-- [ ] T006 实现可见性隔离（个人/成员/全组织）
-- [ ] T007 US1 测试：三级隔离无越权
+- [x] T005 实现 scope 模型（personal/workspace/org）+ 存储隔离
+- [x] T006 实现可见性隔离（个人/成员/全组织）
+- [x] T007 US1 测试：三级隔离无越权
 
 ## Phase 4: User Story 2 (P2) — 范围升级 + 生命周期
 
-- [ ] T008 实现范围升级授权（经 006 + 审计）
-- [ ] T009 实现衰减/清理（30 天，访问重置）
+- [x] T008 实现范围升级授权（经 006 + 审计）
+- [x] T009 实现衰减/清理（30 天，访问重置）
 - [ ] T010 实现记忆进 RAG 检索（按 scope 过滤）
 - [ ] T011 US2 测试：升级授权 + 衰减 + 检索过滤
 
