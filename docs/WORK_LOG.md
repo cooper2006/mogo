@@ -1,5 +1,20 @@
 # Work Log
 
+## 2026-07-08 实现 P2 特性 013（多 IM 入口）+ 018（能力资产化）核心
+
+- **013 多 IM 入口** → `services/chat-api/app/im_gateway/`：
+  - `adapter_base.py`：渠道适配基类 + **飞书 adapter**（首期渠道，clarify OQ-1；解析 `content` JSON 文本、群/单聊）+ `chunk_text`（**长响应纯文本分段**，非流式，FR-2）+ `build_adapter`（未实现渠道明确报错）
+  - `bindings.py`：`ImSessionBinding` **1:1 映射**（IM 会话 ↔ MOVO 会话，FR-2）+ `SessionBindingRegistry`（**1 MOVO 会话仅可绑 1 IM 渠道**，先绑者为准，FR-14；**停用渠道 → 已有绑定置只读**，FR-9）+ `resolve_group_sender`（群内 @bot 发起者 → MOVO 用户，未绑定拒绝，FR-10）
+  - `webhook.py`：**HMAC-SHA256 签名**（nonce.timestamp.body，常数时间比较）+ **nonce 去重 5 分钟防重放** + 时间戳窗口校验（FR-13）
+- **018 能力资产化** → `services/admin-api/app/services/capability_assets/`：
+  - `contract.py`：**契约四段 schema**（input/output/errors/sla，JSON 声明式，clarify OQ-1）+ `normalize_contract`（缺失段补空）+ `contract_diff`（变更审计用）
+  - `registry.py`：`CapabilityAsset`（版本/owner/状态/`a2a_exposed`）+ **契约变更版本递增并归档旧版**（FR-5）+ 状态管理（active/deprecated/**offline 需全能力管理员审批**，FR-6）+ owner 转移（FR-11）+ `discover_assets`（**自动扫描 REST/MCP**，非标准标 `manual_required`，**按 端点+方法 去重**，FR-2/FR-10）
+- **测试**：`tests/im_gateway/test_im_gateway.py`（26 项）+ `tests/test_capability_assets.py`（20 项），全部通过。
+- **修复一个缺陷**：`CapabilityAsset.name` 无默认值与构造用法不符（`TypeError: missing 'name'`）→ 给默认空串。
+- 勾选 `specs/013/tasks.md` T001–T009、`specs/018/tasks.md` T001–T011。
+- **P2 除 016 外全部有核心实现**（012/013/014/015/017/018/019）。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 实现 P2 特性 014（业务语义索引）核心
 
 - **014 业务语义索引** → `services/chat-api/app/business_index/`：

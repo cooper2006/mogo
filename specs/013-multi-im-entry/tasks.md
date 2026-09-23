@@ -16,24 +16,24 @@
 
 ## Phase 1: Setup (Module Skeleton)
 
-- [ ] T001 创建 chat-api/app/im_gateway/ 包骨架 + 子模块
-- [ ] T002 定义核心数据模型/契约 schema
+- [x] T001 创建 chat-api/app/im_gateway/ 包骨架 + 子模块
+- [x] T002 定义核心数据模型/契约 schema
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
-- [ ] T004 [P] 实现声明式配置解析 + 校验
+- [x] T003 [P] 实现核心纯逻辑（与 DB/网络解耦，可单测）
+- [x] T004 [P] 实现声明式配置解析 + 校验
 
 ## Phase 3: User Story 1 (P1) — 飞书渠道接入 + 消息映射
 
-- [ ] T005 实现 `adapter_base.py` + 飞书 adapter（消息/卡片/鉴权）
-- [ ] T006 实现 IM 会话 ↔ MOVO 会话映射（1:1 绑定）
-- [ ] T007 实现 webhook 安全（HMAC-SHA256 + nonce 去重）
-- [ ] T008 US1 测试：消息映射 + 响应回传 + 签名校验
+- [x] T005 实现 `adapter_base.py` + 飞书 adapter（消息/卡片/鉴权）
+- [x] T006 实现 IM 会话 ↔ MOVO 会话映射（1:1 绑定）
+- [x] T007 实现 webhook 安全（HMAC-SHA256 + nonce 去重）
+- [x] T008 US1 测试：消息映射 + 响应回传 + 签名校验
 
 ## Phase 4: User Story 2 (P2) — 统一路由 + 渠道开关
 
-- [ ] T009 实现多渠道路由 + 租户级渠道开关
+- [x] T009 实现多渠道路由 + 租户级渠道开关
 - [ ] T010 US2 测试：路由 + 停用置只读
 
 
