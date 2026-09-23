@@ -163,3 +163,67 @@ def test_bottleneck_top_n_default_limit() -> None:
 
 def test_bottleneck_top_n_empty_rows() -> None:
     assert bottleneck_top_n([]) == []
+
+
+# --- cost dimension (US2 / T010-T012) ---------------------------------------
+
+def test_build_cost_section_totals() -> None:
+    from app.api.dashboard_metrics import build_cost_section
+
+    section = build_cost_section(
+        [
+            {"model": "a", "calls": 2, "prompt_tokens": 100, "completion_tokens": 50, "cost": 3.0},
+            {"model": "b", "calls": 1, "prompt_tokens": 10, "completion_tokens": 0, "cost": 1.0},
+        ]
+    )
+    assert section["totalTokens"] == 160
+    assert section["totalCost"] == 4.0
+    assert section["models"][0]["model"] == "a"  # sorted by cost desc
+
+
+def test_cost_section_reconciles_to_zero_diff() -> None:
+    from app.api.dashboard_metrics import build_cost_section, reconciles
+
+    section = build_cost_section(
+        [
+            {"model": "a", "cost": 1.111111},
+            {"model": "b", "cost": 2.222222},
+        ]
+    )
+    assert reconciles(section) is True
+
+
+def test_cost_section_empty_tenant_reconciles() -> None:
+    from app.api.dashboard_metrics import build_cost_section, reconciles
+
+    section = build_cost_section([])
+    assert section["totalCost"] == 0.0
+    assert reconciles(section) is True
+
+
+def test_attribute_cost_by_dimension() -> None:
+    from app.api.dashboard_metrics import attribute_cost
+
+    rows = [
+        {"department": "sales", "calls": 1, "total_tokens": 10, "cost": 1.0},
+        {"department": "sales", "calls": 1, "total_tokens": 5, "cost": 0.5},
+        {"department": "", "calls": 1, "total_tokens": 1, "cost": 0.1},
+    ]
+    items = attribute_cost(rows, dimension="department", dimension_of=lambda r: r.get("department"))
+    assert items[0]["key"] == "sales"
+    assert items[0]["cost"] == 1.5
+    assert any(item["key"] == "未分配" for item in items)
+
+
+def test_forecast_cost_moving_average() -> None:
+    from app.api.dashboard_metrics import forecast_cost
+
+    assert forecast_cost([1.0, 2.0, 3.0, 4.0], periods=4) == 2.5
+    assert forecast_cost([10.0, 20.0, 30.0], periods=2) == 25.0
+
+
+def test_forecast_cost_empty_is_none() -> None:
+    from app.api.dashboard_metrics import forecast_cost
+
+    assert forecast_cost([]) is None
+    assert forecast_cost([], periods=4) is None

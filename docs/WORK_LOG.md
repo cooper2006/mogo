@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-07-08 深化 008 成本看板聚合（US2 / T010–T012）
+
+- **`dashboard_metrics.py` 新增成本维度**：
+  - `build_cost_section`：Token 总量（输入/输出分离）+ 各模型成本 + 成本占比（按成本降序）+ 合计
+  - `reconciles`：**对账校验（模型成本合计 = 总量，容差 0.01，FR-6）**，空租户也对账通过
+  - `attribute_cost`：**按任意维度分摊**（部门/智能体，FR-2），无值归"未分配"
+  - `forecast_cost`：**近 N 期移动平均预测**（默认 4 期，clarify OQ-5），空历史返回 None
+- **测试**：`tests/test_dashboard_metrics.py` 新增 6 项（合计/对账 0 差异/空租户对账/维度分摊/预测/空历史），全部通过。
+- 勾选 `specs/008-ops-dashboard/tasks.md` T010–T012。
+- 提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。
+
 ## 2026-07-08 深化 010 DAG 执行器 + 002 快照存储
 
 - **010 `orchestration/engine.py`**（T006–T010）：`DagEngine` graph 模式执行器——

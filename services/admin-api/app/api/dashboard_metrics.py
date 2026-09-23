@@ -200,3 +200,116 @@ def extract_percentiles(document: dict[str, Any] | None, field: str = "duration_
     except (TypeError, ValueError):
         return None, None
     return p50, p95
+
+
+# --- cost dimension (008 US2 / T010-T012) ------------------------------------
+
+# Float tolerance for the cost reconciliation (FR-6).
+COST_TOLERANCE = 0.01
+
+# Cost forecast uses the most recent N periods (clarify OQ-5).
+DEFAULT_FORECAST_PERIODS = 4
+
+
+def build_cost_section(
+    rows: Iterable[dict[str, Any]],
+    *,
+    cost_fn: Any = None,
+) -> dict[str, Any]:
+    """Assemble the cost dimension: token totals, model share, reconciliation (FR-2/FR-6).
+
+    ``rows`` are per-model aggregates ``[{model, calls, prompt_tokens,
+    completion_tokens, cost}]``. The model shares are returned alongside the
+    total so the caller can assert ``sum(shares) == total`` within tolerance.
+    """
+    models: list[dict[str, Any]] = []
+    total_tokens = 0
+    total_prompt = 0
+    total_completion = 0
+    total_cost = 0.0
+
+    for row in rows:
+        prompt = int(row.get("prompt_tokens") or 0)
+        completion = int(row.get("completion_tokens") or 0)
+        tokens = int(row.get("total_tokens") or (prompt + completion))
+        cost = float(row.get("cost") or 0.0)
+        model_name = str(row.get("model") or row.get("_id") or "")
+        models.append(
+            {
+                "model": model_name,
+                "calls": int(row.get("calls") or 0),
+                "promptTokens": prompt,
+                "completionTokens": completion,
+                "tokens": tokens,
+                "cost": round(cost, 6),
+            }
+        )
+        total_tokens += tokens
+        total_prompt += prompt
+        total_completion += completion
+        total_cost += cost
+
+    models.sort(key=lambda item: item["cost"], reverse=True)
+    for item in models:
+        item["costShare"] = round(item["cost"] / total_cost, 6) if total_cost else 0.0
+
+    return {
+        "totalTokens": total_tokens,
+        "promptTokens": total_prompt,
+        "completionTokens": total_completion,
+        "totalCost": round(total_cost, 6),
+        "models": models,
+    }
+
+
+def reconciles(section: dict[str, Any], *, tolerance: float = COST_TOLERANCE) -> bool:
+    """Whether a cost section's model costs reconcile to the total (FR-6, 0 diff)."""
+    models = section.get("models") or []
+    summed = sum(float(item.get("cost") or 0.0) for item in models)
+    total = float(section.get("totalCost") or 0.0)
+    return abs(summed - total) <= tolerance
+
+
+def attribute_cost(
+    rows: Iterable[dict[str, Any]],
+    *,
+    dimension: str,
+    dimension_of: Any,
+) -> list[dict[str, Any]]:
+    """Attribute cost by an arbitrary dimension (department / agent, FR-2).
+
+    ``dimension_of`` maps a row to its dimension value; rows with no value fall
+    into ``未分配``.
+    """
+    buckets: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = str(dimension_of(row) or "").strip() or "未分配"
+        bucket = buckets.setdefault(
+            key, {"key": key, "dimension": dimension, "calls": 0, "tokens": 0, "cost": 0.0}
+        )
+        bucket["calls"] += int(row.get("calls") or 0)
+        bucket["tokens"] += int(row.get("total_tokens") or 0)
+        bucket["cost"] += float(row.get("cost") or 0.0)
+    items = sorted(buckets.values(), key=lambda item: item["cost"], reverse=True)
+    for item in items:
+        item["cost"] = round(item["cost"], 6)
+    return items
+
+
+def forecast_cost(
+    history: Iterable[float],
+    *,
+    periods: int = DEFAULT_FORECAST_PERIODS,
+) -> Optional[float]:
+    """Forecast the next period's cost from the most recent ``periods`` values.
+
+    Uses a simple moving average over the trailing window (clarify OQ-5); returns
+    ``None`` when there is no history to forecast from.
+    """
+    values = [float(item) for item in history]
+    if not values:
+        return None
+    window = values[-max(1, int(periods)) :]
+    if not window:
+        return None
+    return round(sum(window) / len(window), 6)

@@ -53,9 +53,9 @@
 **Goal**: Token 总量（输入/输出分离）+ 模型占比 + 部门/智能体分摊 + 成本预测。
 **独立测试**: 模型成本占比合计与总量一致；按部门/智能体可下钻；预测基于近 4 期。
 
-- [ ] T010 成本聚合（`dashboard.py::_cost` + 模型占比）：Token 总量 + 各模型成本占比（合计=总量，FR-6 对账）
-- [ ] T011 分摊维度：按部门/智能体分摊成本（下钻，FR-2），数据源 `token_usage_logs` + `USER_ORG_REL`/`DEPARTMENT`
-- [ ] T012 成本预测（近 4 期趋势，`forecast_periods` 可配，FR-2 + clarify OQ-5）
+- [x] T010 成本聚合（`dashboard.py::_cost` + 模型占比）：Token 总量 + 各模型成本占比（合计=总量，FR-6 对账）
+- [x] T011 分摊维度：按部门/智能体分摊成本（下钻，FR-2），数据源 `token_usage_logs` + `USER_ORG_REL`/`DEPARTMENT`
+- [x] T012 成本预测（近 4 期趋势，`forecast_periods` 可配，FR-2 + clarify OQ-5）
 - [ ] T013 US2 前端 + 测试：成本标签页（饼图/列表 + 分摊下钻 + 预测）+ 合计对账 0 差异断言
 
 ---
