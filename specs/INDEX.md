@@ -29,14 +29,14 @@
 
 | 编号 | 特性 | 对应规划 | 优先级 | spec | plan |
 |---|---|---|---|---|---|
-| 012 | a2a-agent-gateway | 清单 8 | P2 | ✅ | ⏳ |
-| 013 | multi-im-entry | 清单 9 | P2 | ✅ | ⏳ |
-| 014 | business-semantic-index | 清单 10 | P2 | ✅ | ⏳ |
-| 015 | knowledge-graph-layer | 清单 11 | P2 | ✅ | ⏳ |
-| 016 | skill-market-hardening | 清单 12（市场强化部分） | P2 | ✅ | ⏳ |
-| 017 | three-scope-memory | 清单 13 | P2 | ✅ | ⏳ |
-| 018 | capability-asset-registration | 清单 14 | P2 | ✅ | ⏳ |
-| 019 | harness-elastic-config | 清单 15 | P2 | ✅ | ⏳ |
+| 012 | a2a-agent-gateway | 清单 8 | P2 | ✅ | ✅ |
+| 013 | multi-im-entry | 清单 9 | P2 | ✅ | ✅ |
+| 014 | business-semantic-index | 清单 10 | P2 | ✅ | ✅ |
+| 015 | knowledge-graph-layer | 清单 11 | P2 | ✅ | ✅ |
+| 016 | skill-market-hardening | 清单 12（市场强化部分） | P2 | ✅ | ✅ |
+| 017 | three-scope-memory | 清单 13 | P2 | ✅ | ✅ |
+| 018 | capability-asset-registration | 清单 14 | P2 | ✅ | ✅ |
+| 019 | harness-elastic-config | 清单 15 | P2 | ✅ | ✅ |
 
 > 规划清单 12 的"沉淀闭环（会话→经验→Skill）"已并入 011（Dream Cycle）；016 仅承载"市场强化"部分。
 
@@ -50,7 +50,8 @@
 ## 五、规约完成度统计
 
 - spec.md：001–019 全部完成（19 份）
-- plan.md：001、002、003、004、005、006、007、008、009、010、011 完成（11 份）；012–019（P2 后置）待补
+- plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
+- checklist（需求质量门禁，`/speckit-checklist`）：003、004、005、006 完成（4 份，`checklists/requirements.md`，全未勾选，reviewer-owned）；007–019 待补
 - checklist（需求质量门禁，`/speckit-checklist`）：003、004、005、006 完成（4 份，`checklists/requirements.md`，全未勾选，reviewer-owned）
 - 待 clarify 的 OQ 集中在：001（审批表/配额存储/PII 粒度）、002（快照存储/熵阈值/co-presence/share 鉴权）、005（个人知识分享范围/重排）、006（权限码联动/能力维度）、007（退避默认值/事件 collection）、009（超时阈值/fail_closed 默认）、010（表达式语言/并行度/迁移双轨）、011（friction 阈值/相似度算法/MR 阈值）
 - 各 checklist 标记的跨特性口径对齐项（003↔001/005、004↔006/001/016、005↔002/003/001、006↔001/004/019）建议在 clarify 阶段统一消解
@@ -59,4 +60,4 @@
 
 - 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅（本轮生成，待审阅勾选）→ 后续 `/speckit-tasks` → `/speckit-analyze`
 - 缺口 P0/P1（001/002/007/008/009/010/011）：spec ✅ → plan ✅ → clarify 消解 OQ → checklist → tasks → analyze → implement → converge
-- P2 后置（012–019）：spec ✅ → plan ⏳ → 按路线图节奏推进
+- P2 后置（012–019）：spec ✅ → plan ✅（本轮补齐）→ clarify 消解 OQ → checklist → tasks → analyze → 按路线图节奏 implement

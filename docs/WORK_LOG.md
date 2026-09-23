@@ -1,5 +1,20 @@
 # Work Log
 
+## 2026-07-08 补 012–019 的 plan.md（完成全部 19 份技术契约）
+
+- 为 8 个 P2 后置缺口特性补 plan.md（基于已研读代码事实的挂载点设计，均标注 P2 后置 + 各自 OQ）：
+  - 012 a2a-agent-gateway：新增 `a2a/`（AgentCard + JSON-RPC + 客户端），复用 `enterprise_capabilities/tools` 执行后端 + `governance` 鉴权审计
+  - 013 multi-im-entry：新增 `im_gateway/`（渠道 adapter + 会话映射 + 路由），首期 1 渠道，复用 Workspace/Sandbox/001 治理
+  - 014 business-semantic-index：新增 `business_index/`（连接器 + 实体抽取 + 增量 + 对齐），复用 005 `knowledge/retrieval` 检索与引用锚点
+  - 015 knowledge-graph-layer：新增 `knowledge_graph/`（抽取 + 存储 + 多跳 + 一致性），首期 MongoDB 邻接模拟图，与 005 RAG 并行融合
+  - 016 skill-market-hardening：新增 `admin-api/services/skill_market/`（监控 + 打分 + 灰度 + 标记），在 004 `skill_lifecycle` 之上叠加，复用审计 + token_usage + scheduled_tasks
+  - 017 three-scope-memory：新增 `memory/`（三级范围 + 可见性 + 升级授权 + 沉淀），复用 005 个人知识 + 002 会话 + governance 授权
+  - 018 capability-asset-registration：新增 `capability_assets/`（发现 + 注册 + 版本 + 治理视图），复用 `enterprise_capabilities/tools` 契约 + 审计 + position_roles
+  - 019 harness-elastic-config：新增 `harness_config/`（厚度 schema + 层开关 + 底线守护），是 001 六层门禁的"启用哪几层"开关层，红线 + 审计不可降档
+- 每个 P2 plan 均登记 4–5 个 OQ（阈值/口径/依赖顺序），供后续 clarify 消解。
+- 更新 `specs/INDEX.md`：012–019 plan 列由 ⏳ 改 ✅，完成度统计改为 spec 19/19 + plan 19/19（全部技术契约齐全），SDD 路径同步。
+- 全部提交并推送 cooper2006/mogong（origin push 仍锁 no-push，未触碰 himovo）。未改 services/apps 源码。
+
 ## 2026-07-08 为既有回溯特性 003/004/005/006 生成需求质量门禁 checklist
 
 - 按 `/speckit-checklist` 语义（"需求的单元测试"，校验 spec 质量而非实现）为 003/004/005/006 各生成 `checklists/requirements.md`（4 份），每份含完整性/清晰度/一致性/边界与歧义四类条目（CHKxxx 编号，全未勾选）。
