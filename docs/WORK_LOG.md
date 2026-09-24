@@ -1,5 +1,12 @@
 # Work Log
 
+## 2026-09-24 document-parser 镜像重建（经典 builder + HF 镜像源）
+
+- 补上 8 个镜像中最后一个未重建的 `document-parser`：此前 Docling 模型下载步骤因 Docker 内网络无法直连 huggingface.co 而失败。
+- 本次以 `DOCKER_BUILDKIT=0 docker build ... --build-arg MOVO_HF_ENDPOINT=https://hf-mirror.com` 逐镜像构建成功（b1e3743e），Docling 模型经 hf-mirror.com 下载 + 离线校验通过。
+- `--force-recreate` 拉起 document-api / document-worker 新容器，document-api healthy；探活 `localhost:3000`、`/admin` 均 200。
+- 至此 8 个 `ghcr.io/himovo/movo-*` 运行时镜像全部为本地源码构建（chat-api/admin-api/dsh-runtime-host/admin-web/user-web/gateway/document-parser），容器镜像 ID 逐一验证匹配。
+
 ## 2026-09-24 镜像重建 + admin-api 导入 bug 修复 + P0/P1/P2 落地对照文档
 
 - **经典 builder 重建**：OrbStack buildx 受 macOS provenance 锁死（`~/.docker/buildx/` 不可写，SIP 下 `sudo xattr -d` 也失败），改用 `DOCKER_BUILDKIT=0 docker build` 逐镜像构建并打 `ghcr.io/himovo/movo-*` 标签，绕过 buildx activity 写入。
@@ -12,7 +19,15 @@
   - `docs/MOVO企业级智能体功能补强规划.md` 新增「§六 落地进展」：清单 1–15 → specs/001–019 对应关系 + 各特性关键交付 + 测试基线（chat-api 313 / admin-api 236）+ 部署提示。
 - 提交并推送 cooper2006/mogong（origin 未触碰）。
 
-## 2026-09-24 智能体多实例运行改造评估
+## 2026-09-24 智能体多实例运行改造评估（v2：目标收敛 + WS 重连检查）
+
+- 用户确认三个决策：①目标是多 `dsh-runtime-host` 实例（chat-api 单实例保持）；②`conversation_id` 从 Header 提取（为后续 chat-api 多实例预留）；③要求检查 `local-browser-agent` WS 重连能力。
+- **WS 检查结论**：`apps/local-browser-agent` 闭源，仓库中不存在（本地 `apps/` 只有 `admin-web`/`user-web`）；无法确认客户端重连逻辑。但**服务端证据充分**：`ws_endpoint.py:57-63` 20s 心跳、`registry.py:58-73` `attach` 主动取消旧连接的挂起调用（幂等设计）、`close(code=1008)` 明确错误握手。
+- **新发现**：`services/chat-api/app/browser/registry.py:48` 类注释直接写"In-process singleton. Replace with Redis pub/sub for multi-worker"——开发者已明确识别出 `AgentRegistry` 是多实例化障碍。与 `DshAgentKernelGateway` 内存态同类问题，但**性质不同**：WS `send` 回调是本地 Python 对象，跨实例无法传递（`_sessions` 可通过 `attach_session` 跨实例恢复）。
+- **本轮不做 WS 集群路由**：chat-api 单实例时 registry 完全够用，不涉及 WS 集群路由。未来做多 chat-api 实例才需 Redis pub/sub。
+- **文档更新**：`agent-multi-instance-evaluation.md` 加入 2.2.2 新障碍、层 A hash key 决策（改为 `kernel_session_id` 而非 `conversation_id`）、层 C.1 WS 检查结论、P1/P2 收敛为本轮主交付、P3 列为待调研项。
+
+## 2026-09-24 智能体多实例运行改造评估（v1）
 
 - 新增 `docs/open-source-productization/agent-multi-instance-evaluation.md`：评估 `chat-api` 与 `dsh-runtime-host` 多实例化路径。
 - 结论：现有架构下同一会话**不支持**在多个 chat-api 实例间并行处理；`DshAgentKernelGateway` 的 `_sessions`/`_runtimes`/`_credential_refresh_locks` 内存态是主要障碍。
