@@ -1,0 +1,88 @@
+# Multi-agent competitor deep dive — DAG graph orchestration.
+#
+# Contract: docs/cases/multi-agent-competitor-deep-dive.md §3
+# Loaded by app/orchestration/loader.py, validated by
+# OrchestrationDefinition.validate() (topology + condition syntax).
+#
+# Topology: four independent analysis agents run in parallel; the synthesis node
+# waits for all of them. Two conditional skips make the graph resilient:
+#   * financial_analysis is skipped for private companies (no public filings)
+#   * report_synthesis is skipped when fewer than three upstream nodes succeeded
+#     (a degraded report is emitted instead of a misleading one)
+
+orchestration:
+  id: competitor_deep_dive
+  version: 1.0.0
+  mode: graph
+  max_concurrency: 4
+  timeout: 1800
+  retry:
+    max_attempts: 2
+    backoff: exponential
+    base_seconds: 5
+
+nodes:
+  - id: market_intel
+    skill: market_intelligence_v1
+    description: 市场情报员 — 检索融资、市场份额与增长轨迹，构建里程碑时间线
+    timeout: 600
+    tools: [search_web, fetch_news, firecrawl_collect]
+    output_key: market_intel_result
+    depends_on: []
+
+  - id: product_analysis
+    skill: product_analysis_v1
+    description: 产品分析师 — 抓取竞品官网与更新日志，做功能对比
+    timeout: 900
+    tools: [browser_agent, fetch_url, compare_features]
+    output_key: product_analysis_result
+    depends_on: []
+
+  - id: financial_analysis
+    skill: financial_analysis_v1
+    description: 财务分析师 — 定量财务比率与估值模型
+    timeout: 600
+    tools: [fetch_financials, compute_valuation]
+    output_key: financial_analysis_result
+    depends_on: []
+    skip_condition:
+      expr: "competitor_is_private == true"
+      reason: "private company has no public financials"
+
+  - id: sentiment_monitor
+    skill: sentiment_monitor_v1
+    description: 舆情监测员 — 社媒情感分析与主题聚类
+    timeout: 600
+    tools: [social_media_scrape, sentiment_score]
+    output_key: sentiment_monitor_result
+    depends_on: []
+
+  - id: report_synthesis
+    skill: report_synthesis_v1
+    description: 报告合成师 — 交叉引用四个上游节点输出并给出综合判断
+    timeout: 600
+    tools: [compose_report]
+    output_key: research_report
+    depends_on: [market_intel, product_analysis, financial_analysis, sentiment_monitor]
+    skip_condition:
+      expr: "completed_children_count < 3"
+      reason: "insufficient upstream data — emit degraded report instead"
+
+# Node outputs are written into the shared context under their output_key, and
+# downstream nodes read them by that key (010 FR-1).
+data_contract:
+  market_intel.output_key: market_intel_result
+  product_analysis.output_key: product_analysis_result
+  financial_analysis.output_key: financial_analysis_result
+  sentiment_monitor.output_key: sentiment_monitor_result
+  report_synthesis.output_key: research_report
+
+# 010 FR-11 failure propagation (graph mode equivalent of supervisor rules).
+failure_propagation:
+  on_all_children_failed: mark_parent_skipped
+  on_p0_child_failed: retry_with_backoff_then_mark_failed
+
+# All node execution events enter the 001 gatekeeper audit trail.
+audit:
+  enabled: true
+  emit_events: [node_start, node_complete, node_skip, node_retry, node_fail]

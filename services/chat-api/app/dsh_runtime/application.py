@@ -60,6 +60,7 @@ class DshRuntimeApplication:
         )
         self._transport = HttpKernelHostTransport(
             settings.DSH_RUNTIME_HOST_URL,
+            base_urls=configured_runtime_hosts(settings.DSH_RUNTIME_HOSTS_URL),
             timeout_seconds=settings.DSH_RUNTIME_HTTP_TIMEOUT_SECONDS,
             access_token=settings.DSH_RUNTIME_HOST_TOKEN,
         )

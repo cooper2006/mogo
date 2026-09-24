@@ -1,5 +1,49 @@
 # Work Log
 
+## 2026-09-24 SDD 三部分落地：多实例运行改造 + 两个案例实例（全部可运行代码 + 逐条验收测试）
+
+依据用户指定的三份 SDD 文档，把"实现"落成可运行代码与可执行测试（非仅文档）。
+
+### 一、智能体多实例运行改造（`docs/open-source-productization/agent-multi-instance-evaluation.md` P1 层 A + P2）
+
+- **`services/chat-api/app/dsh_runtime/transport.py`**：`HttpKernelHostTransport` 支持多 host（新增 `base_urls`，保留 `base_url` 向后兼容）；按 `kernel_session_id` 做**一致性哈希**路由，每次请求注入 `X-Session-Id`；新增 `normalize_base_urls` / `configured_runtime_hosts` / `session_id_from_path` / `sticky_index`。
+  - 哈希用 `hashlib.sha256` 而非内置 `hash`——后者受 `PYTHONHASHSEED` 影响，重启后会漂移，导致 session 找不到所属 host。
+  - sticky key 从 path（`/v1/runtimes/{rid}/sessions/{sid}/...`）自动提取，**无需改动网关全部调用点**；同时支持显式 `session_id` 参数覆盖。
+- **`core/config.py`**：新增 `DSH_RUNTIME_HOSTS_URL`（逗号分隔），空值回退 `DSH_RUNTIME_HOST_URL`。
+- **`dsh_runtime/application.py`、`__init__.py`**：按新配置装配并导出新符号。
+- **`docker-compose.yml`**：`dsh-runtime-host-1/2/3` 三个副本（YAML 锚点复用，因 `deploy.replicas` 仅 Swarm 生效）+ `dsh-runtime-host-lb`（nginx sticky）；`chat-api` 指向 LB，并注入 host 列表。
+- **`deploy/docker/dsh-runtime-lb.conf`**：`hash $http_x_session_id consistent`，无 header 时回退 `$request_id` 避免空 key；SSE 不缓冲、超时 3600s；`log_format` 输出 session/upstream 便于排障。
+- **`deploy/cli/dsh-version.sh`**：跟随服务改名读取 `dsh-runtime-host-1`。
+- **P2 契约测试** `tests/dsh_runtime/test_multi_host_transport.py`：**17 项**——哈希稳定性（含与独立 sha256 计算对照）、分布非退化、单 URL 向后兼容、header 注入与缺失、显式 session_id 覆盖、**50 并发 × 3 host 的 session 亲和性**、request 与 stream 选中同一 host。
+- **实测 sticky 生效**（非仅语法检查）：临时起 3 个假 host + 该 LB 配置，同一 `sess-A` 连续 5 次全部命中 `HOST-3`；8 个不同 session 分布到全部 3 个 host。
+
+### 二、案例一：客户反馈智能分诊（`docs/cases/single-agent-customer-feedback-triage.md`）
+
+- **Skill 全套** `app/skills_specs/customer_feedback_triage/`：`SKILL.md`（含 `---` 包裹的 frontmatter，符合 `skill_packages/validator.py` 契约）、`templates/triage_report.md`、`templates/action_items.csv`、`scripts/severity_heuristics.py`、`validation.yaml`。
+  - **发现并处理命名约束**：`validator.py` 的 `SKILL_NAME` 强制 kebab-case（不允许下划线），而仓库内置 Skill 全用 snake_case。故 SKILL.md 同时声明 `name: customer_feedback_triage`（内置 id，与案例文档一致）与 `packageName: customer-feedback-triage`（可安装包名），测试对两者分别断言。
+- **可运行运行时** `app/cases/customer_feedback_triage.py`：8 个 step 全部落成可调用实现（load/normalize/classify/categorize/redact/rank/compose/approval），LLM 与审批/审计/成本边界均为可注入 Protocol + 默认实现；内置 `DefaultPiiRedactor`（mask/remove/hash/abstract，与 admin-api `governance/pii.py` 策略表对齐，**不跨服务 import**）。
+- **验收测试** `tests/cases/test_customer_feedback_triage.py`：**15 项**，覆盖案例 §6 的 8 条标准（AC-1 批量 500 条 ≤180s、AC-2 P0 召回率、AC-3 PII 零泄漏「正则 + Shannon 熵双判定」、AC-4 P0≥3 触发审批、AC-5 成本入 token_usage、AC-6 审计八步完整、AC-7 commit 后可 resume、AC-8 Skill 包通过校验），另有负例（P0<3 不触发审批、去重、CSV 上限、模板节齐全）。
+  - 实测 **P0 召回率 100%（20/20）**，阈值 95%。
+  - 测试修正了采样缺陷：召回率改在**全量批次**上统计（而非被 `ACTION_ITEM_LIMIT` 截断的 action items），避免 P0 多于 20 条时被误判为漏检。
+
+### 三、案例二：竞品深度调研（`docs/cases/multi-agent-competitor-deep-dive.md`）
+
+- **新增 YAML 编排加载器** `app/orchestration/loader.py`（此前只有 Python dict 入口，案例 YAML 无法生效）：`load_orchestration_file/text/directory`，支持 `depends_on` 自动推导边、`data_contract`/`failure_propagation`/`audit` 段落解析。
+  - **关键语义修正**：案例用 `skip_condition: {expr: "..."}`（**表达式为真时跳过**），而引擎的 `condition` 是**为真时运行**——极性相反。加载器把 `expr` 编译为结构化条件并包一层 `not`，使文档保持自然读法。
+  - 新增 `compile_expr`：把 `"completed_children_count < 3"` 编译为引擎的 `{"op": "<", "left": {"var": ...}, "right": 3}`；无法表达的语法在**加载期**报错（而非运行期静默为常量）。
+- **编排定义** `app/enterprise_capabilities/research/orchestrations/competitor_deep_dive.yaml`：graph 模式、并发 4、总超时 1800s、指数退避重试、5 节点（4 并行分析 + 1 汇总）、两处 skip_condition、data_contract、failure_propagation、audit。
+- **5 个子 Skill** `app/skills_specs/{market_intelligence_v1,product_analysis_v1,financial_analysis_v1,sentiment_monitor_v1,report_synthesis_v1}/`：各含 SKILL.md（`role: subagent` / `parent_skill` / `output_key`）、templates、scripts（entity_resolution / feature_normalize / ratio_math / topic_cluster / evidence_index）、validation.yaml。
+- **编排运行时** `app/enterprise_capabilities/research/competitor_deep_dive.py`：data_contract 发布、指数退避重试（`RetryPolicy`，实测 5s→10s）、失败传播、降级报告、节点级观测（attempts/并发峰值/耗时）。
+  - **失败传播按案例 §6.2 实现**：单个分析节点永久失败**不阻塞**汇总节点（引擎默认会阻塞），而是软化为"无数据"并计入 `completed_children_count`；≥3 → 正常合成，<3 → 汇总节点跳过 + 降级报告。实测四场景全部符合预期（4 成功→合成；3 成功→合成；2 成功→跳过+降级；0 成功→跳过+降级）。
+- **验收测试** `tests/orchestration/test_competitor_deep_dive.py`：**25 项**，覆盖案例 §8 的 10 条标准（并行度 ≥3 + 时间窗重叠、耗时预算、环检测拒绝执行、条件跳过含 skip_reason、节点重试与退避、失败传播、Evidence 可反查、风格契约、成本按节点聚合、commit/share/resume），另有加载器与子 Skill 契约检查。
+
+### 验证与回归
+
+- **chat-api 全量**：`./venv/bin/python -m pytest tests/ -q --ignore=tests/llm/test_decision_turn.py` → **1867 passed, 8 failed**。
+  - 基线（改动前实测）为 **1810 passed, 8 failed**；8 个失败全部是 e2e 环境依赖（`DSH Runtime Host exited during startup with code 1`），与本次改动无关，**无回归**，新增 57 项测试全部通过。
+- **环境要点**（供后续复用）：chat-api venv 是 `services/chat-api/venv`（非 `.venv`）；排除坏例必须用 `--ignore=tests/llm/test_decision_turn.py`（该文件是 collection error，`--deselect` 无效会直接中断）。
+- 文件：新增 `app/orchestration/loader.py`、`app/cases/customer_feedback_triage.py`、`app/enterprise_capabilities/research/competitor_deep_dive.py`、`app/enterprise_capabilities/research/orchestrations/competitor_deep_dive.yaml`、`app/skills_specs/customer_feedback_triage/*`、5 个子 Skill 目录、`deploy/docker/dsh-runtime-lb.conf`、两个测试文件；改动 `dsh_runtime/{transport,application,__init__}.py`、`core/config.py`、`docker-compose.yml`、`deploy/cli/dsh-version.sh`。
+
 ## 2026-09-24 README 补入 P0/P1 已落地能力（依据《MOVO企业级智能体功能补强规划》）
 
 - **需求**：依据 `docs/MOVO企业级智能体功能补强规划.md` 的内容修改 README，**重点体现 P0/P1 已落地的新能力**；经用户确认目标为根目录 `README.md` + `README.zh-CN.md` 双语同步。

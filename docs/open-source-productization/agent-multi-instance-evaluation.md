@@ -3,6 +3,8 @@
 > 状态：评估稿（未实现）
 > 范围：`services/chat-api` 与其依赖的 `dsh-runtime-host`，不含桌面端 `local-browser-agent` 与 `admin-api` 独立扩缩
 > 前提：私有化部署阶段（`docker-compose.yml`），后续可上 K8s
+>
+> **本轮目标（用户已确认）**：先做**多 `dsh-runtime-host` 实例**（层 A），chat-api 保持单实例；conversation_id 从 **Header** 提取（为后续 chat-api 多实例预留）。
 
 ## 1. 目标
 
@@ -28,13 +30,39 @@
 
 ### 2.2 chat-api 进程内状态（关键障碍）
 
-`services/chat-api/app/dsh_runtime/gateway.py`：
+#### 2.2.1 `DshAgentKernelGateway` 内存态
+
+`services/chat-api/app/dsh_runtime/gateway.py:67-70`：
 
 - `DshAgentKernelGateway._sessions: dict[str, _SessionBinding]` — 内存中的 session→runtime 绑定
 - `DshAgentKernelGateway._runtimes: dict[str, _RuntimeBinding]` — 内存中的 runtime 索引
 - `DshAgentKernelGateway._credential_refresh_locks: KeyedAsyncLock` — 凭据刷新锁
 
 **多实例 chat-api 直接跑起来的效果**：同一 conversation 的两次请求若被负载均衡到不同实例，B 实例的 `_sessions` 里找不到 A 创建的 session，`attach_session` 会失败或产生不一致。
+
+#### 2.2.2 `AgentRegistry` 内存态（新发现）
+
+`services/chat-api/app/browser/registry.py:48`：
+
+```python
+class AgentRegistry:
+    """In-process singleton. Replace with Redis pub/sub for multi-worker."""
+```
+
+**开发者已在源码注释中明确写出多实例化方案**。此 registry 承担：
+
+- `_by_user: Dict[str, AgentConnection]` — `user_id` → WS `send` 回调
+- `_recording_listeners: Dict[str, list[asyncio.Queue]]` — recording SSE 订阅者
+- `send_tool_call` / `send_login_request` — 通过 `call_id` 关联的 `Future`
+
+**性质区别**：
+
+| 内存态 | 能否跨实例恢复 | 原因 |
+|---|---|---|
+| `_sessions` / `_runtimes` | ✅ 可恢复 | `kernel_session_id` 在 Mongo，`attach_session` 可重建绑定 |
+| `AgentRegistry._by_user` | ❌ 不可恢复 | WS `send` 回调是本地 Python 对象，跨实例无法传递 |
+
+**本轮（多 dsh-runtime-host）不受影响**：chat-api 单实例时 `agent_registry` 完全够用。未来若做多 chat-api 实例，需按开发者建议的**Redis pub/sub** 改造，或**放弃 WS 跨实例下发**、改用 REST + 客户端轮询。
 
 ### 2.3 已具备的基础
 
@@ -51,17 +79,27 @@
 
 按耦合度递增拆成三层，可以独立交付：
 
-### 层 A：`dsh-runtime-host` 水平扩展（最轻，无侵入）
+### 层 A：`dsh-runtime-host` 水平扩展（本轮主目标）
 
 **目标**：多个 `dsh-runtime-host` 实例共享同一份 runtime 命名空间。
 
 **现状可行性**：`chat-api` 通过 HTTP 单点调用（`DSH_RUNTIME_HOST_URL` 一个 URL），要变多实例需要引入 LB 或客户端 round-robin。但**核心问题是 session 亲和性**——`resume_session` 必须命中同一个持有该 session 内存态的 host。
 
+**hash key 决策**：用户已确认 `conversation_id` 从 Header 提取，但这个决策**对层 A 不适用**——chat-api 是单实例，它到 dsh-runtime-host 的 LB 需要按 **`kernel_session_id`** 路由（不是 conversation_id），因为：
+
+- 同一个 `kernel_session_id` 必须在同一 `dsh-runtime-host` 上存活（否则 `resume_session` / `attach_session` 找不到内存态）
+- `conversation_id` 到 `kernel_session_id` 是多对一（`agent_kernel_bindings` 有 `replaces_binding_id` 链）
+- chat-api 是唯一持有 `conversation_id` → `kernel_session_id` 映射的服务（`KernelBindingRepository.current()`）
+
 **改造选项**：
-- **A1（推荐）**：把 `dsh-runtime-host` 前面挂一个 **sticky LB**（Nginx/Envoy 按 `X-Session-Id` header 做一致性哈希），host 端保持有状态。改造量：Compose 加 LB 服务 + 网关透传 header。
+- **A1（推荐）**：在 chat-api 与 dsh-runtime-host 之间加一个 **sticky LB**（Nginx/Envoy 按 `X-Session-Id` header 做一致性哈希）。`DshAgentKernelGateway._transport` 需要在每次请求带 `X-Session-Id: {kernel_session_id}` header。host 端保持有状态。
 - A2：把 `dsh-runtime-host` 改为无状态（session 快照落 Mongo/Redis）——**不建议**，改动面太大，且 DSH 上游在演进，不宜自己造轮子。
 
-**风险**：LB 一致性哈希需要 `hash_key = kernel_session_id`，网关（`DshAgentKernelGateway._transport`）需要在每次请求带该 header。改造点集中在 `services/chat-api/dsh/runtime-host/` 与 `docker-compose.yml`。
+**风险**：`DshAgentKernelGateway._transport` 当前假设单 URL；需扩展为支持多 host + 一致性哈希路由。改造点集中在 `services/chat-api/app/dsh_runtime/transport.py`（新增 round-robin / 哈希能力）与 `docker-compose.yml`（LB 服务）。
+
+### 层 B（本轮不做，仅登记）：`chat-api` 无状态化
+
+详见上文原始评估；本轮 chat-api 保持单实例，无需 `SessionStore`/`RuntimeStore` 抽象。**但**如果 P5（未来多 chat-api 实例）真的启动，`KernelBindingRepository` 已就绪（`claim_turn` 乐观锁 + Mongo 唯一索引），瓶颈只在 `_sessions`/`_runtimes` 内存态外置。
 
 ### 层 B：`chat-api` 无状态化 + 分布式会话路由（核心）
 
@@ -106,27 +144,61 @@ upstream chat_api_pool {
 
 `KernelBindingRepository.claim_turn` 的乐观锁就是为多实例设计的，`find_one_and_update` 天然原子。唯一需要确认的是**跨实例的 `turn_runner` 幂等性**——若 A 实例抢占了 turn 崩溃，B 实例是否能接管？看 `services/chat-api/app/dsh_runtime/turn_recovery.py`（当前应该已有崩溃恢复逻辑）。
 
-### 层 C：`Browser Agent WebSocket` 集群路由
+### 层 C：`Browser Agent WebSocket` 集群路由（本轮不涉及）
 
 **目标**：桌面端 `/api/agent/connect` 在 chat-api 多实例后仍能让 agent 消息正确路由。
 
-**现状**：Nginx 目前应该直接把 WS 转到单点 chat-api（`docker-compose.yml` 的 nginx 段），要引入 **Nginx `sticky` / `ip_hash`** 或 `mod_upstream_sticky` 让同一客户端始终连同一后端。
+**当前状态**：chat-api 保持单实例，此层完全不受影响。
 
-**注意**：WS 长连接 + 滚动升级时会有连接闪断，客户端需要重连重试逻辑（应已在 `apps/local-browser-agent` 中实现，需核实）。
+#### C.1 客户端重连逻辑检查结论（用户要求）
+
+**无法从开源仓库确认客户端行为**。原因：
+
+- `apps/local-browser-agent` 在仓库中**不存在**（本地 `apps/` 只有 `admin-web` 和 `user-web`）
+- `docs/open-source-productization/self-hosted-deployment-implementation-plan.md` 明确写："`apps/local-browser-agent`：随桌面端分发，在员工本机运行"——**闭源**
+- `apps/desktop-electron` 同样是闭源
+
+**服务端可推断的证据**：
+
+1. `services/chat-api/app/browser/ws_endpoint.py:57-63`：20 秒一次 `{"type": "ping"}` 心跳，可及时发现断线（半开连接）。
+2. `services/chat-api/app/browser/registry.py:58-73`（`AgentRegistry.attach`）：
+   ```python
+   existing = self._by_user.get(user_id)
+   if existing is not None:
+       for pc in list(existing.pending.values()):
+           if not pc.future.done():
+               pc.future.set_exception(ConnectionError("agent reconnected"))
+   conn = AgentConnection(...)
+   self._by_user[user_id] = conn
+   ```
+   **服务端显式接受"同一 user_id 反复 attach"的场景**，主动取消旧连接的挂起调用，为新连接让位。这说明服务端本身幂等设计，对客户端重连友好。
+3. `ws_endpoint.py:43-49`：连接建立后 `await ws.accept()`，缺 `user_id` 时 `ws.close(code=1008)`——握手协议清晰。
+
+**推断结论**：
+
+- **本轮（chat-api 单实例 + 多 dsh-runtime-host）不涉及 WS 集群路由**，客户端重连逻辑不是阻塞项。
+- **未来若做多 chat-api 实例**：即使客户端支持重连，也只能保证 WS 长连接在**某个**实例上；但 `agent_registry` 是进程内单例，跨实例的 `send_command`（如 `/browser/show`、`recording_start`）会失败。**除非**引入 Redis pub/sub 让 registry 跨实例可见（`registry.py:48` 注释已预留此方向）。
+- **滚动升级期间的短暂命令失败**（旧实例退出 → 客户端重连到新实例 → registry 尚未同步），预期 5–30 秒级，客户端需要能容忍 `send_command` 返回 `ok=False` 并重试。
+
+**建议**：向闭源项目的维护方确认以下三点后再决定层 C 方案：
+1. `local-browser-agent` 是否有指数退避的重连循环？最大重试次数/时长？
+2. 重连时是否会**主动发送** `hello` + `capabilities` 帧重新注册？（`registry.py:234-237` 依赖这个）
+3. 客户端对 `send_command` 返回 `ok=False` 的降级行为（重试？提示用户？静默？）
 
 ## 4. 推荐落地顺序
 
 按"最小可交付 → 逐步深化"：
 
-| 阶段 | 内容 | 复杂度 | 阻塞依赖 |
-|---|---|---|---|
-| **P1** | 层 A：LB + sticky 让 `dsh-runtime-host` 可 2 实例 | 低 | 无 |
-| **P2** | 层 B.1：`SessionStore`/`RuntimeStore` 抽象 + Redis 实现 | 中 | P1 完成后开始验证 |
-| **P3** | 层 B.2：chat-api 前面挂一致性哈希 LB | 低 | P2 |
-| **P4** | 层 C：WS sticky 路由 | 低 | P3 |
-| **P5** | Compose `deploy.replicas` + K8s Deployment 模板 | 中 | P1–P4 |
+| 阶段 | 内容 | 复杂度 | 阻塞依赖 | 本轮 |
+|---|---|---|---|---|
+| **P1** | 层 A：LB + sticky（按 `kernel_session_id`）让 `dsh-runtime-host` 可 2+ 实例 | 低 | 无 | ✅ **主交付** |
+| **P2** | 层 A 契约测试（并发 50 请求 + 3 host + session 亲和性验证） | 低 | P1 | ✅ |
+| **P3** | 向闭源维护方确认 `local-browser-agent` WS 重连能力 | — | — | ✅ **调研** |
+| **P4** | 层 B.1：`SessionStore`/`RuntimeStore` 抽象 + Redis 实现 | 中 | 触发条件：需要多 chat-api 实例 | 📌 后续 |
+| **P5** | 层 B.2 + 层 C：chat-api 多实例 + WS 集群路由 | 高 | P4 + P3 结论 | 📌 后续 |
+| **P6** | Compose `deploy.replicas` + K8s Deployment 模板 | 中 | P1–P5 | 📌 后续 |
 
-P1 + P3 + P4 是**架构正确性**的必要条件；P2 是**性能与稳定性**的锦上添花（不做的话，跨实例请求会重新 `discover_runtime` + `attach_session`，能跑但慢）。
+本轮 chat-api 保持单实例，因此 P4/P5 的层 B/C 都不触发。P1+P2 是唯一的交付目标，改动面小、可验证性强。
 
 ## 5. 关键设计决策与开放问题
 
@@ -175,7 +247,18 @@ P1 + P3 + P4 是**架构正确性**的必要条件；P2 是**性能与稳定性*
 
 ## 9. 后续动作建议
 
-1. 与核心团队确认本次目标是**多 chat-api 实例**还是**多 dsh-runtime-host 实例**（层 A 足够？还是需要层 B？）
-2. 确认 Nginx 网关的 `conversation_id` 提取方式（URL 段 vs Header）
-3. 确认 `apps/local-browser-agent` 的 WebSocket 重连逻辑是否支持多次重试
-4. 若以上确认无异议，先做 P1（层 A）作为可交付里程碑
+用户已回答三个开放问题：
+
+1. **目标是多 dsh-runtime-host 实例**（chat-api 保持单实例）——已按此收敛本评估范围
+2. **`conversation_id` 从 Header 提取**——已登记为 chat-api 多实例场景（P5）的设计决策，本轮不需要
+3. **`local-browser-agent` WS 重连能力**——闭源无法确认，见 C.1 结论；已列为 P3 待调研项
+
+下一步：
+
+1. **实施 P1**：
+   - `services/chat-api/app/dsh_runtime/transport.py`：扩展 `KernelHostTransport` 支持多 URL + 一致性哈希路由，注入 `X-Session-Id` header
+   - `docker-compose.yml`：`dsh-runtime-host` 加 2 个副本 + 前置 Nginx sticky LB（`hash $http_x_session_id consistent;`）
+   - `DSH_RUNTIME_HOST_URL` 环境变量改为 `DSH_RUNTIME_HOSTS_URL`（逗号分隔列表）
+2. **实施 P2**：并发契约测试，验证同一 `kernel_session_id` 的所有请求都命中同一 host
+3. **调研 P3**：向闭源维护方（`apps/local-browser-agent`）确认 WS 重连能力
+4. **决策**：是否需要推进 P4/P5（多 chat-api 实例），取决于业务并发规模

@@ -1,0 +1,34 @@
+# Validation contract for the sentiment_monitor_v1 sub-agent.
+#
+# The parent orchestration (competitor_deep_dive) owns the end-to-end acceptance
+# criteria; this file pins the per-node output shape.
+
+skill: sentiment_monitor_v1
+role: subagent
+parent_skill: competitor_deep_dive
+output_key: sentiment_monitor_result
+
+required_sections:
+    - Sentiment Distribution
+    - Negative Themes
+    - Positive Themes
+    - Volume Trend
+
+must_include_fields:
+    - Channel
+    - Sample size
+    - Collection window
+
+checks:
+  - id: sub-1
+    criterion: Sentiment Distribution
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-2
+    criterion: Negative Themes
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-3
+    criterion: Positive Themes
+    test: tests/orchestration/test_competitor_deep_dive.py
+  - id: sub-4
+    criterion: Volume Trend
+    test: tests/orchestration/test_competitor_deep_dive.py
