@@ -156,3 +156,20 @@ docker build -f services/chat-api/Dockerfile \
 6. 自进化 → 低采纳 Skill 检测 + 改进 MR（Jaccard≥0.7 & 样本≥5）+ 退役/恢复。
 7. 能力资产 → 治理视图（列表 + 详情下钻）+ 状态审批 + `a2a_exposed` 标记。
 8. 审计日志 → 确认 `hook.executed/denied`、会话事件、`a2a.*`、`entity.*`、`asset.*` 事件落 001 落点。
+
+### 6.1 核验结果（2026-09-24，逐镜像重建 + 服务层运行时验证）
+
+| 步骤 | 核验层 | 结果 | 证据 |
+|---|---|---|---|
+| 1 驾驶舱 | 端点 + 前端源码 | ✅ | `GET /admin-api/api/dashboard/overview` 已挂载（未登录 401，鉴权生效）；`DashboardPage.vue` 五标签页（overview/cost/usage/quality/trend）在 admin-web 镜像 dist 内 |
+| 2 风险格 | 数据 + 端点 | ✅ | mongo `autonomy_matrix` 25 行；`risk.AUTONOMY_LEVELS×RISK_LEVELS` = L1–L5 × R0–R4 = 25 格；端点 `/api/governance/autonomy-matrix[/cells]` 就绪 |
+| 3 钩子规则 | 端点 | ✅ | openapi 含 `/api/hooks/rules`、`/rules/{rule_id}`、`/scope`；`hook_rules` 集合（当前 0 行=初始态，CRUD 可用） |
+| 4 会话版本化 | 服务层运行时 | ✅ | 容器内执行：`build_share` 生成 token 且 `is_active()`；`CoPresence` 双用户心跳 → `online()` 返回 {u1,u2}；`merge_messages` 线性时间线 [1,2,3] |
+| 5 DAG 跳过/重试 | 服务层运行时 | ✅ | `evaluate_skip` 三态：condition_true→skip / condition_false→run / 语法错→fail-closed skip（error 记录）；`run_node_with_retry` 成功 1 次、失败后 3 次成功、退避 [1.0,2.0] 指数递增、耗尽 succeeded=False |
+| 6 Dream 自进化 | 服务层运行时 | ✅ | `detect_low_adoption`（≥20 曝光 & <10% 采纳 & 14d 窗口）命中/不命中均正确；`mark_deprecated` 置 `marked_low_quality`；`deprecation_flow` → action=deprecated；`restore` 清除标志 |
+| 7 能力资产 | 服务层运行时 | ✅ | `register`→`governance_view`（列表）→`governance_detail`（契约下钻）→`set_status(deprecated, approver)` 审批→`mark_a2a_exposed` 标记；非法状态抛 ValueError |
+| 8 审计落点 | 服务层运行时 | ✅ | `record_feature_event` 覆盖 012/014/015/016/017/018 事件族（a2a.*/entity.*/kg.*/skill.quality.*/memory.*/asset.*）经 sink 落 001 落点；`im.deliver` 审计文档 OK；未知 feature/event 拒绝不误吞 |
+
+**遗留说明**：
+- 步骤 1/2/3 的「界面点击」与步骤 4–7 的「UI 触发」需浏览器实操（当前会话浏览器 provider 未注册，故用服务层运行时等价验证）；端点/数据/服务层全部通过。
+- chat-api 镜像必须 `--no-cache` 重建才真正包含 SDD 模块（`ccb26ffc`，2026-09-24 13:39）；此前 `8fb9a` 因 buildx 缓存命中未带入新代码（`/app/app/services/dag` 等模块缺失），已修正并重启容器。

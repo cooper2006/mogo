@@ -1,5 +1,20 @@
 # Work Log
 
+## 2026-09-24 §6 验证清单 8 步核验（chat-api 强制重建 + 服务层运行时验证）
+
+- **发现并修正 chat-api 镜像缓存问题**：此前"重建"的 chat-api 镜像（8fb9a）实际命中 buildx 缓存，`/app/app/services/dag`、`/app/app/llm/resilience` 等 SDD 模块缺失。用 `DOCKER_BUILDKIT=0 docker build --no-cache` 强制重建（`ccb26ffc`，2026-09-24 13:39），`--force-recreate` 重启 chat-api 容器，确认容器内全部 SDD 模块在位（dag/dream_cycle/session_versioning/llm.resilience/orchestration/a2a/im_gateway/capability_assets/feature_audit）。
+- **§6 八步核验结果**（端点 + 数据 + 服务层运行时）：
+  1. 驾驶舱端点挂载（未登录 401）+ DashboardPage 五标签在 admin-web 镜像 dist；
+  2. `autonomy_matrix` 25 行（L1–L5×R0–R4）+ governance 端点；
+  3. `/api/hooks/rules|rules/{id}|scope` openapi 就绪；
+  4. 容器内 `build_share`（token + active）/ `CoPresence`（双用户心跳→在线）/ `merge_messages`（线性时间线）通过；
+  5. `evaluate_skip` 三态（true→skip / false→run / 语法错→fail-closed skip）+ `run_node_with_retry`（成功 1 次 / 失败后 3 次 / 退避 [1.0,2.0] 递增 / 耗尽 succeeded=False）通过；
+  6. `detect_low_adoption`（≥20 曝光 & <10% & 14d）命中/不命中 + `mark_deprecated`/`restore` 通过；
+  7. `CapabilityAssetRegistry` 注册→治理视图→详情下钻→状态审批→`a2a_exposed` 标记 + 非法状态 ValueError 通过；
+  8. `record_feature_event`（012/014/015/016/017/018 事件族）+ `im.deliver` 审计 + 未知事件拒绝通过。
+- 结果已写入 `docs/SDD界面呈现对照表.md` §6.1（核验表格 + 遗留说明）。
+- 遗留：浏览器实操（UI 点击触发）当前会话浏览器 provider 未注册，用服务层运行时等价验证代替；端点/数据/服务层全部通过。
+
 ## 2026-09-24 document-parser 镜像重建（经典 builder + HF 镜像源）
 
 - 补上 8 个镜像中最后一个未重建的 `document-parser`：此前 Docling 模型下载步骤因 Docker 内网络无法直连 huggingface.co 而失败。
