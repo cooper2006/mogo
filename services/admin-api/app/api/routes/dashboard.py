@@ -49,9 +49,21 @@ def _fmt_time(value: Any) -> str | None:
     return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _to_ms(value: Any) -> int:
+    """start_time/end_time may be epoch int or BSON datetime; normalize to ms."""
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _duration_ms(row: dict[str, Any]) -> int:
-    start_time = int(row.get("start_time") or 0)
-    end_time = int(row.get("end_time") or 0)
+    start_time = _to_ms(row.get("start_time"))
+    end_time = _to_ms(row.get("end_time"))
     return max(0, end_time - start_time) if start_time and end_time else 0
 
 
@@ -214,8 +226,8 @@ async def _duration_percentiles_fallback(
 
     durations: list[int] = []
     for row in rows:
-        start = int(row.get("start_time") or 0)
-        end = int(row.get("end_time") or 0)
+        start = _to_ms(row.get("start_time"))
+        end = _to_ms(row.get("end_time"))
         if start > 0 and end > start:
             durations.append(end - start)
     if not durations:

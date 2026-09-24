@@ -97,6 +97,31 @@ If you only need a low-level Agent runtime, DSH may be enough. Choose MOVO when 
 
 Typical use cases include enterprise knowledge Q&A, policy and project-material retrieval, multi-source research, competitive analysis, report and presentation generation, spreadsheet processing, translation, template filling and controlled system integration.
 
+## Enterprise governance and reliability
+
+Beyond the Agent runtime itself, MOVO ships the governance, reliability and collaboration layer that moving an Agent into production actually requires. The following capabilities are implemented, tested and available in this release:
+
+### P0 — compliance entry ticket and production availability
+
+| Capability | What it delivers |
+| --- | --- |
+| **Gatekeeper six-layer gate** | Identity → RBAC → redaction → approval → quota → audit as one serial chain. R4 red-line actions cannot be overridden by any layer. |
+| **Risk grading and autonomy matrix** | R0–R4 tool risk tiers plus an L1–L5 × R0–R4 autonomy matrix (25 cells) that turns ad-hoc "approve the sensitive tool" prompts into systematic, graded delegation of authority. |
+| **Fine-grained RBAC permission codes** | `<resource>:<action>[:<target>]` codes with three-level isolation and fail-closed behavior, replacing coarse job-role checks. |
+| **PII redaction** | Private keys, national IDs, bank cards and phone numbers handled by `mask` / `remove` / `hash` / `abstract` policies — applied both at runtime and when a session is saved or shared, with reversible placeholders and read-only clones. |
+| **LLM gateway resilience** | Primary → standby failover, a degradation chain that steps down through fallback models, exponential-backoff retry, and usage and cost metering. |
+| **Operations dashboard** | A four-dimension cockpit in the admin console — cost (token totals, per-model share, department and agent attribution, forecasting), usage (call volume, active users, Skill and retrieval frequency), quality (success rate, latency, anomaly and manual-intervention rates) and trends (period-over-period deltas and bottleneck identification). |
+
+### P1 — extensibility and session-level collaboration
+
+| Capability | What it delivers |
+| --- | --- |
+| **Hooks interception** | Five lifecycle events (SessionStart, PreToolUse, PostToolUse, SessionEnd, MemoryCommit) with timeout protection, fail-closed semantics and declarative rules (`deny_tool` / `require_field` / `observe`). PreToolUse ships with a tool > session > tenant rule precedence and a ≤5 s latency budget, giving a low-cost extension point for compliance interception, field validation and tool denial. |
+| **DAG orchestration engine** | Four modes (sequential, supervisor, hybrid, graph), topological sorting with cycle detection, conditional skipping with tri-state fail-closed evaluation and tracing, and node-level exponential-backoff retry. |
+| **Session and workflow versioning** | Session `commit` builds a linear timeline, one-time `share` links (300 s TTL) hand over requirements, discussion and execution context, and co-presence lets several people work in the same session. Workflow definitions are versioned through the orchestration engine. |
+
+Longer-horizon work — self-evolving Dream Cycle, A2A interop, multi-IM entry points, business-system semantic indexing, knowledge graph, Skill marketplace hardening, three-scope memory, capability asset registration and elastic Harness profiles — is planned for later stages. See [`docs/MOVO企业级智能体功能补强规划.md`](docs/MOVO企业级智能体功能补强规划.md) for the full roadmap and [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md) for the mapping from that roadmap to specifications and UI entry points.
+
 ## Community Edition
 
 A tenant created by the self-hosted setup flow is marked as `community`:

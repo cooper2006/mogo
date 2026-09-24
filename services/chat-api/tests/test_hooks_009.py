@@ -238,32 +238,35 @@ def test_multi_hook_budget_overrun_fails_closed():
 # --- T015-T016 store CRUD + scope query ---------------------------------------
 
 
-def test_store_crud_and_instant_scope():
+@pytest.mark.asyncio
+async def test_store_crud_and_instant_scope():
     store = HookRuleStore(db=None)
-    created = store.create(scope="tool", rule_type="deny_tool", rule_config={"tool": "web"}, tenant_id="t1")
-    assert store.get(created.rule_id) is not None
-    updated = store.update(created.rule_id, enabled=False)
+    created = await store.create(scope="tool", rule_type="deny_tool", rule_config={"tool": "web"}, tenant_id="t1")
+    assert await store.get(created.rule_id) is not None
+    updated = await store.update(created.rule_id, enabled=False)
     assert updated.enabled is False
     # A disabled rule is excluded from in-scope query.
-    assert store.rules_in_scope(tool="web", tenant_id="t1") == []
-    assert store.delete(created.rule_id) is True
-    assert store.get(created.rule_id) is None
+    assert await store.rules_in_scope(tool="web", tenant_id="t1") == []
+    assert await store.delete(created.rule_id) is True
+    assert await store.get(created.rule_id) is None
 
 
-def test_store_rejects_invalid_rule():
+@pytest.mark.asyncio
+async def test_store_rejects_invalid_rule():
     from app.dsh_runtime.hooks.rules import RuleParseError
 
     store = HookRuleStore(db=None)
     with pytest.raises(RuleParseError):
-        store.create(scope="nope", rule_type="deny_tool", tenant_id="t1")
+        await store.create(scope="nope", rule_type="deny_tool", tenant_id="t1")
 
 
-def test_three_level_scope_query():
+@pytest.mark.asyncio
+async def test_three_level_scope_query():
     store = HookRuleStore(db=None)
-    store.create(scope="tool", rule_type="deny_tool", rule_config={"tool": "web"}, tenant_id="t1")
-    store.create(scope="session", rule_type="observe", rule_config={}, tenant_id="t1")
-    store.create(scope="tenant", rule_type="deny_tool", rule_config={"tool": "*"}, tenant_id="t1")
-    ordered = store.ordered_rules_for(tool="web", session_id="s1", tenant_id="t1")
+    await store.create(scope="tool", rule_type="deny_tool", rule_config={"tool": "web"}, tenant_id="t1")
+    await store.create(scope="session", rule_type="observe", rule_config={}, tenant_id="t1")
+    await store.create(scope="tenant", rule_type="deny_tool", rule_config={"tool": "*"}, tenant_id="t1")
+    ordered = await store.ordered_rules_for(tool="web", session_id="s1", tenant_id="t1")
     # T016: all three scope levels match the context; ordering puts the
     # tool-scoped deny rule first (narrowest scope + intercepting type).
     assert ordered[0].scope == "tool"

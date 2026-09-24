@@ -32,7 +32,7 @@ async def list_rules(
 ) -> dict[str, Any]:
     tenant_id = str(current_user.get("main_id") or "default")
     store = _store(current_user)
-    rows = store.list(tenant_id=tenant_id)
+    rows = await store.list(tenant_id=tenant_id)
     documents = [r.as_document() for r in rows]
     if scope:
         documents = [d for d in documents if d["scope"] == scope]
@@ -44,7 +44,7 @@ async def list_rules(
 @router.get("/rules/{rule_id}")
 async def get_rule(rule_id: str, current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
     store = _store(current_user)
-    document = store.get(rule_id)
+    document = await store.get(rule_id)
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="hook rule not found")
     return document.as_document()
@@ -55,7 +55,7 @@ async def create_rule(payload: dict[str, Any], current_user: dict[str, Any] = De
     tenant_id = str(current_user.get("main_id") or "default")
     store = _store(current_user)
     try:
-        document = store.create(
+        document = await store.create(
             scope=str(payload.get("scope") or ""),
             rule_type=str(payload.get("rule_type") or ""),
             rule_config=payload.get("rule_config") or {},
@@ -75,7 +75,7 @@ async def update_rule(
     rule_id: str, payload: dict[str, Any], current_user: dict[str, Any] = Depends(get_current_admin_user)
 ) -> dict[str, Any]:
     store = _store(current_user)
-    document = store.update(
+    document = await store.update(
         rule_id,
         enabled=payload.get("enabled"),
         rule_config=payload.get("rule_config"),
@@ -90,7 +90,7 @@ async def update_rule(
 @router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(rule_id: str, current_user: dict[str, Any] = Depends(get_current_admin_user)) -> None:
     store = _store(current_user)
-    if not store.delete(rule_id):
+    if not await store.delete(rule_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="hook rule not found")
 
 
@@ -103,7 +103,7 @@ async def query_scope(
     """T016 — rules matching the three-level context (tool > session > tenant)."""
     tenant_id = str(current_user.get("main_id") or "default")
     store = _store(current_user)
-    in_scope = store.ordered_rules_for(tool=tool, session_id=session_id, tenant_id=tenant_id)
+    in_scope = await store.ordered_rules_for(tool=tool, session_id=session_id, tenant_id=tenant_id)
     return {
         "tool": tool,
         "session_id": session_id,

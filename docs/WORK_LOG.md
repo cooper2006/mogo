@@ -1,5 +1,98 @@
 # Work Log
 
+## 2026-09-24 README 补入 P0/P1 已落地能力（依据《MOVO企业级智能体功能补强规划》）
+
+- **需求**：依据 `docs/MOVO企业级智能体功能补强规划.md` 的内容修改 README，**重点体现 P0/P1 已落地的新能力**；经用户确认目标为根目录 `README.md` + `README.zh-CN.md` 双语同步。
+- **改动**：在两个 README 的「MOVO 提供什么 / What MOVO provides」表格之后，新增一节 `## 企业治理与可靠性 / Enterprise governance and reliability`，含两张表：
+  - **P0 —— 合规入场券与生产可用性**：Gatekeeper 六层串行门禁（R4 红线不可覆盖）、R0–R4 风险分级 + L1–L5 × R0–R4 自主矩阵（25 格）、细粒度 RBAC 权限码 `<resource>:<action>[:<target>]`（三级隔离 + fail-closed）、PII 脱敏（mask/remove/hash/abstract，运行时 + 会话保存/分享双保险、可逆占位符、clone 只读）、LLM 网关韧性（failover + 降级链 + 指数退避 + 用量成本计量）、运营驾驶舱（成本/使用/质量/趋势四维）。
+  - **P1 —— 可扩展性与会话级协作**：Hooks 五事件（含 PreToolUse tool > session > tenant 优先级 + ≤5s 延迟预算 + fail-closed + 声明式规则）、DAG 编排四模式（拓扑/环检测、三态 fail-closed 条件跳过、节点级指数退避）、会话与工作流双版本化（commit 线性时间线 / 一次性 share 300s TTL / 共在线多人协作）。
+  - 末尾一段列出 P2 长线工作（Dream 自进化、A2A、多 IM、业务索引、知识图谱、Skill 市场强化、三范围记忆、能力资产化、Harness 弹性），并链到 `docs/MOVO企业级智能体功能补强规划.md` 与 `docs/SDD界面呈现对照表.md`。
+- **措辞**：明确写为 "implemented, tested and available in this release / 均已实现、通过测试，并在本版本中可用"，与规划文档 §6「落地进展」的 ✅ 状态一致，不把 P2 混入已交付能力。
+- **验证**：两处新增小节标题确认存在；两个链接目标文件均存在（含中文文件名路径）；行数 README.md 260→285、README.zh-CN.md 269→294。
+- **未改动**：README 的定位、Quick Start、部署运维、许可证等既有章节保持不变（用户未要求）。
+
+## 2026-09-24 驾驶舱"5 个 tab 只剩总览"真正根因：n-tab-pane 相互嵌套（前两轮修复不彻底）
+
+- **用户反馈**：切到成本/使用/质量/趋势任一 tab，显示的仍是"总览"的 6 个 metric cards。
+- **根因**：前两轮的脚本改造只把 5 个 `<n-tab-pane>` 改成**开口**却仍连续排在一起，5 个 tab-body div 排在后面——Vue 编译后形成**层层嵌套**：`overview pane` 的 default slot 里套着 `cost pane`（其 slot 里又套 `usage`…）。Naive UI 渲染激活 pane 时，最外层 overview 的 slot 已含全部内容，于是切任何 tab 都渲染 overview。
+  - dist 证据（修复前 `DashboardPage-60d16d3c.js`）：`_(B,{name:"trend"...,{default:c(()=>[ ...metric-card（overview 的内容）... ])` —— trend pane 的 slot 里竟然是 overview 内容。
+- **修复**：用 Python 从源码提取「5 个 pane 开头 + 5 个 tab 注释 + 5 个 tab-body div 块」，重新组装为**兄弟结构**：
+  ```
+  <n-tab-pane name="overview" :tab="t('总览')"> <div class="tab-body">…overview…</div> </n-tab-pane>
+  <n-tab-pane name="cost"     :tab="t('成本')"> <div class="tab-body">…cost…</div>     </n-tab-pane>
+  … 5 个平级 …
+  ```
+  同时统一缩进。改动前备份 `apps/admin-web/src/views/dashboard/DashboardPage.vue` → `/tmp/DashboardPage.vue.bak`。
+- **验证**：`docker build`（内含 `vue-tsc --noEmit && vite build`）通过；新 chunk `DashboardPage-a432b63b.js`；dist 反查确认 3 个 pane 的 slot 内容各自独立：
+  - `overview` → metric-cards；`cost` → 「成本维度」卡片；`trend` → 「环比 / 同比」卡片。**不再嵌套**。
+- 镜像 `a5847843`，`--force-recreate` 重启 admin-web healthy。请硬刷新验证 5 个 tab。
+
+## 2026-09-24 驾驶舱 5 tab 修复补遗：去掉冗余 v-show，让 n-tab-pane 单独控制可见
+
+- **用户反馈**："原来的 5 个功能点怎么变成一个了"——总览 tab 渲染了 6 个 metric cards 出数（近 24h 调用 51 / Token 消耗 16.5 万 / 活跃用户 1 / 成功率 94.12% / 近 24h 成本 ¥10.26 / 平均耗时 4.96s），但其他 4 个 tab（成本/使用/质量/趋势）切过去空白。
+- **根因**：上一轮把 `<div>` 移进 `<n-tab-pane>` slot 时**保留了 `v-show="activeTab === 'X'"`**——Naive UI 的 `n-tab-pane` 非激活时设置 `display:none`，但内部 `v-show` 再次设置 `display:none`（或与 Naive UI 的隐藏机制冲突），导致非激活 tab 内容彻底不可见。
+- **修复**：`apps/admin-web/src/views/dashboard/DashboardPage.vue` 5 个 tab-body div 去掉 `v-show`，让 `<n-tab-pane>` 单独管理 panel 可见性。
+- **构建**：admin-web 镜像 `ac887c4e`（DashboardPage chunk `60d16d3c`），`--force-recreate` 重启 healthy。
+- **请用户硬刷新**（Cmd+Shift+R）后验证 5 个 tab 全部有内容。
+
+## 2026-09-24 驾驶舱 5 个 tab panel 全空白根因：n-tab-pane 自闭合 + div 兄弟节点
+
+- **用户截图**（vision 看图）：导航 MOVO logo + 工作台高亮 + 五个 tab label（总览/成本/使用/质量/趋势）渲染正常，当前高亮"趋势"，**但 panel 内容区完全空白**（不是整页白屏）。控制台无任何消息。
+- **根因**（源码层）：`apps/admin-web/src/views/dashboard/DashboardPage.vue` 的 5 个 `<n-tab-pane name="X" :tab="..."></n-tab-pane>` 全是**自闭合**（无 default slot），而真正的 panel 内容（`<div v-show="activeTab === 'X'" class="tab-body">...</div>`）是这些 n-tab-pane 的**兄弟节点**，不是 slot 子节点。Naive UI 的 `<n-tab-pane>` 没有 slot 时不渲染 panel 内容 → 5 个 tab 全部 panel 空，5 个兄弟 div 被 Vue 当作 n-tabs 的额外 children 渲染（因 v-show 同一时刻只显示一个，看起来"什么都没渲染"）。
+  - 同一文件 1437 行 5 个 pane 全部同型问题（之前从未工作过；用户一直看到的"驾驶舱空白"就是这个 bug，与 P50/P95/演示数据/analytics 500 都无关——这些是别的维度）。
+- **修复**：用 Python 脚本两步入 `apps/admin-web/src/views/dashboard/DashboardPage.vue`：
+  1. 5 个 `<n-tab-pane ...></n-tab-pane>` 自闭合 → 开口 `<n-tab-pane ...>`；
+  2. 在每个 tab-body div 的结束 `</div>` 后插入 `</n-tab-pane>`（按括号配对定位）。
+  - 保留 `v-show` 冗余显示控制（n-tab-pane 自身已管理可见性，多一层无害），最小风险。
+- **构建**：经典 builder 重建 admin-web 镜像 `3221c6bf`（chunk hash 从 `DashboardPage-30658e94`/`index-adbb82cc` 变为 `DashboardPage-0b1e948f`/`index-5ba7f9c3`），`--force-recreate` 重启 admin-web healthy。
+- **请用户硬刷新**（Cmd+Shift+R）后验证 5 个 tab panel 都能正常渲染（数据已在 dashboard/overview 出数：calls24h=59、quality p50/p95、usage/quality 各段齐备）。
+
+## 2026-09-24 驾驶舱白屏定位：`/api/analytics/token-usage` 500（BSON datetime 同型 bug）
+
+- **现象**：用户截图反馈"驾驶舱页面全白（无导航无布局）"，控制台报 `Failed to load resource: 500`，出错栈在 `AnalyticsPage-9e186a6b.js`。
+- **定位**：管理后台 `/admin/dashboard` 路由实际渲染的是 **AnalyticsPage**（非 DashboardPage），它请求 `/api/analytics/token-usage` 返回 500 → 前端 catch 后整个页面挂掉。
+  - 根因（容器内日志）：`app/api/routes/analytics.py:273` `start_time = int(row.get("start_time") or 0)` 对 **BSON datetime** 抛 `TypeError: int() argument must be a string... not 'datetime.datetime'`——与本轮早先修的 `dashboard.py _duration_ms` **完全同型**。我造的演示数据（`start_time`/`end_time` 为 datetime）触发了这个隐藏 bug。
+- **修复**：`analytics.py` 新增 `_to_ms()` 归一化（兼容 epoch int 与 datetime），第 273-275 行改用它；全仓 grep 确认无其它 `int(...get("start_time"/"end_time"))` 残留。
+- **验证**：admin-api 236 项测试全过；重建镜像 `53712d3b` + `--force-recreate` 重启 healthy；`analytics/token-usage` 由 500 → **200**（items 20 条，durationMs 正常出数），`dashboard/overview` 仍 200。
+- **全量体检**：管理后台 12 个页面接口（analytics ×2 / dashboard / tools / skills / system-audit ×2 / hooks / governance ×3 / auth/me）全部 200。
+- 说明：浏览器 provider 仍未注册，无法通过自动化点击验证；本次由用户提供的浏览器控制台 500 报错直接定位。
+
+## 2026-09-24 §6 界面实操核验 + 4 处 motor 异步 bug 修复 + 演示数据造数
+
+- **浏览器 provider 未注册**（`browser_open` 报 "no usable browser provider is registered"），改用用户给定凭据做 API 级界面端点核验：admin（`admin`/`1qaz2wsx#EDC`）登录 admin-api、朱军峰（`zhujunfeng@bonc.com.cn`/同密码）登录 chat-api。
+- **路由双前缀发现**：admin-api `api_router` 以 `/api` 挂载，而 hooks/governance router 自身又带 `/api` prefix，实际路径为 `/admin-api/api/api/hooks/...`、`/admin-api/api/api/governance/...`；单前缀 404。
+- **§6 八步 + P0/P1/P2 各条目逐条核验**（端点 + 数据 + 服务层运行时）全部通过：
+  1. 驾驶舱 `GET /admin-api/api/dashboard/overview`（已登录）200，顶层 billing/health/metrics/assets/quality/trend/usage/todos/recentActivity 九段齐备；
+  2. 风险格 `GET /admin-api/api/api/governance/autonomy-matrix` 200，L1–L5×R0–R4 矩阵 + canonical；
+  3. 钩子规则全链路：`POST /rules` 201（deny_tool）→ `GET /rules` 200 → `GET /rules/{id}` 200 → `GET /scope?tool=dangerous_tool` 命中 → `DELETE` 204；
+  4. 会话版本化（002）容器内 DB 模式：`ShareStore.create_share` token + `is_active()`、`CoPresence` 双用户心跳→`online()={u1,u2}`、`merge_messages` 线性时间线 [1,2,3,4,5,6]；
+  5. DAG（010）：`evaluate_skip` 三态（true→skip / false→run / 语法错→fail-closed）+ `run_node_with_retry`（RetryPolicy 指数退避）；
+  6. Dream（011）：`detect_low_adoption` 命中/不命中正确、`mark_deprecated`/`restore`；
+  7. 能力资产（018）DB 模式：`register`→`governance_view`（3 条）→`governance_detail`（契约下钻）→`set_status(offline, approver)` 审批→`mark_a2a_exposed`；
+  8. 审计落点：`/admin-api/api/system-audit/logs` 200，hooks/skills/tools 管理事件落 001 落点。
+- **发现并修复 4 处 motor 异步 bug**（同步方法直接调用 motor 异步 db，返回 Future 不 await → 500/写入丢失）：
+  - admin-api `app/services/hooks_store.py`：6 个 CRUD 方法改 `async` + `routes/hooks.py` 6 处调用加 `await`（此前 `GET /api/api/hooks/rules` 500，`'_asyncio.Future' object has no attribute 'get'`）；
+  - chat-api `app/dsh_runtime/hooks/store.py`：同型 7 个方法改 async；`tests/test_hooks_009.py` 3 项测试改 `@pytest.mark.asyncio`；
+  - chat-api `app/services/capability_assets.py`：`CapabilityAssetRegistry` 9 个方法改 async + DB 模式下 `governance_view` 从库回灌 in-memory；`tests/services/test_capability_asset_us2.py` 7 项测试改 async；
+  - chat-api `app/services/session_versioning/share.py` + `co_presence.py`：`ShareStore` 4 个方法 + `CoPresence` 5 个方法改 async，修正 `ShareStore.to_document(share)` 传参错误（原 `TypeError: missing 1 required positional argument`）；`tests/services/test_session_us5_and_polish.py` 同步更新 fake + async。
+  - 另修 admin-api `app/api/routes/dashboard.py` `_duration_ms`/`_duration_percentiles_fallback` 的 `int(row.get("start_time"))` 对 BSON datetime 报错（500）→ 新增 `_to_ms()` 归一化。
+- **测试基线**：admin-api 236 项全过；chat-api 非 e2e 1808 项全过（排除预存坏例 `test_decision_turn` 与 4 个 dsh_runtime e2e 文件——stash 对照确认 e2e 失败为预存环境依赖，与本次改动无关）。
+- **重建镜像**（经典 builder `DOCKER_BUILDKIT=0`）：admin-api `babb202a`、chat-api `0877b010`，均 `--force-recreate` 重启 healthy，修复已确认带进容器。
+- **造演示数据**（均带 `demo_seed: true` 标记，可一键清理）：tools ×3、skills ×3、`token_usage_logs` 24h 窗口 ×60、`capability_assets` ×3（对齐 registry schema）、`session_shares` ×1。造数后驾驶舱各段（metrics/quality/usage/trend）均出数（calls24h=59、p50Ms/p95Ms 正常、trend 环比/瓶颈 top-N 齐备）。
+- 遗留：浏览器实操（UI 点击触发）仍需 provider 注册后补做；端点/数据/服务层/演示数据全部通过。
+
+## 2026-09-24 智能体案例设计（单智能体 + 多智能体协同）
+
+- 新增 `docs/cases/` 目录，含 3 个文件：
+  - `README.md` — 案例索引 + 单/多智能体决策指南 + 设计原则
+  - `single-agent-customer-feedback-triage.md` — 客户反馈智能分诊（单 Skill · 单会话）
+  - `multi-agent-competitor-deep-dive.md` — 竞品深度调研（5 子智能体 · DAG graph 编排）
+- 案例设计贴合项目实际能力：Skill YAML 参照 `skills_specs/stock_analysis/SKILL.md` 内置范式；DAG 编排引用 `specs/010-dag-orchestration-engine`；治理能力（PII/RBAC/审批/审计）映射到 `admin-api/app/governance/`；成本聚合映射到 `llm/resilience/metering.py`。
+- 单智能体案例（客户反馈分诊）：8 个 step 顺序执行、无需并行；核心展示单 Skill 完整生命周期 + P0 触发审批（R1）+ 全链路审计 + 会话 commit。
+- 多智能体案例（竞品深度调研）：5 个子智能体（市场/产品/财务/舆情/合成），采用 DAG graph 模式，4 个分析节点并行 + 1 个汇总节点依赖；含条件跳过（私有公司跳财务）、指数退避重试、失败传播（<3 子节点完成则合成节点跳过）、Evidence 追溯、成本分项聚合。
+- 明确设计边界：不引入新工具依赖、不新增编排模式、不覆盖未实现的场景（如实时数据流），所有能力调用点均对应现有代码。
+- 决策指南明确：能用单智能体就别上多智能体；判断核心问题是"子任务是否有独立数据源或分析模式"；DAG 四模式（graph/hybrid/sequential/supervisor）按依赖是否静态、是否需动态分派区分。
+
 ## 2026-09-24 工作台为空排查 + P50/P95 真实 bug 修复（Mongo 6.0 无 $percentile）
 
 - **现象**：用 admin 账号登录（密码 1qaz2wsx#EDC）后，工作台五标签内容全空。

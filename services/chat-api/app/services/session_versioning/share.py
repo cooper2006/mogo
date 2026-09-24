@@ -155,7 +155,7 @@ class ShareStore:
         self._db = db
         self._shares: dict[str, ShareRecord] = {}
 
-    def create_share(
+    async def create_share(
         self,
         *,
         session_id: str,
@@ -176,32 +176,32 @@ class ShareStore:
             ttl_seconds=ttl_seconds,
         )
         if self._db is not None:
-            self._db[SHARE_COLLECTION].insert_one(ShareStore.to_document(share))
+            await self._db[SHARE_COLLECTION].insert_one(self.to_document(share))
         else:
             self._shares[share.share_id] = share
         return share
 
-    def redeem(self, share_id: str, *, now: Optional[datetime.datetime] = None) -> ShareRecord:
+    async def redeem(self, share_id: str, *, now: Optional[datetime.datetime] = None) -> ShareRecord:
         """Redeem a share token (single-use). Raises ``ShareError`` -> empty state."""
-        share = self._load(share_id)
+        share = await self._load(share_id)
         share.mark_redeemed(now)
         if self._db is not None:
-            self._db[SHARE_COLLECTION].update_one({"share_id": share_id}, {"$set": {"redeemed": True}})
+            await self._db[SHARE_COLLECTION].update_one({"share_id": share_id}, {"$set": {"redeemed": True}})
         return share
 
-    def revoke_share(self, share_id: str) -> ShareRecord:
-        share = self._load(share_id)
+    async def revoke_share(self, share_id: str) -> ShareRecord:
+        share = await self._load(share_id)
         share.revoke()
         if self._db is not None:
-            self._db[SHARE_COLLECTION].update_one({"share_id": share_id}, {"$set": {"revoked": True}})
+            await self._db[SHARE_COLLECTION].update_one({"share_id": share_id}, {"$set": {"revoked": True}})
         return share
 
-    def _load(self, share_id: str) -> ShareRecord:
+    async def _load(self, share_id: str) -> ShareRecord:
         if self._db is not None:
-            row = self._db[SHARE_COLLECTION].find_one({"share_id": share_id})
+            row = await self._db[SHARE_COLLECTION].find_one({"share_id": share_id})
             if row is None:
                 raise ShareError(f"unknown share {share_id}")
-            return ShareRecord.from_document(row)
+            return ShareStore.from_document(row)
         share = self._shares.get(share_id)
         if share is None:
             raise ShareError(f"unknown share {share_id}")

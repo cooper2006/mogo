@@ -38,12 +38,12 @@ class CoPresence:
 
     # --- presence (US5) ------------------------------------------------------
 
-    def heartbeat(self, session_id: str, user_id: str, *, now: float | None = None) -> None:
+    async def heartbeat(self, session_id: str, user_id: str, *, now: float | None = None) -> None:
         beat = time.monotonic() if now is None else now
         if self._db is not None:
             # Mongo-backed: one heartbeat document per (session, user).
             coll = self._db["presence_heartbeats"]
-            coll.update_one(
+            await coll.update_one(
                 {"session_id": session_id, "user_id": user_id},
                 {"$set": {"last_beat": beat, "updated_at": beat}},
                 upsert=True,
@@ -51,7 +51,7 @@ class CoPresence:
             return
         self._beats.setdefault(session_id, {})[user_id] = beat
 
-    def online(self, session_id: str, *, now: float | None = None) -> set[str]:
+    async def online(self, session_id: str, *, now: float | None = None) -> set[str]:
         """The editors currently online (heartbeat younger than the TTL).
 
         Offline editors are dropped (their contributions were already merged —
@@ -63,7 +63,10 @@ class CoPresence:
             # Mongo-backed: a heartbeat document stores ``last_beat``; a short
             # poll finds the fresh ones. The in-memory fake mirrors this.
             cursor = coll.find({"session_id": session_id})
-            rows = cursor.to_list(length=200) if hasattr(cursor, "to_list") else list(cursor)
+            if hasattr(cursor, "to_list"):
+                rows = await cursor.to_list(length=200)
+            else:
+                rows = list(cursor)
             online = set()
             for row in rows:
                 last_beat = row.get("last_beat")
@@ -77,17 +80,17 @@ class CoPresence:
         }
         return members
 
-    def merge_messages(self, session_id: str, incoming: list[int]) -> list[int]:
+    async def merge_messages(self, session_id: str, incoming: list[int]) -> list[int]:
         """Fold ``incoming`` seqs into the session's linear timeline.
 
         Concurrent writers each re-read the latest state and merge; the result
         is a strictly-increasing seq list — no fork (FR-3 / FR-5).
         """
-        existing = self._existing_seqs(session_id)
+        existing = await self._existing_seqs(session_id)
         merged = merge_linear(existing, incoming)
         # Persist the merge (so the next writer re-reads the same linear state).
         if self._db is not None:
-            self._db["session_presence_state"].update_one(
+            await self._db["session_presence_state"].update_one(
                 {"session_id": session_id},
                 {"$set": {"seqs": merged}},
                 upsert=True,
@@ -96,13 +99,13 @@ class CoPresence:
             self._seq_state[session_id] = merged
         return merged
 
-    def _existing_seqs(self, session_id: str) -> list[int]:
+    async def _existing_seqs(self, session_id: str) -> list[int]:
         if self._db is not None:
-            row = self._db["session_presence_state"].find_one({"session_id": session_id})
+            row = await self._db["session_presence_state"].find_one({"session_id": session_id})
             return [int(seq) for seq in (row or {}).get("seqs", [])]
         return list(self._seq_state.get(session_id, []))
 
     # --- convenience: build a timeline for inspection ------------------------
 
-    def timeline(self, session_id: str) -> Timeline:
-        return Timeline(seqs=self._existing_seqs(session_id))
+    async def timeline(self, session_id: str) -> Timeline:
+        return Timeline(seqs=await self._existing_seqs(session_id))

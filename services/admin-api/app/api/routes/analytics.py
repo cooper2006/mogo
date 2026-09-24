@@ -24,6 +24,18 @@ def _escape_regex(text: str) -> dict[str, str]:
     return {"$regex": re.escape(text), "$options": "i"}
 
 
+def _to_ms(value: Any) -> int:
+    """start_time/end_time may be epoch int or BSON datetime; normalize to ms."""
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return int(value.timestamp() * 1000)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _resolve_main_scope(current_user: dict[str, Any], requested_main_id: str) -> tuple[dict[str, Any], str]:
     own_main_id = str(current_user.get("main_id") or "default")
     request_main_id = str(requested_main_id or "").strip()
@@ -270,8 +282,8 @@ async def list_token_usage(
         dept_id = rel_map.get((row_user_id, row_main_id), "")
         dept_name = dept_map.get(dept_id, "未分配部门") if dept_id else "未分配部门"
         created_at = row.get("created_at")
-        start_time = int(row.get("start_time") or 0)
-        end_time = int(row.get("end_time") or 0)
+        start_time = _to_ms(row.get("start_time"))
+        end_time = _to_ms(row.get("end_time"))
         duration_ms = max(0, end_time - start_time) if start_time and end_time else 0
         title_zh = str(row.get("request_title_zh") or "").strip()
         title_en = str(row.get("request_title_en") or "").strip()

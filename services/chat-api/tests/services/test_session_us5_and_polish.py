@@ -26,7 +26,7 @@ class _FakeColl:
     def __init__(self, rows):
         self.rows = rows
 
-    def update_one(self, query, update, upsert=False):
+    async def update_one(self, query, update, upsert=False):
         for row in self.rows:
             if all(row.get(key) == value for key, value in query.items()):
                 row.update({key: value for key, value in update.get("$set", {}).items()})
@@ -39,7 +39,7 @@ class _FakeColl:
     def find(self, query):
         return _FakeCursor([row for row in self.rows if all(row.get(key) == value for key, value in query.items())])
 
-    def find_one(self, query):
+    async def find_one(self, query):
         for row in self.rows:
             if all(row.get(key) == value for key, value in query.items()):
                 return row
@@ -50,52 +50,55 @@ class _FakeCursor:
     def __init__(self, rows):
         self.rows = rows
 
-    def to_list(self, length=None):
+    async def to_list(self, length=None):
         return self.rows[:length]
 
 
 # --- T019 US5: message linear merge + offline contribution retention ------------
 
 
-def test_online_heartbeats():
+@pytest.mark.asyncio
+async def test_online_heartbeats():
     store = CoPresence(db=None, heartbeat_ttl=30.0)
     base = 1000.0
-    store.heartbeat("s1", "alice", now=base)
-    store.heartbeat("s1", "bob", now=base)
-    store.heartbeat("s1", "carol", now=base)
-    assert store.online("s1", now=base + 10) == {"alice", "bob", "carol"}
+    await store.heartbeat("s1", "alice", now=base)
+    await store.heartbeat("s1", "bob", now=base)
+    await store.heartbeat("s1", "carol", now=base)
+    assert await store.online("s1", now=base + 10) == {"alice", "bob", "carol"}
     # carol goes offline (no refresh) -> dropped from presence (her contribution
     # remains on the timeline, see merge below).
-    assert store.online("s1", now=base + 10) == {"alice", "bob", "carol"}
+    assert await store.online("s1", now=base + 10) == {"alice", "bob", "carol"}
     # Everyone goes stale after TTL -> presence is *current* only (FR-5).
-    assert store.online("s1", now=base + 40) == set()
+    assert await store.online("s1", now=base + 40) == set()
 
 
-def test_linear_merge_two_concurrent_writers():
+@pytest.mark.asyncio
+async def test_linear_merge_two_concurrent_writers():
     store = CoPresence(db=None, heartbeat_ttl=30.0)
     # Two writers append disjoint seqs concurrently -> merged timeline is
     # strictly increasing, no fork, no duplicate.
-    merged_a = store.merge_messages("s1", [1, 3, 5])
-    merged_b = store.merge_messages("s1", [2, 4, 6])
+    merged_a = await store.merge_messages("s1", [1, 3, 5])
+    merged_b = await store.merge_messages("s1", [2, 4, 6])
     assert merged_b == [1, 2, 3, 4, 5, 6]
     assert len(merged_b) == len(set(merged_b))
 
 
-def test_mongo_backed_presence_and_merge():
+@pytest.mark.asyncio
+async def test_mongo_backed_presence_and_merge():
     db = _FakePresence()
     store = CoPresence(db=db, heartbeat_ttl=30.0)
     base = 100.0
-    store.heartbeat("s2", "alice", now=base)
-    store.heartbeat("s2", "bob", now=base + 5)
+    await store.heartbeat("s2", "alice", now=base)
+    await store.heartbeat("s2", "bob", now=base + 5)
     # Both heartbeats are fresh at base+10 (TTL=30) -> online.
-    assert "alice" in store.online("s2", now=base + 10)
-    assert "bob" in store.online("s2", now=base + 10)
+    assert "alice" in await store.online("s2", now=base + 10)
+    assert "bob" in await store.online("s2", now=base + 10)
     # At base+40, alice's heartbeat (100) is stale (100 < 10), bob's (105) too ->
     # both offline; presence reflects *current* only (FR-5).
-    assert store.online("s2", now=base + 40) == set()
-    store.merge_messages("s2", [1, 2])
-    store.merge_messages("s2", [3, 4])
-    assert [seq for seq in store.timeline("s2").seqs] == [1, 2, 3, 4]
+    assert await store.online("s2", now=base + 40) == set()
+    await store.merge_messages("s2", [1, 2])
+    await store.merge_messages("s2", [3, 4])
+    assert [seq for seq in (await store.timeline("s2")).seqs] == [1, 2, 3, 4]
 
 
 # --- T020 secret-filter coverage self-check (Success baseline: 0 plaintext) ----
@@ -122,9 +125,10 @@ def test_commit_view_contains_no_secrets():
         assert key.lower() not in rendered.lower()
 
 
-def test_share_view_renders_no_secrets():
+@pytest.mark.asyncio
+async def test_share_view_renders_no_secrets():
     store = ShareStore(db=None)
-    share = store.create_share(session_id="s4", actor="alice", visibility="org")
+    share = await store.create_share(session_id="s4", actor="alice", visibility="org")
     view = share.to_view()
     rendered = _rendered(view)
     # FR-7: no secret/password key in the share view (share_id/snapshot_id
@@ -133,12 +137,13 @@ def test_share_view_renders_no_secrets():
         assert key.lower() not in rendered.lower()
 
 
-def test_secret_scan_is_empty():
+@pytest.mark.asyncio
+async def test_secret_scan_is_empty():
     """Commit / log / share views: scanning each renders 0 plaintext secrets (FR-7)."""
     store = ShareStore(db=None)
     snapshot = build_snapshot(session_id="s5", seq=2, trigger="share", actor="bob")
     doc = snapshot.as_document()
-    view = store.create_share(session_id="s5", actor="bob").to_view()
+    view = (await store.create_share(session_id="s5", actor="bob")).to_view()
     rendered = _rendered([doc, view]).lower()
     # secret / password keys must not appear in any view.
     for key in ("secret", "password"):

@@ -157,19 +157,48 @@ docker build -f services/chat-api/Dockerfile \
 7. 能力资产 → 治理视图（列表 + 详情下钻）+ 状态审批 + `a2a_exposed` 标记。
 8. 审计日志 → 确认 `hook.executed/denied`、会话事件、`a2a.*`、`entity.*`、`asset.*` 事件落 001 落点。
 
-### 6.1 核验结果（2026-09-24，逐镜像重建 + 服务层运行时验证）
+### 6.1 核验结果（2026-09-24，逐镜像重建 + 服务层运行时验证 + admin/朱军峰 凭据 API 级界面端点核验）
+
+> 浏览器 provider 未注册（`browser_open` 报 "no usable browser provider is registered"），改用用户给定凭据做 **API 级界面端点核验**：admin（`admin`/`1qaz2wsx#EDC`）登录 admin-api、朱军峰（`zhujunfeng@bonc.com.cn`/同密码）登录 chat-api。各落点（端点 + 数据 + 服务层运行时 + 演示数据）全部通过。
 
 | 步骤 | 核验层 | 结果 | 证据 |
 |---|---|---|---|
-| 1 驾驶舱 | 端点 + 前端源码 | ✅ | `GET /admin-api/api/dashboard/overview` 已挂载（未登录 401，鉴权生效）；`DashboardPage.vue` 五标签页（overview/cost/usage/quality/trend）在 admin-web 镜像 dist 内 |
-| 2 风险格 | 数据 + 端点 | ✅ | mongo `autonomy_matrix` 25 行；`risk.AUTONOMY_LEVELS×RISK_LEVELS` = L1–L5 × R0–R4 = 25 格；端点 `/api/governance/autonomy-matrix[/cells]` 就绪 |
-| 3 钩子规则 | 端点 | ✅ | openapi 含 `/api/hooks/rules`、`/rules/{rule_id}`、`/scope`；`hook_rules` 集合（当前 0 行=初始态，CRUD 可用） |
-| 4 会话版本化 | 服务层运行时 | ✅ | 容器内执行：`build_share` 生成 token 且 `is_active()`；`CoPresence` 双用户心跳 → `online()` 返回 {u1,u2}；`merge_messages` 线性时间线 [1,2,3] |
-| 5 DAG 跳过/重试 | 服务层运行时 | ✅ | `evaluate_skip` 三态：condition_true→skip / condition_false→run / 语法错→fail-closed skip（error 记录）；`run_node_with_retry` 成功 1 次、失败后 3 次成功、退避 [1.0,2.0] 指数递增、耗尽 succeeded=False |
+| 1 驾驶舱 | 端点（已登录）+ 前端源码 | ✅ | `GET /admin-api/api/dashboard/overview` 已登录 200，顶层 billing/health/metrics/assets/quality/trend/usage/todos/recentActivity 九段齐备；`DashboardPage.vue` 五标签（overview/cost/usage/quality/trend）在 admin-web 镜像 dist 内；造数后 calls24h=59、p50Ms/p95Ms/趋势环比出数 |
+| 2 风险格 | 端点（已登录）+ 数据 | ✅ | `GET /admin-api/api/api/governance/autonomy-matrix` 已登录 200，L1–L5×R0–R4 矩阵 + canonical 齐备；mongo `autonomy_matrix` 25 行；路由双前缀（`/admin-api/api/api/...`）确认 |
+| 3 钩子规则 | 端点全链路（已登录） | ✅ | `POST /rules`（deny_tool）201 → `GET /rules` 200（含该规则）→ `GET /rules/{id}` 200 → `GET /scope?tool=dangerous_tool` 命中 → `DELETE` 204；修复 motor 异步 bug 后全链路通过（此前 500） |
+| 4 会话版本化 | 服务层运行时（DB 模式） | ✅ | 容器内 `ShareStore.create_share` token + `is_active()`；`CoPresence` 双用户心跳→`online()={u1,u2}`；`merge_messages` 线性时间线 [1,2,3,4,5,6]；演示数据 `session_shares` ×1 已造 |
+| 5 DAG 跳过/重试 | 服务层运行时 | ✅ | `evaluate_skip` 三态（true→skip / false→run / 语法错→fail-closed skip）；`run_node_with_retry`（RetryPolicy 指数退避）成功 1 次、失败后 3 次成功、耗尽 succeeded=False |
 | 6 Dream 自进化 | 服务层运行时 | ✅ | `detect_low_adoption`（≥20 曝光 & <10% 采纳 & 14d 窗口）命中/不命中均正确；`mark_deprecated` 置 `marked_low_quality`；`deprecation_flow` → action=deprecated；`restore` 清除标志 |
-| 7 能力资产 | 服务层运行时 | ✅ | `register`→`governance_view`（列表）→`governance_detail`（契约下钻）→`set_status(deprecated, approver)` 审批→`mark_a2a_exposed` 标记；非法状态抛 ValueError |
-| 8 审计落点 | 服务层运行时 | ✅ | `record_feature_event` 覆盖 012/014/015/016/017/018 事件族（a2a.*/entity.*/kg.*/skill.quality.*/memory.*/asset.*）经 sink 落 001 落点；`im.deliver` 审计文档 OK；未知 feature/event 拒绝不误吞 |
+| 7 能力资产 | 服务层运行时（DB 模式） | ✅ | `register`→`governance_view`（3 条演示数据）→`governance_detail`（契约下钻）→`set_status(offline, approver)` 审批→`mark_a2a_exposed`；非法状态抛 ValueError |
+| 8 审计落点 | 端点（已登录）+ 服务层 | ✅ | `GET /admin-api/api/system-audit/logs` 200，hooks/skills/tools 管理事件落 001 落点；`record_feature_event` 覆盖 012/014/015/016/017/018 事件族经 sink 落 001 落点；未知 feature/event 拒绝不误吞 |
+
+**P1/P2 各条目落点核验（容器内服务层，均导入成功）**：
+- P1 009 钩子拦截：`dsh_runtime/hooks/{integration,lifecycle,store,guard}.py` + admin `routes/hooks.py` 全链路通过。
+- P1 010 DAG 编排：`orchestration/{graph,conditions,engine,supervisor,topo,registry}.py` + `services/dag/{skip,retry,builder_migrate}.py`。
+- P1 011 Dream 自进化：`services/dream_cycle/{runner,friction,mr,deprecation,evolution_audit}.py`。
+- P2 012 A2A 网关：`a2a/{protocol,agent_card,client}.py`，`build_agent_card` 端点就绪。
+- P2 013 多 IM 入口：`im_gateway/{router,bindings,webhook,audit}.py`，`ChannelRouter`/`SessionBindingRegistry`。
+- P2 014 语义索引：`services/business_semantic_index.py`（`BusinessSemanticIndex`/`SemanticHit`/`ENTITY_TYPES`）。
+- P2 015 知识图谱：`knowledge_graph/{store,query,consistency}.py`（`KgStore`/`MultiHopResult`/`CycleGuard`）。
+- P2 016 Skill 加固：`skill_lifecycle/service.py` + `dream_cycle/deprecation.py` 共用 `marked_low_quality`。
+- P2 017 三域记忆：`memory/{scope,lifecycle,retrieval}.py`（`MemoryScope`/`ORG_PROMOTION_ROLES`/`SCOPE_VISIBILITY`）。
+- P2 018 能力资产：`services/capability_assets.py`（修复后 DB 模式全链路通过）。
+- P2 019 弹性配置：`harness_config/{profile,layer_switch,floor,gate_adapter}.py`，`r4_always_denied`/`assert_floor_intact` 合规底线验证通过。
+
+**本轮发现并修复的 motor 异步 bug（4 处）**：同步方法直接调用 motor 异步 db（未 `await`）→ 500 / 写入静默丢失：
+1. admin-api `app/services/hooks_store.py`（6 CRUD 方法改 async + `routes/hooks.py` 6 处 `await`）——修复前 `GET /api/api/hooks/rules` 500；
+2. chat-api `app/dsh_runtime/hooks/store.py`（同型 7 方法改 async + `tests/test_hooks_009.py` 3 项测试改 async）；
+3. chat-api `app/services/capability_assets.py`（`CapabilityAssetRegistry` 9 方法改 async + DB 模式 `governance_view` 从库回灌 + `tests/services/test_capability_asset_us2.py` 7 项测试改 async）；
+4. chat-api `app/services/session_versioning/share.py` + `co_presence.py`（`ShareStore` 4 方法 + `CoPresence` 5 方法改 async，修正 `ShareStore.to_document(share)` 传参错误 + `tests/services/test_session_us5_and_polish.py` 同步更新）。
+
+另修 admin-api `app/api/routes/dashboard.py` `_duration_ms`/`_duration_percentiles_fallback` 的 `int(row.get("start_time"))` 对 BSON datetime 报错（500）→ 新增 `_to_ms()` 归一化（兼容 epoch int 与 datetime）。
+
+**测试基线**：admin-api 236 项全过；chat-api 非 e2e 1808 项全过（排除预存坏例 `tests/llm/test_decision_turn.py` 与 4 个 dsh_runtime e2e 文件——stash 对照确认 e2e 失败为预存环境依赖，与本次改动无关）。
+
+**镜像重建**（经典 builder `DOCKER_BUILDKIT=0`）：admin-api `babb202a`、chat-api `0877b010`，均 `--force-recreate` 重启 healthy，修复已确认带进容器。
+
+**演示数据**（均带 `demo_seed: true` 标记，可一键清理 `db.<coll>.deleteMany({demo_seed:true})`）：tools ×3、skills ×3、`token_usage_logs` 24h 窗口 ×60、`capability_assets` ×3（对齐 registry schema）、`session_shares` ×1。造数后驾驶舱各段（metrics/quality/usage/trend）均出数。
 
 **遗留说明**：
-- 步骤 1/2/3 的「界面点击」与步骤 4–7 的「UI 触发」需浏览器实操（当前会话浏览器 provider 未注册，故用服务层运行时等价验证）；端点/数据/服务层全部通过。
-- chat-api 镜像必须 `--no-cache` 重建才真正包含 SDD 模块（`ccb26ffc`，2026-09-24 13:39）；此前 `8fb9a` 因 buildx 缓存命中未带入新代码（`/app/app/services/dag` 等模块缺失），已修正并重启容器。
+- 步骤 1/2/3 的「界面点击」与步骤 4–7 的「UI 触发」需浏览器实操（当前会话浏览器 provider 未注册，故用 API 级端点 + 服务层运行时等价验证）；端点/数据/服务层/演示数据全部通过。
+- chat-api 镜像必须 `--no-cache` 重建才真正包含 SDD 模块；本轮修复已 `--force-recreate` 重启，确认带进容器。

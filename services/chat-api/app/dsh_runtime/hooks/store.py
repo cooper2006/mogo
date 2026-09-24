@@ -71,7 +71,7 @@ class HookRuleStore:
 
     # --- create / read / update / delete ------------------------------------
 
-    def create(
+    async def create(
         self,
         *,
         scope: str,
@@ -101,18 +101,18 @@ class HookRuleStore:
             tenant_id=tenant_id,
         )
         if self._db is not None:
-            self._db[HOOK_RULES_COLLECTION].insert_one(document.as_document())
+            await self._db[HOOK_RULES_COLLECTION].insert_one(document.as_document())
         else:
             self._rules[document.rule_id] = document
         return document
 
-    def get(self, rule_id: str) -> Optional[HookRuleDocument]:
+    async def get(self, rule_id: str) -> Optional[HookRuleDocument]:
         if self._db is not None:
-            row = self._db[HOOK_RULES_COLLECTION].find_one({"rule_id": rule_id})
+            row = await self._db[HOOK_RULES_COLLECTION].find_one({"rule_id": rule_id})
             return self._from_row(row) if row else None
         return self._rules.get(rule_id)
 
-    def update(
+    async def update(
         self,
         rule_id: str,
         *,
@@ -121,7 +121,7 @@ class HookRuleStore:
         scope: Optional[str] = None,
         rule_type: Optional[str] = None,
     ) -> Optional[HookRuleDocument]:
-        document = self.get(rule_id)
+        document = await self.get(rule_id)
         if document is None:
             return None
         document.enabled = enabled if enabled is not None else document.enabled
@@ -129,27 +129,27 @@ class HookRuleStore:
         document.scope = scope if scope is not None else document.scope
         document.rule_type = rule_type if rule_type is not None else document.rule_type
         if self._db is not None:
-            self._db[HOOK_RULES_COLLECTION].update_one(
+            await self._db[HOOK_RULES_COLLECTION].update_one(
                 {"rule_id": rule_id}, {"$set": document.as_document()}
             )
         return document
 
-    def delete(self, rule_id: str) -> bool:
+    async def delete(self, rule_id: str) -> bool:
         if self._db is not None:
-            result = self._db[HOOK_RULES_COLLECTION].delete_one({"rule_id": rule_id})
+            result = await self._db[HOOK_RULES_COLLECTION].delete_one({"rule_id": rule_id})
             return bool(getattr(result, "deleted_count", 0))
         return self._rules.pop(rule_id, None) is not None
 
-    def list(self, *, tenant_id: str = "") -> list[HookRuleDocument]:
+    async def list(self, *, tenant_id: str = "") -> list[HookRuleDocument]:
         if self._db is not None:
             query = {"tenant_id": tenant_id} if tenant_id else {}
-            rows = self._db[HOOK_RULES_COLLECTION].find(query).to_list(length=10000)
+            rows = await self._db[HOOK_RULES_COLLECTION].find(query).to_list(length=10000)
             return [self._from_row(row) for row in rows if row]
         return [r for r in self._rules.values() if not tenant_id or r.tenant_id == tenant_id]
 
     # --- scope query (009 T016) ---------------------------------------------
 
-    def rules_in_scope(
+    async def rules_in_scope(
         self,
         *,
         tool: str,
@@ -162,7 +162,7 @@ class HookRuleStore:
         matches the most specific context present. The narrowest matching scope
         wins (FR-9); ties keep all matching rules so the engine can order them.
         """
-        all_rules = self.list(tenant_id=tenant_id)
+        all_rules = await self.list(tenant_id=tenant_id)
         enabled = [r for r in all_rules if r.enabled]
         matching: list[HookRuleDocument] = []
         # Most specific first: tool, then session, then tenant.
@@ -177,7 +177,7 @@ class HookRuleStore:
                 matching.append(document)
         return matching
 
-    def ordered_rules_for(
+    async def ordered_rules_for(
         self,
         *,
         tool: str,
@@ -185,7 +185,7 @@ class HookRuleStore:
         tenant_id: str = "",
     ) -> list[HookRule]:
         """In-scope rules ordered for evaluation (scope desc, then type desc)."""
-        documents = self.rules_in_scope(tool=tool, session_id=session_id, tenant_id=tenant_id)
+        documents = await self.rules_in_scope(tool=tool, session_id=session_id, tenant_id=tenant_id)
         rules = [document.to_hook_rule() for document in documents]
         return sort_rules(rules)
 

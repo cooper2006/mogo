@@ -2,14 +2,9 @@
   <div class="dashboard-page">
     <n-spin :show="loading">
       <n-tabs v-model:value="activeTab" type="line" class="dash-tabs">
-        <n-tab-pane name="overview" :tab="t('总览')"></n-tab-pane>
-        <n-tab-pane name="cost" :tab="t('成本')"></n-tab-pane>
-        <n-tab-pane name="usage" :tab="t('使用')"></n-tab-pane>
-        <n-tab-pane name="quality" :tab="t('质量')"></n-tab-pane>
-        <n-tab-pane name="trend" :tab="t('趋势')"></n-tab-pane>
-
+        <n-tab-pane name="overview" :tab="t('总览')">
         <!-- 008 T003 / T008 — overview tab -->
-        <div v-show="activeTab === 'overview'" class="tab-body">
+        <div class="tab-body">
           <section class="metrics-grid">
             <article v-for="metric in metricCards" :key="metric.key" class="metric-card">
               <div class="metric-head">
@@ -139,9 +134,10 @@
             </n-card>
           </section>
         </div>
-
+        </n-tab-pane>
+        <n-tab-pane name="cost" :tab="t('成本')">
         <!-- 008 T013 — cost tab -->
-        <div v-show="activeTab === 'cost'" class="tab-body">
+        <div class="tab-body">
           <section class="content-grid">
             <n-card class="panel-card span-8" :bordered="false" size="large">
               <template #header>
@@ -185,9 +181,10 @@
             </n-card>
           </section>
         </div>
-
+        </n-tab-pane>
+        <n-tab-pane name="usage" :tab="t('使用')">
         <!-- 008 T016 — usage tab -->
-        <div v-show="activeTab === 'usage'" class="tab-body">
+        <div class="tab-body">
           <n-select
             v-model:value="usageGrain"
             :options="grainOptions"
@@ -222,9 +219,10 @@
             </n-card>
           </section>
         </div>
-
+        </n-tab-pane>
+        <n-tab-pane name="quality" :tab="t('质量')">
         <!-- 008 T020 — quality tab -->
-        <div v-show="activeTab === 'quality'" class="tab-body">
+        <div class="tab-body">
           <section class="metrics-grid quality-grid">
             <article v-for="metric in qualityCards" :key="metric.key" class="metric-card">
               <div class="metric-head">
@@ -250,9 +248,10 @@
             </div>
           </n-card>
         </div>
-
+        </n-tab-pane>
+        <n-tab-pane name="trend" :tab="t('趋势')">
         <!-- 008 T023 — trend tab -->
-        <div v-show="activeTab === 'trend'" class="tab-body">
+        <div class="tab-body">
           <section class="content-grid">
             <n-card class="panel-card span-8" :bordered="false" size="large">
               <template #header>{{ t('环比 / 同比') }}</template>
@@ -287,6 +286,7 @@
             </n-card>
           </section>
         </div>
+        </n-tab-pane>
       </n-tabs>
 
       <n-alert v-if="errorText" type="warning" :bordered="false" closable @close="errorText = ''">

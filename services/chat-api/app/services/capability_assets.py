@@ -49,7 +49,7 @@ class CapabilityAssetRegistry:
         self._assets: dict[str, CapabilityAsset] = {}
         self._dedupe: dict[str, str] = {}
 
-    def register(
+    async def register(
         self,
         *,
         key: str,
@@ -70,7 +70,9 @@ class CapabilityAssetRegistry:
             dedupe_ref=dedupe_ref,
         )
         if self._db is not None:
-            self._db["capability_assets"].replace_one({"key": key}, asset.as_document(), upsert=True)
+            await self._db["capability_assets"].replace_one({"key": key}, asset.as_document(), upsert=True)
+            # Load into in-memory so governance_view/governance_detail see DB rows.
+            self._assets[key] = asset
         else:
             self._assets[key] = asset
         if dedupe_ref:
@@ -88,13 +90,30 @@ class CapabilityAssetRegistry:
 
     # --- T009 governance view (list + detail drill-down) -------------------
 
-    def governance_view(self, *, asset_type: str = "") -> list[dict[str, Any]]:
+    async def governance_view(self, *, asset_type: str = "") -> list[dict[str, Any]]:
+        # Refresh in-memory from DB so governance_view reflects registered rows.
+        if self._db is not None:
+            rows = await self._db["capability_assets"].find({}).to_list(length=10000)
+            for row in rows:
+                self._assets[row.get("key")] = CapabilityAsset(
+                    key=row.get("key"),
+                    display_name=row.get("display_name", row.get("key")),
+                    asset_type=row.get("asset_type", "tool"),
+                    owner=row.get("owner", ""),
+                    version=row.get("version", "1"),
+                    contract=dict(row.get("contract") or {}),
+                    status=row.get("status", "active"),
+                    a2a_exposed=bool(row.get("a2a_exposed", False)),
+                    dedupe_ref=row.get("dedupe_ref", ""),
+                )
         assets = self._assets.values()
         if asset_type:
             assets = [a for a in assets if a.asset_type == asset_type]
         return [a.as_document() for a in assets]
 
-    def governance_detail(self, key: str) -> Optional[dict[str, Any]]:
+    async def governance_detail(self, key: str) -> Optional[dict[str, Any]]:
+        if key not in self._assets:
+            await self.governance_view()  # load from DB on demand
         asset = self._assets.get(key)
         if asset is None:
             return None
@@ -107,10 +126,12 @@ class CapabilityAssetRegistry:
 
     # --- T010 status management (active/deprecated/offline + 审批) ---------
 
-    def get_status(self, key: str) -> str:
+    async def get_status(self, key: str) -> str:
+        if key not in self._assets:
+            await self.governance_view()  # load from DB on demand
         return self._assets[key].status
 
-    def set_status(
+    async def set_status(
         self,
         key: str,
         status: str,
@@ -123,34 +144,40 @@ class CapabilityAssetRegistry:
             raise ValueError(f"invalid status: {status!r}")
         if require_approval and not approver:
             raise PermissionError("status change to offline/deprecated requires an approver")
+        if key not in self._assets:
+            await self.governance_view()  # load from DB on demand
         asset = self._assets[key]
         asset.status = status
         if self._db is not None:
-            self._db["capability_assets"].update_one({"key": key}, {"$set": {"status": status}})
+            await self._db["capability_assets"].update_one({"key": key}, {"$set": {"status": status}})
         return asset
 
     # --- T011 a2a_exposed marking (for 012 AgentCard generation) ----------
 
-    def mark_a2a_exposed(self, key: str, exposed: bool) -> CapabilityAsset:
+    async def mark_a2a_exposed(self, key: str, exposed: bool) -> CapabilityAsset:
+        if key not in self._assets:
+            await self.governance_view()  # load from DB on demand
         asset = self._assets[key]
         asset.a2a_exposed = exposed
         if self._db is not None:
-            self._db["capability_assets"].update_one({"key": key}, {"$set": {"a2a_exposed": exposed}})
+            await self._db["capability_assets"].update_one({"key": key}, {"$set": {"a2a_exposed": exposed}})
         return asset
 
-    def is_a2a_exposed(self, key: str) -> bool:
+    async def is_a2a_exposed(self, key: str) -> bool:
+        if key not in self._assets:
+            await self.governance_view()  # load from DB on demand
         asset = self._assets.get(key)
         return bool(asset.a2a_exposed) if asset else False
 
     # --- US1 tests: discover + register + dedup ---------------------------
 
-    def discover_and_register(self, entries: list[dict[str, Any]]) -> dict[str, Any]:
+    async def discover_and_register(self, entries: list[dict[str, Any]]) -> dict[str, Any]:
         registered: list[str] = []
         duplicates: list[str] = []
         for entry in entries:
             dedupe_ref = entry.get("dedupe_ref") or f"{entry.get('endpoint')}+{entry.get('method')}"
             if self.dedupe(dedupe_ref, entry.get("key", "")):
-                self.register(
+                await self.register(
                     key=entry.get("key", ""),
                     display_name=entry.get("display_name", ""),
                     asset_type=entry.get("asset_type", "tool"),
