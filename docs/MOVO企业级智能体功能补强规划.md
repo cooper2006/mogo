@@ -1,0 +1,200 @@
+# 以 MOVO 为基础的企业级智能体功能补强规划
+
+> 依据：① 知识库《MOVO》等 7 篇核心文章；② 与 EntAgent 开源方案的代码级对比分析（grep 验证）；③ 用户补充输入：AgentGit 开源 Agent 会话平台文章（会话级维度）。
+
+---
+
+## 一、MOVO 基线能力与既有优势
+
+### 1.1 已有能力盘点（据知识库《MOVO》一文）
+
+MOVO = **DSH Runtime（执行底座）+ MOVO 企业层（进入生产）**，已具备：
+
+| 能力域 | MOVO 现状（据原文） |
+|---|---|
+| **Agent Runtime** | DSH 原生：任务规划、工具调用、Skill、子智能体、受控执行 |
+| **企业知识/RAG** | 内部文档+公开信息检索、多轮研究、保留引用、个人知识库（可分享） |
+| **多模态理解** | PDF/DOCX/XLSX/PPTX/CSV/MD + 文档内图片/图表 |
+| **内容生成** | 报告/文章/PPTX/表格/PDF/MD 交付物 |
+| **集成（MCP）** | 工作流型 Skill、HTTP/MCP 连接业务系统 |
+| **自动化与治理** | 定时任务、敏感工具审批、执行追踪、产物留存 |
+| **管理后台** | 组织/用户/角色/模型/知识/Skill/工具/审计/运行状态、RBAC |
+| **部署** | Docker Compose 一键 12 服务、社区版自托管、模型与数据自主管控 |
+| **桌面扩展** | MOVO Desktop 连接浏览器/Code Agent |
+
+### 1.2 反向确认：MOVO 已强于 EntAgent、无需补的部分
+
+经与 EntAgent 对比，以下能力 MOVO 已具备且明显占优，**不应重复投入**，应作为后续补强的"不重复造轮子"边界：
+
+- **真实 Docker Compose 部署 + CLI 启动器 + 备份/恢复** —— 生产运维底座已就绪。
+- **Docling 多格式文档解析**（PDF/DOCX/XLSX/PPTX/CSV）+ **LibreOffice 预览** —— 文档理解能力强于 EntAgent。
+- **PPTX/表格/PDF/图片/翻译/表单填写等内容生成** —— EntAgent 几乎没有，MOVO 是差异化强项。
+- **浏览器 Agent、代码 Agent、子智能体（桌面端）** —— 执行形态丰富。
+- **企业知识研究、引用证据、Skill 市场（SkillHub）+ ZIP 安装** —— 知识闭环与生态分发已成型。
+
+> 结论：MOVO 在「执行底座 + 文档/内容生成 + 多形态 Agent + SkillHub + 自托管部署」上已是较完整起点；真正缺口集中在 **治理风控精细化、网关韧性、可扩展拦截、通用编排、自进化、会话级（版本化/交接/协同）** 六处（见第二章）。
+
+---
+
+## 二、GAP 分析：与 EntAgent / AgentGit 的代码级与架构级对比
+
+下列缺口均经确认（EntAgent 侧为 grep 验证；AgentGit 侧为开源方案已验证方向）。
+
+### 2.1 治理与风控层（最高价值，MOVO 当前基本空缺）
+
+| 缺失功能 | EntAgent 对应实现 | MOVO 现状 |
+|---|---|---|
+| Gatekeeper 六层串行门禁（身份→RBAC→脱敏→审批→配额→审计，R4 红线不可覆盖） | `security/gatekeeper.py` 完整 | 审批/配额/审计分散，无统一串行门禁链 |
+| R0–R4 工具风险分级 + 自主级别矩阵（L1–L5 × R0–R4，25 格） | `classify_risk` + `AUTONOMY_MATRIX` | 无分级矩阵（grep 无 `risk_level` 矩阵 / `risk_level × autonomy` 联合命中；`risk_level` 仅散落于 `enterprise_capabilities/tools`、`events/tool_presentation` 等业务模块） |
+| RBAC 权限码 `<resource>:<action>[:<target>]`、三级隔离、fail-closed | `security/rbac.py` | 只有"岗位角色"粗粒度，无细粒度权限码 |
+| PII 脱敏（私钥/身份证/银行卡/手机号等 × mask/remove/hash/abstract 策略） | `security/redaction.py` | 没有脱敏层 |
+
+### 2.2 LLM 网关韧性（生产可靠性缺口）
+
+| 缺失功能 | EntAgent 对应实现 | MOVO 现状 |
+|---|---|---|
+| 主→备供应商故障转移 failover | LLM Gateway 完整韧性设计 | `model_router.py` + providers 仅多供应商选择，无 failover |
+| 降级链 degradation_chain（主模型失败逐级降档） | degradation_chain | 无 |
+| 指数退避重试 + 用量/成本计量上报 | 重试 + 计量 | 无 `circuit_break`/`degradation_chain` 命中 |
+
+> 生产环境里 LLM 单点故障转移是明显缺口。
+
+### 2.3 可扩展 Hooks 机制（MOVO 完全没有）
+
+| 缺失功能 | 参考实现 | MOVO 现状 |
+|---|---|---|
+| 五事件 Hooks（SessionStart/PreToolUse/PostToolUse/SessionEnd/MemoryCommit）+ 超时保护 + fail_closed + 声明式规则（deny_tool/require_field/observe） | EntAgent 完整框架；AgentGit 自动接线 skills/hooks/MCP | "hooks" 仅出现在第三方库（requests），自身无钩子/拦截器 |
+
+> 这是企业做合规拦截、字段校验、工具禁用的关键扩展点；会话生命周期事件（SessionStart/End/MemoryCommit）是 Hooks 最核心的触发维度之一。
+
+### 2.4 DAG 编排引擎（MOVO 目前是"计划/工作流"而非通用编排）
+
+| 缺失功能 | 参考实现 | MOVO 现状 |
+|---|---|---|
+| 四模式（sequential/supervisor/hybrid/graph） | EntAgent 通用编排层 | 有"内容规划/研究模式"，但无通用 DAG 编排 |
+| DAG 拓扑排序 + 环检测 | 拓扑/环检测 | grep 无 `dag`/`topological`/`cyclic` 命中 |
+| 条件跳过（表达式求值）、节点级重试（指数退避） | 条件跳过 + 节点重试 | 无 |
+
+### 2.5 Dream Cycle 自进化（MOVO 完全没有）
+
+| 缺失功能 | 参考实现 | MOVO 现状 |
+|---|---|---|
+| 三层自进化：经验沉淀（friction 触发）→ 周期扫描自动发现重复模式生成 Skill 草稿 + 自动建 MR → 低采纳率自动淘汰 | EntAgent Dream Cycle | 无通用记忆自进化（grep 无 `learnings`/`dream`/`jaccard` 命中；`learning` 命中集中在 `browser/engine/workflow_cache`，属浏览器工作流缓存，非框架层） |
+
+> 这是"Agent 越用越聪明"的高价值差异化能力，工作量最大，可后置。
+
+### 2.6 会话级版本管理与交接（MOVO 当前空白，AgentGit 已验证方向）
+
+| 缺失功能 | AgentGit 对应实现 | MOVO 现状 |
+|---|---|---|
+| 会话版本管理（commit 保存进度 / log 回看 / resume 续写且永不分叉） | `agit commit` / `agit log` / `agit resume` | 会话为临时状态，无版本化，"工作即沉没" |
+| 会话交接（share 链接，连同需求/讨论/修改/执行过程交接他人） | `agit share` | 无进行中工作连同上下文的交接机制 |
+| 多人共用同一会话上下文 | 团队共入同一会话 | 有 Workspace/组织，但缺会话级多人协同 |
+| 会话级秘密过滤（低熵识别 / 可逆占位符 / clone 默认只读） | 秘密不上链设计 | 仅运行时脱敏，保存/分享时未过滤 |
+
+> 会话级是横切维度：与 2.1 脱敏（保存时脱敏）、2.3 Hooks（会话生命周期事件）、2.5 自进化（会话→经验→Skill）均交叉。AgentGit 已证明"让 Agent 的活儿像代码一样被交接"是真实刚需。
+
+---
+
+## 三、功能补强清单（按落地优先级）
+
+> 优先级主线来自 EntAgent 对比结论；AgentGit 会话级与知识库其余增强项按其属性并入对应阶段。
+
+### 🔴 P0 — 最高价值 / 合规刚需 / 最大缺口（企业入场券）
+
+**1. 治理与风控层**（EntAgent 对比，代码级缺口，MOVO 当前最大缺口）
+- **Gatekeeper 六层串行门禁**：身份 → RBAC → 脱敏 → 审批 → 配额 → 审计；R4 红线不可覆盖。
+- **R0–R4 风险分级 + L1–L5 × R0–R4 自主矩阵**（25 格）：把"敏感工具审批"升级为系统化分级放权。
+- **RBAC 权限码** `<resource>:<action>[:<target>]`、三级隔离、fail-closed（替代当前粗粒度"岗位角色"）。
+- **PII 脱敏层**：私钥/身份证/银行卡/手机号等 × mask/remove/hash/abstract 策略；**并覆盖会话保存/分享场景——会话发布时自动低熵秘密过滤、敏感内容替换为可逆占位符、clone 默认只读**（参考 AgentGit 秘密不上链设计，与运行时 Hooks 拦截形成"运行时+保存时"双保险）。
+- **挂载点**：MOVO 已有审批/配额/审计，**以此作门禁链挂载点**，不推倒重来（参考 `security/gatekeeper.py` 思路）。
+
+**2. LLM 网关韧性**（EntAgent 对比，生产可用性直接受益）
+- 主→备 **failover**、**degradation_chain** 降级链、指数退避重试、用量/成本计量上报。
+- **改动集中在 `llm/model_router.py` + providers 模块**，影响面可控。
+
+**3. 总览数据统计驾驶舱**（知识库《自建平台》强化，生产可观测刚需）
+- 四维看板：①成本（Token 总量、各模型占比、部门/智能体分摊、预测）②使用（调用量、活跃用户、Skill/检索频次）③质量（成功率、响应时长、异常率、人工介入率）④趋势（环比同比、瓶颈识别）。
+- 实现：在 MOVO 管理后台扩展"运营驾驶舱"，复用已有运行状态数据。
+
+### 🟡 P1 — 可靠性、可扩展性与会话级
+
+**4. Hooks 拦截机制**（EntAgent 对比 + AgentGit 印证，低成本高扩展）
+- 五事件 SessionStart/PreToolUse/PostToolUse/SessionEnd/MemoryCommit + 超时保护 + fail_closed + 声明式规则（deny_tool/require_field/observe）。
+- **重点强调会话生命周期事件**（SessionStart/End/MemoryCommit）——会话级是 Hooks 最核心的触发维度；可先做 PreToolUse 单一事件切入，作为合规拦截/字段校验/工具禁用扩展点（AgentGit 已验证"自动接线 skills/hooks/MCP"是会话平台基础设施）。
+
+**5. DAG 编排引擎**（EntAgent 对比 + 知识库多编排模式）
+- 四模式 sequential/supervisor/hybrid/graph；DAG 拓扑排序 + 环检测；条件跳过（表达式求值）；节点级重试（指数退避）。通用化 MOVO 当前的"内容规划/研究模式"。
+
+**6. 会话 / 工作流双版本化**（AgentGit 会话级 + 知识库《PilotMind》"Workflow 无法生产"痛点）
+- **会话级（参考 AgentGit）**：`commit` 保存进度、`log` 回看历史、`resume` 续写且永不分叉；`share` 链接把需求/讨论/修改/执行过程一并交接，接手人补充最新要求即沿原工作继续；支持多人进入同一会话围绕同一上下文协作。解决"换个人就要从头再来""工作即沉没"。
+- **工作流级（参考 PilotMind）**：以 GraphSpec 思路保留可执行契约，避免"画布≠真相"；支持版本发布、灰度、回滚与执行轨迹回放。
+- 二者互补：一个会话包一个或多个工作流，会话版本管"工作上下文"，工作流版本管"流程定义"。
+
+### ⚪ P2 — 规模化生态 / 高阶架构
+
+**7. Dream Cycle 自进化**（EntAgent 对比，工作量最大，后置）
+- 三层：经验沉淀（friction 触发）→ 周期扫描自动发现重复模式生成 Skill 草稿 + 自动建 MR → 低采纳率自动淘汰。实现"Agent 越用越聪明"。
+
+**8. A2A Agent 互通网关**（知识库《PilotMind》MCP+A2A 双协议）：输出 AgentCard+JSON-RPC，对接 Dify/LangGraph 等外部生态。
+
+**9. 多 IM 入口**（知识库《CubePlex》）：接入飞书/钉钉/企业微信/Slack/Teams，复用 Workspace 与 Sandbox。
+
+**10. 业务系统语义索引**（知识库《PilotMind》业务索引）：在 RAG 之上对接 CRM/采购/财务做语义检索。
+
+**11. 知识图谱层**（知识库《企业级 Agent 架构》六层地基）：补充结构化知识图谱，提升跨文档推理。
+
+**12. Skill 全生命周期市场强化 + 会话→经验→Skill 沉淀闭环**（知识库《自建平台》+ AgentGit）
+- Skill 市场：版本管理、灰度/回滚、调用监控、效果打分、低质量自动标记。
+- **沉淀闭环（融合 AgentGit）**：会话经 `push`/沉淀到 Hub 或经验库 → 经 Dream Cycle 自动生成 Skill 草稿 → 发布到 MOVO SkillHub（ZIP 安装）。把"会话 → 经验 → Skill"串成主线，让一个人的会话成为其他人/团队的起点。
+
+**13. 三范围 Memory 粒度**（知识库《CubePlex》）：区分个人 / Workspace / 组织 三级记忆，与 2.6 会话级多人协同打通。
+
+**14. 能力资产化"发现→注册"**（知识库《PilotMind》生产链路首环）：存量业务能力（审批/查询/下单）变成可审计、可版本化资产。
+
+**15. 厚/薄 Harness 弹性配置**（知识库《Harness 实践》）：按场景切换，推进 HaaS 思路。
+
+---
+
+## 四、实施路线图
+
+| 阶段 | 周期 | 重点（优先级） | 关键交付 |
+|---|---|---|---|
+| **阶段一 · 生产底座** | 1–2 月 | P0：风控引擎（Gatekeeper/R0–R4/RBAC 码/PII+会话秘密脱敏）+ LLM 网关韧性 + 驾驶舱 | 合规入场券 + 生产可用性 + 可观测 |
+| **阶段二 · 可靠性与协作** | 3–6 月 | P1：Hooks（含会话生命周期事件）+ DAG 编排 + 会话/工作流双版本化（版本/交接/多人协同） | 多步骤可靠性 + 合规扩展点 + 工作可交接 |
+| **阶段三 · 自进化与生态** | 6–12 月+ | P2：Dream 自进化 + 会话→经验→Skill 闭环 + A2A + 多 IM + 业务索引 + 知识图谱 + Skill 市场强化 + Memory/资产化/Harness 弹性 | 组织级"数字组织"形态、越用越聪明 |
+
+**贯穿原则**：
+- 复用 MOVO 已有 DSH Runtime、RBAC、MCP、自托管、**审批/配额/审计门禁挂载点**，**不重复造底座**；
+- 守住在 1.2 确认的既有优势边界（文档解析、内容生成、多形态 Agent、SkillHub、部署），不重复投入；
+- 参考 PilotMind「三条边界」（不替代业务系统 / 画布≠真相用 GraphSpec 契约 / 不开放即暴露）与 CubePlex「Cloud Harness + 隔离 Sandbox + 多 IM」做安全触达；
+- 会话级参考 AgentGit「本地优先、秘密不上链、像代码一样交接」的版本化协作范式。
+
+---
+
+## 五、落地建议（立即可做）
+
+1. **先打 P0 风控引擎**——企业合规刚需，MOVO 当前最大缺口；以已有审批/配额/审计为挂载点，风险最低、价值最高（参考 `security/gatekeeper.py` 的六层门禁与 `AUTONOMY_MATRIX` 25 格矩阵）。
+2. **LLM 网关韧性改动集中在 `llm/` 模块**——failover + 降级链 + 退避重试，生产可用性直接受益。
+3. **Hooks 先单事件（PreToolUse）低成本切入**——快速获得合规拦截/字段校验/工具禁用能力，再逐步补齐会话生命周期等其余事件。
+4. **把"会话交接"纳入标杆场景**——例如"制度/项目知识问答 + 敏感操作审批（R0–R4 分级）+ 会话 `commit`/`share` 交接 + 成本驾驶舱"，一次打通 P0 风控与 P1 会话级协作。
+5. **保留 MOVO 社区版自托管优势**，补强时仍坚持"模型与数据自主管控"，生产环境自行加固（原文提醒"不可裸用"）。
+
+---
+
+## 附：参考来源
+
+**知识库核心文章（7 篇）**
+- 《开源推荐：MOVO：基于 DeepSeek Harness 做了一个企业 Agent 平台》
+- 《一文讲透企业级 Agent 架构：5种编排模式 × 自主权限 × 平台治理》
+- 《企业级智能体中台开源！可以免费商业化！》（PilotMind）
+- 《别找了，没有现成的企业级智能体平台，我们自己造了一个》
+- 《CubePlex -- 企业级 Agent 平台正式开源》
+- 《Harness实践：从 Agent 理论到企业级架构演进》
+- 《AI Agent框架全面对比，避坑指南请收好！》
+
+**对比分析输入**
+- 与 EntAgent 开源方案的代码级对比（grep 验证）：治理风控 / LLM 网关韧性 / Hooks / DAG 编排 / Dream 自进化 五大缺口，以及 MOVO 既有优势反向确认。
+- 用户补充输入：AgentGit 开源 Agent 会话平台文章（2026-09-19）——会话级版本管理（commit/resume/share）、多人协同、经验复用 Hub、秘密不上链，作为"会话级"补强维度的依据。
+
+> 注：你订阅的「AI精选集」行业报告与「大模型 AI 相关知识库」的 Data Agent / MCP+RAG 融合架构文章在当前沙箱环境下无法读取，未纳入本规划；如需可改用导出方式补充。
