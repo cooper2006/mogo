@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-09-24 工作台为空排查 + P50/P95 真实 bug 修复（Mongo 6.0 无 $percentile）
+
+- **现象**：用 admin 账号登录（密码 1qaz2wsx#EDC）后，工作台五标签内容全空。
+- **排查**：`GET /api/dashboard/overview` 返回 200（非报错），`assets` 有内容（用户 1/模型 1/部门 1），但 `metrics`/`usage`/`trend` 全 0。根因是**租户隔离 + 该租户无调用数据**：dashboard 按 `main_id` 过滤（`tenant_match`），库里仅 2 条 `token_usage_logs` 且属于 `setup-test-*` 测试租户；BONC 租户（`bonc-8edc43f4957660c85fd050c9`）下 0 条。`created_at` 经查是 BSON Date（用 Date 查询命中 2 条、字符串比较为 0），**非类型 bug**。
+- **修复 P50/P95 真实 bug**：`_quality_metrics` 用 Mongo `$percentile` 算 P50/P95，但该操作符仅 Mongo ≥7.0 支持，项目固定 `mongo:6.0.20`（实测 `Unknown expression $percentile`），异常被 `except` 静默吞掉 → **生产环境 P50/P95 恒为 None**。
+  - 新增 `_duration_percentiles_fallback()`（`app/api/routes/dashboard.py`）：从 `end_time - start_time` 取时长后在内存按最近秩（nearest-rank）算 P50/P95；不升级 Mongo、不改基础镜像，6.0/7.0 均正确出数。
+  - 验证：修复前 P50/P95 = None；修复后 P50=4852ms、P95=7827ms、avg=4705ms。admin-api 236 项测试通过。
+- **造演示数据**（仅本机界面验证用）：向 `token_usage_logs` 写入 495 条 BONC 租户记录（60 天跨度、4 模型、4 用户、含 failed/timeout 异常态），均带 `demo_seed: true` 标记，可一键清理：
+  `db.token_usage_logs.deleteMany({main_id:"bonc-8edc43f4957660c85fd050c9", demo_seed:true})`
+- 重建 admin-api 镜像并 `--force-recreate` 重启，验证接口出数正常。
+
 ## 2026-09-24 §6 验证清单 8 步核验（chat-api 强制重建 + 服务层运行时验证）
 
 - **发现并修正 chat-api 镜像缓存问题**：此前"重建"的 chat-api 镜像（8fb9a）实际命中 buildx 缓存，`/app/app/services/dag`、`/app/app/llm/resilience` 等 SDD 模块缺失。用 `DOCKER_BUILDKIT=0 docker build --no-cache` 强制重建（`ccb26ffc`，2026-09-24 13:39），`--force-recreate` 重启 chat-api 容器，确认容器内全部 SDD 模块在位（dag/dream_cycle/session_versioning/llm.resilience/orchestration/a2a/im_gateway/capability_assets/feature_audit）。

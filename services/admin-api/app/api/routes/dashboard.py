@@ -190,14 +190,57 @@ async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[di
     )
 
 
+_PERCENTILE_FALLBACK_ROWS = 5000
+
+
+async def _duration_percentiles_fallback(
+    usage_coll: Any, match: dict[str, Any]
+) -> tuple[int | None, int | None]:
+    """Compute P50/P95 from ``end_time - start_time`` without ``$percentile``.
+
+    ``$percentile`` only exists on MongoDB >= 7.0; the pinned image is 6.0,
+    where the aggregation raises and P50/P95 would silently stay ``None``.
+    Durations are computed here (they are not materialized as ``duration_ms``)
+    and the percentiles are taken with a nearest-rank sort.
+    """
+    try:
+        rows = (
+            await usage_coll.find(match, {"start_time": 1, "end_time": 1})
+            .limit(_PERCENTILE_FALLBACK_ROWS)
+            .to_list(length=_PERCENTILE_FALLBACK_ROWS)
+        )
+    except Exception:
+        return None, None
+
+    durations: list[int] = []
+    for row in rows:
+        start = int(row.get("start_time") or 0)
+        end = int(row.get("end_time") or 0)
+        if start > 0 and end > start:
+            durations.append(end - start)
+    if not durations:
+        return None, None
+
+    durations.sort()
+    last = len(durations) - 1
+
+    def at(fraction: float) -> int:
+        # Nearest-rank percentile.
+        index = int(round(fraction * last))
+        return int(durations[max(0, min(last, index))])
+
+    return at(0.5), at(0.95)
+
+
 async def _quality_metrics(db: Any, main_id: str) -> dict[str, Any]:
     """Quality dimension (008 US4 / FR-4): success / anomaly / latency / manual.
 
     P50/P95 are computed from ``start_time``/``end_time`` (epoch millis) via
-    Mongo ``$percentile``. Manual-intervention rate uses the approval-pending
-    count when the persistent approval store is present; the in-memory
-    ``ApprovalRuntime`` has no durable collection, so it degrades to ``None``
-    (an honest "not measurable here") rather than reporting a fabricated 0%.
+    Mongo ``$percentile``, with a nearest-rank fallback for MongoDB < 7.0.
+    Manual-intervention rate uses the approval-pending count when the persistent
+    approval store is present; the in-memory ``ApprovalRuntime`` has no durable
+    collection, so it degrades to ``None`` (an honest "not measurable here")
+    rather than reporting a fabricated 0%.
     """
     usage_coll = db[TOKEN_USAGE_COLLECTION]
     match = tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))
@@ -261,8 +304,10 @@ async def _quality_metrics(db: Any, main_id: str) -> dict[str, Any]:
         ).to_list(length=1)
         p50_ms, p95_ms = extract_percentiles(percentile_rows[0] if percentile_rows else None)
     except Exception:
-        # Older Mongo without $percentile: fall back to the average only.
+        # Mongo < 7.0 has no $percentile; the fallback below computes them.
         p50_ms, p95_ms = None, None
+    if p50_ms is None or p95_ms is None:
+        p50_ms, p95_ms = await _duration_percentiles_fallback(usage_coll, match)
 
     approval_pending = await _approval_pending_count(db, main_id)
 
