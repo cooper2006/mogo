@@ -1,5 +1,20 @@
 # Work Log
 
+## 2026-09-24 远端地址迁移：cooper2006/mogong → cooper2006/mogo
+
+- **需求**：远端推送地址调整为 `https://github.com/cooper2006/mogo.git`（用户确认该仓库是原 `mogong` 改名而来，非新建独立仓库）。
+- **执行**：
+  - `git remote set-url mogong https://github.com/cooper2006/mogo.git` 后 `git remote rename mogong mogo`（用户确认 remote 名同步改为 `mogo`，保持名字与地址一致）。
+  - 验证：`git remote -v` 显示 `mogo` → 新地址；`git fetch mogo` 成功；`mogo/main` 与本地 `main` 同为 `d226bbc`。
+  - **迁移前核对**：`git ls-remote` 两个地址均返回同一 HEAD `d226bbc`，确认是改名重定向而非不同仓库。
+- **同步更新规则文件**（这是活跃规则，必须与实际 remote 一致，否则后续代理会推错地址）：
+  - `AGENTS.md`「远端仓库边界」：推送目标改为 `cooper2006/mogo`（`mogo` remote），并注明由 `mogong` 改名而来、旧地址会重定向。
+  - `.specify/memory/constitution.md` 同段：按该文件 Governance 条款完成修订——**记录理由 + 版本号 1.1.0 → 1.1.1 + Last Amended 2026-07-08 → 2026-09-24**，并新增 Amendment Log 条目。
+- **未改动**：
+  - `origin`（himovo/movo）保持 `no-push` 锁定，未触碰。
+  - `docs/WORK_LOG.md` 中历史条目里的 `cooper2006/mogong` 字样**保持原样**——那是当时推送事实的记录，不应回溯改写；新条目起使用 `mogo`。
+  - README 中的 `git clone` 地址仍指向 `himovo/movo`（上游社区版仓库），与本次推送远端无关，未改动。
+
 ## 2026-09-24 README 重写为「墨攻 MOGO」企业级智能体平台（中英双语）
 
 - **需求**：按用户给定的六点思路重写 README——① 产品名改为**墨攻（MOGO）**，定位为"基于 DSH 的企业级智能体平台，在开源 MOVO 平台基础上构建"；② 引入 spec-kit SDD 开发规范；③ 增强企业级功能（P2 九项）；④ 智能体多实例运行改造；⑤ 客户反馈智能分诊案例；⑥ 竞品深度调研案例。

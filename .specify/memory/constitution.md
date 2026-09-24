@@ -44,9 +44,13 @@ MOVO 的定位是将 DSH Agent 带入企业生产环境。任何变更不得引�
 - 已明确的低风险任务一次完成，减少重复确认与拆轮次。
 - 测试只做本轮必要范围，未受影响模块不重复全量测试。
 - 出错先定位原因，再做最小修改，不盲目重写。
-- 远端仓库写入边界：只推送到 cooper2006/mogong；origin（himovo/movo）push 已锁定为 no-push，任何对 origin 的写操作必须显式征得用户同意并临时解锁。
+- 远端仓库写入边界：只推送到 cooper2006/mogo（`mogo` remote）；origin（himovo/movo）push 已锁定为 no-push，任何对 origin 的写操作必须显式征得用户同意并临时解锁。
 
 ## Governance
 本宪法优先于其他开发实践。修订宪法需要：记录理由、更新版本号、在 PR 中审批。每次修订更新 Last Amended 日期。规格质量由 /speckit-checklist 与 /speckit-analyze 守护。
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-08 | **Last Amended**: 2026-07-08
+### Amendment Log
+
+- **1.1.1 (2026-09-24)** — 更新远端仓库写入边界。理由：`cooper2006/mogong` 已改名为 `cooper2006/mogo`，remote 名同步由 `mogong` 改为 `mogo`；旧地址由 GitHub 重定向。推送边界本身不变（仍不触碰 origin）。批准：仓库所有者指令。
+
+**Version**: 1.1.1 | **Ratified**: 2026-07-08 | **Last Amended**: 2026-09-24
