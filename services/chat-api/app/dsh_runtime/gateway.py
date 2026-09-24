@@ -41,6 +41,12 @@ class _RuntimeBinding:
     tenant_id: str
     profile_version: str
     model_instance_id: str | None
+    # The isolation key is the *stable* identity of a runtime: it is known
+    # before the runtime exists and is shared by create_runtime and
+    # discover_runtime. Multi-replica sticky routing keys on it, because a
+    # runtime id hashes to a different replica than its isolation key did at
+    # creation time.
+    isolation_key: str = ""
 
 
 class RuntimeProfileResolver(Protocol):
@@ -69,6 +75,18 @@ class DshAgentKernelGateway(AgentKernelContract):
         self._profile_resolver = profile_resolver
         self._credential_refresh_locks = KeyedAsyncLock()
 
+    def _isolation_key(self, runtime_id: str) -> str | None:
+        """The stable sticky key for a runtime, when it is known.
+
+        Multi-replica routing must key on the isolation key rather than the
+        runtime id: the two hash differently, so keying on the runtime id would
+        send a session to a replica that does not own the runtime.
+        """
+        binding = self._runtimes.get(runtime_id)
+        if binding is None:
+            return None
+        return binding.isolation_key or None
+
     async def create_runtime(self, request: CreateRuntimeRequest) -> RuntimeHandle:
         payload: dict[str, Any] = {
             "tenantId": request.tenant_id,
@@ -93,6 +111,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             tenant_id=request.tenant_id,
             profile_version=request.profile_version,
             model_instance_id=model_instance_id,
+            isolation_key=request.isolation_key,
         )
         return RuntimeHandle(
             runtime_id=runtime_id,
@@ -104,7 +123,11 @@ class DshAgentKernelGateway(AgentKernelContract):
         )
 
     async def dispose_runtime(self, runtime_id: str) -> None:
-        await self._transport.request("DELETE", f"/v1/runtimes/{runtime_id}")
+        await self._transport.request(
+            "DELETE",
+            f"/v1/runtimes/{runtime_id}",
+            sticky_key=self._isolation_key(runtime_id),
+        )
         self._runtimes.pop(runtime_id, None)
         self._credential_refresh_locks.discard(runtime_id)
         self._sessions = {
@@ -138,6 +161,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             tenant_id=tenant_id,
             profile_version=profile_version,
             model_instance_id=model_instance_id,
+            isolation_key=isolation_key,
         )
         return RuntimeHandle(
             runtime_id=runtime_id,
@@ -176,6 +200,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "GET",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}",
+            sticky_key=self._isolation_key(binding.runtime_id),
         )
         return self._session_handle(session_id, response)
 
@@ -188,6 +213,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{request.runtime_id}/sessions",
+            sticky_key=self._isolation_key(request.runtime_id),
             json={
                 "sessionId": session_id,
                 "presetId": spec.preset_id,
@@ -216,6 +242,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}/resume",
+            sticky_key=self._isolation_key(binding.runtime_id),
         )
         return self._session_handle(session_id, response)
 
@@ -226,6 +253,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{request.session_id}/send",
+            sticky_key=self._isolation_key(binding.runtime_id),
             json={
                 "requestId": request.request_id,
                 "mode": "steer" if request.mode is SendMode.STEER else "followup",
@@ -248,6 +276,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{request.session_id}/cancel",
+            sticky_key=self._isolation_key(binding.runtime_id),
             json={"cause": request.cause},
         )
         if response.get("accepted") is not True:
@@ -259,6 +288,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         await self._transport.request(
             "DELETE",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}",
+            sticky_key=self._isolation_key(binding.runtime_id),
         )
         self._sessions.pop(session_id, None)
 
@@ -268,6 +298,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         return await self._transport.request(
             "POST",
             f"/v1/runtimes/{runtime_id}/plugins/{action}",
+            sticky_key=self._isolation_key(runtime_id),
             json={"specifier": specifier},
         )
 
@@ -279,6 +310,7 @@ class DshAgentKernelGateway(AgentKernelContract):
                 "GET",
                 f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}/event-stream",
                 params={"after": cursor},
+                sticky_key=self._isolation_key(binding.runtime_id),
             ):
                 event = self._mapper.map_event(
                     native,
@@ -304,6 +336,7 @@ class DshAgentKernelGateway(AgentKernelContract):
         response = await self._transport.request(
             "GET",
             f"/v1/runtimes/{binding.runtime_id}/sessions/{session_id}/events",
+            sticky_key=self._isolation_key(binding.runtime_id),
             params={"after": after_cursor},
         )
         native_events = response.get("events")
@@ -373,6 +406,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             await self._transport.request(
                 "PUT",
                 f"/v1/runtimes/{runtime_id}/model-credential",
+                sticky_key=self._isolation_key(runtime_id),
                 json={
                     "gatewayUrl": model_profile.get("gatewayUrl"),
                     "accessToken": model_profile.get("accessToken"),
@@ -383,6 +417,7 @@ class DshAgentKernelGateway(AgentKernelContract):
                 await self._transport.request(
                     "PUT",
                     f"/v1/runtimes/{runtime_id}/tool-credential",
+                    sticky_key=self._isolation_key(runtime_id),
                     json={"accessToken": tool_profile.get("accessToken")},
                 )
 

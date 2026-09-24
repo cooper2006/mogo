@@ -34,6 +34,11 @@ from .errors import DshProtocolError, DshTransportError
 _SESSION_PATH = re.compile(r"/sessions/(?P<session_id>[^/]+)")
 
 SESSION_HEADER = "X-Session-Id"
+# Runtime-level calls (create_runtime / discover_runtime) carry no session id.
+# They must still be pinned, otherwise a runtime created on one replica is
+# invisible to the replica that later serves its sessions.
+RUNTIME_HEADER = "X-Runtime-Id"
+ISOLATION_HEADER = "X-Isolation-Key"
 
 
 class KernelHostTransport(Protocol):
@@ -45,6 +50,7 @@ class KernelHostTransport(Protocol):
         json: Mapping[str, Any] | None = None,
         params: Mapping[str, Any] | None = None,
         session_id: str | None = None,
+        sticky_key: str | None = None,
     ) -> dict[str, Any]: ...
 
     def stream(
@@ -54,6 +60,7 @@ class KernelHostTransport(Protocol):
         *,
         params: Mapping[str, Any] | None = None,
         session_id: str | None = None,
+        sticky_key: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]: ...
 
 
@@ -90,6 +97,71 @@ def session_id_from_path(path: str) -> str | None:
         return None
     value = match.group("session_id").strip()
     return value or None
+
+
+_RUNTIME_PATH = re.compile(r"/v1/runtimes/(?P<runtime_id>[^/]+)")
+
+
+def runtime_id_from_path(path: str) -> str | None:
+    """Extract the kernel runtime id from a Runtime Host path, when present.
+
+    A runtime-level call (for example ``/v1/runtimes/{id}/model-credential``)
+    has no session id but must still reach the replica that owns the runtime.
+    """
+    match = _RUNTIME_PATH.search(path or "")
+    if match is None:
+        return None
+    value = match.group("runtime_id").strip()
+    # ``/v1/runtimes`` with no id, and the collection endpoint itself, yield the
+    # literal "runtimes" segment; treat anything that is not an id as absent.
+    if not value or value == "runtimes":
+        return None
+    return value
+
+
+def runtime_routing_key(
+    path: str,
+    *,
+    session_id: str | None = None,
+    params: Mapping[str, Any] | None = None,
+    sticky_key: str | None = None,
+) -> tuple[str | None, dict[str, str]]:
+    """Resolve the sticky key and the routing headers for one request.
+
+    Priority (most to least specific):
+
+    0. an explicit ``sticky_key``. Callers pass the runtime's **isolation
+       key** -- the only identifier stable across the whole runtime lifetime,
+       and the one ``create_runtime`` already used. The runtime id hashes to a
+       different replica than its isolation key, so keying on the runtime id
+       would send ``create_session`` to a replica that does not own the runtime
+       (observed as ``runtime not found``).
+    1. the ``isolationKey`` query parameter, for callers that carry it directly
+       (``create_runtime`` / ``discover_runtime``).
+    2. a ``runtime_id`` taken from the path -- a fallback so calls that know
+       neither key at least stay consistent with each other.
+    3. an explicit or path-derived ``kernel_session_id``.
+
+    Returns ``(key, headers)``; ``key`` is ``None`` when nothing identifies the
+    request, in which case the caller falls back to plain distribution.
+    """
+    headers: dict[str, str] = {}
+
+    runtime_id = runtime_id_from_path(path)
+    session = session_id or session_id_from_path(path)
+    isolation_key = str((params or {}).get("isolationKey") or "").strip()
+    explicit = str(sticky_key or "").strip()
+
+    # Identifiers are always forwarded so upstream logs stay correlatable.
+    if runtime_id:
+        headers[RUNTIME_HEADER] = runtime_id
+    if session:
+        headers[SESSION_HEADER] = session
+    if explicit or isolation_key:
+        headers[ISOLATION_HEADER] = explicit or isolation_key
+
+    key = explicit or isolation_key or runtime_id or session
+    return (key, headers) if key else (None, {})
 
 
 def configured_runtime_hosts(hosts_url: str | None) -> tuple[str, ...]:
@@ -155,18 +227,15 @@ class HttpKernelHostTransport:
         return self._clients[index]
 
     @staticmethod
-    def _routing_key(path: str, session_id: str | None) -> str | None:
-        return session_id or session_id_from_path(path)
-
-    @staticmethod
-    def _request_headers(
-        routing_key: str | None,
-        extra: Mapping[str, str] | None = None,
-    ) -> dict[str, str] | None:
-        headers = dict(extra or {})
-        if routing_key:
-            headers[SESSION_HEADER] = routing_key
-        return headers or None
+    def _routing_key(
+        path: str,
+        session_id: str | None,
+        params: Mapping[str, Any] | None = None,
+        sticky_key: str | None = None,
+    ) -> tuple[str | None, dict[str, str]]:
+        return runtime_routing_key(
+            path, session_id=session_id, params=params, sticky_key=sticky_key
+        )
 
     async def request(
         self,
@@ -176,8 +245,11 @@ class HttpKernelHostTransport:
         json: Mapping[str, Any] | None = None,
         params: Mapping[str, Any] | None = None,
         session_id: str | None = None,
+        sticky_key: str | None = None,
     ) -> dict[str, Any]:
-        routing_key = self._routing_key(path, session_id)
+        routing_key, routing_headers = self._routing_key(
+            path, session_id, params, sticky_key
+        )
         client = self._select_client(routing_key)
         try:
             response = await client.request(
@@ -185,7 +257,7 @@ class HttpKernelHostTransport:
                 path,
                 json=json,
                 params=params,
-                headers=self._request_headers(routing_key),
+                headers=routing_headers or None,
             )
         except httpx.HTTPError as exc:
             raise DshTransportError(f"DSH Runtime Host is unavailable: {exc}") from exc
@@ -208,15 +280,18 @@ class HttpKernelHostTransport:
         *,
         params: Mapping[str, Any] | None = None,
         session_id: str | None = None,
+        sticky_key: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        routing_key = self._routing_key(path, session_id)
+        routing_key, routing_headers = self._routing_key(
+            path, session_id, params, sticky_key
+        )
         client = self._select_client(routing_key)
         try:
             async with client.stream(
                 method,
                 path,
                 params=params,
-                headers=self._request_headers(routing_key),
+                headers=routing_headers or None,
             ) as response:
                 if response.is_error:
                     body = await response.aread()

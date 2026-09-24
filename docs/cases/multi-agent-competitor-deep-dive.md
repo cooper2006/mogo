@@ -74,7 +74,7 @@ orchestration:
   version: 1.0.0
   mode: graph                     # 010 四模式之一：graph
   max_concurrency: 4              # dag_max_concurrency 默认 4
-  timeout: 1800                   # 30 分钟总超时
+  timeout: 900                    # 15 分钟总超时，与 §8 验收标准一致（不是 1800）
   retry:
     max_attempts: 2               # 每节点最多重试 2 次
     backoff: exponential          # 指数退避

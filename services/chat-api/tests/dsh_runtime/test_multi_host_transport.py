@@ -177,9 +177,11 @@ async def test_concurrent_requests_keep_session_affinity() -> None:
     sessions = [f"sess-{i}" for i in range(10)]
 
     async def call(session_id: str) -> str:
+        # No runtime segment in the path, so the session id is the sticky key.
         response = await transport.request(
             "GET",
-            f"/v1/runtimes/r1/sessions/{session_id}/event-stream",
+            "/v1/sessions/stream",
+            session_id=session_id,
         )
         return str(response["host"])
 
@@ -196,11 +198,8 @@ async def test_concurrent_requests_keep_session_affinity() -> None:
 
     # And each host records exactly the sessions routed to it.
     for url, recorder in recorders.items():
-        recorded_sessions = {
-            session_id_from_path(str(request.url.path)) for request in recorder.requests
-        }
-        assert len(recorded_sessions) <= len(sessions)
-        for session_id in recorded_sessions:
+        for request in recorder.requests:
+            session_id = request.headers[SESSION_HEADER]
             assert transport._select_base_url(session_id) == url
 
 
@@ -213,7 +212,7 @@ async def test_concurrent_requests_spread_across_hosts() -> None:
 
     await asyncio.gather(
         *[
-            transport.request("GET", f"/v1/runtimes/r1/sessions/sess-{i}")
+            transport.request("GET", "/v1/sessions/stream", session_id=f"sess-{i}")
             for i in range(60)
         ]
     )
@@ -231,7 +230,7 @@ async def test_stream_requests_follow_the_same_sticky_routing() -> None:
 
     async def consume(session_id: str) -> None:
         async for _ in transport.stream(
-            "GET", f"/v1/runtimes/r1/sessions/{session_id}/event-stream"
+            "GET", "/v1/sessions/stream", session_id=session_id
         ):
             break
 
@@ -245,9 +244,8 @@ async def test_stream_requests_follow_the_same_sticky_routing() -> None:
 
     for url, recorder in recorders.items():
         for request in recorder.requests:
-            session_id = session_id_from_path(str(request.url.path))
+            session_id = request.headers[SESSION_HEADER]
             assert transport._select_base_url(session_id) == url
-            assert request.headers[SESSION_HEADER] == session_id
 
 
 
@@ -258,10 +256,10 @@ async def test_multi_host_request_and_stream_agree_on_target() -> None:
     transport, recorders = _build(hosts)
     session_id = "sess-paired"
 
-    await transport.request("GET", f"/v1/runtimes/r1/sessions/{session_id}")
+    await transport.request("GET", "/v1/sessions/stream", session_id=session_id)
     try:
         async for _ in transport.stream(
-            "GET", f"/v1/runtimes/r1/sessions/{session_id}/event-stream"
+            "GET", "/v1/sessions/stream", session_id=session_id
         ):
             break
     except Exception:  # noqa: BLE001
@@ -270,8 +268,179 @@ async def test_multi_host_request_and_stream_agree_on_target() -> None:
     hosts_hit = {
         url
         for url, recorder in recorders.items()
-        if any(
-            session_id_from_path(str(r.url.path)) == session_id for r in recorder.requests
-        )
+        if any(r.headers.get(SESSION_HEADER) == session_id for r in recorder.requests)
     }
     assert hosts_hit == {transport._select_base_url(session_id)}
+
+
+# --------------------------------------------------------------------------
+# Runtime-level routing (found by end-to-end container verification)
+#
+# A runtime created on one replica was invisible to the replica that later
+# served its session, because runtime-level calls carried no sticky key and
+# fell back to a random request id. These tests pin the fix: session id wins,
+# then runtime id from the path, then the isolation key query parameter.
+# --------------------------------------------------------------------------
+
+
+def test_runtime_id_is_extracted_from_path():
+    from app.dsh_runtime.transport import runtime_id_from_path
+
+    assert runtime_id_from_path("/v1/runtimes/rt-123") == "rt-123"
+    assert runtime_id_from_path("/v1/runtimes/rt-123/model-credential") == "rt-123"
+    assert runtime_id_from_path("/v1/runtimes") is None
+    assert runtime_id_from_path("/health") is None
+
+
+def test_explicit_isolation_key_outranks_runtime_and_session():
+    """The isolation key wins: it is the only lifetime-stable identifier.
+
+    The runtime id hashes to a different replica than the isolation key used at
+    creation time, so keying on the runtime id routes create_session to a
+    replica that does not own the runtime ("runtime not found").
+    """
+    from app.dsh_runtime.transport import (
+        ISOLATION_HEADER,
+        RUNTIME_HEADER,
+        SESSION_HEADER,
+        runtime_routing_key,
+    )
+
+    key, headers = runtime_routing_key(
+        "/v1/runtimes/rt-1/sessions/sess-1",
+        sticky_key="tenant:t1:profile:p1",
+    )
+    assert key == "tenant:t1:profile:p1"
+    assert headers[ISOLATION_HEADER] == "tenant:t1:profile:p1"
+    # Both other identifiers are still forwarded for log correlation.
+    assert headers[RUNTIME_HEADER] == "rt-1"
+    assert headers[SESSION_HEADER] == "sess-1"
+
+
+def test_runtime_id_is_the_fallback_when_no_isolation_key():
+    from app.dsh_runtime.transport import RUNTIME_HEADER, runtime_routing_key
+
+    key, headers = runtime_routing_key("/v1/runtimes/rt-9/model-credential")
+    assert key == "rt-9"
+    assert headers[RUNTIME_HEADER] == "rt-9"
+
+
+def test_runtime_routing_key_uses_runtime_id_without_session():
+    from app.dsh_runtime.transport import RUNTIME_HEADER, runtime_routing_key
+
+    key, headers = runtime_routing_key("/v1/runtimes/rt-9/model-credential")
+    assert key == "rt-9"
+    assert headers == {RUNTIME_HEADER: "rt-9"}
+
+
+def test_runtime_routing_key_falls_back_to_isolation_key():
+    from app.dsh_runtime.transport import ISOLATION_HEADER, runtime_routing_key
+
+    key, headers = runtime_routing_key(
+        "/v1/runtimes",
+        params={"isolationKey": "tenant:t1:profile:p1"},
+    )
+    assert key == "tenant:t1:profile:p1"
+    assert headers == {ISOLATION_HEADER: "tenant:t1:profile:p1"}
+
+
+def test_runtime_routing_key_returns_none_when_nothing_identifies_request():
+    from app.dsh_runtime.transport import runtime_routing_key
+
+    key, headers = runtime_routing_key("/health")
+    assert key is None
+    assert headers == {}
+
+
+@pytest.mark.asyncio
+async def test_create_and_discover_runtime_hit_the_same_replica():
+    """A runtime created on one replica must be discoverable on the same one."""
+    hosts = ("http://host-a:8101", "http://host-b:8101", "http://host-c:8101")
+    transport, recorders = _build(hosts)
+    isolation_key = "tenant:t1:profile:p1"
+
+    await transport.request(
+        "POST",
+        "/v1/runtimes",
+        json={"isolationKey": isolation_key},
+        params={"isolationKey": isolation_key},
+    )
+    await transport.request("GET", "/v1/runtimes", params={"isolationKey": isolation_key})
+
+    hit = {
+        url
+        for url, recorder in recorders.items()
+        if recorder.requests
+    }
+    assert len(hit) == 1, f"create and discover must agree on one replica, hit {hit}"
+    target = transport._select_base_url(isolation_key)
+    assert hit == {target}
+    for recorder in recorders.values():
+        for request in recorder.requests:
+            assert request.headers["X-Isolation-Key"] == isolation_key
+
+
+@pytest.mark.asyncio
+async def test_runtime_scoped_call_sticks_to_runtime_replica():
+    transport, recorders = _build(("http://a:1", "http://b:2", "http://c:3"))
+    await transport.request(
+        "POST",
+        "/v1/runtimes/rt-777/model-credential",
+        json={},
+        sticky_key="tenant:t1:profile:p1",
+    )
+
+    target = transport._select_base_url("tenant:t1:profile:p1")
+    assert recorders[target].requests, "the credential call must reach the runtime's replica"
+    request = recorders[target].requests[0]
+    assert request.headers["X-Runtime-Id"] == "rt-777"
+    assert request.headers["X-Isolation-Key"] == "tenant:t1:profile:p1"
+
+
+@pytest.mark.asyncio
+async def test_session_call_sticks_to_its_runtime_replica():
+    """Session-scoped calls follow the runtime, regardless of session id."""
+    transport, recorders = _build(("http://a:1", "http://b:2", "http://c:3"))
+    await transport.request(
+        "GET",
+        "/v1/runtimes/rt-1/sessions/sess-42",
+        sticky_key="tenant:t1:profile:p1",
+    )
+
+    target = transport._select_base_url("tenant:t1:profile:p1")
+    request = recorders[target].requests[0]
+    assert request.headers["X-Runtime-Id"] == "rt-1"
+    assert request.headers["X-Session-Id"] == "sess-42"
+
+
+@pytest.mark.asyncio
+async def test_create_and_use_runtime_stay_on_one_replica():
+    """Regression for the end-to-end gap: the whole lifecycle must agree.
+
+    create_runtime, create_session and describe_session all use the runtime's
+    isolation key, so they must all land on the replica that owns the runtime.
+    Keying on the runtime id or the fresh session id instead would split them.
+    """
+    transport, recorders = _build(("http://a:1", "http://b:2", "http://c:3"))
+    isolation_key = "tenant:t1:profile:p1"
+
+    await transport.request(
+        "POST", "/v1/runtimes", json={"isolationKey": isolation_key},
+        params={"isolationKey": isolation_key},
+    )
+    runtime_id = "rt-created"
+    fresh_session = "dsh-brand-new-session"
+    await transport.request(
+        "POST", f"/v1/runtimes/{runtime_id}/sessions",
+        json={"sessionId": fresh_session}, sticky_key=isolation_key,
+    )
+    await transport.request(
+        "GET", f"/v1/runtimes/{runtime_id}/sessions/{fresh_session}",
+        sticky_key=isolation_key,
+    )
+
+    hit = {url for url, recorder in recorders.items() if recorder.requests}
+    assert hit == {transport._select_base_url(isolation_key)}, (
+        f"the runtime lifecycle split across replicas: {hit}"
+    )
+

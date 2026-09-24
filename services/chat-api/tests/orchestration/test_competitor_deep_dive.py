@@ -135,11 +135,20 @@ async def test_total_duration_stays_within_budget():
     assert elapsed < serial * 0.75, (
         f"elapsed {elapsed:.3f}s is too close to the serial bound {serial:.3f}s"
     )
-    # The orchestration's hard ceiling is declared in the document (30 min); the
-    # case's 15-minute target is the expected wall-clock for a standard-depth run
-    # with real data sources, which this offline test cannot reproduce.
+    # The orchestration ceiling matches the case's acceptance criterion
+    # (docs/cases/multi-agent-competitor-deep-dive.md §8: <= 15 minutes).
     loaded = load_orchestration_file(ORCHESTRATION_PATH)
-    assert loaded.timeout == 1800
+    assert loaded.timeout == 900
+
+    # The four analysis nodes run in parallel, so their individual ceilings must
+    # each fit inside the orchestration budget rather than summing to 3300 s.
+    node_timeouts = [
+        int(node["payload"]["timeout"])
+        for node in loaded.definition.nodes
+        if node["payload"].get("timeout")
+    ]
+    assert max(node_timeouts) <= loaded.timeout
+    assert sum(node_timeouts) > loaded.timeout
 
 
 # --------------------------------------------------------------------------
@@ -507,7 +516,7 @@ def test_orchestration_yaml_loads_and_validates():
     assert loaded.orchestration_id == "competitor_deep_dive"
     assert loaded.mode == "graph"
     assert loaded.max_concurrency == 4
-    assert loaded.timeout == 1800
+    assert loaded.timeout == 900
     assert loaded.node_ids == [
         "market_intel",
         "product_analysis",

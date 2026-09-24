@@ -15,7 +15,12 @@ orchestration:
   version: 1.0.0
   mode: graph
   max_concurrency: 4
-  timeout: 1800
+  # Wall-clock ceiling for a standard-depth run. The case's acceptance criterion
+  # (docs/cases/multi-agent-competitor-deep-dive.md §8) requires the whole
+  # orchestration to finish within 15 minutes; the four analysis nodes run in
+  # parallel, so their individual ceilings (max 900 s) fit inside this budget
+  # instead of summing to 3300 s as a sequential run would.
+  timeout: 900
   retry:
     max_attempts: 2
     backoff: exponential

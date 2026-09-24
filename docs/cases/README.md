@@ -50,6 +50,24 @@
 4. **验收标准可测试**：每条标准都能通过单元测试 / 集成测试 / 人工 review 验证
 5. **成本可观测**：所有多智能体案例要求成本分项可查（`token_usage` 按 node_id 聚合）
 
+### Skill 的两种命名（不要混用）
+
+仓库里同时存在两套 Skill 命名空间。它们服务于不同用途，**不是不一致，而是刻意区分**：
+
+| 命名 | 形式 | 用途 | 约束来源 |
+|---|---|---|---|
+| Skill id（目录名 + frontmatter `name`） | `snake_case`，如 `customer_feedback_triage` | 仓库内置 Skill、案例文档引用、编排 YAML 的 `skill:` 字段 | 与现有 9 个内置 Skill（`stock_analysis`、`blog_article_style_v1` 等）保持一致 |
+| 安装包名（frontmatter `packageName`） | `kebab-case`，如 `customer-feedback-triage` | 打包为 ZIP 后经 SkillHub 安装 | `services/chat-api/app/services/skill_packages/validator.py` 的 `SKILL_NAME` 正则 `^[a-z0-9](?:[a-z0-9-]{0,125}[a-z0-9])?$` **不允许下划线** |
+
+因此每个可安装 Skill 的 `SKILL.md` 必须**同时声明两个名字**，各自满足对应约束：
+
+```yaml
+name: customer_feedback_triage          # 内置 id，snake_case
+packageName: customer-feedback-triage   # 可安装包名，kebab-case
+```
+
+测试需分别断言：`name` 与仓库惯例一致，`packageName` 通过 `SKILL_NAME.fullmatch`。
+
 ## 参考
 
 - Skill 规范：`services/chat-api/app/skills_specs/stock_analysis/SKILL.md`（内置参考实现）

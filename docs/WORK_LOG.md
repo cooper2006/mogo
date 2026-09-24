@@ -1,5 +1,47 @@
 # Work Log
 
+## 2026-09-24 复查遗留项：真实容器端到端验证 + 修复多实例路由根本缺陷 + 两项口径拍板
+
+对上一轮主动标注的三个遗留项做复查，其中**第一项复查出一个真实缺陷并已修复**。
+
+### 一、多实例端到端验证（原标注"未做"）—— 发现并修复真实缺陷
+
+- **搭起真实验证环境**：`MOVO_VOLUME_PREFIX=movo-e2e docker compose -p movo-e2e up -d dsh-runtime-host-{1,2,3} dsh-runtime-host-lb`（独立 project + 独立卷前缀，不影响运行中的实例）。三个**真实 Node DSH runtime 副本**（kernel `dsh 0.1.6-alpha.1`）全部 healthy。
+- **验证手段**：`backend` 网络是 `internal: true`，LB 无对外端口，故从同网络内的副本容器用 Node `fetch` 发起请求，并以 **LB 访问日志的 `key=` / `upstream=` 字段**为证据。
+- **第一轮验证（通过）**：`sess-AAA` 连续 6 次全部命中同一副本；12 个不同 session 散落到 3 个副本（6/3/3）；两轮请求映射完全一致（哈希稳定）。
+- **❗发现真实缺陷（端到端才暴露）**：
+  - `POST /v1/runtimes`（创建 runtime）无 session 语义 → 用随机 `$request_id` 兜底 → 落在副本 A
+  - `POST /v1/runtimes/{id}/sessions`（建会话）按新 session id 哈希 → 落在副本 B → **`runtime not found`**
+  - 实测日志：create 在 `.2`、create_session 在 `.4`；`GET /v1/runtimes` 落到 `.3` 返回 0 个（`.2` 上明明有 1 个）
+  - **根因**：sticky key 只覆盖 session 维度，且**创建期用 isolationKey、后续用 runtimeId，两个 key 哈希到不同副本**——这是设计层面的矛盾，单元测试（假 host）无法发现。
+- **修复（三层）**：
+  1. `transport.py`：sticky key 优先级改为 **显式 sticky_key（isolation key）> isolationKey 查询参数 > runtime_id > session_id**；新增 `runtime_id_from_path`，三个标识都转发到 header 供日志关联。
+  2. `gateway.py`：`_RuntimeBinding` 新增 `isolation_key` 字段（创建/发现两处都填），新增 `_isolation_key(runtime_id)` 辅助方法，**12 处调用点**统一传入 `sticky_key=isolation_key`。
+  3. `dsh-runtime-lb.conf`：nginx 用三层 `map` 实现同样优先级（isolation > runtime > session > `$request_id` 兜底），并新增 `X-Runtime-Id` / `X-Isolation-Key` 转发与日志字段。
+- **修复后真实端到端复验（通过）**：
+  - 全链路 `create_runtime → create_session → describe_session`：**201 / 201 / 200**，三次请求 LB 日志 `key=tenant:t5:profile:p5`、`upstream=192.168.148.4` **完全一致**（修复前为 400 `runtime not found`）。
+  - **8 个不同 tenant 并发跑完整生命周期：8/8 成功**，散落到 3 个副本（10/2/4）。
+- **测试**：`test_multi_host_transport.py` 由 17 项扩到 **27 项**，新增 runtime 级路由、`create_and_use_runtime_stay_on_one_replica` 回归、隔离键优先级等用例；既有 session 级用例改用无 runtime 段的路径以隔离被测维度。
+- **兼容处理**：`tests/dsh_runtime/test_gateway_step2.py` 的 fake transport（`request` / `stream`）补 `session_id` / `sticky_key` / `**kwargs`，避免 Protocol 扩展导致既有测试崩。
+
+### 二、案例二 timeout 口径（已拍板并修正）
+
+- 原状：案例 §8 要求"总耗时 ≤ 15 分钟"，但编排 YAML 写 `timeout: 1800`（30 分钟）——**文档内部矛盾**。
+- **用户决定**：改为与验收标准对齐 → `timeout: 900`，并同步更新 `docs/cases/multi-agent-competitor-deep-dive.md` §3 的 YAML 片段（原注释"30 分钟总超时"一并改）。
+- **测试补充**：断言 `loaded.timeout == 900`，且**并行节点的单个上限必须落在总预算内**（`max(node_timeouts) <= 900` 而 `sum(node_timeouts) = 3300 > 900`，正好编码了"并行而非串行"的语义）。
+
+### 三、Skill 命名约束（已拍板：维持双命名）
+
+- 现状：`skill_packages/validator.py` 的 `SKILL_NAME` 强制 kebab-case（不允许下划线），而仓库 9 个内置 Skill 全用 snake_case。
+- **用户决定**：维持双命名，但把规则写清楚 → 在 `docs/cases/README.md` 新增「Skill 的两种命名（不要混用）」小节，用表格明确：**Skill id（snake_case）**用于内置目录与编排 `skill:` 字段；**安装包名 `packageName`（kebab-case）**用于 SkillHub 安装；`SKILL.md` 必须同时声明两者，测试分别断言。
+
+### 验证与回归
+
+- chat-api 全量：**1877 passed, 8 failed**（基线 1877/8 中的 8 项为预存 e2e 环境依赖失败，**无回归**；总数从 1867 增至 1877 为新增路由测试）。
+- nginx 配置语法校验通过；`docker compose config` 通过。
+- 验证环境 `movo-e2e` 保留在运行状态以便复查；LB 日志证据留存 `/tmp/lb-e2e-evidence.log`（19 行 runtime/session 请求记录）。
+- 改动文件：`services/chat-api/app/dsh_runtime/{transport,gateway}.py`、`deploy/docker/dsh-runtime-lb.conf`、`services/chat-api/app/enterprise_capabilities/research/orchestrations/competitor_deep_dive.yaml`、`services/chat-api/tests/dsh_runtime/{test_multi_host_transport,test_gateway_step2}.py`、`services/chat-api/tests/orchestration/test_competitor_deep_dive.py`、`docs/cases/{README.md,multi-agent-competitor-deep-dive.md}`。
+
 ## 2026-09-24 远端地址迁移：cooper2006/mogong → cooper2006/mogo
 
 - **需求**：远端推送地址调整为 `https://github.com/cooper2006/mogo.git`（用户确认该仓库是原 `mogong` 改名而来，非新建独立仓库）。
