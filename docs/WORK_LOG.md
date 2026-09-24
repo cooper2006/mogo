@@ -1,5 +1,34 @@
 # Work Log
 
+## 2026-09-24 修复 chat-api 启动失败 + 恢复单实例默认拓扑（真实容器启动暴露）
+
+接上一轮改动，在**重建并重启真实容器**时暴露两个单测未覆盖的问题：
+
+1. **`application.py` 缺 import**：调用 `configured_runtime_hosts` 但未导入，容器启动即
+   `NameError: name 'configured_runtime_hosts' is not defined` → `Application startup failed`。
+   该路径位于 `start()` 生命周期内，此前无任何测试覆盖。
+   - 修复：补 `from app.dsh_runtime.transport import HttpKernelHostTransport, configured_runtime_hosts`。
+   - **补测试**：新增 wiring 回归用例（断言 composition root 用到的名字在其模块命名空间可解析 +
+     用 `configured_runtime_hosts` 的输出构造 transport），测试数 27 → **29**。
+
+2. **compose 默认拓扑被改坏**：上一轮把 chat-api 的 `DSH_RUNTIME_HOST_URL` 默认值指向
+   `dsh-runtime-host-lb` 与三副本，但默认部署并不会启动这些服务 → `/ready` 持续
+   503（DSH host 探测失败），**chat-api 无法就绪**。
+   - 修复：默认回到单实例 `dsh-runtime-host`；三副本与 LB 移入
+     `profiles: ["runtime-pool"]`，用 `docker compose --profile runtime-pool up -d`
+     显式启用，并通过 `DSH_RUNTIME_HOST_URL` / `DSH_RUNTIME_HOSTS_URL` 覆盖指向 LB。
+   - chat-api 的两个 host 变量改为可被环境覆盖（`${DSH_RUNTIME_HOST_URL:-...}`），
+     保留单实例默认值。
+
+**验证**：两类配置（默认 / `--profile runtime-pool`）均 `docker compose config` 通过；
+chat-api 恢复 healthy 且 `/ready` 返回 `{"status":"ready","dsh_host":"healthy"}`；
+管理后台 dashboard / analytics / tools / skills 接口均 200；路由修复在容器内生效
+（`runtime_routing_key` 返回 isolation key 并同时携带三个 header）。
+
+**其他连带处理**：
+- `user-web` 与 `admin-web` 均已用新镜像（裸名）重启并就绪，界面改动已生效。
+- 期间修正了我误用 `apps/user-web/Dockerfile`（开发服务器）的问题，生产镜像为 `Dockerfile.prod`。
+
 ## 2026-09-24 镜像命名去前缀（movo-* → 裸服务名）+ 移除「社区版」界面文案
 
 ### 一、7 个镜像名称调整（用户要求）
