@@ -1,5 +1,26 @@
 # Work Log
 
+## 2026-09-24 镜像重建 + admin-api 导入 bug 修复 + P0/P1/P2 落地对照文档
+
+- **经典 builder 重建**：OrbStack buildx 受 macOS provenance 锁死（`~/.docker/buildx/` 不可写，SIP 下 `sudo xattr -d` 也失败），改用 `DOCKER_BUILDKIT=0 docker build` 逐镜像构建并打 `ghcr.io/himovo/movo-*` 标签，绕过 buildx activity 写入。
+- **admin-api 两处导入 bug 修复**（容器启动 `ModuleNotFoundError`）：
+  - `routes/governance.py`：`from ..governance import ...` → `from ...governance import ...`（`..governance` 误指 `app.api.governance`，实际包在 `app.governance`）；函数内惰性导入同修。
+  - `routes/hooks.py`：原先直接 import chat-api 的 `app.dsh_runtime.hooks.store`（admin-api 容器无此模块）→ 新增 admin-api 侧独立实现 `app/services/hooks_store.py`（同集合 `hook_rules`，无跨服务依赖，含 fail-closed 形状校验 + tool>session>tenant 作用域查询），路由改引用之。
+- 修复后 admin-api 全量 236 项复跑通过；重建镜像 `--force-recreate` 重启，6 个容器镜像 ID 全部匹配本地新构建，`http://localhost:3000` 及 `/admin`、`/admin/setup` 探活 200。
+- **文档增强**：
+  - `docs/SDD界面呈现对照表.md` 重写为 P0/P1/P2 全量落地对照（速查总表 15 特性 × 代码位置/测试/界面触点 + 分节功能表 + 经典 builder 构建说明 + 8 步验证清单）。
+  - `docs/MOVO企业级智能体功能补强规划.md` 新增「§六 落地进展」：清单 1–15 → specs/001–019 对应关系 + 各特性关键交付 + 测试基线（chat-api 313 / admin-api 236）+ 部署提示。
+- 提交并推送 cooper2006/mogong（origin 未触碰）。
+
+## 2026-09-24 智能体多实例运行改造评估
+
+- 新增 `docs/open-source-productization/agent-multi-instance-evaluation.md`：评估 `chat-api` 与 `dsh-runtime-host` 多实例化路径。
+- 结论：现有架构下同一会话**不支持**在多个 chat-api 实例间并行处理；`DshAgentKernelGateway` 的 `_sessions`/`_runtimes`/`_credential_refresh_locks` 内存态是主要障碍。
+- 分三层可交付：P1 层 A（LB sticky 让 dsh-runtime-host 可 2 实例，低复杂度）→ P2 层 B.1（SessionStore/RuntimeStore 抽象 + Redis 实现）→ P3 层 B.2（chat-api 一致性哈希 LB）→ P4 层 C（WS sticky）→ P5 Compose/K8s。
+- 明确不引入 Celery：本场景路由是同步 HTTP，无队列必要；等具体异步需求出现再评估。
+- `agent_kernel_bindings` 的 `claim_turn` 乐观锁已就绪，`kernel_session_id` 已由 dsh-runtime-host 生成，为跨实例接管奠定基础。
+- 关键开放问题已列出：LB hash_key 提取方式、WS 滚动升级时客户端重连逻辑、Redis 分布式锁选型。
+
 ## 2026-09-22 收尾：admin-api 测试依赖 httpx2 入 requirements
 
 - `services/admin-api/requirements.txt` 增补 `httpx2>=0.1.0`（test-only：新版 starlette 的 TestClient 需要 httpx2；admin-api `.venv-test` py3.14 全量 236 项复跑通过）。此前该依赖仅存在于本地虚拟环境，未入库，测试环境不可复现。

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_current_admin_user
 from app.core.db import get_db
-from app.dsh_runtime.hooks.store import HOOK_RULES_COLLECTION, HookRuleStore
+from app.services.hooks_store import HOOK_RULES_COLLECTION, HookRuleStore, RuleValidationError
 
 router = APIRouter(prefix="/api/hooks", tags=["hooks"])
 
@@ -62,8 +62,10 @@ async def create_rule(payload: dict[str, Any], current_user: dict[str, Any] = De
             enabled=bool(payload.get("enabled", True)),
             tenant_id=tenant_id,
         )
-    except Exception as error:
+    except RuleValidationError as error:
         # Fail-closed on an invalid rule (FR-11): reject, don't persist.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid hook rule: {error}")
+    except Exception as error:  # noqa: BLE001 — any other shape error also 400
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid hook rule: {error}")
     return document.as_document()
 

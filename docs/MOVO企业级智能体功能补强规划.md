@@ -182,6 +182,43 @@ MOVO = **DSH Runtime（执行底座）+ MOVO 企业层（进入生产）**，已
 
 ---
 
+## 六、落地进展（SDD 补全，2026-09）
+
+> 清单 1–15 已映射为 `specs/001–019` 共 19 个特性（spec/plan/checklist/tasks/clarify 19/19 齐全，
+> tasks.md 全部勾选，实现 + 测试 + 契约 + 审计已推送），对应关系与界面触点见
+> `docs/SDD界面呈现对照表.md`。
+
+| 阶段 | 清单 | 特性 spec | 落地状态 | 关键交付（代码 / 测试） |
+|---|---|---|---|---|
+| P0 | 1 治理风控 | 001 | ✅ | admin-api `governance/{risk,pii,permission_grants,layers/*}` + `routes/governance.py`；25 格矩阵 / PII 策略 / 显式授权 / 配置审计；全量 236 项 |
+| P0 | 2 网关韧性 | 007 | ✅ | `llm/resilience/{degradation,failover,pricing,metering,retry}` + `instrumented_client`；降级链耗尽明确报错、401/403 立即中止；`tests/llm/` 47 项 |
+| P0 | 3 驾驶舱 | 008 | ✅ | admin-web 四维标签页（总览/成本/使用/质量/趋势）+ 使用 tab 后端 + 成本对账 + 空态兜底；`test_dashboard_selfcheck.py` 10 项 |
+| P1 | 4 Hooks | 009 | ✅ | 五事件注册 + PreToolUse 三规则（deny/require/observe，tool>session>tenant）+ fail-closed + ≤5s 延迟预算；admin `/api/hooks` CRUD；17 项 |
+| P1 | 5 DAG 编排 | 010 | ✅ | 四模式（sequential/supervisor/hybrid/graph）+ 拓扑/环检测 + 条件跳过（三态 fail-closed + 追溯）+ 节点指数退避（分层不重复）+ content-builder 双轨迁移等价回归；25 项 |
+| P1 | 6 会话/工作流版本化 | 002 | ✅ | 会话 commit 线性时间线 + 一次性 share（300s TTL）+ 共在线（Mongo 短轮询，无 Redis）+ 会话事件审计；工作流级走 010 定义版本化（T003/T021） |
+| P2 | 7 Dream 自进化 | 011 | ✅ | friction 捕获 → 候选排名 → 改进 MR（Jaccard≥0.7 & 样本≥5，draft 中间态）+ 低采纳退役（14d/≥20 曝光/<10%）+ 全链路审计可配置；32 项 |
+| P2 | 8 A2A | 012 | ✅ | AgentCard（Dify-first）+ JSON-RPC 三方法 + task id 幂等 + 出站客户端（30s 超时/failover/007 退避，`-32000` 治理拒绝短路） |
+| P2 | 9 多 IM | 013 | ✅ | ChannelRouter（注册/启用/停用只读）+ 会话-渠道绑定 + webhook 入口 + T999 审计 |
+| P2 | 10 业务索引 | 014 | ✅ | 实体指针索引（不写业务库）+ 复用 005 检索客户端，命中带 citation 锚点 |
+| P2 | 11 知识图谱 | 015 | ✅ | 节点/边 + 多跳遍历（CycleGuard）+ 互斥/传递/基数约束（标记不阻断） |
+| P2 | 12 Skill 市场 + 沉淀闭环 | 016 + 011 | ✅ | 质量打分/回滚/低质标记（与 011 共用 `marked_low_quality` 位）；沉淀闭环已并入 011（会话→经验→Skill draft） |
+| P2 | 13 三域记忆 | 017 | ✅ | personal/workspace/org 可见性 + 升级授权 + 30d 衰减 + RAG 按 scope 过滤排序 |
+| P2 | 14 能力资产 | 018 | ✅ | 契约四段 + 扫描去重 + 治理视图（列表/详情）+ 状态审批 + `a2a_exposed` 标记（供 012） |
+| P2 | 15 Harness 弹性 | 019 | ✅ | profile 三层覆盖链 + 层开关 + 合规底线（R4 恒 deny）+ 001 gatekeeper 对接 |
+
+横切：T999 审计统一进 001 落点（`im_gateway/audit.py` + `services/feature_audit.py`）；
+T998 契约文档 5 份（`contracts/{orchestration,self-evolution,session-versioning-contract,harness-config,a2a-gateway}.md`）。
+
+**测试基线**：chat-api 313 项 / admin-api 236 项 / admin-web `pnpm build` 通过
+（`tests/llm/test_decision_turn.py` 为预存坏例已排除，与本轮改动无关）。
+
+**部署提示**：运行镜像若早于本次推送，需重建镜像后 `./movo up` 才能在界面看到
+P1/P2 条目；OrbStack buildx 受 macOS provenance 锁定时，可用经典 builder
+（`DOCKER_BUILDKIT=0 docker build ...`，逐镜像打 `ghcr.io/himovo/movo-*` 标签）绕过，
+详见 `docs/SDD界面呈现对照表.md` §5。
+
+---
+
 ## 附：参考来源
 
 **知识库核心文章（7 篇）**

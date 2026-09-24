@@ -23,8 +23,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..deps import get_current_admin_user
-from ..governance import permission_grants, risk
-from ..governance.rbac_model import has_permission
+from ...governance import permission_grants, risk
+from ...governance.rbac_model import has_permission
 
 router = APIRouter(prefix="/api/governance", tags=["governance"])
 
@@ -91,7 +91,7 @@ async def list_risk_tiers(
 @router.get("/autonomy-matrix")
 async def get_autonomy_matrix(actor: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
     """The stored 25-cell matrix with canonical fallback for missing cells."""
-    from ..governance.schema import AUTONOMY_MATRIX
+    from ...governance.schema import AUTONOMY_MATRIX
 
     matrix: dict[str, dict[str, str]] = {}
     for level in risk.AUTONOMY_LEVELS:
@@ -111,7 +111,7 @@ async def update_matrix_cell(
             status_code=400,
             detail="R4 red line: the cell must stay deny (cannot be overridden)",
         )
-    from ..governance.schema import AUTONOMY_MATRIX, AUTONOMY_MATRIX_COLLECTION, ensure_indexes
+    from ...governance.schema import AUTONOMY_MATRIX, AUTONOMY_MATRIX_COLLECTION, ensure_indexes
 
     previous = await risk.matrix_decision(level=body.level, risk=body.risk)
     db = None
