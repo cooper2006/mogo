@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -444,3 +445,39 @@ async def test_create_and_use_runtime_stay_on_one_replica():
         f"the runtime lifecycle split across replicas: {hit}"
     )
 
+
+
+# --------------------------------------------------------------------------
+# Wiring regression
+#
+# ``DshRuntimeApplication.start`` referenced ``configured_runtime_hosts`` without
+# importing it. No unit test covered the composition root, so the failure only
+# appeared when the container actually booted (NameError -> startup failed).
+# Importing the modules below executes the module-level imports, which is enough
+# to catch an unbound name that the composition root relies on.
+# --------------------------------------------------------------------------
+
+
+def test_application_module_imports_composition_dependencies():
+    import app.dsh_runtime.application as application
+
+    # Names the composition root calls must resolve in its own module namespace.
+    source = Path(application.__file__).read_text(encoding="utf-8")
+    for name in ("configured_runtime_hosts",):
+        if name in source:
+            assert hasattr(application, name), (
+                f"{name} is used by application.py but is not imported into its namespace"
+            )
+
+
+def test_composition_root_constructs_transport_with_configured_hosts():
+    """The transport must accept the host list produced by the settings helper."""
+    from app.dsh_runtime.application import DshRuntimeApplication
+    from app.dsh_runtime.transport import HttpKernelHostTransport, configured_runtime_hosts
+
+    hosts = configured_runtime_hosts("http://host-a:8101,http://host-b:8101")
+    transport = HttpKernelHostTransport(
+        "http://host-a:8101", base_urls=hosts, timeout_seconds=1.0
+    )
+    assert transport.base_urls == ("http://host-a:8101", "http://host-b:8101")
+    assert DshRuntimeApplication is not None

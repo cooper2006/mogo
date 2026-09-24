@@ -116,18 +116,11 @@ services:
       retries: 30
       start_period: 30s
 
-  # Horizontal scaling of the DSH Runtime Host (see
-  # docs/open-source-productization/agent-multi-instance-evaluation.md).
+  # The DSH Runtime Host owns kernel session state in process memory, so one
+  # kernel_session_id must always reach the same instance.
   #
-  # A Node Runtime Host keeps kernel session state in process memory, so one
-  # kernel_session_id must always reach the same instance. The sticky load
-  # balancer below hashes the X-Session-Id header that chat-api sends on every
-  # session-scoped call, which pins each session to one host.
-  #
-  # Runtime Host replicas are declared explicitly (not via deploy.replicas)
-  # because Compose only honours replicas under Swarm. Raising DSH_RUNTIME_HOST_REPLICAS
-  # and adding a matching service below is the supported way to scale out.
-  dsh-runtime-host-1: &dsh-runtime-host
+  # Default: a single host, which is what the self-hosted deployment runs.
+  dsh-runtime-host: &dsh-runtime-host
     image: ${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
@@ -150,16 +143,29 @@ services:
       retries: 20
       start_period: 20s
 
+  # Optional Runtime Host pool for horizontal scaling (see
+  # docs/open-source-productization/agent-multi-instance-evaluation.md).
+  # Enable with:
+  #   docker compose --profile runtime-pool up -d
+  # then point chat-api at the LB via DSH_RUNTIME_HOST_URL /
+  # DSH_RUNTIME_HOSTS_URL (defaults are documented on the chat-api service).
+  dsh-runtime-host-1:
+    <<: *dsh-runtime-host
+    profiles: ["runtime-pool"]
+
   dsh-runtime-host-2:
     <<: *dsh-runtime-host
+    profiles: ["runtime-pool"]
 
   dsh-runtime-host-3:
     <<: *dsh-runtime-host
+    profiles: ["runtime-pool"]
 
   # Sticky LB in front of the Runtime Host pool. nginx' consistent hash keeps
   # every request of one kernel session on the same host; chat-api talks to this
   # service instead of a single Runtime Host.
   dsh-runtime-host-lb:
+    profiles: ["runtime-pool"]
     image: nginx:1.29.8-alpine
     restart: unless-stopped
     volumes:
@@ -200,11 +206,13 @@ services:
       AUTO_INSTALL_SYSTEM_DEPS_ON_START: "false"
       AUTO_INSTALL_PLAYWRIGHT_ON_START: "false"
       REQUEST_DEBUG_SNAPSHOT_ENABLED: "false"
-      # Sticky LB in front of the Runtime Host pool (X-Session-Id consistent
-      # hashing), so chat-api can address several Runtime Host instances while
-      # each kernel session stays pinned to the host that owns its memory.
-      DSH_RUNTIME_HOST_URL: http://dsh-runtime-host-lb:8101
-      DSH_RUNTIME_HOSTS_URL: http://dsh-runtime-host-1:8101,http://dsh-runtime-host-2:8101,http://dsh-runtime-host-3:8101
+      # Single Runtime Host by default. To run a pool, start the
+      # dsh-runtime-host-* replicas plus dsh-runtime-host-lb and point both
+      # values at them (see the "Horizontal scaling" section in the README):
+      #   DSH_RUNTIME_HOST_URL: http://dsh-runtime-host-lb:8101
+      #   DSH_RUNTIME_HOSTS_URL: http://dsh-runtime-host-1:8101,...-2...,...-3...
+      DSH_RUNTIME_HOST_URL: ${DSH_RUNTIME_HOST_URL:-http://dsh-runtime-host:8101}
+      DSH_RUNTIME_HOSTS_URL: ${DSH_RUNTIME_HOSTS_URL:-}
       DSH_TOOL_GATEWAY_URL: http://chat-api:8000/internal/dsh/tools
       DSH_MODEL_GATEWAY_URL: http://chat-api:8000/internal/dsh/model/generate
     volumes:
@@ -218,7 +226,7 @@ services:
         condition: service_healthy
       document-api:
         condition: service_healthy
-      dsh-runtime-host-lb:
+      dsh-runtime-host:
         condition: service_healthy
     networks:
       - public

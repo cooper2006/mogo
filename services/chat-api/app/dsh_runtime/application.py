@@ -25,7 +25,7 @@ from app.dsh_runtime.profile.store import MongoRuntimeProfileStore
 from app.dsh_runtime.runtime_coordinator import RuntimeCoordinator
 from app.dsh_runtime.desktop_bootstrap import DesktopRuntimeBootstrapService
 from app.dsh_runtime.desktop_binding import DesktopCodeBindingService
-from app.dsh_runtime.transport import HttpKernelHostTransport
+from app.dsh_runtime.transport import HttpKernelHostTransport, configured_runtime_hosts
 from app.enterprise_capabilities.tools import EnterpriseToolRepository, EnterpriseToolService
 from app.enterprise_capabilities.evidence import ExecutionEvidenceRepository
 from app.enterprise_capabilities.delivery import AuthoritativeDeliveryRepository
