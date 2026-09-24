@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Usage examples:
-#   # Default: build CPU image and reuse movo-document-parser-base:bookworm-cpu if present.
+#   # Default: build CPU image and reuse document-parser-base:bookworm-cpu if present.
 #   ./build_document_processing_bigpack.sh
 #
 #   # Run in the background and write logs to BUILD_LOG.
@@ -63,7 +63,7 @@ if [[ -z "${REGISTRY_NAMESPACE}" ]]; then
   echo "ERROR: set REGISTRY_NAMESPACE to the target registry owner or organization." >&2
   exit 2
 fi
-SYSTEM_BASE_IMAGE="${SYSTEM_BASE_IMAGE:-${REGISTRY%/}/${REGISTRY_NAMESPACE#/}/movo-document-parser-base:${DEFAULT_SYSTEM_BASE_TAG}}"
+SYSTEM_BASE_IMAGE="${SYSTEM_BASE_IMAGE:-${REGISTRY%/}/${REGISTRY_NAMESPACE#/}/document-parser-base:${DEFAULT_SYSTEM_BASE_TAG}}"
 REBUILD_SYSTEM_BASE="${REBUILD_SYSTEM_BASE:-false}"
 PUSH_SYSTEM_BASE="${PUSH_SYSTEM_BASE:-false}"
 RESUME_SYSTEM_BASE_BUILD="${RESUME_SYSTEM_BASE_BUILD:-true}"

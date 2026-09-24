@@ -63,7 +63,7 @@ jobs:
   community-release-guard:
     runs-on: ubuntu-latest
     env:
-      MOVO_IMAGE_PREFIX: ghcr.io/example/movo
+      MOVO_IMAGE_REGISTRY: ghcr.io/example
       MOVO_VERSION: test
     steps:
       - uses: actions/checkout@v4

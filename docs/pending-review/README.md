@@ -40,8 +40,8 @@
 
 | 文件路径 | 发现日期 | 发现者 | 疑点 | 建议 | 状态 |
 |---|---|---|---|---|---|
-| `services/chat-api/tests/services/test_session_versioning.py` | 2026-09-24 | DSH Agent（驾驶舱修复轮，提交前卫生检查） | `scripts/check_open_source_hygiene.py` 报 "possible AWS access key" 与 "possible OpenAI-compatible API key"。经查为测试夹具构造值：`AKIAIOSFODNN7EXAMPLE`（AWS 官方文档示例）、`sk-aB3xK9mQ2pL7wZ4tR8yU1iO6nM5vC0dF`（注释明确标注为 "long, high entropy" 的样本，用于验证 detect_secrets）。非真实凭据 | 保留。建议给卫生检查加测试目录/样例值白名单，或在这两行加 `# hygiene-check: allow` 类豁免注释 | open |
-| `services/admin-api/tests/test_governance_pii.py` | 2026-09-24 | DSH Agent（同上） | 卫生检查报 "possible private key"。经查为 PII 脱敏测试的**输入样本**（`-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----`），必须包含敏感形态才能验证脱敏逻辑。非真实私钥 | 保留。同上，建议白名单或豁免注释 | open |
+| `services/chat-api/tests/services/test_session_versioning.py` | 2026-09-24 | DSH Agent（驾驶舱修复轮，提交前卫生检查） | `scripts/check_open_source_hygiene.py` 报 "possible AWS access key" 与 "possible OpenAI-compatible API key"。经查为测试夹具构造值：一处是 AWS 官方文档公开的标准示例访问键（`AKIA…EXAMPLE` 形式），另一处是注释明确标注为 "long, high entropy" 的自造样本，用于验证 detect_secrets。**均非真实凭据**（详见该文件的测试夹具区）。 | 保留。建议给卫生检查加测试目录/样例值白名单，或在这两行加 `# hygiene-check: allow` 类豁免注释 | open |
+| `services/admin-api/tests/test_governance_pii.py` | 2026-09-24 | DSH Agent（同上） | 卫生检查报 "possible private key"。经查为 PII 脱敏测试的**输入样本**（PEM 私钥块的固定形态，正文只有 `abc` 这类占位内容），必须包含敏感形态才能验证脱敏逻辑。**非真实私钥**（详见该文件的测试用例）。 | 保留。同上，建议白名单或豁免注释 | open |
 
 <!-- 新增条目追加到下表：
 | 文件路径 | 发现日期 | 发现者 | 疑点 | 建议 | 状态 |

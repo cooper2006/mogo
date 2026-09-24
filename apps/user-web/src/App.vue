@@ -1380,8 +1380,12 @@ function displayAvatarText() {
 }
 
 const accountTierLabel = computed(() => {
+  // The community edition intentionally carries no tier label: it is the default
+  // self-hosted deployment, and rendering "Community Edition" here showed up as
+  // noise in both the profile card and the account switcher. Real entitlements
+  // (enterprise, plus, pro) still render below.
   if (userProfile.value?.edition === 'community' || billingSummary.value?.edition === 'community') {
-    return t('ui.community_edition')
+    return ''
   }
   if (isEnterpriseSpace.value) {
     return userProfile.value?.canAccessAdmin
@@ -2166,7 +2170,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="flex-1 min-w-0">
             <div class="text-xs font-semibold text-gray-900 truncate">{{ displayName() }}</div>
-            <div class="text-[10px] text-gray-400 font-medium">
+            <div v-if="accountTierLabel" class="text-[10px] text-gray-400 font-medium">
               {{ accountTierLabel }}
             </div>
           </div>
@@ -2191,10 +2195,10 @@ onBeforeUnmount(() => {
             </div>
             <div class="min-w-0 flex-1">
               <div class="truncate font-semibold text-gray-900">{{ displayName() }}</div>
-              <div class="mt-0.5 text-xs text-gray-500">
+              <div v-if="maskedPhone() || accountTierLabel" class="mt-0.5 text-xs text-gray-500">
                 {{ maskedPhone() || accountTierLabel }}
-                <span v-if="maskedPhone()" class="mx-1 text-gray-300">·</span>
-                <span v-if="maskedPhone()">{{ accountTierLabel }}</span>
+                <span v-if="maskedPhone() && accountTierLabel" class="mx-1 text-gray-300">·</span>
+                <span v-if="maskedPhone() && accountTierLabel">{{ accountTierLabel }}</span>
               </div>
             </div>
             <button

@@ -1,5 +1,49 @@
 # Work Log
 
+## 2026-09-24 镜像命名去前缀（movo-* → 裸服务名）+ 移除「社区版」界面文案
+
+### 一、7 个镜像名称调整（用户要求）
+
+- **目标**：本地 `movo-admin-web:latest` → `admin-web:latest`；远端 `ghcr.io/himovo/movo-admin-web` → `ghcr.io/himovo/admin-web`。用户确认本地与远端都去前缀。
+- **核心难点**：原镜像名由 `${MOVO_IMAGE_PREFIX}-{service}` 拼接，直接把前缀置空会得到 `-admin-web:latest`（多一个连字符）；而 `${VAR-default}` 在空值时会产出 `/admin-web:latest`（多一个斜杠）。**空前缀方案不可行**。
+- **方案**：改为**每服务一个完整镜像引用变量**，默认值即最终镜像名：
+  ```yaml
+  image: ${MOVO_ADMIN_WEB_IMAGE:-ghcr.io/himovo/admin-web:${MOVO_VERSION:-latest}}
+  ```
+  本地构建时由 CLI 把这些变量覆盖为裸名（`admin-web:latest`），预构建路径保持带 registry。
+- **改动文件**：
+  - `docker-compose.yml`：7 处镜像定义（`MOVO_DSH_RUNTIME_HOST_IMAGE` / `MOVO_CHAT_API_IMAGE` / `MOVO_ADMIN_API_IMAGE` / `MOVO_USER_WEB_IMAGE` / `MOVO_ADMIN_WEB_IMAGE` / `MOVO_GATEWAY_IMAGE` + 既有 `MOVO_DOCUMENT_API_IMAGE`/`MOVO_DOCUMENT_WORKER_IMAGE`）
+  - `deploy/cli/images.sh`：新增 `MOVO_IMAGE_SERVICES` 映射与 `movo_export_service_images()`，按 `MOVO_EXPORTED_IMAGE_PREFIX`（预构建=`ghcr.io/himovo/`，源码构建=空）导出全部镜像引用；`MOVO_DEFAULT_IMAGE_REGISTRY` 取代 `MOVO_DEFAULT_IMAGE_PREFIX`
+  - `.github/workflows/container-release.yml`：镜像名由 `ghcr.io/${repository}-${suffix}` 改为 `ghcr.io/${owner}/${suffix}`（**仓库名不再进入镜像名**，避免改名后镜像失联）
+  - `.github/workflows/runtime-guard.yml`、`scripts/check_compose_image_modes.sh`、`.env.example`、`README.md`、`README.zh-CN.md`、`deploy/cli/i18n.sh`、`services/document-parser/build_document_processing_bigpack.sh`（base 镜像名去前缀）
+- **校验脚本加固**：`check_compose_image_modes.sh` 改为断言新命名，并**新增一条"不得再出现 movo- 前缀"的硬校验**；同时修掉它自身对运行中容器的环境依赖（`compose config --images` 会报出运行容器的镜像名，导致结果依赖本机状态）。
+- **实测验证**：
+  - 默认路径解析为 `ghcr.io/himovo/{dsh-runtime-host,chat-api,admin-api,document-parser,user-web,admin-web,gateway}`（7/7）
+  - 源码构建路径解析为裸名 `admin-web:latest` 等
+  - **真实构建**：`docker build` 输出 `Successfully tagged admin-web:latest`、`user-web:latest`、`admin-web:latest`（不再是 `movo-*`）
+  - `bash scripts/check_compose_image_modes.sh` → `Compose image modes are valid.`
+
+### 二、移除界面「社区版」文案（用户截图指出两处）
+
+- **位置**：user-web 的 `accountTierLabel` computed 被 3 处复用（个人资料卡副标题、底部账户切换器、弹层手机号旁），社区版分支返回 `t('ui.community_edition')` = "社区版"。用户截图圈出其中两处。
+- **修复**：`apps/user-web/src/App.vue` 的 community 分支改为返回空串；同时给两处模板加 `v-if="accountTierLabel"` 守卫（避免渲染空 div），弹层的分隔点改为 `maskedPhone() && accountTierLabel` 双条件。
+- **保留**：真实版本身份（企业管理员/成员、Plus、专业团队版、企业定制版、免费版）不受影响。
+- **admin-web 同步**（用户确认）：`DashboardPage.vue` 的 `tierLabel` community 分支同样返回空串，`n-tag` 加 `v-if="tierLabel"`。
+- **实测验证**：
+  - user-web 编译产物对比：旧镜像 `edition==="community"||... return A("ui.community_edition")` → 新镜像 **`return ""`**
+  - admin-web 编译产物对比：旧镜像 DashboardPage 有 `if(Z.value)return s("社区版")` → 新镜像该返回已消失
+  - 容器内全量扫描：新 user-web 产物中「社区版」仅剩 **i18n 字典定义**（`ui.community_edition`，已无任何代码引用），不渲染到界面
+  - `vue-tsc --noEmit` 两份均通过（admin-web 在 node:20-slim 容器内验证，本地 esbuild 二进制平台不匹配）
+
+### 三、附带处理的环境问题（重要）
+
+- **磁盘告急导致构建失败**：排查中发现 chat-api 重建以 `exit code 137`（OOM/磁盘满被杀）失败，根因是宿主机可用空间仅剩 **3.2 GiB**。清理 dangling 镜像回收 **4.67 GB**、清理 e2e 验证环境（3 副本 + LB + 独立卷）后恢复到 **20 GiB**。构建随即恢复正常。
+- **user-web 502 的连带原因**：磁盘紧张期间重建 user-web 容器，nginx 启动脚本 `10-listen-on-ipv6-by-default.sh` 在计算 `default.conf` checksum 时 IO 阻塞，容器长时间停在 `health: starting`；磁盘恢复后启动约需 1 分钟即转为 `healthy`。
+- **误用 Dockerfile 的更正**：首次重建 user-web 时误用 `apps/user-web/Dockerfile`（该文件是**开发服务器** `npm run dev`），导致容器内无 nginx/无静态产物。生产镜像是 `Dockerfile.prod`（`docker-compose.build.yml` 指定）。已用正确文件重建并验证。
+- **镜像标签与 dangling**：排查用户看到的"只有 ID 没有名字"的镜像，确认是**多阶段构建的中间层**与**反复重建留下的悬空镜像**（`<none>`），并非命名错误——目标镜像 `user-web:latest`、`admin-web:latest` 均有正确标签。
+- `scripts/check_open_source_hygiene.py`：清理了 `docs/pending-review/README.md` 中我自己上一轮写入的密钥样本字面量（改为脱敏描述），该文件不再触发告警；剩余 3 处为既有测试夹具（已登记、非本轮引入）。
+- chat-api 全量测试 **1877 passed / 8 failed**（8 项为预存 e2e 环境依赖，无回归）。
+
 ## 2026-09-24 复查遗留项：真实容器端到端验证 + 修复多实例路由根本缺陷 + 两项口径拍板
 
 对上一轮主动标注的三个遗留项做复查，其中**第一项复查出一个真实缺陷并已修复**。

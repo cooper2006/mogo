@@ -128,7 +128,7 @@ services:
   # because Compose only honours replicas under Swarm. Raising DSH_RUNTIME_HOST_REPLICAS
   # and adding a matching service below is the supported way to scale out.
   dsh-runtime-host-1: &dsh-runtime-host
-    image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-dsh-runtime-host:${MOVO_VERSION:-latest}
+    image: ${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     volumes:
@@ -181,7 +181,7 @@ services:
       start_period: 10s
 
   chat-api:
-    image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-chat-api:${MOVO_VERSION:-latest}
+    image: ${MOVO_CHAT_API_IMAGE:-ghcr.io/himovo/chat-api:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     environment:
@@ -228,7 +228,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()"]
 
   admin-api:
-    image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-admin-api:${MOVO_VERSION:-latest}
+    image: ${MOVO_ADMIN_API_IMAGE:-ghcr.io/himovo/admin-api:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     environment:
@@ -266,7 +266,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3).read()"]
 
   document-api:
-    image: ${MOVO_DOCUMENT_API_IMAGE:-${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-document-parser:${MOVO_VERSION:-latest}}
+    image: ${MOVO_DOCUMENT_API_IMAGE:-ghcr.io/himovo/document-parser:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["api"]
@@ -304,7 +304,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/api/health', timeout=3).read()"]
 
   document-worker:
-    image: ${MOVO_DOCUMENT_WORKER_IMAGE:-${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-document-parser:${MOVO_VERSION:-latest}}
+    image: ${MOVO_DOCUMENT_WORKER_IMAGE:-ghcr.io/himovo/document-parser:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["worker"]
@@ -326,7 +326,7 @@ services:
       - backend
 
   user-web:
-    image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-user-web:${MOVO_VERSION:-latest}
+    image: ${MOVO_USER_WEB_IMAGE:-ghcr.io/himovo/user-web:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     networks:
@@ -338,7 +338,7 @@ services:
       retries: 20
 
   admin-web:
-    image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-admin-web:${MOVO_VERSION:-latest}
+    image: ${MOVO_ADMIN_WEB_IMAGE:-ghcr.io/himovo/admin-web:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     networks:
@@ -350,7 +350,7 @@ services:
       retries: 20
 
   gateway:
-    image: ${MOVO_IMAGE_PREFIX:-ghcr.io/himovo/movo}-gateway:${MOVO_VERSION:-latest}
+    image: ${MOVO_GATEWAY_IMAGE:-ghcr.io/himovo/gateway:${MOVO_VERSION:-latest}}
     pull_policy: ${MOVO_PULL_POLICY:-missing}
     restart: unless-stopped
     ports:

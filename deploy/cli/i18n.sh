@@ -51,12 +51,12 @@ movo_msg() {
     en:compose_missing) printf 'Error: Docker Compose v2 was not found.\n' ;;
     zh:docker_stopped) printf '错误：Docker 尚未运行，请先启动 Docker。\n' ;;
     en:docker_stopped) printf 'Error: Docker is not running. Start Docker first.\n' ;;
-    zh:image_source_missing) printf '错误：无法确定公开镜像地址。请从 GitHub 克隆仓库、在 .env 设置 MOVO_IMAGE_PREFIX，或执行 ./movo up --build。\n' ;;
-    en:image_source_missing) printf 'Error: public image location is unknown. Clone from GitHub, set MOVO_IMAGE_PREFIX in .env, or run ./movo up --build.\n' ;;
+    zh:image_source_missing) printf '错误：无法确定公开镜像地址。请从 GitHub 克隆仓库、在 .env 设置 MOVO_IMAGE_REGISTRY，或执行 ./movo up --build。\n' ;;
+    en:image_source_missing) printf 'Error: public image location is unknown. Clone from GitHub, set MOVO_IMAGE_REGISTRY in .env, or run ./movo up --build.\n' ;;
     zh:using_local_images) printf '未配置公开镜像地址，将使用现有的本地 MOVO 镜像。\n' ;;
     en:using_local_images) printf 'No public image location is configured; using existing local MOVO images.\n' ;;
-    zh:update_local_only) printf '错误：当前仅配置了本地镜像。请先设置 MOVO_IMAGE_PREFIX，或使用 ./movo up --build 重新构建。\n' ;;
-    en:update_local_only) printf 'Error: only local images are configured. Set MOVO_IMAGE_PREFIX first, or rebuild with ./movo up --build.\n' ;;
+    zh:update_local_only) printf '错误：当前仅配置了本地镜像。请先设置 MOVO_IMAGE_REGISTRY，或使用 ./movo up --build 重新构建。\n' ;;
+    en:update_local_only) printf 'Error: only local images are configured. Set MOVO_IMAGE_REGISTRY first, or rebuild with ./movo up --build.\n' ;;
     zh:waiting) printf '\n正在等待服务健康检查' ;;
     en:waiting) printf '\nWaiting for deployment health checks' ;;
     zh:done) printf ' 完成\n' ;;

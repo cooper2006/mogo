@@ -66,7 +66,7 @@
                     <span class="health-dot" aria-hidden="true"></span>
                     <strong>{{ overview?.billing.orgName || t('组织空间') }}</strong>
                   </div>
-                  <n-tag size="small" :bordered="false" :type="isCommunity ? 'success' : 'info'">{{ tierLabel }}</n-tag>
+                  <n-tag v-if="tierLabel" size="small" :bordered="false" :type="isCommunity ? 'success' : 'info'">{{ tierLabel }}</n-tag>
                 </div>
                 <div class="deployment-status">
                   <strong>{{ healthLabel }}</strong>
@@ -407,7 +407,10 @@ const visibleRecentActivity = computed(() => recentActivity.value.slice(0, 4));
 const healthStatus = computed<HealthStatus>(() => overview.value?.health.status || 'healthy');
 const isCommunity = computed(() => overview.value?.billing.edition === 'community');
 const tierLabel = computed(() => {
-  if (isCommunity.value) return t('社区版');
+  // The community edition carries no tier label: it is the default self-hosted
+  // deployment, and the tag read as noise in the dashboard header. Paid tiers
+  // below keep their own labels.
+  if (isCommunity.value) return '';
   const tier = overview.value?.billing.tier;
   if (tier === 'plus') return t('Plus 个人版');
   if (tier === 'pro') return t('专业团队版');
