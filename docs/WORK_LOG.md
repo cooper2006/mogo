@@ -1,5 +1,10 @@
 # Work Log
 
+## 2026-09-22 收尾：admin-api 测试依赖 httpx2 入 requirements
+
+- `services/admin-api/requirements.txt` 增补 `httpx2>=0.1.0`（test-only：新版 starlette 的 TestClient 需要 httpx2；admin-api `.venv-test` py3.14 全量 236 项复跑通过）。此前该依赖仅存在于本地虚拟环境，未入库，测试环境不可复现。
+- 复核 001–019 各 `tasks.md` 未勾项 = 0；chat-api 313 项 / admin-api 236 项 / admin-web build 全绿；HEAD 已推送 cooper2006/mogong。
+
 ## 2026-09-22 落地 001–019 剩余任务（SDD 补全：代码 + 测试 + 文档 + 审计）
 
 本轮把 `specs/001–019` 各特性 tasks.md 中未勾选项全部落地（实现 + 测试 + quickstart/contracts + T999 审计接入），并在勾选前核对实现已存在。

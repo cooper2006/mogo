@@ -7,3 +7,5 @@ pymongo==3.12.3
 python-multipart>=0.0.9
 oss2>=2.18.0
 msgpack==1.2.2
+# test-only: starlette test client needs httpx2 on newer starlette releases
+httpx2>=0.1.0
