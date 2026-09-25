@@ -197,6 +197,75 @@ command_up() {
   show_ready_message
 }
 
+# Remove image layers that lost their tag (typically the previous build of the
+# same service names). Safe: tagged images and anything a container references
+# are never touched. Failures are non-fatal, so a build is never reported as
+# broken because of housekeeping.
+prune_dangling_images() {
+  local before after reclaimed
+  before="$(docker_reclaimable_bytes)"
+
+  # Build leftovers are not only untagged images: a build step that fails part
+  # way (for example the Docling model download) leaves a stopped anonymous
+  # container holding the layer, which pins the image and defeats
+  # ``image prune``. Release those first -- see the predicate below for the
+  # exact safety conditions.
+  remove_stopped_build_containers
+
+  if ! "${DOCKER_BIN}" image prune -f >/dev/null 2>&1; then
+    return 0
+  fi
+
+  after="$(docker_reclaimable_bytes)"
+  if [[ -n "${before}" && -n "${after}" && "${after}" -lt "${before}" ]]; then
+    reclaimed=$(( (before - after) / 1024 / 1024 ))
+    [[ "${reclaimed}" -gt 0 ]] && movo_msg pruned_dangling "${reclaimed}"
+  fi
+}
+
+# Remove build leftovers that pin an image layer.
+#
+# A build step that fails part way (for example the Docling model download)
+# leaves an exited anonymous container holding a layer, which defeats
+# ``docker image prune``.
+#
+# Safety is the priority here, so the predicate is deliberately narrow. A
+# container is only removed when ALL of the following hold:
+#   * it is stopped (exited or created), never running;
+#   * it has no Compose service label (so it is not a service container of this
+#     or any other project);
+#   * its name is an anonymous Docker-generated one (no "-" in the name, which
+#     excludes user-named containers such as "sqlserver-test");
+#   * its image is now untagged, i.e. the layer it holds is exactly the build
+#     residue we are trying to release.
+remove_stopped_build_containers() {
+  local id service name image_id dangling
+  dangling="$("${DOCKER_BIN}" images -f dangling=true -q 2>/dev/null)"
+  [[ -z "${dangling}" ]] && return 0
+
+  while IFS= read -r id; do
+    [[ -z "${id}" ]] && continue
+
+    service="$("${DOCKER_BIN}" inspect "${id}" \
+      --format '{{index .Config.Labels "com.docker.compose.service"}}' 2>/dev/null)"
+    [[ -n "${service}" && "${service}" != "<no value>" ]] && continue
+
+    # Anonymous names have no separator; anything hyphenated was named by a user.
+    name="$("${DOCKER_BIN}" inspect "${id}" --format '{{.Name}}' 2>/dev/null)"
+    [[ "${name}" == *-* ]] && continue
+
+    # Only touch containers whose image lost its tag (the build residue).
+    # Compare on the short id: ``images -q`` prints short ids while a container
+    # reports the full ``sha256:`` digest.
+    image_id="$("${DOCKER_BIN}" inspect "${id}" --format '{{.Image}}' 2>/dev/null)"
+    image_id="${image_id#sha256:}"
+    image_short="${image_id:0:12}"
+    printf '%s\n' "${dangling}" | grep -qx "${image_short}" || continue
+
+    "${DOCKER_BIN}" rm "${id}" >/dev/null 2>&1 || true
+  done < <("${DOCKER_BIN}" ps -aq --filter "status=exited" --filter "status=created" 2>/dev/null)
+}
+
 command_build() {
   print_logo
   require_docker
@@ -204,6 +273,10 @@ command_build() {
   movo_msg building
   movo_print_dsh_build_target
   movo_compose build "$@"
+  # Rebuilding retags the same service names, which leaves the previous image
+  # layers unreferenced (dangling). Left alone they accumulate on every build
+  # and eventually fill the disk, so reclaim them when the build succeeds.
+  prune_dangling_images
 }
 
 command_update() {

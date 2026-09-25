@@ -69,6 +69,8 @@ movo_msg() {
     en:starting) printf 'Starting MOVO services...\n' ;;
     zh:building) printf '正在从源码构建 MOVO 镜像...\n' ;;
     en:building) printf 'Building MOVO images from source...\n' ;;
+    zh:pruned_dangling) printf '已清理构建残留的无标签镜像，释放约 %s MB。\n' "$1" ;;
+    en:pruned_dangling) printf 'Pruned untagged build leftovers, reclaimed about %s MB.\n' "$1" ;;
     zh:updating) printf '正在拉取 MOVO 镜像并更新服务...\n' ;;
     en:updating) printf 'Pulling MOVO images and updating services...\n' ;;
     zh:pulling_images) printf '正在串行拉取镜像（第 %s 次）...\n' "$1" ;;
