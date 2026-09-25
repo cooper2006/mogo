@@ -201,6 +201,31 @@ command_up() {
 # same service names). Safe: tagged images and anything a container references
 # are never touched. Failures are non-fatal, so a build is never reported as
 # broken because of housekeeping.
+# Reclaimable image bytes as an integer. ``docker system df`` only reports
+# human-readable sizes ("5.232GB (18%)"), so the unit suffix is converted here
+# with integer arithmetic (no bc dependency). An unparsable value yields 0,
+# which makes the caller skip the report instead of failing the build.
+docker_reclaimable_bytes() {
+  local raw whole frac digits unit
+  raw="$("${DOCKER_BIN}" system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null \
+    | awk -F'|' '/^Images/ {print $2; exit}')"
+  digits="$(printf '%s' "${raw}" | awk '{print $1}')"
+  whole="${digits%%.*}"
+  frac="${digits#*.}"
+  [[ "${frac}" == "${digits}" ]] && frac="0"
+  frac="$(printf '%s' "${frac}" | tr -cd '0-9' | cut -c1-3)"
+  while [[ ${#frac} -lt 3 ]]; do frac="${frac}0"; done
+  unit="$(printf '%s' "${raw}" | grep -oE '[A-Za-z]+' | head -1)"
+  whole="${whole:-0}"
+  case "${unit}" in
+    kB) echo $(( whole * 1024 + frac * 1024 / 1000 )) ;;
+    MB) echo $(( whole * 1048576 + frac * 1048576 / 1000 )) ;;
+    GB) echo $(( whole * 1073741824 + frac * 1073741824 / 1000 )) ;;
+    TB) echo $(( whole * 1099511627776 )) ;;
+    *)  echo 0 ;;
+  esac
+}
+
 prune_dangling_images() {
   local before after reclaimed
   before="$(docker_reclaimable_bytes)"
