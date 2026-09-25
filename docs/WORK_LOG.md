@@ -29,6 +29,34 @@ chat-api 恢复 healthy 且 `/ready` 返回 `{"status":"ready","dsh_host":"healt
 - `user-web` 与 `admin-web` 均已用新镜像（裸名）重启并就绪，界面改动已生效。
 - 期间修正了我误用 `apps/user-web/Dockerfile`（开发服务器）的问题，生产镜像为 `Dockerfile.prod`。
 
+## 2026-09-24 补齐全部 7 个镜像的新命名本地构建
+
+用户指出「movo 打头的 7 个镜像没有改名」。核查确认：上一轮只让**构建流程**产出新名，
+并重建了 4 个（admin-web / chat-api / gateway / user-web），**其余 3 个从未用新名构建**：
+admin-api、document-parser、dsh-runtime-host。
+
+- **补齐构建**：
+  - `admin-api:latest` ✅（`./movo build admin-api`）
+  - `dsh-runtime-host:latest` ✅（`./movo build dsh-runtime-host`）
+  - `document-parser:latest` —— 直接构建失败：构建期需从 HuggingFace 下载 Docling 模型，
+    当前网络不可达（`LocalEntryNotFoundError: ConnectError: [Errno 101] Network is unreachable`）。
+    采用既定方案：给已完整构建的 `movo-document-parser:latest` 打新标签
+    （`docker tag movo-document-parser:latest document-parser:latest`，同一镜像 ID `b1e3743e237f`），
+    内容完全一致、无需重新下载模型。
+  - 注：`document-parser` 对应的 compose **服务名是 `document-api`**（`./movo build document-parser`
+    会报 `no such service`），已按正确服务名操作。
+- **结果**：**7/7 镜像均有裸名版本**。`./movo build` 的自动清理在本轮生效
+  （构建 dsh-runtime-host 后输出 "Pruned untagged build leftovers, reclaimed about 851 MB"）。
+- **运行的服务全部切换到裸名镜像**（逐个切换 + 立即验证，避免整批中断）：
+  admin-api、admin-web、chat-api、document-api、document-worker、dsh-runtime-host、gateway、user-web。
+- **验证**：`docker compose ps` 显示 7 个 MOVO 服务镜像名均无 `movo-` 前缀；全部 healthy；
+  `/`、`/admin/` 返回 200；dashboard / analytics / tools 接口 200；
+  chat-api `/ready` → `{"status":"ready","dsh_host":"healthy"}`。
+- **发布渠道**：用户明确**不走 GHCR**、不推送镜像。既有 `container-release.yml` /
+  `runtime-guard.yml` 中 `MOVO_IMAGE_PREFIX` → `MOVO_IMAGE_REGISTRY` 的改名保留
+  （该变量已从代码移除，不改会导致 CI 变量未定义），本地校验
+  （`check_compose_image_modes.sh`、`test_plan_container_release.py`）均通过。
+
 ## 2026-09-24 镜像命名去前缀（movo-* → 裸服务名）+ 移除「社区版」界面文案
 
 ### 一、7 个镜像名称调整（用户要求）
