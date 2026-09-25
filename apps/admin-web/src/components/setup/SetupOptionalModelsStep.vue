@@ -3,7 +3,7 @@
     <div class="step-heading">
       <span class="step-kicker">{{ t('步骤 4 / 5') }}</span>
       <h2>{{ t('配置其他模型') }}</h2>
-      <p>{{ t('这些模型用于扩展 MOVO 的专项能力，可以跳过并在管理后台随时补充。') }}</p>
+      <p>{{ t('这些模型用于扩展 MOGO 的专项能力，可以跳过并在管理后台随时补充。') }}</p>
     </div>
 
     <div class="model-cards">

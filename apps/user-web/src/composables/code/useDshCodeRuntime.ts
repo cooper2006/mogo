@@ -201,7 +201,7 @@ export function useDshCodeRuntime(chat: ChatRuntimeBoundary) {
       }
       const sessionId = state.session.kernel_session_id
       const conversationId = state.session.conversation_id
-      if (!conversationId) throw new Error('desktop Code Session was not committed to MOVO history')
+      if (!conversationId) throw new Error('desktop Code Session was not committed to MOGO history')
       await ensureSubscribed(state)
       turns.set(sessionId, chat.beginExternalTurn(key, text, conversationId))
       await sendDshCodeTurn(sessionId, text)

@@ -1,7 +1,7 @@
 import type { DesktopProject, SessionSummary } from '../../api/sessions'
 import type { DshWorkspace } from '../../platform/types'
 
-/** Local workspace presence is not authorization; MOVO employee ownership is. */
+/** Local workspace presence is not authorization; MOGO employee ownership is. */
 export function reconcileUserBoundProjects(
   projects: readonly DesktopProject[],
   localWorkspaces: readonly DshWorkspace[],

@@ -1884,7 +1884,7 @@ onBeforeUnmount(() => {
   <div
     v-if="capabilities.isDesktop && desktopServerState === 'checking'"
     class="flex h-screen items-center justify-center bg-slate-50"
-    aria-label="Loading MOVO"
+    aria-label="Loading MOGO"
   >
     <div class="flex h-14 w-16 items-center justify-center rounded-2xl bg-white shadow-lg" aria-hidden="true">
       <img src="/movo-logo.png" alt="" class="h-10 w-12 object-contain" />
@@ -1948,9 +1948,9 @@ onBeforeUnmount(() => {
     />
     <!-- SIDEBAR -->
     <aside class="app-sidebar w-[260px] bg-[#f8fafc] flex flex-col border-r border-gray-200 shadow-[1px_0_0_rgba(0,0,0,0.02)]">
-      <div v-if="!capabilities.isDesktop" class="flex h-14 items-center gap-2.5 px-5" aria-label="MOVO">
+      <div v-if="!capabilities.isDesktop" class="flex h-14 items-center gap-2.5 px-5" aria-label="MOGO">
         <img src="/movo-logo.png" alt="" class="h-8 w-10 object-contain" />
-        <span class="text-[15px] font-extrabold tracking-[0.14em] text-slate-800">MOVO</span>
+        <span class="text-[15px] font-extrabold tracking-[0.14em] text-slate-800">MOGO</span>
       </div>
       <!-- Top Actions -->
       <div class="space-y-0.5 px-3 pb-1 pt-3">

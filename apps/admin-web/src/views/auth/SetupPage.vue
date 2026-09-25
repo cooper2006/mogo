@@ -6,7 +6,7 @@
           <img :src="movoLogo" alt="MOVO" />
         </div>
         <div>
-          <div class="eyebrow">MOVO INITIAL SETUP</div>
+          <div class="eyebrow">MOGO INITIAL SETUP</div>
           <h1>{{ setupCompleted ? t('系统已准备就绪') : t('初始化企业服务') }}</h1>
           <p>{{ heroDescription }}</p>
         </div>
@@ -177,7 +177,7 @@ const searchForm = reactive<SetupSearchForm>({
   endpoint: '',
   baseUrl: '',
   model: '',
-  query: 'MOVO enterprise AI',
+  query: 'MOGO enterprise AI',
 });
 
 function updateSearchForm(value: SetupSearchForm) {

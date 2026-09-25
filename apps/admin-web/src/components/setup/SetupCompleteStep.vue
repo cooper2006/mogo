@@ -1,7 +1,7 @@
 <template>
   <div class="complete-content">
     <n-alert type="success" :show-icon="true" :title="t('初始化完成')">
-      {{ t('企业、初始账号和企业模型均已配置，可以开始使用 MOVO。') }}
+      {{ t('企业、初始账号和企业模型均已配置，可以开始使用 MOGO。') }}
     </n-alert>
     <div class="connection-list">
       <div v-for="item in items" :key="item.key" class="connection-item">
@@ -40,7 +40,7 @@ const items = computed(() => [
 
 function downloadConnectionFile() {
   const lines = [
-    'MOVO SELF-HOSTED CONNECTION',
+    'MOGO SELF-HOSTED CONNECTION',
     '===========================',
     `Organization: ${props.orgName}`,
     `Tenant ID: ${props.mainId}`,

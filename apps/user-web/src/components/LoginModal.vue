@@ -20,7 +20,7 @@ const emit = defineEmits<{
     <div class="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
       <div class="flex items-start justify-between gap-4">
         <div class="flex items-start gap-3">
-          <img src="/movo-logo.png" alt="MOVO" class="mt-0.5 h-10 w-12 shrink-0 object-contain" />
+          <img src="/movo-logo.png" alt="MOGO" class="mt-0.5 h-10 w-12 shrink-0 object-contain" />
           <div>
             <div class="text-xl font-semibold text-slate-900">{{ t('login.title') }}</div>
             <div class="mt-1 text-sm leading-5 text-slate-500">{{ t('login.password_desc') }}</div>

@@ -3,8 +3,8 @@
     <div class="invite-shell">
       <section class="invite-hero">
         <div class="hero-badge">{{ t('企业邀请') }}</div>
-        <h1 class="hero-title">{{ t('加入 {org} 的 MOVO 工作空间', { org: orgName }) }}</h1>
-        <p class="hero-desc">{{ t('完成账号激活后，即可登录 MOVO 前台系统开始使用。') }}</p>
+        <h1 class="hero-title">{{ t('加入 {org} 的 MOGO 工作空间', { org: orgName }) }}</h1>
+        <p class="hero-desc">{{ t('完成账号激活后，即可登录 MOGO 前台系统开始使用。') }}</p>
         <div class="hero-meta">{{ t('邀请有效期至：{time}', { time: inviteDetail.expiresAt || '--' }) }}</div>
       </section>
 
@@ -17,7 +17,7 @@
         </template>
         <template v-else-if="state === 'success'">
           <n-result status="success" :title="t('加入成功')" :description="successDescription" />
-          <div class="success-tip">{{ t('正在跳转到 MOVO 登录页…') }}</div>
+          <div class="success-tip">{{ t('正在跳转到 MOGO 登录页…') }}</div>
         </template>
         <template v-else>
           <div class="form-title">{{ t('激活企业账号') }}</div>
@@ -61,9 +61,9 @@
       </n-card>
     </div>
 
-    <footer class="invite-brand-footer" aria-label="MOVO Brand">
-      <img class="invite-brand-logo" :src="movoLogo" alt="MOVO" />
-      <span class="brand-text">Powered by MOVO</span>
+    <footer class="invite-brand-footer" aria-label="MOGO Brand">
+      <img class="invite-brand-logo" :src="movoLogo" alt="MOGO" />
+      <span class="brand-text">Powered by MOGO</span>
     </footer>
   </div>
 </template>
@@ -103,7 +103,7 @@ const form = reactive({
 
 const token = computed(() => String(route.query.token || ''));
 const orgName = computed(() => inviteDetail.orgName || t('企业组织'));
-const successDescription = computed(() => t('账号 {username} 已激活，可前往 MOVO 登录。', { username: form.loginName || '' }));
+const successDescription = computed(() => t('账号 {username} 已激活，可前往 MOGO 登录。', { username: form.loginName || '' }));
 
 function parseError(error: unknown) {
   if (axios.isAxiosError(error)) {

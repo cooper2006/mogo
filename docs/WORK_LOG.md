@@ -29,6 +29,35 @@ chat-api 恢复 healthy 且 `/ready` 返回 `{"status":"ready","dsh_host":"healt
 - `user-web` 与 `admin-web` 均已用新镜像（裸名）重启并就绪，界面改动已生效。
 - 期间修正了我误用 `apps/user-web/Dockerfile`（开发服务器）的问题，生产镜像为 `Dockerfile.prod`。
 
+## 2026-09-24 产品名按 README 统一：MOGO / 墨攻·基于DSH的企业智能体平台
+
+用户要求按 README 统一产品名（含 Desktop 与登录页）。此前只改了部分可见文字，
+大量 i18n 文案仍是 MOVO。系统性处理：
+
+- **品牌名 MOVO → MOGO**（user-web + admin-web 全部面向用户的文案）
+- **平台标题**：user-web / admin-web 的 `<title>` 均改为 **墨攻·基于DSH的企业智能体平台**
+  （原 `MOVO Agentic AI Platform` / `MOVO Admin`）
+- **Desktop 相关**：`MOGO Desktop`（DesktopServerSetup、CodeHistoryReadOnlyNotice 的中英文案）
+- **登录页**：`登录 MOGO` / `Sign in to MOGO`；admin-web 登录页 `MOGO 智能体控制台`、
+  邀请页 `加入 {org} 的 MOGO 工作空间` / `Powered by MOGO`、设置完成页等
+- **其他**：侧边栏 logo 文字、桌面端窗口品牌、`MOGO INITIAL SETUP`、
+  搜索服务引导步骤、chat 免责声明、代码错误消息与注释
+
+**关键陷阱（已规避）**：admin-web 的 i18n 是「中文 key = 中文文案」。若只改 messages.ts
+的 key 而不改组件里的 `t('旧key')` 引用，`t()` 会找不到条目并回退显示 **key 本身**
+（英文用户将看到中文）。故同步更新了所有 `t()` 引用（LoginPage、InviteAcceptPage 等 2 个文件）。
+
+**有意保留**：
+- `例如：MOVO 科技有限公司`（组织名输入框的**示例占位**，非产品自称）
+- `desktopUiTestHarness.ts` 的 `org_name: 'MOVO'`（测试夹具的模拟组织名）
+- `movo-logo.png` / `movoLogo` 等**文件与变量名**（功能引用，改名会破坏资源加载）
+
+**验证**：
+- admin-web / user-web `vue-tsc --noEmit` 均通过
+- 两份构建产物：标题为 `墨攻·基于DSH的企业智能体平台`，资源内含 `MOGO`、`登录 MOGO`、
+  `Sign in to MOGO`、`MOGO 智能体控制台`、`Powered by MOGO`，**无旧 MOVO 显示文案**
+- 重启两个前端后 HTTP 实测：`/` 与 `/admin/` 的 `<title>` 均为新文案，服务 200、healthy
+
 ## 2026-09-24 清理旧命名镜像标签（movo-* 与 ghcr.io/himovo/movo-*）
 
 服务全部切到裸名镜像后，旧标签成为冗余，予以清理。

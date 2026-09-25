@@ -24,7 +24,7 @@ export type BrowserInterventionTransition =
 /**
  * Stable UI adapter for browser suspensions.
  *
- * New MOVO projections use a dedicated browser_handoff item.  The nested
+ * New MOGO projections use a dedicated browser_handoff item.  The nested
  * tool payload remains accepted as a replay fallback for turns written before
  * the canonical side-band event was introduced.
  */

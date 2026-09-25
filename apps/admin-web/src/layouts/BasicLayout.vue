@@ -11,8 +11,8 @@
       style="backdrop-filter: blur(16px);"
     >
       <div class="brand-block" :class="{ compact: collapsed }">
-        <img class="brand-logo" :src="movoLogo" alt="MOVO" />
-        <span v-if="!collapsed" class="brand-name">MOVO</span>
+        <img class="brand-logo" :src="movoLogo" alt="MOGO" />
+        <span v-if="!collapsed" class="brand-name">MOGO</span>
       </div>
       <n-menu
         :collapsed="collapsed"
@@ -176,7 +176,7 @@ const currentRouteTitle = computed(() => {
   if (typeof metaTitle === 'string' && metaTitle) {
     return t(metaTitle);
   }
-  return routeTitleMap.get(route.path) ? t(routeTitleMap.get(route.path)!) : 'MOVO Admin';
+  return routeTitleMap.get(route.path) ? t(routeTitleMap.get(route.path)!) : 'MOGO Admin';
 });
 const isToolEditPage = computed(() => route.path === '/tools/new' || route.name === 'ToolEdit');
 const isSkillConfigPage = computed(() => route.name === 'SkillConfig');

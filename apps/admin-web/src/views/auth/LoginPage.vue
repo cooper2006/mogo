@@ -3,7 +3,7 @@
     <div class="login-panel">
       <div class="login-copy">
         <img class="login-logo" :src="movoLogo" alt="MOVO" />
-        <h1>{{ t('MOVO 智能体控制台') }}</h1>
+        <h1>{{ t('MOGO 智能体控制台') }}</h1>
         <p>
           {{ t('管理组织、模型与流程配置，确保平台运行稳定、可控、可追踪。') }}
         </p>

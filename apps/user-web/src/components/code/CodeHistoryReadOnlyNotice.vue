@@ -16,8 +16,8 @@ const detail = computed(() => {
       : 'This task is bound to an enterprise remote sandbox. No execution surface is available here, but history and audit remain readable.'
   }
   return locale.value === 'zh'
-    ? '该会话绑定到创建它的 MOVO Desktop 与本地项目。请在绑定的桌面端继续执行；Web 不会访问本地文件或命令。'
-    : 'This task is bound to its MOVO Desktop and local project. Continue on the bound desktop; Web never accesses local files or commands.'
+    ? '该会话绑定到创建它的 MOGO Desktop 与本地项目。请在绑定的桌面端继续执行；Web 不会访问本地文件或命令。'
+    : 'This task is bound to its MOGO Desktop and local project. Continue on the bound desktop; Web never accesses local files or commands.'
 })
 </script>
 
