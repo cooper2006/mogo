@@ -29,6 +29,28 @@ chat-api 恢复 healthy 且 `/ready` 返回 `{"status":"ready","dsh_host":"healt
 - `user-web` 与 `admin-web` 均已用新镜像（裸名）重启并就绪，界面改动已生效。
 - 期间修正了我误用 `apps/user-web/Dockerfile`（开发服务器）的问题，生产镜像为 `Dockerfile.prod`。
 
+## 2026-09-24 清理旧命名镜像标签（movo-* 与 ghcr.io/himovo/movo-*）
+
+服务全部切到裸名镜像后，旧标签成为冗余，予以清理。
+
+- **清理前**：7 个 `movo-*:latest` + 7 个 `ghcr.io/himovo/movo-*:latest`。
+- **安全核对**（逐项、用 `docker inspect .Image` 精确比对而非 `ancestor` 过滤）：
+  - 首次用 `--filter ancestor=<id>` 统计时出现误报（gateway 旧 ID 显示被运行中容器引用）——
+    `ancestor` 会匹配**共享基础层**的镜像。改用容器 `.Image` 与镜像 ID 精确比对后确认：
+    14 个旧标签**无一被任何容器引用**。
+  - `document-parser` 的旧标签与 `document-parser:latest` 是**同一镜像的多标签**
+    （ID `b1e3743e237f`），删除标签不影响运行中的 document-api / document-worker。
+- **执行结果**：7 个 `movo-*` 标签删除后，Docker 连带释放了 6 个旧镜像本体；
+  `document-parser` 因仍有 `document-parser:latest` 别名而保留镜像本体。
+  随后清理 `ghcr.io/himovo/movo-*` 标签。
+- **结果**：`docker images | grep -i movo` **无任何 movo 命名镜像**；
+  7 个裸名镜像（admin-api / admin-web / chat-api / document-parser /
+  dsh-runtime-host / gateway / user-web）全部完好。
+- **验证服务未受影响**：11 个服务全部 healthy；`/`、`/admin/` 返回 200；
+  dashboard / analytics / tools / skills / auth/me 接口均 200；
+  chat-api `/ready` → `dsh_host: healthy`。
+- 磁盘：清理后 Docker 可回收空间降至 1.061GB（3%）。
+
 ## 2026-09-24 补齐全部 7 个镜像的新命名本地构建
 
 用户指出「movo 打头的 7 个镜像没有改名」。核查确认：上一轮只让**构建流程**产出新名，
