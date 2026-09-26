@@ -13,7 +13,7 @@ RUN npm ci --legacy-peer-deps
 COPY . .
 RUN npm run build
 
-FROM nginx:1.29.8-alpine
+FROM nginx:1.31.0-alpine
 
 # Opt-in: only apply Alpine security patches when MOVO_SECURITY_REFRESH is set
 # (CI passes its run id). Skipping keeps this layer cacheable locally.
