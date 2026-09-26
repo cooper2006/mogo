@@ -1,5 +1,20 @@
 # Work Log
 
+## 2026-09-26 构建提速：基础镜像本地复用 + 安全刷新可缓存化 + 离线导出/导入
+
+**任务**：把「源码构建」从「每次重建都回源 registry 解析/下载基础镜像」改为「本地已有则复用、缺才拉取」，并让安全补丁层可缓存；同时提供基础镜像离线导出/导入脚本。改动在早先会话产生，本轮完成核验与归档。
+
+**做了什么**：
+- 新增 `deploy/cli/base-images.sh`：从 7 个参与构建的 Dockerfile 自动解析 FROM（含 `ARG` 默认值展开、多阶段内部 stage 过滤），`movo_prepare_base_images` 按策略（`reuse` 默认 / `pull` / `local`，由 `MOVO_BASE_IMAGE_POLICY` 控制）只拉取本地缺失项。`movo` 的 `build` / `up --build` 前置调用；`build` 路径刻意不再传 `--pull`（避免 BuildKit 强制回源）。
+- 7 个 Dockerfile（chat-api / admin-api / document-parser / runtime-host / user-web / admin-web / gateway）的 `MOVO_SECURITY_REFRESH` 由默认 `local`（必跑 apt/apk upgrade，破坏层缓存）改为默认空（opt-in：CI 传 run id 才刷新），本地重建不再重下全量补丁。
+- 新增 `scripts/export_base_images.sh`（save / load / list，manifest.txt 记录平台与清单）支持离线迁移基础镜像；`.gitignore` 增加 `/base-images/`。
+- `docker-compose.build.yml` 显式透传 `MOVO_SECURITY_REFRESH` / `MOVO_HF_ENDPOINT` / `MOVO_HF_TIMEOUT` 构建参数；`docker-compose.yml` 项目名 `movo` → `mogo`（品牌归位；备份卷前缀仍为 `movo`，已在 backup.sh 注释说明）。
+- `deploy/cli/i18n.sh` 补 4 条中英文消息；`docs/docker-deployment.md` 增补基础镜像复用与策略说明。
+
+**验证**：`bash -n` 两脚本通过；`scripts/export_base_images.sh list` 实跑 → 5 个基础镜像（python:3.10-slim-bookworm / node:24-bookworm-slim / node:20-slim / nginx:1.31.5-alpine3.24-slim / nginx:1.29.8-alpine）全部 `[local]`；`docker-compose.yml` `name:` 为 mogo。
+
+**改动文件**：`deploy/cli/base-images.sh`（新）、`scripts/export_base_images.sh`（新）、`movo`、`deploy/cli/i18n.sh`、`deploy/cli/backup.sh`、7 个 Dockerfile、`docker-compose.yml`、`docker-compose.build.yml`、`.gitignore`、`docs/docker-deployment.md`、`docs/WORK_LOG.md`
+
 ## 2026-09-26 网关挂载路径错位修复（Exit 127 根因澄清 + compose 元数据归位 mogo）
 
 **任务**：「打包镜像，启动应用」续。镜像已于上一条记录打包完成，本轮排查「应用是否真的可用」，定位到网关长期处于 `Exited (127)` 的真实根因。

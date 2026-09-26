@@ -29,6 +29,8 @@ source "${ROOT_DIR}/deploy/cli/dsh-version.sh"
 source "${ROOT_DIR}/deploy/cli/images.sh"
 # shellcheck source=deploy/cli/pull.sh
 source "${ROOT_DIR}/deploy/cli/pull.sh"
+# shellcheck source=deploy/cli/base-images.sh
+source "${ROOT_DIR}/deploy/cli/base-images.sh"
 # shellcheck source=deploy/cli/backup.sh
 source "${ROOT_DIR}/deploy/cli/backup.sh"
 
@@ -173,7 +175,11 @@ command_up() {
   if movo_has_build_flag "$@"; then
     movo_msg starting
     movo_print_dsh_build_target
-    if ! movo_compose up -d "$@"; then
+    # $@ already carries --build here; only the pull policy is added. Base
+    # images are resolved locally first so the build never re-downloads them.
+    # `up --pull` takes a string policy (never), unlike `build --pull`.
+    movo_prepare_base_images || return 1
+    if ! movo_compose up -d --pull never "$@"; then
       movo_msg start_failed >&2
       movo_compose ps >&2 || true
       movo_msg logs_hint >&2
@@ -297,6 +303,11 @@ command_build() {
   movo_configure_images true
   movo_msg building
   movo_print_dsh_build_target
+  # Reuse base images that OrbStack already holds and pull only what is truly
+  # missing. `--pull` is deliberately omitted: it would force BuildKit to
+  # re-resolve every base image upstream, which is what made each rebuild wait
+  # on the network.
+  movo_prepare_base_images || return 1
   movo_compose build "$@"
   # Rebuilding retags the same service names, which leaves the previous image
   # layers unreferenced (dangling). Left alone they accumulate on every build

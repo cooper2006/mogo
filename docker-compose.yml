@@ -1,4 +1,4 @@
-name: movo
+name: mogo
 
 x-python-healthcheck: &python-healthcheck
   interval: 10s

@@ -47,11 +47,18 @@ RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" = "true" ]; then \
         echo "Skip playwright browser install in build stage (INSTALL_PLAYWRIGHT_AT_BUILD=false)"; \
     fi
 
-ARG MOVO_SECURITY_REFRESH=local
-RUN test -n "${MOVO_SECURITY_REFRESH}" \
-    && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+# Security refresh is opt-in. A non-empty value (CI passes its run id) applies
+# the latest distro security patches; an empty or "false" value skips the
+# upgrade, which keeps this layer cacheable so a local rebuild does not
+# re-download every package.
+ARG MOVO_SECURITY_REFRESH=
+RUN if [ -n "${MOVO_SECURITY_REFRESH}" ] && [ "${MOVO_SECURITY_REFRESH}" != "false" ]; then \
+        apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+        && apt-get upgrade -y \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        echo "Skip apt upgrade (set MOVO_SECURITY_REFRESH to apply security patches)"; \
+    fi
 
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh

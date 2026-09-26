@@ -19,7 +19,10 @@ FROM node:24-bookworm-slim
 
 ARG MOVO_APT_MIRROR=
 ARG MOVO_APT_SECURITY_MIRROR=
-ARG MOVO_SECURITY_REFRESH=local
+# Security refresh is opt-in. A non-empty value (CI passes its run id) also
+# applies the latest distro security patches. ca-certificates and gosu are
+# functional dependencies, so they are always installed regardless.
+ARG MOVO_SECURITY_REFRESH=
 
 ENV NODE_ENV=production
 
@@ -35,9 +38,12 @@ RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \
             fi; \
         done; \
     fi \
-    && test -n "${MOVO_SECURITY_REFRESH}" \
     && apt-get update \
-    && apt-get upgrade -y \
+    && if [ -n "${MOVO_SECURITY_REFRESH}" ] && [ "${MOVO_SECURITY_REFRESH}" != "false" ]; then \
+        apt-get upgrade -y; \
+    else \
+        echo "Skip apt upgrade (set MOVO_SECURITY_REFRESH to apply security patches)"; \
+    fi \
     && apt-get install -y --no-install-recommends ca-certificates gosu \
     && rm -rf /var/lib/apt/lists/* \
     && npm uninstall --global npm

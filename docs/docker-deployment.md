@@ -48,6 +48,49 @@ To build without starting services:
 ./movo build
 ```
 
+Both build paths reuse the base images already present in the local Docker
+store (for example the ones OrbStack has cached) and reach the registry only
+for base images that are genuinely missing. This keeps a rebuild that changed
+only application code off the network. `MOVO_BASE_IMAGE_POLICY` changes that
+behaviour:
+
+| Value | Behaviour |
+| --- | --- |
+| `reuse` (default) | Use local base images; pull only what is missing |
+| `pull` | Always refresh base images from the registry |
+| `local` | Never use the network; fail when a base image is missing |
+
+The distro security refresh (`apt-get upgrade` / `apk upgrade`) is off by
+default so its layer stays cacheable: a rebuild that changed only application
+code then reuses the cached dependency installation instead of downloading
+everything again. The release workflow sets `MOVO_SECURITY_REFRESH` to its run
+id, which re-enables the refresh for published images. To apply the patches to
+a local build as well, pass a non-empty value:
+
+```bash
+MOVO_SECURITY_REFRESH=1 ./movo build
+```
+
+### Moving base images to another machine
+
+To build on a host without registry access, export the base images from a
+machine that already has them and import the archives on the target:
+
+```bash
+# On the machine that has the images
+scripts/export_base_images.sh save ./base-images
+# Copy the directory across, then on the target
+scripts/export_base_images.sh load ./base-images
+```
+
+`save` writes one `.tar` per image plus a `manifest.txt` recording the exported
+platform. The image set is derived from the build Dockerfiles, so it always
+matches the current requirements. Export fails before writing anything when an
+image is missing locally, which prevents a silently incomplete set; run
+`./movo build` first to fetch it. `load` warns when the archives were exported
+for a different architecture than the target, and `scripts/export_base_images.sh
+list` shows which required images are present locally.
+
 ## Operations
 
 ```bash

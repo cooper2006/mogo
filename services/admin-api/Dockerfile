@@ -15,11 +15,18 @@ RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip uninstall --yes pip wheel \
     && find /usr/local/lib/python3.10/ensurepip/_bundled -type f -delete
 
-ARG MOVO_SECURITY_REFRESH=local
-RUN test -n "${MOVO_SECURITY_REFRESH}" \
-    && apt-get update \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+# Security refresh is opt-in. A non-empty value (CI passes its run id) applies
+# the latest distro security patches; an empty or "false" value skips the
+# upgrade, which keeps this layer cacheable so a local rebuild does not
+# re-download every package.
+ARG MOVO_SECURITY_REFRESH=
+RUN if [ -n "${MOVO_SECURITY_REFRESH}" ] && [ "${MOVO_SECURITY_REFRESH}" != "false" ]; then \
+        apt-get update \
+        && apt-get upgrade -y \
+        && rm -rf /var/lib/apt/lists/*; \
+    else \
+        echo "Skip apt upgrade (set MOVO_SECURITY_REFRESH to apply security patches)"; \
+    fi
 
 COPY app /app/app
 COPY entrypoint.sh /app/entrypoint.sh

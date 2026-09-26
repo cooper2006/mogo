@@ -77,6 +77,14 @@ movo_msg() {
     en:pulling_images) printf 'Pulling images sequentially (attempt %s)...\n' "$1" ;;
     zh:pull_retry) printf '第 %s 次拉取失败，%s 秒后继续重试；按 Ctrl+C 可停止。\n' "$1" "$2" ;;
     en:pull_retry) printf 'Image pull attempt %s failed; retrying in %s seconds. Press Ctrl+C to stop.\n' "$1" "$2" ;;
+    zh:base_images_reused) printf '基础镜像已存在于本地，跳过远端拉取（复用 %s 个）。\n' "$1" ;;
+    en:base_images_reused) printf 'Base images already exist locally; skipping remote downloads (reused %s).\n' "$1" ;;
+    zh:base_image_pulling) printf '本地缺少基础镜像 %s，正在拉取...\n' "$1" ;;
+    en:base_image_pulling) printf 'Base image %s is missing locally; pulling...\n' "$1" ;;
+    zh:base_image_pull_failed) printf '错误：无法获取基础镜像 %s。\n' "$1" ;;
+    en:base_image_pull_failed) printf 'Error: unable to obtain base image %s.\n' "$1" ;;
+    zh:base_image_missing) printf '错误：本地缺少基础镜像 %s，且当前策略禁止联网拉取。\n' "$1" ;;
+    en:base_image_missing) printf 'Error: base image %s is missing locally and the current policy forbids network pulls.\n' "$1" ;;
     zh:backup_stopping) printf '正在停止服务并创建一致性数据卷备份...\n' ;;
     en:backup_stopping) printf 'Stopping services to create a consistent volume backup...\n' ;;
     zh:backup_failed) printf '备份失败，正在尝试恢复服务。\n' ;;

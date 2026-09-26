@@ -29,6 +29,9 @@ movo_sha256_verify() {
 
 movo_volume_prefix() {
   local prefix="${MOVO_VOLUME_PREFIX:-$(dotenv_value MOVO_VOLUME_PREFIX)}"
+  # Must match the volume names in docker-compose.yml
+  # (${MOVO_VOLUME_PREFIX:-movo}_<suffix>), which stay on the movo prefix: the
+  # Compose project rename to mogo does not touch explicitly named volumes.
   prefix="${prefix:-movo}"
   if [[ ! "${prefix}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
     printf 'Invalid MOVO_VOLUME_PREFIX: %s\n' "${prefix}" >&2

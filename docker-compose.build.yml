@@ -4,6 +4,8 @@ services:
     build:
       context: ./services/chat-api/dsh/runtime-host
       dockerfile: Dockerfile
+      args:
+        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
 
   chat-api:
     pull_policy: build
@@ -14,12 +16,15 @@ services:
         INSTALL_SYSTEM_DEPS_AT_BUILD: "true"
         INSTALL_PLAYWRIGHT_AT_BUILD: "true"
         PLAYWRIGHT_WITH_DEPS: "true"
+        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
 
   admin-api:
     pull_policy: build
     build:
       context: ./services/admin-api
       dockerfile: Dockerfile
+      args:
+        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
 
   document-api:
     pull_policy: build
@@ -31,6 +36,12 @@ services:
         INSTALL_PYTHON_DEPS_AT_BUILD: "true"
         INSTALL_DOCLING_MODELS_AT_BUILD: "true"
         PYTORCH_ACCELERATOR: cpu
+        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
+        # Docling downloads its models from HuggingFace. Set MOVO_HF_ENDPOINT
+        # to a reachable mirror (for example https://hf-mirror.com) when the
+        # default endpoint is blocked; timeout controls the per-request budget.
+        MOVO_HF_ENDPOINT: ${MOVO_HF_ENDPOINT:-}
+        MOVO_HF_TIMEOUT: ${MOVO_HF_TIMEOUT:-120}
 
   document-worker:
     pull_policy: build
@@ -43,6 +54,7 @@ services:
       dockerfile: Dockerfile.prod
       args:
         VITE_ADMIN_WEB_URL: /admin/
+        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
 
   admin-web:
     pull_policy: build
@@ -52,9 +64,12 @@ services:
       args:
         VITE_BASE_PATH: /admin/
         VITE_ADMIN_API_BASE_URL: /admin-api
+        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
 
   gateway:
     pull_policy: build
     build:
       context: ./deploy/docker
       dockerfile: gateway.Dockerfile
+      args:
+        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
