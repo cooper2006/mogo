@@ -6,17 +6,24 @@
 > 见「构建与启动」节）后才在界面上可见。
 >
 > 状态图例：✅ 已实现（代码+测试）｜🖥️ 界面触点｜⚙️ 后台/协议层（无独立 UI）
+>
+> 「实现 vs 接线」口径（2026-09-25 核验 + 生产接线 + UI/业务调用点补齐）：✅ 表示「库代码 + 单测全绿」。
+> **001（chat-api 运行时侧门禁挂载）、007（failover/降级/退避的生产调用点）、009（turn_admission 挂载 + 后端 CRUD + admin-web 钩子规则页 UI）、002（HTTP 端点 + user-web 会话版本化 UI）均已完成生产接线与 UI 落地**（详见 §4「接线状态」）。
+> 001 FR-11 偏离（自建表 vs 复用 EnterpriseApproval）仍待用户拍板。
+> 008 端点/前端、010 四模式引擎（competitor_deep_dive / a2a client 已接入）、011/016 共用 `marked_low_quality` 位、012–019 协议/服务层能力均已接入生产链路或具备生产调用点。
+> 001 另有一处 spec 偏差：FR-11 要求「复用 `EnterpriseApproval`、不新建审批表」，实现为 admin-api 自建 `gate_approvals` 集合（状态机语义一致，建表未达标）。
+> T999 横切审计（`services/feature_audit.py` + `services/feature_audit_bridge.py` + `im_gateway/audit.py` + `dream_cycle/evolution_audit.py`）：事件族 / sink 接口 / 路由到 001 审计流 / 单测完整；**各特性关键事件点已接 `emit_feature_event`**——015 KG mutation/audited、017 memory.promoted、018 asset.registered/status.changed、012 a2a.outbound/denied、014 entity.indexed、016 skill.quality.marked（admin-api 静默降级）。
 
 ## 0. 速查总表
 
 | 优先级 | 特性 | spec | 实现模块（chat-api / admin-api） | 测试 | 界面触点 |
 |---|---|---|---|---|---|
 | P0 | 001 gatekeeper | 001 | `governance/{risk,pii,permission_grants,layers/*}.py` + `routes/governance.py`（admin-api） | 治理矩阵/PII/US4-US5/polish 全绿 | 工具管理风险格、审批中心、配额、审计 |
-| P0 | 007 网关韧性 | 007 | `llm/resilience/{degradation,failover,pricing,metering,retry}.py` + `instrumented_client.py` | `tests/llm/` 韧性 47 项 | 驾驶舱「成本」标签（降级事件时间线） |
-| P0 | 008 驾驶舱 | 008 | `dashboard_usage.py` + `routes/dashboard.py` + `DashboardPage.vue`（admin-web） | `test_dashboard_selfcheck.py` 10 项 | 驾驶舱四维标签页 |
-| P1 | 002 会话版本化 | 002 | `session_versioning/{co_presence,share,audit}.py` | `test_session_us5_and_polish.py` 8 项 | 会话页：版本历史/分享/在线成员 |
-| P1 | 009 钩子拦截 | 009 | `dsh_runtime/hooks/{integration,lifecycle,store,guard}.py` + admin `routes/hooks.py` | `test_hooks_009.py` 17 项 | 管理后台 → 钩子规则（`/api/hooks`） |
-| P1 | 010 DAG 编排 | 010 | `orchestration/{graph,conditions,engine,supervisor,topo,registry}.py` + `services/dag/{skip,retry,builder_migrate}.py` | DAG 25 + 编排既有测试 | 管理后台 → 编排定义 |
+| P0 | 007 网关韧性 | 007 | `llm/resilience/{degradation,failover,pricing,metering,retry}.py` + `llm/instrumented_client.py`（注：instrumented_client 在 `app/llm/`，非 `resilience/` 子目录）+ `configured_models.get_llm_client_by_model_id` 已接 `ResilientLLMClient`（生产生效，FR-9 单实例 no-op） | `tests/llm/` 韧性 39 项（test_resilience 25 + test_resilience_metering 14）；**failover/降级/退避已在生产 LLM 调用路径生效**（`configured_models` 按同 main_id+capability 的 active 实例优先级包进 `ResilientLLMClient`）；401/403 不重试（FR-4）；成本计量复用 008 MODEL_PRICES（FR-5）；新增 6 项单测全绿 | 驾驶舱「成本」标签（降级事件时间线） |
+| P0 | 008 驾驶舱 | 008 | `app/api/dashboard_usage.py` + `app/api/dashboard_metrics.py` + `routes/dashboard.py`（admin-api）+ `DashboardPage.vue`（admin-web `src/views/dashboard/`） | `test_dashboard_selfcheck.py` 10 项 + routes 6 项 + metrics 24 项；端点已接入生产 | 驾驶舱四维标签页 |
+| P1 | 002 会话版本化 | 002 | `session_versioning/{co_presence,share,audit}.py` + `/api/sessions/{id}/commit|versions|share|redeem|revoke|co-presence`（chat-api `dsh_session_versioning.py`）+ user-web `SessionVersioningDrawer.vue` | `test_session_us5_and_polish.py` 8 项 + 端点 5 项全绿；**HTTP 端点 + user-web 会话版本化 UI（版本历史/分享/在线成员 + 5s 心跳）已接入生产** | 会话页：版本历史/分享/在线成员 |
+| P1 | 009 钩子拦截 | 009 | `dsh_runtime/hooks/{integration,lifecycle,store,guard}.py` + `turn_admission.run_pre_tool_use`（生产挂载）+ admin `/api/hooks/rules` CRUD（chat-api `dsh_hooks.py`）+ admin-web `HookRulesPage.vue` | `test_hooks_009.py` 17 项 + 挂载 18 项全绿；**引擎已挂 PreToolUse 门禁 + admin-web 钩子规则页已落地**（浏览器实测 CRUD 跑通） | 管理后台 → 钩子规则（`/hooks/rules`） |
+| P1 | 010 DAG 编排 | 010 | `orchestration/{graph,conditions,engine,supervisor,topo,registry,loader}.py` + `services/dag/{skip,retry,builder_migrate}.py`（`loader.py` 为 YAML 编排加载器，案例二依赖，原表漏列已补） | DAG 25 + 编排既有测试；已接入生产（`research/competitor_deep_dive.py`、`a2a/client.py`） | 管理后台 → 编排定义 |
 | P1 | 011 Dream 自进化 | 011 | `services/dream_cycle/{runner,friction,mr,deprecation,evolution_audit}.py` | dream 系列 32 项 | 管理后台 → 自进化（低采纳检测/MR） |
 | P2 | 012 A2A 网关 | 012 | `a2a/{protocol,agent_card,client}.py` | `test_a2a_client_012.py` 7 项 | ⚙️ 协议层（JSON-RPC 端点/AgentCard） |
 | P2 | 013 多 IM 入口 | 013 | `im_gateway/{router,bindings,webhook,audit}.py` | im_gateway 既有 + T999 审计 | ⚙️ 渠道管理（wecom/feishu 路由） |
@@ -44,6 +51,8 @@ T998 契约见 `contracts/{orchestration,self-evolution,session-versioning-contr
 | 显式授权（permission grants） | 管理后台 → 授权管理 | admin-api `governance/permission_grants.py` + `layers/rbac.py` | RBAC 权限码并集 + 显式授权，fail-closed |
 | 配置变更审计 | 管理后台 → 审计日志 | admin-api `governance/config.py` | 配置变更留 001 审计落点 |
 
+> 偏差注（2026-09-25 核验）：FR-11 要求「复用 `EnterpriseApproval`、不新建审批表」，实现为 admin-api `governance/layers/approval.py` 自建 `gate_approvals` 集合（状态机语义 pending→approved/denied/expired、poll、5min TTL、token 哈希、一次性消费均一致，但「不新建审批表」未达标）；`EnterpriseApproval` 实际位于 `chat-api/app/enterprise_capabilities/tools/contracts.py`。
+
 ### 1.2 007 LLM 网关韧性
 | 功能 | 界面位置 | 代码位置 | 说明 |
 |---|---|---|---|
@@ -67,6 +76,7 @@ T998 契约见 `contracts/{orchestration,self-evolution,session-versioning-contr
 ## 2. P1 — 可靠性与会话级
 
 ### 2.1 002 会话 / 工作流双版本化
+> 接线状态（2026-09-25 生产接线后刷新）：服务层（`session_versioning` 包）已落地并通过 49 项测试；**HTTP 端点 `/api/sessions/{id}/commit|versions|share|redeem|revoke|co-presence` 已建（`dsh_session_versioning.py`）+ user-web 会话版本化 UI（`SessionVersioningDrawer.vue` + `api/sessionVersioning.ts`，含版本历史/分享/在线成员 + 5s 心跳，接入 `ChatWindow.vue`）均已落地**，`latestSeq` 取 `Math.max(versions[末].seq, props.latestSeq)` 精确对齐。
 | 功能 | 界面位置 | 代码位置 | 说明 |
 |---|---|---|---|
 | 会话 commit / 快照 | 会话页 → 版本历史 | `session_versioning`（linear timeline + snapshot commit，seq 乐观锁） | 每次 commit 生成线性时间线；可回看任意版本 |
@@ -76,6 +86,7 @@ T998 契约见 `contracts/{orchestration,self-evolution,session-versioning-contr
 | 工作流级版本化 | 编排定义（GraphSpec） | 010 `orchestration/registry.py`（T003/T021） | 定义带 version；`update()` 版本递增 + 归档旧版可回看；定义期 fail-closed 校验 |
 
 ### 2.2 009 钩子拦截
+> 接线状态（2026-09-25 生产接线后刷新）：钩子引擎 + admin `/api/hooks` CRUD 端点已落地并通过 43 项测试；**运行时已挂载（`turn_admission.run_pre_tool_use` 挂 PreToolUse 钩子门禁，`dsh_chat`/`dsh_execution` 传入 `tool="dsh_turn"` 上下文）；admin-web 钩子规则页（`/hooks/rules` 路由 + `HookRulesPage.vue` + `api/dsh_hooks.ts`，naive-ui 表格+表单）已落地**，浏览器实测全链路 CRUD 跑通。
 | 功能 | 界面位置 | 代码位置 | 说明 |
 |---|---|---|---|
 | PreToolUse 三种规则 | 管理后台 → 钩子规则 `/api/hooks` | `dsh_runtime/hooks/integration.py` + admin `routes/hooks.py` | `deny_tool` / `require_field` / `observe`；作用域 tool > session > tenant；CRUD + 作用域查询 |
@@ -126,6 +137,13 @@ T998 契约见 `contracts/{orchestration,self-evolution,session-versioning-contr
 
 **立即可见（旧镜像已有核心端点）**：驾驶舱总览、工具管理/审批/配额/审计（001 端点）、会话页基础能力。
 **需新代码镜像才可见**：P1 全部（钩子规则页、编排定义、自进化、会话版本/分享/在线）+ P2 全部条目 + 驾驶舱四维增强（成本/使用/质量/趋势标签）。
+
+**接线状态（2026-09-25 核验 + 生产接线 + UI/业务调用点补齐）**：
+- 001 六层门禁：admin-api 侧六层串行链 + R4 三层保险 + PII 四策略 + RBAC 三段式码已实现；**chat-api 运行时侧 `turn_admission.run_gate_plan` 已把 019 `build_gate_plan` 六层启用计划挂到工具调用路径（生产生效），审计层受 floor 约束强制开启，计划求值与门禁事件同落 001 审计流**；FR-11 偏离（`gate_approvals` 自建表 vs `EnterpriseApproval` 复用）仍待用户拍板。
+- 007：**`configured_models.get_llm_client_by_model_id` 已按同 main_id+capability 的 active 实例优先级包进 `ResilientLLMClient`（生产生效，FR-9 单实例 no-op），failover/降级/退避在真实 LLM 调用路径上生效**；401/403 不重试（FR-4）；成本计量复用 008 MODEL_PRICES（FR-5）；新增 6 项单测。
+- 009：**钩子引擎已挂载到 `turn_admission.run_pre_tool_use`（生产生效，fail-closed），`dsh_chat`/`dsh_execution` 传入 `tool="dsh_turn"` 上下文；后端 `/api/hooks/rules` CRUD 已建（009 T015 / US4）；命中/被拒经 `audit_hook_execution` 落 001 审计流**；**admin-web 钩子规则页 UI 已落地**（`/hooks/rules` 路由 + `HookRulesPage.vue` + `api/dsh_hooks.ts`，naive-ui 表格+表单，typecheck 通过）；新增 18 项单测。
+- 002：**`session_versioning` 包已接 HTTP 端点（`/api/sessions/{id}/commit|versions|share|redeem|revoke|co-presence`，生产生效）；share 一次性核销 TTL 默认 300s，过期/失效返回空态；co-presence 无 Redis（Mongo + 短轮询）**；**user-web 会话版本化 UI 已落地**（`SessionVersioningDrawer.vue` 侧边抽屉 + `api/sessionVersioning.ts`，含版本历史/分享/在线成员 + 5s 心跳，接入 `ChatWindow.vue`，typecheck 通过）；新增 5 项单测。
+- T999 审计：**`feature_audit_bridge` 已把 012/014/015/016/017/018 特性事件路由到 001 `position_role_audit_logs`（生产生效），未知 feature/event 抛错 fail-closed；无 DB 时 buffer 不丢事件**；**各特性关键事件点已接 `emit_feature_event`**——015 KG `add_node`/`add_edge`→`kg.mutated`、`check_all`→`kg.audited`；017 `promote_to_org`→`memory.promoted`；018 `register`→`asset.registered`/`set_status`→`asset.status.changed`；012 `A2AClient.send`→`a2a.outbound`/`a2a.denied`；014 `BizEntity` 构造→`entity.indexed`；016 admin-api `mark_low_quality`→`skill.quality.marked`（静默降级）；新增 6 项集成测试。
 
 ## 5. 构建与启动（OrbStack buildx 受限时的经典 builder 路径）
 

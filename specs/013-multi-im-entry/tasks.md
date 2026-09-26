@@ -1,4 +1,4 @@
-# Tasks: Multi IM Entry (IM channel -> MOVO session)
+# Tasks: Multi IM Entry (IM channel -> MOGO session)
 
 **Input**: Design documents from `/specs/013-multi-im-entry/`
 
@@ -6,7 +6,7 @@
 
 **Clarify Decisions (governing tasks, 2026-07-08)**:
 - 首期渠道 = 飞书；纯文本 + 基础 markdown 卡片。
-- IM 会话映射 MOVO 会话（`im_session_bindings`）；HMAC-SHA256 + nonce 防重放 5min。
+- IM 会话映射 MOGO 会话（`im_session_bindings`）；HMAC-SHA256 + nonce 防重放 5min。
 
 **Checklist Gate**: `checklists/requirements.md` 已 100% 勾选。
 
@@ -27,7 +27,7 @@
 ## Phase 3: User Story 1 (P1) — 飞书渠道接入 + 消息映射
 
 - [x] T005 实现 `adapter_base.py` + 飞书 adapter（消息/卡片/鉴权）
-- [x] T006 实现 IM 会话 ↔ MOVO 会话映射（1:1 绑定）
+- [x] T006 实现 IM 会话 ↔ MOGO 会话映射（1:1 绑定）
 - [x] T007 实现 webhook 安全（HMAC-SHA256 + nonce 去重）
 - [x] T008 US1 测试：消息映射 + 响应回传 + 签名校验
 

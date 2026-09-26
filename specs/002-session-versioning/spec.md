@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: 为 MOVO 的 Agent 会话引入会话级版本管理与交接：commit 保存进度、log 回看历史、resume 续写且永不分叉、share 链接交接需求/讨论/执行上下文、多人共用同一会话上下文、会话保存/分享时自动低熵秘密过滤。补齐 GAP 分析 2.6（AgentGit 会话级已验证方向，MOVO 当前空白）。
+**Input**: 为 MOGO 的 Agent 会话引入会话级版本管理与交接：commit 保存进度、log 回看历史、resume 续写且永不分叉、share 链接交接需求/讨论/执行上下文、多人共用同一会话上下文、会话保存/分享时自动低熵秘密过滤。补齐 GAP 分析 2.6（AgentGit 会话级已验证方向，MOGO 当前空白）。
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -123,6 +123,6 @@
 - **与 001（gatekeeper）**：002 的会话级事件（进入/离开/commit/resume/share/解引用）进 001 的审计落点；会话交接的授权复用 001 权限码模型（见 001 spec）。
 - **与 009（hooks-interception）**：002 的会话生命周期事件（SessionStart/SessionEnd/MemoryCommit）**经 009 钩子触发**——002 提供事件语义，009 提供钩子挂载点。
 - **与 011（dream-cycle）**：002 的会话快照（`session_snapshots`）是 011 自进化的**经验来源之一**（011 从会话 commit/沉淀中提取经验片段）。
-- **与 013（multi-im-entry）**：002 的会话模型**可承载 IM 渠道会话**——IM 会话经 `im_session_bindings` 映射为 MOVO 会话，渠道标识（channel/channel_session_id）存于绑定表，002 的 commit/share 对 IM 会话同样生效。
+- **与 013（multi-im-entry）**：002 的会话模型**可承载 IM 渠道会话**——IM 会话经 `im_session_bindings` 映射为 MOGO 会话，渠道标识（channel/channel_session_id）存于绑定表，002 的 commit/share 对 IM 会话同样生效。
 - **与 017（three-scope-memory）**：002 的会话沉淀（FR-5）**可产记忆**——会话结束时按范围沉淀为 017 的 personal/workspace 记忆。
 - **与 005（knowledge-rag）边界**：002 的 share 交接的是**会话上下文（工作状态）**，005 分享的是**知识（可检索资产）**，二者不同层（会话 vs 知识），不混淆。

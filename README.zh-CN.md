@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="#5-分钟快速启动"><strong>🚀 快速开始</strong></a> ·
-  <a href="docs/MOVO企业级智能体功能补强规划.md"><strong>📐 功能补强规划</strong></a> ·
+  <a href="docs/企业级智能体功能补强规划.md"><strong>📐 功能补强规划</strong></a> ·
   <a href="docs/SDD界面呈现对照表.md"><strong>🔍 SDD 界面呈现对照表</strong></a> ·
   <a href="docs/cases/README.md"><strong>🧩 落地案例</strong></a>
 </p>
@@ -33,7 +33,7 @@
 
 <br>
 
-本仓库包含可私有化部署的墨攻社区版。
+本仓库包含可私有化部署的墨攻开源版。
 
 ## 与开源 MOVO 的关系
 
@@ -69,13 +69,13 @@ specs/                    # 19 个特性规格，每个含完整规格链路
   INDEX.md                # 规格索引
 ```
 
-每个特性目录包含 `spec.md`（需求与验收）、`plan.md`（技术方案）、`tasks.md`（可勾选任务）、`checklist.md`（质量清单）与 `contracts/`（接口契约）。**19 个特性的 tasks 已全部勾选完成**，实现、测试与契约同步落地。
+每个特性目录包含 `spec.md`（需求与验收）、`plan.md`（技术方案）、`checklists/requirements.md`（质量清单），其中 15 个补齐特性（001/002/007–019）另有 `tasks.md`（可勾选任务）与（适用的）`contracts/` 契约件（顶层 5 份 T998 契约 + 4 个 spec 内契约）。**15 份 `tasks.md`（270 项）已全部勾选完成**，实现与测试同步落地；4 个既有回溯特性（003–006，重述 MOVO 已有能力）保留 `spec.md` + `plan.md` + checklist 的原始状态，未建 `tasks.md`。
 
 这样做的收益是：每一条企业能力都有对应的需求来源、验收标准与测试证据，界面触点与规格的映射关系记录在 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md)。
 
 ## 主线二：企业级功能补强
 
-补强清单来自 [`docs/MOVO企业级智能体功能补强规划.md`](docs/MOVO企业级智能体功能补强规划.md)，按 P0 → P1 → P2 三档优先级推进。规划中的 15 个清单项（其中治理与风控层含六层门禁、风险矩阵、权限码、脱敏等子能力）**已全部实现并通过测试**。
+补强清单来自 [`docs/企业级智能体功能补强规划.md`](docs/企业级智能体功能补强规划.md)，按 P0 → P1 → P2 三档优先级推进。规划中的 15 个清单项（其中治理与风控层含六层门禁、风险矩阵、权限码、脱敏等子能力）**已全部实现并通过测试**（口径：库代码 + 单测，全绿；其中 001 六层门禁（运行时侧）、007 网关韧性、009 Hooks、002 会话版本化已完成生产接线 + UI 落地，详见 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md) §4 的接线状态说明）。
 
 ### P0 —— 企业入场券：合规刚需与生产可用性
 
@@ -174,7 +174,7 @@ http://localhost:3000/admin/setup
 
 启动器会拉取官方预构建镜像、等待服务就绪并打印初始化地址，无需准备 `.env` 文件或本地构建镜像。Windows 用户请在 Ubuntu WSL 2 发行版中运行墨攻，参见 [Windows 安装指南](docs/windows-installation.zh-CN.md)。
 
-## 社区版说明
+## 开源版说明
 
 通过私有化初始化流程创建的租户会被标记为 `community`：
 
@@ -271,6 +271,29 @@ DSH_RUNTIME_HOSTS_URL=http://dsh-runtime-host-1:8101,http://dsh-runtime-host-2:8
 
 `docker-compose.yml` 已提供三副本与 sticky LB 的参考配置，LB 规则见 `deploy/docker/dsh-runtime-lb.conf`。增加副本时同时补充 `DSH_RUNTIME_HOSTS_URL` 与服务定义即可。
 
+### DSH 运行时版本
+
+MOGO 将 DeepSeek Harness（DSH）Agent 内核**钉版到确切的 release train**，而非浮动范围，因此重新构建不会悄悄改变 Agent 行为：
+
+| 项 | 值 |
+| --- | --- |
+| DSH release train | `0.1.7-rc.2` |
+| 钉版依赖 | `services/chat-api/dsh/runtime-host/package.json` 中的 17 个 `@deepseek-ai/dsh*` 包 |
+| Node 运行时 | `^22.19.0 \|\| >=24.0.0` |
+| Host 协议 | `askai.dsh-host.v1` |
+| Host overlay | `askai-dsh-host-v1` |
+
+版本的权威声明位于 [`services/chat-api/dsh/compatibility-matrix.yaml`](services/chat-api/dsh/compatibility-matrix.yaml)；解析后的依赖图锁定在 `services/chat-api/dsh/runtime-host/pnpm-lock.yaml`，`services/chat-api/dsh/` 下的 `versions.lock` 与 `sbom.cdx.json` 随之一并重新生成。预构建镜像已内置钉版内核，因此常规的 `./movo update` **不会**改变 DSH train。
+
+**升级 DSH train** 属于源码改动，因为内核是构建期依赖：
+
+1. 更新 `services/chat-api/dsh/runtime-host/package.json` 的钉版号，刷新该目录下的 `pnpm-lock.yaml`，随后重新生成 `services/chat-api/dsh/` 下的 `versions.lock` 与 `sbom.cdx.json`。
+2. 更新 `compatibility-matrix.yaml` 的 `active_release` 与 `supported_releases`。**保留上一版本条目**，以便回滚镜像仍有已声明的契约。
+3. 重新构建 Runtime Host 镜像，并从源码重建（`./movo up --build`）。
+4. 部署前运行守护测试：`services/chat-api/dsh/runtime-host`（`node --test tests/*.test.mjs`）与 `services/chat-api/tests/dsh_runtime/test_dsh_upgrade_contract.py`——当契约矩阵、`package.json` 与随镜像发布的 web app 三者不一致时会失败。
+
+请把 train 升级视为**兼容性变更而非补丁升级**。DSH 历史版本曾重命名 preset 机制、改变工具结果的消息结构、收紧插件可见性规则；这些都可能让一个"仍能正常启动"的 host overlay 实际失效。升级时请先 diff 新 train 随包发布的 host 平面，不要假定旧 overlay 依旧适用——`0.1.6-alpha.1` → `0.1.7-rc.2` 这次就需要让 overlay 重新透传官方 web-app patch 声明的禁用行。`docs/WORK_LOG.md` 记录了该次升级中发现的具体破坏点，`docs/DSH-0.1.7-skill-catalog-定位报告.md` 则完整记录了其中一例的端到端定位过程。
+
 ### 配置
 
 默认本地部署不需要 `.env` 文件。如需修改对外端口、规范地址、镜像版本或卷前缀：
@@ -340,6 +363,6 @@ python3 scripts/check_open_source_hygiene.py
 
 ## 许可证
 
-墨攻社区版基于 [MOVO 社区许可证](LICENSE) 发布，该许可证以 Apache License 2.0 为基础并附加条件。未经书面授权，不得用于运营多租户托管 SaaS 服务，不得删除或修改所包含前端的标识与版权声明，也不得将本项目或其衍生作品作为以本项目为主要产品的 OEM、白标或贴牌企业级 Agent 平台进行销售。
+墨攻开源版基于 [MOVO 社区许可证](LICENSE) 发布，该许可证以 Apache License 2.0 为基础并附加条件。未经书面授权，不得用于运营多租户托管 SaaS 服务，不得删除或修改所包含前端的标识与版权声明，也不得将本项目或其衍生作品作为以本项目为主要产品的 OEM、白标或贴牌企业级 Agent 平台进行销售。
 
 由于上述附加条件，MOVO 社区许可证并非未经修改的 Apache License 2.0，也不应被表述为经 OSI 认证的开源许可证。如需商业授权、多租户 SaaS 授权、OEM 或白标分发，请联系 `support@himovo.com`。

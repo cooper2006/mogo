@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: 回溯固化 MOVO 既有优势能力（规划文档 §1.2"SkillHub 市场 + ZIP 安装、知识闭环与生态分发已成型"）：组织级 Skill 生命周期（草稿→发布→版本回看→反馈）、SkillHub ZIP 安装与包校验、Skill 启用/停用与授权、Skill 更新与分享、以及 Skill 调用进入治理审计。
+**Input**: 回溯固化 MOGO 既有优势能力（规划文档 §1.2"SkillHub 市场 + ZIP 安装、知识闭环与生态分发已成型"）：组织级 Skill 生命周期（草稿→发布→版本回看→反馈）、SkillHub ZIP 安装与包校验、Skill 启用/停用与授权、Skill 更新与分享、以及 Skill 调用进入治理审计。
 
 ## User Scenarios & Testing *(mandatory)*
 

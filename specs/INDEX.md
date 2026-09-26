@@ -52,9 +52,9 @@
 - spec.md：001–019 全部完成（19 份）
 - plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
 - checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–019 共 15 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态
-- tasks（可执行任务，`/speckit-tasks`）：**001–019 全部完成（19/19）**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）
+- tasks（可执行任务，`/speckit-tasks`）：**001/002/007–019 共 15 份全部完成**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；003–006（既有回溯）无 `tasks.md`，保留 spec + plan + checklist 原始状态
 - 实现进度（`/speckit-implement`，2026-07-08）：**19 个特性全部已有实现核心/ MVP**——P0（001/007/008）完整 MVP；P1（002/009/010/011）核心；P2（012–019）核心全部落地。合计 **313 项新测试通过**（admin-api 89 + chat-api 224）
-- clarify（OQ 消解）：001–019 全部完成（19 份），各 spec 新增 "Clarify 记录" 节 + plan "Open Questions（已 clarify 消解）"。关键消解：
+- clarify（OQ 消解）：**001/002/007–019 共 15 份已消解**（003–006 既有回溯未做 clarify）。消解记录位置：001/002/007–011 在 spec 的 "Clarify 记录" 节；012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
   - 007：tenacity 既有依赖；退避 1.5s/30s/±10%/3 次；事件落 token_usage_logs
   - 008：人工介入率=审批挂起数；P50/P95 取 token_usage_logs.duration_ms；瓶颈 top-N；DashboardPage 加标签页
@@ -102,7 +102,9 @@
 
 ## 六、SDD 路径
 
-- 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅ → 后续 `/speckit-tasks` → `/speckit-analyze`
+- 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅ → 无 `tasks.md`（保留原始状态）→ 后续按需补 `/speckit-tasks` + `/speckit-analyze`
 - 缺口 P0（001/007/008）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ✅（本轮补齐）→ analyze → implement → converge
 - 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ✅（本轮补齐）→ analyze → implement → converge
-- P2 后置（012–019）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ⏳ → 按路线图节奏 implement
+- P2 后置（012–019）：spec ✅ → plan ✅ → clarify ✅（记录在 plan 的 "Open Questions" 节）→ checklist ✅（已评审勾选）→ tasks ✅（15 份之一，本轮补齐）→ 按路线图节奏 implement
+
+> 注：「本轮补齐」= 2026-09 SDD 补全轮。clarify 消解记录位置说明：001/002/007–011 在 spec 的 "Clarify 记录" 节，012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节。

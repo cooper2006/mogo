@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: 补齐规划文档清单 5（P1）"DAG 编排引擎"：四模式（sequential / supervisor / hybrid / graph）、DAG 拓扑排序 + 环检测、条件跳过（表达式求值）、节点级重试（指数退避）。通用化 MOVO 当前的"内容规划/研究模式"（`enterprise_capabilities/content/planning`），使其不再仅限内容场景。
+**Input**: 补齐规划文档清单 5（P1）"DAG 编排引擎"：四模式（sequential / supervisor / hybrid / graph）、DAG 拓扑排序 + 环检测、条件跳过（表达式求值）、节点级重试（指数退避）。通用化 MOGO 当前的"内容规划/研究模式"（`enterprise_capabilities/content/planning`），使其不再仅限内容场景。
 
 ## User Scenarios & Testing *(mandatory)*
 

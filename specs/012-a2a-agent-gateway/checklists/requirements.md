@@ -26,11 +26,11 @@
 
 - [x] CHK009 与 001（gatekeeper）"A2A 调用入口复用 001 门禁/审计"（FR-6/Notes）——001 是否声明 A2A 入口是其门禁链的受管入口（001 Non-Goals 的特性编号引用是否含 012，同 001 CHK011）？
 - [x] CHK010 与 018（capability-asset-registration）"对外 Agent 能力可注册为资产"（Notes）——018 是否声明"显式标记 a2a_exposed 才生成 AgentCard"（clarify 018 OQ-5 定了显式标记，012 是否同步该约束）？
-- [x] CHK011 "双向都过 001 审计"（US3/clarify OQ-3）——作为 A2A 客户端调用外部 Agent 时，外部 Agent 是否也需进 001 审计（MOVO 侧发起的出站调用审计口径）是否定义？
+- [x] CHK011 "双向都过 001 审计"（US3/clarify OQ-3）——作为 A2A 客户端调用外部 Agent 时，外部 Agent 是否也需进 001 审计（MOGO 侧发起的出站调用审计口径）是否定义？
 
 ## 边界与歧义（Edge cases & Ambiguity）
 
-- [x] CHK012 任务执行中 MOVO 侧被调用 Agent 失败（如 001 拒绝）时，JSON-RPC 错误码如何映射（A2A 错误规范与 001 拒绝码的对应关系）？
+- [x] CHK012 任务执行中 MOGO 侧被调用 Agent 失败（如 001 拒绝）时，JSON-RPC 错误码如何映射（A2A 错误规范与 001 拒绝码的对应关系）？
 - [x] CHK013 幂等性：外部系统重复下发同一任务（同 task id）是否定义去重语义（spec 未提幂等）？
 - [x] CHK014 AgentCard 鉴权"方式"（FR-1 字段）是否枚举（API key/OAuth/互信凭据，clarify 靠 006 RBAC 组织边界，鉴权凭证如何协商未定）？
 - [x] CHK015 P2P 去中心化发现被排除（Non-Goals），中心式 AgentCard 注册的外部 Agent 列表如何维护（谁注册、注册流程）是否定义？

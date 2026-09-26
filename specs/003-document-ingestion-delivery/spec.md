@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: 回溯固化 MOVO 既有优势能力（规划文档 §1.2 确认的"文档理解 + 内容生成"差异化强项）：多格式文档解析（PDF/DOCX/XLSX/PPTX/CSV/MD + 文档内图片图表）、解析产物进 RAG 检索（保留引用锚点）、Office 预览转换、以及报告/文章/PPTX/表格/PDF/MD 交付物生成与发布装配。
+**Input**: 回溯固化 MOGO 既有优势能力（规划文档 §1.2 确认的"文档理解 + 内容生成"差异化强项）：多格式文档解析（PDF/DOCX/XLSX/PPTX/CSV/MD + 文档内图片图表）、解析产物进 RAG 检索（保留引用锚点）、Office 预览转换、以及报告/文章/PPTX/表格/PDF/MD 交付物生成与发布装配。
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -61,7 +61,7 @@ Agent 的内容生成流水线可按输出规格产出交付物：报告/文章�
 - 装配失败可定位到具体步骤
 
 ### Notes / Assumptions
-- 本特性为**回溯固化**既有能力（规划文档 §1.2"MOVO 已强于 EntAgent、不应重复投入"的边界），目标是把现有行为写成可验收的契约，防止回归
+- 本特性为**回溯固化**既有能力（规划文档 §1.2"MOGO 已强于 EntAgent、不应重复投入"的边界），目标是把现有行为写成可验收的契约，防止回归
 - 解析服务：services/document-parser（Celery + Redis + MongoDB 任务态 + Docling 运行时 + LibreOffice 预览）
 - 内容生成：services/chat-api 的 enterprise_capabilities/content（writer_engine + publish_assembly）
 - Docling 版本 pin 与离线模型资产是部署约定（客户环境首传不下载模型）

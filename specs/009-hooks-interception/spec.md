@@ -54,7 +54,7 @@
 
 ### Notes / Assumptions
 - 本特性补齐规划文档清单 4（P1，低成本高扩展），属缺口新特性
-- 现状：仓库无自身钩子/拦截器框架（"hooks" 仅出现在 browser engine 与第三方库），MOVO 当前基本空缺
+- 现状：仓库无自身钩子/拦截器框架（"hooks" 仅出现在 browser engine 与第三方库），MOGO 当前基本空缺
 - 现有近似挂载点：`dsh_runtime/turn_admission.py`（admit_skill_selection）、`governance/approval_runtime.py`（ApprovalRuntime）、`dsh_runtime/tool_gateway`
 - 与特性 001（gatekeeper）的关系：PreToolUse 是 001 六层门禁链的"可扩展拦截"扩展点，二者互补（001 是固定六层，009 是声明式规则驱动）
 - 与特性 002（session-versioning）的关系：SessionStart/End/MemoryCommit 是 002 会话生命周期事件的钩子载体

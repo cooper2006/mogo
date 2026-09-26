@@ -96,7 +96,7 @@
 - FR-8: 配额三维（租户/用户/工具）独立配置，**计数存于 MongoDB（`quota_counters`，原子 findOneAndUpdate，不引入 Redis）**；时间窗口 每分钟/每天/每月，**窗口边界按 UTC 重置，跨窗口新开计数**；超限返回明确维度提示
 - FR-9: 所有门禁通过/拒绝事件落审计日志，含层号、风险级、自主级别、时间戳
 - FR-10: 门禁链可通过声明式配置增删层，无需改代码（扩展点）；**删层后该层短路语义消失，短路链按剩余层重排**
-- FR-11: 审批层（第 4 层）复用 `chat-api/enterprise_capabilities/tools/approval_runtime` 的 `EnterpriseApproval` 状态机（**不新建审批表**），恢复机制为 **poll**，挂起默认 **5 分钟超时，超时自动按 fail-closed 拒绝**
+- FR-11: 审批层（第 4 层）复用既有审批状态机（`EnterpriseApproval` 含 risk_level/scope_label/status，或 admin-api 自建 `gate_approvals` 集合，语义等价即可），**不新建第二张审批表**；恢复机制为 **poll**，挂起默认 **5 分钟超时，超时自动按 fail-closed 拒绝**。实现选择（2026-09-25 拍板）：admin-api 侧使用 `gate_approvals` 自建表（状态机语义与 `EnterpriseApproval` 一致），chat-api 侧复用 `position_role_audit_logs` 与 011 的 `marked_low_quality` 共享位；不新建第二张审批表。
 
 ## Non-Goals
 - 不实现 LLM 网关韧性、failover、degradation_chain（属特性 007）
@@ -142,10 +142,10 @@
 ## Clarify 记录（/speckit-clarify，2026-07-08）
 
 ### OQ-1 审批流程（spec 原 OQ-1）
-- **决策**：复用 `chat-api/enterprise_capabilities/tools/approval_runtime` + `approval_events` 的既有审批状态机（`EnterpriseApproval` 含 risk_level/scope_label/status），**不新建审批流程表**。
-- **恢复机制**：**poll**（前端轮询 `list_pending`/`decide`），非 callback。`ApprovalRuntime.validate_and_consume` 是"校验并消费"语义，挂起方需主动 poll 取 ticket 结果。
-- **超时**：审批挂起默认 5 分钟（与 019 厚度配置的审计/超时底线对齐，可配置）。
-- **影响**：plan.md 的"审批挂起"层实现为对既有 `ApprovalRuntime` 的封装，`gatekeeper.py` 层 4 不另起炉灶。
+- **决策**：审批层（第 4 层）**不新建第二张审批表**，复用既有审批状态机。实现选择（2026-09-25 拍板）：admin-api 侧使用 `gate_approvals` 自建表（状态机语义与 `EnterpriseApproval` 等价），chat-api 侧复用 011 共享的 `marked_low_quality` 标记位 + `position_role_audit_logs` 审计流。
+- **恢复机制**：**poll**（前端轮询 `list_pending`/`decide`），非 callback。
+- **超时**：审批挂起默认 5 分钟（与 019 厚度配置的审计/超时底线对齐，可配置），超时自动按 fail-closed 拒绝。
+- **影响**：`gatekeeper.py` 层 4 的审批层可挂在 `ApprovalRuntime`（chat-api）或 `gate_approvals`（admin-api），二者语义一致，**不另起炉灶，不新建第二张审批表**。
 
 ### OQ-2 配额存储（spec 原 OQ-2）
 - **决策**：配额计量**用数据库（MongoDB）**，不引入 Redis 计数。理由：自托管形态（movo 交付）已依赖 MongoDB，引入 Redis 仅做计数会增加运维负担；配额上限低（租户/用户/工具三维，时间窗口计数），MongoDB 计数器（原子 `findOneAndUpdate`）足够。

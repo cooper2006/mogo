@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="#start-in-5-minutes"><strong>🚀 Quick Start</strong></a> ·
-  <a href="docs/MOVO企业级智能体功能补强规划.md"><strong>📐 Capability Roadmap</strong></a> ·
+  <a href="docs/企业级智能体功能补强规划.md"><strong>📐 Capability Roadmap</strong></a> ·
   <a href="docs/SDD界面呈现对照表.md"><strong>🔍 SDD Traceability</strong></a> ·
   <a href="docs/cases/README.md"><strong>🧩 Cases</strong></a>
 </p>
@@ -33,7 +33,7 @@ MOGO is an enterprise Agent platform built on top of the open-source MOVO platfo
 
 <br>
 
-This repository contains the self-hosted MOGO Community Edition.
+This repository contains the self-hosted MOGO Open-Source Edition.
 
 ## Relationship to open-source MOVO
 
@@ -69,13 +69,13 @@ specs/                    # 19 feature specifications, each with a complete chai
   INDEX.md                # specification index
 ```
 
-Each feature directory holds `spec.md` (requirements and acceptance), `plan.md` (technical approach), `tasks.md` (checkable tasks), `checklist.md` (quality checklist) and `contracts/` (interface contracts). **All 19 features have every task checked off**, with implementation, tests and contracts landed together.
+Each feature directory holds `spec.md` (requirements and acceptance), `plan.md` (technical approach), `checklists/requirements.md` (quality checklist) and — for the 15 gap-closing features (001/002/007–019) — `tasks.md` (checkable tasks) and, where a T998 interface contract applies, `contracts/` (5 top-level `contracts/*.md` plus 4 per-spec contract files). **All 15 `tasks.md` files (270 items) are checked off**, with implementation and tests landed together; the 4 retrospective features (003–006, re-documenting capabilities MOVO already had) keep their original `spec.md` + `plan.md` + checklist state without `tasks.md`.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
 ## Line two: enterprise capability hardening
 
-The hardening backlog comes from [`docs/MOVO企业级智能体功能补强规划.md`](docs/MOVO企业级智能体功能补强规划.md) and is sequenced P0 → P1 → P2. **All 15 backlog items are implemented and covered by tests** (the governance item itself spans several sub-capabilities: the six-layer gate, the risk matrix, permission codes and redaction).
+The hardening backlog comes from [`docs/企业级智能体功能补强规划.md`](docs/企业级智能体功能补强规划.md) and is sequenced P0 → P1 → P2. **All 15 backlog items are implemented and covered by tests** (the governance item itself spans several sub-capabilities: the six-layer gate, the risk matrix, permission codes and redaction). "Implemented" here means library code plus unit tests, all green; four of them (the 001 six-layer gate on the runtime side, 007 gateway resilience, 009 hooks, 002 session versioning) have completed **production wiring + UI delivery** — see the wiring notes in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md) §4.
 
 ### P0 — the compliance entry ticket: production availability
 
@@ -174,7 +174,7 @@ http://localhost:3000/admin/setup
 
 The launcher pulls the official prebuilt images, waits for the services to become healthy and prints the setup address. No `.env` file or local image build is required. Windows users should run MOGO inside an Ubuntu WSL 2 distribution; see the [Windows installation guide](docs/windows-installation.md).
 
-## Community Edition
+## Open-Source Edition
 
 A tenant created by the self-hosted setup flow is marked as `community`:
 
@@ -271,6 +271,29 @@ DSH_RUNTIME_HOSTS_URL=http://dsh-runtime-host-1:8101,http://dsh-runtime-host-2:8
 
 `docker-compose.yml` ships a reference configuration with three replicas and the sticky LB; the LB rules live in `deploy/docker/dsh-runtime-lb.conf`. Adding a replica means extending `DSH_RUNTIME_HOSTS_URL` and adding the matching service.
 
+### DSH runtime version
+
+MOGO pins the DeepSeek Harness (DSH) Agent kernel to an exact release train rather than a floating range, so a rebuild cannot silently change Agent behavior:
+
+| Item | Value |
+| --- | --- |
+| DSH release train | `0.1.7-rc.2` |
+| Pinned packages | 17 `@deepseek-ai/dsh*` packages in `services/chat-api/dsh/runtime-host/package.json` |
+| Node runtime | `^22.19.0 \|\| >=24.0.0` |
+| Host protocol | `askai.dsh-host.v1` |
+| Host overlay | `askai-dsh-host-v1` |
+
+The authoritative declaration lives in [`services/chat-api/dsh/compatibility-matrix.yaml`](services/chat-api/dsh/compatibility-matrix.yaml); the resolved dependency graph is locked in `services/chat-api/dsh/runtime-host/pnpm-lock.yaml`, and `versions.lock` plus `sbom.cdx.json` under `services/chat-api/dsh/` are regenerated alongside it. Prebuilt images already carry the pinned kernel, so a normal `./movo update` does not change the DSH train.
+
+**Upgrading the DSH train** is a source change, because the kernel is a build-time dependency:
+
+1. Update the pinned versions in `services/chat-api/dsh/runtime-host/package.json`, refresh that directory's `pnpm-lock.yaml`, then regenerate `versions.lock` and `sbom.cdx.json` under `services/chat-api/dsh/`.
+2. Update `active_release` and `supported_releases` in `compatibility-matrix.yaml`. Keep the previous train listed so a rollback image still has a declared contract.
+3. Rebuild the Runtime Host image and rebuild from source (`./movo up --build`).
+4. Run the guard tests before deploying: `services/chat-api/dsh/runtime-host` (`node --test tests/*.test.mjs`) and `services/chat-api/tests/dsh_runtime/test_dsh_upgrade_contract.py`, which fails when the matrix, `package.json` and the shipped web app disagree.
+
+Treat a train upgrade as a compatibility change, not a patch bump. DSH releases have historically renamed preset mechanisms, changed tool-result message shapes, and tightened plugin visibility rules; each of those can break a host overlay that still boots successfully. When upgrading, diff the host plane the new train ships before assuming the old overlay still applies — the `0.1.6-alpha.1` → `0.1.7-rc.2` move required the overlay to re-emit the disabled rows the official web-app patch declares. `docs/WORK_LOG.md` records the concrete breakages found in that move, and `docs/DSH-0.1.7-skill-catalog-定位报告.md` documents one of them end to end.
+
 ### Configuration
 
 The default local deployment does not require an `.env` file. To change the public port, canonical URL, image version or volume prefix:
@@ -340,6 +363,6 @@ python3 scripts/check_open_source_hygiene.py
 
 ## License
 
-MOGO Community Edition is source-available under the [MOVO Community License](LICENSE), based on Apache License 2.0 with additional conditions. Without written authorization, the license does not permit operating a hosted multi-tenant SaaS offering, removing or modifying the logo and copyright notices in the included frontends, or selling MOGO or a derivative as an OEM, white-label, or rebranded enterprise Agent platform whose primary product is MOGO itself.
+MOGO Open-Source Edition is source-available under the [MOVO Community License](LICENSE), based on Apache License 2.0 with additional conditions. Without written authorization, the license does not permit operating a hosted multi-tenant SaaS offering, removing or modifying the logo and copyright notices in the included frontends, or selling MOGO or a derivative as an OEM, white-label, or rebranded enterprise Agent platform whose primary product is MOGO itself.
 
 These additional restrictions mean that the MOVO Community License is not the unmodified Apache License 2.0 and should not be represented as an OSI-approved open-source license. For commercial licensing, multi-tenant SaaS authorization, OEM or white-label distribution, or alternative branding rights, contact `support@himovo.com`.
