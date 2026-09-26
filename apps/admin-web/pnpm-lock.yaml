@@ -43,17 +43,17 @@ importers:
         version: 4.4.5(vue@3.4.38(typescript@5.6.3))
     devDependencies:
       '@types/node':
-        specifier: 20.17.6
-        version: 20.17.6
+        specifier: 26.6.2
+        version: 26.6.2
       '@vitejs/plugin-vue':
         specifier: 4.6.2
-        version: 4.6.2(vite@4.5.5(@types/node@20.17.6))(vue@3.4.38(typescript@5.6.3))
+        version: 4.6.2(vite@4.5.5(@types/node@26.6.2))(vue@3.4.38(typescript@5.6.3))
       typescript:
         specifier: 5.6.3
         version: 5.6.3
       vite:
         specifier: 4.5.5
-        version: 4.5.5(@types/node@20.17.6)
+        version: 4.5.5(@types/node@26.6.2)
       vue-tsc:
         specifier: 2.1.10
         version: 2.1.10(typescript@5.6.3)
@@ -351,8 +351,8 @@ packages:
   '@types/lodash@4.17.25':
     resolution: {integrity: sha512-+K1NIO8I+F9/wNulfVvu23QYd0Pe9/OCqRrim4NoYIf1VoEDL90Ve4ClzpyqBLc7NpGGWRvYNCKZ1BE/Jpf8dQ==}
 
-  '@types/node@20.17.6':
-    resolution: {integrity: sha512-VEI7OdvK2wP7XHnsuXbAJnEpEkF6NjSN45QJlL4VGqZSXsnicpesdTWsg9RISeSdYd3yeRj/y3k5KGjUXYnFwQ==}
+  '@types/node@26.6.2':
+    resolution: {integrity: sha512-X1P21scMv4zGKLYqjdGjaKa7COa0RKVYYZZN/NfvLQ1JegxFhdhpZG/Lyn8AXx6CDUavKAd11v6BvfpkDByK8g==}
 
   '@vitejs/plugin-vue@4.6.2':
     resolution: {integrity: sha512-kqf7SGFoG+80aZG6Pf+gsZIVvGSCKE98JbiWqcCV9cThtg91Jav0yvYFC9Zb+jKetNGF6ZKeoaxgZfND21fWKw==}
@@ -369,6 +369,11 @@ packages:
 
   '@volar/typescript@2.4.28':
     resolution: {integrity: sha512-Ja6yvWrbis2QtN4ClAKreeUZPVYMARDYZl9LMEv1iQ1QdepB6wn0jTRxA9MftYmYa4DQ4k/DaSZpFPUfxl8giw==}
+    peerDependencies:
+      typescript: '*'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   '@vue/compiler-core@3.4.38':
     resolution: {integrity: sha512-8IQOTCWnLFqfHzOGm9+P8OPSEDukgg3Huc92qSG49if/xI2SAwLHQO2qaPQbjCWPBcQoO1WYfXfTACUrWV3c5A==}
@@ -662,8 +667,8 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
-  undici-types@6.19.8:
-    resolution: {integrity: sha512-ve2KP6f/JnbPBFyobGHuerC9g1FYGn/F8n1LWTwNxCEzd6IfqTwUQcNXgEtmmQ6DlRrC1hrSrBnCZPokRrDHjw==}
+  undici-types@8.9.0:
+    resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
   vdirs@0.1.8:
     resolution: {integrity: sha512-H9V1zGRLQZg9b+GdMk8MXDN2Lva0zx72MPahDKc30v+DtwKjfyOSXWRIX4t2mhDubM1H09gPhWeth/BJWPHGUw==}
@@ -967,13 +972,13 @@ snapshots:
 
   '@types/lodash@4.17.25': {}
 
-  '@types/node@20.17.6':
+  '@types/node@26.6.2':
     dependencies:
-      undici-types: 6.19.8
+      undici-types: 8.9.0
 
-  '@vitejs/plugin-vue@4.6.2(vite@4.5.5(@types/node@20.17.6))(vue@3.4.38(typescript@5.6.3))':
+  '@vitejs/plugin-vue@4.6.2(vite@4.5.5(@types/node@26.6.2))(vue@3.4.38(typescript@5.6.3))':
     dependencies:
-      vite: 4.5.5(@types/node@20.17.6)
+      vite: 4.5.5(@types/node@26.6.2)
       vue: 3.4.38(typescript@5.6.3)
 
   '@volar/language-core@2.4.28':
@@ -982,11 +987,13 @@ snapshots:
 
   '@volar/source-map@2.4.28': {}
 
-  '@volar/typescript@2.4.28':
+  '@volar/typescript@2.4.28(typescript@5.6.3)':
     dependencies:
       '@volar/language-core': 2.4.28
       path-browserify: 1.0.1
       vscode-uri: 3.2.0
+    optionalDependencies:
+      typescript: 5.6.3
 
   '@vue/compiler-core@3.4.38':
     dependencies:
@@ -1329,20 +1336,20 @@ snapshots:
 
   typescript@5.6.3: {}
 
-  undici-types@6.19.8: {}
+  undici-types@8.9.0: {}
 
   vdirs@0.1.8(vue@3.4.38(typescript@5.6.3)):
     dependencies:
       evtd: 0.2.4
       vue: 3.4.38(typescript@5.6.3)
 
-  vite@4.5.5(@types/node@20.17.6):
+  vite@4.5.5(@types/node@26.6.2):
     dependencies:
       esbuild: 0.18.20
       postcss: 8.5.28
       rollup: 3.30.0
     optionalDependencies:
-      '@types/node': 20.17.6
+      '@types/node': 26.6.2
       fsevents: 2.3.3
 
   vooks@0.2.12(vue@3.4.38(typescript@5.6.3)):
@@ -1363,7 +1370,7 @@ snapshots:
 
   vue-tsc@2.1.10(typescript@5.6.3):
     dependencies:
-      '@volar/typescript': 2.4.28
+      '@volar/typescript': 2.4.28(typescript@5.6.3)
       '@vue/language-core': 2.1.10(typescript@5.6.3)
       semver: 7.8.5
       typescript: 5.6.3
