@@ -19,7 +19,10 @@ from app.services.skill_market.scoring import (
     LOW_QUALITY_SUSTAINED_DAYS,
     LOW_QUALITY_THRESHOLD,
     compute_effect_score,
+    inspect_skill_quality,
     is_low_quality,
+    mark_low_quality,
+    restore_skill_quality,
 )
 
 
@@ -142,3 +145,43 @@ def test_apply_rollback_noop_when_not_needed() -> None:
     rollout = Rollout(skill_id="s", version=2, stable_version=1)
     rollout.record_calls(calls=100, errors=1)
     assert apply_rollback(rollout, evaluate_canary(rollout)) == {}
+
+
+# --- 016 quality inspection / marking / restore (T999 wired) -------------------
+
+def test_mark_low_quality_flags_when_sustained() -> None:
+    assert mark_low_quality("s1", score=0.3, sustained_days=7) is True
+    assert mark_low_quality("s1", score=0.3, sustained_days=6) is False
+
+
+def test_inspect_skill_quality_marks_low_quality() -> None:
+    outcome = inspect_skill_quality(
+        skill_id="s2",
+        total_calls=100,
+        successful_calls=20,   # success 0.2
+        adopted_calls=10,      # adoption 0.1
+        corrected_calls=0,
+        sustained_days=7,
+    )
+    assert outcome["marked_low_quality"] is True
+    assert outcome["effect"]["score"] < LOW_QUALITY_THRESHOLD
+
+
+def test_inspect_skill_quality_keeps_healthy_skill() -> None:
+    outcome = inspect_skill_quality(
+        skill_id="s3",
+        total_calls=100,
+        successful_calls=80,
+        adopted_calls=60,
+        corrected_calls=0,
+        sustained_days=14,
+    )
+    assert outcome["marked_low_quality"] is False
+
+
+def test_restore_skill_quality_resets_window() -> None:
+    record = restore_skill_quality("s4", actor="admin")
+    assert record["restored"] is True
+    assert record["window_reset_days"] == LOW_QUALITY_SUSTAINED_DAYS
+    assert record["ranking"] == "normal"
+

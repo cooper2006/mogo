@@ -13,9 +13,13 @@ from __future__ import annotations
 from .scoring import (
     DEFAULT_EFFECT_THRESHOLDS,
     EFFECT_WEIGHTS,
+    LOW_QUALITY_MARKER,
     EffectScore,
     compute_effect_score,
+    inspect_skill_quality,
     is_low_quality,
+    mark_low_quality,
+    restore_skill_quality,
 )
 from .canary import (
     DEFAULT_CANARY_ROLLBACK_THRESHOLD,
@@ -29,6 +33,10 @@ __all__ = [
     "EffectScore",
     "compute_effect_score",
     "is_low_quality",
+    "mark_low_quality",
+    "restore_skill_quality",
+    "inspect_skill_quality",
+    "LOW_QUALITY_MARKER",
     "EFFECT_WEIGHTS",
     "DEFAULT_EFFECT_THRESHOLDS",
     "RolloutState",
