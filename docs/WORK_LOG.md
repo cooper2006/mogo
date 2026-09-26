@@ -1,5 +1,42 @@
 # Work Log
 
+## 2026-09-26 网关挂载路径错位修复（Exit 127 根因澄清 + compose 元数据归位 mogo）
+
+**任务**：「打包镜像，启动应用」续。镜像已于上一条记录打包完成，本轮排查「应用是否真的可用」，定位到网关长期处于 `Exited (127)` 的真实根因。
+
+**根因（对上一条记录「gateway 此前被人为 stop 过」的订正）**：网关并非被人为 stop 后未拉起，而是**启动即失败**。`docker inspect movo-gateway-1` 的 `State.Error`：
+
+```
+error mounting "/Users/cooper/GitHub/movo/deploy/docker/nginx.conf" to rootfs at
+"/etc/nginx/conf.d/default.conf": not a directory:
+Are you trying to mount a directory onto a file (or vice-versa)?
+```
+
+compose 项目当时的 `working_dir` 记为 `/Users/cooper/GitHub/movo`，而该路径下 `deploy/docker/nginx.conf` 是个**空目录**（非文件），bind mount 类型不匹配，runc 无法创建容器进程 → `ExitCode=127`。此前 gw 日志尾部只有 nginx 优雅关闭记录，容易误读为「正常停止」。
+
+**修复（未删除任何文件）**：
+- `rmdir /Users/cooper/GitHub/movo/deploy/docker/nginx.conf`（空目录，非文件）
+- 复制真实配置 `mogo/deploy/docker/nginx.conf` 至该路径，`diff` 校验字节一致
+
+**启动**：`docker compose -f docker-compose.yml up -d --pull never`，`MOVO_*_IMAGE` 全部置裸名 `:latest`（走本地已构建镜像，避开 ghcr.io/himovo 私有 registry 的 `denied`）。附带发现 `./movo up --build` 在本沙箱不可用：buildx 需写 `~/.docker/buildx/activity/`，报 `operation not permitted`（沙箱权限限制，非项目缺陷；与上一条记录的 buildx 结论一致）。
+
+**元数据归位**：修复后全部 12 个容器的 `com.docker.compose.project.working_dir` 与 `config_files` 均已指向 `/Users/cooper/GitHub/mogo`，nginx 挂载源亦为 `mogo/deploy/docker/nginx.conf`，对 `movo` 路径的挂载引用数为 0。
+
+**验证**：
+- `movo-gateway-1`：`running`、`ExitCode=0`、`healthy`、`RestartCount=0`；端口 `0.0.0.0:3000->80`
+- 端到端冒烟：`/healthz → 200 ok`、`/ → 200`、`/admin/ → 200`、`/admin-api/api/setup/status → 200` 且 `"ready": true`
+- `setup/status` 服务自检 6 项（mongo / redis / storage / chat-api / document-processing / weaviate）全部 `ok`
+- 稳定性：间隔 60s 两次取样 `StartedAt` 一致、`RestartCount=0`，确认无周期性重建（`docker ps` 显示的「Up 1 minute」仅为相对时间）
+- 11 个容器全 `healthy`（bootstrap 为一次性任务，Exited(0) 正常）
+
+**改动文件**：`docs/WORK_LOG.md`（本条目）。
+
+**未改动**：产品代码、`docker-compose.yml`、`deploy/` 下任何文件均未修改；`mogo` 仓库工作区在本次开工时为干净状态（`de7b706` 已提交此前 2 个 admin-web 文件）。
+
+**遗留待办（未执行，待确认）**：
+- `/Users/cooper/GitHub/movo` 空壳目录（仅含上述 nginx.conf 1 个文件）用户已确认不应保留；因其同时是本会话沙箱工作区根目录，删除需用户另行授权后执行。
+- 约 10.67GB 悬空镜像（`docker system df`）。`movo` CLI 的 `prune_dangling_images` 会在 `build` 成功后自动回收，本次未走该路径故未触发；按「禁止删除」规约未擅自 prune。
+
 ## 2026-09-26 镜像打包 + 全栈启动（经典 builder 逐镜像构建，8 容器全 healthy）
 
 **任务**：「打包镜像，启动应用」。OrbStack buildx 仍被 macOS provenance 锁死（`~/.docker/buildx/activity/` 写入 operation not permitted，实测 `docker buildx build` 直接报 `failed to update builder last activity time`），继续走既有经典 builder 路径。
