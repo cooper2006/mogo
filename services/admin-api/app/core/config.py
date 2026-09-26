@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     @property
     def effective_mongodb_db(self) -> str:
-        return self.mongodb_db or os.getenv("MONGODB_DB", "") or _read_env_file_value("MONGODB_DB") or "gragentic"
+        return self.mongodb_db or os.getenv("MONGODB_DB", "") or _read_env_file_value("MONGODB_DB") or "mogo_dev"
 
 def _read_env_file_value(key: str) -> str:
     candidate_paths = [

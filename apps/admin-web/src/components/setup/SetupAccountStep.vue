@@ -19,7 +19,7 @@
       <n-grid :cols="2" :x-gap="12">
         <n-grid-item :span="2">
           <n-form-item :label="t('企业名称')">
-            <n-input v-model:value="model.orgName" :placeholder="t('例如：MOVO 科技有限公司')" />
+            <n-input v-model:value="model.orgName" :placeholder="t('例如：MOGO 科技有限公司')" />
           </n-form-item>
         </n-grid-item>
         <n-grid-item>

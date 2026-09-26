@@ -4,7 +4,7 @@ import type { LabelMap } from '../messages';
 export const runtimeMessages: Record<string, LabelMap> = {
   '对话': { 'zh-CN': '对话', 'en-US': 'Conversation' },
   '内部知识问答': { 'zh-CN': '内部知识问答', 'en-US': 'Internal Knowledge Q&A' },
-  '社区版': { 'zh-CN': '社区版', 'en-US': 'Community Edition' },
+  '社区版': { 'zh-CN': '开源版', 'en-US': 'Open-Source Edition' },
   '通义千问': { 'zh-CN': '通义千问', 'en-US': 'Qwen' },
   '自定义兼容接口': { 'zh-CN': '自定义兼容接口', 'en-US': 'Custom Compatible API' },
   '已开启': { 'zh-CN': '已开启', 'en-US': 'Enabled' },

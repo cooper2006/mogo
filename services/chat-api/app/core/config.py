@@ -4,7 +4,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
-    PROJECT_NAME: str = "MOVO"
+    PROJECT_NAME: str = "MOGO"
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
     
     # OpenAI
@@ -82,7 +82,7 @@ class Settings(BaseSettings):
 
     # MongoDB
     MONGODB_URI: str = ""
-    MONGODB_DB: str = "gragentic"
+    MONGODB_DB: str = "mogo_dev"
     END_USER_AUTH_TOKEN_TTL_SECONDS: int = 60 * 60 * 24 * 7
     END_USER_AUTH_SECRET: str = ""
     DEBUG: bool = False

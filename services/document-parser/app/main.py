@@ -9,9 +9,9 @@ from app.repositories.job_repository import ensure_job_indexes
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="MOVO Document Processing Service",
+        title="MOGO Document Processing Service",
         version="0.1.0",
-        description="Async document preview conversion, parsing, chunking and indexing service for MOVO.",
+        description="Async document preview conversion, parsing, chunking and indexing service for MOGO.",
     )
     app.include_router(api_router, prefix="/api")
 

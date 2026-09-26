@@ -50,7 +50,7 @@ def test_setup_completion_requires_the_owned_lock(monkeypatch) -> None:
             setup_repository.mark_setup_completed(
                 lock_token="lock-c",
                 main_id="tenant-a",
-                org_name="MOVO",
+                org_name="MOGO",
                 admin_username="admin",
                 employee_username="employee",
             )

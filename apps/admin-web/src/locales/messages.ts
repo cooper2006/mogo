@@ -555,7 +555,7 @@ export const messages = {
   '初始化组织与账号': { 'zh-CN': '初始化组织与账号', 'en-US': 'Initialize Organization & Account' },
   '首次部署需要完成一次初始化：系统会自动生成租户 ID 与安全参数，你只需要填写企业名称、管理员账号和初始员工账号。': { 'zh-CN': '首次部署需要完成一次初始化：系统会自动生成租户 ID 与安全参数，你只需要填写企业名称、管理员账号和初始员工账号。', 'en-US': 'First-time deployment requires initialization: the system will automatically generate a tenant ID and security parameters. You only need to fill in the company name, admin account, and initial employee account.' },
   '企业名称': { 'zh-CN': '企业名称', 'en-US': 'Organization Name' },
-  '例如：MOVO 科技有限公司': { 'zh-CN': '例如：MOVO 科技有限公司', 'en-US': 'e.g. MOVO Technology Co., Ltd.' },
+  '例如：MOGO 科技有限公司': { 'zh-CN': '例如：MOGO 科技有限公司', 'en-US': 'e.g. MOGO Technology Co., Ltd.' },
   '管理员账号': { 'zh-CN': '管理员账号', 'en-US': 'Admin Username' },
   '管理员显示名': { 'zh-CN': '管理员显示名', 'en-US': 'Admin Display Name' },
   '系统管理员': { 'zh-CN': '系统管理员', 'en-US': 'System Administrator' },

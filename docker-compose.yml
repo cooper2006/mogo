@@ -193,7 +193,7 @@ services:
     environment:
       OPENAI_API_KEY: ""
       MONGODB_URI: mongodb://mongo:27017
-      MONGODB_DB: gragentic
+      MONGODB_DB: mogo_dev
       ALLOWED_ORIGINS: http://localhost:${MOVO_PORT:-${ASKAI_PORT:-3000}}
       STORAGE_BACKEND: local
       LOCAL_STORAGE_PATH: /app/storage
@@ -242,7 +242,7 @@ services:
     environment:
       ASKAI_ADMIN_APP_ENV: production
       ASKAI_ADMIN_MONGODB_URI: mongodb://mongo:27017
-      ASKAI_ADMIN_MONGODB_DB: gragentic
+      ASKAI_ADMIN_MONGODB_DB: mogo_dev
       ASKAI_ADMIN_BOOTSTRAP_ADMIN_ENABLED: "false"
       ASKAI_ADMIN_BACKEND_BASE_URL: http://chat-api:8000
       ASKAI_ADMIN_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
@@ -283,7 +283,7 @@ services:
       MOVO_DOC_PROCESSING_LOCAL_STORAGE_DIR: /data/knowledge-documents
       MOVO_DOC_PROCESSING_REDIS_URL: redis://redis:6379/0
       MOVO_DOC_PROCESSING_MONGODB_URI: mongodb://mongo:27017
-      MOVO_DOC_PROCESSING_MONGODB_DB: gragentic
+      MOVO_DOC_PROCESSING_MONGODB_DB: mogo_dev
       MOVO_DOC_PROCESSING_WEAVIATE_ENDPOINT: http://weaviate:8080
       MOVO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME: AskAIKnowledgeChunks
       MOVO_DOC_PROCESSING_WEAVIATE_DISTANCE_METRIC: cosine

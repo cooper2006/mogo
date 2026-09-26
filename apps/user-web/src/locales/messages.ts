@@ -105,7 +105,7 @@ export const messages = {
   'ui.copy': { zh: '复制', en: 'Copy' },
   'ui.save': { zh: '保存', en: 'Save' },
   'ui.settings': { zh: '设置', en: 'Settings' },
-  'ui.community_edition': { zh: '社区版', en: 'Community Edition' },
+  'ui.community_edition': { zh: '开源版', en: 'Open-Source Edition' },
   'ui.search': { zh: '搜索', en: 'Search' },
   'ui.loading': { zh: '加载中...', en: 'Loading...' },
   'ui.generation_stopped': { zh: '用户已停止任务', en: 'Task stopped by user' },

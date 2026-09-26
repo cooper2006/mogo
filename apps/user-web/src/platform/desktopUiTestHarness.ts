@@ -14,7 +14,7 @@ export function installDesktopUiTestHarness() {
   const workspace = { workspace_id: 'workspace-ui', title: 'scheduled-crawler · 875166d0-7d66-4aea-8575-0c4ba9e794dc', path: '/workspace/scheduled-crawler', status: 'ok', session_ids: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(), git_branch: 'main' }
   ;(globalThis as any).__ASKAI_ELECTRON__ = {
     settings: { get: async () => ({ service_url: 'http://localhost:3000', server_configured: true, backend_url: '', agent_ws_url: '', user_id: 'ui-user', auth_token: 'ui-token', auto_start_agent: false, language: 'zh', timezone: 'Asia/Shanghai' }), update: async (value: any) => value },
-    enterprise: { connect: async (address: string) => ({ settings: { service_url: address, server_configured: true }, org_name: 'MOVO', main_id: 'ui', services_ready: true }) },
+    enterprise: { connect: async (address: string) => ({ settings: { service_url: address, server_configured: true }, org_name: 'MOGO', main_id: 'ui', services_ready: true }) },
     agent: { status: async () => ({ running: false, ws_url: '', user_id: '', local_control_url: '', local_control_token: '' }), start: async () => ({}), stop: async () => ({}), restart: async () => ({}) },
     updates: { state: async () => ({ phase: 'not-available', current_version: '0.1.0' }), check: async () => ({ phase: 'not-available', current_version: '0.1.0' }), download: async () => ({ phase: 'downloaded', current_version: '0.1.0', available_version: '0.1.1', progress_percent: 100 }), install: async () => ({ installing: false }), onState: () => () => {} },
     dshWorkspace: {
