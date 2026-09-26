@@ -1,6 +1,6 @@
 schema_version: movo.dsh-compatibility-matrix.v1
 active_release:
-  dsh_release_train: 0.1.6-alpha.1
+  dsh_release_train: 0.1.7-rc.2
   node_runtime: "^22.19.0 || >=24.0.0"
   host_protocol: askai.dsh-host.v1
   host_overlay: askai-dsh-host-v1
@@ -10,6 +10,11 @@ active_release:
     provider: "@deepseek-ai/dsh-session-persistence-jsonl"
     format: opaque-upstream
     resume_probe_required: true
+  # 0.1.7-rc.2：preset 条目类 `@deepseek-ai/dsh-agent-preset`（AgentPreset）
+  # 由 dsh-web-app/presets/*.patch.yml 注册，agentPresets service 由
+  # `@deepseek-ai/dsh-agent-preset-registry` 提供。required_presets 保留
+  # askai-enterprise + code 两个 ASKAI 直接消费预设；standard/ptc/minimal/cordis
+  # 为 registry train 下的上游内置 preset，无需 ASKAI 在 required_presets 中声明。
   required_presets: [askai-enterprise, code]
   code_model_tools: [read, write, edit, glob, grep, bash, skill, todo_write, subagent]
   code_capabilities:
@@ -27,6 +32,10 @@ active_release:
     - subagent
     - web_search
     - web_fetch
+  # 0.1.7-rc.2：preset 条目类改由 `@deepseek-ai/dsh-agent-preset` 挂载，
+  # agentPresets service 由 `@deepseek-ai/dsh-agent-preset-registry` 提供。
+  # 旧 train（0.1.2–0.1.6）的 `@deepseek-ai/dsh-agent-presets` roster 包保留为
+  # rollback 兼容性模块，但 active_release 下不再被 host overlay 挂载。
   required_host_modules:
     - "@deepseek-ai/dsh-session"
     - "@deepseek-ai/dsh-session-persistence-jsonl"
@@ -34,18 +43,30 @@ active_release:
     - "@deepseek-ai/dsh-sandbox-policy"
     - "@deepseek-ai/dsh-user-approval"
     - "@deepseek-ai/dsh-tools"
-    - "@deepseek-ai/dsh-agent-presets"
+    - "@deepseek-ai/dsh-agent-preset"
+    - "@deepseek-ai/dsh-agent-preset-registry"
     - "@deepseek-ai/dsh-ptc-runtime-node"
     - "@deepseek-ai/dsh-workspace"
     - "@deepseek-ai/dsh-host-plugin-inventory"
 
 supported_releases:
+  - dsh_release_train: 0.1.7-rc.2
+    source_ref: pre-release (npm dist-tags.next)
+    node_runtime: "^22.19.0 || >=24.0.0"
+    host_protocol: askai.dsh-host.v1
+    host_overlay: askai-dsh-host-v1
+    old_session_resume: verified
+    # 0.1.7-rc.2 train 升级验证完成后晋升为 production（active_release）；
+    # 回滚目标为 0.1.6-alpha.1。
+    status: production
+    rollback: 0.1.6-alpha.1
   - dsh_release_train: 0.1.6-alpha.1
     node_runtime: "^22.19.0 || >=24.0.0"
     host_protocol: askai.dsh-host.v1
     host_overlay: askai-dsh-host-v1
     old_session_resume: verified
-    status: production
+    # 0.1.7-rc.2 升级为 active 后，0.1.6-alpha.1 降级为 approved_rollback_target。
+    status: rollback
   - dsh_release_train: 0.1.2-alpha.2
     source_ref: 62e054f09aef9e052d424cd904c00a5fd05ea0d6
     node_runtime: "^22.19.0 || >=24.0.0"

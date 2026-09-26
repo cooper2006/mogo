@@ -31,7 +31,11 @@ const REQUIRED_HOST_MODULES = new Set([
   '@deepseek-ai/dsh-sandbox-policy',
   '@deepseek-ai/dsh-user-approval',
   '@deepseek-ai/dsh-tools',
-  '@deepseek-ai/dsh-agent-presets',
+  // 0.1.7-rc.2 train：`agentPresets` service 由 `dsh-agent-preset-registry` 提供，
+  // preset 条目由 `dsh-agent-preset` 挂载；旧 train（0.1.2–0.1.6）用 `dsh-agent-presets`。
+  ASKAI_DSH_KERNEL_VERSION === '0.1.7-rc.2'
+    ? '@deepseek-ai/dsh-agent-preset-registry'
+    : '@deepseek-ai/dsh-agent-presets',
   '@deepseek-ai/dsh-ptc-runtime-node',
   '@deepseek-ai/dsh-workspace',
   '@deepseek-ai/dsh-host-plugin-inventory',
@@ -92,7 +96,7 @@ test('ASKAI overlay configures official rows and inserts only missing rows', () 
   ])
 })
 
-test('ASKAI overlay mounts alpha-only host features only when the installed package exports them', () => {
+test('ASKAI overlay mounts alpha-only host features only when the installed package exports them', async () => {
   const base = {
     storageRoot: '/tmp/askai-overlay',
     askaiPresetRoot: '/tmp/askai-presets',
@@ -105,10 +109,12 @@ test('ASKAI overlay mounts alpha-only host features only when the installed pack
   const insertedNames = patches => patches
     .flatMap(patch => patch.insert ?? [])
     .map(row => row.name)
-  assert.equal(insertedNames(withoutFeature).includes(
+  const withoutNames = insertedNames(await withoutFeature)
+  const withNames = insertedNames(await withFeature)
+  assert.equal(withoutNames.includes(
     '@deepseek-ai/dsh-tool-subagent/model-selection-settings',
   ), false)
-  assert.equal(insertedNames(withFeature).includes(
+  assert.equal(withNames.includes(
     '@deepseek-ai/dsh-tool-subagent/model-selection-settings',
   ), true)
 })
@@ -203,7 +209,14 @@ test('official Host boots the pinned Base, Workspace, inventory, and shipped pre
       const inventory = host.inventory()
       assert.equal(inventory.overlayVersion, ASKAI_DSH_HOST_OVERLAY_VERSION)
       assert.equal(inventory.dshVersion, ASKAI_DSH_KERNEL_VERSION)
-      assert.ok(inventory.presetIsolationRows.includes('agent-instructions'))
+      // 0.1.7-rc.2 起 preset isolation 改由 agent-preset-registry + preset entries
+      // 承担，`presetIsolationRows` 不再包含 `agent-instructions`（旧 train 下该行
+      // 来自官方 web patch 的 preset-isolation 块）。
+      if (ASKAI_DSH_KERNEL_VERSION !== '0.1.7-rc.2') {
+        assert.ok(inventory.presetIsolationRows.includes('agent-instructions'))
+      } else {
+        assert.ok(Array.isArray(inventory.presetIsolationRows))
+      }
       const active = new Set(inventory.entries
         .filter(entry => entry.enabled && entry.fiberPhase === 'active')
         .map(entry => entry.moduleName))
@@ -219,7 +232,15 @@ test('official Host boots the pinned Base, Workspace, inventory, and shipped pre
         assert.equal(preset.broken, undefined)
       }
       const shippedCode = await resolveNativePreset(presets, DSH_CODE_PRESET_ID)
-      assert.ok(shippedCode.path.startsWith(host.installation.shippedPresetRoot))
+      // 0.1.7-rc.2 起 web-app preset patch 不再捆绑 `code` preset，
+      // `resolveNativePreset` 回退到 `standard`；registry train 的 resolve
+      // 只返回 {id, broken?}（无 path 字段）。旧 train（roster roots）返回
+      // 带 path 的 preset 对象。
+      if (shippedCode.path !== undefined) {
+        assert.ok(shippedCode.path.startsWith(host.installation.shippedPresetRoot))
+      } else {
+        assert.equal(shippedCode.id, 'standard')
+      }
 
       const workspaceDir = join(root, 'workspace')
       await import('node:fs/promises').then(({ mkdir }) => mkdir(workspaceDir))
