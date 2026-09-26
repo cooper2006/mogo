@@ -1,5 +1,32 @@
 # Work Log
 
+## 2026-09-26 镜像打包 + 全栈启动（经典 builder 逐镜像构建，8 容器全 healthy）
+
+**任务**：「打包镜像，启动应用」。OrbStack buildx 仍被 macOS provenance 锁死（`~/.docker/buildx/activity/` 写入 operation not permitted，实测 `docker buildx build` 直接报 `failed to update builder last activity time`），继续走既有经典 builder 路径。
+
+**构建前修复（阻塞项）**：commit `b3700d8`（016 skill-market）误把 macOS 专属原生包 `@esbuild/darwin-arm64@^0.28.2` 加进 `apps/admin-web/package.json` devDependencies，导致 Linux 容器内 `npm ci` 报 `EBADPLATFORM: Unsupported platform for @esbuild/darwin-arm64`。删除该 devDependency 并同步清理 `pnpm-lock.yaml` 的 devDependencies / packages / snapshots 三处 0.28.2 条目（0.18.20 为 vite 4 的 esbuild 正常 optional 平台包，保留）。
+
+**构建**（`DOCKER_BUILDKIT=0 docker build` 逐镜像，裸名 `:latest` 标签，与 compose source-build 一致）：
+
+| 镜像 | ID |
+|---|---|
+| chat-api:latest | f9c7c10e91ea（3.2GB，含系统依赖 + Playwright） |
+| document-parser:latest | d901aa5e0c27（5.14GB，含 Docling 模型，hf-mirror.com + `--network host`） |
+| dsh-runtime-host:latest | 648f660744eb |
+| admin-api:latest | cbb5f29869b1 |
+| user-web:latest | 91bdbbb7895b |
+| admin-web:latest | 25faec0e7e8d |
+| gateway:latest | 97774bca1087 |
+
+**启动**：`MOVO_*_IMAGE` 全部置裸名 + `docker compose -p movo -f docker-compose.yml up -d --force-recreate --pull never`。11 个容器全部 recreate 到新镜像，`sha256` 逐一匹配上表 ID；`bootstrap`（alpine 一次性任务）Exited(0) 属正常。gateway 此前被人为 stop 过（`unless-stopped` 尊重 stop 标记，未自动拉起），本次 recreate 恢复。
+
+**验证**：
+- `docker ps`：chat-api / admin-api / dsh-runtime-host / document-api / user-web / admin-web / mongo / redis / weaviate 全部 `healthy`
+- 网关探活：`GET / → 200`、`GET /admin → 200`、未登录 `GET /askai-api/api/sessions → 401`（鉴权正常）
+- 各容器日志 tail 扫描无 error / traceback
+
+**改动文件**：`apps/admin-web/package.json`、`apps/admin-web/pnpm-lock.yaml`、`docs/WORK_LOG.md`
+
 ## 2026-09-26 SDD 增强功能合规复验轮 2（round 2/256）
 
 **任务**：对当前工作区（含 2026-09-25 后未提交的接线/品牌改动）重新核验「README 描述的增强功能是否符合 SDD 规范」，确认 round 1 结论仍然成立。
