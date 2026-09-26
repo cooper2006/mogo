@@ -77,6 +77,8 @@ class CapabilityAssetRegistry:
             self._assets[key] = asset
         if dedupe_ref:
             self._dedupe[dedupe_ref] = key
+        # T999: asset registration → 001 audit stream (018 asset.registered).
+        _audit_asset_registered(asset)
         return asset
 
     # --- T007 scan dedup (endpoint + method) --------------------------------
@@ -150,6 +152,8 @@ class CapabilityAssetRegistry:
         asset.status = status
         if self._db is not None:
             await self._db["capability_assets"].update_one({"key": key}, {"$set": {"status": status}})
+        # T999: asset status change → 001 audit stream (018 asset.status.changed).
+        _audit_asset_status_changed(asset, status, approver=approver, reason=reason)
         return asset
 
     # --- T011 a2a_exposed marking (for 012 AgentCard generation) ----------
@@ -196,3 +200,47 @@ __all__ = [
     "CapabilityAsset",
     "CapabilityAssetRegistry",
 ]
+
+
+def _audit_asset_registered(asset: "CapabilityAsset") -> None:
+    try:
+        from app.services.feature_audit_bridge import emit_feature_event
+
+        emit_feature_event(
+            "018",
+            "asset.registered",
+            {
+                "asset_key": asset.key,
+                "asset_type": asset.asset_type,
+                "version": asset.version,
+                "owner": asset.owner,
+            },
+        )
+    except Exception:
+        # 审计失败绝不影响主流程。
+        pass
+
+
+def _audit_asset_status_changed(
+    asset: "CapabilityAsset",
+    status: str,
+    *,
+    approver: str = "",
+    reason: str = "",
+) -> None:
+    try:
+        from app.services.feature_audit_bridge import emit_feature_event
+
+        emit_feature_event(
+            "018",
+            "asset.status.changed",
+            {
+                "asset_key": asset.key,
+                "status": status,
+                "approver": approver,
+                "reason": reason,
+            },
+        )
+    except Exception:
+        # 审计失败绝不影响主流程。
+        pass

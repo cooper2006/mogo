@@ -159,6 +159,8 @@ def check_all(store: KgStore, bundle: ConstraintBundle) -> list[Conflict]:
     conflicts.extend(check_cardinality(store, bundle.cardinality))
     for relation in bundle.transitive_relations:
         conflicts.extend(check_transitivity(store, relation=relation))
+    # T999: KG audited → 001 audit stream (015 kg.audited).
+    _audit_kg_audited(conflicts)
     return conflicts
 
 
@@ -168,3 +170,20 @@ def mark_conflicts(store: KgStore, conflicts: list[Conflict]) -> None:
         node = store.nodes.get(conflict.subject)
         if node is not None:
             node.conflicted = True
+
+
+def _audit_kg_audited(conflicts: list[Conflict]) -> None:
+    try:
+        from app.services.feature_audit_bridge import emit_feature_event
+
+        emit_feature_event(
+            "015",
+            "kg.audited",
+            {
+                "conflicts": len(conflicts),
+                "subjects": [c.subject for c in conflicts[:5]],
+            },
+        )
+    except Exception:
+        # 审计失败绝不影响主流程。
+        pass

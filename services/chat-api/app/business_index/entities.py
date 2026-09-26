@@ -47,6 +47,8 @@ class BizEntity:
             raise EntityError("source_system must not be empty")
         if not str(self.record_id or "").strip():
             raise EntityError("record_id must not be empty")
+        # T999: entity indexed → 001 audit stream (014 entity.indexed).
+        _audit_entity_indexed(self)
 
     def align_key(self) -> Optional[str]:
         """The business key value used for cross-system alignment."""
@@ -82,3 +84,23 @@ def align_pair(left: BizEntity, right: BizEntity) -> bool:
         left.aligned = right.aligned = False
         return False
     return True
+
+
+def _audit_entity_indexed(entity: BizEntity) -> None:
+    """T999: entity indexed → 001 audit stream (014 entity.indexed)."""
+    try:
+        from app.services.feature_audit_bridge import emit_feature_event
+
+        emit_feature_event(
+            "014",
+            "entity.indexed",
+            {
+                "entity_type": entity.entity_type,
+                "record_id": entity.record_id,
+                "source_system": entity.source_system,
+                "tenant_id": entity.tenant_id,
+            },
+        )
+    except Exception:
+        # 审计失败绝不影响主流程（构造仍成功；索引/对齐行为不变）。
+        pass

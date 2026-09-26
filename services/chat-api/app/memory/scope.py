@@ -106,4 +106,24 @@ def promote_to_org(memory: Memory, *, role: str) -> Memory:
     if not can_promote_to_org(role=role):
         raise MemoryAccessError(f"role {role!r} may not promote memory to the org scope")
     memory.scope = MemoryScope.ORG.value
+    # T999: memory promotion → 001 audit stream (017 memory.promoted).
+    _audit_memory_promoted(memory, role)
     return memory
+
+
+def _audit_memory_promoted(memory: Memory, role: str) -> None:
+    try:
+        from app.services.feature_audit_bridge import emit_feature_event
+
+        emit_feature_event(
+            "017",
+            "memory.promoted",
+            {
+                "memory_id": getattr(memory, "memory_id", None),
+                "scope": memory.scope,
+                "role": role,
+            },
+        )
+    except Exception:
+        # 审计失败绝不影响主流程。
+        pass

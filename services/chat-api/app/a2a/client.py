@@ -148,6 +148,7 @@ class A2AClient:
                 call.agent_name = agent
                 if result is not None:
                     call.response = result
+                _audit_a2a_call(call, denied=True)
                 return call
 
             if result is not None:
@@ -156,10 +157,12 @@ class A2AClient:
                 # Any JSON-RPC error carried on the response is the terminal outcome.
                 if isinstance(result, JsonRpcResponse) and result.error is not None:
                     call.error = result.error
+                _audit_a2a_call(call)
                 return call
 
         # All agents exhausted: record the last transport error as a JSON-RPC internal error.
         call.error = JsonRpcError(ERROR_INTERNAL, "all outbound agents exhausted")
+        _audit_a2a_call(call)
         return call
 
 
@@ -170,6 +173,27 @@ def map_error_code(exc: Exception) -> int:
     if isinstance(exc, PermissionError):
         return ERROR_MOVO_DENIED
     return ERROR_INTERNAL
+
+
+def _audit_a2a_call(call: "OutboundCall", *, denied: bool = False) -> None:
+    """T999: A2A outbound/denied → 001 audit stream (012 a2a.outbound / a2a.denied)."""
+    try:
+        from app.services.feature_audit_bridge import emit_feature_event
+
+        event = "a2a.denied" if denied else "a2a.outbound"
+        document = {
+            "agent": call.agent_name,
+            "task_id": call.task_id,
+            "method": call.method,
+            "attempts": call.attempts,
+            "ok": call.is_ok,
+        }
+        if denied:
+            document["denied"] = True
+        emit_feature_event("012", event, document)
+    except Exception:
+        # 审计失败绝不影响主流程。
+        pass
 
 
 __all__ = [

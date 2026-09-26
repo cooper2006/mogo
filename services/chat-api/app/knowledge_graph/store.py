@@ -13,6 +13,36 @@ from typing import Any
 from .schema import DEFAULT_CONFIDENCE_FLOOR, KgEdge, KgNode
 
 
+def _audit_kg_mutation(entity: Any) -> None:
+    """Emit a ``015 kg.mutated`` event through the T999 bridge (fire-and-forget)."""
+    try:
+        from app.services.feature_audit_bridge import emit_feature_event
+
+        if isinstance(entity, KgNode):
+            emit_feature_event(
+                "015",
+                "kg.mutated",
+                {
+                    "node_id": entity.node_id,
+                    "entity_type": entity.entity_type,
+                    "confidence": entity.confidence,
+                },
+            )
+        elif isinstance(entity, KgEdge):
+            emit_feature_event(
+                "015",
+                "kg.mutated",
+                {
+                    "edge": f"{entity.source}->{entity.target}",
+                    "relation": entity.relation,
+                    "confidence": entity.confidence,
+                },
+            )
+    except Exception:
+        # 审计失败绝不影响主流程（fail-open for audit; KG writes are unaffected）。
+        pass
+
+
 def merge_nodes(existing: KgNode, incoming: KgNode) -> KgNode:
     """Merge ``incoming`` into ``existing`` without overwriting values (FR-3).
 
@@ -71,6 +101,8 @@ class KgStore:
             self.reverse.setdefault(node.node_id, [])
         else:
             self.nodes[node.node_id] = merge_nodes(existing, node)
+        # T999: KG mutation → 001 audit stream (015 kg.mutated).
+        _audit_kg_mutation(node)
         return True
 
     def add_edge(self, edge: KgEdge) -> bool:
@@ -81,6 +113,8 @@ class KgStore:
             return False
         self.adjacency.setdefault(edge.source, []).append(edge)
         self.reverse.setdefault(edge.target, []).append(edge)
+        # T999: KG mutation (edge) → 001 audit stream (015 kg.mutated).
+        _audit_kg_mutation(edge)
         return True
 
     def neighbours(self, node_id: str, *, relation: str | None = None) -> list[str]:
