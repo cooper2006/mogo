@@ -11,6 +11,7 @@ import { SkillsManagerIcon } from '@/icons/SkillsManagerIcon';
 import { SettingsIcon } from '@/icons/SettingsIcon';
 import { PositionRolesIcon } from '@/icons/PositionRolesIcon';
 import { SystemAuditIcon } from '@/icons/SystemAuditIcon';
+import { HookRulesIcon } from '@/icons/HookRulesIcon';
 
 export const appRoutes: RouteRecordRaw[] = [
   {
@@ -149,6 +150,12 @@ export const appRoutes: RouteRecordRaw[] = [
         path: '/organizations',
         redirect: '/organizations/accounts',
         meta: { hideInMenu: true },
+      },
+      {
+        path: '/hooks/rules',
+        name: 'HookRules',
+        component: () => import('@/views/hooks/HookRulesPage.vue'),
+        meta: { title: '钩子规则', icon: HookRulesIcon },
       },
       {
         path: '/system-audit',

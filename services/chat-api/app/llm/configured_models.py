@@ -312,6 +312,70 @@ def build_llm_client_from_config(
     )
 
 
+async def get_fallback_runtime_configs(
+    main_id: str,
+    *,
+    capability: str = "chat",
+    primary_instance_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Ordered backup runtime configs for provider failover (007 FR-1).
+
+    Active instances of the same main_id + capability, sorted by
+    (priority, updated_at desc), excluding the primary instance. Each config is
+    validated so a broken backup never blocks the primary path.
+    """
+    db = get_db()
+    query = {
+        "main_id": main_id,
+        "status": "active",
+        "capabilities": _capability_query_value(capability),
+    }
+    if primary_instance_id:
+        try:
+            query["_id"] = {"$ne": ObjectId(primary_instance_id)}
+        except InvalidId:
+            # An invalid/empty primary id simply means "no exclusion".
+            query.pop("_id", None)
+    cursor = db[INSTANCE_COLLECTION].find(query).sort([("priority", 1), ("updated_at", -1)])
+    instances = await cursor.to_list(length=50)
+    provider_ids = [item.get("provider_id") for item in instances if item.get("provider_id")]
+    provider_map: dict[str, dict[str, Any]] = {}
+    if provider_ids:
+        async for provider in db[PROVIDER_COLLECTION].find({"_id": {"$in": provider_ids}}):
+            provider_map[str(provider.get("_id"))] = provider
+    configs: list[dict[str, Any]] = []
+    for item in instances:
+        provider = provider_map.get(str(item.get("provider_id")), {})
+        try:
+            configs.append(_to_runtime_config(item, provider, required_capability=capability))
+        except ModelConfigError:
+            continue
+    return configs
+
+
+def wrap_resilient(
+    primary: BaseLLMClient,
+    backups: list[BaseLLMClient],
+) -> BaseLLMClient:
+    """Wrap the primary client with provider failover (007 US1 / FR-9).
+
+    A single-provider list (no backups) returns the client unchanged, so the
+    single-provider behavior is a strict no-op (FR-9 backward compatibility).
+    With backups, a ``ResilientLLMClient`` tries the primary first and fails
+    over on retryable errors; non-retryable (401/403) fails immediately (FR-4);
+    per-provider calls stay wrapped in ``InstrumentedLLMClient`` so token
+    usage + failover attribution land in ``token_usage_logs`` (FR-13).
+    """
+    if not backups:
+        return primary
+    from app.llm.resilience.failover import ProviderEntry, ResilientLLMClient
+
+    entries = [ProviderEntry(name="primary", factory=lambda: primary)]
+    for index, backup in enumerate(backups, start=1):
+        entries.append(ProviderEntry(name=f"backup-{index}", factory=lambda b=backup: b))
+    return ResilientLLMClient(entries)
+
+
 async def get_llm_client_by_model_id(
     model_id: str | None,
     *,
@@ -337,7 +401,7 @@ async def get_llm_client_by_model_id(
             except QuotaExceededError as exc:
                 raise ModelConfigError(str(exc)) from exc
 
-    return build_llm_client_from_config(
+    primary = build_llm_client_from_config(
         config,
         streaming=streaming,
         intent=intent,
@@ -345,3 +409,21 @@ async def get_llm_client_by_model_id(
         node_id=node_id,
         output_spec=output_spec,
     )
+    # 007 FR-1: provider failover on the production path. Backups are the other
+    # active instances of the same main_id/capability in priority order. With
+    # none configured this is a no-op (FR-9); 401/403 never fail over (FR-4).
+    backups = [
+        build_llm_client_from_config(
+            backup,
+            streaming=streaming,
+            intent=intent,
+            stage=stage,
+            node_id=node_id,
+            output_spec=output_spec,
+        )
+        for backup in await get_fallback_runtime_configs(
+            main_id,
+            primary_instance_id=str(config.get("id") or ""),
+        )
+    ]
+    return wrap_resilient(primary, backups)

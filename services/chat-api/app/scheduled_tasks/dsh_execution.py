@@ -49,6 +49,9 @@ class ScheduledDshExecution:
             tenant_id=tenant_id,
             user_id=user_id,
             selected_skill_id=selected,
+            # 009 T009：定时任务同样过 PreToolUse 钩子（与会话路径一致）。
+            tool="dsh_turn",
+            session_id=str(conversation_id or ""),
         )
         chat = self._chat_provider()
         turn = await chat.prepare_turn(

@@ -20,6 +20,7 @@ import ExecutionViewV3 from '../features/execution-v3/components/ExecutionViewV3
 import ArtifactList from './execution/ArtifactList.vue'
 import EvidenceDrawer from './execution/EvidenceDrawer.vue'
 import KnowledgeSourceViewer from './execution/KnowledgeSourceViewer.vue'
+import SessionVersioningDrawer from './SessionVersioningDrawer.vue'
 import UserMessageActions from './chat/UserMessageActions.vue'
 import type { ArtifactItem, EvidenceBundleItem, EvidenceSourceItem } from '../features/execution-v3/domain/delivery'
 import { evidenceSourceStats } from '../features/execution-v3/domain/evidenceSourceGroups'
@@ -178,6 +179,7 @@ function artifactStore(msg: Message): ExecutionStoreV3 { return ensureExecV3(msg
 const activeEvidenceBundle = ref<EvidenceBundleItem | null>(null)
 const activeKnowledgeSourceBundle = ref<EvidenceBundleItem | null>(null)
 const evidenceDrawerOpen = ref(false)
+const sessionVersioningOpen = ref(false)
 const knowledgeSourceViewerOpen = ref(false)
 
 function latestEvidenceBundle(msg: Message): EvidenceBundleItem | null {
@@ -2179,6 +2181,22 @@ function formatErrorMessage(raw: string): string {
         :execution-location="props.codeHistoryLocation"
         :project="props.codeHistoryProject"
       />
+      <div
+        v-else-if="props.sessionId"
+        class="mx-auto w-full max-w-4xl px-4 md:px-6"
+      >
+        <button
+          type="button"
+          class="mb-1 inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-colors"
+          @click="sessionVersioningOpen = true"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          {{ t('会话版本 / 协作') }}
+        </button>
+      </div>
       <ChatComposer
         v-else
         ref="composerRef"
@@ -2406,6 +2424,15 @@ function formatErrorMessage(raw: string): string {
     :open="knowledgeSourceViewerOpen"
     :bundle="activeKnowledgeSourceBundle"
     @close="closeKnowledgeSourceViewer"
+  />
+  <SessionVersioningDrawer
+    v-if="props.sessionId"
+    :open="sessionVersioningOpen"
+    :session-id="props.sessionId"
+    :auth-token="props.authToken"
+    :user-id="props.userId"
+    :latest-seq="messages?.length ?? 0"
+    @close="sessionVersioningOpen = false"
   />
 </template>
 

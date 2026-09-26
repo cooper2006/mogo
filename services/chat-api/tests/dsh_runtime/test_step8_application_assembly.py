@@ -115,6 +115,8 @@ def test_scheduled_turn_reuses_dsh_chat_profile_skill_and_projection(monkeypatch
                 "tenant_id": "tenant-a",
                 "user_id": "user-a",
                 "selected_skill_id": "workflow-a",
+                "tool": "dsh_turn",
+                "session_id": "",
             }
             return TurnSkillSelection(selected_skill_id="workflow-a")
 

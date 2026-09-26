@@ -183,6 +183,10 @@ async def _start_chat_completions(
             tenant_id=tenant_id,
             user_id=user_id,
             selected_skill_id=selected_skill_id,
+            # 009 T009：把"skill 选择 + 工具执行"语义传给 PreToolUse 钩子，
+            # 使声明式 deny/require 规则在工具调用前真实拦截。
+            tool="dsh_turn",
+            session_id=str(output_spec.get("task_id") or output_spec.get("session_id") or ""),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
