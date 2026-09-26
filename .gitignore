@@ -331,3 +331,9 @@ outputs/*
 
 # DSH agent 工具目录（本地工作区缓存，不入库）
 .workbuddy/
+
+# DSH runtime host local state (per-session storage, not source)
+services/chat-api/dsh/runtime-host/storage/
+
+# agent team metadata
+.agent-teams/
