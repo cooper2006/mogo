@@ -94,7 +94,7 @@ class ChannelAdapter:
         raise NotImplementedError
 
     def render_reply(self, *, conversation_id: str, text: str, markdown: bool = True) -> ChannelReply:
-        """Render a MOVO response back into channel chunks."""
+        """Render a MOGO response back into channel chunks."""
         return ChannelReply(
             conversation_id=conversation_id,
             chunks=chunk_text(text, size=self._chunk_size),

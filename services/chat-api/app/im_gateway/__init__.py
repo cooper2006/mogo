@@ -1,6 +1,6 @@
 """Multi-IM entry gateway (feature 013).
 
-IM channels are just an entry point: they map IM conversations onto MOVO sessions
+IM channels are just an entry point: they map IM conversations onto MOGO sessions
 and route responses back, reusing the existing Workspace/Sandbox capability surface
 — no new capability is introduced.
 

@@ -11,6 +11,7 @@ into the session document.
 from __future__ import annotations
 
 import datetime
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -61,6 +62,9 @@ class SessionSnapshot:
             raise SnapshotError("session_id must not be empty")
         if int(self.seq) < 0:
             raise SnapshotError("seq must be >= 0")
+        # Auto-generate a default snapshot id when the caller leaves it empty.
+        if not str(self.snapshot_id or "").strip():
+            self.snapshot_id = f"snap-{uuid.uuid4()}"
 
     def as_document(self) -> dict[str, Any]:
         return {
