@@ -244,7 +244,7 @@ function openKnowledgeSourceFromDrawer(source: EvidenceSourceItem) {
 
 interface DocumentInfo {
   id?: string
-  type: 'pdf' | 'doc' | 'docx' | 'xls' | 'xlsx' | 'ppt' | 'pptx' | 'md' | 'html' | 'presentation_preview_bundle' | 'generic'
+  type: 'pdf' | 'doc' | 'docx' | 'xls' | 'xlsx' | 'ppt' | 'pptx' | 'md' | 'txt' | 'html' | 'presentation_preview_bundle' | 'generic'
   url: string
   filename?: string
   title?: string

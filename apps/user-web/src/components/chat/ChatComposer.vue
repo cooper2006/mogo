@@ -157,6 +157,7 @@ function detectDocumentType(file: File): ChatDocumentKind | null {
   if (name.endsWith('.docx') || name.endsWith('.doc')) return 'docx'
   if (name.endsWith('.pptx') || name.endsWith('.ppt')) return 'pptx'
   if (name.endsWith('.md')) return 'md'
+  if (name.endsWith('.txt')) return 'txt'
   if (name.endsWith('.xlsx') || name.endsWith('.xlsm') || name.endsWith('.xls')) return 'xlsx'
   if (name.endsWith('.csv') || name.endsWith('.tsv')) return 'xlsx'
   return null

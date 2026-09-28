@@ -20,7 +20,7 @@ import { stopChatGeneration } from './chatCancellation'
 
 export type RuntimeDocumentInfo = {
   id?: string
-  type: 'pdf' | 'docx' | 'ppt' | 'pptx' | 'md' | 'html' | 'xlsx' | 'presentation_preview_bundle'
+  type: 'pdf' | 'docx' | 'ppt' | 'pptx' | 'md' | 'txt' | 'html' | 'xlsx' | 'presentation_preview_bundle'
   url: string
   filename?: string
   title?: string

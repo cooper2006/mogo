@@ -11,6 +11,7 @@ const ICON_PDF  = I('pdf-file-format.png')
 const ICON_DOCX = I('docx-file.png')
 const ICON_PPT  = I('ppt.png')
 const ICON_MD   = I('md.png')
+const ICON_TXT  = I('txt.png')
 const ICON_HTML = I('html.png')
 const ICON_XLSX = I('excel-48.png')
 const ICON_GENERIC = I('attachment.svg')
@@ -48,6 +49,7 @@ registerArtifact('ppt',  { icon: ICON_PPT,  labelKey: 'artifact.pptx', actions: 
 registerArtifact('presentation_preview_bundle',
                           { icon: ICON_PPT,  labelKey: 'artifact.pptx', actions: ['edit', 'preview', 'export'] })
 registerArtifact('md',   { icon: ICON_MD,   labelKey: 'artifact.md',   actions: ['copy', 'download'] })
+registerArtifact('txt',  { icon: ICON_TXT,  labelKey: 'artifact.txt',  actions: ['download'] })
 registerArtifact('html', { icon: ICON_HTML, labelKey: 'artifact.html', actions: ['preview', 'download'] })
 registerArtifact('email_draft',
                           { icon: ICON_GENERIC, labelKey: 'artifact.email', actions: ['edit'] })

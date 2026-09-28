@@ -67,6 +67,7 @@ export const messages = {
   'artifact.xlsx': { zh: 'Excel 文件', en: 'Excel file' },
   'artifact.pptx': { zh: 'PPT 演示', en: 'PPT' },
   'artifact.md': { zh: 'Markdown', en: 'Markdown' },
+  'artifact.txt': { zh: '文本文件', en: 'Plain text' },
   'artifact.html': { zh: 'HTML', en: 'HTML' },
   'artifact.email': { zh: '邮件草稿', en: 'Email draft' },
   'artifact.code': { zh: '代码', en: 'Code' },
