@@ -11,8 +11,8 @@
       style="backdrop-filter: blur(16px);"
     >
       <div class="brand-block" :class="{ compact: collapsed }">
-        <img class="brand-logo" :src="movoLogo" alt="MOGO" />
-        <span v-if="!collapsed" class="brand-name">MOGO</span>
+        <img class="brand-logo" :src="movoLogo" alt="墨攻" />
+        <span v-if="!collapsed" class="brand-name">墨攻</span>
       </div>
       <n-menu
         :collapsed="collapsed"

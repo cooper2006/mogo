@@ -1,5 +1,16 @@
 # Work Log
 
+## 2026-09-28 admin-web 侧边栏品牌名 MOGO → 墨攻
+
+- 需求：用户截图指出管理后台侧边栏 logo 区红框内的 `MOGO` 需改为「墨攻」（与 09-28 user-web sidebar 中文化一致）。
+- 定位：`apps/admin-web/src/layouts/BasicLayout.vue:14-15` 的 `brand-block`（管理后台唯一侧边栏品牌渲染点，全仓 `brand-name` 仅此一处）。
+- 改动（仅此 2 行）：`<img alt="MOGO">` → `alt="墨攻"`；`<span class="brand-name">MOGO</span>` → 「墨攻」。`alt` 与显示文本同属品牌标识、和 user-web 上轮做法保持一致，故一并改。
+- 未动样式：`.brand-name` 的 `letter-spacing: 0.12em` 原为 `MOGO` 大写英文所设，但 user-web 同位置保留了 `tracking-[0.14em]`（两字品牌名带字距更像 logo 标识，属既有观感），故保持不动。
+- 边界：未改 `InviteAcceptPage.vue` 的 `Powered by MOGO`（邀请页页脚，不在截图范围）；未改浏览器标签页标题 `MOGO Admin`（`BasicLayout.vue` 的 `document.title`，不在截图范围）；未改 `locales/messages.ts` 内其它含 `MOGO` 的中文文案。
+- 验证：`apps/admin-web` `vue-tsc --noEmit` 通过（pnpm 因 node_modules 校验在无 TTY 下拒绝运行，改用本地 `./node_modules/.bin/vue-tsc` 直接执行）；`DOCKER_BUILDKIT=0` 重建镜像并重打裸名 `admin-web:71ec848`，`docker compose up -d --no-deps --pull never admin-web` 仅替换该服务；容器健康后线上 `http://127.0.0.1:3000/admin/` 返回 200，线上 chunk `assets/BasicLayout-79bce492.js` 含「墨攻」2 处（alt + 文本），剩余 1 处 `MOGO` 经上下文确认为标签页标题 `MOGO Admin`（范围外，未动）。
+
+**改动文件**：`apps/admin-web/src/layouts/BasicLayout.vue`、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-28 playwright 浏览器离线缓存（base-images/playwright + 构建上下文 bundle）
 
 - 背景：用户指出「playwright 之前应该下载过了，从外面网站下载的内容都应缓存到 `base-images/`，下次构建直接从缓存读」。触发场景是 chat-api 构建在 `playwright install --with-deps chromium` 处因 apt 源超时失败（exit 100），重试才通过——每次冷构建都要重下约 900MB 浏览器。
