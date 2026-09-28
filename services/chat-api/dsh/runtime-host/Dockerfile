@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim AS dependencies
 
-ARG MOVO_NPM_REGISTRY=
+ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
 
 ENV NODE_ENV=production \
     PNPM_HOME=/pnpm \
@@ -17,8 +17,8 @@ RUN node -e "const declared=require('./package.json').dependencies['@deepseek-ai
 
 FROM node:24-bookworm-slim
 
-ARG MOVO_APT_MIRROR=
-ARG MOVO_APT_SECURITY_MIRROR=
+ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
 # Security refresh is opt-in. A non-empty value (CI passes its run id) also
 # applies the latest distro security patches. ca-certificates and gosu are
 # functional dependencies, so they are always installed regardless.
@@ -54,7 +54,8 @@ COPY --from=dependencies /app/package.json ./package.json
 COPY src ./src
 COPY config ./config
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh \
+RUN chmod -R a+rX /app \
+    && chmod +x /app/entrypoint.sh \
     && mkdir -p /data/dsh-runtime \
     && chown -R node:node /data/dsh-runtime
 

@@ -6,9 +6,27 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_PROGRESS_BAR=off \
     PIP_NO_CACHE_DIR=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_EXTRA_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
 
 WORKDIR /app
+
+ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
+# Point apt at a reachable mirror before any apt-get call so both the system
+# dependency stage and playwright --with-deps pick it up.
+RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \
+        for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+            if [ -f "${source_file}" ]; then \
+                sed -i "s|http://deb.debian.org/debian|${MOVO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOVO_APT_MIRROR}|g" "${source_file}"; \
+                if [ -n "${MOVO_APT_SECURITY_MIRROR}" ]; then \
+                    sed -i "s|http://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g" "${source_file}"; \
+                fi; \
+            fi; \
+        done; \
+    fi
 
 ARG INSTALL_SYSTEM_DEPS_AT_BUILD=false
 RUN if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" = "true" ]; then \
@@ -65,6 +83,9 @@ RUN chmod +x /app/entrypoint.sh
 
 COPY app /app/app
 COPY .env.example /app/.env.example
+# Ensure in-container permissions do not depend on host file modes, so the
+# COPY layer stays cacheable across host permission churn.
+RUN chmod -R a+rX /app
 
 EXPOSE 8000
 

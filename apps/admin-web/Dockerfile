@@ -4,11 +4,13 @@ WORKDIR /app
 
 ARG VITE_BASE_PATH=/admin/
 ARG VITE_ADMIN_API_BASE_URL=/admin-api
+ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
 ENV VITE_BASE_PATH=${VITE_BASE_PATH} \
     VITE_ADMIN_API_BASE_URL=${VITE_ADMIN_API_BASE_URL}
 
 COPY package*.json ./
-RUN npm ci --legacy-peer-deps
+RUN if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_REGISTRY}"; fi \
+    && npm ci --legacy-peer-deps
 
 COPY . .
 RUN npm run build

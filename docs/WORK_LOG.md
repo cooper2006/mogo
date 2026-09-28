@@ -1,5 +1,114 @@
 # Work Log
 
+## 2026-09-28 document-parser 国内源优化：HF 镜像测速 + Docling 模型离线 bundle
+
+**任务**：「分析国内源下载慢点并优化」→ 落地离线 bundle 方案。
+
+**源测速结论（国内各 HF 镜像实测，Docling 模型 repo `docling-project/docling-layout-heron` / `docling-models` 的真实下载吞吐）**：
+
+| 源 | 实测速度 | 结论 |
+|---|---|---|
+| `hf-mirror.com`（当前默认） | ~95–98 KB/s（Range 分片 404，huggingface_hub 完整 resolve 时 CDN 均值 ~2MB/s，构建实测 525MB/265s） | **最优，保留** |
+| `hf-mirror.net` | ~65 KB/s，比 .com 慢 1/3 | 排除 |
+| huggingface.co 官方 | 直连超时（HTTP 000） | 不可用 |
+| modelscope | 未镜像 docling-project 模型（API 404） | 排除 |
+| 清华/中科大/阿里云 | 无 HF 模型镜像 | 排除 |
+
+**结论**：`hf-mirror.com` 已是可选项中的最优在线源，无更快替代。真正的提速来自**离线 bundle**（彻底绕开在线下载）：
+
+**改动**：
+- `services/document-parser/Dockerfile`：新增离线 bundle 路径。`COPY docling-models-bundle.tar.gz`（buildkit 解析期要求文件必存在，git 跟踪 <1KB 空 tar 占位符）；RUN 层按文件大小分支：>1KB → 解压 bundle 到 `${DOCLING_ARTIFACTS_PATH}` + `HF_HUB_OFFLINE=1` 校验（**零网络下载**）；否则 → 走原 `MOVO_HF_ENDPOINT` 在线路径（兜底不变）。
+- `scripts/docling_models_bundle.sh`（新增，可执行）：`save [image]` 从已构建镜像抽出 `/opt/docling/models` 重打 tar.gz 写回构建上下文；`list` 看 bundle 状态；`verify [image]` 校验镜像内模型（文件数 + safetensors 魔数）。风格对齐 `export_base_images.sh`。
+- `services/document-parser/docling-models-bundle.tar.gz`：git 跟踪 29B 占位符（`git add -f` 强制 + `git update-index --skip-worktree` 保护本地 485MB 真实 bundle 不被 commit 捕获）。`.gitignore` 第 344 行起改为注释说明（不再误伤已跟踪文件）。
+- `docs/WORK_LOG.md`：本条目。
+
+**验证**：
+- `save document-parser:d6d0c60` → 生成 485MB / 84 项 bundle（safetensors 魔数正常：3×safetensors 头部长度字段非 0）。
+- 离线 bundle 重建 `document-parser:d6d0c60`：`#15` 模型层 **265.8s → 18.5s（提速 14.4 倍）**，全程零 HF 下载；总构建 1m40s（#13 pip 层 CACHED）。
+- `verify` 通过；重启 document-api/worker 后 11 容器全 healthy，document-api 8s 内转 healthy。
+
+**后续**：占位符机制保证 CI/全新 checkout 走在线 hf-mirror 路径（COPY 不失败）；本地离线构建只需 `save` 一次（模型更新时重跑）。bundle 随 commit 不入库（skip-worktree + 占位符跟踪），发布前文档需说明 `save` 步骤。
+
+## 2026-09-28 打包镜像 + 启动应用（国内源 + git hash tag + 品牌前缀归一）
+
+**任务**：「打包镜像、启动应用」。全程走国内镜像源，镜像用 git short hash tag（`d6d0c60`），品牌环境变量前缀 MOVO_ → MOGO_（带过渡兼容）。11 容器全 healthy，端到端冒烟通过。
+
+**构建卡点根因（已定位）**：
+1. **文件权限位漂移**：工作区大量文件曾为 `-rwx------`(700)，容器内非 root（node 用户）读取 `EACCES`。已用 git index mode（`git ls-files --stage` 100644/100755）精确还原：2446 普通文件→644、30 个可执行→755，`git status` 从 2446 漂移到仅剩必要改动。
+2. **buildx 网络源**：pip（pypi.org）/ playwright CDN（azureedge）/ apt（deb.debian.org）国内不稳，反复 `Connection interrupted`。
+3. **apt 证书死锁**：node:24-slim 基础镜像未预装 ca-certificates，清华源用 HTTPS 时 `Certificate verification failed`。改用 **HTTP 清华源**（`http://mirrors.tuna.tsinghua.edu.cn`，已验证无证书依赖）解决。
+
+**治本改造（7 个 Dockerfile，符合 Constitution SDD 最小必要原则）**：
+- 注入国内源 ARG/ENV：`PIP_INDEX_URL`/`PIP_EXTRA_INDEX_URL`（清华）、`PLAYWRIGHT_DOWNLOAD_HOST`（npmmirror）、`MOVO_NPM_REGISTRY`（npmmirror）、`MOVO_APT_MIRROR`/`MOVO_APT_SECURITY_MIRROR`（清华 **HTTP** 源）。
+- `COPY` 后加 `RUN chmod -R a+rX /app`，使容器内权限不依赖宿主 mode（今后改文件权限不再使 COPY 层缓存失效 → 增量重建）。
+- `.gitignore` 加 `/.buildcache/`；buildx 用 `--cache-to=type=local,dest=.buildcache,mode=max` 落地持久化缓存。
+
+**品牌前缀归一（MOVO_ → MOGO_，仅部署侧，保留 MOVO_ 兜底兼容）**：
+- `docker-compose.yml`：`MOGO_*_IMAGE`/`MOGO_VERSION`/`MOGO_PORT`/`MOGO_PULL_POLICY`/`MOGO_VOLUME_PREFIX` 全部带 `${MOGO_X:-${MOVO_X:-默认}}` 兜底链（旧 .env 不失效；卷前缀默认仍 `movo` 保证数据卷不丢）。
+- `.env.example`：新增 `MOGO_` 行 + 兼容说明。
+- 边界判定：`MOVO_DOC_PROCESSING_*` 业务 env 与 bootstrap secrets key（被 `internal_service_auth.sh` 读取）属**业务契约**，本轮不改前缀（避免破坏代码 `os.getenv` 读取），已回退误改的 3 行。build arg（`MOVO_SECURITY_REFRESH` 等）本轮保留前缀，留待后续单独任务。
+- compose 语法 `docker compose config --quiet` 校验通过。
+
+**镜像 tag 策略**：采用 git short hash（`d6d0c60`）而非 `:latest`，可追溯"哪份代码构建的镜像"、支持回滚对比；7 个镜像同时打 `:d6d0c60` 与 `:latest` 双 tag（便于回退）。
+
+**验证**：
+- 7 镜像 `:d6d0c60` 全部构建成功（chat-api 重跑 playwright 国内源 52.8s、document-parser docling ok + torch 2.14.0+cpu + 模型 265.8s，`rc=0`）。
+- 启动：`MOGO_*_IMAGE` 全部指向 `:d6d0c60` + `docker compose -p mogo up -d`。
+- **11 容器全 healthy**（含此前 EACCES 的 dsh-runtime-host）；`document-worker` 无健康检查（worker 正常）。
+- 端到端冒烟（经 gateway:3000）：`/healthz` 200、`/` 200、`/admin/` 200、`/admin-api/api/setup/status` 返回 JSON 且 mongo/redis/storage/chat-api/document-processing 全部 `ok:true`（`ready:false` 为未初始化预期，需 `/admin/setup` 完成首次引导）。
+
+**改动文件**：7 个 Dockerfile、`docker-compose.yml`、`.env.example`、`.gitignore`、`docs/WORK_LOG.md`。
+
+**遗留待办（未执行，需用户确认）**：
+- 业务契约前缀归一（`MOVO_DOC_PROCESSING_*` 业务 env、secrets key、build arg `MOVO_*`）属代码 `os.getenv` 耦合，本轮刻意未动；若要彻底归一需同步 Python/脚本代码，建议走独立 SDD 任务。
+- `MOVO_DOC_PROCESSING_MONGODB_DB=mogo_dev` 等库名品牌已归 mogo，但服务 token 类契约名仍带 MOVO_ 前缀，未在本轮范围。
+
+## 2026-09-27 从 base-images/ 恢复 5 个基础镜像到 OrbStack
+
+**任务**：「从 baseimages 目录恢复镜像到 orbstack」。用既有 `scripts/export_base_images.sh load` 完成离线导入。
+
+**前置**：本机 shell `PATH` 仅含 `/usr/bin:/bin:/usr/sbin:/sbin`，`docker` 不在 PATH；OrbStack 已安装并运行（`/usr/local/bin/docker` → OrbStack docker shim，Engine 29.4.0，`linux/aarch64`）。manifest 记录平台 `linux/arm64` 与本机一致，无架构错配告警。
+
+**执行**：`DOCKER_BIN=/usr/local/bin/docker scripts/export_base_images.sh load base-images`（走 manifest 精确路径，导入 5 个 tar，合计约 230MB）。
+
+**验证**：`export_base_images.sh list` 显示 5/5 全部 `[local] linux/arm64`：
+
+| 镜像 | ID | 大小 |
+|---|---|---|
+| python:3.10-slim-bookworm | 2559be987fd6 | 220MB |
+| node:24-bookworm-slim | 0e0ff40c39bc | 349MB |
+| node:20-slim | 2cf067cfed83 | 313MB |
+| nginx:1.31.5-alpine3.24-slim | 3b171d7224b6 | 31.4MB |
+| nginx:1.29.8-alpine | 5616878291a2 | 94MB |
+
+**改动文件**：`docs/WORK_LOG.md`（本条目）。仅向本地 Docker 存储写入镜像，未修改任何源码/规格/工件。
+
+## 2026-09-26 SDD 合规性复核（只读核验：机械统计 + 接线 grep + 测试实跑）
+
+**任务**：「检查项目是否符合 SDD 规范开发」。以 constitution（Specification-First）与 `.specify/` 流程为基准，重新实测当前工作区，不复述 2026-09-25/26 两轮核验报告结论。
+
+**结论**：✅ 符合 SDD 规范开发。骨架 / 工件 / 生产接线 / 测试四层证据齐备。
+
+**机械核验证据**：
+- `.specify/` 骨架完整；6 个 `scripts/bash/*.sh` 全部 `bash -n` 通过；constitution v1.1.1（Last Amended 2026-09-24），Agent Operating Rules 与 AGENTS.md 一致。
+- 19/19 特性均有 `spec.md` + `plan.md` + `checklists/requirements.md`；spec 非空壳（80–157 行）。
+- checklist：001/002/007–019 共 15 份 **100% 勾选（实测 232 项，未勾 0）**；003–006 保留原始未勾（20/18/17/17）。
+- tasks.md：15 份**全部勾选，实测 270 项、未勾 0**（003–006 无 tasks.md，INDEX.md §六 已声明，符合 existing-projects 回溯指南取舍）。
+- 活跃特性 019 五件套（spec/plan/tasks/quickstart/checklists）齐全，无 TODO/TBD/待定。
+- 生产接线 5 项 grep 实证落地：007 `configured_models.py:376 ResilientLLMClient(entries)`；009 `turn_admission.run_pre_tool_use` + `hooks/integration.py:59`；001 `turn_admission.py:119 run_gate_plan` + `harness_config/floor.py assert_floor_intact / r4_always_denied`；002 `app/api/endpoints/dsh_session_versioning.py`；T999 `emit_feature_event` 覆盖 012/014/015/017/018/016 + bridge 共 7 个业务模块。
+- `docs/pending-review/index.md` 5 条台账全部 resolved。
+
+**测试实跑**：chat-api `tests/llm` + `tests/dsh_runtime` **383 passed / 5 skipped**（排除预存坏例 `test_decision_turn.py`、环境依赖目录 `conversation_regression`、以及 1 项需真实 Mongo 的用例）；admin-api **240 passed**；两案例（`tests/cases` + `tests/orchestration`）**92 passed**。
+
+**本轮新发现的偏差（非阻断，建议后续订正）**：
+1. `docs/SDD增强功能核验报告.md` 复核表写 002 端点为 `dsh_session_versioning.py`，实际位于 `app/api/endpoints/` 子目录（路径精度）。
+2. `services/chat-api/app/harness_config/gate_adapter.py` L8/L23 注释仍写「001 gatekeeper is not yet wired（clarify OQ-3）」，但 001 已挂载（`run_gate_plan`）且 pending-review 该条已 resolved —— 注释陈旧，建议改写为「transition backend 未启用」。
+3. 工作区 2446 个未提交改动中，仅 27 个为二进制内容变更（品牌图片/PDF），其余约 2419 个为**纯文件权限位漂移**（`core.fileMode=true`，`git diff --numstat` 全部 0/0）—— 会污染每次 diff，建议 `git config core.fileMode false` 后归位。
+
+**环境依赖（非缺陷）**：Docker daemon 未运行 → Mongo 127.0.0.1:27017 refused，1 项接线用例 `ServerSelectionTimeoutError`；`tests/llm/test_decision_turn.py` import 预存失败；`conversation_regression/` 需 Node ≥22.19。
+
+**改动文件**：`docs/WORK_LOG.md`（本条目）。未修改任何源码/规格/工件文件。
+
 ## 2026-09-26 构建提速：基础镜像本地复用 + 安全刷新可缓存化 + 离线导出/导入
 
 **任务**：把「源码构建」从「每次重建都回源 registry 解析/下载基础镜像」改为「本地已有则复用、缺才拉取」，并让安全补丁层可缓存；同时提供基础镜像离线导出/导入脚本。改动在早先会话产生，本轮完成核验与归档。

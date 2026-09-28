@@ -11,7 +11,7 @@ services:
     image: alpine:3.21
     restart: "no"
     environment:
-      MOVO_PORT: ${MOVO_PORT:-${ASKAI_PORT:-3000}}
+      MOGO_PORT: ${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}
     volumes:
       - deployment-secrets:/run/askai-secrets
     command:
@@ -65,7 +65,7 @@ services:
         } >> "$$temp_file"
         mv "$$temp_file" "$$secret_file"
         echo "MOVO deployment secrets are ready."
-        echo "After services become healthy, open http://localhost:$${MOVO_PORT:-3000}/admin/setup"
+        echo "After services become healthy, open http://localhost:$${MOGO_PORT:-${MOVO_PORT:-3000}}/admin/setup"
 
   mongo:
     image: mongo:6.0.20
@@ -121,8 +121,8 @@ services:
   #
   # Default: a single host, which is what the self-hosted deployment runs.
   dsh-runtime-host: &dsh-runtime-host
-    image: ${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOVO_VERSION:-latest}}
-    pull_policy: ${MOVO_PULL_POLICY:-missing}
+    image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
@@ -187,14 +187,14 @@ services:
       start_period: 10s
 
   chat-api:
-    image: ${MOVO_CHAT_API_IMAGE:-ghcr.io/himovo/chat-api:${MOVO_VERSION:-latest}}
-    pull_policy: ${MOVO_PULL_POLICY:-missing}
+    image: ${MOGO_CHAT_API_IMAGE:-${MOVO_CHAT_API_IMAGE:-ghcr.io/himovo/chat-api:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     environment:
       OPENAI_API_KEY: ""
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB: mogo_dev
-      ALLOWED_ORIGINS: http://localhost:${MOVO_PORT:-${ASKAI_PORT:-3000}}
+      ALLOWED_ORIGINS: http://localhost:${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}
       STORAGE_BACKEND: local
       LOCAL_STORAGE_PATH: /app/storage
       FILE_PUBLIC_PATH_PREFIX: /askai-api/api/files
@@ -236,8 +236,8 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()"]
 
   admin-api:
-    image: ${MOVO_ADMIN_API_IMAGE:-ghcr.io/himovo/admin-api:${MOVO_VERSION:-latest}}
-    pull_policy: ${MOVO_PULL_POLICY:-missing}
+    image: ${MOGO_ADMIN_API_IMAGE:-${MOVO_ADMIN_API_IMAGE:-ghcr.io/himovo/admin-api:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     environment:
       ASKAI_ADMIN_APP_ENV: production
@@ -250,11 +250,11 @@ services:
       ASKAI_ADMIN_WEAVIATE_ENDPOINT: http://weaviate:8080
       ASKAI_ADMIN_DOCUMENT_PROCESSING_BASE_URL: http://document-api:8200
       ASKAI_ADMIN_ADMIN_API_PUBLIC_BASE_URL: http://admin-api:8100
-      ASKAI_ADMIN_USER_PORTAL_BASE_URL: http://localhost:${MOVO_PORT:-${ASKAI_PORT:-3000}}
+      ASKAI_ADMIN_USER_PORTAL_BASE_URL: http://localhost:${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}
       ASKAI_ADMIN_KNOWLEDGE_STORAGE_TYPE: local
       ASKAI_ADMIN_KNOWLEDGE_LOCAL_STORAGE_DIR: /data/knowledge-documents
       ASKAI_ADMIN_ADMIN_STATIC_DIR: /data/admin-static
-      ASKAI_ADMIN_CORS_ORIGINS: '["http://localhost:${MOVO_PORT:-${ASKAI_PORT:-3000}}"]'
+      ASKAI_ADMIN_CORS_ORIGINS: '["http://localhost:${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}"]'
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
       - knowledge-storage:/data/knowledge-documents
@@ -274,8 +274,8 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3).read()"]
 
   document-api:
-    image: ${MOVO_DOCUMENT_API_IMAGE:-ghcr.io/himovo/document-parser:${MOVO_VERSION:-latest}}
-    pull_policy: ${MOVO_PULL_POLICY:-missing}
+    image: ${MOGO_DOCUMENT_API_IMAGE:-${MOVO_DOCUMENT_API_IMAGE:-ghcr.io/himovo/document-parser:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     command: ["api"]
     environment: &document-environment
@@ -312,8 +312,8 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/api/health', timeout=3).read()"]
 
   document-worker:
-    image: ${MOVO_DOCUMENT_WORKER_IMAGE:-ghcr.io/himovo/document-parser:${MOVO_VERSION:-latest}}
-    pull_policy: ${MOVO_PULL_POLICY:-missing}
+    image: ${MOGO_DOCUMENT_WORKER_IMAGE:-${MOVO_DOCUMENT_WORKER_IMAGE:-ghcr.io/himovo/document-parser:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     command: ["worker"]
     environment: *document-environment
@@ -334,8 +334,8 @@ services:
       - backend
 
   user-web:
-    image: ${MOVO_USER_WEB_IMAGE:-ghcr.io/himovo/user-web:${MOVO_VERSION:-latest}}
-    pull_policy: ${MOVO_PULL_POLICY:-missing}
+    image: ${MOGO_USER_WEB_IMAGE:-${MOVO_USER_WEB_IMAGE:-ghcr.io/himovo/user-web:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     networks:
       - public
@@ -346,8 +346,8 @@ services:
       retries: 20
 
   admin-web:
-    image: ${MOVO_ADMIN_WEB_IMAGE:-ghcr.io/himovo/admin-web:${MOVO_VERSION:-latest}}
-    pull_policy: ${MOVO_PULL_POLICY:-missing}
+    image: ${MOGO_ADMIN_WEB_IMAGE:-${MOVO_ADMIN_WEB_IMAGE:-ghcr.io/himovo/admin-web:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     networks:
       - public
@@ -358,11 +358,11 @@ services:
       retries: 20
 
   gateway:
-    image: ${MOVO_GATEWAY_IMAGE:-ghcr.io/himovo/gateway:${MOVO_VERSION:-latest}}
-    pull_policy: ${MOVO_PULL_POLICY:-missing}
+    image: ${MOGO_GATEWAY_IMAGE:-${MOVO_GATEWAY_IMAGE:-ghcr.io/himovo/gateway:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     ports:
-      - "${MOVO_PORT:-${ASKAI_PORT:-3000}}:80"
+      - "${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}:80"
     volumes:
       - ./deploy/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -391,18 +391,18 @@ volumes:
   # Community installations use their own physical volumes. Override the
   # prefix for an isolated validation run without touching another install.
   deployment-secrets:
-    name: ${MOVO_VOLUME_PREFIX:-movo}_deployment-secrets
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_deployment-secrets
   mongo-data:
-    name: ${MOVO_VOLUME_PREFIX:-movo}_mongo-data
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_mongo-data
   redis-data:
-    name: ${MOVO_VOLUME_PREFIX:-movo}_redis-data
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_redis-data
   weaviate-data:
-    name: ${MOVO_VOLUME_PREFIX:-movo}_weaviate-data
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_weaviate-data
   dsh-runtime-data:
-    name: ${MOVO_VOLUME_PREFIX:-movo}_dsh-runtime-data
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_dsh-runtime-data
   askai-storage:
-    name: ${MOVO_VOLUME_PREFIX:-movo}_askai-storage
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_askai-storage
   knowledge-storage:
-    name: ${MOVO_VOLUME_PREFIX:-movo}_knowledge-storage
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_knowledge-storage
   admin-static:
-    name: ${MOVO_VOLUME_PREFIX:-movo}_admin-static
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_admin-static
