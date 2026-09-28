@@ -711,7 +711,7 @@ export const messages = {
   // === 接受邀请页面 (InviteAcceptPage.vue) ===
   '企业邀请': { 'zh-CN': '企业邀请', 'en-US': 'Organization Invitation' },
   '加入 {org} 的 MOGO 工作空间': { 'zh-CN': '加入 {org} 的 MOGO 工作空间', 'en-US': 'Join {org}\'s MOGO Workspace' },
-  '完成账号激活后，即可登录 MOGO 前台系统开始使用。': { 'zh-CN': '完成账号激活后，即可登录 MOGO 前台系统开始使用。', 'en-US': 'Activate your account to sign in and start using MOGO.' },
+  '完成账号激活后，即可登录墨攻前台系统开始使用。': { 'zh-CN': '完成账号激活后，即可登录墨攻前台系统开始使用。', 'en-US': 'Activate your account to sign in and start using MOGO.' },
   '邀请有效期至：{time}': { 'zh-CN': '邀请有效期至：{time}', 'en-US': 'Invitation valid until: {time}' },
   '邀请链接不可用': { 'zh-CN': '邀请链接不可用', 'en-US': 'Invitation link is invalid' },
   '加入成功': { 'zh-CN': '加入成功', 'en-US': 'Joined Successfully' },

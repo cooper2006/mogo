@@ -1,5 +1,18 @@
 # Work Log
 
+## 2026-09-28 登录文案品牌归一（登录 MOGO → 登录墨攻）
+
+**任务**：将登录相关中文文案「登录 MOGO」统一改为「登录墨攻」（与 09-24 中文品牌名「墨攻」一致）。
+
+**执行**（英文 `Sign in to MOGO` 按既定品牌规约保留英文 MOGO 不变）：
+- `apps/user-web/src/locales/messages.ts` L547：`login.title` zh `登录 MOGO` → `登录墨攻`。
+- `apps/admin-web/src/locales/messages.ts` L714：邀请激活引导语 `登录 MOGO 前台系统` → `登录墨攻前台系统`（key 与 zh-CN 值同步；`InviteAcceptPage.vue:7` 引用该 key 自动同步）。
+- 未动 `admin-web` L713「加入 {org} 的 MOGO 工作空间」（属「工作空间」非「登录」动作，按字面不扩改）。
+
+**验证**：重新 build `user-web` + `admin-web` 镜像（`:744881e`，13:45 时间戳），recreate `mogo-user-web-1` / `mogo-admin-web-1`（均 healthy）；镜像 dist 实测含「登录墨攻」/「登录墨攻前台系统」，旧「登录 MOGO」0 残留。
+
+**改动文件**：`apps/user-web/src/locales/messages.ts`、`apps/admin-web/src/locales/messages.ts`、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-28 构建链品牌归一（MOVO_VERSION→MOGO_VERSION、movo_compose→mogo_compose）+ 镜像打包启动
 
 **任务**：按 09-28 品牌归一延续，把构建/部署脚本的镜像版本变量与 compose 包装函数统一为 MOGO 命名；随后用 git hash `744881e` 作为镜像 tag 打包 7 个镜像并启动。
@@ -22,6 +35,35 @@
 - `/api/hooks/rules` 经 gateway 返回 **HTTP 401**（需认证）——端点链路已通，证明 09-25 登记的 009 双前缀 404 已修复（gateway `location /api/` → chat-api:8000，chat-api `dsh_hooks` router prefix `/api` 拼出 `/api/hooks/rules`）。
 
 **改动文件**：`deploy/cli/images.sh`、`deploy/cli/backup.sh`、`deploy/cli/pull.sh`、`scripts/check_compose_image_modes.sh`、`scripts/test_serial_image_pull.sh`、`mogo`、`README.md`、`README.zh-CN.md`、`docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-28 009 端点归属收尾：移除 chat-api 冗余实现 + 修 governance 同类双前缀 + 订正 spec
+
+**任务**：接上轮「以 admin-api 为准」定案，执行用户拍板的三项收尾——①移除 chat-api 冗余 `dsh_hooks` 端点；②一并修 admin-api governance 同类双前缀；③订正 `specs/009` 文档中的端点归属描述。
+
+**执行**：
+- **移除 chat-api 冗余端点**（用户批准后 `git rm`）：
+  - `services/chat-api/app/api/endpoints/dsh_hooks.py`
+  - `services/chat-api/tests/dsh_runtime/test_hooks_api.py`
+  - `services/chat-api/app/main.py`：删除 `dsh_hooks` import（原 L110）与 `app.include_router(dsh_hooks.router, prefix="/api")`（原 L142）。
+  - 移除依据：gateway `location /admin-api/` 固定转发 admin-api、永不进 chat-api；该端点用 `END_USER_AUTH_SECRET` 验 end-user token，admin-web 的 admin-api token 必然 401；与 admin-api 共写同一 `hook_rules` 集合存在双写风险。
+- **修 governance 同类双前缀**：`services/admin-api/app/api/routes/governance.py:29` `APIRouter(prefix="/api/governance")` → `prefix="/governance"`（补注释说明 `api_router` 已带 `/api`）。全仓确认 admin-api 内 `APIRouter(prefix="/api` 仅此一处；`apps/admin-web/src` 与 `apps/user-web/src` 零处调用 governance API（仅 skills 分类 i18n 文案含 "governance"），故此前 `/api/api/governance/*` 无消费方，属潜在地雷。
+- **订正 spec 文档**：
+  - `specs/009-hooks-interception/plan.md` Project Structure：删掉错误的 `services/chat-api/app/api/ └── (新增 hook_rules 管理端点)`，改为列出 admin-api `app/api/routes/hooks.py` + `app/services/hooks_store.py`，补「端点归属订正（2026-09-28）」注记（含移除原因）；顺带补上实际存在的 `store.py`。
+  - `specs/009-hooks-interception/tasks.md`：Organization 行补明 admin-api 落点；T015 补实际路径 `/api/hooks/rules` 与前缀拼装说明。
+- **台账/对照表同步**：`docs/pending-review/index.md` 009 条目 `open` → `resolved`（用户已拍板并批准移除）；`docs/SDD界面呈现对照表.md` §0 009 行注明 chat-api 冗余实现已移除、`hooks_store._validate` 已收敛。
+
+**验证**：
+- admin-api OpenAPI 实测（`app.openapi()`，motor 用桩绕开 py3.14 移除 `asyncio.coroutine` 的兼容问题）：`/api/governance/*` 7 条路径（`autonomy-matrix` + `cells`、`permissions` + `grant`/`revoke`/`check`、`risk-tiers`）全部单层前缀；`/api/hooks/rules`、`/api/hooks/rules/{rule_id}`、`/api/hooks/scope` 正常；**全表 `/api/api/` 双前缀归零**。
+- admin-api `.venv-test` pytest：**240 passed**。
+- chat-api `tests/dsh_runtime/`：**328 passed, 4 failed, 5 skipped**——4 个失败均为预存环境问题，与本轮改动无关：
+  - 3 × `conversation_regression/test_conversation_capabilities.py`：硬前置 `Failed: DSH conversation regression requires Node ^22.19.0 or >=24.0.0`；
+  - 1 × `test_hooks_wiring.py::test_admit_skill_selection_runs_hook_gate_first`：`app/governance/audit.py:13` 写 `position_role_audit_logs` 时 `Connection refused` 到 `127.0.0.1:27017`（本机无 Mongo）；该测试只 import `app.dsh_runtime.turn_admission`，对 `app.main` / `dsh_hooks` 引用数为 0。
+- chat-api `app.main` 导入与 OpenAPI 生成正常：**148 paths，hooks 路径 0 条**，`grep dsh_hooks app/main.py` 无残留。
+- admin-web 本轮无源码改动（`api/dsh_hooks.ts` 上轮已对齐），未重复 typecheck。
+
+**订正说明（覆盖前一个「构建链品牌归一」条目 L22 的结论）**：该条依据「`/api/hooks/rules` 经 gateway 返回 401」判定 009 双前缀已修，但那个 401 来自 chat-api 的 end-user 鉴权，走的是 gateway `location /api/` → chat-api 这条**裸 `/api/*`** 通路，并不经过 `/admin-api/*`；admin-web 实际发的是 `/admin-api/api/hooks/rules`（→ admin-api，当时 404）。本轮已删除 chat-api 该端点，**裸 `/api/hooks/rules` 现为 404**；admin-web 真正走的是 admin-api `/api/hooks/rules`（单层前缀，已修通）。
+
+**改动文件**：修改 `services/chat-api/app/main.py`、`services/admin-api/app/api/routes/governance.py`、`specs/009-hooks-interception/plan.md`、`specs/009-hooks-interception/tasks.md`、`docs/pending-review/index.md`、`docs/SDD界面呈现对照表.md`、`docs/WORK_LOG.md`（本条目）；删除 `services/chat-api/app/api/endpoints/dsh_hooks.py`、`services/chat-api/tests/dsh_runtime/test_hooks_api.py`。
 
 ## 2026-09-28 009 钩子规则端点归属定案为 admin-api：修双前缀 + admin-web 契约对齐
 
