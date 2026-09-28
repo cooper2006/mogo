@@ -53,16 +53,56 @@ RUN python -m pip install --progress-bar off --upgrade pip setuptools wheel \
     && python -m pip uninstall --yes pip wheel \
     && find /usr/local/lib/python3.10/ensurepip/_bundled -type f -delete
 
+# Chromium for the browser tool.
+#
+# Three paths, in order of preference:
+#   1. offline bundle (playwright-browsers-bundle.tar.gz in the build context,
+#      produced by scripts/playwright_browsers_bundle.sh save) — no network,
+#      deterministic bytes, and the layer stays cached while the bundle is
+#      unchanged. Tracked in git as a <1KB placeholder, so this COPY never fails.
+#   2. online download from PLAYWRIGHT_DOWNLOAD_HOST (npmmirror).
+#   3. skip entirely (INSTALL_PLAYWRIGHT_AT_BUILD=false).
+#
+# System libraries are a separate concern: `--with-deps` shells out to apt,
+# which fails whenever a distro mirror hiccups and would otherwise take the
+# whole browser step down with it. So deps are installed on their own and a
+# failure there is a warning, not a build failure — the bundle path above is
+# what makes browser provisioning reproducible.
 ARG INSTALL_PLAYWRIGHT_AT_BUILD=false
 ARG PLAYWRIGHT_WITH_DEPS=false
-RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" = "true" ]; then \
-        if [ "${PLAYWRIGHT_WITH_DEPS}" = "true" ]; then \
-            playwright install --with-deps chromium; \
-        else \
-            playwright install chromium; \
-        fi; \
-    else \
+COPY playwright-browsers-bundle.tar.gz /tmp/playwright-browsers-bundle.tar.gz
+RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" != "true" ]; then \
         echo "Skip playwright browser install in build stage (INSTALL_PLAYWRIGHT_AT_BUILD=false)"; \
+    else \
+        bundle_bytes="$(du -sb /tmp/playwright-browsers-bundle.tar.gz | cut -f1)"; \
+        if [ "${bundle_bytes}" -gt 1024 ]; then \
+            echo "Installing playwright browsers from offline bundle (${bundle_bytes} bytes)"; \
+            mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" \
+            && tar -xzf /tmp/playwright-browsers-bundle.tar.gz -C "${PLAYWRIGHT_BROWSERS_PATH}" \
+            && rm -f /tmp/playwright-browsers-bundle.tar.gz; \
+        else \
+            echo "No offline browser bundle; downloading from ${PLAYWRIGHT_DOWNLOAD_HOST}"; \
+            if [ "${PLAYWRIGHT_WITH_DEPS}" = "true" ]; then \
+                PLAYWRIGHT_SKIP_BROWSER_GC=1 playwright install chromium \
+                && (playwright install-deps chromium \
+                    || echo "WARNING: playwright install-deps failed (apt mirror unreachable); continuing with browsers only"); \
+            else \
+                PLAYWRIGHT_SKIP_BROWSER_GC=1 playwright install chromium; \
+            fi; \
+        fi; \
+        if [ "${PLAYWRIGHT_WITH_DEPS}" = "true" ] && [ "${bundle_bytes}" -gt 1024 ]; then \
+            playwright install-deps chromium \
+            || echo "WARNING: playwright install-deps failed (apt mirror unreachable); continuing with browsers only"; \
+        fi; \
+        rm -f /tmp/playwright-browsers-bundle.tar.gz; \
+        ls -d "${PLAYWRIGHT_BROWSERS_PATH}"/chromium*-* >/dev/null 2>&1 \
+            || { echo "ERROR: no chromium directory under ${PLAYWRIGHT_BROWSERS_PATH} after provisioning"; exit 1; }; \
+        echo "chromium provisioned: $(ls -d "${PLAYWRIGHT_BROWSERS_PATH}"/chromium*-* | tr '\n' ' ')"; \
+        if python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); b.close(); p.stop()" 2>/dev/null; then \
+            echo "playwright chromium launch OK"; \
+        else \
+            echo "WARNING: chromium is installed but failed to launch (missing system libraries are the usual cause; install them or build with PLAYWRIGHT_WITH_DEPS=true)"; \
+        fi; \
     fi
 
 # Security refresh is opt-in. A non-empty value (CI passes its run id) applies
