@@ -14,7 +14,7 @@ MOVO_IMAGE_SERVICES=(
   MOVO_GATEWAY_IMAGE:gateway
 )
 
-movo_compose() {
+mogo_compose() {
   local compose_args=(-f "${ROOT_DIR}/docker-compose.yml")
   if [[ "${MOVO_COMPOSE_BUILD}" == "true" ]]; then
     compose_args+=(-f "${ROOT_DIR}/docker-compose.build.yml")
@@ -23,7 +23,7 @@ movo_compose() {
 }
 
 movo_export_shared_document_image() {
-  MOVO_DOCUMENT_API_IMAGE="${MOVO_EXPORTED_IMAGE_PREFIX}document-parser:${MOVO_VERSION}"
+  MOVO_DOCUMENT_API_IMAGE="${MOVO_EXPORTED_IMAGE_PREFIX}document-parser:${MOGO_VERSION}"
   MOVO_DOCUMENT_WORKER_IMAGE="${MOVO_DOCUMENT_API_IMAGE}"
   export MOVO_DOCUMENT_API_IMAGE MOVO_DOCUMENT_WORKER_IMAGE
 }
@@ -35,7 +35,7 @@ movo_export_service_images() {
   for entry in "${MOVO_IMAGE_SERVICES[@]}"; do
     var="${entry%%:*}"
     service="${entry##*:}"
-    printf -v "${var}" '%s%s:%s' "${MOVO_EXPORTED_IMAGE_PREFIX}" "${service}" "${MOVO_VERSION}"
+    printf -v "${var}" '%s%s:%s' "${MOVO_EXPORTED_IMAGE_PREFIX}" "${service}" "${MOGO_VERSION}"
     export "${var?}"
   done
   movo_export_shared_document_image
@@ -44,9 +44,9 @@ movo_export_service_images() {
 movo_configure_images() {
   local source_build="${1:-false}"
   local configured_registry="${MOVO_IMAGE_REGISTRY:-$(dotenv_value MOVO_IMAGE_REGISTRY)}"
-  MOVO_VERSION="${MOVO_VERSION:-$(dotenv_value MOVO_VERSION)}"
-  MOVO_VERSION="${MOVO_VERSION:-latest}"
-  export MOVO_VERSION
+  MOGO_VERSION="${MOGO_VERSION:-${MOVO_VERSION:-$(dotenv_value MOGO_VERSION)}}"
+  MOGO_VERSION="${MOGO_VERSION:-latest}"
+  export MOGO_VERSION
 
   if [[ "${source_build}" == "true" ]]; then
     # Local source build: bare service names (admin-web:latest), so they never

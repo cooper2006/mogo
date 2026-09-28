@@ -56,7 +56,7 @@ movo_write_backup() {
       alpine:3.21 tar -C /source -czf "/backup/${suffix}.tar.gz" .
   done
   printf '%s\n' "${prefix}" > "${target_dir}/volume-prefix.txt"
-  printf '%s\n' "${MOVO_VERSION:-latest}" > "${target_dir}/movo-version.txt"
+  printf '%s\n' "${MOGO_VERSION:-${MOVO_VERSION:-latest}}" > "${target_dir}/movo-version.txt"
   git -C "${ROOT_DIR}" rev-parse HEAD > "${target_dir}/git-commit.txt" 2>/dev/null || true
   (
     cd "${target_dir}"
@@ -80,13 +80,13 @@ movo_backup() {
   mkdir -p "${target_dir}"
 
   movo_msg backup_stopping
-  movo_compose stop
+  mogo_compose stop
   if ! movo_write_backup "${target_dir}" "${prefix}"; then
     movo_msg backup_failed >&2
-    movo_compose up -d || true
+    mogo_compose up -d || true
     return 1
   fi
-  movo_compose up -d
+  mogo_compose up -d
   refresh_gateway_resolution
   wait_until_ready
   movo_msg backup_complete "${target_dir}"
@@ -118,7 +118,7 @@ movo_restore() {
     return 2
   fi
 
-  movo_compose down
+  mogo_compose down
   for suffix in "${MOVO_VOLUME_SUFFIXES[@]}"; do
     if [[ ! -f "${source_dir}/${suffix}.tar.gz" ]]; then
       printf 'Backup archive is missing: %s.tar.gz\n' "${suffix}" >&2
@@ -132,7 +132,7 @@ movo_restore() {
       alpine:3.21 sh -ec \
       "find /target -mindepth 1 -maxdepth 1 -exec rm -rf {} +; tar -xzf '/backup/${suffix}.tar.gz' -C /target"
   done
-  movo_compose up -d
+  mogo_compose up -d
   refresh_gateway_resolution
   wait_until_ready
   movo_msg restore_complete

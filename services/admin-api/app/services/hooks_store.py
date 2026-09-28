@@ -58,16 +58,18 @@ class HookRuleStore:
 
     @staticmethod
     def _validate(*, scope: str, rule_type: str, rule_config: dict[str, Any]) -> None:
+        # Shape-only validation. The runtime engine's ``parse_rule`` remains the
+        # authoritative fail-closed check, and the 009 contract permits
+        # ``deny_tool`` with an empty/``*`` tool (meaning "all tools") and uses
+        # ``fields`` (plural) for ``require_field``. Forcing ``tool``/``field``
+        # here rejected valid rules — including every ``require_field`` rule the
+        # admin-web form builds.
         if scope not in VALID_SCOPES:
             raise RuleValidationError(f"invalid hook rule scope: {scope!r} (must be one of {VALID_SCOPES})")
         if rule_type not in VALID_RULE_TYPES:
             raise RuleValidationError(f"invalid hook rule type: {rule_type!r} (must be one of {VALID_RULE_TYPES})")
         if not isinstance(rule_config, dict):
             raise RuleValidationError("rule_config must be an object")
-        if rule_type == "deny_tool" and not rule_config.get("tool"):
-            raise RuleValidationError("deny_tool rule requires 'tool' in rule_config")
-        if rule_type == "require_field" and not rule_config.get("field"):
-            raise RuleValidationError("require_field rule requires 'field' in rule_config")
 
     # --- CRUD -----------------------------------------------------------------
 

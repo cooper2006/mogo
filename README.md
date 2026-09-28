@@ -306,7 +306,7 @@ cp .env.example .env
 MOVO_PORT=3000
 MOVO_VOLUME_PREFIX=mogo
 MOVO_IMAGE_REGISTRY=ghcr.io/himovo
-MOVO_VERSION=vX.Y.Z
+MOGO_VERSION=vX.Y.Z
 PUBLIC_BASE_URL=https://movo.example.com
 ```
 

@@ -15,7 +15,11 @@ from app.api.deps import get_current_admin_user
 from app.core.db import get_db
 from app.services.hooks_store import HOOK_RULES_COLLECTION, HookRuleStore, RuleValidationError
 
-router = APIRouter(prefix="/api/hooks", tags=["hooks"])
+# api_router 已以 /api 挂载（app/main.py），此处只带 /hooks，实际路径为
+# /api/hooks/... —— 与 admin-web `apiClient` (baseURL /admin-api) + gateway
+# (剥 /admin-api) 拼出的 /api/hooks/rules 对齐。此前 prefix="/api/hooks"
+# 造成 /api/api/hooks 双前缀，前端单前缀调用 404。
+router = APIRouter(prefix="/hooks", tags=["hooks"])
 
 
 def _store(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> HookRuleStore:

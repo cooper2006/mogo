@@ -101,7 +101,7 @@ export const messages = {
 
   // === 布局 (BasicLayout.vue) ===
   '进入管理后台': { 'zh-CN': '进入管理后台', 'en-US': 'Enter Admin' },
-  'MOGO 智能体控制台': { 'zh-CN': 'MOGO 智能体控制台', 'en-US': 'MOGO Agent Console' },
+  '墨攻智能体控制台': { 'zh-CN': '墨攻智能体控制台', 'en-US': 'MOGO Agent Console' },
   '正在进入后台...': { 'zh-CN': '正在进入后台...', 'en-US': 'Entering Admin...' },
   '返回 Skill 列表': { 'zh-CN': '返回 Skill 列表', 'en-US': 'Back to Skills' },
   '返回': { 'zh-CN': '返回', 'en-US': 'Back' },

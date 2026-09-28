@@ -21,6 +21,7 @@ image_suffixes=(
 compose_images() {
   env \
     -u MOVO_IMAGE_REGISTRY \
+    -u MOGO_VERSION \
     -u MOVO_VERSION \
     -u MOVO_DOCUMENT_API_IMAGE \
     -u MOVO_DOCUMENT_WORKER_IMAGE \
@@ -42,7 +43,7 @@ done
 # Source-build path: the CLI exports bare service names.
 source_env="$(
   (
-    unset MOVO_IMAGE_REGISTRY MOVO_VERSION
+    unset MOVO_IMAGE_REGISTRY MOGO_VERSION MOVO_VERSION
     ROOT_DIR="${ROOT_DIR}"
     DOCKER_BIN=docker
     # shellcheck source=../deploy/cli/images.sh
@@ -81,7 +82,7 @@ fi
 
 # CLI configuration invariants.
 (
-  unset MOVO_IMAGE_REGISTRY MOVO_VERSION MOVO_BUILD_IMAGE_REGISTRY
+  unset MOVO_IMAGE_REGISTRY MOGO_VERSION MOVO_VERSION MOVO_BUILD_IMAGE_REGISTRY
   ROOT_DIR="${ROOT_DIR}"
   DOCKER_BIN=docker
   # shellcheck source=../deploy/cli/images.sh

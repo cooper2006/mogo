@@ -12,7 +12,7 @@ movo_pull_images_serially() {
 
   while true; do
     movo_msg pulling_images "${attempt}"
-    if movo_compose --parallel 1 pull --policy "${policy}"; then
+    if mogo_compose --parallel 1 pull --policy "${policy}"; then
       return 0
     else
       pull_status=$?

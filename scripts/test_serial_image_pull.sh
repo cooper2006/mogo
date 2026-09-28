@@ -12,7 +12,7 @@ sleep() { :; }
 calls=()
 failures_remaining=0
 failure_status=1
-movo_compose() {
+mogo_compose() {
   calls+=("$*")
   if ((failures_remaining > 0)); then
     failures_remaining=$((failures_remaining - 1))

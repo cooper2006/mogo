@@ -86,14 +86,14 @@ retire_legacy_compose_project() {
 
 refresh_gateway_resolution() {
   local gateway_id=""
-  gateway_id="$(movo_compose ps -q gateway 2>/dev/null || true)"
+  gateway_id="$(mogo_compose ps -q gateway 2>/dev/null || true)"
   if [[ -z "${gateway_id}" ]]; then
     return 0
   fi
   # The stock Nginx image resolves Compose service names when it starts.
   # Rebuilt upstream containers may receive new IPs while gateway is kept,
   # so restart this stateless proxy before probing deployment readiness.
-  movo_compose restart gateway
+  mogo_compose restart gateway
 }
 
 dotenv_value() {
@@ -136,7 +136,7 @@ status_is_ready() {
   elif command -v wget >/dev/null 2>&1; then
     response="$(wget -qO- -T 5 "${status_url}" 2>/dev/null || true)"
   else
-    response="$(movo_compose exec -T gateway wget -qO- \
+    response="$(mogo_compose exec -T gateway wget -qO- \
       http://admin-api:8100/api/setup/status 2>/dev/null || true)"
   fi
   [[ "${response}" == *'"ready":true'* ]]
@@ -179,9 +179,9 @@ command_up() {
     # images are resolved locally first so the build never re-downloads them.
     # `up --pull` takes a string policy (never), unlike `build --pull`.
     movo_prepare_base_images || return 1
-    if ! movo_compose up -d --pull never "$@"; then
+    if ! mogo_compose up -d --pull never "$@"; then
       movo_msg start_failed >&2
-      movo_compose ps >&2 || true
+      mogo_compose ps >&2 || true
       movo_msg logs_hint >&2
       return 1
     fi
@@ -190,9 +190,9 @@ command_up() {
       return 1
     fi
     movo_msg starting
-    if ! movo_compose up -d --pull never "$@"; then
+    if ! mogo_compose up -d --pull never "$@"; then
       movo_msg start_failed >&2
-      movo_compose ps >&2 || true
+      mogo_compose ps >&2 || true
       movo_msg logs_hint >&2
       return 1
     fi
@@ -308,7 +308,7 @@ command_build() {
   # re-resolve every base image upstream, which is what made each rebuild wait
   # on the network.
   movo_prepare_base_images || return 1
-  movo_compose build "$@"
+  mogo_compose build "$@"
   # Rebuilding retags the same service names, which leaves the previous image
   # layers unreferenced (dangling). Left alone they accumulate on every build
   # and eventually fill the disk, so reclaim them when the build succeeds.
@@ -328,7 +328,7 @@ command_update() {
   MOVO_PULL_POLICY=always
   export MOVO_PULL_POLICY
   movo_pull_images_serially always
-  movo_compose up -d --pull never
+  mogo_compose up -d --pull never
   refresh_gateway_resolution
   wait_until_ready
   movo_print_running_dsh_version
@@ -372,17 +372,17 @@ case "${command}" in
     ;;
   status)
     require_docker
-    movo_compose ps
+    mogo_compose ps
     ;;
   logs)
     require_docker
-    movo_compose logs --tail=200 "$@"
+    mogo_compose logs --tail=200 "$@"
     ;;
   restart)
     print_logo
     require_docker
     deployment_urls
-    movo_compose restart
+    mogo_compose restart
     wait_until_ready
     show_ready_message
     ;;
@@ -412,7 +412,7 @@ case "${command}" in
         fi
       fi
     fi
-    movo_compose down "${compose_down_args[@]}"
+    mogo_compose down "${compose_down_args[@]}"
     retire_legacy_compose_project
     if [[ "${remove_volumes}" == "true" ]]; then
       movo_msg stopped_removed

@@ -1,5 +1,68 @@
 # Work Log
 
+## 2026-09-28 构建链品牌归一（MOVO_VERSION→MOGO_VERSION、movo_compose→mogo_compose）+ 镜像打包启动
+
+**任务**：按 09-28 品牌归一延续，把构建/部署脚本的镜像版本变量与 compose 包装函数统一为 MOGO 命名；随后用 git hash `744881e` 作为镜像 tag 打包 7 个镜像并启动。
+
+**构建链改名（最小必要，保留 MOVO_ 兜底兼容）**：
+- `deploy/cli/images.sh`：`movo_configure_images` 读/默认/export 由 `MOVO_VERSION` 改为 `MOGO_VERSION`（兜底链 `MOGO_VERSION:-${MOVO_VERSION:-$(dotenv_value MOGO_VERSION)}`）；`movo_export_*_images` 两处 tag 拼接 `${MOVO_VERSION}` → `${MOGO_VERSION}`（此前这两行漏改，导致 `MOGO_VERSION` 不生效）。
+- `deploy/cli/backup.sh` L59：`${MOVO_VERSION:-latest}` → `${MOGO_VERSION:-${MOVO_VERSION:-latest}}`（版本落盘）。
+- `scripts/check_compose_image_modes.sh` L24/L45/L84：`MOVO_VERSION` 改为 `MOGO_VERSION`（保留 `MOVO_VERSION` 一并 unset，兼容旧名）。
+- `README.md` / `README.zh-CN.md` L309 示例：`MOVO_VERSION=vX.Y.Z` → `MOGO_VERSION=vX.Y.Z`。
+- `mogo` + `deploy/cli/{images,pull,backup}.sh` + `scripts/test_serial_image_pull.sh`：函数/调用 `movo_compose` 全部 → `mogo_compose`（12 + 1 + 1 + 5 + 1 处，0 残留）；`images.sh` 中 `mogo_compose()` 定义同步改名。`docker-compose.yml` 镜像 tag 已是 `MOGO_VERSION:-${MOVO_VERSION:-latest}` 无需改。
+
+**打包镜像并运行（7 镜像 + 11 容器）**：
+- 构建：`MOGO_VERSION=744881e DOCKER_BUILDKIT=0 ./mogo build`（经典 builder，本地 base images 复用，document-parser 走离线 bundle 508MB）。7 个镜像全部 `:744881e` 构建成功（chat-api 含 playwright 国内源；dangling prune 回收约 9.3GB）。
+- 启动：`source deploy/cli/images.sh && movo_configure_images true`（导出 `MOVO_*_IMAGE=裸名:744881e`）后 `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --pull never`——**绕开 `mogo up` 的 publish 路径**（`movo_configure_images false` 会带 `ghcr.io/himovo/` 前缀与本地裸名不匹配导致容器不切换）；直接走 build 路径用本地裸名镜像 recreate。
+- 结果：9 个业务容器全部切到 `:744881e` 并 healthy（gateway/chat-api/admin-api/document-api/dsh-runtime-host/admin-web/user-web + document-worker）；redis/mongo/weaviate 基础服务保持。
+
+**验证**：
+- 宿主机 `curl localhost:3000/healthz` → `ok`；`/admin-api/api/setup/status` → 各服务 `ok:true`。
+- admin-web:744881e 镜像 dist 含「墨攻智能体控制台」（LoginPage bundle 命中），界面品牌名生效（源码早在 09-24 已改，重构建即刷新）。
+- `/api/hooks/rules` 经 gateway 返回 **HTTP 401**（需认证）——端点链路已通，证明 09-25 登记的 009 双前缀 404 已修复（gateway `location /api/` → chat-api:8000，chat-api `dsh_hooks` router prefix `/api` 拼出 `/api/hooks/rules`）。
+
+**改动文件**：`deploy/cli/images.sh`、`deploy/cli/backup.sh`、`deploy/cli/pull.sh`、`scripts/check_compose_image_modes.sh`、`scripts/test_serial_image_pull.sh`、`mogo`、`README.md`、`README.zh-CN.md`、`docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-28 009 钩子规则端点归属定案为 admin-api：修双前缀 + admin-web 契约对齐
+
+**任务**：核验 009 钩子规则 CRUD 的端点归属。规划文档 P1-4 写「admin `/api/hooks` CRUD」、`specs/009/quickstart.md:73` 写 admin-api，而 `specs/009/plan.md:54` 写 chat-api——文档自相矛盾；实际存在两套并行实现写同一个 `hook_rules` Mongo 集合。用户拍板**以 admin-api 为准**。
+
+**排查发现（三处硬阻塞，任何一条都让 admin-web 钩子页不可用）**：
+1. **路径断链**：admin-web `apiClient` baseURL `/admin-api` + gateway `deploy/docker/nginx.conf` `location /admin-api/ { proxy_pass http://admin-api:8100/; }`（剥前缀）→ admin-api 收到 `/api/hooks/rules`；但 `routes/hooks.py` 前缀原为 `/api/hooks`，而 `main.py:74` 的 `api_router` 已以 `/api` 挂载 → 实际路径 `/api/api/hooks/rules`，**单前缀 404**（即 L1226 已记录的已知双前缀 bug，一直未修）。gateway 的 `/admin-api/*` 永不进 chat-api（chat-api 只走 `/askai-api/*` 与裸 `/api/*`）。
+2. **鉴权不匹配**：chat-api `dsh_hooks.py` 用 `_resolve_session_user` = `end_user_session.resolve_session_user`（`END_USER_AUTH_SECRET` 验签 + `USER_SESSION_COLLECTION`），而 admin-web 登录走 `/admin-api/api/auth/login` 拿的是 admin-api token → 走 chat-api 必然 401。
+3. **校验与契约冲突**：admin-api `hooks_store._validate` 强制 `deny_tool` 必带 `tool`、`require_field` 必带 `field`（单数），而 009 契约是 `deny_tool` 空/`*` = 全部、`require_field` 用 `fields`（复数，与运行时 `rules.py:80` `get("fields") or get("required_fields")` 一致）→ admin-web 表单建的 `require_field` 规则必然 400。
+
+**执行**：
+- `services/admin-api/app/api/routes/hooks.py`：`APIRouter(prefix="/api/hooks")` → `prefix="/hooks"`（实际路径回到 `/api/hooks/...`），并补注释说明前缀拼装来源（`api_router` 的 `/api` + 本路由的 `/hooks`）。
+- `services/admin-api/app/services/hooks_store.py` `_validate`：删掉 `tool`/`field` 两条强制校验，回到「只校验形状」（scope/rule_type 合法 + rule_config 是 object），与自身 docstring「only validates the rule's shape」、运行时 `parse_rule` 权威校验和 009 契约对齐。
+- `apps/admin-web/src/api/dsh_hooks.ts` 对齐 admin-api 契约：列表解 `{items,total}` 信封；`updateHookRule` `PUT`→`PATCH`；`deleteHookRule` 适配 204 无响应体（回传传入的 ruleId）；查询参数 `tenant_id`→`scope`/`enabled`；文件头注释由「与 chat-api 对应」改为「与 admin-api `routes/hooks.py` 对应」并记录四处契约差异。四个函数签名全部保持不变，`HookRulesPage.vue` 零改动。
+- `docs/SDD界面呈现对照表.md` §0 速查总表 009 行：归属由「chat-api `dsh_hooks.py`」订正为「admin-api `routes/hooks.py`」，注明双前缀已修。
+- `docs/pending-review/index.md`：登记 chat-api `dsh_hooks.py` 冗余端点为 open 待拍板（按 AGENTS.md 不删除，仅登记）。
+
+**验证**：
+- admin-api `.venv-test` pytest：**240 passed**（含本次改动；此前记录基线 236）。
+- admin-web `vue-tsc --noEmit`：**EXIT 0**，零类型错误。
+- 路由表实测（`app.openapi()`，motor 用桩绕过 py3.14 `asyncio.coroutine` 移除问题）：`GET/POST /api/hooks/rules`、`GET/PATCH/DELETE /api/hooks/rules/{rule_id}`、`GET /api/hooks/scope`，**已无 `/api/api/hooks`**；与 admin-web `/admin-api` + `/api/hooks/rules` 经 gateway 剥前缀后拼出的路径逐段对齐。
+
+**遗留**：
+1. chat-api `app/api/endpoints/dsh_hooks.py` + `tests/dsh_runtime/test_hooks_api.py` 现为无人调用的冗余端点（admin token 无法通过其 end-user 鉴权），已登记 pending-review 待用户确认是否移除。
+2. **同类双前缀未修**：admin-api `routes/governance.py:29` 仍为 `prefix="/api/governance"` → 实际 `/api/api/governance/*`。本轮范围外未动；已确认 `apps/admin-web/src/` 零处调用 governance，**当前无生产影响**，属潜在地雷，建议后续一并订正。
+3. `specs/009/plan.md:54` 仍写 chat-api，与 quickstart/规划文档不一致；属文档遗留，本轮未改 spec 以免超出接线范围。
+
+**改动文件**：`services/admin-api/app/api/routes/hooks.py`、`services/admin-api/app/services/hooks_store.py`、`apps/admin-web/src/api/dsh_hooks.ts`、`docs/SDD界面呈现对照表.md`、`docs/pending-review/index.md`、`docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-28 admin-web 登录页标题改名（MOGO 智能体控制台 → 墨攻智能体控制台）
+
+**任务**：将 admin-web 登录页主标题中文由「MOGO 智能体控制台」改为「墨攻智能体控制台」。
+
+**执行**（i18n 键同步改名，英文翻译保持 `MOGO Agent Console` 不变）：
+- `apps/admin-web/src/views/auth/LoginPage.vue` L6：`t('MOGO 智能体控制台')` → `t('墨攻智能体控制台')`
+- `apps/admin-web/src/locales/messages.ts` L104：字典键 `'MOGO 智能体控制台'` 改为 `'墨攻智能体控制台'`，zh-CN 值同步更新，en-US 值保留 `MOGO Agent Console`
+
+**验证**：`grep -r "MOGO 智能体控制台"` 全仓仅剩 `docs/WORK_LOG.md` 两处历史条目引用（属记录本身，预期保留），源文件 0 残留；新键 `墨攻智能体控制台` 在 LoginPage.vue 与 messages.ts 双向对齐。
+
+**改动文件**：`apps/admin-web/src/views/auth/LoginPage.vue`、`apps/admin-web/src/locales/messages.ts`、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-28 README/部署文档 git clone 地址更名（himovo/movo → cooper2006/mogo）
 
 **任务**：按远端仓库边界（`cooper2006/mogo` 为唯一正确 remote，旧 `himovo/movo` 改名后由 GitHub 重定向），将文档中 `git clone https://github.com/himovo/movo.git` 替换为新地址。
