@@ -49,7 +49,7 @@ docker compose version
 
 ```bash
 cd ~
-git clone https://github.com/himovo/movo.git
+git clone https://github.com/cooper2006/mogo.git
 cd mogo
 ./mogo --lang zh-CN up
 ```

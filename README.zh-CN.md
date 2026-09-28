@@ -160,7 +160,7 @@ specs/                    # 19 个特性规格，每个含完整规格链路
 安装 Git 和 Docker Desktop（或 Docker Engine 与 Docker Compose v2）后执行：
 
 ```bash
-git clone https://github.com/himovo/movo.git
+git clone https://github.com/cooper2006/mogo.git
 cd mogo
 chmod +x mogo
 ./mogo up

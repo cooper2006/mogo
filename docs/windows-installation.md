@@ -49,7 +49,7 @@ Clone into the Linux home directory for the best permission compatibility and fi
 
 ```bash
 cd ~
-git clone https://github.com/himovo/movo.git
+git clone https://github.com/cooper2006/mogo.git
 cd mogo
 ./mogo up
 ```

@@ -160,7 +160,7 @@ This required a new YAML orchestration loader, so orchestration definitions can 
 With Git and Docker Desktop (or Docker Engine with Docker Compose v2) installed:
 
 ```bash
-git clone https://github.com/himovo/movo.git
+git clone https://github.com/cooper2006/mogo.git
 cd mogo
 chmod +x mogo
 ./mogo up

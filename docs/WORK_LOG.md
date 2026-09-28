@@ -1,5 +1,36 @@
 # Work Log
 
+## 2026-09-28 README/部署文档 git clone 地址更名（himovo/movo → cooper2006/mogo）
+
+**任务**：按远端仓库边界（`cooper2006/mogo` 为唯一正确 remote，旧 `himovo/movo` 改名后由 GitHub 重定向），将文档中 `git clone https://github.com/himovo/movo.git` 替换为新地址。
+
+**执行**：`sed` 精确替换 5 处 clone 指令（字符串 `https://github.com/himovo/movo.git` 唯一，不会误伤 `ghcr.io/himovo/movo-*` 镜像源与 `/movo/discussions`、`/movo/issues` 网页链接）：
+- `README.md` L163、`README.zh-CN.md` L163（中英文 README 同步）
+- `docs/docker-deployment.md` L8（`git clone --branch vX.Y.Z ...` 形态一并替换）
+- `docs/windows-installation.md` L52、`docs/windows-installation.zh-CN.md` L52
+
+**验证**：替换后 5 处全部指向 `cooper2006/mogo.git`，旧地址 0 残留；`ghcr.io/himovo/movo-*` 私有镜像源（docker-deployment.md L14）与 Discussions/Issues 链接保持不变（属预期保留）。
+
+**改动文件**：`README.md`、`README.zh-CN.md`、`docs/docker-deployment.md`、`docs/windows-installation.md`、`docs/windows-installation.zh-CN.md`、`docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-28 intro-v4.pptx 按 SDD 进度修订（14 处文本，16 页全量校验）
+
+**任务**：「根据 SDD 开发的进度，修订一下 intro-v4.pptx 内容」。原稿停留在"剩余 5 项生产接线"阶段，与当前实际进度（pending-review 5 条全部 resolved、007/009/002/T999/001 接线闭合）不符。
+
+**执行（python-pptx 仅改文本 run，保留版式/字号/加粗）**：
+- S1 封面：副标题"落地进展与剩余接线"→"按 SDD 全流程落地进展"；日期补"更新至 019 收尾"。
+- S5 GAP 总览现状行：改为"生产接线（007/009/002/T999/001）与 UI 触点全部闭合"。
+- S10 路线图：主标题及 P0/P1/P2 三条交付行 →"已落地（库+单测+生产接线）"。
+- S11 落地进展页：章节标题"落地进展与剩余接线项"→"落地进展与接线闭合"；第 3/4 块"剩余·生产接线/审计与门禁"→"已闭合"，正文改为接线落地事实（`ResilientLLMClient` 挂生产调用、T999 接入 6 个业务模块、`run_gate_plan` 挂入运行时）。
+- S16 结尾页：主文案与"下一步"改写为"可进入 PR 评审与版本发布"。
+
+**验证**：
+- `check_office.py`：ZIP/XML 完整性 pass，16 页，`--contains` 关键修订文本全命中。
+- 重新打开逐页核对：15/15 修订点命中，未改页（3/9/12）回归 3/3，全 16 页旧口径残留扫描清零。
+- 视觉预览受限：LibreOffice Kit 渲染 5 页输出为全黑同字节图（缺 `Noto Sans SC` 字体，`missingFonts` 告警），无法视觉核验排版；文本级校验已全部通过。
+
+**改动文件**：`docs/intro-v4.pptx`（14 处文本）、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-28 SDD 遗留偏差订正（002 路径写法 + git core.fileMode）
 
 **任务**：处理 09-28 复核轮登记的两处遗留偏差（用户已确认）。

@@ -5,7 +5,7 @@
 Clone the GitHub repository at a release tag and run:
 
 ```bash
-git clone --branch vX.Y.Z https://github.com/himovo/movo.git
+git clone --branch vX.Y.Z https://github.com/cooper2006/mogo.git
 cd mogo
 ./mogo up
 ```
