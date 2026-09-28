@@ -1,5 +1,18 @@
 # Work Log
 
+## 2026-09-28 提交并推送本批已完成改动（6 commits → mogo/main）
+
+- 背景：上一批改动此前已改完并验证，但因会话中断未落盘。本轮按主题拆分为 6 个 commit，全部推送到 `mogo`（cooper2006/mogo）main；`origin` 保持 no-push 未动。
+- commit 清单（由新到旧）：
+  1. `2153fde docs: 更新 WORK_LOG`
+  2. `c1b287e docs(cases): 补客户反馈分诊案例的测试数据与可安装技能包`——`docs/cases/` 下 5 个新文件（生成脚本 + CSV/TXT 样例 + 打包脚本 + ZIP）。注：CSV 提交时有 CRLF→LF 警告，已按仓库默认处理。
+  3. `ec71164 i18n(user-web): sidebar 文案英→中`——仅 `App.vue` + `messages.ts` 两处 sidebar 文案。
+  4. `f8af440 fix(user-web): chat 上传支持 .txt`——含新增 `statics/images/txt.png`。拆分时 `messages.ts` 跨组（artifact.txt 属本组、sidebar 属中文化组），先临时回退 sidebar 两行、提交后再改回，保证两个 commit 各自语义完整。
+  5. `d84cc68 fix(009): 钩子端点归属收尾`——移除 chat-api 冗余 `dsh_hooks`、修 governance 双前缀、订正 spec + 台账/对照表。
+  6. `ef4102c fix(dsh-runtime-host): 修复 preset 插件 never started`——依赖补齐 + profile 目录迁移 + Dockerfile 权限 + `.gitignore`。
+- 提交前复核：`apps/user-web` `vue-tsc --noEmit` 通过（用托管 node/pnpm 执行，本机 PATH 无 pnpm）；chat-api `tests/` 1919 passed / 4 failed（4 项均为预存环境问题——3 项要求 Node ≥22.19、1 项需本机 Mongo 27017），另 `tests/llm/test_decision_turn.py` 收集期 ImportError（`_DecisionSchema`，预存问题，非本批改动引入）。
+- 推送结果：`9518652..2153fde main -> main`。工作区 `git status --short` 为空。
+
 ## 2026-09-28 user-web sidebar 文案英→中：MOGO→墨攻、我的 Skills→我的技能、我的 Tools→我的工具
 
 - 改动（仅 user-web）：
