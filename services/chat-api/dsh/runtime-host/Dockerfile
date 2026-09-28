@@ -56,6 +56,8 @@ COPY config ./config
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod -R a+rX /app \
     && chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/host-profile-home \
+    && chown -R node:node /app/host-profile-home \
     && mkdir -p /data/dsh-runtime \
     && chown -R node:node /data/dsh-runtime
 

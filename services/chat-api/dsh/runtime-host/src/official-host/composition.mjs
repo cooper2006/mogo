@@ -1,4 +1,4 @@
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 
@@ -29,7 +29,16 @@ export class OfficialDshHostComposition {
     if (this.#ctx !== undefined) throw new Error('official DSH Host composition is already started')
     const installation = await resolveDshInstallation()
     const appBoot = await loadAssociatedAppBoot(installation)
-    const moduleHome = resolve(this.storageRoot, 'host-profile-home')
+    // Host 配置 profile（cordis.yml）必须落在“能向上回溯到 node_modules”的目录：
+    // cordis 插件加载器用 `ctx.baseUrl = dirname(配置文件)` 作为 preset 条目裸包名
+    // （@deepseek-ai/dsh-tool-* 等）的解析基址（`bareModuleBaseUrl` 只对 `include`
+    // 配置内置生效，不作用于 preset 插件）。容器里 storageRoot 是独立数据卷
+    // （/data/dsh-runtime），其向上回溯的目录没有 node_modules，会导致所有 preset 行
+    // `never started`（ERR_MODULE_NOT_FOUND）。故把 profile 放到运行时安装根目录
+    // （其 node_modules 含全部 preset 依赖）；会话/工作区持久化仍使用 storageRoot。
+    // 用 storageRoot 唯一 basename 作子目录，保证同进程多实例（测试）互不覆盖。
+    // 该目录由镜像在构建期创建并 chown 给运行用户（见 Dockerfile），避免只读 /app 写入被拒。
+    const moduleHome = resolve(RUNTIME_HOST_ROOT, 'host-profile-home', basename(this.storageRoot))
     const profileDir = resolve(moduleHome, 'profiles', 'askai-host')
     const profileRoot = resolve(profileDir, 'cordis.yml')
     await mkdir(profileDir, { recursive: true })

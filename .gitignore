@@ -336,6 +336,8 @@ outputs/*
 
 # DSH runtime host local state (per-session storage, not source)
 services/chat-api/dsh/runtime-host/storage/
+# DSH runtime host ephemeral host-profile (cordis.yml) written beside the install root
+services/chat-api/dsh/runtime-host/host-profile-home/
 
 # agent team metadata
 .agent-teams/
