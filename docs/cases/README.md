@@ -46,7 +46,7 @@
 
 1. **贴合项目实际能力**：每个能力调用点必须对应 `services/chat-api/app/` 下真实存在的模块
 2. **Skill 规范符合内置范式**：YAML 结构参照 `skills_specs/stock_analysis/SKILL.md`
-3. **不引入新工具依赖**：只使用 movo 已有的 tools（`search_web` / `browser_agent` / `rag_search` 等）
+3. **不引入新工具依赖**：只使用 mogo 已有的 tools（`search_web` / `browser_agent` / `rag_search` 等）
 4. **验收标准可测试**：每条标准都能通过单元测试 / 集成测试 / 人工 review 验证
 5. **成本可观测**：所有多智能体案例要求成本分项可查（`token_usage` 按 node_id 聚合）
 

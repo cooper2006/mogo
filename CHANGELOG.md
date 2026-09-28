@@ -55,7 +55,7 @@ image.
 
 ### Changed
 
-- Use the official GHCR images by default so both `./movo up` and native
+- Use the official GHCR images by default so both `./mogo up` and native
   `docker compose up -d` work without an `.env` file.
 - Pull container images sequentially and keep retrying interrupted downloads
   until they succeed or the user stops the launcher.

@@ -147,7 +147,7 @@ T998 契约见 `contracts/{orchestration,self-evolution,session-versioning-contr
 
 ## 5. 构建与启动（OrbStack buildx 受限时的经典 builder 路径）
 
-OrbStack 的 buildx 在 `~/.docker/buildx/` 被 macOS provenance 锁定时，`./movo build`
+OrbStack 的 buildx 在 `~/.docker/buildx/` 被 macOS provenance 锁定时，`./mogo build`
 会报 `failed to update builder last activity time ... operation not permitted`。
 绕过方式：用经典 builder 逐镜像构建，并打运行时前缀标签：
 
@@ -158,10 +158,10 @@ docker build -f services/chat-api/Dockerfile \
   --build-arg INSTALL_SYSTEM_DEPS_AT_BUILD=true \
   --build-arg INSTALL_PLAYWRIGHT_AT_BUILD=true \
   --build-arg PLAYWRIGHT_WITH_DEPS=true \
-  -t movo-chat-api:latest -t ghcr.io/himovo/movo-chat-api:latest \
+  -t mogo-chat-api:latest -t ghcr.io/himovo/movo-chat-api:latest \
   services/chat-api
 # document-parser 构建中 Docling 模型下载偶发失败时，可跳过该镜像（继续用旧 ghcr 镜像）
-./movo up    # compose 用 --pull never 复用本地 ghcr.io/himovo/movo-* 标签镜像
+./mogo up    # compose 用 --pull never 复用本地 ghcr.io/himovo/movo-* 标签镜像
 ```
 
 ## 6. 验证清单（新镜像启动后）

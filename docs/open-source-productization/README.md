@@ -157,7 +157,7 @@ MOVO 不应该直接复制这条路线。MOVO 的差异应集中在以下方向�
 当前实际发布目录为：
 
 ```text
-movo/
+mogo/
   apps/
     user-web/               # 用户工作台
     admin-web/              # 初始化与管理后台
@@ -179,7 +179,7 @@ movo/
 
 ```bash
 git clone https://github.com/your-org/movo.git
-cd movo
+cd mogo
 cp .env.example .env
 docker compose up -d
 ```

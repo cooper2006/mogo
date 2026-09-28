@@ -8,7 +8,7 @@
 企业管理员执行：
 
 ```bash
-./movo up
+./mogo up
 ```
 
 启动器会显示 MOVO 标识，内部执行 `docker compose up -d`，等待部署状态全部就绪后输出浏览器初始化地址。原生 Compose 命令仍然支持。
@@ -299,11 +299,11 @@ Docker 无法自动生成企业 DNS 域名。可实现的是：
 Agent WSS：    wss://movo.company.com/.../agent/connect
 ```
 
-同时允许下载不包含密码和 API Key 的 `movo-connection.txt`，用于企业内部保存或分发连接地址。
+同时允许下载不包含密码和 API Key 的 `mogo-connection.txt`，用于企业内部保存或分发连接地址。
 
 当前桌面端已经支持保存 `backend_url` 并据此连接 API 与 Browser Agent，因此第一版可以让员工在桌面端首次启动时粘贴“桌面端服务”地址。
 
-“网页一键打开桌面端”和 `movo://connect` 放在后续阶段，不阻塞第一版 Docker 私有化部署。
+“网页一键打开桌面端”和 `mogo://connect` 放在后续阶段，不阻塞第一版 Docker 私有化部署。
 
 ## 6. Setup 状态与提交策略
 
@@ -358,7 +358,7 @@ Agent WSS：    wss://movo.company.com/.../agent/connect
 
 - [ ] Redis Agent 路由，支持多 Chat API 实例。
 - [ ] HTTPS、备份恢复、日志轮转和升级文档。
-- [ ] `movo://connect` 一键绑定桌面端。
+- [ ] `mogo://connect` 一键绑定桌面端。
 - [ ] MDM 批量预置企业地址。
 
 ## 8. 第一阶段验收标准
@@ -399,7 +399,7 @@ Agent WSS：    wss://movo.company.com/.../agent/connect
 3. 加固 Setup 的并发原子性，并验证可选模型在各业务入口中的能力路由。
 4. 再处理桌面端 Token 鉴权、多员工 Agent 隔离和多 Chat API 实例路由。
 
-在前三项通过之前，不开始 `movo://connect`、MDM 或桌面端自动更新等后续工作。
+在前三项通过之前，不开始 `mogo://connect`、MDM 或桌面端自动更新等后续工作。
 
 ## 10. 当前使用方式
 

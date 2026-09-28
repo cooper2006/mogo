@@ -16,28 +16,28 @@ movo_detect_locale() {
 movo_usage() {
   if [[ "${MOVO_LOCALE}" == "zh" ]]; then
     printf '用法：\n'
-    printf '  ./movo [--lang zh-CN|en] up [--build]  启动 MOGO 并输出初始化地址\n'
-    printf '  ./movo build                          从源码构建 MOGO 镜像\n'
-    printf '  ./movo update                         拉取当前版本镜像并更新服务\n'
-    printf '  ./movo backup [目录]                  停机一致性备份全部 MOGO 数据卷\n'
-    printf '  ./movo restore <目录> --yes           校验并恢复 MOGO 数据卷\n'
-    printf '  ./movo status                         查看服务状态\n'
-    printf '  ./movo logs [服务名]                  查看日志\n'
-    printf '  ./movo restart                        重启服务\n'
-    printf '  ./movo down                           停止服务（保留数据卷）\n'
-    printf '  ./movo down -v                        停止服务并删除全部 MOGO 数据\n'
+    printf '  ./mogo [--lang zh-CN|en] up [--build]  启动 MOGO 并输出初始化地址\n'
+    printf '  ./mogo build                          从源码构建 MOGO 镜像\n'
+    printf '  ./mogo update                         拉取当前版本镜像并更新服务\n'
+    printf '  ./mogo backup [目录]                  停机一致性备份全部 MOGO 数据卷\n'
+    printf '  ./mogo restore <目录> --yes           校验并恢复 MOGO 数据卷\n'
+    printf '  ./mogo status                         查看服务状态\n'
+    printf '  ./mogo logs [服务名]                  查看日志\n'
+    printf '  ./mogo restart                        重启服务\n'
+    printf '  ./mogo down                           停止服务（保留数据卷）\n'
+    printf '  ./mogo down -v                        停止服务并删除全部 MOGO 数据\n'
   else
     printf 'Usage:\n'
-    printf '  ./movo [--lang zh-CN|en] up [--build]  Start MOGO and print the setup URL\n'
-    printf '  ./movo build                           Build MOGO images from source\n'
-    printf '  ./movo update                          Pull current images and update services\n'
-    printf '  ./movo backup [directory]              Back up all MOGO volumes while stopped\n'
-    printf '  ./movo restore <directory> --yes       Verify and restore MOGO volumes\n'
-    printf '  ./movo status                          Show service status\n'
-    printf '  ./movo logs [service]                  Show logs\n'
-    printf '  ./movo restart                         Restart services\n'
-    printf '  ./movo down                            Stop services and preserve volumes\n'
-    printf '  ./movo down -v                         Stop services and delete all MOGO data\n'
+    printf '  ./mogo [--lang zh-CN|en] up [--build]  Start MOGO and print the setup URL\n'
+    printf '  ./mogo build                           Build MOGO images from source\n'
+    printf '  ./mogo update                          Pull current images and update services\n'
+    printf '  ./mogo backup [directory]              Back up all MOGO volumes while stopped\n'
+    printf '  ./mogo restore <directory> --yes       Verify and restore MOGO volumes\n'
+    printf '  ./mogo status                          Show service status\n'
+    printf '  ./mogo logs [service]                  Show logs\n'
+    printf '  ./mogo restart                         Restart services\n'
+    printf '  ./mogo down                            Stop services and preserve volumes\n'
+    printf '  ./mogo down -v                         Stop services and delete all MOGO data\n'
   fi
 }
 
@@ -51,18 +51,18 @@ movo_msg() {
     en:compose_missing) printf 'Error: Docker Compose v2 was not found.\n' ;;
     zh:docker_stopped) printf '错误：Docker 尚未运行，请先启动 Docker。\n' ;;
     en:docker_stopped) printf 'Error: Docker is not running. Start Docker first.\n' ;;
-    zh:image_source_missing) printf '错误：无法确定公开镜像地址。请从 GitHub 克隆仓库、在 .env 设置 MOGO_IMAGE_REGISTRY，或执行 ./movo up --build。\n' ;;
-    en:image_source_missing) printf 'Error: public image location is unknown. Clone from GitHub, set MOGO_IMAGE_REGISTRY in .env, or run ./movo up --build.\n' ;;
+    zh:image_source_missing) printf '错误：无法确定公开镜像地址。请从 GitHub 克隆仓库、在 .env 设置 MOGO_IMAGE_REGISTRY，或执行 ./mogo up --build。\n' ;;
+    en:image_source_missing) printf 'Error: public image location is unknown. Clone from GitHub, set MOGO_IMAGE_REGISTRY in .env, or run ./mogo up --build.\n' ;;
     zh:using_local_images) printf '未配置公开镜像地址，将使用现有的本地 MOGO 镜像。\n' ;;
     en:using_local_images) printf 'No public image location is configured; using existing local MOGO images.\n' ;;
-    zh:update_local_only) printf '错误：当前仅配置了本地镜像。请先设置 MOGO_IMAGE_REGISTRY，或使用 ./movo up --build 重新构建。\n' ;;
-    en:update_local_only) printf 'Error: only local images are configured. Set MOGO_IMAGE_REGISTRY first, or rebuild with ./movo up --build.\n' ;;
+    zh:update_local_only) printf '错误：当前仅配置了本地镜像。请先设置 MOGO_IMAGE_REGISTRY，或使用 ./mogo up --build 重新构建。\n' ;;
+    en:update_local_only) printf 'Error: only local images are configured. Set MOGO_IMAGE_REGISTRY first, or rebuild with ./mogo up --build.\n' ;;
     zh:waiting) printf '\n正在等待服务健康检查' ;;
     en:waiting) printf '\nWaiting for deployment health checks' ;;
     zh:done) printf ' 完成\n' ;;
     en:done) printf ' done\n' ;;
-    zh:timeout) printf '\n服务未在预期时间内全部就绪。请执行 ./movo status 和 ./movo logs 查看原因。\n' ;;
-    en:timeout) printf '\nServices did not become ready in time. Run ./movo status and ./movo logs for details.\n' ;;
+    zh:timeout) printf '\n服务未在预期时间内全部就绪。请执行 ./mogo status 和 ./mogo logs 查看原因。\n' ;;
+    en:timeout) printf '\nServices did not become ready in time. Run ./mogo status and ./mogo logs for details.\n' ;;
     zh:ready_title) printf '\nMOGO 已启动。请在浏览器中完成首次初始化：\n\n' ;;
     en:ready_title) printf '\nMOGO is running. Complete the initial setup in your browser:\n\n' ;;
     zh:starting) printf '正在启动 MOGO 服务...\n' ;;
@@ -103,12 +103,12 @@ movo_msg() {
     en:migrating_project) printf 'Migrating the legacy Compose project name (data volumes are preserved)...\n' ;;
     zh:remove_confirm) printf '这会永久删除全部 MOGO 数据卷和初始化数据。输入 MOGO 确认：' ;;
     en:remove_confirm) printf 'This permanently deletes all MOGO volumes and setup data. Type MOGO to confirm: ' ;;
-    zh:remove_aborted) printf '已取消。自动化环境请显式传入 ./movo down -v --yes。\n' ;;
-    en:remove_aborted) printf 'Cancelled. For automation, explicitly pass ./movo down -v --yes.\n' ;;
+    zh:remove_aborted) printf '已取消。自动化环境请显式传入 ./mogo down -v --yes。\n' ;;
+    en:remove_aborted) printf 'Cancelled. For automation, explicitly pass ./mogo down -v --yes.\n' ;;
     zh:start_failed) printf '\nMOGO 启动失败，当前服务状态如下：\n' ;;
     en:start_failed) printf '\nMOGO failed to start. Current service status:\n' ;;
-    zh:logs_hint) printf '请执行 ./movo logs 查看详细日志。\n' ;;
-    en:logs_hint) printf 'Run ./movo logs for detailed logs.\n' ;;
+    zh:logs_hint) printf '请执行 ./mogo logs 查看详细日志。\n' ;;
+    en:logs_hint) printf 'Run ./mogo logs for detailed logs.\n' ;;
     zh:stopped) printf 'MOGO 已停止，数据卷仍然保留。\n' ;;
     en:stopped) printf 'MOGO has stopped. Data volumes are preserved.\n' ;;
     zh:stopped_removed) printf 'MOGO 已停止，数据卷和初始化数据已删除。\n' ;;

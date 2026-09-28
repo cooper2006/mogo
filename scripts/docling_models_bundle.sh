@@ -88,7 +88,7 @@ cmd_save() {
 
   # Ensure the image exists.
   "${DOCKER_BIN}" image inspect "${image}" >/dev/null 2>&1 \
-    || die "Image ${image} not found locally. Build it first (movo build / docker buildx build)."
+    || die "Image ${image} not found locally. Build it first (mogo build / docker buildx build)."
 
   local tmp_dir
   tmp_dir="$(mktemp -d)"

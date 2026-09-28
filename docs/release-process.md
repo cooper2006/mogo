@@ -12,7 +12,7 @@ image tags. Do not publish a release while an item in
 3. Enable Discussions and private vulnerability reporting.
 4. Run the `Container Release` workflow manually once. This publishes only
    commit-SHA candidate tags and validates both `linux/amd64` and `linux/arm64`.
-5. Set every `movo-*` GHCR package to public visibility so Docker users can pull
+5. Set every `mogo-*` GHCR package to public visibility so Docker users can pull
    anonymously. Confirm each package is linked to the repository.
 
 ## Release candidate
@@ -23,7 +23,7 @@ image tags. Do not publish a release while an item in
 3. Run all required checks and the manual container workflow on the exact
    candidate commit.
 4. On fresh amd64 and arm64 hosts, clone the tag, set `MOVO_VERSION` to that
-   tag, run `./movo up`, complete setup, and exercise chat, document parsing,
+   tag, run `./mogo up`, complete setup, and exercise chat, document parsing,
    knowledge retrieval and presentation generation.
 5. Restore a backup into a disposable installation and exercise rollback to
    the previous image tag.

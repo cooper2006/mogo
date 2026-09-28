@@ -20,7 +20,7 @@
 | 舆情监测 | 微博、知乎、V2EX、Reddit | 情感 + 聚类 | 是 |
 | 报告合成 | 前 4 个输出 | 交叉引用 + 判断 | 是（最后触发） |
 
-**关键架构决策**：4 个分析节点**可并行**（数据源互不依赖），报告合成节点**必须等待**其他 4 个完成——这是典型的 **DAG graph** 拓扑，movo 的 010 编排引擎原生支持。
+**关键架构决策**：4 个分析节点**可并行**（数据源互不依赖），报告合成节点**必须等待**其他 4 个完成——这是典型的 **DAG graph** 拓扑，mogo 的 010 编排引擎原生支持。
 
 ## 2. 架构图
 
@@ -244,7 +244,7 @@ resources:
 {
   "intent": "competitor_deep_dive",
   "competitor_name": "钉钉",
-  "our_product": "movo",
+  "our_product": "mogo",
   "industry": "企业协作 SaaS",
   "time_window": "last 12 months",
   "depth": "deep"  // deep | standard | quick
@@ -272,7 +272,7 @@ resources:
 
 ## 二、产品功能对比
 （来自 product_analysis_result）
-| 能力 | 钉钉 | movo | 差距 |
+| 能力 | 钉钉 | mogo | 差距 |
 |---|---|---|---|
 | 会话记忆 | 有 | 有 | 深度相当 |
 ...

@@ -50,8 +50,8 @@ docker compose version
 ```bash
 cd ~
 git clone https://github.com/himovo/movo.git
-cd movo
-./movo --lang zh-CN up
+cd mogo
+./mogo --lang zh-CN up
 ```
 
 启动器会串行拉取镜像；网络中断时持续重试，直到成功或用户按 `Ctrl+C` 停止。默认部署不需要 `.env` 文件。
@@ -64,14 +64,14 @@ http://localhost:3000/admin/setup
 
 ## 使用 Windows 下载的 ZIP
 
-如果通过浏览器下载并解压到 `D:\dsh\movo`，请在 Ubuntu 中执行：
+如果通过浏览器下载并解压到 `D:\dsh\mogo`，请在 Ubuntu 中执行：
 
 ```bash
 cd /mnt/d/dsh/movo
-bash ./movo --lang zh-CN up
+bash ./mogo --lang zh-CN up
 ```
 
-使用 `bash ./movo` 可以绕过 Windows 解压或 NTFS 挂载导致的脚本执行权限问题。
+使用 `bash ./mogo` 可以绕过 Windows 解压或 NTFS 挂载导致的脚本执行权限问题。
 
 ## 常见问题
 
@@ -92,13 +92,13 @@ wsl -d Ubuntu
 在 Windows 磁盘上的仓库中改用：
 
 ```bash
-bash ./movo --lang zh-CN up
+bash ./mogo --lang zh-CN up
 ```
 
 ### 镜像拉取出现 `EOF` 或连接中断
 
-这通常是 Docker Hub 或 GitHub Container Registry 的网络波动。最新版 `./movo up` 会串行拉取并自动持续重试；已完成的镜像和镜像层不会重新完整下载。
+这通常是 Docker Hub 或 GitHub Container Registry 的网络波动。最新版 `./mogo up` 会串行拉取并自动持续重试；已完成的镜像和镜像层不会重新完整下载。
 
 ## 不使用 Ubuntu
 
-安装 Git for Windows 后，也可以在 MOVO 目录打开 Git Bash 并执行 `./movo --lang zh-CN up`。Windows PowerShell 或 CMD 还可以直接执行 `docker compose up -d`，但原生 Compose 会采用默认的并发拉取方式，也不会提供 MOVO 启动器的重试、健康等待和初始化提示。
+安装 Git for Windows 后，也可以在 MOVO 目录打开 Git Bash 并执行 `./mogo --lang zh-CN up`。Windows PowerShell 或 CMD 还可以直接执行 `docker compose up -d`，但原生 Compose 会采用默认的并发拉取方式，也不会提供 MOVO 启动器的重试、健康等待和初始化提示。

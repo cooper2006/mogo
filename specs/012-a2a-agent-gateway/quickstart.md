@@ -13,7 +13,7 @@
 ```python
 from app.a2a.agent_card import build_agent_card, parse_agent_card
 
-card = build_agent_card(agent_id="a-1", name="movo-agent", endpoint="https://...")
+card = build_agent_card(agent_id="a-1", name="mogo-agent", endpoint="https://...")
 parse_agent_card(card.as_dict())   # 外部系统可解析（Dify-first 字段映射）
 ```
 

@@ -42,5 +42,5 @@
 - [x] Issue labels and templates are available.
 - [x] The release tag, changelog and approved component image set identify the
       same release version.
-- [x] All published `movo-*` GHCR packages are public and anonymously pullable.
+- [x] All published `mogo-*` GHCR packages are public and anonymously pullable.
 - [x] Git remotes were reviewed before the initial public push.

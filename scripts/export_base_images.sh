@@ -105,13 +105,13 @@ cmd_save() {
     # partial set that would restore into a broken environment.
     for image in "${images[@]}"; do
       [[ -n "$(image_platform "${image}")" ]] \
-        || die "Base image ${image} is not present locally. Run ./movo build first to fetch it."
+        || die "Base image ${image} is not present locally. Run ./mogo build first to fetch it."
     done
   fi
 
   local manifest="${output_dir}/manifest.txt"
   {
-    printf '# movo base images\n'
+    printf '# mogo base images\n'
     printf '# platform: %s\n' "${platform}"
     printf '# generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     for image in "${images[@]}"; do

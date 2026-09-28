@@ -1,5 +1,17 @@
 # Work Log
 
+## 2026-09-28 可执行脚本 movo → mogo 改名（脚本 + 运维引用 + 文档）
+
+**任务**：「movo 这个脚本文件也需要改名为 mogo」。
+
+**执行**：
+- `git mv movo mogo`（保留 100755 可执行位，rename 检测正常）。
+- 批量更新 26 个文件中的可执行调用式引用（`./movo` → `./mogo`、`movo build/up/...` 命令位置）与面向用户的品牌字样：`deploy/cli/{i18n.sh,backup.sh}`、`scripts/{export_base_images.sh,docling_models_bundle.sh,check_compose_image_modes.sh}`、`README.md`、`README.zh-CN.md`、`AGENTS.md`、`CHANGELOG.md`、`.gitattributes`（`mogo text eol=lf` 路径规则）、`.specify/memory/constitution.md`、`docs/` 与 `specs/` 相关条目。
+- **保留不动**（按"脚本+运维引用+文档"范围约定）：shell 内部函数名 `movo_*`（`movo_compose`/`movo_sha256_create` 等，改会破坏 cli 子脚本间调用契约）、`MOVO_*` 环境变量（已在前轮做 MOGO_ 过渡兼容）、业务契约 key、npm 包名、`MOVO_VOLUME_PREFIX` 默认值 `movo`（数据卷名契约，`backup.sh` 注释已校准回 movo）。
+- **回滚 2 处误伤**：`check_compose_image_modes.sh` 的 legacy 前缀检查（`movo-` 是旧镜像前缀，应禁的是 movo- 而非 mogo-）与 `backup.sh` 卷前缀注释，均改回 `movo`。`docs/WORK_LOG.md` 历史流水账中的 `./movo` 记录全部回滚（历史真实性原则）。
+
+**验证**：`./mogo --help` 正常输出全部子命令；8 个 shell 脚本 `bash -n` 语法全过；全仓 `./movo` 可执行引用残留仅存在于 `docs/WORK_LOG.md`（历史条目，属预期保留）。
+
 ## 2026-09-28 document-parser 国内源优化：HF 镜像测速 + Docling 模型离线 bundle
 
 **任务**：「分析国内源下载慢点并优化」→ 落地离线 bundle 方案。

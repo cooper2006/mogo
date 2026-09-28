@@ -161,9 +161,9 @@ With Git and Docker Desktop (or Docker Engine with Docker Compose v2) installed:
 
 ```bash
 git clone https://github.com/himovo/movo.git
-cd movo
-chmod +x movo
-./movo up
+cd mogo
+chmod +x mogo
+./mogo up
 ```
 
 Then open:
@@ -230,11 +230,11 @@ The default Docker Compose deployment starts the gateway, two Web applications, 
 - network access to GHCR and Docker Hub during the initial image pull
 - credentials for at least one compatible model API to complete setup
 
-The quick-start command above works on Linux and macOS. `./movo up` pulls the published images sequentially and keeps retrying network failures until the pull succeeds or the user presses `Ctrl+C`. The first startup downloads several container images and can take some time. Normal users do **not** need to build the images locally.
+The quick-start command above works on Linux and macOS. `./mogo up` pulls the published images sequentially and keeps retrying network failures until the pull succeeds or the user presses `Ctrl+C`. The first startup downloads several container images and can take some time. Normal users do **not** need to build the images locally.
 
 On Windows, use Docker Desktop with WSL 2 and Ubuntu. Check that Ubuntu exists with `wsl -l -v`, then enter it explicitly with `wsl -d Ubuntu`; do not run MOGO from a prompt beginning with `docker-desktop:`. See the complete [Windows installation guide](docs/windows-installation.md).
 
-You can also start the same official prebuilt images directly with `docker compose up -d`, including from Windows PowerShell or Command Prompt. Neither command requires an `.env` file, but native Compose pulls in parallel and does not provide the launcher's retry loop or readiness wait. To build and start local images from source instead, use `./movo up --build`.
+You can also start the same official prebuilt images directly with `docker compose up -d`, including from Windows PowerShell or Command Prompt. Neither command requires an `.env` file, but native Compose pulls in parallel and does not provide the launcher's retry loop or readiness wait. To build and start local images from source instead, use `./mogo up --build`.
 
 After setup:
 
@@ -249,13 +249,13 @@ The setup wizard checks the deployment and guides you through creating the organ
 ### Common operations
 
 ```bash
-./movo status
-./movo logs chat-api
-./movo restart
-./movo update
-./movo backup /path/on/a/large-disk/movo-backup
-./movo down       # Stop containers and preserve data
-./movo down -v    # Permanently delete MOGO data after confirmation
+./mogo status
+./mogo logs chat-api
+./mogo restart
+./mogo update
+./mogo backup /path/on/a/large-disk/movo-backup
+./mogo down       # Stop containers and preserve data
+./mogo down -v    # Permanently delete MOGO data after confirmation
 ```
 
 For production, pin a release tag instead of using `latest`. See [Docker deployment](docs/docker-deployment.md) for image selection, upgrades, backup and restore, reverse proxy configuration and the production baseline.
@@ -283,13 +283,13 @@ MOGO pins the DeepSeek Harness (DSH) Agent kernel to an exact release train rath
 | Host protocol | `askai.dsh-host.v1` |
 | Host overlay | `askai-dsh-host-v1` |
 
-The authoritative declaration lives in [`services/chat-api/dsh/compatibility-matrix.yaml`](services/chat-api/dsh/compatibility-matrix.yaml); the resolved dependency graph is locked in `services/chat-api/dsh/runtime-host/pnpm-lock.yaml`, and `versions.lock` plus `sbom.cdx.json` under `services/chat-api/dsh/` are regenerated alongside it. Prebuilt images already carry the pinned kernel, so a normal `./movo update` does not change the DSH train.
+The authoritative declaration lives in [`services/chat-api/dsh/compatibility-matrix.yaml`](services/chat-api/dsh/compatibility-matrix.yaml); the resolved dependency graph is locked in `services/chat-api/dsh/runtime-host/pnpm-lock.yaml`, and `versions.lock` plus `sbom.cdx.json` under `services/chat-api/dsh/` are regenerated alongside it. Prebuilt images already carry the pinned kernel, so a normal `./mogo update` does not change the DSH train.
 
 **Upgrading the DSH train** is a source change, because the kernel is a build-time dependency:
 
 1. Update the pinned versions in `services/chat-api/dsh/runtime-host/package.json`, refresh that directory's `pnpm-lock.yaml`, then regenerate `versions.lock` and `sbom.cdx.json` under `services/chat-api/dsh/`.
 2. Update `active_release` and `supported_releases` in `compatibility-matrix.yaml`. Keep the previous train listed so a rollback image still has a declared contract.
-3. Rebuild the Runtime Host image and rebuild from source (`./movo up --build`).
+3. Rebuild the Runtime Host image and rebuild from source (`./mogo up --build`).
 4. Run the guard tests before deploying: `services/chat-api/dsh/runtime-host` (`node --test tests/*.test.mjs`) and `services/chat-api/tests/dsh_runtime/test_dsh_upgrade_contract.py`, which fails when the matrix, `package.json` and the shipped web app disagree.
 
 Treat a train upgrade as a compatibility change, not a patch bump. DSH releases have historically renamed preset mechanisms, changed tool-result message shapes, and tightened plugin visibility rules; each of those can break a host overlay that still boots successfully. When upgrading, diff the host plane the new train ships before assuming the old overlay still applies — the `0.1.6-alpha.1` → `0.1.7-rc.2` move required the overlay to re-emit the disabled rows the official web-app patch declares. `docs/WORK_LOG.md` records the concrete breakages found in that move, and `docs/DSH-0.1.7-skill-catalog-定位报告.md` documents one of them end to end.
@@ -304,7 +304,7 @@ cp .env.example .env
 
 ```env
 MOVO_PORT=3000
-MOVO_VOLUME_PREFIX=movo
+MOVO_VOLUME_PREFIX=mogo
 MOVO_IMAGE_REGISTRY=ghcr.io/himovo
 MOVO_VERSION=vX.Y.Z
 PUBLIC_BASE_URL=https://movo.example.com
@@ -317,13 +317,13 @@ Keep `MOVO_VOLUME_PREFIX` stable after first startup. DNS, TLS certificates and 
 Building locally is intended for contributors and developers:
 
 ```bash
-./movo up --build
+./mogo up --build
 ```
 
 To build the images without starting the services:
 
 ```bash
-./movo build
+./mogo build
 ```
 
 Source builds download Playwright, LibreOffice, Docling and model assets, so they need substantially more time and disk space than the prebuilt-image path.

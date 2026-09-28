@@ -18,7 +18,7 @@
 
 **Testing**: pytest + httpx（admin-api 既有测试栈，参考 services 现有测试）
 
-**Target Platform**: Linux 自托管 Docker Compose（movo 交付形态），Windows 安装形态通过同一镜像
+**Target Platform**: Linux 自托管 Docker Compose（mogo 交付形态），Windows 安装形态通过同一镜像
 
 **Project Type**: backend-service（治理层模块，嵌入既有 admin-api）
 

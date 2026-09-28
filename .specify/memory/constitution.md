@@ -22,7 +22,7 @@ MOVO 的定位是将 DSH Agent 带入企业生产环境。任何变更不得引�
 - 运行时基础：DeepSeek Harness (DSH)；平台由 DSH 负责 Agent 运行时，MOVO 负责部署、工作区、知识、身份权限、管理与治理。
 - 前端：apps/admin-web、apps/user-web（pnpm 工作区，提交 lockfile 与 workspace 文件）。
 - 后端：services/（admin-api、chat-api、document-parser），Python 生态。
-- 交付：Docker Compose（docker-compose.yml / docker-compose.build.yml），入口脚本 movo。
+- 交付：Docker Compose（docker-compose.yml / docker-compose.build.yml），入口脚本 mogo。
 - 规格工件存放于 .specify/ 与特性目录（specs/ 或特性编号目录），由 specify-cli 管理。
 
 ## Development Workflow
@@ -34,7 +34,7 @@ MOVO 的定位是将 DSH Agent 带入企业生产环境。任何变更不得引�
 ## Agent Operating Rules（代理操作规约，NON-NEGOTIABLE）
 所有在本仓库内工作的编码代理（含 DSH Agent、Claude Code、Copilot 等）必须遵守：
 - 默认使用简体中文回复；思考过程与反馈也用中文。
-- 只允许操作当前项目文件夹（movo 工作区内），不越出工作区。
+- 只允许操作当前项目文件夹（mogo 工作区内），不越出工作区。
 - 禁止删除任何文件；需要移除时移入"待确认清单"而非删除。
 - 需要确认的操作（不可逆、影响面大、涉及远端仓库）先问用户，不擅自执行。
 - 无法判断归属/用途的文件放入"待确认清单"（docs/pending-review/ 或等价位置），不要强行处理。

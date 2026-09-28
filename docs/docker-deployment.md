@@ -6,11 +6,11 @@ Clone the GitHub repository at a release tag and run:
 
 ```bash
 git clone --branch vX.Y.Z https://github.com/himovo/movo.git
-cd movo
-./movo up
+cd mogo
+./mogo up
 ```
 
-Both `./movo up` and `docker compose up -d` pull the seven official MOVO images
+Both `./mogo up` and `docker compose up -d` pull the seven official MOVO images
 from `ghcr.io/himovo/movo-*` by default. Neither command requires an `.env`
 file. The MOVO launcher pulls images sequentially and keeps retrying registry
 failures until they succeed or the user presses `Ctrl+C`; native Compose retains
@@ -19,7 +19,7 @@ Docker's default parallel pull behavior.
 Windows users should follow the [Windows installation guide](windows-installation.md)
 and run the launcher from Ubuntu WSL or Git Bash. The Docker Desktop internal
 `docker-desktop` distribution is not a user shell and does not include the Bash
-environment required by `./movo`.
+environment required by `./mogo`.
 
 To pin a production deployment to the checked-out release, set:
 
@@ -35,7 +35,7 @@ release notes, taking a backup and confirming the rollback image tag.
 For development or before public images are available:
 
 ```bash
-./movo up --build
+./mogo up --build
 ```
 
 This loads `docker-compose.build.yml` in addition to the default Compose file.
@@ -45,7 +45,7 @@ needs substantially more time and disk space than the prebuilt-image path.
 To build without starting services:
 
 ```bash
-./movo build
+./mogo build
 ```
 
 Both build paths reuse the base images already present in the local Docker
@@ -68,7 +68,7 @@ id, which re-enables the refresh for published images. To apply the patches to
 a local build as well, pass a non-empty value:
 
 ```bash
-MOVO_SECURITY_REFRESH=1 ./movo build
+MOVO_SECURITY_REFRESH=1 ./mogo build
 ```
 
 ### Moving base images to another machine
@@ -87,34 +87,34 @@ scripts/export_base_images.sh load ./base-images
 platform. The image set is derived from the build Dockerfiles, so it always
 matches the current requirements. Export fails before writing anything when an
 image is missing locally, which prevents a silently incomplete set; run
-`./movo build` first to fetch it. `load` warns when the archives were exported
+`./mogo build` first to fetch it. `load` warns when the archives were exported
 for a different architecture than the target, and `scripts/export_base_images.sh
 list` shows which required images are present locally.
 
 ## Operations
 
 ```bash
-./movo status
-./movo logs chat-api
-./movo restart
-./movo update
-./movo backup /path/on/a/large-disk/movo-backup
-./movo down
+./mogo status
+./mogo logs chat-api
+./mogo restart
+./mogo update
+./mogo backup /path/on/a/large-disk/movo-backup
+./mogo down
 ```
 
-`./movo update` pulls the configured image tag and recreates services. Pin a new
+`./mogo update` pulls the configured image tag and recreates services. Pin a new
 `MOVO_VERSION` before running it. It does not migrate or delete data volumes.
 
-`./movo down -v` permanently deletes all MOVO data and now requires an explicit
-interactive confirmation. Automation must pass `./movo down -v --yes`.
+`./mogo down -v` permanently deletes all MOVO data and now requires an explicit
+interactive confirmation. Automation must pass `./mogo down -v --yes`.
 
-`./movo backup` briefly stops the deployment and archives all eight named
+`./mogo backup` briefly stops the deployment and archives all eight named
 volumes, including deployment secrets. Because the archive can be large, put
 it on a disk with sufficient free space. Verify restoration only on a
 disposable host:
 
 ```bash
-./movo restore /path/to/movo-backup --yes
+./mogo restore /path/to/movo-backup --yes
 ```
 
 Restore verifies SHA-256 checksums and requires the configured volume prefix to

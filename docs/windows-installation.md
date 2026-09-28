@@ -50,8 +50,8 @@ Clone into the Linux home directory for the best permission compatibility and fi
 ```bash
 cd ~
 git clone https://github.com/himovo/movo.git
-cd movo
-./movo up
+cd mogo
+./mogo up
 ```
 
 The launcher pulls images sequentially and keeps retrying network interruptions until it succeeds or the user presses `Ctrl+C`. The default deployment does not require an `.env` file.
@@ -64,14 +64,14 @@ http://localhost:3000/admin/setup
 
 ## Using a ZIP extracted by Windows
 
-For a ZIP extracted to `D:\dsh\movo`, enter Ubuntu and run:
+For a ZIP extracted to `D:\dsh\mogo`, enter Ubuntu and run:
 
 ```bash
 cd /mnt/d/dsh/movo
-bash ./movo up
+bash ./mogo up
 ```
 
-Using `bash ./movo` bypasses script execute-bit problems caused by Windows ZIP extraction or an NTFS mount.
+Using `bash ./mogo` bypasses script execute-bit problems caused by Windows ZIP extraction or an NTFS mount.
 
 ## Troubleshooting
 
@@ -92,13 +92,13 @@ This usually means the command is running inside `docker-desktop`. Use `wsl -l -
 For a repository stored on a Windows drive, run:
 
 ```bash
-bash ./movo up
+bash ./mogo up
 ```
 
 ### Image pulls fail with `EOF` or interrupted connections
 
-This usually indicates unstable access to Docker Hub or GitHub Container Registry. The latest `./movo up` pulls sequentially and keeps retrying automatically. Completed images and layers are reused.
+This usually indicates unstable access to Docker Hub or GitHub Container Registry. The latest `./mogo up` pulls sequentially and keeps retrying automatically. Completed images and layers are reused.
 
 ## Without Ubuntu
 
-After installing Git for Windows, you may open Git Bash in the MOVO directory and run `./movo up`. PowerShell or Command Prompt can also run `docker compose up -d`, but native Compose retains its default parallel pulling and does not provide the launcher's retry loop, readiness wait or setup guidance.
+After installing Git for Windows, you may open Git Bash in the MOVO directory and run `./mogo up`. PowerShell or Command Prompt can also run `docker compose up -d`, but native Compose retains its default parallel pulling and does not provide the launcher's retry loop, readiness wait or setup guidance.

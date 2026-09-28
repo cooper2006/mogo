@@ -161,9 +161,9 @@ specs/                    # 19 个特性规格，每个含完整规格链路
 
 ```bash
 git clone https://github.com/himovo/movo.git
-cd movo
-chmod +x movo
-./movo up
+cd mogo
+chmod +x mogo
+./mogo up
 ```
 
 然后打开：
@@ -230,11 +230,11 @@ flowchart LR
 - 首次拉取镜像时可访问 GHCR 与 Docker Hub
 - 至少一个可用模型 API 的凭据，用于完成初始化
 
-上面的快速启动命令适用于 Linux 与 macOS。`./movo up` 会依次拉取官方镜像，并在网络失败时持续重试，直到成功或用户按 `Ctrl+C`。首次启动需要下载多个镜像，访问 GHCR 或 Docker Hub 较慢时耗时会更长。普通用户**不需要**在本地构建镜像。
+上面的快速启动命令适用于 Linux 与 macOS。`./mogo up` 会依次拉取官方镜像，并在网络失败时持续重试，直到成功或用户按 `Ctrl+C`。首次启动需要下载多个镜像，访问 GHCR 或 Docker Hub 较慢时耗时会更长。普通用户**不需要**在本地构建镜像。
 
 Windows 用户请使用 Docker Desktop 配合 WSL 2 与 Ubuntu。可以先用 `wsl -l -v` 确认 Ubuntu 存在，再用 `wsl -d Ubuntu` 显式进入；不要在 `docker-desktop:` 开头的提示符下运行。完整步骤见 [Windows 安装指南](docs/windows-installation.zh-CN.md)。
 
-你也可以直接用 `docker compose up -d` 启动同一套官方镜像（包括在 Windows PowerShell 或命令提示符中）。两种方式都不需要 `.env` 文件，但原生 Compose 会并行拉取，且不提供启动器的持续重试与就绪等待。如果要从源码构建并启动本地镜像，使用 `./movo up --build`。
+你也可以直接用 `docker compose up -d` 启动同一套官方镜像（包括在 Windows PowerShell 或命令提示符中）。两种方式都不需要 `.env` 文件，但原生 Compose 会并行拉取，且不提供启动器的持续重试与就绪等待。如果要从源码构建并启动本地镜像，使用 `./mogo up --build`。
 
 初始化完成后可访问：
 
@@ -249,13 +249,13 @@ Windows 用户请使用 Docker Desktop 配合 WSL 2 与 Ubuntu。可以先用 `w
 ### 常用运维命令
 
 ```bash
-./movo status
-./movo logs chat-api
-./movo restart
-./movo update
-./movo backup /path/to/large-disk/movo-backup
-./movo down       # 停止容器并保留数据
-./movo down -v    # 确认后永久删除墨攻数据
+./mogo status
+./mogo logs chat-api
+./mogo restart
+./mogo update
+./mogo backup /path/to/large-disk/movo-backup
+./mogo down       # 停止容器并保留数据
+./mogo down -v    # 确认后永久删除墨攻数据
 ```
 
 生产环境建议固定发布标签，而不是使用 `latest`。镜像选择、升级、备份恢复、反向代理与生产基线参见 [Docker 部署](docs/docker-deployment.md)。
@@ -283,13 +283,13 @@ MOGO 将 DeepSeek Harness（DSH）Agent 内核**钉版到确切的 release train
 | Host 协议 | `askai.dsh-host.v1` |
 | Host overlay | `askai-dsh-host-v1` |
 
-版本的权威声明位于 [`services/chat-api/dsh/compatibility-matrix.yaml`](services/chat-api/dsh/compatibility-matrix.yaml)；解析后的依赖图锁定在 `services/chat-api/dsh/runtime-host/pnpm-lock.yaml`，`services/chat-api/dsh/` 下的 `versions.lock` 与 `sbom.cdx.json` 随之一并重新生成。预构建镜像已内置钉版内核，因此常规的 `./movo update` **不会**改变 DSH train。
+版本的权威声明位于 [`services/chat-api/dsh/compatibility-matrix.yaml`](services/chat-api/dsh/compatibility-matrix.yaml)；解析后的依赖图锁定在 `services/chat-api/dsh/runtime-host/pnpm-lock.yaml`，`services/chat-api/dsh/` 下的 `versions.lock` 与 `sbom.cdx.json` 随之一并重新生成。预构建镜像已内置钉版内核，因此常规的 `./mogo update` **不会**改变 DSH train。
 
 **升级 DSH train** 属于源码改动，因为内核是构建期依赖：
 
 1. 更新 `services/chat-api/dsh/runtime-host/package.json` 的钉版号，刷新该目录下的 `pnpm-lock.yaml`，随后重新生成 `services/chat-api/dsh/` 下的 `versions.lock` 与 `sbom.cdx.json`。
 2. 更新 `compatibility-matrix.yaml` 的 `active_release` 与 `supported_releases`。**保留上一版本条目**，以便回滚镜像仍有已声明的契约。
-3. 重新构建 Runtime Host 镜像，并从源码重建（`./movo up --build`）。
+3. 重新构建 Runtime Host 镜像，并从源码重建（`./mogo up --build`）。
 4. 部署前运行守护测试：`services/chat-api/dsh/runtime-host`（`node --test tests/*.test.mjs`）与 `services/chat-api/tests/dsh_runtime/test_dsh_upgrade_contract.py`——当契约矩阵、`package.json` 与随镜像发布的 web app 三者不一致时会失败。
 
 请把 train 升级视为**兼容性变更而非补丁升级**。DSH 历史版本曾重命名 preset 机制、改变工具结果的消息结构、收紧插件可见性规则；这些都可能让一个"仍能正常启动"的 host overlay 实际失效。升级时请先 diff 新 train 随包发布的 host 平面，不要假定旧 overlay 依旧适用——`0.1.6-alpha.1` → `0.1.7-rc.2` 这次就需要让 overlay 重新透传官方 web-app patch 声明的禁用行。`docs/WORK_LOG.md` 记录了该次升级中发现的具体破坏点，`docs/DSH-0.1.7-skill-catalog-定位报告.md` 则完整记录了其中一例的端到端定位过程。
@@ -304,7 +304,7 @@ cp .env.example .env
 
 ```env
 MOVO_PORT=3000
-MOVO_VOLUME_PREFIX=movo
+MOVO_VOLUME_PREFIX=mogo
 MOVO_IMAGE_REGISTRY=ghcr.io/himovo
 MOVO_VERSION=vX.Y.Z
 PUBLIC_BASE_URL=https://movo.example.com
@@ -317,13 +317,13 @@ PUBLIC_BASE_URL=https://movo.example.com
 本地构建面向贡献者与开发者：
 
 ```bash
-./movo up --build
+./mogo up --build
 ```
 
 只构建镜像而不启动服务：
 
 ```bash
-./movo build
+./mogo build
 ```
 
 源码构建会下载 Playwright、LibreOffice、Docling 与模型资源，所需时间与磁盘空间明显高于直接使用预构建镜像。

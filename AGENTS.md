@@ -1,13 +1,13 @@
 # AGENTS.md — 代理操作规约
 
-本文件是所有在本仓库（movo）内工作的编码代理（含 DSH Agent、Claude Code、Copilot 等）必须遵守的操作规约。与 `.specify/memory/constitution.md` 的 "Agent Operating Rules" 节一致；如两者冲突，以本文件为准。
+本文件是所有在本仓库（mogo）内工作的编码代理（含 DSH Agent、Claude Code、Copilot 等）必须遵守的操作规约。与 `.specify/memory/constitution.md` 的 "Agent Operating Rules" 节一致；如两者冲突，以本文件为准。
 
 ## 语言
 - 默认使用简体中文回复；思考过程与反馈也用中文。
 - 代码、命令、文件路径、标识符与技术术语保持原文，不翻译。
 
 ## 操作边界
-- 只允许操作当前项目文件夹（movo 工作区内），不越出工作区。
+- 只允许操作当前项目文件夹（mogo 工作区内），不越出工作区。
 - 禁止删除任何文件；需要移除时移入"待确认清单"而非删除。
 - 需要确认的操作（不可逆、影响面大、涉及远端仓库）先问用户，不擅自执行。
 - 无法判断归属/用途的文件放入"待确认清单"（`docs/pending-review/` 或等价位置），不要强行处理。

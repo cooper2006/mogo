@@ -148,7 +148,7 @@
 - **影响**：`gatekeeper.py` 层 4 的审批层可挂在 `ApprovalRuntime`（chat-api）或 `gate_approvals`（admin-api），二者语义一致，**不另起炉灶，不新建第二张审批表**。
 
 ### OQ-2 配额存储（spec 原 OQ-2）
-- **决策**：配额计量**用数据库（MongoDB）**，不引入 Redis 计数。理由：自托管形态（movo 交付）已依赖 MongoDB，引入 Redis 仅做计数会增加运维负担；配额上限低（租户/用户/工具三维，时间窗口计数），MongoDB 计数器（原子 `findOneAndUpdate`）足够。
+- **决策**：配额计量**用数据库（MongoDB）**，不引入 Redis 计数。理由：自托管形态（mogo 交付）已依赖 MongoDB，引入 Redis 仅做计数会增加运维负担；配额上限低（租户/用户/工具三维，时间窗口计数），MongoDB 计数器（原子 `findOneAndUpdate`）足够。
 - **影响**：`quota.py` 层 5 落 `quota_counters` 集合（按 维度 + 时间窗口 键），不依赖 Redis。
 
 ### OQ-3 PII 策略粒度（spec 原 OQ-3）
