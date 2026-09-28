@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+import logging
 import re
 from typing import Any
 
@@ -19,6 +20,8 @@ from app.llm.types import Message, Role
 from .token import ModelGatewayClaims
 from .tool_schema import to_openai_chat_tools
 from .tool_visibility import visible_tools
+
+logger = logging.getLogger(__name__)
 
 
 class ModelGatewayRequest(BaseModel):
@@ -196,6 +199,23 @@ class ModelGatewayService:
             raise ModelGatewayFailure("provider_scope_mismatch", "provider scope mismatch", retryable=False)
 
     @staticmethod
+    def _call_id(raw: dict[str, Any], block: dict[str, Any] | None = None) -> str:
+        """Resolve the tool-call identity DSH correlates a tool result with.
+
+        DSH puts the id on the message itself (``toolCallId``); older/other
+        producers inline it in the content block. OpenAI-compatible providers
+        reject a tool-role message without ``tool_call_id``, so both shapes are
+        accepted instead of silently yielding an empty string.
+        """
+        sources = [raw, block or {}]
+        for source in sources:
+            for key in ("toolCallId", "tool_call_id", "tool_use_id", "callId", "call_id"):
+                value = str(source.get(key) or "").strip()
+                if value:
+                    return value
+        return ""
+
+    @staticmethod
     def _messages(request: ModelGatewayRequest) -> list[Message]:
         result: list[Message] = []
         if request.system:
@@ -207,6 +227,7 @@ class ModelGatewayService:
             except ValueError:
                 role = Role.USER
             content = raw.get("content")
+            message_call_id = ModelGatewayService._call_id(raw)
             if isinstance(content, list):
                 blocks = [block for block in content if isinstance(block, dict)]
                 tool_results = [block for block in blocks if block.get("type") == "tool-result"]
@@ -220,7 +241,7 @@ class ModelGatewayService:
                         result.append(Message(
                             role=Role.TOOL,
                             content=result_text,
-                            tool_call_id=str(block.get("toolCallId") or ""),
+                            tool_call_id=ModelGatewayService._call_id(raw, block),
                         ))
                     continue
                 text = "\n".join(str(block.get("text") or "") for block in blocks if block.get("type") == "text")
@@ -238,7 +259,20 @@ class ModelGatewayService:
             else:
                 text = str(content or "")
                 calls = []
-            result.append(Message(role=role, content=text, tool_calls=calls or None))
+            if role is Role.TOOL and not message_call_id:
+                # OpenAI-compatible providers reject a tool-role message without
+                # tool_call_id. Log the raw shape instead of turning an unknown
+                # producer format into an opaque 400 on the next request.
+                logger.warning(
+                    "model_gateway_tool_message_without_call_id keys=%s",
+                    sorted(str(key) for key in raw.keys()),
+                )
+            result.append(Message(
+                role=role,
+                content=text,
+                tool_calls=calls or None,
+                tool_call_id=message_call_id if role is Role.TOOL else None,
+            ))
         return result
 
     @staticmethod

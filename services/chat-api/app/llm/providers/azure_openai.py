@@ -179,6 +179,11 @@ class AzureOpenAIClient(BaseLLMClient):
 
     def _convert_messages_chat(self, messages: List[Message]) -> List[Dict[str, Any]]:
         result: List[Dict[str, Any]] = []
+        # Azure OpenAI rejects a tool-role message without tool_call_id, exactly
+        # like the plain OpenAI-compatible path. Correlate a missing id with the
+        # pending tool call from the preceding assistant message rather than
+        # emitting a request the provider refuses.
+        pending_tool_call_ids: List[str] = []
         for msg in messages:
             if isinstance(msg, dict):
                 role = msg.get("role")
@@ -224,8 +229,14 @@ class AzureOpenAIClient(BaseLLMClient):
                     )
                 if normalized_calls:
                     msg_dict["tool_calls"] = normalized_calls
-            if tool_call_id:
-                msg_dict["tool_call_id"] = tool_call_id
+                    pending_tool_call_ids = [
+                        str(call.get("id") or "") for call in normalized_calls if str(call.get("id") or "")
+                    ]
+            resolved_tool_call_id = str(tool_call_id or "").strip()
+            if not resolved_tool_call_id and role_value == Role.TOOL.value:
+                resolved_tool_call_id = pending_tool_call_ids.pop(0) if pending_tool_call_ids else ""
+            if resolved_tool_call_id:
+                msg_dict["tool_call_id"] = resolved_tool_call_id
             result.append(msg_dict)
         return result
 

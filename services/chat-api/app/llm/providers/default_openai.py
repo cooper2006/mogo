@@ -92,6 +92,11 @@ class DefaultOpenAIClient(BaseLLMClient):
 
     def _convert_messages(self, messages: List[Message]) -> List[Dict[str, Any]]:
         result = []
+        # OpenAI-compatible providers reject a tool-role message that has no
+        # tool_call_id. Callers normally supply the id; when one is missing,
+        # correlate it with the pending tool call from the preceding assistant
+        # message instead of emitting a request the provider will refuse.
+        pending_tool_call_ids: List[str] = []
         for msg in messages:
             if isinstance(msg, dict):
                 role = msg.get("role")
@@ -113,8 +118,14 @@ class DefaultOpenAIClient(BaseLLMClient):
                 normalized_calls = self._convert_tool_calls(tool_calls)
                 if normalized_calls:
                     msg_dict["tool_calls"] = normalized_calls
-            if tool_call_id:
-                msg_dict["tool_call_id"] = tool_call_id
+                    pending_tool_call_ids = [
+                        str(call.get("id") or "") for call in normalized_calls if str(call.get("id") or "")
+                    ]
+            resolved_tool_call_id = str(tool_call_id or "").strip()
+            if not resolved_tool_call_id and role_value == Role.TOOL.value:
+                resolved_tool_call_id = pending_tool_call_ids.pop(0) if pending_tool_call_ids else ""
+            if resolved_tool_call_id:
+                msg_dict["tool_call_id"] = resolved_tool_call_id
             result.append(msg_dict)
         return result
 
