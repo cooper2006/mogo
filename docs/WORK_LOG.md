@@ -1,5 +1,50 @@
 # Work Log
 
+## 2026-09-28 playwright 浏览器离线缓存（base-images/playwright + 构建上下文 bundle）
+
+- 背景：用户指出「playwright 之前应该下载过了，从外面网站下载的内容都应缓存到 `base-images/`，下次构建直接从缓存读」。触发场景是 chat-api 构建在 `playwright install --with-deps chromium` 处因 apt 源超时失败（exit 100），重试才通过——每次冷构建都要重下约 900MB 浏览器。
+- 现状盘点：`base-images/` 已是「外部下载内容本地缓存」目录（基础镜像 tar + `docling-models/`），且被 `.gitignore:102 /base-images/` 整体忽略。docling 模型已有成熟范式可照搬——离线 bundle（构建上下文内 `<1KB` git 占位符 + 真实文件本地生成）+ Dockerfile「优先解包、缺失回退联网」。
+- 改动：
+  - **新增 `scripts/playwright_browsers_bundle.sh`**（可执行，风格对齐 `docling_models_bundle.sh`）：`save [image]` 从已构建镜像抽出 `/ms-playwright` 存入 `base-images/playwright/browsers/` 并写 `manifest.txt`（记录 playwright 版本 + 浏览器目录）、随后自动打包；`pack` 仅从缓存重打包；`list` 看缓存与 bundle 状态；`verify [image]` 校验镜像内浏览器可执行（检查 `headless_shell`/`chrome` 是否可执行，避免半途中断的下载蒙混过关）。
+  - **`services/chat-api/Dockerfile`**：原单段 `playwright install [--with-deps]` 改为三级优先——① 构建上下文存在真实 bundle 时直接解包（零网络、层可缓存）；② 回退联网下载（`PLAYWRIGHT_DOWNLOAD_HOST` 仍指 npmmirror）；③ `INSTALL_PLAYWRIGHT_AT_BUILD=false` 时整体跳过。**关键解耦**：`--with-deps` 会调 apt，镜像源抖动会连带整个浏览器步骤失败，故改为浏览器安装与系统库安装分离，`install-deps` 失败降级为 WARNING 而非中断构建。新增 `COPY playwright-browsers-bundle.tar.gz`（占位符保证 COPY 永不失败）、解包后校验 chromium 目录存在（缺则报错退出）、并以一次真实 `chromium.launch()` 做启动验证（失败降级为 WARNING，提示缺系统库）。
+  - **`services/chat-api/playwright-browsers-bundle.tar.gz`**：提交 `<1KB` 占位符（104B，标准空 tar.gz，与 docling 占位符同为合法 gzip 流而非纯文本）；真实 bundle（283.5 MiB / 486 文件）本地生成、不入 git。
+  - **`.gitignore`**：新增该 bundle 的忽略规则（**未动** docling 现有规则——后者是有意 `git add -f` 跟踪占位符的既有流程，加忽略会破坏它）。
+- 验证（三组构建，均为 `DOCKER_BUILDKIT=0` 经典 builder）：
+  1. `INSTALL_SYSTEM_DEPS_AT_BUILD=false` + bundle：日志确认 `Installing playwright browsers from offline bundle (297302074 bytes)` 与 `chromium provisioned: chromium-1194 chromium_headless_shell-1194`，**零网络下载**；因跳过 apt 系统库，launch 失败按设计降级为 WARNING，构建成功。
+  2. 同参数重跑：退出码 0，确认降级逻辑生效且镜像可产出。
+  3. **生产参数全量构建**（`INSTALL_SYSTEM_DEPS_AT_BUILD=true` + `PLAYWRIGHT_WITH_DEPS=true` + aliyun apt 源）：`Installing playwright browsers from offline bundle` → `chromium provisioned` → **`playwright chromium launch OK`**，**完整通过**（bundle 二进制 + apt 系统库齐备，chromium 真实启动）。
+- 缓存产物：`base-images/playwright/browsers/`（900.6 MiB，含 `.links`/`chromium-1194`/`chromium_headless_shell-1194`/`ffmpeg-1011`）+ `manifest.txt`（playwright 1.56.0）；构建上下文 bundle 283.5 MiB。
+- 边界说明：bundle **只覆盖浏览器二进制**，`--with-deps` 的 apt 系统库仍来自发行版镜像源；若要完全离线重建，系统库需另行缓存（脚本头部已注明该限制）。本轮未实现 apt 缓存。
+- 附带完成：chat-api 与 user-web 镜像均重建并上线（`chat-api:e7dd196`、`user-web:e7dd196`），在线成员改名功能生效；`mogo-user-web-1` 的 `ChatWindow-Bk2t72as.js` 线上可访问并含 `onlineMembers`。
+
+**改动文件**：新增 `scripts/playwright_browsers_bundle.sh`、`services/chat-api/playwright-browsers-bundle.tar.gz`（占位符）；修改 `services/chat-api/Dockerfile`、`.gitignore`、`docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-28 加固 Azure OpenAI 路径的 tool_call_id 缺失风险
+
+- 背景：上一轮修复只覆盖 `default_openai.py` 主链路，`azure_openai.py` 的 `_convert_messages_chat` 存在同类判空风险（tool 消息缺 id 时字段被丢弃，Azure 同样会拒绝整轮请求）。
+- 改动：`services/chat-api/app/llm/providers/azure_openai.py#_convert_messages_chat` 复制主链路策略——记录前一条 assistant 的待配对 tool call id（支持 `id`/`call_id`），tool 角色消息缺失时按序回填；已有 id 行为完全不变。
+- 测试：`services/chat-api/tests/dsh_runtime/test_model_gateway_tool_call_id.py` 新增 `test_azure_chat_conversion_backfills_missing_id_from_pending_call`（共 4 用例）。
+- 验证：新增文件 4 passed；`tests/llm` + `tests/dsh_runtime`（跳过既有坏文件 `test_decision_turn.py` 与需要 Node ≥22.19 的 `conversation_regression`）共 **384 passed / 5 skipped**。
+- 未改动 `azure_openai.py#_convert_messages`（Responses API 路径）：该处缺 id 时是把 tool 结果降级为普通 message，丢的是语义而非请求合法性，不会触发 400；改动会改变 Responses 行为，按最小改动原则保留现状并在此记录。
+
+## 2026-09-28 打包 chat-api 镜像并升级服务（tool_call_id 修复上线）
+
+- 首次构建失败：`playwright install --with-deps chromium` 拉取清华 TUNA 源超时（`Unable to connect to mirrors.tuna.tsinghua.edu.cn`，exit 100）。宿主与容器内该源实测均可达（tuna/aliyun/deb.debian 均 200），判定为构建期网络抖动；原样重试后成功，未改动 Dockerfile 与构建参数。
+- 镜像：`DOCKER_BUILDKIT=0 docker compose ... build chat-api` 产出 `ghcr.io/himovo/chat-api:latest`，重打裸名 `chat-api:e7dd196`（对齐运行中其它服务命名，取当前 git HEAD 短 hash；期间 HEAD 由 9518652 前进到 e7dd196，已按新 hash 重打）。
+- 升级：`docker compose -f docker-compose.yml -f <override> up -d --no-deps --pull never chat-api`，仅替换 chat-api，其它服务未动。
+- 验证：容器 healthy；镜像内 `_call_id` 9 处、`pending_tool_call_ids` 3 处确认修复已入镜像；容器内实跑 `_messages` 对 `{'role':'tool','toolCallId':'call_1'}` 正确解析出 `call_1`；重启后 5 分钟内不再出现 `missing field tool_call_id` 400；入口 `http://127.0.0.1:3000/` 返回 200，全部服务 healthy。
+
+## 2026-09-28 修复上游 400「missing field tool_call_id」（tool 结果丢 id）
+
+- 现象：调用 `https://apihub.agnes-ai.cn/v1/chat/completions` 返回 400，`Failed to deserialize the JSON body into the target type: messages[6]: missing field tool_call_id`（chat-api 容器日志 10:42、10:49 两次复现）。
+- 根因：DSH 把工具调用 id 放在**消息级** `toolCallId`（见 `dsh-llm/lib/types/message.js` 的 `createToolResultMessage`），而 `ModelGatewayService._messages` 只在 content 块内找 `toolCallId`，取不到即写空串；随后 `DefaultOpenAIClient._convert_messages` 用 `if tool_call_id:` 判空，空串直接把字段丢弃 → 上游收到无 `tool_call_id` 的 tool 消息并拒绝整轮请求。
+- 修复（最小改动，2 文件 + 1 测试）：
+  - `services/chat-api/app/dsh_runtime/model_gateway/service.py`：新增 `_call_id()`，兼容消息级/块级、驼峰与下划线的 `toolCallId`/`tool_call_id`/`tool_use_id`/`callId`/`call_id`；tool 角色消息统一带上解析出的 id；解析不到 id 时打 `model_gateway_tool_message_without_call_id` warning（记录原始键名，便于以后定位未知形态）。
+  - `services/chat-api/app/llm/providers/default_openai.py`：`_convert_messages` 记录前一条 assistant 的待配对 tool call id，tool 消息缺失时按序回填，避免再产出上游必然拒绝的报文。
+  - 新增 `services/chat-api/tests/dsh_runtime/test_model_gateway_tool_call_id.py`：覆盖消息级 id 保真、蛇形/块级 id 兼容、缺 id 时回填三条用例。
+- 验证：新增测试 3 passed；`tests/llm`（除既有坏文件 `test_decision_turn.py`，其 import `_DecisionSchema` 早已不存在）+ `test_model_profile_step3.py` + `test_step5_tool_policy.py` + `test_tool_visibility.py` 共 75 passed；`tests/dsh_runtime` 全量 329 passed / 3 failed（3 项失败为 `conversation_regression`，要求本机 Node ^22.19.0 或 ≥24，环境不满足，与本次改动无关）。
+- 未改动 `azure_openai.py`（同类判空风险存在，但当前故障链路未经过它，按最小改动原则留待确认）。
+
 ## 2026-09-28 在线成员展示成员名称（不再显示 userId）
 
 **现象**：user-web 会话版本化抽屉「在线成员」区域只渲染绿色 `userId`（如 `6ab9dd0382f60252a4a40aa6`），用户要求展示成员名称。
