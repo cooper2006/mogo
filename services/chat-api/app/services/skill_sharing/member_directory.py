@@ -92,3 +92,40 @@ class SkillShareMemberDirectory:
             "username": masked_account_identifier(row.get("login_name")),
             "email": masked_account_identifier(row.get("email")),
         }
+
+    @staticmethod
+    def member_view_batch(
+        rows: list[dict[str, Any]],
+        ordered_ids: list[str],
+    ) -> list[dict[str, str]]:
+        """Map end-user rows to member views, preserving ``ordered_ids`` order.
+
+        IDs missing from ``rows`` (inactive / cross-tenant / unknown) fall back
+        to ``{"userId": id, "displayName": "", "username": "", "email": ""}``
+        so callers can still render the raw identifier.
+        """
+        from bson import ObjectId
+
+        def _norm(value: str) -> str:
+            token = str(value or "").strip()
+            return str(ObjectId(token)) if ObjectId.is_valid(token) else token
+
+        by_id: dict[str, dict[str, str]] = {}
+        for row in rows:
+            key = _norm(row.get("_id"))
+            if key:
+                by_id[key] = SkillShareMemberDirectory.member_view(row)
+        output: list[dict[str, str]] = []
+        for raw_id in ordered_ids:
+            key = _norm(raw_id)
+            view = by_id.get(key)
+            if view is not None:
+                output.append(view)
+            else:
+                output.append({
+                    "userId": str(raw_id),
+                    "displayName": "",
+                    "username": "",
+                    "email": "",
+                })
+        return output

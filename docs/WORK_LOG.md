@@ -1,5 +1,24 @@
 # Work Log
 
+## 2026-09-28 在线成员展示成员名称（不再显示 userId）
+
+**现象**：user-web 会话版本化抽屉「在线成员」区域只渲染绿色 `userId`（如 `6ab9dd0382f60252a4a40aa6`），用户要求展示成员名称。
+
+**根因**：co-presence 端点（`GET/POST /api/sessions/{id}/co-presence`）只返回 `onlineUsers: string[]`（裸 userId），前端 `SessionVersioningDrawer.vue` 直接把该数组渲染成 `NTag`。后端 `CoPresence.online()` 也只有心跳里的 userId，无名称信息。
+
+**方案**（用户拍板）：后端响应**新增** `onlineMembers: [{userId, displayName, username, email}]`，保留原 `onlineUsers` 避免破坏其它调用者；前端优先用 `onlineMembers`，`displayName → username → email` 依次 fallback，全空时才回退到 userId。
+
+**改动**：
+- `services/chat-api/app/api/endpoints/dsh_session_versioning.py`：新增 `_resolve_online_members(db, main_id, online_user_ids)`，按 `end_users` 集合（`status: active` + `add_main_scope` 租户隔离）批量查 `{name, login_name, email}`，经 `member_view_batch` 转为成员视图；POST 与 GET 两个 co-presence 端点响应均加 `onlineMembers` 字段。
+- `services/chat-api/app/services/skill_sharing/member_directory.py`：新增静态方法 `member_view_batch(rows, ordered_ids)`——按 `ordered_ids` 顺序输出（与 `onlineUsers` 一致），未命中行的成员产出 `{userId: id, displayName: "", ...}` 供前端回退；`_id` 做 `ObjectId`/字符串双形态归一化以对齐 `member_id_candidates`。复用该模块而非新建解析逻辑，避免第二套成员视图口径。
+- `apps/user-web/src/api/sessionVersioning.ts`：`PresenceView` 加可选 `onlineMembers?: PresenceMember[]`，新增 `PresenceMember` 类型。
+- `apps/user-web/src/components/SessionVersioningDrawer.vue`：`online` 类型由 `string[]` 改为 `PresenceMember[]`；`refreshPresence` 优先取 `onlineMembers`，否则由 `onlineUsers` 构造空名成员（兼容旧响应）；新增 `memberLabel()` 做名称 fallback；模板 key 改 `m.userId`、文本改 `memberLabel(m)`。
+- `services/chat-api/tests/services/test_session_versioning_api.py`：`_FakeColl.find` 扩展支持 `$and`/`$or`/`$in`（原实现只做简单等值匹配，无法表达 `{"_id": {"$in": [...]}}`）；新增 2 项测试——名称解析成功（张三/Bob + `onlineUsers` 仍并存）与未知成员 fallback（displayName 为空）。
+
+**验证**：`tests/services/test_session_versioning_api.py` 7 passed；chat-api 全量 `1922 passed / 3 failed / 5 skipped`（3 项失败为预存环境问题——要求 Node ≥22.19）；`apps/user-web` `vue-tsc --noEmit` 通过。
+
+**改动文件**：`services/chat-api/app/api/endpoints/dsh_session_versioning.py`、`services/chat-api/app/services/skill_sharing/member_directory.py`、`services/chat-api/tests/services/test_session_versioning_api.py`、`apps/user-web/src/api/sessionVersioning.ts`、`apps/user-web/src/components/SessionVersioningDrawer.vue`、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-28 提交并推送本批已完成改动（6 commits → mogo/main）
 
 - 背景：上一批改动此前已改完并验证，但因会话中断未落盘。本轮按主题拆分为 6 个 commit，全部推送到 `mogo`（cooper2006/mogo）main；`origin` 保持 no-push 未动。

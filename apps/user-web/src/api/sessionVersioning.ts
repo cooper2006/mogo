@@ -38,9 +38,17 @@ export interface ShareView {
   summary: string
 }
 
+export interface PresenceMember {
+  userId: string
+  displayName: string
+  username: string
+  email: string
+}
+
 export interface PresenceView {
   sessionId: string
   onlineUsers: string[]
+  onlineMembers?: PresenceMember[]
 }
 
 export function sessionVersionUrl(sessionId: string) {

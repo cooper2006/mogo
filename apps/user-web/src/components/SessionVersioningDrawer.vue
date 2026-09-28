@@ -10,6 +10,7 @@ import {
   type SessionVersion,
   type ShareView,
   type PresenceView,
+  type PresenceMember,
 } from '../api/sessionVersioning'
 import { t } from '../composables/i18n'
 
@@ -34,7 +35,7 @@ const shareBusy = ref(false)
 const shareView = ref<ShareView | null>(null)
 const shareModal = ref(false)
 const shareTarget = ref('')
-const online = ref<string[]>([])
+const online = ref<PresenceMember[]>([])
 let pollTimer: number | undefined
 
 async function loadVersions() {
@@ -93,11 +94,28 @@ async function refreshPresence() {
   if (!props.sessionId) return
   try {
     const view = await getCoPresence(props.sessionId, props.authToken)
-    online.value = view.onlineUsers ?? []
+    // Prefer rich member views (displayName/username); fall back to raw ids
+    // when the backend does not return them (e.g. older payload).
+    const members = view.onlineMembers ?? []
+    if (members.length > 0) {
+      online.value = members
+    } else {
+      online.value = (view.onlineUsers ?? []).map((uid) => ({
+        userId: uid,
+        displayName: '',
+        username: '',
+        email: '',
+      }))
+    }
     emit('presence-changed', view)
   } catch {
     online.value = []
   }
+}
+
+function memberLabel(member: PresenceMember): string {
+  const name = (member.displayName || member.username || member.email || '').trim()
+  return name || member.userId
 }
 
 async function beat() {
@@ -196,7 +214,7 @@ const latestSnapshotId = computed(() => {
           <h4 style="margin: 0 0 8px">{{ t('在线成员') }}</h4>
           <div v-if="online.length === 0" style="color: #999; font-size: 13px">{{ t('暂无在线成员') }}</div>
           <div v-else style="display: flex; flex-wrap: wrap; gap: 6px">
-            <NTag v-for="uid in online" :key="uid" size="small" type="success">{{ uid }}</NTag>
+            <NTag v-for="m in online" :key="m.userId" size="small" type="success">{{ memberLabel(m) }}</NTag>
           </div>
         </section>
       </NSpace>

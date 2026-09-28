@@ -19,6 +19,10 @@ from app.core.db import get_db
 from app.core.tenant import resolve_main_id
 from app.services.session_versioning.co_presence import CoPresence
 from app.services.session_versioning.share import SHARE_TTL_SECONDS, ShareError, ShareStore
+from app.services.skill_sharing.member_directory import (
+    SkillShareMemberDirectory,
+    member_id_candidates,
+)
 from app.services.session_versioning.snapshot import (
     SNAPSHOT_COLLECTION,
     AttachmentRef,
@@ -261,10 +265,12 @@ async def upsert_co_presence(
     await presence.heartbeat(session_id=session_id, user_id=user_id)
     merged = await presence.merge_messages(session_id, payload.message_seqs)
     online = sorted(await presence.online(session_id))
+    online_members = await _resolve_online_members(db, main_id, online)
     return {
         "sessionId": session_id,
         "userId": user_id,
         "onlineUsers": online,
+        "onlineMembers": online_members,
         "mergedSeqs": merged,
     }
 
@@ -278,4 +284,36 @@ async def get_co_presence(
     db = get_db()
     presence = CoPresence(db)
     online = sorted(await presence.online(session_id))
-    return {"sessionId": session_id, "onlineUsers": online}
+    online_members = await _resolve_online_members(db, main_id, online)
+    return {
+        "sessionId": session_id,
+        "onlineUsers": online,
+        "onlineMembers": online_members,
+    }
+
+
+async def _resolve_online_members(
+    db: Any,
+    main_id: str,
+    online_user_ids: list[str],
+) -> list[dict[str, str]]:
+    """Resolve online user IDs to display-friendly member views.
+
+    Falls back to ``{"userId": <id>, "displayName": "", ...}`` (which the
+    frontend renders as the raw id) when the end-user row cannot be found,
+    so the API stays decoupled from the directory implementation.
+    """
+    if not online_user_ids:
+        return []
+    from app.core.tenant import add_main_scope
+
+    cursor = db["end_users"].find(
+        add_main_scope(
+            {"_id": {"$in": member_id_candidates(online_user_ids)},
+             "status": "active"},
+            main_id,
+        ),
+        {"name": 1, "login_name": 1, "email": 1},
+    )
+    rows = await cursor.to_list(length=len(online_user_ids) + 1)
+    return SkillShareMemberDirectory.member_view_batch(rows, online_user_ids)

@@ -31,11 +31,33 @@ class _FakeColl:
         return _R()
 
     def find(self, query: dict, *args, **kwargs):
-        matched = [
-            doc
-            for doc in self._docs
-            if all(doc.get(k) == v for k, v in query.items())
-        ]
+        def _match(doc: dict, cond: dict) -> bool:
+            for key, value in cond.items():
+                if key == "$and":
+                    if not all(_match(doc, sub) for sub in value):
+                        return False
+                    continue
+                if key == "$or":
+                    if not any(_match(doc, sub) for sub in value):
+                        return False
+                    continue
+                actual = doc.get(key)
+                if isinstance(value, dict) and any(k.startswith("$") for k in value):
+                    for op, operand in value.items():
+                        if op == "$in" and actual not in operand:
+                            return False
+                        elif op == "$ne" and actual == operand:
+                            return False
+                        elif op == "$gt" and not (actual is not None and actual > operand):
+                            return False
+                        elif op == "$regex" and not (actual is not None and str(operand).split("^")[-1] and str(actual).startswith(str(operand).lstrip("^"))):
+                            return False
+                    continue
+                if actual != value:
+                    return False
+            return True
+
+        matched = [doc for doc in self._docs if _match(doc, query)]
         return _Cursor(matched)
 
     async def find_one(self, query: dict, *args, **kwargs):
@@ -190,3 +212,52 @@ def test_session_co_presence_heartbeat(client, fake_db) -> None:
 
     presence = collections.get("presence_heartbeats", _FakeColl([]))
     assert len(presence._docs) >= 1
+
+
+def test_session_co_presence_resolves_member_display_names(client, fake_db, monkeypatch) -> None:
+    """Online members carry display names so the UI shows names, not raw ids."""
+    from app.api.endpoints import dsh_session_versioning as endpoint
+
+    db_obj, _collections = fake_db
+    db_obj["end_users"]._docs.extend([
+        {"_id": "u-1", "name": "张三", "login_name": "zhangsan", "email": "z@example.com", "status": "active"},
+        {"_id": "u-2", "name": "Bob", "login_name": "bob", "email": "b@example.com", "status": "active"},
+    ])
+    # The heartbeat records the *authorized* user, so drive each beat with its own principal.
+    for uid in ("u-1", "u-2"):
+        async def _as_user(authorization, _uid=uid):
+            return {"user": {"_id": _uid}, "main_id": "default"}
+
+        monkeypatch.setattr(endpoint, "_resolve_session_user", _as_user)
+        response = client.post(
+            "/api/sessions/s-1/co-presence",
+            json={"user_id": uid, "message_seqs": []},
+        )
+        assert response.status_code == 200, response.text
+
+    body = client.get("/api/sessions/s-1/co-presence").json()
+    members = body["onlineMembers"]
+    by_id = {m["userId"]: m for m in members}
+    assert set(by_id) == {"u-1", "u-2"}
+    assert by_id["u-1"]["displayName"] == "张三"
+    assert by_id["u-2"]["displayName"] == "Bob"
+    # Legacy field kept alongside the rich view.
+    assert sorted(body["onlineUsers"]) == ["u-1", "u-2"]
+
+
+def test_session_co_presence_unknown_member_falls_back_to_id(client, fake_db, monkeypatch) -> None:
+    """An unresolved member still renders: displayName stays empty (UI shows the id)."""
+    from app.api.endpoints import dsh_session_versioning as endpoint
+
+    async def _as_ghost(authorization):
+        return {"user": {"_id": "ghost"}, "main_id": "default"}
+
+    monkeypatch.setattr(endpoint, "_resolve_session_user", _as_ghost)
+    response = client.post(
+        "/api/sessions/s-1/co-presence",
+        json={"user_id": "ghost", "message_seqs": []},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    member = [m for m in body["onlineMembers"] if m["userId"] == "ghost"][0]
+    assert member["displayName"] == ""
