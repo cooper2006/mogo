@@ -1,5 +1,79 @@
 # Work Log
 
+## 2026-09-28 user-web sidebar 文案英→中：MOGO→墨攻、我的 Skills→我的技能、我的 Tools→我的工具
+
+- 改动（仅 user-web）：
+  - `apps/user-web/src/App.vue:1951`–`:1953`：logo 区域 `aria-label="MOGO"` 与 `<span>MOGO</span>` 改为「墨攻」。
+  - `apps/user-web/src/locales/messages.ts:241–242`：`app.sidebar.marketplace` zh `我的 Skills` → `我的技能`，`app.sidebar.tools` zh `我的 Tools` → `我的工具`；en 文案保留 `My Skills` / `My Tools` 不动，i18n key 不变。
+- 边界：未改 en 文案、未改其他 `MOGO` 出现位置（如 `desktop.server.description`、`chat.disclaimer`、`login.title` 等），避免越界；仅按用户截图所列三项修改 sidebar 渲染文案。
+- 验证：`apps/user-web` `pnpm typecheck` 通过；`DOCKER_BUILDKIT=0` 重建 user-web 镜像，重打裸名 `user-web:9518652`，`docker compose ... up -d --no-deps user-web` 替换，gateway 未触碰；curl 线上首页 chunk `assets/index-BvGFw6WY.js` 含「墨攻」「我的技能」「我的工具」各 1 处（剩 11 处 `MOGO` 为其他英文/免责声明文案，未在本次修改范围）。
+
+## 2026-09-28 打包 user-web 镜像并升级服务
+
+- 构建：`docker compose -f docker-compose.yml -f docker-compose.build.yml build user-web`（Dockerfile.prod）。官方入口 `./mogo build user-web` 在沙箱下失败（buildx 活动文件 `operation not permitted`），改用 `DOCKER_BUILDKIT=0` 的经典 builder 构建成功。
+- 镜像：先产出 `ghcr.io/himovo/user-web:latest`（无 `.env` 时 MOGO_VERSION 默认 latest），按用户选择重打为裸名 `user-web:9518652`（对齐运行中其它服务的 `user-web:744881e` 命名风格，取当前 git HEAD 短 hash）。
+- 升级：仅替换 user-web（`--no-deps`，未波及其它服务），随后 `docker compose restart gateway` 刷新 upstream 解析。
+- 验证：`docker compose ps` user-web / gateway 均 healthy；`curl http://127.0.0.1:3000/` 返回 200；线上 chunk `assets/index-C1JUcmRO.js` 与 `assets/ChatWindow-DgHws8W3.js` 均含 `artifact.txt`；txt 图标以 base64 内联（3.2KB 小于 Vite 默认 4096 内联阈值，assets 下无独立 txt png 属预期）。
+- 未改动源码、services、admin-web。
+
+## 2026-09-28 修复 DSH Runtime Host 报错 "tool-web/tool-skill: never started"
+
+**现象**：会话请求被 Runtime Host 拒绝：`tool-web (@deepseek-ai/dsh-tool-web): never started`、`tool-skill (@deepseek-ai/dsh-tool-skill): never started`，`code: 'agent-preset/invalid'`。不止这两个——preset 内**所有**插件行（persona/tool-bash/tool-fs/skill-filesystem/...）都 never started，官方 standard/cordis preset 同样失败。
+
+**根因**（本机测试与真实容器内均复现）：
+1. `runtime-host/package.json` 只声明了约 20 个 `@deepseek-ai/dsh-*` 依赖，但生效的 preset（web-app 的 standard/code + askai-enterprise）引用了约 40 个；未声明的包在 `pnpm --frozen-lockfile --prod` 下不会装到顶层，加载器无法按包名解析。
+2. 更关键：cordis 插件加载器解析 preset 条目裸包名用的是 `ctx.baseUrl`，而 `dsh-app-boot` 的 `boot()` 把 `ctx.baseUrl` 设为 `dirname(absoluteConfigPath)`，即 host profile 目录——它位于 storageRoot 数据卷（容器内 `/data/dsh-runtime/...`）。数据卷向上回溯没有 `node_modules` → `ERR_MODULE_NOT_FOUND`；`bareModuleBaseUrl`（dsh 包）只对 `include` 配置内置生效，不作用于 preset 插件。
+
+**改动文件**：
+- `services/chat-api/dsh/runtime-host/package.json`：补齐 24 个缺失的 `@deepseek-ai/dsh-*` preset 依赖（agent-instructions / compaction-basic / compaction-tool-result-pruner / command-compact / command-goal / persona / plan-mode / skill-filesystem / tool-ask-user / tool-bash / tool-cordis / tool-fs / tool-fs-search / tool-goal / tool-jobs / tool-present / tool-pwsh / tool-ralph / tool-subagent / tool-subagent-control / tool-todo / tool-workflow / workflow-ptc 等，均锁 `0.1.7-rc.2`）；`pnpm-lock.yaml` 同步刷新（registry 用 npmmirror）。
+- `services/chat-api/dsh/runtime-host/src/official-host/composition.mjs`：把 host profile 目录从 `storageRoot/host-profile-home` 改为 `RUNTIME_HOST_ROOT/host-profile-home/<basename(storageRoot)>`。使 preset 解析基址能回溯到运行时根 `node_modules`；`<basename>` 保证同进程多实例（测试）互不覆盖；会话/工作区持久化仍用 storageRoot。
+- `services/chat-api/dsh/runtime-host/Dockerfile`：构建期 `mkdir -p /app/host-profile-home && chown -R node:node /app/host-profile-home`。因进程以 `gosu node` 运行且 `/app` 为 `a+rX`（非 root 不可写），必须给该目录写权限。
+- `.gitignore`：忽略 `services/chat-api/dsh/runtime-host/host-profile-home/`。
+
+**验证方式**：
+- 临时给加载器打探针，确认失败请求的 `baseUrl` 就是 storage profile 目录且报 `ERR_MODULE_NOT_FOUND`；把 baseUrl 换成运行时根后 preset 全部挂载成功（探针已还原）。
+- `node --test tests/official-host-composition.test.mjs`：preset 挂载相关用例全部通过（boot 用例在本机高负载下偶发 20–46s、断言未及稳定而失败，单独运行通过，非本次改动引起）。
+- 完整套件其余失败均为环境性（沙箱 `sandbox-exec: Operation not permitted`，E2E 无法真实执行 bash）或端口/时序竞争，与本次改动无关。
+
+**镜像重建与端到端验证（本轮完成）**：
+- 构建：`MOGO_DSH_RUNTIME_HOST_IMAGE=dsh-runtime-host:744881e docker compose -f docker-compose.yml -f docker-compose.build.yml build --progress=plain dsh-runtime-host`（4m36s）。日志确认 `Lockfile is up to date, resolution step is skipped`（package.json 与 pnpm-lock.yaml 一致，`--frozen-lockfile` 校验通过），本次共 581 个包全部走 `https://registry.npmmirror.com` 国内源。
+- 重建容器：同一环境变量执行 `up -d --force-recreate --no-deps dsh-runtime-host`，容器 healthy。
+- 容器内验证（Node v24.21.0）：
+  1. 组合测试 `tests/official-host-composition.test.mjs` → **9/9 全通过**（boot 仅 1.0s）。注意 Node 24 测试汇总前缀是 `ℹ tests/pass/fail`，不是 `# tests`。
+  2. 真实会话创建：`POST /v1/runtimes` + `POST /v1/runtimes/:id/sessions`（默认 `askai-enterprise` preset）→ **HTTP 201**，返回 `presetId: askai-enterprise`，不再报 `agent-preset/invalid` / `never started`。
+  3. 完整对话轮次：`send` → 事件序列 `turn/start → step/start → assistant/chunk×5 → assistant/message → step/end → turn/end` → TURN_COMPLETED_OK。
+  4. 容器日志检索无 `never started` / `ERR_MODULE_NOT_FOUND` / `rejected`。
+- 修复落地点确认：profile 生成在 `/app/host-profile-home/<hash>/profiles/askai-host/cordis.yml`（安装根目录，可回溯 `/app/node_modules`），会话数据仍在数据卷 `/data/dsh-runtime/<hash>`；运行期由 `node` 用户创建，权限正常。
+
+## 2026-09-28 前端 chat 上传支持 .txt（修复“第二个文件展示不出来”）
+
+- 复现结论：ChatComposer `detectDocumentType` 漏写 `.txt`，导致 `pendingDocuments` 不被加入；同时 `pendingDocuments` 用文件名作 v-for key，重复名会冲突；用户连续上传时表现为"少一个"；后端 `/chat/upload-document` 与 `runtime_parse_service._DOCUMENT_EXTS` 本来就支持 `.txt`，属纯前端遗漏。
+- 最小改动：
+  - `apps/user-web/src/components/chat/types.ts`：ChatDocumentKind 联合加 `'txt'`。
+  - `apps/user-web/src/components/chat/ChatComposer.vue:154` detectDocumentType 增加 `.txt` 分支返回 `'txt'`。
+  - `apps/user-web/src/composables/useChatRuntimeStore.ts:23` RuntimeDocumentInfo type 联合加 `'txt'`。
+  - `apps/user-web/src/components/ChatWindow.vue:247` DocumentInfo type 联合加 `'txt'`，并在 Card 中通过 `getDocPresentation(doc).icon` 走 artifact registry 渲染（无样式改动）。
+  - `apps/user-web/src/features/execution-v3/domain/artifactKind.ts`：SUPPORTED_KINDS 加 `'txt'`，MIME_KINDS 加 `'text/plain' → 'txt'`，让历史消息与生成产物中的 .txt 能落到正确 kind。
+  - `apps/user-web/src/registries/artifacts.ts`：注册 `txt` → 新图标 `txt.png`（actions: `['download']`，无可编辑/预览入口），新增 `ICON_TXT` 资源 `apps/user-web/src/statics/images/txt.png`（256x256 PNG，PIL 生成）。
+  - `apps/user-web/src/locales/messages.ts`：新增 `artifact.txt` 文案（zh `文本文件` / en `Plain text`）。
+- 验证：`apps/user-web` `pnpm typecheck` 通过。
+- 未改动 services、admin-web、apps/其它目录。
+
+## 2026-09-28 生成案例测试数据 + 排查内置 Skill 界面不可见并产出可安装 ZIP
+
+**任务 1**：为客户反馈分诊案例生成界面测试数据（用户请求，落到 `docs/cases/`）。
+- `docs/cases/generate_feedback_sample.py`：可复现生成脚本，调用案例内置 `severity_heuristics` 校验分类分布（P0=10 / P1=28 / P2=21 / P3=12，P0≥3 触发审批；8 类别全覆盖；5 行带 PII；含重复项验证去重）。
+- 产出 `docs/cases/feedback_batch_sample.csv`（71 条，表格模式）与 `docs/cases/feedback_pasted_sample.txt`（粘贴模式）。
+
+**任务 2**：排查"内置技能 customer_feedback_triage 在用户工作台选择 Skill 弹窗（企业 tab）搜不到"。
+- 根因：`/skills/selectable` 只读数据库（我的=`user_skills` 集合，企业=`skills` 集合经 `OrganizationSkillAdapter.list_runtime_skills`）；`app/skills_specs/` 下的内置案例技能是代码层资产，无 seed/同步通道，天然不出现在弹窗中。设计上的界面入口是 ZIP 安装通道（admin-web Skill 管理 → `/organization-skills/install-zip`）。
+- 产出 `docs/cases/build_skill_zip.py`：把 `skills_specs/customer_feedback_triage/` 打成可安装 ZIP（`docs/cases/customer-feedback-triage-1.0.0.zip`），打包时把 SKILL.md frontmatter `name` 由 snake_case 内置 id 改写为 kebab-case `customer-feedback-triage`（validator `SKILL_NAME` 强制 kebab-case，直接打包原文件会被 `invalid_skill_name` 拒绝）。
+- 验证：用仓库 `app/services/skill_packages/validator.py` 的 `validate_skill_zip` 独立加载校验通过——slug=customer-feedback-triage、version=1.0.0、kind=ordinary、modelInvocable/userInvocable=True、6 files、warnings=[]。
+
+**改动文件**：`docs/cases/generate_feedback_sample.py`、`docs/cases/feedback_batch_sample.csv`、`docs/cases/feedback_pasted_sample.txt`、`docs/cases/build_skill_zip.py`、`docs/cases/customer-feedback-triage-1.0.0.zip`、`docs/WORK_LOG.md`（本条目）。
+
+**遗留说明**：安装 ZIP 后技能以 markdown 指令形式进入 DSH 技能目录（`dsh_runtime/profile/skills/catalog.py` 读 `skill_packages`），弹窗可见、可被模型调用；案例的确定性 8 步运行时（`app/cases/customer_feedback_triage.py`）目前仅被 pytest 引用，chat 链路无 import，界面对话不会自动走 `run_triage`。
+
 ## 2026-09-28 登录文案品牌归一（登录 MOGO → 登录墨攻）
 
 **任务**：将登录相关中文文案「登录 MOGO」统一改为「登录墨攻」（与 09-24 中文品牌名「墨攻」一致）。
