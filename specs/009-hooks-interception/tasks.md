@@ -13,7 +13,7 @@
 
 **Checklist Gate**: `checklists/requirements.md` 已 100% 勾选。
 
-**Organization**: 落点 = `chat-api/app/dsh_runtime/hooks/`（新子模块）+ hook_rules 管理端点。挂载点 = `turn_admission.admit_skill_selection`（PreToolUse 天然切入）。
+**Organization**: 落点 = `chat-api/app/dsh_runtime/hooks/`（引擎子模块）+ **admin-api** 侧 `app/api/routes/hooks.py`（`/api/hooks/rules` CRUD）与 `app/services/hooks_store.py`。挂载点 = `turn_admission.admit_skill_selection`（PreToolUse 天然切入）。
 
 ---
 
@@ -60,7 +60,7 @@
 **Goal**: 声明式配置增删规则无需改代码；规则 CRUD 端点。
 **独立测试**: 新增/停用规则即时生效；无代码改动。
 
-- [x] T015 实现 hook_rules CRUD 管理端点（声明式配置，即时生效）
+- [x] T015 实现 hook_rules CRUD 管理端点（声明式配置，即时生效）—— 落点 admin-api `app/api/routes/hooks.py`，实际路径 `/api/hooks/rules`（`api_router` 以 `/api` 挂载 + 路由前缀 `/hooks`，2026-09-28 修掉原 `/api/hooks` 前缀造成的 `/api/api/hooks` 双前缀）
 - [x] T016 实现规则作用域查询（tool/session/tenant 三级匹配）
 
 ## Phase 7: Polish & Cross-Cutting Concerns

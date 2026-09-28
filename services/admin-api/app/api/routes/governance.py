@@ -26,7 +26,9 @@ from ..deps import get_current_admin_user
 from ...governance import permission_grants, risk
 from ...governance.rbac_model import has_permission
 
-router = APIRouter(prefix="/api/governance", tags=["governance"])
+# api_router 已以 /api 挂载（app/main.py），此处只带 /governance，实际路径为
+# /api/governance/... 。此前 prefix="/api/governance" 造成 /api/api/governance 双前缀。
+router = APIRouter(prefix="/governance", tags=["governance"])
 
 
 class RiskTierIn(BaseModel):

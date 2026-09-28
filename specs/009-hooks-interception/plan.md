@@ -44,16 +44,27 @@
 
 ```text
 services/chat-api/app/dsh_runtime/
-└── hooks/                       # 新增子模块
+└── hooks/                       # 新增子模块（引擎侧）
     ├── __init__.py
     ├── registry.py             # 五事件注册/查找
     ├── engine.py               # 规则引擎（deny_tool/require_field/observe）
     ├── rules.py                # 声明式规则 schema
     ├── timeout.py              # 超时保护 + fail_closed
-    └── integration.py          # 挂载到 turn_admission/gateway/events
-services/chat-api/app/api/
-└── (新增 hook_rules 管理端点，声明式配置 CRUD)
+    ├── integration.py          # 挂载到 turn_admission/gateway/events
+    └── store.py                # hook_rules 存储 + 三级作用域查询
+
+services/admin-api/app/api/routes/
+└── hooks.py                    # hook_rules 管理端点（声明式配置 CRUD，挂 /api/hooks）
+services/admin-api/app/services/
+└── hooks_store.py              # admin-api 侧 store（同 hook_rules 集合，形状校验）
 ```
+
+> 端点归属订正（2026-09-28）：管理端点落在 **admin-api**（`app/api/routes/hooks.py`，
+> 实际路径 `/api/hooks/rules`），与 admin-web 钩子规则页 `api/dsh_hooks.ts` 对接；
+> 此处原写 `chat-api/app/api/`，与 `quickstart.md`、规划文档 P1-4「admin `/api/hooks` CRUD」
+> 矛盾，已订正。chat-api 侧曾有一份并行实现 `app/api/endpoints/dsh_hooks.py`，
+> 因鉴权不匹配（end-user token）+ gateway `/admin-api/*` 不进 chat-api 而无人可达，
+> 2026-09-28 已移除。
 
 ## Open Questions（已 clarify 消解）
 - OQ-1 超时阈值：**默认 5s，可配**（`hook_timeout_seconds`），复用 `execution_timeout.py::ExecutionTimeoutPolicy` 双层策略模式。
