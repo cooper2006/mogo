@@ -142,7 +142,7 @@
 | 001 FR-11 拍板 | `specs/001-gatekeeper-governance/spec.md` L99/L145 已修订为「复用既有审批状态机（EnterpriseApproval 或自建 gate_approvals），不新建第二张审批表」，与 pending-review 台账 resolved 一致 |
 | 007 生产接线 | `llm/configured_models.py:371/376` `get_llm_client_by_model_id` 构造 `ResilientLLMClient` ✅ |
 | 009 挂载 + UI | `turn_admission.run_pre_tool_use` 挂载 ✅；`dsh_chat.py:188` / `dsh_execution.py:53` 传 `tool="dsh_turn"` ✅；admin-web 路由 `/hooks/rules`（`routes.ts:155-158`）→ `views/hooks/HookRulesPage.vue` + `api/dsh_hooks.ts` ✅ |
-| 002 端点 + UI | `dsh_session_versioning.py` 6 端点（commit/versions/share/redeem/revoke/co-presence）✅；user-web `SessionVersioningDrawer.vue` + `api/sessionVersioning.ts` ✅ |
+| 002 端点 + UI | `app/api/endpoints/dsh_session_versioning.py` 6 端点（commit/versions/share/redeem/revoke/co-presence）✅；user-web `SessionVersioningDrawer.vue` + `api/sessionVersioning.ts` ✅ |
 | T999 业务调用点 | `feature_audit_bridge.py` 落地；`emit_feature_event` 实查到 012 `a2a/client.py`、014 `business_index/entities.py`、015 `knowledge_graph/{store,consistency}.py`、017 `memory/scope.py`、018 `capability_assets.py`、016 admin-api `skill_market/scoring.py` ✅ |
 | 多实例 sticky | `docker-compose.yml` L151-215 三 replica + nginx 一致哈希 LB；测试 `tests/dsh_runtime/test_multi_host_transport.py` + `test_gateway_step2.py` ✅ |
 | 两案例 | 实跑 **40 passed**（case1 15 + case2 25，离线无 LLM/网络） |

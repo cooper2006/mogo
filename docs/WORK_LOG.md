@@ -1,5 +1,41 @@
 # Work Log
 
+## 2026-09-28 SDD 遗留偏差订正（002 路径写法 + git core.fileMode）
+
+**任务**：处理 09-28 复核轮登记的两处遗留偏差（用户已确认）。
+
+**执行**：
+1. `docs/SDD增强功能核验报告.md` L145：002 端点路径 `dsh_session_versioning.py` → `app/api/endpoints/dsh_session_versioning.py`（精度订正，1 行）。
+2. `git config core.fileMode false`（仓库级配置，已实测生效）：此前 `core.fileMode=true` 导致大量权限位漂移污染 diff；设为 false 后 `git status` 仅剩 3 处真实改动（SDD 报告 / WORK_LOG / gate_adapter），权限位漂移项从工作区状态中消失。
+
+**验证**：`git diff --stat` 3 files changed, 27 insertions(+), 3 deletions(-)，全部为本系列改动本身，无权限位噪声。
+
+**改动文件**：`docs/SDD增强功能核验报告.md`、`.git/config`（core.fileMode）、`docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-28 SDD 规范符合性复核（goal round 1）
+
+**任务**：「检查项目是否符合 SDD 规范开发」。以 constitution（Specification-First）与 `.specify/` 流程为基准实测当前工作区，不复述 09-25/09-26 两轮核验报告结论。
+
+**结论**：✅ 符合 SDD 规范开发。骨架 / 工件 / 勾选 / 生产接线四层证据齐备。
+
+**机械核验证据（实测）**：
+- `.specify/` 骨架完整；6 个 `scripts/bash/*.sh` 全部 `bash -n` 通过；constitution v1.1.1 与 AGENTS.md 一致；`feature.json` 指向活跃特性 019。
+- 19/19 特性 `spec.md` + `plan.md` + `checklists/requirements.md` 齐全（44–157 行，非空壳）；003–006 无 tasks/quickstart，与 INDEX.md 声明的 existing-projects 回溯取舍一致。
+- checklist：001/002/007–019 共 15 份实测 232 项、未勾 0；003–006 保留原始未勾（历史取舍）。
+- tasks.md：15 份实测 270 项、未勾 0（001×32 / 002×22 / 007×25 / 008×27 / 009×19 / 010×22 / 011×19 / 012×12 / 013×12 / 014×13 / 015×12 / 016×13 / 017×13 / 018×14 / 019×15）。
+- 活跃特性 019 五件套齐全，无 TODO/TBD/待定。
+- 生产接线实测：007 `configured_models.py:376 ResilientLLMClient(entries)`；001 `dsh_runtime/turn_admission.py:119 run_gate_plan` + `:41 run_pre_tool_use`；002 `app/api/endpoints/dsh_session_versioning.py`（9 个 router 端点）；T999 `emit_feature_event` 覆盖 012/014/015/017/018（chat-api）+ 016（admin-api `skill_market/scoring.py`）。
+- `docs/pending-review/index.md` 5 条台账全部 resolved。
+
+**测试抽查**：007 韧性 3 文件 **45 passed**；`test_gate_plan_wiring.py` **5 passed**；`test_hooks_wiring.py` 12 项中 11 passed，1 项（`test_admit_skill_selection_runs_hook_gate_first`）因本机无 Mongo（`127.0.0.1:27017` refused）报 `ServerSelectionTimeoutError`——属 09-26 已登记的环境依赖，非代码缺陷。
+
+**上轮偏差复核与处置**：
+1. 002 端点路径精度（`dsh_session_versioning.py` 位于 `app/api/endpoints/`）：仍存在，不影响 SDD 合规性，建议下轮随文档例行维护订正。
+2. `gate_adapter.py` 注释陈旧（"001 gatekeeper is not yet wired" 但 001 已挂载）：**本轮已订正** L7–L8 → "the 001 gatekeeper backend is not yet enabled"（最小改动，仅注释；`test_gate_plan_wiring.py` 回归 5/5 全绿）。
+3. `core.fileMode=true` 导致权限位漂移污染 diff（09-26 登记）：仍存在（实测 `git config core.fileMode` → `true`）；属 git 仓库配置变更，需用户确认后执行，本轮未动。
+
+**改动文件**：`services/chat-api/app/harness_config/gate_adapter.py`（注释订正 1 处）、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-28 可执行脚本 movo → mogo 改名（脚本 + 运维引用 + 文档）
 
 **任务**：「movo 这个脚本文件也需要改名为 mogo」。

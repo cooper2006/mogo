@@ -4,8 +4,8 @@
 bridges the two:
 
 * the enabled layer set comes from the resolved profile (thick/thin);
-* the transition period mounts ``approval_runtime`` + ``audit`` directly when the
-  001 gatekeeper is not yet wired (clarify OQ-3);
+* the transition period mounts ``approval_runtime`` + ``audit`` directly while the
+  001 gatekeeper backend is not yet enabled (clarify OQ-3);
 * the audit floor is preserved in thin mode (never dropped).
 
 The adapter is pure logic (no imports of the gatekeeper implementation), so it can
