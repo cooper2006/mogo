@@ -167,6 +167,10 @@ command_up() {
   require_docker
   deployment_urls
   if movo_has_build_flag "$@"; then
+    # Same rule as `./mogo build`: default the tag to the git short hash so a
+    # bare `./mogo up --build` never falls back to `latest`. An explicit
+    # `MOGO_VERSION` in the environment still wins.
+    export MOGO_VERSION="${MOGO_VERSION:-$(git -C "${ROOT_DIR}" rev-parse --short HEAD)}"
     movo_configure_images true
   else
     movo_configure_images false
@@ -300,6 +304,10 @@ remove_stopped_build_containers() {
 command_build() {
   print_logo
   require_docker
+  # Default the image tag to the git short hash so a bare `./mogo build`
+  # never falls back to `latest` (which is untraceable and defeats rollback
+  # comparison). An explicit `MOGO_VERSION` in the environment still wins.
+  export MOGO_VERSION="${MOGO_VERSION:-$(git -C "${ROOT_DIR}" rev-parse --short HEAD)}"
   movo_configure_images true
   movo_msg building
   movo_print_dsh_build_target
