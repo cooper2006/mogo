@@ -1,5 +1,31 @@
 # Work Log
 
+## 2026-09-29 修复 user-web 新建对话只能执行 1 轮（条件渲染互斥链）
+
+- 现象：新建对话后第一轮正常执行，但第二轮无法输入——ChatComposer 输入框消失。
+- 根因：`apps/user-web/src/components/ChatWindow.vue` 第 2179-2201 行存在互斥条件渲染链：`CodeHistoryReadOnlyNotice` 用 `v-if`，其后的「会话版本 / 协作」按钮用 `v-else-if="props.sessionId"`，而 `<ChatComposer>` 用 `v-else`。新建会话首轮执行后后端返回 `X-Session-Id`，前端把 `sessionId` 赋给 pane，`v-else-if` 命中、`v-else` 被跳过 → 输入框不再渲染，第二轮无从发送。数据库 5 个会话 message_count 均为 2（1 user + 1 assistant）、网关日志仅 2 次 `/api/chat/completions`（均 200）证实第二轮请求从未发出，排除后端 busy/lock 问题。
+- 改动（`apps/user-web/src/components/ChatWindow.vue`）：「会话版本 / 协作」按钮由 `v-else-if="props.sessionId"` 改为 `v-if="props.sessionId"`；`<ChatComposer v-else>` 改为 `<ChatComposer v-if="!(props.codeHistoryReadOnly && props.codeHistoryLocation)">`。两个条件独立，输入框不再因 sessionId 非空而被跳过；普通对话场景两个 code 历史 props 均为 undefined，输入框恒渲染。
+- 验证：`apps/user-web` `pnpm typecheck`（vue-tsc --noEmit）通过；确认 `codeHistoryReadOnly`/`codeHistoryLocation` 在 props 中已声明（78-79 行）。镜像按规约重打裸名 `user-web:92a0c98`（当前 HEAD 短 hash）并上线验证。
+
+**改动文件**：`apps/user-web/src/components/ChatWindow.vue`、`docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-28 镜像 tag 归位：修复版 chat-api 重打为 :92a0c98（避免 compose 兜底到 latest）
+
+- 背景：重启服务后 `mogo-chat-api-1` 落到 `chat-api:latest`（ad2abd086c64，含 6ff477e 修复），但规约（本日志多处）要求镜像 tag 取**当前 git HEAD 短 hash** 的裸名（如 `chat-api:744881e`）。用户指出「之前已修改过、不应再出现 latest」。
+- 根因：仓库无 `.env`（只有 `.env.example`，其内 `MOGO_VERSION=latest` 为占位），`docker compose up` 时 `MOGO_VERSION`/`MOVO_*_IMAGE` 均未注入，compose 兜底链 `ghcr.io/himovo/chat-api:${MOGO_VERSION:-${MOVO_VERSION:-latest}}` 解析到 `latest`；且 6ff477e 之后从未用 git hash 重打 chat-api 裸名 tag（本地 `:744881e`/`:9518652`/`:e7dd196` 三个 hash tag 均在 6ff477e 之前，不含修复）。
+- 处置（方式 2 规约路径，用户选 B 裸名对齐）：
+  1. `MOGO_VERSION=92a0c98 DOCKER_BUILDKIT=0 docker compose -f docker-compose.yml -f docker-compose.build.yml build chat-api` → 产出 `ghcr.io/himovo/chat-api:92a0c98`（image ID `46968de3b924`，233.9s，走 playwright 离线 bundle）。
+  2. `docker tag ghcr.io/himovo/chat-api:92a0c98 chat-api:92a0c98` 重打裸名（与 `:744881e` 等历史命名风格对齐）。
+  3. `MOVO_CHAT_API_IMAGE="chat-api:92a0c98" docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-deps --pull never chat-api` 仅 recreate chat-api，其它服务未动。
+- 验证：
+  - `docker ps`：`mogo-chat-api-1` 镜像 `chat-api:92a0c98`、healthy。
+  - `docker exec` 容器内计数：`service.py` `_call_id` **9 处**、`default_openai.py` 与 `azure_openai.py` 各 **3 处** `pending_tool_call_ids`，与 6ff477e 修复一致。
+  - `docker logs --since 5m` grep `missing field|model_gateway_tool_message_without_call_id`：**无命中**（400 不再复现、无未知形态 tool 结果 warning）。
+- 长期锁版本建议：`MOVO_CHAT_API_IMAGE` 仅为进程内注入，后续裸跑 `docker compose up` 仍会兜底回 `latest`；建议写 `.env`（gitignore 内）`MOVO_CHAT_API_IMAGE=chat-api:92a0c98` 持久锁定。本轮未写 .env（未获确认）。
+- 历史记录矛盾说明：L44「镜像重打为 `chat-api:e7dd196`…修复已入镜像」与 git log 顺序（`e7dd196` 早于 `6ff477e`）冲突；结合此前服务落到 `:e7dd196` 时 400 复现的事实，判断当时记录的 tag 与镜像实际内容存在偏差，本条目以容器内实测计数为准。
+- 待确认清单（旧修复前镜像，不擅自 `docker rmi`）：`chat-api:744881e`、`chat-api:9518652`、`chat-api:e7dd196`、`chat-api:latest`（ad2abd086c64）、`ghcr.io/himovo/chat-api:latest`。`chat-api:latest` 与 `:92a0c98` 同源含修复，可保留作回退；三个旧 hash tag 均为 6ff477e 前代码，误用会复现 400，建议确认后清理。
+- 改动文件：无源码改动（仅本地镜像 build/tag + compose 启动参数）；`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-28 admin-web 侧边栏品牌名 MOGO → 墨攻
 
 - 需求：用户截图指出管理后台侧边栏 logo 区红框内的 `MOGO` 需改为「墨攻」（与 09-28 user-web sidebar 中文化一致）。

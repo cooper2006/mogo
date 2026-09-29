@@ -2182,7 +2182,7 @@ function formatErrorMessage(raw: string): string {
         :project="props.codeHistoryProject"
       />
       <div
-        v-else-if="props.sessionId"
+        v-if="props.sessionId"
         class="mx-auto w-full max-w-4xl px-4 md:px-6"
       >
         <button
@@ -2198,7 +2198,7 @@ function formatErrorMessage(raw: string): string {
         </button>
       </div>
       <ChatComposer
-        v-else
+        v-if="!(props.codeHistoryReadOnly && props.codeHistoryLocation)"
         ref="composerRef"
         :running="isLoading"
         :stopping="Boolean(props.stopping)"
