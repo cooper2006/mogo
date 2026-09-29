@@ -335,6 +335,13 @@ outputs/*
 # DSH agent 工具目录（本地工作区缓存，不入库）
 .workbuddy/
 
+# WorkBuddy AI 工作区数据目录（本地记忆/会话数据，不入库）
+.workbuddy-ai/
+
+# 待确认清单里的本地排查残留（仅本机产生，不入库）
+docs/pending-review/.mogo_tmp_ocr.swift
+docs/pending-review/DeepSeek-Harness-store-20260929/
+
 # DSH runtime host local state (per-session storage, not source)
 services/chat-api/dsh/runtime-host/storage/
 # DSH runtime host ephemeral host-profile (cordis.yml) written beside the install root

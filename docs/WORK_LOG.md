@@ -1,11 +1,21 @@
 # Work Log
 
+## 2026-09-29 .gitignore 忽略工作区数据目录与待确认残留
+
+- 触发：上一条记录里这三项一直是 untracked，每次 `git status` 都会出现；按用户要求显式忽略。
+- `.gitignore` 新增（紧邻既有的 `.workbuddy/` 条目）：
+  - `.workbuddy-ai/` — WorkBuddy AI 工作区数据目录（本地记忆/会话数据）。
+  - `docs/pending-review/.mogo_tmp_ocr.swift` — 本地临时脚本。
+  - `docs/pending-review/DeepSeek-Harness-store-20260929/` — 桌面应用排查残留（leveldb）。
+- 未删除任何文件；`docs/pending-review/` 下已入库的 `README.md`、`index.md` 不受影响。
+- 验证：`git check-ignore -v` 三项均命中新规则；`git status` 干净（仅剩本次 `.gitignore` 改动本身）。
+
 ## 2026-09-29 本轮提交并推送（2 commits → mogo/main）
 
 - `cee11ba` `feat(search): 外部搜索新增 Claw Search 源（免费开源、免 API Key）` — `services/admin-api`、`services/chat-api`、`apps/admin-web` 共 9 个文件。
 - `37c00e8` `build(base-images): 支持跨架构导出，load 按归档真实平台硬校验` — `scripts/export_base_images.sh`、`deploy/cli/base-images.sh`、`docs/docker-deployment.md`、`.gitignore`（含本日志两个条目）。
 - 已推送至 `mogo`（`https://github.com/cooper2006/mogo.git`）`main`，与远端一致（`ceb56fa..37c00e8`）。未推送 `origin`（himovo/movo，push 锁定为 no-push）。
-- 未纳入版本控制：`.workbuddy-ai/`（工作区数据目录）、`docs/pending-review/.mogo_tmp_ocr.swift` 与 `docs/pending-review/DeepSeek-Harness-store-20260929/`（上一轮桌面应用排查残留，留在待确认清单）。
+- 未纳入版本控制：`.workbuddy-ai/`（工作区数据目录）、`docs/pending-review/.mogo_tmp_ocr.swift` 与 `docs/pending-review/DeepSeek-Harness-store-20260929/`（上一轮桌面应用排查残留，留在待确认清单）。这三项已在随后的 `.gitignore` 提交中显式忽略。
 
 ## 2026-09-29 基础镜像导出支持跨架构（arm64 Mac → x86_64 生产）
 
