@@ -60,6 +60,19 @@ behaviour:
 | `pull` | Always refresh base images from the registry |
 | `local` | Never use the network; fail when a base image is missing |
 
+When `registry-1.docker.io` is unreachable, point the base-image pulls at a
+pull-through cache. The mirror proxies the Docker Hub namespace, so a
+single-component reference is resolved as `library/<name>`:
+
+```bash
+MOVO_BASE_IMAGE_MIRROR=docker.m.daocloud.io ./mogo build
+```
+
+References that already name a registry (`ghcr.io/...`) are passed through
+untouched. The mirror must serve the same digests as Docker Hub; a mirrored
+pull is tagged back to the canonical name, which is what the Dockerfiles and
+BuildKit resolve.
+
 The distro security refresh (`apt-get upgrade` / `apk upgrade`) is off by
 default so its layer stays cacheable: a rebuild that changed only application
 code then reuses the cached dependency installation instead of downloading
@@ -85,11 +98,36 @@ scripts/export_base_images.sh load ./base-images
 
 `save` writes one `.tar` per image plus a `manifest.txt` recording the exported
 platform. The image set is derived from the build Dockerfiles, so it always
-matches the current requirements. Export fails before writing anything when an
-image is missing locally, which prevents a silently incomplete set; run
-`./mogo build` first to fetch it. `load` warns when the archives were exported
-for a different architecture than the target, and `scripts/export_base_images.sh
-list` shows which required images are present locally.
+matches the current requirements; `load` reads the platform back out of each
+archive, and `scripts/export_base_images.sh list` shows which required images
+are present locally.
+
+#### Exporting for another architecture
+
+An Apple Silicon machine exports `linux/arm64` by default, which an x86_64
+server cannot use. Pass the target platform explicitly; the export fetches the
+missing architecture and verifies it before writing the archive:
+
+```bash
+scripts/export_base_images.sh save --platform linux/amd64 ./base-images-amd64
+```
+
+Combined with a mirror, when `docker.io` is also unreachable:
+
+```bash
+scripts/export_base_images.sh save --platform linux/amd64 \
+  --mirror docker.m.daocloud.io ./base-images-amd64
+```
+
+Archives are single-platform, and `docker save` needs `--platform` to produce
+one out of an image whose local store also holds other architectures, so Docker
+28 or newer is required on the exporting host.
+
+`load` refuses archives built for a different platform than the target host,
+because they would import successfully and only fail later at build time. Pass
+`--allow-platform-mismatch` to override when the host can run them under
+emulation. Note that importing replaces the tag locally: a multi-platform tag
+becomes a single-platform one.
 
 ## Operations
 

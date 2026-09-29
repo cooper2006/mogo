@@ -1,5 +1,46 @@
 # Work Log
 
+## 2026-09-29 基础镜像导出支持跨架构（arm64 Mac → x86_64 生产）
+
+- 问题：`base-images/` 下 5 个归档实测均为 `linux/arm64`（manifest.txt 也记录 `# platform: linux/arm64`），生产环境是 x86_64，导入后无法用于构建。
+- 根因（实测确认，非推测）：
+  - 本机 Docker 29.4.0 + OrbStack containerd 镜像存储，`python:3.10-slim-bookworm` 等本地标签实际是**多平台 OCI index**（`Descriptor.mediaType = oci.image.index.v1+json`，含 arm64/amd64/arm/v7 等）。不带 `--platform` 的 `docker save` 会因索引引用了未下载的其它平台 manifest 而报 `unable to create manifests file: NotFound: content digest ... not found`；此前归档之所以是 arm64，是因为当时本地只存在 arm64 内容。
+  - `docker save` 自 Docker 28 起支持 `--platform`，可只导出目标平台，这是本次修复的技术支点。
+- 改动：
+  - `scripts/export_base_images.sh`：
+    - 新增 `--platform <os>/<arch>`（save）：先尝试从本地按平台导出，失败才按平台拉取；用 `.part` 临时文件 + 平台校验通过后再 `mv`，避免中断留下被下次误认为完成的半成品。
+    - 新增 `--mirror <host>`（save）：Docker Hub 引用经镜像站解析，解决 `registry-1.docker.io` Bad Gateway 导致的无法获取 amd64 层。
+    - 新增 `archive_platform()` / `assert_archive_platform()`：直接从归档 tar 的 `manifest.json` → Config 读取真实架构（不信任 daemon 的宿主平台回报），导出后逐张校验。
+    - `cmd_load` 改为**按归档真实平台硬校验**，与宿主不一致直接拒绝（原来是只打印 Warning），可用 `--allow-platform-mismatch` 放行；并在结尾提示「导入会用单平台镜像替换本地标签」。
+    - 参数解析改为支持带值选项；新增 `supports_save_platform()` 能力探测。
+  - `deploy/cli/base-images.sh`：新增 `movo_mirror_ref()` 共享映射函数（导出脚本改为复用它，避免两份实现漂移）；`movo_prepare_base_images()` 支持 `MOVO_BASE_IMAGE_MIRROR`，镜像站拉取后 `docker tag` 回规范名（Dockerfile/BuildKit 解析的是规范名）。
+  - `docs/docker-deployment.md`：补充 `MOVO_BASE_IMAGE_MIRROR` 说明，并把「Moving base images」小节扩写为跨架构导出流程（含 Docker 28+ 前提与 load 拒绝行为）。
+  - `.gitignore`：新增 `/base-images-*/`，让 x86_64 归档目录与 `/base-images/` 一样不入库。
+- 验证：`bash -n` 两脚本通过；`movo_mirror_ref` 7 条映射用例（含 ghcr.io、localhost:5000 透传）全部通过；`--platform bogus`、`--mirror a/b` 均按预期报错退出 1；`load` 在 arm64 宿主导入 amd64 归档被拒绝、加 `--allow-platform-mismatch` 后成功导入；实测 `docker save --platform linux/amd64` 产出的归档内 `architecture: amd64`、`RepoTags` 保持规范名。
+- 注意：宿主是 macOS 自带 bash 3.2.57，改动刻意避开 bash 4+ 特性（未对空数组做 `"${arr[@]}"` 展开）。
+- 未改动 `services/`、`apps/` 任何源码。
+
+**改动文件**：`scripts/export_base_images.sh`、`deploy/cli/base-images.sh`、`docs/docker-deployment.md`、`.gitignore`、`docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-29 外部搜索新增 Claw Search 搜索源（免 API Key）
+
+- 需求：在管理后台「外部搜索」（配置 web_search 默认调用的外部搜索源）中新增 Claw Search 配置项。
+- Claw Search 特性（https://www.claw-search.com/）：免费开源、**无需 API Key**，接口为 `GET https://www.claw-search.com/api/search?q=关键词`，返回兼容 Brave 风格的 `{ query, web: { results: [{ title, url, description }] } }`。
+- 改动（后端 admin-api）：
+  - `app/services/external_search_provider.py`：`PROVIDERS` 新增 `claw_search`（label「Claw Search」、默认 endpoint、priority 60）；`normalized_config` 对 `claw_search` 免去 API Key 必填，仅要求 Endpoint；`test_provider` 新增 GET 分支，解析 `web.results`（字段对齐 `title/url/description`）。
+  - `app/api/routes/setup.py`：初始化请求的 provider 正则加入 `claw_search`。
+- 改动（后端 chat-api）：
+  - `app/services/search_provider_config.py`：`SUPPORTED_PROVIDERS` 加入 `claw_search`，使其可作为默认搜索源被解析。
+  - `app/enterprise_capabilities/research/progressive/provider_router.py`：新增 `ClawSearchProvider`（httpx GET，解析 `web.results`，映射为 `SearchCandidate`，snippet 取 `description`）；`available_providers` 新增 `claw_search` 分支（不要求 api_key，endpoint 缺省回退官方地址）。
+- 改动（前端 admin-web）：
+  - `src/components/search-provider/providerGuides.ts`：`SearchProviderId` 与 `searchProviderGuides` 加入 `claw_search`（官网 https://www.claw-search.com/，引导注明无需 API Key）。
+  - `src/views/settings/ExternalSearchSettingsPage.vue`：`claw_search` 时隐藏 API Key 输入框，改为展示 Endpoint（默认 placeholder 官方地址）。
+  - 初始化向导同步适配（因向导搜索源清单由后端 `PROVIDERS` 派生，会自动出现该卡片）：`src/components/setup/SetupSearchStep.vue` 对 `claw_search` 隐藏 API Key、展示 Endpoint；`src/views/auth/SetupPage.vue` 的 `validateSearchForm` 对 `claw_search` 只校验 Endpoint、不强制 API Key。
+- 测试：`services/admin-api/tests/test_setup_external_search.py` 目录断言加入 `claw_search`，并新增「claw_search 免 API Key 且默认 endpoint 正确」用例。
+- 验证：4 个后端改动文件 `python3 -m py_compile` 通过；以桩模块加载 `external_search_provider` 实测 `normalized_config("claw_search", api_key="")` 返回 endpoint 且不报错、`tavily` 仍要求 API Key；`apps/admin-web` `npm run typecheck`（vue-tsc --noEmit）通过。本地无 pytest（测试在容器内运行），未跑全量 pytest。
+
+**改动文件**：`services/admin-api/app/services/external_search_provider.py`、`services/admin-api/app/api/routes/setup.py`、`services/admin-api/tests/test_setup_external_search.py`、`services/chat-api/app/services/search_provider_config.py`、`services/chat-api/app/enterprise_capabilities/research/progressive/provider_router.py`、`apps/admin-web/src/components/search-provider/providerGuides.ts`、`apps/admin-web/src/views/settings/ExternalSearchSettingsPage.vue`、`apps/admin-web/src/components/setup/SetupSearchStep.vue`、`apps/admin-web/src/views/auth/SetupPage.vue`、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-29 admin-web 全站排查同类滚动问题 + 页面根高度归一化为 100%
 
 - 触发：上一轮修好个人中心后，用户要求排查其他页面是否存在同类滚动问题。

@@ -86,6 +86,37 @@ movo_base_image_is_local() {
   "${DOCKER_BIN}" image inspect "${lookup}" >/dev/null 2>&1
 }
 
+# Rewrite a Docker Hub reference onto a registry mirror.
+#
+# ``registry-1.docker.io`` is frequently unreachable from mainland China
+# networks, which turns a first build into a hard failure even though a
+# pull-through cache is available. Setting MOVO_BASE_IMAGE_MIRROR routes every
+# Docker Hub reference through that cache:
+#
+#   MOVO_BASE_IMAGE_MIRROR=docker.m.daocloud.io
+#
+# A reference that already names a registry (ghcr.io/..., localhost:5000/...)
+# is returned untouched. A bare Hub reference gains the mirror host, and a
+# single-component name also gains the implicit "library/" namespace, because
+# the mirror proxies the Hub namespace rather than the short form.
+movo_mirror_ref() {
+  local image="$1" mirror="${2:-}" first
+  [[ -n "${mirror}" ]] || { printf '%s' "${image}"; return 0; }
+
+  first="${image%%/*}"
+  if [[ "${image}" == */* ]] \
+    && { [[ "${first}" == *.* ]] || [[ "${first}" == *:* ]] || [[ "${first}" == "localhost" ]]; }; then
+    printf '%s' "${image}"
+    return 0
+  fi
+
+  if [[ "${image}" == */* ]]; then
+    printf '%s/%s' "${mirror}" "${image}"
+  else
+    printf '%s/library/%s' "${mirror}" "${image}"
+  fi
+}
+
 # Ensure every base image referenced by the build exists locally, pulling only
 # the ones that do not. Returns non-zero only when an image could not be made
 # available, so a genuine failure still stops the build.
@@ -96,7 +127,8 @@ movo_base_image_is_local() {
 #   local            - never touch the network; fail when something is missing
 movo_prepare_base_images() {
   local policy="${MOVO_BASE_IMAGE_POLICY:-reuse}"
-  local image reused=0
+  local mirror="${MOVO_BASE_IMAGE_MIRROR:-}"
+  local image source reused=0
   local -a missing=()
 
   while IFS= read -r image; do
@@ -127,8 +159,18 @@ movo_prepare_base_images() {
   [[ "${#missing[@]}" -eq 0 ]] && return 0
 
   for image in "${missing[@]}"; do
+    source="$(movo_mirror_ref "${image}" "${mirror}")"
     movo_msg base_image_pulling "${image}"
-    if ! "${DOCKER_BIN}" pull "${image}"; then
+    if ! "${DOCKER_BIN}" pull "${source}"; then
+      movo_msg base_image_pull_failed "${image}" >&2
+      return 1
+    fi
+
+    # A mirrored pull lands under the mirror's own name. The Dockerfiles and
+    # BuildKit resolve the canonical reference, so recreate it here; the two
+    # names share one image, because a pull-through cache serves the same
+    # digests.
+    if [[ "${source}" != "${image}" ]] && ! "${DOCKER_BIN}" tag "${source}" "${image}"; then
       movo_msg base_image_pull_failed "${image}" >&2
       return 1
     fi

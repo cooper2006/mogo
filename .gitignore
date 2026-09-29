@@ -100,6 +100,7 @@ ppt/
 .claude/
 /backups/
 /base-images/
+/base-images-*/
 /.buildcache/
 .github/
 !.github/
