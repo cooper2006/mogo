@@ -9,8 +9,15 @@ from app.services.setup_external_search import setup_provider_catalog
 def test_setup_catalog_exposes_supported_providers_without_secrets() -> None:
     providers = setup_provider_catalog()
 
-    assert [item["id"] for item in providers] == ["tavily", "serper", "serpapi", "baidu_qianfan", "volc_ark"]
+    assert [item["id"] for item in providers] == ["tavily", "serper", "serpapi", "baidu_qianfan", "volc_ark", "claw_search"]
     assert all("apiKey" not in item for item in providers)
+
+
+def test_claw_search_config_does_not_require_api_key() -> None:
+    config = normalized_config("claw_search", api_key="")
+
+    assert config["api_key"] == ""
+    assert config["endpoint"] == "https://www.claw-search.com/api/search"
 
 
 def test_search_config_applies_provider_defaults() -> None:

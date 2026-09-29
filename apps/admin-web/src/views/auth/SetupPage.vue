@@ -247,7 +247,11 @@ async function loadProviders() {
 
 function validateSearchForm() {
   if (!searchForm.enabled) return '';
-  if (!searchForm.provider || !searchForm.apiKey.trim()) return t('请选择搜索服务并填写 API Key');
+  if (!searchForm.provider) return t('请选择搜索服务并填写 API Key');
+  if (searchForm.provider === 'claw_search') {
+    return searchForm.endpoint.trim() ? '' : t('请填写 Endpoint');
+  }
+  if (!searchForm.apiKey.trim()) return t('请选择搜索服务并填写 API Key');
   if (searchForm.provider === 'baidu_qianfan' && !searchForm.endpoint.trim()) return t('请填写 Endpoint');
   if (searchForm.provider === 'volc_ark' && (!searchForm.baseUrl.trim() || !searchForm.model.trim())) {
     return t('请填写 Base URL 和 Bot Model');

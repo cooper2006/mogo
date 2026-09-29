@@ -56,6 +56,14 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "model": "",
         "priority": 50,
     },
+    "claw_search": {
+        "label": "Claw Search",
+        "description": "免费开源、无需 API Key 的搜索服务，兼容 Brave Search 返回格式。",
+        "endpoint": "https://www.claw-search.com/api/search",
+        "base_url": "",
+        "model": "",
+        "priority": 60,
+    },
 }
 
 
@@ -86,6 +94,10 @@ def normalized_config(
         "base_url": str(base_url or "").strip() or str(meta["base_url"]),
         "model": str(model or "").strip() or str(meta["model"]),
     }
+    if token == "claw_search":
+        if not config["endpoint"]:
+            raise ExternalSearchConfigError("请填写 Endpoint")
+        return config
     if not config["api_key"]:
         raise ExternalSearchConfigError("请填写 API Key")
     if token == "baidu_qianfan" and not config["endpoint"]:
@@ -214,6 +226,14 @@ async def test_provider(provider: str, config: dict[str, str], query: str) -> li
                 },
             )
             return _reference_rows(data.get("references"))
+
+        if token == "claw_search":
+            data = _get_json(
+                config["endpoint"],
+                {"q": search_query},
+            )
+            web = data.get("web") if isinstance(data.get("web"), dict) else {}
+            return _reference_rows(web.get("results"))
 
         data = _post_json(
             f"{config['base_url'].rstrip('/')}/chat/completions",

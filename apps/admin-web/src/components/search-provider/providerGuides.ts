@@ -1,4 +1,4 @@
-export type SearchProviderId = 'tavily' | 'serper' | 'serpapi' | 'baidu_qianfan' | 'volc_ark';
+export type SearchProviderId = 'tavily' | 'serper' | 'serpapi' | 'baidu_qianfan' | 'volc_ark' | 'claw_search';
 
 export interface SearchProviderGuide {
   url: string;
@@ -28,6 +28,11 @@ export const searchProviderGuides: Record<SearchProviderId, SearchProviderGuide>
     url: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apikey',
     steps: ['登录火山方舟并创建 API Key', '创建启用了联网能力的应用 Bot', '将 API Key 与 bot- 开头的应用 ID 填入 MOGO'],
     note: '仅有 API Key 不够，还需要填写已启用联网能力的 Bot Model。',
+  },
+  claw_search: {
+    url: 'https://www.claw-search.com/',
+    steps: ['Claw Search 免费开源，无需 API Key', '保持默认 Endpoint 即可', '选择 Claw Search 并测试连接'],
+    note: '无需填写 API Key，保存后即可将 Claw Search 设为默认搜索源。',
   },
 };
 

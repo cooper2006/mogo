@@ -218,7 +218,7 @@
 
             <n-form class="provider-form" label-placement="top">
               <n-grid :cols="2" :x-gap="16">
-                <n-grid-item :span="2">
+                <n-grid-item :span="2" v-if="selectedProvider !== 'claw_search'">
                   <n-form-item label="API Key">
                     <n-input
                       v-model:value="form.apiKey"
@@ -229,6 +229,19 @@
                       <template #prefix>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="input-prefix-icon">
                           <path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 1.5 1.5M15.5 7.5 14 6" />
+                        </svg>
+                      </template>
+                    </n-input>
+                  </n-form-item>
+                </n-grid-item>
+
+                <n-grid-item v-if="selectedProvider === 'claw_search'" :span="2">
+                  <n-form-item label="Endpoint">
+                    <n-input v-model:value="form.endpoint" placeholder="https://www.claw-search.com/api/search">
+                      <template #prefix>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="input-prefix-icon">
+                          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                         </svg>
                       </template>
                     </n-input>

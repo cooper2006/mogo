@@ -248,6 +248,43 @@ class VolcArkProvider:
         return rows
 
 
+class ClawSearchProvider:
+    name = "claw_search"
+
+    def __init__(self, *, endpoint: str = "") -> None:
+        self.endpoint = endpoint or "https://www.claw-search.com/api/search"
+
+    async def search(self, query: str, *, max_results: int) -> list[SearchCandidate]:
+        params = {"q": query}
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+                resp = await client.get(self.endpoint, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            logger.warning("progressive_research_claw_search_failed query=%r error=%s", query[:120], exc)
+            return []
+        web = data.get("web") if isinstance(data.get("web"), dict) else {}
+        rows: list[SearchCandidate] = []
+        for item in list(web.get("results") or [])[: max(1, min(20, int(max_results or 8)))]:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            if not url:
+                continue
+            rows.append(
+                SearchCandidate(
+                    provider=self.name,
+                    query=query,
+                    title=str(item.get("title") or "").strip(),
+                    url=url,
+                    snippet=str(item.get("description") or "").strip(),
+                    score=None,
+                )
+            )
+        return rows
+
+
 class ProviderRouter:
     def __init__(self, providers: list[SearchProvider] | None = None) -> None:
         self._providers = providers
@@ -295,6 +332,12 @@ class ProviderRouter:
                     api_key=str(configured.get("api_key") or "").strip(),
                     model=str(configured.get("model") or "").strip(),
                     base_url=str(configured.get("base_url") or "").strip(),
+                )
+            )
+        elif provider == "claw_search":
+            providers.append(
+                ClawSearchProvider(
+                    endpoint=str(configured.get("endpoint") or "").strip(),
                 )
             )
 

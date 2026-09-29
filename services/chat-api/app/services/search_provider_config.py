@@ -8,7 +8,7 @@ from app.llm.configured_models import decrypt_secret
 
 
 COLLECTION = "external_search_configs"
-SUPPORTED_PROVIDERS = {"tavily", "serper", "serpapi", "baidu_qianfan", "volc_ark"}
+SUPPORTED_PROVIDERS = {"tavily", "serper", "serpapi", "baidu_qianfan", "volc_ark", "claw_search"}
 
 
 def _safe_config(doc: dict[str, Any]) -> dict[str, Any]:

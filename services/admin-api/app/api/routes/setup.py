@@ -90,7 +90,7 @@ class SetupModelRequest(BaseModel):
 
 
 class SetupExternalSearchRequest(BaseModel):
-    provider: str = Field(pattern=r"^(tavily|serper|serpapi|baidu_qianfan|volc_ark)$")
+    provider: str = Field(pattern=r"^(tavily|serper|serpapi|baidu_qianfan|volc_ark|claw_search)$")
     apiKey: str = Field(min_length=1, max_length=1000)
     endpoint: str = Field(default="", max_length=500)
     baseUrl: str = Field(default="", max_length=500)
