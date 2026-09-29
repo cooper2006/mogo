@@ -470,7 +470,7 @@ onMounted(async () => {
 
 <style scoped>
 .traffic-page {
-  height: calc(100vh - 64px);
+  height: 100%;
   min-height: 0;
   gap: 16px;
   overflow: hidden;

@@ -1,5 +1,32 @@
 # Work Log
 
+## 2026-09-29 admin-web 全站排查同类滚动问题 + 页面根高度归一化为 100%
+
+- 触发：上一轮修好个人中心后，用户要求排查其他页面是否存在同类滚动问题。
+- 排查方法：对 admin-web 全部 17 个页面逐个核对「页面根高度 / 根 overflow / 是否存在内部可滚动区」三要素。先确定基准：`.shell-header` = padding 15+15 + `.profile-trigger`(4+28+4=36px) ≈ **67px**（含 1px 边框），故内容区实际可用高度为 `100vh - 67px`；而各页面硬编码偏移为 64/65/70/72/88/92/98px，本就不统一且都对不上。
+- 结论：**不存在第二个「内容被裁死」的页面**。所有页面内容均可通过内部滚动区或框架级滚动触达（Analytics 用 `:max-height` 动态高度、Knowledge/Traffic/Users/Accounts 用 `flex-height` 表格、Tools/Models 用 `.list-body{overflow:auto}`、ToolEdit 用 `.step-panel{overflow-y:auto}`、ExternalSearch 用 `.settings-nav/.settings-main{overflow:auto}`、Skills/SkillConfig/Preview 各有内部滚动区）。Login/Setup/InviteAccept 为独立全屏页不在 BasicLayout 内；user-web 未使用 `n-layout` 该模式，无同类问题。
+- 新发现的一处真实问题：`DashboardPage` 是唯一「页面根自身即滚动容器」的页面（`.dashboard-page{height:calc(100vh - 64px);overflow-y:auto}`），比内容区高 3px，与新的框架级滚动**叠成双层滚动条**；`100vh-64/65px` 的页面（Traffic/ExternalSearch/KnowledgePreview）多出 2~3px 外层滚动；`100vh-88/92/98px` 的页面则比可用区矮 21~31px，底部留空白带（原有现象）。
+- 处置（经用户确认，选「全量归一化为 100%」）：把页面根的视口魔数统一改为 `height: 100%`（`min-height` 类改为 `min-height: 100%`），共 16 处。内容区现在有确定高度，`100%` 精确等于「视口 − 顶栏」，同时消除双层滚动条与底部空白带。
+  - 改动文件与位置：`DashboardPage.vue`（`.dashboard-page` 及 ≤900px 媒体查询的 `min-height`）、`AnalyticsPage.vue`（`.token-stats-page`）、`TrafficAllocationsPage.vue`（`.traffic-page`）、`KnowledgeDocumentsPage.vue`（`.knowledge-page`）、`KnowledgeDocumentPreviewPage.vue`（`.preview-page`）、`ToolsPage.vue`（`.tools-page`）、`ModelsPage.vue`（`.model-page`）、`ToolEditPage.vue`（`.tool-edit-page`）、`SkillsPage.vue`（`.skills-page`）、`SkillConfigPage.vue`（`.skill-config-page`）、`OrganizationUsersPage.vue`（`.user-page`）、`OrganizationAccountsPage.vue`（`.account-page`）、`ExternalSearchSettingsPage.vue`（`.settings-page`）、`SystemAuditPage.vue`（`.audit-page` 的 `min-height`）、`PositionRolesPage.vue`（`.position-role-page` 的 `min-height`）。
+- 刻意保留未改的 3 处 `calc(100vh...)`（均为抽屉/内层元素，改为 100% 反而会破坏其定位基准）：`AnalyticsPage.vue:138` 抽屉内表格 `:max-height`、`TrafficAllocationsPage.vue:577` `.table-shell` 的 `max(360px, calc(100vh - 250px))`（含 360px 最小可用高度下限，改 flex 会丢失下限）、`SkillConfigPage.vue:2809` 内层面板 `max-height`。
+- 验证：`apps/admin-web` `pnpm typecheck`（vue-tsc --noEmit）通过；`MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 重建重启，全部服务 healthy。
+
+**改动文件**：上述 15 个视图文件 + `docs/WORK_LOG.md`（本条目）。
+
+## 2026-09-29 admin-web 内容区溢出被裁切：改为框架固定 + 内容区纵向滚动
+
+- 现象：个人中心（`/profile`）等页面内容超出视口，页面底部（登录账号 / 所属组织卡片、确认新密码、按钮行）被裁切，且整页无纵向滚动条，内容"放不下"。
+- 根因：`apps/admin-web/src/layouts/BasicLayout.vue` 旧样式对**所有** `n-layout--static-positioned` 及其 `.n-layout-scroll-container` 一律 `overflow: hidden !important`。而 naive-ui 的 `n-layout-content` 自身同时带有 `n-layout--static-positioned` 类（见 `node_modules/naive-ui/es/layout/src/Layout.mjs` 第 126 行拼装 `layoutClass`），因此内容区的滚动容器也被 `!important` 强制裁切，内容超出后既撑不开也不滚动。
+- 改动（`apps/admin-web/src/layouts/BasicLayout.vue`）：
+  - 把通配的 `overflow: hidden` 收窄为排除内容区：`:not(.n-layout-content)`，只对内容区之外的静态布局生效。
+  - 内层布局滚动容器改为 `display: flex; flex-direction: column`，使 `shell-header` 固定、`n-layout-content` 占满剩余高度（配合 `min-height: 0` 允许收缩）。
+  - 新增 `.n-layout-content > .n-layout-scroll-container { overflow-x: hidden; overflow-y: auto }`，把纵向滚动交给内容区自身的滚动容器（naive-ui 默认该容器 `height: 100%`）。
+  - `.shell-header` 增加 `flex: 0 0 auto`，保证顶栏在 flex 列中不被压缩。
+- 同步回退：上一轮试改的两处页内局部滚动已还原，避免与框架级滚动形成嵌套。`apps/admin-web/src/styles.css` 的 `.app-shell { height: 100vh; overflow: hidden }` 与 `.n-layout-content { overflow-y: auto }` 还原为原始 `.app-shell { min-height: 100vh }`（外层布局本就是 `position="absolute"` 铺满视口，无需显式高度；且在 `!important` 冲突下无效）；`apps/admin-web/src/views/profile/ProfilePage.vue` 的 `.profile-page { overflow-y: auto; max-height: 100% }` 已移除，只保留原有 `min-height: 100%; padding: 24px`。
+- 验证：`apps/admin-web` `pnpm typecheck`（vue-tsc --noEmit）通过；`MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 重建并重启，全部服务 healthy；容器内 `assets/BasicLayout-dd4ecb45.css` 已含新规则 `[data-v-91cb2b64] .n-layout.n-layout--static-positioned:not(.n-layout-content)>.n-layout-scroll-container{display:flex;flex-direction:column;overflow:hidden!important}` 与 `[data-v-91cb2b64] .n-layout-content>.n-layout-scroll-container{overflow-x:hidden;overflow-y:auto}`。
+
+**改动文件**：`apps/admin-web/src/layouts/BasicLayout.vue`、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-29 user-web 侧边栏「我的 知识」→「我的知识」（去除空格）
 
 - 触发：用户上传截图（导航菜单），OCR 识别出「我的配置 / 我的技能 / 我的工具 / 我的 知识」，指出「我的 知识」中间有多余空格。

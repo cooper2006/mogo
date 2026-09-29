@@ -522,7 +522,7 @@ onMounted(loadRows);
 
 <style scoped>
 .skills-page {
-  height: calc(100vh - 92px);
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;

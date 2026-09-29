@@ -960,7 +960,7 @@ watch(
 .token-stats-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 72px);
+  height: 100%;
   min-height: 0;
   min-width: 0;
   gap: 6px;

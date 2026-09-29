@@ -119,7 +119,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.position-role-page { min-height: calc(100vh - 98px); }
+.position-role-page { min-height: 100%; }
 .position-role-card { min-width: 0; border-radius: 8px; }
 .position-role-content { display: grid; gap: 16px; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }

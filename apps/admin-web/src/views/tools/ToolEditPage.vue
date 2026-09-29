@@ -1541,7 +1541,7 @@ watch(
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: calc(100vh - 88px);
+  height: 100%;
   padding: 12px 12px;
   box-sizing: border-box;
   overflow: hidden;

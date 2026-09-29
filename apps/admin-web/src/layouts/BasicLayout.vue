@@ -396,6 +396,7 @@ html.dark .brand-name {
 .shell-header {
   position: relative;
   z-index: 10;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -608,9 +609,24 @@ html.dark .profile-text {
   background: rgba(255,255,255,0.64);
 }
 
-:deep(.n-layout.n-layout--static-positioned),
-:deep(.n-layout.n-layout--static-positioned > .n-layout-scroll-container) {
+/* 框架固定：顶栏 / 侧边栏保持不动，仅内容区纵向滚动 */
+:deep(.n-layout.n-layout--static-positioned:not(.n-layout-content)) {
+  overflow: hidden;
+}
+
+:deep(.n-layout.n-layout--static-positioned:not(.n-layout-content) > .n-layout-scroll-container) {
+  display: flex;
+  flex-direction: column;
   overflow: hidden !important;
+}
+
+:deep(.n-layout-content) {
+  min-height: 0;
+}
+
+:deep(.n-layout-content > .n-layout-scroll-container) {
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ==================== 暗色模式框架自适应适配 ==================== */

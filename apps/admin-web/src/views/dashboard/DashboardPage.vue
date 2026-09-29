@@ -740,7 +740,7 @@ onMounted(loadOverview);
 
 <style scoped>
 .dashboard-page {
-  height: calc(100vh - 64px);
+  height: 100%;
   overflow-y: auto;
   padding: 18px;
   background: #f4f7fb;
@@ -1381,7 +1381,7 @@ onMounted(loadOverview);
 @media (max-width: 900px) {
   .dashboard-page {
     height: auto;
-    min-height: calc(100vh - 64px);
+    min-height: 100%;
     padding: 12px;
   }
 

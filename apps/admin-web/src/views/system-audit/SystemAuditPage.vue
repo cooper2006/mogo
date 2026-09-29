@@ -113,7 +113,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.audit-page { min-height: calc(100vh - 98px); }
+.audit-page { min-height: 100%; }
 .audit-card { min-width: 0; border-radius: 8px; }
 .audit-content { display: grid; gap: 18px; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }

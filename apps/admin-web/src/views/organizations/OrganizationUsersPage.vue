@@ -1513,7 +1513,7 @@ onMounted(async () => {
 
 <style scoped>
 .user-page {
-  height: calc(100vh - 98px);
+  height: 100%;
   min-height: 520px;
   min-width: 0;
   max-width: 100%;

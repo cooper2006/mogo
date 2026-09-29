@@ -2589,7 +2589,7 @@ onUnmounted(() => {
 
 <style scoped>
 .skill-config-page {
-  height: calc(100vh - 70px);
+  height: 100%;
   padding: 0;
   color: #172033;
   overflow: hidden;

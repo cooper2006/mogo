@@ -1176,7 +1176,7 @@ onMounted(() => {
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 20px;
   padding: 12px;
-  height: calc(100vh - 64px);
+  height: 100%;
   box-sizing: border-box;
   background: #f5f7fb;
   overflow: hidden;

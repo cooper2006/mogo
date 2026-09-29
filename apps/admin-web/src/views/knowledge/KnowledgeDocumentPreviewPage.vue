@@ -851,7 +851,7 @@ watch(documentId, (next, previous) => {
 
 <style scoped>
 .preview-page {
-  height: calc(100vh - 65px);
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;

@@ -1700,7 +1700,7 @@ watch(documents, syncProcessingPoll, { deep: true });
 
 <style scoped>
 .knowledge-page {
-  height: calc(100vh - 92px);
+  height: 100%;
   min-height: 0;
   min-width: 0;
   max-width: 100%;

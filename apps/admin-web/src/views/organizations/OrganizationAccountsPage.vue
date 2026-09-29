@@ -588,7 +588,7 @@ onMounted(async () => {
 
 <style scoped>
 .account-page {
-  height: calc(100vh - 98px);
+  height: 100%;
   min-height: 520px;
 }
 
