@@ -1,5 +1,19 @@
 # Work Log
 
+## 2026-09-29 user-web 侧边栏「我的 知识」→「我的知识」（去除空格）
+
+- 触发：用户上传截图（导航菜单），OCR 识别出「我的配置 / 我的技能 / 我的工具 / 我的 知识」，指出「我的 知识」中间有多余空格。
+- 根因：`apps/user-web/src/locales/knowledgeMessages.ts` 第 2 行 `'knowledge.sidebar'` 的 zh 文案为 `'我的 知识'`（带空格），与第 3 行 `'knowledge.mine'` 的 `'我的知识'` 不一致。
+- 改动：`knowledge.sidebar` 的 zh 由 `'我的 知识'` 改为 `'我的知识'`，en 保持 `'My Knowledge'` 不变。
+- 验证：全仓 grep `我的.?知识` 仅剩两处无空格文案（`knowledge.sidebar`、`knowledge.mine`）；`apps/user-web` `pnpm typecheck` 通过。
+
+## 2026-09-29 修复 mogo 脚本 docker_reclaimable_bytes 八进制数值解析错误
+
+- 现象：执行 `./mogo` 报 `line 233: 087: value too great for base (error token is "087")`。
+- 根因：`mogo` 脚本 `docker_reclaimable_bytes()` 函数（218-237 行）解析 `docker system df` 的 Reclaimable 值（如 `5.087GB`）时，把整数部分 `whole` 和小数部分 `frac` 直接放入 `$(( ... ))` 算术。`frac="087"` 因前导 `0` 被 bash 解释为八进制，而 `8` 不是合法八进制数字（仅 0-7），故报错。同类风险存在于 kB/MB/GB 三个分支，以及 `whole` 以 `0` 开头且含 `8`/`9` 的情况（如 `0.9GB` 的 `whole=0` 安全，但 `1.087GB` 的 `frac=087` 会崩）。
+- 改动：在所有算术表达式中对 `whole` 和 `frac` 加 `10#` 前缀强制十进制解析（`$(( 10#${whole} * ... + 10#${frac} * ... / 1000 ))`），TB 分支的 `whole` 同样加 `10#`。
+- 验证：`bash -n mogo` 语法检查通过；用 `whole=1; frac=087` 模拟验证 `$(( 10#1 * 1073741824 + 10#087 * 1073741824 / 1000 ))` 输出 `1167157362`（修复前同表达式会直接报错）。
+
 ## 2026-09-29 修复 user-web 新建对话只能执行 1 轮（条件渲染互斥链）
 
 - 现象：新建对话后第一轮正常执行，但第二轮无法输入——ChatComposer 输入框消失。

@@ -228,10 +228,10 @@ docker_reclaimable_bytes() {
   unit="$(printf '%s' "${raw}" | grep -oE '[A-Za-z]+' | head -1)"
   whole="${whole:-0}"
   case "${unit}" in
-    kB) echo $(( whole * 1024 + frac * 1024 / 1000 )) ;;
-    MB) echo $(( whole * 1048576 + frac * 1048576 / 1000 )) ;;
-    GB) echo $(( whole * 1073741824 + frac * 1073741824 / 1000 )) ;;
-    TB) echo $(( whole * 1099511627776 )) ;;
+    kB) echo $(( 10#${whole} * 1024 + 10#${frac} * 1024 / 1000 )) ;;
+    MB) echo $(( 10#${whole} * 1048576 + 10#${frac} * 1048576 / 1000 )) ;;
+    GB) echo $(( 10#${whole} * 1073741824 + 10#${frac} * 1073741824 / 1000 )) ;;
+    TB) echo $(( 10#${whole} * 1099511627776 )) ;;
     *)  echo 0 ;;
   esac
 }
