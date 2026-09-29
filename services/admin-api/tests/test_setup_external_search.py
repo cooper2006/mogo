@@ -43,3 +43,20 @@ def test_serp_provider_config_applies_official_endpoint(provider: str, endpoint:
 def test_ark_requires_bot_model() -> None:
     with pytest.raises(ExternalSearchConfigError, match="Bot Model"):
         normalized_config("volc_ark", api_key="secret")
+
+
+def test_api_key_with_non_ascii_is_rejected_with_readable_message() -> None:
+    """误把中文内容粘进 API Key 时，要给出可读提示而不是 latin-1 codec 报错。"""
+    with pytest.raises(ExternalSearchConfigError, match="API Key"):
+        normalized_config("baidu_qianfan", api_key="使用MOGO_VERSION")
+
+
+def test_endpoint_with_non_ascii_is_rejected() -> None:
+    with pytest.raises(ExternalSearchConfigError, match="Endpoint"):
+        normalized_config("serper", api_key="secret", endpoint="https://example.com/搜索")
+
+
+def test_ascii_config_passes_encoding_check() -> None:
+    config = normalized_config("baidu_qianfan", api_key="bce-v3/ALTAK-abc/123")
+
+    assert config["api_key"] == "bce-v3/ALTAK-abc/123"

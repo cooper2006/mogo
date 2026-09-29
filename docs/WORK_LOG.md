@@ -1,5 +1,21 @@
 # Work Log
 
+## 2026-09-29 外部搜索：拦截 HTTP 请求无法承载的字符（修「latin-1 codec」裸报错）
+
+- 问题：管理后台测试「百度千帆」报 `'latin-1' codec can't encode characters in position 7-8: ordinal not in range(256)`。
+- 根因（实测确认，非推测）：**不是代码 bug，是 API Key 字段被误粘贴了中文内容**。库中该条记录 `config.api_key_masked = '使用MO****7个镜像'`，即把上一轮的提示词文本填进了密钥框。
+  - 机制：`external_search_provider._post_json()` 把 `Authorization: Bearer {api_key}` 交给 `urllib`，`http.client.putheader()` 用 **latin-1** 编码头值；`"Bearer "` 恰好 7 字符，故报错位置 7-8 就是 key 的前两个字符（`使`、`用`）。
+  - 前端「测试」经 `routes/external_search.py` 的 `except Exception as exc: error = str(exc)[:1000]` 原样透出，用户只看到裸 codec 报错。
+- 改动：
+  - `app/services/external_search_provider.py`：新增 `_reject_unencodable(value, codec, label, *, hint)`，在 `normalized_config()` 发请求前校验——`api_key` 按 latin-1（请求头）、`endpoint`/`base_url` 按 ascii（请求行）分别校验，命中即抛 `ExternalSearchConfigError`，提示形如 `API Key 含非法字符「使用」：HTTP 请求头无法携带该字符，请检查是否误粘贴了中文内容`。`model` 走 JSON body，不做校验（实测中文 model 正常放行）。
+  - 该校验同时覆盖「初始化向导」路径（`setup_external_search.py` 的 `test_setup_search` / `save_setup_search` 都走 `normalized_config`）。
+  - `tests/test_setup_external_search.py`：新增 3 个用例——非 ASCII API Key 被拦且提示含 `API Key`、非 ASCII Endpoint 被拦、纯 ASCII 配置放行。
+- 验证：两文件 `py_compile` 通过；以桩模块加载 `external_search_provider` 跑 8 组场景（正常 ASCII key / 误粘提示词 / key 前两字符中文 / endpoint 路径与主机含中文 / baseUrl 含中文 / model 含中文 / claw_search 免 key），拦截与放行均符合预期；再用最小 pytest 垫片跑 `test_setup_external_search.py` 全部用例，9/9 通过（本机与容器内均无 pytest，容器镜像也未打包 `tests/`）。
+- 附带修正数据：清空库中 `baidu_qianfan` 那条被误填的 `api_key_encrypted` / `api_key_masked`，并把 `health_status`/`last_error` 复位，避免坏密钥继续作为默认搜索源。
+- 未改动 `chat-api`：其 `BaiduQianfanProvider` 同样会因非 ASCII key 失败，但已被 `except Exception` 吞掉并返回 0 命中（静默降级），不在本次范围。
+
+**改动文件**：`services/admin-api/app/services/external_search_provider.py`、`services/admin-api/tests/test_setup_external_search.py`、`docs/WORK_LOG.md`（本条目）。
+
 ## 2026-09-29 .gitignore 忽略工作区数据目录与待确认残留
 
 - 触发：上一条记录里这三项一直是 untracked，每次 `git status` 都会出现；按用户要求显式忽略。
