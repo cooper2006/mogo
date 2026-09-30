@@ -101,6 +101,7 @@ ppt/
 /backups/
 /base-images/
 /base-images-*/
+/prod-images-*/
 /.buildcache/
 .github/
 !.github/
