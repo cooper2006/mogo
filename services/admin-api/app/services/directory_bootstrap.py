@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.core.tenant_identity import PLATFORM_MAIN_ID
 from app.repositories.directory_repository import ensure_indexes
 from app.core.db import get_db
 from app.position_roles.repository import PositionRoleRepository
@@ -12,7 +13,12 @@ async def bootstrap_directory() -> None:
     await repository.ensure_indexes()
     db = get_db()
     await repair_employee_tenant_identities(db)
-    tenant_ids = await db.admin_accounts.distinct("main_id", {"main_id": {"$nin": [None, "", "default"]}})
+    tenant_ids = [
+        row["main_id"]
+        async for row in db["tenants"].find(
+            {"status": "active", "main_id": {"$nin": [None, "", PLATFORM_MAIN_ID]}}
+        )
+    ]
     for main_id in tenant_ids:
         role = await repository.ensure_full_access_role(str(main_id))
         setup = await db.system_bootstrap.find_one({"main_id": str(main_id)})

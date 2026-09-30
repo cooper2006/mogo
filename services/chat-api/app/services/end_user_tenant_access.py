@@ -72,6 +72,10 @@ async def load_tenant_candidates(db: Any, users: Iterable[dict[str, Any]]) -> li
                 "org_name": str(account.get("org_name") or "").strip(),
             }
     admin_by_identity = {(str(row.get("main_id") or ""), str(row.get("username") or "")): row for row in admin_accounts}
+    # FR-024: a tenant that is no longer active must not be selectable. The
+    # ``tenants`` registry is owned by admin-api but lives in the same database,
+    # so read it directly rather than trusting the derived organization status.
+    active_main_ids = await _selectable_tenant_main_ids(db, main_ids)
     return [
         project_tenant_candidate(
             row,
@@ -79,4 +83,28 @@ async def load_tenant_candidates(db: Any, users: Iterable[dict[str, Any]]) -> li
             admin_by_identity.get((str(row.get("main_id") or ""), str(row.get("login_name") or ""))),
         )
         for row in user_rows
+        if str(row.get("main_id") or "").strip() in active_main_ids
     ]
+
+
+async def is_tenant_selectable(db: Any, main_id: str) -> bool:
+    """Whether ``main_id`` may be entered right now (FR-024)."""
+    return str(main_id or "").strip() in await _selectable_tenant_main_ids(db, [str(main_id or "").strip()])
+
+
+async def _selectable_tenant_main_ids(db: Any, main_ids: list[str]) -> set[str]:
+    """Subset of ``main_ids`` whose registry row is ``active`` (FR-024).
+
+    Only ``active`` passes for a tenant that has a registry row. Tenants with
+    *no* registry row are grandfathered in: a deployment that has not run the
+    020 migration yet has an empty ``tenants`` collection, and failing closed
+    there would lock every employee out.
+    """
+    if not main_ids:
+        return set()
+    rows = await db["tenants"].find(
+        {"main_id": {"$in": main_ids}}, {"main_id": 1, "status": 1}
+    ).to_list(length=max(1, len(main_ids)))
+    active = {str(row.get("main_id") or "").strip() for row in rows if str(row.get("status") or "") == "active"}
+    known = {str(row.get("main_id") or "").strip() for row in rows}
+    return active | {main_id for main_id in main_ids if main_id not in known}

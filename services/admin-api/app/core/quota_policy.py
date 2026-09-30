@@ -79,9 +79,12 @@ async def ensure_org_quota_policy(main_id: str, *, org_total_points: int = 0) ->
         return policy
     now = utc_now()
     total = max(int(org_total_points or 0), 0)
+    # T033/T034: default to unlimited (decision 12: 配额默认不限额).
+    # ``unlimited=True`` means the quota checks short-circuit to "available".
     policy = {
         "main_id": main_id,
         "total_tokens": total,
+        "unlimited": True,
         "period": "monthly",
         "timezone": DEFAULT_TIMEZONE,
         "status": "active",
@@ -171,6 +174,9 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
     if space_type != "enterprise":
         total = int(org.get("total_points") or 0)
         used = int(org.get("used_points") or 0)
+        # T033/T034: personal/community spaces default to unlimited
+        # (organizations.points_unlimited, decision 12).
+        points_unlimited = bool(org.get("points_unlimited", True))
         return {
             "mainId": main_id,
             "orgName": org.get("org_name") or user.get("org_name") or "个人空间",
@@ -179,7 +185,8 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
             "period": "lifetime",
             "totalPoints": total,
             "usedPoints": used,
-            "remainingPoints": max(0, total - used),
+            "unlimited": points_unlimited,
+            "remainingPoints": -1 if points_unlimited else max(0, total - used),
             "resetAt": "",
             "status": "active",
         }
@@ -189,6 +196,32 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
     tz_name = normalize_timezone(org_policy.get("timezone"))
     org_start, org_end = period_window(str(org_policy.get("period") or "monthly"), tz_name)
     user_start, user_end = period_window(str(user_policy.get("period") or org_policy.get("period") or "monthly"), tz_name)
+
+    # T033/T034: unlimited short-circuit (decision 12).
+    # org_quota_policies.unlimited defaults to True for new tenants; legacy
+    # rows without the field are treated as limited (backward-compatible).
+    org_unlimited = bool(org_policy.get("unlimited", False))
+    if org_unlimited:
+        # Usage is still recorded for reporting; the limit itself is lifted.
+        org_used = await sum_usage(main_id, start_at=org_start, end_at=org_end)
+        user_used = await sum_usage(main_id, user_id=user_id, start_at=user_start, end_at=user_end)
+        return {
+            "mainId": main_id,
+            "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
+            "spaceType": "enterprise",
+            "quotaSource": "enterprise_allocation",
+            "period": normalize_period(user_policy.get("period") or org_policy.get("period")),
+            "totalPoints": -1,
+            "usedPoints": user_used,
+            "unlimited": True,
+            "remainingPoints": -1,
+            "resetAt": user_end.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
+            "status": "active" if org_policy.get("status") == "active" else "disabled",
+            "orgTotalPoints": -1,
+            "orgUsedPoints": org_used,
+            "orgRemainingPoints": -1,
+        }
+
     org_used = await sum_usage(main_id, start_at=org_start, end_at=org_end)
     user_used = await sum_usage(main_id, user_id=user_id, start_at=user_start, end_at=user_end)
     org_total = int(org_policy.get("total_tokens") or 0)
@@ -204,6 +237,7 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
         "period": normalize_period(user_policy.get("period") or org_policy.get("period")),
         "totalPoints": user_total,
         "usedPoints": user_used,
+        "unlimited": False,
         "remainingPoints": remaining,
         "resetAt": user_end.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
         "status": "active" if org_policy.get("status") == "active" else "disabled",
@@ -217,7 +251,8 @@ async def assert_quota_available(main_id: str, user: dict[str, Any]) -> dict[str
     summary = await get_quota_summary(main_id, user)
     if summary.get("status") != "active":
         raise QuotaExceededError("当前空间额度策略未启用，请联系管理员。")
-    if int(summary.get("remainingPoints") or 0) <= 0:
+    # T035: unlimited short-circuit — remainingPoints == -1 means no limit.
+    if int(summary.get("remainingPoints") or 0) <= 0 and not summary.get("unlimited"):
         if summary.get("spaceType") == "enterprise":
             raise QuotaExceededError("当前企业分派额度已用尽，请联系企业管理员调整额度。")
         raise QuotaExceededError("个人赠送额度已用尽，请升级或切换到有可用额度的空间。")

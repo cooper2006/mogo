@@ -17,12 +17,25 @@ class SetupQuotaValidationTests(IsolatedAsyncioTestCase):
                 operator="admin",
             )
 
-    async def test_rejects_non_positive_quota_before_database_access(self) -> None:
-        with self.assertRaisesRegex(ValueError, "必须大于 0"):
+    async def test_rejects_negative_quota_value(self) -> None:
+        # T036/decision 12: 0 now means "unlimited", so only negatives are invalid.
+        with self.assertRaisesRegex(ValueError, "不能为负数"):
+            await configure_setup_quotas(
+                main_id="test-main-id",
+                total_tokens=-1,
+                default_user_tokens=0,
+                period="monthly",
+                timezone_name="Asia/Shanghai",
+                operator="admin",
+            )
+
+    async def test_zero_total_tokens_is_unlimited(self) -> None:
+        # 0 must NOT be rejected before touching the database; it means unlimited.
+        with self.assertRaises(RuntimeError):
             await configure_setup_quotas(
                 main_id="test-main-id",
                 total_tokens=0,
-                default_user_tokens=1,
+                default_user_tokens=0,
                 period="monthly",
                 timezone_name="Asia/Shanghai",
                 operator="admin",

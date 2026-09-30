@@ -1,5 +1,248 @@
 # Work Log
 
+## 2026-09-30 按 SDD 审计报告修复 020 多租户 P0/P1 缺陷（租户清理面、FR-033/FR-028/FR-024、头像与向量、PATCH 成员上限）
+
+- 触发：`docs/020-platform-multi-tenancy-SDD审计报告.md` 列出 6 项 HIGH，用户授权「开始修复吧」，按报告 §9 的 P0 → P1 顺序执行。全部改动均为最小改动，未做顺手重构。
+- **P0-1 清理面严重不全（FR-031 / SC-005）** —— `services/admin-api/app/services/tenant_purge.py`：
+  - `TENANT_SCOPED_COLLECTIONS` 31 → **57** 项。补入 chat-api 未覆盖的 22 个集合（`chat_messages`、`chat_sessions`、`desktop_projects`、`end_user_sessions`、`execution_logs`、`knowledge_resources`、`personal_knowledge_directories`、`project_memories`、`resource_comment_reactions`、`resource_comments`、`resource_feedback_notifications`、`resource_grants`、`resource_reactions`、`site_profiles`、`skill_distribution_members`、`skill_distribution_releases`、`skill_distributions`、`skill_releases`、`skill_share_deliveries`、`skill_shares`、`skill_update_notifications`、`user_skills`），以及 admin-api 漏项 `admin_presentation_settings`、`organization_shortcut_schemes`、`org_units`、`page_collection_settings`、`user_quota_overrides`。
+  - 移除 dead name `"departments"`：真实集合名是 `org_units`（`services/admin-api/app/repositories/directory_repository.py:9` `DEPARTMENT_COLLECTION = "org_units"`），清理名单此前放的是废名，而 `setup_cleanup.py:12` 的注释早已注明该重命名。
+  - `TENANT_GOVERNANCE_COLLECTIONS` 9 → **10**，补 `hook_rules`（按 `tenant_id` 分区，admin-api 的 `hooks_store.py` 与 chat-api 的 `dsh_runtime/hooks/store.py` 双写）。`system_audit_logs` 判定为不清理（记的是平台管理员对租户的操作，非租户数据）。
+- **P0-2 FR-033 被反转（失败仍写墓碑）** —— 原 `run_purge` 结尾对租户行**无条件**置 `status="purged"`，不看 `ok`：任务记录会正确变 `failed`，但失败状态从未写回租户行，随后 30 天墓碑回收会销毁失败证据。现改为 `if not ok:` 先 `_record_purge_failure(main_id, error_text)` 再 `return`；新增 helper 将租户保持 `archived`、把原因写入 `archive_reason`（截断 500 字符）并 `$unset purged_at`。同时**删除 `_phase_mongo` 内的墓碑写入**，墓碑只由 `run_purge` 在三阶段全部成功后写，避免阶段中途失败却已标 purged。模块 docstring 原自述「best-effort ... but the tenant stays ``purged``」，与新语义相反，已重写。
+- **P0-3 FR-028 清理执行时不复检状态** —— `run_purge` 启动时（`_task_store.create` 之后）读取租户行：行不存在则标 `failed` 并中止；`status != "archived"` 则拒绝清理并中止。目的：`restore_tenant`（`tenant_lifecycle.py:137` 置回 `active`）可能与后台清理任务竞态，清理活动租户会销毁活数据。
+- **P0-4 FR-024 归档租户员工仍可登录 chat-api** —— `services/chat-api/app/services/end_user_tenant_access.py` 新增 `_selectable_tenant_main_ids(db, main_ids)`（读 `tenants` 集合，仅 `status == "active"` 放行）与 `is_tenant_selectable(db, main_id)`，`load_tenant_candidates` 末尾按 active 集合过滤（5 个调用点全部经过它，故在此收口）。**设计决策**：**无 registry 行的租户 grandfather 放行**——未跑 020 迁移的部署 `tenants` 为空，fail-closed 会把所有员工锁在服务外。`services/chat-api/app/api/endpoints/auth.py` 的 switch-tenant 亦复检（`available_tenants` 是登录时快照，归档后仍会列出）。
+- **P1-5 向量清理静默失败** —— `_phase_vectors` 原在 token 未配置时仅 `logger.warning` 后 `return`，逐文档 HTTP 失败也只 warning，于是 `errors` 为空、`ok=True`、报告 `vectors: done`，向量实际残留在 Weaviate。现两者均 `raise RuntimeError`。
+- **P1-6 头像永不删除** —— `_phase_files` 原用 `entry.name.startswith(f"{main_id}-")` 匹配，但写入侧（`app/api/routes/auth.py:394`）用 `f"admin-avatars/{_safe_path_part(main_id, 'default')}"`，无尾随 uuid，故恒不匹配。现改用同一函数推导目录名。**注意**不能退化成裸 `startswith(main_id)`，那会跨租户误删。
+- **P1-7 PATCH 清空成员上限** —— `services/admin-api/app/api/routes/platform/tenants.py:143` 原 `payload.get("memberLimit", payload.get("member_limit", "null"))`：调用方省略该字段时被当成显式 `"null"`，经 `tenant_lifecycle.py:179` 把 `member_limit` 清空（改名/改状态也会顺带清掉）。现改为 `payload["memberLimit"] if "memberLimit" in payload else payload.get("member_limit")`；`None` 对 name/status/member_limit 三者语义均为「不动」，显式传 `"null"` 仍可清除上限。
+- 新增测试：`services/admin-api/tests/test_tenant_purge.py`（**16** 个，purge 在此之前零覆盖）、`services/admin-api/tests/test_platform_tenant_patch.py`（**6** 个，路由层 payload 组装在此之前无覆盖）；`services/chat-api/tests/api/test_end_user_tenant_access.py` 追加 6 个 FR-024 用例，并扩展 `_Db` 假对象支持 `tenants` 子集合访问。
+- 验证：`services/admin-api` `.venv-test/bin/python3.14 -m pytest tests/ -q` → **330 passed**（本次新增 22 个用例）；同一解释器跑 chat-api `tests/api/test_end_user_tenant_access.py` → **11 passed**。
+- 测试有效性反证（确认新测试真能捕获原缺陷）：临时把 PATCH 改回旧的 `payload.get("memberLimit", payload.get("member_limit", "null"))` → `test_patch_rename_only_keeps_member_limit`、`test_patch_status_only_keeps_member_limit` **2 failed**；临时把 purge 的 status 守卫与 `if not ok` 守卫改成 `if False` → **4 failed**（`test_failed_purge_does_not_write_tombstone` + 3 个参数化 `test_purge_refuses_non_archived_tenant`）。两处临时改动均已还原，仓库无残留脚本。
+- 提交与推送：本轮拆为 3 个 commit 并推送 `mogo/main` —— 020 实现与上列修复（75 文件）、SDD 审计报告、生产离线部署脚本（`deploy/production/`，与本特性无关，经用户确认一并提交）。`origin`（himovo/movo）保持锁定，未推送。文档与历史 commit 中的生产主机名、内网 Portainer 地址已脱敏为占位符。
+
+## 2026-09-30 修复登录/会话跳转（平台身份自助接口 403 + 401 兜底跳转目标 + 平台路由守卫）
+
+- 触发：用户提供 5 条浏览器控制台日志。判读结论——日志里的 `index-43618f29.js` / `PlatformLoginPage-8b5eb8cf.js` 在当前容器产物中已不存在（当前为 `index-45007cd4.js`），即那条日志来自**旧缓存 bundle**；其中 `net::ERR_ABORTED http://localhost:3000/login` 是旧版 401 兜底跳转 `window.location.replace('/login')` 发起、随后被页面导航取消的文档请求，另 3 条 ERR_ABORTED 是同一导航打断的懒加载 chunk。
+- 后端缺陷（根因）：`app/api/deps.py` 已有 `get_authenticated_admin`（放行平台身份，注释即写明供 `/auth/me` 等自助接口使用），但 `app/api/routes/auth.py` 的 `/me`、`PATCH /me`、`/me/password`、`/me/avatar`、`/logout` 全部误用租户版依赖 `get_current_admin_user` → 平台超管 `/api/auth/me` 恒 403 `Tenant context is required` → 前端 `initializeSession()` 判定鉴权失败并 `clearSession()`，表现为「平台控制台一刷新就被踢出、`/admin/login` 停留不跳」。修复：上述 5 个自助接口改用 `get_authenticated_admin`，并移除已无引用的 `get_current_admin_user` 导入。业务路由的租户反守卫不受影响。
+- 前端缺陷与修复（`apps/admin-web/src`）：
+  - `api/client.ts`：新增 `redirectToLogin()`（按 Vite `BASE_URL` 拼出 `/admin/login` 或 `/admin/platform/login`，已在登录页则不再跳，避免循环），401/403 拦截器改用它；身份未知（profile 已清空）时按当前路径回退到平台登录页；导出给 `api/models.ts` 的流式接口共用，替代原先硬编码的根路径 `/login`（该路径是用户门户页，会把管理员踢出管理端）。
+  - `stores/auth.ts`：`PLATFORM_MAIN_ID` 迁到此处并新增 `isPlatformAdmin` getter（`useMenuOptions.ts`、`PlatformLoginPage.vue` 改从此处引用，避免 api 层反向依赖 composable 造成循环导入）。
+  - `router/index.ts`：守卫改为按身份落地——已登录访问 `/login` 时平台身份去 `/platform/tenants`、企业身份去 `/dashboard`；未登录访问 `platformOnly` 页 → `/platform/login`；非平台身份访问 `platformOnly` 页 → `/dashboard`（补上 `meta.platformOnly` 的路由层校验，此前只在菜单过滤生效）。
+- 重建：仅重建重启 `admin-api` 与 `admin-web`（复用本地 `*:caf21d4` 镜像，其余容器未动）。
+- 验证：`.venv-test/bin/python -m pytest -q` → 330 passed；前端 `npm run typecheck` 通过；`GET /api/auth/me` 带平台 token → 200 且 `mainId="__platform__"`、`roleName="平台超级管理员"`。浏览器实测（硬刷新绕过缓存，加载的 bundle 为 `assets/index-45007cd4.js`）：① 平台登录 → 落 `/admin/platform/tenants`；② 该页硬刷新会话保持、租户列表（BONC）仍可见；③ 平台身份访问 `/admin/login` → 重定向到 `/admin/platform/tenants`；④ 写入无效 token 后访问 `/admin/platform/tenants` → 落 `/admin/platform/login`；⑤ 控制台不再出现指向根域名 `/login` 的 `net::ERR_ABORTED`。
+- 待确认（未改）：admin-web 的 nginx 未对 `index.html` 输出 `Cache-Control`（仅 ETag/Last-Modified），浏览器启发式缓存会让发布后仍加载旧 bundle（本轮日志即为此现象），是否加 `no-cache` 由用户决定。
+
+## 2026-09-30 修复平台控制台「租户管理」表格样式丢失
+
+- 现象：`/admin/platform/tenants` 的表格渲染成无边框、列挤压的原生 HTML 表格（用户截图确认）。
+- 根因：`apps/admin-web/src/bootstrap.ts` 用**显式清单**注册 naive-ui 组件（不用 unplugin 自动导入），清单里只有 `NDataTable`，没有 `NTable`；而 `views/platform/TenantsPage.vue` 用的是 `<n-table>`，未注册组件被当作原生标签渲染，naive-ui 样式自然不生效。全仓仅该页使用 `n-table`，其余页面均用 `n-data-table`，故只有此页出问题。
+- 修复：`bootstrap.ts` 的 import 与 `components` 清单各加一项 `NTable`（最小改动，页面模板与局部样式未动）。
+- 重建：仅重建并重启 `admin-web`（复用本地 `*:caf21d4` 镜像，其余容器未动）。
+- 验证（浏览器实测，非静态检查）：清空站点存储后用 `platform` 登录 → 落在 `/admin/platform/tenants`；表格恢复 naive-ui 规范样式（表头背景、行分隔线、列间距正常），「活跃」标签与「详情/编辑租户」按钮同行对齐，搜索框/状态筛选/查询按钮正常，列表显示 BOND、BONC；控制台无 `Failed to resolve component: n-table` 警告。
+- 遗留（本轮未改）：控制台仍有 `net::ERR_ABORTED http://localhost:3000/login`，来源是 `api/client.ts` 与 `api/models.ts` 的 401/403 兜底跳转使用绝对路径 `/login`（根域名 = 用户门户页），以及路由守卫未校验 `meta.platformOnly`——详见同日「验证前端登录页面」结论，待用户确认后再改。
+
+## 2026-09-30 创建平台超级管理员（方案 2：环境变量 + 启动钩子）+ 修复平台路由前缀重复
+
+- 目标：落地平台超级管理员账号（保留 `main_id="__platform__"`），使平台控制台可用。
+- 配置变更：`.env`（已被 `.gitignore` 忽略）新增 `ASKAI_ADMIN_PLATFORM_ADMIN_USERNAME=platform`、`ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD`（24 位随机生成，密码只存在于本地 `.env`，未写入任何受版本控制的文件/文档）、`ASKAI_ADMIN_PLATFORM_ADMIN_DISPLAY_NAME=平台管理员`；`docker-compose.yml` 的 `admin-api.environment` 增加三项透传（密码默认空，不配则不自动创建）。
+- 路径说明：`POST /api/setup/platform-admin` 被 `_ensure_setup_open()` 以 409 `setup already completed` 拒绝（存量部署已完成 setup），故按决策 5 走环境变量 + 启动钩子 `ensure_platform_admin`（幂等）。
+- 结果：`admin_accounts` 新增 `{username: "platform", main_id: "__platform__", group_code: "platform_admin", role_name: "平台超级管理员", status: "active"}`；仅重建 `admin-api` 一个服务（复用本地 `*:caf21d4` 镜像，其余容器未动）。
+- 缺陷修复：`app/api/routes/platform/tenants.py` 的 `APIRouter(prefix="/api/platform")` 与 `app/api/router.py` 的 `include_router(..., prefix="/platform")`（外层 `main.py` 再挂 `/api`）叠加，实际路径变成 `/api/platform/api/platform/...`，导致前端 `apps/admin-web/src/api/platform.ts` 调用的 `/api/platform/*` 全部 404。按仓库既有约定（业务模块 router 不写 prefix，统一由 `router.py` 加）改为 `APIRouter(tags=["platform"])`，文档字符串保留 `/api/platform` 描述不变。
+- 验证：`admin-api` healthy；`pytest tests/test_tenant_isolation.py tests/test_platform_bootstrap.py tests/test_employee_tenant_identity.py` → 18 passed；登录 `POST /api/auth/login {mainId:"__platform__", username:"platform"}` → 200 返回 token；`GET /api/platform/me`、`/api/platform/system/health`、`/api/platform/tenants` 均 200；`GET /api/setup/status` 200，企业侧登录路径无回归。
+
+## 2026-09-30 重新打包重启（MOGO_VERSION=caf21d4）+ 修复 admin-api 启动崩溃
+
+- 执行 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build`（HEAD=`caf21d4`）重建并重启全部服务。首次启动 `admin-api` 崩溃于重启循环（`unhealthy`），修复后二次增量构建启动通过。
+- 根因与修复：`services/admin-api/app/services/employee_tenant_identity.py` 中 `excluded = {"$nin": [...]}` 被直接作为 filter 传给 `organizations` / `admin_accounts` 的 `find()`，Mongo 报 `unknown top level operator: $nin`（`BadValue`，code 2）；启动钩子 `bootstrap_directory` → `repair_employee_tenant_identities` 抛错致应用退出。已改为 `{"main_id": excluded}`，与同函数 `tenants` 查询及改动前实现一致。
+- 镜像清理：上一版 7 个本地服务镜像（`admin-api`/`chat-api`/`gateway`/`admin-web`/`user-web`/`document-parser`/`dsh-runtime-host`）已由 mogo 脚本在重建时自动清理，orbstack 中无残留；`ghcr.io/himovo/*:caf21d4` 7 个发布镜像经用户确认保留作为回滚备份。
+- 验证：`docker compose ps` 11 个容器全部 running（除 `document-worker` 外均 healthy）；`GET http://127.0.0.1:3000/admin-api/api/setup/status` 返回 `ready:true`，6 项服务检查全部 `ok`。
+
+## 2026-09-30 Phase 3–10 前端实施 + T062 全量回归（T017–T019、T028–T032、T038、T059–T062）
+
+- 目标：补齐 `specs/020-platform-multi-tenancy/` 的前端交付并完成全量回归，至此 T001–T062 **全部完成**。
+- 前端新增：
+  - `apps/admin-web/src/api/platform.ts`：平台控制台 API 层（`fetchTenants` / `fetchTenant` / `createTenant` / `updateTenant` / `resetTenantAdminPassword` / `archiveTenant` / `restoreTenant` / `purgeTenant` / `fetchPurgeStatus` / `fetchPlatformProfile` / `fetchSystemHealth`）与类型定义。注意 `POST /tenants` 返回的是**蛇形** `{main_id, org_name, ...}`（`ProvisionResult` 数据类无 alias），创建请求的 `employee` 是**嵌套对象**。
+  - `apps/admin-web/src/components/platform/TenantCreateForm.vue`（T028）：企业名称 / 管理员账号 / 管理员密码 3 项必填，其余（员工账号、模型、附加模型、配额）收进 `n-collapse` 折叠区；`defineExpose({ reset })` 供父组件重置。
+  - `apps/admin-web/src/views/platform/TenantsPage.vue`（T029 + T030）：租户列表（搜索 / 状态筛选 / 分页）+ 创建 / 编辑 / 归档 / 恢复 / 彻底清理 / 重置密码 / 详情弹窗，彻底清理带 5 秒轮询进度（数据库记录 / 向量索引 / 文件存储三段）；**空状态引导"还没有租户，立即创建"**（决策 11）。
+  - `apps/admin-web/src/views/platform/SystemHealthPage.vue`（T059）：服务健康只读列表，`core` 服务单独标记。
+  - `apps/admin-web/src/views/auth/PlatformLoginPage.vue`（T032）：专用平台管理员登录页，提交 `mainId: "__platform__"`。
+- 前端改造：
+  - `src/router/routes.ts`（T031）：新增 `/platform/login`（`public`）与 `/platform/tenants`、`/platform/system-health`（均 `meta.platformOnly`）。
+  - `src/composables/useMenuOptions.ts`：导出 `PLATFORM_MAIN_ID = "__platform__"`，按 `profile.mainId === PLATFORM_MAIN_ID` 过滤 `meta.platformOnly` 菜单项（决策 14）。
+  - `src/views/auth/LoginPage.vue`：新增"以平台管理员身份登录"入口。
+  - `src/views/auth/SetupPage.vue`（T017/T018/T019）：6 步收敛为 3 步（部署检测 → 创建平台超管 → 完成），完成页改为"登录平台控制台"+"去创建第一个租户"；已存在平台超管时 `/setup` 降级为快捷入口并在完成态提示依赖 `platformAdminMissing`（决策 12）。
+  - `src/locales/messages.ts`：新增约 110 条中英双语词条（平台控制台 / 租户管理 / 服务健康 / 生命周期动作 / 不限额文案）。
+  - **T038 额度不限额贯通**：`app/api/routes/traffic_allocations.py` 的 `OrgQuotaPayload` / `DefaultPolicyPayload` / `UserPolicyPayload` 增 `unlimited`，`GET /overview` 输出 `orgPolicy.unlimited` / `defaultPolicy.unlimited`，不限额时 `remainingTokens = -1`；前端 `src/api/traffic-allocations.ts` 与 `src/views/organizations/TrafficAllocationsPage.vue` 按 flag 渲染"不限额"，**不再对 `-1` 或 0 做算术**，额度上限在不限额时不再钳到 0，成员/用户额度守卫在 `unlimited` 时跳过。
+- 验证：
+  - 后端 `.venv-test/bin/python3.14 -m pytest tests/ -q` → **308 passed**（基线 274 passed / 1 failed；本次新增 9 个配额不限额用例）。
+  - 前端 `vue-tsc --noEmit` 通过；`vite build` 通过并产出 `PlatformLoginPage` / `TenantsPage` / `SystemHealthPage` / `platform` 分包。
+  - 修复过程中发现并解决 `src/locales/messages.ts` 与既有 key 重名导致的 TS1117（共 24 处，删除新增的重复定义、保留原有定义）。
+  - 新增 `tests/test_quota_unlimited.py`（T034/T035 的直测）：覆盖「新建 org 策略默认 `unlimited: true`」「已有策略不被覆盖」「企业摘要默认不限额」「缺 `unlimited` 字段的存量企业行仍受限」「显式限额企业回报剩余额度」「个人摘要默认不限额」「个人遵守显式限额」「不限额时用量超总额不拦截」「限额耗尽时抛 `QuotaExceededError`」。测试内的 `_MemCol.aggregate` 必须是**普通 def** 返回带 async `to_list` 的游标对象——生产代码是 `await col.aggregate([...]).to_list(1)`，`.to_list` 在 `await` 之前就已绑定，写成 `async def aggregate` 会得到 `'coroutine' object has no attribute 'to_list'`。
+- 说明：平台控制台的"外部搜索"配置项未开放（后端 `save_setup_search()` 需要完整 provider/apiKey 配置，控制台无法合法提供），已从创建表单移除。
+
+## 2026-09-30 Phase 5–9 实施：平台路由 + 生命周期 + 彻底清理 + 配额不限额（T012–T057，前端待办）
+
+- 目标：按 `specs/020-platform-multi-tenancy/` 落地平台化多租户后端主体（19 项决策）——保留标识平台超管、`tenants` 主表、软归档可恢复、彻底清理三阶段、配额默认不限额、存量部署平滑升级。
+- 后端新增：
+  - `app/core/tenant_identity.py`：`PLATFORM_MAIN_ID = "__platform__"`、`DEFAULT_MAIN_ID = "default"`、`RESERVED_MAIN_IDS`、`normalize_main_id` / `is_platform_main_id` / `is_reserved_main_id`（T012）。
+  - `app/services/tenant_lifecycle.py`：`archive_tenant` / `restore_tenant` / `update_tenant` / `tenant_view` / `active_tenant_count`。归档仅 `active|disabled`（否则 409）并同步置 `organizations` 与 `org_quota_policies` 为 `disabled`；恢复仅 `archived`；列表视图**只**输出生命周期字段（无成员数/用量）；授权计数统一 `count_documents({"status": "active"})`（决策 18）；全部操作写 `system_audit`（`module="platform"`）（T039–T044/T027）。
+  - `app/services/tenant_purge.py`：`TENANT_SCOPED_COLLECTIONS` 31 个 `main_id` 分区集合（含 `org_units`、`knowledge_*`、`position_roles`、`user_*`、`skill*`、`external_*`、`end_user*`）+ `TENANT_GOVERNANCE_COLLECTIONS` 9 个 `tenant_id` 分区治理集合；三阶段清理（Mongo → 向量 `POST /vectors/documents/delete` → 文件目录前缀），异步任务 + `purge-status` 进度；成功置 `status=purged` 留墓碑，墓碑 1 个月后由 `cleanup_expired_tombstones()` 清理；仅 `archived` 可 purge（否则 409），`confirmName` 必须完全匹配（否则 400）（T045–T052）。
+  - `app/api/routes/platform/tenants.py`（新包 `app/api/routes/platform/`）：`GET/POST /tenants`、`GET/PATCH /tenants/{main_id}`、`admin/reset-password`、`DELETE`（归档）、`restore`、`purge`、`purge-status`、`GET /me`、`GET /system/health`；全部经 `Depends(get_current_platform_admin)`；`app/api/router.py` 注册 `/api/platform` 路由组（T025/T026/T049/T050/T051）。
+  - `app/services/platform_bootstrap.py`：`bootstrap_platform_admin()` 幂等 ensure 平台超管（决策 19：已存在不创建第二个），未配置时输出明确告警（T055/T056）。
+- 既有模块改造：
+  - `app/api/deps.py`：`main_id` **只**取 token subject，删除 `bootstrap_main_id` 兜底（这是跨租户泄漏的根因）；新增 `get_current_platform_admin`；业务路由反向守卫拒绝 `""` / `default` / `__platform__`（403 "Tenant context is required"）（T020–T022）。
+  - `app/api/routes/auth.py`：登录校验 `tenants.status`，非 `active` 一律 403 `Tenant is not active`（决策 13），并修正缺失的 `get_current_admin_user` import（T040）。
+  - 配额不限额贯通：`app/core/quota_policy.py`（`org_quota_policies.unlimited` 默认 true、企业/个人两分支短路、`assert_quota_available` 按 `unlimited` 跳过）、`app/core/product_edition.py::community_organization_fields()`（`points_unlimited`）、`app/services/tenant_provisioning.py`（写入 `points_unlimited`）、`app/services/setup_quota.py`（`0` = 不限额，仅负数报错）、`dashboard.py` / `organizations.py` / `traffic_allocations.py`（`unlimited` + `remainingPoints = -1`，前端不做 `-1` 算术）（T033–T037，决策 4/8/12）。
+  - `app/services/setup_cleanup.py`：标识校验收紧为 `_MAIN_ID_SHAPE = ^[a-z0-9]+-[0-9a-f]{24}$` + 拒绝保留标识，回滚集合按实际写入修正（`departments` → `org_units`），与 purge 分离（T053）。
+  - `app/core/config.py`：新增 `platform_admin_username` / `platform_admin_password` / `platform_admin_display_name`；`app/main.py` 启动钩子接入平台超管引导、存量回填与墓碑清理（T054/T056/T057）。
+- 测试：新增 `tests/test_tenant_isolation.py`（跨租户隔离 + 保留标识 403 + 平台守卫）与 `tests/test_tenant_lifecycle.py`（归档/恢复/授权计数/视图裁剪），并修正 `tests/test_setup_quota.py` 以匹配 T036 的「0 = 不限额」语义。
+- 验证：`.venv-test/bin/python3.14 -m pytest tests/ -q` → **299 passed**（基线 274；T062 后端部分达成）。
+- 未完成（前端）：T017–T019、T028–T032、T038、T059、T060 仍待实现——`apps/admin-web/src/views/platform/` 与 `/platform` 路由组尚未创建。
+
+## 2026-09-30 Phase 1 实施：抽取 provision_tenant()（T001–T004，纯重构，行为不变）
+
+- 目标：把 `setup_initialize()` 内联的建租户流程抽成单一供给入口 `provision_tenant()`，为后续"平台控制台开租户"复用同一代码路径；本轮只做行为保持的重构，不改业务逻辑、不改 API。
+- 改动文件：
+  - **新增** `services/admin-api/app/services/tenant_provisioning.py`：`ProvisionResult` 数据类、`_slug()`、`_next_main_id()`、`provision_tenant()`（原 `setup.py` 第 343–463 行的 verbatim 搬迁；`try/except` 内 `cleanup_failed_setup(main_id)` 失败回滚后 re-raise；返回 `ProvisionResult`）。
+  - **改造** `services/admin-api/app/api/routes/setup.py::setup_initialize()`：删除内联流程与 `_slug()`/`_next_main_id()`，改为校验后 `await provision_tenant(...)`（含 `model.model_dump()`、`additional_models` 映射、`external_search` 映射、`created_by="setup-wizard"`）；保留路由内的 `acquire_setup_lock` / `mark_setup_completed` / `release_setup_lock`（setup 单例语义归路由），仅把 `SetupModelError` 映射为 400。`provision_tenant` 已自行清理，路由不再重复 `cleanup_failed_setup`。
+  - **新增** `tests/test_setup_initialize.py`：7 条回归测试（happy path 校验调用参数与返回结构、外部搜索透传、锁冲突 409、部署未就绪 503、SetupModelError→400、通用异常仍释放锁、provision_tenant 失败回滚）。
+- 验证：`py_compile` 两文件通过；`.venv-test/bin/pytest tests/test_setup_initialize.py` 7 passed；扩展跑 setup 相关 7 个测试文件共 35 passed。
+- 副作用：因该仓库 md 有格式化钩子，改动前已确认 `setup.py` 的 import 在 inline 块移除后无残留引用（grep 验证 `ensure_group_exists|hash_password|...` 均为 0 命中）。
+
+## 2026-09-30 Phase 2–4 实施：可选块守卫 + 租户注册表 + 配置改名（T005–T011）
+
+- 目标：在 Phase 1 抽出的 `provision_tenant()` 上加可选块守卫（开租户可只填 3 个必填字段秒开），新建平台层 `tenants` 集合做租户注册表与存量回填，并把误导性的 `bootstrap_admin_*` 配置改名为 `tenant_bootstrap_admin_*`。
+- 改动文件：
+  - **新增** `app/services/tenant_registry.py`：平台租户注册表。`RESERVED_MAIN_IDS = ("__platform__","default","",None)`；`ensure_indexes()`（main_id 唯一索引 + status/created_at 复合索引）；`ensure_tenant_record(*, main_id, name, edition, admin_username, member_limit, created_by)`（`$set` 可变字段 + `$setOnInsert` 生命周期字段，幂等 upsert）；`backfill_tenants_from_accounts() -> int`（读现有 tenants.main_id 集合后按 `admin_accounts.distinct("main_id")` 回填，跳过保留标识与已存在项，返回新增数）。
+  - **改造** `app/services/tenant_provisioning.py::provision_tenant()`：签名改为全部可选（仅 org_name + 管理员账号/密码/显示名必填）；`employee`/`model`/`additionalModels`/`externalSearch`/`quota` 为 `None` 时跳过且不校验连通性；角色名改为"租户管理员"；`quota` 走 `configure_setup_quotas(...)`（仅当非 None）；在 `try` 内最后一步调用 `ensure_tenant_record(...)` 写入平台注册表，`except` 内 `cleanup_failed_setup` 一并回滚 tenants 行。
+  - **改造** `app/services/setup_cleanup.py`：`SETUP_SCOPED_COLLECTIONS` 增加 `"tenants"`（失败供给回滚范围扩展到注册表）。
+  - **改造** `app/api/routes/setup.py::setup_initialize()`：移除 `_deployment_services()` 6 服务全绿门禁（仅保留状态端点展示）；`provision_tenant(...)` 调用改为 `quota={...}` 字典入参。
+  - **改造** `app/core/config.py`：6 项 `bootstrap_admin_*` → `tenant_bootstrap_admin_*`；`tenant_bootstrap_admin_role_name` 默认值由"平台超级管理员"改为"租户管理员"。
+  - **改造** `app/services/admin_bootstrap.py`：引用点同步改名（`settings.tenant_bootstrap_admin_*`）。
+  - **改造** `services/admin-api/.env.example`、`docker-compose.yml:246`、`deploy/production/docker-compose.portainer.yml.tpl:222`：`ASKAI_ADMIN_BOOTSTRAP_ADMIN_*` → `ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_*`；role 值→"租户管理员"，org 值→"MOGO 平台"。
+  - **改造** `app/main.py::on_startup`：在 `ensure_knowledge_directory_indexes()` 后调用 `ensure_tenant_indexes()` 与 `backfill_tenants_from_accounts()`（启动期幂等回填，存量升级必经）。
+  - **新增** `tests/test_tenant_registry.py`（3 条：幂等、回填排除保留/跳过已有、可重入）；**重写** `tests/test_setup_initialize.py`（适配 quota 字典 + 新增 T005 单测：最小供给跳过可选块、全可选块、community total_points 来自 quota、失败回滚）。
+- 验证：`py_compile` 7 文件通过；`pytest tests/test_setup_initialize.py tests/test_tenant_registry.py tests/test_setup_repository_lock.py tests/test_setup_model.py tests/test_setup_quota.py tests/test_setup_external_search.py` → 33 passed；全量 `pytest tests/` → 256 passed；grep 确认无残留 `settings.bootstrap_admin_*` 引用（仅剩函数名 `bootstrap_admin_user` 与已改名字段）。
+- 注意：`app.main` 在 Python 3.14 + motor 2.5.1 下 import 报 `cannot import name 'coroutine'`（预存的 motor 与 3.14 不兼容，conftest 用 stub 规避，与本改动无关）；完整 256 测试在 stub 下均通过。
+
+## 2026-09-30 建立 020 平台化多租户 SDD 规约（spec/plan/contracts/tasks/checklist）
+
+- 背景：当前一套部署只能产出一个企业。经核查确认数据层（全部集合按 `main_id` 分区 + 复合索引，admin-api/chat-api 双端隔离）与认证层（登录可带 `mainId`，跨租户命中多个走 challenge → `select-tenant`）**已具备多租户能力**，唯一缺口是"租户供给"。
+- 产出规约目录 `specs/020-platform-multi-tenancy/`，按 spec-kit 模板与 009 样例补齐完整工件集：
+  - `spec.md`（8 个用户故事 P1/P2/P3 + FR-001~040 + Key Entities + SC-001~008 + Edge Cases）
+  - `plan.md`（Technical Context / 现有实现事实 / Constitution Check / 项目结构 / 11 阶段映射 / 关键风险）
+  - `contracts/tenants.md`（平台租户 API 契约 + `tenants` 集合字段 + 登录契约变更）
+  - `quickstart.md`（启用与验证步骤 + 存量升级必读）
+  - `tasks.md`（Phase 1–10，T001–T062）
+  - `checklists/requirements.md`（需求质量门禁，28 条）
+- 19 项待定决策已由需求方逐条确认并记录在 `tasks.md` 的 Clarify Decisions；核心结论：新增 `tenants` 集合、平台超管用保留标识 `__platform__`、引导流程改为"部署检测 → 创建平台超管"两步且**不创建租户**、租户创建表单独立（3 必填 + 折叠可选）、配额默认不限额、归档可恢复、另提供彻底清理（先归档后清理，墓碑保留 1 个月）。
+- 同步更新：`.specify/feature.json`（feature_directory → 020）、`specs/INDEX.md`（新增 020 条目与完成度统计）。
+- 验证方式：`ls -R specs/020-platform-multi-tenancy` 确认工件齐全；spec 中每项决策可回溯到 tasks.md 的 Clarify Decisions 编号。**本轮未改动任何源码**。
+- 前置分析另见 `docs/platform-multi-tenancy-plan.md`（v4，含全部 19 项决策的详细论证）。
+
+## 2026-09-29 清理本地中间产物目录（base-images-amd64 / base-images-prod-caf21d4）
+
+- 用户确认后**永久删除**两个本地中间产物目录，共 10 个文件 / 564MB：
+  - `base-images-amd64/`（232M）：构建期基础镜像 tar（nginx 1.29.8-alpine、nginx 1.31.5-alpine3.24-slim、
+    node 20-slim、node 24-bookworm-slim、python 3.10-slim-bookworm）+ `manifest.txt`
+  - `base-images-prod-caf21d4/`（332M）：运行时基础镜像 tar（alpine_3.21、mongo_6.0.20、
+    redis_7.4.2-alpine、weaviate_1.25.7）
+- **删除前已核实安全**：两者均未被 git 跟踪、均被 `.gitignore` 的 `/base-images-*/` 覆盖；
+  仓库内只有 `scripts/export_base_images.sh` 与 `docs/docker-deployment.md` 提到 `./base-images-amd64`，
+  且**仅是帮助文本里的示例路径**，无脚本逻辑依赖；`base-images-prod-caf21d4/` 的 4 个 tar 已合并进
+  `prod-images-caf21d4/01-base.tar`，属冗余。两者均可重新生成。
+- **注意**：本次删除**明确绕过了 `AGENTS.md`「禁止删除任何文件」的约定**，经用户显式确认后执行，
+  故在此留档。删除前列出了完整文件清单。
+- 验证：删除后 `prod-images-caf21d4/` 完好，重跑 `deploy/production/verify_bundle.py` 仍
+  4 个包全部 OK（3.41GB / 11 镜像 / 全 amd64），未误删发布包依赖的内容。
+- 未改动任何受版本控制的文件（`base-images/` 1.6GB 的构建期离线模型包未动，删了重建需重新下载）。
+
+## 2026-09-29 生产发布流程脚本化（镜像包 + 部署单一条命令产出）
+
+- 需求：把"为生产准备镜像、文档"这套手工流程落地成脚本。上一轮（见下方条目）这些步骤是
+  逐条手敲的，换版本要全部重来一遍。
+- 新增 `deploy/production/prepare-release.sh`，一条命令做九件事：
+  确定版本号(git) → 前置检查 → 固定 compose 变量 → 推导镜像清单 → 交叉构建应用镜像 →
+  校验架构 → 生成基础镜像 amd64 变体 → 打包 4 个 tar → 渲染清单 + 校验 + 出部署单。
+- **版本号取自 git**：默认 `git rev-parse --short HEAD`，并同时记录完整 commit / 分支 / 提交标题；
+  显式传 TAG 但与该 commit 不一致时警告。**工作区不干净时也会警告**，并区分"改动是否落在
+  `services/`、`apps/`、`deploy/docker/`"——落在这些路径意味着镜像内容无法从 tag 复现。
+- 新增 `deploy/production/verify_bundle.py`：校验每个包的 `RepoTags`、`architecture`、
+  以及 **`len(Layers) == len(rootfs.diff_ids)`**（经典 `docker load` 的硬性前提），并算 sha256，
+  结果回写 `bundle.json`。
+- 新增 `deploy/production/render_deploy_doc.py`：由 `bundle.json` 生成自包含的 `DEPLOY.md`
+  （实测体积、sha256、导入顺序、Stack 步骤、验证命令、注意事项），随每次发布重新生成。
+- `docker-compose.portainer.yml` → **`docker-compose.portainer.yml.tpl`**（模板）：
+  清单里写死了版本号，换版本必须重新渲染。占位符 `__MOGO_TAG__`；以 `#!TEMPLATE-ONLY`
+  开头的注释行在渲染时删除，并在头部注入 `tag/commit/分支/时间` 来源标注。
+  脚本会校验渲染结果里**不得残留占位符或模板专用行**，且必须通过 `docker compose config`。
+- `deploy/production/README.md` 重写为"设计说明 + 怎么用脚本"；操作性步骤不再在仓库里重复维护，
+  统一由生成的 `DEPLOY.md` 承担（避免两份文档漂移）。
+- 两个坑在脚本里做了屏蔽（都是实测踩过的）：
+  - 仓库根 `.env` 里的 `MOVO_CHAT_API_IMAGE=chat-api:92a0c98` 会让构建产物被打成别的名字；
+    脚本显式导出 `MOGO_*_IMAGE`（shell 环境优先于 `.env`），无需用户改 `.env`。
+  - `docker pull --platform` 在 OrbStack 上是空操作、`docker save --platform` 在本地只有 arm64
+    内容时报 `no suitable export target found`；脚本改用 **buildx staging 构建**产 amd64 变体。
+- 修了一个自己写出来的 bash 坑：`$VAR` 后面紧跟全角括号等非 ASCII 字符时，bash 会把中文当成
+  变量名的一部分，`set -u` 下报 `unbound variable`（报错里变量名还带乱码尾巴，如 `STAGE_CTX�`）。
+  用正则一次性扫出全部 5 处并统一改成 `${VAR}`——这类 bug 只在"变量后紧跟中文"的分支触发，
+  首次运行只暴露了 1 处，必须全量扫而不是修一处跑一次。
+- 统一了体积显示口径：`verify_bundle.py` 原来一律按 MB 打印（2099MB），而 `DEPLOY.md` 按
+  GB 打印（2.05GB），两边对不上；已让 `verify_bundle.py` 复用同一套格式化。
+- 验证：`bash -n` 通过；`-h` 帮助正常；`--skip-build --skip-pack` 跑通（渲染 + 校验 + 出文档）；
+  完整打包路径（`--skip-build`）实测跑通，4 个包校验全部 OK（3.41GB / 11 镜像 / 全 amd64）；
+  渲染后的清单无占位符残留且 compose 语法通过。
+- 未改动 `services/`、`apps/` 任何源码。
+
+**改动文件**：`deploy/production/prepare-release.sh`（新增）、`deploy/production/verify_bundle.py`（新增）、
+`deploy/production/render_deploy_doc.py`（新增）、`deploy/production/README.md`（重写）、
+`deploy/production/docker-compose.portainer.yml` → `.tpl`（改名并加占位符）、`docs/WORK_LOG.md`（本条目）。
+
+
+## 2026-09-29 生产部署：Portainer Stack 离线部署清单（无外网 → 镜像离线导入）
+
+- 目标：把 `caf21d4` 部署到生产主机（x86_64 / Docker 26.1.3 / **完全无外网**），
+  唯一可用通道是 Portainer CE 2.21.0（`http://<PORTAINER_HOST>:<PORTAINER_PORT>`，standalone 端点 id=2）。
+- 现状核实（Portainer API 只读探测）：无 mogo/movo 容器与 stack，端口 3000 空闲，
+  `alpine:3.21` / `mongo:6.0.20` / `redis:7.4.2-alpine` / `semitechnologies/weaviate:1.25.7` 均缺失；
+  github.com、registry-1.docker.io、各镜像站与内网 artifactory、以及 DNS **全部不通**。
+- 新增 `deploy/production/docker-compose.portainer.yml`：由根 `docker-compose.yml` 派生，
+  处理了三个会让 Portainer 直接部署失败的坑：
+  1. **相对路径 bind mount**：`./deploy/docker/nginx.conf` 会被解析到 Portainer 自己的 stack 目录，
+     文件必然不存在 → 改为 base64 放进 `MOGO_GATEWAY_NGINX_CONF_B64`，容器 `command` 里解码落盘再 `exec nginx`。
+     （同时规避了 compose 变量插值吃掉 `$http_upgrade` / `$connection_upgrade` 的问题。）
+  2. **未定义 `${VAR}` 被插值成空串** → 全部解析为字面量，镜像名写死，加 `pull_policy: never`，去掉顶层 `name:`。
+  3. 省略 `runtime-pool` profile 的 `dsh-runtime-host-1/2/3` 与 `dsh-runtime-host-lb`（默认不启动，且 LB 依赖 nginx 基础镜像）。
+- 新增 `deploy/production/README.md`：镜像清单、导入顺序、Stack 创建步骤、验证命令、
+  回滚方式、以及部署后建议调整的 3 个 base-url 变量。
+- `.gitignore` 新增 `/prod-images-*/`（离线镜像包目录不入库）。
+- 验证：
+  - `docker compose -f deploy/production/docker-compose.portainer.yml config` 通过；渲染结果除 `$$` 外无未转义 `${}`。
+  - **与根 compose 逐字段比对**（`config --format json`）：12 个服务完全一致，镜像名、环境变量、卷名、网络、
+    端口、健康检查、`depends_on` 条件全部相同；差异仅为本轮刻意改动的那几项。
+  - **gateway 内嵌方案实跑验证**：把测试容器接入本地 `mogo_public` 网络，容器内
+    `/etc/nginx/conf.d/default.conf` 的 sha256 与 `deploy/docker/nginx.conf` 逐字节一致（`c38f5edb…`），
+    `/healthz`→200 ok、`/setup`→302 `/admin/setup`、`/admin/`→200、`/`→200。
+  - 内嵌 base64 与源文件 round-trip 校验一致（2667 字节 / sha256 相同）。
+- 交叉构建（arm64 Mac → amd64）：`docker pull --platform` 与 `docker save --platform` 在
+  OrbStack（containerd 镜像存储）上对只有 arm64 内容的标签都会失败（后者报
+  `no suitable export target found`）；可用手法是 buildx 以镜像站地址做 `FROM` 的 staging 构建
+  （`--platform linux/amd64 --load`），再 `docker run … uname -m` 实跑确认为 `x86_64`。
+  7 个应用镜像用 `DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose … build` 产出。
+- 产物：`prod-images-caf21d4/` 下 4 个 tar，**全部校验通过**（3.41GB / 11 个镜像 / 均为 `amd64/linux`）：
+  `01-base.tar` 332MB（alpine+mongo+redis+weaviate）、`02-app-small.tar` 279MB（admin-api/admin-web/dsh-runtime-host/gateway/user-web）、
+  `03-chat-api.tar` 783MB、`04-document-parser.tar` 2.05GB。
+  合并脚本用 `docker save` 多镜像 + **按每条条目自己的 `RepoTags` 反查**改写（manifest 里的顺序不等于命令行顺序，不能按下标对应）。
+  校验项除标签与架构外，还核对了 `len(Layers) == len(rootfs.diff_ids)`——这是经典 `docker load` 的硬性前提，4 个包全部相等。
+- 构建耗时与瓶颈：交叉构建跑了 **1h07m**，瓶颈是外网带宽（约 0.1～1 MB/s，两个大镜像并发时互相抢占）。
+  `chat-api` 的 playwright bundle 只有 **104 字节**（占位符）→ 构建期需下载约 290MB 浏览器包；
+  `document-parser` 的 docling bundle 是**真实 508MB** 本地包 → 无需下载。
+- **踩坑（值得记一笔）**：仓库根目录被 gitignore 的 `.env` 里残留 `MOVO_CHAT_API_IMAGE=chat-api:92a0c98`，
+  导致 `docker compose build` 把 chat-api 打成了 `chat-api:92a0c98` 而不是
+  `ghcr.io/himovo/chat-api:caf21d4`，需事后 `docker tag` 补规范名。**交叉构建前先检查 `.env`。**
+- 未改动 `services/`、`apps/` 任何源码；未提交镜像包（已 gitignore）。
+
+**改动文件**：`deploy/production/docker-compose.portainer.yml`、`deploy/production/README.md`、`.gitignore`、`docs/WORK_LOG.md`（本条目）。
+
+
 ## 2026-09-29 外部搜索：拦截 HTTP 请求无法承载的字符（修「latin-1 codec」裸报错）
 
 - 问题：管理后台测试「百度千帆」报 `'latin-1' codec can't encode characters in position 7-8: ordinal not in range(256)`。
@@ -59,6 +302,10 @@
 
 - 需求：在管理后台「外部搜索」（配置 web_search 默认调用的外部搜索源）中新增 Claw Search 配置项。
 - Claw Search 特性（https://www.claw-search.com/）：免费开源、**无需 API Key**，接口为 `GET https://www.claw-search.com/api/search?q=关键词`，返回兼容 Brave 风格的 `{ query, web: { results: [{ title, url, description }] } }`。
+- 部署与实测（`MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build`，tag 仍为 `ceb56fa`，工作区改动未提交）：
+  - admin-web/chat-api/admin-api 三个含改动的镜像被重建（其余 4 个走缓存但 manifest 重新生成），8 个容器全部重启并 healthy；旧 7 个 `ceb56fa` 镜像随之成为 dangling，被 `mogo` 的 `prune_dangling_images()` 自动清除，无需手动删。
+  - 容器内校验：`admin-api` 的 `PROVIDERS` 含 `claw_search` 且 `normalized_config('claw_search', api_key='')` 返回官方 endpoint；`chat-api` 的 `SUPPORTED_PROVIDERS` 含 `claw_search`、`ClawSearchProvider().endpoint` 正确；`admin-web` 产物（`ExternalSearchSettingsPage`/`SearchProviderGuide`/`SetupPage` 三个 chunk）含 `claw_search`。
+  - 端到端实测：从宿主机与容器内调用 `https://www.claw-search.com/api/search?q=...` **稳定返回 502 Bad Gateway**（其站点首页 200、`/api/*` 全路径 502），属对方 API 后端当前整体故障，与实现无关——接口路径与响应结构已按官方文档核对一致。异常路径表现正常：chat-api 记 warning 并返回 0 命中、admin-api `test_provider` 抛 HTTPError 由路由捕获为「连接失败」，均不崩溃。
 - 改动（后端 admin-api）：
   - `app/services/external_search_provider.py`：`PROVIDERS` 新增 `claw_search`（label「Claw Search」、默认 endpoint、priority 60）；`normalized_config` 对 `claw_search` 免去 API Key 必填，仅要求 Endpoint；`test_provider` 新增 GET 分支，解析 `web.results`（字段对齐 `title/url/description`）。
   - `app/api/routes/setup.py`：初始化请求的 provider 正则加入 `claw_search`。

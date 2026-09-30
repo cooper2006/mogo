@@ -32,6 +32,7 @@ router = APIRouter()
 
 class OrgQuotaPayload(BaseModel):
     totalTokens: int = Field(default=0, ge=0)
+    unlimited: bool = Field(default=False)
     period: str = Field(default="monthly")
     timezone: str = Field(default="Asia/Shanghai")
     status: str = Field(default="active", pattern=r"^(active|disabled)$")
@@ -39,6 +40,7 @@ class OrgQuotaPayload(BaseModel):
 
 class DefaultPolicyPayload(BaseModel):
     quotaTokens: int = Field(default=0, ge=0)
+    unlimited: bool = Field(default=False)
     period: str = Field(default="monthly")
     status: str = Field(default="active", pattern=r"^(active|disabled)$")
 
@@ -46,6 +48,7 @@ class DefaultPolicyPayload(BaseModel):
 class UserPolicyPayload(BaseModel):
     userId: str = Field(min_length=1)
     quotaTokens: int = Field(default=0, ge=0)
+    unlimited: bool = Field(default=False)
     period: str = Field(default="monthly")
     reason: str = Field(default="", max_length=200)
 
@@ -106,19 +109,24 @@ async def get_traffic_allocation_overview(current_user: dict[str, Any] = Depends
         assigned_count += 1
         assigned_tokens += int(policy.get("quota_tokens") or 0)
     total = int(org_policy.get("total_tokens") or 0)
+    # T038: ``unlimited`` (decision 12) means the cap is not enforced, so the
+    # front end must render "不限额" instead of doing arithmetic on 0 / -1.
+    org_unlimited = bool(org_policy.get("unlimited", False))
     return {
         "orgPolicy": {
             "totalTokens": total,
+            "unlimited": org_unlimited,
             "period": normalize_period(org_policy.get("period")),
             "timezone": tz_name,
             "status": org_policy.get("status") or "active",
             "usedTokens": org_used,
-            "remainingTokens": max(0, total - org_used),
+            "remainingTokens": -1 if org_unlimited else max(0, total - org_used),
             "periodStartAt": _fmt(start_at),
             "resetAt": _fmt(end_at),
         },
         "defaultPolicy": {
             "quotaTokens": int(default_policy.get("quota_tokens") or 0),
+            "unlimited": bool(default_policy.get("unlimited", False)),
             "period": normalize_period(default_policy.get("period")),
             "status": default_policy.get("status") or "active",
         },
@@ -139,6 +147,7 @@ async def update_org_quota_policy(payload: OrgQuotaPayload, current_user: dict[s
         {
             "$set": {
                 "total_tokens": int(payload.totalTokens),
+                "unlimited": bool(payload.unlimited),
                 "period": normalize_period(payload.period),
                 "timezone": normalize_timezone(payload.timezone),
                 "status": payload.status,
@@ -173,7 +182,8 @@ async def update_default_user_policy(payload: DefaultPolicyPayload, current_user
     db = get_db()
     
     org_policy = await ensure_org_quota_policy(main_id)
-    if int(org_policy.get("total_tokens") or 0) == 0 and int(payload.quotaTokens) > 0:
+    org_unlimited = bool(org_policy.get("unlimited", False))
+    if not org_unlimited and int(org_policy.get("total_tokens") or 0) == 0 and int(payload.quotaTokens) > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="当前企业本周期总额度为 0，不能为成员分配大于 0 的额度。请先配置企业总额度。"
@@ -187,6 +197,7 @@ async def update_default_user_policy(payload: DefaultPolicyPayload, current_user
         {
             "$set": {
                 "quota_tokens": int(payload.quotaTokens),
+                "unlimited": bool(payload.unlimited),
                 "period": normalize_period(payload.period),
                 "priority": 10,
                 "status": payload.status,
@@ -257,6 +268,7 @@ async def list_user_allocations(
                 "departmentName": dep_names.get(dep_id, ""),
                 "quotaTokens": int(summary.get("totalPoints") or 0),
                 "usedTokens": int(summary.get("usedPoints") or 0),
+                "unlimited": bool(summary.get("unlimited")),
                 "remainingTokens": int(summary.get("remainingPoints") or 0),
                 "period": summary.get("period") or "monthly",
                 "resetAt": summary.get("resetAt") or "",
@@ -282,7 +294,9 @@ async def update_user_policy(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
         
     org_policy = await ensure_org_quota_policy(main_id)
-    if int(org_policy.get("total_tokens") or 0) == 0 and int(payload.quotaTokens) > 0:
+    # T035: unlimited orgs can allocate any per-user amount.
+    org_unlimited = bool(org_policy.get("unlimited", False))
+    if not org_unlimited and int(org_policy.get("total_tokens") or 0) == 0 and int(payload.quotaTokens) > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="当前企业本周期总额度为 0，不能为用户分配大于 0 的额度。请先配置企业总额度。"
@@ -298,6 +312,7 @@ async def update_user_policy(
         {
             "$set": {
                 "quota_tokens": int(payload.quotaTokens),
+                "unlimited": bool(payload.unlimited),
                 "period": normalize_period(payload.period),
                 "priority": 100,
                 "status": "active",

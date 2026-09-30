@@ -8,6 +8,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.db import get_db
+from app.core.tenant_identity import PLATFORM_MAIN_ID
 
 SETUP_COLLECTION = "system_bootstrap"
 SETUP_LOCK_TTL = timedelta(minutes=15)
@@ -68,14 +69,19 @@ async def release_setup_lock(lock_token: str) -> None:
     )
 
 
-async def mark_setup_completed(
+async def mark_platform_admin_created(
     *,
     lock_token: str,
-    main_id: str,
-    org_name: str,
-    admin_username: str,
-    employee_username: str,
+    username: str,
+    display_name: str,
 ) -> None:
+    """Mark the one-time bootstrap as done: the platform super-admin now exists.
+
+    Under the platform multi-tenancy model the ``system_bootstrap`` singleton no
+    longer records "a tenant was created" but "the platform super-admin was
+    created" (decision 10/11). ``main_id`` is pinned to the reserved
+    ``__platform__`` identifier.
+    """
     db = get_db()
     now = utcnow()
     result = await db[SETUP_COLLECTION].update_one(
@@ -83,10 +89,9 @@ async def mark_setup_completed(
         {
             "$set": {
                 "completed": True,
-                "main_id": main_id,
-                "org_name": org_name,
-                "admin_username": admin_username,
-                "employee_username": employee_username,
+                "main_id": PLATFORM_MAIN_ID,
+                "platform_admin_username": username,
+                "platform_admin_display_name": display_name,
                 "updated_at": now,
             },
             "$unset": {"lock_token": "", "lock_acquired_at": "", "lock_expires_at": ""},

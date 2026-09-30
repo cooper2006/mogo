@@ -40,6 +40,15 @@
 
 > 规划清单 12 的"沉淀闭环（会话→经验→Skill）"已并入 011（Dream Cycle）；016 仅承载"市场强化"部分。
 
+## 三（补）、平台化能力（新增范围，非原规划清单）
+
+| 编号 | 特性 | 说明 | 优先级 | spec | plan | contracts | quickstart | tasks |
+|---|---|---|---|---|---|---|---|---|
+| 020 | platform-multi-tenancy（平台化多租户） | 补齐租户供给：新增 `tenants` 主表 + 平台管理员（`__platform__`）+ 引导流程改造 + 生命周期（归档/恢复/彻底清理）+ 配额默认不限额 | P0 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> 背景：数据层（集合按 `main_id` 分区）与认证层（登录可带 `mainId`、跨租户选租户）已具备多租户能力，唯一缺口是租户供给。既有部署语义为"一套部署 = 一个企业"。
+> 19 项待定决策已全部确认，记录在 `specs/020-platform-multi-tenancy/tasks.md` 的 Clarify Decisions；详细论证见 `docs/platform-multi-tenancy-plan.md`（v4）。
+
 ## 四、未独立拆分的后续范围
 
 | 规划清单 | 说明 | 归属 |
@@ -49,10 +58,10 @@
 
 ## 五、规约完成度统计
 
-- spec.md：001–019 全部完成（19 份）
-- plan.md：001–019 全部完成（19 份，19/19 技术契约齐全）
-- checklist（需求质量门禁，`/speckit-checklist`）：001–019 全部完成（19 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–019 共 15 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态
-- tasks（可执行任务，`/speckit-tasks`）：**001/002/007–019 共 15 份全部完成**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；003–006（既有回溯）无 `tasks.md`，保留 spec + plan + checklist 原始状态
+- spec.md：001–020 全部完成（20 份）
+- plan.md：001–020 全部完成（20 份，19/19 技术契约齐全；020 为技术化实施计划）
+- checklist（需求质量门禁，`/speckit-checklist`）：001–020 全部完成（20 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–020 共 16 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态
+- tasks（可执行任务，`/speckit-tasks`）：**001/002/007–020 共 16 份全部完成**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；003–006（既有回溯）无 `tasks.md`，保留 spec + plan + checklist 原始状态
 - 实现进度（`/speckit-implement`，2026-07-08）：**19 个特性全部已有实现核心/ MVP**——P0（001/007/008）完整 MVP；P1（002/009/010/011）核心；P2（012–019）核心全部落地。合计 **313 项新测试通过**（admin-api 89 + chat-api 224）
 - clarify（OQ 消解）：**001/002/007–019 共 15 份已消解**（003–006 既有回溯未做 clarify）。消解记录位置：001/002/007–011 在 spec 的 "Clarify 记录" 节；012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖

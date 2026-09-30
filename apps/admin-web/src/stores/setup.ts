@@ -9,6 +9,7 @@ interface SetupState {
   mainId: string;
   initializedAt: string;
   ready: boolean;
+  platformAdminMissing: boolean;
   services: SetupServiceStatus[];
   urls: SetupUrls;
 }
@@ -20,6 +21,7 @@ function toState(status: SetupStatus): Omit<SetupState, 'checked' | 'loading'> {
     mainId: status.mainId || '',
     initializedAt: status.initializedAt || '',
     ready: Boolean(status.ready),
+    platformAdminMissing: Boolean(status.platformAdminMissing),
     services: Array.isArray(status.services) ? status.services : [],
     urls: status.urls || { userWeb: '', adminWeb: '', desktopService: '', agentWebSocket: '' },
   };
@@ -34,6 +36,7 @@ export const useSetupStore = defineStore('setup', {
     mainId: '',
     initializedAt: '',
     ready: false,
+    platformAdminMissing: false,
     services: [],
     urls: { userWeb: '', adminWeb: '', desktopService: '', agentWebSocket: '' },
   }),

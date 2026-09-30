@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.db import get_db
+from app.core.tenant_identity import PLATFORM_MAIN_ID
 
 
 def employee_tenant_fields(main_id: str, org_name: str) -> dict[str, str]:
@@ -33,12 +34,29 @@ def authoritative_tenant_names(
 
 async def repair_employee_tenant_identities(db: Any | None = None) -> int:
     database = db if db is not None else get_db()
-    organizations = await database.organizations.find(
-        {"main_id": {"$nin": [None, "", "default"]}}, {"main_id": 1, "org_name": 1}
-    ).to_list(length=10000)
-    admin_rows = await database.admin_accounts.find(
-        {"main_id": {"$nin": [None, "", "default"]}}, {"main_id": 1, "org_name": 1}
-    ).to_list(length=10000)
+    excluded = {"$nin": [None, "", "default", PLATFORM_MAIN_ID]}
+    # T042: only active tenants are authoritative for identity repair; archived
+    # or purged tenants must not resurrect stale organization names.
+    active_main_ids = {
+        row["main_id"]
+        async for row in database["tenants"].find(
+            {"status": "active", "main_id": excluded}, {"main_id": 1}
+        )
+    }
+    organizations = [
+        row
+        async for row in database.organizations.find(
+            {"main_id": excluded}, {"main_id": 1, "org_name": 1}
+        )
+        if str(row.get("main_id")) in active_main_ids
+    ]
+    admin_rows = [
+        row
+        async for row in database.admin_accounts.find(
+            {"main_id": excluded}, {"main_id": 1, "org_name": 1}
+        )
+        if str(row.get("main_id")) in active_main_ids
+    ]
     names = authoritative_tenant_names(organizations, admin_rows)
     admin_names = authoritative_tenant_names([], admin_rows)
     repaired = 0

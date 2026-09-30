@@ -5,6 +5,7 @@ import { computed, h, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { OrganizationUsersIcon } from '@/icons/OrganizationUsersIcon';
 import { appRoutes } from '@/router/routes';
+import { useAuthStore } from '@/stores/auth';
 import { useLocale, t } from '@/composables/i18n';
 
 function renderMenuIcon(icon: unknown) {
@@ -34,10 +35,17 @@ function renderMenuIcon(icon: unknown) {
   return null;
 }
 
-function buildOptions() {
+function buildOptions(isPlatformAdmin: boolean) {
   const root = appRoutes.find((route) => route.path === '/');
   const children = (root?.children ?? []) as RouteRecordRaw[];
-  const visibleRoutes = children.filter((route: RouteRecordRaw) => !route.meta?.hideInMenu && route.path);
+  const visibleRoutes = children.filter((route: RouteRecordRaw) => {
+    if (route.meta?.hideInMenu || !route.path) return false;
+    // T031: platform-console entries are only meaningful for __platform__; conversely the
+    // platform admin only gets the platform console, because tenant business routes are
+    // rejected for the reserved identifier (T022 reverse guard).
+    if (isPlatformAdmin) return Boolean(route.meta?.platformOnly);
+    return !route.meta?.platformOnly;
+  });
   const options: MenuOption[] = [];
   let orgMenuAdded = false;
 
@@ -88,11 +96,12 @@ export function useMenuOptions() {
   const route = useRoute();
   const router = useRouter();
   const { locale } = useLocale();
+  const authStore = useAuthStore();
 
   const menuOptions = computed(() => {
     // eslint-disable-next-line no-unused-expressions
     locale.value; // Explicitly depend on locale reactive state
-    return buildOptions();
+    return buildOptions(authStore.isPlatformAdmin);
   });
 
   const expandedKeys = ref<string[]>(route.path.startsWith('/organizations') ? ['/organizations-group'] : []);

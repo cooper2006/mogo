@@ -1,5 +1,11 @@
 import type { SetupSearchProviderId } from '@/api/setup';
 
+export interface SetupPlatformAdminForm {
+  username: string;
+  password: string;
+  displayName: string;
+}
+
 export interface SetupAccountForm {
   orgName: string;
   adminUsername: string;

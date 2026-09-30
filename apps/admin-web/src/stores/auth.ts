@@ -23,6 +23,9 @@ interface AuthState {
 
 const STORAGE_KEY = 'askai-admin-auth';
 
+/** Reserved platform main_id; mirrors ``PLATFORM_MAIN_ID`` in admin-api. */
+export const PLATFORM_MAIN_ID = '__platform__';
+
 function readState(): AuthState {
   if (typeof window === 'undefined') {
     return { token: '', profile: null, initialized: false };
@@ -54,6 +57,7 @@ export const useAuthStore = defineStore('auth', {
   state: (): AuthState => readState(),
   getters: {
     isAuthenticated: (state) => Boolean(state.token),
+    isPlatformAdmin: (state) => state.profile?.mainId === PLATFORM_MAIN_ID,
   },
   actions: {
     clearSession() {

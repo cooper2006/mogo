@@ -47,11 +47,26 @@ def test_setup_completion_requires_the_owned_lock(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="lock was lost"):
         asyncio.run(
-            setup_repository.mark_setup_completed(
+            setup_repository.mark_platform_admin_created(
                 lock_token="lock-c",
-                main_id="tenant-a",
-                org_name="MOGO",
-                admin_username="admin",
-                employee_username="employee",
+                username="platform",
+                display_name="平台管理员",
             )
         )
+
+
+def test_platform_admin_completion_pins_platform_main_id(monkeypatch) -> None:
+    collection = SimpleNamespace(update_one=AsyncMock(return_value=SimpleNamespace(modified_count=1)))
+    monkeypatch.setattr(setup_repository, "get_db", lambda: _database(collection))
+
+    asyncio.run(
+        setup_repository.mark_platform_admin_created(
+            lock_token="lock-d",
+            username="platform",
+            display_name="平台管理员",
+        )
+    )
+    update = collection.update_one.await_args.args[1]
+    assert update["$set"]["completed"] is True
+    assert update["$set"]["main_id"] == "__platform__"
+    assert update["$set"]["platform_admin_username"] == "platform"

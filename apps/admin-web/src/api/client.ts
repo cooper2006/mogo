@@ -6,6 +6,30 @@ export const apiClient = axios.create({
   timeout: 10000,
 });
 
+/**
+ * Login page inside the admin app, honoring the Vite base (e.g. ``/admin``).
+ * A bare ``/login`` would hit the user portal instead of the admin console.
+ */
+function adminLoginPath(isPlatformAdmin: boolean) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return isPlatformAdmin ? `${base}/platform/login` : `${base}/login`;
+}
+
+/** Bounce to the login page matching the current identity; no-op when already there. */
+export function redirectToLogin(isPlatformAdmin = false) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const current = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (current === `${base}/login` || current === `${base}/platform/login`) {
+    return;
+  }
+  // An expired session loses its profile, so fall back to the area the user is browsing.
+  const usePlatformLogin = isPlatformAdmin || current.startsWith(`${base}/platform`);
+  window.location.replace(adminLoginPath(usePlatformLogin));
+}
+
 apiClient.interceptors.request.use((config) => {
   const authStore = useAuthStore();
   if (authStore.token) {
@@ -21,12 +45,11 @@ apiClient.interceptors.response.use(
       const status = error.response?.status;
       if (status === 401 || status === 403) {
         const authStore = useAuthStore();
+        const isPlatformAdmin = authStore.isPlatformAdmin;
         if (authStore.token) {
           authStore.clearSession();
         }
-        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-          window.location.replace('/login');
-        }
+        redirectToLogin(isPlatformAdmin);
       }
     }
     return Promise.reject(error);

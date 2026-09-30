@@ -1,10 +1,12 @@
 from fastapi import APIRouter
 
 from app.api.routes import analytics, auth, dashboard, directory, external_search, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, organizations, page_collection, personal_knowledge_internal, position_roles, presentation_settings, setup, shortcut_settings, skill_lifecycle, skills, system, system_audit, tools, traffic_allocations
+from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
 api_router.include_router(system.router, tags=["system"])
 api_router.include_router(setup.router, prefix="/setup", tags=["setup"])
+api_router.include_router(platform_tenants.router, prefix="/platform", tags=["platform"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])

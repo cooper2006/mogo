@@ -47,8 +47,15 @@
       <n-grid :cols="2" :x-gap="14" :y-gap="10" responsive="screen">
         <n-grid-item>
           <n-form-item :label="t('企业本周期总额度')">
-            <n-input-number v-model:value="orgForm.totalTokens" :min="0" :show-button="false" class="wide-input" />
+            <n-input-number
+              v-model:value="orgForm.totalTokens"
+              :min="0"
+              :disabled="orgForm.unlimited"
+              :show-button="false"
+              class="wide-input"
+            />
           </n-form-item>
+          <n-checkbox v-model:checked="orgForm.unlimited">{{ t('不限额（不做限制）') }}</n-checkbox>
         </n-grid-item>
         <n-grid-item>
           <n-form-item :label="t('企业重置周期')">
@@ -60,11 +67,13 @@
             <n-input-number
               v-model:value="defaultForm.quotaTokens"
               :min="0"
-              :max="orgForm.totalTokens || 0"
+              :max="orgForm.unlimited ? undefined : orgForm.totalTokens || 0"
+              :disabled="defaultForm.unlimited"
               :show-button="false"
               class="wide-input"
             />
           </n-form-item>
+          <n-checkbox v-model:checked="defaultForm.unlimited">{{ t('不限额（不做限制）') }}</n-checkbox>
         </n-grid-item>
         <n-grid-item>
           <n-form-item :label="t('成员重置周期')">
@@ -98,13 +107,17 @@
         </div>
       </n-form-item>
       <n-form-item :label="t('本周期额度')">
-        <n-input-number
-          v-model:value="userForm.quotaTokens"
-          :min="0"
-          :max="overview?.orgPolicy.totalTokens || 0"
-          :show-button="false"
-          class="wide-input"
-        />
+        <n-space vertical :size="6" style="width: 100%">
+          <n-input-number
+            v-model:value="userForm.quotaTokens"
+            :min="0"
+            :max="quotaLimit(overview?.orgPolicy.totalTokens || 0)"
+            :disabled="userForm.unlimited"
+            :show-button="false"
+            class="wide-input"
+          />
+          <n-checkbox v-model:checked="userForm.unlimited">{{ t('不限额（不做限制）') }}</n-checkbox>
+        </n-space>
       </n-form-item>
       <n-form-item :label="t('重置周期')">
         <n-select v-model:value="userForm.period" :options="periodOptions" />
@@ -189,9 +202,29 @@ const logsTotal = ref(0);
 const currentUser = ref<UserAllocationItem | null>(null);
 
 const filters = reactive({ keyword: '' });
-const orgForm = reactive({ totalTokens: 0, period: 'monthly' as QuotaPeriod, timezone: 'Asia/Shanghai', status: 'active' as QuotaStatus });
-const defaultForm = reactive({ quotaTokens: 0, period: 'monthly' as QuotaPeriod, status: 'active' as QuotaStatus });
-const userForm = reactive({ quotaTokens: 0, period: 'monthly' as QuotaPeriod, reason: '' });
+const orgForm = reactive({
+  totalTokens: 0,
+  unlimited: false,
+  period: 'monthly' as QuotaPeriod,
+  timezone: 'Asia/Shanghai',
+  status: 'active' as QuotaStatus,
+});
+const defaultForm = reactive({ quotaTokens: 0, unlimited: false, period: 'monthly' as QuotaPeriod, status: 'active' as QuotaStatus });
+const userForm = reactive({ quotaTokens: 0, unlimited: false, period: 'monthly' as QuotaPeriod, reason: '' });
+
+// T038 / 决策 12：``unlimited`` 为真时额度不做限制，前端不得对额度做算术运算。
+function formatQuota(value: number, unlimited?: boolean) {
+  if (unlimited) return t('不限额');
+  return `${formatTokens(value)} Token`;
+}
+
+function unlimitedOf() {
+  return Boolean(overview.value?.orgPolicy.unlimited);
+}
+
+function quotaLimit(value: number) {
+  return unlimitedOf() ? undefined : Number(value || 0);
+}
 
 const periodOptions = computed(() => [
   { label: t('自然月重置（每月 1 日 00:00）'), value: 'monthly' },
@@ -246,21 +279,23 @@ const metricCards = computed(() => {
     {
       key: 'pool',
       label: t('企业总额度'),
-      value: formatTokens(org?.totalTokens || 0),
-      note: `${periodLabel(org?.period || 'monthly')} · ${t('下次重置')} ${formatDateTime(org?.resetAt)}`,
+      value: org?.unlimited ? t('不限额') : formatTokens(org?.totalTokens || 0),
+      note: org?.unlimited
+        ? t('企业本周期额度不限额')
+        : `${periodLabel(org?.period || 'monthly')} · ${t('下次重置')} ${formatDateTime(org?.resetAt)}`,
       icon: '<svg viewBox="0 0 24 24"><path d="M4 19h16M6 17V9m6 8V5m6 12v-6" /></svg>',
     },
     {
       key: 'used',
       label: t('本周期已用'),
       value: formatTokens(org?.usedTokens || 0),
-      note: `${t('剩余')} ${formatTokens(org?.remainingTokens || 0)} Token`,
+      note: org?.unlimited ? t('不限额度') : `${t('剩余')} ${formatTokens(org?.remainingTokens || 0)} Token`,
       icon: '<svg viewBox="0 0 24 24"><path d="M12 3v18M6 8h9a3 3 0 0 1 0 6H9" /></svg>',
     },
     {
       key: 'default',
       label: t('默认成员额度'),
-      value: formatTokens(def?.quotaTokens || 0),
+      value: def?.unlimited ? t('不限额') : formatTokens(def?.quotaTokens || 0),
       note: `${periodLabel(def?.period || 'monthly')} · ${def?.status === 'active' ? t('启用') : t('禁用')}`,
       icon: '<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87" /></svg>',
     },
@@ -315,12 +350,18 @@ const columns: DataTableColumns<UserAllocationItem> = [
   {
     title: t('分配额度'),
     key: 'quotaTokens',
-    render: (row) => `${formatTokens(row.quotaTokens)} Token`,
+    render: (row) => formatQuota(row.quotaTokens, row.unlimited),
   },
   {
     title: t('已用 / 剩余'),
     key: 'usage',
     render(row) {
+      if (row.unlimited) {
+        return h('div', { class: 'usage-cell' }, [
+          h(NProgress, { type: 'line', percentage: 0, height: 6, showIndicator: false, borderRadius: 4 }),
+          h('span', `${formatTokens(row.usedTokens)} / ${t('不限额度')}`),
+        ]);
+      }
       return h('div', { class: 'usage-cell' }, [
         h(NProgress, { type: 'line', percentage: percent(row), height: 6, showIndicator: false, borderRadius: 4 }),
         h('span', `${formatTokens(row.usedTokens)} / ${formatTokens(row.remainingTokens)}`),
@@ -384,7 +425,7 @@ async function savePolicies() {
     message.warning(t('请填写新成员默认额度'));
     return;
   }
-  if (!orgForm.totalTokens && defaultForm.quotaTokens > 0) {
+  if (!orgForm.unlimited && !orgForm.totalTokens && defaultForm.quotaTokens > 0) {
     message.warning(t('企业总额度为 0，不能为成员分配额度'));
     return;
   }
@@ -406,13 +447,14 @@ function openSettings() {
 }
 
 function openEditor(row: UserAllocationItem) {
-  if (!overview.value?.orgPolicy.totalTokens) {
+  if (!unlimitedOf() && !overview.value?.orgPolicy.totalTokens) {
     message.warning(t('企业总额度为 0，不能为用户分配额度'));
     return;
   }
   currentUser.value = row;
   Object.assign(userForm, {
     quotaTokens: row.quotaTokens,
+    unlimited: row.unlimited,
     period: row.period,
     reason: '',
   });
@@ -425,13 +467,19 @@ async function saveUserPolicy() {
     message.warning(t('请填写本周期额度'));
     return;
   }
-  if (!overview.value?.orgPolicy.totalTokens && userForm.quotaTokens > 0) {
+  if (!unlimitedOf() && !overview.value?.orgPolicy.totalTokens && userForm.quotaTokens > 0) {
     message.warning(t('企业总额度为 0，不能为用户分配额度'));
     return;
   }
   savingUser.value = true;
   try {
-    await updateUserQuotaPolicy(currentUser.value.userId, { userId: currentUser.value.userId, ...userForm });
+    await updateUserQuotaPolicy(currentUser.value.userId, {
+      userId: currentUser.value.userId,
+      quotaTokens: userForm.quotaTokens,
+      unlimited: userForm.unlimited,
+      period: userForm.period,
+      reason: userForm.reason,
+    });
     message.success(t('保存成功'));
     editorVisible.value = false;
     await reload();

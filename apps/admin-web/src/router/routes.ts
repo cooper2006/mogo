@@ -34,6 +34,16 @@ export const appRoutes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/platform/login',
+    name: 'PlatformLogin',
+    component: () => import('@/views/auth/PlatformLoginPage.vue'),
+    meta: {
+      title: '平台管理员登录',
+      hideInMenu: true,
+      public: true,
+    },
+  },
+  {
     path: '/invite/accept',
     name: 'InviteAccept',
     component: () => import('@/views/auth/InviteAcceptPage.vue'),
@@ -121,6 +131,18 @@ export const appRoutes: RouteRecordRaw[] = [
         path: '/analytics',
         redirect: '/token-stats',
         meta: { hideInMenu: true },
+      },
+      {
+        path: '/platform/tenants',
+        name: 'PlatformTenants',
+        component: () => import('@/views/platform/TenantsPage.vue'),
+        meta: { title: '平台控制台', icon: SettingsIcon, platformOnly: true },
+      },
+      {
+        path: '/platform/system-health',
+        name: 'PlatformSystemHealth',
+        component: () => import('@/views/platform/SystemHealthPage.vue'),
+        meta: { title: '服务健康', hideInMenu: true, platformOnly: true },
       },
       {
         path: '/organizations/accounts',

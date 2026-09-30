@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient, redirectToLogin } from './client';
 import { useAuthStore } from '@/stores/auth';
 
 export type ModelStatus = 'active' | 'disabled';
@@ -142,10 +142,9 @@ export async function streamModelInstanceTest(
     body: JSON.stringify({ prompt }),
   });
   if (response.status === 401 || response.status === 403) {
+    const isPlatformAdmin = authStore.isPlatformAdmin;
     authStore.clearSession();
-    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-      window.location.replace('/login');
-    }
+    redirectToLogin(isPlatformAdmin);
     throw new Error('认证已过期，请重新登录');
   }
   if (!response.ok || !response.body) {

@@ -6,6 +6,7 @@ export type QuotaStatus = 'active' | 'disabled';
 export interface TrafficAllocationOverview {
   orgPolicy: {
     totalTokens: number;
+    unlimited: boolean;
     period: QuotaPeriod;
     timezone: string;
     status: QuotaStatus;
@@ -16,6 +17,7 @@ export interface TrafficAllocationOverview {
   };
   defaultPolicy: {
     quotaTokens: number;
+    unlimited: boolean;
     period: QuotaPeriod;
     status: QuotaStatus;
   };
@@ -32,6 +34,7 @@ export interface UserAllocationItem {
   status: string;
   departmentName: string;
   quotaTokens: number;
+  unlimited: boolean;
   usedTokens: number;
   remainingTokens: number;
   period: QuotaPeriod;
@@ -65,6 +68,7 @@ export async function fetchTrafficAllocationOverview() {
 
 export async function updateOrgQuotaPolicy(payload: {
   totalTokens: number;
+  unlimited: boolean;
   period: QuotaPeriod;
   timezone: string;
   status: QuotaStatus;
@@ -75,6 +79,7 @@ export async function updateOrgQuotaPolicy(payload: {
 
 export async function updateDefaultQuotaPolicy(payload: {
   quotaTokens: number;
+  unlimited: boolean;
   period: QuotaPeriod;
   status: QuotaStatus;
 }) {
@@ -90,6 +95,7 @@ export async function fetchUserAllocations(params: { keyword?: string; statusFil
 export async function updateUserQuotaPolicy(userId: string, payload: {
   userId: string;
   quotaTokens: number;
+  unlimited: boolean;
   period: QuotaPeriod;
   reason: string;
 }) {

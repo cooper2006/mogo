@@ -6,6 +6,31 @@ image.
 
 ## Unreleased
 
+### Added
+
+- Platform multi-tenancy (spec 020): a platform super-admin console for tenant
+  lifecycle management (create / list / rename / enable / disable / reset
+  password / archive / restore / purge), a `tenants` registry collection, tenant
+  isolation guards, soft-archive semantics, and staged purge of MongoDB records,
+  vectors and files with a one-month tombstone.
+- Quota "unlimited" now propagates as a flag (`unlimited` / `points_unlimited`),
+  with `remainingPoints: -1` meaning "no limit"; clients must not do arithmetic
+  on `-1`.
+
+### Upgrade notes (required reading)
+
+- **Set `ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD` before the first start after
+  upgrading.** A deployment that already completed the setup wizard will not see
+  the wizard again, so this environment variable is the only way to provision the
+  platform super-admin — without it the platform console is unreachable.
+  `ASKAI_ADMIN_PLATFORM_ADMIN_USERNAME` and
+  `ASKAI_ADMIN_PLATFORM_ADMIN_DISPLAY_NAME` are optional (defaults: `admin` /
+  `平台超级管理员`).
+- Existing tenants are backfilled into the new `tenants` collection on startup
+  (idempotent, reserved identifiers skipped); no data migration is needed.
+- `ASKAI_ADMIN_BOOTSTRAP_ADMIN_*` was renamed to
+  `ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_*` — update your environment files.
+
 ## v0.1.15 - 2026-09-16
 
 ### Added

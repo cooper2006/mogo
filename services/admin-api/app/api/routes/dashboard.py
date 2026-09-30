@@ -85,6 +85,9 @@ async def _billing(db: Any, main_id: str, current_user: dict[str, Any]) -> dict[
     current_members = await db[USER_COLLECTION].count_documents({"main_id": main_id})
     total_points = int(org.get("total_points") or 0)
     used_points = int(org.get("used_points") or 0)
+    # T037: personal/community spaces default to unlimited (decision 12);
+    # enterprise spaces use the org_quota_policies.unlimited flag.
+    points_unlimited = bool(org.get("points_unlimited", True))
     return {
         "mainId": org.get("main_id") or main_id,
         "orgName": org.get("org_name") or current_user.get("org_name") or "组织空间",
@@ -95,7 +98,8 @@ async def _billing(db: Any, main_id: str, current_user: dict[str, Any]) -> dict[
         "currentMembersCount": current_members,
         "totalPoints": total_points,
         "usedPoints": used_points,
-        "remainingPoints": max(0, total_points - used_points),
+        "unlimited": points_unlimited,
+        "remainingPoints": -1 if points_unlimited else max(0, total_points - used_points),
         "isOwnModel": bool(org.get("is_own_model", False)),
     }
 

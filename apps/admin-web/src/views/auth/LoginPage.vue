@@ -27,6 +27,9 @@
             <n-button block type="primary" size="large" :loading="loading" attr-type="submit">
               {{ t('登录后台') }}
             </n-button>
+            <n-button block quaternary size="small" type="primary" @click="router.push('/platform/login')">
+              {{ t('以平台管理员身份登录') }}
+            </n-button>
           </n-space>
         </n-form>
       </n-card>

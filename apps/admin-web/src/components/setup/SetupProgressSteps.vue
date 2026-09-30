@@ -8,10 +8,7 @@ const props = defineProps<{
 
 const steps = computed(() => [
   t('部署检测'),
-  t('组织与账号'),
-  t('对话模型'),
-  t('其他模型'),
-  t('联网搜索'),
+  t('创建平台超管'),
   t('完成'),
 ]);
 </script>
@@ -48,7 +45,7 @@ const steps = computed(() => [
 
 ol {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   margin: 0;
   padding: 0;
   list-style: none;

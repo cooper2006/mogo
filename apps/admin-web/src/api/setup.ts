@@ -7,6 +7,7 @@ export interface SetupStatus {
   mainId: string;
   initializedAt: string;
   ready: boolean;
+  platformAdminMissing: boolean;
   services: SetupServiceStatus[];
   urls: SetupUrls;
 }
@@ -16,6 +17,7 @@ export interface SetupServiceStatus {
   label: string;
   ok: boolean;
   message: string;
+  core: boolean;
 }
 
 export interface SetupUrls {
@@ -25,21 +27,16 @@ export interface SetupUrls {
   agentWebSocket: string;
 }
 
-export interface SetupInitPayload {
-  orgName: string;
-  adminUsername: string;
-  adminPassword: string;
-  adminDisplayName: string;
-  employeeUsername: string;
-  employeePassword: string;
-  employeeName: string;
-  orgTotalTokens: number;
-  defaultUserTokens: number;
-  quotaPeriod: 'monthly' | 'daily' | 'hourly';
-  quotaTimezone: string;
-  model: SetupModelPayload;
-  additionalModels: SetupModelPayload[];
-  externalSearch: SetupSearchPayload | null;
+export interface SetupPlatformAdminPayload {
+  username: string;
+  password: string;
+  displayName: string;
+}
+
+export interface SetupPlatformAdminResult {
+  completed: boolean;
+  mainId: string;
+  username: string;
 }
 
 export interface SetupModelProvider {
@@ -84,12 +81,10 @@ export async function fetchSetupStatus() {
   return data;
 }
 
-export async function initializeSetup(payload: SetupInitPayload) {
-  const { data } = await apiClient.post<{ completed: boolean; mainId: string; orgName: string; modelInstanceId: string }>(
-    '/api/setup/initialize',
-    payload,
-    { timeout: 150000 },
-  );
+export async function createPlatformAdmin(payload: SetupPlatformAdminPayload) {
+  const { data } = await apiClient.post<SetupPlatformAdminResult>('/api/setup/platform-admin', payload, {
+    timeout: 60000,
+  });
   return data;
 }
 

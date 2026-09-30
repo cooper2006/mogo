@@ -15,7 +15,7 @@ class _Collection:
     def __init__(self, rows):
         self.rows = rows
 
-    def find(self, query):
+    def find(self, query, projection=None):
         main_ids = set(query.get("main_id", {}).get("$in", []))
         status = query.get("status")
         return _Cursor([
@@ -25,9 +25,14 @@ class _Collection:
 
 
 class _Db:
-    def __init__(self, organizations, admin_accounts):
+    def __init__(self, organizations, admin_accounts, tenants=None):
         self.organizations = _Collection(organizations)
         self.admin_accounts = _Collection(admin_accounts)
+        self.tenants = _Collection(tenants or [])
+
+    def __getitem__(self, name):
+        assert name == "tenants", f"unexpected collection in test fake: {name}"
+        return self.tenants
 
 
 def test_authoritative_organization_name_replaces_technical_tenant_id() -> None:
@@ -89,3 +94,51 @@ def test_admin_org_name_is_tenant_fallback_without_granting_employee_admin_acces
     }]))
     assert candidates[0]["orgName"] == "示例科技"
     assert candidates[0]["canAccessAdmin"] is False
+
+
+# ---------------------------------------------------------------------------
+# FR-024: an archived tenant must not be selectable
+# ---------------------------------------------------------------------------
+
+
+def _user(main_id="org_1"):
+    return {"_id": "u1", "main_id": main_id, "login_name": "employee", "org_name": "示例科技"}
+
+
+def _db_with_status(status):
+    return _Db(
+        [{"main_id": "org_1", "org_name": "示例科技"}],
+        [],
+        tenants=[{"main_id": "org_1", "status": status}],
+    )
+
+
+def test_archived_tenant_is_not_a_login_candidate() -> None:
+    """Regression for the audit finding: employees could still log into an archived tenant."""
+    candidates = asyncio.run(load_tenant_candidates(_db_with_status("archived"), [_user()]))
+    assert candidates == []
+
+
+def test_disabled_and_purged_tenants_are_not_candidates() -> None:
+    for status in ("disabled", "purged"):
+        assert asyncio.run(load_tenant_candidates(_db_with_status(status), [_user()])) == []
+
+
+def test_active_tenant_is_still_a_candidate() -> None:
+    candidates = asyncio.run(load_tenant_candidates(_db_with_status("active"), [_user()]))
+    assert [c["mainId"] for c in candidates] == ["org_1"]
+
+
+def test_tenant_without_registry_row_is_grandfathered() -> None:
+    """A pre-020 deployment has an empty ``tenants`` collection; do not lock everyone out."""
+    db = _Db([{"main_id": "org_1", "org_name": "示例科技"}], [], tenants=[])
+    candidates = asyncio.run(load_tenant_candidates(db, [_user()]))
+    assert [c["mainId"] for c in candidates] == ["org_1"]
+
+
+def test_is_tenant_selectable_matches_candidate_filtering() -> None:
+    from app.services.end_user_tenant_access import is_tenant_selectable
+
+    assert asyncio.run(is_tenant_selectable(_db_with_status("active"), "org_1")) is True
+    assert asyncio.run(is_tenant_selectable(_db_with_status("archived"), "org_1")) is False
+    assert asyncio.run(is_tenant_selectable(_db_with_status("null"), "org_1")) is False

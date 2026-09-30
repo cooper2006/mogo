@@ -272,6 +272,8 @@ async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) 
     
     from app.core.product_edition import billing_enabled, is_community_organization, member_limit
 
+    # T037: unlimited flag (decision 12: 配额默认不限额)
+    points_unlimited = bool(org.get("points_unlimited", True))
     return {
         "code": 0,
         "data": {
@@ -284,7 +286,8 @@ async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) 
             "currentMembersCount": current_members,
             "totalPoints": org.get("total_points", 0),
             "usedPoints": org.get("used_points", 0),
-            "remainingPoints": max(0, (org.get("total_points") or 0) - (org.get("used_points") or 0)),
+            "unlimited": points_unlimited,
+            "remainingPoints": -1 if points_unlimited else max(0, (org.get("total_points") or 0) - (org.get("used_points") or 0)),
             "isOwnModel": bool(org.get("is_own_model", False)),
         }
     }

@@ -22,7 +22,7 @@ from app.core.tenant import DEFAULT_MAIN_ID, add_main_scope, resolve_main_id
 from app.utils.oss_uploader import ObjectStorageClient
 from app.utils.uploads import read_upload_with_limit
 from app.governance.position_policy import MongoEmployeePolicyResolver
-from app.services.end_user_tenant_access import load_tenant_candidates, resolve_space_type
+from app.services.end_user_tenant_access import is_tenant_selectable, load_tenant_candidates, resolve_space_type
 from app.services.end_user_session import resolve_session_user as _resolve_session_user
 
 router = APIRouter()
@@ -382,6 +382,10 @@ async def switch_tenant(
     target = next((item for item in available_tenants if resolve_main_id(item.get("mainId")) == target_main_id), None)
     if not target:
         return ApiResponse(code=1, message="当前账号不可切换到该组织")
+    # FR-024: ``available_tenants`` is a snapshot taken at login time, so a
+    # tenant archived since then is still listed here — re-check live status.
+    if not await is_tenant_selectable(db, target_main_id):
+        return ApiResponse(code=1, message="该组织已停用，无法切换到该组织")
     user_id = str(target.get("userId") or "")
     if not ObjectId.is_valid(user_id):
         return ApiResponse(code=1, message="用户数据异常")

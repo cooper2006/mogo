@@ -49,6 +49,8 @@ def community_organization_fields(
         "is_own_model": True,
         "owner_user_id": str(owner_user_id or ""),
         "total_points": max(0, int(total_points or 0)),
+        # T034 / decision 12: community spaces default to unlimited points.
+        "points_unlimited": True,
         "updated_at": datetime.now(timezone.utc),
     }
 

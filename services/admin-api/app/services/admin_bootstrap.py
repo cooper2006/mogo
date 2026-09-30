@@ -14,11 +14,11 @@ async def bootstrap_admin_user() -> None:
     await ensure_session_indexes()
     await ensure_org_user_indexes()
     
-    if settings.bootstrap_admin_enabled:
+    if settings.tenant_bootstrap_admin_enabled:
         setup_state = await get_setup_state()
         main_id = str((setup_state or {}).get("main_id") or "").strip() or settings.bootstrap_main_id
-        org_name = str((setup_state or {}).get("org_name") or "").strip() or settings.bootstrap_admin_org_name
-        
+        org_name = str((setup_state or {}).get("org_name") or "").strip() or settings.tenant_bootstrap_admin_org_name
+
         await ensure_group_exists(
             name="系统管理员",
             code="system_admin",
@@ -27,10 +27,10 @@ async def bootstrap_admin_user() -> None:
         )
         await ensure_bootstrap_account(
             main_id=main_id,
-            username=settings.bootstrap_admin_username,
-            password=settings.bootstrap_admin_password,
-            display_name=settings.bootstrap_admin_display_name,
-            role_name=settings.bootstrap_admin_role_name,
+            username=settings.tenant_bootstrap_admin_username,
+            password=settings.tenant_bootstrap_admin_password,
+            display_name=settings.tenant_bootstrap_admin_display_name,
+            role_name=settings.tenant_bootstrap_admin_role_name,
             org_name=org_name,
             group_code="system_admin",
         )

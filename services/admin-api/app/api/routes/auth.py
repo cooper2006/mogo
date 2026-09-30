@@ -8,14 +8,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_current_admin_user
+from app.api.deps import get_authenticated_admin
 from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.security import create_access_token, decode_access_token, verify_password
+from app.core.tenant_identity import PLATFORM_MAIN_ID, is_reserved_main_id
 from app.repositories.org_user_repository import (
     find_account_by_username,
-    find_account_by_username_any_main,
     list_accounts_by_username,
     set_account_password,
     touch_account_last_login,
@@ -23,7 +23,6 @@ from app.repositories.org_user_repository import (
     update_account_profile,
 )
 from app.repositories.admin_session_repository import create_session, revoke_session
-from app.repositories.setup_repository import get_setup_state
 
 
 class LoginRequest(BaseModel):
@@ -201,6 +200,28 @@ def _password_matches(user: dict[str, Any], password: str) -> bool:
     return bool(password_hash and password_salt and verify_password(password, password_hash, password_salt))
 
 
+async def _assert_tenant_login_allowed(main_id: str) -> None:
+    """T040: archived (or otherwise non-active) tenants cannot log in (decision 13).
+
+    The reserved platform identifier is never in the tenant registry and is
+    handled by the platform bootstrap instead, so only non-reserved
+    identifiers are checked.
+    """
+    if is_reserved_main_id(main_id) or main_id == PLATFORM_MAIN_ID:
+        return
+    db = get_db()
+    tenant = await db["tenants"].find_one({"main_id": main_id}, {"status": 1})
+    if tenant is None:
+        # Unknown identifier: keep the legacy 401/403 semantics; a brand-new
+        # tenant is always registered by provision_tenant before it is usable.
+        return
+    if str(tenant.get("status") or "") != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant is not active",
+        )
+
+
 @router.post("/login")
 async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
     requested_main_id = payload.mainId.strip()
@@ -213,6 +234,7 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
         if user.get("status") != "active":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user is disabled")
+        await _assert_tenant_login_allowed(main_id)
         if not _password_matches(user, payload.password):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
         return await _issue_login_response(user, main_id, request)
@@ -224,30 +246,38 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
         if account.get("status") == "active" and _password_matches(account, payload.password)
     ]
 
-    if not matched_users:
-        setup_state = await get_setup_state()
-        main_id = str((setup_state or {}).get("main_id") or "").strip() or settings.bootstrap_main_id
-        user = await find_account_by_username(username, main_id)
-        if user is None:
-            # Compatibility fallback:
-            # if tenant is not explicitly provided by client, try globally unique username.
-            user = await find_account_by_username_any_main(username)
-            if user is not None:
-                main_id = str(user.get("main_id") or main_id)
-        if user is not None and user.get("status") == "active" and _password_matches(user, payload.password):
-            matched_users = [user]
-
     if len(matched_users) > 1:
-        candidates = [_candidate_from_user(user) for user in matched_users]
-        return await _create_login_challenge(username, candidates)
+        candidates = [
+            _candidate_from_user(user)
+            for user in matched_users
+            if not await _tenant_blocked_for_login(str(user.get("main_id") or ""))
+        ]
+        if not candidates:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant is not active")
+        if len(candidates) > 1:
+            return await _create_login_challenge(username, candidates)
+        user = next(a for a in matched_users if str(a.get("main_id") or "") == str(candidates[0].get("mainId")))
+    else:
+        user = matched_users[0] if matched_users else None
 
-    user = matched_users[0] if matched_users else None
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
     if user.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user is disabled")
-    main_id = str(user.get("main_id") or settings.bootstrap_main_id)
+    main_id = str(user.get("main_id") or "").strip()
+    if not main_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user has no tenant")
+    await _assert_tenant_login_allowed(main_id)
     return await _issue_login_response(user, main_id, request)
+
+
+async def _tenant_blocked_for_login(main_id: str) -> bool:
+    """True when the tenant row exists and is not active (archived / purged)."""
+    if is_reserved_main_id(main_id) or main_id == PLATFORM_MAIN_ID:
+        return False
+    db = get_db()
+    tenant = await db["tenants"].find_one({"main_id": main_id}, {"status": 1})
+    return tenant is not None and str(tenant.get("status") or "") != "active"
 
 
 @router.post("/login/select-tenant")
@@ -275,6 +305,7 @@ async def select_tenant(payload: SelectTenantRequest, request: Request) -> dict[
     user = await find_account_by_username(str(challenge.get("username") or ""), payload.mainId)
     if user is None or user.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin user is unavailable")
+    await _assert_tenant_login_allowed(str(payload.mainId))
 
     await db[LOGIN_CHALLENGE_COLLECTION].update_one(
         {"_id": challenge["_id"]},
@@ -284,14 +315,14 @@ async def select_tenant(payload: SelectTenantRequest, request: Request) -> dict[
 
 
 @router.get("/me")
-async def me(current_user: dict = Depends(get_current_admin_user)) -> dict[str, object]:
+async def me(current_user: dict = Depends(get_authenticated_admin)) -> dict[str, object]:
     return _profile_from_user(current_user, str(current_user.get("main_id", settings.bootstrap_main_id)))
 
 
 @router.patch("/me")
 async def update_me(
     payload: ProfileUpdateRequest,
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_authenticated_admin),
 ) -> dict[str, object]:
     main_id = str(current_user.get("main_id", settings.bootstrap_main_id))
     display_name = payload.name.strip()
@@ -315,7 +346,7 @@ async def update_me(
 async def change_my_password(
     payload: PasswordChangeRequest,
     authorization: str | None = Header(default=None),
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_authenticated_admin),
 ) -> dict[str, bool]:
     if not _password_matches(current_user, payload.currentPassword):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
@@ -338,7 +369,7 @@ async def change_my_password(
 @router.post("/me/avatar")
 async def upload_my_avatar(
     file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_authenticated_admin),
 ) -> dict[str, object]:
     content_type = str(file.content_type or "").lower()
     ext = _avatar_extension(content_type, file.filename or "")
@@ -380,7 +411,7 @@ async def upload_my_avatar(
 @router.post("/logout")
 async def logout(
     authorization: str | None = Header(default=None),
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_authenticated_admin),
 ) -> dict[str, bool]:
     del current_user
     if authorization and authorization.startswith("Bearer "):

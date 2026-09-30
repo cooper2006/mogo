@@ -18,6 +18,10 @@ from app.api.routes.knowledge_settings import ensure_indexes as ensure_knowledge
 from app.api.routes.page_collection import ensure_indexes as ensure_page_collection_indexes
 from app.services.admin_bootstrap import bootstrap_admin_user
 from app.services.directory_bootstrap import bootstrap_directory
+from app.services.platform_bootstrap import bootstrap_platform_admin
+from app.services.tenant_registry import ensure_indexes as ensure_tenant_indexes
+from app.services.tenant_registry import backfill_tenants_from_accounts
+from app.services.tenant_purge import cleanup_expired_tombstones
 from app.services.organization_tools import repair_role_referenced_personal_tools
 from app.system_audit import SystemAuditMiddleware, SystemAuditRepository
 from app.product.extensions import get_admin_product_extension
@@ -61,6 +65,10 @@ def create_app() -> FastAPI:
         await ensure_knowledge_settings_indexes()
         await ensure_knowledge_document_indexes()
         await ensure_knowledge_directory_indexes()
+        await ensure_tenant_indexes()
+        await backfill_tenants_from_accounts()
+        await bootstrap_platform_admin()
+        await cleanup_expired_tombstones()  # T052: reap tombstones older than 1 month
         for callback in get_admin_product_extension().startup:
             result = callback()
             if hasattr(result, "__await__"):
