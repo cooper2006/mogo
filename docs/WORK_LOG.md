@@ -1,5 +1,19 @@
 # Work Log
 
+## 2026-10-01 新增内置技能全量专家包（mogo-builtin-skills-all）
+
+**任务**：用户要求「把内置的技能导出合并为一个zip文件」。
+
+**过程**：
+- 已有 `build_builtin_expert_package.py` 产出 `mogo-builtin-skills-1.0.0.zip`，但跳过了 legacy YAML 格式的 `research`/`stock_analysis`（无 `---` frontmatter）和 `customer_feedback_triage`（已有独立打包产物）
+- 新建 `docs/cases/build_builtin_all_expert_package.py`，覆盖全部 15 个技能目录：
+  - legacy YAML 技能通过 `rewrite_skill_md()` 合成标准 `---` frontmatter（保留原始 `tools`/`description` 等字段）
+  - snake_case 目录名通过 `packageName` 或 `name` 字段转为 kebab-case
+- 首次打包展开后文件数超 256 上限（docx/pptx/xlsx 各带 39 个 `.xsd` 共 117 个），加入 `--keep-schemas` 选项并默认排除 `.xsd`
+- 排除后展开 197 个文件，`expert_validator.validate_expert_package()` 验证通过（`VALID: mogo-builtin-skills-all v1.0.0 children=15 files=199`）
+
+**产出**：`docs/cases/builtin-skills/mogo-builtin-skills-all-1.0.0.zip`（含 15 个技能）
+
 ## 2026-10-01 修复 SKILL.md 引用未声明工具"print"警告
 
 **问题**：打开 `mogo-builtin-skills-1.0.0.zip` 中的 pdf/xlsx 技能时，提示「SKILL.md 引用了未声明的工具 'print'」。
