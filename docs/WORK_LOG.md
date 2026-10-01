@@ -1,6 +1,37 @@
 # Work Log
 
-## 2026-09-30 按 SDD 审计报告修复 020 多租户 P0/P1 缺陷（租户清理面、FR-033/FR-028/FR-024、头像与向量、PATCH 成员上限）
+## 2026-10-01 修复 SKILL.md 引用未声明工具"print"警告
+
+**问题**：打开 `mogo-builtin-skills-1.0.0.zip` 中的 pdf/xlsx 技能时，提示「SKILL.md 引用了未声明的工具 'print'」。
+
+**根因分析**：
+- `validator.py` 通过正则 `^\s*([a-z][a-z0-9_]{1,63})\s*\(` 匹配代码块中的函数调用，将 `print(`、`len(` 等 Python 内置函数误判为"工具引用"
+- pdf/xlsx 技能的 SKILL.md 代码示例中包含 `print(f"...")` 语句，触发 `undeclared_tool_reference` 警告
+- docx 技能无此问题（代码示例中无 `print(` 调用）
+
+**修复方案（两层防御）**：
+1. **SKILL.md 显式声明**：在 `pdf/SKILL.md` 和 `xlsx/SKILL.md` 的 frontmatter 中新增 `tools: []`，表明这两个技能不依赖任何外部工具
+2. **Validator 白名单过滤**：在 `validator.py` 中添加 `BUILTIN_FUNCTIONS` 白名单（包含 `print`、`len`、`range`、`int`、`str` 等 48 个 Python 内置函数），在计算 `referenced` 时过滤掉这些内置函数，避免误报
+
+**改动文件**：
+- `services/chat-api/app/services/skill_packages/validator.py`（新增 `BUILTIN_FUNCTIONS` 常量 + 过滤逻辑）
+- `services/chat-api/app/skills_specs/pdf/SKILL.md`（新增 `tools: []`）
+- `services/chat-api/app/skills_specs/xlsx/SKILL.md`（新增 `tools: []`）
+- `docs/cases/builtin-skills/*.zip`（重新打包，全部 `warnings=-`）
+
+**验证**：
+- `build_builtin_skill_zips.py` 全部 12 个技能 `warnings=-`（零警告）
+- `build_builtin_expert_package.py` 生成 `mogo-builtin-skills v1.0.0` VALID
+
+## 2026-10-01 docs/cases/builtin-skills/ 纳入版本控制
+
+**任务**：用户要求「docs/cases/builtin-skills/ 目前仍未纳入版本控制，加入版本控制吧」。
+
+**操作**：`git add docs/cases/builtin-skills/` → 16 个文件（1 README + 15 ZIP）已 staged；`git commit` → `7438eb5 feat: add builtin skills cases to version control`；`git push mogo main` → 已推送至 `https://github.com/cooper2006/mogo.git`。
+
+**改动文件**：无源码变更，仅新增版本跟踪。
+
+## 2026-10-01 全项目多轮回归 + 修复 2 处 CI 红灯 + 卫生检查测试白名单
 
 - 触发：`docs/020-platform-multi-tenancy-SDD审计报告.md` 列出 6 项 HIGH，用户授权「开始修复吧」，按报告 §9 的 P0 → P1 顺序执行。全部改动均为最小改动，未做顺手重构。
 - **P0-1 清理面严重不全（FR-031 / SC-005）** —— `services/admin-api/app/services/tenant_purge.py`：
