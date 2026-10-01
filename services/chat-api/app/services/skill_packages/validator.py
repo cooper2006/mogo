@@ -24,6 +24,17 @@ TOOL_REFERENCE = re.compile(r"^\s*([a-z][a-z0-9_]{1,63})\s*\(", re.MULTILINE)
 FENCED_CODE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
 IGNORED_PREFIXES = ("__MACOSX/",)
 
+# Python built-in functions commonly used in code examples; not actual tools
+BUILTIN_FUNCTIONS = frozenset({
+    "print", "len", "range", "int", "str", "float", "list", "dict", "set", "tuple",
+    "type", "isinstance", "issubclass", "enumerate", "zip", "map", "filter",
+    "sorted", "reversed", "sum", "min", "max", "abs", "round", "input", "open",
+    "format", "repr", "hash", "id", "dir", "vars", "getattr", "setattr", "delattr",
+    "hasattr", "callable", "iter", "next", "any", "all", "breakpoint", "super",
+    "property", "staticmethod", "classmethod", "bytes", "bytearray", "memoryview",
+    "complex", "bool", "object",
+})
+
 
 class SkillPackageError(ValueError):
     def __init__(self, code: str, message: str, *, file: str = "", field: str = "") -> None:
@@ -226,6 +237,8 @@ def validate_skill_zip(content: bytes) -> ValidatedSkillPackage:
         declared = tuple(dict.fromkeys(item.strip() for item in raw_tools if item.strip()))
         code_samples = "\n".join(FENCED_CODE.findall(body))
         referenced = tuple(sorted(set(TOOL_REFERENCE.findall(code_samples))))
+        # Filter out Python built-in functions from tool references
+        referenced = tuple(tool for tool in referenced if tool not in BUILTIN_FUNCTIONS)
         undeclared = sorted(set(referenced) - set(declared))
         warnings = tuple(metadata_warnings) + tuple({
             "code": "undeclared_tool_reference",
