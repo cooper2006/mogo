@@ -40,6 +40,7 @@ OUT_DIR = Path(__file__).resolve().parent / "builtin-skills"
 OUT_NAME = "mogo-builtin-skills-all"
 
 LEGACY_YAML = {"research", "stock_analysis"}
+SCHEMA_SUFFIX = ".xsd"
 
 BUNDLE_SLUG = "mogo-builtin-skills-all"
 BUNDLE_DISPLAY_NAME = "内置技能合集（全量）"
@@ -123,20 +124,21 @@ def rewrite_skill_md(skill_dir: Path) -> tuple[str, bytes]:
     return slug, rewritten.encode("utf-8")
 
 
-def skill_files(skill_dir: Path) -> list[Path]:
+def skill_files(skill_dir: Path, *, exclude_schemas: bool = True) -> list[Path]:
     return sorted(
         p
         for p in skill_dir.rglob("*")
         if p.is_file()
         and not EXCLUDED_PARTS.intersection(p.relative_to(skill_dir).parts)
         and p.suffix != ".pyc"
+        and (not exclude_schemas or not p.name.endswith(SCHEMA_SUFFIX))
     )
 
 
-def build_one(skill_dir: Path, validator) -> tuple[str, int, bytes]:
+def build_one(skill_dir: Path, validator, *, exclude_schemas: bool = True) -> tuple[str, int, bytes]:
     """Returns (slug, file_count, zip_bytes)."""
     slug, skill_md_bytes = rewrite_skill_md(skill_dir)
-    files = skill_files(skill_dir)
+    files = skill_files(skill_dir, exclude_schemas=exclude_schemas)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
         for path in files:
@@ -159,7 +161,7 @@ def build_one(skill_dir: Path, validator) -> tuple[str, int, bytes]:
     return slug, len(files), zip_bytes
 
 
-def build_bundle(*, output: Path | None = None) -> tuple[bytes, list[tuple[str, str, int, bytes]]]:
+def build_bundle(*, output: Path | None = None, exclude_schemas: bool = True) -> tuple[bytes, list[tuple[str, str, int, bytes]]]:
     sources = sorted(SKILLS_ROOT.iterdir())
     if not sources:
         raise SystemExit(f"no skill dirs in {SKILLS_ROOT}")
@@ -173,7 +175,7 @@ def build_bundle(*, output: Path | None = None) -> tuple[bytes, list[tuple[str, 
             print(f"skip  {skill_dir.name:30s} no SKILL.md")
             continue
         try:
-            slug, file_count, zip_bytes = build_one(skill_dir, validator)
+            slug, file_count, zip_bytes = build_one(skill_dir, validator, exclude_schemas=exclude_schemas)
         except Exception as exc:
             print(f"fail  {skill_dir.name:30s} {exc}")
             continue
@@ -218,12 +220,13 @@ def build_bundle(*, output: Path | None = None) -> tuple[bytes, list[tuple[str, 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a single expert-package ZIP for all builtin skills.")
     parser.add_argument("--out", help="output ZIP path; defaults to builtin-skills/<slug>-<version>.zip")
+    parser.add_argument("--keep-schemas", action="store_true", help="keep .xsd schemas (may exceed 256 file cap)")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = Path(args.out) if args.out else OUT_DIR / f"{BUNDLE_SLUG}-1.0.0.zip"
 
-    data, children = build_bundle(output=out_path)
+    data, children = build_bundle(output=out_path, exclude_schemas=not args.keep_schemas)
 
     print(f"\nchildren ({len(children)}):")
     for slug, src, fc, zip_bytes in children:
