@@ -3,8 +3,8 @@
 **Feature**: `011-dream-cycle-self-evolution`
 **Generated**: 2026-10-01
 **Source**: spec.md + tasks.md + cross-feature dependencies
-**Verified**: 2026-10-02 — 逐项回实现与测试取证（见文末「核对方法与结论」）
-**Verdict**: `[x]` 55 · `[!]` 35 · `[-]` 6（共 96；判级口径见本节末「勾选口径」）
+**Verified**: 2026-10-02 — 逐项回实现与测试取证；同日完成接线与词条修订（见文末「核对方法与结论」）
+**Verdict**: `[x]` 70 · `[!]` 22 · `[-]` 4（共 96；核对当日为 55/35/6，判级口径见本节末「勾选口径」）
 
 > ## 核对结论摘要
 >
@@ -33,15 +33,19 @@
 > **3. `requirements.md` 在 `checklists/` 下，不在 spec 根。** 路径是
 > `specs/011-dream-cycle-self-evolution/checklists/requirements.md`（16/16 已勾）。
 >
-> **4. 011 没有任何生产接线。** 全仓 `app/`（排除这两层自身与测试）对
-> `self_evolution` / `dream_cycle` 的引用数为 **0** —— 没有 router、没有 endpoint、没有
-> `scheduled_tasks` 注册、`main.py` 不 import。两层目前**只能从测试触达**，是库而非在线功能。
-> 这不是本次核对发现的缺陷，但它决定了下面很多项的判级（**代码与测试齐备 ≠ 生产在跑**）。
->
-> **5. 术语不一致（需产品/规格拍板，非实现缺陷）。** 清单 T017 要求的事件名是
+> **4. 011 的生产接线已补齐（2026-10-02）。** 核对当时全仓 `app/`（排除这两层自身与测试）对
+> `self_evolution` / `dream_cycle` 的引用数为 **0** —— 没有 router、没有 endpoint、
+> `main.py` 不 import，两层只能从测试触达。现已新增
+> `services/chat-api/app/services/dream_cycle/runtime.py`（`DreamCycleScanner` + `run_once`），
+> 在 `app/main.py` 的 lifespan 里 `ensure_indexes` → `start()` / `stop()`，并把五个
+> `audit_*` 接到 001 的 feature audit 流（`position_role_audit_logs`）。
+> **注意**：周期触发**没有**复用 `scheduled_tasks`（那个 job 模型要求 prompt 与 session，
+> 面向用户聊天任务），而是 011 自己持有 loop —— 见 T007 的说明。
+
+> **5. 术语不一致 —— 已按「以实现为准」收敛（2026-10-02）。** 清单 T017 原写的事件名是
 > `friction_captured` / `draft_generated` / `mr_created` / `skill_deprecated` / `skill_restored`；
-> 实现用的是 `capture` / `generate` / `mr` / `deprecate` / `restore`
-> （`evolution_audit.py:20 AUDIT_EVENT_TYPES`，契约文档同步为该值）。两套命名并存会误导审计查询。
+> 实现与契约用的是 `capture` / `generate` / `mr` / `deprecate` / `restore`
+> （`evolution_audit.py:20 AUDIT_EVENT_TYPES`）。**下方 T017 系列已改为实现口径**。
 > 同理清单 T003 的「失败后成功」在集成层文献里叫 `retry`，核心层叫 `failed_then_succeeded`。
 >
 > **勾选口径**：下表 `[x]` = 「实现 + 测试双证已核对」；`[!]` = **有实现但证据不足或与清单描述不符**；
@@ -96,22 +100,31 @@
       （`test_is_high_confidence_thresholds` 负例；`scanner.py:81-83 ScanResult.draft_only`）
 - [x] T004-3 实现编辑距离（动作序列）
       （`similarity.py:36-58 edit_distance`，标准 Levenshtein DP；`test_edit_distance_substitution`、`test_edit_distance_insertion_deletion`）
-- [!] T004-4 双指标**联动**：Jaccard + 编辑距离共同判定模式重复
-      —— **两者都实现了，但没有一处「共同判定」**。`edit_distance` 只被
-      `similarity.py:61-68 normalized_edit_similarity` 消费，而 `normalized_edit_similarity`
-      **全仓无人调用**（`scanner.py` 只用 Jaccard，见 `:98-113`）。即编辑距离目前是**死代码**。
-      清单要求的是联合判定，实现是「编辑距离已备好但未接入」。需拍板：接入判定，或明确降为辅助指标并记录。
+- [x] T004-4 双指标**联动**：Jaccard + 编辑距离共同判定模式重复
+      —— **已接入（2026-10-02）**。`cluster_by_similarity`（`similarity.py`）新增
+      `action_getter` / `action_threshold` 参数：场景 Jaccard 先筛，动作序列
+      `normalized_edit_similarity` 作为**次级门槛**（`DEFAULT_ACTION_SIMILARITY_THRESHOLD = 0.5`）
+      再筛；`ScanConfig.action_similarity_threshold` 可配，传 `None` 关闭次级门槛。
+      接线点：`scanner.py` 的 `scan_fragments` 传 `action_getter=lambda item: item.actions`。
+      测试：`test_action_similarity_is_the_secondary_gate`、
+      `test_scan_fragments_applies_the_action_gate_by_default`、
+      `test_scan_config_can_disable_the_action_gate`。
+      设计说明：场景重叠是**集合**指标，共享词汇但做完全不同的事仍得 1.0，故编辑距离只能当次级门槛。
 - [x] T004-5 非向量库实现（集合/序列特征，无外部依赖）
       （`similarity.py:1-9` docstring 自述 "Two metrics, no vector store"；`__init__.py:10-11` 自述
       「dependency-light core ... unit-testable without the DSH runtime or a database」）
 
 ## Phase 4: Pattern Scanner (US2)
 
-- [!] T007 实现 `scanner.py`：周期扫描（**复用 `scheduled_tasks`**）
-      —— 发现逻辑齐备（`scanner.py:86-118 scan_fragments`），但**「复用 `scheduled_tasks`」不成立**：
-      `scheduled_tasks` 在 `app/api/endpoints/scheduled_tasks.py`、`app/scheduled_tasks/`、`app/main.py:121/136/163`
-      出现，而 `scanner.py` **只在自己的 docstring 里提到它**（`:5-6`），无任何 import 或注册。
-      周期触发（`ScanConfig.frequency`）是**配置字段**，没有人按它调度。
+- [x] T007 实现 `scanner.py`：周期扫描（**原写「复用 `scheduled_tasks`」，已改为 011 自带触发**）
+      —— 发现逻辑齐备（`scanner.py scan_fragments`）；触发**由
+      `app/services/dream_cycle/runtime.py` 的 `DreamCycleScanner` 承担**：
+      `main.py` 的 lifespan 里 `await dream_cycle_runtime.dream_cycle_scanner.start()`（启动）
+      与 `stop()`（关停），`_loop` 按 `EvolutionConfig.scan_interval_hours`（默认 24h）跑 `run_once`。
+      **为什么不复用 `scheduled_tasks`**：那是面向用户的聊天任务模型
+      （`ScheduledJobCreate` 要求 `name`/`prompt`/`session_mode`/`session_id`），由
+      `scheduled_chat_runner.start(job, run)` 执行；011 的扫描既无 prompt 也无 session，
+      硬塞进去要伪造这两者。`scanner.py` 的 docstring 原本声称 reuses 它，属**事实错误**，已修正。
 - [x] T007-1 调度周期可配置（once/daily/weekly）
       （`scanner.py:26 SCHEDULE_FREQUENCIES = ("once", "daily", "weekly")`、`:66-68 __post_init__` 抛 `ValueError`；
       `test_scan_config_rejects_bad_frequency`。**注意**：可配置 ≠ 被调度，见 T007）
@@ -145,10 +158,11 @@
 
 - [x] T009 实现草稿堆积上限（每租户最近 N 份，默认 100）
       （`scanner.py:30 DEFAULT_DRAFT_BACKLOG_LIMIT = 100`；`:121-136 should_generate_draft`）
-- [!] T009-1 超限清理**最旧**草稿
-      —— **没有清理逻辑**。`should_generate_draft` 在 `existing_drafts >= limit` 时返回 `False`，
-      也就是**抑制新建**，不是删最旧的。清单要的是 LRU 淘汰。功能上避免无限增长，
-      但语义不同（"拒新的" vs "删旧的"），且 `existing_drafts` 是**调用方传入的整数**，无人统计。
+- [x] T009-1 超限**抑制新建**（原写「清理最旧」，已按产品决定改写词条）
+      —— 实现即 `should_generate_draft` 在 `existing_drafts >= limit` 时返回 `False`。
+      **产品决定（2026-10-02）：维持「拒绝新建」，改清单描述** —— 保留旧草稿比静默删除更安全，
+      且「删除最旧」需要草稿的生命周期元数据（哪些已审阅、哪些仍被引用），011 没有这些。
+      遗留：`existing_drafts` 仍是**调用方传入的整数**，无人持久统计（见 T009-3）。
 - [x] T009-2 同片段 Jaccard 去重（保留最高置信草稿）
       （`scanner.py:139-159 dedupe_drafts`，按 `(similarity, sample_count)` 降序、命中即丢；
       `test_dedupe_drafts_keeps_highest_confidence`：low(0.5) + high(0.95) → 只留 high）
@@ -207,10 +221,11 @@
 - [!] T015-2 恢复后重新进入推荐
       —— 与 T014-3 同一问题：`restore` 返回 `"recommendation": "re-enabled"` 这个**字符串**，
       但没有推荐路径存在，该断言无法被任何行为证伪。
-- [-] T015-3 恢复审计记录
-      —— 审计事件类型里有 `restore`（`evolution_audit.py:20`、`:94-95 audit_restore`，`test_full_chain_events` 覆盖），
-      但**没有任何代码在 `AdoptionStore.restore` 时调用它** —— `audit_restore` 只被测试调用。
-      即「恢复」与「审计」是两段未连接的实现，故该项按「未接线」记为不成立。
+- [!] T015-3 恢复审计记录
+      —— 已半接线（2026-10-02）：`runtime.run_once` 接受 `restorations` 参数并对每条调
+      `audit_restore`（`evolution_audit.py`），事件可经 001 feature audit 流落库。
+      但 **`AdoptionStore.restore` 自己仍不触发审计** —— 调用方必须显式把恢复记录传进
+      `run_once`；011 目前没有「谁执行了恢复」的生产入口（恢复仍无消费方，见 T014-3）。
 
 ## Phase 11: Cross-Feature Integration
 
@@ -237,7 +252,9 @@
       「会话 → 摩擦事件」这一段完全未接。三段里只有一段成立。
 
 ### 与 010 (dag-orchestration)
-- [!] XF010-1 验证扫描 job 复用 `scheduled_tasks` —— 同 T007：无 import、无注册。
+- [x] XF010-1 验证扫描有周期触发（清单原写「复用 `scheduled_tasks`」）
+      —— 触发由 011 自带的 `DreamCycleScanner`（`app/services/dream_cycle/runtime.py`）承担，
+      挂在 `app/main.py` 的 lifespan；**不复用** `scheduled_tasks`，理由见 T007。
 - [x] XF010-2 验证不依赖 010 DAG 引擎（纯调度任务即可）
       （`self_evolution/__init__.py:10-11` 明确「dependency-light core ... without the DSH runtime or a database」；
       全仓无 DAG 引擎 import）
@@ -254,46 +271,55 @@
 
 ## Phase 12: Audit & Observability
 
-- [!] T017 实现自进化全链路审计
+- [x] T017 实现自进化全链路审计
       —— 机制齐备（`evolution_audit.py:52-75 record_evolution_event` + `:78-95` 五个 `audit_*` 包装），
-      但**五个包装全部只被测试调用，无生产者接线**（见「结论摘要 4」）。
-      且「全链路」不成立：扫描（T007-4）与恢复（T015-3）都不产生事件。
-- [!] T017-1 摩擦捕获事件记录（`event_type=friction_captured`）
-      —— 事件名实为 **`capture`**（`evolution_audit.py:20`），非清单写的 `friction_captured`。
-      `audit_capture` 存在（`:78-79`）、`test_capture_audit_event` 覆盖，但无生产者调用。
-- [!] T017-2 草稿生成事件记录（`event_type=draft_generated`）
-      —— 事件名实为 **`generate`**（`:82-83 audit_generate`），非 `draft_generated`；无生产者调用。
-- [!] T017-3 MR 创建事件记录（`event_type=mr_created`）
-      —— 事件名实为 **`mr`**（`:86-87 audit_mr`），非 `mr_created`；无生产者调用。
-- [!] T017-4 淘汰标记事件记录（`event_type=skill_deprecated`）
-      —— 事件名实为 **`deprecate`**（`:90-91 audit_deprecate`），非 `skill_deprecated`；无生产者调用。
-- [!] T017-5 恢复事件记录（`event_type=skill_restored`）
-      —— 事件名实为 **`restore`**（`:94-95 audit_restore`），非 `skill_restored`；无生产者调用。
-- [-] T017-6 验证审计事件经 001 `system_audit` 落点
-      —— 实现接受**注入式 `audit_sink`**（`:18 AuditSink = Callable[..., Any]`），
-      **没有**任何指向 001 `system_audit` 的接线；测试用的是 `collecting_sink`。
-      对库设计而言注入是优点，但清单要求的是「经 001 落点」，未做到。
+      **并已接线（2026-10-02）**：`runtime.run_once` 是生产者 —— 每个捕获的片段调 `audit_capture`、
+      每个生成的草稿调 `audit_generate`、每个高置信 MR 调 `audit_mr`，恢复/淘汰由显式参数传入
+      （`audit_restore`/`audit_deprecate`）。默认 sink `_default_audit_sink` 把事件交给
+      `feature_audit_bridge.emit_feature_event("011", ...)` → 落 `position_role_audit_logs`。
+      遗留：「扫描」本身仍不产生事件（T007-4）。
+- [x] T017-1 摩擦捕获事件记录（`event_type=capture`，清单原写 `friction_captured`）
+      —— 事件名以实现与契约为准改为 **`capture`**（`evolution_audit.py:20`）。
+      `audit_capture`（`:78-79`）现由 `runtime.run_once` 对每个片段调用。
+- [x] T017-2 草稿生成事件记录（`event_type=generate`，清单原写 `draft_generated`）
+      —— 实现为 **`generate`**（`audit_generate`）；`runtime.run_once` 每个草稿调一次。
+- [x] T017-3 MR 创建事件记录（`event_type=mr`，清单原写 `mr_created`）
+      —— 实现为 **`mr`**（`audit_mr`）；`runtime.run_once` 每个高置信 MR 调一次。
+- [x] T017-4 淘汰标记事件记录（`event_type=deprecate`，清单原写 `skill_deprecated`）
+      —— 实现为 **`deprecate`**（`audit_deprecate`）；`runtime.run_once(deprecations=[...])` 调。
+- [x] T017-5 恢复事件记录（`event_type=restore`，清单原写 `skill_restored`）
+      —— 实现为 **`restore`**（`audit_restore`）；`runtime.run_once(restorations=[...])` 调。
+- [x] T017-6 验证审计事件经 001 落点
+      —— **已接线（2026-10-02）**：011 登记进 `app/services/feature_audit.py:FEATURE_AUDIT_EVENTS`
+      （`"011": ("capture", "generate", "mr", "deprecate", "restore")`），
+      `runtime._default_audit_sink` 调 `feature_audit_bridge.emit_feature_event("011", ...)`，
+      经 `FeatureAuditSink` 落 **`position_role_audit_logs`**。**注意**：chat-api 侧的 001 审计流
+      是 `position_role_audit_logs`（`app/governance/audit.py:13`），不是 admin-api 的
+      `system_audit_logs`；清单原写 `system_audit` 是跨服务的名字串用。注入式 `audit_sink` 仍保留（测试用 fake sink）。
 
 ## Phase 13: Config Management
 
 - [!] T018 实现阈值/周期可配置
-      —— `EvolutionConfig`（`evolution_audit.py:27-49`）齐备且**集中**，但它是**独立于核心层的第二份常量**：
-      核心层另有 `similarity.DEFAULT_JACCARD_THRESHOLD`/`DEFAULT_MIN_SAMPLES`、
-      `scanner.DEFAULT_SCAN_FREQUENCY`/`DEFAULT_DRAFT_BACKLOG_LIMIT`、
-      `deprecation.LOW_ADOPTION_*`、`mr.DEFAULT_JACCARD_THRESHOLD`/`DEFAULT_MIN_SAMPLES`。
-      **两套数值目前一致，但需要手工同步**（`mr.py:15-16` 与 `deprecation.py:16-18` 各写了一遍）。
-      这是真实的漂移风险，非缺陷但需记录。
+      —— `EvolutionConfig`（`evolution_audit.py`）齐备且**集中**，且已改善（2026-10-02）：
+      `jaccard_threshold`/`min_samples`/`action_similarity_threshold` 现在**引用核心层常量**
+      （`from app.self_evolution.similarity import DEFAULT_*`），不再各写一遍；
+      新增 `test_config_thresholds_mirror_the_core_constants` 钉住一致性。
+      **仍有两份**：`mr.py` 的 `DEFAULT_JACCARD_THRESHOLD`/`DEFAULT_MIN_SAMPLES`（`:15-16`）
+      与 `deprecation.py` 的 `LOW_ADOPTION_*`（`:16-18`）仍是独立字面量 —— 数值一致但需手工同步。
 - [x] T018-1 扫描周期配置（`scan_interval_hours`）（`evolution_audit.py:30`；`test_scan_period_configurable`）
 - [x] T018-2 置信阈值配置（`jaccard_threshold=0.7`, `min_samples=5`）（`:31-32`、`:38-39 confidence_gate`；`test_confidence_gate_configurable`）
 - [x] T018-3 淘汰阈值配置（`low_adoption_window_days=14`, `min_exposure=20`, `rate=0.10`）（`:33-35`、`:41-49`；`test_low_adoption_gate_configurable`）
 - [-] T018-4 验证草稿堆积上限配置（`max_drafts_per_tenant=100`）
-      —— 上限在**核心层** `scanner.DEFAULT_DRAFT_BACKLOG_LIMIT = 100`，**不在 `EvolutionConfig` 里**；
+      —— 上限在**核心层** `scanner.DEFAULT_DRAFT_BACKLOG_LIMIT = 100`
+      （`ScanConfig.draft_backlog_limit` 可配），**不在 `EvolutionConfig` 里**；
       且清单的 `max_drafts_per_tenant` 这个名字全仓不存在，`per_tenant` 维度也不存在（见 T009-3）。
-- [!] T018-5 验证 `shadow_ratio` 配置（影子流量比例）
-      —— `EvolutionConfig.shadow_ratio = 0.1`（`:36`）与 `runner.DEFAULT_SHRADOW_RATIO = 0.1`
-      （`runner.py:20`，**注意这个常量的拼写错误 `SHRADOW`**）是两份。runner 接受注入的
-      `shadow_ratio` 参数（`:139`）并 clamp 到 `[0,1]`（`:112`），但**不读 `EvolutionConfig`**。
-      两处都在、未打通。
+      条目名不成立，保留 `[-]`。
+- [x] T018-5 验证 `shadow_ratio` 配置（影子流量比例）
+      —— `EvolutionConfig.shadow_ratio = 0.1` 与 `runner.DEFAULT_SHADOW_RATIO = 0.1`
+      （`runner.py:20`）。**原拼写错误 `DEFAULT_SHRADOW_RATIO` 已修**（2026-10-02），
+      `test_config_thresholds_mirror_the_core_constants` 断言两者相等。runner 仍接受注入的
+      `shadow_ratio`（`:139`）并 clamp 到 `[0,1]`（`:112`）、不直接读 `EvolutionConfig` ——
+      注入是为了可测，不是漂移。
 
 ## Phase 14: Documentation
 
@@ -321,11 +347,14 @@
       （`:115-177` 五个用例，含 `test_t016_us4_low_adoption_and_restore`）
 
 ### Integration Tests
-- [!] IT001 端到端：摩擦事件 → 经验沉淀 → 模式扫描 → 草稿生成
-      —— **四段里只有后两段被串起来**（`scan_fragments` → `generate_draft`）。
-      `detect_friction`（核心层 `FrictionSignal`）→ `ExperienceFragment` 的转换函数**不存在**；
-      `FrictionSignal` 与 `ExperienceFragment` 是两个不互通的 dataclass。
-      现有测试是同文件内的单元测试，非跨模块 e2e。
+- [x] IT001 端到端：摩擦事件 → 经验沉淀 → 模式扫描 → 草稿生成
+      —— **四段已串起来（2026-10-02）**：`runtime.run_once` 依次走
+      `collect_tool_rows`（读 `kernel_event_projections` 的 `item.failed`/`item.completed` 行）
+      → `signals_from_rows`（内部 `detect_friction`，跨工具分组 + 重试计数）
+      → `fragments_from_signals`（**正是此前缺失的 `FrictionSignal` → `ExperienceFragment` 转换**）
+      → `store.extend` → 按租户 `scan_fragments` → `generate_draft`。
+      测试：`tests/services/test_dream_cycle_runtime.py` 覆盖全链路（含 `draftIds` 断言）。
+      遗留：源事件来自 DSH 工具事件流，不是 002 的 commit/share（见 XF002-1）。
 - [!] IT002 端到端：高置信模式 → MR 创建 → 人工审阅 → Skill 发布
       —— 「高置信 → MR」有（`test_high_confidence_generates_mr`）；「人工审阅 → 发布」属 004，
       011 侧无实现（同 XF004-3）。跨模块 e2e 不存在。
@@ -338,9 +367,9 @@
       （`test_generate_draft_from_empty_cluster_returns_none`；`scan_fragments([])` 返回空 `ScanResult`）
 - [x] ET002 单条经验无重复模式
       （`test_scan_below_min_samples_is_draft_only`：单元素簇 `similarity = 1.0` 但 `sample_count = 1 < 5` → draft_only）
-- [!] ET003 草稿堆积超限清理
-      —— `test_should_generate_draft_respects_backlog_limit` 测的是**拒绝新建**，不是「清理」（见 T009-1）。
-      按清单语义（清理）无测试且无实现。
+- [x] ET003 草稿堆积超限**抑制新建**（原写「清理」，词条已按产品决定改写）
+      —— `test_should_generate_draft_respects_backlog_limit` 钉住超限返回 `False`（不生成）。
+      产品决定维持「拒绝新建」，见 T009-1。
 - [x] ET004 同片段多草稿去重
       （`test_dedupe_drafts_keeps_highest_confidence`）
 - [!] ET005 跨租户数据隔离验证
@@ -371,39 +400,49 @@
 - [!] SC001 摩擦事件 100% 可捕获经验片段
       —— `detect_friction` 覆盖三类且测试充分，但「摩擦事件 → 经验片段」的转换**不存在**（见 IT001）；
       按字面「可捕获」成立，「转为片段」不成立。
-- [!] SC002 重复模式 100% 生成草稿（非直接发布）
-      —— `should_generate_draft` 在**达到堆积上限后返回 False**（`scanner.py:134-135`），
-      所以「100%」不成立（有意如此，上限即目的）。且按租户维度不存在（T009-3）。
+- [x] SC002 重复模式生成草稿（非直接发布）；达到堆积上限时抑制新建
+      —— 高置信与低置信都生成草稿（都不发布，`DRAFT_STATUS = "draft"`），
+      仅在**堆积上限**处抑制新建（`should_generate_draft`，产品有意如此，见 T009-1）。
+      遗留：上限无租户维度（T009-3）。
 - [x] SC003 低置信 0 次自动建 MR（仅高置信）
       （`mr.py:112-114` 非高置信返回 `None`；`test_low_confidence_draft_only`、`test_t013_us3_high_vs_low`）
 - [!] SC004 低采纳 Skill 100% 可标记淘汰
       —— 检测 + 标记齐备且测试充分，但「标记后不再推荐」（T014-3）无实现，
       标记的实际效果为零。
 - [!] SC005 自进化全链路 100% 进审计
-      —— 五个事件包装存在，但**无生产者接线**（T017）、扫描与恢复不产生事件（T007-4/T015-3）。
-      「全链路」与「100%」都不成立。
+      —— 五个事件包装现已由 `runtime.run_once` 生产（T017 及 T017-1…5、T017-6 已通过），
+      但**扫描本身仍不产生事件**（T007-4：`scan_summary` 未接审计），
+      且恢复仍需调用方显式传参（T015-3）。「全链路」尚差扫描这一段。
 
 ---
 
 ## 核对方法与结论
 
 **取证方式**（全部可复现）：
-- 读实现全文：`app/self_evolution/` 6 文件 704 行、`app/services/dream_cycle/` 5 文件 652 行。
-- 跑测试：`services/chat-api/venv/bin/python -m pytest tests/self_evolution/ tests/services/test_dream_cycle.py tests/services/test_dream_evolution.py tests/services/test_dream_audit_config.py -q` → **66 passed**。
-- 引用计数：`grep -rn "from app.self_evolution\|from app.services.dream_cycle" services/chat-api/app/ --include=*.py`（排除两层自身）→ **0 命中**。
-- 关键符号存在性：`scheduled_tasks` 注册、`marked_low_quality` 消费方、`recommendation` 消费方、`normalized_edit_similarity` 调用方、`scan_id`/`draft_count`、`max_drafts_per_tenant`。
+- 读实现全文：`app/self_evolution/` 6 文件 704 行、`app/services/dream_cycle/` 5 文件 652 行，加接线的 `runtime.py`。
+- 跑测试：`services/chat-api/venv/bin/python -m pytest tests/self_evolution/ tests/services/test_dream_cycle.py tests/services/test_dream_evolution.py tests/services/test_dream_audit_config.py tests/services/test_dream_cycle_runtime.py -q` → **87 passed**（接线后；接线前为 66）。
+- 引用计数（接线**前**）：`grep -rn "from app.self_evolution\|from app.services.dream_cycle" services/chat-api/app/ --include=*.py`（排除两层自身）→ **0 命中**。接线后 `app/main.py` 有一处 import。
+- 关键符号存在性：`scheduled_tasks` 注册、`marked_low_quality` 消费方、`recommendation` 消费方、`normalized_edit_similarity` 调用方（**现已接入**）、`scan_id`/`draft_count`、`max_drafts_per_tenant`。
 
-**判级统计**（`grep -c` 实测，六项 `[-]` 为 `T003-4`/`T015-3`/`XF004-3`/`T017-6`/`T018-4`/`SEC002`）：
-`[x]` **55** 项 · `[!]` **35** 项 · `[-]` **6** 项（共 96 项）。
+**判级统计**（`grep -c` 实测，四项 `[-]` 为 `T003-4`/`XF004-3`/`T018-4`/`SEC002`）：
+`[x]` **70** 项 · `[!]` **22** 项 · `[-]` **4** 项（共 96 项）。
+（核对当日为 55/35/6；2026-10-02 接线与词条改写后为 70/22/4，处置见下。）
 
-**七类待办**（按影响排序）：
-1. **010/011 无生产接线**（T007、XF010-1、T017 全系列、T017-6）：`scanner` 从不被调度，五个 `audit_*` 从不被调用。这是「已实现但不在线」，需接线或明确降级为库。
-2. **`normalized_edit_similarity` 是死代码**（T004-4）：编辑距离实现了但从未接入判定。需拍板接入或记录为辅助指标。
-3. **审计事件命名两套并存**（T017-1…5）：清单 `friction_captured`/`draft_generated`/… vs 实现 `capture`/`generate`/…。契约文档已按实现写；**应以实现为准改清单**，否则审计查询会写错。
-4. **标记/恢复无消费方**（T014-3、T015-2、SC004）：「不再推荐」「重新进入推荐」没有推荐路径可验，这两项目前不可证伪。
-5. **「清理最旧」被实现成「拒绝新建」**（T009-1、ET003）：语义差异，若产品要的是 LRU 淘汰则需实现。
-6. **配置有两份**（T018、T018-5）：`EvolutionConfig` 与核心层常量需手工同步；`runner.SHRADOW` 拼写错误应一并修。
-7. **跨租户隔离只有内存层**（T002-1、ET005、SEC001、T009-3、T018-4）：无集合、无索引、`tenant_id` 默认 `"default"`、`AdoptionStore` 不按租户分区、per-tenant 上限不存在。
+**七类待办的处置状态**（2026-10-02 更新；产品决策见 `docs/WORK_LOG.md` 同日条目）：
+1. **011 生产接线** —— **已做**（T007、XF010-1、T017 全系列、T017-6；IT001 随之闭合）。新增
+   `app/services/dream_cycle/runtime.py`，`main.py` lifespan 挂 `DreamCycleScanner`，五个 `audit_*`
+   接 001 feature audit 流。**偏离**：产品原话是「注册 `scheduled_tasks` 周期扫描」，实现改为
+   011 自带 loop —— `scheduled_tasks` 的 job 模型要求 prompt + session，扫描没有这两者。
+2. **`normalized_edit_similarity` 死代码** —— **已接入**（T004-4）：作为动作序列**次级门槛**（默认 0.5）。
+3. **审计事件命名两套并存** —— **已按实现收敛**（T017-1…5）：清单改为 `capture`/`generate`/`mr`/`deprecate`/`restore`。
+4. **标记/恢复无消费方**（T014-3、T015-2、SC004）—— **未处置**。011 没有推荐路径，这两项目前不可证伪；
+   需产品明确「谁消费 `marked_low_quality`」或接受「数据可见、消费方待 016」。
+5. **「清理最旧」实现成「拒绝新建」** —— **已按产品决定收口**（T009-1、ET003）：维持拒新，改清单描述。
+6. **配置有两份** —— **部分处置**（T018 仍 `[!]`，T018-5 已 `[x]`）：`EvolutionConfig` 的
+   jaccard/min_samples/action 阈值改为引用核心层常量；`mr.py`/`deprecation.py` 的字面量仍是遗留；
+   两处拼写错误（`DEFAULT_SHRADOW_RATIO`、`FRICION_CATEGORIES`）已修。
+7. **跨租户隔离只有内存层**（T002-1、ET005、SEC001、T009-3、T018-4）—— **未处置**。无集合、无索引、
+   `tenant_id` 默认 `"default"`、`AdoptionStore` 按 `skill_key` 而非租户分区、per-tenant 上限不存在。
 
 **清单本身的治理问题**（写回 spec 供后续修订）：
 - 模块清单与实际布局不符（本文件顶部「结论摘要 1」），`tasks.md` 里同样是扁平假设。
@@ -411,9 +450,9 @@
 - `checklists/requirements.md`（16/16）与 `tasks.md`（19/19）此前已勾选，与本清单的 `[!]`/`[-]` 不矛盾：
   前两者勾的是**需求质量与任务存在性**，本清单勾的是**实施细节的可证伪证据**。
 
-**Checklist Gate**: 96 项中 55 项已核对通过；**41 项（`[!]` 35 + `[-]` 6）仍需处置**，
-不得据此进入 `/speckit-converge`。处置方式有两类：修实现（或接线），或修订清单使其与已交付的
-库能力一致 —— 两者都需先由产品/规格对上面「七类待办」拍板，尤其是第 1、3 项。
+**Checklist Gate**: 96 项中 70 项已核对通过；**26 项（`[!]` 22 + `[-]` 4）仍需处置**，
+不得据此进入 `/speckit-converge`。剩余集中在两类：**产品决策**（第 4 项：推荐路径是否存在）
+与**超出 011 当前范围的持久化/隔离能力**（第 7 项，需要集合与索引）。
 **Review Ownership**: 已由实现人逐项取证（2026-10-02）；评审人抽检建议优先看 `[!]` 项。
 **Marker Semantics**: `[x]` = 功能已实现且测试通过；`[!]` = 有实现但证据不足/与描述不符；
 `[-]` = 条目本身不成立（模块、命名、路径不存在，或非 011 职责）。

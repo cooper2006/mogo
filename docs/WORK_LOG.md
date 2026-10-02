@@ -1,5 +1,33 @@
 # Work Log
 
+## 2026-10-02 011 接线：scheduled_tasks 不适合，改用自带 DreamCycleScanner
+
+**起因**：`checklists/implementation.md` 的七类待办里第 1 项是「011 无生产接线」。产品拍板四项（`q1` 接线、`q2` 审计命名以实现为准、`q3` 编辑距离接入判定、`q4` 草稿上限维持拒新），本轮执行。
+
+**接线：新增 `services/chat-api/app/services/dream_cycle/runtime.py`（生产入口）**
+- 采集点选在**事件管线已落库的** `kernel_event_projections`，而不是在 `DshTurnRunner` 里插代码 —— turn 热路径一行没动，不增延迟。
+- `signals_from_rows` 把 `item.failed` → `item.completed` 的序列识别为「失败后成功」，按 `(tenant_id, message_id)` + 工具名分组，重试次数 = 第一次成功的位置 + 1。
+- `fragments_from_signals` 补上了此前**缺失的 `FrictionSignal` → `ExperienceFragment` 转换**（IT001 的四段链路因此闭合）。
+- `run_once` 按租户分别扫描；`deprecations` / `restorations` 是**显式参数**，因为 011 没有采纳集合，不传就是 no-op 而不是伪造事件。
+- `DreamCycleScanner` 挂在 `app/main.py` 的 lifespan（`ensure_indexes` → `start()` / `stop()`），默认 24h 一轮。
+
+**与产品原话的一处偏离（需知悉）**：`q1` 的原话是「注册 `scheduled_tasks` 周期扫描」。实现没用它 —— `scheduled_tasks` 是面向用户的聊天任务模型（`ScheduledJobCreate` 要求 `name`/`prompt`/`session_mode`/`session_id`，由 `scheduled_chat_runner.start(job, run)` 执行），011 的扫描既无 prompt 也无 session，硬塞进去要伪造这两者。改用 011 自己持有 loop。`scanner.py` 的 docstring 原本声称 reuses `scheduled_tasks`，属**事实错误**，已修正。
+
+**审计落点**：`FEATURE_AUDIT_EVENTS` 新增 `"011"`；`runtime._default_audit_sink` → `feature_audit_bridge.emit_feature_event("011", ...)` → `position_role_audit_logs`。**注意** chat-api 侧的 001 审计流是 `position_role_audit_logs`，不是 admin-api 的 `system_audit_logs`。
+
+**q3 编辑距离接入**：`cluster_by_similarity` 新增 `action_getter` / `action_threshold`；`DEFAULT_ACTION_SIMILARITY_THRESHOLD = 0.5`。场景 Jaccard 是**集合**指标（共享词汇但做完全不同的事仍得 1.0），编辑距离只能当**次级**门槛，不能替代 Jaccard。`ScanConfig.action_similarity_threshold = None` 可关闭。
+
+**q6 顺手修的两处拼写**：`DEFAULT_SHRADOW_RATIO` → `DEFAULT_SHADOW_RATIO`（`runner.py` 3 处）、`FRICION_CATEGORIES` → `FRICTION_CATEGORIES`（`friction.py` 2 处）。两者都未被 `__init__.py` 导出，故重命名安全。
+
+**测试**：新建 `tests/services/test_dream_cycle_runtime.py`（18 个用例，含 fake cursor 的 `.sort().limit()`）；011 套件 66 → **87 passed**。
+
+**反证**（三向，全部有效；脚本一律先 `assert s.count(old) == 1` 再替换）：
+- 从 `FEATURE_AUDIT_EVENTS` 删 `"011"` → 1 failed。
+- 从 `app/main.py` 删 `dream_cycle_scanner.start()` → 1 failed。
+- 从 `scanner.py` 删 `action_threshold=...` → 1 failed。
+
+**清单同步**：`implementation.md` 判级 55/35/6 → **70/22/4**（`grep -c` 实测）；T017 系列事件名按实现改为 `capture`/`generate`/`mr`/`deprecate`/`restore`；T009-1 与 ET003 词条由「清理最旧」改为「抑制新建」；`contracts/self-evolution.md` 增「周期触发」小节与二级判定说明；`quickstart.md` 增第 6 节。
+
 ## 2026-10-02 011 实现清单逐项核对：清单本身写错了模块布局（96 项判级完成）
 
 **起因**：`specs/011-dream-cycle-self-evolution/checklists/implementation.md` 生成于 2026-10-01，96 项全空。此前一度把它当作「011 未完成」的证据，但它其实从未被逐项核对过。本轮做的是取证，不是实现。

@@ -9,6 +9,7 @@
 | `mr.py` | High-confidence improvement MR vs draft boundary |
 | `deprecation.py` | Low-adoption detection + deprecation + manual restore |
 | `evolution_audit.py` | Full-chain audit + configurable thresholds (T017/T018) |
+| `runtime.py` | **Production entry**（T007）: periodic scan + wiring the five `audit_*` into 001 |
 
 ## 1. Run a dream cycle
 
@@ -71,3 +72,23 @@ cfg = EvolutionConfig(
 )
 cfg.confidence_gate(0.8, 6)  # True
 ```
+
+## 6. Periodic scan in production (T007)
+
+```python
+from app.services.dream_cycle import runtime
+
+await runtime.ensure_indexes(db)           # kernel_event_projections index
+await runtime.dream_cycle_scanner.start()  # 24h loop, mounted in app/main.py lifespan
+...
+await runtime.dream_cycle_scanner.stop()
+```
+
+`runtime.run_once()` 从 `kernel_event_projections` 里**已落库**的工具事件
+（`item.failed` / `item.completed`）派生摩擦信号，按租户扫描并生成草稿，
+同时对 capture / generate / mr / deprecate / restore 逐个写 001 审计
+（`position_role_audit_logs`）。它**不改动** DSH turn 热路径 —— 采集发生在 turn 之后。
+
+注意：模式聚类默认叠加**动作序列编辑相似度**作为次级门槛
+（`DEFAULT_ACTION_SIMILARITY_THRESHOLD = 0.5`，可由
+`ScanConfig.action_similarity_threshold = None` 关闭），详见 `contracts/self-evolution.md`。
