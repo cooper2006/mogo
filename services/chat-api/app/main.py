@@ -116,6 +116,7 @@ from app.api.endpoints import (
     external_tools,
     im_gateway,
     knowledge_sources,
+    memory,
     models,
     projects,
     product,
@@ -172,6 +173,8 @@ app.include_router(dsh_tool_gateway.public_router, prefix="/api")
 # 012 / 013: minimal production wiring for A2A agent card lookup and IM webhook.
 app.include_router(a2a.router)
 app.include_router(im_gateway.router)
+# 017: three-scope memory CRUD (scope/visibility enforced server-side).
+app.include_router(memory.router)
 
 from app.product.extensions import get_product_extension
 
