@@ -7,6 +7,12 @@ Two metrics, no vector store (first delivery):
 
 A pattern is **high confidence** (and therefore eligible for auto-MR) when
 ``jaccard >= 0.7`` **and** the sample count is ``>= 5`` (clarify OQ-3).
+
+Scene overlap is the primary gate, but it is a *set* metric: two runs that
+share a scene vocabulary while doing entirely different things would still
+score 1.0. Action-sequence edit similarity (``normalized_edit_similarity``) is
+therefore applied as a **secondary** gate during clustering — see
+``cluster_by_similarity``'s ``action_threshold``.
 """
 
 from __future__ import annotations
@@ -15,6 +21,8 @@ from typing import Iterable
 
 DEFAULT_JACCARD_THRESHOLD = 0.7
 DEFAULT_MIN_SAMPLES = 5
+#: Secondary gate: how similar two action sequences must be to join one cluster.
+DEFAULT_ACTION_SIMILARITY_THRESHOLD = 0.5
 
 
 def jaccard(left: Iterable[str], right: Iterable[str]) -> float:
@@ -89,23 +97,35 @@ def cluster_by_similarity(
     *,
     threshold: float = DEFAULT_JACCARD_THRESHOLD,
     scene_getter=None,
+    action_getter=None,
+    action_threshold: float | None = None,
 ) -> list[list[object]]:
     """Group fragments into clusters whose scenes are pairwise similar.
 
     A simple greedy clustering: each fragment joins the first cluster it is similar
     enough to, otherwise starts a new one. Good enough for first-delivery pattern
     discovery without a vector store.
+
+    ``action_threshold`` adds the action-sequence gate described in the module
+    docstring. It defaults to ``None`` (scene only) so existing callers keep
+    their behaviour; ``ScanConfig`` turns it on by default.
     """
     getter = scene_getter or (lambda fragment: getattr(fragment, "scene", []))
+    actions_of = action_getter or (lambda fragment: getattr(fragment, "actions", []))
     clusters: list[list[object]] = []
     for fragment in fragments:
         scene = getter(fragment)
+        actions = actions_of(fragment)
         placed = False
         for cluster in clusters:
-            if jaccard(scene, getter(cluster[0])) >= threshold:
-                cluster.append(fragment)
-                placed = True
-                break
+            if jaccard(scene, getter(cluster[0])) < threshold:
+                continue
+            if action_threshold is not None:
+                if normalized_edit_similarity(actions, actions_of(cluster[0])) < action_threshold:
+                    continue
+            cluster.append(fragment)
+            placed = True
+            break
         if not placed:
             clusters.append([fragment])
     return clusters

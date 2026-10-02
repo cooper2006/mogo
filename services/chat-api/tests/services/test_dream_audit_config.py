@@ -83,6 +83,22 @@ def test_scan_period_configurable():
     assert cfg.shadow_ratio == 0.1
 
 
+def test_config_thresholds_mirror_the_core_constants():
+    """T018's single place must not drift from the core layer's defaults."""
+    from app.self_evolution.similarity import (
+        DEFAULT_ACTION_SIMILARITY_THRESHOLD,
+        DEFAULT_JACCARD_THRESHOLD,
+        DEFAULT_MIN_SAMPLES,
+    )
+    from app.services.dream_cycle.runner import DEFAULT_SHADOW_RATIO
+
+    cfg = EvolutionConfig()
+    assert cfg.jaccard_threshold == DEFAULT_JACCARD_THRESHOLD
+    assert cfg.min_samples == DEFAULT_MIN_SAMPLES
+    assert cfg.action_similarity_threshold == DEFAULT_ACTION_SIMILARITY_THRESHOLD
+    assert cfg.shadow_ratio == DEFAULT_SHADOW_RATIO
+
+
 # --- T019 quickstart + contract ----------------------------------------------
 
 

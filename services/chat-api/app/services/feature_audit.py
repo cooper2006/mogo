@@ -1,4 +1,4 @@
-"""Audit/observability hooks (T999) for 014/015/016/017/018 features.
+"""Audit/observability hooks (T999) for 011/014/015/016/017/018 features.
 
 Each feature's key events are funneled into a single 001-style audit sink so
 they share the same trail, retention, and compliance reporting. The helpers
@@ -15,6 +15,11 @@ from typing import Any, Callable, Optional
 AuditSink = Callable[[str, dict[str, Any]], Any]
 
 FEATURE_AUDIT_EVENTS: dict[str, tuple[str, ...]] = {
+    # 011's event names follow the implementation contract
+    # (``dream_cycle.evolution_audit.AUDIT_EVENT_TYPES`` and
+    # ``contracts/self-evolution.md``), which is deliberately shorter than the
+    # ``<domain>.<verb>`` style the other features use.
+    "011": ("capture", "generate", "mr", "deprecate", "restore"),
     "012": ("a2a.outbound", "a2a.inbound", "a2a.denied"),
     "014": ("entity.indexed", "entity.searched"),
     "015": ("kg.mutated", "kg.conflict.resolved", "kg.audited"),
@@ -33,8 +38,8 @@ def record_feature_event(
 ) -> dict[str, Any]:
     """Normalise one feature event and write it through the audit sink (T999).
 
-    ``feature`` must be a known feature code (014/015/016/017/018); an unknown
-    code raises so a mis-labelled event is not silently lost.
+    ``feature`` must be a known feature code (011/014/015/016/017/018); an
+    unknown code raises so a mis-labelled event is not silently lost.
     """
     known = FEATURE_AUDIT_EVENTS.get(feature)
     if known is None:

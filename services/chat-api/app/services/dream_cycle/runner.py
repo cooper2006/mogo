@@ -17,7 +17,7 @@ from typing import Any, Callable, Iterable
 # Default top-N for candidate signals feeding the dream pipeline (T002 / OQ-1).
 DEFAULT_TOP_N = 10
 # Shadow-rollout traffic ratio when applying improvements (T005).
-DEFAULT_SHRADOW_RATIO = 0.1
+DEFAULT_SHADOW_RATIO = 0.1
 
 
 @dataclass
@@ -102,7 +102,7 @@ def apply_dry_run(
 def apply_shadow(
     candidates: Iterable[DreamCandidate],
     *,
-    shadow_ratio: float = DEFAULT_SHRADOW_RATIO,
+    shadow_ratio: float = DEFAULT_SHADOW_RATIO,
     journal: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> int:
     """Shadow apply (T005): route ``shadow_ratio`` of traffic, write journal.
@@ -136,7 +136,7 @@ def run_dream_cycle(
     validator: Callable[[DreamCandidate], bool] | None = None,
     journal: Callable[[str, dict[str, Any]], None] | None = None,
     dry_run: bool = False,
-    shadow_ratio: float = DEFAULT_SHRADOW_RATIO,
+    shadow_ratio: float = DEFAULT_SHADOW_RATIO,
     top_n: int = DEFAULT_TOP_N,
     cycle_id: str = "",
 ) -> DreamResult:

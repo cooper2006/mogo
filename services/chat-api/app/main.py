@@ -134,6 +134,7 @@ from app.api.endpoints import (
     token_usage,
 )
 from app.scheduled_tasks import scheduled_task_scheduler
+from app.services.dream_cycle import runtime as dream_cycle_runtime
 from app.governance.suspensions import suspension_service
 from app.browser import ws_endpoint as browser_ws_endpoint
 
@@ -322,6 +323,8 @@ async def startup_event() -> None:
     await action_receipt_store.reconcile_abandoned()
     await token_usage_dispatcher.start()
     await scheduled_task_scheduler.start()
+    await dream_cycle_runtime.ensure_indexes(db)
+    await dream_cycle_runtime.dream_cycle_scanner.start()
     for callback in product_extension.startup:
         result = callback()
         if asyncio.iscoroutine(result):
@@ -358,6 +361,7 @@ async def shutdown_event() -> None:
     if _receipt_gc_task is not None:
         _receipt_gc_task.cancel()
         _receipt_gc_task = None
+    await dream_cycle_runtime.dream_cycle_scanner.stop()
     await scheduled_task_scheduler.stop()
     await token_usage_dispatcher.stop()
     from app.dsh_runtime.application import dsh_runtime_application

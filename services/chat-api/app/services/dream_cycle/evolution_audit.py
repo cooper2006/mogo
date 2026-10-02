@@ -14,6 +14,12 @@ import datetime
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from app.self_evolution.similarity import (
+    DEFAULT_ACTION_SIMILARITY_THRESHOLD,
+    DEFAULT_JACCARD_THRESHOLD,
+    DEFAULT_MIN_SAMPLES,
+)
+
 # 001 audit sink signature (kept generic so the same sink serves all events).
 AuditSink = Callable[..., Any]
 
@@ -28,8 +34,12 @@ def _utcnow() -> datetime.datetime:
 class EvolutionConfig:
     """011 T018 — configurable scan period + confidence / deprecation thresholds."""
     scan_interval_hours: int = 24
-    jaccard_threshold: float = 0.7
-    min_samples: int = 5
+    # These mirror the core defaults on purpose: the single source of truth is
+    # ``self_evolution.similarity``, so the two cannot drift apart.
+    jaccard_threshold: float = DEFAULT_JACCARD_THRESHOLD
+    min_samples: int = DEFAULT_MIN_SAMPLES
+    #: Secondary gate on action-sequence similarity (``self_evolution.similarity``).
+    action_similarity_threshold: float = DEFAULT_ACTION_SIMILARITY_THRESHOLD
     low_adoption_window_days: int = 14
     low_adoption_min_exposure: int = 20
     low_adoption_rate: float = 0.10

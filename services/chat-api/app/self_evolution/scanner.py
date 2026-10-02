@@ -1,9 +1,12 @@
 """Periodic scan for repeated patterns (011 FR-3 / FR-5 / clarify OQ-3).
 
-The scanner clusters experience fragments by scene similarity, counts each
-cluster's samples, and marks clusters that reach the confidence threshold
-(Jaccard >= 0.7 **and** samples >= 5) as MR-eligible. It reuses ``scheduled_tasks``
-for the periodic trigger (clarify OQ-5) — this module only does the discovery.
+The scanner clusters experience fragments by scene similarity (with action
+sequence edit similarity as a secondary gate), counts each cluster's samples,
+and marks clusters that reach the confidence threshold (Jaccard >= 0.7 **and**
+samples >= 5) as MR-eligible. It does **not** reuse ``scheduled_tasks`` for the
+periodic trigger (clarify OQ-5): that job model is for user-facing chat runs
+that need a prompt and a session. ``app/services/dream_cycle/runtime.py`` owns
+the trigger instead — this module only does the discovery.
 
 Draft generation and MR creation consume the clusters produced here.
 """
@@ -15,6 +18,7 @@ from typing import Any, Iterable
 
 from .fragment import ExperienceFragment
 from .similarity import (
+    DEFAULT_ACTION_SIMILARITY_THRESHOLD,
     DEFAULT_JACCARD_THRESHOLD,
     DEFAULT_MIN_SAMPLES,
     cluster_by_similarity,
@@ -62,6 +66,9 @@ class ScanConfig:
     jaccard_threshold: float = DEFAULT_JACCARD_THRESHOLD
     min_samples: int = DEFAULT_MIN_SAMPLES
     draft_backlog_limit: int = DEFAULT_DRAFT_BACKLOG_LIMIT
+    #: Secondary gate: how similar two action sequences must be to share a cluster.
+    #: ``None`` disables the gate (scene overlap only).
+    action_similarity_threshold: float | None = DEFAULT_ACTION_SIMILARITY_THRESHOLD
 
     def __post_init__(self) -> None:
         if self.frequency not in SCHEDULE_FREQUENCIES:
@@ -96,7 +103,11 @@ def scan_fragments(
     resolved = config or ScanConfig()
     materialized = list(fragments)
     clusters = cluster_by_similarity(
-        materialized, threshold=resolved.jaccard_threshold, scene_getter=lambda item: item.scene
+        materialized,
+        threshold=resolved.jaccard_threshold,
+        scene_getter=lambda item: item.scene,
+        action_getter=lambda item: item.actions,
+        action_threshold=resolved.action_similarity_threshold,
     )
 
     pattern_clusters: list[PatternCluster] = []
@@ -168,5 +179,6 @@ def scan_summary(result: ScanResult, *, config: ScanConfig | None = None) -> dic
         "mrEligibleCount": len(result.mr_eligible),
         "draftOnlyCount": len(result.draft_only),
         "jaccardThreshold": resolved.jaccard_threshold,
+        "actionSimilarityThreshold": resolved.action_similarity_threshold,
         "minSamples": resolved.min_samples,
     }

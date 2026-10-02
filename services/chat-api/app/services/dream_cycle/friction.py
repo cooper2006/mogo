@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
-FRICION_CATEGORIES = ("retry", "fallback", "timeout")
+FRICTION_CATEGORIES = ("retry", "fallback", "timeout")
 # Max characters kept in a prompt preview on a fragment (011 OQ: keep compact).
 PROMPT_PREVIEW_LIMIT = 120
 
@@ -39,7 +39,7 @@ class FrictionFragment:
     created_at: datetime = field(default_factory=_utcnow)
 
     def __post_init__(self) -> None:
-        if self.category not in FRICION_CATEGORIES:
+        if self.category not in FRICTION_CATEGORIES:
             raise ValueError(f"unknown friction category: {self.category!r}")
         if not str(self.key or "").strip():
             raise ValueError("friction fragment key must not be empty")

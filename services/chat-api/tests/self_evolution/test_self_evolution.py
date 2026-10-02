@@ -122,8 +122,11 @@ def test_is_high_confidence_thresholds() -> None:
 
 
 def test_default_thresholds_match_clarify() -> None:
+    from app.self_evolution.similarity import DEFAULT_ACTION_SIMILARITY_THRESHOLD
+
     assert DEFAULT_JACCARD_THRESHOLD == 0.7
     assert DEFAULT_MIN_SAMPLES == 5
+    assert DEFAULT_ACTION_SIMILARITY_THRESHOLD == 0.5
 
 
 def test_cluster_by_similarity_groups_similar_scenes() -> None:
@@ -135,6 +138,50 @@ def test_cluster_by_similarity_groups_similar_scenes() -> None:
     clusters = cluster_by_similarity(fragments)
     assert len(clusters) == 2
     assert len(clusters[0]) == 2
+
+
+def test_action_similarity_is_the_secondary_gate() -> None:
+    """Same scene but different action sequences must not share a cluster."""
+    fragments = [
+        ExperienceFragment(scene=["invoice", "pdf"], actions=["read", "parse", "export"]),
+        ExperienceFragment(scene=["invoice", "pdf"], actions=["read", "parse", "export"]),
+        ExperienceFragment(scene=["invoice", "pdf"], actions=["delete", "upload", "notify"]),
+    ]
+    assert len(cluster_by_similarity(fragments)) == 1, "scene-only keeps all three"
+
+    gated = cluster_by_similarity(
+        fragments,
+        action_getter=lambda item: item.actions,
+        action_threshold=0.5,
+    )
+    assert [len(cluster) for cluster in gated] == [2, 1]
+    assert gated[1][0].actions == ["delete", "upload", "notify"]
+
+
+def test_scan_fragments_applies_the_action_gate_by_default() -> None:
+    from app.self_evolution.scanner import scan_fragments
+
+    fragments = [
+        ExperienceFragment(scene=["a", "b"], actions=["one", "two"]) for _ in range(3)
+    ]
+    fragments.append(
+        ExperienceFragment(scene=["a", "b"], actions=["x", "y", "z", "w"])
+    )
+
+    result = scan_fragments(fragments)
+    assert len(result.clusters) == 2
+    assert result.clusters[0].sample_count == 3
+
+
+def test_scan_config_can_disable_the_action_gate() -> None:
+    from app.self_evolution.scanner import ScanConfig, scan_fragments
+
+    fragments = [
+        ExperienceFragment(scene=["a", "b"], actions=["one", "two"]),
+        ExperienceFragment(scene=["a", "b"], actions=["x", "y", "z", "w"]),
+    ]
+    result = scan_fragments(fragments, config=ScanConfig(action_similarity_threshold=None))
+    assert len(result.clusters) == 1
 
 
 # --- fragment store ----------------------------------------------------------
