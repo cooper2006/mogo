@@ -361,3 +361,7 @@ services/chat-api/dsh/runtime-host/host-profile-home/
 # (git add -f), the real ~290MB bundle is local build-context only. The durable
 # browser cache lives under base-images/playwright/ (ignored via /base-images/).
 services/chat-api/playwright-browsers-bundle.tar.gz
+
+# 编辑过程的中间备份（ppt/doc/xls 等），不属于产物
+*.bak-*
+*.bak-before-*

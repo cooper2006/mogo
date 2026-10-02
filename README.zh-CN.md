@@ -62,14 +62,22 @@
   scripts/bash/           #   create-new-feature、setup-plan 等脚本
   workflows/speckit/      #   工作流注册表
 
-specs/                    # 19 个特性规格，每个含完整规格链路
+specs/                    # 20 个特性规格，每个含完整规格链路
   001-gatekeeper-governance/
   ...
   019-harness-elastic-config/
+  020-platform-multi-tenancy/
   INDEX.md                # 规格索引
 ```
 
-每个特性目录包含 `spec.md`（需求与验收）、`plan.md`（技术方案）、`checklists/requirements.md`（质量清单），其中 15 个补齐特性（001/002/007–019）另有 `tasks.md`（可勾选任务）与（适用的）`contracts/` 契约件（顶层 5 份 T998 契约 + 4 个 spec 内契约）。**15 份 `tasks.md`（270 项）已全部勾选完成**，实现与测试同步落地；4 个既有回溯特性（003–006，重述 MOVO 已有能力）保留 `spec.md` + `plan.md` + checklist 的原始状态，未建 `tasks.md`。
+20 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `checklists/requirements.md`（质量清单）。从此处分出两组：
+
+- **16 个补齐特性**（001/002/007–020）走完整链路——spec、plan、checklist、`quickstart.md` 与 `tasks.md`。**16 份 `tasks.md`（332 项）已全部勾选完成**，实现与测试同步落地。
+- **4 个既有回溯特性**（003–006）重述 MOVO 已有能力，保留 `spec.md` + `plan.md` + checklist 的原始状态，未建 `tasks.md`。
+
+接口契约分布在两处：顶层 [`contracts/`](contracts/) 下 5 份 T998 契约（`orchestration`、`self-evolution`、`session-versioning-contract`、`harness-config`、`a2a-gateway`），加上 `specs/` 内 5 个按特性划分的 `contracts/` 目录（[`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md)、[`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md)、[`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md)、[`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md)、[`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)）。
+
+[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 20 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019）与新增平台范围（020）三组，并记录每条阈值的 clarify 决策依据。
 
 这样做的收益是：每一条企业能力都有对应的需求来源、验收标准与测试证据，界面触点与规格的映射关系记录在 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md)。
 
@@ -112,7 +120,15 @@ specs/                    # 19 个特性规格，每个含完整规格链路
 | 8 | **能力资产化"发现→注册"** | 契约四段 + 扫描去重 + 治理视图 + 状态审批 + `a2a_exposed` 标记 | [018](specs/018-capability-asset-registration/) |
 | 9 | **厚/薄 Harness 弹性配置** | profile 三层覆盖链 + 层开关 + 合规底线（R4 恒 deny）+ 与 Gatekeeper 对接 | [019](specs/019-harness-elastic-config/) |
 
-这九项共同指向"Agent 越用越聪明"的目标形态：把**会话 → 经验 → Skill** 串成主线，让一个人的会话成为团队与后续自动化的起点。
+### 清单之外的新增范围：平台化多租户
+
+有一项能力不在这 15 项清单内。它是后来新增的范围，单独配有 spec、plan、contract、quickstart 与 tasks：
+
+| # | 能力 | 交付内容 | 规格 |
+| :-: | --- | --- | :-: |
+| 10 | **平台化多租户** | 在既有 `main_id` 分区之上补齐租户供给：`tenants` 主表、由首次启动引导创建的平台管理员（`__platform__`）、登录强制选择企业、归档 / 恢复 / 彻底清理生命周期（含审计与墓碑记录），配额默认不限额 | [020](specs/020-platform-multi-tenancy/) |
+
+这九项补强能力共同指向"Agent 越用越聪明"的目标形态：把**会话 → 经验 → Skill** 串成主线，让一个人的会话成为团队与后续自动化的起点；平台化多租户（020）则把这套形态从单个企业延伸到一套部署承载多个企业——既有部署语义本是"一套部署 = 一个企业"。
 
 ## 主线三：智能体多实例运行改造
 
@@ -277,8 +293,8 @@ MOGO 将 DeepSeek Harness（DSH）Agent 内核**钉版到确切的 release train
 
 | 项 | 值 |
 | --- | --- |
-| DSH release train | `0.1.7-rc.2` |
-| 钉版依赖 | `services/chat-api/dsh/runtime-host/package.json` 中的 17 个 `@deepseek-ai/dsh*` 包 |
+| DSH release train | `0.2.0-rc.2` |
+| 钉版依赖 | `services/chat-api/dsh/runtime-host/package.json` 中的 40 个 `@deepseek-ai/dsh*` 包 |
 | Node 运行时 | `^22.19.0 \|\| >=24.0.0` |
 | Host 协议 | `askai.dsh-host.v1` |
 | Host overlay | `askai-dsh-host-v1` |
@@ -293,6 +309,8 @@ MOGO 将 DeepSeek Harness（DSH）Agent 内核**钉版到确切的 release train
 4. 部署前运行守护测试：`services/chat-api/dsh/runtime-host`（`node --test tests/*.test.mjs`）与 `services/chat-api/tests/dsh_runtime/test_dsh_upgrade_contract.py`——当契约矩阵、`package.json` 与随镜像发布的 web app 三者不一致时会失败。
 
 请把 train 升级视为**兼容性变更而非补丁升级**。DSH 历史版本曾重命名 preset 机制、改变工具结果的消息结构、收紧插件可见性规则；这些都可能让一个"仍能正常启动"的 host overlay 实际失效。升级时请先 diff 新 train 随包发布的 host 平面，不要假定旧 overlay 依旧适用——`0.1.6-alpha.1` → `0.1.7-rc.2` 这次就需要让 overlay 重新透传官方 web-app patch 声明的禁用行。`docs/WORK_LOG.md` 记录了该次升级中发现的具体破坏点，`docs/DSH-0.1.7-skill-catalog-定位报告.md` 则完整记录了其中一例的端到端定位过程。
+
+`0.1.7-rc.2` → `0.2.0-rc.2` 这次又踩到第二个坑：**绝不要拿内核版本字符串做分支判断**。产品代码（`src/official-host/installation.mjs`）本就用可持续的方式判定 preset 平面形态——解析实际安装的是哪个 preset 包（`isPresetRegistryTrain`）——但有个测试把等价判断写成了 `ASKAI_DSH_KERNEL_VERSION === '0.1.7-rc.2'`，于是版本一变就静默跌回旧 train 分支，去断言一个已经不存在的 `@deepseek-ai/dsh-agent-presets` 包。请按**解析出的包身份**分支，而不是版本字面量。
 
 ### 配置
 
@@ -332,7 +350,8 @@ PUBLIC_BASE_URL=https://movo.example.com
 
 | 路径 | 组件 |
 | --- | --- |
-| `specs/` | spec-kit SDD 规格资产（19 个特性） |
+| `specs/` | spec-kit SDD 规格资产（20 个特性 + `INDEX.md`） |
+| `contracts/` | 5 份 T998 接口契约（编排、自进化、会话版本化、Harness 配置、A2A 网关） |
 | `.specify/` | spec-kit 工作流、模板与项目宪法 |
 | `apps/user-web/` | Vue 3 用户工作台 |
 | `apps/admin-web/` | Vue 3 初始化与管理后台 |

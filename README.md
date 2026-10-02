@@ -62,14 +62,22 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 19 feature specifications, each with a complete chain
+specs/                    # 20 feature specifications, each with a complete chain
   001-gatekeeper-governance/
   ...
   019-harness-elastic-config/
+  020-platform-multi-tenancy/
   INDEX.md                # specification index
 ```
 
-Each feature directory holds `spec.md` (requirements and acceptance), `plan.md` (technical approach), `checklists/requirements.md` (quality checklist) and — for the 15 gap-closing features (001/002/007–019) — `tasks.md` (checkable tasks) and, where a T998 interface contract applies, `contracts/` (5 top-level `contracts/*.md` plus 4 per-spec contract files). **All 15 `tasks.md` files (270 items) are checked off**, with implementation and tests landed together; the 4 retrospective features (003–006, re-documenting capabilities MOVO already had) keep their original `spec.md` + `plan.md` + checklist state without `tasks.md`.
+Each of the 20 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `checklists/requirements.md` (quality checklist). Two groups diverge from there:
+
+- **16 gap-closing features** (001/002/007–020) run the full chain — spec, plan, checklist, `quickstart.md` and `tasks.md`. **All 16 `tasks.md` files (332 items) are checked off**, with implementation and tests landed together.
+- **4 retrospective features** (003–006) re-document capabilities MOVO already had and keep their original `spec.md` + `plan.md` + checklist state without `tasks.md`.
+
+Interface contracts live in two places: the 5 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
+
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 20 features into retrospective (003–006), gap-closing (001/002/007–019) and newly-added platform scope (020), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -98,7 +106,7 @@ The hardening backlog comes from [`docs/企业级智能体功能补强规划.md`
 
 ### P2 — scale-out ecosystem: nine self-evolving and ecosystem capabilities
 
-The third tier of the backlog holds **nine** capabilities, all implemented and covered by tests:
+The third tier of the backlog holds **nine** planned capabilities, all implemented and covered by tests:
 
 | # | Capability | What it delivers | Spec |
 | :-: | --- | --- | :-: |
@@ -112,7 +120,15 @@ The third tier of the backlog holds **nine** capabilities, all implemented and c
 | 8 | **Capability asset registration** | Four-part contract, scan de-duplication, governance views, status approval and the `a2a_exposed` marker | [018](specs/018-capability-asset-registration/) |
 | 9 | **Elastic Harness profiles** | Three-layer profile override chain, layer switches and a compliance floor (R4 always denied) wired into the Gatekeeper | [019](specs/019-harness-elastic-config/) |
 
-Together these nine point at the same target: stringing **session → experience → Skill** into one line, so that one person's session becomes the starting point for a team and for later automation.
+### New scope beyond the backlog: platform multi-tenancy
+
+One capability sits outside the 15-item backlog. It was added afterwards as new scope and carries its own spec, plan, contract, quickstart and tasks:
+
+| # | Capability | What it delivers | Spec |
+| :-: | --- | --- | :-: |
+| 10 | **Platform multi-tenancy** | Tenant provisioning on top of the existing `main_id` partitioning: a `tenants` master table, one platform administrator (`__platform__`) created by the first-run bootstrap, mandatory tenant selection at login, archive / restore / purge lifecycle with audit and tombstones, and unlimited quota by default | [020](specs/020-platform-multi-tenancy/) |
+
+Together the nine backlog items point at the same target: stringing **session → experience → Skill** into one line, so that one person's session becomes the starting point for a team and for later automation. Platform multi-tenancy (020) extends the reach from a single enterprise to many, on one deployment — the existing deployment semantics were "one deployment, one enterprise".
 
 ## Line three: multi-instance Agent runtime
 
@@ -277,8 +293,8 @@ MOGO pins the DeepSeek Harness (DSH) Agent kernel to an exact release train rath
 
 | Item | Value |
 | --- | --- |
-| DSH release train | `0.1.7-rc.2` |
-| Pinned packages | 17 `@deepseek-ai/dsh*` packages in `services/chat-api/dsh/runtime-host/package.json` |
+| DSH release train | `0.2.0-rc.2` |
+| Pinned packages | 40 `@deepseek-ai/dsh*` packages in `services/chat-api/dsh/runtime-host/package.json` |
 | Node runtime | `^22.19.0 \|\| >=24.0.0` |
 | Host protocol | `askai.dsh-host.v1` |
 | Host overlay | `askai-dsh-host-v1` |
@@ -293,6 +309,8 @@ The authoritative declaration lives in [`services/chat-api/dsh/compatibility-mat
 4. Run the guard tests before deploying: `services/chat-api/dsh/runtime-host` (`node --test tests/*.test.mjs`) and `services/chat-api/tests/dsh_runtime/test_dsh_upgrade_contract.py`, which fails when the matrix, `package.json` and the shipped web app disagree.
 
 Treat a train upgrade as a compatibility change, not a patch bump. DSH releases have historically renamed preset mechanisms, changed tool-result message shapes, and tightened plugin visibility rules; each of those can break a host overlay that still boots successfully. When upgrading, diff the host plane the new train ships before assuming the old overlay still applies — the `0.1.6-alpha.1` → `0.1.7-rc.2` move required the overlay to re-emit the disabled rows the official web-app patch declares. `docs/WORK_LOG.md` records the concrete breakages found in that move, and `docs/DSH-0.1.7-skill-catalog-定位报告.md` documents one of them end to end.
+
+A second trap, hit during the `0.1.7-rc.2` → `0.2.0-rc.2` move: never branch on the kernel version *string*. Production code in `src/official-host/installation.mjs` already detects the preset-plane generation the durable way — by resolving which preset package is actually installed (`isPresetRegistryTrain`) — but a test had written the equivalent check as `ASKAI_DSH_KERNEL_VERSION === '0.1.7-rc.2'`, so the moment the version changed it silently fell back to the old-train branch and asserted a `@deepseek-ai/dsh-agent-presets` package that no longer exists. Branch on resolved package identity, not on a version literal.
 
 ### Configuration
 
@@ -332,7 +350,8 @@ Source builds download Playwright, LibreOffice, Docling and model assets, so the
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (19 features) |
+| `specs/` | spec-kit SDD specification assets (20 features, plus `INDEX.md`) |
+| `contracts/` | the 5 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |
 | `apps/admin-web/` | Vue 3 setup and administration console |
