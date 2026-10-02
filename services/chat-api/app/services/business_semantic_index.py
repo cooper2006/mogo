@@ -87,6 +87,23 @@ class BusinessSemanticIndex:
                 if not (row.get("entity_id") == record.entity_id and row.get("tenant_id") == record.tenant_id)
             ]
             self._rows.append(document)
+        # 014 FR-9 / T999: funnel index events into the 001 governance audit stream.
+        try:
+            from app.services.feature_audit_bridge import emit_feature_event
+
+            emit_feature_event(
+                "014",
+                "entity.indexed",
+                {
+                    "entity_type": record.entity_type,
+                    "entity_id": record.entity_id,
+                    "tenant_id": record.tenant_id,
+                    "source_ref": record.source_ref,
+                },
+            )
+        except Exception:
+            # 审计失败绝不影响主流程（索引行为不变）。
+            pass
         return document
 
     def index_entities(self, records: Iterable[EntityRecord]) -> int:

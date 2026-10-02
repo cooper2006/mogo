@@ -136,6 +136,7 @@ from app.api.endpoints import (
     personal_knowledge,
     research,
     tasks,
+    business_index,
     token_usage,
 )
 from app.scheduled_tasks import scheduled_task_scheduler
@@ -179,6 +180,8 @@ app.include_router(im_gateway.router)
 app.include_router(memory.router)
 # 010: research DAG orchestration (competitor deep-dive) — production entry.
 app.include_router(research.router, prefix="/api")
+# 014: business semantic index — search / index / align production surface.
+app.include_router(business_index.router)
 # 015: knowledge graph query surface (FR-2 / FR-10 minimal wiring).
 app.include_router(knowledge_graph.router)
 
