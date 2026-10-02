@@ -115,6 +115,7 @@ from app.api.endpoints import (
     dsh_tool_gateway,
     external_tools,
     im_gateway,
+    knowledge_graph,
     knowledge_sources,
     memory,
     models,
@@ -175,6 +176,8 @@ app.include_router(a2a.router)
 app.include_router(im_gateway.router)
 # 017: three-scope memory CRUD (scope/visibility enforced server-side).
 app.include_router(memory.router)
+# 015: knowledge graph query surface (FR-2 / FR-10 minimal wiring).
+app.include_router(knowledge_graph.router)
 
 from app.product.extensions import get_product_extension
 
