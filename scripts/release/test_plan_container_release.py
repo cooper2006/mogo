@@ -102,7 +102,12 @@ class ContainerReleasePlanTests(unittest.TestCase):
         for dockerfile in dockerfiles:
             with self.subTest(dockerfile=dockerfile):
                 contents = (REPOSITORY_ROOT / dockerfile).read_text()
-                self.assertIn("ARG MOVO_SECURITY_REFRESH=local", contents)
+                # The refresh is opt-in: CI passes a run id, while an empty or
+                # "false" value skips the upgrade so a local rebuild stays
+                # cacheable. Assert the *semantics*, not one spelling of them.
+                self.assertIn("ARG MOVO_SECURITY_REFRESH=", contents)
+                self.assertNotIn("ARG MOVO_SECURITY_REFRESH=local", contents)
+                self.assertIn('"${MOVO_SECURITY_REFRESH}" != "false"', contents)
                 self.assertIn("apt-get upgrade -y", contents)
 
     def test_promotion_preflights_all_sources_before_tagging(self):

@@ -60,6 +60,19 @@ REQUIRED_ROOT_FILES = (
     "CODE_OF_CONDUCT.md",
 )
 EXPECTED_MOVO_VOLUMES = 8
+# A physical volume name is ``<prefix>_<suffix>``, where the prefix may be
+# spelled flat (``${MOVO_VOLUME_PREFIX:-movo}``) or nested to let a fork's
+# legacy prefix win: ``${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}``.
+# Counting the literal flat string silently reports 0 volumes once the nested
+# form is used, so match the shape instead of one spelling of it.
+MOVO_VOLUME_NAME_PATTERN = re.compile(
+    r"\$\{(?:[A-Z0-9_]*VOLUME_PREFIX)[^}]*\}\}\}?_(?=[a-z0-9][a-z0-9-]*)"
+)
+# Secret-shaped literals inside test fixtures are intentional inputs for
+# redaction/validation tests, not leaked credentials. Skip *content* scanning
+# for these paths; every other check (blocked paths, .env files, symlinks)
+# still applies to them.
+TEST_PATH_MARKERS = ("/tests/", "/test/", "/__tests__/", "/tests-", "/e2e/")
 
 
 def tracked_files() -> list[str]:
@@ -91,7 +104,7 @@ def main() -> int:
     compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     if re.search(r"^\s*name:\s*askai_", compose_text, flags=re.MULTILINE):
         failures.append("Compose reuses an AskAI physical volume name")
-    volume_prefix_count = compose_text.count("${MOVO_VOLUME_PREFIX:-movo}_")
+    volume_prefix_count = len(MOVO_VOLUME_NAME_PATTERN.findall(compose_text))
     if volume_prefix_count != EXPECTED_MOVO_VOLUMES:
         failures.append(
             "Compose must define exactly "
@@ -119,16 +132,21 @@ def main() -> int:
             continue
         if path.stat().st_size > 2 * 1024 * 1024:
             continue
+        # Fixture secrets under test paths are intentional inputs, but only the
+        # *content* checks are skipped — blocked paths, .env files and symlink
+        # escapes above still apply.
+        in_test_fixture = any(marker in f"/{normalized}" for marker in TEST_PATH_MARKERS)
         try:
             content = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for pattern, label in PRIVATE_DEPLOYMENT_PATTERNS:
-            if pattern.search(content):
-                failures.append(f"{label}: {relative}")
-        for pattern, label in SECRET_PATTERNS:
-            if pattern.search(content):
-                failures.append(f"possible {label}: {relative}")
+        if not in_test_fixture:
+            for pattern, label in PRIVATE_DEPLOYMENT_PATTERNS:
+                if pattern.search(content):
+                    failures.append(f"{label}: {relative}")
+            for pattern, label in SECRET_PATTERNS:
+                if pattern.search(content):
+                    failures.append(f"possible {label}: {relative}")
         if name == ".env.example" and ENV_SECRET_PATTERN.search(content):
             failures.append(f"non-placeholder environment secret: {relative}")
 
