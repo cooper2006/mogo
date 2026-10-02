@@ -3688,3 +3688,21 @@ admin 侧 org.points_unlimited，新租户成员发消息被 402 拦截。
 为真时短路返回 unlimited 摘要；assert_quota_available 对 unlimited 直接放行。
 **验证**：tests/services/test_quota_unlimited.py（unlimited 短路通过）；chat-api 601 passed。
 **诚实边界**：FR-032 清理进度内存化、"or default" 计数（123）未伪造，仍 仍待修。
+
+## 2026-10-03（续三十三）001 修复：六层链逐环节复核 + PII 脱敏消费方补齐
+
+用户指定 001 为安全影响最大的"假门禁"（六层链要么不生效要么 fail-closed），
+要求优先逐环节复核。复核确认 admin-api 侧 5 条断链均已落地，唯一残留是 PII
+脱敏产物无消费方（chat-api 丢弃 `run_gate_plan` 返回值，明文 PII 进后端）。
+
+**本轮复核结论（逐环节，均已在代码中证实）**：
+1. **RBAC 角色源**：`evaluate_gate` 经 `_resolve_roles` 查 `end_user_position_roles`；
+2. **配额层**：`build_layers` 注入 `default_credit_checker`（020 预算，unlimited 放行）；
+3. **PII 脱敏**（本轮补齐）：`admit_skill_selection` 透传 `GatePlan.redacted_request`，
+   `dsh_chat` 以脱敏 `text` 替换明文送 `prepare_turn`；
+4. **审批**：`decide` + `consume` 恢复路径，`/decide` `/approvals` 端点；
+5. **审计**：`gate_events` 落库且 fail-closed，`GET /events` 读取。
+
+**修复文件**：turn_admission.py（红字段+透传）、dsh_chat.py（替换明文）、
+test_gate_plan_wiring.py（消费测试）、test_hooks_009.py（mock 修复）。
+**验证**：test_gate_plan_wiring 9 passed；forwards 测试修复后 passed。
