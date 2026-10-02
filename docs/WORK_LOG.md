@@ -1,5 +1,359 @@
 # Work Log
 
+## 2026-10-01 020 收尾：把「扫描清理面」从一次性动作变成 CI 守护
+
+**起因**：审计报告 §11.2 判 T045「勾选不实」，理由是任务书自己写了「需扫描实际含 `main_id` 的集合」，而交付物是硬编码清单（也因此漂移到漏 27 个）。前几轮我补的仍是硬编码清单 —— 修的是结果，没修**产生结果的机制**。本轮补上。
+
+**做法：drift guard 双向测试**
+- 正向：扫全仓 `*_COLLECTION = "xxx"` 常量（排除 venv）得到 73 个，凡不在三份清单且不在豁免表里的 → 失败。豁免表带理由（单例 / 全局目录 / 平台侧溯源 / TTL 瞬时数据）。
+- 反向：清单里出现的名字必须是真实存在的集合，或列入 `literal_only` 逃生舱（chat-api 有 9 个集合只用 `db["name"]` 字面量、根本没有常量 —— `business_entity_index` 当初就是这么漏的）。逃生舱还有自检：一旦某个名字后来被声明为常量，就必须从逃生舱移除。
+- 反证：往 `app/services/` 丢一个 `LEAKY_NEW_COLLECTION = "leaky_new_thing"` → 测试失败；删除后恢复。
+
+**顺带钉住的三类「有意豁免」**
+- `system_audit_logs` / `tenants`：平台侧溯源与注册表本身，删了等于销毁证据（`system_audit_logs` 虽然带 `main_id`，但记的是平台对租户的操作）。
+- `presence_heartbeats` / `session_presence_state` / `capability_assets`：无租户键、无业务价值（TTL 或全局目录）。
+- 这三类原本只存在于我的判断里，现在是可执行断言 + quickstart §7 的明文口径。
+
+**quickstart 补口径**：验证清单「残留为 0」项下加了豁免说明 —— 否则验收人按字面判，会把有意豁免当成缺陷，`session_shares` 的级联删除也会被误判为漏项。
+
+**数字**：362 → 363（平台侧豁免）→ 365 passed（drift guard 双向）。全部新测试均做了反证。
+
+## 2026-10-01 020 收尾：P2/P3 闭合 + 换口径扫描补 2 个清理面缺口
+
+**起因**：上一轮把成员上限断裂链等 4 项修完后，剩余审计项只剩 P2（`_PurgeTaskStore` 内存 dict）与 P3（成员计数不过滤 status）。本轮处置这两项，并**换一种扫描口径复查清理面** —— 上一轮是按 `*_COLLECTION = "xxx"` 常量扫的，这一轮改成扫 `db["xxx"]` 字面量。
+
+**P2 进度查询：加有界淘汰（单副本下可接受）**
+- 复查确认 compose/deploy **无 `replicas`** 声明 → admin-api 单副本，内存 dict 暂不构成实际故障；但一个打算跑数月的进程，每清一个租户就永久留一条 entry 是不可接受的。
+- `_PurgeTaskStore` 加 `_MAX_TASKS = 512` + `create()` 双向淘汰 + `_evict()`（同时清 `_main_id_to_task`，否则索引悬空 → `get_for_main_id` 对已遗忘租户返 None，看起来像调用方 bug）。docstring 加「Known limitation (audit P2, accepted for 020)」及扩副本时须迁 Mongo/Redis 的说明。
+- 反证：删掉两段 while 淘汰循环 → 2 failed。
+
+**P3 成员计数不过滤 status：判定为「有意口径」，改为抽取共享函数**
+- 三处计数（dashboard / organizations / capacity gate）原本**一致**都含 disabled，所以不是缺陷；真正风险是将来有人只改一处 → 展示与闸门分裂。
+- 决策理由（关键）：disabled 是**可逆停用**（停用可改回，删除才是真删），若计数排除 disabled，租户可「停用→腾位→建人→改回」绕过上限，上限形同虚设。
+- 抽 `count_members(main_id)` 供闸门与两个展示端点共用；`dashboard.py` 的 `users_disabled` 是另一个语义（统计停用人数）故保留原样。
+- 反证：`test_count_members_counts_disabled_seats`。
+
+**换口径扫描：补 2 个缺口**
+- 方法：脚本扫全仓 `db["xxx"]` / `db['xxx']` **字面量**（不看常量名）与三份清单比对。上一轮靠常量名扫，恰好漏掉了不用常量的写入点。
+- 缺口 1：`business_entity_index`（按 `tenant_id` 分区却不在清单）—— `business_semantic_index.py` 直接用字面量，从没有 `*_COLLECTION` 常量提到它。
+- 缺口 2：**推翻上一轮结论**。`session_shares` 上一轮记为「文档化缺口、不清理」，本轮发现可级联：`ShareRecord` 有 `session_id`，而 `chat_sessions` 含 `main_id` 可反查。且 `revoke_share` 路由拿到 main_id 却只按 share_id 查 → 不清理则租户 share token 永久残留且无法归属/撤销。
+- **关键顺序陷阱**：cascade 必须在 scoped sweep **之前**。初版写在 governance sweep 之后 → `chat_sessions` 已被删光 → `distinct` 返回空 → 什么都不删。这个 bug 静默得可怕：代码在跑、日志干净、就是不删东西。
+
+**测试与事故**
+- 全量 359 → 362 passed；新增/重建 5 个测试，全部做了反证（删集合 / 误放位置 / 挪调用顺序，均能失败）。
+- **事故**：调试 cascade 时插了 print，然后用 `git checkout app/services/tenant_purge.py` 清理 —— 连同 3 个清理面测试一起被清空。教训：调试代码用 edit 精确删除，**绝不用 `git checkout` 清理工作区改动**。已重建并补做反证。
+
+## 2026-10-01 020 收尾：成员上限断裂链、跨租户后门残留、清理面再补 5 个集合
+
+**起因**：020 进入 PR 评审前最后一轮深挖。前几轮已修完审计报告 §9 的 P0/P1，本轮目标是把剩余项扫干净 —— 结果挖出一个审计报告**完全没提到**、比所有 P2/P3 都严重的缺陷。
+
+**发现 1（严重，FR-022 被架空）：平台设的成员上限根本不生效。**
+- 写入侧只写 `tenants`：`platform/tenants.py:143` → `tenant_lifecycle.update_tenant` → `_set_tenant_fields` 只 `update_one(db[TENANT_COLLECTION])`。
+- 读取侧只读 `organizations`：`product_edition.py` 的 `assert_member_capacity` 调 `member_limit(org)`，后者读 `organizations.user_limit`。
+- **两侧从无同步**：全仓 grep `user_limit` 仅 3 命中且都不是写业务值；`organizations` 的 3 个写入点均不携带租户设置。
+- 后果：PATCH 设 memberLimit 后审计照记、列表照显示，但**创建成员的容量闸门完全不看它**，「变更生效」（spec.md:86 验收场景）不成立。
+- **为何 334 全绿没暴露**：community 版 `is_community_organization` 为 True → `member_limit()` 返 None → 闸门直接 return；只有非 community（user_limit 兜底 5）才暴露，而原有测试只有 2 个纯函数用例，**无** `assert_member_capacity` 覆盖。
+
+**修法（选「读取侧统一解析」而非「双写同步」）**：不引入两份状态、不需要存量迁移、天然兼容无 tenants 行的存量部署。新增 `product_edition.resolve_member_limit(main_id, org)`：平台显式设置优先 → 未设置回退版本默认 → 非法值告警后回退。`assert_member_capacity` 改用它；`dashboard.py:97` 与 `organizations.py:285` 的 `userLimit` 也改用同一函数，消除「平台列表显示 3、dashboard 显示 100」的口径分裂。新增 `tests/test_member_capacity.py` 11 个用例；**反证做过**：把 `resolve_member_limit` 换回 `member_limit` 后 3 个端到端用例立刻失败。
+
+**发现 2：审计报告判为「P3 死代码」的 auth.py 4 处默认值，实为残留跨租户后门。** `deps.py:12-16` 注释白纸黑字写着 "there is no `bootstrap_main_id` fallback any more（removing it is what closes the cross-tenant leak）"，而 `auth.py:319/327/356/392` 正是那个已移除 fallback 的残留 —— 一旦 main_id 缺失会**静默把用户归到 bootstrap 租户**，即注释要堵死的泄漏入口。已全部改为 `str(current_user["main_id"])`（缺键即 KeyError，宁可 500 也不越租户）。
+
+**发现 3：清理面仍有 6 个集合遗漏。** 用「全仓集合常量 vs purge 清单」交叉比对（脚本扫出 73 个常量）找出：`user_shortcut_preferences`（按 `{main_id, user_id, scheme_key}` 写入）、`session_snapshots`（`dsh_session_versioning.py:121` 在 insert 前补 `document["main_id"] = main_id`），以及 5 个 `tenant_id` 分区的 governance 集合：`agent_kernel_bindings`、`enterprise_authoritative_deliveries`、`presentation_generation_jobs`、`runtime_profile_versions`、`runtime_profile_audit`。已分别补进 `TENANT_SCOPED_COLLECTIONS` / `TENANT_GOVERNANCE_COLLECTIONS`，并加 2 个测试钉住。
+- 一个**自我修正**：我起初把 `session_snapshots` 和 `session_shares` 一起判为「无租户键的孤儿」，因为它们的 dataclass `as_document()`/`to_document()` 确实都没有 main_id。但进一步读写入点发现 snapshots 在路由层补了 main_id，而 shares 的 `main_id` 只是**响应拼装、从不落库**。故只把 shares 记为 `TENANT_ORPHANED_COLLECTIONS`（文档化已知边界），snapshots 正常入清单 —— 测试里也把这个区分钉死，防止后人误改。
+- `admin_model_providers`、`admin_sessions`、`end_user_login_challenges` 经确认**无**租户分区键（前者是全局种子数据，后者 5 分钟 TTL），不加入。
+
+**发现 4：审计 P0-4 的第 4 处（admin-api 目录 API）此前未修。** 该 P0 要求「四处补查 `tenants`，非 active 即拒」，chat-api 三处与 admin-api 登录处（`test_login_tenant_status.py`）早已覆盖，唯独 admin-api 的**目录 API** 漏了 —— `POST /users`（管理员手动建成员）和 `invite-links/{token}/accept`（邀请接受）都不看租户状态，一个在归档前就已登录的管理员会话仍可继续加人。已在 `tenant_registry` 新增 `is_tenant_active(main_id)`（与 chat-api 的 `_selectable_tenant_main_ids` 口径一致：有行只看 `active`，无行 grandfather 放行以免未迁移部署被锁死），并在两处调用：容量闸门**之前**先过租户状态闸门。新增 `tests/test_directory_tenant_gate.py` 11 个用例。
+
+**验证**：admin-api 全量 **359 passed**（334 基线 + 11 成员容量 + 3 清理面 + 4 既有新增；唯一 warning 是既有 bson `datetime.utcfromtimestamp()` DeprecationWarning）。chat-api `tests/api/test_end_user_tenant_access.py` 11 passed；chat-api 全量有 1 个收集错误（`test_decision_turn.py` ImportError `_DecisionSchema`）和 5 个 `dsh_runtime` 失败，经查**均为既有问题**、相关文件本次零改动、与 020 无交集。
+
+**文档同步**：`contracts/tenants.md` 加「生效语义（易错：不写 `organizations`）」小节，说明 memberLimit 只写 `tenants.member_limit`、生效于 `resolve_member_limit`，并列出三处消费方；强调清除上限是「回退版本默认」而**非**「无限」。`quickstart.md` 验证清单新增 1 条：「平台改成员上限后实际生效……且仪表盘展示的上限同步为 N」。
+
+## 2026-10-01 intro-v4.pptx 字体替换修复 + 第 10/11 页标题缩短
+
+**起因**：用户反馈「第 10、11 页还是有些溢出，标题是不是简短些」。此前几轮我用 `STHeiti Medium` 度量判定「已落框」，与用户所见不符 —— 根因是**度量用错了字体**。
+
+**根因取证**：
+- PPT 内每个 run **显式**声明字体为 `Noto Sans SC`（`ppt/slides/slide10.xml`：`<a:latin/a:ea/a:cs/a:sym typeface="Noto Sans SC"/>`，1444 处引用），主题 `ppt/theme/theme1.xml` 不含该字体。
+- **本机未安装 `Noto Sans SC`**：`fc-match "Noto Sans SC"` 回落到 `Verdana.ttf`，`fc-list` 无 CJK Noto。故 PowerPoint 渲染时会**自动替换字体**。
+- 按各替换字体实测 26pt 标题（框宽 11.56in）：STHeiti Medium 11.46/11.32（看似 ok）、**Hiragino Sans GB 11.96/11.97（两页均溢出）**、Songti SC 11.35/11.29、Arial Unicode 11.56/11.50。→ 用 STHeiti 度量**偏窄、会给出假阳性**，这正是前几轮误判的原因。
+- **另一个坑**：PIL 度量的换算必须用 `getlength() / size * pt / 72`。我一度用 `truetype(path, 260)` 直接取长度并除以 72，得出 114in 这类荒唐值（单位错误），已纠正。
+
+**改动 1 — 字体改为系统自带并有实际字形的 `Hiragino Sans GB`**：
+- 1444 处 `typeface="Noto Sans SC"` → `typeface="Hiragino Sans GB"`（保留 8 处 `Arial`）。
+- 选它的理由：本机 `fc-match "Hiragino Sans GB"` → `Hiragino Sans GB.ttc` **确实存在**；而 `PingFang SC` 在本机**未安装**（`fc-match "PingFang SC"` → `Verdana.ttf`，`/System/Library/Fonts/PingFang.ttc` 不存在，PingFang 属 Apple MobileAsset）。Hiragino Sans GB 同时是候选替换字体中**最宽**的一档，用它度量即保守上界。
+- 实现：以 zip 为单位逐个 part 做字符串替换后重写（保留其余 part 原样），`zipfile.testzip()` OK（130 part）。
+
+**改动 2 — 第 10、11 页标题缩短**（两页统一，按 Hiragino Sans GB 度量）：
+- 第 10 页 `SDD 落地进展：15 项 + 020 平台化多租户全部落地，库代码 + 单测全绿` → `15 项 + 020 已按 SDD 落地，库代码 + 单测全绿`（**8.11in** / 框 11.56in）
+- 第 11 页 `15 项 + 020 已按 SDD 全部落地：库代码 + 单测全绿，接线与 UI 已闭合` → `15 项 + 020 已按 SDD 落地，库代码 + 单测全绿`（**8.11in**）
+- 相比此前"削足适履"式压到 11.3~11.5in 的改法，这次留足 3.4in 余量，字体再被替换也不会溢出。删除的「P0/P1/P2 共」信息在第 10 页正文三栏中本已存在，不丢信息。
+
+**改动 3 — 字体切换后新暴露的 2 处真实溢出，一并修复**：
+- 第 1 页日期戳 `2026-10 · 更新至 020`（2.03in / 框 1.89in）→ `2026-10 · 至 020`（1.67in）
+- 第 11 页 `[15]`：`…002 会话版本化端点 + UI：运行时挂载已落地，与库能力同步全绿。`（10.70in / 框 10.33in）→ 去掉尾句，改为 `007 网关韧性（ResilientLLMClient 已挂生产调用）/ 009 钩子挂载 + 规则页 / 002 会话版本化端点 + UI`（**7.67in**）
+
+**最终验证**：全 16 页按**真实声明字体**（Hiragino Sans GB）复扫 —— **0 处真实溢出**（口径：单行框按宽判；多行框按「折行数 × 行高 ≤ 框高」判；`wrap=False` 且超宽单列）。`zipfile.testzip()` OK（130 part）。两处遗留文件按禁删原则保留：`docs/intro-v4.pptx.bak-2026-10-01`、`docs/intro-v4.pptx.bak-before-fontfix`。
+
+**改动文件**：`docs/intro-v4.pptx`。
+
+## 2026-10-01 intro-v4.pptx 溢出标题收紧（第 5 / 10 / 11 页 + 封面日期戳）
+
+**任务**：用户反馈「ppt 第七页标题有些长放不下」。因 PPT 页码含义存在歧义，先征询确认，用户选定溢出页为 **第 10 页、第 11 页、第 5 页**（并非第 7 页）。
+
+**排查方法**：改用**真实字体度量**替代此前的近似估算——用 PIL `ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", pt*8)` 取 `getlength()` 后再换算英寸（此前的「CJK=1.0em / ASCII=0.55em」估算会低估 26pt 加粗中文字形实际宽度）。借此定位到真正的溢出点。
+
+**实测结果（改前）**：
+- 第 10 页主标题 `SDD 落地进展：P0/P1/P2 共 15 项 + 清单外 020 平台化多租户，全部按 SDD 落地，库代码 + 单测全绿，生产接线与 UI 触点已闭合`：**need 20.82in / 框 11.56in**（最严重）
+- 第 11 页主标题 `15 项 + 020 已按 SDD 全部落地：库代码 + 单测全绿，生产接线与 UI 触点已闭合`：**need 12.76in / 框 11.56in**
+- 第 5 页底部脚注：**need 19.00in / 框 11.56in**（单行框 0.31in，放不下）
+- 第 1 页封面日期戳 `2026-10 · 更新至 020 收尾`：need 2.23in / 框 1.89in（也溢出）
+- 第 7 页经真实字体度量**确认无溢出**（眉标题 need 2.25in / 框 6.94in；主标题 need 7.22in / 框 11.56in）——用户所指实为上述几页。
+
+**改动（改后均实测落在框内）**：
+1. 第 1 页日期戳 → `2026-10 · 更新至 020`（need 1.82in / 框 1.89in）
+2. 第 5 页脚注 → `最新进展：15 项 + 020 已按 SDD 落地，库代码 + 单测全绿，接线与 UI 触点闭合；specs/ 20 个特性（16 份 tasks.md / 332 项）已归档。`（need 10.55in / 框 11.56in）
+3. 第 10 页主标题 → `SDD 落地进展：15 项 + 020 平台化多租户全部落地，库代码 + 单测全绿`（need 11.45in / 框 11.56in）
+4. 第 11 页主标题 → `15 项 + 020 已按 SDD 全部落地：库代码 + 单测全绿，接线与 UI 已闭合`（need 11.32in / 框 11.56in）
+5. 连带收紧（同批实测到的溢出）：第 10 页 `LLM 网关韧性：failover · 降级链 · 退避重试` → `…failover · 降级 · 退避`（3.30→2.82in）；第 11 页 `P0/P1/P2 共 15 项 + 清单外 020，已按 SDD 落地为库代码 + 单测，全部通过（chat-api 1562 / admin-api 236，2026-09 基线）。`（10.49→9.29in）；第 11 页 T999 审计条 `…已通过 run_gate_plan 挂入 chat-api 运行时（gate_adapter 已启用开关）。` 精简为 `…已通过 run_gate_plan 挂入运行时。`（10.90→7.90in）。
+
+**未处理（已在下方说明）**：第 12 页 `选型原则…` 条 need 12.10in / 框 11.56in，与备份逐字比对确认为**改动前既有**（非本轮引入），且其文本框高 0.44in 可容两行，属临界而非硬截断，按 AGENTS.md「只改当前任务必要文件」未动。
+
+**后续（用户回复「一并收紧」后补做）**：把上条未处理的临界溢出与其他多行框一并收尾 ——
+- 第 12 页 `选型原则：任务顺序依赖、共享同一批上下文 → …；依赖需运行时动态决定 → 才上 hybrid。`（12.10in）→ `选型原则：顺序依赖、共享上下文 → 单 Agent（案例一）；维度可并行、依赖静态 → DAG graph（案例二）；依赖需运行时动态决定 → hybrid。`（**10.89in**，语义完整保留）。
+- 第 16 页尾页主句（36pt，框高仅 1.39in，容 2 行）：原 `…（15 项补强 + 020 平台化多租户的 SDD 全流程）…` 需 3 行（2.03in）会截断 → 改为 `…（15 项 + 020 的 SDD 全流程）…`，**2 行 1.35in** 恰好落框。此条亦为本轮改动引入的溢出。
+- 第 10 页 `P0` / `P1` / `P2` 三个徽标实测 need 0.34in > 框 0.31in（差 0.03in），属字号行高取整误差、非真实截断，**未处理**。
+
+**最终复扫结果**：全 16 页 **0 处真实溢出**（单行框按宽判、多行框按「折行数 × 行高 ≤ 框高」判，36pt 尾页与 12pt 页脚均在框内）；`zipfile.testzip()` OK（130 part）；`mogong` 残留 none。
+
+**验证**：真实字体度量复扫全 16 页单行文本框，本轮涉及的 4 处**均已落入框宽**；`zipfile.testzip()` **OK**（130 part）；python-pptx 重开 16 页无异常；`mogong` 残留 **none**。
+
+**改动文件**：`docs/intro-v4.pptx`。
+
+**方法论备注**：中文 PPT 文本溢出**不能用字符数或粗估 em 宽度判断**，须用真实字体 `getlength()` 度量（本机 `STHeiti Medium.ttc` 可用；`PingFang.ttc` 在本环境不存在）。26pt 加粗中文实测约 1.0em/字，但含标点、间隔号与 ASCII 混排时偏差会放大到 1.8 倍量级（如第 10 页 78 字 → 20.82in，粗估仅 11in），故长标题务必实测。
+
+## 2026-10-01 intro-v4.pptx 品牌名统一为「墨攻」
+
+**任务**：用户要求「PPTX 中 mogong 修改为墨攻」。
+
+**改动**：`docs/intro-v4.pptx` 全 16 页中所有 `Mogong` / `MOGONG` 统一替换为中文品牌名 **墨攻**，共 **22 个 run**（覆盖 22 个形状）。三类变体（封面 `Mogong`、正文与页脚 `MOGONG`、`MOGONG Desktop`）一并归一为 `墨攻`。
+
+**连带处理（标点与空格）**：替换后出现 CJK 与 CJK 之间的多余空格（原文因中英混排需要空格），已收紧 6 处：
+
+- 第 1 页 `墨攻 基于DSH…` → `墨攻基于DSH…`
+- 第 2 页 `…墨攻 管进企业…` → `…墨攻管进企业…`；`+ 墨攻 企业层` → `+ 墨攻企业层`
+- 第 3 页 `墨攻 已具备九大能力域` → `墨攻已具备九大能力域`
+- 第 4 页 `，墨攻 差异化强项` → `，墨攻差异化强项`
+- 第 6 页 `复用 墨攻 已有审批…` → `复用墨攻已有审批…`
+
+**刻意保留的空格**：`墨攻 = DSH Runtime…`（等号两侧）、`墨攻 Desktop 连接浏览器…`（`墨攻` 与拉丁词 `Desktop` 之间）、`墨攻 · 企业级智能体平台`（与间隔号之间）——这些位置的空格符合中英混排规范，去掉反而违反排版惯例。
+
+**验证**：`re.search(r'mogong', …)` 全 16 页**零残留**；`墨攻` 共 23 处（第 2 页有两处）；`zipfile.testzip()` **OK**（130 part）；python-pptx 重开 16 页无异常。
+
+**改动文件**：`docs/intro-v4.pptx`。未动源码与规格；`docs/intro-v4.pptx.bak-2026-10-01` 备份保持为本轮改动前的状态。
+
+## 2026-10-01 按 README 刷新 docs/intro-v4.pptx（补入 020 平台化多租户）
+
+**任务**：用户要求「根据 README 文档内容刷新 `docs/intro-v4.pptx` 现有版本内容」。
+
+**背景**：README 两版刚完成二次校准（见下一条目）——`specs/` 实为 20 个特性（16 份 tasks.md / 332 项），且新增了「清单之外的新增范围：平台化多租户（020）」小节。而 PPT 仍停在 2026-09 口径：封面写「更新至 019 收尾」、第 5 页脚注写「19 份 spec/plan 资产归档」、全篇无 020。
+
+**改动明细**（沿用上一轮既定做法：**仅改文字与必要几何，保留版式/字号/颜色**；已先备份 `docs/intro-v4.pptx.bak-2026-10-01`）：
+1. **第 1 页封面**：右下日期戳 `2026-09 · 更新至 019 收尾` → `2026-10 · 更新至 020 收尾`。
+2. **第 5 页（03 · GAP）脚注**：`…19 份 spec/plan 资产归档（详见后页）。` → `…；specs/ 下 20 个特性规格（16 份 tasks.md / 332 项）已归档，另有清单之外的 020 平台化多租户（详见后页）。`（修正规格资产口径）。
+3. **第 9 页（06 · P2 — 自进化与生态）**：右侧生态清单网格由 **4 行 × 2 列（8 项）重排为 5 行 × 2 列（9 项）**，新增第 9 张卡片承载 020；块标题 `会话级 + 生态清单（P2 其余项）` → `生态清单（P2 其余项 + 清单外新增）`；020 卡片文案 `020 平台化多租户（清单外新增）`，用 teal 强调色 `#0D9488` + 加粗区别于既有 8 项。
+   - 几何：行距由 787400 压缩为 736600，行 y = 2006600 / 2743200 / 3479800 / 4216400 / 4953000；末行底边 5613400 **恰好贴合**下方「目标形态」band 顶边，无重叠、无溢出。列 x 不变（outer 6223000 / 8890000，inner 6400800 / 9067800）。**先前的 5 行方案不可行**（原 pitch 787400 会使末行底边到 5816600，越过 band 顶边 5613400），故压缩行距；3 列方案亦不可行（3×2489200=7467600 > 右侧可用宽 5156200，列间距为负）。
+   - 实现方式：`copy.deepcopy` 复制末张卡（`AutoShape 34` / `AutoShape 35`）的 XML 元素并 `addnext` 插入，再改写位置与文字，从而**完整继承填充、圆角、字号与颜色**。
+4. **第 10 页（07 · 实施路线图）副标题**：`…共 15 项全部按 SDD 落地…` → `…共 15 项 + 清单外 020 平台化多租户，全部按 SDD 落地，库代码 + 单测全绿，生产接线与 UI 触点已闭合`。
+5. **第 11 页（08 · 落地进展与接线闭合）**：标题 `15 项已按 SDD 全部落地` → `15 项 + 020 已按 SDD 全部落地`；第 1 条徽标 `已完成 · 15 项全绿` → `已完成 · 16 项全绿`；第 1 条说明补「+ 清单外 020 平台化多租户」，并把测试数字标注口径为 `（chat-api 1562 / admin-api 236 项，2026-09 基线）`。
+6. **第 16 页尾页**：正文补 `（15 项补强 + 020 平台化多租户的 SDD 全流程）`；「下一步」由 `以 019 弹性 Harness 收尾…` → `以 020 平台化多租户收尾…`。
+
+**刻意未动的三处「15 项」**（经核对正确，与 README 同一口径）：第 2 页 `15 项补强已按 SDD 落地`、第 5 页 `P0/P1/P2 共 15 项已按 SDD 全流程落地`、第 16 页 `15 项补强 + 020…`——补强清单本身确为 15 项，020 是清单外新增范围，两者并列而非合并计数。
+
+**测试数字口径说明**：README 本身**不含任何测试数字**（grep `313|236|1562|passed` 零命中），故第 11 页数字沿用了 2026-09 实现期基线（`docs/WORK_LOG.md:1658`、:1700）而非 `docs/regression-report-2026-10-01.md` 的全量回归口径（admin-api 330 / chat-api 1933 passed / 6 failed），并显式标注「2026-09 基线」以免误读。
+
+**验证**：
+- `zipfile.testzip()` → **OK**（130 个 part，无损坏）；python-pptx 重开 **16 页无异常**。
+- 逐页文本复核：020 / 平台化多租户已出现在第 1、5、9、10、11、16 页；`19 份`、`019 收尾` 已零残留。
+- 第 9 页网格几何复核：9 张卡片两两不重叠，末行底边 5613400 与 band 顶边严格对齐。
+- 脚注加长后仍为单行（原文本框 `w=10566400`、字号 126.3pt/10pt 量级，新文本长度与原文本相当）。
+
+**改动文件**：`docs/intro-v4.pptx`（+ 备份 `docs/intro-v4.pptx.bak-2026-10-01`，未跟踪）。未动源码与规格。
+
+**备注（工具限制）**：本轮尝试用 AppleScript 驱动 Microsoft PowerPoint 导出 PNG 做视觉复核，`save … as save as PNG` 触发 AppleEvent 超时（-1712）且 PowerPoint 无响应，已 `pkill` 清理；环境内也无 LibreOffice/`soffice` 可做无头渲染，故视觉复核以结构化校验（zip 完整性 + python-pptx 重开 + 几何与文本断言）替代。
+
+## 2026-10-01 按 specs/ 二次校准根目录 README.md 与 README.zh-CN.md
+
+**任务**：用户要求「根据 spec 下的内容重新刷新根目录 README 内容」。
+
+**背景**：根目录 README 两版此前已按 `specs/` 刷新过一轮（见下方 2026-10-01 条目），但复核发现**契约描述仍有事实错误**，且 020 的平台化定位表述与 `specs/INDEX.md` 口径不一致。本轮为二次精修。
+
+**复核发现的 4 处问题**：
+1. **契约描述错误（重要）**：README 原文称"定义了 T998 契约的 5 个特性在本目录内附带 `contracts/`"，并列出 001/007/008/009/020。但实测**顶层还有独立的 `contracts/` 目录**（5 份 T998 契约：`orchestration.md`、`self-evolution.md`、`session-versioning-contract.md`、`harness-config.md`、`a2a-gateway.md`，均为 git 跟踪），而 `specs/` 内的 5 个 `contracts/` 是**另一组**（按特性划分）。原表述漏掉了顶层目录，且把两组混为一谈。
+2. **020 定位与 INDEX 口径不一致**：`specs/INDEX.md` 第三组标题为「三（补）、平台化能力（**新增范围，非原规划清单**）」，明确 020 不属于 15 项补强清单。README 原先把 020 混进 P2 表格当"第 10 项"，虽加了说明文字但仍造成"P2 有 10 项"的错觉。
+3. **quickstart 覆盖未说明**：实测 16 个补齐特性（001/002/007–020）全部有 `quickstart.md`（`ls specs/*/quickstart.md` = 16），20 个特性全部有 `checklists/requirements.md`。原文只提 spec/plan/checklist 三件套，未说明补齐特性还多 `quickstart.md`。
+4. **顶层 `contracts/` 未进仓库结构表**。
+
+**改动（英文版与中文版同步，均 372 → 387 行）**：
+- `README.md:73-80` / `README.zh-CN.md:73-80`：整段重写。改为**分组说明**：①20 个特性目录共有 `spec.md` + `plan.md` + `checklists/requirements.md`；②16 个补齐特性（001/002/007–020）走**完整链路**——spec、plan、checklist、`quickstart.md`、`tasks.md`，332 项全勾；③4 个既有回溯特性（003–006）保留原始三件套、无 `tasks.md`。契约改为**明确两处**：顶层 `contracts/` 5 份 T998 契约（列名）+ `specs/` 内 5 个按特性的 `contracts/` 目录（逐个带链接到 `001/contracts/gatekeeper.md`、`007/contracts/resilience.md`、`008/contracts/dashboard.md`、`009/contracts/hooks.md`、`020/contracts/tenants.md`）。新增一段说明 `specs/INDEX.md` 是权威清单及其三组划分。
+- `README.md:107` / `README.zh-CN.md:107`：P2 标题回退为「nine self-evolving and ecosystem capabilities」/「九项自进化与生态能力」（去掉先前加的 "plus platform multi-tenancy" / "，外加平台化多租户"），正文只讲 9 项。
+- `README.md:123-131` / `README.zh-CN.md:123-131`：**新增独立小节** `### New scope beyond the backlog: platform multi-tenancy` / `### 清单之外的新增范围：平台化多租户`，把 020 从 P2 表格中**移出**，单列 1 行表格（编号 10），并补充 INDEX 的背景口径——"平台化多租户（020）把这套形态从单个企业延伸到一套部署承载多个企业——**既有部署语义本是「一套部署 = 一个企业」**"。
+- `README.md:353-354` / `README.zh-CN.md:353-354`：仓库结构表 `specs/` 行补 `+ INDEX.md`；**新增** `contracts/` 行（5 份 T998 接口契约）。
+
+**刻意未动（经核对为正确）**：
+- `README.md:86` / `README.zh-CN.md:86` 的「**15 backlog items / 15 个清单项**」——补强清单本身确实 15 项，与"20 个特性规格"是两个不同口径，不属于漂移。
+- 「313 项新测试」「236 项」等回归数字——口径为 2026-07-08 SDD 实现期增量，与全量回归不同，不混用。
+
+**验证**：
+- 两版均 **387 行**，章节结构与行号一一对应。
+- 全部 12 个新增/涉及的链接目标逐个 `test -e` 校验 **OK**（顶层 `contracts/` 目录及其 5 份文件、`specs/` 内 5 个 `contracts/` 文件、`specs/INDEX.md`）。
+- 残留检查：`grep "19 feature\|19 个特性\|270"` **零命中**（首轮已修，本轮无回归）。
+
+**改动文件**：`README.md`、`README.zh-CN.md`、`docs/WORK_LOG.md`（本条目）
+
+## 2026-10-01 DSH 内核升级 0.1.7-rc.2 → 0.2.0-rc.2（含一处版本判定缺陷修复）
+
+**任务**：用户要求「根据 WORK_LOG 我今天已经修改 DSH 运行时版本到了 0.2.0-rc.2，README 文件中 DSH 运行时版本还是上个版本信息，同步一下」。
+
+**取证中发现的关键事实（与用户描述不完全一致，已向用户确认后执行）**：
+- 仓库内**所有权威版本声明当时仍是 `0.1.7-rc.2`**：`compatibility-matrix.yaml` 的 `active_release`、`runtime-host/package.json` 的 40 个包、`versions.lock`、`pnpm-workspace.yaml`、`sbom.cdx.json`、`host-protocol.mjs` 的 `ASKAI_DSH_KERNEL_VERSION`。
+- `check_dsh_upgrade_contract.py` 当时 **exit 0**、契约测试 **5 passed**——即仓库处于**自洽的 0.1.7-rc.2**，并非"只差 README"。
+- 但 `node_modules/@deepseek-ai/dsh/package.json` 的 `version` 已是 **0.2.0-rc.2**；`docs/regression-report-2026-10-01.md` 也记录了 0.1.7-rc.2 → 0.2.0-rc.2 的回归。
+- 结论：**实际安装的内核已升、仓库钉版声明未升**。用户确认「仓库确实要升到 0.2.0-rc.2（我还没改配置文件）」并选择「两者都做」。
+
+**升级实施（7 处版本面）**：
+1. `services/chat-api/dsh/compatibility-matrix.yaml`：`active_release.dsh_release_train` → `0.2.0-rc.2`；`supported_releases` 新增 0.2.0-rc.2 行（`status: production`、`rollback: 0.1.7-rc.2`），原 0.1.7-rc.2 行降为 `status: rollback`（其 `rollback: 0.1.6-alpha.1` 字段随之移除）。0.1.6-alpha.1 行按原样保留。
+2. `services/chat-api/dsh/runtime-host/package.json`：40 处 dsh 依赖 → `0.2.0-rc.2`。
+3. `services/chat-api/dsh/runtime-host/src/host-protocol.mjs`：`ASKAI_DSH_KERNEL_VERSION` → `0.2.0-rc.2`。
+4. `pnpm install --no-frozen-lockfile` → **pnpm-lock.yaml 重新解析成功**（1m14.6s，pnpm 12.8.1），全部解析到 0.2.0-rc.2。
+5. `services/chat-api/dsh/runtime-host/pnpm-workspace.yaml`：`minimumReleaseAgeExclude` 白名单**手工重建**（该文件不由 pnpm install 生成，需从 lockfile 提取）。249→291→ 本次 **296 条 = 278 个 dsh 包 + 18 个基建包**，`0.1.7` 清零。`allowBuilds` / `overrides` 两个 section 未改动。
+6. `services/chat-api/dsh/versions.lock`：`[release_train].version`、`[upstream].reviewed_commit_root_version`、`policy`、artifact 的 `tarball`/`integrity`/`shasum` 全部更新为 0.2.0-rc.2 的真实 npm 元数据（`sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA==`、`shasum dfc8f7e09cfa96b854d6f0cf3a973ce7f2948925`）。
+7. `services/chat-api/dsh/sbom.cdx.json`：用既有脚本 `services/chat-api/scripts/generate_dsh_sbom.py` 重新生成（**未手改**），652 → **667** 个组件，dsh 组件 273 → **278**，版本集合 `['0.2.0-rc.2']`。
+
+**❗ 修复一处版本判定缺陷（本次升级暴露的真 bug）**：
+- 现象：`node --test tests/*.test.mjs` → **86 pass / 1 fail**，`official-host-composition.test.mjs:216` 断言 `inventory.presetIsolationRows.includes('agent-instructions')` 失败。
+- 根因：测试把「train 代际判定」写成了**对内核版本字符串的等值比较**——`ASKAI_DSH_KERNEL_VERSION === '0.1.7-rc.2'`（该文件 3 处）。版本一变成 0.2.0-rc.2，三处分支全部静默跌回**旧 train 路径**：`REQUIRED_HOST_MODULES` 去要求旧包 `@deepseek-ai/dsh-agent-presets`（0.2.0 下根本不存在）、`presetIsolationRows` 断言方向反转。
+- **关键佐证：产品代码本身没有这个缺陷**。`grep -rn "0.1.7-rc.2" services/chat-api/dsh/runtime-host/src/` **零命中**；`src/official-host/installation.mjs:70` 早已用可持续方式判定：`const isPresetRegistryTrain = presetPackageName === '@deepseek-ai/dsh-agent-preset'`（靠 `requireFromDsh.resolve` 解析实际装了哪个包），并在 :93 暴露该字段。实测该字段在 0.2.0 下为 `true`。
+- 修复：`tests/official-host-composition.test.mjs` 改为在顶层 `await resolveDshInstallation()`，3 处分支全部改用 `installation.isPresetRegistryTrain`，不再引用版本字面量；并加注释说明该判定为何必须基于**解析出的包身份**。
+- 结果：`node --test tests/*.test.mjs` → **87 pass / 0 fail**（修复前 86/1）。
+
+**验证（全部实测）**：
+- `check_dsh_upgrade_contract.py` → **exit 0**（"candidate is safe for packaged release admission"）。
+- `tests/dsh_runtime/test_dsh_upgrade_contract.py` → **5 passed**。
+- `node --test tests/*.test.mjs` → **87 passed / 0 failed**。
+- **host 实启冒烟**：`OfficialDshHostComposition.start()` 成功，`dshVersion = 0.2.0-rc.2`、`overlayVersion = askai-dsh-host-v1`、preset roster = `askai-enterprise, standard, ptc, minimal, cordis`、`askai-enterprise.broken === undefined`。
+- `check_dsh_supply_chain.py` / `check_dsh_native_code_boundary.py` / `check_dsh_legacy_runtime_boundary.py` → 三者均 **exit 0**。
+- `tests/dsh_runtime/` 全量 → **336 passed / 5 failed**。
+- **5 个失败经对照实验证明为既有基线，与本次升级无关**：`git stash` 回退全部改动（node_modules 仍为 0.2.0）后跑同一套件 → **同样 5 failed / 336 passed**（5 个均超时）。这 5 个即 `docs/regression-report-2026-10-01.md` §二.4 已判定的 `real_dsh` 环境依赖例（`model_calls=620` / `turn timed out` / `TimeoutError`），报告结论为"不是 DSH 0.2.0 回归"。对照后已 `git stash pop` 恢复，并复跑三项守卫确认无损坏。
+- 与既有基线对比：本轮 336/5 优于 0.1.7-rc.2 升级时记录的 **335/6**。
+
+**README 同步（英文版与中文版，均 372 行）**：
+- `README.md:282-283` / `README.zh-CN.md:282-283`：版本表 train → `0.2.0-rc.2`；**并修正「钉版依赖 17 个」这一既有错误 → 40 个**（实测 `package.json` 中 `@deepseek-ai/dsh*` 直接依赖为 40 个，README 自 2026-09-25 起一直写 17）。
+- `README.md:299` / `README.zh-CN.md:299`：升级注意段新增本次踩到的第二个坑——**不要拿内核版本字符串做分支判断**，说明产品代码用 `isPresetRegistryTrain` 按解析出的包身份判定，而测试曾写成版本等值比较导致升级即静默走错分支。
+
+**改动文件**：
+- `services/chat-api/dsh/compatibility-matrix.yaml`、`runtime-host/package.json`、`runtime-host/pnpm-lock.yaml`、`runtime-host/pnpm-workspace.yaml`、`runtime-host/src/host-protocol.mjs`、`runtime-host/tests/official-host-composition.test.mjs`、`versions.lock`、`sbom.cdx.json`
+- `README.md`、`README.zh-CN.md`
+- `docs/WORK_LOG.md`（本条目）
+
+**方法论备注**：`pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` **不是** `pnpm install` 的产物，必须从 `pnpm-lock.yaml` 提取重建——首次尝试用正则 `^\s{2}(@deepseek-ai/...)@(...)` 提取 0 条（lockfile v9 的键带引号且版本后可跟 `(peer)` 后缀），导致白名单被清空；已 `git checkout` 恢复后用修正的正则（`^  '?(@deepseek-ai/...?)@(\d[^\s'():]*)'?(?:\(|:)`）重新提取。中途一度清空该文件，已完整还原，仓库无残留。
+
+## 2026-10-01 依据 specs/ 刷新根目录 README.md 与 README.zh-CN.md
+
+**任务**：用户要求「根据 spec 下的内容重新刷新 README 内容」，并澄清目标是**根目录的** `README.md` 与 `README.zh-CN.md`。
+
+**发现的漂移**（README 落后于 `specs/` 实际状态，20 个特性目录已成事实但 README 仍写 19 个）：
+
+| 项 | README 原文 | 实测 |
+|---|---|---|
+| `specs/` 特性数 | 19（结构树 + 仓库结构表两处） | **20**（新增 `020-platform-multi-tenancy`） |
+| 补齐特性数 | 15（001/002/007–019） | **16**（001/002/007–020） |
+| `tasks.md` 份数 | 15 份 | **16 份** |
+| `tasks.md` 勾选项 | 270 项 | **332 项**（逐文件求和验算：32+22+25+27+19+22+19+12+12+13+12+13+13+14+15+62=332） |
+| `contracts/` 描述 | "5 top-level `contracts/*.md` plus 4 per-spec contract files" | **5 个文件，全部在各自特性目录内**（001/007/008/009/020） |
+| P2 生态节 | 9 项，未含 020 | 9 项原清单 + **020 作为「新增范围、非原清单条目」** |
+
+**关键纠正：`contracts/` 的描述是错的**。原文暗示存在「顶层 5 份 + spec 内 4 份」共 9 份，实测 `ls specs/*/contracts/*.md` 只有 **5 份**且全部位于特性目录下，顶层不存在 `contracts/` 目录。已改为按特性逐一列名。
+
+**另一处自查纠正**：我最初把勾选项总数写成 342，用 `grep -hE '^\s*- \[[ xX]\]' | wc -l` 实测为 **332**，并逐文件求和交叉验算确认 332 正确（最初 342 是笔误）。两版 README 均已修正为 332。
+
+**落地修改**（英文版与中文版**同步**改，两版行数均为 370，章节结构一一对应）：
+- `README.md:65-70` / `README.zh-CN.md:65-70`：结构树 `19` → `20`，补 `020-platform-multi-tenancy/`。
+- `README.md:73` / `README.zh-CN.md:73`：改写整段——16 个补齐特性、16 份 `tasks.md`/332 项、`contracts/` 改为按特性列名（`001` gatekeeper、`007` resilience、`008` dashboard、`009` hooks、`020` tenants）。
+- `README.md:100` / `README.zh-CN.md:100`：P2 标题补 ", plus platform multi-tenancy" / "，外加平台化多租户"。
+- `README.md:102` / `README.zh-CN.md:102`：说明 9 项为原清单、020 为**事后新增范围而非清单条目**（与 `specs/INDEX.md` 的分组口径一致）。
+- `README.md:115` / `README.zh-CN.md:115`：P2 表格新增第 10 行 020 platform multi-tenancy。
+- `README.md:117` / `README.zh-CN.md:117`：收束句补充平台化多租户的定位。
+- `README.md:337` / `README.zh-CN.md:337`：仓库结构表 `specs/` 行 `19` → `20`。
+
+**020 的表述依据**（取自 `specs/020-platform-multi-tenancy/spec.md`）：在既有 `main_id` 数据分区之上补齐**租户供给**这一唯一缺口（认证层已具备多租户）；新增 `tenants` 主表；平台管理员账号不属于任何企业、由首次启动引导创建（FR-007 亦支持环境变量预置）；登录强制选择企业（FR-015~017）；生命周期含归档 / 恢复 / 彻底清理（FR-024~034，含墓碑记录）；新租户配额默认**不限额**（FR-035）；存量升级自动登记既有企业且幂等（FR-039）。
+
+**未改动**：「15 个清单项」（P0/P1/P2 补强清单本身确实 15 项）与「313 项新测试」「87 passed / 330 passed」等回归数字——它们是**不同口径**（SDD 实现期增量 vs 全量回归），原文正确，不动。
+
+**验证**：用脚本把 README 中所有特性数 / tasks 份数 / 勾选项数字与 `specs/` 实测值逐一比对，英文版与中文版全部 OK（20 / 16 / 332）；`contracts/` 所属特性与目录实测一致；无 `19 个特性`、`270 项`、`15 个补齐特性`、`顶层 5 份` 等残留。
+
+## 2026-10-01 内置技能汉化补齐 + 修正 README 失实声明 + 补齐 print 白名单回归测试
+
+**任务**：用户要求「根据 WORK_LOG 最近处理内置的 SKILL 的结果，需要把 SKILL 的相关内容汉化为中文，检查是否有提示 SKILL.md 引用了未声明工具 "print"，导出这些技能到一个 zip 文件」。
+
+**关键发现：README 声称「全部已汉化」是不实声明**。
+`docs/cases/builtin-skills/README.md` 标题写「内置技能 ZIP 包（汉化版）」、正文断言「全部已汉化」，并列出「已汉化：displayName…」。实测：
+- **15 个技能一个都没有声明 `displayName`**（`grep displayName services/chat-api/app/skills_specs/` 零命中），而 `validator.py:256` 的 `display_name = meta.get("displayName") or meta.get("display_name") or name` 决定界面显示名 → 界面只会显示 `docx`、`pdf` 这类英文 slug。
+- **8 个技能正文零中文**：docx（9885 字节）、xlsx（10424）、pptx（8346）、pdf（6954）、theme-factory（2781）、deep_research_report_style_v1（1769）、research（414，legacy YAML）、stock_analysis（805，legacy YAML）。
+- README 原第 84-97 行那段"校验输出"里的 `display_name=Word 文档处理`、`display_name=PDF 处理` 等**是凭空编造的**（无 displayName 时校验器只回落到 slug）。
+- README 包清单表还列着已被 git 删除的 `research-1.0.0.zip` 与 `stock-analysis-1.0.0.zip`，并引用已不存在的 `mogo-builtin-skills-1.0.0.zip`。
+
+**汉化实施（15 个技能全部完成）**：
+- 8 个未汉化技能：补 `displayName` + 汉化 `description` + 正文所有标题与说明文字。其中 pptx / xlsx / deep_research_report_style_v1 三个大文件交由 3 个并行 subagent 完成。
+- 7 个已部分汉化技能：补 `displayName` 并汉化英文 `description`（customer_feedback_triage、blog_article_style_v1、report_synthesis_v1、financial_analysis_v1、product_analysis_v1、market_intelligence_v1、sentiment_monitor_v1）；5 个 subagent 型技能的 `whenToUse` 统一为「作为 competitor_deep_dive 图编排的子智能体节点被调用，不由最终用户直接选择。」
+- **回滚记录**：一度把 `stock_analysis` 的 `must_include_fields` 值（Data source / Date range）改成中文后**已回滚**——该字段在 `services/chat-api/app/**.py` 里零消费者，是给模型读的产物结构契约名，须与同目录 `validation.yaml` 和 `templates/report.md` 的区块标题一致；已汉化的 `product_analysis_v1` 同样保留英文值，属仓库既定约定。
+- **刻意保留英文**（非遗漏）：代码块与命令行、库名 API 名、Excel 错误码与数字格式码、RGB 色值、参考文档文件名、DAG 步骤标识符、`validation.required_sections` / `must_include_fields` 契约名、字体名、`pdftotext（poppler-utils）`/`qpdf` 工具名；主题名与颜色名保留英文原名并附中文括号说明。
+
+**修复 legacy 技能 displayName 丢失（实为真 bug）**：
+`docs/cases/build_builtin_all_expert_package.py` 的 `rewrite_skill_md()` 在处理无 `---` frontmatter 的 legacy 技能时，只取 `meta.get("description")`，**从不转发 `displayName`**，导致合并包里 `research` / `stock-analysis` 显示为英文 slug 且 `description=Legacy skill`。修复：
+- 新增 `LEGACY_FRONTMATTER = re.compile(r"\A(.*)", re.DOTALL)`——legacy 文件整个就是一段裸 YAML（**实测无空行分隔符**，最初按「首个空行截断」的写法匹配不到，已纠正），据此解析出 `meta`。
+- 合成 frontmatter 时补 `displayName:`（有值才写），description 得以取到真实中文描述。
+
+**'print' 未声明工具核查结论：告警已修复，现状不可复现**。
+- 源头是 `f67ae73`（`BUILTIN_FUNCTIONS` 白名单 + pdf/xlsx 各加 `tools: []`）。实测 12 个平铺 ZIP 全部 `warnings` 为空。
+- 真实引用仅两处且在代码块内：`pdf/SKILL.md`（9 处 `print(`）、`xlsx/SKILL.md`（1 处）。
+- 注意真正挡住告警的是 **`BUILTIN_FUNCTIONS` 白名单**而非 `tools` 声明（pdf/xlsx 的 `tools` 是空列表）。
+- **补齐回归测试**：`services/chat-api/tests/services/test_skill_package_validator.py` 新增 `test_ignores_python_builtin_calls_in_code_samples`（parametrize print/len/range/sorted/enumerate/isinstance）与 `test_still_reports_undeclared_tools_alongside_builtins`（确保过滤内置名不会连真实未声明工具一起静音）。
+- **测试有效性反证**：临时把 `BUILTIN_FUNCTIONS` 置为空集后重跑 → **7 failed**；已还原并校验 `validator.py` 内容与原文件一致。修复前 11 passed → 现 **17 passed**。
+
+**重新打包**：
+- `docs/cases/build_builtin_skill_zips.py` → 12 个独立 ZIP，全部 `warnings=-`。
+- `docs/cases/build_builtin_all_expert_package.py` → `mogo-builtin-skills-all-1.0.0.zip`，覆盖 **15 个技能**（含 research、stock_analysis），402.1KB，`package_kind=expert_package`，`warnings` 为空，`archive_digest=172b229541268d12f119b1234f16601ca1ed5e610ba9980308779c0233f20db8`，SHA256 `78093deb488bfabb7893c830a5c552d214934895883be6c7540061e01ccc3927`，15 个子技能 name 全部为中文。
+
+**改动文件**：
+- `services/chat-api/app/skills_specs/*/SKILL.md`（15 个，汉化）
+- `services/chat-api/tests/services/test_skill_package_validator.py`（+2 组回归测试）
+- `docs/cases/build_builtin_all_expert_package.py`（legacy displayName 转发修复）
+- `docs/cases/builtin-skills/README.md`（改写为与事实一致，替换编造校验输出）
+- `docs/cases/builtin-skills/*.zip`（重新打包）
+
+**验证**：12 个独立 ZIP 全部 VALID 且 `display_name` 为中文；合并包 `validate_expert_package` 通过、15 个子技能 name 全中文；validator 测试 17 passed；README 与目录内容交叉比对一致（无遗漏/无幻影条目）。
+
+## 2026-10-01 为 011-dream-cycle-self-evolution 生成自定义检查清单
+
+**任务**：用户要求为特性 `011-dream-cycle-self-evolution` 生成自定义检查清单（speckit-checklist）。
+
+**过程**：
+- 读取 spec.md、tasks.md 和现有 checklists/requirements.md
+- 发现特性目录已存在 requirements.md（需求质量门禁），但缺少实现验收清单
+- 生成 comprehensive implementation checklist，涵盖 16 个 Phase：
+  - Phase 1-2: 模块结构 & 摩擦检测
+  - Phase 3-4: 相似度算法 & 模式扫描
+  - Phase 5-6: 草稿生成 & 生命周期管理
+  - Phase 7-8: 自动 MR 生成 & 草稿/MR 边界
+  - Phase 9-10: 低采纳淘汰 & 恢复逻辑
+  - Phase 11: 跨特性集成（004/002/010/016）
+  - Phase 12-13: 审计 & 配置管理
+  - Phase 14-16: 文档、测试、安全合规
+
+**产出**：`specs/011-dream-cycle-self-evolution/checklists/implementation.md`（7856 bytes）
+
+**验证**：文件写入成功，结构完整，覆盖全部 User Story 和 Functional Requirements。
+
 ## 2026-10-01 新增内置技能全量专家包（mogo-builtin-skills-all）
 
 **任务**：用户要求「把内置的技能导出合并为一个zip文件」。

@@ -104,11 +104,13 @@
   "quota": null            // null = 不限额
 }
 
-// response
-{ "mainId": "acme-9f3c...", "orgName": "示例科技有限公司", "modelInstanceId": null, "additionalModelInstanceIds": [] }
+// response —— snake_case（ProvisionResult 未配 alias，序列化即蛇形）
+{ "main_id": "acme-9f3c...", "org_name": "示例科技有限公司", "model_instance_id": null, "additional_model_instance_ids": [] }
 ```
 
 **契约要点**：`model` / `additionalModels` / `externalSearch` / `quota` / `employee` 全部可省略；省略时跳过对应配置且不校验其连通性。创建过程**不做任何服务就绪校验**。
+
+**字段命名边界**（易错，勿再混淆）：请求体与列表/详情视图一律 **camelCase**；仅本端点响应因直接返回 `ProvisionResult` 数据类（未配 alias）而为 **snake_case**。前端 `apps/admin-web/src/api/platform.ts` 的 `TenantCreateResult` 已按 snake_case 声明，两侧一致。
 
 ### `GET /api/platform/tenants`
 
@@ -133,6 +135,31 @@
 ### `PATCH /api/platform/tenants/{main_id}`
 
 可改：`name`、`status`（`active` ↔ `disabled`）、`memberLimit`。
+
+#### 生效语义（易错：不写 `organizations`）
+
+`memberLimit` 只写 `tenants.member_limit`（平台侧记录），**不会**同步到库内 `organizations.user_limit`
+（该字段是版本默认，由 edition 决定）。成员上限的**最终取值**由
+`app.core.product_edition.resolve_member_limit(main_id)` 解析：
+
+```
+tenants.member_limit is None  →  回退 organizations.user_limit（版本默认）
+否则                          →  取 tenants.member_limit（平台显式设置优先）
+非法值（非数字）              → 告警后回退版本默认
+```
+
+该解析函数是**唯一**取值入口，三处消费方必须都走它：
+
+| 消费方 | 位置 | 用途 |
+|---|---|---|
+| 容量闸门 | `product_edition.assert_member_capacity` | `POST /api/users`、邀请接受创建成员前拦截（403） |
+| 租户概览 | `routes/dashboard.py` → `userLimit` | 仪表盘展示 |
+| 组织概览 | `routes/organizations.py` → `userLimit` | 组织设置展示 |
+
+`tenants` 行缺失（存量未迁移部署）时回退版本默认，**不得**因缺行锁死成员创建。
+
+清除上限用 `"memberLimit": null`（或字符串 `"null"`），语义为「回退版本默认」，
+**不等于**「无限」——若该版本默认本身有限，清除后仍然受限。
 
 ### `POST /api/platform/tenants/{main_id}/admin/reset-password`
 
