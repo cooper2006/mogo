@@ -79,10 +79,13 @@ FR-3 的效果分需要 `successful_calls` / `adopted_calls` / `corrected_calls`
   同轮 message 关联，故采用 message 级归因，而非 tool 级。
 - **纠正 `corrected_calls` —— 口径 = 用户编辑该轮产物并保存**：以
   `POST /documents/save-blueprint`（`chat-api/app/api/endpoints/documents.py`，注释即
-  "Save an **edited** blueprint back"）为"编辑产物"信号，配合 `blueprint_object_path` 与编辑后内容判定。
-  ⚠️ **该端点目前只覆盖对象存储，不写任何 DB/审计/编辑事件** —— 因此纠正维度**必须先新增"编辑事件"
-  埋点**（记录 `blueprint_object_path`、`tenant_id`/`user_id`、编辑前后指纹、来源 `message_id`）才能采集。
-  这是本轮唯一需要新增埋点的维度。
+  "Save an **edited** blueprint back"）为"编辑产物"信号。**已实现**：该端点新增产物编辑事件埋点
+  （`skill_quality_report.record_product_edit` → `skill_product_edit_events`，含 object_path / tenant /
+  user / 来源 `message_id`）；admin-api `collect_edit_events` 按 `message_id` 归因到该轮 skill。
+  **多 skill 轮次的归因**：一轮可能自动加载多个 skill（`selection_mode=automatic`），而用户显式选择的
+  是单值（`selection_mode=manual`）。归因规则为 **① 有 manual 则记 manual（用户明确意图）；
+  ② 无 manual 则记最早的一条 automatic**；且**一次编辑只记一个 skill**——一次编辑只产出一个产物，
+  记满全轮会虚增纠正率。产物与 skill 无绑定数据（presentation 不绑 skill），故无法更细粒度判定。
 - **成功 `successful_calls` —— 口径 = kernel_session + 时间窗（已实现）**：receipt 无 `message_id`
   （`EnterpriseActionReceipt` 只有 `conversation_id`/`kernel_session_id`），故按 `kernel_session_id` 归因：
   该 skill activity 前后 ±30min（`DEFAULT_SUCCESS_WINDOW_SECONDS`）内无 `failed`/`timed_out` 的

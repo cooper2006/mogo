@@ -262,19 +262,38 @@ async def collect_edit_events(db: Any, *, limit: int = 5000) -> dict[str, Any]:
 async def _skill_key_for_message(db: Any, *, message_id: str) -> str:
     """Attribute an edit event to the skill used on its chat turn (OQ-6).
 
-    The edit event itself carries no skill key; the turn's ``skill.selected``
-    activity row does. Returns "" when the turn used no skill (nothing to charge).
+    A turn may load several skills (DSH auto-loads skills as ``automatic``, while the
+    user's explicit pick is a single ``manual`` selection). A product edit is credited
+    to the skill that actually drove the turn:
+
+    1. the ``manual`` skill when the turn has one — that is the user's stated intent;
+    2. otherwise the first ``automatic`` skill (earliest ``stream_seq``).
+
+    Attribution is deliberately a *single* skill per edit: one edit yields one
+    artifact, so crediting every skill of the turn would inflate the correction rate.
+    Returns "" when the turn used no skill (nothing to charge).
     """
     if not message_id:
         return ""
-    row = await db[PROJECTIONS_COLLECTION].find_one(
-        {"message_id": message_id, "item_kind": "activity", "payload.category": "skill"},
-        {"item_id": 1, "payload": 1},
-        sort=[("stream_seq", 1)],
+    rows = (
+        await db[PROJECTIONS_COLLECTION]
+        .find(
+            {"message_id": message_id, "item_kind": "activity", "payload.category": "skill"},
+            {"item_id": 1, "payload": 1, "stream_seq": 1},
+        )
+        .sort("stream_seq", 1)
+        .limit(50)
+        .to_list(length=50)
     )
-    if row is None:
+    if not rows:
         return ""
-    return _skill_key_from_activity(row)
+    for row in rows:
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        if str(payload.get("selection_mode") or "") == "manual":
+            key = _skill_key_from_activity(row)
+            if key:
+                return key
+    return _skill_key_from_activity(rows[0])
 
 
 async def _was_adopted(db: Any, *, tenant_id: str, message_id: str) -> bool:

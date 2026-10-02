@@ -3165,3 +3165,21 @@ DSH kernel 的 `skill.selected` 事件经 `dsh_runtime/events/projection.py` 投
 - **规格同步**：`specs/016-skill-market-hardening/{plan.md(OQ-6 标已实现), tasks.md(T020–T024 全部 [x])}`。
 - **意义**：此前"安全但无效"（门槛跳过、不产生标记）的状态结束——现在三维有真实来源，
   持续 7 天低效果分的 skill 会被真实标记并在市场降权，端到端可证伪。
+
+## 2026-10-03（续六）纠正维度多 skill 归因精确化
+
+上一轮 T022 的纠正归因是"取该轮最早的 skill activity"，多 skill 轮次会归错。本轮精确化。
+
+- **事实**：一轮内 DSH 会自动加载多个 skill（投影行 `payload.selection_mode = "automatic"`），
+  但用户显式选择是**单值**（`turn_admission.admit_skill_selection` 返回单个 `selected_skill_id`，
+  对应 `selection_mode = "manual"`）；且 presentation 产物**不绑定 skill**（无 `bound_*` 字段），
+  无法按产物精确判定。
+- **新归因规则**（`quality_metrics._skill_key_for_message`）：查出该 `message_id` 的全部 skill activity，
+  **① 有 `manual` 则归 `manual`**（用户明确意图）；**② 无 `manual` 则归最早的 `automatic`**（保持旧行为）。
+  且**一次编辑只记一个 skill**（一次编辑只产出一个产物，记满全轮会虚增纠正率）。
+- **改动**：`services/admin-api/app/services/skill_market/quality_metrics.py`（`_skill_key_for_message`
+  由 `find_one` 早退改为取全量后按 selection_mode 择一）。
+- **验证**：admin-api `tests/` **392 passed**（`test_quality_metrics.py` 19 项，新增：多 skill 轮次归 manual、
+  无 manual 退回首条 automatic、一次编辑只记一个 skill）；chat-api 340 passed。
+- **规格同步**：`specs/016-skill-market-hardening/plan.md` 的 OQ-6 纠正条目已写明归因规则与限制
+  （产物与 skill 无绑定，故无法更细粒度）。

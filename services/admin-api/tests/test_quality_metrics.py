@@ -383,7 +383,9 @@ def test_below_min_samples_is_not_scored():
 # --- OQ-6 richer dimensions ---------------------------------------------------
 
 
-def _activity_with_message(tenant_id, source_id, seq, message_id, session_id, when):
+def _activity_with_message(
+    tenant_id, source_id, seq, message_id, session_id, when, selection_mode="automatic"
+):
     return {
         "tenant_id": tenant_id,
         "user_id": "u1",
@@ -394,7 +396,11 @@ def _activity_with_message(tenant_id, source_id, seq, message_id, session_id, wh
         "message_id": message_id,
         "kernel_session_id": session_id,
         "stream_seq": seq,
-        "payload": {"category": "skill", "skill_name": f"name-{source_id}"},
+        "payload": {
+            "category": "skill",
+            "skill_name": f"name-{source_id}",
+            "selection_mode": selection_mode,
+        },
         "created_at": when,
     }
 
@@ -540,3 +546,67 @@ def test_three_dimensions_can_actually_mark_a_low_quality_skill():
     assert outcome["evaluated"] is True
     assert outcome["marked_low_quality"] is True
     assert asyncio.run(fetch_marked_skill_keys(db, main_id="t1")) == {"weak"}
+
+
+def test_edit_is_attributed_to_the_manual_skill_when_a_turn_loads_several():
+    # A turn auto-loads skills (automatic) but the user explicitly picked one
+    # (manual). The edit must be credited to the user's pick, not the earliest row.
+    from datetime import datetime, timezone
+
+    db, cursor, _adoption, proj, _state, _deliv, _recv, edits = _fake_db([])
+    when = datetime.now(timezone.utc)
+    proj._rows.append(
+        _activity_with_message("t1", "auto-early", 10, "m1", "sess-1", when, "automatic")
+    )
+    proj._rows.append(
+        _activity_with_message("t1", "user-pick", 11, "m1", "sess-1", when, "manual")
+    )
+    edits._rows.append(
+        {"_id": 1, "tenant_id": "t1", "user_id": "u1", "object_path": "p/d.json",
+         "message_id": "m1", "created_at": when}
+    )
+
+    asyncio.run(collect_edit_events(db))
+    by_key = {r["skill_key"]: r["corrected_calls"] for r in cursor._rows}
+    assert by_key == {"user-pick": 1}
+
+
+def test_edit_falls_back_to_the_first_automatic_skill():
+    # No manual pick on the turn -> keep the previous behaviour (first activity).
+    from datetime import datetime, timezone
+
+    db, cursor, _adoption, proj, _state, _deliv, _recv, edits = _fake_db([])
+    when = datetime.now(timezone.utc)
+    proj._rows.append(
+        _activity_with_message("t1", "auto-first", 10, "m1", "sess-1", when, "automatic")
+    )
+    proj._rows.append(
+        _activity_with_message("t1", "auto-second", 11, "m1", "sess-1", when, "automatic")
+    )
+    edits._rows.append(
+        {"_id": 1, "tenant_id": "t1", "user_id": "u1", "object_path": "p/d.json",
+         "message_id": "m1", "created_at": when}
+    )
+
+    asyncio.run(collect_edit_events(db))
+    by_key = {r["skill_key"]: r["corrected_calls"] for r in cursor._rows}
+    assert by_key == {"auto-first": 1}
+
+
+def test_one_edit_credits_exactly_one_skill():
+    # Guards against inflating the correction rate by crediting every skill on the turn.
+    from datetime import datetime, timezone
+
+    db, cursor, _adoption, proj, _state, _deliv, _recv, edits = _fake_db([])
+    when = datetime.now(timezone.utc)
+    for i, mode in enumerate(["automatic", "automatic", "manual", "automatic"]):
+        proj._rows.append(
+            _activity_with_message("t1", f"s{i}", 10 + i, "m1", "sess-1", when, mode)
+        )
+    edits._rows.append(
+        {"_id": 1, "tenant_id": "t1", "user_id": "u1", "object_path": "p/d.json",
+         "message_id": "m1", "created_at": when}
+    )
+
+    asyncio.run(collect_edit_events(db))
+    assert sum(int(r["corrected_calls"]) for r in cursor._rows) == 1
