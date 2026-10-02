@@ -244,13 +244,28 @@
 - **MR 判定不走 `mr.py`**：`run_once` 用 `cluster.is_mr_eligible()`，`mr.py` 的 `generate_improvement_mr` 零调用。
 - **淘汰链路输入无人提供**：`deprecations`/`restorations` 仅测试传，生产 `_loop` 不传；`record_exposure/adoption` 零生产调用。
 
-### 012 a2a-agent-gateway（4）
+### 012 a2a-agent-gateway（4）—— **AgentCard 查找入口已接线（2026-10-03，见 WORK_LOG 续二十）**
+
+> **已修**：新增 `GET /internal/a2a/agents/{agent_id}/card`（`app/api/endpoints/a2a.py`），
+>    暴露 A2A AgentCard 查找；auth 复用 `_resolve_session_user`。
+>    `A2AClient` 出站调用框架完整（failover + retry + JSON-RPC error mapping），
+>    仅未从真实 capability 驱动。
+>
+> **仍待修（降为 P1 残项）**：入站 JSON-RPC surface（FR-2/FR-10）、
+>    出站 A2A client 实际调用集成、`a2a_exposed` 筛选（依赖 018）。
 - **入站面完全缺失**：无 `jsonrpc.py`、无 `api/endpoints/a2a.py`、`main.py` 未注册。
 - **核心符号零生产调用方**：`from app.a2a` 仅命中 tests；`A2AClient(` 生产 0 处。
 - **产出无消费方**：`AgentCard.as_dict()` 零外部调用；`/a2a/{tenant}/{id}` 无路由承接。
 - **FR-6 双向门禁零接线**：a2a 内 governance 字样全是注释。
 
-### 013 multi-im-entry（5）
+### 013 multi-im-entry（5）—— **IM webhook 入口已接线（2026-10-03，见 WORK_LOG 续二十）**
+
+> **已修**：新增 `POST /internal/im/webhook/{channel}`（`app/api/endpoints/im_gateway.py`），
+>    HMAC 签名校验（FR-13）+ nonce 5 分钟防重放 + `ChannelRouter` 路由到 adapter（FR-4/FR-9 最小生产路径）。
+>    新增 `IM_WEBHOOK_SECRET` 环境变量，缺省 500 fail-closed。
+>
+> **仍待修（降为 P1 残项）**：持久化 `SessionBindingRegistry`（`im_channels`/
+>    `im_session_bindings` 集合）、Feishu/DingTalk/Wecom/Slack/Teams 各 adapter 实现。
 - **零生产 import**：`from app.im_gateway` 在 `app/` 0 命中；全部 `ChannelRouter(` 实例化在 tests。
 - **无入口 endpoint**：plan 要求的 `im_channels.py` 不存在，`main.py` 未注册 IM/webhook 路由。
 - **无持久化**：`im_channels`/`im_session_bindings` 0 命中，`SessionBindingRegistry` 是进程内 dict。
