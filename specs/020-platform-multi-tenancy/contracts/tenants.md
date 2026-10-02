@@ -143,6 +143,7 @@
 `app.core.product_edition.resolve_member_limit(main_id)` 解析：
 
 ```
+organizations 是 community  →  无限（community 版为无限成员版本）
 tenants.member_limit is None  →  回退 organizations.user_limit（版本默认）
 否则                          →  取 tenants.member_limit（平台显式设置优先）
 非法值（非数字）              → 告警后回退版本默认
@@ -160,6 +161,29 @@ tenants.member_limit is None  →  回退 organizations.user_limit（版本默�
 
 清除上限用 `"memberLimit": null`（或字符串 `"null"`），语义为「回退版本默认」，
 **不等于**「无限」——若该版本默认本身有限，清除后仍然受限。
+
+#### community 租户：写入侧拒绝，不静默忽略
+
+community 版的 `user_limit` 为 `None`，含义是**按版本无限**，而不是「一个可以被平台覆盖的默认值」。
+因此对 community 租户设置 `memberLimit`（非 null）会**在写入侧**直接失败：
+
+```jsonc
+// PATCH /api/platform/tenants/{main_id}   { "memberLimit": 3 }
+// 409
+{ "detail": "community 版为无限成员版本，不支持设置成员上限" }
+```
+
+**为什么是拒绝而不是读取侧忽略**：设了上限却被忽略，正是本项目刚修好的那类缺陷的形态——
+「写入了、审计了、列表里显示了，但语义没人认账」。拒绝让调用方当场知道不该设。
+
+配套的两半都要在：
+
+- **写入侧** `product_edition.assert_member_limit_settable`（由 `tenant_lifecycle.update_tenant` 调用）→ 409；
+- **读取侧** `resolve_member_limit` 对 community 短路 → 忽略**存量** override。
+
+只加守卫会让守卫出现前写下的旧数据继续与版本语义矛盾；只改读取侧就是上面说的静默忽略。
+
+清除上限（`"null"`）**始终允许**——它是回到版本默认，而 community 的默认本就是无限。
 
 ### `POST /api/platform/tenants/{main_id}/admin/reset-password`
 

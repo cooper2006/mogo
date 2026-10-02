@@ -63,10 +63,21 @@ async def resolve_member_limit(main_id: str, org: dict[str, Any] | None = None) 
     readout). A tenant with no registry row, or with an explicitly cleared
     ``member_limit`` (``None``), simply falls back to the edition default —
     which keeps pre-migration deployments and community spaces unlimited.
+
+    **Community is unlimited by edition and the override does not apply**: the
+    write-side guard (:func:`assert_member_limit_settable`) refuses to record a
+    cap for a community tenant, and this function ignores a stored one for the
+    same reason (stale rows written before the guard existed). Both halves are
+    needed — a guard alone would leave old data able to contradict the edition.
     """
     db = get_db()
     if org is None:
         org = await db[ORGANIZATION_COLLECTION].find_one({"main_id": main_id})
+    # Community is unlimited by edition; a stored override could only come from
+    # before the write-side guard (assert_member_limit_settable) existed. Ignore
+    # it rather than let a stale row contradict the edition.
+    if is_community_organization(org):
+        return None
     tenant = await db[TENANT_COLLECTION].find_one({"main_id": main_id}, {"member_limit": 1}) or {}
     override = tenant.get("member_limit")
     if override is None:
@@ -76,6 +87,35 @@ async def resolve_member_limit(main_id: str, org: dict[str, Any] | None = None) 
     except (TypeError, ValueError):
         logger.warning("ignoring non-numeric tenant member_limit for %s: %r", main_id, override)
         return member_limit(org)
+
+
+async def assert_member_limit_settable(main_id: str, org: dict[str, Any] | None = None) -> None:
+    """Reject setting a member cap on a tenant whose edition is unlimited.
+
+    Community spaces carry ``user_limit: None`` — meaning *unlimited by
+    edition*. FR-022 lets a platform admin cap any tenant, but silently
+    applying a cap to an edition that is unlimited by design would make the
+    platform console able to contradict the edition, and (worse) would look
+    identical to the bug this module already fixed: a setting that is written,
+    audited and displayed but whose meaning nobody agreed on.
+
+    So the refusal is explicit and happens **on the way in**: the PATCH fails
+    with 409 and the caller is told why, rather than the read side quietly
+    ignoring the override. Clearing the cap (``"null"``) is always allowed —
+    it restores the edition default, which for community is already unlimited.
+
+    Tenants with no ``organizations`` row are not community
+    (:func:`is_community_organization` returns False for a missing row), so a
+    pre-migration deployment keeps its previous behaviour.
+    """
+    if org is None:
+        db = get_db()
+        org = await db[ORGANIZATION_COLLECTION].find_one({"main_id": main_id})
+    if is_community_organization(org):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="community 版为无限成员版本，不支持设置成员上限",
+        )
 
 
 def community_organization_fields(

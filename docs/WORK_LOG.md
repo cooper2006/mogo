@@ -1,5 +1,28 @@
 # Work Log
 
+## 2026-10-02 community 租户的成员上限：写入侧拒绝，不静默忽略
+
+**起因**：上一轮 review 时发现一个必须由产品拍板的语义分歧 —— community 版的 `user_limit` 是 `None`，但 `resolve_member_limit` 的 override 分支**完全不看** community 判定。于是平台管理员对 community 租户设 `memberLimit: 3`，上限会**真的生效**。这算不算 bug，取决于 community 是「默认无限但可被平台收紧」还是「按版本无限，平台也不该能设」。产品判定为后者，且明确要求：**改写入侧拒绝，不是读取侧静默忽略**。
+
+**为什么必须是写入侧拒绝**：设了上限却被静默忽略，正是本项目刚修好的那类缺陷的形态 —— 「写入了、审计了、列表里显示了，但语义没人认账」（成员上限断裂链那一条就是这个病）。拒绝让调用方当场知道不该设，而不是事后从行为里反推。
+
+**做法：两半都要在**
+- **写入侧** 新增 `product_edition.assert_member_limit_settable(main_id, org=None)`，`tenant_lifecycle.update_tenant` 在 member_limit 非 `"null"` 分支调用它 → community 抛 409「community 版为无限成员版本，不支持设置成员上限」。**清除（`"null"`）始终允许** —— 它是回到版本默认，而 community 的默认本就是无限，所以守卫放在 `"null"` 分支**之后**。
+- **读取侧** `resolve_member_limit` 对 community 直接短路 `return None`。只加守卫是不够的：守卫只能拦住**新**写入，守卫出现之前写下的 override 仍然留在库里，会继续与版本语义矛盾。只改读取侧就是上面说的静默忽略。两半缺一不可，docstring 里写明了这层关系。
+- 无 `organizations` 行的存量部署：`is_community_organization(None)` 返回 False → 不是 community → 守卫放行，与迁移前行为一致（不锁死）。
+- 前端**无需改动**：`apps/admin-web/src/views/platform/TenantsPage.vue:352-353` 的 `parseError` 已经取 `error.response.data.detail`，409 的中文提示会原样出现在 `message.error` 的 toast 里。
+
+**结构确认**：`tenant_lifecycle` → `product_edition` → `tenant_registry` 单向依赖（`tenant_registry` 只 import `app.core.db` / `app.core.tenant_identity`），无循环导入。已用临时测试对两个导入方向各清空 `sys.modules` 后分别验证，均通过。
+
+**反证：两半各自独立钉住**
+- 把 `await assert_member_limit_settable(normalized)` 换成 `pass` → `1 failed, 366 passed`（`test_setting_a_cap_on_a_community_tenant_is_refused`）。
+- 删掉 `resolve_member_limit` 里的 community 短路 → `2 failed, 365 passed`（`test_community_tenant_ignores_a_stale_override` + `test_a_community_tenant_in_the_gate_is_still_unlimited`）。
+
+**事故与教训（值得单记）**：第一次做反证时，我用 python 的 `str.replace()` 去注释掉守卫，**替换字符串的缩进写成 14 空格而实际是 12 空格** → `replace()` 静默不匹配、什么都没改，测试全绿，我一度**把「反证没有失败」误读成「测试无效」**，差点去改本来正确的测试。真正的原因是我的反证脚本自己没生效。此后所有字符串替换式反证都先加 `assert s.count(old) == 1`。教训：**反证脚本必须断言自己确实改动了目标代码** —— 否则「没红」既可能是测试没覆盖，也可能是反证没落地，两者结论完全相反。
+
+**测试**：365 → 367 passed（+3 新增，-1 重写）。`test_member_capacity.py` 的 5 个既有 resolve 用例不动；原 `test_community_tenant_is_unlimited_until_a_cap_is_set`（钉的是旧语义「FR-022 does not exempt community tenants」）重写为 `test_community_tenant_ignores_a_stale_override`。
+**文档**：`contracts/tenants.md` 新增「#### community 租户：写入侧拒绝，不静默忽略」小节（含 409 示例与「为什么是拒绝而非忽略」）；`quickstart.md` §7 新增对应验收项。
+
 ## 2026-10-01 020 收尾：把「扫描清理面」从一次性动作变成 CI 守护
 
 **起因**：审计报告 §11.2 判 T045「勾选不实」，理由是任务书自己写了「需扫描实际含 `main_id` 的集合」，而交付物是硬编码清单（也因此漂移到漏 27 个）。前几轮我补的仍是硬编码清单 —— 修的是结果，没修**产生结果的机制**。本轮补上。

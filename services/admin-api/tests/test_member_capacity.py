@@ -156,12 +156,14 @@ async def test_legacy_tenant_without_registry_row_keeps_edition_default(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_community_tenant_is_unlimited_until_a_cap_is_set(monkeypatch) -> None:
-    """Community spaces default to unlimited; an explicit cap still applies.
+async def test_community_tenant_ignores_a_stale_override(monkeypatch) -> None:
+    """Community is unlimited by edition — a stored cap must not apply.
 
-    An explicit platform setting outranks the edition default — FR-022 does not
-    exempt community tenants, and "unset" (not "unlimited") is what keeps them
-    uncapped by default.
+    The write-side guard (``assert_member_limit_settable``) refuses to record a
+    cap for a community tenant, so the only way this row can exist is a write
+    that predates the guard. The read side ignores it for the same reason the
+    guard exists: a cap on an unlimited edition is not a limit, it is a value
+    whose meaning nobody agreed on.
     """
     mem = _Mem()
     _seed(mem, edition="community", user_limit=None, tenant_member_limit=None)
@@ -169,7 +171,34 @@ async def test_community_tenant_is_unlimited_until_a_cap_is_set(monkeypatch) -> 
     assert await product_edition.resolve_member_limit(MAIN_ID) is None
 
     mem["tenants"].docs[0]["member_limit"] = 2
-    assert await product_edition.resolve_member_limit(MAIN_ID) == 2
+    assert await product_edition.resolve_member_limit(MAIN_ID) is None
+
+
+@pytest.mark.asyncio
+async def test_setting_a_cap_on_a_community_tenant_is_refused(monkeypatch) -> None:
+    """The refusal is explicit (409) rather than a read-side silent ignore."""
+    mem = _Mem()
+    _seed(mem, edition="community", user_limit=None, tenant_member_limit=None)
+    _wire(monkeypatch, mem)
+
+    with pytest.raises(HTTPException) as exc:
+        await tenant_lifecycle.update_tenant(MAIN_ID, actor="root", member_limit=3)
+    assert exc.value.status_code == 409
+    assert mem["tenants"].docs[0]["member_limit"] is None, "nothing may be written"
+
+    # Clearing stays allowed — it restores the edition default (unlimited).
+    await tenant_lifecycle.update_tenant(MAIN_ID, actor="root", member_limit="null")
+    assert mem["tenants"].docs[0]["member_limit"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_community_tenant_in_the_gate_is_still_unlimited(monkeypatch) -> None:
+    """End to end: a community tenant with many members never blocks."""
+    mem = _Mem()
+    _seed(mem, edition="community", user_limit=None, tenant_member_limit=1, members=50)
+    _wire(monkeypatch, mem)
+
+    await product_edition.assert_member_capacity(MAIN_ID)
 
 
 @pytest.mark.asyncio

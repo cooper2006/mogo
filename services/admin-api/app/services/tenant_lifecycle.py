@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.core.db import get_db
+from app.core.product_edition import assert_member_limit_settable
 from app.core.tenant_identity import is_reserved_main_id
 from app.system_audit.repository import SystemAuditRepository
 from app.services.tenant_registry import TENANT_COLLECTION
@@ -192,6 +193,10 @@ async def update_tenant(
         if member_limit == "null":
             fields["member_limit"] = None
         else:
+            # Community tenants are unlimited by edition; refuse the cap on the
+            # way in instead of writing a value the read side would ignore.
+            # Clearing (the "null" branch above) stays allowed.
+            await assert_member_limit_settable(normalized)
             try:
                 value = int(member_limit)
                 if value < 0:

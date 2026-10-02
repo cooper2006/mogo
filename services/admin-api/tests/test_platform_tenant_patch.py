@@ -15,6 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes.platform import tenants as platform_tenants
+from app.core import product_edition
 from app.services import tenant_lifecycle
 
 MAIN_ID = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
@@ -81,6 +82,9 @@ def _seed(mem: _Mem, member_limit: int | None = 10) -> None:
 
 def _patch(monkeypatch, mem: _Mem) -> None:
     monkeypatch.setattr(tenant_lifecycle, "get_db", lambda: mem)
+    # ``assert_member_limit_settable`` lives in product_edition and resolves the
+    # organizations row through *its own* get_db, so both modules need the fake.
+    monkeypatch.setattr(product_edition, "get_db", lambda: mem)
 
     async def no_audit(*args, **kwargs):
         return None

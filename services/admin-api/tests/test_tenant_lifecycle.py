@@ -11,6 +11,7 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
+from app.core import product_edition
 from app.services import tenant_lifecycle
 
 
@@ -69,6 +70,9 @@ class _Mem:
 
 def _patch(monkeypatch, mem: _Mem) -> None:
     monkeypatch.setattr(tenant_lifecycle, "get_db", lambda: mem)
+    # ``update_tenant`` calls ``assert_member_limit_settable`` (product_edition),
+    # which resolves the organizations row through its own get_db.
+    monkeypatch.setattr(product_edition, "get_db", lambda: mem)
 
     async def no_audit(*args, **kwargs):
         return None
