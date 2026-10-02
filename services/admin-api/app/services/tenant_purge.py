@@ -33,9 +33,10 @@ logger = logging.getLogger(__name__)
 #
 # NOTE: this list must cover *both* admin-api and chat-api collections — a
 # tenant's data lives in both services, and purge is executed by admin-api
-# only. Verify with the helper at the bottom of this module
-# (``_audit_collection_coverage``) before adding a collection to either
-# service, otherwise tenant data survives a purge (SC-005).
+# only. Cross-check it against the collection constants used by
+# ``app.services.setup_cleanup.SETUP_SCOPED_COLLECTIONS``
+# (``services/chat-api/app/**``) before adding a collection to either service,
+# otherwise tenant data survives a purge (SC-005).
 TENANT_SCOPED_COLLECTIONS: list[str] = [
     "admin_account_groups",
     "admin_accounts",
@@ -75,6 +76,7 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "resource_feedback_notifications",
     "resource_grants",
     "resource_reactions",
+    "session_snapshots",
     "site_profiles",
     "skill_distribution_members",
     "skill_distribution_releases",
@@ -92,24 +94,48 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "user_invites",
     "user_quota_overrides",
     "user_quota_policies",
+    "user_shortcut_preferences",
     "user_skills",
     "user_token_allocation_logs",
 ]
 
 # Governance-layer collections partitioned by ``tenant_id`` (= main_id).
 TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
+    "agent_kernel_bindings",
+    "business_entity_index",
     "pii_policies",
     "risk_tiers",
     "autonomy_matrix",
+    "enterprise_authoritative_deliveries",
     "gatekeeper_rules",
     "gate_events",
     "gate_approvals",
     "permission_grants",
     "approval_events",
+    "presentation_generation_jobs",
     "quota_counters",
+    "runtime_profile_versions",
+    "runtime_profile_audit",
     # Written by both services (admin-api ``services/hooks_store.py`` and
     # chat-api ``app/dsh_runtime/hooks/store.py``); partitioned by ``tenant_id``.
     "hook_rules",
+]
+
+# Collections with **no** tenant key of their own, purged by resolving their
+# parent rows (see ``_purge_key_only_collections``).
+#
+# ``session_shares`` (chat-api ``services/session_versioning/share.py``)
+# persists only ``share_id`` / ``session_id`` / ``snapshot_id`` — the
+# ``main_id`` is assembled into the HTTP response, never stored. It is matched
+# through ``chat_sessions.main_id``, so it must be swept BEFORE the scoped pass
+# deletes those sessions. Fixing this properly means stamping the tenant on
+# write (a schema change); cascading here keeps the purge complete meanwhile.
+#
+# ``session_snapshots`` is *not* in this list: ``dsh_session_versioning.py``
+# sets ``document["main_id"] = main_id`` before insert, so it is purged by the
+# normal ``TENANT_SCOPED_COLLECTIONS`` sweep.
+TENANT_ORPHANED_COLLECTIONS: list[str] = [
+    "session_shares",
 ]
 
 # Tombstones older than this are deleted on startup (T052 / decision 19).
@@ -117,7 +143,24 @@ TOMBSTONE_RETENTION = timedelta(days=30)
 
 
 class _PurgeTaskStore:
-    """In-memory task registry: ``{task_key: {status, progress, error}}``."""
+    """In-memory task registry: ``{task_key: {status, progress, error}}``.
+
+    Known limitation (audit P2, accepted for 020): state lives in the worker
+    process, so a progress query is only meaningful on the replica that ran the
+    purge. The compose/deploy manifests declare no ``replicas`` for admin-api,
+    so this is a single-replica deployment today and the query always lands on
+    the right process. If admin-api is ever scaled out, this must move to Mongo
+    (or Redis) — until then ``get_purge_status`` already falls back to the
+    tenant row for completed purges, so only *in-flight* progress would be
+    lost.
+
+    The map is bounded so a long-lived process cannot grow without limit:
+    ``create`` evicts the oldest entries past ``_MAX_TASKS``.
+    """
+
+    # Enough to keep recent history for every tenant in a large deployment
+    # without letting the dict grow unbounded in a long-lived process.
+    _MAX_TASKS = 512
 
     def __init__(self) -> None:
         self._tasks: dict[str, dict[str, Any]] = {}
@@ -125,12 +168,35 @@ class _PurgeTaskStore:
 
     def create(self, main_id: str, task_id: str) -> None:
         key = f"{main_id}:{task_id}"
+        while len(self._tasks) >= self._MAX_TASKS:
+            # dicts preserve insertion order, so the first key is the oldest.
+            oldest = next(iter(self._tasks), None)
+            if oldest is None:  # pragma: no cover - unreachable, guards the loop
+                break
+            self._evict(oldest)
+        while len(self._main_id_to_task) >= self._MAX_TASKS:
+            oldest_main = next(iter(self._main_id_to_task), None)
+            if oldest_main is None:  # pragma: no cover - unreachable
+                break
+            self._main_id_to_task.pop(oldest_main, None)
         self._tasks[key] = {
             "status": "running",
             "progress": {"mongo": "pending", "vectors": "pending", "files": "pending"},
             "error": "",
         }
         self._main_id_to_task[main_id] = key
+
+    def _evict(self, key: str) -> None:
+        """Drop one task, also clearing any index entry that points at it.
+
+        Without this the index would keep referencing a task that no longer
+        exists, and ``get_for_main_id`` would report ``unknown`` for a tenant
+        whose purge we simply forgot about.
+        """
+        self._tasks.pop(key, None)
+        stale = [m for m, k in self._main_id_to_task.items() if k == key]
+        for main_id in stale:
+            self._main_id_to_task.pop(main_id, None)
 
     def mark(self, key: str, phase: str, value: str) -> None:
         task = self._tasks.get(key)
@@ -202,6 +268,9 @@ async def get_purge_status(main_id: str, task_id: str = "") -> dict[str, Any]:
 
 async def _phase_mongo(main_id: str) -> None:
     db = get_db()
+    # Key-only collections are resolved through the tenant's sessions, so they
+    # must be swept BEFORE the scoped pass deletes ``chat_sessions``.
+    await _purge_key_only_collections(db, main_id)
     for collection in TENANT_SCOPED_COLLECTIONS:
         result = await db[collection].delete_many({"main_id": main_id})
         if result.deleted_count:
@@ -215,6 +284,38 @@ async def _phase_mongo(main_id: str) -> None:
     # so the marker is only set by ``run_purge`` once every phase succeeded.
     # Writing it here would mark a tenant purged whose vector/file cleanup
     # still had a chance to fail — see tests/test_tenant_purge.py.
+
+
+async def _purge_key_only_collections(db: Any, main_id: str) -> None:
+    """Delete from collections that carry no tenant key of their own.
+
+    These rows cannot be matched by ``main_id`` directly, so they are resolved
+    through the tenant's own rows first. This must run **before** the scoped
+    sweep: it reads ``chat_sessions`` to enumerate children, and the sweep
+    deletes those rows.
+
+    ``session_shares`` is the case in point — ``ShareStore`` persists only
+    ``share_id`` / ``session_id`` / ``snapshot_id`` (the ``main_id`` is
+    assembled into the HTTP response, never stored). Left alone, a purged
+    tenant's share tokens would survive indefinitely with no way to attribute
+    or revoke them.
+    """
+    if not TENANT_ORPHANED_COLLECTIONS:
+        return
+
+    session_ids = await db["chat_sessions"].distinct("_id", {"main_id": main_id})
+    if not session_ids:
+        return
+    for collection in TENANT_ORPHANED_COLLECTIONS:
+        result = await db[collection].delete_many({"session_id": {"$in": list(session_ids)}})
+        if result.deleted_count:
+            logger.info(
+                "purge %s: deleted %d orphan row(s) from %s (via %d session(s))",
+                main_id,
+                result.deleted_count,
+                collection,
+                len(session_ids),
+            )
 
 
 async def _list_knowledge_document_ids(main_id: str) -> list[str]:
@@ -381,7 +482,15 @@ async def run_purge(main_id: str, task_id: str, actor: str) -> None:
         # with the reason recorded — it must NOT become a tombstone, otherwise
         # the 30-day reaper destroys the only evidence of the failure.
         await _record_purge_failure(main_id, error_text)
+        # SC-007: the failed purge is a lifecycle operation and must be
+        # traceable even though the tenant survives as ``archived``.
+        await _audit_purge(main_id, actor, "failure", {"error": error_text[:500]})
         return
+
+    # SC-007: the successful purge is the last lifecycle operation for this
+    # tenant; the row itself becomes a tombstone, so the audit log is the only
+    # remaining evidence that the purge happened.
+    await _audit_purge(main_id, actor, "success")
 
     # All phases succeeded: write the tombstone. Normally ``_phase_mongo``
     # already did this; repeat it here so the row is purged even if a later
@@ -390,6 +499,19 @@ async def run_purge(main_id: str, task_id: str, actor: str) -> None:
     await db[TENANT_COLLECTION].update_one(
         {"main_id": main_id, "status": {"$ne": "purged"}},
         {"$set": {"status": "purged", "purged_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}},
+    )
+
+
+async def _audit_purge(main_id: str, actor: str, result: str, detail: dict[str, Any] | None = None) -> None:
+    """SC-007: record the purge as a lifecycle operation.
+
+    ``tenant_lifecycle`` is imported lazily — it pulls in the audit repository,
+    and importing it at module scope would couple the purge module to it.
+    """
+    from app.services import tenant_lifecycle
+
+    await tenant_lifecycle.record_tenant_audit(
+        main_id, actor, "purge", main_id, result, detail
     )
 
 

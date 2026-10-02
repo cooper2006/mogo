@@ -28,6 +28,27 @@ TENANT_COLLECTION = "tenants"
 RESERVED_MAIN_IDS = (PLATFORM_MAIN_ID, DEFAULT_MAIN_ID, "", None)
 
 
+async def is_tenant_active(main_id: str) -> bool:
+    """True when the tenant may accept new members / logins (FR-024).
+
+    Only ``active`` passes for a tenant that has a registry row. A tenant with
+    *no* row is grandfathered in: a deployment that has not run the 020
+    migration yet has an empty ``tenants`` collection, and failing closed there
+    would lock every employee out. This mirrors
+    ``chat-api/app/services/end_user_tenant_access._selectable_tenant_main_ids``
+    — both sides must agree, otherwise one service lets in what the other
+    rejects.
+    """
+    value = str(main_id or "").strip()
+    if not value:
+        return False
+    db = get_db()
+    row = await db[TENANT_COLLECTION].find_one({"main_id": value}, {"status": 1})
+    if row is None:
+        return True
+    return str(row.get("status") or "") == "active"
+
+
 async def ensure_indexes() -> None:
     db = get_db()
     await db[TENANT_COLLECTION].create_index(

@@ -19,7 +19,7 @@ from app.api.dashboard_metrics import (
     window_start,
 )
 from app.core.db import get_db
-from app.core.product_edition import billing_enabled, is_community_organization, member_limit
+from app.core.product_edition import billing_enabled, count_members, is_community_organization, resolve_member_limit
 from app.repositories.directory_repository import DEPARTMENT_COLLECTION, USER_COLLECTION, USER_ORG_REL_COLLECTION
 from app.repositories.model_repository import INSTANCE_COLLECTION
 
@@ -82,7 +82,7 @@ async def _billing(db: Any, main_id: str, current_user: dict[str, Any]) -> dict[
             "org_name": current_user.get("org_name") or "组织空间",
             **dict(get_admin_product_extension().organization_defaults),
         }
-    current_members = await db[USER_COLLECTION].count_documents({"main_id": main_id})
+    current_members = await count_members(main_id)
     total_points = int(org.get("total_points") or 0)
     used_points = int(org.get("used_points") or 0)
     # T037: personal/community spaces default to unlimited (decision 12);
@@ -94,7 +94,7 @@ async def _billing(db: Any, main_id: str, current_user: dict[str, Any]) -> dict[
         "edition": "community" if is_community_organization(org) else str(org.get("edition") or "cloud"),
         "tier": org.get("tier", "free"),
         "billingEnabled": billing_enabled(org),
-        "userLimit": member_limit(org),
+        "userLimit": await resolve_member_limit(main_id, org),
         "currentMembersCount": current_members,
         "totalPoints": total_points,
         "usedPoints": used_points,
@@ -511,7 +511,7 @@ async def _format_recent_activity(db: Any, main_id: str, rows: list[dict[str, An
 
 
 async def _assets(db: Any, main_id: str) -> dict[str, Any]:
-    users_total = await db[USER_COLLECTION].count_documents({"main_id": main_id})
+    users_total = await count_members(main_id)
     users_disabled = await db[USER_COLLECTION].count_documents({"main_id": main_id, "status": "disabled"})
     departments_total = await db[DEPARTMENT_COLLECTION].count_documents({"main_id": main_id})
 

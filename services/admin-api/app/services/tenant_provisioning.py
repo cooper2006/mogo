@@ -43,6 +43,10 @@ from app.services.setup_model import create_setup_model
 from app.services.setup_quota import configure_setup_quotas
 from app.services.tenant_registry import ensure_tenant_record
 
+# NOTE: imported lazily at module scope purely for the SC-007 audit hook;
+# ``tenant_lifecycle`` does not import this module, so there is no cycle.
+from app.services import tenant_lifecycle
+
 
 @dataclass
 class ProvisionResult:
@@ -242,9 +246,32 @@ async def provision_tenant(
             admin_username=admin_username.strip(),
             created_by=created_by or "setup-wizard",
         )
-    except Exception:
+    except Exception as exc:
+        # SC-007: record the failure FIRST. ``cleanup_failed_setup`` deletes the
+        # tenant row, so the audit log is the only remaining evidence that this
+        # provisioning attempt ever happened; if cleanup itself throws, the
+        # audit must already be written.
+        await tenant_lifecycle.record_tenant_audit(
+            main_id,
+            created_by or "setup-wizard",
+            "create",
+            org_name,
+            "failure",
+            {"error": str(exc)[:500]},
+        )
         await cleanup_failed_setup(main_id)
         raise
+
+    # SC-007: every lifecycle operation is auditable (create / rename /
+    # enable-disable / archive / restore / purge / reset-password).
+    await tenant_lifecycle.record_tenant_audit(
+        main_id,
+        created_by or "setup-wizard",
+        "create",
+        org_name,
+        "success",
+        {"admin_username": admin_username.strip()},
+    )
 
     return ProvisionResult(
         main_id=main_id,

@@ -268,9 +268,9 @@ async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) 
         }
         await db["organizations"].insert_one(org)
         
-    current_members = await db["end_users"].count_documents({"main_id": main_id})
-    
-    from app.core.product_edition import billing_enabled, is_community_organization, member_limit
+    from app.core.product_edition import billing_enabled, count_members, is_community_organization, resolve_member_limit
+
+    current_members = await count_members(main_id)
 
     # T037: unlimited flag (decision 12: 配额默认不限额)
     points_unlimited = bool(org.get("points_unlimited", True))
@@ -282,7 +282,7 @@ async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) 
             "edition": "community" if is_community_organization(org) else str(org.get("edition") or "cloud"),
             "tier": org.get("tier", "free"),
             "billingEnabled": billing_enabled(org),
-            "userLimit": member_limit(org),
+            "userLimit": await resolve_member_limit(main_id, org),
             "currentMembersCount": current_members,
             "totalPoints": org.get("total_points", 0),
             "usedPoints": org.get("used_points", 0),

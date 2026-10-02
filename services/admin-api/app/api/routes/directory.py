@@ -33,6 +33,7 @@ from app.position_roles.constants import POSITION_ROLE_COLLECTION, USER_ROLE_COL
 from app.position_roles.service import PositionRoleService
 from app.services.employee_credentials import normalize_employee_credentials, redact_credential_payload
 from app.services.employee_tenant_identity import employee_tenant_fields
+from app.services.tenant_registry import is_tenant_active
 
 router = APIRouter()
 
@@ -530,6 +531,10 @@ async def _validate_departments(main_id: str, dept_ids: list[str]) -> None:
 async def create_user(payload: UserCreatePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
     main_id = _main_id(current_user)
     db = get_db()
+    # FR-024: an archived/disabled tenant must not gain new members. The
+    # admin's own session may predate the archive, so check live status.
+    if not await is_tenant_active(main_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该租户已停用或已归档，无法新增成员")
     await assert_member_capacity(main_id)
     department_ids = payload.departmentIds or [payload.primaryDepartmentId]
     await _validate_departments(main_id, [payload.primaryDepartmentId, *department_ids])
@@ -834,6 +839,10 @@ async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[s
     main_id = str(invite.get("main_id", "default"))
     if main_id == "default":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邀请所属租户ID无效，请联系管理员重新生成邀请链接")
+    # FR-024: an archived/disabled tenant must not gain new members, even via
+    # an invite link that was generated before the tenant was archived.
+    if not await is_tenant_active(main_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该租户已停用或已归档，无法接受邀请")
     role_service = PositionRoleService()
     invite_role_ids = [str(item) for item in invite.get("role_ids") or []]
     invite_primary_role_id = str(invite.get("primary_role_id") or "")

@@ -29,7 +29,14 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _record_audit(main_id: str, actor: str, action: str, target: str, result: str, detail: dict[str, Any] | None = None) -> None:
+async def record_tenant_audit(main_id: str, actor: str, action: str, target: str, result: str, detail: dict[str, Any] | None = None) -> None:
+    """Record one tenant lifecycle operation (SC-007).
+
+    Shared by ``tenant_lifecycle`` (archive / restore / update),
+    ``tenant_provisioning`` (create) and ``tenant_purge`` (purge) so every
+    lifecycle transition is traceable. Audit failures are swallowed: an audit
+    outage must never break the transition itself.
+    """
     try:
         await SystemAuditRepository().record_management_operation({
             "main_id": main_id,
@@ -45,6 +52,11 @@ async def _record_audit(main_id: str, actor: str, action: str, target: str, resu
         })
     except Exception:  # audit must never break a lifecycle transition
         logger.warning("failed to record lifecycle audit for %s", main_id, exc_info=True)
+
+
+# Backwards-compatible alias: existing call sites (and tests that monkeypatch
+# it) still refer to the private name.
+_record_audit = record_tenant_audit
 
 
 def _validate_main_id(main_id: str) -> str:

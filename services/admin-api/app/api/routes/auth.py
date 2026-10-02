@@ -316,7 +316,7 @@ async def select_tenant(payload: SelectTenantRequest, request: Request) -> dict[
 
 @router.get("/me")
 async def me(current_user: dict = Depends(get_authenticated_admin)) -> dict[str, object]:
-    return _profile_from_user(current_user, str(current_user.get("main_id", settings.bootstrap_main_id)))
+    return _profile_from_user(current_user, str(current_user["main_id"]))
 
 
 @router.patch("/me")
@@ -324,7 +324,7 @@ async def update_me(
     payload: ProfileUpdateRequest,
     current_user: dict = Depends(get_authenticated_admin),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", settings.bootstrap_main_id))
+    main_id = str(current_user["main_id"])
     display_name = payload.name.strip()
     if not display_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="姓名不能为空")
@@ -353,7 +353,7 @@ async def change_my_password(
     if payload.currentPassword == payload.newPassword:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能与当前密码相同")
 
-    main_id = str(current_user.get("main_id", settings.bootstrap_main_id))
+    main_id = str(current_user["main_id"])
     await set_account_password(str(current_user["username"]), payload.newPassword, main_id)
 
     if authorization and authorization.startswith("Bearer "):
@@ -389,7 +389,7 @@ async def upload_my_avatar(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="头像文件不能为空")
     _validate_avatar_signature(data, ext)
 
-    main_id = str(current_user.get("main_id", settings.bootstrap_main_id))
+    main_id = str(current_user["main_id"])
     username = str(current_user["username"])
     relative_dir = f"admin-avatars/{_safe_path_part(main_id, 'default')}"
     filename = f"{_safe_path_part(username, 'user')}-{uuid.uuid4().hex}.{ext}"
