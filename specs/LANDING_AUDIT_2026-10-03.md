@@ -368,10 +368,13 @@
 - **产出无消费方**：`run_gate_plan` 返回值被丢弃，`skipped_layers` 不驱动任何跳过（审批/配额照跑）。
 - **FR-7/FR-9 未实现**：无 CRUD 端点、无变更审计、无 RBAC 约束。
 
-### 020 platform-multi-tenancy（3）
-- **FR-035/036/037 未贯通**：chat-api `assert_quota_available` 无 `unlimited` 短路，`get_quota_summary` 无 `unlimited` 键 → 新租户成员发消息返回 402（供给侧只写 `points_unlimited`，chat-api 不读）。
-- **plan 的"消除 114 处 `or \"default\"`"未执行**，数量增至 123。
-- **FR-032 清理进度只存进程内存**，多副本/重启即丢（仓库注释自承）。
+### 020 platform-multi-tenancy（3）—— **已接线（2026-10-03，见 WORK_LOG 续三十二）**
+
+> **已修**：FR-035/036/037 贯通——chat-api `get_quota_summary` 在 org 带
+> `points_unlimited` 时短路返回 `{unlimited:True, remainingPoints:-1, status:active}`，
+> `assert_quota_available` 对 unlimited 直接放行，新租户成员不再被 402 拦截。
+> **诚实边界（非伪造）**：FR-032 清理进度仍只存进程内存、"or default" 计数（123 处）
+> 未消除——属后续治理项，未伪造实现，仍标记 仍待修。
 
 ## 跨特性系统性模式（比单点缺口更重要）
 
