@@ -3496,3 +3496,25 @@ ProfileResolver 零生产调用方；run_gate_plan 返回值被丢弃；skipped_
 
 **验证**：admin-api **410 passed**；chat-api **418 passed**。
 019 仍待修的 FR-7/FR-9（CRUD 端点/变更审计/RBAC 约束）留待后续处理。
+
+## 2026-10-03（续二十）019 harness_mode 跨服务通道修复（续）+ 012/013 最小接线
+
+**019 续**（已在 R11 提交，此处补充 tenant_purge + 测试修复）：
+- `admin-api/app/services/tenant_purge.py` 登记 `experience_fragments` / `skill_drafts`
+  （011 持久化新增集合，否则租户清除会遗漏）。
+- `tests/test_governance_gatekeeper.py` mock `_resolve_layers` 签名改为接受
+  `harness_mode=` 关键字参数（否则测试失败）。
+- admin-api **410 passed**；chat-api **418 passed**。
+
+**012 a2a-agent-gateway**（P1 孤岛 2/8）：
+- 新增 `app/api/endpoints/a2a.py`：`GET /internal/a2a/agents/{agent_id}/card`
+  暴露 AgentCard 查找入口（FR-1/FR-8 最小生产路径），auth 复用 `_resolve_session_user`。
+- 入站 JSON-RPC surface（FR-2/FR-10）、出站 A2A client 实际调用、`a2a_exposed`
+  筛选（FR-12 依赖 018）留待后续。
+
+**013 multi-im-entry**（P1 孤岛 3/8）：
+- 新增 `app/api/endpoints/im_gateway.py`：`POST /internal/im/webhook/{channel}`
+  接收 IM webhook、HMAC 签名校验（FR-13）、nonce 5 分钟防重放、`ChannelRouter`
+  路由到对应 adapter（FR-4/FR-9 最小生产路径）。
+- 新增 `IM_WEBHOOK_SECRET` 环境变量；缺省返回 500（fail-closed）。
+- 持久化 `SessionBindingRegistry`、`im_channels`/`im_session_bindings` 存储留待后续。
