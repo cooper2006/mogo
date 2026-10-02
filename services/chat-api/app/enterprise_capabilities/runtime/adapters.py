@@ -274,6 +274,12 @@ async def progressive_research(arguments: dict[str, Any], context: CapabilityExe
             max_results_per_query=int(arguments.get("max_results_per_query") or 8),
             freshness_days=int(arguments.get("freshness_days") or 30),
             progress_callback=publish_native,
+            research_focus_builder=ResearchFocusBuilder(),
+            selected_mode=str(arguments.get("research_mode") or "report"),
+            evidence_mode=str(arguments.get("evidence_mode") or "standard"),
+            audit_sink=_emit_research_audit,
+            tenant_id=context.tenant_id,
+            actor=context.user_id,
         )
         result = await agent.run(
             query=str(arguments.get("query") or "").strip(),

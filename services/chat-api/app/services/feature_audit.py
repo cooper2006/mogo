@@ -36,6 +36,11 @@ FEATURE_AUDIT_EVENTS: dict[str, tuple[str, ...]] = {
         "dag.node_fail",
         "dag.run_finished",
     ),
+    # 005 knowledge-rag-research: progressive research run events (FR-10).
+    "005": (
+        "research.run_started",
+        "research.run_finished",
+    ),
 }
 
 
