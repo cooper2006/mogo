@@ -3401,3 +3401,19 @@ P0 最后一公里第 1 项（011/003/004/008 中最小闭环）。
 
 **验证**：admin-api **410 passed**（新增 `test_cost_section_is_wired_and_reconciles`：
 FR-6 对账/预测非 None/部门归因诚实标注；`test_tenant_purge` 全绿）。
+
+## 2026-10-03（续十五）004 修复：FR-8 skill 生命周期审计接线（P0 最后一公里 2/4）
+
+**004 四个 skill 端点 grep audit 0 命中**（报告第 152 条）：publish/install/share/revoke
+完全不可追溯。
+
+**本轮改动**：
+- 新增 `services/skill_lifecycle/audit.py`：`record_skill_event` 把 5 类 004 写事件
+  （`skill.published`/`installed`/`shared`/`share_redeemed`/`share_revoked`）落 001 治理审计流
+  （`position_role_audit_logs`）；未知 action 抛 ValueError（仿 011 的防误标守卫）。
+- 接线 4 端点：`publish_skill`（带 release_id+version）、`install_personal_skill_zip` 与
+  `install_organization_skill_zip`（带 fileName/scope/version）、`create_skill_share`/
+  `install_skill_share`/`revoke_skill_share`（share_id+token）。
+
+**验证**：chat-api 相关 **414 passed**（004 审计 3 项 + 既有 411）。`tests/llm/test_decision_turn`
+的 collection 报错经 `git stash` 验证为基线既有（browser 引擎 `_DecisionSchema` 导入），与本次无关。
