@@ -15,9 +15,10 @@ from app.dsh_runtime import turn_admission
 from app.dsh_runtime.turn_admission import GatePlan, run_gate_plan
 
 
-def _patch(monkeypatch, events: list) -> None:
+def _patch(monkeypatch, events: list, *, decision: str = "allow") -> None:
     from app.dsh_runtime.hooks import integration as integration_module
     from app.dsh_runtime.hooks import store as store_module
+    from app.services import gatekeeper_client as client_module
 
     class _FakeStore:
         def __init__(self, db=None) -> None:
@@ -32,9 +33,19 @@ def _patch(monkeypatch, events: list) -> None:
     async def _capture(tenant_id, user_id, action, target, details=None):
         events.append((action, target, dict(details or {})))
 
+    class _FakeGate:
+        async def evaluate(self, **kwargs):
+            if decision == "allow":
+                return {"decision": "allow", "layer": "gatekeeper"}
+            raise client_module.GateDeniedError(
+                "rbac denied", layer="rbac", status_code=403
+            )
+
     monkeypatch.setattr(store_module, "HookRuleStore", _FakeStore)
     monkeypatch.setattr(integration_module, "audit_hook_execution", _fake_audit)
     monkeypatch.setattr(turn_admission, "record_position_policy_event", _capture)
+    # The 001 chain is reached over HTTP; stub it so wiring tests stay offline.
+    monkeypatch.setattr(client_module, "gatekeeper_client", _FakeGate())
 
 
 def test_run_gate_plan_thick_backend(monkeypatch) -> None:
@@ -138,6 +149,14 @@ def test_admit_skill_selection_enforces_gate_plan_after_hook(monkeypatch) -> Non
     monkeypatch.setattr(integration_module, "audit_hook_execution", _fake_audit)
     monkeypatch.setattr(turn_admission, "record_position_policy_event", _capture)
 
+    from app.services import gatekeeper_client as client_module
+
+    class _AllowGate:
+        async def evaluate(self, **kwargs):
+            return {"decision": "allow", "layer": "gatekeeper"}
+
+    monkeypatch.setattr(client_module, "gatekeeper_client", _AllowGate())
+
     class _Policy:
         def allows_skill(self, skill_id: str) -> bool:
             return True
@@ -163,3 +182,59 @@ def test_admit_skill_selection_enforces_gate_plan_after_hook(monkeypatch) -> Non
     assert selection.selected_skill_id == "sk-1"
     # The 001 gate plan resolution was audited on the tool path.
     assert ("gate.plan.resolved", "browser") in [(a, t) for (a, t, _d) in events]
+
+
+def test_run_gate_plan_fails_closed_when_the_001_chain_denies(monkeypatch) -> None:
+    """A non-allow verdict from the real 001 chain must deny the tool call."""
+    events: list = []
+    _patch(monkeypatch, events, decision="deny")
+    with pytest.raises(PermissionError):
+        asyncio.run(
+            run_gate_plan(tenant_id="t1", user_id="u1", tool="browser", request={"harness_mode": "thick"})
+        )
+    assert any(action == "gate.denied" for (action, _t, _d) in events)
+
+
+def test_run_gate_plan_fails_closed_when_the_gate_is_unreachable(monkeypatch) -> None:
+    """Transport failure must deny (fail-closed), never silently allow."""
+    from app.services import gatekeeper_client as client_module
+
+    events: list = []
+    _patch(monkeypatch, events)
+
+    class _Boom:
+        async def evaluate(self, **kwargs):
+            raise client_module.GateDeniedError("门禁服务不可用（fail-closed）")
+
+    monkeypatch.setattr(client_module, "gatekeeper_client", _Boom())
+    with pytest.raises(PermissionError):
+        asyncio.run(
+            run_gate_plan(tenant_id="t1", user_id="u1", tool="browser", request={"harness_mode": "thick"})
+        )
+
+
+def test_run_gate_plan_exposes_the_redacted_request(monkeypatch) -> None:
+    """001 FR-7: the redaction layer's output must reach the caller.
+
+    The gate returns the (possibly) sanitised body; callers that forward a tool
+    request must use it, or plaintext PII would still reach the backend.
+    """
+    from app.services import gatekeeper_client as client_module
+
+    events: list = []
+    _patch(monkeypatch, events)
+
+    class _RedactingGate:
+        async def evaluate(self, **kwargs):
+            return {"decision": "allow", "layer": "gatekeeper", "request": {"note": "[REDACTED]"}}
+
+    monkeypatch.setattr(client_module, "gatekeeper_client", _RedactingGate())
+    plan = asyncio.run(
+        run_gate_plan(
+            tenant_id="t1",
+            user_id="u1",
+            tool="browser",
+            request={"harness_mode": "thick", "note": "secret"},
+        )
+    )
+    assert plan.redacted_request == {"note": "[REDACTED]"}

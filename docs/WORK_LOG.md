@@ -3258,3 +3258,38 @@ DSH kernel 的 `skill.selected` 事件经 `dsh_runtime/events/projection.py` 投
 并说明判定为静态核查、未做运行时验证及其原因）。
 
 **改动文件**：`specs/LANDING_AUDIT_2026-10-03.md`、`docs/WORK_LOG.md`。**未改业务代码。**
+
+## 2026-10-03（续十）001 修复（1/2）：把六层门禁真正接到员工侧
+
+按收敛顺序从 001 开始（安全影响最大）。用户拍板：**接到员工侧** + **HTTP 调 admin-api** + **fail-closed** + **配额复用 020**。
+
+**根因（比审计结论更深）**：001 六层链只挂在 admin 管理面的 2 个工具测试端点上，而 RBAC 的角色源断裂是
+结构性的——006 把岗位角色绑给 **end user**（`end_user_position_roles`），而 `_enforce_gate` 拦的是
+**admin 账户**（`admin_accounts`，无 `role_ids`/`roles` 字段）。即 001 **接错了地方**：真实执法面应是
+员工侧的 tool/Skill 调用，而那里 `gate_adapter` 明确标注"gatekeeper 未启用"（只跑空壳计划）。
+
+**本轮改动**：
+- **admin-api 新增内部端点** `POST /api/internal/gatekeeper/evaluate`（`api/routes/gatekeeper_internal.py`，
+  服务令牌校验）：跑真实六层链，并在 roles 为空时从 `end_user_position_roles` 解析员工岗位角色；
+  把**脱敏后的 request 回传**给调用方（FR-7）。
+- **chat-api 新增客户端** `services/gatekeeper_client.py`：调该端点，**fail-closed**——非 allow、超时、
+  传输错误、5xx 一律抛 `GateDeniedError`。
+- **chat-api `turn_admission.run_gate_plan`**：由"只算空壳计划"改为**真实调用 001 六层链**；拒绝/不可用均
+  抛 `PermissionError` 并落 `gate.denied` 审计；`GatePlan` 新增 `redacted_request`（frozen dataclass 用
+  `dataclasses.replace`）暴露脱敏后的请求体。
+- **admin 侧角色回落**：`tools.py:_enforce_gate` 在 roles 为空时用 `system:<main_id>:full_access_admin`，
+  使管理员按全权预设通过 RBAC（不再全量 fail-closed）。
+- **配额层（① 有链无源）**：`QuotaLayer` 新增 `credit_checker`，`build_layers` 默认注入 **020 真实 token
+  预算**检查器（`org_quota_policies`/`user_quota_policies`），额度耗尽 → deny(429)。legacy
+  `limits_resolver`+`quota_counters` 路径保留兼容。
+- **客户端可替换性**：`run_gate_plan` 改为经模块属性访问单例（原先函数内 `from ... import gatekeeper_client`
+  会把对象绑定死，测试与将来进程内后端都无法替换——这是实现中发现并修掉的真实缺陷）。
+
+**测试**：admin-api **399 passed**（新增 `test_gatekeeper_internal.py` 4 项：令牌校验/角色解析/显式角色优先/
+判定+脱敏回传；`test_governance_us4_us5.py` 新增预算拒绝与 `build_layers` 安装检查器；`test_governance_rbac_model.py`
+新增 admin 全权回落）；chat-api **373 passed**（`test_gate_plan_wiring.py` 8 项，新增"001 拒绝→fail-closed"
+"门禁不可达→fail-closed""脱敏 request 回传"，并给既有用例注入 fake 客户端）。
+基线既有失败：`tests/dsh_runtime/{test_step5_dsh_tool_e2e,conversation_regression}` 5 项（需真实运行时，stash 验证与本次无关）。
+
+**仍待修（001 剩余 2 条）**：④ 审批挂起后无恢复端点（需新增接收 approval token 的 API）；⑤ `gate_events`
+无查询/消费方。

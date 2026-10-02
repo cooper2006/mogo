@@ -97,7 +97,17 @@
 
 ## 高危缺口（按特性）
 
-### 001 gatekeeper-governance（5）
+### 001 gatekeeper-governance（5）—— **修复进行中（2026-10-03）**
+
+> **已修 3/5**（见 `docs/WORK_LOG.md` 同日"001 修复"条）：
+> ① RBAC 角色源：员工侧由内部端点从 `end_user_position_roles` 解析；admin 侧回落到
+>    `system:<main_id>:full_access_admin` 全权预设。
+> ② 配额层：不再依赖从未存在的 `quota_limits`，改为注入 **020 真实 token 预算**检查器
+>    （`build_layers` 默认安装）。
+> ③ PII 脱敏生效：内部端点把脱敏后的 request 回传，`run_gate_plan` 经
+>    `GatePlan.redacted_request` 暴露给调用方（调用方须采用才完全生效）。
+> **仍待修**：④ 审批无恢复端点；⑤ `gate_events` 无查询/消费方。
+> **新增接线**：001 六层链已从 chat-api 员工侧经内部端点真实调用（此前是空壳计划）。
 - **RBAC 第 2 层数据源断裂**：`tools.py:327` 取 `current_user["role_ids"/"roles"]`，但 `deps.py` 返回的账户 dict 无该字段 → `ctx.roles` 恒空 → `rbac.py` 短路后仅剩 explicit grants，生产上必然 fail-closed。真实映射 `end_user_position_roles` 在 `governance/` 下零引用。
 - **配额第 5 层恒放行**：`layers/__init__.py:30` 无参构造 → `limits_resolver=None` → `quota.py:106` 直接 `return {}` → `ALLOW("no quota limits configured")`。plan 声称的 `quota_limits` 集合全仓 0 命中。
 - **PII 第 3 层产出无消费方**：`tools.py:333` 传入 `dict(payload)` 浅拷贝，`redaction.py` 只改拷贝；`tools.py:304/315` 仍发原始 `payload` → FR-7 不成立，明文照发后端。

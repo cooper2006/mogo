@@ -324,7 +324,14 @@ async def _enforce_gate(tool_id: str, main_id: str, current_user: dict, payload:
     409 (+ token), quota -> 429. A tool is identified by its id; the actor is the
     admin user with its bound position roles.
     """
+    # Admin accounts carry no position-role bindings (006 binds roles to *employees*
+    # in end_user_position_roles). Without a fallback the RBAC layer would see an
+    # empty role set and fail closed on every admin tool call — the original
+    # breakage (001 audit, 2026-10-03). Admin console calls run under the tenant's
+    # full-access preset, which is exactly what a platform/org admin is.
     roles = current_user.get("role_ids") or current_user.get("roles") or []
+    if not roles and main_id:
+        roles = [f"system:{main_id}:full_access_admin"]
     ctx = GateContext(
         tool=str(tool_id),
         tenant_id=main_id,

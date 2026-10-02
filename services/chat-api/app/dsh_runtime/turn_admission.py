@@ -90,6 +90,10 @@ class GatePlan:
     layers: tuple[str, ...]
     audit_enabled: bool
     skipped: tuple[str, ...]
+    #: The tool request body as returned by 001's redaction layer (may be sanitised).
+    #: Callers that forward a tool request must use this instead of the raw body,
+    #: otherwise plaintext PII still reaches the backend (001 FR-7).
+    redacted_request: Optional[dict[str, Any]] = None
 
 
 def _resolve_gate_plan(tool: str, request: Optional[dict[str, Any]]) -> GatePlan:
@@ -122,12 +126,14 @@ async def run_gate_plan(
     user_id: str,
     tool: str,
     request: Optional[dict[str, Any]] = None,
+    session_id: str = "",
 ) -> GatePlan:
-    """001 US1 运行时侧：把 001 六层启用计划真正作用于工具调用路径。
+    """001 US1 运行时侧：把 001 六层链真正作用于员工侧工具调用路径。
 
-    求值 019 ``build_gate_plan``（``assert_floor_intact`` 校验）并落 001 审计；
-    若审计层被意外跳过（floor 违规）则 fail-closed 拒绝。审计事件复用 001
-    的 ``record_position_policy_event``（009 US2 / T999 共用落点）。
+    求值 019 ``build_gate_plan``（``assert_floor_intact`` 校验）并落审计；
+    然后**真实调用 admin-api 的 001 六层链**（``gatekeeper.evaluate``，经内部
+    HTTP 端点，单一实现来源），非 ALLOW 一律 fail-closed 抛 ``PermissionError``。
+    审计层被意外跳过（floor 违规）同样 fail-closed。
     """
     plan = _resolve_gate_plan(tool, request)
     await record_position_policy_event(
@@ -144,6 +150,36 @@ async def run_gate_plan(
     )
     if not plan.audit_enabled:
         raise PermissionError("门禁计划违反 floor（审计层不可跳过），已 fail-closed 拒绝")
+
+    # 001 真实执法：六层链在 admin-api，经内部端点调用；失败/拒绝均 fail-closed。
+    # Access the singleton through its module so it stays swappable (tests / future
+    # in-process backend) instead of binding the object at import time.
+    from app.services import gatekeeper_client as gate_module
+
+    try:
+        gate_result = await gate_module.gatekeeper_client.evaluate(
+            tool=tool,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            request=dict(request or {}),
+            session_id=session_id,
+        )
+    except gate_module.GateDeniedError as exc:
+        await record_position_policy_event(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="gate.denied",
+            target=tool,
+            details={"layer": exc.layer, "reason": exc.reason, "status_code": exc.status_code},
+        )
+        raise PermissionError(f"001 门禁拒绝：{exc.reason}") from exc
+    except Exception as exc:  # 传输层以外的意外错误也应 fail-closed
+        raise PermissionError(f"001 门禁不可用（fail-closed）：{exc}") from exc
+    redacted = gate_result.get("request") if isinstance(gate_result, dict) else None
+    if isinstance(redacted, dict):
+        import dataclasses
+
+        plan = dataclasses.replace(plan, redacted_request=redacted)
     return plan
 
 
@@ -193,6 +229,7 @@ async def admit_skill_selection(
             user_id=user_id,
             tool=tool,
             request=request,
+            session_id=session_id,
         )
 
     selected = str(selected_skill_id or "").strip()

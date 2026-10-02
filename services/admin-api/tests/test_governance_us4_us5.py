@@ -201,8 +201,37 @@ async def test_quota_layer_denies_with_dimension():
 
 @pytest.mark.asyncio
 async def test_quota_layer_passthrough_when_unconfigured():
+    # No call-count limits and no credit checker -> pass through. (In production
+    # ``build_layers`` always installs the 020-backed credit checker, so the layer
+    # is no longer a pass-through by default — see test_quota_layer_denies_when_budget_exhausted.)
     layer = QuotaLayer(limits_resolver=lambda tenant: {})
     ctx = GateContext(tool="web.search", tenant_id="t1", user_id="u1")
     verdict = await layer.evaluate(ctx)
     assert verdict.decision.value == "allow"
-    assert "no quota limits" in verdict.reason
+    assert "within budget" in verdict.reason
+
+
+@pytest.mark.asyncio
+async def test_quota_layer_denies_when_budget_exhausted():
+    """001 quota layer reuses 020's real token budget (2026-10-03 rewiring)."""
+
+    async def _no_budget(tenant_id: str, user_id: str):
+        return "token 额度已用尽"
+
+    layer = QuotaLayer(credit_checker=_no_budget)
+    ctx = GateContext(tool="web.search", tenant_id="t1", user_id="u1")
+    verdict = await layer.evaluate(ctx)
+    assert verdict.decision.value == "deny"
+    assert verdict.layer == "quota"
+    assert ctx.annotations["quota_exceeded"]["scope"] == "budget"
+
+
+@pytest.mark.asyncio
+async def test_build_layers_installs_the_020_credit_checker():
+    """The production layer set must not be a quota pass-through."""
+    from app.governance.layers import build_layers
+    from app.governance.config import GateConfig
+
+    layers = build_layers(GateConfig())
+    quota = next(layer for layer in layers if layer.name == "quota")
+    assert quota._credit_checker is not None

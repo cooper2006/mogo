@@ -70,3 +70,44 @@ def test_has_permission_target_mismatch() -> None:
 def test_required_code_for_tool_defaults() -> None:
     assert required_code_for_tool("crm") == "crm:execute"
     assert required_code_for_tool("crm", "read", "acct-1") == "crm:read:acct-1"
+
+
+def test_admin_tool_calls_fall_back_to_the_full_access_preset(monkeypatch):
+    """001 audit (2026-10-03): admin accounts have no position-role bindings.
+
+    Admin console tool calls must run under the tenant's full-access preset instead
+    of an empty role set — otherwise the RBAC layer fails closed on every call.
+    """
+    import asyncio
+
+    from app.api.routes import tools as tools_module
+
+    captured = {}
+
+    class _Verdict:
+        decision = type("D", (), {"value": "allow"})()
+        layer = "gatekeeper"
+        reason = "all layers passed"
+        status_code = 200
+        detail: dict = {}
+        allowed = True
+
+    class _FakeGatekeeper:
+        async def evaluate(self, tool, ctx):
+            captured["roles"] = list(ctx.roles)
+            return _Verdict()
+
+    async def _no_risk(*, tenant_id, tool):
+        return "R1"
+
+    monkeypatch.setattr(tools_module, "gatekeeper", _FakeGatekeeper())
+    monkeypatch.setattr(
+        "app.governance.risk.risk_level_for", _no_risk, raising=False
+    )
+
+    asyncio.run(
+        tools_module._enforce_gate(
+            "tool-1", "t1", {"user_id": "admin-1"}, {"q": "x"}
+        )
+    )
+    assert captured["roles"] == ["system:t1:full_access_admin"]

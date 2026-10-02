@@ -22,11 +22,20 @@ _LAYER_FACTORIES: dict[str, type] = {
 
 
 def build_layers(config: GateConfig) -> list[GateLayer]:
-    """Instantiate the enabled layers, in canonical order."""
+    """Instantiate the enabled layers, in canonical order.
+
+    The quota layer is wired to 020's real token-budget check so it is not a
+    pass-through in production (001 originally declared a ``quota_limits`` model
+    that was never built — see ``layers/quota.py``).
+    """
     layers: list[GateLayer] = []
     for name in config.layers_in_order():
         factory = _LAYER_FACTORIES.get(name)
-        if factory is not None:
+        if factory is None:
+            continue
+        if name == "quota":
+            layers.append(factory(credit_checker=quota.default_credit_checker))
+        else:
             layers.append(factory())
     return layers
 
