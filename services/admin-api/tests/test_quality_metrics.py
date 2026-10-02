@@ -18,8 +18,12 @@ from app.services.skill_market.adoption_client import (
     fetch_marked_skill_keys,
 )
 from app.services.skill_market.quality_metrics import (
+    COLLECTOR_STATE_COLLECTION,
     LOW_QUALITY_SUSTAINED_DAYS,
+    MIN_EFFECT_SAMPLES,
+    PROJECTIONS_COLLECTION,
     QUALITY_METRICS_COLLECTION,
+    collect_skill_activity_metrics,
     evaluate_all,
     evaluate_skill_quality,
     record_skill_call,
@@ -30,8 +34,43 @@ class _FakeResult:
     def __init__(self, rows):
         self._rows = rows
 
+    def sort(self, key, direction=1):
+        reverse = int(direction) < 0
+        self._rows = sorted(self._rows, key=lambda r: r.get(key) or 0, reverse=reverse)
+        return self
+
+    def limit(self, count):
+        self._rows = list(self._rows)[: int(count)]
+        return self
+
     async def to_list(self, length=0):
         return list(self._rows)
+
+
+def _dig(doc, dotted):
+    cur = doc
+    for part in str(dotted).split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
+def _matches_row(row, flt):
+    for k, v in flt.items():
+        actual = _dig(row, k)
+        if isinstance(v, dict) and "$gt" in v:
+            if not (actual is not None and actual > v["$gt"]):
+                return False
+        elif isinstance(v, dict) and "$gte" in v:
+            if str(actual or "") < str(v["$gte"]):
+                return False
+        elif isinstance(v, dict) and "$lte" in v:
+            if str(actual or "") > str(v["$lte"]):
+                return False
+        elif actual != v:
+            return False
+    return True
 
 
 class _FakeCursor:
@@ -39,21 +78,13 @@ class _FakeCursor:
         self._rows = rows
 
     def find(self, flt, projection=None):
-        out = []
+        return _FakeResult([r for r in self._rows if _matches_row(r, flt)])
+
+    async def find_one(self, flt, projection=None):
         for r in self._rows:
-            ok = True
-            for k, v in flt.items():
-                if isinstance(v, dict) and "$gte" in v:
-                    if str(r.get(k) or "") < str(v["$gte"]):
-                        ok = False
-                elif isinstance(v, dict) and "$lte" in v:
-                    if str(r.get(k) or "") > str(v["$lte"]):
-                        ok = False
-                elif r.get(k) != v:
-                    ok = False
-            if ok:
-                out.append(r)
-        return _FakeResult(out)
+            if _matches_row(r, flt):
+                return dict(r)
+        return None
 
     def aggregate(self, pipeline):
         # Only the {"$group": {"_id": {"main_id", "skill_key"}}} shape is used.
@@ -95,11 +126,13 @@ class _FakeCursor:
 
 
 def _fake_db(rows):
-    # Two collections are touched: the metric buckets (read/score) and the shared
-    # adoption bit (written by apply_quality_assessment, read by the market list).
+    # Four collections are touched: metric buckets (read/score), the shared adoption
+    # bit, chat-api's kernel projections (collected), and the collector watermark.
     shared = list(rows)
     metrics = _FakeCursor(shared)
     adoption = _FakeCursor([])
+    projections = _FakeCursor([])
+    state = _FakeCursor([])
 
     class _Db:
         def __getitem__(self, name):
@@ -107,9 +140,13 @@ def _fake_db(rows):
                 return metrics
             if name == ADOPTION_COLLECTION:
                 return adoption
+            if name == PROJECTIONS_COLLECTION:
+                return projections
+            if name == COLLECTOR_STATE_COLLECTION:
+                return state
             raise AssertionError(f"unexpected collection {name}")
 
-    return _Db(), metrics, adoption
+    return _Db(), metrics, adoption, projections, state
 
 
 def _seed_low_days(db_cursor, *, main_id, skill_key, days, success=False):
@@ -131,7 +168,7 @@ def _seed_low_days(db_cursor, *, main_id, skill_key, days, success=False):
 
 
 def test_record_skill_call_accumulates_daily_buckets():
-    db, cursor, _adoption = _fake_db([])
+    db, cursor, _adoption, _proj, _state = _fake_db([])
     asyncio.run(
         record_skill_call(db, main_id="t1", skill_key="s", success=True, adopted=1, corrected=0)
     )
@@ -146,7 +183,7 @@ def test_record_skill_call_accumulates_daily_buckets():
 
 
 def test_sustained_low_quality_marks_shared_bit():
-    db, cursor, _adoption = _fake_db([])
+    db, cursor, _adoption, _proj, _state = _fake_db([])
     _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
 
     outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="weak"))
@@ -158,7 +195,7 @@ def test_sustained_low_quality_marks_shared_bit():
 
 
 def test_interrupted_window_resets_sustained_streak():
-    db, cursor, _adoption = _fake_db([])
+    db, cursor, _adoption, _proj, _state = _fake_db([])
     _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
     # Insert one healthy day in the middle of the window -> streak breaks.
     mid = (date.today() - timedelta(days=3)).isoformat()
@@ -181,7 +218,7 @@ def test_interrupted_window_resets_sustained_streak():
 
 
 def test_healthy_skill_is_not_marked():
-    db, cursor, _adoption = _fake_db([])
+    db, cursor, _adoption, _proj, _state = _fake_db([])
     for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
         day = (date.today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
@@ -201,7 +238,7 @@ def test_healthy_skill_is_not_marked():
 
 
 def test_evaluate_all_scores_every_key():
-    db, cursor, _adoption = _fake_db([])
+    db, cursor, _adoption, _proj, _state = _fake_db([])
     _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
     _seed_low_days(cursor, main_id="t1", skill_key="weaker", days=LOW_QUALITY_SUSTAINED_DAYS)
     # A different tenant must not leak.
@@ -227,3 +264,87 @@ def test_scanner_starts_and_stops_cleanly():
         assert scanner._task is None
 
     asyncio.run(_cycle())
+
+
+def _activity_row(tenant_id, source_id, seq, day=None):
+    return {
+        "tenant_id": tenant_id,
+        "item_kind": "activity",
+        "type": "item.completed",
+        "event_id": f"dsh-v3:{seq}",
+        "item_id": f"m{seq}:selected-skill:{source_id}",
+        "stream_seq": seq,
+        "payload": {"category": "skill", "skill_name": f"name-{source_id}"},
+        "created_at": day,
+    }
+
+
+def test_collect_skill_activity_writes_total_and_advances_watermark():
+    from datetime import datetime, timezone
+
+    db, cursor, _adoption, proj, state = _fake_db([])
+    today = datetime.now(timezone.utc)
+    proj._rows.extend(
+        [
+            _activity_row("t1", "skill-a", 10, today),
+            _activity_row("t1", "skill-a", 11, today),
+            _activity_row("t2", "skill-b", 12, today),
+        ]
+    )
+
+    result = asyncio.run(collect_skill_activity_metrics(db))
+    assert result["collected"] == 3
+    assert result["last_stream_seq"] == 12
+    buckets = {(r["main_id"], r["skill_key"]): r["total_calls"] for r in cursor._rows}
+    assert buckets[("t1", "skill-a")] == 2
+    assert buckets[("t2", "skill-b")] == 1
+    # Watermark persisted -> a second pass re-reads nothing (idempotent).
+    again = asyncio.run(collect_skill_activity_metrics(db))
+    assert again["collected"] == 0
+    assert again["last_stream_seq"] == 12
+    assert state._rows[0]["last_stream_seq"] == 12
+
+
+def test_total_only_metrics_are_not_scored_mass_marked():
+    # Regression guard: with only total_calls (no success/adoption/correction
+    # verdict yet) the score would be 0.2 < 0.4 and would mass-mark every skill.
+    # The completeness gate must skip instead.
+    db, cursor, _adoption, _proj, _state = _fake_db([])
+    for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
+        day = (date.today() - timedelta(days=offset)).isoformat()
+        cursor._rows.append(
+            {
+                "main_id": "t1",
+                "skill_key": "totalonly",
+                "date": day,
+                "total_calls": 100,
+                "successful_calls": 0,
+                "adopted_calls": 0,
+                "corrected_calls": 0,
+            }
+        )
+    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="totalonly"))
+    assert outcome["evaluated"] is False
+    assert outcome["reason"] == "insufficient_signal"
+    # Nothing was written to the shared bit -> the market keeps it ranked normally.
+    assert asyncio.run(fetch_marked_skill_keys(db, main_id="t1")) == set()
+
+
+def test_below_min_samples_is_not_scored():
+    db, cursor, _adoption, _proj, _state = _fake_db([])
+    for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
+        day = (date.today() - timedelta(days=offset)).isoformat()
+        cursor._rows.append(
+            {
+                "main_id": "t1",
+                "skill_key": "rare",
+                "date": day,
+                "total_calls": 2,  # below MIN_EFFECT_SAMPLES
+                "successful_calls": 0,
+                "adopted_calls": 1,
+                "corrected_calls": 1,
+            }
+        )
+    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="rare"))
+    assert outcome["evaluated"] is False
+    assert MIN_EFFECT_SAMPLES > 2

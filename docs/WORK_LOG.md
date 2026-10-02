@@ -3088,3 +3088,31 @@ admin-api、document-parser、dsh-runtime-host。
   即 011/016 的计数采集**在生产中都从未接线**。本轮按用户拍板：埋点入口（`report_skill_call`）就位并
   单测覆盖，但**不强行侵入 dsh_runtime**——真实调用点需先定义"采纳/纠正"语义，属平台级采集建设，
   留待独立轮次（与 011 的采纳采集同源问题）。
+
+## 2026-10-03（续三）016 平台级采集接线 —— 从 kernel_event_projections 滚 skill activity
+
+接续二遗留的"唯一缺口：skill 真实执行处把计数写进桶"。调研确认 **chat-api 有现成的真实事实流**：
+DSH kernel 的 `skill.selected` 事件经 `dsh_runtime/events/projection.py` 投影为
+`item_kind="activity"` / `payload.category="skill"` 行，**持久化在 `kernel_event_projections`**
+（011 已在读同一集合的 tool 行），`item_id` 形如 `{message_id}:selected-skill:{source_id}`。
+据此实现平台级采集（**不侵入 dsh_runtime**，纯读已有事实流）：
+
+- **admin-api `quality_metrics.py` 新增 `collect_skill_activity_metrics`**：读 projections 里
+  `item_kind=activity` + `payload.category=skill` + `stream_seq > 水位` 的行，`_skill_key_from_activity`
+  从 `item_id` 提取 source_id（回退 `payload.skill_name`），按 `(main_id, skill_key, date)` 写
+  `skill_quality_metrics.total_calls`；水位持久化到 `skill_quality_collector_state`（全局单文档，
+  `_id="skill_activity"`），**幂等**：重复跑不重复计数。`SkillQualityScanner._loop` 改为
+  "先采集 → 再评估"。
+- **完整性门槛（防误杀，关键）**：`evaluate_skill_quality` 仅在 `total_calls >= MIN_EFFECT_SAMPLES(20)`
+  **且** `adopted_calls + corrected_calls > 0` 时才评估写位；否则返回 `evaluated=False`,
+  `reason="insufficient_signal"` 并**跳过**。原因：skill activity 只给得出 `total_calls`，给不出
+  成功/采纳/纠正结论；若只凭 total 计算，得分恒为 `0.2`（仅纠正反向项）< 0.4，**会把全部 skill 误标为
+  低质量并降权**。门槛确保不完整数据不产生任何标记。
+- **tenant_purge**：`skill_quality_collector_state` 为全局单例（无租户键），加入测试的 exempt 列表并注明理由。
+- **验证**：admin-api `tests/` 382 passed（`test_quality_metrics.py` 增至 9 项：新增采集器写入+水位幂等、
+  total-only 不评估防误杀、低于最小样本不评估）；chat-api `tests/services`+`tests/self_evolution` 338 passed。
+- **仍然缺失（如实记录）**：`success`/`adopted`/`corrected` 三个维度在生产中**仍无事实源**——
+  skill activity 事件只证明"skill 被加载执行"，无成败结论；"采纳/纠正"更无产品定义。因此当前采集
+  只能产出 `total_calls`，完整性门槛会跳过评估，**实际不会产生任何低质量标记**（安全但无效）。
+  真正让 016 标记生效，需要先定义并采集"采纳/纠正"事件（产品级决策 + 相应埋点），与 011 的
+  `record_adoption` 采集缺口同源。

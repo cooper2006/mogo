@@ -38,9 +38,21 @@ logger = logging.getLogger(__name__)
 # The daily-bucket collection chat-api and 016 share (one writer each side agrees on).
 QUALITY_METRICS_COLLECTION = "skill_quality_metrics"
 
+# chat-api's projected kernel events — the durable fact stream skill activity is
+# read from (011 reads the same collection for tool outcomes).
+PROJECTIONS_COLLECTION = "kernel_event_projections"
+
+# Collector high-water mark (single global doc, no tenant key of its own).
+COLLECTOR_STATE_COLLECTION = "skill_quality_collector_state"
+_COLLECTOR_STATE_ID = "skill_activity"
+
 # Default cadence for the periodic assessment scanner (016 FR-6 window is 7 days,
 # but the scanner should run more often than that to keep the bit fresh).
 DEFAULT_INTERVAL_SECONDS = 6 * 3600.0
+
+#: Minimum calls inside the window before an effect score may be persisted. Guards
+#: against mass-marking healthy skills on partial data (see ``evaluate_skill_quality``).
+MIN_EFFECT_SAMPLES = 20
 
 
 def _today(ts: Optional[datetime] = None) -> date:
@@ -83,6 +95,88 @@ async def record_skill_call(
         },
         upsert=True,
     )
+
+
+async def collect_skill_activity_metrics(
+    db: Any,
+    *,
+    limit: int = 5000,
+) -> dict[str, Any]:
+    """Roll skill-activity projections into the daily metric buckets (real signal).
+
+    Reads chat-api's ``kernel_event_projections`` (the durable DSH event journal) for
+    ``skill.selected`` activity rows — the platform's only real "a skill was loaded
+    and executed" fact. Each row increments that tenant/skill/day bucket's
+    ``total_calls``. A persisted high-water mark (``stream_seq``) makes the pass
+    idempotent across restarts.
+
+    Only ``total_calls`` can be derived here: the activity event has no
+    success/adoption/correction verdict. ``evaluate_skill_quality`` therefore refuses
+    to score until the richer dimensions exist (see its completeness gate).
+    """
+    if db is None:
+        return {"collected": 0, "last_stream_seq": 0}
+    state = await db[COLLECTOR_STATE_COLLECTION].find_one({"_id": _COLLECTOR_STATE_ID})
+    after = int((state or {}).get("last_stream_seq") or 0)
+    rows = (
+        await db[PROJECTIONS_COLLECTION]
+        .find(
+            {
+                "item_kind": "activity",
+                "type": "item.completed",
+                "payload.category": "skill",
+                "stream_seq": {"$gt": after},
+            },
+            {
+                "_id": 0,
+                "tenant_id": 1,
+                "item_id": 1,
+                "stream_seq": 1,
+                "payload": 1,
+                "created_at": 1,
+            },
+        )
+        .sort("stream_seq", 1)
+        .limit(int(limit))
+        .to_list(length=int(limit))
+    )
+    collected = 0
+    last = after
+    for row in rows:
+        tenant_id = str(row.get("tenant_id") or "")
+        skill_key = _skill_key_from_activity(row)
+        if not tenant_id or not skill_key:
+            last = max(last, int(row.get("stream_seq") or 0))
+            continue
+        day = row.get("created_at")
+        day = day.date() if isinstance(day, datetime) else _today()
+        await record_skill_call(db, main_id=tenant_id, skill_key=skill_key, day=day)
+        collected += 1
+        last = max(last, int(row.get("stream_seq") or 0))
+    if last > after:
+        await db[COLLECTOR_STATE_COLLECTION].update_one(
+            {"_id": _COLLECTOR_STATE_ID},
+            {"$set": {"last_stream_seq": last}},
+            upsert=True,
+        )
+    return {"collected": collected, "last_stream_seq": last}
+
+
+def _skill_key_from_activity(row: dict[str, Any]) -> str:
+    """Recover the skill key from a projected ``skill.selected`` activity row.
+
+    The projector builds ``item_id = f"{message_id}:selected-skill:{source_id}"``;
+    ``source_id`` is the control-plane skill id the market keys on. Falls back to
+    the display name when the id is not recoverable.
+    """
+    item_id = str(row.get("item_id") or "")
+    marker = ":selected-skill:"
+    if marker in item_id:
+        source_id = item_id.split(marker, 1)[1].strip()
+        if source_id:
+            return source_id
+    payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    return str(payload.get("skill_name") or "").strip()
 
 
 async def _aggregate(
@@ -154,13 +248,35 @@ async def evaluate_skill_quality(
     main_id: str,
     skill_key: str,
     window_days: int = LOW_QUALITY_SUSTAINED_DAYS,
+    min_samples: int = MIN_EFFECT_SAMPLES,
 ) -> dict[str, Any]:
     """Roll up the recent buckets, score, and persist the result to ``skill_adoption``.
 
     Returns the assessment outcome (effect score, sustained days, whether the
     aggregated ``marked_low_quality`` bit is now set).
+
+    Completeness gate: the score is only *persisted* when there is enough data to
+    trust it — at least ``min_samples`` calls in the window **and** at least one
+    adoption/correction signal. Without this, a window that only carries
+    ``total_calls`` (the skill-activity collection is still partial) would score
+    ``0.2`` (correction-inverse only) and mass-mark every healthy skill as low
+    quality. Incomplete windows are skipped, never marked.
     """
     agg = await _aggregate(db, main_id=main_id, skill_key=skill_key, window_days=window_days)
+    sufficient = (
+        agg["total_calls"] >= int(min_samples)
+        and (agg["adopted_calls"] + agg["corrected_calls"]) > 0
+    )
+    if not sufficient:
+        return {
+            "skill_key": skill_key,
+            "evaluated": False,
+            "reason": "insufficient_signal",
+            "total_calls": agg["total_calls"],
+            "effect_score": round(agg["effect_score"], 4),
+            "sustained_low_days": agg["sustained_low_days"],
+            "window_days": window_days,
+        }
     outcome = await apply_quality_assessment(
         db,
         main_id=main_id,
@@ -171,6 +287,7 @@ async def evaluate_skill_quality(
         corrected_calls=agg["corrected_calls"],
         sustained_days=agg["sustained_low_days"],
     )
+    outcome["evaluated"] = True
     outcome["effect_score"] = round(agg["effect_score"], 4)
     outcome["sustained_low_days"] = agg["sustained_low_days"]
     outcome["window_days"] = window_days
@@ -249,6 +366,9 @@ class SkillQualityScanner:
         while not self._stopping.is_set():
             try:
                 db = self._db if self._db is not None else get_db()
+                # Order matters: first fold new skill-activity facts into the daily
+                # buckets, then score them.
+                await collect_skill_activity_metrics(db)
                 await evaluate_all(db, window_days=self._window_days)
             except Exception:  # pragma: no cover - defensive
                 logger.exception("skill quality scan failed")

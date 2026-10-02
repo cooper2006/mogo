@@ -334,6 +334,9 @@ def test_every_main_id_keyed_collection_in_the_tree_is_covered() -> None:
         "capability_assets",     # find({}) global catalogue
         "admin_model_providers", # global provider seeds
         "admin_sessions",        # session-id keyed
+        # 016 collector high-water mark: one global doc (_id="skill_activity"),
+        # carries no tenant key at all — nothing tenant-specific to purge.
+        "skill_quality_collector_state",
         # Purge survives these on purpose (see the sibling test).
         "system_audit_logs",
         "tenants",

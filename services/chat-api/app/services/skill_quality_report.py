@@ -1,15 +1,17 @@
-"""chat-api → 016 shared skill-quality metric writer (016 FR-3 data source).
+"""chat-api side of the 016 skill-quality metric buckets — DO NOT WIRE (superseded).
 
-011/chat-api is where skills actually execute, so it owns the *write* side of the
-016 effect-score metrics. The collection name is shared with admin-api's
-``skill_market.quality_metrics`` module over the same MongoDB instance (the
-"one shared marker, no double-write" pattern already used by ``skill_adoption``).
+⚠️ Superseded: 016's collection pass now reads the durable DSH event journal
+directly (admin-api ``skill_market.quality_metrics.collect_skill_activity_metrics``
+rolls ``kernel_event_projections`` skill-activity rows into the same daily buckets,
+with an idempotent ``stream_seq`` watermark). Writing from here as well would
+**double-count** ``total_calls`` for the same execution.
 
-The production call sites that feed real ``success`` / ``adopted`` / ``corrected``
-signals are still a platform-level collection gap (mirroring 011's own
-``AdoptionStore.record_adoption`` which is likewise not yet wired to a live event
-stream). This module provides the ready-to-call entry point; wiring it into the
-execution path is tracked separately.
+This module is kept (nothing is deleted per repo policy) as the ready-made entry
+point for the *rich* dimensions the event journal cannot supply — ``success`` /
+``adopted`` / ``corrected``. Those facts still have no production source (the same
+platform-level gap as 011's ``AdoptionStore.record_adoption``). If a future round
+adds a real skill-outcome signal, route it through here **only after** removing the
+overlapping field from the collector, so the two writers stay disjoint.
 """
 
 from __future__ import annotations
@@ -37,8 +39,11 @@ def report_skill_call(
 ) -> None:
     """Record one skill execution into 016's shared daily bucket.
 
-    chat-api calls this from the skill execution path; 016's ``SkillQualityScanner``
-    later rolls the buckets up and writes the aggregated ``marked_low_quality`` bit.
+    ⚠️ Not wired, by design: ``total_calls`` is already produced by 016's collector
+    from the DSH event journal, so calling this for a normal execution would
+    double-count. Use it only for the rich dimensions the journal lacks
+    (``success`` / ``adopted`` / ``corrected``), and only after the collector stops
+    writing those same fields.
     """
     if db is None:
         return
