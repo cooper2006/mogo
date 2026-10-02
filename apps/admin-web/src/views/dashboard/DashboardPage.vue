@@ -358,6 +358,26 @@ interface DashboardOverview {
     costYoyPct: number | null;
     bottlenecks: Array<{ dimension: string; key: string; calls: number; cost: number; avgDurationMs: number }>;
   };
+  // 008 US2: production cost section from /overview (build_cost_section + FR-6
+  // reconciliation + OQ-5 4-period moving-average forecast). The cost tab must
+  // consume this, not the trend bottlenecks (001 audit, 2026-10-03).
+  cost?: {
+    totalTokens: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalCost: number;
+    models: Array<{
+      model: string;
+      calls: number;
+      promptTokens: number;
+      completionTokens: number;
+      tokens: number;
+      cost: number;
+      costShare: number;
+    }>;
+    reconciles: boolean;
+    forecast: number;
+  };
   usage: {
     calls: number;
     activeUsers: { day?: number; week?: number; month?: number };
@@ -607,20 +627,26 @@ const qualityTrend = computed(() => trend.value || {
 const bottlenecks = computed(() => qualityTrend.value.bottlenecks || []);
 
 // --- T013 cost tab: per-model cost share + forecast --------------------------
+// 008 US2（001 audit 2026-10-03）：成本页改消费 /overview 的 production `cost`
+// 段（build_cost_section + FR-6 对账 + OQ-5 预测），不再从 trend 瓶颈/时间序列
+// 前端重算（原"前端消费 trend 瓶颈数据"残项）。
+const costSection = computed(() => overview.value?.cost);
 const costModels = computed(() => {
-  // 008 cost tab: per-model rows come from the trend bottlenecks (dimension=model)
-  const byModel = (qualityTrend.value.bottlenecks || []).filter((row) => row.dimension === 'model');
-  const models = byModel.map((row) => ({ model: row.key, cost: row.cost, share: 0 }));
-  const total = models.reduce((sum, row) => sum + row.cost, 0);
-  for (const row of models) {
-    row.share = total > 0 ? Math.round((row.cost / total) * 100) : 0;
-  }
+  const section = costSection.value;
+  const models = (section?.models || []).map((row) => ({
+    model: row.model,
+    cost: row.cost,
+    share: Math.round((row.costShare ?? 0) * 100),
+  }));
   return models.sort((a, b) => b.cost - a.cost);
 });
-const costTotal = computed(() => metrics.value.cost24h);
-const costTokens = computed(() => metrics.value.tokens24h);
+const costTotal = computed(() => costSection.value?.totalCost ?? metrics.value.cost24h);
+const costTokens = computed(() => costSection.value?.totalTokens ?? metrics.value.tokens24h);
 const costForecast = computed(() => {
-  // T012 forecast: moving average of the last 4 periods (008 clarify OQ-5)
+  // OQ-5 forecast now comes from the production cost section (4-period moving
+  // average computed server-side); fall back to client-side only if absent.
+  const forecast = costSection.value?.forecast;
+  if (forecast !== null && forecast !== undefined) return forecast;
   const series = usage.value.timeSeries;
   if (series.length === 0) return null;
   const window = series.slice(-4);

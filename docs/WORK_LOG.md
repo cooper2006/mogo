@@ -3706,3 +3706,18 @@ admin 侧 org.points_unlimited，新租户成员发消息被 402 拦截。
 **修复文件**：turn_admission.py（红字段+透传）、dsh_chat.py（替换明文）、
 test_gate_plan_wiring.py（消费测试）、test_hooks_009.py（mock 修复）。
 **验证**：test_gate_plan_wiring 9 passed；forwards 测试修复后 passed。
+
+## 2026-10-03（续三十四）008 成本段前端消费方补齐
+
+**背景**：001 audit 残项——`/overview` 已返回生产 `cost` 段（`build_cost_section` +
+FR-6 `reconciles` + OQ-5 `forecast`），但前端 `DashboardPage.vue` 成本 tab 仍从
+`trend.bottlenecks`（dimension=model）+ `usage.timeSeries` 前端重算，未消费新段。
+
+**改动**（apps/admin-web/src/views/dashboard/DashboardPage.vue）：
+- `DashboardOverview` 类型新增 `cost?` 段（totalTokens/promptTokens/completionTokens/
+  totalCost/models[].costShare/reconciles/forecast）。
+- `costModels` 改读 `overview.cost.models` 的 `costShare`（后端已算占比，前端不再重算）；
+- `costTotal`/`costTokens` 改读 `totalCost`/`totalTokens`（缺省回落 metrics）；
+- `costForecast` 优先读 `overview.cost.forecast`（缺省回落客户端 4 期均值）。
+
+**验证**：`vue-tsc --noEmit` 通过；后端 dashboard 测试（routes+selfcheck）17 passed。
