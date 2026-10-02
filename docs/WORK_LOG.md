@@ -3627,3 +3627,23 @@ P1 孤岛第 7 项。007 韧性接线错位：真实对话链路绕过 wrap_resi
   韧性层。为避免重复配额检查，`output_spec` 不含 `user_id`。
 
 **验证**：tests/services/ + tests/dsh_runtime/ **515 passed**。
+
+## 2026-10-03（续二十九）010 修复：DAG 编排接线（生产入口 + FR-7 + FR-8）
+
+P1 孤岛第 10 项。过去"核心已实现但无入口/无审计/无集合"。
+
+**本轮改动**：
+- `app/api/endpoints/research.py`（新）：`POST /api/research/competitor-deep-dive`，
+  sub-agent 经 `LocalBridge` 真实 skill 执行；无 agent 会话返回 unavailable，由
+  degraded 路径兜底（FR-6 诚实降级）。
+- `app/main.py`：注册 `research.router`（prefix=/api）。
+- `app/enterprise_capabilities/research/competitor_deep_dive.py`：
+  `DeepDiveOrchestrator` 新增 `audit_sink`/`tenant_id`/`actor`，run 与节点事件
+  经 `_emit` 汇入 feature_audit（注册 010 事件）；新增异步 `create()` 工厂。
+- `app/orchestration/store.py`（新）：FR-8 定义优先从 `dag_definitions` 集合读取，
+  首用惰性注册 YAML，DB 不可用回退。
+- `app/services/feature_audit.py`：注册 010 的 7 个审计事件。
+- `tests/orchestration/test_competitor_deep_dive_audit.py`（新）：验证审计事件与
+  集合回退。
+
+**验证**：tests/orchestration/ **79 passed**（含新增 2 条）；chat-api 全量 **594 passed**。
