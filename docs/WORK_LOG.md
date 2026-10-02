@@ -3536,3 +3536,11 @@ P1 孤岛第 3 项。017 此前零生产 import，记忆无法写入或读取。
 **验证**：main import ok；tests/a2a+im_gateway+memory **72 passed**。
 RAG 集成（`memory_rag_candidates` 接入 `knowledge_search`）留待后续；
 FR-8 老化清理定时任务也留待后续。
+
+## 2026-10-03（续二十二）017 修复：memory RAG 集成
+
+017 store+endpoint 已在前一轮接线，本 patch 将 `memory_rag_candidates` 接入
+`knowledge_search` 能力适配器，让 scope-filtered 记忆与文档 chunk 一起进入
+RAG 检索上下文（T010）。
+
+**验证**：adapters import ok；tests 100 passed。
