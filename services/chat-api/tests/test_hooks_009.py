@@ -279,3 +279,161 @@ if __name__ == "__main__":
     import sys
 
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# --- 2026-10-03 fix: require_field needs a real request payload -------------
+
+
+def test_require_field_passes_when_the_payload_carries_the_field():
+    """The call sites used to omit ``request`` entirely.
+
+    With an empty payload every ``require_field`` rule rejected every call, so the
+    rule type was unusable (and configuring one would have blocked the turn
+    outright). With the real context now passed, the rule evaluates properly.
+    """
+    from app.dsh_runtime.hooks.engine import HookEngine
+
+    engine = HookEngine()
+    rule = {"scope": "tool", "rule_type": "require_field", "rule_config": {"fields": ["text"]}}
+
+    ok = engine.evaluate_pre_tool_use(tool="dsh_turn", request={"text": "hi"}, raw_rules=[rule])
+    assert ok.allowed is True
+
+    blocked = engine.evaluate_pre_tool_use(tool="dsh_turn", request={}, raw_rules=[rule])
+    assert blocked.allowed is False
+    assert blocked.rule_type == "require_field"
+
+
+def test_admit_skill_selection_forwards_request_to_the_hook_engine():
+    """Pins the wiring: admission must pass the call context through (not None).
+
+    ``selected_skill_id=None`` returns before the position-policy lookup, so this
+    exercises exactly the hook + gate-plan path with no DB involvement.
+    """
+    import asyncio
+
+    from app.dsh_runtime import turn_admission
+
+    captured: dict = {}
+
+    async def _fake_run_pre_tool_use(**kwargs):
+        captured["hook"] = kwargs
+        return None  # None == allowed
+
+    async def _fake_run_gate_plan(**kwargs):
+        captured["plan"] = kwargs
+        return object()
+
+    original_hook = turn_admission.run_pre_tool_use
+    original_plan = turn_admission.run_gate_plan
+    turn_admission.run_pre_tool_use = _fake_run_pre_tool_use
+    turn_admission.run_gate_plan = _fake_run_gate_plan
+    try:
+        asyncio.run(
+            turn_admission.admit_skill_selection(
+                tenant_id="t1",
+                user_id="u1",
+                selected_skill_id=None,
+                tool="browser",
+                request={"text": "hello"},
+                session_id="s1",
+            )
+        )
+    finally:
+        turn_admission.run_pre_tool_use = original_hook
+        turn_admission.run_gate_plan = original_plan
+
+    assert captured["hook"]["tool"] == "browser"
+    assert captured["hook"]["request"] == {"text": "hello"}
+    # The same context must reach the six-layer gate plan (001 runtime side).
+    assert captured["plan"]["request"] == {"text": "hello"}
+
+
+def test_rule_source_cache_serves_hits_without_a_db_query(monkeypatch):
+    """009 hot-path fix: the rule source is cached per tenant (2s TTL).
+
+    After one lookup, repeat calls within the TTL must not touch the DB at all —
+    so a tool gateway for a rule-less tenant no longer depends on Mongo, and the
+    negative case is cached too.
+    """
+    import asyncio
+    import time
+
+    import app.dsh_runtime.turn_admission as turn_admission
+    from app.dsh_runtime.hooks.store import HookRuleDocument
+
+    queries: list = []
+
+    class _Store:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def rules_in_scope(self, **kwargs):
+            queries.append(kwargs)
+            return [
+                HookRuleDocument(
+                    rule_id="hr-1",
+                    scope="tool",
+                    rule_type="deny_tool",
+                    rule_config={"tool": "dangerous"},
+                )
+            ]
+
+    monkeypatch.setattr(turn_admission, "_RULE_SOURCE_CACHE", {})
+    monkeypatch.setattr("app.dsh_runtime.turn_admission._RULE_SOURCE_CACHE_TTL", 2.0)
+    monkeypatch.setattr(
+        "app.dsh_runtime.hooks.store.HookRuleStore", _Store, raising=False
+    )
+
+    from app.dsh_runtime.hooks import integration as _integration
+
+    async def _no_sink(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(
+        _integration, "record_position_policy_event", _no_sink, raising=False
+    )
+
+    from app.dsh_runtime.turn_admission import run_pre_tool_use
+
+    async def _go():
+        denied = await run_pre_tool_use(
+            tenant_id="t1", user_id="u1", tool="dangerous", session_id="s1"
+        )
+        assert denied is not None and "deny_tool" in denied.denied_reason
+        # Second call: cache hit, no new query.
+        await run_pre_tool_use(
+            tenant_id="t1", user_id="u1", tool="other", session_id="s1"
+        )
+
+    asyncio.run(_go())
+    assert len(queries) == 1  # the second call was served from cache
+
+    # TTL expiry forces a re-query.
+    turn_admission._RULE_SOURCE_CACHE["t1"] = (time.monotonic() - 1, [])
+    captured = {}
+
+    class _Store2:
+        def __init__(self, *_a, **_k):
+            captured["queried"] = True
+
+        async def rules_in_scope(self, **kwargs):
+            return []
+
+    monkeypatch.setattr(
+        "app.dsh_runtime.hooks.store.HookRuleStore", _Store2, raising=False
+    )
+    asyncio.run(
+        run_pre_tool_use(tenant_id="t1", user_id="u1", tool="other", session_id="s1")
+    )
+    assert captured.get("queried") is True
+
+
+@pytest.fixture(autouse=True)
+def _reset_rule_source_cache(monkeypatch):
+    """Isolate the module-level rule source cache across tests (009 hot-path fix)."""
+    import app.dsh_runtime.turn_admission as turn_admission
+
+    monkeypatch.setattr(turn_admission, "_RULE_SOURCE_CACHE", {})
+    yield
+    # Keep a copy so other tests running after this one don't see stale entries.

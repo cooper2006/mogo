@@ -159,7 +159,17 @@
 - **前端成本页消费的是 trend 瓶颈数据**（自述注释），`costShare` 前端重算。
 - **部门/智能体分摊缺失**：`agent_id` 无数据源（`TokenUsageRecord` 无该字段）。
 
-### 009 hooks-interception（3）
+### 009 hooks-interception（3）—— **①② 已修（2026-10-03，见 WORK_LOG 续十二）**
+
+> ① `tool` 真值：**工具级 PreToolUse 已挂到真实工具调用点**——chat-api 的
+>    `EnterpriseToolService._authorize`（工具网关 `POST /internal/dsh/tools/execute` 与
+>    `/approval/request`）经 `run_pre_tool_use` 用真实 `toolName` + `arguments` 求值同一套
+>    声明式规则；按工具名配置的 `deny_tool`/`require_field` 在**执行时刻**真正命中。
+>    turn 级调用点（`dsh_chat`/`dsh_execution`）保留 dsh_turn 语义但补传了 `request`。
+> ② `require_field` 可用：工具网关传真实 arguments；规则源加 per-tenant 2s TTL 缓存
+>    （含负缓存）——热路径不再每次查 Mongo。
+> ③ **仍待修**：FR-3 超时与 FR-13 延迟预算（`guard.py`/`timeout.py`）仅 tests 调用，
+>    生产未接线。五事件仍只落地 PreToolUse。
 - **`tool` 恒为 `"dsh_turn"`**：两个生产调用点硬编码，按工具名配置的 `deny_tool`/`require_field` 永不命中。
 - **`require_field` 恒不可用**：两处调用均未传 `request=` → `payload` 恒空。
 - **FR-3 超时与 FR-13 延迟预算零接线**：`guard.py`/`timeout.py` 仅 tests 调用。

@@ -86,7 +86,9 @@ class EnterpriseToolService:
         return cancelled + self._active_executions.cancel_conversation(conversation_id)
 
     async def request_approval(self, request: ApprovalAskRequest, claims: ToolGatewayClaims) -> str:
-        tool, binding = await self._authorize(request.toolName, request.profileVersion, request.sessionId, claims)
+        tool, binding = await self._authorize(
+            request.toolName, request.profileVersion, request.sessionId, claims, request.arguments
+        )
         if not self._approval_required(tool, request.arguments):
             return "allowed-once"
         scope = approval_scope(tool, request.arguments)
@@ -232,7 +234,9 @@ class EnterpriseToolService:
             await sink(event)
 
     async def execute(self, request: ToolExecuteRequest, claims: ToolGatewayClaims) -> EnterpriseActionReceipt:
-        tool, binding = await self._authorize(request.toolName, request.profileVersion, request.sessionId, claims)
+        tool, binding = await self._authorize(
+            request.toolName, request.profileVersion, request.sessionId, claims, request.arguments
+        )
         existing = await self._repository.receipt_by_idempotency(request.idempotencyKey)
         if existing is not None:
             if existing.action_id != request.actionId or existing.tool_name != request.toolName:
@@ -467,10 +471,25 @@ class EnterpriseToolService:
         return receipt
 
     async def _authorize(
-        self, tool_name: str, profile_version: str, session_id: str, claims: ToolGatewayClaims
+        self,
+        tool_name: str,
+        profile_version: str,
+        session_id: str,
+        claims: ToolGatewayClaims,
+        arguments: dict[str, Any] | None = None,
     ) -> tuple[ToolProfileDefinition, dict[str, Any]]:
         if profile_version != claims.profile_version or tool_name not in claims.tool_names:
             raise ToolPolicyDenied("tool is outside the signed Runtime Profile scope")
+        # 009 PreToolUse：声明式 deny/require 规则必须在**真实工具调用点**求值——只有这
+        # 里同时有真实工具名与真实参数。此前只在 turn 级求值（且 tool 硬编码 dsh_turn），
+        # 按工具名配置的规则永不命中；require_field 又因 payload 恒空而恒拒绝
+        # （001 审计，2026-10-03）。
+        await self._enforce_pre_tool_use(
+            tool_name=tool_name,
+            session_id=session_id,
+            claims=claims,
+            arguments=dict(arguments or {}),
+        )
         profile = await self._profiles.get(profile_version)
         if profile.tenant_id != claims.tenant_id or profile.subject_user_id != claims.user_id:
             raise ToolPolicyDenied("Runtime Profile subject mismatch")
@@ -501,6 +520,44 @@ class EnterpriseToolService:
         )):
             raise ToolPolicyDenied("Kernel Session scope mismatch")
         return tool, binding
+
+    async def _enforce_pre_tool_use(
+        self,
+        *,
+        tool_name: str,
+        session_id: str,
+        claims: ToolGatewayClaims,
+        arguments: dict[str, Any],
+    ) -> None:
+        """009 T009: evaluate declarative PreToolUse rules at the real tool call.
+
+        ``run_pre_tool_use`` loads the in-scope rules, evaluates them (fail-closed),
+        and audits the hook execution; a denial is additionally recorded in this
+        repository's audit trail and surfaced as a 403 at the gateway.
+        """
+        from app.dsh_runtime.turn_admission import run_pre_tool_use
+
+        gate = await run_pre_tool_use(
+            tenant_id=claims.tenant_id,
+            user_id=claims.user_id,
+            tool=tool_name,
+            request=arguments,
+            session_id=session_id,
+        )
+        if gate is not None:
+            await self._repository.audit(
+                tenant_id=claims.tenant_id,
+                user_id=claims.user_id,
+                action_id="hook-denied",
+                event="hook.denied",
+                details={
+                    "tool_name": tool_name,
+                    "reason": gate.denied_reason,
+                    "rule_type": gate.denied_rule_type,
+                    "scope": gate.denied_scope,
+                },
+            )
+            raise ToolPolicyDenied(f"钩子规则拒绝工具调用：{gate.denied_reason}")
 
     @staticmethod
     def _approval_outcome(status: str) -> str:

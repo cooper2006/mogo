@@ -178,14 +178,25 @@ async def _start_chat_completions(
         raise HTTPException(status_code=400, detail="A non-empty text message is required")
     output_spec = dict(request.output_spec or {})
     selected_skill_id = str(output_spec.get("selected_skill_id") or output_spec.get("selectedSkillId") or "").strip()
+    # 009 T009：把该轮的请求上下文交给 PreToolUse 钩子。`request` 必须传真实数据，
+    # 否则 require_field 规则对空 payload 恒判"缺字段"→ 配了该规则就全量封锁
+    # （001 审计发现并修掉，2026-10-03）。
+    # 注意：这里是 **turn 级** 钩子——本轮尚未选定工具，`tool` 为轮次动作 dsh_turn。
+    # **工具级**拦截在真实工具调用点执行：`EnterpriseToolService._authorize` 经
+    # `run_pre_tool_use` 用真实 toolName/arguments 求值同一套规则（按工具名配置的
+    # deny_tool/require_field 在那里才真正命中，2026-10-03 009 修复）。
     try:
         skill_selection = await admit_skill_selection(
             tenant_id=tenant_id,
             user_id=user_id,
             selected_skill_id=selected_skill_id,
-            # 009 T009：把"skill 选择 + 工具执行"语义传给 PreToolUse 钩子，
-            # 使声明式 deny/require 规则在工具调用前真实拦截。
             tool="dsh_turn",
+            request={
+                "text": text,
+                "selected_skill_id": selected_skill_id,
+                "output_spec": output_spec,
+                "conversation_id": str(output_spec.get("task_id") or output_spec.get("session_id") or ""),
+            },
             session_id=str(output_spec.get("task_id") or output_spec.get("session_id") or ""),
         )
     except PermissionError as exc:

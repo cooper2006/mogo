@@ -45,12 +45,21 @@ class ScheduledDshExecution:
             or output_spec.get("selectedSkillId")
             or ""
         ).strip()
+        # 009 T009：定时任务同样过 PreToolUse 钩子（与会话路径一致）。request 传真实
+        # 上下文，否则 require_field 规则会因空 payload 恒拒绝（001 审计，2026-10-03）。
+        # tool 为轮次动作 dsh_turn；工具级拦截在 EnterpriseToolService._authorize
+        # 用真实 toolName/arguments 求值（2026-10-03 009 修复）。
         selection = await admit_skill_selection(
             tenant_id=tenant_id,
             user_id=user_id,
             selected_skill_id=selected,
-            # 009 T009：定时任务同样过 PreToolUse 钩子（与会话路径一致）。
             tool="dsh_turn",
+            request={
+                "job_id": str(job.get("_id") or job.get("id") or ""),
+                "selected_skill_id": selected,
+                "output_spec": output_spec,
+                "conversation_id": str(conversation_id or ""),
+            },
             session_id=str(conversation_id or ""),
         )
         chat = self._chat_provider()

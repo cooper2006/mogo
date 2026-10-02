@@ -29,6 +29,29 @@ from app.enterprise_capabilities.tools.result_projection import canonical_tool_r
 from app.enterprise_capabilities.content.invocation_contract import ResolvedContentInvocation
 
 
+@pytest.fixture(autouse=True)
+def _no_hook_rules_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tool-gateway tests assert the MOVO policy; the 009 hook defaults to "no rules".
+
+    The real ``run_pre_tool_use`` queries Mongo; keep it out of these tests unless
+    a test explicitly re-patches it (the two ``pre_tool_use`` tests below do).
+    """
+    import app.dsh_runtime.turn_admission as turn_admission
+
+    monkeypatch.setattr(
+        turn_admission,
+        "run_pre_tool_use",
+        lambda **_kw: _none_coroutine(),
+    )
+
+
+def _none_coroutine(*_a, **_k):
+    async def _inner():
+        return None
+
+    return _inner()
+
+
 class FakeToolCatalog:
     async def list_enabled(self, tenant_id: str, user_id: str):
         assert (tenant_id, user_id) == ("tenant-a", "user-a")
@@ -830,3 +853,105 @@ def test_mcp_structured_content_is_the_dsh_tool_output_value() -> None:
         },
     })
     assert result == {"code": 0, "data": {"customers": []}}
+
+
+# --- 2026-10-03 009 fix: PreToolUse runs at the real tool call site ---------
+
+
+def test_pre_tool_use_hook_denies_by_real_tool_name(monkeypatch) -> None:
+    """009: deny_tool rules must match at the *tool gateway* (real toolName).
+
+    Before the fix the hook was only evaluated turn-level with a hard-coded
+    ``dsh_turn``, so a ``deny_tool("crm-delete")`` rule could never fire at the
+    moment of execution.
+    """
+    import app.dsh_runtime.turn_admission as turn_admission
+
+    denied: dict = {}
+
+    class _DeniedGate:
+        allowed = False
+        denied_reason = "deny_tool(crm-delete)"
+        denied_rule_type = "deny_tool"
+        denied_scope = "tool"
+
+    async def _fake_run_pre_tool_use(**kwargs):
+        denied.update(kwargs)
+        return _DeniedGate()
+
+    monkeypatch.setattr(
+        turn_admission, "run_pre_tool_use", _fake_run_pre_tool_use
+    )
+
+    from app.enterprise_capabilities.tools.service import (
+        EnterpriseToolService,
+        ToolPolicyDenied,
+    )
+
+    svc = EnterpriseToolService.__new__(EnterpriseToolService)
+    import types
+
+    svc._repository = types.SimpleNamespace(audit=_record_audit())
+
+    class _Claims:
+        tenant_id = "tenant-a"
+        user_id = "user-a"
+
+    async def _go():
+        await svc._enforce_pre_tool_use(
+            tool_name="crm-delete",
+            session_id="sess-1",
+            claims=_Claims(),
+            arguments={"x": 1},
+        )
+
+    with pytest.raises(ToolPolicyDenied, match="deny_tool"):
+        asyncio.run(_go())
+    assert denied["tool"] == "crm-delete"
+    assert denied["request"] == {"x": 1}
+
+
+def test_pre_tool_use_hook_allows_when_no_rules_match(monkeypatch) -> None:
+    import app.dsh_runtime.turn_admission as turn_admission
+
+    monkeypatch.setattr(
+        turn_admission, "run_pre_tool_use", lambda **k: _none_coroutine()
+    )
+
+    from app.enterprise_capabilities.tools.service import EnterpriseToolService
+
+    svc = EnterpriseToolService.__new__(EnterpriseToolService)
+
+    class _Claims:
+        tenant_id = "tenant-a"
+        user_id = "user-a"
+
+    # A repository that records audit calls is unnecessary for the allow path.
+    import types
+
+    svc._repository = types.SimpleNamespace(audit=_record_audit())
+    asyncio.run(
+        svc._enforce_pre_tool_use(
+            tool_name="crm-search",
+            session_id="sess-1",
+            claims=_Claims(),
+            arguments={},
+        )
+    )
+
+
+def _none_coroutine(*_a, **_k):
+    async def _inner():
+        return None
+
+    return _inner()
+
+
+def _record_audit():
+    recorded: list = []
+
+    async def _audit(**kwargs):
+        recorded.append(kwargs)
+
+    _audit.recorded = recorded
+    return _audit

@@ -3327,3 +3327,29 @@ chat-api **373 passed**。
 
 **001 状态：5/5 已修**。残留：③ 的脱敏产物需 DSH 工具分发层采用 `GatePlan.redacted_request`
 才端到端生效（已回传、已暴露，但尚无调用方使用）。
+
+## 2026-10-03（续十二）009 修复：PreToolUse 挂到真实工具调用点 + 规则源缓存
+
+**根因比审计更具体**：chat-api 有真实工具执行网关 `dsh_tool_gateway.py`（DSH kernel 回调
+`EnterpriseToolService.execute`，携带真实 `toolName`），但 009 的钩子只挂在 turn 级
+（`dsh_chat`/`dsh_execution` 硬编码 `tool="dsh_turn"` 且不传 `request=`）——按工具名配的
+`deny_tool` 永不命中，`require_field` 因空 payload 恒拒绝（配了规则=全量封锁）。
+
+**本轮改动**：
+- `EnterpriseToolService._authorize` 新增 `_enforce_pre_tool_use`：`execute` 与
+  `request_approval` 在 Profile scope 校验后立即用**真实 toolName + arguments** 调
+  `run_pre_tool_use`（复用 009 既有引擎/规则源/审计），拒绝落 `hook.denied` 审计并抛
+  `ToolPolicyDenied`（网关 403）。
+- `run_pre_tool_use` 规则源加 **per-tenant 2s TTL 缓存（含负缓存）**：无规则租户的工具
+  执行不再强依赖 Mongo；规则变更 2s 内传播（spec"即时生效"的近似，已如实记录）。
+- turn 级调用点补传 `request=`（消息文本/skill/output_spec/job 上下文），`tool` 保持
+  `dsh_turn` 并在注释里说明工具级拦截在新调用点。
+
+**测试**：chat-api 相关 **407 passed**（`test_step5_tool_policy.py` 14：新增"真实工具名
+deny 命中/无规则放行"，加 autouse fixture 默认 fake 掉钩子避免 Mongo 依赖；
+`test_hooks_009.py` 20：新增 require_field 双向、admission 透传、规则源缓存命中/过期、
+跨测试缓存隔离）。step5 全文件此前挂起是本改动暴露的真实问题（热路径首次碰到 `get_db()`），
+修复后 14 passed / 0.19s。
+
+**仍待修（009 ③）**：FR-3 超时与 FR-13 延迟预算（`guard.py`/`timeout.py`）仅 tests 调用，
+生产未接线；五事件只落地 PreToolUse。

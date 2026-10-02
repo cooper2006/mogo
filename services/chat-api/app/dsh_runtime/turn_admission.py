@@ -13,6 +13,7 @@ transition 后端（挂载 approval_runtime + audit）；就绪后切回 gatekee
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -38,6 +39,13 @@ class PreToolUseGate:
     denied_scope: str = ""
 
 
+#: Per-tenant cache of the in-scope rule documents served to
+#: :func:`run_pre_tool_use` (value: ``(expires_at, documents)``). Bounded to the
+#: tenants seen recently.
+_RULE_SOURCE_CACHE: dict[str, tuple[float, list]] = {}
+_RULE_SOURCE_CACHE_TTL = 2.0
+
+
 async def run_pre_tool_use(
     *,
     tenant_id: str,
@@ -52,19 +60,27 @@ async def run_pre_tool_use(
     解析失败（fail-closed）返回带拒绝原因的门禁，钩子执行同时落 001 审计。
     本函数即 009 生产接线入口：``dsh_chat`` 在技能选择前调用它。
     """
-    from app.core.db import get_db
-    from app.dsh_runtime.hooks.integration import audit_hook_execution, mount_pre_tool_use
-    from app.dsh_runtime.hooks.store import HookRuleStore
+    # 规则源带短 TTL 缓存（2s）：工具执行是热路径，每次调用都查一次
+    # ``hook_rules`` 集合既拖慢每次调用，也让无规则租户的工具网关强依赖 Mongo
+    # （009 修复，2026-10-03）。规则变更在 TTL 内生效——spec 的"即时生效"
+    # 在 2s 传播窗口内近似成立；负缓存防止空租户反复查库。
+    cache = _RULE_SOURCE_CACHE.get(tenant_id)
+    if cache is not None and cache[0] > time.monotonic():
+        raw_rules = [d.as_document() for d in cache[1]]
+    else:
+        from app.core.db import get_db
+        from app.dsh_runtime.hooks.store import HookRuleStore
 
-    store = HookRuleStore(get_db())
-    raw_rules = [
-        document.as_document()
-        for document in await store.rules_in_scope(
+        documents = await HookRuleStore(get_db()).rules_in_scope(
             tool=tool, session_id=session_id, tenant_id=tenant_id
         )
-    ]
+        raw_rules = [d.as_document() for d in documents]
+        _RULE_SOURCE_CACHE[tenant_id] = (time.monotonic() + _RULE_SOURCE_CACHE_TTL, documents)
+
     if not raw_rules:
         return None
+    from app.dsh_runtime.hooks.integration import audit_hook_execution, mount_pre_tool_use
+
     outcome = mount_pre_tool_use(tool, request or {}, raw_rules=raw_rules)
     await audit_hook_execution(outcome, tenant_id=tenant_id, user_id=user_id, tool=tool)
     if outcome.allowed:
