@@ -28,7 +28,11 @@ from app.services.session_versioning.snapshot import (
     AttachmentRef,
     CommitTrigger,
     build_snapshot,
+    redact_text,
+    secret_ref_document,
+    SECRET_REF_COLLECTION,
 )
+from app.services.session_versioning.audit import record_session_event
 
 router = APIRouter()
 
@@ -42,6 +46,7 @@ class CommitIn(BaseModel):
     seq: int = Field(..., description="Session message seq at commit time")
     trigger: str = Field(CommitTrigger.MANUAL.value, description="manual / idle_timeout / key_tool / share")
     summary: str = Field("", description="Optional snapshot summary; derived when empty")
+    content: str = Field("", description="Conversation text to redact (FR-7); secrets become reversible placeholders")
     changed_refs: list[str] = Field(default_factory=list, description="Refs changed since last commit")
     attachments: list[dict[str, Any]] = Field(default_factory=list, description="Attachment pointers (name/storage_ref/size_bytes)")
 
@@ -71,6 +76,8 @@ def _snapshot_out(document: dict[str, Any]) -> dict[str, Any]:
         "trigger": document.get("trigger"),
         "actor": document.get("actor"),
         "summary": document.get("summary"),
+        "content": document.get("content"),
+        "secretRefs": list(document.get("secret_refs") or []),
         "changedRefs": list(document.get("changed_refs") or []),
         "attachmentRefs": [
             {
@@ -82,6 +89,45 @@ def _snapshot_out(document: dict[str, Any]) -> dict[str, Any]:
         ],
         "createdAt": document.get("created_at").isoformat() if document.get("created_at") else None,
     }
+
+
+def _collect_originals(*texts: str, ids: list[str]) -> dict[str, str]:
+    """Map each placeholder id back to the original secret value it replaced.
+
+    Re-derives the redaction deterministically (ids are sha256 prefixes of the
+    value), so the original can be recovered without a second store read.
+    """
+    from app.services.session_versioning.placeholder import PLACEHOLDER_CLOSE, PLACEHOLDER_OPEN
+    from app.services.session_versioning.secrets import detect_secrets
+
+    wanted = {tid for tid in ids if tid}
+    found: dict[str, str] = {}
+    for text in texts:
+        for match in detect_secrets(text or ""):
+            if match.value and _token_id_for(match.value) in wanted:
+                found[_token_id_for(match.value)] = match.value
+    return found
+
+
+def _token_id_for(secret: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()[:16]
+
+
+async def _record_session_audit(
+    *, main_id: str, user_id: str, session_id: str, event_type: str, target_ref: str = ""
+) -> None:
+    """Record a 002 session event on the 001 audit stream (FR-11)."""
+    from app.governance.audit import record_position_policy_event
+
+    await record_position_policy_event(
+        tenant_id=main_id,
+        user_id=user_id,
+        action=f"session.{event_type}",
+        target=target_ref,
+        details={"session_id": session_id, "event_type": event_type, "target_ref": target_ref, "main_id": main_id},
+    )
 
 
 async def _authorize(authorization: str | None) -> tuple[str, str]:
@@ -112,19 +158,42 @@ async def commit_session(
         )
         for item in payload.attachments
     ]
+    # FR-7: never store suspected secrets in plaintext. Redact the summary and
+    # the caller-supplied conversation content; keep the originals only in
+    # session_secret_refs (owner/admin dereference, FR-8, audited).
+    summary_redacted, summary_ids = redact_text(payload.summary)
+    content_redacted, content_ids = redact_text(payload.content)
+    secret_ids = list(dict.fromkeys(summary_ids + content_ids))
     snapshot = build_snapshot(
         session_id=session_id,
         seq=payload.seq,
         trigger=payload.trigger,
         actor=user_id,
-        summary=payload.summary,
+        summary=summary_redacted,
         changed_refs=payload.changed_refs,
         attachments=attachment_refs,
     )
     document = snapshot.as_document()
     document["main_id"] = main_id
+    document["content"] = content_redacted
+    document["secret_refs"] = secret_ids
+    # Persist the original secret values, scoped to the session + main (FR-8).
+    if secret_ids:
+        originals = _collect_originals(payload.summary, payload.content, ids=secret_ids)
+        refs = [
+            secret_ref_document(
+                session_id=session_id, main_id=main_id, token_id=tid, original=originals.get(tid, ""), actor=user_id
+            )
+            for tid in secret_ids
+        ]
+        await db[SECRET_REF_COLLECTION].insert_many(refs, ordered=False)
     result = await db[SNAPSHOT_COLLECTION].insert_one(document)
     document["_id"] = getattr(result, "inserted_id", result)
+    # FR-11: commit is a session-level audited event on the 001 audit stream.
+    await _record_session_audit(
+        main_id=main_id, user_id=user_id, session_id=session_id,
+        event_type="commit", target_ref=str(document.get("snapshot_id") or ""),
+    )
     return _snapshot_out(document)
 
 
@@ -170,7 +239,7 @@ async def resume_session(
     snapshot_id: str = Query("", description="Resume after this snapshot; empty = latest"),
     authorization: str | None = Header(default=None),
 ):
-    main_id, _ = await _authorize(authorization)
+    main_id, user_id = await _authorize(authorization)
     db = get_db()
     target = None
     if snapshot_id:
@@ -186,6 +255,11 @@ async def resume_session(
         target = await cursor.to_list(length=1)
         target = target[0] if target else None
     resume_after_seq = int(target.get("seq") or 0) + 1 if target else 1
+    # FR-11: resume is a session-level audited event on the 001 audit stream.
+    await _record_session_audit(
+        main_id=main_id, user_id=user_id, session_id=session_id,
+        event_type="resume", target_ref=snapshot_id or "",
+    )
     return {"sessionId": session_id, "resumeAfterSeq": resume_after_seq, "resumedFromSnapshot": snapshot_id or None}
 
 
@@ -211,6 +285,11 @@ async def share_session(
         visibility=payload.visibility,
         receiver_role=payload.receiver_role,
         ttl_seconds=payload.ttl_seconds,
+    )
+    # FR-11: share grant is a session-level audited event on the 001 audit stream.
+    await _record_session_audit(
+        main_id=main_id, user_id=user_id, session_id=session_id,
+        event_type="share", target_ref=share.share_id,
     )
     return {**share.to_view(), "main_id": main_id}
 
@@ -245,7 +324,71 @@ async def revoke_share(
         share = await store.revoke_share(share_id)
     except ShareError:
         raise HTTPException(status_code=404, detail="Share not found")
+    # FR-11: revocation is a session-level audited event on the 001 audit stream.
+    await _record_session_audit(
+        main_id=main_id, user_id=user_id, session_id=session_id,
+        event_type="share", target_ref=f"{share_id}:revoked",
+    )
     return share.to_view()
+
+
+# ---------------------------------------------------------------------------
+# US4 / FR-8: dereference a reversible secret placeholder
+# ---------------------------------------------------------------------------
+
+
+@router.get("/sessions/{session_id}/secrets/{token_id}")
+async def dereference_secret(
+    session_id: str,
+    token_id: str,
+    authorization: str | None = Header(default=None),
+):
+    """FR-8: restore a secret from a reversible placeholder.
+
+    Only the session owner or a full-access administrator may dereference; each
+    dereference is recorded on the 001 audit stream (FR-11). The original value
+    lives in ``session_secret_refs`` (never inlined into the snapshot).
+    """
+    main_id, user_id = await _authorize(authorization)
+    db = get_db()
+    row = await db[SECRET_REF_COLLECTION].find_one(
+        {"token_id": token_id, "session_id": session_id, "main_id": main_id}
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Secret placeholder not found")
+
+    # FR-8 role check: owner (creator of the ref) or full-access admin.
+    from app.core.tenant import resolve_main_id
+
+    owner = str(row.get("created_by") or "")
+    is_owner = bool(owner) and owner == user_id
+    is_full_access = await _user_has_full_access(db, main_id, user_id)
+    if not (is_owner or is_full_access):
+        # Denied dereference is itself audited (FR-8 / FR-11).
+        await _record_session_audit(
+            main_id=main_id, user_id=user_id, session_id=session_id,
+            event_type="dereference", target_ref=f"{token_id}:denied",
+        )
+        raise HTTPException(status_code=403, detail="Only the session owner or a full-access admin may dereference")
+
+    await _record_session_audit(
+        main_id=main_id, user_id=user_id, session_id=session_id,
+        event_type="dereference", target_ref=token_id,
+    )
+    return {"token_id": token_id, "session_id": session_id, "value": row.get("original")}
+
+
+async def _user_has_full_access(db, main_id: str, user_id: str) -> bool:
+    """Whether the user holds the tenant's full-access preset role (006)."""
+    if not main_id or not user_id:
+        return False
+    from app.core.tenant import add_main_scope
+
+    cursor = db["end_user_position_roles"].find(
+        add_main_scope({"user_id": user_id, "role_id": f"system:{main_id}:full_access_admin"}, main_id)
+    )
+    row = await cursor.to_list(length=1)
+    return bool(row)
 
 
 # ---------------------------------------------------------------------------

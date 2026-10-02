@@ -131,3 +131,52 @@ def _derive_summary(changed_refs: list[str]) -> str:
     preview = "、".join(changed_refs[:3])
     suffix = "…" if len(changed_refs) > 3 else ""
     return f"变更 {len(changed_refs)} 项：{preview}{suffix}"
+
+
+# ---------------------------------------------------------------------------
+# FR-7 / FR-8: secret filtering at commit / share (002, wired 2026-10-03)
+#
+# A snapshot that carries conversation text must never store a suspected
+# secret in plaintext. Detection (low-entropy dual check) + reversible
+# placeholder substitution from ``secrets`` / ``placeholder`` are applied
+# here so the *document* that lands in Mongo is the redacted one; the
+# original values live in ``session_secret_refs`` and are dereferenceable
+# only by the session owner / full-access admin (FR-8, audited).
+# ---------------------------------------------------------------------------
+
+from .placeholder import reference as _placeholder_reference
+from .secrets import detect_secrets as _detect_secrets
+
+SECRET_REF_COLLECTION = "session_secret_refs"
+
+
+def redact_text(text: str) -> tuple[str, list[str]]:
+    """Replace suspected secrets in ``text`` with reversible placeholders.
+
+    Returns the redacted text and the ids that were substituted. No-op (and
+    zero ids) when nothing is detected.
+    """
+    if not text:
+        return text, []
+    matches = _detect_secrets(text)
+    if not matches:
+        return text, []
+    from .placeholder import PlaceholderStore
+
+    # One store per redaction batch: ids are stable (sha256 prefix of the
+    # value) so re-redacting the same secret yields the same placeholder.
+    return _placeholder_reference(text, PlaceholderStore())
+
+
+def secret_ref_document(
+    *, session_id: str, main_id: str, token_id: str, original: str, actor: str
+) -> dict:
+    """A Mongo row in ``session_secret_refs``: original secret, owner-scoped."""
+    return {
+        "token_id": token_id,
+        "session_id": session_id,
+        "main_id": main_id,
+        "original": original,
+        "created_by": actor,
+        "created_at": _utcnow(),
+    }

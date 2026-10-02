@@ -108,6 +108,10 @@ class ShareRecord:
             "active": active,
             "revoked": self.revoked,
             "redeemed": self.redeemed,
+            # The redemption credential: the caller presents it to
+            # POST /share/redeem (single-use, TTL-bound). Exposed only while the
+            # share is still active (an expired/redeemed view carries no usable token).
+            "token": self.token if active else "",
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
         }
         if active and snapshot is not None:
@@ -182,11 +186,18 @@ class ShareStore:
         return share
 
     async def redeem(self, share_id: str, *, now: Optional[datetime.datetime] = None) -> ShareRecord:
-        """Redeem a share token (single-use). Raises ``ShareError`` -> empty state."""
+        """Redeem a share by token (single-use). Raises ``ShareError`` -> empty state.
+
+        The endpoint passes the **token**, not the share_id (001 audit, 2026-10-03:
+        the old code looked the token up by ``share_id``, so every redemption
+        404'd). ``share_id`` accepts either value.
+        """
         share = await self._load(share_id)
         share.mark_redeemed(now)
         if self._db is not None:
-            await self._db[SHARE_COLLECTION].update_one({"share_id": share_id}, {"$set": {"redeemed": True}})
+            await self._db[SHARE_COLLECTION].update_one(
+                {"share_id": share.share_id}, {"$set": {"redeemed": True}}
+            )
         return share
 
     async def revoke_share(self, share_id: str) -> ShareRecord:
@@ -197,8 +208,14 @@ class ShareStore:
         return share
 
     async def _load(self, share_id: str) -> ShareRecord:
+        # Look up by share_id first; fall back to token (the endpoint hands the
+        # caller's token here — see ``redeem``). This was the "必然失败" bug
+        # (001 audit, 2026-10-03): redeem passed a token but looked up by
+        # share_id, so every redemption 404'd.
         if self._db is not None:
-            row = await self._db[SHARE_COLLECTION].find_one({"share_id": share_id})
+            row = await self._db[SHARE_COLLECTION].find_one(
+                {"$or": [{"share_id": share_id}, {"token": share_id}]}
+            )
             if row is None:
                 raise ShareError(f"unknown share {share_id}")
             return ShareStore.from_document(row)

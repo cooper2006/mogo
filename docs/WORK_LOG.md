@@ -3353,3 +3353,32 @@ deny 命中/无规则放行"，加 autouse fixture 默认 fake 掉钩子避免 M
 
 **仍待修（009 ③）**：FR-3 超时与 FR-13 延迟预算（`guard.py`/`timeout.py`）仅 tests 调用，
 生产未接线；五事件只落地 PreToolUse。
+
+## 2026-10-03（续十三）002 修复：秘密过滤 FR-7/8 + 审计 FR-11 + share 兑换必败 bug
+
+接 P0 收敛顺序（001→009→002）。本轮修 002 报告点名的两条"有链无源/无消费方"。
+
+**FR-7/8 秘密过滤接线（此前"过滤对象不存在"）**
+- commit 端点 `CommitIn` 加 `content`（会话正文，由前端待快照时传入）；`summary`+`content` 经
+  `secrets.detect_secrets`（低熵双判定）→ `placeholder.reference` 可逆占位符（`{{secret:<id>}}`）；
+  原文只存新集合 `session_secret_refs`（owner-scoped，不入快照文档）。快照文档存脱敏后
+  `summary`/`content` + `secret_refs`（id 列表）。
+- 新增 `GET /sessions/{id}/secrets/{token_id}` 解引用端点：仅会话 owner 或
+  `system:<main>:full_access_admin` 可解（查 `end_user_position_roles`）；解引用与拒绝均落审计。
+
+**FR-11 审计接线（此前 `record_session_event` 仅 tests 调用）**
+- commit/resume/share/dereference 端点经 001 审计流（`position_role_audit_logs`）落
+  `session.<event>` 事件（操作者/时间/会话 ID/事件类型/引用对象齐全）。
+
+**share 兑换必败 bug（报告 5 条之一，顺带修）**
+- `ShareStore._load` 原只按 `share_id` 查，而 redeem 端点传的是 **token** → 每次兑换必 404。
+  改按 `{"$or": [share_id, token]}` 查；share 视图在 active 时暴露 `token`（兑换凭证）。
+
+**测试**：chat-api 相关 **411 passed**（`test_session_versioning_api.py` 11：新增 commit 脱敏
++ 原文落库、解引用 403（陌生人）/200+审计（owner）、share 按 token 兑换；fake `_DB` 加
+`__getattr__`（001 审计 sink 用属性访问）与 `find_one` `$or` 支持；`audit_module.get_db` 注入
+fake 防 Mongo 触网）。
+
+**诚实边界（残留，见报告）**：① 秘密过滤对象是端点接收的 content/summary，服务端尚未主动读
+`chat_messages` 兜底（需与"commit 客户端自报"一并设计）；② `preview` 仍硬编码 None；
+③ resume 仍只返回 int（前端零调用者）。三条留待 P0 最后一公里/P1。
