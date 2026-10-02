@@ -3478,3 +3478,21 @@ search）。
   发布历史（timeline: version/createdAt/digest/releaseNotes），支持手动刷新。
 - `SkillsPage` 详情弹窗接入该组件（`selectedPackage` 存在时）。
 - 验证：admin-web typecheck + build 通过。
+
+## 2026-10-03（续十九）019 修复：harness_mode 真正驱动 thin/thick 层切换
+
+P1 孤岛第 1 项。019 的两处生产调用点均未传 `harness_mode` → 恒为 thick；
+ProfileResolver 零生产调用方；run_gate_plan 返回值被丢弃；skipped_layers
+不驱动任何跳过（审批/配额照跑）。
+
+**本轮改动**：
+- admin-api `GateEvaluatePayload` 加 `harnessMode` 字段；`GateContext` 加
+  `harness_mode` 字段；`_resolve_layers` 按 harness_mode 过滤 approval+quota 层
+  （floor = identity/rbac/redaction/audit 永保留）。
+- chat-api `gatekeeper_client.evaluate` 透传 `harness_mode` 到 payload。
+- chat-api `Settings` 加 `HARNESS_MODE` 环境变量默认值（thick）。
+- `dsh_chat.py` / `dsh_execution.py` 两处调用点把 harness_mode 注入 request dict。
+- 租户清除表登记 `experience_fragments` / `skill_drafts`（011 持久化新增集合）。
+
+**验证**：admin-api **410 passed**；chat-api **418 passed**。
+019 仍待修的 FR-7/FR-9（CRUD 端点/变更审计/RBAC 约束）留待后续处理。
