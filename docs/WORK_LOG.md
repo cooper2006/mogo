@@ -3443,3 +3443,18 @@ P0 最后一公里第 3 项。011 dream-cycle 此前四条"无生产输入/无�
 MR 门禁走 mr.py / 淘汰输入自动检测）；非 dsh_runtime 全量 **1651 passed**；dsh_runtime 的 10
 个失败经 `git stash` 验证为基线既有（与本 011 改动无关，涉及 scheduled_turn 与 native/progressive
 search）。
+
+## 2026-10-03（续十七）004 修复：FR-3 版本回看消费方（P0 最后一公里 4/4）
+
+**004 FR-3**（`fetchSkillReleases` 全仓零调用）：admin-web 此前没有 skill
+发布历史面板，004 的 `GET /skills/{id}/releases` 端点虽已存在但前端完全不可见。
+
+**本轮改动**：
+- 新增 `src/api/skills.ts::fetchSkillReleases(skillId, limit?)` 封装 004 端点；
+  新增 `SkillRelease` 接口对齐服务端 `release_view` 字段。
+- 新增 `src/views/skills/SkillVersionHistory.vue`：在技能详情弹窗内展示 ordered
+  发布历史（timeline：version/createdAt/digest/releaseNotes），支持手动刷新。
+- `SkillsPage` 详情弹窗接入该组件（`selectedPackage` 存在时）。
+
+**验证**：admin-web typecheck + build 通过；chat-api 相关 **418 passed**。
+004 剩余 2 条（FR-4 反馈无写入方、FR-5 签名校验未定）仍待后续处理。

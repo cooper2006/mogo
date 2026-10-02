@@ -148,7 +148,17 @@
 - **XLSX/XLSM/PPTX 无解析分支**：`document_parsing_service.py` 里 `xlsx|xlsm|pptx` 零命中；`parse_with_fallback` 对它们直接 `raise`，与 spec 验收场景矛盾。
 - **解析核心零真实测试**：两处引用均为 `monkeypatch` 打桩。
 
-### 004 skillhub-lifecycle（4）—— **FR-8 审计已修（2026-10-03，见 WORK_LOG 续十五）**
+### 004 skillhub-lifecycle（4）—— **FR-8 审计 + FR-3 版本回看已修（2026-10-03，见 WORK_LOG 续十五/十七）**
+
+> **已修**：
+> - **FR-8 审计**：4 个 skill 端点（publish/install-zip×2/share create+install+revoke）经
+>   `services/skill_lifecycle/audit.py` 落 001 治理审计流（`skill.<verb>` 事件，
+>   未知 action 拒绝）。
+> - **FR-3 版本回看**：admin-web 新增 `SkillVersionHistory` 组件，在技能详情弹窗内
+>   展示 ordered 发布历史（version/createdAt/digest/releaseNotes），`fetchSkillReleases`
+>   有真实前端消费方。
+>
+> **仍待修**：FR-4 反馈无写入方；FR-5 签名校验不存在（plan OQ-1 自承未定）。
 
 > **已修**：4 个 skill 端点（publish/install-zip×2/share create+install+revoke）经
 >    `services/skill_lifecycle/audit.py` 落 001 治理审计流（`skill.<verb>` 事件，
