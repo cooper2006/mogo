@@ -86,6 +86,8 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "experience_fragments",
     # 011 ②: generated skill drafts + MR flags written for 004 consumption.
     "skill_drafts",
+    # 017: three-scope memory records (tenant-partitioned, scope-filtered reads).
+    "memories",
     "site_profiles",
     "skill_distribution_members",
     "skill_distribution_releases",
