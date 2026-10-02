@@ -56,7 +56,10 @@
 
 **修法（选「读取侧统一解析」而非「双写同步」）**：不引入两份状态、不需要存量迁移、天然兼容无 tenants 行的存量部署。新增 `product_edition.resolve_member_limit(main_id, org)`：平台显式设置优先 → 未设置回退版本默认 → 非法值告警后回退。`assert_member_capacity` 改用它；`dashboard.py:97` 与 `organizations.py:285` 的 `userLimit` 也改用同一函数，消除「平台列表显示 3、dashboard 显示 100」的口径分裂。新增 `tests/test_member_capacity.py` 11 个用例；**反证做过**：把 `resolve_member_limit` 换回 `member_limit` 后 3 个端到端用例立刻失败。
 
-**发现 2：审计报告判为「P3 死代码」的 auth.py 4 处默认值，实为残留跨租户后门。** `deps.py:12-16` 注释白纸黑字写着 "there is no `bootstrap_main_id` fallback any more（removing it is what closes the cross-tenant leak）"，而 `auth.py:319/327/356/392` 正是那个已移除 fallback 的残留 —— 一旦 main_id 缺失会**静默把用户归到 bootstrap 租户**，即注释要堵死的泄漏入口。已全部改为 `str(current_user["main_id"])`（缺键即 KeyError，宁可 500 也不越租户）。
+**发现 2：审计报告判为「P3 死代码」的 auth.py 4 处默认值，已改为硬索引。** `deps.py:12-16` 注释写着 "there is no `bootstrap_main_id` fallback any more（removing it is what closes the cross-tenant leak）"，而 `auth.py:319/327/356/392` 仍留着 `current_user.get("main_id", settings.bootstrap_main_id)`。已全部改为 `str(current_user["main_id"])`。
+
+**（事后修正，2026-10-02）此处原写作「实为残留跨租户后门」，定性过度了。** 复查 `deps.py` 的完整数据流：`:30-31` 在 `main_id` 为空时**硬 401**，`:45` 返回的 dict 在 `**user` 之后**显式覆盖** `"main_id": main_id`；四个调用点的依赖都是 `get_authenticated_admin` → `_load_authenticated_account`。因此 `current_user` 必然含非空 `main_id`，**那个默认值分支根本不可达** —— 它的真实风险等级与审计报告原本判的「P3 死代码」一致，不是越权入口。改动的价值是消除一个会误导后人的残留写法（而不是修一个漏洞）。同类写法全仓还有 80+ 处（`or "default"` 形式，见 `skills.py`/`tools.py`/`knowledge_documents.py` 等），机制上同样不可达，**不需要**批量改动。教训：判断「死代码是否有安全含义」时，要先追到依赖注入的出口，而不是只读那行代码加它附近的注释。
+
 
 **发现 3：清理面仍有 6 个集合遗漏。** 用「全仓集合常量 vs purge 清单」交叉比对（脚本扫出 73 个常量）找出：`user_shortcut_preferences`（按 `{main_id, user_id, scheme_key}` 写入）、`session_snapshots`（`dsh_session_versioning.py:121` 在 insert 前补 `document["main_id"] = main_id`），以及 5 个 `tenant_id` 分区的 governance 集合：`agent_kernel_bindings`、`enterprise_authoritative_deliveries`、`presentation_generation_jobs`、`runtime_profile_versions`、`runtime_profile_audit`。已分别补进 `TENANT_SCOPED_COLLECTIONS` / `TENANT_GOVERNANCE_COLLECTIONS`，并加 2 个测试钉住。
 - 一个**自我修正**：我起初把 `session_snapshots` 和 `session_shares` 一起判为「无租户键的孤儿」，因为它们的 dataclass `as_document()`/`to_document()` 确实都没有 main_id。但进一步读写入点发现 snapshots 在路由层补了 main_id，而 shares 的 `main_id` 只是**响应拼装、从不落库**。故只把 shares 记为 `TENANT_ORPHANED_COLLECTIONS`（文档化已知边界），snapshots 正常入清单 —— 测试里也把这个区分钉死，防止后人误改。

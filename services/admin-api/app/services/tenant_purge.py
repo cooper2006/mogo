@@ -147,12 +147,13 @@ class _PurgeTaskStore:
 
     Known limitation (audit P2, accepted for 020): state lives in the worker
     process, so a progress query is only meaningful on the replica that ran the
-    purge. The compose/deploy manifests declare no ``replicas`` for admin-api,
-    so this is a single-replica deployment today and the query always lands on
-    the right process. If admin-api is ever scaled out, this must move to Mongo
-    (or Redis) — until then ``get_purge_status`` already falls back to the
-    tenant row for completed purges, so only *in-flight* progress would be
-    lost.
+    purge. The manifests in this repo declare no ``replicas`` for admin-api, so
+    the deployment they describe is single-replica and the query lands on the
+    right process. If admin-api is ever scaled out (a k8s manifest, or
+    ``docker compose up --scale admin-api=2`` — neither of which needs a
+    ``replicas`` key here), this must move to Mongo (or Redis). Until then
+    ``get_purge_status`` already falls back to the tenant row for completed
+    purges, so only *in-flight* progress would be lost.
 
     The map is bounded so a long-lived process cannot grow without limit:
     ``create`` evicts the oldest entries past ``_MAX_TASKS``.
