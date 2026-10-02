@@ -3382,3 +3382,22 @@ fake 防 Mongo 触网）。
 **诚实边界（残留，见报告）**：① 秘密过滤对象是端点接收的 content/summary，服务端尚未主动读
 `chat_messages` 兜底（需与"commit 客户端自报"一并设计）；② `preview` 仍硬编码 None；
 ③ resume 仍只返回 int（前端零调用者）。三条留待 P0 最后一公里/P1。
+
+## 2026-10-03（续十四）008 修复：成本段接入 /overview + session_secret_refs 入租户清除表
+
+P0 最后一公里第 1 项（011/003/004/008 中最小闭环）。
+
+**008 成本维度死代码接线**
+- `build_cost_section`/`forecast_cost` 在生产 `app/` 零调用，`/overview` 从不返回 cost 段
+  （前端成本页实际消费 trend 瓶颈数据）。
+- `/overview` 新增 `cost` 段：复用 per-model 聚合 + 本地 `_cost` 计价 → `build_cost_section`；
+  FR-6 对账自检 `reconciles`（sum(models)==total）与 4 期移动平均 `forecast_cost` 生效。
+- **诚实处理部门分摊**：`TokenUsageRecord` 无 `agent_id` 数据源，成本段显式
+  `departmentAttribution.available=false + reason`，**不伪造数值**（数据源缺口留给后续，
+  与报告第 175 条一致）。
+- 顺带（因 002 修复暴露）：新集合 `session_secret_refs`（FR-8 秘密占位符，最敏感数据）
+  登记进 `tenant_purge` 租户清除表——`test_tenant_purge.py` 的"全仓扫描集合必须入清除表"
+  守卫测试自动捕获并逼出此项。
+
+**验证**：admin-api **410 passed**（新增 `test_cost_section_is_wired_and_reconciles`：
+FR-6 对账/预测非 None/部门归因诚实标注；`test_tenant_purge` 全绿）。
