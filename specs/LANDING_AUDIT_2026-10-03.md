@@ -143,10 +143,17 @@
 - **FR-4 乐观锁与 FR-11 审计均为纯逻辑**：`check_and_advance` 与 `record_session_event` 仅 tests 调用；002 未进 `FEATURE_AUDIT_EVENTS`。
 - **share 兑换必然失败**：传入 token 却按 `share_id` 查。
 
-### 003 document-ingestion-delivery（3）
-- **引用锚点 end-to-end 空心**：producer 写 `metadata.sourceAnchor`，但 `vector_store.py` 的 schema/upsert/GraphQL fields 全无 anchor 字段，也没有 metadata 通道 → 消费方 `citation_resolver` 永远拿空。
-- **XLSX/XLSM/PPTX 无解析分支**：`document_parsing_service.py` 里 `xlsx|xlsm|pptx` 零命中；`parse_with_fallback` 对它们直接 `raise`，与 spec 验收场景矛盾。
-- **解析核心零真实测试**：两处引用均为 `monkeypatch` 打桩。
+### 003 document-ingestion-delivery（3）—— **引用锚点通道已修（2026-10-03，见 WORK_LOG 续十八）**
+
+> **已修**：`WeaviateVectorStore.ensure_schema` 加 `anchorJson` text 属性；
+>    `upsert_chunks` 序列化 producer 的 `metadata.sourceAnchor` 进 `anchorJson`；
+>    `search` GraphQL fields 加 `anchorJson` 并在结果里还原为 `metadata.sourceAnchor`，
+>    让 `citation_resolver._source_anchor` 从此读得到（001 audit，2026-10-03）。
+>    新增 4 项回归测试（roundtrip/无锚点不伪造/解析永不编造/schema 含 anchorJson）。
+>
+> **仍待修（降为 P1）**：
+> - XLSX/XLSM/PPTX 无解析分支（`document_parsing_service.py` 零命中，直接 raise）；
+> - 解析核心零真实测试（两处引用均为 monkeypatch 打桩）。
 
 ### 004 skillhub-lifecycle（4）—— **FR-8 审计 + FR-3 版本回看已修（2026-10-03，见 WORK_LOG 续十五/十七）**
 

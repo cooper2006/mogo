@@ -3458,3 +3458,23 @@ search）。
 
 **验证**：admin-web typecheck + build 通过；chat-api 相关 **418 passed**。
 004 剩余 2 条（FR-4 反馈无写入方、FR-5 签名校验未定）仍待后续处理。
+
+## 2026-10-03（续十八）003 修复：引用锚点 end-to-end 通道 + 004 FR-3 版本回看消费方
+
+**003 锚点空心修复**（P0 最后一公里 4/4 之 1）
+- `WeaviateVectorStore.ensure_schema` 加 `anchorJson` text 属性（legacy Weaviate
+  schema API 无嵌套对象属性，用紧凑 JSON 字符串承载锚点是诚实的最小通道）。
+- `upsert_chunks` 序列化 chunk 的 `metadata.sourceAnchor`（或 `metadata.anchor`）进
+  `anchorJson`；无锚点时存空串、upsert 省略该字段（不存噪声）。
+- `search` GraphQL fields 加 `anchorJson`；结果项还原为 `metadata.sourceAnchor`，
+  与 Mongo chunk 形状对齐 —— `citation_resolver._source_anchor` 从此读得到。
+- 新增 4 项回归测试（roundtrip / 无锚点不伪造 / 解析永不编造值 / schema 含 anchorJson）。
+- 验证：document-parser **14 passed**。XLSX/XLSM/PPTX 解析分支与零真实测试降为 P1。
+
+**004 FR-3 版本回看消费方**（P0 最后一公里 4/4 之 2）
+- 新增 `src/api/skills.ts::fetchSkillReleases(skillId, limit?)` 封装 004 端点；
+  新增 `SkillRelease` 接口对齐服务端 `release_view` 字段。
+- 新增 `src/views/skills/SkillVersionHistory.vue`：在技能详情弹窗内展示 ordered
+  发布历史（timeline: version/createdAt/digest/releaseNotes），支持手动刷新。
+- `SkillsPage` 详情弹窗接入该组件（`selectedPackage` 存在时）。
+- 验证：admin-web typecheck + build 通过。
