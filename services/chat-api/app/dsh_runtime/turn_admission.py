@@ -79,17 +79,22 @@ async def run_pre_tool_use(
 
     if not raw_rules:
         return None
-    from app.dsh_runtime.hooks.integration import audit_hook_execution, mount_pre_tool_use
+    from app.dsh_runtime.hooks.integration import audit_hook_execution
 
-    outcome = mount_pre_tool_use(tool, request or {}, raw_rules=raw_rules)
+    # 009 FR-3 / FR-13：用 guard 包装规则求值，超时或延迟预算超限均 fail-closed。
+    # run_hooks_within_budget 内部调用 evaluate_with_fail_closed（T017），
+    # 任何异常/解析失败均拒绝调用（FR-3），同时共享 5s 延迟预算（FR-13）。
+    from app.dsh_runtime.hooks.guard import run_hooks_within_budget
+
+    outcome = run_hooks_within_budget(tool, request or {}, raw_rules=raw_rules)
     await audit_hook_execution(outcome, tenant_id=tenant_id, user_id=user_id, tool=tool)
     if outcome.allowed:
         return None
     return PreToolUseGate(
         allowed=False,
         denied_reason=outcome.reason,
-        denied_rule_type=outcome.rule_type,
-        denied_scope=outcome.scope,
+        denied_rule_type=getattr(outcome, 'rule_type', ''),
+        denied_scope=getattr(outcome, 'scope', ''),
     )
 
 
