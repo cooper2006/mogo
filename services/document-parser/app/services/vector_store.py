@@ -66,6 +66,12 @@ class WeaviateVectorStore:
                 {"name": "contentType", "dataType": ["text"]},
                 {"name": "sourceChunkIds", "dataType": ["text[]"]},
                 {"name": "ordinal", "dataType": ["int"]},
+                # 003 anchor channel (audit 2026-10-03): the producer writes
+                # metadata.sourceAnchor (page bbox / table context) on Mongo
+                # chunks; Weaviate now carries it as a JSON string so the
+                # consumer (citation_resolver) can read it back instead of
+                # always getting an empty anchor.
+                {"name": "anchorJson", "dataType": ["text"]},
             ],
         }
         self._request_json("POST", "/v1/schema", body)
@@ -125,9 +131,14 @@ class WeaviateVectorStore:
                 "contentType": str(chunk.get("content_type") or "text"),
                 "sourceChunkIds": [str(item) for item in chunk.get("source_chunk_ids") or []],
                 "ordinal": int(chunk.get("ordinal") or 0),
+                # 003 anchor channel: serialize the producer's sourceAnchor
+                # (bbox / table context) so search results carry it back.
+                "anchorJson": _anchor_json(chunk),
             }
             if properties["pageNo"] is None:
                 properties.pop("pageNo", None)
+            if properties.get("anchorJson") in (None, ""):
+                properties.pop("anchorJson", None)
             objects.append(
                 {
                     "class": self.collection,
@@ -158,7 +169,7 @@ class WeaviateVectorStore:
         if knowledge_base_id:
             where_operands.append({"path": ["knowledgeBaseId"], "operator": "Equal", "valueText": knowledge_base_id})
         where = {"operator": "And", "operands": where_operands}
-        fields = "mainId knowledgeBaseId documentId chunkId chunkStage text contextualText titlePath pageNo contentType sourceChunkIds ordinal _additional { distance score }"
+        fields = "mainId knowledgeBaseId documentId chunkId chunkStage text contextualText titlePath pageNo contentType sourceChunkIds ordinal anchorJson _additional { distance score }"
         if mode == "hybrid":
             hybrid = _graphql_value({"query": query, "vector": query_vector, "alpha": 0.7})
             selector = f'hybrid: {hybrid}'
@@ -181,6 +192,7 @@ class WeaviateVectorStore:
             normalized = _normalize_score(score, distance)
             if score_threshold and normalized < score_threshold:
                 continue
+            anchor = _parse_anchor_json(row.get("anchorJson"))
             results.append(
                 {
                     "documentId": str(row.get("documentId") or ""),
@@ -195,6 +207,10 @@ class WeaviateVectorStore:
                     "ordinal": int(row.get("ordinal") or 0),
                     "score": normalized,
                     "distance": distance,
+                    # 003 anchor channel: the search result now carries the
+                    # sourceAnchor back to the consumer (citation_resolver) via
+                    # a metadata block, mirroring the Mongo chunk shape.
+                    "metadata": {"sourceAnchor": anchor} if anchor else {},
                 }
             )
         return results
@@ -252,6 +268,47 @@ def _is_local_default_endpoint(value: str) -> bool:
 
 def _stable_uuid(*parts: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, ":".join(parts)))
+
+
+def _anchor_json(chunk: dict[str, Any]) -> str:
+    """Serialize a chunk's producer-side ``metadata.sourceAnchor`` for Weaviate.
+
+    003 anchor channel (audit 2026-10-03): the producer
+    (``document_parsing_service``) writes ``metadata.sourceAnchor`` (page
+    bbox / table context) on Mongo chunks, but Weaviate had **no** field or
+    metadata channel for it, so the consumer (``citation_resolver``) always
+    read an empty anchor. The anchor is carried as a compact JSON string
+    (``text`` property) — Weaviate's legacy schema API has no nested object
+    property, so this is the honest, minimal channel. Empty anchors are
+    returned as ``""`` so the upsert omits the field rather than storing
+    noise.
+    """
+    metadata = chunk.get("metadata") or {}
+    if isinstance(metadata, dict):
+        anchor = metadata.get("sourceAnchor") or metadata.get("anchor")
+    else:
+        anchor = chunk.get("source_anchor") or chunk.get("anchor")
+    if not anchor:
+        return ""
+    try:
+        return json.dumps(anchor, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return ""
+
+
+def _parse_anchor_json(value: Any) -> dict[str, Any]:
+    """Parse an ``anchorJson`` property back into the sourceAnchor dict.
+
+    Unknown / empty / non-JSON values yield ``{}`` so a missing anchor is
+    always an empty dict (never a fabricated value).
+    """
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _normalize_score(score: Any, distance: Any) -> float:
