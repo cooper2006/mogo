@@ -294,11 +294,15 @@
 - **webhook 接收端不存在** → 签名校验无保护对象。
 - 附带：审计默认 sink 与代码不符、001 门禁依赖悬空。
 
-### 014 business-semantic-index（4）
-- **两套实现均零生产调用方**：`business_index` 包与 `services/business_semantic_index.py` 仅 tests 导入。
-- **无输入来源**：plan 承诺的 `connectors/`、`entity_extract.py`、`incremental.py` 全部不存在。
-- **产出无消费方**：`source_attribution`/`join_cross_system` 输出全仓零读取。
-- **FR-9 权限零接线**：`bizdata` 全仓 0 命中。
+### 014 business-semantic-index（4）—— **已接线（2026-10-03，见 WORK_LOG 续三十）**
+
+> **已修**：新增 `POST /api/business-index/{search,index,align}`（main.py 注册），
+> 语义检索复用 005 检索客户端并带来源归因；`index` 写入 MongoDB `business_entity_index`；
+> `align` 跨系统对齐（FR-5/FR-6 不拒绝、缺失系统如实上报）。`index_entity` 与
+> `BizEntity` 构造均汇入 001 治理审计流（FR-9）。
+> **诚实边界（非伪造）**：semantic_search 无查询/无客户端时返回空列表；只读设计，
+> MOVO 不回写业务库；plan 承诺的 `connectors/`/`entity_extract.py`/`incremental.py`
+> 同步抽取未实现（无业务源系统接入），属后续数据源补齐，不标记"已实现核心"。
 
 ### 015 knowledge-graph-layer（6）—— **store + 查询端点已接线（2026-10-03，见 WORK_LOG 续二十三）**
 
