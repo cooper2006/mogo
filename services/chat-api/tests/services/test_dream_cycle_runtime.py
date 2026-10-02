@@ -73,8 +73,12 @@ class _FakeCollection:
         return None
 
     def update_one(self, flt, update, upsert=False):
-        # Minimal Mongo upsert supporting $set / $inc / $setOnInsert. Enough for
-        # the AdoptionStore tenant-partitioned persistence path under test.
+        # Minimal Mongo upsert supporting $set / $inc / $setOnInsert and a
+        # single-stage aggregation pipeline (used to derive marked_low_quality
+        # from the surviving source bit on restore). Enough for the AdoptionStore
+        # tenant-partitioned persistence path under test.
+        if isinstance(update, list):
+            update = update[0]
         doc = None
         for row in self.rows:
             if _matches(row, flt):
@@ -85,15 +89,19 @@ class _FakeCollection:
                 return
             doc = dict(flt)
             self.rows.append(doc)
-        for op, fields in (update or {}).items():
-            if op == "$set":
-                doc.update(fields)
-            elif op == "$setOnInsert":
-                for k, v in fields.items():
-                    doc.setdefault(k, v)
-            elif op == "$inc":
-                for k, v in fields.items():
-                    doc[k] = int(doc.get(k) or 0) + int(v)
+        sets = {}
+        sets.update(update.get("$setOnInsert", {}))
+        sets.update(update.get("$set", {}))
+        for k, v in sets.items():
+            if isinstance(v, dict) and "$or" in v:
+                doc[k] = any(
+                    (doc.get(o.lstrip("$")) if isinstance(o, str) and o.startswith("$") else bool(o))
+                    for o in v["$or"]
+                )
+            else:
+                doc[k] = v
+        for k, v in update.get("$inc", {}).items():
+            doc[k] = int(doc.get(k) or 0) + int(v)
 
     async def create_index(self, keys, name=None, unique=False):
         self.indexes.append((keys, name, unique))

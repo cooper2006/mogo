@@ -8,8 +8,11 @@ from app.services.dream_cycle.deprecation import (
     AdoptionStore,
     detect_low_adoption,
     deprecation_flow,
+    LOW_QUALITY_FLAG,
     mark_deprecated,
     SkillAdoption,
+    SOURCE_011_ADOPTION,
+    SOURCE_016_QUALITY,
 )
 from app.services.dream_cycle.friction import (
     FrictionFragment,
@@ -189,6 +192,15 @@ def test_t016_us4_low_adoption_and_restore():
     restored = store.restore("skill-d", "t2")
     assert restored["marked_low_quality"] is False
     assert store.get("skill-d", "t2").exposure == 0
+
+
+def test_adoption_source_bit_keys_match_contract():
+    # The 011 source bit + aggregated marker key must keep the agreed literal
+    # names so the 016 market reader/writer (admin-api) stays in lockstep. The
+    # 016 side asserts the same strings in its own test suite.
+    assert LOW_QUALITY_FLAG == "marked_low_quality"
+    assert SOURCE_011_ADOPTION == "flagged_by_011_adoption"
+    assert SOURCE_016_QUALITY == "flagged_by_016_quality"
 
 
 if __name__ == "__main__":

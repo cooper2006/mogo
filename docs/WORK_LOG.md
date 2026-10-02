@@ -3036,4 +3036,27 @@ admin-api、document-parser、dsh-runtime-host。
   XF016-2/3、IT002/003、ET006、SEC004），需 004/016 协作。
 - **未做（边界）**：未新建 API、未改动既有列表语义（仅加降权标记字段）、DB 缺失时 `AdoptionStore` 仍回退内存；
   016 的低质标记（scoring.py 的 `mark_low_quality`，效果分<0.4 持续 7d）与 011 的低采纳标记是**同一个位的两写入方**，
-  现已有 016 读取器但 016 自身打分写入路径尚未接 `skill_adoption`（属 016 内部闭环，留待 016 侧补齐）。
+  016 读取器（第 4 项）与写入闭环（见同日下条）均已落地，共用 `skill_adoption` 的 `marked_low_quality` 聚合位。
+
+## 2026-10-03（续）016 打分写入闭环 —— 与 011 共用位采用"双源位+聚合位"
+
+接上条遗留：016 侧"低质量标记"此前只有纯逻辑（scoring.py）无持久化入口，与 011 共用标记位但只 011 写、
+016 只读出。本轮把 016 的打分结果也写进同一 `skill_adoption` 集合，并确立两方互不误清的位模型。
+
+- **位模型（用户拍板：双源位+聚合位）** —— `skill_adoption` 文档含 `flagged_by_011_adoption`（011 低采纳源位）、
+  `flagged_by_016_quality`（016 效果分源位）、`marked_low_quality`（聚合位 = 两源位之 OR）。任一方标记→聚合位置真、
+  降权生效；任一方恢复且另一方未标记→聚合位重算为假；**一方恢复绝不误清另一方的标记**。
+- **011 侧微调（deprecation.py）** —— `mark_deprecated`/`restore` 改为只写 `flagged_by_011_adoption` 源位 + 聚合位，
+  `restore` 用聚合 pipeline（list 形式 update）按存活的 016 源位重算 `marked_low_quality`；`record_*` 的 `$setOnInsert`
+  初始化两个源位。读取器/市场降权仍读聚合位，无需改。
+- **016 侧写入（adoption_client.py）** —— 新增 `apply_quality_assessment`（算分→应标记则置 016 源位+聚合位，
+  健康则清 016 源位并重算聚合位）与 `restore_quality`（清 016 源位+重算聚合位，保留 011 标记）；二者复用
+  `skill_adoption` 集合与 `(tenant_id==main_id, skill_key)` 键。`skill_market/__init__.py` 导出这两个函数。
+- **契约钉死** —— `adoption_client` 与 `deprecation` 各自声明 `SOURCE_011_ADOPTION`/`SOURCE_016_QUALITY`/
+  `MARKED_LOW_QUALITY` 并断言等于约定字符串；016 测试 `test_shared_marker_key_matches_011` 与 011 测试
+  `test_adoption_source_bit_keys_match_contract` 双向钉住，避免跨服务漂移（不互相 import 包）。
+- **本轮范围（用户拍板）**：只做写入函数+测试，暂不做数据来源采集管道与定时触发；`apply_quality_assessment`
+  接受调用方已算好的五个计数（total/success/adopted/corrected/sustained），端到端采集留后续轮次。
+- **验证**：chat-api `tests/services`+`tests/self_evolution` 333 passed（含改后 `deprecation` 源位模型）；
+  admin-api `tests/` 373 passed（新增 `test_016_quality_assessment_writes_shared_bit` /
+  `test_016_restore_keeps_011_mark` 钉死写入闭环与互不误清）。

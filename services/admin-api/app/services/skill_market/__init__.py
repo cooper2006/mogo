@@ -21,6 +21,10 @@ from .scoring import (
     mark_low_quality,
     restore_skill_quality,
 )
+from .adoption_client import (
+    apply_quality_assessment,
+    restore_quality,
+)
 from .canary import (
     DEFAULT_CANARY_ROLLBACK_THRESHOLD,
     DEFAULT_MIN_CANARY_SAMPLES,
@@ -36,6 +40,8 @@ __all__ = [
     "mark_low_quality",
     "restore_skill_quality",
     "inspect_skill_quality",
+    "apply_quality_assessment",
+    "restore_quality",
     "LOW_QUALITY_MARKER",
     "EFFECT_WEIGHTS",
     "DEFAULT_EFFECT_THRESHOLDS",

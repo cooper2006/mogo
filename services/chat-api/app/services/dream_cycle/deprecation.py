@@ -22,8 +22,13 @@ _LOW_ADOPTION_CONFIG = EvolutionConfig()
 LOW_ADOPTION_WINDOW_DAYS = _LOW_ADOPTION_CONFIG.low_adoption_window_days
 LOW_ADOPTION_MIN_EXPOSURE = _LOW_ADOPTION_CONFIG.low_adoption_min_exposure
 LOW_ADOPTION_THRESHOLD = _LOW_ADOPTION_CONFIG.low_adoption_rate
-# 016 shared deprecation flag.
+# 016 shared deprecation flag (the *aggregated* bit both 011 and 016 may set).
 LOW_QUALITY_FLAG = "marked_low_quality"
+# 011's own source bit. The aggregated ``marked_low_quality`` is the OR of the two
+# independent source bits (011 adoption / 016 quality) so either side can flag a
+# skill for down-ranking without the other side's restore wiping its mark.
+SOURCE_011_ADOPTION = "flagged_by_011_adoption"
+SOURCE_016_QUALITY = "flagged_by_016_quality"
 TENANT_SCOPE = "tenant"
 
 
@@ -119,13 +124,29 @@ class AdoptionStore:
         if self._uses_db:
             self._db[self.COLLECTION].update_one(
                 self._doc_key(tenant_id, skill_key),
-                {"$inc": {"exposure": 1}, "$setOnInsert": {"adopted": 0, "is_deprecated": False, LOW_QUALITY_FLAG: False}},
+                {
+                    "$inc": {"exposure": 1},
+                    "$setOnInsert": {
+                        "adopted": 0,
+                        "is_deprecated": False,
+                        LOW_QUALITY_FLAG: False,
+                        SOURCE_011_ADOPTION: False,
+                        SOURCE_016_QUALITY: False,
+                    },
+                },
                 upsert=True,
             )
             return
         counter = self._mem.setdefault(
             (tenant_id, skill_key),
-            {"exposure": 0, "adopted": 0, "is_deprecated": False, LOW_QUALITY_FLAG: False},
+            {
+                "exposure": 0,
+                "adopted": 0,
+                "is_deprecated": False,
+                LOW_QUALITY_FLAG: False,
+                SOURCE_011_ADOPTION: False,
+                SOURCE_016_QUALITY: False,
+            },
         )
         counter["exposure"] += 1
 
@@ -133,60 +154,112 @@ class AdoptionStore:
         if self._uses_db:
             self._db[self.COLLECTION].update_one(
                 self._doc_key(tenant_id, skill_key),
-                {"$inc": {"exposure": 1, "adopted": 1}, "$setOnInsert": {"is_deprecated": False, LOW_QUALITY_FLAG: False}},
+                {
+                    "$inc": {"exposure": 1, "adopted": 1},
+                    "$setOnInsert": {
+                        "is_deprecated": False,
+                        LOW_QUALITY_FLAG: False,
+                        SOURCE_011_ADOPTION: False,
+                        SOURCE_016_QUALITY: False,
+                    },
+                },
                 upsert=True,
             )
             return
         counter = self._mem.setdefault(
             (tenant_id, skill_key),
-            {"exposure": 0, "adopted": 0, "is_deprecated": False, LOW_QUALITY_FLAG: False},
+            {
+                "exposure": 0,
+                "adopted": 0,
+                "is_deprecated": False,
+                LOW_QUALITY_FLAG: False,
+                SOURCE_011_ADOPTION: False,
+                SOURCE_016_QUALITY: False,
+            },
         )
         counter["exposure"] += 1
         counter["adopted"] += 1
 
     def mark_deprecated(self, skill_key: str, tenant_id: str, record: dict[str, Any]) -> None:
-        """011 T014: persist the shared ``marked_low_quality`` bit (consumed by 016)."""
+        """011 T014: persist the shared ``marked_low_quality`` bit (consumed by 016).
+
+        Only the 011 source bit is set; the aggregated ``marked_low_quality`` is
+        the OR of the two source bits (011 adoption / 016 quality), so 016's own
+        quality mark survives this write.
+        """
         if self._uses_db:
             self._db[self.COLLECTION].update_one(
                 self._doc_key(tenant_id, skill_key),
-                {"$set": {"is_deprecated": True, LOW_QUALITY_FLAG: True}},
+                {"$set": {SOURCE_011_ADOPTION: True, LOW_QUALITY_FLAG: True, "is_deprecated": True}},
                 upsert=True,
             )
         else:
             counter = self._mem.setdefault(
                 (tenant_id, skill_key),
-                {"exposure": 0, "adopted": 0, "is_deprecated": False, LOW_QUALITY_FLAG: False},
+                {
+                    "exposure": 0,
+                    "adopted": 0,
+                    "is_deprecated": False,
+                    LOW_QUALITY_FLAG: False,
+                    SOURCE_011_ADOPTION: False,
+                    SOURCE_016_QUALITY: False,
+                },
             )
             counter["is_deprecated"] = True
+            counter[SOURCE_011_ADOPTION] = True
             counter[LOW_QUALITY_FLAG] = True
         record["marked_low_quality"] = True
 
     def restore(self, skill_key: str, tenant_id: str) -> dict[str, Any]:
         """011 T015: manual restore — reset adoption counter + re-enable recommendation.
 
-        Resetting the counters also clears the shared ``marked_low_quality`` bit,
-        so the 016 market side stops down-ranking the skill (T014-3 / T015-2).
+        Only the 011 source bit is cleared. The aggregated ``marked_low_quality``
+        is recomputed: it stays True if the 016 quality bit is still set, so a
+        016-side mark is never wiped by an 011-side restore (T014-3 / T015-2).
         """
         if self._uses_db:
+            # Pipeline update lets us derive marked_low_quality from the surviving
+            # 016 source bit instead of blindly clearing it.
             self._db[self.COLLECTION].update_one(
                 self._doc_key(tenant_id, skill_key),
-                {"$set": {"exposure": 0, "adopted": 0, "is_deprecated": False, LOW_QUALITY_FLAG: False}},
+                [
+                    {
+                        "$set": {
+                            "exposure": 0,
+                            "adopted": 0,
+                            "is_deprecated": False,
+                            SOURCE_011_ADOPTION: False,
+                            LOW_QUALITY_FLAG: {"$or": [f"${SOURCE_016_QUALITY}", False]},
+                        }
+                    }
+                ],
                 upsert=True,
             )
+            doc = self._db[self.COLLECTION].find_one(self._doc_key(tenant_id, skill_key))
+            aggregated = bool(doc.get(LOW_QUALITY_FLAG)) if doc else False
         else:
             counter = self._mem.setdefault(
                 (tenant_id, skill_key),
-                {"exposure": 0, "adopted": 0, "is_deprecated": False, LOW_QUALITY_FLAG: False},
+                {
+                    "exposure": 0,
+                    "adopted": 0,
+                    "is_deprecated": False,
+                    LOW_QUALITY_FLAG: False,
+                    SOURCE_011_ADOPTION: False,
+                    SOURCE_016_QUALITY: False,
+                },
             )
             counter["exposure"] = 0
             counter["adopted"] = 0
             counter["is_deprecated"] = False
-            counter[LOW_QUALITY_FLAG] = False
+            counter[SOURCE_011_ADOPTION] = False
+            counter[LOW_QUALITY_FLAG] = bool(counter[SOURCE_016_QUALITY])
+            aggregated = counter[LOW_QUALITY_FLAG]
         return {
             "skill_key": skill_key,
             "tenant_id": tenant_id,
             "restored": True,
-            LOW_QUALITY_FLAG: False,
+            LOW_QUALITY_FLAG: aggregated,
             "recommendation": "re-enabled",
         }
 
