@@ -43,6 +43,20 @@
 - [x] T999 [P] 审计/可观测接入
 - [x] T998 写 `quickstart.md` + `contracts/` 契约文档
 
+## Phase 5: 效果分三维数据归因（OQ-6，2026-10-03 决策后新增）
+
+口径决策见 `plan.md` OQ-6。`total_calls` 已实现（T020）；其余三维待实现。
+
+- [x] T020 调用总数采集：从 `kernel_event_projections` 滚 `skill.selected` → `skill_quality_metrics`
+      （admin-api `quality_metrics.collect_skill_activity_metrics`，水位幂等）+ 完整性门槛防误杀
+- [ ] T021 采纳维度：按 `message_id` 关联 `enterprise_authoritative_deliveries`（`accepted=True`）写
+      `adopted_calls`（数据已存在，仅需关联，无需新埋点）
+- [ ] T022 纠正维度：在 `POST /documents/save-blueprint` 新增"产物编辑事件"埋点（记录
+      `blueprint_object_path` / tenant / user / 编辑前后指纹 / 来源 `message_id`），再据此写 `corrected_calls`
+- [ ] T023 成功维度：确认"该轮 tool 成败"归因口径（`tools/service.py` 的 `execution_succeeded`）后写
+      `successful_calls`；口径确认后与 T021/T022 一齐放开 `evaluate_skill_quality` 的完整性门槛
+- [ ] T024 放开门槛后回归：确认三维齐备时低质量标记可被真实触发（端到端可证伪）
+
 ---
 
 ## Dependencies

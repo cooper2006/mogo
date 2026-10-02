@@ -3116,3 +3116,26 @@ DSH kernel 的 `skill.selected` 事件经 `dsh_runtime/events/projection.py` 投
   只能产出 `total_calls`，完整性门槛会跳过评估，**实际不会产生任何低质量标记**（安全但无效）。
   真正让 016 标记生效，需要先定义并采集"采纳/纠正"事件（产品级决策 + 相应埋点），与 011 的
   `record_adoption` 采集缺口同源。
+
+## 2026-10-03（续四）016 效果分三维归因口径决策（只写规格，不改代码）
+
+按用户拍板：本轮**只把语义与归因口径写进 spec/plan**，实现留待下一轮。调研结论与决策：
+
+- **新增 OQ-6（`specs/016-skill-market-hardening/plan.md`）**：效果分三维的数据归因口径。
+  - `total_calls`：已有真实源（`kernel_event_projections` 的 `skill.selected` 投影行），已实现。
+  - `adopted_calls`：**口径 = 按 `message_id` 关联** —— 某轮选中 skill S 且该 message 下存在
+    `enterprise_authoritative_deliveries.accepted=True`（`delivery/repository.py` 写入），计一次采纳。
+    两边数据都已存在，**无需新埋点**。
+  - `corrected_calls`：**口径 = 用户编辑产物并保存** —— 以 `POST /documents/save-blueprint`
+    （注释即 "Save an edited blueprint back"）为信号。**该端点目前只覆盖对象存储，不写任何 DB/审计/
+    编辑事件**，故纠正维度**必须先新增"编辑事件"埋点**（记录 blueprint_object_path / tenant / user /
+    编辑前后指纹 / 来源 message_id）。这是唯一需要新增埋点的维度。
+  - `successful_calls`：口径待定（可用 `tools/service.py` 的 `execution_succeeded`，但 skill 与 tool
+    非一一对应，需产品确认是否接受近似口径）。
+- **spec.md FR-3** 补注指向 OQ-6；**tasks.md** 新增 Phase 5（T020 已完成、T021 采纳、T022 纠正埋点、
+  T023 成功口径、T024 放开门槛后回归）。
+- **当前实现状态（安全但无效）**：采集器只产出 `total_calls`；`evaluate_skill_quality` 的完整性门槛
+  （`total_calls >= 20` 且 `adopted+corrected > 0`）会跳过评估，**不产生任何低质量标记**，避免误杀。
+  待 T021/T022/T023 落地后门槛自然放开。
+- **本轮改动**：仅 `specs/016-skill-market-hardening/{plan.md,spec.md,tasks.md}` 三个文档，**无代码改动**。
+- **验证**：无代码改动，未跑测试；前一轮测试基线保持（admin-api 382 / chat-api 338 passed）。
