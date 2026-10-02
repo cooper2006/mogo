@@ -182,9 +182,13 @@
 - **FR-10 审计零接线**：`knowledge/` 与 `rag_service/` 下 `grep audit` 无命中。
 - **US2/FR-5 组织级隔离未实现**：默认策略把非 personal 文档无条件放行，真实策略被 env 注入到专有模块。
 
-### 006 position-rbac-admin（2）
-- **`copy_role` 绕过 FR-6 校验**：`service.py:82-84` 直接序列化源角色，`tool_access_mode=='all'` 的 `tool_ids=[]` 被原样复制 → 复制出的角色零工具零技能且无报错。
-- **批量分配非原子**：`position_roles.py:168-175` 先校验后逐用户 `delete_many+insert_many`，中途失败留下部分改动的无审计状态。
+### 006 position-rbac-admin（2）—— **已修 2/2（2026-10-03，见 WORK_LOG 续二十七）**
+
+> **已修**：
+> - `copy_role` 前置校验：源角色 `tool_access_mode` 或 `skill_access_mode` 为 'all' 时返回 403，
+>    阻止通过复制途径绕过 FR-6 审批获取全量权限。
+> - 批量分配原子化：新增 `bulk_replace_user_roles` 使用 MongoDB `bulk_write` 一次性完成所有
+>    用户的 delete+insert，中途失败整体回滚，审计完整落地。
 
 ### 007 llm-gateway-resilience（4）
 - **韧性接线错位**：`get_llm_client_by_model_id` 只被模型连通性测试路由调用；真实对话链路 `dsh_runtime/model_gateway/service.py:179` 直接 `build_llm_client_from_config`，绕过 `wrap_resilient`。
