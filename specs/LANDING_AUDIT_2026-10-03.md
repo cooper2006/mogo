@@ -278,13 +278,14 @@
 - **产出无消费方**：`source_attribution`/`join_cross_system` 输出全仓零读取。
 - **FR-9 权限零接线**：`bizdata` 全仓 0 命中。
 
-### 015 knowledge-graph-layer（6）
-- **零生产 import**（仅 tests）。
-- **FR-10 存储承诺落空**：进程内 dict，`kg_nodes`/`kg_edges` 全仓 0 命中，包内 0 处 mongo 导入。
-- **FR-1 抽取入口缺失**：无 `extract.py`，节点只能手工构造，`confidence` 恒 1.0。
-- **FR-13 对齐是死字段**：`source_ref` 无生产读写，`biz_entities` 0 命中。
-- **FR-2/8/9 无消费面**：无入口、不参与 RAG、`kg:read` 与 `kg_max_hops` 不存在。
-- 附带：审计 fail-open 且测试断言恒真。
+### 015 knowledge-graph-layer（6）—— **store + 查询端点已接线（2026-10-03，见 WORK_LOG 续二十三）**
+
+> **已修**：`TenantKgStore`（MongoDB `kg_nodes`/`kg_edges` 集合，tenant 分区，
+>    lazy-load）+ `GET /api/kg/nodes/{id}`（FR-2 单节点查询）和
+>    `GET /api/kg/nodes/{id}/neighbours`（FR-10 邻居遍历）。
+>
+> **仍待修（降为 P1 残项）**：FR-1 自动抽取入口（无 `extract.py`）；FR-8 约束检查；
+>    FR-13 `source_ref` 读写；RAG 接入。
 
 ### 016 skill-market-hardening（6）
 - **灰度/回滚整轴 zempty**：`evaluate_canary`/`apply_rollback` 生产零调用，无路由/调度/持久化。
