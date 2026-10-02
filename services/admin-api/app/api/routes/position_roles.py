@@ -169,8 +169,12 @@ async def bulk_assign_roles(payload: BulkRoleAssignmentPayload, current_user: di
     service = PositionRoleService()
     main_id = _main_id(current_user)
     await service.validate_roles(main_id, payload.roleIds, payload.primaryRoleId)
-    for user_id in dict.fromkeys(payload.userIds):
-        await service.repository.replace_user_roles(main_id, user_id, payload.roleIds, payload.primaryRoleId, actor=_actor(current_user))
+    # 006 FR-6: 批量分配改为原子 bulk_write，失败时整体回滚而非部分写。
+    assignments = [
+        {"user_id": uid, "role_ids": payload.roleIds, "primary_role_id": payload.primaryRoleId}
+        for uid in dict.fromkeys(payload.userIds)
+    ]
+    await service.repository.bulk_replace_user_roles(main_id, assignments, actor=_actor(current_user))
     await service.repository.audit(main_id, _actor(current_user), "bulk_assign", "employee_position_roles", "bulk", payload.model_dump())
     return {"updated": len(set(payload.userIds))}
 

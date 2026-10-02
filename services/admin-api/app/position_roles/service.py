@@ -81,6 +81,20 @@ class PositionRoleService:
 
     async def copy_role(self, main_id: str, role_id: str, name: str, actor: str) -> dict[str, Any]:
         source = await self._role(main_id, role_id)
+        # 006 FR-6：源角色若为 'all' 模式，复制出的角色也拥有全量工具/技能权限，
+        # 必须限制只有 full_access_admin 才能复制此类高权限角色（防绕过审批）。
+        src_mode = str(source.get("tool_access_mode") or "selected")
+        if src_mode == "all":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="不能复制全量工具访问模式的岗位角色；请使用创建接口并走审批流程",
+            )
+        skill_mode = str(source.get("skill_access_mode") or "selected")
+        if skill_mode == "all":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="不能复制全量技能访问模式的岗位角色；请使用创建接口并走审批流程",
+            )
         return await self.create_role(main_id, {**serialize_role(source), "name": name, "status": "active"}, actor)
 
     async def set_status(self, main_id: str, role_id: str, enabled: bool, actor: str) -> None:

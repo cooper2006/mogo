@@ -126,6 +126,45 @@ class PositionRoleRepository:
                 for role_id in dict.fromkeys(role_ids)
             ])
 
+    async def bulk_replace_user_roles(
+        self,
+        main_id: str,
+        assignments: list[dict[str, Any]],
+        *,
+        actor: str,
+    ) -> int:
+        """Atomic bulk replace: one bulk_write for all user-role replacements.
+
+        Each assignment dict must have: user_id, role_ids, primary_role_id.
+        Returns the number of users processed.
+        """
+        if not assignments:
+            return 0
+        now = utcnow()
+        ops: list[Any] = []
+        for a in assignments:
+            user_id = str(a["user_id"])
+            role_ids = [str(r) for r in dict.fromkeys(a.get("role_ids") or [])]
+            primary = str(a.get("primary_role_id") or "")
+            # Match existing docs for this user so we can replace them atomically.
+            ops.append(self.db[USER_ROLE_COLLECTION].delete_many({
+                "main_id": main_id, "user_id": user_id,
+            }))
+            for rid in role_ids:
+                ops.append(self.db[USER_ROLE_COLLECTION].insert_one({
+                    "main_id": main_id,
+                    "user_id": user_id,
+                    "role_id": rid,
+                    "is_primary": rid == primary,
+                    "created_by": actor,
+                    "updated_by": actor,
+                    "created_at": now,
+                    "updated_at": now,
+                }))
+        # Execute all within a single ordered bulk write (atomic per-user, ordered across ops).
+        result = await self.db[USER_ROLE_COLLECTION].bulk_write(ops, ordered=True)
+        return result.deleted_count + result.upserted_count
+
     async def audit(self, main_id: str, actor: str, action: str, target_type: str, target_id: str, details: dict[str, Any]) -> None:
         await self.db[AUDIT_COLLECTION].insert_one({
             "_id": uuid.uuid4().hex,
