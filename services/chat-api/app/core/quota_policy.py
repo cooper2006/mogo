@@ -169,6 +169,25 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
         space_type = "personal" if str(user.get("org_name") or "").strip() == "个人空间" else "enterprise"
     org = await db[ORG_COLLECTION].find_one({"main_id": main_id}) or {}
 
+    # 020 FR-035/036/037: an org flagged ``points_unlimited`` (set by the admin
+    # product-edition policy) has no token ceiling — short-circuit before any
+    # usage accounting so new tenant members are never blocked with 402.
+    if org.get("points_unlimited"):
+        return {
+            **product_edition_fields(org),
+            "mainId": main_id,
+            "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
+            "spaceType": space_type,
+            "quotaSource": "enterprise_allocation",
+            "period": "lifetime",
+            "unlimited": True,
+            "totalPoints": -1,
+            "usedPoints": 0,
+            "remainingPoints": -1,
+            "resetAt": "",
+            "status": "active",
+        }
+
     if space_type != "enterprise":
         total = int(org.get("total_points") or 0)
         used = int(org.get("used_points") or 0)
@@ -220,6 +239,9 @@ async def assert_quota_available(main_id: str, user: dict[str, Any]) -> dict[str
     summary = await get_quota_summary(main_id, user)
     if summary.get("status") != "active":
         raise QuotaExceededError("当前空间额度策略未启用，请联系管理员。")
+    # 020 FR-035/036/037: unlimited orgs are never blocked.
+    if summary.get("unlimited"):
+        return summary
     if int(summary.get("remainingPoints") or 0) <= 0:
         if summary.get("spaceType") == "enterprise":
             raise QuotaExceededError("当前企业分派额度已用尽，请联系企业管理员调整额度。")
