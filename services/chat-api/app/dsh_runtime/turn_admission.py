@@ -183,6 +183,7 @@ async def run_gate_plan(
             session_id=session_id,
             approval_token=approval_token,
             approval_action_id=approval_action_id,
+            harness_mode=str((request or {}).get("harness_mode") or "thick"),
         )
     except gate_module.GateDeniedError as exc:
         await record_position_policy_event(

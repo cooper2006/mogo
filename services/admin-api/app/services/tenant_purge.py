@@ -81,6 +81,11 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     # chat-api (services/session_versioning/snapshot.py) and the most sensitive data
     # a tenant can hold — purging a tenant MUST remove it (001 audit, 2026-10-03).
     "session_secret_refs",
+    # 011 ①: content-fingerprinted experience fragments (tenant-partitioned,
+    # upsert by fingerprint). Tenant purge must wipe accumulated cross-pass state.
+    "experience_fragments",
+    # 011 ②: generated skill drafts + MR flags written for 004 consumption.
+    "skill_drafts",
     "site_profiles",
     "skill_distribution_members",
     "skill_distribution_releases",

@@ -39,6 +39,10 @@ class GateEvaluatePayload(BaseModel):
     request: dict[str, Any] = Field(default_factory=dict, description="Tool request body (may be redacted)")
     sessionId: str = Field(default="", description="Kernel session id")
     scope: str = Field(default="tool")
+    # 019 harness mode: "thick" (all six layers) or "thin" (identity/rbac/redaction/
+    # audit only). The server enforces the floor — audit is always required — so
+    # the client cannot coerce the chain into a weaker state (T999, 2026-10-03).
+    harnessMode: str = Field(default="thick", description="thick | thin")
     # Resume path (FR-2): a requester re-enters with the approval ticket it was
     # handed when the call was suspended. Only an already-approved ticket passes.
     approvalToken: str = Field(default="", description="One-time approval ticket")
@@ -96,6 +100,7 @@ async def evaluate_gate(
         session_id=str(payload.sessionId or ""),
         scope=str(payload.scope or "tool"),
         annotations=annotations,
+        harness_mode=str(payload.harnessMode or "thick"),
     )
     verdict = await gatekeeper.evaluate(ctx.tool, ctx)
     return {

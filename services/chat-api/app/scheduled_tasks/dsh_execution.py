@@ -59,6 +59,8 @@ class ScheduledDshExecution:
                 "selected_skill_id": selected,
                 "output_spec": output_spec,
                 "conversation_id": str(conversation_id or ""),
+                # 019: per-request harness mode (thick/thin).
+                "harness_mode": str(output_spec.get("harness_mode") or get_settings().harness_mode or "thick"),
             },
             session_id=str(conversation_id or ""),
         )

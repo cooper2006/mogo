@@ -111,7 +111,7 @@ async def test_audit_persist_failure_denies_the_whole_call():
 
     keep = _FakeLayer("identity")
     gate = Gatekeeper(config=GateConfig())
-    gate._resolve_layers = lambda: [keep, _BrokenAudit()]  # type: ignore[assignment]
+    gate._resolve_layers = lambda *, harness_mode="thick": [keep, _BrokenAudit()]  # type: ignore[assignment]
 
     verdict = await gate.evaluate("browser", GateContext(tool="browser", tenant_id="t1"))
     assert verdict.decision is GateDecision.DENY

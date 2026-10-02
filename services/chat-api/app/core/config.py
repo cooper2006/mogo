@@ -137,7 +137,11 @@ class Settings(BaseSettings):
     # Upload limits. Defaults are intentionally generous to preserve existing
     # workflows while preventing accidental unbounded in-memory reads.
     MAX_UPLOAD_IMAGE_BYTES: int = 50 * 1024 * 1024
-    MAX_UPLOAD_DOCUMENT_BYTES: int = 200 * 1024 * 1024
+    # Harness thickness mode (019). "thick" = all six layers; "thin" = drop
+    # approval + quota only (identity/rbac/redaction/audit stay, enforced at the
+    # floor). Resolved per-request from the incoming payload; falls back to this
+    # setting when the caller omits it.
+    HARNESS_MODE: str = "thick"
     MAX_UPLOAD_SKILL_SOURCE_BYTES: int = 200 * 1024 * 1024
     MAX_UPLOAD_TEMPLATE_BYTES: int = 200 * 1024 * 1024
 

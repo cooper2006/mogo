@@ -196,6 +196,9 @@ async def _start_chat_completions(
                 "selected_skill_id": selected_skill_id,
                 "output_spec": output_spec,
                 "conversation_id": str(output_spec.get("task_id") or output_spec.get("session_id") or ""),
+                # 019: per-request harness mode (thick/thin). Falls back to the
+                # HARNESS_MODE setting when the caller does not specify one.
+                "harness_mode": str(output_spec.get("harness_mode") or get_settings().harness_mode or "thick"),
             },
             session_id=str(output_spec.get("task_id") or output_spec.get("session_id") or ""),
         )

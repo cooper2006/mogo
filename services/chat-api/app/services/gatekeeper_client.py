@@ -58,6 +58,7 @@ class GatekeeperClient:
         scope: str = "tool",
         approval_token: str = "",
         approval_action_id: str = "",
+        harness_mode: str = "thick",
     ) -> dict[str, Any]:
         """Return the gate result; raise :class:`GateDeniedError` when not allowed.
 
@@ -74,6 +75,9 @@ class GatekeeperClient:
             "scope": scope,
             "approvalToken": str(approval_token or ""),
             "approvalActionId": str(approval_action_id or ""),
+            # 019: pass the per-request harness mode so the admin-api gatekeeper
+            # can drop approval + quota layers in thin mode (T999, 2026-10-03).
+            "harnessMode": str(harness_mode or "thick"),
         }
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:

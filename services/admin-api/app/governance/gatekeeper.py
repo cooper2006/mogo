@@ -53,6 +53,7 @@ class GateContext:
     autonomy_level: Optional[str] = None      # L1..L5
     request: dict[str, Any] = field(default_factory=dict)
     response: dict[str, Any] = field(default_factory=dict)
+    harness_mode: str = "thick"          # 019: "thick"=all layers, "thin"=drop approval+quota
     scope: str = "tool"                       # tool | session | tenant
     session_id: str = ""
     annotations: dict[str, Any] = field(default_factory=dict)
@@ -101,10 +102,16 @@ class Gatekeeper:
             self._config = load_gate_config()
         return self._config
 
-    def _resolve_layers(self) -> list[GateLayer]:
+    def _resolve_layers(self, *, harness_mode: str = "thick") -> list[GateLayer]:
         from .layers import build_layers
 
-        return build_layers(self.config)
+        layers = build_layers(self.config)
+        # 019: thin mode drops approval + quota (the floor = identity/rbac/redaction/audit stay).
+        # Per-request harness_mode from the client overrides the global config.
+        if str(harness_mode).lower() == "thin":
+            from .config import REQUIRED_LAYERS
+            layers = [layer for layer in layers if layer.name in REQUIRED_LAYERS]
+        return layers
 
     async def evaluate(self, tool: str, ctx: GateContext | None = None) -> GateVerdict:
         """Evaluate ``tool`` against the enabled chain.
@@ -117,7 +124,7 @@ class Gatekeeper:
         if not context.tool:
             context.tool = tool
 
-        layers = self._resolve_layers()
+        layers = self._resolve_layers(harness_mode=context.harness_mode)
         # The audit layer must be set aside *before* running the chain: because it
         # sits last, a mid-chain rejection would otherwise return before we ever
         # reach it, and the reject event would never be recorded (FR-9).
