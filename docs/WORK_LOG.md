@@ -3663,3 +3663,18 @@ P1 孤岛第 14 项。两套实现均零生产调用方。
 
 **验证**：3 passed；chat-api 全量 908 passed（10 个 e2e 网关超时测试需 live
 kernel，与本次无关）。
+
+## 2026-10-03（续三十一）005 修复：知识检索·RAG·研究接线
+
+P1 孤岛第 5 项（最后一项空心）。ResearchFocusBuilder 仅 __init__ 导出，无调用方。
+
+**本轮改动**：
+- `app/enterprise_capabilities/research/progressive/agent.py`：`ResearchFocusBuilder`
+  注入构造；`run()` 用 build() 的 query_templates 播种首轮查询，source_priority/
+  evidence_schema 进审计与结果元数据；新增 FR-10 审计（research.run_started/finished）。
+- `app/enterprise_capabilities/runtime/adapters.py`：生产研究路径接入 builder + 审计。
+- `app/services/feature_audit.py`：注册 005 事件。
+- `tests/services/test_research_focus_audit.py`（新）：focus 播种 + 审计事件通过。
+
+**验证**：1 passed；chat-api services+enterprise_capabilities 322 passed。
+**诚实边界**：FR-5 组织级隔离未伪造，仍 仍待修。
