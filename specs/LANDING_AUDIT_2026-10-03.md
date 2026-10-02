@@ -208,7 +208,20 @@
 - **FR-6 失败阻塞被绕过**：`competitor_deep_dive` 用 `_FailedNodeOutput` sentinel 伪装 success（其 docstring 自承）。
 - 附带：早阻塞竞态、FR-7 审计无落库、FR-8 `dag_definitions` 不存在。
 
-### 011 dream-cycle-self-evolution（4）
+### 011 dream-cycle-self-evolution（4）—— **落库闭环已修（2026-10-03，见 WORK_LOG 续十六）**
+
+> **已修**：
+> - **① 片段持久化**：`PersistentFragmentStore` 写 `experience_fragments`，`run_once`
+>   绑 DB 时先 load_history 再 extend → 跨 pass 有累积状态；upsert 键 =
+>   (tenant, content_fingerprint)，重扫幂等。
+> - **② 草稿给 004 消费**：`_persist_draft` 写 `skill_drafts`（含 mr 标志，与 MR 审计同阈值）。
+> - **③ MR 走 mr.py**：`run_once` 的 MR 判定改走 `mr.generate_improvement_mr`（唯一真值源），
+>   接受 per-tenant scan config 阈值覆盖。
+> - **④ 淘汰输入自动检测**：调用方未传 deprecations 且 DB 可用时，自动扫 `skill_adoption`
+>   表生成淘汰输入；无 DB 时诚实返回 []。
+>
+> **仍待验证**：011 的 API 级回归（当前为 service 级 92 passed）。`record_exposure/adoption`
+>   的生产调用方（016 market 侧）尚未接线。
 - **经验片段无持久化**：每 pass 新建内存 `FragmentStore()`；实测两次 pass 输出逐字节相同 → 跨 pass 无状态。
 - **草稿/MR 不落库、无消费方**：`draft_ids` 只进返回 dict，从不调 004 `skill_lifecycle`。
 - **MR 判定不走 `mr.py`**：`run_once` 用 `cluster.is_mr_eligible()`，`mr.py` 的 `generate_improvement_mr` 零调用。
