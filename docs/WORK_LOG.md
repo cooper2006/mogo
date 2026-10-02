@@ -3615,3 +3615,15 @@ P1 孤岛第 6 项。006 两个生产缺陷：
 - `tests/test_position_role_service.py`：新增 2 条单测验证序列化路径。
 
 **验证**：tests/test_position_role_service.py **6 passed**；admin-api **412 passed**。
+
+## 2026-10-03（续二十八）007 修复：model_gateway 韧性接线修正
+
+P1 孤岛第 7 项。007 韧性接线错位：真实对话链路绕过 wrap_resilient。
+
+**本轮改动**：
+- `app/dsh_runtime/model_gateway/service.py`：`_configured_client` 改用
+  `get_llm_client_by_model_id(model_instance_id, main_id=tenant_id, ...)`
+  自动获得 `wrap_resilient` 包装（含 fallback），生产路径不再绕过
+  韧性层。为避免重复配额检查，`output_spec` 不含 `user_id`。
+
+**验证**：tests/services/ + tests/dsh_runtime/ **515 passed**。
