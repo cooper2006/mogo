@@ -3647,3 +3647,19 @@ P1 孤岛第 10 项。过去"核心已实现但无入口/无审计/无集合"。
   集合回退。
 
 **验证**：tests/orchestration/ **79 passed**（含新增 2 条）；chat-api 全量 **594 passed**。
+
+## 2026-10-03（续三十）014 修复：商业语义索引接线（生产入口 + FR-9）
+
+P1 孤岛第 14 项。两套实现均零生产调用方。
+
+**本轮改动**：
+- `app/api/endpoints/business_index.py`（新）：暴露 `POST /api/business-index/
+  {search,index,align}`。search 复用 005 检索客户端+来源归因；index 写
+  `business_entity_index`；align 跨系统对齐（缺失系统如实上报）。
+- `app/main.py`：注册 `business_index.router`。
+- `app/services/business_semantic_index.py`：`index_entity` 汇入 001 治理审计
+  （FR-9 entity.indexed）。
+- `tests/services/test_business_index_endpoint.py`（新）：验证 3 端点与对齐。
+
+**验证**：3 passed；chat-api 全量 908 passed（10 个 e2e 网关超时测试需 live
+kernel，与本次无关）。
