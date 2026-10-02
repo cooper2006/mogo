@@ -203,7 +203,14 @@
 - **前端成本页消费的是 trend 瓶颈数据**（自述注释），`costShare` 前端重算。
 - **部门/智能体分摊缺失**：`agent_id` 无数据源（`TokenUsageRecord` 无该字段）。
 
-### 009 hooks-interception（3）—— **①② 已修（2026-10-03，见 WORK_LOG 续十二）**
+### 009 hooks-interception（3）—— **①②③ 已修（2026-10-03，见 WORK_LOG 续二十五）**
+
+> **已修**：
+> - ① `tool` 真值：**工具级 PreToolUse 已挂到真实工具调用点**。
+> - ② `require_field` 可用：工具网关传真实 arguments；规则源加 per-tenant 2s TTL 缓存。
+> - ③ **FR-3 超时 + FR-13 延迟预算**：`run_pre_tool_use` 改走 `run_hooks_within_budget`
+>    （来自 `guard.py`），任何异常/解析失败均 fail-closed（FR-3），同时共享 5s 延迟预算
+>    （FR-13）。
 
 > ① `tool` 真值：**工具级 PreToolUse 已挂到真实工具调用点**——chat-api 的
 >    `EnterpriseToolService._authorize`（工具网关 `POST /internal/dsh/tools/execute` 与
