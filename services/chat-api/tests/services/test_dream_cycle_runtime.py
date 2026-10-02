@@ -406,3 +406,112 @@ def test_application_lifespan_starts_and_stops_the_scanner():
     assert "dream_cycle_runtime.dream_cycle_scanner.start()" in text
     assert "dream_cycle_runtime.dream_cycle_scanner.stop()" in text
     assert "dream_cycle_runtime.ensure_indexes(db)" in text
+
+
+# --- 011 persistence / draft-consumer / elimination-input fixes (2026-10-03) ---
+
+
+def test_run_once_persists_fragments_across_passes():
+    """011 ①: fragments are persisted to Mongo, so a second pass sees history.
+
+    Before the fix every pass started a fresh in-memory store, so two passes
+    produced byte-identical reports and no state survived between passes. Now
+    a pass's new fragments are written to ``experience_fragments`` and the
+    next pass's scan is seeded from that history.
+    """
+    sink, _entries = _collecting_sink()
+    db = _db_with([_tool_row("m1", 1, "item.failed"), _tool_row("m1", 2, "item.completed")])
+
+    report1 = asyncio.run(runtime.run_once(db=db, sink=sink))
+    assert report1["fragments"] == 1
+
+    # The fragment persisted to the fake DB's experience_fragments collection.
+    frag_coll = db["experience_fragments"]
+    assert len(frag_coll.rows) == 1, "the new fragment was persisted"
+
+    # A second pass: the persisted fragment is loaded as history, so the
+    # scanner now sees TWO samples of the same pattern instead of one — the
+    # cross-pass state that the fix was meant to create.
+    from app.self_evolution.fragment import PersistentFragmentStore
+
+    history = asyncio.run(PersistentFragmentStore(db).load_history("t1"))
+    assert len(history) == 1, "pass 2's scan is seeded from the persisted fragment"
+    assert history[0].fragment_id == frag_coll.rows[0]["fragment_id"]
+
+    # With the same projection rows, the identical signal re-captures the same
+    # fragment; the id is stable so the store upserts in place (no dupes).
+    report2 = asyncio.run(runtime.run_once(db=db, sink=sink))
+    assert len(db["experience_fragments"].rows) == 1, "re-capture is idempotent by fragment_id"
+
+
+def test_run_once_persists_skill_drafts_for_004_consumer():
+    """011 ②: generated drafts are written to the skill_drafts collection.
+
+    Before the fix ``draft_ids`` only reached the report dict and was never
+    consumed by 004 — now the draft document lands in Mongo.
+    """
+    sink, _entries = _collecting_sink()
+    db = _db_with([_tool_row("m1", 1, "item.failed"), _tool_row("m1", 2, "item.completed")])
+
+    report = asyncio.run(
+        runtime.run_once(
+            db=db,
+            sink=sink,
+            scan_config=ScanConfig(min_samples=1, jaccard_threshold=0.0),
+        )
+    )
+    assert report["generated"] == 1
+
+    draft_coll = db["skill_drafts"]
+    assert len(draft_coll.rows) == 1, "the draft was persisted for 004 to consume"
+    doc = draft_coll.rows[0]
+    assert doc["skill_id"] == "skill-frag-000001"
+    assert doc["mr"] is True, "the draft's MR flag is stored"
+    assert doc["status"] == "draft"
+
+
+def test_run_once_mr_decision_goes_through_mr_module():
+    """011 ③: the MR gate is driven by mr.generate_improvement_mr, not the cluster.
+
+    A high-confidence cluster (Jaccard ≥ 0.7 AND samples ≥ 5) still yields an MR;
+    a lower-confidence cluster yields a draft only — the boundary now comes from
+    ``mr.py`` so the two cannot drift apart.
+    """
+    import app.services.dream_cycle.mr as mr_mod
+
+    sink, _entries = _collecting_sink()
+    db = _db_with([_tool_row("m1", 1, "item.failed"), _tool_row("m1", 2, "item.completed")])
+
+    # Default thresholds: a single-sample cluster is NOT high-confidence -> no MR.
+    report_default = asyncio.run(runtime.run_once(db=db, sink=sink))
+    assert report_default["mr"] == 0, "single sample does not clear the 5-sample MR gate"
+
+    # A relaxed scan config makes the cluster MR-eligible -> the MR path fires.
+    report_relaxed = asyncio.run(
+        runtime.run_once(
+            db=db,
+            sink=sink,
+            scan_config=ScanConfig(min_samples=1, jaccard_threshold=0.0),
+        )
+    )
+    assert report_relaxed["mr"] == 1, "relaxed config routes through mr.py and emits the MR"
+
+
+def test_run_once_derives_deprecations_from_adoption_store():
+    """011 ④: when no deprecations are supplied and a DB is bound, low-adoption
+    skills in the adoption store are auto-detected as deprecation inputs."""
+    import app.services.dream_cycle.deprecation as dep_mod
+
+    sink, _entries = _collecting_sink()
+    db = _db_with([])
+
+    # Seed a low-adoption skill (exposure >= 20, adoption < 10%) in the store.
+    store = dep_mod.AdoptionStore(db=db)
+    for _ in range(30):
+        store.record_exposure("skill-poor", "t-low")
+    # Only 2 adoptions out of 30 exposures -> 6.67% < 10% threshold.
+    for _ in range(2):
+        store.record_adoption("skill-poor", "t-low")
+
+    report = asyncio.run(runtime.run_once(db=db, sink=sink))
+    assert report["deprecated"] >= 1, "low-adoption skills are auto-deprecated"

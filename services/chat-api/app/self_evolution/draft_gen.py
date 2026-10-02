@@ -21,6 +21,11 @@ DRAFT_STATUS = "draft"           # enters 004 as a draft, never published direct
 # Generation-side quality gate: a draft needs an executable test sample (FR-13).
 DEFAULT_MIN_TEST_SAMPLES = 1
 
+#: Durable collection for generated skill drafts + improvement MRs (011 ②,
+#: 2026-10-03). Before this, ``draft_ids`` only reached the run report dict and
+#: was never consumed by 004 — the drafts had no consumer.
+DRAFT_COLLECTION = "skill_drafts"
+
 
 class DraftError(ValueError):
     """Raised for an invalid draft request."""

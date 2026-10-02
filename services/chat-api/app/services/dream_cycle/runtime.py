@@ -29,11 +29,20 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Optional
 
 from app.core.db import get_db
-from app.self_evolution.draft_gen import generate_draft
-from app.self_evolution.fragment import ExperienceFragment, FragmentStore
+from app.self_evolution.draft_gen import (
+    DRAFT_COLLECTION,
+    SkillDraft,
+    generate_draft,
+)
+from app.self_evolution.fragment import (
+    ExperienceFragment,
+    FragmentStore,
+    PersistentFragmentStore,
+)
 from app.self_evolution.friction import FrictionSignal, detect_friction
 from app.self_evolution.scanner import (
     ScanConfig,
@@ -44,6 +53,7 @@ from app.self_evolution.scanner import (
 )
 from app.services.dream_cycle import deprecation as _deprecation
 from app.services.dream_cycle import evolution_audit as _audit
+from app.services.dream_cycle import mr as _mr
 from app.services.dream_cycle.evolution_audit import EvolutionConfig
 
 logger = logging.getLogger(__name__)
@@ -226,6 +236,94 @@ def _audit_capture_many(
     return recorded
 
 
+async def _persist_draft(
+    db: Any,
+    draft: SkillDraft,
+    tenant_id: str,
+    cluster: Any,
+    *,
+    jaccard_threshold: float,
+    min_samples: int,
+) -> None:
+    """011 ②: persist a generated skill draft (and its MR when eligible).
+
+    Without a bound DB the call is a no-op — the pure-library path stays
+    exercisable. With a DB the draft lands in ``skill_drafts`` with an ``mr``
+    flag when the cluster clears the confidence gate **under the same scan
+    config the MR decision used**, so the stored flag and the audited event
+    can never disagree.
+    """
+    if db is None:
+        return
+    mr_eligible = cluster.is_mr_eligible(
+        threshold=jaccard_threshold,
+        min_samples=min_samples,
+    )
+    document = {
+        "skill_id": draft.skill_id,
+        "tenant_id": str(tenant_id or "default"),
+        "name": draft.name,
+        "description": draft.description,
+        "scene": list(draft.scene),
+        "actions": list(draft.actions),
+        "test_samples": [s.as_dict() for s in draft.test_samples],
+        "status": draft.status,
+        "source_fragment_ids": list(draft.source_fragment_ids),
+        "confidence": float(draft.confidence or 0.0),
+        "mr": mr_eligible,
+        "created_at": datetime.now(timezone.utc),
+    }
+    # 011 ② persist. ``update_one`` is awaited on the aiomongo production handle
+    # (the same convention ``collect_tool_rows`` uses for cursors); the in-test
+    # fake collection exposes a sync ``update_one`` that returns None, so we
+    # only await when the result is actually a coroutine.
+    result = db[DRAFT_COLLECTION].update_one(
+        {"skill_id": document["skill_id"], "tenant_id": document["tenant_id"]},
+        {"$setOnInsert": document},
+        upsert=True,
+    )
+    if hasattr(result, "__await__"):
+        await result
+
+
+async def _detect_low_adoption_deprecations(
+    db: Any,
+    adoption_store: _deprecation.AdoptionStore,
+) -> list[dict[str, Any]]:
+    """011 ④: auto-derive deprecation inputs from the adoption store.
+
+    Before this the production ``_loop`` never passed ``deprecations``/
+    ``restorations`` (only tests did), so the elimination chain had no
+    production input. When a DB is bound this walks the tenant-partitioned
+    ``skill_adoption`` collection, applies ``detect_low_adoption`` to each
+    stored counter, and returns the records that qualify for deprecation.
+    Without a DB (pure-library path) it returns ``[]`` — an honest no-op,
+    not a fabricated event.
+    """
+    if db is None:
+        return []
+    try:
+        # Mongo (aiomongo) returns an async cursor. The fake DB in tests may
+        # return a list directly, so unwrap defensively.
+        found = db[_deprecation.AdoptionStore.COLLECTION].find({})
+        if hasattr(found, "to_list"):
+            found = await found.to_list(length=10000)
+        elif hasattr(found, "__aiter__"):
+            found = [doc async for doc in found]
+        else:
+            found = list(found)
+    except (AttributeError, TypeError):
+        return []
+    records: list[dict[str, Any]] = []
+    for doc in found:
+        skill = adoption_store.get(
+            str(doc.get("skill_key") or ""), str(doc.get("tenant_id") or "default")
+        )
+        if _deprecation.detect_low_adoption(skill):
+            records.append(_deprecation.mark_deprecated(skill))
+    return records
+
+
 async def run_once(
     *,
     db: Any = None,
@@ -256,14 +354,38 @@ async def run_once(
         draft_backlog_limit=resolved_config.draft_backlog_limit,
     )
     audit_sink = sink if sink is not None else _default_audit_sink
-    fragment_store = store if store is not None else FragmentStore()
 
     resolved_db = db if db is not None else get_db()
+
+    # 011 ① (2026-10-03): before this fix every pass created a fresh in-memory
+    # FragmentStore, so two passes produced byte-identical output and no state
+    # survived between passes. When a DB is bound we now (a) seed the store
+    # with this tenant's persisted history and (b) persist each new fragment,
+    # so a later pass sees accumulated state.
+    persistent = resolved_db is not None
+    fragment_persist = PersistentFragmentStore(resolved_db) if persistent else None
+    fragment_store = store if store is not None else FragmentStore()
+
     adoption_store = _deprecation.AdoptionStore(db=resolved_db)
     rows = await collect_tool_rows(resolved_db, after_stream_seq=after_stream_seq)
     signals = signals_from_rows(rows)
-    fragments = fragments_from_signals(signals)
+    new_fragments = fragments_from_signals(signals)
+
+    # Seed the per-tenant scan with persisted history (011 ①). Without a DB the
+    # store stays in-memory and the history is empty — the pure-library path is
+    # unchanged.
+    history_by_tenant: dict[str, list[ExperienceFragment]] = {}
+    if persistent:
+        tenant_ids = sorted({f.tenant_id for f in new_fragments} | {"default"})
+        for tid in tenant_ids:
+            history_by_tenant[tid] = await fragment_persist.load_history(tid)
+            fragment_store.extend(history_by_tenant[tid])
+
+    fragments = new_fragments
     fragment_store.extend(fragments)
+    if persistent:
+        for frag in fragments:
+            await fragment_persist.add_persisted(frag)
 
     captured = _audit_capture_many(fragments, sink=audit_sink, actor=actor)
     generated = 0
@@ -275,7 +397,9 @@ async def run_once(
     per_tenant_drafts: dict[str, int] = {}
 
     for tenant_id in sorted({item.tenant_id for item in fragment_store.all()}):
-        result = scan_fragments(fragment_store.all(tenant_id), config=resolved_scan)
+        # 011 ①: the scan sees persisted history + this pass's new fragments.
+        visible = fragment_store.all(tenant_id)
+        result = scan_fragments(visible, config=resolved_scan)
         for cluster in result.clusters:
             if not should_generate_draft(
                 cluster,
@@ -290,14 +414,43 @@ async def run_once(
             draft_ids.append(draft.skill_id)
             per_tenant_drafts[tenant_id] = per_tenant_drafts.get(tenant_id, 0) + 1
             _audit.audit_generate(1, sink=audit_sink, actor=actor)
-            if cluster.is_mr_eligible(
-                threshold=resolved_scan.jaccard_threshold,
+            # 011 ②: persist the draft (+ its MR when eligible) so 004 has a
+            # real consumer. Before this, ``draft_ids`` only reached the report
+            # dict and was never consumed anywhere.
+            await _persist_draft(
+                resolved_db,
+                draft,
+                tenant_id,
+                cluster,
+                jaccard_threshold=resolved_scan.jaccard_threshold,
                 min_samples=resolved_scan.min_samples,
-            ):
+            )
+            # 011 ③: MR decision goes through ``mr.py`` (the single source of
+            # truth), not ``cluster.is_mr_eligible`` directly — the report found
+            # ``mr.py``'s ``generate_improvement_mr`` had zero production callers.
+            candidate = _mr.build_candidate(
+                {
+                    "key": draft.skill_id,
+                    "jaccard": cluster.similarity,
+                    "samples": cluster.sample_count,
+                }
+            )
+            if _mr.generate_improvement_mr(
+                candidate,
+                target_dir=_mr.DRAFT_DIR,
+                jaccard_threshold=resolved_scan.jaccard_threshold,
+                min_samples=resolved_scan.min_samples,
+            ) is not None:
                 _audit.audit_mr(draft.as_dict(), sink=audit_sink, actor=actor)
                 mrs += 1
 
     deprecated = 0
+    # 011 ④: when the caller does not supply its own deprecations (016's
+    # telemetry owns that input) and a DB is bound, derive them from the
+    # tenant-partitioned adoption store so the elimination chain has a real
+    # production input instead of only test-fed records.
+    if deprecations is None and persistent:
+        deprecations = await _detect_low_adoption_deprecations(resolved_db, adoption_store)
     for record in deprecations or ():
         # Persist the shared ``marked_low_quality`` bit (read by 016) and audit.
         skill_key = str(record.get("skill_key") or "")

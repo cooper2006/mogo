@@ -33,9 +33,19 @@ class ImprovementCandidate:
     samples: int
     payload: dict[str, Any] = field(default_factory=dict)
 
-    def is_high_confidence(self) -> bool:
-        """011 T012: high-confidence = Jaccard ≥ 0.7 AND samples ≥ 5."""
-        return self.jaccard >= DEFAULT_JACCARD_THRESHOLD and self.samples >= DEFAULT_MIN_SAMPLES
+    def is_high_confidence(
+        self,
+        *,
+        jaccard_threshold: float = DEFAULT_JACCARD_THRESHOLD,
+        min_samples: int = DEFAULT_MIN_SAMPLES,
+    ) -> bool:
+        """011 T012: high-confidence = Jaccard ≥ 0.7 AND samples ≥ 5.
+
+        Thresholds default to the 011 source of truth but may be overridden
+        by a per-tenant scan config so the gate stays consistent with the
+        scanner (011 ③, 2026-10-03).
+        """
+        return self.jaccard >= jaccard_threshold and self.samples >= min_samples
 
 
 @dataclass
@@ -114,9 +124,14 @@ def generate_improvement_mr(
     candidate: ImprovementCandidate,
     *,
     target_dir: str = DRAFT_DIR,
+    jaccard_threshold: float = DEFAULT_JACCARD_THRESHOLD,
+    min_samples: int = DEFAULT_MIN_SAMPLES,
 ) -> Optional[ImprovementMR]:
     """011 T011: high-confidence auto-MR. Returns None when not high-confidence."""
-    if not candidate.is_high_confidence():
+    if not candidate.is_high_confidence(
+        jaccard_threshold=jaccard_threshold,
+        min_samples=min_samples,
+    ):
         return None
     return ImprovementMR(
         key=candidate.key,
