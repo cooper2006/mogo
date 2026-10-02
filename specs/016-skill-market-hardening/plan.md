@@ -61,11 +61,10 @@ services/chat-api/app/scheduled_tasks/  # 既有：灰度周期调度复用
 - OQ-4 低质量标记阈值：**效果分 < 0.4 持续 7 天 → 自动标记低质量**（窗口可配 `quality_mark_window_days`）。
 - OQ-5 与 011 分工边界：**011 做经验侧"低采纳淘汰"（自进化闭环），016 做市场侧"低质量标记/降权"**；二者共用同一标记位 `skill_status.marked_low_quality`，避免双写。
 
-## OQ-6 效果分三维的数据归因口径（2026-10-03 决策，待实现）
+## OQ-6 效果分三维的数据归因口径（2026-10-03 决策 + 同日实现）
 
-FR-3 的效果分需要 `successful_calls` / `adopted_calls` / `corrected_calls` 三个维度。落地调研（2026-10-03）
-确认：**三维在仓库中都没有"按 skill 归因"的现成事实**，必须用户/产品先定口径。已确认口径如下
-（**本文档只记录决策，实现留待下一轮**）：
+FR-3 的效果分需要 `successful_calls` / `adopted_calls` / `corrected_calls` 三个维度。落地调研确认：
+三维此前都没有"按 skill 归因"的事实，需先定口径。口径与实现状态如下（**四项均已实现**，见 `tasks.md` T020–T024）：
 
 - **调用总数 `total_calls`**：已有真实源，✅ 已实现。DSH kernel 的 `skill.selected` 事件经
   `dsh_runtime/events/projection.py` 投影为 `item_kind="activity"` / `payload.category="skill"` 行，
@@ -84,14 +83,14 @@ FR-3 的效果分需要 `successful_calls` / `adopted_calls` / `corrected_calls`
   ⚠️ **该端点目前只覆盖对象存储，不写任何 DB/审计/编辑事件** —— 因此纠正维度**必须先新增"编辑事件"
   埋点**（记录 `blueprint_object_path`、`tenant_id`/`user_id`、编辑前后指纹、来源 `message_id`）才能采集。
   这是本轮唯一需要新增埋点的维度。
-- **成功 `successful_calls` —— 口径待定**：`enterprise_capabilities/tools/service.py` 有 `execution_succeeded`
-  与 receipt 的 `succeeded`/`failed`，可按"该轮所执行 tool 的成败"归因；但 skill 与 tool 非一一对应，
-  需产品确认是否接受"该轮无失败 tool 即视为成功"的近似口径。
-- **当前实现状态与安全保护**：采集器目前只产出 `total_calls`。`evaluate_skill_quality` 设有完整性门槛
-  （`total_calls >= MIN_EFFECT_SAMPLES(20)` **且** `adopted+corrected > 0`），缺维度时返回
-  `evaluated=False` / `insufficient_signal` 并**跳过**——因为只凭 `total` 计算得分恒为 `0.2`
-  （仅纠正反向项）< 0.4，会把全部 skill 误标低质量。**因此当前不会产生任何标记（安全但无效）**；
-  待采纳（关联即可）与纠正（需补埋点）落地后，门槛自然放开。
+- **成功 `successful_calls` —— 口径 = kernel_session + 时间窗（已实现）**：receipt 无 `message_id`
+  （`EnterpriseActionReceipt` 只有 `conversation_id`/`kernel_session_id`），故按 `kernel_session_id` 归因：
+  该 skill activity 前后 ±30min（`DEFAULT_SUCCESS_WINDOW_SECONDS`）内无 `failed`/`timed_out` 的
+  `enterprise_action_receipts` 即视为成功。
+- **实现状态（2026-10-03 同日完成）**：采集器已产出四维（total / success / adopted / corrected）。
+  完整性门槛改为 `total_calls >= MIN_EFFECT_SAMPLES(20)` **且** `success_tracked`（采集器写入 success
+  时置位；legacy total-only 桶仍被拒绝，防止只凭 total 得 0.2 分误杀全部 skill）。端到端测试
+  （`test_three_dimensions_can_actually_mark_a_low_quality_skill`）已证明：三维齐备时低质量标记可被真实触发。
 
 ## 下一步
 OQ 已 clarify 消解。P2 后置，按路线图节奏推进：`/speckit-checklist` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → `/speckit-converge`。

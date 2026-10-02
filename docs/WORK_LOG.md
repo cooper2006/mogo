@@ -3139,3 +3139,29 @@ DSH kernel 的 `skill.selected` 事件经 `dsh_runtime/events/projection.py` 投
   待 T021/T022/T023 落地后门槛自然放开。
 - **本轮改动**：仅 `specs/016-skill-market-hardening/{plan.md,spec.md,tasks.md}` 三个文档，**无代码改动**。
 - **验证**：无代码改动，未跑测试；前一轮测试基线保持（admin-api 382 / chat-api 338 passed）。
+
+## 2026-10-03（续五）016 效果分三维落地 —— T021 采纳 / T022 纠正埋点 / T023 成功 / T024 放开门槛
+
+按用户拍板：success 采用「kernel_session + 时间窗」口径；四项一次做完。**016 的自动低质量标记现已真正生效。**
+
+- **T021 采纳（无新埋点）** —— `collect_skill_activity_metrics` 对每条 skill activity 行，按 `message_id`
+  查 `enterprise_authoritative_deliveries`（`accepted=True`）→ 命中则 `adopted_calls += 1`。
+- **T022 纠正（唯一新埋点）** —— chat-api `save-blueprint` 端点新增产物编辑事件埋点：
+  - `documents.py`：`save_blueprint` 改为注入 `ApiPrincipal`，保存后调 `_record_product_edit`（best-effort，
+    失败不影响保存）；尽力从 `presentation_generation_jobs` 按 blueprint 路径反查 `message_id`。
+  - 新增 `skill_quality_report.record_product_edit` → 写 `skill_product_edit_events`（object_path/tenant/user/message_id）。
+  - admin-api `collect_edit_events`：读编辑事件，按 `message_id` 在 projections 里找该轮 skill（`_skill_key_for_message`）
+    → `corrected_calls += 1`；`_id`(ObjectId) 水位幂等；无 skill 的轮次跳过（不误归因）。
+- **T023 成功** —— `_was_successful`：同 `kernel_session_id` 且 `created_at` 在 activity 行 ±30min
+  （`DEFAULT_SUCCESS_WINDOW_SECONDS`）内存在 `failed`/`timed_out` 的 `enterprise_action_receipts` → 不算成功。
+  （receipt 无 `message_id`，故按会话+时间窗近似。）
+- **T024 放开门槛** —— 门槛由 `adopted+corrected > 0` 改为 `total_calls >= 20` **且** `success_tracked`
+  （`record_skill_call(track_success=True)` 置位，仅采集器写；legacy total-only 桶仍被拒绝，防误杀）。
+  `SkillQualityScanner._loop` 采集顺序：activity → edit events → evaluate。
+- **tenant_purge** 登记 `skill_product_edit_events` 与 `enterprise_action_receipts`（均按 tenant_id 分区）。
+- **验证**：admin-api `tests/` **389 passed**（`test_quality_metrics.py` 16 项，新增：采纳命中/未命中、
+  成功判定受时间窗与 session 约束、编辑事件归因与幂等、无 skill 的编辑跳过、**三维端到端可标记**）；
+  chat-api `tests/services`+`tests/self_evolution` **340 passed**（新增编辑事件埋点 2 项 + 集合名契约）。
+- **规格同步**：`specs/016-skill-market-hardening/{plan.md(OQ-6 标已实现), tasks.md(T020–T024 全部 [x])}`。
+- **意义**：此前"安全但无效"（门槛跳过、不产生标记）的状态结束——现在三维有真实来源，
+  持续 7 天低效果分的 skill 会被真实标记并在市场降权，端到端可证伪。

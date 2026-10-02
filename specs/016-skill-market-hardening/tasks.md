@@ -49,13 +49,16 @@
 
 - [x] T020 调用总数采集：从 `kernel_event_projections` 滚 `skill.selected` → `skill_quality_metrics`
       （admin-api `quality_metrics.collect_skill_activity_metrics`，水位幂等）+ 完整性门槛防误杀
-- [ ] T021 采纳维度：按 `message_id` 关联 `enterprise_authoritative_deliveries`（`accepted=True`）写
-      `adopted_calls`（数据已存在，仅需关联，无需新埋点）
-- [ ] T022 纠正维度：在 `POST /documents/save-blueprint` 新增"产物编辑事件"埋点（记录
-      `blueprint_object_path` / tenant / user / 编辑前后指纹 / 来源 `message_id`），再据此写 `corrected_calls`
-- [ ] T023 成功维度：确认"该轮 tool 成败"归因口径（`tools/service.py` 的 `execution_succeeded`）后写
-      `successful_calls`；口径确认后与 T021/T022 一齐放开 `evaluate_skill_quality` 的完整性门槛
-- [ ] T024 放开门槛后回归：确认三维齐备时低质量标记可被真实触发（端到端可证伪）
+- [x] T021 采纳维度：采集器按 `message_id` 关联 `enterprise_authoritative_deliveries`（`accepted=True`）
+      写 `adopted_calls`（数据已存在，无新埋点）
+- [x] T022 纠正维度：`POST /documents/save-blueprint` 新增产物编辑事件埋点
+      （chat-api `skill_quality_report.record_product_edit` → `skill_product_edit_events`，含
+      object_path / tenant / user / 来源 message_id）；admin-api `collect_edit_events` 按 message
+      归因到该轮 skill 写 `corrected_calls`（`_id` 水位幂等）
+- [x] T023 成功维度：按 `kernel_session_id` + 时间窗（默认 ±30min）判定——该窗内无
+      `failed`/`timed_out` 的 `enterprise_action_receipts` 即视为成功（receipt 无 message_id）
+- [x] T024 放开门槛后回归：门槛改为 `total_calls >= 20` 且 `success_tracked`（采集器写入 success 时置位，
+      legacy total-only 数据仍被拒绝）；新增端到端测试证明三维齐备时低质量标记可被真实触发
 
 ---
 

@@ -127,6 +127,11 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
     # 016 effect-score daily buckets, partitioned by (main_id, skill_key, date);
     # written by chat-api (skill execution) and read by admin-api's scanner.
     "skill_quality_metrics",
+    # OQ-6 correction source: product-edit events written by chat-api's
+    # ``POST /documents/save-blueprint``; partitioned by tenant_id.
+    "skill_product_edit_events",
+    # chat-api tool execution receipts (OQ-6 success source); partitioned by tenant_id.
+    "enterprise_action_receipts",
 ]
 
 # Collections with **no** tenant key of their own, purged by resolving their

@@ -77,3 +77,52 @@ def test_report_skill_call_is_tenant_and_day_partitioned():
 
 def test_report_skill_call_without_db_is_a_noop():
     report_skill_call(None, tenant_id="t1", skill_key="s", success=True)
+
+
+def test_record_product_edit_writes_an_edit_event():
+    from app.services.skill_quality_report import (
+        EDIT_EVENTS_COLLECTION,
+        record_product_edit,
+    )
+
+    db = _FakeDb()
+
+    class _EditCollection:
+        def __init__(self):
+            self.docs = []
+
+        async def insert_one(self, doc):
+            self.docs.append(doc)
+
+    class _EditDb:
+        def __init__(self):
+            self.collections = {}
+
+        def __getitem__(self, name):
+            return self.collections.setdefault(name, _EditCollection())
+
+    edb = _EditDb()
+    import asyncio
+
+    asyncio.run(
+        record_product_edit(
+            edb,
+            tenant_id="t1",
+            user_id="u1",
+            object_path="p/deck.json",
+            message_id="m1",
+        )
+    )
+    docs = edb[EDIT_EVENTS_COLLECTION].docs
+    assert len(docs) == 1
+    assert docs[0]["tenant_id"] == "t1"
+    assert docs[0]["user_id"] == "u1"
+    assert docs[0]["object_path"] == "p/deck.json"
+    assert docs[0]["message_id"] == "m1"
+    assert docs[0]["created_at"] is not None
+
+
+def test_edit_events_collection_name_matches_the_016_contract():
+    from app.services.skill_quality_report import EDIT_EVENTS_COLLECTION
+
+    assert EDIT_EVENTS_COLLECTION == "skill_product_edit_events"

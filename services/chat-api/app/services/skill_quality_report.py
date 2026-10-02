@@ -21,10 +21,41 @@ from typing import Any, Optional
 
 # Must match admin-api ``skill_market.quality_metrics.QUALITY_METRICS_COLLECTION``.
 QUALITY_METRICS_COLLECTION = "skill_quality_metrics"
+# Must match admin-api ``skill_market.quality_metrics.EDIT_EVENTS_COLLECTION``.
+EDIT_EVENTS_COLLECTION = "skill_product_edit_events"
 
 
 def _today(ts: Optional[datetime] = None) -> date:
     return (ts or datetime.now(timezone.utc)).date()
+
+
+async def record_product_edit(
+    db: Any,
+    *,
+    tenant_id: str,
+    user_id: str,
+    object_path: str,
+    message_id: str = "",
+) -> None:
+    """OQ-6 correction signal: a user edited and saved a generated product artifact.
+
+    Written by ``POST /documents/save-blueprint``. 016's collector
+    (``quality_metrics.collect_edit_events``) rolls these into ``corrected_calls``,
+    attributing the edit to the skill used on ``message_id``. An empty
+    ``message_id`` (the artifact could not be traced back to a chat turn) is still
+    recorded but cannot be attributed, so it is skipped rather than mis-counted.
+    """
+    if db is None:
+        return
+    await db[EDIT_EVENTS_COLLECTION].insert_one(
+        {
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "object_path": str(object_path or ""),
+            "message_id": str(message_id or ""),
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
 
 
 def report_skill_call(

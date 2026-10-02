@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.services.documents import document_service
-from app.api.principal import require_end_user_principal
+from app.api.principal import ApiPrincipal, require_end_user_principal
 from app.services.local_file_signing import verify_local_file_signature
 from app.services.local_file_secret import resolve_local_file_signing_secret
 
@@ -91,9 +91,11 @@ class SaveBlueprintRequest(BaseModel):
 @router.post(
     "/documents/save-blueprint",
     response_model=ApiResponse,
-    dependencies=[Depends(require_end_user_principal)],
 )
-async def save_blueprint(payload: SaveBlueprintRequest) -> ApiResponse:
+async def save_blueprint(
+    payload: SaveBlueprintRequest,
+    principal: ApiPrincipal = Depends(require_end_user_principal),
+) -> ApiResponse:
     """Save an edited blueprint back to the configured storage backend."""
     import json
     from app.utils.object_storage import ObjectStorageClient
@@ -103,10 +105,54 @@ async def save_blueprint(payload: SaveBlueprintRequest) -> ApiResponse:
     object_path = payload.blueprint_object_path
     uploader.write_bytes(object_path, content, content_type="application/json; charset=utf-8")
     signed_url = uploader.sign_url(object_path)
+    await _record_product_edit(principal, object_path)
     return ApiResponse(code=0, message="success", data={
         "object_path": object_path,
         "url": signed_url,
     })
+
+
+async def _record_product_edit(principal: ApiPrincipal, object_path: str) -> None:
+    """OQ-6: record an "edited product artifact" event for 016's correction signal.
+
+    Best-effort: a telemetry failure must never break saving the user's edit. The
+    ``message_id`` is traced back through ``presentation_generation_jobs`` so 016
+    can attribute the correction to the skill used on that turn; when it cannot be
+    traced, the event is recorded without attribution (and skipped by the collector).
+    """
+    try:
+        from app.core.db import get_db
+
+        db = get_db()
+        if db is None:
+            return
+        message_id = ""
+        try:
+            job = await db["presentation_generation_jobs"].find_one(
+                {
+                    "tenant_id": principal.main_id,
+                    "$or": [
+                        {"final_result.blueprint_artifact_path": object_path},
+                        {"final_result.preview_metadata.blueprint_artifact_path": object_path},
+                    ],
+                },
+                {"message_id": 1},
+                sort=[("updated_at", -1)],
+            )
+            message_id = str((job or {}).get("message_id") or "")
+        except Exception:
+            message_id = ""
+        from app.services.skill_quality_report import record_product_edit
+
+        await record_product_edit(
+            db,
+            tenant_id=principal.main_id,
+            user_id=principal.user_id,
+            object_path=object_path,
+            message_id=message_id,
+        )
+    except Exception:
+        return
 
 
 @router.post(

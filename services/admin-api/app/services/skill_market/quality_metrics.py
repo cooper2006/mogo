@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from app.services.skill_market.adoption_client import (
@@ -42,9 +42,24 @@ QUALITY_METRICS_COLLECTION = "skill_quality_metrics"
 # read from (011 reads the same collection for tool outcomes).
 PROJECTIONS_COLLECTION = "kernel_event_projections"
 
-# Collector high-water mark (single global doc, no tenant key of its own).
+# chat-api's accepted authoritative deliveries (OQ-6 adoption source).
+DELIVERIES_COLLECTION = "enterprise_authoritative_deliveries"
+
+# chat-api's tool execution receipts (OQ-6 success source).
+RECEIPTS_COLLECTION = "enterprise_action_receipts"
+
+# chat-api's product-edit events written by POST /documents/save-blueprint (OQ-6
+# correction source). Newly instrumented — chat-api owns the writer.
+EDIT_EVENTS_COLLECTION = "skill_product_edit_events"
+
+# Success is attributed at kernel-session level (± this window around the skill
+# activity), because receipts carry no message_id (see EnterpriseActionReceipt).
+DEFAULT_SUCCESS_WINDOW_SECONDS = 30 * 60
+
+# Collector high-water marks (single global docs, no tenant key of their own).
 COLLECTOR_STATE_COLLECTION = "skill_quality_collector_state"
 _COLLECTOR_STATE_ID = "skill_activity"
+_EDIT_STATE_ID = "product_edit"
 
 # Default cadence for the periodic assessment scanner (016 FR-6 window is 7 days,
 # but the scanner should run more often than that to keep the bit fresh).
@@ -72,13 +87,14 @@ async def record_skill_call(
     adopted: int = 0,
     corrected: int = 0,
     day: Optional[date] = None,
+    track_success: bool = False,
 ) -> None:
-    """Record one skill execution into today's bucket (chat-api writes this).
+    """Record one skill execution into today's bucket.
 
-    Counters are additive so partial information is fine: a caller that only knows
-    whether the execution succeeded passes ``success``; ``adopted`` / ``corrected``
-    default to 0 when the upstream signal is not yet wired (see WORK_LOG — the
-    adoption / correction facts are still a platform-level collection gap).
+    ``track_success=True`` marks the bucket as carrying a *real* success verdict
+    (set by the collector, which attributes success from tool receipts). Buckets
+    without the flag are legacy total-only data and are refused by the scoring
+    completeness gate, so partial data can never mass-mark healthy skills.
     """
     if db is None:
         return
@@ -95,24 +111,34 @@ async def record_skill_call(
         },
         upsert=True,
     )
+    if track_success:
+        await db[QUALITY_METRICS_COLLECTION].update_one(
+            key, {"$set": {"success_tracked": True}}, upsert=True
+        )
 
 
 async def collect_skill_activity_metrics(
     db: Any,
     *,
     limit: int = 5000,
+    success_window_seconds: int = DEFAULT_SUCCESS_WINDOW_SECONDS,
 ) -> dict[str, Any]:
     """Roll skill-activity projections into the daily metric buckets (real signal).
 
     Reads chat-api's ``kernel_event_projections`` (the durable DSH event journal) for
-    ``skill.selected`` activity rows — the platform's only real "a skill was loaded
-    and executed" fact. Each row increments that tenant/skill/day bucket's
-    ``total_calls``. A persisted high-water mark (``stream_seq``) makes the pass
-    idempotent across restarts.
+    ``skill.selected`` activity rows — the platform's real "a skill was loaded and
+    executed" fact. Each row increments that tenant/skill/day bucket, and two
+    richer dimensions are attributed from other durable chat-api collections over
+    the same MongoDB (all data already exists; no new runtime instrumentation):
 
-    Only ``total_calls`` can be derived here: the activity event has no
-    success/adoption/correction verdict. ``evaluate_skill_quality`` therefore refuses
-    to score until the richer dimensions exist (see its completeness gate).
+    * ``adopted``  — OQ-6: this row's ``message_id`` has an accepted authoritative
+      delivery (``enterprise_authoritative_deliveries``, ``accepted=True``).
+    * ``successful`` — OQ-6: no ``failed``/``timed_out`` tool receipt
+      (``enterprise_action_receipts``) in the same ``kernel_session_id`` within
+      ``success_window_seconds`` of the skill activity.
+
+    A persisted high-water mark (``stream_seq``) makes the pass idempotent.
+    ``corrected`` is supplied by the edit-event path (see ``collect_edit_events``).
     """
     if db is None:
         return {"collected": 0, "last_stream_seq": 0}
@@ -130,6 +156,9 @@ async def collect_skill_activity_metrics(
             {
                 "_id": 0,
                 "tenant_id": 1,
+                "user_id": 1,
+                "message_id": 1,
+                "kernel_session_id": 1,
                 "item_id": 1,
                 "stream_seq": 1,
                 "payload": 1,
@@ -150,7 +179,26 @@ async def collect_skill_activity_metrics(
             continue
         day = row.get("created_at")
         day = day.date() if isinstance(day, datetime) else _today()
-        await record_skill_call(db, main_id=tenant_id, skill_key=skill_key, day=day)
+        adopted = await _was_adopted(
+            db,
+            tenant_id=tenant_id,
+            message_id=str(row.get("message_id") or ""),
+        )
+        success = await _was_successful(
+            db,
+            kernel_session_id=str(row.get("kernel_session_id") or ""),
+            at=row.get("created_at"),
+            window_seconds=success_window_seconds,
+        )
+        await record_skill_call(
+            db,
+            main_id=tenant_id,
+            skill_key=skill_key,
+            success=success,
+            adopted=1 if adopted else 0,
+            day=day,
+            track_success=True,
+        )
         collected += 1
         last = max(last, int(row.get("stream_seq") or 0))
     if last > after:
@@ -160,6 +208,111 @@ async def collect_skill_activity_metrics(
             upsert=True,
         )
     return {"collected": collected, "last_stream_seq": last}
+
+
+async def collect_edit_events(db: Any, *, limit: int = 5000) -> dict[str, Any]:
+    """Roll product-edit events into ``corrected_calls`` (OQ-6 correction source).
+
+    chat-api records one event per ``POST /documents/save-blueprint`` (an edited
+    product artifact). Each event increments that tenant/skill/day bucket's
+    ``corrected_calls``. ``_id`` (ObjectId, monotonic) is the high-water mark, so
+    the pass is idempotent across restarts.
+    """
+    if db is None:
+        return {"collected": 0}
+    state = await db[COLLECTOR_STATE_COLLECTION].find_one({"_id": _EDIT_STATE_ID})
+    after_id = (state or {}).get("last_id")
+    flt: dict[str, Any] = {}
+    if after_id is not None:
+        flt["_id"] = {"$gt": after_id}
+    rows = (
+        await db[EDIT_EVENTS_COLLECTION]
+        .find(flt, {"tenant_id": 1, "message_id": 1, "skill_key": 1, "created_at": 1})
+        .sort("_id", 1)
+        .limit(int(limit))
+        .to_list(length=int(limit))
+    )
+    collected = 0
+    last_id = after_id
+    for row in rows:
+        tenant_id = str(row.get("tenant_id") or "")
+        last_id = row.get("_id", last_id)
+        if not tenant_id:
+            continue
+        skill_key = str(row.get("skill_key") or "") or await _skill_key_for_message(
+            db, message_id=str(row.get("message_id") or "")
+        )
+        if not skill_key:
+            continue
+        created = row.get("created_at")
+        day = created.date() if isinstance(created, datetime) else _today()
+        await record_skill_call(
+            db, main_id=tenant_id, skill_key=skill_key, corrected=1, day=day
+        )
+        collected += 1
+    if last_id is not None and last_id != after_id:
+        await db[COLLECTOR_STATE_COLLECTION].update_one(
+            {"_id": _EDIT_STATE_ID},
+            {"$set": {"last_id": last_id}},
+            upsert=True,
+        )
+    return {"collected": collected}
+
+
+async def _skill_key_for_message(db: Any, *, message_id: str) -> str:
+    """Attribute an edit event to the skill used on its chat turn (OQ-6).
+
+    The edit event itself carries no skill key; the turn's ``skill.selected``
+    activity row does. Returns "" when the turn used no skill (nothing to charge).
+    """
+    if not message_id:
+        return ""
+    row = await db[PROJECTIONS_COLLECTION].find_one(
+        {"message_id": message_id, "item_kind": "activity", "payload.category": "skill"},
+        {"item_id": 1, "payload": 1},
+        sort=[("stream_seq", 1)],
+    )
+    if row is None:
+        return ""
+    return _skill_key_from_activity(row)
+
+
+async def _was_adopted(db: Any, *, tenant_id: str, message_id: str) -> bool:
+    """OQ-6 adoption: an accepted authoritative delivery exists for this message."""
+    if not message_id:
+        return False
+    row = await db[DELIVERIES_COLLECTION].find_one(
+        {"tenant_id": tenant_id, "message_id": message_id, "accepted": True},
+        {"_id": 1},
+    )
+    return row is not None
+
+
+async def _was_successful(
+    db: Any,
+    *,
+    kernel_session_id: str,
+    at: Any,
+    window_seconds: int,
+) -> bool:
+    """OQ-6 success: no failed/timed-out tool receipt near this skill activity.
+
+    Receipts carry no ``message_id`` (see ``EnterpriseActionReceipt``), so success is
+    attributed at the kernel-session level over a time window around the activity.
+    """
+    if not kernel_session_id:
+        return True
+    flt: dict[str, Any] = {
+        "kernel_session_id": kernel_session_id,
+        "status": {"$in": ["failed", "timed_out"]},
+    }
+    if isinstance(at, datetime):
+        flt["created_at"] = {
+            "$gte": at - timedelta(seconds=int(window_seconds)),
+            "$lte": at + timedelta(seconds=int(window_seconds)),
+        }
+    row = await db[RECEIPTS_COLLECTION].find_one(flt, {"_id": 1})
+    return row is None
 
 
 def _skill_key_from_activity(row: dict[str, Any]) -> str:
@@ -204,13 +357,20 @@ async def _aggregate(
     )
     totals = {"total_calls": 0, "successful_calls": 0, "adopted_calls": 0, "corrected_calls": 0}
     by_day: dict[str, dict[str, int]] = {}
+    success_tracked = False
     for row in rows:
         for k in totals:
             totals[k] += int(row.get(k) or 0)
+        success_tracked = success_tracked or bool(row.get("success_tracked"))
         by_day[row.get("date")] = row
 
     if totals["total_calls"] == 0:
-        return {**totals, "effect_score": 0.0, "sustained_low_days": 0}
+        return {
+            **totals,
+            "effect_score": 0.0,
+            "sustained_low_days": 0,
+            "success_tracked": success_tracked,
+        }
 
     effect = compute_effect_score(
         total_calls=totals["total_calls"],
@@ -239,7 +399,12 @@ async def _aggregate(
             sustained += 1
         else:
             break
-    return {**totals, "effect_score": effect.score, "sustained_low_days": sustained}
+    return {
+        **totals,
+        "effect_score": effect.score,
+        "sustained_low_days": sustained,
+        "success_tracked": success_tracked,
+    }
 
 
 async def evaluate_skill_quality(
@@ -255,18 +420,16 @@ async def evaluate_skill_quality(
     Returns the assessment outcome (effect score, sustained days, whether the
     aggregated ``marked_low_quality`` bit is now set).
 
-    Completeness gate: the score is only *persisted* when there is enough data to
-    trust it — at least ``min_samples`` calls in the window **and** at least one
-    adoption/correction signal. Without this, a window that only carries
-    ``total_calls`` (the skill-activity collection is still partial) would score
-    ``0.2`` (correction-inverse only) and mass-mark every healthy skill as low
-    quality. Incomplete windows are skipped, never marked.
+    Completeness gate: the score is only *persisted* when there is enough trustworthy
+    data — at least ``min_samples`` calls in the window **and** the window carries a
+    real success verdict (``success_tracked``, set by the collector when it
+    attributes success from tool receipts). Legacy total-only buckets would score
+    ``0.2`` (correction-inverse only) and mass-mark healthy skills as low quality;
+    they are skipped, never marked. Once the success dimension is present, adoption
+    and correction legitimately default to 0 (a real "not adopted / not corrected").
     """
     agg = await _aggregate(db, main_id=main_id, skill_key=skill_key, window_days=window_days)
-    sufficient = (
-        agg["total_calls"] >= int(min_samples)
-        and (agg["adopted_calls"] + agg["corrected_calls"]) > 0
-    )
+    sufficient = agg["total_calls"] >= int(min_samples) and bool(agg["success_tracked"])
     if not sufficient:
         return {
             "skill_key": skill_key,
@@ -366,9 +529,10 @@ class SkillQualityScanner:
         while not self._stopping.is_set():
             try:
                 db = self._db if self._db is not None else get_db()
-                # Order matters: first fold new skill-activity facts into the daily
-                # buckets, then score them.
+                # Order matters: first fold new facts into the daily buckets, then
+                # score them.
                 await collect_skill_activity_metrics(db)
+                await collect_edit_events(db)
                 await evaluate_all(db, window_days=self._window_days)
             except Exception:  # pragma: no cover - defensive
                 logger.exception("skill quality scan failed")

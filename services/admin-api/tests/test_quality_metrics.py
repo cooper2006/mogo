@@ -19,10 +19,14 @@ from app.services.skill_market.adoption_client import (
 )
 from app.services.skill_market.quality_metrics import (
     COLLECTOR_STATE_COLLECTION,
+    DELIVERIES_COLLECTION,
+    EDIT_EVENTS_COLLECTION,
     LOW_QUALITY_SUSTAINED_DAYS,
     MIN_EFFECT_SAMPLES,
     PROJECTIONS_COLLECTION,
     QUALITY_METRICS_COLLECTION,
+    RECEIPTS_COLLECTION,
+    collect_edit_events,
     collect_skill_activity_metrics,
     evaluate_all,
     evaluate_skill_quality,
@@ -59,14 +63,25 @@ def _dig(doc, dotted):
 def _matches_row(row, flt):
     for k, v in flt.items():
         actual = _dig(row, k)
-        if isinstance(v, dict) and "$gt" in v:
+        if isinstance(v, dict) and "$in" in v:
+            if actual not in v["$in"]:
+                return False
+        elif isinstance(v, dict) and "$gt" in v:
             if not (actual is not None and actual > v["$gt"]):
                 return False
         elif isinstance(v, dict) and "$gte" in v:
-            if str(actual or "") < str(v["$gte"]):
+            if actual is None:
+                return False
+            if isinstance(actual, str) != isinstance(v["$gte"], str):
+                return False
+            if actual < v["$gte"]:
                 return False
         elif isinstance(v, dict) and "$lte" in v:
-            if str(actual or "") > str(v["$lte"]):
+            if actual is None:
+                return False
+            if isinstance(actual, str) != isinstance(v["$lte"], str):
+                return False
+            if actual > v["$lte"]:
                 return False
         elif actual != v:
             return False
@@ -80,11 +95,12 @@ class _FakeCursor:
     def find(self, flt, projection=None):
         return _FakeResult([r for r in self._rows if _matches_row(r, flt)])
 
-    async def find_one(self, flt, projection=None):
-        for r in self._rows:
-            if _matches_row(r, flt):
-                return dict(r)
-        return None
+    async def find_one(self, flt, projection=None, sort=None):
+        rows = [r for r in self._rows if _matches_row(r, flt)]
+        if sort:
+            key, direction = sort[0]
+            rows = sorted(rows, key=lambda r: r.get(key) or 0, reverse=int(direction) < 0)
+        return dict(rows[0]) if rows else None
 
     def aggregate(self, pipeline):
         # Only the {"$group": {"_id": {"main_id", "skill_key"}}} shape is used.
@@ -126,12 +142,16 @@ class _FakeCursor:
 
 
 def _fake_db(rows):
-    # Four collections are touched: metric buckets (read/score), the shared adoption
-    # bit, chat-api's kernel projections (collected), and the collector watermark.
+    # Collections touched: metric buckets (read/score), the shared adoption bit,
+    # chat-api's kernel projections + deliveries + receipts (collected), the
+    # product-edit events, and the collector watermark.
     shared = list(rows)
     metrics = _FakeCursor(shared)
     adoption = _FakeCursor([])
     projections = _FakeCursor([])
+    deliveries = _FakeCursor([])
+    receipts = _FakeCursor([])
+    edits = _FakeCursor([])
     state = _FakeCursor([])
 
     class _Db:
@@ -142,11 +162,17 @@ def _fake_db(rows):
                 return adoption
             if name == PROJECTIONS_COLLECTION:
                 return projections
+            if name == DELIVERIES_COLLECTION:
+                return deliveries
+            if name == RECEIPTS_COLLECTION:
+                return receipts
+            if name == EDIT_EVENTS_COLLECTION:
+                return edits
             if name == COLLECTOR_STATE_COLLECTION:
                 return state
             raise AssertionError(f"unexpected collection {name}")
 
-    return _Db(), metrics, adoption, projections, state
+    return _Db(), metrics, adoption, projections, state, deliveries, receipts, edits
 
 
 def _seed_low_days(db_cursor, *, main_id, skill_key, days, success=False):
@@ -163,12 +189,14 @@ def _seed_low_days(db_cursor, *, main_id, skill_key, days, success=False):
                 "successful_calls": 10 if success else 10,
                 "adopted_calls": 10,
                 "corrected_calls": 80,
+                # A real success verdict is present, so the scoring gate passes.
+                "success_tracked": True,
             }
         )
 
 
 def test_record_skill_call_accumulates_daily_buckets():
-    db, cursor, _adoption, _proj, _state = _fake_db([])
+    db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     asyncio.run(
         record_skill_call(db, main_id="t1", skill_key="s", success=True, adopted=1, corrected=0)
     )
@@ -183,7 +211,7 @@ def test_record_skill_call_accumulates_daily_buckets():
 
 
 def test_sustained_low_quality_marks_shared_bit():
-    db, cursor, _adoption, _proj, _state = _fake_db([])
+    db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
 
     outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="weak"))
@@ -195,7 +223,7 @@ def test_sustained_low_quality_marks_shared_bit():
 
 
 def test_interrupted_window_resets_sustained_streak():
-    db, cursor, _adoption, _proj, _state = _fake_db([])
+    db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
     # Insert one healthy day in the middle of the window -> streak breaks.
     mid = (date.today() - timedelta(days=3)).isoformat()
@@ -208,6 +236,7 @@ def test_interrupted_window_resets_sustained_streak():
             "successful_calls": 90,
             "adopted_calls": 80,
             "corrected_calls": 5,
+            "success_tracked": True,
         }
     )
     outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="weak"))
@@ -218,7 +247,7 @@ def test_interrupted_window_resets_sustained_streak():
 
 
 def test_healthy_skill_is_not_marked():
-    db, cursor, _adoption, _proj, _state = _fake_db([])
+    db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
         day = (date.today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
@@ -230,6 +259,7 @@ def test_healthy_skill_is_not_marked():
                 "successful_calls": 95,
                 "adopted_calls": 80,
                 "corrected_calls": 5,
+                "success_tracked": True,
             }
         )
     outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="good"))
@@ -238,7 +268,7 @@ def test_healthy_skill_is_not_marked():
 
 
 def test_evaluate_all_scores_every_key():
-    db, cursor, _adoption, _proj, _state = _fake_db([])
+    db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
     _seed_low_days(cursor, main_id="t1", skill_key="weaker", days=LOW_QUALITY_SUSTAINED_DAYS)
     # A different tenant must not leak.
@@ -282,7 +312,7 @@ def _activity_row(tenant_id, source_id, seq, day=None):
 def test_collect_skill_activity_writes_total_and_advances_watermark():
     from datetime import datetime, timezone
 
-    db, cursor, _adoption, proj, state = _fake_db([])
+    db, cursor, _adoption, proj, state, _deliv, _recv, _edits = _fake_db([])
     today = datetime.now(timezone.utc)
     proj._rows.extend(
         [
@@ -309,7 +339,7 @@ def test_total_only_metrics_are_not_scored_mass_marked():
     # Regression guard: with only total_calls (no success/adoption/correction
     # verdict yet) the score would be 0.2 < 0.4 and would mass-mark every skill.
     # The completeness gate must skip instead.
-    db, cursor, _adoption, _proj, _state = _fake_db([])
+    db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
         day = (date.today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
@@ -331,7 +361,7 @@ def test_total_only_metrics_are_not_scored_mass_marked():
 
 
 def test_below_min_samples_is_not_scored():
-    db, cursor, _adoption, _proj, _state = _fake_db([])
+    db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
         day = (date.today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
@@ -348,3 +378,165 @@ def test_below_min_samples_is_not_scored():
     outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="rare"))
     assert outcome["evaluated"] is False
     assert MIN_EFFECT_SAMPLES > 2
+
+
+# --- OQ-6 richer dimensions ---------------------------------------------------
+
+
+def _activity_with_message(tenant_id, source_id, seq, message_id, session_id, when):
+    return {
+        "tenant_id": tenant_id,
+        "user_id": "u1",
+        "item_kind": "activity",
+        "type": "item.completed",
+        "event_id": f"dsh-v3:{seq}",
+        "item_id": f"{message_id}:selected-skill:{source_id}",
+        "message_id": message_id,
+        "kernel_session_id": session_id,
+        "stream_seq": seq,
+        "payload": {"category": "skill", "skill_name": f"name-{source_id}"},
+        "created_at": when,
+    }
+
+
+def test_adoption_is_attributed_from_accepted_delivery():
+    from datetime import datetime, timezone
+
+    db, cursor, _adoption, proj, _state, deliv, _recv, _edits = _fake_db([])
+    when = datetime.now(timezone.utc)
+    proj._rows.append(_activity_with_message("t1", "skill-a", 10, "m1", "sess-1", when))
+    # The turn produced an accepted authoritative delivery -> adopted.
+    deliv._rows.append({"tenant_id": "t1", "message_id": "m1", "accepted": True})
+
+    asyncio.run(collect_skill_activity_metrics(db))
+    bucket = cursor._rows[0]
+    assert bucket["total_calls"] == 1
+    assert bucket["adopted_calls"] == 1
+    assert bucket["success_tracked"] is True
+
+
+def test_adoption_absent_without_accepted_delivery():
+    from datetime import datetime, timezone
+
+    db, cursor, _adoption, proj, _state, deliv, _recv, _edits = _fake_db([])
+    when = datetime.now(timezone.utc)
+    proj._rows.append(_activity_with_message("t1", "skill-a", 10, "m1", "sess-1", when))
+    # Only a rejected / unrelated delivery exists -> not adopted.
+    deliv._rows.append({"tenant_id": "t1", "message_id": "m2", "accepted": True})
+
+    asyncio.run(collect_skill_activity_metrics(db))
+    assert cursor._rows[0]["adopted_calls"] == 0
+
+
+def test_success_is_attributed_from_failed_receipt_in_window():
+    from datetime import datetime, timedelta, timezone
+
+    db, cursor, _adoption, proj, _state, _deliv, recv, _edits = _fake_db([])
+    when = datetime.now(timezone.utc)
+    proj._rows.append(_activity_with_message("t1", "skill-a", 10, "m1", "sess-1", when))
+    # A failed tool receipt in the same kernel session, close in time.
+    recv._rows.append(
+        {
+            "kernel_session_id": "sess-1",
+            "status": "failed",
+            "created_at": when - timedelta(seconds=30),
+        }
+    )
+
+    asyncio.run(collect_skill_activity_metrics(db))
+    bucket = cursor._rows[0]
+    assert bucket["total_calls"] == 1
+    assert bucket["successful_calls"] == 0  # not successful
+
+
+def test_success_ignores_receipts_outside_window_or_other_session():
+    from datetime import datetime, timedelta, timezone
+
+    db, cursor, _adoption, proj, _state, _deliv, recv, _edits = _fake_db([])
+    when = datetime.now(timezone.utc)
+    proj._rows.append(_activity_with_message("t1", "skill-a", 10, "m1", "sess-1", when))
+    recv._rows.extend(
+        [
+            # Too far away in time.
+            {"kernel_session_id": "sess-1", "status": "failed", "created_at": when - timedelta(hours=5)},
+            # Different session.
+            {"kernel_session_id": "sess-2", "status": "failed", "created_at": when},
+        ]
+    )
+    asyncio.run(collect_skill_activity_metrics(db))
+    assert cursor._rows[0]["successful_calls"] == 1
+
+
+def test_edit_event_is_attributed_to_the_turn_skill():
+    from datetime import datetime, timezone
+
+    db, cursor, _adoption, proj, _state, _deliv, _recv, edits = _fake_db([])
+    when = datetime.now(timezone.utc)
+    proj._rows.append(_activity_with_message("t1", "skill-a", 10, "m1", "sess-1", when))
+    edits._rows.append(
+        {
+            "_id": 1,
+            "tenant_id": "t1",
+            "user_id": "u1",
+            "object_path": "p/deck.json",
+            "message_id": "m1",
+            "created_at": when,
+        }
+    )
+    result = asyncio.run(collect_edit_events(db))
+    assert result["collected"] == 1
+    bucket = cursor._rows[0]
+    assert bucket["corrected_calls"] == 1
+    # Idempotent: the same event is not counted twice.
+    again = asyncio.run(collect_edit_events(db))
+    assert again["collected"] == 0
+    assert cursor._rows[0]["corrected_calls"] == 1
+
+
+def test_edit_event_without_a_skill_on_the_turn_is_skipped():
+    from datetime import datetime, timezone
+
+    db, cursor, _adoption, _proj, _state, _deliv, _recv, edits = _fake_db([])
+    edits._rows.append(
+        {
+            "_id": 1,
+            "tenant_id": "t1",
+            "user_id": "u1",
+            "object_path": "p/deck.json",
+            "message_id": "m-without-skill",
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    result = asyncio.run(collect_edit_events(db))
+    assert result["collected"] == 0
+    assert cursor._rows == []
+
+
+def test_three_dimensions_can_actually_mark_a_low_quality_skill():
+    # End-to-end: collected real dimensions -> score -> shared marker set. This is
+    # the "falsifiable" half that was previously blocked by the completeness gate.
+    from datetime import datetime, timedelta, timezone
+
+    db, cursor, _adoption, proj, _state, deliv, recv, _edits = _fake_db([])
+    base = datetime.now(timezone.utc)
+    # The sustained window needs LOW_QUALITY_SUSTAINED_DAYS consecutive low days, so
+    # spread the calls across that many days (>= MIN_EFFECT_SAMPLES in total).
+    seq = 100
+    per_day = max(1, -(-MIN_EFFECT_SAMPLES // LOW_QUALITY_SUSTAINED_DAYS))
+    for day_offset in range(LOW_QUALITY_SUSTAINED_DAYS):
+        day = base - timedelta(days=day_offset)
+        for i in range(per_day):
+            seq += 1
+            # Every call failed -> success rate 0; no adoption; a correction each time.
+            when = day - timedelta(minutes=i)
+            proj._rows.append(
+                _activity_with_message("t1", "weak", seq, f"m{seq}", f"s{seq}", when)
+            )
+            recv._rows.append(
+                {"kernel_session_id": f"s{seq}", "status": "failed", "created_at": when}
+            )
+    asyncio.run(collect_skill_activity_metrics(db))
+    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="weak"))
+    assert outcome["evaluated"] is True
+    assert outcome["marked_low_quality"] is True
+    assert asyncio.run(fetch_marked_skill_keys(db, main_id="t1")) == {"weak"}
