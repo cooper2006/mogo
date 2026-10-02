@@ -208,6 +208,13 @@ def _patch_provision_internals(monkeypatch):
     monkeypatch.setattr(tenant_provisioning, "configure_setup_knowledge_models", _fake_configure_knowledge)
     monkeypatch.setattr(tenant_provisioning, "save_setup_search", _fake_save_search)
     monkeypatch.setattr(tenant_provisioning, "ensure_tenant_record", _fake_ensure_tenant_record)
+
+    async def _fake_audit(main_id, actor, action, target, result, detail=None):
+        captured.setdefault("audits", []).append(
+            {"main_id": main_id, "actor": actor, "action": action, "target": target, "result": result, "detail": detail or {}}
+        )
+
+    monkeypatch.setattr(tenant_provisioning.tenant_lifecycle, "record_tenant_audit", _fake_audit)
     fake_db = _FakeDB()
     monkeypatch.setattr(tenant_provisioning, "get_db", lambda: fake_db)
     return captured, fake_db
@@ -317,3 +324,52 @@ def test_provision_tenant_rolls_back_on_failure(monkeypatch) -> None:
             )
         )
     assert captured["main_id"] == "fixed-main-id"
+
+
+# ---- SC-007: tenant creation must be auditable ----
+
+
+def test_provision_tenant_audits_success(monkeypatch) -> None:
+    captured, _ = _patch_provision_internals(monkeypatch)
+    result = asyncio.run(
+        tenant_provisioning.provision_tenant(
+            org_name="Acme",
+            admin_username="admin",
+            admin_password="adminpass123",
+            admin_display_name="系统管理员",
+            created_by="platform-admin:root",
+        )
+    )
+    audits = captured.get("audits") or []
+    assert len(audits) == 1, f"SC-007: exactly one create audit expected, got {audits}"
+    row = audits[0]
+    assert row["main_id"] == result.main_id
+    assert row["actor"] == "platform-admin:root"
+    assert row["action"] == "create"
+    assert row["result"] == "success"
+    assert row["detail"]["admin_username"] == "admin"
+
+
+def test_provision_tenant_audits_failure(monkeypatch) -> None:
+    """A rolled-back provisioning attempt must still be traceable."""
+    captured, _ = _patch_provision_internals(monkeypatch)
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("db exploded")
+
+    monkeypatch.setattr(tenant_provisioning, "ensure_tenant_record", boom)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            tenant_provisioning.provision_tenant(
+                org_name="Acme",
+                admin_username="admin",
+                admin_password="adminpass123",
+                admin_display_name="系统管理员",
+                created_by="platform-admin:root",
+            )
+        )
+    audits = captured.get("audits") or []
+    assert len(audits) == 1, f"SC-007: a failed create must be audited, got {audits}"
+    assert audits[0]["result"] == "failure"
+    assert "db exploded" in audits[0]["detail"]["error"]

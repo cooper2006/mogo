@@ -34,7 +34,9 @@ def _matches(doc: dict, flt: dict | None) -> bool:
                     return False
                 elif op == "$lt" and not (actual is not None and actual < operand):
                     return False
-                elif op not in ("$ne", "$lt"):
+                elif op == "$in" and actual not in operand:
+                    return False
+                elif op not in ("$ne", "$lt", "$in"):
                     raise AssertionError(f"unsupported operator in test fake: {op}")
         elif actual != value:
             return False
@@ -70,6 +72,14 @@ class _MemCol:
         before = len(self.docs)
         self.docs = [doc for doc in self.docs if not _matches(doc, flt)]
         return _Result(before - len(self.docs))
+
+    async def distinct(self, key, flt=None):
+        seen = []
+        for doc in self.docs:
+            if _matches(doc, flt) and doc.get(key) is not None:
+                if doc[key] not in seen:
+                    seen.append(doc[key])
+        return seen
 
     def find(self, flt, projection=None):
         rows = [dict(doc) for doc in self.docs if _matches(doc, flt)]
@@ -239,9 +249,212 @@ def test_governance_list_includes_hook_rules() -> None:
     assert "hook_rules" in tenant_purge.TENANT_GOVERNANCE_COLLECTIONS
 
 
+def test_collection_list_covers_tenant_id_partitioned_collections() -> None:
+    """Regression: 5 governance collections were missing from the purge lists.
+
+    These are all partitioned by ``tenant_id`` (not ``main_id``), so they were
+    invisible to the pass that scanned for ``main_id`` writes.
+    """
+    governance = set(tenant_purge.TENANT_GOVERNANCE_COLLECTIONS)
+    for name in (
+        "agent_kernel_bindings",
+        "enterprise_authoritative_deliveries",
+        "presentation_generation_jobs",
+        "runtime_profile_versions",
+        "runtime_profile_audit",
+        # Found by scanning collection-name literals instead of constants:
+        # ``business_semantic_index.py`` uses ``db["business_entity_index"]``
+        # directly, so no ``*_COLLECTION`` constant ever named it.
+        "business_entity_index",
+    ):
+        assert name in governance, f"{name} is tenant_id-partitioned and must be purged"
+
+
+def test_collection_list_covers_main_id_partitioned_preferences() -> None:
+    """``user_shortcut_preferences`` and ``session_snapshots`` carry ``main_id``."""
+    scoped = set(tenant_purge.TENANT_SCOPED_COLLECTIONS)
+    for name in ("user_shortcut_preferences", "session_snapshots"):
+        assert name in scoped, f"{name} carries main_id and must be purged"
+
+
+def test_session_shares_is_resolved_not_matched() -> None:
+    """``session_shares`` has no tenant key, so a plain sweep cannot find it.
+
+    Putting it in either keyed list would look correct and silently delete
+    nothing (there is no ``main_id``/``tenant_id`` field to match). It belongs
+    to ``TENANT_ORPHANED_COLLECTIONS``, which is cascaded from ``chat_sessions``.
+    """
+    assert "session_shares" in tenant_purge.TENANT_ORPHANED_COLLECTIONS
+    assert "session_shares" not in tenant_purge.TENANT_SCOPED_COLLECTIONS
+    assert "session_shares" not in tenant_purge.TENANT_GOVERNANCE_COLLECTIONS
+
+
+def test_every_main_id_keyed_collection_in_the_tree_is_covered() -> None:
+    """T045's own wording, turned into a guard: scan the tree, not memory.
+
+    T045 said ``TENANT_SCOPED_COLLECTIONS`` should be "scanned from the
+    collections that actually carry ``main_id``". The delivered artefact was a
+    hand-written list, which is exactly why it drifted. This test does the
+    scan for real, so drift fails CI instead of failing an audit.
+
+    It greps every ``*_COLLECTION = "..."`` constant in both services, finds
+    the ones whose write sites include a ``main_id``/``tenant_id`` key, and
+    asserts they are covered (or explicitly exempted).
+    """
+    import re
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[3]
+    services_root = repo_root / "services"
+
+    # 1. Collect every collection-name constant declared in the tree.
+    declared: dict[str, list[str]] = {}
+    for path in services_root.rglob("*.py"):
+        if ".venv" in path.parts or "venv" in path.parts:
+            continue
+        try:
+            text = path.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        for match in re.finditer(r'[A-Za-z_]*COLLECTION\s*[:=]+\s*["\']([a-z0-9_]+)["\']', text):
+            declared.setdefault(match.group(1), []).append(
+                f"{path.relative_to(repo_root)}:{text[: match.start()].count(chr(10)) + 1}"
+            )
+
+    covered = (
+        set(tenant_purge.TENANT_SCOPED_COLLECTIONS)
+        | set(tenant_purge.TENANT_GOVERNANCE_COLLECTIONS)
+        | set(tenant_purge.TENANT_ORPHANED_COLLECTIONS)
+    )
+
+    # 2. Exemptions, each with a reason. Anything not here must be covered.
+    exempt = {
+        # Global / platform singletons — never tenant-partitioned.
+        "system_bootstrap",      # _id: "singleton"
+        "capability_assets",     # find({}) global catalogue
+        "admin_model_providers", # global provider seeds
+        "admin_sessions",        # session-id keyed
+        # Purge survives these on purpose (see the sibling test).
+        "system_audit_logs",
+        "tenants",
+        # Transient, no business value, TTL or presence-only.
+        "end_user_login_challenges",
+        "presence_heartbeats",
+        "session_presence_state",
+    }
+
+    missing = sorted(name for name in declared if name not in covered and name not in exempt)
+    assert not missing, (
+        "collections declared in the tree are missing from the purge lists — "
+        + ", ".join(f"{n} ({declared[n][0]})" for n in missing[:12])
+    )
+
+    # 3. The reverse direction: everything the lists claim to purge must be a
+    #    collection that actually exists in the tree, or a known literal-name
+    #    one (chat-api writes some collections via ``db["name"]`` literals with
+    #    no constant at all — ``business_entity_index`` was missed for exactly
+    #    this reason). A typo'd name here deletes nothing, silently.
+    literal_only = {
+        "business_entity_index",
+        "chat_messages",
+        "chat_sessions",
+        "desktop_projects",
+        "execution_logs",
+        "project_memories",
+        "site_profiles",
+        "skill_packages",
+        "user_skills",
+    }
+    unknown = sorted(name for name in covered if name not in declared and name not in literal_only)
+    assert not unknown, f"purge lists reference collections that do not exist: {unknown}"
+    # The literal-only escape hatch must not become a dumping ground.
+    assert len(literal_only - set(declared)) == len(literal_only), (
+        "a name in ``literal_only`` is now declared as a constant — drop it "
+        "from the escape hatch so the scan covers it properly"
+    )
+
+
+def test_transient_collections_are_exempt_not_forgotten() -> None:
+    """Presence/heartbeat rows have no tenant key and no business value.
+
+    They are session-scoped and TTL'd, so there is nothing to "leak" once the
+    session itself is gone. Pinned as an explicit decision (see quickstart §7)
+    rather than an omission.
+    """
+    covered = (
+        set(tenant_purge.TENANT_SCOPED_COLLECTIONS)
+        | set(tenant_purge.TENANT_GOVERNANCE_COLLECTIONS)
+        | set(tenant_purge.TENANT_ORPHANED_COLLECTIONS)
+    )
+    for name in ("presence_heartbeats", "session_presence_state", "capability_assets"):
+        assert name not in covered, f"{name} holds no tenant data; exempt by decision"
+
+
+def test_platform_side_collections_are_deliberately_exempt() -> None:
+    """Two collections hold *platform* records and must NOT be swept.
+
+    - ``system_audit_logs`` *is* keyed by ``main_id``, but the rows record what
+      the platform administrator did **to** a tenant. Deleting them on purge
+      would erase the very trail SC-007 exists to keep. This is the §1.3
+      decision, now written down as an executable answer rather than a comment.
+    - ``tenants`` is the registry itself; it is turned into a tombstone by
+      ``run_purge`` instead of being deleted.
+    """
+    for name in ("system_audit_logs", "tenants"):
+        assert name not in tenant_purge.TENANT_SCOPED_COLLECTIONS, f"{name} must survive the sweep"
+        assert name not in tenant_purge.TENANT_GOVERNANCE_COLLECTIONS
+
+
 def test_collection_lists_have_no_duplicates() -> None:
     scoped = tenant_purge.TENANT_SCOPED_COLLECTIONS
     assert len(scoped) == len(set(scoped))
+
+
+# ---------------------------------------------------------------------------
+# Audit P2 (accepted): the in-memory task store must be bounded
+# ---------------------------------------------------------------------------
+
+
+def test_task_store_is_bounded() -> None:
+    """A long-lived process must not accumulate a task entry per purge forever.
+
+    The store is in-memory (audit P2), so the least we can do is cap it. This
+    pins the cap: without it, a deployment purging thousands of tenants would
+    leak one dict entry each, in a process meant to run for months.
+    """
+    store = tenant_purge._PurgeTaskStore()
+    cap = tenant_purge._PurgeTaskStore._MAX_TASKS
+    assert cap > 0
+
+    for i in range(cap + 50):
+        store.create(f"tenant-{i}", f"task-{i}")
+
+    assert len(store._tasks) <= cap, "task map grew past its bound"
+    assert len(store._main_id_to_task) <= cap, "index grew past its bound"
+
+
+def test_task_store_eviction_clears_the_index() -> None:
+    """Evicting a task must not leave the main_id index pointing at nothing.
+
+    ``get_for_main_id`` resolves through ``_main_id_to_task``; a stale entry
+    there would make it return ``None`` for a tenant whose purge we dropped,
+    which reads as "never purged" rather than "forgotten". Both are wrong, but
+    the stale-index version is the one that looks like a bug in the caller.
+    """
+    store = tenant_purge._PurgeTaskStore()
+    cap = tenant_purge._PurgeTaskStore._MAX_TASKS
+
+    store.create("tenant-0", "task-0")
+    for i in range(1, cap + 10):
+        store.create(f"tenant-{i}", f"task-{i}")
+
+    # "tenant-0" was evicted, so its index entry must have gone with it.
+    assert store.get_for_main_id("tenant-0") is None
+    # The newest tenant is still resolvable.
+    assert store.get_for_main_id(f"tenant-{cap + 9}") is not None
+    # Every surviving index entry points at a task that actually exists.
+    for main_id, key in store._main_id_to_task.items():
+        assert store.get(key) is not None, f"stale index entry for {main_id}"
 
 
 def test_mongo_phase_deletes_tenant_rows(monkeypatch) -> None:
@@ -256,6 +469,61 @@ def test_mongo_phase_deletes_tenant_rows(monkeypatch) -> None:
     assert mem["chat_messages"].docs == []
     # The tenant row survives so the caller can decide archived vs purged.
     assert mem["tenants"].docs[0]["status"] == "archived"
+
+
+# ---------------------------------------------------------------------------
+# Collections with no tenant key — purged by cascading from the parent
+# ---------------------------------------------------------------------------
+
+
+def test_shares_are_purged_by_cascading_from_sessions(monkeypatch) -> None:
+    """``session_shares`` carries no tenant key, so it is resolved via sessions.
+
+    A share row is only ``share_id`` / ``session_id`` / ``snapshot_id`` —
+    ``ShareStore`` never persists the tenant. Without the cascade, a purged
+    tenant's share tokens live forever with no way to attribute them.
+    """
+    mem = _Mem()
+    _seed(mem)
+    mem["chat_sessions"].docs.append({"_id": "s1", "main_id": MAIN_ID})
+    mem["chat_sessions"].docs.append({"_id": "s2", "main_id": MAIN_ID})
+    # A session belonging to someone else must be left alone.
+    mem["chat_sessions"].docs.append({"_id": "s9", "main_id": "other-tenant"})
+    mem["session_shares"].docs.append({"share_id": "sh1", "session_id": "s1"})
+    mem["session_shares"].docs.append({"share_id": "sh2", "session_id": "s2"})
+    mem["session_shares"].docs.append({"share_id": "sh9", "session_id": "s9"})
+    monkeypatch.setattr(tenant_purge, "get_db", lambda: mem)
+
+    asyncio.run(tenant_purge._phase_mongo(MAIN_ID))
+
+    left = [doc["share_id"] for doc in mem["session_shares"].docs]
+    assert "sh1" not in left, "shares of the purged tenant must go"
+    assert "sh2" not in left
+    assert left == ["sh9"], f"another tenant's share must survive, got {left}"
+
+
+def test_cascade_needs_sessions_so_ordering_matters(monkeypatch) -> None:
+    """The cascade resolves shares through sessions, so ordering is load-bearing.
+
+    If someone moved ``session_shares`` into ``TENANT_SCOPED_COLLECTIONS`` it
+    would match on ``main_id`` and delete nothing (that field is not stored
+    there). This pins that the real thing works — and the sibling test above
+    proves it works through the full phase, i.e. while sessions still exist.
+    """
+    mem = _Mem()
+    monkeypatch.setattr(tenant_purge, "get_db", lambda: mem)
+
+    # A tenant with no sessions at all must not blow up or delete anything.
+    mem["session_shares"].docs.append({"share_id": "other", "session_id": "nope"})
+    asyncio.run(tenant_purge._purge_key_only_collections(mem, MAIN_ID))
+    assert len(mem["session_shares"].docs) == 1, "no sessions → no cascade, nothing deleted"
+
+    # With a session of our own, its share goes.
+    mem["chat_sessions"].docs.append({"_id": "s1", "main_id": MAIN_ID})
+    mem["session_shares"].docs.append({"share_id": "mine", "session_id": "s1"})
+    asyncio.run(tenant_purge._purge_key_only_collections(mem, MAIN_ID))
+    left = [doc["share_id"] for doc in mem["session_shares"].docs]
+    assert left == ["other"], f"only our share should go, got {left}"
 
 
 # ---------------------------------------------------------------------------
