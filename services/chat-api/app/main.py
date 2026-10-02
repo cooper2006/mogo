@@ -105,6 +105,7 @@ async def request_logging_middleware(request, call_next):
         reset_request_context(previous_context)
 
 from app.api.endpoints import (
+    a2a,
     auth,
     dsh_chat,
     dsh_session_versioning,
@@ -113,6 +114,7 @@ from app.api.endpoints import (
     dsh_model_gateway,
     dsh_tool_gateway,
     external_tools,
+    im_gateway,
     knowledge_sources,
     models,
     projects,
@@ -167,6 +169,9 @@ app.include_router(browser_ws_endpoint.router, prefix="/api")
 app.include_router(dsh_model_gateway.router)
 app.include_router(dsh_tool_gateway.internal_router)
 app.include_router(dsh_tool_gateway.public_router, prefix="/api")
+# 012 / 013: minimal production wiring for A2A agent card lookup and IM webhook.
+app.include_router(a2a.router)
+app.include_router(im_gateway.router)
 
 from app.product.extensions import get_product_extension
 

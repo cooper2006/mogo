@@ -142,6 +142,9 @@ class Settings(BaseSettings):
     # floor). Resolved per-request from the incoming payload; falls back to this
     # setting when the caller omits it.
     HARNESS_MODE: str = "thick"
+    # 013 IM webhook HMAC secret. Set via environment; empty disables signature
+    # verification (returns 500 until configured — intentional fail-closed).
+    IM_WEBHOOK_SECRET: str = ""
     MAX_UPLOAD_SKILL_SOURCE_BYTES: int = 200 * 1024 * 1024
     MAX_UPLOAD_TEMPLATE_BYTES: int = 200 * 1024 * 1024
 
