@@ -11,6 +11,7 @@ from app.services.dream_cycle.evolution_audit import (
     audit_generate,
     audit_mr,
     audit_restore,
+    audit_scan,
     record_evolution_event,
 )
 
@@ -43,8 +44,11 @@ def test_full_chain_events():
     audit_mr({"key": "mr-1"}, sink=sink, actor="a")
     audit_deprecate({"skill_key": "s"}, sink=sink, actor="a")
     audit_restore({"skill_key": "s"}, sink=sink, actor="a")
+    audit_scan({"clusterCount": 2, "draftCount": 1}, sink=sink, actor="a", scan_id="scan-1")
     types = [e["event_type"] for e in entries]
-    assert types == ["capture", "generate", "mr", "deprecate", "restore"]
+    assert types == ["capture", "generate", "mr", "deprecate", "restore", "scan"]
+    assert entries[-1]["payload"]["scan_id"] == "scan-1"
+    assert entries[-1]["payload"]["draftCount"] == 1
 
 
 def test_unknown_event_type_rejected():
@@ -97,6 +101,28 @@ def test_config_thresholds_mirror_the_core_constants():
     assert cfg.min_samples == DEFAULT_MIN_SAMPLES
     assert cfg.action_similarity_threshold == DEFAULT_ACTION_SIMILARITY_THRESHOLD
     assert cfg.shadow_ratio == DEFAULT_SHADOW_RATIO
+
+
+def test_threshold_literals_are_not_duplicated():
+    """T018: mr.py / deprecation.py must reference EvolutionConfig, not literals.
+
+    Guards against the earlier drift where 011 kept a second copy of the
+    confidence / low-adoption thresholds that had to be hand-synced.
+    """
+    from app.services.dream_cycle import deprecation, mr
+
+    cfg = EvolutionConfig()
+    # MR confidence gate.
+    assert mr.DEFAULT_JACCARD_THRESHOLD == cfg.jaccard_threshold
+    assert mr.DEFAULT_MIN_SAMPLES == cfg.min_samples
+    # Low-adoption thresholds (011 T014, shared with 016).
+    assert deprecation.LOW_ADOPTION_WINDOW_DAYS == cfg.low_adoption_window_days
+    assert deprecation.LOW_ADOPTION_MIN_EXPOSURE == cfg.low_adoption_min_exposure
+    assert deprecation.LOW_ADOPTION_THRESHOLD == cfg.low_adoption_rate
+    # Per-tenant draft backlog cap (T009-3 / T018-4).
+    from app.self_evolution.scanner import DEFAULT_DRAFT_BACKLOG_LIMIT
+
+    assert cfg.draft_backlog_limit == DEFAULT_DRAFT_BACKLOG_LIMIT
 
 
 # --- T019 quickstart + contract ----------------------------------------------

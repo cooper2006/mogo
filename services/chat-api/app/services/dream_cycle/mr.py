@@ -11,9 +11,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-# 011 T011 confidence gate (Jaccard ≥ 0.7 AND samples ≥ 5)
-DEFAULT_JACCARD_THRESHOLD = 0.7
-DEFAULT_MIN_SAMPLES = 5
+from app.self_evolution.similarity import (
+    DEFAULT_JACCARD_THRESHOLD,
+    DEFAULT_MIN_SAMPLES,
+)
+
+# 011 T011 confidence gate (Jaccard ≥ 0.7 AND samples ≥ 5).
+# These are re-exported references to the single source of truth in
+# ``app.self_evolution.similarity`` so the deprecation and MR paths cannot
+# drift apart (T018). Keep them as names, not literals.
 # 011 T012 target: the 004 skill draft directory.
 DRAFT_DIR = "specs/004-skillhub-lifecycle/drafts"
 # Improvement-MR label (011 US3).

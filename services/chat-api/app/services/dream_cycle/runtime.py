@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import uuid
 from typing import Any, Callable, Iterable, Optional
 
 from app.core.db import get_db
@@ -36,9 +37,12 @@ from app.self_evolution.fragment import ExperienceFragment, FragmentStore
 from app.self_evolution.friction import FrictionSignal, detect_friction
 from app.self_evolution.scanner import (
     ScanConfig,
+    ScanResult,
     scan_fragments,
+    scan_summary,
     should_generate_draft,
 )
+from app.services.dream_cycle import deprecation as _deprecation
 from app.services.dream_cycle import evolution_audit as _audit
 from app.services.dream_cycle.evolution_audit import EvolutionConfig
 
@@ -195,13 +199,20 @@ async def collect_tool_rows(
 
 
 async def ensure_indexes(db: Any = None) -> None:
-    """Index the scan's projection filter (011 owns this access pattern)."""
+    """Index the scan's projection filter + the tenant-partitioned adoption store (011)."""
     resolved = db if db is not None else get_db()
     if resolved is None:
         return
     await resolved[PROJECTIONS_COLLECTION].create_index(
         [("item_kind", 1), ("type", 1), ("stream_seq", 1)],
         name="dream_cycle_tool_outcomes",
+    )
+    # T002-1 / ET005 / SEC001: tenant-partitioned unique index on the adoption
+    # collection so one tenant's low-quality flags cannot bleed into another's.
+    await resolved[_deprecation.AdoptionStore.COLLECTION].create_index(
+        [("tenant_id", 1), ("skill_key", 1)],
+        unique=True,
+        name="skill_adoption_tenant_skill",
     )
 
 
@@ -230,20 +241,25 @@ async def run_once(
     """Run one dream-cycle pass and return a small report.
 
     ``deprecations`` / ``restorations`` are supplied by whoever owns skill
-    adoption telemetry (016). They stay explicit parameters rather than a
-    scan of an adoption collection because 011 has no such collection yet;
-    passing nothing makes both audit paths a no-op rather than a fake event.
+    adoption telemetry (016). When a DB is bound, 011 persists the shared
+    ``marked_low_quality`` bit into the tenant-partitioned ``skill_adoption``
+    collection (via ``AdoptionStore``) so the 016 market side can read it back
+    and down-rank the skill (T014-3 / T015-2). Without a DB the store degrades
+    to an in-process dict, and passing no deprecations/restorations makes both
+    paths a no-op rather than a fake event.
     """
     resolved_config = config or EvolutionConfig()
     resolved_scan = scan_config or ScanConfig(
         jaccard_threshold=resolved_config.jaccard_threshold,
         min_samples=resolved_config.min_samples,
         action_similarity_threshold=resolved_config.action_similarity_threshold,
+        draft_backlog_limit=resolved_config.draft_backlog_limit,
     )
     audit_sink = sink if sink is not None else _default_audit_sink
     fragment_store = store if store is not None else FragmentStore()
 
     resolved_db = db if db is not None else get_db()
+    adoption_store = _deprecation.AdoptionStore(db=resolved_db)
     rows = await collect_tool_rows(resolved_db, after_stream_seq=after_stream_seq)
     signals = signals_from_rows(rows)
     fragments = fragments_from_signals(signals)
@@ -253,12 +269,18 @@ async def run_once(
     generated = 0
     mrs = 0
     draft_ids: list[str] = []
+    # T009-3 / T018-4: the draft backlog cap is per-tenant, not global. Each
+    # tenant's generated count is tracked separately so one chatty tenant
+    # cannot exhaust another's quota.
+    per_tenant_drafts: dict[str, int] = {}
 
     for tenant_id in sorted({item.tenant_id for item in fragment_store.all()}):
         result = scan_fragments(fragment_store.all(tenant_id), config=resolved_scan)
         for cluster in result.clusters:
             if not should_generate_draft(
-                cluster, config=resolved_scan, existing_drafts=len(draft_ids)
+                cluster,
+                config=resolved_scan,
+                existing_drafts=per_tenant_drafts.get(tenant_id, 0),
             ):
                 continue
             draft = generate_draft(cluster, min_samples=resolved_scan.min_samples)
@@ -266,6 +288,7 @@ async def run_once(
                 continue
             generated += 1
             draft_ids.append(draft.skill_id)
+            per_tenant_drafts[tenant_id] = per_tenant_drafts.get(tenant_id, 0) + 1
             _audit.audit_generate(1, sink=audit_sink, actor=actor)
             if cluster.is_mr_eligible(
                 threshold=resolved_scan.jaccard_threshold,
@@ -276,15 +299,38 @@ async def run_once(
 
     deprecated = 0
     for record in deprecations or ():
+        # Persist the shared ``marked_low_quality`` bit (read by 016) and audit.
+        skill_key = str(record.get("skill_key") or "")
+        tenant_id = str(record.get("tenant_id") or "default")
+        if skill_key:
+            adoption_store.mark_deprecated(skill_key, tenant_id, dict(record))
         _audit.audit_deprecate(dict(record), sink=audit_sink, actor=actor)
         deprecated += 1
 
     restored = 0
     for record in restorations or ():
+        skill_key = str(record.get("skill_key") or "")
+        tenant_id = str(record.get("tenant_id") or "default")
+        if skill_key:
+            adoption_store.restore(skill_key, tenant_id)
         _audit.audit_restore(dict(record), sink=audit_sink, actor=actor)
         restored += 1
 
+    # T007-4: the scan pass itself must produce an audit event so the full
+    # self-evolution chain (T017) is actually complete, not just "capture /
+    # generate / mr / deprecate / restore". ``scan_id`` makes each pass
+    # addressable; ``draftCount`` is falsifiable against ``generated``.
+    scan_id = uuid.uuid4().hex
+    summary = scan_summary(
+        ScanResult(clusters=[]),
+        config=resolved_scan,
+        scan_id=scan_id,
+        draft_count=generated,
+    )
+    _audit.audit_scan(summary, sink=audit_sink, actor=actor, scan_id=scan_id)
+
     return {
+        "scanId": scan_id,
         "rows": len(rows),
         "signals": len(signals),
         "fragments": len(fragments),

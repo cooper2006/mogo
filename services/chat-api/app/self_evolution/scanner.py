@@ -170,15 +170,29 @@ def dedupe_drafts(
     return kept
 
 
-def scan_summary(result: ScanResult, *, config: ScanConfig | None = None) -> dict[str, Any]:
-    """A JSON-friendly summary of a scan (for auditing / observability)."""
+def scan_summary(
+    result: ScanResult,
+    *,
+    config: ScanConfig | None = None,
+    scan_id: str = "",
+    draft_count: int = 0,
+) -> dict[str, Any]:
+    """A JSON-friendly summary of a scan (for auditing / observability).
+
+    T007-4 adds ``scan_id`` (a stable id for the pass) and ``draftCount`` (how
+    many drafts this pass produced) so the audit event is actually falsifiable.
+    """
     resolved = config or ScanConfig()
-    return {
+    summary: dict[str, Any] = {
         "frequency": resolved.frequency,
         "clusterCount": len(result.clusters),
         "mrEligibleCount": len(result.mr_eligible),
         "draftOnlyCount": len(result.draft_only),
+        "draftCount": int(draft_count),
         "jaccardThreshold": resolved.jaccard_threshold,
         "actionSimilarityThreshold": resolved.action_similarity_threshold,
         "minSamples": resolved.min_samples,
     }
+    if scan_id:
+        summary["scan_id"] = scan_id
+    return summary

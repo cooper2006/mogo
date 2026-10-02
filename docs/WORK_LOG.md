@@ -3003,3 +3003,37 @@ admin-api、document-parser、dsh-runtime-host。
 - 已在本机执行 `./movo --lang zh-CN up`，启动器因“未找到 Docker”失败。
 - 检查发现本机缺少 Docker、Docker Desktop、Docker Compose、Redis 与 Homebrew，因此当前环境不满足推荐启动条件；未继续执行 `./dev.sh` 以免缺少依赖后产生不完整启动。
 - 下一步：安装并启动 Docker Desktop（或 Docker Engine + Docker Compose v2），确保至少 8 GB 可用内存和 20 GB 可用磁盘，然后执行 `./movo up` 后访问 `http://localhost:3000/admin/setup`；若选择本地源码开发，需要先安装并启动 Redis，再执行 `./dev.sh`。
+
+## 2026-10-03 收敛 011 自进化四项审计缺口（第 4/6/7 项 + T007-4）
+
+按 spec `checklists/implementation.md` 的"七类待办"逐项落地（用户拍板：第 4/7 项现在就接、第 6 项消重、T007-4 接审计）。
+
+- **第 6 项 T018 阈值消重** —— `mr.py` 的 `DEFAULT_JACCARD_THRESHOLD`/`DEFAULT_MIN_SAMPLES` 与
+  `deprecation.py` 的 `LOW_ADOPTION_*` 改为**重新导出 `EvolutionConfig` 字段值**（非字面量），新增
+  `tests/services/test_dream_audit_config.py::test_threshold_literals_are_not_duplicated` 钉住一致性。
+- **T007-4 扫描审计** —— `evolution_audit.py` 加 `scan` 事件类型 + `audit_scan`；`scanner.scan_summary`
+  补 `scan_id`/`draftCount`；`runtime.run_once` 每轮扫描结束 emit `scan` 事件；`FEATURE_AUDIT_EVENTS["011"]`
+  同步加 `scan`。T017 全链路补全（capture/generate/mr/deprecate/restore/scan）。
+- **第 4 项 标记/恢复消费方（T014-3/T015-2/SC004）** —— 关键：第 4 与第 7 项绑定。把 `AdoptionStore`
+  从 chat-api 内存 dict 改为**持久化 `skill_adoption` 集合（按 `(tenant_id, skill_key)` 唯一索引）**，
+  `mark_deprecated`/`restore` 落 `marked_low_quality` 位。016 侧新增 `admin-api/app/services/skill_market/adoption_client.py`
+  读该集合，`admin-api` 的 `list_skills` 联查后对 `marked_low_quality=True` 的 skill 标 `markedLowQuality`
+  并**降权排到末尾（仍可见，符合 016 FR-6）**。标记→消费方→列表行为端到端可证伪。
+- **第 7 项 跨租户隔离（T002-1/ET005/SEC001/T009-3/T018-4）** —— `AdoptionStore` 强制 `tenant_id` 进唯一键
+  （不再混 `"default"` 分区）；`runtime.ensure_indexes` 建 `skill_adoption_tenant_skill` 唯一索引；
+  admin-api `tenant_purge.TENANT_GOVERNANCE_COLLECTIONS` 登记 `skill_adoption`（及既有 `kernel_event_projections`）
+  参与租户清理；per-tenant 草稿上限经 `EvolutionConfig.draft_backlog_limit`（镜像核心层 100）真正按租户计数生效。
+- **改的文件**：`services/chat-api/app/services/dream_cycle/{deprecation,mr,evolution_audit,runtime}.py`、
+  `services/chat-api/app/self_evolution/scanner.py`、`services/chat-api/app/services/feature_audit.py`、
+  `services/admin-api/app/api/routes/skills.py`、`services/admin-api/app/services/tenant_purge.py`、
+  新增 `services/admin-api/app/services/skill_market/adoption_client.py`、两服务测试若干。
+- **验证**：chat-api `tests/services+tests/self_evolution` 333 passed；admin-api `tests/` 370 passed
+  （`test_tenant_purge` 因新集合登记也已通过）；`tests/llm/test_decision_turn.py` 的 collection error
+  为**基线既有问题**（无 pytest asyncio 配置导致 async 测试未被收集），与本轮无关。
+- **清单同步**：`specs/011-dream-cycle-self-evolution/checklists/implementation.md` 将 T007-4、T014-3、T015-2、
+  T015-3、T009-3、T018、T018-4、ET005、SEC001、SC004、SC005 由 `[!]`/`[-]` 改判 `[x]`，判级统计由
+  70/22/4 更新为约 80/12/1；剩余 `[!]`/`[-]` 为跨模块职责/产品决策项（T003-4、XF004-2/3、XF002-1…3、
+  XF016-2/3、IT002/003、ET006、SEC004），需 004/016 协作。
+- **未做（边界）**：未新建 API、未改动既有列表语义（仅加降权标记字段）、DB 缺失时 `AdoptionStore` 仍回退内存；
+  016 的低质标记（scoring.py 的 `mark_low_quality`，效果分<0.4 持续 7d）与 011 的低采纳标记是**同一个位的两写入方**，
+  现已有 016 读取器但 016 自身打分写入路径尚未接 `skill_adoption`（属 016 内部闭环，留待 016 侧补齐）。

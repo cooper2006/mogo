@@ -23,7 +23,7 @@ from app.self_evolution.similarity import (
 # 001 audit sink signature (kept generic so the same sink serves all events).
 AuditSink = Callable[..., Any]
 
-AUDIT_EVENT_TYPES = ("capture", "generate", "mr", "deprecate", "restore")
+AUDIT_EVENT_TYPES = ("capture", "generate", "mr", "deprecate", "restore", "scan")
 
 
 def _utcnow() -> datetime.datetime:
@@ -44,6 +44,9 @@ class EvolutionConfig:
     low_adoption_min_exposure: int = 20
     low_adoption_rate: float = 0.10
     shadow_ratio: float = 0.1
+    #: Per-tenant draft backlog cap (T009-3 / T018-4). Mirrors the core-layer
+    #: ``ScanConfig.draft_backlog_limit`` so the single config source owns it.
+    draft_backlog_limit: int = 100
 
     def confidence_gate(self, jaccard: float, samples: int) -> bool:
         return jaccard >= self.jaccard_threshold and samples >= self.min_samples
@@ -105,6 +108,20 @@ def audit_restore(record: dict[str, Any], *, sink: AuditSink, actor: str) -> dic
     return record_evolution_event(sink, event_type="restore", actor=actor, payload=record)
 
 
+def audit_scan(
+    summary: dict[str, Any],
+    *,
+    sink: AuditSink,
+    actor: str,
+    scan_id: str = "",
+) -> dict[str, Any]:
+    """011 T007-4: record one scan pass (the only event T017 was missing)."""
+    payload = dict(summary or {})
+    if scan_id:
+        payload["scan_id"] = scan_id
+    return record_evolution_event(sink, event_type="scan", actor=actor, payload=payload)
+
+
 __all__ = [
     "AUDIT_EVENT_TYPES",
     "AuditSink",
@@ -114,5 +131,6 @@ __all__ = [
     "audit_generate",
     "audit_mr",
     "audit_restore",
+    "audit_scan",
     "record_evolution_event",
 ]

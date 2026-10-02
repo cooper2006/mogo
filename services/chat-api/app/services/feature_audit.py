@@ -19,7 +19,7 @@ FEATURE_AUDIT_EVENTS: dict[str, tuple[str, ...]] = {
     # (``dream_cycle.evolution_audit.AUDIT_EVENT_TYPES`` and
     # ``contracts/self-evolution.md``), which is deliberately shorter than the
     # ``<domain>.<verb>`` style the other features use.
-    "011": ("capture", "generate", "mr", "deprecate", "restore"),
+    "011": ("capture", "generate", "mr", "deprecate", "restore", "scan"),
     "012": ("a2a.outbound", "a2a.inbound", "a2a.denied"),
     "014": ("entity.indexed", "entity.searched"),
     "015": ("kg.mutated", "kg.conflict.resolved", "kg.audited"),

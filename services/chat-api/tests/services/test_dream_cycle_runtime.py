@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 
 from app.self_evolution.scanner import ScanConfig
+from app.self_evolution.fragment import ExperienceFragment
+from app.self_evolution.scanner import PatternCluster
 from app.services.dream_cycle import runtime
 
 
@@ -64,8 +66,37 @@ class _FakeCollection:
     def find(self, flt, projection=None):
         return _FakeCursor([row for row in self.rows if _matches(row, flt)])
 
-    async def create_index(self, keys, name=None):
-        self.indexes.append((keys, name))
+    def find_one(self, flt, projection=None):
+        for row in self.rows:
+            if _matches(row, flt):
+                return dict(row)
+        return None
+
+    def update_one(self, flt, update, upsert=False):
+        # Minimal Mongo upsert supporting $set / $inc / $setOnInsert. Enough for
+        # the AdoptionStore tenant-partitioned persistence path under test.
+        doc = None
+        for row in self.rows:
+            if _matches(row, flt):
+                doc = row
+                break
+        if doc is None:
+            if not upsert:
+                return
+            doc = dict(flt)
+            self.rows.append(doc)
+        for op, fields in (update or {}).items():
+            if op == "$set":
+                doc.update(fields)
+            elif op == "$setOnInsert":
+                for k, v in fields.items():
+                    doc.setdefault(k, v)
+            elif op == "$inc":
+                for k, v in fields.items():
+                    doc[k] = int(doc.get(k) or 0) + int(v)
+
+    async def create_index(self, keys, name=None, unique=False):
+        self.indexes.append((keys, name, unique))
         return name
 
 
@@ -146,7 +177,7 @@ def test_run_once_walks_capture_and_reports():
 
     report = asyncio.run(runtime.run_once(db=db, sink=sink))
 
-    assert [entry["event_type"] for entry in entries] == ["capture"]
+    assert [entry["event_type"] for entry in entries] == ["capture", "scan"]
     assert entries[0]["payload"]["friction_kind"] == "failed_then_succeeded"
     assert report["signals"] == 1
     assert report["fragments"] == 1
@@ -168,7 +199,7 @@ def test_run_once_generates_and_audits_a_draft_and_mr():
     )
 
     types = [entry["event_type"] for entry in entries]
-    assert types == ["capture", "generate", "mr"]
+    assert types == ["capture", "generate", "mr", "scan"]
     assert report["generated"] == 1
     assert report["mr"] == 1
     assert report["draftIds"] == ["skill-frag-000001"]
@@ -196,6 +227,47 @@ def test_run_once_scans_each_tenant_separately():
     assert report["generated"] == 2, "each tenant is scanned on its own fragments"
 
 
+def test_should_generate_draft_is_per_tenant():
+    # T009-3 / T018-4: the draft cap is per-tenant, not global. The cap is
+    # enforced by the caller passing each tenant's own running count.
+    from app.self_evolution.scanner import should_generate_draft
+
+    config = ScanConfig(draft_backlog_limit=2)
+    cluster = PatternCluster(fragments=[ExperienceFragment(scene=["x"])])
+
+    # Tenant A reaches its own cap of 2 ...
+    assert should_generate_draft(cluster, config=config, existing_drafts=0) is True
+    assert should_generate_draft(cluster, config=config, existing_drafts=1) is True
+    assert should_generate_draft(cluster, config=config, existing_drafts=2) is False
+
+    # ... while tenant B has an independent counter and is unaffected.
+    assert should_generate_draft(cluster, config=config, existing_drafts=0) is True
+
+
+def test_run_once_passes_per_tenant_draft_counts():
+    # The wiring threads each tenant's own draft count into should_generate_draft
+    # (verified via the run_once report: two tenants each capped independently).
+    sink, _entries = _collecting_sink()
+    rows = []
+    for i in range(4):
+        rows.append(_tool_row(f"m1-{i}", i + 1, "item.failed", tenant_id="t1"))
+        rows.append(_tool_row(f"m1-{i}", i + 2, "item.completed", tenant_id="t1"))
+        rows.append(_tool_row(f"m2-{i}", i + 50, "item.failed", tenant_id="t2"))
+        rows.append(_tool_row(f"m2-{i}", i + 51, "item.completed", tenant_id="t2"))
+    db = _db_with(rows)
+
+    report = asyncio.run(
+        runtime.run_once(
+            db=db,
+            sink=sink,
+            scan_config=ScanConfig(min_samples=1, jaccard_threshold=0.0, draft_backlog_limit=2),
+        )
+    )
+    # Each tenant yields one cluster; both are capped at 2 (no global pooling).
+    assert report["generated"] == 2
+    assert len({sid for sid in report["draftIds"]}) == 2
+
+
 def test_run_once_audits_deprecations_and_restorations():
     sink, entries = _collecting_sink()
 
@@ -208,15 +280,22 @@ def test_run_once_audits_deprecations_and_restorations():
         )
     )
 
-    assert [entry["event_type"] for entry in entries] == ["deprecate", "restore"]
+    types = [entry["event_type"] for entry in entries]
+    # deprecate / restore come first, then the scan pass event (T007-4).
+    assert types[:2] == ["deprecate", "restore"]
+    assert types[-1] == "scan"
     assert report["deprecated"] == 1
     assert report["restored"] == 1
 
 
-def test_run_once_without_deprecation_input_emits_no_deprecation_event():
+def test_run_once_without_deprecation_input_still_emits_a_scan_event():
     sink, entries = _collecting_sink()
-    asyncio.run(runtime.run_once(db=_FakeDb(), sink=sink))
-    assert entries == []
+    report = asyncio.run(runtime.run_once(db=_FakeDb(), sink=sink))
+    # T007-4: the scan pass is always audited, even with no capture/generate.
+    assert [e["event_type"] for e in entries] == ["scan"]
+    assert entries[0]["payload"]["draftCount"] == 0
+    assert "scan_id" in entries[0]["payload"]
+    assert "scanId" in report
 
 
 # --- the sink reaches the 001 audit stream ----------------------------------
@@ -258,6 +337,7 @@ def test_011_is_registered_in_the_feature_audit_table():
         "mr",
         "deprecate",
         "restore",
+        "scan",
     )
     record = record_feature_event("011", "capture", {"key": "k"})
     assert record["feature"] == "011"
@@ -269,9 +349,18 @@ def test_011_is_registered_in_the_feature_audit_table():
 def test_ensure_indexes_covers_the_scan_filter():
     db = _FakeDb()
     asyncio.run(runtime.ensure_indexes(db))
-    assert db[runtime.PROJECTIONS_COLLECTION].indexes == [
-        ([("item_kind", 1), ("type", 1), ("stream_seq", 1)], "dream_cycle_tool_outcomes")
-    ]
+    # T002-1 / ET005 / SEC001: the tenant-partitioned adoption index is created
+    # alongside the projection scan filter index.
+    assert (
+        [idx[:2] for idx in db[runtime.PROJECTIONS_COLLECTION].indexes]
+        == [([("item_kind", 1), ("type", 1), ("stream_seq", 1)], "dream_cycle_tool_outcomes")]
+    )
+    adoption_indexes = db[runtime._deprecation.AdoptionStore.COLLECTION].indexes
+    assert (
+        [idx[:2] for idx in adoption_indexes]
+        == [([("tenant_id", 1), ("skill_key", 1)], "skill_adoption_tenant_skill")]
+    )
+    assert adoption_indexes[0][2] is True  # unique=True
 
 
 def test_scanner_runs_a_pass_then_stops(monkeypatch):

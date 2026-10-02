@@ -268,9 +268,12 @@ def test_scan_summary_shape() -> None:
     from app.self_evolution.scanner import scan_fragments, scan_summary
 
     frags = [ExperienceFragment(scene=["a", "b"]) for _ in range(5)]
-    summary = scan_summary(scan_fragments(frags))
+    summary = scan_summary(scan_fragments(frags), scan_id="scan-x", draft_count=3)
     assert summary["mrEligibleCount"] == 1
     assert summary["frequency"] == "daily"
+    # T007-4: the audit event is falsifiable only if these fields exist.
+    assert summary["scan_id"] == "scan-x"
+    assert summary["draftCount"] == 3
 
 
 # --- draft generation (T008) -------------------------------------------------

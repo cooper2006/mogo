@@ -119,6 +119,11 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
     # Written by both services (admin-api ``services/hooks_store.py`` and
     # chat-api ``app/dsh_runtime/hooks/store.py``); partitioned by ``tenant_id``.
     "hook_rules",
+    # chat-api projected tool outcomes (011 reader source); partitioned by tenant_id.
+    "kernel_event_projections",
+    # 011 low-adoption store, tenant-partitioned by (tenant_id, skill_key);
+    # the 016 market side reads ``marked_low_quality`` from here.
+    "skill_adoption",
 ]
 
 # Collections with **no** tenant key of their own, purged by resolving their

@@ -15,6 +15,10 @@ from app.api.deps import get_current_admin_user
 from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
+from app.services.skill_market.adoption_client import (
+    apply_low_quality_ranking,
+    fetch_marked_skill_keys,
+)
 from app.services.skill_package_proxy import install_organization_skill_zip
 from app.services.skill_lifecycle import OrganizationSkillLifecycle
 from app.services.workflow_validation import validate_workflow_config
@@ -243,7 +247,11 @@ async def list_skills(current_user: dict = Depends(get_current_admin_user)) -> l
     main_id = str(current_user.get("main_id") or "default")
     db = get_db()
     cursor = db.skills.find({"main_id": main_id}).sort("updated_at", -1)
-    return [_serialize(doc) async for doc in cursor]
+    skills = [_serialize(doc) async for doc in cursor]
+    # T014-3 / T015-2: read the 011-shared ``marked_low_quality`` bit back so a
+    # flagged skill is down-ranked (still visible, sorted last) in the market.
+    marked = await fetch_marked_skill_keys(db, main_id=main_id)
+    return apply_low_quality_ranking(skills, marked=marked)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

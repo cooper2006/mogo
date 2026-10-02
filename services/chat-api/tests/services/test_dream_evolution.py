@@ -132,8 +132,8 @@ def test_deprecation_flow_marks_and_shares_flag():
     record = deprecation_flow("skill-a", "t1", store)
     assert record["action"] == "deprecated"
     assert record["marked_low_quality"] is True
-    # shared with 016
-    assert store.flags["skill-a"]["marked_low_quality"] is True
+    # shared with 016: the bit is persisted per (tenant, skill) and readable.
+    assert store.get("skill-a", "t1").is_deprecated is True
 
 
 def test_deprecation_flow_keeps_healthy_skill():
@@ -146,6 +146,20 @@ def test_deprecation_flow_keeps_healthy_skill():
     assert record["action"] == "kept"
 
 
+def test_adoption_store_is_tenant_partitioned():
+    store = AdoptionStore()
+    store.record_exposure("skill-x", "t1")
+    store.record_exposure("skill-x", "t2")
+    # t1 has 1 exposure, t2 has 1; neither crosses the low-adoption threshold,
+    # and the two tenants must not share a counter.
+    assert store.get("skill-x", "t1").exposure == 1
+    assert store.get("skill-x", "t2").exposure == 1
+    # a different tenant cannot read another tenant's flag.
+    store.mark_deprecated("skill-x", "t1", {"skill_key": "skill-x"})
+    assert store.get("skill-x", "t1").is_deprecated is True
+    assert store.get("skill-x", "t2").is_deprecated is False
+
+
 # --- T015 manual restore ------------------------------------------------------
 
 
@@ -154,13 +168,13 @@ def test_manual_restore_resets_and_reenables():
     for _ in range(25):
         store.record_exposure("skill-c", "t1")
     deprecation_flow("skill-c", "t1", store)
-    assert store.get("skill-c").is_deprecated is True
-    result = store.restore("skill-c")
+    assert store.get("skill-c", "t1").is_deprecated is True
+    result = store.restore("skill-c", "t1")
     assert result["restored"] is True
     assert result["marked_low_quality"] is False
     # adoption counters reset
-    assert store.get("skill-c").exposure == 0
-    assert store.get("skill-c").is_deprecated is False
+    assert store.get("skill-c", "t1").exposure == 0
+    assert store.get("skill-c", "t1").is_deprecated is False
     assert result["recommendation"] == "re-enabled"
 
 
@@ -172,9 +186,9 @@ def test_t016_us4_low_adoption_and_restore():
     record = deprecation_flow("skill-d", "t2", store)
     assert record["action"] == "deprecated"
     # manual restore resets counters + re-enables recommendation
-    restored = store.restore("skill-d")
+    restored = store.restore("skill-d", "t2")
     assert restored["marked_low_quality"] is False
-    assert store.get("skill-d").exposure == 0
+    assert store.get("skill-d", "t2").exposure == 0
 
 
 if __name__ == "__main__":
