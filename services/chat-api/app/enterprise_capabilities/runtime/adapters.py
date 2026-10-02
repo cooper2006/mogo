@@ -70,6 +70,27 @@ def _artifact_output_spec(arguments: dict[str, Any], key: str) -> dict[str, Any]
 async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
     selected = [str(item) for item in list(context.turn_context.get("knowledge_base_ids") or []) if str(item)]
     query = str(arguments.get("query") or "")
+    # 017 T010: prepend scope-filtered memories as RAG candidates so the retrieval
+    # pass can surface them alongside knowledge chunks.
+    try:
+        from app.memory.store import MemoryStore
+        from app.memory.retrieval import memory_rag_candidates
+        mem_store = MemoryStore()
+        raw_memories = await mem_store.list_for_viewer(
+            tenant_id=context.tenant_id,
+            viewer_id=context.user_id,
+            viewer_role=str(context.get("role") or ""),
+            is_workspace_member=bool(context.get("is_workspace_member") or False),
+        )
+        memory_candidates = memory_rag_candidates(
+            raw_memories,
+            viewer_id=context.user_id,
+            viewer_role=str(context.get("role") or ""),
+            is_workspace_member=bool(context.get("is_workspace_member") or False),
+            top_n=int(arguments.get("top_n") or 8),
+        )
+    except Exception:
+        memory_candidates = []
     try:
         payload = await internal_knowledge_qa_service.answer(
             query=query,
