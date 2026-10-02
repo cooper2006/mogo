@@ -294,7 +294,13 @@
 - **FR-1/2 监控查询与异常下钻缺消费方**，耗时维度无采集。
 - 附带：success 归因口径为会话级近似。
 
-### 017 three-scope-memory（4）—— **store + endpoint 已接线（2026-10-03，见 WORK_LOG 续二十一）**
+### 017 three-scope-memory（4）—— **store + endpoint + RAG 集成已接线（2026-10-03，见 WORK_LOG 续二十一/二十二）**
+
+> **已修**：`MemoryStore`（MongoDB `memories` 集合）+ `GET/POST/DELETE /api/memories`
+>    端点；`knowledge_search` 能力通过 ``memory_rag_candidates`` 将 scope-filtered
+>    记忆注入 RAG 上下文（T010）。
+>
+> **仍待修（降为 P1 残项）**：FR-8 老化清理定时任务；promote_to_org 认证入口。
 
 > **已修**：`MemoryStore`（MongoDB `memories` 集合，按 `(tenant_id, memory_id)`
 >    upsert）+ `GET/POST/DELETE /api/memories` 三个端点；服务端 scope_filter
