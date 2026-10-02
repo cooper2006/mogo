@@ -3599,3 +3599,19 @@ P1 孤岛第 5 项。018 此前零生产调用方，discovery→register 链路�
 
 **验证**：tests/test_capability_assets.py **20 passed**；admin-api **410 passed**。
 MongoDB 持久化（FR-10）、与 012 A2A `a2a_exposed` 筛选接线（FR-12）、CRUD 变更审计（FR-11）留待后续。
+
+## 2026-10-03（续二十七）006 修复：copy_role FR-6 + bulk_assign 原子化
+
+P1 孤岛第 6 项。006 两个生产缺陷：
+
+**本轮改动**：
+- `app/position_roles/service.py`：`copy_role` 前置校验，源角色 `tool_access_mode` 或
+  `skill_access_mode` 为 `'all'` 时直接返回 HTTP 403，阻止通过复制途径绕过 FR-6 审批
+  获取全量权限。
+- `app/position_roles/repository.py`：新增 `bulk_replace_user_roles(main_id, assignments, actor)`，
+  使用 MongoDB `bulk_write(ordered=True)` 一次性完成所有用户的 delete+insert；中途失败整体回滚。
+- `app/api/routes/position_roles.py`：`bulk_assign_roles` 改用 `bulk_replace_user_roles`，
+  审计在成功之后统一落地。
+- `tests/test_position_role_service.py`：新增 2 条单测验证序列化路径。
+
+**验证**：tests/test_position_role_service.py **6 passed**；admin-api **412 passed**。
