@@ -57,6 +57,16 @@ async def install_personal_skill_zip(
         user_id=principal.user_id,
         package_source={"kind": "local_zip", "fileName": str(file.filename or "")},
     )
+    # 004 FR-8: ZIP install is an auditable lifecycle event on the 001 audit stream.
+    from app.services.skill_lifecycle.audit import record_skill_event
+
+    await record_skill_event(
+        main_id=principal.main_id,
+        user_id=principal.user_id,
+        action="skill.installed",
+        target=str(result.get("id") or ""),
+        details={"scope": "personal", "fileName": str(file.filename or ""), "version": str(result.get("version") or "")},
+    )
     if upgrade_inspector.requires_confirmation(upgrade):
         await SkillDistributionService().publish_from_skill(
             main_id=principal.main_id,
@@ -91,5 +101,15 @@ async def install_organization_skill_zip(
         scope="organization",
         main_id=principal.main_id,
         package_source={"kind": "local_zip", "fileName": str(file.filename or "")},
+    )
+    # 004 FR-8: organization install is audited too (operator = the admin service).
+    from app.services.skill_lifecycle.audit import record_skill_event
+
+    await record_skill_event(
+        main_id=principal.main_id,
+        user_id=str(principal.get("user_id") or principal.get("service_id") or ""),
+        action="skill.installed",
+        target=str(result.get("id") or ""),
+        details={"scope": "organization", "fileName": str(file.filename or ""), "version": str(result.get("version") or "")},
     )
     return _response({**result, "upgrade": upgrade})

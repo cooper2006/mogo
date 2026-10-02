@@ -44,6 +44,16 @@ async def create_skill_share(
         )
     except (SkillShareError, SkillPackageError) as exc:
         _raise(exc)
+    # 004 FR-8: share creation is audited on the 001 audit stream.
+    from app.services.skill_lifecycle.audit import record_skill_event
+
+    await record_skill_event(
+        main_id=principal.main_id,
+        user_id=principal.user_id,
+        action="skill.shared",
+        target=skill_id,
+        details={"shareId": str(result.get("share_id") or result.get("id") or ""), "expiresInDays": payload.expires_in_days},
+    )
     return _response(result)
 
 
@@ -76,6 +86,16 @@ async def install_skill_share(
         )
     except SkillShareError as exc:
         _raise(exc)
+    # 004 FR-8: share redemption (install) is audited.
+    from app.services.skill_lifecycle.audit import record_skill_event
+
+    await record_skill_event(
+        main_id=principal.main_id,
+        user_id=principal.user_id,
+        action="skill.share_redeemed",
+        target=str(result.get("skill_id") or ""),
+        details={"token": token, "version": str(result.get("version") or "")},
+    )
     return _response(result)
 
 
@@ -94,4 +114,14 @@ async def revoke_skill_share(
         )
     except SkillShareError as exc:
         _raise(exc)
+    # 004 FR-8: share revocation is audited.
+    from app.services.skill_lifecycle.audit import record_skill_event
+
+    await record_skill_event(
+        main_id=principal.main_id,
+        user_id=principal.user_id,
+        action="skill.share_revoked",
+        target=skill_id,
+        details={"shareId": share_id},
+    )
     return _response({"shareId": share_id})
