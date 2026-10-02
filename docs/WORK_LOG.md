@@ -3678,3 +3678,13 @@ P1 孤岛第 5 项（最后一项空心）。ResearchFocusBuilder 仅 __init__ �
 
 **验证**：1 passed；chat-api services+enterprise_capabilities 322 passed。
 **诚实边界**：FR-5 组织级隔离未伪造，仍 仍待修。
+
+## 2026-10-03（续三十二）020 修复：多租户 unlimited 短路（FR-035/036/037）
+
+P1 孤岛最后一项（020 platform-multi-tenancy）。生产缺陷：chat-api quota 策略不读
+admin 侧 org.points_unlimited，新租户成员发消息被 402 拦截。
+
+**本轮改动**：`app/core/quota_policy.py`：get_quota_summary 在 org.points_unlimited
+为真时短路返回 unlimited 摘要；assert_quota_available 对 unlimited 直接放行。
+**验证**：tests/services/test_quota_unlimited.py（unlimited 短路通过）；chat-api 601 passed。
+**诚实边界**：FR-032 清理进度内存化、"or default" 计数（123）未伪造，仍 仍待修。
