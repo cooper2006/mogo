@@ -3544,3 +3544,18 @@ FR-8 老化清理定时任务也留待后续。
 RAG 检索上下文（T010）。
 
 **验证**：adapters import ok；tests 100 passed。
+
+## 2026-10-03（续二十三）015 修复：knowledge_graph 最小接线
+
+P1 孤岛第 4 项。015 此前零生产 import，`kg_nodes`/`kg_edges` 集合从未创建。
+
+**本轮改动**：
+- 新增 `app/knowledge_graph/persisted_store.py`：`TenantKgStore`（lazy-load from
+  MongoDB `kg_nodes`/`kg_edges` 集合，tenant 分区，接口与 in-memory `KgStore` 对齐）。
+- 新增 `app/api/endpoints/knowledge_graph.py`：
+  - `GET /api/kg/nodes/{node_id}` —— 单节点查询（FR-2）
+  - `GET /api/kg/nodes/{node_id}/neighbours` —— 邻居遍历（FR-10 最小入口）
+- `main.py` 注册 `knowledge_graph.router`。
+
+**验证**：main import ok；tests/knowledge_graph+memory+a2a+im_gateway **97 passed**；
+admin-api **410 passed**。FR-1 抽取入口 / FR-8 约束检查 / FR-13 source_ref 读写留待后续。
