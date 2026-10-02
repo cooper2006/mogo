@@ -169,7 +169,13 @@
 - **FR-12 取消信号未实现**：`resilience/` 与 `instrumented_client` 无 `CancelledError` 处理，取消被归类为可重试错误。
 - **US3 流式绕过退避**：`astream` 路径无 `retry_with_backoff`。
 
-### 008 ops-dashboard（3）
+### 008 ops-dashboard（3）—— **成本段已接入 /overview（2026-10-03，见 WORK_LOG 续十四）**
+
+> **已修**：`/overview` 新增 `cost` 段（`build_cost_section` + FR-6 对账 `reconciles` +
+>    4 期移动平均 `forecast_cost`）——成本维度死代码变生产链路。
+> **诚实边界**：部门/agent 分摊**不伪造**——`TokenUsageRecord` 无 `agent_id` 数据源，
+> 成本段显式 `departmentAttribution.available=false` + 原因；数据源补齐留待后续。
+> **仍待修**：前端成本页仍消费 trend 瓶颈数据（需改为消费新 `cost` 段）。
 - **成本维度后端死代码**：`build_cost_section`/`forecast_cost`/`attribute_cost` 在生产 `app/` 零调用；`/overview` 不返回 `cost` 段。
 - **前端成本页消费的是 trend 瓶颈数据**（自述注释），`costShare` 前端重算。
 - **部门/智能体分摊缺失**：`agent_id` 无数据源（`TokenUsageRecord` 无该字段）。
