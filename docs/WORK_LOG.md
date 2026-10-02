@@ -3580,3 +3580,22 @@ request。租户清除表登记 `experience_fragments`/`skill_drafts`。
 **R15（015）**：knowledge_graph 最小接线 —— `TenantKgStore`（MongoDB
 `kg_nodes`/`kg_edges` 集合）+ `GET /api/kg/nodes/{id}` 和
 `GET /api/kg/nodes/{id}/neighbours` 端点 + `main.py` 注册。
+
+## 2026-10-03（续二十四）018 修复：capability-asset-registration 最小接线
+
+P1 孤岛第 5 项。018 此前零生产调用方，discovery→register 链路断裂。
+
+**本轮改动**：
+- 扩展 `app/services/capability_assets/registry.py`：新增 `CapabilityAssetRegistry`
+  类（register/get/list_all/discover_and_register/update_contract/set_state/
+  transfer_owner），保留原有 `discover_assets`/`CapabilityAsset`/`DiscoveryReport`
+  向后兼容。
+- 新增 `app/api/routes/capability_assets.py`：
+  - `POST /api/capabilities/discover` —— 批量发现并注册（FR-2）
+  - `GET /api/capabilities` —— 列表（FR-1）
+  - `GET /api/capabilities/{asset_id}` —— 单节点查询（FR-1）
+  三个端点均通过 X-MOVO-Service-Token 验证。
+- `router.py` 注册 `capability_assets.router` 到 `/capabilities`。
+
+**验证**：tests/test_capability_assets.py **20 passed**；admin-api **410 passed**。
+MongoDB 持久化（FR-10）、与 012 A2A `a2a_exposed` 筛选接线（FR-12）、CRUD 变更审计（FR-11）留待后续。
