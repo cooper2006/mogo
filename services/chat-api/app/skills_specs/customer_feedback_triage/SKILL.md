@@ -1,11 +1,12 @@
 ---
 name: customer_feedback_triage
+displayName: 客户反馈分级
 # The installable package name must be kebab-case (skill_packages/validator.py
 # SKILL_NAME); the in-repo Skill id stays snake_case like the other built-ins.
 packageName: customer-feedback-triage
 version: 1.0.0
-description: Batch-triage customer feedback into severity, category, and actionable summary.
-whenToUse: Use when the user pastes or uploads a batch of customer feedback (tickets, emails, community posts, in-app reports) and asks for a structured triage report with severity grading and follow-up actions.
+description: 批量对客户反馈做分级处理，输出严重程度、问题分类与可执行的结论摘要。
+whenToUse: 当用户粘贴或上传一批客户反馈（工单、邮件、社区帖子、应用内反馈），并要求产出带严重程度分级与后续行动的结构化分级报告时使用。
 inputs:
   - feedback_source
   - product_line

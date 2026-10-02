@@ -55,6 +55,36 @@ def test_reports_tool_references_missing_from_metadata():
     assert package.warnings[0]["code"] == "undeclared_tool_reference"
 
 
+@pytest.mark.parametrize("builtin_call", ["print", "len", "range", "sorted", "enumerate", "isinstance"])
+def test_ignores_python_builtin_calls_in_code_samples(builtin_call):
+    """Python builtins used in示例代码 must not be reported as undeclared tools.
+
+    Regression guard: a bare `tools: []` skill whose code samples call
+    `print(...)` used to surface undeclared_tool_reference warnings, because the
+    reference scanner could not tell a Python builtin from an agent tool.
+    """
+    package = validate_skill_zip(archive({
+        "SKILL.md": (
+            "---\nname: builtin-call\ndescription: Builtin\ntools: []\n---\n"
+            f"```python\n{builtin_call}(value)\n```\n"
+        ),
+    }))
+    assert package.referenced_tools == ()
+    assert package.warnings == ()
+
+
+def test_still_reports_undeclared_tools_alongside_builtins():
+    """Filtering builtins must not silence genuine undeclared tool references."""
+    package = validate_skill_zip(archive({
+        "SKILL.md": (
+            "---\nname: mixed-calls\ndescription: Mixed\ntools: []\n---\n"
+            "```python\nprint(value)\nsome_agent_tool(value)\n```\n"
+        ),
+    }))
+    assert package.referenced_tools == ("some_agent_tool",)
+    assert package.warnings[0]["code"] == "undeclared_tool_reference"
+
+
 def test_preserves_dsh_invocation_policy():
     package = validate_skill_zip(archive({
         "SKILL.md": "---\nname: private-skill\ndescription: Private\ndisable-model-invocation: true\nuser-invocable: false\n---\nBody\n",

@@ -1,6 +1,7 @@
 ---
 name: blog_article_style_v1
-description: Blog and WeChat official account article writing style with narrative flow, visual richness, and reader engagement.
+displayName: 博客与公众号文章风格
+description: 博客与微信公众号文章的写作风格，强调叙事流畅、视觉丰富与读者代入感。
 category: style
 role: style
 tags:
@@ -11,9 +12,9 @@ tags:
   - 公众号
   - 博客
 when_to_use:
-  - Use when the user asks for a blog post, tech blog, WeChat article, or public-facing article.
-  - Use when the user mentions 公众号, 博客, 技术文章, or similar reading-oriented content.
-  - Use as writing constraints together with an execution skill.
+  - 当用户要求写博客文章、技术博客、公众号文章或面向公众的文章时使用。
+  - 当用户提到 公众号、博客、技术文章 或类似阅读型内容时使用。
+  - 作为写作约束，与执行类技能配合使用。
 
 style_contract:
   structure:

@@ -64,6 +64,9 @@ BUNDLE_BODY = """本专家包内含全部内置技能。按用户诉求选择对
 """
 
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+# Legacy YAML-spec skills have no `---` delimiters: the entire file is one bare
+# YAML mapping (no blank-line separator), so parse it whole.
+LEGACY_FRONTMATTER = re.compile(r"\A(.*)", re.DOTALL)
 EXCLUDED_PARTS = {"__pycache__"}
 
 
@@ -92,8 +95,16 @@ def rewrite_skill_md(skill_dir: Path) -> tuple[str, bytes]:
     text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     match = FRONTMATTER.match(text)
 
+    if match:
+        raw_meta = match.group(1)
+    else:
+        # Legacy bare YAML: parse the leading mapping so displayName/description
+        # survive into the synthesized frontmatter below.
+        legacy = LEGACY_FRONTMATTER.match(text)
+        raw_meta = legacy.group(1) if legacy else ""
+
     try:
-        meta = yaml.safe_load(match.group(1)) or {} if match else {}
+        meta = yaml.safe_load(raw_meta) or {}
         if not isinstance(meta, dict):
             meta = {}
     except yaml.YAMLError:
@@ -105,12 +116,14 @@ def rewrite_skill_md(skill_dir: Path) -> tuple[str, bytes]:
     if not match:
         # Legacy YAML: synthesize frontmatter
         desc = str(meta.get("description", "")).strip()
+        display_name = str(meta.get("displayName") or meta.get("display_name") or "").strip()
         tools_list = [str(t) for t in (meta.get("tools") or [])]
         header = (
             f"name: {slug}\n"
             f"version: {version}\n"
             f"description: {desc or 'Legacy skill'}\n"
-            "tools:\n"
+            + (f"displayName: {display_name}\n" if display_name else "")
+            + "tools:\n"
             + "".join(f"  - {t}\n" for t in tools_list)
         )
         rewritten = f"---\n{header}\n---\n{text}"

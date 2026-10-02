@@ -1,10 +1,11 @@
 name: stock_analysis
+displayName: 个股分析
 version: 1.0.0
-description: Deep analysis for a single listed company with financial data and risk review.
+description: 单只上市公司的深度分析，含财务数据与风险复核。
 inputs:
   - company_name
-  - ts_code (optional)
-  - output_spec (optional)
+  - ts_code（可选）
+  - output_spec（可选）
 outputs:
   - report.md
 tools:

@@ -1,11 +1,12 @@
 ---
 name: report_synthesis_v1
+displayName: 研究报告综合
 packageName: report-synthesis-v1
 version: 1.0.0
-description: Synthesise upstream sub-agent outputs into an analyst-grade research report.
+description: 把上游子智能体的产出综合成分析师级研究报告。
 role: subagent
 parent_skill: competitor_deep_dive
-whenToUse: Invoked as a sub-agent node of the competitor_deep_dive graph orchestration; not selected directly by end users.
+whenToUse: 作为 competitor_deep_dive 图编排的子智能体节点被调用，不由最终用户直接选择。
 inputs:
   - competitor_name
   - our_product

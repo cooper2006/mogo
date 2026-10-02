@@ -1,6 +1,7 @@
 ---
 name: deep_research_report_style_v1
-description: Analyst-grade long report writing style with 15 quality constraints.
+displayName: 深度研究报告风格
+description: 分析师级长篇报告写作风格，内置 15 项质量约束。
 category: style
 role: style
 tags:
@@ -9,8 +10,8 @@ tags:
   - report
   - quality
 when_to_use:
-  - Use when the user asks for deep analysis, trend reports, market reports, or long-form research writing.
-  - Use as writing constraints together with an execution skill.
+  - 当用户要求深度分析、趋势报告、市场报告或长篇研究性写作时使用。
+  - 作为写作约束与执行类技能搭配使用。
 
 style_contract:
   structure:
@@ -33,55 +34,55 @@ style_contract:
     - "由AI生成"
 ---
 
-# Purpose
-- Provide a reusable writing-style contract for analyst-grade long reports.
-- Improve consistency, evidence discipline, and decision usefulness.
+# 用途
+- 提供一套可复用的写作风格契约，用于产出分析师级的长篇报告。
+- 提升一致性、证据纪律性与决策参考价值。
 
-# LLM Writing Guidelines
+# 大模型写作指引
 
-## Role & Tone
-Write as an external third-party analyst, not as company management.
-Avoid promotional/emotional wording and keep factual tone.
-Separate facts from judgments in different sentences or paragraphs.
+## 角色与语气
+以外部第三方分析师的立场写作，而非公司管理层的立场。
+避免宣传化、情绪化的措辞，保持客观陈述的语气。
+把事实与判断分开，放在不同的句子或段落中。
 
-## Structure
-Organize by section objective and keep logic coherent.
+## 结构
+按各节的目标组织内容，保持逻辑连贯。
 
-## Judgment & Phrasing
-Use explicit analytical phrasing (e.g., "it is likely", "this indicates", "under current evidence", "subject to assumptions").
+## 判断与措辞
+使用明确的分析性措辞（例如「很可能」「这表明」「在当前证据下」「取决于以下假设」）。
 
-## Forecast Rule
-Any forecast must include explicit assumptions.
+## 预测规则
+任何预测都必须包含明确的假设前提。
 
-## Uncertainty Disclosure
-When evidence is weak, state uncertainty or data insufficiency explicitly.
+## 不确定性披露
+当证据薄弱时，要明确指出不确定性或数据不足。
 
-## Ending
-Conclude with a concise overall judgment, without hype.
+## 结尾
+以简洁的整体判断收尾，不做夸张渲染。
 
-## Professionalism
-Assume expert readers; avoid basic concept explanations.
+## 专业性
+假定读者是专家，避免解释基础概念。
 
-## Decision Usefulness
-When multiple paths exist, identify dominant path, secondary paths, and deprioritized paths with reasons.
+## 决策参考价值
+当存在多条路径时，要指出主导路径、次要路径与被降级的路径，并说明理由。
 
-## Counter-consensus
-Include at least one potentially non-mainstream judgment when evidence supports it.
-Do not be contrarian for its own sake; divergence must be evidence-based.
+## 反共识
+在证据支持的前提下，至少给出一个可能非主流的判断。
+不要为反而反；分歧必须建立在证据之上。
 
-## Weighting
-State relative importance of major drivers; avoid treating all factors equally.
+## 权重
+说明各主要驱动因素的相对重要性；避免把所有因素等量齐观。
 
-## Opportunity Cost
-State what is not worth prioritizing under current assumptions.
+## 机会成本
+说明在当前假设下，哪些事情不值得优先投入。
 
-## Evidence Hierarchy
-Differentiate hard data, secondary sources, expert inference, and scenario reasoning.
+## 证据层级
+区分硬数据、二手来源、专家推断与情景推理。
 
-## Validity Boundary
-State conditions under which the core conclusion no longer holds.
+## 有效边界
+说明在哪些条件下核心结论将不再成立。
 
-# Output Expectations
-- Keep output in the user language.
-- Keep section structure clear and stable.
-- Keep claims traceable to evidence whenever possible.
+# 输出要求
+- 输出使用用户所用的语言。
+- 保持章节结构清晰且稳定。
+- 尽可能让每个论断都可追溯到证据。

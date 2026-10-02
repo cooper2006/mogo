@@ -1,11 +1,12 @@
 ---
 name: financial_analysis_v1
+displayName: 财务分析
 packageName: financial-analysis-v1
 version: 1.0.0
-description: Quantitative financial analysis and valuation for a listed competitor.
+description: 对上市公司竞争对手做量化财务分析与估值。
 role: subagent
 parent_skill: competitor_deep_dive
-whenToUse: Invoked as a sub-agent node of the competitor_deep_dive graph orchestration; not selected directly by end users.
+whenToUse: 作为 competitor_deep_dive 图编排的子智能体节点被调用，不由最终用户直接选择。
 inputs:
   - competitor_name
   - fiscal_year

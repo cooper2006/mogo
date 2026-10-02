@@ -1,9 +1,10 @@
 name: research
+displayName: 通用调研
 version: 1.0.0
-description: General research skill with web search and summarization.
+description: 通用调研技能，联网检索并归纳事实，产出带来源的报告。
 inputs:
   - topic
-  - output_spec (optional)
+  - output_spec（可选）
 outputs:
   - report.md
 tools:

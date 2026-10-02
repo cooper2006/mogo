@@ -1,11 +1,12 @@
 ---
 name: market_intelligence_v1
+displayName: 市场情报
 packageName: market-intelligence-v1
 version: 1.0.0
-description: Gather market intelligence on a company — funding, market share, growth.
+description: 采集某公司的市场情报——融资、市场份额与增长情况。
 role: subagent
 parent_skill: competitor_deep_dive
-whenToUse: Invoked as a sub-agent node of the competitor_deep_dive graph orchestration; not selected directly by end users.
+whenToUse: 作为 competitor_deep_dive 图编排的子智能体节点被调用，不由最终用户直接选择。
 inputs:
   - competitor_name
   - time_window
