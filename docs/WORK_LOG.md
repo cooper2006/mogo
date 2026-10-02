@@ -3417,3 +3417,29 @@ FR-6 对账/预测非 None/部门归因诚实标注；`test_tenant_purge` 全绿
 
 **验证**：chat-api 相关 **414 passed**（004 审计 3 项 + 既有 411）。`tests/llm/test_decision_turn`
 的 collection 报错经 `git stash` 验证为基线既有（browser 引擎 `_DecisionSchema` 导入），与本次无关。
+
+## 2026-10-03（续十六）011 修复：落库闭环 —— 片段持久化 + 草稿给 004 消费 + MR 走 mr.py + 淘汰输入自动检测
+
+P0 最后一公里第 3 项。011 dream-cycle 此前四条"无生产输入/无消费方"（报告 199-203 条）：
+每 pass 新建内存 `FragmentStore` → 跨 pass 零状态；`draft_ids` 只进返回 dict 从不落库、
+004 无消费方；MR 判定走 `cluster.is_mr_eligible` 而 `mr.py` 的 `generate_improvement_mr` 零调用；
+`deprecations`/`restorations` 仅测试传、生产 `_loop` 不传，淘汰链路无输入。
+
+**本轮改动**：
+- **011① 片段持久化**：`PersistentFragmentStore` 把每次 pass 的新片段写 `experience_fragments`；
+  `run_once` 绑 DB 时先 `load_history` 各租户已存片段再 extend → 跨 pass 有累积状态。
+  upsert 键 = `(tenant, content_fingerprint)`（sha1 内容指纹），同一逻辑片段重扫幂等不上涨；
+  内存 `fragment_id` 保持 counter 契约（现有 `skill-frag-NNNNNN` 断言不破坏）。
+- **011② 草稿落库**：`_persist_draft` 把生成的 `SkillDraft` 写 `skill_drafts`（含 `mr` 标志，
+  与 MR 审计事件用**同一** scan config 阈值 → 二者永不分歧）；004 从此有真实消费方。
+- **011③ MR 走 mr.py**：`run_once` 的 MR 判定改走 `mr.generate_improvement_mr`（唯一真值源）；
+  扩展 `is_high_confidence`/`generate_improvement_mr` 接受 per-tenant scan config 阈值覆盖
+  （默认值仍 0.7/5），与 scanner 保持一致、不收紧门禁。
+- **011④ 淘汰输入**：`_detect_low_adoption_deprecations` 在调用方未传 deprecations 且 DB 可用时，
+  自动扫 `skill_adoption` 表逐条 `detect_low_adoption`，把低采纳技能生成淘汰输入；
+  无 DB 时诚实返回 `[]`（不伪造事件）。
+
+**验证**：011 相关 **92 passed** + 新增 4 项回归测试（跨 pass 持久化 / 草稿落库给 004 /
+MR 门禁走 mr.py / 淘汰输入自动检测）；非 dsh_runtime 全量 **1651 passed**；dsh_runtime 的 10
+个失败经 `git stash` 验证为基线既有（与本 011 改动无关，涉及 scheduled_turn 与 native/progressive
+search）。
