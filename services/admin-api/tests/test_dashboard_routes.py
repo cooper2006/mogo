@@ -143,3 +143,51 @@ async def test_trend_metrics_bottleneck_ranked_by_cost() -> None:
 async def test_approval_pending_degrades_to_zero_without_store() -> None:
     db = _FakeDB({})
     assert await dashboard._approval_pending_count(db, "tenant-a") == 0
+
+
+@pytest.mark.asyncio
+async def test_cost_section_is_wired_and_reconciles() -> None:
+    """008 US2 (audit 2026-10-03): build_cost_section had zero production callers.
+
+    /overview now returns a cost section; the section must reconcile model costs
+    to the total (FR-6) and carry an honest department-attribution note.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    usage = _FakeCollection(aggregate_rows=[
+        {"_id": "gpt-5.2", "calls": 10, "prompt_tokens": 1000, "completion_tokens": 500},
+        {"_id": "deepseek-v4-flash", "calls": 5, "prompt_tokens": 100, "completion_tokens": 50},
+    ])
+    # _daily_costs uses .find(...) -> a cursor with sort/limit/to_list; emulate a
+    # few raw usage rows so the forecast has trailing daily cost to average over.
+    usage.raw_rows = [
+        {"created_at": now - timedelta(days=1), "model_name": "gpt-5.2", "prompt_tokens": 1000, "completion_tokens": 500},
+        {"created_at": now - timedelta(hours=2), "model_name": "gpt-5.2", "prompt_tokens": 1000, "completion_tokens": 500},
+    ]
+    orig_aggregate = usage.aggregate
+    def _find(query, *args, **kwargs):
+        class _Cur:
+            async def to_list(self, length=None):
+                return [dict(r) for r in usage.raw_rows]
+
+            def sort(self, *a, **k):
+                return self
+
+            def limit(self, *a, **k):
+                return self
+
+        return _Cur()
+    usage.find = _find
+    usage.aggregate = orig_aggregate
+
+    db = _FakeDB({"token_usage_logs": usage, "user_org_relations": _FakeCollection()})
+    section = await dashboard._cost_section(db, "m-1")
+
+    # FR-6: model costs reconcile to the total within tolerance.
+    assert section["reconciles"] is True
+    assert section["totalCost"] == pytest.approx(sum(m["cost"] for m in section["models"]), abs=0.01)
+    # FR-2 honesty: department attribution is not fabricated (agent_id has no source).
+    assert section["departmentAttribution"]["available"] is False
+    # OQ-5: the 4-period moving average is computed from the trailing daily history.
+    assert section["forecast"] is not None

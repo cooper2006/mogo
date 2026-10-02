@@ -9,12 +9,16 @@ from fastapi import APIRouter, Depends
 from app.api.deps import get_current_admin_user
 from app.api.dashboard_metrics import (
     DEFAULT_PERIOD_DAYS,
+    DEFAULT_FORECAST_PERIODS,
+    build_cost_section,
     build_quality_section,
     build_trend_section,
     bottleneck_top_n,
     extract_percentiles,
+    forecast_cost,
     percentile_stage,
     previous_window,
+    reconciles,
     tenant_match,
     window_start,
 )
@@ -602,6 +606,83 @@ async def _usage_tab(db: Any, main_id: str) -> dict[str, Any]:
     }
 
 
+async def _daily_costs(db: Any, main_id: str, days: int = 7) -> list[float]:
+    """Trailing daily cost history (oldest -> newest) for the cost forecast (OQ-5)."""
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
+    rows = await db[TOKEN_USAGE_COLLECTION].find(
+        {"main_id": main_id, "created_at": {"$gte": since}}
+    ).to_list(length=20000)
+    if not rows:
+        return []
+    per_day: dict[str, float] = {}
+    for row in rows:
+        created = row.get("created_at")
+        if created is None:
+            continue
+        day = created.date() if hasattr(created, "date") else datetime.fromtimestamp(created, tz=timezone.utc).date()
+        prompt = int(row.get("prompt_tokens") or 0)
+        completion = int(row.get("completion_tokens") or 0)
+        per_day[day] = per_day.get(day, 0.0) + _cost(str(row.get("model_name") or ""), prompt, completion)
+    ordered_days = sorted(per_day)
+    return [round(per_day[day], 6) for day in ordered_days]
+
+
+async def _cost_section(db: Any, main_id: str) -> dict[str, Any]:
+    """008 US2 / T010-T012: assemble the cost dimension (FR-2 / FR-6).
+
+    Previously ``build_cost_section`` / ``forecast_cost`` / ``attribute_cost`` had
+    **zero production callers** and ``/overview`` never returned a cost section
+    (001 audit, 2026-10-03). This wires the dead code in: per-model cost
+    aggregation + reconciliation self-check + 4-period moving-average forecast.
+
+    Department / agent attribution (FR-2) is deliberately **not fabricated**:
+    ``TokenUsageRecord`` has no ``agent_id`` source and the department link would
+    be guessed — that gap is left to the data-source work (008 report line 175)
+    and is surfaced here as an explicit note, not a fake number.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    match = {"main_id": main_id, "created_at": {"$gte": since}}
+    rows = await db[TOKEN_USAGE_COLLECTION].aggregate(
+        [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": "$model_name",
+                    "calls": {"$sum": 1},
+                    "prompt_tokens": {"$sum": {"$ifNull": ["$prompt_tokens", 0]}},
+                    "completion_tokens": {"$sum": {"$ifNull": ["$completion_tokens", 0]}},
+                }
+            },
+        ]
+    ).to_list(length=1000)
+    costed = []
+    for row in rows:
+        model_name = str(row.get("_id") or "")
+        prompt = int(row.get("prompt_tokens") or 0)
+        completion = int(row.get("completion_tokens") or 0)
+        costed.append(
+            {
+                "model": model_name,
+                "calls": int(row.get("calls") or 0),
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "total_tokens": prompt + completion,
+                "cost": round(_cost(model_name, prompt, completion), 6),
+            }
+        )
+    section = build_cost_section(costed)
+    # FR-6: model costs must reconcile to the total; surface the self-check.
+    section["reconciles"] = reconciles(section)
+    # Forecast the next period from the trailing daily cost history (OQ-5: 4-period avg).
+    section["forecast"] = forecast_cost(await _daily_costs(db, main_id, days=DEFAULT_FORECAST_PERIODS + 1))
+    section["departmentAttribution"] = {
+        "available": False,
+        "reason": "agent_id 无数据源（TokenUsageRecord 缺字段）；部门分摊待 008 数据源补齐，不伪造数值。",
+    }
+    return section
+
+
 @router.get("/overview")
 async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
     main_id = str(current_user.get("main_id") or "default")
@@ -612,6 +693,7 @@ async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict
     quality = await _quality_metrics(db, main_id)
     trend = await _trend_metrics(db, main_id, current_cost=float(metrics.get("cost24h") or 0.0))
     usage = await _usage_tab(db, main_id)
+    cost = await _cost_section(db, main_id)
     todos = _todos(metrics, assets)
     status_text = "critical" if any(item["level"] == "error" for item in todos) else "warning" if todos else "healthy"
     return {
@@ -625,6 +707,7 @@ async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict
         "quality": quality,
         "trend": trend,
         "usage": usage,
+        "cost": cost,
         "todos": todos,
         "recentActivity": recent_activity,
     }

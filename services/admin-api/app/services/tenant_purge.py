@@ -77,6 +77,10 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "resource_grants",
     "resource_reactions",
     "session_snapshots",
+    # 002 FR-8: reversible secret placeholders for session snapshots. Persisted in
+    # chat-api (services/session_versioning/snapshot.py) and the most sensitive data
+    # a tenant can hold — purging a tenant MUST remove it (001 audit, 2026-10-03).
+    "session_secret_refs",
     "site_profiles",
     "skill_distribution_members",
     "skill_distribution_releases",
