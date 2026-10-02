@@ -310,7 +310,13 @@
 > **仍待修（降为 P1 残项）**：RAG 集成（`memory_rag_candidates` 接入
 >    `knowledge_search`）；FR-8 老化清理定时任务；promote_to_org 的认证入口。
 
-### 018 capability-asset-registration（5）
+### 018 capability-asset-registration（5）—— **Registry + 端点已接线（2026-10-03，见 WORK_LOG 续二十四）**
+
+> **已修**：`CapabilityAssetRegistry` 类（register/get/list_all/discover_and_register/
+>    update_contract/set_state/transfer_owner）；`POST/GET /api/capabilities` 和
+>    `GET /api/capabilities/{asset_id}` 三个端点，X-MOVO-Service-Token 验证（FR-1/FR-2）。
+>
+> **仍待修（降为 P1 残项）**：MongoDB 持久化（FR-10）；与 012 A2A `a2a_exposed` 筛选接线（FR-12）；CRUD 变更审计（FR-11）。
 - **零生产调用方**：六个核心符号 grep 全 0；`CapabilityAssetRegistry(` 仅 tests（`db=None`）。
 - **discover→register 链路断裂**：分属两服务且互不调用。
 - **无输入来源**：无 OpenAPI/MCP 扫描器，只接收手工传入的 iterable。
