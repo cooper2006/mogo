@@ -3233,3 +3233,28 @@ DSH kernel 的 `skill.selected` 事件经 `dsh_runtime/events/projection.py` 投
 
 **改动文件**：`specs/LANDING_AUDIT_2026-10-03.md`（加抽查复核节）、16 份 `tasks.md`、
 20 份 `checklists/requirements.md`、`specs/011-.../checklists/implementation.md`。**未改任何业务代码。**
+
+## 2026-10-03（续九）落地审计：深挖验证复杂推理链 + 反向验证 + 完成度声明
+
+上一轮抽查的是"零 import"这类易 grep 的事实，本轮补验**最严重且多跳推理**的结论（防止 agent 臆测误导修复）。
+
+**深挖验证（逐环节核对，全部成立）**：
+- **001 RBAC 角色源断裂**：`tools.py:327` 取 `current_user["role_ids"/"roles"]` → `deps.py` 返回
+  `{**user, main_id, role_name, org_name, display_name}`（无这两字段）→ `create_account` 写入字段表
+  确无 `role_ids`/`roles`（**只有 `role_name` 字符串**）→ `rbac.py:_role_documents` 对空 `role_ids`
+  直接 `return []` 且**无 `role_name` fallback**。→ 生产必 fail-closed。
+- **001 审批无恢复路径**：token 只写进 409 detail（`tools.py:348/350`）；恢复分支读
+  `ctx.annotations["approval_token"]` 全仓无生产者；`ApprovalRegistry.deny()` 无调用方。
+- **003 锚点空心**：解析侧**确实产出** `sourceAnchor`（`:246/:430`），但 `vector_store.py` 中
+  `anchor/metadata/bbox` **零命中**（schema/upsert/GraphQL 全无）→ 通道断在"入向量库"这一步。
+- **020 配额**：`quota_policy.py:219` 仅 `status` 与 `remainingPoints` 两判断，无 `unlimited` 短路。
+
+**反向验证（确认无 landed 误判）**：取全部 20 个中**最接近 landed** 的 006 核对——路由真实挂载
+（`api/router.py:14`）、前端真实调用（`apps/admin-web/src/api/positionRoles.ts:46-58`）、chat-api 真实强制
+（`turn_admission.py:201-212`）均 ✅；它仍判 partial 的理由成立（缺端到端可证伪测试 + `copy_role` 绕过校验）。
+→ **`landed = 0` 成立，非判定过严。**
+
+**报告增强**：新增 `### 深挖验证`、`### 反向验证`、`## 检查完成度声明`（明确已覆盖/未覆盖边界，
+并说明判定为静态核查、未做运行时验证及其原因）。
+
+**改动文件**：`specs/LANDING_AUDIT_2026-10-03.md`、`docs/WORK_LOG.md`。**未改业务代码。**

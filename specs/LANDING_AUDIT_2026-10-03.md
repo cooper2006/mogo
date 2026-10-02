@@ -42,6 +42,28 @@
 | 001 `gate_events` 零读取 | `grep -rn "gate_events" app/` | 仅注释/定义/建索引/写入 ✅ |
 | 020 chat-api 无 `unlimited` | `grep -n "unlimited" app/core/quota_policy.py` | 空 ✅ |
 
+### 深挖验证（复杂推理链，逐环节核对）
+
+对报告里**最严重且最影响决策**的几条结论做了逐环节独立验证（这些不是简单 grep，而是多跳推理）：
+
+| 结论 | 验证环节 | 结果 |
+|---|---|---|
+| **001 RBAC 角色源断裂** | ① `tools.py:327` 取 `current_user["role_ids"/"roles"]` → ② `deps.py:_load_authenticated_account` 返回 `{**user, main_id, role_name, org_name, display_name}`，无这两字段 → ③ `org_user_repository.create_account` 写入字段表（`main_id/username/display_name/email/phone/group_code/role_name/status/...`）确无 `role_ids`/`roles`，**只有 `role_name` 字符串** → ④ `rbac.py:_role_documents` 对空 `role_ids` 直接 `return []`，且**无 `role_name` fallback** | **成立** ✅ 角色预设码恒空，生产必 fail-closed |
+| **001 审批无恢复路径** | ① `tools.py:348/350` 只把 token 写进 HTTP 409 detail → ② `approval.py:147` 的恢复分支读 `ctx.annotations["approval_token"]`，全仓无生产者 → ③ `grep "\.deny("` 无调用方 | **成立** ✅ 触发审批即永久挂起 |
+| **001 `gate_events` 零读者** | `grep -rn "gate_events" app/` → 仅注释/常量定义/建索引/写入，**无 find/aggregate** | **成立** ✅ |
+| **003 锚点空心（中间段丢失）** | ① 解析侧**确实产出** `sourceAnchor`（`document_parsing_service.py:246/430`）→ ② 但 `vector_store.py` 中 `anchor/metadata/bbox` **零命中**（schema/upsert/GraphQL fields 均无）→ ③ 消费方 `citation_resolver` 读 `metadata.sourceAnchor` | **成立** ✅ 产出有、通道断、消费方永远拿空 |
+| **020 配额不限额未贯通** | `chat-api/app/core/quota_policy.py:219 assert_quota_available` 仅 `status != active` 与 `remainingPoints <= 0` 两判断，**无 `unlimited` 短路** | **成立** ✅ 新租户成员发消息被 402 |
+| **016 灰度轴零调用** | `grep "evaluate_canary\|apply_rollback" app/` 排除 `canary.py` 后为空 | **成立** ✅ |
+
+### 反向验证（确认没有"其实 landed 却被误判"）
+
+- **006 position-rbac-admin** 是全部 20 个中**最接近 landed** 的（报告判 `partial`）。独立核对：
+  路由真实挂载（`api/router.py:14`）✅、前端真实调用（`apps/admin-web/src/api/positionRoles.ts:46-58`）✅、
+  chat-api 真实强制（`turn_admission.py:201-212` 经 `MongoEmployeePolicyResolver`）✅。
+  它仍判 `partial` 的原因成立——缺端到端可证伪测试（`test_position_role_service.py` 只覆盖 `_document` 纯函数），
+  以及 `copy_role` 可绕过 FR-6 校验。
+- **结论**：`landed = 0` 的判断成立——连最强的 006 都差在"端到端可证伪"这条硬标准上，非判定过严。
+
 **回写**：结论已回写到被检查对象旁边，避免单读某个 spec 仍被"tasks 全勾"误导——
 16 份 `tasks.md` 顶部 + 20 份 `checklists/requirements.md` 顶部 + 011 的 `checklists/implementation.md` 末尾。
 
@@ -217,3 +239,20 @@
 2. **P0 接通"最后一公里"**：011 经验/草稿落库、003 锚点入向量库、004 审计与版本回看消费方、008 成本段与指标写入方。
 3. **P1 纯逻辑孤岛接线或明确降级**：010/012/013/014/015/017/018/019 —— 要么接生产入口，要么在 spec 里显式降级为"未实现（设计已就绪）"，**不得再标"已实现核心"**。
 4. **规格回写**：把上表与高危缺口回写各 spec 的 checklist/implementation，并统一口径（plan 声称的集合/端点若不存在，应订正或标注为待建）。
+
+## 检查完成度声明（本轮边界）
+
+**已覆盖**：
+- `specs/` 下全部 20 个特性的落地判定（`landed` 0 / `partial` 10 / `hollow` 9）；
+- 每个 hollow/partial 特性的高危缺口清单（含 `file:line`/grep 证据）；
+- 14 条简单事实的独立抽查 + 6 条复杂推理链的逐环节深挖 + 1 条反向验证（确认无 landed 误判）；
+- 结论回写到 16 份 `tasks.md` / 20 份 `checklists/requirements.md` / 011 `implementation.md`；
+- 订正 `INDEX.md` 的失实结论并加口径提示。
+
+**未覆盖（属"修复"而非"检查"）**：
+- 未修改任何业务代码；
+- 未逐条修复上表缺口，也未为修复排期；
+- 判定基于静态代码核查（grep/阅读），未启动服务做运行时验证（本机 admin-api 的 `.venv-test` 与
+  `motor` 在 Python 3.14 下不兼容，裸 import 不可行，仅 pytest 环境可用）。
+
+**判定口径的可复现性**：所有结论的证据都是 `file:line` 或 grep 命令，任何人可按表复跑。
