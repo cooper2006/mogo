@@ -164,6 +164,9 @@ class DeepDiveOrchestrator:
         sub_agents: Mapping[str, SubAgentRunner] | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
         retry_policy: RetryPolicy | None = None,
+        audit_sink: Callable[[str, str, dict[str, Any]], Any] | None = None,
+        tenant_id: str = "",
+        actor: str = "",
     ) -> None:
         self.orchestration = orchestration or load_orchestration_file(ORCHESTRATION_PATH)
         self._sub_agents = dict(sub_agents or {})
@@ -174,6 +177,22 @@ class DeepDiveOrchestrator:
         self.retry_events: list[dict[str, Any]] = []
         self._concurrency_peak = 0
         self._in_flight = 0
+        # 010 FR-7: every node/run event funnels into the 001 governance audit
+        # stream. The sink signature is ``sink(event, feature, document)`` so an
+        # in-memory recorder can stand in for tests; production passes
+        # ``app.services.feature_audit_bridge.emit_feature_event``.
+        self._audit_sink = audit_sink
+        self._tenant_id = tenant_id
+        self._actor = actor
+
+    def _emit(self, event: str, **fields: Any) -> None:
+        if self._audit_sink is None:
+            return
+        self._audit_sink(
+            event,
+            "010",
+            {"tenant_id": self._tenant_id, "actor": self._actor, **fields},
+        )
 
     # -- observability helpers -------------------------------------------------
 
@@ -187,6 +206,37 @@ class DeepDiveOrchestrator:
         """Highest number of nodes observed running at the same time."""
         return self._concurrency_peak
 
+    # -- construction ----------------------------------------------------------
+
+    @classmethod
+    async def create(
+        cls,
+        *,
+        orchestration_id: str = "competitor_deep_dive",
+        sub_agents: Mapping[str, SubAgentRunner] | None = None,
+        sleep: Callable[[float], Awaitable[None]] | None = None,
+        audit_sink: Callable[[str, str, dict[str, Any]], Any] | None = None,
+        tenant_id: str = "",
+        actor: str = "",
+    ) -> "DeepDiveOrchestrator":
+        """Async constructor that resolves the definition from ``dag_definitions``.
+
+        010 FR-8: the definition is read from the ``dag_definitions`` collection
+        (registered lazily from the bundled YAML on first use). Falls back to the
+        YAML if the DB is unavailable, so a run never silently loses its graph.
+        """
+        from app.orchestration.store import load_orchestration_persisted
+
+        loaded = await load_orchestration_persisted(orchestration_id, yaml_path=ORCHESTRATION_PATH)
+        return cls(
+            orchestration=loaded,
+            sub_agents=sub_agents,
+            sleep=sleep,
+            audit_sink=audit_sink,
+            tenant_id=tenant_id,
+            actor=actor,
+        )
+
     # -- node runner -----------------------------------------------------------
 
     async def _run_node(self, node: Node, context: dict[str, Any]) -> Any:
@@ -198,6 +248,7 @@ class DeepDiveOrchestrator:
         self._in_flight += 1
         self._concurrency_peak = max(self._concurrency_peak, self._in_flight)
         execution.started_at = _now()
+        self._emit("dag.node_start", node=node.id, attempt=1)
         try:
             last_error: Exception | None = None
             for attempt in range(1, self.retry_policy.max_attempts + 1):
@@ -212,18 +263,21 @@ class DeepDiveOrchestrator:
                             "delay_seconds": delay,
                         }
                     )
+                    self._emit("dag.node_retry", node=node.id, attempt=attempt, delay_seconds=delay)
                     await self._sleep(delay)
                 try:
                     output = await runner(node, context)
                 except Exception as error:  # noqa: BLE001 - retried, then recorded
                     last_error = error
                     continue
+                self._emit("dag.node_complete", node=node.id, attempt=attempt)
                 self._publish(node, output, context)
                 return output
             assert last_error is not None
             raise last_error
         except Exception as error:
             execution.failed = True
+            self._emit("dag.node_fail", node=node.id, attempts=execution.attempts, error=str(error))
             self.failures.append(
                 NodeFailure(
                     node_id=node.id,
@@ -304,6 +358,13 @@ class DeepDiveOrchestrator:
         }
         context.update(dict(initial_context or {}))
 
+        self._emit(
+            "dag.run_started",
+            orchestration_id=self.orchestration.orchestration_id,
+            orchestration_version=str(self.orchestration.definition.version),
+            competitor_name=competitor_name,
+        )
+
         graph = self.orchestration.definition.to_graph()
         engine = DagEngine(max_concurrency=self.max_concurrency)
 
@@ -359,6 +420,24 @@ class DeepDiveOrchestrator:
                 completed=completed,
                 skipped=self._skipped_reasons(result),
             )
+
+        # 010 FR-7: record skipped nodes (incl. the sentinel-masked analysis
+        # failures that were surfaced as skips to keep the synthesis node
+        # schedulable) so the audit trail is the source of truth even when the
+        # engine outcome is a skip. The original failure is also in
+        # ``self.failures`` and emitted as ``dag.node_fail`` above.
+        for node_id, outcome in result.outcomes.items():
+            if outcome.state == "skipped":
+                self._emit("dag.node_skip", node=node_id, reason=outcome.reason or "条件为假")
+
+        self._emit(
+            "dag.run_finished",
+            orchestration_id=self.orchestration.orchestration_id,
+            degraded=degraded,
+            completed_nodes=len(result.outcomes),
+            failed_nodes=len(self.failures),
+            node_states={nid: o.state for nid, o in result.outcomes.items()},
+        )
 
         return DeepDiveResult(
             execution=result,

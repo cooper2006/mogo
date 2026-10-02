@@ -134,6 +134,7 @@ from app.api.endpoints import (
     skill_shares,
     resource_feedback,
     personal_knowledge,
+    research,
     tasks,
     token_usage,
 )
@@ -176,6 +177,8 @@ app.include_router(a2a.router)
 app.include_router(im_gateway.router)
 # 017: three-scope memory CRUD (scope/visibility enforced server-side).
 app.include_router(memory.router)
+# 010: research DAG orchestration (competitor deep-dive) — production entry.
+app.include_router(research.router, prefix="/api")
 # 015: knowledge graph query surface (FR-2 / FR-10 minimal wiring).
 app.include_router(knowledge_graph.router)
 

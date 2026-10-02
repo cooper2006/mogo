@@ -26,6 +26,16 @@ FEATURE_AUDIT_EVENTS: dict[str, tuple[str, ...]] = {
     "016": ("skill.quality.marked", "skill.quality.restored"),
     "017": ("memory.promoted", "memory.decayed", "memory.restored"),
     "018": ("asset.registered", "asset.status.changed", "asset.a2a.marked"),
+    # 010 DAG orchestration: competitor deep-dive graph run events (FR-7).
+    "010": (
+        "dag.run_started",
+        "dag.node_start",
+        "dag.node_complete",
+        "dag.node_skip",
+        "dag.node_retry",
+        "dag.node_fail",
+        "dag.run_finished",
+    ),
 }
 
 
