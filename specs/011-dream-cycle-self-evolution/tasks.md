@@ -13,8 +13,32 @@
 - 生成侧质量门槛 = 必须含可执行测试样例且预览运行通过。
 
 **Checklist Gate**: `checklists/requirements.md` 已 100% 勾选。
+（**注意**：需求质量清单的 16/16 与实现清单的判级是两回事 ——
+`checklists/implementation.md` 于 2026-10-02 逐项取证，结果是 `[x]` 55 · `[!]` 35 · `[-]` 6，
+其「七类待办」需产品/规格拍板后才谈得上进入 `/speckit-converge`。）
 
 **Organization**: 落点 = `chat-api/app/self_evolution/`（新模块）；复用 `scheduled_tasks`、`skills_specs`、004 `skill_lifecycle`。P2 后置。
+
+> ### 实际模块落点（2026-10-02 核对补记 —— 下面任务里的扁平假设是错的）
+>
+> 本文件与 `checklists/implementation.md` 原先都假设存在一个扁平的
+> `app/self_evolution/`，内含 `mr.py`/`deprecation.py`/`audit.py`/`config.py`。
+> **实际是两层，且后四个模块不在核心包里**：
+>
+> | 层 | 路径 | 行数 | 内容 |
+> |---|---|---|---|
+> | 纯核心 | `services/chat-api/app/self_evolution/` | 704 | `__init__`/`fragment`/`friction`/`similarity`/`scanner`/`draft_gen`（无 DB、无 DSH 运行时） |
+> | 集成层 | `services/chat-api/app/services/dream_cycle/` | 652 | `runner`/`friction`/`mr`/`deprecation`/`evolution_audit`（管道、MR、淘汰、审计、配置） |
+>
+> - `mr.py`、`deprecation.py` → **`app/services/dream_cycle/`**，不是 `app/self_evolution/`
+> - **没有** `audit.py`、**没有** `config.py` —— 审计与配置都在
+>   `app/services/dream_cycle/evolution_audit.py`（`EvolutionConfig` 就在该文件内）
+> - 契约 **不在本 spec 目录下**：T019 的 `contracts/self-evolution.md` 实际位于**仓库根**
+>   `contracts/self-evolution.md`（与 007/009/010 的契约同处 repo 级目录）
+> - **011 目前无生产接线**：`app/` 下（排除这两层自身）对 `self_evolution`/`dream_cycle`
+>   的引用数为 **0**，无 router、无 endpoint、未注册 `scheduled_tasks`。
+>   即 T007 的「复用 `scheduled_tasks`」只是写法意图，`scanner.py:5-6` 仅在 docstring 提及。
+> - 测试入口：`tests/self_evolution/` + `tests/services/test_dream_{cycle,evolution,audit_config}.py` → 66 passed
 
 ---
 

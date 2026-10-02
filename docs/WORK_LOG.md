@@ -1,5 +1,36 @@
 # Work Log
 
+## 2026-10-02 011 实现清单逐项核对：清单本身写错了模块布局（96 项判级完成）
+
+**起因**：`specs/011-dream-cycle-self-evolution/checklists/implementation.md` 生成于 2026-10-01，96 项全空。此前一度把它当作「011 未完成」的证据，但它其实从未被逐项核对过。本轮做的是取证，不是实现。
+
+**最重要的发现：这份清单是按「想象中的模块布局」写的。**
+- 清单通篇假设一个扁平包 `app/self_evolution/`，内含 `friction`/`similarity`/`scanner`/`draft_gen`/`mr`/`deprecation`/`audit`/`config`。
+- 实际是**两层**：纯核心 `services/chat-api/app/self_evolution/`（704 行：`__init__`/`fragment`/`friction`/`similarity`/`scanner`/`draft_gen`，无 DB、无 DSH 运行时）+ 集成层 `services/chat-api/app/services/dream_cycle/`（652 行：`runner`/`friction`/`mr`/`deprecation`/`evolution_audit`）。
+- `mr.py`、`deprecation.py` 在**集成层**；**没有** `audit.py`、**没有** `config.py` —— 审计与配置都在 `evolution_audit.py`（`EvolutionConfig` 就在这个文件里）。
+- `contracts/self-evolution.md` **不在 spec 目录下**，在**仓库根** `contracts/`（与 007/009/010 契约同处）。`checklists/requirements.md` 也在 `checklists/` 下，不在 spec 根。
+- 这解释了它为什么迟迟没被勾选：**照着清单找文件会找不到，于是谁也不敢勾**。已在 `tasks.md` 顶部补「实际模块落点」表，把这条知识固化下来。
+
+**判级结果**（`[x]` 55 · `[!]` 35 · `[-]` 6，共 96；`grep -c` 实测）：
+- `[x]` = 实现 + 测试双证已核对；`[!]` = 有实现但证据不足或与清单描述不符；`[-]` = 清单条目不成立（模块/命名/路径不存在，或本就不是 011 的职责）。
+
+**七类待办**（按影响排序，均需产品/规格拍板，不是我能自行决定的）：
+1. **011 零生产接线**：`app/`（排除两层自身）对 `self_evolution`/`dream_cycle` 的引用数为 **0** —— 无 router、无 endpoint、`main.py` 不 import、`scheduled_tasks` 未注册。`scanner` 从不被调度，五个 `audit_*` 包装**从不被调用**（只被测试调用）。「已实现但不在线」，需接线或明确降级为库。
+2. **`normalized_edit_similarity` 是死代码**：编辑距离实现了，但只有它自己消费；`scanner` 只用 Jaccard。清单 T004-4 要的是「双指标联动判定」，实际是「编辑距离备好但未接入」。
+3. **审计事件命名两套并存**：清单要 `friction_captured`/`draft_generated`/`mr_created`/`skill_deprecated`/`skill_restored`，实现是 `capture`/`generate`/`mr`/`deprecate`/`restore`（`evolution_audit.py:20 AUDIT_EVENT_TYPES`，契约文档已按实现写）。**应以实现为准改清单**，否则之后写审计查询会照错名字写。
+4. **标记/恢复无消费方**：「标记 deprecated 后不再推荐」（T014-3）与「恢复后重新进入推荐」（T015-2）都没有推荐路径可验 —— `restore()` 返回 `"recommendation": "re-enabled"` 这个字符串，但没有任何代码读它，该断言无法被行为证伪。SC004 同此。
+5. **「清理最旧」被实现成「拒绝新建」**：`should_generate_draft` 在达到上限时返回 `False`（抑制新建），不是 LRU 淘汰最旧。功能上避免无限增长，语义不同。
+6. **配置有两份**：`EvolutionConfig` 与核心层常量（`similarity`/`scanner`/`deprecation`/`mr` 各自一份）数值目前一致但需**手工同步**。另发现 `runner.py:20 DEFAULT_SHRADOW_RATIO` **拼写错误**（`SHRADOW`），一并记录待修。
+7. **跨租户隔离只有内存层**：无集合、无索引；`tenant_id` 默认值 `"default"`（缺省时会混租户）；`AdoptionStore.counters` 是全局 dict **按 `skill_key` 而非租户分区**；「每租户 N 份草稿」的 per-tenant 维度不存在（`max_drafts_per_tenant` 这个名字全仓零命中）。
+
+**取证方法与复现命令**：
+- 测试：`cd services/chat-api && venv/bin/python -m pytest tests/self_evolution/ tests/services/test_dream_cycle.py tests/services/test_dream_evolution.py tests/services/test_dream_audit_config.py -q` → **66 passed**。
+- 引用计数：`grep -rn "from app.self_evolution\|from app.services.dream_cycle" app/ --include=*.py`（排除两层自身）→ 0。
+- 符号存在性：`scheduled_tasks` 注册、`marked_low_quality` 消费方、`recommendation` 消费方、`normalized_edit_similarity` 调用方、`scan_id`/`draft_count`、`max_drafts_per_tenant`。
+- `marked_low_quality` 全仓仅 4 处且全在 `deprecation.py` → 016 侧无对应实现（XF016-2/3 的「两侧」只有一侧存在）。
+
+**数字自检（一次真实事故）**：初稿文末的判级统计是我按草稿印象写的「45/30/21」，与文件里实际标记数（55/35/6）不符 —— 因为 `[-]` 条目的**说明文字里也会出现 `[!]` 字样**，靠肉眼扫会数错。改为 `grep -c` 实测后修正，并在统计行注明六项 `[-]` 的具体编号。教训：**清单类文档的合计数字必须用命令数出来，不能凭记忆写**。
+
 ## 2026-10-02 community 租户的成员上限：写入侧拒绝，不静默忽略
 
 **起因**：上一轮 review 时发现一个必须由产品拍板的语义分歧 —— community 版的 `user_limit` 是 `None`，但 `resolve_member_limit` 的 override 分支**完全不看** community 判定。于是平台管理员对 community 租户设 `memberLimit: 3`，上限会**真的生效**。这算不算 bug，取决于 community 是「默认无限但可被平台收紧」还是「按版本无限，平台也不该能设」。产品判定为后者，且明确要求：**改写入侧拒绝，不是读取侧静默忽略**。
