@@ -127,6 +127,8 @@ async def run_gate_plan(
     tool: str,
     request: Optional[dict[str, Any]] = None,
     session_id: str = "",
+    approval_token: str = "",
+    approval_action_id: str = "",
 ) -> GatePlan:
     """001 US1 运行时侧：把 001 六层链真正作用于员工侧工具调用路径。
 
@@ -163,6 +165,8 @@ async def run_gate_plan(
             user_id=user_id,
             request=dict(request or {}),
             session_id=session_id,
+            approval_token=approval_token,
+            approval_action_id=approval_action_id,
         )
     except gate_module.GateDeniedError as exc:
         await record_position_policy_event(

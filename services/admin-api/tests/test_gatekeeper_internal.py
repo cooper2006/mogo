@@ -124,3 +124,123 @@ def _async(value):
         return value
 
     return _inner()
+
+
+def test_evaluate_injects_the_approval_ticket_annotation(monkeypatch):
+    """FR-2 resume: the token a caller carries must reach the approval layer."""
+    monkeypatch.setattr(settings, "backend_service_token", "s3cret", raising=False)
+    captured = {}
+
+    class _Verdict:
+        decision = type("D", (), {"value": "allow"})()
+        layer = "approval"
+        reason = "approval token consumed"
+        status_code = 200
+        detail: dict = {}
+
+    class _FakeGatekeeper:
+        async def evaluate(self, tool, ctx):
+            captured.update(ctx.annotations)
+            return _Verdict()
+
+    monkeypatch.setattr(endpoint, "gatekeeper", _FakeGatekeeper())
+    monkeypatch.setattr(endpoint, "_resolve_roles", lambda *a, **k: _async([]))
+
+    payload = endpoint.GateEvaluatePayload(
+        tool="browser",
+        tenantId="t1",
+        userId="u1",
+        sessionId="s1",
+        approvalToken="tok-1",
+        approvalActionId="a1",
+    )
+    asyncio.run(endpoint.evaluate_gate(payload, service_token="s3cret"))
+    assert captured["approval_token"] == "tok-1"
+    assert captured["approval_action_id"] == "a1"
+
+
+def test_decide_endpoint_requires_the_service_token(monkeypatch):
+    monkeypatch.setattr(settings, "backend_service_token", "s3cret", raising=False)
+    payload = endpoint.GateApprovalDecision(actionId="a1", token="t", approved=True)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(endpoint.decide_gate_approval(payload, service_token="wrong"))
+    assert exc.value.status_code == 401
+
+
+def test_decide_endpoint_moves_the_ticket(monkeypatch):
+    """A human approver approves; an unknown/expired ticket is a 404."""
+    monkeypatch.setattr(settings, "backend_service_token", "s3cret", raising=False)
+
+    from app.governance.layers import approval as approval_module
+
+    class _Registry:
+        def __init__(self, *a, **k):
+            pass
+
+        async def decide(self, *, action_id, token, approved, actor=""):
+            return action_id == "known"
+
+    monkeypatch.setattr(approval_module, "ApprovalRegistry", _Registry)
+
+    ok = asyncio.run(
+        endpoint.decide_gate_approval(
+            endpoint.GateApprovalDecision(actionId="known", token="t", approved=True, actor="mgr"),
+            service_token="s3cret",
+        )
+    )
+    assert ok["data"]["status"] == "approved"
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            endpoint.decide_gate_approval(
+                endpoint.GateApprovalDecision(actionId="unknown", token="t", approved=True),
+                service_token="s3cret",
+            )
+        )
+    assert exc.value.status_code == 404
+
+
+def test_list_gate_events_is_the_missing_consumer(monkeypatch):
+    """The audit trail must be readable — it was write-only before 2026-10-03."""
+    monkeypatch.setattr(settings, "backend_service_token", "s3cret", raising=False)
+
+    from app.governance.layers import audit as audit_module
+
+    class _Cursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def sort(self, *a, **k):
+            return self
+
+        def limit(self, *a, **k):
+            return self
+
+        async def to_list(self, length=0):
+            return list(self._rows)
+
+    class _Col:
+        def find(self, flt, projection=None):
+            return _Cursor(
+                [
+                    {
+                        "tenant_id": "t1",
+                        "decision": "deny",
+                        "tool": "browser",
+                        "layer": "rbac",
+                        "reason": "no grant",
+                    }
+                ]
+            )
+
+    class _Db:
+        def __getitem__(self, name):
+            assert name == audit_module.GATE_EVENTS_COLLECTION
+            return _Col()
+
+    monkeypatch.setattr("app.core.db.get_db", lambda: _Db(), raising=False)
+    result = asyncio.run(
+        endpoint.list_gate_events(tenantId="t1", decision="deny", service_token="s3cret")
+    )
+    assert result["data"]["count"] == 1
+    assert result["data"]["items"][0]["layer"] == "rbac"

@@ -332,13 +332,24 @@ async def _enforce_gate(tool_id: str, main_id: str, current_user: dict, payload:
     roles = current_user.get("role_ids") or current_user.get("roles") or []
     if not roles and main_id:
         roles = [f"system:{main_id}:full_access_admin"]
+    # FR-2 resume: a caller re-enters a suspended call carrying its approval ticket.
+    # Only a ticket a human approver already approved is consumable by the gate.
+    _payload = _safe_dict(payload)
+    annotations: dict[str, Any] = {}
+    _approval_token = str(_payload.get("approvalToken") or _payload.get("approval_token") or "")
+    if _approval_token:
+        annotations["approval_token"] = _approval_token
+        annotations["approval_action_id"] = str(
+            _payload.get("approvalActionId") or _payload.get("approval_action_id") or ""
+        )
     ctx = GateContext(
         tool=str(tool_id),
         tenant_id=main_id,
         user_id=str(current_user.get("user_id") or current_user.get("id") or ""),
         roles=[str(r) for r in roles],
-        request=_safe_dict(payload),
+        request=_payload,
         scope="tool",
+        annotations=annotations,
     )
     # US2: resolve the tool's registered risk tier so the autonomy matrix can act.
     from app.governance import risk as governance_risk

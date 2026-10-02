@@ -136,14 +136,21 @@ class Gatekeeper:
                 return verdict
 
         final = GateVerdict(decision=GateDecision.ALLOW, layer="gatekeeper", reason="all layers passed")
-        await self._record(audit_layer, context, final)
+        audit_verdict = await self._record(audit_layer, context, final)
+        # The audit layer reports a *deny* when the trail could not be persisted;
+        # honour it instead of discarding it (001 audit, 2026-10-03) — an unauditable
+        # allow must not slip through (FR-9).
+        if audit_verdict is not None and audit_verdict.decision is not GateDecision.ALLOW:
+            return audit_verdict
         return final
 
-    async def _record(self, audit_layer: GateLayer | None, ctx: GateContext, verdict: GateVerdict) -> None:
+    async def _record(
+        self, audit_layer: GateLayer | None, ctx: GateContext, verdict: GateVerdict
+    ) -> GateVerdict | None:
         if audit_layer is None:
-            return
+            return None
         ctx.annotations["verdict"] = verdict
-        await audit_layer.evaluate(ctx)  # audit layer inspects ctx.annotations["verdict"]
+        return await audit_layer.evaluate(ctx)  # audit layer inspects ctx.annotations["verdict"]
 
 
 # Module-level default instance (config loaded lazily).

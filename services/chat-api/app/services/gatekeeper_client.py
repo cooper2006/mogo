@@ -56,6 +56,8 @@ class GatekeeperClient:
         request: Optional[dict[str, Any]] = None,
         session_id: str = "",
         scope: str = "tool",
+        approval_token: str = "",
+        approval_action_id: str = "",
     ) -> dict[str, Any]:
         """Return the gate result; raise :class:`GateDeniedError` when not allowed.
 
@@ -70,6 +72,8 @@ class GatekeeperClient:
             "request": dict(request or {}),
             "sessionId": session_id,
             "scope": scope,
+            "approvalToken": str(approval_token or ""),
+            "approvalActionId": str(approval_action_id or ""),
         }
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:

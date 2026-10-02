@@ -13,9 +13,12 @@ call's ``[autonomy_level][risk_level]`` cell:
   and the gate returns ``REQUIRE_APPROVAL`` (409 at the API boundary, T006).
 
 The resume path is a later re-entry with the approval token: when
-``ctx.annotations["approval_token"]`` is present the layer validates and
-consumes the ticket instead of consulting the matrix again (one-time use,
-fail-closed on expiry).
+``ctx.annotations["approval_token"]`` is present the layer consumes an
+**already-approved** ticket instead of consulting the matrix again (one-time use,
+fail-closed on expiry). Approval and consumption are deliberately separate
+(:meth:`ApprovalRegistry.decide` for the human approver, :meth:`consume` for the
+requester) — the earlier single-step variant let a caller approve its own
+suspended call, i.e. no human approval happened at all (001 audit, 2026-10-03).
 """
 
 from __future__ import annotations
@@ -86,10 +89,70 @@ class ApprovalRegistry:
         await self._collection().insert_one(document)
         return token
 
+    async def decide(self, *, action_id: str, token: str, approved: bool, actor: str = "") -> bool:
+        """**Approver** decision: pending -> approved / denied (one-shot).
+
+        Separate from :meth:`consume` on purpose: the original code let the caller
+        approve *its own* suspended call simply by re-entering with the token, which
+        means no human approval ever happened (001 audit, 2026-10-03). A human
+        approver now moves the ticket, and the requester only consumes it.
+        """
+        collection = self._collection()
+        document = await collection.find_one(
+            {"action_id": action_id, "token_hash": _token_hash(token), "status": "pending"}
+        )
+        if document is None:
+            return False
+        if document.get("expires_at") and document["expires_at"] < _utcnow():
+            await collection.update_one(
+                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": _utcnow()}}
+            )
+            return False
+        result = await collection.update_one(
+            {"_id": document["_id"], "status": "pending"},
+            {
+                "$set": {
+                    "status": "approved" if approved else "denied",
+                    "resolved_at": _utcnow(),
+                    "decided_by": str(actor or ""),
+                }
+            },
+        )
+        return result.modified_count == 1
+
+    async def consume(self, *, action_id: str, token: str, actor: str = "") -> bool:
+        """**Requester** resume: only an already-**approved** ticket may be consumed.
+
+        Fails closed on pending/denied/expired/absent, and on a mismatched actor.
+        """
+        collection = self._collection()
+        document = await collection.find_one(
+            {"action_id": action_id, "token_hash": _token_hash(token), "status": "approved"}
+        )
+        if document is None:
+            return False
+        if document.get("expires_at") and document["expires_at"] < _utcnow():
+            await collection.update_one(
+                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": _utcnow()}}
+            )
+            return False
+        if actor and document.get("user_id") and actor != document["user_id"]:
+            return False
+        result = await collection.update_one(
+            {"_id": document["_id"], "status": "approved"},
+            {"$set": {"status": "consumed", "consumed_at": _utcnow()}},
+        )
+        return result.modified_count == 1
+
     async def validate_and_consume(
         self, *, action_id: str, token: str, actor: str = ""
     ) -> bool:
-        """Consume a pending ticket (one-time). Fails closed on expiry/absence."""
+        """DEPRECATED: approve-and-consume in one step (no human approver).
+
+        Kept for backward compatibility; the gate now uses :meth:`decide` (approver)
+        plus :meth:`consume` (requester) so a suspended call actually requires a
+        human decision.
+        """
         collection = self._collection()
         document = await collection.find_one(
             {"action_id": action_id, "token_hash": _token_hash(token), "status": "pending"}
@@ -143,12 +206,13 @@ class ApprovalLayer:
         return self._registry
 
     async def evaluate(self, ctx: GateContext) -> GateVerdict:
-        # Resume path: a carried approval token settles the pending decision.
+        # Resume path: a carried approval token settles the pending decision — but
+        # only when a human approver has already approved it (see ``decide``).
         approval_token = ctx.annotations.get("approval_token")
         if approval_token:
             registry = self._get_registry()
             action_id = ctx.annotations.get("approval_action_id", ctx.session_id or ctx.tool)
-            if await registry.validate_and_consume(
+            if await registry.consume(
                 action_id=str(action_id), token=str(approval_token), actor=ctx.actor()
             ):
                 ctx.annotations["approval"] = {"action_id": str(action_id), "result": "approved"}
@@ -158,7 +222,7 @@ class ApprovalLayer:
             return GateVerdict(
                 decision=GateDecision.DENY,
                 layer=self.name,
-                reason="审批 token 无效、已过期或已使用",
+                reason="审批 token 无效、未获批准、已过期或已使用",
                 detail={"action_id": str(action_id)},
             )
 

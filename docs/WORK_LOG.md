@@ -3293,3 +3293,37 @@ DSH kernel 的 `skill.selected` 事件经 `dsh_runtime/events/projection.py` 投
 
 **仍待修（001 剩余 2 条）**：④ 审批挂起后无恢复端点（需新增接收 approval token 的 API）；⑤ `gate_events`
 无查询/消费方。
+
+## 2026-10-03（续十一）001 修复（2/2）：审批闭环 + 审计消费方 —— 001 收口 5/5
+
+接上一轮（①②③ 已修），本轮修 ④ 审批无恢复路径 与 ⑤ `gate_events` 无消费方。
+
+**④ 审批闭环（发现并修掉"自产自销"缺陷）**
+- 原 `ApprovalRegistry.validate_and_consume` 把"审批人批准"与"申请者放行"合成一步：申请者拿自己
+  收到的 token 重入即 `pending → approved` 通过——**等于没有人工审批环节**（`deny()` 存在但无调用方，
+  说明设计本意是有审批人的）。这正是审计报告未看穿的更深缺陷。
+- 拆分为：`decide(action_id, token, approved, actor)` = **审批人**决策（pending → approved/denied，
+  带 `decided_by` 审计）；`consume(action_id, token, actor)` = **申请者**凭 **已批准** 票一次性放行
+  （pending/denied/expired 一律拒绝，actor 必须匹配）。`validate_and_consume` 保留但标注 DEPRECATED。
+- `ApprovalLayer` 恢复路径改调 `consume`（拒绝原因也更新为"未获批准"）。
+- 新增审批人端点：`POST /internal/gatekeeper/decide`（404 when 票非 pending/已过期）、
+  `GET /internal/gatekeeper/approvals`（待办收件箱，此前票存在但**无人可见**）。
+- 恢复入口打通：`/evaluate` 新增 `approvalToken`/`approvalActionId` → 注入 `ctx.annotations`；
+  chat-api `gatekeeper_client`/`run_gate_plan` 同步支持；admin 侧 `_enforce_gate` 从 payload 读
+  `approvalToken` 注入注解。
+
+**⑤ `gate_events` 消费方 + 顺带修掉审计 fail-closed 失效**
+- 新增 `GET /internal/gatekeeper/events`（按 tenant/decision/tool 过滤，时间倒序，上限 500），
+  审计轨迹首次可读。
+- 修 `Gatekeeper._record` **丢弃 audit 层返回值**的缺陷：audit 层在落库失败时返回 DENY，
+  但原实现不检查，导致"审计失败 fail-closed"是装饰性的。现在 allow 路径会采纳 audit 的 deny，
+  allow→deny（不可审计的放行不许通过，FR-9）。
+
+**测试**：admin-api **409 passed**（新增 `test_governance_approval_flow.py` 5 项：**pending 票不可被
+consume**／审批人+申请者往返／拒绝票不可消费／过期票不可批准／层内恢复路径 pending→deny、
+approved→allow；`test_gatekeeper_internal.py` 增至 8 项：票注解注入、`/decide` 令牌与 404、
+`/events` 查询；`test_governance_gatekeeper.py` 新增"审计落库失败→整体 deny"）；
+chat-api **373 passed**。
+
+**001 状态：5/5 已修**。残留：③ 的脱敏产物需 DSH 工具分发层采用 `GatePlan.redacted_request`
+才端到端生效（已回传、已暴露，但尚无调用方使用）。

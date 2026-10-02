@@ -91,3 +91,28 @@ async def test_audit_always_runs_even_without_rejection(monkeypatch) -> None:
     await gate.evaluate("crm", GateContext(tool="crm", tenant_id="t1", user_id="u1"))
 
     assert len(audit.records) == 1
+
+
+@pytest.mark.asyncio
+async def test_audit_persist_failure_denies_the_whole_call():
+    """An unauditable allow must not slip through (001 FR-9).
+
+    The audit layer reports a deny when the trail cannot be persisted; the gate
+    used to discard that return value, so the fail-closed promise was decorative
+    (001 audit, 2026-10-03).
+    """
+    class _BrokenAudit:
+        name = "audit"
+
+        async def evaluate(self, ctx: GateContext) -> GateVerdict:
+            return GateVerdict(
+                decision=GateDecision.DENY, layer="audit", reason="审计落库失败（fail-closed）"
+            )
+
+    keep = _FakeLayer("identity")
+    gate = Gatekeeper(config=GateConfig())
+    gate._resolve_layers = lambda: [keep, _BrokenAudit()]  # type: ignore[assignment]
+
+    verdict = await gate.evaluate("browser", GateContext(tool="browser", tenant_id="t1"))
+    assert verdict.decision is GateDecision.DENY
+    assert verdict.layer == "audit"
