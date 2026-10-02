@@ -1,12 +1,12 @@
 # MOVO DSH dependency lock policy (format 1)
-# Updated for the admitted DSH 0.1.7-rc.2 train on 2026-09-16.
+# Updated for the admitted DSH 0.2.0-rc.2 train on 2026-10-01.
 # This file records approved direct artifacts; pnpm-lock.yaml and the SBOM pin
 # the resolved graph, and the release gate rejects a mixed DSH release train.
 
 [upstream]
 repository = "https://github.com/deepseek-ai/deepseek-harness"
 reviewed_commit = "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d"
-reviewed_commit_root_version = "0.1.7-rc.2"
+reviewed_commit_root_version = "0.2.0-rc.2"
 default_branch = "master"
 deploy_from_branch = false
 allow_floating_versions = false
@@ -15,21 +15,21 @@ allow_floating_versions = false
 # installable release train, so source-to-package provenance remains explicitly
 # unverified until DeepSeek publishes that mapping.
 [release_train]
-version = "0.1.7-rc.2"
+version = "0.2.0-rc.2"
 source_mapping = "unverified-by-upstream"
-policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.1.7-rc.2"
+policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.2.0-rc.2"
 
 [[artifact]]
 name = "@deepseek-ai/dsh"
-version = "0.1.7-rc.2"
+version = "0.2.0-rc.2"
 registry = "https://registry.npmjs.org"
-tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.1.7-rc.2.tgz"
-integrity = "sha512-SQFhriLvza8GnFApnC5/32AgpcyKxrWnYXhvwDOLJdgWpkCX2EexyR9c8kCkMITJXnFLEN3Qb2CEh0W36vkLyw=="
-shasum = "2078409337e9934df3366535d873494e601f90d0"
+tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.0-rc.2.tgz"
+integrity = "sha512-EAJ3gPNcVt/uv8X19PMm9NkVhWgT7xXNMk0UKCVm+IQ5rpSQOcsMUa0HWlnYYVybKMsccjcRB21vVVsaXQ6IdA=="
+shasum = "dfc8f7e09cfa96b854d6f0cf3a973ce7f2948925"
 
-# 0.1.7-rc.2 train：cordis 直接依赖解析到 4.0.4（原 lock 锁定 4.0.2），
-# cordis-plugin-loader / cordis-plugin-include / cordis-plugin-hmr 解析到
-# 0.1.7 依赖图中实际钉死版本（见 pnpm-lock.yaml）。
+# 0.2.0-rc.2 train：cordis 直接依赖解析到 4.0.4；cordis-plugin-loader /
+# cordis-plugin-include / cordis-plugin-timer 解析到 0.2.0 依赖图中实际钉死
+# 版本（见 pnpm-lock.yaml）。cordis-plugin-hmr 在 0.2.0 图中已不再被引用。
 [[artifact]]
 name = "@deepseek-ai/cordis"
 version = "4.0.4"

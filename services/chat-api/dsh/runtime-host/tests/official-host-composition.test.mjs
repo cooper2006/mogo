@@ -23,6 +23,15 @@ import {
   planOverlayRows,
 } from '../src/official-host/overlay-planner.mjs'
 import { readPluginInventory } from '../src/official-host/inventory-compat.mjs'
+import { resolveDshInstallation } from '../src/official-host/installation.mjs'
+
+// preset 平面有两种 train 形态，判定依据是**实际装的是哪个 preset 包**
+// （registry train 装单数 `dsh-agent-preset` + `dsh-agent-preset-registry`；
+// 旧 train（0.1.2–0.1.6）装复数 `dsh-agent-presets`），而不是内核版本号。
+// 此前这里写成 `ASKAI_DSH_KERNEL_VERSION === '0.1.7-rc.2'`，内核一升到
+// 0.2.0-rc.2 就跌回旧 train 分支、要求根本不存在的 `dsh-agent-presets`。
+// `resolveDshInstallation()` 从文件系统解析出该事实，与本测试同源可信。
+const installation = await resolveDshInstallation()
 
 const REQUIRED_HOST_MODULES = new Set([
   '@deepseek-ai/dsh-session',
@@ -31,9 +40,9 @@ const REQUIRED_HOST_MODULES = new Set([
   '@deepseek-ai/dsh-sandbox-policy',
   '@deepseek-ai/dsh-user-approval',
   '@deepseek-ai/dsh-tools',
-  // 0.1.7-rc.2 train：`agentPresets` service 由 `dsh-agent-preset-registry` 提供，
+  // registry train：`agentPresets` service 由 `dsh-agent-preset-registry` 提供，
   // preset 条目由 `dsh-agent-preset` 挂载；旧 train（0.1.2–0.1.6）用 `dsh-agent-presets`。
-  ASKAI_DSH_KERNEL_VERSION === '0.1.7-rc.2'
+  installation.isPresetRegistryTrain
     ? '@deepseek-ai/dsh-agent-preset-registry'
     : '@deepseek-ai/dsh-agent-presets',
   '@deepseek-ai/dsh-ptc-runtime-node',
@@ -209,13 +218,14 @@ test('official Host boots the pinned Base, Workspace, inventory, and shipped pre
       const inventory = host.inventory()
       assert.equal(inventory.overlayVersion, ASKAI_DSH_HOST_OVERLAY_VERSION)
       assert.equal(inventory.dshVersion, ASKAI_DSH_KERNEL_VERSION)
-      // 0.1.7-rc.2 起 preset isolation 改由 agent-preset-registry + preset entries
-      // 承担，`presetIsolationRows` 不再包含 `agent-instructions`（旧 train 下该行
-      // 来自官方 web patch 的 preset-isolation 块）。
-      if (ASKAI_DSH_KERNEL_VERSION !== '0.1.7-rc.2') {
-        assert.ok(inventory.presetIsolationRows.includes('agent-instructions'))
-      } else {
+      // preset isolation 的形态由 train 决定：registry train 下改由
+      // agent-preset-registry + preset entries 承担，`presetIsolationRows`
+      // 不再包含 `agent-instructions`（旧 train 下该行来自官方 web patch 的
+      // preset-isolation 块）。
+      if (installation.isPresetRegistryTrain) {
         assert.ok(Array.isArray(inventory.presetIsolationRows))
+      } else {
+        assert.ok(inventory.presetIsolationRows.includes('agent-instructions'))
       }
       const active = new Set(inventory.entries
         .filter(entry => entry.enabled && entry.fiberPhase === 'active')
