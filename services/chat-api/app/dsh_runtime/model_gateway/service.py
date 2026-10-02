@@ -13,6 +13,7 @@ from app.llm.base import BaseLLMClient
 from app.llm.configured_models import (
     ModelConfigError,
     build_llm_client_from_config,
+    get_llm_client_by_model_id,
     get_model_config,
 )
 from app.llm.types import Message, Role
@@ -173,14 +174,14 @@ class ModelGatewayService:
         tenant_id: str,
         request: ModelGatewayRequest,
     ) -> BaseLLMClient:
-        config = await get_model_config(model_instance_id, tenant_id)
-        if config is None:
-            raise ModelConfigError("模型配置不存在")
-        return build_llm_client_from_config(
-            config,
+        # 007：走 get_llm_client_by_model_id，自动包含 wrap_resilient 与 fallback，
+        # output_spec 不含 user_id 以跳过配额检查（网关层已独立校验）。
+        return await get_llm_client_by_model_id(
+            model_instance_id,
+            main_id=tenant_id,
             streaming=True,
-            stage="dsh_agent_turn",
             intent="chat",
+            stage="dsh_agent_turn",
             output_spec={
                 "main_id": tenant_id,
                 "model_instance_id": model_instance_id,
