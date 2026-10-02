@@ -467,3 +467,30 @@ XF016-2/3、IT002/003、ET006、SEC004 等），非本轮范围。
 **Review Ownership**: 已由实现人逐项取证（2026-10-02 及本轮）；评审人抽检建议优先看剩余 `[!]` 项。
 **Marker Semantics**: `[x]` = 功能已实现且测试通过；`[!]` = 有实现但证据不足/与描述不符；
 `[-]` = 条目本身不成立（模块、命名、路径不存在，或非 011 职责）。
+
+---
+
+## 落地审计补记（2026-10-03，按"今天的标准"重检）
+
+本清单此前逐项核对了"条目是否可证伪"，但**未覆盖整条价值链是否闭合**。补记如下（判定 **partial**）：
+
+**已真实落地**：friction 捕获链路——`main.py` lifespan 启动 `DreamCycleScanner`，读
+`kernel_event_projections` 的真实工具失败/成功行，产出 capture/generate/mr/deprecate/restore/scan
+审计事件（T007/T017 系列有效）。
+
+**4 条高危缺口（价值链断裂）**：
+1. **经验片段无持久化** —— `run_once` 每 pass 新建内存 `FragmentStore()`（`runtime.py:259`），
+   `app/` 内无任何 DB 写入（`grep insert_one|update_one|replace_one runtime.py` 为空）。
+   **实测**：对同一份数据连跑两次 pass，输出逐字节相同 → 跨 pass 完全无状态，"重复 N 次"物理上不可能累积。
+2. **草稿与 MR 不落库、无消费方** —— `draft_ids` 只进返回 dict；从不调 004 的 `skill_lifecycle`，
+   也不写 `skills`/草稿集合（`grep skill_evolution_drafts` 零命中）。
+3. **MR 判定不走 `mr.py`** —— `run_once` 用 `cluster.is_mr_eligible()` 自行判定；
+   `mr.py` 的 `generate_improvement_mr`/`plan_improvements` 在 `app/` 内零调用方（US3 实际未实现建 MR）。
+4. **低采纳淘汰输入无人提供** —— `_loop` 只传 `config/sink`（`runtime.py:386`），从不传
+   `deprecations/restorations`；`AdoptionStore.record_exposure/record_adoption` 与 `deprecation_flow`
+   在 `app/` 内零生产调用方（仅测试），采纳率计数器永远涨不上去。
+
+另：`after_stream_seq` 恒为默认 0，扫描游标从不推进 → 每个周期重读全部历史并重复捕获同一批 friction。
+
+**结论**：011 主干可跑通且审计有效，但"经验沉淀→草稿→MR→淘汰"的**产出全部落空**，判定 `partial`。
+详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../../LANDING_AUDIT_2026-10-03.md)。

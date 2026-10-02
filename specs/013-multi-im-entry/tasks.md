@@ -1,5 +1,9 @@
 # Tasks: Multi IM Entry (IM channel -> MOGO session)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `hollow`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：仅纯逻辑内核；app/ 内零 import、无 webhook 路由、无出站投递、绑定无持久化。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/013-multi-im-entry/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

@@ -3211,3 +3211,25 @@ DSH kernel 的 `skill.selected` 事件经 `dsh_runtime/events/projection.py` 投
 （011/003/004/008）→ P1 纯逻辑孤岛接线或显式降级（010/012/013/014/015/017/018/019）。
 
 **改动文件**：新增 `specs/LANDING_AUDIT_2026-10-03.md`；修改 `specs/INDEX.md`。**未改任何业务代码。**
+
+## 2026-10-03（续八）落地审计：独立抽查复核 + 结论回写到各 spec
+
+接上一轮的全量审计结论，本轮补齐两件闭环工作。
+
+**1. 独立人工抽查复核（防止 agent 臆测）** —— 对 14 条关键结论逐条 grep 核对，全部吻合：
+- 013/014/015/017 在 `app/` 业务路径**零生产 import**（017 仅包内自引用，其 `retrieval.py` 亦无消费方）；
+- 002 `dsh_session_versioning` 无 secret/placeholder 引用、`record_session_event` 仅定义处；
+- 018 `CapabilityAssetRegistry`/`discover_assets` 仅定义 + `__init__` 导出；016 canary 轴零调用；
+- 011 `runtime.py` 无任何 `insert_one/update_one` 且 `_loop` 只传 config/sink；019 `harness_mode` 仅 1 处读取无生产者；
+- 001 `limits_resolver` 仅定义处、`gate_events` 仅注释/定义/建索引/写入（**零 find/aggregate**）；020 chat-api 无 `unlimited`。
+复核表已写入审计报告（`## 方法与独立抽查复核`）。
+
+**2. 结论回写到被检查对象旁边**（否则单读某个 spec 仍会被"tasks 全勾"误导）：
+- **16 份 `tasks.md`** 顶部加提示：`[x]` 只代表任务条目已勾选，并给出该 spec 的判定与一句话缺口；
+- **20 份 `checklists/requirements.md`** 顶部加提示：勾的是需求质量，与落地无关，附本特性判定；
+- **011 `checklists/implementation.md`** 末尾补「落地审计补记」：4 条高危缺口（片段无持久化/草稿MR不落库/
+  MR 判定不走 mr.py/淘汰输入无人传）+ 游标不推进，判定 partial（此前该清单只核对"条目可证伪"，
+  未覆盖价值链闭合）。
+
+**改动文件**：`specs/LANDING_AUDIT_2026-10-03.md`（加抽查复核节）、16 份 `tasks.md`、
+20 份 `checklists/requirements.md`、`specs/011-.../checklists/implementation.md`。**未改任何业务代码。**

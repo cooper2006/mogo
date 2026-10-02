@@ -1,5 +1,9 @@
 # Tasks: Knowledge Graph Layer (extract / query / consistency)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `hollow`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：仅纯内存图算法+单测；无 extract.py、无 kg_nodes/kg_edges 存储、无 API 入口、无 RAG 融合，图谱永远为空。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/015-knowledge-graph-layer/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

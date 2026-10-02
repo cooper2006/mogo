@@ -20,6 +20,31 @@
 
 判定档位：`landed`（四条全成立） / `partial`（主链路通但有明确缺口） / `hollow`（只有纯逻辑，无生产调用方或无消费方或输入无人提供）。
 
+## 方法与独立抽查复核
+
+**方法**：用 workflow 并行审计（每个 spec 一个 agent，另对非 `landed` 者做对抗性复核），
+要求证据为 `file:line` / grep 事实。**并对关键结论做了独立人工抽查复核**（下表），确认非 agent 臆测。
+
+| 结论 | 复核命令 | 结果 |
+|---|---|---|
+| 013 `im_gateway` 零生产 import | `grep -rn "im_gateway" app/ \| grep -v "app/im_gateway/"` | 空 ✅ |
+| 014 `business_index` 零生产 import | `grep -rn "business_index" app/ \| grep -v "app/business_index/"` | 空 ✅ |
+| 015 `knowledge_graph` 零生产 import | `grep -rn "knowledge_graph" app/ \| grep -v "app/knowledge_graph/"` | 空 ✅ |
+| 017 `app.memory` 零生产 import | `grep -rn "app\.memory" app/ \| grep -v "^app/memory/"` | 空（包内自引用不算）✅ |
+| 002 秘密过滤未接线 | `grep -n "secret\|placeholder\|redact" app/api/endpoints/dsh_session_versioning.py` | 空 ✅ |
+| 002 审计未接线 | `grep -rn "record_session_event" app/` | 仅定义处 ✅ |
+| 018 注册器零调用 | `grep -rn "CapabilityAssetRegistry\|discover_assets" app/` | 仅定义 + `__init__` 导出 ✅ |
+| 016 灰度轴零调用 | `grep -rn "evaluate_canary\|apply_rollback" app/ \| grep -v "canary.py"` | 空 ✅ |
+| 011 草稿/片段不落库 | `grep -n "insert_one\|update_one" app/services/dream_cycle/runtime.py` | 空 ✅ |
+| 011 淘汰输入无人传 | `grep -n "run_once(" app/services/dream_cycle/runtime.py` | `:386` 仅传 config/sink ✅ |
+| 019 `harness_mode` 无生产者 | `grep -rn "harness_mode" app/` | 仅 1 处读取 ✅ |
+| 001 配额 resolver 无注入 | `grep -rn "limits_resolver" app/` | 仅定义处 ✅ |
+| 001 `gate_events` 零读取 | `grep -rn "gate_events" app/` | 仅注释/定义/建索引/写入 ✅ |
+| 020 chat-api 无 `unlimited` | `grep -n "unlimited" app/core/quota_policy.py` | 空 ✅ |
+
+**回写**：结论已回写到被检查对象旁边，避免单读某个 spec 仍被"tasks 全勾"误导——
+16 份 `tasks.md` 顶部 + 20 份 `checklists/requirements.md` 顶部 + 011 的 `checklists/implementation.md` 末尾。
+
 ## 总览（20 个特性）
 
 **结论：`landed` 0 个 · `partial` 10 个 · `hollow` 9 个 · 高危缺口 ≥ 60 条。**

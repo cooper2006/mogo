@@ -1,5 +1,9 @@
 # Tasks: LLM Gateway Resilience
 
+> ⚠️ **落地审计（2026-10-03）：判定 `partial`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：failover/退避仅作用于模型连通性测试路由，真实对话链路绕过；降级链 run_with_degradation 零生产调用；FR-12 取消未实现。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/007-llm-gateway-resilience/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

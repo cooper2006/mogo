@@ -1,5 +1,9 @@
 # Tasks: Session Versioning (commit / log / resume / share / co-presence)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `hollow`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：commit 是客户端自报元数据（从不读会话消息）；秘密过滤与审计零接线；resume 只返回一个 int；share 兑换传 token 却按 share_id 查（必然失败）。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/002-session-versioning/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

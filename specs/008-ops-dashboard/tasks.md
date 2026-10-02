@@ -1,5 +1,9 @@
 # Tasks: Operations Data Dashboard (Four-Dimension)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `partial`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：quality/trend/usage 已接线；但成本维度后端零调用、/overview 不返回 cost 段、agent_id 无数据源，三项指标恒空。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/008-ops-dashboard/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

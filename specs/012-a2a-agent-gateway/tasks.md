@@ -1,5 +1,9 @@
 # Tasks: A2A Agent Gateway (AgentCard + JSON-RPC)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `hollow`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：仅纯内存数据模型；无 HTTP 端点、无真实传输、零生产调用方，A2A 对外互通不可达。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/012-a2a-agent-gateway/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

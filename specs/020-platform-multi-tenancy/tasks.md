@@ -1,5 +1,9 @@
 # Tasks: 平台化多租户（020）
 
+> ⚠️ **落地审计（2026-10-03）：判定 `partial`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：租户供给/平台管理员/生命周期/隔离守卫真实落地；但配额"不限额"未贯通 chat-api，新租户成员发消息被 402。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/020-platform-multi-tenancy/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

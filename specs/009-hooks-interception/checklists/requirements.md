@@ -1,5 +1,7 @@
 # Requirements Quality Checklist: 009 hooks-interception
 
+> ⚠️ **落地审计（2026-10-03）：本特性实现落地度判定 = `partial`** —— 本文件勾的是**需求质量**，与功能是否落地无关。按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检的结论见 [`specs/LANDING_AUDIT_2026-10-03.md`](../../LANDING_AUDIT_2026-10-03.md)。
+
 **Purpose**: 校验 009（五事件钩子拦截机制）spec.md 的需求质量——完整性、清晰度、一致性、边界与歧义。这是"需求的单元测试"，**不校验实现是否正确**。
 **Created**: 2026-07-08
 **Feature**: [spec.md](../spec.md) | [plan.md](../plan.md)

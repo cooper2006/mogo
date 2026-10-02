@@ -1,5 +1,9 @@
 # Tasks: Harness Elastic Config (thick / thin)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `hollow`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：仅"恒厚模式"计划求值挂上调用路径；request 从未传入→harness_mode 恒 thick，ProfileResolver 零调用方，无存储与管理面。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/019-harness-elastic-config/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

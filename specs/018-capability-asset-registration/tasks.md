@@ -1,5 +1,9 @@
 # Tasks: Capability Asset Registration (discover -> registry)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `hollow`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：仅纯 dataclass 登录逻辑+单测；无路由、capability_assets 集合无读取方，四条主链路全空壳。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/018-capability-asset-registration/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

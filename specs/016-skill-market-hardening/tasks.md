@@ -1,5 +1,9 @@
 # Tasks: Skill Market Hardening (monitor / score / canary)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `partial`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：效果分采集闭环（skill.selected→三维→标记→市场降权）真落地；但监控端点、版本维度、灰度/回滚整轴为空。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/016-skill-market-hardening/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

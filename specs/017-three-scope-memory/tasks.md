@@ -1,5 +1,9 @@
 # Tasks: Three-Scope Memory (personal / workspace / org)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `hollow`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：三级 scope 纯函数+单测；app.memory 在 app/ 零生产导入，store/promote/sediment/endpoint 全缺失。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/017-three-scope-memory/`
 
 **Prerequisites**: plan.md (required), spec.md (required)

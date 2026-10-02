@@ -1,5 +1,9 @@
 # Tasks: Dream Cycle Self-Evolution (friction → draft → MR → deprecation)
 
+> ⚠️ **落地审计（2026-10-03）：判定 `partial`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
+> 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：friction 捕获真落地；但经验片段与草稿不落库（实测两次 pass 输出完全相同）、MR 未创建、低采纳淘汰无生产输入。
+> 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+
 **Input**: Design documents from `/specs/011-dream-cycle-self-evolution/`
 
 **Prerequisites**: plan.md (required), spec.md (required)
