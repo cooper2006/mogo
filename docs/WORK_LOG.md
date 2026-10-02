@@ -3518,3 +3518,21 @@ ProfileResolver 零生产调用方；run_gate_plan 返回值被丢弃；skipped_
   路由到对应 adapter（FR-4/FR-9 最小生产路径）。
 - 新增 `IM_WEBHOOK_SECRET` 环境变量；缺省返回 500（fail-closed）。
 - 持久化 `SessionBindingRegistry`、`im_channels`/`im_session_bindings` 存储留待后续。
+
+## 2026-10-03（续二十一）017 修复：three-scope memory 最小接线
+
+P1 孤岛第 3 项。017 此前零生产 import，记忆无法写入或读取。
+
+**本轮改动**：
+- 新增 `app/memory/store.py`：MongoDB `memories` 集合，按 `(tenant_id, memory_id)`
+  upsert；`list_for_viewer` 用 `scope_filter` 在服务端强制执行可见性（FR-2），
+  不跨租户泄漏数据。
+- 新增 `app/api/endpoints/memory.py`：
+  - `POST /api/memories` — 创建（scope 默认 personal，org 需 full_access_admin 角色）。
+  - `GET /api/memories` — scope-filtered 列表（FR-2）。
+  - `DELETE /api/memories/{id}` — 仅 owner 可删。
+- `main.py` 注册 `memory.router`。
+
+**验证**：main import ok；tests/a2a+im_gateway+memory **72 passed**。
+RAG 集成（`memory_rag_candidates` 接入 `knowledge_search`）留待后续；
+FR-8 老化清理定时任务也留待后续。
