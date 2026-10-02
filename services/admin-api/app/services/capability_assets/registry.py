@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 from .contract import AssetContract, contract_diff, normalize_contract
 
@@ -88,6 +88,20 @@ class CapabilityAsset:
             raise AssetError("owner role must not be empty")
         self.owner_role = role
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "asset_id": self.asset_id,
+            "name": self.name,
+            "endpoint": self.endpoint,
+            "method": self.method,
+            "kind": self.kind,
+            "version": self.version,
+            "state": self.state,
+            "owner_role": self.owner_role,
+            "a2a_exposed": self.a2a_exposed,
+            "contract": self.contract.as_dict(),
+        }
+
 
 @dataclass
 class DiscoveryReport:
@@ -137,3 +151,57 @@ def discover_assets(candidates: Iterable[dict[str, Any]]) -> DiscoveryReport:
             )
         )
     return report
+
+
+class CapabilityAssetRegistry:
+    """In-memory registry of capability assets (018 FR-1 / FR-2 / FR-5 / FR-6 / FR-10).
+
+    Production persistence (MongoDB ``capability_assets`` collection) is tracked
+    as a follow-up (FR-10).
+    """
+
+    def __init__(self) -> None:
+        self._assets: dict[str, CapabilityAsset] = {}
+
+    def register(self, asset: CapabilityAsset) -> None:
+        """Register or upsert an asset (FR-1)."""
+        self._assets[asset.asset_id] = asset
+
+    def get(self, asset_id: str) -> Optional[CapabilityAsset]:
+        return self._assets.get(asset_id)
+
+    def list_all(self, *, state: Optional[str] = None) -> list[CapabilityAsset]:
+        if state is None:
+            return list(self._assets.values())
+        return [a for a in self._assets.values() if a.state == state]
+
+    def discover_and_register(self, candidates: Iterable[dict[str, Any]]) -> DiscoveryReport:
+        """Discover candidates and register them in one step (FR-2 / FR-10)."""
+        report = discover_assets(candidates)
+        for asset in report.discovered:
+            self.register(asset)
+        return report
+
+    def update_contract(self, asset_id: str, document: Any, *, role: str = "") -> dict[str, Any]:
+        """Update contract and bump version (FR-5)."""
+        asset = self._assets.get(asset_id)
+        if asset is None:
+            raise AssetError(f"asset not found: {asset_id}")
+        return asset.update_contract(document)
+
+    def set_state(self, asset_id: str, state: str, *, role: str = "") -> None:
+        """Change state; offline requires authorized approver (FR-6)."""
+        asset = self._assets.get(asset_id)
+        if asset is None:
+            raise AssetError(f"asset not found: {asset_id}")
+        asset.set_state(state, role=role)
+
+    def transfer_owner(self, asset_id: str, role: str) -> None:
+        """Transfer ownership (FR-11)."""
+        asset = self._assets.get(asset_id)
+        if asset is None:
+            raise AssetError(f"asset not found: {asset_id}")
+        asset.transfer_owner(role)
+
+    def __len__(self) -> int:
+        return len(self._assets)
