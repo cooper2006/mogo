@@ -294,13 +294,14 @@
 > **仍待修（降为 P1 残项）**：FR-1 自动抽取入口（无 `extract.py`）；FR-8 约束检查；
 >    FR-13 `source_ref` 读写；RAG 接入。
 
-### 016 skill-market-hardening（6）
-- **灰度/回滚整轴 zempty**：`evaluate_canary`/`apply_rollback` 生产零调用，无路由/调度/持久化。
-- **plan 的 `skill_rollouts`/`skill_metrics` 集合从未创建**。
-- **FR-7 审计大概率不落**：`scoring.py` 的 bridge import 被 `try/except ImportError` 吞掉。
-- **FR-11 人工恢复无生产入口**。
-- **FR-1/2 监控查询与异常下钻缺消费方**，耗时维度无采集。
-- 附带：success 归因口径为会话级近似。
+### 016 skill-market-hardening（6）—— **canary 端点已接线（2026-10-03，见 WORK_LOG 续二十六）**
+
+> **已修**：`POST/GET /api/skills/canary/*` 四个端点（创建灰度/记录计数/评估健康度/
+>    手动回滚），X-MOVO-Service-Token 验证。`evaluate_canary`/`apply_rollback`
+>    从此有真实生产调用方。
+>
+> **仍待修（降为 P1 残项）**：MongoDB `skill_rollouts`/`skill_metrics` 持久化；
+>    自动回滚定时调度；FR-1/FR-2 监控查询与异常下钻。
 
 ### 017 three-scope-memory（4）—— **store + endpoint + RAG 集成已接线（2026-10-03，见 WORK_LOG 续二十一/二十二）**
 
