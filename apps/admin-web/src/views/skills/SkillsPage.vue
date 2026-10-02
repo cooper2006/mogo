@@ -162,6 +162,7 @@
 
   <n-modal v-model:show="detailsVisible" preset="card" :title="selectedPackage?.name || 'Skill'" style="width: 620px">
     <SkillPackageDetails v-if="selectedPackage" :skill="selectedPackage" />
+    <SkillVersionHistory v-if="selectedPackage" ref="versionHistoryRef" :skill-id="selectedPackage.id" />
   </n-modal>
 
   <n-modal v-model:show="feedbackVisible" preset="card" :title="`${feedbackSkill?.name || 'Skill'} · 评价`" style="width: 640px">
@@ -232,6 +233,7 @@ import { formatAdminDateTime, parseAdminDate } from '@/composables/adminTimezone
 import { createSkill, deleteSkill, fetchSkills, setSkillEnabled, updateSkill, type SkillItem, type SkillPayload, type SkillType } from '@/api/skills';
 import SkillZipInstaller from './SkillZipInstaller.vue';
 import SkillPackageDetails from './SkillPackageDetails.vue';
+import SkillVersionHistory from './SkillVersionHistory.vue';
 import OrganizationSkillFeedback from './OrganizationSkillFeedback.vue';
 
 const router = useRouter();
@@ -249,6 +251,7 @@ const selectedPackage = ref<SkillItem | null>(null);
 const feedbackVisible = ref(false);
 const feedbackSkill = ref<SkillItem | null>(null);
 const zipInstallerRef = ref<{ select: (file?: File) => void } | null>(null);
+const versionHistoryRef = ref<{ loadReleases: () => Promise<void> } | null>(null);
 
 const createVisible = ref(false);
 const createFormRef = ref<FormInst | null>(null);

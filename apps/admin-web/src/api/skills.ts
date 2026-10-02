@@ -188,6 +188,22 @@ export async function publishSkill(id: string, version = '', releaseNotes = ''):
   return data;
 }
 
+export interface SkillRelease {
+  id: string;
+  version: string;
+  digest: string;
+  releaseNotes: string;
+  createdAt: string;
+}
+
+/** 004 FR-3 version history (audit 2026-10-03): the
+ *  GET /skills/{id}/releases endpoint had **zero** front-end consumers before
+ *  this — version look-back was untraceable in the admin UI. */
+export async function fetchSkillReleases(id: string, limit = 20): Promise<SkillRelease[]> {
+  const { data } = await apiClient.get<{ items: SkillRelease[] }>(`/api/skills/${id}/releases`, { params: { limit } });
+  return data.items ?? [];
+}
+
 export interface SkillFeedbackSummary {
   items: Array<{ id: string; content: string; parentId: string; author: { userId?: string; displayName?: string }; likes: number; createdAt: string }>;
   likes: number;
