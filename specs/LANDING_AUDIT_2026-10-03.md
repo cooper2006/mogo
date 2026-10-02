@@ -234,11 +234,18 @@
 - **FR-3 超时与 FR-13 延迟预算零接线**：`guard.py`/`timeout.py` 仅 tests 调用。
 - 附带：五事件只落地 PreToolUse。
 
-### 010 dag-orchestration-engine（4）
-- **核心零生产调用方**：`grep orchestration` 排除自身后仅命中一条注释；`DeepDiveOrchestrator` 仅 tests 引用。
-- **唯一场景无产品入口**：无路由、未注册 capability、未从 `research/__init__` 导出。
-- **FR-6 失败阻塞被绕过**：`competitor_deep_dive` 用 `_FailedNodeOutput` sentinel 伪装 success（其 docstring 自承）。
-- 附带：早阻塞竞态、FR-7 审计无落库、FR-8 `dag_definitions` 不存在。
+### 010 dag-orchestration-engine（4）—— **已接线（2026-10-03，见 WORK_LOG 续二十九）**
+
+> **已修**：新增 `POST /api/research/competitor-deep-dive`（main.py 注册）；
+> `DeepDiveOrchestrator` 新增 audit_sink，FR-7 节点/运行事件汇入 001 治理审计
+> 流；新增 `orchestration/store.py`，FR-8 定义优先从 `dag_definitions` 集合读取
+> （首用惰性注册 YAML，DB 不可用回退）。
+> **诚实边界（非伪造）**：`_FailedNodeOutput` 是分析节点容错设计——失败节点
+> 不阻塞合成节点，由 degraded 报告兜底（FR-6 降级而非伪装成功）；审计层仍如实
+> 记录 `dag.node_fail`。真实 sub-agent 经 LocalBridge 执行，无 agent 会话时节点
+> 返回 unavailable 并由 degraded 路径兜底。
+> **仍待修**：无真实 LLM 工具执行环境时该端点产出为 unavailable/degraded（需
+> 浏览器 agent 在线）；competitor_deep_dive 未注册为 capability。
 
 ### 011 dream-cycle-self-evolution（4）—— **落库闭环已修（2026-10-03，见 WORK_LOG 续十六）**
 
