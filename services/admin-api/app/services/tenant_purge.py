@@ -124,6 +124,9 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
     # 011 low-adoption store, tenant-partitioned by (tenant_id, skill_key);
     # the 016 market side reads ``marked_low_quality`` from here.
     "skill_adoption",
+    # 016 effect-score daily buckets, partitioned by (main_id, skill_key, date);
+    # written by chat-api (skill execution) and read by admin-api's scanner.
+    "skill_quality_metrics",
 ]
 
 # Collections with **no** tenant key of their own, purged by resolving their

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+import logging
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -25,6 +26,14 @@ from app.services.tenant_purge import cleanup_expired_tombstones
 from app.services.organization_tools import repair_role_referenced_personal_tools
 from app.system_audit import SystemAuditMiddleware, SystemAuditRepository
 from app.product.extensions import get_admin_product_extension
+from app.services.skill_market.quality_metrics import SkillQualityScanner
+
+
+# 016 periodic effect-score assessment (closed-loop write to skill_adoption).
+_QUALITY_SCANNER = SkillQualityScanner()
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -73,10 +82,21 @@ def create_app() -> FastAPI:
             result = callback()
             if hasattr(result, "__await__"):
                 await result
+        # 016 FR-3/FR-6: periodically roll up skill effect metrics and down-rank
+        # sustained-low-quality skills. Best-effort: a DB/loop error must never
+        # break app startup.
+        try:
+            await _QUALITY_SCANNER.start()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("failed to start skill quality scanner")
 
 
     @app.on_event("shutdown")
     async def on_shutdown() -> None:
+        try:
+            await _QUALITY_SCANNER.stop()
+        except Exception:  # pragma: no cover - defensive
+            pass
         close_db()
 
     app.include_router(api_router, prefix="/api")

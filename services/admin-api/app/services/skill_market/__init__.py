@@ -25,6 +25,14 @@ from .adoption_client import (
     apply_quality_assessment,
     restore_quality,
 )
+from .quality_metrics import (
+    DEFAULT_INTERVAL_SECONDS,
+    QUALITY_METRICS_COLLECTION,
+    SkillQualityScanner,
+    evaluate_all,
+    evaluate_skill_quality,
+    record_skill_call,
+)
 from .canary import (
     DEFAULT_CANARY_ROLLBACK_THRESHOLD,
     DEFAULT_MIN_CANARY_SAMPLES,
@@ -42,6 +50,12 @@ __all__ = [
     "inspect_skill_quality",
     "apply_quality_assessment",
     "restore_quality",
+    "record_skill_call",
+    "evaluate_skill_quality",
+    "evaluate_all",
+    "SkillQualityScanner",
+    "QUALITY_METRICS_COLLECTION",
+    "DEFAULT_INTERVAL_SECONDS",
     "LOW_QUALITY_MARKER",
     "EFFECT_WEIGHTS",
     "DEFAULT_EFFECT_THRESHOLDS",

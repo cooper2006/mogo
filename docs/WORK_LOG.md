@@ -3060,3 +3060,31 @@ admin-api、document-parser、dsh-runtime-host。
 - **验证**：chat-api `tests/services`+`tests/self_evolution` 333 passed（含改后 `deprecation` 源位模型）；
   admin-api `tests/` 373 passed（新增 `test_016_quality_assessment_writes_shared_bit` /
   `test_016_restore_keeps_011_mark` 钉死写入闭环与互不误清）。
+
+## 2026-10-03（续二）016 计数采集 + 评估 + 定时入口（含 chat-api 埋点入口）
+
+接上一轮遗留：`apply_quality_assessment` 只是写入函数，缺"谁算出五个计数并周期调用"。本轮补齐采集器、评估器与定时任务。
+
+- **admin-api 新增 `services/skill_market/quality_metrics.py`**：
+  - `skill_quality_metrics` 集合（每日桶，键 `(main_id, skill_key, date)`），`record_skill_call` 累加
+    `total/successful/adopted/corrected`。
+  - `evaluate_skill_quality`：读近 `window_days`（默认 7）天桶求和 → `compute_effect_score` →
+    从今天往回数"连续低分天数"得 `sustained_low_days`（中断即断链，保守）→ `apply_quality_assessment`
+    写共享 `skill_adoption` 位。
+  - `evaluate_all`：聚合出所有 `(main_id, skill_key)` 逐个评估。
+  - `SkillQualityScanner`：仿 chat-api `DreamCycleScanner` 的周期任务（start/stop + `asyncio.Task`），
+    默认间隔 6h。
+- **`main.py`**：startup 挂 `SkillQualityScanner().start()`、shutdown `stop()`（best-effort，异常不影响启动）。
+- **chat-api 新增 `app/services/skill_quality_report.py`**：埋点入口 `report_skill_call`（写同一集合，
+  共享 MongoDB，与 `skill_adoption` 同模式），常量 `QUALITY_METRICS_COLLECTION` 跨服务对齐。
+- **tenant_purge**：登记 `skill_quality_metrics`（按 main_id 分区，参与租户清理）。
+- **验证**：admin-api `tests/` 378 passed（新增 `test_quality_metrics.py` 6 项：桶累加/sustained 标记/
+  中断断链/健康不标记/evaluate_all/scanner 启停）；chat-api `tests/services`+`tests/self_evolution` 338 passed
+  （新增 `test_skill_quality_report.py` 4 项：集合名契约/累加/租户与日期分区/无 db 空操作）。
+- **平台级缺口（重要，如实记录）**：调研确认 **chat-api 没有"skill 被调用/成功/采纳/纠正"的事实源** ——
+  `dsh_runtime/turn_runner.py` 处理的是 DSH kernel 事件流（一个 turn 可能用多个 skill，且不感知具体哪个
+  skill 执行），`dsh_execution.py` 只有"选中 skill"的选择结果无执行成败；"采纳/纠正"更无产品定义与钩子。
+  且 **011 自己的 `AdoptionStore.record_exposure/record_adoption` 在生产中同样没有任何调用方**（仅测试引用）。
+  即 011/016 的计数采集**在生产中都从未接线**。本轮按用户拍板：埋点入口（`report_skill_call`）就位并
+  单测覆盖，但**不强行侵入 dsh_runtime**——真实调用点需先定义"采纳/纠正"语义，属平台级采集建设，
+  留待独立轮次（与 011 的采纳采集同源问题）。
