@@ -190,8 +190,10 @@
 > - 批量分配原子化：新增 `bulk_replace_user_roles` 使用 MongoDB `bulk_write` 一次性完成所有
 >    用户的 delete+insert，中途失败整体回滚，审计完整落地。
 
-### 007 llm-gateway-resilience（4）
-- **韧性接线错位**：`get_llm_client_by_model_id` 只被模型连通性测试路由调用；真实对话链路 `dsh_runtime/model_gateway/service.py:179` 直接 `build_llm_client_from_config`，绕过 `wrap_resilient`。
+### 007 llm-gateway-resilience（4）—— **韧性接线修正（2026-10-03）**
+
+> **已修**：`_configured_client` 改走 `get_llm_client_by_model_id`，自动包含
+>    `wrap_resilient` + fallback，生产路径不再绕过韧性层。
 - **FR-7/11/13 事件字段端到端断裂**：`ResilientLLMClient` 未覆写 `consume_invocation_record` → 读取方恒得 `None`，`failover_from/to` 永远为空。
 - **FR-12 取消信号未实现**：`resilience/` 与 `instrumented_client` 无 `CancelledError` 处理，取消被归类为可重试错误。
 - **US3 流式绕过退避**：`astream` 路径无 `retry_with_backoff`。
