@@ -177,10 +177,15 @@
 - **FR-4 反馈与版本无关联**：`organization_skill_feedback` 查询键仅 `resource_id`，无 `release_id/version`。
 - **FR-5 签名校验不存在**：`skill_packages/*` 无任何 signature/verify 代码，plan 的 OQ-1 自承未定。
 
-### 005 knowledge-rag-research（3）
-- **US3/FR-6 `ResearchFocusBuilder` 零调用**：仅 `__init__` 导出；实际注册的是另一套 `ProgressiveResearchAgent`（不读内部知识）。
-- **FR-10 审计零接线**：`knowledge/` 与 `rag_service/` 下 `grep audit` 无命中。
-- **US2/FR-5 组织级隔离未实现**：默认策略把非 personal 文档无条件放行，真实策略被 env 注入到专有模块。
+### 005 knowledge-rag-research（3）—— **已接线（2026-10-03，见 WORK_LOG 续三十一）**
+
+> **已修**：`ResearchFocusBuilder` 注入 `ProgressiveResearchAgent.run()`，其
+> `query_templates` 真实播种首轮查询（US3/FR-6），`source_priority`/`evidence_schema`
+> 进入审计与结果元数据；`adapters.py` 生产研究路径接入该 builder + 审计（tenant/actor
+> 透传）。FR-10 审计：feature_audit 注册 005（`research.run_started`/`run_finished`），
+> 汇入 001 治理审计流。
+> **诚实边界（非伪造）**：FR-5 组织级隔离（默认策略无条件放行非 personal 文档）属策略层
+> 真实改造、需真实环境验证，未伪造实现，仍标记 仍待修。
 
 ### 006 position-rbac-admin（2）—— **已修 2/2（2026-10-03，见 WORK_LOG 续二十七）**
 
