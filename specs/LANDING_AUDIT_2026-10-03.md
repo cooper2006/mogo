@@ -294,11 +294,14 @@
 - **FR-1/2 监控查询与异常下钻缺消费方**，耗时维度无采集。
 - 附带：success 归因口径为会话级近似。
 
-### 017 three-scope-memory（4）
-- **`app.memory` 零生产导入**（仅 tests）。
-- **plan 承诺的 endpoint/store/promote/sediment 全缺失**。
-- **无 `memories` 存储** → 记忆无法写入或读取。
-- 附带：会话沉淀与 RAG 接线不存在。
+### 017 three-scope-memory（4）—— **store + endpoint 已接线（2026-10-03，见 WORK_LOG 续二十一）**
+
+> **已修**：`MemoryStore`（MongoDB `memories` 集合，按 `(tenant_id, memory_id)`
+>    upsert）+ `GET/POST/DELETE /api/memories` 三个端点；服务端 scope_filter
+>    强制执行可见性（FR-2），不跨租户泄漏。
+>
+> **仍待修（降为 P1 残项）**：RAG 集成（`memory_rag_candidates` 接入
+>    `knowledge_search`）；FR-8 老化清理定时任务；promote_to_org 的认证入口。
 
 ### 018 capability-asset-registration（5）
 - **零生产调用方**：六个核心符号 grep 全 0；`CapabilityAssetRegistry(` 仅 tests（`db=None`）。
