@@ -97,29 +97,28 @@
 
 ## 高危缺口（按特性）
 
-### 001 gatekeeper-governance（5）—— **已修 5/5（2026-10-03）**
+### 001 gatekeeper-governance（5）—— **已修 5/5（2026-10-03，六层链逐环节复核见 WORK_LOG 续三十三）**
 
-> ① RBAC 角色源：员工侧由内部端点从 `end_user_position_roles` 解析；admin 侧回落到
->    `system:<main_id>:full_access_admin` 全权预设。
-> ② 配额层：不再依赖从未存在的 `quota_limits`，改为注入 **020 真实 token 预算**检查器
->    （`build_layers` 默认安装）。
-> ③ PII 脱敏生效：内部端点把脱敏后的 request 回传，`run_gate_plan` 经
->    `GatePlan.redacted_request` 暴露给调用方（**调用方采用后才完全生效**，见下方残留）。
-> ④ 审批：拆成 `ApprovalRegistry.decide`（**审批人** pending→approved/denied）+
->    `consume`（申请者凭**已批准**票一次性放行）；新增审批人端点
->    `POST /internal/gatekeeper/decide` 与待办收件箱 `GET /internal/gatekeeper/approvals`。
->    **修掉了"自产自销"缺陷**——原 `validate_and_consume` 允许申请者凭自己的 token 直接放行，
->    等于没有人工审批。
-> ⑤ `gate_events` 消费方：新增 `GET /internal/gatekeeper/events` 查询端点；并修掉
->    `Gatekeeper._record` 丢弃 audit 返回值的缺陷（审计落库失败现在真的 fail-closed）。
-> **新增接线**：001 六层链已从 chat-api 员工侧经内部端点真实调用（此前是空壳计划）。
-> **残留**：③ 的脱敏产物需 DSH 工具分发层采用 `GatePlan.redacted_request` 才端到端生效
-> （详见 WORK_LOG）。
-- **RBAC 第 2 层数据源断裂**：`tools.py:327` 取 `current_user["role_ids"/"roles"]`，但 `deps.py` 返回的账户 dict 无该字段 → `ctx.roles` 恒空 → `rbac.py` 短路后仅剩 explicit grants，生产上必然 fail-closed。真实映射 `end_user_position_roles` 在 `governance/` 下零引用。
-- **配额第 5 层恒放行**：`layers/__init__.py:30` 无参构造 → `limits_resolver=None` → `quota.py:106` 直接 `return {}` → `ALLOW("no quota limits configured")`。plan 声称的 `quota_limits` 集合全仓 0 命中。
-- **PII 第 3 层产出无消费方**：`tools.py:333` 传入 `dict(payload)` 浅拷贝，`redaction.py` 只改拷贝；`tools.py:304/315` 仍发原始 `payload` → FR-7 不成立，明文照发后端。
-- **审批挂起无恢复路径**：`approval_token` 仅写出（`tools.py:348/350`），无消费者；`ApprovalRegistry.deny()` 无调用方，`gate_approvals` 无读取路径。
-- **审计第 6 层只写不读**：`gate_events` 全仓无 `find/aggregate`，且与 `system_audit_logs` 并非同一落点（与 `audit.py` 自称不符）。
+> **逐环节复核（用户指定最高安全优先级）**：原审计的 5 条"断链"在 admin-api 侧均已落地，
+> 本报告据此复核并在 chat-api 侧补齐最后一环（PII 脱敏消费方）：
+> ① **RBAC 角色源**：`gatekeeper_internal.evaluate_gate` 经 `_resolve_roles` 查询
+>    `end_user_position_roles` 解析员工岗位角色（chat-api 调用方无需自带 roles）。
+> ② **配额层**：`build_layers` 默认注入 020 真实 token 预算检查器
+>    `default_credit_checker`（`unlimited` 租户放行，额度耗尽则 DENY 429）。
+> ③ **PII 脱敏消费方（本轮补齐）**：`redaction` 层就地改写 `ctx.request`，内部端点
+>    回传脱敏体；chat-api `admit_skill_selection` 现透传 `GatePlan.redacted_request`，
+>    `dsh_chat` 以脱敏后的 `text` 替代明文送后续处理（FR-7 端到端生效）。
+> ④ **审批恢复路径**：`ApprovalRegistry.decide`（审批人）+ `consume`（申请者凭已批准票
+>    一次性放行）已接线；`/decide` + `/approvals` 端点暴露。
+> ⑤ **审计落库+读**：`audit` 层落 `gate_events` 并 fail-closed；`GET /internal/gatekeeper/events`
+>    读取。
+> **真实执法**：chat-api `run_gate_plan` 经内部端点调用六层链，非 ALLOW 一律 fail-closed
+> 抛 `PermissionError`；审计层为 floor 不可跳。
+- ~~RBAC 第 2 层数据源断裂~~：已通过 `_resolve_roles` 服务端解析 `end_user_position_roles` 修复。
+- ~~配额第 5 层恒放行~~：已通过 `default_credit_checker`（020 预算）修复。
+- ~~PII 第 3 层产出无消费方~~：已通过 `admit_skill_selection` 透传 + `dsh_chat` 替换明文修复（2026-10-03 续三十三）。
+- ~~审批挂起无恢复路径~~：已通过 `consume` 恢复路径 + `/decide` + `/approvals` 修复。
+- ~~审计第 6 层只写不读~~：已通过 `gate_events` 落库 + `GET /events` 读取修复。
 
 ### 002 session-versioning（5）—— **FR-7/8/11 + share 兑换已修（2026-10-03，见 WORK_LOG 续十三）**
 

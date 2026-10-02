@@ -238,3 +238,64 @@ def test_run_gate_plan_exposes_the_redacted_request(monkeypatch) -> None:
         )
     )
     assert plan.redacted_request == {"note": "[REDACTED]"}
+
+
+def test_admit_skill_selection_consumes_redacted_request(monkeypatch) -> None:
+    """001 FR-7 修复：001 脱敏层产出的 redacted_request 必须被 admit 透传，
+    否则"脱敏产出无消费方"、明文 PII 照常进入后端。"""
+    from app.dsh_runtime.hooks import store as store_module
+    from app.dsh_runtime.hooks import integration as integration_module
+    from app.services import gatekeeper_client as client_module
+    from app.dsh_runtime import turn_admission
+
+    async def _fake_audit(outcome, **kwargs):
+        return None
+
+    async def _capture(tenant_id, user_id, action, target, details=None):
+        pass
+
+    class _FakeStore:
+        def __init__(self, db=None) -> None:
+            pass
+
+        async def rules_in_scope(self, **kwargs):
+            return []
+
+    class _RedactingGate:
+        async def evaluate(self, **kwargs):
+            # 模拟 001 脱敏层把明文 PII 替换为脱敏后原文。
+            return {
+                "decision": "allow",
+                "layer": "gatekeeper",
+                "request": {"text": "请联系 138****0000", "selected_skill_id": "sk-1"},
+            }
+
+    monkeypatch.setattr(store_module, "HookRuleStore", _FakeStore)
+    monkeypatch.setattr(integration_module, "audit_hook_execution", _fake_audit)
+    monkeypatch.setattr(turn_admission, "record_position_policy_event", _capture)
+    monkeypatch.setattr(client_module, "gatekeeper_client", _RedactingGate())
+
+    class _Policy:
+        def allows_skill(self, skill_id: str) -> bool:
+            return True
+
+    async def _fake_resolve(self, tenant_id, user_id):
+        return _Policy()
+
+    async def _fake_require_skill(catalog, **kwargs):
+        return "skill", {"_id": "sk-1"}
+
+    monkeypatch.setattr(turn_admission.MongoEmployeePolicyResolver, "resolve", _fake_resolve)
+    monkeypatch.setattr(turn_admission, "require_selected_skill", _fake_require_skill)
+
+    selection = asyncio.run(
+        turn_admission.admit_skill_selection(
+            tenant_id="t1",
+            user_id="u1",
+            selected_skill_id="sk-1",
+            tool="browser",
+            request={"harness_mode": "thick", "gatekeeper_ready": True, "text": "请联系 13812340000"},
+        )
+    )
+    assert selection.redacted_request is not None
+    assert selection.redacted_request["text"] == "请联系 138****0000"

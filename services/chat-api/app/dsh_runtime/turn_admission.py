@@ -27,6 +27,10 @@ from app.governance.position_policy import MongoEmployeePolicyResolver
 class TurnSkillSelection:
     selected_skill_id: str | None = None
     selected_writing_skill_id: str | None = None
+    # 001 FR-7：001 脱敏层产出的已脱敏请求体。调用方（dsh_chat）必须以它替换明文
+    # 原文再送后续处理，否则脱敏产物无消费方、明文 PII 照常进入后端（001 审计
+    # "产出无消费方" 缺陷，2026-10-03 修复）。
+    redacted_request: Optional[dict[str, Any]] = None
 
 
 @dataclass(frozen=True)
@@ -250,17 +254,20 @@ async def admit_skill_selection(
             )
             raise PermissionError(f"钩子规则拒绝工具调用：{gate.denied_reason}")
         # 001 运行时侧：钩子放行后再走 001/019 六层启用计划门禁（审计层强制）。
-        await run_gate_plan(
+        gate_plan = await run_gate_plan(
             tenant_id=tenant_id,
             user_id=user_id,
             tool=tool,
             request=request,
             session_id=session_id,
         )
+        redacted_request = gate_plan.redacted_request
+    else:
+        redacted_request = None
 
     selected = str(selected_skill_id or "").strip()
     if not selected:
-        return TurnSkillSelection()
+        return TurnSkillSelection(redacted_request=redacted_request)
     policy = await MongoEmployeePolicyResolver().resolve(tenant_id, user_id)
     if not policy.allows_skill(selected):
         await record_position_policy_event(
@@ -294,5 +301,5 @@ async def admit_skill_selection(
             details={"skill_id": selected, "reason": "hooks passed"},
         )
     if kind == "writing_style":
-        return TurnSkillSelection(selected_writing_skill_id=selected)
-    return TurnSkillSelection(selected_skill_id=selected)
+        return TurnSkillSelection(selected_writing_skill_id=selected, redacted_request=redacted_request)
+    return TurnSkillSelection(selected_skill_id=selected, redacted_request=redacted_request)

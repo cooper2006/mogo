@@ -207,12 +207,18 @@ async def _start_chat_completions(
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     conversation_id = str(output_spec.get("task_id") or output_spec.get("session_id") or "").strip() or None
+    # 001 FR-7：001 脱敏层已对 turn 级请求做 PII 脱敏，必须用脱敏后的原文替换明文，
+    # 否则脱敏产物无消费方、明文 PII 进入对话后端（2026-10-03 修复）。
+    redacted_request = getattr(skill_selection, "redacted_request", None)
+    safe_text = text
+    if isinstance(redacted_request, dict) and isinstance(redacted_request.get("text"), str):
+        safe_text = redacted_request["text"]
     try:
         turn = await dsh_runtime_application.require_chat().prepare_turn(
             tenant_id=tenant_id,
             user_id=user_id,
             conversation_id=conversation_id,
-            text=text,
+            text=safe_text,
             model_instance_id=str(request.model_id or output_spec.get("model_id") or "").strip() or None,
             timezone_name=request.timezone,
             images=[item.model_dump(mode="json") for item in list(latest.images or [])],

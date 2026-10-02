@@ -322,7 +322,9 @@ def test_admit_skill_selection_forwards_request_to_the_hook_engine():
 
     async def _fake_run_gate_plan(**kwargs):
         captured["plan"] = kwargs
-        return object()
+        from app.dsh_runtime.turn_admission import GatePlan
+
+        return GatePlan(backend="gatekeeper", layers=("audit",), audit_enabled=True, skipped=())
 
     original_hook = turn_admission.run_pre_tool_use
     original_plan = turn_admission.run_gate_plan
