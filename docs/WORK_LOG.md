@@ -3559,3 +3559,24 @@ P1 孤岛第 4 项。015 此前零生产 import，`kg_nodes`/`kg_edges` 集合�
 
 **验证**：main import ok；tests/knowledge_graph+memory+a2a+im_gateway **97 passed**；
 admin-api **410 passed**。FR-1 抽取入口 / FR-8 约束检查 / FR-13 source_ref 读写留待后续。
+
+## 2026-10-03（续二十四）R11–R15 汇总
+
+**R11（019）**：`harness_mode` 跨服务通道修复 —— admin-api `GateEvaluatePayload`
+加 `harnessMode`、`GateContext` 加 `harness_mode`，`_resolve_layers` 按 thin 模式
+过滤 approval+quota 层；chat-api `gatekeeper_client.evaluate` 透传；两处调用点注入
+request。租户清除表登记 `experience_fragments`/`skill_drafts`。
+
+**R12（012+013）**：A2A AgentCard 查找 + IM webhook 最小生产接线。新增
+`GET /internal/a2a/agents/{agent_id}/card` 和 `POST /internal/im/webhook/{channel}`
+两个 internal_router，注册到 main.py。
+
+**R13（017）**：three-scope memory 最小接线 —— `MemoryStore`（MongoDB `memories`
+集合）+ `GET/POST/DELETE /api/memories` 端点 + `main.py` 注册。
+
+**R14（017）**：memory RAG 集成 —— `knowledge_search` 能力适配器调用
+`memory_rag_candidates()` 将 scope-filtered 记忆注入 RAG 上下文（T010）。
+
+**R15（015）**：knowledge_graph 最小接线 —— `TenantKgStore`（MongoDB
+`kg_nodes`/`kg_edges` 集合）+ `GET /api/kg/nodes/{id}` 和
+`GET /api/kg/nodes/{id}/neighbours` 端点 + `main.py` 注册。
