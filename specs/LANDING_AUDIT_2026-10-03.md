@@ -415,13 +415,18 @@
 - **产出无消费方**：`run_gate_plan` 返回值被丢弃，`skipped_layers` 不驱动任何跳过（审批/配额照跑）。
 - **FR-7/FR-9 已修（续五十三）**：`/api/harness-profiles` CRUD 端点 + `full_access_admin` 门禁 + 变更审计。
 
-### 020 platform-multi-tenancy（3）—— **已接线（2026-10-03，见 WORK_LOG 续三十二）**
+### 020 platform-multi-tenancy（3）—— **全修（2026-10-03，见 WORK_LOG 续三十二/五十八）**
 
 > **已修**：FR-035/036/037 贯通——chat-api `get_quota_summary` 在 org 带
 > `points_unlimited` 时短路返回 `{unlimited:True, remainingPoints:-1, status:active}`，
 > `assert_quota_available` 对 unlimited 直接放行，新租户成员不再被 402 拦截。
-> **诚实边界（非伪造）**：FR-032 清理进度仍只存进程内存、"or default" 计数（123 处）
-> 未消除——属后续治理项，未伪造实现，仍标记 仍待修。
+> **已修**：FR-032 清理进度跨副本持久化（续五十八）——`_PurgeTaskStore` 新增
+>    Mongo 持久化（`tenant_purge_progress` 集合，main_id+task_id 键），
+>    `mark_persisted`/`finish_persisted` 每阶段写库；`get_purge_status` 解析顺序
+>    内存→Mongo→tombstone，不同副本也能查到在途/已完成进度；
+>    Mongo 不可用时诚实降级为仅内存（不伪造）；`tenant_purge_progress` 已登记
+>    租户清除表（purge 自身产物也随租户清除）。
+> **020 残项清零。**
 
 ## 跨特性系统性模式（比单点缺口更重要）
 

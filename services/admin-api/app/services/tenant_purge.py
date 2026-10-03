@@ -119,6 +119,8 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "user_shortcut_preferences",
     "user_skills",
     "user_token_allocation_logs",
+    # 020 FR-032: cross-replica purge progress (main_id + task_id keyed).
+    "tenant_purge_progress",
 ]
 
 # Governance-layer collections partitioned by ``tenant_id`` (= main_id).
@@ -181,29 +183,58 @@ TOMBSTONE_RETENTION = timedelta(days=30)
 
 
 class _PurgeTaskStore:
-    """In-memory task registry: ``{task_key: {status, progress, error}}``.
+    """Purge task registry: Mongo-backed (cross-replica) + in-memory fallback.
 
-    Known limitation (audit P2, accepted for 020): state lives in the worker
-    process, so a progress query is only meaningful on the replica that ran the
-    purge. The manifests in this repo declare no ``replicas`` for admin-api, so
-    the deployment they describe is single-replica and the query lands on the
-    right process. If admin-api is ever scaled out (a k8s manifest, or
-    ``docker compose up --scale admin-api=2`` — neither of which needs a
-    ``replicas`` key here), this must move to Mongo (or Redis). Until then
-    ``get_purge_status`` already falls back to the tenant row for completed
-    purges, so only *in-flight* progress would be lost.
-
-    The map is bounded so a long-lived process cannot grow without limit:
-    ``create`` evicts the oldest entries past ``_MAX_TASKS``.
+    FR-032 (020 residual): progress is now persisted to the
+    ``tenant_purge_progress`` collection so a status query from a *different*
+    admin-api replica still sees in-flight and completed purges. The in-memory
+    map is kept as a fast local cache and as an offline fallback: when Mongo is
+    unavailable, progress is still tracked in-process and queries honestly
+    degrade to "unknown" instead of fabricating state.
     """
 
     # Enough to keep recent history for every tenant in a large deployment
     # without letting the dict grow unbounded in a long-lived process.
     _MAX_TASKS = 512
 
+    PURGE_PROGRESS_COLLECTION = "tenant_purge_progress"
+
     def __init__(self) -> None:
         self._tasks: dict[str, dict[str, Any]] = {}
         self._main_id_to_task: dict[str, str] = {}
+
+    # ------------------------------------------------------------------
+    # Mongo persistence (best-effort; memory cache is always updated first)
+    # ------------------------------------------------------------------
+
+    async def _upsert(self, main_id: str, task_id: str, task: dict[str, Any]) -> None:
+        key = f"{main_id}:{task_id}"
+        try:
+            db = get_db()
+            now = datetime.now(timezone.utc)
+            doc = {
+                "main_id": main_id,
+                "task_id": task_id,
+                "status": task["status"],
+                "progress": task["progress"],
+                "error": task.get("error", ""),
+                "updated_at": now,
+            }
+            if "started_at" not in task:
+                doc["started_at"] = now
+            await db[self.PURGE_PROGRESS_COLLECTION].update_one(
+                {"main_id": main_id, "task_id": task_id},
+                {"$set": doc, "$setOnInsert": {"started_at": now}},
+                upsert=True,
+            )
+        except Exception:
+            # DB unavailable: degrade to in-memory only (never fabricate a
+            # completed state; get_purge_status will report what it truly has).
+            logger.warning("purge_progress %s: mongo upsert failed; in-memory only", key)
+
+    # ------------------------------------------------------------------
+    # Registry operations
+    # ------------------------------------------------------------------
 
     def create(self, main_id: str, task_id: str) -> None:
         key = f"{main_id}:{task_id}"
@@ -222,6 +253,7 @@ class _PurgeTaskStore:
             "status": "running",
             "progress": {"mongo": "pending", "vectors": "pending", "files": "pending"},
             "error": "",
+            "started_at": datetime.now(timezone.utc),
         }
         self._main_id_to_task[main_id] = key
 
@@ -242,21 +274,34 @@ class _PurgeTaskStore:
         if task:
             task["progress"][phase] = value
 
+    async def mark_persisted(self, main_id: str, task_id: str, phase: str, value: str) -> None:
+        """Mark a phase and persist to Mongo (FR-032 cross-replica)."""
+        key = f"{main_id}:{task_id}"
+        task = self._tasks.get(key)
+        if task:
+            task["progress"][phase] = value
+        await self._upsert(main_id, task_id, task or {"status": "running", "progress": {phase: value}})
+
     def finish(self, key: str, ok: bool, error: str = "") -> None:
         task = self._tasks.get(key)
         if task:
             task["status"] = "done" if ok else "failed"
             task["error"] = error
 
+    async def finish_persisted(self, main_id: str, task_id: str, ok: bool, error: str = "") -> None:
+        """Finish a task and persist the final state to Mongo (FR-032)."""
+        key = f"{main_id}:{task_id}"
+        task = self._tasks.get(key)
+        if task:
+            task["status"] = "done" if ok else "failed"
+            task["error"] = error
+        await self._upsert(main_id, task_id, task or {"status": "done" if ok else "failed", "progress": {}, "error": error})
+
     def get(self, key: str) -> dict[str, Any] | None:
         return self._tasks.get(key)
 
-    def get_for_main_id(self, main_id: str, task_id: str = "") -> dict[str, Any]:
-        """Resolve the task for a main_id (and optional task_id).
-
-        If ``task_id`` is empty, returns the most recent task created for
-        this main_id.
-        """
+    def get_for_main_id(self, main_id: str, task_id: str = "") -> dict[str, Any] | None:
+        """Resolve the in-memory task for a main_id (and optional task_id)."""
         if task_id:
             key = f"{main_id}:{task_id}"
         else:
@@ -273,6 +318,37 @@ class _PurgeTaskStore:
             "error": task["error"],
         }
 
+    async def get_persisted(self, main_id: str, task_id: str = "") -> dict[str, Any] | None:
+        """Read the last persisted purge progress from Mongo (FR-032).
+
+        When ``task_id`` is empty, returns the most recently updated document
+        for this main_id. Returns None when Mongo is unavailable or no
+        document exists — callers fall back to the tenant tombstone.
+        """
+        try:
+            db = get_db()
+        except Exception:
+            return None
+        try:
+            coll = db[self.PURGE_PROGRESS_COLLECTION]
+            if task_id:
+                doc = await coll.find_one({"main_id": main_id, "task_id": task_id})
+            else:
+                doc = await coll.find(
+                    {"main_id": main_id}
+                ).sort("updated_at", -1).to_list(length=1)
+                doc = doc[0] if doc else None
+        except Exception:
+            return None
+        if doc is None:
+            return None
+        return {
+            "taskId": str(doc.get("task_id") or task_id),
+            "status": doc.get("status", "unknown"),
+            "progress": dict(doc.get("progress") or {}),
+            "error": doc.get("error", ""),
+        }
+
 
 _task_store = _PurgeTaskStore()
 
@@ -280,14 +356,18 @@ _task_store = _PurgeTaskStore()
 async def get_purge_status(main_id: str, task_id: str = "") -> dict[str, Any]:
     """Return the purge progress for a tenant.
 
-    If no task has been started yet, check the tenant registry for a tombstone
-    (``status == purged``) and report that. Otherwise fall back to the most
-    recent task for this main_id.
+    Resolution order (FR-032): in-memory cache (this replica, in-flight) →
+    Mongo ``tenant_purge_progress`` (any replica) → tenant tombstone.
     """
     result = _task_store.get_for_main_id(main_id, task_id)
     if result is not None:
         return result
-    # No task in memory — check if the tenant row already records a purge.
+    # No task in this process — check Mongo (another replica may be mid-purge
+    # or finished a purge this replica never saw).
+    persisted = await _task_store.get_persisted(main_id, task_id)
+    if persisted is not None:
+        return persisted
+    # No task anywhere — check if the tenant row already records a purge.
     db = get_db()
     tenant = await db[TENANT_COLLECTION].find_one({"main_id": main_id}, {"status": 1, "purged_at": 1})
     if tenant and tenant.get("status") == "purged":
@@ -461,7 +541,6 @@ async def _phase_files(main_id: str) -> None:
 async def run_purge(main_id: str, task_id: str, actor: str) -> None:
     """Run the full purge pipeline for one tenant (called as a background task)."""
     _task_store.create(main_id, task_id)
-    key = f"{main_id}:{task_id}"
 
     # FR-028: re-check at execution time, not just when the request was
     # accepted. The tenant may have been restored between the API call and this
@@ -471,7 +550,7 @@ async def run_purge(main_id: str, task_id: str, actor: str) -> None:
     tenant = await db[TENANT_COLLECTION].find_one({"main_id": main_id}, {"status": 1})
     if tenant is None:
         logger.error("purge %s: tenant row not found; aborting", main_id)
-        _task_store.finish(key, False, "tenant not found")
+        await _task_store.finish_persisted(main_id, task_id, False, "tenant not found")
         return
     if tenant.get("status") != "archived":
         logger.error(
@@ -479,41 +558,43 @@ async def run_purge(main_id: str, task_id: str, actor: str) -> None:
             main_id,
             tenant.get("status"),
         )
-        _task_store.finish(key, False, f"tenant is not archived (status={tenant.get('status')!r})")
+        await _task_store.finish_persisted(
+            main_id, task_id, False, f"tenant is not archived (status={tenant.get('status')!r})"
+        )
         return
 
     errors: list[str] = []
 
-    _task_store.mark(key, "mongo", "running")
+    await _task_store.mark_persisted(main_id, task_id, "mongo", "running")
     try:
         await _phase_mongo(main_id)
-        _task_store.mark(key, "mongo", "done")
+        await _task_store.mark_persisted(main_id, task_id, "mongo", "done")
     except Exception as exc:
         logger.exception("purge %s: mongo phase failed", main_id)
         errors.append(f"mongo: {exc}")
-        _task_store.mark(key, "mongo", "failed")
+        await _task_store.mark_persisted(main_id, task_id, "mongo", "failed")
 
-    _task_store.mark(key, "vectors", "running")
+    await _task_store.mark_persisted(main_id, task_id, "vectors", "running")
     try:
         await _phase_vectors(main_id)
-        _task_store.mark(key, "vectors", "done")
+        await _task_store.mark_persisted(main_id, task_id, "vectors", "done")
     except Exception as exc:
         logger.exception("purge %s: vectors phase failed", main_id)
         errors.append(f"vectors: {exc}")
-        _task_store.mark(key, "vectors", "failed")
+        await _task_store.mark_persisted(main_id, task_id, "vectors", "failed")
 
-    _task_store.mark(key, "files", "running")
+    await _task_store.mark_persisted(main_id, task_id, "files", "running")
     try:
         await _phase_files(main_id)
-        _task_store.mark(key, "files", "done")
+        await _task_store.mark_persisted(main_id, task_id, "files", "done")
     except Exception as exc:
         logger.exception("purge %s: files phase failed", main_id)
         errors.append(f"files: {exc}")
-        _task_store.mark(key, "files", "failed")
+        await _task_store.mark_persisted(main_id, task_id, "files", "failed")
 
     ok = not errors
     error_text = "; ".join(errors)
-    _task_store.finish(key, ok, error_text)
+    await _task_store.finish_persisted(main_id, task_id, ok, error_text)
     logger.info("purge %s finished ok=%s errors=%s", main_id, ok, error_text)
 
     if not ok:

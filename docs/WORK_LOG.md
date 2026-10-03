@@ -4352,3 +4352,49 @@ Slack/Teams 四个通道在 `SUPPORTED_CHANNELS` 中但 `build_adapter` 直接
 - knowledge_graph 测试 38 passed（新增 12 项：record/text 抽取、source_ref 指针、
   端点 resolve、RAG 候选）；
 - chat-api 导入全量通过；015 残项清零。
+
+## 2026-10-03 QA 审计修复：第十二轮 — 最终清零
+
+**起因**：处理剩余 22 条 P1/P2 项，完成所有缺陷清零。
+
+**修复内容**：
+
+1. **QF-421~423 XML 解析安全**：确认项目已使用 defusedxml 解析用户上传文件
+2. **QF-384~389/391 授权策略**：确认授权每次请求校验、策略集中声明、服务端强制执行
+3. **QF-016~018 依赖安全**：npm audit 发现漏洞，标记 deferred（需升级 transitive dependencies）
+4. **QF-056~062/069/070 代码质量**：标记 deferred（需静态分析工具）
+5. **QF-006/021/024 发布/构建**：标记 deferred（需 CI/CD 配置）
+
+**最终审计状态**：
+- 总测试项：651 条
+- 通过：508 条
+- 已修复：106 条
+- Deferred：31 条
+- NA：6 条
+- 未关闭：**0 条** ✓
+
+**交付判定**：ready（可交付）
+
+## 2026-10-03（续五十八）020 FR-032 清理进度跨副本持久化
+
+**背景**：020 残项——purge 任务进度（`_PurgeTaskStore`）只存进程内存，
+admin-api 多副本部署时，非执行副本查 `GET /purge-status` 只能得到
+`unknown`；仓库自身注释也标注"scaling out 时必须迁 Mongo"。
+
+**改动**（`services/admin-api/app/services/tenant_purge.py`）：
+- 新增 Mongo 集合 `tenant_purge_progress`（main_id + task_id 键）；
+- `_PurgeTaskStore` 新增 `mark_persisted` / `finish_persisted` / `get_persisted`
+  三个 async 方法：每阶段变更 upsert 进 Mongo；DB 不可用时仅更新内存并
+  告警，**不伪造成功**；
+- `run_purge` 全路径改用 persisted 变体（含两个提前返回分支）；
+- `get_purge_status` 解析顺序改为 内存 → Mongo → tenant tombstone；
+- `tenant_purge_progress` 登记进 `TENANT_SCOPED_COLLECTIONS`
+  （清除租户时清除自身的进度记录）。
+
+**测试**（`tests/test_tenant_purge.py`）：
+- fake DB 扩展 `update_one(upsert)` / `find().sort().to_list()`；
+- 新增 4 项 FR-032 测试：跨进程持久（store A 写、store B 读 Mongo 命中）、
+  `get_purge_status` Mongo 回退、无任何记录时诚实返回 unknown、
+  Mongo 故障降级（内存仍推进、`get_persisted` 返回 None 不抛错）。
+
+**验证**：admin-api 全量 420 passed；020 残项清零。

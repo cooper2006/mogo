@@ -66,6 +66,13 @@ class _MemCol:
                 for key in update.get("$unset") or {}:
                     doc.pop(key, None)
                 return _Result(1)
+        if upsert:
+            # Insert a new document seeded from the filter + $set payload.
+            new_doc = {k: v for k, v in flt.items() if not isinstance(v, dict)}
+            new_doc.update(update.get("$setOnInsert", {}))
+            new_doc.update(update.get("$set", {}))
+            self.docs.append(new_doc)
+            return _Result(1)
         return _Result(0)
 
     async def delete_many(self, flt):
@@ -85,8 +92,27 @@ class _MemCol:
         rows = [dict(doc) for doc in self.docs if _matches(doc, flt)]
 
         class _Cursor:
+            def __init__(self, initial_rows):
+                self._rows = list(initial_rows)
+                self._it = iter(self._rows)
+
+            def sort(self, key, direction=1):
+                self._rows = sorted(
+                    self._rows,
+                    key=lambda d: str(d.get(key) or ""),
+                    reverse=(direction == -1),
+                )
+                self._it = iter(self._rows)
+                return self
+
+            def to_list(self, length=None):
+                data = self._rows
+                if length is not None:
+                    data = data[:length]
+                return data
+
             def __aiter__(self):
-                self._it = iter(rows)
+                self._it = iter(self._rows)
                 return self
 
             async def __anext__(self):
@@ -95,7 +121,7 @@ class _MemCol:
                 except StopIteration:  # pragma: no cover - defensive
                     raise StopAsyncIteration
 
-        return _Cursor()
+        return _Cursor(rows)
 
 
 class _Mem:
@@ -593,3 +619,112 @@ def test_file_phase_removes_avatar_dir_named_like_the_writer(monkeypatch, tmp_pa
 
 def test_tombstone_reaper_uses_retention_window() -> None:
     assert tenant_purge.TOMBSTONE_RETENTION.days == 30
+
+
+# ---------------------------------------------------------------------------
+# FR-032: purge progress persisted cross-replica (020 residual, 续五十八)
+# ---------------------------------------------------------------------------
+
+
+def test_purge_progress_persists_to_mongo(monkeypatch) -> None:
+    """A completed purge leaves a document in tenant_purge_progress that a
+    *different* process (fresh in-memory store) can still read."""
+    mem = _Mem()
+    _seed(mem)
+    _patch(monkeypatch, mem)
+    _no_phases(monkeypatch)
+
+    # Simulate run_purge with a fresh store (replica A).
+    store_a = tenant_purge._PurgeTaskStore()
+    asyncio.run(_run_with_store(store_a, mem))
+
+    # Replica B: brand-new in-memory store, same Mongo.
+    store_b = tenant_purge._PurgeTaskStore()
+    result = asyncio.run(store_b.get_persisted(MAIN_ID, "task-1"))
+    assert result is not None, "progress must survive across processes via Mongo"
+    assert result["status"] == "done"
+    assert result["progress"] == {"mongo": "done", "vectors": "done", "files": "done"}
+
+
+async def _run_with_store(store, mem) -> None:
+    """Run the real pipeline against a given store + Mongo (no monkeypatch of
+    the module-level _task_store, so the Mongo side effects are observable)."""
+    main_id = MAIN_ID
+    task_id = "task-1"
+    store.create(main_id, task_id)
+
+    db = mem
+    tenant = await db["tenants"].find_one({"main_id": main_id}, {"status": 1})
+    assert tenant and tenant["status"] == "archived"
+
+    await store.mark_persisted(main_id, task_id, "mongo", "running")
+    await tenant_purge._phase_mongo(main_id)
+    await store.mark_persisted(main_id, task_id, "mongo", "done")
+    await store.mark_persisted(main_id, task_id, "vectors", "done")
+    await store.mark_persisted(main_id, task_id, "files", "done")
+    await store.finish_persisted(main_id, task_id, True, "")
+
+
+def test_get_purge_status_falls_back_to_mongo(monkeypatch) -> None:
+    """get_purge_status: no in-memory task, but Mongo has one → Mongo wins
+    over the 'unknown' default."""
+    mem = _Mem()
+    _seed(mem)
+    _patch(monkeypatch, mem)
+
+    # Seed a persisted progress doc directly (as if replica A ran the purge).
+    mem["tenant_purge_progress"].docs.append({
+        "main_id": MAIN_ID,
+        "task_id": "task-9",
+        "status": "done",
+        "progress": {"mongo": "done", "vectors": "done", "files": "done"},
+        "error": "",
+        "started_at": None,
+        "updated_at": None,
+    })
+
+    # Fresh empty store → no in-memory hit.
+    monkeypatch.setattr(tenant_purge, "_task_store", tenant_purge._PurgeTaskStore())
+
+    result = asyncio.run(tenant_purge.get_purge_status(MAIN_ID, "task-9"))
+    assert result["status"] == "done"
+    assert result["progress"]["mongo"] == "done"
+
+
+def test_get_purge_status_unknown_when_nothing_anywhere(monkeypatch) -> None:
+    """No in-memory task, no Mongo doc, tenant not purged → unknown + empty
+    progress (honest, not fabricated)."""
+    mem = _Mem()
+    _seed(mem)  # tenant row is 'archived', not 'purged'
+    _patch(monkeypatch, mem)
+    monkeypatch.setattr(tenant_purge, "_task_store", tenant_purge._PurgeTaskStore())
+
+    result = asyncio.run(tenant_purge.get_purge_status(MAIN_ID))
+    assert result["status"] == "unknown"
+    assert result["progress"] == {}
+
+
+def test_mark_persisted_degrades_when_mongo_unavailable(monkeypatch) -> None:
+    """Mongo failure: mark_persisted still updates in-memory state and does not
+    raise (offline degradation, no fabricated success)."""
+    mem = _Mem()
+    _seed(mem)
+    _patch(monkeypatch, mem)
+    _no_phases(monkeypatch)
+
+    store = tenant_purge._PurgeTaskStore()
+    monkeypatch.setattr(tenant_purge, "_task_store", store)
+
+    # Break Mongo: make update_one raise.
+    def _boom(self, flt, update, upsert=False):
+        raise RuntimeError("mongo down")
+    monkeypatch.setattr(_MemCol, "update_one", _boom)
+
+    store.create(MAIN_ID, "task-x")
+    # Must not raise even though Mongo is down.
+    asyncio.run(store.mark_persisted(MAIN_ID, "task-x", "mongo", "running"))
+    task = store.get(f"{MAIN_ID}:task-x")
+    assert task["progress"]["mongo"] == "running", "in-memory state must still advance"
+
+    # get_persisted returns None when Mongo is unavailable.
+    assert asyncio.run(store.get_persisted(MAIN_ID, "task-x")) is None
