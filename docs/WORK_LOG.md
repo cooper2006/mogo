@@ -3894,3 +3894,45 @@ API 将记忆从 personal/workspace 提升为 org scope。
 
 **验证**：knowledge_graph 测试 26 passed（新增 1 项 FR-8 接口测试）；
 im_gateway 回归 35 passed；端点模块 import ok。
+
+## 2026-10-03 QA 审计修复：第一轮 Quick Wins
+
+**起因**：对 mogo 项目执行 standard 深度 QA 审计，发现 135 条缺陷。根据修复交接单执行第一轮修复。
+
+**修复内容**：
+
+1. **QF-009 sourcemap 泄漏**：admin-web 和 user-web 的 vite.config.ts 添加 `sourcemap: false`，防止生产构建源码映射泄漏
+2. **QF-014 镜像源文档**：README.md 添加 "Dependency Mirror Sources" 章节，说明 Docker 构建中使用的 npmmirror.com 和 tuna.tsinghua.edu.cn 镜像源及如何切换到官方源
+3. **QF-071 测试修复**：
+   - chat-api: planner.py 添加 `_DecisionSchema` 类（DecisionOutput 子类），修复 test_decision_turn.py 的 ImportError
+   - document-parser: 重建 venv（Python 3.13），安装 python-pptx 依赖
+   - admin-api: 重建 venv（Python 3.13），修复 requirements.txt 中 msgpack==1.2.2 → 1.1.2，httpx2 → httpx
+   - user-web: 添加 esbuild@0.21.5 为 devDependency
+4. **QF-047 ESLint 配置**：admin-web 和 user-web 添加 eslint + typescript-eslint + eslint-plugin-vue + eslint-config-prettier，创建 eslint.config.js，添加 lint script
+5. **QF-053 chunk 优化**：两个 vite.config.ts 添加 manualChunks 分割 vendor-vue/vendor-ui/vendor-editor/vendor-pdf/vendor-http 等，index chunk 从 ~1059KB 降至 174KB(admin) / 347KB(user)
+6. **QF-650 console.log 清理**：移除 App.vue 中 2 处未保护的 console.log（其余均在 debugEnabled 开关后）
+7. **QF-338 密码强度校验**：auth.py 添加 PasswordChangeRequest.validate_strength()，要求≥10位+大小写+数字+特殊字符
+8. **QF-356 登录限流**：auth.py 添加内存级 rate limiter（5次/5分钟窗口），超限返回 429
+9. **QF-349 JWT**、**QF-355 登录响应归一化**、**QF-348 登出会话吊销**、**QF-339 密码哈希**：确认已实现（PBKDF2 120k iterations + 随机 salt + 统一错误响应 + logout revoke）
+
+**修改文件**：
+- `apps/admin-web/vite.config.ts` — sourcemap: false + manualChunks
+- `apps/admin-web/eslint.config.js` — 新建 ESLint 配置
+- `apps/admin-web/package.json` — lint script + eslint deps
+- `apps/user-web/vite.config.ts` — sourcemap: false + manualChunks
+- `apps/user-web/eslint.config.js` — 新建 ESLint 配置
+- `apps/user-web/package.json` — lint script + eslint deps + esbuild
+- `apps/user-web/src/App.vue` — 移除 2 处 console.log
+- `services/admin-api/app/api/routes/auth.py` — 密码强度校验 + 登录限流
+- `services/admin-api/app/core/security.py` — (确认已有)
+- `services/admin-api/requirements.txt` — msgpack 1.2.2→1.1.2, httpx2→httpx
+- `services/chat-api/app/enterprise_capabilities/browser/engine/agent_loop/planner.py` — 添加 _DecisionSchema
+- `README.md` — 镜像源文档
+
+**验证**：
+- admin-web: typecheck ✓ + build ✓ (index 174KB)
+- user-web: typecheck ✓ + build ✓ (index 347KB)
+- chat-api: test_decision_turn.py 11 passed ✓
+- document-parser: 22 passed ✓
+- admin-api: 359 passed (54 failed 需 MongoDB) ✓
+- user-web: test:execution-v3 passed ✓

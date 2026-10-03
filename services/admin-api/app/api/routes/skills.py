@@ -20,7 +20,7 @@ from app.services.skill_market.adoption_client import (
     fetch_marked_skill_keys,
 )
 from app.services.skill_package_proxy import install_organization_skill_zip
-from app.services.skill_lifecycle import OrganizationSkillLifecycle
+from app.services.skill_lifecycle import OrganizationSkillLifecycle, RELEASE_COLLECTION
 from app.services.workflow_validation import validate_workflow_config
 
 router = APIRouter()
@@ -539,6 +539,35 @@ async def delete_skill(skill_id: str, current_user: dict = Depends(get_current_a
         package_ids = [str(existing.get("package_id") or ""), *[str(item) for item in existing.get("previous_package_ids") or []]]
         await db.skill_packages.delete_many({"_id": {"$in": [item for item in package_ids if item]}})
     return {"id": skill_id}
+
+
+@router.post("/{skill_id}/releases/{release_id}/verify")
+async def verify_skill_release(
+    skill_id: str,
+    release_id: str,
+    current_user: dict = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """004 FR-5: verify the integrity of a stored skill release row.
+
+    Recomputes the sha256 digest over the canonical snapshot and compares it
+    with the stored digest; a mismatch (or empty digest) is a hard 409 so a
+    tampered release can never be accepted silently.
+    """
+    main_id = str(current_user.get("main_id") or "default")
+    row = await get_db()[RELEASE_COLLECTION].find_one(
+        {"_id": release_id, "main_id": main_id, "skill_id": str(skill_id)}
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="发布物不存在")
+    lifecycle = OrganizationSkillLifecycle()
+    valid = lifecycle.verify_release(row=row)
+    if not valid:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
+            "code": "release_digest_mismatch",
+            "message": "发布物摘要校验失败，可能已被篡改",
+            "releaseId": release_id,
+        })
+    return {"id": release_id, "version": str(row.get("version") or ""), "digest": str(row.get("digest") or ""), "valid": True}
 
 
 async def ensure_indexes() -> None:

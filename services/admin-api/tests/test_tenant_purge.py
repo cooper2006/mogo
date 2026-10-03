@@ -337,6 +337,9 @@ def test_every_main_id_keyed_collection_in_the_tree_is_covered() -> None:
         # 016 collector high-water mark: one global doc (_id="skill_activity"),
         # carries no tenant key at all — nothing tenant-specific to purge.
         "skill_quality_collector_state",
+        # Orchestration DAG registry (005/012): keyed by orchestration_id only,
+        # a platform-wide development source of truth, not tenant-partitioned.
+        "dag_definitions",
         # Purge survives these on purpose (see the sibling test).
         "system_audit_logs",
         "tenants",

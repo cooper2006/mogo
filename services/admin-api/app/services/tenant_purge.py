@@ -89,6 +89,10 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     # 017: three-scope memory records (tenant-partitioned, scope-filtered reads).
     "memories",
     "site_profiles",
+    # 013: IM channel <-> MOGO session bindings, partitioned by tenant_id
+    # (chat-api PersistedSessionBindingRegistry, FR-10 persistence).
+    "im_channels",
+    "im_session_bindings",
     "skill_distribution_members",
     "skill_distribution_releases",
     "skill_distributions",
@@ -160,6 +164,9 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
 # normal ``TENANT_SCOPED_COLLECTIONS`` sweep.
 TENANT_ORPHANED_COLLECTIONS: list[str] = [
     "session_shares",
+    # 016 canary rollouts: keyed by ``skill_id`` with a ``target_tenants``
+    # array (no scalar tenant key), so a plain keyed sweep cannot match it.
+    "skill_rollouts",
 ]
 
 # Tombstones older than this are deleted on startup (T052 / decision 19).

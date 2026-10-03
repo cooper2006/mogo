@@ -58,6 +58,28 @@ def test_enterprise_release_history_lazily_migrates_existing_skill(monkeypatch):
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
 
     releases = asyncio.run(OrganizationSkillLifecycle().releases(main_id="tenant", skill_id="skill"))
-
     assert [release["version"] for release in releases] == ["1.0.0"]
     assert db.skills.rows["skill"]["published_version"] == "1.0.0"
+
+
+def test_verify_release_detects_tampered_digest():
+    """004 FR-5: a stored release whose digest no longer matches its snapshot is
+    rejected, and the release view now exposes its digest for verification."""
+    from app.services.skill_lifecycle import OrganizationSkillLifecycle, digest as compute_digest
+
+    lifecycle = OrganizationSkillLifecycle()
+    snapshot = {"name": "Skill", "type": "workflow", "config": {}}
+    row = {"_id": "rel-1", "main_id": "tenant", "skill_id": "skill",
+           "version": "1.0.0", "snapshot": snapshot, "digest": compute_digest(snapshot)}
+    assert lifecycle.verify_release(row=row) is True
+
+    # Tamper the snapshot: the stored digest no longer matches.
+    tampered = dict(row)
+    tampered["snapshot"] = dict(snapshot, name="Hijacked")
+    assert lifecycle.verify_release(row=tampered) is False
+    # An empty digest can never verify.
+    assert lifecycle.verify_release(row={"_id": "x", "snapshot": snapshot, "digest": ""}) is False
+
+    # The caller can verify candidate content against a known digest.
+    assert lifecycle.verify_release(digest=compute_digest(snapshot), snapshot=snapshot) is True
+    assert lifecycle.verify_release(digest=compute_digest(snapshot), snapshot={"name": "Nope"}) is False

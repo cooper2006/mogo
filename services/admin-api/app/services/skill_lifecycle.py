@@ -57,8 +57,24 @@ class OrganizationSkillLifecycle:
         baseline = await self._baseline(skill)
         if baseline: await db.skills.update_one(query, {"$set": baseline})
         rows = await db[RELEASE_COLLECTION].find({"main_id": main_id, "skill_id": skill_id}).sort("created_at", -1).limit(20).to_list(length=20)
-        return [{"id": str(row["_id"]), "version": str(row["version"]), "releaseNotes": str(row.get("release_notes") or ""), "createdAt": row["created_at"].isoformat()} for row in rows]
+        # 004 FR-5 (OQ-1): every release row carries its digest (sha256 of the
+        # canonical snapshot); the caller verifies integrity with verify_release.
+        return [{"id": str(row["_id"]), "version": str(row["version"]), "releaseNotes": str(row.get("release_notes") or ""), "createdAt": row["created_at"].isoformat(),
+                 "digest": str(row.get("digest") or "")} for row in rows]
 
+    @staticmethod
+    def verify_release(*, digest: str = "", snapshot: dict[str, Any] | None = None, row: dict[str, Any] | None = None) -> bool:
+        """FR-5 integrity check: sha256 over the canonical (sorted-key) JSON of
+        the release snapshot. Pass ``row`` to verify a stored release row, or
+        ``snapshot`` against a known ``digest``.
+        """
+        from app.services import skill_lifecycle as _sl
+        if row is not None:
+            recomputed = _sl.digest(row.get("snapshot") or {})
+            return recomputed == str(row.get("digest") or "") and bool(str(row.get("digest") or ""))
+        if snapshot is None or not digest:
+            return False
+        return _sl.digest(snapshot) == digest
     async def _baseline(self, row: dict[str, Any]) -> dict[str, Any]:
         if row.get("publication_status") == "draft" and not row.get("published_version"): return {}
         if row.get("published_version") and row.get("published_digest"): return {}

@@ -161,31 +161,27 @@
 > **仍待修（降为 P1）**：
 > - 解析核心零真实测试（两处引用均为 monkeypatch 打桩）。
 
-### 004 skillhub-lifecycle（4）—— **FR-8 审计 + FR-3 版本回看已修（2026-10-03，见 WORK_LOG 续十五/十七）**
+### 004 skillhub-lifecycle（4）—— **FR-8 审计 + FR-3 版本回看 + FR-4 反馈 + FR-5 签名已修（2026-10-03，见 WORK_LOG 续十五/十七/四十三/四十八）**
 
 > **已修**：
 > - **FR-8 审计**：4 个 skill 端点（publish/install-zip×2/share create+install+revoke）经
 >   `services/skill_lifecycle/audit.py` 落 001 治理审计流（`skill.<verb>` 事件，
 >   未知 action 拒绝）。
-> - **FR-3 版本回看**：admin-web 新增 `SkillVersionHistory` 组件，在技能详情弹窗内
->   展示 ordered 发布历史（version/createdAt/digest/releaseNotes），`fetchSkillReleases`
+> - **FR-3 版本回看**：admin-web 新增 `SkillVersionHistory` 组件（`SkillsPage.vue`
+>   已挂载），在技能详情弹窗内展示 ordered 发布历史，`fetchSkillReleases`
 >   有真实前端消费方。
->
-> **已修**：FR-4 反馈版本关联（续四十三）——`resource_feedback` 的
->    `comment()` 支持可选 `release_id`/`release_version`，`list()` 支持按
->    发布物过滤，端点 `POST/GET /api/resource-feedback/*` 已透出。
-> **仍待修**：FR-5 签名校验不存在（plan OQ-1 自承未定）。
-
-> **已修**：4 个 skill 端点（publish/install-zip×2/share create+install+revoke）经
->    `services/skill_lifecycle/audit.py` 落 001 治理审计流（`skill.<verb>` 事件，
->    未知 action 拒绝）。
-> **仍待修**：FR-3 版本回看零消费方（`fetchSkillReleases` 全仓零调用）；FR-4 反馈
->    无写入方；FR-5 签名校验不存在（plan OQ-1 自承未定）。
-- **FR-8 审计零接线**：chat-api 四个 skill 端点 `grep audit` 0 命中；`FEATURE_AUDIT_EVENTS` 不含 004；admin-api 中间件只按路径首段推断 module。
-- **FR-3 版本回看零消费方**：`fetchSkillReleases` 全仓零调用者，admin-web 无该函数。
+> - **FR-4 反馈版本关联**（续四十三）：`resource_feedback` 的
+>   `comment()` 支持可选 `release_id`/`release_version`，`list()` 支持按
+>   发布物过滤，端点 `POST/GET /api/resource-feedback/*` 已透出。
+> - **FR-5 签名校验**（续四十八，plan OQ-1 落地）：`OrganizationSkillLifecycle`
+>   新增 `verify_release`（对规范化 snapshot 的 sha256 摘要校验），
+>   `releases()` 现透出每行 `digest`；端点
+>   `POST /skills/{id}/releases/{release_id}/verify` 校验不匹配硬 409，
+>   篡改的发布物绝不被静默接受。
+- **FR-8 审计零接线**：chat-api 四个 skill 端点 `grep audit` 0 命中；`FEATURE_AUDIT_EVENTS` 不含 004；admin-api 中间件只按路径首段推断 module。（已修：4 端点经 audit.py 落 001 流）
+- **FR-3 版本回看零消费方**：`fetchSkillReleases` 全仓零调用者，admin-web 无该函数。（已修：SkillsPage.vue 已挂载 SkillVersionHistory）
 - **FR-4 反馈版本关联已修（续四十三）**：`resource_feedback` 支持可选 release 作用域。
-- **FR-5 签名校验不存在**：`skill_packages/*` 无任何 signature/verify 代码，plan 的 OQ-1 自承未定。
-- **FR-5 签名校验不存在**：`skill_packages/*` 无任何 signature/verify 代码，plan 的 OQ-1 自承未定。
+- **FR-5 签名校验已修（续四十八）**：`verify_release` + `POST /skills/{id}/releases/{rid}/verify`，摘要不匹配硬 409。
 
 ### 005 knowledge-rag-research（3）—— **已接线（2026-10-03，见 WORK_LOG 续三十一）**
 
