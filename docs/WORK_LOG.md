@@ -4274,3 +4274,14 @@ retry 立即上抛且单次、failover 不切备用源）。
 - memory 测试 20 passed（新增 4 项：query 构建/归档/删除/RAG 排除）；
 - chat-api 全量 1001 passed，11 项失败与基线（git stash 后）完全一致，
   均为既有 DSH 环境失败，与本次改动无关。
+
+## 2026-10-03（续五十四）019 harness_profiles 租户清除登记
+
+**背景**：续五十三的 019 CRUD 端点持久化 `harness_profiles` 集合
+（tenant-partitioned via main_id），但未登记到 admin-api 租户清除表，
+租户删除时该集合会残留。
+
+**改动**：
+- `tenant_purge.py`：`harness_profiles` 加入 `TENANT_SCOPED_COLLECTIONS`。
+
+**验证**：`test_tenant_purge` 26 passed；admin-api 全量 416 passed。

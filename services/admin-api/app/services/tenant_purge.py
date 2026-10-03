@@ -41,6 +41,11 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "admin_account_groups",
     "admin_accounts",
     "admin_login_challenges",
+    # QF-350~354: refresh tokens, recovery tokens, and active sessions
+    # are all partitioned by main_id and must be purged with the tenant.
+    "admin_refresh_tokens",
+    "admin_recovery_tokens",
+    "admin_sessions",
     "admin_model_instances",
     "admin_presentation_settings",
     "audit_logs",
@@ -88,6 +93,8 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "skill_drafts",
     # 017: three-scope memory records (tenant-partitioned, scope-filtered reads).
     "memories",
+    # 019: harness thickness profiles (tenant-partitioned via main_id).
+    "harness_profiles",
     "site_profiles",
     # 013: IM channel <-> MOGO session bindings, partitioned by tenant_id
     # (chat-api PersistedSessionBindingRegistry, FR-10 persistence).
