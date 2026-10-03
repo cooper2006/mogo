@@ -3826,3 +3826,19 @@ API 将记忆从 personal/workspace 提升为 org scope。
 - 异常/解析失败仍走 `evaluate_with_fail_closed`（T017）。
 
 **验证**：hooks_wiring 测试 4 failed（预存 MongoDB 连接失败，git stash 确认非本改动引入）。
+
+## 2026-10-03（续四十三）004 FR-4 反馈版本关联
+
+**背景**：001 audit 残项——`organization_skill_feedback` 查询键仅 `resource_id`，
+反馈与 skill release 无关联，无法按版本查看反馈池。
+
+**改动**：
+- `ResourceFeedbackService.comment()` 新增可选 `release_id`/`release_version`，
+  写入 comment 文档；
+- `list()` 支持 `release_id`/`release_version` 过滤，`_comment_view` 透出
+  `releaseId`/`releaseVersion`；
+- 端点 `POST /api/resource-feedback/{type}/{id}/comments`（body 加
+  `releaseId`/`releaseVersion`）与 `GET /api/resource-feedback/{type}/{id}`
+  （query 加同名字段）已透出。
+
+**验证**：resource_feedback 测试 9 passed（新增 release 作用域测试）。

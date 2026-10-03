@@ -169,7 +169,10 @@
 >   展示 ordered 发布历史（version/createdAt/digest/releaseNotes），`fetchSkillReleases`
 >   有真实前端消费方。
 >
-> **仍待修**：FR-4 反馈无写入方；FR-5 签名校验不存在（plan OQ-1 自承未定）。
+> **已修**：FR-4 反馈版本关联（续四十三）——`resource_feedback` 的
+>    `comment()` 支持可选 `release_id`/`release_version`，`list()` 支持按
+>    发布物过滤，端点 `POST/GET /api/resource-feedback/*` 已透出。
+> **仍待修**：FR-5 签名校验不存在（plan OQ-1 自承未定）。
 
 > **已修**：4 个 skill 端点（publish/install-zip×2/share create+install+revoke）经
 >    `services/skill_lifecycle/audit.py` 落 001 治理审计流（`skill.<verb>` 事件，
@@ -178,7 +181,8 @@
 >    无写入方；FR-5 签名校验不存在（plan OQ-1 自承未定）。
 - **FR-8 审计零接线**：chat-api 四个 skill 端点 `grep audit` 0 命中；`FEATURE_AUDIT_EVENTS` 不含 004；admin-api 中间件只按路径首段推断 module。
 - **FR-3 版本回看零消费方**：`fetchSkillReleases` 全仓零调用者，admin-web 无该函数。
-- **FR-4 反馈与版本无关联**：`organization_skill_feedback` 查询键仅 `resource_id`，无 `release_id/version`。
+- **FR-4 反馈版本关联已修（续四十三）**：`resource_feedback` 支持可选 release 作用域。
+- **FR-5 签名校验不存在**：`skill_packages/*` 无任何 signature/verify 代码，plan 的 OQ-1 自承未定。
 - **FR-5 签名校验不存在**：`skill_packages/*` 无任何 signature/verify 代码，plan 的 OQ-1 自承未定。
 
 ### 005 knowledge-rag-research（3）—— **已接线（2026-10-03，见 WORK_LOG 续三十一）**

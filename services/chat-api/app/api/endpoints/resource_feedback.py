@@ -14,6 +14,8 @@ service = ResourceFeedbackService()
 class CommentRequest(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
     parent_id: str = Field(default="", alias="parentId", max_length=64)
+    release_id: str = Field(default="", alias="releaseId", max_length=64, description="004 FR-4: scope the comment to a skill release")
+    release_version: int | None = Field(default=None, alias="releaseVersion", ge=0)
 
 
 def _raise(exc: ResourceFeedbackError) -> None:
@@ -21,9 +23,9 @@ def _raise(exc: ResourceFeedbackError) -> None:
 
 
 @router.get("/resource-feedback/{resource_type}/{resource_id}")
-async def list_feedback(resource_type: str, resource_id: str, cursor: str = Query(default="", max_length=64), limit: int = Query(default=30, ge=1, le=100), principal: ApiPrincipal = Depends(require_end_user_principal)):
+async def list_feedback(resource_type: str, resource_id: str, cursor: str = Query(default="", max_length=64), limit: int = Query(default=30, ge=1, le=100), release_id: str = Query(default="", alias="releaseId", max_length=64), release_version: int | None = Query(default=None, alias="releaseVersion", ge=0), principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        data = await service.list(main_id=principal.main_id, user_id=principal.user_id, resource_type=resource_type, resource_id=resource_id, cursor=cursor, limit=limit)
+        data = await service.list(main_id=principal.main_id, user_id=principal.user_id, resource_type=resource_type, resource_id=resource_id, cursor=cursor, limit=limit, release_id=release_id, release_version=release_version)
     except ResourceFeedbackError as exc:
         _raise(exc)
     return {"code": 0, "message": "success", "data": data}
@@ -32,7 +34,7 @@ async def list_feedback(resource_type: str, resource_id: str, cursor: str = Quer
 @router.post("/resource-feedback/{resource_type}/{resource_id}/comments")
 async def add_comment(resource_type: str, resource_id: str, payload: CommentRequest, principal: ApiPrincipal = Depends(require_end_user_principal)):
     try:
-        data = await service.comment(main_id=principal.main_id, user_id=principal.user_id, resource_type=resource_type, resource_id=resource_id, content=payload.content, parent_id=payload.parent_id)
+        data = await service.comment(main_id=principal.main_id, user_id=principal.user_id, resource_type=resource_type, resource_id=resource_id, content=payload.content, parent_id=payload.parent_id, release_id=payload.release_id, release_version=payload.release_version)
     except ResourceFeedbackError as exc:
         _raise(exc)
     return {"code": 0, "message": "success", "data": data}

@@ -183,3 +183,38 @@ def test_historical_comment_and_reply_phone_names_are_sanitized(monkeypatch):
     ))["items"][0]
     assert item["author"] == {"userId": "member", "displayName": ""}
     assert item["replyTo"] == {"userId": "other", "displayName": ""}
+
+
+def test_comment_release_linking_and_release_scoped_list(monkeypatch):
+    """004 FR-4: comments can be scoped to a specific skill release; the list
+    view can be filtered by release_id/release_version."""
+    db = Db(); monkeypatch.setattr(feedback_module, "get_db", lambda: db)
+    service = ResourceFeedbackService(Access())
+    # One release-scoped comment + one unscoped comment.
+    scoped = asyncio.run(service.comment(
+        main_id="tenant", user_id="member", resource_type="skill_distribution",
+        resource_id="dist", content="v2 的问题", release_id="rel-7", release_version=2,
+    ))
+    assert scoped["releaseId"] == "rel-7" and scoped["releaseVersion"] == 2
+    asyncio.run(service.comment(
+        main_id="tenant", user_id="member", resource_type="skill_distribution",
+        resource_id="dist", content="通用反馈",
+    ))
+    # Full pool: both comments.
+    full = asyncio.run(service.list(
+        main_id="tenant", user_id="member", resource_type="skill_distribution", resource_id="dist",
+    ))
+    assert len(full["items"]) == 2
+    # Release-scoped view: only the v2 comment.
+    scoped_view = asyncio.run(service.list(
+        main_id="tenant", user_id="member", resource_type="skill_distribution",
+        resource_id="dist", release_id="rel-7", release_version=2,
+    ))
+    assert len(scoped_view["items"]) == 1
+    assert scoped_view["items"][0]["id"] == scoped["id"]
+    # Same release, wrong version: empty.
+    wrong = asyncio.run(service.list(
+        main_id="tenant", user_id="member", resource_type="skill_distribution",
+        resource_id="dist", release_id="rel-7", release_version=3,
+    ))
+    assert len(wrong["items"]) == 0

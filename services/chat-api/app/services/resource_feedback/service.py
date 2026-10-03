@@ -36,12 +36,17 @@ class ResourceFeedbackService:
     def __init__(self, access: FeedbackAccessResolver | None = None) -> None:
         self._access = access or FeedbackAccessResolver()
 
-    async def list(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str, limit: int = 30, cursor: str = "") -> dict[str, Any]:
+    async def list(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str, limit: int = 30, cursor: str = "", release_id: str = "", release_version: int | None = None) -> dict[str, Any]:
         subject = await self._subject(main_id, user_id, resource_type, resource_id)
         db = get_db()
         query = self._query(resolve_main_id(main_id), subject)
         page_size = min(max(limit, 1), 100)
         comment_query: dict[str, Any] = {**query, "status": "active"}
+        # 004 FR-4: optional release-scoped view (per-release feedback pool).
+        if release_id:
+            comment_query["release_id"] = release_id
+            if release_version is not None:
+                comment_query["release_version"] = int(release_version)
         cursor_time = self._parse_cursor(cursor)
         if cursor_time is not None:
             comment_query["created_at"] = {"$lt": cursor_time}
@@ -82,7 +87,7 @@ class ResourceFeedbackService:
             "hasMore": has_more, "nextCursor": next_cursor, "focus": focus,
         }
 
-    async def comment(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str, content: str, parent_id: str = "") -> dict[str, Any]:
+    async def comment(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str, content: str, parent_id: str = "", release_id: str = "", release_version: int | None = None) -> dict[str, Any]:
         subject = await self._subject(main_id, user_id, resource_type, resource_id)
         text = str(content or "").strip()
         if not text:
@@ -96,7 +101,7 @@ class ResourceFeedbackService:
             if parent is None:
                 raise ResourceFeedbackError("feedback_parent_not_found", "The replied comment no longer exists", 404)
         author = await self._author(db, tenant_id, str(user_id))
-        row = {
+        row: dict[str, Any] = {
             "_id": uuid.uuid4().hex, **self._query(tenant_id, subject),
             "user_id": str(user_id), "author": author, "content": text,
             "parent_id": str(parent_id or ""), "status": "active",
@@ -104,6 +109,14 @@ class ResourceFeedbackService:
             "reply_to": dict((parent or {}).get("author") or {}),
             "created_at": _utcnow(), "updated_at": _utcnow(),
         }
+        # 004 FR-4: link the comment to a specific skill release (optional).
+        # When the caller supplies release_id/release_version the comment is
+        # scoped to that release; list() can then filter by release to surface
+        # per-version feedback instead of one flat pool.
+        if release_id:
+            row["release_id"] = str(release_id)
+            if release_version is not None:
+                row["release_version"] = int(release_version)
         await db[COMMENT_COLLECTION].insert_one(row)
         recipient = str(
             (parent or {}).get("user_id")
@@ -236,7 +249,7 @@ class ResourceFeedbackService:
     def _comment_view(row: dict[str, Any], user_id: str, like_counts: dict[str, int], liked_by_me: set[str]) -> dict[str, Any]:
         created = row.get("created_at")
         comment_id = str(row.get("_id") or "")
-        return {
+        view: dict[str, Any] = {
             "id": comment_id, "content": str(row.get("content") or ""),
             "parentId": str(row.get("parent_id") or ""),
             "author": public_identity(row.get("author"), user_id=str(row.get("user_id") or "")),
@@ -246,6 +259,13 @@ class ResourceFeedbackService:
             "mine": str(row.get("user_id") or "") == str(user_id),
             "createdAt": created.isoformat() if isinstance(created, datetime.datetime) else "",
         }
+        # 004 FR-4: expose the release linkage when present.
+        release_id = str(row.get("release_id") or "")
+        if release_id:
+            view["releaseId"] = release_id
+            if row.get("release_version") is not None:
+                view["releaseVersion"] = int(row.get("release_version") or 0)
+        return view
 
     @staticmethod
     def _parse_cursor(value: str) -> datetime.datetime | None:
