@@ -8,10 +8,16 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from app.core.db import get_db
 from app.core.tenant import resolve_main_id
 from app.knowledge_graph.schema import KgEdge, KgNode, DEFAULT_CONFIDENCE_FLOOR
 from app.knowledge_graph.store import merge_nodes
+
+
+def _get_db():
+    """Lazy import of the app DB so module import stays app-free."""
+    from app.core.db import get_db
+
+    return get_db()
 
 COLLECTION_NODES = "kg_nodes"
 COLLECTION_EDGES = "kg_edges"
@@ -65,7 +71,10 @@ class TenantKgStore:
         if self._loaded:
             return
         self._loaded = True
-        db = get_db()
+        try:
+            db = _get_db()
+        except Exception:  # noqa: BLE001 - degrade to an empty in-memory store
+            db = None
         if db is None:
             return
         rows = await db[COLLECTION_NODES].find({"tenant_id": self._tenant_id}).to_list(length=2000)
@@ -110,14 +119,31 @@ class TenantKgStore:
     def get_node(self, node_id: str) -> Optional[KgNode]:
         return self._nodes.get(node_id)
 
+    @property
+    def nodes(self) -> dict[str, KgNode]:
+        """Read-only view of the node map (KgStore interface for consistency)."""
+        return self._nodes
+
+    def edges_of(self, node_id: str, *, relation: Optional[str] = None) -> list[KgEdge]:
+        """Outgoing edges of a node (KgStore interface, needed by consistency)."""
+        edges = self._edges.get(node_id, [])
+        if relation:
+            edges = [e for e in edges if e.relation == relation]
+        return list(edges)
+
     def __len__(self) -> int:
         return len(self._nodes)
 
     async def persist(self) -> None:
-        db = get_db()
+        try:
+            db = _get_db()
+        except Exception:  # noqa: BLE001 - skip persistence rather than crash
+            db = None
         if db is None:
             return
-        for node in self._nodes.values():
+        nodes_snapshot = dict(self._nodes)
+        edges_snapshot = {source: list(edges) for source, edges in self._edges.items()}
+        for node in nodes_snapshot.values():
             doc = _node_to_doc(node)
             doc["tenant_id"] = self._tenant_id
             await db[COLLECTION_NODES].replace_one(
@@ -125,7 +151,7 @@ class TenantKgStore:
                 doc,
                 upsert=True,
             )
-        for source, edges in self._edges.items():
+        for source, edges in edges_snapshot.items():
             for edge in edges:
                 doc = _edge_to_doc(edge)
                 doc["tenant_id"] = self._tenant_id

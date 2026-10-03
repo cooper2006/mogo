@@ -3876,3 +3876,21 @@ API 将记忆从 personal/workspace 提升为 org scope。
 
 **验证**：im_gateway 测试 35 passed（新增 3 项：bind roundtrip + FR-14
 冲突、disable/enable 落库、DB 不可用降级）。
+
+## 2026-10-03（续四十六）015 FR-8 约束检查端点
+
+**背景**：001 audit 残项——`consistency.check_all`（互斥/基数/传递三类约束）
+只有纯逻辑 + 单测，生产零调用方；`TenantKgStore` 缺 `KgStore` 接口
+（`nodes`/`edges_of`），无法直接跑约束检查。
+
+**改动**：
+- `persisted_store.py`：`TenantKgStore` 补 `nodes` 只读属性 + `edges_of()`
+  方法（对齐 `KgStore` 接口）；`get_db` 改惰性导入，`_ensure_loaded`/
+  `persist` 对 DB 异常降级（空内存态/跳过持久化，不伪造）；
+- `knowledge_graph.py`：新增 `POST /api/kg/check-constraints`，body 传
+  约束 bundle（mutual_exclusions / cardinality / transitive_relations），
+  运行 `check_all` → `mark_conflicts`（FR-14 标记不阻塞）→ `persist()`
+  落库冲突标记 → 审计入 001 流（kg.audited）。
+
+**验证**：knowledge_graph 测试 26 passed（新增 1 项 FR-8 接口测试）；
+im_gateway 回归 35 passed；端点模块 import ok。

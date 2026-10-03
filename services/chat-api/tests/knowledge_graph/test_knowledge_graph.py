@@ -257,3 +257,29 @@ def test_check_all_and_mark_conflicts_keeps_queryable() -> None:
     # the node is flagged but still present/queryable (FR-14)
     assert store.nodes["n1"].conflicted is True
     assert "n1" in store.nodes
+
+
+def test_persisted_store_supports_constraint_checks(monkeypatch):
+    """015 FR-8 residual: TenantKgStore exposes the KgStore interface
+    (nodes / edges_of) so consistency.check_all can run against the
+    MongoDB-backed store; DB failure degrades to an empty store."""
+    import asyncio
+    from app.knowledge_graph.persisted_store import TenantKgStore
+    from app.knowledge_graph.schema import KgEdge, KgNode
+
+    store = TenantKgStore(tenant_id="t-1")
+    # No DB bound: ensure_loaded must not raise (degradation, not fabrication).
+    monkeypatch.setattr("app.core.db.get_db", lambda: None)
+    asyncio.run(store._ensure_loaded())
+    store.add_node(KgNode(node_id="a", name="A", attributes={"status": "active"}))
+    store.add_node(KgNode(node_id="b", name="B"))
+    store.add_edge(KgEdge(source="a", target="b", relation="reference"))
+    assert store.edges_of("a") == [KgEdge(source="a", target="b", relation="reference")]
+    assert store.edges_of("a", relation="association") == []
+
+    # The FR-8 checks now run against the persisted store (no-op bundle).
+    from app.knowledge_graph.consistency import ConstraintBundle, check_all
+
+    # Silence the 001 audit bridge (no app context in unit tests).
+    monkeypatch.setattr("app.knowledge_graph.consistency._audit_kg_audited", lambda conflicts: None)
+    assert check_all(store, ConstraintBundle()) == []

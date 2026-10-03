@@ -330,7 +330,11 @@
 >    lazy-load）+ `GET /api/kg/nodes/{id}`（FR-2 单节点查询）和
 >    `GET /api/kg/nodes/{id}/neighbours`（FR-10 邻居遍历）。
 >
-> **仍待修（降为 P1 残项）**：FR-1 自动抽取入口（无 `extract.py`）；FR-8 约束检查；
+> **已修**：FR-8 约束检查（续四十六）——新增 `POST /api/kg/check-constraints`，
+>    运行 `consistency.check_all`（互斥/基数/传递）+ `mark_conflicts`（FR-14），
+>    冲突标记落库 `kg_nodes`，审计入 001 流（kg.audited）；
+>    `TenantKgStore` 补 `nodes`/'edges_of' 接口对齐 `KgStore'。
+> **仍待修（降为 P1 残项）**：FR-1 自动抽取入口（无 `extract.py`）；
 >    FR-13 `source_ref` 读写；RAG 接入。
 
 ### 016 skill-market-hardening（6）—— **canary 端点已接线（2026-10-03，见 WORK_LOG 续二十六）**
