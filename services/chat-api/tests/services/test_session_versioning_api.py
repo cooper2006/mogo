@@ -75,10 +75,22 @@ class _FakeColl:
                     return False
             return True
 
-        for doc in self._docs:
-            if _match(doc, query):
-                return doc
-        return None
+        matched = [doc for doc in self._docs if _match(doc, query)]
+        if not matched:
+            return None
+        # Honour `sort=[("seq", -1), ...]`: the real driver returns the
+        # highest-seq document first, and _next_seq depends on that ordering.
+        sort = kwargs.get("sort")
+        if sort:
+            for key, direction in reversed(list(sort)):
+
+                def _sort_key(doc, key=key):
+                    value = doc.get(key)
+                    # Missing fields sort as "smallest" in MongoDB.
+                    return (value is not None, value)
+
+                matched.sort(key=_sort_key, reverse=bool(direction == -1))
+        return matched[0]
 
     async def update_one(self, query: dict, update: dict, *args, **kwargs) -> Any:
         upsert = kwargs.get("upsert", False)
@@ -139,6 +151,33 @@ def fake_db():
 
 
 @pytest.fixture()
+def seed_seq(fake_db):
+    """Backfill chat history so the server-side seq check accepts a given seq.
+
+    The commit endpoint validates the client-reported ``seq`` against the real
+    next sequence (002 server-side seq validation), so a test that posts
+    ``seq: N`` must first have ``N - 1`` messages stored for that session.
+    """
+
+    def _seed(session_id: str, next_seq: int, main_id: str = "default") -> None:
+        db_obj, _collections = fake_db
+        messages = db_obj["chat_messages"]
+        for index in range(1, next_seq):
+            messages._docs.append(
+                {
+                    "session_id": session_id,
+                    "user_id": "u-1",
+                    "main_id": main_id,
+                    "seq": index,
+                    "role": "user",
+                    "content": f"history {index}",
+                }
+            )
+
+    return _seed
+
+
+@pytest.fixture()
 def client(fake_db, monkeypatch):
     from app.api.endpoints import dsh_session_versioning as endpoint
     from app.core import db as db_module
@@ -168,8 +207,10 @@ def client(fake_db, monkeypatch):
     return TestClient(app)
 
 
-def test_session_commit_and_versions(client, fake_db) -> None:
+def test_session_commit_and_versions(client, fake_db, seed_seq) -> None:
     db_obj, collections = fake_db
+    # seq 3 implies two pre-existing messages for this session.
+    seed_seq("s-1", 3)
 
     response = client.post(
         "/api/sessions/s-1/commit",
@@ -325,12 +366,13 @@ def test_session_co_presence_unknown_member_falls_back_to_id(client, fake_db, mo
 HIGH_ENTROPY = "aB3xK9pQzLmV7nR2wT5sU8"  # 24 chars, high entropy, no prefix
 
 
-def test_commit_redacts_secrets_and_stores_originals(client, fake_db) -> None:
+def test_commit_redacts_secrets_and_stores_originals(client, fake_db, seed_seq) -> None:
     """FR-7: suspected secrets never land in the snapshot in plaintext."""
     from app.services.session_versioning.snapshot import SECRET_REF_COLLECTION
     from app.services.session_versioning.placeholder import PLACEHOLDER_OPEN
 
     db_obj, collections = fake_db
+    seed_seq("s-sec", 7)
     response = client.post(
         "/api/sessions/s-sec/commit",
         json={
@@ -410,7 +452,7 @@ def test_share_redemption_by_token_works(client, fake_db) -> None:
     assert response.json().get("share_id"), created.text
 
 
-def test_commit_falls_back_to_chat_messages_for_redaction(client, fake_db, monkeypatch) -> None:
+def test_commit_falls_back_to_chat_messages_for_redaction(client, fake_db, seed_seq, monkeypatch) -> None:
     """002 residual fix: when the client omits content, the server reads
     chat_messages as the redaction source so secrets in the real history
     are redacted before entering the snapshot (FR-7 server-side fallback)."""
@@ -419,10 +461,15 @@ def test_commit_falls_back_to_chat_messages_for_redaction(client, fake_db, monke
     from app.services.session_versioning.placeholder import PLACEHOLDER_OPEN
 
     db_obj, collections = fake_db
+    # Backfill turns 1-5 so the server-side seq check accepts seq 7 (the
+    # secret-bearing message below is turn 6).
+    seed_seq("s-fb", 6, main_id="m-1")
     # A real server-side message carrying a suspected secret.
     db_obj["chat_messages"]._docs.append({
         "session_id": "s-fb",
         "main_id": "m-1",
+        "user_id": "u-1",
+        "seq": 6,
         "role": "user",
         "content": "deploy with secret sk-abcdefgh12345678",
     })
@@ -450,8 +497,9 @@ def test_commit_falls_back_to_chat_messages_for_redaction(client, fake_db, monke
     assert any("sk-abcdefgh12345678" in str(row.get("original") or "") for row in refs)
 
 
-def test_resume_returns_target_snapshot_metadata(client, fake_db) -> None:
+def test_resume_returns_target_snapshot_metadata(client, fake_db, seed_seq) -> None:
     """002 audit fix: resume returns the target snapshot's metadata, not just a seq number."""
+    seed_seq("s-1", 3)
     client.post(
         "/api/sessions/s-1/commit",
         json={"seq": 3, "trigger": "manual", "summary": "before resume"},
@@ -468,8 +516,9 @@ def test_resume_returns_target_snapshot_metadata(client, fake_db) -> None:
     assert resumed["trigger"] == "manual"
 
 
-def test_resume_with_specific_snapshot_returns_it(client, fake_db) -> None:
+def test_resume_with_specific_snapshot_returns_it(client, fake_db, seed_seq) -> None:
     """Resume returns the target snapshot's metadata (resumedFrom)."""
+    seed_seq("s-1", 2)
     client.post(
         "/api/sessions/s-1/commit",
         json={"seq": 2, "trigger": "manual", "summary": "snap-2"},

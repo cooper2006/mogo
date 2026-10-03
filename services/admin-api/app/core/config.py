@@ -113,9 +113,23 @@ if not settings.jwt_secret or len(settings.jwt_secret) < 32:
         logger.warning("JWT secret is missing or too short; generating a secure one")
         settings.jwt_secret = _secrets_mod.token_urlsafe(64)
         logger.warning("Use a persistent JWT_SECRET in production to avoid invalidating sessions on restart")
-    else:
+    elif settings.app_env in ("local", "development"):
+        # Single-developer convenience only. A predictable secret is acceptable on
+        # a developer's own machine but MUST NOT be used in shared/staging or
+        # production, where it would allow forging admin tokens.
         if not settings.jwt_secret:
             settings.jwt_secret = "dev-secret-change-me-in-production"
-            logger.warning("Using dev JWT secret — set ASKAI_ADMIN_JWT_SECRET for production")
+        logger.warning(
+            "Using DEV JWT secret (app_env=%s). DO NOT use this in shared/staging/production.",
+            settings.app_env,
+        )
+    else:
+        # staging / test / production (non-dev) without a configured secret is a
+        # misconfiguration: refuse to start so we never sign tokens with a known key.
+        raise RuntimeError(
+            "JWT_SECRET is missing or shorter than 32 chars and app_env is "
+            f"'{settings.app_env}'. Set ASKAI_ADMIN_JWT_SECRET before starting. "
+            "Refusing to start with a predictable dev secret in this environment."
+        )
 if settings.access_token_ttl_seconds > 7 * 24 * 3600:
     logger.warning("Access token TTL exceeds 7 days; consider shortening for security")

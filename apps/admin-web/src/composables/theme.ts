@@ -38,6 +38,7 @@ function syncHtmlClass(mode: 'light' | 'dark') {
   }
 }
 
+// eslint-disable-next-line no-useless-assignment
 let mediaQuery: MediaQueryList | null = null;
 const handleSystemThemeChange = () => {
   if (_theme.value === 'system') {

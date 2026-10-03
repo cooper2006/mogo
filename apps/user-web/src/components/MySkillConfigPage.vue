@@ -1512,7 +1512,7 @@ function parseMultilineItems(value: unknown): string[] {
     text
       .split(/\r?\n/)
       .flatMap((line) => splitLegacyBulletLine(line))
-      .map((item) => item.replace(/^[\-\u2022\u00b7\s]+/, '').trim())
+      .map((item) => item.replace(/^[-\u2022\u00b7\s]+/, '').trim())
       .filter(Boolean)
       .forEach((item) => {
         const key = item.toLowerCase();

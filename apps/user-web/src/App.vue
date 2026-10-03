@@ -1638,8 +1638,6 @@ async function loadSessions(reset = true) {
     sessions.value = reset ? page.items : mergeSessionPages(sessions.value, page.items)
     sessionsHasMore.value = page.has_more
     if (canUseCode.value) void refreshWorkspaceTitles()
-  } catch (error) {
-    throw error
   } finally {
     if (reset) {
       sessionsLoading.value = false

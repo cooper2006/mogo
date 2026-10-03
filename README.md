@@ -385,3 +385,26 @@ python3 scripts/check_open_source_hygiene.py
 MOGO Open-Source Edition is source-available under the [MOVO Community License](LICENSE), based on Apache License 2.0 with additional conditions. Without written authorization, the license does not permit operating a hosted multi-tenant SaaS offering, removing or modifying the logo and copyright notices in the included frontends, or selling MOGO or a derivative as an OEM, white-label, or rebranded enterprise Agent platform whose primary product is MOGO itself.
 
 These additional restrictions mean that the MOVO Community License is not the unmodified Apache License 2.0 and should not be represented as an OSI-approved open-source license. For commercial licensing, multi-tenant SaaS authorization, OEM or white-label distribution, or alternative branding rights, contact `support@himovo.com`.
+
+## Dependency Mirror Sources
+
+The Docker build images use Chinese mirrors for faster dependency installation in mainland China:
+
+| Service | Mirror | Configuration |
+|---------|--------|---------------|
+| admin-web | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in Dockerfile |
+| chat-api | tuna.tsinghua.edu.cn | `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in Dockerfile |
+| document-parser | tuna.tsinghua.edu.cn | `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in Dockerfile |
+| user-web | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in Dockerfile |
+
+To use official sources instead, override the build args:
+
+```bash
+# npm
+docker build --build-arg MOVO_NPM_REGISTRY=https://registry.npmjs.org -t image-name .
+
+# pip
+docker build --build-arg MOVO_PIP_INDEX_URL=https://pypi.org/simple -t image-name .
+```
+
+No authentication credentials are required for these mirrors; they are public read-only proxies.

@@ -1619,7 +1619,6 @@ function onObjectMoving(e: any) {
     const myGap = a.left - curRight
     if (existingGap > 2 && Math.abs(myGap - existingGap) < SNAP_THRESHOLD) {
       target.set('left', a.left - existingGap - tw)
-      spacingSnappedX = true
       const markY = Math.max(a.top, b.top, curTop) + Math.min(a.bottom - a.top, b.bottom - b.top, th) / 2
       addGuideLine(a.right, markY, b.left, markY)
       addGuideLine(a.right, markY - 6, a.right, markY + 6)
@@ -1680,7 +1679,6 @@ function onObjectMoving(e: any) {
     const myGap = a.top - curBottom
     if (existingGap > 2 && Math.abs(myGap - existingGap) < SNAP_THRESHOLD) {
       target.set('top', a.top - existingGap - th)
-      spacingSnappedY = true
       const markX = Math.max(a.left, b.left, curLeft) + Math.min(a.right - a.left, b.right - b.left, tw) / 2
       addGuideLine(markX, a.bottom, markX, b.top)
       addGuideLine(markX - 6, a.bottom, markX + 6, a.bottom)
@@ -1848,8 +1846,8 @@ function onGlobalMouseUp(_ev: MouseEvent) {
     }
   } catch {
     // Ignore — this is a best-effort rescue.
-    try { (fc as any)._currentTransform = null } catch {}
-    try { fc?.requestRenderAll?.() } catch {}
+    try { (fc as any)._currentTransform = null } catch { /* noop */ }
+    try { fc?.requestRenderAll?.() } catch { /* noop */ }
   }
 }
 

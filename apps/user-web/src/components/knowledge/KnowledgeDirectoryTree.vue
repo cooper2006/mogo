@@ -52,7 +52,7 @@ const flatNodes = computed(() => { const out: Array<KnowledgeDirectory & { depth
 const menuIcon = (icon: any) => () => h(NIcon, null, { default: () => h(icon) })
 const actions = computed(() => [{ label: t('knowledge.create_subdirectory'), key: 'child', icon: menuIcon(AddOutline) }, { label: t('knowledge.rename_directory'), key: 'rename', icon: menuIcon(CreateOutline) }, { label: t('knowledge.move_directory'), key: 'move', icon: menuIcon(MoveOutline) }, { label: t('knowledge.delete'), key: 'remove', icon: menuIcon(TrashOutline) }])
 function createAt(parentId: string) { emit('create', parentId) }
-function toggle(id:string){const next=new Set(expanded.value);next.has(id)?next.delete(id):next.add(id);expanded.value=next}
+function toggle(id:string){const next=new Set(expanded.value);next.has(id)?next.delete(id):next.add(id);expanded.value=next} // eslint-disable-line @typescript-eslint/no-unused-expressions
 function act(key: string, item: KnowledgeDirectory) {
   if (key === 'child') emit('create', item.id)
   else if (key === 'rename') emit('rename', item)

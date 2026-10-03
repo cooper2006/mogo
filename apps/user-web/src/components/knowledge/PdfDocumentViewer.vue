@@ -117,7 +117,7 @@ async function loadNextBatch() {
 async function renderPage(pageNumber: number) {
   const canvas = canvasRefs.get(pageNumber)
   if (!pdfDocument || !canvas || !viewportRef.value) return
-  try { renderTasks.get(pageNumber)?.cancel?.() } catch {}
+  try { renderTasks.get(pageNumber)?.cancel?.() } catch { /* noop */ }
   const page = await pdfDocument.getPage(pageNumber)
   const baseViewport = page.getViewport({ scale: 1 })
   const availableWidth = Math.max(240, viewportRef.value.clientWidth - 32)
@@ -188,15 +188,15 @@ function readableError(error: any) {
 
 async function destroyDocument() {
   for (const task of renderTasks.values()) {
-    try { task?.cancel?.() } catch {}
+    try { task?.cancel?.() } catch { /* noop */ }
   }
   renderTasks.clear()
   const task = loadingTask
   const document = pdfDocument
   loadingTask = null
   pdfDocument = null
-  try { await task?.destroy?.() } catch {}
-  try { await document?.destroy?.() } catch {}
+  try { await task?.destroy?.() } catch { /* noop */ }
+  try { await document?.destroy?.() } catch { /* noop */ }
 }
 
 watch(() => [props.url, props.httpHeaders?.Authorization], () => { void loadDocument() })

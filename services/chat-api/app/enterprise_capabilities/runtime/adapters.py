@@ -15,6 +15,8 @@ from app.enterprise_capabilities.artifacts.resource_result import (
 )
 from app.enterprise_capabilities.browser import browser_task
 from app.knowledge.retrieval.retrieval_client import KnowledgeRetrievalError
+from app.knowledge.research_focus_builder import ResearchFocusBuilder
+from app.services.feature_audit_bridge import emit_feature_event
 from app.enterprise_capabilities.knowledge_result import unavailable_result
 from app.services.runtime_parse_service import runtime_parse_service
 from app.services.rag_service.internal_knowledge_qa_service import internal_knowledge_qa_service
@@ -292,7 +294,7 @@ async def progressive_research(arguments: dict[str, Any], context: CapabilityExe
             research_focus_builder=ResearchFocusBuilder(),
             selected_mode=str(arguments.get("research_mode") or "report"),
             evidence_mode=str(arguments.get("evidence_mode") or "standard"),
-            audit_sink=_emit_research_audit,
+            audit_sink=emit_feature_event,
             tenant_id=context.tenant_id,
             actor=context.user_id,
         )

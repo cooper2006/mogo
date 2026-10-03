@@ -71,6 +71,7 @@ function senderInitial(item: ReceivedSkillShare) { return (item.sender.displayNa
 async function load(append = false) {
   const version = ++loadVersion
   const scopeKey = props.scopeKey
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   append ? loadingMore.value = true : loading.value = true
   try {
     const page = await fetchReceivedSkillShares(append ? cursor.value : '', 20)
@@ -94,6 +95,7 @@ async function load(append = false) {
 
 function setBusy(id: string, busy: boolean) {
   const next = new Set(busyIds.value)
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   busy ? next.add(id) : next.delete(id)
   busyIds.value = next
 }

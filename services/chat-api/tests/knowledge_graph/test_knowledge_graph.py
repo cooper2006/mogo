@@ -393,7 +393,7 @@ def test_resolve_source_ref_no_ref(monkeypatch):
     async def _fake_resolve(authorization=None):
         return {"main_id": "main-t", "user": {"_id": "u1"}, "user_id": "u1"}
 
-    monkeypatch.setattr("app.services.end_user_session.resolve_session_user", _fake_resolve)
+    monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _fake_resolve)
 
     # Patch TenantKgStore to return a node without source_ref.
     from app.knowledge_graph.persisted_store import TenantKgStore
@@ -427,7 +427,7 @@ def test_resolve_source_ref_with_ref_no_target(monkeypatch):
     async def _fake_resolve(authorization=None):
         return {"main_id": "main-t", "user": {"_id": "u1"}, "user_id": "u1"}
 
-    monkeypatch.setattr("app.services.end_user_session.resolve_session_user", _fake_resolve)
+    monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _fake_resolve)
 
     def _fake_get_node(self, node_id):
         return KgNode(node_id=node_id, entity_type="person", name="HasRef",

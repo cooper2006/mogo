@@ -100,6 +100,7 @@ async def skill_usage_monitor(
             bucket["success"] += int(row.get("successful_calls") or 0)
         for day in sorted(by_day):
             b = by_day[day]
+            b["errors"] = b["calls"] - b["success"]
             b["error_rate"] = round(1.0 - (b["success"] / b["calls"]), 4) if b["calls"] else 0.0
             b["success_rate"] = round(b["success"] / b["calls"], 4) if b["calls"] else 0.0
             series.append({"time": day, **b})

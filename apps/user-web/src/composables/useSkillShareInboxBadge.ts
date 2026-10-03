@@ -36,8 +36,7 @@ export function useSkillShareInboxBadge(options: SkillShareInboxBadgeOptions) {
     }
     if (inFlight) return inFlight
     const version = requestVersion
-    let request: Promise<void>
-    request = fetchReceivedSkillShareCounts()
+    const request: Promise<void> = fetchReceivedSkillShareCounts()
       .then((counts) => {
         if (version === requestVersion && isAvailable()) {
           pendingCount.value = counts.pendingCount

@@ -111,6 +111,10 @@ def test_scheduled_turn_reuses_dsh_chat_profile_skill_and_projection(monkeypatch
         chat = _ScheduledChat(conversation_id)
 
         async def admit(**kwargs):
+            # 009 T009: the scheduled path now forwards a real `request` payload so
+            # PreToolUse require_field rules evaluate against actual context
+            # (empty payload would be rejected unconditionally).
+            request = kwargs.pop("request")
             assert kwargs == {
                 "tenant_id": "tenant-a",
                 "user_id": "user-a",
@@ -118,6 +122,13 @@ def test_scheduled_turn_reuses_dsh_chat_profile_skill_and_projection(monkeypatch
                 "tool": "dsh_turn",
                 "session_id": "",
             }
+            assert request["selected_skill_id"] == "workflow-a"
+            assert request["output_spec"]["selected_skill_id"] == "workflow-a"
+            assert request["harness_mode"] == "thick"
+            # Admission runs before the conversation id is resolved, so the
+            # request/session ids are legitimately empty at this point.
+            assert request["conversation_id"] == ""
+            assert request["job_id"]
             return TurnSkillSelection(selected_skill_id="workflow-a")
 
         monkeypatch.setattr(module, "get_db", lambda: database)

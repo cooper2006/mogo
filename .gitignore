@@ -366,3 +366,10 @@ services/chat-api/playwright-browsers-bundle.tar.gz
 # 编辑过程的中间备份（ppt/doc/xls 等），不属于产物
 *.bak-*
 *.bak-before-*
+
+# QualityForge 本地 QA 审计产物（测试项数据、报告、注入脚本）
+# 这些是本机审计运行生成的中间产物（audit.json 约 1.1MB），不入库。
+.qualityforge/
+
+# 误操作产生的 shell 重定向垃圾文件（pip install 未加引号的 ">" 被 shell 解析）
+services/document-parser/=*

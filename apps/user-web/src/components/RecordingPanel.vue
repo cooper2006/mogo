@@ -80,7 +80,7 @@ async function onStart() {
 async function onStop() {
   if (!props.userId) return
   recording.value = false
-  try { await stopRecording(props.userId, 'default', recordingId.value) } catch {}
+  try { await stopRecording(props.userId, 'default', recordingId.value) } catch { /* noop */ }
   stream.value?.close()
   stream.value = null
 }

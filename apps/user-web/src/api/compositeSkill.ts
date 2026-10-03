@@ -41,7 +41,7 @@ export type CompositeSkillDraft = {
 // and a list of shallow objects). Any string that isn't "safe" gets
 // block-scalar encoded.
 function isSafeInline(s: string): boolean {
-  return !!s && !/[\n:#"'`{}\[\],&*!|>%@`]/.test(s) && s.trim() === s
+  return !!s && !/[\n:#"'`{}[],&*!|>%@`]/.test(s) && s.trim() === s
 }
 
 function dumpScalar(value: string): string {

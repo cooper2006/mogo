@@ -85,12 +85,21 @@ class DeterministicBridge(BaseHTTPRequestHandler):
 
     @staticmethod
     def _current_turn_has_result(payload: dict[str, Any]) -> bool:
-        return any(
-            block.get("type") == "tool-result"
-            for message in list(payload.get("messages") or [])
-            for block in list(message.get("content") or [])
-            if isinstance(block, dict)
-        )
+        """Whether the messages already carry an executed tool result.
+
+        DSH 0.2.x replays tool results as dedicated ``role: "tool"`` messages
+        (with ``toolCallId``), not as ``tool-result`` content blocks. Both shapes
+        are accepted so the deterministic model converges across DSH versions.
+        """
+        for message in list(payload.get("messages") or []):
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") == "tool" or message.get("toolCallId"):
+                return True
+            for block in list(message.get("content") or []):
+                if isinstance(block, dict) and block.get("type") == "tool-result":
+                    return True
+        return False
 
     @staticmethod
     def _answer_events(scenario_id: str) -> list[dict[str, Any]]:
@@ -103,10 +112,14 @@ class DeterministicBridge(BaseHTTPRequestHandler):
     def _tool_result(payload: dict[str, Any]) -> dict[str, Any]:
         name = str(payload["toolName"])
         arguments = payload.get("arguments") or {}
+        # Tool output schemas are strict (additionalProperties: false), so only
+        # fields declared by each tool's output_schema may be returned. The
+        # generic "receipt" field used to violate that and made DSH reject every
+        # tool result, which sent the deterministic model into an endless
+        # tool-call loop.
         result: dict[str, Any] = {
             "success": True,
             "echo": str(arguments.get("value") or name),
-            "receipt": f"TOOL_OK:{name}",
         }
         if name == "content_production":
             result.update({"accepted": True, "markdown": "# SCENARIO_OK:content_generation"})

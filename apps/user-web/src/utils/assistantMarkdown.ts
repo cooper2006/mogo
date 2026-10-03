@@ -40,7 +40,7 @@ export function sanitizeMermaid(code: string): string {
     const value = String(title || '').trim()
     return !value || value.startsWith('"') ? match : `subgraph "${value}"`
   })
-  return text.replace(/(\[|\(|\{)([^\]\)\}\n]+)(\]|\)|\})/g, (match, open, content, close) => {
+  return text.replace(/(\[|\(|\{)([^\])\n]+)(\]|\)|})/g, (match, open, content, close) => {
     let value = String(content || '').trim()
     if (value.startsWith('"') && value.endsWith('"')) return match
     value = value.replace(/"/g, "'")

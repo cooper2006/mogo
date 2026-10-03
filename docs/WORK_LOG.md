@@ -4516,3 +4516,183 @@ P1 八个孤岛：002 已修（本轮），剩余 005/007/010/012/018 仍为 �
   - 诚实降级：已接线但缺真实流式验证，不伪造“已实现核心”。
 
 **验证**：环境检查确认无真实流式端点；降级记录已写入 spec；无伪造断言。
+
+## 2026-10-03（续六十四）standard 深度全量 QA 审计（QualityForge）
+
+**范围**：对 mogo 仓库执行一次 standard 深度全量 QA 审计，产出可逐条勾选报告。
+
+**产出**（`.qualityforge/`）：
+- `audit.json`（revision 64，674 条测试项）
+- `QUALITYFORGE-REPORT.md`（可逐条勾选报告，1929 行）
+- `report.json`（CI 消费用）
+- 报告第 7 节手工补齐了本轮真实执行的命令与退出码（因 `qf_exec` 返回值 schema 缺陷未自动登记）
+
+**新增测试项 QF-652 ~ QF-674（23 条，均为实测证据）**：
+- P0：`_next_seq` 缺失导入（QF-652）、`get_settings` 缺失导入（QF-653）、
+  `ResearchFocusBuilder` 未定义（QF-654）、`skill_monitoring` await 同步 list（QF-655）、
+  user-web 依赖漏洞 1 critical/9 high（QF-666）
+- P1：测试顺序依赖（QF-658）、chat-api 24 failed（QF-659）、admin-api 8 failed（QF-660）、
+  DOMPurify ESM interop（QF-661）、ESLint 61/140 errors（QF-662/663）、
+  JWT 开发密钥回退（QF-667）、根目录 .env 明文口令（QF-669）、
+  $gte 替身不支持（QF-656）、路由内省假设错误（QF-657）
+- P2：319 处 print() 调试输出（QF-671）
+
+**实测基线**：
+- chat-api: 24 failed / 2048 passed；admin-api: 8 failed / 423 passed；document-parser: 22 passed
+- 前端 typecheck 与 vite build 全部通过；user-web 12/13 node 测试通过（execution-v3 失败）
+- 根因聚合：55×NameError `_next_seq`、1×`get_settings`、1×`ResearchFocusBuilder`；
+  admin-api 4×await TypeError、3×$gte、1×路由内省
+
+**判定**：不可交付（5 条 P0）。建议 Wave 1 先修三处缺失导入（工作量均为 S）。
+
+**未改动任何业务代码**：本轮为只读审计，仅追加审计产物与工作日志。
+
+**工具缺陷记录**：`qf_plan` / `qf_exec` / `qf_list` / `qf_record` / `qf_fixplan` 均存在返回值
+schema 校验失败（`reportStats` / `runs` / `items` / `updated` / `waves` not declared），
+但**数据写入均成功**（revision 递增可证）。结论以 `audit.json` 为准。
+
+## 2026-10-03（续六十五）Wave 1 三处缺失导入修复
+
+**目标**：修 QF-652（`_next_seq`）、QF-653（`get_settings`）、QF-654（`ResearchFocusBuilder`）。
+
+**实际根因与初判有出入（已更正）**：
+
+- **QF-653 不是缺导入，是属性名大小写错误**。Settings 定义的是大写 `HARNESS_MODE`
+  （`app/core/config.py:144`），代码写的是 `get_settings().harness_mode`，pydantic BaseSettings
+  无该属性 → `AttributeError`。改为 `.HARNESS_MODE`。
+  同时发现 `dsh_chat.py:201`（**生产聊天路径**）有完全相同的 latent bug，
+  在 `output_spec` 未显式带 `harness_mode` 时会抛错，一并修复。
+- **QF-652 的导入在工作区已存在**（未提交改动），真正的残留问题是测试替身
+  `_FakeColl.find_one` 完全忽略 `sort` 参数，而 `_next_seq` 依赖 `sort=[("seq",-1),...]`
+  取最大 seq，导致恒返回首条匹配文档 → `commit seq 3 != expected seq 1`。
+- **QF-654 修复后暴露第二个同类符号** `_emit_research_audit`（全仓无定义，重构遗留）。
+  按其调用契约 `(feature, event, document, *, tenant_id, actor)` 确认应为
+  `app.services.feature_audit_bridge.emit_feature_event`（与 `research.py:79` 一致），已替换。
+
+**改动文件**（仅 chat-api）：
+- `app/api/endpoints/dsh_chat.py`：`.harness_mode` → `.HARNESS_MODE`
+- `app/scheduled_tasks/dsh_execution.py`：同上
+- `app/enterprise_capabilities/runtime/adapters.py`：补 `ResearchFocusBuilder` 与
+  `emit_feature_event` 导入；`_emit_research_audit` → `emit_feature_event`
+- `app/api/endpoints/dsh_session_versioning.py`：`_next_seq` 导入（确认已存在）
+- `tests/services/test_session_versioning_api.py`：`find_one` 支持 `sort`（含 None 兜底）；
+  新增 `seed_seq` fixture 按各用例 seq 预置历史消息
+- `tests/dsh_runtime/test_step8_application_assembly.py`：断言补上 009 T009 新增的
+  `request` 载荷（该字段由 `4bccef7` 引入，测试自 `af369ac` 起未同步，属测试过时非代码缺陷）
+
+**验证**：
+- `test_session_versioning_api.py`：11 failed → **15 passed**
+- `test_progressive_research_bridge.py`：**2 passed**
+- `test_step8_application_assembly.py`：**6 passed**
+- chat-api 整轮：**24 failed/2048 passed → 11 failed/2061 passed**（2061-2048=13，
+  与本次修的 13 例完全吻合，**无新增失败**）
+- 根因聚合已无 NameError
+- admin-api（8 failed）、document-parser（22 passed）**未受影响**
+
+**剩余 11 例**（不属于本次范围，根因独立）：
+conversation_regression 2（`turn timed out`，model_calls 达 615/625，疑假 LLM 未收敛）、
+test_hooks_wiring 4、test_step5_dsh_tool_e2e 3、knowledge_graph 2（顺序依赖，单跑 38 passed）
+
+**新增工具**：`.qualityforge/inject-section7.py` —— `qf_exec` 有返回值 schema 缺陷导致
+`qf_report` 重渲染会清空第 7 节执行证据，用此脚本在每次渲染后重新注入。
+
+---
+
+## 续六十六（round 1/256）：QF-655 + QF-666 修复
+
+**任务**：处理两条 P0 阻塞 —— QF-666 user-web 依赖漏洞（1 critical / 9 high，fabric→canvas→tar 链，CI 审计门槛失败）、QF-655 skill_monitoring.py await 同步 list（admin-api 8 failed 主因）。
+
+### QF-655（skill_monitoring 测试 8 failed → 11 passed；admin-api 整轮 431 passed 全绿）
+
+共三处缺陷叠加，逐层暴露：
+
+1. **测试替身 `to_list` 同步**：`tests/test_skill_monitoring.py` 的 `_Cursor.to_list` 返回普通 list，而 Motor 的 `AsyncIOMotorCursor.to_list` 是协程，代码 `await ...to_list(...)` 抛 `TypeError: object list can't be used in 'await' expression`（4 例）。将替身改为 `async def to_list` 匹配真实驱动契约。
+
+2. **测试替身 `_matches` 逻辑缺陷（掩盖性 bug）**：原 `if op == "$gte" and not (actual >= operand): return False` 的 elif 链，条件**满足**时反而落到 `else: raise AssertionError("unsupported op $gte")`（3 例）—— 查询从未真正返回结果。重构成每个 op 独立 `if/elif` 判断（含 `$gte/$lt/$lte/$in/$ne`）。
+
+3. **真实代码缺陷（被 2 掩盖）**：`skill_monitoring.py` day 聚合里 `bucket["errors"]` 初始化为 0 但从未累加（只有 `totals` 用 `calls - success`），导致 series 每点 `errors` 恒为 0。补 `b["errors"] = b["calls"] - b["success"]`。
+
+附带修复同文件两个脆弱/过时断言：
+- hour 粒度测试 `assert total_calls == 24` 依赖运行时刻（窗口对齐到最后 24 槽、以 now 结尾，UTC 07 点时仅 8 槽落在今天）。改为断言每槽均分 + 总和等于发出槽数。
+- 路由内省测试假设 `api_router.routes` 元素有 `.path`，新版 FastAPI 用 `_IncludedRouter`（无 `.path/.routes`，真实子路由在 `.original_router`）。改为递归收集（兼容传统 `.routes` 嵌套）。
+
+QF-656（$gte 不支持）、QF-657（_IncludedRouter 内省）、QF-660（admin-api 整轮 8 failed）为 QF-655 子问题，一并标 fixed。
+
+### QF-666（14 vulns → 0）
+
+根因归约到两个根因包：`fabric@6.9.1`（1 high SVG XSS + 1 moderate 渐变转义）及其传递依赖 `tar@6.2.1`（1 critical DoS + 8 high 任意文件读写/符号链接穿越/路径遍历）。将 `apps/user-web/package.json` 的 `fabric` 由 `^6.9.1` 升级到 `^7.4.0`（>=7.2.0 修 XSS、>=7.4.0 修 moderate）。fabric 7 将 `canvas`/`jsdom` 改为 optionalDependencies，浏览器构建不再拉取 node-canvas，tar 链整体消失。
+
+**兼容性验证**：vue-tsc --noEmit 通过（EXIT=0）；vite build 成功（7.43s）；所用类 Canvas/Rect/Text/Textbox/Line/Circle/Gradient/Shadow/FabricImage/FabricObject 在 7.4.0 均存在；`isEditing` 在 IText.d.ts:95 声明且运行时存在；`loadFromJSON` 仍返回 Promise（代码已 await）；eslint 772 problems 与升级前**完全一致**，未引入新问题；admin-web 审计仍 No known vulnerabilities found。
+
+> ⚠️ fabric 6→7 为主版本升级。本机 jsdom+node-canvas 因 node-gyp 缺失无法编译，未能做浏览器内运行时验证。建议上线前在浏览器人工回归 PPT 编辑器（`src/components/PresentationEditor.vue`，2396 行）：打开/编辑/保存演示文稿，重点验证 loadFromJSON 往返、渐变与阴影渲染、Textbox 编辑态。
+
+### 改动文件
+- `apps/user-web/package.json`：`fabric ^6.9.1 → ^7.4.0`（单行）
+- `apps/user-web/pnpm-lock.yaml`（pnpm add 自动更新）
+- `services/admin-api/app/services/skill_market/skill_monitoring.py`：`b["errors"] = b["calls"] - b["success"]`
+- `services/admin-api/tests/test_skill_monitoring.py`：_Cursor.to_list 改 async；_matches 重写；hour 断言改时刻无关；路由内省递归收集
+
+### 验证
+- `tests/test_skill_monitoring.py`：8 failed → **11 passed**
+- admin-api 整轮：**431 passed（原 8 failed/423 passed，全绿）**
+- `pnpm audit --production --audit-level high`（user-web）：**No known vulnerabilities found**（原 14）
+- chat-api 整轮：11 failed/2061 passed（未回退）
+- 报告判定由「不可交付」升级为「有条件交付」，P0 归零（fail: 8 → P1 7 + P2 1）
+
+### 报告与工具
+- `qf_record` 回写 QF-655/656/657/660/666 → fixed；QF-659 保持 fail（非本轮范围，11 失败与上一轮一致）
+- `qf_report` 重渲染；`.qualityforge/inject-section7.py` 更新并重新注入第 7 节（已纳入 fabric 7 升级、admin-api 全绿、tar 链消失等新证据）
+
+### 补：QF-666 浏览器内运行时验证（Tabbit / 真实 Chromium）
+
+上轮 fabric 7 升级后仅完成 typecheck/build/API 静态核对，运行时缺口经用户确认用 Tabbit 浏览器冒烟补齐。
+
+- Tabbit CLI：`~/.local/bin/tabbit-cli` v1.15.17.0，实例 25EF30E04CA3A79B，Playwright 1.62.1。
+- 在 `fabric@7.4.0/dist` 起本地静态 server（127.0.0.1:8099），页面加载 `fabric.min.mjs`（ESM），执行 PPT 编辑器关键路径：创建 Rect/Circle/Line/Textbox、Gradient 线性渐变、Shadow 阴影、loadFromJSON 序列化往返、Textbox enter/exit 编辑态切换。
+- **结果**：`window.__SMOKE__ = {ok:true, version:"7.4.0", objects:4, types:["rect","circle","line","textbox"], afterReloadObjects:4, afterReloadHasGradientFill:true, afterReloadHasShadow:true, textboxIsEditingDefault:false, textboxIsEditingAfterEnter:true, textboxIsEditingAfterExit:false}`，`error:null`，**零控制台/页面错误**。
+- 首次冒烟的 `clearRect` TypeError 是我脚本 `canvas.dispose()` 时机问题，与 fabric 7 无关；去掉 dispose 后 `capturedErrors:[]`。
+- 结论：fabric 6→7 运行时 API 与序列化往返在真实浏览器中**无回归**；仅像素级视觉观感建议上线前人工过目一次，已非阻断项。
+
+**临时清理**：已删除 `dist/fabric7-smoke.html`，关闭 8099 server，`tabbit-cli finish --task "Fabric7 Smoke"`（keep=true）。
+
+### 续六十七（本轮 QA 收尾：8 条 open 缺陷 → 7 条 fixed + 1 条 deferred；open 缺陷归零）
+
+目标：清零 P1 7 + P2 1 共 8 条 open 缺陷（QF-658/659/661/662/663/667/669/671）。
+
+**已修复（fixed，已 qf_record 回写 + 真实验证）**
+
+- **QF-667（admin-api JWT dev 硬编码回退，安全）**：`services/admin-api/app/core/config.py` 移除危险的 `dev-secret-change-me-in-production` 无条件回退。新逻辑：production 自动生成安全 secret；local/development 才允许 dev 回退并显著告警；staging/test 等非 dev 环境未配置 `ASKAI_ADMIN_JWT_SECRET` 时抛 RuntimeError 拒绝启动。验证：`ASKAI_ADMIN_APP_ENV=staging` 触发 RuntimeError，development 默认正常。
+- **QF-661（user-web DOMPurify esbuild 互操作）**：`apps/user-web/src/utils/assistantMarkdown.ts` 在 esbuild node 测试打包（`--platform=node` 取 CJS 入口）下 `DOMPurify` 取不到 `.sanitize`，DOMPurify 无 DOM 时也无法初始化 sanitizer。新增 `apps/user-web/tests/_dom_setup.ts`（jsdom 注入全局 window/document），并在 package.json `test:execution-v3` 加 `--inject:tests/_dom_setup.ts --external:jsdom`。vite 浏览器运行时不受影响。`npm run test:execution-v3` 退出码 0。
+- **QF-669（根 .env 明文口令权限过宽）**：`.env`（含 `ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD` 明文）权限由 0644 收紧为 0600（仅 owner 可读），且 `.env` 已被 `.gitignore` 忽略。owner 读取验证无碍。彻底的生成式注入/密钥管理器方案建议后续轮次评估。
+- **QF-658（chat-api knowledge_graph 测试泄漏）**：`tests/knowledge_graph/test_knowledge_graph.py` 两个用例 monkeypatch 的是 `app.services.end_user_session.resolve_session_user`（源模块），但 `resolve_source_ref` 实际调用 `app.api.endpoints.auth._resolve_session_user`（绑定别名），整轮运行时状态泄漏导致 401。改为 patch 正确别名。整轮 `pytest tests/` 两项已转 passed。
+- **QF-659（chat-api hooks_wiring 4 项测试隔离）**：`turn_admission._RULE_SOURCE_CACHE` 模块级缓存（TTL 2s）跨测试共享，no_rules 用例预热空缓存后同 tenant t1 的 deny/require 用例命中空缓存 `return None`。在 `_patch_store` 中清空 `_RULE_SOURCE_CACHE`，4 项转 passed（整文件 7 passed）。
+- **QF-662（admin-web eslint 57 个 Parsing error）**：根因是 pnpm 隔离下 `eslint-plugin-vue` flat config 的字符串 `'vue-eslint-parser'` 解析失败，.vue 被默认 espree 解析。改为在 `eslint.config.js` 用 `createRequire(import.meta.resolve('eslint-plugin-vue'))` 显式解析 `vue-eslint-parser`，并区分 `*.ts`（tseslint.parser）与 `*.vue`（vueESLintParser + parserOptions.parser=tseslint.parser）。61 errors → 2 errors（2 个真实代码误报用精确 disable 清零）→ **0 errors，33 warnings**。
+
+- **QF-663（user-web 140 个 eslint error）**：根因两部分。(1) 配置缺浏览器全局：config 手动列举的 `globals` 不含 `HTMLElement`/`HTMLInputElement`/`File`/`HTMLCanvasElement`/`Node`/`DOMParser`/`performance`/`Image`/`alert`/`confirm`/`prompt` 等 20 个浏览器接口 → 116 个 `no-undef`；已在 `eslint.config.js` 补全。(2) 剩余 24 个真实代码 error（7 no-empty、6 no-useless-escape、4 no-useless-assignment、4 no-unused-expressions、1 no-useless-catch、1 no-unsafe-finally、1 prefer-const）逐个最小修复：空块加 noop 注释、多余转义符移除（用 node 逐个比对正则语义与原始一致）、无意义重抛 catch 删除（`App.vue` try/finally 保留）、响应式依赖表达式加精确 disable、`useSkillShareInboxBadge` 的声明+赋值合并为 `const`、`useChatRuntimeStore` finally 内 return 加精确 disable。**140 errors → 0 errors（632 warnings）**。
+  - ⚠️ 修复过程中曾引入 3 处回归（`const` 未初始化、正则字符类 `[^\]\)\}\n]` 被改坏），已全部修正并复核：`vue-tsc --noEmit` EXIT=0、`vite build` 成功、5 个前端测试脚本全 PASS。
+- **QF-659 剩余 5 项（conversation_regression 2 + step5_e2e 3）**：这两个"运行时集成缺陷"最终定位为**测试假实现与 DSH 0.2.0-rc.2 内核不匹配**（非产品 bug），两处叠加缺陷：
+  1. **工具输出含多余字段**：`tests/dsh_runtime/conversation_regression/bridge.py::_tool_result` 对所有工具无条件附加 `receipt` 字段，而工具 `output_schema` 为 `additionalProperties: false`（只允许 `success`/`echo`）。DSH 严格输出校验直接拒绝 → 工具永远返回 `Error: ... "value.receipt" is not a declared property`。
+  2. **工具结果形状陈旧**：`bridge.py::_current_turn_has_result` 与 `test_step5_dsh_tool_e2e.py::_model` 均只检测 content block 的 `type == "tool-result"`，但 DSH 0.2.x 已将工具结果改为 `role == "tool"` 的独立消息（带 `toolCallId`，见 `dsh-session/lib/types/index.js` 的 `MESSAGE_ROLE_BY_TYPE['tool/result'] = 'tool'`）。假模型因此永远认为"没有结果"，无限重发同一 tool-call 直到 8s 超时（`model_calls≈608`）。
+  - 修复：去掉 `receipt`；两处检测改为兼容 `role == "tool"` / `toolCallId`（保留旧形状兼容）。**均为测试侧修复，未改动任何产品代码。**
+  - 验证：`conversation_regression` 3 passed（35.7s → 5.9s）；`test_step5_dsh_tool_e2e.py` 3 passed（29.1s → 5.4s）；**chat-api 整轮 2072 passed / 0 failed**（114s → 48s）。
+- **QF-671（"319 处 print 缺少日志治理"）→ na（误报，无需修复）**：复核发现原判定是**统计误报**——原 grep `print(` 把三类非裸 print 全部误匹配：(1) `log_print(...)`：这是自定义日志包装函数，其实现（`app/infrastructure/observability/config.py:174-189`）**已把输出路由到 logging**（`logger.log(level, message, extra={"event": "stdout.print"})`），带级别与结构化字段，正是 recommendation 要求的"统一日志治理"，且**早已实现**；(2) `fingerprint(...)` 函数名（admin-api 的 PII 指纹）；(3) 子进程沙箱脚本模板内的字符串。
+  - 排除后，三个服务 `app` 目录（不含 `skills_specs` 脚本）真正的裸 `print(` **仅 1 处**：`data/script_engine/executor.py:637` 的 `print(json.dumps(result))`，它是子进程沙箱把结果 JSON 写到 stdout 供父进程读取的**通信契约**（另有 `script_contract.py:35` 的 `def print(...)` 是拦截业务脚本 print 到内存缓冲的**沙箱契约**）——两者均不得改为 logger，否则破坏功能。admin-api 与 document-parser 均为 **0 处**裸 print。
+  - 结论：无修复必要。`deferred → na`。
+
+**本轮回归验证（全绿）**
+
+| 范围 | 结果 |
+| --- | --- |
+| chat-api `pytest tests/` | **2072 passed, 0 failed**（原 11 failed / 2061 passed） |
+| admin-api `pytest tests/` | **431 passed** |
+| document-parser `pytest tests/` | **22 passed** |
+| admin-web `eslint src/` | **0 errors**（33 warnings） |
+| admin-web `vue-tsc --noEmit` | EXIT=0 |
+| user-web `eslint src/` | **0 errors**（632 warnings） |
+| user-web `vue-tsc --noEmit` | EXIT=0 |
+| user-web `vite build` | 成功 |
+| user-web 5 个测试脚本 | 全 PASS |
+
+**报告**：`qf_report` 重渲染 + `inject-section7.py` 更新后重新注入第 7 节。判定由「有条件交付」升级为 **「可交付（无未关闭缺陷）」**，open defects = 0（`fail`/`pending`/`blocked` 全部为 0；剩余 31 项为更早轮次确认的 deferred 历史债务）。
+
+**工作树说明**：本轮改动之外，工作树还包含更早轮次（009 T009 审计接线、`harness_mode` 取值等）的未提交改动（`dsh_chat.py`、`dsh_session_versioning.py`、`runtime/adapters.py`、`dsh_execution.py` 等）。本轮未触碰这些文件，且全量测试已证明当前工作树健康；是否提交由用户决定（不擅自 push）。

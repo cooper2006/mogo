@@ -32,7 +32,7 @@ const sanitizedHtml = computed(() => props.kind === 'html' ? sanitizeHtmlDocumen
 function normalizeText(value: string): string {
   return String(value || '')
     .replace(/\s+/g, '')
-    .replace(/[|，。、“”‘’：；（）()《》<>【】\[\]{}.,:;'"`~!！?？—_\-·]/g, '')
+    .replace(/[|，。、“”‘’：；（）()《》<>【】[\]{}.,:;'"`~!！?？—_\-·]/g, '')
     .toLowerCase()
 }
 

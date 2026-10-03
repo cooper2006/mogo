@@ -9,6 +9,7 @@ from typing import Any
 
 from bson import ObjectId
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.tenant import add_main_scope
 from app.dsh_runtime.application import dsh_runtime_application
@@ -60,7 +61,7 @@ class ScheduledDshExecution:
                 "output_spec": output_spec,
                 "conversation_id": str(conversation_id or ""),
                 # 019: per-request harness mode (thick/thin).
-                "harness_mode": str(output_spec.get("harness_mode") or get_settings().harness_mode or "thick"),
+                "harness_mode": str(output_spec.get("harness_mode") or get_settings().HARNESS_MODE or "thick"),
             },
             session_id=str(conversation_id or ""),
         )

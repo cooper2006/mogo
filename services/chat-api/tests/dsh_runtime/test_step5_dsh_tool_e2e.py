@@ -74,9 +74,17 @@ class _BridgeHandler(BaseHTTPRequestHandler):
     def _model(self, payload: dict):
         session_id = str(payload.get("sessionId") or "")
         messages = list(payload.get("messages") or [])
+        # DSH 0.2.x replays tool results as `role: "tool"` messages (with
+        # `toolCallId`) rather than `tool-result` content blocks; accept both so
+        # the deterministic model stops re-issuing the same tool call forever.
         has_result = any(
-            isinstance(block, dict) and block.get("type") == "tool-result"
-            for message in messages for block in list(message.get("content") or [])
+            message.get("role") == "tool" or message.get("toolCallId")
+            or any(
+                isinstance(block, dict) and block.get("type") == "tool-result"
+                for block in list(message.get("content") or [])
+            )
+            for message in messages
+            if isinstance(message, dict)
         )
         if has_result:
             return self._ndjson([

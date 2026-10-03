@@ -33,6 +33,7 @@ from app.services.session_versioning.snapshot import (
     SECRET_REF_COLLECTION,
 )
 from app.services.session_versioning.audit import record_session_event
+from app.services.session_persistence_service import _next_seq
 
 router = APIRouter()
 

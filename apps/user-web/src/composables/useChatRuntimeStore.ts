@@ -334,8 +334,8 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
   const operationId = pane.operationId
   setPaneRunning(pane, true)
   pane.activeAuthToken = input.authToken
-  let uploadedImages: UploadedImage[] = []
-  let uploadedDocuments: RuntimeDocumentInfo[] = []
+  let uploadedImages: UploadedImage[]
+  let uploadedDocuments: RuntimeDocumentInfo[]
   try {
     const quota = await fetchOrgBilling(input.authToken)
     if (pane.operationId !== operationId) return
@@ -546,6 +546,9 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
       }
     }
   } finally {
+    // Returning here intentionally overrides any error/value from the try block
+    // only when this operation was superseded; see control-flow note above.
+    // eslint-disable-next-line no-unsafe-finally
     if (pane.operationId !== operationId) return
     // Transport completion owns the running flag. Clear it before any optional
     // refresh callback so a slow or failed sidebar/billing request can never

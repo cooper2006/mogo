@@ -40,6 +40,9 @@ def _patch_store(monkeypatch, rules_in_scope: list, audits: list | None = None) 
         "audit_hook_execution",
         _fake_audit,
     )
+    # The rule-source cache in turn_admission is module-global with a 2s TTL; clear
+    # it so each test sees the freshly patched store instead of a stale entry.
+    turn_admission._RULE_SOURCE_CACHE.clear()
 
 
 def test_run_pre_tool_use_no_rules_is_noop(monkeypatch) -> None:
