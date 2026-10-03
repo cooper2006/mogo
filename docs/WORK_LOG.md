@@ -4451,3 +4451,26 @@ admin-api 多副本部署时，非执行副本查 `GET /purge-status` 只能得�
 **验证**：admin-api 现有 420 测试全部通过（含新增监控模块），无倒退。
 
 **备注**：016 其余残项（自动回滚、灰度、持久化、canary 端点）在先前轮次已完成（参见 WORK_LOG 续二十六、续四十、续五十）。
+
+## 2026-10-03（续五十九）002 秘密过滤与审计 — commit 元数据服务端 seq 校验（P1 残项 → 全修）
+
+**背景**：002 剩余 P1 条目——commit 端点接受客户端自报 `seq`（由 `sessions.py` 的 `_next_seq` 独立决定），不校验与真实序列的一致性。属诚实边界问题：如不自校验则可能出现“幻觉”提交（客户端报错 seq 但实际未对应任何会话消息），虽未用于安全，但违反“不伪造”原则。
+
+**改动**（`services/chat-api/app/api/endpoints/dsh_session_versioning.py`）：
+- 在 `commit_session` 端点，红action/构建快照之前，插入：
+  ```python
+  expected_seq = await _next_seq(db, session_id, user_id, main_id)
+  if payload.seq != expected_seq:
+      raise HTTPException(
+          status_code=400,
+          detail=f"commit seq {payload.seq} does not match expected seq {expected_seq}",
+      )
+  ```
+- 服务端以真实 `chat_messages` 序列为准，不接受客户端幻报，故不伪造；
+- 若客户端提供的 `seq` 落后（重试）或超前（竞态），均 400 拒绝，迫使客户端重新拉取真实状态。
+
+**验证**：`tests/test_hooks_009.py` 中的会话相关测试 20/20 通过；admin-api + chat-api 无倒退。  
+**收敛**：P0 四项（001 六层链、002 秘密过滤、009 tool 真值、011 落库闭环）+ P0 最后一公里（003/004/008 锚点/审计/成本段）全部 ✅ 全修。  
+P1 八个孤岛：002 已修（本轮），剩余 005/007/010/012/018 仍为 🔄 部分修。
+
+**致谢**：用户在 round 44 指出 001 假门禁是安全影响最大项（六层链在生产上要么不生效、要么 fail-closed），并验证了推理链；本轮的 002 seq 校验同样属诚实底线（不伪造元数据）。
