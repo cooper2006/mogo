@@ -4767,3 +4767,50 @@ QF-656（$gte 不支持）、QF-657（_IncludedRouter 内省）、QF-660（admin
 条目均取自本日实际发生的问题，非泛化建议。
 
 **改动文件**：`AGENTS.md`
+
+## 2026-10-03（续七十）分批合并低风险 dependabot 升级
+
+**背景**：远端 `mogo` 有 34 个 dependabot 分支。用户要求逐个评估可安全合并者。
+经实测分类为四组（低风险可合 / 需配套 / 需评估 / 建议暂缓），本轮合并前三批低风险项。
+
+**第 1 批 GitHub Actions（纯 CI，零运行时风险）** — 5 个
+- login-action v3→v4、setup-buildx-action v3→v4、setup-qemu-action v3→v4、
+  attest-build-provenance v3→v4、pnpm/action-setup v4→v6。
+- `setup-buildx` 与已合入的 login/qemu 改同一区块，冲突模式为两侧各自基于旧版本
+  （HEAD 有 login@v4+buildx@v3，分支有 buildx@v4+login@v3），按「取较高版本」解决。
+- 验证：6 个 workflow YAML 全部解析通过；最终版本统计确认 5 个 action 均达目标版本。
+
+**第 2 批前端 patch/minor** — 3 个
+- @codemirror/view 6.43.3→6.43.13、postcss 8.4.35→8.5.28、naive-ui 2.44.1→2.45.3。
+- 分支只改 `pnpm-lock.yaml`，需与容器构建所用的 `package-lock.json` 同步；
+  合并后核对三处（package.json / pnpm-lock / package-lock）版本一致。
+- 验证：`pnpm install --frozen-lockfile` 通过；vue-tsc 通过；vite build 通过；
+  eslint 0 errors；user-web 12 个 node 测试脚本全通过。
+
+**第 3 批 pip（逐个安装验证）** — 4 个
+- chat-api：annotated-types 0.7.0→0.8.0、anyio 4.14.2→4.15.1、pytz 2025.2→2026.3.post1；
+  admin-api：pymongo 3.12.3→3.13.0。
+- anyio 合并时 requirements.txt 出现重复行与冲突标记，根因同批次 1（两分支基于旧版本），
+  按「同名依赖取较高版本」解决，并检查无重复行。
+- 验证：chat-api 2079 passed、admin-api 433 passed，均与合并前基线一致。
+
+**排除项（实测有破坏，不予合并）**
+- `pydantic_core 2.49.0`：与 pydantic 严格配套（当前 2.11.7 ↔ 2.33.2），单独升级实测
+  `ImportError: cannot import name 'validate_core_schema' from 'pydantic_core'`，
+  pydantic 完全不可用。属 dependabot 机械升级子包、未同步主包的缺陷。
+- 同类风险：`docling-core 2.97.1`（docling 仍 2.94.0）。
+
+**更正一处先前判断**
+- `vue-tsc-3.3.11` 分支此前被我判断为「无内容可合并的残留」，实际它有真实的
+  `vue-tsc 2.1.10 → 3.3.11`（major）升级，且与 main 有冲突。属中风险，归入待评估，
+  不做批量合并。
+
+**未合并（需配套或暂缓）**：@types/node 26、@vitejs/plugin-vue 6、jiti/jiter、
+celery 5.6、约束放宽类（fastapi/uvicorn/python-multipart）、python 3.14、
+node 26、typescript 6.0、js-yaml 5.4、docling 2.129、pymongo 4.x。
+
+**回归**：chat-api 2079 / admin-api 433 / document-parser 22 passed；
+admin-web lint 0 errors + typecheck PASS；`pnpm audit` 无已知漏洞。
+
+**推送**：`a2835a2..e941d30` 快进推送至 `mogo/main`。合并后远端 dependabot 分支
+由 34 降至 22（GitHub 自动清理目标已达成者）。
