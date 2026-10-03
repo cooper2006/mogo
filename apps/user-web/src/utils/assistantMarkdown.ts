@@ -1,5 +1,6 @@
 /** Shared Markdown projection for streaming and completed assistant content. */
 
+import DOMPurify from 'dompurify'
 import { projectSafeMarkdownLinks } from './safeMarkdownLinks'
 
 function escapeHtml(value: string): string {
@@ -154,5 +155,9 @@ export function renderAssistantMarkdown(text: string, options: { workspaceFileRe
   html = html.replace(/(<hr[^>]*>)\s*\n+/g, '$1')
   html = html.replace(/\n\n/g, '<br/><br/>').replace(/\n/g, '<br/>')
   blocks.forEach((block, index) => { html = html.replace(`__BLOCK_PLACEHOLDER_${index}__`, block) })
-  return html
+  // QF-397/398/399/400/401: sanitize final HTML to prevent XSS.
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ['target', 'data-workspace-file', 'data-raw', 'data-chart'],
+    ADD_TAGS: ['canvas'],
+  })
 }

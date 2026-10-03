@@ -987,7 +987,9 @@ async function loadSkills() {
   if (!getUserId()) return
   skillsLoading.value = true
   try {
-    skills.value = await listSkills(getUserId(), getMainId())
+    const uid = getUserId()
+    if (uid === null) return
+    skills.value = await listSkills(uid, getMainId())
   } catch {
     skills.value = []
   } finally {
@@ -1058,9 +1060,11 @@ async function handleSkillFileUpload(event: Event, kind: 'knowledge' | 'template
   if (!getUserId()) return
   const input = event.target as HTMLInputElement
   if (!input.files || input.files.length === 0) return
+  const uid = getUserId()
+  if (uid === null) return
   const files = Array.from(input.files)
   for (const file of files) {
-    const uploaded = await uploadSkillSource(getUserId(), file)
+    const uploaded = await uploadSkillSource(uid, file)
     if (uploaded?.object_path) {
       if (kind === 'knowledge') skillKnowledge.value.push(uploaded)
       if (kind === 'templates') skillTemplates.value.push(uploaded)
@@ -1074,9 +1078,11 @@ async function handleSkillResourceUpload(event: Event, kind: 'knowledge' | 'temp
   if (!getUserId() || !selectedSkill.value) return
   const input = event.target as HTMLInputElement
   if (!input.files || input.files.length === 0) return
+  const uid = getUserId()
+  if (uid === null) return
   const files = Array.from(input.files)
   for (const file of files) {
-    const uploaded = await uploadSkillSource(getUserId(), file)
+    const uploaded = await uploadSkillSource(uid, file)
     if (uploaded?.object_path) {
       const updated = { ...selectedSkill.value }
       const resources = { ...(updated.resources || {}) }
@@ -1256,8 +1262,9 @@ async function toggleSkillActive(skill: any, isActive: boolean) {
 }
 
 async function removeSkill(skill: any) {
-  if (!getUserId() || !skill?.id) return
-  await deleteSkill(skill.id, getUserId())
+  const uid = getUserId()
+  if (!uid || !skill?.id) return
+  await deleteSkill(skill.id, uid)
   skills.value = skills.value.filter((s) => s.id !== skill.id)
   if (selectedSkill.value?.id === skill.id) {
     selectedSkill.value = null
@@ -1312,11 +1319,9 @@ useProfileRefreshOnResume({ token: authToken, refresh: refreshEnterprisePolicy }
 
 function loadUserProfile() {
   const raw = localStorage.getItem(authUserProfileKey)
-  console.log('[auth] loadUserProfile raw:', raw)
   if (!raw) return
   try {
     const parsed = JSON.parse(raw)
-    console.log('[auth] loadUserProfile parsed:', parsed)
     if (parsed && typeof parsed === 'object') {
       userProfile.value = parsed
     }

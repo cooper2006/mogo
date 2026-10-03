@@ -1,0 +1,107 @@
+name: Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  # Frontend builds and type checks
+  frontend-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: |
+            apps/user-web/pnpm-lock.yaml
+            apps/admin-web/pnpm-lock.yaml
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.14.0"
+
+      - name: Build & typecheck user-web
+        working-directory: apps/user-web
+        run: pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
+
+      - name: Build & typecheck admin-web
+        working-directory: apps/admin-web
+        run: pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
+
+      - name: ESLint user-web
+        working-directory: apps/user-web
+        run: pnpm lint
+
+      - name: ESLint admin-web
+        working-directory: apps/admin-web
+        run: pnpm lint
+
+      - name: Dependency audit (user-web)
+        working-directory: apps/user-web
+        run: pnpm audit --production --audit-level high
+
+      - name: Dependency audit (admin-web)
+        working-directory: apps/admin-web
+        run: pnpm audit --production --audit-level high
+
+  # Backend Python compilation and tests
+  backend-quality:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: admin-api
+            venv: venv
+          - service: chat-api
+            venv: venv
+          - service: document-parser
+            venv: .venv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/${{ matrix.service }}/requirements.txt
+
+      - name: Compile Python
+        working-directory: services/${{ matrix.service }}
+        run: python -m compileall -q app
+
+      - name: Create venv and install
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m venv ${{ matrix.venv }}
+          ${{ matrix.venv }}/bin/pip install -r requirements.txt
+          ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio
+
+      - name: Run tests
+        working-directory: services/${{ matrix.service }}
+        env:
+          ASKAI_ADMIN_MONGODB_URI: mongodb://127.0.0.1:27017
+          ASKAI_ADMIN_MONGODB_DB: mogo_test
+          ASKAI_ADMIN_JWT_SECRET: test-secret-key-for-ci
+        run: |
+          ${{ matrix.venv }}/bin/python -m pytest tests/ --tb=short -q --timeout=120
+
+  # Security checks
+  security-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for debug endpoints in production config
+        run: |
+          echo "Checking main.py for docs_url=None in production..."
+          grep -n "docs_url=None\|redoc_url=None\|openapi_url=None" services/admin-api/app/main.py
+
+      - name: Check for global exception handler
+        run: |
+          echo "Checking for global exception handler..."
+          grep -n "global_exception_handler\|exception_handler" services/admin-api/app/main.py
+
+      - name: Check for content type validation
+        run: |
+          echo "Checking for magic byte validation..."
+          grep -n "_validate_content_type\|_MAGIC_BYTE_MAP" services/admin-api/app/api/routes/knowledge_documents.py

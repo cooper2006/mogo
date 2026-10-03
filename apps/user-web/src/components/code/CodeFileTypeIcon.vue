@@ -13,16 +13,20 @@ import { fileTypePresentation } from './changePresentation'
 
 const props = defineProps<{ path: string }>()
 const type = computed(() => fileTypePresentation(props.path))
-const icon = computed(() => ({
-  javascript: LogoJavascript,
-  python: LogoPython,
-  vue: LogoVue,
-  web: LogoHtml5,
-  style: LogoCss3,
-  markdown: LogoMarkdown,
-  shell: LogoNodejs,
-  native: CodeOutline,
-}[type.value.tone]))
+const icon = computed(() => {
+  const map = {
+    javascript: LogoJavascript,
+    python: LogoPython,
+    vue: LogoVue,
+    web: LogoHtml5,
+    style: LogoCss3,
+    markdown: LogoMarkdown,
+    shell: LogoNodejs,
+    native: CodeOutline,
+  } as const
+  const tone = type.value.tone
+  return tone in map ? map[tone as keyof typeof map] : undefined
+})
 </script>
 
 <template>

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import logging
@@ -40,10 +41,15 @@ logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
+    # QF-447/448: Disable docs endpoints in production
+    is_prod = settings.app_env == "production"
     app = FastAPI(
         title="MOVO Admin API",
         version="0.1.0",
         description="Control plane API for MOVO admin backend",
+        docs_url=None if is_prod else "/docs",
+        redoc_url=None if is_prod else "/redoc",
+        openapi_url=None if is_prod else "/openapi.json",
     )
 
     app.add_middleware(
@@ -111,6 +117,20 @@ def create_app() -> FastAPI:
         except Exception:  # pragma: no cover - defensive
             pass
         close_db()
+
+    # QF-447/449: Global exception handler - no stack traces in production
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request, exc):
+        logger.exception("Unhandled exception: %s", exc)
+        if is_prod:
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"},
+            )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(exc)},
+        )
 
     app.include_router(api_router, prefix="/api")
     for extension_router in get_admin_product_extension().routers:

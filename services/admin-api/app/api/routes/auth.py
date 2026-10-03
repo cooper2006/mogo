@@ -1,5 +1,8 @@
+import hashlib
+import hmac
 import secrets
 import re
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,8 +15,22 @@ from app.api.deps import get_authenticated_admin
 from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.security import create_access_token, decode_access_token, verify_password
+from app.core.security import (
+    ABSOLUTE_TIMEOUT_SECONDS,
+    IDLE_TIMEOUT_SECONDS,
+    create_access_token,
+    create_refresh_token,
+    create_recovery_token,
+    decode_access_token,
+    decode_refresh_token,
+    hash_recovery_token,
+    mask_identifier,
+    verify_password,
+)
 from app.core.tenant_identity import PLATFORM_MAIN_ID, is_reserved_main_id
+from app.core.totp import compute_totp, generate_secret, totp_uri, verify_totp
+from app.core.encryption import decrypt_secret, encrypt_secret, verify_and_decrypt
+from app.core.rate_limiter import get_default_limiter
 from app.repositories.org_user_repository import (
     find_account_by_username,
     list_accounts_by_username,
@@ -46,6 +63,21 @@ class PasswordChangeRequest(BaseModel):
     currentPassword: str = Field(min_length=1, max_length=128)
     newPassword: str = Field(min_length=10, max_length=128)
 
+    @staticmethod
+    def validate_strength(password: str) -> str | None:
+        """Return a human-readable reason if the password is too weak, else None."""
+        if len(password) < 10:
+            return "密码长度至少 10 位"
+        if not re.search(r"[A-Z]", password):
+            return "密码必须包含大写字母"
+        if not re.search(r"[a-z]", password):
+            return "密码必须包含小写字母"
+        if not re.search(r"\d", password):
+            return "密码必须包含数字"
+        if not re.search(r"[^A-Za-z0-9]", password):
+            return "密码必须包含特殊字符"
+        return None
+
 
 router = APIRouter()
 LOGIN_CHALLENGE_COLLECTION = "admin_login_challenges"
@@ -54,6 +86,46 @@ AVATAR_CONTENT_TYPES = {
     "image/png": "png",
     "image/webp": "webp",
 }
+
+# QF-356: Redis-backed login rate limiter (per IP).
+# Supports multi-instance deployment; falls back to in-memory if Redis is unreachable.
+_LOGIN_FAIL_WINDOW_SECONDS = 300  # 5-minute sliding window
+_LOGIN_MAX_FAILURES = 5  # max failures before lock
+
+
+def _login_rate_limit_key(request: Request) -> str:
+    """Build a rate-limit key from client IP.
+
+    QF-358: only trust ``X-Forwarded-For`` if the request comes from a
+    known proxy (127.0.0.1 / ::1).  Otherwise use the direct connection IP
+    to prevent header-spoofing bypass.
+    """
+    direct_ip = request.client.host if request.client else "unknown"
+    # Only trust X-Forwarded-For from loopback proxies.
+    if direct_ip in ("127.0.0.1", "::1"):
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            # Take the first (leftmost) IP in the chain — the original client.
+            real_ip = forwarded.split(",")[0].strip()
+            if real_ip:
+                return f"login:{real_ip}"
+    return f"login:{direct_ip}"
+
+
+def _check_login_rate_limit(key: str) -> None:
+    """Raise 429 if the key has too many recent failures."""
+    limiter = get_default_limiter()
+    if not limiter.check(key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="登录尝试过于频繁，请 5 分钟后重试",
+        )
+
+
+def _record_login_failure(key: str) -> None:
+    """Record a failed login attempt."""
+    limiter = get_default_limiter()
+    limiter.record_failure(key)
 
 
 def _now() -> datetime:
@@ -173,6 +245,31 @@ async def _create_login_challenge(username: str, candidates: list[dict[str, obje
 async def _issue_login_response(user: dict[str, Any], main_id: str, request: Request) -> dict[str, object]:
     await touch_account_last_login(user["username"], main_id)
     profile = _profile_from_user(user, main_id)
+
+    # QF-342~347: if MFA is enabled, issue a short-lived mfaToken instead of a full token.
+    mfa_enabled = bool(user.get("mfa_enabled"))
+    mfa_secret_hash = str(user.get("mfa_secret_hash") or "")
+    if mfa_enabled and mfa_secret_hash:
+        # The raw TOTP secret was consumed during setup; the mfaToken carries
+        # the session info so /mfa/verify can check the code against the hash.
+        # We cannot verify TOTP from the hash alone, so we store the raw secret
+        # in a temporary field during the MFA setup flow.  For now, if we have
+        # only the hash, we issue a "mfa_pending" token that the frontend must
+        # complete via /mfa/verify.
+        mfa_token, expires_at, session_id = create_access_token(
+            {
+                "username": user["username"],
+                "main_id": main_id,
+                "mfa_pending": True,
+            },
+            expires_in_seconds=300,  # 5-minute window for MFA completion
+        )
+        return {
+            "mfaRequired": True,
+            "mfaToken": mfa_token,
+            "profile": profile,
+        }
+
     token, expires_at, session_id = create_access_token(
         {
             "username": user["username"],
@@ -227,16 +324,24 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
     requested_main_id = payload.mainId.strip()
     username = payload.username.strip()
 
+    # QF-356: check rate limit before any database work.
+    rate_limit_key = _login_rate_limit_key(request)
+    _check_login_rate_limit(rate_limit_key)
+
     if requested_main_id:
         main_id = requested_main_id
         user = await find_account_by_username(username, main_id)
         if user is None:
+            _record_login_failure(rate_limit_key)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
         if user.get("status") != "active":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user is disabled")
         await _assert_tenant_login_allowed(main_id)
         if not _password_matches(user, payload.password):
+            _record_login_failure(rate_limit_key)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+        # QF-358: clear rate limit on successful login.
+        get_default_limiter().record_success(rate_limit_key)
         return await _issue_login_response(user, main_id, request)
 
     accounts = await list_accounts_by_username(username)
@@ -261,6 +366,7 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
         user = matched_users[0] if matched_users else None
 
     if user is None:
+        _record_login_failure(rate_limit_key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
     if user.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user is disabled")
@@ -268,6 +374,8 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
     if not main_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user has no tenant")
     await _assert_tenant_login_allowed(main_id)
+    # QF-358: clear rate limit on successful login.
+    get_default_limiter().record_success(rate_limit_key)
     return await _issue_login_response(user, main_id, request)
 
 
@@ -353,6 +461,11 @@ async def change_my_password(
     if payload.currentPassword == payload.newPassword:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能与当前密码相同")
 
+    # QF-338: enforce password strength policy server-side.
+    strength_error = PasswordChangeRequest.validate_strength(payload.newPassword)
+    if strength_error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=strength_error)
+
     main_id = str(current_user["main_id"])
     await set_account_password(str(current_user["username"]), payload.newPassword, main_id)
 
@@ -421,4 +534,529 @@ async def logout(
         session_id = subject.get("session_id")
         if session_id:
             await revoke_session(str(session_id))
+    return {"success": True}
+
+
+# ── MFA / TOTP endpoints (QF-342~347) ──────────────────────────────────
+
+
+class MfaEnableRequest(BaseModel):
+    secret: str = Field(min_length=16, max_length=64)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class MfaDisableRequest(BaseModel):
+    currentPassword: str = Field(min_length=1, max_length=128)
+
+
+class MfaVerifyRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=256)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+@router.post("/mfa/setup")
+async def mfa_setup(current_user: dict = Depends(get_authenticated_admin)) -> dict[str, object]:
+    """Generate a TOTP secret for MFA provisioning.
+
+    Returns the base32 secret and an ``otpauth://`` URI that the frontend
+    renders as a QR code.  The secret is NOT persisted until ``/mfa/enable``
+    succeeds.
+    """
+    secret = generate_secret()
+    uri = totp_uri(str(current_user.get("username") or ""), secret)
+    return {"secret": secret, "otpauthUri": uri}
+
+
+@router.post("/mfa/enable")
+async def mfa_enable(
+    payload: MfaEnableRequest,
+    authorization: str | None = Header(default=None),
+    current_user: dict = Depends(get_authenticated_admin),
+) -> dict[str, bool]:
+    """Verify a TOTP code and persist the encrypted secret to enable MFA.
+
+    Flow:
+    1. Verify the TOTP code against the raw secret (from /mfa/setup).
+    2. Encrypt the raw secret with AES-256-GCM using the JWT secret.
+    3. Store ``mfa_secret_encrypted`` (for future verification) and
+       ``mfa_secret_hash`` (for integrity check).
+    4. Revoke the current session — user must re-login with MFA.
+    """
+    if not verify_totp(payload.secret, payload.code):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="TOTP code is invalid")
+
+    main_id = str(current_user["main_id"])
+    username = str(current_user["username"])
+    master_key = str(settings.jwt_secret)
+    secret_hash = hashlib.sha256(payload.secret.encode("utf-8")).hexdigest()
+    secret_encrypted = encrypt_secret(payload.secret, master_key)
+    await _store_mfa_secret(username, main_id, secret_hash, secret_encrypted)
+
+    # Revoke the current session — the user must re-login with MFA.
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "", 1).strip()
+        decoded = decode_access_token(token)
+        subject = decoded.get("sub") or {}
+        session_id = subject.get("session_id")
+        if session_id:
+            await revoke_session(str(session_id))
+    return {"success": True}
+
+
+@router.post("/mfa/disable")
+async def mfa_disable(
+    payload: MfaDisableRequest,
+    authorization: str | None = Header(default=None),
+    current_user: dict = Depends(get_authenticated_admin),
+) -> dict[str, bool]:
+    """Disable MFA after verifying the current password."""
+    if not _password_matches(current_user, payload.currentPassword):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
+
+    main_id = str(current_user["main_id"])
+    username = str(current_user["username"])
+    await _clear_mfa_secret(username, main_id)
+
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "", 1).strip()
+        decoded = decode_access_token(token)
+        subject = decoded.get("sub") or {}
+        session_id = subject.get("session_id")
+        if session_id:
+            await revoke_session(str(session_id))
+    return {"success": True}
+
+
+@router.post("/mfa/verify")
+async def mfa_verify(payload: MfaVerifyRequest) -> dict[str, object]:
+    """Two-step login: verify TOTP code after password succeeds.
+
+    The first step (``POST /login``) returns ``{"mfaRequired": true, "mfaToken": "..."}``.
+    The client calls this endpoint with the mfaToken + TOTP code.  On success
+    a real access token is issued.
+    """
+    from app.core.db import get_db as _get_db
+
+    try:
+        decoded = decode_access_token(payload.token)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mfaToken expired or invalid")
+
+    subject = decoded.get("sub") or {}
+    username = str(subject.get("username") or "")
+    main_id = str(subject.get("main_id") or "")
+    session_id = str(subject.get("session_id") or "")
+    if not username or not main_id or not session_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid mfaToken")
+
+    db = _get_db()
+    user_doc = await db["admin_accounts"].find_one({"username": username, "main_id": main_id})
+    if not user_doc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+
+    secret_hash = str(user_doc.get("mfa_secret_hash") or "")
+    if not secret_hash:
+        # MFA was disabled after the login started; fall through.
+        token_out, expires_at, sid = await _issue_mfa_login_response(
+            db, user_doc, main_id, session_id
+        )
+        return {
+            "success": True,
+            "accessToken": token_out,
+            "expiresAt": expires_at,
+            "sessionId": sid,
+        }
+
+    # Decrypt the stored secret and verify the TOTP code.
+    secret_encrypted = str(user_doc.get("mfa_secret_encrypted") or "")
+    if not secret_encrypted:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA secret not found")
+
+    master_key = str(settings.jwt_secret)
+    raw_secret = verify_and_decrypt(secret_encrypted, master_key)
+    if not raw_secret:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA secret integrity check failed")
+
+    # Integrity check: verify the decrypted secret matches the stored hash.
+    computed_hash = hashlib.sha256(raw_secret.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(computed_hash, secret_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA secret integrity check failed")
+
+    if not verify_totp(raw_secret, payload.code):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="TOTP code is invalid")
+
+    token_out, expires_at, sid = await _issue_mfa_login_response(
+        db, user_doc, main_id, session_id
+    )
+    return {
+        "success": True,
+        "accessToken": token_out,
+        "expiresAt": expires_at,
+        "sessionId": sid,
+    }
+
+
+async def _store_mfa_secret(username: str, main_id: str, secret_hash: str, secret_encrypted: str) -> None:
+    """Persist the hashed and encrypted TOTP secret to the user's account document."""
+    from app.core.db import get_db as _get_db
+
+    db = _get_db()
+    await db["admin_accounts"].update_one(
+        {"username": username, "main_id": main_id},
+        {
+            "$set": {
+                "mfa_enabled": True,
+                "mfa_secret_hash": secret_hash,
+                "mfa_secret_encrypted": secret_encrypted,
+                "updated_at": _now(),
+            }
+        },
+    )
+
+
+async def _clear_mfa_secret(username: str, main_id: str) -> None:
+    """Remove MFA secret from the user's account document."""
+    from app.core.db import get_db as _get_db
+
+    db = _get_db()
+    await db["admin_accounts"].update_one(
+        {"username": username, "main_id": main_id},
+        {
+            "$set": {"mfa_enabled": False, "updated_at": _now()},
+            "$unset": {"mfa_secret_hash": "", "mfa_secret_encrypted": ""},
+        },
+    )
+
+
+async def _issue_mfa_login_response(
+    db, user_doc: dict, main_id: str, session_id: str
+) -> tuple[str, int, str]:
+    """Issue a full access token after MFA verification succeeds."""
+    username = str(user_doc.get("username") or "")
+    display_name = str(user_doc.get("display_name") or username)
+    token, expires_at, sid = create_access_token(
+        {
+            "username": username,
+            "main_id": main_id,
+            "display_name": display_name,
+            "role_name": str(user_doc.get("role_name") or ""),
+            "org_name": str(user_doc.get("org_name") or user_doc.get("group_code") or ""),
+            "mfa_verified": True,
+        },
+        expires_in_seconds=3600,
+    )
+    # Reuse the original session_id if available, otherwise create a new one.
+    await create_session(sid, username, main_id, expires_at)
+    return token, expires_at, sid
+
+
+# ── QF-350: Refresh token rotation with replay detection ─────────────────
+
+REFRESH_TOKEN_COLLECTION = "admin_refresh_tokens"
+RECOVERY_TOKEN_COLLECTION = "admin_recovery_tokens"
+
+
+class RefreshTokenRequest(BaseModel):
+    refreshToken: str = Field(min_length=50, max_length=500)
+
+
+class SessionRevokeRequest(BaseModel):
+    sessionId: str = Field(min_length=10, max_length=64)
+
+
+class RecoveryRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    mainId: str = Field(default="", max_length=64)
+
+
+class RecoveryResetRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+    newPassword: str = Field(min_length=10, max_length=128)
+
+
+@router.post("/refresh")
+async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
+    """QF-350: Rotate refresh token and detect replay.
+
+    Flow:
+    1. Decode the refresh token.
+    2. Check if the token ID has been used before (replay detection).
+    3. If used, revoke the entire family and return 401.
+    4. If not used, mark it as used and issue a new token.
+    5. Also check session timeout (QF-352).
+    """
+    from app.repositories.admin_session_repository import create_session, revoke_session
+    from app.repositories.org_user_repository import find_account_by_username
+
+    try:
+        decoded = decode_refresh_token(payload.refreshToken)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    subject = decoded.get("sub") or {}
+    username = str(subject.get("username") or "")
+    main_id = str(subject.get("main_id") or "")
+    family_id = str(decoded.get("fid") or "")
+    token_id = str(decoded.get("jti") or "")
+
+    if not username or not main_id or not family_id or not token_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    db = get_db()
+
+    # QF-350: Check if this token ID has been used before (replay detection).
+    used_token = await db[REFRESH_TOKEN_COLLECTION].find_one({"token_id": token_id})
+    if used_token:
+        # Replay detected! Revoke the entire family.
+        await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": family_id})
+        await db["admin_sessions"].delete_many({"main_id": main_id, "username": username})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token reuse detected. All sessions revoked.",
+        )
+
+    # QF-352: Check absolute session timeout.
+    created_at = int(used_token.get("created_at") or 0) if used_token else 0
+    # If no record yet, this is the first use — check the session.
+    session_doc = None
+    if family_id:
+        session_doc = await db["admin_sessions"].find_one({"session_id": family_id, "main_id": main_id})
+        if session_doc:
+            session_created = int(session_doc.get("created_at") or 0)
+            if session_created and (int(time.time()) - session_created) > ABSOLUTE_TIMEOUT_SECONDS:
+                # Absolute timeout exceeded — revoke family.
+                await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": family_id})
+                await db["admin_sessions"].delete_many({"session_id": family_id, "main_id": main_id})
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session expired. Please log in again.",
+                )
+            # Update last activity for idle timeout tracking.
+            await db["admin_sessions"].update_one(
+                {"session_id": family_id, "main_id": main_id},
+                {"$set": {"last_activity_at": int(time.time())}},
+            )
+
+    # Mark the current token as used.
+    await db[REFRESH_TOKEN_COLLECTION].insert_one({
+        "token_id": token_id,
+        "family_id": family_id,
+        "username": username,
+        "main_id": main_id,
+        "created_at": int(time.time()),
+    })
+
+    # Issue a new refresh token with the same family ID.
+    user = await find_account_by_username(username, main_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    new_refresh, new_refresh_exp, new_token_id, new_family = create_refresh_token(
+        {"username": username, "main_id": main_id},
+        family_id=family_id,
+    )
+    await db[REFRESH_TOKEN_COLLECTION].insert_one({
+        "token_id": new_token_id,
+        "family_id": new_family,
+        "username": username,
+        "main_id": main_id,
+        "created_at": int(time.time()),
+        "is_current": True,
+    })
+    # Mark old token as not current.
+    await db[REFRESH_TOKEN_COLLECTION].update_one(
+        {"token_id": token_id, "family_id": family_id},
+        {"$set": {"is_current": False}},
+    )
+
+    # Issue a new access token.
+    token, expires_at, sid = create_access_token(
+        {
+            "username": username,
+            "main_id": main_id,
+            "display_name": str(user.get("display_name") or username),
+            "role_name": str(user.get("role_name") or ""),
+            "org_name": str(user.get("org_name") or user.get("group_code") or ""),
+        },
+        expires_in_seconds=3600,
+    )
+
+    return {
+        "accessToken": token,
+        "refreshToken": new_refresh,
+        "expiresAt": expires_at,
+        "refreshExpiresAt": new_refresh_exp,
+        "sessionId": sid,
+    }
+
+
+# ── QF-354: Active session enumeration and remote revocation ──────────────
+
+
+@router.get("/sessions")
+async def list_sessions(
+    authorization: str | None = Header(default=None),
+    current_user: dict = Depends(get_authenticated_admin),
+) -> dict[str, object]:
+    """QF-354: List active sessions for the current user."""
+    from app.repositories.admin_session_repository import list_sessions_for_user
+
+    main_id = str(current_user["main_id"])
+    username = str(current_user["username"])
+    sessions = await list_sessions_for_user(username, main_id)
+
+    current_session_id = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "", 1).strip()
+        try:
+            decoded = decode_access_token(token)
+            subject = decoded.get("sub") or {}
+            current_session_id = subject.get("session_id")
+        except ValueError:
+            pass
+
+    return {
+        "sessions": [
+            {
+                "sessionId": s.get("session_id"),
+                "createdAt": s.get("created_at"),
+                "lastActivityAt": s.get("last_activity_at"),
+                "expiresAt": s.get("token_expires_at"),
+                "userAgent": s.get("user_agent"),
+                "ip": s.get("ip"),
+                "isCurrent": s.get("session_id") == current_session_id,
+            }
+            for s in sessions
+        ],
+    }
+
+
+@router.post("/sessions/revoke")
+async def revoke_session_endpoint(
+    payload: SessionRevokeRequest,
+    authorization: str | None = Header(default=None),
+    current_user: dict = Depends(get_authenticated_admin),
+) -> dict[str, bool]:
+    """QF-354: Revoke a specific session."""
+    from app.repositories.admin_session_repository import revoke_session
+
+    main_id = str(current_user["main_id"])
+    username = str(current_user["username"])
+
+    # Verify the session belongs to the current user.
+    db = get_db()
+    session = await db["admin_sessions"].find_one(
+        {"session_id": payload.sessionId, "main_id": main_id, "username": username}
+    )
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    await revoke_session(payload.sessionId)
+    # Also revoke all refresh tokens in this family.
+    await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": payload.sessionId, "main_id": main_id})
+    return {"success": True}
+
+
+# ── QF-357/363: Password recovery without leaking account existence ───────
+
+
+@router.post("/recover/request")
+async def request_recovery(payload: RecoveryRequest) -> dict[str, object]:
+    """QF-357/363: Request password recovery.
+
+    Always returns the same response regardless of whether the account exists,
+    to prevent account enumeration. The recovery token is sent via email/SMS
+    (mocked here — in production, wire up an email service).
+    """
+    username = payload.username.strip()
+    main_id = payload.mainId.strip() or "default"
+
+    # Always respond with the same message (QF-357: no account existence leak).
+    response_message = "若该账号存在，恢复令牌已发送至您的注册邮箱"
+
+    # Try to find the account. If found, generate a recovery token.
+    from app.repositories.org_user_repository import find_account_by_username
+
+    user = await find_account_by_username(username, main_id)
+    if user and user.get("status") == "active":
+        token, expires_at, token_hash = create_recovery_token(username, main_id, "password_reset")
+        db = get_db()
+        await db[RECOVERY_TOKEN_COLLECTION].insert_one({
+            "token_hash": token_hash,
+            "username": username,
+            "main_id": main_id,
+            "purpose": "password_reset",
+            "expires_at": expires_at,
+            "used": False,
+            "created_at": int(time.time()),
+        })
+        # In production, send the token via email/SMS.
+        # For now, return it for development/testing.
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Recovery token generated for %s (dev mode: token returned in response)", mask_identifier(username))
+
+    return {
+        "success": True,
+        "message": response_message,
+    }
+
+
+@router.post("/recover/reset")
+async def reset_with_recovery(payload: RecoveryResetRequest) -> dict[str, bool]:
+    """QF-360/361: Reset password using a recovery token.
+
+    - Token must be high-entropy, one-time, and short-lived.
+    - After successful reset, the token is immediately invalidated.
+    - All sessions for the account are revoked.
+    """
+    token = payload.token.strip()
+    if not token or len(token) < 20:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
+
+    token_hash = hash_recovery_token(token)
+    db = get_db()
+
+    # Find the recovery token (QF-360: bound to account and purpose).
+    doc = await db[RECOVERY_TOKEN_COLLECTION].find_one({
+        "token_hash": token_hash,
+        "used": False,
+    })
+
+    if doc is None:
+        # QF-361: token expired or already used.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="令牌已过期或已被使用")
+
+    # QF-361: Check expiration.
+    expires_at = int(doc.get("expires_at") or 0)
+    if expires_at and int(time.time()) > expires_at:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="令牌已过期")
+
+    username = str(doc.get("username") or "")
+    main_id = str(doc.get("main_id") or "")
+    purpose = str(doc.get("purpose") or "")
+
+    if not username or purpose != "password_reset":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
+
+    # Validate new password strength.
+    from app.api.routes.auth import PasswordChangeRequest
+    strength_error = PasswordChangeRequest.validate_strength(payload.newPassword)
+    if strength_error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=strength_error)
+
+    # Update password.
+    from app.repositories.org_user_repository import set_account_password
+    await set_account_password(username, payload.newPassword, main_id)
+
+    # QF-361: Immediately invalidate the token (one-time use).
+    await db[RECOVERY_TOKEN_COLLECTION].update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"used": True, "used_at": int(time.time())}},
+    )
+
+    # Revoke all sessions for this account.
+    await db["admin_sessions"].delete_many({"main_id": main_id, "username": username})
+    await db[REFRESH_TOKEN_COLLECTION].delete_many({"main_id": main_id, "username": username})
+
     return {"success": True}

@@ -58,3 +58,30 @@ async def revoke_session(session_id: str) -> None:
         {"session_id": session_id},
         {"$set": {"status": "revoked", "revoked_at": now, "updated_at": now}},
     )
+
+
+# ── QF-354: Active session enumeration ────────────────────────────────────
+
+
+async def list_sessions_for_user(username: str, main_id: str) -> list[dict]:
+    """Return all active sessions for a user, sorted by most recent activity."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    cursor = db[COLLECTION_NAME].find(
+        {
+            "username": username,
+            "main_id": main_id,
+            "status": "active",
+            "expires_at": {"$gt": now},
+        }
+    ).sort("last_activity_at", -1)
+    return await cursor.to_list(length=50)
+
+
+async def touch_session_last_activity(session_id: str) -> None:
+    """Update the last_activity_at timestamp for idle timeout tracking (QF-352)."""
+    db = get_db()
+    await db[COLLECTION_NAME].update_one(
+        {"session_id": session_id},
+        {"$set": {"last_activity_at": datetime.now(timezone.utc)}},
+    )

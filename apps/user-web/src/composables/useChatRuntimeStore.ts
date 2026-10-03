@@ -553,7 +553,8 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
     pane.activeStream = null
     pane.abortController = null
     pane.activeAssistantMessageId = null
-    if (pane.authResumeController?.signal.aborted) pane.authResumeController = null
+    const authCtrl = pane.authResumeController as AbortController | null
+    if (authCtrl && authCtrl.signal.aborted) pane.authResumeController = null
     setPaneRunning(pane, false)
 
     const artifacts = assistantMsg._execV3?.state.artifacts || []

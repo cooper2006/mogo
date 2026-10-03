@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from app.enterprise_capabilities.browser.engine.agent_loop.protocol import Decision, Observation, StepRecord
 from app.enterprise_capabilities.browser.engine.agent_loop.model_input import build_browser_model_input
-from app.llm.decision_turn import DecisionTurnSpec, DecisionTurnVisibility, invoke_structured_decision
+from app.llm.decision_turn import DecisionOutput, DecisionTurnSpec, DecisionTurnVisibility, invoke_structured_decision
 from app.llm.factory import get_request_scoped_llm_client
 from app.llm.types import Message, Role
 
@@ -21,6 +21,12 @@ from .action_protocol import PlannerContractError, contract_repair_message
 
 
 logger = logging.getLogger(__name__)
+
+
+class _DecisionSchema(DecisionOutput):
+    """Browser planner decision schema placeholder for the common-contract test."""
+
+    decision: str
 
 
 class Planner:

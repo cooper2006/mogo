@@ -95,7 +95,8 @@ export function createExecutionStoreV3() {
       if (browserIntervention?.suspension_id) state.intervention = browserIntervention
       const evidence = payload.evidence_bundle as EvidenceBundleItem | undefined
       if (evidence && !state.evidenceBundles.some((value) => value.id === evidence.id)) {
-        state.evidenceBundles.push({ ts: item.updatedAt, ...evidence })
+        const { ts: _existingTs, ...evidenceRest } = evidence
+        state.evidenceBundles.push({ ts: item.updatedAt, ...evidenceRest })
       }
       const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : []
       artifacts.forEach((value: Record<string, any>, index: number) => {

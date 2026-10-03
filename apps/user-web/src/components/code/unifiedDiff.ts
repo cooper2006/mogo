@@ -31,7 +31,7 @@ export function parseUnifiedDiff(diff: string): UnifiedDiffLine[] {
       return row
     }
     const isContext = oldLine !== null && newLine !== null && (content.startsWith(' ') || content === '')
-    if (isContext) {
+    if (isContext && oldLine !== null && newLine !== null) {
       const row = { id, content, kind: 'context' as const, oldLine, newLine }
       oldLine += 1
       newLine += 1

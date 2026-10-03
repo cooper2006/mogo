@@ -9,6 +9,7 @@
         "build:test": "vite build --mode test",
         "build:prod": "vite build --mode production",
         "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+        "lint": "eslint src/",
         "test:execution-v3": "esbuild tests/execution-v3-store.test.ts --bundle --platform=node --format=esm --outfile=/tmp/askai-execution-v3-test.mjs && node /tmp/askai-execution-v3-test.mjs",
         "test:session-ordering": "esbuild tests/session-ordering.test.ts --bundle --platform=node --format=esm --outfile=/tmp/askai-session-ordering-test.mjs && node /tmp/askai-session-ordering-test.mjs",
         "test:chat-cancellation": "esbuild tests/chat-cancellation-contract.test.ts --bundle --platform=node --format=esm --outfile=/tmp/movo-chat-cancellation-test.mjs && node /tmp/movo-chat-cancellation-test.mjs",
@@ -33,19 +34,27 @@
         "@xterm/xterm": "^6.0.0",
         "axios": "^1.6.0",
         "codemirror": "^6.0.2",
+        "dompurify": "^3.4.16",
         "fabric": "^6.9.1",
         "highlight.js": "^11.11.1",
         "naive-ui": "^2.44.1",
-        "pdfjs-dist": "^5.6.205",
+        "pdfjs-dist": "^6.3.289",
         "vue": "^3.4.0"
     },
     "devDependencies": {
+        "@eslint/js": "^10.0.1",
         "@vitejs/plugin-vue": "^5.0.0",
         "autoprefixer": "^10.4.17",
+        "esbuild": "0.21.5",
+        "eslint": "^10.11.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-vue": "^10.11.1",
         "postcss": "^8.4.35",
         "tailwindcss": "^3.4.1",
         "typescript": "5.6.3",
+        "typescript-eslint": "^8.71.0",
         "vite": "^5.1.0",
+        "vue-eslint-parser": "^10.4.1",
         "vue-tsc": "2.1.10"
     }
 }

@@ -11,6 +11,22 @@ export default defineConfig(({ command }) => ({
   // Keep the build safe even when a Docker/build environment omits the variable.
   base: process.env.VITE_BASE_PATH || (command === 'build' ? '/admin/' : '/'),
   plugins: [vue()],
+  build: {
+    // Disable sourcemap in production to prevent source code leakage (QF-009).
+    sourcemap: false,
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+          'vendor-ui': ['naive-ui'],
+          'vendor-editor': ['codemirror', '@codemirror/commands', '@codemirror/lang-python', '@codemirror/state', '@codemirror/view'],
+          'vendor-pdf': ['pdfjs-dist'],
+          'vendor-http': ['axios'],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

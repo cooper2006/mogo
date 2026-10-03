@@ -62,6 +62,6 @@ msgpack==1.2.2
 python-pptx==1.0.2
 openpyxl==3.1.5
 xlrd>=2.0.1
-markdown-it-py>=4.0.0
-dashscope>=1.15.0
 pdfplumber==0.11.9
+black>=24.0.0
+isort>=5.13.0

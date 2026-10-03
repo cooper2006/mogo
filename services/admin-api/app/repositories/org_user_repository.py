@@ -8,6 +8,8 @@ from bson import ObjectId
 from pymongo import ReturnDocument
 from pymongo.errors import OperationFailure
 
+from app.core.nosql_guard import sanitize_query_filter
+
 from app.core.db import get_db
 from app.core.security import hash_password
 
@@ -71,18 +73,21 @@ async def backfill_main_id(default_main_id: str) -> None:
 
 async def list_account_groups(main_id: str) -> list[dict]:
     db = get_db()
-    cursor = db[GROUP_COLLECTION].find({"main_id": main_id}).sort("updated_at", -1)
+    filter_q = sanitize_query_filter({"main_id": main_id})
+    cursor = db[GROUP_COLLECTION].find(filter_q).sort("updated_at", -1)
     return await cursor.to_list(length=200)
 
 
 async def find_group_by_code(code: str, main_id: str) -> dict | None:
     db = get_db()
-    return await db[GROUP_COLLECTION].find_one({"code": code, "main_id": main_id})
+    filter_q = sanitize_query_filter({"code": code, "main_id": main_id})
+    return await db[GROUP_COLLECTION].find_one(filter_q)
 
 
 async def find_group_by_id(group_id: str, main_id: str) -> dict | None:
     db = get_db()
-    return await db[GROUP_COLLECTION].find_one({"_id": ObjectId(group_id), "main_id": main_id})
+    filter_q = sanitize_query_filter({"_id": ObjectId(group_id), "main_id": main_id})
+    return await db[GROUP_COLLECTION].find_one(filter_q)
 
 
 async def create_account_group(payload: dict) -> dict:
@@ -135,23 +140,27 @@ async def delete_account_group(group_id: str, main_id: str) -> bool:
 
 async def count_accounts_by_group_code(group_code: str, main_id: str) -> int:
     db = get_db()
-    return await db[ACCOUNT_COLLECTION].count_documents({"group_code": group_code, "main_id": main_id})
+    filter_q = sanitize_query_filter({"group_code": group_code, "main_id": main_id})
+    return await db[ACCOUNT_COLLECTION].count_documents(filter_q)
 
 
 async def list_accounts(main_id: str) -> list[dict]:
     db = get_db()
-    cursor = db[ACCOUNT_COLLECTION].find({"main_id": main_id}).sort("updated_at", -1)
+    filter_q = sanitize_query_filter({"main_id": main_id})
+    cursor = db[ACCOUNT_COLLECTION].find(filter_q).sort("updated_at", -1)
     return await cursor.to_list(length=1000)
 
 
 async def find_account_by_username(username: str, main_id: str) -> dict | None:
     db = get_db()
-    return await db[ACCOUNT_COLLECTION].find_one({"username": username, "main_id": main_id})
+    filter_q = sanitize_query_filter({"username": username, "main_id": main_id})
+    return await db[ACCOUNT_COLLECTION].find_one(filter_q)
 
 
 async def find_account_by_username_any_main(username: str) -> dict | None:
     db = get_db()
-    rows = await db[ACCOUNT_COLLECTION].find({"username": username}).limit(2).to_list(length=2)
+    filter_q = sanitize_query_filter({"username": username})
+    rows = await db[ACCOUNT_COLLECTION].find(filter_q).limit(2).to_list(length=2)
     if len(rows) == 1:
         return rows[0]
     return None
@@ -159,13 +168,15 @@ async def find_account_by_username_any_main(username: str) -> dict | None:
 
 async def list_accounts_by_username(username: str) -> list[dict]:
     db = get_db()
-    cursor = db[ACCOUNT_COLLECTION].find({"username": username}).sort([("updated_at", -1)])
+    filter_q = sanitize_query_filter({"username": username})
+    cursor = db[ACCOUNT_COLLECTION].find(filter_q).sort([("updated_at", -1)])
     return await cursor.to_list(length=100)
 
 
 async def find_account_by_id(account_id: str, main_id: str) -> dict | None:
     db = get_db()
-    return await db[ACCOUNT_COLLECTION].find_one({"_id": ObjectId(account_id), "main_id": main_id})
+    filter_q = sanitize_query_filter({"_id": ObjectId(account_id), "main_id": main_id})
+    return await db[ACCOUNT_COLLECTION].find_one(filter_q)
 
 
 async def create_account(payload: dict) -> dict:

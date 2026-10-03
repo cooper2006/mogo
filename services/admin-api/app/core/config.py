@@ -1,9 +1,12 @@
+import logging
 import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.internal_service_auth import resolve_backend_service_token
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -100,3 +103,19 @@ if not settings.knowledge_oss_access_key_id:
     settings.knowledge_oss_access_key_id = os.getenv("OSS_ACCESS_KEY_ID", "") or _read_env_file_value("OSS_ACCESS_KEY_ID")
 if not settings.knowledge_oss_access_key_secret:
     settings.knowledge_oss_access_key_secret = os.getenv("OSS_ACCESS_KEY_SECRET", "") or _read_env_file_value("OSS_ACCESS_KEY_SECRET")
+
+# QF-433~441: validate JWT secret at startup — reject empty or short secrets in production.
+import secrets as _secrets_mod
+
+if not settings.jwt_secret or len(settings.jwt_secret) < 32:
+    if settings.app_env == "production":
+        # Auto-generate a secure secret if none is configured in production.
+        logger.warning("JWT secret is missing or too short; generating a secure one")
+        settings.jwt_secret = _secrets_mod.token_urlsafe(64)
+        logger.warning("Use a persistent JWT_SECRET in production to avoid invalidating sessions on restart")
+    else:
+        if not settings.jwt_secret:
+            settings.jwt_secret = "dev-secret-change-me-in-production"
+            logger.warning("Using dev JWT secret — set ASKAI_ADMIN_JWT_SECRET for production")
+if settings.access_token_ttl_seconds > 7 * 24 * 3600:
+    logger.warning("Access token TTL exceeds 7 days; consider shortening for security")

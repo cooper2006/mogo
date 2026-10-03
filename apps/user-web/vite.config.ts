@@ -19,6 +19,22 @@ export default defineConfig({
     },
     build: {
         target: 'esnext',
+        // Disable sourcemap in production to prevent source code leakage (QF-009).
+        sourcemap: false,
+        chunkSizeWarningLimit: 600,
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    'vendor-vue': ['vue'],
+                    'vendor-ui': ['naive-ui', '@vicons/ionicons5'],
+                    'vendor-editor': ['codemirror', '@codemirror/commands', '@codemirror/lang-python', '@codemirror/state', '@codemirror/view'],
+                    'vendor-terminal': ['@xterm/xterm', '@xterm/addon-fit'],
+                    'vendor-pdf': ['pdfjs-dist'],
+                    'vendor-http': ['axios'],
+                    'vendor-highlight': ['highlight.js'],
+                },
+            },
+        },
     },
     optimizeDeps: {
         esbuildOptions: {

@@ -9,7 +9,7 @@
     "isolatedModules": true,
     "esModuleInterop": true,
     "jsx": "preserve",
-    "strict": false,
+    "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["vite/client"],

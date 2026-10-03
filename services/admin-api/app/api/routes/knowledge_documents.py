@@ -186,6 +186,47 @@ def _safe_filename(value: str) -> str:
     return name or "document"
 
 
+# QF-416: Content type validation based on magic bytes
+_MAGIC_BYTE_MAP: dict[str, tuple[bytes, ...]] = {
+    "pdf": (b"%PDF-",),
+    "doc": (b"\xd0\xcf\x11\xe0",),  # OLE2 header
+    "docx": (b"PK\x03\x04",),       # ZIP header (also for pptx, xlsx)
+    "ppt": (b"\xd0\xcf\x11\xe0",),  # OLE2 header
+    "pptx": (b"PK\x03\x04",),
+    "xls": (b"\xd0\xcf\x11\xe0",),  # OLE2 header
+    "xlsx": (b"PK\x03\x04",),
+    "png": (b"\x89PNG",),
+    "jpg": (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+    "webp": (b"RIFF",),  # RIFF header, check WEBP at offset 8
+}
+
+
+def _validate_content_type(file_bytes: bytes, file_ext: str) -> bool:
+    """QF-416: Validate file content type based on magic bytes.
+
+    Returns True if the file content matches the expected type for the extension.
+    """
+    if file_ext not in _MAGIC_BYTE_MAP:
+        # For text files (txt, md, markdown), validate as UTF-8 text
+        if file_ext in ("txt", "md", "markdown"):
+            try:
+                file_bytes.decode("utf-8")
+                return True
+            except UnicodeDecodeError:
+                return False
+        return True  # Unknown extension, allow through
+
+    prefixes = _MAGIC_BYTE_MAP[file_ext]
+    for prefix in prefixes:
+        if file_bytes.startswith(prefix):
+            # Special case for WEBP: check WEBP at offset 8
+            if file_ext == "webp":
+                return file_bytes[8:12] == b"WEBP"
+            return True
+    return False
+
+
 def _document_name(filename: str, fallback: str = "") -> str:
     if fallback.strip():
         return fallback.strip()[:180]
@@ -706,6 +747,7 @@ async def upload_document(
     size = 0
     suffix = f".{file_ext}" if file_ext else ""
     temp_path = ""
+    header_bytes = b""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
             temp_path = temp.name
@@ -718,6 +760,13 @@ async def upload_document(
                     raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="文件超过大小限制")
                 checksum.update(chunk)
                 temp.write(chunk)
+                # QF-416: Read first 16 bytes for magic byte validation
+                if not header_bytes:
+                    header_bytes = chunk[:16]
+
+        # QF-416: Validate content type based on magic bytes
+        if header_bytes and not _validate_content_type(header_bytes, file_ext):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件内容与扩展名不匹配")
 
         document_id = uuid.uuid4().hex
         storage_prefix = settings.knowledge_oss_prefix.strip().strip("/") or "knowledge-documents"

@@ -237,10 +237,10 @@
                           </summary>
                           <div class="node-usage-content">
                             <strong>{{ t('使用场景') }}</strong>
-                            <p>{{ t(workflowTypeMeta(step.type).usageDescription) }}</p>
+                            <p>{{ t(workflowTypeMeta(step.type).usageDescription || '') }}</p>
                             <div class="node-usage-example">
                               <span>{{ t('示例') }}</span>
-                              <p>{{ t(workflowTypeMeta(step.type).usageExample) }}</p>
+                              <p>{{ t(workflowTypeMeta(step.type).usageExample || '') }}</p>
                             </div>
                           </div>
                         </details>

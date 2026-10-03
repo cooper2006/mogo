@@ -13,6 +13,7 @@ from dashscope import MultiModalConversation
 from app.core.config import get_settings
 from app.services.image_generation import generate_image_asset as generate_configured_image_asset
 from app.utils.oss_uploader import AliyunOSSUploader
+from app.utils.ssrf_guard import validate_outbound_url
 
 settings = get_settings()
 dashscope.base_http_api_url = 'https://dashscope.aliyuncs.com/api/v1'
@@ -238,6 +239,11 @@ async def persist_image_asset(
     uid = str(user_id or "anonymous").strip() or "anonymous"
     if not src.startswith(("http://", "https://")) or not is_valid_remote_image_url(src):
         return {"ok": False, "error": "invalid_image_url", "url": src}
+    # QF-402~406: SSRF guard — reject private/loopback/metadata addresses.
+    try:
+        validate_outbound_url(src, field_name="image_url")
+    except ValueError as exc:
+        return {"ok": False, "error": "ssrf_blocked", "url": src, "detail": str(exc)}
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
             resp = await client.get(src)
