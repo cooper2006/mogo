@@ -1,8 +1,10 @@
 """IM gateway webhook endpoint (feature 013).
 
-Minimal production wiring: receives inbound IM webhooks, verifies HMAC
-signatures (FR-13), and routes to the appropriate channel adapter.
-Persisted session bindings are tracked as a follow-up (FR-4 / FR-9).
+Production wiring: receives inbound IM webhooks, verifies HMAC signatures
+(FR-13), and routes to the appropriate channel adapter. Session bindings are
+persisted via ``PersistedSessionBindingRegistry`` (``im_session_bindings`` /
+``im_channels`` collections, FR-10); when the DB is unavailable the webhook
+degrades to the in-memory registry rather than fabricating state.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
+from app.im_gateway.bindings import PersistedSessionBindingRegistry
 from app.im_gateway.router import ChannelRouter
 from app.im_gateway.webhook import NonceCache, verify_signature
 
@@ -19,6 +22,7 @@ router = APIRouter(prefix="/internal/im", tags=["im-gateway-internal"])
 # Module-level router with an in-memory nonce cache.
 _router = ChannelRouter()
 _nonce_cache = NonceCache()
+_bindings = PersistedSessionBindingRegistry()
 
 
 @router.post("/webhook/{channel}")
@@ -62,6 +66,13 @@ async def handle_webhook(
     except Exception as exc:  # WebhookSignatureError subclasses PermissionError
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
+    # 013 FR-10: channel switch state is persisted (im_channels). A disabled
+    # channel rejects new messages (FR-9); DB unavailability degrades to
+    # "enabled" (fail-open for routing, the switch itself was never persisted).
+    tenant_id = str(await request.headers.get("x-im-tenant", "default")) or "default"
+    if not await _bindings.is_channel_enabled(channel, tenant_id=tenant_id):
+        raise HTTPException(status_code=409, detail="channel_disabled")
+
     # Parse and route.
     try:
         payload = await request.json()
@@ -69,6 +80,17 @@ async def handle_webhook(
         raise HTTPException(status_code=400, detail="invalid_json")
 
     msg = _router.route(channel, payload)
+    # 013 FR-10: persist the conversation <-> session binding (first binder
+    # wins, FR-14) so a restart does not lose the 1:1 mapping.
+    session_ref = str(payload.get("session_id") or payload.get("movoSessionId") or "")
+    if session_ref:
+        await _bindings.bind(
+            channel=msg.channel,
+            conversation_id=msg.channel_conversation_id,
+            movo_session_id=session_ref,
+            tenant_id=tenant_id,
+            initiator=str(payload.get("sender_id") or ""),
+        )
     # Acknowledge receipt; actual reply is handled by the adapter asynchronously.
     return {
         "code": 0,

@@ -3856,3 +3856,23 @@ API 将记忆从 personal/workspace 提升为 org scope。
 - 端点 `capability_assets.py` 改用 `PersistedCapabilityRegistry` + await。
 
 **验证**：capability 测试 21 passed（新增 FR-10 roundtrip 序列化测试）。
+
+## 2026-10-03（续四十五）013 持久化 SessionBindingRegistry
+
+**背景**：001 audit 残项——`SessionBindingRegistry` 是进程内 dict，IM 会话
+绑定进程重启即丢失；`im_channels`/`im_session_bindings` 集合 0 命中。
+
+**改动**（bindings.py + im_gateway.py）：
+- 新增 `PersistedSessionBindingRegistry`（async，MongoDB 双集合：
+  `im_session_bindings` 存绑定、`im_channels` 存频道开关）：
+  - `bind`：先 load 内存态再冲突校验（first binder wins, FR-14）后 upsert 落库；
+  - `get`：读持久化行；
+  - `disable_channel`/`enable_channel`：更新 `im_channels.disabled` 并批量
+    置/清 `read_only`（FR-9）；
+  - `is_channel_enabled`：读开关，DB 不可用降级 fail-open（不伪造状态）；
+- webhook 端点 `im_gateway.py`：
+  - 路由前查持久化频道开关，disabled → 409 `channel_disabled`；
+  - 路由后若 payload 带 `session_id`/`movoSessionId` 则持久化绑定。
+
+**验证**：im_gateway 测试 35 passed（新增 3 项：bind roundtrip + FR-14
+冲突、disable/enable 落库、DB 不可用降级）。

@@ -266,3 +266,130 @@ def test_router_available_channels() -> None:
     router = ChannelRouter()
     router.register("feishu")
     assert router.available_channels() == ["feishu"]
+
+
+# --- persisted registry (FR-10) ---------------------------------------------
+
+class _FakeColl:
+    def __init__(self, docs: list[dict]) -> None:
+        self._docs = docs
+
+    async def find_one(self, query: dict, *args, **kwargs):
+        for doc in self._docs:
+            if all(doc.get(k) == v for k, v in query.items()):
+                return dict(doc)
+        return None
+
+    def find(self, query: dict, *args, **kwargs):
+        matched = [dict(d) for d in self._docs if all(d.get(k) == v for k, v in query.items())]
+
+        class _Cur:
+            def sort(self, *a, **k):
+                return self
+
+            async def to_list(self, length: int):
+                return matched[:length]
+
+        return _Cur()
+
+    async def update_one(self, query: dict, update: dict, upsert: bool = False, **kwargs):
+        for doc in self._docs:
+            if all(doc.get(k) == v for k, v in query.items()):
+                doc.update(update.get("$set", {}))
+                return None
+        if upsert:
+            self._docs.append({**query, **update.get("$set", {})})
+        return None
+
+    async def update_many(self, query: dict, update: dict, **kwargs):
+        class _R:
+            modified_count = 0
+
+        for doc in self._docs:
+            if all(doc.get(k) == v for k, v in query.items()):
+                doc.update(update.get("$set", {}))
+                _R.modified_count += 1
+        return _R()
+
+
+class _FakeDB:
+    def __init__(self, collections: dict[str, list[dict]]) -> None:
+        self._collections = collections
+
+    def __getitem__(self, name: str) -> _FakeColl:
+        if name not in self._collections:
+            self._collections[name] = []
+        return _FakeColl(self._collections[name])
+
+
+def test_persisted_registry_bind_roundtrip(monkeypatch):
+    """FR-10: bind writes the row, get reads it back, conflicts are rejected."""
+    import asyncio
+    from app.im_gateway.bindings import PersistedSessionBindingRegistry, BindingError
+
+    colls: dict[str, list[dict]] = {}
+    db = _FakeDB(colls)
+    monkeypatch.setattr("app.core.db.get_db", lambda: db)
+
+    reg = PersistedSessionBindingRegistry()
+    binding = asyncio.run(reg.bind(
+        channel="feishu", conversation_id="c-1",
+        movo_session_id="s-1", tenant_id="t-1",
+    ))
+    assert binding.channel_conversation_id == "c-1"
+    # The row is persisted.
+    rows = colls.get("im_session_bindings", [])
+    assert len(rows) == 1 and rows[0]["movo_session_id"] == "s-1"
+    # get() reads the persisted row back.
+    loaded = asyncio.run(reg.get("feishu", "c-1", tenant_id="t-1"))
+    assert loaded is not None and loaded.movo_session_id == "s-1"
+    # First binder wins (FR-14): a second channel for the same session fails.
+    with pytest.raises(BindingError):
+        asyncio.run(reg.bind(
+            channel="dingtalk", conversation_id="c-2",
+            movo_session_id="s-1", tenant_id="t-1",
+        ))
+
+
+def test_persisted_registry_disable_enable_channel(monkeypatch):
+    """FR-9: disable marks bindings read-only and records the channel switch;
+    enable restores them. Channel switch state is persisted in im_channels."""
+    import asyncio
+    from app.im_gateway.bindings import PersistedSessionBindingRegistry
+
+    colls: dict[str, list[dict]] = {}
+    db = _FakeDB(colls)
+    monkeypatch.setattr("app.core.db.get_db", lambda: db)
+
+    reg = PersistedSessionBindingRegistry()
+    asyncio.run(reg.bind(channel="feishu", conversation_id="c-1",
+                         movo_session_id="s-1", tenant_id="t-1"))
+    disabled_rows = colls.get("im_channels", [])
+    assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is True
+    affected = asyncio.run(reg.disable_channel("feishu", tenant_id="t-1"))
+    assert affected == 1
+    binding_row = colls["im_session_bindings"][0]
+    assert binding_row["read_only"] is True
+    assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is False
+    restored = asyncio.run(reg.enable_channel("feishu", tenant_id="t-1"))
+    assert restored == 1
+    assert colls["im_session_bindings"][0]["read_only"] is False
+    assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is True
+
+
+def test_persisted_registry_degrades_without_db(monkeypatch):
+    """DB unavailable → in-memory degradation, no fabricated rows, no crash."""
+    import asyncio
+    from app.im_gateway.bindings import PersistedSessionBindingRegistry
+
+    def _no_db():
+        raise RuntimeError("mongo down")
+
+    monkeypatch.setattr("app.core.db.get_db", _no_db)
+    reg = PersistedSessionBindingRegistry()
+    binding = asyncio.run(reg.bind(channel="feishu", conversation_id="c-1",
+                                   movo_session_id="s-1", tenant_id="t-1"))
+    assert binding.movo_session_id == "s-1"
+    assert asyncio.run(reg.get("feishu", "c-1", tenant_id="t-1")) is None
+    assert asyncio.run(reg.disable_channel("feishu", tenant_id="t-1")) == 0
+    assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is True

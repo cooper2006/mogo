@@ -303,11 +303,14 @@
 >    HMAC 签名校验（FR-13）+ nonce 5 分钟防重放 + `ChannelRouter` 路由到 adapter（FR-4/FR-9 最小生产路径）。
 >    新增 `IM_WEBHOOK_SECRET` 环境变量，缺省 500 fail-closed。
 >
-> **仍待修（降为 P1 残项）**：持久化 `SessionBindingRegistry`（`im_channels`/
->    `im_session_bindings` 集合）、Feishu/DingTalk/Wecom/Slack/Teams 各 adapter 实现。
+> **已修**：持久化 SessionBindingRegistry（续四十五）——新增
+>    `PersistedSessionBindingRegistry`（async，读写 `im_session_bindings`/
+>    `im_channels` 集合），webhook 端点据此校验频道开关并持久化
+>    会话绑定（FR-10/FR-9/FR-14）；DB 不可用时降级内存不伪造。
+> **仍待修（降为 P1 残项）**：Feishu/DingTalk/Wecom/Slack/Teams 各 adapter 实现。
 - **零生产 import**：`from app.im_gateway` 在 `app/` 0 命中；全部 `ChannelRouter(` 实例化在 tests。
 - **无入口 endpoint**：plan 要求的 `im_channels.py` 不存在，`main.py` 未注册 IM/webhook 路由。
-- **无持久化**：`im_channels`/`im_session_bindings` 0 命中，`SessionBindingRegistry` 是进程内 dict。
+- **无持久化**：`SessionBindingRegistry` 是进程内 dict（已修续四十五，`PersistedSessionBindingRegistry` 落库 `im_session_bindings`/`im_channels`）。
 - **webhook 接收端不存在** → 签名校验无保护对象。
 - 附带：审计默认 sink 与代码不符、001 门禁依赖悬空。
 
