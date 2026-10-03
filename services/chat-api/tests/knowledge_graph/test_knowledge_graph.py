@@ -283,3 +283,222 @@ def test_persisted_store_supports_constraint_checks(monkeypatch):
     # Silence the 001 audit bridge (no app context in unit tests).
     monkeypatch.setattr("app.knowledge_graph.consistency._audit_kg_audited", lambda conflicts: None)
     assert check_all(store, ConstraintBundle()) == []
+
+
+# --- 015 FR-1 extraction (续五十七) -----------------------------------------
+
+from app.knowledge_graph.extract import (
+    extract,
+    extract_from_record,
+    extract_from_text,
+    apply_to_store,
+    ExtractionResult,
+)
+
+
+def test_extract_from_record_structured() -> None:
+    """A structured record with owner/department/product/responsible_for
+    fields produces the expected typed nodes and edges."""
+    result = extract_from_record({
+        "owner": "Alice",
+        "department": "Engineering",
+        "product": "Mogo",
+        "responsible_for": ["Mogo", "SlackBot"],
+    })
+    node_map = {n.node_id: n for n in result.nodes}
+    # owner → person
+    assert "rec:owner" in node_map and node_map["rec:owner"].entity_type == "person"
+    assert node_map["rec:owner"].name == "Alice"
+    # department → organization
+    assert "rec:department" in node_map and node_map["rec:department"].entity_type == "organization"
+    assert node_map["rec:department"].name == "Engineering"
+    # product → product
+    assert "rec:product" in node_map and node_map["rec:product"].entity_type == "product"
+    # responsible_for edges
+    edge_pairs = {(e.source, e.target, e.relation) for e in result.edges}
+    assert ("rec:owner", "rec:mogo", "responsible") in edge_pairs
+    assert ("rec:owner", "rec:slackbot", "responsible") in edge_pairs
+
+
+def test_extract_from_record_source_ref_pointer() -> None:
+    """When owner is a dict with an id, that id is used as source_ref (FR-13)."""
+    result = extract_from_record({
+        "owner": {"id": "biz-cust-123", "name": "Acme Corp"},
+        "product": {"id": "prod-456", "name": "Widget"},
+    })
+    owner_node = next(n for n in result.nodes if n.node_id == "rec:owner")
+    assert owner_node.source_ref == "biz-cust-123"
+    assert owner_node.name == "Acme Corp"
+    prod_node = next(n for n in result.nodes if n.node_id == "rec:product")
+    assert prod_node.source_ref == "prod-456"
+
+
+def test_extract_from_text_owner_company() -> None:
+    """owner: Bob, company: ACME produces a person + organization node."""
+    result = extract_from_text("owner: Bob, company: ACME")
+    names = {n.name for n in result.nodes}
+    types = {n.entity_type for n in result.nodes}
+    assert "Bob" in names
+    assert "ACME" in names
+    assert "person" in types
+    assert "organization" in types
+
+
+def test_extract_from_text_no_match_returns_empty() -> None:
+    result = extract_from_text("just some random text with no entity patterns here")
+    assert result.nodes == []
+    assert result.edges == []
+
+
+def test_extract_dispatch_dict() -> None:
+    result = extract({"owner": "X"})
+    assert any(n.name == "X" for n in result.nodes)
+
+
+def test_extract_dispatch_str() -> None:
+    result = extract("owner: Y")
+    assert any(n.name == "Y" for n in result.nodes)
+
+
+def test_extract_unsupported_type_raises() -> None:
+    import pytest
+    with pytest.raises(TypeError):
+        extract(42)
+
+
+def test_apply_to_store_writes_nodes_and_edges() -> None:
+    """apply_to_store writes to a KgStore and reports the counts."""
+    from app.knowledge_graph import KgStore
+    store = KgStore()
+    counts = apply_to_store(store, {
+        "owner": "Z",
+        "product": "P1",
+        "responsible_for": ["P1"],
+    })
+    assert counts["nodes_added"] >= 3  # owner + product + responsible target
+    assert counts["edges_added"] >= 1
+    assert "rec:owner" in store.nodes
+
+
+# --- 015 FR-13 source_ref resolve endpoint ----------------------------------
+
+
+def test_resolve_source_ref_no_ref(monkeypatch):
+    """A node without source_ref returns resolved=False / no_source_ref."""
+    import asyncio
+    from fastapi import HTTPException
+
+    import app.api.endpoints.knowledge_graph as kg_ep
+
+    async def _fake_resolve(authorization=None):
+        return {"main_id": "main-t", "user": {"_id": "u1"}, "user_id": "u1"}
+
+    monkeypatch.setattr("app.services.end_user_session.resolve_session_user", _fake_resolve)
+
+    # Patch TenantKgStore to return a node without source_ref.
+    from app.knowledge_graph.persisted_store import TenantKgStore
+    from app.knowledge_graph.schema import KgNode
+
+    original_get_node = TenantKgStore.get_node
+
+    def _fake_get_node(self, node_id):
+        return KgNode(node_id=node_id, entity_type="person", name="NoRef", source_ref="")
+
+    monkeypatch.setattr(TenantKgStore, "get_node", _fake_get_node)
+    monkeypatch.setattr(TenantKgStore, "_ensure_loaded", lambda self: _coro())
+
+    async def _coro(): pass
+
+    result = asyncio.run(kg_ep.resolve_source_ref("node-1", authorization="Bearer x"))
+    assert result["data"]["resolved"] is False
+    assert result["data"]["reason"] == "no_source_ref"
+
+
+def test_resolve_source_ref_with_ref_no_target(monkeypatch):
+    """A node with source_ref but no matching biz_entities row returns
+    resolved=False / pointer_target_missing."""
+    import asyncio
+
+    import app.api.endpoints.knowledge_graph as kg_ep
+    from app.knowledge_graph.persisted_store import TenantKgStore
+    from app.knowledge_graph.schema import KgNode
+    from app.core.db import get_db
+
+    async def _fake_resolve(authorization=None):
+        return {"main_id": "main-t", "user": {"_id": "u1"}, "user_id": "u1"}
+
+    monkeypatch.setattr("app.services.end_user_session.resolve_session_user", _fake_resolve)
+
+    def _fake_get_node(self, node_id):
+        return KgNode(node_id=node_id, entity_type="person", name="HasRef",
+                       source_ref="biz-cust-999")
+
+    monkeypatch.setattr(TenantKgStore, "get_node", _fake_get_node)
+
+    async def _fake_load(self): pass
+    monkeypatch.setattr(TenantKgStore, "_ensure_loaded", _fake_load)
+
+    # Patch get_db to return a fake DB with no matching row.
+    class _FakeColl:
+        async def find_one(self, query):
+            return None
+    class _FakeDB:
+        def __getitem__(self, name):
+            assert name == "biz_entities"
+            return _FakeColl()
+
+    monkeypatch.setattr("app.core.db.get_db", lambda: _FakeDB())
+
+    result = asyncio.run(kg_ep.resolve_source_ref("node-1", authorization="Bearer x"))
+    assert result["data"]["resolved"] is False
+    assert result["data"]["reason"] == "pointer_target_missing"
+
+
+# --- 015 RAG candidates ------------------------------------------------------
+
+
+def test_kg_rag_candidates_returns_entity_context(monkeypatch):
+    """kg_rag_candidates finds a node by name and returns its context."""
+    import asyncio
+
+    from app.knowledge_graph.rag_candidates import kg_rag_candidates
+    from app.knowledge_graph.persisted_store import TenantKgStore
+    from app.knowledge_graph.schema import KgNode, KgEdge
+
+    # Build a fake store with a pre-seeded node.
+    async def _fake_load(self):
+        self._nodes = {
+            "n-1": KgNode(node_id="n-1", entity_type="product", name="Mogo", source_ref="biz-prod-1"),
+            "n-2": KgNode(node_id="n-2", entity_type="person", name="Alice"),
+        }
+        self._edges = {"n-2": [KgEdge(source="n-2", target="n-1", relation="responsible")]}
+        self._loaded = True
+
+    monkeypatch.setattr(TenantKgStore, "_ensure_loaded", _fake_load)
+
+    candidates = asyncio.run(kg_rag_candidates(
+        tenant_id="main-t",
+        entity_terms=["Mogo"],
+        top_n=3,
+    ))
+    assert len(candidates) == 1
+    assert candidates[0]["entity_type"] == "product"
+    assert candidates[0]["source_ref"] == "biz-prod-1"
+    assert "n-1" in candidates[0]["neighbours"] or len(candidates[0]["neighbours"]) == 0
+    assert "Mogo" in candidates[0]["context_text"]
+
+
+def test_kg_rag_candidates_unknown_term_returns_empty(monkeypatch):
+    import asyncio
+    from app.knowledge_graph.rag_candidates import kg_rag_candidates
+    from app.knowledge_graph.persisted_store import TenantKgStore
+
+    async def _fake_load(self):
+        self._nodes = {}
+        self._edges = {}
+        self._loaded = True
+
+    monkeypatch.setattr(TenantKgStore, "_ensure_loaded", _fake_load)
+
+    candidates = asyncio.run(kg_rag_candidates(tenant_id="main-t", entity_terms=["unknown"]))
+    assert candidates == []

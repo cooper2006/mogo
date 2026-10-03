@@ -4324,3 +4324,31 @@ Slack/Teams 四个通道在 `SUPPORTED_CHANNELS` 中但 `build_adapter` 直接
 - 所有断言验证解析产物中实际数据值（姓名/城市/幻灯片标题等）出现。
 
 **验证**：`test_document_parser_real_data.py` 9 passed；003 残项清零。
+
+## 2026-10-03（续五十七）015 FR-1 自动抽取 + FR-13 source_ref 读写 + RAG 接入
+
+**背景**：015 三大残项——
+- FR-1：无 `extract.py`，从文档/数据抽取实体与关系构建知识图谱的能力完全缺失；
+- FR-13：`kg_nodes.source_ref` 只有数据类字段，无端点写入/解析 014 `biz_entities` 指针；
+- RAG 接入：KG 实体上下文未注入 `knowledge_search`，检索时无法利用租户图谱。
+
+**改动**：
+- 新增 `app/knowledge_graph/extract.py`：
+  - `extract_from_record`：结构化 dict → 类型化节点（person/org/product/event）+
+    关系（responsible/reference/association/membership）；
+  - `extract_from_text`：自由文本正则识别 `owner: X` / `company: Y` 等模式；
+  - `apply_to_store`：抽取结果写入任意 `KgStore`/`TenantKgStore`，返回写入计数；
+  - LLM 无关，不伪造实体；`__init__.py` 导出全部抽取符号；
+- `knowledge_graph.py` 端点扩展：
+  - `POST /api/kg/extract`：接收结构化 record 或 text，抽取并持久化，返回结果；
+  - `POST /api/kg/nodes`：创建/合并节点，`source_ref` 指针写入（FR-13，不复制数据）；
+  - `GET /api/kg/nodes/{id}/resolve`：跟随 `source_ref` 指针到 014 `biz_entities`，
+    目标缺失时返回 `resolved=False` 不伪造；
+- 新增 `app/knowledge_graph/rag_candidates.py`：`kg_rag_candidates` 按查询词匹配
+  节点名称/ID，返回含 neighbours + context_text 的 RAG 候选；
+- `adapters.py knowledge_search` 注入 KG 候选（`payload["kg_context"]`，有候选时才设）。
+
+**验证**：
+- knowledge_graph 测试 38 passed（新增 12 项：record/text 抽取、source_ref 指针、
+  端点 resolve、RAG 候选）；
+- chat-api 导入全量通过；015 残项清零。

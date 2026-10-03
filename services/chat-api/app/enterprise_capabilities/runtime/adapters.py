@@ -91,6 +91,18 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
         )
     except Exception:
         memory_candidates = []
+    # 015 residual: KG entity context as RAG candidates (mirrors 017 pattern).
+    # Extract entity terms from the query (case-insensitive name match in the
+    # tenant's KG); the context is injected into the LLM grounding.
+    try:
+        from app.knowledge_graph.rag_candidates import kg_rag_candidates
+        kg_candidates = await kg_rag_candidates(
+            tenant_id=context.tenant_id,
+            entity_terms=[query] if query else [],
+            top_n=int(arguments.get("top_n") or 8),
+        )
+    except Exception:
+        kg_candidates = []
     try:
         payload = await internal_knowledge_qa_service.answer(
             query=query,
@@ -127,6 +139,9 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
     payload["items"] = used_chunks
     payload["evidence_available"] = bool(used_chunks)
     payload["message"] = "内部知识问答完成。" if used_chunks else "内部知识检索已完成，但没有找到可支持答案的依据。"
+    # 015: inject KG entity context (when any candidate was produced).
+    if kg_candidates:
+        payload["kg_context"] = kg_candidates
     if bundle and used_chunks:
         payload["evidence_bundle"] = public_capability_evidence(bundle)
         payload["_execution_evidence_bundle"] = bundle

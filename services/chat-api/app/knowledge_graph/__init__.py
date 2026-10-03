@@ -27,6 +27,13 @@ from .consistency import (
 )
 from .store import KgStore, merge_nodes
 from .query import CycleGuard, MultiHopResult, traverse
+from .extract import (
+    ExtractionResult,
+    apply_to_store,
+    extract,
+    extract_from_record,
+    extract_from_text,
+)
 
 __all__ = [
     "KgNode",
@@ -45,4 +52,10 @@ __all__ = [
     "CardinalityRule",
     "check_all",
     "mark_conflicts",
+    # 015 FR-1: extraction
+    "ExtractionResult",
+    "apply_to_store",
+    "extract",
+    "extract_from_record",
+    "extract_from_text",
 ]

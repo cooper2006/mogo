@@ -330,7 +330,7 @@
 > MOVO 不回写业务库；plan 承诺的 `connectors/`/`entity_extract.py`/`incremental.py`
 > 同步抽取未实现（无业务源系统接入），属后续数据源补齐，不标记"已实现核心"。
 
-### 015 knowledge-graph-layer（6）—— **store + 查询端点已接线（2026-10-03，见 WORK_LOG 续二十三）**
+### 015 knowledge-graph-layer（6）—— **全修（2026-10-03，见 WORK_LOG 续二十三/四十六/五十七）**
 
 > **已修**：`TenantKgStore`（MongoDB `kg_nodes`/`kg_edges` 集合，tenant 分区，
 >    lazy-load）+ `GET /api/kg/nodes/{id}`（FR-2 单节点查询）和
@@ -340,8 +340,14 @@
 >    运行 `consistency.check_all`（互斥/基数/传递）+ `mark_conflicts`（FR-14），
 >    冲突标记落库 `kg_nodes`，审计入 001 流（kg.audited）；
 >    `TenantKgStore` 补 `nodes`/'edges_of' 接口对齐 `KgStore'。
-> **仍待修（降为 P1 残项）**：FR-1 自动抽取入口（无 `extract.py`）；
->    FR-13 `source_ref` 读写；RAG 接入。
+> **已修**：FR-1 自动抽取（续五十七）——`extract.py` 规则抽取器
+>    （结构化记录 / 自由文本 → 类型化实体 + 关系，无 LLM，不伪造）；
+>    `POST /api/kg/extract` 端点；`apply_to_store` 写入 store。
+> **已修**：FR-13 `source_ref` 读写 + RAG 接入（续五十七）——
+>    `POST /api/kg/nodes`（写 source_ref 指针，不复制 014 数据）；
+>    `GET /api/kg/nodes/{id}/resolve`（指针解析回 014 `biz_entities`，
+>    无数据时返回 resolved=False 不伪造）；
+>    `kg_rag_candidates` 注入 `knowledge_search` RAG 上下文。
 
 ### 016 skill-market-hardening（6）—— **canary 端点已接线（2026-10-03，见 WORK_LOG 续二十六）**
 
