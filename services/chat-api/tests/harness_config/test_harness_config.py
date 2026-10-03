@@ -205,3 +205,181 @@ def test_required_layers_never_skipped() -> None:
     plan = build_gate_plan(mode="thin")
     for required in REQUIRED_LAYERS:
         assert required not in plan.skipped_layers
+
+
+# --- 019 FR-7 / FR-9: CRUD endpoint ------------------------------------------
+
+
+class _FakeColl:
+    """Minimal in-memory Motor-compatible fake for the harness_profiles collection."""
+
+    def __init__(self, rows: list[dict] | None = None):
+        self._rows: list[dict] = [dict(r) for r in (rows or [])]
+
+    def find(self, query):
+        query = {k: v for k, v in query.items() if v is not None and k != "main_id"}
+        rows = [r for r in self._rows]
+        for k, v in query.items():
+            rows = [r for r in rows if r.get(k) == v]
+        class _Cur:
+            def __init__(self, rows):
+                self._rows = rows
+            async def to_list(self, length=None):
+                return self._rows[:length] if length else self._rows
+        return _Cur(rows)
+
+    async def find_one(self, query):
+        query = {k: v for k, v in query.items() if v is not None and k != "main_id"}
+        for row in self._rows:
+            if all(row.get(k) == v for k, v in query.items()):
+                return dict(row)
+        return None
+
+    async def replace_one(self, query, doc, upsert=False):
+        query = {k: v for k, v in query.items() if v is not None and k != "main_id"}
+        for i, row in enumerate(self._rows):
+            if all(row.get(k) == v for k, v in query.items()):
+                self._rows[i] = dict(doc)
+                return type("R", (), {})()
+        if upsert:
+            self._rows.append(dict(doc))
+        return type("R", (), {})()
+
+    async def delete_one(self, query):
+        query = {k: v for k, v in query.items() if v is not None and k != "main_id"}
+        for i, row in enumerate(self._rows):
+            if all(row.get(k) == v for k, v in query.items()):
+                del self._rows[i]
+                return type("R", (), {"deleted_count": 1})()
+        return type("R", (), {"deleted_count": 0})()
+
+
+class _FakeDB:
+    def __init__(self, rows: list[dict] | None = None):
+        self._coll = _FakeColl(rows)
+    def __getitem__(self, name):
+        assert name == "harness_profiles"
+        return self._coll
+
+
+def _fake_resolve(monkeypatch, *, main_id="main-test", user_id="u-1", role="full_access_admin"):
+    """Patch the session-user resolver so the endpoint doesn't hit the DB."""
+    import app.services.end_user_session as _s
+
+    async def _resolve(authorization=None):
+        return {"main_id": main_id, "user": {"_id": user_id}, "user_id": user_id, "role": role}
+
+    monkeypatch.setattr(_s, "resolve_session_user", _resolve)
+
+
+def _fake_full_access(monkeypatch, allowed=True):
+    import app.api.endpoints.dsh_session_versioning as _sv
+
+    async def _fake(db, main_id, user_id):
+        return allowed
+
+    monkeypatch.setattr(_sv, "_user_has_full_access", _fake)
+
+
+def test_upsert_profile_creates_and_audits(monkeypatch):
+    import asyncio
+    import app.api.endpoints.harness_profiles as hp
+
+    _fake_resolve(monkeypatch)
+    _fake_full_access(monkeypatch, allowed=True)
+    db = _FakeDB([])
+    monkeypatch.setattr(hp, "get_db", lambda: db)
+
+    result = asyncio.run(hp.upsert_profile(
+        "scene", "research",
+        {"mode": "thin"},
+        authorization="Bearer x",
+    ))
+    assert result["code"] == 0
+    assert result["data"]["mode"] == "thin"
+    assert len(db._coll._rows) == 1
+    assert db._coll._rows[0]["scope"] == "scene"
+
+
+def test_upsert_profile_rejects_floor_violation(monkeypatch):
+    import asyncio
+    import app.api.endpoints.harness_profiles as hp
+
+    _fake_resolve(monkeypatch)
+    _fake_full_access(monkeypatch, allowed=True)
+    db = _FakeDB([])
+    monkeypatch.setattr(hp, "get_db", lambda: db)
+
+    # Dropping a required layer (identity) must be rejected server-side (FR-8).
+    import pytest
+    with pytest.raises(Exception, match="floor violation|400"):
+        asyncio.run(hp.upsert_profile(
+            "scene", "s",
+            {"mode": "thick", "enabled_layers": ["rbac", "audit"]},
+            authorization="Bearer x",
+        ))
+    assert len(db._coll._rows) == 0  # nothing was persisted
+
+
+def test_upsert_profile_requires_full_access(monkeypatch):
+    import asyncio
+    import app.api.endpoints.harness_profiles as hp
+    from fastapi import HTTPException
+
+    _fake_resolve(monkeypatch)
+    _fake_full_access(monkeypatch, allowed=False)
+    db = _FakeDB([])
+    monkeypatch.setattr(hp, "get_db", lambda: db)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(hp.upsert_profile(
+            "scene", "s", {"mode": "thick"}, authorization="Bearer x",
+        ))
+    assert exc.value.status_code == 403
+    assert "FR-9" in exc.value.detail
+
+
+def test_delete_profile_removes_and_audits(monkeypatch):
+    import asyncio
+    import app.api.endpoints.harness_profiles as hp
+
+    _fake_resolve(monkeypatch)
+    _fake_full_access(monkeypatch, allowed=True)
+    existing = {"scope": "scene", "key": "s1", "mode": "thick", "tenant_id": "main-test"}
+    db = _FakeDB([existing])
+    monkeypatch.setattr(hp, "get_db", lambda: db)
+
+    result = asyncio.run(hp.delete_profile("scene", "s1", authorization="Bearer x"))
+    assert result["code"] == 0
+    assert len(db._coll._rows) == 0
+
+
+def test_delete_profile_not_found(monkeypatch):
+    import asyncio
+    import app.api.endpoints.harness_profiles as hp
+    from fastapi import HTTPException
+
+    _fake_resolve(monkeypatch)
+    _fake_full_access(monkeypatch, allowed=True)
+    db = _FakeDB([])
+    monkeypatch.setattr(hp, "get_db", lambda: db)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(hp.delete_profile("scene", "missing", authorization="Bearer x"))
+    assert exc.value.status_code == 404
+
+
+def test_list_profiles_returns_all(monkeypatch):
+    import asyncio
+    import app.api.endpoints.harness_profiles as hp
+
+    _fake_resolve(monkeypatch)
+    rows = [
+        {"scope": "scene", "key": "a", "mode": "thick", "tenant_id": "main-test"},
+        {"scope": "scene", "key": "b", "mode": "thin", "tenant_id": "main-test"},
+    ]
+    db = _FakeDB(rows)
+    monkeypatch.setattr(hp, "get_db", lambda: db)
+
+    result = asyncio.run(hp.list_profiles(authorization="Bearer x"))
+    assert result["data"]["total"] == 2

@@ -114,6 +114,7 @@ from app.api.endpoints import (
     dsh_model_gateway,
     dsh_tool_gateway,
     external_tools,
+    harness_profiles,
     im_gateway,
     knowledge_graph,
     knowledge_sources,
@@ -184,6 +185,8 @@ app.include_router(research.router, prefix="/api")
 app.include_router(business_index.router)
 # 015: knowledge graph query surface (FR-2 / FR-10 minimal wiring).
 app.include_router(knowledge_graph.router)
+# 019: harness elastic-config CRUD (FR-7 / FR-9 — admin-only writes).
+app.include_router(harness_profiles.router)
 
 from app.product.extensions import get_product_extension
 

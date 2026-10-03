@@ -391,18 +391,21 @@
 - **治理视图无消费方**。
 - 附带：`a2a_exposed` → 012 未接线。
 
-### 019 harness-elastic-config（4）—— **harness_mode 跨服务通道已修（2026-10-03，见 WORK_LOG 续十九）**
+### 019 harness-elastic-config（4）—— **全修（2026-10-03，见 WORK_LOG 续十九/五十三）**
 
 > **已修**：`GateEvaluatePayload` 加 `harnessMode`；`GateContext` 加 `harness_mode`；
 >    `_resolve_layers` 按 thin 模式过滤 approval+quota 层（floor 永保留）。
 >    chat-api `gatekeeper_client.evaluate` 透传；`HARNESS_MODE` 环境变量支持；
 >    两处调用点注入 request。租户清除表登记 `experience_fragments`/`skill_drafts`。
 >
-> **仍待修（降为 P1 残项）**：FR-7 CRUD 端点、FR-9 变更审计与 RBAC 约束。
+> **已修**：FR-7/FR-9 CRUD 端点（续五十三）——`POST/GET/DELETE /api/harness-profiles`，
+>    写操作要求 `full_access_admin`，变更前后 diff 入 001 审计流；
+>    FR-8 服务端 floor 校验拒绝缺省红线层的配置。
+> **仍待修（降为 P1 残项）**：（无）。
 - **两处生产调用点均未传 `request=`** → `harness_mode` 恒 `thick`，薄模式不可达。
 - **`ProfileResolver` 零生产调用方**，`harness_profiles` 存储不存在。
 - **产出无消费方**：`run_gate_plan` 返回值被丢弃，`skipped_layers` 不驱动任何跳过（审批/配额照跑）。
-- **FR-7/FR-9 未实现**：无 CRUD 端点、无变更审计、无 RBAC 约束。
+- **FR-7/FR-9 已修（续五十三）**：`/api/harness-profiles` CRUD 端点 + `full_access_admin` 门禁 + 变更审计。
 
 ### 020 platform-multi-tenancy（3）—— **已接线（2026-10-03，见 WORK_LOG 续三十二）**
 
