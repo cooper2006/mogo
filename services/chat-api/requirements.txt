@@ -53,6 +53,11 @@ oss2==2.19.1
 tenacity>=8.3.0
 fastapi==0.141.1
 firecrawl-py>=4.6.0
+# 阿里云百炼（通义万相）多模态图像生成 SDK。
+# app/tools/infographic.py 与 app/services/image_generation.py 依赖
+# dashscope.MultiModalConversation 与 dashscope.base_http_api_url；
+# 此前仅在镜像中手工安装而未声明，干净重建后缺失导致 chat-api 启动失败。
+dashscope==1.27.7
 uvicorn[standard]>=0.27.0
 pydantic-settings>=2.1.0
 python-multipart>=0.0.9
