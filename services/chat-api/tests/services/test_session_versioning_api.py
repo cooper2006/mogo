@@ -410,6 +410,46 @@ def test_share_redemption_by_token_works(client, fake_db) -> None:
     assert response.json().get("share_id"), created.text
 
 
+def test_commit_falls_back_to_chat_messages_for_redaction(client, fake_db, monkeypatch) -> None:
+    """002 residual fix: when the client omits content, the server reads
+    chat_messages as the redaction source so secrets in the real history
+    are redacted before entering the snapshot (FR-7 server-side fallback)."""
+    from app.api.endpoints import dsh_session_versioning as endpoint
+    from app.services.session_versioning.snapshot import SECRET_REF_COLLECTION
+    from app.services.session_versioning.placeholder import PLACEHOLDER_OPEN
+
+    db_obj, collections = fake_db
+    # A real server-side message carrying a suspected secret.
+    db_obj["chat_messages"]._docs.append({
+        "session_id": "s-fb",
+        "main_id": "m-1",
+        "role": "user",
+        "content": "deploy with secret sk-abcdefgh12345678",
+    })
+    # Point the auth fixture at a non-default main so the tenant scope filter
+    # stays a plain dict (no nested $or) in the fake DB.
+    async def _user(authorization: str | None):
+        return {"user": {"_id": "u-1"}, "main_id": "m-1"}
+
+    monkeypatch.setattr(endpoint, "_resolve_session_user", _user)
+
+    # No content supplied → the server must fall back to chat_messages.
+    response = client.post(
+        "/api/sessions/s-fb/commit",
+        json={"seq": 7, "trigger": "manual", "summary": "checkpoint"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # The plaintext secret must NOT survive in the snapshot.
+    assert "sk-abcdefgh12345678" not in str(body.get("content") or "")
+    assert PLACEHOLDER_OPEN in str(body.get("content") or "")
+    # The server-side fallback content is what was persisted.
+    assert "deploy" in str(body.get("content") or "")
+    # The secret original is stored in the secret-ref collection (FR-8).
+    refs = collections.get(SECRET_REF_COLLECTION, _FakeColl([]))._docs
+    assert any("sk-abcdefgh12345678" in str(row.get("original") or "") for row in refs)
+
+
 def test_resume_returns_target_snapshot_metadata(client, fake_db) -> None:
     """002 audit fix: resume returns the target snapshot's metadata, not just a seq number."""
     client.post(

@@ -178,11 +178,32 @@ async def commit_session(
         )
         for item in payload.attachments
     ]
+    # 002 residual fix: server-side fallback redaction. The commit metadata is
+    # client-reported; when the caller did not supply conversation content,
+    # read the real session messages from chat_messages so secrets in the
+    # server-side history are still redacted before they enter the snapshot
+    # (never stored in plaintext, FR-7).
+    content_source = payload.content
+    if not content_source:
+        try:
+            from app.core.tenant import add_main_scope, resolve_main_id
+
+            rows = await db.chat_messages.find(
+                add_main_scope({"session_id": session_id}, resolve_main_id(main_id))
+            ).sort("seq", 1).to_list(length=200)
+            content_source = "\n".join(
+                f"{row.get('role') or ''}: {row.get('content') or ''}"
+                for row in rows
+                if row.get("content")
+            )
+        except Exception:  # noqa: BLE001 - degradation must not block the commit
+            content_source = ""
     # FR-7: never store suspected secrets in plaintext. Redact the summary and
-    # the caller-supplied conversation content; keep the originals only in
-    # session_secret_refs (owner/admin dereference, FR-8, audited).
+    # the conversation content (caller-supplied or server-side fallback); keep
+    # the originals only in session_secret_refs (owner/admin dereference, FR-8,
+    # audited).
     summary_redacted, summary_ids = redact_text(payload.summary)
-    content_redacted, content_ids = redact_text(payload.content)
+    content_redacted, content_ids = redact_text(content_source)
     secret_ids = list(dict.fromkeys(summary_ids + content_ids))
     snapshot = build_snapshot(
         session_id=session_id,
@@ -199,7 +220,7 @@ async def commit_session(
     document["secret_refs"] = secret_ids
     # Persist the original secret values, scoped to the session + main (FR-8).
     if secret_ids:
-        originals = _collect_originals(payload.summary, payload.content, ids=secret_ids)
+        originals = _collect_originals(payload.summary, content_source, ids=secret_ids)
         refs = [
             secret_ref_document(
                 session_id=session_id, main_id=main_id, token_id=tid, original=originals.get(tid, ""), actor=user_id
