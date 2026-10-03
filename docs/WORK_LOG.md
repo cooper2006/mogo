@@ -3842,3 +3842,17 @@ API 将记忆从 personal/workspace 提升为 org scope。
   （query 加同名字段）已透出。
 
 **验证**：resource_feedback 测试 9 passed（新增 release 作用域测试）。
+
+## 2026-10-03（续四十四）018 MongoDB 持久化
+
+**背景**：001 audit 残项——`CapabilityAssetRegistry` 是纯内存 dict，capability
+资产进程重启即丢失，且跨副本不可共享。
+
+**改动**（registry.py + capability_assets.py）：
+- 新增 `_asset_to_row`/`_row_to_asset` 序列化函数；
+- 新增 `PersistedCapabilityRegistry`（async，MongoDB `capability_assets` 集合，
+  镜像同步 registry 全部 API：register/get/list_all/discover_and_register/
+  update_contract/set_state/transfer_owner）；
+- 端点 `capability_assets.py` 改用 `PersistedCapabilityRegistry` + await。
+
+**验证**：capability 测试 21 passed（新增 FR-10 roundtrip 序列化测试）。

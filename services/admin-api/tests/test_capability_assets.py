@@ -154,3 +154,41 @@ def test_discover_keeps_same_endpoint_different_method() -> None:
         ]
     )
     assert len(report.discovered) == 2
+
+
+def test_persisted_registry_roundtrip_serialization():
+    """FR-10: _asset_to_row / _row_to_asset preserve all CapabilityAsset fields."""
+    from app.services.capability_assets.registry import (
+        _asset_to_row,
+        _row_to_asset,
+        CapabilityAsset,
+    )
+    from app.services.capability_assets.contract import normalize_contract
+
+    asset = CapabilityAsset(
+        asset_id="rest_/api/x_POST",
+        name="X",
+        contract=normalize_contract({"input": {"q": "str"}}),
+        version=2,
+        owner_role="full_access_admin",
+        state="active",
+        endpoint="/api/x",
+        method="POST",
+        kind="rest",
+        a2a_exposed=True,
+        versions=[{"version": 1, "contract": {}}],
+    )
+    row = _asset_to_row(asset)
+    # Round-trip: the row must reconstruct the same asset fields.
+    restored = _row_to_asset(row)
+    assert restored.asset_id == asset.asset_id
+    assert restored.name == asset.name
+    assert restored.version == 2
+    assert restored.owner_role == "full_access_admin"
+    assert restored.state == "active"
+    assert restored.endpoint == "/api/x"
+    assert restored.method == "POST"
+    assert restored.kind == "rest"
+    assert restored.a2a_exposed is True
+    assert restored.contract.input == {"q": "str"}
+    assert restored.versions == [{"version": 1, "contract": {}}]

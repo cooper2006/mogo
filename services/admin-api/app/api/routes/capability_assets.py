@@ -1,8 +1,8 @@
 """Capability asset registry endpoints (feature 018).
 
-Minimal production wiring: exposes discover + list + get operations on the
-in-memory ``CapabilityAssetRegistry``. Persistence to MongoDB is tracked as
-a follow-up (FR-10).
+Production wiring with MongoDB persistence (FR-10): capabilities are stored
+in the ``capability_assets`` collection so they survive process restarts
+and are shareable across replicas.
 """
 
 from __future__ import annotations
@@ -14,17 +14,16 @@ from fastapi import APIRouter, Header, HTTPException
 from app.services.capability_assets.registry import (
     ASSET_STATES,
     AssetError,
-    CapabilityAssetRegistry,
+    PersistedCapabilityRegistry,
 )
 
 router = APIRouter(prefix="/api/capabilities", tags=["capability-assets"])
 
-# Module-level singleton registry. In production this would be DI-injected and
-# backed by MongoDB (FR-10).
-_registry = CapabilityAssetRegistry()
+# Module-level singleton registry backed by MongoDB (FR-10).
+_registry = PersistedCapabilityRegistry()
 
 
-def _get_registry() -> CapabilityAssetRegistry:
+def _get_registry() -> PersistedCapabilityRegistry:
     return _registry
 
 
@@ -33,7 +32,7 @@ async def discover_capabilities(
     payload: dict[str, Any],
     service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
 ) -> dict[str, Any]:
-    """Discover capabilities from candidate definitions and register them (FR-2)."""
+    """Discover capabilities from candidate definitions and register them (FR-2 / FR-10)."""
     from app.core.config import settings
 
     expected = str(settings.backend_service_token or "")
@@ -41,7 +40,7 @@ async def discover_capabilities(
         raise HTTPException(status_code=401, detail="invalid_service_token")
 
     candidates = list(payload.get("candidates") or [])
-    report = _get_registry().discover_and_register(candidates)
+    report = await _get_registry().discover_and_register(candidates)
     return {
         "code": 0,
         "message": "discovered",
@@ -69,7 +68,7 @@ async def list_capabilities(
     if state is not None and state not in ASSET_STATES:
         raise HTTPException(status_code=400, detail=f"invalid state: {state!r}")
 
-    assets = _get_registry().list_all(state=state)
+    assets = await _get_registry().list_all(state=state)
     return {
         "code": 0,
         "message": "ok",
@@ -92,7 +91,7 @@ async def get_capability(
     if not service_token or not expected or not __import__("hmac").compare_digest(service_token, expected):
         raise HTTPException(status_code=401, detail="invalid_service_token")
 
-    asset = _get_registry().get(asset_id)
+    asset = await _get_registry().get(asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="capability_not_found")
     return {

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 from .contract import AssetContract, contract_diff, normalize_contract
@@ -156,8 +157,7 @@ def discover_assets(candidates: Iterable[dict[str, Any]]) -> DiscoveryReport:
 class CapabilityAssetRegistry:
     """In-memory registry of capability assets (018 FR-1 / FR-2 / FR-5 / FR-6 / FR-10).
 
-    Production persistence (MongoDB ``capability_assets`` collection) is tracked
-    as a follow-up (FR-10).
+    Used by unit tests and by the ``PersistedCapabilityRegistry`` (FR-10).
     """
 
     def __init__(self) -> None:
@@ -205,3 +205,123 @@ class CapabilityAssetRegistry:
 
     def __len__(self) -> int:
         return len(self._assets)
+
+
+# ---------------------------------------------------------------------------
+# MongoDB-backed persistence (FR-10)
+# ---------------------------------------------------------------------------
+
+COLLECTION = "capability_assets"
+
+
+def _asset_to_row(asset: CapabilityAsset) -> dict[str, Any]:
+    return {
+        "asset_id": asset.asset_id,
+        "name": asset.name,
+        "endpoint": asset.endpoint,
+        "method": asset.method,
+        "kind": asset.kind,
+        "version": asset.version,
+        "state": asset.state,
+        "owner_role": asset.owner_role,
+        "a2a_exposed": bool(asset.a2a_exposed),
+        "contract": asset.contract.as_dict(),
+        "versions": list(asset.versions),
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+
+def _row_to_asset(row: dict[str, Any]) -> CapabilityAsset:
+    return CapabilityAsset(
+        asset_id=str(row.get("asset_id") or ""),
+        name=str(row.get("name") or ""),
+        contract=normalize_contract(row.get("contract")),
+        version=int(row.get("version") or 1),
+        owner_role=str(row.get("owner_role") or ""),
+        state=str(row.get("state") or "active"),
+        endpoint=str(row.get("endpoint") or ""),
+        method=str(row.get("method") or ""),
+        kind=str(row.get("kind") or "rest"),
+        a2a_exposed=bool(row.get("a2a_exposed") or False),
+        versions=list(row.get("versions") or []),
+    )
+
+
+class PersistedCapabilityRegistry:
+    """MongoDB-backed registry for capability assets (018 FR-10).
+
+    Assets survive process restarts and are shareable across replicas.
+    Mirrors the synchronous ``CapabilityAssetRegistry`` API with async
+    methods that read/write the ``capability_assets`` collection.
+    """
+
+    async def register(self, asset: CapabilityAsset) -> None:
+        from app.core.db import get_db
+
+        db = get_db()
+        row = _asset_to_row(asset)
+        await db[COLLECTION].replace_one({"asset_id": asset.asset_id}, row, upsert=True)
+
+    async def get(self, asset_id: str) -> Optional[CapabilityAsset]:
+        from app.core.db import get_db
+
+        db = get_db()
+        row = await db[COLLECTION].find_one({"asset_id": asset_id})
+        return _row_to_asset(row) if row else None
+
+    async def list_all(self, *, state: Optional[str] = None) -> list[CapabilityAsset]:
+        from app.core.db import get_db
+
+        db = get_db()
+        query: dict[str, Any] = {}
+        if state is not None:
+            query["state"] = state
+        rows = await db[COLLECTION].find(query).to_list(length=500)
+        return [_row_to_asset(r) for r in rows]
+
+    async def discover_and_register(self, candidates: Iterable[dict[str, Any]]) -> DiscoveryReport:
+        """Discover candidates and persist them in one step (FR-2 / FR-10)."""
+        report = discover_assets(candidates)
+        for asset in report.discovered:
+            await self.register(asset)
+        return report
+
+    async def update_contract(self, asset_id: str, document: Any, *, role: str = "") -> dict[str, Any]:
+        asset = await self.get(asset_id)
+        if asset is None:
+            raise AssetError(f"asset not found: {asset_id}")
+        diff = asset.update_contract(document)
+        await self.register(asset)
+        return diff
+
+    async def set_state(self, asset_id: str, state: str, *, role: str = "") -> None:
+        asset = await self.get(asset_id)
+        if asset is None:
+            raise AssetError(f"asset not found: {asset_id}")
+        asset.set_state(state, role=role)
+        await self.register(asset)
+
+    async def transfer_owner(self, asset_id: str, role: str) -> None:
+        asset = await self.get(asset_id)
+        if asset is None:
+            raise AssetError(f"asset not found: {asset_id}")
+        asset.transfer_owner(role)
+        await self.register(asset)
+
+    async def __len__(self) -> int:
+        return len(await self.list_all())
+
+
+__all__ = [
+    "ASSET_STATES",
+    "COLLECTION",
+    "OFFLINE_APPROVER_ROLES",
+    "AUTO_DISCOVERABLE_KINDS",
+    "AssetError",
+    "CapabilityAsset",
+    "CapabilityAssetRegistry",
+    "DiscoveryReport",
+    "PersistedCapabilityRegistry",
+    "dedupe_key",
+    "discover_assets",
+]

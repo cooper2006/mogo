@@ -363,7 +363,10 @@
 >    update_contract/set_state/transfer_owner）；`POST/GET /api/capabilities` 和
 >    `GET /api/capabilities/{asset_id}` 三个端点，X-MOVO-Service-Token 验证（FR-1/FR-2）。
 >
-> **仍待修（降为 P1 残项）**：MongoDB 持久化（FR-10）；与 012 A2A `a2a_exposed` 筛选接线（FR-12）；CRUD 变更审计（FR-11）。
+> **已修**：MongoDB 持久化（FR-10，续四十四）——新增 `PersistedCapabilityRegistry`
+>    （async，读写 `capability_assets` 集合），端点已改用持久化 registry。
+> **仍待修（降为 P1 残项）**：与 012 A2A `a2a_exposed` 筛选接线（FR-12，跨服务）；
+>    CRUD 变更审计（FR-11）。
 - **零生产调用方**：六个核心符号 grep 全 0；`CapabilityAssetRegistry(` 仅 tests（`db=None`）。
 - **discover→register 链路断裂**：分属两服务且互不调用。
 - **无输入来源**：无 OpenAPI/MCP 扫描器，只接收手工传入的 iterable。
