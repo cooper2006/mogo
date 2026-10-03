@@ -146,7 +146,7 @@
 - **FR-4 乐观锁与 FR-11 审计均为纯逻辑**：`check_and_advance` 与 `record_session_event` 仅 tests 调用；002 未进 `FEATURE_AUDIT_EVENTS`。
 - **share 兑换必然失败**：传入 token 却按 `share_id` 查。
 
-### 003 document-ingestion-delivery（3）—— **引用锚点 + XLSX/PPTX 解析已修（2026-10-03，见 WORK_LOG 续十八/三十六）**
+### 003 document-ingestion-delivery（3）—— **全修（2026-10-03，见 WORK_LOG 续十八/三十六/五十六）**
 
 > **已修**：`WeaviateVectorStore.ensure_schema` 加 `anchorJson` text 属性；
 >    `upsert_chunks` 序列化 producer 的 `metadata.sourceAnchor` 进 `anchorJson`；
@@ -158,8 +158,9 @@
 >    docling 可用时 xlsx/pptx 走 docling、失败回落 openpyxl/pptx；
 >    新增 8 项测试。
 >
-> **仍待修（降为 P1）**：
-> - 解析核心零真实测试（两处引用均为 monkeypatch 打桩）。
+> **已修**：解析核心真实数据测试（续五十六）——`tests/services/test_document_parser_real_data.py`，
+>    9 项测试对 XLSX/PPTX/DOCX/CSV 字节流直接解析，无 monkeypatch。
+> **003 残项清零。**
 
 ### 004 skillhub-lifecycle（4）—— **FR-8 审计 + FR-3 版本回看 + FR-4 反馈 + FR-5 签名已修（2026-10-03，见 WORK_LOG 续十五/十七/四十三/四十八）**
 
@@ -301,7 +302,7 @@
 - **产出无消费方**：`AgentCard.as_dict()` 零外部调用；`/a2a/{tenant}/{id}` 无路由承接。
 - **FR-6 双向门禁零接线**：a2a 内 governance 字样全是注释。
 
-### 013 multi-im-entry（5）—— **IM webhook 入口已接线（2026-10-03，见 WORK_LOG 续二十）**
+### 013 multi-im-entry（5）—— **全修（2026-10-03，见 WORK_LOG 续二十/四十五/五十五）**
 
 > **已修**：新增 `POST /internal/im/webhook/{channel}`（`app/api/endpoints/im_gateway.py`），
 >    HMAC 签名校验（FR-13）+ nonce 5 分钟防重放 + `ChannelRouter` 路由到 adapter（FR-4/FR-9 最小生产路径）。
@@ -311,7 +312,8 @@
 >    `PersistedSessionBindingRegistry`（async，读写 `im_session_bindings`/
 >    `im_channels` 集合），webhook 端点据此校验频道开关并持久化
 >    会话绑定（FR-10/FR-9/FR-14）；DB 不可用时降级内存不伪造。
-> **仍待修（降为 P1 残项）**：Feishu/DingTalk/Wecom/Slack/Teams 各 adapter 实现。
+> **已修**：IM adapter 全量实现（续五十五）——`DingtalkAdapter` / `WecomAdapter` / `SlackAdapter` / `TeamsAdapter` 各自 `parse_inbound`，
+>    `build_adapter` 五通道全部可达；各平台字段映射符合官方 webhook 结构。
 - **零生产 import**：`from app.im_gateway` 在 `app/` 0 命中；全部 `ChannelRouter(` 实例化在 tests。
 - **无入口 endpoint**：plan 要求的 `im_channels.py` 不存在，`main.py` 未注册 IM/webhook 路由。
 - **无持久化**：`SessionBindingRegistry` 是进程内 dict（已修续四十五，`PersistedSessionBindingRegistry` 落库 `im_session_bindings`/`im_channels`）。
@@ -353,7 +355,7 @@
 >    `CanaryRollbackScanner`（5 分钟周期）由 lifespan 启动/停止。
 > **仍待修（降为 P1 残项）**：FR-1/FR-2 监控查询与异常下钻。
 
-### 017 three-scope-memory（4）—— **store + endpoint + RAG 集成已接线（2026-10-03，见 WORK_LOG 续二十一/二十二）**
+### 017 three-scope-memory（4）—— **全修（2026-10-03，见 WORK_LOG 续二十一/二十二/五十二）**
 
 > **已修**：`MemoryStore`（MongoDB `memories` 集合）+ `GET/POST/DELETE /api/memories`
 >    端点；`knowledge_search` 能力通过 ``memory_rag_candidates`` 将 scope-filtered
@@ -391,7 +393,7 @@
 - **治理视图无消费方**。
 - 附带：`a2a_exposed` → 012 未接线。
 
-### 019 harness-elastic-config（4）—— **全修（2026-10-03，见 WORK_LOG 续十九/五十三）**
+### 019 harness-elastic-config（4）—— **全修（2026-10-03，见 WORK_LOG 续十九/五十三/五十四）**
 
 > **已修**：`GateEvaluatePayload` 加 `harnessMode`；`GateContext` 加 `harness_mode`；
 >    `_resolve_layers` 按 thin 模式过滤 approval+quota 层（floor 永保留）。

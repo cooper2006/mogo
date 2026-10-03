@@ -140,10 +140,113 @@ def _extract_feishu_text(content: Any) -> str:
     return ""
 
 
+class DingtalkAdapter(ChannelAdapter):
+    """DingTalk (钉钉) adapter (013 P1 残项续五十五)."""
+
+    channel = "dingtalk"
+
+    def parse_inbound(self, payload: dict[str, Any]) -> ChannelMessage:
+        """Parse a DingTalk robot webhook payload.
+
+        Supports both the ``text`` plain-message envelope and the ``markdown``
+        card envelope. ``conversationId`` / ``senderStaffId`` are the
+        DingTalk field names.
+        """
+        msg_type = str(payload.get("msgtype") or payload.get("msg_type") or "text")
+        text = str(payload.get("text", {}).get("content") if isinstance(payload.get("text"), dict) else (payload.get("content") or payload.get("msg") or ""))
+        conversation_id = str(payload.get("conversationId") or payload.get("openConversationId") or "")
+        sender_id = str(payload.get("senderStaffId") or payload.get("senderId") or payload.get("senderNick") or "")
+        return ChannelMessage(
+            channel=self.channel,
+            channel_conversation_id=conversation_id,
+            sender_id=sender_id,
+            text=text.strip(),
+            is_group=str(payload.get("conversationType") or payload.get("conversation_type") or "") in {"2", "group"},
+            raw=payload,
+        )
+
+
+class WecomAdapter(ChannelAdapter):
+    """WeCom (企业微信) adapter (013 P1 残项续五十五)."""
+
+    channel = "wecom"
+
+    def parse_inbound(self, payload: dict[str, Any]) -> ChannelMessage:
+        """Parse a WeCom bot webhook payload (msgtype=text/card)."""
+        text = str(payload.get("content") or payload.get("text") or "")
+        conversation_id = str(payload.get("chatid") or payload.get("chat_id") or "")
+        sender_id = str(payload.get("from") or payload.get("userid") or "")
+        return ChannelMessage(
+            channel=self.channel,
+            channel_conversation_id=conversation_id,
+            sender_id=sender_id,
+            text=text.strip(),
+            is_group=bool(conversation_id),
+            raw=payload,
+        )
+
+
+class SlackAdapter(ChannelAdapter):
+    """Slack Events API adapter (013 P1 残项续五十五)."""
+
+    channel = "slack"
+
+    def parse_inbound(self, payload: dict[str, Any]) -> ChannelMessage:
+        """Parse a Slack ``message_events`` payload.
+
+        Slack Events API delivers ``{"event": {"type": "message", "channel": "C123",
+        "user": "U456", "text": "..."}}``.
+        """
+        event = payload.get("event") or payload
+        text = str(event.get("text") or "")
+        conversation_id = str(event.get("channel") or event.get("thread_ts") or "")
+        sender_id = str(event.get("user") or event.get("user_id") or "")
+        is_group = str(event.get("channel_type") or "") in {"group", "mpim"}
+        return ChannelMessage(
+            channel=self.channel,
+            channel_conversation_id=conversation_id,
+            sender_id=sender_id,
+            text=text.strip(),
+            is_group=is_group,
+            raw=payload,
+        )
+
+
+class TeamsAdapter(ChannelAdapter):
+    """Microsoft Teams (Graph Bot Framework) adapter (013 P1 残项续五十五)."""
+
+    channel = "teams"
+
+    def parse_inbound(self, payload: dict[str, Any]) -> ChannelMessage:
+        """Parse a Teams Bot Framework activity.
+
+        Teams delivers ``{"type": "message", "conversation": {"id": "..."},
+        "from": {"id": "..."}, "text": "..."}``.
+        """
+        text = str(payload.get("text") or payload.get("message", {}).get("body") or "")
+        conversation_id = str(payload.get("conversation", {}).get("id") if isinstance(payload.get("conversation"), dict) else (payload.get("conversationId") or ""))
+        sender_id = str(payload.get("from", {}).get("id") if isinstance(payload.get("from"), dict) else (payload.get("from") or ""))
+        return ChannelMessage(
+            channel=self.channel,
+            channel_conversation_id=conversation_id,
+            sender_id=sender_id,
+            text=text.strip(),
+            is_group=str(payload.get("conversation", {}).get("conversationType") if isinstance(payload.get("conversation"), dict) else "") in {"GroupChat", "Channel"},
+            raw=payload,
+        )
+
+
 def build_adapter(channel: str, *, chunk_size: int = DEFAULT_CHUNK_SIZE) -> ChannelAdapter:
-    """Construct an adapter for ``channel`` (only Feishu in the first delivery)."""
-    if channel == FIRST_DELIVERY_CHANNEL:
+    """Construct an adapter for ``channel``."""
+    channel = channel.lower().strip()
+    if channel == "feishu":
         return FeishuAdapter(chunk_size=chunk_size)
-    if channel in SUPPORTED_CHANNELS:
-        raise ChannelError(f"channel not yet implemented: {channel}")
+    if channel == "dingtalk":
+        return DingtalkAdapter(chunk_size=chunk_size)
+    if channel == "wecom":
+        return WecomAdapter(chunk_size=chunk_size)
+    if channel == "slack":
+        return SlackAdapter(chunk_size=chunk_size)
+    if channel == "teams":
+        return TeamsAdapter(chunk_size=chunk_size)
     raise ChannelError(f"unknown channel: {channel}")

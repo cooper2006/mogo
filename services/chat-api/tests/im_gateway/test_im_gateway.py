@@ -10,6 +10,10 @@ from app.im_gateway.adapter_base import (
     SUPPORTED_CHANNELS,
     ChannelError,
     FeishuAdapter,
+    DingtalkAdapter,
+    WecomAdapter,
+    SlackAdapter,
+    TeamsAdapter,
     build_adapter,
     chunk_text,
 )
@@ -37,11 +41,6 @@ def test_first_delivery_channel_is_feishu() -> None:
 def test_build_adapter_feishu() -> None:
     adapter = build_adapter("feishu")
     assert isinstance(adapter, FeishuAdapter)
-
-
-def test_build_adapter_rejects_unimplemented_channel() -> None:
-    with pytest.raises(ChannelError):
-        build_adapter("slack")
 
 
 def test_build_adapter_rejects_unknown_channel() -> None:
@@ -393,3 +392,111 @@ def test_persisted_registry_degrades_without_db(monkeypatch):
     assert asyncio.run(reg.get("feishu", "c-1", tenant_id="t-1")) is None
     assert asyncio.run(reg.disable_channel("feishu", tenant_id="t-1")) == 0
     assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is True
+
+
+# --- 013 P1 残项：DingTalk / WeCom / Slack / Teams adapters (续五十五) ---
+
+
+def test_build_adapter_returns_dingtalk() -> None:
+    adapter = build_adapter("dingtalk")
+    assert isinstance(adapter, DingtalkAdapter)
+    assert adapter.channel == "dingtalk"
+
+
+def test_build_adapter_returns_wecom() -> None:
+    adapter = build_adapter("wecom")
+    assert isinstance(adapter, WecomAdapter)
+    assert adapter.channel == "wecom"
+
+
+def test_build_adapter_returns_slack() -> None:
+    adapter = build_adapter("slack")
+    assert isinstance(adapter, SlackAdapter)
+    assert adapter.channel == "slack"
+
+
+def test_build_adapter_returns_teams() -> None:
+    adapter = build_adapter("teams")
+    assert isinstance(adapter, TeamsAdapter)
+    assert adapter.channel == "teams"
+
+
+def test_build_adapter_rejects_unknown_channel() -> None:
+    with pytest.raises(ChannelError):
+        build_adapter("telegram")
+
+
+def test_dingtalk_parse_inbound_text() -> None:
+    adapter = DingtalkAdapter()
+    msg = adapter.parse_inbound({
+        "msgtype": "text",
+        "text": {"content": "你好"},
+        "conversationId": "conv-1",
+        "senderStaffId": "staff-1",
+        "conversationType": "2",  # group
+    })
+    assert msg.channel == "dingtalk"
+    assert msg.channel_conversation_id == "conv-1"
+    assert msg.sender_id == "staff-1"
+    assert msg.text == "你好"
+    assert msg.is_group is True
+
+
+def test_dingtalk_parse_inbound_p2p() -> None:
+    adapter = DingtalkAdapter()
+    msg = adapter.parse_inbound({
+        "msgtype": "text",
+        "text": {"content": "hi"},
+        "conversationId": "conv-2",
+        "senderStaffId": "staff-2",
+        "conversationType": "1",  # p2p
+    })
+    assert msg.is_group is False
+
+
+def test_wecom_parse_inbound() -> None:
+    adapter = WecomAdapter()
+    msg = adapter.parse_inbound({
+        "msgtype": "text",
+        "content": "你好",
+        "chatid": "group-1",
+        "from": "user-x",
+    })
+    assert msg.channel == "wecom"
+    assert msg.channel_conversation_id == "group-1"
+    assert msg.sender_id == "user-x"
+    assert msg.text == "你好"
+    assert msg.is_group is True
+
+
+def test_slack_parse_inbound() -> None:
+    adapter = SlackAdapter()
+    msg = adapter.parse_inbound({
+        "event": {
+            "type": "message",
+            "channel": "C123",
+            "user": "U456",
+            "text": "hello",
+            "channel_type": "im",
+        }
+    })
+    assert msg.channel == "slack"
+    assert msg.channel_conversation_id == "C123"
+    assert msg.sender_id == "U456"
+    assert msg.text == "hello"
+    assert msg.is_group is False
+
+
+def test_teams_parse_inbound() -> None:
+    adapter = TeamsAdapter()
+    msg = adapter.parse_inbound({
+        "type": "message",
+        "text": "hi team",
+        "conversation": {"id": "conv-teams", "conversationType": "Channel"},
+        "from": {"id": "user-t"},
+    })
+    assert msg.channel == "teams"
+    assert msg.channel_conversation_id == "conv-teams"
+    assert msg.sender_id == "user-t"
+    assert msg.text == "hi team"
+    assert msg.is_group is True

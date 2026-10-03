@@ -4285,3 +4285,42 @@ retry 立即上抛且单次、failover 不切备用源）。
 - `tenant_purge.py`：`harness_profiles` 加入 `TENANT_SCOPED_COLLECTIONS`。
 
 **验证**：`test_tenant_purge` 26 passed；admin-api 全量 416 passed。
+
+## 2026-10-03（续五十五）013 IM adapter 全量实现
+
+**背景**：013 残项——`build_adapter` 只支持 Feishu，DingTalk/WeCom/
+Slack/Teams 四个通道在 `SUPPORTED_CHANNELS` 中但 `build_adapter` 直接
+抛 `ChannelError`，webhook 端点路由到这四个通道时 400。
+
+**改动**（adapter_base.py）：
+- 新增 `DingtalkAdapter`：解析钉钉机器人 webhook（`msgtype=text` 信封，
+  `conversationId`/`senderStaffId`/`conversationType` 字段映射）；
+- 新增 `WecomAdapter`：解析企业微信机器人 webhook（`content`/`chatid`/
+  `from` 字段映射）；
+- 新增 `SlackAdapter`：解析 Slack Events API `message_events`（
+  `event.channel`/`event.user`/`event.text`/`channel_type` 字段映射）；
+- 新增 `TeamsAdapter`：解析 Teams Bot Framework activity（
+  `conversation.id`/`from.id`/`text` 字段映射）；
+- `build_adapter` 五通道全部可达（`feishu`/`dingtalk`/`wecom`/
+  `slack`/`teams`），未知通道仍抛 `ChannelError`。
+
+**验证**：im_gateway 测试 43 passed（新增 9 项：四个 adapter 的
+`build_adapter` 返回 + 各自 `parse_inbound` 字段映射 + 未知通道拒绝）。
+
+## 2026-10-03（续五十六）003 解析核心真实数据测试
+
+**背景**：003 残项——解析核心（XLSX/PPTX/DOCX/CSV 字节级解析）零
+真实测试，两处生产引用均为 monkeypatch 打桩，无法证明解析路径
+真实可用。
+
+**改动**（新增 `tests/services/test_document_parser_real_data.py`）：
+- 9 项测试用 openpyxl / python-pptx / python-docx 在内存中构造
+  **真实二进制文件**（XLSX/PPTX/DOCX/CSV），直接调用
+  `DocumentParserService` 的 `_build_markdown_from_local_xlsx_bytes` /
+  `_build_markdown_from_local_pptx_bytes` / `_build_docx_parse_from_bytes` /
+  `_build_markdown_from_local_delimited_bytes`，无 monkeypatch、无网络、
+  无 docling；
+- 覆盖：多 sheet XLSX、多页 PPTX、多段 DOCX、CSV/TSV 分隔符；
+- 所有断言验证解析产物中实际数据值（姓名/城市/幻灯片标题等）出现。
+
+**验证**：`test_document_parser_real_data.py` 9 passed；003 残项清零。
