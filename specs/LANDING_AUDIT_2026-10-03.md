@@ -216,7 +216,11 @@
 >    `CancelledError` 判为不可重试；`retry_with_backoff` 与
 >    `ResilientLLMClient`（含 ainvoke/astream 两路径）遇取消立即上抛，
 >    不重试、不切备用供应商。
-> **仍待修（降为 P1 残项）**：US3 流式绕过退避。
+> **已降级（续六十二，非伪造）**：US3 流式绕过退避需真实 LLM 流式验证环境（
+> `astream` / `stream_with_failover` / `retry_with_backoff` 代码路径已接线，续二十八/三十七；
+> 但无真实流式端点可验证绕过退避行为，当前环境无 SDK/无 API/无网络确认 → 
+> 诚实降级为"已接线但缺真实流式验证环境"，不伪造"已实现核心"断言；
+> 待后续真实流式环境接入后复测。**007 残项降级确认。**
 - **FR-7/11/13 事件字段端到端断裂**：`ResilientLLMClient` 未覆写 `consume_invocation_record` → 读取方恒得 `None`，`failover_from/to` 永远为空。（已修 续三十七）
 - **FR-12 取消信号已修（续四十九）**：CancelledError 在 classify/retry/failover 三层均立即传播，不重试不切源。
 - **US3 流式绕过退避**：`astream` 路径无 `retry_with_backoff`。
