@@ -3750,3 +3750,14 @@ FR-6 `reconciles` + OQ-5 `forecast`），但前端 `DashboardPage.vue` 成本 ta
 
 **验证**：新增 8 项测试（XLSX 表格/多 sheet/空 sheet/单行/变列 + PPTX 基本/空/纯标题），
 全部 passed。
+
+## 2026-10-03（续三十七）007 事件字段断裂修复
+
+**背景**：001 audit 残项——`ResilientLLMClient` 未覆写 `consume_invocation_record()`，
+`failover_from/to` 在审计流恒为空。
+
+**改动**（app/llm/resilience/failover.py）：
+- `ResilientLLMClient` 新增 `consume_invocation_record()`，failover 时返回
+  `last_result.log_fields`（含 `failover_from`/`failover_to`/`resilience_event`）。
+
+**验证**：手工验证 failover 场景返回正确字段；resilience 测试 45 passed。

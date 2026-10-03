@@ -67,6 +67,17 @@ class ResilientLLMClient(BaseLLMClient):
     def provider_names(self) -> list[str]:
         return [entry.name for entry in self._providers]
 
+    def consume_invocation_record(self) -> dict[str, Any] | None:
+        """Return failover metadata (007 FR-7/11/13 event fields).
+
+        When a failover occurred, ``failover_from`` and ``failover_to`` are
+        surfaced here so the instrumented wrapper can record them in the
+        invocation record. Without this, the audit trail shows empty fields.
+        """
+        if self.last_result is not None and self.last_result.log_fields:
+            return dict(self.last_result.log_fields)
+        return None
+
     def _emit(self, fields: dict[str, Any]) -> None:
         if self._on_event is not None:
             self._on_event(fields)
