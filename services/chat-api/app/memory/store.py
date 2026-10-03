@@ -119,6 +119,15 @@ class MemoryStore:
         )
         return filtered[:top_n]
 
+    async def get(self, *, tenant_id: str, memory_id: str) -> Optional[Memory]:
+        """Fetch a single memory by id within a tenant. Returns None if absent."""
+        main_id = resolve_main_id(tenant_id)
+        db = get_db()
+        if db is None:
+            return None
+        row = await db[COLLECTION].find_one({"memory_id": memory_id, "tenant_id": main_id})
+        return _row_to_memory(row) if row else None
+
     async def delete(self, *, tenant_id: str, memory_id: str, owner_id: str) -> bool:
         """Delete a memory; returns True when one document was removed."""
         main_id = resolve_main_id(tenant_id)

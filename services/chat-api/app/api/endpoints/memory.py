@@ -121,4 +121,50 @@ async def delete_memory(
     return {"code": 0, "message": "deleted"}
 
 
+@router.patch("/{memory_id}/promote")
+async def promote_memory(
+    memory_id: str,
+    authorization: str = Header(default=""),
+) -> dict[str, Any]:
+    """Promote a personal/workspace memory to org scope (FR-4, 017 残项修复).
+
+    Requires a ``full_access_admin`` role. The promotion is audited via the
+    001 audit stream (``memory.promoted``).
+    """
+    from app.api.endpoints.auth import _resolve_session_user
+    from app.memory.scope import promote_to_org, MemoryAccessError
+    from app.memory.store import MemoryStore
+
+    resolved = await _resolve_session_user(authorization)
+    tenant_id = str(resolved.get("main_id") or "")
+    user_id = str(resolved.get("user_id") or "")
+    role = str(resolved.get("role") or "")
+
+    store = MemoryStore()
+    memory = await store.get(tenant_id=tenant_id, memory_id=memory_id)
+    if memory is None:
+        raise HTTPException(status_code=404, detail="memory_not_found")
+    if memory.owner_id != user_id:
+        raise HTTPException(status_code=403, detail="not_owner")
+
+    try:
+        promoted = promote_to_org(memory, role=role)
+    except MemoryAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    store.save(
+        memory_id=promoted.memory_id,
+        content=promoted.content,
+        owner_id=promoted.owner_id,
+        tenant_id=promoted.tenant_id,
+        workspace_id=promoted.workspace_id,
+        scope=promoted.scope,
+    )
+    return {"code": 0, "message": "promoted", "data": {
+        "memory_id": promoted.memory_id,
+        "scope": promoted.scope,
+        "promoted_by": user_id,
+    }}
+
+
 __all__ = ["router"]

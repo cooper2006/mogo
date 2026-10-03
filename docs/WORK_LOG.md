@@ -3772,3 +3772,20 @@ FR-6 `reconciles` + OQ-5 `forecast`），但前端 `DashboardPage.vue` 成本 ta
   （snapshotId/seq/trigger/actor/summary/content 等）。
 
 **验证**：新增 2 项测试（resume 返回最新快照 + 返回指定快照），全部 passed。
+
+## 2026-10-03（续三十九）017 promote_to_org 认证入口
+
+**背景**：001 audit 残项——`promote_to_org` 函数存在但无端点调用，用户无法通过
+API 将记忆从 personal/workspace 提升为 org scope。
+
+**改动**：
+- `MemoryStore` 新增 `get()` 方法（按 tenant_id + memory_id 查询）。
+- `memory.py` 新增 `PATCH /{memory_id}/promote` 端点：
+  - 解析用户身份与角色；
+  - 验证 owner 身份（非 owner 拒绝）；
+  - 调用 `promote_to_org`（角色不足时拒绝）；
+  - 保存更新后的记忆；
+  - 审计入 001 流（`memory.promoted`）。
+
+**验证**：memory 测试 16 passed；`test_promotion_requires_authorized_role` 已覆盖
+角色校验逻辑。
