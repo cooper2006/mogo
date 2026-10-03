@@ -21,6 +21,8 @@ image_suffixes=(
 compose_images() {
   env \
     -u MOVO_IMAGE_REGISTRY \
+    -u MOVO_EXPORTED_IMAGE_PREFIX \
+    -u MOVO_IMAGE_PREFIX \
     -u MOGO_VERSION \
     -u MOVO_VERSION \
     -u MOVO_DOCUMENT_API_IMAGE \
@@ -43,7 +45,7 @@ done
 # Source-build path: the CLI exports bare service names.
 source_env="$(
   (
-    unset MOVO_IMAGE_REGISTRY MOGO_VERSION MOVO_VERSION
+    unset MOVO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX MOGO_VERSION MOVO_VERSION
     ROOT_DIR="${ROOT_DIR}"
     DOCKER_BIN=docker
     # shellcheck source=../deploy/cli/images.sh
@@ -80,9 +82,22 @@ if grep -Eq "(^|/)movo-[a-z]" <<<"${prebuilt_images}${source_images}"; then
   exit 1
 fi
 
+# Assert a CLI-invariant expectation. Written as an explicit `if` because a bare
+# `[[ ... ]]` under `set -e` inside a subshell does NOT abort the script (bash
+# disables errexit for non-final commands there), which silently turned these
+# checks into no-ops.
+assert_image() {
+  local actual="$1" expected="$2" label="$3"
+  if [[ "${actual}" != "${expected}" ]]; then
+    printf 'FAIL: %s\n  expected: %s\n  actual:   %s\n' "${label}" "${expected}" "${actual}" >&2
+    exit 1
+  fi
+}
+
 # CLI configuration invariants.
 (
-  unset MOVO_IMAGE_REGISTRY MOGO_VERSION MOVO_VERSION MOVO_BUILD_IMAGE_REGISTRY
+  unset MOVO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX \
+    MOGO_VERSION MOVO_VERSION MOVO_BUILD_IMAGE_REGISTRY
   ROOT_DIR="${ROOT_DIR}"
   DOCKER_BIN=docker
   # shellcheck source=../deploy/cli/images.sh
@@ -90,13 +105,65 @@ fi
   dotenv_value() { printf ''; }
 
   movo_configure_images false
-  [[ "${MOVO_ADMIN_WEB_IMAGE}" == "${official_registry}/admin-web:latest" ]]
-  [[ "${MOVO_DOCUMENT_API_IMAGE}" == "${official_registry}/document-parser:latest" ]]
+  assert_image "${MOVO_ADMIN_WEB_IMAGE}" "${official_registry}/admin-web:latest" \
+    "prebuilt admin-web image"
+  assert_image "${MOVO_DOCUMENT_API_IMAGE}" "${official_registry}/document-parser:latest" \
+    "prebuilt document-parser image"
 
   unset MOVO_DOCUMENT_API_IMAGE MOVO_DOCUMENT_WORKER_IMAGE
   movo_configure_images true
-  [[ "${MOVO_ADMIN_WEB_IMAGE}" == "admin-web:latest" ]]
-  [[ "${MOVO_DOCUMENT_API_IMAGE}" == "document-parser:latest" ]]
+  assert_image "${MOVO_ADMIN_WEB_IMAGE}" "admin-web:latest" "source-build admin-web image"
+  assert_image "${MOVO_DOCUMENT_API_IMAGE}" "document-parser:latest" \
+    "source-build document-parser image"
+)
+
+# MOVO_IMAGE_REGISTRY must override the default registry.
+(
+  unset MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX
+  ROOT_DIR="${ROOT_DIR}"
+  DOCKER_BIN=docker
+  source "${ROOT_DIR}/deploy/cli/images.sh"
+  dotenv_value() { printf ''; }
+  MOVO_IMAGE_REGISTRY="registry.example.com/team"
+  movo_configure_images false
+  assert_image "${MOVO_CHAT_API_IMAGE}" "registry.example.com/team/chat-api:latest" \
+    "MOVO_IMAGE_REGISTRY override"
+)
+
+# The legacy MOVO_IMAGE_PREFIX must be ignored: its old "name prefix" meaning
+# cannot be expressed as <registry>/<service>, so it must never produce a path
+# such as ghcr.io/himovo/movo/chat-api nor leak a movo- image name.
+(
+  unset MOVO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX
+  ROOT_DIR="${ROOT_DIR}"
+  DOCKER_BIN=docker
+  source "${ROOT_DIR}/deploy/cli/images.sh"
+  dotenv_value() { printf ''; }
+  MOVO_IMAGE_PREFIX="ghcr.io/himovo/movo"
+  movo_configure_images false 2>/dev/null
+  assert_image "${MOVO_CHAT_API_IMAGE}" "${official_registry}/chat-api:latest" \
+    "legacy MOVO_IMAGE_PREFIX ignored"
+  # Match the legacy prefix only as a path segment or name prefix; a naive
+  # *"movo/"* test also matches the legitimate registry "ghcr.io/himovo/".
+  case "${MOVO_CHAT_API_IMAGE}" in
+    */movo/*|movo-*|*/movo-*)
+      printf 'FAIL: legacy MOVO_IMAGE_PREFIX leaked into %s\n' "${MOVO_CHAT_API_IMAGE}" >&2
+      exit 1
+      ;;
+  esac
+)
+
+# MOVO_EXPORTED_IMAGE_PREFIX remains the documented override.
+(
+  unset MOVO_IMAGE_REGISTRY MOVO_IMAGE_PREFIX
+  ROOT_DIR="${ROOT_DIR}"
+  DOCKER_BIN=docker
+  source "${ROOT_DIR}/deploy/cli/images.sh"
+  dotenv_value() { printf ''; }
+  MOVO_EXPORTED_IMAGE_PREFIX="ghcr.io/other"
+  movo_configure_images false
+  assert_image "${MOVO_CHAT_API_IMAGE}" "ghcr.io/other/chat-api:latest" \
+    "MOVO_EXPORTED_IMAGE_PREFIX override"
 )
 
 printf 'Compose image modes are valid.\n'
