@@ -280,7 +280,15 @@ async def resume_session(
         main_id=main_id, user_id=user_id, session_id=session_id,
         event_type="resume", target_ref=snapshot_id or "",
     )
-    return {"sessionId": session_id, "resumeAfterSeq": resume_after_seq, "resumedFromSnapshot": snapshot_id or None}
+    # 002 audit fix: return the target snapshot's metadata so the consumer
+    # knows what they are resuming from (not just a bare seq number).
+    resumed_from = _snapshot_out(target) if target else None
+    return {
+        "sessionId": session_id,
+        "resumeAfterSeq": resume_after_seq,
+        "resumedFromSnapshot": snapshot_id or None,
+        "resumedFrom": resumed_from,
+    }
 
 
 # ---------------------------------------------------------------------------

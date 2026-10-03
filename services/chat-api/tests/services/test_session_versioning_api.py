@@ -410,6 +410,42 @@ def test_share_redemption_by_token_works(client, fake_db) -> None:
     assert response.json().get("share_id"), created.text
 
 
+def test_resume_returns_target_snapshot_metadata(client, fake_db) -> None:
+    """002 audit fix: resume returns the target snapshot's metadata, not just a seq number."""
+    client.post(
+        "/api/sessions/s-1/commit",
+        json={"seq": 3, "trigger": "manual", "summary": "before resume"},
+    )
+    response = client.post("/api/sessions/s-1/resume", json={})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["resumeAfterSeq"] == 4
+    assert body["resumedFromSnapshot"] is None  # empty snapshot_id = latest
+    resumed = body.get("resumedFrom")
+    assert resumed is not None, "resumedFrom must carry the target snapshot"
+    assert resumed["seq"] == 3
+    assert resumed["summary"] == "before resume"
+    assert resumed["trigger"] == "manual"
+
+
+def test_resume_with_specific_snapshot_returns_it(client, fake_db) -> None:
+    """Resume returns the target snapshot's metadata (resumedFrom)."""
+    client.post(
+        "/api/sessions/s-1/commit",
+        json={"seq": 2, "trigger": "manual", "summary": "snap-2"},
+    )
+    # Resume from the latest snapshot (empty snapshot_id = latest)
+    response = client.post("/api/sessions/s-1/resume", params={"snapshot_id": ""})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["resumeAfterSeq"] == 3
+    resumed = body.get("resumedFrom")
+    assert resumed is not None
+    assert resumed["seq"] == 2
+    assert resumed["summary"] == "snap-2"
+    assert resumed["trigger"] == "manual"
+
+
 def collections_secret_id(fake_db) -> str:
     from app.services.session_versioning.snapshot import SECRET_REF_COLLECTION
 

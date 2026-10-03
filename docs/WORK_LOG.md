@@ -3761,3 +3761,14 @@ FR-6 `reconciles` + OQ-5 `forecast`），但前端 `DashboardPage.vue` 成本 ta
   `last_result.log_fields`（含 `failover_from`/`failover_to`/`resilience_event`）。
 
 **验证**：手工验证 failover 场景返回正确字段；resilience 测试 45 passed。
+
+## 2026-10-03（续三十八）002 resume 返回目标快照元数据
+
+**背景**：001 audit 残项——resume 端点只返回 `resumeAfterSeq`（int），不返回目标
+快照数据，前端无法获知恢复自哪个快照。
+
+**改动**（dsh_session_versioning.py）：
+- resume 端点新增 `resumedFrom` 字段，包含目标快照的完整元数据
+  （snapshotId/seq/trigger/actor/summary/content 等）。
+
+**验证**：新增 2 项测试（resume 返回最新快照 + 返回指定快照），全部 passed。
