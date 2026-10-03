@@ -120,7 +120,7 @@
 - ~~审批挂起无恢复路径~~：已通过 `consume` 恢复路径 + `/decide` + `/approvals` 修复。
 - ~~审计第 6 层只写不读~~：已通过 `gate_events` 落库 + `GET /events` 读取修复。
 
-### 002 session-versioning（5）—— **FR-7/8/11 + share 兑换已修（2026-10-03，见 WORK_LOG 续十三）**
+### 002 session-versioning（5）—— **FR-7/8/11 + share 兑换 + preview 已修（2026-10-03，见 WORK_LOG 续十三/三十五）**
 
 > **已修**：
 > - **FR-7/8 秘密过滤**：commit 端点对 `summary`+`content` 跑 `detect_secrets`→可逆占位符，
@@ -130,14 +130,16 @@
 >   落 `session.<event>` 事件。
 > - **share 兑换必败 bug**：`ShareStore._load` 改按 `share_id`/`token` `$or` 查（原只按 share_id 查
 >   token，必 404）；share 视图暴露 `token`（active 时）。
+> - **preview 消费方补齐（2026-10-03 续三十五）**：`_preview_out()` 从 DB 文档生成预览；
+>   `list_session_versions` 与 `get_session_version` 返回真实 preview（原硬编码 None，
+>   `SnapshotStore.preview()` 零调用）。
 >
-> **仍待修（002 剩余 3 条，P0 最后一公里/P1）**：
+> **仍待修（002 剩余 2 条，P1）**：
 > - commit 仍是客户端自报元数据（端点不读 `chat_messages`，真实 seq 由 `sessions.py` 独立定）；
 >   服务端未主动读 `chat_messages` 兜底脱敏。
-> - `preview` 仍硬编码 None（`SnapshotStore.preview()` 零调用）。
 > - resume 仍只返回 int（`resumeSessionFrom` 前端零调用者，不写状态）。
 - **FR-7/FR-8 秘密过滤零接线**：`dsh_session_versioning.py` 全文无 `secret/reference/placeholder/redact`；`snapshot.as_document()` 无消息正文字段——不是"过滤失效"而是"过滤对象不存在"。唯一相关测试是空断言。
-- **commit 是客户端自报元数据**：端点只看 `CommitIn`（seq/trigger/summary/...），从不查 `chat_messages`；前端把 `messages.length` 当 seq 传。`preview` 被硬编码 `None`，`SnapshotStore.preview()` 零调用。
+- **commit 是客户端自报元数据**：端点只看 `CommitIn`（seq/trigger/summary/...），从不查 `chat_messages`；前端把 `messages.length` 当 seq 传。`preview` 已改为 DB 文档生成（续三十五）。
 - **resume 零影响**：只 `return resumeAfterSeq`，不写任何状态；`resumeSessionFrom` 前端零调用者。真实 seq 由 `sessions.py _next_seq` 独立决定。
 - **FR-4 乐观锁与 FR-11 审计均为纯逻辑**：`check_and_advance` 与 `record_session_event` 仅 tests 调用；002 未进 `FEATURE_AUDIT_EVENTS`。
 - **share 兑换必然失败**：传入 token 却按 `share_id` 查。

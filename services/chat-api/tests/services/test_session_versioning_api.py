@@ -185,6 +185,13 @@ def test_session_commit_and_versions(client, fake_db) -> None:
     assert versions.status_code == 200
     assert len(versions.json()) == 1
     assert versions.json()[0]["summary"] == "first commit"
+    # 002 audit fix: preview is generated from the DB document, not hardcoded None.
+    preview = versions.json()[0]["preview"]
+    assert preview is not None
+    assert preview["snapshotId"] == versions.json()[0]["snapshotId"]
+    assert preview["seq"] == 3
+    assert preview["summary"] == "first commit"
+    assert preview["attachmentCount"] == 0
 
     assert len(collections.get(SNAPSHOT_COLLECTION, _FakeColl([]))._docs) == 1
 
@@ -197,6 +204,24 @@ def test_session_commit_unknown_session_still_persists(client) -> None:
     )
     assert response.status_code == 200
     assert response.json()["trigger"] == "idle_timeout"
+
+
+def test_get_session_version_includes_preview(client, fake_db) -> None:
+    """002 audit fix: get_session_version returns a populated preview dict."""
+    commit = client.post(
+        "/api/sessions/s-1/commit",
+        json={"seq": 1, "trigger": "manual", "summary": "preview test", "changed_refs": ["x"]},
+    )
+    assert commit.status_code == 200
+    snapshot_id = commit.json()["snapshotId"]
+    version = client.get(f"/api/sessions/s-1/versions/{snapshot_id}")
+    assert version.status_code == 200
+    preview = version.json().get("preview")
+    assert preview is not None
+    assert preview["seq"] == 1
+    assert preview["summary"] == "preview test"
+    assert preview["changedRefs"] == ["x"]
+    assert preview["attachmentCount"] == 0
 
 
 def test_session_share_creates_token(client, fake_db) -> None:

@@ -91,6 +91,26 @@ def _snapshot_out(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _preview_out(document: dict[str, Any]) -> dict[str, Any]:
+    """Generate a snapshot preview from a DB document (FR-2).
+
+    002 audit (2026-10-03): SnapshotStore.preview() existed but had zero callers
+    in the production endpoint — list_session_versions hardcoded "preview": None.
+    This wires the preview back to the DB-backed path, mirroring
+    SnapshotStore.preview()'s shape.
+    """
+    return {
+        "snapshotId": document.get("snapshot_id"),
+        "seq": document.get("seq"),
+        "trigger": document.get("trigger"),
+        "actor": document.get("actor"),
+        "summary": document.get("summary"),
+        "changedRefs": list(document.get("changed_refs") or []),
+        "attachmentCount": len(document.get("attachment_refs") or []),
+        "createdAt": document.get("created_at").isoformat() if document.get("created_at") else None,
+    }
+
+
 def _collect_originals(*texts: str, ids: list[str]) -> dict[str, str]:
     """Map each placeholder id back to the original secret value it replaced.
 
@@ -211,7 +231,7 @@ async def list_session_versions(
     return [
         {
             **_snapshot_out(document),
-            "preview": None,
+            "preview": _preview_out(document),
         }
         for document in documents
     ]
@@ -230,7 +250,7 @@ async def get_session_version(
     )
     if document is None:
         raise HTTPException(status_code=404, detail="Snapshot not found")
-    return _snapshot_out(document)
+    return {**_snapshot_out(document), "preview": _preview_out(document)}
 
 
 @router.post("/sessions/{session_id}/resume")

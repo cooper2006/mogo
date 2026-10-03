@@ -3721,3 +3721,16 @@ FR-6 `reconciles` + OQ-5 `forecast`），但前端 `DashboardPage.vue` 成本 ta
 - `costForecast` 优先读 `overview.cost.forecast`（缺省回落客户端 4 期均值）。
 
 **验证**：`vue-tsc --noEmit` 通过；后端 dashboard 测试（routes+selfcheck）17 passed。
+
+## 2026-10-03（续三十五）002 preview 消费方补齐
+
+**背景**：001 audit 残项——`SnapshotStore.preview()` 存在于内存 store 但零调用；
+`list_session_versions` 硬编码 `"preview": None`，`get_session_version` 不含 preview。
+
+**改动**（dsh_session_versioning.py）：
+- 新增 `_preview_out(document)`：从 DB 文档生成预览（snapshotId/seq/trigger/actor/
+  summary/changedRefs/attachmentCount/createdAt），对齐 `SnapshotStore.preview()` 形状。
+- `list_session_versions` 用 `_preview_out(document)` 替换硬编码 None。
+- `get_session_version` 返回值追加 preview 字段。
+
+**验证**：test_session_versioning_api 35 passed（新增 preview 断言 2 项）。
