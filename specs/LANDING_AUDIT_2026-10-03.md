@@ -144,16 +144,19 @@
 - **FR-4 乐观锁与 FR-11 审计均为纯逻辑**：`check_and_advance` 与 `record_session_event` 仅 tests 调用；002 未进 `FEATURE_AUDIT_EVENTS`。
 - **share 兑换必然失败**：传入 token 却按 `share_id` 查。
 
-### 003 document-ingestion-delivery（3）—— **引用锚点通道已修（2026-10-03，见 WORK_LOG 续十八）**
+### 003 document-ingestion-delivery（3）—— **引用锚点 + XLSX/PPTX 解析已修（2026-10-03，见 WORK_LOG 续十八/三十六）**
 
 > **已修**：`WeaviateVectorStore.ensure_schema` 加 `anchorJson` text 属性；
 >    `upsert_chunks` 序列化 producer 的 `metadata.sourceAnchor` 进 `anchorJson`；
 >    `search` GraphQL fields 加 `anchorJson` 并在结果里还原为 `metadata.sourceAnchor`，
 >    让 `citation_resolver._source_anchor` 从此读得到（001 audit，2026-10-03）。
 >    新增 4 项回归测试（roundtrip/无锚点不伪造/解析永不编造/schema 含 anchorJson）。
+> **XLSX/XLSM/PPTX 解析分支已补（2026-10-03 续三十六）**：
+>    `parse_with_fallback` 新增 XLSX（openpyxl）+ PPTX（python-pptx）解析器；
+>    docling 可用时 xlsx/pptx 走 docling、失败回落 openpyxl/pptx；
+>    新增 8 项测试。
 >
 > **仍待修（降为 P1）**：
-> - XLSX/XLSM/PPTX 无解析分支（`document_parsing_service.py` 零命中，直接 raise）；
 > - 解析核心零真实测试（两处引用均为 monkeypatch 打桩）。
 
 ### 004 skillhub-lifecycle（4）—— **FR-8 审计 + FR-3 版本回看已修（2026-10-03，见 WORK_LOG 续十五/十七）**

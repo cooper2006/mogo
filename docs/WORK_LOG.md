@@ -3734,3 +3734,19 @@ FR-6 `reconciles` + OQ-5 `forecast`），但前端 `DashboardPage.vue` 成本 ta
 - `get_session_version` 返回值追加 preview 字段。
 
 **验证**：test_session_versioning_api 35 passed（新增 preview 断言 2 项）。
+
+## 2026-10-03（续三十六）003 XLSX/XLSM/PPTX 解析分支补齐
+
+**背景**：001 audit 残项——`document_parsing_service.py` 的 `parse_with_fallback`
+不处理 xlsx/xlsm/pptx，docling 不可用时直接 raise。
+
+**改动**（document_parsing_service.py）：
+- 新增 `XLSX_EXTENSIONS = {"xlsx", "xlsm"}` 与 `PPTX_EXTENSIONS = {"pptx"}`。
+- `parse_with_fallback` 增加 XLSX（openpyxl 读表格→markdown table）与 PPTX
+  （python-pptx 读幻灯片→markdown）分支。
+- docling 可用时 xlsx/pptx 优先走 docling、转换失败回落 openpyxl/pptx。
+
+**依赖**：requirements.txt 加 `python-pptx>=0.6.23,<2.0.0`。
+
+**验证**：新增 8 项测试（XLSX 表格/多 sheet/空 sheet/单行/变列 + PPTX 基本/空/纯标题），
+全部 passed。

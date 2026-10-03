@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 TEXT_EXTENSIONS = {"txt", "md", "markdown", "csv", "json"}
 DOCX_EXTENSIONS = {"docx"}
 PDF_EXTENSIONS = {"pdf"}
+XLSX_EXTENSIONS = {"xlsx", "xlsm"}
+PPTX_EXTENSIONS = {"pptx"}
 LEGACY_OFFICE_EXTENSIONS = {"doc", "ppt", "xls"}
 IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 
@@ -117,6 +119,10 @@ def parse_document(path: Path, filename: str) -> ParsedDocument:
         except Exception:
             if ext in TEXT_EXTENSIONS:
                 return parse_plain_text(path, ext)
+            if ext in XLSX_EXTENSIONS:
+                return parse_xlsx(path, ext)
+            if ext in PPTX_EXTENSIONS:
+                return parse_pptx(path)
             raise
         document = result.document
         markdown = document.export_to_markdown()
@@ -738,7 +744,87 @@ def parse_with_fallback(path: Path, ext: str) -> ParsedDocument:
         markdown = "\n\n".join(f"## Page {item['page']}\n\n{item['text']}" for item in pages if item["text"].strip())
         return ParsedDocument(markdown=markdown, raw={"parser": "pypdf", "pages": pages})
 
+    if ext in XLSX_EXTENSIONS:
+        try:
+            from openpyxl import load_workbook  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("Docling 未安装，且 openpyxl 不可用，无法解析 XLSX") from exc
+        return parse_xlsx(path, ext)
+
+    if ext in PPTX_EXTENSIONS:
+        try:
+            from pptx import Presentation  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("Docling 未安装，且 python-pptx 不可用，无法解析 PPTX") from exc
+        return parse_pptx(path)
+
     raise RuntimeError("Docling 未安装，当前文件类型没有可用的轻量解析器")
+
+
+def parse_xlsx(path: Path, ext: str) -> ParsedDocument:
+    """Parse XLSX/XLSM spreadsheets to markdown tables (003 audit fallback)."""
+    from openpyxl import load_workbook  # type: ignore
+
+    workbook = load_workbook(str(path), read_only=True, data_only=True)
+    sheets: list[dict[str, Any]] = []
+    markdown_parts: list[str] = []
+
+    for sheet_name in workbook.sheetnames:
+        sheet = workbook[sheet_name]
+        rows: list[list[str]] = []
+        for row in sheet.iter_rows(values_only=True):
+            cells = [str(cell) if cell is not None else "" for cell in row]
+            if any(cell.strip() for cell in cells):
+                rows.append(cells)
+
+        if not rows:
+            markdown_parts.append(f"## Sheet: {sheet_name}\n\n(empty)")
+            sheets.append({"sheet": sheet_name, "rows": 0})
+            continue
+
+        # Convert to markdown table
+        if len(rows) > 1:
+            headers = rows[0]
+            table_lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join(["---"] * len(headers)) + " |"]
+            for row in rows[1:]:
+                # Pad row to match header width
+                padded = row + [""] * (len(headers) - len(row))
+                table_lines.append("| " + " | ".join(padded[: len(headers)]) + " |")
+            table_md = "\n".join(table_lines)
+            markdown_parts.append(f"## Sheet: {sheet_name}\n\n{table_md}")
+        else:
+            markdown_parts.append(f"## Sheet: {sheet_name}\n\n(empty)")
+
+        sheets.append({"sheet": sheet_name, "rows": len(rows)})
+
+    workbook.close()
+    markdown = "\n\n".join(markdown_parts)
+    return ParsedDocument(markdown=markdown, raw={"parser": "openpyxl", "format": ext, "sheets": sheets})
+
+
+def parse_pptx(path: Path) -> ParsedDocument:
+    """Parse PPTX presentations to markdown text (003 audit fallback)."""
+    from pptx import Presentation  # type: ignore
+
+    prs = Presentation(str(path))
+    slides: list[dict[str, Any]] = []
+    markdown_parts: list[str] = []
+
+    for index, slide in enumerate(prs.slides, start=1):
+        texts: list[str] = []
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for paragraph in shape.text_frame.paragraphs:
+                    text = paragraph.text.strip()
+                    if text:
+                        texts.append(text)
+
+        slide_md = f"## Slide {index}\n\n" + "\n\n".join(texts) if texts else f"## Slide {index}\n\n(empty)"
+        markdown_parts.append(slide_md)
+        slides.append({"slide": index, "texts": texts})
+
+    markdown = "\n\n".join(markdown_parts)
+    return ParsedDocument(markdown=markdown, raw={"parser": "python-pptx", "format": "pptx", "slides": slides})
 
 
 def parse_plain_text(path: Path, ext: str) -> ParsedDocument:
