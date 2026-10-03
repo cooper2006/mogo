@@ -44,6 +44,25 @@ movo_export_service_images() {
 movo_configure_images() {
   local source_build="${1:-false}"
   local configured_registry="${MOVO_IMAGE_REGISTRY:-$(dotenv_value MOVO_IMAGE_REGISTRY)}"
+
+  # Backwards/alias compatibility: earlier docs and .env files used
+  # MOVO_IMAGE_PREFIX. It used to be silently ignored, so an operator who set it
+  # still pulled from the default registry without any warning. Honour it, and
+  # warn when both are set with conflicting values.
+  local configured_prefix="${MOVO_EXPORTED_IMAGE_PREFIX:-$(dotenv_value MOVO_EXPORTED_IMAGE_PREFIX)}"
+  local legacy_prefix="${MOVO_IMAGE_PREFIX:-$(dotenv_value MOVO_IMAGE_PREFIX)}"
+  if [[ -n "${legacy_prefix}" ]]; then
+    if [[ -n "${configured_registry}" || -n "${configured_prefix}" ]]; then
+      printf 'Warning: MOVO_IMAGE_PREFIX is set together with MOVO_IMAGE_REGISTRY/MOVO_EXPORTED_IMAGE_PREFIX; using the latter.\n' >&2
+    else
+      printf 'Warning: MOVO_IMAGE_PREFIX is deprecated; use MOVO_IMAGE_REGISTRY instead. Honouring MOVO_IMAGE_PREFIX for now.\n' >&2
+      configured_registry="${legacy_prefix}"
+    fi
+  fi
+  if [[ -n "${configured_prefix}" && -z "${configured_registry}" ]]; then
+    configured_registry="${configured_prefix}"
+  fi
+
   MOGO_VERSION="${MOGO_VERSION:-${MOVO_VERSION:-$(dotenv_value MOGO_VERSION)}}"
   MOGO_VERSION="${MOGO_VERSION:-latest}"
   export MOGO_VERSION

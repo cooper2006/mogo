@@ -28,6 +28,19 @@ image.
   `平台超级管理员`).
 - Existing tenants are backfilled into the new `tenants` collection on startup
   (idempotent, reserved identifiers skipped); no data migration is needed.
+- **MongoDB database name changed from `gragentic` to `mogo_dev`.** This is a
+  rename, not a copy: an existing deployment that keeps the old database name
+  will appear to have lost all data, because the services connect to a fresh,
+  empty `mogo_dev`. There is **no automatic migration**. Choose one:
+  - keep existing data — set `ASKAI_ADMIN_MONGODB_DB` (admin-api), `MONGODB_DB`
+    (chat-api) and `MOVO_DOC_PROCESSING_MONGODB_DB` (document-parser) back to
+    `gragentic`; or
+  - adopt the new name — before starting the upgraded stack, migrate the data,
+    e.g. `mongodump --db gragentic` then `mongorestore --nsFrom 'gragentic.*'
+    --nsTo 'mogo_dev.*'`, or rename each collection with
+    `db.adminCommand({renameCollection: "gragentic.<c>", to: "mogo_dev.<c>"})`.
+  Both `docker-compose.yml` and `prod-images-caf21d4/docker-compose.portainer.yml`
+  already default to `mogo_dev`.
 - `ASKAI_ADMIN_BOOTSTRAP_ADMIN_*` was renamed to
   `ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_*` — update your environment files.
 

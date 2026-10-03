@@ -75,7 +75,9 @@ jobs:
         run: |
           python -m venv ${{ matrix.venv }}
           ${{ matrix.venv }}/bin/pip install -r requirements.txt
-          ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio
+          # pytest-timeout provides the --timeout flag used in "Run tests";
+          # without it pytest exits 4 with "unrecognized arguments: --timeout=120".
+          ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio pytest-timeout
 
       - name: Run tests
         working-directory: services/${{ matrix.service }}
