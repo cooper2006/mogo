@@ -185,3 +185,99 @@ def test_restore_skill_quality_resets_window() -> None:
     assert record["window_reset_days"] == LOW_QUALITY_SUSTAINED_DAYS
     assert record["ranking"] == "normal"
 
+
+
+# --- 016 FR-5 residual: auto-rollback scheduled scan -------------------------
+
+def test_scan_and_auto_rollback_applies_rollback_when_breached() -> None:
+    """An active rollout whose error rate exceeds the threshold gets rolled
+    back and persisted; healthy rollouts are left untouched."""
+    import asyncio
+    from app.services.skill_market.canary import (
+        Rollout,
+        ROLLBACK_SCAN_COLLECTION,
+        scan_and_auto_rollback,
+        _row_to_rollout,
+        _rollout_to_row,
+    )
+
+    class _Coll:
+        def __init__(self):
+            self.rows: list[dict] = []
+            self.replaced: list[dict] = []
+
+        def find(self, query):
+            def _match(row):
+                if "state" in query and "$in" in query["state"]:
+                    return row.get("state") in query["state"]["$in"]
+                return True
+            rows = [r for r in self.rows if _match(r)]
+            class _Cur:
+                async def to_list(self, length):
+                    return rows[:length]
+            return _Cur()
+
+        async def replace_one(self, query, doc):
+            for row in self.rows:
+                if all(row.get(k) == v for k, v in query.items()):
+                    row.update(doc)
+                    self.replaced.append(dict(doc))
+                    return True
+            return False
+
+    class _DB:
+        def __init__(self, coll):
+            self._coll = coll
+        def __getitem__(self, name):
+            assert name == ROLLBACK_SCAN_COLLECTION
+            return self._coll
+
+    coll = _Coll()
+    coll.rows.append(_rollout_to_row(Rollout(skill_id="bad", version=2, stable_version=1)))
+    bad = coll.rows[0]
+    bad["error_count"] = 50
+    bad["call_count"] = 100   # 50% > 20% threshold
+    good = _rollout_to_row(Rollout(skill_id="good", version=3, stable_version=2))
+    good["error_count"] = 2
+    good["call_count"] = 100  # 2% < threshold
+    coll.rows.append(good)
+
+    applied = asyncio.run(scan_and_auto_rollback(_DB(coll)))
+    assert [item["skillId"] for item in applied] == ["bad"]
+    assert applied[0]["fromVersion"] == 2
+    assert applied[0]["toVersion"] == 1
+    # The bad rollout was persisted as rolled_back; the good one untouched.
+    assert coll.rows[0]["state"] == "rolled_back"
+    assert coll.rows[1]["state"] == "pending"
+    assert len(coll.replaced) == 1
+
+
+def test_scan_and_auto_rollback_respects_min_samples() -> None:
+    """Below the minimum sample size no rollback is applied even with a high
+    observed error rate (FR-10)."""
+    import asyncio
+    from app.services.skill_market.canary import Rollout, _rollout_to_row, scan_and_auto_rollback
+
+    class _Coll:
+        def __init__(self, rows):
+            self.rows = rows
+        def find(self, query):
+            rows = self.rows
+            class _Cur:
+                async def to_list(self, length):
+                    return rows[:length]
+            return _Cur()
+        async def replace_one(self, query, doc):
+            raise AssertionError("no replacement expected")
+
+    class _DB:
+        def __init__(self, rows):
+            self._coll = _Coll(rows)
+        def __getitem__(self, name):
+            return self._coll
+
+    row = _rollout_to_row(Rollout(skill_id="few", version=2, stable_version=1))
+    row["error_count"] = 9
+    row["call_count"] = 10  # 90% error but only 10 samples (< 20 min)
+    applied = asyncio.run(scan_and_auto_rollback(_DB([row])))
+    assert applied == []

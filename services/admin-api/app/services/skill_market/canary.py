@@ -10,9 +10,13 @@ Rollback target is the Skill's **previous published stable version** (FR-13).
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CANARY_ROLLBACK_THRESHOLD = 0.20   # 20% error rate
 DEFAULT_MIN_CANARY_SAMPLES = 20
@@ -117,3 +121,133 @@ def apply_rollback(rollout: Rollout, decision: CanaryDecision) -> dict[str, Any]
         "errorRate": round(decision.error_rate, 4),
         "reason": decision.reason,
     }
+
+
+# ---------------------------------------------------------------------------
+# Auto-rollback scheduler (016 FR-5 residual: 自动回滚定时调度)
+# ---------------------------------------------------------------------------
+
+ROLLBACK_SCAN_COLLECTION = "skill_rollouts"
+
+
+def _row_to_rollout(row: dict[str, Any]) -> Rollout:
+    return Rollout(
+        skill_id=str(row.get("skill_id") or ""),
+        version=int(row.get("version") or 0),
+        stable_version=int(row.get("stable_version") or 0),
+        target_tenants=list(row.get("target_tenants") or []),
+        state=str(row.get("state") or "pending"),
+        error_count=int(row.get("error_count") or 0),
+        call_count=int(row.get("call_count") or 0),
+    )
+
+
+def _rollout_to_row(rollout: Rollout) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
+    return {
+        "skill_id": rollout.skill_id,
+        "version": rollout.version,
+        "stable_version": rollout.stable_version,
+        "target_tenants": rollout.target_tenants,
+        "state": rollout.state,
+        "error_count": rollout.error_count,
+        "call_count": rollout.call_count,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def scan_and_auto_rollback(
+    db,
+    *,
+    threshold: float = DEFAULT_CANARY_ROLLBACK_THRESHOLD,
+    min_samples: int = DEFAULT_MIN_CANARY_SAMPLES,
+) -> list[dict[str, Any]]:
+    """Scan all active canary rollouts and apply automatic rollback where
+    the error-rate threshold is breached (FR-5 scheduled residual).
+
+    Reads every rollout row whose state is *pending* or *running*, evaluates
+    it with the current counts, and — when a rollback is warranted — applies
+    the state change and persists it. Returns the list of applied rollback
+    records (empty when nothing tripped the threshold).
+    """
+    collection = db[ROLLBACK_SCAN_COLLECTION]
+    rows = await collection.find(
+        {"state": {"$in": [RolloutState.PENDING.value, RolloutState.RUNNING.value]}}
+    ).to_list(length=500)
+
+    applied: list[dict[str, Any]] = []
+    for row in rows:
+        rollout = _row_to_rollout(row)
+        decision = evaluate_canary(rollout, threshold=threshold, min_samples=min_samples)
+        result = apply_rollback(rollout, decision)
+        if result:
+            await collection.replace_one(
+                {"skill_id": rollout.skill_id}, _rollout_to_row(rollout)
+            )
+            applied.append(result)
+            logger.info(
+                "canary auto-rollback applied",
+                extra={"event": "canary.auto_rollback", **result},
+            )
+    return applied
+
+
+class CanaryRollbackScanner:
+    """Periodic trigger for :func:`scan_and_auto_rollback` (lifespan-managed)."""
+
+    def __init__(
+        self,
+        *,
+        db: Any = None,
+        interval_seconds: Optional[float] = None,
+        threshold: float = DEFAULT_CANARY_ROLLBACK_THRESHOLD,
+        min_samples: int = DEFAULT_MIN_CANARY_SAMPLES,
+    ) -> None:
+        self._db = db
+        self._interval_seconds = interval_seconds
+        self._threshold = threshold
+        self._min_samples = min_samples
+        self._task: Optional[asyncio.Task] = None
+        self._stopping = asyncio.Event()
+
+    @property
+    def interval_seconds(self) -> float:
+        if self._interval_seconds is not None:
+            return float(self._interval_seconds)
+        return 300.0  # 5 minutes
+
+    async def start(self) -> None:
+        import contextlib
+
+        if self._task is not None and not self._task.done():
+            return
+        self._stopping.clear()
+        self._task = asyncio.create_task(self._loop(), name="canary-rollback-scanner")
+
+    async def stop(self) -> None:
+        import contextlib
+
+        self._stopping.set()
+        task, self._task = self._task, None
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    async def _loop(self) -> None:
+        from app.core.db import get_db
+
+        while not self._stopping.is_set():
+            try:
+                db = self._db if self._db is not None else get_db()
+                await scan_and_auto_rollback(
+                    db, threshold=self._threshold, min_samples=self._min_samples
+                )
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("canary auto-rollback scan failed")
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=self.interval_seconds)
+            except asyncio.TimeoutError:
+                pass

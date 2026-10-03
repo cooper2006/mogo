@@ -346,7 +346,10 @@
 >    从此有真实生产调用方。
 > **MongoDB 持久化已修（续四十）**：rollout 存 `skill_rollouts` 集合，跨进程持久；
 >    新增 `_row_to_rollout`/`_rollout_to_row` 序列化层。
-> **仍待修（降为 P1 残项）**：自动回滚定时调度；FR-1/FR-2 监控查询与异常下钻。
+> **已修**：自动回滚定时调度（续五十）——
+>    扫描 pending/running rollout，超阈值即自动回滚落库；
+>    `CanaryRollbackScanner`（5 分钟周期）由 lifespan 启动/停止。
+> **仍待修（降为 P1 残项）**：FR-1/FR-2 监控查询与异常下钻。
 
 ### 017 three-scope-memory（4）—— **store + endpoint + RAG 集成已接线（2026-10-03，见 WORK_LOG 续二十一/二十二）**
 

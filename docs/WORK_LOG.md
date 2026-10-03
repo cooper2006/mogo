@@ -4134,3 +4134,40 @@ im_gateway 回归 35 passed；端点模块 import ok。
 
 **验证**：resilience 测试 48 passed（新增 3 项 FR-12：分类不可重试、
 retry 立即上抛且单次、failover 不切备用源）。
+
+## 2026-10-03 QA 审计修复：第八轮 — NA 标记 + TypeScript 严格检查 + P1 修复
+
+**起因**：标记 OIDC 不适用项、审查 TypeScript 严格检查、修复 P1 缺陷。
+
+**执行内容**：
+
+1. **QF-365~370 标记为 NA**：项目无 OIDC/SSO 实现，使用自定义登录流程
+2. **QF-030~033 TypeScript 严格检查**：
+   - user-web tsconfig.json 启用 `strict: true`
+   - 修复 13 个类型错误：null 检查、非空断言、类型收窄
+   - 修复文件：App.vue、CodeFileTypeIcon.vue、unifiedDiff.ts、MySkillConfigPage.vue、useChatRuntimeStore.ts、executionStore.ts
+3. **QF-048~052 P1 代码质量**：
+   - chat-api venv 安装 black 和 isort
+   - requirements.txt 添加 black>=24.0.0、isort>=5.13.0
+   - user-web console.log 已在早前轮次移除
+   - skills_specs scripts 中的 print() 是用户进度输出，非调试语句
+
+**修改文件**：
+- `apps/user-web/tsconfig.json` — strict: true
+- `apps/user-web/src/App.vue` — null 检查
+- `apps/user-web/src/components/code/CodeFileTypeIcon.vue` — 类型安全映射
+- `apps/user-web/src/components/code/unifiedDiff.ts` — null 检查
+- `apps/user-web/src/components/MySkillConfigPage.vue` — undefined 默认值
+- `apps/user-web/src/composables/useChatRuntimeStore.ts` — 类型断言
+- `apps/user-web/src/features/execution-v3/stores/executionStore.ts` — 解构避免重复键
+- `services/chat-api/requirements.txt` — 添加 black、isort
+
+**验证**：
+- user-web: typecheck ✓、build ✓
+- admin-web: typecheck ✓、build ✓
+
+**审计状态变化**：
+- 已修复：68 → 75 (+7)
+- NA: 0 → 6
+- 未关闭：75 → 62 (-13)
+- P0 阻断级：34 → 24 (-10)

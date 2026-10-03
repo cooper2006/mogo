@@ -27,10 +27,13 @@ from app.services.organization_tools import repair_role_referenced_personal_tool
 from app.system_audit import SystemAuditMiddleware, SystemAuditRepository
 from app.product.extensions import get_admin_product_extension
 from app.services.skill_market.quality_metrics import SkillQualityScanner
+from app.services.skill_market.canary import CanaryRollbackScanner
 
 
 # 016 periodic effect-score assessment (closed-loop write to skill_adoption).
 _QUALITY_SCANNER = SkillQualityScanner()
+# 016 FR-5 residual: auto-rollback scheduled scan for active canary rollouts.
+_CANARY_ROLLBACK_SCANNER = CanaryRollbackScanner()
 
 
 logger = logging.getLogger(__name__)
@@ -89,12 +92,22 @@ def create_app() -> FastAPI:
             await _QUALITY_SCANNER.start()
         except Exception:  # pragma: no cover - defensive
             logger.exception("failed to start skill quality scanner")
+        # 016 FR-5 residual: periodic auto-rollback scan for active canary
+        # rollouts. Best-effort: a DB/loop error must never break app startup.
+        try:
+            await _CANARY_ROLLBACK_SCANNER.start()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("failed to start canary rollback scanner")
 
 
     @app.on_event("shutdown")
     async def on_shutdown() -> None:
         try:
             await _QUALITY_SCANNER.stop()
+        except Exception:  # pragma: no cover - defensive
+            pass
+        try:
+            await _CANARY_ROLLBACK_SCANNER.stop()
         except Exception:  # pragma: no cover - defensive
             pass
         close_db()
