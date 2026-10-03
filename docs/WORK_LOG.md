@@ -3789,3 +3789,16 @@ API 将记忆从 personal/workspace 提升为 org scope。
 
 **验证**：memory 测试 16 passed；`test_promotion_requires_authorized_role` 已覆盖
 角色校验逻辑。
+
+## 2026-10-03（续四十）016 canary MongoDB 持久化
+
+**背景**：001 audit 残项——canary 端点使用内存 dict（`_rollouts`），rollout 数据
+进程重启即丢失，无法跨进程共享。
+
+**改动**（skill_canary.py）：
+- 新增 `COLLECTION = "skill_rollouts"` 常量；
+- 新增 `_row_to_rollout`/`_rollout_to_row` 序列化函数；
+- 四个端点改用 `get_db()` 从 MongoDB 读写 rollout；
+- 所有操作改为 async（Motor 异步驱动）。
+
+**验证**：skill_market 测试 21 passed。

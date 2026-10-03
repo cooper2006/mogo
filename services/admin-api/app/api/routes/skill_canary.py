@@ -1,15 +1,17 @@
 """Canary rollout + rollback endpoints (feature 016).
 
-Minimal production wiring: exposes canary evaluation and manual rollback.
-Automatic rollback scheduling and MongoDB persistence tracked as follow-ups.
+Production wiring with MongoDB persistence (FR-10): rollouts are stored in
+the ``skill_rollouts`` collection so they survive process restarts.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 
+from app.core.db import get_db
 from app.services.skill_market.canary import (
     DEFAULT_CANARY_ROLLBACK_THRESHOLD,
     DEFAULT_MIN_CANARY_SAMPLES,
@@ -20,8 +22,32 @@ from app.services.skill_market.canary import (
 
 router = APIRouter(prefix="/api/skills/canary", tags=["skill-canary"])
 
-# In-memory rollout store. Production uses MongoDB (FR-10).
-_rollouts: dict[str, Rollout] = {}
+COLLECTION = "skill_rollouts"
+
+
+def _row_to_rollout(row: dict[str, Any]) -> Rollout:
+    return Rollout(
+        skill_id=str(row.get("skill_id") or ""),
+        version=int(row.get("version") or 0),
+        stable_version=int(row.get("stable_version") or 0),
+        target_tenants=list(row.get("target_tenants") or []),
+        state=str(row.get("state") or "pending"),
+        error_count=int(row.get("error_count") or 0),
+        call_count=int(row.get("call_count") or 0),
+    )
+
+
+def _rollout_to_row(rollout: Rollout) -> dict[str, Any]:
+    return {
+        "skill_id": rollout.skill_id,
+        "version": rollout.version,
+        "stable_version": rollout.stable_version,
+        "target_tenants": rollout.target_tenants,
+        "state": rollout.state,
+        "error_count": rollout.error_count,
+        "call_count": rollout.call_count,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def _require_service(token: str) -> None:
@@ -36,7 +62,7 @@ async def create_rollout(
     payload: dict[str, Any],
     service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
 ) -> dict[str, Any]:
-    """Start a canary rollout for a Skill version (FR-4)."""
+    """Start a canary rollout for a Skill version (FR-4, FR-10 persistence)."""
     _require_service(service_token)
 
     skill_id = str(payload.get("skill_id") or "").strip()
@@ -53,7 +79,12 @@ async def create_rollout(
         stable_version=stable_version,
         target_tenants=target_tenants,
     )
-    _rollouts[skill_id] = rollout
+    db = get_db()
+    await db[COLLECTION].replace_one(
+        {"skill_id": skill_id},
+        _rollout_to_row(rollout),
+        upsert=True,
+    )
     return {
         "code": 0,
         "message": "rollout_started",
@@ -76,16 +107,22 @@ async def record_rollout_calls(
     """Record call/error counts for a canary rollout (FR-4 / FR-5)."""
     _require_service(service_token)
 
-    rollout = _rollouts.get(skill_id)
-    if rollout is None:
+    db = get_db()
+    row = await db[COLLECTION].find_one({"skill_id": skill_id})
+    if row is None:
         raise HTTPException(status_code=404, detail="rollout_not_found")
 
+    rollout = _row_to_rollout(row)
     calls = int(payload.get("calls") or 0)
     errors = int(payload.get("errors") or 0)
     rollout.record_calls(calls=calls, errors=errors)
+    await db[COLLECTION].replace_one(
+        {"skill_id": skill_id},
+        _rollout_to_row(rollout),
+    )
     return {
         "code": 0,
-        "message": " recorded",
+        "message": "recorded",
         "data": {
             "skill_id": skill_id,
             "call_count": rollout.call_count,
@@ -106,10 +143,12 @@ async def evaluate_rollout(
     """Evaluate canary health and decide rollback (FR-5)."""
     _require_service(service_token)
 
-    rollout = _rollouts.get(skill_id)
-    if rollout is None:
+    db = get_db()
+    row = await db[COLLECTION].find_one({"skill_id": skill_id})
+    if row is None:
         raise HTTPException(status_code=404, detail="rollout_not_found")
 
+    rollout = _row_to_rollout(row)
     decision = evaluate_canary(
         rollout,
         threshold=float(threshold or DEFAULT_CANARY_ROLLBACK_THRESHOLD),
@@ -137,12 +176,19 @@ async def do_rollback(
     """Manually trigger rollback for a canary rollout (FR-11)."""
     _require_service(service_token)
 
-    rollout = _rollouts.get(skill_id)
-    if rollout is None:
+    db = get_db()
+    row = await db[COLLECTION].find_one({"skill_id": skill_id})
+    if row is None:
         raise HTTPException(status_code=404, detail="rollout_not_found")
 
+    rollout = _row_to_rollout(row)
     decision = evaluate_canary(rollout)
     result = apply_rollback(rollout, decision)
+    # Persist the updated state.
+    await db[COLLECTION].replace_one(
+        {"skill_id": skill_id},
+        _rollout_to_row(rollout),
+    )
     if not result:
         return {"code": 0, "message": "no_rollback_needed", "data": {
             "skill_id": skill_id,
