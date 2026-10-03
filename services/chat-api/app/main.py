@@ -355,6 +355,31 @@ async def startup_event() -> None:
                 pass
             await asyncio.sleep(60)
     _receipt_gc_task = asyncio.create_task(_receipt_gc_loop())
+
+    # 017 FR-8: periodic memory decay sweep (archival / deletion by policy).
+    # Best-effort: a DB error must never take the app down with it.
+    from app.memory.lifecycle import clean_decayed_memories, MemoryLifecycle
+
+    async def _memory_decay_loop() -> None:
+        while True:
+            try:
+                db_now = get_db()
+                if db_now is not None:
+                    outcome = clean_decayed_memories(db=db_now, lifecycle=MemoryLifecycle())
+                    pending = outcome.get("_pending")
+                    if pending is not None:
+                        outcome = await pending
+                    outcome.pop("_pending", None)
+                    if outcome.get("removed") or outcome.get("archived"):
+                        logger.info(
+                            "memory decay sweep",
+                            extra={"event": "memory.decay_sweep", **outcome},
+                        )
+            except Exception:
+                logger.exception("memory decay sweep failed")
+            await asyncio.sleep(3600)  # hourly
+
+    _memory_decay_task = asyncio.create_task(_memory_decay_loop())
     settings = get_settings()
     logger.info(
         "application startup complete",
@@ -370,7 +395,7 @@ async def startup_event() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
-    global _receipt_gc_task
+    global _receipt_gc_task, _memory_decay_task
     for callback in reversed(product_extension.shutdown):
         result = callback()
         if asyncio.iscoroutine(result):
@@ -378,6 +403,9 @@ async def shutdown_event() -> None:
     if _receipt_gc_task is not None:
         _receipt_gc_task.cancel()
         _receipt_gc_task = None
+    if _memory_decay_task is not None:
+        _memory_decay_task.cancel()
+        _memory_decay_task = None
     await dream_cycle_runtime.dream_cycle_scanner.stop()
     await scheduled_task_scheduler.stop()
     await token_usage_dispatcher.stop()

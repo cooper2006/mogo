@@ -118,3 +118,109 @@ def test_touch_resets_timer() -> None:
 
 def test_cleanup_default_is_archive() -> None:
     assert MemoryLifecycle().cleanup == CLEANUP_ARCHIVE
+
+
+# --- 017 FR-8 残项：老化清理 ------------------------------------------------
+
+from app.memory.lifecycle import build_cleanup_query, clean_decayed_memories
+from app.memory.scope import Memory as _Mem
+
+
+class _FakeColl:
+    def __init__(self, rows):
+        self._rows = [dict(r) for r in rows]
+        self.deleted = []
+        self.modified_count = 0
+
+    def find(self, query):
+        cutoff = query["last_accessed_at"]["$lt"]
+        return [dict(r) for r in self._rows if r.get("last_accessed_at", 0) < cutoff]
+
+    def delete_many(self, query):
+        cutoff = query["last_accessed_at"]["$lt"]
+        keep, dropped = [], []
+        for row in self._rows:
+            if row.get("last_accessed_at", 0) < cutoff:
+                dropped.append(row)
+            else:
+                keep.append(row)
+        self._rows = keep
+        self.deleted.extend(dropped)
+        return type("R", (), {"deleted_count": len(dropped)})()
+
+    def bulk_write(self, ops):
+        n = 0
+        for op in ops:
+            q = op._filter
+            upd = op._doc["$set"]
+            for row in self._rows:
+                if (row.get("memory_id") == q.get("memory_id")
+                        and row.get("tenant_id", "") == q.get("tenant_id", "")
+                        and not row.get("archived")):
+                    row["archived"] = upd["archived"]
+                    row["archived_at"] = upd["archived_at"]
+                    n += 1
+        self.modified_count = n
+        return type("R", (), {"modified_count": n})()
+
+
+class _FakeDB:
+    def __init__(self, coll):
+        self._coll = coll
+
+    def __getitem__(self, name):
+        assert name == "memories"
+        return self._coll
+
+
+def test_build_cleanup_query_cutoff_and_tenant() -> None:
+    now = 1_000_000.0
+    q = build_cleanup_query(now=now)
+    assert q["last_accessed_at"]["$lt"] == now - 30 * SECONDS_PER_DAY
+    assert "tenant_id" not in q
+    q2 = build_cleanup_query(now=now, tenant_id="main-1")
+    assert q2["tenant_id"] == "main-1"
+    short = MemoryLifecycle(decay_days=1)
+    q3 = build_cleanup_query(now=now, lifecycle=short)
+    assert q3["last_accessed_at"]["$lt"] == now - SECONDS_PER_DAY
+
+
+def test_clean_decayed_archives_by_default() -> None:
+    """Archival stamps the expired docs and returns the count; fresh docs
+    are untouched."""
+    # 1-day decay policy → cutoff = now - 86400.
+    # m-old: last_accessed_at = 0 (expired, below cutoff)
+    # m-fresh: last_accessed_at = now (not expired, above cutoff)
+    now = 1_000_000.0
+    lifecycle = MemoryLifecycle(decay_days=1)  # 1-day decay for the test
+    coll = _FakeColl([
+        {"memory_id": "m-old", "tenant_id": "main-1", "last_accessed_at": 0.0},
+        {"memory_id": "m-old2", "tenant_id": "main-1", "last_accessed_at": 0.0},
+        {"memory_id": "m-fresh", "tenant_id": "main-1", "last_accessed_at": now},
+    ])
+    result = clean_decayed_memories(db=_FakeDB(coll), now=now, lifecycle=lifecycle)
+    assert result == {"removed": 0, "archived": 2, "cleanup": "archive"}
+    archived_ids = sorted(r["memory_id"] for r in coll._rows if r.get("archived"))
+    assert archived_ids == ["m-old", "m-old2"]
+    assert "archived" not in next(r for r in coll._rows if r["memory_id"] == "m-fresh")
+
+
+def test_clean_decayed_delete_disposition() -> None:
+    now = 1_000_000.0
+    lifecycle = MemoryLifecycle(decay_days=1, cleanup="delete")
+    coll = _FakeColl([
+        {"memory_id": "m-old", "tenant_id": "main-1", "last_accessed_at": 0.0},
+        {"memory_id": "m-fresh", "tenant_id": "main-1", "last_accessed_at": now},
+    ])
+    result = clean_decayed_memories(db=_FakeDB(coll), now=now, lifecycle=lifecycle)
+    assert result["removed"] == 1 and result["cleanup"] == "delete"
+    assert [r["memory_id"] for r in coll._rows] == ["m-fresh"]
+
+
+def test_scope_filter_excludes_archived_memories() -> None:
+    from app.memory.retrieval import scope_filter
+    live = _Mem(content="live", scope="org", owner_id="u1", memory_id="m1")
+    gone = _Mem(content="archived", scope="org", owner_id="u2", memory_id="m2")
+    gone.archived = True
+    survivors = scope_filter([live, gone], viewer_id="viewer")
+    assert [m.memory_id for m in survivors] == ["m1"]

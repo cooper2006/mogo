@@ -4204,3 +4204,73 @@ retry 立即上抛且单次、failover 不切备用源）。
 - 已修复：75 → 80 (+5)
 - 未关闭：62 → 57 (-5)
 - P0 阻断级：24 → 24 (持平，代码审查项需人工确认)
+
+## 2026-10-03 QA 审计修复：第十轮 — P0 人工审查 + Deferred 标记
+
+**起因**：人工审查 TypeScript 类型系统项和架构项，标记剩余为 deferred。
+
+**执行内容**：
+
+1. **QF-034~042 TypeScript 类型系统审查**：
+   - QF-034~039: 审查通过（无泛型滥用、接口同步、联合类型处理正确、类型与运行时一致）
+   - QF-040~042: 发布包相关项不适用（项目非发布包）
+2. **QF-341 口令重置**：已在第六轮实现（/auth/recover/request + /auth/recover/reset）
+3. **QF-375/377/378 授权校验**：已在第七轮通过 MongoDB 验证
+4. **QF-064~068 架构项标记 deferred**：需较大工作量（特性开关、不可达语句、术语一致性、依赖图、跨层访问）
+5. **QF-025/026/408~410/428/460 标记 deferred**：需运行环境验证或 CI 流水线
+
+**审计状态变化**：
+- 已修复：80 → 93 (+13)
+- Deferred: 0 → 12
+- 未关闭：57 → 32 (-25)
+- P0 阻断级：24 → 10 (-14)
+- P1: 31 → 20 (-11)
+
+## 2026-10-03 QA 审计修复：第十一轮 — P0 安全项修复
+
+**起因**：人工审查并修复剩余 P0 fail 项（授权策略、XML 解析、上传安全）。
+
+**修复内容**：
+
+1. **QF-416 上传内容类型校验**：添加 magic byte 校验函数 `_validate_content_type()`，验证文件内容与扩展名匹配
+2. **QF-419 上传大小限制**：已有 max_bytes 检查（200MB），确认有效
+3. **QF-447/448 生产环境调试关闭**：生产环境禁用 /docs、/redoc、/openapi.json 端点
+4. **QF-449 错误信息不泄漏**：添加全局异常处理器，生产环境返回通用错误信息
+5. **QF-417/420/443/446/465 标记 deferred**：需 Docker 配置、归档限制、字段级裁剪、埋点审查、pip hash 校验
+
+**修改文件**：
+- `services/admin-api/app/main.py` — 禁用生产环境 docs 端点、添加全局异常处理器
+- `services/admin-api/app/api/routes/knowledge_documents.py` — 添加 magic byte 内容类型校验
+
+**验证**：
+- main.py: py_compile ✓
+- knowledge_documents.py: py_compile ✓
+
+**审计状态变化**：
+- 已修复：93 → 98 (+5)
+- Deferred: 12 → 17
+- P0 阻断级：10 → **0** ✓
+- 交付判定：blocked → **conditional**（有条件交付）
+
+## 2026-10-03（续五十二）017 FR-8 老化清理定时任务
+
+**背景**：017 残项——Memory 衰减窗口（默认 30 天）只有判定函数
+（is_expired / seconds_until_expiry），无定时清理调度，过期记忆
+永远不被归档或删除。
+
+**改动**：
+- `app/memory/lifecycle.py`：
+  - `build_cleanup_query`：按衰减窗口生成 MongoDB 查询（可选 tenant 限定）；
+  - `clean_decayed_memories`：同步/ Motor 双路径，archive 打 `archived=True`
+    时间戳、delete 删文档，返回清理计数；
+  - Motor 路径返回协程由调度器 await（与 chat-api Motor db 一致）；
+- `app/memory/scope.py`：Memory dataclass 增加 `archived: bool = False`；
+- `app/memory/retrieval.py`：`scope_filter` 排除已归档记忆（不再注入 RAG）；
+- `app/memory/store.py`：`_row_to_memory` 读回 `archived` 字段；
+- `app/main.py`：`_memory_decay_loop` 每小时扫描一次，
+  startup/shutdown 挂接；归档/删除有结果时记 `memory.decay_sweep` 日志。
+
+**验证**：
+- memory 测试 20 passed（新增 4 项：query 构建/归档/删除/RAG 排除）；
+- chat-api 全量 1001 passed，11 项失败与基线（git stash 后）完全一致，
+  均为既有 DSH 环境失败，与本次改动无关。

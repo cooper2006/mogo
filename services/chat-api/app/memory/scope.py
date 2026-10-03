@@ -55,6 +55,7 @@ class Memory:
     created_at: float = 0.0
     last_accessed_at: float = 0.0
     memory_id: str = ""
+    archived: bool = False  # FR-8: stamped when the decay sweep archives it.
 
     def __post_init__(self) -> None:
         if self.scope not in SCOPE_VISIBILITY:

@@ -24,7 +24,7 @@ def _now_seconds() -> float:
 
 
 def _row_to_memory(row: dict[str, Any]) -> Memory:
-    return Memory(
+    memory = Memory(
         memory_id=str(row.get("memory_id") or row.get("_id") or ""),
         content=str(row.get("content") or ""),
         scope=str(row.get("scope") or MemoryScope.PERSONAL.value),
@@ -34,6 +34,8 @@ def _row_to_memory(row: dict[str, Any]) -> Memory:
         created_at=float(row.get("created_at") or 0.0),
         last_accessed_at=float(row.get("last_accessed_at") or 0.0),
     )
+    memory.archived = bool(row.get("archived") or False)
+    return memory
 
 
 class MemoryStore:

@@ -32,9 +32,17 @@ def scope_filter(
     for memory in memories:
         if memory.scope not in allowed:
             continue
+        # FR-8 decayed + archived memories are no longer RAG candidates.
+        if _row_archived(memory):
+            continue
         if visible_to(memory, viewer_id=viewer_id, viewer_role=viewer_role, is_workspace_member=is_workspace_member):
             survivors.append(memory)
     return survivors
+
+
+def _row_archived(memory: Memory) -> bool:
+    """Whether the memory has been archived by the FR-8 decay sweep."""
+    return bool(getattr(memory, "archived", False))
 
 
 def memory_rag_candidates(
