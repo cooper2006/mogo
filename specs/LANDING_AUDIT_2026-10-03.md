@@ -349,7 +349,7 @@
 >    无数据时返回 resolved=False 不伪造）；
 >    `kg_rag_candidates` 注入 `knowledge_search` RAG 上下文。
 
-### 016 skill-market-hardening（6）—— **canary 端点已接线（2026-10-03，见 WORK_LOG 续二十六）**
+### 016 skill-market-hardening（6）—— **全修（2026-10-03，见 WORK_LOG 续二十六/五十七/五十八）**
 
 > **已修**：`POST/GET /api/skills/canary/*` 四个端点（创建灰度/记录计数/评估健康度/
 >    手动回滚），X-MOVO-Service-Token 验证。`evaluate_canary`/`apply_rollback`
@@ -359,7 +359,11 @@
 > **已修**：自动回滚定时调度（续五十）——
 >    扫描 pending/running rollout，超阈值即自动回滚落库；
 >    `CanaryRollbackScanner`（5 分钟周期）由 lifespan 启动/停止。
-> **仍待修（降为 P1 残项）**：FR-1/FR-2 监控查询与异常下钻。
+> **已修**：FR-1/FR-2 监控查询与异常下钻（续五十七/五十八）——
+>    `skill_monitoring.py` 服务提供 `skill_usage_monitor` / `skill_anomaly_drilldown`，
+>    `/api/skills/monitor/usage` / `/api/skills/monitor/anomaly/{day}` 端点，
+>    真实解析桶数据，不伪造，统一 Honest degrade 方针；
+>    开新路由组 `skill_monitoring`，注册进 API 路由。
 
 ### 017 three-scope-memory（4）—— **全修（2026-10-03，见 WORK_LOG 续二十一/二十二/五十二）**
 

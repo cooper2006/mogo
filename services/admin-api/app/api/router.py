@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, capability_assets, dashboard, directory, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, organizations, page_collection, personal_knowledge_internal, position_roles, presentation_settings, setup, shortcut_settings, skill_canary, skill_lifecycle, skills, system, system_audit, tools, traffic_allocations
+from app.api.routes import analytics, auth, capability_assets, dashboard, directory, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, organizations, page_collection, personal_knowledge_internal, position_roles, presentation_settings, setup, shortcut_settings, skill_canary, skill_lifecycle, skill_monitoring, skills, system, system_audit, tools, traffic_allocations
 from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
@@ -23,6 +23,7 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["analytic
 api_router.include_router(traffic_allocations.router, prefix="/traffic-allocations", tags=["traffic-allocations"])
 api_router.include_router(skills.router, prefix="/skills", tags=["skills"])
 api_router.include_router(skill_canary.router, tags=["skill-canary"])
+api_router.include_router(skill_monitoring.router, tags=["skill-monitoring"])
 api_router.include_router(capability_assets.router, prefix="/capabilities", tags=["capability-assets"])
 api_router.include_router(skill_lifecycle.router, prefix="/skills", tags=["skills"])
 api_router.include_router(tools.router, prefix="/tools", tags=["tools"])

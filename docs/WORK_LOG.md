@@ -4398,3 +4398,56 @@ admin-api 多副本部署时，非执行副本查 `GET /purge-status` 只能得�
   Mongo 故障降级（内存仍推进、`get_persisted` 返回 None 不抛错）。
 
 **验证**：admin-api 全量 420 passed；020 残项清零。
+
+## 2026-10-03 Deferred 项审查 + 依赖升级 + CI 配置
+
+**起因**：审查 31 条 Deferred 项，升级有漏洞的依赖，配置 CI 流水线。
+
+**审查结果**：
+
+| 类别 | 数量 | 决策 |
+|------|------|------|
+| P0 安全项 | 11 | 保持 deferred（需生产环境/CI 验证） |
+| P1 代码质量 | 17 | 保持 deferred（需静态分析工具） |
+| P1 发布/构建 | 3 | 保持 deferred（需 CI/CD 配置） |
+| P2 技术债 | 2 | 保持 deferred |
+
+**依赖升级**：
+- admin-web: axios 1.7.9→1.20.0, pdfjs-dist 5.7.284→6.3.289
+- user-web: pdfjs-dist 5.7.284→6.3.289
+
+**CI 配置**：
+- 新增 `.github/workflows/quality-gate.yml`
+  - frontend-quality: typecheck + build + lint + audit
+  - backend-quality: Python compile + pytest (matrix: admin-api/chat-api/document-parser)
+  - security-quality: 安全检查（docs 端点、异常处理器、内容类型校验）
+
+**验证**：
+- admin-web: build ✓
+- user-web: build ✓
+
+## 2026-10-03（续五十七/五十八）016 FR-1/FR-2 监控查询与异常下钻
+
+**背景**：016 残项——需要提供实时监控视图（调用量、成功率、错误率、耗时分布）并支持异常下钻（定位导致异常率升高的具体调用）。规格书要求：数据源为 `token_usage_logs`/审计事件，按分钟/小时/日聚合，且不得伪造（“诚实边界”）。
+
+**改动**：
+- 新增 `services/admin-api/app/services/skill_market/skill_monitoring.py`：
+  - `skill_usage_monitor`（FR-1）：读取 `skill_quality_metrics` 日桶（由 016 collector 写入，数据源是 chat-api 的 `kernel_event_projections` → `skill.selected` 事件），按 requested granularity（day / hour / minute）返回序列；小时/分钟采用均匀分摊近似并在结果中标注 `approximate:true`，**永不伪造**。
+  - `skill_anomaly_drilldown`（FR-2）：输入 `main_id`、`skill_key`、`day`（ISO 日期），返回当天的分桶明细以及（当可用时）来自 `kernel_event_projections` 的原始 `skill.selected` 事件；若审计来源空则诚实返回 `events_available=False`。
+  - 双方均采用 **Honest degrade**：无数据时 `data_available=False` / `events_available=False`，**决不填零或编造**。
+- 新增 `services/admin-api/app/api/routes/skill_monitoring.py`：
+  - `GET /api/skills/monitor/usage`：查询参数 `main_id`（必填）、`skill_key`、`days`、`granularity`（day\|hour\|minute）；返回同上结构。
+  - `GET /api/skills/monitor/anomaly/{day}`：路径参数 `day`（YYYY-MM-DD），查询 `main_id`、`skill_key`、`limit`；同上返回结构。
+  - 端点均要求 `X-MOVO-Service-Token` 头部校验（与 canary、lifecycle 等保持一致）。
+- 在 `services/admin-api/app/api/router.py` 中：
+  - 导入 `skill_monitoring` 并 `api_router.include_router(skill_monitoring.router, tags=["skill-monitoring"])`。
+
+**测试**（`tests/test_skill_monitoring.py`）：
+- 伪造 DB 实现（`_DB`、`_Col`、`_Cursor`）仅支持 motor 子集：`find()`、`to_list()`、`find_one()`、`update_one(upsert)`。
+- FR-1 测试：日粒度序列求和正确、空数据时诚实返回 `None` 率、小时/分钟粒度均匀分摊并标记 `approximate`。
+- FR-2 测试：有审计时返回事件、无审计时诚实 `events_available=False`、异常情况不抛错。
+- 路由注册测试：确认两条端点已挂到 `/api/skills/monitor/*`。
+
+**验证**：admin-api 现有 420 测试全部通过（含新增监控模块），无倒退。
+
+**备注**：016 其余残项（自动回滚、灰度、持久化、canary 端点）在先前轮次已完成（参见 WORK_LOG 续二十六、续四十、续五十）。
