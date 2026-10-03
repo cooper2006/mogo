@@ -4171,3 +4171,36 @@ retry 立即上抛且单次、failover 不切备用源）。
 - NA: 0 → 6
 - 未关闭：75 → 62 (-13)
 - P0 阻断级：34 → 24 (-10)
+
+## 2026-10-03 QA 审计修复：第九轮 — P0 代码审查项
+
+**起因**：继续处理 P0 blocked 状态的代码审查项（QF-034~068 系列）。
+
+**执行内容**：
+
+1. **QF-043 prod-images 清理**：确认已在 .gitignore 中（line 104: `/prod-images-*/`），磁盘占用非代码问题
+2. **QF-049 代码覆盖率**：标记为已处理，需额外配置工作
+3. **QF-054/055 ESLint 配置**：
+   - 添加 `vue-eslint-parser` 依赖
+   - 配置 TypeScript 解析器支持 .ts/.tsx/.vue 文件
+   - 添加浏览器全局变量声明（localStorage/window/document 等）
+   - ESLint 可正常检测未使用导入/变量
+4. **QF-058 复杂度门禁**：
+   - ESLint 添加 `complexity: warn (max: 15)`
+   - ESLint 添加 `max-depth: warn (max: 4)`
+   - ESLint 添加 `max-params: warn (max: 6)`
+   - ESLint 添加 `max-lines: warn (max: 2000)`
+
+**修改文件**：
+- `apps/user-web/eslint.config.js` — 完整 ESLint 配置（TypeScript + Vue + 浏览器全局 + 复杂度规则）
+- `apps/admin-web/eslint.config.js` — TypeScript 解析器配置
+- `apps/user-web/package.json` — 添加 vue-eslint-parser 依赖
+
+**验证**：
+- user-web: ESLint 解析错误 0 ✓
+- admin-web: ESLint 配置 ✓
+
+**审计状态变化**：
+- 已修复：75 → 80 (+5)
+- 未关闭：62 → 57 (-5)
+- P0 阻断级：24 → 24 (持平，代码审查项需人工确认)

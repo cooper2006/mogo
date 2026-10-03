@@ -292,9 +292,11 @@
 >    `A2AClient` 出站调用框架完整（failover + retry + JSON-RPC error mapping），
 >    仅未从真实 capability 驱动。
 >
-> **仍待修（降为 P1 残项）**：入站 JSON-RPC surface（FR-2/FR-10）、
->    出站 A2A client 实际调用集成、`a2a_exposed` 筛选（依赖 018）。
-- **入站面完全缺失**：无 `jsonrpc.py`、无 `api/endpoints/a2a.py`、`main.py` 未注册。
+> **已修**：入站 JSON-RPC surface（续五十一）——`POST /internal/a2a/rpc`
+>    实现 message/send / tasks/get / tasks/result 三方法（FR-2），
+>    TaskLifecycle 幂等（FR-10），未知方法/非法参数返回 JSON-RPC 错误码。
+> **仍待修（降为 P1 残项）**：出站 A2A client 实际调用集成、`a2a_exposed` 筛选（依赖 018）。
+- **入站面已修（续五十一）**：`POST /internal/a2a/rpc` 已实现 JSON-RPC surface（message/send / tasks/get / tasks/result）。
 - **核心符号零生产调用方**：`from app.a2a` 仅命中 tests；`A2AClient(` 生产 0 处。
 - **产出无消费方**：`AgentCard.as_dict()` 零外部调用；`/a2a/{tenant}/{id}` 无路由承接。
 - **FR-6 双向门禁零接线**：a2a 内 governance 字样全是注释。

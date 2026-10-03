@@ -198,3 +198,119 @@ def test_fail_records_error() -> None:
 
 def test_result_for_unknown_task_is_none() -> None:
     assert TaskLifecycle().result("missing") is None
+
+
+# --- FR-2 / FR-10: inbound JSON-RPC surface --------------------------------
+
+
+def _patch_auth(monkeypatch):
+    """Mock _resolve_session_user on the auth module so the endpoint's local
+    import picks up the fake (no DB needed)."""
+    from app.api.endpoints import auth as auth_mod
+
+    async def _fake(authorization=None):
+        return {"user": {"_id": "u-test"}, "main_id": "default"}
+
+    monkeypatch.setattr(auth_mod, "_resolve_session_user", _fake)
+
+
+def test_jsonrpc_message_send_submits_task(monkeypatch):
+    """POST /internal/a2a/rpc with message/send creates a task and returns
+    the created flag; a replay of the same taskId returns created=False
+    (FR-10 idempotency)."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+
+    _patch_auth(monkeypatch)
+    a2a_endpoint._lifecycle = TaskLifecycle()
+
+    async def _call(payload):
+        return await a2a_endpoint.a2a_jsonrpc(payload, authorization="Bearer test")
+
+    result = asyncio.run(_call({"method": "message/send", "id": 1, "params": {"taskId": "task-1", "text": "hello"}}))
+    assert result["result"]["created"] is True
+    assert result["result"]["state"] == "working"
+
+    # Replay the same taskId — must be idempotent.
+    result2 = asyncio.run(_call({"method": "message/send", "id": 2, "params": {"taskId": "task-1"}}))
+    assert result2["result"]["created"] is False
+
+
+def test_jsonrpc_unknown_method_returns_method_not_found(monkeypatch):
+    """POST /internal/a2a/rpc with an unsupported method returns
+    ERROR_METHOD_NOT_FOUND (FR-7 error mapping)."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from app.a2a.protocol import ERROR_METHOD_NOT_FOUND
+
+    _patch_auth(monkeypatch)
+    a2a_endpoint._lifecycle = TaskLifecycle()
+
+    result = asyncio.run(a2a_endpoint.a2a_jsonrpc(
+        {"method": "unknown/thing", "id": 99, "params": {}},
+        authorization="Bearer test",
+    ))
+    assert result["error"]["code"] == ERROR_METHOD_NOT_FOUND
+
+
+def test_jsonrpc_tasks_get_returns_task_state(monkeypatch):
+    """POST /internal/a2a/rpc with tasks/get returns the stored task state."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+
+    _patch_auth(monkeypatch)
+    lifecycle = TaskLifecycle()
+    lifecycle.submit("task-x", payload={"text": "test"})
+    lifecycle.complete("task-x", {"answer": "ok"})
+    a2a_endpoint._lifecycle = lifecycle
+
+    result = asyncio.run(a2a_endpoint.a2a_jsonrpc(
+        {"method": "tasks/get", "id": 5, "params": {"taskId": "task-x"}},
+        authorization="Bearer test",
+    ))
+    assert result["result"]["state"] == "completed"
+
+
+def test_jsonrpc_tasks_result_returns_result_and_error(monkeypatch):
+    """POST /internal/a2a/rpc with tasks/result returns the task result
+    or error field (FR-10)."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from app.a2a.protocol import JsonRpcError, ERROR_MOVO_DENIED
+
+    _patch_auth(monkeypatch)
+    lifecycle = TaskLifecycle()
+    lifecycle.submit("ok-task")
+    lifecycle.complete("ok-task", {"data": 42})
+    lifecycle.submit("bad-task")
+    lifecycle.fail("bad-task", JsonRpcError(ERROR_MOVO_DENIED, "denied"))
+    a2a_endpoint._lifecycle = lifecycle
+
+    ok = asyncio.run(a2a_endpoint.a2a_jsonrpc(
+        {"method": "tasks/result", "id": 1, "params": {"taskId": "ok-task"}},
+        authorization="Bearer test",
+    ))
+    assert ok["result"]["result"] == {"data": 42}
+    assert ok["result"]["error"] is None
+
+    bad = asyncio.run(a2a_endpoint.a2a_jsonrpc(
+        {"method": "tasks/result", "id": 2, "params": {"taskId": "bad-task"}},
+        authorization="Bearer test",
+    ))
+    assert bad["result"]["error"]["code"] == ERROR_MOVO_DENIED
+
+
+def test_jsonrpc_invalid_params_rejected(monkeypatch):
+    """POST /internal/a2a/rpc with non-dict params returns ERROR_INVALID_PARAMS."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from app.a2a.protocol import ERROR_INVALID_PARAMS
+
+    _patch_auth(monkeypatch)
+    a2a_endpoint._lifecycle = TaskLifecycle()
+
+    result = asyncio.run(a2a_endpoint.a2a_jsonrpc(
+        {"method": "message/send", "id": 7, "params": "not-a-dict"},
+        authorization="Bearer test",
+    ))
+    assert result["error"]["code"] == ERROR_INVALID_PARAMS
