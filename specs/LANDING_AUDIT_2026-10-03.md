@@ -304,7 +304,12 @@
 > **已修**：入站 JSON-RPC surface（续五十一）——`POST /internal/a2a/rpc`
 >    实现 message/send / tasks/get / tasks/result 三方法（FR-2），
 >    TaskLifecycle 幂等（FR-10），未知方法/非法参数返回 JSON-RPC 错误码。
-> **仍待修（降为 P1 残项）**：出站 A2A client 实际调用集成、`a2a_exposed` 筛选（依赖 018）。
+> **已修**：出站调用集成（续六十八）——新增 `POST /internal/a2a/outbound`
+>    生产端点（`app/api/endpoints/a2a.py` + `app/a2a/outbound.py`）：
+>    先过 001 门禁（`run_gate_plan`，fail-closed）再经 `A2AClient`
+>    （007 退避 + failover）httpx JSON-RPC 出站；SSRF 防护——目标 URL
+>    仅取自服务端 `A2A_OUTBOUND_AGENTS` 配置，未配置即 404 拒绝。
+>    `a2a_exposed` 筛选已接线（见 018 FR-12）。P1 残项清零。
 - **入站面已修（续五十一）**：`POST /internal/a2a/rpc` 已实现 JSON-RPC surface（message/send / tasks/get / tasks/result）。
 - **核心符号零生产调用方**：`from app.a2a` 仅命中 tests；`A2AClient(` 生产 0 处。
 - **产出无消费方**：`AgentCard.as_dict()` 零外部调用；`/a2a/{tenant}/{id}` 无路由承接。
@@ -403,8 +408,16 @@
 >
 > **已修**：MongoDB 持久化（FR-10，续四十四）——新增 `PersistedCapabilityRegistry`
 >    （async，读写 `capability_assets` 集合），端点已改用持久化 registry。
-> **仍待修（降为 P1 残项）**：与 012 A2A `a2a_exposed` 筛选接线（FR-12，跨服务）；
->    CRUD 变更审计（FR-11）。
+> **已修**：跨服务 `a2a_exposed` 接线 + CRUD 变更审计（续六十八）——
+>    admin 写入行补 `key`/`display_name`/`status` 别名字段（012 侧按 chat
+>    schema 读）；新增 `POST /api/capabilities/{id}/contract|state|owner|
+>    a2a-exposed` 四个变更端点（X-MOVO-Service-Token），
+>    `transfer_owner`/`set_a2a_exposed`/契约/状态变更写
+>    `position_role_audit_logs` 审计（FR-11，审计失败仅告警不阻断）；
+>    012 `GET /internal/a2a/agents/{id}/card` 改由
+>    `a2a_exposed=true` 资产经 `build_agent_card` 生成（FR-12），
+>    无暴露资产 404、registry 不可达 503，不再返回硬编码占位卡。
+>    P1 残项清零。
 - **零生产调用方**：六个核心符号 grep 全 0；`CapabilityAssetRegistry(` 仅 tests（`db=None`）。
 - **discover→register 链路断裂**：分属两服务且互不调用。
 - **无输入来源**：无 OpenAPI/MCP 扫描器，只接收手工传入的 iterable。

@@ -145,6 +145,10 @@ class Settings(BaseSettings):
     # 013 IM webhook HMAC secret. Set via environment; empty disables signature
     # verification (returns 500 until configured — intentional fail-closed).
     IM_WEBHOOK_SECRET: str = ""
+    # 012 outbound A2A agents: server-owned JSON map of
+    # agent name -> JSON-RPC endpoint URL. Outbound calls only ever target
+    # endpoints listed here (SSRF: model/user input never selects the URL).
+    A2A_OUTBOUND_AGENTS: str = ""
     MAX_UPLOAD_SKILL_SOURCE_BYTES: int = 200 * 1024 * 1024
     MAX_UPLOAD_TEMPLATE_BYTES: int = 200 * 1024 * 1024
 

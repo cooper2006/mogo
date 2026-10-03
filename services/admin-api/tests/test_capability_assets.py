@@ -192,3 +192,81 @@ def test_persisted_registry_roundtrip_serialization():
     assert restored.a2a_exposed is True
     assert restored.contract.input == {"q": "str"}
     assert restored.versions == [{"version": 1, "contract": {}}]
+
+
+# --- FR-11 / FR-12: owner transfer audit + a2a_exposed mark ----------------
+
+
+def test_persisted_transfer_owner_writes_audit(monkeypatch) -> None:
+    """FR-11: transfer_owner appends a change record to the audit stream."""
+    import asyncio
+    from app.services.capability_assets.registry import (
+        CapabilityAsset,
+        PersistedCapabilityRegistry,
+    )
+
+    inserted: list[dict] = []
+
+    class _AuditCol:
+        async def insert_one(self, doc):
+            inserted.append(doc)
+
+    class _AssetsCol:
+        async def replace_one(self, flt, row, upsert=False):
+            pass
+
+        async def find_one(self, flt):
+            return {"asset_id": "a", "owner_role": "old_role", "state": "active"}
+
+    class _DB:
+        def __getitem__(self, name):
+            if name == "position_role_audit_logs":
+                return _AuditCol()
+            return _AssetsCol()
+
+    import app.core.db as core_db
+    monkeypatch.setattr(core_db, "get_db", lambda: _DB())
+
+    registry = PersistedCapabilityRegistry()
+    asyncio.run(registry.transfer_owner("a", "new_role"))
+    assert inserted, "transfer_owner must leave an audit record"
+    assert inserted[0]["action"] == "capability.transfer_owner"
+    assert inserted[0]["target_id"] == "a"
+    assert inserted[0]["details"]["before"] == "old_role"
+    assert inserted[0]["details"]["after"] == "new_role"
+
+
+def test_persisted_set_a2a_exposed_persists_flag(monkeypatch) -> None:
+    """FR-12: set_a2a_exposed persists the flag for 012 AgentCard gating."""
+    import asyncio
+    from app.services.capability_assets.registry import PersistedCapabilityRegistry
+
+    rows = {
+        "a": {"asset_id": "a", "owner_role": "old", "state": "active",
+              "a2a_exposed": False}
+    }
+
+    class _AssetsCol:
+        async def replace_one(self, flt, row, upsert=False):
+            rows[flt["asset_id"]] = row
+
+        async def find_one(self, flt):
+            return rows.get(flt["asset_id"])
+
+    class _AuditCol:
+        async def insert_one(self, doc):
+            pass
+
+    class _DB:
+        def __getitem__(self, name):
+            if name == "position_role_audit_logs":
+                return _AuditCol()
+            return _AssetsCol()
+
+    import app.core.db as core_db
+    monkeypatch.setattr(core_db, "get_db", lambda: _DB())
+
+    registry = PersistedCapabilityRegistry()
+    asset = asyncio.run(registry.set_a2a_exposed("a", True))
+    assert asset.a2a_exposed is True
+    assert rows["a"]["a2a_exposed"] is True

@@ -4696,3 +4696,45 @@ QF-656（$gte 不支持）、QF-657（_IncludedRouter 内省）、QF-660（admin
 **报告**：`qf_report` 重渲染 + `inject-section7.py` 更新后重新注入第 7 节。判定由「有条件交付」升级为 **「可交付（无未关闭缺陷）」**，open defects = 0（`fail`/`pending`/`blocked` 全部为 0；剩余 31 项为更早轮次确认的 deferred 历史债务）。
 
 **工作树说明**：本轮改动之外，工作树还包含更早轮次（009 T009 审计接线、`harness_mode` 取值等）的未提交改动（`dsh_chat.py`、`dsh_session_versioning.py`、`runtime/adapters.py`、`dsh_execution.py` 等）。本轮未触碰这些文件，且全量测试已证明当前工作树健康；是否提交由用户决定（不擅自 push）。
+
+## 2026-10-03（续六十八）012 出站接线 + 018 FR-11/FR-12 治理闭环
+
+**背景**：落地审计（`specs/LANDING_AUDIT_2026-10-03.md`）遗留两处“仍待修（P1 残项）”：
+012 出站 A2A client 零生产调用方（`A2AClient(` 生产 grep 0 处）、018 CRUD 变更审计
+（FR-11）与 `a2a_exposed` 跨服务接线（FR-12）未闭环。
+
+**改动**：
+- **012 出站生产入口**（`services/chat-api/app/a2a/outbound.py` 新增 +
+  `app/api/endpoints/a2a.py::a2a_outbound` 新增 `POST /internal/a2a/outbound`）：
+  先过 001 门禁（`run_gate_plan`，fail-closed `PermissionError` → HTTP 403），
+  再经 `A2AClient`（007 退避 + failover）httpx JSON-RPC 出站；
+  **SSRF 防护**——目标 URL 仅取自服务端 `A2A_OUTBOUND_AGENTS` 配置
+  （`app/core/config.py` 新增），未配置的 agent 直接 404，模型/用户输入永不选 URL。
+- **012 FR-12 卡片生成**（`app/api/endpoints/a2a.py::get_agent_card` 改写）：
+  改由 `capability_assets` 中 `a2a_exposed=true` 资产经 `build_agent_card` 生成；
+  无暴露资产 404、registry 不可达 503，删掉硬编码占位 skill 卡（不伪造）。
+- **018 FR-12 跨服务 schema 对齐**（`services/admin-api/.../registry.py::_asset_to_row`）：
+  admin 写行补 `key`/`display_name`/`status`/`owner` 别名（chat-api 按该 schema 读），
+  消除两服务字段名断裂（admin 写 `asset_id`、chat 读 `key`，原读永远为空）。
+- **018 FR-11 变更审计闭环**（admin 端点 + registry 新增方法）：
+  新增 `POST /api/capabilities/{id}/contract|state|owner|a2a-exposed` 四端点
+  （X-MOVO-Service-Token 校验统一抽为 `_require_service`）；
+  `PersistedCapabilityRegistry` 新增 `set_a2a_exposed`、`audit`，
+  `transfer_owner`/`set_a2a_exposed`/契约/状态变更写入
+  `position_role_audit_logs`（审计失败仅告警，不阻断主流程）。
+- **审计字段 bug**（`a2a/client.py`）：`"ok": call.is_ok` 缺调用括号，
+  存的是方法对象而非布尔 → 改为 `call.is_ok()`（否则审计文档 BSON 序列化失败）。
+
+**测试**：`tests/a2a/test_a2a.py` +4（FR-12 生成/404/503、出站 404/400/403/gated 通过）、
+`admin tests/test_capability_assets.py` +2（transfer_owner 审计、set_a2a_exposed 持久化）。
+- admin-api 全量 **433 passed**；
+- chat-api 全量 **2078 passed + 1 failed**：失败为
+  `test_admit_skill_selection_runs_hook_gate_first` 连本机 MongoDB（127.0.0.1:27017 拒连），
+  **在干净基线（git stash 后）同样失败**，属环境问题，与本轮改动无关。
+
+**spec 回写**：`LANDING_AUDIT_2026-10-03.md` 两处“仍待修（P1 残项）”改为已修并记录实现细节；
+`grep "仍待修"` = 0、`specs/INDEX.md` 中 `已实现核心` 失实条目 = 0。
+
+**验证方式**：上述 pytest 全量回归 + grep 收敛检查 + `.qualityforge/report.json` openDefects=0（verdict=ready）。
+
+**备注**：AGENTS.md 要求不删除文件；异常残留 `services/document-parser/=0.6.23`（pip 重定向误建）已被 `.gitignore` 第 375 行 `services/document-parser/=*` 规则忽略，未纳入版本控制，故不改动。

@@ -314,3 +314,203 @@ def test_jsonrpc_invalid_params_rejected(monkeypatch):
         authorization="Bearer test",
     ))
     assert result["error"]["code"] == ERROR_INVALID_PARAMS
+
+
+# --- 018 FR-12 / 012 FR-11: card built only from a2a_exposed assets -------
+
+
+class _FakeCursor:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    async def to_list(self, length=None):
+        return self._rows if length is None else self._rows[:length]
+
+
+class _FakeColl:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def find(self, flt: dict):
+        rows = [r for r in self._rows if all(r.get(k) == v for k, v in flt.items())]
+        return _FakeCursor(rows)
+
+
+class _FakeDB:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def __getitem__(self, name: str):
+        assert name == "capability_assets"
+        return _FakeColl(self._rows)
+
+
+def test_agent_card_built_only_from_a2a_exposed_assets(monkeypatch):
+    """018 FR-12: only a2a_exposed=true assets appear in the card (012 FR-11)."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from fastapi import HTTPException
+
+    _patch_auth(monkeypatch)
+    monkeypatch.setattr(
+        "app.core.db.get_db",
+        lambda: _FakeDB([
+            {"key": "tool.alpha", "display_name": "Alpha Tool", "endpoint": "/alpha",
+             "a2a_exposed": True},
+            # NOT a2a_exposed -> must not appear.
+            {"key": "tool.hidden", "display_name": "Hidden", "endpoint": "/h",
+             "a2a_exposed": False},
+        ]),
+    )
+
+    async def _call():
+        return await a2a_endpoint.get_agent_card(
+            "agent-1", tenant_id="t1", authorization="Bearer test"
+        )
+
+    result = asyncio.run(_call())
+    assert result["code"] == 0
+    skills = result["data"]["skills"]
+    assert [s["id"] for s in skills] == ["tool.alpha"]
+    assert result["data"]["url"] == "/a2a/t1/agent-1"
+
+
+def test_agent_card_404_when_no_exposed_capability(monkeypatch):
+    """Honest 404 when no asset is explicitly marked a2a_exposed (018 FR-12)."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from fastapi import HTTPException
+
+    _patch_auth(monkeypatch)
+    monkeypatch.setattr("app.core.db.get_db", lambda: _FakeDB([]))
+
+    async def _call():
+        return await a2a_endpoint.get_agent_card(
+            "agent-1", tenant_id="t1", authorization="Bearer test"
+        )
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(_call())
+    assert exc_info.value.status_code == 404
+
+
+def test_agent_card_503_when_registry_unreachable(monkeypatch):
+    """Registry unreachable -> 503, never a fabricated card."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from fastapi import HTTPException
+
+    _patch_auth(monkeypatch)
+
+    def _boom():
+        raise RuntimeError("MongoDB is not initialized")
+
+    monkeypatch.setattr("app.core.db.get_db", _boom)
+
+    async def _call():
+        return await a2a_endpoint.get_agent_card(
+            "agent-1", tenant_id="t1", authorization="Bearer test"
+        )
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(_call())
+    assert exc_info.value.status_code == 503
+
+
+# --- FR-6 / T009: outbound entry point (001 gate + SSRF-safe config) ------
+
+
+def test_outbound_rejects_unconfigured_agent(monkeypatch):
+    """Agent URL comes only from server config; unknown agent -> 404 (SSRF)."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from app.core.config import get_settings
+
+    _patch_auth(monkeypatch)
+    monkeypatch.setattr(get_settings(), "A2A_OUTBOUND_AGENTS", "")
+
+    async def _call():
+        return await a2a_endpoint.a2a_outbound(
+            {"agent": "evil", "text": "hi"}, authorization="Bearer test"
+        )
+
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(_call())
+    assert exc_info.value.status_code == 404
+
+
+def test_outbound_requires_agent_and_text(monkeypatch):
+    """Missing fields -> 400 before any network attempt."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+
+    _patch_auth(monkeypatch)
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(a2a_endpoint.a2a_outbound({"text": ""}, authorization="Bearer test"))
+    assert exc_info.value.status_code == 400
+
+
+def test_outbound_gated_and_callable(monkeypatch):
+    """Configured agent passes the 001 gate then dispatches (FR-6 / T009)."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from app.core.config import get_settings
+
+    _patch_auth(monkeypatch)
+    monkeypatch.setattr(
+        get_settings(), "A2A_OUTBOUND_AGENTS", '{"primary": "http://127.0.0.1:9/rpc"}'
+    )
+
+    gate_calls = []
+
+    async def _fake_gate(**kwargs):
+        gate_calls.append(kwargs)
+
+    async def _fake_call(**kwargs):
+        return {"agent": kwargs["agent"], "ok": True}
+
+    import app.dsh_runtime.turn_admission as ta
+    monkeypatch.setattr(ta, "run_gate_plan", _fake_gate)
+    import app.a2a.outbound as ob
+    monkeypatch.setattr(ob, "call_external_agent", _fake_call)
+
+    result = asyncio.run(
+        a2a_endpoint.a2a_outbound(
+            {"agent": "primary", "text": "hello"}, authorization="Bearer test"
+        )
+    )
+    assert result["code"] == 0
+    assert result["data"]["agent"] == "primary"
+
+
+def test_outbound_denied_maps_to_403(monkeypatch):
+    """001 denial is fail-closed: PermissionError -> HTTP 403 (FR-6)."""
+    import asyncio
+    import app.api.endpoints.a2a as a2a_endpoint
+    from app.core.config import get_settings
+
+    _patch_auth(monkeypatch)
+    monkeypatch.setattr(
+        get_settings(), "A2A_OUTBOUND_AGENTS", '{"primary": "http://127.0.0.1:9/rpc"}'
+    )
+
+    import app.a2a.outbound as ob
+
+    async def _deny(**kwargs):
+        raise PermissionError("quota exceeded")
+
+    monkeypatch.setattr(ob, "call_external_agent", _deny)
+
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            a2a_endpoint.a2a_outbound(
+                {"agent": "primary", "text": "hello"}, authorization="Bearer test"
+            )
+        )
+    assert exc_info.value.status_code == 403

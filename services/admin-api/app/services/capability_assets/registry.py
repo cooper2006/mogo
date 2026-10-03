@@ -217,13 +217,21 @@ COLLECTION = "capability_assets"
 def _asset_to_row(asset: CapabilityAsset) -> dict[str, Any]:
     return {
         "asset_id": asset.asset_id,
+        # Cross-service read aliases: chat-api (012 AgentCard generation, FR-12)
+        # reads this collection with `key` / `display_name` / `status`; writing
+        # both spellings keeps the shared collection readable from either side
+        # (018 FR-12 wiring).
+        "key": asset.asset_id,
         "name": asset.name,
+        "display_name": asset.name,
         "endpoint": asset.endpoint,
         "method": asset.method,
         "kind": asset.kind,
-        "version": asset.version,
+        "version": str(asset.version),
         "state": asset.state,
+        "status": asset.state,
         "owner_role": asset.owner_role,
+        "owner": asset.owner_role,
         "a2a_exposed": bool(asset.a2a_exposed),
         "contract": asset.contract.as_dict(),
         "versions": list(asset.versions),
@@ -305,8 +313,51 @@ class PersistedCapabilityRegistry:
         asset = await self.get(asset_id)
         if asset is None:
             raise AssetError(f"asset not found: {asset_id}")
+        previous_owner = asset.owner_role
         asset.transfer_owner(role)
         await self.register(asset)
+        # 018 FR-11: owner transfer (责任人调岗) is always audited.
+        await self.audit(asset_id, "transfer_owner", {
+            "before": previous_owner,
+            "after": role,
+        })
+
+    async def set_a2a_exposed(self, asset_id: str, exposed: bool) -> CapabilityAsset:
+        """Explicitly mark/unmark A2A exposure (018 FR-12 / 012 FR-11)."""
+        asset = await self.get(asset_id)
+        if asset is None:
+            raise AssetError(f"asset not found: {asset_id}")
+        asset.a2a_exposed = bool(exposed)
+        await self.register(asset)
+        await self.audit(asset_id, "set_a2a_exposed", {"a2a_exposed": bool(exposed)})
+        return asset
+
+    async def audit(self, asset_id: str, action: str, details: dict[str, Any]) -> None:
+        """Append a change record to the governance audit stream (018 FR-11).
+
+        Audit failure never breaks the main flow — it is logged honestly.
+        """
+        from app.core.db import get_db
+        from app.position_roles.constants import AUDIT_COLLECTION
+        import uuid
+        try:
+            db = get_db()
+            await db[AUDIT_COLLECTION].insert_one({
+                "_id": uuid.uuid4().hex,
+                "main_id": "default",
+                "actor": "service",
+                "action": f"capability.{action}",
+                "target_type": "capability_asset",
+                "target_id": asset_id,
+                "details": dict(details),
+                "created_at": datetime.now(timezone.utc),
+            })
+        except Exception as exc:  # pragma: no cover - defensive
+            import logging
+            logging.getLogger(__name__).warning(
+                "capability audit write failed asset_id=%s action=%s: %s",
+                asset_id, action, exc,
+            )
 
     async def __len__(self) -> int:
         return len(await self.list_all())

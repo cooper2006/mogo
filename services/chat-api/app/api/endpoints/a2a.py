@@ -14,7 +14,6 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Header, HTTPException
 
-from app.a2a.agent_card import AgentCard, AgentSkill
 from app.a2a.protocol import (
     JsonRpcError,
     JsonRpcRequest,
@@ -38,21 +37,46 @@ async def get_agent_card(
     tenant_id: str = "default",
     authorization: str = Header(default=""),
 ) -> dict[str, Any]:
-    """Return the A2A AgentCard for an agent (FR-1 / FR-8).
+    """Return the A2A AgentCard for an agent (FR-1 / FR-8 / FR-12).
 
-    In the current design the card is assembled from the capability registry
-    (018). The minimal wire returns a structural placeholder until 018 is wired.
+    The card is assembled from the 018 capability registry: only assets
+    explicitly marked ``a2a_exposed`` produce a card (018 FR-12 / 012 FR-11).
+    When the registry is unreachable the endpoint fails honestly with 503 —
+    it never fabricates a placeholder card.
     """
     from app.api.endpoints.auth import _resolve_session_user
+    from app.a2a.agent_card import build_agent_card
+    from app.core.db import get_db
 
     await _resolve_session_user(authorization)
 
-    card = AgentCard(
+    try:
+        db = get_db()
+        rows = await db["capability_assets"].find({"a2a_exposed": True}).to_list(length=500)
+    except Exception:
+        raise HTTPException(status_code=503, detail="capability_registry_unavailable")
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="no_a2a_exposed_capability")
+
+    skills = [
+        {
+            "id": str(row.get("key") or row.get("asset_id") or ""),
+            "name": str(row.get("display_name") or row.get("name") or ""),
+            "description": str(row.get("endpoint") or ""),
+        }
+        for row in rows
+        if str(row.get("key") or row.get("asset_id") or "").strip()
+    ]
+    card = build_agent_card(
         agent_id=agent_id,
-        name=agent_id,
+        name=str(agent_id),
         tenant_id=tenant_id,
-        skills=[AgentSkill(id="chat", name="Chat", description="MOVO chat capability")],
+        capabilities=skills,
+        a2a_exposed=True,
     )
+    if card is None:  # unreachable: a2a_exposed=True was queried above.
+        raise HTTPException(status_code=404, detail="no_a2a_exposed_capability")
     return {"code": 0, "message": "success", "data": card.as_dict()}
 
 
@@ -138,3 +162,53 @@ async def a2a_jsonrpc(
 
     # Unreachable: SUPPORTED_METHODS is checked above.
     return JsonRpcResponse(id=rpc_id, error=JsonRpcError(ERROR_METHOD_NOT_FOUND, method)).as_dict()
+
+
+# ---------------------------------------------------------------------------
+# FR-6: outbound call entry (MOVO -> external agent), gated by the 001 chain
+# ---------------------------------------------------------------------------
+
+
+@router.post("/outbound")
+async def a2a_outbound(
+    payload: dict[str, Any] = Body(...),
+    authorization: str = Header(default=""),
+) -> dict[str, Any]:
+    """Outbound A2A ``message/send`` (012 US2 / FR-6 / T009).
+
+    Gated through the 001 chain before any fetch (fail-closed on denial);
+    the destination is resolved only from the server-owned
+    ``A2A_OUTBOUND_AGENTS`` setting (SSRF: no model/user-selected URL).
+    """
+    from app.api.endpoints.auth import _resolve_session_user
+    from app.a2a.outbound import agent_endpoints, call_external_agent
+
+    identity = await _resolve_session_user(authorization)
+
+    agent = str(payload.get("agent") or "")
+    text = str(payload.get("text") or "")
+    if not agent or not text:
+        raise HTTPException(status_code=400, detail="agent and text are required")
+    if agent not in agent_endpoints():
+        raise HTTPException(status_code=404, detail="a2a_agent_not_configured")
+
+    user = dict(identity or {}).get("user") or {}
+    user_id = str(user.get("_id") or user.get("id") or "")
+    tenant_id = str(dict(identity or {}).get("main_id") or "default")
+
+    try:
+        result = await call_external_agent(
+            agent=agent,
+            text=text,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            main_id=tenant_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=f"a2a_denied: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 — transport/gate failures are surfaced honestly
+        raise HTTPException(status_code=502, detail=f"a2a_outbound_failed: {exc}")
+
+    return {"code": 0, "message": "success", "data": result}

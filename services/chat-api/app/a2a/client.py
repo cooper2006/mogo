@@ -186,7 +186,7 @@ def _audit_a2a_call(call: "OutboundCall", *, denied: bool = False) -> None:
             "task_id": call.task_id,
             "method": call.method,
             "attempts": call.attempts,
-            "ok": call.is_ok,
+            "ok": call.is_ok(),
         }
         if denied:
             document["denied"] = True
