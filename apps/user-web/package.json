@@ -35,7 +35,7 @@
         "axios": "^1.6.0",
         "codemirror": "^6.0.2",
         "dompurify": "^3.4.16",
-        "fabric": "^6.9.1",
+        "fabric": "^7.4.0",
         "highlight.js": "^11.11.1",
         "naive-ui": "^2.44.1",
         "pdfjs-dist": "^6.3.289",
