@@ -19,6 +19,24 @@ image.
 
 ### Upgrade notes (required reading)
 
+- **Published container images were renamed: the `movo-` prefix is gone.**
+  `ghcr.io/himovo/movo-chat-api` is now `ghcr.io/himovo/chat-api`, and likewise
+  for `movo-admin-api`, `movo-admin-web`, `movo-user-web`, `movo-gateway` and
+  `movo-dsh-runtime-host` (all 7 images, including `movo-document-parser`). The
+  images are named `<registry>/<service>`; a local source build still uses the
+  bare `service:tag` form (`chat-api:latest`) so local images never collide with
+  the published ones. If your deployment pins the old names in a compose file,
+  a Kubernetes manifest or a pull script, **update it to the new names before
+  upgrading** — otherwise the pull fails, or an unchanged image reference keeps
+  you on the old release while everything else moves ahead.
+  The related `MOVO_IMAGE_PREFIX` environment variable is **no longer
+  supported**: its old meaning was a name prefix (`${MOVO_IMAGE_PREFIX}-chat-api`
+  → `ghcr.io/himovo/movo-chat-api`), which the new `<registry>/<service>` naming
+  cannot express. It is ignored with a warning and the default registry is used,
+  rather than building a non-existent path such as
+  `ghcr.io/himovo/movo/chat-api`. Replace it with `MOVO_IMAGE_REGISTRY`
+  (e.g. `ghcr.io/himovo`), or set the per-service `MOVO_*_IMAGE` variables
+  directly.
 - **Set `ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD` before the first start after
   upgrading.** A deployment that already completed the setup wizard will not see
   the wizard again, so this environment variable is the only way to provision the

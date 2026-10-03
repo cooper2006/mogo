@@ -45,20 +45,21 @@ movo_configure_images() {
   local source_build="${1:-false}"
   local configured_registry="${MOVO_IMAGE_REGISTRY:-$(dotenv_value MOVO_IMAGE_REGISTRY)}"
 
-  # Backwards/alias compatibility: earlier docs and .env files used
-  # MOVO_IMAGE_PREFIX. It used to be silently ignored, so an operator who set it
-  # still pulled from the default registry without any warning. Honour it, and
-  # warn when both are set with conflicting values.
-  local configured_prefix="${MOVO_EXPORTED_IMAGE_PREFIX:-$(dotenv_value MOVO_EXPORTED_IMAGE_PREFIX)}"
+  # MOVO_IMAGE_PREFIX is a legacy variable from before the image rename. Its old
+  # semantics were a *name prefix* (`${MOVO_IMAGE_PREFIX}-chat-api` →
+  # ghcr.io/himovo/movo-chat-api), which cannot be expressed as the new
+  # `<registry>/<service>` form. It used to be silently ignored; pretending to
+  # honour it would build a non-existent path such as
+  # ghcr.io/himovo/movo/chat-api, so we fail loudly and fall back to the default
+  # registry instead. Set MOVO_IMAGE_REGISTRY to point at a different registry.
   local legacy_prefix="${MOVO_IMAGE_PREFIX:-$(dotenv_value MOVO_IMAGE_PREFIX)}"
   if [[ -n "${legacy_prefix}" ]]; then
-    if [[ -n "${configured_registry}" || -n "${configured_prefix}" ]]; then
-      printf 'Warning: MOVO_IMAGE_PREFIX is set together with MOVO_IMAGE_REGISTRY/MOVO_EXPORTED_IMAGE_PREFIX; using the latter.\n' >&2
-    else
-      printf 'Warning: MOVO_IMAGE_PREFIX is deprecated; use MOVO_IMAGE_REGISTRY instead. Honouring MOVO_IMAGE_PREFIX for now.\n' >&2
-      configured_registry="${legacy_prefix}"
-    fi
+    printf 'Warning: MOVO_IMAGE_PREFIX=%s is no longer supported (images were renamed from\n' "${legacy_prefix}" >&2
+    printf '  %s-<service> to <registry>/<service>). It is being ignored.\n' "${legacy_prefix}" >&2
+    printf '  Set MOVO_IMAGE_REGISTRY (e.g. ghcr.io/himovo) instead.\n' >&2
   fi
+
+  local configured_prefix="${MOVO_EXPORTED_IMAGE_PREFIX:-$(dotenv_value MOVO_EXPORTED_IMAGE_PREFIX)}"
   if [[ -n "${configured_prefix}" && -z "${configured_registry}" ]]; then
     configured_registry="${configured_prefix}"
   fi
