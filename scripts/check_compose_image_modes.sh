@@ -82,10 +82,14 @@ if grep -Eq "(^|/)movo-[a-z]" <<<"${prebuilt_images}${source_images}"; then
   exit 1
 fi
 
-# Assert a CLI-invariant expectation. Written as an explicit `if` because a bare
-# `[[ ... ]]` under `set -e` inside a subshell does NOT abort the script (bash
-# disables errexit for non-final commands there), which silently turned these
-# checks into no-ops.
+# Assert a CLI-invariant expectation with an explicit failure branch.
+#
+# A bare `[[ ... ]]` is not portable as an assertion: on bash 3.2 (the version
+# shipped with macOS) a failing `[[ ]]` does NOT trigger errexit, so the check
+# silently passes locally while correctly failing on the bash 5.x used by CI.
+# `test` / `[ ]` and external commands do abort on both versions, but an explicit
+# `if` keeps the intent obvious and the behaviour identical everywhere.
+# See scripts/test_serial_image_pull.sh for the same pattern.
 assert_image() {
   local actual="$1" expected="$2" label="$3"
   if [[ "${actual}" != "${expected}" ]]; then
