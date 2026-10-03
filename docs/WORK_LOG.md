@@ -3802,3 +3802,15 @@ API 将记忆从 personal/workspace 提升为 org scope。
 - 所有操作改为 async（Motor 异步驱动）。
 
 **验证**：skill_market 测试 21 passed。
+
+## 2026-10-03（续四十一）017 RAG 集成状态订正
+
+**背景**：报告标记 RAG 集成为"仍待修"，但实际 `memory_rag_candidates` 已
+经 `adapters.py` 接入 `knowledge_search`，scope-filtered 记忆已注入 RAG
+上下文。
+
+**改动**（specs/LANDING_AUDIT_2026-10-03.md）：
+- 将 RAG 集成从"仍待修"改为"已修"；
+- 标注 `memory_rag_candidates` 经 `adapters.py` 接入。
+
+**验证**：grep 确认 `memory_rag_candidates` 在 `adapters.py` 有生产调用。

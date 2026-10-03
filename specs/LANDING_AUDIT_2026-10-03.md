@@ -343,13 +343,14 @@
 > **仍待修（降为 P1 残项）**：FR-8 老化清理定时任务。
 > **已修**：promote_to_org 认证入口（续三十九）——`PATCH /api/memories/{id}/promote`
 >    端点，`full_access_admin` 角色可执行，审计入 001 流。
+> **已修**：RAG 集成——`memory_rag_candidates` 经 `adapters.py` 接入
+>    `knowledge_search`，scope-filtered 记忆注入 RAG 上下文。
 
 > **已修**：`MemoryStore`（MongoDB `memories` 集合，按 `(tenant_id, memory_id)`
 >    upsert）+ `GET/POST/DELETE /api/memories` 三个端点；服务端 scope_filter
 >    强制执行可见性（FR-2），不跨租户泄漏。
 >
-> **仍待修（降为 P1 残项）**：RAG 集成（`memory_rag_candidates` 接入
->    `knowledge_search`）；FR-8 老化清理定时任务。
+> **仍待修（降为 P1 残项）**：FR-8 老化清理定时任务。
 
 ### 018 capability-asset-registration（5）—— **Registry + 端点已接线（2026-10-03，见 WORK_LOG 续二十四）**
 
