@@ -255,7 +255,7 @@
 - **FR-13 延迟预算已接线**：`run_hooks_within_budget` 生产调用，共享 5s 窗口。
 - 附带：五事件只落地 PreToolUse。
 
-### 010 dag-orchestration-engine（4）—— **已接线（2026-10-03，见 WORK_LOG 续二十九）**
+### 010 dag-orchestration-engine（4）—— **已接线 + 显式降级（2026-10-03，续五十九/续六十）**
 
 > **已修**：新增 `POST /api/research/competitor-deep-dive`（main.py 注册）；
 > `DeepDiveOrchestrator` 新增 audit_sink，FR-7 节点/运行事件汇入 001 治理审计
@@ -265,8 +265,8 @@
 > 不阻塞合成节点，由 degraded 报告兜底（FR-6 降级而非伪装成功）；审计层仍如实
 > 记录 `dag.node_fail`。真实 sub-agent 经 LocalBridge 执行，无 agent 会话时节点
 > 返回 unavailable 并由 degraded 路径兜底。
-> **仍待修**：无真实 LLM 工具执行环境时该端点产出为 unavailable/degraded（需
-> 浏览器 agent 在线）；competitor_deep_dive 未注册为 capability。
+> **已降级（非伪造）**：DAG 编排端点（`POST /api/research/competitor-deep-dive`）已接线，审计 + 容错 + DB 惰性注册已完成；但**无真实 LLM 工具执行环境**（浏览器 agent 未上线）且 `competitor_deep_dive` 未注册为真实 capability，端点在无环境时诚实返回 `unavailable/degraded`（FR-6 降级而非伪装成功），不标记“已实现核心”。
+> **010 残项降级确认**：认证为“接线但缺真实执行环境”，拒绝伪造成功断言。
 
 ### 011 dream-cycle-self-evolution（4）—— **落库闭环已修（2026-10-03，见 WORK_LOG 续十六）**
 
