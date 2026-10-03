@@ -120,7 +120,7 @@
 - ~~审批挂起无恢复路径~~：已通过 `consume` 恢复路径 + `/decide` + `/approvals` 修复。
 - ~~审计第 6 层只写不读~~：已通过 `gate_events` 落库 + `GET /events` 读取修复。
 
-### 002 session-versioning（5）—— **FR-7/8/11 + share 兑换 + preview 已修（2026-10-03，见 WORK_LOG 续十三/三十五）**
+### 002 session-versioning（5）—— **全修（2026-10-03，见 WORK_LOG 续十三/三十五/五十九）**
 
 > **已修**：
 > - **FR-7/8 秘密过滤**：commit 端点对 `summary`+`content` 跑 `detect_secrets`→可逆占位符，
@@ -138,8 +138,9 @@
 >    主动读 `chat_messages`（租户范围内真实会话消息）作为脱敏源，真实
 >    历史中的疑似秘密进快照前先走 FR-7 过滤 + FR-8 原文入
 >    `session_secret_refs`；降级时不阻塞 commit。
-> **仍待修（002 剩余 1 条，P1）**：commit 元数据仍是客户端自报（真实 seq
->    由 `sessions.py` 独立定，端点不自校验）。
+> **已修（续五十九）**：commit 端点在写入前调用 `_next_seq()`，若 `payload.seq` 与
+>    实际序列不匹配则 400 拒绝，非伪造接受；客户自报元数据已闭环。
+> **002 残项清零。**
 - **FR-7/FR-8 秘密过滤零接线**：`dsh_session_versioning.py` 全文无 `secret/reference/placeholder/redact`；`snapshot.as_document()` 无消息正文字段——不是"过滤失效"而是"过滤对象不存在"。唯一相关测试是空断言。
 - **commit 是客户端自报元数据**：端点只看 `CommitIn`（seq/trigger/summary/...），从不查 `chat_messages`；前端把 `messages.length` 当 seq 传。`preview` 已改为 DB 文档生成（续三十五）。
 - **resume 零影响**：只 `return resumeAfterSeq`，不写任何状态；`resumeSessionFrom` 前端零调用者。真实 seq 由 `sessions.py _next_seq` 独立决定。（已修 resumedFrom 续三十八）

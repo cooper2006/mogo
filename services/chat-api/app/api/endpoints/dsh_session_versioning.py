@@ -205,6 +205,17 @@ async def commit_session(
     summary_redacted, summary_ids = redact_text(payload.summary)
     content_redacted, content_ids = redact_text(content_source)
     secret_ids = list(dict.fromkeys(summary_ids + content_ids))
+
+    # 002: validate client-reported seq matches actual next sequence
+    expected_seq = await _next_seq(
+        db, session_id, user_id, main_id
+    )
+    if payload.seq != expected_seq:
+        raise HTTPException(
+            status_code=400,
+            detail=f"commit seq {payload.seq} does not match expected seq {expected_seq}",
+        )
+
     snapshot = build_snapshot(
         session_id=session_id,
         seq=payload.seq,
