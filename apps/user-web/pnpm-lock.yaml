@@ -18,8 +18,8 @@ importers:
         specifier: ^6.7.0
         version: 6.7.5
       '@codemirror/view':
-        specifier: ^6.43.3
-        version: 6.43.12
+        specifier: ^6.43.13
+        version: 6.43.13
       '@vicons/ionicons5':
         specifier: ^0.13.0
         version: 0.13.0
@@ -45,7 +45,7 @@ importers:
         specifier: ^11.11.1
         version: 11.12.0
       naive-ui:
-        specifier: ^2.44.1
+        specifier: ^2.45.3
         version: 2.45.3(vue@3.5.43(typescript@5.6.3))
       pdfjs-dist:
         specifier: ^6.3.289
@@ -76,7 +76,7 @@ importers:
         specifier: ^10.11.1
         version: 10.11.1(@typescript-eslint/parser@8.71.0(eslint@10.11.0(jiti@1.21.7))(typescript@5.6.3))(eslint@10.11.0(jiti@1.21.7))(vue-eslint-parser@10.4.1(eslint@10.11.0(jiti@1.21.7)))
       postcss:
-        specifier: ^8.4.35
+        specifier: ^8.5.28
         version: 8.5.28
       tailwindcss:
         specifier: ^3.4.1
@@ -150,8 +150,8 @@ packages:
   '@codemirror/state@6.7.5':
     resolution: {integrity: sha512-QjLbZmY1Au3JiRrDVYFLRD0BZ3SOKS9pR3yjIkd7u27YY8TFD9/Q9fhPnLV5l1mHFSo3hHU/N31vpwEJOx4owQ==}
 
-  '@codemirror/view@6.43.12':
-    resolution: {integrity: sha512-Nv0vxQ19NAqvB/c2pFzjIzFlzzJl7jmdtNkwOwGbn0Ks9mFAzibvumz7cQem5cRsFA2cEw2fg+uHZGbcHupLQQ==}
+  '@codemirror/view@6.43.13':
+    resolution: {integrity: sha512-sihaFrUzAsYBQsL9J2t69y8nfMQGwcYmggAZsk+kjPbjYZMyuf2hU8tUNTZ+P+isb6XRr8JE22TZlJxBoVdH1A==}
 
   '@css-render/plugin-bem@0.15.14':
     resolution: {integrity: sha512-QK513CJ7yEQxm/P3EwsI+d+ha8kSOcjGvD6SevM41neEMxdULE+18iuQK6tEChAWMOQNQPLG/Rw3Khb69r5neg==}
@@ -1950,14 +1950,14 @@ snapshots:
     dependencies:
       '@codemirror/language': 6.12.4
       '@codemirror/state': 6.7.5
-      '@codemirror/view': 6.43.12
+      '@codemirror/view': 6.43.13
       '@lezer/common': 1.5.2
 
   '@codemirror/commands@6.11.1':
     dependencies:
       '@codemirror/language': 6.12.4
       '@codemirror/state': 6.7.5
-      '@codemirror/view': 6.43.12
+      '@codemirror/view': 6.43.13
       '@lezer/common': 1.5.2
 
   '@codemirror/lang-python@6.2.1':
@@ -1971,7 +1971,7 @@ snapshots:
   '@codemirror/language@6.12.4':
     dependencies:
       '@codemirror/state': 6.7.5
-      '@codemirror/view': 6.43.12
+      '@codemirror/view': 6.43.13
       '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.3
       '@lezer/lr': 1.4.10
@@ -1980,20 +1980,20 @@ snapshots:
   '@codemirror/lint@6.9.7':
     dependencies:
       '@codemirror/state': 6.7.5
-      '@codemirror/view': 6.43.12
+      '@codemirror/view': 6.43.13
       crelt: 1.0.7
 
   '@codemirror/search@6.7.2':
     dependencies:
       '@codemirror/state': 6.7.5
-      '@codemirror/view': 6.43.12
+      '@codemirror/view': 6.43.13
       crelt: 1.0.7
 
   '@codemirror/state@6.7.5':
     dependencies:
       '@marijn/find-cluster-break': 1.0.4
 
-  '@codemirror/view@6.43.12':
+  '@codemirror/view@6.43.13':
     dependencies:
       '@codemirror/state': 6.7.5
       crelt: 1.0.7
@@ -2685,7 +2685,7 @@ snapshots:
       '@codemirror/lint': 6.9.7
       '@codemirror/search': 6.7.2
       '@codemirror/state': 6.7.5
-      '@codemirror/view': 6.43.12
+      '@codemirror/view': 6.43.13
 
   combined-stream@1.0.8:
     dependencies:
