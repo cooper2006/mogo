@@ -3814,3 +3814,15 @@ API 将记忆从 personal/workspace 提升为 org scope。
 - 标注 `memory_rag_candidates` 经 `adapters.py` 接入。
 
 **验证**：grep 确认 `memory_rag_candidates` 在 `adapters.py` 有生产调用。
+
+## 2026-10-03（续四十二）009 FR-3 超时接线
+
+**背景**：001 audit 残项——FR-3 超时与 FR-13 延迟预算仅 tests 调用，生产未接线。
+`run_hooks_within_budget` 是同步函数，无实际超时机制。
+
+**改动**（turn_admission.py）：
+- `run_pre_tool_use` 用 `asyncio.wait_for` + `asyncio.to_thread` 包装同步 guard；
+- 超时（`DEFAULT_HOOK_TIMEOUT_SECONDS` = 5s）触发 fail-closed 拒绝；
+- 异常/解析失败仍走 `evaluate_with_fail_closed`（T017）。
+
+**验证**：hooks_wiring 测试 4 failed（预存 MongoDB 连接失败，git stash 确认非本改动引入）。

@@ -88,9 +88,18 @@ async def run_pre_tool_use(
     # 009 FR-3 / FR-13：用 guard 包装规则求值，超时或延迟预算超限均 fail-closed。
     # run_hooks_within_budget 内部调用 evaluate_with_fail_closed（T017），
     # 任何异常/解析失败均拒绝调用（FR-3），同时共享 5s 延迟预算（FR-13）。
-    from app.dsh_runtime.hooks.guard import run_hooks_within_budget
+    # FR-3：用 asyncio.wait_for 实现硬超时，超时则 fail-closed。
+    from app.dsh_runtime.hooks.guard import run_hooks_within_budget, fail_closed_outcome
+    from app.dsh_runtime.hooks.timeout import DEFAULT_HOOK_TIMEOUT_SECONDS
+    import asyncio
 
-    outcome = run_hooks_within_budget(tool, request or {}, raw_rules=raw_rules)
+    try:
+        outcome = await asyncio.wait_for(
+            asyncio.to_thread(run_hooks_within_budget, tool, request or {}, raw_rules=raw_rules),
+            timeout=DEFAULT_HOOK_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        outcome = fail_closed_outcome("钩子执行超时（FR-3），fail-closed 拒绝")
     await audit_hook_execution(outcome, tenant_id=tenant_id, user_id=user_id, tool=tool)
     if outcome.allowed:
         return None

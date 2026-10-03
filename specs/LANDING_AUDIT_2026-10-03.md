@@ -239,11 +239,12 @@
 >    turn 级调用点（`dsh_chat`/`dsh_execution`）保留 dsh_turn 语义但补传了 `request`。
 > ② `require_field` 可用：工具网关传真实 arguments；规则源加 per-tenant 2s TTL 缓存
 >    （含负缓存）——热路径不再每次查 Mongo。
-> ③ **仍待修**：FR-3 超时与 FR-13 延迟预算（`guard.py`/`timeout.py`）仅 tests 调用，
->    生产未接线。五事件仍只落地 PreToolUse。
+> ③ **已修**：FR-3 超时（续四十二）——`run_pre_tool_use` 用 `asyncio.wait_for`
+>    包装同步 guard，超时 fail-closed；FR-13 延迟预算共享 5s 窗口。
 - **`tool` 恒为 `"dsh_turn"`**：两个生产调用点硬编码，按工具名配置的 `deny_tool`/`require_field` 永不命中。
 - **`require_field` 恒不可用**：两处调用均未传 `request=` → `payload` 恒空。
-- **FR-3 超时与 FR-13 延迟预算零接线**：`guard.py`/`timeout.py` 仅 tests 调用。
+- **FR-3 超时已接线（续四十二）**：`run_pre_tool_use` 用 `asyncio.wait_for` 包装。
+- **FR-13 延迟预算已接线**：`run_hooks_within_budget` 生产调用，共享 5s 窗口。
 - 附带：五事件只落地 PreToolUse。
 
 ### 010 dag-orchestration-engine（4）—— **已接线（2026-10-03，见 WORK_LOG 续二十九）**
