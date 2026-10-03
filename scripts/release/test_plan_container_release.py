@@ -144,8 +144,13 @@ class ContainerReleasePlanTests(unittest.TestCase):
         self.assertEqual(4, len(calls))
         self.assertTrue(all("imagetools inspect" in call for call in calls[:2]))
         self.assertTrue(all("imagetools create" in call for call in calls[2:]))
-        self.assertIn("movo-chat-api:candidate-0123456789abcdef", calls[0])
-        self.assertIn("movo-admin-api:v0.1.12", calls[1])
+        # Images are published as ghcr.io/<owner>/<service>; the repository name
+        # must not leak into the image name (it used to be
+        # ghcr.io/<owner>/<repository>-<service>, i.e. ghcr.io/himovo/movo-chat-api).
+        self.assertIn("ghcr.io/himovo/chat-api:candidate-0123456789abcdef", calls[0])
+        self.assertIn("ghcr.io/himovo/admin-api:v0.1.12", calls[1])
+        self.assertNotIn("movo-chat-api", calls[0])
+        self.assertNotIn("movo-admin-api", calls[1])
         self.assertTrue(all(":v0.1.13" in call for call in calls[2:]))
         self.assertTrue(all(":latest" in call for call in calls[2:]))
 

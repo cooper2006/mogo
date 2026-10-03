@@ -16,7 +16,12 @@ for variable_name in "${required_variables[@]}"; do
   fi
 done
 
-repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+# Images are published as ghcr.io/<owner>/<service>; the repository name is
+# deliberately not part of the image name (it used to be
+# ghcr.io/<owner>/<repository>-<service>, e.g. ghcr.io/himovo/movo-chat-api).
+# Keep this in step with .github/workflows/container-release.yml, which builds
+# the candidate tags under the same scheme.
+owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER:-${GITHUB_REPOSITORY%%/*}}" | tr '[:upper:]' '[:lower:]')"
 candidate_tag="candidate-${GITHUB_SHA}"
 short_sha="${GITHUB_SHA:0:7}"
 
@@ -38,7 +43,7 @@ declare -a source_refs=()
 
 echo "Preflighting every release source before updating any public tag..."
 for suffix in "${image_suffixes[@]}"; do
-  image_name="ghcr.io/${repository}-${suffix}"
+  image_name="ghcr.io/${owner}/${suffix}"
   if python3 -c \
       'import json, sys; suffix=sys.argv[1]; sys.exit(0 if any(image["suffix"] == suffix for image in json.load(sys.stdin)) else 1)' \
       "${suffix}" <<<"${CHANGED_IMAGES_JSON}"; then
