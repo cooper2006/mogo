@@ -4814,3 +4814,23 @@ admin-web lint 0 errors + typecheck PASS；`pnpm audit` 无已知漏洞。
 
 **推送**：`a2835a2..e941d30` 快进推送至 `mogo/main`。合并后远端 dependabot 分支
 由 34 降至 22（GitHub 自动清理目标已达成者）。
+
+## 2026-10-03 v0.2.0 版本发布
+
+**操作**：CHANGELOG 定版 + 打 tag + 推送触发 Container Release。
+
+**CHANGELOG**：`## Unreleased` → `## v0.2.0 - 2026-10-03`。
+变更内容含 020 多租户、012/018 接线、Dependabot 升级、CI/CD 修复等。
+
+**提交**：`82ebc7f docs(changelog): v0.2.0 定版——Unreleased → 2026-10-03`。
+
+**Tag**：`v0.2.0`（annotated tag，含版本摘要）。
+
+**推送**：
+- `main` → `mogo/main`（`478987c..82ebc7f`）
+- `v0.2.0` → `mogo/v0.2.0`（新 tag）
+
+**验证**：tag push 触发 `container-release.yml` workflow；
+QualityForge 审计结果 ✅ 可交付（0 缺陷，P0/P1 均为 0）。
+
+**修改文件**：`CHANGELOG.md`（标题行）、`docs/WORK_LOG.md`（本条）。
