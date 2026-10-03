@@ -84,5 +84,14 @@ jobs:
         run: bash scripts/check_compose_image_modes.sh
       - name: Validate serial image pulling
         run: bash scripts/test_serial_image_pull.sh
+      # Mutation-tests the assertions above: it breaks what they guard and
+      # requires the script to fail. An assertion that still passes after its
+      # subject is broken is reported as DEAD — that is how a silently-passing
+      # `[[ ... ]]` under bash 3.2 went unnoticed until it was reviewed.
+      - name: Verify the validator assertions can actually fail
+        run: |
+          bash scripts/verify_assertions.sh \
+            scripts/check_compose_image_modes.sh \
+            scripts/test_serial_image_pull.sh
       - name: Validate source-build Compose
         run: docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Mutations for scripts/verify_assertions.sh — each one breaks something this
+# script is supposed to guard, so the mutated copy must exit non-zero. If a
+# mutation leaves the script passing, the corresponding assertion is dead.
+# MUTATION: legacy-prefix-honoured | src.replace('  MOVO_IMAGE_PREFIX="ghcr.io/himovo/movo"\n  movo_configure_images false', '  MOVO_IMAGE_PREFIX="ghcr.io/himovo/movo"\n  configured_registry="${legacy_prefix}"\n  movo_configure_images false', 1) | the legacy prefix must never be used as a registry
+# MUTATION: prebuilt-prefix-check | src.replace('grep -Fxq "${official_registry}/${suffix}:latest"', 'grep -Fxq "ghcr.io/himovo/movo-${suffix}:latest"', 1) | prebuilt compose image must match <registry>/<service>
+# MUTATION: registry-override-broken | src.replace('  MOVO_IMAGE_REGISTRY="registry.example.com/team"\n', '', 1) | MOVO_IMAGE_REGISTRY override assertion
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
