@@ -363,7 +363,7 @@
 >    按衰减窗口生成清理查询，archive/delete 两种处置；
 >    Memory 增加 archived 字段，检索时排除已归档记录；
 >    `_memory_decay_loop` 每小时扫描一次（lifespan 启动/停止）。
-> **仍待修（降为 P1 残项）**：（无）。
+> **017 残项清零。**
 > **已修**：promote_to_org 认证入口（续三十九）——`PATCH /api/memories/{id}/promote`
 >    端点，`full_access_admin` 角色可执行，审计入 001 流。
 > **已修**：RAG 集成——`memory_rag_candidates` 经 `adapters.py` 接入
@@ -401,7 +401,7 @@
 > **已修**：FR-7/FR-9 CRUD 端点（续五十三）——`POST/GET/DELETE /api/harness-profiles`，
 >    写操作要求 `full_access_admin`，变更前后 diff 入 001 审计流；
 >    FR-8 服务端 floor 校验拒绝缺省红线层的配置。
-> **仍待修（降为 P1 残项）**：（无）。
+> **019 残项清零（续五十四：`harness_profiles` 登记租户清除表）。**
 - **两处生产调用点均未传 `request=`** → `harness_mode` 恒 `thick`，薄模式不可达。
 - **`ProfileResolver` 零生产调用方**，`harness_profiles` 存储不存在。
 - **产出无消费方**：`run_gate_plan` 返回值被丢弃，`skipped_layers` 不驱动任何跳过（审批/配额照跑）。
