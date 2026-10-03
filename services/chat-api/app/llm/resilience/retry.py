@@ -11,6 +11,7 @@ All values are configurable (FR-3 / FR-8).
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, TypeVar
 
@@ -77,6 +78,11 @@ async def retry_with_backoff(
             attempt_counter["n"] += 1
             try:
                 return await operation()
+            except asyncio.CancelledError:
+                # FR-12: operator cancel is not a provider failure. Re-raise
+                # immediately so tenacity does not schedule a retry/failover —
+                # the caller's cancel path owns this error.
+                raise
             except BaseException as error:  # noqa: BLE001 - re-classified below
                 classified = classify_error(error)
                 if isinstance(classified, NonRetryableLLMError):

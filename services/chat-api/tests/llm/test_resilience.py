@@ -363,3 +363,58 @@ async def test_degradation_reason_enumerated() -> None:
     events: list[dict] = []
     await run_with_degradation(build_chain(), caller, on_event=events.append)
     assert events[0]["degradation_reason"] == "429"
+
+
+# --- FR-12: CancelledError must propagate, never retry or fail over ----------
+
+def test_cancelled_error_is_non_retryable() -> None:
+    """FR-12: a cancellation is non-retryable and does not trigger failover."""
+    from app.llm.resilience.errors import classify_error, is_retryable
+
+    cancelled = asyncio.CancelledError("operation cancelled by user")
+    classified = classify_error(cancelled)
+    assert isinstance(classified, NonRetryableLLMError)
+    assert not is_retryable(cancelled)
+
+
+@pytest.mark.asyncio
+async def test_retry_with_backoff_propagates_cancelled() -> None:
+    """FR-12: retry_with_backoff re-raises CancelledError immediately
+    without scheduling further retries."""
+    attempt_count = {"n": 0}
+
+    async def operation():
+        attempt_count["n"] += 1
+        raise asyncio.CancelledError("caller cancelled")
+
+    with pytest.raises(asyncio.CancelledError, match="caller cancelled"):
+        await retry_with_backoff(operation)
+
+    # Must not be retried — only one attempt.
+    assert attempt_count["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_failover_does_not_switch_provider_on_cancel() -> None:
+    """FR-12: ResilientLLMClient does not fail over to the next provider when
+    the primary raises CancelledError — the cancel propagates immediately."""
+    primary = _FakeClient("primary", fail_times=0)
+    backup = _FakeClient("backup", fail_times=0)
+
+    # Make the primary raise CancelledError on its first call.
+    async def cancel_calling_invoke(messages, **kwargs):
+        raise asyncio.CancelledError("user cancelled")
+
+    primary.ainvoke = cancel_calling_invoke  # type: ignore[method-assign]
+
+    client = ResilientLLMClient(
+        providers=[
+            ProviderEntry(name="primary", factory=lambda: primary),
+            ProviderEntry(name="backup", factory=lambda: backup),
+        ],
+    )
+    with pytest.raises(asyncio.CancelledError, match="user cancelled"):
+        await client.ainvoke([])
+
+    # Backup must never have been called.
+    assert backup._calls == 0

@@ -12,6 +12,7 @@ existing call sites are unaffected (FR-9).
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Callable, Iterable, List, Optional, Type
 
@@ -104,6 +105,10 @@ class ResilientLLMClient(BaseLLMClient):
             except NonRetryableLLMError:
                 # Auth failures must not fail over — surface immediately.
                 raise
+            except asyncio.CancelledError:
+                # FR-12: operator cancel must not fail over to the next
+                # provider — surface immediately to the caller's cancel path.
+                raise
             except BaseException as error:  # noqa: BLE001
                 classified = classify_error(error, provider=entry.name)
                 failures.append({"provider": entry.name, "reason": str(classified)})
@@ -162,6 +167,9 @@ class ResilientLLMClient(BaseLLMClient):
                     yield chunk
                 return
             except NonRetryableLLMError:
+                raise
+            except asyncio.CancelledError:
+                # FR-12: operator cancel must not fail over — surface immediately.
                 raise
             except BaseException as error:  # noqa: BLE001
                 if started_ref["started"]:

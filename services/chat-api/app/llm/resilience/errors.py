@@ -75,6 +75,12 @@ def classify_error(error: BaseException, *, provider: str = "") -> LLMResilience
     retryable. Anything unknown is treated as retryable (fail-open on retry,
     fail-closed on authorization), matching the "retry transients" intent.
     """
+    # FR-12: a cancellation is an operator/user signal, not a transient
+    # provider failure. Retrying or failovering after a cancel would mask the
+    # intent and could fire a duplicate request. Propagate it as non-retryable
+    # so the resilience layer lets it pass through to the caller's cancel path.
+    if isinstance(error, asyncio.CancelledError):
+        return NonRetryableLLMError(f"cancelled: {error}", provider=provider)
     status = _status_code_of(error)
     if status in NON_RETRYABLE_STATUS_CODES:
         return NonRetryableLLMError(str(error), status_code=status, provider=provider)

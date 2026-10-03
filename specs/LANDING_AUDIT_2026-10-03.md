@@ -207,9 +207,13 @@
 >    `wrap_resilient` + fallback（FR-1/FR-4/FR-13）。
 > **事件字段已修（2026-10-03 续三十七）**：`ResilientLLMClient.consume_invocation_record`
 >    新增，failover 时返回 `failover_from/to`，审计流不再空字段。
-> **仍待修（降为 P1 残项）**：FR-12 取消信号未实现；US3 流式绕过退避。
+> **已修**：FR-12 取消信号（续四十九）—— 把
+>    `CancelledError` 判为不可重试；`retry_with_backoff` 与
+>    `ResilientLLMClient`（含 ainvoke/astream 两路径）遇取消立即上抛，
+>    不重试、不切备用供应商。
+> **仍待修（降为 P1 残项）**：US3 流式绕过退避。
 - **FR-7/11/13 事件字段端到端断裂**：`ResilientLLMClient` 未覆写 `consume_invocation_record` → 读取方恒得 `None`，`failover_from/to` 永远为空。（已修 续三十七）
-- **FR-12 取消信号未实现**：`resilience/` 与 `instrumented_client` 无 `CancelledError` 处理，取消被归类为可重试错误。
+- **FR-12 取消信号已修（续四十九）**：CancelledError 在 classify/retry/failover 三层均立即传播，不重试不切源。
 - **US3 流式绕过退避**：`astream` 路径无 `retry_with_backoff`。
 
 ### 008 ops-dashboard（3）—— **成本段已接入 /overview 且前端已消费（2026-10-03，见 WORK_LOG 续三十四）**
