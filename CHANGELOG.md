@@ -4,7 +4,7 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
-## Unreleased
+## v0.2.0 - 2026-10-03
 
 ### Added
 
