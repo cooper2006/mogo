@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=python:3.10-slim-bookworm
+ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.10-slim-bookworm
 FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \

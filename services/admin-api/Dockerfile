@@ -1,4 +1,5 @@
-FROM python:3.10-slim-bookworm
+ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.13-slim-bookworm
+FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -15,7 +16,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install -r /tmp/requirements.txt \
     && python -m pip uninstall --yes pip wheel \
-    && find /usr/local/lib/python3.10/ensurepip/_bundled -type f -delete
+    && find /usr/local/lib/python3.13/ensurepip/_bundled -type f -delete
 
 # Security refresh is opt-in. A non-empty value (CI passes its run id) applies
 # the latest distro security patches; an empty or "false" value skips the
