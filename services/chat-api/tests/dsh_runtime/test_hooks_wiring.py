@@ -177,6 +177,7 @@ def test_admit_skill_selection_runs_hook_gate_first(monkeypatch) -> None:
         "resolve",
         lambda self, tenant_id, user_id: _SpyResolver().resolve(tenant_id, user_id),
     )
+    monkeypatch.setattr(turn_admission, "record_position_policy_event", _noop_record)
 
     with pytest.raises(PermissionError, match="钩子规则拒绝工具调用"):
         asyncio.run(

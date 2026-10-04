@@ -13,7 +13,7 @@ WORKDIR /app
 
 COPY requirements.txt /tmp/requirements.txt
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install -r /tmp/requirements.txt \
+    && python -m pip install --require-hashes -r /tmp/requirements.txt \
     && python -m pip uninstall --yes pip wheel \
     && find /usr/local/lib/python3.10/ensurepip/_bundled -type f -delete
 

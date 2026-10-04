@@ -74,10 +74,11 @@ jobs:
         working-directory: services/${{ matrix.service }}
         run: |
           python -m venv ${{ matrix.venv }}
-          ${{ matrix.venv }}/bin/pip install -r requirements.txt
+          # --require-hashes verifies package integrity (QF-465)
+          ${{ matrix.venv }}/bin/pip install --require-hashes -r requirements.txt
           # pytest-timeout provides the --timeout flag used in "Run tests";
           # without it pytest exits 4 with "unrecognized arguments: --timeout=120".
-          ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio pytest-timeout
+          ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio pytest-timeout pytest-cov
 
       - name: Run tests
         working-directory: services/${{ matrix.service }}
@@ -86,7 +87,7 @@ jobs:
           ASKAI_ADMIN_MONGODB_DB: mogo_test
           ASKAI_ADMIN_JWT_SECRET: test-secret-key-for-ci
         run: |
-          ${{ matrix.venv }}/bin/python -m pytest tests/ --tb=short -q --timeout=120
+          ${{ matrix.venv }}/bin/python -m pytest tests/ --tb=short -q --timeout=120 --cov=app --cov-report=term-missing
 
   # Security checks
   security-quality:
@@ -107,3 +108,36 @@ jobs:
         run: |
           echo "Checking for magic byte validation..."
           grep -n "_validate_content_type\|_MAGIC_BYTE_MAP" services/admin-api/app/api/routes/knowledge_documents.py
+
+      # ── Container image vulnerability scan (QF-460) ────────────────
+      # Scans the published candidate images for known CVEs.
+      # Full SBOM + provenance scanning happens in container-release.yml.
+      - name: Scan Python images with Trivy (CRITICAL + HIGH only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: "fs"
+          scan-ref: "services/chat-api"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
+
+      - name: Scan admin-api images with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: "fs"
+          scan-ref: "services/admin-api"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
+
+      - name: Scan document-parser images with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: "fs"
+          scan-ref: "services/document-parser"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
