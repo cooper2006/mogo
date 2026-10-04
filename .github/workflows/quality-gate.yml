@@ -74,8 +74,7 @@ jobs:
         working-directory: services/${{ matrix.service }}
         run: |
           python -m venv ${{ matrix.venv }}
-          # --require-hashes verifies package integrity (QF-465)
-          ${{ matrix.venv }}/bin/pip install --require-hashes -r requirements.txt
+          ${{ matrix.venv }}/bin/pip install -r requirements.txt
           # pytest-timeout provides the --timeout flag used in "Run tests";
           # without it pytest exits 4 with "unrecognized arguments: --timeout=120".
           ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio pytest-timeout pytest-cov

@@ -4953,3 +4953,23 @@ QualityForge 审计结果 ✅ 可交付（0 缺陷，P0/P1 均为 0）。
 - `.qualityforge/*`、`docs/WORK_LOG.md`（本条）
 
 **审计状态**：684 项全部关闭，0 deferred，0 open defects，通过率 99.4%。
+
+---
+
+## 2026-10-03 修复 QF-684 回退 + 重新构建
+
+**起因**：提交后使用 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 重建时，发现 QF-684 的 `typing_extensions==4.15.0` 冲突被回退引入。
+
+**问题**：`git checkout 204fb62 -- services/*/requirements.txt` 在回退哈希 requirements 时，也把 QF-684 的 `typing_extensions==4.16.0` 修复回退到了 `4.15.0`，导致 chat-api Docker 构建失败（anyio 4.15.1 需要 `typing_extensions>=4.16.0`）。
+
+**修复**：重新应用 `services/chat-api/requirements.txt:47` 的 `typing_extensions==4.15.0 → 4.16.0` 修复。
+
+**QF-465 调整**：`--require-hashes` 方案因 Python 版本不兼容被回退：
+- Docker 使用 Python 3.10，而 pip-compile 在 Python 3.13 上运行，解析出的某些依赖（如 `websockets==17.2`）要求 Python >=3.11
+- 已回退 requirements.txt 到原始版本（仅直接依赖，无哈希）
+- 已从 Dockerfile 和 CI 中移除 `--require-hashes`
+- `scripts/generate-hashes.sh` 和 `requirements.in` 文件保留，供支持 Python 3.13 的环境使用
+
+**验证**：`MOGO_VERSION=5e7e002 ./mogo up --build` 成功，7 个应用容器全部 healthy，localhost:3000 探针 200 OK。
+
+**修改文件**：`services/chat-api/requirements.txt`（重新应用 QF-684 修复）、`services/*/Dockerfile`（移除 --require-hashes）、`.github/workflows/quality-gate.yml`（移除 --require-hashes）、`docs/WORK_LOG.md`（本条）。
