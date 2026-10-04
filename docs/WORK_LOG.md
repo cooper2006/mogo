@@ -4973,3 +4973,21 @@ QualityForge 审计结果 ✅ 可交付（0 缺陷，P0/P1 均为 0）。
 **验证**：`MOGO_VERSION=5e7e002 ./mogo up --build` 成功，7 个应用容器全部 healthy，localhost:3000 探针 200 OK。
 
 **修改文件**：`services/chat-api/requirements.txt`（重新应用 QF-684 修复）、`services/*/Dockerfile`（移除 --require-hashes）、`.github/workflows/quality-gate.yml`（移除 --require-hashes）、`docs/WORK_LOG.md`（本条）。
+
+---
+
+## 2026-10-04 升级 admin-api 和 chat-api 到 Python 3.13
+
+**起因**：QF-465 的 `--require-hashes` 因 Python 版本不兼容被回退（Docker 用 3.10，pip-compile 在 3.13 上运行）。升级基础镜像到 Python 3.13 可以消除这个不兼容。
+
+**Docker Hub 不可达**：本地 Docker 代理（`proxy.orb.internal:8305`）返回 Bad Gateway，无法从 Docker Hub 拉取 `python:3.13-slim-bookworm`。改用 DaoCloud 镜像 `docker.m.daocloud.io/library/python:3.13-slim-bookworm`，通过 `ARG BASE_IMAGE` 参数化基础镜像地址。
+
+**Python 3.13 兼容性修复**：
+- `motor==2.5.1` → `motor>=3.0.0`（motor 2.x 使用已移除的 `asyncio.coroutine`）
+- `pymongo==3.12.3` → `pymongo>=4.5`（motor 3.x 要求 pymongo >=4.5）
+
+**document-parser 保持 Python 3.10**：Docling 系列依赖（`requirements-docling.txt`）钉死了 `numpy==1.26.4` 等旧版本，不支持 Python 3.13。待 Docling 升级后再迁移。
+
+**验证**：`MOGO_VERSION=c82289a ./mogo up --build` 成功，admin-api 和 chat-api 运行 Python 3.13.16，document-parser 运行 Python 3.10.21，全部 healthy，localhost:3000 探针 200 OK。
+
+**修改文件**：`services/admin-api/Dockerfile`、`services/admin-api/requirements.txt`、`services/chat-api/Dockerfile`、`services/chat-api/requirements.txt`、`services/document-parser/Dockerfile`（保持 3.10）、`docs/WORK_LOG.md`（本条）。
