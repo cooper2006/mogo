@@ -30,7 +30,9 @@
 - [x] A clean deployment reaches healthy state and completes initial setup.
 - [x] The setup organization is community, billing is disabled and member limit is unlimited.
 - [x] GHCR release images are available for both amd64 and arm64.
-- [ ] Backup, upgrade and rollback steps have been exercised on non-production data.
+- [x] Backup, upgrade and rollback steps have been exercised on non-production data.
+      Test: `bash scripts/test_backup_restore_rollback.sh` — 5 sections pass
+      (backup artefacts / restore / restore validation / rollback / idempotency).
 
 ## GitHub publication
 
