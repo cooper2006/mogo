@@ -50,7 +50,7 @@ RUN if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" = "true" ]; then \
 COPY requirements.txt /tmp/requirements.txt
 
 RUN python -m pip install --progress-bar off --upgrade pip setuptools wheel \
-    && python -m pip install --progress-bar off -r /tmp/requirements.txt \
+    && python -m pip install --progress-bar off --require-hashes -r /tmp/requirements.txt \
     && python -m pip uninstall --yes pip wheel \
     && find /usr/local/lib/python3.13/ensurepip/_bundled -type f -delete
 

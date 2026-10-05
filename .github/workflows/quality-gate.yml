@@ -74,7 +74,14 @@ jobs:
         working-directory: services/${{ matrix.service }}
         run: |
           python -m venv ${{ matrix.venv }}
-          ${{ matrix.venv }}/bin/pip install -r requirements.txt
+          # --require-hashes verifies package integrity (QF-465).
+          # Only admin-api and chat-api have hashed requirements.txt;
+          # document-parser stays on Python 3.10 (Docling pinned deps).
+          if [[ "${{ matrix.service }}" != "document-parser" ]]; then
+            ${{ matrix.venv }}/bin/pip install --require-hashes -r requirements.txt
+          else
+            ${{ matrix.venv }}/bin/pip install -r requirements.txt
+          fi
           # pytest-timeout provides the --timeout flag used in "Run tests";
           # without it pytest exits 4 with "unrecognized arguments: --timeout=120".
           ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio pytest-timeout pytest-cov

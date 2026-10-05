@@ -13,6 +13,9 @@
 # Then update Dockerfile:
 #   RUN pip install --require-hashes -r requirements.txt
 #
+# Performance: uses the Tsinghua PyPI mirror for fast downloads.
+# Generates ~1000 hashes in ~3 minutes on a decent connection.
+#
 # ═══════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -33,13 +36,15 @@ INFILE="$SERVICE_DIR/requirements.in"
 echo "==> Generating $INFILE from $REQUIREMENTS"
 grep -vE '^\s*(#|$)' "$REQUIREMENTS" > "$INFILE"
 
-# Generate hashes using pip-compile
-echo "==> Running pip-compile --generate-hashes"
+# Generate hashes using pip-compile with Tsinghua mirror
+echo "==> Running pip-compile --generate-hashes (Tsinghua mirror)"
 pip install --quiet pip-tools 2>/dev/null || true
 
-"$PY" -m piptools compile \
+PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}" \
+  "$PY" -m piptools compile \
   --generate-hashes \
   --strip-extras \
+  --index-url "${PIP_INDEX_URL}" \
   --quiet \
   --output-file "$REQUIREMENTS" \
   "$INFILE"
