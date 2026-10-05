@@ -1,5 +1,27 @@
 # Work Log
 
+## 2026-10-05 release-checklist 第 4 项：备份/升级/回滚演练验证
+
+**起因**：`docs/open-source-productization/release-checklist.md` 第 33 行「Backup, upgrade and rollback steps have been exercised on non-production data」为发布前唯一可自动化的未勾选项。
+
+**做法**：新增 `scripts/test_backup_restore_rollback.sh`，以 mocks 隔离 Docker 调用，逐段验证 `deploy/cli/backup.sh` 的完整链路：
+
+| 段 | 验证内容 | 关键断言 |
+|---|---|---|
+| 1. backup | 停 compose → 归档 8 个命名卷 → 写 SHA256SUMS/volume-prefix.txt/movo-version.txt/git-commit.txt → 重启 | 8 个 .tar.gz、version=abc1234、stop+up 各 ≥1 次 |
+| 2. restore | 校验 SHA256SUMS → 重建 8 个卷 → 解压归档 → 重启 | created=8、extracted=8、down+up 各 ≥1 次 |
+| 3. 恢复验证 | 缺目录/缺 SHA256SUMS/卷前缀不匹配 三种异常路径 | 三者均被拒绝 |
+| 4. rollback | `movo_configure_images false` 切换 MOGO_VERSION → 验证 6 个数组服务 + document-parser 的镜像引用 | upgrade→def5678 全部 7 个、rollback→abc1234 全部 7 个 |
+| 5. 幂等 | 同目录二次 backup | 被拒绝 |
+
+**反证**：`movo_restore` 三种异常路径各注入一个不存在的备份目录 / 缺 SHA256SUMS / 前缀不匹配，均按预期返回非零退出码。
+
+**结果**：5 段全绿，release-checklist 第 4 项勾选。剩余 3 项（logo 版权、凭据轮换、传递许可法务）为人工/法务步骤，非代码阻塞。
+
+**修改文件**：`scripts/test_backup_restore_rollback.sh`（新增）、`docs/open-source-productization/release-checklist.md`（第 33 行勾选）。
+
+---
+
 ## 2026-10-02 011 接线：scheduled_tasks 不适合，改用自带 DreamCycleScanner
 
 **起因**：`checklists/implementation.md` 的七类待办里第 1 项是「011 无生产接线」。产品拍板四项（`q1` 接线、`q2` 审计命名以实现为准、`q3` 编辑距离接入判定、`q4` 草稿上限维持拒新），本轮执行。
