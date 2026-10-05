@@ -4991,3 +4991,22 @@ QualityForge 审计结果 ✅ 可交付（0 缺陷，P0/P1 均为 0）。
 **验证**：`MOGO_VERSION=c82289a ./mogo up --build` 成功，admin-api 和 chat-api 运行 Python 3.13.16，document-parser 运行 Python 3.10.21，全部 healthy，localhost:3000 探针 200 OK。
 
 **修改文件**：`services/admin-api/Dockerfile`、`services/admin-api/requirements.txt`、`services/chat-api/Dockerfile`、`services/chat-api/requirements.txt`、`services/document-parser/Dockerfile`（保持 3.10）、`docs/WORK_LOG.md`（本条）。
+
+---
+
+## 2026-10-05 QF-465 重新启用 --require-hashes
+
+**起因**：Python 3.13 升级后，`pip-compile --generate-hashes` 仍然很慢（>5 分钟），需要分析瓶颈。
+
+**性能分析**：
+- **根因**：pip-compile 默认使用 `pypi.org/simple`（海外源），下载所有兼容平台的 wheel 并逐个哈希
+- **典型负载**：`cryptography-50.0.2` 一个包就生成 20+ 个平台的哈希（cp39/cp311/cp313/cp314/cp315 × win/amd64/arm64/x86_64/ppc64le/musllinux）
+- **优化**：切换到清华源 `https://pypi.tuna.tsinghua.edu.cn/simple`，哈希生成从 >5 分钟（未完成）降到 ~3 分钟（完成）
+
+**结果**：
+- admin-api：1063 条 sha256 哈希，`pip install --require-hashes` 验证通过
+- chat-api：2773 条 sha256 哈希，`pip install --require-hashes` 验证通过
+- document-parser：保持 Python 3.10，不使用 --require-hashes（Docling 钉死依赖不兼容 3.13）
+- Dockerfile 和 CI 均已添加 --require-hashes（CI 对 document-parser 做条件跳过）
+
+**修改文件**：`services/admin-api/requirements.txt`、`services/admin-api/Dockerfile`、`services/chat-api/requirements.txt`、`services/chat-api/Dockerfile`、`.github/workflows/quality-gate.yml`、`scripts/generate-hashes.sh`、`docs/WORK_LOG.md`（本条）。
