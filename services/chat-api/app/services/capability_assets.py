@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from app.infrastructure.observability.config import log_print
 
 VALID_STATUSES = ("active", "deprecated", "offline")
 
@@ -216,9 +217,8 @@ def _audit_asset_registered(asset: "CapabilityAsset") -> None:
                 "owner": asset.owner,
             },
         )
-    except Exception:
-        # 审计失败绝不影响主流程。
-        pass
+    except Exception as exc:
+        log_print(f"[capability_assets] asset.registered audit failed: {exc}", flush=True)
 
 
 def _audit_asset_status_changed(
@@ -241,6 +241,5 @@ def _audit_asset_status_changed(
                 "reason": reason,
             },
         )
-    except Exception:
-        # 审计失败绝不影响主流程。
-        pass
+    except Exception as exc:
+        log_print(f"[capability_assets] asset.status.changed audit failed: {exc}", flush=True)

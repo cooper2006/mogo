@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from app.core.db import get_db
 from app.governance.action_receipt import ActionReceipt
+from app.infrastructure.observability.config import log_print
 
 
 class ActionReceiptStore:
@@ -120,7 +121,7 @@ class ActionReceiptStore:
 
     async def upsert(self, receipt: ActionReceipt) -> ActionReceipt:
         async with self._lock:
-            receipt.updated_at = datetime.utcnow()
+            receipt.updated_at = datetime.now(tz=timezone.utc)
             self._cache(receipt)
             await self._persist(receipt)
             return deepcopy(receipt)
@@ -135,7 +136,7 @@ class ActionReceiptStore:
 
     async def recover_stale_running(self) -> int:
         async with self._lock:
-            now = datetime.utcnow()
+            now = datetime.now(tz=timezone.utc)
             changed = 0
             try:
                 db = get_db()
@@ -149,8 +150,12 @@ class ActionReceiptStore:
                     raw.pop("_id", None)
                     row = ActionReceipt.model_validate(raw)
                     self._cache(row)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(
+                    f"[governance.action_receipt] recover_stale_running: "
+                    f"DB scan failed, falling back to in-memory cache only: {exc}",
+                    flush=True,
+                )
             for action_id, row in list(self._by_action_id.items()):
                 if row.status != "running":
                     continue
@@ -173,7 +178,7 @@ class ActionReceiptStore:
                     continue
                 if self._has_trustworthy_evidence(row.evidence):
                     row.status = "succeeded"
-                    row.updated_at = datetime.utcnow()
+                    row.updated_at = datetime.now(tz=timezone.utc)
                     self._cache(row)
                     await self._persist(row)
                     changed += 1
@@ -197,8 +202,8 @@ class ActionReceiptStore:
                 {"$set": receipt.model_dump(mode="json")},
                 upsert=True,
             )
-        except Exception:
-            return
+        except Exception as exc:
+            log_print(f"[governance.action_receipt_store] silent exception caught: {exc}", flush=True)
 
     async def _load_one(self, query: dict) -> Optional[ActionReceipt]:
         try:
@@ -208,8 +213,8 @@ class ActionReceiptStore:
                 return None
             row.pop("_id", None)
             return ActionReceipt.model_validate(row)
-        except Exception:
-            return None
+        except Exception as exc:
+            log_print(f"[governance.action_receipt_store] silent exception caught: {exc}", flush=True)
 
     async def _load_latest(self, query: dict) -> Optional[ActionReceipt]:
         try:
@@ -219,8 +224,8 @@ class ActionReceiptStore:
                 return None
             row.pop("_id", None)
             return ActionReceipt.model_validate(row)
-        except Exception:
-            return None
+        except Exception as exc:
+            log_print(f"[governance.action_receipt_store] silent exception caught: {exc}", flush=True)
 
     async def _load_many(self, query: dict, *, limit: int) -> List[ActionReceipt]:
         try:
@@ -231,8 +236,8 @@ class ActionReceiptStore:
                 row.pop("_id", None)
                 parsed.append(ActionReceipt.model_validate(row))
             return parsed
-        except Exception:
-            return []
+        except Exception as exc:
+            log_print(f"[governance.action_receipt_store] silent exception caught: {exc}", flush=True)
 
     async def ensure_indexes(self) -> None:
         try:
@@ -245,5 +250,5 @@ class ActionReceiptStore:
             await coll.create_index([
                 ("actor_id", 1), ("operation_id", 1), ("status", 1), ("updated_at", -1),
             ])
-        except Exception:
-            return
+        except Exception as exc:
+            log_print(f"[governance.action_receipt_store] silent exception caught: {exc}", flush=True)

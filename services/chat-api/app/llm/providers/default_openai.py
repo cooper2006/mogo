@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.llm.types import Message, Role, LLMResponse
 from app.llm.base import BaseLLMClient
+from app.infrastructure.observability.config import log_print
 from app.llm.structured_fallback import (
     build_structured_fallback_messages,
     sanitize_structured_fallback_kwargs,
@@ -59,7 +60,8 @@ class DefaultOpenAIClient(BaseLLMClient):
             return {}
         try:
             return json.loads(text)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[llm.providers.default_openai] JSON parse failed: {exc}", flush=True)
             return {"_raw": text}
 
     def _convert_tool_calls(self, tool_calls: Any) -> List[Dict[str, Any]]:

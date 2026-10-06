@@ -77,8 +77,8 @@ async def load_orchestration_persisted(
                 },
                 upsert=True,
             )
-    except Exception:  # noqa: BLE001 - registration is best-effort
-        pass
+    except Exception as exc:
+        log_print(f"[orchestration/store] save failed: {exc}", flush=True)
 
     return loaded
 

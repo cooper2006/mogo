@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, Mapping, Optional
 from urllib.parse import urlparse
 
 from app.enterprise_capabilities.browser.engine.form_input.input_context import BrowserInputContext
+from app.infrastructure.observability.config import log_print
 from app.enterprise_capabilities.browser.engine.form_human_assistance import (
     FORM_MEDIA_CATEGORY,
     build_assistance_contract,
@@ -240,8 +241,12 @@ def _display_resource(
                     pass
             url, uploaded_path = storage.upload_file_with_path(str(local), user_id)
             return {"filename": filename, "url": str(url or ""), "object_path": uploaded_path}
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(
+            f"[media_upload] storage resolve for {source!r} failed, "
+            f"returning empty handoff: {exc}",
+            flush=True,
+        )
     return {"filename": filename, "url": "", "object_path": ""}
 
 

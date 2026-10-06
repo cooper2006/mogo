@@ -23,7 +23,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 import hashlib
 import json as jsonlib
 import re
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import httpx
 
@@ -199,6 +199,7 @@ class HttpKernelHostTransport:
         base_urls: Sequence[str] | None = None,
         timeout_seconds: float = 10.0,
         access_token: str = "",
+        transport_factory: "Callable[[str], httpx.AsyncBaseTransport] | None" = None,
     ) -> None:
         self._base_urls = normalize_base_urls(base_url, base_urls)
         headers = {"Authorization": f"Bearer {access_token}"} if access_token else None
@@ -207,6 +208,13 @@ class HttpKernelHostTransport:
                 base_url=url,
                 timeout=httpx.Timeout(timeout_seconds),
                 headers=headers,
+                # Injection point for tests. Assigning ``client._transport`` after
+                # construction is NOT sufficient with httpx >= 0.28: a request
+                # carrying an absolute URL is routed through
+                # ``_transport_for_url``, bypassing the swapped-in transport and
+                # hitting the real network. Passing ``transport=`` here is the
+                # supported way to keep a stub in place.
+                transport=transport_factory(url) if transport_factory else None,
             )
             for url in self._base_urls
         ]

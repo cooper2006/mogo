@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import os
 import logging
@@ -87,7 +88,8 @@ class DocumentParserService:
                 derived = uploader.object_path_from_url(str(document.get(key) or "").strip())
                 if derived:
                     return derived
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.document_parser] silent exception caught: {exc}", flush=True)
             return ""
         return ""
 
@@ -330,7 +332,8 @@ class DocumentParserService:
         try:
             ox0, oy0, ox1, oy1 = [float(x) for x in list(outer or [])[:4]]
             ix0, iy0, ix1, iy1 = [float(x) for x in list(inner or [])[:4]]
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.document_parser] silent exception caught: {exc}", flush=True)
             return False
         return (
             ix0 >= ox0 - tolerance
@@ -639,7 +642,8 @@ class DocumentParserService:
                 text = str(getattr(shape, "text", "") or "").strip()
             if text:
                 blocks.append(text)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.document_parser] silent exception caught: {exc}", flush=True)
             return blocks
         return blocks
 

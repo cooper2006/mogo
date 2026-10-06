@@ -3,6 +3,7 @@ Validator for tracked changes in Word documents.
 """
 
 import subprocess
+from app.infrastructure.observability.config import log_print
 import tempfile
 import zipfile
 from pathlib import Path
@@ -56,9 +57,8 @@ class RedliningValidator:
                     print("PASSED - No tracked changes by Claude found.")
                 return True
 
-        except Exception:
-            # If we can't parse the XML, continue with full validation
-            pass
+        except Exception as exc:
+            log_print(f"[redlining/docx] XML parse failed: {exc}", flush=True)
 
         # Create temporary directory for unpacking original docx
         with tempfile.TemporaryDirectory() as temp_dir:

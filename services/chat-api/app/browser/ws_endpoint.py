@@ -1,6 +1,7 @@
 """WebSocket endpoint used by the local browser agent to connect."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import json
@@ -59,8 +60,8 @@ async def agent_connect(ws: WebSocket) -> None:
             await asyncio.sleep(20)
             try:
                 await send({"type": "ping"})
-            except Exception:
-                return
+            except Exception as exc:
+                log_print(f"[browser.ws_endpoint] silent exception caught: {exc}", flush=True)
 
     pinger = asyncio.create_task(ping_loop())
     try:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 
@@ -17,7 +17,7 @@ class ApprovalTicket:
     expires_at: datetime
     required_roles: List[str] | None = None
     used: bool = False
-    created_at: datetime = datetime.utcnow()
+    created_at: datetime = datetime.now(tz=timezone.utc)
     used_at: Optional[datetime] = None
     denied: bool = False
 
@@ -75,10 +75,10 @@ class ApprovalRuntime:
                 roles = set(actor_roles or [])
                 if not roles.intersection(set(row.required_roles)):
                     return False
-            if row.expires_at < datetime.utcnow():
+            if row.expires_at < datetime.now(tz=timezone.utc):
                 return False
             row.used = True
-            row.used_at = datetime.utcnow()
+            row.used_at = datetime.now(tz=timezone.utc)
             self._tickets[action_id] = row
             return True
 

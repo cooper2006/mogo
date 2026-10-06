@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from copy import deepcopy
@@ -110,7 +111,8 @@ class SubAgentStateStore:
                 {"$set": record.model_dump(mode="json")},
                 upsert=True,
             )
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.state_store] silent exception caught: {exc}", flush=True)
             return
 
     async def _load_one(self, query: dict, sort: Optional[list[tuple[str, int]]] = None) -> Optional[SubAgentRuntimeRecord]:
@@ -127,7 +129,8 @@ class SubAgentStateStore:
                 return None
             row.pop("_id", None)
             return SubAgentRuntimeRecord.model_validate(row)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[state_store] load_one failed: {exc}", flush=True)
             return None
 
     async def _load_many(self, query: dict, sort: Optional[list[tuple[str, int]]] = None, limit: int = 20) -> list[SubAgentRuntimeRecord]:
@@ -142,5 +145,6 @@ class SubAgentStateStore:
                 row.pop("_id", None)
                 out.append(SubAgentRuntimeRecord.model_validate(row))
             return out
-        except Exception:
+        except Exception as exc:
+            log_print(f"[state_store] load_many failed: {exc}", flush=True)
             return []

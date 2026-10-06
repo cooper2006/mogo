@@ -372,8 +372,8 @@ def _parse_chart_data(raw: str) -> str:
         # If it's already valid JSON, return as is
         json.loads(raw)
         return raw
-    except:
-        pass
+    except Exception as exc:
+        log_print(f"[tools/pdf] parse failed: {exc}", flush=True)
     
     # Simple YAML-like parser
     result = {}
@@ -669,8 +669,8 @@ async def generate_pdf_file(markdown_content: str, filename: str = "report.pdf")
             # Ensure charts and mermaid diagrams have time to render
             try:
                 await page.wait_for_timeout(5000)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[tools/pdf] extract failed: {exc}", flush=True)
 
             await page.emulate_media(media="print")
             await page.pdf(

@@ -69,8 +69,8 @@ class ContextBudgeter:
         try:
             if explicit:
                 return max(4000, int(explicit))
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[context_engine/token_budget] budget calc failed: {exc}", flush=True)
         model = str(output_spec.get("model") or output_spec.get("model_name") or "").strip()
         window = model_context_window(model) if model else self.default_context_window
         usable = int(window * (1.0 - self.response_reserve_ratio))

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -102,8 +103,8 @@ async def _llm_title_from_spreadsheet_context(
         title = title.split("\n", 1)[0].strip()
         if title and not is_default_spreadsheet_title(title):
             return title[:120]
-    except Exception:
-        return ""
+    except Exception as exc:
+        log_print(f"[services.spreadsheet_titles] silent exception caught: {exc}", flush=True)
     return ""
 
 

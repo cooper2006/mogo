@@ -3,6 +3,7 @@ Validator for Word document XML files against XSD schemas.
 """
 
 import random
+from app.infrastructure.observability.config import log_print
 import re
 import tempfile
 import zipfile
@@ -284,8 +285,8 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                                     f"  {xml_file.name}:{elem.sourceline}: "
                                     f"durableId={val} >= 0x7FFFFFFF"
                                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[validators/docx/pptx] XML validation failed: {exc}", flush=True)
 
         if errors:
             print(f"FAILED - {len(errors)} ID constraint violations:")
@@ -436,8 +437,8 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                 if modified:
                     xml_file.write_bytes(dom.toxml(encoding="UTF-8"))
 
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[validators/docx/pptx] XML repair failed: {exc}", flush=True)
 
         return repairs
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -54,7 +54,7 @@ class KernelBindingRepository:
         worktree: bool = False,
         replaces_binding_id: str | None = None,
     ) -> dict[str, Any]:
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         if execution_location not in {"server", "desktop", "remote_sandbox"}:
             raise ValueError("unsupported execution_location")
         if execution_location == "server" and dsh_workspace_id:
@@ -119,13 +119,13 @@ class KernelBindingRepository:
                 if current is None:
                     await self._collection.update_one(
                         {"binding_id": replaces_binding_id, "status": "replacing"},
-                        {"$set": {"current": True, "status": "idle", "updated_at": datetime.utcnow()}},
+                        {"$set": {"current": True, "status": "idle", "updated_at": datetime.now(tz=timezone.utc)}},
                     )
             raise
         if replacement_claimed:
             await self._collection.update_one(
                 {"binding_id": replaces_binding_id, "status": "replacing"},
-                {"$set": {"status": "superseded", "updated_at": datetime.utcnow()}},
+                {"$set": {"status": "superseded", "updated_at": datetime.now(tz=timezone.utc)}},
             )
         return row
 
@@ -160,7 +160,7 @@ class KernelBindingRepository:
     async def update_runtime(self, binding_id: str, *, runtime_id: str) -> None:
         await self._collection.update_one(
             {"binding_id": binding_id},
-            {"$set": {"runtime_id": runtime_id, "updated_at": datetime.utcnow()}},
+            {"$set": {"runtime_id": runtime_id, "updated_at": datetime.now(tz=timezone.utc)}},
         )
 
     async def update_git_state(self, binding_id: str, *, git_branch: str, head_commit: str) -> None:
@@ -170,14 +170,14 @@ class KernelBindingRepository:
                 "git_branch": git_branch,
                 "detached_head": False,
                 "head_commit": head_commit,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(tz=timezone.utc),
             }},
         )
 
     async def advance_cursor(self, binding_id: str, cursor: int) -> None:
         await self._collection.update_one(
             {"binding_id": binding_id},
-            {"$max": {"event_cursor": int(cursor)}, "$set": {"updated_at": datetime.utcnow()}},
+            {"$max": {"event_cursor": int(cursor)}, "$set": {"updated_at": datetime.now(tz=timezone.utc)}},
         )
 
     async def claim_turn(
@@ -189,7 +189,7 @@ class KernelBindingRepository:
         turn_context: dict[str, Any] | None = None,
         turn_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         return await self._collection.find_one_and_update(
             {
                 "binding_id": binding_id,
@@ -216,7 +216,7 @@ class KernelBindingRepository:
     async def finish_turn(self, binding_id: str, *, message_id: str, status: str) -> bool:
         if status not in {"completed", "failed", "cancelled"}:
             raise ValueError(f"unsupported terminal turn status: {status}")
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         result = await self._collection.update_one(
             {
                 "binding_id": binding_id,
@@ -242,7 +242,7 @@ class KernelBindingRepository:
                     "current": False,
                     "status": "disposal_pending" if pending else "disposed",
                     "active_turn": None,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(tz=timezone.utc),
                 }
             },
         )

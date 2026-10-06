@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -21,7 +22,8 @@ def coerce_json_object(value: Any) -> dict[str, Any]:
         try:
             parsed = json.loads(fenced.group(1))
             return dict(parsed) if isinstance(parsed, dict) else {}
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.research.progressive.json_utils] silent exception caught: {exc}", flush=True)
             return {}
     start = text.find("{")
     end = text.rfind("}")
@@ -29,7 +31,8 @@ def coerce_json_object(value: Any) -> dict[str, Any]:
         try:
             parsed = json.loads(text[start : end + 1])
             return dict(parsed) if isinstance(parsed, dict) else {}
-        except Exception:
+        except Exception as exc:
+            log_print(f"[json_utils] JSON parse failed: {exc}", flush=True)
             return {}
     return {}
 

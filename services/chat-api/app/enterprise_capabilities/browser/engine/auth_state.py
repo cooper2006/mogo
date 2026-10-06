@@ -1,6 +1,7 @@
 """Generic browser authentication assessment and transition helpers."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass
 from typing import Any, Dict
@@ -14,8 +15,8 @@ def site_scope(url: str) -> str:
     """Return a conservative registrable-domain-like scope without site rules."""
     try:
         host = (urlparse(str(url or "")).hostname or "").lower().strip(".")
-    except Exception:
-        return ""
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.auth_state] silent exception caught: {exc}", flush=True)
     if not host or host == "localhost" or host.replace(".", "").isdigit():
         return host
     labels = host.split(".")

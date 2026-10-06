@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from playwright.async_api import Page
 
@@ -12,5 +13,5 @@ class WeChatDraftListPage:
         try:
             await loc.wait_for(state="visible", timeout=5000)
             return True
-        except Exception:
-            return False
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.pages.wechat_draft_list_page] silent exception caught: {exc}", flush=True)

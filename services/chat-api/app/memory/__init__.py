@@ -17,6 +17,9 @@ from .lifecycle import (
     is_expired,
     seconds_until_expiry,
 )
+from .tiering import NoopSummarizer, Summarizer, TierResult, tier_content
+from .address import MemoryAddress, parse_memory_uri
+from .sediment import NoopSessionSummarizer, SessionSummarizer, build_session_memory, on_session_end
 
 __all__ = [
     "MemoryScope",
@@ -28,4 +31,14 @@ __all__ = [
     "is_expired",
     "seconds_until_expiry",
     "DEFAULT_DECAY_DAYS",
+    "NoopSummarizer",
+    "Summarizer",
+    "TierResult",
+    "tier_content",
+    "MemoryAddress",
+    "parse_memory_uri",
+    "NoopSessionSummarizer",
+    "SessionSummarizer",
+    "build_session_memory",
+    "on_session_end",
 ]

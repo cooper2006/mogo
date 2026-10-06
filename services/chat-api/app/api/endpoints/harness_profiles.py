@@ -8,6 +8,7 @@
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any
 
@@ -78,9 +79,8 @@ async def _audit_change(
                 "diff": {k: v for k, v in diff.items() if v["before"] != v["after"]},
             },
         )
-    except Exception:
-        # 审计失败绝不影响主流程。
-        pass
+    except Exception as exc:
+        log_print(f"[harness_profiles] audit event failed: {exc}", flush=True)
 
 
 # ---------------------------------------------------------------------------

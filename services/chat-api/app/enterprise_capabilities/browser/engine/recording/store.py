@@ -1,7 +1,8 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from app.core.db import get_db
@@ -27,7 +28,7 @@ class HumanRecordingStore:
             **dict(payload),
             "recording_id": recording_id,
             "sequence": sequence,
-            "received_at": datetime.utcnow(),
+            "received_at": datetime.now(tz=timezone.utc),
         }
         self._events.setdefault(recording_id, {})[sequence] = event
         if str(event.get("type") or "") == "recording_stopped":
@@ -40,9 +41,8 @@ class HumanRecordingStore:
                 {"$set": event},
                 upsert=True,
             )
-        except Exception:
-            # The in-process journal still covers the normal suspend/resume path.
-            return
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.recording.store] silent exception caught: {exc}", flush=True)
 
     async def list(self, recording_id: str, *, user_id: str = "") -> List[Dict[str, Any]]:
         recording_id = str(recording_id or "").strip()
@@ -60,7 +60,8 @@ class HumanRecordingStore:
             rows = await db[self.collection_name].find(
                 query, {"_id": 0},
             ).sort("sequence", 1).to_list(length=2000)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.recording.store] silent exception caught: {exc}", flush=True)
             rows = []
         merged = {
             int(item.get("sequence") or 0): dict(item)
@@ -91,8 +92,8 @@ class HumanRecordingStore:
             if user_id:
                 query["user_id"] = str(user_id)
             await get_db()[self.collection_name].delete_many(query)
-        except Exception:
-            return
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.recording.store] silent exception caught: {exc}", flush=True)
 
     async def _ensure_indexes(self, db: Any) -> None:
         if self._indexes_ready:

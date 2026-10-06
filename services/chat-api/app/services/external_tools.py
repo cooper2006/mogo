@@ -29,7 +29,7 @@ logger = logging.getLogger("app.external_tools")
 
 
 def _now() -> datetime.datetime:
-    return datetime.datetime.utcnow()
+    return datetime.datetime.now(tz=datetime.timezone.utc)
 
 
 def _safe_dict(value: Any) -> Dict[str, Any]:

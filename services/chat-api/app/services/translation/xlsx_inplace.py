@@ -6,6 +6,7 @@ allows. It only replaces plain text cell values.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import io
 import json
@@ -75,7 +76,8 @@ def _row_context(ws: Any, row_idx: int, col_idx: int) -> List[str]:
             text = _string_cell_value(cell)
             if text and len(text) <= 120:
                 values.append(text)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.translation.xlsx_inplace] silent exception caught: {exc}", flush=True)
         return []
     return values[:8]
 
@@ -86,7 +88,8 @@ def _column_header(ws: Any, col_idx: int, row_idx: int) -> str:
     try:
         text = _string_cell_value(ws.cell(row=1, column=col_idx))
         return text[:120]
-    except Exception:
+    except Exception as exc:
+        log_print(f"[xlsx_inplace] extract failed: {exc}", flush=True)
         return ""
 
 

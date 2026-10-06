@@ -3,6 +3,7 @@ Base validator with common validation logic for document files.
 """
 
 import re
+from app.infrastructure.observability.config import log_print
 from pathlib import Path
 
 import defusedxml.minidom
@@ -135,8 +136,8 @@ class BaseSchemaValidator:
                 if modified:
                     xml_file.write_bytes(dom.toxml(encoding="UTF-8"))
 
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[validators/base/pptx] XML repair failed: {exc}", flush=True)
 
         return repairs
 

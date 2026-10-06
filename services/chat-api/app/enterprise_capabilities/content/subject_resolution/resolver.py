@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -267,8 +268,8 @@ class SubjectResolutionResolver:
             )
             if isinstance(parsed, SubjectResolutionDecision):
                 return parsed
-        except Exception:
-            return None
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.subject_resolution.resolver] silent exception caught: {exc}", flush=True)
         return None
 
     def _fallback_resolve(

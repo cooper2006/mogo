@@ -4,7 +4,7 @@ from app.infrastructure.observability.config import log_print
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -227,7 +227,8 @@ async def _next_seq(db, session_id: ObjectId, user_id: str, main_id: str = "defa
         return 1
     try:
         return int(last.get("seq") or 0) + 1
-    except Exception:
+    except Exception as exc:
+        log_print(f"[api.endpoints.sessions] silent exception caught: {exc}", flush=True)
         return 1
 
 
@@ -250,7 +251,7 @@ def _extract_latest_artifact_ref_from_messages(messages: List[MessageIn]) -> Opt
             "url": url,
             "filename": str(target.get("filename") or ""),
             "title": str(target.get("title") or ""),
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(tz=timezone.utc),
         }
     return None
 
@@ -316,7 +317,7 @@ def _build_active_document_from_messages(
         "type": str(target.get("type") or "markdown").strip() or "markdown",
         "object_path": str(target.get("object_path") or "").strip(),
         "url": str(target.get("url") or "").strip(),
-        "updated_at": datetime.utcnow(),
+        "updated_at": datetime.now(tz=timezone.utc),
     }
 
 
@@ -326,7 +327,7 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
         "title": str(doc.get("title") or "").strip(),
         "content": str(doc.get("content") or "").strip(),
         "content_preview": str(doc.get("content_preview") or "")[:600],
-        "updated_at": doc.get("updated_at") or datetime.utcnow(),
+        "updated_at": doc.get("updated_at") or datetime.now(tz=timezone.utc),
         "object_path": str(doc.get("object_path") or "").strip(),
         "url": str(doc.get("url") or "").strip(),
         "type": str(doc.get("type") or "markdown").strip() or "markdown",
@@ -400,8 +401,8 @@ async def _resolve_document_registry_update(
         parsed = _json.loads(data)
         action = str(parsed.get("action") or action).strip()
         target_document_id = str(parsed.get("target_document_id") or target_document_id).strip() or target_document_id
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[sessions] intent routing LLM failed: {exc}", flush=True)
 
     if action == "create_new" or target_document_id == "NEW":
         doc_id = f"doc_{uuid4().hex[:12]}"
@@ -486,7 +487,7 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
     if ids:
         await db.chat_messages.update_many(
             {"_id": {"$in": ids}},
-            {"$set": {"compacted": True, "compaction_id": compaction_id, "compacted_at": datetime.utcnow()}},
+            {"$set": {"compacted": True, "compaction_id": compaction_id, "compacted_at": datetime.now(tz=timezone.utc)}},
         )
     start_seq = int(to_compact[0].get("seq") or 0)
     end_seq = int(to_compact[-1].get("seq") or 0)
@@ -502,7 +503,7 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
             "progress": None,
             "documents": [],
             "images": [],
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(tz=timezone.utc),
             "seq": next_seq,
             "message_type": "context_summary",
             "summary_source": compaction.source,
@@ -513,7 +514,7 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
     )
     await db.chat_sessions.update_one(
         {"_id": session_id},
-        {"$set": {"last_compaction_at": datetime.utcnow(), "latest_compaction_id": compaction_id}},
+        {"$set": {"last_compaction_at": datetime.now(tz=timezone.utc), "latest_compaction_id": compaction_id}},
     )
 
 
@@ -972,6 +973,51 @@ async def update_session(
     return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
 
 
+@router.post("/sessions/{session_id}/end", response_model=ApiResponse)
+async def end_session(
+    session_id: str,
+    user_id: str = Query(..., alias="userId"),
+    main_id: str | None = Query(default=None, alias="mainId"),
+    reason: str = Query(default="user_ended"),
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """End a 002 session → emits the 009 ``SessionEnd`` event (FR-1 / FR-12).
+
+    This is the normal end-of-session seam. It is what drives the 017 tiered
+    memory sedimentation; ``delete_session`` is for removal, not for ending.
+
+    Idempotent — ending an already-ended session is a no-op that returns the
+    current state without re-triggering sedimentation.
+    """
+    try:
+        oid = ObjectId(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+
+    authorized_user_id, authorized_main_id = await _authorized_scope(
+        authorization, claimed_user_id=user_id, claimed_main_id=main_id
+    )
+    from app.services.session_persistence_service import session_persistence_service
+
+    try:
+        session_doc = await session_persistence_service.end_session(
+            session_id=str(oid),
+            user_id=authorized_user_id,
+            main_id=authorized_main_id,
+            reason=reason,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+
+    return ApiResponse(
+        code=0,
+        message="success",
+        data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump(),
+    )
+
+
 @router.delete("/sessions/{session_id}", response_model=ApiResponse)
 async def delete_session(
     session_id: str,
@@ -991,9 +1037,30 @@ async def delete_session(
         claimed_user_id=user_id,
         claimed_main_id=main_id_snake or main_id,
     )
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id), {"_id": 1})
+    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # 009 SessionEnd → 017 sedimentation normally happens in ``end_session``
+    # (the 002 lifecycle carrier). Here we only sediment as a *fallback* for a
+    # session that is being deleted without ever having been ended, so a removal
+    # still does not silently lose the memory. The ledger keeps this from
+    # double-sedimenting a session that was already ended.
+    try:
+        from app.memory.sediment import mark_sedimented, sediment_session_end
+        from app.memory.store import MemoryStore
+
+        if mark_sedimented(str(oid)):
+            await sediment_session_end(
+                session_id=str(oid),
+                session_doc=session_doc,
+                store=MemoryStore(),
+                owner_id=str(user_id),
+                tenant_id=main_id,
+                workspace_id=str(session_doc.get("workspace_id") or ""),
+            )
+    except Exception as exc:  # noqa: BLE001 — sedimentation is non-fatal
+        log_print(f"[sessions] delete-path sedimentation skipped: {exc}", flush=True)
 
     from app.dsh_runtime.application import dsh_runtime_application
     await dsh_runtime_application.require_chat().dispose_conversation(

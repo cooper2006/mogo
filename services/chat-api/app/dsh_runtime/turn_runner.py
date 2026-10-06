@@ -9,6 +9,7 @@ from typing import Any
 
 from app.dsh_runtime.bindings import KernelBindingRepository
 from app.dsh_runtime.credential_lease import ActiveTurnCredentialLease
+from app.infrastructure.observability.config import log_print
 from app.dsh_runtime.contracts import ContentBlock, SendMode, SendRequest, TemporalContext
 from app.dsh_runtime.conversation import ConversationRepository
 from app.dsh_runtime.event_mapper import DshEventMapper
@@ -277,8 +278,12 @@ class DshTurnRunner:
                 await self._finalizer.finalize(
                     binding=binding, message_id=message_id, status=status
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(
+                    f"[dsh_runtime.turn_runner] finalize after kernel error "
+                    f"for message {message_id} failed: {exc}",
+                    flush=True,
+                )
         finally:
             await credential_lease.stop()
             if browser_intervention is not None and status == "completed":
@@ -361,8 +366,12 @@ class DshTurnRunner:
                 conversation_id=str(binding["conversation_id"]),
                 message_id=message_id,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(
+                f"[dsh_runtime.turn_runner] persist failure event for "
+                f"message {message_id} failed: {exc}",
+                flush=True,
+            )
         return projected
 
     async def _failure_projection(

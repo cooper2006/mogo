@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import math
 from dataclasses import dataclass
@@ -389,8 +390,8 @@ class ContentDrivenReflowEngine:
             if value in (None, ""):
                 return None
             return float(value)
-        except Exception:
-            return None
+        except Exception as exc:
+            log_print(f"[services.presentation.content_reflow] silent exception caught: {exc}", flush=True)
 
 
 def reflow_len(text: str) -> int:

@@ -3,6 +3,7 @@ Validator for tracked changes in Word documents.
 """
 
 import subprocess
+from app.infrastructure.observability.config import log_print
 import tempfile
 import zipfile
 from pathlib import Path
@@ -53,8 +54,8 @@ class RedliningValidator:
                     print(f"PASSED - No tracked changes by {self.author} found.")
                 return True
 
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[redlining/pptx] XML parse failed: {exc}", flush=True)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

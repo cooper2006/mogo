@@ -94,18 +94,15 @@ class ArgumentPackBuilder:
 
     @staticmethod
     def _log_pack(pack: ArgumentPackSpec) -> None:
-        try:
-            log_print(
-                "[argument_pack] pack built | definitions=%s boundaries=%s use_cases=%s relationships=%s references=%s source=%s"
-                % (
-                    len(pack.definitions),
-                    len(pack.boundaries),
-                    len(pack.use_cases),
-                    len(pack.relationships),
-                    len(pack.references),
-                    str((pack.metadata or {}).get("source") or ""),
-                ),
-                flush=True,
-            )
-        except Exception:
-            pass
+        log_print(
+            "[argument_pack] pack built | definitions=%s boundaries=%s use_cases=%s relationships=%s references=%s source=%s"
+            % (
+                len(pack.definitions),
+                len(pack.boundaries),
+                len(pack.use_cases),
+                len(pack.relationships),
+                len(pack.references),
+                str((pack.metadata or {}).get("source") or ""),
+            ),
+            flush=True,
+        )

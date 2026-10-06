@@ -7,11 +7,14 @@ Scoping and visibility are enforced server-side via ``MemoryStore`` +
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
 from app.memory.scope import MemoryScope
+from app.memory.store import MemoryStore, MemoryTooLargeError
+from app.memory.tiering import NoopSummarizer, tier_content
 
 router = APIRouter(prefix="/api/memories", tags=["memory"])
 
@@ -40,18 +43,48 @@ async def create_memory(
     if scope not in {s.value for s in MemoryScope}:
         raise HTTPException(status_code=400, detail=f"invalid scope: {scope!r}")
 
-    store = MemoryStore()
-    memory = store.save(
-        content=content,
-        owner_id=user_id,
-        tenant_id=tenant_id,
-        workspace_id=str(payload.get("workspace_id") or ""),
-        scope=scope,
+    # 017 FR-13/FR-15: derive density tiers (write-time summaries if supplied,
+    # lazy fallback handled at read time via tier_content).
+    supplied_l0 = str(payload.get("l0_summary") or "")
+    supplied_l1 = str(payload.get("l1_overview") or "")
+    # Write-time summaries are fresh; mark them so the stale path won't overwrite.
+    supplied_at = time.time() if supplied_l0 else 0.0
+    tier = tier_content(
+        content,
+        NoopSummarizer(),
+        l0_summary=supplied_l0,
+        l1_overview=supplied_l1,
+        tierable=None if payload.get("tierable") is None else bool(payload.get("tierable")),
+        summary_generated_at=supplied_at,
     )
+
+    store = MemoryStore()
+    try:
+        memory = await store.save(
+            content=content,
+            owner_id=user_id,
+            tenant_id=tenant_id,
+            workspace_id=str(payload.get("workspace_id") or ""),
+            scope=scope,
+            l0_summary=tier.l0_summary,
+            l1_overview=tier.l1_overview,
+            l2_raw=tier.l2_raw,
+            tierable=tier.tierable,
+            summary_generated_at=tier.summary_generated_at,
+            source_session_id=str(payload.get("source_session_id") or ""),
+            source_type=str(payload.get("source_type") or ""),
+        )
+    except MemoryTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc))
+
     return {"code": 0, "message": "created", "data": {
         "memory_id": memory.memory_id,
         "scope": memory.scope,
         "content": memory.content,
+        "l0_summary": memory.l0_summary,
+        "l1_overview": memory.l1_overview,
+        "tierable": memory.tierable,
+        "addr": memory.addr("L0"),
         "created_at": memory.created_at,
     }}
 
@@ -90,6 +123,12 @@ async def list_memories(
                     "memory_id": m.memory_id,
                     "scope": m.scope,
                     "content": m.content,
+                    "l0_summary": m.l0_summary,
+                    "l1_overview": m.l1_overview,
+                    "tierable": m.tierable,
+                    "addr": m.addr("L0"),
+                    "source_session_id": m.source_session_id,
+                    "source_type": m.source_type,
                     "owner_id": m.owner_id,
                     "created_at": m.created_at,
                     "last_accessed_at": m.last_accessed_at,
@@ -152,7 +191,7 @@ async def promote_memory(
     except MemoryAccessError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
 
-    store.save(
+    await store.save(
         memory_id=promoted.memory_id,
         content=promoted.content,
         owner_id=promoted.owner_id,

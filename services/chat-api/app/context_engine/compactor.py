@@ -38,8 +38,8 @@ class ContextCompactor:
             memories = [m for m in list(data.get("memories") or []) if isinstance(m, dict)]
             if summary:
                 return CompactionResult(summary=summary[:6000], memories=memories[:12], source="llm")
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[context_engine/compactor] compaction failed: {exc}", flush=True)
         return CompactionResult(summary=heuristic, memories=self.heuristic_memories(rows), source="heuristic")
 
     def heuristic_summary(self, rows: List[Dict[str, Any]]) -> str:

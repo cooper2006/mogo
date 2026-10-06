@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
+from app.infrastructure.observability.config import log_print
 from app.llm.types import Message, Role
 from pydantic import BaseModel, Field
 
@@ -39,6 +40,10 @@ class PresetConflictChecker:
                     "hard_conflicts": [str(x) for x in res.hard_conflicts if str(x).strip()],
                     "soft_conflicts": [str(x) for x in res.soft_conflicts if str(x).strip()],
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(
+                f"[profile_presets][conflict_checker] LLM call failed, "
+                f"returning empty conflicts: {exc}",
+                flush=True,
+            )
         return {"hard_conflicts": [], "soft_conflicts": []}

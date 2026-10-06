@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import base64
@@ -358,15 +359,15 @@ class AzureGptImageClient:
             if raw_ms:
                 try:
                     return max(0.0, float(raw_ms) / 1000.0)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log_print(f"[llm/azure_gpt_image] generation failed: {exc}", flush=True)
         raw = str(resp.headers.get("retry-after", "")).strip()
         if not raw:
             return None
         try:
             return max(0.0, float(raw))
-        except Exception:
-            return None
+        except Exception as exc:
+            log_print(f"[llm.providers.azure_gpt_image] silent exception caught: {exc}", flush=True)
 
     @staticmethod
     def _should_retry_status(code: int) -> bool:

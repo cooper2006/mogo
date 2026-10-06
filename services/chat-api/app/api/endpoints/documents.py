@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -140,7 +141,8 @@ async def _record_product_edit(principal: ApiPrincipal, object_path: str) -> Non
                 sort=[("updated_at", -1)],
             )
             message_id = str((job or {}).get("message_id") or "")
-        except Exception:
+        except Exception as exc:
+            log_print(f"[api.endpoints.documents] silent exception caught: {exc}", flush=True)
             message_id = ""
         from app.services.skill_quality_report import record_product_edit
 
@@ -151,8 +153,8 @@ async def _record_product_edit(principal: ApiPrincipal, object_path: str) -> Non
             object_path=object_path,
             message_id=message_id,
         )
-    except Exception:
-        return
+    except Exception as exc:
+        log_print(f"[api.endpoints.documents] silent exception caught: {exc}", flush=True)
 
 
 @router.post(
@@ -301,8 +303,8 @@ async def fetch_document(payload: DocumentFetchRequest):
             content_bytes = refreshed.encode("utf-8")
             if is_markdown_doc:
                 content_type = "text/markdown; charset=utf-8"
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[documents] markdown URL refresh failed: {exc}", flush=True)
     elif _is_presentation_blueprint_path(object_path) and content_bytes:
         try:
             payload_json = json.loads(content_bytes.decode("utf-8", errors="strict"))
@@ -310,8 +312,8 @@ async def fetch_document(payload: DocumentFetchRequest):
             if refreshed_count > 0:
                 content_bytes = json.dumps(refreshed_json, ensure_ascii=False).encode("utf-8")
             content_type = "application/json; charset=utf-8"
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[documents] JSON URL refresh failed: {exc}", flush=True)
 
     return StreamingResponse(
         iter([content_bytes]),

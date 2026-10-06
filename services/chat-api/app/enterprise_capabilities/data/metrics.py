@@ -1,6 +1,7 @@
 """Single deterministic metrics core exposed through the DSH adapter."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import math
@@ -61,8 +62,8 @@ class MetricsEngine:
             try:
                 number = float(text)
                 return number / 100.0 if "%" in value else number
-            except Exception:
-                return None
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.data.metrics] silent exception caught: {exc}", flush=True)
         return None
 
     @classmethod

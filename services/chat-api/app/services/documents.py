@@ -69,8 +69,8 @@ class DocumentService:
                 with open(debug_path, "w", encoding="utf-8") as f:
                     f.write(rendered_markdown)
                 log_print(f"[docx] debug_markdown_saved path={debug_path}", flush=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[documents] debug file write failed: {exc}", flush=True)
             log_print(
                 "[docx] rendered markdown",
                 "orig_len=",

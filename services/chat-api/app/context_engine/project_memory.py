@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 from dataclasses import dataclass
@@ -62,7 +63,8 @@ class ProjectMemoryService:
                     ],
                 }, main_id)
             ).sort("updated_at", -1).limit(80).to_list(length=80)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[context_engine.project_memory] silent exception caught: {exc}", flush=True)
             return []
         ranked: List[ProjectMemory] = []
         for row in raw:
@@ -132,7 +134,8 @@ class ProjectMemoryService:
                     },
                     upsert=True,
                 )
-        except Exception:
+        except Exception as exc:
+            log_print(f"[context_engine.project_memory] silent exception caught: {exc}", flush=True)
             return
 
     def format_memories(self, memories: List[ProjectMemory]) -> str:

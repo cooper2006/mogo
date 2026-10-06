@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
 import json
@@ -179,8 +180,8 @@ def _normalize_target_length(value: Any) -> Dict[str, Any]:
     def _coerce_int(v: Any) -> int:
         try:
             return max(0, int(float(str(v or "").strip())))
-        except Exception:
-            return 0
+        except Exception as exc:
+            log_print(f"[services.skills] silent exception caught: {exc}", flush=True)
 
     min_value = _coerce_int(raw.get("min") or raw.get("min_words") or raw.get("minWords"))
     max_value = _coerce_int(raw.get("max") or raw.get("max_words") or raw.get("maxWords"))
@@ -940,8 +941,8 @@ class UserSkillService:
                     "contract_json": contract_json,
                     "skill_markdown": markdown,
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[skills] LLM permission extraction failed: {exc}", flush=True)
 
         fallback_markdown = _render_skill_markdown_from_contract(
             heuristic_input,
@@ -1036,7 +1037,7 @@ class UserSkillService:
         updates["skill_lint_warnings"] = list(contract.get("lint_warnings") or [])
         if str((current.get("package_source") or {}).get("kind") or "") == "movo_share":
             updates["locally_modified"] = True
-        updates["updated_at"] = datetime.datetime.utcnow()
+        updates["updated_at"] = datetime.datetime.now(tz=datetime.timezone.utc)
         await db.user_skills.update_one(
             add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id),
             {"$set": updates},
@@ -1062,7 +1063,7 @@ class UserSkillService:
         db = get_db()
         query = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id)
         result = await db.user_skills.update_one(query, {"$set": {
-            "enabled": bool(enabled), "is_active": bool(enabled), "updated_at": datetime.datetime.utcnow(),
+            "enabled": bool(enabled), "is_active": bool(enabled), "updated_at": datetime.datetime.now(tz=datetime.timezone.utc),
         }})
         if not result.matched_count:
             return None
@@ -1071,7 +1072,7 @@ class UserSkillService:
 
     async def create_skill(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         db = get_db()
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
         main_id = resolve_main_id(payload.get("main_id") or payload.get("mainId"))
         explicit_role = _normalize_skill_role(payload.get("role"))
         skill_type = _normalize_skill_type(payload.get("skill_type"), role=explicit_role)

@@ -125,7 +125,8 @@ class DynamicPresetSynthesizer:
         try:
             _fb_min = int(getattr(compose_profile, "min_words", 0) or 0)
             _fb_max = int(getattr(compose_profile, "max_words", 0) or 0)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.profile_presets.synthesizer] silent exception caught: {exc}", flush=True)
             _fb_min, _fb_max = 0, 0
         if _fb_min <= 0 or _fb_max <= 0:
             # Conservative defaults that won't accidentally trigger

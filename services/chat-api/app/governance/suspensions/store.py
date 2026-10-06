@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Optional
 
 from pymongo import ReturnDocument
@@ -27,7 +27,7 @@ class SuspensionStore:
         ])
 
     async def create(self, record: SuspensionRecord) -> SuspensionRecord:
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         record.updated_at = now
         await get_db()[self._collection].update_one(
             {"suspension_id": record.suspension_id},
@@ -98,7 +98,7 @@ class SuspensionStore:
         updates: Optional[Dict[str, Any]] = None,
     ) -> Optional[SuspensionRecord]:
         allowed = [item.value if isinstance(item, SuspensionStatus) else str(item) for item in from_statuses]
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         payload: Dict[str, Any] = {"status": to_status.value, "updated_at": now}
         payload.update(dict(updates or {}))
         if to_status == SuspensionStatus.READY:

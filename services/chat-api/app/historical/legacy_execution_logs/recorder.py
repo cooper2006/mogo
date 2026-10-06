@@ -124,8 +124,8 @@ class BaseStreamRecorder:
             data = json.loads(line)
             if isinstance(data, dict) and "type" in data:
                 self._buffer.append(data)
-        except Exception:
-            return
+        except Exception as exc:
+            log_print(f"[historical.legacy_execution_logs.recorder] silent exception caught: {exc}", flush=True)
         # Trigger an async flush if conditions met (fire-and-forget).
         if (
             len(self._buffer) >= self._batch_size

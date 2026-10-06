@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -120,8 +121,10 @@ async def discover_effect_contract(
             result.model_dump(mode="json"),
             target_label=label,
         )
-        return EffectContract(**data, source="model")
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_verification.discovery] silent exception caught: {exc}", flush=True)
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_verification.discovery] silent exception caught: {exc}", flush=True)
         return EffectContract(
             action_name=label or "unknown action",
             operation_family="custom",

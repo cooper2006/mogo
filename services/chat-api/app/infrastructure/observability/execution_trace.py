@@ -30,8 +30,8 @@ def log_trace(*, trace_id: str, scope: str, event: str, **payload: Any) -> None:
                 **safe_payload,
             },
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[execution_trace] trace failed: {exc}", flush=True)
 
 
 def pipeline_snapshot(context: Any) -> Dict[str, Any]:

@@ -38,9 +38,8 @@ def _audit_kg_mutation(entity: Any) -> None:
                     "confidence": entity.confidence,
                 },
             )
-    except Exception:
-        # 审计失败绝不影响主流程（fail-open for audit; KG writes are unaffected）。
-        pass
+    except Exception as exc:
+        log_print(f"[knowledge_graph/store] save failed: {exc}", flush=True)
 
 
 def merge_nodes(existing: KgNode, incoming: KgNode) -> KgNode:

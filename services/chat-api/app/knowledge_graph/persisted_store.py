@@ -92,6 +92,56 @@ class TenantKgStore:
             )
             self._edges.setdefault(edge.source, []).append(edge)
 
+    async def get_node_direct(
+        self, node_id: str, *, max_neighbours: int = 10
+    ) -> tuple[Optional[KgNode], list[str]]:
+        """Fetch a single node and its neighbours without loading the whole graph.
+
+        ``_ensure_loaded`` pulls up to 2000 nodes + 5000 edges for the tenant;
+        that is wasteful for the single-node read path (e.g. the 021 resource
+        adapter resolving one ``mogo://resource/kg/...`` address). This queries
+        Mongo directly and returns ``(node, neighbour_ids)``.
+
+        Falls back to the in-memory path when the graph is already loaded (so
+        callers holding a populated store still see unsaved additions) or when
+        the database is unavailable.
+        """
+        if self._loaded:
+            node = self.get_node(node_id)
+            if node is None:
+                return None, []
+            return node, self.neighbours(node_id)[:max_neighbours]
+
+        try:
+            db = _get_db()
+        except Exception:  # noqa: BLE001 - degrade like _ensure_loaded does
+            db = None
+        if db is None:
+            return None, []
+
+        row = await db[COLLECTION_NODES].find_one(
+            {"tenant_id": self._tenant_id, "node_id": node_id}
+        )
+        if not row:
+            return None, []
+        node = _doc_to_node(row)
+
+        neighbours: list[str] = []
+        try:
+            cursor = (
+                db[COLLECTION_EDGES]
+                .find({"tenant_id": self._tenant_id, "source": node_id})
+                .limit(max_neighbours)
+            )
+            edge_rows = await cursor.to_list(length=max_neighbours)
+            for edge_row in edge_rows:
+                target = str(edge_row.get("target") or "").strip()
+                if target and target != node_id:
+                    neighbours.append(target)
+        except Exception:  # noqa: BLE001 - neighbours are a nice-to-have
+            neighbours = []
+        return node, neighbours
+
     def add_node(self, node: KgNode) -> bool:
         if node.confidence < self._floor:
             return False

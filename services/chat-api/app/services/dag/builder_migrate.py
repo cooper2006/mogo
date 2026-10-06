@@ -10,6 +10,7 @@ plan for the same inputs — a 0-breakage regression guard.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -110,7 +111,8 @@ def builder_equivalent(
         try:
             legacy_view = plan_getter(legacy_plan)
             dag_view = plan_getter(merged)
-        except Exception:  # noqa: BLE001 — a getter error means we cannot compare
+        except Exception as exc:  # noqa: BLE001 — a getter error means we cannot compare
+            log_print(f"[dag_migrate] compare failed: {exc}", flush=True)
             return False
         # The getter returns an arbitrary comparable; equivalence means the
         # mapped views are identical (0-breakage regression guard, T019).
@@ -125,7 +127,8 @@ def _fields_equivalent(a: Any, b: Any, keys: tuple[str, ...]) -> bool:
     try:
         a_get = a.get if hasattr(a, "get") else lambda k, default=None: getattr(a, k, default)
         b_get = b.get if hasattr(b, "get") else lambda k, default=None: getattr(b, k, default)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:
+        log_print(f"[services.dag.builder_migrate] silent exception caught: {exc}", flush=True)
         return False
     for key in keys:
         if a_get(key) != b_get(key):

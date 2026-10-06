@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from bson import ObjectId
@@ -27,7 +27,7 @@ class ConversationRepository:
         )
 
     async def create(self, *, tenant_id: str, user_id: str, title: str) -> dict[str, Any]:
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         document = {
             "user_id": user_id,
             "main_id": tenant_id,
@@ -100,7 +100,7 @@ class ConversationRepository:
         )
         if session is None:
             raise LookupError("conversation_not_found")
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         document = {
             "session_id": session["_id"],
             "user_id": user_id,
@@ -172,9 +172,9 @@ class ConversationRepository:
                     "message_id": message_id,
                     "source": "dsh",
                     "status": "running",
-                    "started_at": datetime.utcnow(),
+                    "started_at": datetime.now(tz=timezone.utc),
                 },
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(tz=timezone.utc),
             }},
         )
         if result.matched_count == 0:
@@ -197,7 +197,7 @@ class ConversationRepository:
                 "user_id": user_id,
                 "active_run.message_id": message_id,
             },
-            {"$unset": {"active_run": ""}, "$set": {"updated_at": datetime.utcnow()}},
+            {"$unset": {"active_run": ""}, "$set": {"updated_at": datetime.now(tz=timezone.utc)}},
         )
 
     async def set_pending_approval_count(
@@ -207,7 +207,7 @@ class ConversationRepository:
             return
         await self._sessions.update_one(
             {"_id": ObjectId(conversation_id), "main_id": tenant_id, "user_id": user_id},
-            {"$set": {"pending_approval_count": max(0, int(count)), "updated_at": datetime.utcnow()}},
+            {"$set": {"pending_approval_count": max(0, int(count)), "updated_at": datetime.now(tz=timezone.utc)}},
         )
 
     async def suspend_active_run(
@@ -233,6 +233,6 @@ class ConversationRepository:
                 "active_run.suspension_id": str(intervention.get("suspension_id") or ""),
                 "active_run.node_id": str(intervention.get("node_id") or ""),
                 "active_run.reason": str(intervention.get("reason") or ""),
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(tz=timezone.utc),
             }},
         )

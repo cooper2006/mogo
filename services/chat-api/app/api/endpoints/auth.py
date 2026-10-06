@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import json
@@ -78,7 +78,7 @@ class ProfileUpdateRequest(BaseModel):
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(tz=timezone.utc)
 
 
 def _extract_token(authorization: str | None) -> str:
@@ -111,8 +111,8 @@ def _profile_from_user(
     if avatar_object_path:
         try:
             avatar = ObjectStorageClient().sign_url(avatar_object_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[auth] avatar sign_url failed: %s", exc)
     return {
         "userId": str(user.get("_id") or ""),
         "name": str(user.get("name") or ""),

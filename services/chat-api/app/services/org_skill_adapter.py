@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
 import json
@@ -180,8 +181,8 @@ def _split_notes_to_instructions(value: Any, *, limit: int = 8) -> List[str]:
 def _safe_int(value: Any) -> int:
     try:
         return max(0, int(float(str(value or "").strip())))
-    except Exception:
-        return 0
+    except Exception as exc:
+        log_print(f"[services.org_skill_adapter] silent exception caught: {exc}", flush=True)
 
 
 def _target_length(value: Any, config: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -595,7 +596,7 @@ def _base_payload(
     input_profile: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     org_id = _safe_text(doc.get("_id"), 80)
-    now = doc.get("updated_at") or doc.get("created_at") or datetime.datetime.utcnow()
+    now = doc.get("updated_at") or doc.get("created_at") or datetime.datetime.now(tz=datetime.timezone.utc)
     name = _safe_text(doc.get("name"), 120) or "组织级 Skill"
     description = _safe_text(doc.get("description"), 1200)
     scenario = _safe_text(doc.get("scenario"), 1500)

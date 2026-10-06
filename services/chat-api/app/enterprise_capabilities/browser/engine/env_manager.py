@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 from pydantic import BaseModel, Field
@@ -14,9 +14,9 @@ class EnvSession(BaseModel):
     user_id: str
     status: str = "ACTIVE"
     leased_by: str = ""
-    expires_at: datetime = Field(default_factory=lambda: datetime.utcnow() + timedelta(minutes=30))
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc) + timedelta(minutes=30))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
 class EnvManager:
@@ -31,7 +31,7 @@ class EnvManager:
             if len(active) >= self.max_sessions_per_user:
                 oldest = sorted(active, key=lambda x: x.created_at)[0]
                 oldest.status = "RECLAIMED"
-                oldest.updated_at = datetime.utcnow()
+                oldest.updated_at = datetime.now(tz=timezone.utc)
                 self._sessions[oldest.env_session_id] = oldest
             sid = f"env_{uuid.uuid4().hex[:12]}"
             session = EnvSession(env_session_id=sid, user_id=user_id, leased_by=leased_by)
@@ -43,8 +43,8 @@ class EnvManager:
             row = self._sessions.get(env_session_id)
             if not row:
                 return None
-            row.expires_at = datetime.utcnow() + timedelta(minutes=max(1, int(minutes)))
-            row.updated_at = datetime.utcnow()
+            row.expires_at = datetime.now(tz=timezone.utc) + timedelta(minutes=max(1, int(minutes)))
+            row.updated_at = datetime.now(tz=timezone.utc)
             self._sessions[env_session_id] = row
             return deepcopy(row)
 
@@ -54,7 +54,7 @@ class EnvManager:
             if not row:
                 return None
             row.status = "FROZEN"
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(tz=timezone.utc)
             self._sessions[env_session_id] = row
             return deepcopy(row)
 
@@ -64,7 +64,7 @@ class EnvManager:
             if not row:
                 return
             row.status = status
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(tz=timezone.utc)
             self._sessions[env_session_id] = row
 
     async def get(self, env_session_id: str) -> Optional[EnvSession]:
@@ -74,7 +74,7 @@ class EnvManager:
 
     async def gc_expired(self) -> int:
         async with self._lock:
-            now = datetime.utcnow()
+            now = datetime.now(tz=timezone.utc)
             count = 0
             for sid, row in list(self._sessions.items()):
                 if row.status in {"ACTIVE", "FROZEN"} and row.expires_at <= now:

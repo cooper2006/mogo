@@ -639,8 +639,8 @@ class PptxCompiler:
                 # ratio is relative to the short side
                 try:
                     strip.adjustments[0] = effective_radius_emu / short_side_emu
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("[pptx_compiler] strip radius adjustment failed: %s", exc)
             else:
                 strip = slide.shapes.add_shape(
                     MSO_AUTO_SHAPE_TYPE.RECTANGLE, lx, ly, lw, lh,
@@ -702,8 +702,8 @@ class PptxCompiler:
         ratio = min(0.5, radius_emu / short_side)
         try:
             shape.adjustments[0] = ratio
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[pptx_compiler] shape radius adjustment failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Text rendering
@@ -799,8 +799,8 @@ class PptxCompiler:
                 resp = client.get(url)
                 if resp.status_code == 200 and len(resp.content) > 100:
                     return resp.content
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[pptx_compiler] image download failed: %s", exc)
         return None
 
     # ------------------------------------------------------------------

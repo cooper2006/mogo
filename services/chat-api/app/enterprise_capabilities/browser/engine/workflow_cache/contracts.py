@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field
@@ -87,8 +87,8 @@ class CachedBrowserWorkflow(BaseModel):
     failure_count: int = 0
     consecutive_failures: int = 0
     created_from_run_id: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     # Request-scoped replay instructions returned by semantic matching. They
     # are deliberately excluded from persistence; a later request must be
     # planned against its own goal and inputs.

@@ -152,6 +152,12 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SKILL_SOURCE_BYTES: int = 200 * 1024 * 1024
     MAX_UPLOAD_TEMPLATE_BYTES: int = 200 * 1024 * 1024
 
+    # 017 memory density tiers (FR-13 / FR-16). How long a generated L0/L1
+    # summary stays fresh before a lazy re-generation (OQ-6, aligned with the
+    # 30-day decay default); and the hard cap on non-tierable content.
+    MEMORY_SUMMARY_REFRESH_DAYS: int = 30
+    MEMORY_L2_HARD_MAX_BYTES: int = 1_000_000
+
     # Object storage. STORAGE_BACKEND=oss preserves the existing enterprise
     # Aliyun OSS behavior; STORAGE_BACKEND=local stores artifacts on disk and
     # serves them through /api/files.

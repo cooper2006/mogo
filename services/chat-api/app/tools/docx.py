@@ -101,16 +101,16 @@ def _center_last_picture(doc: Document) -> None:
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         paragraph.paragraph_format.space_before = Pt(6)
         paragraph.paragraph_format.space_after = Pt(6)
-    except Exception:
-        return
+    except Exception as exc:
+        log_print(f"[tools.docx] silent exception caught: {exc}", flush=True)
 
 
 def _add_picture_resilient(doc: Document, image_path: str, *, width: Any) -> None:
     try:
         doc.add_picture(image_path, width=width)
         return
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[tools/docx] parse failed: {exc}", flush=True)
 
     normalized_path = ""
     try:
@@ -129,8 +129,8 @@ def _add_picture_resilient(doc: Document, image_path: str, *, width: Any) -> Non
         if normalized_path:
             try:
                 os.unlink(normalized_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[tools/docx] extract failed: {exc}", flush=True)
 
 
 def _setup_styles(doc: Document):

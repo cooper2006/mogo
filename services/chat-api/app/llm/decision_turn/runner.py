@@ -158,10 +158,8 @@ async def invoke_text_decision(
         try:
             data = commentary_parser(getattr(response, "content", response))
             await _publish(data.get("commentary"), spec)
-        except Exception:
-            # Optional narration must not consume malformed raw output that a
-            # caller's established recovery parser may still understand.
-            pass
+        except Exception as exc:
+            log_print(f"[llm/decision_turn] runner failed: {exc}", flush=True)
     return response
 
 

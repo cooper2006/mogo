@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict
 
 
@@ -29,7 +29,7 @@ class RuntimeKPIStore:
             "_retry_total": 0.0,
             "_retry_steps": 0.0,
         }
-        self._updated_at = datetime.utcnow()
+        self._updated_at = datetime.now(tz=timezone.utc)
 
     async def incr(self, key: str, value: float = 1.0) -> None:
         async with self._lock:
@@ -59,4 +59,4 @@ class RuntimeKPIStore:
         self._counters["checkpoint_resume_success_rate"] = float(self._counters.get("_checkpoint_resume_ok", 0.0)) / resume_total
         retry_steps = max(1.0, float(self._counters.get("_retry_steps", 0.0)))
         self._counters["mean_retries_per_step"] = float(self._counters.get("_retry_total", 0.0)) / retry_steps
-        self._updated_at = datetime.utcnow()
+        self._updated_at = datetime.now(tz=timezone.utc)

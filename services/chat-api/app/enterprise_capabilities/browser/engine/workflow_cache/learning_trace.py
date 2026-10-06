@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import hashlib
 import json
@@ -339,8 +340,8 @@ def _stable_action_args(args: Dict[str, Any]) -> Dict[str, Any]:
         safe.pop(key, None)
     try:
         return json.loads(json.dumps(safe, ensure_ascii=False, default=str))
-    except Exception:
-        return {}
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.workflow_cache.learning_trace] silent exception caught: {exc}", flush=True)
 
 
 def _recorded_locator(value: Any) -> Dict[str, Any]:

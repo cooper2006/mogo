@@ -109,8 +109,10 @@ def mount_into_turn_admission(
 ) -> HookOutcome:
     """009 T009 — run the PreToolUse gate *before* delegating to admission.
 
-    The hook runs first (fail-closed); only a passing outcome proceeds to the
-    real ``admit_skill_selection`` (T009: 挂载 PreToolUse 到 turn_admission)。
+    The hook runs first (fail-closed). Only a passing outcome proceeds to the
+    real ``admit_skill_selection``, which is invoked with the same
+    ``(tool, request)`` and whose own truthiness is folded into the outcome —
+    a denied admission must not be reported as an allowed hook.
     """
     outcome = mount_pre_tool_use(
         tool, request, raw_rules=raw_rules, rules=rules
@@ -118,5 +120,16 @@ def mount_into_turn_admission(
     if not outcome.allowed:
         # Fail-closed: deny without ever reaching the real admission logic.
         return outcome
-    # Passing PreToolUse: proceed to admission (the caller performs the call).
+    # Passing PreToolUse: proceed to the real admission. Previously the wrapped
+    # callable was accepted but never invoked, so a passing gate silently
+    # skipped admission entirely.
+    admitted = admit_skill_selection(tool, request)
+    if not admitted:
+        return HookOutcome(
+            allowed=False,
+            reason="turn admission rejected the tool after hook pass",
+            rule_type=outcome.rule_type,
+            scope=outcome.scope,
+            failed_closed=outcome.failed_closed,
+        )
     return outcome

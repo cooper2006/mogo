@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 from enum import Enum
@@ -37,8 +38,8 @@ class ModelOperation(BaseModel):
 def normalize_model_operation(value: Any) -> Dict[str, str] | None:
     try:
         operation = value if isinstance(value, ModelOperation) else ModelOperation.model_validate(value or {})
-    except Exception:
-        return None
+    except Exception as exc:
+        log_print(f"[infrastructure.execution_events.operation] silent exception caught: {exc}", flush=True)
     if len(operation.label) < 4:
         return None
     return {"label": operation.label, "category": operation.category.value, "source": "model"}

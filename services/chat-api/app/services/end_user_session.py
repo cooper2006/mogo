@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from fastapi import HTTPException
@@ -38,7 +38,7 @@ async def resolve_session_user(authorization: str | None) -> dict:
     if not session_doc:
         raise HTTPException(status_code=401, detail="session_not_found")
 
-    now = datetime.utcnow()
+    now = datetime.now(tz=timezone.utc)
     if session_doc.get("expires_at") and session_doc["expires_at"] < now:
         await db[USER_SESSION_COLLECTION].update_one(
             {"_id": session_doc["_id"]},

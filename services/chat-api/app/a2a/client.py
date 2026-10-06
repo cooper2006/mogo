@@ -191,9 +191,8 @@ def _audit_a2a_call(call: "OutboundCall", *, denied: bool = False) -> None:
         if denied:
             document["denied"] = True
         emit_feature_event("012", event, document)
-    except Exception:
-        # 审计失败绝不影响主流程。
-        pass
+    except Exception as exc:
+        log_print(f"[a2a/client] request failed: {exc}", flush=True)
 
 
 __all__ = [

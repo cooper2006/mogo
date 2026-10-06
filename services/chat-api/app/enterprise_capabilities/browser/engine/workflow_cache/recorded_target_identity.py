@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import html
 import re
@@ -136,8 +137,10 @@ def _normalized_written_value(value: Any) -> str:
     parser = _EditableTextParser()
     try:
         parser.feed(raw)
-        parser.close()
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.workflow_cache.recorded_target_identity] silent exception caught: {exc}", flush=True)
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.workflow_cache.recorded_target_identity] silent exception caught: {exc}", flush=True)
         return _normalized_text(raw)
     return _normalized_text(" ".join(parser.parts))
 

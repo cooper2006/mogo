@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.core.db import get_db
@@ -50,7 +50,7 @@ class AuthoritativeDeliveryRepository:
                 "content_type": "text/markdown",
                 "content": content,
                 "source_action_id": str(source_action_id or ""),
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(tz=timezone.utc),
             }},
             upsert=True,
         )

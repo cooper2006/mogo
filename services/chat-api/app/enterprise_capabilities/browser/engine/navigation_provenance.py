@@ -8,6 +8,7 @@ not pass through this policy.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass
 import re
@@ -52,7 +53,8 @@ def normalize_http_url(raw: Any, *, base_url: str = "") -> str:
     try:
         absolute = urljoin(base_url, text) if base_url else text
         parsed = urlsplit(absolute)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.navigation_provenance] silent exception caught: {exc}", flush=True)
         return ""
     scheme = parsed.scheme.lower()
     host = (parsed.hostname or "").lower().rstrip(".")
@@ -74,7 +76,8 @@ def normalize_http_url(raw: Any, *, base_url: str = "") -> str:
 def _origin(url: str) -> str:
     try:
         parsed = urlsplit(url)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.navigation_provenance] silent exception caught: {exc}", flush=True)
         return ""
     return f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
 

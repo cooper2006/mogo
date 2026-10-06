@@ -101,6 +101,5 @@ def _audit_entity_indexed(entity: BizEntity) -> None:
                 "tenant_id": entity.tenant_id,
             },
         )
-    except Exception:
-        # 审计失败绝不影响主流程（构造仍成功；索引/对齐行为不变）。
-        pass
+    except Exception as exc:
+        log_print(f"[business_index/entities] index save failed: {exc}", flush=True)

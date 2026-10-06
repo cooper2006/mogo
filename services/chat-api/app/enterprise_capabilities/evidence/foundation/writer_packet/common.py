@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import hashlib
 import json
@@ -108,7 +109,7 @@ def decode_mapping(value: Any) -> Dict[str, Any]:
         if raw.startswith("{") and raw.endswith("}"):
             try:
                 parsed = json.loads(raw)
-            except Exception:
-                return {}
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.evidence.foundation.writer_packet.common] silent exception caught: {exc}", flush=True)
             return dict(parsed) if isinstance(parsed, dict) else {}
     return {}

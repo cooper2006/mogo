@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from app.utils.oss_uploader import AliyunOSSUploader
+from app.infrastructure.observability.config import log_print
 
 
 def _one_line(value: Any, limit: int = 500) -> str:
@@ -16,8 +17,8 @@ def _resolve_image_url(image: Dict[str, Any]) -> str:
     if object_path:
         try:
             return str(AliyunOSSUploader().sign_url(object_path) or "").strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[image_assets] image URL sign failed: {exc}", flush=True)
     for key in ("signed_url", "url"):
         value = str(image.get(key) or "").strip()
         if value:

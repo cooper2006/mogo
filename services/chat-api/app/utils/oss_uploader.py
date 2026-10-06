@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
 import mimetypes
@@ -217,7 +218,8 @@ class ObjectStorageClient:
         if self.storage_backend == "local":
             try:
                 parsed = urlparse(value)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[oss_uploader] URL parse failed: {exc}", flush=True)
                 return ""
             path = str(parsed.path or "").strip()
             prefixes = {
@@ -231,7 +233,8 @@ class ObjectStorageClient:
 
         try:
             parsed = urlparse(value)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[utils.oss_uploader] silent exception caught: {exc}", flush=True)
             return ""
         endpoint_host = self.endpoint.split("//", 1)[-1].strip("/")
         asset_host = f"{self.bucket_name}.{endpoint_host}"
@@ -250,7 +253,8 @@ class ObjectStorageClient:
             return {}
         try:
             parsed = urlparse(value)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[oss_uploader] URL parse failed: {exc}", flush=True)
             return {}
         host = str(parsed.netloc or "").strip().lower()
         path = unquote(str(parsed.path or "").lstrip("/")).strip()

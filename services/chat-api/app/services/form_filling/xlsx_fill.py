@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Tuple
 
 from openpyxl.cell.cell import MergedCell
 from openpyxl import load_workbook
+from app.infrastructure.observability.config import log_print
 from openpyxl.styles import Alignment, Font
 
 from app.services.form_filling.mapper import build_fill_plan
@@ -105,8 +106,8 @@ def extract_xlsx_form_schema(source_bytes: bytes) -> Dict[str, Any]:
     finally:
         try:
             wb.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[xlsx_fill] workbook close failed (analyze): {exc}", flush=True)
     if len(fill_targets) <= 2 and not tables and sparse_resume_targets:
         fill_targets = sparse_resume_targets
     return {"fill_targets": fill_targets[:300], "tables": tables[:80]}
@@ -335,8 +336,8 @@ async def fill_xlsx_form(
     finally:
         try:
             wb.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[xlsx_fill] workbook close failed (fill): {exc}", flush=True)
     return FillResult(
         file_bytes=out.getvalue(),
         stats={

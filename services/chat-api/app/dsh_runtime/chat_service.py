@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.dsh_runtime.bindings import BindingReplacementConflict, KernelBindingRepository
+from app.infrastructure.observability.config import log_print
 from app.dsh_runtime.contracts import CancelSessionRequest
 from app.dsh_runtime.conversation import ConversationRepository
 from app.dsh_runtime.events import KernelEventRepository
@@ -354,8 +355,12 @@ class DshChatService:
                 await self._terminal_recovery.ingest_once(
                     binding=binding, message_id=message_id
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(
+                    f"[dsh_runtime.chat_service] restore/ingest_once for "
+                    f"message {message_id} failed, proceeding with stale binding: {exc}",
+                    flush=True,
+                )
         rows = await self._events.list_for_message(
             message_id,
             tenant_id=tenant_id,

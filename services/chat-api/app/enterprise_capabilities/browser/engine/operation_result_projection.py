@@ -1,5 +1,6 @@
 """Project verified browser mutations into safe downstream result details."""
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 from typing import Any, Dict, Iterable, Mapping
@@ -83,8 +84,8 @@ def _context_result_evidence(context: Any, observation: Any) -> Dict[str, Any]:
         return {}
     try:
         value = projector(observation)
-    except Exception:
-        return {}
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.operation_result_projection] silent exception caught: {exc}", flush=True)
     return dict(value) if isinstance(value, Mapping) else {}
 
 

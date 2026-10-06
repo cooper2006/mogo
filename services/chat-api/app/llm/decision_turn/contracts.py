@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 from enum import Enum
@@ -75,8 +76,8 @@ def decision_commentary_dict(value: Any) -> Dict[str, Any] | None:
 def normalize_decision_commentary(value: Any, *, locale: str) -> Dict[str, str] | None:
     try:
         commentary = value if isinstance(value, ModelCommentary) else ModelCommentary.model_validate(value or {})
-    except Exception:
-        return None
+    except Exception as exc:
+        log_print(f"[llm.decision_turn.contracts] silent exception caught: {exc}", flush=True)
     text = commentary.text.strip()
     if not text or len(text) < 8 or any(pattern.match(text) for pattern in _GENERIC_PATTERNS):
         return None

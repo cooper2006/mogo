@@ -184,6 +184,5 @@ def _audit_kg_audited(conflicts: list[Conflict]) -> None:
                 "subjects": [c.subject for c in conflicts[:5]],
             },
         )
-    except Exception:
-        # 审计失败绝不影响主流程。
-        pass
+    except Exception as exc:
+        log_print(f"[knowledge_graph/consistency] check failed: {exc}", flush=True)

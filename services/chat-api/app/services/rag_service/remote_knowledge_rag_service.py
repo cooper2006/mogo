@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import uuid
 import os
@@ -180,7 +181,8 @@ class RemoteKnowledgeRAGService:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(api_url, json=payload)
                 resp.raise_for_status()
-                raw = resp.json()
+        except Exception as exc:
+            log_print(f"[services.rag_service.remote_knowledge_rag_service] silent exception caught: {exc}", flush=True)
         except Exception as exc:
             return {
                 "ok": False,

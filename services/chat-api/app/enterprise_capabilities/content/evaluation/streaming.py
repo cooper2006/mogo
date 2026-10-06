@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from dataclasses import dataclass
@@ -39,8 +40,10 @@ async def stream_evaluation(
                 standards=standards,
                 commentary_callback=on_commentary,
             )
-            await queue.put(EvaluationStreamItem("result", result))
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.evaluation.streaming] silent exception caught: {exc}", flush=True)
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.evaluation.streaming] silent exception caught: {exc}", flush=True)
             await queue.put(EvaluationStreamItem("error", exc))
 
     task = asyncio.create_task(run())

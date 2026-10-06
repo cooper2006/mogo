@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 import uuid
 
@@ -115,7 +115,7 @@ class BrowserWorkflowCacheRepository:
         replay_failed: bool = False,
     ) -> CachedBrowserWorkflow:
         await self._ensure_indexes()
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         existing = await self._collection().find_one({
             "identity.signature_hash": identity.signature_hash,
             "plan_hash": str(plan_hash or ""),
@@ -226,7 +226,7 @@ class BrowserWorkflowCacheRepository:
                 "consecutive_failures": consecutive,
                 "status": status,
                 "last_failure_reason": str(reason or "")[:500],
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(tz=timezone.utc),
             }},
         )
 
@@ -238,7 +238,7 @@ class BrowserWorkflowCacheRepository:
             {"$set": {
                 "status": "quarantined",
                 "last_failure_reason": str(reason or "")[:500],
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(tz=timezone.utc),
             }},
         )
 
@@ -252,7 +252,7 @@ class BrowserWorkflowCacheRepository:
                 "workflow_id": {"$ne": str(workflow_id)},
                 "status": "active",
             },
-            {"$set": {"status": "degraded", "updated_at": datetime.utcnow()}},
+            {"$set": {"status": "degraded", "updated_at": datetime.now(tz=timezone.utc)}},
         )
 
     async def _ensure_indexes(self) -> None:

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from bson import ObjectId
 
 from app.core.db import get_db
 from app.core.tenant import add_main_scope
+from app.infrastructure.observability.config import log_print
 from app.utils import storage_utils
 
 
@@ -91,7 +92,7 @@ class LocalKnowledgeRAGService:
 
         query_tokens = _tokenize(query)
         candidates: List[KnowledgeChunk] = []
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         artifact_cache: Dict[str, str] = {}
 
         async def _load_artifact_text_cached(object_path: str) -> str:
@@ -116,8 +117,8 @@ class LocalKnowledgeRAGService:
         if sid:
             try:
                 msg_filter["session_id"] = ObjectId(sid)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
         rows = (
             await db.chat_messages.find(add_main_scope(msg_filter, main_id))
             .sort("created_at", -1)
@@ -187,8 +188,8 @@ class LocalKnowledgeRAGService:
         if sid:
             try:
                 sess_filter["_id"] = ObjectId(sid)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
         sessions = (
             await db.chat_sessions.find(add_main_scope(sess_filter, main_id))
             .sort("updated_at", -1)

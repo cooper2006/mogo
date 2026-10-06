@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from urllib.parse import unquote
 
@@ -24,5 +25,5 @@ async def download_text(
         return ""
     try:
         return data.decode(encoding, errors="ignore")
-    except Exception:
-        return ""
+    except Exception as exc:
+        log_print(f"[utils.storage_utils] silent exception caught: {exc}", flush=True)

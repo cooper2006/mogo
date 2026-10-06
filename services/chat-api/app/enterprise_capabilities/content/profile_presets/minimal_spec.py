@@ -510,30 +510,27 @@ def normalize_minimal_spec(
     task_mode = str((task_ir or {}).get("deliverable_mode") or "").strip().lower()
     channel = _infer_channel(output_spec, p)
     content_form = _infer_content_form(output_spec, p)
-    try:
-        _semantic = output_spec.get("semantic_delivery_profile") if isinstance(output_spec.get("semantic_delivery_profile"), dict) else {}
-        _cts = _extract_content_task_spec(output_spec)
-        _schema = _cts.get("schema") if isinstance(_cts.get("schema"), dict) else {}
-        _medium = _cts.get("medium") if isinstance(_cts.get("medium"), dict) else {}
-        _compose_for_log = _extract_compose_policy(output_spec)
-        log_print(
-            "[minimal_spec][content_form] final=%s channel=%s semantic_shape=%s semantic_form=%s "
-            "cts_category=%s schema_type=%s surface=%s compose_form=%s preset_form=%s"
-            % (
-                content_form,
-                channel,
-                str(_semantic.get("delivery_shape") or ""),
-                str(_semantic.get("content_form") or ""),
-                str(_cts.get("category") or ""),
-                str(_schema.get("type") or ""),
-                str(_medium.get("surface") or ""),
-                str(_compose_for_log.get("content_form") or ""),
-                str((p.compose_policy or {}).get("content_form") or ""),
-            ),
-            flush=True,
-        )
-    except Exception:
-        pass
+    _semantic = output_spec.get("semantic_delivery_profile") if isinstance(output_spec.get("semantic_delivery_profile"), dict) else {}
+    _cts = _extract_content_task_spec(output_spec)
+    _schema = _cts.get("schema") if isinstance(_cts.get("schema"), dict) else {}
+    _medium = _cts.get("medium") if isinstance(_cts.get("medium"), dict) else {}
+    _compose_for_log = _extract_compose_policy(output_spec)
+    log_print(
+        "[minimal_spec][content_form] final=%s channel=%s semantic_shape=%s semantic_form=%s "
+        "cts_category=%s schema_type=%s surface=%s compose_form=%s preset_form=%s"
+        % (
+            content_form,
+            channel,
+            str(_semantic.get("delivery_shape") or ""),
+            str(_semantic.get("content_form") or ""),
+            str(_cts.get("category") or ""),
+            str(_schema.get("type") or ""),
+            str(_medium.get("surface") or ""),
+            str(_compose_for_log.get("content_form") or ""),
+            str((p.compose_policy or {}).get("content_form") or ""),
+        ),
+        flush=True,
+    )
 
     compose = dict(p.compose_policy or {})
     structure = dict(p.structure_contract or {})
@@ -785,22 +782,19 @@ def normalize_minimal_spec(
     p.forbidden_patterns = forbidden_patterns
     p.metadata = dict(p.metadata or {})
     p.metadata["spec_mode"] = "minimal_v1"
-    try:
-        log_print(
-            "[minimal_spec][exit] source=%s content_form=%s min/max=%s/%s "
-            "section_count=%s numbering=%s blocks=%s min_imgs=%s"
-            % (
-                str(getattr(p, "source", "") or ""),
-                str(content_form or ""),
-                quality.get("min_words"),
-                quality.get("max_words"),
-                structure.get("section_count"),
-                structure.get("numbering_style"),
-                json.dumps(list(structure.get("required_blocks") or []), ensure_ascii=False),
-                density.get("min_images"),
-            ),
-            flush=True,
-        )
-    except Exception:
-        pass
+    log_print(
+        "[minimal_spec][exit] source=%s content_form=%s min/max=%s/%s "
+        "section_count=%s numbering=%s blocks=%s min_imgs=%s"
+        % (
+            str(getattr(p, "source", "") or ""),
+            str(content_form or ""),
+            quality.get("min_words"),
+            quality.get("max_words"),
+            structure.get("section_count"),
+            structure.get("numbering_style"),
+            json.dumps(list(structure.get("required_blocks") or []), ensure_ascii=False),
+            density.get("min_images"),
+        ),
+        flush=True,
+    )
     return p

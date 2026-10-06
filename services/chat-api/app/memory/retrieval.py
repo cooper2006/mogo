@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
+from app.context_space.trace import build_trace, candidate_entry, skipped_entry
 from app.memory.scope import Memory, MemoryScope, visible_to
+from app.memory.address import MemoryAddress
 
 
 def scope_filter(
@@ -53,12 +55,17 @@ def memory_rag_candidates(
     is_workspace_member: bool = False,
     top_n: int = 8,
     now: float = 0.0,
+    include_tier: str = "L2",
 ) -> list[dict[str, Any]]:
     """T010 — turn scope-filtered memories into ranked RAG candidates.
 
     Ranking: scope weight (org > workspace > personal), then recency of last
-    access. The output is a list of ``{memory_id, scope, content, score}``
+    access. The output is a list of ``{memory_id, scope, content, score, ...}``
     dicts ready for the RAG retrieval pass.
+
+    ``include_tier`` (FR-14) selects how much detail is injected: ``L0`` summary,
+    ``L1`` overview, or ``L2`` raw (the legacy default, unchanged behavior).
+    Tier summaries are always attached so the caller may drill down on demand.
     """
     scope_weight = {
         MemoryScope.ORG.value: 3,
@@ -82,11 +89,98 @@ def memory_rag_candidates(
         {
             "memory_id": m.memory_id,
             "scope": m.scope,
-            "content": m.content,
+            "content": _select_tier(m, include_tier),
+            "l0_summary": m.l0_summary,
+            "l1_overview": m.l1_overview,
+            "tier": include_tier,
+            "addr": MemoryAddress(
+                scope=m.scope, owner_id=m.owner_id, memory_id=m.memory_id, tier=include_tier
+            ).uri(),
             "score": float(scope_weight.get(m.scope, 0)),
         }
         for m in ranked
     ]
+
+
+def _select_tier(memory: Memory, tier: str) -> str:
+    """Pick the content string for a requested tier (FR-14)."""
+    if tier == "L0":
+        return memory.l0_summary or memory.content
+    if tier == "L1":
+        return memory.l1_overview or memory.l0_summary or memory.content
+    return memory.content
+
+
+def progressive_memory_retrieval(
+    memories: Iterable[Memory],
+    *,
+    viewer_id: str,
+    viewer_role: str = "",
+    is_workspace_member: bool = False,
+    include_tier: str = "L1",
+    top_n: int = 8,
+    now: float = 0.0,
+    session_id: str = "",
+    turn_id: str = "",
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """FR-14 / FR-17 — progressive retrieval with a unified trace.
+
+    Loads only ``include_tier`` content by default (L0→L1→L2 on demand) and
+    returns ``(candidates, trace)``. The trace records which memories were
+    surfaced, the tier used, and the hit reason, bound to ``session_id`` /
+    ``turn_id`` for replay.
+    """
+    scope_weight = {
+        MemoryScope.ORG.value: 3,
+        MemoryScope.WORKSPACE.value: 2,
+        MemoryScope.PERSONAL.value: 1,
+    }
+
+    def _rank(memory: Memory) -> tuple[int, float]:
+        return scope_weight.get(memory.scope, 0), float(memory.last_accessed_at or 0)
+
+    filtered = scope_filter(
+        memories,
+        viewer_id=viewer_id,
+        viewer_role=viewer_role,
+        is_workspace_member=is_workspace_member,
+    )
+    ranked = sorted(filtered, key=_rank, reverse=True)[: max(1, int(top_n))]
+
+    candidates: list[dict[str, Any]] = []
+    for memory in ranked:
+        content = _select_tier(memory, include_tier)
+        addr = MemoryAddress(
+            scope=memory.scope,
+            owner_id=memory.owner_id,
+            memory_id=memory.memory_id,
+            tier=include_tier,
+        ).uri()
+        candidates.append({
+            "memory_id": memory.memory_id,
+            "scope": memory.scope,
+            "tier_used": include_tier,
+            "content": content,
+            "l0_summary": memory.l0_summary,
+            "l1_overview": memory.l1_overview,
+            "addr": addr,
+            "score": float(scope_weight.get(memory.scope, 0)),
+        })
+    trace = build_trace(
+        [
+            candidate_entry(
+                uri=c["addr"],
+                tier_used=c["tier_used"],
+                hit_reason="scope_visible_ranked",
+                score=c["score"],
+            )
+            for c in candidates
+        ],
+        [],
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+    return candidates, trace.to_dict()
 
 
 def promoted_memories_retrievable(
@@ -113,6 +207,7 @@ def promoted_memories_retrievable(
 
 __all__ = [
     "memory_rag_candidates",
+    "progressive_memory_retrieval",
     "promoted_memories_retrievable",
     "scope_filter",
 ]

@@ -80,7 +80,12 @@ class DshRuntimeHostManager:
         assert self.base_url is not None
         assert self._process is not None
         deadline = asyncio.get_running_loop().time() + self._config.startup_timeout_seconds
-        async with httpx.AsyncClient(timeout=0.5) as client:
+        # trust_env=False: this probes a loopback address we just spawned. Honouring
+        # HTTP_PROXY/HTTPS_PROXY here makes the health check fail whenever the
+        # developer environment exports a proxy without a matching NO_PROXY entry
+        # (common in container/CI images), which surfaces as a bogus
+        # "did not become healthy" startup timeout.
+        async with httpx.AsyncClient(timeout=0.5, trust_env=False) as client:
             while asyncio.get_running_loop().time() < deadline:
                 if self._process.returncode is not None:
                     raise DshRuntimeError(

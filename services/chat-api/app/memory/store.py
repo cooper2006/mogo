@@ -11,11 +11,16 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.tenant import resolve_main_id
 from app.memory.scope import Memory, MemoryScope, visible_to
 
 COLLECTION = "memories"
+
+
+class MemoryTooLargeError(ValueError):
+    """Raised when non-tierable content exceeds the FR-16 hard byte limit."""
 
 
 def _now_seconds() -> float:
@@ -33,6 +38,14 @@ def _row_to_memory(row: dict[str, Any]) -> Memory:
         tenant_id=str(row.get("tenant_id") or "default"),
         created_at=float(row.get("created_at") or 0.0),
         last_accessed_at=float(row.get("last_accessed_at") or 0.0),
+        l0_summary=str(row.get("l0_summary") or ""),
+        l1_overview=str(row.get("l1_overview") or ""),
+        l2_raw=str(row.get("l2_raw") or row.get("content") or ""),
+        tierable=bool(row.get("tierable", True)),
+        summary_generated_at=float(row.get("summary_generated_at") or 0.0),
+        summary_refresh_days=int(row.get("summary_refresh_days") or 30),
+        source_session_id=str(row.get("source_session_id") or ""),
+        source_type=str(row.get("source_type") or ""),
     )
     memory.archived = bool(row.get("archived") or False)
     return memory
@@ -41,7 +54,7 @@ def _row_to_memory(row: dict[str, Any]) -> Memory:
 class MemoryStore:
     """Simple MongoDB-backed store for the three-scope memory layer."""
 
-    def save(
+    async def save(
         self,
         *,
         content: str,
@@ -50,10 +63,33 @@ class MemoryStore:
         workspace_id: str = "",
         scope: str = MemoryScope.PERSONAL.value,
         memory_id: str = "",
+        l0_summary: str = "",
+        l1_overview: str = "",
+        l2_raw: str = "",
+        tierable: bool = True,
+        summary_generated_at: float = 0.0,
+        summary_refresh_days: int = 30,
+        source_session_id: str = "",
+        source_type: str = "",
     ) -> Memory:
-        """Upsert a memory record. Returns the saved ``Memory``."""
+        """Upsert a memory record. Returns the saved ``Memory``.
+
+        Density tiers (FR-13) are persisted alongside the raw content. Non-
+        tierable content that exceeds the FR-16 hard limit is rejected rather
+        than silently truncated.
+
+        Async because the backing store is ``AsyncIOMotorDatabase`` — the write
+        must be awaited or the coroutine is discarded and nothing is persisted.
+        """
         mem_id = str(memory_id or uuid.uuid4().hex)
         now = _now_seconds()
+        # FR-16: layered-first, reject-only-as-fallback.
+        hard_max = int(get_settings().MEMORY_L2_HARD_MAX_BYTES)
+        if not tierable and len(content) > hard_max:
+            raise MemoryTooLargeError(
+                f"memory of {len(content)} bytes is not tierable and exceeds the "
+                f"hard limit of {hard_max} bytes; refuse to persist"
+            )
         db = get_db()
         if db is None:
             return Memory(
@@ -65,6 +101,14 @@ class MemoryStore:
                 tenant_id=tenant_id,
                 created_at=now,
                 last_accessed_at=now,
+                l0_summary=l0_summary,
+                l1_overview=l1_overview,
+                l2_raw=l2_raw or content,
+                tierable=tierable,
+                summary_generated_at=summary_generated_at,
+                summary_refresh_days=summary_refresh_days,
+                source_session_id=source_session_id,
+                source_type=source_type,
             )
         main_id = resolve_main_id(tenant_id)
         doc: dict[str, Any] = {
@@ -76,8 +120,16 @@ class MemoryStore:
             "tenant_id": main_id,
             "created_at": now,
             "last_accessed_at": now,
+            "l0_summary": l0_summary,
+            "l1_overview": l1_overview,
+            "l2_raw": l2_raw or content,
+            "tierable": tierable,
+            "summary_generated_at": summary_generated_at,
+            "summary_refresh_days": summary_refresh_days,
+            "source_session_id": source_session_id,
+            "source_type": source_type,
         }
-        db[COLLECTION].replace_one(
+        await db[COLLECTION].replace_one(
             {"memory_id": mem_id, "tenant_id": main_id},
             doc,
             upsert=True,
@@ -144,4 +196,4 @@ class MemoryStore:
         return result.deleted_count > 0
 
 
-__all__ = ["MemoryStore", "COLLECTION"]
+__all__ = ["COLLECTION", "MemoryStore", "MemoryTooLargeError"]

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import base64
 import logging
@@ -80,7 +81,8 @@ class LegacySkillShareMigration:
             return share
         try:
             archive = base64.b64decode(str(share.get("archive_base64") or ""), validate=True)
-            package = validate_skill_package(archive)
+        except Exception as exc:
+            log_print(f"[services.skill_sharing.legacy_migration] silent exception caught: {exc}", flush=True)
         except Exception:
             return share
         distribution = await self._distribution.ensure(

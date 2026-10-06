@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import uuid
@@ -27,8 +28,8 @@ def is_valid_remote_image_url(value: str) -> bool:
         return True
     try:
         parsed = urlparse(raw)
-    except Exception:
-        return False
+    except Exception as exc:
+        log_print(f"[tools.infographic] silent exception caught: {exc}", flush=True)
     if parsed.scheme not in {"http", "https"}:
         return False
     if not parsed.netloc:

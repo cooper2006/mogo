@@ -8,6 +8,7 @@ retrieval path.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Optional
 
@@ -37,8 +38,8 @@ async def kg_rag_candidates(
     try:
         store = TenantKgStore(tenant_id=tenant_id)
         await store._ensure_loaded()
-    except Exception:
-        return []
+    except Exception as exc:
+        log_print(f"[knowledge_graph.rag_candidates] silent exception caught: {exc}", flush=True)
 
     # Build a case-insensitive lookup.
     lookup: dict[str, str] = {}

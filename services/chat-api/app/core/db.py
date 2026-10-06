@@ -33,8 +33,19 @@ def close_db() -> None:
     _db = None
 
 
-def get_db() -> AsyncIOMotorDatabase:
+def get_db() -> AsyncIOMotorDatabase | None:
     if _db is None:
+        # Do not auto-initialise motor outside an async context: the driver
+        # captures the running event loop, and sync callers (unit tests,
+        # CLI scripts) have no loop to give it.  Returning None lets them
+        # fall through to the db-None path instead of raising
+        # "There is no current event loop".
+        try:
+            import asyncio
+
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return None
         init_db()
     if _db is None:
         raise RuntimeError("MongoDB is not initialized")

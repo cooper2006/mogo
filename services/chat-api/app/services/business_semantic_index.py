@@ -2,6 +2,7 @@
 
 Indexes business entities (customers / orders / products / docs / tickets)
 from **pointers only** (never writes to the business DB — 014 Non-Goal).
+from app.infrastructure.observability.config import log_print
 Semantic search **reuses the 005 retrieval client** and returns results with
 a source/citation anchor so consumers can trace back to the originating
 entity (US1 acceptance 2: 检索带来源).
@@ -101,9 +102,8 @@ class BusinessSemanticIndex:
                     "source_ref": record.source_ref,
                 },
             )
-        except Exception:
-            # 审计失败绝不影响主流程（索引行为不变）。
-            pass
+        except Exception as exc:
+            log_print(f"[business_semantic_index] audit event failed: {exc}", flush=True)
         return document
 
     def index_entities(self, records: Iterable[EntityRecord]) -> int:
@@ -118,6 +118,38 @@ class BusinessSemanticIndex:
             rows = self._db["business_entity_index"].find({"tenant_id": tenant_id}).to_list(length=100000)
             return [row for row in rows if row]
         return [row for row in self._rows if row.get("tenant_id") == tenant_id]
+
+    def get_entity(
+        self,
+        *,
+        system: str,
+        entity_type: str,
+        record_id: str,
+        tenant_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """Resolve a single business entity by its ``(system, type, record)`` key.
+
+        014 writers have not standardised the stored ``entity_id`` shape, so we
+        try the most likely candidates (raw record id, then the composite keys)
+        before giving up. Returns the row dict or ``None`` (021 resource/biz).
+        """
+        candidates = [
+            record_id,
+            f"{system}:{entity_type}:{record_id}",
+            f"{entity_type}:{record_id}",
+        ]
+        if self._db is not None:
+            row = self._db["business_entity_index"].find_one(
+                {"entity_id": {"$in": candidates}, "tenant_id": tenant_id}
+            )
+            return row
+        for row in self._rows:
+            if (
+                row.get("tenant_id") == tenant_id
+                and row.get("entity_id") in candidates
+            ):
+                return row
+        return None
 
     # --- semantic search (014 T007: reuse 005 retrieval client) ---------------
 
@@ -147,8 +179,8 @@ class BusinessSemanticIndex:
                 knowledge_base_ids=knowledge_base_ids,
                 top_n=top_n,
             )
-        except Exception:  # noqa: BLE001 — retrieval is best-effort for indexing
-            return []
+        except Exception as exc:
+            log_print(f"[services.business_semantic_index] silent exception caught: {exc}", flush=True)
         hits: list[SemanticHit] = []
         for item in result.items:
             title = " / ".join(item.titlePath) if item.titlePath else ""

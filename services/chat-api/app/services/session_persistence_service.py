@@ -3,7 +3,7 @@ from app.infrastructure.observability.config import log_print
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -64,7 +64,8 @@ async def _next_seq(db: Any, session_id: ObjectId, user_id: str, main_id: str = 
         return 1
     try:
         return int(last.get("seq") or 0) + 1
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.session_persistence_service] silent exception caught: {exc}", flush=True)
         return 1
 
 
@@ -87,7 +88,7 @@ def extract_latest_artifact_ref_from_messages(messages: List[Dict[str, Any]]) ->
             "url": url,
             "filename": str(target.get("filename") or ""),
             "title": str(target.get("title") or ""),
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(tz=timezone.utc),
         }
     return None
 
@@ -153,7 +154,7 @@ def build_active_document_from_messages(
         "type": str(target.get("type") or target.get("kind") or "markdown").strip() or "markdown",
         "object_path": str(target.get("object_path") or "").strip(),
         "url": str(target.get("url") or "").strip(),
-        "updated_at": datetime.utcnow(),
+        "updated_at": datetime.now(tz=timezone.utc),
     }
 
 
@@ -163,7 +164,7 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
         "title": str(doc.get("title") or "").strip(),
         "content": str(doc.get("content") or "").strip(),
         "content_preview": str(doc.get("content_preview") or "")[:600],
-        "updated_at": doc.get("updated_at") or datetime.utcnow(),
+        "updated_at": doc.get("updated_at") or datetime.now(tz=timezone.utc),
         "object_path": str(doc.get("object_path") or "").strip(),
         "url": str(doc.get("url") or "").strip(),
         "type": str(doc.get("type") or "markdown").strip() or "markdown",
@@ -236,8 +237,8 @@ async def resolve_document_registry_update(
         parsed = json.loads(data)
         action = str(parsed.get("action") or action).strip()
         target_document_id = str(parsed.get("target_document_id") or target_document_id).strip() or target_document_id
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[session_persistence] LLM failed: {exc}", flush=True)
 
     if action == "create_new" or target_document_id == "NEW":
         doc_id = f"doc_{uuid4().hex[:12]}"
@@ -320,7 +321,7 @@ async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_
     if ids:
         await db.chat_messages.update_many(
             {"_id": {"$in": ids}},
-            {"$set": {"compacted": True, "compaction_id": compaction_id, "compacted_at": datetime.utcnow()}},
+            {"$set": {"compacted": True, "compaction_id": compaction_id, "compacted_at": datetime.now(tz=timezone.utc)}},
         )
     start_seq = int(to_compact[0].get("seq") or 0)
     end_seq = int(to_compact[-1].get("seq") or 0)
@@ -336,7 +337,7 @@ async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_
             "progress": None,
             "documents": [],
             "images": [],
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(tz=timezone.utc),
             "seq": next_seq,
             "message_type": "context_summary",
             "summary_source": compaction.source,
@@ -347,7 +348,7 @@ async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_
     )
     await db.chat_sessions.update_one(
         {"_id": session_id},
-        {"$set": {"last_compaction_at": datetime.utcnow(), "latest_compaction_id": compaction_id}},
+        {"$set": {"last_compaction_at": datetime.now(tz=timezone.utc), "latest_compaction_id": compaction_id}},
     )
 
 
@@ -361,7 +362,7 @@ class SessionPersistenceService:
         messages: Optional[List[Any]] = None,
     ) -> Dict[str, Any]:
         db = get_db()
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         mid = resolve_main_id(main_id)
         normalized = [_normalize_message(m) for m in list(messages or [])]
         last_message = normalized[-1]["content"] if normalized else None
@@ -379,6 +380,9 @@ class SessionPersistenceService:
             "active_document": build_active_document_from_messages(normalized),
             "active_document_id": "",
             "document_registry": [],
+            # 002 lifecycle: set by ``end_session`` (the 009 SessionEnd carrier).
+            "ended_at": None,
+            "end_reason": "",
         }
         active_document = dict(session_doc.get("active_document") or {})
         if active_document:
@@ -441,7 +445,7 @@ class SessionPersistenceService:
             if existing >= len(message_ids):
                 return session_doc
 
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         seq = await _next_seq(db, oid, str(user_id), mid)
         message_docs = [
             self._message_doc(
@@ -564,6 +568,82 @@ class SessionPersistenceService:
             )
         except Exception as exc:
             log_print(f"[session_persistence] rekey execution_runs_v3 failed: {exc}", flush=True)
+
+    async def end_session(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        main_id: str = "default",
+        reason: str = "user_ended",
+    ) -> Dict[str, Any]:
+        """Mark a 002 session as ended and emit the 009 ``SessionEnd`` event.
+
+        This is the **real** end-of-session seam (009 FR-1: SessionStart /
+        SessionEnd "以 002 的会话生命周期事件为载体"). Before this existed the only
+        terminal operation was ``delete_session``, which made the 009 → 017
+        sedimentation loop fire on delete instead of on a normal session end.
+
+        Idempotent: ending an already-ended session returns the stored document
+        without re-emitting, so a later delete cannot double-sediment.
+
+        Returns the session document. Raises ``LookupError`` when absent.
+        """
+        db = get_db()
+        try:
+            oid = ObjectId(str(session_id))
+        except Exception as exc:
+            raise ValueError("Invalid session id") from exc
+        mid = resolve_main_id(main_id)
+
+        session_doc = await db.chat_sessions.find_one(
+            add_main_scope({"_id": oid, "user_id": str(user_id)}, mid)
+        )
+        if not session_doc:
+            raise LookupError("Session not found")
+        if session_doc.get("ended_at"):
+            # Already ended — do not emit twice.
+            return session_doc
+
+        now = datetime.now(tz=timezone.utc)
+        await db.chat_sessions.update_one(
+            add_main_scope({"_id": oid, "user_id": str(user_id)}, mid),
+            {"$set": {"ended_at": now, "end_reason": str(reason or "user_ended")}},
+        )
+        session_doc["ended_at"] = now
+        session_doc["end_reason"] = str(reason or "user_ended")
+
+        # 009 SessionEnd → 017 sedimentation, via the real dispatch loop. A
+        # failure here must not undo the state change, so it is logged only.
+        try:
+            from app.dsh_runtime.hooks.dispatcher import dispatch_session_end
+            from app.memory.sediment import ensure_registered
+            from app.memory.store import MemoryStore
+
+            ensure_registered()
+            failures = await dispatch_session_end(
+                str(oid),
+                actor=str(user_id),
+                payload={
+                    "session_doc": session_doc,
+                    "store": MemoryStore(),
+                    "owner_id": str(user_id),
+                    "tenant_id": mid,
+                    "workspace_id": str(session_doc.get("workspace_id") or ""),
+                    "reason": str(reason or "user_ended"),
+                },
+            )
+            if failures:
+                log_print(
+                    f"[session_persistence] SessionEnd subscribers failed: {failures}",
+                    flush=True,
+                )
+        except Exception as exc:
+            log_print(
+                f"[session_persistence] SessionEnd sedimentation skipped: {exc}",
+                flush=True,
+            )
+        return session_doc
 
 
 session_persistence_service = SessionPersistenceService()

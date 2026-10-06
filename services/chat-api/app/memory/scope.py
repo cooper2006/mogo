@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from app.memory.tiering import SUMMARY_REFRESH_DAYS_DEFAULT
+
 # Role allowed to authorize promotion to the org scope (006 full-access admin).
 ORG_PROMOTION_ROLES = frozenset({"full_access_admin"})
 
@@ -56,6 +58,16 @@ class Memory:
     last_accessed_at: float = 0.0
     memory_id: str = ""
     archived: bool = False  # FR-8: stamped when the decay sweep archives it.
+    # --- 017 FR-13 density tiers (L0/L1/L2) ---
+    l0_summary: str = ""       # one-line summary (relevance pre-filter)
+    l1_overview: str = ""      # key points / structure (retrieval direction)
+    l2_raw: str = ""           # raw detail (== content when tierable)
+    tierable: bool = True      # False → not summarizable (binary/opaque)
+    summary_generated_at: float = 0.0
+    summary_refresh_days: int = SUMMARY_REFRESH_DAYS_DEFAULT
+    # --- 017 FR-19 provenance (session sedimentation) ---
+    source_session_id: str = ""
+    source_type: str = ""      # "" | "session"
 
     def __post_init__(self) -> None:
         if self.scope not in SCOPE_VISIBILITY:
@@ -63,6 +75,14 @@ class Memory:
 
     def visibility(self) -> str:
         return SCOPE_VISIBILITY[self.scope]
+
+    def addr(self, tier: str = "L0") -> str:
+        """Resolve this memory's ``mogo://memory/...`` address (FR-18)."""
+        from app.memory.address import MemoryAddress
+
+        return MemoryAddress(
+            scope=self.scope, owner_id=self.owner_id, memory_id=self.memory_id, tier=tier
+        ).uri()
 
 
 def resolve_default_scope(*, multi_user_session: bool) -> str:
@@ -125,6 +145,14 @@ def _audit_memory_promoted(memory: Memory, role: str) -> None:
                 "role": role,
             },
         )
-    except Exception:
-        # 审计失败绝不影响主流程。
+    except Exception as exc:
+        # 审计失败绝不影响主流程，但必须留痕：静默吞掉会让"审计桥未接线"
+        # 与"审计已通过"在日志上无法区分。
+        from app.infrastructure.observability.config import log_print
+
+        log_print(
+            f"[memory.scope] memory.promoted audit emit failed "
+            f"(memory_id={getattr(memory, 'memory_id', None)}): {exc}",
+            flush=True,
+        )
         pass

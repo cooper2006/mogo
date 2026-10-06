@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from app.core.db import get_db
@@ -18,7 +18,7 @@ class ModelConfigError(ValueError):
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(tz=timezone.utc)
 
 
 async def get_or_create_organization(main_id: str, default_org_name: str = "个人空间", owner_id: str = "") -> Dict[str, Any]:

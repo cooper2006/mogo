@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.llm.base import BaseLLMClient
 from app.llm.types import LLMResponse, Message, Role
+from app.infrastructure.observability.config import log_print
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,8 @@ class AzureOpenAIClient(BaseLLMClient):
             return {}
         try:
             return json.loads(text)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[llm.providers.azure_openai] JSON parse failed: {exc}", flush=True)
             return {"_raw": text}
 
     @staticmethod

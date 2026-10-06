@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any, Dict, List
 
+from app.infrastructure.observability.config import log_print
 from app.llm.types import Message, Role
 from pydantic import BaseModel, Field
 
@@ -86,6 +87,10 @@ class OutputStyleGate:
                     "issues": [str(x) for x in (res.issues or []) if str(x).strip()],
                 }
                 return out
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(
+                f"[profile_presets][output_style_gate] LLM gate failed, "
+                f"using fallback: {exc}",
+                flush=True,
+            )
         return self._fallback(content=content, prompt_contract=prompt_contract)

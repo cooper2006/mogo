@@ -44,10 +44,8 @@ async def _assert_end_user_scope(request: Request, principal: ApiPrincipal) -> N
                 value = form.get(key)
                 if isinstance(value, str) and value:
                     claims[key] = value
-    except Exception:
-        # Request validation remains FastAPI's responsibility. Scope checks are
-        # applied whenever identity fields can be decoded safely.
-        pass
+    except Exception as exc:
+        log_print(f"[principal] JSON body parse failed: {exc}", flush=True)
 
     claimed_user = claims.get("userId") or claims.get("user_id")
     if claimed_user and claimed_user != principal.user_id:

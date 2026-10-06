@@ -227,8 +227,8 @@ def extract_segments(doc: Document) -> List[Segment]:
                 _add_paragraph(p, kind)
             for table in _iter_story_tables(story):
                 _extract_table_segments(table, add_paragraph=_add_paragraph, seen_paragraph_ids=seen_paragraph_ids)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[docx_inplace] header/footer extraction failed: %s", exc)
 
     return segments
 
@@ -473,8 +473,8 @@ def reflow_table_column_widths(doc: Document) -> int:
                     break
                 try:
                     col.width = Emu(max(1, new_widths[i]))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("[docx_inplace] col width adjustment failed: %s", exc)
             adjusted += 1
         except Exception as exc:
             logger.debug("[docx_inplace] table_reflow_skip: %s", exc)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -81,7 +81,7 @@ class KernelEventRepository:
     ) -> None:
         if not writes:
             return
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         inbox_ops: list[UpdateOne] = []
         projection_ops: list[UpdateOne] = []
         for write in writes:
@@ -150,7 +150,7 @@ class KernelEventRepository:
 
         if not rows:
             return
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         operations: list[UpdateOne] = []
         for projected in rows:
             row = {

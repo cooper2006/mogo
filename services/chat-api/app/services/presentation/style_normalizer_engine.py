@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 from typing import Any, Dict
@@ -135,7 +136,8 @@ class StyleNormalizerEngine:
                 return "font_weight", self._FONT_WEIGHT_PRESETS[mapped]
             try:
                 return "font_weight", max(100, min(900, int(float(mapped))))
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.presentation.style_normalizer_engine] silent exception caught: {exc}", flush=True)
                 return "font_weight", None
         if normalized in {"font_size", "border_width", "border_radius", "line_weight", "letter_spacing", "rotation", "opacity"}:
             numeric = self.as_number(value)
@@ -159,5 +161,5 @@ class StyleNormalizerEngine:
             if value in (None, ""):
                 return None
             return float(value)
-        except Exception:
-            return None
+        except Exception as exc:
+            log_print(f"[services.presentation.style_normalizer_engine] silent exception caught: {exc}", flush=True)

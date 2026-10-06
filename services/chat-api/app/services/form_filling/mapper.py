@@ -102,8 +102,8 @@ async def build_fill_plan(
             if not llm_has_output and fallback_has_output:
                 return fallback
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[form_filling/mapper] LLM mapping failed: {exc}", flush=True)
     return fallback
 
 

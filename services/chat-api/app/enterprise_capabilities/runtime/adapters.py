@@ -72,11 +72,11 @@ def _artifact_output_spec(arguments: dict[str, Any], key: str) -> dict[str, Any]
 async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
     selected = [str(item) for item in list(context.turn_context.get("knowledge_base_ids") or []) if str(item)]
     query = str(arguments.get("query") or "")
-    # 017 T010: prepend scope-filtered memories as RAG candidates so the retrieval
-    # pass can surface them alongside knowledge chunks.
+    # 017 FR-14/FR-17: scope-filtered memories as progressive RAG candidates,
+    # surfaced at L0/L1 by default with a replayable retrieval trace.
     try:
         from app.memory.store import MemoryStore
-        from app.memory.retrieval import memory_rag_candidates
+        from app.memory.retrieval import progressive_memory_retrieval
         mem_store = MemoryStore()
         raw_memories = await mem_store.list_for_viewer(
             tenant_id=context.tenant_id,
@@ -84,15 +84,18 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
             viewer_role=str(context.get("role") or ""),
             is_workspace_member=bool(context.get("is_workspace_member") or False),
         )
-        memory_candidates = memory_rag_candidates(
+        memory_candidates, memory_trace = progressive_memory_retrieval(
             raw_memories,
             viewer_id=context.user_id,
             viewer_role=str(context.get("role") or ""),
             is_workspace_member=bool(context.get("is_workspace_member") or False),
+            include_tier="L1",
             top_n=int(arguments.get("top_n") or 8),
+            session_id=context.conversation_id,
+            turn_id=str(arguments.get("turn_id") or ""),
         )
     except Exception:
-        memory_candidates = []
+        memory_candidates, memory_trace = [], {}
     # 015 residual: KG entity context as RAG candidates (mirrors 017 pattern).
     # Extract entity terms from the query (case-insensitive name match in the
     # tenant's KG); the context is injected into the LLM grounding.
@@ -147,6 +150,8 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
     if bundle and used_chunks:
         payload["evidence_bundle"] = public_capability_evidence(bundle)
         payload["_execution_evidence_bundle"] = bundle
+    # 017 FR-17: replayable memory retrieval trace (observability, not audit).
+    payload["memory_retrieval_trace"] = memory_trace
     return payload
 
 

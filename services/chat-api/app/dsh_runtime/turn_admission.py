@@ -21,6 +21,7 @@ from app.dsh_runtime.profile.skills import MongoSkillCatalog
 from app.dsh_runtime.profile.skills.resolver import require_selected_skill
 from app.governance.audit import record_position_policy_event
 from app.governance.position_policy import MongoEmployeePolicyResolver
+from app.infrastructure.observability.config import log_print
 
 
 @dataclass(frozen=True)
@@ -44,10 +45,57 @@ class PreToolUseGate:
 
 
 #: Per-tenant cache of the in-scope rule documents served to
-#: :func:`run_pre_tool_use` (value: ``(expires_at, documents)``). Bounded to the
-#: tenants seen recently.
+#: :func:`run_pre_tool_use` (value: ``(expires_at, documents)``).
+#:
+#: Two invariants matter here:
+#:
+#: 1. **Bounded.** The cache is keyed by tenant, so without eviction every tenant
+#:    that ever calls a tool leaks an entry for the process lifetime. We cap the
+#:    size and evict the oldest expiry first.
+#: 2. **Invalidated on write.** Spec 009 FR-4 requires "规则变更即时生效（下一工具
+#:    调用即按新规则求值）". A bare TTL cannot honour that — a rule change would be
+#:    invisible for up to one TTL. ``HookRuleStore`` mutations therefore call
+#:    :func:`invalidate_rule_source_cache` through the invalidator registry, so a
+#:    change is visible on the very next tool call. The TTL remains only as a
+#:    belt-and-braces refresh for out-of-band writers.
 _RULE_SOURCE_CACHE: dict[str, tuple[float, list]] = {}
 _RULE_SOURCE_CACHE_TTL = 2.0
+#: Hard cap on cached tenants; keeps a many-tenant deployment bounded.
+_RULE_SOURCE_CACHE_MAX = 512
+
+
+def invalidate_rule_source_cache(tenant_id: str = "") -> None:
+    """Drop cached rules so the next tool call re-reads them (009 FR-4)."""
+    if tenant_id:
+        _RULE_SOURCE_CACHE.pop(tenant_id, None)
+    else:
+        _RULE_SOURCE_CACHE.clear()
+
+
+def _cache_rule_source(tenant_id: str, documents: list) -> None:
+    """Store a tenant's rule documents, evicting the oldest entries if full."""
+    if len(_RULE_SOURCE_CACHE) >= _RULE_SOURCE_CACHE_MAX and tenant_id not in _RULE_SOURCE_CACHE:
+        # Evict the soonest-to-expire entry; ties broken by insertion order.
+        oldest = min(_RULE_SOURCE_CACHE.items(), key=lambda kv: kv[1][0])[0]
+        _RULE_SOURCE_CACHE.pop(oldest, None)
+    _RULE_SOURCE_CACHE[tenant_id] = (time.monotonic() + _RULE_SOURCE_CACHE_TTL, documents)
+
+
+def _register_cache_invalidation() -> None:
+    """Wire the store's invalidator registry to this module's cache."""
+    try:
+        from app.dsh_runtime.hooks.store import register_rule_cache_invalidator
+
+        register_rule_cache_invalidator(invalidate_rule_source_cache)
+    except Exception as exc:  # noqa: BLE001 — degrade to TTL-only, never block the gate
+        log_print(
+            f"[dsh_runtime.turn_admission] cache invalidator registration "
+            f"failed, degrading to TTL-only: {exc}",
+            flush=True,
+        )
+
+
+_register_cache_invalidation()
 
 
 async def run_pre_tool_use(
@@ -79,7 +127,7 @@ async def run_pre_tool_use(
             tool=tool, session_id=session_id, tenant_id=tenant_id
         )
         raw_rules = [d.as_document() for d in documents]
-        _RULE_SOURCE_CACHE[tenant_id] = (time.monotonic() + _RULE_SOURCE_CACHE_TTL, documents)
+        _cache_rule_source(tenant_id, documents)
 
     if not raw_rules:
         return None

@@ -219,8 +219,8 @@ async def _render_chart(chart_json: str, uploader: AliyunOSSUploader, user_id: s
                 _, object_path = uploader.upload_file_with_path(tmp.name, user_id)
                 return uploader.sign_url(object_path)
             await browser.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[markdown_assets] render failed: {exc}", flush=True)
 
     chart_type = (payload.get("type") or "line").lower()
     if chart_type == "radar":

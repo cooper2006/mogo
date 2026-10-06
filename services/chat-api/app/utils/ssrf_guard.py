@@ -5,6 +5,7 @@ Blocks private (RFC 1918), loopback, link-local, and cloud metadata addresses.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import ipaddress
 import socket
@@ -40,8 +41,8 @@ def is_safe_url(url: str) -> bool:
     """Return True if *url* points to a public, non-private HTTP(S) address."""
     try:
         parsed = urlparse(url)
-    except Exception:
-        return False
+    except Exception as exc:
+        log_print(f"[utils.ssrf_guard] silent exception caught: {exc}", flush=True)
     if parsed.scheme not in _ALLOWED_SCHEMES:
         return False
     hostname = parsed.hostname

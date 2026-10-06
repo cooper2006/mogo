@@ -19,8 +19,8 @@ def _iter_fileobj(fileobj: BinaryIO):
     finally:
         try:
             fileobj.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[knowledge_preview] fileobj close failed: {exc}", flush=True)
 
 
 def parse_byte_range(value: str, size: int) -> tuple[int, int] | None:

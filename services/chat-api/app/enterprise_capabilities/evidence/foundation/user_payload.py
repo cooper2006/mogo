@@ -5,6 +5,7 @@ import re
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
+from app.infrastructure.observability.config import log_print
 from app.enterprise_capabilities.evidence.foundation.kb_document_sources import extract_kb_document_sources
 
 
@@ -31,8 +32,11 @@ def _source_name(item: Dict[str, Any]) -> str:
             host = urlparse(candidate).netloc
             if host:
                 return host.replace("www.", "")
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(
+                f"[user_payload] URL parse failed for {candidate!r}: {exc}",
+                flush=True,
+            )
     return source[:120] if source else ""
 
 
@@ -42,8 +46,8 @@ def _json_text(value: str) -> str:
         return ""
     try:
         parsed = json.loads(text)
-    except Exception:
-        return ""
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.evidence.foundation.user_payload] silent exception caught: {exc}", flush=True)
     return json.dumps(parsed, ensure_ascii=False, indent=2)
 
 
@@ -53,8 +57,8 @@ def _empty_kb_result(value: str) -> bool:
         return False
     try:
         parsed = json.loads(text)
-    except Exception:
-        return False
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.evidence.foundation.user_payload] silent exception caught: {exc}", flush=True)
     if not isinstance(parsed, dict):
         return False
     provider = str(parsed.get("provider") or "").strip().lower()

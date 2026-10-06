@@ -10,6 +10,7 @@
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -170,8 +171,8 @@ class PersistedSessionBindingRegistry:
 
             db = get_db()
             return None if db is None else db
-        except Exception:  # noqa: BLE001 - degradation, not a fabrication
-            return None
+        except Exception as exc:
+            log_print(f"[im_gateway.bindings] silent exception caught: {exc}", flush=True)
 
     async def load(self, tenant_id: str = "default") -> SessionBindingRegistry:
         """Load the tenant's persisted state into an in-memory registry."""

@@ -22,6 +22,7 @@ Example ``resilience.yaml``::
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -103,8 +104,8 @@ def load_resilience_config(path: str | Path | None = None) -> Dict[str, Any]:
             return {}
         with target.open("r", encoding="utf-8") as handle:
             document = yaml.safe_load(handle)
-    except Exception:
-        return {}
+    except Exception as exc:
+        log_print(f"[llm.resilience.providers] silent exception caught: {exc}", flush=True)
     return document if isinstance(document, dict) else {}
 
 

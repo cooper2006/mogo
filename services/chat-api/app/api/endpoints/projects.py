@@ -7,7 +7,7 @@ not dependent on a first chat session being created.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header
 from pydantic import BaseModel, Field
@@ -53,7 +53,7 @@ async def create_desktop_project(
     authorization: str | None = Header(default=None),
 ):
     main_id, user_id = await _identity(authorization)
-    now = datetime.utcnow()
+    now = datetime.now(tz=timezone.utc)
     scope = {"main_id": main_id, "user_id": user_id, "workspace_id": payload.workspace_id}
     await get_db().desktop_projects.update_one(
         scope,

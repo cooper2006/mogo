@@ -23,8 +23,8 @@ def _ensure_utf8_stdio() -> None:
         try:
             if hasattr(stream, "reconfigure"):
                 stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+        except Exception as exc:
+            log_print(f"[main] startup failed: {exc}", flush=True)
 
 
 _ensure_utf8_stdio()
@@ -107,6 +107,7 @@ async def request_logging_middleware(request, call_next):
 from app.api.endpoints import (
     a2a,
     auth,
+    context_space,
     dsh_chat,
     dsh_session_versioning,
     debug,
@@ -127,8 +128,7 @@ from app.api.endpoints import (
     shortcuts,
     sessions,
     site_profiles,
-    skills,
-    skill_package_install,
+    skills,    skill_package_install,
     skill_lifecycle,
     skill_updates,
     skill_share_direct,
@@ -179,6 +179,9 @@ app.include_router(a2a.router)
 app.include_router(im_gateway.router)
 # 017: three-scope memory CRUD (scope/visibility enforced server-side).
 app.include_router(memory.router)
+# 021: unified mogo:// context address space — the production entry for the
+# router + four tenant adapters (without this the whole layer was test-only).
+app.include_router(context_space.router)
 # 010: research DAG orchestration (competitor deep-dive) — production entry.
 app.include_router(research.router, prefix="/api")
 # 014: business semantic index — search / index / align production surface.
@@ -354,8 +357,8 @@ async def startup_event() -> None:
             try:
                 await action_receipt_store.recover_stale_running()
                 await action_receipt_store.reconcile_abandoned()
-            except Exception:
-                pass
+            except Exception as exc:
+                log_print(f"[main] shutdown failed: {exc}", flush=True)
             await asyncio.sleep(60)
     _receipt_gc_task = asyncio.create_task(_receipt_gc_loop())
 

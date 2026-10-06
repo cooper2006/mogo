@@ -14,6 +14,7 @@ Examples:
 """
 
 import argparse
+from app.infrastructure.observability.config import log_print
 import sys
 import zipfile
 from pathlib import Path
@@ -84,8 +85,8 @@ def _pretty_print_xml(xml_file: Path) -> None:
         content = xml_file.read_text(encoding="utf-8")
         dom = defusedxml.minidom.parseString(content)
         xml_file.write_bytes(dom.toprettyxml(indent="  ", encoding="utf-8"))
-    except Exception:
-        pass  
+    except Exception as exc:
+        log_print(f"[unpack/pptx] XML pretty print failed: {exc}", flush=True)
 
 
 def _escape_smart_quotes(xml_file: Path) -> None:
@@ -94,8 +95,8 @@ def _escape_smart_quotes(xml_file: Path) -> None:
         for char, entity in SMART_QUOTE_REPLACEMENTS.items():
             content = content.replace(char, entity)
         xml_file.write_text(content, encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exc:
+        log_print(f"[unpack/pptx] smart quote escape failed: {exc}", flush=True)
 
 
 if __name__ == "__main__":

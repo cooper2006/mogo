@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.tenant import add_main_scope, resolve_main_id
@@ -29,7 +29,7 @@ class ExecutionEventStore:
     ) -> None:
         if not events:
             return
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         resolved_main_id = resolve_main_id(main_id)
         query = {"session_id": session_id, "message_id": message_id}
         if resolved_main_id != "default":
@@ -87,7 +87,7 @@ class ExecutionEventStore:
     ) -> None:
         await self._coll.update_one(
             {"message_id": message_id},
-            {"$set": {"events": events, "updated_at": datetime.utcnow()}},
+            {"$set": {"events": events, "updated_at": datetime.now(tz=timezone.utc)}},
         )
 
     async def finalize(
@@ -103,8 +103,8 @@ class ExecutionEventStore:
                 "$set": {
                     "summary": summary,
                     "status": status,
-                    "finalized_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
+                    "finalized_at": datetime.now(tz=timezone.utc),
+                    "updated_at": datetime.now(tz=timezone.utc),
                 }
             },
         )

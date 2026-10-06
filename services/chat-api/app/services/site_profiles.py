@@ -71,7 +71,7 @@ def _normalize_domain(value: Any) -> str:
 
 
 def _now() -> datetime.datetime:
-    return datetime.datetime.utcnow()
+    return datetime.datetime.now(tz=datetime.timezone.utc)
 
 
 def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
