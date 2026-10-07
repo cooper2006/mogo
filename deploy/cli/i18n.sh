@@ -71,6 +71,8 @@ movo_msg() {
     en:building) printf 'Building MOGO images from source...\n' ;;
     zh:pruned_dangling) printf '已清理构建残留的无标签镜像，释放约 %s MB。\n' "$1" ;;
     en:pruned_dangling) printf 'Pruned untagged build leftovers, reclaimed about %s MB.\n' "$1" ;;
+    zh:pruned_previous_release) printf '已清理上一版本的 %s 个镜像，释放约 %s MB。\n' "$1" "$2" ;;
+    en:pruned_previous_release) printf 'Pruned %s image(s) from the previous release, reclaimed about %s MB.\n' "$1" "$2" ;;
     zh:updating) printf '正在拉取 MOGO 镜像并更新服务...\n' ;;
     en:updating) printf 'Pulling MOGO images and updating services...\n' ;;
     zh:pulling_images) printf '正在串行拉取镜像（第 %s 次）...\n' "$1" ;;

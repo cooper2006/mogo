@@ -204,6 +204,13 @@ command_up() {
   refresh_gateway_resolution
   wait_until_ready
   movo_print_running_dsh_version
+  # Housekeeping only after the new deployment is up and healthy: a failed
+  # start must keep the previous release's images so it can still be rolled
+  # back. `./mogo build` already does the same after a successful build.
+  if movo_has_build_flag "$@"; then
+    prune_previous_release_images
+    prune_dangling_images
+  fi
   show_ready_message
 }
 
@@ -299,6 +306,68 @@ remove_stopped_build_containers() {
 
     "${DOCKER_BIN}" rm "${id}" >/dev/null 2>&1 || true
   done < <("${DOCKER_BIN}" ps -aq --filter "status=exited" --filter "status=created" 2>/dev/null)
+}
+
+# Remove the image tags left behind by the previous release.
+#
+# ``docker compose up --build`` retags every service with the current
+# ``MOGO_VERSION``. The image built for an earlier version keeps its old tag,
+# so it is *not* dangling and ``image prune`` ignores it -- a full set of seven
+# images therefore stays on disk for every release and eventually fills the
+# disk. ``prune_dangling_images`` cannot help here: it only sees untagged
+# layers.
+#
+# Safety rules, in order of importance:
+#   * only this project's own service repositories are considered;
+#   * the tag currently deployed (``MOGO_VERSION``) is never removed;
+#   * an image that any container still references -- running or stopped, e.g.
+#     one kept around for a rollback -- is skipped;
+#   * everything is best effort, so housekeeping can never fail a deployment.
+prune_previous_release_images() {
+  local before after reclaimed removed entry service repo tag reference image_id
+  local repos=""
+  before="$(docker_reclaimable_bytes)"
+  removed=0
+
+  # Both naming modes are swept: a source build tags bare service names
+  # (chat-api:5aab407) while a registry deployment prefixes them
+  # (ghcr.io/himovo/chat-api:5aab407). Stale tags of either kind are residue.
+  for entry in "${MOVO_IMAGE_SERVICES[@]}"; do
+    service="${entry##*:}"
+    repos="${repos}${MOVO_EXPORTED_IMAGE_PREFIX:-}${service}"$'\n'
+    repos="${repos}${service}"$'\n'
+  done
+  # document-parser is shared by two services and lives outside the array.
+  repos="${repos}${MOVO_EXPORTED_IMAGE_PREFIX:-}document-parser"$'\n'
+  repos="${repos}document-parser"$'\n'
+
+  while IFS= read -r repo; do
+    while IFS= read -r tag; do
+      [[ -z "${tag}" || "${tag}" == "<none>" ]] && continue
+      [[ "${tag}" == "${MOGO_VERSION:-}" ]] && continue
+
+      reference="${repo}:${tag}"
+      image_id="$("${DOCKER_BIN}" images -q --no-trunc "${reference}" 2>/dev/null | head -n 1)"
+      [[ -z "${image_id}" ]] && continue
+      image_id="${image_id#sha256:}"
+
+      # ``ancestor`` only matches the bare id, not the ``sha256:`` form.
+      if [[ -n "$("${DOCKER_BIN}" ps -aq --filter "ancestor=${image_id}" 2>/dev/null)" ]]; then
+        continue
+      fi
+
+      if "${DOCKER_BIN}" rmi "${reference}" >/dev/null 2>&1; then
+        removed=$((removed + 1))
+      fi
+    done < <("${DOCKER_BIN}" images --filter "reference=${repo}:*" --format '{{.Tag}}' 2>/dev/null)
+  done < <(printf '%s' "${repos}" | awk 'NF && !seen[$0]++')
+
+  if [[ "${removed}" -gt 0 ]]; then
+    after="$(docker_reclaimable_bytes)"
+    reclaimed=$(( (before - after) / 1024 / 1024 ))
+    [[ "${reclaimed}" -lt 0 ]] && reclaimed=0
+    movo_msg pruned_previous_release "${removed}" "${reclaimed}"
+  fi
 }
 
 command_build() {

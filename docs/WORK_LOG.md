@@ -6416,7 +6416,7 @@ chat-api **2229 passed / 0 failed / 0 error**（与改动前逐数一致）；ad
 - **未做**：完整 `./mogo up --build` 实跑——用户的要求是"下次重建时生效"，本轮不改动运行中的部署。
 
 **修改文件**：`mogo`（+69 行）、`deploy/cli/i18n.sh`（+2 行）、`docs/WORK_LOG.md`（本条）。
-**未提交**：本轮改动留在工作区，未 commit / 未 push。
+**提交**：`feat(cli)` 提交（见 `git log -1 --stat`），代码与本条记录同批入库。
 
 ---
 
