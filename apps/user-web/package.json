@@ -36,7 +36,7 @@
         "codemirror": "^6.0.2",
         "dompurify": "^3.4.16",
         "fabric": "^7.4.0",
-        "highlight.js": "^11.11.1",
+        "highlight.js": "^11.12.0",
         "naive-ui": "^2.45.3",
         "pdfjs-dist": "^6.3.289",
         "vue": "^3.4.0"
