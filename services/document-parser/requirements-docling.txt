@@ -14,7 +14,7 @@
 # pip-compile --generate-hashes + Dockerfile --require-hashes。
 # 理由全记录见 docs/WORK_LOG.md 2026-10-07 条目；探查数据 /tmp/dp-out/（会话产物）。
 numpy==1.26.4
-docling==2.94.0
+docling==2.133.0
 docling-core==2.92.0
 docling-ibm-models==3.14.0
 docling-parse==5.11.0
