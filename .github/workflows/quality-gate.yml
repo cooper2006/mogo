@@ -197,9 +197,15 @@ jobs:
           venv/bin/pip install --require-hashes -r requirements.txt
           venv/bin/pip install pytest pytest-asyncio pytest-timeout
 
+      # Mirrors dsh/runtime-host/Dockerfile. This directory is a pnpm workspace
+      # with a committed pnpm-lock.yaml, so `npm install` ignored the lockfile
+      # and the e2e job exercised a *different* dependency set from the one that
+      # ships (QA R5). --frozen-lockfile makes the job fail loudly on drift.
       - name: Install Runtime Host dependencies
         working-directory: services/chat-api/dsh/runtime-host
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --global pnpm@10.34.4
+          pnpm install --frozen-lockfile
 
       - name: Run DSH Runtime Host e2e
         working-directory: services/chat-api
