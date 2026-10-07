@@ -79,7 +79,18 @@
 ## Phase 8: Polish & Cross-Cutting Concerns
 
 - [x] T020 [P] 跨层并发预算守护：多 DAG 并行受 007 网关配合（超限退避排队，FR-12）
+      > ⚠️ **QA R5（2026-10-07）锐化**：**节点级**预算已实现且有真实测试
+      > （`app/orchestration/engine.py` 的 `max_concurrency` + `asyncio.Semaphore`，
+      > 默认 4；测试 `test_dag_engine_bounds_node_concurrency` /
+      > `test_dag_engine_serializes_at_concurrency_one`，已用变异测试验证可证伪）。
+      > 但 **跨 DAG / 与 007 网关协调**的预算**未实现**——全仓无 `dag_max_concurrency`
+      > 配置项，`engine.py` 的预算只在单个 `run_graph` 内生效。本条的 `[x]` 仅覆盖节点级。
 - [x] T021 [P] 编排定义版本化：契约版本递增，旧版可回看
+      > ⚠️ **QA R5（2026-10-07）**：原测试为**自证式**（只断言本地 dict，零生产耦合），
+      > 已改写为真实测试 `test_definition_version_increment_and_lookup` /
+      > `test_registry_keeps_every_version_browsable`，驱动
+      > `OrchestrationDefinition.update()`（版本递增 + 归档）与
+      > `OrchestrationRegistry.history()`（旧版可回看）。
 - [x] T022 写 `quickstart.md` + `contracts/orchestration.md`（编排定义 schema + 四模式契约）
 
 ---

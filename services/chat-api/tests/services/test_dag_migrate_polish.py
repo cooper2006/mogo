@@ -137,96 +137,115 @@ def test_builder_equivalent_missing_merged_is_false():
 
 
 # --- T020 cross-layer concurrency budget guard --------------------------------
+#
+# QA R5: the two tests below used to build their own local counter / `_Budget`
+# class and assert on *those*. They passed with the orchestration package
+# deleted — they verified a Python language property, not this feature. They now
+# drive the real DagEngine.
+#
+# Honest boundary: the budget implemented here is the **node-level** one
+# (`DagEngine.max_concurrency`). The cross-DAG budget coordinated with the 007
+# gateway (FR-12) is still not implemented — there is no `dag_max_concurrency`
+# setting anywhere — so this file no longer claims to cover it.
 
 
-def test_concurrency_budget_guard():
-    """Multiple DAGs running in parallel must respect the 007 gateway concurrency budget."""
-    in_flight = {"n": 0}
-    peak = {"n": 0}
+def test_dag_engine_bounds_node_concurrency():
+    """The real engine never runs more nodes at once than its budget allows."""
+    from app.orchestration.engine import DagEngine
+    from app.orchestration.graph import Graph, Node
 
-    async def one_dag():
-        in_flight["n"] += 1
-        peak["n"] = max(peak["n"], in_flight["n"])
-        await asyncio.sleep(0.05)
-        in_flight["n"] -= 1
+    in_flight = {"now": 0, "peak": 0}
 
-    async def run_two():
-        await asyncio.gather(one_dag(), one_dag())
+    async def runner(node, _ctx):
+        in_flight["now"] += 1
+        in_flight["peak"] = max(in_flight["peak"], in_flight["now"])
+        await asyncio.sleep(0.02)
+        in_flight["now"] -= 1
+        return node.id
 
-    asyncio.run(run_two())
-    # Both DAGs were in flight simultaneously (2 > budget of 1) — the guard
-    # (007 scheduler) would serialize them; this test verifies the DAG layer
-    # itself does not cap concurrency (that is the 007 gateway's job, FR-12).
-    assert peak["n"] == 2
+    graph = Graph()
+    for index in range(8):                      # 8 independent nodes, budget 2
+        graph.add_node(Node(id=f"n{index}"))
+
+    result = asyncio.run(DagEngine(max_concurrency=2).run_graph(graph, runner))
+
+    assert result.succeeded
+    assert len(result.outcomes) == 8
+    assert in_flight["peak"] <= 2, f"engine exceeded its budget: peak={in_flight['peak']}"
+    assert in_flight["peak"] > 1, "the engine serialized everything; the bound is untested"
 
 
-def test_concurrency_budget_serializes_when_enforced():
-    """When the 007 concurrency budget is enforced, parallel DAGs serialize."""
-    in_flight = {"n": 0}
-    peak = {"n": 0}
-    events: list[str] = []
+def test_dag_engine_serializes_at_concurrency_one():
+    """A budget of 1 must strictly alternate start/end — never two in flight."""
+    from app.orchestration.engine import DagEngine
+    from app.orchestration.graph import Graph, Node
 
-    class _Budget:
-        limit = 1
+    timeline: list[str] = []
 
-        def acquire(self):
-            events.append("acquire")
+    async def runner(node, _ctx):
+        timeline.append("start")
+        await asyncio.sleep(0.005)
+        timeline.append("end")
+        return node.id
 
-        def release(self):
-            events.append("release")
+    graph = Graph()
+    for index in range(4):
+        graph.add_node(Node(id=f"n{index}"))
 
-    budget = _Budget()
+    asyncio.run(DagEngine(max_concurrency=1).run_graph(graph, runner))
 
-    async def one_dag():
-        budget.acquire()
-        in_flight["n"] += 1
-        peak["n"] = max(peak["n"], in_flight["n"])
-        await asyncio.sleep(0.01)
-        in_flight["n"] -= 1
-        budget.release()
-
-    async def run_sequential():
-        await one_dag()
-        await one_dag()
-
-    asyncio.run(run_sequential())
-    # Serialized: at most one DAG in flight at a time.
-    assert peak["n"] == 1
-    assert events == ["acquire", "release", "acquire", "release"]
+    assert timeline == ["start", "end"] * 4, f"not serialized: {timeline}"
 
 
 # --- T021 orchestration definition versioning --------------------------------
 
 
 def test_definition_version_increment_and_lookup():
-    """Orchestration definitions are versioned; the latest is active, older ones browsable."""
-    definitions: dict[str, dict] = {}
+    """Updating a definition bumps its version and keeps the old one viewable."""
+    from app.orchestration.registry import (
+        OrchestrationDefinition,
+        OrchestrationRegistry,
+    )
 
-    def register(version: str, payload: dict):
-        definitions[f"v{version}"] = {"version": version, **payload}
+    definition = OrchestrationDefinition(
+        orchestration_id="demo",
+        nodes=[{"id": "a"}],
+        edges=[],
+    )
+    assert definition.version == 1
 
-    register("1", {"nodes": ["a"]})
-    register("2", {"nodes": ["a", "b"]})
-    register("3", {"nodes": ["a", "b", "c"]})
+    registry = OrchestrationRegistry()
+    registry.register(definition)
+    assert registry.get("demo").version == 1
 
-    versions = [d["version"] for d in definitions.values()]
-    assert versions == ["1", "2", "3"]
-    # Latest = active
-    active = definitions[f"v{versions[-1]}"]
-    assert active["version"] == "3"
-    # Older versions are browsable (回看), not overwritten
-    assert definitions["v1"]["nodes"] == ["a"]
-    assert definitions["v2"]["nodes"] == ["a", "b"]
+    new_version = definition.update(nodes=[{"id": "a"}, {"id": "b"}])
+    assert new_version == 2
+    assert definition.version == 2
+
+    history = registry.history("demo")
+    assert len(history) == 1
+    assert history[0]["version"] == 1                       # old version archived
+    assert [node["id"] for node in history[0]["nodes"]] == ["a"]
+    assert [node["id"] for node in definition.nodes] == ["a", "b"]   # live version moved on
 
 
-def test_definition_version_lookup_by_key():
-    defs = {"v1": {"version": "1"}, "v2": {"version": "2"}}
+def test_registry_keeps_every_version_browsable():
+    """Three updates leave versions 1..3 browsable and the live one at 4."""
+    from app.orchestration.registry import (
+        OrchestrationDefinition,
+        OrchestrationRegistry,
+    )
 
-    def latest(key="v"):
-        return max(defs.values(), key=lambda d: int(d["version"]))
+    registry = OrchestrationRegistry()
+    definition = OrchestrationDefinition(orchestration_id="demo", nodes=[{"id": "a"}])
+    registry.register(definition)
 
-    assert latest()["version"] == "2"
-    assert defs["v1"]["version"] == "1"  # old version still browsable
+    for index in range(3):
+        definition.update(nodes=[{"id": f"v{index}"}])
+
+    assert [entry["version"] for entry in registry.history("demo")] == [1, 2, 3]
+    assert registry.get("demo").version == 4
+    assert registry.list_ids() == ["demo"]
 
 
 # --- T022 quickstart + contracts ---------------------------------------------
