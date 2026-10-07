@@ -92,15 +92,20 @@ jobs:
         include:
           - service: admin-api
             venv: venv
+            python: "3.13"
           - service: chat-api
             venv: venv
+            python: "3.13"
+          # document-parser ships on Python 3.10 (Docling pinned deps, B7);
+          # keep CI isomorphic with the production image.
           - service: document-parser
             venv: .venv
+            python: "3.10"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: services/${{ matrix.service }}/requirements.txt
 
@@ -128,14 +133,13 @@ jobs:
         working-directory: services/${{ matrix.service }}
         run: |
           python -m venv ${{ matrix.venv }}
-          # --require-hashes verifies package integrity (QF-465).
-          # Only admin-api and chat-api have hashed requirements.txt;
-          # document-parser stays on Python 3.10 (Docling pinned deps).
-          if [[ "${{ matrix.service }}" != "document-parser" ]]; then
-            ${{ matrix.venv }}/bin/pip install --require-hashes -r requirements.txt
-          else
-            ${{ matrix.venv }}/bin/pip install -r requirements.txt
-          fi
+          # --require-hashes verifies package integrity (QF-465, B7):
+          # all three services now ship hashed, pinned requirements.txt.
+          # (requirements-docling.txt is installed only in the Docker image,
+          # not here — its Docling tree pins versions but carries no hashes
+          # because the CPU-only torch index makes a hash set unusable; see
+          # docs/WORK_LOG.md 2026-10-07 probe.)
+          ${{ matrix.venv }}/bin/pip install --require-hashes -r requirements.txt
           # pytest-timeout provides the --timeout flag used in "Run tests";
           # without it pytest exits 4 with "unrecognized arguments: --timeout=120".
           ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio pytest-timeout pytest-cov

@@ -81,7 +81,7 @@ RUN if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
             *) \
                 echo "Unsupported PYTORCH_ACCELERATOR=${PYTORCH_ACCELERATOR}" >&2; exit 2 ;; \
         esac \
-        && python -m pip install --progress-bar off -r /tmp/requirements.txt \
+        && python -m pip install --progress-bar off --require-hashes -r /tmp/requirements.txt \
         && python -m pip install --progress-bar off --prefer-binary -r /tmp/requirements-docling.txt \
         && python -m pip uninstall --yes pip wheel \
         && find /usr/local/lib/python3.10/ensurepip/_bundled -type f -delete; \

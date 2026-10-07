@@ -1,5 +1,18 @@
 # Python 3.10-compatible versions used by the Linux container release.
 # Keep the Docling family pinned together for reproducible model/runtime behavior.
+#
+# 显式降级：本文件**故意不使用 `--require-hashes`**（QA R5 B7 / 2026-10-07 探查结论）
+# Deliberately NOT hashed (QA R5 B7, 2026-10-07 probe):
+#   - pip-compile（py3.10, amd64）实测传递依赖树 = 124 项，含 CUDA 版
+#     torch==2.14.1（manylinux_2_28_*，无 +cpu）/ torchvision / triton + 15 个 nvidia-*
+#     包，pip dry-run 证实全部指向 PyPI —— 与 Dockerfile 从 download.pytorch.org/whl/cpu
+#     安装、PYTORCH_ACCELERATOR=cpu 刻意规避 CUDA 的设计直接冲突。
+#   - 若强行 --require-hashes：要么哈希与 CPU wheel 不匹配导致构建失败，要么 15 个
+#     nvidia-* 包被强制从 PyPI 拉入（数 GB），镜像体积与安装行为都被改变。
+# 因此本文件保持「全 == 钉版本、0 哈希」；上游 docling/torch 升级时同样只做钉版本，
+# 不加哈希。同目录 requirements.txt（11 条直接依赖的依赖树）无此冲突，已正常
+# pip-compile --generate-hashes + Dockerfile --require-hashes。
+# 理由全记录见 docs/WORK_LOG.md 2026-10-07 条目；探查数据 /tmp/dp-out/（会话产物）。
 numpy==1.26.4
 docling==2.94.0
 docling-core==2.92.0
