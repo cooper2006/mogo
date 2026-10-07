@@ -55,6 +55,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+coverage.json
 *.cover
 *.py,cover
 .hypothesis/
@@ -221,6 +222,9 @@ pids
 # Coverage directory used by tools like istanbul
 coverage
 *.lcov
+
+# Office / WPS lock files (created while a document is open)
+~$*
 
 # Dependency directories
 node_modules/
