@@ -10,6 +10,7 @@ provides the scheduling math (backoff curve) plus a runner that respects the
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import math
@@ -128,6 +129,7 @@ def run_node_with_retry(
                 node_id=node_id, attempts=attempts, succeeded=True, final_result=result
             )
         except Exception as error:  # noqa: BLE001 — retry until exhausted
+            log_print(f"[services.dag.retry.run_node_with_retry] suppressed {type(error).__name__}: {error}", flush=True)
             last_error = error
             if on_attempt:
                 on_attempt(node_id, attempts, error)

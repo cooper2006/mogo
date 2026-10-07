@@ -1,6 +1,7 @@
 """Single MOVO policy and execution authority for DSH-managed tool calls."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import re
@@ -459,6 +460,7 @@ class EnterpriseToolService:
             await self._repository.finish_receipt(request.actionId, status="cancelled", error="tool execution cancelled")
             raise
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.tools.service.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
             receipt = await self._repository.finish_receipt(
                 request.actionId, status="failed", error=self._safe_error(exc)
             )

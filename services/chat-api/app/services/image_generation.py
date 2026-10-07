@@ -54,6 +54,7 @@ def _is_valid_remote_image_url(value: str) -> bool:
         parsed = urlparse(raw)
     except Exception as exc:
         log_print(f"[services.image_generation] silent exception caught: {exc}", flush=True)
+        return False
     if parsed.scheme not in {"http", "https"}:
         return False
     if not parsed.netloc:

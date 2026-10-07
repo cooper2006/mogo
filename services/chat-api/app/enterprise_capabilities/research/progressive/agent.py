@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import inspect
 import json
@@ -107,7 +108,8 @@ class ProgressiveResearchAgent:
                     evidence_mode=self._evidence_mode,
                     topic=original_query or seed_query,
                 )
-            except Exception:  # noqa: BLE001 - focus is best-effort; never block a run
+            except Exception as exc:  # noqa: BLE001 - focus is best-effort; never block a run
+                log_print(f"[enterprise_capabilities.research.progressive.agent.run] suppressed {type(exc).__name__}: {exc}", flush=True)
                 focus = None
 
         next_queries = await self._plan_initial_queries(original_query or seed_query, language=language)

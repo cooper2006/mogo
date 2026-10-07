@@ -17,6 +17,7 @@ Invisible candidates are silently trimmed (never error), preserving 017's
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Optional
 
 from app.context_space.address import (
     ASSET,
@@ -24,6 +25,7 @@ from app.context_space.address import (
     SessionAddress,
     SkillAddress,
 )
+from app.infrastructure.observability.config import log_print
 from app.memory.address import MemoryAddress
 
 
@@ -45,11 +47,32 @@ class ViewerContext:
     tenant_id: str = ""
 
 
-def check_memory_visibility(*, addr: MemoryAddress, ctx: ViewerContext) -> bool:
-    """Delegate visibility to 017 ``visible_to`` (FR-2, no escalation)."""
-    from app.memory.scope import Memory, visible_to
+def check_memory_visibility(
+    *,
+    addr: MemoryAddress,
+    ctx: ViewerContext,
+    memory: Optional[Any] = None,
+) -> bool:
+    """Delegate visibility to 017 ``visible_to`` (FR-2, no escalation).
 
-    memory = Memory(scope=addr.scope, owner_id=addr.owner_id)
+    The address is a **locator, not a credential**. ``scope`` / ``owner_id`` in
+    the URI are supplied by the caller and must never decide authorization:
+    trusting them let any tenant member read any other member's memory by
+    forging ``mogo://memory/personal/<self>/<victim_id>`` (R3 audit, 2026-10-06).
+
+    Authorization therefore runs against the **stored record** loaded by the
+    adapter. When no record is supplied we fail closed — the URI alone cannot
+    prove ownership.
+    """
+    from app.memory.scope import visible_to
+
+    if memory is None:
+        log_print(
+            f"[context_space.visibility] deny {addr.uri()}: no stored record "
+            f"supplied; URI identity is not a credential",
+            flush=True,
+        )
+        return False
     return visible_to(
         memory,
         viewer_id=ctx.viewer_id,
@@ -96,10 +119,15 @@ def check_session_visibility(*, addr: SessionAddress, ctx: ViewerContext) -> boo
     return addr.tenant_id == ctx.tenant_id
 
 
-def check_visibility(*, addr, ctx: ViewerContext) -> bool:
-    """Dispatch delegated visibility by the address root (FR-18/021)."""
+def check_visibility(*, addr, ctx: ViewerContext, memory: Optional[Any] = None) -> bool:
+    """Dispatch delegated visibility by the address root (FR-18/021).
+
+    ``memory`` carries the **stored** 017 record for ``MemoryAddress``; it is
+    required there so authorization never falls back to caller-supplied URI
+    identity (see :func:`check_memory_visibility`).
+    """
     if isinstance(addr, MemoryAddress):
-        return check_memory_visibility(addr=addr, ctx=ctx)
+        return check_memory_visibility(addr=addr, ctx=ctx, memory=memory)
     if isinstance(addr, ResourceAddress):
         return check_resource_visibility(addr=addr, ctx=ctx)
     if isinstance(addr, SkillAddress):

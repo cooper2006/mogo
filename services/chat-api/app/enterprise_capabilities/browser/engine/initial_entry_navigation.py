@@ -1,5 +1,6 @@
 """Choose whether a new browser run must honor its resolved entry URL."""
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -36,7 +37,8 @@ def initial_entry_url(
 def _same_page(left: str, right: str) -> bool:
     try:
         a, b = urlparse(left), urlparse(right)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.initial_entry_navigation._same_page] suppressed {type(exc).__name__}: {exc}", flush=True)
         return left == right
     host_a = str(a.hostname or "").lower().removeprefix("www.")
     host_b = str(b.hostname or "").lower().removeprefix("www.")

@@ -11,6 +11,7 @@ existing call sites are unaffected (FR-9).
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from dataclasses import dataclass, field
@@ -110,6 +111,7 @@ class ResilientLLMClient(BaseLLMClient):
                 # provider — surface immediately to the caller's cancel path.
                 raise
             except BaseException as error:  # noqa: BLE001
+                log_print(f"[llm.resilience.failover._run_with_failover] suppressed {type(error).__name__}: {error}", flush=True)
                 classified = classify_error(error, provider=entry.name)
                 failures.append({"provider": entry.name, "reason": str(classified)})
                 failed_providers.append(entry.name)

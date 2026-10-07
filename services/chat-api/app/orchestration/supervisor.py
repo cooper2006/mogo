@@ -13,6 +13,7 @@ graph engine uses.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from dataclasses import dataclass, field
@@ -103,6 +104,7 @@ class Supervisor:
                 try:
                     output = await runner(child, shared)
                 except Exception as error:  # noqa: BLE001 - surfaced as a child failure
+                    log_print(f"[orchestration.supervisor.dispatch] suppressed {type(error).__name__}: {error}", flush=True)
                     return ChildOutcome(node_id=child.id, ok=False, error=str(error))
                 shared[child.id] = output
                 return ChildOutcome(node_id=child.id, ok=True, output=output)

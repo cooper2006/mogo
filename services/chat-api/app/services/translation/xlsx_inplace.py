@@ -227,7 +227,8 @@ async def translate_batch(
                 continue
             try:
                 sid = int(item.get("id"))
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.translation.xlsx_inplace.translate_batch] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             text = str(item.get("text") or "").strip()
             if text:
@@ -299,7 +300,8 @@ async def translate_sheet_titles(
                 continue
             try:
                 idx = int(item.get("id"))
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.translation.xlsx_inplace.translate_sheet_titles] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             if idx < 0 or idx >= len(translatable):
                 continue

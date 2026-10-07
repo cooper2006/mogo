@@ -5,6 +5,7 @@ existing effect contract to the target resource and intended operation so a
 SPA re-render cannot turn one publish/send/submit into a second operation.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import hashlib
 import json
@@ -160,7 +161,8 @@ def browser_target_identity(raw_url: str) -> tuple[str, str]:
     """Return a conservative site and resource identity without auth noise."""
     try:
         parts = urlsplit(str(raw_url or "").strip())
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.business_action.browser_target_identity] suppressed {type(exc).__name__}: {exc}", flush=True)
         return "", ""
     host = str(parts.hostname or "").lower().strip()
     if not host:

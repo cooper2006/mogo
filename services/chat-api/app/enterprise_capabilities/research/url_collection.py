@@ -5,6 +5,7 @@ directly, then use Firecrawl only for blocked, JavaScript-only, or empty pages.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import mimetypes
 from typing import Any, Awaitable, Callable
@@ -137,6 +138,7 @@ class UrlResourceCollector:
                     else:
                         fallback_urls.append(url)
                 except Exception as exc:
+                    log_print(f"[enterprise_capabilities.research.url_collection.collect] suppressed {type(exc).__name__}: {exc}", flush=True)
                     failures.append({
                         "url": url,
                         "stage": "direct_http",
@@ -194,6 +196,7 @@ class UrlResourceCollector:
         try:
             api_key = await self._api_key_resolver(tenant_id)
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.research.url_collection._collect_fallback] suppressed {type(exc).__name__}: {exc}", flush=True)
             failures.extend({
                 "url": url,
                 "stage": "firecrawl_config",
@@ -227,6 +230,7 @@ class UrlResourceCollector:
                         },
                     })
             except Exception as exc:
+                log_print(f"[enterprise_capabilities.research.url_collection._collect_fallback] suppressed {type(exc).__name__}: {exc}", flush=True)
                 failures.append({
                     "url": url,
                     "stage": "firecrawl",

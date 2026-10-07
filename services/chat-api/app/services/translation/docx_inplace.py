@@ -16,6 +16,7 @@ Design principles (see discussion doc):
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import io
 import json
@@ -120,7 +121,8 @@ def _iter_header_footer_stories(doc: Document) -> List[Any]:
                     continue
             try:
                 story = getattr(section, attr)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.translation.docx_inplace._iter_header_footer_stories] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             story_id = id(getattr(story, "_element", story))
             if story_id in seen:
@@ -148,7 +150,8 @@ def _extract_table_segments(
                 continue
             seen_header_tc.add(tc_id)
             header_texts.append(c.text.strip())
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.translation.docx_inplace._extract_table_segments] suppressed {type(exc).__name__}: {exc}", flush=True)
         header_texts = []
 
     for row_idx, row in enumerate(table.rows):
@@ -352,7 +355,8 @@ async def translate_batch(
                 continue
             try:
                 sid = int(item.get("id"))
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.translation.docx_inplace.translate_batch] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             txt = str(item.get("text") or "").strip()
             if txt:
@@ -451,7 +455,8 @@ def reflow_table_column_widths(doc: Document) -> int:
             for col in table.columns:
                 try:
                     existing_widths.append(int(col.width) if col.width is not None else 0)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[services.translation.docx_inplace.reflow_table_column_widths] suppressed {type(exc).__name__}: {exc}", flush=True)
                     existing_widths.append(0)
             total_width = sum(existing_widths)
             if total_width <= 0:

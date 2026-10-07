@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -298,7 +299,8 @@ async def inject_images_inline(
                 Message(role=Role.USER, content=json.dumps(prompt_payload, ensure_ascii=False, indent=2)),
             ]
         )
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.image_markdown.inject_images_inline] suppressed {type(exc).__name__}: {exc}", flush=True)
         return content
 
     rewritten = str(getattr(resp, "content", "") or "").strip()

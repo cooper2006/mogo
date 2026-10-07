@@ -12,14 +12,16 @@ from app.enterprise_capabilities.evidence.foundation.external_web_raw import is_
 def jsonable(value: Any) -> Any:
     try:
         return json.loads(json.dumps(value, ensure_ascii=False, default=str))
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.evidence.foundation.writer_packet.common.jsonable] suppressed {type(exc).__name__}: {exc}", flush=True)
         return str(value or "")
 
 
 def fingerprint(value: Any) -> str:
     try:
         body = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.evidence.foundation.writer_packet.common.fingerprint] suppressed {type(exc).__name__}: {exc}", flush=True)
         body = str(value or "")
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
@@ -111,5 +113,6 @@ def decode_mapping(value: Any) -> Dict[str, Any]:
                 parsed = json.loads(raw)
             except Exception as exc:
                 log_print(f"[enterprise_capabilities.evidence.foundation.writer_packet.common] silent exception caught: {exc}", flush=True)
+                return {}
             return dict(parsed) if isinstance(parsed, dict) else {}
     return {}

@@ -4,6 +4,7 @@ Icon library for the presentation pipeline.  The underlying
 Tabler icon SVG assets are shared (backend/app/assets/tabler-icons/).
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re

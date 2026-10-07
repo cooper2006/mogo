@@ -40,6 +40,7 @@ async def kg_rag_candidates(
         await store._ensure_loaded()
     except Exception as exc:
         log_print(f"[knowledge_graph.rag_candidates] silent exception caught: {exc}", flush=True)
+        return []
 
     # Build a case-insensitive lookup.
     lookup: dict[str, str] = {}

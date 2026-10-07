@@ -15,6 +15,7 @@ Design goals:
     is mutated.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import logging
@@ -64,7 +65,8 @@ def _resolve_size_for_block(block: FreeformBlock) -> str:
     try:
         w = float(block.w or 0.0)
         h = float(block.h or 0.0)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.presentation.image_filler._resolve_size_for_block] suppressed {type(exc).__name__}: {exc}", flush=True)
         w, h = 0.0, 0.0
     if w <= 0 or h <= 0:
         aspect = 1.0

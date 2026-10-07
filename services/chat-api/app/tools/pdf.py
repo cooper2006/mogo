@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import html
 import os
@@ -390,14 +391,16 @@ def _parse_chart_data(raw: str) -> str:
             import ast
             try:
                 result[key] = ast.literal_eval(val)
-            except:
+            except Exception as exc:
+                log_print(f"[tools.pdf._parse_chart_data] suppressed {type(exc).__name__}: {exc}", flush=True)
                 result[key] = val
         else:
             # Try to parse as int/float
             try:
                 if '.' in val: result[key] = float(val)
                 else: result[key] = int(val)
-            except:
+            except Exception as exc:
+                log_print(f"[tools.pdf._parse_chart_data] suppressed {type(exc).__name__}: {exc}", flush=True)
                 result[key] = val.strip('"\'')
     
     import json

@@ -137,10 +137,13 @@ def _normalized_written_value(value: Any) -> str:
     parser = _EditableTextParser()
     try:
         parser.feed(raw)
+        parser.close()
     except Exception as exc:
-        log_print(f"[enterprise_capabilities.browser.engine.workflow_cache.recorded_target_identity] silent exception caught: {exc}", flush=True)
-    except Exception as exc:
-        log_print(f"[enterprise_capabilities.browser.engine.workflow_cache.recorded_target_identity] silent exception caught: {exc}", flush=True)
+        log_print(
+            "[enterprise_capabilities.browser.engine.workflow_cache.recorded_target_identity] "
+            f"html parse failed: {exc}",
+            flush=True,
+        )
         return _normalized_text(raw)
     return _normalized_text(" ".join(parser.parts))
 

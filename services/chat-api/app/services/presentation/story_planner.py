@@ -5,6 +5,7 @@ point to contracts and llm_utils so the pipeline no longer depends
 on any V4 module.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import logging
 import re
@@ -189,13 +190,15 @@ def compact_tool_observations(
                 try:
                     import json as _json
                     result_summary = _json.dumps(result_obj, ensure_ascii=False)[:4000]
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[services.presentation.story_planner.compact_tool_observations] suppressed {type(exc).__name__}: {exc}", flush=True)
                     result_summary = ""
         elif isinstance(result_obj, list):
             try:
                 import json as _json
                 result_summary = _json.dumps(result_obj, ensure_ascii=False)[:4000]
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.presentation.story_planner.compact_tool_observations] suppressed {type(exc).__name__}: {exc}", flush=True)
                 result_summary = ""
 
         merged_summary = (

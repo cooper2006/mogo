@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
 import uuid
@@ -151,6 +152,7 @@ async def upload_resources(files: list[UploadFile] = File(...), directoryId: str
             document = await knowledge_lifecycle_client.upload(main_id=principal.main_id, owner_user_id=principal.user_id, resource_id=str(resource["_id"]), file=file, name=str(resource["name"]), description="", tags=tag_list)
             results.append({**service.resource_view(resource), "status": str(document.get("status") or "pending_parse"), "activeDocumentId": str(document.get("id") or "")})
         except Exception as exc:
+            log_print(f"[api.endpoints.personal_knowledge.upload_resources] suppressed {type(exc).__name__}: {exc}", flush=True)
             await service.mark_upload(resource_id=str(resource["_id"]), error=str(exc))
             results.append({**service.resource_view(resource), "status": "failed", "error": str(exc)[:500]})
         finally:

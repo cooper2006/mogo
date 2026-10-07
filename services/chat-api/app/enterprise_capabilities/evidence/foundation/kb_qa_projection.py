@@ -15,6 +15,7 @@ def decode_tool_payload(value: Any) -> Dict[str, Any]:
                 parsed = json.loads(text)
             except Exception as exc:
                 log_print(f"[enterprise_capabilities.evidence.foundation.kb_qa_projection] silent exception caught: {exc}", flush=True)
+                return {}
             if isinstance(parsed, dict):
                 return parsed
     return {}

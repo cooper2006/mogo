@@ -1,7 +1,5 @@
 from __future__ import annotations
 from app.infrastructure.observability.config import log_print
-from app.infrastructure.observability.config import log_print
-from app.infrastructure.observability.config import log_print
 
 import json
 from typing import Any, Optional
@@ -88,9 +86,9 @@ async def stream_model_test(model_id: str, payload: Optional[ModelTestPayload] =
             yield _sse({"type": "done", "message": final_text or "模型连接测试成功。"})
         except ModelConfigError as exc:
             await update_model_health(model_id, main_id, "failed", str(exc))
+            yield _sse({"type": "error", "message": str(exc)})
         except Exception as exc:
-            log_print(f"[api.endpoints.models] silent exception caught: {exc}", flush=True)
-        except Exception as exc:
+            log_print(f"[api.endpoints.models] model stream test failed: {exc}", flush=True)
             message = f"模型连接测试失败: {exc}"
             await update_model_health(model_id, main_id, "failed", message)
             yield _sse({"type": "error", "message": message})
@@ -122,12 +120,12 @@ async def model_test(model_id: str, payload: Optional[ModelTestPayload] = None) 
             ],
         )
         await update_model_health(model_id, main_id, "healthy", "")
-    except Exception as exc:
-        log_print(f"[api.endpoints.models] silent exception caught: {exc}", flush=True)
+        return {"code": 0, "data": {"success": True, "status": "healthy", "message": str(response.content or "")}}
     except ModelConfigError as exc:
         await update_model_health(model_id, main_id, "failed", str(exc))
         return {"code": 0, "data": {"success": False, "status": "failed", "message": str(exc)}}
     except Exception as exc:
+        log_print(f"[api.endpoints.models] model test failed: {exc}", flush=True)
         message = f"模型连接测试失败: {exc}"
         await update_model_health(model_id, main_id, "failed", message)
         return {"code": 0, "data": {"success": False, "status": "failed", "message": message}}
@@ -161,10 +159,7 @@ async def image_model_test(model_id: str, payload: Optional[ImageModelTestPayloa
             },
         }
     except Exception as exc:
-        log_print(f"[api.endpoints.models] silent exception caught: {exc}", flush=True)
-        await update_model_health(model_id, main_id, "failed", str(exc))
-        return {"code": 0, "data": {"success": False, "status": "failed", "message": str(exc)}}
-    except Exception as exc:
+        log_print(f"[api.endpoints.models] image model test failed: {exc}", flush=True)
         message = f"图片模型连接测试失败: {exc}"
         await update_model_health(model_id, main_id, "failed", message)
         return {"code": 0, "data": {"success": False, "status": "failed", "message": message}}

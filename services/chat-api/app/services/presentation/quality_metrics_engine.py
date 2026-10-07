@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Callable, Dict, List
 
@@ -119,7 +120,8 @@ class QualityMetricsEngine:
                 style = dict(block.style or {})
                 try:
                     font_size = float(style.get("font_size")) if style.get("font_size") not in (None, "") else None
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[services.presentation.quality_metrics_engine.page_quality_metrics] suppressed {type(exc).__name__}: {exc}", flush=True)
                     font_size = None
                 min_w, min_h = text_geometry_requirements(str(block.content or ""), font_size=font_size)
                 is_readable = bool(w >= min_w and h >= min_h)

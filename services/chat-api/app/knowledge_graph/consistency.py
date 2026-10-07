@@ -12,6 +12,7 @@ Detected conflicts are **marked and kept queryable** — never blocked (FR-14).
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass, field
 from typing import Any

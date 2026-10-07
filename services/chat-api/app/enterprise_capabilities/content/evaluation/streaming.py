@@ -41,9 +41,11 @@ async def stream_evaluation(
                 commentary_callback=on_commentary,
             )
         except Exception as exc:
-            log_print(f"[enterprise_capabilities.content.evaluation.streaming] silent exception caught: {exc}", flush=True)
-        except Exception as exc:
-            log_print(f"[enterprise_capabilities.content.evaluation.streaming] silent exception caught: {exc}", flush=True)
+            log_print(
+                "[enterprise_capabilities.content.evaluation.streaming] "
+                f"evaluation pipeline failed: {exc}",
+                flush=True,
+            )
             await queue.put(EvaluationStreamItem("error", exc))
 
     task = asyncio.create_task(run())

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from pathlib import Path
 from typing import Any, BinaryIO

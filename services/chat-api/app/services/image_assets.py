@@ -76,7 +76,8 @@ def build_uploaded_image_assets(
             continue
         try:
             fact_by_index[int(item.get("image_index") or 0)] = item
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.image_assets.build_uploaded_image_assets] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
 
     global_subjects = [

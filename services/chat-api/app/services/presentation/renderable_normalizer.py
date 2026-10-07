@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import logging
 import re
@@ -37,7 +38,8 @@ logger = logging.getLogger(__name__)
 def _clamp01(value: Any, default: float) -> float:
     try:
         result = float(value)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.presentation.renderable_normalizer._clamp01] suppressed {type(exc).__name__}: {exc}", flush=True)
         result = default
     return max(0.0, min(1.0, result))
 
@@ -253,7 +255,8 @@ class RenderableAstNormalizer:
         if isinstance(brief_payload.get("design_tokens"), dict):
             try:
                 tokens = DesignTokens.model_validate(brief_payload.get("design_tokens"))
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.presentation.renderable_normalizer.normalize_page] suppressed {type(exc).__name__}: {exc}", flush=True)
                 tokens = DesignTokens()
 
         normalized = page.model_copy(deep=True)

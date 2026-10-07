@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -38,7 +39,8 @@ def normalize_timezone(value: Any) -> str:
     try:
         ZoneInfo(name)
         return name
-    except Exception:
+    except Exception as exc:
+        log_print(f"[core.quota_policy.normalize_timezone] suppressed {type(exc).__name__}: {exc}", flush=True)
         return DEFAULT_TIMEZONE
 
 

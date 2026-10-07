@@ -1,6 +1,7 @@
 """Durable terminal-event recovery for DSH turns."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any
 
@@ -146,7 +147,8 @@ class TurnTerminalRecovery:
                 user_id=str(binding["user_id"]),
             )
             return current or binding
-        except Exception:
+        except Exception as exc:
+            log_print(f"[dsh_runtime.turn_recovery.recover] suppressed {type(exc).__name__}: {exc}", flush=True)
             return binding
 
     @staticmethod

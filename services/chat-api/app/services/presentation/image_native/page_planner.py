@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import inspect
@@ -94,7 +95,8 @@ class ImageNativePagePlanner:
         restored_planning = dict(execution_session.planning) if execution_session is not None else {}
         try:
             deck_brief = DeckBrief.model_validate(restored_planning["image_native_deck_brief"])
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.presentation.image_native.page_planner.build] suppressed {type(exc).__name__}: {exc}", flush=True)
             deck_brief = await self._deck_planner.build(
                 story_plan=story_plan,
                 constraint_bundle=constraint_bundle,

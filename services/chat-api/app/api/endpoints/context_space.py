@@ -66,15 +66,18 @@ class ResolveResponse(BaseModel):
 # --- in-memory trace ring (observability channel, not the 001 audit stream) ---
 
 _TRACE_RING_SIZE = 200
-_TRACE_RING: dict[str, dict[str, Any]] = {}
+# trace_id -> (tenant_id, trace). Traces are tenant-scoped: the ring is process
+# wide, so without the tenant guard any authenticated user could read back any
+# other tenant's trace by id (R3 audit, 2026-10-06).
+_TRACE_RING: dict[str, tuple[str, dict[str, Any]]] = {}
 
 
-def _remember_trace(trace: dict[str, Any]) -> None:
+def _remember_trace(trace: dict[str, Any], tenant_id: str = "") -> None:
     """Store a trace for later readback, evicting the oldest when full."""
     trace_id = str(trace.get("trace_id") or "")
     if not trace_id:
         return
-    _TRACE_RING[trace_id] = trace
+    _TRACE_RING[trace_id] = (tenant_id, trace)
     while len(_TRACE_RING) > _TRACE_RING_SIZE:
         oldest = next(iter(_TRACE_RING))
         _TRACE_RING.pop(oldest, None)
@@ -142,7 +145,7 @@ async def resolve_context(
         trace = out.get("trace") or {}
         if trace:
             traces.append(trace)
-            _remember_trace(trace)
+            _remember_trace(trace, tenant_id)
         items.append(ResolvedItem(uri=uri, ok=True, resolved=out.get("resolved") or {}))
 
     return ResolveResponse(
@@ -165,11 +168,13 @@ async def get_context_trace(
     """Read back a unified retrieval trace by id (017 FR-17 replay)."""
     from app.api.endpoints.auth import _resolve_session_user
 
-    await _resolve_session_user(authorization)
-    trace = _TRACE_RING.get(str(trace_id))
-    if trace is None:
+    resolved_auth = await _resolve_session_user(authorization)
+    tenant_id = str(resolved_auth.get("main_id") or "")
+    entry = _TRACE_RING.get(str(trace_id))
+    # 404 (not 403) for a foreign trace so its existence is not disclosed.
+    if entry is None or entry[0] != tenant_id:
         raise HTTPException(status_code=404, detail="trace not found")
-    return ResolveResponse(code=0, message="ok", data={"trace": trace})
+    return ResolveResponse(code=0, message="ok", data={"trace": entry[1]})
 
 
 __all__ = ["TraceRecord", "router"]

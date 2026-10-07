@@ -7,6 +7,7 @@ integration in ``retrieval.py``.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import uuid
 from typing import Any, Optional
@@ -15,12 +16,28 @@ from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.tenant import resolve_main_id
 from app.memory.scope import Memory, MemoryScope, visible_to
+from app.memory.tiering import SUMMARY_REFRESH_DAYS_DEFAULT
 
 COLLECTION = "memories"
 
 
 class MemoryTooLargeError(ValueError):
     """Raised when non-tierable content exceeds the FR-16 hard byte limit."""
+
+
+def _configured_refresh_days() -> int:
+    """FR-15 staleness window, taken from configuration (falls back to default).
+
+    ``MEMORY_SUMMARY_REFRESH_DAYS`` used to be a dead setting: operators could
+    set it and nothing read it, so the hard-coded ``30`` always won (R3 audit,
+    2026-10-06). This is now the single resolution point.
+    """
+    try:
+        value = int(get_settings().MEMORY_SUMMARY_REFRESH_DAYS)
+    except Exception as exc:
+        log_print(f"[memory.store._configured_refresh_days] suppressed {type(exc).__name__}: {exc}", flush=True)
+        return SUMMARY_REFRESH_DAYS_DEFAULT
+    return value if value > 0 else SUMMARY_REFRESH_DAYS_DEFAULT
 
 
 def _now_seconds() -> float:
@@ -43,7 +60,7 @@ def _row_to_memory(row: dict[str, Any]) -> Memory:
         l2_raw=str(row.get("l2_raw") or row.get("content") or ""),
         tierable=bool(row.get("tierable", True)),
         summary_generated_at=float(row.get("summary_generated_at") or 0.0),
-        summary_refresh_days=int(row.get("summary_refresh_days") or 30),
+        summary_refresh_days=int(row.get("summary_refresh_days") or _configured_refresh_days()),
         source_session_id=str(row.get("source_session_id") or ""),
         source_type=str(row.get("source_type") or ""),
     )
@@ -68,7 +85,7 @@ class MemoryStore:
         l2_raw: str = "",
         tierable: bool = True,
         summary_generated_at: float = 0.0,
-        summary_refresh_days: int = 30,
+        summary_refresh_days: int = 0,
         source_session_id: str = "",
         source_type: str = "",
     ) -> Memory:
@@ -83,11 +100,17 @@ class MemoryStore:
         """
         mem_id = str(memory_id or uuid.uuid4().hex)
         now = _now_seconds()
+        # 0 / unset means "use the configured FR-15 window".
+        summary_refresh_days = summary_refresh_days or _configured_refresh_days()
         # FR-16: layered-first, reject-only-as-fallback.
+        # The limit is named ``..._BYTES`` and is compared against the *encoded*
+        # size: ``len()`` counts characters, so CJK content (3 bytes/char) would
+        # otherwise slip through at up to 3x the configured ceiling.
         hard_max = int(get_settings().MEMORY_L2_HARD_MAX_BYTES)
-        if not tierable and len(content) > hard_max:
+        content_bytes = len(content.encode("utf-8", errors="replace"))
+        if not tierable and content_bytes > hard_max:
             raise MemoryTooLargeError(
-                f"memory of {len(content)} bytes is not tierable and exceeds the "
+                f"memory of {content_bytes} bytes is not tierable and exceeds the "
                 f"hard limit of {hard_max} bytes; refuse to persist"
             )
         db = get_db()

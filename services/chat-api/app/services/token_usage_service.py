@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import re
 import json
@@ -432,7 +433,8 @@ class TokenUsageService:
         if text.startswith("{"):
             try:
                 payload = json.loads(text)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.token_usage_service._display_prompt] suppressed {type(exc).__name__}: {exc}", flush=True)
                 payload = None
             if isinstance(payload, dict):
                 for key in ("user_request", "latest_user_request", "request", "query", "question", "content"):
@@ -444,7 +446,8 @@ class TokenUsageService:
             value = match.group(1)
             try:
                 return TokenUsageService._repair_mojibake(json.loads(f'"{value}"')).strip()
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.token_usage_service._display_prompt] suppressed {type(exc).__name__}: {exc}", flush=True)
                 return TokenUsageService._repair_mojibake(value).strip()
         question_match = re.search(r"用户问题：\s*(.*?)\s*(?:内部知识候选：|$)", text, flags=re.S)
         if question_match:

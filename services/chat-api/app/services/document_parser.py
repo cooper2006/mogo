@@ -208,7 +208,8 @@ class DocumentParserService:
         if upload_images:
             try:
                 uploader = AliyunOSSUploader()
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.document_parser._build_docx_parse_from_bytes] suppressed {type(exc).__name__}: {exc}", flush=True)
                 uploader = None
 
         body = getattr(getattr(doc, "element", None), "body", None)
@@ -251,7 +252,8 @@ class DocumentParserService:
                                     file_name=image_filename,
                                     content_type=content_type,
                                 )
-                            except Exception:
+                            except Exception as exc:
+                                log_print(f"[services.document_parser._build_docx_parse_from_bytes] suppressed {type(exc).__name__}: {exc}", flush=True)
                                 url = ""
                                 object_path = ""
                         caption_seed = text or nearby.get("before_text") or nearby.get("after_text") or image_filename
@@ -361,7 +363,8 @@ class DocumentParserService:
                         "bottom": float(word.get("bottom") or 0),
                     }
                 )
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.document_parser._pdf_words_to_paragraphs] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
         if not normalized:
             return []
@@ -701,12 +704,14 @@ class DocumentParserService:
                             table_bboxes: List[List[float]] = []
                             try:
                                 found_tables = list(page.find_tables() or [])
-                            except Exception:
+                            except Exception as exc:
+                                log_print(f"[services.document_parser._build_pdf_parse_from_bytes] suppressed {type(exc).__name__}: {exc}", flush=True)
                                 found_tables = []
                             for table_index, table in enumerate(found_tables, start=1):
                                 try:
                                     rows = table.extract() or []
-                                except Exception:
+                                except Exception as exc:
+                                    log_print(f"[services.document_parser._build_pdf_parse_from_bytes] suppressed {type(exc).__name__}: {exc}", flush=True)
                                     rows = []
                                 normalized_rows = [
                                     [str(cell or "").strip() for cell in list(row or [])]
@@ -747,7 +752,8 @@ class DocumentParserService:
                                     )
                                     or []
                                 )
-                            except Exception:
+                            except Exception as exc:
+                                log_print(f"[services.document_parser._build_pdf_parse_from_bytes] suppressed {type(exc).__name__}: {exc}", flush=True)
                                 words = []
                             filtered_words = []
                             for word in words:
@@ -758,7 +764,8 @@ class DocumentParserService:
                                         float(word.get("x1") or 0),
                                         float(word.get("bottom") or 0),
                                     ]
-                                except Exception:
+                                except Exception as exc:
+                                    log_print(f"[services.document_parser._build_pdf_parse_from_bytes] suppressed {type(exc).__name__}: {exc}", flush=True)
                                     continue
                                 if any(cls._bbox_contains(table_bbox, word_bbox) for table_bbox in table_bboxes):
                                     continue
@@ -776,7 +783,8 @@ class DocumentParserService:
                                     ]
                                     width = max(0.0, bbox[2] - bbox[0])
                                     height = max(0.0, bbox[3] - bbox[1])
-                                except Exception:
+                                except Exception as exc:
+                                    log_print(f"[services.document_parser._build_pdf_parse_from_bytes] suppressed {type(exc).__name__}: {exc}", flush=True)
                                     continue
                                 if width * height < 400 or min(width, height) < 12:
                                     continue
@@ -880,7 +888,8 @@ class DocumentParserService:
                             }
                         )
                     markdown = cls._join_blocks(fallback_pages)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[services.document_parser._build_pdf_parse_from_bytes] suppressed {type(exc).__name__}: {exc}", flush=True)
                     text = str(extract_pdf_text(tmp_path, max_pages=None, layout=True) or "").strip()
                     if not text:
                         text = str(extract_pdf_text(tmp_path, max_pages=None, layout=False) or "").strip()

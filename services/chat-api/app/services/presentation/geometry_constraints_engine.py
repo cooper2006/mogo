@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import logging
 from typing import Callable, List, Tuple
@@ -183,7 +184,8 @@ class GeometryConstraintsEngine:
         style = dict(out.style or {})
         try:
             font_size = float(style.get("font_size")) if style.get("font_size") not in (None, "") else None
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.presentation.geometry_constraints_engine.enforce_text_readability_bounds] suppressed {type(exc).__name__}: {exc}", flush=True)
             font_size = None
         min_w, min_h = text_geometry_requirements(text, font_size=font_size)
         out.w = max(float(out.w or 0.0), min_w)

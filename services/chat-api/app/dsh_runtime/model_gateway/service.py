@@ -1,6 +1,7 @@
 """Translate DSH model calls to ASKAI's existing configured-model clients."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 import logging
@@ -156,6 +157,7 @@ class ModelGatewayService:
                     yield {"type": "usage", "usage": usage}
                 yield {"type": "finish", "reason": {"kind": "tool-calls" if tool_calls else "stop"}}
             except Exception as exc:
+                log_print(f"[dsh_runtime.model_gateway.service.iterator] suppressed {type(exc).__name__}: {exc}", flush=True)
                 code, retryable = self._classify_provider_failure(exc)
                 yield {
                     "type": "error",

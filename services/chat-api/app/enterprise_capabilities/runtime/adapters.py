@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from types import SimpleNamespace
@@ -94,7 +95,8 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
             session_id=context.conversation_id,
             turn_id=str(arguments.get("turn_id") or ""),
         )
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.runtime.adapters.knowledge_search] suppressed {type(exc).__name__}: {exc}", flush=True)
         memory_candidates, memory_trace = [], {}
     # 015 residual: KG entity context as RAG candidates (mirrors 017 pattern).
     # Extract entity terms from the query (case-insensitive name match in the
@@ -106,7 +108,8 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
             entity_terms=[query] if query else [],
             top_n=int(arguments.get("top_n") or 8),
         )
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.runtime.adapters.knowledge_search] suppressed {type(exc).__name__}: {exc}", flush=True)
         kg_candidates = []
     try:
         payload = await internal_knowledge_qa_service.answer(

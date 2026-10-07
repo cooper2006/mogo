@@ -240,7 +240,8 @@ class DefaultOpenAIClient(BaseLLMClient):
             raw_content = str(response.message.content or "")
             try:
                 return validate_structured_text(raw_content, schema)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[llm.providers.default_openai.ainvoke_structured] suppressed {type(exc).__name__}: {exc}", flush=True)
                 repair_messages = build_structured_fallback_messages(
                     [
                         Message(

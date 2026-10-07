@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Dict
 
@@ -26,6 +27,7 @@ class TokenUsagePushService:
                 response.raise_for_status()
             return TokenUsagePushResult(enabled=True, pushed=True)
         except Exception as exc:
+            log_print(f"[token_usage.push.push] suppressed {type(exc).__name__}: {exc}", flush=True)
             return TokenUsagePushResult(enabled=True, pushed=False, error=str(exc))
 
     @staticmethod
@@ -34,7 +36,8 @@ class TokenUsagePushService:
         try:
             if str(user_id).strip():
                 user_id = int(str(user_id))
-        except Exception:
+        except Exception as exc:
+            log_print(f"[token_usage.push._to_remote_payload] suppressed {type(exc).__name__}: {exc}", flush=True)
             user_id = str(record.user_id or "")
         return {
             "mainId": record.main_id,

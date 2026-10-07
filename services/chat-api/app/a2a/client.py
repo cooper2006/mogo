@@ -8,6 +8,7 @@ governance denial from a transport failure (US2 acceptance: 错误码映射).
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from dataclasses import dataclass, field
@@ -45,6 +46,7 @@ async def run_with_retry(
         try:
             result = await run_one()
         except Exception as error:  # noqa: BLE001 — retry until exhausted
+            log_print(f"[a2a.client.run_with_retry] suppressed {type(error).__name__}: {error}", flush=True)
             last_error = error
             if attempts >= policy.max_attempts:
                 break

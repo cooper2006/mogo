@@ -1,3 +1,4 @@
+from app.infrastructure.observability.config import log_print
 from typing import Any, Iterable, List
 
 from app.llm.factory import get_llm_client
@@ -7,7 +8,8 @@ from app.llm.types import Message, Role
 def _coerce_role(value: Any) -> Role:
     try:
         return value if isinstance(value, Role) else Role(str(value or "assistant"))
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.llm._coerce_role] suppressed {type(exc).__name__}: {exc}", flush=True)
         return Role.ASSISTANT
 
 
@@ -48,6 +50,7 @@ class LLMService:
                 if chunk.message.content is not None:
                     yield str(chunk.message.content)
         except Exception as e:
+            log_print(f"[services.llm.chat_stream] suppressed {type(e).__name__}: {e}", flush=True)
             yield f"Error: {str(e)}"
 
     async def chat_complete(self, messages: list, temperature: float | None = 0.2) -> str:
@@ -59,6 +62,7 @@ class LLMService:
             resp = await client.ainvoke(_normalize_messages(messages), **kwargs)
             return str(resp.message.content or "")
         except Exception as e:
+            log_print(f"[services.llm.chat_complete] suppressed {type(e).__name__}: {e}", flush=True)
             return f"Error: {str(e)}"
 
 llm_service = LLMService()

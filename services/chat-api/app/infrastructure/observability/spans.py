@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import contextlib
@@ -149,7 +150,8 @@ def _default_slow_ms() -> int:
         from app.core.config import get_settings
 
         return int(get_settings().LOG_SLOW_SPAN_MS)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[infrastructure.observability.spans._default_slow_ms] suppressed {type(exc).__name__}: {exc}", flush=True)
         return 10000
 
 

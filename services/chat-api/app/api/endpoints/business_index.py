@@ -14,6 +14,7 @@ Read-only by design: MOVO never writes back to source business systems.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any
 
@@ -103,6 +104,7 @@ async def align(
                 )
             )
         except Exception as exc:  # noqa: BLE001 - skip malformed, keep the rest
+            log_print(f"[api.endpoints.business_index.align] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
     report = align_entities(entities)
     joined = join_cross_system(report, expected_systems=payload.expected_systems)

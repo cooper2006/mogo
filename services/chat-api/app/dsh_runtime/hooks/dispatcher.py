@@ -18,6 +18,7 @@ Design constraints:
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import inspect
 from typing import Any, Awaitable, Callable, Optional, Union
@@ -96,6 +97,7 @@ async def dispatch(payload: Optional[HookEventPayload]) -> list[str]:
             if inspect.isawaitable(result):
                 await result
         except Exception as exc:  # noqa: BLE001 — observers must not break callers
+            log_print(f"[dsh_runtime.hooks.dispatcher.dispatch] suppressed {type(exc).__name__}: {exc}", flush=True)
             failures.append(f"{getattr(handler, '__qualname__', handler)}: {exc}")
     return failures
 

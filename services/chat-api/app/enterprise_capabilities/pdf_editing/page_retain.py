@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import hashlib
 from dataclasses import dataclass
@@ -72,7 +73,8 @@ def _document_warnings(reader: PdfReader, *, removed_pages: tuple[int, ...]) -> 
                     if annotation.get("/Dest") is not None or action.get("/S") == "/GoTo":
                         has_internal_links = True
                         break
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[enterprise_capabilities.pdf_editing.page_retain._document_warnings] suppressed {type(exc).__name__}: {exc}", flush=True)
                     continue
             if has_internal_links:
                 break
@@ -91,7 +93,8 @@ def retain_pdf_pages(source_bytes: bytes, keep_pages: Iterable[Any]) -> PdfPageR
     if reader.is_encrypted:
         try:
             unlocked = bool(reader.decrypt(""))
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.pdf_editing.page_retain.retain_pdf_pages] suppressed {type(exc).__name__}: {exc}", flush=True)
             unlocked = False
         if not unlocked:
             raise ValueError("encrypted PDF requires a password and cannot be processed")

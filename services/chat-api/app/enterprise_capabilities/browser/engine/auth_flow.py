@@ -1,6 +1,7 @@
 """Passive authentication wait loop for desktop browser sessions."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from dataclasses import dataclass
@@ -43,7 +44,8 @@ async def wait_for_authentication(
                 args={},
                 rationale="passively observe authentication state",
             ))
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.auth_flow.wait_for_authentication] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
         if not ok or not isinstance(result, dict):
             continue

@@ -16,6 +16,7 @@ keeps it testable without the DSH runtime or a database.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from dataclasses import dataclass, field
@@ -132,6 +133,7 @@ class DagEngine:
                 try:
                     output = await runner(node, result.context)
                 except Exception as error:  # noqa: BLE001 - surfaced as a failed node
+                    log_print(f"[orchestration.engine.execute] suppressed {type(error).__name__}: {error}", flush=True)
                     result.events.append(
                         {"node": node.id, "event": "failed", "reason": str(error)}
                     )
@@ -228,6 +230,7 @@ class DagEngine:
         try:
             output = await runner(node, result.context)
         except Exception as error:  # noqa: BLE001
+            log_print(f"[orchestration.engine._run_single] suppressed {type(error).__name__}: {error}", flush=True)
             result.events.append({"node": node.id, "event": "failed", "reason": str(error)})
             return NodeOutcome(node_id=node.id, state=NodeState.FAILED.value, error=str(error), attempts=1)
         result.events.append({"node": node.id, "event": "completed"})

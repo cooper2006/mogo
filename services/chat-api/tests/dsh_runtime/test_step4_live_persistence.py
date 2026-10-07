@@ -509,5 +509,12 @@ async def _test_durable_writer_flush_deadline_is_measured_from_first_event() -> 
         writer.enqueue(KernelEventWrite(event=_event(cursor, "kernel.native.event", {}), projected=None))
         await asyncio.sleep(0.02)
     assert events.calls
-    assert len(events.calls[0]) in {3, 4}
+    # Events are >=0.02s apart while the flush deadline is 0.05s, so the 4th event
+    # always lands in a later batch. The *exact* cut is wall-clock dependent (a
+    # loaded machine makes ``sleep`` longer, never shorter), so assert the
+    # invariant rather than a fixed size — the old ``{3, 4}`` bound failed
+    # spuriously under full-suite load (R3 audit, 2026-10-06).
+    assert 1 <= len(events.calls[0]) <= 3
     await writer.close()
+    # Nothing is dropped: every enqueued event is eventually persisted once.
+    assert sum(len(call) for call in events.calls) == 4

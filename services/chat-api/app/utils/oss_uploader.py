@@ -347,7 +347,8 @@ class ObjectStorageClient:
                 renewed = self.sign_url(object_path)
                 cache[original_url] = renewed
                 return renewed
-            except Exception:
+            except Exception as exc:
+                log_print(f"[utils.oss_uploader._replace] suppressed {type(exc).__name__}: {exc}", flush=True)
                 return original_url
 
         return url_pattern.sub(_replace, markdown)
@@ -381,11 +382,13 @@ class ObjectStorageClient:
         if object_path:
             try:
                 return self.sign_url(object_path)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[utils.oss_uploader._refresh_url_string] suppressed {type(exc).__name__}: {exc}", flush=True)
                 return value
         try:
             renewed = self.sign_url_from_url(source)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[utils.oss_uploader._refresh_url_string] suppressed {type(exc).__name__}: {exc}", flush=True)
             renewed = ""
         return renewed or value
 

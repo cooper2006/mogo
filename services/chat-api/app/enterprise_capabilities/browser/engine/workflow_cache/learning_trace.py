@@ -342,6 +342,7 @@ def _stable_action_args(args: Dict[str, Any]) -> Dict[str, Any]:
         return json.loads(json.dumps(safe, ensure_ascii=False, default=str))
     except Exception as exc:
         log_print(f"[enterprise_capabilities.browser.engine.workflow_cache.learning_trace] silent exception caught: {exc}", flush=True)
+        return {}
 
 
 def _recorded_locator(value: Any) -> Dict[str, Any]:

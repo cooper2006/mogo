@@ -78,6 +78,7 @@ def normalize_decision_commentary(value: Any, *, locale: str) -> Dict[str, str] 
         commentary = value if isinstance(value, ModelCommentary) else ModelCommentary.model_validate(value or {})
     except Exception as exc:
         log_print(f"[llm.decision_turn.contracts] silent exception caught: {exc}", flush=True)
+        return None
     text = commentary.text.strip()
     if not text or len(text) < 8 or any(pattern.match(text) for pattern in _GENERIC_PATTERNS):
         return None

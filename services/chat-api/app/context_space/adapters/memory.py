@@ -44,7 +44,9 @@ class MemoryTierAdapter(TierAdapter):
         if memory is None:
             raise ContextNotFoundError(f"memory not found: {addr.memory_id}")
 
-        if not check_visibility(addr=addr, ctx=viewer):
+        # Authorize against the **stored** record, never the caller-supplied URI
+        # (R3 audit, 2026-10-06): the URI's scope/owner are attacker-controlled.
+        if not check_visibility(addr=addr, ctx=viewer, memory=memory):
             raise ContextVisibilityError(f"viewer may not resolve {uri}")
 
         content = _select_tier(memory, addr.tier)

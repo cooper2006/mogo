@@ -855,7 +855,8 @@ class ToolWriterEngineComposeSkill(BaseSkill):
             return ""
         try:
             text = json.dumps(value, ensure_ascii=False, default=str, indent=2)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[content.writer_engine.compose_skill] json.dumps failed: {exc}", flush=True)
             text = str(value)
         text = text.strip()
         if len(text) <= limit:
@@ -1266,7 +1267,8 @@ class ToolWriterEngineComposeSkill(BaseSkill):
                 for key, val in cleaned_upstream_pairs[:12]:
                     try:
                         val_json = json.dumps(val, ensure_ascii=False)
-                    except Exception:
+                    except Exception as exc:
+                        log_print(f"[enterprise_capabilities.content.writer_engine.compose_skill._augment_body_goal_with_data_flow] suppressed {type(exc).__name__}: {exc}", flush=True)
                         val_json = str(val)
                     if len(val_json) > 1200:
                         val_json = val_json[:1200] + "...<truncated>"
@@ -1496,7 +1498,8 @@ class ToolWriterEngineComposeSkill(BaseSkill):
                 body = "\n".join(lines[end + 1 :]).lstrip()
                 try:
                     meta = yaml.safe_load(front) or {}
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[enterprise_capabilities.content.writer_engine.compose_skill._sanitize_body_style_markdown] suppressed {type(exc).__name__}: {exc}", flush=True)
                     meta = {}
                 if isinstance(meta, dict):
                     style_contract = meta.get("style_contract")

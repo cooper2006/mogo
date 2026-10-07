@@ -84,7 +84,8 @@ def _split_frontmatter(content: str) -> tuple[dict, str]:
     body = "\n".join(parts[end_idx + 1 :]).lstrip()
     try:
         meta = yaml.safe_load(front) or {}
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.skills._split_frontmatter] suppressed {type(exc).__name__}: {exc}", flush=True)
         meta = {}
     return meta, body
 
@@ -182,6 +183,7 @@ def _normalize_target_length(value: Any) -> Dict[str, Any]:
             return max(0, int(float(str(v or "").strip())))
         except Exception as exc:
             log_print(f"[services.skills] silent exception caught: {exc}", flush=True)
+            return 0
 
     min_value = _coerce_int(raw.get("min") or raw.get("min_words") or raw.get("minWords"))
     max_value = _coerce_int(raw.get("max") or raw.get("max_words") or raw.get("maxWords"))
@@ -219,7 +221,8 @@ def _normalize_section_structure(value: Any, *, level: int = 1, max_depth: int =
                 continue
             try:
                 raw_level = max(1, int(raw.get("level") or level or 1))
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.skills._normalize_section_structure] suppressed {type(exc).__name__}: {exc}", flush=True)
                 raw_level = max(1, level)
             item = {
                 "title": title[:200],
@@ -1202,7 +1205,8 @@ class UserSkillService:
             cleaned = response.replace("```json", "").replace("```", "").strip()
             data = json.loads(cleaned)
             chosen = data.get("skill_name")
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.skills.select_skill] suppressed {type(exc).__name__}: {exc}", flush=True)
             chosen = None
         if not chosen:
             return None
@@ -1728,6 +1732,7 @@ class UserSkillService:
                     "- Do NOT output any text outside the JSON.\n"
                     "- Ensure the markdown starts with '---\n'."
                 )
+                resp = ""
                 try:
                     resp = await llm_service.chat_complete(
                         [{"role": "system", "content": system}, {"role": "user", "content": current_md}],
@@ -1742,8 +1747,11 @@ class UserSkillService:
                         current_md = resp
                 except Exception as e:
                     logger.warning("skill repair JSON parse failed", extra={"event": "skills.repair_json_parse_failed", "error": str(e)})
-                    # Use raw response as fallback (hope it's markdown)
-                    current_md = resp
+                    # Use raw response as fallback (hope it's markdown). Only when the
+                    # call actually returned — otherwise `resp` is unbound and this
+                    # branch would raise UnboundLocalError instead of retrying.
+                    if resp:
+                        current_md = resp
             else:
                 logger.warning("skill validation exhausted", extra={"event": "skills.validation_exhausted", "max_retries": max_retries})
         

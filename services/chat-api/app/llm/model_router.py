@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -126,7 +127,8 @@ class ModelRouter:
                 data = yaml.safe_load(self._config_path.read_text(encoding="utf-8")) or {}
                 if not isinstance(data, dict):
                     data = {}
-            except Exception:
+            except Exception as exc:
+                log_print(f"[llm.model_router._load_config] suppressed {type(exc).__name__}: {exc}", flush=True)
                 data = {}
             self._cfg = data
             self._loaded_mtime = mtime

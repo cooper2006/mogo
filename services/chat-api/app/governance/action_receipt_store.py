@@ -85,7 +85,8 @@ class ActionReceiptStore:
                 "status": "succeeded",
             }))
             return max(local_count, database_count)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[governance.action_receipt_store.count_succeeded_by_business_key] suppressed {type(exc).__name__}: {exc}", flush=True)
             return local_count
 
     async def list_succeeded_for_operation(
@@ -238,6 +239,7 @@ class ActionReceiptStore:
             return parsed
         except Exception as exc:
             log_print(f"[governance.action_receipt_store] silent exception caught: {exc}", flush=True)
+            return []
 
     async def ensure_indexes(self) -> None:
         try:

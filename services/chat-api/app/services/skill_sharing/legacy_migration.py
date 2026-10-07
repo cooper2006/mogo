@@ -81,9 +81,13 @@ class LegacySkillShareMigration:
             return share
         try:
             archive = base64.b64decode(str(share.get("archive_base64") or ""), validate=True)
+            package = validate_skill_package(archive)
         except Exception as exc:
-            log_print(f"[services.skill_sharing.legacy_migration] silent exception caught: {exc}", flush=True)
-        except Exception:
+            log_print(
+                "[services.skill_sharing.legacy_migration] "
+                f"legacy share archive unreadable, keeping share as-is: {exc}",
+                flush=True,
+            )
             return share
         distribution = await self._distribution.ensure(
             main_id=str(share.get("main_id") or "default"),

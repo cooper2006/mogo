@@ -48,6 +48,7 @@ def _json_text(value: str) -> str:
         parsed = json.loads(text)
     except Exception as exc:
         log_print(f"[enterprise_capabilities.evidence.foundation.user_payload] silent exception caught: {exc}", flush=True)
+        return ""
     return json.dumps(parsed, ensure_ascii=False, indent=2)
 
 
@@ -59,6 +60,7 @@ def _empty_kb_result(value: str) -> bool:
         parsed = json.loads(text)
     except Exception as exc:
         log_print(f"[enterprise_capabilities.evidence.foundation.user_payload] silent exception caught: {exc}", flush=True)
+        return False
     if not isinstance(parsed, dict):
         return False
     provider = str(parsed.get("provider") or "").strip().lower()

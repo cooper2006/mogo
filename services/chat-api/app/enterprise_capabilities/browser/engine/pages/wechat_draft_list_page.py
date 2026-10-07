@@ -15,3 +15,4 @@ class WeChatDraftListPage:
             return True
         except Exception as exc:
             log_print(f"[enterprise_capabilities.browser.engine.pages.wechat_draft_list_page] silent exception caught: {exc}", flush=True)
+            return False

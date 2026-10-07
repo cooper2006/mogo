@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 from typing import Any, Dict, Iterable, List, Literal
@@ -217,7 +218,8 @@ async def _model_verdict(*, contract: EffectContract, evidence: List[EffectEvide
             [Message(role=Role.SYSTEM, content=system), Message(role=Role.USER, content=json.dumps(payload, ensure_ascii=False))],
             spec=DecisionTurnSpec(locale=lang, turn_id="browser.effect_verification"),
         )
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_verification.verifier._model_verdict] suppressed {type(exc).__name__}: {exc}", flush=True)
         return _ModelVerdict(status="unknown", confidence=0.0, reason="模型验证不可用")
 
 

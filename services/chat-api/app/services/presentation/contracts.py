@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -38,7 +39,8 @@ def _to_int_like(value: Any, default: int) -> int:
         return default
     try:
         return int(match.group(0))
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.presentation.contracts._to_int_like] suppressed {type(exc).__name__}: {exc}", flush=True)
         return default
 
 
@@ -319,7 +321,8 @@ class FreeformBlock(BaseModel):
                     parsed = json.loads(maybe_json)
                     if isinstance(parsed, dict):
                         chart_data = parsed
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[services.presentation.contracts._normalize_aliases] suppressed {type(exc).__name__}: {exc}", flush=True)
                     chart_data = {}
         if not chart_data and style_dict:
             style = dict(style_dict)
@@ -353,14 +356,16 @@ class FreeformBlock(BaseModel):
             if end_x is not None:
                 try:
                     self.x2 = float(end_x)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[services.presentation.contracts._normalize_line_protocol] suppressed {type(exc).__name__}: {exc}", flush=True)
                     self.x2 = None
         if self.y2 is None:
             end_y = style.get("end_y", style.get("to_y"))
             if end_y is not None:
                 try:
                     self.y2 = float(end_y)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[services.presentation.contracts._normalize_line_protocol] suppressed {type(exc).__name__}: {exc}", flush=True)
                     self.y2 = None
         style["route"] = normalize_line_route(str(style.get("route") or style.get("router") or style.get("path") or "auto"))
         self.style = style

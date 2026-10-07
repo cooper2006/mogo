@@ -7,6 +7,7 @@ the entities are marked **unaligned** rather than the query being refused (FR-6)
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass, field
 from typing import Any, Optional

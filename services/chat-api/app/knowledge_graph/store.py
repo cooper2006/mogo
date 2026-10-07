@@ -7,6 +7,7 @@ multiple values and the node is flagged ``conflicted`` (FR-3).
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any
 

@@ -13,11 +13,16 @@ YAML is used directly and no record is silently fabricated.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from pathlib import Path
 from typing import Any
 
-from .loader import LoadedOrchestration, load_orchestration_file
+from .loader import (
+    LoadedOrchestration,
+    load_orchestration_document,
+    load_orchestration_file,
+)
 
 DAG_DEFINITIONS_COLLECTION = "dag_definitions"
 
@@ -47,7 +52,8 @@ async def load_orchestration_persisted(
             doc = await db[DAG_DEFINITIONS_COLLECTION].find_one(
                 {"orchestration_id": orchestration_id}
             )
-    except Exception:  # noqa: BLE001 - never block a run on audit/DB noise
+    except Exception as exc:  # noqa: BLE001 - never block a run on audit/DB noise
+        log_print(f"[orchestration.store.load_orchestration_persisted] suppressed {type(exc).__name__}: {exc}", flush=True)
         doc = None
 
     if doc is not None:
@@ -86,7 +92,10 @@ async def load_orchestration_persisted(
 def _document_shape(loaded: LoadedOrchestration) -> dict[str, Any]:
     return {
         "orchestration": {
-            "id": loaded.definition.id,
+            # ``OrchestrationDefinition`` carries ``orchestration_id``; the old
+            # ``.id`` raised AttributeError on every registration, so the
+            # ``dag_definitions`` upsert silently never happened (R3 audit).
+            "id": loaded.definition.orchestration_id,
             "version": str(loaded.definition.version),
             "mode": loaded.definition.mode,
         },

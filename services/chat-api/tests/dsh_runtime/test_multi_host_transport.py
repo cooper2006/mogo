@@ -39,13 +39,22 @@ class _RecordingTransport(httpx.AsyncBaseTransport):
 
 
 def _build(hosts: tuple[str, ...]) -> tuple[HttpKernelHostTransport, dict[str, _RecordingTransport]]:
-    transport = HttpKernelHostTransport(base_url=hosts[0], base_urls=hosts)
+    """Build a transport whose hosts are all stubbed.
+
+    The stub must be injected via ``transport_factory`` rather than by assigning
+    ``client._transport``: with httpx >= 0.28 a request carrying an absolute URL
+    is dispatched through ``_transport_for_url``, so a swapped-in
+    ``_transport`` is bypassed and the request reaches the real network (which
+    answers with non-JSON, surfacing as ``DshProtocolError``).
+    """
     recorders: dict[str, _RecordingTransport] = {}
-    for client, url in zip(transport._clients, hosts):
+
+    def _factory(url: str) -> httpx.AsyncBaseTransport:
         recorder = _RecordingTransport(url)
         recorders[url] = recorder
-        # Swap the real transport for the recording stub, keeping base_url.
-        client._transport = recorder
+        return recorder
+
+    transport = HttpKernelHostTransport(base_url=hosts[0], base_urls=hosts, transport_factory=_factory)
     return transport, recorders
 
 

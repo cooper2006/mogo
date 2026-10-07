@@ -18,6 +18,7 @@ async def pending_browser_result(*, user_id: str, conversation_id: str) -> dict[
         )
     except Exception as exc:
         log_print(f"[enterprise_capabilities.browser.pending_intervention] silent exception caught: {exc}", flush=True)
+        return None
     if record is None:
         return None
     context = dict(record.context or {})

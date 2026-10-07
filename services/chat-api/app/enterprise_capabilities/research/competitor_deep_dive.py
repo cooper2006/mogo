@@ -19,6 +19,7 @@ See ``docs/cases/multi-agent-competitor-deep-dive.md`` §3/§6 for the contract.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from dataclasses import dataclass, field
@@ -268,6 +269,7 @@ class DeepDiveOrchestrator:
                 try:
                     output = await runner(node, context)
                 except Exception as error:  # noqa: BLE001 - retried, then recorded
+                    log_print(f"[enterprise_capabilities.research.competitor_deep_dive._run_node] suppressed {type(error).__name__}: {error}", flush=True)
                     last_error = error
                     continue
                 self._emit("dag.node_complete", node=node.id, attempt=attempt)
@@ -301,6 +303,7 @@ class DeepDiveOrchestrator:
         try:
             return await self._run_node(node, context)
         except Exception as error:  # noqa: BLE001 - reported through the sentinel
+            log_print(f"[enterprise_capabilities.research.competitor_deep_dive._run_node_tolerant] suppressed {type(error).__name__}: {error}", flush=True)
             failure = _FailedNodeOutput(node_id=node.id, error=str(error))
             context[f"{node.id}__failed"] = True
             return failure

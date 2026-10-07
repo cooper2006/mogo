@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 from dataclasses import dataclass
@@ -63,7 +64,8 @@ class ManualRecordingAnalyzer:
         summaries = [_event_summary(item) for item in actions]
         try:
             classification = await self._classify(summaries)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.workflow_cache.manual_analysis.analyze] suppressed {type(exc).__name__}: {exc}", flush=True)
             classification = _fallback_classification(summaries)
         plan = build_manual_recording_plan(
             events=recorded,

@@ -231,7 +231,8 @@ def _extract_text_sync(file_path: str) -> str:
     if ext in {".txt", ".md"}:
         try:
             return open(file_path, "r", encoding="utf-8", errors="ignore").read()
-        except Exception:
+        except Exception as exc:
+            log_print(f"[api.endpoints.skills._extract_text_sync] suppressed {type(exc).__name__}: {exc}", flush=True)
             return ""
     if ext == ".pdf":
         try:
@@ -256,7 +257,8 @@ def _extract_text_sync(file_path: str) -> str:
             )
             if result.returncode == 0:
                 return result.stdout
-        except Exception:
+        except Exception as exc:
+            log_print(f"[api.endpoints.skills._extract_text_sync] suppressed {type(exc).__name__}: {exc}", flush=True)
             return ""
     if ext == ".docx":
         try:
@@ -265,7 +267,8 @@ def _extract_text_sync(file_path: str) -> str:
             doc = Document(file_path)
             parts = [p.text for p in doc.paragraphs if p.text]
             return "\n".join(parts)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[api.endpoints.skills._extract_text_sync] suppressed {type(exc).__name__}: {exc}", flush=True)
             return ""
     return ""
 
@@ -588,7 +591,8 @@ def _matches_skill_keyword(skill: Dict[str, Any], keyword: str) -> bool:
 def _cursor_offset(cursor: str | None) -> int:
     try:
         return max(0, int(str(cursor or "0").strip() or "0"))
-    except Exception:
+    except Exception as exc:
+        log_print(f"[api.endpoints.skills._cursor_offset] suppressed {type(exc).__name__}: {exc}", flush=True)
         return 0
 
 
@@ -603,7 +607,8 @@ def _extract_workflow_steps_from_text(text: str, max_steps: int) -> List[str]:
     for candidate in candidates:
         try:
             parsed = json.loads(candidate)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[api.endpoints.skills._extract_workflow_steps_from_text] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
         raw_steps: Any = parsed.get("steps") if isinstance(parsed, dict) else parsed
         if not isinstance(raw_steps, list):
@@ -639,7 +644,8 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
     for candidate in candidates:
         try:
             parsed = json.loads(candidate)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[api.endpoints.skills._extract_json_object] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
         if isinstance(parsed, dict):
             return parsed
@@ -784,7 +790,8 @@ def _extract_workflow_nodes_from_text(text: str, max_nodes: int) -> List[Dict[st
     for candidate in candidates:
         try:
             parsed = json.loads(candidate)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[api.endpoints.skills._extract_workflow_nodes_from_text] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
         raw_nodes = parsed.get("nodes") if isinstance(parsed, dict) else parsed
         if not isinstance(raw_nodes, list):
@@ -1536,7 +1543,8 @@ async def generate_skill(payload: SkillGenerateRequest) -> ApiResponse:
                 text = await _extract_text_from_object(obj)
                 if text:
                     sources_text.append(text)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[api.endpoints.skills.generate_skill] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
         combined = _truncate("\n\n".join(sources_text))
         skill_md = await user_skill_service.build_skill_markdown(
@@ -1987,11 +1995,13 @@ async def list_selectable_skills(
         source_scope = "all"
     try:
         user_skills = await user_skill_service.list_skills(user_id, main_id=resolved_main_id)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[api.endpoints.skills.list_selectable_skills] suppressed {type(exc).__name__}: {exc}", flush=True)
         user_skills = []
     try:
         org_skills = await organization_skill_adapter.list_runtime_skills(main_id=resolved_main_id)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[api.endpoints.skills.list_selectable_skills] suppressed {type(exc).__name__}: {exc}", flush=True)
         org_skills = []
     policy = await MongoEmployeePolicyResolver().resolve(resolved_main_id, user_id)
 

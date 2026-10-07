@@ -6,6 +6,7 @@ specific site: it compares the business object requested by the goal with the
 object named by a target or observed after an action.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -170,6 +171,7 @@ async def _model_alignment(
             source="model",
         )
     except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_verification.semantic_alignment._model_alignment] suppressed {type(exc).__name__}: {exc}", flush=True)
         return SemanticAlignment(
             status="unknown",
             confidence=0.0,

@@ -200,6 +200,7 @@ class DshTurnRunner:
             live_stream.finish()
             return "cancelled"
         except Exception as exc:
+            log_print(f"[dsh_runtime.turn_runner.run] suppressed {type(exc).__name__}: {exc}", flush=True)
             await writer.abort()
             writer_aborted = True
             status = "failed"

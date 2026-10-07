@@ -1,6 +1,7 @@
 """DSH adapter over ASKAI's existing configured image generation service."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Awaitable, Callable
 
@@ -71,6 +72,7 @@ class ImageGenerationCapability:
                 })
                 await context.publish_progress(progress.row(stage="completed", index=index, total=total))
             except Exception as exc:
+                log_print(f"[enterprise_capabilities.images.service.run] suppressed {type(exc).__name__}: {exc}", flush=True)
                 failures.append({"index": index, "error": f"{type(exc).__name__}: {str(exc)[:1000]}"})
         return self._result(requested=total, assets=assets, failures=failures)
 

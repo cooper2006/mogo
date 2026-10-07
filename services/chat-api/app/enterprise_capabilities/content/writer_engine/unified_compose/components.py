@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -49,7 +50,8 @@ def _exception_debug_payload(exc: Exception) -> Dict[str, Any]:
     if body is not None:
         try:
             payload["body"] = _truncate_text(json.dumps(body, ensure_ascii=False), 2400)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._exception_debug_payload] suppressed {type(exc).__name__}: {exc}", flush=True)
             payload["body"] = _truncate_text(body, 2400)
     response = getattr(exc, "response", None)
     if response is not None:
@@ -58,7 +60,8 @@ def _exception_debug_payload(exc: Exception) -> Dict[str, Any]:
         if callable(response_text):
             try:
                 response_text = response_text()
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._exception_debug_payload] suppressed {type(exc).__name__}: {exc}", flush=True)
                 response_text = None
         if response_text:
             payload["response_text"] = _truncate_text(response_text, 2400)
@@ -275,7 +278,8 @@ class ObservationAdapter:
             query = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=False) if k.lower() in keep_keys]
             normalized = parsed._replace(query=urlencode(query, doseq=True), fragment="")
             return urlunparse(normalized)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components.normalize_source_url] suppressed {type(exc).__name__}: {exc}", flush=True)
             return raw
 
 
@@ -1111,6 +1115,7 @@ class OutlinePlanner:
                 return None
             return normalized
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._normalize_outline_prompt] suppressed {type(exc).__name__}: {exc}", flush=True)
             self.deps.log("outline_prompt_normalize_failed", {"error": str(exc)[:260], "error_type": type(exc).__name__})
             return None
 
@@ -1359,6 +1364,7 @@ class OutlinePlanner:
                     "sections": normalized,
                 }
         except Exception as e:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components.generate] suppressed {type(e).__name__}: {e}", flush=True)
             self.deps.log("outline_failed", _exception_debug_payload(e))
         # deterministic safe fallback
         req_blocks = [
@@ -1467,6 +1473,7 @@ class VisualAugmenter:
                 return {"type": fallback, "confidence": 0.85, "reason": "infographic_budget_exhausted_fallback"}
             return {"type": vt, "confidence": float(data.get("confidence") or 0.5), "reason": str(data.get("reason") or "visual_decider_llm")}
         except Exception as e:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components.decide_type] suppressed {type(e).__name__}: {e}", flush=True)
             self.deps.log("visual_decider_failed", {"error": str(e)[:260]})
         if not allowed_infographic:
             fallback = safe_hint if safe_hint in {"table", "chart", "mermaid"} else "chart"
@@ -1537,6 +1544,7 @@ class SectionWriter:
             )
             return result if isinstance(result, SectionContractAssessment) else SectionContractAssessment.model_validate(result)
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._assess_section_contract] suppressed {type(exc).__name__}: {exc}", flush=True)
             self.deps.log(
                 "section_contract_assess_failed",
                 {"title": str(title or "")[:120], "error": str(exc)[:260], "error_type": type(exc).__name__},
@@ -1594,6 +1602,7 @@ class SectionWriter:
             parsed = result if isinstance(result, SectionContractRewriteOutput) else SectionContractRewriteOutput.model_validate(result)
             return str(parsed.markdown_content or "").strip()
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._rewrite_section_to_contract] suppressed {type(exc).__name__}: {exc}", flush=True)
             self.deps.log(
                 "section_contract_rewrite_failed",
                 {"title": str(title or "")[:120], "error": str(exc)[:260], "error_type": type(exc).__name__},
@@ -1699,6 +1708,7 @@ class SectionWriter:
                 return None
             return normalized
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._normalize_section_prompt] suppressed {type(exc).__name__}: {exc}", flush=True)
             self.deps.log("section_prompt_normalize_failed", {"error": str(exc)[:260], "error_type": type(exc).__name__})
             return None
 
@@ -1790,6 +1800,7 @@ class SectionWriter:
                 },
             )
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._persist_section_prompt_debug_bundle] suppressed {type(exc).__name__}: {exc}", flush=True)
             self.deps.log(
                 "section_prompt_save_failed",
                 {
@@ -2143,6 +2154,7 @@ class SectionWriter:
             data = await _invoke_writer()
             content = str(data.get("markdown_content", "")).strip()
         except Exception as e:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components.write_section] suppressed {type(e).__name__}: {e}", flush=True)
             self.deps.log("section_write_failed", {"title": clean_title, "error": str(e)[:260]})
             content = ""
         if not content:
@@ -2195,6 +2207,7 @@ class SectionWriter:
         try:
             return await _invoke_summarizer()
         except Exception as e:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components.summarize_section] suppressed {type(e).__name__}: {e}", flush=True)
             self.deps.log("section_summary_failed", {"section_number": section_number, "error": str(e)[:260]})
         return SectionSummaryBundle(
             summary=SectionSummary(
@@ -2246,6 +2259,7 @@ class SectionWriter:
             if rewritten:
                 return rewritten
         except Exception as e:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components.calibrate_length] suppressed {type(e).__name__}: {e}", flush=True)
             self.deps.log("section_calibrate_failed", {"error": str(e)[:260]})
         return text
 
@@ -2285,6 +2299,7 @@ class SectionWriter:
             if rewritten and visual_helper.contains_visual(rewritten):
                 return rewritten
         except Exception as e:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components.inject_visual_if_missing] suppressed {type(e).__name__}: {e}", flush=True)
             self.deps.log("visual_inject_failed", {"error": str(e)[:260]})
         # deterministic fallback
         if visual_hint == "table":
@@ -2359,6 +2374,7 @@ class SinglePassWriter:
             )
             return result if isinstance(result, PlanAlignmentAssessment) else PlanAlignmentAssessment.model_validate(result)
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._assess_plan_alignment_semantically] suppressed {type(exc).__name__}: {exc}", flush=True)
             self.deps.log(
                 "single_pass_plan_alignment_assess_failed",
                 {"error": str(exc)[:260], "error_type": type(exc).__name__},
@@ -2496,6 +2512,7 @@ class SinglePassWriter:
             rewritten = str(parsed.markdown_content or "").strip()
             return rewritten or str(markdown or "")
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._align_visible_heading_plan] suppressed {type(exc).__name__}: {exc}", flush=True)
             self.deps.log(
                 "single_pass_heading_align_failed",
                 {"error": str(exc)[:260], "error_type": type(exc).__name__},
@@ -2572,6 +2589,7 @@ class SinglePassWriter:
             await report_file_manager.overwrite_content(file_path, "\n".join(parts) + "\n")
             self.deps.log("single_pass_prompt_saved", {"file_id": file_id, "path": str(file_path)})
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components._persist_prompt_debug_bundle] suppressed {type(exc).__name__}: {exc}", flush=True)
             self.deps.log("single_pass_prompt_save_failed", {"error": str(exc)[:260]})
 
     @staticmethod
@@ -2865,6 +2883,7 @@ class SinglePassWriter:
             if not content and last_error is not None:
                 raise last_error
         except Exception as e:
+            log_print(f"[enterprise_capabilities.content.writer_engine.unified_compose.components.write_single_pass] suppressed {type(e).__name__}: {e}", flush=True)
             self.deps.log("single_pass_failed", {**_exception_debug_payload(e), **prompt_diag})
             content = ""
             

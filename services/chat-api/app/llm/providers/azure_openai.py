@@ -526,7 +526,8 @@ class AzureOpenAIClient(BaseLLMClient):
                 pass
             try:
                 response_json = response.json()
-            except Exception:
+            except Exception as exc:
+                log_print(f"[llm.providers.azure_openai._exception_details] suppressed {type(exc).__name__}: {exc}", flush=True)
                 response_json = None
             if isinstance(response_json, dict):
                 details["response_json"] = json.dumps(response_json, ensure_ascii=False, default=str)[:2000]
@@ -542,7 +543,8 @@ class AzureOpenAIClient(BaseLLMClient):
         if body is not None:
             try:
                 details["body"] = json.dumps(body, ensure_ascii=False, default=str)[:2000]
-            except Exception:
+            except Exception as exc:
+                log_print(f"[llm.providers.azure_openai._exception_details] suppressed {type(exc).__name__}: {exc}", flush=True)
                 details["body"] = str(body)[:2000]
             if isinstance(body, dict):
                 error_obj = body.get("error")

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -242,7 +243,8 @@ class ImagePlannerService:
                 ],
                 ImagePlanResponse,
             )
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.image_planner.plan_document_images] suppressed {type(exc).__name__}: {exc}", flush=True)
             return {
                 "layout_hints": self._fallback_layout_hints(uploaded_assets=assets),
                 "generated_specs": [],

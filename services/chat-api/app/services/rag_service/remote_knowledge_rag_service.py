@@ -103,7 +103,8 @@ class RemoteKnowledgeRAGService:
             raw_score = candidate.get("rerank_score", candidate.get("score", 0))
         try:
             score = float(raw_score or 0)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.rag_service.remote_knowledge_rag_service._normalize_candidate] suppressed {type(exc).__name__}: {exc}", flush=True)
             score = 0.0
         if min_score > 0 and score < min_score:
             return None
@@ -181,9 +182,13 @@ class RemoteKnowledgeRAGService:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(api_url, json=payload)
                 resp.raise_for_status()
+                raw = resp.json()
         except Exception as exc:
-            log_print(f"[services.rag_service.remote_knowledge_rag_service] silent exception caught: {exc}", flush=True)
-        except Exception as exc:
+            log_print(
+                "[services.rag_service.remote_knowledge_rag_service] "
+                f"knowledge candidates request failed: {exc}",
+                flush=True,
+            )
             return {
                 "ok": False,
                 "error": f"knowledge_candidates_request_failed: {type(exc).__name__}: {exc}",

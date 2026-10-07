@@ -228,6 +228,7 @@ class WriterEnginePipeline:
                         "size": str(data.get("size") or "1664*928").strip(),
                     }
         except Exception as e:
+            log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._build_section_infographic_prompt] suppressed {type(e).__name__}: {e}", flush=True)
             self._log_stage("infographic_prompt_failed", {"error": str(e)[:260]})
         fallback_prompt = (
             ("中文信息图，主题：%s。仅使用面向最终读者的标题、标签和图注文案。不要出现“强结论开头”“导语”“正文”“结尾”等过程性或结构性文字。突出关键结论、驱动因素、风险与建议，布局为标题+三栏要点+结论区，风格专业简洁，文字清晰可读。")
@@ -481,6 +482,7 @@ class WriterEnginePipeline:
                 else:
                     text = text.replace(token, "")
             except Exception as e:
+                log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._materialize_image_slots] suppressed {type(e).__name__}: {e}", flush=True)
                 self._log_stage("image_slot_failed", {"slot": i, "error": str(e)[:220]})
                 text = text.replace(token, "")
         return text, [u for j, u in enumerate(used_urls) if u and u not in used_urls[:j]]
@@ -506,7 +508,8 @@ class WriterEnginePipeline:
                 u = str(result.get("image_url") or "").strip()
                 if is_valid_remote_image_url(u):
                     urls.append(u)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_fallback_infographic_urls] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
         return [u for i, u in enumerate(urls) if u and u not in urls[:i]]
 
@@ -1422,7 +1425,8 @@ class WriterEnginePipeline:
             if target.lower() == source_language.lower():
                 target = "English" if source_language != "English" else "Chinese"
             return target or "English"
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._detect_target_language] suppressed {type(exc).__name__}: {exc}", flush=True)
             return "English" if source_language != "English" else "Chinese"
 
     @staticmethod
@@ -1550,6 +1554,7 @@ class WriterEnginePipeline:
                     # Fallback: output original if translation fails
                     yield {"type": "answer", "content": segment + "\n\n"}
             except Exception as e:
+                log_print(f"[enterprise_capabilities.content.writer_engine.pipeline.generate_translation] suppressed {type(e).__name__}: {e}", flush=True)
                 self._log_stage("translation_segment_error", {
                     "segment": idx + 1, "error": str(e)[:260]
                 })
@@ -1593,10 +1598,12 @@ class WriterEnginePipeline:
         if source_object_path:
             try:
                 source_bytes = uploader.read_bytes(source_object_path)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_docx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
                 try:
                     download_url = uploader.internal_url(source_object_path)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_docx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
                     download_url = source_signed_url
         if not source_bytes and not download_url:
             yield {"type": "answer", "content": i18n_get("translation_no_document", language) + "\n"}
@@ -1610,6 +1617,7 @@ class WriterEnginePipeline:
                     resp.raise_for_status()
                     source_bytes = resp.content
             except Exception as exc:
+                log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_docx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
                 self._log_stage("translation_docx_fetch_failed", {"error": str(exc)[:240]})
                 yield {"type": "answer", "content": i18n_get("translation_no_document", language) + "\n"}
                 return
@@ -1620,7 +1628,8 @@ class WriterEnginePipeline:
             import io as _io
             _probe = _Doc(_io.BytesIO(source_bytes))
             _sample = "\n".join(seg.text for seg in extract_segments(_probe)[:30])[:1000]
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_docx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
             _sample = ""
         source_lang = self._detect_source_language(_sample or source_filename or "")
         target_lang = await self._detect_target_language(user_query, source_language=source_lang)
@@ -1649,6 +1658,7 @@ class WriterEnginePipeline:
                 llm=self._llm,
             )
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_docx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
             self._log_stage("translation_inplace_failed", {"error": str(exc)[:240]})
             yield {"type": "answer", "content": f"{i18n_get('translation_complete', language)} (fallback: see markdown output)\n"}
             return
@@ -1665,6 +1675,7 @@ class WriterEnginePipeline:
             )
             final_signed = uploader.sign_url(object_path)
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_docx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
             self._log_stage("translation_inplace_upload_failed", {"error": str(exc)[:240]})
             yield {"type": "answer", "content": f"Upload failed: {exc}\n"}
             return
@@ -1720,10 +1731,12 @@ class WriterEnginePipeline:
         if source_object_path:
             try:
                 source_bytes = uploader.read_bytes(source_object_path)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_xlsx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
                 try:
                     download_url = uploader.internal_url(source_object_path)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_xlsx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
                     download_url = source_signed_url
         if not source_bytes and not download_url:
             yield {"type": "answer", "content": i18n_get("translation_no_document", language) + "\n"}
@@ -1737,6 +1750,7 @@ class WriterEnginePipeline:
                     resp.raise_for_status()
                     source_bytes = resp.content
             except Exception as exc:
+                log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_xlsx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
                 self._log_stage("translation_xlsx_fetch_failed", {"error": str(exc)[:240]})
                 yield {"type": "answer", "content": i18n_get("translation_no_document", language) + "\n"}
                 return
@@ -1750,7 +1764,8 @@ class WriterEnginePipeline:
                 _probe.close()
             except Exception:
                 pass
-        except Exception:
+        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_xlsx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
             _sample = ""
         source_lang = self._detect_source_language(_sample or source_filename or "")
         target_lang = await self._detect_target_language(user_query, source_language=source_lang)
@@ -1778,6 +1793,7 @@ class WriterEnginePipeline:
                 llm=self._llm,
             )
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_xlsx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
             self._log_stage("translation_xlsx_failed", {"error": str(exc)[:240]})
             yield {"type": "answer", "content": f"{i18n_get('translation_unsupported_format', language)}\n"}
             return
@@ -1793,6 +1809,7 @@ class WriterEnginePipeline:
             )
             final_signed = uploader.sign_url(object_path)
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.writer_engine.pipeline._generate_translation_xlsx_inplace] suppressed {type(exc).__name__}: {exc}", flush=True)
             self._log_stage("translation_xlsx_upload_failed", {"error": str(exc)[:240]})
             yield {"type": "answer", "content": f"Upload failed: {exc}\n"}
             return

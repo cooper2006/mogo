@@ -56,7 +56,8 @@ async def render_markdown_assets(markdown: str, user_id: str) -> str:
                     _render_mermaid(block_content, uploader, user_id),
                     timeout=RENDER_TIMEOUT_SECONDS,
                 )
-        except Exception:
+        except Exception as exc:
+            log_print(f"[utils.markdown_assets.render_markdown_assets] suppressed {type(exc).__name__}: {exc}", flush=True)
             image_url = ""
         log_print(f"[charts] render result {block_type}: {'ok' if image_url else 'failed'}")
         if image_url:
@@ -69,7 +70,8 @@ async def render_markdown_assets(markdown: str, user_id: str) -> str:
 async def _render_mermaid(diagram: str, uploader: AliyunOSSUploader, user_id: str) -> str:
     try:
         from playwright.async_api import async_playwright
-    except Exception:
+    except Exception as exc:
+        log_print(f"[utils.markdown_assets._render_mermaid] suppressed {type(exc).__name__}: {exc}", flush=True)
         return _render_text_placeholder(diagram, uploader, user_id, "mermaid")
 
     html = f"""
@@ -100,14 +102,16 @@ async def _render_mermaid(diagram: str, uploader: AliyunOSSUploader, user_id: st
             await browser.close()
             _, object_path = uploader.upload_file_with_path(tmp.name, user_id)
             return uploader.sign_url(object_path)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[utils.markdown_assets._render_mermaid] suppressed {type(exc).__name__}: {exc}", flush=True)
         return _render_text_placeholder(diagram, uploader, user_id, "mermaid")
 
 
 async def _render_chart(chart_json: str, uploader: AliyunOSSUploader, user_id: str) -> str:
     try:
         payload = json.loads(chart_json)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[utils.markdown_assets._render_chart] suppressed {type(exc).__name__}: {exc}", flush=True)
         return _render_text_placeholder(chart_json, uploader, user_id, "chart")
 
     # Try rendering with Chart.js via Playwright for visual parity with frontend/PDF
@@ -269,7 +273,8 @@ async def _render_chart(chart_json: str, uploader: AliyunOSSUploader, user_id: s
             try:
                 font = ImageFont.truetype(font_path, 18)
                 break
-            except Exception:
+            except Exception as exc:
+                log_print(f"[utils.markdown_assets._render_chart] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
 
     draw.text((margin, 20), title, fill="black", font=font)

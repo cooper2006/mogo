@@ -104,7 +104,8 @@ class LocalKnowledgeRAGService:
                 return cached
             try:
                 text = await storage_utils.download_text(key, timeout_s=12.0)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.rag_service.local_knowledge_rag_service._load_artifact_text_cached] suppressed {type(exc).__name__}: {exc}", flush=True)
                 text = ""
             artifact_cache[key] = str(text or "")
             return artifact_cache[key]

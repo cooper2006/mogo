@@ -62,6 +62,7 @@ async def agent_connect(ws: WebSocket) -> None:
                 await send({"type": "ping"})
             except Exception as exc:
                 log_print(f"[browser.ws_endpoint] silent exception caught: {exc}", flush=True)
+                return
 
     pinger = asyncio.create_task(ping_loop())
     try:
@@ -69,7 +70,8 @@ async def agent_connect(ws: WebSocket) -> None:
             raw = await ws.receive_text()
             try:
                 frame = json.loads(raw)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[browser.ws_endpoint.agent_connect] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             if not isinstance(frame, dict):
                 continue

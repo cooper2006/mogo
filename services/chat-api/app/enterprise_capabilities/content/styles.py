@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.infrastructure.observability.config import log_print
 from app.enterprise_capabilities.content.style_contract_renderer import build_writer_style_contract
 from app.services.org_skill_adapter import organization_skill_adapter
 from app.services.skills import user_skill_service
@@ -18,11 +19,13 @@ def is_writing_style(skill: dict[str, Any]) -> bool:
 async def _available_skills(*, tenant_id: str, user_id: str) -> list[dict[str, Any]]:
     try:
         personal = await user_skill_service.list_skills(user_id, main_id=tenant_id)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[content.styles] list_skills failed: {exc}", flush=True)
         personal = []
     try:
         organization = await organization_skill_adapter.list_runtime_skills(main_id=tenant_id)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[content.styles] list_runtime_skills failed: {exc}", flush=True)
         organization = []
     return [dict(item) for item in list(personal or []) + list(organization or []) if isinstance(item, dict)]
 

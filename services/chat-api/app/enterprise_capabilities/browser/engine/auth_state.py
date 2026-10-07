@@ -17,6 +17,7 @@ def site_scope(url: str) -> str:
         host = (urlparse(str(url or "")).hostname or "").lower().strip(".")
     except Exception as exc:
         log_print(f"[enterprise_capabilities.browser.engine.auth_state] silent exception caught: {exc}", flush=True)
+        return ""
     if not host or host == "localhost" or host.replace(".", "").isdigit():
         return host
     labels = host.split(".")

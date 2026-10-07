@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import json
 import re
@@ -193,7 +194,8 @@ async def enrich_evidence_with_user_request_facts(
             ]
         )
         extraction = result if isinstance(result, UserRequestExtraction) else UserRequestExtraction.model_validate(result)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.evidence.foundation.user_request_fact_extractor.enrich_evidence_with_user_request_facts] suppressed {type(exc).__name__}: {exc}", flush=True)
         return base
 
     facts = _coerce_valid_facts(extraction, source_text=source_text)

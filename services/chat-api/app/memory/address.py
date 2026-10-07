@@ -57,6 +57,11 @@ def parse_memory_uri(uri: str) -> MemoryAddress:
     parts = uri[len(prefix):].split("/")
     if len(parts) < 3:
         raise ValueError(f"malformed memory uri (need scope/owner/id): {uri!r}")
+    if len(parts) > 4:
+        # Silently dropping trailing segments made the parser tolerant of
+        # misspelled addresses (``.../m/L2/extra`` parsed as tier=L2). Resource
+        # addresses already assert an exact segment count; mirror that here.
+        raise ValueError(f"malformed memory uri (too many segments): {uri!r}")
     scope = unquote(parts[0])
     owner_id = unquote(parts[1])
     memory_id = unquote(parts[2])

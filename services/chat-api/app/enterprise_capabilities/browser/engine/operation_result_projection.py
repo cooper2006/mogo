@@ -86,6 +86,7 @@ def _context_result_evidence(context: Any, observation: Any) -> Dict[str, Any]:
         value = projector(observation)
     except Exception as exc:
         log_print(f"[enterprise_capabilities.browser.engine.operation_result_projection] silent exception caught: {exc}", flush=True)
+        return {}
     return dict(value) if isinstance(value, Mapping) else {}
 
 

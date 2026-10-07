@@ -27,6 +27,7 @@ profiles for a user should union their own privates with team / global
 docs.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
 import re
@@ -62,7 +63,8 @@ def _normalize_domain(value: Any) -> str:
     try:
         parsed = urlparse(raw)
         host = (parsed.hostname or "").strip().lower()
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.site_profiles._normalize_domain] suppressed {type(exc).__name__}: {exc}", flush=True)
         host = ""
     if not host:
         # Fallback: strip trailing path manually.

@@ -9,6 +9,7 @@
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Optional
 
@@ -201,7 +202,8 @@ async def resolve_source_ref(
             "entity_id": node.source_ref,
             "tenant_id": tenant_id,
         })
-    except Exception:
+    except Exception as exc:
+        log_print(f"[api.endpoints.knowledge_graph.resolve_source_ref] suppressed {type(exc).__name__}: {exc}", flush=True)
         row = None
     if row is None:
         return {"code": 0, "message": "ok", "data": {"resolved": False, "reason": "pointer_target_missing"}}

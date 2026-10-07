@@ -699,9 +699,9 @@ class PublishAssembler:
             )
             if should_generate:
                 return True, "llm_visual_slot_approved"
+            return False, f"llm_visual_slot_rejected:{reason or 'not_concrete'}"
         except Exception as exc:
-            log_print(f"[enterprise_capabilities.content.publish_assembly.assembler] silent exception caught: {exc}", flush=True)
-        except Exception as exc:
+            log_print(f"[enterprise_capabilities.content.publish_assembly.assembler._judge_visual_slot_generation] suppressed {type(exc).__name__}: {exc}", flush=True)
             self._log(
                 "slot llm_gate_failed | role=%s section=%s error=%s"
                 % (role or "visual", section_title or "-", str(exc)[:160])

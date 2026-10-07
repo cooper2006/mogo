@@ -64,3 +64,19 @@ async def test_run_emits_audit_events():
 async def test_persisted_store_registers_yaml():
     loaded = await load_orchestration_persisted("competitor_deep_dive", yaml_path=ORCHESTRATION_PATH)
     assert loaded.orchestration_id == "competitor_deep_dive"
+
+
+def test_document_shape_uses_orchestration_id():
+    """R3: ``_document_shape`` read ``definition.id``, which does not exist on
+    ``OrchestrationDefinition`` (the field is ``orchestration_id``). Every
+    registration therefore raised ``AttributeError`` and the ``dag_definitions``
+    upsert never ran, so FR-8's "operators can view/bump versions from the
+    collection" was silently unmet."""
+    from app.orchestration.loader import load_orchestration_file
+    from app.orchestration.store import _document_shape
+
+    loaded = load_orchestration_file(ORCHESTRATION_PATH)
+    shape = _document_shape(loaded)  # must not raise
+    assert shape["orchestration"]["id"] == "competitor_deep_dive"
+    assert shape["orchestration"]["version"]
+    assert shape["nodes"] and shape["edges"]

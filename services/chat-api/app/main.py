@@ -1,3 +1,4 @@
+from app.infrastructure.observability.config import log_print
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio

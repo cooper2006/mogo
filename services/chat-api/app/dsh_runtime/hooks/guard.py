@@ -7,6 +7,7 @@ budget overrun fails closed (FR-13).
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
@@ -45,6 +46,7 @@ def evaluate_with_fail_closed(
             tool=tool, request=request, raw_rules=raw_rules
         )
     except Exception as error:  # noqa: BLE001 — fail-closed by design (FR-11/T017)
+        log_print(f"[dsh_runtime.hooks.guard.evaluate_with_fail_closed] suppressed {type(error).__name__}: {error}", flush=True)
         return fail_closed_outcome(f"钩子执行异常，fail-closed 拒绝：{error}")
 
 

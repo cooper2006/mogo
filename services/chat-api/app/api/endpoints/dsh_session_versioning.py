@@ -8,6 +8,7 @@ Mongo-backed heartbeat + linear message merge (no Redis).
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Optional
 
@@ -197,7 +198,8 @@ async def commit_session(
                 for row in rows
                 if row.get("content")
             )
-        except Exception:  # noqa: BLE001 - degradation must not block the commit
+        except Exception as exc:  # noqa: BLE001 - degradation must not block the commit
+            log_print(f"[api.endpoints.dsh_session_versioning.commit_session] suppressed {type(exc).__name__}: {exc}", flush=True)
             content_source = ""
     # FR-7: never store suspected secrets in plaintext. Redact the summary and
     # the conversation content (caller-supplied or server-side fallback); keep
@@ -378,7 +380,9 @@ async def revoke_share(
     share_id: str,
     authorization: str | None = Header(default=None),
 ):
-    main_id, _ = await _authorize(authorization)
+    # ``_authorize`` returns ``(main_id, user_id)``; the audit call below needs
+    # both. Discarding user_id made this endpoint raise NameError on every call.
+    main_id, user_id = await _authorize(authorization)
     db = get_db()
     store = ShareStore(db)
     try:

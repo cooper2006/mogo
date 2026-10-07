@@ -70,13 +70,15 @@ async def run_content_plan_dag(
     semantic_plan: Any = None
     try:
         semantic_plan = await semantic.invoke(context)
-    except Exception:  # noqa: BLE001 — the legacy builder degrades to projection
+    except Exception as exc:  # noqa: BLE001 — the legacy builder degrades to projection
+        log_print(f"[services.dag.builder_migrate.run_content_plan_dag] suppressed {type(exc).__name__}: {exc}", flush=True)
         semantic_plan = None
 
     structured_plan: Any = None
     try:
         structured_plan = await structured.invoke(context)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        log_print(f"[services.dag.builder_migrate.run_content_plan_dag] suppressed {type(exc).__name__}: {exc}", flush=True)
         structured_plan = None
 
     fallback_plan = await fallback.invoke(context)

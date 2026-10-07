@@ -106,6 +106,7 @@ def load_resilience_config(path: str | Path | None = None) -> Dict[str, Any]:
             document = yaml.safe_load(handle)
     except Exception as exc:
         log_print(f"[llm.resilience.providers] silent exception caught: {exc}", flush=True)
+        return {}
     return document if isinstance(document, dict) else {}
 
 

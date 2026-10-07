@@ -1,5 +1,6 @@
 """Coordinate verified browser effects with task-level completion state."""
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Tuple
@@ -43,6 +44,7 @@ def apply_effect_receipt(
         context.after_effect(receipt, observation)
         outcome = context.effect_task_outcome(receipt)
     except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_receipt_flow.apply_effect_receipt] suppressed {type(exc).__name__}: {exc}", flush=True)
         return EffectReceiptApplication(
             context_updated=False,
             outcome=EffectTaskOutcome.continue_(),
@@ -72,7 +74,8 @@ def applied_effect_task_outcome(
         )
     try:
         return context.effect_task_outcome(receipt)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.effect_receipt_flow.applied_effect_task_outcome] suppressed {type(exc).__name__}: {exc}", flush=True)
         return EffectTaskOutcome.continue_()
 
 

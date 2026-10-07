@@ -7,11 +7,13 @@ content by delegating to the **existing** session stores:
 * L1 — participants + message count + active document (structural)
 * L2 — the recent transcript (chat_messages), on demand
 
-Visibility is delegated to 002 (tenant match here; the backend further restricts
-personal sessions to their owner and co-presence sessions to participants).
+Visibility is delegated to 002: the tenant match is the coarse guard, and the
+load below further restricts a session to its owner (``chat_sessions.user_id``),
+matching every other read of that collection in the app.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Optional
 
@@ -46,7 +48,7 @@ class SessionTierAdapter(TierAdapter):
         if not check_visibility(addr=addr, ctx=viewer):
             raise ContextVisibilityError(f"viewer may not resolve {uri}")
 
-        content, meta = await _load(addr, tenant_id)
+        content, meta = await _load(addr, tenant_id, viewer_id=viewer.viewer_id)
         if content is None:
             raise ContextNotFoundError(f"session not found: {uri}")
 
@@ -67,7 +69,9 @@ def _parse(uri: str) -> SessionAddress:
     return addr
 
 
-async def _load(addr: SessionAddress, tenant_id: str) -> tuple[Optional[str], dict]:
+async def _load(
+    addr: SessionAddress, tenant_id: str, *, viewer_id: str
+) -> tuple[Optional[str], dict]:
     db = get_db()
     if db is None:
         return None, {}
@@ -75,10 +79,17 @@ async def _load(addr: SessionAddress, tenant_id: str) -> tuple[Optional[str], di
 
     try:
         oid = ObjectId(addr.session_id)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[context_space.adapters.session._load] suppressed {type(exc).__name__}: {exc}", flush=True)
         return None, {}
     main_id = resolve_main_id(tenant_id)
-    doc = await db["chat_sessions"].find_one(add_main_scope({"_id": oid}, main_id))
+    # 002 ownership: every other read of ``chat_sessions`` in the app filters by
+    # ``user_id`` (sessions.py, session_persistence_service.py). Omitting it here
+    # let any tenant member resolve any session — including the L2 transcript
+    # (R3 audit, 2026-10-06).
+    doc = await db["chat_sessions"].find_one(
+        add_main_scope({"_id": oid, "user_id": str(viewer_id)}, main_id)
+    )
     if doc is None:
         return None, {}
 

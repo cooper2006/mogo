@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import json
@@ -54,6 +55,7 @@ class ScriptPluginExecutor(BaseExecutor):
                 run_id=run_id,
             )
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.data.script_engine.executor.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
             error = execution_error_summary(exc)
             yield {
                 "type": "runtime_status",
@@ -201,7 +203,8 @@ class ScriptPluginExecutor(BaseExecutor):
                     shutil.copyfile(local_path, target)
                 else:
                     continue
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.data.script_engine.executor._materialize_input_files] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
             files.append(
                 {
@@ -548,7 +551,8 @@ class ScriptPluginExecutor(BaseExecutor):
         for limit, value in limits:
             try:
                 resource.setrlimit(limit, value)
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.data.script_engine.executor._limit_child_process] suppressed {type(exc).__name__}: {exc}", flush=True)
                 continue
 
     @staticmethod

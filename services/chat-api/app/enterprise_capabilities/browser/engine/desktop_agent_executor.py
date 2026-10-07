@@ -8,6 +8,7 @@ the output through the standard runtime event contract.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 import json
@@ -298,7 +299,8 @@ def _domain(url: str) -> str | None:
     try:
         host = urlparse(str(url)).hostname
         return host or None
-    except Exception:
+    except Exception as exc:
+        log_print(f"[enterprise_capabilities.browser.engine.desktop_agent_executor._domain] suppressed {type(exc).__name__}: {exc}", flush=True)
         return None
 
 
@@ -1992,7 +1994,8 @@ class DesktopAgentBrowserExecutor:
             if forced_decision is None and forced_url:
                 try:
                     forced_domain = urlparse(forced_url).hostname or ""
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[enterprise_capabilities.browser.engine.desktop_agent_executor.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
                     forced_domain = ""
                 forced_decision = Decision(
                     tool="browser_navigate",
@@ -2037,7 +2040,8 @@ class DesktopAgentBrowserExecutor:
             if context_tracks_state and forced_decision is None:
                 try:
                     nav = task_context.maybe_force_navigation(current_obs)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[enterprise_capabilities.browser.engine.desktop_agent_executor.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
                     nav = None
                 if nav is not None:
                     forced_decision = nav
@@ -2055,7 +2059,8 @@ class DesktopAgentBrowserExecutor:
                     rule_observation = alternative_target_recovery.planning_observation(current_obs)
                     rule_observation = interaction_target_recovery.planning_observation(rule_observation)
                     rule_dec = task_context.suggest_next_action(rule_observation)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[enterprise_capabilities.browser.engine.desktop_agent_executor.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
                     rule_dec = None
                 if rule_dec is not None:
                     forced_decision = rule_dec
@@ -2071,7 +2076,8 @@ class DesktopAgentBrowserExecutor:
             _ledger = None
             try:
                 _ledger = task_context.build_state_ledger(current_obs) if context_tracks_state else None
-            except Exception:
+            except Exception as exc:
+                log_print(f"[enterprise_capabilities.browser.engine.desktop_agent_executor.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
                 _ledger = None
             scope_state = form_transaction.interaction_scope_state(current_obs)
             if scope_state is not None:
@@ -3179,7 +3185,8 @@ class DesktopAgentBrowserExecutor:
             if context_tracks_state:
                 try:
                     verdict, new_decision, v_hint = task_context.validate_action(decision, current_obs)
-                except Exception:
+                except Exception as exc:
+                    log_print(f"[enterprise_capabilities.browser.engine.desktop_agent_executor.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
                     verdict, new_decision, v_hint = ("allow", decision, "")
                 if verdict == "rewrite" and new_decision is not None:
                     yield {"type": "activity", "content": {
@@ -4404,7 +4411,8 @@ class DesktopAgentBrowserExecutor:
                 if context_tracks_state:
                     try:
                         post_action_ledger = task_context.build_state_ledger(current_obs)
-                    except Exception:
+                    except Exception as exc:
+                        log_print(f"[enterprise_capabilities.browser.engine.desktop_agent_executor.execute] suppressed {type(exc).__name__}: {exc}", flush=True)
                         post_action_ledger = None
                 signature = browser_progress_signature(
                     current_obs,
@@ -4869,4 +4877,5 @@ class DesktopAgentBrowserExecutor:
         except AgentNotConnected:
             return None, False, "agent-disconnected"
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.desktop_agent_executor._dispatch] suppressed {type(exc).__name__}: {exc}", flush=True)
             return None, False, f"dispatch-error: {exc}"

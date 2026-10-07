@@ -1,5 +1,6 @@
 """Initial browser-state acquisition for a desktop browser node."""
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import asyncio
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ async def acquire_initial_observation(
                 rationale="cross-node state handoff probe",
             ))
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.browser.engine.initial_observation.acquire_initial_observation] suppressed {type(exc).__name__}: {exc}", flush=True)
             payload, ok, error = None, False, f"probe-exception: {exc}"
 
         if ok:
@@ -55,6 +57,7 @@ async def acquire_initial_observation(
                 probed = parse_observation(payload)
                 adopted = adopt_probed_observation(current, probed)
             except Exception as exc:
+                log_print(f"[enterprise_capabilities.browser.engine.initial_observation.acquire_initial_observation] suppressed {type(exc).__name__}: {exc}", flush=True)
                 probed = None
                 adopted = current
                 last_error = f"probe-parse-error: {exc}"

@@ -183,6 +183,7 @@ def _safe_int(value: Any) -> int:
         return max(0, int(float(str(value or "").strip())))
     except Exception as exc:
         log_print(f"[services.org_skill_adapter] silent exception caught: {exc}", flush=True)
+        return 0
 
 
 def _target_length(value: Any, config: Dict[str, Any] | None = None) -> Dict[str, Any]:

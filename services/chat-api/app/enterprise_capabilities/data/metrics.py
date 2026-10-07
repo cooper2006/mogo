@@ -162,6 +162,7 @@ class MetricsEngine:
                 return name, ranked[:limit], None
             return name, None, {"reason": "unsupported_operation", "op": op}
         except Exception as exc:
+            log_print(f"[enterprise_capabilities.data.metrics._compute_one] suppressed {type(exc).__name__}: {exc}", flush=True)
             return name, None, {"reason": "calculation_error", "error": str(exc), "calculation": calculation}
 
     @classmethod

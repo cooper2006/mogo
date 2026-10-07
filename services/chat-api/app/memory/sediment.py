@@ -30,8 +30,6 @@ if TYPE_CHECKING:  # avoid import-time cycle with store / scope dataclass
     from app.memory.scope import Memory
     from app.memory.store import MemoryStore
 
-SUMMARY_REFRESH_DAYS_DEFAULT = 30
-
 
 class SessionSummarizer(Protocol):
     """Turns a session snapshot into ``(l0_summary, l1_overview)``."""
@@ -68,7 +66,8 @@ def build_session_memory(
     l0_summary: str = "",
     l1_overview: str = "",
     summarizer: Optional[SessionSummarizer] = None,
-    summary_refresh_days: int = SUMMARY_REFRESH_DAYS_DEFAULT,
+    # 0 → let MemoryStore apply the configured MEMORY_SUMMARY_REFRESH_DAYS.
+    summary_refresh_days: int = 0,
 ) -> dict:
     """Build the persisted field set of a session-sedimented memory (FR-5/FR-19).
 

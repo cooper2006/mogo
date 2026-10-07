@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
-from app.memory.scope import MemoryScope
+from app.memory.scope import MemoryScope, ORG_PROMOTION_ROLES
 from app.memory.store import MemoryStore, MemoryTooLargeError
 from app.memory.tiering import NoopSummarizer, tier_content
 
@@ -42,6 +42,15 @@ async def create_memory(
     scope = str(payload.get("scope") or MemoryScope.PERSONAL.value)
     if scope not in {s.value for s in MemoryScope}:
         raise HTTPException(status_code=400, detail=f"invalid scope: {scope!r}")
+
+    # 017 FR-4: creating at ``org`` scope grants visibility to the whole tenant,
+    # so it needs the same authorization as promotion. Without this, any user
+    # could write an org-wide memory directly and bypass ``promote_to_org``.
+    if scope == MemoryScope.ORG.value and role not in ORG_PROMOTION_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="org scope requires full_access_admin",
+        )
 
     # 017 FR-13/FR-15: derive density tiers (write-time summaries if supplied,
     # lazy fallback handled at read time via tier_content).

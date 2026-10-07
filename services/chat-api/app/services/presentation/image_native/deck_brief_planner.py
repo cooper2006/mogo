@@ -149,6 +149,7 @@ class DeckBriefPlanner:
             return path.read_text(encoding="utf-8").strip()[:8000] if path.exists() else ""
         except Exception as exc:
             log_print(f"[services.presentation.image_native.deck_brief_planner] silent exception caught: {exc}", flush=True)
+            return ""
 
     def _fallback(self, *, story_plan: StoryDeckPlan, constraint_bundle: ConstraintBundle) -> _DeckBriefEnvelope:
         return _DeckBriefEnvelope(

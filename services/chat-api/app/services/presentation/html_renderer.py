@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import html
 import logging
@@ -28,7 +29,8 @@ logger = logging.getLogger(__name__)
 def _clamp01(value: Any, default: float) -> float:
     try:
         result = float(value)
-    except Exception:
+    except Exception as exc:
+        log_print(f"[services.presentation.html_renderer._clamp01] suppressed {type(exc).__name__}: {exc}", flush=True)
         result = default
     return max(0.0, min(1.0, result))
 
@@ -187,7 +189,8 @@ class HtmlRenderer:
             line_weight = merged.get("line_weight")
             try:
                 thickness_px = max(1.0, float(line_weight)) if line_weight not in (None, "") else 1.0
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.presentation.html_renderer._render_shape] suppressed {type(exc).__name__}: {exc}", flush=True)
                 thickness_px = 1.0
             color = str(
                 merged.get("color")

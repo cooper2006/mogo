@@ -5,6 +5,7 @@ collections, both tenant-scoped.
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from typing import Any, Optional
 
@@ -73,7 +74,8 @@ class TenantKgStore:
         self._loaded = True
         try:
             db = _get_db()
-        except Exception:  # noqa: BLE001 - degrade to an empty in-memory store
+        except Exception as exc:  # noqa: BLE001 - degrade to an empty in-memory store
+            log_print(f"[knowledge_graph.persisted_store._ensure_loaded] suppressed {type(exc).__name__}: {exc}", flush=True)
             db = None
         if db is None:
             return
@@ -114,7 +116,8 @@ class TenantKgStore:
 
         try:
             db = _get_db()
-        except Exception:  # noqa: BLE001 - degrade like _ensure_loaded does
+        except Exception as exc:  # noqa: BLE001 - degrade like _ensure_loaded does
+            log_print(f"[knowledge_graph.persisted_store.get_node_direct] suppressed {type(exc).__name__}: {exc}", flush=True)
             db = None
         if db is None:
             return None, []
@@ -138,7 +141,8 @@ class TenantKgStore:
                 target = str(edge_row.get("target") or "").strip()
                 if target and target != node_id:
                     neighbours.append(target)
-        except Exception:  # noqa: BLE001 - neighbours are a nice-to-have
+        except Exception as exc:  # noqa: BLE001 - neighbours are a nice-to-have
+            log_print(f"[knowledge_graph.persisted_store.get_node_direct] suppressed {type(exc).__name__}: {exc}", flush=True)
             neighbours = []
         return node, neighbours
 
@@ -187,7 +191,8 @@ class TenantKgStore:
     async def persist(self) -> None:
         try:
             db = _get_db()
-        except Exception:  # noqa: BLE001 - skip persistence rather than crash
+        except Exception as exc:  # noqa: BLE001 - skip persistence rather than crash
+            log_print(f"[knowledge_graph.persisted_store.persist] suppressed {type(exc).__name__}: {exc}", flush=True)
             db = None
         if db is None:
             return

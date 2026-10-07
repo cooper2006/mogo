@@ -726,7 +726,8 @@ def generate_docx_file(
                     try:
                         if uploader.storage_backend == "local":
                             local_path = str(uploader.local_file_path(object_path))
-                    except Exception:
+                    except Exception as exc:
+                        log_print(f"[tools.docx.generate_docx_file] suppressed {type(exc).__name__}: {exc}", flush=True)
                         local_path = ""
                     if local_path and _os.path.exists(local_path):
                         _add_picture_resilient(doc, local_path, width=Cm(14))
@@ -847,4 +848,5 @@ def create_docx_from_markdown(markdown_content: str, filename: str = "report.doc
         file_path = generate_docx_file(markdown_content, filename)
         return f"DOCX Generated Successfully: {file_path}"
     except Exception as exc:
+        log_print(f"[tools.docx.create_docx_from_markdown] suppressed {type(exc).__name__}: {exc}", flush=True)
         return f"DOCX Generation Failed: {str(exc)}"

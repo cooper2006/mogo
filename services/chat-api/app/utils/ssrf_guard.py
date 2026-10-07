@@ -43,6 +43,7 @@ def is_safe_url(url: str) -> bool:
         parsed = urlparse(url)
     except Exception as exc:
         log_print(f"[utils.ssrf_guard] silent exception caught: {exc}", flush=True)
+        return False
     if parsed.scheme not in _ALLOWED_SCHEMES:
         return False
     hostname = parsed.hostname

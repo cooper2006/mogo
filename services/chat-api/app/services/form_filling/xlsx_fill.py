@@ -185,7 +185,8 @@ def _sparse_resume_template_targets(ws: Any) -> List[Dict[str, Any]]:
             if isinstance(cell, MergedCell):
                 continue
             targets.append({"target": _target(ws.title, cell.coordinate), "label": label, "kind": "sparse_resume_template"})
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.form_filling.xlsx_fill._sparse_resume_template_targets] suppressed {type(exc).__name__}: {exc}", flush=True)
             continue
     return targets
 
@@ -275,7 +276,8 @@ async def fill_xlsx_form(
                 if isinstance(cell, MergedCell):
                     skipped += 1
                     continue
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.form_filling.xlsx_fill.fill_xlsx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
                 skipped += 1
                 continue
             old = cell.value
@@ -303,7 +305,8 @@ async def fill_xlsx_form(
                 continue
             try:
                 ws = wb[str(table.get("sheet") or "")]
-            except Exception:
+            except Exception as exc:
+                log_print(f"[services.form_filling.xlsx_fill.fill_xlsx_form] suppressed {type(exc).__name__}: {exc}", flush=True)
                 skipped += 1
                 continue
             header_row = int(table.get("header_row") or 1)

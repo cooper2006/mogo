@@ -2,13 +2,13 @@
 
 Indexes business entities (customers / orders / products / docs / tickets)
 from **pointers only** (never writes to the business DB — 014 Non-Goal).
-from app.infrastructure.observability.config import log_print
 Semantic search **reuses the 005 retrieval client** and returns results with
 a source/citation anchor so consumers can trace back to the originating
 entity (US1 acceptance 2: 检索带来源).
 """
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
@@ -181,6 +181,7 @@ class BusinessSemanticIndex:
             )
         except Exception as exc:
             log_print(f"[services.business_semantic_index] silent exception caught: {exc}", flush=True)
+            return []
         hits: list[SemanticHit] = []
         for item in result.items:
             title = " / ".join(item.titlePath) if item.titlePath else ""

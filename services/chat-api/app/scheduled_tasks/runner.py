@@ -1,6 +1,7 @@
 """Scheduled task admission; Agent execution is owned exclusively by DSH."""
 
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import logging
 from datetime import datetime
@@ -84,7 +85,8 @@ class ScheduledChatRunner:
         template = str(job.get("session_title_template") or "{name} · {date}")
         try:
             title = template.format(name=str(job.get("name") or "定时任务"), date=local_date)
-        except Exception:
+        except Exception as exc:
+            log_print(f"[scheduled_tasks.runner._resolve_target] suppressed {type(exc).__name__}: {exc}", flush=True)
             title = f"{str(job.get('name') or '定时任务')} · {local_date}"
         # DSH Chat creates the ASKAI Conversation and Kernel Binding as one
         # admitted operation. An empty legacy session has no execution identity.

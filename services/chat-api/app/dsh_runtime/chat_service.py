@@ -307,7 +307,8 @@ class DshChatService:
             await asyncio.shield(task)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            log_print(f"[dsh_runtime.chat_service.wait_turn] suppressed {type(exc).__name__}: {exc}", flush=True)
             return "failed"
         return self._turn_outcomes.pop(message_id, str(task.result() or "unknown"))
 
@@ -406,7 +407,8 @@ class DshChatService:
                     )
                 )
             await self._gateway.dispose_session(str(binding["kernel_session_id"]))
-        except Exception:
+        except Exception as exc:
+            log_print(f"[dsh_runtime.chat_service.dispose_conversation] suppressed {type(exc).__name__}: {exc}", flush=True)
             await self._bindings.mark_disposed(str(binding["binding_id"]), pending=True)
             return
         await self._bindings.mark_disposed(str(binding["binding_id"]))

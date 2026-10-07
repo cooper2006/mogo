@@ -27,3 +27,4 @@ async def download_text(
         return data.decode(encoding, errors="ignore")
     except Exception as exc:
         log_print(f"[utils.storage_utils] silent exception caught: {exc}", flush=True)
+        return ""

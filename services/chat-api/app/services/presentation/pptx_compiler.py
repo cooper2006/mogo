@@ -5,6 +5,7 @@ render_utils for coordinate conversion, z-ordering, style resolution
 and chart spec extraction.
 """
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import logging
 import re
@@ -348,7 +349,8 @@ class PptxCompiler:
         line_weight = style.get("line_weight")
         try:
             thickness = max(1.0, float(line_weight)) if line_weight not in (None, "") else 2.0
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.presentation.pptx_compiler._render_line] suppressed {type(exc).__name__}: {exc}", flush=True)
             thickness = 2.0
 
         # For diagonal lines, use a freeform; for axis-aligned, use a thin rect

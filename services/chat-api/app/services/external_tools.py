@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.observability.config import log_print
 
 import datetime
 import json
@@ -565,7 +566,8 @@ class ExternalToolService:
             if len(generated) > 220:
                 generated = generated[:220].rstrip("，,。.!！?？ ") + "。"
             return {"description": generated}
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.external_tools.generate_description] suppressed {type(exc).__name__}: {exc}", flush=True)
             fallback = (
                 f"{normalized_name}用于连接{'MCP 服务' if normalized_type == 'mcp' else '外部 HTTP 接口'}，"
                 "帮助 Agent 在需要查询、执行或同步外部业务数据时完成调用，"
@@ -636,7 +638,8 @@ class ExternalToolService:
         content_type = response.headers.get("content-type", "")
         try:
             parsed_body: Any = response.json() if "json" in content_type else response.text
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.external_tools._test_http_direct] suppressed {type(exc).__name__}: {exc}", flush=True)
             parsed_body = response.text
         ok = 200 <= response.status_code < 300
         return {
@@ -671,7 +674,8 @@ class ExternalToolService:
         content_type = response.headers.get("content-type", "")
         try:
             parsed_body: Any = response.json() if "json" in content_type else response.text
-        except Exception:
+        except Exception as exc:
+            log_print(f"[services.external_tools._test_http_via_plugin_gateway] suppressed {type(exc).__name__}: {exc}", flush=True)
             parsed_body = response.text
         wrapped = parsed_body.get("response") if isinstance(parsed_body, dict) and isinstance(parsed_body.get("response"), dict) else parsed_body
         ok = bool(wrapped.get("success")) if isinstance(wrapped, dict) and "success" in wrapped else 200 <= response.status_code < 300
