@@ -1,0 +1,20 @@
+{
+  "_comment": "Counted ceilings for scripts/check_python_static.py. A check passes when its finding count is <= the ceiling; it fails when the count GROWS. The silent-except ceilings are NOT a defect count: QA R4 audited every such block and deliberately kept these (cancellation-swallowing shutdown, expected chain fall-through, logging infra that would recurse). The ceiling freezes that adjudicated set so a NEW silent broad handler must be reviewed. Lower a ceiling whenever debt is paid down. Baseline taken 2026-10-07 (QA R5).",
+  "services": {
+    "chat-api": {
+      "duplicate-except": 0,
+      "duplicate-dict-key": 0,
+      "silent-except": 41
+    },
+    "admin-api": {
+      "duplicate-except": 0,
+      "duplicate-dict-key": 0,
+      "silent-except": 14
+    },
+    "document-parser": {
+      "duplicate-except": 0,
+      "duplicate-dict-key": 0,
+      "silent-except": 2
+    }
+  }
+}

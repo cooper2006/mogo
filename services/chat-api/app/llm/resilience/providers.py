@@ -25,9 +25,16 @@ from __future__ import annotations
 from app.infrastructure.observability.config import log_print
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import yaml
+
+if TYPE_CHECKING:
+    # Annotation-only import: the runtime import stays inside
+    # ``get_resilient_llm_client`` (below) so importing this module never drags
+    # in the failover stack. Without this, the string annotation on line ~117
+    # names a symbol that is undefined at module scope (QA R5: pyflakes F821).
+    from .failover import ResilientLLMClient
 
 from ...llm.base import BaseLLMClient
 from .failover import ProviderEntry

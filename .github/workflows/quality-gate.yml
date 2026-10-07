@@ -108,6 +108,14 @@ jobs:
         working-directory: services/${{ matrix.service }}
         run: python -m compileall -q app
 
+      # Python static correctness (QA R3 leftover #2, landed in QA R5).
+      # `compileall` only proves the file parses; this catches duplicate except
+      # clauses, duplicate dict keys, and silent broad excepts. Pure stdlib, so
+      # it runs before dependency install. Counted ceilings live in
+      # scripts/python_static_allowance.json — the gate fails when a count grows.
+      - name: Python static correctness
+        run: python scripts/check_python_static.py services/${{ matrix.service }}/app --service ${{ matrix.service }}
+
       # Regression guard for the "implemented + green tests but unreachable in
       # production" class of defect (QA 2026-10-06: the whole 021 layer had zero
       # production imports). Pure stdlib, so it runs before dependency install.
@@ -131,6 +139,23 @@ jobs:
           # pytest-timeout provides the --timeout flag used in "Run tests";
           # without it pytest exits 4 with "unrecognized arguments: --timeout=120".
           ${{ matrix.venv }}/bin/pip install pytest pytest-asyncio pytest-timeout pytest-cov
+
+      # Undefined names (pyflakes F821) — a NameError waiting for the one code
+      # path that reaches it. QA R5 found two live instances (a string
+      # annotation naming a symbol that was never imported). Only `undefined
+      # name` fails the build: the repo carries pre-existing unused imports
+      # that are tracked separately and must not mask a real defect here.
+      - name: Undefined-name check (pyflakes)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          ${{ matrix.venv }}/bin/pip install -q pyflakes
+          out=$(${{ matrix.venv }}/bin/python -m pyflakes app || true)
+          if echo "$out" | grep -q "undefined name"; then
+            echo "$out" | grep "undefined name"
+            echo "::error::pyflakes found undefined name(s)"
+            exit 1
+          fi
+          echo "ok: no undefined names"
 
       - name: Run tests
         working-directory: services/${{ matrix.service }}

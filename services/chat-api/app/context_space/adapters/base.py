@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    # Annotation-only: the concrete adapters already import ViewerContext from
+    # ``context_space.visibility``; the base class referenced it as a string
+    # without importing it at all (QA R5: pyflakes F821). Keeping this under
+    # TYPE_CHECKING also guarantees the base interface stays dependency-free.
+    from app.context_space.visibility import ViewerContext
 
 
 @dataclass
