@@ -6143,3 +6143,114 @@ services/chat-api/venv/bin/python /tmp/diff_pptx.py          # 全 deck 对账�
 ### 6. 未提交
 
 按 `AGENTS.md` 并行会话纪律**不提交**：工作区内除本轮文档改动外，还有 R4 落盘的 95 个 `services/` 文件等未提交改动。`specs/INDEX.md` 本身也带有 2026-10-05 优化轮的未提交改动，本轮只在其上补齐计数。
+
+---
+
+## 2026-10-07 · Standard 深度全量 QA 审计 · 第四轮（R5）
+
+**编号**：`R4` 已被上一轮「非静默宽泛 except 补日志」占用，故本轮审计续编 **R5**。
+**基线**：`main` @ `1c0bec2`。**目标**：换第四批维度——发布链路 / 供应链 / 宣称 vs 事实 / 静态门禁 / 测试有效性。
+
+**报告**：`docs/pending-review/2026-10-07-full-qa-audit-r5.md`
+
+### 结论
+
+**8 项发现（2 P0 / 4 P1 / 2 P2），6 项已修，2 项待决策。**
+
+针对用户引用的宣称「所有特性全流程已就绪」——**不成立**：
+仓库自有 `specs/LANDING_AUDIT_2026-10-03.md` 判 `landed 0 / partial 10 / hollow 9`，
+`specs/010/tasks.md` 头部自带 `hollow` 横幅。
+
+### R5-A 发布链路（7/7 通过）
+
+`verify_bundle.py` 实跑 4 包 / 11 镜像 / 全 `amd64/linux`；compose 引用全命中；8/8 应用服务带
+`pull_policy: never`；`DEPLOY.md` sha256 全对；模板↔渲染产物仅差 1 行空注释。
+**方法论修正**：A3 首跑误报"服务数≠镜像数"——`document-api`/`document-worker` **共用**一个镜像；
+A7 首跑误报源于 **macOS BSD `sed` 不支持 `\b`**。
+
+### R5-B 供应链完整性
+
+- 已修 **B5(P0)**：`dsh-host-e2e` 用 `npm install` 装 **pnpm** 项目（`pnpm-lock.yaml` 被忽略）
+  → 改为 `pnpm install --frozen-lockfile`，对齐生产 Dockerfile。
+  **勘误**：初判"缺 `package-lock.json`"错误——锁文件存在，错的是 CI 侧的包管理器。
+- 已修 **B6(P1)**：pyflakes 基线 chat-api 183 / admin-api 29，其中 **2 处 `undefined name`**
+  （`llm/resilience/providers.py:117`、`context_space/adapters/base.py:46` 的字符串注解从未导入）
+  → 补 `TYPE_CHECKING` 导入。
+- 待决策 **B7/B8**：`document-parser` 两个 requirements 无哈希；基础镜像 0/8 按 digest 钉死。
+- **勘误**：`apps/user-web/Dockerfile` 的 `npm install` 是 **dev 镜像**，`Dockerfile.prod` 用 `npm ci` → 降级为观察项。
+
+### R5-C 宣称 vs 事实
+
+- 已修 **C1(P0)**：`LANDING_AUDIT_2026-10-03.md` **总览表从未随修复回写**，
+  与同文档"已修/全修"各小节自相矛盾。新增 R5 复核节并声明总览作废。
+- **包级可达性重新推导**（口径 = 文档 §"今天的标准"第 1 条，包外 import 计数）：
+  chat-api **22/23** 有生产入边（仅 `app/cases` 孤岛）、admin-api 5/6、document-parser 4/5。
+  → 判 hollow 的核心包（`memory`/`im_gateway`/`business_index`/`knowledge_graph`/`a2a`/`orchestration`）
+  **现已全部有入边**，"纯逻辑孤岛"形态**基本消除**。
+- 已修 **C2(P0)**：010 T020/T021 见 R5-F。
+
+### R5-D 静态门禁（已修）
+
+CI **6 个 workflow 中 Python 静态分析零命中**（只有 `compileall`，而它只证明能解析）。
+新增 `scripts/check_python_static.py`（纯 stdlib：duplicate-except / duplicate-dict-key /
+silent-except）+ `scripts/python_static_allowance.json`（配额冻结）+ CI 两步
+（`Python static correctness`、`Undefined-name check (pyflakes)`）。
+**降噪实证**：silent-except 首版不限宽泛报 63 处，抽样确认多为合法控制流 → 收窄后 41 处。
+**定性**：silent-except **不是缺陷清单**——R4 已逐处审议并有意保留（见本文件 §"覆盖边界：38 处 PASS_ONLY 有意不改"），
+配额冻结只为让**新增**静默块必须被复核。
+
+### R5-E 测试与门禁复验
+
+chat-api **2229 passed / 0 failed / 0 error**（与改动前逐数一致）；admin-api **433 passed**；
+模块覆盖率门禁 ✅、生产接线门禁 ✅、`compileall` ✅、版本一致性 ✅（五处全 `0.2.0`）。
+**口径澄清**（提交前复核）：上数用的是**仓库自带 addopts**（含反选 `dsh_host_e2e`）；
+若 `-o addopts=""` 清空 addopts，则为 **2237 passed / 0 failed / 0 error**——差额 8 即被反选的
+`dsh_host_e2e` 用例（它们在免沙箱下实跑也全过）。两种口径都是 0 失败 0 错误。
+**环境注意**：chat-api 全量测试须**免沙箱**跑，否则固定报 ERROR（沙箱下 2208 passed + 29 error，
+即 8 反选用例 + 21 个 setup 失败；失败项为写临时文件/起本地服务类，免沙箱即全过）。
+根因是 `LOGNAME=root` vs `USER=cooper` → `getpass.getuser()` 得 `root` → pytest basetemp
+落到沙箱 broker 不可创建的目录。这是审计环境问题，非产品缺陷。
+
+### R5-F 自证式测试（新维度，已修）
+
+`test_dag_migrate_polish.py` 中 4 条测试**只断言测试自己构造的本地对象**，
+删掉整个 `app/orchestration/` 依然全绿，却支撑了 `tasks.md` 的 T020/T021 勾选。
+改写为 4 条真实测试（驱动 `DagEngine` 的并发上界 + `OrchestrationRegistry` 的版本归档），
+并以**变异测试**验证可证伪（拆掉 `max_concurrency` → 两条测试失败 → 还原后干净）。
+
+**检测器对抗验证**（v1 168 → v2 38 → v3 4，收敛掉 97.6% 误报）：
+修正了 8 类误报——pytest fixture、`importlib` 装入的门禁脚本、同文件 helper、
+跨模块 helper、`scripts.*` 生产资产、`Attribute` 型源码读取、`sys.path.insert` 动态加载、
+文件存在性检查。每类保留回归自检样本。
+
+### 孤儿模块取证（全仓搜符号，非仅模块名）
+
+| 模块 | 定性 |
+|---|---|
+| `governance/suspensions/resume_admission.py` | ⚠️ **安全控制未接线**：可信续跑准入上下文，无生产者、无消费方、`_runtime_resume_only` 无写入方 |
+| `services/dag/builder_migrate.py` | 010 T018/T019 交付物；`docs/SDD界面呈现对照表.md` 宣称"已接入生产"，实际零调用方 |
+| `services/presentation/execution/page_executor.py` | 死代码 |
+| `skills_specs/pdf/markdown_to_pdf.py` | 死代码（连测试都没有） |
+| `admin-api/repositories/admin_user_repository.py` | 遗留实现（操作 `admin_users`，线上走 `org_user_repository` + `admin_accounts`） |
+
+### 提交（按 `AGENTS.md` 并行会话纪律切分，一个提交只讲一件事）
+
+本轮 R5 的改动**已提交并推送**到 `mogo`（`origin` 仍锁 `no-push`）。切分时发现
+`.github/workflows/quality-gate.yml` 的 3 处 hunk **分属两件事**（静态门禁 / pnpm 供应链），
+采用「`git checkout HEAD --` 还原 + 按精确锚点只施加其中一组」的确定性方式切分，
+避免交互式 `git add -p` 的不确定性：
+
+| 提交 | 内容 |
+|---|---|
+| `41c8d45` | `ci(qa)`：stdlib 静态门禁（`check_python_static.py` + 配额基线 + CI 两步）+ 它抓到的 2 处 `undefined name` |
+| `c95856d` | `test(qa)`：010 四条自证式测试改写为驱动真实引擎 + `tasks.md` T020/T021 诚实注解 |
+| `f03b7ba` | `docs(specs)`：`LANDING_AUDIT_2026-10-03.md` 总览表标记为修复前快照 + 包级可达性复核 |
+| `6f679ab` | `fix(governance)`：脱敏策略加载失败不再静默（补 WARNING，回退路径不变） |
+| `5528485` | `ci(deps)`：`dsh-host-e2e` 改用 `pnpm install --frozen-lockfile`，对齐生产 Dockerfile |
+| `3f9b02e` | `chore(gitignore)`：忽略审计临时根 `.pytest-tmp*/` 与检测器输出 `.r5-*.json` |
+
+本提交（`docs(qa)`：R5 报告 + 本日志）是最后一个，SHA 见 `git log -1`。
+
+**未入库（有意）**：`.workbuddy-ai/` 已被 `.gitignore:345` 忽略，故本轮沉淀的
+`qa-detector-adversarial-validation` 技能与 `memory/2026-10-07.md` **不进仓库**——
+它们是会话工具资产，不是项目交付物。
