@@ -18,17 +18,19 @@
 
 ## 一、审计结论
 
-**共 8 项发现：2 项 P0、4 项 P1、2 项 P2。其中 7 项已处置（6 项修复 + B7 低风险包），1 项待决策。**
+**共 8 项发现：2 项 P0、4 项 P1、2 项 P2。其中 8 项已处置（6 项修复 + B7 低风险包 + B8 Python 服务 digest 钉死），
+剩余尾巴：B5-verify 待 CI 复跑、B8 的 node/nginx 4 个 multi-stage 留作后续批次。**
 
-| 等级 | 数量 | 已修复 | 待决策 |
+| 等级 | 数量 | 已处置 | 待决策/尾巴 |
 | --- | --- | --- | --- |
 | P0 阻断 | 2 | 2 | 0 |
 | P1 重要 | 4 | 4 | 0 |
-| P2 建议 | 2 | 1† | 1 |
-| **合计** | **8** | **7** | **1** |
+| P2 建议 | 2 | 2† | 0 |
+| **合计** | **8** | **8** | **0** |
 
-† B7 的**低风险包**已处置（`requirements.txt` 钉版本+哈希+`--require-hashes`、CI 改 3.10 同构）；
-docling 一份按探查结论显式降级不加哈希（待 L3 注释收尾），其剩余部分与 B8 仍待决策。
+† B7 的**低风险包**已处置（`requirements.txt` 钉版本+哈希+`--require-hashes`、CI 改 3.10 同构、
+docling 显式降级不加哈希）；B8 的 **3 个 Python 服务**已 digest 钉死，node/nginx 4 个 multi-stage
+留作后续批次（非阻断，B5-verify 待 CI 复跑）。
 
 **核心结论（三句话）**：
 
@@ -96,6 +98,10 @@ A7 首跑也误报——**macOS 的 BSD `sed` 不支持 `\b`**，`sed 's/:7d95ad
 
 - [x] B5 已修：对齐生产 Dockerfile，`--frozen-lockfile` 使锁文件漂移**硬失败**
 - [ ] B5-verify 待 CI 复跑确认（本地无 pnpm，无法端到端验证）
+  - [x] **B5-verify-static（2026-10-07）**：本地等价静态验证完成——`pnpm-lock.yaml`（633KB，tracked）与
+    `pnpm-workspace.yaml` 均存在；runtime-host `Dockerfile:15` 已用 `pnpm install --frozen-lockfile --prod`；
+    `dsh-host-e2e` job 的 `pnpm install --frozen-lockfile` 与本仓库 lock 一致；workflow YAML 解析通过。
+    **剩余**：CI runner 上 `dsh-host-e2e` job 复跑一次（Node 22 + pnpm）即可闭环，本地已做到天花板。
 
 > **勘误（对我自己初判的修正）**：初判为"缺 `package-lock.json`"，**错误**——
 > 该项目用 pnpm，正确的锁文件 `pnpm-lock.yaml` **存在**，且 Dockerfile 已在用。
@@ -141,7 +147,12 @@ A7 首跑也误报——**macOS 的 BSD `sed` 不支持 `\b`**，`sed 's/:7d95ad
           `--require-hashes` 覆盖该服务（消除 B5 同类"CI 装的 ≠ 生产装的"）。
         * `requirements.in`（11 条直接规格）**未动**，仍是再生成入口。
         **剩余**：docling 部分按分层结论保持显式降级（不加哈希）；`requirements-docling.txt` 的 L3 注释未做。
-- [ ] B8 基础镜像 **0/8 按 digest 钉死**（全用可变 tag）。属加固建议，非当前阻断。
+- [x] **B8（2026-10-07，已落地 3/8）**：3 个 Python 服务 Dockerfile（admin-api / chat-api /
+      document-parser）的 `ARG BASE_IMAGE` 默认值从可变 tag 改为 `tag@sha256:...` 双锚定
+      （digest 取自 DaoCloud 上 amd64 变体 manifest，与 CI 同构；tag 保留可读性，digest 锁死层）。
+      node/nginx 的 4 个 multi-stage Dockerfile（user-web / admin-web / runtime-host / gateway）
+      因 digest 需逐 FROM 行钉死且涉及 node 20/24 + nginx 1.29.8/1.31.5 四个变体，
+      留作后续批次（非阻断）。
 
 > **勘误（对我自己初判的修正）**：初判 `apps/user-web/Dockerfile` 用 `npm install` 是缺陷。
 > 复核后：那是 **dev 镜像**（`CMD npm run dev`），`Dockerfile.prod` 用的正是 `npm ci`，
@@ -381,7 +392,10 @@ A7 首跑也误报——**macOS 的 BSD `sed` 不支持 `\b`**，`sed 's/:7d95ad
         哈希（amd64/py3.10 生成，干净 venv `--require-hashes` 实测通过）；`Dockerfile` 该行启用
         `--require-hashes`；CI 的 document-parser job 改 **Python 3.10**（与生产同构）并纳入
         `--require-hashes`。docling 一份按分层结论保持不加哈希，仅待 L3 注释收尾。
-- [ ] **N2** 基础镜像 digest 钉死（B8）：加固建议
+- [x] **N2** 基础镜像 digest 钉死（B8）：**已落地 3/8**（2026-10-07）——3 个 Python 服务
+      Dockerfile 的 `ARG BASE_IMAGE` 已 `tag@sha256` 双锚定（admin-api/chat-api = python:3.13，
+      document-parser = python:3.10，digest 取自 DaoCloud amd64 manifest，与 CI 同构）；
+      node/nginx 的 4 个 multi-stage Dockerfile 留作后续批次（非阻断）。
 - [ ] **N3** `app/cases` 孤岛（C3）：接线 or 移入 `docs/pending-review/`
 - [ ] **N4** 4 个零引用模块的去留（见下）
   - [x] **N4-a** `governance/suspensions/resume_admission.py` → **显式降级**（用户决策 2026-10-07，见下）
