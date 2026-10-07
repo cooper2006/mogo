@@ -6254,3 +6254,166 @@ chat-api **2229 passed / 0 failed / 0 error**（与改动前逐数一致）；ad
 **未入库（有意）**：`.workbuddy-ai/` 已被 `.gitignore:345` 忽略，故本轮沉淀的
 `qa-detector-adversarial-validation` 技能与 `memory/2026-10-07.md` **不进仓库**——
 它们是会话工具资产，不是项目交付物。
+
+---
+
+## 2026-10-07 resume_admission 显式降级 + document-parser 依赖哈希只读探查
+
+**任务**：处置 R5 遗留的两项待决策——`resume_admission.py`（接线 or 显式降级）与
+`document-parser` 依赖无哈希（B7 / N1）。
+
+### 决策一：`resume_admission.py` → 显式降级（不接线）
+
+不接线的理由是**语义不成立**，而非工作量大：`output_spec` 由客户端可控
+（`ChatRequest.output_spec`）且由续跑端点自行构造，端点往同一调用栈内的 dict 写标志再读回，
+不构成任何信任边界。真正生效的可信通道是**服务端参数** `trusted_turn_context`
+（生产者 `app/api/endpoints/tasks.py::resume_task`，消费方
+`app/dsh_runtime/chat_service.py::prepare_turn`，明确不取自 `ChatRequest`）。
+
+处置：模块 docstring 顶部自述"未接线 / NOT WIRED，不构成强制控制"并保留原设计意图；
+测试文件标注其自证性质。**不改运行行为**。
+
+**验证**：`venv/bin/python -m pytest tests/runtime/test_resume_admission.py -q` → 2 passed；
+`compileall`（需 `PYTHONPYCACHEPREFIX` 绕开沙箱对 `~/Library/Caches` 的写入限制）通过。
+
+### 决策二：`document-parser` 依赖 → 只读探查，得出分层结论（未改构建）
+
+在 `python:3.10-slim-bookworm` 容器内对两个 requirements 跑 `pip-compile`
+（清华源；只写容器内 `/tmp` 与仓库外 `/tmp/dp-out`，**未动仓库任何文件**）：
+
+| 输入 | 结果 | 关键观察 |
+|---|---|---|
+| `requirements.txt`（11 条 `>=`） | OK，172 行 / 66 包 / 11s | 无 docling/torch；`websockets==16.1.1` —— 同一约束在 3.13 上会解出 `17.2`（QF-465 回退的根因） |
+| `requirements-docling.txt`（9 条 `==`） | OK，413 行 / 124 安装项 / 173s | **传递依赖含 CUDA 版 torch**：`torch==2.14.1`（`manylinux_2_28_*`，无 `+cpu`）、`torchvision==0.29.1`、`triton==3.8.0` + **15 个 `nvidia-*` 包**（cublas / cudnn-cu13 / nccl-cu13 / …） |
+
+`pip install --dry-run --report` 证实上述包全部指向 `pypi.tuna.tsinghua.edu.cn`，
+即 **PyPI 的 CUDA 构建**，与 Dockerfile 从 `download.pytorch.org/whl/cpu` 安装、
+并以 `PYTORCH_ACCELERATOR=cpu` 刻意规避 CUDA 的设计**直接冲突**。
+
+**结论**：
+- `requirements.txt`：**可安全推进**（钉版本 + 哈希 + `--require-hashes`），依赖树无 torch/CUDA。
+- `requirements-docling.txt`：**不应**直接套 `--generate-hashes`。启用 `--require-hashes`
+  必须 pin 全部 124 项，其中 15 个 `nvidia-*` 会被强制从 PyPI 拉入（数 GB），
+  或哈希与 CPU wheel 不匹配导致构建失败。应**显式降级**：保持钉版本，
+  在文件头写明不加哈希的理由（理由此前只存在于本日志，未落在文件里）。
+- **附带发现（与 B5 同类）**：CI 的 document-parser job 用 **Python 3.13** 装生产
+  requirements，而生产 Docker 是 **3.10**，且该文件 11 条全 `>=` 无上界
+  → "CI 装的 ≠ 生产装的"，CI 绿推不出镜像可装。
+- **探查环境维度更正**：本次容器为 **linux/arm64**（Apple Silicon），故解析出 aarch64 wheel；
+  生产/CI 为 **amd64**，任何真正的哈希生成必须在 `--platform linux/amd64` 下进行。
+
+**未做**：未修改任何 Dockerfile / requirements / CI。探查产物在仓库外
+（`/tmp/dp-probe*.sh`、`/tmp/dp-out/{docling.lock,report.json}`），属临时证据。
+
+**修改文件**：`services/chat-api/app/governance/suspensions/resume_admission.py`、
+`services/chat-api/tests/runtime/test_resume_admission.py`、
+`docs/pending-review/2026-10-07-full-qa-audit-r5.md`（§九 N4-a 决策与理由）、
+`docs/WORK_LOG.md`（本条）。
+
+---
+
+## 2026-10-07 B7 低风险包实施（requirements.txt 钉版本+哈希 + CI 同构）
+
+**任务**：按 B7-probe 的分层结论，实施用户授权的低风险包：`requirements.txt` 钉版本 +
+哈希 + `--require-hashes`，CI 的 document-parser job 改 Python 3.10 与生产同构。
+**docling 一份保持不加哈希**（分层结论：会拉入 CUDA 版 torch + 15 个 nvidia-*）。
+
+**实施**：
+1. `services/document-parser/requirements.txt`：在 **amd64 + Python 3.10** 容器
+   （`docker.m.daocloud.io/library/python:3.10-slim-bookworm`，清华源）内重新
+   `pip-compile --generate-hashes` → **61 包 / 1312 条 sha256 / 全钉版本**。
+   文件头命令记录已规范化为 `requirements.in` 入口（与 chat-api/admin-api 一致）。
+2. `services/document-parser/Dockerfile`：`requirements.txt` 安装行加
+   `--require-hashes`；`requirements-docling.txt` 行不变（仍 `--prefer-binary`、无哈希）。
+3. `.github/workflows/quality-gate.yml`：matrix include 增加 `python` 字段
+   （admin-api/chat-api = 3.13、document-parser = **3.10**）；setup-python 改
+   `${{ matrix.python }}`；安装步骤 `--require-hashes` 无条件覆盖三服务
+   （原 "document-parser 条件跳过" 分支删除）。
+4. `services/document-parser/requirements.in`（11 条直接规格）**未动**，仍是再生成入口。
+
+**验证（全部实跑，非推理）**：
+- 生成容器内：`pip install --require-hashes` 干净 venv → `VERIFY_OK` + 11 个直接依赖
+  `IMPORTS_OK`（118s 生成，66 → 61 包口径差异来自 pip-compile 解析细节）。
+- 仓库文件原样复验：新容器 `pip install --require-hashes -r <仓库 requirements.txt>`
+  → `INSTALL_OK`（30s）+ `IMPORTS_OK`（`pymongo==3.13.0`，与旧约束 `>=3.12,<4.0` 一致）
+  + `pip check` 通过。
+- YAML 校验：`yaml.safe_load` 通过，matrix 三行 `python` 字段确认。
+- **未做**：完整 `docker build`（需下载 torch CPU + docling 全家 + apt，数十分钟）；
+  CI 侧 3.10 下 document-parser 测试套件未本地实跑（该 job 原本就是 3.13 跑 3.10 的
+  代码，3.10 反而更贴近生产）。
+
+**已知局限（如实记录）**：
+- 哈希按生成时清华源快照固定；后续 docling 升级 / 重新生成需在 amd64 + py3.10 下重跑
+  （脚本 `scripts/generate-hashes.sh` 当前默认走本机 python3 = 3.9，**不适合直接跑
+  document-parser**，需用容器包一层）。
+- docling 一份的显式降级注释（L3）未做，留给后续授权。
+
+**修改文件**：`services/document-parser/requirements.txt`（重新生成）、
+`services/document-parser/Dockerfile`（`--require-hashes` ×1 行）、
+`.github/workflows/quality-gate.yml`（matrix + setup-python + 安装步骤）、
+`docs/pending-review/2026-10-07-full-qa-audit-r5.md`（§一计数、B7-fix、N1/N1-fix）、
+`docs/WORK_LOG.md`（本条）。
+
+---
+
+## 2026-10-07 `generate-hashes.sh` 加 document-parser 容器包裹（同构重生成入口）
+
+**起因**：上条"已知局限"——`generate-hashes.sh` 默认走本机 `python3`（3.9），
+直接给 document-parser 重生成哈希会解出 3.9 的依赖树（`websockets` 等约束漂移），
+与生产 3.10 不匹配。本轮把"需容器包裹"从口头注意事项变成脚本能力。
+
+**实施**（`scripts/generate-hashes.sh`，单文件）：
+1. 新增 `--docker <python-version> [platform]` 模式：把 `pip-compile --generate-hashes`
+   放进 `docker.m.daocloud.io/library/python:<ver>-slim-bookworm`（默认 amd64）跑；
+   DaoCloud 兜底（国内 docker.io 拉取易 502）。
+2. 幂等 guard：`.in` 里出现 `--hash` 行即拒跑并提示恢复——防止重复运行把
+   已生成的哈希锁反写进 `.in` 污染直接规格（原脚本 `grep ... > .in` 非幂等，隐患消除）。
+3. 删除原"从 requirements.txt 反写 requirements.in"步骤：脚本现在以 `.in` 为输入、
+   `.txt` 为输出，语义稳定。
+4. docling 子文件（`requirements-docling.txt`）明确**不**走本脚本生成哈希
+   （显式降级结论，L3 注释已写在该文件头），脚本注释里点明。
+
+**用法**：`bash scripts/generate-hashes.sh document-parser --docker 3.10`
+
+**验证（全部实跑）**：
+- 正常路径：`--docker 3.10` 重新生成 `requirements.txt` → 1312 哈希 / 1484 行；
+  `.in` 保持 11 条直接规格未被污染（git status 无该文件）。
+- guard 路径：人为向 `.in` 追加一条带 `--hash` 行后运行 → 脚本 `exit 1` 拒跑
+  并给出恢复指引；还原 `.in` 后恢复正常。
+- 无行为回归：本机模式（chat-api/admin-api 现路径）逻辑不变，仅去掉反写 `.in` 步骤
+  （对已有 `.in` 的服务，原本该步骤也是原地重写同内容）。
+
+**修改文件**：`scripts/generate-hashes.sh`、`docs/WORK_LOG.md`（本条）。
+
+## 2026-10-07 `./mogo up --build` 接上上一版本镜像清理
+
+**起因**：核查悬空镜像时定位到真正的复发源头——`./mogo build` 成功后会调
+`prune_dangling_images()`，而 `./mogo up --build` **不调**。于是每次重建都把上一版本的 7 个
+**带 tag** 镜像留在 OrbStack 里；`docker image prune` 只回收无 tag 的层，对带 tag 的旧版本
+无效，日积月累会撑爆磁盘（历史上有构建 `exit code 137` 的记录）。
+
+**实施**（2 文件）：
+1. `mogo` 新增 `prune_previous_release_images()`：按 `MOVO_IMAGE_SERVICES` + `document-parser`
+   扫 7 个服务仓库的**两种命名模式**（源码构建的裸名 `chat-api:xxx` 与仓库部署的
+   `ghcr.io/himovo/chat-api:xxx`），删除所有 tag ≠ `MOGO_VERSION` 的引用。三条安全约束：
+   只碰本项目自己的仓库；当前部署的 tag 永不删；`docker ps -aq --filter ancestor=<id>` 一旦
+   有容器引用（含已停止、留给回滚的）就跳过。全部 best-effort，失败不影响部署结果。
+2. `mogo` 的 `command_up`：仅在带 `--build` 且 `wait_until_ready` 成功**之后**调用
+   `prune_previous_release_images` + `prune_dangling_images`——部署失败时保留旧镜像以便回滚。
+3. `deploy/cli/i18n.sh`：新增 `pruned_previous_release`（zh/en，2 参数）。
+
+**验证（全部实跑，非推理）**：
+- `bash -n mogo` / `bash -n deploy/cli/i18n.sh` 通过。本机 bash 为 **3.2.57**，故新代码全程
+  不用数组与 `mapfile`（`set -u` 下空数组展开在 3.2 会报 unbound variable）。
+- 场景 A（删除路径）：`docker import` 造出 3 个无任何容器引用的旧 tag
+  （`chat-api` / `admin-api` / `document-parser` 各 `:deadbee`）→ 执行后 3 个全部删除，
+  `5aab407` 的 7 个 tag 全部保留。
+- 场景 B（安全网）：旧 tag 被一个 `docker create` 出来的容器引用 → **跳过未删**。
+- 场景 C（前缀模式）：`ghcr.io/himovo/chat-api:deadbee`、`ghcr.io/himovo/gateway:deadbee`
+  同样被扫到并删除。
+- 场景 D（消息）：`movo_msg pruned_previous_release 3 128` 的 zh/en 两条均渲染正确。
+- 基线核对：11 个 mogo 容器全程 healthy，镜像列表与执行前一致，探针镜像与临时文件已清理。
+- **未做**：完整 `./mogo up --build` 实跑——用户的要求是"下次重建时生效"，本轮不改动运行中的部署。
+
+**修改文件**：`mogo`（+69 行）、`deploy/cli/i18n.sh`（+2 行）、`docs/WORK_LOG.md`（本条）。
+**未提交**：本轮改动留在工作区，未 commit / 未 push。

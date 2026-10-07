@@ -18,14 +18,17 @@
 
 ## 一、审计结论
 
-**共 8 项发现：2 项 P0、4 项 P1、2 项 P2。其中 6 项本轮已修复，2 项待决策。**
+**共 8 项发现：2 项 P0、4 项 P1、2 项 P2。其中 7 项已处置（6 项修复 + B7 低风险包），1 项待决策。**
 
 | 等级 | 数量 | 已修复 | 待决策 |
 | --- | --- | --- | --- |
 | P0 阻断 | 2 | 2 | 0 |
 | P1 重要 | 4 | 4 | 0 |
-| P2 建议 | 2 | 0 | 2 |
-| **合计** | **8** | **6** | **2** |
+| P2 建议 | 2 | 1† | 1 |
+| **合计** | **8** | **7** | **1** |
+
+† B7 的**低风险包**已处置（`requirements.txt` 钉版本+哈希+`--require-hashes`、CI 改 3.10 同构）；
+docling 一份按探查结论显式降级不加哈希（待 L3 注释收尾），其剩余部分与 B8 仍待决策。
 
 **核心结论（三句话）**：
 
@@ -118,6 +121,26 @@ A7 首跑也误报——**macOS 的 BSD `sed` 不支持 `\b`**，`sed 's/:7d95ad
       Dockerfile 用 `--prefer-binary` 安装且**不带 `--require-hashes`**。
       **未修原因**：需在与生产同构的环境（Python 3.10 + docling 家族）下联网重新生成哈希，
       写错会直接破坏构建；且属"改构建行为"，按 `AGENTS.md` 需先征得同意。
+  - [x] **B7-probe（2026-10-07，只读）**：已在 `python:3.10-slim-bookworm` 容器内实跑 `pip-compile`
+        （清华源，未动仓库）。结论**分层**：`requirements.txt` 的依赖树 66 包、无 torch/CUDA → 可安全
+        加哈希；`requirements-docling.txt` 的传递依赖树 124 项、含 **CUDA 版 `torch==2.14.1`**
+        （`manylinux_2_28_*`，无 `+cpu`）+ `torchvision` / `triton` + **15 个 `nvidia-*` 包**
+        （`pip install --dry-run --report` 证实全部来自 PyPI），与 Dockerfile 从
+        `download.pytorch.org/whl/cpu` 安装、刻意规避 CUDA 的设计**直接冲突** → **不应**启用
+        `--require-hashes`，应保持钉版本并在文件头显式记录理由。
+        另：CI 该 job 用 **Python 3.13** 装生产 requirements（生产 Docker 为 **3.10**），
+        且 11 条全 `>=` 无上界 → CI 与生产不同构（与 B5 同类）。
+        细节见 `docs/WORK_LOG.md` 2026-10-07 条目；**构建文件未改，实施仍待授权**。
+  - [x] **B7-fix（2026-10-07，已实施低风险包）**：按分层结论执行——
+        * `requirements.txt`：在 **amd64 + Python 3.10** 容器内重新 `pip-compile --generate-hashes`
+          → **61 包 / 1312 条 sha256 / 全钉版本**；干净 venv `pip install --require-hashes` 实测通过
+          （`INSTALL_OK` + `IMPORTS_OK` + `pip check`）。原 11 条 `>=` 漂移问题消除。
+        * `Dockerfile`：`requirements.txt` 安装行加 `--require-hashes`；
+          `requirements-docling.txt` 行**保持不加**（docling/torch 分层结论，待 L3 显式降级注释）。
+        * `quality-gate.yml`：document-parser 的 CI job 改用 **Python 3.10**（与生产镜像同构），
+          `--require-hashes` 覆盖该服务（消除 B5 同类"CI 装的 ≠ 生产装的"）。
+        * `requirements.in`（11 条直接规格）**未动**，仍是再生成入口。
+        **剩余**：docling 部分按分层结论保持显式降级（不加哈希）；`requirements-docling.txt` 的 L3 注释未做。
 - [ ] B8 基础镜像 **0/8 按 digest 钉死**（全用可变 tag）。属加固建议，非当前阻断。
 
 > **勘误（对我自己初判的修正）**：初判 `apps/user-web/Dockerfile` 用 `npm install` 是缺陷。
@@ -349,23 +372,37 @@ A7 首跑也误报——**macOS 的 BSD `sed` 不支持 `\b`**，`sed 's/:7d95ad
 
 ## 九、待决策项（**未擅改**，按 `AGENTS.md` 需先确认）
 
-- [ ] **N1** `document-parser` 的哈希/钉版本（B7）：需同构环境联网重新生成，改构建行为
+- [x] **N1** `document-parser` 的哈希/钉版本（B7）：需同构环境联网重新生成，改构建行为
+  *（低风险包已获授权并实施，见 N1-fix；docling 一份按探查结论显式降级不加哈希）*
+  - [x] **N1-probe** 只读探查已完成（2026-10-07），结论见上方 B7-probe：`requirements.txt` 可做，
+        `requirements-docling.txt` 不应做（会拉入 CUDA 版 torch + 15 个 `nvidia-*`）；
+        附带发现 CI 与生产不同构（3.13 vs 3.10）。**实施（改 Dockerfile / requirements / CI）仍待授权。**
+  - [x] **N1-fix（2026-10-07，已获授权并实施低风险包）**：`requirements.txt` 已钉版本 + 1312 条
+        哈希（amd64/py3.10 生成，干净 venv `--require-hashes` 实测通过）；`Dockerfile` 该行启用
+        `--require-hashes`；CI 的 document-parser job 改 **Python 3.10**（与生产同构）并纳入
+        `--require-hashes`。docling 一份按分层结论保持不加哈希，仅待 L3 注释收尾。
 - [ ] **N2** 基础镜像 digest 钉死（B8）：加固建议
 - [ ] **N3** `app/cases` 孤岛（C3）：接线 or 移入 `docs/pending-review/`
 - [ ] **N4** 4 个零引用模块的去留（见下）
+  - [x] **N4-a** `governance/suspensions/resume_admission.py` → **显式降级**（用户决策 2026-10-07，见下）
 
 **R5 孤儿模块取证结果**（全仓搜索符号，非仅模块名）：
 
 | 模块 | 引用情况 | 定性 |
 | --- | --- | --- |
-| `governance/suspensions/resume_admission.py` | **仅被自己的测试引用** | ⚠️ **安全控制未接线**：`trusted_resume_admission` / `is_trusted_task_continuation` 定义了"仅任务续跑端点可打开的可信准入上下文"，但全仓无任何生产者调用 `trusted_resume_admission()`、无任何消费方调用 `is_trusted_task_continuation()`，`_runtime_resume_only` 字段**无写入方**。绿测试造成虚假安全感 |
+| `governance/suspensions/resume_admission.py` | **仅被自己的测试引用** | ✅ **已决策 2026-10-07：显式降级（不接线）**。原定性 ⚠️ **安全控制未接线**：`trusted_resume_admission` / `is_trusted_task_continuation` 定义了"仅任务续跑端点可打开的可信准入上下文"，但全仓无任何生产者调用 `trusted_resume_admission()`、无任何消费方调用 `is_trusted_task_continuation()`，`_runtime_resume_only` 字段**无写入方**。绿测试造成虚假安全感。处置：模块 docstring 顶部自述"未接线 / NOT WIRED，不构成强制控制"，测试文件标注其自证性质 |
 | `services/dag/builder_migrate.py` | 仅被自己的测试引用 | 010 T018/T019 交付物，`docs/SDD界面呈现对照表.md` 宣称"已接入生产"，但实际零调用方 → **文档宣称与事实不符** |
 | `services/presentation/execution/page_executor.py` | 仅被自己的测试引用 | 死代码（`BoundedPageExecutor`） |
 | `skills_specs/pdf/markdown_to_pdf.py` | **零引用（连测试都没有）** | 死代码（薄 re-export 壳） |
 | `admin-api/repositories/admin_user_repository.py` | **零引用** | 遗留实现：操作 `admin_users` 集合，而线上登录走 `org_user_repository` + `admin_accounts` |
 
 > 除 `resume_admission` 外，其余 4 个不构成运行风险（不接线则不可达），属"清账"范畴。
-> `resume_admission` 需要决策：**接线**（则要找到续跑端点并接入）还是**显式降级**（按仓库既有"诚实降级不伪造"方针标注未实现）。
+> `resume_admission` **已决策：显式降级**（按仓库既有"诚实降级不伪造"方针标注未实现），
+> 而非接线。不接线的理由是**语义不成立**而非工作量大：`output_spec` 由客户端可控且由续跑端点
+> 自行构造，端点往同一调用栈内的 dict 写标志再读回，不构成任何信任边界；真正生效的可信通道是
+> 服务端参数 `trusted_turn_context`（生产者 `app/api/endpoints/tasks.py::resume_task`，
+> 消费方 `app/dsh_runtime/chat_service.py::prepare_turn`，且明确不取自 `ChatRequest`）。
+> 若将来确需"仅续跑可用"的特权能力，应实现为 `trusted_turn_context` 的兄弟服务端参数。
 
 ---
 
