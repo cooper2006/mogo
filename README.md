@@ -62,22 +62,22 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 20 feature specifications, each with a complete chain
+specs/                    # 21 feature specifications, each with a complete chain
   001-gatekeeper-governance/
   ...
-  019-harness-elastic-config/
   020-platform-multi-tenancy/
+  021-unified-context-address/
   INDEX.md                # specification index
 ```
 
-Each of the 20 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `checklists/requirements.md` (quality checklist). Two groups diverge from there:
+Each of the 21 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `checklists/requirements.md` (quality checklist). Two groups diverge from there:
 
-- **16 gap-closing features** (001/002/007–020) run the full chain — spec, plan, checklist, `quickstart.md` and `tasks.md`. **All 16 `tasks.md` files (332 items) are checked off**, with implementation and tests landed together.
+- **17 gap-closing features** (001/002/007–021) run the full chain — spec, plan, checklist and `tasks.md`, with `quickstart.md` on 16 of them (all but 021). **All 17 `tasks.md` files (354 items) are checked off**, with implementation and tests landed together.
 - **4 retrospective features** (003–006) re-document capabilities MOVO already had and keep their original `spec.md` + `plan.md` + checklist state without `tasks.md`.
 
 Interface contracts live in two places: the 5 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
 
-[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 20 features into retrospective (003–006), gap-closing (001/002/007–019) and newly-added platform scope (020), and records the clarify decisions behind each threshold.
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 21 features into retrospective (003–006), gap-closing (001/002/007–019 and 021) and newly-added platform scope (020), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -116,19 +116,20 @@ The third tier of the backlog holds **nine** planned capabilities, all implement
 | 4 | **Business-system semantic index** | Entity pointer index (never writes to business databases) reusing the retrieval client, with citation anchors on hits | [014](specs/014-business-semantic-index/) |
 | 5 | **Knowledge graph layer** | Nodes and edges with multi-hop traversal (CycleGuard) and mutual-exclusion / transitive / cardinality constraints (flagged, not blocking) | [015](specs/015-knowledge-graph-layer/) |
 | 6 | **Skill marketplace hardening + consolidation loop** | Quality scoring, rollback and low-quality marking; the loop connects session → experience → Skill draft | [016](specs/016-skill-market-hardening/) |
-| 7 | **Three-scope memory** | personal / workspace / org visibility with promotion authorization, 30-day decay and scope-filtered RAG ordering | [017](specs/017-three-scope-memory/) |
+| 7 | **Three-scope memory** | personal / workspace / org visibility with promotion authorization, 30-day decay and scope-filtered RAG ordering, plus the L0 / L1 / L2 density axis and progressive retrieval | [017](specs/017-three-scope-memory/) |
 | 8 | **Capability asset registration** | Four-part contract, scan de-duplication, governance views, status approval and the `a2a_exposed` marker | [018](specs/018-capability-asset-registration/) |
 | 9 | **Elastic Harness profiles** | Three-layer profile override chain, layer switches and a compliance floor (R4 always denied) wired into the Gatekeeper | [019](specs/019-harness-elastic-config/) |
 
-### New scope beyond the backlog: platform multi-tenancy
+### New scope beyond the backlog
 
-One capability sits outside the 15-item backlog. It was added afterwards as new scope and carries its own spec, plan, contract, quickstart and tasks:
+Two capabilities sit outside the 15-item backlog. Both were added afterwards as new scope and carry their own spec, plan, checklist and tasks; 020 additionally ships a `contracts/` directory and a `quickstart.md`:
 
 | # | Capability | What it delivers | Spec |
 | :-: | --- | --- | :-: |
 | 10 | **Platform multi-tenancy** | Tenant provisioning on top of the existing `main_id` partitioning: a `tenants` master table, one platform administrator (`__platform__`) created by the first-run bootstrap, mandatory tenant selection at login, archive / restore / purge lifecycle with audit and tombstones, and unlimited quota by default | [020](specs/020-platform-multi-tenancy/) |
+| 11 | **Unified context address space** | One `mogo://` grammar across four roots (memory / resource / skill / session) with a virtual router, per-tenant adapters, delegated visibility and a unified retrieval trace. The address layer never re-decides authorization — it forwards to the owning spec. The first tenant is memory, which also gains the L0 / L1 / L2 density axis and progressive retrieval | [021](specs/021-unified-context-address/) |
 
-Together the nine backlog items point at the same target: stringing **session → experience → Skill** into one line, so that one person's session becomes the starting point for a team and for later automation. Platform multi-tenancy (020) extends the reach from a single enterprise to many, on one deployment — the existing deployment semantics were "one deployment, one enterprise".
+Together the nine backlog items point at the same target: stringing **session → experience → Skill** into one line, so that one person's session becomes the starting point for a team and for later automation. Platform multi-tenancy (020) extends the reach from a single enterprise to many, on one deployment — the existing deployment semantics were "one deployment, one enterprise". The unified context address space (021) then gives every capability one addressable context: a memory, a Skill, a session and a resource are all reached through the same `mogo://` grammar instead of four ad-hoc APIs.
 
 ## Line three: multi-instance Agent runtime
 
@@ -287,6 +288,46 @@ DSH_RUNTIME_HOSTS_URL=http://dsh-runtime-host-1:8101,http://dsh-runtime-host-2:8
 
 `docker-compose.yml` ships a reference configuration with three replicas and the sticky LB; the LB rules live in `deploy/docker/dsh-runtime-lb.conf`. Adding a replica means extending `DSH_RUNTIME_HOSTS_URL` and adding the matching service.
 
+### Runtime versions and dependency pinning
+
+Each service pins its Python runtime on the first line of its Dockerfile (`ARG BASE_IMAGE`), so the interpreter version travels with the image:
+
+| Service | Python | Dependency integrity |
+| --- | --- | --- |
+| chat-api | 3.13 | `--require-hashes` against 2773 sha256 hashes |
+| admin-api | 3.13 | `--require-hashes` against 1063 sha256 hashes |
+| document-parser | 3.10 | plain install — Docling pins `numpy==1.26.4` and friends, which do not build on 3.13 |
+
+`services/*/requirements.txt` carries the full hash set. Regenerate it with `scripts/generate-hashes.sh`, which points pip-compile at the Tsinghua mirror — that alone cuts hash generation from over five minutes to about three. CI installs with `--require-hashes` for chat-api and admin-api, and skips the flag for document-parser to match the table above.
+
+### Air-gapped and cross-architecture releases
+
+Sites without outbound network cannot pull from GHCR, so the release path builds the images locally, packages them as tarballs and imports them offline:
+
+```bash
+cd deploy/production
+./prepare-release.sh               # version defaults to the git short hash
+./prepare-release.sh --skip-build  # reuse local images, package only
+```
+
+One run produces `prod-images-<TAG>/` holding four tarballs (base images, the small app images, chat-api, document-parser), a rendered `docker-compose.portainer.yml` ready to paste into a Portainer standalone stack, a self-contained `DEPLOY.md`, and a `bundle.json` recording every tag and sha256. `verify_bundle.py` checks each archive: expected `RepoTags`, `architecture == amd64/linux`, and `len(Layers) == len(rootfs.diff_ids)` — the last one being a hard precondition of classic `docker load`.
+
+Building for `linux/amd64` from an Apple Silicon machine needs one extra step for the base images, because `docker save` will not export a platform it has not pulled:
+
+```bash
+scripts/export_base_images.sh save --platform linux/amd64 ./base-images-amd64
+```
+
+Loading a single-platform archive **replaces** a multi-platform tag, so the loader refuses a cross-platform import unless `--allow-platform-mismatch` is passed explicitly. [Docker deployment](docs/docker-deployment.md) covers the full procedure.
+
+Backup, restore and rollback are exercised end to end without touching Docker:
+
+```bash
+bash scripts/test_backup_restore_rollback.sh
+```
+
+It mocks the Docker calls and asserts all three legs — backup archives the eight named volumes and writes `SHA256SUMS`, restore verifies the checksums and the volume prefix before extracting, and rollback moves `MOGO_VERSION` forward and back.
+
 ### DSH runtime version
 
 MOGO pins the DeepSeek Harness (DSH) Agent kernel to an exact release train rather than a floating range, so a rebuild cannot silently change Agent behavior:
@@ -350,7 +391,7 @@ Source builds download Playwright, LibreOffice, Docling and model assets, so the
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (20 features, plus `INDEX.md`) |
+| `specs/` | spec-kit SDD specification assets (21 features, plus `INDEX.md`) |
 | `contracts/` | the 5 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |
@@ -360,6 +401,7 @@ Source builds download Playwright, LibreOffice, Docling and model assets, so the
 | `services/admin-api/` | FastAPI organization, user, model and platform management API |
 | `services/document-parser/` | Document parsing, preview, retrieval API and worker |
 | `deploy/` | Bootstrap scripts, gateway and sticky LB configuration |
+| `deploy/production/` | Offline release packaging for air-gapped sites (Portainer stack template, bundle verifier, deploy doc renderer) |
 | `docs/` | Capability roadmap, SDD traceability, cases and operations docs |
 
 ## Contributing and support
@@ -374,11 +416,13 @@ Issues and feature requests are welcome. Clear use cases and reproducible feedba
 - [Maintainer release process](docs/release-process.md)
 - Security, commercial licensing and support: `support@himovo.com`
 
-Before submitting a change, run the relevant checks described in [CONTRIBUTING.md](CONTRIBUTING.md). At minimum, the repository hygiene check is:
+Before submitting a change, run the relevant checks described in [CONTRIBUTING.md](CONTRIBUTING.md). CI enforces five jobs on every pull request: `version-consistency` (the version in every manifest must match the newest CHANGELOG heading), `frontend-quality` (typecheck, build and lint for both Vue apps), `backend-quality` (compile, production-wiring check, test suite and per-module coverage floors), `dsh-host-e2e` (the Node Runtime Host as a subprocess) and `security-quality` (secret, content-type and container image scanning). At minimum, the repository hygiene check is:
 
 ```bash
 python3 scripts/check_open_source_hygiene.py
 ```
+
+Two of those are worth calling out because they catch failures unit tests cannot. `services/chat-api/scripts/check_production_wiring.py` fails when a subsystem has green tests but no production import — the mode where a whole feature ships unreachable. `scripts/check_module_coverage.py` applies stricter floors than the global 55% to the newer subsystems (017 memory, 021 context space, 009 hooks).
 
 ## License
 
@@ -388,14 +432,18 @@ These additional restrictions mean that the MOVO Community License is not the un
 
 ## Dependency Mirror Sources
 
-The Docker build images use Chinese mirrors for faster dependency installation in mainland China:
+The Docker build images use Chinese mirrors by default, so dependency installation stays fast in mainland China:
 
-| Service | Mirror | Configuration |
-|---------|--------|---------------|
-| admin-web | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in Dockerfile |
-| chat-api | tuna.tsinghua.edu.cn | `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in Dockerfile |
-| document-parser | tuna.tsinghua.edu.cn | `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in Dockerfile |
-| user-web | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in Dockerfile |
+| Image | Mirror | Configuration |
+| --- | --- | --- |
+| user-web | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in `apps/user-web/Dockerfile.prod` |
+| admin-web | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in `apps/admin-web/Dockerfile` |
+| chat-api | tuna.tsinghua.edu.cn | `ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in `services/chat-api/Dockerfile` |
+| admin-api | tuna.tsinghua.edu.cn | `ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in `services/admin-api/Dockerfile` |
+| document-parser | tuna.tsinghua.edu.cn | `ARG MOVO_PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in `services/document-parser/Dockerfile` |
+| DSH Runtime Host | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in `services/chat-api/dsh/runtime-host/Dockerfile` |
+
+Three more mirrors are wired in alongside them: the Python base images come from `docker.m.daocloud.io` through `ARG BASE_IMAGE`, chat-api downloads Playwright browsers from `cdn.npmmirror.com`, and chat-api, document-parser and the Runtime Host rewrite `deb.debian.org` to `mirrors.tuna.tsinghua.edu.cn/debian` via `ARG MOVO_APT_MIRROR`.
 
 To use official sources instead, override the build args:
 
@@ -403,8 +451,14 @@ To use official sources instead, override the build args:
 # npm
 docker build --build-arg MOVO_NPM_REGISTRY=https://registry.npmjs.org -t image-name .
 
-# pip
-docker build --build-arg MOVO_PIP_INDEX_URL=https://pypi.org/simple -t image-name .
+# pip (document-parser)
+docker build --build-arg MOVO_PYPI_INDEX_URL=https://pypi.org/simple -t image-name .
+
+# Python base image
+docker build --build-arg BASE_IMAGE=python:3.13-slim-bookworm -t image-name .
+
+# Debian packages
+docker build --build-arg MOVO_APT_MIRROR=http://deb.debian.org/debian -t image-name .
 ```
 
-No authentication credentials are required for these mirrors; they are public read-only proxies.
+chat-api and admin-api declare `PIP_INDEX_URL` as an `ENV` rather than an `ARG`, so switching those two to an official index means editing the Dockerfile. No authentication credentials are required for any of these mirrors; they are public read-only proxies.

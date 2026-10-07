@@ -4,6 +4,120 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
+## Unreleased
+
+### Added
+
+- **021 unified context address space — production entry**：
+  `POST /api/context/resolve` 与 `GET /api/context/trace/{id}` 暴露 `mogo://`
+  地址空间（memory / resource / skill / session 四根）。此前 router 与四个
+  tenant 适配器仅被测试引用，生产不可达。
+- **009 hook 事件派发**（`app/dsh_runtime/hooks/dispatcher.py`）：`subscribe` /
+  `dispatch` / `dispatch_session_end` 等，闭合 `emit_*` 产出却无人消费的断链；
+  订阅者异常隔离，不影响调用方。
+- **002 会话结束语义**：`SessionPersistenceService.end_session()` +
+  `POST /api/sessions/{id}/end` + `chat_sessions.ended_at` / `end_reason` 字段。
+  会话结束时触发 009 `SessionEnd` → 017 分层记忆沉淀（幂等，账本去重）。
+- **017 契约文档** `contracts/memory-context-contract.md`：两条正交轴、地址语法、
+  可见性委托矩阵、HTTP 契约与沉淀接线图。
+- **Python 3.13 运行时升级 + 依赖哈希锁定（供应链完整性）**：`chat-api` 与
+  `admin-api` 的基础镜像升级到 `python:3.13-slim-bookworm`；两者的
+  `requirements.txt` 全量锁定 sha256（chat-api **2773** 条 / admin-api **1063** 条），
+  安装改为 `pip install --require-hashes` —— 依赖树任何一环被替换都会构建失败。
+  新增 `scripts/generate-hashes.sh` 生成与刷新哈希（走清华源，实测 >5min → ~3min）。
+  **`document-parser` 保持 `python:3.10-slim-bookworm`**：Docling 钉死
+  `numpy==1.26.4`，无 3.13 轮子，故不随迁；该服务的 `requirements.txt` 亦不做
+  哈希锁定（同样受 Docling 约束）。
+- **生产离线发布链路** `deploy/production/`：面向无外网 / 内网 Portainer 的交付。
+  `prepare-release.sh` 九步流水线 —— 确定版本号（默认取 `git rev-parse --short HEAD`）
+  → 前置检查 → 固定 compose 变量 → 收集镜像清单 → 交叉构建 amd64 应用镜像 →
+  校验应用镜像 → 生成基础镜像 amd64 变体 → 打包 → 渲染清单 / 校验 / 出部署单。
+  产出 `01-base.tar`、`02-app-small.tar`、`03-chat-api.tar`、`04-document-parser.tar`
+  （大镜像单独成包，网页上传可单独重传），外加已渲染的
+  `docker-compose.portainer.yml`、自包含的 `DEPLOY.md`（含实测体积与 sha256）与
+  `bundle.json`。配套 `verify_bundle.py` 校验三条硬约束：每条 manifest 条目的
+  `RepoTags` 与预期完全一致、config 的 `architecture/os` 为 `amd64/linux`、
+  `len(Layers) == len(rootfs.diff_ids)`（经典 `docker load` 的硬性前提）；
+  `render_deploy_doc.py` 生成部署单。
+- **跨架构基础镜像导出** `scripts/export_base_images.sh`：`save --platform linux/amd64`
+  借助 Docker 28+ 的 `docker save --platform`，可在 Apple Silicon 上产出 amd64
+  归档。**load 侧默认拒绝跨平台归档**，须显式加 `--allow-platform-mismatch` ——
+  单平台归档会**替换**同 tag 的多平台清单，误 load 会把本机镜像降级为单架构。
+  另有 `--mirror`（解析 Docker Hub 走镜像站）与 `--manifest-only`（只出清单不导出）。
+- **备份 / 恢复 / 回滚演练脚本** `scripts/test_backup_restore_rollback.sh`：
+  把"备份 → 恢复 → 回滚"作为可重复执行的验证，而不是一次性手工步骤。
+
+### Fixed
+
+- **CI 测试门禁必红（P0）**：`pytest-asyncio` 在 strict 模式下拒绝执行裸
+  `async def` 测试，而 `services/chat-api/pyproject.toml` 与 Quality Gate
+  都没有设置 `asyncio_mode`。此前"本机全绿"依赖临时传入 `-o asyncio_mode=auto`；
+  还原为仓库真实配置后全量 **43 failed / exit=1**。现已在 `pyproject.toml`
+  写入 `asyncio_mode = "auto"`，并把 `pytest-asyncio` / `pytest-timeout`
+  显式声明进 dev 依赖。
+- **021 地址层越权：URI 被当成凭证（P0）**：`check_memory_visibility` 从 URI
+  的 `scope` / `owner_id` 段**构造**判定对象，导致 `u2` 可用
+  `mogo://memory/org/u1/m-1/L2` 读到 `u1` 的私密内容。现改为接收**真实存储
+  记录**，缺失即 fail closed；`session` 适配器同步补 `user_id` 查询条件
+  （此前同租户任一成员可读他人会话，含 L2 逐字稿）。
+- **`707c8ea` 机械 sweep 引入的系统性回归（P1）**：该提交为 165 个文件批量
+  改写 `except` 块，引入四类缺陷，已全部恢复并归零：
+  - **8 处 try 体真实语句被删**（`yield _sse(...)`、`return {"healthy": ...}`、
+    `return EffectContract(...)`、`parser.close()`、`raw = resp.json()`、
+    `package = validate_skill_package(archive)` 等）；
+  - **23 处 except 回退值被删** —— 16 处导致 `UnboundLocalError`
+    （含安全函数 `utils/ssrf_guard.py`）、6 处破坏 `-> bool/int/str/List`
+    返回契约、1 处 `ping_loop` 失去早退；
+  - **6 处重复 `except` 子句**（后者不可达，新加的日志永不执行；其中
+    `content/evaluation/streaming.py` 使 SSE 流异常时永久挂起）；
+  - **18 个文件调用未导入的 `log_print`** —— 异常分支自身抛 `NameError`。
+- **021 检索轨迹无租户隔离（P1）**：`_TRACE_RING` 现按 `tenant_id` 分键，
+  跨租户读取返回 404。
+- **`POST /memory` 允许任意角色写 org 作用域（P1，017 FR-4）**：非
+  `ORG_PROMOTION_ROLES` 角色写入 org 作用域现返回 403。
+- **记忆 `HARD_MAX` 按字符而非字节计量（P1，017 FR-16）**：中文内容实际占用
+  3 倍字节，上限可被穿透；改为按 UTF-8 字节计算。
+- **`MEMORY_SUMMARY_REFRESH_DAYS` 为死配置（P1）**：该环境变量从不被读取，
+  刷新周期硬编码 30 天；现由 `_configured_refresh_days()` 统一解析。
+- **`orchestration/store.py` 落库主键为空 + 未导入 `load_orchestration_document`（P1）**：
+  `_document_shape` 读的是 `loaded.definition.id`（真实字段为 `orchestration_id`）。
+- **`revoke_share` 引用未定义变量（P1）**：`main_id, _ = await _authorize(...)`
+  丢弃 `user_id` 后仍引用它，端点必 500。
+- **`memory/address.py` 未拒绝超长 URI（P2）**：段数 > 4 现抛 `ValueError`。
+- **017 记忆永不落库（P0）**：`MemoryStore.save` 对 motor 的 `replace_one` 未
+  `await`，协程创建即丢弃，API 返回成功但记录不存在。`save` 改为 `async`，
+  调用链（memory 端点 ×2、sediment ×2、sessions ×1）同步补 `await`。
+- **009→017 闭环语义**（P1）：会话沉淀此前只挂在 `delete_session`，导致会话
+  正常结束不沉淀。现由 `end_session` 驱动，`delete_session` 降级为去重兜底。
+- **021 KG 单节点读取**（P1）：`resource/kg` 适配器此前调用私有
+  `_ensure_loaded()`，为读一个节点拉取租户全图（最多 2000 节点 + 5000 边）。
+  新增公开 `TenantKgStore.get_node_direct()`。
+- **版本一致性**：manifest 版本此前与 CHANGELOG 声明不一致
+  （chat-api/admin-api/admin-web 为 0.1.0、user-web 为 0.0.0，CHANGELOG 为
+  0.2.0）。已统一为 0.2.0，并在 Quality Gate 新增 `version-consistency` job
+  阻断此类漂移。
+- **全仓非静默宽泛 `except Exception` 补日志（R4）**：改用 AST 安全改写器
+  （只增不删 / 不遮蔽变量 / 保留尾注释 / 排除异常已传播 / 绝不碰 `log_print`
+  定义模块），落盘 **95 文件 · 209 条 `log_print` · 66 个 import · 147 行
+  `except` 补 `as exc` 绑定**，**非-except 删除行 = 0**。显式排除 73 处异常已
+  传播（`raise` / re-raise helper）与 38 处有意 `pass`（吞取消异常的关停惯用法、
+  链式尝试的预期失败、以及日志基础设施自身 `emit()` / `_log_stage()`）。
+  与 `707c8ea` 的 165 文件正则 sweep 形成对照：后者一次引入 4 类缺陷。
+
+### Changed
+
+- **CI 质量门禁扩为五 job**（`.github/workflows/quality-gate.yml`）：
+  `version-consistency`（manifest 版本与 CHANGELOG 声明一致）、`frontend-quality`、
+  `backend-quality`、`dsh-host-e2e`、`security-quality`。
+- **`backend-quality` 内置两道针对"单测全绿但生产零引用"的特殊门禁**：
+  - `services/chat-api/scripts/check_production_wiring.py` —— 校验新增子系统的
+    生产接线（router / 消费方）确实存在，拦住"只有测试在引用"的假落地；
+  - `services/chat-api/scripts/check_module_coverage.py` —— 对新增子系统设
+    **模块级覆盖率下限**：021 `context_space` 85%、017 `memory` 80%、
+    009 `dsh_runtime/hooks` 75%。仓级 `fail_under = 55` 对大型遗留代码是合理的
+    粗门禁，但对新子系统要么形同虚设、要么被遗留代码拖累，故单独设限。
+- 017 文档补齐密度轴用法与地址契约：`specs/017-three-scope-memory/quickstart.md`。
+
 ## v0.2.0 - 2026-10-03
 
 ### Added

@@ -62,22 +62,22 @@
   scripts/bash/           #   create-new-feature、setup-plan 等脚本
   workflows/speckit/      #   工作流注册表
 
-specs/                    # 20 个特性规格，每个含完整规格链路
+specs/                    # 21 个特性规格，每个含完整规格链路
   001-gatekeeper-governance/
   ...
-  019-harness-elastic-config/
   020-platform-multi-tenancy/
+  021-unified-context-address/
   INDEX.md                # 规格索引
 ```
 
-20 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `checklists/requirements.md`（质量清单）。从此处分出两组：
+21 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `checklists/requirements.md`（质量清单）。从此处分出两组：
 
-- **16 个补齐特性**（001/002/007–020）走完整链路——spec、plan、checklist、`quickstart.md` 与 `tasks.md`。**16 份 `tasks.md`（332 项）已全部勾选完成**，实现与测试同步落地。
+- **17 个补齐特性**（001/002/007–021）走完整链路——spec、plan、checklist 与 `tasks.md`，其中 16 个（除 021 外）另附 `quickstart.md`。**17 份 `tasks.md`（354 项）已全部勾选完成**，实现与测试同步落地。
 - **4 个既有回溯特性**（003–006）重述 MOVO 已有能力，保留 `spec.md` + `plan.md` + checklist 的原始状态，未建 `tasks.md`。
 
 接口契约分布在两处：顶层 [`contracts/`](contracts/) 下 5 份 T998 契约（`orchestration`、`self-evolution`、`session-versioning-contract`、`harness-config`、`a2a-gateway`），加上 `specs/` 内 5 个按特性划分的 `contracts/` 目录（[`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md)、[`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md)、[`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md)、[`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md)、[`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)）。
 
-[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 20 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019）与新增平台范围（020）三组，并记录每条阈值的 clarify 决策依据。
+[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 21 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）与新增平台范围（020）三组，并记录每条阈值的 clarify 决策依据。
 
 这样做的收益是：每一条企业能力都有对应的需求来源、验收标准与测试证据，界面触点与规格的映射关系记录在 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md)。
 
@@ -116,19 +116,20 @@ specs/                    # 20 个特性规格，每个含完整规格链路
 | 4 | **业务系统语义索引** | 实体指针索引（不写业务库）+ 复用检索客户端，命中带 citation 锚点 | [014](specs/014-business-semantic-index/) |
 | 5 | **知识图谱层** | 节点 / 边 + 多跳遍历（CycleGuard）+ 互斥 / 传递 / 基数约束（标记不阻断） | [015](specs/015-knowledge-graph-layer/) |
 | 6 | **Skill 市场强化 + 沉淀闭环** | 质量打分 / 回滚 / 低质标记；沉淀闭环打通"会话 → 经验 → Skill 草稿" | [016](specs/016-skill-market-hardening/) |
-| 7 | **三范围 Memory** | personal / workspace / org 三级可见性 + 升级授权 + 30 天衰减 + RAG 按 scope 过滤排序 | [017](specs/017-three-scope-memory/) |
+| 7 | **三范围 Memory** | personal / workspace / org 三级可见性 + 升级授权 + 30 天衰减 + RAG 按 scope 过滤排序，并叠加 L0 / L1 / L2 密度轴与渐进检索 | [017](specs/017-three-scope-memory/) |
 | 8 | **能力资产化"发现→注册"** | 契约四段 + 扫描去重 + 治理视图 + 状态审批 + `a2a_exposed` 标记 | [018](specs/018-capability-asset-registration/) |
 | 9 | **厚/薄 Harness 弹性配置** | profile 三层覆盖链 + 层开关 + 合规底线（R4 恒 deny）+ 与 Gatekeeper 对接 | [019](specs/019-harness-elastic-config/) |
 
-### 清单之外的新增范围：平台化多租户
+### 清单之外的新增范围
 
-有一项能力不在这 15 项清单内。它是后来新增的范围，单独配有 spec、plan、contract、quickstart 与 tasks：
+有两项能力不在这 15 项清单内。它们都是后来新增的范围，各自配有 spec、plan、checklist 与 tasks；020 另附 `contracts/` 目录与 `quickstart.md`：
 
 | # | 能力 | 交付内容 | 规格 |
 | :-: | --- | --- | :-: |
 | 10 | **平台化多租户** | 在既有 `main_id` 分区之上补齐租户供给：`tenants` 主表、由首次启动引导创建的平台管理员（`__platform__`）、登录强制选择企业、归档 / 恢复 / 彻底清理生命周期（含审计与墓碑记录），配额默认不限额 | [020](specs/020-platform-multi-tenancy/) |
+| 11 | **统一上下文地址空间** | 用同一套 `mogo://` 语法覆盖四根（memory / resource / skill / session），配虚拟路由、按租户适配器、委托式可见性与统一检索轨迹。地址层不复写授权判定，一律转发给拥有该上下文的 spec。首期 tenant 为 memory，并同步引入 L0 / L1 / L2 密度轴与渐进检索 | [021](specs/021-unified-context-address/) |
 
-这九项补强能力共同指向"Agent 越用越聪明"的目标形态：把**会话 → 经验 → Skill** 串成主线，让一个人的会话成为团队与后续自动化的起点；平台化多租户（020）则把这套形态从单个企业延伸到一套部署承载多个企业——既有部署语义本是"一套部署 = 一个企业"。
+这九项补强能力共同指向"Agent 越用越聪明"的目标形态：把**会话 → 经验 → Skill** 串成主线，让一个人的会话成为团队与后续自动化的起点；平台化多租户（020）则把这套形态从单个企业延伸到一套部署承载多个企业——既有部署语义本是"一套部署 = 一个企业"；统一上下文地址空间（021）进一步让每类上下文都有唯一可寻址的入口：记忆、Skill、会话与资源走同一套 `mogo://` 语法，而不是四套各写各的 API。
 
 ## 主线三：智能体多实例运行改造
 
@@ -287,6 +288,46 @@ DSH_RUNTIME_HOSTS_URL=http://dsh-runtime-host-1:8101,http://dsh-runtime-host-2:8
 
 `docker-compose.yml` 已提供三副本与 sticky LB 的参考配置，LB 规则见 `deploy/docker/dsh-runtime-lb.conf`。增加副本时同时补充 `DSH_RUNTIME_HOSTS_URL` 与服务定义即可。
 
+### 运行时版本与依赖钉版
+
+各服务的 Python 运行时钉在 Dockerfile 第一行（`ARG BASE_IMAGE`），解释器版本随镜像走：
+
+| 服务 | Python | 依赖完整性 |
+| --- | --- | --- |
+| chat-api | 3.13 | `--require-hashes` 校验 2773 条 sha256 |
+| admin-api | 3.13 | `--require-hashes` 校验 1063 条 sha256 |
+| document-parser | 3.10 | 普通安装——Docling 钉死了 `numpy==1.26.4` 等版本，在 3.13 上无法构建 |
+
+完整哈希集在 `services/*/requirements.txt` 中；用 `scripts/generate-hashes.sh` 重新生成（脚本指向清华源，仅此一项就把哈希生成从 5 分钟以上压到约 3 分钟）。CI 对 chat-api 与 admin-api 使用 `--require-hashes`，对 document-parser 按上表跳过该参数。
+
+### 无外网与跨架构发布
+
+无外网的生产环境无法从 GHCR 拉取镜像，因此发布路径改为本机构建 → 打包成 tar → 离线导入：
+
+```bash
+cd deploy/production
+./prepare-release.sh               # 版本号默认取 git short hash
+./prepare-release.sh --skip-build  # 复用本地已有镜像，只打包
+```
+
+一次执行产出 `prod-images-<TAG>/`：四个镜像包（基础镜像、小型应用镜像、chat-api、document-parser）、一份渲染好的 `docker-compose.portainer.yml`（可直接粘贴进 Portainer standalone stack）、一份自包含的 `DEPLOY.md`，以及记录全部 tag 与 sha256 的 `bundle.json`。`verify_bundle.py` 逐个校验归档：`RepoTags` 是否符合预期、`architecture == amd64/linux`、以及 `len(Layers) == len(rootfs.diff_ids)`——最后一项是经典 `docker load` 的硬性前提。
+
+在 Apple Silicon 机器上构建 `linux/amd64` 时，基础镜像需额外一步，因为 `docker save` 无法导出尚未拉取的平台：
+
+```bash
+scripts/export_base_images.sh save --platform linux/amd64 ./base-images-amd64
+```
+
+导入单平台归档会**替换**多平台标签，因此 load 默认拒绝跨平台导入，除非显式传入 `--allow-platform-mismatch`。完整流程见 [Docker 部署](docs/docker-deployment.md)。
+
+备份、恢复与回滚可在不触碰 Docker 的前提下做端到端演练：
+
+```bash
+bash scripts/test_backup_restore_rollback.sh
+```
+
+脚本把 Docker 调用打桩，校验三段链路——备份归档 8 个命名卷并写出 `SHA256SUMS`；恢复先校验哈希与卷前缀再解包；回滚把 `MOGO_VERSION` 前进再退回。
+
 ### DSH 运行时版本
 
 MOGO 将 DeepSeek Harness（DSH）Agent 内核**钉版到确切的 release train**，而非浮动范围，因此重新构建不会悄悄改变 Agent 行为：
@@ -350,7 +391,7 @@ PUBLIC_BASE_URL=https://movo.example.com
 
 | 路径 | 组件 |
 | --- | --- |
-| `specs/` | spec-kit SDD 规格资产（20 个特性 + `INDEX.md`） |
+| `specs/` | spec-kit SDD 规格资产（21 个特性 + `INDEX.md`） |
 | `contracts/` | 5 份 T998 接口契约（编排、自进化、会话版本化、Harness 配置、A2A 网关） |
 | `.specify/` | spec-kit 工作流、模板与项目宪法 |
 | `apps/user-web/` | Vue 3 用户工作台 |
@@ -360,6 +401,7 @@ PUBLIC_BASE_URL=https://movo.example.com
 | `services/admin-api/` | FastAPI 组织、用户、模型与平台管理 API |
 | `services/document-parser/` | 文档解析、预览、检索 API 与 Worker |
 | `deploy/` | 引导脚本、网关与 sticky LB 配置 |
+| `deploy/production/` | 面向无外网环境的离线发布打包（Portainer Stack 模板、发布包校验、部署单渲染） |
 | `docs/` | 功能补强规划、SDD 对照表、案例与运维文档 |
 
 ## 参与贡献与支持
@@ -374,14 +416,49 @@ PUBLIC_BASE_URL=https://movo.example.com
 - [发布流程](docs/release-process.md)
 - 安全、商业授权与支持：`support@himovo.com`
 
-提交变更前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 中的检查要求。仓库卫生检查至少需要执行：
+提交变更前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 中的检查要求。CI 在每个 PR 上强制执行五个 job：`version-consistency`（各 manifest 的版本号必须与 CHANGELOG 最新标题一致）、`frontend-quality`（两个 Vue 应用的类型检查、构建与 lint）、`backend-quality`（编译、生产接线检查、测试套件与分模块覆盖率门禁）、`dsh-host-e2e`（把 Node Runtime Host 作为子进程跑端到端）与 `security-quality`（密钥、内容类型与容器镜像扫描）。仓库卫生检查至少需要执行：
 
 ```bash
 python3 scripts/check_open_source_hygiene.py
 ```
+
+其中两项值得单独说明，因为它们能拦住单测拦不住的失效。`services/chat-api/scripts/check_production_wiring.py` 会在某子系统"单测全绿但生产侧零引用"时报错——也就是整个特性发不出去的那种失效。`scripts/check_module_coverage.py` 对较新的子系统（017 memory、021 context space、009 hooks）施加比全局 55% 更严的覆盖率下限。
 
 ## 许可证
 
 墨攻开源版基于 [MOVO 社区许可证](LICENSE) 发布，该许可证以 Apache License 2.0 为基础并附加条件。未经书面授权，不得用于运营多租户托管 SaaS 服务，不得删除或修改所包含前端的标识与版权声明，也不得将本项目或其衍生作品作为以本项目为主要产品的 OEM、白标或贴牌企业级 Agent 平台进行销售。
 
 由于上述附加条件，MOVO 社区许可证并非未经修改的 Apache License 2.0，也不应被表述为经 OSI 认证的开源许可证。如需商业授权、多租户 SaaS 授权、OEM 或白标分发，请联系 `support@himovo.com`。
+
+## 依赖镜像源
+
+Docker 构建镜像默认使用国内镜像源，以便在中国大陆保持较快的依赖安装速度：
+
+| 镜像 | 镜像源 | 配置位置 |
+| --- | --- | --- |
+| user-web | npmmirror.com | `apps/user-web/Dockerfile.prod` 中的 `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` |
+| admin-web | npmmirror.com | `apps/admin-web/Dockerfile` 中的 `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` |
+| chat-api | tuna.tsinghua.edu.cn | `services/chat-api/Dockerfile` 中的 `ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
+| admin-api | tuna.tsinghua.edu.cn | `services/admin-api/Dockerfile` 中的 `ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
+| document-parser | tuna.tsinghua.edu.cn | `services/document-parser/Dockerfile` 中的 `ARG MOVO_PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
+| DSH Runtime Host | npmmirror.com | `services/chat-api/dsh/runtime-host/Dockerfile` 中的 `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` |
+
+此外还有三处镜像接入：Python 基础镜像经 `ARG BASE_IMAGE` 取自 `docker.m.daocloud.io`；chat-api 从 `cdn.npmmirror.com` 下载 Playwright 浏览器；chat-api、document-parser 与 Runtime Host 通过 `ARG MOVO_APT_MIRROR` 把 `deb.debian.org` 改写为 `mirrors.tuna.tsinghua.edu.cn/debian`。
+
+如需改用官方源，覆盖构建参数即可：
+
+```bash
+# npm
+docker build --build-arg MOVO_NPM_REGISTRY=https://registry.npmjs.org -t image-name .
+
+# pip（document-parser）
+docker build --build-arg MOVO_PYPI_INDEX_URL=https://pypi.org/simple -t image-name .
+
+# Python 基础镜像
+docker build --build-arg BASE_IMAGE=python:3.13-slim-bookworm -t image-name .
+
+# Debian 软件包
+docker build --build-arg MOVO_APT_MIRROR=http://deb.debian.org/debian -t image-name .
+```
+
+注意 chat-api 与 admin-api 的 `PIP_INDEX_URL` 是 `ENV` 而非 `ARG`，这两个服务要切官方源需直接改 Dockerfile。上述镜像源均无需认证凭据，都是公开只读代理。

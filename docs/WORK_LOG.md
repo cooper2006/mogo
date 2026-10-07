@@ -5883,3 +5883,263 @@ cd services/chat-api
 **修改文件**：156 个文件（含 Wave 1-5+ 全部修复）+ `docs/WORK_LOG.md`（本条）。
 
 **提交**：`707c8ea fix(silent-exception): Wave 5+ - add log_print to 69 silent except blocks`
+
+---
+
+## 2026-10-06 · Standard 深度全量 QA 审计 R3（换维度：审计"修复动作"本身）
+
+**背景**：R1（生产接线）、R2（数据隔离 / 契约一致性 / 门禁有效性）之后，用户要求再跑一轮 standard 深度全量审计并修复问题。
+
+**本轮新维度**：
+1. **审计修复动作的破坏性变更**——把提交 `707c8ea`（`add log_print to 69 silent except blocks`，165 文件 / 452 hunk）本身当作审计对象
+2. **定位符 vs 凭证**——URI 是地址还是通行证
+3. **门禁可复现性**——本机绿 ≠ CI 绿
+
+**结论**：16 项发现（3 P0 / 10 P1 / 3 P2），全部处置。
+
+### 关键发现
+
+| 等级 | 问题 | 证据 |
+| --- | --- | --- |
+| **P0** | CI 测试门禁必红：`asyncio_mode` 未写入 pyproject / CI | 还原 strict 后全量 **43 failed / exit=1**；auto 后 2229 passed |
+| **P0** | 021 地址层记忆越权：URI 身份被当凭证 | 复现脚本 `[LEAK] u1 PRIVATE SALARY 99999` → 修复后 `[DENIED]` |
+| **P0** | 021 地址层 session 越权：查询缺 `user_id` | 同租户成员可读他人会话 L2 逐字稿 |
+| **P1** | `707c8ea` 删掉 8 处 try 体真实语句 | `yield _sse(...)` / `return EffectContract(...)` / `parser.close()` / `validate_skill_package(...)` 等 |
+| **P1** | `707c8ea` 删掉 23 处 except 回退值 | 16 处 `UnboundLocalError`（含 `ssrf_guard.py`）+ 6 处契约破坏 + 1 处早退回归 |
+| **P1** | `707c8ea` 产生 6 处重复 `except`（死兜底） | `evaluation/streaming.py` 使 SSE 流异常时永久挂起 |
+| **P1** | `707c8ea` 18 个文件调用未导入的 `log_print` | 异常分支自身抛 `NameError` |
+| **P1** | 检索轨迹无租户隔离 / org 作用域无角色校验 / HARD_MAX 按字符 / 死配置 / `orchestration` 字段名 / `revoke_share` 未定义变量 | 逐项修复 + 回归测试 |
+
+### 方法：AST 破坏性变更检测器（迭代三轮才可信）
+
+- **v1**：`falls_through` 不递归进 `Try` → 修复后的代码仍被报（误报）；且只查 handler 内部读 → **漏报** `_json_text` 这类"读在 try 之后"的真缺陷
+- **v2**：推导式变量被当成外层作用域绑定（`compose_skill.py` 3 处误报）；兄弟 `try` 交叉污染（`orchestration/store.py` 误报）
+- **v3**：补齐作用域与 `Try` 递归后 —— **缺陷提交上 24/24 命中；当前工作区仅剩 4 处，全部核实为非缺陷**
+
+### 验证结果
+
+```bash
+# chat-api（JUnit XML 权威计数）
+2229 passed / 0 failed / 0 error / 0 skipped   exit=0
+# 覆盖率
+57.16% >= 55%                                  exit=0
+# 模块覆盖率门禁 8/8
+context_space 92.6% / memory 86.3% / hooks 91.2% / router 100%
+trace 100% / address 92.3% / tiering 97.4% / dispatcher 84.3%
+# admin-api / document-parser
+433 passed / 0 failed       22 passed / 0 failed
+# 生产接线门禁 5/5；版本一致性 0.2.0
+# pyflakes 未定义名：仅 2 处字符串前向引用误报
+# AST 复检：重复 except = 0；模块级重复 import = 0；docstring 内 import = 0
+```
+
+### 对抗验证（证明检测器与复现脚本真的能检出问题）
+
+- 复现脚本 `/tmp/repro_r3_fallbacks.py`：当前树 **23/23 `[OK]`**；在缺陷提交 `707c8ea` 上**第 1 项即 `UnboundLocalError` 崩溃**
+- AST 检测器：缺陷提交 **24/24 命中**；当前树 4 处全部核实为非缺陷
+- `asyncio_mode` 反证：strict **43 failed / exit=1** → auto **2229 passed / exit=0**
+
+### 纪律结论
+
+**禁止对 `except` 块做批量机械改写。** 本轮全部 A 轴缺陷同源于一次跨 165 文件的机械 sweep——意图没错，错在手段：`except` 块的边界（哪里是 handler 体、哪里是 try 体最后一句）**正则判不准**。建议任何跨文件批量改写必须附带 ① AST 破坏性 diff 审查 ② 全量测试 ③ pyflakes 未定义名门禁。
+
+**报告**：`docs/pending-review/2026-10-06-full-qa-audit-r3.md`
+
+---
+
+## 2026-10-06 · 非静默宽泛 except 补日志（R4）
+
+承接 R3 报告"遗留建议"第 3 条：全仓剩余的非静默宽泛 `except Exception` 需要补日志。
+与 `707c8ea` 的区别是——**本轮不再用正则，改用 AST 安全改写器**（`707c8ea` 的 165 文件 sweep 用正则，一次引入 4 类缺陷，R3 花了一整轮才挖回来）。
+
+### 范围界定（先分类，再动手）
+
+| 类别 | 判据 | 数量 | 处置 |
+| --- | --- | --- | --- |
+| `PROPAGATED` | body 有 `raise` / re-raise helper（`_raise(exc)`） | 73 | ❌ 排除：异常已传播给调用方，加日志会重复 |
+| `SILENT-SKIP` | `except: continue` / `break`（循环内静默跳过） | 33 | ✅ 处理 |
+| `FALLBACK` | `except: return X` / 降级赋值 | 172 | ✅ 处理 |
+| `OTHER` | 其余 | 6 | ✅ 处理 |
+| `PASS_ONLY` | body 只有 `pass`（或 `...`） | 38 | ⚠️ 单独判断（见下） |
+
+合计扫描 284 处非静默无日志的宽泛 except。
+
+### 安全改写器（`scripts/add_except_logging.py`，已沉淀进 skill）
+
+六条硬约束，少一条就会重演 `707c8ea`：
+
+1. **只增不删**——只在 handler body 首行前插；改写 `except` 行时先剥冒号再拼 `as name` 再补冒号
+2. **绝不删已有语句**——单行 `except X: stmt` 拆成 `[head, log, stmt]`，`stmt` 原样保留
+3. **保留尾随注释**——`# noqa: BLE001` 不能丢
+4. **不遮蔽外层变量**——从 `exc/_exc/exc_/_error/_e` 里挑 handler 内未被占用的
+5. **排除异常已传播的**——body 里有 `raise` 就跳过
+6. **绝不碰日志定义模块**——后缀匹配 + `"def log_print(" in src` 双重判定
+
+### 落盘结果
+
+| 指标 | 数值 |
+| --- | --- |
+| 改动文件 | **95** |
+| 插入 `log_print` 日志语句 | **209** |
+| 新增 `log_print` import | **66** |
+| 改写 `except` 行（补 `as exc` 绑定） | **147** |
+| **非-except 删除行** | **0** |
+
+对账：`147 删除 = 147 条 except 行改写`；`422 新增 = 209 日志 + 66 import + 147 改写行`（147+209+66=422 ✓）。
+分类器报 211 处、改写器落盘 209 处，差值恰为 `infrastructure/observability/config.py` 的 2 处（`_ORIGINAL_PRINT` 兜底）——该模块**定义** `log_print`，被正确排除。
+
+### 事故与修正：`config.py` 循环导入
+
+- **现象**：首轮落盘后全量测试 `tests=192 failures=0 errors=192`，`exit=2`，
+  `ImportError: cannot import name 'log_print' from partially initialized module 'app.infrastructure.observability.config' (most likely due to a circular import)`
+- **根因**：排除清单用的是**短路径** `"app/infrastructure/observability/config.py"`，而实际 `rel` 是
+  `services/chat-api/app/infrastructure/observability/config.py` → `endswith` 判定**静默失效**。
+  于是脚本给定义 `log_print` 的模块 import 了它自己（循环导入），并在 `log_print` 函数体内插入了 `log_print(...)`（无限递归）。
+- **修正**：`git checkout` 还原该文件 → 导入冒烟 **666 模块 / 0 失败** → 改写器改为后缀匹配 + `should_skip()` → 幂等检查 `files changed: 0`
+- **教训**：排除清单必须用**后缀匹配**，且要有一条"定义 `log_print` 的模块"兜底判定。
+
+### 覆盖边界：38 处 `PASS_ONLY` 有意不改
+
+逐处打印上下文核实后确认，纯 `pass` 的宽泛 except **多为有意为之的预期控制流**，加日志只会制造噪声：
+
+- **吞取消异常的关停惯用法**：`scheduler.py:37` / `token_usage/dispatcher.py:38`（`except BaseException: pass` 包住 `await self._task`）
+- **链式尝试的预期失败**：`json_utils.py:18`（先试 `json.loads` 失败再走围栏代码块兜底）、`document_parser.py:59/76`（尽力解析 OSS URL，失败照常返回 `urls`）、`oss_uploader.py:180`、`render_utils.py:181/416`
+- **日志基础设施自身**：`browser/engine/contexts/_logging.py:44`（`emit()` 明确"never raises"）、`writer_engine/pipeline.py:154`（`_log_stage()`）——给它加 `log_print` 会造成递归
+- 其余为 `compose_skill.py` ×10 / `pipeline.py` ×4 / `components.py` ×5 的"尽力增强、失败即跳过"块
+
+**结论**：不改。这与用户请求的字面范围（"非静默"）一致，也与 R4 分类器主动排除纯 `pass` 的设计一致。
+
+### 验证结果
+
+```bash
+# chat-api（JUnit XML 权威计数，CI 原始命令）
+2229 passed / 0 failed / 0 error / 0 skipped    exit=0
+# 覆盖率
+57.05% >= 55%                                   exit=0
+# 模块覆盖率门禁 8/8                             exit=0
+# 生产接线门禁 5/5                               exit=0
+# admin-api / document-parser
+433 passed / 0 failed        22 passed / 0 failed
+# 版本一致性 0.2.0（CHANGELOG + 2 个 pyproject + 2 个 package.json）
+# 全模块导入冒烟 666 / 0 失败
+# pyflakes 未定义名：仅 2 处字符串前向引用误报（与快照零差异，非本轮引入）
+```
+
+### 对抗验证（证明工具链真的能检出问题）
+
+1. **改写器结构化验证** `--verify` → **0 problems**（不是文本 diff，是逐条检查 edit 性质）
+2. **验证器对抗测试** `scripts/verify_rewriter_adversarial.py` → **12/12**
+   （8 类破坏全检出：非日志行插入 / 替换目标非 except / 产出为空即删除 / except 头改写越界 / 丢尾注释 / 单行拆分丢 body / 多出非日志行 / 新首行非 except；4 类合法零误报）
+   - 本轮修掉一处**验证器潜在误报**：`except_head` 正则 `^\s*except\b.*:\s*(#.*)?$` 不匹配单行形态 `except Exception: pass`（该路径 R4 恰好未触发，故 `--verify` 报 0 仍有效），已收紧为 `^\s*except\b`
+3. **缺陷类基线对比**：当前树 vs 快照树 `D1/D2/D3/D4 = 0/1/56/3`，**完全一致（60 = 60）** → 本轮引入的缺陷类实例为 **0**
+4. **复现脚本** `scripts/repro_except_fallbacks.py` → 当前树 **23/23 `[OK]`**
+
+### 沉淀
+
+- `scripts/add_except_logging.py`（安全改写器）、`scripts/verify_rewriter_adversarial.py`（对抗测试）已并入 skill `qa-destructive-hunk-audit`
+- SKILL.md 新增"反向：如果必须真的动手改（安全改写器）"一节：六条硬约束表、三层验证、"为什么不能用文本 diff 做可逆性验证"、"覆盖边界四分类"、"PASS_ONLY 要单独判断"
+
+---
+
+## 2026-10-06 · 按最近几天改动刷新 README / intro-v4.pptx / CHANGELOG / INDEX
+
+**触发**：用户要求"根据最近几天修改内容修改 README、intro-v4.pptx 等文档"。
+
+**先做事实核对（全部实测，不引用记忆）**：
+
+```bash
+ls -d specs/*/ | wc -l                              # 21
+ls specs/*/spec.md | wc -l                          # 21
+ls specs/*/plan.md | wc -l                          # 21
+ls specs/*/checklists/requirements.md | wc -l       # 21
+ls specs/*/tasks.md | wc -l                         # 17
+ls specs/*/quickstart.md | wc -l                    # 16（021 无）
+ls -d specs/*/contracts | wc -l                     # 5（001/007/008/009/020）
+grep -h '^\- \[x\]' specs/*/tasks.md | wc -l        # 354
+grep -h '^\- \[ \]' specs/*/tasks.md | wc -l        # 0
+grep -c sha256: services/chat-api/requirements.txt  # 2773
+grep -c sha256: services/admin-api/requirements.txt # 1063
+```
+
+### 1. `README.md` / `README.zh-CN.md`
+
+两版此前**行号一一对应**（维护纪律）。本次同步刷新，**均 464 行，标题行号 `diff` 完全一致**：
+
+```bash
+diff <(grep -nE '^#{1,4} ' README.md | sed 's/:.*//') \
+     <(grep -nE '^#{1,4} ' README.zh-CN.md | sed 's/:.*//')   # 无输出
+```
+
+改动点：
+- `specs/` 树：`20 feature specifications` → `21`，补 `021-unified-context-address/`
+- 特性分组：`16 gap-closing features (001/002/007–020)` / `332 items` → `17 (001/002/007–021)` / `354 items`；说明 `quickstart.md` 落在其中 16 个（除 021）
+- INDEX 段：`20 features … (001/002/007–019)` → `21 … (001/002/007–019 and 021)`
+- 017 行补 `plus the L0 / L1 / L2 density axis and progressive retrieval`
+- `### New scope beyond the backlog: platform multi-tenancy` → `### New scope beyond the backlog`（两项），新增 021 行并重写收尾段
+- **新增 `### Runtime versions and dependency pinning`**：Python 表格（chat-api 3.13 / 2773 哈希；admin-api 3.13 / 1063；document-parser 3.10 普通安装）+ `generate-hashes.sh`
+- **新增 `### Air-gapped and cross-architecture releases`**：`prepare-release.sh` 用法、`prod-images-<TAG>/` 四物、`verify_bundle.py` 三项校验、`export_base_images.sh save --platform linux/amd64`、`--allow-platform-mismatch`、`scripts/test_backup_restore_rollback.sh`
+- 仓库结构表：`specs/` 改 `21 features`；新增 `deploy/production/` 行
+- 贡献段：补 CI 五 job 与两道特殊门禁说明
+- **`## Dependency Mirror Sources` 据实重写**（原表与代码不符，见"踩坑"节）；中文版**补上此前缺失的 `## 依赖镜像源` 整节**
+
+### 2. `docs/intro-v4.pptx`（16 页）
+
+沿用 2026-10-01 既定做法：**先备份** → **仅改文字与必要几何，保留版式/字号/颜色** → 新增卡片用 `copy.deepcopy` 复制既有卡片 XML 以继承填充/圆角/字号/颜色。
+
+- 备份：`docs/intro-v4.pptx.bak-2026-10-06`（147560 B）
+- 改动落在 **6 张页**，其余 10 页零改动（脚本逐页文本多重集对账）：
+
+| 页 | 改动 |
+|---|---|
+| 1 | 封面日期戳 `2026-10 · 至 020` → `至 021` |
+| 5 | 脚注规格口径 `20 个特性（16 份 tasks.md / 332 项）` → `21 个特性（17 份 tasks.md / 354 项）`；`15 项 + 020` → `15 项 + 020/021` |
+| 9 | 生态网格补入 **021 卡片**，占用已存在的空槽位 |
+| 10 / 11 | 副标题 `15 项 + 020` → `15 项 + 020/021` |
+| 11 | 徽标 `已完成 · 16 项全绿` → `17 项全绿`；测试口径 `chat-api 1562 / admin-api 236，2026-09 基线` → `chat-api 2229 / admin-api 433，2026-10 基线` |
+| 16 | 收尾页 `（15 项 + 020 的 SDD 全流程）` → `020/021`；下一步 `以 020 平台化多租户收尾` → `以 020 与 021 收尾` |
+
+**验证**（四层，全绿）：
+
+```bash
+services/chat-api/venv/bin/python /tmp/verify_pptx.py        # zip 完整性 / 16 页 / 旧口径零残留 / 网格不重叠
+services/chat-api/venv/bin/python /tmp/verify_pptx_style.py  # 样式等价 + id 唯一
+services/chat-api/venv/bin/python /tmp/diff_pptx.py          # 全 deck 对账：变更页 == [1,5,9,10,11,16]
+```
+
+- 旧口径零残留：`20 个特性` / `16 份 tasks.md` / `332 项` / `1562` / `236` / `至 020` / `16 项全绿` / `15 项 + 020 已按` 全部 0 命中
+- 新口径命中：`至 021`(1) / `21 个特性`·`17 份 tasks.md`·`354 项`(5) / `020/021`(5,10,11,16) / `17 项全绿`·`2229`·`433`·`2026-10 基线`(11) / `021 统一上下文地址`(9)
+
+### 3. 踩坑与修正（两个真问题）
+
+**(a) 网格坐标不能用英寸反算**。首轮用 `int(5.42*914400)=4956048` 定位新卡片，压到底部横条上（容器两两重叠告警）。实测网格真实 EMU 是 **右列 `L=8890000`、末行 `T=4953000`**，而 `int(9.72*914400)=8887968` 差 1032、`int(5.42*914400)=4956048` 差 3048 EMU。
+**修正**：`deepcopy` 末行左列卡片后**只改 x 为右列既有精确 EMU**，y 原样继承 → `bottom = 4953000 + 660400 = 5613400`，与底部横条上沿 `5613400` **精确相切**。
+
+**(b) 上轮 `copy.deepcopy` 遗留重复 shape id**。备份文件里 `slide 9` 的 `id=34` / `id=35` 各出现 2 次（2026-10-01 上轮产物），本轮再复制又叠加。
+**修正**：新增 `dedupe_shape_ids()` —— 按文档顺序保留首次出现的 id，副本取 `max+1` 起新 id，name 同步去重。改前已确认该页**无 `<p:timing>` / 无 `spid=` 引用 / 无超链接**，故改 id 不影响动画或交互。
+结果：`slide 9` **46 个形状 / 46 唯一 id**，全 deck 无重复。
+
+**样式等价性证据**（比渲染更严格）：剥离 `a:off` 位置与 `cNvPr` 的 id/name 后，
+- 新容器 `spPr` 与 020 容器、与同列普通容器**逐字节一致**（填充/描边/圆角）；
+- 新文本框与 020 文本框**逐字节一致**——即继承 `b="1"` 加粗 + `srgbClr 0D9488` teal，这正是"清单外新增"卡片的**有意强调样式**（同列普通卡片是 `b=false` + `334155`）。021 同属清单外新增，继承该样式正确。
+
+### 4. `CHANGELOG.md`：补录 5 项此前零记录的重大改动
+
+先确认缺口（`grep -c` 全部为 0）：`3.13` / `require-hashes` / `prepare-release` / `export_base_images` / `check_production_wiring` / `check_module_coverage` / `dsh-host-e2e` / `backup_restore` / `generate-hashes`。
+
+- **Added**：Python 3.13 运行时升级 + 依赖哈希锁定（chat-api 2773 / admin-api 1063 条 sha256，`pip install --require-hashes`，`scripts/generate-hashes.sh`；**document-parser 保持 3.10** —— Docling 钉死 `numpy==1.26.4` 无 3.13 轮子）；生产离线发布链路（`prepare-release.sh` 九步 + 四物 + `verify_bundle.py` 三项校验 + `render_deploy_doc.py`）；跨架构基础镜像导出（`export_base_images.sh save --platform linux/amd64`，load 默认拒绝跨平台，须显式 `--allow-platform-mismatch` —— 单平台归档会**替换**多平台标签）；备份/恢复/回滚演练脚本
+- **Changed**：CI 质量门禁扩为五 job（`version-consistency` / `frontend-quality` / `backend-quality` / `dsh-host-e2e` / `security-quality`）；`backend-quality` 内置两道特殊门禁 —— `check_production_wiring.py`（拦"单测全绿但生产零引用"）与 `check_module_coverage.py`（021 `context_space` 85% / 017 `memory` 80% / 009 `dsh_runtime/hooks` 75% 模块级下限，仓级 `fail_under = 55` 对新增子系统过粗）
+
+### 5. `specs/INDEX.md`：修正计数漂移
+
+- §五 统计：`spec.md 001–020（20 份）` → `001–021（21 份）`；`plan.md 20 份，19/19 技术契约` → `21 份；020 为技术化实施计划，其余 20 份技术契约齐全`；`checklist 20 份 / 001/002/007–020 共 16 份已代审` → `21 份 / 007–021 共 17 份`；`tasks 001/002/007–020 共 16 份` → `001/002/007–021 共 17 份（354 项，0 未勾）`
+- clarify 行：`001/002/007–019 共 15 份` → `001/002/007–020 共 16 份`，并补 020 的记录位置（`tasks.md` 的 "Clarify Decisions" 节，19 项）与"021 未单列 clarify 节"的说明
+- §三 标题：`（spec 已建，plan 待补）` → `（spec / plan 已建）` —— 表内 plan 列已全 ✅，标题与表自相矛盾
+- §六 SDD 路径：`P2 后置（012–019）` → `（012–019、021）`，`tasks（15 份之一）` → `17 份之一`；新增 `020、021` 一行
+- §五（补2）两条历史记录把"现 15 份"改为"该轮 15 份"，并注明"截至 2026-10-06 已增至 17 份"——**保留 2026-07-08 记录原意，只消除时态矛盾**
+- 顶部口径提示补 `2026-10-06` 段：测试基线 `2146 + 433 + 22 = 2601`（2026-10-05）刷新为 `2229 + 433 + 22 = 2684`
+
+**未改**：`specs/LANDING_AUDIT_2026-10-03.md` 与 `WORK_LOG.md` 内带日期的旧计数条目 —— 它们是**历史证据/审计快照**，改写即失真。
+
+### 6. 未提交
+
+按 `AGENTS.md` 并行会话纪律**不提交**：工作区内除本轮文档改动外，还有 R4 落盘的 95 个 `services/` 文件等未提交改动。`specs/INDEX.md` 本身也带有 2026-10-05 优化轮的未提交改动，本轮只在其上补齐计数。
