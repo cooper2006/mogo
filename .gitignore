@@ -377,3 +377,10 @@ services/chat-api/playwright-browsers-bundle.tar.gz
 
 # 误操作产生的 shell 重定向垃圾文件（pip install 未加引号的 ">" 被 shell 解析）
 services/document-parser/=*
+
+# QA 审计的 pytest 临时根（本仓审计需 --basetemp 指向工作区内，
+# 否则沙箱下 LOGNAME/USER 不一致会让 basetemp 落到不可创建的位置）
+.pytest-tmp*/
+
+# QA 审计检测器的一次性输出（发布链路 / 包级可达性 / 自证式测试）
+.r5-*.json
