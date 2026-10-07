@@ -6,6 +6,44 @@ on:
     branches: [ main, master ]
 
 jobs:
+  # Release blocker: the version declared in package manifests must match the
+  # newest CHANGELOG entry. Without this, tagging v0.2.0 while manifests still
+  # say 0.1.0 ships an inconsistent release.
+  version-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read newest CHANGELOG version
+        id: changelog
+        run: |
+          version=$(grep -oE '^## v[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | head -1 | sed 's/^## v//')
+          if [ -z "$version" ]; then
+            echo "::error::could not parse a version heading from CHANGELOG.md"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "CHANGELOG newest version: $version"
+
+      - name: Compare manifest versions against CHANGELOG
+        run: |
+          expected="${{ steps.changelog.outputs.version }}"
+          failed=0
+          check() {
+            label="$1"; actual="$2"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error file=$1::$label is $actual but CHANGELOG declares $expected"
+              failed=1
+            else
+              echo "ok  $1 ($label=$actual)"
+            fi
+          }
+          check "services/chat-api/pyproject.toml"    "$(grep -oE '^version = "[^"]+"' services/chat-api/pyproject.toml    | head -1 | grep -oE '[0-9.]+')"
+          check "services/admin-api/pyproject.toml"    "$(grep -oE '^version = "[^"]+"' services/admin-api/pyproject.toml    | head -1 | grep -oE '[0-9.]+')"
+          check "apps/admin-web/package.json"          "$(node -p "require('./apps/admin-web/package.json').version")"
+          check "apps/user-web/package.json"           "$(node -p "require('./apps/user-web/package.json').version")"
+          exit $failed
+
   # Frontend builds and type checks
   frontend-quality:
     runs-on: ubuntu-latest
@@ -70,6 +108,14 @@ jobs:
         working-directory: services/${{ matrix.service }}
         run: python -m compileall -q app
 
+      # Regression guard for the "implemented + green tests but unreachable in
+      # production" class of defect (QA 2026-10-06: the whole 021 layer had zero
+      # production imports). Pure stdlib, so it runs before dependency install.
+      - name: Production wiring check
+        if: matrix.service == 'chat-api'
+        working-directory: services/chat-api
+        run: python scripts/check_production_wiring.py
+
       - name: Create venv and install
         working-directory: services/${{ matrix.service }}
         run: |
@@ -93,7 +139,50 @@ jobs:
           ASKAI_ADMIN_MONGODB_DB: mogo_test
           ASKAI_ADMIN_JWT_SECRET: test-secret-key-for-ci
         run: |
-          ${{ matrix.venv }}/bin/python -m pytest tests/ --tb=short -q --timeout=120 --cov=app --cov-report=term-missing
+          ${{ matrix.venv }}/bin/python -m pytest tests/ --tb=short -q --timeout=120 --cov=app --cov-report=term-missing --cov-report=json --cov-fail-under=55 -m "not dsh_host_e2e"
+
+      # Per-directory / per-file coverage floors for the newer subsystems
+      # (017 memory, 021 context space, 009 hooks). The global 55% gate is too
+      # coarse for these — they are small, actively changed, and testable.
+      - name: Module coverage floors
+        if: matrix.service == 'chat-api'
+        working-directory: services/chat-api
+        run: ${{ matrix.venv }}/bin/python scripts/check_module_coverage.py
+
+  # DSH Runtime Host end-to-end — runs the real Node host as a subprocess.
+  # Split from the main gate so "needs a Runtime Host" never masquerades as a
+  # regression in the primary test job.
+  dsh-host-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/chat-api/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install chat-api
+        working-directory: services/chat-api
+        run: |
+          python -m venv venv
+          venv/bin/pip install --require-hashes -r requirements.txt
+          venv/bin/pip install pytest pytest-asyncio pytest-timeout
+
+      - name: Install Runtime Host dependencies
+        working-directory: services/chat-api/dsh/runtime-host
+        run: npm install --no-audit --no-fund
+
+      - name: Run DSH Runtime Host e2e
+        working-directory: services/chat-api
+        env:
+          # The host is probed over loopback; a proxy must not intercept it.
+          NO_PROXY: 127.0.0.1,localhost
+          no_proxy: 127.0.0.1,localhost
+        run: venv/bin/python -m pytest tests/dsh_runtime/ -m dsh_host_e2e -q --tb=short --timeout=300
 
   # Security checks
   security-quality:

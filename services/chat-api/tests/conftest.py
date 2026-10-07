@@ -80,3 +80,63 @@ def _lighten_dsh_runtime_package() -> None:
 
 _ensure_motor_available()
 _lighten_dsh_runtime_package()
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_db_state():
+    """Reset module-level motor client/db state before & after every test.
+
+    Some async tests initialise ``app.core.db`` (which captures the running
+    event loop).  When pytest-asyncio closes that loop, later sync tests that
+    call ``get_db()`` receive a stale ``_db`` whose motor client can no longer
+    find a live event loop (Python 3.13: ``RuntimeError: There is no current
+    event loop``).  Closing the client around each test restores the db-None
+    path that pure-logic tests rely on.
+    """
+    from app.core.db import close_db
+
+    close_db()
+    yield
+    close_db()
+
+
+# --- DSH Runtime Host end-to-end tagging -----------------------------------
+#
+# These tests spawn the real Node Runtime Host (``dsh/runtime-host``) via
+# subprocess and drive it over HTTP. They need a working Node toolchain and a
+# free loopback port; when either is unavailable they fail with
+# "DSH Runtime Host did not become healthy before the startup deadline", which
+# is indistinguishable from a real regression in a red CI log.
+#
+# Tagging them lets CI separate "needs a Runtime Host" from "actually broken":
+#   pytest -m "not dsh_host_e2e"   # unit + contract only (default local run)
+#   pytest -m "dsh_host_e2e"       # requires the Runtime Host service
+#
+# The host probes itself over loopback, so the proxy environment must not
+# intercept it; ``DshRuntimeHostManager`` already sets ``trust_env=False``.
+
+_DSH_HOST_E2E_FILES = (
+    "test_runtime_host_e2e.py",
+    "test_model_profile_host_e2e.py",
+    "test_step5_dsh_tool_e2e.py",
+    "conversation_regression/test_conversation_capabilities.py",
+)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "dsh_host_e2e: requires a spawnable Node DSH Runtime Host (subprocess + loopback HTTP)",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    for item in items:
+        path = str(getattr(item, "fspath", ""))
+        if any(path.endswith(name) for name in _DSH_HOST_E2E_FILES):
+            item.add_marker(pytest.mark.dsh_host_e2e)
