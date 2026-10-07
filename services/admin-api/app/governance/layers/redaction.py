@@ -15,6 +15,7 @@ fingerprint while the plaintext never reaches ``gate_events``.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -22,6 +23,7 @@ from ..gatekeeper import GateContext, GateDecision, GateVerdict
 from ..pii import PII_TYPES, fingerprint, redact_text
 
 PII_POLICIES_COLLECTION = "pii_policies"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -58,8 +60,16 @@ class RedactionLayer:
                         policies[str(pii_type)] = str(strategy)  # tenant override wins
                     elif pii_type not in policies:
                         policies[str(pii_type)] = str(strategy)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - a policy read must never break the gate
+            # Do not swallow this. A failed policy load silently degrades
+            # redaction to the built-in defaults, and "no tenant override
+            # configured" is indistinguishable from "policy store is down"
+            # once the failure is dropped (QA R5).
+            logger.warning(
+                "pii policy load failed for tenant %s; using built-in defaults: %s",
+                ctx.tenant_id,
+                exc,
+            )
         return policies
 
     async def evaluate(self, ctx: GateContext) -> GateVerdict:
