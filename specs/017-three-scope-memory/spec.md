@@ -64,13 +64,21 @@
 - FR-8: 记忆生命周期（衰减/清理）可配置；**衰减周期默认 30 天，访问命中重置计时；清理触发条件 = 衰减到期后归档/删除（可配）**
 - FR-9: **记忆进入 RAG 检索范围（005），检索时按 scope 可见性过滤（与 FR-2 隔离口径一致）**
 - FR-10: **用户离职/删号时 personal 记忆随账号失效；workspace/org 记忆保留（不随个人账号清理）**
-- FR-11: **记忆超限（超长）处理 = 拒绝写入并提示（不静默截断），自动摘要/压缩属 Non-Goals**
+- FR-11: **记忆超限（超长）处理 = 优先分层**：超长记忆写入时拆分为 L0/L1/L2（见 FR-13/FR-15），不拒绝；仅当内容 `tierable=false` 且 L2 仍超过硬上限（`l2_hard_max_bytes`，可配）时拒绝写入并明确提示（不静默截断）。自动摘要/压缩算法本身属 Non-Goals（见 FR-15 生成职责划分）。
 - FR-12: **同一内容写入多范围（personal + workspace）时各存独立副本（不走跨范围去重），检索时按可见性分别呈现**
+- FR-13: **密度分层模型（与 scope 正交）**：每条记忆（无论 scope）维护三级信息密度——`l0_summary`（≤1 句，相关性初筛）、`l1_overview`（结构/要点，定检索方向）、`l2_raw`（原始详情，仅按需读取）。三层对所有 scope（personal/workspace/org）均适用。
+- FR-14: **渐进检索（默认只注入 L0+L1）**：检索流程 = L0 粗筛（按 l0 相关性排序）→ 命中候选下探 L1（按 l1 决定方向）→ 仅当调用方显式请求 detail 时才取 L2。默认仅将 L0+L1 注入上下文，L2 不进上下文，避免一次性灌入原始长文本。
+- FR-15: **摘要生成（写入时生成 + 读取时惰性补全，两者结合）**：写入时由上游 Agent/LLM 生成 L0/L1 并随记忆持久化（成本前移，首访快）；读取时若 l0/l1 缺失或超过 `summary_refresh_days`（默认 30，可配）则惰性补全（成本后移兜底）。纯二进制/不可解析内容标记 `tierable=false`，跳过分层、按 FR-11 兜底。017 不内置摘要模型/embedding 训练，仅负责存储与按需回退。
+- FR-16: **检索轨迹/可回看**：每次检索产出 `retrieval_trace`，含命中项（uri / type / tier_used / 命中原因）、被跳过项及原因（scope 不可见 / 相关性不足 / 未请求 L2）。轨迹落**观测日志**（非 001 审计），支持按 `trace_id` 回看与调试；高价值命中可抽样进 001 审计（与 009/001 联动）。
+- FR-17: **统一地址暴露点**：记忆暴露只读寻址 `mogo://memory/<scope>/<owner_id>/<memory_id>/[L0|L1|L2]`，供 021 统一上下文地址空间消费；017 仅定义 memory 这一根，resource/skill/session 根由 021 与各对应 spec 定义。
+- FR-18: **tier 适配器契约（provenance）**：memory 暴露统一 `(l0, l1, l2, tierable, provenance)` 适配器接口，provenance 含 `source_session_id` + `source_type`（如 session / agent / manual），供 021 与检索轨迹复用；地址层（021）不重实现摘要生成。
+- FR-19: **会话上下文可见性**：解析 `mogo://memory/...` 时，可见性针对**当前会话参与者集合**判定——单人会话可见 personal +（成员）workspace + org；co-presence（002 多人同会话）会话参与者共享 workspace 级记忆、personal 仅各自可见。与 FR-2/FR-3/FR-5 口径一致。
+- FR-20: **会话沉淀→分层记忆（升级 FR-5）**：002 `SessionEnd`（经 009 hook 触发）沉淀到 017 时，产出**分层记忆**（L0=会话摘要、L1=关键决策/参与者、L2=快照/转录引用），并写 `source_session_id` + `source_type=session` 反向链接；默认 scope 按 FR-3（单人→personal、co-presence→workspace）。
 
 ## Non-Goals
 - 不实现跨组织记忆共享
 - 不改变 005 个人知识库契约（可复用其底层存储）
-- 不实现记忆的自动摘要/压缩算法（属记忆引擎，非范围模型）
+- 不内置摘要模型/embedding 训练：L0/L1 摘要由上游 Agent 在写入时生成，或由检索时惰性 LLM 调用补全（FR-15），017 仅负责存储与按需回退，不在本特性内训练或内置摘要引擎
 - 不实现记忆的跨实例同步（单部署内）
 
 ## Success Criteria
@@ -78,6 +86,8 @@
 - 范围升级 100% 有授权 + 审计
 - 会话沉淀按范围共享
 - 记忆生命周期 100% 可配置
+- 渐进检索默认 100% 只注入 L0+L1（L2 不进上下文除非显式请求）
+- 检索轨迹 100% 可回看（按 trace_id）
 
 ## Further Details
 - 技术实现（记忆存储模型、范围隔离、生命周期）由 plan.md 承载

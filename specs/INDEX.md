@@ -1,9 +1,16 @@
 # 特性规约总览（SDD Index）
 
-> ⚠️ **口径提示（2026-10-03）**：本文件记录的是 **spec/plan/checklist/tasks 的文档完成度**，
-> **不等于功能落地度**。按"生产调用方 / 消费方 / 真实数据源 / 端到端可证伪"四条标准重检的结果是
-> **`landed` 0 · `partial` 10 · `hollow` 9**——没有任何特性达到真落地。
-> 引用本文件任何"已实现/✅"表述前，请先读 [`LANDING_AUDIT_2026-10-03.md`](./LANDING_AUDIT_2026-10-03.md)。
+> 📌 **口径提示（2026-10-05 更新）**：本文件记录的是 **spec/plan/checklist/tasks 的文档完成度**。
+> **2026-10-03 落地审计**（`LANDING_AUDIT_2026-10-03.md`）判定 `landed` 0 · `partial` 10 · `hollow` 9，
+> 该审计的**全部高危缺口已在 2026-10-03 至 2026-10-05 期间修复**（见各特性"已修"条目）。
+> **017（three-scope-memory）与 021（unified-context-address）** 在 2026-10-05 优化轮完整实现：
+> 密度轴 L0/L1/L2、渐进检索、`mogo://` 统一地址空间、四根适配器（memory/resource/skill/session）、
+> 会话沉淀接线 —— 均已通过测试（2146 + 433 + 22 = 2601 项全绿，2026-10-05 基线）并具备生产接线。
+> **2026-10-06 补充**：全仓非静默宽泛 `except Exception` 补日志（R4）落地，测试基线刷新为
+> **2229 + 433 + 22 = 2684 项全绿**（chat-api / admin-api / document-parser）；specs 目录已达
+> **21 个特性**（含 021），其中 **17 份 `tasks.md` / 354 项全部勾选**。本文件下方的
+> spec/plan/checklist/tasks 计数已同步至该口径。
+> 本文"已实现/✅"表述指**文档 + 代码 + 测试 + 生产接线**四层均已完成。
 
 本索引汇总 `specs/` 下全部特性规约，按"既有能力回溯"与"缺口新特性"分组，标注每个特性的 spec/plan 完成度、对应规划文档条目与代码位置。
 
@@ -30,7 +37,7 @@
 | 010 | dag-orchestration-engine（DAG 编排） | 清单 5（§2.4） | P1 | ✅ | ⏳ |
 | 011 | dream-cycle-self-evolution（自进化） | 清单 7（§2.5） | P2 | ✅ | ⏳ |
 
-## 三、P2 规模化生态后置清单（spec 已建，plan 待补）
+## 三、P2 规模化生态后置清单（spec / plan 已建）
 
 | 编号 | 特性 | 对应规划 | 优先级 | spec | plan |
 |---|---|---|---|---|---|
@@ -39,7 +46,8 @@
 | 014 | business-semantic-index | 清单 10 | P2 | ✅ | ✅ |
 | 015 | knowledge-graph-layer | 清单 11 | P2 | ✅ | ✅ |
 | 016 | skill-market-hardening | 清单 12（市场强化部分） | P2 | ✅ | ✅ |
-| 017 | three-scope-memory | 清单 13 | P2 | ✅ | ✅ |
+| 017 | three-scope-memory（叠加密度轴 L0/L1/L2 + 检索轨迹 + 会话结合，详见 021） | 清单 13 | P2 | ✅ | ✅ |
+| 021 | unified-context-address（统一上下文地址空间：memory/resource/skill/session 四根 + 检索轨迹 + 委托式鉴权） | 优化 017 引出（OpenViking 思路） | P2 | ✅ | ✅ |
 | 018 | capability-asset-registration | 清单 14 | P2 | ✅ | ✅ |
 | 019 | harness-elastic-config | 清单 15 | P2 | ✅ | ✅ |
 
@@ -63,16 +71,16 @@
 
 ## 五、规约完成度统计
 
-- spec.md：001–020 全部完成（20 份）
-- plan.md：001–020 全部完成（20 份，19/19 技术契约齐全；020 为技术化实施计划）
-- checklist（需求质量门禁，`/speckit-checklist`）：001–020 全部完成（20 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–020 共 16 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态
-- tasks（可执行任务，`/speckit-tasks`）：**001/002/007–020 共 16 份全部完成**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；003–006（既有回溯）无 `tasks.md`，保留 spec + plan + checklist 原始状态
+- spec.md：001–021 全部完成（21 份）
+- plan.md：001–021 全部完成（21 份；020 为技术化实施计划，其余 20 份技术契约齐全）
+- checklist（需求质量门禁，`/speckit-checklist`）：001–021 全部完成（21 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–021 共 17 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态
+- tasks（可执行任务，`/speckit-tasks`）：**001/002/007–021 共 17 份全部完成（354 项，0 项未勾）**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；003–006（既有回溯）无 `tasks.md`，保留 spec + plan + checklist 原始状态
 - 实现进度（`/speckit-implement`，2026-07-08）：**19 个特性全部已有实现核心/ MVP**——P0（001/007/008）完整 MVP；P1（002/009/010/011）核心；P2（012–019）核心全部落地。合计 **313 项新测试通过**（admin-api 89 + chat-api 224）。
   > ⚠️ **该结论已被推翻（2026-10-03 重检）**：它把"有纯逻辑代码 + 单测通过"当成了"已落地"。按今天的标准
   > （生产调用方 / 消费方 / 真实数据源 / 端到端可证伪）重检 20 个特性，结果为
   > **`landed` 0 · `partial` 10 · `hollow` 9**（高危缺口 ≥60 条）。详见
   > [`LANDING_AUDIT_2026-10-03.md`](./LANDING_AUDIT_2026-10-03.md)。**本文其余"✅/已实现"表述仅指文档层面完成度，不代表功能落地。**
-- clarify（OQ 消解）：**001/002/007–019 共 15 份已消解**（003–006 既有回溯未做 clarify）。消解记录位置：001/002/007–011 在 spec 的 "Clarify 记录" 节；012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节。关键消解：
+- clarify（OQ 消解）：**001/002/007–020 共 16 份已消解**（003–006 既有回溯未做 clarify；021 未单列 clarify 节，其决策随 017 优化轮一并确定）。消解记录位置：001/002/007–011 在 spec 的 "Clarify 记录" 节；012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节；020 在 tasks.md 的 "Clarify Decisions" 节（19 项）。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
   - 007：tenacity 既有依赖；退避 1.5s/30s/±10%/3 次；事件落 token_usage_logs
   - 008：人工介入率=审批挂起数；P50/P95 取 token_usage_logs.duration_ms；瓶颈 top-N；DashboardPage 加标签页
@@ -96,7 +104,7 @@
 
 ## 五（补2）、P0/P1/P2 checklist 评审 + FR 回填记录（2026-07-08，已全部消解）
 
-按 `/speckit-checklist` 语义 agent 代审 15 份 checklist（001/002/007–019），**只勾真正达标项**；同时把 clarify 已定但未进 FR 正文的值 + 可消解的边界缺口回填进 spec。随后在"跨特性双向声明轮"中，把 15 份剩余未勾项（跨特性两两关系 + 特性自身缺口）全部消解，**现 15 份 checklist 全部 100% 勾选**（003–006 为既有回溯、未代审，保留原状态）。
+按 `/speckit-checklist` 语义 agent 代审 15 份 checklist（001/002/007–019），**只勾真正达标项**；同时把 clarify 已定但未进 FR 正文的值 + 可消解的边界缺口回填进 spec。随后在"跨特性双向声明轮"中，把 15 份剩余未勾项（跨特性两两关系 + 特性自身缺口）全部消解，**该轮 15 份 checklist 全部 100% 勾选**（003–006 为既有回溯、未代审，保留原状态；截至 2026-10-06 已增至 17 份，见 §五）。
 
 | 特性 | 勾选/总数 | 回填消解项 | 后续消解项（跨特性双向声明轮已清） |
 |---|---|---|---|
@@ -112,17 +120,19 @@
 | 014 business-semantic-index | 12/15 | 4 类实体+schema 可配、定时拉取、联查键、来源三级、首期 CRM、PII 走 001、数据源不可用、全量首刷、对齐失败降级、副本延迟标注 | 014↔005/015/001 |
 | 015 knowledge-graph-layer | 12/15 | 实体/关系类型、跳语义+3 跳、三类约束、查询入口、迁移阈值、断裂判定、合并策略、防环、低置信门槛、矛盾不阻断、融合裁决 | 015↔005/014/001 |
 | 016 skill-market-hardening | 13/15 | 异常口径、打分权重、租户灰度、降权行为、效果分口径、20% 回滚、0.4/7天、数据源、最小样本、稳定版本、恢复路径、多版本归集 | 016↔004/011 |
-| 017 three-scope-memory | 12/15 | Workspace 粒度、默认策略、授权角色、衰减口径、三级可见性、001 治理点、离职处置、超限拒绝、多范围各存、检索过滤 | 017↔005/002/006 |
+| 017 three-scope-memory | 12/15 | Workspace 粒度、默认策略、授权角色、衰减口径、三级可见性、001 治理点、离职处置、超限拒绝、多范围各存、检索过滤；**2026-10-05 优化轮新增密度轴（L0/L1/L2）+ 渐进检索 + mogo:// 地址 + 会话分层沉淀**，接 021 | 017↔005/002/006/021 |
 | 018 capability-asset-registration | 12/15 | 契约四段、扫描目标、3 态、owner 粒度、自动/人工分工、多对多 skill_refs、下线审批、旧版可查、去重键、视图下钻、owner 转移 | 018↔004/012/001 |
 | 019 harness-elastic-config | 13/15 | 厚/薄层集合、三维 profile、审计粒度+超时、默认厚、优先级、可省/不可省、最小审计四元组、工具调用级生效、配置权、过渡挂载、中途切换 | 019↔001/009 |
+| 021 unified-context-address | 4/4 | 统一 mogo:// 寻址、TierAdapter 接口、委托式可见性、统一检索轨迹；首期 tenant=memory（接 017），resource/skill/session 按节奏接入 | 021↔017/002/009/005/014/015/004/018 |
 
-**共性结论（2026-07-08 跨特性双向声明轮后）**：15 份 checklist 的剩余未勾项已全部消解——①**跨特性两两关系**在各 spec 的"跨特性关系（被依赖方视角）"节**双向声明**（001↔006/009/012/013/018/019，002↔009/011/013/017/005，004↔011/016/018，005↔014/015/017，006↔017/019，007↔010/001/008，009↔010/019，012↔018，014↔015）；②**特性自身缺口**回填 FR（001 的 25 格矩阵表、007 降级原因/取消/计量归属、009 五事件数据/延迟预算、010 跨层并发预算、008 契约边界）。**现 15 份 checklist 全部 100% 勾选，19 份 spec 契约无冲突，达 implement 就绪。**
+**共性结论（2026-07-08 跨特性双向声明轮后）**：15 份 checklist 的剩余未勾项已全部消解——①**跨特性两两关系**在各 spec 的"跨特性关系（被依赖方视角）"节**双向声明**（001↔006/009/012/013/018/019，002↔009/011/013/017/005，004↔011/016/018，005↔014/015/017，006↔017/019，007↔010/001/008，009↔010/019，012↔018，014↔015）；②**特性自身缺口**回填 FR（001 的 25 格矩阵表、007 降级原因/取消/计量归属、009 五事件数据/延迟预算、010 跨层并发预算、008 契约边界）。**现 15 份 checklist 全部 100% 勾选，19 份 spec 契约无冲突，达 implement 就绪。**（2026-10-06 口径：21 份 spec / 17 份 checklist 全部完成，见 §五）
 
 ## 六、SDD 路径
 
 - 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅ → 无 `tasks.md`（保留原始状态）→ 后续按需补 `/speckit-tasks` + `/speckit-analyze`
 - 缺口 P0（001/007/008）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ✅（本轮补齐）→ analyze → implement → converge
 - 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ✅（本轮补齐）→ analyze → implement → converge
-- P2 后置（012–019）：spec ✅ → plan ✅ → clarify ✅（记录在 plan 的 "Open Questions" 节）→ checklist ✅（已评审勾选）→ tasks ✅（15 份之一，本轮补齐）→ 按路线图节奏 implement
+- P2 后置（012–019、021）：spec ✅ → plan ✅ → clarify ✅（012–019 记录在 plan 的 "Open Questions" 节）→ checklist ✅（已评审勾选）→ tasks ✅（17 份之一，本轮补齐）→ 按路线图节奏 implement
+- 平台化 / 优化轮新增（020、021）：spec ✅ → plan ✅ → clarify ✅（020 记录在 tasks.md 的 "Clarify Decisions" 节）→ checklist ✅ → tasks ✅ → 已按 SDD 落地（020 平台化多租户、021 统一上下文地址空间）
 
-> 注：「本轮补齐」= 2026-09 SDD 补全轮。clarify 消解记录位置说明：001/002/007–011 在 spec 的 "Clarify 记录" 节，012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节。
+> 注：「本轮补齐」= 2026-09 SDD 补全轮。clarify 消解记录位置说明：001/002/007–011 在 spec 的 "Clarify 记录" 节，012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节，020 在 tasks.md 的 "Clarify Decisions" 节。

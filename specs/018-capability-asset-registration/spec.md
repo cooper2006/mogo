@@ -76,6 +76,11 @@
 - 契约变更 100% 版本化
 - 治理视图 100% 可查全量资产
 
+### 跨特性关系（被依赖方视角，2026-10-05 补声明）
+
+- **与 004（skillhub-lifecycle）**：018 资产经 `skill_refs` 关联 004 Skill（既已在 004 声明）。
+- **与 021（unified-context-address）**：018 的能力资产暴露 `mogo://skill/asset/<assetId>` 根（契约四段即 L0/L1），经 skill_refs 关联 004；021 委托 018 `a2a_exposed` 标记做可见性裁剪。
+
 ## Further Details
 - 技术实现（能力扫描、契约 schema、注册中心）由 plan.md 承载
 - 契约 schema 与扫描范围需 clarify

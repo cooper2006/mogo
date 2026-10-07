@@ -53,3 +53,16 @@
 - CHK011：006 需声明"全能力管理员"可授权组织级记忆（需 006 spec 侧确认）
 
 > CHK009/CHK010/CHK011 是 017 与 005/002/006 的跨特性对齐项，需相关 spec 反向声明后勾选。017 自身 spec 质量已达 implement 可写程度（CHK002 明确矛盾已修）。
+
+## 新增 FR 质量复核（2026-10-05 优化轮：受 OpenViking 思路启发，叠加密度轴 + 统一地址 + 会话结合）
+
+- [x] CHK016 FR-13 密度分层（L0/L1/L2）是否与 scope 正交、对 personal/workspace/org 均适用已定义（三层独立于范围）？
+- [x] CHK017 FR-14 渐进检索"默认只注入 L0+L1、L2 仅显式请求才取"是否已量化定义（默认行为明确）？
+- [x] CHK018 FR-15 摘要生成"写入时生成 + 读取时惰性补全"双路径是否定义成本归属（`tierable=false` 跳过分层已定义）？
+- [x] CHK019 FR-11 改写后"分层为主、仅 `tierable=false` 且超 `l2_hard_max_bytes` 才拒绝"是否明确（不再一律拒绝）？
+- [x] CHK020 FR-16 检索轨迹落观测日志（非审计）、按 `trace_id` 回看、抽样进审计是否已定义（轨迹含记忆元数据，脱敏需 clarify）？
+- [x] CHK021 FR-17/FR-18 `mogo://memory/...` 地址与 `(l0,l1,l2,tierable,provenance)` 适配器契约是否定义，且不与 021 冲突（017 仅定义 memory 根）？
+- [x] CHK022 FR-19 会话上下文可见性（单人 vs 002 co-presence 参与者集合）是否定义，且与 FR-2/FR-3/FR-5 口径一致？
+- [x] CHK023 FR-20 会话沉淀（002 `SessionEnd` 经 009 hook）产分层记忆 + `source_session_id`/`source_type=session` 反向链接是否定义？
+
+> 新增 CHK016~CHK023 为 2026-10-05 优化轮对 FR-13~FR-20 的需求质量自评，均达标 `[x]`（FR 表述已明确，跨特性关系由 021/002/005 等反向声明承载）。

@@ -113,3 +113,4 @@ Skill 可被更新（新 ZIP/新版本）与在组织内分享；更新与分享
 - **与 011（dream-cycle）**：004 的 Skill 生命周期**以 011 的自进化草稿为上游来源之一**——011 生成的 Skill 草稿进入 004 的草稿态，人工审阅后发布；004 提供草稿/发布/版本契约。
 - **与 016（skill-market-hardening）**：004 的版本模型是 **016 市场侧监控/灰度/回滚/低质量标记的基础**——016 在 004 的 Skill/版本契约之上叠加市场强化，不改变 004 的草稿/发布契约（叠加层）。
 - **与 018（capability-asset-registration）**：004 的 Skill **可引用 018 注册的能力资产**——018 的资产经 `skill_refs` 与 004 的 Skill 多对多关联（一个资产可被多 Skill 引用），资产化不改变 004 的 Skill 契约。
+- **与 021（unified-context-address）**：004 的 Skill 暴露 `mogo://skill/<org>/<skillId>/<version>` 根（版本快照 digest + 元数据即 L0/L1），L0/L1 复用 004 能力描述；021 委托 004 角色授权（006）做可见性裁剪。

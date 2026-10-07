@@ -125,4 +125,5 @@
 - **与 011（dream-cycle）**：002 的会话快照（`session_snapshots`）是 011 自进化的**经验来源之一**（011 从会话 commit/沉淀中提取经验片段）。
 - **与 013（multi-im-entry）**：002 的会话模型**可承载 IM 渠道会话**——IM 会话经 `im_session_bindings` 映射为 MOGO 会话，渠道标识（channel/channel_session_id）存于绑定表，002 的 commit/share 对 IM 会话同样生效。
 - **与 017（three-scope-memory）**：002 的会话沉淀（FR-5）**可产记忆**——会话结束时按范围沉淀为 017 的 personal/workspace 记忆。
+- **与 021（unified-context-address）**：002 的会话暴露 `mogo://session/<tenant>/<sessionId>/[L0|L1|L2]` 根（L0=快照摘要/L1=commit 结构/L2=快照）；活跃会话经 021 消费统一上下文，SessionEnd 经 009 hook 触发 017 分层沉淀（021 FR-6/FR-9、017 FR-20）。
 - **与 005（knowledge-rag）边界**：002 的 share 交接的是**会话上下文（工作状态）**，005 分享的是**知识（可检索资产）**，二者不同层（会话 vs 知识），不混淆。

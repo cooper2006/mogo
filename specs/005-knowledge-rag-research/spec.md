@@ -95,3 +95,4 @@
 - **与 014（business-semantic-index）**：005 的检索客户端与引用锚点**可扩展支持"业务实体项"**——014 的业务实体检索结果与 005 文档检索结果走同一检索通道，`RetrievalChunkItem` 扩展实体类型字段（来源标注区分 文档片段/业务实体）。
 - **与 015（knowledge-graph-layer）**：005 的检索结果**可与图谱推理结果融合**——015 的图谱推理与 005 的 RAG 检索并列返回，融合裁决见 015 FR-9。
 - **与 017（three-scope-memory）**：005 的个人知识底层存储**可作为 017 personal scope 的存储基础**（不重复建库）；017 的记忆**进入 005 的 RAG 检索范围**（检索时按 scope 可见性过滤）。
+- **与 021（unified-context-address）**：005 的文档检索暴露 `mogo://resource/doc/<tenant>/<documentId>/<chunkId>` 根（citation 锚点 `documentId:chunkId` 即 L2 地址），L0/L1 复用 005 解析产物；021 地址层委托 005 `retrieval_access_policy` 做可见性裁剪（021 FR-1/FR-2/FR-4）。

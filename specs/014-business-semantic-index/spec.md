@@ -83,3 +83,4 @@
 - **与 015（knowledge-graph-layer）**：014 的 `biz_entities` **可被 015 的图谱节点指针引用**（`kg_nodes.source_ref` 指向业务实体 ID，不做数据复制）——014 的业务实体是图谱的实体来源之一。
 - **与 005（knowledge-rag）**：014 的检索复用 005 的检索客户端与引用锚点（005 的 RetrievalChunkItem 扩展业务实体项类型）。
 - **与 001（gatekeeper）**：014 的业务数据权限码 `bizdata:read` 注册于 001 权限码模型（resource 含业务系统维度）。
+- **与 021（unified-context-address）**：014 的业务实体暴露 `mogo://resource/biz/<system>/<entityType>/<recordId>` 根（`source_ref` 即 L2 地址），L0/L1 复用 014 实体抽取；021 委托 014 `bizdata:read` 做可见性裁剪。
