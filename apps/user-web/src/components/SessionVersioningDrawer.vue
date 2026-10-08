@@ -170,11 +170,6 @@ onBeforeUnmount(() => {
     pollTimer = undefined
   }
 })
-
-const latestSnapshotId = computed(() => {
-  if (!versions.value.length) return undefined
-  return versions.value[versions.value.length - 1]?.snapshotId
-})
 </script>
 
 <template>
@@ -198,7 +193,7 @@ const latestSnapshotId = computed(() => {
           </div>
           <NSpace style="margin-top: 10px">
             <NButton size="small" type="primary" @click="commitNow">{{ t('提交版本') }}</NButton>
-            <NButton size="small" :disabled="!latestSnapshotId" @click="emit('close')">{{ t('关闭') }}</NButton>
+            <NButton size="small" @click="emit('close')">{{ t('关闭') }}</NButton>
           </NSpace>
         </section>
 
