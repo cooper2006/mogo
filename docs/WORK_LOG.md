@@ -1,5 +1,30 @@
 # Work Log
 
+## 2026-10-08 说明文档：权限控制（含数据权限）+ DSH 多实例运行改造
+
+**起因**：用户要求基于现有文档和代码，产出两份详细的说明文档。
+
+**做法**：走团队协作流程（team `gstack-docs`），两名成员并行调研 —— `gstack-security-officer` 负责权限文档，`gstack-investigator` 负责 DSH 多实例文档。主理人负责派发、情报中转与抽查验证。**全程未修改任何源码。**
+
+**产出**：
+
+| 文件 | 行数 |
+|---|---|
+| `deliverables/gstack/permission-control-data-scope-2026-10-08.md` | 3951 |
+| `deliverables/gstack/dsh-multi-instance-2026-10-08.md` | 1669 |
+
+**核实到的两组关键事实（改变了文档的结论方向）**：
+
+1. **既有评估稿 `docs/open-source-productization/agent-multi-instance-evaluation.md` 已过期**。该稿标注「未实现」，但其 P1/P2 早在 2026-09-24 已落地：`DSH_RUNTIME_HOSTS_URL`（`config.py:125`）、`transport.py:181` 用 `hashlib` 的一致性哈希路由、三副本 + nginx sticky LB（`docker-compose.yml:152-187`，profile `runtime-pool`）、29 项契约测试。**真正阻断生产多副本的是**共享命名卷 `dsh-runtime-data`（三副本共用，session/workspace/skill 产物踩踏）与 `probe_host()` 只探测首副本。
+
+2. **2026-10-06 review 记录的 High 级越权漏洞已修复**。`context_space/visibility.py:50-81` 改为基于存储记录判定 + fail-closed，端点已注册，3 条越权回归测试已补。**但新发现**：`memory/scope.py:93-113` 的 `visible_to` 不校验 `tenant_id`，租户隔离靠调用方外层过滤（隐式契约）；`full_access_admin` 无条件放行使 `viewer_role` 成为模型信任根。
+
+**验证方式**：抽查成员引用的全部代码证据（`application.py:143-152`、`dsh-runtime-lb.conf`、`test_multi_host_transport.py` 492 行/29 test、`gatekeeper.py:150-151`）均属实，无编造。
+
+**工具踩坑（教训）**：`grep -n "a\|b" file` 的 BRE 交替语法在本次调用链下未生效，导致我一度误判「compose 里没有 DSH 配置」并向成员传达了错误结论。工具输出为空时须先怀疑命令语法。
+
+---
+
 ## 2026-10-06 代码 review：017 记忆分层 + 021 上下文地址空间（未提交工作树）
 
 **起因**：用户要求「对当前项目代码 review」。目标为 `services/chat-api` 未提交工作树（60 修改 + 11 新增路径），主线是 017 三段式记忆 density tier 与 021 统一 `mogo://` 上下文地址空间。
@@ -6677,3 +6702,36 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 （其余为镜像/容器操作，未改仓库代码。）
 
 **最终状态**：`cooper2006/mogo` main 停在 `4a857cd`，本地部署版本 `f58bca7` 已上线运行。
+
+---
+
+## 2026-10-08 用户自助注册功能（登录弹窗集成注册 Tab）
+
+**背景**：当前用户只能由租户管理员在后台添加员工账号。需求是新增自助注册，集成在登录弹窗内，供企业客户私有化部署后，其员工/客户可自行注册并归属到某个企业租户（不自动开个人空间，不引入邀请码）。
+
+**设计决策（用户确认）**：
+- 注册模式 A（MVP）：注册即 `status='active'`，直接签发 session 登录，无管理员审核环节。
+- 组织选择：下拉只列 `enterprise + active` 租户；若部署仅挂一个企业租户，则隐藏下拉、自动选中。
+- main_id 从现有租户列表中选择，复用现有 `end_users` 集合与 `/auth/login` 的会话/登录链，不触碰 admin-api 员工创建流程。
+
+**后端改动**：
+- `services/chat-api/app/api/endpoints/auth.py`：
+  - 新增 `RegisterRequest` 模型（mainId/email/password/nickname）。
+  - 新增 `GET /auth/registerable-tenants`：返回 enterprise+active 租户（mainId+orgName），过滤个人空间。
+  - 新增 `POST /auth/register`：校验 bootstrap 完成、租户可选中且为 enterprise、邮箱格式、密码强度（>=8 位且含字母+数字）、该租户下 email 唯一；用 `hash_password` 写 `end_users`（login_name=email、source='self_register'、email_verified=False），随后复用 `_create_session` + `_profile_with_policy` 返回与 `/auth/login` 同结构的 token+profile。
+  - import 增加 `hash_password`（来自 `app.core.end_user_auth`）与 `selectable_tenant_main_ids`（来自 `app.services.end_user_tenant_access`）。
+- `services/chat-api/app/services/end_user_tenant_access.py`：新增公开 wrapper `selectable_tenant_main_ids`（原 `_selectable_tenant_main_ids` 为私有，避免跨模块引用私有符号）。
+
+**前端改动**：
+- `apps/user-web/src/api/auth.ts`：新增 `listRegisterableTenants()` 与 `register(mainId,email,password,nickname)`，类型 `RegisterableTenant`。
+- `apps/user-web/src/components/login/RegisterForm.vue`（新增）：注册表单，含组织下拉（单租户自动选中隐藏）、昵称/邮箱/密码/确认密码、前端强度/格式校验、提交后 emit `register-success`（与 `login-success` 同构）。
+- `apps/user-web/src/components/LoginModal.vue`：增加「登录 / 注册」Tab 切换，按 `mode` 渲染 `PasswordLoginForm` 或 `RegisterForm`。
+- `apps/user-web/src/locales/messages.ts`：登录副标题改为「使用企业账号密码登录，或注册新账号」；账号标签「员工账号」→「账号」；新增 `login.tab_*`、`login.register_*` 系列中英文文案。
+
+**安全/边界**：复用现有 SHA-256+PBKDF2 密码哈希；密码强度后端校验；同租户 email 唯一（409）；不提供注册进个人空间的入口；`tenants` 集合 status=active 才可选（FR-024）。
+
+**重建验证**：`MOGO_VERSION=f58bca7 ./mogo build && ./mogo up --build`（`BUILD_EXIT=0`、`UP_EXIT=0`），chat-api / user-web 容器 healthy。容器内直连路由验证：`/api/auth/registerable-tenants` 只返回 BONC、BOND（不含个人空间）；弱密码（纯字母 8 位）被拒（400）；合法注册返回 token 且 profile.orgName=BONC；重复邮箱返回 409；测试账号已清理。
+
+**修改文件**：`services/chat-api/app/api/endpoints/auth.py`、`services/chat-api/app/services/end_user_tenant_access.py`、`apps/user-web/src/api/auth.ts`、`apps/user-web/src/components/LoginModal.vue`、`apps/user-web/src/components/login/RegisterForm.vue`（新增）、`apps/user-web/src/locales/messages.ts`。
+
+**最终状态**：本地部署版本 `f58bca7` 已上线运行，注册功能可用（待 commit/push）。
