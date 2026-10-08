@@ -119,6 +119,45 @@ export async function selectTenantAndLogin(challengeToken: string, mainId: strin
   }
 }
 
+export type RegisterableTenant = {
+  mainId: string
+  orgName: string
+}
+
+export async function listRegisterableTenants(): Promise<{ ok: boolean; tenants?: RegisterableTenant[]; message?: string }> {
+  try {
+    const response = await client.get('/auth/registerable-tenants')
+    const payload = response.data
+    if (!isOk(payload)) {
+      return { ok: false, message: payload?.message || t('api.auth.login_failed') }
+    }
+    return { ok: true, tenants: payload?.data?.tenants || [] }
+  } catch (error: any) {
+    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.login_failed') }
+  }
+}
+
+export async function register(
+  mainId: string,
+  email: string,
+  password: string,
+  nickname = '',
+): Promise<AuthResult> {
+  try {
+    const response = await client.post('/auth/register', { mainId, email, password, nickname })
+    const payload = response.data
+    if (!isOk(payload)) {
+      return { ok: false, message: payload?.message || t('api.auth.register_failed') }
+    }
+    const token = payload?.data?.token
+    const profile = payload?.data?.profile
+    if (!token) return { ok: false, message: t('api.auth.missing_token') }
+    return { ok: true, token, profile }
+  } catch (error: any) {
+    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.register_failed') }
+  }
+}
+
 export async function switchTenant(token: string, mainId: string): Promise<AuthResult> {
   try {
     const response = await client.post(

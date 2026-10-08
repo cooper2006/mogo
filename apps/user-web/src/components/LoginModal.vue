@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import PasswordLoginForm from './login/PasswordLoginForm.vue'
+import RegisterForm from './login/RegisterForm.vue'
 import DesktopLoginServerSwitch from './desktop/DesktopLoginServerSwitch.vue'
 import { t } from '../composables/i18n'
 import type { UserProfile } from '../api/auth'
@@ -13,6 +15,12 @@ const emit = defineEmits<{
   (event: 'close'): void
   (event: 'login-success', payload: { token: string; username: string; profile?: UserProfile }): void
 }>()
+
+const mode = ref<'login' | 'register'>('login')
+
+function handleAuthSuccess(payload: { token: string; username: string; profile?: UserProfile }) {
+  emit('login-success', payload)
+}
 </script>
 
 <template>
@@ -38,10 +46,36 @@ const emit = defineEmits<{
         </button>
       </div>
 
+      <div class="mt-6 flex gap-1 rounded-2xl bg-slate-100 p-1">
+        <button
+          type="button"
+          class="flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-colors"
+          :class="mode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+          @click="mode = 'login'"
+        >
+          {{ t('login.tab_login') }}
+        </button>
+        <button
+          type="button"
+          class="flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-colors"
+          :class="mode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+          @click="mode = 'register'"
+        >
+          {{ t('login.tab_register') }}
+        </button>
+      </div>
+
       <PasswordLoginForm
-        class="mt-6"
+        v-if="mode === 'login'"
+        class="mt-5"
         :suggested-username="savedUsers[0]"
-        @login-success="emit('login-success', $event)"
+        @login-success="handleAuthSuccess"
+      />
+      <RegisterForm
+        v-else
+        class="mt-5"
+        @register-success="handleAuthSuccess"
+        @switch-to-login="mode = 'login'"
       />
       <DesktopLoginServerSwitch />
     </div>

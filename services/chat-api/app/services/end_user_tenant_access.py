@@ -108,3 +108,10 @@ async def _selectable_tenant_main_ids(db: Any, main_ids: list[str]) -> set[str]:
     active = {str(row.get("main_id") or "").strip() for row in rows if str(row.get("status") or "") == "active"}
     known = {str(row.get("main_id") or "").strip() for row in rows}
     return active | {main_id for main_id in main_ids if main_id not in known}
+
+
+async def selectable_tenant_main_ids(db: Any, main_ids: list[str]) -> set[str]:
+    """Public wrapper around ``_selectable_tenant_main_ids`` for callers that
+    need the active/grandfathered tenant subset without reaching into the
+    private helper (e.g. self-service registration tenant listing)."""
+    return await _selectable_tenant_main_ids(db, main_ids)

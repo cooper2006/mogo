@@ -17,12 +17,17 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.end_user_auth import build_session_token, parse_and_verify_session_token, verify_password
+from app.core.end_user_auth import build_session_token, hash_password, parse_and_verify_session_token, verify_password
 from app.core.tenant import DEFAULT_MAIN_ID, add_main_scope, resolve_main_id
 from app.utils.oss_uploader import ObjectStorageClient
 from app.utils.uploads import read_upload_with_limit
 from app.governance.position_policy import MongoEmployeePolicyResolver
-from app.services.end_user_tenant_access import is_tenant_selectable, load_tenant_candidates, resolve_space_type
+from app.services.end_user_tenant_access import (
+    is_tenant_selectable,
+    load_tenant_candidates,
+    resolve_space_type,
+    selectable_tenant_main_ids,
+)
 from app.services.end_user_session import resolve_session_user as _resolve_session_user
 
 router = APIRouter()
@@ -62,6 +67,13 @@ class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
     mainId: str = Field(default="", max_length=64)
+
+
+class RegisterRequest(BaseModel):
+    mainId: str = Field(min_length=1, max_length=64)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+    nickname: str = Field(default="", max_length=64)
 
 
 class SelectTenantRequest(BaseModel):
@@ -322,6 +334,101 @@ async def login(payload: LoginRequest) -> ApiResponse:
         return ApiResponse(code=1, message="组织ID无效，请联系管理员配置租户ID")
     target = next((item for item in matched_users if resolve_main_id(item.get("main_id")) == main_id), matched_users[0])
     session_payload = await _create_session(target, candidates)
+    return ApiResponse(code=0, data=session_payload)
+
+
+@router.get("/auth/registerable-tenants", response_model=ApiResponse)
+async def registerable_tenants(request: Request) -> ApiResponse:
+    """List the enterprise tenants a self-service registrant may join.
+
+    Only ``active`` tenants (FR-024 registry) that resolve to the ``enterprise``
+    space type are returned; personal spaces are excluded so registrants can
+    only join an organization, never open their own personal tenant.
+    """
+    db = get_db()
+    # Fetch every selectable tenant, then filter out personal spaces.
+    all_main_ids = [
+        str(doc.get("main_id") or "")
+        async for doc in db["tenants"].find({"status": "active"}, {"main_id": 1})
+    ]
+    selectable_ids = await selectable_tenant_main_ids(db, all_main_ids)
+    orgs = await db["organizations"].find(
+        {"main_id": {"$in": list(selectable_ids)}},
+        {"main_id": 1, "org_name": 1},
+    ).to_list(length=200)
+    tenants = []
+    for org in orgs:
+        main_id = str(org.get("main_id") or "")
+        fake_user = {"org_name": org.get("org_name") or "", "main_id": main_id}
+        if resolve_space_type(fake_user) != "enterprise":
+            continue
+        tenants.append({
+            "mainId": main_id,
+            "orgName": str(org.get("org_name") or main_id),
+        })
+    tenants.sort(key=lambda item: item["orgName"])
+    return ApiResponse(code=0, data={"tenants": tenants})
+
+
+@router.post("/auth/register", response_model=ApiResponse)
+async def register(payload: RegisterRequest) -> ApiResponse:
+    """Self-service registration: create an end-user under an enterprise tenant.
+
+    Mode A (MVP): the account is created ``active`` and signed in immediately,
+    reusing the same end_users schema and session flow as /auth/login. No
+    personal tenant is created and admin-api employee provisioning is untouched.
+    """
+    db = get_db()
+    setup_state = await db["system_bootstrap"].find_one({"_id": "singleton"}, {"completed": 1})
+    if not setup_state or not bool(setup_state.get("completed")):
+        return ApiResponse(code=503, message="系统尚未完成初始化，请先在管理后台执行 Setup")
+
+    main_id = resolve_main_id(payload.mainId)
+    if not _is_valid_tenant_main_id(main_id):
+        return ApiResponse(code=400, message="请选择有效的组织")
+    if not await is_tenant_selectable(db, main_id):
+        return ApiResponse(code=400, message="该组织当前不可注册，请联系管理员")
+
+    org = await db["organizations"].find_one({"main_id": main_id}, {"org_name": 1})
+    if org is None or resolve_space_type({"org_name": org.get("org_name") or "", "main_id": main_id}) != "enterprise":
+        return ApiResponse(code=400, message="该组织不可注册，请联系管理员")
+
+    email = str(payload.email or "").strip().lower()
+    if "@" not in email or len(email) < 3:
+        return ApiResponse(code=400, message="请输入有效的邮箱地址")
+    password = str(payload.password or "")
+    if len(password) < 8 or not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
+        return ApiResponse(code=400, message="密码至少 8 位，且需同时包含字母和数字")
+
+    existing = await db[USER_COLLECTION].find_one({
+        "main_id": main_id,
+        "$or": [{"login_name": email}, {"email": email}],
+    })
+    if existing:
+        return ApiResponse(code=409, message="该邮箱在此组织下已注册，请直接登录")
+
+    password_hash, password_salt = hash_password(password)
+    now = _now()
+    name = str(payload.nickname or "").strip() or email.split("@", 1)[0]
+    user_doc: dict[str, Any] = {
+        "main_id": main_id,
+        "login_name": email,
+        "email": email,
+        "name": name,
+        "org_name": str(org.get("org_name") or ""),
+        "password_hash": password_hash,
+        "password_salt": password_salt,
+        "status": "active",
+        "source": "self_register",
+        "email_verified": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await db[USER_COLLECTION].insert_one(user_doc)
+    user_doc["_id"] = result.inserted_id
+
+    available_tenants = await load_tenant_candidates(db, [user_doc])
+    session_payload = await _create_session(user_doc, available_tenants)
     return ApiResponse(code=0, data=session_payload)
 
 
