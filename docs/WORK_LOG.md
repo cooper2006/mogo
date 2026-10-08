@@ -6899,3 +6899,34 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **待办（未在本轮）**：Phase 3 退役 `main_id`/`mainId` 旧字段（改读为 `tenant_id`、重建索引、删除回退逻辑、清理测试与文档）需单独审批。admin-api 其余 ~60 个文件的业务集合写入仍只写 `main_id`（共享库中回填已覆盖存量；新写入的集合若需 Phase 3 一致，需按同法补双写）。
 
 **最终状态**：Phase 2 完成，数据已双字段齐备；本地栈 admin-api / chat-api / document-api 均跑 `tenant-phase1` 镜像（待 commit/push）。
+
+---
+
+## 2026-10-08 main_id → tenant_id 统一（Phase 3a：admin-api 切读 + tenant 索引）
+
+**背景**：Phase 2 已推送（`d82dfeb`）、数据双字段齐备。Phase 3 为破坏性阶段，用户选择**分步推进**：先"切读 + 建索引"（保留 `main_id` 字段与双写，可回滚），验证全绿后再删字段。
+
+**风险盘点（Phase 3 前实测）**：依赖 `main_id` 的索引共 **99 个 / 54 集合**，其中 **32 个是 unique**；代码中 65 处 `create_index` 定义。
+
+**改动**：
+- **admin-api 核心切读 `tenant_id`**（4 文件，26 处查询）：
+  - `repositories/org_user_repository.py`：`list_account_groups`/`find_group_by_*`/`list_accounts`/`find_account_by_*`/`delete_*`/`touch_account_last_login`/`set_account_password`/`update_account_profile` 等全部查询过滤改 `tenant_id`；写入点保留 `tenant_id`+`main_id` 双写；`ensure_indexes` 补建 5 个 `tenant_*` 镜像索引；`backfill_main_id` 修正为"两键皆缺→填默认 / 有 main_id 缺 tenant_id→镜像"。
+  - `core/quota_policy.py`、`core/product_edition.py`、`services/tenant_registry.py`：查询切 `tenant_id`，写入保留双写；`tenant_registry.ensure_indexes` 补 `tenant_tenant_id_unique`。
+- **chat-api 查询暂不切**（用户决策）：回填保留 `main_id`，其 ~25 文件查询功能完全正常，留待 3b 与删字段一并处理。
+
+**事故与修复（记录）**：
+1. 批量把 admin-api 查询改 `$or[tenant_id,main_id]` 后发现 `core/nosql_guard.sanitize_query_filter` 会**递归剥离 `$` 前缀键**（含 `$or`），会使 tenant scope 静默清空 → 跨租户泄露。已全部回滚为 `tenant_id` 等值查询（回填后必有该字段，安全）。
+2. 批量 sed 导致 `backfill_main_id` 出现重复键 `{"tenant_id":...,"tenant_id":...}` 与矛盾条件（`{"$exists": False}` 与 `{"$exists": True}` 同键）→ 函数失效。已手工重写为正确语义并编译验证。
+3. 索引命名冲突：批量建的 `tenant__<原main_id索引名>` 与代码规范名 `tenant_id_*` 键同名单不同 → admin-api 启动报 `IndexOptionsConflict` 崩溃。已删除 99 个批量索引，改由**代码的 `ensure_indexes` 作为唯一索引定义来源**创建规范名索引；重启后 healthy。
+
+**执行与验证（真实栈）**：
+- 索引：先批量建 99 个 tenant_id 索引 → 因命名冲突删除 → 由代码创建规范名索引（`admin_accounts` 3 个、`admin_account_groups` 2 个、`tenants` 1 个）。已切读集合中 `organizations`/`org_quota_policies`/`user_quota_policies` 本无 `main_id` 索引（改造前即全表扫描），未新增。
+- 功能自检（P3A_FUNCTIONAL_PASS）：账号组/账号"写入→查询"闭环一致；`list_accounts` 正常；`tenant_registry.is_tenant_active` 切读后为 True；`quota_policy` 二次调用幂等命中同一文档。
+- **真实端到端登录**（E2E_ADMIN_LOGIN_PASS）：建临时账号 → `POST /api/auth/login` 返回 **HTTP 200 + 有效 token** → 清理。证明"双写写入 → tenant_id 查询 → 签发 token"全链路正常。
+- 回归：11 容器全 healthy；admin-api `/health` 200、chat-api `/health`+`/ready` 200。
+
+**修改文件**：`services/admin-api/app/repositories/org_user_repository.py`、`core/quota_policy.py`、`core/product_edition.py`、`services/tenant_registry.py`。
+
+**待办（3b，需单独审批）**：chat-api ~25 文件查询切 `tenant_id`；删除 `main_id` 字段与旧索引；删除 `tenant_field.py` 兼容层与 `$or` 回退；Weaviate 删 `mainId`；JWT claim `main_id`→`tenant_id`；清理测试与文档。
+
+**最终状态**：Phase 3a 完成并验证；本地栈 admin-api 跑 `tenant-phase3` 镜像，chat-api/document-api 跑 `tenant-phase1`（待 commit/push）。

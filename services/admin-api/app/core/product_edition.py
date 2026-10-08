@@ -72,13 +72,13 @@ async def resolve_member_limit(main_id: str, org: dict[str, Any] | None = None) 
     """
     db = get_db()
     if org is None:
-        org = await db[ORGANIZATION_COLLECTION].find_one({"main_id": main_id})
+        org = await db[ORGANIZATION_COLLECTION].find_one({"tenant_id": main_id})
     # Community is unlimited by edition; a stored override could only come from
     # before the write-side guard (assert_member_limit_settable) existed. Ignore
     # it rather than let a stale row contradict the edition.
     if is_community_organization(org):
         return None
-    tenant = await db[TENANT_COLLECTION].find_one({"main_id": main_id}, {"member_limit": 1}) or {}
+    tenant = await db[TENANT_COLLECTION].find_one({"tenant_id": main_id}, {"member_limit": 1}) or {}
     override = tenant.get("member_limit")
     if override is None:
         return member_limit(org)
@@ -110,7 +110,7 @@ async def assert_member_limit_settable(main_id: str, org: dict[str, Any] | None 
     """
     if org is None:
         db = get_db()
-        org = await db[ORGANIZATION_COLLECTION].find_one({"main_id": main_id})
+        org = await db[ORGANIZATION_COLLECTION].find_one({"tenant_id": main_id})
     if is_community_organization(org):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -151,11 +151,11 @@ async def ensure_community_organization(
         total_points=total_points,
     )
     await db[ORGANIZATION_COLLECTION].update_one(
-        {"main_id": main_id},
+        {"tenant_id": main_id},
         {"$set": fields, "$setOnInsert": {"used_points": 0, "created_at": now}},
         upsert=True,
     )
-    return await db[ORGANIZATION_COLLECTION].find_one({"main_id": main_id}) or fields
+    return await db[ORGANIZATION_COLLECTION].find_one({"tenant_id": main_id}) or fields
 
 
 async def migrate_bootstrapped_community_organization() -> bool:
@@ -167,8 +167,8 @@ async def migrate_bootstrapped_community_organization() -> bool:
     main_id = str(state.get("main_id") or "").strip()
     if not main_id:
         return False
-    quota = await db[ORG_QUOTA_COLLECTION].find_one({"main_id": main_id}) or {}
-    owner = await db[USER_COLLECTION].find_one({"main_id": main_id}, {"_id": 1}) or {}
+    quota = await db[ORG_QUOTA_COLLECTION].find_one({"tenant_id": main_id}) or {}
+    owner = await db[USER_COLLECTION].find_one({"tenant_id": main_id}, {"_id": 1}) or {}
     await ensure_community_organization(
         main_id=main_id,
         org_name=str(state.get("org_name") or "MOVO 社区组织"),
@@ -192,12 +192,12 @@ async def count_members(main_id: str) -> int:
     stay under the cap. Deleted members are gone from the collection entirely.
     """
     db = get_db()
-    return await db[USER_COLLECTION].count_documents({"main_id": main_id})
+    return await db[USER_COLLECTION].count_documents({"tenant_id": main_id})
 
 
 async def assert_member_capacity(main_id: str) -> None:
     db = get_db()
-    org = await db[ORGANIZATION_COLLECTION].find_one({"main_id": main_id})
+    org = await db[ORGANIZATION_COLLECTION].find_one({"tenant_id": main_id})
     limit = await resolve_member_limit(main_id, org)
     if limit is None:
         return

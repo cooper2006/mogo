@@ -43,7 +43,7 @@ async def is_tenant_active(main_id: str) -> bool:
     if not value:
         return False
     db = get_db()
-    row = await db[TENANT_COLLECTION].find_one({"main_id": value}, {"status": 1})
+    row = await db[TENANT_COLLECTION].find_one({"tenant_id": value}, {"status": 1})
     if row is None:
         return True
     return str(row.get("status") or "") == "active"
@@ -55,6 +55,12 @@ async def ensure_indexes() -> None:
         [("main_id", 1)],
         unique=True,
         name="tenant_main_id_unique",
+    )
+    # Phase 3a: tenant_id mirror of the unique tenant key (both kept until 3b).
+    await db[TENANT_COLLECTION].create_index(
+        [("tenant_id", 1)],
+        unique=True,
+        name="tenant_tenant_id_unique",
     )
     await db[TENANT_COLLECTION].create_index(
         [("status", 1), ("created_at", -1)],
@@ -79,7 +85,7 @@ async def ensure_tenant_record(
     db = get_db()
     now = datetime.now(timezone.utc)
     doc = await db[TENANT_COLLECTION].find_one_and_update(
-        {"main_id": main_id},
+        {"tenant_id": main_id},
         {
             "$set": {
                 # Phase 1 dual-write: canonical tenant_id + legacy main_id.
@@ -116,7 +122,7 @@ async def backfill_tenants_from_accounts() -> int:
 
     existing_ids = {
         row["main_id"]
-        async for row in db[TENANT_COLLECTION].find({}, {"main_id": 1})
+        async for row in db[TENANT_COLLECTION].find({}, {"tenant_id": 1})
         if row.get("main_id")
     }
 
@@ -129,13 +135,13 @@ async def backfill_tenants_from_accounts() -> int:
 
         admin = (
             await db["admin_accounts"].find_one(
-                {"main_id": main_id, "is_protected": True}, {"username": 1}
+                {"tenant_id": main_id, "is_protected": True}, {"username": 1}
             )
-            or await db["admin_accounts"].find_one({"main_id": main_id}, {"username": 1})
+            or await db["admin_accounts"].find_one({"tenant_id": main_id}, {"username": 1})
         )
         admin_username = admin.get("username", "") if admin else ""
 
-        org = await db["organizations"].find_one({"main_id": main_id}, {"org_name": 1, "edition": 1})
+        org = await db["organizations"].find_one({"tenant_id": main_id}, {"org_name": 1, "edition": 1})
         name = (org or {}).get("org_name") or main_id
         edition = (org or {}).get("edition") or "community"
 
