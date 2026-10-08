@@ -9,7 +9,7 @@
  * - 列表返回 `{ items, total }` 信封，而非裸数组；
  * - 更新走 `PATCH`（非 `PUT`）；
  * - 删除返回 `204`，无响应体；
- * - 列表查询参数为 `scope` / `enabled`（列表本身已按当前管理员 main_id 过滤）。
+ * - 列表查询参数为 `scope` / `enabled`（列表本身已按当前管理员 tenant_id 过滤）。
  *
  * 路径拼装：apiClient baseURL `/admin-api` + gateway 剥掉 `/admin-api`，
  * 故 admin-api 侧实际收到 `/api/hooks/...`（api_router 以 `/api` 挂载 + 路由前缀 `/hooks`）。

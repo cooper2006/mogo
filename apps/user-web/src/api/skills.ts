@@ -80,7 +80,7 @@ export interface SkillFeedbackSummary {
 
 export interface SkillItem {
   id: string
-  mainId: string
+  tenantId: string
   name: string
   description: string
   scenario: string
@@ -116,7 +116,7 @@ export interface SkillPayload {
 
 export interface SelectableSkillItem {
   id: string
-  mainId: string
+  tenantId: string
   name: string
   description: string
   scenario: string
@@ -237,10 +237,10 @@ export interface TemplateAnalysis {
   resources?: Record<string, any>
 }
 
-function params(userId: string | null | undefined, mainId: string | null | undefined) {
+function params(userId: string | null | undefined, tenantId: string | null | undefined) {
   return {
     userId: userId || '',
-    mainId: mainId || 'default',
+    tenantId: tenantId || 'default',
   }
 }
 
@@ -248,18 +248,18 @@ function dataOf<T>(res: { data?: any }): T {
   return res.data?.data ?? res.data
 }
 
-export async function fetchSkills(userId: string, mainId = 'default'): Promise<SkillItem[]> {
-  const res = await api.get('/skills', { params: params(userId, mainId), timeout: 15000 })
+export async function fetchSkills(userId: string, tenantId = 'default'): Promise<SkillItem[]> {
+  const res = await api.get('/skills', { params: params(userId, tenantId), timeout: 15000 })
   return dataOf<SkillItem[]>(res) || []
 }
 
-export async function listSkills(userId: string, mainId = 'default'): Promise<SkillItem[]> {
-  return fetchSkills(userId, mainId)
+export async function listSkills(userId: string, tenantId = 'default'): Promise<SkillItem[]> {
+  return fetchSkills(userId, tenantId)
 }
 
 export async function fetchSelectableSkills(payload: {
   userId: string
-  mainId?: string
+  tenantId?: string
   scope?: 'all' | 'user' | 'organization'
   keyword?: string
   cursor?: string
@@ -267,7 +267,7 @@ export async function fetchSelectableSkills(payload: {
 }): Promise<SelectableSkillPage> {
   const res = await api.get('/skills/selectable', {
     params: {
-      ...params(payload.userId, payload.mainId),
+      ...params(payload.userId, payload.tenantId),
       scope: payload.scope || 'all',
       keyword: payload.keyword || '',
       cursor: payload.cursor || '',
@@ -283,24 +283,24 @@ export async function fetchSelectableSkills(payload: {
   }
 }
 
-export async function fetchSkill(id: string, userId: string, mainId = 'default'): Promise<SkillItem> {
-  const res = await api.get(`/skills/${id}`, { params: params(userId, mainId) })
+export async function fetchSkill(id: string, userId: string, tenantId = 'default'): Promise<SkillItem> {
+  const res = await api.get(`/skills/${id}`, { params: params(userId, tenantId) })
   return dataOf<SkillItem>(res)
 }
 
-export async function createSkill(userId: string, mainId: string, payload: SkillPayload): Promise<SkillItem> {
-  const res = await api.post('/skills', payload, { params: params(userId, mainId), timeout: 90000 })
+export async function createSkill(userId: string, tenantId: string, payload: SkillPayload): Promise<SkillItem> {
+  const res = await api.post('/skills', payload, { params: params(userId, tenantId), timeout: 90000 })
   return dataOf<SkillItem>(res)
 }
 
-export async function updateSkill(id: string, userIdOrPayload: string | any, mainId = 'default', payload?: SkillPayload): Promise<SkillItem> {
+export async function updateSkill(id: string, userIdOrPayload: string | any, tenantId = 'default', payload?: SkillPayload): Promise<SkillItem> {
   let userId = String(userIdOrPayload || '')
   let body = payload
-  let resolvedMainId = mainId
+  let resolvedMainId = tenantId
   if (typeof userIdOrPayload === 'object') {
     const legacy = userIdOrPayload || {}
     userId = String(legacy.user_id || legacy.userId || '')
-    resolvedMainId = String(legacy.main_id || legacy.mainId || 'default')
+    resolvedMainId = String(legacy.tenant_id || legacy.tenantId || 'default')
     const skillType = String(legacy.skill_type || legacy.type || 'style')
     const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
     body = {
@@ -321,13 +321,13 @@ export async function updateSkill(id: string, userIdOrPayload: string | any, mai
   return dataOf<SkillItem>(res)
 }
 
-export async function deleteSkill(id: string, userId: string, mainId = 'default'): Promise<{ id: string }> {
-  const res = await api.delete(`/skills/${id}`, { params: params(userId, mainId) })
+export async function deleteSkill(id: string, userId: string, tenantId = 'default'): Promise<{ id: string }> {
+  const res = await api.delete(`/skills/${id}`, { params: params(userId, tenantId) })
   return dataOf<{ id: string }>(res)
 }
 
-export async function setSkillEnabled(id: string, userId: string, mainId: string, enabled: boolean): Promise<SkillItem> {
-  const res = await api.patch(`/skills/${id}/enabled`, { enabled }, { params: params(userId, mainId) })
+export async function setSkillEnabled(id: string, userId: string, tenantId: string, enabled: boolean): Promise<SkillItem> {
+  const res = await api.patch(`/skills/${id}/enabled`, { enabled }, { params: params(userId, tenantId) })
   return dataOf<SkillItem>(res)
 }
 
@@ -437,7 +437,7 @@ export async function generateScriptPlugin(payload: {
 
 export async function enrichWritingStyleDraft(payload: {
   userId: string
-  mainId: string
+  tenantId: string
   name: string
   description?: string
   scenario?: string
@@ -455,7 +455,7 @@ export async function enrichWritingStyleDraft(payload: {
       scenario: payload.scenario || '',
       draft: payload.draft,
     },
-    { params: params(payload.userId, payload.mainId), timeout: 60000 },
+    { params: params(payload.userId, payload.tenantId), timeout: 60000 },
   )
   return dataOf(res)
 }
@@ -482,10 +482,10 @@ export async function analyzeTemplate(file: File): Promise<TemplateAnalysis> {
 
 export async function generateSkill(payload: any) {
   const userId = String(payload?.user_id || payload?.userId || '')
-  const mainId = String(payload?.main_id || payload?.mainId || 'default')
+  const tenantId = String(payload?.tenant_id || payload?.tenantId || 'default')
   const skillType = String(payload?.skill_type || payload?.type || 'style')
   const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
-  return createSkill(userId, mainId, {
+  return createSkill(userId, tenantId, {
     name: String(payload?.name || ''),
     description: String(payload?.description || payload?.summary || ''),
     scenario: String(payload?.scenario || payload?.notes || ''),

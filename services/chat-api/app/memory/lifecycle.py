@@ -154,12 +154,25 @@ def clean_decayed_memories(
 
 
 def _is_motor_collection(collection) -> bool:
-    """Whether the collection is a Motor async collection (awaitable ops)."""
+    """Whether the collection is a Motor async collection (awaitable ops).
+
+    Motor's ``find`` is a *regular* method returning an ``AsyncIOMotorCursor``
+    (so ``inspect.iscoroutinefunction(collection.find)`` is False), while
+    ``delete_many`` / ``bulk_write`` are coroutine functions. Detection must
+    therefore not rely on ``find`` alone — checking an unambiguous write path
+    plus the class module is what actually distinguishes Motor from pymongo.
+    """
     import inspect
-    find = getattr(collection, "find", None)
-    if find is None:
-        return False
-    return inspect.iscoroutinefunction(find)
+
+    write = getattr(collection, "delete_many", None)
+    if write is not None and inspect.iscoroutinefunction(write):
+        return True
+    # Fallback: pymongo collections are not awaitable; Motor's module is
+    # ``motor.motor_asyncio``. Match either signal so fakes stay supported.
+    if type(collection).__module__.startswith("motor"):
+        return True
+    bulk = getattr(collection, "bulk_write", None)
+    return bool(bulk is not None and inspect.iscoroutinefunction(bulk))
 
 
 async def _motor_sweep(collection, query, policy, disposition: str, tenant_id: str | None) -> dict:

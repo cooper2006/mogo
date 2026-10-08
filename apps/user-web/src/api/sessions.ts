@@ -113,9 +113,9 @@ export async function listDesktopProjects(authToken?: string | null): Promise<De
   return Array.isArray(response.data?.data) ? response.data.data : []
 }
 
-export async function listSessions(userId: string, mainId?: string, authToken?: string | null): Promise<SessionSummary[]> {
+export async function listSessions(userId: string, tenantId?: string, authToken?: string | null): Promise<SessionSummary[]> {
   const query = new URLSearchParams({ userId })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.get(`/askai-api/api/sessions?${query.toString()}`, {
     timeout: 15000, headers: authHeaders(authToken),
   })
@@ -124,7 +124,7 @@ export async function listSessions(userId: string, mainId?: string, authToken?: 
 
 export async function listSessionsPaged(
   userId: string,
-  mainId?: string,
+  tenantId?: string,
   options: { limit?: number; offset?: number } = {},
   authToken?: string | null,
 ): Promise<SessionListPage> {
@@ -136,7 +136,7 @@ export async function listSessionsPaged(
     limit: String(limit),
     offset: String(offset),
   })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.get(`/askai-api/api/sessions?${query.toString()}`, {
     timeout: 15000, headers: authHeaders(authToken),
   })
@@ -151,7 +151,7 @@ export async function listSessionsPaged(
 
 export async function searchSessions(
   userId: string,
-  mainId: string | undefined,
+  tenantId: string | undefined,
   queryText: string,
   options: { limit?: number; offset?: number } = {},
   authToken?: string | null,
@@ -164,7 +164,7 @@ export async function searchSessions(
     limit: String(limit),
     offset: String(offset),
   })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.get(`/askai-api/api/sessions/search?${query.toString()}`, {
     timeout: 15000, headers: authHeaders(authToken),
   })
@@ -179,30 +179,30 @@ export async function searchSessions(
 
 export async function createSession(
   userId: string,
-  mainId?: string,
+  tenantId?: string,
   title?: string,
   messages?: ChatMessage[],
   authToken?: string | null,
 ): Promise<SessionSummary> {
   const response = await client.post('/askai-api/api/sessions', {
     user_id: userId,
-    main_id: mainId,
+    tenant_id: tenantId,
     title: title || 'New Chat',
     messages: messages || [],
   }, { headers: authHeaders(authToken) })
   return response.data?.data
 }
 
-export async function getSession(sessionId: string, userId: string, mainId?: string, authToken?: string | null): Promise<SessionDetail> {
+export async function getSession(sessionId: string, userId: string, tenantId?: string, authToken?: string | null): Promise<SessionDetail> {
   const query = new URLSearchParams({ userId })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.get(`/askai-api/api/sessions/${sessionId}?${query.toString()}`, { headers: authHeaders(authToken) })
   return response.data?.data
 }
 
-export async function deleteSession(sessionId: string, userId: string, mainId?: string, authToken?: string | null): Promise<{ id: string }> {
+export async function deleteSession(sessionId: string, userId: string, tenantId?: string, authToken?: string | null): Promise<{ id: string }> {
   const query = new URLSearchParams({ userId })
-  if (mainId) query.set('mainId', mainId)
+  if (tenantId) query.set('tenantId', tenantId)
   const response = await client.delete(`/askai-api/api/sessions/${sessionId}?${query.toString()}`, { headers: authHeaders(authToken) })
   return response.data?.data
 }
@@ -210,22 +210,22 @@ export async function deleteSession(sessionId: string, userId: string, mainId?: 
 export async function updateSessionTitle(
   sessionId: string,
   userId: string,
-  mainId: string | undefined,
+  tenantId: string | undefined,
   title: string,
   authToken?: string | null,
 ): Promise<SessionSummary> {
   const response = await client.patch(`/askai-api/api/sessions/${sessionId}`, {
     user_id: userId,
-    main_id: mainId,
+    tenant_id: tenantId,
     title,
   }, { headers: authHeaders(authToken) })
   return response.data?.data
 }
 
-export async function appendMessages(sessionId: string, userId: string, mainId: string | undefined, messages: ChatMessage[], authToken?: string | null): Promise<SessionSummary> {
+export async function appendMessages(sessionId: string, userId: string, tenantId: string | undefined, messages: ChatMessage[], authToken?: string | null): Promise<SessionSummary> {
   const response = await client.post(`/askai-api/api/sessions/${sessionId}/messages`, {
     user_id: userId,
-    main_id: mainId,
+    tenant_id: tenantId,
     messages,
   }, { headers: authHeaders(authToken) })
   return response.data?.data

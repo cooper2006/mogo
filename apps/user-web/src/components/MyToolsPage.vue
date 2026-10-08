@@ -600,7 +600,7 @@ const SchemaEditor = defineComponent({
 
 const props = defineProps<{
   userId: string | null
-  mainId: string
+  tenantId: string
 }>()
 
 const message = useMessage()
@@ -1315,7 +1315,7 @@ async function loadRows() {
   if (!props.userId) return
   loading.value = true
   try {
-    rows.value = await fetchTools(props.userId, props.mainId)
+    rows.value = await fetchTools(props.userId, props.tenantId)
   } catch (error: any) {
     message.error(error?.response?.data?.detail || t('加载工具连接失败'))
   } finally {
@@ -1336,8 +1336,8 @@ async function saveTool() {
     }
     saving.value = true
     const saved = editingId.value
-      ? await updateTool(editingId.value, props.userId, props.mainId, payload)
-      : await createTool(props.userId, props.mainId, payload)
+      ? await updateTool(editingId.value, props.userId, props.tenantId, payload)
+      : await createTool(props.userId, props.tenantId, payload)
     editingId.value = saved.id
     hydrateEditor(saved)
     message.success(t('Tool 已保存'))
@@ -1373,7 +1373,7 @@ async function discoverTools() {
   if (!props.userId || !editingId.value) return
   discovering.value = true
   try {
-    const result = await discoverMcpTools(editingId.value, props.userId, props.mainId)
+    const result = await discoverMcpTools(editingId.value, props.userId, props.tenantId)
     discoveredTools.value = result.tools || []
     const discoveredNames = new Set(discoveredTools.value.map((item) => String(item.name || '').trim()).filter(Boolean))
     form.value.config.enabledToolNames = selectedMcpToolNames.value.filter((name) => discoveredNames.has(name))
@@ -1403,8 +1403,8 @@ async function runTest() {
     lastRequest.value = input
     const payload = buildPayload()
     const result = editingId.value
-      ? await testTool(editingId.value, props.userId, props.mainId, input)
-      : await testDraftTool(props.userId, props.mainId, payload, input)
+      ? await testTool(editingId.value, props.userId, props.tenantId, input)
+      : await testDraftTool(props.userId, props.tenantId, payload, input)
     testResult.value = result
     testResultOk.value = result.success !== false && result.status !== 'failed'
     testResultText.value = JSON.stringify(result, null, 2)
@@ -1457,7 +1457,7 @@ async function confirmToggleStatus() {
   if (!props.userId || !pendingStatusRow.value) return false
   statusUpdating.value = true
   try {
-    await patchTool(pendingStatusRow.value.id, props.userId, props.mainId, { status: pendingStatusValue.value ? 'active' : 'disabled' })
+    await patchTool(pendingStatusRow.value.id, props.userId, props.tenantId, { status: pendingStatusValue.value ? 'active' : 'disabled' })
     message.success(pendingStatusValue.value ? t('Tool 已启用') : t('Tool 已禁用'))
     statusConfirmVisible.value = false
     pendingStatusRow.value = null
@@ -1480,7 +1480,7 @@ async function confirmDelete() {
   if (!props.userId || !pendingDeleteRow.value) return false
   deleting.value = true
   try {
-    await deleteTool(pendingDeleteRow.value.id, props.userId, props.mainId)
+    await deleteTool(pendingDeleteRow.value.id, props.userId, props.tenantId)
     message.success(t('Tool 已删除'))
     pendingDeleteRow.value = null
     deleteConfirmVisible.value = false
@@ -1495,7 +1495,7 @@ async function confirmDelete() {
 }
 
 onMounted(loadRows)
-watch(() => [props.userId, props.mainId], () => {
+watch(() => [props.userId, props.tenantId], () => {
   void loadRows()
 })
 </script>

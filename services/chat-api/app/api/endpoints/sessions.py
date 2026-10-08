@@ -34,14 +34,14 @@ async def _authorized_scope(
     authorization: str | None,
     *,
     claimed_user_id: str,
-    claimed_main_id: str | None,
+    claimed_tenant_id: str | None,
 ) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
     actual_user_id = str(resolved["user"].get("_id") or "")
     actual_main_id = resolve_main_id(resolved.get("tenant_id") or resolved.get("main_id"))
     if claimed_user_id and claimed_user_id != actual_user_id:
         raise HTTPException(status_code=404, detail="Session not found")
-    if claimed_main_id and resolve_main_id(claimed_main_id) != actual_main_id:
+    if claimed_tenant_id and resolve_main_id(claimed_tenant_id) != actual_main_id:
         raise HTTPException(status_code=404, detail="Session not found")
     return actual_user_id, actual_main_id
 
@@ -64,7 +64,7 @@ class MessageIn(BaseModel):
 
 class SessionCreate(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     title: Optional[str] = Field(None, description="Session title")
     messages: Optional[List[MessageIn]] = Field(default_factory=list)
 
@@ -105,13 +105,13 @@ class SessionSearchResult(SessionSummary):
 
 class MessageAppend(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     messages: List[MessageIn] = Field(..., description="Messages to append")
 
 
 class SessionUpdate(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     title: str = Field(..., min_length=1, max_length=160, description="Session title")
 
 
@@ -524,7 +524,7 @@ async def create_session(
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     user_id, tenant_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.tenant_id
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
     )
     session_doc = await session_persistence_service.create_session(
         user_id=user_id,
@@ -538,17 +538,15 @@ async def create_session(
 @router.get("/sessions", response_model=ApiResponse)
 async def list_sessions(
     user_id: str = Query(..., alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     paged: bool = Query(False),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     t0 = time.perf_counter()
-    tenant_id = main_id_snake or tenant_id
     user_id, tenant_id = await _authorized_scope(
-        authorization, claimed_user_id=user_id, claimed_main_id=tenant_id
+        authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
     )
     log_print(
         "[perf][sessions] list_sessions:start user_id=%s main_id=%s paged=%s limit=%s offset=%s"
@@ -632,17 +630,15 @@ async def list_sessions(
 @router.get("/sessions/search", response_model=ApiResponse)
 async def search_sessions(
     user_id: str = Query(..., alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     q: str = Query(..., min_length=1),
     limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     db = get_db()
-    tenant_id = main_id_snake or tenant_id
     user_id, tenant_id = await _authorized_scope(
-        authorization, claimed_user_id=user_id, claimed_main_id=tenant_id
+        authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
     )
     query_text = str(q or "").strip()
     if not query_text:
@@ -796,8 +792,7 @@ async def search_sessions(
 async def get_session(
     session_id: str,
     user_id: str = Query(..., alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     include_context_summary: bool = Query(False, alias="includeContextSummary"),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
@@ -810,7 +805,7 @@ async def get_session(
     user_id, tenant_id = await _authorized_scope(
         authorization,
         claimed_user_id=user_id,
-        claimed_main_id=main_id_snake or tenant_id,
+        claimed_tenant_id=tenant_id,
     )
     session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
     if not session_doc:
@@ -954,7 +949,7 @@ async def update_session(
         raise HTTPException(status_code=400, detail="Title is required")
 
     user_id, tenant_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.tenant_id
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
     )
     result = await db.chat_sessions.update_one(
         add_main_scope({"_id": oid, "user_id": user_id}, tenant_id),
@@ -977,7 +972,7 @@ async def update_session(
 async def end_session(
     session_id: str,
     user_id: str = Query(..., alias="userId"),
-    tenant_id: str | None = Query(default=None, alias="mainId"),
+    tenant_id: str | None = Query(default=None, alias="tenantId"),
     reason: str = Query(default="user_ended"),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
@@ -995,7 +990,7 @@ async def end_session(
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
     authorized_user_id, authorized_main_id = await _authorized_scope(
-        authorization, claimed_user_id=user_id, claimed_main_id=tenant_id
+        authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
     )
     from app.services.session_persistence_service import session_persistence_service
 
@@ -1022,8 +1017,7 @@ async def end_session(
 async def delete_session(
     session_id: str,
     user_id: str = Query(..., alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     db = get_db()
@@ -1035,7 +1029,7 @@ async def delete_session(
     user_id, tenant_id = await _authorized_scope(
         authorization,
         claimed_user_id=user_id,
-        claimed_main_id=main_id_snake or tenant_id,
+        claimed_tenant_id=tenant_id,
     )
     session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
     if not session_doc:
@@ -1093,7 +1087,7 @@ async def append_messages(
     if not payload.messages:
         raise HTTPException(status_code=400, detail="No messages to append")
     user_id, tenant_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.tenant_id
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
     )
     try:
         session_doc = await session_persistence_service.append_messages(

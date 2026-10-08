@@ -53,7 +53,7 @@ async function submit() {
   if (result.requiresTenantSelection) {
     challengeToken.value = result.challengeToken || ''
     tenantCandidates.value = result.tenantCandidates || []
-    selectedMainId.value = tenantCandidates.value[0]?.mainId || ''
+    selectedMainId.value = tenantCandidates.value[0]?.tenantId || ''
     errorMessage.value = result.message || t('api.auth.select_org')
     return
   }
@@ -103,8 +103,8 @@ async function submit() {
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         @change="resetError"
       >
-        <option v-for="tenant in tenantCandidates" :key="tenant.mainId" :value="tenant.mainId">
-          {{ tenant.orgName || tenant.mainId }}
+        <option v-for="tenant in tenantCandidates" :key="tenant.tenantId" :value="tenant.tenantId">
+          {{ tenant.orgName || tenant.tenantId }}
         </option>
       </select>
     </div>

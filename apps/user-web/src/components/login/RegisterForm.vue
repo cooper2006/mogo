@@ -34,7 +34,7 @@ const isSubmitting = ref(false)
 // When only one enterprise tenant exists, hide the selector and auto-select it.
 const singleTenant = computed(() => tenants.value.length === 1)
 const showTenantSelector = computed(() => tenants.value.length > 1)
-const activeMainId = computed(() => singleTenant.value ? tenants.value[0].mainId : selectedMainId.value)
+const activeMainId = computed(() => singleTenant.value ? tenants.value[0].tenantId : selectedMainId.value)
 
 async function loadTenants() {
   tenantsLoaded.value = false
@@ -48,16 +48,16 @@ async function loadTenants() {
   }
   tenantsLoaded.value = true
   if (singleTenant.value) {
-    selectedMainId.value = tenants.value[0].mainId
+    selectedMainId.value = tenants.value[0].tenantId
   }
 }
 
-async function loadDepartments(mainId: string) {
+async function loadDepartments(tenantId: string) {
   departmentsLoaded.value = false
   selectedDepartmentId.value = ''
   departments.value = []
-  if (!mainId) return
-  const result = await listRegisterableDepartments(mainId)
+  if (!tenantId) return
+  const result = await listRegisterableDepartments(tenantId)
   if (result.ok && result.departments) {
     departments.value = result.departments
   }
@@ -67,8 +67,8 @@ async function loadDepartments(mainId: string) {
 onMounted(loadTenants)
 
 // Reload departments whenever the effective tenant changes.
-watch(activeMainId, (mainId) => {
-  if (mainId) loadDepartments(mainId)
+watch(activeMainId, (tenantId) => {
+  if (tenantId) loadDepartments(tenantId)
 })
 
 function resetError() {
@@ -106,9 +106,9 @@ async function submit() {
   if (!validate()) return
 
   isSubmitting.value = true
-  const mainId = activeMainId.value
+  const tenantId = activeMainId.value
   const result = await register(
-    mainId,
+    tenantId,
     email.value.trim().toLowerCase(),
     password.value,
     nickname.value.trim(),
@@ -143,7 +143,7 @@ async function submit() {
         @change="resetError"
       >
         <option value="" disabled>{{ t('login.register_org_placeholder') }}</option>
-        <option v-for="tenant in tenants" :key="tenant.mainId" :value="tenant.mainId">
+        <option v-for="tenant in tenants" :key="tenant.tenantId" :value="tenant.tenantId">
           {{ tenant.orgName }}
         </option>
       </select>

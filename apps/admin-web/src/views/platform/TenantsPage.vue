@@ -43,10 +43,10 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="tenant in tenants" :key="tenant.mainId">
+            <tr v-for="tenant in tenants" :key="tenant.tenantId">
               <td>
                 <div class="tenant-name">{{ tenant.name }}</div>
-                <div class="tenant-id">{{ tenant.mainId }}</div>
+                <div class="tenant-id">{{ tenant.tenantId }}</div>
               </td>
               <td>
                 <n-tag :type="statusTagType(tenant.status)" size="small" round>{{ statusLabel(tenant.status) }}</n-tag>
@@ -176,7 +176,7 @@
     >
       <n-descriptions v-if="detailTenant" :column="1" label-placement="left" bordered size="small">
         <n-descriptions-item :label="t('租户名')">{{ detailTenant.name }}</n-descriptions-item>
-        <n-descriptions-item :label="t('租户标识')">{{ detailTenant.mainId }}</n-descriptions-item>
+        <n-descriptions-item :label="t('租户标识')">{{ detailTenant.tenantId }}</n-descriptions-item>
         <n-descriptions-item :label="t('状态')">
           <n-tag :type="statusTagType(detailTenant.status)" size="small" round>{{ statusLabel(detailTenant.status) }}</n-tag>
         </n-descriptions-item>
@@ -432,7 +432,7 @@ async function submitEdit() {
   if (!target) return;
   editing.value = true;
   try {
-    await updateTenant(target.mainId, {
+    await updateTenant(target.tenantId, {
       name: editForm.name.trim() || target.name,
       status: editForm.status,
       memberLimit: editForm.memberLimit === null ? 'null' : editForm.memberLimit,
@@ -464,7 +464,7 @@ async function submitArchive() {
   if (!target) return;
   archiving.value = true;
   try {
-    await archiveTenant(target.mainId, archiveReason.value.trim());
+    await archiveTenant(target.tenantId, archiveReason.value.trim());
     archiveVisible.value = false;
     message.success(t('已归档，可随时恢复'));
     await loadTenants();
@@ -485,7 +485,7 @@ async function submitRestore() {
   if (!target) return;
   restoring.value = true;
   try {
-    await restoreTenant(target.mainId);
+    await restoreTenant(target.tenantId);
     restoreVisible.value = false;
     message.success(t('已恢复'));
     await loadTenants();
@@ -523,13 +523,13 @@ async function submitPurge() {
   }
   purging.value = true;
   try {
-    await purgeTenant(target.mainId, purgeConfirmName.value);
+    await purgeTenant(target.tenantId, purgeConfirmName.value);
     purgeVisible.value = false;
     message.success(t('清理任务已开始'));
     purgeStatus.value = 'running';
     progress.value = { status: 'running' };
     progressVisible.value = true;
-    pollPurgeStatus(target.mainId);
+    pollPurgeStatus(target.tenantId);
     await loadTenants();
   } catch (error) {
     message.error(parseError(error, t('清理失败')));
@@ -538,15 +538,15 @@ async function submitPurge() {
   }
 }
 
-function pollPurgeStatus(mainId: string) {
+function pollPurgeStatus(tenantId: string) {
   if (progressTimer) clearTimeout(progressTimer);
   progressTimer = setTimeout(async () => {
     try {
-      const result = await fetchPurgeStatus(mainId);
+      const result = await fetchPurgeStatus(tenantId);
       progress.value = result;
       purgeStatus.value = result.status;
       if (result.status === 'running') {
-        pollPurgeStatus(mainId);
+        pollPurgeStatus(tenantId);
       } else {
         await loadTenants();
       }
@@ -606,7 +606,7 @@ async function submitReset() {
   }
   resetting.value = true;
   try {
-    await resetTenantAdminPassword(target.mainId, resetPassword.value);
+    await resetTenantAdminPassword(target.tenantId, resetPassword.value);
     resetVisible.value = false;
     message.success(t('密码已重置'));
   } catch (error) {

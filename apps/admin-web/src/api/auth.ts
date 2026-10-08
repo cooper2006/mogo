@@ -4,11 +4,11 @@ import type { AdminProfile } from '@/stores/auth';
 interface LoginPayload {
   username: string;
   password: string;
-  mainId?: string;
+  tenantId?: string;
 }
 
 export interface TenantCandidate {
-  mainId: string;
+  tenantId: string;
   orgName: string;
   roleName: string;
   displayName: string;
@@ -33,7 +33,7 @@ export async function login(payload: LoginPayload) {
   return data;
 }
 
-export async function selectTenantLogin(payload: { challengeToken: string; mainId: string }) {
+export async function selectTenantLogin(payload: { challengeToken: string; tenantId: string }) {
   const { data } = await apiClient.post<LoginResponse>('/api/auth/login/select-tenant', payload);
   return data;
 }

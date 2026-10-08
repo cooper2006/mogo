@@ -31,7 +31,7 @@ export interface SkillInstallResult {
 
 export interface SkillItem {
   id: string;
-  mainId: string;
+  tenantId: string;
   name: string;
   description: string;
   scenario: string;

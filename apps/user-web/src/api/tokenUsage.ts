@@ -23,7 +23,7 @@ export type TokenUsageSummary = {
 export type TokenUsageItem = {
   request_id: string
   user_request_id?: string
-  main_id: string
+  tenant_id: string
   user_id: string
   session_id: string
   trace_id: string
@@ -61,7 +61,7 @@ export type TokenUsagePage = {
 export async function listTokenUsage(
   userId: string,
   options: {
-    mainId?: string
+    tenantId?: string
     limit?: number
     offset?: number
     q?: string
@@ -75,7 +75,7 @@ export async function listTokenUsage(
     limit: String(options.limit ?? 12),
     offset: String(options.offset ?? 0),
   })
-  if (options.mainId) query.set('mainId', options.mainId)
+  if (options.tenantId) query.set('tenantId', options.tenantId)
   if (options.q) query.set('q', options.q)
   if (options.stage) query.set('stage', options.stage)
   if (options.status) query.set('status', options.status)

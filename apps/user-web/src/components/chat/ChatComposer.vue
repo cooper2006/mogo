@@ -23,7 +23,7 @@ const props = defineProps<{
   modelLoadError?: string
   docIcon: (type: string) => string
   userId?: string
-  mainId?: string
+  tenantId?: string
   allowKnowledge?: boolean
   allowSkills?: boolean
 }>()
@@ -283,7 +283,7 @@ async function loadSelectableSkills(reset = false) {
   try {
     const page = await fetchSelectableSkills({
       userId: props.userId,
-      mainId: props.mainId || 'default',
+      tenantId: props.tenantId || 'default',
       scope: skillPickerScope.value,
       keyword: skillPickerKeyword.value,
       cursor: reset ? '' : skillPickerCursor.value,
@@ -487,7 +487,7 @@ async function selectShortcutSkill(skillId: string, label: string): Promise<bool
   if (!props.userId || props.allowSkills === false || props.running) return false
   const page = await fetchSelectableSkills({
     userId: props.userId,
-    mainId: props.mainId || 'default',
+    tenantId: props.tenantId || 'default',
     keyword: label,
     limit: 50,
   })

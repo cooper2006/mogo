@@ -68,7 +68,7 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
     # Phase 1: accept both ``mainId`` (legacy) and ``tenantId`` (canonical).
     tenant_id: str = Field(default="", max_length=64, alias="tenantId")
-    tenantId: str = Field(default="", max_length=64, alias="mainId")
+    tenantId: str = Field(default="", max_length=64, alias="tenantId")
 
     model_config = {"populate_by_name": True}
 
@@ -79,7 +79,7 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    tenantId: str = Field(min_length=1, max_length=64, alias="mainId")
+    tenantId: str = Field(min_length=1, max_length=64, alias="tenantId")
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=128)
     nickname: str = Field(default="", max_length=64)
@@ -95,7 +95,7 @@ class RegisterRequest(BaseModel):
 class SelectTenantRequest(BaseModel):
     challengeToken: str = Field(min_length=8, max_length=256)
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    tenantId: str = Field(min_length=1, max_length=64, alias="mainId")
+    tenantId: str = Field(min_length=1, max_length=64, alias="tenantId")
 
     model_config = {"populate_by_name": True}
 
@@ -106,7 +106,7 @@ class SelectTenantRequest(BaseModel):
 
 class SwitchTenantRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    tenantId: str = Field(min_length=1, max_length=64, alias="mainId")
+    tenantId: str = Field(min_length=1, max_length=64, alias="tenantId")
 
     model_config = {"populate_by_name": True}
 

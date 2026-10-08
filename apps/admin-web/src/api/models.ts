@@ -35,7 +35,7 @@ export interface ModelProviderItem {
 
 export interface ModelInstanceItem {
   id: string;
-  mainId: string;
+  tenantId: string;
   providerId: string;
   providerName: string;
   providerCode: string;

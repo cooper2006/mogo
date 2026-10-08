@@ -39,7 +39,7 @@ import {
 } from '../../api/recording'
 
 const emit = defineEmits<{ (event: 'close'): void }>()
-const props = defineProps<{ sessionId?: string; userId?: string; mainId?: string; showPanelClose?: boolean }>()
+const props = defineProps<{ sessionId?: string; userId?: string; tenantId?: string; showPanelClose?: boolean }>()
 const surface = ref<HTMLElement | null>(null)
 const state = useEmbeddedBrowserState()
 const { locale } = useLocale()
@@ -123,7 +123,7 @@ async function persistRecording() {
   try {
     const result = await saveRecordingToCache({
       user_id: props.userId,
-      main_id: props.mainId || 'default',
+      tenant_id: props.tenantId || 'default',
       recording_id: recordingId.value,
       operation: analysis.operation,
       display_name: analysis.display_name,

@@ -56,7 +56,7 @@ const form = reactive({
 async function handleLogin() {
   loading.value = true;
   try {
-    const result = await login({ ...form, mainId: PLATFORM_MAIN_ID });
+    const result = await login({ ...form, tenantId: PLATFORM_MAIN_ID });
     if ('requiresTenantSelection' in result && result.requiresTenantSelection) {
       message.error(t('平台管理员登录失败'));
       return;

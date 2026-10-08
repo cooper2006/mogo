@@ -3,7 +3,7 @@ import { fetchReceivedSkillShareCounts } from '../api/skillSharing'
 
 interface SkillShareInboxScope {
   token: string
-  mainId: string
+  tenantId: string
   userId: string
   enabled: boolean
 }
@@ -24,7 +24,7 @@ export function useSkillShareInboxBadge(options: SkillShareInboxBadgeOptions) {
 
   const isAvailable = () => {
     const value = options.scope.value
-    return Boolean(value.enabled && value.token && value.mainId && value.userId)
+    return Boolean(value.enabled && value.token && value.tenantId && value.userId)
   }
 
   const refresh = (): Promise<void> => {
@@ -59,7 +59,7 @@ export function useSkillShareInboxBadge(options: SkillShareInboxBadgeOptions) {
   watch(
     () => {
       const value = options.scope.value
-      return [value.token, value.mainId, value.userId, value.enabled] as const
+      return [value.token, value.tenantId, value.userId, value.enabled] as const
     },
     () => {
       requestVersion += 1

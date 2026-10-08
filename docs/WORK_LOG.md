@@ -6965,3 +6965,33 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **修改文件**：约 199 个 py 文件（chat-api / admin-api / document-parser），主要含 `core/tenant.py`、`core/tenant_field.py`(DEPRECATED)、`api/endpoints/{auth,sessions,a2a}.py`、`services/end_user_tenant_access.py`、`memory/lifecycle.py`、`llm/configured_models.py`、`document-parser/services/vector_store.py`、`admin-api/repositories/*`、`admin-api/position_roles/repository.py` 等。
 
 **最终状态**：Phase 3 全部完成——`main_id` 已从代码与数据库彻底退役，`tenant_id` 为唯一租户主键；本地栈 admin-api/chat-api/document-api 均跑 `tenant-phase3b` 镜像（待 commit/push）。
+
+---
+
+## 2026-10-08 修复 memory decay sweep 既有 bug + 清理前端参数别名
+
+**背景**：Phase 3b 收尾时报告两项遗留，用户要求一并处理。
+
+### 1. 修复 `memory/lifecycle.py` 的 async cursor bug（既有缺陷）
+
+**根因**：`_is_motor_collection()` 用 `inspect.iscoroutinefunction(collection.find)` 判定，但 Motor 通过 `__getattr__` 动态生成方法，`find`/`delete_many`/`bulk_write` **全都不是** coroutine function → 误判为同步集合 → 走进 `list(collection.find(...))` 分支 → `TypeError: 'AsyncIOMotorCursor' object is not iterable`，后台 memory decay sweep 每次必失败（Phase 3a 版本同样存在）。
+
+**修复**：判定改用可靠的类型信号——`type(collection).__module__.startswith("motor")`（实测为 `motor.motor_asyncio`），辅以 `delete_many`/`bulk_write` 的 coroutine 检测，同步 fake 集合不受影响。`_motor_sweep` 实现本就完整，判定修好后链路即通。
+
+**验证**（容器内真实 Motor 环境）：`_is_motor_collection(motor coll)=True`、`(fake sync coll)=False`；`clean_decayed_memories(db=...)` 返回 `_pending` 且可 `await`，结果 `{'removed':0,'archived':0,'cleanup':'archive'}`；容器日志 `memory decay sweep failed` 计数 **0**。本地逻辑单测亦通过。
+
+### 2. 清理前端参数别名（前后端联动，彻底统一）
+
+**范围**：后端 59 处别名 + 前端 226 处（user-web 174 / admin-web 52）。
+
+**后端**（6 文件）：`AliasChoices("main_id","mainId")` → `AliasChoices("tenantId","tenant_id")`；`alias="mainId"` → `alias="tenantId"`；删除冗余的 `main_id_snake` snake_case 接收器参数（11 处参数定义与 11 处消费语句）并简化 `main_id_snake or tenant_id` → `tenant_id`；`claimed_main_id` 参数名统一为 `claimed_tenant_id`。
+
+**core/tenant.py**：新增规范名 `resolve_tenant_id` / `tenant_scope_filter` / `add_tenant_scope` / `DEFAULT_TENANT_ID`；历史名 `resolve_main_id` / `main_scope_filter` / `add_main_scope` / `DEFAULT_MAIN_ID` 保留为**兼容别名**（约 180 处调用点无需改动，行为完全一致）。
+
+**前端**（40 文件）：标识符 `mainId→tenantId`、`mainIds→tenantIds`、`getMainId→getTenantId`、`main_id→tenant_id`（约 250 处）；Vue 模板 kebab-case 属性 `:main-id` → `:tenant-id`（6 处）。
+
+**验证**：user-web `vue-tsc --noEmit` **0 错误**、`vite build` 成功；admin-web 同样 0 错误、构建成功；后端参数契约实测 `?tenantId=` → `code=0` 返回 3 个部门，`?mainId=` → `code=400`（旧名已不识别）；注册 body 用 `mainId` → 422（正确拒绝）；前端页面 `user-web`/`admin-web` HTTP 200；端到端注册+登录 200，文档键仅 `['tenant_id']`。
+
+**修改文件**：`services/chat-api/app/memory/lifecycle.py`、`core/tenant.py`、`api/endpoints/{auth,sessions,skills,site_profiles}.py`；`apps/user-web/src/**`、`apps/admin-web/src/**`（各约 40 文件）。
+
+**最终状态**：两项遗留均已关闭；5 个服务镜像统一为 `tenant-final` 并部署，11 容器 healthy（待 commit/push）。

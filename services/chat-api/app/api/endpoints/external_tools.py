@@ -60,7 +60,7 @@ async def _require_tool_access(tenant_id: str, user_id: str, tool_id: str | None
 @router.get("/external-tools/my", response_model=ApiResponse)
 async def list_user_external_tools(
     user_id: str = Query("", alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
     data = await external_tool_service.list(tenant_id, scope="user", owner_user_id=uid)
@@ -73,7 +73,7 @@ async def list_user_external_tools(
 async def create_user_external_tool(
     payload: ToolPayload,
     user_id: str = Query("", alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
     policy = await _require_tool_access(tenant_id, uid)
@@ -90,7 +90,7 @@ async def create_user_external_tool(
 async def get_user_external_tool(
     tool_id: str,
     user_id: str = Query("", alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
     await _require_tool_access(tenant_id, uid, tool_id)
@@ -105,7 +105,7 @@ async def update_user_external_tool(
     tool_id: str,
     payload: ToolPayload,
     user_id: str = Query("", alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
     await _require_tool_access(tenant_id, uid, tool_id)
@@ -123,7 +123,7 @@ async def patch_user_external_tool(
     tool_id: str,
     payload: dict[str, Any],
     user_id: str = Query("", alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
     await _require_tool_access(tenant_id, uid, tool_id)
@@ -140,7 +140,7 @@ async def patch_user_external_tool(
 async def delete_user_external_tool(
     tool_id: str,
     user_id: str = Query("", alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
     await _require_tool_access(tenant_id, uid, tool_id)
@@ -151,13 +151,13 @@ async def delete_user_external_tool(
 
 
 @router.get("/external-tools/registry", response_model=ApiResponse)
-async def list_external_tool_registry(tenant_id: str = Query("default", alias="mainId")) -> ApiResponse:
+async def list_external_tool_registry(tenant_id: str = Query("default", alias="tenantId")) -> ApiResponse:
     data = await external_tool_registry.list_enabled_descriptors(tenant_id)
     return ApiResponse(data=data)
 
 
 @router.post("/external-tools/{tool_id}/test", response_model=ApiResponse)
-async def test_external_tool(tool_id: str, payload: ToolTestPayload, tenant_id: str = Query("default", alias="mainId")) -> ApiResponse:
+async def test_external_tool(tool_id: str, payload: ToolTestPayload, tenant_id: str = Query("default", alias="tenantId")) -> ApiResponse:
     try:
         data = await external_tool_service.test(tool_id, payload.input, tenant_id)
     except ValueError as exc:
@@ -170,7 +170,7 @@ async def test_user_external_tool(
     tool_id: str,
     payload: ToolTestPayload,
     user_id: str = Query("", alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
     await _require_tool_access(tenant_id, uid, tool_id)
@@ -179,13 +179,13 @@ async def test_user_external_tool(
 
 
 @router.post("/external-tools/test-draft", response_model=ApiResponse)
-async def test_draft_external_tool(payload: ToolDraftTestPayload, tenant_id: str = Query("default", alias="mainId")) -> ApiResponse:
+async def test_draft_external_tool(payload: ToolDraftTestPayload, tenant_id: str = Query("default", alias="tenantId")) -> ApiResponse:
     data = await external_tool_service.test_draft(payload.tool, payload.input, tenant_id)
     return ApiResponse(data=data)
 
 
 @router.post("/external-tools/{tool_id}/discover", response_model=ApiResponse)
-async def discover_mcp_tools(tool_id: str, tenant_id: str = Query("default", alias="mainId")) -> ApiResponse:
+async def discover_mcp_tools(tool_id: str, tenant_id: str = Query("default", alias="tenantId")) -> ApiResponse:
     try:
         data = await external_tool_service.discover_mcp_tools(tool_id, tenant_id)
     except ValueError as exc:
@@ -197,7 +197,7 @@ async def discover_mcp_tools(tool_id: str, tenant_id: str = Query("default", ali
 async def discover_user_mcp_tools(
     tool_id: str,
     user_id: str = Query("", alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
     await _require_tool_access(tenant_id, uid, tool_id)
@@ -211,7 +211,7 @@ async def discover_user_mcp_tools(
 @router.post("/external-tools/generate-description", response_model=ApiResponse)
 async def generate_external_tool_description(
     payload: ToolDescriptionGeneratePayload,
-    tenant_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
     try:
         data = await external_tool_service.generate_description(

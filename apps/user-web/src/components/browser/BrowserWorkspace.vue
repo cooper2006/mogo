@@ -15,7 +15,7 @@ const props = defineProps<{
   open: boolean
   sessionId?: string
   userId?: string
-  mainId?: string
+  tenantId?: string
   enabled?: boolean
   tabs?: DesktopToolTab[]
   activeTool?: string | null
@@ -110,7 +110,7 @@ function closeMiniView() {
         <ElectronBrowserSurface
           :session-id="sessionId"
           :user-id="userId"
-          :main-id="mainId"
+          :tenant-id="tenantId"
           :show-panel-close="false"
         />
       </aside>

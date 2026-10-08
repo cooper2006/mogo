@@ -6,7 +6,7 @@ interface SetupState {
   loading: boolean;
   completed: boolean;
   orgName: string;
-  mainId: string;
+  tenantId: string;
   initializedAt: string;
   ready: boolean;
   platformAdminMissing: boolean;
@@ -18,7 +18,7 @@ function toState(status: SetupStatus): Omit<SetupState, 'checked' | 'loading'> {
   return {
     completed: Boolean(status.completed),
     orgName: status.orgName || '',
-    mainId: status.mainId || '',
+    tenantId: status.tenantId || '',
     initializedAt: status.initializedAt || '',
     ready: Boolean(status.ready),
     platformAdminMissing: Boolean(status.platformAdminMissing),
@@ -33,7 +33,7 @@ export const useSetupStore = defineStore('setup', {
     loading: false,
     completed: false,
     orgName: '',
-    mainId: '',
+    tenantId: '',
     initializedAt: '',
     ready: false,
     platformAdminMissing: false,

@@ -23,7 +23,7 @@ export type AuthResult = {
 }
 
 export type TenantCandidate = {
-  mainId: string
+  tenantId: string
   orgName: string
   spaceType?: 'personal' | 'enterprise'
   userId: string
@@ -42,7 +42,7 @@ export type UserProfile = {
   phone?: string
   email?: string
   avatar?: string
-  mainId?: string
+  tenantId?: string
   orgName?: string
   spaceType?: 'personal' | 'enterprise'
   canAccessAdmin?: boolean
@@ -77,10 +77,10 @@ export type AgentPolicySnapshot = {
 export async function loginWithPassword(
   username: string,
   password: string,
-  mainId = ''
+  tenantId = ''
 ): Promise<AuthResult> {
   try {
-    const response = await client.post('/auth/login', { username, password, mainId })
+    const response = await client.post('/auth/login', { username, password, tenantId })
     const payload = response.data
     if (payload?.data?.requiresTenantSelection) {
       return {
@@ -103,9 +103,9 @@ export async function loginWithPassword(
   }
 }
 
-export async function selectTenantAndLogin(challengeToken: string, mainId: string): Promise<AuthResult> {
+export async function selectTenantAndLogin(challengeToken: string, tenantId: string): Promise<AuthResult> {
   try {
-    const response = await client.post('/auth/login/select-tenant', { challengeToken, mainId })
+    const response = await client.post('/auth/login/select-tenant', { challengeToken, tenantId })
     const payload = response.data
     if (!isOk(payload)) {
       return { ok: false, message: payload?.message || t('api.auth.login_failed') }
@@ -120,7 +120,7 @@ export async function selectTenantAndLogin(challengeToken: string, mainId: strin
 }
 
 export type RegisterableTenant = {
-  mainId: string
+  tenantId: string
   orgName: string
 }
 
@@ -146,10 +146,10 @@ export async function listRegisterableTenants(): Promise<{ ok: boolean; tenants?
 }
 
 export async function listRegisterableDepartments(
-  mainId: string,
+  tenantId: string,
 ): Promise<{ ok: boolean; departments?: RegisterableDepartment[]; message?: string }> {
   try {
-    const response = await client.get('/auth/registerable-departments', { params: { mainId } })
+    const response = await client.get('/auth/registerable-departments', { params: { tenantId } })
     const payload = response.data
     if (!isOk(payload)) {
       return { ok: false, message: payload?.message || t('api.auth.login_failed') }
@@ -161,14 +161,14 @@ export async function listRegisterableDepartments(
 }
 
 export async function register(
-  mainId: string,
+  tenantId: string,
   email: string,
   password: string,
   nickname = '',
   departmentId = '',
 ): Promise<AuthResult> {
   try {
-    const response = await client.post('/auth/register', { mainId, email, password, nickname, departmentId })
+    const response = await client.post('/auth/register', { tenantId, email, password, nickname, departmentId })
     const payload = response.data
     if (!isOk(payload)) {
       return { ok: false, message: payload?.message || t('api.auth.register_failed') }
@@ -182,11 +182,11 @@ export async function register(
   }
 }
 
-export async function switchTenant(token: string, mainId: string): Promise<AuthResult> {
+export async function switchTenant(token: string, tenantId: string): Promise<AuthResult> {
   try {
     const response = await client.post(
       '/auth/switch-tenant',
-      { mainId },
+      { tenantId },
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -227,7 +227,7 @@ export async function fetchUserProfile(token: string): Promise<{ ok: boolean; da
         phone: data.phone || '',
         email: data.email || '',
         avatar: data.avatar || '',
-        mainId: data.mainId || 'default',
+        tenantId: data.tenantId || 'default',
         orgName: data.orgName || '',
         spaceType: data.spaceType === 'personal' ? 'personal' : 'enterprise',
         canAccessAdmin: data.canAccessAdmin === true,

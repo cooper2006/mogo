@@ -10,7 +10,7 @@ import { formatQuotaUsagePercent, formatTokenAmount, quotaUsagePercent } from '.
 
 const props = defineProps<{
   userId?: string | null
-  mainId?: string | null
+  tenantId?: string | null
   token?: string
 }>()
 
@@ -72,7 +72,7 @@ async function loadPage(nextOffset = 0) {
   loading.value = true
   try {
     const page = await listTokenUsage(props.userId, {
-      mainId: props.mainId || undefined,
+      tenantId: props.tenantId || undefined,
       limit,
       offset: nextOffset,
       q: query.value.trim(),
@@ -151,7 +151,7 @@ watch([query, status], () => {
 })
 
 watch(
-  () => [props.userId, props.mainId, props.token],
+  () => [props.userId, props.tenantId, props.token],
   () => {
     if (props.userId && props.token) {
       loadPage(0).catch(() => {})

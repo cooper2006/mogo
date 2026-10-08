@@ -19,7 +19,7 @@ export interface TokenStatsSummary {
 export interface TokenStatsItem {
   requestId: string;
   userRequestId?: string;
-  mainId: string;
+  tenantId: string;
   mainName: string;
   userName: string;
   departmentName: string;

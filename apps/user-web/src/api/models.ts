@@ -17,12 +17,12 @@ export interface ChatModelOption {
   healthStatus: string
 }
 
-export async function fetchChatModels(mainId = 'default'): Promise<ChatModelOption[]> {
-  const response = await client.get('/api/models/available', { params: { main_id: mainId, capability: 'chat' } })
+export async function fetchChatModels(tenantId = 'default'): Promise<ChatModelOption[]> {
+  const response = await client.get('/api/models/available', { params: { tenant_id: tenantId, capability: 'chat' } })
   return Array.isArray(response.data) ? response.data : response.data?.data || []
 }
 
-export async function fetchImageModels(mainId = 'default'): Promise<ChatModelOption[]> {
-  const response = await client.get('/api/models/images/available', { params: { main_id: mainId } })
+export async function fetchImageModels(tenantId = 'default'): Promise<ChatModelOption[]> {
+  const response = await client.get('/api/models/images/available', { params: { tenant_id: tenantId } })
   return Array.isArray(response.data) ? response.data : response.data?.data || []
 }

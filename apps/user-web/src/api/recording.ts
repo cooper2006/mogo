@@ -77,7 +77,7 @@ export async function saveRecordingToCache(payload: {
   operation: string
   display_name: string
   capability_id: string
-  main_id?: string
+  tenant_id?: string
   included_sequences?: number[]
   variable_names?: Record<number, string>
 }) {

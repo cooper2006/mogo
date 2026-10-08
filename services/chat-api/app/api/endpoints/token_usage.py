@@ -21,7 +21,7 @@ class ApiResponse(BaseModel):
 @router.get("/token-usage", response_model=ApiResponse)
 async def list_token_usage(
     user_id: str = Query("", alias="userId"),
-    tenant_id: Optional[str] = Query(None, alias="mainId"),
+    tenant_id: Optional[str] = Query(None, alias="tenantId"),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     q: str = Query(""),

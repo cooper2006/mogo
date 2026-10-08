@@ -139,7 +139,7 @@
         <SharedWithMePanel
           v-else
           :active="activeView === 'shared'"
-          :scope-key="`${mainId}:${userId || ''}`"
+          :scope-key="`${tenantId}:${userId || ''}`"
           @count-change="handlePendingShareCount"
           @installed="handleReceivedInstalled"
         />
@@ -276,7 +276,7 @@ import { openSkillZipInstaller } from '../composables/skillZipInstallBridge';
 
 const props = defineProps<{
   userId: string | null
-  mainId: string
+  tenantId: string
   pendingShareCount: number
   pendingFeedbackCount: number
 }>();
@@ -485,7 +485,7 @@ async function loadRows(options: { silent?: boolean } = {}) {
   }
   if (!options.silent) loading.value = true;
   try {
-    const data = await fetchSkills(props.userId, props.mainId);
+    const data = await fetchSkills(props.userId, props.tenantId);
     rows.value = data.sort((a, b) => {
       const timeA = parseAppDate(a.createdAt || (a as any).created_at)?.getTime() || 0;
       const timeB = parseAppDate(b.createdAt || (b as any).created_at)?.getTime() || 0;
@@ -510,7 +510,7 @@ async function submitCreate() {
   }
   creating.value = true;
   try {
-    await createSkill(props.userId, props.mainId, createForm.value);
+    await createSkill(props.userId, props.tenantId, createForm.value);
     message.success(t('skills.msg_create_disabled_success'));
     createVisible.value = false;
     await loadRows();
@@ -526,7 +526,7 @@ async function submitEdit() {
   if (!editForm.value.id || !props.userId) return;
   updating.value = true;
   try {
-    await updateSkill(editForm.value.id, props.userId, props.mainId, {
+    await updateSkill(editForm.value.id, props.userId, props.tenantId, {
       name: editForm.value.name,
       description: editForm.value.description,
       scenario: editForm.value.scenario,
@@ -548,7 +548,7 @@ async function confirmDelete() {
   if (!pendingDeleteRow.value || !props.userId) return false;
   deleting.value = true;
   try {
-    await deleteSkill(pendingDeleteRow.value.id, props.userId, props.mainId);
+    await deleteSkill(pendingDeleteRow.value.id, props.userId, props.tenantId);
     message.success(t('skills.msg_delete_success'));
     deleteConfirmVisible.value = false;
     pendingDeleteRow.value = null;
@@ -570,7 +570,7 @@ async function toggleEnabled(row: SkillItem, enabled: boolean) {
   }
   switchingById.value = { ...switchingById.value, [row.id]: true };
   try {
-    const updated = await setSkillEnabled(row.id, props.userId, props.mainId, enabled);
+    const updated = await setSkillEnabled(row.id, props.userId, props.tenantId, enabled);
     rows.value = rows.value.map((item) => (item.id === row.id ? updated : item));
     message.success(enabled ? t('skills.msg_enabled_success') : t('skills.msg_disabled_success'));
   } catch (error: any) {
@@ -590,7 +590,7 @@ function handleEnabledUpdate(row: SkillItem, value: boolean) {
 }
 
 onMounted(loadRows);
-watch(() => [props.userId, props.mainId], () => {
+watch(() => [props.userId, props.tenantId], () => {
   void loadRows();
 });
 watch(() => props.pendingFeedbackCount, (next, previous) => {

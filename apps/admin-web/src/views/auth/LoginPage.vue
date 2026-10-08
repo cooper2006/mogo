@@ -39,7 +39,7 @@
       <div class="tenant-list">
         <button
           v-for="candidate in tenantCandidates"
-          :key="candidate.mainId"
+          :key="candidate.tenantId"
           class="tenant-option"
           type="button"
           :disabled="selectingTenant"
@@ -111,7 +111,7 @@ async function handleTenantSelect(candidate: TenantCandidate) {
   try {
     const result = await selectTenantLogin({
       challengeToken: challengeToken.value,
-      mainId: candidate.mainId,
+      tenantId: candidate.tenantId,
     });
     authStore.login(result);
     message.success(t('已进入 {org}', { org: candidate.orgName || t('企业') }));

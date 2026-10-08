@@ -6,7 +6,7 @@ export type TestStatus = 'untested' | 'passed' | 'failed';
 
 export interface ExternalToolItem {
   id: string;
-  mainId: string;
+  tenantId: string;
   name: string;
   type: ToolType;
   description: string;

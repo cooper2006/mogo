@@ -5,7 +5,7 @@ export type KnowledgeProcessStatus = 'not_started' | 'queued' | 'running' | 'suc
 
 export interface KnowledgeDocumentItem {
   id: string;
-  mainId: string;
+  tenantId: string;
   directoryId?: string;
   knowledgeBaseId: string;
   name: string;

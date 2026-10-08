@@ -7,7 +7,7 @@ export type TenantStatus = 'active' | 'disabled' | 'archived' | 'purged';
  * business metrics (decision 7) — the backend strips them in `tenant_view`.
  */
 export interface PlatformTenant {
-  mainId: string;
+  tenantId: string;
   name: string;
   status: TenantStatus;
   edition: string;
@@ -59,7 +59,7 @@ export interface TenantCreatePayload {
  * (no aliases are configured), unlike the lifecycle views which are camelCase.
  */
 export interface TenantCreateResult {
-  main_id: string;
+  tenant_id: string;
   org_name: string;
   model_instance_id?: string | null;
   additional_model_instance_ids?: string[];
@@ -104,7 +104,7 @@ export interface SystemHealthService {
 export interface PlatformProfile {
   username: string;
   displayName: string;
-  mainId: string;
+  tenantId: string;
 }
 
 export async function fetchTenants(query: TenantListQuery = {}) {
@@ -117,8 +117,8 @@ export async function fetchTenants(query: TenantListQuery = {}) {
   return data;
 }
 
-export async function fetchTenant(mainId: string) {
-  const { data } = await apiClient.get<PlatformTenant>(`/api/platform/tenants/${encodeURIComponent(mainId)}`);
+export async function fetchTenant(tenantId: string) {
+  const { data } = await apiClient.get<PlatformTenant>(`/api/platform/tenants/${encodeURIComponent(tenantId)}`);
   return data;
 }
 
@@ -129,48 +129,48 @@ export async function createTenant(payload: TenantCreatePayload) {
   return data;
 }
 
-export async function updateTenant(mainId: string, payload: TenantUpdatePayload) {
+export async function updateTenant(tenantId: string, payload: TenantUpdatePayload) {
   const { data } = await apiClient.patch<PlatformTenant>(
-    `/api/platform/tenants/${encodeURIComponent(mainId)}`,
+    `/api/platform/tenants/${encodeURIComponent(tenantId)}`,
     payload,
   );
   return data;
 }
 
-export async function resetTenantAdminPassword(mainId: string, newPassword: string) {
+export async function resetTenantAdminPassword(tenantId: string, newPassword: string) {
   const { data } = await apiClient.post<{ success: boolean }>(
-    `/api/platform/tenants/${encodeURIComponent(mainId)}/admin/reset-password`,
+    `/api/platform/tenants/${encodeURIComponent(tenantId)}/admin/reset-password`,
     { newPassword },
   );
   return data;
 }
 
-export async function archiveTenant(mainId: string, reason: string) {
+export async function archiveTenant(tenantId: string, reason: string) {
   const { data } = await apiClient.delete<{ status: string; archivedAt: string }>(
-    `/api/platform/tenants/${encodeURIComponent(mainId)}`,
+    `/api/platform/tenants/${encodeURIComponent(tenantId)}`,
     { data: { reason } },
   );
   return data;
 }
 
-export async function restoreTenant(mainId: string) {
+export async function restoreTenant(tenantId: string) {
   const { data } = await apiClient.post<PlatformTenant>(
-    `/api/platform/tenants/${encodeURIComponent(mainId)}/restore`,
+    `/api/platform/tenants/${encodeURIComponent(tenantId)}/restore`,
   );
   return data;
 }
 
-export async function purgeTenant(mainId: string, confirmName: string) {
+export async function purgeTenant(tenantId: string, confirmName: string) {
   const { data } = await apiClient.post<PurgeStartResult>(
-    `/api/platform/tenants/${encodeURIComponent(mainId)}/purge`,
+    `/api/platform/tenants/${encodeURIComponent(tenantId)}/purge`,
     { confirmName },
   );
   return data;
 }
 
-export async function fetchPurgeStatus(mainId: string) {
+export async function fetchPurgeStatus(tenantId: string) {
   const { data } = await apiClient.get<PurgeProgress>(
-    `/api/platform/tenants/${encodeURIComponent(mainId)}/purge-status`,
+    `/api/platform/tenants/${encodeURIComponent(tenantId)}/purge-status`,
   );
   return data;
 }

@@ -4,7 +4,7 @@ import type { SearchProviderId } from '@/components/search-provider/providerGuid
 export interface SetupStatus {
   completed: boolean;
   orgName: string;
-  mainId: string;
+  tenantId: string;
   initializedAt: string;
   ready: boolean;
   platformAdminMissing: boolean;
@@ -35,7 +35,7 @@ export interface SetupPlatformAdminPayload {
 
 export interface SetupPlatformAdminResult {
   completed: boolean;
-  mainId: string;
+  tenantId: string;
   username: string;
 }
 

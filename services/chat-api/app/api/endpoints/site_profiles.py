@@ -19,7 +19,7 @@ class ApiResponse(BaseModel):
 
 class SiteProfileCreateRequest(BaseModel):
     user_id: str = Field(..., description="Owner user id")
-    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     name: str = Field(..., max_length=160)
     domain: Optional[str] = Field(default="", description="Bare host, e.g. oa.acme.com")
     entry_url: Optional[str] = Field(default="", description="Full login / landing URL")
@@ -30,7 +30,7 @@ class SiteProfileCreateRequest(BaseModel):
 
 class SiteProfileUpdateRequest(BaseModel):
     user_id: str = Field(..., description="Owner user id")
-    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     name: Optional[str] = Field(None, max_length=160)
     domain: Optional[str] = None
     entry_url: Optional[str] = None
@@ -42,8 +42,7 @@ class SiteProfileUpdateRequest(BaseModel):
 @router.get("/site-profiles", response_model=ApiResponse)
 async def list_site_profiles(
     user_id: str = Query(..., alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> ApiResponse:
     data = await site_profile_service.list_for_user(principal.user_id, tenant_id=principal.tenant_id)
@@ -75,8 +74,7 @@ async def create_site_profile(
 async def get_site_profile(
     profile_id: str,
     user_id: str = Query(..., alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> ApiResponse:
     data = await site_profile_service.get(principal.user_id, profile_id, tenant_id=principal.tenant_id)
@@ -107,8 +105,7 @@ async def update_site_profile(
 async def delete_site_profile(
     profile_id: str,
     user_id: str = Query(..., alias="userId"),
-    tenant_id: str = Query("default", alias="mainId"),
-    main_id_snake: Optional[str] = Query(None, alias="main_id"),
+    tenant_id: str = Query("default", alias="tenantId"),
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> ApiResponse:
     ok = await site_profile_service.delete(

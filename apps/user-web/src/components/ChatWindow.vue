@@ -59,7 +59,7 @@ const props = defineProps<{
   sessionId?: string
   modelInstanceId?: string
   userId?: string
-  mainId?: string
+  tenantId?: string
   authToken?: string
   active: boolean
   running?: boolean
@@ -325,7 +325,7 @@ const {
   loadChatModels,
   selectChatModel,
 } = useChatModels({
-  getMainId: () => props.mainId || 'default',
+  getTenantId: () => props.tenantId || 'default',
   getLocale: () => locale.value,
   getPreferredModelId: () => props.modelInstanceId || '',
 })
@@ -1332,7 +1332,7 @@ onMounted(() => {
   })
 })
 
-watch(() => props.mainId, () => {
+watch(() => props.tenantId, () => {
   loadChatModels()
   void loadPromptGuideShortcuts()
 })
@@ -1956,7 +1956,7 @@ function formatErrorMessage(raw: string): string {
     :locale="locale === 'en' ? 'en' : 'zh'"
     :session-id="props.browserSessionId || props.sessionId"
     :user-id="props.userId"
-    :main-id="props.mainId"
+    :tenant-id="props.tenantId"
     @update:open="(value) => { isPreviewExpanded = value; if (!value) emit('close-code-panel') }"
     @select-tab="emit('select-desktop-tool', $event)"
     @close-tab="emit('close-desktop-tool', $event)"
@@ -2209,7 +2209,7 @@ function formatErrorMessage(raw: string): string {
         :model-load-error="modelLoadError"
         :doc-icon="resolveArtifactIcon"
         :user-id="props.userId || ''"
-        :main-id="props.mainId || 'default'"
+        :tenant-id="props.tenantId || 'default'"
         :allow-knowledge="allowKnowledge"
         :allow-skills="allowSkills"
         @send="(payload) => emit('send', payload)"

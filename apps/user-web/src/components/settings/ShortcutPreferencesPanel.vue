@@ -7,7 +7,7 @@ import { effectiveShortcutEntries } from '../chat/shortcutGuideResolver'
 import { t } from '../../composables/i18n'
 import ShortcutPreferenceGroup from './ShortcutPreferenceGroup.vue'
 
-const props = defineProps<{ userId: string | null; mainId: string }>()
+const props = defineProps<{ userId: string | null; tenantId: string }>()
 const message = useMessage()
 const loading = ref(false)
 const saving = ref(false)
@@ -36,7 +36,7 @@ async function searchSkills(keyword: string) {
   if (!props.userId) return
   skillLoading.value = true
   try {
-    const result = await fetchSelectableSkills({ userId: props.userId, mainId: props.mainId, keyword, limit: 50 })
+    const result = await fetchSelectableSkills({ userId: props.userId, tenantId: props.tenantId, keyword, limit: 50 })
     skillOptions.value = result.items.map(item => ({ label: item.name, value: item.id }))
   } catch { skillOptions.value = [] }
   finally { skillLoading.value = false }

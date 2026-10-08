@@ -3,7 +3,7 @@ import { fetchChatModels, type ChatModelOption } from '../api/models'
 import { t, type Locale } from './i18n'
 
 export function useChatModels(options: {
-  getMainId: () => string
+  getTenantId: () => string
   getLocale: () => Locale
   getPreferredModelId?: () => string
 }) {
@@ -26,7 +26,7 @@ export function useChatModels(options: {
     try {
       modelsLoading.value = true
       modelLoadError.value = ''
-      const items = await fetchChatModels(options.getMainId() || 'default')
+      const items = await fetchChatModels(options.getTenantId() || 'default')
       chatModels.value = items
       const preferredModelId = options.getPreferredModelId?.() || ''
       if (preferredModelId && items.some((item) => item.id === preferredModelId)) {

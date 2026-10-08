@@ -2,7 +2,7 @@ import { apiClient } from './client';
 
 export interface AccountGroupItem {
   id: string;
-  mainId: string;
+  tenantId: string;
   name: string;
   code: string;
   description: string;
@@ -12,7 +12,7 @@ export interface AccountGroupItem {
 
 export interface AccountItem {
   id: string;
-  mainId: string;
+  tenantId: string;
   username: string;
   displayName: string;
   email: string;

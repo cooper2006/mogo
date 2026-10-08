@@ -23,7 +23,7 @@ export interface Settings {
 export interface EnterpriseConnectionResult {
   settings: Settings
   org_name: string
-  main_id: string
+  tenant_id: string
   services_ready: boolean
 }
 

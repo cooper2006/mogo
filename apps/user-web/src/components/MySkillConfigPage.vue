@@ -889,7 +889,7 @@ interface WorkflowTestResult {
 const props = defineProps<{
   skill: SkillItem | null
   userId: string | null
-  mainId: string
+  tenantId: string
 }>();
 
 const emit = defineEmits<{
@@ -1273,7 +1273,7 @@ async function persistSkill(payload: {
   enabled: boolean
 }): Promise<SkillItem | null> {
   if (!skill.value || !props.userId) return null;
-  const updated = await updateSkill(skill.value.id, props.userId, props.mainId, payload);
+  const updated = await updateSkill(skill.value.id, props.userId, props.tenantId, payload);
   skill.value = updated;
   emit('saved', updated);
   return updated;
@@ -2346,7 +2346,7 @@ async function enrichWritingStyle() {
   try {
     const result = await enrichWritingStyleDraft({
       userId: props.userId || '',
-      mainId: props.mainId,
+      tenantId: props.tenantId,
       name: skill.value.name,
       description: skill.value.description,
       scenario: skill.value.scenario,
@@ -2421,7 +2421,7 @@ async function loadWritingSkillOptions() {
     return;
   }
   try {
-    const rows = await fetchSkills(props.userId, props.mainId);
+    const rows = await fetchSkills(props.userId, props.tenantId);
     writingSkillOptions.value = rows
       .filter((item) => item.type === 'writing_style' && item.enabled !== false)
       .map((item) => ({ label: item.name, value: item.id }));
@@ -2437,7 +2437,7 @@ async function loadToolOptions() {
   }
   toolOptionsLoading.value = true;
   try {
-    toolRows.value = await fetchTools(props.userId, props.mainId);
+    toolRows.value = await fetchTools(props.userId, props.tenantId);
   } catch {
     toolRows.value = [];
   } finally {
@@ -2465,7 +2465,7 @@ watch(() => props.skill, (next) => {
   hydrateDetail(next);
 });
 
-watch(() => [props.userId, props.mainId], () => {
+watch(() => [props.userId, props.tenantId], () => {
   loadWritingSkillOptions();
   loadToolOptions();
 });

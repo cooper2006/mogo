@@ -111,7 +111,7 @@ type SendInput = {
   modelId?: string
   authToken: string | null
   userId: string | null
-  mainId: string | null
+  tenantId: string | null
   locale: 'zh' | 'en'
   timezone: string
 }
@@ -325,7 +325,7 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
   const hasDocuments = input.documents.length > 0
   const hasSelectedSkill = !!input.selectedSkillId
   if (!text && !hasImages && !hasDocuments && !hasSelectedSkill) return
-  if (!input.authToken || !input.userId || !input.mainId || input.mainId === 'default') {
+  if (!input.authToken || !input.userId || !input.tenantId || input.tenantId === 'default') {
     callbacks.onLoginRequired?.()
     return
   }
@@ -466,7 +466,7 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
         })),
         output_spec: {
           user_id: input.userId || undefined,
-          main_id: input.mainId || undefined,
+          tenant_id: input.tenantId || undefined,
           task_id: pane.sessionId || undefined,
           selected_skill_id: input.selectedSkillId || undefined,
           manual_skill_selected: Boolean(input.selectedSkillId) || undefined,
@@ -620,14 +620,14 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     return pane
   }
 
-  async function selectSession(sessionId: string, userId: string, mainId?: string, authToken?: string | null) {
+  async function selectSession(sessionId: string, userId: string, tenantId?: string, authToken?: string | null) {
     clearUnread(sessionId)
     const existing = findPaneBySessionId(sessionId)
     if (existing) {
       setActivePane(existing)
       return existing
     }
-    const detail: SessionDetail = await getSession(sessionId, userId, mainId, authToken)
+    const detail: SessionDetail = await getSession(sessionId, userId, tenantId, authToken)
     const pane = createPane({
       key: `session_${detail.id}`,
       sessionId: detail.id,

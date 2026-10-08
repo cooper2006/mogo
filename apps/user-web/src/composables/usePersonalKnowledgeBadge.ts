@@ -1,7 +1,7 @@
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
 import { fetchPersonalKnowledgeCounts } from '../api/personalKnowledge'
 
-export function usePersonalKnowledgeBadge(scope: Ref<{ token: string; mainId: string; userId: string; enabled: boolean }>) {
+export function usePersonalKnowledgeBadge(scope: Ref<{ token: string; tenantId: string; userId: string; enabled: boolean }>) {
   const unreadCount = ref(0)
   const shareCount = ref(0)
   const feedbackCount = ref(0)
@@ -9,7 +9,7 @@ export function usePersonalKnowledgeBadge(scope: Ref<{ token: string; mainId: st
   let version = 0
   async function refresh() {
     const current = scope.value
-    if (!current.enabled || !current.token || !current.mainId || !current.userId) {
+    if (!current.enabled || !current.token || !current.tenantId || !current.userId) {
       unreadCount.value = 0
       shareCount.value = 0
       feedbackCount.value = 0
@@ -26,7 +26,7 @@ export function usePersonalKnowledgeBadge(scope: Ref<{ token: string; mainId: st
     }
     catch { /* badge failures must not interrupt navigation */ }
   }
-  watch(() => [scope.value.token, scope.value.mainId, scope.value.userId, scope.value.enabled], () => {
+  watch(() => [scope.value.token, scope.value.tenantId, scope.value.userId, scope.value.enabled], () => {
     version += 1
     unreadCount.value = 0
     shareCount.value = 0

@@ -218,7 +218,7 @@ const {
 } = useEnterpriseAccessPolicy(userProfile)
 const skillShareInboxScope = computed(() => ({
   token: authToken.value,
-  mainId: String(userProfile.value?.mainId || ''),
+  tenantId: String(userProfile.value?.tenantId || ''),
   userId: String(userProfile.value?.userId || ''),
   enabled: canUseSkills.value,
 }))
@@ -230,7 +230,7 @@ const {
 } = useSkillShareInboxBadge({ scope: skillShareInboxScope })
 const knowledgeBadgeScope = computed(() => ({
   token: authToken.value,
-  mainId: String(userProfile.value?.mainId || ''),
+  tenantId: String(userProfile.value?.tenantId || ''),
   userId: String(userProfile.value?.userId || ''),
   enabled: canUseTools.value,
 }))
@@ -250,7 +250,7 @@ const userBoundProjects = useUserBoundProjects({
     const userId = userProfile.value?.userId
     return userId === undefined || userId === null
       ? ''
-      : `${String(userProfile.value?.mainId || 'default')}:${String(userId)}`
+      : `${String(userProfile.value?.tenantId || 'default')}:${String(userId)}`
   },
   sessions,
   fallbackTitle: workspaceId => `${locale.value === 'en' ? 'Project' : '项目'} · ${workspaceId.slice(0, 8)}`,
@@ -420,7 +420,7 @@ function prepareProjectBoundary(nextProfile: UserProfile): boolean {
   const nextCodeAllowed = nextProfile.agentPolicy?.capabilities.code_generation !== false
   const nextIdentity = nextProfile.userId === undefined || nextProfile.userId === null
     ? ''
-    : `${String(nextProfile.mainId || 'default')}:${String(nextProfile.userId)}`
+    : `${String(nextProfile.tenantId || 'default')}:${String(nextProfile.userId)}`
   if (previousIdentity !== nextIdentity || previousCodeAllowed !== nextCodeAllowed) {
     clearUserBoundProjectState(previousIdentity !== nextIdentity || !nextCodeAllowed)
   }
@@ -930,14 +930,14 @@ function handleSidebarAction(icon: string) {
   else openSessionSearch()
 }
 
-async function handleSwitchTenant(mainId: string) {
-  await switchToTenant(mainId)
+async function handleSwitchTenant(tenantId: string) {
+  await switchToTenant(tenantId)
 }
 
-async function switchToTenant(mainId: string): Promise<string | null> {
-  const target = String(mainId || '').trim()
+async function switchToTenant(tenantId: string): Promise<string | null> {
+  const target = String(tenantId || '').trim()
   if (!target || !authToken.value || switchingTenant.value) return null
-  if (target === getMainId()) return authToken.value
+  if (target === getTenantId()) return authToken.value
   switchingTenant.value = true
   try {
     const result = await switchTenant(authToken.value, target)
@@ -989,7 +989,7 @@ async function loadSkills() {
   try {
     const uid = getUserId()
     if (uid === null) return
-    skills.value = await listSkills(uid, getMainId())
+    skills.value = await listSkills(uid, getTenantId())
   } catch {
     skills.value = []
   } finally {
@@ -1434,8 +1434,8 @@ function getUserId() {
   return String(id)
 }
 
-function getMainId() {
-  return String(userProfile.value?.mainId || 'default')
+function getTenantId() {
+  return String(userProfile.value?.tenantId || 'default')
 }
 
 function isEnterpriseTenant(tenant: Pick<TenantCandidate, 'spaceType' | 'orgName'>) {
@@ -1443,9 +1443,9 @@ function isEnterpriseTenant(tenant: Pick<TenantCandidate, 'spaceType' | 'orgName
   return String(tenant.orgName || '').trim() !== '个人空间'
 }
 
-async function openAdminConsole(mainId = getMainId()) {
+async function openAdminConsole(tenantId = getTenantId()) {
   if (!authToken.value || adminSsoStarting.value) return
-  const target = availableTenants.value.find((tenant) => tenant.mainId === mainId)
+  const target = availableTenants.value.find((tenant) => tenant.tenantId === tenantId)
   if (target && !canAccessAdmin(target)) return
   if (target && !isEnterpriseTenant(target)) return
   if (!target && userProfile.value?.canAccessAdmin !== true) return
@@ -1454,7 +1454,7 @@ async function openAdminConsole(mainId = getMainId()) {
   const adminWindow = capabilities.embeddedBrowser ? null : window.open('', '_blank')
   adminSsoStarting.value = true
   try {
-    const token = await switchToTenant(mainId)
+    const token = await switchToTenant(tenantId)
     if (!token) {
       adminWindow?.close()
       return
@@ -1577,7 +1577,7 @@ async function commitSessionTitleEdit(session: SessionSummary | SessionSearchRes
   }
   renamingSessionId.value = session.id
   try {
-    const updated = await updateSessionTitle(session.id, userId, getMainId(), title, authToken.value || null)
+    const updated = await updateSessionTitle(session.id, userId, getTenantId(), title, authToken.value || null)
     updateSessionTitleInLists(updated)
     cancelSessionTitleEdit()
   } catch (error) {
@@ -1611,7 +1611,7 @@ async function confirmDeleteSession() {
   if (!userId || !sessionId || deletingSessionId.value === sessionId) return
   deletingSessionId.value = sessionId
   try {
-    await deleteSession(sessionId, userId, getMainId(), authToken.value || null)
+    await deleteSession(sessionId, userId, getTenantId(), authToken.value || null)
     sessions.value = sessions.value.filter((item) => item.id !== sessionId)
     sessionSearchResults.value = sessionSearchResults.value.filter((item) => item.id !== sessionId)
     chatRuntime.removeSession(sessionId)
@@ -1631,7 +1631,7 @@ async function loadSessions(reset = true) {
     sessionsLoadingMore.value = true
   }
   try {
-    const page = await listSessionsPaged(userId, getMainId(), {
+    const page = await listSessionsPaged(userId, getTenantId(), {
       limit: sessionPageSize,
       offset: reset ? 0 : sessions.value.length,
     }, authToken.value || null)
@@ -1651,7 +1651,7 @@ async function refreshSessionSummaries() {
   const userId = getUserId()
   if (!userId || document.visibilityState === 'hidden') return
   try {
-    const page = await listSessionsPaged(userId, getMainId(), { limit: sessionPageSize, offset: 0 }, authToken.value || null)
+    const page = await listSessionsPaged(userId, getTenantId(), { limit: sessionPageSize, offset: 0 }, authToken.value || null)
     sessions.value = mergeSessionPages(page.items, sessions.value).slice(0, Math.max(sessionPageSize, sessions.value.length))
     sessionsHasMore.value = page.has_more
   } catch {
@@ -1689,7 +1689,7 @@ async function runSessionSearch(reset = true) {
   }
   sessionSearchLoading.value = true
   try {
-    const page = await searchSessions(userId, getMainId(), queryText, {
+    const page = await searchSessions(userId, getTenantId(), queryText, {
       limit: sessionSearchPageSize,
       offset: reset ? 0 : sessionSearchResults.value.length,
     }, authToken.value || null)
@@ -1736,7 +1736,7 @@ async function selectSession(sessionId: string) {
   if (!userId) return
   navigateTo('chat')
   if (currentSessionId.value === sessionId) return
-  const pane = await chatRuntime.selectSession(sessionId, userId, getMainId(), authToken.value || null)
+  const pane = await chatRuntime.selectSession(sessionId, userId, getTenantId(), authToken.value || null)
   if (canUseCode.value) await codeRuntime.attach(pane.key, sessionId)
   closeSessionSearch()
 }
@@ -1774,7 +1774,7 @@ async function handlePaneSend(
     ...payload,
     authToken: authToken.value || null,
     userId: getUserId(),
-    mainId: getMainId(),
+    tenantId: getTenantId(),
     locale: locale.value === 'en' ? 'en' : 'zh',
     timezone: timezoneValue.value,
   })
@@ -2256,17 +2256,17 @@ onBeforeUnmount(() => {
              <div v-if="availableTenants.length" class="space-y-1 max-h-40 overflow-auto pr-1">
                <div
                  v-for="tenant in availableTenants"
-                 :key="tenant.mainId"
+                 :key="tenant.tenantId"
                  class="flex min-h-[48px] w-full items-center gap-1 rounded-xl px-2 transition-colors"
-                 :class="tenant.mainId === getMainId() ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'"
+                 :class="tenant.tenantId === getTenantId() ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'"
                >
                  <button
                    type="button"
                    class="min-w-0 flex-1 px-1 py-2 text-left leading-5 disabled:cursor-wait disabled:opacity-60"
                    :disabled="switchingTenant || adminSsoStarting"
-                   @click="handleSwitchTenant(tenant.mainId)"
+                   @click="handleSwitchTenant(tenant.tenantId)"
                  >
-                   <span class="block whitespace-normal break-words font-medium">{{ tenant.orgName || tenant.mainId }}</span>
+                   <span class="block whitespace-normal break-words font-medium">{{ tenant.orgName || tenant.tenantId }}</span>
                    <span v-if="isEnterpriseTenant(tenant)" class="mt-0.5 block text-[11px] font-normal text-slate-400">
                      {{ t('ui.enterprise_space') }}
                    </span>
@@ -2275,10 +2275,10 @@ onBeforeUnmount(() => {
                    v-if="canAccessAdmin(tenant)"
                    type="button"
                    class="flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-blue-600 disabled:cursor-wait disabled:opacity-50"
-                   :aria-label="t('ui.enter_tenant_admin', { org: tenant.orgName || tenant.mainId })"
-                   :title="t('ui.enter_tenant_admin', { org: tenant.orgName || tenant.mainId })"
+                   :aria-label="t('ui.enter_tenant_admin', { org: tenant.orgName || tenant.tenantId })"
+                   :title="t('ui.enter_tenant_admin', { org: tenant.orgName || tenant.tenantId })"
                    :disabled="switchingTenant || adminSsoStarting"
-                   @click.stop="openAdminConsole(tenant.mainId)"
+                   @click.stop="openAdminConsole(tenant.tenantId)"
                  >
                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                      <rect x="3" y="4" width="18" height="14" rx="2"/>
@@ -2351,7 +2351,7 @@ onBeforeUnmount(() => {
         <div v-if="currentView === 'skills'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
           <SkillsPage
             :userId="getUserId()"
-            :mainId="getMainId()"
+            :tenantId="getTenantId()"
             :pendingShareCount="pendingSkillShareActionCount"
             :pendingFeedbackCount="pendingSkillFeedbackCount"
             @configure="openSkillConfig"
@@ -2362,7 +2362,7 @@ onBeforeUnmount(() => {
         <div v-else-if="currentView === 'tools'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
           <ToolsPage
             :userId="getUserId()"
-            :mainId="getMainId()"
+            :tenantId="getTenantId()"
           />
         </div>
         <div v-else-if="currentView === 'knowledge'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
@@ -2376,7 +2376,7 @@ onBeforeUnmount(() => {
           <SkillConfigPage
             :skill="selectedSkill"
             :userId="getUserId()"
-            :mainId="getMainId()"
+            :tenantId="getTenantId()"
             @back="closeSkillConfig"
             @saved="handleSkillConfigSaved"
           />
@@ -2405,7 +2405,7 @@ onBeforeUnmount(() => {
         <div v-else-if="currentView === 'token-usage'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
           <TokenUsagePage
             :user-id="getUserId()"
-            :main-id="getMainId()"
+            :tenant-id="getTenantId()"
             :token="authToken"
             @back="closeTokenUsagePage"
           />
@@ -2555,7 +2555,7 @@ onBeforeUnmount(() => {
               :model-instance-id="pane.modelInstanceId || undefined"
               :active="pane.key === activeChatKey"
               :user-id="getUserId() || undefined"
-              :main-id="getMainId()"
+              :tenant-id="getTenantId()"
               :auth-token="authToken"
               :running="pane.running"
               :stopping="pane.stopping || codeRuntime.stateFor(pane.key).stopping"
@@ -2886,7 +2886,7 @@ onBeforeUnmount(() => {
       </div>
       </div>
       <div v-if="personalizationSection === 'shortcuts'" class="mt-5">
-        <ShortcutPreferencesPanel :user-id="getUserId()" :main-id="getMainId()" />
+        <ShortcutPreferencesPanel :user-id="getUserId()" :tenant-id="getTenantId()" />
       </div>
         </main>
       </div>
