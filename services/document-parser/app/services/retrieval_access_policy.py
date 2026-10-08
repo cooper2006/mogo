@@ -49,7 +49,7 @@ class OpenSourceKnowledgeRetrievalAccessPolicy:
 
         db = get_db()
         documents = list(db[DOCUMENT_COLLECTION].find(
-            {"_id": {"$in": document_ids}, "main_id": main_id, "deleted_at": None},
+            {"_id": {"$in": document_ids}, "$or": [{"tenant_id": main_id}, {"main_id": main_id}], "deleted_at": None},
             {
                 "_id": 1,
                 "scope": 1,
@@ -86,7 +86,7 @@ class OpenSourceKnowledgeRetrievalAccessPolicy:
             for resource in db[RESOURCE_COLLECTION].find(
                 {
                     "_id": {"$in": resource_ids},
-                    "main_id": main_id,
+                    "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
                     "owner_user_id": user_id,
                     "deleted_at": None,
                 },
@@ -97,7 +97,7 @@ class OpenSourceKnowledgeRetrievalAccessPolicy:
             str(grant.get("resource_id") or "")
             for grant in db[GRANT_COLLECTION].find(
                 {
-                    "main_id": main_id,
+                    "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
                     "resource_type": "personal_knowledge",
                     "resource_id": {"$in": resource_ids},
                     "recipient_user_id": user_id,

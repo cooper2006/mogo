@@ -64,7 +64,7 @@ class TokenUsageDispatcher:
                 # 异步累计扣减组织点数
                 try:
                     from app.core.billing import deduct_points_after_request
-                    await deduct_points_after_request(record.main_id, record.total_tokens)
+                    await deduct_points_after_request(record.tenant_id or record.main_id, record.total_tokens)
                 except Exception as b_err:
                     logger.error(f"Failed to process billing for record {record.request_id}: {b_err}")
 

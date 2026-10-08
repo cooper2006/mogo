@@ -77,12 +77,15 @@ def _one_day():
 
 async def ensure_org_quota_policy(main_id: str, *, org_total_points: int = 0) -> dict[str, Any]:
     db = get_db()
-    policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"main_id": main_id})
+    # Phase 1 dual-write: match either tenant_id (canonical) or legacy main_id.
+    match_scope = {"$or": [{"tenant_id": main_id}, {"main_id": main_id}]}
+    policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one(match_scope)
     if policy:
         return policy
     now = utc_now()
     total = max(int(org_total_points or 0), 0)
     policy = {
+        "tenant_id": main_id,
         "main_id": main_id,
         "total_tokens": total,
         "period": "monthly",
@@ -91,19 +94,22 @@ async def ensure_org_quota_policy(main_id: str, *, org_total_points: int = 0) ->
         "created_at": now,
         "updated_at": now,
     }
-    await db[ORG_QUOTA_POLICY_COLLECTION].update_one({"main_id": main_id}, {"$setOnInsert": policy}, upsert=True)
-    return await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"main_id": main_id}) or policy
+    await db[ORG_QUOTA_POLICY_COLLECTION].update_one(match_scope, {"$setOnInsert": policy}, upsert=True)
+    return await db[ORG_QUOTA_POLICY_COLLECTION].find_one(match_scope) or policy
 
 
 async def ensure_default_user_policy(main_id: str, *, period: str = "monthly") -> dict[str, Any]:
     db = get_db()
-    query = {"main_id": main_id, "scope_type": "all", "scope_id": ""}
+    query = {"$or": [{"tenant_id": main_id}, {"main_id": main_id}], "scope_type": "all", "scope_id": ""}
     policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(query)
     if policy:
         return policy
     now = utc_now()
     policy = {
-        **query,
+        "tenant_id": main_id,
+        "main_id": main_id,
+        "scope_type": "all",
+        "scope_id": "",
         "quota_tokens": 0,
         "period": normalize_period(period),
         "priority": 10,
@@ -118,7 +124,7 @@ async def ensure_default_user_policy(main_id: str, *, period: str = "monthly") -
 async def sum_usage(main_id: str, *, user_id: str = "", start_at: datetime, end_at: datetime) -> int:
     db = get_db()
     match: dict[str, Any] = {
-        "main_id": main_id,
+        "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
         "created_at": {"$gte": start_at, "$lt": end_at},
         "status": {"$ne": "failed"},
     }
@@ -132,13 +138,14 @@ async def sum_usage(main_id: str, *, user_id: str = "", start_at: datetime, end_
 
 async def resolve_user_policy(main_id: str, user_id: str) -> dict[str, Any]:
     db = get_db()
+    match_scope = {"$or": [{"tenant_id": main_id}, {"main_id": main_id}]}
     user_policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(
-        {"main_id": main_id, "scope_type": "user", "scope_id": user_id},
+        {**match_scope, "scope_type": "user", "scope_id": user_id},
         sort=[("priority", -1), ("updated_at", -1)],
     )
     if user_policy:
         return user_policy
-    org_policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"main_id": main_id})
+    org_policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one(match_scope)
     org_period = org_policy.get("period") if org_policy else "monthly"
     default_policy = await ensure_default_user_policy(main_id, period=org_period)
     return default_policy
@@ -151,7 +158,7 @@ async def sum_active_overrides(main_id: str, user_id: str, now: datetime | None 
         [
             {
                 "$match": {
-                    "main_id": main_id,
+                    "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
                     "user_id": user_id,
                     "status": "active",
                     "$or": [{"expires_at": {"$exists": False}}, {"expires_at": None}, {"expires_at": {"$gt": current}}],
@@ -166,7 +173,7 @@ async def sum_active_overrides(main_id: str, user_id: str, now: datetime | None 
 async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any]:
     db = get_db()
     user_id = str(user.get("_id") or "")
-    org = await db[ORG_COLLECTION].find_one({"main_id": main_id}) or {}
+    org = await db[ORG_COLLECTION].find_one({"$or": [{"tenant_id": main_id}, {"main_id": main_id}]}) or {}
     space_type = str(user.get("space_type") or org.get("space_type") or "").strip().lower()
     if space_type not in {"personal", "enterprise"}:
         org_name = str(org.get("org_name") or user.get("org_name") or "").strip()

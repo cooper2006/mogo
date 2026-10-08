@@ -55,6 +55,7 @@ class WeaviateVectorStore:
             "vectorIndexConfig": {"distance": _weaviate_distance(self.distance)},
             "properties": [
                 {"name": "mainId", "dataType": ["text"]},
+                {"name": "tenantId", "dataType": ["text"]},
                 {"name": "knowledgeBaseId", "dataType": ["text"]},
                 {"name": "documentId", "dataType": ["text"]},
                 {"name": "chunkId", "dataType": ["text"]},
@@ -85,6 +86,7 @@ class WeaviateVectorStore:
         where = {
             "operator": "And",
             "operands": [
+                {"path": ["tenantId"], "operator": "Equal", "valueText": main_id},
                 {"path": ["mainId"], "operator": "Equal", "valueText": main_id},
                 {"path": ["documentId"], "operator": "Equal", "valueText": document_id},
             ],
@@ -117,9 +119,11 @@ class WeaviateVectorStore:
             raise VectorStoreError("chunk 数量和向量数量不一致")
         objects = []
         for chunk, vector in zip(chunks, vectors):
-            object_id = _stable_uuid(str(chunk.get("main_id") or ""), str(chunk.get("document_id") or ""), str(chunk.get("chunk_id") or ""))
+            main_id = str(chunk.get("main_id") or "")
+            object_id = _stable_uuid(main_id, str(chunk.get("document_id") or ""), str(chunk.get("chunk_id") or ""))
             properties = {
-                "mainId": str(chunk.get("main_id") or ""),
+                "mainId": main_id,
+                "tenantId": main_id,
                 "knowledgeBaseId": str(chunk.get("knowledge_base_id") or ""),
                 "documentId": str(chunk.get("document_id") or ""),
                 "chunkId": str(chunk.get("chunk_id") or ""),
@@ -165,11 +169,18 @@ class WeaviateVectorStore:
         offset: int = 0,
         score_threshold: float,
     ) -> list[dict[str, Any]]:
-        where_operands = [{"path": ["mainId"], "operator": "Equal", "valueText": main_id}]
+        # Phase 1 dual-write: match either the legacy mainId or the canonical tenantId.
+        where_operands = [{
+            "operator": "Or",
+            "operands": [
+                {"path": ["mainId"], "operator": "Equal", "valueText": main_id},
+                {"path": ["tenantId"], "operator": "Equal", "valueText": main_id},
+            ],
+        }]
         if knowledge_base_id:
             where_operands.append({"path": ["knowledgeBaseId"], "operator": "Equal", "valueText": knowledge_base_id})
         where = {"operator": "And", "operands": where_operands}
-        fields = "mainId knowledgeBaseId documentId chunkId chunkStage text contextualText titlePath pageNo contentType sourceChunkIds ordinal anchorJson _additional { distance score }"
+        fields = "mainId tenantId knowledgeBaseId documentId chunkId chunkStage text contextualText titlePath pageNo contentType sourceChunkIds ordinal anchorJson _additional { distance score }"
         if mode == "hybrid":
             hybrid = _graphql_value({"query": query, "vector": query_vector, "alpha": 0.7})
             selector = f'hybrid: {hybrid}'

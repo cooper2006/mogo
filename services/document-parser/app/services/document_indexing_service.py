@@ -15,7 +15,7 @@ CHUNK_COLLECTION = "knowledge_document_chunks"
 def run_document_index(job_id: str, request: IndexDocumentJobRequest) -> None:
     db = get_db()
     query = {
-        "main_id": request.mainId,
+        "$or": [{"tenant_id": request.mainId}, {"main_id": request.mainId}],
         "document_id": request.documentId,
         "chunk_stage": request.chunkStage,
     }

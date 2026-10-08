@@ -26,12 +26,14 @@ async def get_or_create_organization(main_id: str, default_org_name: str = "个�
     获取或自动兜底创建组织信息。
     """
     db = get_db()
-    org = await db[ORGANIZATION_COLLECTION].find_one({"main_id": main_id})
+    # Phase 1: match either tenant_id (canonical) or legacy main_id.
+    org = await db[ORGANIZATION_COLLECTION].find_one({"$or": [{"tenant_id": main_id}, {"main_id": main_id}]})
     if not org:
         from app.product.extensions import get_product_extension
 
         defaults = dict(get_product_extension().organization_defaults)
         org = {
+            "tenant_id": main_id,
             "main_id": main_id,
             "org_name": default_org_name,
             "owner_user_id": str(owner_id),
@@ -53,7 +55,8 @@ async def check_quota_before_request(main_id: str, config: Dict[str, Any]) -> No
         return
 
     # 只有当使用的是平台默认提供的共享模型时，才受平台额度限制
-    is_shared_model = str(config.get("main_id") or "default").strip() == "default"
+    config_main_id = config.get("tenant_id") or config.get("main_id") or "default"
+    is_shared_model = str(config_main_id).strip() == "default"
 
     org = await get_or_create_organization(main_id)
 
@@ -82,7 +85,7 @@ async def deduct_points_after_request(main_id: str, total_tokens: int) -> None:
     # 只有在使用系统默认模型，或者未启用自有模型时才累计额度点数消耗
     if org.get("tier") == "free" or not org.get("is_own_model", False):
         await db[ORGANIZATION_COLLECTION].update_one(
-            {"main_id": main_id},
+            {"$or": [{"tenant_id": main_id}, {"main_id": main_id}]},
             {
                 "$inc": {"used_points": total_tokens},
                 "$set": {"updated_at": _now()}

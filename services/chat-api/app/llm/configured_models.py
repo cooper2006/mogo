@@ -104,7 +104,7 @@ async def get_model_config_by_capability(
 ) -> dict[str, Any] | None:
     db = get_db()
     try:
-        instance = await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(model_id), "main_id": main_id})
+        instance = await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(model_id), "$or": [{"tenant_id": main_id}, {"main_id": main_id}]})
     except InvalidId as exc:
         raise ModelConfigError("模型配置 ID 无效") from exc
     if instance is None:
@@ -125,7 +125,7 @@ async def get_default_model_config_by_capability(
     db = get_db()
     instance = await db[INSTANCE_COLLECTION].find_one(
         {
-            "main_id": main_id,
+            "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
             "status": "active",
             "capabilities": _capability_query_value(capability),
         },
@@ -149,7 +149,7 @@ async def list_model_options(
     db = get_db()
     cursor = db[INSTANCE_COLLECTION].find(
         {
-            "main_id": main_id,
+            "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
             "status": "active",
             "capabilities": _capability_query_value(capability),
         }
@@ -166,7 +166,7 @@ async def list_model_options(
 async def update_model_health(model_id: str, main_id: str, health_status: str, last_error: str = "") -> None:
     db = get_db()
     await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(model_id), "main_id": main_id},
+        {"_id": ObjectId(model_id), "$or": [{"tenant_id": main_id}, {"main_id": main_id}]},
         {
             "$set": {
                 "health_status": health_status,
@@ -324,7 +324,7 @@ async def get_fallback_runtime_configs(
     """
     db = get_db()
     query = {
-        "main_id": main_id,
+        "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
         "status": "active",
         "capabilities": _capability_query_value(capability),
     }
@@ -390,7 +390,7 @@ async def get_llm_client_by_model_id(
     
     user_id = str((output_spec or {}).get("user_id") or "").strip()
     if user_id and ObjectId.is_valid(user_id):
-        user_doc = await get_db()["end_users"].find_one({"_id": ObjectId(user_id), "main_id": main_id})
+        user_doc = await get_db()["end_users"].find_one({"_id": ObjectId(user_id), "$or": [{"tenant_id": main_id}, {"main_id": main_id}]})
         if user_doc:
             from app.core.quota_policy import QuotaExceededError, assert_quota_available
 

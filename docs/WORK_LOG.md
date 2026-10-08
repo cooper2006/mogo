@@ -6842,3 +6842,28 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **待办（未在本轮）**：Phase 2 的 M1（存储卷隔离）+ M2（Redis 锁，防同 isolationKey 多 runtime）按方案 D2 决策后单独排期；M1 的破坏性（既有 session resume 失效）需先落地 §12.4 的 session→host 缓存/迁移能力。
 
 **最终状态**：本地 phase1 部署栈已上线运行（chat-api / dsh-runtime-host 用 phase1 镜像），Phase 1 四维修复生效（待 commit/push）。
+
+---
+
+## 2026-10-08 main_id → tenant_id 统一（Phase 1：双写兼容，零数据风险）
+
+**背景**：用户确认代码里租户 ID 既有 `main_id`（含 MongoDB 字段、Weaviate `mainId`）与治理层 `tenant_id` 指同一概念，要求统一为 `tenant_id`，且连持久化字段一起改 + 迁移。规模实测：约 190 个文件命中；`tenant_id` 已是代码层主流（治理层、DSH 运行层、bindings、conversations），`main_id` 是数据层既有主键（数十集合 + Weaviate schema）。方案三阶段（见 `deliverables/gstack/main_id-to-tenant_id-migration-2026-10-08.md`）：Phase 1 双写兼容（可部署可回退）→ Phase 2 数据回填脚本（幂等、dry-run + 强制备份）→ Phase 3 退役旧字段（单独审批）。用户已批三步走。
+
+**Phase 1 改动（双写 + 回退读取，不动旧字段）**：
+- 新增 `services/chat-api/app/core/tenant_field.py`：集中式兼容层（`compose_tenant_fields` 双写、`tenant_value` 优先新键回退、`tenant_scope_filter` 任一键匹配、`dual_write_props` 供 Weaviate）。
+- `services/chat-api/app/core/tenant.py`：`main_scope_filter` 委托 `tenant_scope_filter`（default 分支同时匹配 `tenant_id`/`main_id` 任一）。
+- `services/chat-api/app/api/endpoints/auth.py`：`Login/Register/SelectTenant/SwitchTenant` 请求体加 `tenantId` 别名（Pydantic `AliasChoices`，旧前端 `mainId` 仍可用，`effective_tenant_id` 统一取值）；`end_users` 注册插入双写 `tenant_id`+`main_id`，已存在用户查询 `$and[$or[tenant_id,main_id],$or[login_name,email]]`；`_create_session` 写入 `end_user_sessions` 双写；profile 输出加 `tenantId`（保留 `mainId`）。
+- `services/chat-api/app/services/end_user_tenant_access.py`：读取用 `tenant_value` 回退；`tenants`/`organizations`/`admin_accounts` 查询匹配 `$or[tenant_id,main_id]`；候选输出加 `tenantId`（保留 `mainId`）。
+- `services/chat-api/app/llm/configured_models.py`、`core/billing.py`、`core/quota_policy.py`：模型/组织/配额核心 Mongo 层查询改 `$or[tenant_id,main_id]`，写入双写 `tenant_id`+`main_id`。
+- `services/chat-api/app/token_usage/{models,dispatcher,push,llm/resilience/metering}.py`：`TokenUsageRecord` 加 `tenant_id`（与 `main_id` 同值）；push payload 双写 `tenantId`+`mainId`；计费扣减与统计读优先 `tenant_id`。
+- document-parser：`vector_store.py` Weaviate schema 加 `tenantId` 属性、`upsert_chunks` 双写、`search`/`delete_document_chunks` 匹配 `$or[tenantId,mainId]`；`retrieval_service.py`/`retrieval_access_policy.py`/`model_center_runtime.py`/`document_indexing_service.py` 的 Mongo 查询改 `$or[tenant_id,main_id]`。
+
+**Phase 2 脚手架**：`scripts/migrate_main_id_to_tenant_id.py` 落盘（幂等回填脚本，支持 `--dry-run`/`--apply`，枚举集合双写 `tenant_id=main_id`；**不自动执行**，须 Phase 1 部署验证 + 全量备份后手动运行）。
+
+**验证**：`python3 -m py_compile` 本轮 17 个 py 文件全部通过（PY_COMPILE_OK）。**未**做容器内集成回归（Phase 1 逻辑等价、仅加兼容分支，待本地 phase1 栈复跑 `/auth/*` 与 DSH 多实例 `/health`/`/ready` 核验双写）。
+
+**修改文件**：`services/chat-api/app/core/tenant_field.py`(新)、`core/tenant.py`、`api/endpoints/auth.py`、`services/end_user_tenant_access.py`、`llm/configured_models.py`、`llm/instrumented_client.py`、`llm/resilience/metering.py`、`core/billing.py`、`core/quota_policy.py`、`token_usage/models.py`、`token_usage/dispatcher.py`、`token_usage/push.py`、`document-parser/app/services/{vector_store,retrieval_service,retrieval_access_policy,model_center_runtime,document_indexing_service}.py`、`scripts/migrate_main_id_to_tenant_id.py`(新)。
+
+**待办（未在本轮）**：Phase 2 迁移脚本实测（dry-run + 备份后 apply）；Phase 3 退役 `main_id`/`mainId` 旧字段（含 admin-api 侧 write path 双写、测试与文档同步清理）单独审批。提交纪律：仅 `git add` 本轮具体路径，不含其他会话在途的 `docs/intro-v4.pptx`。
+
+**最终状态**：Phase 1 双写兼容代码完成、编译通过（待 commit/push；按大改动确认后再推送 cooper2006/mogo）。

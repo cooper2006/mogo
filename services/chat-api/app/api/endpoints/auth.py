@@ -66,24 +66,53 @@ async def _check_org_name_duplicate(org_name: str) -> bool:
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
-    mainId: str = Field(default="", max_length=64)
+    # Phase 1: accept both ``mainId`` (legacy) and ``tenantId`` (canonical).
+    tenant_id: str = Field(default="", max_length=64, alias="tenantId")
+    mainId: str = Field(default="", max_length=64, alias="mainId")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.mainId).strip()
 
 
 class RegisterRequest(BaseModel):
-    mainId: str = Field(min_length=1, max_length=64)
+    tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
+    mainId: str = Field(min_length=1, max_length=64, alias="mainId")
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=128)
     nickname: str = Field(default="", max_length=64)
     departmentId: str = Field(default="", max_length=64)
 
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.mainId).strip()
+
 
 class SelectTenantRequest(BaseModel):
     challengeToken: str = Field(min_length=8, max_length=256)
-    mainId: str = Field(min_length=1, max_length=64)
+    tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
+    mainId: str = Field(min_length=1, max_length=64, alias="mainId")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.mainId).strip()
 
 
 class SwitchTenantRequest(BaseModel):
-    mainId: str = Field(min_length=1, max_length=64)
+    tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
+    mainId: str = Field(min_length=1, max_length=64, alias="mainId")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.mainId).strip()
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -133,6 +162,7 @@ def _profile_from_user(
         "phone": str(user.get("mobile") or ""),
         "email": str(user.get("email") or ""),
         "avatar": avatar,
+        "tenantId": resolve_main_id(main_id),
         "mainId": resolve_main_id(main_id),
         "orgName": str(tenant.get("orgName") or user.get("org_name") or resolve_main_id(main_id)),
         "spaceType": str(tenant.get("spaceType") or _space_type_from_user(user)),
@@ -251,13 +281,15 @@ async def _create_session(user_doc: dict[str, Any], available_tenants: list[dict
     token_id = secrets.token_urlsafe(24)
     token = build_session_token(settings.END_USER_AUTH_SECRET, token_id)
     expires_at = now + timedelta(seconds=ttl_seconds)
-    main_id = resolve_main_id(user_doc.get("main_id"))
+    tenant_id = resolve_main_id(user_doc.get("main_id"))
+    # Phase 1 dual-write: persist both keys (tenant_id is canonical going forward).
     await db[USER_SESSION_COLLECTION].insert_one(
         {
             "token_id": token_id,
             "user_id": str(user_doc["_id"]),
             "username": str(user_doc.get("login_name") or ""),
-            "main_id": main_id,
+            "tenant_id": tenant_id,
+            "main_id": tenant_id,
             "available_tenants": available_tenants,
             "status": "active",
             "created_at": now,
@@ -272,7 +304,7 @@ async def _create_session(user_doc: dict[str, Any], available_tenants: list[dict
     )
     return {
         "token": token,
-        "profile": await _profile_with_policy(user_doc, main_id, available_tenants),
+        "profile": await _profile_with_policy(user_doc, tenant_id, available_tenants),
         "expiresAt": expires_at.isoformat(),
     }
 
@@ -304,7 +336,8 @@ async def login(payload: LoginRequest) -> ApiResponse:
         return ApiResponse(code=1, message="系统尚未完成初始化，请先在管理后台执行 Setup")
 
     username = payload.username.strip()
-    preferred_main_id = resolve_main_id(payload.mainId) if str(payload.mainId or "").strip() else None
+    preferred_tenant_id = payload.effective_tenant_id
+    preferred_main_id = resolve_main_id(preferred_tenant_id) if preferred_tenant_id else None
     matched_users = await _find_verified_users(username=username, password=payload.password, preferred_main_id=preferred_main_id)
     if not matched_users and preferred_main_id:
         matched_users = await _find_verified_users(username=username, password=payload.password, preferred_main_id=None)
@@ -416,7 +449,7 @@ async def register(payload: RegisterRequest) -> ApiResponse:
     if not setup_state or not bool(setup_state.get("completed")):
         return ApiResponse(code=503, message="系统尚未完成初始化，请先在管理后台执行 Setup")
 
-    main_id = resolve_main_id(payload.mainId)
+    main_id = resolve_main_id(payload.effective_tenant_id)
     if not _is_valid_tenant_main_id(main_id):
         return ApiResponse(code=400, message="请选择有效的组织")
     if not await is_tenant_selectable(db, main_id):
@@ -434,8 +467,10 @@ async def register(payload: RegisterRequest) -> ApiResponse:
         return ApiResponse(code=400, message="密码至少 8 位，且需同时包含字母和数字")
 
     existing = await db[USER_COLLECTION].find_one({
-        "main_id": main_id,
-        "$or": [{"login_name": email}, {"email": email}],
+        "$and": [
+            {"$or": [{"tenant_id": main_id}, {"main_id": main_id}]},
+            {"$or": [{"login_name": email}, {"email": email}]},
+        ]
     })
     if existing:
         return ApiResponse(code=409, message="该邮箱在此组织下已注册，请直接登录")
@@ -444,6 +479,7 @@ async def register(payload: RegisterRequest) -> ApiResponse:
     now = _now()
     name = str(payload.nickname or "").strip() or email.split("@", 1)[0]
     user_doc: dict[str, Any] = {
+        "tenant_id": main_id,
         "main_id": main_id,
         "login_name": email,
         "email": email,
@@ -494,7 +530,7 @@ async def select_tenant_login(payload: SelectTenantRequest) -> ApiResponse:
             return ApiResponse(code=1, message="登录挑战已过期")
 
     candidates = list(challenge.get("candidates") or [])
-    selected_main_id = resolve_main_id(payload.mainId)
+    selected_main_id = resolve_main_id(payload.effective_tenant_id)
     if not _is_valid_tenant_main_id(selected_main_id):
         return ApiResponse(code=1, message="组织ID无效")
     selected = next((item for item in candidates if resolve_main_id(item.get("mainId")) == selected_main_id), None)
@@ -528,7 +564,7 @@ async def switch_tenant(
     session_doc = resolved["session"]
     db = get_db()
     available_tenants = list(session_doc.get("available_tenants") or [])
-    target_main_id = resolve_main_id(payload.mainId)
+    target_main_id = resolve_main_id(payload.effective_tenant_id)
     if not _is_valid_tenant_main_id(target_main_id):
         return ApiResponse(code=1, message="组织ID无效")
     target = next((item for item in available_tenants if resolve_main_id(item.get("mainId")) == target_main_id), None)

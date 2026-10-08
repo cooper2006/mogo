@@ -186,6 +186,7 @@ class InstrumentedLLMClient(BaseLLMClient):
             record = TokenUsageRecord(
                 request_id="llm_%s" % uuid.uuid4().hex[:20],
                 user_request_id=user_request_id,
+                tenant_id=resolve_main_id(output_spec.get("main_id") or output_spec.get("mainId")),
                 main_id=resolve_main_id(output_spec.get("main_id") or output_spec.get("mainId")),
                 user_id=coerce_user_id(output_spec.get("user_id")),
                 session_id=str(output_spec.get("session_id") or output_spec.get("task_id") or "").strip(),

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class TokenUsageRecord(BaseModel):
     request_id: str
     user_request_id: str = ""
+    tenant_id: str = "default"
     main_id: str = "default"
     user_id: str = ""
     session_id: str = ""

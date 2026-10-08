@@ -107,7 +107,11 @@ def _filter_active_documents(
 
 
 def _effective_config(main_id: str) -> dict[str, Any]:
-    doc = get_db()[SETTINGS_COLLECTION].find_one({"main_id": main_id, "kind": "knowledge"})
+    # Phase 1: match either the legacy main_id or the canonical tenant_id.
+    doc = get_db()[SETTINGS_COLLECTION].find_one({
+        "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
+        "kind": "knowledge",
+    })
     config = dict((doc or {}).get("config") or {})
     config.setdefault("embedding", {})
     config.setdefault("vectorStore", {})

@@ -27,7 +27,7 @@ def resolve_model_instance(main_id: str, instance_id: str, capability: str) -> d
     except (InvalidId, TypeError) as exc:
         raise ModelCenterConfigError(f"{capability} 模型实例 ID 无效") from exc
     db = get_db()
-    instance = db[INSTANCE_COLLECTION].find_one({"_id": object_id, "main_id": main_id, "status": "active"})
+    instance = db[INSTANCE_COLLECTION].find_one({"_id": object_id, "$or": [{"tenant_id": main_id}, {"main_id": main_id}], "status": "active"})
     if not instance:
         raise ModelCenterConfigError(f"未找到可用的 {capability} 模型配置")
     capabilities = {str(item) for item in instance.get("capabilities") or []}
