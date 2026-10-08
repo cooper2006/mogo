@@ -11,7 +11,7 @@ from bson import ObjectId
 
 from app.core.db import get_db
 from app.core.quota_policy import assert_quota_available
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 from .dsh_execution import scheduled_dsh_execution
 from .repository import JOBS, RUNS
@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 
 class ScheduledChatRunner:
     async def start(self, job: dict[str, Any], run: dict[str, Any]) -> None:
-        tenant_id = resolve_main_id(job.get("tenant_id"))
+        tenant_id = resolve_tenant_id(job.get("tenant_id"))
         user_id = str(job.get("run_as_user_id") or job.get("owner_user_id") or "")
         if not ObjectId.is_valid(user_id):
             await self._fail_before_start(job, run, "执行用户不存在")
             return
         user = await get_db().end_users.find_one(
-            add_main_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id)
+            add_tenant_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id)
         )
         if not user:
             await self._fail_before_start(job, run, "执行用户已停用或不属于当前租户")
@@ -67,7 +67,7 @@ class ScheduledChatRunner:
             if not ObjectId.is_valid(session_id):
                 raise LookupError("目标会话不存在")
             exists = await get_db().chat_sessions.find_one(
-                add_main_scope(
+                add_tenant_scope(
                     {"_id": ObjectId(session_id), "user_id": user_id}, tenant_id
                 ),
                 {"_id": 1},
@@ -96,7 +96,7 @@ class ScheduledChatRunner:
         self, job: dict[str, Any], run: dict[str, Any], error: str
     ) -> None:
         now = utc_now()
-        tenant_id = resolve_main_id(job.get("tenant_id"))
+        tenant_id = resolve_tenant_id(job.get("tenant_id"))
         await get_db()[RUNS].update_one(
             {"run_id": str(run.get("run_id") or ""), "tenant_id": tenant_id},
             {"$set": {

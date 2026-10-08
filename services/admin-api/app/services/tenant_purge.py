@@ -4,7 +4,7 @@ A purge only runs for a tenant in ``archived`` status (FR-028, re-checked when
 the task starts) and walks three sequential phases:
 
 1. **mongo** — delete every row in the tenant-scoped collections whose
-   ``main_id`` matches.
+   ``tenant_id`` matches.
 2. **vectors** — call the document-parser service to remove Weaviate chunks
    for this tenant's knowledge documents.
 3. **files** — remove local storage directories for knowledge documents and
@@ -28,7 +28,7 @@ from app.services.tenant_registry import TENANT_COLLECTION
 
 logger = logging.getLogger(__name__)
 
-# main_id-partitioned business collections (T045 full enumeration).
+# tenant_id-partitioned business collections (T045 full enumeration).
 # ``tenants`` itself is handled separately at the end of the mongo phase.
 #
 # NOTE: this list must cover *both* admin-api and chat-api collections — a
@@ -42,7 +42,7 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "admin_accounts",
     "admin_login_challenges",
     # QF-350~354: refresh tokens, recovery tokens, and active sessions
-    # are all partitioned by main_id and must be purged with the tenant.
+    # are all partitioned by tenant_id and must be purged with the tenant.
     "admin_refresh_tokens",
     "admin_recovery_tokens",
     "admin_sessions",
@@ -93,7 +93,7 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "skill_drafts",
     # 017: three-scope memory records (tenant-partitioned, scope-filtered reads).
     "memories",
-    # 019: harness thickness profiles (tenant-partitioned via main_id).
+    # 019: harness thickness profiles (tenant-partitioned via tenant_id).
     "harness_profiles",
     "site_profiles",
     # 013: IM channel <-> MOGO session bindings, partitioned by tenant_id
@@ -119,11 +119,11 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "user_shortcut_preferences",
     "user_skills",
     "user_token_allocation_logs",
-    # 020 FR-032: cross-replica purge progress (main_id + task_id keyed).
+    # 020 FR-032: cross-replica purge progress (tenant_id + task_id keyed).
     "tenant_purge_progress",
 ]
 
-# Governance-layer collections partitioned by ``tenant_id`` (= main_id).
+# Governance-layer collections partitioned by ``tenant_id`` (= tenant_id).
 TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
     "agent_kernel_bindings",
     "business_entity_index",
@@ -148,7 +148,7 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
     # 011 low-adoption store, tenant-partitioned by (tenant_id, skill_key);
     # the 016 market side reads ``marked_low_quality`` from here.
     "skill_adoption",
-    # 016 effect-score daily buckets, partitioned by (main_id, skill_key, date);
+    # 016 effect-score daily buckets, partitioned by (tenant_id, skill_key, date);
     # written by chat-api (skill execution) and read by admin-api's scanner.
     "skill_quality_metrics",
     # OQ-6 correction source: product-edit events written by chat-api's
@@ -163,13 +163,13 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
 #
 # ``session_shares`` (chat-api ``services/session_versioning/share.py``)
 # persists only ``share_id`` / ``session_id`` / ``snapshot_id`` — the
-# ``main_id`` is assembled into the HTTP response, never stored. It is matched
-# through ``chat_sessions.main_id``, so it must be swept BEFORE the scoped pass
+# ``tenant_id`` is assembled into the HTTP response, never stored. It is matched
+# through ``chat_sessions.tenant_id``, so it must be swept BEFORE the scoped pass
 # deletes those sessions. Fixing this properly means stamping the tenant on
 # write (a schema change); cascading here keeps the purge complete meanwhile.
 #
 # ``session_snapshots`` is *not* in this list: ``dsh_session_versioning.py``
-# sets ``document["tenant_id"] = main_id`` before insert, so it is purged by the
+# sets ``document["tenant_id"] = tenant_id`` before insert, so it is purged by the
 # normal ``TENANT_SCOPED_COLLECTIONS`` sweep.
 TENANT_ORPHANED_COLLECTIONS: list[str] = [
     "session_shares",
@@ -201,7 +201,7 @@ class _PurgeTaskStore:
 
     def __init__(self) -> None:
         self._tasks: dict[str, dict[str, Any]] = {}
-        self._main_id_to_task: dict[str, str] = {}
+        self._tenant_id_to_task: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Mongo persistence (best-effort; memory cache is always updated first)
@@ -244,30 +244,30 @@ class _PurgeTaskStore:
             if oldest is None:  # pragma: no cover - unreachable, guards the loop
                 break
             self._evict(oldest)
-        while len(self._main_id_to_task) >= self._MAX_TASKS:
-            oldest_main = next(iter(self._main_id_to_task), None)
-            if oldest_main is None:  # pragma: no cover - unreachable
+        while len(self._tenant_id_to_task) >= self._MAX_TASKS:
+            oldest_tenant = next(iter(self._tenant_id_to_task), None)
+            if oldest_tenant is None:  # pragma: no cover - unreachable
                 break
-            self._main_id_to_task.pop(oldest_main, None)
+            self._tenant_id_to_task.pop(oldest_tenant, None)
         self._tasks[key] = {
             "status": "running",
             "progress": {"mongo": "pending", "vectors": "pending", "files": "pending"},
             "error": "",
             "started_at": datetime.now(timezone.utc),
         }
-        self._main_id_to_task[tenant_id] = key
+        self._tenant_id_to_task[tenant_id] = key
 
     def _evict(self, key: str) -> None:
         """Drop one task, also clearing any index entry that points at it.
 
         Without this the index would keep referencing a task that no longer
-        exists, and ``get_for_main_id`` would report ``unknown`` for a tenant
+        exists, and ``get_for_tenant_id`` would report ``unknown`` for a tenant
         whose purge we simply forgot about.
         """
         self._tasks.pop(key, None)
-        stale = [m for m, k in self._main_id_to_task.items() if k == key]
+        stale = [m for m, k in self._tenant_id_to_task.items() if k == key]
         for tenant_id in stale:
-            self._main_id_to_task.pop(tenant_id, None)
+            self._tenant_id_to_task.pop(tenant_id, None)
 
     def mark(self, key: str, phase: str, value: str) -> None:
         task = self._tasks.get(key)
@@ -300,12 +300,12 @@ class _PurgeTaskStore:
     def get(self, key: str) -> dict[str, Any] | None:
         return self._tasks.get(key)
 
-    def get_for_main_id(self, tenant_id: str, task_id: str = "") -> dict[str, Any] | None:
-        """Resolve the in-memory task for a main_id (and optional task_id)."""
+    def get_for_tenant_id(self, tenant_id: str, task_id: str = "") -> dict[str, Any] | None:
+        """Resolve the in-memory task for a tenant_id (and optional task_id)."""
         if task_id:
             key = f"{tenant_id}:{task_id}"
         else:
-            key = self._main_id_to_task.get(tenant_id, "")
+            key = self._tenant_id_to_task.get(tenant_id, "")
         if not key:
             return None
         task = self._tasks.get(key)
@@ -322,7 +322,7 @@ class _PurgeTaskStore:
         """Read the last persisted purge progress from Mongo (FR-032).
 
         When ``task_id`` is empty, returns the most recently updated document
-        for this main_id. Returns None when Mongo is unavailable or no
+        for this tenant_id. Returns None when Mongo is unavailable or no
         document exists — callers fall back to the tenant tombstone.
         """
         try:
@@ -359,7 +359,7 @@ async def get_purge_status(tenant_id: str, task_id: str = "") -> dict[str, Any]:
     Resolution order (FR-032): in-memory cache (this replica, in-flight) →
     Mongo ``tenant_purge_progress`` (any replica) → tenant tombstone.
     """
-    result = _task_store.get_for_main_id(tenant_id, task_id)
+    result = _task_store.get_for_tenant_id(tenant_id, task_id)
     if result is not None:
         return result
     # No task in this process — check Mongo (another replica may be mid-purge
@@ -408,13 +408,13 @@ async def _phase_mongo(tenant_id: str) -> None:
 async def _purge_key_only_collections(db: Any, tenant_id: str) -> None:
     """Delete from collections that carry no tenant key of their own.
 
-    These rows cannot be matched by ``main_id`` directly, so they are resolved
+    These rows cannot be matched by ``tenant_id`` directly, so they are resolved
     through the tenant's own rows first. This must run **before** the scoped
     sweep: it reads ``chat_sessions`` to enumerate children, and the sweep
     deletes those rows.
 
     ``session_shares`` is the case in point — ``ShareStore`` persists only
-    ``share_id`` / ``session_id`` / ``snapshot_id`` (the ``main_id`` is
+    ``share_id`` / ``session_id`` / ``snapshot_id`` (the ``tenant_id`` is
     assembled into the HTTP response, never stored). Left alone, a purged
     tenant's share tokens would survive indefinitely with no way to attribute
     or revoke them.
@@ -470,7 +470,7 @@ async def _phase_vectors(tenant_id: str) -> None:
     failures: list[str] = []
     for document_id in document_ids:
         url = f"{base_url}/vectors/documents/delete"
-        body = _json.dumps({"mainId": tenant_id, "documentId": document_id}).encode("utf-8")
+        body = _json.dumps({"tenantId": tenant_id, "documentId": document_id}).encode("utf-8")
         request = urllib.request.Request(
             url,
             data=body,
@@ -501,7 +501,7 @@ async def _phase_files(tenant_id: str) -> None:
 
     Layout (see config):
     - knowledge documents: ``{knowledge_local_storage_dir}/{tenant_id}/...``
-    - admin avatars:       ``{admin_static_dir}/admin-avatars/{safe(main_id)}/``
+    - admin avatars:       ``{admin_static_dir}/admin-avatars/{safe(tenant_id)}/``
     OSS-backed storage is left in place (the bucket has its own lifecycle
     policy); only local-disk files are removed here.
     """
@@ -520,9 +520,9 @@ async def _phase_files(tenant_id: str) -> None:
     avatars_root = Path(settings.admin_static_dir) / "admin-avatars"
     if avatars_root.exists():
         # Derive the directory exactly the way the writer does
-        # (``auth.py`` stores avatars under ``_safe_path_part(main_id)``), instead
+        # (``auth.py`` stores avatars under ``_safe_path_part(tenant_id)``), instead
         # of guessing a ``{tenant_id}-{uuid}`` shape. A prefix match would be
-        # unsafe and a ``f"{tenant_id}-"`` match never fires because main_id
+        # unsafe and a ``f"{tenant_id}-"`` match never fires because tenant_id
         # already ends in ``-<hex>`` while the sanitiser strips nothing.
         avatar_dir = avatars_root / _safe_path_part(tenant_id, "default")
         if avatar_dir.is_dir() and avatar_dir.parent == avatars_root:

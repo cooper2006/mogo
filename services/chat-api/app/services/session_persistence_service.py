@@ -12,7 +12,7 @@ from bson import ObjectId
 from app.context_engine.compactor import context_compactor
 from app.context_engine.project_memory import project_memory_service
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
 
@@ -57,7 +57,7 @@ def _normalize_message(message: Any) -> Dict[str, Any]:
 
 async def _next_seq(db: Any, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> int:
     last = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
+        add_tenant_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     if not last:
@@ -173,7 +173,7 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
 
 async def _latest_user_request_from_db(db: Any, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> str:
     row = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
+        add_tenant_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     return str((row or {}).get("content") or "").strip()
@@ -290,7 +290,7 @@ def _build_context_summary_from_messages(rows: List[Dict[str, Any]]) -> str:
 
 async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> None:
     cursor = db.chat_messages.find(
-        add_main_scope({
+        add_tenant_scope({
             "session_id": session_id,
             "user_id": str(user_id),
             "message_type": {"$ne": "context_summary"},
@@ -306,13 +306,13 @@ async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_
     compaction_id = f"cmp_{uuid4().hex[:12]}"
     compaction = await context_compactor.compact_messages(
         to_compact,
-        output_spec={"user_id": str(user_id), "tenant_id": resolve_main_id(tenant_id), "session_id": str(session_id)},
+        output_spec={"user_id": str(user_id), "tenant_id": resolve_tenant_id(tenant_id), "session_id": str(session_id)},
     )
     summary_text = compaction.summary or _build_context_summary_from_messages(to_compact)
     if compaction.memories:
         await project_memory_service.upsert_memories(
             user_id=str(user_id),
-            tenant_id=resolve_main_id(tenant_id),
+            tenant_id=resolve_tenant_id(tenant_id),
             project_id="default",
             memories=compaction.memories,
             source=f"session_compaction:{compaction_id}",
@@ -330,7 +330,7 @@ async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_
         {
             "session_id": session_id,
             "user_id": str(user_id),
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "role": "system",
             "content": summary_text,
             "plan": None,
@@ -363,7 +363,7 @@ class SessionPersistenceService:
     ) -> Dict[str, Any]:
         db = get_db()
         now = datetime.now(tz=timezone.utc)
-        mid = resolve_main_id(tenant_id)
+        mid = resolve_tenant_id(tenant_id)
         normalized = [_normalize_message(m) for m in list(messages or [])]
         last_message = normalized[-1]["content"] if normalized else None
         last_message_at = now if normalized else None
@@ -429,8 +429,8 @@ class SessionPersistenceService:
     ) -> Dict[str, Any]:
         db = get_db()
         oid = ObjectId(str(session_id))
-        mid = resolve_main_id(tenant_id)
-        session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, mid))
+        mid = resolve_tenant_id(tenant_id)
+        session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, mid))
         if not session_doc:
             raise LookupError("Session not found")
         normalized = [_normalize_message(m) for m in list(messages or [])]
@@ -440,7 +440,7 @@ class SessionPersistenceService:
         message_ids = [str(m.get("message_id") or "").strip() for m in normalized if str(m.get("message_id") or "").strip()]
         if message_ids:
             existing = await db.chat_messages.count_documents(
-                add_main_scope({"session_id": oid, "user_id": str(user_id), "message_id": {"$in": message_ids}}, mid)
+                add_tenant_scope({"session_id": oid, "user_id": str(user_id), "message_id": {"$in": message_ids}}, mid)
             )
             if existing >= len(message_ids):
                 return session_doc
@@ -493,7 +493,7 @@ class SessionPersistenceService:
             set_payload["active_document"] = selected
             set_payload["document_count"] = len(registry)
         await db.chat_sessions.update_one(
-            add_main_scope({"_id": oid}, mid),
+            add_tenant_scope({"_id": oid}, mid),
             {
                 "$set": set_payload,
                 "$inc": {"message_count": len(normalized)},
@@ -531,7 +531,7 @@ class SessionPersistenceService:
         return {
             "session_id": session_id,
             "user_id": str(user_id),
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "role": str(message.get("role") or ""),
             "content": str(message.get("content") or ""),
             "plan": message.get("plan"),
@@ -557,14 +557,14 @@ class SessionPersistenceService:
         try:
             await get_db().execution_logs.update_many(
                 {"message_id": {"$in": message_ids}, "session_id": {"$ne": str(session_id)}},
-                {"$set": {"session_id": str(session_id), "tenant_id": resolve_main_id(tenant_id)}},
+                {"$set": {"session_id": str(session_id), "tenant_id": resolve_tenant_id(tenant_id)}},
             )
         except Exception as exc:
             log_print(f"[session_persistence] rekey execution_logs failed: {exc}", flush=True)
         try:
             await get_db().execution_runs_v3.update_many(
                 {"message_id": {"$in": message_ids}, "session_id": {"$ne": str(session_id)}},
-                {"$set": {"session_id": str(session_id), "tenant_id": resolve_main_id(tenant_id)}},
+                {"$set": {"session_id": str(session_id), "tenant_id": resolve_tenant_id(tenant_id)}},
             )
         except Exception as exc:
             log_print(f"[session_persistence] rekey execution_runs_v3 failed: {exc}", flush=True)
@@ -594,10 +594,10 @@ class SessionPersistenceService:
             oid = ObjectId(str(session_id))
         except Exception as exc:
             raise ValueError("Invalid session id") from exc
-        mid = resolve_main_id(tenant_id)
+        mid = resolve_tenant_id(tenant_id)
 
         session_doc = await db.chat_sessions.find_one(
-            add_main_scope({"_id": oid, "user_id": str(user_id)}, mid)
+            add_tenant_scope({"_id": oid, "user_id": str(user_id)}, mid)
         )
         if not session_doc:
             raise LookupError("Session not found")
@@ -607,7 +607,7 @@ class SessionPersistenceService:
 
         now = datetime.now(tz=timezone.utc)
         await db.chat_sessions.update_one(
-            add_main_scope({"_id": oid, "user_id": str(user_id)}, mid),
+            add_tenant_scope({"_id": oid, "user_id": str(user_id)}, mid),
             {"$set": {"ended_at": now, "end_reason": str(reason or "user_ended")}},
         )
         session_doc["ended_at"] = now

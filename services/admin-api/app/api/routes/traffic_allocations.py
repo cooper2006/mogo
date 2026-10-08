@@ -53,7 +53,7 @@ class UserPolicyPayload(BaseModel):
     reason: str = Field(default="", max_length=200)
 
 
-def _main_id(current_user: dict[str, Any]) -> str:
+def _tenant_id(current_user: dict[str, Any]) -> str:
     return str(current_user.get("tenant_id") or "default")
 
 
@@ -81,7 +81,7 @@ async def _department_maps(tenant_id: str) -> tuple[dict[str, str], dict[str, st
 
 @router.get("/overview")
 async def get_traffic_allocation_overview(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     org = await db[ORG_COLLECTION].find_one({"tenant_id": tenant_id}) or {}
     org_policy = await ensure_org_quota_policy(tenant_id, org_total_points=int(org.get("total_points") or 0))
@@ -137,7 +137,7 @@ async def get_traffic_allocation_overview(current_user: dict[str, Any] = Depends
 
 @router.put("/org-policy")
 async def update_org_quota_policy(payload: OrgQuotaPayload, current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     now = utc_now()
     db = get_db()
     existing = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id})
@@ -177,7 +177,7 @@ async def update_org_quota_policy(payload: OrgQuotaPayload, current_user: dict[s
 
 @router.put("/default-policy")
 async def update_default_user_policy(payload: DefaultPolicyPayload, current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     now = utc_now()
     db = get_db()
     
@@ -242,7 +242,7 @@ async def list_user_allocations(
     keyword: str = Query(default=""),
     statusFilter: str = Query(default=""),
 ) -> list[dict[str, Any]]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     query: dict[str, Any] = {"tenant_id": tenant_id}
     if statusFilter:
@@ -283,7 +283,7 @@ async def update_user_policy(
     payload: UserPolicyPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     if payload.userId != user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户ID不一致")
     db = get_db()
@@ -345,7 +345,7 @@ async def list_allocation_logs(
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=20, ge=1, le=100),
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     query = {"tenant_id": tenant_id}
     skip = (page - 1) * pageSize

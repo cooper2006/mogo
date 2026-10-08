@@ -15,7 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 
 from app.api.deps import get_current_platform_admin
 from app.core.db import get_db
-from app.core.tenant_identity import PLATFORM_MAIN_ID
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 from app.repositories.org_user_repository import set_account_password
 from app.services import tenant_lifecycle, tenant_purge
 from app.services.tenant_provisioning import ProvisionResult, provision_tenant
@@ -28,7 +28,7 @@ __all__ = ["router"]
 
 
 def _actor(platform_admin: dict) -> str:
-    return str(platform_admin.get("username") or PLATFORM_MAIN_ID)
+    return str(platform_admin.get("username") or PLATFORM_TENANT_ID)
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +258,7 @@ async def platform_me(platform_admin: dict = Depends(get_current_platform_admin)
     return {
         "username": str(platform_admin.get("username") or ""),
         "displayName": str(platform_admin.get("display_name") or platform_admin.get("username") or ""),
-        "mainId": PLATFORM_MAIN_ID,
+        "tenantId": PLATFORM_TENANT_ID,
     }
 
 

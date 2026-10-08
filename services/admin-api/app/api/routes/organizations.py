@@ -36,7 +36,7 @@ def _as_time(value: datetime | None) -> str:
 def _format_group(doc: dict) -> dict[str, object]:
     return {
         "id": str(doc["_id"]),
-        "mainId": doc.get("tenant_id", ""),
+        "tenantId": doc.get("tenant_id", ""),
         "name": doc.get("name", ""),
         "code": doc.get("code", ""),
         "description": doc.get("description", ""),
@@ -49,7 +49,7 @@ def _format_account(doc: dict, group_name_map: dict[str, str]) -> dict[str, obje
     group_code = doc.get("group_code", "")
     return {
         "id": str(doc["_id"]),
-        "mainId": doc.get("tenant_id", ""),
+        "tenantId": doc.get("tenant_id", ""),
         "username": doc.get("username", ""),
         "displayName": doc.get("display_name", ""),
         "email": doc.get("email", ""),
@@ -277,7 +277,7 @@ async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) 
     return {
         "code": 0,
         "data": {
-            "mainId": org.get("tenant_id"),
+            "tenantId": org.get("tenant_id"),
             "orgName": org.get("org_name"),
             "edition": "community" if is_community_organization(org) else str(org.get("edition") or "cloud"),
             "tier": org.get("tier", "free"),

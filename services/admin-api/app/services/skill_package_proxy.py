@@ -26,7 +26,7 @@ def install_organization_skill_zip(*, tenant_id: str, filename: str, content: by
         f"\r\n--{boundary}--\r\n".encode(),
     ])
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
-    query = urllib.parse.urlencode({"mainId": tenant_id})
+    query = urllib.parse.urlencode({"tenantId": tenant_id})
     request = urllib.request.Request(
         f"{base_url}/api/organization-skills/install-zip?{query}",
         data=body,

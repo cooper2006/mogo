@@ -6,7 +6,7 @@ from typing import Any
 from bson import ObjectId
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.services.member_identity import masked_account_identifier, public_display_name
 
 from .service import SkillShareError
@@ -55,7 +55,7 @@ class SkillShareMemberDirectory:
                 {"name": prefix}, {"login_name": normalized_prefix},
                 {"email": normalized_prefix}, {"mobile": prefix},
             ]})
-        query = add_main_scope({"$and": clauses}, resolve_main_id(tenant_id))
+        query = add_tenant_scope({"$and": clauses}, resolve_tenant_id(tenant_id))
         rows = await db.end_users.find(
             query,
             {"name": 1, "login_name": 1, "email": 1},
@@ -76,7 +76,7 @@ class SkillShareMemberDirectory:
             raise SkillShareError("skill_share_too_many_recipients", "At most 100 recipients may be selected")
         if str(requester_user_id) in unique_ids:
             raise SkillShareError("skill_share_self_recipient", "A Skill cannot be shared with its owner")
-        rows = await get_db().end_users.find(add_main_scope({
+        rows = await get_db().end_users.find(add_tenant_scope({
             "_id": {"$in": member_id_candidates(unique_ids)}, "status": "active",
         }, tenant_id), {"name": 1, "login_name": 1, "email": 1}).to_list(length=len(unique_ids) + 1)
         by_id = {str(row.get("_id") or ""): row for row in rows}

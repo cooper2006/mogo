@@ -5,7 +5,7 @@ import uuid
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.services.member_identity import public_display_name, public_identity
 
 from .access import FeedbackAccessResolver, FeedbackSubject
@@ -39,7 +39,7 @@ class ResourceFeedbackService:
     async def list(self, *, tenant_id: str, user_id: str, resource_type: str, resource_id: str, limit: int = 30, cursor: str = "", release_id: str = "", release_version: int | None = None) -> dict[str, Any]:
         subject = await self._subject(tenant_id, user_id, resource_type, resource_id)
         db = get_db()
-        query = self._query(resolve_main_id(tenant_id), subject)
+        query = self._query(resolve_tenant_id(tenant_id), subject)
         page_size = min(max(limit, 1), 100)
         comment_query: dict[str, Any] = {**query, "status": "active"}
         # 004 FR-4: optional release-scoped view (per-release feedback pool).
@@ -56,7 +56,7 @@ class ResourceFeedbackService:
         comment_count = await db[COMMENT_COLLECTION].count_documents({**query, "status": "active"})
         comment_ids = [str(row.get("_id") or "") for row in rows]
         comment_reactions = await db[COMMENT_REACTION_COLLECTION].find({
-            "tenant_id": resolve_main_id(tenant_id), "comment_id": {"$in": comment_ids}, "reaction": "like",
+            "tenant_id": resolve_tenant_id(tenant_id), "comment_id": {"$in": comment_ids}, "reaction": "like",
         }).to_list(length=max(len(comment_ids) * 1000, 1)) if comment_ids else []
         like_counts: dict[str, int] = {}
         liked_by_me: set[str] = set()
@@ -94,7 +94,7 @@ class ResourceFeedbackService:
             raise ResourceFeedbackError("feedback_content_required", "Comment content is required")
         if len(text) > 2000:
             raise ResourceFeedbackError("feedback_content_too_long", "Comment content is too long")
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         parent = None
         if parent_id:
             parent = await db[COMMENT_COLLECTION].find_one({"_id": parent_id, **self._query(tenant_id, subject), "status": "active"})
@@ -136,7 +136,7 @@ class ResourceFeedbackService:
 
     async def delete_comment(self, *, tenant_id: str, user_id: str, comment_id: str) -> None:
         db = get_db()
-        row = await db[COMMENT_COLLECTION].find_one({"_id": comment_id, "tenant_id": resolve_main_id(tenant_id), "status": "active"})
+        row = await db[COMMENT_COLLECTION].find_one({"_id": comment_id, "tenant_id": resolve_tenant_id(tenant_id), "status": "active"})
         if row is None:
             raise ResourceFeedbackError("feedback_comment_not_found", "Comment not found", 404)
         await self._subject(tenant_id, user_id, str(row.get("resource_type") or ""), str(row.get("resource_id") or ""))
@@ -146,7 +146,7 @@ class ResourceFeedbackService:
 
     async def toggle_like(self, *, tenant_id: str, user_id: str, resource_type: str, resource_id: str) -> dict[str, Any]:
         subject = await self._subject(tenant_id, user_id, resource_type, resource_id)
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         query = {**self._query(tenant_id, subject), "user_id": str(user_id), "reaction": "like"}
         current = await db[REACTION_COLLECTION].find_one(query)
         if current:
@@ -166,7 +166,7 @@ class ResourceFeedbackService:
         return {"likedByMe": liked, "likes": count}
 
     async def toggle_comment_like(self, *, tenant_id: str, user_id: str, comment_id: str) -> dict[str, Any]:
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         comment = await db[COMMENT_COLLECTION].find_one({"_id": comment_id, "tenant_id": tenant_id, "status": "active"})
         if comment is None:
             raise ResourceFeedbackError("feedback_comment_not_found", "Comment not found", 404)
@@ -194,14 +194,14 @@ class ResourceFeedbackService:
 
     async def unread_count(self, *, tenant_id: str, user_id: str, resource_types: list[str] | None = None) -> int:
         query: dict[str, Any] = {
-            "tenant_id": resolve_main_id(tenant_id), "recipient_user_id": str(user_id), "status": "unread",
+            "tenant_id": resolve_tenant_id(tenant_id), "recipient_user_id": str(user_id), "status": "unread",
         }
         if resource_types:
             query["resource_type"] = {"$in": list(resource_types)}
         return await get_db()[NOTIFICATION_COLLECTION].count_documents(query)
 
     async def notifications(self, *, tenant_id: str, user_id: str, limit: int = 20) -> dict[str, Any]:
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         query = {"tenant_id": tenant_id, "recipient_user_id": str(user_id), "status": "unread"}
         rows = await db[NOTIFICATION_COLLECTION].find(query).sort("created_at", -1).limit(min(max(limit, 1), 50)).to_list(length=min(max(limit, 1), 50))
         items = []

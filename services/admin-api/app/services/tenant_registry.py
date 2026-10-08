@@ -18,14 +18,14 @@ from uuid import uuid4
 from pymongo import ReturnDocument
 
 from app.core.db import get_db
-from app.core.tenant_identity import DEFAULT_MAIN_ID, PLATFORM_MAIN_ID
+from app.core.tenant_identity import DEFAULT_TENANT_ID, PLATFORM_TENANT_ID
 
 logger = logging.getLogger(__name__)
 
 TENANT_COLLECTION = "tenants"
 
 # Identifiers that are not real tenants and must never be registered.
-RESERVED_MAIN_IDS = (PLATFORM_MAIN_ID, DEFAULT_MAIN_ID, "", None)
+RESERVED_TENANT_IDS = (PLATFORM_TENANT_ID, DEFAULT_TENANT_ID, "", None)
 
 
 async def is_tenant_active(tenant_id: str) -> bool:
@@ -35,7 +35,7 @@ async def is_tenant_active(tenant_id: str) -> bool:
     *no* row is grandfathered in: a deployment that has not run the 020
     migration yet has an empty ``tenants`` collection, and failing closed there
     would lock every employee out. This mirrors
-    ``chat-api/app/services/end_user_tenant_access._selectable_tenant_main_ids``
+    ``chat-api/app/services/end_user_tenant_access._selectable_tenant_ids``
     — both sides must agree, otherwise one service lets in what the other
     rejects.
     """
@@ -71,7 +71,7 @@ async def ensure_tenant_record(
     member_limit: int | None = None,
     created_by: str = "setup-wizard",
 ) -> dict[str, Any]:
-    """Idempotently upsert a tenant registry row keyed by ``main_id``.
+    """Idempotently upsert a tenant registry row keyed by ``tenant_id``.
 
     ``status`` / ``created_by`` / ``created_at`` are only set on insert, so a
     re-provision or the backfill never clobbers an existing lifecycle state.
@@ -82,7 +82,7 @@ async def ensure_tenant_record(
         {"tenant_id": tenant_id},
         {
             "$set": {
-                # Phase 1 dual-write: canonical tenant_id + legacy main_id.
+                # Phase 1 dual-write: canonical tenant_id + legacy tenant_id.
                 "tenant_id": tenant_id,
                 "name": name,
                 "edition": edition,
@@ -104,10 +104,10 @@ async def ensure_tenant_record(
 
 
 async def backfill_tenants_from_accounts() -> int:
-    """幂等回填：把既有 ``admin_accounts`` 里的 ``main_id`` 登记到 ``tenants``。
+    """幂等回填：把既有 ``admin_accounts`` 里的 ``tenant_id`` 登记到 ``tenants``。
 
     排除保留标识（``__platform__`` / ``default`` / 空）。可重复运行：已存在的
-    ``main_id`` 不会重复登记，也不覆盖其生命周期状态。
+    ``tenant_id`` 不会重复登记，也不覆盖其生命周期状态。
 
     Returns the number of newly registered tenants.
     """
@@ -119,11 +119,11 @@ async def backfill_tenants_from_accounts() -> int:
         if row.get("tenant_id")
     }
 
-    distinct_ids = await db["admin_accounts"].distinct("main_id")
+    distinct_ids = await db["admin_accounts"].distinct("tenant_id")
 
     registered = 0
     for tenant_id in distinct_ids:
-        if tenant_id in RESERVED_MAIN_IDS or tenant_id in existing_ids:
+        if tenant_id in RESERVED_TENANT_IDS or tenant_id in existing_ids:
             continue
 
         admin = (

@@ -19,7 +19,7 @@ const tenants = ref<RegisterableTenant[]>([])
 const tenantsLoaded = ref(false)
 const tenantsError = ref('')
 
-const selectedMainId = ref('')
+const selectedTenantId = ref('')
 const departments = ref<RegisterableDepartment[]>([])
 const departmentsLoaded = ref(false)
 const selectedDepartmentId = ref('')
@@ -34,7 +34,7 @@ const isSubmitting = ref(false)
 // When only one enterprise tenant exists, hide the selector and auto-select it.
 const singleTenant = computed(() => tenants.value.length === 1)
 const showTenantSelector = computed(() => tenants.value.length > 1)
-const activeMainId = computed(() => singleTenant.value ? tenants.value[0].tenantId : selectedMainId.value)
+const activeTenantId = computed(() => singleTenant.value ? tenants.value[0].tenantId : selectedTenantId.value)
 
 async function loadTenants() {
   tenantsLoaded.value = false
@@ -48,7 +48,7 @@ async function loadTenants() {
   }
   tenantsLoaded.value = true
   if (singleTenant.value) {
-    selectedMainId.value = tenants.value[0].tenantId
+    selectedTenantId.value = tenants.value[0].tenantId
   }
 }
 
@@ -67,7 +67,7 @@ async function loadDepartments(tenantId: string) {
 onMounted(loadTenants)
 
 // Reload departments whenever the effective tenant changes.
-watch(activeMainId, (tenantId) => {
+watch(activeTenantId, (tenantId) => {
   if (tenantId) loadDepartments(tenantId)
 })
 
@@ -76,7 +76,7 @@ function resetError() {
 }
 
 function validate(): boolean {
-  if (!singleTenant.value && !selectedMainId.value) {
+  if (!singleTenant.value && !selectedTenantId.value) {
     errorMessage.value = t('login.register_no_tenant')
     return false
   }
@@ -106,7 +106,7 @@ async function submit() {
   if (!validate()) return
 
   isSubmitting.value = true
-  const tenantId = activeMainId.value
+  const tenantId = activeTenantId.value
   const result = await register(
     tenantId,
     email.value.trim().toLowerCase(),
@@ -138,7 +138,7 @@ async function submit() {
       <label for="movo-register-tenant" class="text-sm font-medium text-slate-700">{{ t('login.register_org_label') }}</label>
       <select
         id="movo-register-tenant"
-        v-model="selectedMainId"
+        v-model="selectedTenantId"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         @change="resetError"
       >

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.token_usage.status import REQUEST_STATUS_VALUES, normalize_request_status
 
 
@@ -54,7 +54,7 @@ class TokenUsageService:
                     "$group": {
                         "_id": group_id,
                         "request_id": {"$first": "$request_id"},
-                        "tenant_id": {"$first": "$main_id"},
+                        "tenant_id": {"$first": "$tenant_id"},
                         "user_id": {"$first": "$user_id"},
                         "session_id": {"$first": "$session_id"},
                         "trace_id": {"$first": "$trace_id"},
@@ -124,7 +124,7 @@ class TokenUsageService:
         }
         if str(stage or "").strip():
             base["stage"] = str(stage).strip()
-        match = add_main_scope(base, resolve_main_id(tenant_id))
+        match = add_tenant_scope(base, resolve_tenant_id(tenant_id))
         keyword = str(query or "").strip()
         if keyword:
             escaped = re.escape(keyword)
@@ -149,7 +149,7 @@ class TokenUsageService:
 
     async def _load_visible_session_ids(self, *, user_id: str, tenant_id: str | None) -> list[str]:
         db = get_db()
-        match = add_main_scope({"user_id": str(user_id or "").strip()}, resolve_main_id(tenant_id))
+        match = add_tenant_scope({"user_id": str(user_id or "").strip()}, resolve_tenant_id(tenant_id))
         rows = await db.chat_sessions.find(match, {"_id": 1}).to_list(length=5000)
         return [str(row.get("_id") or "") for row in rows if str(row.get("_id") or "").strip()]
 
@@ -163,7 +163,7 @@ class TokenUsageService:
             return {}
         db = get_db()
         assistant_rows = await db.chat_messages.find(
-            add_main_scope({"message_id": {"$in": ids}, "message_type": {"$ne": "context_summary"}}, resolve_main_id(tenant_id)),
+            add_tenant_scope({"message_id": {"$in": ids}, "message_type": {"$ne": "context_summary"}}, resolve_tenant_id(tenant_id)),
             {"message_id": 1, "session_id": 1, "seq": 1},
         ).to_list(length=len(ids))
         result: Dict[str, str] = {}
@@ -174,14 +174,14 @@ class TokenUsageService:
             if not message_id or not session_id or seq <= 0:
                 continue
             user_msg = await db.chat_messages.find_one(
-                add_main_scope(
+                add_tenant_scope(
                     {
                         "session_id": session_id,
                         "role": "user",
                         "message_type": {"$ne": "context_summary"},
                         "seq": {"$lt": seq},
                     },
-                    resolve_main_id(tenant_id),
+                    resolve_tenant_id(tenant_id),
                 ),
                 {"content": 1},
                 sort=[("seq", -1)],
@@ -197,7 +197,7 @@ class TokenUsageService:
             return {}
         db = get_db()
         docs = await db.execution_logs.find(
-            add_main_scope({"message_id": {"$in": ids}}, resolve_main_id(tenant_id)),
+            add_tenant_scope({"message_id": {"$in": ids}}, resolve_tenant_id(tenant_id)),
             {"message_id": 1, "status": 1},
         ).to_list(length=len(ids))
         return {
@@ -399,7 +399,7 @@ class TokenUsageService:
         return {
             "request_id": str(row.get("request_id") or ""),
             "user_request_id": group_id or str(row.get("user_request_id") or ""),
-            "tenant_id": resolve_main_id(row.get("tenant_id")),
+            "tenant_id": resolve_tenant_id(row.get("tenant_id")),
             "user_id": str(row.get("user_id") or ""),
             "session_id": str(row.get("session_id") or ""),
             "trace_id": str(row.get("trace_id") or ""),

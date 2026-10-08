@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 
 router = APIRouter(tags=["projects"])
@@ -44,7 +44,7 @@ def _serialize_project(doc: dict) -> dict:
 
 async def _identity(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
-    return resolve_main_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
+    return resolve_tenant_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
 
 
 @router.post("/projects", response_model=ApiResponse)

@@ -20,7 +20,7 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _main_id(current_user: dict) -> str:
+def _tenant_id(current_user: dict) -> str:
     return str(current_user.get("tenant_id", "default"))
 
 
@@ -82,7 +82,7 @@ class DirectoryMovePayload(BaseModel):
 
 @router.get("/tree")
 async def get_directory_tree(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     # 查找所有未删除的目录
@@ -155,7 +155,7 @@ async def create_directory(
     payload: DirectoryCreatePayload,
     current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     name = payload.name.strip()
@@ -216,7 +216,7 @@ async def update_directory(
     payload: DirectoryUpdatePayload,
     current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     name = payload.name.strip()
@@ -293,7 +293,7 @@ async def move_directory(
     payload: DirectoryMovePayload,
     current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     directory = await db[KNOWLEDGE_DIR_COLLECTION].find_one({
@@ -384,7 +384,7 @@ async def delete_directory(
     directory_id: str,
     current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     
     existing = await db[KNOWLEDGE_DIR_COLLECTION].find_one({

@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.services.skill_packages import SkillPackageInstaller, validate_skill_package
 
 from .exporter import SkillShareExporter
@@ -48,8 +48,8 @@ class SkillShareService:
         self, *, tenant_id: str, owner_user_id: str, skill_id: str, expires_in_days: int | None = 30,
     ) -> dict[str, Any]:
         db = get_db()
-        tenant_id = resolve_main_id(tenant_id)
-        skill = await db.user_skills.find_one(add_main_scope({
+        tenant_id = resolve_tenant_id(tenant_id)
+        skill = await db.user_skills.find_one(add_tenant_scope({
             "_id": skill_id, "user_id": str(owner_user_id),
         }, tenant_id))
         if skill is None:
@@ -170,7 +170,7 @@ class SkillShareService:
         result = await db[SHARE_COLLECTION].update_one(
             {
                 "_id": share_id,
-                "tenant_id": resolve_main_id(tenant_id),
+                "tenant_id": resolve_tenant_id(tenant_id),
                 "owner_user_id": str(owner_user_id),
                 "source_skill_id": skill_id,
                 "status": "active",
@@ -183,7 +183,7 @@ class SkillShareService:
     async def _active_share(self, *, tenant_id: str, token: str) -> dict[str, Any]:
         db = get_db()
         row = await db[SHARE_COLLECTION].find_one({
-            "tenant_id": resolve_main_id(tenant_id), "token_hash": self._token_hash(token),
+            "tenant_id": resolve_tenant_id(tenant_id), "token_hash": self._token_hash(token),
         })
         if row is None or row.get("status") != "active":
             raise SkillShareError("skill_share_unavailable", "This Skill share is unavailable", status_code=404)

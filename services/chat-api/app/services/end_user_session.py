@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.end_user_auth import parse_and_verify_session_token
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 USER_COLLECTION = "end_users"
@@ -56,9 +56,9 @@ async def resolve_session_user(authorization: str | None) -> dict:
     if not ObjectId.is_valid(user_id):
         raise HTTPException(status_code=401, detail="invalid_session_user")
 
-    tenant_id = resolve_main_id(session_doc.get("tenant_id"))
+    tenant_id = resolve_tenant_id(session_doc.get("tenant_id"))
     user_doc = await db[USER_COLLECTION].find_one(
-        add_main_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id)
+        add_tenant_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id)
     )
     if not user_doc:
         raise HTTPException(status_code=401, detail="user_not_found")

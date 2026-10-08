@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import Header, HTTPException, status
 
 from app.core.security import decode_access_token
-from app.core.tenant_identity import is_platform_main_id, is_reserved_main_id
+from app.core.tenant_identity import is_platform_tenant_id, is_reserved_tenant_id
 from app.repositories.org_user_repository import find_account_by_username
 from app.repositories.admin_session_repository import find_session
 
@@ -12,7 +12,7 @@ async def _load_authenticated_account(authorization: str | None) -> dict:
     """Decode the bearer token, verify the session and load the admin account.
 
     The tenant identifier comes **only** from the token subject — there is no
-    ``bootstrap_main_id`` fallback any more (removing it is what closes the
+    ``bootstrap_tenant_id`` fallback any more (removing it is what closes the
     cross-tenant leak). An empty identifier is a hard 401.
     """
     if not authorization or not authorization.startswith("Bearer "):
@@ -67,7 +67,7 @@ async def get_current_admin_user(authorization: str | None = Header(default=None
     (reverse guard, T022).
     """
     user = await _load_authenticated_account(authorization)
-    if is_reserved_main_id(user["tenant_id"]):
+    if is_reserved_tenant_id(user["tenant_id"]):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant context is required")
     return user
 
@@ -75,7 +75,7 @@ async def get_current_admin_user(authorization: str | None = Header(default=None
 async def get_current_platform_admin(authorization: str | None = Header(default=None)) -> dict:
     """Platform super-admin dependency: requires the reserved ``__platform__``."""
     user = await _load_authenticated_account(authorization)
-    if not is_platform_main_id(user["tenant_id"]):
+    if not is_platform_tenant_id(user["tenant_id"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Platform administrator privileges are required",

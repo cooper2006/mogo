@@ -93,7 +93,7 @@ async def _billing(db: Any, tenant_id: str, current_user: dict[str, Any]) -> dic
     # enterprise spaces use the org_quota_policies.unlimited flag.
     points_unlimited = bool(org.get("points_unlimited", True))
     return {
-        "mainId": org.get("tenant_id") or tenant_id,
+        "tenantId": org.get("tenant_id") or tenant_id,
         "orgName": org.get("org_name") or current_user.get("org_name") or "组织空间",
         "edition": "community" if is_community_organization(org) else str(org.get("edition") or "cloud"),
         "tier": org.get("tier", "free"),

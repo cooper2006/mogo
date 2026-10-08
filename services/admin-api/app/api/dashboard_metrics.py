@@ -4,7 +4,7 @@ These helpers are deliberately *pure-ish* (they take a db handle and return data
 so they can be unit-tested with a fake collection. They implement the shared
 concerns of every dimension:
 
-* tenant isolation filter (FR-7) — every query is scoped by ``main_id``;
+* tenant isolation filter (FR-7) — every query is scoped by ``tenant_id``;
 * time-window computation in **UTC** (FR-3): cross-midnight data belongs to the
   UTC day;
 * empty-tenant fallback (FR-9): metrics return 0 / ``None`` rather than raising.

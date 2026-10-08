@@ -23,7 +23,7 @@ from app.context_space.visibility import (
     check_visibility,
 )
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 class SkillTierAdapter(TierAdapter):
@@ -79,12 +79,12 @@ async def _load_skill(addr: SkillAddress, tenant_id: str) -> tuple[Optional[str]
     row: Optional[dict[str, Any]] = None
     if version:
         release = await db["skill_releases"].find_one(
-            add_main_scope({"skill_id": skill_id, "version": version}, resolve_main_id(org_id))
+            add_tenant_scope({"skill_id": skill_id, "version": version}, resolve_tenant_id(org_id))
         )
         row = release.get("snapshot") if release else None
     if row is None:
         row = await db["user_skills"].find_one(
-            add_main_scope({"_id": skill_id}, resolve_main_id(org_id))
+            add_tenant_scope({"_id": skill_id}, resolve_tenant_id(org_id))
         )
     if row is None:
         # C3 (2026-10-06 R2 遗留建议): the previous fallback queried

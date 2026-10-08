@@ -163,7 +163,7 @@ class KnowledgeSettingsPayload(BaseModel):
     index: IndexSettingsPayload = Field(default_factory=IndexSettingsPayload)
 
 
-def _main_id(current_user: dict[str, Any]) -> str:
+def _tenant_id(current_user: dict[str, Any]) -> str:
     return str(current_user.get("tenant_id") or "default")
 
 
@@ -271,7 +271,7 @@ async def get_effective_knowledge_settings(tenant_id: str, *, include_secrets: b
 
 @router.get("")
 async def get_knowledge_settings(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    doc = await get_db()[COLLECTION].find_one({"tenant_id": _main_id(current_user), "kind": "knowledge"})
+    doc = await get_db()[COLLECTION].find_one({"tenant_id": _tenant_id(current_user), "kind": "knowledge"})
     return _serialize_full_settings(doc)
 
 
@@ -280,7 +280,7 @@ async def save_knowledge_settings(
     payload: KnowledgeSettingsPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     try:
         embedding_instance = await find_instance_by_id(payload.embedding.modelInstanceId, tenant_id)
     except InvalidId as exc:
@@ -350,7 +350,7 @@ async def save_knowledge_settings(
 
 @router.get("/parse")
 async def get_parse_settings(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     if not doc:
         doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "parse"})
@@ -362,7 +362,7 @@ async def save_parse_settings(
     payload: KnowledgeParseSettingsPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     now = _now()
     doc = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "kind": "knowledge"})
     full = _serialize_full_settings(doc)

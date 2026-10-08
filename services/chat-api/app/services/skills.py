@@ -12,7 +12,7 @@ import uuid
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.core.db import get_db
 from app.services.skill_assets.publish_channels import publish_channel_registry
 from app.services.skill_assets.composite_task import parse_composite_skill
@@ -960,7 +960,7 @@ class UserSkillService:
 
     async def list_skills(self, user_id: str, tenant_id: str = "default") -> List[Dict[str, Any]]:
         db = get_db()
-        cursor = db.user_skills.find(add_main_scope({"user_id": str(user_id)}, tenant_id)).sort([("created_at", -1), ("_id", 1)])
+        cursor = db.user_skills.find(add_tenant_scope({"user_id": str(user_id)}, tenant_id)).sort([("created_at", -1), ("_id", 1)])
         skills = []
         async for doc in cursor:
             skills.append(self._serialize(doc))
@@ -968,14 +968,14 @@ class UserSkillService:
 
     async def get_skill(self, user_id: str, skill_id: str, tenant_id: str = "default") -> Optional[Dict[str, Any]]:
         db = get_db()
-        doc = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
+        doc = await db.user_skills.find_one(add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
         if not doc:
             return None
         return self._serialize(doc)
 
     async def update_skill(self, user_id: str, skill_id: str, updates: Dict[str, Any], tenant_id: str = "default") -> Optional[Dict[str, Any]]:
         db = get_db()
-        current = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
+        current = await db.user_skills.find_one(add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
         if not current:
             return None
 
@@ -1042,10 +1042,10 @@ class UserSkillService:
             updates["locally_modified"] = True
         updates["updated_at"] = datetime.datetime.now(tz=datetime.timezone.utc)
         await db.user_skills.update_one(
-            add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id),
+            add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id),
             {"$set": updates},
         )
-        doc = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
+        doc = await db.user_skills.find_one(add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
         if not doc:
             return None
         return self._serialize(doc)
@@ -1053,10 +1053,10 @@ class UserSkillService:
     async def delete_skill(self, user_id: str, skill_id: str, tenant_id: str = "default") -> bool:
         db = get_db()
         current = await db.user_skills.find_one(
-            add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id),
+            add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id),
             {"package_id": 1, "previous_package_ids": 1},
         )
-        result = await db.user_skills.delete_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
+        result = await db.user_skills.delete_one(add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
         if result.deleted_count and current:
             package_ids = [str(current.get("package_id") or ""), *[str(item) for item in current.get("previous_package_ids") or []]]
             await db.skill_packages.delete_many({"_id": {"$in": [item for item in package_ids if item]}})
@@ -1064,7 +1064,7 @@ class UserSkillService:
 
     async def set_skill_enabled(self, user_id: str, skill_id: str, enabled: bool, tenant_id: str = "default") -> Optional[Dict[str, Any]]:
         db = get_db()
-        query = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
+        query = add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
         result = await db.user_skills.update_one(query, {"$set": {
             "enabled": bool(enabled), "is_active": bool(enabled), "updated_at": datetime.datetime.now(tz=datetime.timezone.utc),
         }})
@@ -1076,7 +1076,7 @@ class UserSkillService:
     async def create_skill(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         db = get_db()
         now = datetime.datetime.now(tz=datetime.timezone.utc)
-        tenant_id = resolve_main_id(payload.get("tenant_id") or payload.get("tenantId"))
+        tenant_id = resolve_tenant_id(payload.get("tenant_id") or payload.get("tenantId"))
         explicit_role = _normalize_skill_role(payload.get("role"))
         skill_type = _normalize_skill_type(payload.get("skill_type"), role=explicit_role)
         contract_json = _normalize_contract_json(
@@ -2073,7 +2073,7 @@ class UserSkillService:
         return {
             "id": str(doc.get("_id")),
             "user_id": str(doc.get("user_id")),
-            "tenant_id": resolve_main_id(doc.get("tenant_id")),
+            "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
             "name": doc.get("name"),
             "description": doc.get("description", ""),
             "scenario": doc.get("scenario", ""),

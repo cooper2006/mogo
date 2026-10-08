@@ -6995,3 +6995,32 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **修改文件**：`services/chat-api/app/memory/lifecycle.py`、`core/tenant.py`、`api/endpoints/{auth,sessions,skills,site_profiles}.py`；`apps/user-web/src/**`、`apps/admin-web/src/**`（各约 40 文件）。
 
 **最终状态**：两项遗留均已关闭；5 个服务镜像统一为 `tenant-final` 并部署，11 容器 healthy（待 commit/push）。
+
+---
+
+## 2026-10-08 命名变体全形态复扫（PascalCase / SCREAMING_CASE 补漏）
+
+**起因**：用户要求复查——第一次批量改名只覆盖了 camelCase（`mainId`/`main_id`），漏了 `:main-id` kebab-case 属性（typecheck 抓到 1 处）。既然漏过一次，需系统性扫描**所有命名形态**。
+
+**复扫发现（此前确实遗漏）**：
+- 前端：`selectedMainId`/`activeMainId`/`resolvedMainId`（PascalCase 局部变量）**15 处**；`PLATFORM_MAIN_ID`（SCREAMING_CASE 导出常量）**5 处**。
+- 后端：`preferred_main_id`/`all_main_ids`/`config_main_id`/`resolved_main_id`/`_main_id`/`candidate_main_id`/`bootstrap_main_id`/`requested_main_id`/`used_main_id`/`own_main_id`/`request_main_id`/`rel_main_id`/`row_main_id` 等变量；`backfill_main_id`/`_next_main_id`/`_validate_main_id`/`get_for_main_id` 等函数；`RESERVED_MAIN_IDS`/`normalize_main_id`/`is_reserved_main_id`/`is_platform_main_id` 等常量与守卫函数；API 输出字段 `"mainId"`；日志占位符 `main_id=%s`；黑名单/白名单键 `main_id`。
+
+**顺带发现并修复 2 个真实 bug（引用已删字段）**：
+1. `chat-api/services/token_usage_service.py` 聚合管道 `{"tenant_id": {"$first": "$main_id"}}` → 字段已删，会恒返回 null；改 `$tenant_id`。
+2. `admin-api/api/routes/analytics.py` 同样的 `$first: "$main_id"` → 改 `$tenant_id`。
+3. 另修复 `admin-api/repositories/org_user_repository.py` 的 `backfill_main_id`——批量替换再次造成重复键（`{"tenant_id": {"$exists": False}, "tenant_id": {"$exists": False}}`）与 `$main_id` 死引用；重写为 `backfill_tenant_id`，语义为"无 tenant_id 的行补默认值"。
+
+**改动**：
+- 前端 5 文件：`selectedMainId→selectedTenantId`、`activeMainId→activeTenantId`、`resolvedMainId→resolvedTenantId`、`PLATFORM_MAIN_ID→PLATFORM_TENANT_ID`。
+- 后端 ~50 文件：变量/函数/常量统一到 `tenant_*`；`core/tenant.py` 与 `core/tenant_identity.py` 保留旧名为**兼容别名**（`resolve_main_id`、`add_main_scope`、`main_scope_filter`、`DEFAULT_MAIN_ID`、`RESERVED_MAIN_IDS`、`normalize_main_id`、`is_reserved_main_id`、`is_platform_main_id`）；`tenant_field.py`（DEPRECATED）保留历史命名不删。
+- `principal.py` 的请求字段接收列表由 `("mainId","main_id")` 改为 `("tenantId","tenant_id")`。
+
+**验证**：
+- 后端全形态代码级残留 **0**（`mainId`/`main_id`/`MAIN_ID`，排除有意保留的兼容层与注释）；1077 文件 AST **0 错误**；chat-api **666** 模块导入 0 失败、admin-api **83** 模块导入 0 失败。
+- 前端 user-web / admin-web `vue-tsc --noEmit` 均 **0 错误**；两端 `vite build` 成功。
+- 运行时：5 服务镜像 `tenant-final2` 部署，11 容器 healthy；三个后端服务日志错误数 **0**；memory decay sweep 失败数 **0**；端到端 chat-api 注册+登录 200（文档键仅 `['tenant_id']`）、admin-api 登录 200 + token。
+
+**修改文件**：`services/chat-api/app/**`、`services/admin-api/app/**`、`apps/user-web/src/**`、`apps/admin-web/src/**`（合计约 112 文件）。
+
+**最终状态**：命名变体（camelCase / snake_case / PascalCase / SCREAMING_CASE / kebab-case）已全形态统一为 `tenant*`；镜像 `tenant-final2` 部署，11 容器 healthy（待 commit/push）。

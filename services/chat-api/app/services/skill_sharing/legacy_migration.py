@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.services.skill_packages import validate_skill_package
 
 from .distribution import SkillDistributionService
@@ -23,7 +23,7 @@ class LegacySkillShareMigration:
         self._distribution = distribution or SkillDistributionService()
 
     async def migrate_owned(self, *, tenant_id: str, owner_user_id: str) -> None:
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         shares = await db.skill_shares.find({
             "tenant_id": tenant_id, "owner_user_id": str(owner_user_id), "status": "active",
         }).to_list(length=10_000)
@@ -36,7 +36,7 @@ class LegacySkillShareMigration:
                 logger.warning("legacy owned Skill share migration failed", extra={"share_id": str(share.get("_id") or ""), "error": str(exc)[:500]})
 
     async def migrate_installed(self, *, tenant_id: str, recipient_user_id: str) -> None:
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         skills = await db.user_skills.find({
             "tenant_id": tenant_id, "user_id": str(recipient_user_id),
         }).to_list(length=10_000)

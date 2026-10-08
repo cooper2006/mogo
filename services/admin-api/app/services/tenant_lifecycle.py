@@ -16,7 +16,7 @@ from fastapi import HTTPException, status
 
 from app.core.db import get_db
 from app.core.product_edition import assert_member_limit_settable
-from app.core.tenant_identity import is_reserved_main_id
+from app.core.tenant_identity import is_reserved_tenant_id
 from app.system_audit.repository import SystemAuditRepository
 from app.services.tenant_registry import TENANT_COLLECTION
 
@@ -60,9 +60,9 @@ async def record_tenant_audit(tenant_id: str, actor: str, action: str, target: s
 _record_audit = record_tenant_audit
 
 
-def _validate_main_id(tenant_id: str) -> str:
+def _validate_tenant_id(tenant_id: str) -> str:
     normalized = str(tenant_id or "").strip()
-    if not normalized or len(normalized) < 8 or is_reserved_main_id(normalized):
+    if not normalized or len(normalized) < 8 or is_reserved_tenant_id(normalized):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tenant identifier")
     return normalized
 
@@ -112,7 +112,7 @@ async def _set_quota_state(tenant: dict[str, Any], state: str) -> None:
 async def archive_tenant(tenant_id: str, *, actor: str, reason: str = "") -> dict[str, Any]:
     """Soft-archive (T039): data stays intact, login is blocked, the tenant
     stops counting toward licensing (decision 18)."""
-    normalized = _validate_main_id(tenant_id)
+    normalized = _validate_tenant_id(tenant_id)
     tenant = await _get_tenant(normalized)
     current = _status(tenant)
     if current not in ("active", "disabled"):
@@ -135,12 +135,12 @@ async def archive_tenant(tenant_id: str, *, actor: str, reason: str = "") -> dic
     await _set_quota_state(tenant, "disabled")
     await _record_audit(normalized, actor, "archive", normalized, "success", {"reason": archive_reason})
     logger.info("archived tenant %s by %s", normalized, actor)
-    return {"mainId": normalized, "status": "archived", "archivedAt": archived_at.isoformat()}
+    return {"tenantId": normalized, "status": "archived", "archivedAt": archived_at.isoformat()}
 
 
 async def restore_tenant(tenant_id: str, *, actor: str) -> dict[str, Any]:
     """Restore an archived tenant (T041): back to ``active``, data intact."""
-    normalized = _validate_main_id(tenant_id)
+    normalized = _validate_tenant_id(tenant_id)
     tenant = await _get_tenant(normalized)
     if _status(tenant) != "archived":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only archived tenants can be restored")
@@ -152,7 +152,7 @@ async def restore_tenant(tenant_id: str, *, actor: str) -> dict[str, Any]:
     )
     await _set_quota_state(tenant, "active")
     await _record_audit(normalized, actor, "restore", normalized, "success")
-    return {"mainId": normalized, "status": "active"}
+    return {"tenantId": normalized, "status": "active"}
 
 
 async def update_tenant(
@@ -169,7 +169,7 @@ async def update_tenant(
     (the wire format cannot express an absent int reliably through all
     front-end tooling, so we accept the string form as well).
     """
-    normalized = _validate_main_id(tenant_id)
+    normalized = _validate_tenant_id(tenant_id)
     tenant = await _get_tenant(normalized)
     current = _status(tenant)
 
@@ -227,7 +227,7 @@ async def tenant_view(tenant: dict[str, Any]) -> dict[str, Any]:
 
     member_limit = tenant.get("member_limit")
     return {
-        "mainId": str(tenant.get("tenant_id") or ""),
+        "tenantId": str(tenant.get("tenant_id") or ""),
         "name": str(tenant.get("name") or ""),
         "status": _status(tenant),
         "edition": str(tenant.get("edition") or "community"),

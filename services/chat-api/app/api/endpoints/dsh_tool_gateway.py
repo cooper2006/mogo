@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.config import get_settings
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.dsh_runtime.application import dsh_runtime_application
 from app.dsh_runtime.tool_gateway import ToolGatewayTokenService
 from app.enterprise_capabilities.tools import ApprovalAskRequest, ApprovalDecisionRequest, ToolExecuteRequest
@@ -110,7 +110,7 @@ async def _wait_for_disconnect(request: Request) -> None:
 
 async def _identity(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization)
-    return resolve_main_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
+    return resolve_tenant_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
 
 
 @public_router.get("")

@@ -88,7 +88,7 @@ def _format_instance(doc: dict[str, Any], provider_map: dict[str, dict[str, Any]
     )
     return {
         "id": str(doc["_id"]),
-        "mainId": doc.get("tenant_id", ""),
+        "tenantId": doc.get("tenant_id", ""),
         "providerId": provider_id,
         "providerName": provider.get("name", ""),
         "providerCode": provider.get("code", ""),

@@ -77,7 +77,7 @@ def _one_day():
 
 async def ensure_org_quota_policy(tenant_id: str, *, org_total_points: int = 0) -> dict[str, Any]:
     db = get_db()
-    # Phase 1 dual-write: match either tenant_id (canonical) or legacy main_id.
+    # Phase 1 dual-write: match either tenant_id (canonical) or legacy tenant_id.
     match_scope = {"tenant_id": tenant_id}
     policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one(match_scope)
     if policy:

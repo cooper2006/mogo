@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import Header, HTTPException, Request
 
 from app.core.config import get_settings
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.services.end_user_session import resolve_session_user
 
 
@@ -25,7 +25,7 @@ def _matches(value: str, expected: str) -> bool:
 
 async def _assert_end_user_scope(request: Request, principal: ApiPrincipal) -> None:
     claims: dict[str, str] = {}
-    for key in ("userId", "user_id", "mainId", "main_id"):
+    for key in ("userId", "user_id", "tenantId", "tenant_id"):
         value = request.query_params.get(key)
         if value:
             claims[key] = value
@@ -35,13 +35,13 @@ async def _assert_end_user_scope(request: Request, principal: ApiPrincipal) -> N
         if "application/json" in content_type:
             body = await request.json()
             if isinstance(body, dict):
-                for key in ("userId", "user_id", "mainId", "main_id"):
+                for key in ("userId", "user_id", "tenantId", "tenant_id"):
                     value = body.get(key)
                     if value:
                         claims[key] = str(value)
         elif "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
             form = await request.form()
-            for key in ("userId", "user_id", "mainId", "main_id"):
+            for key in ("userId", "user_id", "tenantId", "tenant_id"):
                 value = form.get(key)
                 if isinstance(value, str) and value:
                     claims[key] = value
@@ -53,7 +53,7 @@ async def _assert_end_user_scope(request: Request, principal: ApiPrincipal) -> N
         raise HTTPException(status_code=403, detail="user_scope_mismatch")
 
     claimed_main = claims.get("tenantId") or claims.get("tenant_id")
-    if claimed_main and resolve_main_id(claimed_main) != principal.tenant_id:
+    if claimed_main and resolve_tenant_id(claimed_main) != principal.tenant_id:
         raise HTTPException(status_code=403, detail="tenant_scope_mismatch")
 
 
@@ -65,7 +65,7 @@ async def require_api_principal(
     settings = get_settings()
     expected_service_token = str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")
     if _matches(service_token, expected_service_token):
-        tenant_id = resolve_main_id(
+        tenant_id = resolve_tenant_id(
             request.query_params.get("tenantId") or request.query_params.get("tenant_id")
         )
         return ApiPrincipal(kind="admin_service", tenant_id=tenant_id)
@@ -73,7 +73,7 @@ async def require_api_principal(
     resolved = await resolve_session_user(authorization)
     principal = ApiPrincipal(
         kind="end_user",
-        tenant_id=resolve_main_id(resolved["tenant_id"]),
+        tenant_id=resolve_tenant_id(resolved["tenant_id"]),
         user_id=str(resolved["user"].get("_id") or ""),
     )
     await _assert_end_user_scope(request, principal)
@@ -87,7 +87,7 @@ async def require_end_user_principal(
     resolved = await resolve_session_user(authorization)
     principal = ApiPrincipal(
         kind="end_user",
-        tenant_id=resolve_main_id(resolved["tenant_id"]),
+        tenant_id=resolve_tenant_id(resolved["tenant_id"]),
         user_id=str(resolved["user"].get("_id") or ""),
     )
     await _assert_end_user_scope(request, principal)

@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ class SkillFeedbackSummaryService:
                 skill["feedback"] = self._empty()
             return
         try:
-            await self._attach(tenant_id=resolve_main_id(tenant_id), user_id=str(user_id), skills=skills, candidates=candidates, channel_ids=channel_ids)
+            await self._attach(tenant_id=resolve_tenant_id(tenant_id), user_id=str(user_id), skills=skills, candidates=candidates, channel_ids=channel_ids)
         except Exception as exc:
             logger.warning("Skill feedback summaries unavailable", extra={"error": str(exc)[:500]})
             for skill in skills:

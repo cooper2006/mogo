@@ -37,8 +37,8 @@ def _require_service(token: str) -> None:
         raise HTTPException(status_code=401, detail="invalid_service_token")
 
 
-def _main_id(payload_key: str, query_main_id: str) -> str:
-    return str(query_main_id or payload_key or "").strip()
+def _tenant_id(payload_key: str, query_tenant_id: str) -> str:
+    return str(query_tenant_id or payload_key or "").strip()
 
 
 @router.get("/usage")
@@ -52,7 +52,7 @@ async def monitor_usage(
     """FR-1: skill usage monitoring (volume / success-rate / error-rate series)."""
     _require_service(service_token)
     if not tenant_id:
-        raise HTTPException(status_code=400, detail="main_id is required")
+        raise HTTPException(status_code=400, detail="tenant_id is required")
     try:
         db = get_db()
         result = await skill_usage_monitor(
@@ -78,7 +78,7 @@ async def monitor_anomaly_drilldown(
     """FR-2: drill down one anomalous day (buckets + underlying skill events)."""
     _require_service(service_token)
     if not tenant_id or not skill_key:
-        raise HTTPException(status_code=400, detail="main_id and skill_key are required")
+        raise HTTPException(status_code=400, detail="tenant_id and skill_key are required")
     try:
         date.fromisoformat(day)
     except ValueError:

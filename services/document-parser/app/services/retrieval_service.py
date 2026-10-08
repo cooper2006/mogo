@@ -107,7 +107,7 @@ def _filter_active_documents(
 
 
 def _effective_config(tenant_id: str) -> dict[str, Any]:
-    # Phase 1: match either the legacy main_id or the canonical tenant_id.
+    # Phase 1: match either the legacy tenant_id or the canonical tenant_id.
     doc = get_db()[SETTINGS_COLLECTION].find_one({
         "tenant_id": tenant_id,
         "kind": "knowledge",

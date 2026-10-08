@@ -12,7 +12,7 @@ import yaml
 from app.services.workflow_browser_node import browser_node_capability
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -611,7 +611,7 @@ def _base_payload(
     return {
         "id": f"org_skill:{org_id}",
         "user_id": "organization",
-        "tenant_id": resolve_main_id(doc.get("tenant_id")),
+        "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
         "name": name,
         "description": description,
         "summary": description or scenario,
@@ -798,7 +798,7 @@ def _adapt_ordinary(doc: Dict[str, Any]) -> Dict[str, Any] | None:
 class OrganizationSkillAdapter:
     async def list_runtime_skills(self, *, tenant_id: str) -> List[Dict[str, Any]]:
         db = get_db()
-        query = add_main_scope({}, tenant_id)
+        query = add_tenant_scope({}, tenant_id)
         cursor = db.skills.find(query).sort("updated_at", -1)
         out: List[Dict[str, Any]] = []
         async for doc in cursor:

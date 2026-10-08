@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.services.session_versioning.co_presence import CoPresence
 from app.services.session_versioning.share import SHARE_TTL_SECONDS, ShareError, ShareStore
 from app.services.skill_sharing.member_directory import (
@@ -154,7 +154,7 @@ async def _record_session_audit(
 
 async def _authorize(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
-    tenant_id = resolve_main_id(resolved["tenant_id"])
+    tenant_id = resolve_tenant_id(resolved["tenant_id"])
     user_id = str(resolved["user"].get("_id") or "")
     return tenant_id, user_id
 
@@ -188,10 +188,10 @@ async def commit_session(
     content_source = payload.content
     if not content_source:
         try:
-            from app.core.tenant import add_main_scope, resolve_main_id
+            from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
             rows = await db.chat_messages.find(
-                add_main_scope({"session_id": session_id}, resolve_main_id(tenant_id))
+                add_tenant_scope({"session_id": session_id}, resolve_tenant_id(tenant_id))
             ).sort("seq", 1).to_list(length=200)
             content_source = "\n".join(
                 f"{row.get('role') or ''}: {row.get('content') or ''}"
@@ -380,7 +380,7 @@ async def revoke_share(
     share_id: str,
     authorization: str | None = Header(default=None),
 ):
-    # ``_authorize`` returns ``(main_id, user_id)``; the audit call below needs
+    # ``_authorize`` returns ``(tenant_id, user_id)``; the audit call below needs
     # both. Discarding user_id made this endpoint raise NameError on every call.
     tenant_id, user_id = await _authorize(authorization)
     db = get_db()
@@ -423,7 +423,7 @@ async def dereference_secret(
         raise HTTPException(status_code=404, detail="Secret placeholder not found")
 
     # FR-8 role check: owner (creator of the ref) or full-access admin.
-    from app.core.tenant import resolve_main_id
+    from app.core.tenant import resolve_tenant_id
 
     owner = str(row.get("created_by") or "")
     is_owner = bool(owner) and owner == user_id
@@ -447,10 +447,10 @@ async def _user_has_full_access(db, tenant_id: str, user_id: str) -> bool:
     """Whether the user holds the tenant's full-access preset role (006)."""
     if not tenant_id or not user_id:
         return False
-    from app.core.tenant import add_main_scope
+    from app.core.tenant import add_tenant_scope
 
     cursor = db["end_user_position_roles"].find(
-        add_main_scope({"user_id": user_id, "role_id": f"system:{tenant_id}:full_access_admin"}, tenant_id)
+        add_tenant_scope({"user_id": user_id, "role_id": f"system:{tenant_id}:full_access_admin"}, tenant_id)
     )
     row = await cursor.to_list(length=1)
     return bool(row)
@@ -513,10 +513,10 @@ async def _resolve_online_members(
     """
     if not online_user_ids:
         return []
-    from app.core.tenant import add_main_scope
+    from app.core.tenant import add_tenant_scope
 
     cursor = db["end_users"].find(
-        add_main_scope(
+        add_tenant_scope(
             {"_id": {"$in": member_id_candidates(online_user_ids)},
              "status": "active"},
             tenant_id,

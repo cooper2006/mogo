@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.config import get_settings
 from app.core.quota_policy import QuotaExceededError, assert_quota_available
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.dsh_runtime.application import dsh_runtime_application
 from app.dsh_runtime.chat_service import ConversationBusyError
 from app.dsh_runtime.errors import DshRuntimeError
@@ -149,7 +149,7 @@ def _latest_user(request: ChatRequest) -> Message:
 async def _identity(authorization: str | None) -> tuple[str, str, dict[str, Any]]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
     user = resolved["user"]
-    return resolve_main_id(resolved["tenant_id"]), str(user.get("_id") or ""), user
+    return resolve_tenant_id(resolved["tenant_id"]), str(user.get("_id") or ""), user
 
 
 @router.post("/chat/completions")

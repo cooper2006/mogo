@@ -14,7 +14,7 @@ import httpx
 
 from app.api.time_utils import utc_iso
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
 from app.services.external_tool_limits import MCP_ENABLED_TOOL_LIMIT, enabled_mcp_tool_names, validate_mcp_activation
@@ -91,7 +91,7 @@ def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
         scope = "organization"
     return {
         "id": str(doc.get("_id") or ""),
-        "mainId": resolve_main_id(doc.get("tenant_id")),
+        "tenantId": resolve_tenant_id(doc.get("tenant_id")),
         "scope": scope,
         "ownerUserId": str(doc.get("owner_user_id") or ""),
         "name": str(doc.get("name") or ""),
@@ -177,7 +177,7 @@ class ExternalToolService:
             query["owner_user_id"] = str(owner_user_id or "").strip()
         else:
             query["$or"] = [{"scope": "organization"}, {"scope": {"$exists": False}}, {"scope": ""}]
-        cursor = db.external_tools.find(add_main_scope(query, tenant_id)).sort("updated_at", -1)
+        cursor = db.external_tools.find(add_tenant_scope(query, tenant_id)).sort("updated_at", -1)
         return [_serialize(doc) async for doc in cursor]
 
     async def list_visible(self, tenant_id: str = "default", *, user_id: str = "", enabled_only: bool = False) -> List[Dict[str, Any]]:
@@ -213,7 +213,7 @@ class ExternalToolService:
             pass
         else:
             query["$or"] = [{"scope": "organization"}, {"scope": {"$exists": False}}, {"scope": ""}]
-        doc = await db.external_tools.find_one(add_main_scope(query, tenant_id))
+        doc = await db.external_tools.find_one(add_tenant_scope(query, tenant_id))
         return _serialize(doc) if doc else None
 
     async def create(
@@ -229,7 +229,7 @@ class ExternalToolService:
         normalized_scope = "user" if str(scope or "").strip().lower() == "user" else "organization"
         doc = {
             "_id": uuid.uuid4().hex,
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "scope": normalized_scope,
             "owner_user_id": str(owner_user_id or "").strip() if normalized_scope == "user" else "",
             **_normalize_payload(payload),
@@ -272,7 +272,7 @@ class ExternalToolService:
             query.update({"scope": "user", "owner_user_id": str(owner_user_id or "").strip()})
         else:
             query["$or"] = [{"scope": "organization"}, {"scope": {"$exists": False}}, {"scope": ""}]
-        result = await db.external_tools.update_one(add_main_scope(query, tenant_id), {"$set": patch})
+        result = await db.external_tools.update_one(add_tenant_scope(query, tenant_id), {"$set": patch})
         if not result.matched_count:
             return None
         return await self.get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
@@ -291,7 +291,7 @@ class ExternalToolService:
             query.update({"scope": "user", "owner_user_id": str(owner_user_id or "").strip()})
         else:
             query["$or"] = [{"scope": "organization"}, {"scope": {"$exists": False}}, {"scope": ""}]
-        result = await db.external_tools.delete_one(add_main_scope(query, tenant_id))
+        result = await db.external_tools.delete_one(add_tenant_scope(query, tenant_id))
         return bool(result.deleted_count)
 
     async def test(
@@ -307,7 +307,7 @@ class ExternalToolService:
         if not tool:
             raise ValueError("工具连接不存在")
         logger.info(
-            "external_tool_test_received tool_id=%s main_id=%s tool_type=%s tool_name=%s config=%s test_input=%s",
+            "external_tool_test_received tool_id=%s tenant_id=%s tool_type=%s tool_name=%s config=%s test_input=%s",
             tool_id,
             tenant_id,
             tool.get("type"),
@@ -362,7 +362,7 @@ class ExternalToolService:
             normalized = _normalize_payload(payload)
             tool = {
                 "id": "draft",
-                "mainId": resolve_main_id(tenant_id),
+                "tenantId": resolve_tenant_id(tenant_id),
                 "name": normalized.get("name") or "未保存工具",
                 "type": normalized.get("type") or "http",
                 "description": normalized.get("description") or "",
@@ -373,7 +373,7 @@ class ExternalToolService:
                 "discoveredTools": [],
             }
             logger.info(
-                "external_tool_draft_test_received main_id=%s tool_type=%s tool_name=%s config=%s test_input=%s",
+                "external_tool_draft_test_received tenant_id=%s tool_type=%s tool_name=%s config=%s test_input=%s",
                 tenant_id,
                 tool.get("type"),
                 tool.get("name"),
@@ -439,7 +439,7 @@ class ExternalToolService:
         if len(normalized) > MCP_ENABLED_TOOL_LIMIT:
             update_fields["status"] = "disabled"
         await db.external_tools.update_one(
-            add_main_scope(
+            add_tenant_scope(
                 {"_id": str(tool_id), **({"scope": "user", "owner_user_id": str(owner_user_id or "").strip()} if str(scope or "organization").strip().lower() == "user" else {})},
                 tenant_id,
             ),
@@ -475,7 +475,7 @@ class ExternalToolService:
             raise ValueError("工具类型不匹配")
         args = _safe_dict(arguments)
         logger.info(
-            "external_tool_runtime_execute_received main_id=%s tool_id=%s provider_type=%s tool_type=%s tool_name=%s mcp_tool_name=%s arg_keys=%s",
+            "external_tool_runtime_execute_received tenant_id=%s tool_id=%s provider_type=%s tool_type=%s tool_name=%s mcp_tool_name=%s arg_keys=%s",
             tenant_id,
             external_tool_id,
             provider_type,
@@ -501,16 +501,16 @@ class ExternalToolService:
                 "tools/call",
                 {"name": tool_name, "arguments": args},
                 runtime_headers={
-                    "X-MOVO-Main-ID": resolve_main_id(tenant_id),
+                    "X-MOVO-Main-ID": resolve_tenant_id(tenant_id),
                     "X-MOVO-User-ID": str(actor_user_id or "").strip(),
-                    "X-AskAI-Main-ID": resolve_main_id(tenant_id),
+                    "X-AskAI-Main-ID": resolve_tenant_id(tenant_id),
                     "X-AskAI-User-ID": str(actor_user_id or "").strip(),
                 },
             )
             outcome = build_mcp_call_outcome(tool_name, result)
             outcome["durationMs"] = int((time.monotonic() - started) * 1000)
             logger.info(
-                "external_tool_runtime_execute_result main_id=%s tool_id=%s provider_type=mcp mcp_tool_name=%s success=%s duration_ms=%s",
+                "external_tool_runtime_execute_result tenant_id=%s tool_id=%s provider_type=mcp mcp_tool_name=%s success=%s duration_ms=%s",
                 tenant_id,
                 external_tool_id,
                 tool_name,
@@ -522,7 +522,7 @@ class ExternalToolService:
         result = await self._test_http(tool, resolved_input)
         result["durationMs"] = int((time.monotonic() - started) * 1000)
         logger.info(
-            "external_tool_runtime_execute_result main_id=%s tool_id=%s provider_type=http success=%s message=%s duration_ms=%s",
+            "external_tool_runtime_execute_result tenant_id=%s tool_id=%s provider_type=http success=%s message=%s duration_ms=%s",
             tenant_id,
             external_tool_id,
             bool(result.get("success")),
@@ -578,7 +578,7 @@ class ExternalToolService:
     async def _record_test(self, tool_id: str, tenant_id: str, status: str, message: str) -> None:
         db = get_db()
         await db.external_tools.update_one(
-            add_main_scope({"_id": str(tool_id)}, tenant_id),
+            add_tenant_scope({"_id": str(tool_id)}, tenant_id),
             {
                 "$set": {
                     "last_test_status": status,
@@ -992,7 +992,7 @@ class ExternalToolRegistry:
                 enabled = enabled_mcp_tool_names(config)
                 if not enabled or len(enabled) > MCP_ENABLED_TOOL_LIMIT:
                     logger.warning(
-                        "external_tool_registry_skip_mcp main_id=%s tool_id=%s enabled_tool_count=%s",
+                        "external_tool_registry_skip_mcp tenant_id=%s tool_id=%s enabled_tool_count=%s",
                         tenant_id,
                         tool.get("id"),
                         len(enabled),

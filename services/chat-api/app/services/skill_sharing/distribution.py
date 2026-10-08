@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 from .exporter import ShareSnapshot, SkillShareExporter
 
@@ -29,7 +29,7 @@ class SkillDistributionService:
         self, *, tenant_id: str, owner_user_id: str, source_skill_id: str,
     ) -> dict[str, Any]:
         db = get_db()
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         query = {
             "tenant_id": tenant_id,
             "owner_user_id": str(owner_user_id),
@@ -96,7 +96,7 @@ class SkillDistributionService:
         release_notes: str = "",
     ) -> dict[str, Any] | None:
         db = get_db()
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         distribution = await db[DISTRIBUTION_COLLECTION].find_one({
             "tenant_id": tenant_id,
             "owner_user_id": str(owner_user_id),
@@ -155,7 +155,7 @@ class SkillDistributionService:
     async def list_updates(self, *, tenant_id: str, recipient_user_id: str, limit: int = 50) -> dict[str, Any]:
         db = get_db()
         query = {
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "recipient_user_id": str(recipient_user_id),
             "status": "pending",
         }
@@ -187,7 +187,7 @@ class SkillDistributionService:
         from .service import SkillShareError, SkillShareService
 
         db = get_db()
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         query = {
             "_id": notification_id,
             "tenant_id": tenant_id,

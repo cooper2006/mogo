@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     platform_admin_username: str = "platform"
     platform_admin_password: str = ""
     platform_admin_display_name: str = "平台管理员"
-    bootstrap_main_id: str = "default"
+    bootstrap_tenant_id: str = "default"
     user_portal_base_url: str = "http://localhost:3100"
     invite_token_ttl_hours: int = 72
     model_test_ca_bundle: str = ""

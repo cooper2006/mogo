@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 COLLECTION_NAME = "execution_logs"
@@ -30,10 +30,10 @@ class ExecutionEventStore:
         if not events:
             return
         now = datetime.now(tz=timezone.utc)
-        resolved_main_id = resolve_main_id(tenant_id)
+        resolved_tenant_id = resolve_tenant_id(tenant_id)
         query = {"session_id": session_id, "message_id": message_id}
-        if resolved_main_id != "default":
-            query["tenant_id"] = resolved_main_id
+        if resolved_tenant_id != "default":
+            query["tenant_id"] = resolved_tenant_id
         await self._coll.update_one(
             query,
             {
@@ -42,7 +42,7 @@ class ExecutionEventStore:
                     "session_id": session_id,
                     "message_id": message_id,
                     "user_id": user_id,
-                    "tenant_id": resolved_main_id,
+                    "tenant_id": resolved_tenant_id,
                     "created_at": now,
                     "status": "live",
                     "schema_version": self._schema_version,
@@ -70,7 +70,7 @@ class ExecutionEventStore:
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Return ``{message_id: [events]}`` for one session, in insertion order."""
         cursor = self._coll.find(
-            add_main_scope({"session_id": session_id}, tenant_id),
+            add_tenant_scope({"session_id": session_id}, tenant_id),
             projection={"message_id": 1, "events": 1, "_id": 0},
         ).sort("created_at", 1)
         out: Dict[str, List[Dict[str, Any]]] = {}

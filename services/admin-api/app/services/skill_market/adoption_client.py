@@ -35,7 +35,7 @@ assert MARKED_LOW_QUALITY == LOW_QUALITY_MARKER, "016/011 marker key drift"
 
 
 async def fetch_marked_skill_keys(db: Any, *, tenant_id: str) -> set[str]:
-    """Return the set of skill keys in ``main_id`` flagged ``marked_low_quality``.
+    """Return the set of skill keys in ``tenant_id`` flagged ``marked_low_quality``.
 
     Reads the 011-owned ``skill_adoption`` collection. Skills that have no
     adoption row (the common case) are simply absent and treated as healthy.

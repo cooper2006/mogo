@@ -9,7 +9,7 @@ from app.infrastructure.observability.config import log_print
 
 from typing import Any, Optional
 
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.knowledge_graph.schema import KgEdge, KgNode, DEFAULT_CONFIDENCE_FLOOR
 from app.knowledge_graph.store import merge_nodes
 
@@ -62,7 +62,7 @@ class TenantKgStore:
     """Tenant-scoped MongoDB-backed KG store with lazy load."""
 
     def __init__(self, *, tenant_id: str, confidence_floor: float = DEFAULT_CONFIDENCE_FLOOR):
-        self._tenant_id = resolve_main_id(tenant_id)
+        self._tenant_id = resolve_tenant_id(tenant_id)
         self._floor = confidence_floor
         self._nodes: dict[str, KgNode] = {}
         self._edges: dict[str, list[KgEdge]] = {}

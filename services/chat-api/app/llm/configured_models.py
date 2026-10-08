@@ -318,7 +318,7 @@ async def get_fallback_runtime_configs(
 ) -> list[dict[str, Any]]:
     """Ordered backup runtime configs for provider failover (007 FR-1).
 
-    Active instances of the same main_id + capability, sorted by
+    Active instances of the same tenant_id + capability, sorted by
     (priority, updated_at desc), excluding the primary instance. Each config is
     validated so a broken backup never blocks the primary path.
     """
@@ -408,7 +408,7 @@ async def get_llm_client_by_model_id(
         output_spec=output_spec,
     )
     # 007 FR-1: provider failover on the production path. Backups are the other
-    # active instances of the same main_id/capability in priority order. With
+    # active instances of the same tenant_id/capability in priority order. With
     # none configured this is a no-op (FR-9); 401/403 never fail over (FR-4).
     backups = [
         build_llm_client_from_config(

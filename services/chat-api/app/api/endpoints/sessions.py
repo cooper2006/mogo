@@ -14,7 +14,7 @@ from pydantic import AliasChoices, BaseModel, Field
 
 from app.core.db import get_db
 from app.api.endpoints.auth import _resolve_session_user
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.utils.oss_uploader import AliyunOSSUploader
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
@@ -38,12 +38,12 @@ async def _authorized_scope(
 ) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
     actual_user_id = str(resolved["user"].get("_id") or "")
-    actual_main_id = resolve_main_id(resolved.get("tenant_id") or resolved.get("main_id"))
+    actual_tenant_id = resolve_tenant_id(resolved.get("tenant_id"))
     if claimed_user_id and claimed_user_id != actual_user_id:
         raise HTTPException(status_code=404, detail="Session not found")
-    if claimed_tenant_id and resolve_main_id(claimed_tenant_id) != actual_main_id:
+    if claimed_tenant_id and resolve_tenant_id(claimed_tenant_id) != actual_tenant_id:
         raise HTTPException(status_code=404, detail="Session not found")
-    return actual_user_id, actual_main_id
+    return actual_user_id, actual_tenant_id
 
 
 class MessageIn(BaseModel):
@@ -125,7 +125,7 @@ def _serialize_session(doc: dict) -> dict:
     return {
         "id": str(doc.get("_id")),
         "user_id": doc.get("user_id"),
-        "tenant_id": resolve_main_id(doc.get("tenant_id")),
+        "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
         "title": doc.get("title"),
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
@@ -152,7 +152,7 @@ def _serialize_session_summary(doc: dict) -> dict:
     return {
         "id": str(doc.get("_id")),
         "user_id": doc.get("user_id"),
-        "tenant_id": resolve_main_id(doc.get("tenant_id")),
+        "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
         "title": doc.get("title"),
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
@@ -186,7 +186,7 @@ async def _attach_pending_approval_counts(
         return
     pipeline = [
         {"$match": {
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "user_id": str(user_id),
             "conversation_id": {"$in": list(by_id)},
             "status": "pending",
@@ -220,7 +220,7 @@ def _build_match_snippet(text: str, query: str, radius: int = 72) -> str:
 
 async def _next_seq(db, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> int:
     last = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
+        add_tenant_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     if not last:
@@ -336,7 +336,7 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
 
 async def _latest_user_request_from_db(db, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> str:
     row = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
+        add_tenant_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     return str((row or {}).get("content") or "").strip()
@@ -456,7 +456,7 @@ def _build_context_summary_from_messages(rows: List[Dict[str, Any]]) -> str:
 
 async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> None:
     cursor = db.chat_messages.find(
-        add_main_scope({
+        add_tenant_scope({
             "session_id": session_id,
             "user_id": str(user_id),
             "message_type": {"$ne": "context_summary"},
@@ -472,13 +472,13 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
     compaction_id = f"cmp_{uuid4().hex[:12]}"
     compaction = await context_compactor.compact_messages(
         to_compact,
-        output_spec={"user_id": str(user_id), "tenant_id": resolve_main_id(tenant_id), "session_id": str(session_id)},
+        output_spec={"user_id": str(user_id), "tenant_id": resolve_tenant_id(tenant_id), "session_id": str(session_id)},
     )
     summary_text = compaction.summary or _build_context_summary_from_messages(to_compact)
     if compaction.memories:
         await project_memory_service.upsert_memories(
             user_id=str(user_id),
-            tenant_id=resolve_main_id(tenant_id),
+            tenant_id=resolve_tenant_id(tenant_id),
             project_id="default",
             memories=compaction.memories,
             source=f"session_compaction:{compaction_id}",
@@ -496,7 +496,7 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
         {
             "session_id": session_id,
             "user_id": str(user_id),
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "role": "system",
             "content": summary_text,
             "plan": None,
@@ -549,8 +549,8 @@ async def list_sessions(
         authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
     )
     log_print(
-        "[perf][sessions] list_sessions:start user_id=%s main_id=%s paged=%s limit=%s offset=%s"
-        % (str(user_id), resolve_main_id(tenant_id), bool(paged), int(limit), int(offset)),
+        "[perf][sessions] list_sessions:start user_id=%s tenant_id=%s paged=%s limit=%s offset=%s"
+        % (str(user_id), resolve_tenant_id(tenant_id), bool(paged), int(limit), int(offset)),
         flush=True,
     )
     db = get_db()
@@ -571,7 +571,7 @@ async def list_sessions(
         "last_scheduled_run": 1,
     }
     base_cursor = (
-        db.chat_sessions.find(add_main_scope({"user_id": str(user_id)}, tenant_id), projection)
+        db.chat_sessions.find(add_tenant_scope({"user_id": str(user_id)}, tenant_id), projection)
         .sort([("updated_at", -1), ("_id", -1)])
         .hint([("user_id", 1), ("updated_at", -1), ("_id", -1)])
     )
@@ -589,8 +589,8 @@ async def list_sessions(
         sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
         duration_ms = int((time.perf_counter() - t0) * 1000)
         log_print(
-            "[perf][sessions] list_sessions:done user_id=%s main_id=%s paged=false count=%s duration_ms=%s"
-            % (str(user_id), resolve_main_id(tenant_id), len(sessions), duration_ms),
+            "[perf][sessions] list_sessions:done user_id=%s tenant_id=%s paged=false count=%s duration_ms=%s"
+            % (str(user_id), resolve_tenant_id(tenant_id), len(sessions), duration_ms),
             flush=True,
         )
         return ApiResponse(code=0, message="success", data=sessions)
@@ -611,8 +611,8 @@ async def list_sessions(
     sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
     duration_ms = int((time.perf_counter() - t0) * 1000)
     log_print(
-        "[perf][sessions] list_sessions:done user_id=%s main_id=%s paged=true count=%s has_more=%s duration_ms=%s"
-        % (str(user_id), resolve_main_id(tenant_id), len(sessions), bool(has_more), duration_ms),
+        "[perf][sessions] list_sessions:done user_id=%s tenant_id=%s paged=true count=%s has_more=%s duration_ms=%s"
+        % (str(user_id), resolve_tenant_id(tenant_id), len(sessions), bool(has_more), duration_ms),
         flush=True,
     )
     return ApiResponse(
@@ -669,7 +669,7 @@ async def search_sessions(
     candidates: Dict[str, Dict[str, Any]] = {}
 
     async for doc in db.chat_sessions.find(
-        add_main_scope({
+        add_tenant_scope({
             "user_id": str(user_id),
             "$or": [
                 {"title": {"$regex": regex}},
@@ -700,7 +700,7 @@ async def search_sessions(
 
     message_limit = max((offset + limit) * 12, 120)
     async for msg in db.chat_messages.find(
-        add_main_scope({
+        add_tenant_scope({
             "user_id": str(user_id),
             "message_type": {"$ne": "context_summary"},
             "content": {"$regex": regex},
@@ -718,7 +718,7 @@ async def search_sessions(
         entry = candidates.get(sid)
         if entry is None:
             session_doc = await db.chat_sessions.find_one(
-                add_main_scope({"_id": raw_session_id, "user_id": str(user_id)}, tenant_id),
+                add_tenant_scope({"_id": raw_session_id, "user_id": str(user_id)}, tenant_id),
                 projection,
             )
             if not session_doc:
@@ -807,7 +807,7 @@ async def get_session(
         claimed_user_id=user_id,
         claimed_tenant_id=tenant_id,
     )
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
     await _attach_pending_approval_counts(
@@ -822,7 +822,7 @@ async def get_session(
         "session_id": oid,
         "user_id": str(user_id),
     }
-    query = add_main_scope(query, tenant_id)
+    query = add_tenant_scope(query, tenant_id)
     if not include_context_summary:
         # Frontend should display original dialogue turns only.
         # Context summaries are runtime-only compression artifacts.
@@ -922,7 +922,7 @@ async def get_session(
     data = _serialize_session(session_doc)
     if session_doc.get("scheduled_unread"):
         await db.chat_sessions.update_one(
-            add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id),
+            add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id),
             {"$set": {"scheduled_unread": False}},
         )
     return ApiResponse(
@@ -952,7 +952,7 @@ async def update_session(
         authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
     )
     result = await db.chat_sessions.update_one(
-        add_main_scope({"_id": oid, "user_id": user_id}, tenant_id),
+        add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id),
         {
             "$set": {
                 "title": title[:160],
@@ -962,7 +962,7 @@ async def update_session(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": user_id}, tenant_id))
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
     return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
@@ -989,7 +989,7 @@ async def end_session(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
-    authorized_user_id, authorized_main_id = await _authorized_scope(
+    authorized_user_id, authorized_tenant_id = await _authorized_scope(
         authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
     )
     from app.services.session_persistence_service import session_persistence_service
@@ -998,7 +998,7 @@ async def end_session(
         session_doc = await session_persistence_service.end_session(
             session_id=str(oid),
             user_id=authorized_user_id,
-            tenant_id=authorized_main_id,
+            tenant_id=authorized_tenant_id,
             reason=reason,
         )
     except LookupError as exc:
@@ -1031,7 +1031,7 @@ async def delete_session(
         claimed_user_id=user_id,
         claimed_tenant_id=tenant_id,
     )
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -1060,10 +1060,10 @@ async def delete_session(
     await dsh_runtime_application.require_chat().dispose_conversation(
         str(oid), tenant_id=tenant_id, user_id=user_id
     )
-    await db.chat_sessions.delete_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
-    await db.chat_messages.delete_many(add_main_scope({"session_id": oid, "user_id": str(user_id)}, tenant_id))
+    await db.chat_sessions.delete_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
+    await db.chat_messages.delete_many(add_tenant_scope({"session_id": oid, "user_id": str(user_id)}, tenant_id))
     try:
-        await db.execution_logs.delete_many(add_main_scope({"session_id": str(oid), "user_id": str(user_id)}, tenant_id))
+        await db.execution_logs.delete_many(add_tenant_scope({"session_id": str(oid), "user_id": str(user_id)}, tenant_id))
     except Exception as exc:
         log_print(f"[sessions] delete execution_logs failed: {exc}", flush=True)
 

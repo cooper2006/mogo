@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.end_user_auth import build_session_token, hash_password, parse_and_verify_session_token, verify_password
-from app.core.tenant import DEFAULT_MAIN_ID, add_main_scope, resolve_main_id
+from app.core.tenant import DEFAULT_TENANT_ID, add_tenant_scope, resolve_tenant_id
 from app.utils.oss_uploader import ObjectStorageClient
 from app.utils.uploads import read_upload_with_limit
 from app.governance.position_policy import MongoEmployeePolicyResolver
@@ -26,7 +26,7 @@ from app.services.end_user_tenant_access import (
     is_tenant_selectable,
     load_tenant_candidates,
     resolve_space_type,
-    selectable_tenant_main_ids,
+    selectable_tenant_ids,
 )
 from app.services.end_user_session import resolve_session_user as _resolve_session_user
 
@@ -137,9 +137,9 @@ def _space_type_from_user(user: dict[str, Any]) -> str:
     return resolve_space_type(user)
 
 
-def _is_valid_tenant_main_id(tenant_id: str) -> bool:
+def _is_valid_tenant_id(tenant_id: str) -> bool:
     value = str(tenant_id or "").strip()
-    return bool(value) and value != DEFAULT_MAIN_ID
+    return bool(value) and value != DEFAULT_TENANT_ID
 
 
 def _profile_from_user(
@@ -162,9 +162,9 @@ def _profile_from_user(
         "phone": str(user.get("mobile") or ""),
         "email": str(user.get("email") or ""),
         "avatar": avatar,
-        "tenantId": resolve_main_id(tenant_id),
-        "mainId": resolve_main_id(tenant_id),
-        "orgName": str(tenant.get("orgName") or user.get("org_name") or resolve_main_id(tenant_id)),
+        "tenantId": resolve_tenant_id(tenant_id),
+        "tenantId": resolve_tenant_id(tenant_id),
+        "orgName": str(tenant.get("orgName") or user.get("org_name") or resolve_tenant_id(tenant_id)),
         "spaceType": str(tenant.get("spaceType") or _space_type_from_user(user)),
         "canAccessAdmin": bool(tenant.get("canAccessAdmin")),
         "edition": str(tenant.get("edition") or "cloud"),
@@ -177,13 +177,13 @@ def _profile_from_user(
 async def _profile_with_policy(user: dict[str, Any], tenant_id: str, available_tenants: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     tenant = (await load_tenant_candidates(get_db(), [user]))[0]
     normalized_tenants = [
-        tenant if resolve_main_id(item.get("tenantId")) == resolve_main_id(tenant_id) else {**item, "canAccessAdmin": bool(item.get("canAccessAdmin"))}
+        tenant if resolve_tenant_id(item.get("tenantId")) == resolve_tenant_id(tenant_id) else {**item, "canAccessAdmin": bool(item.get("canAccessAdmin"))}
         for item in list(available_tenants or [])
     ]
-    if not any(resolve_main_id(item.get("tenantId")) == resolve_main_id(tenant_id) for item in normalized_tenants):
+    if not any(resolve_tenant_id(item.get("tenantId")) == resolve_tenant_id(tenant_id) for item in normalized_tenants):
         normalized_tenants.append(tenant)
     profile = _profile_from_user(user, tenant_id, tenant, normalized_tenants)
-    policy = await MongoEmployeePolicyResolver().resolve(resolve_main_id(tenant_id), str(user.get("_id") or ""))
+    policy = await MongoEmployeePolicyResolver().resolve(resolve_tenant_id(tenant_id), str(user.get("_id") or ""))
     profile["agentPolicy"] = policy.public_snapshot()
     return profile
 
@@ -249,7 +249,7 @@ async def _backfill_missing_avatar(
     return target_user
 
 
-async def _find_verified_users(username: str, password: str, preferred_main_id: str | None) -> list[dict[str, Any]]:
+async def _find_verified_users(username: str, password: str, preferred_tenant_id: str | None) -> list[dict[str, Any]]:
     db = get_db()
     identity = str(username or "").strip()
     query: dict[str, Any] = {
@@ -259,8 +259,8 @@ async def _find_verified_users(username: str, password: str, preferred_main_id: 
             {"email": identity.lower()},
         ],
     }
-    if preferred_main_id:
-        query = add_main_scope(query, preferred_main_id)
+    if preferred_tenant_id:
+        query = add_tenant_scope(query, preferred_tenant_id)
     rows = await db[USER_COLLECTION].find(query).to_list(length=200)
     matched: list[dict[str, Any]] = []
     for row in rows:
@@ -281,7 +281,7 @@ async def _create_session(user_doc: dict[str, Any], available_tenants: list[dict
     token_id = secrets.token_urlsafe(24)
     token = build_session_token(settings.END_USER_AUTH_SECRET, token_id)
     expires_at = now + timedelta(seconds=ttl_seconds)
-    tenant_id = resolve_main_id(user_doc.get("tenant_id"))
+    tenant_id = resolve_tenant_id(user_doc.get("tenant_id"))
     # Phase 1 dual-write: persist both keys (tenant_id is canonical going forward).
     await db[USER_SESSION_COLLECTION].insert_one(
         {
@@ -336,20 +336,20 @@ async def login(payload: LoginRequest) -> ApiResponse:
 
     username = payload.username.strip()
     preferred_tenant_id = payload.effective_tenant_id
-    preferred_main_id = resolve_main_id(preferred_tenant_id) if preferred_tenant_id else None
-    matched_users = await _find_verified_users(username=username, password=payload.password, preferred_main_id=preferred_main_id)
-    if not matched_users and preferred_main_id:
-        matched_users = await _find_verified_users(username=username, password=payload.password, preferred_main_id=None)
+    preferred_tenant_id = resolve_tenant_id(preferred_tenant_id) if preferred_tenant_id else None
+    matched_users = await _find_verified_users(username=username, password=payload.password, preferred_tenant_id=preferred_tenant_id)
+    if not matched_users and preferred_tenant_id:
+        matched_users = await _find_verified_users(username=username, password=payload.password, preferred_tenant_id=None)
     if not matched_users:
         return ApiResponse(code=1, message="用户名或密码错误")
 
     # End-user runtime does not accept fallback tenant id "default".
-    matched_users = [item for item in matched_users if _is_valid_tenant_main_id(resolve_main_id(item.get("tenant_id")))]
+    matched_users = [item for item in matched_users if _is_valid_tenant_id(resolve_tenant_id(item.get("tenant_id")))]
     if not matched_users:
         return ApiResponse(code=1, message="当前账号未绑定有效组织，请联系管理员配置租户ID")
 
     candidates = await load_tenant_candidates(db, matched_users)
-    if len(candidates) > 1 and not preferred_main_id:
+    if len(candidates) > 1 and not preferred_tenant_id:
         challenge = await _create_login_challenge(username=username, candidates=candidates)
         return ApiResponse(
             code=1001,
@@ -362,10 +362,10 @@ async def login(payload: LoginRequest) -> ApiResponse:
             },
         )
 
-    tenant_id = preferred_main_id or candidates[0]["tenantId"]
-    if not _is_valid_tenant_main_id(tenant_id):
+    tenant_id = preferred_tenant_id or candidates[0]["tenantId"]
+    if not _is_valid_tenant_id(tenant_id):
         return ApiResponse(code=1, message="组织ID无效，请联系管理员配置租户ID")
-    target = next((item for item in matched_users if resolve_main_id(item.get("tenant_id")) == tenant_id), matched_users[0])
+    target = next((item for item in matched_users if resolve_tenant_id(item.get("tenant_id")) == tenant_id), matched_users[0])
     session_payload = await _create_session(target, candidates)
     return ApiResponse(code=0, data=session_payload)
 
@@ -380,11 +380,11 @@ async def registerable_tenants(request: Request) -> ApiResponse:
     """
     db = get_db()
     # Fetch every selectable tenant, then filter out personal spaces.
-    all_main_ids = [
+    all_tenant_ids = [
         str(doc.get("tenant_id") or "")
         async for doc in db["tenants"].find({"status": "active"}, {"tenant_id": 1})
     ]
-    selectable_ids = await selectable_tenant_main_ids(db, all_main_ids)
+    selectable_ids = await selectable_tenant_ids(db, all_tenant_ids)
     orgs = await db["organizations"].find(
         {"tenant_id": {"$in": list(selectable_ids)}},
         {"tenant_id": 1, "org_name": 1},
@@ -397,7 +397,7 @@ async def registerable_tenants(request: Request) -> ApiResponse:
             continue
         tenants.append({
             "tenantId": tenant_id,
-            "mainId": tenant_id,
+            "tenantId": tenant_id,
             "orgName": str(org.get("org_name") or tenant_id),
         })
     tenants.sort(key=lambda item: item["orgName"])
@@ -416,8 +416,8 @@ async def registerable_departments(
     registration dropdown stays aligned with the admin side.
     """
     db = get_db()
-    tenant_id = resolve_main_id(tenantId)
-    if not _is_valid_tenant_main_id(tenant_id):
+    tenant_id = resolve_tenant_id(tenantId)
+    if not _is_valid_tenant_id(tenant_id):
         return ApiResponse(code=400, message="请选择有效的组织")
     if not await is_tenant_selectable(db, tenant_id):
         return ApiResponse(code=400, message="该组织当前不可注册，请联系管理员")
@@ -452,8 +452,8 @@ async def register(payload: RegisterRequest) -> ApiResponse:
     if not setup_state or not bool(setup_state.get("completed")):
         return ApiResponse(code=503, message="系统尚未完成初始化，请先在管理后台执行 Setup")
 
-    tenant_id = resolve_main_id(payload.effective_tenant_id)
-    if not _is_valid_tenant_main_id(tenant_id):
+    tenant_id = resolve_tenant_id(payload.effective_tenant_id)
+    if not _is_valid_tenant_id(tenant_id):
         return ApiResponse(code=400, message="请选择有效的组织")
     if not await is_tenant_selectable(db, tenant_id):
         return ApiResponse(code=400, message="该组织当前不可注册，请联系管理员")
@@ -532,20 +532,20 @@ async def select_tenant_login(payload: SelectTenantRequest) -> ApiResponse:
             return ApiResponse(code=1, message="登录挑战已过期")
 
     candidates = list(challenge.get("candidates") or [])
-    selected_main_id = resolve_main_id(payload.effective_tenant_id)
-    if not _is_valid_tenant_main_id(selected_main_id):
+    selected_tenant_id = resolve_tenant_id(payload.effective_tenant_id)
+    if not _is_valid_tenant_id(selected_tenant_id):
         return ApiResponse(code=1, message="组织ID无效")
-    selected = next((item for item in candidates if resolve_main_id(item.get("tenantId")) == selected_main_id), None)
+    selected = next((item for item in candidates if resolve_tenant_id(item.get("tenantId")) == selected_tenant_id), None)
     if not selected:
         return ApiResponse(code=1, message="所选组织不可用")
 
     user_id = str(selected.get("userId") or "")
     if not ObjectId.is_valid(user_id):
         return ApiResponse(code=1, message="用户数据异常")
-    tenant_id = resolve_main_id(selected.get("tenantId"))
-    if not _is_valid_tenant_main_id(tenant_id):
+    tenant_id = resolve_tenant_id(selected.get("tenantId"))
+    if not _is_valid_tenant_id(tenant_id):
         return ApiResponse(code=1, message="组织ID无效")
-    user_doc = await db[USER_COLLECTION].find_one(add_main_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id))
+    user_doc = await db[USER_COLLECTION].find_one(add_tenant_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id))
     if not user_doc:
         return ApiResponse(code=1, message="用户不存在或已禁用")
 
@@ -566,20 +566,20 @@ async def switch_tenant(
     session_doc = resolved["session"]
     db = get_db()
     available_tenants = list(session_doc.get("available_tenants") or [])
-    target_main_id = resolve_main_id(payload.effective_tenant_id)
-    if not _is_valid_tenant_main_id(target_main_id):
+    target_tenant_id = resolve_tenant_id(payload.effective_tenant_id)
+    if not _is_valid_tenant_id(target_tenant_id):
         return ApiResponse(code=1, message="组织ID无效")
-    target = next((item for item in available_tenants if resolve_main_id(item.get("tenantId")) == target_main_id), None)
+    target = next((item for item in available_tenants if resolve_tenant_id(item.get("tenantId")) == target_tenant_id), None)
     if not target:
         return ApiResponse(code=1, message="当前账号不可切换到该组织")
     # FR-024: ``available_tenants`` is a snapshot taken at login time, so a
     # tenant archived since then is still listed here — re-check live status.
-    if not await is_tenant_selectable(db, target_main_id):
+    if not await is_tenant_selectable(db, target_tenant_id):
         return ApiResponse(code=1, message="该组织已停用，无法切换到该组织")
     user_id = str(target.get("userId") or "")
     if not ObjectId.is_valid(user_id):
         return ApiResponse(code=1, message="用户数据异常")
-    user_doc = await db[USER_COLLECTION].find_one(add_main_scope({"_id": ObjectId(user_id), "status": "active"}, target_main_id))
+    user_doc = await db[USER_COLLECTION].find_one(add_tenant_scope({"_id": ObjectId(user_id), "status": "active"}, target_tenant_id))
     if not user_doc:
         return ApiResponse(code=1, message="组织内用户不存在或已禁用")
     user_doc = await _backfill_missing_avatar(
@@ -746,7 +746,7 @@ async def _load_available_tenants(username: str) -> list[dict[str, Any]]:
     db = get_db()
     rows = await db[USER_COLLECTION].find({"login_name": username, "status": "active"}).to_list(length=200)
     candidates = await load_tenant_candidates(db, rows)
-    return [item for item in candidates if _is_valid_tenant_main_id(resolve_main_id(item.get("tenantId")))]
+    return [item for item in candidates if _is_valid_tenant_id(resolve_tenant_id(item.get("tenantId")))]
 
 
 async def _ensure_root_department(tenant_id: str) -> str:
@@ -833,7 +833,7 @@ async def get_org_details(
     
     data = {
         "tenantId": org.get("tenant_id"),
-        "mainId": org.get("tenant_id"),
+        "tenantId": org.get("tenant_id"),
         "orgName": org.get("org_name"),
         "edition": capabilities["edition"],
         "tier": org.get("tier", "community"),

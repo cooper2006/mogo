@@ -40,7 +40,7 @@ import { reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
 import { login } from '@/api/auth';
-import { PLATFORM_MAIN_ID, useAuthStore } from '@/stores/auth';
+import { PLATFORM_TENANT_ID, useAuthStore } from '@/stores/auth';
 import { t } from '@/composables/i18n';
 import movoLogo from '@/assets/images/movo-logo.png';
 
@@ -56,7 +56,7 @@ const form = reactive({
 async function handleLogin() {
   loading.value = true;
   try {
-    const result = await login({ ...form, tenantId: PLATFORM_MAIN_ID });
+    const result = await login({ ...form, tenantId: PLATFORM_TENANT_ID });
     if ('requiresTenantSelection' in result && result.requiresTenantSelection) {
       message.error(t('平台管理员登录失败'));
       return;

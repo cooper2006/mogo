@@ -17,7 +17,7 @@ const errorMessage = ref('')
 const isSubmitting = ref(false)
 const challengeToken = ref('')
 const tenantCandidates = ref<TenantCandidate[]>([])
-const selectedMainId = ref('')
+const selectedTenantId = ref('')
 const pendingSelection = computed(() => Boolean(challengeToken.value) && tenantCandidates.value.length > 0)
 
 watch(
@@ -46,14 +46,14 @@ async function submit() {
 
   isSubmitting.value = true
   const result = pendingSelection.value
-    ? await selectTenantAndLogin(challengeToken.value, selectedMainId.value)
+    ? await selectTenantAndLogin(challengeToken.value, selectedTenantId.value)
     : await loginWithPassword(normalizedUsername, password.value)
   isSubmitting.value = false
 
   if (result.requiresTenantSelection) {
     challengeToken.value = result.challengeToken || ''
     tenantCandidates.value = result.tenantCandidates || []
-    selectedMainId.value = tenantCandidates.value[0]?.tenantId || ''
+    selectedTenantId.value = tenantCandidates.value[0]?.tenantId || ''
     errorMessage.value = result.message || t('api.auth.select_org')
     return
   }
@@ -99,7 +99,7 @@ async function submit() {
       <label for="movo-login-tenant" class="text-sm font-medium text-slate-700">{{ t('login.select_org_label') }}</label>
       <select
         id="movo-login-tenant"
-        v-model="selectedMainId"
+        v-model="selectedTenantId"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         @change="resetError"
       >
@@ -116,7 +116,7 @@ async function submit() {
     <button
       type="submit"
       class="min-h-[44px] w-full rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
-      :disabled="isSubmitting || (pendingSelection && !selectedMainId)"
+      :disabled="isSubmitting || (pendingSelection && !selectedTenantId)"
     >
       {{ isSubmitting ? t('phase.verifying') : pendingSelection ? t('login.btn_enter_org') : t('login.password_submit') }}
     </button>

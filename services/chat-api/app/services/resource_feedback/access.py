@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.governance.position_policy import MongoEmployeePolicyResolver
 
 
@@ -17,7 +17,7 @@ class FeedbackSubject:
 
 class FeedbackAccessResolver:
     async def require(self, *, tenant_id: str, user_id: str, resource_type: str, resource_id: str) -> FeedbackSubject:
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         kind = str(resource_type or "").strip().lower()
         target_id = str(resource_id or "").strip()
         if kind == "skill_distribution":

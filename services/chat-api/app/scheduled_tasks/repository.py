@@ -9,7 +9,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 from .schedule import next_run_at, utc_now
 from .time_contract import SCHEDULE_VERSION, format_wall_datetime, job_wall_time, submitted_wall_time
@@ -32,7 +32,7 @@ def _format_datetime(dt: Any) -> str | None:
 def serialize_job(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": str(doc.get("_id") or ""),
-        "tenant_id": resolve_main_id(doc.get("tenant_id")),
+        "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
         "owner_user_id": str(doc.get("owner_user_id") or ""),
         "run_as_user_id": str(doc.get("run_as_user_id") or ""),
         "name": str(doc.get("name") or ""),
@@ -72,7 +72,7 @@ class ScheduledTaskRepository:
 
     async def list_jobs(self, *, tenant_id: str, user_id: str) -> List[Dict[str, Any]]:
         cursor = get_db()[JOBS].find(
-            {"tenant_id": resolve_main_id(tenant_id), "owner_user_id": str(user_id)}
+            {"tenant_id": resolve_tenant_id(tenant_id), "owner_user_id": str(user_id)}
         ).sort([("created_at", -1)])
         return [serialize_job(row) async for row in cursor]
 
@@ -80,7 +80,7 @@ class ScheduledTaskRepository:
         if not ObjectId.is_valid(job_id):
             return None
         return await get_db()[JOBS].find_one(
-            {"_id": ObjectId(job_id), "tenant_id": resolve_main_id(tenant_id), "owner_user_id": str(user_id)}
+            {"_id": ObjectId(job_id), "tenant_id": resolve_tenant_id(tenant_id), "owner_user_id": str(user_id)}
         )
 
     async def create_job(self, payload: Dict[str, Any], *, tenant_id: str, user_id: str) -> Dict[str, Any]:
@@ -90,7 +90,7 @@ class ScheduledTaskRepository:
             **dict(payload),
             "run_at": submitted_wall_time(payload["run_at"], timezone_name),
             "schedule_version": SCHEDULE_VERSION,
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "owner_user_id": str(user_id),
             "run_as_user_id": str(user_id),
             "created_by": str(user_id),
@@ -140,7 +140,7 @@ class ScheduledTaskRepository:
                 raise ValueError("单次任务的执行时间不能早于当前时间")
         updates["updated_at"] = utc_now()
         doc = await get_db()[JOBS].find_one_and_update(
-            {"_id": current["_id"], "tenant_id": resolve_main_id(tenant_id), "owner_user_id": str(user_id)},
+            {"_id": current["_id"], "tenant_id": resolve_tenant_id(tenant_id), "owner_user_id": str(user_id)},
             {"$set": updates},
             return_document=ReturnDocument.AFTER,
         )
@@ -150,7 +150,7 @@ class ScheduledTaskRepository:
         if not ObjectId.is_valid(job_id):
             return False
         result = await get_db()[JOBS].delete_one(
-            {"_id": ObjectId(job_id), "tenant_id": resolve_main_id(tenant_id), "owner_user_id": str(user_id)}
+            {"_id": ObjectId(job_id), "tenant_id": resolve_tenant_id(tenant_id), "owner_user_id": str(user_id)}
         )
         return bool(result.deleted_count)
 
@@ -171,7 +171,7 @@ class ScheduledTaskRepository:
         run_doc = {
             "run_id": uuid.uuid4().hex,
             "job_id": str(job["_id"]),
-            "tenant_id": resolve_main_id(job.get("tenant_id")),
+            "tenant_id": resolve_tenant_id(job.get("tenant_id")),
             "owner_user_id": str(job.get("owner_user_id") or ""),
             "run_as_user_id": str(job.get("run_as_user_id") or ""),
             "scheduled_for": scheduled_for,

@@ -296,11 +296,11 @@ export async function createSkill(userId: string, tenantId: string, payload: Ski
 export async function updateSkill(id: string, userIdOrPayload: string | any, tenantId = 'default', payload?: SkillPayload): Promise<SkillItem> {
   let userId = String(userIdOrPayload || '')
   let body = payload
-  let resolvedMainId = tenantId
+  let resolvedTenantId = tenantId
   if (typeof userIdOrPayload === 'object') {
     const legacy = userIdOrPayload || {}
     userId = String(legacy.user_id || legacy.userId || '')
-    resolvedMainId = String(legacy.tenant_id || legacy.tenantId || 'default')
+    resolvedTenantId = String(legacy.tenant_id || legacy.tenantId || 'default')
     const skillType = String(legacy.skill_type || legacy.type || 'style')
     const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
     body = {
@@ -317,7 +317,7 @@ export async function updateSkill(id: string, userIdOrPayload: string | any, ten
       enabled: legacy.is_active !== false && legacy.enabled !== false,
     }
   }
-  const res = await api.put(`/skills/${id}`, body, { params: params(userId, resolvedMainId), timeout: 90000 })
+  const res = await api.put(`/skills/${id}`, body, { params: params(userId, resolvedTenantId), timeout: 90000 })
   return dataOf<SkillItem>(res)
 }
 

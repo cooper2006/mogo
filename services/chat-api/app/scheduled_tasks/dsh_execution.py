@@ -11,7 +11,7 @@ from bson import ObjectId
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.tenant import add_main_scope
+from app.core.tenant import add_tenant_scope
 from app.dsh_runtime.application import dsh_runtime_application
 from app.dsh_runtime.chat_service import DshChatService, PreparedTurn
 from app.dsh_runtime.turn_admission import admit_skill_selection
@@ -176,7 +176,7 @@ class ScheduledDshExecution:
         db = get_db()
         if conversation_title and ObjectId.is_valid(turn.conversation_id):
             await db.chat_sessions.update_one(
-                add_main_scope(
+                add_tenant_scope(
                     {"_id": ObjectId(turn.conversation_id), "user_id": user_id}, tenant_id
                 ),
                 {"$set": {"title": conversation_title[:160], "updated_at": now}},
@@ -187,7 +187,7 @@ class ScheduledDshExecution:
             "scheduled_run_id": str(run.get("run_id") or ""),
         }
         await db.chat_messages.update_one(
-            add_main_scope(
+            add_tenant_scope(
                 {"session_id": ObjectId(turn.conversation_id), "message_id": turn.message_id},
                 tenant_id,
             ),
@@ -226,7 +226,7 @@ class ScheduledDshExecution:
         now = utc_now()
         db = get_db()
         await db.chat_sessions.update_one(
-            add_main_scope(
+            add_tenant_scope(
                 {"_id": ObjectId(turn.conversation_id), "user_id": user_id}, tenant_id
             ),
             {"$set": {

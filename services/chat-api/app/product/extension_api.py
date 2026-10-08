@@ -20,7 +20,7 @@ from app.api.endpoints.auth import (
     _create_login_challenge,
     _create_session,
     _ensure_root_department,
-    _is_valid_tenant_main_id,
+    _is_valid_tenant_id,
     _load_available_tenants,
     _now,
     _profile_with_policy,
@@ -30,7 +30,7 @@ from app.api.endpoints.auth import (
     _t,
 )
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.services.end_user_tenant_access import load_tenant_candidates, resolve_space_type
 
 __all__ = [name for name in globals() if not name.startswith("__")]

@@ -238,7 +238,7 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     kb_id = str(doc.get("knowledge_base_id") or "")
     return {
         "id": str(doc.get("_id") or ""),
-        "mainId": str(doc.get("tenant_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "directoryId": kb_id,
         "knowledgeBaseId": kb_id,
         "name": str(doc.get("name") or ""),
@@ -432,7 +432,7 @@ def _request_preview_conversion(doc: dict[str, Any]) -> str:
     callback_base = str(settings.admin_api_public_base_url or "").rstrip("/")
     payload = {
         "documentId": document_id,
-        "mainId": str(doc.get("tenant_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "source": {
             "storageType": str(doc.get("storage_type") or "local"),
             "storageBucket": str(doc.get("storage_bucket") or ""),
@@ -477,7 +477,7 @@ def _request_preview_conversion(doc: dict[str, Any]) -> str:
 
 def _artifact_prefix(doc: dict[str, Any]) -> str:
     storage_prefix = settings.knowledge_oss_prefix.strip().strip("/") or "knowledge-documents"
-    return f"{storage_prefix}/{str(doc.get('main_id') or 'default')}/{str(doc.get('_id') or '')}/artifacts"
+    return f"{storage_prefix}/{str(doc.get('tenant_id') or 'default')}/{str(doc.get('_id') or '')}/artifacts"
 
 
 def _request_document_parse(
@@ -494,7 +494,7 @@ def _request_document_parse(
     callback_base = str(settings.admin_api_public_base_url or "").rstrip("/")
     payload = {
         "documentId": document_id,
-        "mainId": str(doc.get("tenant_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "source": {
             "storageType": str(doc.get("storage_type") or "local"),
             "storageBucket": str(doc.get("storage_bucket") or ""),
@@ -550,7 +550,7 @@ def _request_document_index(doc: dict[str, Any], config: dict[str, Any]) -> str:
     callback_base = str(settings.admin_api_public_base_url or "").rstrip("/")
     payload = {
         "documentId": document_id,
-        "mainId": str(doc.get("tenant_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "knowledgeBaseId": str(doc.get("knowledge_base_id") or ""),
         "chunkStage": "rag",
         "config": config,
@@ -589,7 +589,7 @@ def _request_document_vector_delete(doc: dict[str, Any], config: dict[str, Any])
         raise RuntimeError("document processing service url is not configured")
     payload = {
         "documentId": document_id,
-        "mainId": str(doc.get("tenant_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "config": config,
     }
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")

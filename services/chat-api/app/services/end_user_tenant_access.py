@@ -54,7 +54,7 @@ def project_tenant_candidate(
     )
     return {
         "tenantId": tenant_id,
-        "mainId": tenant_id,
+        "tenantId": tenant_id,
         "orgName": org_name,
         "spaceType": space_type,
         "userId": str(user.get("_id") or ""),
@@ -87,7 +87,7 @@ async def load_tenant_candidates(db: Any, users: Iterable[dict[str, Any]]) -> li
     # FR-024: a tenant that is no longer active must not be selectable. The
     # ``tenants`` registry is owned by admin-api but lives in the same database,
     # so read it directly rather than trusting the derived organization status.
-    active_main_ids = await _selectable_tenant_main_ids(db, tenant_ids)
+    active_tenant_ids = await _selectable_tenant_ids(db, tenant_ids)
     return [
         project_tenant_candidate(
             row,
@@ -95,17 +95,17 @@ async def load_tenant_candidates(db: Any, users: Iterable[dict[str, Any]]) -> li
             admin_by_identity.get((_tenant_id_of(row), str(row.get("login_name") or ""))),
         )
         for row in user_rows
-        if _tenant_id_of(row) in active_main_ids
+        if _tenant_id_of(row) in active_tenant_ids
     ]
 
 
 async def is_tenant_selectable(db: Any, tenant_id: str) -> bool:
-    """Whether ``main_id`` may be entered right now (FR-024)."""
-    return str(tenant_id or "").strip() in await _selectable_tenant_main_ids(db, [str(tenant_id or "").strip()])
+    """Whether ``tenant_id`` may be entered right now (FR-024)."""
+    return str(tenant_id or "").strip() in await _selectable_tenant_ids(db, [str(tenant_id or "").strip()])
 
 
-async def _selectable_tenant_main_ids(db: Any, tenant_ids: list[str]) -> set[str]:
-    """Subset of ``main_ids`` whose registry row is ``active`` (FR-024).
+async def _selectable_tenant_ids(db: Any, tenant_ids: list[str]) -> set[str]:
+    """Subset of ``tenant_ids`` whose registry row is ``active`` (FR-024).
 
     Only ``active`` passes for a tenant that has a registry row. Tenants with
     *no* registry row are grandfathered in: a deployment that has not run the
@@ -122,8 +122,8 @@ async def _selectable_tenant_main_ids(db: Any, tenant_ids: list[str]) -> set[str
     return active | {tenant_id for tenant_id in tenant_ids if tenant_id not in known}
 
 
-async def selectable_tenant_main_ids(db: Any, tenant_ids: list[str]) -> set[str]:
-    """Public wrapper around ``_selectable_tenant_main_ids`` for callers that
+async def selectable_tenant_ids(db: Any, tenant_ids: list[str]) -> set[str]:
+    """Public wrapper around ``_selectable_tenant_ids`` for callers that
     need the active/grandfathered tenant subset without reaching into the
     private helper (e.g. self-service registration tenant listing)."""
-    return await _selectable_tenant_main_ids(db, tenant_ids)
+    return await _selectable_tenant_ids(db, tenant_ids)

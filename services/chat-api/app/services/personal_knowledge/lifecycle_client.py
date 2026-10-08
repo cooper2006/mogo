@@ -17,7 +17,7 @@ class KnowledgeLifecycleClient:
         settings = get_settings()
         headers = {"X-MOVO-Service-Token": str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")}
         data = {
-            "mainId": tenant_id,
+            "tenantId": tenant_id,
             "ownerUserId": owner_user_id,
             "resourceId": resource_id,
             "name": name,
@@ -43,7 +43,7 @@ class KnowledgeLifecycleClient:
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 f"{base_url}/api/internal/personal-knowledge/{resource_id}/{action}",
-                json={"mainId": tenant_id, "ownerUserId": owner_user_id},
+                json={"tenantId": tenant_id, "ownerUserId": owner_user_id},
                 headers={"X-MOVO-Service-Token": str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")},
             )
         if response.status_code >= 400:

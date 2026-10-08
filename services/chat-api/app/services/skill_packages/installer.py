@@ -8,7 +8,7 @@ from typing import Any, Literal
 from pymongo.errors import DuplicateKeyError
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 from .validator import ValidatedSkillPackage
 
@@ -28,7 +28,7 @@ class SkillPackageInstaller:
         user_id: str = "",
         package_source: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         if scope == "personal" and not user_id:
             raise ValueError("personal Skill installation requires an owner")
         db = get_db()

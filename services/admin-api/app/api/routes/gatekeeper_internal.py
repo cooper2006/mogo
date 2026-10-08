@@ -33,7 +33,7 @@ def _require_service(token: str) -> None:
 
 class GateEvaluatePayload(BaseModel):
     tool: str = Field(..., description="Tool / Skill identifier being invoked")
-    tenantId: str = Field(default="", description="Tenant (main_id) the caller belongs to")
+    tenantId: str = Field(default="", description="Tenant (tenant_id) the caller belongs to")
     userId: str = Field(default="", description="Employee user id")
     roles: list[str] = Field(default_factory=list, description="Bound position-role ids")
     request: dict[str, Any] = Field(default_factory=dict, description="Tool request body (may be redacted)")

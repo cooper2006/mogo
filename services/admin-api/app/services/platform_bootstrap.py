@@ -1,7 +1,7 @@
 """Platform super-admin bootstrap.
 
 The platform super-admin is the single tenant-lifecycle operator. It lives in
-the reserved ``__platform__`` main_id (decision 1) and is created either by the
+the reserved ``__platform__`` tenant_id (decision 1) and is created either by the
 first-boot wizard (``POST /api/setup/platform-admin``) or, for existing
 deployments, from environment variables at startup (decision 5).
 """
@@ -12,7 +12,7 @@ import logging
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.tenant_identity import PLATFORM_MAIN_ID
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 from app.repositories.org_user_repository import (
     ensure_bootstrap_account,
     ensure_group_exists,
@@ -31,7 +31,7 @@ ACCOUNT_COLLECTION = "admin_accounts"
 async def platform_admin_exists() -> bool:
     """True when any account already lives in the reserved platform tenant."""
     db = get_db()
-    account = await db[ACCOUNT_COLLECTION].find_one({"tenant_id": PLATFORM_MAIN_ID}, {"_id": 1})
+    account = await db[ACCOUNT_COLLECTION].find_one({"tenant_id": PLATFORM_TENANT_ID}, {"_id": 1})
     return account is not None
 
 
@@ -41,11 +41,11 @@ async def ensure_platform_admin(*, username: str, password: str, display_name: s
     await ensure_group_exists(
         name=PLATFORM_ADMIN_GROUP_NAME,
         code=PLATFORM_ADMIN_GROUP_CODE,
-        tenant_id=PLATFORM_MAIN_ID,
+        tenant_id=PLATFORM_TENANT_ID,
         description="平台控制台内置账号组",
     )
     await ensure_bootstrap_account(
-        tenant_id=PLATFORM_MAIN_ID,
+        tenant_id=PLATFORM_TENANT_ID,
         username=username,
         password=password,
         display_name=display_name.strip() or username,
@@ -53,7 +53,7 @@ async def ensure_platform_admin(*, username: str, password: str, display_name: s
         org_name=PLATFORM_ADMIN_ORG_NAME,
         group_code=PLATFORM_ADMIN_GROUP_CODE,
     )
-    return await find_account_by_username(username, PLATFORM_MAIN_ID) or {}
+    return await find_account_by_username(username, PLATFORM_TENANT_ID) or {}
 
 
 async def bootstrap_platform_admin() -> None:

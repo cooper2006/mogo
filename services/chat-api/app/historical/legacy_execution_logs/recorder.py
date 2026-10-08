@@ -95,7 +95,7 @@ class BaseStreamRecorder:
         self._session_id = session_id
         self._message_id = message_id
         self._user_id = user_id
-        self._main_id = tenant_id
+        self._tenant_id = tenant_id
         self._batch_size = batch_size
         self._flush_interval = flush_interval
         self._compact_fn = compact_fn
@@ -205,7 +205,7 @@ class BaseStreamRecorder:
                 self._message_id,
                 batch,
                 user_id=self._user_id,
-                tenant_id=self._main_id,
+                tenant_id=self._tenant_id,
             )
         except Exception as exc:
             # Externalize fell back to placeholders on its own errors; this

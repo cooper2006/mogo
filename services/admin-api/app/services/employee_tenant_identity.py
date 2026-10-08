@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant_identity import PLATFORM_MAIN_ID
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 
 
 def employee_tenant_fields(tenant_id: str, org_name: str) -> dict[str, str]:
@@ -34,10 +34,10 @@ def authoritative_tenant_names(
 
 async def repair_employee_tenant_identities(db: Any | None = None) -> int:
     database = db if db is not None else get_db()
-    excluded = {"$nin": [None, "", "default", PLATFORM_MAIN_ID]}
+    excluded = {"$nin": [None, "", "default", PLATFORM_TENANT_ID]}
     # T042: only active tenants are authoritative for identity repair; archived
     # or purged tenants must not resurrect stale organization names.
-    active_main_ids = {
+    active_tenant_ids = {
         row["tenant_id"]
         async for row in database["tenants"].find(
             {"status": "active", "tenant_id": excluded}, {"tenant_id": 1}
@@ -48,14 +48,14 @@ async def repair_employee_tenant_identities(db: Any | None = None) -> int:
         async for row in database.organizations.find(
             {"tenant_id": excluded}, {"tenant_id": 1, "org_name": 1}
         )
-        if str(row.get("tenant_id")) in active_main_ids
+        if str(row.get("tenant_id")) in active_tenant_ids
     ]
     admin_rows = [
         row
         async for row in database.admin_accounts.find(
             {"tenant_id": excluded}, {"tenant_id": 1, "org_name": 1}
         )
-        if str(row.get("tenant_id")) in active_main_ids
+        if str(row.get("tenant_id")) in active_tenant_ids
     ]
     names = authoritative_tenant_names(organizations, admin_rows)
     admin_names = authoritative_tenant_names([], admin_rows)

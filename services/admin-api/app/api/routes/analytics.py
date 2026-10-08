@@ -36,15 +36,15 @@ def _to_ms(value: Any) -> int:
         return 0
 
 
-def _resolve_main_scope(current_user: dict[str, Any], requested_main_id: str) -> tuple[dict[str, Any], str]:
-    own_main_id = str(current_user.get("tenant_id") or "default")
-    request_main_id = str(requested_main_id or "").strip()
+def _resolve_main_scope(current_user: dict[str, Any], requested_tenant_id: str) -> tuple[dict[str, Any], str]:
+    own_tenant_id = str(current_user.get("tenant_id") or "default")
+    request_tenant_id = str(requested_tenant_id or "").strip()
 
     # Token 统计固定按当前登录企业隔离，禁止跨企业读取。
-    if request_main_id and request_main_id != own_main_id:
+    if request_tenant_id and request_tenant_id != own_tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权限查看其他企业数据")
 
-    return {"tenant_id": own_main_id}, own_main_id
+    return {"tenant_id": own_tenant_id}, own_tenant_id
 
 
 def _summary_defaults() -> dict[str, Any]:
@@ -98,7 +98,7 @@ async def list_token_usage(
     user_org_rel_coll = db[USER_ORG_REL_COLLECTION]
     dept_coll = db[DEPARTMENT_COLLECTION]
 
-    scope_match, resolved_main_id = _resolve_main_scope(current_user, tenantId)
+    scope_match, resolved_tenant_id = _resolve_main_scope(current_user, tenantId)
 
     match: dict[str, Any] = dict(scope_match)
     if modelName.strip():
@@ -117,8 +117,8 @@ async def list_token_usage(
     department_id = departmentId.strip()
     if department_id:
         rel_match: dict[str, Any] = {"org_id": department_id}
-        if resolved_main_id:
-            rel_match["tenant_id"] = resolved_main_id
+        if resolved_tenant_id:
+            rel_match["tenant_id"] = resolved_tenant_id
         elif scope_match.get("tenant_id"):
             rel_match["tenant_id"] = scope_match["tenant_id"]
 
@@ -190,7 +190,7 @@ async def list_token_usage(
                 "user_request_id": {"$first": "$user_request_id"},
                 "trace_id": {"$first": "$trace_id"},
                 "request_id": {"$first": "$request_id"},
-                "tenant_id": {"$first": "$main_id"},
+                "tenant_id": {"$first": "$tenant_id"},
                 "user_id": {"$first": "$user_id"},
                 "stage": {"$first": "$stage"},
                 "intent": {"$first": "$intent"},
@@ -213,7 +213,7 @@ async def list_token_usage(
             {"$sort": {"created_at": -1}},
         ]
         rows = await usage_coll.aggregate(data_pipeline).to_list(length=50000)
-        execution_statuses = await load_execution_statuses(rows, resolved_main_id)
+        execution_statuses = await load_execution_statuses(rows, resolved_tenant_id)
         for row in rows:
             group_key = str(row.get("_id") or "").strip()
             row["status"] = normalize_request_status(
@@ -251,12 +251,12 @@ async def list_token_usage(
     dept_ids = set[str]()
     for rel in rel_rows:
         rel_user_id = str(rel.get("user_id") or "")
-        rel_main_id = str(rel.get("tenant_id") or "")
+        rel_tenant_id = str(rel.get("tenant_id") or "")
         rel_org_id = str(rel.get("org_id") or "")
         if not rel_user_id or not rel_org_id:
             continue
         dept_ids.add(rel_org_id)
-        key = (rel_user_id, rel_main_id)
+        key = (rel_user_id, rel_tenant_id)
         if key not in rel_map:
             rel_map[key] = rel_org_id
 
@@ -266,12 +266,12 @@ async def list_token_usage(
         dept_docs = await dept_coll.find({"_id": {"$in": list(dept_oid_map.values())}}, {"name": 1}).to_list(length=50000)
     dept_map = {str(doc.get("_id")): str(doc.get("name") or "") for doc in dept_docs}
 
-    request_texts = await load_user_request_texts(rows, resolved_main_id)
+    request_texts = await load_user_request_texts(rows, resolved_tenant_id)
 
     items: list[dict[str, Any]] = []
     for row in rows:
         row_user_id = str(row.get("user_id") or "")
-        row_main_id = str(row.get("tenant_id") or "")
+        row_tenant_id = str(row.get("tenant_id") or "")
         user_doc = user_map.get(row_user_id, {})
         user_name = (
             str(user_doc.get("name") or "")
@@ -279,7 +279,7 @@ async def list_token_usage(
             or str(user_doc.get("mobile") or "")
             or f"用户 {row_user_id[-6:]}" if row_user_id else "未知用户"
         )
-        dept_id = rel_map.get((row_user_id, row_main_id), "")
+        dept_id = rel_map.get((row_user_id, row_tenant_id), "")
         dept_name = dept_map.get(dept_id, "未分配部门") if dept_id else "未分配部门"
         created_at = row.get("created_at")
         start_time = _to_ms(row.get("start_time"))
@@ -303,8 +303,8 @@ async def list_token_usage(
             {
                 "requestId": str(row.get("request_id") or ""),
                 "userRequestId": user_request_id,
-                "mainId": row_main_id,
-                "mainName": row_main_id or "默认企业",
+                "tenantId": row_tenant_id,
+                "mainName": row_tenant_id or "默认企业",
                 "userName": user_name,
                 "departmentName": dept_name,
                 "modelName": str(row.get("model_name") or ""),
@@ -380,8 +380,8 @@ async def list_token_usage(
     active_dept_count = 0
     if active_user_ids:
         dept_match: dict[str, Any] = {"user_id": {"$in": active_user_ids}}
-        if resolved_main_id:
-            dept_match["tenant_id"] = resolved_main_id
+        if resolved_tenant_id:
+            dept_match["tenant_id"] = resolved_tenant_id
         distinct_depts = await user_org_rel_coll.distinct("org_id", dept_match)
         active_dept_count = len([dept_id for dept_id in distinct_depts if str(dept_id or "").strip()])
 
@@ -409,16 +409,16 @@ async def list_token_usage(
     }
 
     enterprise_scope_match = dict(scope_match)
-    enterprises = sorted([str(item or "") for item in await usage_coll.distinct("main_id", enterprise_scope_match) if str(item or "").strip()])
+    enterprises = sorted([str(item or "") for item in await usage_coll.distinct("tenant_id", enterprise_scope_match) if str(item or "").strip()])
     model_scope_match = dict(scope_match)
-    if resolved_main_id:
-        model_scope_match["tenant_id"] = resolved_main_id
+    if resolved_tenant_id:
+        model_scope_match["tenant_id"] = resolved_tenant_id
     models = sorted([str(item or "") for item in await usage_coll.distinct("model_name", model_scope_match) if str(item or "").strip()])[:200]
     statuses = ["completed", "user_cancelled", "runtime_error", "network_error"]
 
     department_options: list[dict[str, str]] = []
-    if resolved_main_id:
-        dept_cursor = dept_coll.find({"tenant_id": resolved_main_id}, {"name": 1}).sort("created_at", 1)
+    if resolved_tenant_id:
+        dept_cursor = dept_coll.find({"tenant_id": resolved_tenant_id}, {"name": 1}).sort("created_at", 1)
         dept_rows = await dept_cursor.to_list(length=5000)
         department_options = [{"label": str(row.get("name") or ""), "value": str(row.get("_id"))} for row in dept_rows if str(row.get("name") or "").strip()]
 
@@ -447,13 +447,13 @@ async def get_token_usage_detail(
     db = get_db()
     usage_coll = db.token_usage_logs
 
-    own_main_id = str(current_user.get("tenant_id") or "default")
+    own_tenant_id = str(current_user.get("tenant_id") or "default")
 
     row = await usage_coll.find_one({"request_id": request_id})
     if not row:
         raise HTTPException(status_code=404, detail="未找到对应的调用记录")
 
-    if str(row.get("tenant_id") or "default") != own_main_id:
+    if str(row.get("tenant_id") or "default") != own_tenant_id:
         raise HTTPException(status_code=403, detail="无权查看该记录")
 
     return {
@@ -472,7 +472,7 @@ async def get_session_chat_history(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     db = get_db()
-    own_main_id = str(current_user.get("tenant_id") or "default")
+    own_tenant_id = str(current_user.get("tenant_id") or "default")
     
     # 1. 优先按一次用户请求定位当前 assistant 消息，并补上它前一条 user 消息。
     session_id_val = sessionId.strip()
@@ -495,18 +495,18 @@ async def get_session_chat_history(
     if user_request_id_val:
         assistant_msg = await db.chat_messages.find_one(
             {
-                "tenant_id": own_main_id,
+                "tenant_id": own_tenant_id,
                 "message_id": user_request_id_val,
                 "message_type": {"$ne": "context_summary"},
             }
         )
         if assistant_msg:
             session_oid = assistant_msg.get("session_id")
-            session_doc = await db.chat_sessions.find_one({"_id": session_oid, "tenant_id": own_main_id}) if session_oid else None
+            session_doc = await db.chat_sessions.find_one({"_id": session_oid, "tenant_id": own_tenant_id}) if session_oid else None
             session_title = str(session_doc.get("title") or "单次请求详情") if session_doc else "单次请求详情"
             prev_user_msg = await db.chat_messages.find_one(
                 {
-                    "tenant_id": own_main_id,
+                    "tenant_id": own_tenant_id,
                     "session_id": session_oid,
                     "role": "user",
                     "message_type": {"$ne": "context_summary"},
@@ -524,8 +524,8 @@ async def get_session_chat_history(
         if not row:
             raise HTTPException(status_code=404, detail="未找到对应的调用或会话记录")
         
-        row_main_id = str(row.get("tenant_id") or "default")
-        if row_main_id != own_main_id:
+        row_tenant_id = str(row.get("tenant_id") or "default")
+        if row_tenant_id != own_tenant_id:
             raise HTTPException(status_code=403, detail="无权查看该记录")
         
         # 提取回复内容

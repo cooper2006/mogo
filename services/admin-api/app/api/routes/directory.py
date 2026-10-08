@@ -61,7 +61,7 @@ def _safe_oid(value: str, detail: str) -> ObjectId:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
 
 
-def _main_id(current_user: dict) -> str:
+def _tenant_id(current_user: dict) -> str:
     return str(current_user.get("tenant_id", "default"))
 
 
@@ -235,7 +235,7 @@ class InviteAcceptPayload(BaseModel):
 
 @router.get("/departments/tree")
 async def get_department_tree(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     departments = await _all_departments(tenant_id)
     rel_rows = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=20000)
@@ -261,7 +261,7 @@ async def get_department_tree(current_user: dict = Depends(get_current_admin_use
 
 @router.post("/departments", status_code=status.HTTP_201_CREATED)
 async def create_department(payload: DepartmentCreatePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     parent = None
     if payload.parentId:
@@ -308,7 +308,7 @@ async def update_department(
     payload: DepartmentUpdatePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     dep_oid = _safe_oid(department_id, "部门ID无效")
     existing = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "tenant_id": tenant_id})
@@ -344,7 +344,7 @@ async def move_department(
     payload: DepartmentMovePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     dep_oid = _safe_oid(department_id, "部门ID无效")
     department = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "tenant_id": tenant_id})
@@ -396,7 +396,7 @@ async def move_department(
 
 @router.delete("/departments/{department_id}")
 async def delete_department(department_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     dep_oid = _safe_oid(department_id, "部门ID无效")
     existing = await db[DEPARTMENT_COLLECTION].find_one({"_id": dep_oid, "tenant_id": tenant_id})
@@ -427,7 +427,7 @@ async def list_users(
     statusFilter: str | None = Query(default=None),
     sourceFilter: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     query: dict[str, Any] = {"tenant_id": tenant_id}
     if statusFilter:
@@ -529,7 +529,7 @@ async def _validate_departments(tenant_id: str, dept_ids: list[str]) -> None:
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def create_user(payload: UserCreatePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     # FR-024: an archived/disabled tenant must not gain new members. The
     # admin's own session may predate the archive, so check live status.
@@ -611,7 +611,7 @@ async def create_user(payload: UserCreatePayload, current_user: dict = Depends(g
 
 @router.put("/users/{user_id}")
 async def update_user(user_id: str, payload: UserUpdatePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
     existing = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
@@ -691,7 +691,7 @@ async def update_user(user_id: str, payload: UserUpdatePayload, current_user: di
 
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
     exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
@@ -710,7 +710,7 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_adm
 
 @router.post("/users/{user_id}/disable")
 async def disable_user(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
     exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
@@ -723,7 +723,7 @@ async def disable_user(user_id: str, current_user: dict = Depends(get_current_ad
 
 @router.post("/users/{user_id}/enable")
 async def enable_user(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
     exists = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
@@ -739,7 +739,7 @@ async def create_org_invite_link(
     payload: OrgInviteCreatePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     if str(tenant_id).strip() == "default":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -957,7 +957,7 @@ async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[s
 
 @router.get("/user-fields")
 async def list_user_fields(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     rows = await db[USER_FIELD_DEF_COLLECTION].find({"tenant_id": tenant_id}).sort("sort", 1).to_list(length=500)
     return [
@@ -980,7 +980,7 @@ async def list_user_fields(current_user: dict = Depends(get_current_admin_user))
 
 @router.post("/user-fields", status_code=status.HTTP_201_CREATED)
 async def create_user_field(payload: UserFieldDefPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     now = _now()
     doc = {
@@ -1007,7 +1007,7 @@ async def create_user_field(payload: UserFieldDefPayload, current_user: dict = D
 
 @router.put("/user-fields/{field_id}")
 async def update_user_field(field_id: str, payload: UserFieldDefPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     field_oid = _safe_oid(field_id, "字段ID无效")
     exists = await db[USER_FIELD_DEF_COLLECTION].find_one({"_id": field_oid, "tenant_id": tenant_id})
@@ -1039,7 +1039,7 @@ async def update_user_field(field_id: str, payload: UserFieldDefPayload, current
 
 @router.delete("/user-fields/{field_id}")
 async def delete_user_field(field_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     field_oid = _safe_oid(field_id, "字段ID无效")
     field = await db[USER_FIELD_DEF_COLLECTION].find_one({"_id": field_oid, "tenant_id": tenant_id})
@@ -1053,7 +1053,7 @@ async def delete_user_field(field_id: str, current_user: dict = Depends(get_curr
 
 @router.get("/users/{user_id}/custom-fields")
 async def get_user_custom_fields(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
     user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
@@ -1085,7 +1085,7 @@ async def upsert_user_custom_fields(
     payload: UserCustomValuesPayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
     user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
@@ -1107,7 +1107,7 @@ async def upsert_user_custom_fields(
 
 @router.get("/users/{user_id}/identities")
 async def list_user_identities(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
     user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
@@ -1136,7 +1136,7 @@ async def add_user_identity(
     payload: UserIdentityPayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     user_oid = _safe_oid(user_id, "用户ID无效")
     user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
@@ -1168,7 +1168,7 @@ async def add_user_identity(
 
 @router.delete("/user-identities/{identity_id}")
 async def delete_user_identity(identity_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     id_oid = _safe_oid(identity_id, "身份ID无效")
     row = await db[USER_IDENTITY_COLLECTION].find_one({"_id": id_oid, "tenant_id": tenant_id})
@@ -1185,7 +1185,7 @@ async def list_audit_logs(
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=20, ge=1, le=200),
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     skip = (page - 1) * pageSize
     total = await db[AUDIT_LOG_COLLECTION].count_documents({"tenant_id": tenant_id})

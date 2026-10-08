@@ -4,7 +4,7 @@ This module closes the 016 write loop that ``adoption_client.apply_quality_asses
 opens: it owns the *source data* for the effect score. The five counters
 (total / successful / adopted / corrected calls, plus a rolling ``sustained_days``)
 are stored in a tenant-partitioned ``skill_quality_metrics`` collection as **daily
-buckets** keyed by ``(main_id, skill_key, date)``. A periodic ``SkillQualityScanner``
+buckets** keyed by ``(tenant_id, skill_key, date)``. A periodic ``SkillQualityScanner``
 rolls the last ``window_days`` buckets up, computes the weighted effect score, and
 persists the result through ``apply_quality_assessment`` into the shared
 ``skill_adoption`` bit that the market list down-ranks.
@@ -481,14 +481,14 @@ async def evaluate_all(
     *,
     window_days: int = LOW_QUALITY_SUSTAINED_DAYS,
 ) -> int:
-    """Score every (main_id, skill_key) that has any metric bucket. Returns count."""
+    """Score every (tenant_id, skill_key) that has any metric bucket. Returns count."""
     if db is None:
         return 0
     keys = (
         await db[QUALITY_METRICS_COLLECTION]
         .aggregate(
             [
-                {"$group": {"_id": {"tenant_id": "$main_id", "skill_key": "$skill_key"}}},
+                {"$group": {"_id": {"tenant_id": "$tenant_id", "skill_key": "$skill_key"}}},
             ]
         )
         .to_list(length=20000)

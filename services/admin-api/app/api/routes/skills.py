@@ -64,7 +64,7 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     doc = lifecycle.display(doc)
     return {
         "id": str(doc.get("_id") or ""),
-        "mainId": str(doc.get("tenant_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "name": str(doc.get("name") or ""),
         "description": str(doc.get("description") or ""),
         "scenario": str(doc.get("scenario") or ""),
@@ -89,7 +89,7 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
 def _backend_url(path: str, tenant_id: str) -> str:
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     separator = "&" if "?" in path else "?"
-    return f"{base_url}/api{path}{separator}{urllib.parse.urlencode({'mainId': main_id})}"
+    return f"{base_url}/api{path}{separator}{urllib.parse.urlencode({'tenantId': tenant_id})}"
 
 
 def _request_backend(method: str, path: str, tenant_id: str, body: Any | None = None) -> Any:

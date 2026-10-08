@@ -82,7 +82,7 @@ async def ensure_org_quota_policy(tenant_id: str, *, org_total_points: int = 0) 
     # T033/T034: default to unlimited (decision 12: 配额默认不限额).
     # ``unlimited=True`` means the quota checks short-circuit to "available".
     policy = {
-        # Phase 1 dual-write: canonical tenant_id + legacy main_id.
+        # Phase 1 dual-write: canonical tenant_id + legacy tenant_id.
         "tenant_id": tenant_id,
         "total_tokens": total,
         "unlimited": True,
@@ -105,7 +105,7 @@ async def ensure_default_user_policy(tenant_id: str, *, period: str = "monthly")
     now = utc_now()
     policy = {
         **query,
-        # Phase 1 dual-write: canonical tenant_id (main_id already in query).
+        # Phase 1 dual-write: canonical tenant_id (tenant_id already in query).
         "tenant_id": tenant_id,
         "quota_tokens": 0,
         "period": normalize_period(period),
@@ -181,7 +181,7 @@ async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, A
         # (organizations.points_unlimited, decision 12).
         points_unlimited = bool(org.get("points_unlimited", True))
         return {
-            "mainId": tenant_id,
+            "tenantId": tenant_id,
             "orgName": org.get("org_name") or user.get("org_name") or "个人空间",
             "spaceType": "personal",
             "quotaSource": "registration_gift",
@@ -209,7 +209,7 @@ async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, A
         org_used = await sum_usage(tenant_id, start_at=org_start, end_at=org_end)
         user_used = await sum_usage(tenant_id, user_id=user_id, start_at=user_start, end_at=user_end)
         return {
-            "mainId": tenant_id,
+            "tenantId": tenant_id,
             "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
             "spaceType": "enterprise",
             "quotaSource": "enterprise_allocation",
@@ -233,7 +233,7 @@ async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, A
     user_total = max(0, base_user_total + extra)
     remaining = max(0, min(user_total - user_used, org_total - org_used))
     return {
-        "mainId": tenant_id,
+        "tenantId": tenant_id,
         "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
         "spaceType": "enterprise",
         "quotaSource": "enterprise_allocation",

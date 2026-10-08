@@ -58,26 +58,22 @@ async def ensure_indexes() -> None:
         logger.warning("org user index creation skipped: %s", exc)
 
 
-async def backfill_main_id(default_main_id: str) -> None:
+async def backfill_tenant_id(default_tenant_id: str) -> None:
+    """Ensure every account/group row carries a tenant_id.
+
+    Rows that never had any tenant key fall back to the default tenant; rows
+    that predate the rename already carry ``tenant_id`` after the Phase 2
+    backfill, so no legacy-field mirroring is needed any more.
+    """
     db = get_db()
     now = utcnow()
-    # Documents with neither key get the default tenant on both keys.
     await db[GROUP_COLLECTION].update_many(
-        {"tenant_id": {"$exists": False}, "tenant_id": {"$exists": False}},
-        {"$set": {"tenant_id": default_main_id, "updated_at": now}},
+        {"tenant_id": {"$exists": False}},
+        {"$set": {"tenant_id": default_tenant_id, "updated_at": now}},
     )
     await db[ACCOUNT_COLLECTION].update_many(
-        {"tenant_id": {"$exists": False}, "tenant_id": {"$exists": False}},
-        {"$set": {"tenant_id": default_main_id, "updated_at": now}},
-    )
-    # Documents that already carry main_id but not tenant_id: mirror the value.
-    await db[GROUP_COLLECTION].update_many(
-        {"tenant_id": {"$exists": False}, "tenant_id": {"$exists": True}},
-        [{"$set": {"tenant_id": "$main_id"}}],
-    )
-    await db[ACCOUNT_COLLECTION].update_many(
-        {"tenant_id": {"$exists": False}, "tenant_id": {"$exists": True}},
-        [{"$set": {"tenant_id": "$main_id"}}],
+        {"tenant_id": {"$exists": False}},
+        {"$set": {"tenant_id": default_tenant_id, "updated_at": now}},
     )
 
 
@@ -107,7 +103,7 @@ async def create_account_group(payload: dict) -> dict:
     base_code = _normalize_group_code(payload["name"])
     code = await _next_available_group_code(base_code, tenant_id)
     doc = {
-        # Phase 1 dual-write: canonical tenant_id + legacy main_id (same value).
+        # Phase 1 dual-write: canonical tenant_id + legacy tenant_id (same value).
         "tenant_id": tenant_id,
         "name": payload["name"],
         "code": code,
@@ -195,7 +191,7 @@ async def create_account(payload: dict) -> dict:
     now = utcnow()
     password_hash, password_salt = hash_password(payload.get("password") or "")
     doc = {
-        # Phase 1 dual-write: canonical tenant_id + legacy main_id (same value).
+        # Phase 1 dual-write: canonical tenant_id + legacy tenant_id (same value).
         "tenant_id": payload["tenant_id"],
         "username": payload["username"],
         "display_name": payload["display_name"],

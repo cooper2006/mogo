@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.memory.scope import Memory, MemoryScope, visible_to
 from app.memory.tiering import SUMMARY_REFRESH_DAYS_DEFAULT
 
@@ -133,7 +133,7 @@ class MemoryStore:
                 source_session_id=source_session_id,
                 source_type=source_type,
             )
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         doc: dict[str, Any] = {
             "memory_id": mem_id,
             "content": content,
@@ -169,7 +169,7 @@ class MemoryStore:
         top_n: int = 20,
     ) -> list[Memory]:
         """Return memories visible to ``viewer_id`` within ``tenant_id``."""
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         db = get_db()
         if db is None:
             return []
@@ -198,7 +198,7 @@ class MemoryStore:
 
     async def get(self, *, tenant_id: str, memory_id: str) -> Optional[Memory]:
         """Fetch a single memory by id within a tenant. Returns None if absent."""
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         db = get_db()
         if db is None:
             return None
@@ -207,7 +207,7 @@ class MemoryStore:
 
     async def delete(self, *, tenant_id: str, memory_id: str, owner_id: str) -> bool:
         """Delete a memory; returns True when one document was removed."""
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         db = get_db()
         if db is None:
             return False

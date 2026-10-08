@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.llm.configured_image_models import list_image_model_options
 from app.llm.configured_models import (
     ModelConfigError,
@@ -40,24 +40,24 @@ async def available_models(
     tenant_id: str = Query(default="default"),
     capability: str = Query(default="chat"),
 ) -> dict[str, Any]:
-    resolved_main_id = resolve_main_id(tenant_id)
+    resolved_tenant_id = resolve_tenant_id(tenant_id)
     token = str(capability or "chat").strip() or "chat"
     if token == "chat":
-        options = await list_chat_model_options(resolved_main_id)
+        options = await list_chat_model_options(resolved_tenant_id)
     else:
-        options = await list_model_options(resolved_main_id, capability=token)
+        options = await list_model_options(resolved_tenant_id, capability=token)
     return {"code": 0, "data": options}
 
 
 @router.get("/models/images/available")
 async def available_image_models(tenant_id: str = Query(default="default")) -> dict[str, Any]:
-    options = await list_image_model_options(resolve_main_id(tenant_id))
+    options = await list_image_model_options(resolve_tenant_id(tenant_id))
     return {"code": 0, "data": options}
 
 
 @router.post("/models/{model_id}/test/stream")
 async def stream_model_test(model_id: str, payload: Optional[ModelTestPayload] = None) -> StreamingResponse:
-    tenant_id = resolve_main_id((payload.tenant_id if payload else "") or "default")
+    tenant_id = resolve_tenant_id((payload.tenant_id if payload else "") or "default")
     prompt = (payload.prompt if payload else "") or "请用一句话回复当前模型连接测试。"
 
     async def event_stream():
@@ -102,7 +102,7 @@ async def stream_model_test(model_id: str, payload: Optional[ModelTestPayload] =
 
 @router.post("/models/{model_id}/test")
 async def model_test(model_id: str, payload: Optional[ModelTestPayload] = None) -> dict[str, Any]:
-    tenant_id = resolve_main_id((payload.tenant_id if payload else "") or "default")
+    tenant_id = resolve_tenant_id((payload.tenant_id if payload else "") or "default")
     prompt = (payload.prompt if payload else "") or "请用一句话回复当前模型连接测试。"
     try:
         client = await get_llm_client_by_model_id(
@@ -133,7 +133,7 @@ async def model_test(model_id: str, payload: Optional[ModelTestPayload] = None) 
 
 @router.post("/models/{model_id}/test-image")
 async def image_model_test(model_id: str, payload: Optional[ImageModelTestPayload] = None) -> dict[str, Any]:
-    tenant_id = resolve_main_id((payload.tenant_id if payload else "") or "default")
+    tenant_id = resolve_tenant_id((payload.tenant_id if payload else "") or "default")
     prompt = (payload.prompt if payload else "") or "生成一张简洁的科技感封面背景，不要文字。"
     size = (payload.size if payload else None) or None
     try:

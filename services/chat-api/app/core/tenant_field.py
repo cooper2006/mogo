@@ -59,7 +59,7 @@ def tenant_value(doc: Mapping[str, Any]) -> str:
 def tenant_scope_filter(tenant_id: Any = None, *, default: str = "default") -> Dict[str, Any]:
     """Query filter matching a tenant on either key.
 
-    Mirrors the historical ``main_scope_filter`` semantics but matches both the
+    Mirrors the historical ``tenant_scope_filter`` semantics but matches both the
     new and legacy key so it works across the dual-write window.
     """
     resolved = str(tenant_id or "").strip() or default
@@ -92,7 +92,7 @@ def add_tenant_scope(query: Mapping[str, Any], tenant_id: Any = None, *, default
 
 
 def tenant_query_clauses(tenant_id: Any = None, *, default: str = "default") -> Dict[str, Any]:
-    """Backwards-compatible alias used by call sites migrating off ``main_scope_filter``."""
+    """Backwards-compatible alias used by call sites migrating off ``tenant_scope_filter``."""
     return tenant_scope_filter(tenant_id, default=default)
 
 

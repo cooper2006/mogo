@@ -27,7 +27,7 @@ def _now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def _main_id(current_user: dict[str, Any]) -> str:
+def _tenant_id(current_user: dict[str, Any]) -> str:
     return str(current_user.get("tenant_id") or "default")
 
 
@@ -58,7 +58,7 @@ async def _load_doc(tenant_id: str) -> dict[str, Any] | None:
 
 @router.get("")
 async def get_page_collection_settings(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    return _serialize(await _load_doc(_main_id(current_user)))
+    return _serialize(await _load_doc(_tenant_id(current_user)))
 
 
 @router.put("")
@@ -66,7 +66,7 @@ async def save_page_collection_settings(
     payload: PageCollectionPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     existing = await _load_doc(tenant_id)
     existing_config = _config(existing)
     config: dict[str, Any] = {}

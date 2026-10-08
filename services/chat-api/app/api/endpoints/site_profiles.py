@@ -89,7 +89,7 @@ async def update_site_profile(
     payload: SiteProfileUpdateRequest,
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> ApiResponse:
-    updates = payload.model_dump(exclude={"user_id", "main_id"}, exclude_unset=True)
+    updates = payload.model_dump(exclude={"user_id", "tenant_id"}, exclude_unset=True)
     data = await site_profile_service.update(
         principal.user_id,
         profile_id,

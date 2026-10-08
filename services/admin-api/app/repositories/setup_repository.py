@@ -8,7 +8,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.db import get_db
-from app.core.tenant_identity import PLATFORM_MAIN_ID
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 
 SETUP_COLLECTION = "system_bootstrap"
 SETUP_LOCK_TTL = timedelta(minutes=15)
@@ -79,7 +79,7 @@ async def mark_platform_admin_created(
 
     Under the platform multi-tenancy model the ``system_bootstrap`` singleton no
     longer records "a tenant was created" but "the platform super-admin was
-    created" (decision 10/11). ``main_id`` is pinned to the reserved
+    created" (decision 10/11). ``tenant_id`` is pinned to the reserved
     ``__platform__`` identifier.
     """
     db = get_db()
@@ -89,7 +89,7 @@ async def mark_platform_admin_created(
         {
             "$set": {
                 "completed": True,
-                "tenant_id": PLATFORM_MAIN_ID,
+                "tenant_id": PLATFORM_TENANT_ID,
                 "platform_admin_username": username,
                 "platform_admin_display_name": display_name,
                 "updated_at": now,

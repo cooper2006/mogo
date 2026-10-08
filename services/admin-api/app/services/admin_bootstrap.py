@@ -16,7 +16,7 @@ async def bootstrap_admin_user() -> None:
     
     if settings.tenant_bootstrap_admin_enabled:
         setup_state = await get_setup_state()
-        tenant_id = str((setup_state or {}).get("tenant_id") or "").strip() or settings.bootstrap_main_id
+        tenant_id = str((setup_state or {}).get("tenant_id") or "").strip() or settings.bootstrap_tenant_id
         org_name = str((setup_state or {}).get("org_name") or "").strip() or settings.tenant_bootstrap_admin_org_name
 
         await ensure_group_exists(

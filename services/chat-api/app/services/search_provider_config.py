@@ -27,12 +27,12 @@ def _safe_config(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 async def resolve_default_external_search_provider(tenant_id: str) -> dict[str, Any] | None:
-    resolved_main_id = str(tenant_id or "default").strip() or "default"
+    resolved_tenant_id = str(tenant_id or "default").strip() or "default"
     db = get_db()
-    for candidate_main_id in ([resolved_main_id, "default"] if resolved_main_id != "default" else ["default"]):
+    for candidate_tenant_id in ([resolved_tenant_id, "default"] if resolved_tenant_id != "default" else ["default"]):
         doc = await db[COLLECTION].find_one(
             {
-                "tenant_id": candidate_main_id,
+                "tenant_id": candidate_tenant_id,
                 "enabled": True,
                 "is_default": True,
                 "provider": {"$in": sorted(SUPPORTED_PROVIDERS)},

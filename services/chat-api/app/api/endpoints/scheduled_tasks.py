@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.scheduled_tasks.models import ScheduledJobCreate, ScheduledJobUpdate
 from app.scheduled_tasks.repository import RUNS, scheduled_task_repository, serialize_job
 from app.scheduled_tasks.scheduler import scheduled_task_scheduler
@@ -25,7 +25,7 @@ class ApiResponse(BaseModel):
 
 async def _identity(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
-    return resolve_main_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
+    return resolve_tenant_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
 
 
 async def _validate_session_target(payload: Dict[str, Any], *, tenant_id: str, user_id: str) -> None:
@@ -35,14 +35,14 @@ async def _validate_session_target(payload: Dict[str, Any], *, tenant_id: str, u
     if not ObjectId.is_valid(session_id):
         raise HTTPException(status_code=400, detail="目标会话无效")
     session = await get_db().chat_sessions.find_one(
-        add_main_scope({"_id": ObjectId(session_id), "user_id": user_id}, tenant_id), {"_id": 1}
+        add_tenant_scope({"_id": ObjectId(session_id), "user_id": user_id}, tenant_id), {"_id": 1}
     )
     if not session:
         raise HTTPException(status_code=404, detail="目标会话不存在或无权访问")
 
 
 def _safe_output_spec(value: Dict[str, Any]) -> Dict[str, Any]:
-    blocked = {"user_id", "main_id", "task_id", "session_id", "message_id", "request_id"}
+    blocked = {"user_id", "tenant_id", "task_id", "session_id", "message_id", "request_id"}
     return {key: item for key, item in dict(value or {}).items() if key not in blocked and not key.startswith("_")}
 
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.services.skill_sharing.member_directory import SkillShareMemberDirectory
 
 from .access import GRANT_COLLECTION, RESOURCE_COLLECTION, PersonalKnowledgeAccessService
@@ -34,7 +34,7 @@ class PersonalKnowledgeService:
         self, *, tenant_id: str, owner_user_id: str, filename: str,
         directory_id: str = "", name: str = "", description: str = "", tags: list[str] | None = None,
     ) -> dict[str, Any]:
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         await self.require_directory(tenant_id=tenant_id, owner_user_id=owner_user_id, directory_id=directory_id)
         resource_id = uuid.uuid4().hex
         now = _now()
@@ -66,7 +66,7 @@ class PersonalKnowledgeService:
         self, *, tenant_id: str, user_id: str, view: str, directory_id: str = "",
         keyword: str = "", page: int = 1, page_size: int = 12,
     ) -> dict[str, Any]:
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         offset = (page - 1) * page_size
         feedback = await personal_knowledge_feedback_summary_service.unread_by_resource(
             tenant_id=tenant_id, user_id=user_id,
@@ -160,7 +160,7 @@ class PersonalKnowledgeService:
             recipient_id = str(member.get("_id") or "")
             if recipient_id == str(access.resource.get("owner_user_id") or ""):
                 continue
-            query = {"tenant_id": resolve_main_id(tenant_id), "resource_type": "personal_knowledge", "resource_id": resource_id, "recipient_user_id": recipient_id}
+            query = {"tenant_id": resolve_tenant_id(tenant_id), "resource_type": "personal_knowledge", "resource_id": resource_id, "recipient_user_id": recipient_id}
             values = {"granted_by_user_id": str(user_id), "can_reshare": bool(allowed.get(recipient_id)), "status": "active", "revoked_at": None, "updated_at": now}
             current = await db[GRANT_COLLECTION].find_one(query)
             if current:
@@ -181,7 +181,7 @@ class PersonalKnowledgeService:
 
     async def revoke(self, *, tenant_id: str, user_id: str, resource_id: str, recipient_user_id: str, cascade: bool = False) -> None:
         access = await self.access.require_view(tenant_id=tenant_id, user_id=user_id, resource_id=resource_id)
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         grant = await db[GRANT_COLLECTION].find_one({
             "tenant_id": tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
             "recipient_user_id": str(recipient_user_id), "status": "active",
@@ -213,7 +213,7 @@ class PersonalKnowledgeService:
         if not directory_id:
             return
         row = await get_db()[DIRECTORY_COLLECTION].find_one({
-            "_id": str(directory_id), "tenant_id": resolve_main_id(tenant_id),
+            "_id": str(directory_id), "tenant_id": resolve_tenant_id(tenant_id),
             "owner_user_id": str(owner_user_id), "deleted_at": None,
         })
         if row is None:

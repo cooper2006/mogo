@@ -520,7 +520,7 @@ def _admin_shape_skill(skill: Dict[str, Any]) -> Dict[str, Any]:
             config = {}
     return {
         "id": str(skill.get("id") or skill.get("_id") or ""),
-        "mainId": str(skill.get("tenant_id") or skill.get("tenantId") or "default"),
+        "tenantId": str(skill.get("tenant_id") or skill.get("tenantId") or "default"),
         "name": str(skill.get("name") or ""),
         "description": str(skill.get("description") or ""),
         "scenario": str(skill.get("scenario") or skill.get("notes") or ""),
@@ -566,7 +566,7 @@ def _selectable_skill_item(skill: Dict[str, Any]) -> Dict[str, Any]:
     source_scope = _skill_source_scope(skill)
     return {
         "id": str(skill.get("id") or skill.get("_id") or ""),
-        "mainId": str(skill.get("tenant_id") or skill.get("tenantId") or "default"),
+        "tenantId": str(skill.get("tenant_id") or skill.get("tenantId") or "default"),
         "name": str(skill.get("name") or ""),
         "description": str(skill.get("description") or skill.get("summary") or ""),
         "scenario": str(skill.get("scenario") or skill.get("notes") or ""),
@@ -1985,21 +1985,21 @@ async def list_selectable_skills(
     cursor: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=50),
 ) -> ApiResponse:
-    resolved_main_id = tenant_id
+    resolved_tenant_id = tenant_id
     source_scope = str(scope or "all").strip().lower()
     if source_scope not in {"all", "user", "organization"}:
         source_scope = "all"
     try:
-        user_skills = await user_skill_service.list_skills(user_id, tenant_id=resolved_main_id)
+        user_skills = await user_skill_service.list_skills(user_id, tenant_id=resolved_tenant_id)
     except Exception as exc:
         log_print(f"[api.endpoints.skills.list_selectable_skills] suppressed {type(exc).__name__}: {exc}", flush=True)
         user_skills = []
     try:
-        org_skills = await organization_skill_adapter.list_runtime_skills(tenant_id=resolved_main_id)
+        org_skills = await organization_skill_adapter.list_runtime_skills(tenant_id=resolved_tenant_id)
     except Exception as exc:
         log_print(f"[api.endpoints.skills.list_selectable_skills] suppressed {type(exc).__name__}: {exc}", flush=True)
         org_skills = []
-    policy = await MongoEmployeePolicyResolver().resolve(resolved_main_id, user_id)
+    policy = await MongoEmployeePolicyResolver().resolve(resolved_tenant_id, user_id)
 
     items: List[Dict[str, Any]] = []
     seen: set[str] = set()
@@ -2042,21 +2042,21 @@ async def create_admin_shape_skill(
     user_id: str = Query(..., alias="userId"),
     tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
-    resolved_main_id = tenant_id
+    resolved_tenant_id = tenant_id
     created = await user_skill_service.create_skill(
         user_id,
-        _admin_shape_payload_to_user_payload(payload, user_id=user_id, tenant_id=resolved_main_id),
+        _admin_shape_payload_to_user_payload(payload, user_id=user_id, tenant_id=resolved_tenant_id),
     )
     from app.services.skill_lifecycle import SkillLifecycleService
     lifecycle = SkillLifecycleService()
     await lifecycle.initialize_draft(
-        tenant_id=resolved_main_id,
+        tenant_id=resolved_tenant_id,
         user_id=user_id,
         skill_id=str(created.get("id") or ""),
         draft=created,
         new_skill=True,
     )
-    current = await user_skill_service.get_skill(user_id, str(created.get("id") or ""), tenant_id=resolved_main_id)
+    current = await user_skill_service.get_skill(user_id, str(created.get("id") or ""), tenant_id=resolved_tenant_id)
     return ApiResponse(code=0, message="success", data=_admin_shape_skill(current or created))
 
 
@@ -2066,8 +2066,8 @@ async def get_skill(
     user_id: str = Query(..., alias="userId"),
     tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
-    resolved_main_id = tenant_id
-    skill = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_main_id)
+    resolved_tenant_id = tenant_id
+    skill = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_tenant_id)
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
     return ApiResponse(code=0, message="success", data=_admin_shape_skill(skill))
@@ -2080,23 +2080,23 @@ async def update_skill(
     user_id: str = Query(..., alias="userId"),
     tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
-    resolved_main_id = tenant_id
-    updates = _admin_shape_payload_to_user_payload(payload, user_id=user_id, tenant_id=resolved_main_id)
+    resolved_tenant_id = tenant_id
+    updates = _admin_shape_payload_to_user_payload(payload, user_id=user_id, tenant_id=resolved_tenant_id)
     from app.services.skill_lifecycle import SkillLifecycleError, SkillLifecycleService
-    current = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_main_id)
+    current = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_tenant_id)
     if not current:
         raise HTTPException(status_code=404, detail="Skill not found")
     lifecycle = SkillLifecycleService()
     if not lifecycle.is_platform_skill(current):
-        updated = await user_skill_service.update_skill(user_id, skill_id, updates, tenant_id=resolved_main_id)
+        updated = await user_skill_service.update_skill(user_id, skill_id, updates, tenant_id=resolved_tenant_id)
         return ApiResponse(code=0, message="success", data=_admin_shape_skill(updated or current))
     try:
         await lifecycle.save_draft(
-            tenant_id=resolved_main_id, user_id=user_id, skill_id=skill_id, draft=updates,
+            tenant_id=resolved_tenant_id, user_id=user_id, skill_id=skill_id, draft=updates,
         )
     except SkillLifecycleError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
-    updated = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_main_id)
+    updated = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_tenant_id)
     return ApiResponse(code=0, message="success", data=_admin_shape_skill(updated or {}))
 
 
@@ -2107,8 +2107,8 @@ async def set_skill_enabled(
     user_id: str = Query(..., alias="userId"),
     tenant_id: str = Query("default", alias="tenantId"),
 ) -> ApiResponse:
-    resolved_main_id = tenant_id
-    current = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_main_id)
+    resolved_tenant_id = tenant_id
+    current = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_tenant_id)
     if not current:
         raise HTTPException(status_code=404, detail="Skill not found")
     if payload.enabled and str(current.get("publication_status") or "") == "draft" and not current.get("published_version"):
@@ -2116,7 +2116,7 @@ async def set_skill_enabled(
             "code": "skill_publish_required", "message": "Publish this Skill before enabling it",
         })
     updated = await user_skill_service.set_skill_enabled(
-        user_id, skill_id, bool(payload.enabled), tenant_id=resolved_main_id,
+        user_id, skill_id, bool(payload.enabled), tenant_id=resolved_tenant_id,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Skill not found")

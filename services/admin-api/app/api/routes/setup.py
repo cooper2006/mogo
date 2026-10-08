@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.tenant_identity import PLATFORM_MAIN_ID
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 from app.repositories.model_repository import ensure_indexes as ensure_model_indexes
 from app.repositories.setup_repository import (
     acquire_setup_lock,
@@ -203,7 +203,7 @@ async def setup_status(request: Request) -> SetupStatusResponse:
     return SetupStatusResponse(
         completed=True,
         orgName=str((state or {}).get("org_name") or ""),
-        tenantId=str((state or {}).get("tenant_id") or PLATFORM_MAIN_ID),
+        tenantId=str((state or {}).get("tenant_id") or PLATFORM_TENANT_ID),
         initializedAt=_fmt((state or {}).get("updated_at")),
         **common,
     )
@@ -273,4 +273,4 @@ async def setup_platform_admin(payload: SetupPlatformAdminRequest) -> dict[str, 
         await mark_platform_admin_created(lock_token=lock_token, username=username, display_name=display_name)
     finally:
         await release_setup_lock(lock_token)
-    return {"completed": True, "mainId": PLATFORM_MAIN_ID, "username": username}
+    return {"completed": True, "tenantId": PLATFORM_TENANT_ID, "username": username}

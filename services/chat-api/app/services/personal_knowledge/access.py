@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 
 RESOURCE_COLLECTION = "knowledge_resources"
@@ -23,7 +23,7 @@ class KnowledgeAccess:
 
 class PersonalKnowledgeAccessService:
     async def resolve(self, *, tenant_id: str, user_id: str, resource_id: str) -> KnowledgeAccess | None:
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         resource = await get_db()[RESOURCE_COLLECTION].find_one({
             "_id": str(resource_id), "tenant_id": tenant_id, "deleted_at": None,
         })
@@ -71,12 +71,12 @@ class PersonalKnowledgeAccessService:
 
     async def resource_for_document(self, *, tenant_id: str, document_id: str) -> dict[str, Any] | None:
         doc = await get_db().knowledge_documents.find_one({
-            "_id": str(document_id), "tenant_id": resolve_main_id(tenant_id), "deleted_at": None,
+            "_id": str(document_id), "tenant_id": resolve_tenant_id(tenant_id), "deleted_at": None,
         }, {"resource_id": 1, "scope": 1})
         if not doc or str(doc.get("scope") or "organization") != "personal":
             return None
         return await get_db()[RESOURCE_COLLECTION].find_one({
             "_id": str(doc.get("resource_id") or ""),
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "deleted_at": None,
         })

@@ -45,7 +45,7 @@ def build_workflow_identity(
         "operation_id": operation_id,
         "capability_id": capability_id,
     }
-    # main_id and capability_id are useful audit metadata, but neither should
+    # tenant_id and capability_id are useful audit metadata, but neither should
     # split the same user + site + normalized business operation into different
     # caches across later requests.
     signature_data = {

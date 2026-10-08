@@ -56,17 +56,17 @@ async def inspect_setup_model(payload: dict[str, Any]) -> SetupModelInspection:
             return SetupModelInspection(message=result.message, dimension=result.dimension)
         except SetupModelProbeError as exc:
             raise SetupModelError(str(exc)) from exc
-    temporary_main_id = f"setup-test-{secrets.token_hex(12)}"
+    temporary_tenant_id = f"setup-test-{secrets.token_hex(12)}"
     instance_id = ""
     try:
-        instance_id = await create_instance({**normalized, "tenant_id": temporary_main_id})
-        success, message = await run_saved_model_test(instance_id, temporary_main_id)
+        instance_id = await create_instance({**normalized, "tenant_id": temporary_tenant_id})
+        success, message = await run_saved_model_test(instance_id, temporary_tenant_id)
         if not success:
             raise SetupModelError(message)
         return SetupModelInspection(message=message)
     finally:
         if instance_id:
-            await delete_instance(instance_id, temporary_main_id)
+            await delete_instance(instance_id, temporary_tenant_id)
 
 
 # The public service function name is retained for API compatibility; prevent

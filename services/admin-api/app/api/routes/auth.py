@@ -27,7 +27,7 @@ from app.core.security import (
     mask_identifier,
     verify_password,
 )
-from app.core.tenant_identity import PLATFORM_MAIN_ID, is_reserved_main_id
+from app.core.tenant_identity import PLATFORM_TENANT_ID, is_reserved_tenant_id
 from app.core.totp import compute_totp, generate_secret, totp_uri, verify_totp
 from app.core.encryption import decrypt_secret, encrypt_secret, verify_and_decrypt
 from app.core.rate_limiter import get_default_limiter
@@ -203,14 +203,14 @@ def _profile_from_user(user: dict[str, Any], tenant_id: str) -> dict[str, object
         "avatarUrl": user.get("avatar_url") or "",
         "avatarUpdatedAt": utc_iso(user.get("avatar_updated_at")),
         "lastLoginAt": utc_iso(user.get("last_login_at")),
-        "mainId": tenant_id,
+        "tenantId": tenant_id,
     }
 
 
 def _candidate_from_user(user: dict[str, Any]) -> dict[str, object]:
     tenant_id = str(user.get("tenant_id") or "")
     return {
-        "mainId": tenant_id,
+        "tenantId": tenant_id,
         "orgName": user.get("org_name") or user.get("group_code") or "组织账户",
         "roleName": user.get("role_name") or "组织管理员",
         "displayName": user.get("display_name") or user.get("username") or "",
@@ -304,7 +304,7 @@ async def _assert_tenant_login_allowed(tenant_id: str) -> None:
     handled by the platform bootstrap instead, so only non-reserved
     identifiers are checked.
     """
-    if is_reserved_main_id(tenant_id) or tenant_id == PLATFORM_MAIN_ID:
+    if is_reserved_tenant_id(tenant_id) or tenant_id == PLATFORM_TENANT_ID:
         return
     db = get_db()
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"status": 1})
@@ -321,15 +321,15 @@ async def _assert_tenant_login_allowed(tenant_id: str) -> None:
 
 @router.post("/login")
 async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
-    requested_main_id = payload.tenantId.strip()
+    requested_tenant_id = payload.tenantId.strip()
     username = payload.username.strip()
 
     # QF-356: check rate limit before any database work.
     rate_limit_key = _login_rate_limit_key(request)
     _check_login_rate_limit(rate_limit_key)
 
-    if requested_main_id:
-        tenant_id = requested_main_id
+    if requested_tenant_id:
+        tenant_id = requested_tenant_id
         user = await find_account_by_username(username, tenant_id)
         if user is None:
             _record_login_failure(rate_limit_key)
@@ -381,7 +381,7 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
 
 async def _tenant_blocked_for_login(tenant_id: str) -> bool:
     """True when the tenant row exists and is not active (archived / purged)."""
-    if is_reserved_main_id(tenant_id) or tenant_id == PLATFORM_MAIN_ID:
+    if is_reserved_tenant_id(tenant_id) or tenant_id == PLATFORM_TENANT_ID:
         return False
     db = get_db()
     tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"status": 1})
@@ -417,7 +417,7 @@ async def select_tenant(payload: SelectTenantRequest, request: Request) -> dict[
 
     await db[LOGIN_CHALLENGE_COLLECTION].update_one(
         {"_id": challenge["_id"]},
-        {"$set": {"status": "used", "updated_at": now, "used_main_id": payload.tenantId}},
+        {"$set": {"status": "used", "updated_at": now, "used_tenant_id": payload.tenantId}},
     )
     return await _issue_login_response(user, payload.tenantId, request)
 
@@ -504,7 +504,7 @@ async def upload_my_avatar(
 
     tenant_id = str(current_user["tenant_id"])
     username = str(current_user["username"])
-    relative_dir = f"admin-avatars/{_safe_path_part(main_id, 'default')}"
+    relative_dir = f"admin-avatars/{_safe_path_part(tenant_id, 'default')}"
     filename = f"{_safe_path_part(username, 'user')}-{uuid.uuid4().hex}.{ext}"
     relative_path = f"{relative_dir}/{filename}"
     static_root = Path(settings.admin_static_dir).expanduser().resolve()

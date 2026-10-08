@@ -64,7 +64,7 @@ def _time_text(value: Any) -> str:
 def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(doc.get("_id") or ""),
-        "mainId": str(doc.get("tenant_id") or "default"),
+        "tenantId": str(doc.get("tenant_id") or "default"),
         "name": str(doc.get("name") or ""),
         "type": str(doc.get("type") or "http"),
         "description": str(doc.get("description") or ""),
@@ -127,7 +127,7 @@ def _validate_final_activation(existing: dict[str, Any] | None, patch: dict[str,
 def _backend_url(path: str, tenant_id: str) -> str:
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     separator = "&" if "?" in path else "?"
-    return f"{base_url}/api/external-tools{path}{separator}{urllib.parse.urlencode({'mainId': main_id})}"
+    return f"{base_url}/api/external-tools{path}{separator}{urllib.parse.urlencode({'tenantId': tenant_id})}"
 
 
 def _config_timeout_seconds(config: dict[str, Any], default: int = 35) -> int:

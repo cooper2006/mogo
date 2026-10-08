@@ -6,7 +6,7 @@ from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel
 
 from app.api.endpoints.auth import _resolve_session_user
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.services.token_usage_service import token_usage_service
 
 router = APIRouter()
@@ -31,10 +31,10 @@ async def list_token_usage(
 ) -> ApiResponse:
     resolved = await _resolve_session_user(authorization)
     current_user_id = str(resolved["user"].get("_id") or "")
-    scoped_main_id = resolve_main_id(tenant_id or resolved.get("tenant_id"))
+    scoped_tenant_id = resolve_tenant_id(tenant_id or resolved.get("tenant_id"))
     data = await token_usage_service.list_logs(
         user_id=current_user_id or str(user_id or ""),
-        tenant_id=scoped_main_id,
+        tenant_id=scoped_tenant_id,
         offset=offset,
         limit=limit,
         query=q,

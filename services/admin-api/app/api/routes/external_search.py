@@ -43,7 +43,7 @@ def _now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def _main_id(current_user: dict[str, Any]) -> str:
+def _tenant_id(current_user: dict[str, Any]) -> str:
     return str(current_user.get("tenant_id") or "default")
 
 
@@ -103,7 +103,7 @@ async def _load_provider_doc(tenant_id: str, provider: str) -> dict[str, Any] | 
 
 @router.get("/providers")
 async def list_external_search_providers(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     docs = await get_db()[COLLECTION].find({"tenant_id": tenant_id}).to_list(length=20)
     doc_map = {str(doc.get("provider") or ""): doc for doc in docs}
     default_provider = _effective_default_provider(docs)
@@ -117,7 +117,7 @@ async def save_external_search_provider(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     provider = _provider_or_404(provider)
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     existing = await _load_provider_doc(tenant_id, provider)
     existing_config = _config(existing)
     config = {
@@ -167,7 +167,7 @@ async def set_default_external_search_provider(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
     provider = _provider_or_404(provider)
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     doc = await _load_provider_doc(tenant_id, provider)
     if not doc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先保存搜索源配置")
@@ -186,7 +186,7 @@ async def test_external_search_provider(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     provider = _provider_or_404(provider)
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     doc = await _load_provider_doc(tenant_id, provider)
     config = _config(doc)
     api_key = payload.apiKey.strip() or _api_key_from_config(config)

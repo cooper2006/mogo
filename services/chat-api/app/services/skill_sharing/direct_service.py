@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 from .exporter import SkillShareExporter
 from .distribution import SkillDistributionService
@@ -40,11 +40,11 @@ class DirectSkillShareService:
         self, *, tenant_id: str, owner_user_id: str, skill_id: str, recipient_user_ids: list[str],
     ) -> dict[str, Any]:
         db = get_db()
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         members = await self._directory.require_members(
             tenant_id=tenant_id, requester_user_id=owner_user_id, user_ids=recipient_user_ids,
         )
-        skill = await db.user_skills.find_one(add_main_scope({
+        skill = await db.user_skills.find_one(add_tenant_scope({
             "_id": skill_id, "user_id": str(owner_user_id),
         }, tenant_id))
         if skill is None:
@@ -126,7 +126,7 @@ class DirectSkillShareService:
         self, *, tenant_id: str, recipient_user_id: str, cursor: str = "", limit: int = 20,
     ) -> dict[str, Any]:
         db = get_db()
-        tenant_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
         page_size = min(max(int(limit), 1), 50)
         query: dict[str, Any] = {
             "tenant_id": tenant_id,
@@ -168,7 +168,7 @@ class DirectSkillShareService:
 
     async def pending_count(self, *, tenant_id: str, recipient_user_id: str) -> int:
         return await get_db()[DELIVERY_COLLECTION].count_documents({
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "recipient_user_id": str(recipient_user_id),
             "status": "pending",
         })
@@ -179,7 +179,7 @@ class DirectSkillShareService:
         db = get_db()
         scope = {
             "_id": delivery_id,
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "recipient_user_id": str(recipient_user_id),
         }
         delivery = await db[DELIVERY_COLLECTION].find_one(scope)
@@ -195,7 +195,7 @@ class DirectSkillShareService:
         if not claimed.matched_count:
             raise SkillShareError("skill_share_delivery_unavailable", "This shared Skill is unavailable", status_code=409)
         share = await db[SHARE_COLLECTION].find_one({
-            "_id": str(delivery.get("share_id") or ""), "tenant_id": resolve_main_id(tenant_id), "status": "active",
+            "_id": str(delivery.get("share_id") or ""), "tenant_id": resolve_tenant_id(tenant_id), "status": "active",
         })
         if share is None:
             await self._restore_pending(db, scope)
@@ -218,7 +218,7 @@ class DirectSkillShareService:
         result = await get_db()[DELIVERY_COLLECTION].update_one(
             {
                 "_id": delivery_id,
-                "tenant_id": resolve_main_id(tenant_id),
+                "tenant_id": resolve_tenant_id(tenant_id),
                 "recipient_user_id": str(recipient_user_id),
                 "status": "pending",
             },
@@ -230,7 +230,7 @@ class DirectSkillShareService:
     @staticmethod
     async def _directory_user(db: Any, tenant_id: str, user_id: str) -> dict[str, str]:
         from .member_directory import member_id_candidates
-        row = await db.end_users.find_one(add_main_scope({
+        row = await db.end_users.find_one(add_tenant_scope({
             "_id": {"$in": member_id_candidates([user_id])}, "status": "active",
         }, tenant_id), {"name": 1, "login_name": 1, "email": 1})
         if row is None:

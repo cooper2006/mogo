@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 RELEASE_COLLECTION = "skill_releases"
@@ -47,7 +47,7 @@ class SkillLifecycleService:
         self, *, tenant_id: str, user_id: str, skill_id: str, draft: dict[str, Any], new_skill: bool,
     ) -> dict[str, Any]:
         db = get_db()
-        scope = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
+        scope = add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
         row = await db.user_skills.find_one(scope)
         if row is None:
             raise SkillLifecycleError("skill_not_found", "Skill not found", status_code=404)
@@ -70,7 +70,7 @@ class SkillLifecycleService:
         self, *, tenant_id: str, user_id: str, skill_id: str, draft: dict[str, Any],
     ) -> dict[str, Any]:
         db = get_db()
-        scope = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
+        scope = add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
         row = await db.user_skills.find_one(scope)
         if row is None:
             raise SkillLifecycleError("skill_not_found", "Skill not found", status_code=404)
@@ -102,8 +102,8 @@ class SkillLifecycleService:
         from app.services.skills import user_skill_service
 
         db = get_db()
-        tenant_id = resolve_main_id(tenant_id)
-        scope = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
+        tenant_id = resolve_tenant_id(tenant_id)
+        scope = add_tenant_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
         row = await db.user_skills.find_one(scope)
         if row is None:
             raise SkillLifecycleError("skill_not_found", "Skill not found", status_code=404)
@@ -155,8 +155,8 @@ class SkillLifecycleService:
         self, *, tenant_id: str, user_id: str, skill_id: str, limit: int = 20,
     ) -> list[dict[str, Any]]:
         db = get_db()
-        tenant_id = resolve_main_id(tenant_id)
-        owner_scope = add_main_scope({
+        tenant_id = resolve_tenant_id(tenant_id)
+        owner_scope = add_tenant_scope({
             "_id": skill_id, "user_id": str(user_id),
         }, tenant_id)
         owner = await db.user_skills.find_one(owner_scope)
@@ -178,7 +178,7 @@ class SkillLifecycleService:
         db = get_db()
         snapshot = self._snapshot(row)
         digest = self._digest(snapshot)
-        tenant_id = resolve_main_id(row.get("tenant_id"))
+        tenant_id = resolve_tenant_id(row.get("tenant_id"))
         skill_id = str(row.get("_id") or "")
         release = await db[RELEASE_COLLECTION].find_one({
             "tenant_id": tenant_id, "skill_id": skill_id, "version": "1.0.0",

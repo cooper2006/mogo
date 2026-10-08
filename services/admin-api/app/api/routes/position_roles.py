@@ -66,7 +66,7 @@ def _aware_utc(value: datetime | None, fallback: datetime | None = None) -> date
     return resolved.astimezone(timezone.utc)
 
 
-def _main_id(user: dict[str, Any]) -> str:
+def _tenant_id(user: dict[str, Any]) -> str:
     return str(user.get("tenant_id") or "default")
 
 
@@ -76,39 +76,39 @@ def _actor(user: dict[str, Any]) -> str:
 
 @router.get("")
 async def list_roles(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    return await PositionRoleService().list_roles(_main_id(current_user))
+    return await PositionRoleService().list_roles(_tenant_id(current_user))
 
 
 @router.post("", status_code=201)
 async def create_role(payload: PositionRolePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    return await PositionRoleService().create_role(_main_id(current_user), payload.model_dump(), _actor(current_user))
+    return await PositionRoleService().create_role(_tenant_id(current_user), payload.model_dump(), _actor(current_user))
 
 
 @router.put("/{role_id}")
 async def update_role(role_id: str, payload: PositionRolePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    return await PositionRoleService().update_role(_main_id(current_user), role_id, payload.model_dump(), _actor(current_user))
+    return await PositionRoleService().update_role(_tenant_id(current_user), role_id, payload.model_dump(), _actor(current_user))
 
 
 @router.post("/{role_id}/copy", status_code=201)
 async def copy_role(role_id: str, payload: RoleCopyPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    return await PositionRoleService().copy_role(_main_id(current_user), role_id, payload.name, _actor(current_user))
+    return await PositionRoleService().copy_role(_tenant_id(current_user), role_id, payload.name, _actor(current_user))
 
 
 @router.patch("/{role_id}/status")
 async def update_role_status(role_id: str, payload: RoleStatusPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    await PositionRoleService().set_status(_main_id(current_user), role_id, payload.enabled, _actor(current_user))
+    await PositionRoleService().set_status(_tenant_id(current_user), role_id, payload.enabled, _actor(current_user))
     return {"success": True}
 
 
 @router.delete("/{role_id}")
 async def delete_role(role_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    await PositionRoleService().delete_role(_main_id(current_user), role_id, _actor(current_user))
+    await PositionRoleService().delete_role(_tenant_id(current_user), role_id, _actor(current_user))
     return {"success": True}
 
 
 @router.get("/catalog/resources")
 async def resource_catalog(current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     tools = await db.external_tools.find(organization_tool_query(tenant_id, status="active")).sort("name", 1).to_list(length=5000)
     skills = await db.skills.find({"tenant_id": tenant_id, "enabled": True}).sort("name", 1).to_list(length=5000)
@@ -120,7 +120,7 @@ async def resource_catalog(current_user: dict = Depends(get_current_admin_user))
 
 @router.get("/assignments/pending")
 async def pending_assignments(current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     assigned = await db[USER_ROLE_COLLECTION].distinct("user_id", {"tenant_id": tenant_id})
     query: dict[str, Any] = {"tenant_id": tenant_id, "status": {"$ne": "deleted"}}
@@ -138,7 +138,7 @@ async def pending_assignments(current_user: dict = Depends(get_current_admin_use
 
 @router.post("/assignments/migration/complete")
 async def complete_assignment_migration(current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     assigned = await db[USER_ROLE_COLLECTION].distinct("user_id", {"tenant_id": tenant_id})
     query: dict[str, Any] = {"tenant_id": tenant_id, "status": {"$ne": "deleted"}}
@@ -157,7 +157,7 @@ async def complete_assignment_migration(current_user: dict = Depends(get_current
 @router.put("/assignments/users/{user_id}")
 async def assign_user_roles(user_id: str, payload: UserRoleAssignmentPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
     service = PositionRoleService()
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     await service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
     await service.repository.replace_user_roles(tenant_id, user_id, payload.roleIds, payload.primaryRoleId, actor=_actor(current_user))
     await service.repository.audit(tenant_id, _actor(current_user), "assign", "employee_position_roles", user_id, payload.model_dump())
@@ -167,7 +167,7 @@ async def assign_user_roles(user_id: str, payload: UserRoleAssignmentPayload, cu
 @router.post("/assignments/bulk")
 async def bulk_assign_roles(payload: BulkRoleAssignmentPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, int]:
     service = PositionRoleService()
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     await service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
     # 006 FR-6: 批量分配改为原子 bulk_write，失败时整体回滚而非部分写。
     assignments = [
@@ -181,7 +181,7 @@ async def bulk_assign_roles(payload: BulkRoleAssignmentPayload, current_user: di
 
 @router.post("/assignments/users/{user_id}/overrides", status_code=201)
 async def create_override(user_id: str, payload: CapabilityOverridePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, str]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     now = utcnow()
     effective_at = _aware_utc(payload.effectiveAt, now)
     expires_at = _aware_utc(payload.expiresAt)
@@ -225,7 +225,7 @@ async def create_override(user_id: str, payload: CapabilityOverridePayload, curr
 
 @router.get("/assignments/users/{user_id}/overrides")
 async def list_user_overrides(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     rows = await get_db()[USER_OVERRIDE_COLLECTION].find({"tenant_id": tenant_id, "user_id": user_id}).sort("created_at", -1).to_list(length=500)
     now = utcnow()
     return [{
@@ -247,7 +247,7 @@ async def list_user_overrides(user_id: str, current_user: dict = Depends(get_cur
 
 @router.delete("/assignments/overrides/{override_id}")
 async def revoke_override(override_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    tenant_id = _main_id(current_user)
+    tenant_id = _tenant_id(current_user)
     db = get_db()
     result = await db[USER_OVERRIDE_COLLECTION].update_one(
         {"_id": override_id, "tenant_id": tenant_id},

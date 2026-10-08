@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from bson import ObjectId
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope
+from app.core.tenant import add_tenant_scope
 from app.infrastructure.observability.config import log_print
 from app.utils import storage_utils
 
@@ -121,7 +121,7 @@ class LocalKnowledgeRAGService:
             except Exception as exc:
                 log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
         rows = (
-            await db.chat_messages.find(add_main_scope(msg_filter, tenant_id))
+            await db.chat_messages.find(add_tenant_scope(msg_filter, tenant_id))
             .sort("created_at", -1)
             .limit(240)
             .to_list(length=240)
@@ -192,7 +192,7 @@ class LocalKnowledgeRAGService:
             except Exception as exc:
                 log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
         sessions = (
-            await db.chat_sessions.find(add_main_scope(sess_filter, tenant_id))
+            await db.chat_sessions.find(add_tenant_scope(sess_filter, tenant_id))
             .sort("updated_at", -1)
             .limit(30)
             .to_list(length=30)

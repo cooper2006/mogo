@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.db import get_db
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 
 from .access import GRANT_COLLECTION, RESOURCE_COLLECTION
 
@@ -29,7 +29,7 @@ class PersonalKnowledgeInactiveAccessService:
     async def resolve(
         self, *, tenant_id: str, user_id: str, resource_id: str,
     ) -> InactiveKnowledgeAccess | None:
-        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        db, tenant_id = get_db(), resolve_tenant_id(tenant_id)
         resource = await db[RESOURCE_COLLECTION].find_one({
             "_id": str(resource_id), "tenant_id": tenant_id,
         })

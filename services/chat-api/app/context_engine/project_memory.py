@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 def _tokens(text: str) -> List[str]:
@@ -49,13 +49,13 @@ class ProjectMemoryService:
         if not user_id:
             return []
         project_id = self._project_id(output_spec)
-        tenant_id = resolve_main_id(output_spec.get("tenant_id") or output_spec.get("tenantId"))
+        tenant_id = resolve_tenant_id(output_spec.get("tenant_id") or output_spec.get("tenantId"))
         query_tokens = _tokens(query)
         try:
             db = get_db()
             project_filter = [project_id, "default"] if project_id != "default" else ["default"]
             raw = await db[self.collection_name].find(
-                add_main_scope({
+                add_tenant_scope({
                     "user_id": user_id,
                     "$or": [
                         {"project_id": {"$in": project_filter}},
@@ -104,7 +104,7 @@ class ProjectMemoryService:
         if not uid:
             return
         pid = str(project_id or "default").strip() or "default"
-        mid = resolve_main_id(tenant_id)
+        mid = resolve_tenant_id(tenant_id)
         now = datetime.utcnow()
         try:
             db = get_db()

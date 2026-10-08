@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Header, HTTPException
 
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 router = APIRouter(prefix="/api/harness-profiles", tags=["harness-config"])
 
@@ -110,7 +110,7 @@ async def list_profiles(
         query["scope"] = scope
     if key:
         query["key"] = key
-    scoped_query = add_main_scope(query, tenant_id)
+    scoped_query = add_tenant_scope(query, tenant_id)
     rows = await db[_COLLECTION].find(scoped_query).to_list(length=500)
     return {
         "code": 0,
@@ -139,7 +139,7 @@ async def get_profile(
         raise HTTPException(status_code=503, detail="db_unavailable")
 
     row = await db[_COLLECTION].find_one(
-        add_main_scope({"scope": scope, "key": key}, tenant_id)
+        add_tenant_scope({"scope": scope, "key": key}, tenant_id)
     )
     if row is None:
         raise HTTPException(status_code=404, detail="profile_not_found")
@@ -191,7 +191,7 @@ async def upsert_profile(
 
     now = _time.time()
     existing = await db[_COLLECTION].find_one(
-        add_main_scope({"scope": scope, "key": key}, tenant_id)
+        add_tenant_scope({"scope": scope, "key": key}, tenant_id)
     )
     before = _profile_to_dict(existing) if existing else None
 
@@ -207,7 +207,7 @@ async def upsert_profile(
         "updated_by": user_id,
     }
     result = await db[_COLLECTION].replace_one(
-        add_main_scope({"scope": scope, "key": key}, tenant_id),
+        add_tenant_scope({"scope": scope, "key": key}, tenant_id),
         doc,
         upsert=True,
     )
@@ -245,13 +245,13 @@ async def delete_profile(
     await _require_full_access(db, tenant_id, user_id)
 
     existing = await db[_COLLECTION].find_one(
-        add_main_scope({"scope": scope, "key": key}, tenant_id)
+        add_tenant_scope({"scope": scope, "key": key}, tenant_id)
     )
     if existing is None:
         raise HTTPException(status_code=404, detail="profile_not_found")
 
     result = await db[_COLLECTION].delete_one(
-        add_main_scope({"scope": scope, "key": key}, tenant_id)
+        add_tenant_scope({"scope": scope, "key": key}, tenant_id)
     )
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="profile_not_found")

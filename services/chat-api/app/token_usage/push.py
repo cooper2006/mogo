@@ -41,7 +41,7 @@ class TokenUsagePushService:
             user_id = str(record.user_id or "")
         return {
             "tenantId": record.tenant_id or record.tenant_id,
-            "mainId": record.tenant_id,
+            "tenantId": record.tenant_id,
             "userId": user_id,
             "modelName": record.model_name,
             "modelId": record.model_id,

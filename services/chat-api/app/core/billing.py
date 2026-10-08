@@ -26,7 +26,7 @@ async def get_or_create_organization(tenant_id: str, default_org_name: str = "�
     获取或自动兜底创建组织信息。
     """
     db = get_db()
-    # Phase 1: match either tenant_id (canonical) or legacy main_id.
+    # Phase 1: match either tenant_id (canonical) or legacy tenant_id.
     org = await db[ORGANIZATION_COLLECTION].find_one({"tenant_id": tenant_id})
     if not org:
         from app.product.extensions import get_product_extension
@@ -47,15 +47,15 @@ async def get_or_create_organization(tenant_id: str, default_org_name: str = "�
 async def check_quota_before_request(tenant_id: str, config: Dict[str, Any]) -> None:
     """
     在 LLM 请求发起前，检查当前组织是否仍有可用额度。
-    若模型配置中 main_id 是 'default' (使用的是平台默认提供的共享模型)，才需要强制进行点数扣减检验。
+    若模型配置中 tenant_id 是 'default' (使用的是平台默认提供的共享模型)，才需要强制进行点数扣减检验。
     若当前组织已升级并启用了自有模型 (is_own_model = True)，或模型属于用户自有，不予拦截。
     """
     if not tenant_id or tenant_id == "default":
         return
 
     # 只有当使用的是平台默认提供的共享模型时，才受平台额度限制
-    config_main_id = config.get("tenant_id") or "default"
-    is_shared_model = str(config_main_id).strip() == "default"
+    config_tenant_id = config.get("tenant_id") or "default"
+    is_shared_model = str(config_tenant_id).strip() == "default"
 
     org = await get_or_create_organization(tenant_id)
 
@@ -107,7 +107,7 @@ async def check_member_limit(tenant_id: str) -> None:
     if limit is None:
         return
 
-    # 统计 end_users 中本 main_id 的成员总数
+    # 统计 end_users 中本 tenant_id 的成员总数
     from app.api.endpoints.auth import USER_COLLECTION
     current_count = await db[USER_COLLECTION].count_documents({"tenant_id": tenant_id})
 

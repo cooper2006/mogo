@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.core.tenant_identity import PLATFORM_MAIN_ID
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 from app.repositories.directory_repository import ensure_indexes
 from app.core.db import get_db
 from app.position_roles.repository import PositionRoleRepository
@@ -16,7 +16,7 @@ async def bootstrap_directory() -> None:
     tenant_ids = [
         row["tenant_id"]
         async for row in db["tenants"].find(
-            {"status": "active", "tenant_id": {"$nin": [None, "", PLATFORM_MAIN_ID]}}
+            {"status": "active", "tenant_id": {"$nin": [None, "", PLATFORM_TENANT_ID]}}
         )
     ]
     for tenant_id in tenant_ids:

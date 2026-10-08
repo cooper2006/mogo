@@ -61,7 +61,7 @@ def _slug(text: str) -> str:
     return cleaned or "org"
 
 
-async def _next_main_id(org_name: str) -> str:
+async def _next_tenant_id(org_name: str) -> str:
     db = get_db()
     base = _slug(org_name)[:12]
     for _ in range(12):
@@ -69,7 +69,7 @@ async def _next_main_id(org_name: str) -> str:
         exists = await db["admin_accounts"].find_one({"tenant_id": candidate}, {"_id": 1})
         if not exists:
             return candidate
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="main_id generation failed")
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="tenant_id generation failed")
 
 
 async def provision_tenant(
@@ -104,7 +104,7 @@ async def provision_tenant(
     platform admin username). It is currently informational only.
     """
     additional_models = list(additional_models or [])
-    tenant_id = await _next_main_id(org_name)
+    tenant_id = await _next_tenant_id(org_name)
     org_name = org_name.strip()
     now = datetime.now(timezone.utc)
 

@@ -24,7 +24,7 @@ from app.context_space.visibility import (
     check_visibility,
 )
 from app.core.db import get_db
-from app.core.tenant import add_main_scope, resolve_main_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 class ResourceTierAdapter(TierAdapter):
@@ -82,7 +82,7 @@ async def _load_doc(addr: ResourceAddress, tenant_id: str) -> tuple[Optional[str
         return None, {}
     row = await db["knowledge_document_chunks"].find_one(
         {
-            "tenant_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_tenant_id(tenant_id),
             "document_id": document_id,
             "chunk_id": chunk_id,
             "$or": [{"chunk_stage": "rag"}, {"chunk_stage": {"$exists": False}}],

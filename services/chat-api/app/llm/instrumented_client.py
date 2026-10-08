@@ -8,7 +8,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Type
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-from app.core.tenant import resolve_main_id
+from app.core.tenant import resolve_tenant_id
 from app.llm.base import BaseLLMClient
 from app.llm.types import LLMResponse, Message
 from app.infrastructure.observability.execution_trace import ensure_trace_id
@@ -186,7 +186,7 @@ class InstrumentedLLMClient(BaseLLMClient):
             record = TokenUsageRecord(
                 request_id="llm_%s" % uuid.uuid4().hex[:20],
                 user_request_id=user_request_id,
-                tenant_id=resolve_main_id(output_spec.get("tenant_id") or output_spec.get("tenantId")),
+                tenant_id=resolve_tenant_id(output_spec.get("tenant_id") or output_spec.get("tenantId")),
                 user_id=coerce_user_id(output_spec.get("user_id")),
                 session_id=str(output_spec.get("session_id") or output_spec.get("task_id") or "").strip(),
                 trace_id=ensure_trace_id(output_spec),
