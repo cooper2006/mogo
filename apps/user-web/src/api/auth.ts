@@ -124,6 +124,14 @@ export type RegisterableTenant = {
   orgName: string
 }
 
+export type RegisterableDepartment = {
+  id: string
+  name: string
+  parentId: string
+  code: string
+  depth: number
+}
+
 export async function listRegisterableTenants(): Promise<{ ok: boolean; tenants?: RegisterableTenant[]; message?: string }> {
   try {
     const response = await client.get('/auth/registerable-tenants')
@@ -137,14 +145,30 @@ export async function listRegisterableTenants(): Promise<{ ok: boolean; tenants?
   }
 }
 
+export async function listRegisterableDepartments(
+  mainId: string,
+): Promise<{ ok: boolean; departments?: RegisterableDepartment[]; message?: string }> {
+  try {
+    const response = await client.get('/auth/registerable-departments', { params: { mainId } })
+    const payload = response.data
+    if (!isOk(payload)) {
+      return { ok: false, message: payload?.message || t('api.auth.login_failed') }
+    }
+    return { ok: true, departments: payload?.data?.departments || [] }
+  } catch (error: any) {
+    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.login_failed') }
+  }
+}
+
 export async function register(
   mainId: string,
   email: string,
   password: string,
   nickname = '',
+  departmentId = '',
 ): Promise<AuthResult> {
   try {
-    const response = await client.post('/auth/register', { mainId, email, password, nickname })
+    const response = await client.post('/auth/register', { mainId, email, password, nickname, departmentId })
     const payload = response.data
     if (!isOk(payload)) {
       return { ok: false, message: payload?.message || t('api.auth.register_failed') }

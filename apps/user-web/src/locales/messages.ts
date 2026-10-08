@@ -563,6 +563,8 @@ export const messages = {
   'login.register_org_label': { zh: '加入的组织', en: 'Organization to join' },
   'login.register_org_placeholder': { zh: '请选择要加入的组织', en: 'Select the organization to join' },
   'login.register_org_joined': { zh: '将注册到组织', en: 'You will register under' },
+  'login.register_department_label': { zh: '部门', en: 'Department' },
+  'login.register_department_root': { zh: '未选择（归入根部门）', en: 'None (root department)' },
   'login.register_nickname_label': { zh: '昵称（可选）', en: 'Nickname (optional)' },
   'login.register_nickname_placeholder': { zh: '显示名称', en: 'Display name' },
   'login.register_email_label': { zh: '邮箱（将作为登录账号）', en: 'Email (used as login account)' },

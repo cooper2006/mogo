@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
+  listRegisterableDepartments,
   listRegisterableTenants,
   register,
+  type RegisterableDepartment,
   type RegisterableTenant,
   type UserProfile,
 } from '../../api/auth'
@@ -18,6 +20,10 @@ const tenantsLoaded = ref(false)
 const tenantsError = ref('')
 
 const selectedMainId = ref('')
+const departments = ref<RegisterableDepartment[]>([])
+const departmentsLoaded = ref(false)
+const selectedDepartmentId = ref('')
+
 const nickname = ref('')
 const email = ref('')
 const password = ref('')
@@ -28,6 +34,7 @@ const isSubmitting = ref(false)
 // When only one enterprise tenant exists, hide the selector and auto-select it.
 const singleTenant = computed(() => tenants.value.length === 1)
 const showTenantSelector = computed(() => tenants.value.length > 1)
+const activeMainId = computed(() => singleTenant.value ? tenants.value[0].mainId : selectedMainId.value)
 
 async function loadTenants() {
   tenantsLoaded.value = false
@@ -45,7 +52,24 @@ async function loadTenants() {
   }
 }
 
+async function loadDepartments(mainId: string) {
+  departmentsLoaded.value = false
+  selectedDepartmentId.value = ''
+  departments.value = []
+  if (!mainId) return
+  const result = await listRegisterableDepartments(mainId)
+  if (result.ok && result.departments) {
+    departments.value = result.departments
+  }
+  departmentsLoaded.value = true
+}
+
 onMounted(loadTenants)
+
+// Reload departments whenever the effective tenant changes.
+watch(activeMainId, (mainId) => {
+  if (mainId) loadDepartments(mainId)
+})
 
 function resetError() {
   errorMessage.value = ''
@@ -82,8 +106,14 @@ async function submit() {
   if (!validate()) return
 
   isSubmitting.value = true
-  const mainId = singleTenant.value ? tenants.value[0].mainId : selectedMainId.value
-  const result = await register(mainId, email.value.trim().toLowerCase(), password.value, nickname.value.trim())
+  const mainId = activeMainId.value
+  const result = await register(
+    mainId,
+    email.value.trim().toLowerCase(),
+    password.value,
+    nickname.value.trim(),
+    selectedDepartmentId.value,
+  )
   isSubmitting.value = false
 
   if (!result.ok || !result.token) {
@@ -121,6 +151,21 @@ async function submit() {
 
     <div v-if="singleTenant" class="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
       {{ t('login.register_org_joined') }}：{{ tenants[0].orgName }}
+    </div>
+
+    <div v-if="departments.length > 1" class="space-y-2">
+      <label for="movo-register-department" class="text-sm font-medium text-slate-700">{{ t('login.register_department_label') }}</label>
+      <select
+        id="movo-register-department"
+        v-model="selectedDepartmentId"
+        class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
+        @change="resetError"
+      >
+        <option value="">{{ t('login.register_department_root') }}</option>
+        <option v-for="dept in departments" :key="dept.id" :value="dept.id">
+          {{ '　'.repeat(dept.depth) }}{{ dept.name }}
+        </option>
+      </select>
     </div>
 
     <div class="space-y-2">

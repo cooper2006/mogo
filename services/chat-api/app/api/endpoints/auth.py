@@ -74,6 +74,7 @@ class RegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=128)
     nickname: str = Field(default="", max_length=64)
+    departmentId: str = Field(default="", max_length=64)
 
 
 class SelectTenantRequest(BaseModel):
@@ -370,6 +371,38 @@ async def registerable_tenants(request: Request) -> ApiResponse:
     return ApiResponse(code=0, data={"tenants": tenants})
 
 
+@router.get("/auth/registerable-departments", response_model=ApiResponse)
+async def registerable_departments(request: Request, mainId: str = "") -> ApiResponse:
+    """List the departments a registrant may join under ``mainId``.
+
+    Reuses the org_units collection (the same data the admin user manager
+    edits). Only ``active`` departments of that tenant are returned so the
+    registration dropdown stays aligned with the admin side.
+    """
+    db = get_db()
+    main_id = resolve_main_id(mainId)
+    if not _is_valid_tenant_main_id(main_id):
+        return ApiResponse(code=400, message="请选择有效的组织")
+    if not await is_tenant_selectable(db, main_id):
+        return ApiResponse(code=400, message="该组织当前不可注册，请联系管理员")
+    departments = await db[DEPARTMENT_COLLECTION].find(
+        {"main_id": main_id, "status": "active"},
+        {"_id": 1, "name": 1, "parent_id": 1, "code": 1, "path_ids": 1},
+    ).to_list(length=500)
+    departments = [
+        {
+            "id": str(dept.get("_id")),
+            "name": str(dept.get("name") or ""),
+            "parentId": str(dept.get("parent_id") or "") if dept.get("parent_id") else "",
+            "code": str(dept.get("code") or ""),
+            "depth": len(dept.get("path_ids") or []),
+        }
+        for dept in departments
+    ]
+    departments.sort(key=lambda item: (item["depth"], item["name"]))
+    return ApiResponse(code=0, data={"departments": departments})
+
+
 @router.post("/auth/register", response_model=ApiResponse)
 async def register(payload: RegisterRequest) -> ApiResponse:
     """Self-service registration: create an end-user under an enterprise tenant.
@@ -426,6 +459,12 @@ async def register(payload: RegisterRequest) -> ApiResponse:
     }
     result = await db[USER_COLLECTION].insert_one(user_doc)
     user_doc["_id"] = result.inserted_id
+
+    # Resolve and assign the primary department (FR: registrants pick a
+    # department, same field the admin user manager uses). An invalid or empty
+    # department id gracefully falls back to the tenant root department.
+    department_id = await _resolve_primary_department(main_id, payload.departmentId or None)
+    await _assign_user_primary_department(main_id, str(user_doc["_id"]), department_id)
 
     available_tenants = await load_tenant_candidates(db, [user_doc])
     session_payload = await _create_session(user_doc, available_tenants)
