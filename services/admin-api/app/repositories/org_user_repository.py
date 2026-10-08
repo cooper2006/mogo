@@ -63,11 +63,20 @@ async def backfill_main_id(default_main_id: str) -> None:
     now = utcnow()
     await db[GROUP_COLLECTION].update_many(
         {"main_id": {"$exists": False}},
-        {"$set": {"main_id": default_main_id, "updated_at": now}},
+        {"$set": {"tenant_id": default_main_id, "main_id": default_main_id, "updated_at": now}},
     )
     await db[ACCOUNT_COLLECTION].update_many(
         {"main_id": {"$exists": False}},
-        {"$set": {"main_id": default_main_id, "updated_at": now}},
+        {"$set": {"tenant_id": default_main_id, "main_id": default_main_id, "updated_at": now}},
+    )
+    # Phase 1 backfill: documents that already carry main_id but not tenant_id.
+    await db[GROUP_COLLECTION].update_many(
+        {"tenant_id": {"$exists": False}, "main_id": {"$exists": True}},
+        [{"$set": {"tenant_id": "$main_id"}}],
+    )
+    await db[ACCOUNT_COLLECTION].update_many(
+        {"tenant_id": {"$exists": False}, "main_id": {"$exists": True}},
+        [{"$set": {"tenant_id": "$main_id"}}],
     )
 
 
@@ -97,6 +106,8 @@ async def create_account_group(payload: dict) -> dict:
     base_code = _normalize_group_code(payload["name"])
     code = await _next_available_group_code(base_code, main_id)
     doc = {
+        # Phase 1 dual-write: canonical tenant_id + legacy main_id (same value).
+        "tenant_id": main_id,
         "main_id": main_id,
         "name": payload["name"],
         "code": code,
@@ -184,6 +195,8 @@ async def create_account(payload: dict) -> dict:
     now = utcnow()
     password_hash, password_salt = hash_password(payload.get("password") or "")
     doc = {
+        # Phase 1 dual-write: canonical tenant_id + legacy main_id (same value).
+        "tenant_id": payload["main_id"],
         "main_id": payload["main_id"],
         "username": payload["username"],
         "display_name": payload["display_name"],
@@ -301,6 +314,7 @@ async def ensure_group_exists(name: str, code: str, main_id: str, description: s
         {"code": code, "main_id": main_id},
         {
             "$setOnInsert": {
+                "tenant_id": main_id,
                 "main_id": main_id,
                 "name": name,
                 "code": code,
@@ -330,6 +344,7 @@ async def ensure_bootstrap_account(
         password_hash, password_salt = hash_password(password)
         await db[ACCOUNT_COLLECTION].insert_one(
             {
+                "tenant_id": main_id,
                 "main_id": main_id,
                 "username": username,
                 "display_name": display_name,

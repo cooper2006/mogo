@@ -397,6 +397,7 @@ async def registerable_tenants(request: Request) -> ApiResponse:
         if resolve_space_type(fake_user) != "enterprise":
             continue
         tenants.append({
+            "tenantId": main_id,
             "mainId": main_id,
             "orgName": str(org.get("org_name") or main_id),
         })
@@ -405,15 +406,22 @@ async def registerable_tenants(request: Request) -> ApiResponse:
 
 
 @router.get("/auth/registerable-departments", response_model=ApiResponse)
-async def registerable_departments(request: Request, mainId: str = "") -> ApiResponse:
-    """List the departments a registrant may join under ``mainId``.
+async def registerable_departments(
+    request: Request,
+    mainId: str = "",
+    tenantId: str = "",
+) -> ApiResponse:
+    """List the departments a registrant may join under the tenant id.
+
+    Phase 1: accepts both ``mainId`` (legacy) and ``tenantId`` (canonical) query
+    parameters; ``mainId`` keeps older frontends working during the migration.
 
     Reuses the org_units collection (the same data the admin user manager
     edits). Only ``active`` departments of that tenant are returned so the
     registration dropdown stays aligned with the admin side.
     """
     db = get_db()
-    main_id = resolve_main_id(mainId)
+    main_id = resolve_main_id(tenantId or mainId)
     if not _is_valid_tenant_main_id(main_id):
         return ApiResponse(code=400, message="请选择有效的组织")
     if not await is_tenant_selectable(db, main_id):
@@ -830,6 +838,7 @@ async def get_org_details(
     used_points = int(org.get("used_points") or 0)
     
     data = {
+        "tenantId": org.get("tenant_id") or org.get("main_id"),
         "mainId": org.get("main_id"),
         "orgName": org.get("org_name"),
         "edition": capabilities["edition"],

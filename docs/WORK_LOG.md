@@ -6867,3 +6867,35 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **待办（未在本轮）**：Phase 2 迁移脚本实测（dry-run + 备份后 apply）；Phase 3 退役 `main_id`/`mainId` 旧字段（含 admin-api 侧 write path 双写、测试与文档同步清理）单独审批。提交纪律：仅 `git add` 本轮具体路径，不含其他会话在途的 `docs/intro-v4.pptx`。
 
 **最终状态**：Phase 1 双写兼容代码完成、编译通过（待 commit/push；按大改动确认后再推送 cooper2006/mogo）。
+
+---
+
+## 2026-10-08 main_id → tenant_id 统一（Phase 2：admin-api 双写 + 数据回填）
+
+**背景**：Phase 1 已推送（`d754fe2`）并验证。Phase 2 目标：(1) 补 admin-api 写入侧双写（否则回填不持久）；(2) 全量回填存量文档 `tenant_id = main_id`。用户选择"先只改核心集合"。
+
+**关键发现（安全）**：admin-api 的 `core/nosql_guard.sanitize_query_filter` 会**递归剥离所有 `$` 前缀键**（含 `$or`）。因此 admin-api 侧**不可**用 `$or` 兼容查询——否则 tenant scope 被静默删空，导致跨租户数据泄露。故 admin-api 策略修正为：**只做写入双写**，查询保持 `main_id` 等值（回填保留 `main_id`，查询继续有效）。已在 `admin-api/app/core/tenant_field.py` 的 `tenant_match` docstring 标注该警告。
+
+**改动**：
+- 新增 `services/admin-api/app/core/tenant_field.py`（与 chat-api 同构的兼容层，含 `tenant_match` 安全警告）。
+- `repositories/org_user_repository.py`：`create_account_group` / `create_account` / `ensure_group_exists` / `ensure_bootstrap_account` 双写 `tenant_id`+`main_id`；`backfill_main_id` 增加"已有 main_id 但缺 tenant_id"的管道回填（`[{"$set": {"tenant_id": "$main_id"}}]`）。
+- `core/quota_policy.py`：`org_quota_policies` / `user_quota_policies` 写入双写。
+- `core/product_edition.py`：`community_organization_fields` 双写（organizations upsert）。
+- `services/tenant_registry.py`：`ensure_tenant_record` 的 `tenants` upsert 双写。
+- `services/chat-api/app/api/endpoints/auth.py`：`registerable-departments` 增加 `tenantId` query 参数别名（旧 `mainId` 兼容）；`registerable-tenants` 与 org 信息输出增加 `tenantId` 双写字段。
+- `scripts/migrate_main_id_to_tenant_id.py`：集合清单修正为**实际存在的 30 个集合**（dry-run 发现原清单与实际库名不符，如 `org_quota_policies` 复数）。
+
+**执行与验证（真实栈）**：
+- 备份：`mongodump --db=mogo_dev`（87 集合）→ 容器内 `/tmp/backup-20261008-212905`，并复制到宿主机 `/tmp/mogo-p2-backup-20261008-212905`（23M）。
+- dry-run：识别 30 集合 / 549 文档待回填。
+- apply：全部 549 文档 `$set tenant_id = main_id`。
+- 回填后校验：`main_id 存在但 tenant_id 缺失` 的文档数 = **0**；抽样 528 文档 `tenant_id != main_id` 错配 = **0**（P2_CONSISTENCY_PASS）。
+- Weaviate：加 `tenantId` 属性（HTTP 200）；线上对象数为 0（本地未索引 chunk），无需回填；真实 upsert 验证双写 `mainId`+`tenantId` 生效（测试对象已清理）。
+- admin-api 双写实测：`admin_account_groups` / `admin_accounts` / `tenants` 真实写入路径均双写（测试数据已清理）。
+- 回归：11 容器全 healthy；chat-api `/health`（含 DSH `dsh_hosts` 明细）、`/ready` 200；admin-api `:8100/health` 200；`/api/auth/login` 链路正常；`registerable-departments` 的 `mainId` 与 `tenantId` 参数均 200；`registerable-tenants` 输出双写。
+
+**修改文件**：`services/admin-api/app/core/tenant_field.py`(新)、`core/quota_policy.py`、`core/product_edition.py`、`repositories/org_user_repository.py`、`services/tenant_registry.py`、`services/chat-api/app/api/endpoints/auth.py`、`scripts/migrate_main_id_to_tenant_id.py`。
+
+**待办（未在本轮）**：Phase 3 退役 `main_id`/`mainId` 旧字段（改读为 `tenant_id`、重建索引、删除回退逻辑、清理测试与文档）需单独审批。admin-api 其余 ~60 个文件的业务集合写入仍只写 `main_id`（共享库中回填已覆盖存量；新写入的集合若需 Phase 3 一致，需按同法补双写）。
+
+**最终状态**：Phase 2 完成，数据已双字段齐备；本地栈 admin-api / chat-api / document-api 均跑 `tenant-phase1` 镜像（待 commit/push）。

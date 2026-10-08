@@ -82,6 +82,8 @@ async def ensure_tenant_record(
         {"main_id": main_id},
         {
             "$set": {
+                # Phase 1 dual-write: canonical tenant_id + legacy main_id.
+                "tenant_id": main_id,
                 "main_id": main_id,
                 "name": name,
                 "edition": edition,

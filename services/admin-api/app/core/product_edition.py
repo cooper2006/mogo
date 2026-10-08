@@ -122,6 +122,8 @@ def community_organization_fields(
     *, main_id: str, org_name: str, owner_user_id: str = "", total_points: int = 0
 ) -> dict[str, Any]:
     return {
+        # Phase 1 dual-write: canonical tenant_id + legacy main_id.
+        "tenant_id": main_id,
         "main_id": main_id,
         "org_name": org_name or "MOVO 社区组织",
         "edition": COMMUNITY_EDITION,

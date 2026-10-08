@@ -28,35 +28,42 @@ from typing import Any
 # ``tenant_id`` after Phase 1 dual-write). Expand this list as Phase 1 covers
 # more modules. Each entry is (collection_name, legacy_field, canonical_field).
 MONGO_TENANT_COLLECTIONS: list[tuple[str, str, str]] = [
+    # Tenant-identity core (written by both chat-api and admin-api).
     ("end_users", "main_id", "tenant_id"),
+    ("end_user_sessions", "main_id", "tenant_id"),
+    ("end_user_org_relations", "main_id", "tenant_id"),
+    ("end_user_position_roles", "main_id", "tenant_id"),
     ("tenants", "main_id", "tenant_id"),
     ("organizations", "main_id", "tenant_id"),
     ("org_units", "main_id", "tenant_id"),
-    ("configured_models", "main_id", "tenant_id"),
-    ("configured_image_models", "main_id", "tenant_id"),
-    ("org_quota_policy", "main_id", "tenant_id"),
-    ("user_quota_policy", "main_id", "tenant_id"),
-    ("user_quota_override", "main_id", "tenant_id"),
-    ("token_usage_logs", "main_id", "tenant_id"),
-    ("scheduled_tasks", "main_id", "tenant_id"),
-    ("context_space", "main_id", "tenant_id"),
-    ("knowledge_graph", "main_id", "tenant_id"),
-    ("memory", "main_id", "tenant_id"),
-    ("a2a", "main_id", "tenant_id"),
-    ("personal_knowledge", "main_id", "tenant_id"),
-    ("knowledge_document_chunks", "main_id", "tenant_id"),
+    ("admin_accounts", "main_id", "tenant_id"),
+    ("admin_account_groups", "main_id", "tenant_id"),
+    ("admin_model_instances", "main_id", "tenant_id"),
+    ("org_quota_policies", "main_id", "tenant_id"),
+    ("user_quota_policies", "main_id", "tenant_id"),
+    ("user_token_allocation_logs", "main_id", "tenant_id"),
+    # Knowledge / retrieval.
     ("knowledge_documents", "main_id", "tenant_id"),
-    ("resources", "main_id", "tenant_id"),
-    ("grants", "main_id", "tenant_id"),
-    ("directory", "main_id", "tenant_id"),
-    ("org_user", "main_id", "tenant_id"),
-    ("model_instances", "main_id", "tenant_id"),
-    ("model_providers", "main_id", "tenant_id"),
-    ("setup", "main_id", "tenant_id"),
-    ("tenant_registry", "main_id", "tenant_id"),
-    ("tenant_provisioning", "main_id", "tenant_id"),
-    # admin-api side shares the same database for most of these; add here once
-    # Phase 1 dual-write lands on admin-api write paths.
+    ("knowledge_document_chunks", "main_id", "tenant_id"),
+    # Conversation / session state.
+    ("chat_sessions", "main_id", "tenant_id"),
+    ("chat_messages", "main_id", "tenant_id"),
+    ("session_snapshots", "main_id", "tenant_id"),
+    # Skills / sharing.
+    ("skills", "main_id", "tenant_id"),
+    ("skill_packages", "main_id", "tenant_id"),
+    ("skill_quality_metrics", "main_id", "tenant_id"),
+    ("user_skills", "main_id", "tenant_id"),
+    # Audit / governance.
+    ("audit_logs", "main_id", "tenant_id"),
+    ("system_audit_logs", "main_id", "tenant_id"),
+    ("position_roles", "main_id", "tenant_id"),
+    ("position_role_audit_logs", "main_id", "tenant_id"),
+    ("position_role_migrations", "main_id", "tenant_id"),
+    # Misc tenant-scoped tenant state.
+    ("token_usage_logs", "main_id", "tenant_id"),
+    ("external_search_configs", "main_id", "tenant_id"),
+    ("system_bootstrap", "main_id", "tenant_id"),
 ]
 
 

@@ -82,6 +82,8 @@ async def ensure_org_quota_policy(main_id: str, *, org_total_points: int = 0) ->
     # T033/T034: default to unlimited (decision 12: 配额默认不限额).
     # ``unlimited=True`` means the quota checks short-circuit to "available".
     policy = {
+        # Phase 1 dual-write: canonical tenant_id + legacy main_id.
+        "tenant_id": main_id,
         "main_id": main_id,
         "total_tokens": total,
         "unlimited": True,
@@ -104,6 +106,8 @@ async def ensure_default_user_policy(main_id: str, *, period: str = "monthly") -
     now = utc_now()
     policy = {
         **query,
+        # Phase 1 dual-write: canonical tenant_id (main_id already in query).
+        "tenant_id": main_id,
         "quota_tokens": 0,
         "period": normalize_period(period),
         "priority": 10,
