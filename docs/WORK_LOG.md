@@ -6589,3 +6589,22 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 （其余为镜像/容器操作，未改仓库代码。）
 
 **最终状态**：`cooper2006/mogo` main 停在 `2099d5f`，本地部署版本 `2099d5f` 已上线运行。
+
+---
+
+## 2026-10-08 红框修复（3）：会话版本抽屉「关闭」按钮默认置灰不可用
+
+**现象**：`会话版本与协作` 抽屉（`SessionVersioningDrawer.vue`）右上「关闭」按钮默认置灰，无版本快照时无法关闭抽屉。
+
+**根因**：`apps/user-web/src/components/SessionVersioningDrawer.vue:201` 把关闭按钮的 disabled 绑到了 `:disabled="!latestSnapshotId"`——即“是否有版本快照”决定“能否关闭抽屉”，二者无关。无快照时 `latestSnapshotId` 为 undefined → 按钮置灰且无法关闭。修复后该 computed 再无引用，属死代码。
+
+**修复**：移除关闭按钮的 disabled 绑定（默认可用）；删除不再使用的 `latestSnapshotId` computed。提交 `c2f2c60`。
+- `pnpm exec vue-tsc --noEmit` 通过（TSC_EXIT=0）。
+
+**重新部署**：`MOGO_VERSION=c2f2c60 ./mogo build && ./mogo up --build`（`.env` 的 `MOGO_CHAT_API_IMAGE` 同步改为 `chat-api:c2f2c60`）。
+- 8 容器 recreate 到 `c2f2c60`，`UP_EXIT=0`；旧版 `2099d5f` 7 镜像被自动清理（释放 ~2.2 GB）。
+
+**修改文件**：`apps/user-web/src/components/SessionVersioningDrawer.vue`（commit c2f2c60）；`.env`（`MOGO_CHAT_API_IMAGE=chat-api:c2f2c60`，本地不入库）。
+（其余为镜像/容器操作，未改仓库代码。）
+
+**最终状态**：`cooper2006/mogo` main 停在 `c2f2c60`，本地部署版本 `c2f2c60` 已上线运行。
