@@ -6735,3 +6735,27 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **修改文件**：`services/chat-api/app/api/endpoints/auth.py`、`services/chat-api/app/services/end_user_tenant_access.py`、`apps/user-web/src/api/auth.ts`、`apps/user-web/src/components/LoginModal.vue`、`apps/user-web/src/components/login/RegisterForm.vue`（新增）、`apps/user-web/src/locales/messages.ts`。
 
 **最终状态**：本地部署版本 `f58bca7` 已上线运行，注册功能可用（待 commit/push）。
+
+---
+
+## 2026-10-08 注册表单补充「部门」字段
+
+**背景**：用户指出注册信息缺少用户管理（admin 端）里已有的「部门」。注册用户应能在自助注册时选择所在部门，写入与用户管理一致的部门字段。
+
+**数据模型对齐**：admin 端 `create_user` 通过 `primary_org_id`（指向 `org_units._id`）+ `end_user_org_relations` 维护部门；chat-api 已有等价的私有函数 `_resolve_primary_department(main_id, requested)` 与 `_assign_user_primary_department(main_id, user_id, dept_id)`（无效/空部门回退 root 部门）。注册直接复用，无需新建部门写入逻辑。
+
+**后端改动**（`services/chat-api/app/api/endpoints/auth.py`）：
+- `RegisterRequest` 增加可选 `departmentId: str = ""`（非必填，留空归入根部门）。
+- `POST /auth/register`：插入用户后调用 `_resolve_primary_department` + `_assign_user_primary_department` 写入 `primary_org_id` 与 `end_user_org_relations`。
+- 新增 `GET /auth/registerable-departments?mainId=...`：返回该租户 active 部门列表（id/name/parentId/code/depth），供注册下拉；校验 mainId 可注册。
+
+**前端改动**：
+- `apps/user-web/src/api/auth.ts`：`register()` 增加 `departmentId` 参数；新增 `listRegisterableDepartments(mainId)` 与类型 `RegisterableDepartment`。
+- `apps/user-web/src/components/login/RegisterForm.vue`：选定租户后自动加载部门下拉（多个部门才显示；仅 root 时不显示下拉）；按 depth 缩进展示层级；空值归入根部门。
+- `apps/user-web/src/locales/messages.ts`：新增 `login.register_department_label`、`login.register_department_root`。
+
+**重建验证**：`MOGO_VERSION=f58bca7 ./mogo build && ./mogo up --build`（`BUILD_EXIT=0`、`UP_EXIT=0`），chat-api / user-web healthy。容器内验证：`/auth/registerable-departments` 返回「企业总部」；带 departmentId 注册后 `end_users.primary_org_id` 与 `end_user_org_relations`(is_primary=True) 正确写入；无效 departmentId 安全回退根部门；测试账号已清理。
+
+**修改文件**：`services/chat-api/app/api/endpoints/auth.py`、`apps/user-web/src/api/auth.ts`、`apps/user-web/src/components/login/RegisterForm.vue`、`apps/user-web/src/locales/messages.ts`。
+
+**最终状态**：本地部署版本 `f58bca7` 已上线运行，注册支持选择部门（待 commit/push）。
