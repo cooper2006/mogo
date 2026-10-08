@@ -6461,3 +6461,103 @@ chat-api **2229 passed / 0 failed / 0 error**（与改动前逐数一致）；ad
 `services/document-parser/Dockerfile`（`ARG BASE_IMAGE` 钉 digest，各 1 行）、
 `docs/pending-review/2026-10-07-full-qa-audit-r5.md`（§一计数 8/8 已处置、B5-verify-static、
 B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
+
+---
+
+## 2026-10-08 打包 94d63a7 并重启服务 + 清理旧版/悬空镜像
+
+**任务**：用户要求 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 打包并重启服务，
+去除 OrbStack 中上一版本（5aab407）的 7 个镜像，dangling 只保留最新一份，旧版本生产镜像删除。
+
+**基线**：
+- HEAD = `94d63a7`（并行会话已提交 `prune_previous_release_images` 镜像清理功能）。
+- 旧部署版本 `5aab407`：7 个服务镜像（chat-api/admin-api/document-parser/user-web/admin-web/gateway/dsh-runtime-host）+ 11 个容器在跑。
+- `base-images/` 为离线基础镜像 tar 库（WORK_LOG 2026-09-27 条目），构建前需 `scripts/export_base_images.sh load` 导入。
+
+**实施过程**：
+1. 首次 `./mogo build` 卡在拉取 `node:24-bookworm-slim`（docker.io 502）。
+2. 按 WORK_LOG 指引 `export_base_images.sh load base-images` 导入 5 个基础镜像 tar（arm64），
+   另补拉 `python:3.13-slim-bookworm@sha256:a1165e27…`（DaoCloud）+ `alpine:3.21`（DaoCloud 转 tag）。
+3. **OrbStack 引擎两次挂死**（构建 I/O 压力下 daemon 无响应、容器列表清空、buildx 卡 1h09m）。
+   每次 `osascript quit OrbStack` + `open -a OrbStack` 重启引擎 + 重新 `load` 基础镜像 tar +
+   补拉 digest 钉死的 python:3.13。
+4. 第三次 `./mogo build` 成功（exit 0），7/7 镜像 tag `94d63a7`。
+   - document-parser 构建日志实证 B7 改动生效：`pip install --require-hashes -r /tmp/requirements.txt` 正常执行。
+   - chat-api 首次误 tag 成 `caf21d4`（本地 `.env` 的 `MOGO_CHAT_API_IMAGE` pin 了旧 tag）→ 改 `.env` 为 `chat-api:94d63a7` 后重建。
+5. `./mogo up --build`：
+   - 首次失败于 `alpine:3.21` 缺失（bootstrap 容器 `mogo-bootstrap-1` "No such image"）→ 补拉后成功。
+   - 8 个应用容器全部 recreate 到 `94d63a7`，`UP_EXIT=0`。
+   - 脚本自动执行 `prune_previous_release_images`：`Pruned 8 image(s) from the previous release, reclaimed about 10238 MB`（5aab407 全清）。
+6. 手动清理残留：`mogo-chat-api:latest`（早前 `docker compose build` 测试产物）+ `mogo-document-parser:b7-verify`（B7 验证镜像）→ 均 `docker rmi` 删除。
+
+**清理结果**：
+- 旧版 `5aab407`：0 残留。
+- 旧 `caf21d4`：0 残留。
+- dangling（`<none>`）：0（构建后 `prune_dangling_images` 已清）。
+- 项目镜像：仅 `94d63a7` 一套 7 个 + 基础设施（redis/mongo/weaviate/alpine 等独立 tag）。
+
+**健康检查（容器内探测，最可靠）**：
+| 服务 | 端点 | 结果 |
+|---|---|---|
+| chat-api | `:8000/health` | `{"status":"ok","service":"MOVO Backend","dsh_host":"healthy"}` |
+| admin-api | `:8100/health` | `{"status":"ok","service":"movo-admin-api"}` |
+| document-api | `:8200/api/health` | `{"status":"ok","service":"movo-document-processing-service"}` |
+| dsh-runtime-host | `:8101/health`（带 Bearer） | 鉴权服务正常（token 由 bootstrap 注入，compose healthcheck 过即证明） |
+| gateway | `:3000/` | HTTP 200 |
+
+所有 mogo-* 容器 `healthy`（document-worker 无 healthcheck，仅 `Up`）。
+
+**踩坑记录（供后续）**：
+- **OrbStack 引擎在大镜像构建（6GB document-parser + 3GB chat-api）I/O 压力下会挂死**：
+  表现 = docker CLI 全部超时、`orb list` 空、buildx 卡住、容器全消失。恢复 = `osascript quit OrbStack` + `open -a OrbStack` + 等 40s + `load` 基础镜像 tar。
+  建议：大构建期间避免并行跑其它 docker 命令，或拆多个小构建。
+- **本地 `.env` 的 `MOGO_CHAT_API_IMAGE` pin 会覆盖 tag 逻辑**：`./mogo build` 的 tag 默认走
+  `git rev-parse --short HEAD`，但 `.env` 里显式 pin 的 `MOGO_*_IMAGE` 会固定 chat-api 的镜像名。
+  升级版本时若 `.env` 有 pin，需同步更新，否则 chat-api 会留在旧 tag。
+- **`./mogo up`（无 `--build`）走 registry pull 循环**：本地无 ghcr 凭据时会卡在
+  `movo_pull_images_serially missing` 重试。本地源码部署必须用 `./mogo up --build`。
+- **`docker compose build`（裸 docker CLI）tag 与 `./mogo build` 不同**：前者 tag 成
+  `mogo-<service>:latest`，后者 tag 成 `<service>:<MOGO_VERSION>`。避免混用。
+
+**修改文件**：`.env`（`MOGO_CHAT_API_IMAGE=chat-api:94d63a7`，本地 gitignore 不入库）、
+`docs/WORK_LOG.md`（本条）。
+（其余均为镜像/容器操作，未改仓库代码。）
+
+**最终状态**：`cooper2006/mogo` main 停在 `4f4b9c1`（R5 收尾 + B7/B8/coverage floor 已推送），
+本地部署版本 `94d63a7` 已上线运行。
+
+---
+
+## 2026-10-08 红框修复：chat-api session 接口 500（naive/aware datetime 比较）
+
+**现象**：部署 94d63a7 后，前端调会话接口（list_sessions 等）出现红框报错。
+日志定位：`TypeError: can't compare offset-naive and offset-aware datetimes`，
+`services/chat-api/app/services/end_user_session.py:42`，9h 内出现 328 次（每次带登录态调会话接口都 500）。
+
+**根因**：MongoDB 用默认 `AsyncIOMotorClient`（无 `tz_aware=True`）读取，datetime 以 naive 形式返回（值仍是 UTC，时区信息被剥）。
+- 写入端（`auth.py:_create_session`）：`expires_at = datetime.now(tz=timezone.utc) + ttl` —— **aware**。
+- 读出端（`end_user_session.py:41-42`）：`now = datetime.now(tz=timezone.utc)`（aware）与 `session_doc["expires_at"]`（naive）直接比较 → 抛 TypeError。
+- 同源坑：`auth.py:337` 的 login challenge 比较同样写法。
+- 属**历史遗留 bug**（非 94d63a7 引入；`end_user_session.py` 两版间仅改 import 行）。`quota_policy.py` 已有 `tzinfo is None → replace(tzinfo=timezone.utc)` 的既定约定。
+
+**修复**：两处比较前把读出的 datetime 归一化为 aware UTC（与 quota_policy 约定一致），各 +~6 行。
+- `services/chat-api/app/services/end_user_session.py:41-48`
+- `services/chat-api/app/api/endpoints/auth.py:337-348`
+- 已用 `py_compile` 校验语法；其余同类比较点（`migration.py`/`action_receipt_store.py`/`env_manager.py`/`model_gateway/token.py`）数据来源非 MongoDB naive datetime 或已自洽处理，无需改。
+
+**提交**：`37a0f1e` fix(chat-api): normalize naive MongoDB datetimes to aware UTC before expiry comparison（2 文件，+24/-12）。
+
+**重新部署**：`MOGO_VERSION=37a0f1e ./mogo build && ./mogo up --build`（注意：`.env` 的 `MOGO_CHAT_API_IMAGE` 需同步更新为 `chat-api:37a0f1e`，否则 chat-api 仍停在旧 tag —— 本轮第二次 build 已修正）。
+- 8 个应用容器全部 recreate 到 `37a0f1e`，`UP_EXIT=0`。
+- 自动清理旧版 `94d63a7` 7 个镜像（释放 ~2.2 GB）。
+
+**验证**：
+- chat-api 日志「can't compare offset-naive」计数：0（修复前 9h/328 次）。
+- `:8000/health` → `{"status":"ok",...,"dsh_host":"healthy"}`。
+- 容器内复现修复前必崩逻辑：naive->aware 比较通过（active 不过期、past 正确判过期）。
+
+**修改文件**：`services/chat-api/app/services/end_user_session.py`、`services/chat-api/app/api/endpoints/auth.py`（已 commit 37a0f1e）；
+`.env`（`MOGO_CHAT_API_IMAGE=chat-api:37a0f1e`，本地不入库）。
+（镜像/容器操作未改仓库代码。）
+
+**最终状态**：`cooper2006/mogo` main 停在 `37a0f1e`，本地部署版本 `37a0f1e` 已上线运行。
