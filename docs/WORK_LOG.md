@@ -6628,3 +6628,29 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 （其余为镜像/容器操作，未改仓库代码。）
 
 **最终状态**：`cooper2006/mogo` main 停在 `52d1611`，本地部署版本 `52d1611` 已上线运行。
+
+---
+
+## 2026-10-08 镜像版本统一（node / nginx）+ 重建验证 + 清理旧镜像
+
+**现象**：OrbStack 中存在两套 node（20 / 24）、两套 nginx（1.29.8-alpine / 1.31.5-alpine3.24-slim）、两套 python（3.10 / 3.13）。python 两套因 document-parser 钉死 Docling/torch ABI 必须保留；node / nginx 两套为非技术约束的冗余。
+
+**改动**（commit `d6c4982`，4 个 Dockerfile）：
+- node：`apps/user-web/Dockerfile.prod`、`apps/user-web/Dockerfile`、`apps/admin-web/Dockerfile` 的 `node:20-slim` → `node:24-bookworm-slim`（与 `services/chat-api/dsh/runtime-host/Dockerfile` 一致）。
+- nginx：`apps/admin-web/Dockerfile`、`deploy/docker/gateway.Dockerfile` 的 `nginx:1.29.8-alpine` → `nginx:1.31.5-alpine3.24-slim`（与 `apps/user-web/Dockerfile.prod` 一致）。
+- python：保持 `python:3.13-slim-bookworm`（chat-api/admin-api）与 `python:3.10-slim-bookworm`（document-parser）两套。
+- 验证：`movo_base_images` 重新扫描后 node / nginx 各只剩一个版本。
+
+**重建验证**：`MOGO_VERSION=d6c4982 ./mogo build && ./mogo up --build`（`UP_EXIT=0`）。
+- 容器内实测：dsh-runtime-host `node v24.21.0`；admin-web / user-web `nginx 1.31.5`；chat-api `python 3.13.16`；document-parser `python 3.10.22`。
+- admin-web / user-web 根路径返回 HTML 正常；8 容器全部 healthy；旧版 `52d1611` 7 镜像被自动清理（释放 ~2.18 GB）。
+
+**清理旧镜像**（不再被任何 Dockerfile 引用）：
+- 删除 `node:20-slim`（+ DaoCloud 前缀）、`nginx:1.29.8-alpine`（+ DaoCloud 前缀）共 4 个 tag（`docker rmi -f`，RMI_EXIT=0）。
+- 当前 base 镜像仅余：`node:24-bookworm-slim`、`nginx:1.31.5-alpine3.24-slim`、`python:3.10-slim-bookworm`、`python:3.13-slim-bookworm@sha256:...`（digest 钉死，裸 tag 因 OrbStack 重启偶发丢失属正常）。
+- 删除 tag 不影响运行中容器（层仍被引用），11 容器全部 Up。
+
+**修改文件**：`apps/user-web/Dockerfile.prod`、`apps/user-web/Dockerfile`、`apps/admin-web/Dockerfile`、`deploy/docker/gateway.Dockerfile`（commit d6c4982）；`.env`（`MOGO_CHAT_API_IMAGE=chat-api:d6c4982`，本地不入库）。
+（其余为镜像/容器操作，未改仓库代码。）
+
+**最终状态**：`cooper2006/mogo` main 停在 `d6c4982`，本地部署版本 `d6c4982` 已上线运行。
