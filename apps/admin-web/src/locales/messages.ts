@@ -1104,7 +1104,6 @@ export const messages = {
   '新增配置保存后可测试。': { 'zh-CN': '新增配置保存后可测试。', 'en-US': 'Available to test after saving new configuration.' },
   '可在右侧测试当前已保存的配置。': { 'zh-CN': '可在右侧测试当前已保存的配置。', 'en-US': 'You can test the saved configuration on the right.' },
   '请补齐供应商、显示名称和模型 ID': { 'zh-CN': '请补齐供应商、显示名称和模型 ID', 'en-US': 'Please complete provider, display name, and model ID.' },
-  '新增模型需要填写 API Key': { 'zh-CN': '新增模型需要填写 API Key', 'en-US': 'API Key is required for new models.' },
   'Azure OpenAI 需要填写 API Version': { 'zh-CN': 'Azure OpenAI 需要填写 API Version', 'en-US': 'API Version is required for Azure OpenAI.' },
   '模型配置已保存，可以继续测试。': { 'zh-CN': '模型配置已保存，可以继续测试。', 'en-US': 'Configuration saved, you can continue testing.' },
   '模型已添加': { 'zh-CN': '模型已添加', 'en-US': 'Model Added' },

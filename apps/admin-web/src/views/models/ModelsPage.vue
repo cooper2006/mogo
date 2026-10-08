@@ -518,10 +518,6 @@ async function saveModel() {
     message.warning(t('请补齐供应商、显示名称和模型 ID'));
     return;
   }
-  if (editorMode.value === 'create' && !form.value.apiKey.trim()) {
-    message.warning(t('新增模型需要填写 API Key'));
-    return;
-  }
   if (isAzureProvider.value && !form.value.apiVersion.trim()) {
     message.warning(t('Azure OpenAI 需要填写 API Version'));
     return;
