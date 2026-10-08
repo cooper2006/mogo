@@ -422,21 +422,42 @@ async def shutdown_event() -> None:
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint to verify backend status."""
+    """Health check endpoint to verify backend status.
+
+    In multi-replica deployments the payload lists per-replica DSH Runtime Host
+    health (``dsh_hosts``), so an operator can see exactly which replica is down
+    rather than a single aggregate boolean.
+    """
     from app.dsh_runtime.application import dsh_runtime_application
     dsh_healthy = await dsh_runtime_application.probe_host()
+    hosts = [
+        {
+            "url": detail["url"],
+            "healthy": detail["healthy"],
+            "instance_id": (detail["detail"] or {}).get("instanceId"),
+            "runtimes": len((detail["detail"] or {}).get("runtimes") or []),
+            "version": (detail["detail"] or {}).get("version"),
+            "error": detail["error"],
+        }
+        for detail in dsh_runtime_application.host_health_details
+    ]
     return {
         "status": "ok",
         "version": "0.1.0",
         "service": "MOVO Backend",
         "agent_kernel": "dsh",
         "dsh_host": "healthy" if dsh_healthy else "degraded",
+        "dsh_hosts": hosts,
     }
 
 
 @app.get("/ready")
 async def readiness_check():
-    """Readiness requires the out-of-process DSH kernel used by every chat turn."""
+    """Readiness requires at least one DSH Runtime Host replica to be reachable.
+
+    With multiple replicas this no longer fails when ``base_urls[0]`` alone is
+    down but the load balancer can still route around it to a healthy replica.
+    """
     from app.dsh_runtime.application import dsh_runtime_application
     if not await dsh_runtime_application.probe_host():
         raise HTTPException(status_code=503, detail="DSH Runtime Host is unavailable")

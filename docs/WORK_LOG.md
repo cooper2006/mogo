@@ -1,5 +1,56 @@
 # Work Log
 
+## 2026-10-08 intro-v4.pptx 补充 Spec 清单页（17 → 18 页）
+
+**起因**：用户要求在现有版本基础上补充一页 Spec 清单。
+
+**做法**：同上一轮路径（`tencent-pptx` → `edit-existing`）。**先取真实数据再排版** —— 清单页最忌凭印象编内容。
+
+**数据来源与实测核对**：
+- 读 `specs/INDEX.md` 取分组、优先级、中英文名、完成度口径
+- 逐目录实测 21 个 spec 的 `spec.md` / `tasks.md` 存在性与标题
+- 统计 tasks 勾选数时**踩了个坑**：直接 `grep -c "\- \[x\]"` 全返回 0，因`tasks.md` 是 **CRLF 行尾**，须先 `tr -d '\r'` 再grep。修正后得 **17 份 tasks.md / 354 项全部勾选**，与 INDEX.md 声称的口径一致（逐份明细：001=32、002=22、007=25、008=27、009=19、010=22、011=19、012=12、013=12、014=13、015=12、016=18、017=20、018=14、019=15、020=62、021=10）
+
+**新增第 12 页「08 · Spec 清单」**：插入在「08 · 落地进展与接线闭合」之后、「09 · 标杆场景验证」之前（先讲清 21 spec + 354 项进展，再看场景验证）。版面=顶部双统计条+ 四列分组卡片（既有回溯 003–006 / P0 / P1 / P2）+ 底部「落地审计」条。14 形状 + 41 段文本，沿用既有设计系统。
+
+**内容口径**（据 INDEX.md 原文，刻意保留其诚实表述）：四层齐备21 份 spec + 21 份 plan；17 份 tasks 354 项全勾选；底部标注 2026-10-03 重检结论 `landed 0 / partial 10 / hollow 9`，并说明 ≥60 条高危缺口已于 10-03～10-05 全部修复 —— 不回避审计结论。
+
+**连带修正**：总数变 18，p2~p11 仅改分母，p13~p18 需同时改页码与分母，末页由`17 / 17` 改为 `18 / 18`。逐页 `slide_set_text` + `slide_set_text_property` 还原样式。
+
+**验证**：磁盘解压逐页校验，**18 页页码全部 `N / 18` 一致（PASS）**；p12 首行为新增「08 · Spec 清单」，顺延关系正确。
+
+---
+
+## 2026-10-08 intro-v4.pptx 补充架构图页（16 → 17 页）
+
+**起因**：用户要求在 `docs/intro-v4.pptx` 基础上补充一页架构图。
+
+**做法**：走 `tencent-pptx` skill 的 `edit-existing` 路径。先逐页读取现有 16 页的布局与样式，提取出既有设计系统，再据其新建一页。
+
+**提取的既有设计系统**（作为新页的样式基线）：
+
+| 元素 | 规格 |
+|---|---|
+| 画布 | 960 × 540 pt，左边距 64，右边界 896 |
+| 强调色 | `#10B9A9`（teal，标题竖条与章节编号 `#0D9488`） |
+| 卡片 | `roundRect`，白底 `#FFFFFF` + 边框 `#E2E8F0` 1pt |
+| 内层块 | `#F1F5F9` / `#FAF5FF` 底+ 同色系浅边框 |
+| 分割线 | `#DEE0E3`，1pt，位于 y=114 |
+| 字号 | 主标题 26 / 小节标题 13.5 / 正文 10.5 / 页脚 11 |
+| 字体 | Hiragino Sans GB |
+| 文字色 | 标题 `#0F172A` / 正文 `#64748B` / 页脚 `#94A3B8` |
+| 页脚 | 左「墨攻 · 企业级智能体平台」+ 右「N / 16」 |
+
+**新增第 15 页「02 · 架构总览」**：四层横向架构图，接入层 → 编排层（chat-api）→ 治理层（admin-api）→ 执行底座（DSH），底部横跨「数据与知识」层。26 个形状 + 5 条流向箭头 + 28 段文本。插在原第 15 页「10 · 生产部署扩展」**之前**，使多实例改造页紧邻架构页形成呼应。
+
+**连带修正**：插入新页后总数变 17，后续 15 页页码全部错位（原为 `/ 16`，且 p16 显示 `15 / 16`）。已逐页用 `slide_set_text` 改文本 + `slide_set_text_property` 还原样式（页码字体样式会被 `set_text` 重置，两步必须都做）。封面无页码故不改。**磁盘文件已校验 17 页页码全部一致（PASS）**。
+
+**注意**：`save_file` 返回的是临时暂存路径，需另行确认原路径文件已实际更新（`ls -la` + 解压校验）。
+
+**验证方式**：解压 pptx 逐页正则提取页码文本比对，17 页全部 `N / 17` 一致；p15 内容为新增架构图、p16 首行为「10 · 生产部署扩展」，顺延关系正确。
+
+---
+
 ## 2026-10-08 说明文档：权限控制（含数据权限）+ DSH 多实例运行改造
 
 **起因**：用户要求基于现有文档和代码，产出两份详细的说明文档。
@@ -6759,3 +6810,35 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **修改文件**：`services/chat-api/app/api/endpoints/auth.py`、`apps/user-web/src/api/auth.ts`、`apps/user-web/src/components/login/RegisterForm.vue`、`apps/user-web/src/locales/messages.ts`。
 
 **最终状态**：本地部署版本 `f58bca7` 已上线运行，注册支持选择部门（待 commit/push）。
+
+---
+
+## 2026-10-08 DSH 多实例 Phase 1（M4 + M3 + R3 + R4）
+
+**背景**：用户确认按 `deliverables/gstack/dsh-multi-instance-plan-2026-10-08.md` 推荐方案落地 Phase 1。调研文档已确认层 A（runtime-host 多副本）路由层就绪，真正卡住生产的是存储卷共享（R-01）、健康检查单点（R-03）与 `_isolation_key` 进程内导致的重启降级（R-02）。Phase 1 只做纯增量、零破坏、单实例行为不变的修复。
+
+**改动（按改造项）**：
+- **M4（`_isolation_key` 持久化回退，修复 R-02）**：
+  - `gateway.py`：`_SessionBinding` 增加 `isolation_key` 字段；`create_session` / `attach_session` 写入它；`_isolation_key(runtime_id)` 在进程内 `_runtimes` 缺失时，从已恢复的 `_sessions`（同样引用该 runtime）兜底返回，避免降级为 runtime_id 把会话打散到错误副本。
+  - `bindings/repository.py`：`KernelBindingRepository.create` 新增 `isolation_key` 参数并持久化到 `agent_kernel_bindings` 行。
+  - `runtime_coordinator.py`：`create_binding` 把 `runtime.isolation_key` 透传给 `bindings.create`，供未来重启恢复直接读取。
+- **M3（健康检查探测全部副本，修复 R-03）**：
+  - `transport.py`：新增 `probe_all_hosts()`，并发 GET 每个 `_base_urls` 的 `/health`，返回逐副本明细（url/healthy/detail/error）。
+  - `application.py`：`probe_host()` 改为聚合 `probe_all_hosts`，`_probe_hosts()` 私有方法；`host_health_details` 存明细；`host_healthy` 取「任一健康」。
+  - `main.py`：`/health` 增加 `dsh_hosts` 逐副本明细（instance_id/runtimes 数/version/error）；`/ready` 改为「任一副本健康即 200」（单实例行为不变）。
+- **R3（亲和性失败错误分类）**：
+  - `errors.py`：新增 `DshAffinityError`（继承 `DshNotFoundError`，进而继承 `DshRuntimeError`）。
+  - `transport.py`：`request` / `stream` 在 `/v1/runtimes/` 路径上收到 host `not_found`（404 / code=not_found）时抛 `DshAffinityError`，便于上层区分「绑定存在但被路由到不持有它的副本」（可恢复）。
+- **R4（宿主实例标识）**：
+  - `host-protocol.mjs`：`runtimeHealth()` 增加 `instanceId`（默认读 `process.env.DSH_INSTANCE_ID`）。
+  - `runtime-http-server.mjs`：`RuntimeHttpServer` 持 `instanceId`，`GET /health` 与 `POST /v1/runtimes` 响应携带 `instanceId`。
+  - `host.mjs`：支持 `--instance-id` 参数 + 读取 `DSH_INSTANCE_ID`，启动就绪事件写 `instanceId`。
+  - `docker-compose.yml`：默认 `dsh-runtime-host` 与 `runtime-pool` 三副本均注入 `DSH_INSTANCE_ID`（服务名）。
+
+**重建验证**：`MOGO_VERSION=phase1 ./mogo build chat-api dsh-runtime-host` → `./mogo up --build`（BUILD/UP 均 0）。容器内验证：单实例 `/ready` 返回 200（行为不变）；`/health` 含 `dsh_hosts` 逐副本明细且 `instance_id="dsh-runtime-host"`、`version="0.2.0-rc.2"`、`runtimes=0`（R4 生效）。容器内 Python 静态自检：`_isolation_key` 在 `_runtimes` 空但 `_sessions` 已恢复时正确兜底；未知 runtime 仍返回 None（向后兼容）；`DshAffinityError` 继承关系成立；`probe_all_hosts` 存在。
+
+**修改文件**：`services/chat-api/app/dsh_runtime/gateway.py`、`bindings/repository.py`、`runtime_coordinator.py`、`transport.py`、`application.py`、`errors.py`、`main.py`、`services/chat-api/dsh/runtime-host/src/{host-protocol,host.mjs,runtime-http-server}.mjs`、`docker-compose.yml`。
+
+**待办（未在本轮）**：Phase 2 的 M1（存储卷隔离）+ M2（Redis 锁，防同 isolationKey 多 runtime）按方案 D2 决策后单独排期；M1 的破坏性（既有 session resume 失效）需先落地 §12.4 的 session→host 缓存/迁移能力。
+
+**最终状态**：本地 phase1 部署栈已上线运行（chat-api / dsh-runtime-host 用 phase1 镜像），Phase 1 四维修复生效（待 commit/push）。

@@ -69,6 +69,7 @@ class RuntimeCoordinator:
                 profile_version=profile_version,
                 model_instance_id=model_instance_id,
                 kernel_version=runtime.kernel_version,
+                isolation_key=runtime.isolation_key,
                 preset_id=preset_id,
                 execution_location=execution_location,
                 dsh_workspace_id=workspace_id,

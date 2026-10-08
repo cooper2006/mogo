@@ -19,6 +19,7 @@ Two pieces cooperate to make the routing decision:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Mapping, Sequence
 import hashlib
 import json as jsonlib
@@ -27,7 +28,7 @@ from typing import Any, Callable, Protocol
 
 import httpx
 
-from .errors import DshProtocolError, DshTransportError
+from .errors import DshAffinityError, DshProtocolError, DshTransportError
 
 # ``/v1/runtimes/{runtime_id}/sessions/{session_id}/...`` and its nested paths.
 # Session-scoped calls are the ones that require sticky routing.
@@ -224,6 +225,42 @@ class HttpKernelHostTransport:
         """The configured Runtime Host URLs, in routing order."""
         return self._base_urls
 
+    async def probe_all_hosts(self) -> list[dict[str, Any]]:
+        """Probe every configured host concurrently and report per-replica health.
+
+        Returns one entry per ``base_url`` in routing order, each shaped like::
+
+            {"url": str, "healthy": bool, "detail": dict | None, "error": str | None}
+
+        Unlike :meth:`request`, this bypasses sticky routing and queries each
+        replica directly so a caller can aggregate multi-replica readiness instead
+        of only ever learning about ``base_urls[0]``.
+        """
+
+        async def probe_one(index: int, url: str) -> dict[str, Any]:
+            client = self._clients[index]
+            try:
+                response = await client.get("/health")
+            except httpx.HTTPError as exc:
+                return {"url": url, "healthy": False, "detail": None, "error": str(exc)}
+            try:
+                payload = response.json()
+            except ValueError:
+                return {
+                    "url": url,
+                    "healthy": False,
+                    "detail": None,
+                    "error": "non-JSON health response",
+                }
+            healthy = (
+                isinstance(payload, dict)
+                and payload.get("ok") is True
+                and payload.get("kernel") == "dsh"
+            )
+            return {"url": url, "healthy": healthy, "detail": payload if isinstance(payload, dict) else None, "error": None}
+
+        return await asyncio.gather(*(probe_one(i, url) for i, url in enumerate(self._base_urls)))
+
     def _select_base_url(self, sticky_key: str | None) -> str:
         """Return the host that owns ``sticky_key`` (round-robin when absent)."""
         if sticky_key is None:
@@ -276,8 +313,14 @@ class HttpKernelHostTransport:
         if not isinstance(payload, dict):
             raise DshProtocolError("DSH Runtime Host returned a non-object response")
         if response.is_error:
-            error = payload.get("error")
+            error = payload.get("error") if isinstance(payload, dict) else None
             message = error.get("message") if isinstance(error, dict) else response.reason_phrase
+            code = error.get("code") if isinstance(error, dict) else None
+            if path.startswith("/v1/runtimes/") and code == "not_found":
+                # The host owns no such runtime/session: an affinity/routing
+                # failure (the chat-api-side binding still exists). Surface it as
+                # a recoverable, explicitly classifiable error.
+                raise DshAffinityError(f"DSH Runtime Host has no such runtime/session: {message}")
             raise DshTransportError(f"DSH Runtime Host rejected the request: {message}")
         return payload
 
@@ -309,6 +352,9 @@ class HttpKernelHostTransport:
                         payload = {}
                     error = payload.get("error") if isinstance(payload, dict) else None
                     message = error.get("message") if isinstance(error, dict) else response.reason_phrase
+                    code = error.get("code") if isinstance(error, dict) else None
+                    if path.startswith("/v1/runtimes/") and code == "not_found":
+                        raise DshAffinityError(f"DSH Runtime Host has no such runtime/session: {message}")
                     raise DshTransportError(f"DSH Runtime Host rejected the stream: {message}")
                 async for line in response.aiter_lines():
                     if not line.strip():

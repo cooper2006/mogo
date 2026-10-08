@@ -34,6 +34,10 @@ class _SessionBinding:
     model_instance_id: str | None
     preset_id: str
     workspace_id: str | None
+    # Carried from the runtime binding so that sticky routing survives a chat-api
+    # restart: after restore() rebuilds _sessions (but before _runtimes may be
+    # lazily repopulated), send()/subscribe() can still resolve the stable key.
+    isolation_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -81,11 +85,20 @@ class DshAgentKernelGateway(AgentKernelContract):
         Multi-replica routing must key on the isolation key rather than the
         runtime id: the two hash differently, so keying on the runtime id would
         send a session to a replica that does not own the runtime.
+
+        The process-internal ``_runtimes`` map is the primary source, but after a
+        chat-api restart ``_sessions`` may already be rebuilt (via
+        ``restore``) while ``_runtimes`` is still lazily repopulated. Fall back
+        to any session bound to the same runtime so routing never degrades to the
+        runtime id (which would scatter a session across replicas).
         """
         binding = self._runtimes.get(runtime_id)
-        if binding is None:
-            return None
-        return binding.isolation_key or None
+        if binding is not None and binding.isolation_key:
+            return binding.isolation_key
+        for session_binding in self._sessions.values():
+            if session_binding.runtime_id == runtime_id and session_binding.isolation_key:
+                return session_binding.isolation_key
+        return None
 
     async def create_runtime(self, request: CreateRuntimeRequest) -> RuntimeHandle:
         payload: dict[str, Any] = {
@@ -193,6 +206,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             model_instance_id=model_instance_id,
             preset_id=preset_id,
             workspace_id=workspace_id,
+            isolation_key=runtime.isolation_key,
         )
 
     async def describe_session(self, session_id: str) -> SessionHandle:
@@ -234,6 +248,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             model_instance_id=runtime_binding.model_instance_id,
             preset_id=spec.preset_id,
             workspace_id=spec.workspace_id,
+            isolation_key=runtime_binding.isolation_key,
         )
         return self._session_handle(session_id, response)
 

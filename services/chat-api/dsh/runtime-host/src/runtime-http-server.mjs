@@ -11,13 +11,14 @@ export class RuntimeHttpServer {
   #manager
   #started = false
 
-  constructor({ host = '127.0.0.1', port = 0, storageRoot, authToken = '' }) {
+  constructor({ host = '127.0.0.1', port = 0, storageRoot, authToken = '', instanceId = '' }) {
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('port must be an integer from 0 to 65535')
     if (authToken && authToken.length < 32) throw new TypeError('authToken must contain at least 32 characters')
     assertSecureHost(host, authToken)
     this.host = host
     this.port = port
     this.authToken = authToken
+    this.instanceId = instanceId || process.env.DSH_INSTANCE_ID || ''
     this.#manager = new RuntimeManager({ storageRoot })
     this.#server = createServer((request, response) => {
       if (!validBearerToken(request.headers.authorization, this.authToken)) {
@@ -69,15 +70,17 @@ export class RuntimeHttpServer {
   async #dispatch(request, response) {
     const { parts, query } = routeParts(request)
     if (request.method === 'GET' && parts.join('/') === 'health') {
-      return sendJson(response, 200, runtimeHealth(this.#manager.inventory()))
+      return sendJson(response, 200, runtimeHealth(this.#manager.inventory(), this.instanceId))
     }
     if (request.method === 'POST' && parts.join('/') === 'v1/runtimes') {
       const runtime = await this.#manager.create(await readJson(request))
-      const health = runtimeHealth([])
+      const health = runtimeHealth([], this.instanceId)
       return sendJson(response, 201, {
         runtimeId: runtime.runtimeId,
         kernel: health.kernel,
         kernelVersion: health.version,
+        protocolVersion: health.protocolVersion,
+        instanceId: health.instanceId,
         profileVersion: runtime.profileVersion,
         isolationKey: runtime.isolationKey,
       })

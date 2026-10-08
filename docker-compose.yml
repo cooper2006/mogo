@@ -124,6 +124,8 @@ services:
     image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
+    environment:
+      DSH_INSTANCE_ID: dsh-runtime-host
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
       - dsh-runtime-data:/data/dsh-runtime
@@ -152,14 +154,20 @@ services:
   dsh-runtime-host-1:
     <<: *dsh-runtime-host
     profiles: ["runtime-pool"]
+    environment:
+      DSH_INSTANCE_ID: dsh-runtime-host-1
 
   dsh-runtime-host-2:
     <<: *dsh-runtime-host
     profiles: ["runtime-pool"]
+    environment:
+      DSH_INSTANCE_ID: dsh-runtime-host-2
 
   dsh-runtime-host-3:
     <<: *dsh-runtime-host
     profiles: ["runtime-pool"]
+    environment:
+      DSH_INSTANCE_ID: dsh-runtime-host-3
 
   # Sticky LB in front of the Runtime Host pool. nginx' consistent hash keeps
   # every request of one kernel session on the same host; chat-api talks to this

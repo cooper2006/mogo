@@ -45,6 +45,7 @@ class DshRuntimeApplication:
         self.desktop_bootstrap: DesktopRuntimeBootstrapService | None = None
         self.desktop_bindings: DesktopCodeBindingService | None = None
         self.host_healthy = False
+        self.host_health_details: list[dict[str, Any]] = []
 
     async def start(self) -> None:
         settings = get_settings()
@@ -64,11 +65,8 @@ class DshRuntimeApplication:
             timeout_seconds=settings.DSH_RUNTIME_HTTP_TIMEOUT_SECONDS,
             access_token=settings.DSH_RUNTIME_HOST_TOKEN,
         )
-        try:
-            health = await self._transport.request("GET", "/health")
-            self.host_healthy = health.get("ok") is True and health.get("kernel") == "dsh"
-        except DshRuntimeError:
-            self.host_healthy = False
+        self.host_health_details = await self._probe_hosts()
+        self.host_healthy = any(detail["healthy"] for detail in self.host_health_details)
         gateway = DshAgentKernelGateway(
             self._transport,
             kernel_version=self.KERNEL_VERSION,
@@ -140,15 +138,33 @@ class DshRuntimeApplication:
         self._transport = None
         self.host_healthy = False
 
+    async def _probe_hosts(self) -> list[dict[str, Any]]:
+        """Probe every configured Runtime Host replica concurrently.
+
+        Returns one entry per replica (see ``HttpKernelHostTransport.probe_all_hosts``),
+        so readiness can be derived from the aggregate instead of only the first host.
+        """
+        if self._transport is None:
+            return []
+        try:
+            details = await self._transport.probe_all_hosts()
+        except DshRuntimeError:
+            details = []
+        return details
+
     async def probe_host(self) -> bool:
+        """Readiness is satisfied when **any** replica is healthy.
+
+        With a single host this is behaviourally identical to the historical
+        check. With multiple replicas it no longer reports a false "down" when the
+        load balancer could still route around a failed node (and no longer reports
+        a false "up" when only ``base_urls[0]`` happens to be alive).
+        """
         if self._transport is None:
             self.host_healthy = False
             return False
-        try:
-            health = await self._transport.request("GET", "/health")
-            self.host_healthy = health.get("ok") is True and health.get("kernel") == "dsh"
-        except DshRuntimeError:
-            self.host_healthy = False
+        self.host_health_details = await self._probe_hosts()
+        self.host_healthy = any(detail["healthy"] for detail in self.host_health_details)
         return self.host_healthy
 
     def require_chat(self) -> DshChatService:
