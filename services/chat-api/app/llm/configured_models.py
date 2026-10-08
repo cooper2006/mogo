@@ -266,8 +266,6 @@ def _validate_runtime_config(
         raise ModelConfigError("模型 ID 不能为空")
     if not str(config.get("base_url") or "").strip():
         raise ModelConfigError("Base URL 不能为空")
-    if not str(config.get("api_key") or "").strip():
-        raise ModelConfigError("API Key 不能为空")
 
 
 def build_llm_client_from_config(

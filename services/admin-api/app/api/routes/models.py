@@ -194,8 +194,6 @@ async def post_model_instance(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="供应商ID无效") from exc
     if provider is None or provider.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="供应商不存在或已禁用")
-    if not payload.apiKey.strip():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API Key 不能为空")
 
     capabilities = normalize_capabilities(payload.capabilities)
     runtime_kind = infer_image_runtime_kind(
@@ -592,9 +590,6 @@ def _azure_openai_test_events(
     if not endpoint:
         yield {"type": "error", "message": "Azure Endpoint 不能为空"}
         return
-    if not api_key:
-        yield {"type": "error", "message": "API Key 不能为空"}
-        return
 
     path_deployment = urllib.parse.quote(deployment, safe="")
     query = urllib.parse.urlencode({"api-version": api_version})
@@ -642,9 +637,6 @@ def _openai_compatible_test_events(
     api_key, key_error = _decrypt_api_key(instance)
     if key_error:
         yield {"type": "error", "message": key_error}
-        return
-    if not api_key:
-        yield {"type": "error", "message": "API Key 不能为空"}
         return
 
     url = f"{base_url}/chat/completions"
