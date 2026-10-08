@@ -166,10 +166,11 @@ async def sum_active_overrides(main_id: str, user_id: str, now: datetime | None 
 async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any]:
     db = get_db()
     user_id = str(user.get("_id") or "")
-    space_type = str(user.get("space_type") or "").strip().lower()
-    if space_type not in {"personal", "enterprise"}:
-        space_type = "personal" if str(user.get("org_name") or "").strip() == "个人空间" else "enterprise"
     org = await db[ORG_COLLECTION].find_one({"main_id": main_id}) or {}
+    space_type = str(user.get("space_type") or org.get("space_type") or "").strip().lower()
+    if space_type not in {"personal", "enterprise"}:
+        org_name = str(org.get("org_name") or user.get("org_name") or "").strip()
+        space_type = "personal" if org_name == "个人空间" else "enterprise"
 
     # 020 FR-035/036/037: an org flagged ``points_unlimited`` (set by the admin
     # product-edition policy) has no token ceiling — short-circuit before any
@@ -193,6 +194,24 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
     if space_type != "enterprise":
         total = int(org.get("total_points") or 0)
         used = int(org.get("used_points") or 0)
+        # A personal space with no configured gift quota (total_points unset/0)
+        # is treated as unlimited so freshly created / test orgs are not blocked
+        # with "额度已用尽" before any quota is provisioned.
+        if total <= 0:
+            return {
+                **product_edition_fields(org),
+                "mainId": main_id,
+                "orgName": org.get("org_name") or user.get("org_name") or "个人空间",
+                "spaceType": "personal",
+                "quotaSource": "registration_gift",
+                "period": "lifetime",
+                "unlimited": True,
+                "totalPoints": -1,
+                "usedPoints": used,
+                "remainingPoints": -1,
+                "resetAt": "",
+                "status": "active",
+            }
         return {
             **product_edition_fields(org),
             "mainId": main_id,
@@ -218,6 +237,27 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
     base_user_total = int(user_policy.get("quota_tokens") or 0)
     extra = await sum_active_overrides(main_id, user_id)
     user_total = max(0, base_user_total + extra)
+    # An enterprise org with no provisioned allocation (org total 0 and no per-user
+    # override) is treated as unlimited instead of blocking every request with
+    # "企业分派额度已用尽". Admins provision real quotas via org/user policies.
+    if org_total <= 0 and user_total <= 0:
+        return {
+            **product_edition_fields(org),
+            "mainId": main_id,
+            "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
+            "spaceType": "enterprise",
+            "quotaSource": "enterprise_allocation",
+            "period": normalize_period(org_policy.get("period") or "monthly"),
+            "unlimited": True,
+            "totalPoints": -1,
+            "usedPoints": user_used,
+            "remainingPoints": -1,
+            "resetAt": "",
+            "status": "active",
+            "orgTotalPoints": org_total,
+            "orgUsedPoints": org_used,
+            "orgRemainingPoints": max(0, org_total - org_used),
+        }
     remaining = max(0, min(user_total - user_used, org_total - org_used))
     return {
         **product_edition_fields(org),
