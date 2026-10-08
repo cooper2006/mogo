@@ -6654,3 +6654,26 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 （其余为镜像/容器操作，未改仓库代码。）
 
 **最终状态**：`cooper2006/mogo` main 停在 `d6c4982`，本地部署版本 `d6c4982` 已上线运行。
+
+---
+
+## 2026-10-08 模型配置 API Key 改为可选（补全上一轮未干净的修复）
+
+**背景**：上一轮仅去掉了 admin-web 前端「新增模型」的 apiKey 必填校验，但后端仍有三处硬校验，导致保存时仍被红框「API Key 不能为空」拦截——即“没解决干净”。
+
+**根因**：
+- Pydantic 入参 `apiKey: str = Field(default="")` 本就是可选，真正拦截在后端显式 `if not apiKey` 校验。
+- admin-api `/api/models/instances` 创建接口、`/test` 连接测试（Azure + OpenAI 兼容两条路径）三处都硬要求非空。
+
+**改动**（commit `ba38ec0`，2 文件）：
+- `services/admin-api/app/api/routes/models.py`：删除 create 接口的空 apiKey 400 拦截；删除两个 test 连接路径的空 apiKey 提前报错（keyless 模型也能走连接测试，连不通时由底层返回错误）。
+- `services/chat-api/app/llm/configured_models.py`：`_validate_runtime_config` 删除空 api_key 的 `ModelConfigError`；保留 `_validate_api_key_ascii`（仅当 api_key 非空时校验是否为纯 ASCII，避免中文占位符）。
+
+**重建验证**：`MOGO_VERSION=f58bca7 ./mogo build && ./mogo up --build`（`UP_EXIT=0`），chat-api / admin-api 容器 healthy。容器内直接调用 `_validate_runtime_config`（空 api_key + 有效 base_url）通过校验（`PASS`）。
+
+**提交边界**：本轮 apikey 修复（`ba38ec0`）与上一轮遗留的 Dockerfile 裸名改动（`4a857cd`，3 文件）分开提交，互不混杂。
+
+**修改文件**：`services/admin-api/app/api/routes/models.py`、`services/chat-api/app/llm/configured_models.py`（commit ba38ec0）。
+（其余为镜像/容器操作，未改仓库代码。）
+
+**最终状态**：`cooper2006/mogo` main 停在 `4a857cd`，本地部署版本 `f58bca7` 已上线运行。
