@@ -169,7 +169,7 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
 # write (a schema change); cascading here keeps the purge complete meanwhile.
 #
 # ``session_snapshots`` is *not* in this list: ``dsh_session_versioning.py``
-# sets ``document["main_id"] = main_id`` before insert, so it is purged by the
+# sets ``document["tenant_id"] = main_id`` before insert, so it is purged by the
 # normal ``TENANT_SCOPED_COLLECTIONS`` sweep.
 TENANT_ORPHANED_COLLECTIONS: list[str] = [
     "session_shares",
@@ -207,13 +207,13 @@ class _PurgeTaskStore:
     # Mongo persistence (best-effort; memory cache is always updated first)
     # ------------------------------------------------------------------
 
-    async def _upsert(self, main_id: str, task_id: str, task: dict[str, Any]) -> None:
-        key = f"{main_id}:{task_id}"
+    async def _upsert(self, tenant_id: str, task_id: str, task: dict[str, Any]) -> None:
+        key = f"{tenant_id}:{task_id}"
         try:
             db = get_db()
             now = datetime.now(timezone.utc)
             doc = {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "task_id": task_id,
                 "status": task["status"],
                 "progress": task["progress"],
@@ -223,7 +223,7 @@ class _PurgeTaskStore:
             if "started_at" not in task:
                 doc["started_at"] = now
             await db[self.PURGE_PROGRESS_COLLECTION].update_one(
-                {"main_id": main_id, "task_id": task_id},
+                {"tenant_id": tenant_id, "task_id": task_id},
                 {"$set": doc, "$setOnInsert": {"started_at": now}},
                 upsert=True,
             )
@@ -236,8 +236,8 @@ class _PurgeTaskStore:
     # Registry operations
     # ------------------------------------------------------------------
 
-    def create(self, main_id: str, task_id: str) -> None:
-        key = f"{main_id}:{task_id}"
+    def create(self, tenant_id: str, task_id: str) -> None:
+        key = f"{tenant_id}:{task_id}"
         while len(self._tasks) >= self._MAX_TASKS:
             # dicts preserve insertion order, so the first key is the oldest.
             oldest = next(iter(self._tasks), None)
@@ -255,7 +255,7 @@ class _PurgeTaskStore:
             "error": "",
             "started_at": datetime.now(timezone.utc),
         }
-        self._main_id_to_task[main_id] = key
+        self._main_id_to_task[tenant_id] = key
 
     def _evict(self, key: str) -> None:
         """Drop one task, also clearing any index entry that points at it.
@@ -266,21 +266,21 @@ class _PurgeTaskStore:
         """
         self._tasks.pop(key, None)
         stale = [m for m, k in self._main_id_to_task.items() if k == key]
-        for main_id in stale:
-            self._main_id_to_task.pop(main_id, None)
+        for tenant_id in stale:
+            self._main_id_to_task.pop(tenant_id, None)
 
     def mark(self, key: str, phase: str, value: str) -> None:
         task = self._tasks.get(key)
         if task:
             task["progress"][phase] = value
 
-    async def mark_persisted(self, main_id: str, task_id: str, phase: str, value: str) -> None:
+    async def mark_persisted(self, tenant_id: str, task_id: str, phase: str, value: str) -> None:
         """Mark a phase and persist to Mongo (FR-032 cross-replica)."""
-        key = f"{main_id}:{task_id}"
+        key = f"{tenant_id}:{task_id}"
         task = self._tasks.get(key)
         if task:
             task["progress"][phase] = value
-        await self._upsert(main_id, task_id, task or {"status": "running", "progress": {phase: value}})
+        await self._upsert(tenant_id, task_id, task or {"status": "running", "progress": {phase: value}})
 
     def finish(self, key: str, ok: bool, error: str = "") -> None:
         task = self._tasks.get(key)
@@ -288,24 +288,24 @@ class _PurgeTaskStore:
             task["status"] = "done" if ok else "failed"
             task["error"] = error
 
-    async def finish_persisted(self, main_id: str, task_id: str, ok: bool, error: str = "") -> None:
+    async def finish_persisted(self, tenant_id: str, task_id: str, ok: bool, error: str = "") -> None:
         """Finish a task and persist the final state to Mongo (FR-032)."""
-        key = f"{main_id}:{task_id}"
+        key = f"{tenant_id}:{task_id}"
         task = self._tasks.get(key)
         if task:
             task["status"] = "done" if ok else "failed"
             task["error"] = error
-        await self._upsert(main_id, task_id, task or {"status": "done" if ok else "failed", "progress": {}, "error": error})
+        await self._upsert(tenant_id, task_id, task or {"status": "done" if ok else "failed", "progress": {}, "error": error})
 
     def get(self, key: str) -> dict[str, Any] | None:
         return self._tasks.get(key)
 
-    def get_for_main_id(self, main_id: str, task_id: str = "") -> dict[str, Any] | None:
+    def get_for_main_id(self, tenant_id: str, task_id: str = "") -> dict[str, Any] | None:
         """Resolve the in-memory task for a main_id (and optional task_id)."""
         if task_id:
-            key = f"{main_id}:{task_id}"
+            key = f"{tenant_id}:{task_id}"
         else:
-            key = self._main_id_to_task.get(main_id, "")
+            key = self._main_id_to_task.get(tenant_id, "")
         if not key:
             return None
         task = self._tasks.get(key)
@@ -318,7 +318,7 @@ class _PurgeTaskStore:
             "error": task["error"],
         }
 
-    async def get_persisted(self, main_id: str, task_id: str = "") -> dict[str, Any] | None:
+    async def get_persisted(self, tenant_id: str, task_id: str = "") -> dict[str, Any] | None:
         """Read the last persisted purge progress from Mongo (FR-032).
 
         When ``task_id`` is empty, returns the most recently updated document
@@ -332,10 +332,10 @@ class _PurgeTaskStore:
         try:
             coll = db[self.PURGE_PROGRESS_COLLECTION]
             if task_id:
-                doc = await coll.find_one({"main_id": main_id, "task_id": task_id})
+                doc = await coll.find_one({"tenant_id": tenant_id, "task_id": task_id})
             else:
                 doc = await coll.find(
-                    {"main_id": main_id}
+                    {"tenant_id": tenant_id}
                 ).sort("updated_at", -1).to_list(length=1)
                 doc = doc[0] if doc else None
         except Exception:
@@ -353,31 +353,31 @@ class _PurgeTaskStore:
 _task_store = _PurgeTaskStore()
 
 
-async def get_purge_status(main_id: str, task_id: str = "") -> dict[str, Any]:
+async def get_purge_status(tenant_id: str, task_id: str = "") -> dict[str, Any]:
     """Return the purge progress for a tenant.
 
     Resolution order (FR-032): in-memory cache (this replica, in-flight) →
     Mongo ``tenant_purge_progress`` (any replica) → tenant tombstone.
     """
-    result = _task_store.get_for_main_id(main_id, task_id)
+    result = _task_store.get_for_main_id(tenant_id, task_id)
     if result is not None:
         return result
     # No task in this process — check Mongo (another replica may be mid-purge
     # or finished a purge this replica never saw).
-    persisted = await _task_store.get_persisted(main_id, task_id)
+    persisted = await _task_store.get_persisted(tenant_id, task_id)
     if persisted is not None:
         return persisted
     # No task anywhere — check if the tenant row already records a purge.
     db = get_db()
-    tenant = await db[TENANT_COLLECTION].find_one({"main_id": main_id}, {"status": 1, "purged_at": 1})
+    tenant = await db[TENANT_COLLECTION].find_one({"tenant_id": tenant_id}, {"status": 1, "purged_at": 1})
     if tenant and tenant.get("status") == "purged":
         return {
-            "taskId": task_id or main_id,
+            "taskId": task_id or tenant_id,
             "status": "done",
             "progress": {"mongo": "done", "vectors": "done", "files": "done"},
             "error": "",
         }
-    return {"taskId": task_id or main_id, "status": "unknown", "progress": {}, "error": ""}
+    return {"taskId": task_id or tenant_id, "status": "unknown", "progress": {}, "error": ""}
 
 
 # ---------------------------------------------------------------------------
@@ -385,19 +385,19 @@ async def get_purge_status(main_id: str, task_id: str = "") -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def _phase_mongo(main_id: str) -> None:
+async def _phase_mongo(tenant_id: str) -> None:
     db = get_db()
     # Key-only collections are resolved through the tenant's sessions, so they
     # must be swept BEFORE the scoped pass deletes ``chat_sessions``.
-    await _purge_key_only_collections(db, main_id)
+    await _purge_key_only_collections(db, tenant_id)
     for collection in TENANT_SCOPED_COLLECTIONS:
-        result = await db[collection].delete_many({"main_id": main_id})
+        result = await db[collection].delete_many({"tenant_id": tenant_id})
         if result.deleted_count:
-            logger.info("purge %s: deleted %d row(s) from %s", main_id, result.deleted_count, collection)
+            logger.info("purge %s: deleted %d row(s) from %s", tenant_id, result.deleted_count, collection)
     for collection in TENANT_GOVERNANCE_COLLECTIONS:
-        result = await db[collection].delete_many({"tenant_id": main_id})
+        result = await db[collection].delete_many({"tenant_id": tenant_id})
         if result.deleted_count:
-            logger.info("purge %s: deleted %d governance row(s) from %s", main_id, result.deleted_count, collection)
+            logger.info("purge %s: deleted %d governance row(s) from %s", tenant_id, result.deleted_count, collection)
     # NOTE: the tombstone (``status = purged``) is deliberately NOT written
     # here. FR-033 requires the tenant to stay ``archived`` if any phase fails,
     # so the marker is only set by ``run_purge`` once every phase succeeded.
@@ -405,7 +405,7 @@ async def _phase_mongo(main_id: str) -> None:
     # still had a chance to fail — see tests/test_tenant_purge.py.
 
 
-async def _purge_key_only_collections(db: Any, main_id: str) -> None:
+async def _purge_key_only_collections(db: Any, tenant_id: str) -> None:
     """Delete from collections that carry no tenant key of their own.
 
     These rows cannot be matched by ``main_id`` directly, so they are resolved
@@ -422,7 +422,7 @@ async def _purge_key_only_collections(db: Any, main_id: str) -> None:
     if not TENANT_ORPHANED_COLLECTIONS:
         return
 
-    session_ids = await db["chat_sessions"].distinct("_id", {"main_id": main_id})
+    session_ids = await db["chat_sessions"].distinct("_id", {"tenant_id": tenant_id})
     if not session_ids:
         return
     for collection in TENANT_ORPHANED_COLLECTIONS:
@@ -430,24 +430,24 @@ async def _purge_key_only_collections(db: Any, main_id: str) -> None:
         if result.deleted_count:
             logger.info(
                 "purge %s: deleted %d orphan row(s) from %s (via %d session(s))",
-                main_id,
+                tenant_id,
                 result.deleted_count,
                 collection,
                 len(session_ids),
             )
 
 
-async def _list_knowledge_document_ids(main_id: str) -> list[str]:
+async def _list_knowledge_document_ids(tenant_id: str) -> list[str]:
     db = get_db()
     docs: list[str] = []
-    async for doc in db["knowledge_documents"].find({"main_id": main_id}, {"document_id": 1}):
+    async for doc in db["knowledge_documents"].find({"tenant_id": tenant_id}, {"document_id": 1}):
         document_id = doc.get("document_id")
         if document_id:
             docs.append(str(document_id))
     return docs
 
 
-async def _phase_vectors(main_id: str) -> None:
+async def _phase_vectors(tenant_id: str) -> None:
     """Ask the document-parser service to remove this tenant's Weaviate chunks.
 
     The parser service owns the vector store; this phase only triggers its
@@ -457,7 +457,7 @@ async def _phase_vectors(main_id: str) -> None:
     import json as _json
     import urllib.request
 
-    document_ids = await _list_knowledge_document_ids(main_id)
+    document_ids = await _list_knowledge_document_ids(tenant_id)
     if not document_ids:
         return
     if not settings.document_processing_service_token:
@@ -470,7 +470,7 @@ async def _phase_vectors(main_id: str) -> None:
     failures: list[str] = []
     for document_id in document_ids:
         url = f"{base_url}/vectors/documents/delete"
-        body = _json.dumps({"mainId": main_id, "documentId": document_id}).encode("utf-8")
+        body = _json.dumps({"mainId": tenant_id, "documentId": document_id}).encode("utf-8")
         request = urllib.request.Request(
             url,
             data=body,
@@ -486,7 +486,7 @@ async def _phase_vectors(main_id: str) -> None:
         except Exception as exc:
             logger.warning(
                 "purge %s: vector delete failed for document %s: %s",
-                main_id,
+                tenant_id,
                 document_id,
                 exc,
             )
@@ -496,11 +496,11 @@ async def _phase_vectors(main_id: str) -> None:
         raise RuntimeError(f"vector delete failed for {len(failures)}/{len(document_ids)} document(s)")
 
 
-async def _phase_files(main_id: str) -> None:
+async def _phase_files(tenant_id: str) -> None:
     """Remove local storage directories for knowledge documents and avatars.
 
     Layout (see config):
-    - knowledge documents: ``{knowledge_local_storage_dir}/{main_id}/...``
+    - knowledge documents: ``{knowledge_local_storage_dir}/{tenant_id}/...``
     - admin avatars:       ``{admin_static_dir}/admin-avatars/{safe(main_id)}/``
     OSS-backed storage is left in place (the bucket has its own lifecycle
     policy); only local-disk files are removed here.
@@ -511,26 +511,26 @@ async def _phase_files(main_id: str) -> None:
     from app.api.routes.auth import _safe_path_part
 
     removed = 0
-    knowledge_root = Path(settings.knowledge_local_storage_dir) / main_id
+    knowledge_root = Path(settings.knowledge_local_storage_dir) / tenant_id
     if knowledge_root.exists():
         shutil.rmtree(knowledge_root)
         removed += 1
-        logger.info("purge %s: removed knowledge storage directory %s", main_id, knowledge_root)
+        logger.info("purge %s: removed knowledge storage directory %s", tenant_id, knowledge_root)
 
     avatars_root = Path(settings.admin_static_dir) / "admin-avatars"
     if avatars_root.exists():
         # Derive the directory exactly the way the writer does
         # (``auth.py`` stores avatars under ``_safe_path_part(main_id)``), instead
-        # of guessing a ``{main_id}-{uuid}`` shape. A prefix match would be
-        # unsafe and a ``f"{main_id}-"`` match never fires because main_id
+        # of guessing a ``{tenant_id}-{uuid}`` shape. A prefix match would be
+        # unsafe and a ``f"{tenant_id}-"`` match never fires because main_id
         # already ends in ``-<hex>`` while the sanitiser strips nothing.
-        avatar_dir = avatars_root / _safe_path_part(main_id, "default")
+        avatar_dir = avatars_root / _safe_path_part(tenant_id, "default")
         if avatar_dir.is_dir() and avatar_dir.parent == avatars_root:
             shutil.rmtree(avatar_dir)
             removed += 1
-            logger.info("purge %s: removed avatar directory %s", main_id, avatar_dir.name)
+            logger.info("purge %s: removed avatar directory %s", tenant_id, avatar_dir.name)
     if removed == 0:
-        logger.info("purge %s: no local files found to remove", main_id)
+        logger.info("purge %s: no local files found to remove", tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -538,91 +538,91 @@ async def _phase_files(main_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def run_purge(main_id: str, task_id: str, actor: str) -> None:
+async def run_purge(tenant_id: str, task_id: str, actor: str) -> None:
     """Run the full purge pipeline for one tenant (called as a background task)."""
-    _task_store.create(main_id, task_id)
+    _task_store.create(tenant_id, task_id)
 
     # FR-028: re-check at execution time, not just when the request was
     # accepted. The tenant may have been restored between the API call and this
     # background task actually starting (restore_tenant() flips it to active),
     # and purging an active tenant would destroy live data.
     db = get_db()
-    tenant = await db[TENANT_COLLECTION].find_one({"main_id": main_id}, {"status": 1})
+    tenant = await db[TENANT_COLLECTION].find_one({"tenant_id": tenant_id}, {"status": 1})
     if tenant is None:
-        logger.error("purge %s: tenant row not found; aborting", main_id)
-        await _task_store.finish_persisted(main_id, task_id, False, "tenant not found")
+        logger.error("purge %s: tenant row not found; aborting", tenant_id)
+        await _task_store.finish_persisted(tenant_id, task_id, False, "tenant not found")
         return
     if tenant.get("status") != "archived":
         logger.error(
             "purge %s: refusing to purge a tenant in status %r (only archived tenants may be purged)",
-            main_id,
+            tenant_id,
             tenant.get("status"),
         )
         await _task_store.finish_persisted(
-            main_id, task_id, False, f"tenant is not archived (status={tenant.get('status')!r})"
+            tenant_id, task_id, False, f"tenant is not archived (status={tenant.get('status')!r})"
         )
         return
 
     errors: list[str] = []
 
-    await _task_store.mark_persisted(main_id, task_id, "mongo", "running")
+    await _task_store.mark_persisted(tenant_id, task_id, "mongo", "running")
     try:
-        await _phase_mongo(main_id)
-        await _task_store.mark_persisted(main_id, task_id, "mongo", "done")
+        await _phase_mongo(tenant_id)
+        await _task_store.mark_persisted(tenant_id, task_id, "mongo", "done")
     except Exception as exc:
-        logger.exception("purge %s: mongo phase failed", main_id)
+        logger.exception("purge %s: mongo phase failed", tenant_id)
         errors.append(f"mongo: {exc}")
-        await _task_store.mark_persisted(main_id, task_id, "mongo", "failed")
+        await _task_store.mark_persisted(tenant_id, task_id, "mongo", "failed")
 
-    await _task_store.mark_persisted(main_id, task_id, "vectors", "running")
+    await _task_store.mark_persisted(tenant_id, task_id, "vectors", "running")
     try:
-        await _phase_vectors(main_id)
-        await _task_store.mark_persisted(main_id, task_id, "vectors", "done")
+        await _phase_vectors(tenant_id)
+        await _task_store.mark_persisted(tenant_id, task_id, "vectors", "done")
     except Exception as exc:
-        logger.exception("purge %s: vectors phase failed", main_id)
+        logger.exception("purge %s: vectors phase failed", tenant_id)
         errors.append(f"vectors: {exc}")
-        await _task_store.mark_persisted(main_id, task_id, "vectors", "failed")
+        await _task_store.mark_persisted(tenant_id, task_id, "vectors", "failed")
 
-    await _task_store.mark_persisted(main_id, task_id, "files", "running")
+    await _task_store.mark_persisted(tenant_id, task_id, "files", "running")
     try:
-        await _phase_files(main_id)
-        await _task_store.mark_persisted(main_id, task_id, "files", "done")
+        await _phase_files(tenant_id)
+        await _task_store.mark_persisted(tenant_id, task_id, "files", "done")
     except Exception as exc:
-        logger.exception("purge %s: files phase failed", main_id)
+        logger.exception("purge %s: files phase failed", tenant_id)
         errors.append(f"files: {exc}")
-        await _task_store.mark_persisted(main_id, task_id, "files", "failed")
+        await _task_store.mark_persisted(tenant_id, task_id, "files", "failed")
 
     ok = not errors
     error_text = "; ".join(errors)
-    await _task_store.finish_persisted(main_id, task_id, ok, error_text)
-    logger.info("purge %s finished ok=%s errors=%s", main_id, ok, error_text)
+    await _task_store.finish_persisted(tenant_id, task_id, ok, error_text)
+    logger.info("purge %s finished ok=%s errors=%s", tenant_id, ok, error_text)
 
     if not ok:
         # FR-033: a partial failure MUST abort and leave the tenant ``archived``
         # with the reason recorded — it must NOT become a tombstone, otherwise
         # the 30-day reaper destroys the only evidence of the failure.
-        await _record_purge_failure(main_id, error_text)
+        await _record_purge_failure(tenant_id, error_text)
         # SC-007: the failed purge is a lifecycle operation and must be
         # traceable even though the tenant survives as ``archived``.
-        await _audit_purge(main_id, actor, "failure", {"error": error_text[:500]})
+        await _audit_purge(tenant_id, actor, "failure", {"error": error_text[:500]})
         return
 
     # SC-007: the successful purge is the last lifecycle operation for this
     # tenant; the row itself becomes a tombstone, so the audit log is the only
     # remaining evidence that the purge happened.
-    await _audit_purge(main_id, actor, "success")
+    await _audit_purge(tenant_id, actor, "success")
 
     # All phases succeeded: write the tombstone. Normally ``_phase_mongo``
     # already did this; repeat it here so the row is purged even if a later
     # (vectors/files) phase was the one that raced ahead.
     db = get_db()
     await db[TENANT_COLLECTION].update_one(
-        {"main_id": main_id, "status": {"$ne": "purged"}},
+        {"tenant_id": tenant_id, "status": {"$ne": "purged"}},
         {"$set": {"status": "purged", "purged_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}},
     )
 
 
-async def _audit_purge(main_id: str, actor: str, result: str, detail: dict[str, Any] | None = None) -> None:
+async def _audit_purge(tenant_id: str, actor: str, result: str, detail: dict[str, Any] | None = None) -> None:
     """SC-007: record the purge as a lifecycle operation.
 
     ``tenant_lifecycle`` is imported lazily — it pulls in the audit repository,
@@ -631,11 +631,11 @@ async def _audit_purge(main_id: str, actor: str, result: str, detail: dict[str, 
     from app.services import tenant_lifecycle
 
     await tenant_lifecycle.record_tenant_audit(
-        main_id, actor, "purge", main_id, result, detail
+        tenant_id, actor, "purge", tenant_id, result, detail
     )
 
 
-async def _record_purge_failure(main_id: str, error_text: str) -> None:
+async def _record_purge_failure(tenant_id: str, error_text: str) -> None:
     """FR-033: keep the tenant ``archived`` and record why the purge failed.
 
     Only transitions rows that have not already become a tombstone, so a
@@ -644,7 +644,7 @@ async def _record_purge_failure(main_id: str, error_text: str) -> None:
     now = datetime.now(timezone.utc)
     db = get_db()
     result = await db[TENANT_COLLECTION].update_one(
-        {"main_id": main_id, "status": {"$ne": "purged"}},
+        {"tenant_id": tenant_id, "status": {"$ne": "purged"}},
         {
             "$set": {
                 "status": "archived",
@@ -655,12 +655,12 @@ async def _record_purge_failure(main_id: str, error_text: str) -> None:
         },
     )
     if result.matched_count:
-        logger.warning("purge %s: failed, tenant kept archived: %s", main_id, error_text)
+        logger.warning("purge %s: failed, tenant kept archived: %s", tenant_id, error_text)
     else:
         logger.error(
             "purge %s: failed after the tenant row was already purged; "
             "failure could not be recorded on the tenant: %s",
-            main_id,
+            tenant_id,
             error_text,
         )
 

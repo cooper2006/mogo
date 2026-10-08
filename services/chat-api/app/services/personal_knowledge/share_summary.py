@@ -5,13 +5,13 @@ from typing import Any
 from .access import GRANT_COLLECTION
 
 
-async def attach_share_summary(*, db: Any, main_id: str, items: list[dict[str, Any]]) -> None:
+async def attach_share_summary(*, db: Any, tenant_id: str, items: list[dict[str, Any]]) -> None:
     """Attach active recipient counts to owner-facing knowledge rows in one query."""
     resource_ids = [str(item.get("id") or "") for item in items if item.get("id")]
     if not resource_ids:
         return
     rows = await db[GRANT_COLLECTION].find({
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "resource_type": "personal_knowledge",
         "resource_id": {"$in": resource_ids},
         "status": "active",

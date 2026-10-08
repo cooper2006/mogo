@@ -60,7 +60,7 @@ class ApiResponse(BaseModel):
 
 class SkillGenerateRequest(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
     name: str = Field(..., description="Skill name")
     description: Optional[str] = Field(default="", description="Skill description")
     summary: Optional[str] = Field(default="", description="Short summary")
@@ -84,7 +84,7 @@ class SkillGenerateRequest(BaseModel):
 
 class SkillUpdateRequest(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
     name: Optional[str] = Field(None, description="Skill name")
     description: Optional[str] = Field(None, description="Skill description")
     summary: Optional[str] = Field(None, description="Short summary")
@@ -105,7 +105,7 @@ class SkillUpdateRequest(BaseModel):
 
 class SkillListRequest(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
 
 
 class AdminShapeSkillPayload(BaseModel):
@@ -139,7 +139,7 @@ class RecordingEditModel(BaseModel):
 
 class SkillFromRecordingRequest(BaseModel):
     user_id: str = Field(...)
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"))
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"))
     name: str = Field(...)
     description: Optional[str] = Field(default="")
     triggers: Optional[List[str]] = Field(default_factory=list)
@@ -153,7 +153,7 @@ class SkillFromRecordingRequest(BaseModel):
 
 class SkillEnrichRequest(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
     name: str = Field(..., description="Skill name")
     description: Optional[str] = Field(default="", description="Skill description")
     skill_type: Optional[str] = Field(default="style", description="Skill type")
@@ -415,7 +415,7 @@ def _admin_shape_payload_to_user_payload(
     payload: AdminShapeSkillPayload,
     *,
     user_id: str,
-    main_id: str,
+    tenant_id: str,
 ) -> Dict[str, Any]:
     skill_type = str(payload.type or "writing_style").strip().lower()
     config = _safe_dict(payload.config)
@@ -447,7 +447,7 @@ def _admin_shape_payload_to_user_payload(
         }
         return {
             "user_id": user_id,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "name": name,
             "description": description,
             "summary": description or scenario,
@@ -475,7 +475,7 @@ def _admin_shape_payload_to_user_payload(
     skill_markdown = str(config.get("skillMarkdown") or config.get("skill_markdown") or "").strip()
     return {
         "user_id": user_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "name": name,
         "description": description,
         "summary": description or scenario,
@@ -520,7 +520,7 @@ def _admin_shape_skill(skill: Dict[str, Any]) -> Dict[str, Any]:
             config = {}
     return {
         "id": str(skill.get("id") or skill.get("_id") or ""),
-        "mainId": str(skill.get("main_id") or skill.get("mainId") or "default"),
+        "mainId": str(skill.get("tenant_id") or skill.get("tenantId") or "default"),
         "name": str(skill.get("name") or ""),
         "description": str(skill.get("description") or ""),
         "scenario": str(skill.get("scenario") or skill.get("notes") or ""),
@@ -566,7 +566,7 @@ def _selectable_skill_item(skill: Dict[str, Any]) -> Dict[str, Any]:
     source_scope = _skill_source_scope(skill)
     return {
         "id": str(skill.get("id") or skill.get("_id") or ""),
-        "mainId": str(skill.get("main_id") or skill.get("mainId") or "default"),
+        "mainId": str(skill.get("tenant_id") or skill.get("tenantId") or "default"),
         "name": str(skill.get("name") or ""),
         "description": str(skill.get("description") or skill.get("summary") or ""),
         "scenario": str(skill.get("scenario") or skill.get("notes") or ""),
@@ -1582,7 +1582,7 @@ async def generate_skill(payload: SkillGenerateRequest) -> ApiResponse:
         payload.user_id,
         {
             "id": skill_id,
-            "main_id": payload.main_id,
+            "tenant_id": payload.tenant_id,
             "name": payload.name,
             "description": payload.description,
             "summary": payload.summary,
@@ -1647,7 +1647,7 @@ async def skill_from_recording(payload: SkillFromRecordingRequest) -> ApiRespons
         payload.user_id,
         {
             "id": skill_id,
-            "main_id": payload.main_id,
+            "tenant_id": payload.tenant_id,
             "name": payload.name,
             "description": payload.description or "",
             "summary": payload.description or "",
@@ -1689,7 +1689,7 @@ async def enrich_skill_draft(payload: SkillEnrichRequest) -> ApiResponse:
 async def enrich_writing_style(
     payload: Dict[str, Any],
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
 ) -> ApiResponse:
     name = str(payload.get("name") or "").strip()
@@ -1711,7 +1711,7 @@ async def enrich_writing_style(
         "required_elements": draft.get("requiredElements") or [],
         "forbidden_elements": draft.get("forbiddenElements") or [],
         "notes": str(draft.get("notes") or "").strip(),
-        "main_id": main_id_snake or main_id,
+        "tenant_id": main_id_snake or tenant_id,
         "user_id": user_id,
     }
     enriched = await user_skill_service.enrich_skill_contract_draft(
@@ -1966,40 +1966,40 @@ async def generate_script_plugin(payload: ScriptPluginGenerateRequest) -> ApiRes
 @router.get("/skills", response_model=ApiResponse)
 async def list_skills(
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
 ) -> ApiResponse:
-    main_id = main_id_snake or main_id
+    tenant_id = main_id_snake or tenant_id
     from app.services.skill_sharing.legacy_migration import legacy_skill_share_migration
-    await legacy_skill_share_migration.migrate_owned(main_id=main_id, owner_user_id=user_id)
-    await legacy_skill_share_migration.migrate_installed(main_id=main_id, recipient_user_id=user_id)
-    skills = await user_skill_service.list_skills(user_id, main_id=main_id)
+    await legacy_skill_share_migration.migrate_owned(tenant_id=tenant_id, owner_user_id=user_id)
+    await legacy_skill_share_migration.migrate_installed(tenant_id=tenant_id, recipient_user_id=user_id)
+    skills = await user_skill_service.list_skills(user_id, tenant_id=tenant_id)
     from app.services.resource_feedback.summary import skill_feedback_summary_service
-    await skill_feedback_summary_service.attach(main_id=main_id, user_id=user_id, skills=skills)
+    await skill_feedback_summary_service.attach(tenant_id=tenant_id, user_id=user_id, skills=skills)
     return ApiResponse(code=0, message="success", data=[_admin_shape_skill(item) for item in skills])
 
 
 @router.get("/skills/selectable", response_model=ApiResponse)
 async def list_selectable_skills(
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
     scope: str = Query("all"),
     keyword: str = Query(""),
     cursor: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=50),
 ) -> ApiResponse:
-    resolved_main_id = main_id_snake or main_id
+    resolved_main_id = main_id_snake or tenant_id
     source_scope = str(scope or "all").strip().lower()
     if source_scope not in {"all", "user", "organization"}:
         source_scope = "all"
     try:
-        user_skills = await user_skill_service.list_skills(user_id, main_id=resolved_main_id)
+        user_skills = await user_skill_service.list_skills(user_id, tenant_id=resolved_main_id)
     except Exception as exc:
         log_print(f"[api.endpoints.skills.list_selectable_skills] suppressed {type(exc).__name__}: {exc}", flush=True)
         user_skills = []
     try:
-        org_skills = await organization_skill_adapter.list_runtime_skills(main_id=resolved_main_id)
+        org_skills = await organization_skill_adapter.list_runtime_skills(tenant_id=resolved_main_id)
     except Exception as exc:
         log_print(f"[api.endpoints.skills.list_selectable_skills] suppressed {type(exc).__name__}: {exc}", flush=True)
         org_skills = []
@@ -2044,24 +2044,24 @@ async def list_selectable_skills(
 async def create_admin_shape_skill(
     payload: AdminShapeSkillPayload,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
 ) -> ApiResponse:
-    resolved_main_id = main_id_snake or main_id
+    resolved_main_id = main_id_snake or tenant_id
     created = await user_skill_service.create_skill(
         user_id,
-        _admin_shape_payload_to_user_payload(payload, user_id=user_id, main_id=resolved_main_id),
+        _admin_shape_payload_to_user_payload(payload, user_id=user_id, tenant_id=resolved_main_id),
     )
     from app.services.skill_lifecycle import SkillLifecycleService
     lifecycle = SkillLifecycleService()
     await lifecycle.initialize_draft(
-        main_id=resolved_main_id,
+        tenant_id=resolved_main_id,
         user_id=user_id,
         skill_id=str(created.get("id") or ""),
         draft=created,
         new_skill=True,
     )
-    current = await user_skill_service.get_skill(user_id, str(created.get("id") or ""), main_id=resolved_main_id)
+    current = await user_skill_service.get_skill(user_id, str(created.get("id") or ""), tenant_id=resolved_main_id)
     return ApiResponse(code=0, message="success", data=_admin_shape_skill(current or created))
 
 
@@ -2069,11 +2069,11 @@ async def create_admin_shape_skill(
 async def get_skill(
     skill_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
 ) -> ApiResponse:
-    resolved_main_id = main_id_snake or main_id
-    skill = await user_skill_service.get_skill(user_id, skill_id, main_id=resolved_main_id)
+    resolved_main_id = main_id_snake or tenant_id
+    skill = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_main_id)
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
     return ApiResponse(code=0, message="success", data=_admin_shape_skill(skill))
@@ -2084,26 +2084,26 @@ async def update_skill(
     skill_id: str,
     payload: AdminShapeSkillPayload,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
 ) -> ApiResponse:
-    resolved_main_id = main_id_snake or main_id
-    updates = _admin_shape_payload_to_user_payload(payload, user_id=user_id, main_id=resolved_main_id)
+    resolved_main_id = main_id_snake or tenant_id
+    updates = _admin_shape_payload_to_user_payload(payload, user_id=user_id, tenant_id=resolved_main_id)
     from app.services.skill_lifecycle import SkillLifecycleError, SkillLifecycleService
-    current = await user_skill_service.get_skill(user_id, skill_id, main_id=resolved_main_id)
+    current = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_main_id)
     if not current:
         raise HTTPException(status_code=404, detail="Skill not found")
     lifecycle = SkillLifecycleService()
     if not lifecycle.is_platform_skill(current):
-        updated = await user_skill_service.update_skill(user_id, skill_id, updates, main_id=resolved_main_id)
+        updated = await user_skill_service.update_skill(user_id, skill_id, updates, tenant_id=resolved_main_id)
         return ApiResponse(code=0, message="success", data=_admin_shape_skill(updated or current))
     try:
         await lifecycle.save_draft(
-            main_id=resolved_main_id, user_id=user_id, skill_id=skill_id, draft=updates,
+            tenant_id=resolved_main_id, user_id=user_id, skill_id=skill_id, draft=updates,
         )
     except SkillLifecycleError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
-    updated = await user_skill_service.get_skill(user_id, skill_id, main_id=resolved_main_id)
+    updated = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_main_id)
     return ApiResponse(code=0, message="success", data=_admin_shape_skill(updated or {}))
 
 
@@ -2112,11 +2112,11 @@ async def set_skill_enabled(
     skill_id: str,
     payload: SkillEnabledPayload,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
 ) -> ApiResponse:
-    resolved_main_id = main_id_snake or main_id
-    current = await user_skill_service.get_skill(user_id, skill_id, main_id=resolved_main_id)
+    resolved_main_id = main_id_snake or tenant_id
+    current = await user_skill_service.get_skill(user_id, skill_id, tenant_id=resolved_main_id)
     if not current:
         raise HTTPException(status_code=404, detail="Skill not found")
     if payload.enabled and str(current.get("publication_status") or "") == "draft" and not current.get("published_version"):
@@ -2124,7 +2124,7 @@ async def set_skill_enabled(
             "code": "skill_publish_required", "message": "Publish this Skill before enabling it",
         })
     updated = await user_skill_service.set_skill_enabled(
-        user_id, skill_id, bool(payload.enabled), main_id=resolved_main_id,
+        user_id, skill_id, bool(payload.enabled), tenant_id=resolved_main_id,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Skill not found")
@@ -2135,11 +2135,11 @@ async def set_skill_enabled(
 async def delete_skill(
     skill_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
 ) -> ApiResponse:
-    main_id = main_id_snake or main_id
-    ok = await user_skill_service.delete_skill(user_id, skill_id, main_id=main_id)
+    tenant_id = main_id_snake or tenant_id
+    ok = await user_skill_service.delete_skill(user_id, skill_id, tenant_id=tenant_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Skill not found")
     return ApiResponse(code=0, message="success", data={"id": skill_id})

@@ -15,7 +15,7 @@ from app.services.end_user_session import resolve_session_user
 @dataclass(frozen=True)
 class ApiPrincipal:
     kind: Literal["end_user", "admin_service"]
-    main_id: str
+    tenant_id: str
     user_id: str = ""
 
 
@@ -52,8 +52,8 @@ async def _assert_end_user_scope(request: Request, principal: ApiPrincipal) -> N
     if claimed_user and claimed_user != principal.user_id:
         raise HTTPException(status_code=403, detail="user_scope_mismatch")
 
-    claimed_main = claims.get("mainId") or claims.get("main_id")
-    if claimed_main and resolve_main_id(claimed_main) != principal.main_id:
+    claimed_main = claims.get("tenantId") or claims.get("tenant_id")
+    if claimed_main and resolve_main_id(claimed_main) != principal.tenant_id:
         raise HTTPException(status_code=403, detail="tenant_scope_mismatch")
 
 
@@ -65,15 +65,15 @@ async def require_api_principal(
     settings = get_settings()
     expected_service_token = str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")
     if _matches(service_token, expected_service_token):
-        main_id = resolve_main_id(
-            request.query_params.get("mainId") or request.query_params.get("main_id")
+        tenant_id = resolve_main_id(
+            request.query_params.get("tenantId") or request.query_params.get("tenant_id")
         )
-        return ApiPrincipal(kind="admin_service", main_id=main_id)
+        return ApiPrincipal(kind="admin_service", tenant_id=tenant_id)
 
     resolved = await resolve_session_user(authorization)
     principal = ApiPrincipal(
         kind="end_user",
-        main_id=resolve_main_id(resolved["main_id"]),
+        tenant_id=resolve_main_id(resolved["tenant_id"]),
         user_id=str(resolved["user"].get("_id") or ""),
     )
     await _assert_end_user_scope(request, principal)
@@ -87,7 +87,7 @@ async def require_end_user_principal(
     resolved = await resolve_session_user(authorization)
     principal = ApiPrincipal(
         kind="end_user",
-        main_id=resolve_main_id(resolved["main_id"]),
+        tenant_id=resolve_main_id(resolved["tenant_id"]),
         user_id=str(resolved["user"].get("_id") or ""),
     )
     await _assert_end_user_scope(request, principal)

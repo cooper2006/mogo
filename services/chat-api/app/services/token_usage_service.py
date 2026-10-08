@@ -16,7 +16,7 @@ class TokenUsageService:
         self,
         *,
         user_id: str,
-        main_id: str | None = None,
+        tenant_id: str | None = None,
         offset: int = 0,
         limit: int = 20,
         query: str = "",
@@ -25,7 +25,7 @@ class TokenUsageService:
     ) -> Dict[str, Any]:
         db = get_db()
         coll = db.token_usage_logs
-        session_ids = await self._load_visible_session_ids(user_id=user_id, main_id=main_id)
+        session_ids = await self._load_visible_session_ids(user_id=user_id, tenant_id=tenant_id)
         if not session_ids:
             return {
                 "summary": self._summary_defaults(),
@@ -37,7 +37,7 @@ class TokenUsageService:
             }
         match = self._build_match(
             user_id=user_id,
-            main_id=main_id,
+            tenant_id=tenant_id,
             session_ids=session_ids,
             query=query,
             stage=stage,
@@ -54,7 +54,7 @@ class TokenUsageService:
                     "$group": {
                         "_id": group_id,
                         "request_id": {"$first": "$request_id"},
-                        "main_id": {"$first": "$main_id"},
+                        "tenant_id": {"$first": "$main_id"},
                         "user_id": {"$first": "$user_id"},
                         "session_id": {"$first": "$session_id"},
                         "trace_id": {"$first": "$trace_id"},
@@ -83,7 +83,7 @@ class TokenUsageService:
                 {"$sort": {"created_at": -1}},
             ]
         ).to_list(length=50000)
-        execution_statuses = await self._load_execution_statuses(rows, main_id=main_id)
+        execution_statuses = await self._load_execution_statuses(rows, tenant_id=tenant_id)
         for row in rows:
             group_key = str(row.get("_id") or "").strip()
             row["request_status"] = normalize_request_status(
@@ -96,7 +96,7 @@ class TokenUsageService:
             rows = [row for row in rows if str(row.get("request_status") or "") == requested_status]
         total = len(rows)
         page_rows = rows[page_offset : page_offset + page_limit]
-        request_texts = await self._load_request_texts(page_rows, main_id=main_id)
+        request_texts = await self._load_request_texts(page_rows, tenant_id=tenant_id)
         items = [self._serialize_item(row, request_texts=request_texts) for row in page_rows]
         summary = self._summary_from_rows(rows)
         return {
@@ -112,7 +112,7 @@ class TokenUsageService:
         self,
         *,
         user_id: str,
-        main_id: str | None,
+        tenant_id: str | None,
         session_ids: list[str],
         query: str,
         stage: str,
@@ -124,7 +124,7 @@ class TokenUsageService:
         }
         if str(stage or "").strip():
             base["stage"] = str(stage).strip()
-        match = add_main_scope(base, resolve_main_id(main_id))
+        match = add_main_scope(base, resolve_main_id(tenant_id))
         keyword = str(query or "").strip()
         if keyword:
             escaped = re.escape(keyword)
@@ -147,13 +147,13 @@ class TokenUsageService:
             }
         return match
 
-    async def _load_visible_session_ids(self, *, user_id: str, main_id: str | None) -> list[str]:
+    async def _load_visible_session_ids(self, *, user_id: str, tenant_id: str | None) -> list[str]:
         db = get_db()
-        match = add_main_scope({"user_id": str(user_id or "").strip()}, resolve_main_id(main_id))
+        match = add_main_scope({"user_id": str(user_id or "").strip()}, resolve_main_id(tenant_id))
         rows = await db.chat_sessions.find(match, {"_id": 1}).to_list(length=5000)
         return [str(row.get("_id") or "") for row in rows if str(row.get("_id") or "").strip()]
 
-    async def _load_request_texts(self, rows: list[Dict[str, Any]], *, main_id: str | None) -> Dict[str, str]:
+    async def _load_request_texts(self, rows: list[Dict[str, Any]], *, tenant_id: str | None) -> Dict[str, str]:
         ids = [
             str(row.get("_id") or "").strip()
             for row in rows
@@ -163,7 +163,7 @@ class TokenUsageService:
             return {}
         db = get_db()
         assistant_rows = await db.chat_messages.find(
-            add_main_scope({"message_id": {"$in": ids}, "message_type": {"$ne": "context_summary"}}, resolve_main_id(main_id)),
+            add_main_scope({"message_id": {"$in": ids}, "message_type": {"$ne": "context_summary"}}, resolve_main_id(tenant_id)),
             {"message_id": 1, "session_id": 1, "seq": 1},
         ).to_list(length=len(ids))
         result: Dict[str, str] = {}
@@ -181,7 +181,7 @@ class TokenUsageService:
                         "message_type": {"$ne": "context_summary"},
                         "seq": {"$lt": seq},
                     },
-                    resolve_main_id(main_id),
+                    resolve_main_id(tenant_id),
                 ),
                 {"content": 1},
                 sort=[("seq", -1)],
@@ -191,13 +191,13 @@ class TokenUsageService:
                 result[message_id] = content
         return result
 
-    async def _load_execution_statuses(self, rows: list[Dict[str, Any]], *, main_id: str | None) -> Dict[str, str]:
+    async def _load_execution_statuses(self, rows: list[Dict[str, Any]], *, tenant_id: str | None) -> Dict[str, str]:
         ids = [str(row.get("_id") or "").strip() for row in rows if str(row.get("_id") or "").strip()]
         if not ids:
             return {}
         db = get_db()
         docs = await db.execution_logs.find(
-            add_main_scope({"message_id": {"$in": ids}}, resolve_main_id(main_id)),
+            add_main_scope({"message_id": {"$in": ids}}, resolve_main_id(tenant_id)),
             {"message_id": 1, "status": 1},
         ).to_list(length=len(ids))
         return {
@@ -399,7 +399,7 @@ class TokenUsageService:
         return {
             "request_id": str(row.get("request_id") or ""),
             "user_request_id": group_id or str(row.get("user_request_id") or ""),
-            "main_id": resolve_main_id(row.get("main_id")),
+            "tenant_id": resolve_main_id(row.get("tenant_id")),
             "user_id": str(row.get("user_id") or ""),
             "session_id": str(row.get("session_id") or ""),
             "trace_id": str(row.get("trace_id") or ""),

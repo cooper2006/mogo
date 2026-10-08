@@ -17,7 +17,7 @@ async def delete_document_vectors(
     config = dict(payload.config or {})
     vector_store = get_vector_store(config)
     deleted = vector_store.delete_document_chunks(
-        main_id=payload.mainId,
+        tenant_id=payload.tenantId,
         document_id=payload.documentId,
     )
     return {

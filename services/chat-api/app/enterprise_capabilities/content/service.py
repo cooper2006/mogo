@@ -58,7 +58,7 @@ class ContentProductionService:
             return {"success": False, "message": "content production model is unavailable"}
 
         previous_request = set_request_context({
-            "main_id": context.tenant_id,
+            "tenant_id": context.tenant_id,
             "user_id": context.user_id,
             "configured_model": model_config,
             "model_instance_id": context.model_instance_id,
@@ -229,7 +229,7 @@ class ContentProductionService:
     ) -> dict[str, Any]:
         return {
             "user_id": context.user_id,
-            "main_id": context.tenant_id,
+            "tenant_id": context.tenant_id,
             "request_id": context.action_id,
             "language": str(context.turn_context.get("language") or "zh"),
             "required_blocks": list(args["required_sections"]),

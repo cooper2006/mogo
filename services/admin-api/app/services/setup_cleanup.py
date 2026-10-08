@@ -35,14 +35,14 @@ SETUP_SCOPED_COLLECTIONS = (
 _MAIN_ID_SHAPE = re.compile(r"^[a-z0-9]+-[0-9a-f]{24}$")
 
 
-def _assert_cleanup_target(main_id: str) -> None:
+def _assert_cleanup_target(tenant_id: str) -> None:
     """T053: refuse anything that is not a freshly generated tenant id.
 
     The old check (``len(main_id) >= 20``) accepted reserved identifiers like
     ``default`` / ``__platform__`` if padded — that must not be possible here
     because setup cleanup must never touch the platform tenant.
     """
-    normalized = str(main_id or "").strip()
+    normalized = str(tenant_id or "").strip()
     if not normalized:
         raise ValueError("refusing to clean an empty tenant id")
     if is_reserved_main_id(normalized):
@@ -51,9 +51,9 @@ def _assert_cleanup_target(main_id: str) -> None:
         raise ValueError("refusing to clean a tenant id that does not match the freshly-generated shape")
 
 
-async def cleanup_failed_setup(main_id: str) -> None:
+async def cleanup_failed_setup(tenant_id: str) -> None:
     """Compensate a failed first-time setup for its newly generated tenant only."""
-    _assert_cleanup_target(main_id)
+    _assert_cleanup_target(tenant_id)
     db = get_db()
     for collection_name in SETUP_SCOPED_COLLECTIONS:
-        await db[collection_name].delete_many({"main_id": main_id})
+        await db[collection_name].delete_many({"tenant_id": tenant_id})

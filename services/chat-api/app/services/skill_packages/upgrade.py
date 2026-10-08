@@ -18,11 +18,11 @@ class SkillPackageUpgradeInspector:
         package: ValidatedSkillPackage,
         *,
         scope: Literal["personal", "organization"],
-        main_id: str,
+        tenant_id: str,
         user_id: str = "",
     ) -> dict[str, Any]:
         query: dict[str, Any] = {
-            "main_id": resolve_main_id(main_id), "package_slug": package.name,
+            "tenant_id": resolve_main_id(tenant_id), "package_slug": package.name,
         }
         if scope == "personal":
             query["user_id"] = str(user_id)

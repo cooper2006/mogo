@@ -54,7 +54,7 @@ class ImageGenerationCapability:
                 generated = await self._generator(
                     prompt=prompt,
                     user_id=context.user_id,
-                    output_spec={"main_id": context.tenant_id},
+                    output_spec={"tenant_id": context.tenant_id},
                     file_prefix="dsh_generated_image",
                 )
                 image_url = str(generated.get("image_url") or "").strip()

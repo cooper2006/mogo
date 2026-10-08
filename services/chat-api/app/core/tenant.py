@@ -7,22 +7,38 @@ DEFAULT_MAIN_ID = "default"
 
 
 def resolve_main_id(value: Any = None) -> str:
-    main_id = str(value or "").strip()
-    return main_id or DEFAULT_MAIN_ID
+    tenant_id = str(value or "").strip()
+    return tenant_id or DEFAULT_MAIN_ID
 
 
-def main_scope_filter(main_id: Any = None) -> Dict[str, Any]:
-    # Phase 1 of the main_id -> tenant_id migration: the legacy ``main_id`` key
-    # and the new ``tenant_id`` key coexist. Match either so documents written
-    # before/after the backfill both resolve. See core/tenant_field.py.
-    from app.core.tenant_field import tenant_scope_filter
+def tenant_scope_filter(tenant_id: Any = None) -> Dict[str, Any]:
+    """Query scope for a tenant id.
 
-    return tenant_scope_filter(main_id, default=DEFAULT_MAIN_ID)
+    Phase 3b: the legacy ``main_id`` field has been retired, so the scope is a
+    plain equality on ``tenant_id``. The default tenant additionally matches
+    documents that never carried a tenant key, preserving the historical
+    "unscoped rows belong to the default tenant" semantics.
+    """
+    resolved = resolve_main_id(tenant_id)
+    if resolved == DEFAULT_MAIN_ID:
+        return {
+            "$or": [
+                {"tenant_id": resolved},
+                {"tenant_id": {"$exists": False}},
+                {"tenant_id": ""},
+                {"tenant_id": None},
+            ]
+        }
+    return {"tenant_id": resolved}
 
 
-def add_main_scope(query: Dict[str, Any], main_id: Any = None) -> Dict[str, Any]:
+def main_scope_filter(tenant_id: Any = None) -> Dict[str, Any]:
+    return tenant_scope_filter(tenant_id)
+
+
+def add_main_scope(query: Dict[str, Any], tenant_id: Any = None) -> Dict[str, Any]:
     base = dict(query or {})
-    scope = main_scope_filter(main_id)
+    scope = main_scope_filter(tenant_id)
     if "$or" in scope:
         if not base:
             return scope

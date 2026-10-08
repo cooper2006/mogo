@@ -6930,3 +6930,38 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **待办（3b，需单独审批）**：chat-api ~25 文件查询切 `tenant_id`；删除 `main_id` 字段与旧索引；删除 `tenant_field.py` 兼容层与 `$or` 回退；Weaviate 删 `mainId`；JWT claim `main_id`→`tenant_id`；清理测试与文档。
 
 **最终状态**：Phase 3a 完成并验证；本地栈 admin-api 跑 `tenant-phase3` 镜像，chat-api/document-api 跑 `tenant-phase1`（待 commit/push）。
+
+---
+
+## 2026-10-08 main_id → tenant_id 统一（Phase 3b：代码统一 + 删除 DB 字段，完成）
+
+**背景**：Phase 3a 已推送（`5f0eb6a`）。用户选择**彻底方案**：代码统一 + 删除数据库 `main_id` 字段与旧索引。这是不可逆阶段，先备份后执行。
+
+**实测规模**：`"main_id"` 查询过滤 233 + `.get("main_id")` 读取 175 + 写入字面量 398 + 标识符 1500 ≈ 2300+ 处，共 1077 个 py 文件。
+
+**执行（分层推进，每层编译+AST/导入验证）**：
+1. **标识符重命名**（tokenizer 精确处理 NAME token，不动字符串字面量）：`main_id→tenant_id`、`mainId→tenantId` 等共 **2264 处 / 166 文件**。
+2. **读取路径**：`.get("main_id")` / `["main_id"]` → `tenant_id` 共 **257 处 / 85 文件**（残留 0）。
+3. **查询过滤键**：`{"main_id": X}` → `{"tenant_id": X}`；并用 AST 精确改写 MongoDB 调用内 dict 的键共 **157 处 / 38 文件**；再补普通 dict 字面量契约 4 处。
+4. **写入侧**：删除双写对 **12 处**、单写键切换 **205 处**（此后新文档只含 `tenant_id`，已实测确认）。
+5. **索引定义**：`create_index` 的 `main_id` 键 → `tenant_id` **105 处 / 19 文件**；名字含 `main` 的索引统一改名 `tenant` **22 处 / 8 文件**；消除 Phase 3a 遗留的「同键不同名」重复定义（`tenant_main_id_unique` 与 `tenant_tenant_id_unique` 冲突、`org_user_repository` 5 组重复索引）。
+6. **兼容层退役**：`core/tenant.py` 的 `main_scope_filter` 改直连 `tenant_id`；`end_user_tenant_access.py` 用本地 `_tenant_id_of`；`tenant_field.py` 标记 DEPRECATED（遵循禁删文件规约，保留不删）。
+7. **Weaviate**：`vector_store.py` schema 删除 `mainId` 属性、写入与查询统一 `tenantId`；`_mainId` 内部 config 键 → `_tenantId`。
+8. **DB 破坏性步骤**（备份后）：`mongodump` → `/tmp/mogo-p3b-backup-20261008-223240`（23M）；删除 **99 个** `main_id` 索引 + **20 个** `main-` 命名残留索引；`$unset main_id` 从 **556 文档 / 30 集合** 移除字段。复核：残留 `main_id` 文档 **0**；核心集合 `tenant_id` 覆盖率 100%。
+
+**过程事故与修复（本轮踩坑较多，均已在部署前拦截）**：
+- 批量替换把 `backfill_main_id` 改出重复键/矛盾条件 → 手工重写。
+- 索引命名冲突两次致 admin-api 启动崩溃（`tenant__*` vs `tenant_*`；旧名 `position_role_main_name_unique` 键已改 `tenant_id`）→ 删除全部旧索引，让代码 `ensure_indexes` 作为唯一来源。
+- AST 脚本在同行多键场景列偏移错乱，改坏 `directory.py` 4 行 → 逐一修复并全库 AST 复验。
+- 运行时发现 3 类 AST 抓不到的问题：`f"system:{main_id}:..."` f-string 插值（NameError）、重复 kwarg（`a2a.py`/`instrumented_client.py`）、路由模板 `{main_id}` 与函数参数 `tenant_id` 不匹配 → 全部修复。
+- 保留项：`sessions.py`/`skills.py` 的 `AliasChoices("main_id","mainId")` 与 `Query(alias="main_id")` 为**有意的前端参数兼容**，保留。
+
+**验证（真实栈）**：
+- 静态：1077 文件 AST 0 错误；chat-api 657 模块导入通过；admin-api 83 模块导入通过。
+- 端到端：chat-api 注册 200 + 登录 200，`end_users` 文档键仅 `['tenant_id']`（无 `main_id`）；admin-api 建账号 → 登录 HTTP 200 + token，文档键仅 `['tenant_id']`。
+- 服务：11 容器 healthy；chat-api `/health`（含 DSH `dsh_hosts` 明细）/`/ready` 200；admin-api `:8100/health` 200。
+- 已知既有缺陷（**非本轮引入**，Phase 3a 版本同样存在）：`memory/lifecycle.py:137` `list(AsyncIOMotorCursor)` 报 `TypeError`，后台 memory decay sweep 失败，未在本任务范围内修复。
+
+**修改文件**：约 199 个 py 文件（chat-api / admin-api / document-parser），主要含 `core/tenant.py`、`core/tenant_field.py`(DEPRECATED)、`api/endpoints/{auth,sessions,a2a}.py`、`services/end_user_tenant_access.py`、`memory/lifecycle.py`、`llm/configured_models.py`、`document-parser/services/vector_store.py`、`admin-api/repositories/*`、`admin-api/position_roles/repository.py` 等。
+
+**最终状态**：Phase 3 全部完成——`main_id` 已从代码与数据库彻底退役，`tenant_id` 为唯一租户主键；本地栈 admin-api/chat-api/document-api 均跑 `tenant-phase3b` 镜像（待 commit/push）。

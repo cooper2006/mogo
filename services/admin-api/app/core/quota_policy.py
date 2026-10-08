@@ -72,9 +72,9 @@ def _one_day():
     return timedelta(days=1)
 
 
-async def ensure_org_quota_policy(main_id: str, *, org_total_points: int = 0) -> dict[str, Any]:
+async def ensure_org_quota_policy(tenant_id: str, *, org_total_points: int = 0) -> dict[str, Any]:
     db = get_db()
-    policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": main_id})
+    policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id})
     if policy:
         return policy
     now = utc_now()
@@ -83,8 +83,7 @@ async def ensure_org_quota_policy(main_id: str, *, org_total_points: int = 0) ->
     # ``unlimited=True`` means the quota checks short-circuit to "available".
     policy = {
         # Phase 1 dual-write: canonical tenant_id + legacy main_id.
-        "tenant_id": main_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "total_tokens": total,
         "unlimited": True,
         "period": "monthly",
@@ -93,13 +92,13 @@ async def ensure_org_quota_policy(main_id: str, *, org_total_points: int = 0) ->
         "created_at": now,
         "updated_at": now,
     }
-    await db[ORG_QUOTA_POLICY_COLLECTION].update_one({"tenant_id": main_id}, {"$setOnInsert": policy}, upsert=True)
-    return await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": main_id}) or policy
+    await db[ORG_QUOTA_POLICY_COLLECTION].update_one({"tenant_id": tenant_id}, {"$setOnInsert": policy}, upsert=True)
+    return await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id}) or policy
 
 
-async def ensure_default_user_policy(main_id: str, *, period: str = "monthly") -> dict[str, Any]:
+async def ensure_default_user_policy(tenant_id: str, *, period: str = "monthly") -> dict[str, Any]:
     db = get_db()
-    query = {"tenant_id": main_id, "scope_type": "all", "scope_id": ""}
+    query = {"tenant_id": tenant_id, "scope_type": "all", "scope_id": ""}
     policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(query)
     if policy:
         return policy
@@ -107,7 +106,7 @@ async def ensure_default_user_policy(main_id: str, *, period: str = "monthly") -
     policy = {
         **query,
         # Phase 1 dual-write: canonical tenant_id (main_id already in query).
-        "tenant_id": main_id,
+        "tenant_id": tenant_id,
         "quota_tokens": 0,
         "period": normalize_period(period),
         "priority": 10,
@@ -119,10 +118,10 @@ async def ensure_default_user_policy(main_id: str, *, period: str = "monthly") -
     return await db[USER_QUOTA_POLICY_COLLECTION].find_one(query) or policy
 
 
-async def sum_usage(main_id: str, *, user_id: str = "", start_at: datetime, end_at: datetime) -> int:
+async def sum_usage(tenant_id: str, *, user_id: str = "", start_at: datetime, end_at: datetime) -> int:
     db = get_db()
     match: dict[str, Any] = {
-        "tenant_id": main_id,
+        "tenant_id": tenant_id,
         "created_at": {"$gte": start_at, "$lt": end_at},
         "status": {"$ne": "failed"},
     }
@@ -134,28 +133,28 @@ async def sum_usage(main_id: str, *, user_id: str = "", start_at: datetime, end_
     return int(rows[0].get("tokens") or 0) if rows else 0
 
 
-async def resolve_user_policy(main_id: str, user_id: str) -> dict[str, Any]:
+async def resolve_user_policy(tenant_id: str, user_id: str) -> dict[str, Any]:
     db = get_db()
     user_policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(
-        {"tenant_id": main_id, "scope_type": "user", "scope_id": user_id},
+        {"tenant_id": tenant_id, "scope_type": "user", "scope_id": user_id},
         sort=[("priority", -1), ("updated_at", -1)],
     )
     if user_policy:
         return user_policy
-    org_policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": main_id})
+    org_policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id})
     org_period = org_policy.get("period") if org_policy else "monthly"
-    default_policy = await ensure_default_user_policy(main_id, period=org_period)
+    default_policy = await ensure_default_user_policy(tenant_id, period=org_period)
     return default_policy
 
 
-async def sum_active_overrides(main_id: str, user_id: str, now: datetime | None = None) -> int:
+async def sum_active_overrides(tenant_id: str, user_id: str, now: datetime | None = None) -> int:
     db = get_db()
     current = now or utc_now()
     rows = await db[USER_QUOTA_OVERRIDE_COLLECTION].aggregate(
         [
             {
                 "$match": {
-                    "tenant_id": main_id,
+                    "tenant_id": tenant_id,
                     "user_id": user_id,
                     "status": "active",
                     "$or": [{"expires_at": {"$exists": False}}, {"expires_at": None}, {"expires_at": {"$gt": current}}],
@@ -167,13 +166,13 @@ async def sum_active_overrides(main_id: str, user_id: str, now: datetime | None 
     return int(rows[0].get("tokens") or 0) if rows else 0
 
 
-async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any]:
+async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, Any]:
     db = get_db()
     user_id = str(user.get("_id") or "")
     space_type = str(user.get("space_type") or "").strip().lower()
     if space_type not in {"personal", "enterprise"}:
         space_type = "personal" if str(user.get("org_name") or "").strip() == "个人空间" else "enterprise"
-    org = await db[ORG_COLLECTION].find_one({"tenant_id": main_id}) or {}
+    org = await db[ORG_COLLECTION].find_one({"tenant_id": tenant_id}) or {}
 
     if space_type != "enterprise":
         total = int(org.get("total_points") or 0)
@@ -182,7 +181,7 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
         # (organizations.points_unlimited, decision 12).
         points_unlimited = bool(org.get("points_unlimited", True))
         return {
-            "mainId": main_id,
+            "mainId": tenant_id,
             "orgName": org.get("org_name") or user.get("org_name") or "个人空间",
             "spaceType": "personal",
             "quotaSource": "registration_gift",
@@ -195,8 +194,8 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
             "status": "active",
         }
 
-    org_policy = await ensure_org_quota_policy(main_id, org_total_points=int(org.get("total_points") or 0))
-    user_policy = await resolve_user_policy(main_id, user_id)
+    org_policy = await ensure_org_quota_policy(tenant_id, org_total_points=int(org.get("total_points") or 0))
+    user_policy = await resolve_user_policy(tenant_id, user_id)
     tz_name = normalize_timezone(org_policy.get("timezone"))
     org_start, org_end = period_window(str(org_policy.get("period") or "monthly"), tz_name)
     user_start, user_end = period_window(str(user_policy.get("period") or org_policy.get("period") or "monthly"), tz_name)
@@ -207,10 +206,10 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
     org_unlimited = bool(org_policy.get("unlimited", False))
     if org_unlimited:
         # Usage is still recorded for reporting; the limit itself is lifted.
-        org_used = await sum_usage(main_id, start_at=org_start, end_at=org_end)
-        user_used = await sum_usage(main_id, user_id=user_id, start_at=user_start, end_at=user_end)
+        org_used = await sum_usage(tenant_id, start_at=org_start, end_at=org_end)
+        user_used = await sum_usage(tenant_id, user_id=user_id, start_at=user_start, end_at=user_end)
         return {
-            "mainId": main_id,
+            "mainId": tenant_id,
             "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
             "spaceType": "enterprise",
             "quotaSource": "enterprise_allocation",
@@ -226,15 +225,15 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
             "orgRemainingPoints": -1,
         }
 
-    org_used = await sum_usage(main_id, start_at=org_start, end_at=org_end)
-    user_used = await sum_usage(main_id, user_id=user_id, start_at=user_start, end_at=user_end)
+    org_used = await sum_usage(tenant_id, start_at=org_start, end_at=org_end)
+    user_used = await sum_usage(tenant_id, user_id=user_id, start_at=user_start, end_at=user_end)
     org_total = int(org_policy.get("total_tokens") or 0)
     base_user_total = int(user_policy.get("quota_tokens") or 0)
-    extra = await sum_active_overrides(main_id, user_id)
+    extra = await sum_active_overrides(tenant_id, user_id)
     user_total = max(0, base_user_total + extra)
     remaining = max(0, min(user_total - user_used, org_total - org_used))
     return {
-        "mainId": main_id,
+        "mainId": tenant_id,
         "orgName": org.get("org_name") or user.get("org_name") or "组织空间",
         "spaceType": "enterprise",
         "quotaSource": "enterprise_allocation",
@@ -251,8 +250,8 @@ async def get_quota_summary(main_id: str, user: dict[str, Any]) -> dict[str, Any
     }
 
 
-async def assert_quota_available(main_id: str, user: dict[str, Any]) -> dict[str, Any]:
-    summary = await get_quota_summary(main_id, user)
+async def assert_quota_available(tenant_id: str, user: dict[str, Any]) -> dict[str, Any]:
+    summary = await get_quota_summary(tenant_id, user)
     if summary.get("status") != "active":
         raise QuotaExceededError("当前空间额度策略未启用，请联系管理员。")
     # T035: unlimited short-circuit — remainingPoints == -1 means no limit.

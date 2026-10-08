@@ -37,14 +37,14 @@ class ConversationEvidenceService:
         *,
         session_id: str,
         user_id: str,
-        main_id: str,
+        tenant_id: str,
         current_request: str,
         evidence_requirement: str = "",
     ) -> Dict[str, Any]:
         rows = await self._load_rows(
             session_id=session_id,
             user_id=user_id,
-            main_id=main_id,
+            tenant_id=tenant_id,
         )
         prior_rows = self._exclude_current_request(rows, current_request=current_request)
         if not prior_rows:
@@ -123,7 +123,7 @@ class ConversationEvidenceService:
                 break
         return out
 
-    async def _load_rows(self, *, session_id: str, user_id: str, main_id: str) -> List[Dict[str, Any]]:
+    async def _load_rows(self, *, session_id: str, user_id: str, tenant_id: str) -> List[Dict[str, Any]]:
         try:
             oid = ObjectId(str(session_id))
         except Exception as exc:
@@ -137,7 +137,7 @@ class ConversationEvidenceService:
                     {"runtime_owner": "dsh"},
                 ],
             },
-            resolve_main_id(main_id),
+            resolve_main_id(tenant_id),
         )
         cursor = get_db().chat_messages.find(query).sort("seq", -1).limit(30)
         rows = await cursor.to_list(length=30)

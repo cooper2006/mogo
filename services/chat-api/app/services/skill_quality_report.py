@@ -78,7 +78,7 @@ def report_skill_call(
     """
     if db is None:
         return
-    key = {"main_id": tenant_id, "skill_key": skill_key, "date": (day or _today()).isoformat()}
+    key = {"tenant_id": tenant_id, "skill_key": skill_key, "date": (day or _today()).isoformat()}
     db[QUALITY_METRICS_COLLECTION].update_one(
         key,
         {

@@ -14,7 +14,7 @@ SETTINGS_COLLECTION = "knowledge_document_settings"
 
 
 def search_knowledge(request: RetrievalSearchRequest) -> dict[str, Any]:
-    config = _effective_config(request.mainId)
+    config = _effective_config(request.tenantId)
     retrieval = dict(config.get("retrieval") or {})
     mode = request.retrievalMode or str(retrieval.get("mode") or "vector")
     top_n = int(request.topN or retrieval.get("topN") or 10)
@@ -26,7 +26,7 @@ def search_knowledge(request: RetrievalSearchRequest) -> dict[str, Any]:
         store=store,
         query_vector=query_vector,
         query=request.query,
-        main_id=request.mainId,
+        tenant_id=request.tenantId,
         user_id=request.userId,
         knowledge_base_id=request.knowledgeBaseId,
         mode=mode,
@@ -56,7 +56,7 @@ def _search_authorized_candidates(
     store: Any,
     query_vector: list[float],
     query: str,
-    main_id: str,
+    tenant_id: str,
     user_id: str,
     knowledge_base_id: str,
     mode: str,
@@ -76,7 +76,7 @@ def _search_authorized_candidates(
         raw = store.search(
             query_vector=query_vector,
             query=query,
-            main_id=main_id,
+            tenant_id=tenant_id,
             knowledge_base_id=knowledge_base_id,
             mode=mode,
             limit=limit,
@@ -84,7 +84,7 @@ def _search_authorized_candidates(
             score_threshold=score_threshold,
         )
         authorized.extend(knowledge_retrieval_access_policy.filter_candidates(
-            raw, main_id=main_id, user_id=user_id,
+            raw, tenant_id=tenant_id, user_id=user_id,
         ))
         if len(authorized) >= target or len(raw) < limit:
             break
@@ -94,7 +94,7 @@ def _search_authorized_candidates(
 
 def _filter_active_documents(
     items: list[dict[str, Any]],
-    main_id: str,
+    tenant_id: str,
     *,
     user_id: str = "",
     knowledge_base_id: str = "",
@@ -102,14 +102,14 @@ def _filter_active_documents(
     # Compatibility wrapper for focused tests and older callers. Authorization
     # no longer depends on whether a resource id was explicitly supplied.
     return knowledge_retrieval_access_policy.filter_candidates(
-        items, main_id=main_id, user_id=user_id,
+        items, tenant_id=tenant_id, user_id=user_id,
     )
 
 
-def _effective_config(main_id: str) -> dict[str, Any]:
+def _effective_config(tenant_id: str) -> dict[str, Any]:
     # Phase 1: match either the legacy main_id or the canonical tenant_id.
     doc = get_db()[SETTINGS_COLLECTION].find_one({
-        "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
+        "tenant_id": tenant_id,
         "kind": "knowledge",
     })
     config = dict((doc or {}).get("config") or {})
@@ -156,7 +156,7 @@ def _effective_config(main_id: str) -> dict[str, Any]:
         **dict(config.get("retrieval") or {}),
         "rerank": rerank_config,
     }
-    config["_mainId"] = main_id
+    config["_tenantId"] = tenant_id
     return config
 
 

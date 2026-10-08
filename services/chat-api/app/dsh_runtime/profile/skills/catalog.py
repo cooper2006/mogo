@@ -19,8 +19,8 @@ class MongoSkillCatalog:
         self._policy_resolver = policy_resolver
 
     async def list_enabled(self, tenant_id: str, user_id: str) -> list[dict[str, Any]]:
-        personal = await user_skill_service.list_skills(user_id, main_id=tenant_id)
-        organization = await organization_skill_adapter.list_runtime_skills(main_id=tenant_id)
+        personal = await user_skill_service.list_skills(user_id, tenant_id=tenant_id)
+        organization = await organization_skill_adapter.list_runtime_skills(tenant_id=tenant_id)
         policy = await self._policy_resolver.resolve(tenant_id, user_id) if self._policy_resolver else None
         rows: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -40,7 +40,7 @@ class MongoSkillCatalog:
         package_ids = [str(item.get("package_id") or "") for item in rows if item.get("package_id")]
         if package_ids:
             packages = await get_db().skill_packages.find({
-                "_id": {"$in": package_ids}, "main_id": tenant_id,
+                "_id": {"$in": package_ids}, "tenant_id": tenant_id,
             }).to_list(length=len(package_ids))
             by_id = {str(item.get("_id") or ""): item for item in packages}
             for row in rows:

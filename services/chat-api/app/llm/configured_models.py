@@ -92,19 +92,19 @@ def _keystream(nonce: bytes, length: int) -> bytes:
     return bytes(out[:length])
 
 
-async def get_model_config(model_id: str, main_id: str) -> dict[str, Any] | None:
-    return await get_model_config_by_capability(model_id, main_id, capability=None)
+async def get_model_config(model_id: str, tenant_id: str) -> dict[str, Any] | None:
+    return await get_model_config_by_capability(model_id, tenant_id, capability=None)
 
 
 async def get_model_config_by_capability(
     model_id: str,
-    main_id: str,
+    tenant_id: str,
     *,
     capability: str | None = "chat",
 ) -> dict[str, Any] | None:
     db = get_db()
     try:
-        instance = await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(model_id), "$or": [{"tenant_id": main_id}, {"main_id": main_id}]})
+        instance = await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(model_id), "tenant_id": tenant_id})
     except InvalidId as exc:
         raise ModelConfigError("模型配置 ID 无效") from exc
     if instance is None:
@@ -113,19 +113,19 @@ async def get_model_config_by_capability(
     return _to_runtime_config(instance, provider or {}, required_capability=capability)
 
 
-async def get_default_model_config(main_id: str) -> dict[str, Any] | None:
-    return await get_default_model_config_by_capability(main_id, capability="chat")
+async def get_default_model_config(tenant_id: str) -> dict[str, Any] | None:
+    return await get_default_model_config_by_capability(tenant_id, capability="chat")
 
 
 async def get_default_model_config_by_capability(
-    main_id: str,
+    tenant_id: str,
     *,
     capability: str = "chat",
 ) -> dict[str, Any] | None:
     db = get_db()
     instance = await db[INSTANCE_COLLECTION].find_one(
         {
-            "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
+            "tenant_id": tenant_id,
             "status": "active",
             "capabilities": _capability_query_value(capability),
         },
@@ -137,19 +137,19 @@ async def get_default_model_config_by_capability(
     return _to_runtime_config(instance, provider or {}, required_capability=capability)
 
 
-async def list_chat_model_options(main_id: str) -> list[dict[str, Any]]:
-    return await list_model_options(main_id, capability="chat")
+async def list_chat_model_options(tenant_id: str) -> list[dict[str, Any]]:
+    return await list_model_options(tenant_id, capability="chat")
 
 
 async def list_model_options(
-    main_id: str,
+    tenant_id: str,
     *,
     capability: str = "chat",
 ) -> list[dict[str, Any]]:
     db = get_db()
     cursor = db[INSTANCE_COLLECTION].find(
         {
-            "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
+            "tenant_id": tenant_id,
             "status": "active",
             "capabilities": _capability_query_value(capability),
         }
@@ -163,10 +163,10 @@ async def list_model_options(
     return [_to_public_option(item, provider_map.get(str(item.get("provider_id")), {})) for item in instances]
 
 
-async def update_model_health(model_id: str, main_id: str, health_status: str, last_error: str = "") -> None:
+async def update_model_health(model_id: str, tenant_id: str, health_status: str, last_error: str = "") -> None:
     db = get_db()
     await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(model_id), "$or": [{"tenant_id": main_id}, {"main_id": main_id}]},
+        {"_id": ObjectId(model_id), "tenant_id": tenant_id},
         {
             "$set": {
                 "health_status": health_status,
@@ -205,7 +205,7 @@ def _to_runtime_config(
         settings = provider.get("settings") if isinstance(provider.get("settings"), dict) else {}
     config = {
         "id": str(instance.get("_id") or ""),
-        "main_id": str(instance.get("main_id") or ""),
+        "tenant_id": str(instance.get("tenant_id") or ""),
         "display_name": str(instance.get("display_name") or ""),
         "provider_type": provider_type,
         "provider_name": str(provider.get("name") or ""),
@@ -311,7 +311,7 @@ def build_llm_client_from_config(
 
 
 async def get_fallback_runtime_configs(
-    main_id: str,
+    tenant_id: str,
     *,
     capability: str = "chat",
     primary_instance_id: str | None = None,
@@ -324,7 +324,7 @@ async def get_fallback_runtime_configs(
     """
     db = get_db()
     query = {
-        "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
+        "tenant_id": tenant_id,
         "status": "active",
         "capabilities": _capability_query_value(capability),
     }
@@ -377,25 +377,25 @@ def wrap_resilient(
 async def get_llm_client_by_model_id(
     model_id: str | None,
     *,
-    main_id: str,
+    tenant_id: str,
     streaming: bool = True,
     intent: str | None = None,
     stage: str | None = None,
     node_id: str | None = None,
     output_spec: dict[str, Any] | None = None,
 ) -> BaseLLMClient:
-    config = await get_model_config(model_id, main_id) if model_id else await get_default_model_config(main_id)
+    config = await get_model_config(model_id, tenant_id) if model_id else await get_default_model_config(tenant_id)
     if config is None:
         raise ModelConfigError("没有可用的模型配置")
     
     user_id = str((output_spec or {}).get("user_id") or "").strip()
     if user_id and ObjectId.is_valid(user_id):
-        user_doc = await get_db()["end_users"].find_one({"_id": ObjectId(user_id), "$or": [{"tenant_id": main_id}, {"main_id": main_id}]})
+        user_doc = await get_db()["end_users"].find_one({"_id": ObjectId(user_id), "tenant_id": tenant_id})
         if user_doc:
             from app.core.quota_policy import QuotaExceededError, assert_quota_available
 
             try:
-                await assert_quota_available(main_id, user_doc)
+                await assert_quota_available(tenant_id, user_doc)
             except QuotaExceededError as exc:
                 raise ModelConfigError(str(exc)) from exc
 
@@ -420,7 +420,7 @@ async def get_llm_client_by_model_id(
             output_spec=output_spec,
         )
         for backup in await get_fallback_runtime_configs(
-            main_id,
+            tenant_id,
             primary_instance_id=str(config.get("id") or ""),
         )
     ]

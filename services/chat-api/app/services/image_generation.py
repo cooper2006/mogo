@@ -210,18 +210,18 @@ class ConfiguredImageGenerationService:
         merged_output_spec = dict(get_request_context() or {})
         if isinstance(output_spec, dict):
             merged_output_spec.update(output_spec)
-        main_id = resolve_main_id(merged_output_spec.get("main_id") or merged_output_spec.get("mainId"))
+        tenant_id = resolve_main_id(merged_output_spec.get("tenant_id") or merged_output_spec.get("tenantId"))
         image_model_id = str(
             merged_output_spec.get("image_model_id")
             or merged_output_spec.get("imageModelId")
             or ""
         ).strip()
         if image_model_id:
-            config = await get_image_model_config(image_model_id, main_id)
+            config = await get_image_model_config(image_model_id, tenant_id)
             if config is None:
                 raise ModelConfigError("图片模型配置不存在或不可用")
             return config, "admin_config"
-        config = await get_default_image_model_config(main_id)
+        config = await get_default_image_model_config(tenant_id)
         if config is None:
             return None, "admin_config"
         return config, "admin_config"

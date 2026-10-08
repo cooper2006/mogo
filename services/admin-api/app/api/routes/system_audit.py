@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 def _main_id(user: dict[str, Any]) -> str:
-    return str(user.get("main_id") or "default")
+    return str(user.get("tenant_id") or "default")
 
 
 @router.get("/overview")
@@ -32,6 +32,6 @@ async def audit_logs(
     module: str = Query(default="", max_length=100),
 ) -> dict[str, Any]:
     return await SystemAuditQuery().list_logs(
-        main_id=_main_id(current_user), category=category, page=page, page_size=pageSize,
+        tenant_id=_main_id(current_user), category=category, page=page, page_size=pageSize,
         keyword=keyword, result=result, module=module,
     )

@@ -133,14 +133,14 @@ class MemoryStore:
                 source_session_id=source_session_id,
                 source_type=source_type,
             )
-        main_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_main_id(tenant_id)
         doc: dict[str, Any] = {
             "memory_id": mem_id,
             "content": content,
             "scope": scope,
             "owner_id": owner_id,
             "workspace_id": workspace_id,
-            "tenant_id": main_id,
+            "tenant_id": tenant_id,
             "created_at": now,
             "last_accessed_at": now,
             "l0_summary": l0_summary,
@@ -153,7 +153,7 @@ class MemoryStore:
             "source_type": source_type,
         }
         await db[COLLECTION].replace_one(
-            {"memory_id": mem_id, "tenant_id": main_id},
+            {"memory_id": mem_id, "tenant_id": tenant_id},
             doc,
             upsert=True,
         )
@@ -169,13 +169,13 @@ class MemoryStore:
         top_n: int = 20,
     ) -> list[Memory]:
         """Return memories visible to ``viewer_id`` within ``tenant_id``."""
-        main_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_main_id(tenant_id)
         db = get_db()
         if db is None:
             return []
         # Pull all memories for the tenant; visibility is enforced in Python so
         # we do not leak org-scoped data across tenants.
-        rows = await db[COLLECTION].find({"tenant_id": main_id}).to_list(length=500)
+        rows = await db[COLLECTION].find({"tenant_id": tenant_id}).to_list(length=500)
         from app.memory.retrieval import scope_filter
         memories = [_row_to_memory(r) for r in rows]
         filtered = scope_filter(
@@ -198,22 +198,22 @@ class MemoryStore:
 
     async def get(self, *, tenant_id: str, memory_id: str) -> Optional[Memory]:
         """Fetch a single memory by id within a tenant. Returns None if absent."""
-        main_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_main_id(tenant_id)
         db = get_db()
         if db is None:
             return None
-        row = await db[COLLECTION].find_one({"memory_id": memory_id, "tenant_id": main_id})
+        row = await db[COLLECTION].find_one({"memory_id": memory_id, "tenant_id": tenant_id})
         return _row_to_memory(row) if row else None
 
     async def delete(self, *, tenant_id: str, memory_id: str, owner_id: str) -> bool:
         """Delete a memory; returns True when one document was removed."""
-        main_id = resolve_main_id(tenant_id)
+        tenant_id = resolve_main_id(tenant_id)
         db = get_db()
         if db is None:
             return False
         result = await db[COLLECTION].delete_one({
             "memory_id": memory_id,
-            "tenant_id": main_id,
+            "tenant_id": tenant_id,
             "owner_id": owner_id,
         })
         return result.deleted_count > 0

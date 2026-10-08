@@ -31,7 +31,7 @@ ACCOUNT_COLLECTION = "admin_accounts"
 async def platform_admin_exists() -> bool:
     """True when any account already lives in the reserved platform tenant."""
     db = get_db()
-    account = await db[ACCOUNT_COLLECTION].find_one({"main_id": PLATFORM_MAIN_ID}, {"_id": 1})
+    account = await db[ACCOUNT_COLLECTION].find_one({"tenant_id": PLATFORM_MAIN_ID}, {"_id": 1})
     return account is not None
 
 
@@ -41,11 +41,11 @@ async def ensure_platform_admin(*, username: str, password: str, display_name: s
     await ensure_group_exists(
         name=PLATFORM_ADMIN_GROUP_NAME,
         code=PLATFORM_ADMIN_GROUP_CODE,
-        main_id=PLATFORM_MAIN_ID,
+        tenant_id=PLATFORM_MAIN_ID,
         description="平台控制台内置账号组",
     )
     await ensure_bootstrap_account(
-        main_id=PLATFORM_MAIN_ID,
+        tenant_id=PLATFORM_MAIN_ID,
         username=username,
         password=password,
         display_name=display_name.strip() or username,

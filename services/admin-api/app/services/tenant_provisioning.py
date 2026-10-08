@@ -50,7 +50,7 @@ from app.services import tenant_lifecycle
 
 @dataclass
 class ProvisionResult:
-    main_id: str
+    tenant_id: str
     org_name: str
     model_instance_id: str | None = None
     additional_model_instance_ids: list[str] = field(default_factory=list)
@@ -66,7 +66,7 @@ async def _next_main_id(org_name: str) -> str:
     base = _slug(org_name)[:12]
     for _ in range(12):
         candidate = f"{base}-{secrets.token_hex(12)}"
-        exists = await db["admin_accounts"].find_one({"main_id": candidate}, {"_id": 1})
+        exists = await db["admin_accounts"].find_one({"tenant_id": candidate}, {"_id": 1})
         if not exists:
             return candidate
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="main_id generation failed")
@@ -104,7 +104,7 @@ async def provision_tenant(
     platform admin username). It is currently informational only.
     """
     additional_models = list(additional_models or [])
-    main_id = await _next_main_id(org_name)
+    tenant_id = await _next_main_id(org_name)
     org_name = org_name.strip()
     now = datetime.now(timezone.utc)
 
@@ -112,11 +112,11 @@ async def provision_tenant(
         await ensure_group_exists(
             name="系统管理员",
             code="system_admin",
-            main_id=main_id,
+            tenant_id=tenant_id,
             description="系统内置账号组",
         )
         await ensure_bootstrap_account(
-            main_id=main_id,
+            tenant_id=tenant_id,
             username=admin_username.strip(),
             password=admin_password,
             display_name=admin_display_name.strip(),
@@ -125,16 +125,16 @@ async def provision_tenant(
             group_code="system_admin",
         )
 
-        await ensure_root_department(main_id)
+        await ensure_root_department(tenant_id)
         db = get_db()
-        root = await db[DEPARTMENT_COLLECTION].find_one({"main_id": main_id, "code": "root"})
+        root = await db[DEPARTMENT_COLLECTION].find_one({"tenant_id": tenant_id, "code": "root"})
         if not root:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="root department init failed")
         root_id = str(root["_id"])
 
         # The bootstrap admin always exists; it becomes the org owner when no
         # separate employee user is supplied.
-        admin_account = await find_account_by_username(admin_username.strip(), main_id)
+        admin_account = await find_account_by_username(admin_username.strip(), tenant_id)
         if admin_account is None:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -147,7 +147,7 @@ async def provision_tenant(
             try:
                 result = await db[USER_COLLECTION].insert_one(
                     {
-                        "main_id": main_id,
+                        "tenant_id": tenant_id,
                         "name": employee_name.strip(),
                         "mobile": "",
                         "email": "",
@@ -175,10 +175,10 @@ async def provision_tenant(
         # T034 / decision 12: quota=None or total_tokens=0 means "unlimited".
         points_unlimited = (total_tokens is None) or (int(total_tokens or 0) == 0)
         await db["organizations"].update_one(
-            {"main_id": main_id},
+            {"tenant_id": tenant_id},
             {
                 "$set": {
-                    "main_id": main_id,
+                    "tenant_id": tenant_id,
                     "org_name": org_name,
                     "owner_user_id": owner_user_id,
                     **organization_defaults,
@@ -191,7 +191,7 @@ async def provision_tenant(
         )
         await db[USER_ORG_REL_COLLECTION].insert_one(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "user_id": owner_user_id,
                 "org_id": root_id,
                 "is_primary": True,
@@ -202,19 +202,19 @@ async def provision_tenant(
 
         position_roles = PositionRoleRepository(db)
         await position_roles.ensure_indexes()
-        full_access_role = await position_roles.ensure_full_access_role(main_id)
+        full_access_role = await position_roles.ensure_full_access_role(tenant_id)
         await position_roles.assign_role(
-            main_id,
+            tenant_id,
             owner_user_id,
             str(full_access_role["_id"]),
             primary=True,
             actor=admin_username.strip(),
         )
-        await position_roles.complete_migration(main_id, admin_username.strip())
+        await position_roles.complete_migration(tenant_id, admin_username.strip())
 
         if quota is not None:
             await configure_setup_quotas(
-                main_id=main_id,
+                tenant_id=tenant_id,
                 total_tokens=quota.get("total_tokens") or 0,
                 default_user_tokens=quota.get("default_user_tokens") or 0,
                 period=quota.get("period") or "monthly",
@@ -225,22 +225,22 @@ async def provision_tenant(
         model_instance_id: str | None = None
         additional_model_ids: list[str] = []
         if model is not None:
-            model_instance_id = await create_setup_model(model, main_id)
-            additional_model_ids = [await create_setup_model(item, main_id) for item in additional_models]
+            model_instance_id = await create_setup_model(model, tenant_id)
+            additional_model_ids = [await create_setup_model(item, tenant_id) for item in additional_models]
             await configure_setup_knowledge_models(
-                main_id=main_id,
+                tenant_id=tenant_id,
                 configured_models=list(zip(additional_models, additional_model_ids)),
                 operator=admin_username.strip(),
                 embedding_dimension=embedding_dimension,
             )
 
         if external_search is not None:
-            await save_setup_search(external_search, main_id)
+            await save_setup_search(external_search, tenant_id)
 
         # Register in the platform registry last: a failure above triggers
         # cleanup_failed_setup, which now also removes the tenants record.
         await ensure_tenant_record(
-            main_id=main_id,
+            tenant_id=tenant_id,
             name=org_name,
             edition=product_extension.edition,
             admin_username=admin_username.strip(),
@@ -252,20 +252,20 @@ async def provision_tenant(
         # provisioning attempt ever happened; if cleanup itself throws, the
         # audit must already be written.
         await tenant_lifecycle.record_tenant_audit(
-            main_id,
+            tenant_id,
             created_by or "setup-wizard",
             "create",
             org_name,
             "failure",
             {"error": str(exc)[:500]},
         )
-        await cleanup_failed_setup(main_id)
+        await cleanup_failed_setup(tenant_id)
         raise
 
     # SC-007: every lifecycle operation is auditable (create / rename /
     # enable-disable / archive / restore / purge / reset-password).
     await tenant_lifecycle.record_tenant_audit(
-        main_id,
+        tenant_id,
         created_by or "setup-wizard",
         "create",
         org_name,
@@ -274,7 +274,7 @@ async def provision_tenant(
     )
 
     return ProvisionResult(
-        main_id=main_id,
+        tenant_id=tenant_id,
         org_name=org_name,
         model_instance_id=model_instance_id,
         additional_model_instance_ids=additional_model_ids,

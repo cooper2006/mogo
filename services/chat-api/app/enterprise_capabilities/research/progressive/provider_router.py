@@ -305,10 +305,10 @@ class ProviderRouter:
         settings = get_settings()
         providers: list[SearchProvider] = []
         request_context = get_request_context()
-        main_id = str(request_context.get("main_id") or request_context.get("mainId") or "default").strip() or "default"
+        tenant_id = str(request_context.get("tenant_id") or request_context.get("tenantId") or "default").strip() or "default"
         configured: dict[str, Any] | None = None
         try:
-            configured = await resolve_default_external_search_provider(main_id)
+            configured = await resolve_default_external_search_provider(tenant_id)
         except Exception as exc:
             logger.warning("progressive_research_provider_config_unavailable error=%s", exc)
 

@@ -28,11 +28,11 @@ _AUDIT_EVENT = "harness_profile.changed"
 # ---------------------------------------------------------------------------
 
 
-async def _require_full_access(db, main_id: str, user_id: str) -> None:
+async def _require_full_access(db, tenant_id: str, user_id: str) -> None:
     """Raise 403 unless the user holds the tenant's full-access admin role (FR-9)."""
     from app.api.endpoints.dsh_session_versioning import _user_has_full_access
 
-    if not await _user_has_full_access(db, main_id, user_id):
+    if not await _user_has_full_access(db, tenant_id, user_id):
         raise HTTPException(status_code=403, detail="FR-9: full_access_admin role required")
 
 
@@ -51,7 +51,7 @@ def _profile_to_dict(doc: dict[str, Any]) -> dict[str, Any]:
 async def _audit_change(
     db,
     *,
-    main_id: str,
+    tenant_id: str,
     user_id: str,
     scope: str,
     key: str,
@@ -98,7 +98,7 @@ async def list_profiles(
     from app.services.end_user_session import resolve_session_user as _resolve
 
     resolved = await _resolve(authorization)
-    main_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     user_id = str(resolved.get("user", {}).get("_id") or resolved.get("user_id") or "")
 
     db = get_db()
@@ -110,7 +110,7 @@ async def list_profiles(
         query["scope"] = scope
     if key:
         query["key"] = key
-    scoped_query = add_main_scope(query, main_id)
+    scoped_query = add_main_scope(query, tenant_id)
     rows = await db[_COLLECTION].find(scoped_query).to_list(length=500)
     return {
         "code": 0,
@@ -132,14 +132,14 @@ async def get_profile(
     from app.services.end_user_session import resolve_session_user as _resolve
 
     resolved = await _resolve(authorization)
-    main_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
 
     db = get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="db_unavailable")
 
     row = await db[_COLLECTION].find_one(
-        add_main_scope({"scope": scope, "key": key}, main_id)
+        add_main_scope({"scope": scope, "key": key}, tenant_id)
     )
     if row is None:
         raise HTTPException(status_code=404, detail="profile_not_found")
@@ -165,14 +165,14 @@ async def upsert_profile(
     from app.services.end_user_session import resolve_session_user as _resolve
 
     resolved = await _resolve(authorization)
-    main_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     user_id = str(resolved.get("user", {}).get("_id") or resolved.get("user_id") or "")
 
     # FR-9: only full_access_admin may write.
     db = get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="db_unavailable")
-    await _require_full_access(db, main_id, user_id)
+    await _require_full_access(db, tenant_id, user_id)
 
     mode = str(payload.get("mode") or "thick")
     enabled_layers = payload.get("enabled_layers")
@@ -191,7 +191,7 @@ async def upsert_profile(
 
     now = _time.time()
     existing = await db[_COLLECTION].find_one(
-        add_main_scope({"scope": scope, "key": key}, main_id)
+        add_main_scope({"scope": scope, "key": key}, tenant_id)
     )
     before = _profile_to_dict(existing) if existing else None
 
@@ -202,12 +202,12 @@ async def upsert_profile(
         "enabled_layers": enabled_layers,
         "audit_granularity": str(payload.get("audit_granularity") or ""),
         "timeout_seconds": float(payload.get("timeout_seconds") or 0.0),
-        "tenant_id": main_id,
+        "tenant_id": tenant_id,
         "updated_at": now,
         "updated_by": user_id,
     }
     result = await db[_COLLECTION].replace_one(
-        add_main_scope({"scope": scope, "key": key}, main_id),
+        add_main_scope({"scope": scope, "key": key}, tenant_id),
         doc,
         upsert=True,
     )
@@ -215,7 +215,7 @@ async def upsert_profile(
 
     await _audit_change(
         db,
-        main_id=main_id,
+        tenant_id=tenant_id,
         user_id=user_id,
         scope=scope,
         key=key,
@@ -236,29 +236,29 @@ async def delete_profile(
     from app.services.end_user_session import resolve_session_user as _resolve
 
     resolved = await _resolve(authorization)
-    main_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     user_id = str(resolved.get("user", {}).get("_id") or resolved.get("user_id") or "")
 
     db = get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="db_unavailable")
-    await _require_full_access(db, main_id, user_id)
+    await _require_full_access(db, tenant_id, user_id)
 
     existing = await db[_COLLECTION].find_one(
-        add_main_scope({"scope": scope, "key": key}, main_id)
+        add_main_scope({"scope": scope, "key": key}, tenant_id)
     )
     if existing is None:
         raise HTTPException(status_code=404, detail="profile_not_found")
 
     result = await db[_COLLECTION].delete_one(
-        add_main_scope({"scope": scope, "key": key}, main_id)
+        add_main_scope({"scope": scope, "key": key}, tenant_id)
     )
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="profile_not_found")
 
     await _audit_change(
         db,
-        main_id=main_id,
+        tenant_id=tenant_id,
         user_id=user_id,
         scope=scope,
         key=key,

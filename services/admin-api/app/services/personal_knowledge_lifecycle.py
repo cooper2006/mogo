@@ -47,11 +47,11 @@ async def activate_indexed_document(
 async def _current_resource(db: Any, document: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     if not is_personal_document(document):
         return None, {}
-    main_id = str(document.get("main_id") or "default")
+    tenant_id = str(document.get("tenant_id") or "default")
     resource_id = str(document.get("resource_id") or "")
     resource = await db.knowledge_resources.find_one({
         "_id": resource_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "deleted_at": None,
     })
     if resource is None:
@@ -66,7 +66,7 @@ async def _current_resource(db: Any, document: dict[str, Any]) -> tuple[dict[str
         return None, {}
     guard = {
         "_id": resource_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "deleted_at": None,
         "processing_document_id": resource.get("processing_document_id", ""),
         "active_document_id": resource.get("active_document_id", ""),

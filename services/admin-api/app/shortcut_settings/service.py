@@ -12,8 +12,8 @@ COLLECTION = "organization_shortcut_schemes"
 
 
 class ShortcutSettingsService:
-    async def get_default_plan(self, main_id: str) -> dict[str, Any]:
-        row = await get_db()[COLLECTION].find_one({"main_id": main_id, "scheme_key": "default"})
+    async def get_default_plan(self, tenant_id: str) -> dict[str, Any]:
+        row = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "scheme_key": "default"})
         if not row:
             return {
                 "id": "default",
@@ -25,10 +25,10 @@ class ShortcutSettingsService:
             }
         return self._public(row)
 
-    async def save_default_plan(self, main_id: str, admin_id: str, payload: ShortcutPlanPayload) -> dict[str, Any]:
+    async def save_default_plan(self, tenant_id: str, admin_id: str, payload: ShortcutPlanPayload) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         values = {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "scheme_key": "default",
             "name": payload.name,
             "entries": [item.model_dump() for item in payload.entries],
@@ -38,7 +38,7 @@ class ShortcutSettingsService:
             "updated_by": admin_id,
         }
         await get_db()[COLLECTION].update_one(
-            {"main_id": main_id, "scheme_key": "default"},
+            {"tenant_id": tenant_id, "scheme_key": "default"},
             {"$set": values, "$setOnInsert": {"created_at": now}},
             upsert=True,
         )

@@ -67,7 +67,7 @@ async def _resolve_roles(tenant_id: str, user_id: str, provided: list[str]) -> l
         if db is None:
             return []
         rows = await db["end_user_position_roles"].find(
-            {"main_id": tenant_id, "user_id": user_id}, {"role_id": 1}
+            {"tenant_id": tenant_id, "user_id": user_id}, {"role_id": 1}
         ).to_list(length=100)
         return [str(row.get("role_id") or "") for row in rows if row.get("role_id")]
     except Exception:

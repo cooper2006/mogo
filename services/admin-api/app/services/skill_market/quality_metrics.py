@@ -74,14 +74,14 @@ def _today(ts: Optional[datetime] = None) -> date:
     return (ts or datetime.now(timezone.utc)).date()
 
 
-def _bucket_key(main_id: str, skill_key: str, day: date) -> dict[str, Any]:
-    return {"main_id": main_id, "skill_key": skill_key, "date": day.isoformat()}
+def _bucket_key(tenant_id: str, skill_key: str, day: date) -> dict[str, Any]:
+    return {"tenant_id": tenant_id, "skill_key": skill_key, "date": day.isoformat()}
 
 
 async def record_skill_call(
     db: Any,
     *,
-    main_id: str,
+    tenant_id: str,
     skill_key: str,
     success: bool = False,
     adopted: int = 0,
@@ -98,7 +98,7 @@ async def record_skill_call(
     """
     if db is None:
         return
-    key = _bucket_key(main_id, skill_key, day or _today())
+    key = _bucket_key(tenant_id, skill_key, day or _today())
     await db[QUALITY_METRICS_COLLECTION].update_one(
         key,
         {
@@ -192,7 +192,7 @@ async def collect_skill_activity_metrics(
         )
         await record_skill_call(
             db,
-            main_id=tenant_id,
+            tenant_id=tenant_id,
             skill_key=skill_key,
             success=success,
             adopted=1 if adopted else 0,
@@ -247,7 +247,7 @@ async def collect_edit_events(db: Any, *, limit: int = 5000) -> dict[str, Any]:
         created = row.get("created_at")
         day = created.date() if isinstance(created, datetime) else _today()
         await record_skill_call(
-            db, main_id=tenant_id, skill_key=skill_key, corrected=1, day=day
+            db, tenant_id=tenant_id, skill_key=skill_key, corrected=1, day=day
         )
         collected += 1
     if last_id is not None and last_id != after_id:
@@ -354,7 +354,7 @@ def _skill_key_from_activity(row: dict[str, Any]) -> str:
 async def _aggregate(
     db: Any,
     *,
-    main_id: str,
+    tenant_id: str,
     skill_key: str,
     window_days: int,
     as_of: Optional[date] = None,
@@ -367,7 +367,7 @@ async def _aggregate(
         await db[QUALITY_METRICS_COLLECTION]
         .find(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "skill_key": skill_key,
                 "date": {"$gte": start.isoformat(), "$lte": today.isoformat()},
             }
@@ -429,7 +429,7 @@ async def _aggregate(
 async def evaluate_skill_quality(
     db: Any,
     *,
-    main_id: str,
+    tenant_id: str,
     skill_key: str,
     window_days: int = LOW_QUALITY_SUSTAINED_DAYS,
     min_samples: int = MIN_EFFECT_SAMPLES,
@@ -447,7 +447,7 @@ async def evaluate_skill_quality(
     they are skipped, never marked. Once the success dimension is present, adoption
     and correction legitimately default to 0 (a real "not adopted / not corrected").
     """
-    agg = await _aggregate(db, main_id=main_id, skill_key=skill_key, window_days=window_days)
+    agg = await _aggregate(db, tenant_id=tenant_id, skill_key=skill_key, window_days=window_days)
     sufficient = agg["total_calls"] >= int(min_samples) and bool(agg["success_tracked"])
     if not sufficient:
         return {
@@ -461,7 +461,7 @@ async def evaluate_skill_quality(
         }
     outcome = await apply_quality_assessment(
         db,
-        main_id=main_id,
+        tenant_id=tenant_id,
         skill_key=skill_key,
         total_calls=agg["total_calls"],
         successful_calls=agg["successful_calls"],
@@ -488,7 +488,7 @@ async def evaluate_all(
         await db[QUALITY_METRICS_COLLECTION]
         .aggregate(
             [
-                {"$group": {"_id": {"main_id": "$main_id", "skill_key": "$skill_key"}}},
+                {"$group": {"_id": {"tenant_id": "$main_id", "skill_key": "$skill_key"}}},
             ]
         )
         .to_list(length=20000)
@@ -496,11 +496,11 @@ async def evaluate_all(
     scored = 0
     for row in keys:
         _id = row.get("_id") or {}
-        main_id = str(_id.get("main_id") or "")
+        tenant_id = str(_id.get("tenant_id") or "")
         skill_key = str(_id.get("skill_key") or "")
-        if not main_id or not skill_key:
+        if not tenant_id or not skill_key:
             continue
-        await evaluate_skill_quality(db, main_id=main_id, skill_key=skill_key, window_days=window_days)
+        await evaluate_skill_quality(db, tenant_id=tenant_id, skill_key=skill_key, window_days=window_days)
         scored += 1
     return scored
 

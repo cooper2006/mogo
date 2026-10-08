@@ -12,7 +12,7 @@ from fastapi import HTTPException, status
 from app.core.config import settings
 
 
-def install_organization_skill_zip(*, main_id: str, filename: str, content: bytes, confirm_replace: bool = False) -> dict[str, Any]:
+def install_organization_skill_zip(*, tenant_id: str, filename: str, content: bytes, confirm_replace: bool = False) -> dict[str, Any]:
     boundary = f"movo-skill-{uuid.uuid4().hex}"
     safe_name = str(filename or "skill.zip").replace('"', "_").replace("\r", "_").replace("\n", "_")
     body = b"".join([
@@ -26,7 +26,7 @@ def install_organization_skill_zip(*, main_id: str, filename: str, content: byte
         f"\r\n--{boundary}--\r\n".encode(),
     ])
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
-    query = urllib.parse.urlencode({"mainId": main_id})
+    query = urllib.parse.urlencode({"mainId": tenant_id})
     request = urllib.request.Request(
         f"{base_url}/api/organization-skills/install-zip?{query}",
         data=body,

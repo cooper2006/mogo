@@ -110,7 +110,7 @@ async def _wait_for_disconnect(request: Request) -> None:
 
 async def _identity(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization)
-    return resolve_main_id(resolved["main_id"]), str(resolved["user"].get("_id") or "")
+    return resolve_main_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
 
 
 @public_router.get("")

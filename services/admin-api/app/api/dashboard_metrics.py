@@ -61,9 +61,9 @@ def previous_window(
     return previous_start, current_start
 
 
-def tenant_match(main_id: str, *, since: datetime | None = None) -> dict[str, Any]:
+def tenant_match(tenant_id: str, *, since: datetime | None = None) -> dict[str, Any]:
     """Build the tenant-isolation match filter (FR-7)."""
-    match: dict[str, Any] = {"main_id": str(main_id or "default")}
+    match: dict[str, Any] = {"tenant_id": str(tenant_id or "default")}
     if since is not None:
         match["created_at"] = {"$gte": since}
     return match

@@ -50,8 +50,8 @@ def _require_user_id(user_id: str) -> str:
     return uid
 
 
-async def _require_tool_access(main_id: str, user_id: str, tool_id: str | None = None):
-    policy = await MongoEmployeePolicyResolver().resolve(main_id, user_id)
+async def _require_tool_access(tenant_id: str, user_id: str, tool_id: str | None = None):
+    policy = await MongoEmployeePolicyResolver().resolve(tenant_id, user_id)
     if tool_id is not None and not policy.allows_external_tool(tool_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前岗位未开通该工具")
     return policy
@@ -60,11 +60,11 @@ async def _require_tool_access(main_id: str, user_id: str, tool_id: str | None =
 @router.get("/external-tools/my", response_model=ApiResponse)
 async def list_user_external_tools(
     user_id: str = Query("", alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
-    data = await external_tool_service.list(main_id, scope="user", owner_user_id=uid)
-    policy = await _require_tool_access(main_id, uid)
+    data = await external_tool_service.list(tenant_id, scope="user", owner_user_id=uid)
+    policy = await _require_tool_access(tenant_id, uid)
     data = [row for row in data if policy.allows_external_tool(str(row.get("id") or row.get("_id") or ""))]
     return ApiResponse(data=data)
 
@@ -73,14 +73,14 @@ async def list_user_external_tools(
 async def create_user_external_tool(
     payload: ToolPayload,
     user_id: str = Query("", alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
-    policy = await _require_tool_access(main_id, uid)
+    policy = await _require_tool_access(tenant_id, uid)
     if policy.tool_access_mode != "all":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前岗位不能创建新的工具连接")
     try:
-        data = await external_tool_service.create(payload.model_dump(), main_id, scope="user", owner_user_id=uid)
+        data = await external_tool_service.create(payload.model_dump(), tenant_id, scope="user", owner_user_id=uid)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return ApiResponse(data=data)
@@ -90,11 +90,11 @@ async def create_user_external_tool(
 async def get_user_external_tool(
     tool_id: str,
     user_id: str = Query("", alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
-    await _require_tool_access(main_id, uid, tool_id)
-    data = await external_tool_service.get(tool_id, main_id, scope="user", owner_user_id=uid)
+    await _require_tool_access(tenant_id, uid, tool_id)
+    data = await external_tool_service.get(tool_id, tenant_id, scope="user", owner_user_id=uid)
     if not data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     return ApiResponse(data=data)
@@ -105,12 +105,12 @@ async def update_user_external_tool(
     tool_id: str,
     payload: ToolPayload,
     user_id: str = Query("", alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
-    await _require_tool_access(main_id, uid, tool_id)
+    await _require_tool_access(tenant_id, uid, tool_id)
     try:
-        data = await external_tool_service.update(tool_id, payload.model_dump(), main_id, scope="user", owner_user_id=uid)
+        data = await external_tool_service.update(tool_id, payload.model_dump(), tenant_id, scope="user", owner_user_id=uid)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not data:
@@ -123,12 +123,12 @@ async def patch_user_external_tool(
     tool_id: str,
     payload: dict[str, Any],
     user_id: str = Query("", alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
-    await _require_tool_access(main_id, uid, tool_id)
+    await _require_tool_access(tenant_id, uid, tool_id)
     try:
-        data = await external_tool_service.update(tool_id, payload, main_id, scope="user", owner_user_id=uid)
+        data = await external_tool_service.update(tool_id, payload, tenant_id, scope="user", owner_user_id=uid)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not data:
@@ -140,26 +140,26 @@ async def patch_user_external_tool(
 async def delete_user_external_tool(
     tool_id: str,
     user_id: str = Query("", alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
-    await _require_tool_access(main_id, uid, tool_id)
-    ok = await external_tool_service.delete(tool_id, main_id, scope="user", owner_user_id=uid)
+    await _require_tool_access(tenant_id, uid, tool_id)
+    ok = await external_tool_service.delete(tool_id, tenant_id, scope="user", owner_user_id=uid)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     return ApiResponse(data={"id": tool_id})
 
 
 @router.get("/external-tools/registry", response_model=ApiResponse)
-async def list_external_tool_registry(main_id: str = Query("default", alias="mainId")) -> ApiResponse:
-    data = await external_tool_registry.list_enabled_descriptors(main_id)
+async def list_external_tool_registry(tenant_id: str = Query("default", alias="mainId")) -> ApiResponse:
+    data = await external_tool_registry.list_enabled_descriptors(tenant_id)
     return ApiResponse(data=data)
 
 
 @router.post("/external-tools/{tool_id}/test", response_model=ApiResponse)
-async def test_external_tool(tool_id: str, payload: ToolTestPayload, main_id: str = Query("default", alias="mainId")) -> ApiResponse:
+async def test_external_tool(tool_id: str, payload: ToolTestPayload, tenant_id: str = Query("default", alias="mainId")) -> ApiResponse:
     try:
-        data = await external_tool_service.test(tool_id, payload.input, main_id)
+        data = await external_tool_service.test(tool_id, payload.input, tenant_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return ApiResponse(data=data)
@@ -170,24 +170,24 @@ async def test_user_external_tool(
     tool_id: str,
     payload: ToolTestPayload,
     user_id: str = Query("", alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
-    await _require_tool_access(main_id, uid, tool_id)
-    data = await external_tool_service.test(tool_id, payload.input, main_id, scope="user", owner_user_id=uid)
+    await _require_tool_access(tenant_id, uid, tool_id)
+    data = await external_tool_service.test(tool_id, payload.input, tenant_id, scope="user", owner_user_id=uid)
     return ApiResponse(data=data)
 
 
 @router.post("/external-tools/test-draft", response_model=ApiResponse)
-async def test_draft_external_tool(payload: ToolDraftTestPayload, main_id: str = Query("default", alias="mainId")) -> ApiResponse:
-    data = await external_tool_service.test_draft(payload.tool, payload.input, main_id)
+async def test_draft_external_tool(payload: ToolDraftTestPayload, tenant_id: str = Query("default", alias="mainId")) -> ApiResponse:
+    data = await external_tool_service.test_draft(payload.tool, payload.input, tenant_id)
     return ApiResponse(data=data)
 
 
 @router.post("/external-tools/{tool_id}/discover", response_model=ApiResponse)
-async def discover_mcp_tools(tool_id: str, main_id: str = Query("default", alias="mainId")) -> ApiResponse:
+async def discover_mcp_tools(tool_id: str, tenant_id: str = Query("default", alias="mainId")) -> ApiResponse:
     try:
-        data = await external_tool_service.discover_mcp_tools(tool_id, main_id)
+        data = await external_tool_service.discover_mcp_tools(tool_id, tenant_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return ApiResponse(data=data)
@@ -197,12 +197,12 @@ async def discover_mcp_tools(tool_id: str, main_id: str = Query("default", alias
 async def discover_user_mcp_tools(
     tool_id: str,
     user_id: str = Query("", alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     uid = _require_user_id(user_id)
-    await _require_tool_access(main_id, uid, tool_id)
+    await _require_tool_access(tenant_id, uid, tool_id)
     try:
-        data = await external_tool_service.discover_mcp_tools(tool_id, main_id, scope="user", owner_user_id=uid)
+        data = await external_tool_service.discover_mcp_tools(tool_id, tenant_id, scope="user", owner_user_id=uid)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return ApiResponse(data=data)
@@ -211,7 +211,7 @@ async def discover_user_mcp_tools(
 @router.post("/external-tools/generate-description", response_model=ApiResponse)
 async def generate_external_tool_description(
     payload: ToolDescriptionGeneratePayload,
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
 ) -> ApiResponse:
     try:
         data = await external_tool_service.generate_description(

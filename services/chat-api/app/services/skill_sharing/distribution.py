@@ -26,12 +26,12 @@ class SkillDistributionService:
     """Stable audience and releases above immutable Skill share snapshots."""
 
     async def ensure(
-        self, *, main_id: str, owner_user_id: str, source_skill_id: str,
+        self, *, tenant_id: str, owner_user_id: str, source_skill_id: str,
     ) -> dict[str, Any]:
         db = get_db()
-        tenant_id = resolve_main_id(main_id)
+        tenant_id = resolve_main_id(tenant_id)
         query = {
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "owner_user_id": str(owner_user_id),
             "source_skill_id": str(source_skill_id),
             "status": "active",
@@ -42,7 +42,7 @@ class SkillDistributionService:
         row = {"_id": uuid.uuid4().hex, **query, "created_at": _utcnow(), "updated_at": _utcnow()}
         await db[DISTRIBUTION_COLLECTION].insert_one(row)
         await db.user_skills.update_one(
-            {"_id": str(source_skill_id), "main_id": tenant_id, "user_id": str(owner_user_id)},
+            {"_id": str(source_skill_id), "tenant_id": tenant_id, "user_id": str(owner_user_id)},
             {"$set": {"distribution_id": row["_id"]}},
         )
         return row
@@ -58,7 +58,7 @@ class SkillDistributionService:
     ) -> dict[str, Any]:
         db = get_db()
         query = {
-            "main_id": str(distribution["main_id"]),
+            "tenant_id": str(distribution["tenant_id"]),
             "distribution_id": str(distribution["_id"]),
             "digest": snapshot.package.archive_digest,
         }
@@ -80,7 +80,7 @@ class SkillDistributionService:
         }
         await db[DISTRIBUTION_RELEASE_COLLECTION].insert_one(row)
         await db[DISTRIBUTION_COLLECTION].update_one(
-            {"_id": distribution["_id"], "main_id": distribution["main_id"]},
+            {"_id": distribution["_id"], "tenant_id": distribution["tenant_id"]},
             {"$set": {"latest_release_id": row["_id"], "latest_version": row["version"], "updated_at": _utcnow()}},
         )
         return row
@@ -88,7 +88,7 @@ class SkillDistributionService:
     async def publish_from_skill(
         self,
         *,
-        main_id: str,
+        tenant_id: str,
         owner_user_id: str,
         source_skill_id: str,
         release_id: str = "",
@@ -96,9 +96,9 @@ class SkillDistributionService:
         release_notes: str = "",
     ) -> dict[str, Any] | None:
         db = get_db()
-        tenant_id = resolve_main_id(main_id)
+        tenant_id = resolve_main_id(tenant_id)
         distribution = await db[DISTRIBUTION_COLLECTION].find_one({
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "owner_user_id": str(owner_user_id),
             "source_skill_id": str(source_skill_id),
             "status": "active",
@@ -106,7 +106,7 @@ class SkillDistributionService:
         if distribution is None:
             return None
         skill = await db.user_skills.find_one({
-            "_id": str(source_skill_id), "main_id": tenant_id, "user_id": str(owner_user_id),
+            "_id": str(source_skill_id), "tenant_id": tenant_id, "user_id": str(owner_user_id),
         })
         if skill is None:
             return None
@@ -130,7 +130,7 @@ class SkillDistributionService:
     ) -> None:
         db = get_db()
         query = {
-            "main_id": str(release.get("main_id") or "default"),
+            "tenant_id": str(release.get("tenant_id") or "default"),
             "distribution_id": str(release.get("distribution_id") or ""),
             "recipient_user_id": str(recipient_user_id),
         }
@@ -152,10 +152,10 @@ class SkillDistributionService:
         else:
             await db[MEMBER_COLLECTION].insert_one({"_id": uuid.uuid4().hex, **query, **values, "created_at": _utcnow()})
 
-    async def list_updates(self, *, main_id: str, recipient_user_id: str, limit: int = 50) -> dict[str, Any]:
+    async def list_updates(self, *, tenant_id: str, recipient_user_id: str, limit: int = 50) -> dict[str, Any]:
         db = get_db()
         query = {
-            "main_id": resolve_main_id(main_id),
+            "tenant_id": resolve_main_id(tenant_id),
             "recipient_user_id": str(recipient_user_id),
             "status": "pending",
         }
@@ -164,11 +164,11 @@ class SkillDistributionService:
         installed_ids = list({str(row.get("installed_skill_id") or "") for row in rows} - {""})
         release_ids = list({str(row.get("release_id") or "") for row in rows} - {""})
         installed_rows = await db.user_skills.find({
-            "_id": {"$in": installed_ids}, "main_id": query["main_id"],
+            "_id": {"$in": installed_ids}, "tenant_id": query["tenant_id"],
             "user_id": str(recipient_user_id),
         }).to_list(length=len(installed_ids)) if installed_ids else []
         releases = await db[DISTRIBUTION_RELEASE_COLLECTION].find({
-            "_id": {"$in": release_ids}, "main_id": query["main_id"], "status": "active",
+            "_id": {"$in": release_ids}, "tenant_id": query["tenant_id"], "status": "active",
         }).to_list(length=len(release_ids)) if release_ids else []
         installed_by_id = {str(row.get("_id") or ""): row for row in installed_rows}
         releases_by_id = {str(row.get("_id") or ""): row for row in releases}
@@ -182,15 +182,15 @@ class SkillDistributionService:
         return {"items": items, "pendingCount": count}
 
     async def install_update(
-        self, *, main_id: str, recipient_user_id: str, notification_id: str, confirm_replace: bool = False,
+        self, *, tenant_id: str, recipient_user_id: str, notification_id: str, confirm_replace: bool = False,
     ) -> dict[str, Any]:
         from .service import SkillShareError, SkillShareService
 
         db = get_db()
-        tenant_id = resolve_main_id(main_id)
+        tenant_id = resolve_main_id(tenant_id)
         query = {
             "_id": notification_id,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "recipient_user_id": str(recipient_user_id),
             "status": "pending",
         }
@@ -199,13 +199,13 @@ class SkillDistributionService:
             raise SkillShareError("skill_update_unavailable", "This Skill update is unavailable", status_code=404)
         release = await db[DISTRIBUTION_RELEASE_COLLECTION].find_one({
             "_id": str(notification.get("release_id") or ""),
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "status": "active",
         })
         if release is None:
             raise SkillShareError("skill_update_unavailable", "This Skill update is unavailable", status_code=404)
         current = await db.user_skills.find_one({
-            "_id": str(notification.get("installed_skill_id") or ""), "main_id": tenant_id,
+            "_id": str(notification.get("installed_skill_id") or ""), "tenant_id": tenant_id,
             "user_id": str(recipient_user_id),
         })
         local_modified = bool(current) and (bool(current.get("locally_modified")) or str(current.get("package_digest") or "") != str(notification.get("installed_digest") or ""))
@@ -228,14 +228,14 @@ class SkillDistributionService:
     async def _notify_members(self, *, distribution: dict[str, Any], release: dict[str, Any]) -> None:
         db = get_db()
         members = await db[MEMBER_COLLECTION].find({
-            "main_id": distribution["main_id"],
+            "tenant_id": distribution["tenant_id"],
             "distribution_id": distribution["_id"],
             "status": "active",
             "installed_digest": {"$ne": release["digest"]},
         }).to_list(length=100_000)
         for member in members:
             query = {
-                "main_id": distribution["main_id"],
+                "tenant_id": distribution["tenant_id"],
                 "distribution_id": distribution["_id"],
                 "recipient_user_id": member["recipient_user_id"],
                 "release_id": release["_id"],

@@ -44,7 +44,7 @@ class ModelProfileCompiler:
             "schema_version": "askai.runtime-profile.v1",
             "tenant_id": tenant_id,
             "subject_user_id": user_id,
-            "model_source_tenant_id": str(instance.get("main_id")),
+            "model_source_tenant_id": str(instance.get("tenant_id")),
             "model_instance_id": str(instance.get("_id")),
             "provider_id": str(provider.get("_id")),
             "provider_type": str(provider.get("provider_type") or "openai_compatible"),
@@ -78,7 +78,7 @@ class ModelProfileCompiler:
 
     @staticmethod
     def _validate(instance: dict[str, Any], provider: dict[str, Any], tenant_id: str) -> None:
-        if str(instance.get("main_id")) != tenant_id:
+        if str(instance.get("tenant_id")) != tenant_id:
             raise ValueError("cross-tenant model access is forbidden")
         if instance.get("status") != "active":
             raise ValueError("model instance is disabled")

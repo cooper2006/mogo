@@ -21,7 +21,7 @@ _PUBLISH_WORDS = ("发布", "发表", "publish", "post")
 def build_workflow_identity(
     *,
     user_id: str,
-    main_id: str,
+    tenant_id: str,
     node: CapabilityTask,
     input_context: BrowserInputContext,
 ) -> WorkflowIdentity | None:
@@ -40,7 +40,7 @@ def build_workflow_identity(
     )
     identity_data = {
         "user_id": str(user_id),
-        "main_id": str(main_id or "default"),
+        "tenant_id": str(tenant_id or "default"),
         "site_id": site_id,
         "operation_id": operation_id,
         "capability_id": capability_id,

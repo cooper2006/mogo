@@ -24,7 +24,7 @@ class SystemAuditQuery:
     async def list_logs(
         self,
         *,
-        main_id: str,
+        tenant_id: str,
         category: str,
         page: int,
         page_size: int,
@@ -33,26 +33,26 @@ class SystemAuditQuery:
         module: str = "",
     ) -> dict[str, Any]:
         if category == "management":
-            return await self._management(main_id, page, page_size, keyword, result, module)
+            return await self._management(tenant_id, page, page_size, keyword, result, module)
         if category == "agent":
-            return await self._agent(main_id, page, page_size, keyword, result)
-        return await self._legacy(main_id, page, page_size, keyword)
+            return await self._agent(tenant_id, page, page_size, keyword, result)
+        return await self._legacy(tenant_id, page, page_size, keyword)
 
-    async def overview(self, main_id: str, since: datetime) -> dict[str, int]:
-        management = {"main_id": main_id, "occurred_at": {"$gte": since}}
+    async def overview(self, tenant_id: str, since: datetime) -> dict[str, int]:
+        management = {"tenant_id": tenant_id, "occurred_at": {"$gte": since}}
         return {
             "managementOperations": await self.db[SYSTEM_AUDIT_COLLECTION].count_documents(management),
             "failedOperations": await self.db[SYSTEM_AUDIT_COLLECTION].count_documents({**management, "result": "failed"}),
             "agentActivities": await self.db.position_role_audit_logs.count_documents({
-                "main_id": main_id, "created_at": {"$gte": since}, "action": {"$regex": r"^capability\."},
+                "tenant_id": tenant_id, "created_at": {"$gte": since}, "action": {"$regex": r"^capability\."},
             }),
             "permissionDenials": await self.db.position_role_audit_logs.count_documents({
-                "main_id": main_id, "created_at": {"$gte": since}, "action": "capability.denied",
+                "tenant_id": tenant_id, "created_at": {"$gte": since}, "action": "capability.denied",
             }),
         }
 
-    async def _management(self, main_id: str, page: int, page_size: int, keyword: str, result: str, module: str) -> dict[str, Any]:
-        query: dict[str, Any] = {"main_id": main_id}
+    async def _management(self, tenant_id: str, page: int, page_size: int, keyword: str, result: str, module: str) -> dict[str, Any]:
+        query: dict[str, Any] = {"tenant_id": tenant_id}
         if result in {"success", "failed"}:
             query["result"] = result
         if module:
@@ -69,10 +69,10 @@ class SystemAuditQuery:
         rows = await self.db[SYSTEM_AUDIT_COLLECTION].find(query).sort("occurred_at", -1).skip((page - 1) * page_size).limit(page_size).to_list(length=page_size)
         return self._page(page, page_size, total, [self._management_item(row) for row in rows])
 
-    async def _agent(self, main_id: str, page: int, page_size: int, keyword: str, result: str) -> dict[str, Any]:
+    async def _agent(self, tenant_id: str, page: int, page_size: int, keyword: str, result: str) -> dict[str, Any]:
         limit = page * page_size
-        position_query: dict[str, Any] = {"main_id": main_id, "action": {"$regex": r"^capability\."}}
-        tool_query: dict[str, Any] = {"tenant_id": main_id}
+        position_query: dict[str, Any] = {"tenant_id": tenant_id, "action": {"$regex": r"^capability\."}}
+        tool_query: dict[str, Any] = {"tenant_id": tenant_id}
         if result == "failed":
             position_query["action"] = "capability.denied"
             tool_query["event"] = {"$regex": "denied|failed", "$options": "i"}
@@ -90,10 +90,10 @@ class SystemAuditQuery:
         items.sort(key=lambda item: item["occurredAt"], reverse=True)
         return self._page(page, page_size, total, items[(page - 1) * page_size:page * page_size])
 
-    async def _legacy(self, main_id: str, page: int, page_size: int, keyword: str) -> dict[str, Any]:
+    async def _legacy(self, tenant_id: str, page: int, page_size: int, keyword: str) -> dict[str, Any]:
         limit = page * page_size
-        directory_query: dict[str, Any] = {"main_id": main_id}
-        role_query: dict[str, Any] = {"main_id": main_id, "action": {"$not": {"$regex": r"^capability\."}}}
+        directory_query: dict[str, Any] = {"tenant_id": tenant_id}
+        role_query: dict[str, Any] = {"tenant_id": tenant_id, "action": {"$not": {"$regex": r"^capability\."}}}
         if keyword.strip():
             pattern = re.escape(keyword.strip())
             directory_query["$or"] = [{"operator": {"$regex": pattern, "$options": "i"}}, {"action": {"$regex": pattern, "$options": "i"}}, {"target_type": {"$regex": pattern, "$options": "i"}}]

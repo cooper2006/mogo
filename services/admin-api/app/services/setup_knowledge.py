@@ -11,7 +11,7 @@ COLLECTION = "knowledge_document_settings"
 
 async def configure_setup_knowledge_models(
     *,
-    main_id: str,
+    tenant_id: str,
     configured_models: list[tuple[dict[str, Any], str]],
     operator: str,
     embedding_dimension: int | None = None,
@@ -50,10 +50,10 @@ async def configure_setup_knowledge_models(
         return
     now = datetime.now(timezone.utc)
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id, "kind": "knowledge"},
+        {"tenant_id": tenant_id, "kind": "knowledge"},
         {
             "$set": {"config": config, "updated_by": operator, "updated_at": now},
-            "$setOnInsert": {"main_id": main_id, "kind": "knowledge", "created_at": now},
+            "$setOnInsert": {"tenant_id": tenant_id, "kind": "knowledge", "created_at": now},
         },
         upsert=True,
     )

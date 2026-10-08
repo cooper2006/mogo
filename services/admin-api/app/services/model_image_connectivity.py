@@ -18,26 +18,26 @@ from app.core.config import settings
 
 async def run_saved_image_model_test(
     instance_id: str,
-    main_id: str,
+    tenant_id: str,
     *,
     prompt: str,
 ) -> dict[str, Any]:
     return await asyncio.to_thread(
         _request_image_test,
         instance_id,
-        main_id,
+        tenant_id,
         prompt,
     )
 
 
-def _request_image_test(instance_id: str, main_id: str, prompt: str) -> dict[str, Any]:
+def _request_image_test(instance_id: str, tenant_id: str, prompt: str) -> dict[str, Any]:
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     path_id = urllib.parse.quote(instance_id, safe="")
     request = urllib.request.Request(
         f"{base_url}/api/models/{path_id}/test-image",
         data=json.dumps(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "prompt": prompt or "生成一张简洁的科技感演示文稿封面，不要文字。",
             },
             ensure_ascii=False,

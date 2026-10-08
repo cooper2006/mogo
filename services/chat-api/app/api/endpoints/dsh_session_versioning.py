@@ -138,25 +138,25 @@ def _token_id_for(secret: str) -> str:
 
 
 async def _record_session_audit(
-    *, main_id: str, user_id: str, session_id: str, event_type: str, target_ref: str = ""
+    *, tenant_id: str, user_id: str, session_id: str, event_type: str, target_ref: str = ""
 ) -> None:
     """Record a 002 session event on the 001 audit stream (FR-11)."""
     from app.governance.audit import record_position_policy_event
 
     await record_position_policy_event(
-        tenant_id=main_id,
+        tenant_id=tenant_id,
         user_id=user_id,
         action=f"session.{event_type}",
         target=target_ref,
-        details={"session_id": session_id, "event_type": event_type, "target_ref": target_ref, "main_id": main_id},
+        details={"session_id": session_id, "event_type": event_type, "target_ref": target_ref, "tenant_id": tenant_id},
     )
 
 
 async def _authorize(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
-    main_id = resolve_main_id(resolved["main_id"])
+    tenant_id = resolve_main_id(resolved["tenant_id"])
     user_id = str(resolved["user"].get("_id") or "")
-    return main_id, user_id
+    return tenant_id, user_id
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@ async def commit_session(
     payload: CommitIn,
     authorization: str | None = Header(default=None),
 ):
-    main_id, user_id = await _authorize(authorization)
+    tenant_id, user_id = await _authorize(authorization)
     db = get_db()
     attachment_refs = [
         AttachmentRef(
@@ -191,7 +191,7 @@ async def commit_session(
             from app.core.tenant import add_main_scope, resolve_main_id
 
             rows = await db.chat_messages.find(
-                add_main_scope({"session_id": session_id}, resolve_main_id(main_id))
+                add_main_scope({"session_id": session_id}, resolve_main_id(tenant_id))
             ).sort("seq", 1).to_list(length=200)
             content_source = "\n".join(
                 f"{row.get('role') or ''}: {row.get('content') or ''}"
@@ -211,7 +211,7 @@ async def commit_session(
 
     # 002: validate client-reported seq matches actual next sequence
     expected_seq = await _next_seq(
-        db, session_id, user_id, main_id
+        db, session_id, user_id, tenant_id
     )
     if payload.seq != expected_seq:
         raise HTTPException(
@@ -229,7 +229,7 @@ async def commit_session(
         attachments=attachment_refs,
     )
     document = snapshot.as_document()
-    document["main_id"] = main_id
+    document["tenant_id"] = tenant_id
     document["content"] = content_redacted
     document["secret_refs"] = secret_ids
     # Persist the original secret values, scoped to the session + main (FR-8).
@@ -237,7 +237,7 @@ async def commit_session(
         originals = _collect_originals(payload.summary, content_source, ids=secret_ids)
         refs = [
             secret_ref_document(
-                session_id=session_id, main_id=main_id, token_id=tid, original=originals.get(tid, ""), actor=user_id
+                session_id=session_id, tenant_id=tenant_id, token_id=tid, original=originals.get(tid, ""), actor=user_id
             )
             for tid in secret_ids
         ]
@@ -246,7 +246,7 @@ async def commit_session(
     document["_id"] = getattr(result, "inserted_id", result)
     # FR-11: commit is a session-level audited event on the 001 audit stream.
     await _record_session_audit(
-        main_id=main_id, user_id=user_id, session_id=session_id,
+        tenant_id=tenant_id, user_id=user_id, session_id=session_id,
         event_type="commit", target_ref=str(document.get("snapshot_id") or ""),
     )
     return _snapshot_out(document)
@@ -257,10 +257,10 @@ async def list_session_versions(
     session_id: str,
     authorization: str | None = Header(default=None),
 ):
-    main_id, _ = await _authorize(authorization)
+    tenant_id, _ = await _authorize(authorization)
     db = get_db()
     cursor = db[SNAPSHOT_COLLECTION].find(
-        {"session_id": session_id, "main_id": main_id}
+        {"session_id": session_id, "tenant_id": tenant_id}
     ).sort("created_at", 1)
     documents = await cursor.to_list(length=500)
     return [
@@ -278,10 +278,10 @@ async def get_session_version(
     snapshot_id: str,
     authorization: str | None = Header(default=None),
 ):
-    main_id, _ = await _authorize(authorization)
+    tenant_id, _ = await _authorize(authorization)
     db = get_db()
     document = await db[SNAPSHOT_COLLECTION].find_one(
-        {"snapshot_id": snapshot_id, "session_id": session_id, "main_id": main_id}
+        {"snapshot_id": snapshot_id, "session_id": session_id, "tenant_id": tenant_id}
     )
     if document is None:
         raise HTTPException(status_code=404, detail="Snapshot not found")
@@ -294,25 +294,25 @@ async def resume_session(
     snapshot_id: str = Query("", description="Resume after this snapshot; empty = latest"),
     authorization: str | None = Header(default=None),
 ):
-    main_id, user_id = await _authorize(authorization)
+    tenant_id, user_id = await _authorize(authorization)
     db = get_db()
     target = None
     if snapshot_id:
         target = await db[SNAPSHOT_COLLECTION].find_one(
-            {"snapshot_id": snapshot_id, "session_id": session_id, "main_id": main_id}
+            {"snapshot_id": snapshot_id, "session_id": session_id, "tenant_id": tenant_id}
         )
         if target is None:
             raise HTTPException(status_code=404, detail="Snapshot not found")
     else:
         cursor = db[SNAPSHOT_COLLECTION].find(
-            {"session_id": session_id, "main_id": main_id}
+            {"session_id": session_id, "tenant_id": tenant_id}
         ).sort("created_at", -1)
         target = await cursor.to_list(length=1)
         target = target[0] if target else None
     resume_after_seq = int(target.get("seq") or 0) + 1 if target else 1
     # FR-11: resume is a session-level audited event on the 001 audit stream.
     await _record_session_audit(
-        main_id=main_id, user_id=user_id, session_id=session_id,
+        tenant_id=tenant_id, user_id=user_id, session_id=session_id,
         event_type="resume", target_ref=snapshot_id or "",
     )
     # 002 audit fix: return the target snapshot's metadata so the consumer
@@ -337,7 +337,7 @@ async def share_session(
     payload: ShareIn,
     authorization: str | None = Header(default=None),
 ):
-    main_id, user_id = await _authorize(authorization)
+    tenant_id, user_id = await _authorize(authorization)
     db = get_db()
     store = ShareStore(db)
     share = await store.create_share(
@@ -351,10 +351,10 @@ async def share_session(
     )
     # FR-11: share grant is a session-level audited event on the 001 audit stream.
     await _record_session_audit(
-        main_id=main_id, user_id=user_id, session_id=session_id,
+        tenant_id=tenant_id, user_id=user_id, session_id=session_id,
         event_type="share", target_ref=share.share_id,
     )
-    return {**share.to_view(), "main_id": main_id}
+    return {**share.to_view(), "tenant_id": tenant_id}
 
 
 @router.post("/sessions/{session_id}/share/redeem")
@@ -363,7 +363,7 @@ async def redeem_share(
     payload: RedeemIn,
     authorization: str | None = Header(default=None),
 ):
-    main_id, _ = await _authorize(authorization)
+    tenant_id, _ = await _authorize(authorization)
     db = get_db()
     store = ShareStore(db)
     try:
@@ -382,7 +382,7 @@ async def revoke_share(
 ):
     # ``_authorize`` returns ``(main_id, user_id)``; the audit call below needs
     # both. Discarding user_id made this endpoint raise NameError on every call.
-    main_id, user_id = await _authorize(authorization)
+    tenant_id, user_id = await _authorize(authorization)
     db = get_db()
     store = ShareStore(db)
     try:
@@ -391,7 +391,7 @@ async def revoke_share(
         raise HTTPException(status_code=404, detail="Share not found")
     # FR-11: revocation is a session-level audited event on the 001 audit stream.
     await _record_session_audit(
-        main_id=main_id, user_id=user_id, session_id=session_id,
+        tenant_id=tenant_id, user_id=user_id, session_id=session_id,
         event_type="share", target_ref=f"{share_id}:revoked",
     )
     return share.to_view()
@@ -414,10 +414,10 @@ async def dereference_secret(
     dereference is recorded on the 001 audit stream (FR-11). The original value
     lives in ``session_secret_refs`` (never inlined into the snapshot).
     """
-    main_id, user_id = await _authorize(authorization)
+    tenant_id, user_id = await _authorize(authorization)
     db = get_db()
     row = await db[SECRET_REF_COLLECTION].find_one(
-        {"token_id": token_id, "session_id": session_id, "main_id": main_id}
+        {"token_id": token_id, "session_id": session_id, "tenant_id": tenant_id}
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Secret placeholder not found")
@@ -427,30 +427,30 @@ async def dereference_secret(
 
     owner = str(row.get("created_by") or "")
     is_owner = bool(owner) and owner == user_id
-    is_full_access = await _user_has_full_access(db, main_id, user_id)
+    is_full_access = await _user_has_full_access(db, tenant_id, user_id)
     if not (is_owner or is_full_access):
         # Denied dereference is itself audited (FR-8 / FR-11).
         await _record_session_audit(
-            main_id=main_id, user_id=user_id, session_id=session_id,
+            tenant_id=tenant_id, user_id=user_id, session_id=session_id,
             event_type="dereference", target_ref=f"{token_id}:denied",
         )
         raise HTTPException(status_code=403, detail="Only the session owner or a full-access admin may dereference")
 
     await _record_session_audit(
-        main_id=main_id, user_id=user_id, session_id=session_id,
+        tenant_id=tenant_id, user_id=user_id, session_id=session_id,
         event_type="dereference", target_ref=token_id,
     )
     return {"token_id": token_id, "session_id": session_id, "value": row.get("original")}
 
 
-async def _user_has_full_access(db, main_id: str, user_id: str) -> bool:
+async def _user_has_full_access(db, tenant_id: str, user_id: str) -> bool:
     """Whether the user holds the tenant's full-access preset role (006)."""
-    if not main_id or not user_id:
+    if not tenant_id or not user_id:
         return False
     from app.core.tenant import add_main_scope
 
     cursor = db["end_user_position_roles"].find(
-        add_main_scope({"user_id": user_id, "role_id": f"system:{main_id}:full_access_admin"}, main_id)
+        add_main_scope({"user_id": user_id, "role_id": f"system:{tenant_id}:full_access_admin"}, tenant_id)
     )
     row = await cursor.to_list(length=1)
     return bool(row)
@@ -467,13 +467,13 @@ async def upsert_co_presence(
     payload: CoPresenceIn,
     authorization: str | None = Header(default=None),
 ):
-    main_id, user_id = await _authorize(authorization)
+    tenant_id, user_id = await _authorize(authorization)
     db = get_db()
     presence = CoPresence(db)
     await presence.heartbeat(session_id=session_id, user_id=user_id)
     merged = await presence.merge_messages(session_id, payload.message_seqs)
     online = sorted(await presence.online(session_id))
-    online_members = await _resolve_online_members(db, main_id, online)
+    online_members = await _resolve_online_members(db, tenant_id, online)
     return {
         "sessionId": session_id,
         "userId": user_id,
@@ -488,11 +488,11 @@ async def get_co_presence(
     session_id: str,
     authorization: str | None = Header(default=None),
 ):
-    main_id, _ = await _authorize(authorization)
+    tenant_id, _ = await _authorize(authorization)
     db = get_db()
     presence = CoPresence(db)
     online = sorted(await presence.online(session_id))
-    online_members = await _resolve_online_members(db, main_id, online)
+    online_members = await _resolve_online_members(db, tenant_id, online)
     return {
         "sessionId": session_id,
         "onlineUsers": online,
@@ -502,7 +502,7 @@ async def get_co_presence(
 
 async def _resolve_online_members(
     db: Any,
-    main_id: str,
+    tenant_id: str,
     online_user_ids: list[str],
 ) -> list[dict[str, str]]:
     """Resolve online user IDs to display-friendly member views.
@@ -519,7 +519,7 @@ async def _resolve_online_members(
         add_main_scope(
             {"_id": {"$in": member_id_candidates(online_user_ids)},
              "status": "active"},
-            main_id,
+            tenant_id,
         ),
         {"name": 1, "login_name": 1, "email": 1},
     )

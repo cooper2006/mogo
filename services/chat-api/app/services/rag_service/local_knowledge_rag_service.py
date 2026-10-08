@@ -80,7 +80,7 @@ class LocalKnowledgeRAGService:
         *,
         query: str,
         user_id: str,
-        main_id: str = "default",
+        tenant_id: str = "default",
         session_id: str = "",
         top_k: int = 8,
         fetch_artifacts: bool = True,
@@ -121,7 +121,7 @@ class LocalKnowledgeRAGService:
             except Exception as exc:
                 log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
         rows = (
-            await db.chat_messages.find(add_main_scope(msg_filter, main_id))
+            await db.chat_messages.find(add_main_scope(msg_filter, tenant_id))
             .sort("created_at", -1)
             .limit(240)
             .to_list(length=240)
@@ -192,7 +192,7 @@ class LocalKnowledgeRAGService:
             except Exception as exc:
                 log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
         sessions = (
-            await db.chat_sessions.find(add_main_scope(sess_filter, main_id))
+            await db.chat_sessions.find(add_main_scope(sess_filter, tenant_id))
             .sort("updated_at", -1)
             .limit(30)
             .to_list(length=30)

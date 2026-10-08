@@ -21,7 +21,7 @@ async def list_skill_updates(
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> dict[str, object]:
     result = await service.list_updates(
-        main_id=principal.main_id, recipient_user_id=principal.user_id, limit=limit,
+        tenant_id=principal.tenant_id, recipient_user_id=principal.user_id, limit=limit,
     )
     return {"code": 0, "message": "success", "data": result}
 
@@ -34,7 +34,7 @@ async def install_skill_update(
 ) -> dict[str, object]:
     try:
         result = await service.install_update(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             recipient_user_id=principal.user_id,
             notification_id=notification_id,
             confirm_replace=payload.confirm_replace,

@@ -49,7 +49,7 @@ class RemoteKnowledgeRAGService:
         query: str,
         user_id: str,
         session_id: str,
-        main_id: str,
+        tenant_id: str,
         knowledge_ids: List[str],
         limit: int,
         top_n: int,
@@ -66,8 +66,8 @@ class RemoteKnowledgeRAGService:
             payload["userId"] = user_id
         if session_id:
             payload["sessionId"] = session_id
-        if main_id:
-            payload["mainId"] = main_id
+        if tenant_id:
+            payload["tenantId"] = tenant_id
         return payload
 
     @staticmethod
@@ -145,7 +145,7 @@ class RemoteKnowledgeRAGService:
         request_id: str = "",
         user_id: str = "",
         session_id: str = "",
-        main_id: str = "",
+        tenant_id: str = "",
         knowledge_ids: Any = None,
         limit: int = 40,
         top_k: int = 10,
@@ -172,7 +172,7 @@ class RemoteKnowledgeRAGService:
             query=q,
             user_id=str(user_id or "").strip(),
             session_id=str(session_id or "").strip(),
-            main_id=str(main_id or "").strip(),
+            tenant_id=str(tenant_id or "").strip(),
             knowledge_ids=ids,
             limit=lim,
             top_n=top_n,

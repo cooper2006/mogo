@@ -24,7 +24,7 @@ class KnowledgeRetrievalAccessPolicy(Protocol):
         self,
         items: list[dict[str, Any]],
         *,
-        main_id: str,
+        tenant_id: str,
         user_id: str,
     ) -> list[dict[str, Any]]: ...
 
@@ -36,7 +36,7 @@ class OpenSourceKnowledgeRetrievalAccessPolicy:
         self,
         items: list[dict[str, Any]],
         *,
-        main_id: str,
+        tenant_id: str,
         user_id: str,
     ) -> list[dict[str, Any]]:
         document_ids = sorted({
@@ -49,7 +49,7 @@ class OpenSourceKnowledgeRetrievalAccessPolicy:
 
         db = get_db()
         documents = list(db[DOCUMENT_COLLECTION].find(
-            {"_id": {"$in": document_ids}, "$or": [{"tenant_id": main_id}, {"main_id": main_id}], "deleted_at": None},
+            {"_id": {"$in": document_ids}, "tenant_id": tenant_id, "deleted_at": None},
             {
                 "_id": 1,
                 "scope": 1,
@@ -86,7 +86,7 @@ class OpenSourceKnowledgeRetrievalAccessPolicy:
             for resource in db[RESOURCE_COLLECTION].find(
                 {
                     "_id": {"$in": resource_ids},
-                    "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
+                    "tenant_id": tenant_id,
                     "owner_user_id": user_id,
                     "deleted_at": None,
                 },
@@ -97,7 +97,7 @@ class OpenSourceKnowledgeRetrievalAccessPolicy:
             str(grant.get("resource_id") or "")
             for grant in db[GRANT_COLLECTION].find(
                 {
-                    "$or": [{"tenant_id": main_id}, {"main_id": main_id}],
+                    "tenant_id": tenant_id,
                     "resource_type": "personal_knowledge",
                     "resource_id": {"$in": resource_ids},
                     "recipient_user_id": user_id,

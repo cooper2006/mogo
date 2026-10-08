@@ -58,7 +58,7 @@ class PermissionRevokeIn(BaseModel):
 
 
 def _tenant(actor: dict[str, Any]) -> str:
-    return str(actor.get("main_id") or actor.get("tenant_id") or "")
+    return str(actor.get("tenant_id") or "")
 
 
 def _actor_id(actor: dict[str, Any]) -> str:

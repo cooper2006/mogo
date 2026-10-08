@@ -32,7 +32,7 @@ def _format_datetime(dt: Any) -> str | None:
 def serialize_job(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": str(doc.get("_id") or ""),
-        "main_id": resolve_main_id(doc.get("main_id")),
+        "tenant_id": resolve_main_id(doc.get("tenant_id")),
         "owner_user_id": str(doc.get("owner_user_id") or ""),
         "run_as_user_id": str(doc.get("run_as_user_id") or ""),
         "name": str(doc.get("name") or ""),
@@ -59,7 +59,7 @@ class ScheduledTaskRepository:
     async def ensure_indexes(self) -> None:
         db = get_db()
         await db[JOBS].create_index(
-            [("main_id", 1), ("owner_user_id", 1), ("enabled", 1), ("next_run_at", 1)],
+            [("tenant_id", 1), ("owner_user_id", 1), ("enabled", 1), ("next_run_at", 1)],
             name="scheduled_jobs_owner_due",
         )
         await db[JOBS].create_index([("enabled", 1), ("next_run_at", 1)], name="scheduled_jobs_due")
@@ -67,30 +67,30 @@ class ScheduledTaskRepository:
             [("job_id", 1), ("scheduled_for", 1)], unique=True, name="scheduled_runs_idempotency"
         )
         await db[RUNS].create_index(
-            [("main_id", 1), ("owner_user_id", 1), ("created_at", -1)], name="scheduled_runs_owner"
+            [("tenant_id", 1), ("owner_user_id", 1), ("created_at", -1)], name="scheduled_runs_owner"
         )
 
-    async def list_jobs(self, *, main_id: str, user_id: str) -> List[Dict[str, Any]]:
+    async def list_jobs(self, *, tenant_id: str, user_id: str) -> List[Dict[str, Any]]:
         cursor = get_db()[JOBS].find(
-            {"main_id": resolve_main_id(main_id), "owner_user_id": str(user_id)}
+            {"tenant_id": resolve_main_id(tenant_id), "owner_user_id": str(user_id)}
         ).sort([("created_at", -1)])
         return [serialize_job(row) async for row in cursor]
 
-    async def get_job(self, job_id: str, *, main_id: str, user_id: str) -> Dict[str, Any] | None:
+    async def get_job(self, job_id: str, *, tenant_id: str, user_id: str) -> Dict[str, Any] | None:
         if not ObjectId.is_valid(job_id):
             return None
         return await get_db()[JOBS].find_one(
-            {"_id": ObjectId(job_id), "main_id": resolve_main_id(main_id), "owner_user_id": str(user_id)}
+            {"_id": ObjectId(job_id), "tenant_id": resolve_main_id(tenant_id), "owner_user_id": str(user_id)}
         )
 
-    async def create_job(self, payload: Dict[str, Any], *, main_id: str, user_id: str) -> Dict[str, Any]:
+    async def create_job(self, payload: Dict[str, Any], *, tenant_id: str, user_id: str) -> Dict[str, Any]:
         now = utc_now()
         timezone_name = str(payload.get("timezone") or "UTC")
         doc = {
             **dict(payload),
             "run_at": submitted_wall_time(payload["run_at"], timezone_name),
             "schedule_version": SCHEDULE_VERSION,
-            "main_id": resolve_main_id(main_id),
+            "tenant_id": resolve_main_id(tenant_id),
             "owner_user_id": str(user_id),
             "run_as_user_id": str(user_id),
             "created_by": str(user_id),
@@ -112,9 +112,9 @@ class ScheduledTaskRepository:
         return serialize_job(doc)
 
     async def update_job(
-        self, job_id: str, updates: Dict[str, Any], *, main_id: str, user_id: str
+        self, job_id: str, updates: Dict[str, Any], *, tenant_id: str, user_id: str
     ) -> Dict[str, Any] | None:
-        current = await self.get_job(job_id, main_id=main_id, user_id=user_id)
+        current = await self.get_job(job_id, tenant_id=tenant_id, user_id=user_id)
         if not current:
             return None
         schedule_fields = {"schedule_kind", "timezone", "run_at", "weekdays", "enabled"}
@@ -140,17 +140,17 @@ class ScheduledTaskRepository:
                 raise ValueError("单次任务的执行时间不能早于当前时间")
         updates["updated_at"] = utc_now()
         doc = await get_db()[JOBS].find_one_and_update(
-            {"_id": current["_id"], "main_id": resolve_main_id(main_id), "owner_user_id": str(user_id)},
+            {"_id": current["_id"], "tenant_id": resolve_main_id(tenant_id), "owner_user_id": str(user_id)},
             {"$set": updates},
             return_document=ReturnDocument.AFTER,
         )
         return serialize_job(doc) if doc else None
 
-    async def delete_job(self, job_id: str, *, main_id: str, user_id: str) -> bool:
+    async def delete_job(self, job_id: str, *, tenant_id: str, user_id: str) -> bool:
         if not ObjectId.is_valid(job_id):
             return False
         result = await get_db()[JOBS].delete_one(
-            {"_id": ObjectId(job_id), "main_id": resolve_main_id(main_id), "owner_user_id": str(user_id)}
+            {"_id": ObjectId(job_id), "tenant_id": resolve_main_id(tenant_id), "owner_user_id": str(user_id)}
         )
         return bool(result.deleted_count)
 
@@ -171,7 +171,7 @@ class ScheduledTaskRepository:
         run_doc = {
             "run_id": uuid.uuid4().hex,
             "job_id": str(job["_id"]),
-            "main_id": resolve_main_id(job.get("main_id")),
+            "tenant_id": resolve_main_id(job.get("tenant_id")),
             "owner_user_id": str(job.get("owner_user_id") or ""),
             "run_as_user_id": str(job.get("run_as_user_id") or ""),
             "scheduled_for": scheduled_for,

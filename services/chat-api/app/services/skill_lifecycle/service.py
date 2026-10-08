@@ -44,10 +44,10 @@ class SkillLifecycleService:
     """
 
     async def initialize_draft(
-        self, *, main_id: str, user_id: str, skill_id: str, draft: dict[str, Any], new_skill: bool,
+        self, *, tenant_id: str, user_id: str, skill_id: str, draft: dict[str, Any], new_skill: bool,
     ) -> dict[str, Any]:
         db = get_db()
-        scope = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id)
+        scope = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
         row = await db.user_skills.find_one(scope)
         if row is None:
             raise SkillLifecycleError("skill_not_found", "Skill not found", status_code=404)
@@ -67,10 +67,10 @@ class SkillLifecycleService:
         return await db.user_skills.find_one(scope) or {**row, **update}
 
     async def save_draft(
-        self, *, main_id: str, user_id: str, skill_id: str, draft: dict[str, Any],
+        self, *, tenant_id: str, user_id: str, skill_id: str, draft: dict[str, Any],
     ) -> dict[str, Any]:
         db = get_db()
-        scope = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id)
+        scope = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
         row = await db.user_skills.find_one(scope)
         if row is None:
             raise SkillLifecycleError("skill_not_found", "Skill not found", status_code=404)
@@ -93,7 +93,7 @@ class SkillLifecycleService:
     async def publish(
         self,
         *,
-        main_id: str,
+        tenant_id: str,
         user_id: str,
         skill_id: str,
         version: str = "",
@@ -102,7 +102,7 @@ class SkillLifecycleService:
         from app.services.skills import user_skill_service
 
         db = get_db()
-        tenant_id = resolve_main_id(main_id)
+        tenant_id = resolve_main_id(tenant_id)
         scope = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
         row = await db.user_skills.find_one(scope)
         if row is None:
@@ -115,11 +115,11 @@ class SkillLifecycleService:
         current_version = str(row.get("published_version") or "")
         next_version = self._normalize_version(version) if version else self._next_version(current_version)
         existing = await db[RELEASE_COLLECTION].find_one({
-            "main_id": tenant_id, "skill_id": skill_id, "version": next_version,
+            "tenant_id": tenant_id, "skill_id": skill_id, "version": next_version,
         })
         if existing:
             raise SkillLifecycleError("skill_version_exists", "This Skill version already exists", status_code=409)
-        updated = await user_skill_service.update_skill(user_id, skill_id, draft, main_id=tenant_id)
+        updated = await user_skill_service.update_skill(user_id, skill_id, draft, tenant_id=tenant_id)
         if updated is None:
             raise SkillLifecycleError("skill_not_found", "Skill not found", status_code=404)
         published_snapshot = self._snapshot(updated)
@@ -127,7 +127,7 @@ class SkillLifecycleService:
         now = _utcnow()
         release = {
             "_id": uuid.uuid4().hex,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "skill_id": skill_id,
             "owner_user_id": str(user_id),
             "version": next_version,
@@ -152,10 +152,10 @@ class SkillLifecycleService:
         return row, release
 
     async def list_releases(
-        self, *, main_id: str, user_id: str, skill_id: str, limit: int = 20,
+        self, *, tenant_id: str, user_id: str, skill_id: str, limit: int = 20,
     ) -> list[dict[str, Any]]:
         db = get_db()
-        tenant_id = resolve_main_id(main_id)
+        tenant_id = resolve_main_id(tenant_id)
         owner_scope = add_main_scope({
             "_id": skill_id, "user_id": str(user_id),
         }, tenant_id)
@@ -166,7 +166,7 @@ class SkillLifecycleService:
         if baseline:
             await db.user_skills.update_one(owner_scope, {"$set": baseline})
         rows = await db[RELEASE_COLLECTION].find({
-            "main_id": tenant_id, "skill_id": skill_id,
+            "tenant_id": tenant_id, "skill_id": skill_id,
         }).sort("created_at", -1).limit(min(max(limit, 1), 50)).to_list(length=min(max(limit, 1), 50))
         return [self.release_view(row) for row in rows]
 
@@ -178,15 +178,15 @@ class SkillLifecycleService:
         db = get_db()
         snapshot = self._snapshot(row)
         digest = self._digest(snapshot)
-        tenant_id = resolve_main_id(row.get("main_id"))
+        tenant_id = resolve_main_id(row.get("tenant_id"))
         skill_id = str(row.get("_id") or "")
         release = await db[RELEASE_COLLECTION].find_one({
-            "main_id": tenant_id, "skill_id": skill_id, "version": "1.0.0",
+            "tenant_id": tenant_id, "skill_id": skill_id, "version": "1.0.0",
         })
         if release is None:
             release = {
                 "_id": uuid.uuid4().hex,
-                "main_id": tenant_id,
+                "tenant_id": tenant_id,
                 "skill_id": skill_id,
                 "owner_user_id": str(row.get("user_id") or ""),
                 "version": "1.0.0",

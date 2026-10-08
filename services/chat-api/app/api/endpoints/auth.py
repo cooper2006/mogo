@@ -68,18 +68,18 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
     # Phase 1: accept both ``mainId`` (legacy) and ``tenantId`` (canonical).
     tenant_id: str = Field(default="", max_length=64, alias="tenantId")
-    mainId: str = Field(default="", max_length=64, alias="mainId")
+    tenantId: str = Field(default="", max_length=64, alias="mainId")
 
     model_config = {"populate_by_name": True}
 
     @property
     def effective_tenant_id(self) -> str:
-        return (self.tenant_id or self.mainId).strip()
+        return (self.tenant_id or self.tenantId).strip()
 
 
 class RegisterRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    mainId: str = Field(min_length=1, max_length=64, alias="mainId")
+    tenantId: str = Field(min_length=1, max_length=64, alias="mainId")
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=128)
     nickname: str = Field(default="", max_length=64)
@@ -89,30 +89,30 @@ class RegisterRequest(BaseModel):
 
     @property
     def effective_tenant_id(self) -> str:
-        return (self.tenant_id or self.mainId).strip()
+        return (self.tenant_id or self.tenantId).strip()
 
 
 class SelectTenantRequest(BaseModel):
     challengeToken: str = Field(min_length=8, max_length=256)
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    mainId: str = Field(min_length=1, max_length=64, alias="mainId")
+    tenantId: str = Field(min_length=1, max_length=64, alias="mainId")
 
     model_config = {"populate_by_name": True}
 
     @property
     def effective_tenant_id(self) -> str:
-        return (self.tenant_id or self.mainId).strip()
+        return (self.tenant_id or self.tenantId).strip()
 
 
 class SwitchTenantRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    mainId: str = Field(min_length=1, max_length=64, alias="mainId")
+    tenantId: str = Field(min_length=1, max_length=64, alias="mainId")
 
     model_config = {"populate_by_name": True}
 
     @property
     def effective_tenant_id(self) -> str:
-        return (self.tenant_id or self.mainId).strip()
+        return (self.tenant_id or self.tenantId).strip()
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -137,14 +137,14 @@ def _space_type_from_user(user: dict[str, Any]) -> str:
     return resolve_space_type(user)
 
 
-def _is_valid_tenant_main_id(main_id: str) -> bool:
-    value = str(main_id or "").strip()
+def _is_valid_tenant_main_id(tenant_id: str) -> bool:
+    value = str(tenant_id or "").strip()
     return bool(value) and value != DEFAULT_MAIN_ID
 
 
 def _profile_from_user(
     user: dict[str, Any],
-    main_id: str,
+    tenant_id: str,
     tenant: dict[str, Any],
     available_tenants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -162,9 +162,9 @@ def _profile_from_user(
         "phone": str(user.get("mobile") or ""),
         "email": str(user.get("email") or ""),
         "avatar": avatar,
-        "tenantId": resolve_main_id(main_id),
-        "mainId": resolve_main_id(main_id),
-        "orgName": str(tenant.get("orgName") or user.get("org_name") or resolve_main_id(main_id)),
+        "tenantId": resolve_main_id(tenant_id),
+        "mainId": resolve_main_id(tenant_id),
+        "orgName": str(tenant.get("orgName") or user.get("org_name") or resolve_main_id(tenant_id)),
         "spaceType": str(tenant.get("spaceType") or _space_type_from_user(user)),
         "canAccessAdmin": bool(tenant.get("canAccessAdmin")),
         "edition": str(tenant.get("edition") or "cloud"),
@@ -174,16 +174,16 @@ def _profile_from_user(
     }
 
 
-async def _profile_with_policy(user: dict[str, Any], main_id: str, available_tenants: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+async def _profile_with_policy(user: dict[str, Any], tenant_id: str, available_tenants: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     tenant = (await load_tenant_candidates(get_db(), [user]))[0]
     normalized_tenants = [
-        tenant if resolve_main_id(item.get("mainId")) == resolve_main_id(main_id) else {**item, "canAccessAdmin": bool(item.get("canAccessAdmin"))}
+        tenant if resolve_main_id(item.get("tenantId")) == resolve_main_id(tenant_id) else {**item, "canAccessAdmin": bool(item.get("canAccessAdmin"))}
         for item in list(available_tenants or [])
     ]
-    if not any(resolve_main_id(item.get("mainId")) == resolve_main_id(main_id) for item in normalized_tenants):
+    if not any(resolve_main_id(item.get("tenantId")) == resolve_main_id(tenant_id) for item in normalized_tenants):
         normalized_tenants.append(tenant)
-    profile = _profile_from_user(user, main_id, tenant, normalized_tenants)
-    policy = await MongoEmployeePolicyResolver().resolve(resolve_main_id(main_id), str(user.get("_id") or ""))
+    profile = _profile_from_user(user, tenant_id, tenant, normalized_tenants)
+    policy = await MongoEmployeePolicyResolver().resolve(resolve_main_id(tenant_id), str(user.get("_id") or ""))
     profile["agentPolicy"] = policy.public_snapshot()
     return profile
 
@@ -281,7 +281,7 @@ async def _create_session(user_doc: dict[str, Any], available_tenants: list[dict
     token_id = secrets.token_urlsafe(24)
     token = build_session_token(settings.END_USER_AUTH_SECRET, token_id)
     expires_at = now + timedelta(seconds=ttl_seconds)
-    tenant_id = resolve_main_id(user_doc.get("main_id"))
+    tenant_id = resolve_main_id(user_doc.get("tenant_id"))
     # Phase 1 dual-write: persist both keys (tenant_id is canonical going forward).
     await db[USER_SESSION_COLLECTION].insert_one(
         {
@@ -289,7 +289,6 @@ async def _create_session(user_doc: dict[str, Any], available_tenants: list[dict
             "user_id": str(user_doc["_id"]),
             "username": str(user_doc.get("login_name") or ""),
             "tenant_id": tenant_id,
-            "main_id": tenant_id,
             "available_tenants": available_tenants,
             "status": "active",
             "created_at": now,
@@ -345,7 +344,7 @@ async def login(payload: LoginRequest) -> ApiResponse:
         return ApiResponse(code=1, message="用户名或密码错误")
 
     # End-user runtime does not accept fallback tenant id "default".
-    matched_users = [item for item in matched_users if _is_valid_tenant_main_id(resolve_main_id(item.get("main_id")))]
+    matched_users = [item for item in matched_users if _is_valid_tenant_main_id(resolve_main_id(item.get("tenant_id")))]
     if not matched_users:
         return ApiResponse(code=1, message="当前账号未绑定有效组织，请联系管理员配置租户ID")
 
@@ -363,10 +362,10 @@ async def login(payload: LoginRequest) -> ApiResponse:
             },
         )
 
-    main_id = preferred_main_id or candidates[0]["mainId"]
-    if not _is_valid_tenant_main_id(main_id):
+    tenant_id = preferred_main_id or candidates[0]["tenantId"]
+    if not _is_valid_tenant_main_id(tenant_id):
         return ApiResponse(code=1, message="组织ID无效，请联系管理员配置租户ID")
-    target = next((item for item in matched_users if resolve_main_id(item.get("main_id")) == main_id), matched_users[0])
+    target = next((item for item in matched_users if resolve_main_id(item.get("tenant_id")) == tenant_id), matched_users[0])
     session_payload = await _create_session(target, candidates)
     return ApiResponse(code=0, data=session_payload)
 
@@ -382,24 +381,24 @@ async def registerable_tenants(request: Request) -> ApiResponse:
     db = get_db()
     # Fetch every selectable tenant, then filter out personal spaces.
     all_main_ids = [
-        str(doc.get("main_id") or "")
-        async for doc in db["tenants"].find({"status": "active"}, {"main_id": 1})
+        str(doc.get("tenant_id") or "")
+        async for doc in db["tenants"].find({"status": "active"}, {"tenant_id": 1})
     ]
     selectable_ids = await selectable_tenant_main_ids(db, all_main_ids)
     orgs = await db["organizations"].find(
-        {"main_id": {"$in": list(selectable_ids)}},
-        {"main_id": 1, "org_name": 1},
+        {"tenant_id": {"$in": list(selectable_ids)}},
+        {"tenant_id": 1, "org_name": 1},
     ).to_list(length=200)
     tenants = []
     for org in orgs:
-        main_id = str(org.get("main_id") or "")
-        fake_user = {"org_name": org.get("org_name") or "", "main_id": main_id}
+        tenant_id = str(org.get("tenant_id") or "")
+        fake_user = {"org_name": org.get("org_name") or "", "tenant_id": tenant_id}
         if resolve_space_type(fake_user) != "enterprise":
             continue
         tenants.append({
-            "tenantId": main_id,
-            "mainId": main_id,
-            "orgName": str(org.get("org_name") or main_id),
+            "tenantId": tenant_id,
+            "mainId": tenant_id,
+            "orgName": str(org.get("org_name") or tenant_id),
         })
     tenants.sort(key=lambda item: item["orgName"])
     return ApiResponse(code=0, data={"tenants": tenants})
@@ -408,26 +407,22 @@ async def registerable_tenants(request: Request) -> ApiResponse:
 @router.get("/auth/registerable-departments", response_model=ApiResponse)
 async def registerable_departments(
     request: Request,
-    mainId: str = "",
     tenantId: str = "",
 ) -> ApiResponse:
     """List the departments a registrant may join under the tenant id.
-
-    Phase 1: accepts both ``mainId`` (legacy) and ``tenantId`` (canonical) query
-    parameters; ``mainId`` keeps older frontends working during the migration.
 
     Reuses the org_units collection (the same data the admin user manager
     edits). Only ``active`` departments of that tenant are returned so the
     registration dropdown stays aligned with the admin side.
     """
     db = get_db()
-    main_id = resolve_main_id(tenantId or mainId)
-    if not _is_valid_tenant_main_id(main_id):
+    tenant_id = resolve_main_id(tenantId)
+    if not _is_valid_tenant_main_id(tenant_id):
         return ApiResponse(code=400, message="请选择有效的组织")
-    if not await is_tenant_selectable(db, main_id):
+    if not await is_tenant_selectable(db, tenant_id):
         return ApiResponse(code=400, message="该组织当前不可注册，请联系管理员")
     departments = await db[DEPARTMENT_COLLECTION].find(
-        {"main_id": main_id, "status": "active"},
+        {"tenant_id": tenant_id, "status": "active"},
         {"_id": 1, "name": 1, "parent_id": 1, "code": 1, "path_ids": 1},
     ).to_list(length=500)
     departments = [
@@ -457,14 +452,14 @@ async def register(payload: RegisterRequest) -> ApiResponse:
     if not setup_state or not bool(setup_state.get("completed")):
         return ApiResponse(code=503, message="系统尚未完成初始化，请先在管理后台执行 Setup")
 
-    main_id = resolve_main_id(payload.effective_tenant_id)
-    if not _is_valid_tenant_main_id(main_id):
+    tenant_id = resolve_main_id(payload.effective_tenant_id)
+    if not _is_valid_tenant_main_id(tenant_id):
         return ApiResponse(code=400, message="请选择有效的组织")
-    if not await is_tenant_selectable(db, main_id):
+    if not await is_tenant_selectable(db, tenant_id):
         return ApiResponse(code=400, message="该组织当前不可注册，请联系管理员")
 
-    org = await db["organizations"].find_one({"main_id": main_id}, {"org_name": 1})
-    if org is None or resolve_space_type({"org_name": org.get("org_name") or "", "main_id": main_id}) != "enterprise":
+    org = await db["organizations"].find_one({"tenant_id": tenant_id}, {"org_name": 1})
+    if org is None or resolve_space_type({"org_name": org.get("org_name") or "", "tenant_id": tenant_id}) != "enterprise":
         return ApiResponse(code=400, message="该组织不可注册，请联系管理员")
 
     email = str(payload.email or "").strip().lower()
@@ -476,7 +471,7 @@ async def register(payload: RegisterRequest) -> ApiResponse:
 
     existing = await db[USER_COLLECTION].find_one({
         "$and": [
-            {"$or": [{"tenant_id": main_id}, {"main_id": main_id}]},
+            {"tenant_id": tenant_id},
             {"$or": [{"login_name": email}, {"email": email}]},
         ]
     })
@@ -487,8 +482,7 @@ async def register(payload: RegisterRequest) -> ApiResponse:
     now = _now()
     name = str(payload.nickname or "").strip() or email.split("@", 1)[0]
     user_doc: dict[str, Any] = {
-        "tenant_id": main_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "login_name": email,
         "email": email,
         "name": name,
@@ -507,8 +501,8 @@ async def register(payload: RegisterRequest) -> ApiResponse:
     # Resolve and assign the primary department (FR: registrants pick a
     # department, same field the admin user manager uses). An invalid or empty
     # department id gracefully falls back to the tenant root department.
-    department_id = await _resolve_primary_department(main_id, payload.departmentId or None)
-    await _assign_user_primary_department(main_id, str(user_doc["_id"]), department_id)
+    department_id = await _resolve_primary_department(tenant_id, payload.departmentId or None)
+    await _assign_user_primary_department(tenant_id, str(user_doc["_id"]), department_id)
 
     available_tenants = await load_tenant_candidates(db, [user_doc])
     session_payload = await _create_session(user_doc, available_tenants)
@@ -541,17 +535,17 @@ async def select_tenant_login(payload: SelectTenantRequest) -> ApiResponse:
     selected_main_id = resolve_main_id(payload.effective_tenant_id)
     if not _is_valid_tenant_main_id(selected_main_id):
         return ApiResponse(code=1, message="组织ID无效")
-    selected = next((item for item in candidates if resolve_main_id(item.get("mainId")) == selected_main_id), None)
+    selected = next((item for item in candidates if resolve_main_id(item.get("tenantId")) == selected_main_id), None)
     if not selected:
         return ApiResponse(code=1, message="所选组织不可用")
 
     user_id = str(selected.get("userId") or "")
     if not ObjectId.is_valid(user_id):
         return ApiResponse(code=1, message="用户数据异常")
-    main_id = resolve_main_id(selected.get("mainId"))
-    if not _is_valid_tenant_main_id(main_id):
+    tenant_id = resolve_main_id(selected.get("tenantId"))
+    if not _is_valid_tenant_main_id(tenant_id):
         return ApiResponse(code=1, message="组织ID无效")
-    user_doc = await db[USER_COLLECTION].find_one(add_main_scope({"_id": ObjectId(user_id), "status": "active"}, main_id))
+    user_doc = await db[USER_COLLECTION].find_one(add_main_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id))
     if not user_doc:
         return ApiResponse(code=1, message="用户不存在或已禁用")
 
@@ -575,7 +569,7 @@ async def switch_tenant(
     target_main_id = resolve_main_id(payload.effective_tenant_id)
     if not _is_valid_tenant_main_id(target_main_id):
         return ApiResponse(code=1, message="组织ID无效")
-    target = next((item for item in available_tenants if resolve_main_id(item.get("mainId")) == target_main_id), None)
+    target = next((item for item in available_tenants if resolve_main_id(item.get("tenantId")) == target_main_id), None)
     if not target:
         return ApiResponse(code=1, message="当前账号不可切换到该组织")
     # FR-024: ``available_tenants`` is a snapshot taken at login time, so a
@@ -611,7 +605,7 @@ async def me(authorization: str | None = Header(default=None)) -> ApiResponse:
         {"_id": resolved["session"]["_id"]},
         {"$set": {"available_tenants": available_tenants, "updated_at": _now()}},
     )
-    return ApiResponse(code=0, data=await _profile_with_policy(user, resolved["main_id"], available_tenants))
+    return ApiResponse(code=0, data=await _profile_with_policy(user, resolved["tenant_id"], available_tenants))
 
 
 @router.patch("/auth/profile", response_model=ApiResponse)
@@ -643,7 +637,7 @@ async def update_profile(
     return ApiResponse(
         code=0,
         message="个人资料已更新",
-        data=await _profile_with_policy(refreshed or current_user, resolved["main_id"], available_tenants),
+        data=await _profile_with_policy(refreshed or current_user, resolved["tenant_id"], available_tenants),
     )
 
 
@@ -707,7 +701,7 @@ async def upload_profile_avatar(
     return ApiResponse(
         code=0,
         message="头像已更新",
-        data=await _profile_with_policy(refreshed or current_user, resolved["main_id"], available_tenants),
+        data=await _profile_with_policy(refreshed or current_user, resolved["tenant_id"], available_tenants),
     )
 
 
@@ -752,17 +746,17 @@ async def _load_available_tenants(username: str) -> list[dict[str, Any]]:
     db = get_db()
     rows = await db[USER_COLLECTION].find({"login_name": username, "status": "active"}).to_list(length=200)
     candidates = await load_tenant_candidates(db, rows)
-    return [item for item in candidates if _is_valid_tenant_main_id(resolve_main_id(item.get("mainId")))]
+    return [item for item in candidates if _is_valid_tenant_main_id(resolve_main_id(item.get("tenantId")))]
 
 
-async def _ensure_root_department(main_id: str) -> str:
+async def _ensure_root_department(tenant_id: str) -> str:
     db = get_db()
     now = _now()
     await db[DEPARTMENT_COLLECTION].update_one(
-        {"main_id": main_id, "code": "root"},
+        {"tenant_id": tenant_id, "code": "root"},
         {
             "$setOnInsert": {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "name": "企业总部",
                 "code": "root",
                 "parent_id": None,
@@ -777,38 +771,38 @@ async def _ensure_root_department(main_id: str) -> str:
         },
         upsert=True,
     )
-    root = await db[DEPARTMENT_COLLECTION].find_one({"main_id": main_id, "code": "root"})
+    root = await db[DEPARTMENT_COLLECTION].find_one({"tenant_id": tenant_id, "code": "root"})
     if not root:
         raise RuntimeError("组织根部门初始化失败")
     return str(root["_id"])
 
 
-async def _resolve_primary_department(main_id: str, requested_department_id: str | None = None) -> str:
+async def _resolve_primary_department(tenant_id: str, requested_department_id: str | None = None) -> str:
     db = get_db()
     if requested_department_id and ObjectId.is_valid(str(requested_department_id)):
         department = await db[DEPARTMENT_COLLECTION].find_one(
             {
                 "_id": ObjectId(str(requested_department_id)),
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "status": "active",
             }
         )
         if department:
             return str(department["_id"])
-    return await _ensure_root_department(main_id)
+    return await _ensure_root_department(tenant_id)
 
 
-async def _assign_user_primary_department(main_id: str, user_id: str, department_id: str) -> None:
+async def _assign_user_primary_department(tenant_id: str, user_id: str, department_id: str) -> None:
     db = get_db()
     now = _now()
     await db[USER_COLLECTION].update_one(
-        {"_id": ObjectId(user_id), "main_id": main_id},
+        {"_id": ObjectId(user_id), "tenant_id": tenant_id},
         {"$set": {"primary_org_id": department_id, "updated_at": now}},
     )
-    await db[USER_ORG_REL_COLLECTION].delete_many({"main_id": main_id, "user_id": user_id})
+    await db[USER_ORG_REL_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})
     await db[USER_ORG_REL_COLLECTION].insert_one(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "user_id": user_id,
             "org_id": department_id,
             "is_primary": True,
@@ -823,14 +817,14 @@ async def get_org_details(
     authorization: str | None = Header(default=None)
 ) -> ApiResponse:
     resolved = await _resolve_session_user(authorization)
-    main_id = resolved["main_id"]
+    tenant_id = resolved["tenant_id"]
     current_user = resolved["user"]
     
     db = get_db()
     from app.core.billing import get_or_create_organization
-    org = await get_or_create_organization(main_id, default_org_name=current_user.get("org_name") or "个人空间", owner_id=str(current_user["_id"]))
+    org = await get_or_create_organization(tenant_id, default_org_name=current_user.get("org_name") or "个人空间", owner_id=str(current_user["_id"]))
     
-    current_members = await db[USER_COLLECTION].count_documents({"main_id": main_id})
+    current_members = await db[USER_COLLECTION].count_documents({"tenant_id": tenant_id})
     from app.core.product_edition import organization_capability_payload
 
     capabilities = organization_capability_payload(org)
@@ -838,8 +832,8 @@ async def get_org_details(
     used_points = int(org.get("used_points") or 0)
     
     data = {
-        "tenantId": org.get("tenant_id") or org.get("main_id"),
-        "mainId": org.get("main_id"),
+        "tenantId": org.get("tenant_id"),
+        "mainId": org.get("tenant_id"),
         "orgName": org.get("org_name"),
         "edition": capabilities["edition"],
         "tier": org.get("tier", "community"),
@@ -865,7 +859,7 @@ async def admin_sso(
     """
     resolved = await _resolve_session_user(authorization)
     current_user = resolved["user"]
-    main_id = resolved["main_id"]
+    tenant_id = resolved["tenant_id"]
     username = current_user["login_name"]
     db = get_db()
     tenant = (await load_tenant_candidates(db, [current_user]))[0]
@@ -875,7 +869,7 @@ async def admin_sso(
         return ApiResponse(code=1, message="您没有访问管理后台的权限")
 
     # 1. 后台账号与用户端账号分离：SSO 只校验已有后台账号，不自动补建。
-    admin_account = await db[ADMIN_ACCOUNT_COLLECTION].find_one({"username": username, "main_id": main_id})
+    admin_account = await db[ADMIN_ACCOUNT_COLLECTION].find_one({"username": username, "tenant_id": tenant_id})
     if not admin_account or admin_account.get("status") != "active" or admin_account.get("group_code") == "member":
         return ApiResponse(code=1, message="您没有访问管理后台的权限")
 
@@ -887,7 +881,7 @@ async def admin_sso(
         "username": username,
         "role_name": admin_account.get("role_name") or "平台超级管理员",
         "org_name": admin_account.get("org_name") or "个人空间",
-        "main_id": main_id,
+        "tenant_id": tenant_id,
     }
     
     token, expires_at, session_id = _create_admin_token(subject, jwt_secret)

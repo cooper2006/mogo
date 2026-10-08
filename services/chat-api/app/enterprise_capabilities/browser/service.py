@@ -65,7 +65,7 @@ async def browser_task(arguments: dict[str, Any], context: CapabilityExecutionCo
     inputs = CapabilityInputs(
         messages=[], raw_messages=[{"role": "user", "content": objective}], intent=objective,
         output_spec={
-            "user_id": context.user_id, "main_id": context.tenant_id,
+            "user_id": context.user_id, "tenant_id": context.tenant_id,
             "task_id": context.conversation_id, "session_id": context.conversation_id, "run_id": run_id,
             "resume_node_id": node_id,
             "suspension_id": str(resume.get("suspension_id") or ""),

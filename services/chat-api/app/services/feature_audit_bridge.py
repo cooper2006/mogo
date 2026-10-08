@@ -97,7 +97,7 @@ def _schedule_insert(feature: str, record: dict[str, Any], db: Any) -> None:
         await db.position_role_audit_logs.insert_one(
             {
                 "_id": uuid.uuid4().hex,
-                "main_id": str(record.get("tenant_id") or "default"),
+                "tenant_id": str(record.get("tenant_id") or "default"),
                 "actor": str(record.get("actor") or ""),
                 "action": _T999_AUDIT_ACTION,
                 "target_type": _T999_TARGET_TYPE,

@@ -30,7 +30,7 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def record_tenant_audit(main_id: str, actor: str, action: str, target: str, result: str, detail: dict[str, Any] | None = None) -> None:
+async def record_tenant_audit(tenant_id: str, actor: str, action: str, target: str, result: str, detail: dict[str, Any] | None = None) -> None:
     """Record one tenant lifecycle operation (SC-007).
 
     Shared by ``tenant_lifecycle`` (archive / restore / update),
@@ -40,7 +40,7 @@ async def record_tenant_audit(main_id: str, actor: str, action: str, target: str
     """
     try:
         await SystemAuditRepository().record_management_operation({
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "actor": actor,
             "category": "management",
             "module": LIFECYCLE_AUDIT_MODULE,
@@ -52,7 +52,7 @@ async def record_tenant_audit(main_id: str, actor: str, action: str, target: str
             "status_code": 0,
         })
     except Exception:  # audit must never break a lifecycle transition
-        logger.warning("failed to record lifecycle audit for %s", main_id, exc_info=True)
+        logger.warning("failed to record lifecycle audit for %s", tenant_id, exc_info=True)
 
 
 # Backwards-compatible alias: existing call sites (and tests that monkeypatch
@@ -60,16 +60,16 @@ async def record_tenant_audit(main_id: str, actor: str, action: str, target: str
 _record_audit = record_tenant_audit
 
 
-def _validate_main_id(main_id: str) -> str:
-    normalized = str(main_id or "").strip()
+def _validate_main_id(tenant_id: str) -> str:
+    normalized = str(tenant_id or "").strip()
     if not normalized or len(normalized) < 8 or is_reserved_main_id(normalized):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tenant identifier")
     return normalized
 
 
-async def _get_tenant(main_id: str) -> dict[str, Any]:
+async def _get_tenant(tenant_id: str) -> dict[str, Any]:
     db = get_db()
-    tenant = await db[TENANT_COLLECTION].find_one({"main_id": main_id})
+    tenant = await db[TENANT_COLLECTION].find_one({"tenant_id": tenant_id})
     if tenant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
     return tenant
@@ -98,21 +98,21 @@ async def _set_tenant_fields(tenant_id: str, fields: dict[str, Any], unset: dict
 async def _set_quota_state(tenant: dict[str, Any], state: str) -> None:
     db = get_db()
     now = _utcnow()
-    main_id = tenant["main_id"]
+    tenant_id = tenant["tenant_id"]
     await db["org_quota_policies"].update_one(
-        {"main_id": main_id},
+        {"tenant_id": tenant_id},
         {"$set": {"status": state, "updated_at": now}},
     )
     await db["organizations"].update_one(
-        {"main_id": main_id},
+        {"tenant_id": tenant_id},
         {"$set": {"status": state, "updated_at": now}},
     )
 
 
-async def archive_tenant(main_id: str, *, actor: str, reason: str = "") -> dict[str, Any]:
+async def archive_tenant(tenant_id: str, *, actor: str, reason: str = "") -> dict[str, Any]:
     """Soft-archive (T039): data stays intact, login is blocked, the tenant
     stops counting toward licensing (decision 18)."""
-    normalized = _validate_main_id(main_id)
+    normalized = _validate_main_id(tenant_id)
     tenant = await _get_tenant(normalized)
     current = _status(tenant)
     if current not in ("active", "disabled"):
@@ -138,9 +138,9 @@ async def archive_tenant(main_id: str, *, actor: str, reason: str = "") -> dict[
     return {"mainId": normalized, "status": "archived", "archivedAt": archived_at.isoformat()}
 
 
-async def restore_tenant(main_id: str, *, actor: str) -> dict[str, Any]:
+async def restore_tenant(tenant_id: str, *, actor: str) -> dict[str, Any]:
     """Restore an archived tenant (T041): back to ``active``, data intact."""
-    normalized = _validate_main_id(main_id)
+    normalized = _validate_main_id(tenant_id)
     tenant = await _get_tenant(normalized)
     if _status(tenant) != "archived":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only archived tenants can be restored")
@@ -156,7 +156,7 @@ async def restore_tenant(main_id: str, *, actor: str) -> dict[str, Any]:
 
 
 async def update_tenant(
-    main_id: str,
+    tenant_id: str,
     *,
     actor: str,
     name: str | None = None,
@@ -169,7 +169,7 @@ async def update_tenant(
     (the wire format cannot express an absent int reliably through all
     front-end tooling, so we accept the string form as well).
     """
-    normalized = _validate_main_id(main_id)
+    normalized = _validate_main_id(tenant_id)
     tenant = await _get_tenant(normalized)
     current = _status(tenant)
 
@@ -227,7 +227,7 @@ async def tenant_view(tenant: dict[str, Any]) -> dict[str, Any]:
 
     member_limit = tenant.get("member_limit")
     return {
-        "mainId": str(tenant.get("main_id") or ""),
+        "mainId": str(tenant.get("tenant_id") or ""),
         "name": str(tenant.get("name") or ""),
         "status": _status(tenant),
         "edition": str(tenant.get("edition") or "community"),

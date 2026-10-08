@@ -28,7 +28,7 @@ TENANT_COLLECTION = "tenants"
 RESERVED_MAIN_IDS = (PLATFORM_MAIN_ID, DEFAULT_MAIN_ID, "", None)
 
 
-async def is_tenant_active(main_id: str) -> bool:
+async def is_tenant_active(tenant_id: str) -> bool:
     """True when the tenant may accept new members / logins (FR-024).
 
     Only ``active`` passes for a tenant that has a registry row. A tenant with
@@ -39,7 +39,7 @@ async def is_tenant_active(main_id: str) -> bool:
     — both sides must agree, otherwise one service lets in what the other
     rejects.
     """
-    value = str(main_id or "").strip()
+    value = str(tenant_id or "").strip()
     if not value:
         return False
     db = get_db()
@@ -51,12 +51,6 @@ async def is_tenant_active(main_id: str) -> bool:
 
 async def ensure_indexes() -> None:
     db = get_db()
-    await db[TENANT_COLLECTION].create_index(
-        [("main_id", 1)],
-        unique=True,
-        name="tenant_main_id_unique",
-    )
-    # Phase 3a: tenant_id mirror of the unique tenant key (both kept until 3b).
     await db[TENANT_COLLECTION].create_index(
         [("tenant_id", 1)],
         unique=True,
@@ -70,7 +64,7 @@ async def ensure_indexes() -> None:
 
 async def ensure_tenant_record(
     *,
-    main_id: str,
+    tenant_id: str,
     name: str,
     edition: str = "community",
     admin_username: str = "",
@@ -85,12 +79,11 @@ async def ensure_tenant_record(
     db = get_db()
     now = datetime.now(timezone.utc)
     doc = await db[TENANT_COLLECTION].find_one_and_update(
-        {"tenant_id": main_id},
+        {"tenant_id": tenant_id},
         {
             "$set": {
                 # Phase 1 dual-write: canonical tenant_id + legacy main_id.
-                "tenant_id": main_id,
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "name": name,
                 "edition": edition,
                 "admin_username": admin_username,
@@ -121,39 +114,39 @@ async def backfill_tenants_from_accounts() -> int:
     db = get_db()
 
     existing_ids = {
-        row["main_id"]
+        row["tenant_id"]
         async for row in db[TENANT_COLLECTION].find({}, {"tenant_id": 1})
-        if row.get("main_id")
+        if row.get("tenant_id")
     }
 
     distinct_ids = await db["admin_accounts"].distinct("main_id")
 
     registered = 0
-    for main_id in distinct_ids:
-        if main_id in RESERVED_MAIN_IDS or main_id in existing_ids:
+    for tenant_id in distinct_ids:
+        if tenant_id in RESERVED_MAIN_IDS or tenant_id in existing_ids:
             continue
 
         admin = (
             await db["admin_accounts"].find_one(
-                {"tenant_id": main_id, "is_protected": True}, {"username": 1}
+                {"tenant_id": tenant_id, "is_protected": True}, {"username": 1}
             )
-            or await db["admin_accounts"].find_one({"tenant_id": main_id}, {"username": 1})
+            or await db["admin_accounts"].find_one({"tenant_id": tenant_id}, {"username": 1})
         )
         admin_username = admin.get("username", "") if admin else ""
 
-        org = await db["organizations"].find_one({"tenant_id": main_id}, {"org_name": 1, "edition": 1})
-        name = (org or {}).get("org_name") or main_id
+        org = await db["organizations"].find_one({"tenant_id": tenant_id}, {"org_name": 1, "edition": 1})
+        name = (org or {}).get("org_name") or tenant_id
         edition = (org or {}).get("edition") or "community"
 
         await ensure_tenant_record(
-            main_id=main_id,
+            tenant_id=tenant_id,
             name=name,
             edition=edition,
             admin_username=admin_username,
             created_by="migration",
         )
         registered += 1
-        logger.info("backfilled tenant %s (%s) from accounts", main_id, name)
+        logger.info("backfilled tenant %s (%s) from accounts", tenant_id, name)
 
     if registered:
         logger.info("tenant backfill registered %d tenant(s)", registered)

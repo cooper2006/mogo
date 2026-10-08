@@ -34,7 +34,7 @@ SOURCE_016_QUALITY = "flagged_by_016_quality"
 assert MARKED_LOW_QUALITY == LOW_QUALITY_MARKER, "016/011 marker key drift"
 
 
-async def fetch_marked_skill_keys(db: Any, *, main_id: str) -> set[str]:
+async def fetch_marked_skill_keys(db: Any, *, tenant_id: str) -> set[str]:
     """Return the set of skill keys in ``main_id`` flagged ``marked_low_quality``.
 
     Reads the 011-owned ``skill_adoption`` collection. Skills that have no
@@ -45,7 +45,7 @@ async def fetch_marked_skill_keys(db: Any, *, main_id: str) -> set[str]:
     rows = (
         await db[ADOPTION_COLLECTION]
         .find(
-            {"tenant_id": main_id, MARKED_LOW_QUALITY: True},
+            {"tenant_id": tenant_id, MARKED_LOW_QUALITY: True},
             {"skill_key": 1, "_id": 0},
         )
         .to_list(length=5000)
@@ -79,14 +79,14 @@ def apply_low_quality_ranking(
     return annotated + lowered
 
 
-def _doc_key(main_id: str, skill_key: str) -> dict[str, Any]:
-    return {"tenant_id": main_id, "skill_key": skill_key}
+def _doc_key(tenant_id: str, skill_key: str) -> dict[str, Any]:
+    return {"tenant_id": tenant_id, "skill_key": skill_key}
 
 
 async def apply_quality_assessment(
     db: Any,
     *,
-    main_id: str,
+    tenant_id: str,
     skill_key: str,
     total_calls: int,
     successful_calls: int,
@@ -113,7 +113,7 @@ async def apply_quality_assessment(
     should_mark = is_low_quality(score=effect.score, sustained_days=sustained_days)
     if should_mark:
         await db[ADOPTION_COLLECTION].update_one(
-            _doc_key(main_id, skill_key),
+            _doc_key(tenant_id, skill_key),
             {
                 "$set": {SOURCE_016_QUALITY: True, MARKED_LOW_QUALITY: True},
                 "$setOnInsert": {SOURCE_011_ADOPTION: False},
@@ -122,7 +122,7 @@ async def apply_quality_assessment(
         )
     else:
         await db[ADOPTION_COLLECTION].update_one(
-            _doc_key(main_id, skill_key),
+            _doc_key(tenant_id, skill_key),
             [
                 {
                     "$set": {
@@ -144,7 +144,7 @@ async def apply_quality_assessment(
 async def restore_quality(
     db: Any,
     *,
-    main_id: str,
+    tenant_id: str,
     skill_key: str,
     actor: str = "",
 ) -> dict[str, Any]:
@@ -156,7 +156,7 @@ async def restore_quality(
     if db is None:
         return {"skill_key": skill_key, "restored": False, "marked_low_quality": False}
     await db[ADOPTION_COLLECTION].update_one(
-        _doc_key(main_id, skill_key),
+        _doc_key(tenant_id, skill_key),
         [
             {
                 "$set": {

@@ -34,7 +34,7 @@ async def search_share_members(
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> dict[str, object]:
     result = await directory.search(
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         requester_user_id=principal.user_id,
         keyword=keyword,
         cursor=cursor,
@@ -51,7 +51,7 @@ async def share_skill_with_users(
 ) -> dict[str, object]:
     try:
         result = await service.create(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             owner_user_id=principal.user_id,
             skill_id=skill_id,
             recipient_user_ids=payload.recipient_user_ids,
@@ -69,7 +69,7 @@ async def list_skill_share_inbox(
 ) -> dict[str, object]:
     try:
         result = await service.inbox(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             recipient_user_id=principal.user_id,
             cursor=cursor,
             limit=limit,
@@ -84,14 +84,14 @@ async def count_skill_share_inbox(
     principal: ApiPrincipal = Depends(require_end_user_principal),
 ) -> dict[str, object]:
     count = await service.pending_count(
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         recipient_user_id=principal.user_id,
     )
     updates = await SkillDistributionService().list_updates(
-        main_id=principal.main_id, recipient_user_id=principal.user_id, limit=1,
+        tenant_id=principal.tenant_id, recipient_user_id=principal.user_id, limit=1,
     )
     feedback = await ResourceFeedbackService().unread_count(
-        main_id=principal.main_id, user_id=principal.user_id,
+        tenant_id=principal.tenant_id, user_id=principal.user_id,
         resource_types=["skill_distribution", "organization_skill"],
     )
     return _response({
@@ -110,7 +110,7 @@ async def accept_shared_skill(
 ) -> dict[str, object]:
     try:
         result = await service.accept(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             recipient_user_id=principal.user_id,
             delivery_id=delivery_id,
             replace_existing=payload.replace_existing,
@@ -127,7 +127,7 @@ async def decline_shared_skill(
 ) -> dict[str, object]:
     try:
         await service.decline(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             recipient_user_id=principal.user_id,
             delivery_id=delivery_id,
         )

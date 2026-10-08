@@ -611,7 +611,7 @@ def _base_payload(
     return {
         "id": f"org_skill:{org_id}",
         "user_id": "organization",
-        "main_id": resolve_main_id(doc.get("main_id")),
+        "tenant_id": resolve_main_id(doc.get("tenant_id")),
         "name": name,
         "description": description,
         "summary": description or scenario,
@@ -796,9 +796,9 @@ def _adapt_ordinary(doc: Dict[str, Any]) -> Dict[str, Any] | None:
 
 
 class OrganizationSkillAdapter:
-    async def list_runtime_skills(self, *, main_id: str) -> List[Dict[str, Any]]:
+    async def list_runtime_skills(self, *, tenant_id: str) -> List[Dict[str, Any]]:
         db = get_db()
-        query = add_main_scope({}, main_id)
+        query = add_main_scope({}, tenant_id)
         cursor = db.skills.find(query).sort("updated_at", -1)
         out: List[Dict[str, Any]] = []
         async for doc in cursor:

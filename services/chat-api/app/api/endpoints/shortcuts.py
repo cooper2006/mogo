@@ -63,9 +63,9 @@ class ShortcutPreferencePayload(BaseModel):
 
 @router.get("/shortcuts")
 async def get_shortcuts(principal: ApiPrincipal = Depends(require_end_user_principal)):
-    return {"code": 0, "data": await service.effective(principal.main_id, principal.user_id)}
+    return {"code": 0, "data": await service.effective(principal.tenant_id, principal.user_id)}
 
 
 @router.put("/shortcuts/preferences")
 async def save_shortcut_preferences(payload: ShortcutPreferencePayload, principal: ApiPrincipal = Depends(require_end_user_principal)):
-    return {"code": 0, "data": await service.save_preferences(principal.main_id, principal.user_id, payload.model_dump())}
+    return {"code": 0, "data": await service.save_preferences(principal.tenant_id, principal.user_id, payload.model_dump())}

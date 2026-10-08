@@ -31,15 +31,15 @@ class PersonalKnowledgeService:
         self.members = SkillShareMemberDirectory()
 
     async def create_resource(
-        self, *, main_id: str, owner_user_id: str, filename: str,
+        self, *, tenant_id: str, owner_user_id: str, filename: str,
         directory_id: str = "", name: str = "", description: str = "", tags: list[str] | None = None,
     ) -> dict[str, Any]:
-        tenant_id = resolve_main_id(main_id)
-        await self.require_directory(main_id=tenant_id, owner_user_id=owner_user_id, directory_id=directory_id)
+        tenant_id = resolve_main_id(tenant_id)
+        await self.require_directory(tenant_id=tenant_id, owner_user_id=owner_user_id, directory_id=directory_id)
         resource_id = uuid.uuid4().hex
         now = _now()
         row = {
-            "_id": resource_id, "main_id": tenant_id, "owner_user_id": str(owner_user_id),
+            "_id": resource_id, "tenant_id": tenant_id, "owner_user_id": str(owner_user_id),
             "directory_id": str(directory_id or ""),
             "name": str(name or Path(filename).stem or filename or "未命名知识").strip()[:180],
             "description": str(description or "").strip()[:2000],
@@ -63,22 +63,22 @@ class PersonalKnowledgeService:
         await get_db()[RESOURCE_COLLECTION].update_one({"_id": resource_id}, {"$set": values})
 
     async def list_resources(
-        self, *, main_id: str, user_id: str, view: str, directory_id: str = "",
+        self, *, tenant_id: str, user_id: str, view: str, directory_id: str = "",
         keyword: str = "", page: int = 1, page_size: int = 12,
     ) -> dict[str, Any]:
-        db, tenant_id = get_db(), resolve_main_id(main_id)
+        db, tenant_id = get_db(), resolve_main_id(tenant_id)
         offset = (page - 1) * page_size
         feedback = await personal_knowledge_feedback_summary_service.unread_by_resource(
-            main_id=tenant_id, user_id=user_id,
+            tenant_id=tenant_id, user_id=user_id,
         )
         if view == "shared":
             grants = await db[GRANT_COLLECTION].find({
-                "main_id": tenant_id, "resource_type": "personal_knowledge",
+                "tenant_id": tenant_id, "resource_type": "personal_knowledge",
                 "recipient_user_id": str(user_id), "status": {"$in": ["active", "revoked"]},
             }).sort("updated_at", -1).to_list(length=1000)
             resource_ids = [str(item.get("resource_id") or "") for item in grants]
             resources = await db[RESOURCE_COLLECTION].find({
-                "_id": {"$in": resource_ids}, "main_id": tenant_id,
+                "_id": {"$in": resource_ids}, "tenant_id": tenant_id,
             }).to_list(length=len(resource_ids)) if resource_ids else []
             by_id = {str(item.get("_id") or ""): item for item in resources}
             views = [self.resource_view(by_id.get(str(grant.get("resource_id") or "")), grant=grant) for grant in grants if by_id.get(str(grant.get("resource_id") or ""))]
@@ -102,7 +102,7 @@ class PersonalKnowledgeService:
             await self._attach_people(tenant_id, views)
             personal_knowledge_feedback_summary_service.attach(views, feedback)
             return {"items": views, "total": total, "page": page, "pageSize": page_size}
-        query: dict[str, Any] = {"main_id": tenant_id, "owner_user_id": str(user_id), "deleted_at": None}
+        query: dict[str, Any] = {"tenant_id": tenant_id, "owner_user_id": str(user_id), "deleted_at": None}
         if directory_id != "all":
             query["directory_id"] = str(directory_id or "")
         if keyword.strip():
@@ -133,26 +133,26 @@ class PersonalKnowledgeService:
         views = [self.resource_view(row) for row in rows]
         await self._attach_people(tenant_id, views)
         personal_knowledge_feedback_summary_service.attach(views, feedback)
-        await attach_share_summary(db=db, main_id=tenant_id, items=views)
+        await attach_share_summary(db=db, tenant_id=tenant_id, items=views)
         return {"items": views, "total": total, "page": page, "pageSize": page_size}
 
-    async def _attach_people(self, main_id: str, items: list[dict[str, Any]]) -> None:
+    async def _attach_people(self, tenant_id: str, items: list[dict[str, Any]]) -> None:
         from app.services.skill_sharing.member_directory import member_id_candidates
         ids = list({str(value) for item in items for value in (item.get("ownerUserId"), item.get("grantedByUserId")) if value})
         if not ids:
             return
         rows = await get_db().end_users.find({
-            "_id": {"$in": member_id_candidates(ids)}, "main_id": main_id,
+            "_id": {"$in": member_id_candidates(ids)}, "tenant_id": tenant_id,
         }, {"name": 1, "display_name": 1, "login_name": 1, "email": 1}).to_list(length=len(ids))
         people = {str(row.get("_id") or ""): self.members.member_view(row) for row in rows}
         for item in items:
             item["owner"] = people.get(str(item.get("ownerUserId") or ""), {})
             item["grantedBy"] = people.get(str(item.get("grantedByUserId") or ""), {})
 
-    async def share(self, *, main_id: str, user_id: str, resource_id: str, recipients: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        access = await self.access.require_share(main_id=main_id, user_id=user_id, resource_id=resource_id)
+    async def share(self, *, tenant_id: str, user_id: str, resource_id: str, recipients: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        access = await self.access.require_share(tenant_id=tenant_id, user_id=user_id, resource_id=resource_id)
         ids = [str(item.get("userId") or "") for item in recipients]
-        members = await self.members.require_members(main_id=main_id, requester_user_id=user_id, user_ids=ids)
+        members = await self.members.require_members(tenant_id=tenant_id, requester_user_id=user_id, user_ids=ids)
         allowed = {str(item.get("userId") or ""): bool(item.get("canReshare")) for item in recipients}
         now, db = _now(), get_db()
         output = []
@@ -160,7 +160,7 @@ class PersonalKnowledgeService:
             recipient_id = str(member.get("_id") or "")
             if recipient_id == str(access.resource.get("owner_user_id") or ""):
                 continue
-            query = {"main_id": resolve_main_id(main_id), "resource_type": "personal_knowledge", "resource_id": resource_id, "recipient_user_id": recipient_id}
+            query = {"tenant_id": resolve_main_id(tenant_id), "resource_type": "personal_knowledge", "resource_id": resource_id, "recipient_user_id": recipient_id}
             values = {"granted_by_user_id": str(user_id), "can_reshare": bool(allowed.get(recipient_id)), "status": "active", "revoked_at": None, "updated_at": now}
             current = await db[GRANT_COLLECTION].find_one(query)
             if current:
@@ -179,11 +179,11 @@ class PersonalKnowledgeService:
             output.append({**self.members.member_view(member), "canReshare": values["can_reshare"]})
         return output
 
-    async def revoke(self, *, main_id: str, user_id: str, resource_id: str, recipient_user_id: str, cascade: bool = False) -> None:
-        access = await self.access.require_view(main_id=main_id, user_id=user_id, resource_id=resource_id)
-        db, tenant_id = get_db(), resolve_main_id(main_id)
+    async def revoke(self, *, tenant_id: str, user_id: str, resource_id: str, recipient_user_id: str, cascade: bool = False) -> None:
+        access = await self.access.require_view(tenant_id=tenant_id, user_id=user_id, resource_id=resource_id)
+        db, tenant_id = get_db(), resolve_main_id(tenant_id)
         grant = await db[GRANT_COLLECTION].find_one({
-            "main_id": tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
+            "tenant_id": tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
             "recipient_user_id": str(recipient_user_id), "status": "active",
         })
         if grant is None:
@@ -197,7 +197,7 @@ class PersonalKnowledgeService:
             frontier = {str(recipient_user_id)}
             while frontier:
                 rows = await db[GRANT_COLLECTION].find({
-                    "main_id": tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
+                    "tenant_id": tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
                     "granted_by_user_id": {"$in": list(frontier)}, "status": "active",
                 }).to_list(length=5000)
                 next_frontier = {str(row.get("recipient_user_id") or "") for row in rows} - descendants - {""}
@@ -205,15 +205,15 @@ class PersonalKnowledgeService:
                 frontier = next_frontier
             if descendants:
                 await db[GRANT_COLLECTION].update_many({
-                    "main_id": tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
+                    "tenant_id": tenant_id, "resource_type": "personal_knowledge", "resource_id": resource_id,
                     "recipient_user_id": {"$in": list(descendants)}, "status": "active",
                 }, {"$set": {"status": "revoked", "revoked_by_user_id": str(user_id), "revoked_at": now, "seen_at": None, "updated_at": now}})
 
-    async def require_directory(self, *, main_id: str, owner_user_id: str, directory_id: str) -> None:
+    async def require_directory(self, *, tenant_id: str, owner_user_id: str, directory_id: str) -> None:
         if not directory_id:
             return
         row = await get_db()[DIRECTORY_COLLECTION].find_one({
-            "_id": str(directory_id), "main_id": resolve_main_id(main_id),
+            "_id": str(directory_id), "tenant_id": resolve_main_id(tenant_id),
             "owner_user_id": str(owner_user_id), "deleted_at": None,
         })
         if row is None:

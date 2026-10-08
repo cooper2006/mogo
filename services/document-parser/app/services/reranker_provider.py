@@ -21,7 +21,7 @@ def rerank(query: str, candidates: list[dict[str, Any]], config: dict[str, Any])
     provider = str(rerank_config.get("provider") or "model_center")
     try:
         if provider == "model_center":
-            return _model_center_rerank(query, candidates, rerank_config, str(config.get("_mainId") or ""))
+            return _model_center_rerank(query, candidates, rerank_config, str(config.get("_tenantId") or ""))
         if provider != "dashscope_qwen":
             raise RerankerError(f"不支持的 rerank provider: {provider}")
         return _dashscope_rerank(query, candidates, rerank_config)
@@ -70,10 +70,10 @@ def _dashscope_rerank(query: str, candidates: list[dict[str, Any]], config: dict
 
 
 def _model_center_rerank(
-    query: str, candidates: list[dict[str, Any]], config: dict[str, Any], main_id: str
+    query: str, candidates: list[dict[str, Any]], config: dict[str, Any], tenant_id: str
 ) -> list[dict[str, Any]]:
     try:
-        runtime = resolve_model_instance(main_id, str(config.get("modelInstanceId") or ""), "rerank")
+        runtime = resolve_model_instance(tenant_id, str(config.get("modelInstanceId") or ""), "rerank")
     except ModelCenterConfigError as exc:
         raise RerankerError(str(exc)) from exc
     documents = _candidate_documents(candidates)

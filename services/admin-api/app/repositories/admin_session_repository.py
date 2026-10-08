@@ -63,14 +63,14 @@ async def revoke_session(session_id: str) -> None:
 # ── QF-354: Active session enumeration ────────────────────────────────────
 
 
-async def list_sessions_for_user(username: str, main_id: str) -> list[dict]:
+async def list_sessions_for_user(username: str, tenant_id: str) -> list[dict]:
     """Return all active sessions for a user, sorted by most recent activity."""
     db = get_db()
     now = datetime.now(timezone.utc)
     cursor = db[COLLECTION_NAME].find(
         {
             "username": username,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "status": "active",
             "expires_at": {"$gt": now},
         }

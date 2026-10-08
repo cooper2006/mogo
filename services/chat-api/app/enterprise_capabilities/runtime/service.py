@@ -26,7 +26,7 @@ class InternalCapabilityService:
             if configured_model is None:
                 raise LookupError("the capability's immutable model instance is unavailable")
         previous = set_request_context({
-            "main_id": context.tenant_id,
+            "tenant_id": context.tenant_id,
             "user_id": context.user_id,
             "configured_model": configured_model or {},
         })

@@ -114,20 +114,20 @@ async def list_tenants(
     return {"items": items, "total": total}
 
 
-@router.get("/tenants/{main_id}")
+@router.get("/tenants/{tenant_id}")
 async def get_tenant(
-    main_id: str,
+    tenant_id: str,
     platform_admin: dict = Depends(get_current_platform_admin),
 ):
     """T027: lifecycle detail for a single tenant."""
     del platform_admin
-    tenant = await tenant_lifecycle._get_tenant(main_id)
+    tenant = await tenant_lifecycle._get_tenant(tenant_id)
     return await tenant_lifecycle.tenant_view(tenant)
 
 
-@router.patch("/tenants/{main_id}")
+@router.patch("/tenants/{tenant_id}")
 async def patch_tenant(
-    main_id: str,
+    tenant_id: str,
     payload: dict[str, Any],
     platform_admin: dict = Depends(get_current_platform_admin),
 ):
@@ -142,7 +142,7 @@ async def patch_tenant(
     """
     member_limit = payload["memberLimit"] if "memberLimit" in payload else payload.get("member_limit")
     return await tenant_lifecycle.update_tenant(
-        main_id,
+        tenant_id,
         actor=_actor(platform_admin),
         name=payload.get("name"),
         status_target=payload.get("status"),
@@ -155,14 +155,14 @@ async def patch_tenant(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/tenants/{main_id}/admin/reset-password")
+@router.post("/tenants/{tenant_id}/admin/reset-password")
 async def reset_tenant_admin_password(
-    main_id: str,
+    tenant_id: str,
     payload: dict[str, Any],
     platform_admin: dict = Depends(get_current_platform_admin),
 ):
     """T031: reset the tenant's own admin password (no forced change on next login)."""
-    tenant = await tenant_lifecycle._get_tenant(main_id)
+    tenant = await tenant_lifecycle._get_tenant(tenant_id)
     username = str(tenant.get("admin_username") or "").strip()
     new_password = str(payload.get("newPassword") or payload.get("new_password") or "")
     if not username:
@@ -170,9 +170,9 @@ async def reset_tenant_admin_password(
     if len(new_password) < 6:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="newPassword must have at least 6 characters")
 
-    await set_account_password(username, new_password, str(tenant.get("main_id")))
+    await set_account_password(username, new_password, str(tenant.get("tenant_id")))
     await tenant_lifecycle._record_audit(
-        str(tenant.get("main_id")),
+        str(tenant.get("tenant_id")),
         _actor(platform_admin),
         "reset-password",
         username,
@@ -186,30 +186,30 @@ async def reset_tenant_admin_password(
 # ---------------------------------------------------------------------------
 
 
-@router.delete("/tenants/{main_id}")
+@router.delete("/tenants/{tenant_id}")
 async def archive_tenant_route(
-    main_id: str,
+    tenant_id: str,
     payload: dict[str, Any] | None = None,
     platform_admin: dict = Depends(get_current_platform_admin),
 ):
     """T039: soft-archive a tenant (data stays intact, login is blocked,
     licensing count drops, decision 18)."""
     reason = str((payload or {}).get("reason") or "")
-    return await tenant_lifecycle.archive_tenant(main_id, actor=_actor(platform_admin), reason=reason)
+    return await tenant_lifecycle.archive_tenant(tenant_id, actor=_actor(platform_admin), reason=reason)
 
 
-@router.post("/tenants/{main_id}/restore")
+@router.post("/tenants/{tenant_id}/restore")
 async def restore_tenant_route(
-    main_id: str,
+    tenant_id: str,
     platform_admin: dict = Depends(get_current_platform_admin),
 ):
     """T041: restore an archived tenant back to active (data intact)."""
-    return await tenant_lifecycle.restore_tenant(main_id, actor=_actor(platform_admin))
+    return await tenant_lifecycle.restore_tenant(tenant_id, actor=_actor(platform_admin))
 
 
-@router.post("/tenants/{main_id}/purge")
+@router.post("/tenants/{tenant_id}/purge")
 async def purge_tenant_route(
-    main_id: str,
+    tenant_id: str,
     payload: dict[str, Any],
     background: BackgroundTasks,
     platform_admin: dict = Depends(get_current_platform_admin),
@@ -217,10 +217,10 @@ async def purge_tenant_route(
     """T045–T050: irreversibly delete a tenant (archived only).
 
     ``confirmName`` must exactly match the tenant's current name, otherwise 400.
-    Returns immediately with a task id; poll ``GET /tenants/{main_id}/purge-status``
+    Returns immediately with a task id; poll ``GET /tenants/{tenant_id}/purge-status``
     for progress (mongo / vectors / files phases).
     """
-    tenant = await tenant_lifecycle._get_tenant(main_id)
+    tenant = await tenant_lifecycle._get_tenant(tenant_id)
     confirm_name = str(payload.get("confirmName") or payload.get("confirm_name") or "")
     if confirm_name != str(tenant.get("name") or ""):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="confirmName does not match tenant name")
@@ -230,21 +230,21 @@ async def purge_tenant_route(
     task_id = str(uuid.uuid4())
     background.add_task(
         tenant_purge.run_purge,
-        main_id=str(tenant.get("main_id")),
+        tenant_id=str(tenant.get("tenant_id")),
         task_id=task_id,
         actor=_actor(platform_admin),
     )
     return {"taskId": task_id, "status": "running"}
 
 
-@router.get("/tenants/{main_id}/purge-status")
+@router.get("/tenants/{tenant_id}/purge-status")
 async def purge_tenant_status_route(
-    main_id: str,
+    tenant_id: str,
     platform_admin: dict = Depends(get_current_platform_admin),
 ):
     """T046–T047: poll purge progress (mongo / vectors / files phases)."""
     del platform_admin
-    return await tenant_purge.get_purge_status(main_id)
+    return await tenant_purge.get_purge_status(tenant_id)
 
 
 # ---------------------------------------------------------------------------

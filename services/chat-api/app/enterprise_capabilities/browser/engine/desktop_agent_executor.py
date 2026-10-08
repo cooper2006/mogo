@@ -1492,7 +1492,7 @@ class DesktopAgentBrowserExecutor:
             )
             browser_workflow_cache.schedule_success_capture(
                 user_id=self.user_id,
-                main_id=str(runtime_output_spec.get("main_id") or "default"),
+                tenant_id=str(runtime_output_spec.get("tenant_id") or "default"),
                 node=node,
                 input_context=input_context,
                 history=learned_history,

@@ -32,7 +32,7 @@ class RbacLayer:
         # 006 stores role documents keyed by ``_id`` (e.g. ``system:<main>:full_access_admin``)
         # under ``position_roles``, scoped by ``main_id``.
         cursor = db[POSITION_ROLE_COLLECTION].find(
-            {"main_id": tenant_id, "_id": {"$in": list(role_ids)}}
+            {"tenant_id": tenant_id, "_id": {"$in": list(role_ids)}}
         )
         return [doc async for doc in cursor]
 

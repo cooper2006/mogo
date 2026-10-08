@@ -49,11 +49,11 @@ def _audit_context(request: Request) -> dict[str, str] | None:
     subject = payload.get("sub") if isinstance(payload, dict) else None
     if not isinstance(subject, dict):
         return None
-    main_id = str(subject.get("main_id") or "").strip()
+    tenant_id = str(subject.get("tenant_id") or "").strip()
     actor = str(subject.get("username") or "").strip()
-    if not main_id or not actor:
+    if not tenant_id or not actor:
         return None
-    return {"main_id": main_id, "actor": actor}
+    return {"tenant_id": tenant_id, "actor": actor}
 
 
 async def _safe_record(

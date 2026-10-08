@@ -15,7 +15,7 @@ CHUNK_COLLECTION = "knowledge_document_chunks"
 def run_document_index(job_id: str, request: IndexDocumentJobRequest) -> None:
     db = get_db()
     query = {
-        "$or": [{"tenant_id": request.mainId}, {"main_id": request.mainId}],
+        "tenant_id": request.tenantId,
         "document_id": request.documentId,
         "chunk_stage": request.chunkStage,
     }
@@ -24,7 +24,7 @@ def run_document_index(job_id: str, request: IndexDocumentJobRequest) -> None:
         raise RuntimeError("没有可索引的 RAG 分段")
 
     config = dict(request.config or {})
-    config["_mainId"] = request.mainId
+    config["_tenantId"] = request.tenantId
     vector_store = get_vector_store(config)
     vector_store.ensure_schema()
     update_job_progress(job_id, 20)

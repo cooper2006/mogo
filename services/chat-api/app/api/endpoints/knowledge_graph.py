@@ -29,7 +29,7 @@ async def get_node(
     from app.knowledge_graph.persisted_store import TenantKgStore
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     store = TenantKgStore(tenant_id=tenant_id)
     await store._ensure_loaded()
     node = store.get_node(node_id)
@@ -62,7 +62,7 @@ async def get_neighbours(
     from app.knowledge_graph.persisted_store import TenantKgStore
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     store = TenantKgStore(tenant_id=tenant_id)
     await store._ensure_loaded()
     neighbours = store.neighbours(node_id, relation=relation)
@@ -95,7 +95,7 @@ async def extract_kg(
     from app.knowledge_graph.persisted_store import TenantKgStore
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
 
     record: Any
     if isinstance(payload.get("text"), str):
@@ -140,7 +140,7 @@ async def upsert_node(
     from app.knowledge_graph.schema import KgNode, ENTITY_TYPES
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
 
     node_id = str(payload.get("node_id") or "").strip()
     if not node_id:
@@ -184,7 +184,7 @@ async def resolve_source_ref(
     from app.knowledge_graph.persisted_store import TenantKgStore
 
     resolved_user = await _resolve_session_user(authorization)
-    tenant_id = str(resolved_user.get("main_id") or "")
+    tenant_id = str(resolved_user.get("tenant_id") or "")
 
     store = TenantKgStore(tenant_id=tenant_id)
     await store._ensure_loaded()
@@ -239,7 +239,7 @@ async def check_constraints(
     from app.knowledge_graph.persisted_store import TenantKgStore
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     store = TenantKgStore(tenant_id=tenant_id)
     await store._ensure_loaded()
 

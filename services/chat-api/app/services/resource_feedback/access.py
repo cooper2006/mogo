@@ -16,8 +16,8 @@ class FeedbackSubject:
 
 
 class FeedbackAccessResolver:
-    async def require(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str) -> FeedbackSubject:
-        tenant_id = resolve_main_id(main_id)
+    async def require(self, *, tenant_id: str, user_id: str, resource_type: str, resource_id: str) -> FeedbackSubject:
+        tenant_id = resolve_main_id(tenant_id)
         kind = str(resource_type or "").strip().lower()
         target_id = str(resource_id or "").strip()
         if kind == "skill_distribution":
@@ -28,37 +28,37 @@ class FeedbackAccessResolver:
             return await self._personal_knowledge(tenant_id, str(user_id), target_id)
         raise PermissionError("feedback_resource_unsupported")
 
-    async def _distribution(self, main_id: str, user_id: str, resource_id: str) -> FeedbackSubject:
+    async def _distribution(self, tenant_id: str, user_id: str, resource_id: str) -> FeedbackSubject:
         db = get_db()
-        row = await db.skill_distributions.find_one({"_id": resource_id, "main_id": main_id, "status": "active"})
+        row = await db.skill_distributions.find_one({"_id": resource_id, "tenant_id": tenant_id, "status": "active"})
         if row is None:
             raise LookupError("feedback_resource_not_found")
         owner_id = str(row.get("owner_user_id") or "")
         if owner_id != user_id:
             member = await db.skill_distribution_members.find_one({
-                "main_id": main_id, "distribution_id": resource_id,
+                "tenant_id": tenant_id, "distribution_id": resource_id,
                 "recipient_user_id": user_id, "status": "active",
             })
             if member is None:
                 raise PermissionError("feedback_forbidden")
         return FeedbackSubject("skill_distribution", resource_id, owner_id)
 
-    async def _organization_skill(self, main_id: str, user_id: str, resource_id: str) -> FeedbackSubject:
+    async def _organization_skill(self, tenant_id: str, user_id: str, resource_id: str) -> FeedbackSubject:
         raw_id = resource_id.removeprefix("org_skill:")
-        policy = await MongoEmployeePolicyResolver().resolve(main_id, user_id)
+        policy = await MongoEmployeePolicyResolver().resolve(tenant_id, user_id)
         if not policy.allows_skill(raw_id):
             raise PermissionError("feedback_forbidden")
         db = get_db()
-        row = await db.skills.find_one({"_id": raw_id, "main_id": main_id})
+        row = await db.skills.find_one({"_id": raw_id, "tenant_id": tenant_id})
         if row is None:
             raise LookupError("feedback_resource_not_found")
         return FeedbackSubject("organization_skill", raw_id)
 
-    async def _personal_knowledge(self, main_id: str, user_id: str, resource_id: str) -> FeedbackSubject:
+    async def _personal_knowledge(self, tenant_id: str, user_id: str, resource_id: str) -> FeedbackSubject:
         from app.services.personal_knowledge.access import PersonalKnowledgeAccessService
 
         access = await PersonalKnowledgeAccessService().require_view(
-            main_id=main_id, user_id=user_id, resource_id=resource_id,
+            tenant_id=tenant_id, user_id=user_id, resource_id=resource_id,
         )
         owner_user_id = str(access.resource.get("owner_user_id") or "")
         activity_recipient_user_id = str((access.grant or {}).get("granted_by_user_id") or owner_user_id)

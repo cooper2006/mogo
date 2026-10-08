@@ -114,7 +114,7 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
     try:
         payload = await internal_knowledge_qa_service.answer(
             query=query,
-            main_id=context.tenant_id,
+            tenant_id=context.tenant_id,
             user_id=context.user_id,
             session_id=context.conversation_id,
             knowledge_ids=selected,
@@ -247,7 +247,7 @@ async def web_collect(arguments: dict[str, Any], context: CapabilityExecutionCon
 
 
 async def external_search(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
-    previous = set_request_context({"main_id": context.tenant_id, "user_id": context.user_id})
+    previous = set_request_context({"tenant_id": context.tenant_id, "user_id": context.user_id})
     try:
         candidates, trace = await ProviderRouter().search(
             [str(item) for item in list(arguments.get("queries") or []) if str(item).strip()],
@@ -287,7 +287,7 @@ async def progressive_research(arguments: dict[str, Any], context: CapabilityExe
             await context.publish_progress(row)
 
     previous_request = set_request_context({
-        "main_id": context.tenant_id,
+        "tenant_id": context.tenant_id,
         "user_id": context.user_id,
         "configured_model": model_config,
         "model_instance_id": context.model_instance_id,

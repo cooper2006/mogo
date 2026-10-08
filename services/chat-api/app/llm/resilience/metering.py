@@ -54,7 +54,7 @@ def aggregate_usage(rows: Iterable[dict[str, Any]], *, dimension: str) -> list[d
             key = str(row.get("model_name") or row.get("model_id") or "").strip() or "unknown"
         elif dimension == "tenant":
             # Phase 1: prefer canonical tenant_id, fall back to legacy main_id.
-            key = str(row.get("tenant_id") or row.get("main_id") or "").strip() or "unknown"
+            key = str(row.get("tenant_id") or "").strip() or "unknown"
         else:  # agent
             key = str(row.get("agent_id") or row.get("node_id") or "").strip() or "unknown"
 

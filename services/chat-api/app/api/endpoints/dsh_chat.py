@@ -149,7 +149,7 @@ def _latest_user(request: ChatRequest) -> Message:
 async def _identity(authorization: str | None) -> tuple[str, str, dict[str, Any]]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
     user = resolved["user"]
-    return resolve_main_id(resolved["main_id"]), str(user.get("_id") or ""), user
+    return resolve_main_id(resolved["tenant_id"]), str(user.get("_id") or ""), user
 
 
 @router.post("/chat/completions")

@@ -17,8 +17,8 @@ class ModelCenterConfigError(RuntimeError):
     pass
 
 
-def resolve_model_instance(main_id: str, instance_id: str, capability: str) -> dict[str, str]:
-    if not main_id:
+def resolve_model_instance(tenant_id: str, instance_id: str, capability: str) -> dict[str, str]:
+    if not tenant_id:
         raise ModelCenterConfigError("模型配置缺少租户标识")
     if not instance_id:
         raise ModelCenterConfigError(f"知识库尚未选择 {capability} 模型")
@@ -27,7 +27,7 @@ def resolve_model_instance(main_id: str, instance_id: str, capability: str) -> d
     except (InvalidId, TypeError) as exc:
         raise ModelCenterConfigError(f"{capability} 模型实例 ID 无效") from exc
     db = get_db()
-    instance = db[INSTANCE_COLLECTION].find_one({"_id": object_id, "$or": [{"tenant_id": main_id}, {"main_id": main_id}], "status": "active"})
+    instance = db[INSTANCE_COLLECTION].find_one({"_id": object_id, "tenant_id": tenant_id, "status": "active"})
     if not instance:
         raise ModelCenterConfigError(f"未找到可用的 {capability} 模型配置")
     capabilities = {str(item) for item in instance.get("capabilities") or []}

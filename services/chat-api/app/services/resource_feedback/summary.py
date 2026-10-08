@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SkillFeedbackSummaryService:
     """Adds batched discussion counters and channel roles to Skill list rows."""
 
-    async def attach(self, *, main_id: str, user_id: str, skills: list[dict[str, Any]]) -> None:
+    async def attach(self, *, tenant_id: str, user_id: str, skills: list[dict[str, Any]]) -> None:
         candidates: dict[str, list[str]] = {}
         channel_ids: set[str] = set()
         for skill in skills:
@@ -27,20 +27,20 @@ class SkillFeedbackSummaryService:
                 skill["feedback"] = self._empty()
             return
         try:
-            await self._attach(main_id=resolve_main_id(main_id), user_id=str(user_id), skills=skills, candidates=candidates, channel_ids=channel_ids)
+            await self._attach(tenant_id=resolve_main_id(tenant_id), user_id=str(user_id), skills=skills, candidates=candidates, channel_ids=channel_ids)
         except Exception as exc:
             logger.warning("Skill feedback summaries unavailable", extra={"error": str(exc)[:500]})
             for skill in skills:
                 skill["feedback"] = self._empty()
 
-    async def _attach(self, *, main_id: str, user_id: str, skills: list[dict[str, Any]], candidates: dict[str, list[str]], channel_ids: set[str]) -> None:
+    async def _attach(self, *, tenant_id: str, user_id: str, skills: list[dict[str, Any]], candidates: dict[str, list[str]], channel_ids: set[str]) -> None:
         db = get_db()
         distributions = await db.skill_distributions.find({
-            "main_id": main_id, "_id": {"$in": list(channel_ids)}, "status": "active",
+            "tenant_id": tenant_id, "_id": {"$in": list(channel_ids)}, "status": "active",
         }).to_list(length=len(channel_ids))
         by_id = {str(row.get("_id") or ""): row for row in distributions}
         members = await db.skill_distribution_members.find({
-            "main_id": main_id, "distribution_id": {"$in": list(channel_ids)},
+            "tenant_id": tenant_id, "distribution_id": {"$in": list(channel_ids)},
             "recipient_user_id": user_id, "status": "active",
         }).to_list(length=len(channel_ids))
         member_ids = {str(row.get("distribution_id") or "") for row in members}
@@ -49,11 +49,11 @@ class SkillFeedbackSummaryService:
             if str(row.get("owner_user_id") or "") == user_id or channel_id in member_ids
         }
         counts = await self._group_counts(db.resource_comments, {
-            "main_id": main_id, "resource_type": "skill_distribution",
+            "tenant_id": tenant_id, "resource_type": "skill_distribution",
             "resource_id": {"$in": list(allowed)}, "status": "active",
         }, include_latest=True)
         unread = await self._group_counts(db.resource_feedback_notifications, {
-            "main_id": main_id, "resource_type": "skill_distribution",
+            "tenant_id": tenant_id, "resource_type": "skill_distribution",
             "resource_id": {"$in": list(allowed)}, "recipient_user_id": user_id, "status": "unread",
         })
         for skill in skills:

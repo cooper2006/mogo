@@ -36,7 +36,7 @@ def _as_time(value: datetime | None) -> str:
 def _format_group(doc: dict) -> dict[str, object]:
     return {
         "id": str(doc["_id"]),
-        "mainId": doc.get("main_id", ""),
+        "mainId": doc.get("tenant_id", ""),
         "name": doc.get("name", ""),
         "code": doc.get("code", ""),
         "description": doc.get("description", ""),
@@ -49,7 +49,7 @@ def _format_account(doc: dict, group_name_map: dict[str, str]) -> dict[str, obje
     group_code = doc.get("group_code", "")
     return {
         "id": str(doc["_id"]),
-        "mainId": doc.get("main_id", ""),
+        "mainId": doc.get("tenant_id", ""),
         "username": doc.get("username", ""),
         "displayName": doc.get("display_name", ""),
         "email": doc.get("email", ""),
@@ -95,11 +95,11 @@ class AccountUpdatePayload(BaseModel):
 
 @router.get("/account-groups")
 async def get_account_groups(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, object]]:
-    main_id = str(current_user.get("main_id", "default"))
-    groups = await list_account_groups(main_id)
+    tenant_id = str(current_user.get("tenant_id", "default"))
+    groups = await list_account_groups(tenant_id)
     result: list[dict[str, object]] = []
     for group in groups:
-        count = await count_accounts_by_group_code(group.get("code", ""), main_id)
+        count = await count_accounts_by_group_code(group.get("code", ""), tenant_id)
         group["account_count"] = count
         result.append(_format_group(group))
     return result
@@ -110,9 +110,9 @@ async def post_account_group(
     payload: AccountGroupCreatePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        created = await create_account_group({**payload.model_dump(), "main_id": main_id, "status": "active"})
+        created = await create_account_group({**payload.model_dump(), "tenant_id": tenant_id, "status": "active"})
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="账号组创建失败，请重试") from exc
     created["account_count"] = 0
@@ -125,17 +125,17 @@ async def put_account_group(
     payload: AccountGroupUpdatePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        ok = await update_account_group(group_id, {**payload.model_dump(), "main_id": main_id, "status": "active"})
+        ok = await update_account_group(group_id, {**payload.model_dump(), "tenant_id": tenant_id, "status": "active"})
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账号组ID无效") from exc
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账号组不存在")
-    updated = await find_group_by_id(group_id, main_id)
+    updated = await find_group_by_id(group_id, tenant_id)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账号组不存在")
-    updated["account_count"] = await count_accounts_by_group_code(updated.get("code", ""), main_id)
+    updated["account_count"] = await count_accounts_by_group_code(updated.get("code", ""), tenant_id)
     return _format_group(updated)
 
 
@@ -144,9 +144,9 @@ async def remove_account_group(
     group_id: str,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        ok = await delete_account_group(group_id, main_id)
+        ok = await delete_account_group(group_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账号组ID无效") from exc
     except ValueError as exc:
@@ -158,10 +158,10 @@ async def remove_account_group(
 
 @router.get("/accounts")
 async def get_accounts(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, object]]:
-    main_id = str(current_user.get("main_id", "default"))
-    groups = await list_account_groups(main_id)
+    tenant_id = str(current_user.get("tenant_id", "default"))
+    groups = await list_account_groups(tenant_id)
     group_name_map = {item.get("code", ""): item.get("name", "") for item in groups}
-    accounts = await list_accounts(main_id)
+    accounts = await list_accounts(tenant_id)
     return [_format_account(item, group_name_map) for item in accounts]
 
 
@@ -170,11 +170,11 @@ async def post_account(
     payload: AccountCreatePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
-    group = await find_group_by_code(payload.groupCode, main_id)
+    tenant_id = str(current_user.get("tenant_id", "default"))
+    group = await find_group_by_code(payload.groupCode, tenant_id)
     if group is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账号组不存在")
-    exists = await find_account_by_username(payload.username, main_id)
+    exists = await find_account_by_username(payload.username, tenant_id)
     if exists is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="登录账号已存在")
     account_payload = {
@@ -186,7 +186,7 @@ async def post_account(
         "role_name": payload.roleName,
         "status": payload.status,
         "password": payload.initialPassword,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
     }
     try:
         created = await create_account(account_payload)
@@ -202,8 +202,8 @@ async def put_account(
     payload: AccountUpdatePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
-    group = await find_group_by_code(payload.groupCode, main_id)
+    tenant_id = str(current_user.get("tenant_id", "default"))
+    group = await find_group_by_code(payload.groupCode, tenant_id)
     if group is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账号组不存在")
     account_payload = {
@@ -213,7 +213,7 @@ async def put_account(
         "group_code": payload.groupCode,
         "role_name": payload.roleName,
         "status": payload.status,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
     }
     try:
         ok = await update_account(account_id, account_payload)
@@ -221,7 +221,7 @@ async def put_account(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账号ID无效") from exc
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账号不存在")
-    updated = await find_account_by_id(account_id, main_id)
+    updated = await find_account_by_id(account_id, tenant_id)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账号不存在")
     return _format_account(updated, {group.get("code", ""): group.get("name", "")})
@@ -232,9 +232,9 @@ async def remove_account(
     account_id: str,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        ok = await delete_account(account_id, main_id)
+        ok = await delete_account(account_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="账号ID无效") from exc
     except ValueError as exc:
@@ -250,16 +250,16 @@ async def remove_account(
 
 @router.get("/billing")
 async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     db = get_db()
     
-    org = await db["organizations"].find_one({"main_id": main_id})
+    org = await db["organizations"].find_one({"tenant_id": tenant_id})
     if not org:
         from app.product.extensions import get_admin_product_extension
 
         now = datetime.now(timezone.utc)
         org = {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "org_name": current_user.get("org_name") or "组织空间",
             **dict(get_admin_product_extension().organization_defaults),
             "owner_user_id": str(current_user.get("_id") or ""),
@@ -270,19 +270,19 @@ async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) 
         
     from app.core.product_edition import billing_enabled, count_members, is_community_organization, resolve_member_limit
 
-    current_members = await count_members(main_id)
+    current_members = await count_members(tenant_id)
 
     # T037: unlimited flag (decision 12: 配额默认不限额)
     points_unlimited = bool(org.get("points_unlimited", True))
     return {
         "code": 0,
         "data": {
-            "mainId": org.get("main_id"),
+            "mainId": org.get("tenant_id"),
             "orgName": org.get("org_name"),
             "edition": "community" if is_community_organization(org) else str(org.get("edition") or "cloud"),
             "tier": org.get("tier", "free"),
             "billingEnabled": billing_enabled(org),
-            "userLimit": await resolve_member_limit(main_id, org),
+            "userLimit": await resolve_member_limit(tenant_id, org),
             "currentMembersCount": current_members,
             "totalPoints": org.get("total_points", 0),
             "usedPoints": org.get("used_points", 0),

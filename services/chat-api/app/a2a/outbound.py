@@ -90,7 +90,6 @@ async def call_external_agent(
     text: str,
     tenant_id: str,
     user_id: str,
-    main_id: str = "default",
 ) -> dict[str, Any]:
     """001-gated outbound A2A ``message/send`` (012 FR-6 / FR-3).
 
@@ -108,7 +107,7 @@ async def call_external_agent(
         tenant_id=tenant_id,
         user_id=user_id,
         tool=GATE_TOOL,
-        request={"agent": agent, "main_id": main_id},
+        request={"agent": agent, "tenant_id": tenant_id},
     )
 
     client = A2AClient(build_transport(), ClientConfig(primary_agent=agent))

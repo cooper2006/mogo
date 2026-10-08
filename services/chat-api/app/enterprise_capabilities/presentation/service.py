@@ -76,7 +76,7 @@ class PresentationCreationCapability:
             )
 
         request_context = {
-            "main_id": context.tenant_id,
+            "tenant_id": context.tenant_id,
             "user_id": context.user_id,
             "configured_model": model_config,
             "model_instance_id": context.model_instance_id,
@@ -106,7 +106,7 @@ class PresentationCreationCapability:
             resolved = await conversation_evidence_service.collect(
                 session_id=context.conversation_id,
                 user_id=context.user_id,
-                main_id=context.tenant_id,
+                tenant_id=context.tenant_id,
                 current_request=str(
                     context.turn_context.get("user_request") or args["request"]
                 ),
@@ -244,7 +244,7 @@ class PresentationCreationCapability:
         ]
         return {
             "user_id": context.user_id,
-            "main_id": context.tenant_id,
+            "tenant_id": context.tenant_id,
             "request_id": context.action_id,
             "task_id": context.action_id,
             "language": str(context.turn_context.get("language") or "zh"),

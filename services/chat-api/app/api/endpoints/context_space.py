@@ -97,7 +97,7 @@ async def resolve_context(
     from app.api.endpoints.auth import _resolve_session_user
 
     resolved_auth = await _resolve_session_user(authorization)
-    tenant_id = str(resolved_auth.get("main_id") or "")
+    tenant_id = str(resolved_auth.get("tenant_id") or "")
     viewer_id = str(resolved_auth.get("user_id") or "")
     viewer_role = str(resolved_auth.get("role") or "")
     is_workspace_member = bool(resolved_auth.get("is_workspace_member") or False)
@@ -169,7 +169,7 @@ async def get_context_trace(
     from app.api.endpoints.auth import _resolve_session_user
 
     resolved_auth = await _resolve_session_user(authorization)
-    tenant_id = str(resolved_auth.get("main_id") or "")
+    tenant_id = str(resolved_auth.get("tenant_id") or "")
     entry = _TRACE_RING.get(str(trace_id))
     # 404 (not 403) for a foreign trace so its existence is not disclosed.
     if entry is None or entry[0] != tenant_id:

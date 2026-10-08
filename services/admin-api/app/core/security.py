@@ -147,7 +147,7 @@ def decode_refresh_token(token: str) -> dict[str, object]:
 
 def create_recovery_token(
     username: str,
-    main_id: str,
+    tenant_id: str,
     purpose: str = "password_reset",
 ) -> tuple[str, int, str]:
     """Create a high-entropy recovery token.

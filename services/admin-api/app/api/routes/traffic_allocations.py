@@ -54,7 +54,7 @@ class UserPolicyPayload(BaseModel):
 
 
 def _main_id(current_user: dict[str, Any]) -> str:
-    return str(current_user.get("main_id") or "default")
+    return str(current_user.get("tenant_id") or "default")
 
 
 def _fmt(value: Any) -> str:
@@ -66,11 +66,11 @@ def _fmt(value: Any) -> str:
     return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-async def _department_maps(main_id: str) -> tuple[dict[str, str], dict[str, str]]:
+async def _department_maps(tenant_id: str) -> tuple[dict[str, str], dict[str, str]]:
     db = get_db()
-    deps = await db[DEPARTMENT_COLLECTION].find({"main_id": main_id}).to_list(length=10000)
+    deps = await db[DEPARTMENT_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=10000)
     dep_names = {str(item.get("_id")): str(item.get("name") or "") for item in deps}
-    rels = await db[USER_ORG_REL_COLLECTION].find({"main_id": main_id}).to_list(length=50000)
+    rels = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=50000)
     primary: dict[str, str] = {}
     for rel in rels:
         user_id = str(rel.get("user_id") or "")
@@ -81,22 +81,22 @@ async def _department_maps(main_id: str) -> tuple[dict[str, str], dict[str, str]
 
 @router.get("/overview")
 async def get_traffic_allocation_overview(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     db = get_db()
-    org = await db[ORG_COLLECTION].find_one({"main_id": main_id}) or {}
-    org_policy = await ensure_org_quota_policy(main_id, org_total_points=int(org.get("total_points") or 0))
-    default_policy = await ensure_default_user_policy(main_id, period=str(org_policy.get("period") or "monthly"))
+    org = await db[ORG_COLLECTION].find_one({"tenant_id": tenant_id}) or {}
+    org_policy = await ensure_org_quota_policy(tenant_id, org_total_points=int(org.get("total_points") or 0))
+    default_policy = await ensure_default_user_policy(tenant_id, period=str(org_policy.get("period") or "monthly"))
     tz_name = normalize_timezone(org_policy.get("timezone"))
     start_at, end_at = period_window(str(org_policy.get("period") or "monthly"), tz_name)
-    org_used = await sum_usage(main_id, start_at=start_at, end_at=end_at)
+    org_used = await sum_usage(tenant_id, start_at=start_at, end_at=end_at)
     assigned_policies = await db[USER_QUOTA_POLICY_COLLECTION].find(
-        {"main_id": main_id, "scope_type": "user"},
+        {"tenant_id": tenant_id, "scope_type": "user"},
         {"scope_id": 1, "quota_tokens": 1},
     ).to_list(length=50000)
     policy_user_ids = [str(policy.get("scope_id") or "") for policy in assigned_policies]
     valid_user_oids = [ObjectId(user_id) for user_id in policy_user_ids if ObjectId.is_valid(user_id)]
     existing_user_rows = (
-        await db[USER_COLLECTION].find({"_id": {"$in": valid_user_oids}, "main_id": main_id}, {"_id": 1}).to_list(length=len(valid_user_oids))
+        await db[USER_COLLECTION].find({"_id": {"$in": valid_user_oids}, "tenant_id": tenant_id}, {"_id": 1}).to_list(length=len(valid_user_oids))
         if valid_user_oids
         else []
     )
@@ -137,13 +137,13 @@ async def get_traffic_allocation_overview(current_user: dict[str, Any] = Depends
 
 @router.put("/org-policy")
 async def update_org_quota_policy(payload: OrgQuotaPayload, current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     now = utc_now()
     db = get_db()
-    existing = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"main_id": main_id})
+    existing = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id})
     before = int((existing or {}).get("total_tokens") or 0)
     await db[ORG_QUOTA_POLICY_COLLECTION].update_one(
-        {"main_id": main_id},
+        {"tenant_id": tenant_id},
         {
             "$set": {
                 "total_tokens": int(payload.totalTokens),
@@ -160,7 +160,7 @@ async def update_org_quota_policy(payload: OrgQuotaPayload, current_user: dict[s
     )
     await db[USER_QUOTA_LOG_COLLECTION].insert_one(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "user_id": "org_policy",
             "action": "set_org",
             "before_quota_tokens": before,
@@ -177,11 +177,11 @@ async def update_org_quota_policy(payload: OrgQuotaPayload, current_user: dict[s
 
 @router.put("/default-policy")
 async def update_default_user_policy(payload: DefaultPolicyPayload, current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     now = utc_now()
     db = get_db()
     
-    org_policy = await ensure_org_quota_policy(main_id)
+    org_policy = await ensure_org_quota_policy(tenant_id)
     org_unlimited = bool(org_policy.get("unlimited", False))
     if not org_unlimited and int(org_policy.get("total_tokens") or 0) == 0 and int(payload.quotaTokens) > 0:
         raise HTTPException(
@@ -189,11 +189,11 @@ async def update_default_user_policy(payload: DefaultPolicyPayload, current_user
             detail="当前企业本周期总额度为 0，不能为成员分配大于 0 的额度。请先配置企业总额度。"
         )
 
-    existing = await db[USER_QUOTA_POLICY_COLLECTION].find_one({"main_id": main_id, "scope_type": "all", "scope_id": ""})
+    existing = await db[USER_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id, "scope_type": "all", "scope_id": ""})
 
     before = int((existing or {}).get("quota_tokens") or 0)
     await db[USER_QUOTA_POLICY_COLLECTION].update_one(
-        {"main_id": main_id, "scope_type": "all", "scope_id": ""},
+        {"tenant_id": tenant_id, "scope_type": "all", "scope_id": ""},
         {
             "$set": {
                 "quota_tokens": int(payload.quotaTokens),
@@ -210,7 +210,7 @@ async def update_default_user_policy(payload: DefaultPolicyPayload, current_user
     )
     # 级联更新该组织下所有专属用户的重置周期，以确保全局重置周期设置对所有专属用户也生效
     await db[USER_QUOTA_POLICY_COLLECTION].update_many(
-        {"main_id": main_id, "scope_type": "user"},
+        {"tenant_id": tenant_id, "scope_type": "user"},
         {
             "$set": {
                 "period": normalize_period(payload.period),
@@ -220,7 +220,7 @@ async def update_default_user_policy(payload: DefaultPolicyPayload, current_user
     )
     await db[USER_QUOTA_LOG_COLLECTION].insert_one(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "user_id": "default_policy",
             "action": "set_default",
             "before_quota_tokens": before,
@@ -242,19 +242,19 @@ async def list_user_allocations(
     keyword: str = Query(default=""),
     statusFilter: str = Query(default=""),
 ) -> list[dict[str, Any]]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     db = get_db()
-    query: dict[str, Any] = {"main_id": main_id}
+    query: dict[str, Any] = {"tenant_id": tenant_id}
     if statusFilter:
         query["status"] = statusFilter
     if keyword.strip():
         regex = {"$regex": keyword.strip(), "$options": "i"}
         query["$or"] = [{"name": regex}, {"mobile": regex}, {"phone": regex}, {"email": regex}, {"login_name": regex}]
     users = await db[USER_COLLECTION].find(query).sort("updated_at", -1).to_list(length=5000)
-    dep_names, primary_map = await _department_maps(main_id)
+    dep_names, primary_map = await _department_maps(tenant_id)
     rows: list[dict[str, Any]] = []
     for user in users:
-        summary = await get_quota_summary(main_id, user)
+        summary = await get_quota_summary(tenant_id, user)
         user_id = str(user.get("_id") or "")
         dep_id = primary_map.get(user_id, str(user.get("primary_org_id") or ""))
         rows.append(
@@ -283,17 +283,17 @@ async def update_user_policy(
     payload: UserPolicyPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     if payload.userId != user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户ID不一致")
     db = get_db()
     if not ObjectId.is_valid(user_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户ID无效")
-    user = await db[USER_COLLECTION].find_one({"_id": ObjectId(user_id), "main_id": main_id})
+    user = await db[USER_COLLECTION].find_one({"_id": ObjectId(user_id), "tenant_id": tenant_id})
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
         
-    org_policy = await ensure_org_quota_policy(main_id)
+    org_policy = await ensure_org_quota_policy(tenant_id)
     # T035: unlimited orgs can allocate any per-user amount.
     org_unlimited = bool(org_policy.get("unlimited", False))
     if not org_unlimited and int(org_policy.get("total_tokens") or 0) == 0 and int(payload.quotaTokens) > 0:
@@ -302,7 +302,7 @@ async def update_user_policy(
             detail="当前企业本周期总额度为 0，不能为用户分配大于 0 的额度。请先配置企业总额度。"
         )
 
-    query = {"main_id": main_id, "scope_type": "user", "scope_id": user_id}
+    query = {"tenant_id": tenant_id, "scope_type": "user", "scope_id": user_id}
     existing = await db[USER_QUOTA_POLICY_COLLECTION].find_one(query)
 
     before = int((existing or {}).get("quota_tokens") or 0)
@@ -325,7 +325,7 @@ async def update_user_policy(
     )
     await db[USER_QUOTA_LOG_COLLECTION].insert_one(
         {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "user_id": user_id,
             "action": "set",
             "before_quota_tokens": before,
@@ -345,9 +345,9 @@ async def list_allocation_logs(
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=20, ge=1, le=100),
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     db = get_db()
-    query = {"main_id": main_id}
+    query = {"tenant_id": tenant_id}
     skip = (page - 1) * pageSize
     total = await db[USER_QUOTA_LOG_COLLECTION].count_documents(query)
     logs = await db[USER_QUOTA_LOG_COLLECTION].find(query).sort("created_at", -1).skip(skip).limit(pageSize).to_list(length=pageSize)

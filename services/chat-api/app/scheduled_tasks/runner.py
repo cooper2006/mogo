@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class ScheduledChatRunner:
     async def start(self, job: dict[str, Any], run: dict[str, Any]) -> None:
-        tenant_id = resolve_main_id(job.get("main_id"))
+        tenant_id = resolve_main_id(job.get("tenant_id"))
         user_id = str(job.get("run_as_user_id") or job.get("owner_user_id") or "")
         if not ObjectId.is_valid(user_id):
             await self._fail_before_start(job, run, "执行用户不存在")
@@ -96,9 +96,9 @@ class ScheduledChatRunner:
         self, job: dict[str, Any], run: dict[str, Any], error: str
     ) -> None:
         now = utc_now()
-        tenant_id = resolve_main_id(job.get("main_id"))
+        tenant_id = resolve_main_id(job.get("tenant_id"))
         await get_db()[RUNS].update_one(
-            {"run_id": str(run.get("run_id") or ""), "main_id": tenant_id},
+            {"run_id": str(run.get("run_id") or ""), "tenant_id": tenant_id},
             {"$set": {
                 "status": "failed",
                 "error": str(error)[:1000],
@@ -107,7 +107,7 @@ class ScheduledChatRunner:
             }},
         )
         await get_db()[JOBS].update_one(
-            {"_id": job["_id"], "main_id": tenant_id},
+            {"_id": job["_id"], "tenant_id": tenant_id},
             {"$set": {
                 "last_run_status": "failed",
                 "last_error": str(error)[:1000],

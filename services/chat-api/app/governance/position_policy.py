@@ -87,22 +87,22 @@ class MongoEmployeePolicyResolver:
     async def resolve(self, tenant_id: str, user_id: str) -> EffectiveEmployeePolicy:
         db = get_db()
         assignments = await db.end_user_position_roles.find(
-            {"main_id": tenant_id, "user_id": user_id}
+            {"tenant_id": tenant_id, "user_id": user_id}
         ).to_list(length=100)
         role_ids = [str(row.get("role_id") or "") for row in assignments if row.get("role_id")]
         roles = await db.position_roles.find(
-            {"main_id": tenant_id, "_id": {"$in": role_ids}, "status": "active"}
+            {"tenant_id": tenant_id, "_id": {"$in": role_ids}, "status": "active"}
         ).to_list(length=100) if role_ids else []
 
         now = datetime.now(timezone.utc)
         overrides = await db.end_user_capability_overrides.find({
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "user_id": user_id,
             "status": "active",
             "effective_at": {"$lte": now},
             "$or": [{"expires_at": None}, {"expires_at": {"$exists": False}}, {"expires_at": {"$gt": now}}],
         }).sort("created_at", 1).to_list(length=100)
-        migration = await db[MIGRATION_COLLECTION].find_one({"main_id": tenant_id}, {"status": 1})
+        migration = await db[MIGRATION_COLLECTION].find_one({"tenant_id": tenant_id}, {"status": 1})
         return build_effective_policy(
             tenant_id,
             user_id,

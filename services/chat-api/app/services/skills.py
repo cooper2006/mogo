@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class UserSkill:
     id: str
     user_id: str
-    main_id: str
+    tenant_id: str
     name: str
     description: str
     summary: str
@@ -958,24 +958,24 @@ class UserSkillService:
             "skill_markdown": fallback_markdown,
         }
 
-    async def list_skills(self, user_id: str, main_id: str = "default") -> List[Dict[str, Any]]:
+    async def list_skills(self, user_id: str, tenant_id: str = "default") -> List[Dict[str, Any]]:
         db = get_db()
-        cursor = db.user_skills.find(add_main_scope({"user_id": str(user_id)}, main_id)).sort([("created_at", -1), ("_id", 1)])
+        cursor = db.user_skills.find(add_main_scope({"user_id": str(user_id)}, tenant_id)).sort([("created_at", -1), ("_id", 1)])
         skills = []
         async for doc in cursor:
             skills.append(self._serialize(doc))
         return skills
 
-    async def get_skill(self, user_id: str, skill_id: str, main_id: str = "default") -> Optional[Dict[str, Any]]:
+    async def get_skill(self, user_id: str, skill_id: str, tenant_id: str = "default") -> Optional[Dict[str, Any]]:
         db = get_db()
-        doc = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id))
+        doc = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
         if not doc:
             return None
         return self._serialize(doc)
 
-    async def update_skill(self, user_id: str, skill_id: str, updates: Dict[str, Any], main_id: str = "default") -> Optional[Dict[str, Any]]:
+    async def update_skill(self, user_id: str, skill_id: str, updates: Dict[str, Any], tenant_id: str = "default") -> Optional[Dict[str, Any]]:
         db = get_db()
-        current = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id))
+        current = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
         if not current:
             return None
 
@@ -1042,29 +1042,29 @@ class UserSkillService:
             updates["locally_modified"] = True
         updates["updated_at"] = datetime.datetime.now(tz=datetime.timezone.utc)
         await db.user_skills.update_one(
-            add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id),
+            add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id),
             {"$set": updates},
         )
-        doc = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id))
+        doc = await db.user_skills.find_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
         if not doc:
             return None
         return self._serialize(doc)
 
-    async def delete_skill(self, user_id: str, skill_id: str, main_id: str = "default") -> bool:
+    async def delete_skill(self, user_id: str, skill_id: str, tenant_id: str = "default") -> bool:
         db = get_db()
         current = await db.user_skills.find_one(
-            add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id),
+            add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id),
             {"package_id": 1, "previous_package_ids": 1},
         )
-        result = await db.user_skills.delete_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id))
+        result = await db.user_skills.delete_one(add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id))
         if result.deleted_count and current:
             package_ids = [str(current.get("package_id") or ""), *[str(item) for item in current.get("previous_package_ids") or []]]
             await db.skill_packages.delete_many({"_id": {"$in": [item for item in package_ids if item]}})
         return result.deleted_count > 0
 
-    async def set_skill_enabled(self, user_id: str, skill_id: str, enabled: bool, main_id: str = "default") -> Optional[Dict[str, Any]]:
+    async def set_skill_enabled(self, user_id: str, skill_id: str, enabled: bool, tenant_id: str = "default") -> Optional[Dict[str, Any]]:
         db = get_db()
-        query = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, main_id)
+        query = add_main_scope({"_id": skill_id, "user_id": str(user_id)}, tenant_id)
         result = await db.user_skills.update_one(query, {"$set": {
             "enabled": bool(enabled), "is_active": bool(enabled), "updated_at": datetime.datetime.now(tz=datetime.timezone.utc),
         }})
@@ -1076,7 +1076,7 @@ class UserSkillService:
     async def create_skill(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         db = get_db()
         now = datetime.datetime.now(tz=datetime.timezone.utc)
-        main_id = resolve_main_id(payload.get("main_id") or payload.get("mainId"))
+        tenant_id = resolve_main_id(payload.get("tenant_id") or payload.get("tenantId"))
         explicit_role = _normalize_skill_role(payload.get("role"))
         skill_type = _normalize_skill_type(payload.get("skill_type"), role=explicit_role)
         contract_json = _normalize_contract_json(
@@ -1121,7 +1121,7 @@ class UserSkillService:
         skill_doc = {
             "_id": payload.get("id") or uuid.uuid4().hex,
             "user_id": str(user_id),
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "name": payload.get("name", "Untitled Skill"),
             "description": payload.get("description", ""),
             "scenario": payload.get("scenario", ""),
@@ -1160,9 +1160,9 @@ class UserSkillService:
         user_text: str,
         intent: str,
         formats: List[str],
-        main_id: str = "default",
+        tenant_id: str = "default",
     ) -> Optional[Dict[str, Any]]:
-        skills = await self.list_skills(user_id, main_id=main_id)
+        skills = await self.list_skills(user_id, tenant_id=tenant_id)
         if not skills:
             return None
         candidates = []
@@ -2073,7 +2073,7 @@ class UserSkillService:
         return {
             "id": str(doc.get("_id")),
             "user_id": str(doc.get("user_id")),
-            "main_id": resolve_main_id(doc.get("main_id")),
+            "tenant_id": resolve_main_id(doc.get("tenant_id")),
             "name": doc.get("name"),
             "description": doc.get("description", ""),
             "scenario": doc.get("scenario", ""),

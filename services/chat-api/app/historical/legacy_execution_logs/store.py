@@ -25,15 +25,15 @@ class ExecutionEventStore:
         events: List[Dict[str, Any]],
         *,
         user_id: Optional[str] = None,
-        main_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> None:
         if not events:
             return
         now = datetime.now(tz=timezone.utc)
-        resolved_main_id = resolve_main_id(main_id)
+        resolved_main_id = resolve_main_id(tenant_id)
         query = {"session_id": session_id, "message_id": message_id}
         if resolved_main_id != "default":
-            query["main_id"] = resolved_main_id
+            query["tenant_id"] = resolved_main_id
         await self._coll.update_one(
             query,
             {
@@ -42,7 +42,7 @@ class ExecutionEventStore:
                     "session_id": session_id,
                     "message_id": message_id,
                     "user_id": user_id,
-                    "main_id": resolved_main_id,
+                    "tenant_id": resolved_main_id,
                     "created_at": now,
                     "status": "live",
                     "schema_version": self._schema_version,
@@ -66,11 +66,11 @@ class ExecutionEventStore:
         self,
         session_id: str,
         *,
-        main_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Return ``{message_id: [events]}`` for one session, in insertion order."""
         cursor = self._coll.find(
-            add_main_scope({"session_id": session_id}, main_id),
+            add_main_scope({"session_id": session_id}, tenant_id),
             projection={"message_id": 1, "events": 1, "_id": 0},
         ).sort("created_at", 1)
         out: Dict[str, List[Dict[str, Any]]] = {}

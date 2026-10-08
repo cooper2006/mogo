@@ -26,21 +26,21 @@ router = APIRouter(dependencies=[Depends(require_api_principal)])
 
 class ModelTestPayload(BaseModel):
     prompt: str = Field(default="请用一句话回复当前模型连接测试。", max_length=500)
-    main_id: str = Field(default="default")
+    tenant_id: str = Field(default="default")
 
 
 class ImageModelTestPayload(BaseModel):
     prompt: str = Field(default="生成一张简洁的科技感封面背景，不要文字。", max_length=2000)
-    main_id: str = Field(default="default")
+    tenant_id: str = Field(default="default")
     size: str | None = Field(default=None, max_length=40)
 
 
 @router.get("/models/available")
 async def available_models(
-    main_id: str = Query(default="default"),
+    tenant_id: str = Query(default="default"),
     capability: str = Query(default="chat"),
 ) -> dict[str, Any]:
-    resolved_main_id = resolve_main_id(main_id)
+    resolved_main_id = resolve_main_id(tenant_id)
     token = str(capability or "chat").strip() or "chat"
     if token == "chat":
         options = await list_chat_model_options(resolved_main_id)
@@ -50,28 +50,28 @@ async def available_models(
 
 
 @router.get("/models/images/available")
-async def available_image_models(main_id: str = Query(default="default")) -> dict[str, Any]:
-    options = await list_image_model_options(resolve_main_id(main_id))
+async def available_image_models(tenant_id: str = Query(default="default")) -> dict[str, Any]:
+    options = await list_image_model_options(resolve_main_id(tenant_id))
     return {"code": 0, "data": options}
 
 
 @router.post("/models/{model_id}/test/stream")
 async def stream_model_test(model_id: str, payload: Optional[ModelTestPayload] = None) -> StreamingResponse:
-    main_id = resolve_main_id((payload.main_id if payload else "") or "default")
+    tenant_id = resolve_main_id((payload.tenant_id if payload else "") or "default")
     prompt = (payload.prompt if payload else "") or "请用一句话回复当前模型连接测试。"
 
     async def event_stream():
         final_text = ""
         try:
-            await update_model_health(model_id, main_id, "unknown", "")
+            await update_model_health(model_id, tenant_id, "unknown", "")
             yield _sse({"type": "start", "message": "正在连接模型..."})
             client = await get_llm_client_by_model_id(
                 model_id,
-                main_id=main_id,
+                tenant_id=tenant_id,
                 streaming=True,
                 intent="chat",
                 stage="model_connectivity_test",
-                output_spec={"main_id": main_id, "model_id": model_id},
+                output_spec={"tenant_id": tenant_id, "model_id": model_id},
             )
             messages = [
                 Message(role=Role.SYSTEM, content="You are a concise model connectivity test assistant."),
@@ -82,15 +82,15 @@ async def stream_model_test(model_id: str, payload: Optional[ModelTestPayload] =
                 if text:
                     final_text += text
                     yield _sse({"type": "delta", "content": text})
-            await update_model_health(model_id, main_id, "healthy", "")
+            await update_model_health(model_id, tenant_id, "healthy", "")
             yield _sse({"type": "done", "message": final_text or "模型连接测试成功。"})
         except ModelConfigError as exc:
-            await update_model_health(model_id, main_id, "failed", str(exc))
+            await update_model_health(model_id, tenant_id, "failed", str(exc))
             yield _sse({"type": "error", "message": str(exc)})
         except Exception as exc:
             log_print(f"[api.endpoints.models] model stream test failed: {exc}", flush=True)
             message = f"模型连接测试失败: {exc}"
-            await update_model_health(model_id, main_id, "failed", message)
+            await update_model_health(model_id, tenant_id, "failed", message)
             yield _sse({"type": "error", "message": message})
 
     return StreamingResponse(
@@ -102,16 +102,16 @@ async def stream_model_test(model_id: str, payload: Optional[ModelTestPayload] =
 
 @router.post("/models/{model_id}/test")
 async def model_test(model_id: str, payload: Optional[ModelTestPayload] = None) -> dict[str, Any]:
-    main_id = resolve_main_id((payload.main_id if payload else "") or "default")
+    tenant_id = resolve_main_id((payload.tenant_id if payload else "") or "default")
     prompt = (payload.prompt if payload else "") or "请用一句话回复当前模型连接测试。"
     try:
         client = await get_llm_client_by_model_id(
             model_id,
-            main_id=main_id,
+            tenant_id=tenant_id,
             streaming=False,
             intent="chat",
             stage="model_connectivity_test",
-            output_spec={"main_id": main_id, "model_id": model_id},
+            output_spec={"tenant_id": tenant_id, "model_id": model_id},
         )
         response = await client.ainvoke(
             [
@@ -119,21 +119,21 @@ async def model_test(model_id: str, payload: Optional[ModelTestPayload] = None) 
                 Message(role=Role.USER, content=prompt),
             ],
         )
-        await update_model_health(model_id, main_id, "healthy", "")
+        await update_model_health(model_id, tenant_id, "healthy", "")
         return {"code": 0, "data": {"success": True, "status": "healthy", "message": str(response.content or "")}}
     except ModelConfigError as exc:
-        await update_model_health(model_id, main_id, "failed", str(exc))
+        await update_model_health(model_id, tenant_id, "failed", str(exc))
         return {"code": 0, "data": {"success": False, "status": "failed", "message": str(exc)}}
     except Exception as exc:
         log_print(f"[api.endpoints.models] model test failed: {exc}", flush=True)
         message = f"模型连接测试失败: {exc}"
-        await update_model_health(model_id, main_id, "failed", message)
+        await update_model_health(model_id, tenant_id, "failed", message)
         return {"code": 0, "data": {"success": False, "status": "failed", "message": message}}
 
 
 @router.post("/models/{model_id}/test-image")
 async def image_model_test(model_id: str, payload: Optional[ImageModelTestPayload] = None) -> dict[str, Any]:
-    main_id = resolve_main_id((payload.main_id if payload else "") or "default")
+    tenant_id = resolve_main_id((payload.tenant_id if payload else "") or "default")
     prompt = (payload.prompt if payload else "") or "生成一张简洁的科技感封面背景，不要文字。"
     size = (payload.size if payload else None) or None
     try:
@@ -141,10 +141,10 @@ async def image_model_test(model_id: str, payload: Optional[ImageModelTestPayloa
             prompt=prompt,
             user_id="admin_model_test",
             size=size,
-            output_spec={"main_id": main_id, "image_model_id": model_id},
+            output_spec={"tenant_id": tenant_id, "image_model_id": model_id},
             file_prefix="model_test_image",
         )
-        await update_model_health(model_id, main_id, "healthy", "")
+        await update_model_health(model_id, tenant_id, "healthy", "")
         return {
             "code": 0,
             "data": {
@@ -161,7 +161,7 @@ async def image_model_test(model_id: str, payload: Optional[ImageModelTestPayloa
     except Exception as exc:
         log_print(f"[api.endpoints.models] image model test failed: {exc}", flush=True)
         message = f"图片模型连接测试失败: {exc}"
-        await update_model_health(model_id, main_id, "failed", message)
+        await update_model_health(model_id, tenant_id, "failed", message)
         return {"code": 0, "data": {"success": False, "status": "failed", "message": message}}
 
 

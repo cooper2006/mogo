@@ -21,7 +21,7 @@ def utcnow() -> datetime:
 async def ensure_indexes() -> None:
     db = get_db()
     await db[SETUP_COLLECTION].create_index([("completed", 1)], name="setup_completed")
-    await db[SETUP_COLLECTION].create_index([("main_id", 1)], unique=True, sparse=True, name="setup_main_id_unique")
+    await db[SETUP_COLLECTION].create_index([("tenant_id", 1)], unique=True, sparse=True, name="setup_tenant_id_unique")
 
 
 async def get_setup_state() -> dict[str, Any] | None:
@@ -89,7 +89,7 @@ async def mark_platform_admin_created(
         {
             "$set": {
                 "completed": True,
-                "main_id": PLATFORM_MAIN_ID,
+                "tenant_id": PLATFORM_MAIN_ID,
                 "platform_admin_username": username,
                 "platform_admin_display_name": display_name,
                 "updated_at": now,

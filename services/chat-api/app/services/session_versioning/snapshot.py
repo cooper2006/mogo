@@ -169,13 +169,13 @@ def redact_text(text: str) -> tuple[str, list[str]]:
 
 
 def secret_ref_document(
-    *, session_id: str, main_id: str, token_id: str, original: str, actor: str
+    *, session_id: str, tenant_id: str, token_id: str, original: str, actor: str
 ) -> dict:
     """A Mongo row in ``session_secret_refs``: original secret, owner-scoped."""
     return {
         "token_id": token_id,
         "session_id": session_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "original": original,
         "created_by": actor,
         "created_at": _utcnow(),

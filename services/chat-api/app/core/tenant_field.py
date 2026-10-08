@@ -1,20 +1,22 @@
-"""Tenant-identity field compatibility layer during main_id -> tenant_id migration.
+"""DEPRECATED (Phase 3b) — retained for historical reference only.
 
-Background
-----------
+The ``main_id`` -> ``tenant_id`` migration is complete: the legacy field has
+been retired from MongoDB and the Weaviate ``mainId`` property. No production
+module imports this file any more; call sites read/write ``tenant_id`` (and the
+Weaviate ``tenantId`` property) directly. Per the repository's no-delete rule it
+is kept in place rather than removed.
+
+Original purpose (Phase 1 dual-write window)
+--------------------------------------------
 The persisted tenant primary key was historically stored as ``main_id`` (in both
 MongoDB collections and the Weaviate ``mainId`` property). Newer code, the
 governance layer, and the DSH runtime layer already use ``tenant_id`` /
-``tenantId``. To unify without breaking existing data, Phase 1 runs a **dual-write
+``tenantId``. To unify without breaking existing data, Phase 1 ran a **dual-write
 / fallback-read** window:
 
 * writers emit BOTH ``main_id`` and ``tenant_id`` (same value);
 * readers/queries prefer ``tenant_id`` and fall back to ``main_id`` so documents
   that still only carry ``main_id`` keep working.
-
-This module centralises that logic so individual call sites stay simple and the
-Phase 2 backfill + Phase 3 field retirement can be verified against one source of
-truth. After Phase 3 this file is deleted and call sites collapse to ``tenant_id``.
 """
 
 from __future__ import annotations

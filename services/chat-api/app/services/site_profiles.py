@@ -84,7 +84,7 @@ def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": str(doc.get("_id") or ""),
         "owner_user_id": str(doc.get("owner_user_id") or ""),
-        "main_id": resolve_main_id(doc.get("main_id")),
+        "tenant_id": resolve_main_id(doc.get("tenant_id")),
         "name": str(doc.get("name") or ""),
         "domain": str(doc.get("domain") or ""),
         "entry_url": str(doc.get("entry_url") or ""),
@@ -97,7 +97,7 @@ def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class SiteProfileService:
-    async def list_for_user(self, user_id: str, main_id: str = "default") -> List[Dict[str, Any]]:
+    async def list_for_user(self, user_id: str, tenant_id: str = "default") -> List[Dict[str, Any]]:
         """Return profiles visible to ``user_id``: own privates + team + global."""
         db = get_db()
         uid = str(user_id or "").strip()
@@ -106,14 +106,14 @@ class SiteProfileService:
                 {"owner_user_id": uid},
                 {"visibility": {"$in": ["team", "global"]}},
             ]
-        }, main_id)
+        }, tenant_id)
         cursor = db.site_profiles.find(query).sort("updated_at", -1)
         out: List[Dict[str, Any]] = []
         async for doc in cursor:
             out.append(_serialize(doc))
         return out
 
-    async def get(self, user_id: str, profile_id: str, main_id: str = "default") -> Optional[Dict[str, Any]]:
+    async def get(self, user_id: str, profile_id: str, tenant_id: str = "default") -> Optional[Dict[str, Any]]:
         """Read one profile if it belongs to the user or is team / global."""
         db = get_db()
         uid = str(user_id or "").strip()
@@ -124,7 +124,7 @@ class SiteProfileService:
                     {"owner_user_id": uid},
                     {"visibility": {"$in": ["team", "global"]}},
                 ],
-            }, main_id)
+            }, tenant_id)
         )
         return _serialize(doc) if doc else None
 
@@ -148,7 +148,7 @@ class SiteProfileService:
         auth_method: str = "",
         hints: str = "",
         visibility: str = "private",
-        main_id: str = "default",
+        tenant_id: str = "default",
     ) -> Dict[str, Any]:
         db = get_db()
         uid = str(user_id or "").strip()
@@ -158,7 +158,7 @@ class SiteProfileService:
         doc: Dict[str, Any] = {
             "_id": uuid.uuid4().hex,
             "owner_user_id": uid,
-            "main_id": resolve_main_id(main_id),
+            "tenant_id": resolve_main_id(tenant_id),
             "name": trimmed_name[:160],
             "domain": _normalize_domain(domain or entry_url),
             "entry_url": str(entry_url or "").strip(),
@@ -176,11 +176,11 @@ class SiteProfileService:
         user_id: str,
         profile_id: str,
         updates: Dict[str, Any],
-        main_id: str = "default",
+        tenant_id: str = "default",
     ) -> Optional[Dict[str, Any]]:
         db = get_db()
         uid = str(user_id or "").strip()
-        current = await db.site_profiles.find_one(add_main_scope({"_id": str(profile_id), "owner_user_id": uid}, main_id))
+        current = await db.site_profiles.find_one(add_main_scope({"_id": str(profile_id), "owner_user_id": uid}, tenant_id))
         if not current:
             return None
 
@@ -206,14 +206,14 @@ class SiteProfileService:
         if not patch:
             return _serialize(current)
         patch["updated_at"] = _now()
-        await db.site_profiles.update_one(add_main_scope({"_id": str(profile_id)}, main_id), {"$set": patch})
-        doc = await db.site_profiles.find_one(add_main_scope({"_id": str(profile_id)}, main_id))
+        await db.site_profiles.update_one(add_main_scope({"_id": str(profile_id)}, tenant_id), {"$set": patch})
+        doc = await db.site_profiles.find_one(add_main_scope({"_id": str(profile_id)}, tenant_id))
         return _serialize(doc) if doc else None
 
-    async def delete(self, user_id: str, profile_id: str, main_id: str = "default") -> bool:
+    async def delete(self, user_id: str, profile_id: str, tenant_id: str = "default") -> bool:
         db = get_db()
         uid = str(user_id or "").strip()
-        result = await db.site_profiles.delete_one(add_main_scope({"_id": str(profile_id), "owner_user_id": uid}, main_id))
+        result = await db.site_profiles.delete_one(add_main_scope({"_id": str(profile_id), "owner_user_id": uid}, tenant_id))
         return bool(result.deleted_count)
 
 

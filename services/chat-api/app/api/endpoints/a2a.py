@@ -194,7 +194,7 @@ async def a2a_outbound(
 
     user = dict(identity or {}).get("user") or {}
     user_id = str(user.get("_id") or user.get("id") or "")
-    tenant_id = str(dict(identity or {}).get("main_id") or "default")
+    tenant_id = str(dict(identity or {}).get("tenant_id") or "default")
 
     try:
         result = await call_external_agent(
@@ -202,7 +202,6 @@ async def a2a_outbound(
             text=text,
             tenant_id=tenant_id,
             user_id=user_id,
-            main_id=tenant_id,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=f"a2a_denied: {exc}")

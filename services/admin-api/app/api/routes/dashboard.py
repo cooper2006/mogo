@@ -76,29 +76,29 @@ def _cost(model_name: str, prompt_tokens: int, completion_tokens: int) -> float:
     return (prompt_tokens * in_price + completion_tokens * out_price) / 1_000_000.0
 
 
-async def _billing(db: Any, main_id: str, current_user: dict[str, Any]) -> dict[str, Any]:
-    org = await db[ORG_COLLECTION].find_one({"main_id": main_id})
+async def _billing(db: Any, tenant_id: str, current_user: dict[str, Any]) -> dict[str, Any]:
+    org = await db[ORG_COLLECTION].find_one({"tenant_id": tenant_id})
     if not org:
         from app.product.extensions import get_admin_product_extension
 
         org = {
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "org_name": current_user.get("org_name") or "组织空间",
             **dict(get_admin_product_extension().organization_defaults),
         }
-    current_members = await count_members(main_id)
+    current_members = await count_members(tenant_id)
     total_points = int(org.get("total_points") or 0)
     used_points = int(org.get("used_points") or 0)
     # T037: personal/community spaces default to unlimited (decision 12);
     # enterprise spaces use the org_quota_policies.unlimited flag.
     points_unlimited = bool(org.get("points_unlimited", True))
     return {
-        "mainId": org.get("main_id") or main_id,
+        "mainId": org.get("tenant_id") or tenant_id,
         "orgName": org.get("org_name") or current_user.get("org_name") or "组织空间",
         "edition": "community" if is_community_organization(org) else str(org.get("edition") or "cloud"),
         "tier": org.get("tier", "free"),
         "billingEnabled": billing_enabled(org),
-        "userLimit": await resolve_member_limit(main_id, org),
+        "userLimit": await resolve_member_limit(tenant_id, org),
         "currentMembersCount": current_members,
         "totalPoints": total_points,
         "usedPoints": used_points,
@@ -108,10 +108,10 @@ async def _billing(db: Any, main_id: str, current_user: dict[str, Any]) -> dict[
     }
 
 
-async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+async def _usage_metrics(db: Any, tenant_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=1)
-    match = {"main_id": main_id, "created_at": {"$gte": since}}
+    match = {"tenant_id": tenant_id, "created_at": {"$gte": since}}
     usage_coll = db[TOKEN_USAGE_COLLECTION]
 
     rows = await usage_coll.aggregate(
@@ -182,17 +182,17 @@ async def _usage_metrics(db: Any, main_id: str) -> tuple[dict[str, Any], list[di
 
     active_dept_count = 0
     if active_users:
-        active_depts = await db[USER_ORG_REL_COLLECTION].distinct("org_id", {"main_id": main_id, "user_id": {"$in": list(active_users)}})
+        active_depts = await db[USER_ORG_REL_COLLECTION].distinct("org_id", {"tenant_id": tenant_id, "user_id": {"$in": list(active_users)}})
         active_dept_count = len([item for item in active_depts if str(item or "").strip()])
 
     recent_rows = (
-        await usage_coll.find({"main_id": main_id})
+        await usage_coll.find({"tenant_id": tenant_id})
         .sort([("created_at", -1), ("end_time", -1)])
         .limit(8)
         .to_list(length=8)
     )
 
-    recent_activity = await _format_recent_activity(db, main_id, recent_rows)
+    recent_activity = await _format_recent_activity(db, tenant_id, recent_rows)
     avg_duration = int(duration_sum / timed_calls) if timed_calls else 0
     return (
         {
@@ -252,7 +252,7 @@ async def _duration_percentiles_fallback(
     return at(0.5), at(0.95)
 
 
-async def _quality_metrics(db: Any, main_id: str) -> dict[str, Any]:
+async def _quality_metrics(db: Any, tenant_id: str) -> dict[str, Any]:
     """Quality dimension (008 US4 / FR-4): success / anomaly / latency / manual.
 
     P50/P95 are computed from ``start_time``/``end_time`` (epoch millis) via
@@ -263,7 +263,7 @@ async def _quality_metrics(db: Any, main_id: str) -> dict[str, Any]:
     rather than reporting a fabricated 0%.
     """
     usage_coll = db[TOKEN_USAGE_COLLECTION]
-    match = tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))
+    match = tenant_match(tenant_id, since=window_start(DEFAULT_PERIOD_DAYS))
 
     totals = await usage_coll.aggregate(
         [
@@ -329,7 +329,7 @@ async def _quality_metrics(db: Any, main_id: str) -> dict[str, Any]:
     if p50_ms is None or p95_ms is None:
         p50_ms, p95_ms = await _duration_percentiles_fallback(usage_coll, match)
 
-    approval_pending = await _approval_pending_count(db, main_id)
+    approval_pending = await _approval_pending_count(db, tenant_id)
 
     return build_quality_section(
         total_calls=total_calls,
@@ -342,7 +342,7 @@ async def _quality_metrics(db: Any, main_id: str) -> dict[str, Any]:
     )
 
 
-async def _approval_pending_count(db: Any, main_id: str) -> int:
+async def _approval_pending_count(db: Any, tenant_id: str) -> int:
     """Count pending approvals, if a persistent approval store exists.
 
     Returns 0 when the collection is absent so the rate degrades gracefully
@@ -352,14 +352,14 @@ async def _approval_pending_count(db: Any, main_id: str) -> int:
         try:
             collection = db[collection_name]
             return int(
-                await collection.count_documents({"main_id": main_id, "status": "pending"})
+                await collection.count_documents({"tenant_id": tenant_id, "status": "pending"})
             )
         except Exception:
             continue
     return 0
 
 
-async def _trend_metrics(db: Any, main_id: str, *, current_cost: float) -> dict[str, Any]:
+async def _trend_metrics(db: Any, tenant_id: str, *, current_cost: float) -> dict[str, Any]:
     """Trend dimension (008 US5 / FR-5): 环比 / 同比 + bottleneck top-5."""
     usage_coll = db[TOKEN_USAGE_COLLECTION]
     prev_start, prev_end = previous_window(DEFAULT_PERIOD_DAYS)
@@ -369,7 +369,7 @@ async def _trend_metrics(db: Any, main_id: str, *, current_cost: float) -> dict[
             [
                 {
                     "$match": {
-                        "main_id": main_id,
+                        "tenant_id": tenant_id,
                         "created_at": {"$gte": start, "$lt": end},
                     }
                 },
@@ -398,7 +398,7 @@ async def _trend_metrics(db: Any, main_id: str, *, current_cost: float) -> dict[
     current_calls = 0
     for row in await usage_coll.aggregate(
         [
-            {"$match": tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))},
+            {"$match": tenant_match(tenant_id, since=window_start(DEFAULT_PERIOD_DAYS))},
             {"$group": {"_id": None, "calls": {"$sum": 1}}},
         ]
     ).to_list(length=1):
@@ -407,7 +407,7 @@ async def _trend_metrics(db: Any, main_id: str, *, current_cost: float) -> dict[
     # Bottleneck: aggregate by model in the current window, rank by cost/latency.
     bottleneck_rows = await usage_coll.aggregate(
         [
-            {"$match": tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))},
+            {"$match": tenant_match(tenant_id, since=window_start(DEFAULT_PERIOD_DAYS))},
             {
                 "$group": {
                     "_id": "$model_name",
@@ -461,7 +461,7 @@ async def _trend_metrics(db: Any, main_id: str, *, current_cost: float) -> dict[
     return trend
 
 
-async def _format_recent_activity(db: Any, main_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def _format_recent_activity(db: Any, tenant_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     user_ids = [str(row.get("user_id") or "") for row in rows if str(row.get("user_id") or "").strip()]
     user_oid_map = {user_id: ObjectId(user_id) for user_id in user_ids if ObjectId.is_valid(user_id)}
     user_docs = []
@@ -469,7 +469,7 @@ async def _format_recent_activity(db: Any, main_id: str, rows: list[dict[str, An
         user_docs = await db[USER_COLLECTION].find({"_id": {"$in": list(user_oid_map.values())}}).to_list(length=500)
     user_map = {str(doc.get("_id")): doc for doc in user_docs}
 
-    rel_rows = await db[USER_ORG_REL_COLLECTION].find({"main_id": main_id, "user_id": {"$in": user_ids}}).to_list(length=1000) if user_ids else []
+    rel_rows = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id, "user_id": {"$in": user_ids}}).to_list(length=1000) if user_ids else []
     rel_map: dict[str, str] = {}
     dept_ids = set[str]()
     for rel in rel_rows:
@@ -514,21 +514,21 @@ async def _format_recent_activity(db: Any, main_id: str, rows: list[dict[str, An
     return items
 
 
-async def _assets(db: Any, main_id: str) -> dict[str, Any]:
-    users_total = await count_members(main_id)
-    users_disabled = await db[USER_COLLECTION].count_documents({"main_id": main_id, "status": "disabled"})
-    departments_total = await db[DEPARTMENT_COLLECTION].count_documents({"main_id": main_id})
+async def _assets(db: Any, tenant_id: str) -> dict[str, Any]:
+    users_total = await count_members(tenant_id)
+    users_disabled = await db[USER_COLLECTION].count_documents({"tenant_id": tenant_id, "status": "disabled"})
+    departments_total = await db[DEPARTMENT_COLLECTION].count_documents({"tenant_id": tenant_id})
 
-    model_rows = await db[INSTANCE_COLLECTION].find({"main_id": main_id}).to_list(length=1000)
+    model_rows = await db[INSTANCE_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=1000)
     active_models = [row for row in model_rows if row.get("status") == "active"]
     failed_models = [row for row in model_rows if row.get("health_status") == "failed"]
 
-    skill_rows = await db[SKILL_COLLECTION].find({"main_id": main_id}).to_list(length=2000)
+    skill_rows = await db[SKILL_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=2000)
     enabled_skills = [row for row in skill_rows if row.get("enabled", True)]
     workflow_skills = [row for row in skill_rows if row.get("type") == "workflow"]
     writing_skills = [row for row in skill_rows if row.get("type") == "writing_style"]
 
-    tool_rows = await db[TOOL_COLLECTION].find({"main_id": main_id}).to_list(length=2000)
+    tool_rows = await db[TOOL_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=2000)
     active_tools = [row for row in tool_rows if row.get("status") == "active"]
     failed_tools = [row for row in tool_rows if row.get("last_test_status") == "failed"]
     untested_tools = [row for row in tool_rows if row.get("last_test_status") in (None, "", "untested")]
@@ -582,7 +582,7 @@ def _todos(metrics: dict[str, Any], assets: dict[str, Any]) -> list[dict[str, st
     return items[:6]
 
 
-async def _usage_tab(db: Any, main_id: str) -> dict[str, Any]:
+async def _usage_tab(db: Any, tenant_id: str) -> dict[str, Any]:
     """Usage-dimension dashboard (008 US3 / T014-T016): call time-series + active-user dedup + skill/retrieval ranking.
 
     * T014: call volume time series (day grain) + active users deduped by user_id (day/week/month)
@@ -592,7 +592,7 @@ async def _usage_tab(db: Any, main_id: str) -> dict[str, Any]:
     from app.api.dashboard_usage import active_user_counts, empty_usage_section, rank_frequency, usage_time_series
 
     try:
-        rows = await db[TOKEN_USAGE_COLLECTION].find(tenant_match(main_id, since=window_start(DEFAULT_PERIOD_DAYS))).to_list(length=5000)
+        rows = await db[TOKEN_USAGE_COLLECTION].find(tenant_match(tenant_id, since=window_start(DEFAULT_PERIOD_DAYS))).to_list(length=5000)
     except Exception:
         return empty_usage_section()
     if not rows:
@@ -606,12 +606,12 @@ async def _usage_tab(db: Any, main_id: str) -> dict[str, Any]:
     }
 
 
-async def _daily_costs(db: Any, main_id: str, days: int = 7) -> list[float]:
+async def _daily_costs(db: Any, tenant_id: str, days: int = 7) -> list[float]:
     """Trailing daily cost history (oldest -> newest) for the cost forecast (OQ-5)."""
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=days)
     rows = await db[TOKEN_USAGE_COLLECTION].find(
-        {"main_id": main_id, "created_at": {"$gte": since}}
+        {"tenant_id": tenant_id, "created_at": {"$gte": since}}
     ).to_list(length=20000)
     if not rows:
         return []
@@ -628,7 +628,7 @@ async def _daily_costs(db: Any, main_id: str, days: int = 7) -> list[float]:
     return [round(per_day[day], 6) for day in ordered_days]
 
 
-async def _cost_section(db: Any, main_id: str) -> dict[str, Any]:
+async def _cost_section(db: Any, tenant_id: str) -> dict[str, Any]:
     """008 US2 / T010-T012: assemble the cost dimension (FR-2 / FR-6).
 
     Previously ``build_cost_section`` / ``forecast_cost`` / ``attribute_cost`` had
@@ -642,7 +642,7 @@ async def _cost_section(db: Any, main_id: str) -> dict[str, Any]:
     and is surfaced here as an explicit note, not a fake number.
     """
     since = datetime.now(timezone.utc) - timedelta(days=1)
-    match = {"main_id": main_id, "created_at": {"$gte": since}}
+    match = {"tenant_id": tenant_id, "created_at": {"$gte": since}}
     rows = await db[TOKEN_USAGE_COLLECTION].aggregate(
         [
             {"$match": match},
@@ -675,7 +675,7 @@ async def _cost_section(db: Any, main_id: str) -> dict[str, Any]:
     # FR-6: model costs must reconcile to the total; surface the self-check.
     section["reconciles"] = reconciles(section)
     # Forecast the next period from the trailing daily cost history (OQ-5: 4-period avg).
-    section["forecast"] = forecast_cost(await _daily_costs(db, main_id, days=DEFAULT_FORECAST_PERIODS + 1))
+    section["forecast"] = forecast_cost(await _daily_costs(db, tenant_id, days=DEFAULT_FORECAST_PERIODS + 1))
     section["departmentAttribution"] = {
         "available": False,
         "reason": "agent_id 无数据源（TokenUsageRecord 缺字段）；部门分摊待 008 数据源补齐，不伪造数值。",
@@ -685,15 +685,15 @@ async def _cost_section(db: Any, main_id: str) -> dict[str, Any]:
 
 @router.get("/overview")
 async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    billing = await _billing(db, main_id, current_user)
-    metrics, recent_activity = await _usage_metrics(db, main_id)
-    assets = await _assets(db, main_id)
-    quality = await _quality_metrics(db, main_id)
-    trend = await _trend_metrics(db, main_id, current_cost=float(metrics.get("cost24h") or 0.0))
-    usage = await _usage_tab(db, main_id)
-    cost = await _cost_section(db, main_id)
+    billing = await _billing(db, tenant_id, current_user)
+    metrics, recent_activity = await _usage_metrics(db, tenant_id)
+    assets = await _assets(db, tenant_id)
+    quality = await _quality_metrics(db, tenant_id)
+    trend = await _trend_metrics(db, tenant_id, current_cost=float(metrics.get("cost24h") or 0.0))
+    usage = await _usage_tab(db, tenant_id)
+    cost = await _cost_section(db, tenant_id)
     todos = _todos(metrics, assets)
     status_text = "critical" if any(item["level"] == "error" for item in todos) else "warning" if todos else "healthy"
     return {

@@ -18,12 +18,12 @@ def is_writing_style(skill: dict[str, Any]) -> bool:
 
 async def _available_skills(*, tenant_id: str, user_id: str) -> list[dict[str, Any]]:
     try:
-        personal = await user_skill_service.list_skills(user_id, main_id=tenant_id)
+        personal = await user_skill_service.list_skills(user_id, tenant_id=tenant_id)
     except Exception as exc:
         log_print(f"[content.styles] list_skills failed: {exc}", flush=True)
         personal = []
     try:
-        organization = await organization_skill_adapter.list_runtime_skills(main_id=tenant_id)
+        organization = await organization_skill_adapter.list_runtime_skills(tenant_id=tenant_id)
     except Exception as exc:
         log_print(f"[content.styles] list_runtime_skills failed: {exc}", flush=True)
         organization = []

@@ -40,14 +40,14 @@ def _serialize(doc: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-async def _require_model(main_id: str, model_id: str, capability: str, label: str) -> None:
+async def _require_model(tenant_id: str, model_id: str, capability: str, label: str) -> None:
     if not str(model_id or "").strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"请选择{label}",
         )
     try:
-        instance = await find_instance_by_id(model_id, main_id)
+        instance = await find_instance_by_id(model_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -65,8 +65,8 @@ async def _require_model(main_id: str, model_id: str, capability: str, label: st
 async def get_settings(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
-    return _serialize(await get_presentation_settings(main_id))
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    return _serialize(await get_presentation_settings(tenant_id))
 
 
 @router.put("")
@@ -74,12 +74,12 @@ async def put_settings(
     payload: PresentationSettingsPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
-    await _require_model(main_id, payload.llmModelId, "chat", "PPT 内容与布局模型")
-    await _require_model(main_id, payload.imageModelId, "image_generation", "PPT 图片生成模型")
-    await _require_model(main_id, payload.visionModelId, "vision", "PPT 视觉重建模型")
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    await _require_model(tenant_id, payload.llmModelId, "chat", "PPT 内容与布局模型")
+    await _require_model(tenant_id, payload.imageModelId, "image_generation", "PPT 图片生成模型")
+    await _require_model(tenant_id, payload.visionModelId, "vision", "PPT 视觉重建模型")
     saved = await save_presentation_settings(
-        main_id=main_id,
+        tenant_id=tenant_id,
         llm_model_id=payload.llmModelId,
         image_model_id=payload.imageModelId,
         vision_model_id=payload.visionModelId,

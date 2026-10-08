@@ -82,7 +82,7 @@ async def _load_doc(addr: ResourceAddress, tenant_id: str) -> tuple[Optional[str
         return None, {}
     row = await db["knowledge_document_chunks"].find_one(
         {
-            "main_id": resolve_main_id(tenant_id),
+            "tenant_id": resolve_main_id(tenant_id),
             "document_id": document_id,
             "chunk_id": chunk_id,
             "$or": [{"chunk_stage": "rag"}, {"chunk_stage": {"$exists": False}}],

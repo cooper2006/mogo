@@ -51,7 +51,7 @@ def _day_from_bucket_key(key: dict[str, Any]) -> str:
 async def skill_usage_monitor(
     db: Any,
     *,
-    main_id: str,
+    tenant_id: str,
     skill_key: str = "",
     days: int = 7,
     granularity: str = "day",
@@ -80,7 +80,7 @@ async def skill_usage_monitor(
 
     start, end = _bucket_date_range(days=days, as_of=as_of)
     flt: dict[str, Any] = {
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "date": {"$gte": start, "$lte": end},
     }
     if skill_key:
@@ -162,7 +162,7 @@ async def skill_usage_monitor(
 
     data_available = bool(rows)
     return {
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "skill_key": skill_key,
         "granularity": granularity,
         "days": days if granularity == "day" else 1,
@@ -179,7 +179,7 @@ async def skill_usage_monitor(
 async def skill_anomaly_drilldown(
     db: Any,
     *,
-    main_id: str,
+    tenant_id: str,
     skill_key: str,
     day: str,
     limit: int = 100,
@@ -192,7 +192,7 @@ async def skill_anomaly_drilldown(
     detail is honestly reported as ``events_available=False`` — never
     fabricated.
     """
-    day_fl = {"main_id": main_id, "skill_key": skill_key, "date": day}
+    day_fl = {"tenant_id": tenant_id, "skill_key": skill_key, "date": day}
     day_rows = await db[USAGE_COLLECTION].find(day_fl).to_list(length=16)
     buckets = [
         {
@@ -210,7 +210,7 @@ async def skill_anomaly_drilldown(
     try:
         cursor = db[AUDIT_COLLECTION].find(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "event_type": "skill.selected",
                 "created_at": {
                     "$gte": f"{day}T00:00:00",
@@ -233,7 +233,7 @@ async def skill_anomaly_drilldown(
         events_available = False
 
     return {
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "skill_key": skill_key,
         "day": day,
         "buckets": buckets,

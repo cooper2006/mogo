@@ -388,7 +388,7 @@ class EnterpriseToolService:
                 )
             else:
                 execution = external_tool_service.execute_runtime(
-                    main_id=claims.tenant_id,
+                    tenant_id=claims.tenant_id,
                     external_tool_id=tool.external_tool_id,
                     provider_type=tool.source_type,
                     mcp_tool_name=tool.mcp_tool_name,

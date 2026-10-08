@@ -12,7 +12,7 @@ async def record_position_policy_event(
 ) -> None:
     await get_db().position_role_audit_logs.insert_one({
         "_id": uuid.uuid4().hex,
-        "main_id": tenant_id,
+        "tenant_id": tenant_id,
         "actor": user_id,
         "action": action,
         "target_type": "employee",

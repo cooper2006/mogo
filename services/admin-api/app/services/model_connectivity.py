@@ -16,14 +16,14 @@ except Exception:  # pragma: no cover - optional dependency
 from app.core.config import settings
 
 
-def backend_model_test_events(instance_id: str, main_id: str, prompt: str) -> Iterator[dict[str, object]]:
+def backend_model_test_events(instance_id: str, tenant_id: str, prompt: str) -> Iterator[dict[str, object]]:
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     path_id = urllib.parse.quote(instance_id, safe="")
     request = urllib.request.Request(
         f"{base_url}/api/models/{path_id}/test/stream",
         data=json.dumps(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "prompt": prompt or "Reply with one short sentence to confirm the connection.",
             },
             ensure_ascii=False,
@@ -46,8 +46,8 @@ def backend_model_test_events(instance_id: str, main_id: str, prompt: str) -> It
         yield {"type": "error", "message": f"Model connection test failed: {exc}"}
 
 
-async def run_saved_model_test(instance_id: str, main_id: str, prompt: str = "") -> tuple[bool, str]:
-    return await asyncio.to_thread(_consume_test_events, instance_id, main_id, prompt)
+async def run_saved_model_test(instance_id: str, tenant_id: str, prompt: str = "") -> tuple[bool, str]:
+    return await asyncio.to_thread(_consume_test_events, instance_id, tenant_id, prompt)
 
 
 def next_event(iterator: Iterator[dict[str, object]]) -> tuple[bool, dict[str, object] | None]:
@@ -57,9 +57,9 @@ def next_event(iterator: Iterator[dict[str, object]]) -> tuple[bool, dict[str, o
         return False, None
 
 
-def _consume_test_events(instance_id: str, main_id: str, prompt: str) -> tuple[bool, str]:
+def _consume_test_events(instance_id: str, tenant_id: str, prompt: str) -> tuple[bool, str]:
     response_text = ""
-    for event in backend_model_test_events(instance_id, main_id, prompt):
+    for event in backend_model_test_events(instance_id, tenant_id, prompt):
         event_type = str(event.get("type") or "")
         if event_type == "delta":
             response_text += str(event.get("content") or "")

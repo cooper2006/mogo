@@ -39,7 +39,7 @@ class BrowserWorkflowCacheService:
         self,
         *,
         user_id: str,
-        main_id: str,
+        tenant_id: str,
         node: CapabilityTask,
         input_context: BrowserInputContext,
         preferred_workflow_id: str = "",
@@ -47,7 +47,7 @@ class BrowserWorkflowCacheService:
     ) -> CachedBrowserWorkflow | None:
         identity = build_workflow_identity(
             user_id=user_id,
-            main_id=main_id,
+            tenant_id=tenant_id,
             node=node,
             input_context=input_context,
         )
@@ -196,7 +196,7 @@ class BrowserWorkflowCacheService:
         self,
         *,
         user_id: str,
-        main_id: str,
+        tenant_id: str,
         node: CapabilityTask,
         input_context: BrowserInputContext,
         history: list[StepRecord],
@@ -209,7 +209,7 @@ class BrowserWorkflowCacheService:
     ) -> asyncio.Task[bool] | None:
         identity = build_workflow_identity(
             user_id=user_id,
-            main_id=main_id,
+            tenant_id=tenant_id,
             node=node,
             input_context=input_context,
         )
@@ -217,7 +217,7 @@ class BrowserWorkflowCacheService:
             node = scope_node(node, resolve_site_from_history(history))
             identity = build_workflow_identity(
                 user_id=user_id,
-                main_id=main_id,
+                tenant_id=tenant_id,
                 node=node,
                 input_context=input_context,
             )

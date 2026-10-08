@@ -37,7 +37,7 @@ async def test_setup_search(payload: dict[str, Any]) -> list[dict[str, str]]:
     return await test_provider(provider, config, str(payload.get("query") or ""))
 
 
-async def save_setup_search(payload: dict[str, Any], main_id: str) -> None:
+async def save_setup_search(payload: dict[str, Any], tenant_id: str) -> None:
     provider = str(payload.get("provider") or "").strip()
     config = normalized_config(
         provider,
@@ -48,7 +48,7 @@ async def save_setup_search(payload: dict[str, Any], main_id: str) -> None:
     )
     now = datetime.datetime.now(datetime.timezone.utc)
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id, "provider": provider},
+        {"tenant_id": tenant_id, "provider": provider},
         {
             "$set": {
                 "enabled": True,
@@ -69,7 +69,7 @@ async def save_setup_search(payload: dict[str, Any], main_id: str) -> None:
             },
             "$setOnInsert": {
                 "_id": uuid.uuid4().hex,
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "provider": provider,
                 "created_at": now,
             },

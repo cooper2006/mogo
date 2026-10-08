@@ -150,7 +150,7 @@ class RecordingCacheRequest(BaseModel):
     operation: str
     display_name: str = ""
     capability_id: str = ""
-    main_id: str = "default"
+    tenant_id: str = "default"
     included_sequences: list[int] | None = None
     variable_names: Dict[int, str] = Field(default_factory=dict)
 
@@ -190,7 +190,7 @@ async def recording_cache(body: RecordingCacheRequest):
     accepted, reason = await capture_manual_recording(
         cache=browser_workflow_cache,
         user_id=body.user_id,
-        main_id=body.main_id,
+        tenant_id=body.tenant_id,
         recording_id=body.recording_id,
         operation=body.operation,
         events=events,

@@ -45,12 +45,12 @@ from app.repositories.admin_session_repository import create_session, revoke_ses
 class LoginRequest(BaseModel):
     username: str
     password: str
-    mainId: str = Field(default="", max_length=64)
+    tenantId: str = Field(default="", max_length=64)
 
 
 class SelectTenantRequest(BaseModel):
     challengeToken: str = Field(min_length=12, max_length=160)
-    mainId: str = Field(min_length=1, max_length=64)
+    tenantId: str = Field(min_length=1, max_length=64)
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -192,7 +192,7 @@ def _avatar_public_url(relative_path: str) -> str:
     return f"/static/{relative_path.strip('/')}"
 
 
-def _profile_from_user(user: dict[str, Any], main_id: str) -> dict[str, object]:
+def _profile_from_user(user: dict[str, Any], tenant_id: str) -> dict[str, object]:
     return {
         "name": _safe_display_name(user),
         "roleName": user.get("role_name") or "组织管理员",
@@ -203,14 +203,14 @@ def _profile_from_user(user: dict[str, Any], main_id: str) -> dict[str, object]:
         "avatarUrl": user.get("avatar_url") or "",
         "avatarUpdatedAt": utc_iso(user.get("avatar_updated_at")),
         "lastLoginAt": utc_iso(user.get("last_login_at")),
-        "mainId": main_id,
+        "mainId": tenant_id,
     }
 
 
 def _candidate_from_user(user: dict[str, Any]) -> dict[str, object]:
-    main_id = str(user.get("main_id") or "")
+    tenant_id = str(user.get("tenant_id") or "")
     return {
-        "mainId": main_id,
+        "mainId": tenant_id,
         "orgName": user.get("org_name") or user.get("group_code") or "组织账户",
         "roleName": user.get("role_name") or "组织管理员",
         "displayName": user.get("display_name") or user.get("username") or "",
@@ -242,9 +242,9 @@ async def _create_login_challenge(username: str, candidates: list[dict[str, obje
     }
 
 
-async def _issue_login_response(user: dict[str, Any], main_id: str, request: Request) -> dict[str, object]:
-    await touch_account_last_login(user["username"], main_id)
-    profile = _profile_from_user(user, main_id)
+async def _issue_login_response(user: dict[str, Any], tenant_id: str, request: Request) -> dict[str, object]:
+    await touch_account_last_login(user["username"], tenant_id)
+    profile = _profile_from_user(user, tenant_id)
 
     # QF-342~347: if MFA is enabled, issue a short-lived mfaToken instead of a full token.
     mfa_enabled = bool(user.get("mfa_enabled"))
@@ -259,7 +259,7 @@ async def _issue_login_response(user: dict[str, Any], main_id: str, request: Req
         mfa_token, expires_at, session_id = create_access_token(
             {
                 "username": user["username"],
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "mfa_pending": True,
             },
             expires_in_seconds=300,  # 5-minute window for MFA completion
@@ -275,7 +275,7 @@ async def _issue_login_response(user: dict[str, Any], main_id: str, request: Req
             "username": user["username"],
             "role_name": profile["roleName"],
             "org_name": profile["orgName"],
-            "main_id": main_id,
+            "tenant_id": tenant_id,
         }
     )
     await create_session(
@@ -297,17 +297,17 @@ def _password_matches(user: dict[str, Any], password: str) -> bool:
     return bool(password_hash and password_salt and verify_password(password, password_hash, password_salt))
 
 
-async def _assert_tenant_login_allowed(main_id: str) -> None:
+async def _assert_tenant_login_allowed(tenant_id: str) -> None:
     """T040: archived (or otherwise non-active) tenants cannot log in (decision 13).
 
     The reserved platform identifier is never in the tenant registry and is
     handled by the platform bootstrap instead, so only non-reserved
     identifiers are checked.
     """
-    if is_reserved_main_id(main_id) or main_id == PLATFORM_MAIN_ID:
+    if is_reserved_main_id(tenant_id) or tenant_id == PLATFORM_MAIN_ID:
         return
     db = get_db()
-    tenant = await db["tenants"].find_one({"main_id": main_id}, {"status": 1})
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"status": 1})
     if tenant is None:
         # Unknown identifier: keep the legacy 401/403 semantics; a brand-new
         # tenant is always registered by provision_tenant before it is usable.
@@ -321,7 +321,7 @@ async def _assert_tenant_login_allowed(main_id: str) -> None:
 
 @router.post("/login")
 async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
-    requested_main_id = payload.mainId.strip()
+    requested_main_id = payload.tenantId.strip()
     username = payload.username.strip()
 
     # QF-356: check rate limit before any database work.
@@ -329,20 +329,20 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
     _check_login_rate_limit(rate_limit_key)
 
     if requested_main_id:
-        main_id = requested_main_id
-        user = await find_account_by_username(username, main_id)
+        tenant_id = requested_main_id
+        user = await find_account_by_username(username, tenant_id)
         if user is None:
             _record_login_failure(rate_limit_key)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
         if user.get("status") != "active":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user is disabled")
-        await _assert_tenant_login_allowed(main_id)
+        await _assert_tenant_login_allowed(tenant_id)
         if not _password_matches(user, payload.password):
             _record_login_failure(rate_limit_key)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
         # QF-358: clear rate limit on successful login.
         get_default_limiter().record_success(rate_limit_key)
-        return await _issue_login_response(user, main_id, request)
+        return await _issue_login_response(user, tenant_id, request)
 
     accounts = await list_accounts_by_username(username)
     matched_users = [
@@ -355,13 +355,13 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
         candidates = [
             _candidate_from_user(user)
             for user in matched_users
-            if not await _tenant_blocked_for_login(str(user.get("main_id") or ""))
+            if not await _tenant_blocked_for_login(str(user.get("tenant_id") or ""))
         ]
         if not candidates:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant is not active")
         if len(candidates) > 1:
             return await _create_login_challenge(username, candidates)
-        user = next(a for a in matched_users if str(a.get("main_id") or "") == str(candidates[0].get("mainId")))
+        user = next(a for a in matched_users if str(a.get("tenant_id") or "") == str(candidates[0].get("tenantId")))
     else:
         user = matched_users[0] if matched_users else None
 
@@ -370,21 +370,21 @@ async def login(payload: LoginRequest, request: Request) -> dict[str, object]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
     if user.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user is disabled")
-    main_id = str(user.get("main_id") or "").strip()
-    if not main_id:
+    tenant_id = str(user.get("tenant_id") or "").strip()
+    if not tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin user has no tenant")
-    await _assert_tenant_login_allowed(main_id)
+    await _assert_tenant_login_allowed(tenant_id)
     # QF-358: clear rate limit on successful login.
     get_default_limiter().record_success(rate_limit_key)
-    return await _issue_login_response(user, main_id, request)
+    return await _issue_login_response(user, tenant_id, request)
 
 
-async def _tenant_blocked_for_login(main_id: str) -> bool:
+async def _tenant_blocked_for_login(tenant_id: str) -> bool:
     """True when the tenant row exists and is not active (archived / purged)."""
-    if is_reserved_main_id(main_id) or main_id == PLATFORM_MAIN_ID:
+    if is_reserved_main_id(tenant_id) or tenant_id == PLATFORM_MAIN_ID:
         return False
     db = get_db()
-    tenant = await db["tenants"].find_one({"main_id": main_id}, {"status": 1})
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"status": 1})
     return tenant is not None and str(tenant.get("status") or "") != "active"
 
 
@@ -406,25 +406,25 @@ async def select_tenant(payload: SelectTenantRequest, request: Request) -> dict[
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Login challenge expired")
 
     candidates = list(challenge.get("candidates") or [])
-    selected = next((item for item in candidates if str(item.get("mainId") or "") == payload.mainId), None)
+    selected = next((item for item in candidates if str(item.get("tenantId") or "") == payload.tenantId), None)
     if not selected:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Selected organization is not available")
 
-    user = await find_account_by_username(str(challenge.get("username") or ""), payload.mainId)
+    user = await find_account_by_username(str(challenge.get("username") or ""), payload.tenantId)
     if user is None or user.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin user is unavailable")
-    await _assert_tenant_login_allowed(str(payload.mainId))
+    await _assert_tenant_login_allowed(str(payload.tenantId))
 
     await db[LOGIN_CHALLENGE_COLLECTION].update_one(
         {"_id": challenge["_id"]},
-        {"$set": {"status": "used", "updated_at": now, "used_main_id": payload.mainId}},
+        {"$set": {"status": "used", "updated_at": now, "used_main_id": payload.tenantId}},
     )
-    return await _issue_login_response(user, payload.mainId, request)
+    return await _issue_login_response(user, payload.tenantId, request)
 
 
 @router.get("/me")
 async def me(current_user: dict = Depends(get_authenticated_admin)) -> dict[str, object]:
-    return _profile_from_user(current_user, str(current_user["main_id"]))
+    return _profile_from_user(current_user, str(current_user["tenant_id"]))
 
 
 @router.patch("/me")
@@ -432,13 +432,13 @@ async def update_me(
     payload: ProfileUpdateRequest,
     current_user: dict = Depends(get_authenticated_admin),
 ) -> dict[str, object]:
-    main_id = str(current_user["main_id"])
+    tenant_id = str(current_user["tenant_id"])
     display_name = payload.name.strip()
     if not display_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="姓名不能为空")
     updated = await update_account_profile(
         str(current_user["username"]),
-        main_id,
+        tenant_id,
         {
             "display_name": display_name,
             "email": payload.email.strip(),
@@ -447,7 +447,7 @@ async def update_me(
     )
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin user is unavailable")
-    return _profile_from_user(updated, main_id)
+    return _profile_from_user(updated, tenant_id)
 
 
 @router.post("/me/password")
@@ -466,8 +466,8 @@ async def change_my_password(
     if strength_error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=strength_error)
 
-    main_id = str(current_user["main_id"])
-    await set_account_password(str(current_user["username"]), payload.newPassword, main_id)
+    tenant_id = str(current_user["tenant_id"])
+    await set_account_password(str(current_user["username"]), payload.newPassword, tenant_id)
 
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "", 1).strip()
@@ -502,7 +502,7 @@ async def upload_my_avatar(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="头像文件不能为空")
     _validate_avatar_signature(data, ext)
 
-    main_id = str(current_user["main_id"])
+    tenant_id = str(current_user["tenant_id"])
     username = str(current_user["username"])
     relative_dir = f"admin-avatars/{_safe_path_part(main_id, 'default')}"
     filename = f"{_safe_path_part(username, 'user')}-{uuid.uuid4().hex}.{ext}"
@@ -515,10 +515,10 @@ async def upload_my_avatar(
     target.write_bytes(data)
 
     avatar_url = _avatar_public_url(relative_path)
-    updated = await update_account_avatar(username, main_id, avatar_url)
+    updated = await update_account_avatar(username, tenant_id, avatar_url)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin user is unavailable")
-    return _profile_from_user(updated, main_id)
+    return _profile_from_user(updated, tenant_id)
 
 
 @router.post("/logout")
@@ -585,12 +585,12 @@ async def mfa_enable(
     if not verify_totp(payload.secret, payload.code):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="TOTP code is invalid")
 
-    main_id = str(current_user["main_id"])
+    tenant_id = str(current_user["tenant_id"])
     username = str(current_user["username"])
     master_key = str(settings.jwt_secret)
     secret_hash = hashlib.sha256(payload.secret.encode("utf-8")).hexdigest()
     secret_encrypted = encrypt_secret(payload.secret, master_key)
-    await _store_mfa_secret(username, main_id, secret_hash, secret_encrypted)
+    await _store_mfa_secret(username, tenant_id, secret_hash, secret_encrypted)
 
     # Revoke the current session — the user must re-login with MFA.
     if authorization and authorization.startswith("Bearer "):
@@ -613,9 +613,9 @@ async def mfa_disable(
     if not _password_matches(current_user, payload.currentPassword):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
 
-    main_id = str(current_user["main_id"])
+    tenant_id = str(current_user["tenant_id"])
     username = str(current_user["username"])
-    await _clear_mfa_secret(username, main_id)
+    await _clear_mfa_secret(username, tenant_id)
 
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "", 1).strip()
@@ -644,13 +644,13 @@ async def mfa_verify(payload: MfaVerifyRequest) -> dict[str, object]:
 
     subject = decoded.get("sub") or {}
     username = str(subject.get("username") or "")
-    main_id = str(subject.get("main_id") or "")
+    tenant_id = str(subject.get("tenant_id") or "")
     session_id = str(subject.get("session_id") or "")
-    if not username or not main_id or not session_id:
+    if not username or not tenant_id or not session_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid mfaToken")
 
     db = _get_db()
-    user_doc = await db["admin_accounts"].find_one({"username": username, "main_id": main_id})
+    user_doc = await db["admin_accounts"].find_one({"username": username, "tenant_id": tenant_id})
     if not user_doc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
 
@@ -658,7 +658,7 @@ async def mfa_verify(payload: MfaVerifyRequest) -> dict[str, object]:
     if not secret_hash:
         # MFA was disabled after the login started; fall through.
         token_out, expires_at, sid = await _issue_mfa_login_response(
-            db, user_doc, main_id, session_id
+            db, user_doc, tenant_id, session_id
         )
         return {
             "success": True,
@@ -686,7 +686,7 @@ async def mfa_verify(payload: MfaVerifyRequest) -> dict[str, object]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="TOTP code is invalid")
 
     token_out, expires_at, sid = await _issue_mfa_login_response(
-        db, user_doc, main_id, session_id
+        db, user_doc, tenant_id, session_id
     )
     return {
         "success": True,
@@ -696,13 +696,13 @@ async def mfa_verify(payload: MfaVerifyRequest) -> dict[str, object]:
     }
 
 
-async def _store_mfa_secret(username: str, main_id: str, secret_hash: str, secret_encrypted: str) -> None:
+async def _store_mfa_secret(username: str, tenant_id: str, secret_hash: str, secret_encrypted: str) -> None:
     """Persist the hashed and encrypted TOTP secret to the user's account document."""
     from app.core.db import get_db as _get_db
 
     db = _get_db()
     await db["admin_accounts"].update_one(
-        {"username": username, "main_id": main_id},
+        {"username": username, "tenant_id": tenant_id},
         {
             "$set": {
                 "mfa_enabled": True,
@@ -714,13 +714,13 @@ async def _store_mfa_secret(username: str, main_id: str, secret_hash: str, secre
     )
 
 
-async def _clear_mfa_secret(username: str, main_id: str) -> None:
+async def _clear_mfa_secret(username: str, tenant_id: str) -> None:
     """Remove MFA secret from the user's account document."""
     from app.core.db import get_db as _get_db
 
     db = _get_db()
     await db["admin_accounts"].update_one(
-        {"username": username, "main_id": main_id},
+        {"username": username, "tenant_id": tenant_id},
         {
             "$set": {"mfa_enabled": False, "updated_at": _now()},
             "$unset": {"mfa_secret_hash": "", "mfa_secret_encrypted": ""},
@@ -729,7 +729,7 @@ async def _clear_mfa_secret(username: str, main_id: str) -> None:
 
 
 async def _issue_mfa_login_response(
-    db, user_doc: dict, main_id: str, session_id: str
+    db, user_doc: dict, tenant_id: str, session_id: str
 ) -> tuple[str, int, str]:
     """Issue a full access token after MFA verification succeeds."""
     username = str(user_doc.get("username") or "")
@@ -737,7 +737,7 @@ async def _issue_mfa_login_response(
     token, expires_at, sid = create_access_token(
         {
             "username": username,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "display_name": display_name,
             "role_name": str(user_doc.get("role_name") or ""),
             "org_name": str(user_doc.get("org_name") or user_doc.get("group_code") or ""),
@@ -746,7 +746,7 @@ async def _issue_mfa_login_response(
         expires_in_seconds=3600,
     )
     # Reuse the original session_id if available, otherwise create a new one.
-    await create_session(sid, username, main_id, expires_at)
+    await create_session(sid, username, tenant_id, expires_at)
     return token, expires_at, sid
 
 
@@ -766,7 +766,7 @@ class SessionRevokeRequest(BaseModel):
 
 class RecoveryRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
-    mainId: str = Field(default="", max_length=64)
+    tenantId: str = Field(default="", max_length=64)
 
 
 class RecoveryResetRequest(BaseModel):
@@ -795,11 +795,11 @@ async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
 
     subject = decoded.get("sub") or {}
     username = str(subject.get("username") or "")
-    main_id = str(subject.get("main_id") or "")
+    tenant_id = str(subject.get("tenant_id") or "")
     family_id = str(decoded.get("fid") or "")
     token_id = str(decoded.get("jti") or "")
 
-    if not username or not main_id or not family_id or not token_id:
+    if not username or not tenant_id or not family_id or not token_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
     db = get_db()
@@ -809,7 +809,7 @@ async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
     if used_token:
         # Replay detected! Revoke the entire family.
         await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": family_id})
-        await db["admin_sessions"].delete_many({"main_id": main_id, "username": username})
+        await db["admin_sessions"].delete_many({"tenant_id": tenant_id, "username": username})
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token reuse detected. All sessions revoked.",
@@ -820,20 +820,20 @@ async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
     # If no record yet, this is the first use — check the session.
     session_doc = None
     if family_id:
-        session_doc = await db["admin_sessions"].find_one({"session_id": family_id, "main_id": main_id})
+        session_doc = await db["admin_sessions"].find_one({"session_id": family_id, "tenant_id": tenant_id})
         if session_doc:
             session_created = int(session_doc.get("created_at") or 0)
             if session_created and (int(time.time()) - session_created) > ABSOLUTE_TIMEOUT_SECONDS:
                 # Absolute timeout exceeded — revoke family.
                 await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": family_id})
-                await db["admin_sessions"].delete_many({"session_id": family_id, "main_id": main_id})
+                await db["admin_sessions"].delete_many({"session_id": family_id, "tenant_id": tenant_id})
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Session expired. Please log in again.",
                 )
             # Update last activity for idle timeout tracking.
             await db["admin_sessions"].update_one(
-                {"session_id": family_id, "main_id": main_id},
+                {"session_id": family_id, "tenant_id": tenant_id},
                 {"$set": {"last_activity_at": int(time.time())}},
             )
 
@@ -842,24 +842,24 @@ async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
         "token_id": token_id,
         "family_id": family_id,
         "username": username,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "created_at": int(time.time()),
     })
 
     # Issue a new refresh token with the same family ID.
-    user = await find_account_by_username(username, main_id)
+    user = await find_account_by_username(username, tenant_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     new_refresh, new_refresh_exp, new_token_id, new_family = create_refresh_token(
-        {"username": username, "main_id": main_id},
+        {"username": username, "tenant_id": tenant_id},
         family_id=family_id,
     )
     await db[REFRESH_TOKEN_COLLECTION].insert_one({
         "token_id": new_token_id,
         "family_id": new_family,
         "username": username,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "created_at": int(time.time()),
         "is_current": True,
     })
@@ -873,7 +873,7 @@ async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
     token, expires_at, sid = create_access_token(
         {
             "username": username,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "display_name": str(user.get("display_name") or username),
             "role_name": str(user.get("role_name") or ""),
             "org_name": str(user.get("org_name") or user.get("group_code") or ""),
@@ -901,9 +901,9 @@ async def list_sessions(
     """QF-354: List active sessions for the current user."""
     from app.repositories.admin_session_repository import list_sessions_for_user
 
-    main_id = str(current_user["main_id"])
+    tenant_id = str(current_user["tenant_id"])
     username = str(current_user["username"])
-    sessions = await list_sessions_for_user(username, main_id)
+    sessions = await list_sessions_for_user(username, tenant_id)
 
     current_session_id = None
     if authorization and authorization.startswith("Bearer "):
@@ -940,20 +940,20 @@ async def revoke_session_endpoint(
     """QF-354: Revoke a specific session."""
     from app.repositories.admin_session_repository import revoke_session
 
-    main_id = str(current_user["main_id"])
+    tenant_id = str(current_user["tenant_id"])
     username = str(current_user["username"])
 
     # Verify the session belongs to the current user.
     db = get_db()
     session = await db["admin_sessions"].find_one(
-        {"session_id": payload.sessionId, "main_id": main_id, "username": username}
+        {"session_id": payload.sessionId, "tenant_id": tenant_id, "username": username}
     )
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
     await revoke_session(payload.sessionId)
     # Also revoke all refresh tokens in this family.
-    await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": payload.sessionId, "main_id": main_id})
+    await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": payload.sessionId, "tenant_id": tenant_id})
     return {"success": True}
 
 
@@ -969,7 +969,7 @@ async def request_recovery(payload: RecoveryRequest) -> dict[str, object]:
     (mocked here — in production, wire up an email service).
     """
     username = payload.username.strip()
-    main_id = payload.mainId.strip() or "default"
+    tenant_id = payload.tenantId.strip() or "default"
 
     # Always respond with the same message (QF-357: no account existence leak).
     response_message = "若该账号存在，恢复令牌已发送至您的注册邮箱"
@@ -977,14 +977,14 @@ async def request_recovery(payload: RecoveryRequest) -> dict[str, object]:
     # Try to find the account. If found, generate a recovery token.
     from app.repositories.org_user_repository import find_account_by_username
 
-    user = await find_account_by_username(username, main_id)
+    user = await find_account_by_username(username, tenant_id)
     if user and user.get("status") == "active":
-        token, expires_at, token_hash = create_recovery_token(username, main_id, "password_reset")
+        token, expires_at, token_hash = create_recovery_token(username, tenant_id, "password_reset")
         db = get_db()
         await db[RECOVERY_TOKEN_COLLECTION].insert_one({
             "token_hash": token_hash,
             "username": username,
-            "main_id": main_id,
+            "tenant_id": tenant_id,
             "purpose": "password_reset",
             "expires_at": expires_at,
             "used": False,
@@ -1033,7 +1033,7 @@ async def reset_with_recovery(payload: RecoveryResetRequest) -> dict[str, bool]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="令牌已过期")
 
     username = str(doc.get("username") or "")
-    main_id = str(doc.get("main_id") or "")
+    tenant_id = str(doc.get("tenant_id") or "")
     purpose = str(doc.get("purpose") or "")
 
     if not username or purpose != "password_reset":
@@ -1047,7 +1047,7 @@ async def reset_with_recovery(payload: RecoveryResetRequest) -> dict[str, bool]:
 
     # Update password.
     from app.repositories.org_user_repository import set_account_password
-    await set_account_password(username, payload.newPassword, main_id)
+    await set_account_password(username, payload.newPassword, tenant_id)
 
     # QF-361: Immediately invalidate the token (one-time use).
     await db[RECOVERY_TOKEN_COLLECTION].update_one(
@@ -1056,7 +1056,7 @@ async def reset_with_recovery(payload: RecoveryResetRequest) -> dict[str, bool]:
     )
 
     # Revoke all sessions for this account.
-    await db["admin_sessions"].delete_many({"main_id": main_id, "username": username})
-    await db[REFRESH_TOKEN_COLLECTION].delete_many({"main_id": main_id, "username": username})
+    await db["admin_sessions"].delete_many({"tenant_id": tenant_id, "username": username})
+    await db[REFRESH_TOKEN_COLLECTION].delete_many({"tenant_id": tenant_id, "username": username})
 
     return {"success": True}

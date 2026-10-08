@@ -57,7 +57,7 @@ async def search(
     index = BusinessSemanticIndex(db=get_db())
     hits = await index.semantic_search(
         payload.query,
-        tenant_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         user_id=principal.user_id,
         top_n=payload.top_n,
     )
@@ -77,7 +77,7 @@ async def index_entity(
     record = EntityRecord(
         entity_id=payload.entity_id,
         entity_type=payload.entity_type,
-        tenant_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         title=payload.title,
         source_ref=payload.source_ref,
         fields=payload.fields,
@@ -100,7 +100,7 @@ async def align(
                     source_system=str(raw.get("source_system") or ""),
                     record_id=str(raw.get("record_id") or ""),
                     fields=dict(raw.get("fields") or {}),
-                    tenant_id=principal.main_id,
+                    tenant_id=principal.tenant_id,
                 )
             )
         except Exception as exc:  # noqa: BLE001 - skip malformed, keep the rest

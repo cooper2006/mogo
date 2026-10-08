@@ -13,7 +13,7 @@ from app.core.quota_policy import (
 
 async def configure_setup_quotas(
     *,
-    main_id: str,
+    tenant_id: str,
     total_tokens: int,
     default_user_tokens: int,
     period: str,
@@ -40,7 +40,7 @@ async def configure_setup_quotas(
     normalized_period = normalize_period(period)
     normalized_timezone = normalize_timezone(timezone_name)
     await db[ORG_QUOTA_POLICY_COLLECTION].update_one(
-        {"main_id": main_id},
+        {"tenant_id": tenant_id},
         {
             "$set": {
                 "total_tokens": int(total_tokens),
@@ -56,7 +56,7 @@ async def configure_setup_quotas(
         upsert=True,
     )
     await db[USER_QUOTA_POLICY_COLLECTION].update_one(
-        {"main_id": main_id, "scope_type": "all", "scope_id": ""},
+        {"tenant_id": tenant_id, "scope_type": "all", "scope_id": ""},
         {
             "$set": {
                 "quota_tokens": int(default_user_tokens),
@@ -73,7 +73,7 @@ async def configure_setup_quotas(
     await db[USER_QUOTA_LOG_COLLECTION].insert_many(
         [
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "user_id": "org_policy",
                 "action": "setup_org",
                 "before_quota_tokens": 0,
@@ -84,7 +84,7 @@ async def configure_setup_quotas(
                 "created_at": now,
             },
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "user_id": "default_policy",
                 "action": "setup_default",
                 "before_quota_tokens": 0,

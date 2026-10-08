@@ -76,12 +76,12 @@ async def ensure_indexes() -> None:
         await db[PROVIDER_COLLECTION].create_index("code", unique=True, name="provider_code_unique")
         await db[PROVIDER_COLLECTION].create_index("status", name="provider_status")
         await db[INSTANCE_COLLECTION].create_index(
-            [("main_id", 1), ("provider_id", 1), ("model_name", 1), ("display_name", 1)],
+            [("tenant_id", 1), ("provider_id", 1), ("model_name", 1), ("display_name", 1)],
             unique=True,
             name="model_instance_identity_unique",
         )
-        await db[INSTANCE_COLLECTION].create_index([("main_id", 1), ("status", 1)], name="model_main_status")
-        await db[INSTANCE_COLLECTION].create_index([("main_id", 1), ("is_default", 1)], name="model_main_default")
+        await db[INSTANCE_COLLECTION].create_index([("tenant_id", 1), ("status", 1)], name="model_tenant_status")
+        await db[INSTANCE_COLLECTION].create_index([("tenant_id", 1), ("is_default", 1)], name="model_tenant_default")
     except OperationFailure:
         pass
     await seed_default_providers()
@@ -123,22 +123,22 @@ async def find_provider_by_id(provider_id: str) -> dict[str, Any] | None:
     return await db[PROVIDER_COLLECTION].find_one({"_id": ObjectId(provider_id)})
 
 
-async def list_instances(main_id: str) -> list[dict[str, Any]]:
+async def list_instances(tenant_id: str) -> list[dict[str, Any]]:
     db = get_db()
-    cursor = db[INSTANCE_COLLECTION].find({"main_id": main_id}).sort([("priority", 1), ("updated_at", -1)])
+    cursor = db[INSTANCE_COLLECTION].find({"tenant_id": tenant_id}).sort([("priority", 1), ("updated_at", -1)])
     return await cursor.to_list(length=500)
 
 
-async def find_instance_by_id(instance_id: str, main_id: str) -> dict[str, Any] | None:
+async def find_instance_by_id(instance_id: str, tenant_id: str) -> dict[str, Any] | None:
     db = get_db()
-    return await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(instance_id), "main_id": main_id})
+    return await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(instance_id), "tenant_id": tenant_id})
 
 
 async def create_instance(payload: dict[str, Any]) -> str:
     db = get_db()
     now = utcnow()
     doc = {
-        "main_id": payload["main_id"],
+        "tenant_id": payload["tenant_id"],
         "provider_id": ObjectId(payload["provider_id"]),
         "org_id": payload.get("org_id") or "",
         "display_name": payload["display_name"],
@@ -164,7 +164,7 @@ async def create_instance(payload: dict[str, Any]) -> str:
         doc["settings"] = dict(payload.get("settings") or {})
     result = await db[INSTANCE_COLLECTION].insert_one(doc)
     if doc["is_default"]:
-        await set_default_instance(str(result.inserted_id), payload["main_id"])
+        await set_default_instance(str(result.inserted_id), payload["tenant_id"])
     return str(result.inserted_id)
 
 
@@ -195,41 +195,41 @@ async def update_instance(instance_id: str, payload: dict[str, Any]) -> bool:
         set_doc["api_secret_masked"] = mask_secret(payload["api_secret"])
 
     result = await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(instance_id), "main_id": payload["main_id"]},
+        {"_id": ObjectId(instance_id), "tenant_id": payload["tenant_id"]},
         {"$set": set_doc},
     )
     if result.matched_count > 0 and set_doc["is_default"]:
-        await set_default_instance(instance_id, payload["main_id"])
+        await set_default_instance(instance_id, payload["tenant_id"])
     return result.matched_count > 0
 
 
-async def delete_instance(instance_id: str, main_id: str) -> bool:
+async def delete_instance(instance_id: str, tenant_id: str) -> bool:
     db = get_db()
-    result = await db[INSTANCE_COLLECTION].delete_one({"_id": ObjectId(instance_id), "main_id": main_id})
+    result = await db[INSTANCE_COLLECTION].delete_one({"_id": ObjectId(instance_id), "tenant_id": tenant_id})
     return result.deleted_count > 0
 
 
-async def set_default_instance(instance_id: str, main_id: str) -> bool:
+async def set_default_instance(instance_id: str, tenant_id: str) -> bool:
     db = get_db()
-    instance = await find_instance_by_id(instance_id, main_id)
+    instance = await find_instance_by_id(instance_id, tenant_id)
     if instance is None:
         return False
     now = utcnow()
     await db[INSTANCE_COLLECTION].update_many(
-        {"main_id": main_id, "_id": {"$ne": ObjectId(instance_id)}},
+        {"tenant_id": tenant_id, "_id": {"$ne": ObjectId(instance_id)}},
         {"$set": {"is_default": False, "updated_at": now}},
     )
     await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(instance_id), "main_id": main_id},
+        {"_id": ObjectId(instance_id), "tenant_id": tenant_id},
         {"$set": {"is_default": True, "updated_at": now}},
     )
     return True
 
 
-async def update_instance_health(instance_id: str, main_id: str, health_status: str, last_error: str = "") -> None:
+async def update_instance_health(instance_id: str, tenant_id: str, health_status: str, last_error: str = "") -> None:
     db = get_db()
     await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(instance_id), "main_id": main_id},
+        {"_id": ObjectId(instance_id), "tenant_id": tenant_id},
         {
             "$set": {
                 "health_status": health_status,

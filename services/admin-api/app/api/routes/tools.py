@@ -64,7 +64,7 @@ def _time_text(value: Any) -> str:
 def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(doc.get("_id") or ""),
-        "mainId": str(doc.get("main_id") or "default"),
+        "mainId": str(doc.get("tenant_id") or "default"),
         "name": str(doc.get("name") or ""),
         "type": str(doc.get("type") or "http"),
         "description": str(doc.get("description") or ""),
@@ -124,7 +124,7 @@ def _validate_final_activation(existing: dict[str, Any] | None, patch: dict[str,
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error)
 
 
-def _backend_url(path: str, main_id: str) -> str:
+def _backend_url(path: str, tenant_id: str) -> str:
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     separator = "&" if "?" in path else "?"
     return f"{base_url}/api/external-tools{path}{separator}{urllib.parse.urlencode({'mainId': main_id})}"
@@ -147,7 +147,7 @@ def _tool_timeout_seconds(payload: Any, default: int = 35) -> int:
     return _config_timeout_seconds(_safe_dict(tool.get("config")), default=default)
 
 
-def _request_backend(method: str, path: str, main_id: str, body: Any | None = None, timeout: int = 35) -> Any:
+def _request_backend(method: str, path: str, tenant_id: str, body: Any | None = None, timeout: int = 35) -> Any:
     data = None
     headers = {
         "Accept": "application/json",
@@ -156,7 +156,7 @@ def _request_backend(method: str, path: str, main_id: str, body: Any | None = No
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(_backend_url(path, main_id), data=data, headers=headers, method=method)
+    request = urllib.request.Request(_backend_url(path, tenant_id), data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
@@ -207,20 +207,20 @@ class ToolDescriptionGeneratePayload(BaseModel):
 
 @router.get("")
 async def list_tools(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    cursor = db.external_tools.find(organization_tool_query(main_id)).sort("updated_at", -1)
+    cursor = db.external_tools.find(organization_tool_query(tenant_id)).sort("updated_at", -1)
     return [_serialize(doc) async for doc in cursor]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_tool(payload: ToolPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
     now = _now()
     doc = {
         "_id": uuid.uuid4().hex,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         **organization_tool_fields(),
         **_normalize_payload(payload.model_dump()),
         "status": "disabled",
@@ -237,9 +237,9 @@ async def create_tool(payload: ToolPayload, current_user: dict = Depends(get_cur
 
 @router.get("/{tool_id}")
 async def get_tool(tool_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    doc = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     return _serialize(doc)
@@ -247,35 +247,35 @@ async def get_tool(tool_id: str, current_user: dict = Depends(get_current_admin_
 
 @router.put("/{tool_id}")
 async def update_tool(tool_id: str, payload: ToolPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    existing = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    existing = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     patch = {**_normalize_payload(payload.model_dump()), "updated_at": _now()}
     _validate_final_activation(existing, patch)
-    result = await db.external_tools.update_one(organization_tool_query(main_id, _id=str(tool_id)), {"$set": patch})
+    result = await db.external_tools.update_one(organization_tool_query(tenant_id, _id=str(tool_id)), {"$set": patch})
     if not result.matched_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    doc = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     return _serialize(doc or {})
 
 
 @router.patch("/{tool_id}")
 async def patch_tool(tool_id: str, payload: ToolPatchPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    existing = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    existing = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     patch = _normalize_payload(payload.model_dump(exclude_unset=True), partial=True)
     if patch:
         _validate_final_activation(existing, patch)
         patch["updated_at"] = _now()
-        result = await db.external_tools.update_one(organization_tool_query(main_id, _id=str(tool_id)), {"$set": patch})
+        result = await db.external_tools.update_one(organization_tool_query(tenant_id, _id=str(tool_id)), {"$set": patch})
         if not result.matched_count:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    doc = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     return _serialize(doc)
@@ -283,9 +283,9 @@ async def patch_tool(tool_id: str, payload: ToolPatchPayload, current_user: dict
 
 @router.delete("/{tool_id}")
 async def delete_tool(tool_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, str]:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    result = await db.external_tools.delete_one(organization_tool_query(main_id, _id=str(tool_id)))
+    result = await db.external_tools.delete_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not result.deleted_count:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
     return {"id": tool_id}
@@ -293,31 +293,31 @@ async def delete_tool(tool_id: str, current_user: dict = Depends(get_current_adm
 
 @router.post("/{tool_id}/test")
 async def test_tool(tool_id: str, request: Request, response: Response, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    doc = await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)))
+    doc = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="企业工具连接不存在")
     payload = await request.json()
-    await _enforce_gate(str(tool_id), main_id, current_user, payload)
+    await _enforce_gate(str(tool_id), tenant_id, current_user, payload)
     timeout = _config_timeout_seconds(_safe_dict((doc or {}).get("config")))
-    result = _backend_data(_request_backend("POST", f"/{tool_id}/test", main_id, payload, timeout=timeout))
+    result = _backend_data(_request_backend("POST", f"/{tool_id}/test", tenant_id, payload, timeout=timeout))
     response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
     return result
 
 
 @router.post("/test-draft")
 async def test_draft_tool(request: Request, response: Response, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     payload = await request.json()
     tool_id = str(payload.get("id") or payload.get("tool_id") or "test-draft")
-    await _enforce_gate(tool_id, main_id, current_user, payload)
-    result = _backend_data(_request_backend("POST", "/test-draft", main_id, payload, timeout=_tool_timeout_seconds(payload)))
+    await _enforce_gate(tool_id, tenant_id, current_user, payload)
+    result = _backend_data(_request_backend("POST", "/test-draft", tenant_id, payload, timeout=_tool_timeout_seconds(payload)))
     response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
     return result
 
 
-async def _enforce_gate(tool_id: str, main_id: str, current_user: dict, payload: Any) -> None:
+async def _enforce_gate(tool_id: str, tenant_id: str, current_user: dict, payload: Any) -> None:
     """Run the six-layer gatekeeper before executing a tool (feature 001, T006).
 
     Denials map to HTTP status by layer: identity/RBAC -> 403, approval pending ->
@@ -330,8 +330,8 @@ async def _enforce_gate(tool_id: str, main_id: str, current_user: dict, payload:
     # breakage (001 audit, 2026-10-03). Admin console calls run under the tenant's
     # full-access preset, which is exactly what a platform/org admin is.
     roles = current_user.get("role_ids") or current_user.get("roles") or []
-    if not roles and main_id:
-        roles = [f"system:{main_id}:full_access_admin"]
+    if not roles and tenant_id:
+        roles = [f"system:{tenant_id}:full_access_admin"]
     # FR-2 resume: a caller re-enters a suspended call carrying its approval ticket.
     # Only a ticket a human approver already approved is consumable by the gate.
     _payload = _safe_dict(payload)
@@ -344,7 +344,7 @@ async def _enforce_gate(tool_id: str, main_id: str, current_user: dict, payload:
         )
     ctx = GateContext(
         tool=str(tool_id),
-        tenant_id=main_id,
+        tenant_id=tenant_id,
         user_id=str(current_user.get("user_id") or current_user.get("id") or ""),
         roles=[str(r) for r in roles],
         request=_payload,
@@ -354,7 +354,7 @@ async def _enforce_gate(tool_id: str, main_id: str, current_user: dict, payload:
     # US2: resolve the tool's registered risk tier so the autonomy matrix can act.
     from app.governance import risk as governance_risk
 
-    ctx.risk_level = await governance_risk.risk_level_for(tenant_id=main_id, tool=str(tool_id))
+    ctx.risk_level = await governance_risk.risk_level_for(tenant_id=tenant_id, tool=str(tool_id))
     ctx.autonomy_level = str(current_user.get("autonomy_level") or "L3")
     verdict = await gatekeeper.evaluate(str(tool_id), ctx)
     if verdict.allowed:
@@ -381,25 +381,25 @@ def _operation_succeeded(result: Any) -> bool:
 
 @router.post("/{tool_id}/discover")
 async def discover_tool(tool_id: str, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
-    if not await db.external_tools.find_one(organization_tool_query(main_id, _id=str(tool_id)), {"_id": 1}):
+    if not await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)), {"_id": 1}):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="企业工具连接不存在")
-    return _backend_data(_request_backend("POST", f"/{tool_id}/discover", main_id, {}))
+    return _backend_data(_request_backend("POST", f"/{tool_id}/discover", tenant_id, {}))
 
 
 @router.post("/generate-description")
 async def generate_tool_description(payload: ToolDescriptionGeneratePayload, current_user: dict = Depends(get_current_admin_user)) -> Any:
-    main_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     body = payload.model_dump()
-    return _backend_data(_request_backend("POST", "/generate-description", main_id, body))
+    return _backend_data(_request_backend("POST", "/generate-description", tenant_id, body))
 
 
 async def ensure_indexes() -> None:
     db = get_db()
-    await db.external_tools.create_index([("main_id", 1), ("updated_at", -1)])
-    await db.external_tools.create_index([("main_id", 1), ("status", 1), ("type", 1)])
-    await db.external_tools.create_index([("main_id", 1), ("scope", 1), ("updated_at", -1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("updated_at", -1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("status", 1), ("type", 1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("scope", 1), ("updated_at", -1)])
     from app.governance import schema as governance_schema
 
     await governance_schema.ensure_indexes()

@@ -37,7 +37,7 @@ async def create_skill_share(
 ) -> dict[str, object]:
     try:
         result = await service.create(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             owner_user_id=principal.user_id,
             skill_id=skill_id,
             expires_in_days=payload.expires_in_days,
@@ -48,7 +48,7 @@ async def create_skill_share(
     from app.services.skill_lifecycle.audit import record_skill_event
 
     await record_skill_event(
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         user_id=principal.user_id,
         action="skill.shared",
         target=skill_id,
@@ -64,7 +64,7 @@ async def preview_skill_share(
 ) -> dict[str, object]:
     try:
         result = await service.preview(
-            main_id=principal.main_id, recipient_user_id=principal.user_id, token=token,
+            tenant_id=principal.tenant_id, recipient_user_id=principal.user_id, token=token,
         )
     except SkillShareError as exc:
         _raise(exc)
@@ -79,7 +79,7 @@ async def install_skill_share(
 ) -> dict[str, object]:
     try:
         result = await service.install(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             recipient_user_id=principal.user_id,
             token=token,
             replace_existing=payload.replace_existing,
@@ -90,7 +90,7 @@ async def install_skill_share(
     from app.services.skill_lifecycle.audit import record_skill_event
 
     await record_skill_event(
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         user_id=principal.user_id,
         action="skill.share_redeemed",
         target=str(result.get("skill_id") or ""),
@@ -107,7 +107,7 @@ async def revoke_skill_share(
 ) -> dict[str, object]:
     try:
         await service.revoke(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             owner_user_id=principal.user_id,
             skill_id=skill_id,
             share_id=share_id,
@@ -118,7 +118,7 @@ async def revoke_skill_share(
     from app.services.skill_lifecycle.audit import record_skill_event
 
     await record_skill_event(
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         user_id=principal.user_id,
         action="skill.share_revoked",
         target=skill_id,

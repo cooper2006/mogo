@@ -14,16 +14,16 @@ async def bootstrap_directory() -> None:
     db = get_db()
     await repair_employee_tenant_identities(db)
     tenant_ids = [
-        row["main_id"]
+        row["tenant_id"]
         async for row in db["tenants"].find(
-            {"status": "active", "main_id": {"$nin": [None, "", PLATFORM_MAIN_ID]}}
+            {"status": "active", "tenant_id": {"$nin": [None, "", PLATFORM_MAIN_ID]}}
         )
     ]
-    for main_id in tenant_ids:
-        role = await repository.ensure_full_access_role(str(main_id))
-        setup = await db.system_bootstrap.find_one({"main_id": str(main_id)})
+    for tenant_id in tenant_ids:
+        role = await repository.ensure_full_access_role(str(tenant_id))
+        setup = await db.system_bootstrap.find_one({"tenant_id": str(tenant_id)})
         employee_login = str((setup or {}).get("employee_username") or "")
         if employee_login:
-            employee = await db.end_users.find_one({"main_id": str(main_id), "login_name": employee_login})
+            employee = await db.end_users.find_one({"tenant_id": str(tenant_id), "login_name": employee_login})
             if employee:
-                await repository.assign_role(str(main_id), str(employee["_id"]), str(role["_id"]), primary=True, actor="system-bootstrap")
+                await repository.assign_role(str(tenant_id), str(employee["_id"]), str(role["_id"]), primary=True, actor="system-bootstrap")

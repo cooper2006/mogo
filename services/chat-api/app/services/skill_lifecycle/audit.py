@@ -29,7 +29,7 @@ FR8_ACTIONS = (
 
 async def record_skill_event(
     *,
-    main_id: str,
+    tenant_id: str,
     user_id: str,
     action: str,
     target: str,
@@ -46,7 +46,7 @@ async def record_skill_event(
     from app.governance.audit import record_position_policy_event
 
     await record_position_policy_event(
-        tenant_id=str(main_id or ""),
+        tenant_id=str(tenant_id or ""),
         user_id=str(user_id or ""),
         action=action,
         target=str(target or ""),

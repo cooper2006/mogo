@@ -44,7 +44,7 @@ def _serialize_project(doc: dict) -> dict:
 
 async def _identity(authorization: str | None) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
-    return resolve_main_id(resolved["main_id"]), str(resolved["user"].get("_id") or "")
+    return resolve_main_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
 
 
 @router.post("/projects", response_model=ApiResponse)
@@ -52,9 +52,9 @@ async def create_desktop_project(
     payload: DesktopProjectCreate,
     authorization: str | None = Header(default=None),
 ):
-    main_id, user_id = await _identity(authorization)
+    tenant_id, user_id = await _identity(authorization)
     now = datetime.now(tz=timezone.utc)
-    scope = {"main_id": main_id, "user_id": user_id, "workspace_id": payload.workspace_id}
+    scope = {"tenant_id": tenant_id, "user_id": user_id, "workspace_id": payload.workspace_id}
     await get_db().desktop_projects.update_one(
         scope,
         {
@@ -69,6 +69,6 @@ async def create_desktop_project(
 
 @router.get("/projects", response_model=ApiResponse)
 async def list_desktop_projects(authorization: str | None = Header(default=None)):
-    main_id, user_id = await _identity(authorization)
-    cursor = get_db().desktop_projects.find({"main_id": main_id, "user_id": user_id}).sort("updated_at", -1)
+    tenant_id, user_id = await _identity(authorization)
+    cursor = get_db().desktop_projects.find({"tenant_id": tenant_id, "user_id": user_id}).sort("updated_at", -1)
     return ApiResponse(data=[_serialize_project(item) async for item in cursor])

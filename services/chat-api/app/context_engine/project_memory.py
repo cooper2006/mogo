@@ -49,7 +49,7 @@ class ProjectMemoryService:
         if not user_id:
             return []
         project_id = self._project_id(output_spec)
-        main_id = resolve_main_id(output_spec.get("main_id") or output_spec.get("mainId"))
+        tenant_id = resolve_main_id(output_spec.get("tenant_id") or output_spec.get("tenantId"))
         query_tokens = _tokens(query)
         try:
             db = get_db()
@@ -61,7 +61,7 @@ class ProjectMemoryService:
                         {"project_id": {"$in": project_filter}},
                         {"scope": "global"},
                     ],
-                }, main_id)
+                }, tenant_id)
             ).sort("updated_at", -1).limit(80).to_list(length=80)
         except Exception as exc:
             log_print(f"[context_engine.project_memory] silent exception caught: {exc}", flush=True)
@@ -98,13 +98,13 @@ class ProjectMemoryService:
         project_id: str,
         memories: List[Dict[str, Any]],
         source: str,
-        main_id: str = "default",
+        tenant_id: str = "default",
     ) -> None:
         uid = str(user_id or "").strip()
         if not uid:
             return
         pid = str(project_id or "default").strip() or "default"
-        mid = resolve_main_id(main_id)
+        mid = resolve_main_id(tenant_id)
         now = datetime.utcnow()
         try:
             db = get_db()
@@ -117,11 +117,11 @@ class ProjectMemoryService:
                 memory_type = str(item.get("memory_type") or item.get("type") or "note").strip() or "note"
                 key = str(item.get("key") or self._make_key(memory_type, content)).strip()
                 await db[self.collection_name].update_one(
-                    {"user_id": uid, "main_id": mid, "project_id": pid, "key": key},
+                    {"user_id": uid, "tenant_id": mid, "project_id": pid, "key": key},
                     {
                         "$set": {
                             "user_id": uid,
-                            "main_id": mid,
+                            "tenant_id": mid,
                             "project_id": pid,
                             "scope": str(item.get("scope") or "project"),
                             "key": key,

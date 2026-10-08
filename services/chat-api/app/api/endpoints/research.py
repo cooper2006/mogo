@@ -77,7 +77,7 @@ async def run_competitor_deep_dive(
 
     orchestrator = await DeepDiveOrchestrator.create(
         audit_sink=emit_feature_event,
-        tenant_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         actor=principal.user_id,
     )
 

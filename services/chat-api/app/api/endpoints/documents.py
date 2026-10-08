@@ -131,7 +131,7 @@ async def _record_product_edit(principal: ApiPrincipal, object_path: str) -> Non
         try:
             job = await db["presentation_generation_jobs"].find_one(
                 {
-                    "tenant_id": principal.main_id,
+                    "tenant_id": principal.tenant_id,
                     "$or": [
                         {"final_result.blueprint_artifact_path": object_path},
                         {"final_result.preview_metadata.blueprint_artifact_path": object_path},
@@ -148,7 +148,7 @@ async def _record_product_edit(principal: ApiPrincipal, object_path: str) -> Non
 
         await record_product_edit(
             db,
-            tenant_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             user_id=principal.user_id,
             object_path=object_path,
             message_id=message_id,

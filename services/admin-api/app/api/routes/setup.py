@@ -57,7 +57,7 @@ class SetupUrls(BaseModel):
 class SetupStatusResponse(BaseModel):
     completed: bool
     orgName: str = ""
-    mainId: str = ""
+    tenantId: str = ""
     initializedAt: str = ""
     ready: bool = False
     platformAdminMissing: bool = False
@@ -203,7 +203,7 @@ async def setup_status(request: Request) -> SetupStatusResponse:
     return SetupStatusResponse(
         completed=True,
         orgName=str((state or {}).get("org_name") or ""),
-        mainId=str((state or {}).get("main_id") or PLATFORM_MAIN_ID),
+        tenantId=str((state or {}).get("tenant_id") or PLATFORM_MAIN_ID),
         initializedAt=_fmt((state or {}).get("updated_at")),
         **common,
     )

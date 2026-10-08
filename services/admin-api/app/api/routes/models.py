@@ -88,7 +88,7 @@ def _format_instance(doc: dict[str, Any], provider_map: dict[str, dict[str, Any]
     )
     return {
         "id": str(doc["_id"]),
-        "mainId": doc.get("main_id", ""),
+        "mainId": doc.get("tenant_id", ""),
         "providerId": provider_id,
         "providerName": provider.get("name", ""),
         "providerCode": provider.get("code", ""),
@@ -144,22 +144,22 @@ async def get_model_providers(current_user: dict = Depends(get_current_admin_use
 
 @router.get("/instances")
 async def get_model_instances(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, object]]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     providers = await list_providers()
     provider_map = {str(item["_id"]): item for item in providers}
-    instances = await list_instances(main_id)
+    instances = await list_instances(tenant_id)
     return [_format_instance(item, provider_map) for item in instances]
 
 
 @router.get("/available")
 async def get_available_chat_models(
-    main_id: str = "default",
+    tenant_id: str = "default",
     current_user: dict = Depends(get_current_admin_user),
 ) -> list[dict[str, object]]:
-    main_id = str(current_user.get("main_id") or main_id or "default")
+    tenant_id = str(current_user.get("tenant_id") or tenant_id or "default")
     providers = await list_providers()
     provider_map = {str(item["_id"]): item for item in providers}
-    instances = await list_instances(str(main_id or "default"))
+    instances = await list_instances(str(tenant_id or "default"))
     result: list[dict[str, object]] = []
     for item in instances:
         if item.get("status") != "active":
@@ -187,7 +187,7 @@ async def post_model_instance(
     payload: ModelInstancePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
         provider = await find_provider_by_id(payload.providerId)
     except InvalidId as exc:
@@ -224,13 +224,13 @@ async def post_model_instance(
                 "settings": image_settings if runtime_kind else None,
                 "max_context_tokens": payload.maxContextTokens,
                 "is_default": payload.isDefault,
-                "main_id": main_id,
+                "tenant_id": tenant_id,
             }
         )
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="模型配置已存在") from exc
 
-    created = await find_instance_by_id(instance_id, main_id)
+    created = await find_instance_by_id(instance_id, tenant_id)
     if created is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="模型配置创建失败")
     providers = await list_providers()
@@ -244,7 +244,7 @@ async def put_model_instance(
     payload: ModelInstancePayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
         provider = await find_provider_by_id(payload.providerId)
     except InvalidId as exc:
@@ -282,7 +282,7 @@ async def put_model_instance(
                 "settings": image_settings if runtime_kind else None,
                 "max_context_tokens": payload.maxContextTokens,
                 "is_default": payload.isDefault,
-                "main_id": main_id,
+                "tenant_id": tenant_id,
             },
         )
     except InvalidId as exc:
@@ -292,7 +292,7 @@ async def put_model_instance(
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型配置不存在")
 
-    updated = await find_instance_by_id(instance_id, main_id)
+    updated = await find_instance_by_id(instance_id, tenant_id)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型配置不存在")
     providers = await list_providers()
@@ -305,9 +305,9 @@ async def remove_model_instance(
     instance_id: str,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        ok = await delete_instance(instance_id, main_id)
+        ok = await delete_instance(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if not ok:
@@ -320,9 +320,9 @@ async def make_default_model_instance(
     instance_id: str,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        ok = await set_default_instance(instance_id, main_id)
+        ok = await set_default_instance(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if not ok:
@@ -336,9 +336,9 @@ async def test_model_instance(
     payload: ModelTestPayload | None = None,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        instance = await find_instance_by_id(instance_id, main_id)
+        instance = await find_instance_by_id(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if instance is None:
@@ -346,14 +346,14 @@ async def test_model_instance(
     prompt = (payload.prompt if payload else "") or "请用一句话回复当前模型连接测试。"
     result_text = ""
     error_text = ""
-    for event in backend_model_test_events(instance_id, main_id, prompt):
+    for event in backend_model_test_events(instance_id, tenant_id, prompt):
         if event["type"] == "delta":
             result_text += str(event.get("content") or "")
         elif event["type"] == "error":
             error_text = str(event.get("message") or "模型连接测试失败")
             break
     if error_text:
-        await update_instance_health(instance_id, main_id, "failed", error_text)
+        await update_instance_health(instance_id, tenant_id, "failed", error_text)
         return {"success": False, "status": "failed", "message": error_text}
     return {
         "success": True,
@@ -368,9 +368,9 @@ async def test_image_model_instance(
     payload: ModelTestPayload | None = None,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, object]:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        instance = await find_instance_by_id(instance_id, main_id)
+        instance = await find_instance_by_id(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if instance is None:
@@ -380,16 +380,16 @@ async def test_image_model_instance(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前模型未启用图片生成能力")
     prompt = (payload.prompt if payload else "") or "生成一张简洁的科技感演示文稿封面，不要文字。"
     try:
-        result = await run_saved_image_model_test(instance_id, main_id, prompt=prompt)
+        result = await run_saved_image_model_test(instance_id, tenant_id, prompt=prompt)
     except Exception as exc:
         message = str(exc)
-        await update_instance_health(instance_id, main_id, "failed", message)
+        await update_instance_health(instance_id, tenant_id, "failed", message)
         return {"success": False, "status": "failed", "message": message}
     if not bool(result.get("success")):
         message = str(result.get("message") or "图片模型连接测试失败")
-        await update_instance_health(instance_id, main_id, "failed", message)
+        await update_instance_health(instance_id, tenant_id, "failed", message)
         return {"success": False, "status": "failed", "message": message}
-    await update_instance_health(instance_id, main_id, "healthy", "")
+    await update_instance_health(instance_id, tenant_id, "healthy", "")
     return {
         "success": True,
         "status": "healthy",
@@ -407,18 +407,18 @@ async def stream_model_instance_test(
     payload: ModelTestPayload,
     current_user: dict = Depends(get_current_admin_user),
 ) -> StreamingResponse:
-    main_id = str(current_user.get("main_id", "default"))
+    tenant_id = str(current_user.get("tenant_id", "default"))
     try:
-        instance = await find_instance_by_id(instance_id, main_id)
+        instance = await find_instance_by_id(instance_id, tenant_id)
     except InvalidId as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="模型配置ID无效") from exc
     if instance is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="模型配置不存在")
     async def event_stream():
         final_text = ""
-        await update_instance_health(instance_id, main_id, "unknown", "")
+        await update_instance_health(instance_id, tenant_id, "unknown", "")
         yield _sse({"type": "start", "message": "正在连接 backend 模型运行时..."})
-        iterator = backend_model_test_events(instance_id, main_id, payload.prompt)
+        iterator = backend_model_test_events(instance_id, tenant_id, payload.prompt)
         while True:
             has_event, event = await asyncio.to_thread(next_event, iterator)
             if not has_event:
@@ -426,11 +426,11 @@ async def stream_model_instance_test(
             if event["type"] == "delta":
                 final_text += str(event.get("content") or "")
             if event["type"] == "error":
-                await update_instance_health(instance_id, main_id, "failed", str(event.get("message") or ""))
+                await update_instance_health(instance_id, tenant_id, "failed", str(event.get("message") or ""))
                 yield _sse(event)
                 return
             yield _sse(event)
-        await update_instance_health(instance_id, main_id, "healthy", "")
+        await update_instance_health(instance_id, tenant_id, "healthy", "")
         yield _sse({"type": "done", "message": final_text or "模型连接测试成功。"})
 
     return StreamingResponse(

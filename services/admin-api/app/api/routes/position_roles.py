@@ -67,7 +67,7 @@ def _aware_utc(value: datetime | None, fallback: datetime | None = None) -> date
 
 
 def _main_id(user: dict[str, Any]) -> str:
-    return str(user.get("main_id") or "default")
+    return str(user.get("tenant_id") or "default")
 
 
 def _actor(user: dict[str, Any]) -> str:
@@ -108,10 +108,10 @@ async def delete_role(role_id: str, current_user: dict = Depends(get_current_adm
 
 @router.get("/catalog/resources")
 async def resource_catalog(current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     db = get_db()
-    tools = await db.external_tools.find(organization_tool_query(main_id, status="active")).sort("name", 1).to_list(length=5000)
-    skills = await db.skills.find({"main_id": main_id, "enabled": True}).sort("name", 1).to_list(length=5000)
+    tools = await db.external_tools.find(organization_tool_query(tenant_id, status="active")).sort("name", 1).to_list(length=5000)
+    skills = await db.skills.find({"tenant_id": tenant_id, "enabled": True}).sort("name", 1).to_list(length=5000)
     return {
         "tools": [{"id": str(row.get("_id")), "name": row.get("name", ""), "type": row.get("type", "http")} for row in tools],
         "skills": [{"id": str(row.get("_id")), "name": row.get("name", ""), "type": row.get("type", "")} for row in skills],
@@ -120,15 +120,15 @@ async def resource_catalog(current_user: dict = Depends(get_current_admin_user))
 
 @router.get("/assignments/pending")
 async def pending_assignments(current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     db = get_db()
-    assigned = await db[USER_ROLE_COLLECTION].distinct("user_id", {"main_id": main_id})
-    query: dict[str, Any] = {"main_id": main_id, "status": {"$ne": "deleted"}}
+    assigned = await db[USER_ROLE_COLLECTION].distinct("user_id", {"tenant_id": tenant_id})
+    query: dict[str, Any] = {"tenant_id": tenant_id, "status": {"$ne": "deleted"}}
     if assigned:
         from bson import ObjectId
         query["_id"] = {"$nin": [ObjectId(item) for item in assigned if ObjectId.is_valid(item)]}
     rows = await db.end_users.find(query).sort("updated_at", -1).to_list(length=5000)
-    migration = await db[MIGRATION_COLLECTION].find_one({"main_id": main_id})
+    migration = await db[MIGRATION_COLLECTION].find_one({"tenant_id": tenant_id})
     return {
         "count": len(rows),
         "migrationStatus": str((migration or {}).get("status") or "pending"),
@@ -138,10 +138,10 @@ async def pending_assignments(current_user: dict = Depends(get_current_admin_use
 
 @router.post("/assignments/migration/complete")
 async def complete_assignment_migration(current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     db = get_db()
-    assigned = await db[USER_ROLE_COLLECTION].distinct("user_id", {"main_id": main_id})
-    query: dict[str, Any] = {"main_id": main_id, "status": {"$ne": "deleted"}}
+    assigned = await db[USER_ROLE_COLLECTION].distinct("user_id", {"tenant_id": tenant_id})
+    query: dict[str, Any] = {"tenant_id": tenant_id, "status": {"$ne": "deleted"}}
     if assigned:
         from bson import ObjectId
         query["_id"] = {"$nin": [ObjectId(item) for item in assigned if ObjectId.is_valid(item)]}
@@ -149,39 +149,39 @@ async def complete_assignment_migration(current_user: dict = Depends(get_current
     if pending_count:
         raise HTTPException(status_code=409, detail=f"仍有 {pending_count} 名员工未分配岗位角色")
     repository = PositionRoleService().repository
-    await repository.complete_migration(main_id, _actor(current_user))
-    await repository.audit(main_id, _actor(current_user), "complete_migration", "position_role_migration", main_id, {})
+    await repository.complete_migration(tenant_id, _actor(current_user))
+    await repository.audit(tenant_id, _actor(current_user), "complete_migration", "position_role_migration", tenant_id, {})
     return {"success": True}
 
 
 @router.put("/assignments/users/{user_id}")
 async def assign_user_roles(user_id: str, payload: UserRoleAssignmentPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
     service = PositionRoleService()
-    main_id = _main_id(current_user)
-    await service.validate_roles(main_id, payload.roleIds, payload.primaryRoleId)
-    await service.repository.replace_user_roles(main_id, user_id, payload.roleIds, payload.primaryRoleId, actor=_actor(current_user))
-    await service.repository.audit(main_id, _actor(current_user), "assign", "employee_position_roles", user_id, payload.model_dump())
+    tenant_id = _main_id(current_user)
+    await service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
+    await service.repository.replace_user_roles(tenant_id, user_id, payload.roleIds, payload.primaryRoleId, actor=_actor(current_user))
+    await service.repository.audit(tenant_id, _actor(current_user), "assign", "employee_position_roles", user_id, payload.model_dump())
     return {"success": True}
 
 
 @router.post("/assignments/bulk")
 async def bulk_assign_roles(payload: BulkRoleAssignmentPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, int]:
     service = PositionRoleService()
-    main_id = _main_id(current_user)
-    await service.validate_roles(main_id, payload.roleIds, payload.primaryRoleId)
+    tenant_id = _main_id(current_user)
+    await service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
     # 006 FR-6: 批量分配改为原子 bulk_write，失败时整体回滚而非部分写。
     assignments = [
         {"user_id": uid, "role_ids": payload.roleIds, "primary_role_id": payload.primaryRoleId}
         for uid in dict.fromkeys(payload.userIds)
     ]
-    await service.repository.bulk_replace_user_roles(main_id, assignments, actor=_actor(current_user))
-    await service.repository.audit(main_id, _actor(current_user), "bulk_assign", "employee_position_roles", "bulk", payload.model_dump())
+    await service.repository.bulk_replace_user_roles(tenant_id, assignments, actor=_actor(current_user))
+    await service.repository.audit(tenant_id, _actor(current_user), "bulk_assign", "employee_position_roles", "bulk", payload.model_dump())
     return {"updated": len(set(payload.userIds))}
 
 
 @router.post("/assignments/users/{user_id}/overrides", status_code=201)
 async def create_override(user_id: str, payload: CapabilityOverridePayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, str]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     now = utcnow()
     effective_at = _aware_utc(payload.effectiveAt, now)
     expires_at = _aware_utc(payload.expiresAt)
@@ -193,7 +193,7 @@ async def create_override(user_id: str, payload: CapabilityOverridePayload, curr
     if set(payload.allowCapabilities) & set(payload.denyCapabilities):
         raise HTTPException(status_code=400, detail="同一能力不能同时允许和禁止")
     await PositionRoleService().validate_resource_ids(
-        main_id,
+        tenant_id,
         list(dict.fromkeys(payload.allowToolIds + payload.denyToolIds)),
         list(dict.fromkeys(payload.allowSkillIds + payload.denySkillIds)),
     )
@@ -201,7 +201,7 @@ async def create_override(user_id: str, payload: CapabilityOverridePayload, curr
     override_id = uuid.uuid4().hex
     doc = {
         "_id": override_id,
-        "main_id": main_id,
+        "tenant_id": tenant_id,
         "user_id": user_id,
         "status": "active",
         "allow_capabilities": payload.allowCapabilities,
@@ -219,14 +219,14 @@ async def create_override(user_id: str, payload: CapabilityOverridePayload, curr
     }
     db = get_db()
     await db[USER_OVERRIDE_COLLECTION].insert_one(doc)
-    await PositionRoleService().repository.audit(main_id, _actor(current_user), "grant_override", "employee", user_id, {**payload.model_dump(mode="json"), "overrideId": override_id})
+    await PositionRoleService().repository.audit(tenant_id, _actor(current_user), "grant_override", "employee", user_id, {**payload.model_dump(mode="json"), "overrideId": override_id})
     return {"id": override_id}
 
 
 @router.get("/assignments/users/{user_id}/overrides")
 async def list_user_overrides(user_id: str, current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = _main_id(current_user)
-    rows = await get_db()[USER_OVERRIDE_COLLECTION].find({"main_id": main_id, "user_id": user_id}).sort("created_at", -1).to_list(length=500)
+    tenant_id = _main_id(current_user)
+    rows = await get_db()[USER_OVERRIDE_COLLECTION].find({"tenant_id": tenant_id, "user_id": user_id}).sort("created_at", -1).to_list(length=500)
     now = utcnow()
     return [{
         "id": str(row.get("_id") or ""),
@@ -247,13 +247,13 @@ async def list_user_overrides(user_id: str, current_user: dict = Depends(get_cur
 
 @router.delete("/assignments/overrides/{override_id}")
 async def revoke_override(override_id: str, current_user: dict = Depends(get_current_admin_user)) -> dict[str, bool]:
-    main_id = _main_id(current_user)
+    tenant_id = _main_id(current_user)
     db = get_db()
     result = await db[USER_OVERRIDE_COLLECTION].update_one(
-        {"_id": override_id, "main_id": main_id},
+        {"_id": override_id, "tenant_id": tenant_id},
         {"$set": {"status": "revoked", "revoked_at": utcnow(), "updated_at": utcnow(), "revoked_by": _actor(current_user)}},
     )
     if not result.matched_count:
         raise HTTPException(status_code=404, detail="特殊授权不存在")
-    await PositionRoleService().repository.audit(main_id, _actor(current_user), "revoke_override", "capability_override", override_id, {})
+    await PositionRoleService().repository.audit(tenant_id, _actor(current_user), "revoke_override", "capability_override", override_id, {})
     return {"success": True}

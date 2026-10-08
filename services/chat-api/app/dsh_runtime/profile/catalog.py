@@ -28,13 +28,13 @@ class MongoModelCatalog:
             except InvalidId as exc:
                 raise ValueError("model instance id is invalid") from exc
             instance = await db[INSTANCE_COLLECTION].find_one(
-                {"_id": identifier, "main_id": tenant_id}
+                {"_id": identifier, "tenant_id": tenant_id}
             )
         else:
             instance = await self._default_instance(db, tenant_id)
         if instance is None:
             raise ValueError("no active chat model is available for this tenant")
-        source_tenant = str(instance.get("main_id") or "")
+        source_tenant = str(instance.get("tenant_id") or "")
         if source_tenant != tenant_id:
             raise ValueError("cross-tenant model access is forbidden")
         provider = await db[PROVIDER_COLLECTION].find_one({"_id": instance.get("provider_id")})
@@ -44,6 +44,6 @@ class MongoModelCatalog:
 
     async def _default_instance(self, db: Any, tenant_id: str) -> dict[str, Any] | None:
         return await db[INSTANCE_COLLECTION].find_one(
-            {"main_id": tenant_id, "status": "active", "capabilities": "chat"},
+            {"tenant_id": tenant_id, "status": "active", "capabilities": "chat"},
             sort=[("priority", 1), ("updated_at", -1)],
         )

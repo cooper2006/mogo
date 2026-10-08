@@ -11,7 +11,7 @@ WorkflowStatus = Literal["candidate", "active", "degraded", "quarantined"]
 
 class WorkflowIdentity(BaseModel):
     user_id: str
-    main_id: str = "default"
+    tenant_id: str = "default"
     site_id: str
     operation_id: str
     capability_id: str

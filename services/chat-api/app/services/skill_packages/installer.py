@@ -24,16 +24,16 @@ class SkillPackageInstaller:
         package: ValidatedSkillPackage,
         *,
         scope: InstallScope,
-        main_id: str,
+        tenant_id: str,
         user_id: str = "",
         package_source: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        tenant_id = resolve_main_id(main_id)
+        tenant_id = resolve_main_id(tenant_id)
         if scope == "personal" and not user_id:
             raise ValueError("personal Skill installation requires an owner")
         db = get_db()
         collection = db.user_skills if scope == "personal" else db.skills
-        owner_query: dict[str, Any] = {"main_id": tenant_id, "package_slug": package.name}
+        owner_query: dict[str, Any] = {"tenant_id": tenant_id, "package_slug": package.name}
         if scope == "personal":
             owner_query["user_id"] = str(user_id)
         current = await collection.find_one(owner_query)
@@ -47,7 +47,7 @@ class SkillPackageInstaller:
                 package_id = str(current.get("package_id") or "")
                 if package_id:
                     await db.skill_packages.update_one(
-                        {"_id": package_id, "main_id": tenant_id},
+                        {"_id": package_id, "tenant_id": tenant_id},
                         {"$set": {"source": source}},
                     )
                 current = {**current, "package_source": source}
@@ -59,7 +59,7 @@ class SkillPackageInstaller:
         package_id = uuid.uuid4().hex
         package_doc = {
             "_id": package_id,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             "owner_scope": scope,
             "owner_id": str(user_id) if scope == "personal" else tenant_id,
             "slug": package.name,
@@ -125,7 +125,7 @@ class SkillPackageInstaller:
         skill_id = uuid.uuid4().hex
         record = {
             "_id": skill_id,
-            "main_id": tenant_id,
+            "tenant_id": tenant_id,
             **common,
             "config": {},
             "enabled": scope == "personal",

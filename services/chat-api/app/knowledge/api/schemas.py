@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 class KnowledgeQARequest(BaseModel):
     query: str = Field(min_length=1)
     user_id: str = ""
-    main_id: str = "default"
+    tenant_id: str = "default"
     session_id: str = ""
     knowledge_base_ids: List[str] = Field(default_factory=list)
     top_n: int = Field(default=8, ge=1, le=50)

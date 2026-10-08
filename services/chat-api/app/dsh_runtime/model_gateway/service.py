@@ -180,12 +180,12 @@ class ModelGatewayService:
         # output_spec 不含 user_id 以跳过配额检查（网关层已独立校验）。
         return await get_llm_client_by_model_id(
             model_instance_id,
-            main_id=tenant_id,
+            tenant_id=tenant_id,
             streaming=True,
             intent="chat",
             stage="dsh_agent_turn",
             output_spec={
-                "main_id": tenant_id,
+                "tenant_id": tenant_id,
                 "model_instance_id": model_instance_id,
                 "session_id": request.sessionId or "",
                 "profile_version": request.profileVersion,

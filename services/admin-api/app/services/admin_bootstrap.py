@@ -16,17 +16,17 @@ async def bootstrap_admin_user() -> None:
     
     if settings.tenant_bootstrap_admin_enabled:
         setup_state = await get_setup_state()
-        main_id = str((setup_state or {}).get("main_id") or "").strip() or settings.bootstrap_main_id
+        tenant_id = str((setup_state or {}).get("tenant_id") or "").strip() or settings.bootstrap_main_id
         org_name = str((setup_state or {}).get("org_name") or "").strip() or settings.tenant_bootstrap_admin_org_name
 
         await ensure_group_exists(
             name="系统管理员",
             code="system_admin",
-            main_id=main_id,
+            tenant_id=tenant_id,
             description="系统内置账号组",
         )
         await ensure_bootstrap_account(
-            main_id=main_id,
+            tenant_id=tenant_id,
             username=settings.tenant_bootstrap_admin_username,
             password=settings.tenant_bootstrap_admin_password,
             display_name=settings.tenant_bootstrap_admin_display_name,

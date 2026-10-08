@@ -23,7 +23,7 @@ router = APIRouter(prefix="/hooks", tags=["hooks"])
 
 
 def _store(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> HookRuleStore:
-    tenant_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     db = get_db()
     return HookRuleStore(db=db if db is not None else None)
 
@@ -34,7 +34,7 @@ async def list_rules(
     enabled: Optional[bool] = Query(default=None),
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    tenant_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     store = _store(current_user)
     rows = await store.list(tenant_id=tenant_id)
     documents = [r.as_document() for r in rows]
@@ -56,7 +56,7 @@ async def get_rule(rule_id: str, current_user: dict[str, Any] = Depends(get_curr
 
 @router.post("/rules", status_code=status.HTTP_201_CREATED)
 async def create_rule(payload: dict[str, Any], current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     store = _store(current_user)
     try:
         document = await store.create(
@@ -105,7 +105,7 @@ async def query_scope(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     """T016 — rules matching the three-level context (tool > session > tenant)."""
-    tenant_id = str(current_user.get("main_id") or "default")
+    tenant_id = str(current_user.get("tenant_id") or "default")
     store = _store(current_user)
     in_scope = await store.ordered_rules_for(tool=tool, session_id=session_id, tenant_id=tenant_id)
     return {

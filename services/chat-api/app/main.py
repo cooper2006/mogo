@@ -212,7 +212,7 @@ if settings.ENABLE_DEMO_ENDPOINTS:
     app.include_router(mock_store_diagnosis.router, prefix="/api")
 
 async def _ensure_end_user_login_name_index(db) -> None:
-    desired_key = {"main_id": 1, "login_name": 1}
+    desired_key = {"tenant_id": 1, "login_name": 1}
     async for index in db.end_users.list_indexes():
         if index.get("key") == desired_key and index.get("unique") is True:
             logger.info(
@@ -226,9 +226,9 @@ async def _ensure_end_user_login_name_index(db) -> None:
             return
     try:
         await db.end_users.create_index(
-            [("main_id", 1), ("login_name", 1)],
+            [("tenant_id", 1), ("login_name", 1)],
             unique=True,
-            name="user_main_login_name_unique",
+            name="user_tenant_login_name_unique",
             partialFilterExpression={"login_name": {"$exists": True, "$type": "string"}},
         )
     except OperationFailure as exc:
@@ -253,89 +253,89 @@ async def startup_event() -> None:
     await db.chat_sessions.create_index([("user_id", 1), ("updated_at", -1)])
     await db.chat_sessions.create_index([("user_id", 1), ("updated_at", -1), ("_id", -1)])
     await db.chat_sessions.create_index([("user_id", 1), ("created_at", -1)])
-    await db.chat_sessions.create_index([("main_id", 1), ("user_id", 1), ("updated_at", -1)])
-    await db.chat_sessions.create_index([("main_id", 1), ("user_id", 1), ("updated_at", -1), ("_id", -1)])
-    await db.chat_messages.create_index([("main_id", 1), ("user_id", 1), ("session_id", 1), ("seq", 1)])
-    await db.execution_logs.create_index([("main_id", 1), ("session_id", 1), ("message_id", 1)])
-    await db.user_skills.create_index([("main_id", 1), ("user_id", 1), ("created_at", -1)])
+    await db.chat_sessions.create_index([("tenant_id", 1), ("user_id", 1), ("updated_at", -1)])
+    await db.chat_sessions.create_index([("tenant_id", 1), ("user_id", 1), ("updated_at", -1), ("_id", -1)])
+    await db.chat_messages.create_index([("tenant_id", 1), ("user_id", 1), ("session_id", 1), ("seq", 1)])
+    await db.execution_logs.create_index([("tenant_id", 1), ("session_id", 1), ("message_id", 1)])
+    await db.user_skills.create_index([("tenant_id", 1), ("user_id", 1), ("created_at", -1)])
     await db.user_skills.create_index(
-        [("main_id", 1), ("user_id", 1), ("package_slug", 1)],
+        [("tenant_id", 1), ("user_id", 1), ("package_slug", 1)],
         unique=True,
         partialFilterExpression={"source_kind": "zip"},
         name="personal_zip_skill_slug",
     )
-    await db.skill_packages.create_index([("main_id", 1), ("owner_scope", 1), ("owner_id", 1), ("digest", 1)])
-    await db.skill_shares.create_index([("main_id", 1), ("token_hash", 1)], unique=True)
-    await db.skill_shares.create_index([("main_id", 1), ("owner_user_id", 1), ("source_skill_id", 1), ("created_at", -1)])
+    await db.skill_packages.create_index([("tenant_id", 1), ("owner_scope", 1), ("owner_id", 1), ("digest", 1)])
+    await db.skill_shares.create_index([("tenant_id", 1), ("token_hash", 1)], unique=True)
+    await db.skill_shares.create_index([("tenant_id", 1), ("owner_user_id", 1), ("source_skill_id", 1), ("created_at", -1)])
     await db.skill_share_deliveries.create_index(
-        [("main_id", 1), ("recipient_user_id", 1), ("status", 1), ("_id", -1)],
+        [("tenant_id", 1), ("recipient_user_id", 1), ("status", 1), ("_id", -1)],
         name="skill_share_recipient_inbox",
     )
     await db.skill_share_deliveries.create_index(
-        [("main_id", 1), ("sender_user_id", 1), ("source_skill_id", 1), ("recipient_user_id", 1), ("status", 1)],
+        [("tenant_id", 1), ("sender_user_id", 1), ("source_skill_id", 1), ("recipient_user_id", 1), ("status", 1)],
         name="skill_share_sender_recipient",
     )
-    await db.skill_releases.create_index([("main_id", 1), ("skill_id", 1), ("version", 1)], unique=True)
+    await db.skill_releases.create_index([("tenant_id", 1), ("skill_id", 1), ("version", 1)], unique=True)
     await db.skill_distributions.create_index(
-        [("main_id", 1), ("owner_user_id", 1), ("source_skill_id", 1), ("status", 1)], unique=True,
+        [("tenant_id", 1), ("owner_user_id", 1), ("source_skill_id", 1), ("status", 1)], unique=True,
     )
     await db.skill_distribution_releases.create_index(
-        [("main_id", 1), ("distribution_id", 1), ("digest", 1)], unique=True,
+        [("tenant_id", 1), ("distribution_id", 1), ("digest", 1)], unique=True,
     )
     await db.skill_distribution_members.create_index(
-        [("main_id", 1), ("distribution_id", 1), ("recipient_user_id", 1)], unique=True,
+        [("tenant_id", 1), ("distribution_id", 1), ("recipient_user_id", 1)], unique=True,
     )
     await db.skill_update_notifications.create_index(
-        [("main_id", 1), ("recipient_user_id", 1), ("status", 1), ("created_at", -1)],
+        [("tenant_id", 1), ("recipient_user_id", 1), ("status", 1), ("created_at", -1)],
     )
     await db.resource_comments.create_index(
-        [("main_id", 1), ("resource_type", 1), ("resource_id", 1), ("status", 1), ("created_at", 1)],
+        [("tenant_id", 1), ("resource_type", 1), ("resource_id", 1), ("status", 1), ("created_at", 1)],
     )
     await db.resource_reactions.create_index(
-        [("main_id", 1), ("resource_type", 1), ("resource_id", 1), ("user_id", 1), ("reaction", 1)], unique=True,
+        [("tenant_id", 1), ("resource_type", 1), ("resource_id", 1), ("user_id", 1), ("reaction", 1)], unique=True,
     )
     await db.resource_comment_reactions.create_index(
-        [("main_id", 1), ("comment_id", 1), ("user_id", 1), ("reaction", 1)], unique=True,
+        [("tenant_id", 1), ("comment_id", 1), ("user_id", 1), ("reaction", 1)], unique=True,
     )
     await db.resource_feedback_notifications.create_index(
-        [("main_id", 1), ("recipient_user_id", 1), ("status", 1), ("created_at", -1)],
+        [("tenant_id", 1), ("recipient_user_id", 1), ("status", 1), ("created_at", -1)],
     )
     await db.knowledge_resources.create_index(
-        [("main_id", 1), ("owner_user_id", 1), ("directory_id", 1), ("deleted_at", 1), ("updated_at", -1)],
+        [("tenant_id", 1), ("owner_user_id", 1), ("directory_id", 1), ("deleted_at", 1), ("updated_at", -1)],
         name="personal_knowledge_owner_directory",
     )
     await db.personal_knowledge_directories.create_index(
-        [("main_id", 1), ("owner_user_id", 1), ("parent_id", 1), ("name", 1)],
+        [("tenant_id", 1), ("owner_user_id", 1), ("parent_id", 1), ("name", 1)],
         name="personal_knowledge_directory_name",
     )
     await db.resource_grants.create_index(
-        [("main_id", 1), ("resource_type", 1), ("resource_id", 1), ("recipient_user_id", 1)],
+        [("tenant_id", 1), ("resource_type", 1), ("resource_id", 1), ("recipient_user_id", 1)],
         unique=True, name="resource_grant_recipient",
     )
     await db.resource_grants.create_index(
-        [("main_id", 1), ("resource_type", 1), ("recipient_user_id", 1), ("status", 1), ("updated_at", -1)],
+        [("tenant_id", 1), ("resource_type", 1), ("recipient_user_id", 1), ("status", 1), ("updated_at", -1)],
         name="resource_grant_inbox",
     )
-    await db.end_users.create_index([("main_id", 1), ("status", 1), ("_id", 1)], name="skill_share_member_page")
-    await db.end_users.create_index([("main_id", 1), ("status", 1), ("name", 1)], name="skill_share_member_name")
-    await db.end_users.create_index([("main_id", 1), ("status", 1), ("login_name", 1)], name="skill_share_member_login")
-    await db.end_users.create_index([("main_id", 1), ("status", 1), ("email", 1)], name="skill_share_member_email")
-    await db.end_users.create_index([("main_id", 1), ("status", 1), ("mobile", 1)], name="skill_share_member_mobile")
-    await db.site_profiles.create_index([("main_id", 1), ("owner_user_id", 1), ("updated_at", -1)])
-    await db.external_tools.create_index([("main_id", 1), ("updated_at", -1)])
-    await db.external_tools.create_index([("main_id", 1), ("status", 1), ("type", 1)])
-    await db.external_tools.create_index([("main_id", 1), ("scope", 1), ("owner_user_id", 1), ("updated_at", -1)])
-    await db.project_memories.create_index([("main_id", 1), ("user_id", 1), ("project_id", 1), ("key", 1)])
-    await db.desktop_projects.create_index([("main_id", 1), ("user_id", 1), ("workspace_id", 1)], unique=True)
-    await db.desktop_projects.create_index([("main_id", 1), ("user_id", 1), ("updated_at", -1)])
-    await db.token_usage_logs.create_index([("main_id", 1), ("user_id", 1), ("created_at", -1)])
+    await db.end_users.create_index([("tenant_id", 1), ("status", 1), ("_id", 1)], name="skill_share_member_page")
+    await db.end_users.create_index([("tenant_id", 1), ("status", 1), ("name", 1)], name="skill_share_member_name")
+    await db.end_users.create_index([("tenant_id", 1), ("status", 1), ("login_name", 1)], name="skill_share_member_login")
+    await db.end_users.create_index([("tenant_id", 1), ("status", 1), ("email", 1)], name="skill_share_member_email")
+    await db.end_users.create_index([("tenant_id", 1), ("status", 1), ("mobile", 1)], name="skill_share_member_mobile")
+    await db.site_profiles.create_index([("tenant_id", 1), ("owner_user_id", 1), ("updated_at", -1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("updated_at", -1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("status", 1), ("type", 1)])
+    await db.external_tools.create_index([("tenant_id", 1), ("scope", 1), ("owner_user_id", 1), ("updated_at", -1)])
+    await db.project_memories.create_index([("tenant_id", 1), ("user_id", 1), ("project_id", 1), ("key", 1)])
+    await db.desktop_projects.create_index([("tenant_id", 1), ("user_id", 1), ("workspace_id", 1)], unique=True)
+    await db.desktop_projects.create_index([("tenant_id", 1), ("user_id", 1), ("updated_at", -1)])
+    await db.token_usage_logs.create_index([("tenant_id", 1), ("user_id", 1), ("created_at", -1)])
     await db.token_usage_logs.create_index([("session_id", 1), ("created_at", -1)])
     await db.token_usage_logs.create_index([("trace_id", 1), ("created_at", -1)])
     await db.token_usage_logs.create_index([("user_request_id", 1), ("created_at", -1)])
     await db.token_usage_logs.create_index("request_id", unique=True)
     await _ensure_end_user_login_name_index(db)
     await db.end_user_sessions.create_index([("token_id", 1)], unique=True)
-    await db.end_user_sessions.create_index([("main_id", 1), ("user_id", 1), ("status", 1), ("expires_at", -1)])
+    await db.end_user_sessions.create_index([("tenant_id", 1), ("user_id", 1), ("status", 1), ("expires_at", -1)])
     await db.end_user_sessions.create_index([("expires_at", 1)], expireAfterSeconds=0)
     await db.end_user_login_challenges.create_index([("challenge_token", 1)], unique=True)
     await db.end_user_login_challenges.create_index([("expires_at", 1)], expireAfterSeconds=0)

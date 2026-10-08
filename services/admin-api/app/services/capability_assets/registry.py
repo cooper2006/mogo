@@ -344,7 +344,7 @@ class PersistedCapabilityRegistry:
             db = get_db()
             await db[AUDIT_COLLECTION].insert_one({
                 "_id": uuid.uuid4().hex,
-                "main_id": "default",
+                "tenant_id": "default",
                 "actor": "service",
                 "action": f"capability.{action}",
                 "target_type": "capability_asset",

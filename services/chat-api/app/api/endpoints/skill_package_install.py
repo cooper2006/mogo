@@ -42,7 +42,7 @@ async def install_personal_skill_zip(
 ) -> dict[str, Any]:
     package = await _validated_upload(file)
     upgrade = await upgrade_inspector.inspect(
-        package, scope="personal", main_id=principal.main_id, user_id=principal.user_id,
+        package, scope="personal", tenant_id=principal.tenant_id, user_id=principal.user_id,
     )
     if upgrade_inspector.requires_confirmation(upgrade) and not confirm_replace:
         raise HTTPException(status_code=409, detail={
@@ -53,7 +53,7 @@ async def install_personal_skill_zip(
     result = await installer.install(
         package,
         scope="personal",
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         user_id=principal.user_id,
         package_source={"kind": "local_zip", "fileName": str(file.filename or "")},
     )
@@ -61,7 +61,7 @@ async def install_personal_skill_zip(
     from app.services.skill_lifecycle.audit import record_skill_event
 
     await record_skill_event(
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         user_id=principal.user_id,
         action="skill.installed",
         target=str(result.get("id") or ""),
@@ -69,7 +69,7 @@ async def install_personal_skill_zip(
     )
     if upgrade_inspector.requires_confirmation(upgrade):
         await SkillDistributionService().publish_from_skill(
-            main_id=principal.main_id,
+            tenant_id=principal.tenant_id,
             owner_user_id=principal.user_id,
             source_skill_id=str(result.get("id") or ""),
             version=str(result.get("version") or ""),
@@ -89,7 +89,7 @@ async def install_organization_skill_zip(
             "message": "只有企业管理后台可以安装企业 Skill",
         })
     package = await _validated_upload(file)
-    upgrade = await upgrade_inspector.inspect(package, scope="organization", main_id=principal.main_id)
+    upgrade = await upgrade_inspector.inspect(package, scope="organization", tenant_id=principal.tenant_id)
     if upgrade_inspector.requires_confirmation(upgrade) and not confirm_replace:
         raise HTTPException(status_code=409, detail={
             "code": "skill_upgrade_confirmation_required",
@@ -99,14 +99,14 @@ async def install_organization_skill_zip(
     result = await installer.install(
         package,
         scope="organization",
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         package_source={"kind": "local_zip", "fileName": str(file.filename or "")},
     )
     # 004 FR-8: organization install is audited too (operator = the admin service).
     from app.services.skill_lifecycle.audit import record_skill_event
 
     await record_skill_event(
-        main_id=principal.main_id,
+        tenant_id=principal.tenant_id,
         user_id=str(principal.get("user_id") or principal.get("service_id") or ""),
         action="skill.installed",
         target=str(result.get("id") or ""),

@@ -28,7 +28,7 @@ def _now() -> datetime.datetime:
 
 
 def _main_id(current_user: dict[str, Any]) -> str:
-    return str(current_user.get("main_id") or "default")
+    return str(current_user.get("tenant_id") or "default")
 
 
 def _time_text(value: Any) -> str:
@@ -52,8 +52,8 @@ def _serialize(doc: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-async def _load_doc(main_id: str) -> dict[str, Any] | None:
-    return await get_db()[COLLECTION].find_one({"main_id": main_id, "provider": PROVIDER})
+async def _load_doc(tenant_id: str) -> dict[str, Any] | None:
+    return await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "provider": PROVIDER})
 
 
 @router.get("")
@@ -66,8 +66,8 @@ async def save_page_collection_settings(
     payload: PageCollectionPayload,
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    main_id = _main_id(current_user)
-    existing = await _load_doc(main_id)
+    tenant_id = _main_id(current_user)
+    existing = await _load_doc(tenant_id)
     existing_config = _config(existing)
     config: dict[str, Any] = {}
     if payload.apiKey.strip():
@@ -81,7 +81,7 @@ async def save_page_collection_settings(
     now = _now()
     doc_id = str((existing or {}).get("_id") or uuid.uuid4().hex)
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id, "provider": PROVIDER},
+        {"tenant_id": tenant_id, "provider": PROVIDER},
         {
             "$set": {
                 "enabled": bool(payload.enabled),
@@ -91,17 +91,17 @@ async def save_page_collection_settings(
             },
             "$setOnInsert": {
                 "_id": doc_id,
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "provider": PROVIDER,
                 "created_at": now,
             },
         },
         upsert=True,
     )
-    return _serialize(await _load_doc(main_id))
+    return _serialize(await _load_doc(tenant_id))
 
 
 async def ensure_indexes() -> None:
     db = get_db()
-    await db[COLLECTION].create_index([("main_id", 1), ("provider", 1)], unique=True)
-    await db[COLLECTION].create_index([("main_id", 1), ("enabled", 1)])
+    await db[COLLECTION].create_index([("tenant_id", 1), ("provider", 1)], unique=True)
+    await db[COLLECTION].create_index([("tenant_id", 1), ("enabled", 1)])

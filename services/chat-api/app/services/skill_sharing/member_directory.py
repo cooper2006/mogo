@@ -33,7 +33,7 @@ class SkillShareMemberDirectory:
     """Tenant-scoped, cursor-paginated lookup over the existing end-user directory."""
 
     async def search(
-        self, *, main_id: str, requester_user_id: str, keyword: str = "", cursor: str = "", limit: int = 20,
+        self, *, tenant_id: str, requester_user_id: str, keyword: str = "", cursor: str = "", limit: int = 20,
     ) -> dict[str, Any]:
         db = get_db()
         page_size = min(max(int(limit), 1), 50)
@@ -55,7 +55,7 @@ class SkillShareMemberDirectory:
                 {"name": prefix}, {"login_name": normalized_prefix},
                 {"email": normalized_prefix}, {"mobile": prefix},
             ]})
-        query = add_main_scope({"$and": clauses}, resolve_main_id(main_id))
+        query = add_main_scope({"$and": clauses}, resolve_main_id(tenant_id))
         rows = await db.end_users.find(
             query,
             {"name": 1, "login_name": 1, "email": 1},
@@ -68,7 +68,7 @@ class SkillShareMemberDirectory:
             "hasMore": has_more,
         }
 
-    async def require_members(self, *, main_id: str, requester_user_id: str, user_ids: list[str]) -> list[dict[str, Any]]:
+    async def require_members(self, *, tenant_id: str, requester_user_id: str, user_ids: list[str]) -> list[dict[str, Any]]:
         unique_ids = list(dict.fromkeys(str(value or "").strip() for value in user_ids if str(value or "").strip()))
         if not unique_ids:
             raise SkillShareError("skill_share_recipients_required", "Choose at least one recipient")
@@ -78,7 +78,7 @@ class SkillShareMemberDirectory:
             raise SkillShareError("skill_share_self_recipient", "A Skill cannot be shared with its owner")
         rows = await get_db().end_users.find(add_main_scope({
             "_id": {"$in": member_id_candidates(unique_ids)}, "status": "active",
-        }, main_id), {"name": 1, "login_name": 1, "email": 1}).to_list(length=len(unique_ids) + 1)
+        }, tenant_id), {"name": 1, "login_name": 1, "email": 1}).to_list(length=len(unique_ids) + 1)
         by_id = {str(row.get("_id") or ""): row for row in rows}
         if any(user_id not in by_id for user_id in unique_ids):
             raise SkillShareError("skill_share_recipient_invalid", "A recipient is unavailable in this organization", status_code=404)

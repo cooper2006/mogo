@@ -82,13 +82,13 @@ async def _load(
     except Exception as exc:
         log_print(f"[context_space.adapters.session._load] suppressed {type(exc).__name__}: {exc}", flush=True)
         return None, {}
-    main_id = resolve_main_id(tenant_id)
+    tenant_id = resolve_main_id(tenant_id)
     # 002 ownership: every other read of ``chat_sessions`` in the app filters by
     # ``user_id`` (sessions.py, session_persistence_service.py). Omitting it here
     # let any tenant member resolve any session — including the L2 transcript
     # (R3 audit, 2026-10-06).
     doc = await db["chat_sessions"].find_one(
-        add_main_scope({"_id": oid, "user_id": str(viewer_id)}, main_id)
+        add_main_scope({"_id": oid, "user_id": str(viewer_id)}, tenant_id)
     )
     if doc is None:
         return None, {}
@@ -109,7 +109,7 @@ async def _load(
     if addr.tier == "L2":
         messages = (
             await db["chat_messages"]
-            .find(add_main_scope({"session_id": oid}, main_id))
+            .find(add_main_scope({"session_id": oid}, tenant_id))
             .sort("created_at", 1)
             .to_list(length=50)
         )

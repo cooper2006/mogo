@@ -44,7 +44,7 @@ def _now() -> datetime.datetime:
 
 
 def _main_id(current_user: dict[str, Any]) -> str:
-    return str(current_user.get("main_id") or "default")
+    return str(current_user.get("tenant_id") or "default")
 
 
 def _time_text(value: Any) -> str:
@@ -97,14 +97,14 @@ def _serialize(provider: str, doc: dict[str, Any] | None, *, default_provider: s
     }
 
 
-async def _load_provider_doc(main_id: str, provider: str) -> dict[str, Any] | None:
-    return await get_db()[COLLECTION].find_one({"main_id": main_id, "provider": provider})
+async def _load_provider_doc(tenant_id: str, provider: str) -> dict[str, Any] | None:
+    return await get_db()[COLLECTION].find_one({"tenant_id": tenant_id, "provider": provider})
 
 
 @router.get("/providers")
 async def list_external_search_providers(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> list[dict[str, Any]]:
-    main_id = _main_id(current_user)
-    docs = await get_db()[COLLECTION].find({"main_id": main_id}).to_list(length=20)
+    tenant_id = _main_id(current_user)
+    docs = await get_db()[COLLECTION].find({"tenant_id": tenant_id}).to_list(length=20)
     doc_map = {str(doc.get("provider") or ""): doc for doc in docs}
     default_provider = _effective_default_provider(docs)
     return [_serialize(provider, doc_map.get(provider), default_provider=default_provider) for provider in PROVIDERS]
@@ -117,8 +117,8 @@ async def save_external_search_provider(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     provider = _provider_or_404(provider)
-    main_id = _main_id(current_user)
-    existing = await _load_provider_doc(main_id, provider)
+    tenant_id = _main_id(current_user)
+    existing = await _load_provider_doc(tenant_id, provider)
     existing_config = _config(existing)
     config = {
         "endpoint": payload.endpoint.strip() or PROVIDERS[provider]["endpoint"],
@@ -135,7 +135,7 @@ async def save_external_search_provider(
     now = _now()
     doc_id = str((existing or {}).get("_id") or uuid.uuid4().hex)
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id, "provider": provider},
+        {"tenant_id": tenant_id, "provider": provider},
         {
             "$set": {
                 "enabled": bool(payload.enabled),
@@ -147,7 +147,7 @@ async def save_external_search_provider(
             },
             "$setOnInsert": {
                 "_id": doc_id,
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "provider": provider,
                 "is_default": False,
                 "health_status": "untested",
@@ -157,7 +157,7 @@ async def save_external_search_provider(
         },
         upsert=True,
     )
-    doc = await _load_provider_doc(main_id, provider)
+    doc = await _load_provider_doc(tenant_id, provider)
     return _serialize(provider, doc)
 
 
@@ -167,13 +167,13 @@ async def set_default_external_search_provider(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, bool]:
     provider = _provider_or_404(provider)
-    main_id = _main_id(current_user)
-    doc = await _load_provider_doc(main_id, provider)
+    tenant_id = _main_id(current_user)
+    doc = await _load_provider_doc(tenant_id, provider)
     if not doc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先保存搜索源配置")
-    await get_db()[COLLECTION].update_many({"main_id": main_id}, {"$set": {"is_default": False, "updated_at": _now()}})
+    await get_db()[COLLECTION].update_many({"tenant_id": tenant_id}, {"$set": {"is_default": False, "updated_at": _now()}})
     await get_db()[COLLECTION].update_one(
-        {"main_id": main_id, "provider": provider},
+        {"tenant_id": tenant_id, "provider": provider},
         {"$set": {"is_default": True, "enabled": True, "updated_at": _now()}},
     )
     return {"success": True}
@@ -186,8 +186,8 @@ async def test_external_search_provider(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
     provider = _provider_or_404(provider)
-    main_id = _main_id(current_user)
-    doc = await _load_provider_doc(main_id, provider)
+    tenant_id = _main_id(current_user)
+    doc = await _load_provider_doc(tenant_id, provider)
     config = _config(doc)
     api_key = payload.apiKey.strip() or _api_key_from_config(config)
     query = payload.query.strip() or "OpenAI latest news"
@@ -214,7 +214,7 @@ async def test_external_search_provider(
         error = str(exc)[:1000]
     if doc:
         await get_db()[COLLECTION].update_one(
-            {"main_id": main_id, "provider": provider},
+            {"tenant_id": tenant_id, "provider": provider},
             {"$set": {"health_status": status_text, "last_error": error, "last_test_at": _now(), "updated_at": _now()}},
         )
     return {
@@ -228,5 +228,5 @@ async def test_external_search_provider(
 
 async def ensure_indexes() -> None:
     db = get_db()
-    await db[COLLECTION].create_index([("main_id", 1), ("provider", 1)], unique=True)
-    await db[COLLECTION].create_index([("main_id", 1), ("enabled", 1), ("is_default", 1)])
+    await db[COLLECTION].create_index([("tenant_id", 1), ("provider", 1)], unique=True)
+    await db[COLLECTION].create_index([("tenant_id", 1), ("enabled", 1), ("is_default", 1)])

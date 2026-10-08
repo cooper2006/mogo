@@ -31,7 +31,7 @@ async def create_memory(
     from app.memory.store import MemoryStore
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     user_id = str(resolved.get("user_id") or "")
     role = str(resolved.get("role") or "")
 
@@ -109,7 +109,7 @@ async def list_memories(
     from app.memory.store import MemoryStore
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     viewer_id = str(resolved.get("user_id") or "")
     viewer_role = str(resolved.get("role") or "")
 
@@ -159,7 +159,7 @@ async def delete_memory(
     from app.memory.store import MemoryStore
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     user_id = str(resolved.get("user_id") or "")
 
     store = MemoryStore()
@@ -184,7 +184,7 @@ async def promote_memory(
     from app.memory.store import MemoryStore
 
     resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("main_id") or "")
+    tenant_id = str(resolved.get("tenant_id") or "")
     user_id = str(resolved.get("user_id") or "")
     role = str(resolved.get("role") or "")
 

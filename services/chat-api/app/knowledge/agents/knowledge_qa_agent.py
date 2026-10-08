@@ -37,7 +37,7 @@ class KnowledgeQAAgent:
     async def retrieve_chunks(self, request: KnowledgeQARequest) -> list[KnowledgeChunk]:
         retrieval = await knowledge_retrieval_client.search(
             query=request.query,
-            main_id=request.main_id,
+            tenant_id=request.tenant_id,
             user_id=request.user_id,
             knowledge_base_ids=request.knowledge_base_ids,
             top_n=request.top_n,

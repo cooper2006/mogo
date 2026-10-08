@@ -36,10 +36,10 @@ class ResourceFeedbackService:
     def __init__(self, access: FeedbackAccessResolver | None = None) -> None:
         self._access = access or FeedbackAccessResolver()
 
-    async def list(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str, limit: int = 30, cursor: str = "", release_id: str = "", release_version: int | None = None) -> dict[str, Any]:
-        subject = await self._subject(main_id, user_id, resource_type, resource_id)
+    async def list(self, *, tenant_id: str, user_id: str, resource_type: str, resource_id: str, limit: int = 30, cursor: str = "", release_id: str = "", release_version: int | None = None) -> dict[str, Any]:
+        subject = await self._subject(tenant_id, user_id, resource_type, resource_id)
         db = get_db()
-        query = self._query(resolve_main_id(main_id), subject)
+        query = self._query(resolve_main_id(tenant_id), subject)
         page_size = min(max(limit, 1), 100)
         comment_query: dict[str, Any] = {**query, "status": "active"}
         # 004 FR-4: optional release-scoped view (per-release feedback pool).
@@ -56,7 +56,7 @@ class ResourceFeedbackService:
         comment_count = await db[COMMENT_COLLECTION].count_documents({**query, "status": "active"})
         comment_ids = [str(row.get("_id") or "") for row in rows]
         comment_reactions = await db[COMMENT_REACTION_COLLECTION].find({
-            "main_id": resolve_main_id(main_id), "comment_id": {"$in": comment_ids}, "reaction": "like",
+            "tenant_id": resolve_main_id(tenant_id), "comment_id": {"$in": comment_ids}, "reaction": "like",
         }).to_list(length=max(len(comment_ids) * 1000, 1)) if comment_ids else []
         like_counts: dict[str, int] = {}
         liked_by_me: set[str] = set()
@@ -87,14 +87,14 @@ class ResourceFeedbackService:
             "hasMore": has_more, "nextCursor": next_cursor, "focus": focus,
         }
 
-    async def comment(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str, content: str, parent_id: str = "", release_id: str = "", release_version: int | None = None) -> dict[str, Any]:
-        subject = await self._subject(main_id, user_id, resource_type, resource_id)
+    async def comment(self, *, tenant_id: str, user_id: str, resource_type: str, resource_id: str, content: str, parent_id: str = "", release_id: str = "", release_version: int | None = None) -> dict[str, Any]:
+        subject = await self._subject(tenant_id, user_id, resource_type, resource_id)
         text = str(content or "").strip()
         if not text:
             raise ResourceFeedbackError("feedback_content_required", "Comment content is required")
         if len(text) > 2000:
             raise ResourceFeedbackError("feedback_content_too_long", "Comment content is too long")
-        db, tenant_id = get_db(), resolve_main_id(main_id)
+        db, tenant_id = get_db(), resolve_main_id(tenant_id)
         parent = None
         if parent_id:
             parent = await db[COMMENT_COLLECTION].find_one({"_id": parent_id, **self._query(tenant_id, subject), "status": "active"})
@@ -134,19 +134,19 @@ class ResourceFeedbackService:
             })
         return self._comment_view(row, user_id, {}, set())
 
-    async def delete_comment(self, *, main_id: str, user_id: str, comment_id: str) -> None:
+    async def delete_comment(self, *, tenant_id: str, user_id: str, comment_id: str) -> None:
         db = get_db()
-        row = await db[COMMENT_COLLECTION].find_one({"_id": comment_id, "main_id": resolve_main_id(main_id), "status": "active"})
+        row = await db[COMMENT_COLLECTION].find_one({"_id": comment_id, "tenant_id": resolve_main_id(tenant_id), "status": "active"})
         if row is None:
             raise ResourceFeedbackError("feedback_comment_not_found", "Comment not found", 404)
-        await self._subject(main_id, user_id, str(row.get("resource_type") or ""), str(row.get("resource_id") or ""))
+        await self._subject(tenant_id, user_id, str(row.get("resource_type") or ""), str(row.get("resource_id") or ""))
         if str(row.get("user_id") or "") != str(user_id):
             raise ResourceFeedbackError("feedback_delete_forbidden", "Only the author can delete this comment", 403)
         await db[COMMENT_COLLECTION].update_one({"_id": comment_id}, {"$set": {"status": "deleted", "updated_at": _utcnow()}})
 
-    async def toggle_like(self, *, main_id: str, user_id: str, resource_type: str, resource_id: str) -> dict[str, Any]:
-        subject = await self._subject(main_id, user_id, resource_type, resource_id)
-        db, tenant_id = get_db(), resolve_main_id(main_id)
+    async def toggle_like(self, *, tenant_id: str, user_id: str, resource_type: str, resource_id: str) -> dict[str, Any]:
+        subject = await self._subject(tenant_id, user_id, resource_type, resource_id)
+        db, tenant_id = get_db(), resolve_main_id(tenant_id)
         query = {**self._query(tenant_id, subject), "user_id": str(user_id), "reaction": "like"}
         current = await db[REACTION_COLLECTION].find_one(query)
         if current:
@@ -165,13 +165,13 @@ class ResourceFeedbackService:
         count = await db[REACTION_COLLECTION].count_documents({**self._query(tenant_id, subject), "reaction": "like"})
         return {"likedByMe": liked, "likes": count}
 
-    async def toggle_comment_like(self, *, main_id: str, user_id: str, comment_id: str) -> dict[str, Any]:
-        db, tenant_id = get_db(), resolve_main_id(main_id)
-        comment = await db[COMMENT_COLLECTION].find_one({"_id": comment_id, "main_id": tenant_id, "status": "active"})
+    async def toggle_comment_like(self, *, tenant_id: str, user_id: str, comment_id: str) -> dict[str, Any]:
+        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        comment = await db[COMMENT_COLLECTION].find_one({"_id": comment_id, "tenant_id": tenant_id, "status": "active"})
         if comment is None:
             raise ResourceFeedbackError("feedback_comment_not_found", "Comment not found", 404)
-        await self._subject(main_id, user_id, str(comment.get("resource_type") or ""), str(comment.get("resource_id") or ""))
-        query = {"main_id": tenant_id, "comment_id": comment_id, "user_id": str(user_id), "reaction": "like"}
+        await self._subject(tenant_id, user_id, str(comment.get("resource_type") or ""), str(comment.get("resource_id") or ""))
+        query = {"tenant_id": tenant_id, "comment_id": comment_id, "user_id": str(user_id), "reaction": "like"}
         current = await db[COMMENT_REACTION_COLLECTION].find_one(query)
         if current:
             await db[COMMENT_REACTION_COLLECTION].delete_one({"_id": current["_id"]})
@@ -184,39 +184,39 @@ class ResourceFeedbackService:
                 if recipient and recipient != str(user_id):
                     await db[NOTIFICATION_COLLECTION].insert_one({
                         "_id": uuid.uuid4().hex,
-                        "main_id": tenant_id, "resource_type": str(comment.get("resource_type") or ""),
+                        "tenant_id": tenant_id, "resource_type": str(comment.get("resource_type") or ""),
                         "resource_id": str(comment.get("resource_id") or ""),
                         "recipient_user_id": recipient, "actor": await self._author(db, tenant_id, str(user_id)),
                         "comment_id": comment_id, "kind": "like", "status": "unread", "created_at": _utcnow(),
                     })
-        count = await db[COMMENT_REACTION_COLLECTION].count_documents({"main_id": tenant_id, "comment_id": comment_id, "reaction": "like"})
+        count = await db[COMMENT_REACTION_COLLECTION].count_documents({"tenant_id": tenant_id, "comment_id": comment_id, "reaction": "like"})
         return {"likedByMe": liked, "likes": count}
 
-    async def unread_count(self, *, main_id: str, user_id: str, resource_types: list[str] | None = None) -> int:
+    async def unread_count(self, *, tenant_id: str, user_id: str, resource_types: list[str] | None = None) -> int:
         query: dict[str, Any] = {
-            "main_id": resolve_main_id(main_id), "recipient_user_id": str(user_id), "status": "unread",
+            "tenant_id": resolve_main_id(tenant_id), "recipient_user_id": str(user_id), "status": "unread",
         }
         if resource_types:
             query["resource_type"] = {"$in": list(resource_types)}
         return await get_db()[NOTIFICATION_COLLECTION].count_documents(query)
 
-    async def notifications(self, *, main_id: str, user_id: str, limit: int = 20) -> dict[str, Any]:
-        db, tenant_id = get_db(), resolve_main_id(main_id)
-        query = {"main_id": tenant_id, "recipient_user_id": str(user_id), "status": "unread"}
+    async def notifications(self, *, tenant_id: str, user_id: str, limit: int = 20) -> dict[str, Any]:
+        db, tenant_id = get_db(), resolve_main_id(tenant_id)
+        query = {"tenant_id": tenant_id, "recipient_user_id": str(user_id), "status": "unread"}
         rows = await db[NOTIFICATION_COLLECTION].find(query).sort("created_at", -1).limit(min(max(limit, 1), 50)).to_list(length=min(max(limit, 1), 50))
         items = []
         for row in rows:
             resource_type, resource_id = str(row.get("resource_type") or ""), str(row.get("resource_id") or "")
             name = "Skill"
             if resource_type == "skill_distribution":
-                distribution = await db.skill_distributions.find_one({"_id": resource_id, "main_id": tenant_id}) or {}
-                skill = await db.user_skills.find_one({"_id": str(distribution.get("source_skill_id") or ""), "main_id": tenant_id}) or {}
+                distribution = await db.skill_distributions.find_one({"_id": resource_id, "tenant_id": tenant_id}) or {}
+                skill = await db.user_skills.find_one({"_id": str(distribution.get("source_skill_id") or ""), "tenant_id": tenant_id}) or {}
                 name = str(skill.get("name") or name)
             elif resource_type == "organization_skill":
-                skill = await db.skills.find_one({"_id": resource_id, "main_id": tenant_id}) or {}
+                skill = await db.skills.find_one({"_id": resource_id, "tenant_id": tenant_id}) or {}
                 name = str(skill.get("name") or name)
             elif resource_type == "personal_knowledge":
-                resource = await db.knowledge_resources.find_one({"_id": resource_id, "main_id": tenant_id}) or {}
+                resource = await db.knowledge_resources.find_one({"_id": resource_id, "tenant_id": tenant_id}) or {}
                 name = str(resource.get("name") or "知识")
             created = row.get("created_at")
             items.append({"id": str(row.get("_id") or ""), "resourceType": resource_type, "resourceId": resource_id,
@@ -224,23 +224,23 @@ class ResourceFeedbackService:
                 "createdAt": created.isoformat() if isinstance(created, datetime.datetime) else ""})
         return {"items": items, "unreadCount": await db[NOTIFICATION_COLLECTION].count_documents(query)}
 
-    async def _subject(self, main_id: str, user_id: str, resource_type: str, resource_id: str) -> FeedbackSubject:
+    async def _subject(self, tenant_id: str, user_id: str, resource_type: str, resource_id: str) -> FeedbackSubject:
         try:
-            return await self._access.require(main_id=main_id, user_id=user_id, resource_type=resource_type, resource_id=resource_id)
+            return await self._access.require(tenant_id=tenant_id, user_id=user_id, resource_type=resource_type, resource_id=resource_id)
         except LookupError as exc:
             raise ResourceFeedbackError(str(exc), "Feedback resource not found", 404) from exc
         except PermissionError as exc:
             raise ResourceFeedbackError(str(exc), "You cannot access this discussion", 403) from exc
 
     @staticmethod
-    def _query(main_id: str, subject: FeedbackSubject) -> dict[str, str]:
-        return {"main_id": main_id, "resource_type": subject.resource_type, "resource_id": subject.resource_id}
+    def _query(tenant_id: str, subject: FeedbackSubject) -> dict[str, str]:
+        return {"tenant_id": tenant_id, "resource_type": subject.resource_type, "resource_id": subject.resource_id}
 
     @staticmethod
-    async def _author(db: Any, main_id: str, user_id: str) -> dict[str, str]:
+    async def _author(db: Any, tenant_id: str, user_id: str) -> dict[str, str]:
         from app.services.skill_sharing.member_directory import member_id_candidates
         row = await db.end_users.find_one(
-            {"_id": {"$in": member_id_candidates([user_id])}, "main_id": main_id},
+            {"_id": {"$in": member_id_candidates([user_id])}, "tenant_id": tenant_id},
             {"name": 1, "display_name": 1, "nickname": 1, "login_name": 1},
         ) or {}
         return {"userId": user_id, "displayName": public_display_name(row)}

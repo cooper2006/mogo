@@ -194,7 +194,7 @@ class ScheduledDshExecution:
             {"$set": schedule_fields},
         )
         await db[RUNS].update_one(
-            {"run_id": str(run.get("run_id") or ""), "main_id": tenant_id, "run_as_user_id": user_id},
+            {"run_id": str(run.get("run_id") or ""), "tenant_id": tenant_id, "run_as_user_id": user_id},
             {"$set": {
                 "status": "running",
                 "session_id": turn.conversation_id,
@@ -204,7 +204,7 @@ class ScheduledDshExecution:
             }},
         )
         await db[JOBS].update_one(
-            {"_id": job["_id"], "main_id": tenant_id},
+            {"_id": job["_id"], "tenant_id": tenant_id},
             {"$set": {
                 "last_run_status": "running",
                 "last_session_id": turn.conversation_id,
@@ -240,7 +240,7 @@ class ScheduledDshExecution:
             }},
         )
         await db[RUNS].update_one(
-            {"run_id": str(run.get("run_id") or ""), "main_id": tenant_id, "run_as_user_id": user_id},
+            {"run_id": str(run.get("run_id") or ""), "tenant_id": tenant_id, "run_as_user_id": user_id},
             {"$set": {
                 "status": status,
                 "error": str(error)[:1000],
@@ -249,7 +249,7 @@ class ScheduledDshExecution:
             }},
         )
         await db[JOBS].update_one(
-            {"_id": job["_id"], "main_id": tenant_id},
+            {"_id": job["_id"], "tenant_id": tenant_id},
             {"$set": {
                 "last_run_status": status,
                 "last_session_id": turn.conversation_id,

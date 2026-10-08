@@ -34,7 +34,7 @@ class SkillShareExporter:
         if package_id:
             package_row = await db.skill_packages.find_one({
                 "_id": package_id,
-                "main_id": str(skill.get("main_id") or "default"),
+                "tenant_id": str(skill.get("tenant_id") or "default"),
                 "owner_scope": "personal",
                 "owner_id": str(skill.get("user_id") or ""),
             })

@@ -59,7 +59,7 @@ async def inspect_setup_model(payload: dict[str, Any]) -> SetupModelInspection:
     temporary_main_id = f"setup-test-{secrets.token_hex(12)}"
     instance_id = ""
     try:
-        instance_id = await create_instance({**normalized, "main_id": temporary_main_id})
+        instance_id = await create_instance({**normalized, "tenant_id": temporary_main_id})
         success, message = await run_saved_model_test(instance_id, temporary_main_id)
         if not success:
             raise SetupModelError(message)
@@ -74,11 +74,11 @@ async def inspect_setup_model(payload: dict[str, Any]) -> SetupModelInspection:
 test_setup_model.__test__ = False
 
 
-async def create_setup_model(payload: dict[str, Any], main_id: str) -> str:
+async def create_setup_model(payload: dict[str, Any], tenant_id: str) -> str:
     provider = await _require_provider(str(payload.get("providerId") or ""))
     normalized = _normalize_payload(payload, provider)
     try:
-        return await create_instance({**normalized, "main_id": main_id})
+        return await create_instance({**normalized, "tenant_id": tenant_id})
     except DuplicateKeyError as exc:
         raise SetupModelError("The model configuration already exists.") from exc
 

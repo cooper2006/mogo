@@ -14,16 +14,16 @@ from app.llm.configured_models import (
 IMAGE_CAPABILITY = "image_generation"
 
 
-async def get_image_model_config(model_id: str, main_id: str) -> dict[str, Any] | None:
-    return await get_model_config_by_capability(model_id, main_id, capability=IMAGE_CAPABILITY)
+async def get_image_model_config(model_id: str, tenant_id: str) -> dict[str, Any] | None:
+    return await get_model_config_by_capability(model_id, tenant_id, capability=IMAGE_CAPABILITY)
 
 
-async def get_default_image_model_config(main_id: str) -> dict[str, Any] | None:
-    return await get_default_model_config_by_capability(main_id, capability=IMAGE_CAPABILITY)
+async def get_default_image_model_config(tenant_id: str) -> dict[str, Any] | None:
+    return await get_default_model_config_by_capability(tenant_id, capability=IMAGE_CAPABILITY)
 
 
-async def list_image_model_options(main_id: str) -> list[dict[str, Any]]:
-    return await list_model_options(main_id, capability=IMAGE_CAPABILITY)
+async def list_image_model_options(tenant_id: str) -> list[dict[str, Any]]:
+    return await list_model_options(tenant_id, capability=IMAGE_CAPABILITY)
 
 
 __all__ = [

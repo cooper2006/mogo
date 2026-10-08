@@ -14,7 +14,7 @@ service = ShortcutSettingsService()
 
 
 def _main_id(user: dict[str, Any]) -> str:
-    return str(user.get("main_id") or "default")
+    return str(user.get("tenant_id") or "default")
 
 
 @router.get("")

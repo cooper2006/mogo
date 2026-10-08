@@ -38,7 +38,7 @@ async def _authorized_scope(
 ) -> tuple[str, str]:
     resolved = await _resolve_session_user(authorization if isinstance(authorization, str) else None)
     actual_user_id = str(resolved["user"].get("_id") or "")
-    actual_main_id = resolve_main_id(resolved["main_id"])
+    actual_main_id = resolve_main_id(resolved.get("tenant_id") or resolved.get("main_id"))
     if claimed_user_id and claimed_user_id != actual_user_id:
         raise HTTPException(status_code=404, detail="Session not found")
     if claimed_main_id and resolve_main_id(claimed_main_id) != actual_main_id:
@@ -64,7 +64,7 @@ class MessageIn(BaseModel):
 
 class SessionCreate(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
     title: Optional[str] = Field(None, description="Session title")
     messages: Optional[List[MessageIn]] = Field(default_factory=list)
 
@@ -72,7 +72,7 @@ class SessionCreate(BaseModel):
 class SessionSummary(BaseModel):
     id: str
     user_id: str
-    main_id: str = "default"
+    tenant_id: str = "default"
     title: str
     created_at: datetime
     updated_at: datetime
@@ -105,13 +105,13 @@ class SessionSearchResult(SessionSummary):
 
 class MessageAppend(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
     messages: List[MessageIn] = Field(..., description="Messages to append")
 
 
 class SessionUpdate(BaseModel):
     user_id: str = Field(..., description="User ID from login")
-    main_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("main_id", "mainId"), description="Tenant / main account ID")
     title: str = Field(..., min_length=1, max_length=160, description="Session title")
 
 
@@ -125,7 +125,7 @@ def _serialize_session(doc: dict) -> dict:
     return {
         "id": str(doc.get("_id")),
         "user_id": doc.get("user_id"),
-        "main_id": resolve_main_id(doc.get("main_id")),
+        "tenant_id": resolve_main_id(doc.get("tenant_id")),
         "title": doc.get("title"),
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
@@ -152,7 +152,7 @@ def _serialize_session_summary(doc: dict) -> dict:
     return {
         "id": str(doc.get("_id")),
         "user_id": doc.get("user_id"),
-        "main_id": resolve_main_id(doc.get("main_id")),
+        "tenant_id": resolve_main_id(doc.get("tenant_id")),
         "title": doc.get("title"),
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
@@ -178,7 +178,7 @@ async def _attach_pending_approval_counts(
     db: Any,
     documents: List[Dict[str, Any]],
     *,
-    main_id: str,
+    tenant_id: str,
     user_id: str,
 ) -> None:
     by_id = {str(doc.get("_id")): doc for doc in documents if doc.get("_id") is not None}
@@ -186,7 +186,7 @@ async def _attach_pending_approval_counts(
         return
     pipeline = [
         {"$match": {
-            "tenant_id": resolve_main_id(main_id),
+            "tenant_id": resolve_main_id(tenant_id),
             "user_id": str(user_id),
             "conversation_id": {"$in": list(by_id)},
             "status": "pending",
@@ -218,9 +218,9 @@ def _build_match_snippet(text: str, query: str, radius: int = 72) -> str:
     return f"{prefix}{source[start:end].strip()}{suffix}"
 
 
-async def _next_seq(db, session_id: ObjectId, user_id: str, main_id: str = "default") -> int:
+async def _next_seq(db, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> int:
     last = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id)}, main_id),
+        add_main_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     if not last:
@@ -334,9 +334,9 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
     }
 
 
-async def _latest_user_request_from_db(db, session_id: ObjectId, user_id: str, main_id: str = "default") -> str:
+async def _latest_user_request_from_db(db, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> str:
     row = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, main_id),
+        add_main_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     return str((row or {}).get("content") or "").strip()
@@ -454,14 +454,14 @@ def _build_context_summary_from_messages(rows: List[Dict[str, Any]]) -> str:
     return context_compactor.heuristic_summary(rows)
 
 
-async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: str, main_id: str = "default") -> None:
+async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> None:
     cursor = db.chat_messages.find(
         add_main_scope({
             "session_id": session_id,
             "user_id": str(user_id),
             "message_type": {"$ne": "context_summary"},
             "compacted": {"$ne": True},
-        }, main_id)
+        }, tenant_id)
     ).sort("seq", 1)
     rows = await cursor.to_list(length=1000)
     if len(rows) <= COMPACTION_TRIGGER_MESSAGES:
@@ -472,13 +472,13 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
     compaction_id = f"cmp_{uuid4().hex[:12]}"
     compaction = await context_compactor.compact_messages(
         to_compact,
-        output_spec={"user_id": str(user_id), "main_id": resolve_main_id(main_id), "session_id": str(session_id)},
+        output_spec={"user_id": str(user_id), "tenant_id": resolve_main_id(tenant_id), "session_id": str(session_id)},
     )
     summary_text = compaction.summary or _build_context_summary_from_messages(to_compact)
     if compaction.memories:
         await project_memory_service.upsert_memories(
             user_id=str(user_id),
-            main_id=resolve_main_id(main_id),
+            tenant_id=resolve_main_id(tenant_id),
             project_id="default",
             memories=compaction.memories,
             source=f"session_compaction:{compaction_id}",
@@ -491,12 +491,12 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
         )
     start_seq = int(to_compact[0].get("seq") or 0)
     end_seq = int(to_compact[-1].get("seq") or 0)
-    next_seq = await _next_seq(db, session_id, user_id, main_id)
+    next_seq = await _next_seq(db, session_id, user_id, tenant_id)
     await db.chat_messages.insert_one(
         {
             "session_id": session_id,
             "user_id": str(user_id),
-            "main_id": resolve_main_id(main_id),
+            "tenant_id": resolve_main_id(tenant_id),
             "role": "system",
             "content": summary_text,
             "plan": None,
@@ -523,12 +523,12 @@ async def create_session(
     payload: SessionCreate,
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.main_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.tenant_id
     )
     session_doc = await session_persistence_service.create_session(
         user_id=user_id,
-        main_id=main_id,
+        tenant_id=tenant_id,
         title=payload.title or "New Chat",
         messages=payload.messages or [],
     )
@@ -538,7 +538,7 @@ async def create_session(
 @router.get("/sessions", response_model=ApiResponse)
 async def list_sessions(
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
     paged: bool = Query(False),
     limit: int = Query(30, ge=1, le=100),
@@ -546,19 +546,19 @@ async def list_sessions(
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     t0 = time.perf_counter()
-    main_id = main_id_snake or main_id
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=user_id, claimed_main_id=main_id
+    tenant_id = main_id_snake or tenant_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=user_id, claimed_main_id=tenant_id
     )
     log_print(
         "[perf][sessions] list_sessions:start user_id=%s main_id=%s paged=%s limit=%s offset=%s"
-        % (str(user_id), resolve_main_id(main_id), bool(paged), int(limit), int(offset)),
+        % (str(user_id), resolve_main_id(tenant_id), bool(paged), int(limit), int(offset)),
         flush=True,
     )
     db = get_db()
     projection = {
         "user_id": 1,
-        "main_id": 1,
+        "tenant_id": 1,
         "title": 1,
         "created_at": 1,
         "updated_at": 1,
@@ -573,7 +573,7 @@ async def list_sessions(
         "last_scheduled_run": 1,
     }
     base_cursor = (
-        db.chat_sessions.find(add_main_scope({"user_id": str(user_id)}, main_id), projection)
+        db.chat_sessions.find(add_main_scope({"user_id": str(user_id)}, tenant_id), projection)
         .sort([("updated_at", -1), ("_id", -1)])
         .hint([("user_id", 1), ("updated_at", -1), ("_id", -1)])
     )
@@ -583,16 +583,16 @@ async def list_sessions(
         async for doc in base_cursor:
             documents.append(doc)
         await _attach_pending_approval_counts(
-            db, documents, main_id=main_id, user_id=user_id
+            db, documents, tenant_id=tenant_id, user_id=user_id
         )
         await attach_session_runtime_contexts(
-            db, documents, tenant_id=main_id, user_id=user_id
+            db, documents, tenant_id=tenant_id, user_id=user_id
         )
         sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
         duration_ms = int((time.perf_counter() - t0) * 1000)
         log_print(
             "[perf][sessions] list_sessions:done user_id=%s main_id=%s paged=false count=%s duration_ms=%s"
-            % (str(user_id), resolve_main_id(main_id), len(sessions), duration_ms),
+            % (str(user_id), resolve_main_id(tenant_id), len(sessions), duration_ms),
             flush=True,
         )
         return ApiResponse(code=0, message="success", data=sessions)
@@ -605,16 +605,16 @@ async def list_sessions(
     if has_more:
         documents = documents[:limit]
     await _attach_pending_approval_counts(
-        db, documents, main_id=main_id, user_id=user_id
+        db, documents, tenant_id=tenant_id, user_id=user_id
     )
     await attach_session_runtime_contexts(
-        db, documents, tenant_id=main_id, user_id=user_id
+        db, documents, tenant_id=tenant_id, user_id=user_id
     )
     sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
     duration_ms = int((time.perf_counter() - t0) * 1000)
     log_print(
         "[perf][sessions] list_sessions:done user_id=%s main_id=%s paged=true count=%s has_more=%s duration_ms=%s"
-        % (str(user_id), resolve_main_id(main_id), len(sessions), bool(has_more), duration_ms),
+        % (str(user_id), resolve_main_id(tenant_id), len(sessions), bool(has_more), duration_ms),
         flush=True,
     )
     return ApiResponse(
@@ -632,7 +632,7 @@ async def list_sessions(
 @router.get("/sessions/search", response_model=ApiResponse)
 async def search_sessions(
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
     q: str = Query(..., min_length=1),
     limit: int = Query(20, ge=1, le=50),
@@ -640,9 +640,9 @@ async def search_sessions(
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     db = get_db()
-    main_id = main_id_snake or main_id
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=user_id, claimed_main_id=main_id
+    tenant_id = main_id_snake or tenant_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=user_id, claimed_main_id=tenant_id
     )
     query_text = str(q or "").strip()
     if not query_text:
@@ -655,7 +655,7 @@ async def search_sessions(
     regex = re.compile(re.escape(query_text), re.IGNORECASE)
     projection = {
         "user_id": 1,
-        "main_id": 1,
+        "tenant_id": 1,
         "title": 1,
         "created_at": 1,
         "updated_at": 1,
@@ -679,7 +679,7 @@ async def search_sessions(
                 {"title": {"$regex": regex}},
                 {"last_message_preview": {"$regex": regex}},
             ],
-        }, main_id),
+        }, tenant_id),
         projection,
     ).sort("updated_at", -1).limit(max(limit * 4, 40)):
         sid = str(doc.get("_id"))
@@ -708,7 +708,7 @@ async def search_sessions(
             "user_id": str(user_id),
             "message_type": {"$ne": "context_summary"},
             "content": {"$regex": regex},
-        }, main_id),
+        }, tenant_id),
         {
             "session_id": 1,
             "content": 1,
@@ -722,7 +722,7 @@ async def search_sessions(
         entry = candidates.get(sid)
         if entry is None:
             session_doc = await db.chat_sessions.find_one(
-                add_main_scope({"_id": raw_session_id, "user_id": str(user_id)}, main_id),
+                add_main_scope({"_id": raw_session_id, "user_id": str(user_id)}, tenant_id),
                 projection,
             )
             if not session_doc:
@@ -761,13 +761,13 @@ async def search_sessions(
     await _attach_pending_approval_counts(
         db,
         [item.get("session") or {} for item in paged],
-        main_id=main_id,
+        tenant_id=tenant_id,
         user_id=user_id,
     )
     await attach_session_runtime_contexts(
         db,
         [item.get("session") or {} for item in paged],
-        tenant_id=main_id,
+        tenant_id=tenant_id,
         user_id=user_id,
     )
 
@@ -796,7 +796,7 @@ async def search_sessions(
 async def get_session(
     session_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
     include_context_summary: bool = Query(False, alias="includeContextSummary"),
     authorization: str | None = Header(default=None),
@@ -807,19 +807,19 @@ async def get_session(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
-    user_id, main_id = await _authorized_scope(
+    user_id, tenant_id = await _authorized_scope(
         authorization,
         claimed_user_id=user_id,
-        claimed_main_id=main_id_snake or main_id,
+        claimed_main_id=main_id_snake or tenant_id,
     )
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id))
+    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
     await _attach_pending_approval_counts(
-        db, [session_doc], main_id=main_id, user_id=user_id
+        db, [session_doc], tenant_id=tenant_id, user_id=user_id
     )
     await attach_session_runtime_contexts(
-        db, [session_doc], tenant_id=main_id, user_id=user_id
+        db, [session_doc], tenant_id=tenant_id, user_id=user_id
     )
 
     messages = []
@@ -827,7 +827,7 @@ async def get_session(
         "session_id": oid,
         "user_id": str(user_id),
     }
-    query = add_main_scope(query, main_id)
+    query = add_main_scope(query, tenant_id)
     if not include_context_summary:
         # Frontend should display original dialogue turns only.
         # Context summaries are runtime-only compression artifacts.
@@ -861,8 +861,8 @@ async def get_session(
         from app.historical.legacy_execution_logs import LegacyExecutionLogStore
         from app.infrastructure.execution_events.persistence import ExecutionV3Store
         exec_store = LegacyExecutionLogStore(db)
-        exec_events_by_msg_id = await exec_store.get_events_for_session(str(oid), main_id=main_id)
-        v3_events = await ExecutionV3Store(db).get_events_for_session(str(oid), main_id=main_id)
+        exec_events_by_msg_id = await exec_store.get_events_for_session(str(oid), tenant_id=tenant_id)
+        v3_events = await ExecutionV3Store(db).get_events_for_session(str(oid), tenant_id=tenant_id)
         for message_id, events in v3_events.items():
             exec_events_by_msg_id[message_id] = events
     except Exception as exc:
@@ -927,7 +927,7 @@ async def get_session(
     data = _serialize_session(session_doc)
     if session_doc.get("scheduled_unread"):
         await db.chat_sessions.update_one(
-            add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id),
+            add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id),
             {"$set": {"scheduled_unread": False}},
         )
     return ApiResponse(
@@ -953,11 +953,11 @@ async def update_session(
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
 
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.main_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.tenant_id
     )
     result = await db.chat_sessions.update_one(
-        add_main_scope({"_id": oid, "user_id": user_id}, main_id),
+        add_main_scope({"_id": oid, "user_id": user_id}, tenant_id),
         {
             "$set": {
                 "title": title[:160],
@@ -967,7 +967,7 @@ async def update_session(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": user_id}, main_id))
+    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": user_id}, tenant_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
     return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
@@ -977,7 +977,7 @@ async def update_session(
 async def end_session(
     session_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str | None = Query(default=None, alias="mainId"),
+    tenant_id: str | None = Query(default=None, alias="mainId"),
     reason: str = Query(default="user_ended"),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
@@ -995,7 +995,7 @@ async def end_session(
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
     authorized_user_id, authorized_main_id = await _authorized_scope(
-        authorization, claimed_user_id=user_id, claimed_main_id=main_id
+        authorization, claimed_user_id=user_id, claimed_main_id=tenant_id
     )
     from app.services.session_persistence_service import session_persistence_service
 
@@ -1003,7 +1003,7 @@ async def end_session(
         session_doc = await session_persistence_service.end_session(
             session_id=str(oid),
             user_id=authorized_user_id,
-            main_id=authorized_main_id,
+            tenant_id=authorized_main_id,
             reason=reason,
         )
     except LookupError as exc:
@@ -1022,7 +1022,7 @@ async def end_session(
 async def delete_session(
     session_id: str,
     user_id: str = Query(..., alias="userId"),
-    main_id: str = Query("default", alias="mainId"),
+    tenant_id: str = Query("default", alias="mainId"),
     main_id_snake: Optional[str] = Query(None, alias="main_id"),
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
@@ -1032,12 +1032,12 @@ async def delete_session(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
-    user_id, main_id = await _authorized_scope(
+    user_id, tenant_id = await _authorized_scope(
         authorization,
         claimed_user_id=user_id,
-        claimed_main_id=main_id_snake or main_id,
+        claimed_main_id=main_id_snake or tenant_id,
     )
-    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id))
+    session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -1056,7 +1056,7 @@ async def delete_session(
                 session_doc=session_doc,
                 store=MemoryStore(),
                 owner_id=str(user_id),
-                tenant_id=main_id,
+                tenant_id=tenant_id,
                 workspace_id=str(session_doc.get("workspace_id") or ""),
             )
     except Exception as exc:  # noqa: BLE001 — sedimentation is non-fatal
@@ -1064,12 +1064,12 @@ async def delete_session(
 
     from app.dsh_runtime.application import dsh_runtime_application
     await dsh_runtime_application.require_chat().dispose_conversation(
-        str(oid), tenant_id=main_id, user_id=user_id
+        str(oid), tenant_id=tenant_id, user_id=user_id
     )
-    await db.chat_sessions.delete_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, main_id))
-    await db.chat_messages.delete_many(add_main_scope({"session_id": oid, "user_id": str(user_id)}, main_id))
+    await db.chat_sessions.delete_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
+    await db.chat_messages.delete_many(add_main_scope({"session_id": oid, "user_id": str(user_id)}, tenant_id))
     try:
-        await db.execution_logs.delete_many(add_main_scope({"session_id": str(oid), "user_id": str(user_id)}, main_id))
+        await db.execution_logs.delete_many(add_main_scope({"session_id": str(oid), "user_id": str(user_id)}, tenant_id))
     except Exception as exc:
         log_print(f"[sessions] delete execution_logs failed: {exc}", flush=True)
 
@@ -1092,14 +1092,14 @@ async def append_messages(
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
     if not payload.messages:
         raise HTTPException(status_code=400, detail="No messages to append")
-    user_id, main_id = await _authorized_scope(
-        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.main_id
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_main_id=payload.tenant_id
     )
     try:
         session_doc = await session_persistence_service.append_messages(
             session_id=session_id,
             user_id=user_id,
-            main_id=main_id,
+            tenant_id=tenant_id,
             messages=payload.messages or [],
         )
     except LookupError as exc:

@@ -55,9 +55,9 @@ def _normalize_message(message: Any) -> Dict[str, Any]:
     return out
 
 
-async def _next_seq(db: Any, session_id: ObjectId, user_id: str, main_id: str = "default") -> int:
+async def _next_seq(db: Any, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> int:
     last = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id)}, main_id),
+        add_main_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     if not last:
@@ -171,9 +171,9 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
     }
 
 
-async def _latest_user_request_from_db(db: Any, session_id: ObjectId, user_id: str, main_id: str = "default") -> str:
+async def _latest_user_request_from_db(db: Any, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> str:
     row = await db.chat_messages.find_one(
-        add_main_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, main_id),
+        add_main_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
     )
     return str((row or {}).get("content") or "").strip()
@@ -288,14 +288,14 @@ def _build_context_summary_from_messages(rows: List[Dict[str, Any]]) -> str:
     return context_compactor.heuristic_summary(rows)
 
 
-async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_id: str, main_id: str = "default") -> None:
+async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> None:
     cursor = db.chat_messages.find(
         add_main_scope({
             "session_id": session_id,
             "user_id": str(user_id),
             "message_type": {"$ne": "context_summary"},
             "compacted": {"$ne": True},
-        }, main_id)
+        }, tenant_id)
     ).sort("seq", 1)
     rows = await cursor.to_list(length=1000)
     if len(rows) <= COMPACTION_TRIGGER_MESSAGES:
@@ -306,13 +306,13 @@ async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_
     compaction_id = f"cmp_{uuid4().hex[:12]}"
     compaction = await context_compactor.compact_messages(
         to_compact,
-        output_spec={"user_id": str(user_id), "main_id": resolve_main_id(main_id), "session_id": str(session_id)},
+        output_spec={"user_id": str(user_id), "tenant_id": resolve_main_id(tenant_id), "session_id": str(session_id)},
     )
     summary_text = compaction.summary or _build_context_summary_from_messages(to_compact)
     if compaction.memories:
         await project_memory_service.upsert_memories(
             user_id=str(user_id),
-            main_id=resolve_main_id(main_id),
+            tenant_id=resolve_main_id(tenant_id),
             project_id="default",
             memories=compaction.memories,
             source=f"session_compaction:{compaction_id}",
@@ -325,12 +325,12 @@ async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_
         )
     start_seq = int(to_compact[0].get("seq") or 0)
     end_seq = int(to_compact[-1].get("seq") or 0)
-    next_seq = await _next_seq(db, session_id, user_id, main_id)
+    next_seq = await _next_seq(db, session_id, user_id, tenant_id)
     await db.chat_messages.insert_one(
         {
             "session_id": session_id,
             "user_id": str(user_id),
-            "main_id": resolve_main_id(main_id),
+            "tenant_id": resolve_main_id(tenant_id),
             "role": "system",
             "content": summary_text,
             "plan": None,
@@ -357,19 +357,19 @@ class SessionPersistenceService:
         self,
         *,
         user_id: str,
-        main_id: str = "default",
+        tenant_id: str = "default",
         title: str = "New Chat",
         messages: Optional[List[Any]] = None,
     ) -> Dict[str, Any]:
         db = get_db()
         now = datetime.now(tz=timezone.utc)
-        mid = resolve_main_id(main_id)
+        mid = resolve_main_id(tenant_id)
         normalized = [_normalize_message(m) for m in list(messages or [])]
         last_message = normalized[-1]["content"] if normalized else None
         last_message_at = now if normalized else None
         session_doc: Dict[str, Any] = {
             "user_id": str(user_id),
-            "main_id": mid,
+            "tenant_id": mid,
             "title": title or "New Chat",
             "created_at": now,
             "updated_at": now,
@@ -407,7 +407,7 @@ class SessionPersistenceService:
                 self._message_doc(
                     session_id=session_id,
                     user_id=str(user_id),
-                    main_id=mid,
+                    tenant_id=mid,
                     message=m,
                     created_at=now,
                     seq=i + 1,
@@ -415,7 +415,7 @@ class SessionPersistenceService:
                 for i, m in enumerate(normalized)
             ]
             await db.chat_messages.insert_many(message_docs)
-            await self._rekey_execution_logs(session_id=session_id, main_id=mid, messages=normalized)
+            await self._rekey_execution_logs(session_id=session_id, tenant_id=mid, messages=normalized)
         session_doc["_id"] = session_id
         return session_doc
 
@@ -424,12 +424,12 @@ class SessionPersistenceService:
         *,
         session_id: str,
         user_id: str,
-        main_id: str = "default",
+        tenant_id: str = "default",
         messages: List[Any],
     ) -> Dict[str, Any]:
         db = get_db()
         oid = ObjectId(str(session_id))
-        mid = resolve_main_id(main_id)
+        mid = resolve_main_id(tenant_id)
         session_doc = await db.chat_sessions.find_one(add_main_scope({"_id": oid, "user_id": str(user_id)}, mid))
         if not session_doc:
             raise LookupError("Session not found")
@@ -451,7 +451,7 @@ class SessionPersistenceService:
             self._message_doc(
                 session_id=oid,
                 user_id=str(user_id),
-                main_id=mid,
+                tenant_id=mid,
                 message=m,
                 created_at=now,
                 seq=seq + i,
@@ -459,7 +459,7 @@ class SessionPersistenceService:
             for i, m in enumerate(normalized)
         ]
         await db.chat_messages.insert_many(message_docs)
-        await self._rekey_execution_logs(session_id=oid, main_id=mid, messages=normalized)
+        await self._rekey_execution_logs(session_id=oid, tenant_id=mid, messages=normalized)
 
         last_message = normalized[-1]["content"]
         latest_artifact_ref = extract_latest_artifact_ref_from_messages(normalized)
@@ -499,7 +499,7 @@ class SessionPersistenceService:
                 "$inc": {"message_count": len(normalized)},
             },
         )
-        await maybe_compact_session_messages(db, session_id=oid, user_id=str(user_id), main_id=mid)
+        await maybe_compact_session_messages(db, session_id=oid, user_id=str(user_id), tenant_id=mid)
 
         session_doc.update(
             {
@@ -523,7 +523,7 @@ class SessionPersistenceService:
         *,
         session_id: ObjectId,
         user_id: str,
-        main_id: str,
+        tenant_id: str,
         message: Dict[str, Any],
         created_at: datetime,
         seq: int,
@@ -531,7 +531,7 @@ class SessionPersistenceService:
         return {
             "session_id": session_id,
             "user_id": str(user_id),
-            "main_id": resolve_main_id(main_id),
+            "tenant_id": resolve_main_id(tenant_id),
             "role": str(message.get("role") or ""),
             "content": str(message.get("content") or ""),
             "plan": message.get("plan"),
@@ -550,21 +550,21 @@ class SessionPersistenceService:
             "scheduled_run_id": str(message.get("scheduled_run_id") or "").strip() or None,
         }
 
-    async def _rekey_execution_logs(self, *, session_id: ObjectId, main_id: str, messages: List[Dict[str, Any]]) -> None:
+    async def _rekey_execution_logs(self, *, session_id: ObjectId, tenant_id: str, messages: List[Dict[str, Any]]) -> None:
         message_ids = [str(m.get("message_id") or "").strip() for m in messages if str(m.get("message_id") or "").strip()]
         if not message_ids:
             return
         try:
             await get_db().execution_logs.update_many(
                 {"message_id": {"$in": message_ids}, "session_id": {"$ne": str(session_id)}},
-                {"$set": {"session_id": str(session_id), "main_id": resolve_main_id(main_id)}},
+                {"$set": {"session_id": str(session_id), "tenant_id": resolve_main_id(tenant_id)}},
             )
         except Exception as exc:
             log_print(f"[session_persistence] rekey execution_logs failed: {exc}", flush=True)
         try:
             await get_db().execution_runs_v3.update_many(
                 {"message_id": {"$in": message_ids}, "session_id": {"$ne": str(session_id)}},
-                {"$set": {"session_id": str(session_id), "main_id": resolve_main_id(main_id)}},
+                {"$set": {"session_id": str(session_id), "tenant_id": resolve_main_id(tenant_id)}},
             )
         except Exception as exc:
             log_print(f"[session_persistence] rekey execution_runs_v3 failed: {exc}", flush=True)
@@ -574,7 +574,7 @@ class SessionPersistenceService:
         *,
         session_id: str,
         user_id: str,
-        main_id: str = "default",
+        tenant_id: str = "default",
         reason: str = "user_ended",
     ) -> Dict[str, Any]:
         """Mark a 002 session as ended and emit the 009 ``SessionEnd`` event.
@@ -594,7 +594,7 @@ class SessionPersistenceService:
             oid = ObjectId(str(session_id))
         except Exception as exc:
             raise ValueError("Invalid session id") from exc
-        mid = resolve_main_id(main_id)
+        mid = resolve_main_id(tenant_id)
 
         session_doc = await db.chat_sessions.find_one(
             add_main_scope({"_id": oid, "user_id": str(user_id)}, mid)

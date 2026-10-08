@@ -19,13 +19,13 @@ def _require_service(token: str) -> None:
         raise HTTPException(status_code=401, detail="invalid_service_token")
 
 
-def _actor(main_id: str, owner_user_id: str) -> dict[str, str]:
-    return {"main_id": main_id, "username": owner_user_id, "display_name": owner_user_id}
+def _actor(tenant_id: str, owner_user_id: str) -> dict[str, str]:
+    return {"tenant_id": tenant_id, "username": owner_user_id, "display_name": owner_user_id}
 
 
 @router.post("/documents")
 async def upload_personal_document(
-    file: UploadFile = File(...), mainId: str = Form(...), ownerUserId: str = Form(...),
+    file: UploadFile = File(...), tenantId: str = Form(...), ownerUserId: str = Form(...),
     resourceId: str = Form(...), name: str = Form(default=""), description: str = Form(default=""),
     tags: str = Form(default=""), replaceExisting: bool = Form(default=False),
     service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
@@ -35,13 +35,13 @@ async def upload_personal_document(
         file=file, name=name, description=description, directoryId=resourceId,
         knowledgeBaseId=resourceId, tags=tags, replaceExisting=replaceExisting,
         documentScope="personal", ownerUserId=ownerUserId, resourceId=resourceId,
-        current_user=_actor(mainId, ownerUserId),
+        current_user=_actor(tenantId, ownerUserId),
     )
     return {"code": 0, "message": "success", "data": result}
 
 
 class ActionPayload(BaseModel):
-    mainId: str
+    tenantId: str
     ownerUserId: str
 
 
@@ -49,7 +49,7 @@ class ActionPayload(BaseModel):
 async def relearn_personal_document(resource_id: str, payload: ActionPayload, service_token: str = Header(default="", alias="X-MOVO-Service-Token")):
     _require_service(service_token)
     resource = await get_db().knowledge_resources.find_one({
-        "_id": resource_id, "main_id": payload.mainId,
+        "_id": resource_id, "tenant_id": payload.tenantId,
         "owner_user_id": payload.ownerUserId, "deleted_at": None,
     })
     if not resource:
@@ -59,8 +59,8 @@ async def relearn_personal_document(resource_id: str, payload: ActionPayload, se
     document_id = str(resource.get("processing_document_id") or resource.get("active_document_id") or "")
     if not document_id:
         raise HTTPException(status_code=409, detail="knowledge_document_unavailable")
-    actor = _actor(payload.mainId, payload.ownerUserId)
-    document = await get_db().knowledge_documents.find_one({"_id": document_id, "main_id": payload.mainId, "deleted_at": None}) or {}
+    actor = _actor(payload.tenantId, payload.ownerUserId)
+    document = await get_db().knowledge_documents.find_one({"_id": document_id, "tenant_id": payload.tenantId, "deleted_at": None}) or {}
     preview_error = ""
     if str(document.get("file_ext") or "").lower() in {"doc", "docx", "xls", "xlsx", "ppt", "pptx"} and str(document.get("preview_status") or "") not in {"queued", "running", "succeeded"}:
         try:
@@ -75,12 +75,12 @@ async def relearn_personal_document(resource_id: str, payload: ActionPayload, se
 async def delete_personal_document(resource_id: str, payload: ActionPayload, service_token: str = Header(default="", alias="X-MOVO-Service-Token")):
     _require_service(service_token)
     resource = await get_db().knowledge_resources.find_one({
-        "_id": resource_id, "main_id": payload.mainId,
+        "_id": resource_id, "tenant_id": payload.tenantId,
         "owner_user_id": payload.ownerUserId, "deleted_at": None,
     })
     if not resource:
         raise HTTPException(status_code=404, detail="knowledge_not_found")
     document_ids = [str(value) for value in (resource.get("active_document_id"), resource.get("processing_document_id")) if value]
     for document_id in dict.fromkeys(document_ids):
-        await delete_document(document_id, current_user=_actor(payload.mainId, payload.ownerUserId))
+        await delete_document(document_id, current_user=_actor(payload.tenantId, payload.ownerUserId))
     return {"code": 0, "message": "success", "data": {"id": resource_id}}

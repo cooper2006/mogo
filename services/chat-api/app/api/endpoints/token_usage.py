@@ -21,7 +21,7 @@ class ApiResponse(BaseModel):
 @router.get("/token-usage", response_model=ApiResponse)
 async def list_token_usage(
     user_id: str = Query("", alias="userId"),
-    main_id: Optional[str] = Query(None, alias="mainId"),
+    tenant_id: Optional[str] = Query(None, alias="mainId"),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     q: str = Query(""),
@@ -31,10 +31,10 @@ async def list_token_usage(
 ) -> ApiResponse:
     resolved = await _resolve_session_user(authorization)
     current_user_id = str(resolved["user"].get("_id") or "")
-    scoped_main_id = resolve_main_id(main_id or resolved.get("main_id"))
+    scoped_main_id = resolve_main_id(tenant_id or resolved.get("tenant_id"))
     data = await token_usage_service.list_logs(
         user_id=current_user_id or str(user_id or ""),
-        main_id=scoped_main_id,
+        tenant_id=scoped_main_id,
         offset=offset,
         limit=limit,
         query=q,
