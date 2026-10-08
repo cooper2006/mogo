@@ -1,4 +1,4 @@
-FROM node:20-slim AS build
+FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ RUN if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_R
 COPY . .
 RUN npm run build
 
-FROM nginx:1.29.8-alpine
+FROM nginx:1.31.5-alpine3.24-slim
 
 # Opt-in: only apply Alpine security patches when MOVO_SECURITY_REFRESH is set
 # (CI passes its run id). Skipping keeps this layer cacheable locally.
