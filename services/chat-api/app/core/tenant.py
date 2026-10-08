@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any, Dict
 
 
-DEFAULT_MAIN_ID = "default"
-# Canonical name for the default tenant identifier.
-DEFAULT_TENANT_ID = DEFAULT_MAIN_ID
+# Canonical identifier for the default tenant.
+DEFAULT_TENANT_ID = "default"
 
 
 def resolve_tenant_id(value: Any = None) -> str:
@@ -46,22 +45,9 @@ def add_tenant_scope(query: Dict[str, Any], tenant_id: Any = None) -> Dict[str, 
     return base
 
 
-# ── Backwards-compatible aliases ───────────────────────────────────────────
-# Call sites still import the historical names in ~180 places. They delegate to
-# the canonical implementations so behaviour stays identical while new code uses
-# the tenant_id naming.
-resolve_main_id = resolve_tenant_id
-main_scope_filter = tenant_scope_filter
-add_main_scope = add_tenant_scope
-
-
 __all__ = [
-    "DEFAULT_MAIN_ID",
     "DEFAULT_TENANT_ID",
-    "add_main_scope",
     "add_tenant_scope",
-    "main_scope_filter",
-    "resolve_main_id",
     "resolve_tenant_id",
     "tenant_scope_filter",
 ]

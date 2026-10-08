@@ -29,23 +29,11 @@ def is_reserved_tenant_id(value: object) -> bool:
     return normalized == "" or normalized in RESERVED_TENANT_IDS
 
 
-# ── Backwards-compatible aliases ───────────────────────────────────────────
-# Historical names kept so existing imports keep working unchanged.
-RESERVED_MAIN_IDS = RESERVED_TENANT_IDS
-normalize_main_id = normalize_tenant_id
-is_platform_main_id = is_platform_tenant_id
-is_reserved_main_id = is_reserved_tenant_id
-
-
 __all__ = [
     "DEFAULT_TENANT_ID",
     "PLATFORM_TENANT_ID",
-    "RESERVED_MAIN_IDS",
     "RESERVED_TENANT_IDS",
-    "is_platform_main_id",
     "is_platform_tenant_id",
-    "is_reserved_main_id",
     "is_reserved_tenant_id",
-    "normalize_main_id",
     "normalize_tenant_id",
 ]

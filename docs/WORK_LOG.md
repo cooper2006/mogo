@@ -7024,3 +7024,28 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **修改文件**：`services/chat-api/app/**`、`services/admin-api/app/**`、`apps/user-web/src/**`、`apps/admin-web/src/**`（合计约 112 文件）。
 
 **最终状态**：命名变体（camelCase / snake_case / PascalCase / SCREAMING_CASE / kebab-case）已全形态统一为 `tenant*`；镜像 `tenant-final2` 部署，11 容器 healthy（待 commit/push）。
+
+---
+
+## 2026-10-08 删除全部兼容别名 + 归档兼容层（彻底切断旧名）
+
+**背景**：用户要求把上一轮保留的兼容别名（`resolve_main_id` 等）也一并删除，彻底切断旧名。
+
+**前置核查（关键）**：删除前先盘点调用点，结果 **8 个别名的调用点全部为 0**——上一轮的批量替换已把所有调用点改成规范名，别名只是"死留"的兼容定义。因此删除是**零风险**的。
+
+**改动**：
+- `services/chat-api/app/core/tenant.py`：删除 4 个兼容别名（`resolve_main_id`/`add_main_scope`/`main_scope_filter`/`DEFAULT_MAIN_ID`），仅保留规范名 `resolve_tenant_id`/`add_tenant_scope`/`tenant_scope_filter`/`DEFAULT_TENANT_ID`；`__all__` 同步收敛。
+- `services/admin-api/app/core/tenant_identity.py`：删除 4 个兼容别名（`RESERVED_MAIN_IDS`/`normalize_main_id`/`is_platform_main_id`/`is_reserved_main_id`），仅保留规范名。
+- 移除两个已 DEPRECATED 且**零引用**的兼容层模块：`chat-api/app/core/tenant_field.py`、`admin-api/app/core/tenant_field.py`。
+
+**归档（遵守 AGENTS.md「禁止删除文件」规约）**：两个模块未直接删除，而是移入待确认清单 `docs/pending-review/removed-compat-layer-2026-10-08/`，含 `README.md`（原用途、移除理由、恢复方法）与两个 `.bak` 备份。
+
+**验证**：
+- 8 个旧名全库引用 **0**；1075 文件 AST **0 错误**。
+- 导入：chat-api **666** 模块、admin-api **81** 模块，均 **0 失败**。
+- 运行时：5 服务镜像 `tenant-clean` 部署，11 容器 healthy；三后端日志错误数 **0**。
+- 端到端：chat-api 注册+登录 200（文档键仅 `['tenant_id']`）、admin-api 登录 200 + token、DSH `/ready` 200、memory decay sweep 失败 **0**。
+
+**修改文件**：`services/chat-api/app/core/tenant.py`、`services/admin-api/app/core/tenant_identity.py`（+2 个模块归档）。
+
+**最终状态**：旧名 `main_id`/`mainId`/`MainId`/`MAIN_ID` 已从代码、数据库、Weaviate schema、API 契约与兼容层**全部退役**，且不再保留任何回退别名；镜像 `tenant-clean` 部署，11 容器 healthy（待 commit/push）。
