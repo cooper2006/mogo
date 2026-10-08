@@ -6608,3 +6608,23 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 （其余为镜像/容器操作，未改仓库代码。）
 
 **最终状态**：`cooper2006/mogo` main 停在 `c2f2c60`，本地部署版本 `c2f2c60` 已上线运行。
+
+---
+
+## 2026-10-08 模型中心：新增模型不再强制要求 API Key
+
+**现象**：模型中心「新增模型配置」弹窗里，未填写 API Key 时保存被拦截（红框 warning「新增模型需要填写 API Key」）。部分模型（内网/网关代理端点等）本身不需要 apiKey。
+
+**根因**：`apps/admin-web/src/views/models/ModelsPage.vue` `saveModel()` 内 `if (editorMode==='create' && !form.apiKey.trim())` 强制非空；对应文案在 `locales/messages.ts:1107`。
+
+**修复**：移除该新增模式下的 API Key 非空校验与对应死文案。提交 `52d1611`。
+- `vue-tsc --noEmit` 通过（TSC_EXIT=0）。
+- payload 中 `apiKey: form.apiKey.trim()` 仍照常发送，空串即不传 key，行为正确。
+
+**重新部署**：`MOGO_VERSION=52d1611 ./mogo build && ./mogo up --build`（`.env` 的 `MOGO_CHAT_API_IMAGE` 同步改为 `chat-api:52d1611`）。
+- 8 容器 recreate 到 `52d1611`，`UP_EXIT=0`；旧版 `c2f2c60` 7 镜像被自动清理（仅释放 ~32 MB，因本次仅前端改动）。
+
+**修改文件**：`apps/admin-web/src/views/models/ModelsPage.vue`、`apps/admin-web/src/locales/messages.ts`（commit 52d1611）；`.env`（`MOGO_CHAT_API_IMAGE=chat-api:52d1611`，本地不入库）。
+（其余为镜像/容器操作，未改仓库代码。）
+
+**最终状态**：`cooper2006/mogo` main 停在 `52d1611`，本地部署版本 `52d1611` 已上线运行。
