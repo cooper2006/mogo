@@ -6561,3 +6561,31 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 （镜像/容器操作未改仓库代码。）
 
 **最终状态**：`cooper2006/mogo` main 停在 `37a0f1e`，本地部署版本 `37a0f1e` 已上线运行。
+
+---
+
+## 2026-10-08 红框修复（2）：企业/个人额度误报「额度已用尽」
+
+**现象**：界面红框「当前企业分派额度已用尽，请联系企业管理员调整额度。」（来自 `quota_policy.py:249` 的 `QuotaExceededError`，业务层主动 402，非崩溃）。
+
+**根因定位**（查 MongoDB + 复现）：
+- 库内 4 个 org：`bonc`/`bond`（企业，`points_unlimited=true`，逻辑正确）、`setup-test-93…`/`setup-test-dc…`（org_name="个人空间"，无 `points_unlimited`，`total_points=null`）。
+- `get_quota_summary` 的 `space_type` 推断（`quota_policy.py:169-171`）**只看 `user.org_name`，不查 `org.org_name`**。这两个 setup-test 的用户记录里 `org_name` 不是精确字面值"个人空间"，被误判为 **enterprise**；而企业配额 = 0（`org_quota_policies.total_tokens=0`、`user_quota_policies.quota_tokens=0`）→ `remaining=min(0,0)=0` → 抛企业额度耗尽。
+- 即便判成 personal，`total_points=null→0` 也会报「个人赠送额度已用尽」。本质是**未配置额度的组织被一刀切拦截**。
+
+**修复**（`services/chat-api/app/core/quota_policy.py`，已 commit `2099d5f`）：
+1. `space_type` 推断同时参考 `org.org_name` / `org.space_type`（"个人空间"→personal），治误判。
+2. personal 分支：`total_points` 未配置（空/0）视为 `unlimited` 放行（避免新/测试个人空间一上来被拦）。
+3. enterprise 分支：`org_total<=0 且 user_total<=0`（未分派任何额度）视为 `unlimited` 放行，而非抛「企业分派额度已用尽」。
+
+**验证**：
+- 宿主机纯逻辑单测（mock db）：`setup-test` → personal+unlimited+assert OK；`bonc` → 企业 unlimited。
+- 重建容器（2099d5f）内实跑 `assert_quota_available`：4 个 org 全部 OK，setup-test 不再 BLOCKED（修复前必抛企业额度耗尽）。
+
+**重新部署**：`MOGO_VERSION=2099d5f ./mogo build && ./mogo up --build`。注意 `.env` 的 `MOGO_CHAT_API_IMAGE` 同步改为 `chat-api:2099d5f`（否则 chat-api 仍停旧 tag）。
+- 8 容器 recreate 到 `2099d5f`，`UP_EXIT=0`；旧版 `37a0f1e` 7 镜像被自动清理（释放 ~3.0 GB）。
+
+**修改文件**：`services/chat-api/app/core/quota_policy.py`（commit 2099d5f）；`.env`（`MOGO_CHAT_API_IMAGE=chat-api:2099d5f`，本地不入库）。
+（其余为镜像/容器操作，未改仓库代码。）
+
+**最终状态**：`cooper2006/mogo` main 停在 `2099d5f`，本地部署版本 `2099d5f` 已上线运行。
