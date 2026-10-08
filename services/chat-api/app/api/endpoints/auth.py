@@ -334,12 +334,18 @@ async def select_tenant_login(payload: SelectTenantRequest) -> ApiResponse:
     )
     if not challenge:
         return ApiResponse(code=1, message="登录挑战不存在或已失效")
-    if challenge.get("expires_at") and challenge["expires_at"] < now:
-        await db[LOGIN_CHALLENGE_COLLECTION].update_one(
-            {"_id": challenge["_id"]},
-            {"$set": {"status": "expired", "updated_at": now}},
-        )
-        return ApiResponse(code=1, message="登录挑战已过期")
+    # MongoDB is read without tz_aware, so datetimes come back naive (UTC).
+    # Normalise to aware UTC before comparing, matching quota_policy.py.
+    challenge_expires_at = challenge.get("expires_at")
+    if challenge_expires_at is not None:
+        if challenge_expires_at.tzinfo is None:
+            challenge_expires_at = challenge_expires_at.replace(tzinfo=timezone.utc)
+        if challenge_expires_at < now:
+            await db[LOGIN_CHALLENGE_COLLECTION].update_one(
+                {"_id": challenge["_id"]},
+                {"$set": {"status": "expired", "updated_at": now}},
+            )
+            return ApiResponse(code=1, message="登录挑战已过期")
 
     candidates = list(challenge.get("candidates") or [])
     selected_main_id = resolve_main_id(payload.mainId)

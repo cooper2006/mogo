@@ -39,12 +39,18 @@ async def resolve_session_user(authorization: str | None) -> dict:
         raise HTTPException(status_code=401, detail="session_not_found")
 
     now = datetime.now(tz=timezone.utc)
-    if session_doc.get("expires_at") and session_doc["expires_at"] < now:
-        await db[USER_SESSION_COLLECTION].update_one(
-            {"_id": session_doc["_id"]},
-            {"$set": {"status": "expired", "updated_at": now}},
-        )
-        raise HTTPException(status_code=401, detail="session_expired")
+    # MongoDB is read without tz_aware, so datetimes come back naive (UTC).
+    # Normalise to aware UTC before comparing, matching quota_policy.py.
+    expires_at = session_doc.get("expires_at")
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < now:
+            await db[USER_SESSION_COLLECTION].update_one(
+                {"_id": session_doc["_id"]},
+                {"$set": {"status": "expired", "updated_at": now}},
+            )
+            raise HTTPException(status_code=401, detail="session_expired")
 
     user_id = str(session_doc.get("user_id") or "")
     if not ObjectId.is_valid(user_id):
