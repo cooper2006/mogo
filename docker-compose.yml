@@ -145,27 +145,27 @@ services:
       retries: 20
       start_period: 20s
 
-  # Optional Runtime Host pool for horizontal scaling (see
+  # Runtime Host pool for horizontal scaling (see
   # docs/open-source-productization/agent-multi-instance-evaluation.md).
-  # Enable with:
-  #   docker compose --profile runtime-pool up -d
-  # then point chat-api at the LB via DSH_RUNTIME_HOST_URL /
-  # DSH_RUNTIME_HOSTS_URL (defaults are documented on the chat-api service).
+  #
+  # Enabled by default: chat-api talks to the sticky LB
+  # (DSH_RUNTIME_HOST_URL -> dsh-runtime-host-lb) and DSH_RUNTIME_HOSTS_URL is
+  # left empty, so every request goes through the LB and nginx pins it to one
+  # replica by isolation key. Do NOT set DSH_RUNTIME_HOSTS_URL in this mode:
+  # chat-api would then bypass the LB and hash with a different algorithm
+  # (sha256 % count vs nginx consistent hash), and the two would disagree.
   dsh-runtime-host-1:
     <<: *dsh-runtime-host
-    profiles: ["runtime-pool"]
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-1
 
   dsh-runtime-host-2:
     <<: *dsh-runtime-host
-    profiles: ["runtime-pool"]
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-2
 
   dsh-runtime-host-3:
     <<: *dsh-runtime-host
-    profiles: ["runtime-pool"]
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-3
 
@@ -173,8 +173,7 @@ services:
   # every request of one kernel session on the same host; chat-api talks to this
   # service instead of a single Runtime Host.
   dsh-runtime-host-lb:
-    profiles: ["runtime-pool"]
-    image: nginx:1.29.8-alpine
+    image: nginx:1.31.5-alpine3.24-slim
     restart: unless-stopped
     volumes:
       - ./deploy/docker/dsh-runtime-lb.conf:/etc/nginx/nginx.conf:ro
@@ -219,7 +218,7 @@ services:
       # values at them (see the "Horizontal scaling" section in the README):
       #   DSH_RUNTIME_HOST_URL: http://dsh-runtime-host-lb:8101
       #   DSH_RUNTIME_HOSTS_URL: http://dsh-runtime-host-1:8101,...-2...,...-3...
-      DSH_RUNTIME_HOST_URL: ${DSH_RUNTIME_HOST_URL:-http://dsh-runtime-host:8101}
+      DSH_RUNTIME_HOST_URL: ${DSH_RUNTIME_HOST_URL:-http://dsh-runtime-host-lb:8101}
       DSH_RUNTIME_HOSTS_URL: ${DSH_RUNTIME_HOSTS_URL:-}
       DSH_TOOL_GATEWAY_URL: http://chat-api:8000/internal/dsh/tools
       DSH_MODEL_GATEWAY_URL: http://chat-api:8000/internal/dsh/model/generate
