@@ -22,7 +22,7 @@
 
 **Primary Dependencies**: FastAPI、Motor/PyMongo、Pydantic Settings、Weaviate（向量）、Redis
 
-**Storage**: MongoDB（主存储，全部集合按 `main_id` 分区）、Weaviate（向量）、本地文件系统（知识库文档、头像）
+**Storage**: MongoDB（主存储，全部集合按 `tenant_id` 分区）、Weaviate（向量）、本地文件系统（知识库文档、头像）
 
 **Testing**: pytest（admin-api 既有测试）
 
@@ -41,16 +41,16 @@
 **供给链路**
 
 - `services/admin-api/app/api/routes/setup.py`：`setup_initialize()` 第 343–463 行内联了完整建租户流程（生成标识 → 建账号组 → 建管理员 → 建根部门 → 建员工 → upsert 组织 → 写关系 → 岗位角色 → 配额 → 模型 → 知识库配置 → 搜索配置）
-- `_next_main_id()`：全仓库**唯一**的租户标识生成点
+- `_next_tenant_id()`：全仓库**唯一**的租户标识生成点
 - `_deployment_services()`：6 项服务全绿才放行（MongoDB / Redis / 存储 / Chat API / 文档处理 / Weaviate），否则 503
 - `app/repositories/setup_repository.py`：`system_bootstrap` 以 `_id: "singleton"` 存储，`mark_setup_completed()` 全局置 `completed=True`；`_ensure_setup_open()` 之后所有 setup 端点 409
-- `app/services/setup_cleanup.py`：`cleanup_failed_setup()` 按 `main_id` 删除 **17** 个集合
+- `app/services/setup_cleanup.py`：`cleanup_failed_setup()` 按 `tenant_id` 删除 **17** 个集合
 
 **认证与隔离**
 
-- `app/api/routes/auth.py`：`POST /login` 接受 `mainId`；不带时 `list_accounts_by_username` 跨租户查，命中多个走 challenge → `POST /login/select-tenant`
-- `auth.py:228`：登录兜底会用 `setup_state.main_id` 作为默认租户 ← **多租户下为错误行为**
-- `app/api/deps.py:24`：`main_id = str(subject.get("main_id") or settings.bootstrap_main_id)`
+- `app/api/routes/auth.py`：`POST /login` 接受 `tenantId`；不带时 `list_accounts_by_username` 跨租户查，命中多个走 challenge → `POST /login/select-tenant`
+- `auth.py:228`：登录兜底会用 `setup_state.tenant_id` 作为默认租户 ← **多租户下为错误行为**
+- `app/api/deps.py:24`：`tenant_id = str(subject.get("tenant_id") or settings.bootstrap_tenant_id)`
 - `or "default"` 兜底共 **114 处**（admin-api 81 + chat-api 33），集中在 `knowledge_documents.py`(27)、`skills.py`(17)、`tools.py`(11)、`analytics.py`(5)、`hooks.py`(4)
 
 **管理员预置**
@@ -67,8 +67,8 @@
 
 **向量与租户枚举**
 
-- `services/chat-api/app/knowledge/retrieval/retrieval_client.py:45`：按 `mainId` 过滤检索
-- `app/services/directory_bootstrap.py:15` 与 `app/services/employee_tenant_identity.py:37,40`：`distinct("main_id")`，过滤 `$nin: [None, "", "default"]` ← **需追加排除 `__platform__`**
+- `services/chat-api/app/knowledge/retrieval/retrieval_client.py:45`：按 `tenantId` 过滤检索
+- `app/services/directory_bootstrap.py:15` 与 `app/services/employee_tenant_identity.py:37,40`：`distinct("tenant_id")`，过滤 `$nin: [None, "", "default"]` ← **需追加排除 `__platform__`**
 
 ## Constitution Check
 
@@ -110,7 +110,7 @@ services/admin-api/app/
 │   ├── platform/
 │   │   └── tenants.py         # [新] /api/platform/tenants* 与 /api/platform/system/health
 │   └── auth.py                # [改] 移除 setup_state 兜底；归档租户禁止登录
-├── api/deps.py                # [改] 新增 get_current_platform_admin；入口强校验 main_id
+├── api/deps.py                # [改] 新增 get_current_platform_admin；入口强校验 tenant_id
 ├── services/
 │   ├── tenant_provisioning.py # [新] provision_tenant() —— 唯一供给入口
 │   ├── tenant_registry.py     # [新] tenants 集合读写 + 存量回填 + 墓碑清理
@@ -154,7 +154,7 @@ apps/admin-web/src/
 | 8 | 租户管理 API + 平台前端页 + 空状态引导 | FR-020~023 |
 | 9 | 归档 + 恢复 + 禁止登录 + 枚举排除非 active | FR-024~027 |
 | 10 | 彻底清理（三层 + 异步进度 + 墓碑 1 个月） | FR-028~034 |
-| 11 | `deps` 入口 main_id 强校验 | FR-018 |
+| 11 | `deps` 入口 tenant_id 强校验 | FR-018 |
 
 ## 关键风险与对策
 
@@ -162,6 +162,6 @@ apps/admin-web/src/
 |---|---|
 | 存量升级后无平台管理员（阻断性） | 环境配置为升级必读项；未配置时启动日志与 `/api/setup/status` 明确告警 |
 | `__platform__` 被当作普通租户处理 | `directory_bootstrap.py:15`、`employee_tenant_identity.py:37,40` 追加排除；`provision_tenant()` 入口拒绝该标识 |
-| 彻底清理残留（尤其向量） | 重新盘点集合清单（现有 17 个 vs 实际 72 个集合常量）；向量按 `mainId` 清除；磁盘按标识前缀清除 |
+| 彻底清理残留（尤其向量） | 重新盘点集合清单（现有 17 个 vs 实际 72 个集合常量）；向量按 `tenantId` 清除；磁盘按标识前缀清除 |
 | 跨租户数据泄露 | `deps` 入口强校验；逐步消除 114 处 `or "default"` 兜底 |
 | 新建租户被额度立即拦截 | `unlimited` 布尔短路，而非"给个大数字" |

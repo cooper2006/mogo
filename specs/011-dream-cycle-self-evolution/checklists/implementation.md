@@ -63,7 +63,7 @@
 - [!] T002-1 验证经验片段存储集合初始化（集合/表/索引）
       —— **集合与索引不存在**。核心层 `FragmentStore`（`fragment.py:58-88`）是纯内存 list；
       集成层 `FrictionStore`（`services/dream_cycle/friction.py:104-114`）同样是内存 list，其 docstring 自承
-      「the Mongo-backed implementation plugs in here」。**无 `main_id` 分区、无索引、无 TTL**。
+      「the Mongo-backed implementation plugs in here」。**无 `tenant_id` 分区、无索引、无 TTL**。
       对「库能力交付」而言可接受，但清单把「集合/表/索引」列为验收项，故不能勾。
 - [x] T002-2 验证字段完整性
       （`fragment.py:44-55 as_document()`；测试 `test_fragment_as_document_includes_source_session_and_feedback`）

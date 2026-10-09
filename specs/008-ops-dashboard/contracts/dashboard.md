@@ -10,7 +10,7 @@
 
 | 项 | 口径 |
 |---|---|
-| 租户隔离 | 所有查询按 `main_id` 过滤（FR-7） |
+| 租户隔离 | 所有查询按 `tenant_id` 过滤（FR-7） |
 | 时间窗口 | **UTC**；跨 0 点数据归 UTC 当日 |
 | 空租户 | 各指标返回 `0` / `null`，**不报错**（FR-9） |
 | 数据源 | `token_usage_logs`（`start_time`/`end_time` 为 epoch ms） |

@@ -48,7 +48,7 @@
 
 | 结论 | 验证环节 | 结果 |
 |---|---|---|
-| **001 RBAC 角色源断裂** | ① `tools.py:327` 取 `current_user["role_ids"/"roles"]` → ② `deps.py:_load_authenticated_account` 返回 `{**user, main_id, role_name, org_name, display_name}`，无这两字段 → ③ `org_user_repository.create_account` 写入字段表（`main_id/username/display_name/email/phone/group_code/role_name/status/...`）确无 `role_ids`/`roles`，**只有 `role_name` 字符串** → ④ `rbac.py:_role_documents` 对空 `role_ids` 直接 `return []`，且**无 `role_name` fallback** | **成立** ✅ 角色预设码恒空，生产必 fail-closed |
+| **001 RBAC 角色源断裂** | ① `tools.py:327` 取 `current_user["role_ids"/"roles"]` → ② `deps.py:_load_authenticated_account` 返回 `{**user, tenant_id, role_name, org_name, display_name}`，无这两字段 → ③ `org_user_repository.create_account` 写入字段表（`tenant_id/username/display_name/email/phone/group_code/role_name/status/...`）确无 `role_ids`/`roles`，**只有 `role_name` 字符串** → ④ `rbac.py:_role_documents` 对空 `role_ids` 直接 `return []`，且**无 `role_name` fallback** | **成立** ✅ 角色预设码恒空，生产必 fail-closed |
 | **001 审批无恢复路径** | ① `tools.py:348/350` 只把 token 写进 HTTP 409 detail → ② `approval.py:147` 的恢复分支读 `ctx.annotations["approval_token"]`，全仓无生产者 → ③ `grep "\.deny("` 无调用方 | **成立** ✅ 触发审批即永久挂起 |
 | **001 `gate_events` 零读者** | `grep -rn "gate_events" app/` → 仅注释/常量定义/建索引/写入，**无 find/aggregate** | **成立** ✅ |
 | **003 锚点空心（中间段丢失）** | ① 解析侧**确实产出** `sourceAnchor`（`document_parsing_service.py:246/430`）→ ② 但 `vector_store.py` 中 `anchor/metadata/bbox` **零命中**（schema/upsert/GraphQL fields 均无）→ ③ 消费方 `citation_resolver` 读 `metadata.sourceAnchor` | **成立** ✅ 产出有、通道断、消费方永远拿空 |
@@ -471,7 +471,7 @@
 > `points_unlimited` 时短路返回 `{unlimited:True, remainingPoints:-1, status:active}`，
 > `assert_quota_available` 对 unlimited 直接放行，新租户成员不再被 402 拦截。
 > **已修**：FR-032 清理进度跨副本持久化（续五十八）——`_PurgeTaskStore` 新增
->    Mongo 持久化（`tenant_purge_progress` 集合，main_id+task_id 键），
+>    Mongo 持久化（`tenant_purge_progress` 集合，tenant_id+task_id 键），
 >    `mark_persisted`/`finish_persisted` 每阶段写库；`get_purge_status` 解析顺序
 >    内存→Mongo→tombstone，不同副本也能查到在途/已完成进度；
 >    Mongo 不可用时诚实降级为仅内存（不伪造）；`tenant_purge_progress` 已登记

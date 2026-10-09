@@ -55,7 +55,7 @@ trend["bottlenecks"] = bottleneck_top_n(rows, dimension="model")
 | 4 | 质量分位 | P50/P95 由 duration 计算得出 |
 | 5 | 人工介入率 | = approval_pending / 总调用 |
 | 6 | 瓶颈 top-5 | 按成本降序，标注模型维度 |
-| 7 | 租户隔离 | 查询 match 含 `main_id` + 时间窗口 |
+| 7 | 租户隔离 | 查询 match 含 `tenant_id` + 时间窗口 |
 
 ---
 

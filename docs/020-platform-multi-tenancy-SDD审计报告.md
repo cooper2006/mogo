@@ -1,5 +1,7 @@
 # 020-platform-multi-tenancy SDD 规范一致性审计报告
 
+> **命名说明（2026-10-08）**：租户标识已全仓统一为 `tenant_id`，旧名 `main_id` 已退役（两者指同一概念）。本文原有 `main_id` 表述已统一改为 `tenant_id`。
+
 > 审计日期：2026-09-30 · 审计人：DSH Agent
 > 审计范围：`specs/020-platform-multi-tenancy/`（spec.md 275 行 / contracts/tenants.md 219 行）与已实现代码（`services/admin-api`、`services/chat-api`、`apps/admin-web`）
 > 方法：全量代码通读 + 集合名交叉核对（脚本化差集） + 两个只读子代理并行深挖（隔离认证 / 清理完整性） + 关键结论运行复现
@@ -33,19 +35,19 @@
 
 **规格要求**：FR-031「彻底清理 MUST 删除该租户的数据库记录、向量数据与磁盘文件」；SC-005「彻底清理执行后，该租户的数据库记录、向量数据、磁盘文件残留均为 0」。
 
-**实现机制**：`tenant_purge.py:33-65` 的 `TENANT_SCOPED_COLLECTIONS`（31 项，按 `main_id` 删）+ `:68-78` 的 `TENANT_GOVERNANCE_COLLECTIONS`（9 项，按 `tenant_id` 删）。
+**实现机制**：`tenant_purge.py:33-65` 的 `TENANT_SCOPED_COLLECTIONS`（31 项，按 `tenant_id` 删）+ `:68-78` 的 `TENANT_GOVERNANCE_COLLECTIONS`（9 项，按 `tenant_id` 删）。
 
 ### 1.1 admin-api 侧漏项 5 个（脚本化差集确认）
 
 把 `services/admin-api/app` 全部 `*COLLECTION = "..."` 常量与两张清理名单做差集，未被任一名单覆盖且**确认为租户分区**的集合：
 
-| 集合名 | 定义处 | 证据（带 main_id） |
+| 集合名 | 定义处 | 证据（带 tenant_id） |
 |---|---|---|
-| `org_units` | `services/admin-api/app/repositories/directory_repository.py:9` | `:26` `create_index([("main_id", 1), ("code", 1)], unique=True, name="dept_main_code_unique")` |
-| `user_quota_overrides` | `services/admin-api/app/core/quota_policy.py:15` | `:150` `aggregate([{"$match": {"main_id": main_id, "user_id": user_id, ...` |
-| `admin_presentation_settings` | `services/admin-api/app/repositories/presentation_settings_repository.py:9` | `:17` `find_one({"main_id": main_id})` |
-| `page_collection_settings` | `services/admin-api/app/api/routes/page_collection.py:17` | `:106` `create_index([("main_id", 1), ("provider", 1)], unique=True)` |
-| `organization_shortcut_schemes` | `services/admin-api/app/shortcut_settings/service.py:11` | `:16` `find_one({"main_id": main_id, "scheme_key": "default"})` |
+| `org_units` | `services/admin-api/app/repositories/directory_repository.py:9` | `:26` `create_index([("tenant_id", 1), ("code", 1)], unique=True, name="dept_tenant_code_unique")` |
+| `user_quota_overrides` | `services/admin-api/app/core/quota_policy.py:15` | `:150` `aggregate([{"$match": {"tenant_id": tenant_id, "user_id": user_id, ...` |
+| `admin_presentation_settings` | `services/admin-api/app/repositories/presentation_settings_repository.py:9` | `:17` `find_one({"tenant_id": tenant_id})` |
+| `page_collection_settings` | `services/admin-api/app/api/routes/page_collection.py:17` | `:106` `create_index([("tenant_id", 1), ("provider", 1)], unique=True)` |
+| `organization_shortcut_schemes` | `services/admin-api/app/shortcut_settings/service.py:11` | `:16` `find_one({"tenant_id": tenant_id, "scheme_key": "default"})` |
 
 **`org_units` 是最典型的漏项**——它是一次改名未同步：
 
@@ -56,13 +58,13 @@
 - 这个重命名知识只被 `setup_cleanup.py` 吸收，**`tenant_purge.py` 没跟**。
 - 全仓 `grep '"departments"'` 后确认：`dashboard.py:537` 与 `analytics.py:137/434` 的命中都是**响应字段名**，不是集合名。即 `"departments"` 作为集合已无任何写入方，是纯 dead name。
 
-**后果**：清理后 `org_units` 残留违反 SC-005；且 `dept_main_code_unique(main_id, code)` 唯一索引会**阻塞新建同名 code 的租户**。`page_collection_settings` 同理（`(main_id, provider)` 唯一索引）。
+**后果**：清理后 `org_units` 残留违反 SC-005；且 `dept_tenant_code_unique(tenant_id, code)` 唯一索引会**阻塞新建同名 code 的租户**。`page_collection_settings` 同理（`(tenant_id, provider)` 唯一索引）。
 
 ### 1.2 chat-api 侧漏项 22 个（🔴 最严重）
 
 `026` 的清理由 admin-api 单向执行，但**租户数据大量存在 chat-api 使用的集合里**，而 admin-api 的清理名单完全没有覆盖它们。
 
-从 `services/chat-api/app/main.py` 的索引引导提取「建了 `main_id`/`tenant_id` 索引」的集合，与清理名单做差集：
+从 `services/chat-api/app/main.py` 的索引引导提取「建了 `tenant_id`/`tenant_id` 索引」的集合，与清理名单做差集：
 
 **已覆盖（4 个）**：`end_users`、`external_tools`、`skill_packages`、`token_usage_logs`
 
@@ -81,23 +83,23 @@ skill_update_notifications     user_skills
 
 **证据链（复核过，非误报）**：
 
-- `services/chat-api/app/main.py:242` `await db.chat_messages.create_index([("main_id", 1), ("user_id", 1), ("session_id", 1), ("seq", 1)])`
-- `services/chat-api/app/main.py:241` `await db.chat_sessions.create_index([("main_id", 1), ("user_id", 1), ("updated_at", -1)])`
-- 写入侧确实落 `main_id`：`services/chat-api/app/api/endpoints/sessions.py:495-498`
-  `await db.chat_messages.insert_one({"session_id": session_id, "user_id": str(user_id), "main_id": resolve_main_id(main_id), ...})`
-- `services/chat-api/app/api/endpoints/personal_knowledge.py:67` `"main_id": principal.main_id, "owner_user_id": principal.user_id, "deleted_at": None`
-- **admin-api 自己就在按 `main_id` 读这些集合**：`services/admin-api/app/api/routes/analytics.py:505`
-  `session_doc = await db.chat_sessions.find_one({"_id": session_oid, "main_id": own_main_id}) if session_oid else None`
+- `services/chat-api/app/main.py:242` `await db.chat_messages.create_index([("tenant_id", 1), ("user_id", 1), ("session_id", 1), ("seq", 1)])`
+- `services/chat-api/app/main.py:241` `await db.chat_sessions.create_index([("tenant_id", 1), ("user_id", 1), ("updated_at", -1)])`
+- 写入侧确实落 `tenant_id`：`services/chat-api/app/api/endpoints/sessions.py:495-498`
+  `await db.chat_messages.insert_one({"session_id": session_id, "user_id": str(user_id), "tenant_id": resolve_tenant_id(tenant_id), ...})`
+- `services/chat-api/app/api/endpoints/personal_knowledge.py:67` `"tenant_id": principal.tenant_id, "owner_user_id": principal.user_id, "deleted_at": None`
+- **admin-api 自己就在按 `tenant_id` 读这些集合**：`services/admin-api/app/api/routes/analytics.py:505`
+  `session_doc = await db.chat_sessions.find_one({"_id": session_oid, "tenant_id": own_tenant_id}) if session_oid else None`
   ——即 admin-api 明知这些集合是租户分区的，却不在清理名单里。
 - 复核：`grep -c 'chat_messages\|chat_sessions' services/admin-api/app/services/tenant_purge.py` → **0**。
 
-**后果**：清理后该租户的**全部聊天历史、消息、终端用户会话、个人知识库、技能分享记录、定时任务、项目记忆**原样保留，SC-005「残留为 0」直接不成立。这些集合还带着唯一索引（如 `skill_shares` 的 `(main_id, token_hash)`、`desktop_projects` 的 `(main_id, user_id, workspace_id)`），重建同名租户时会撞索引。
+**后果**：清理后该租户的**全部聊天历史、消息、终端用户会话、个人知识库、技能分享记录、定时任务、项目记忆**原样保留，SC-005「残留为 0」直接不成立。这些集合还带着唯一索引（如 `skill_shares` 的 `(tenant_id, token_hash)`、`desktop_projects` 的 `(tenant_id, user_id, workspace_id)`），重建同名租户时会撞索引。
 
 ### 1.3 需明确决策的 2 个
 
 | 集合 | 位置 | 说明 |
 |---|---|---|
-| `system_audit_logs` | `services/admin-api/app/system_audit/constants.py:1` | 按 `main_id` 存（`middleware.py:52-56`），但记的是**平台管理员对租户的操作**（平台侧溯源）。不清可能是有意的，但需在决策记录里写明，或在 SC-005 口径里显式豁免 |
+| `system_audit_logs` | `services/admin-api/app/system_audit/constants.py:1` | 按 `tenant_id` 存（`middleware.py:52-56`），但记的是**平台管理员对租户的操作**（平台侧溯源）。不清可能是有意的，但需在决策记录里写明，或在 SC-005 口径里显式豁免 |
 | `hook_rules` | `services/admin-api/app/services/hooks_store.py:16`、`services/chat-api/app/dsh_runtime/hooks/store.py:30` | 文档带 `tenant_id`（`store.py:44`），`HOOK_RULES_COLLECTION` 确实被持久化（`services/admin-api/app/services/hooks_store.py:95` `await self._db[HOOK_RULES_COLLECTION].insert_one(...)`，`services/admin-api/app/api/routes/hooks.py:67` 传 `tenant_id=tenant_id`）。但清理名单按 `tenant_id` 删的那张表里没有它 |
 
 **已核实为全局表、不应清理**：`admin_model_providers`（索引只有 code/status）、`admin_sessions`、`admin_users`、`system_bootstrap`、`tenants`（租户注册表，单独处理为墓碑）。
@@ -105,24 +107,24 @@ skill_update_notifications     user_skills
 ### 1.4 磁盘文件：知识库正确，头像永不删除（FR-031 / SC-005）—— 🔴 HIGH
 
 **知识库目录（✅ 安全）**：
-`tenant_purge.py:252` `knowledge_root = Path(settings.knowledge_local_storage_dir) / main_id`，与写入侧 `services/admin-api/app/api/routes/knowledge_documents.py:724` 的 `storage_key = f"{storage_prefix}/{main_id}/{document_id}/{original_filename}"` 一致，子目录首段确为 `main_id`。
+`tenant_purge.py:252` `knowledge_root = Path(settings.knowledge_local_storage_dir) / tenant_id`，与写入侧 `services/admin-api/app/api/routes/knowledge_documents.py:724` 的 `storage_key = f"{storage_prefix}/{tenant_id}/{document_id}/{original_filename}"` 一致，子目录首段确为 `tenant_id`。
 
 ⚠️ 但 `tenant_purge.py:243-246` 自述 `OSS-backed storage is left in place`——若租户用 OSS 存储（`services/admin-api/app/services/knowledge_storage.py:78` `OSSStorageAdapter`），对象存储里的文档**不删**。需与 FR-031 口径对齐（补删，或在规格里显式豁免）。
 
 **头像目录（❌ 永不删除）**：
-`tenant_purge.py:264` `if entry.name.startswith(f"{main_id}-") and entry.is_dir():`，注释 `:261-263` 断言 `Avatar directories are named {main_id}-{short_uuid}` —— **这个假设是错的**。
+`tenant_purge.py:264` `if entry.name.startswith(f"{tenant_id}-") and entry.is_dir():`，注释 `:261-263` 断言 `Avatar directories are named {tenant_id}-{short_uuid}` —— **这个假设是错的**。
 
 唯一写入方是 `services/admin-api/app/api/routes/auth.py:394`：
-`relative_dir = f"admin-avatars/{_safe_path_part(main_id, 'default')}"`
+`relative_dir = f"admin-avatars/{_safe_path_part(tenant_id, 'default')}"`
 而 `services/admin-api/app/api/routes/auth.py:92-94`：
 ```python
 def _safe_path_part(value: Any, fallback: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "-", str(value or "").strip()).strip(".-")
     return normalized[:80] or fallback
 ```
-→ 真实头像目录名 = **净化后的 main_id，没有尾随短 uuid**。因此 `"acme-xxxx".startswith("acme-xxxx-")` 恒为 False，`:265` 的 `shutil.rmtree(entry)` **永不执行**。
+→ 真实头像目录名 = **净化后的 tenant_id，没有尾随短 uuid**。因此 `"acme-xxxx".startswith("acme-xxxx-")` 恒为 False，`:265` 的 `shutil.rmtree(entry)` **永不执行**。
 
-⚠️ **修法警告**：不能简单改成 `startswith(main_id)`（无 dash）——main_id 形如 `slug-hex`（`services/admin-api/app/services/setup_cleanup.py:35` `_MAIN_ID_SHAPE = re.compile(r"^[a-z0-9]+-[0-9a-f]{24}$")`），前缀匹配会跨租户误删（`acme` 吃掉 `acme-other`）。必须复用 `_safe_path_part(main_id)` 推导等价目录名。
+⚠️ **修法警告**：不能简单改成 `startswith(tenant_id)`（无 dash）——tenant_id 形如 `slug-hex`（`services/admin-api/app/services/setup_cleanup.py:35` `_TENANT_ID_SHAPE = re.compile(r"^[a-z0-9]+-[0-9a-f]{24}$")`），前缀匹配会跨租户误删（`acme` 吃掉 `acme-other`）。必须复用 `_safe_path_part(tenant_id)` 推导等价目录名。
 
 ### 1.5 向量删除静默失败（FR-031 / FR-033 / SC-005）—— 🔴 HIGH
 
@@ -131,7 +133,7 @@ def _safe_path_part(value: Any, fallback: str) -> str:
 except Exception as exc:
     logger.warning(
         "purge %s: vector delete failed for document %s: %s",
-        main_id, document_id, exc,
+        tenant_id, document_id, exc,
     )
 ```
 只 warning，**不 raise、不 `errors.append`**。且 `:210-212` 的 `if not settings.document_processing_service_token:` 直接 `return`（默认值见 `services/admin-api/app/core/config.py:45` `document_processing_service_token: str = ""`）。
@@ -149,7 +151,7 @@ except Exception as exc:
 三阶段各自 `try/except`（`:285-291`、`:294-300`、`:303-309`），**无一处 `return`/`raise`**：
 ```python
 except Exception as exc:
-    logger.exception("purge %s: mongo phase failed", main_id)
+    logger.exception("purge %s: mongo phase failed", tenant_id)
     errors.append(f"mongo: {exc}")
     _task_store.mark(key, "mongo", "failed")     # ← 不 return，继续下一阶段
 ```
@@ -159,7 +161,7 @@ except Exception as exc:
 ```python
 db = get_db()
 await db[TENANT_COLLECTION].update_one(
-    {"main_id": main_id, "status": {"$ne": "purged"}},
+    {"tenant_id": tenant_id, "status": {"$ne": "purged"}},
     {"$set": {"status": "purged", "purged_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}},
 )
 ```
@@ -172,7 +174,7 @@ await db[TENANT_COLLECTION].update_one(
 :108    _task_store.finish(key, ok, error_text)      # ← 任务记录正确变成 "failed"
 ...
 :319-323 await db[TENANT_COLLECTION].update_one(     # ← 租户行无条件变 "purged"
-             {"main_id": main_id, "status": {"$ne": "purged"}},
+             {"tenant_id": tenant_id, "status": {"$ne": "purged"}},
              {"$set": {"status": "purged", ...}},
          )
 ```
@@ -192,7 +194,7 @@ if tenant_lifecycle._status(tenant) != "archived":
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only archived tenants can be purged")
 ```
 
-`tenant_purge.py:277` 起的 `run_purge(main_id, task_id, actor)` 函数体内**从头到尾没有任何 status 读取**，`:285-286` 直接 `await _phase_mongo(main_id)`。
+`tenant_purge.py:277` 起的 `run_purge(tenant_id, task_id, actor)` 函数体内**从头到尾没有任何 status 读取**，`:285-286` 直接 `await _phase_mongo(tenant_id)`。
 
 反向证据：`services/admin-api/app/services/tenant_lifecycle.py:137` 的 `restore_tenant` 确实会把行改回 `{"status": "active"}`，而它与 purge 之间**没有任何互斥锁或状态二次确认**。`POST /tenants/{id}/restore` 在 purge 后台任务排队/执行期间完全可调。
 
@@ -206,7 +208,7 @@ if tenant_lifecycle._status(tenant) != "archived":
 ```python
 class _PurgeTaskStore:
     self._tasks: dict[str, dict[str, Any]] = {}
-    self._main_id_to_task: dict[str, str] = {}
+    self._tenant_id_to_task: dict[str, str] = {}
 ```
 `:137` `_task_store = _PurgeTaskStore()` —— **纯进程内字典，无 Mongo/Redis 持久化**。
 
@@ -221,24 +223,24 @@ class _PurgeTaskStore:
 **规格要求**：FR-024「归档后该租户所有账号 MUST 被禁止登录」。
 
 **admin-api 侧（✅ 正确）**：三条登录路径全部校验——
-- 显式 mainId：`services/admin-api/app/api/routes/auth.py:237` `await _assert_tenant_login_allowed(main_id)`
-- 无 mainId 单租户：`:270` 同样调用
+- 显式 tenantId：`services/admin-api/app/api/routes/auth.py:237` `await _assert_tenant_login_allowed(tenant_id)`
+- 无 tenantId 单租户：`:270` 同样调用
 - 多租户：`:253` 用 `_tenant_blocked_for_login` 过滤候选
 - select-tenant：`:308` 再次校验
 
 **chat-api 侧（❌ 漏洞）**：`grep -rn '"tenants"' services/chat-api/app/` → **零命中**，chat-api 从不读租户状态表。登录闸门只有 `services/chat-api/app/api/endpoints/auth.py:98-100`：
 ```python
-def _is_valid_tenant_main_id(main_id: str) -> bool:
-    value = str(main_id or "").strip()
-    return bool(value) and value != DEFAULT_MAIN_ID
+def _is_valid_tenant_id(tenant_id: str) -> bool:
+    value = str(tenant_id or "").strip()
+    return bool(value) and value != DEFAULT_TENANT_ID
 ```
 候选租户加载 `services/chat-api/app/services/end_user_tenant_access.py:62`：
 ```python
-organizations = await db.organizations.find({"main_id": {"$in": main_ids}}).to_list(...)
+organizations = await db.organizations.find({"tenant_id": {"$in": tenant_ids}}).to_list(...)
 ```
 **没有 status 过滤**。
 
-**后果**：`DELETE /api/platform/tenants/{main_id}` 归档后，该租户员工用原账号密码访问 chat-api `/auth/login` 仍能拿到会话令牌。`/auth/switch-tenant`（`services/chat-api/app/api/endpoints/auth.py:370-401`）同样无租户状态校验，且会话里 `available_tenants` 快照在归档后仍有效。
+**后果**：`DELETE /api/platform/tenants/{tenant_id}` 归档后，该租户员工用原账号密码访问 chat-api `/auth/login` 仍能拿到会话令牌。`/auth/switch-tenant`（`services/chat-api/app/api/endpoints/auth.py:370-401`）同样无租户状态校验，且会话里 `available_tenants` 快照在归档后仍有效。
 
 **同源变体**：`services/admin-api/app/api/routes/directory.py:830-939` 的 `accept_invite_link` **只挡 default 租户**（`:835-836`），**不校验租户是否 archived**——归档租户的邀请链接在 TTL 内（默认 72h）仍可完成注册。
 
@@ -280,9 +282,9 @@ BUG CONFIRMED: a rename-only PATCH wiped member_limit (was 10).
 
 | # | 契约位置 | 实际实现 | 判定 |
 |---|---|---|---|
-| C1 | `contracts/tenants.md:108` 创建响应写作 camelCase `{ "mainId": ..., "orgName": ..., "modelInstanceId": null, "additionalModelInstanceIds": [] }` | `services/admin-api/app/api/routes/platform/tenants.py:39` `response_model=ProvisionResult`，而 `services/admin-api/app/services/tenant_provisioning.py` 的 `ProvisionResult` 是**无 alias 的 snake_case** 数据类 | ❌ 契约错。前端 `apps/admin-web/src/api/platform.ts:61-62` 已按 snake_case 实现并注释说明。同文件的 archive 返回（`platform/tenants.py` 用 `{"mainId","status","archivedAt"}`）又是 camelCase，**同一资源两种风格** |
+| C1 | `contracts/tenants.md:108` 创建响应写作 camelCase `{ "tenantId": ..., "orgName": ..., "modelInstanceId": null, "additionalModelInstanceIds": [] }` | `services/admin-api/app/api/routes/platform/tenants.py:39` `response_model=ProvisionResult`，而 `services/admin-api/app/services/tenant_provisioning.py` 的 `ProvisionResult` 是**无 alias 的 snake_case** 数据类 | ❌ 契约错。前端 `apps/admin-web/src/api/platform.ts:61-62` 已按 snake_case 实现并注释说明。同文件的 archive 返回（`platform/tenants.py` 用 `{"tenantId","status","archivedAt"}`）又是 camelCase，**同一资源两种风格** |
 | C2 | `contracts/tenants.md:184`「失败时 `status = "failed"`，租户保持 `archived` 并保留 `error`」 | 见 §2，实际无条件置 `purged` | ❌ 契约与实现同时偏离（契约里的 `"failed"` 也不在 `status` enum `active\|disabled\|archived\|purged` 内） |
-| C3 | SC-007「全部租户生命周期操作（创建/改名/启停/归档/恢复/清理/重置密码）均有审计记录可追溯」 | 归档/恢复/改名/启停走 `tenant_lifecycle._record_audit`（`:123/141/197`）、重置密码走 `platform/tenants.py:169`；但**创建**（`services/admin-api/app/services/tenant_provisioning.py` 中 `record_audit` 出现 0 次）与**彻底清理**（`tenant_purge.py:277` 的 `actor` 参数全文未使用）均不写业务审计 | ⚠️ 部分不满足。注：`SystemAuditMiddleware` 会为 `/api/platform` 的变更请求记 `system_audit_logs`（`main_id="__platform__"`），但那是**平台侧请求日志**，不等于「该租户的审计记录」 |
+| C3 | SC-007「全部租户生命周期操作（创建/改名/启停/归档/恢复/清理/重置密码）均有审计记录可追溯」 | 归档/恢复/改名/启停走 `tenant_lifecycle._record_audit`（`:123/141/197`）、重置密码走 `platform/tenants.py:169`；但**创建**（`services/admin-api/app/services/tenant_provisioning.py` 中 `record_audit` 出现 0 次）与**彻底清理**（`tenant_purge.py:277` 的 `actor` 参数全文未使用）均不写业务审计 | ⚠️ 部分不满足。注：`SystemAuditMiddleware` 会为 `/api/platform` 的变更请求记 `system_audit_logs`（`tenant_id="__platform__"`），但那是**平台侧请求日志**，不等于「该租户的审计记录」 |
 
 ---
 
@@ -291,8 +293,8 @@ BUG CONFIRMED: a rename-only PATCH wiped member_limit (was 10).
 | 需求 | 证据 |
 |---|---|
 | FR-015 / FR-016 登录指定与多租户选择 | `services/admin-api/app/api/routes/auth.py` 三分支 + `select_tenant`；子代理用去依赖桩件实跑 5 场景（单租户已归档→403、双租户全归档→403、双活→challengeToken+candidates、显式指定归档→403）全部通过 |
-| FR-017 无 mainId 不回退默认租户 | `services/admin-api/app/api/deps.py:30-32` main_id 只来自 token subject，空即 401。grep 命中的 4 处 `settings.bootstrap_main_id`（`auth.py:319/327/356/392`）**全是不可达死代码**（`deps.py:46` 返回的字典总是显式含 `main_id` 键，dict 默认值永不生效） |
-| FR-019 拒绝平台标识访问业务接口 | `services/admin-api/app/api/deps.py:70-72` `is_reserved_main_id` → 403 "Tenant context is required"。子代理枚举了全部未带该依赖的路由，仅 4 类且有正当理由（公开登录端点、service-token 内部端点），**无遗漏业务路由** |
+| FR-017 无 tenantId 不回退默认租户 | `services/admin-api/app/api/deps.py:30-32` tenant_id 只来自 token subject，空即 401。grep 命中的 4 处 `settings.bootstrap_tenant_id`（`auth.py:319/327/356/392`）**全是不可达死代码**（`deps.py:46` 返回的字典总是显式含 `tenant_id` 键，dict 默认值永不生效） |
+| FR-019 拒绝平台标识访问业务接口 | `services/admin-api/app/api/deps.py:70-72` `is_reserved_tenant_id` → 403 "Tenant context is required"。子代理枚举了全部未带该依赖的路由，仅 4 类且有正当理由（公开登录端点、service-token 内部端点），**无遗漏业务路由** |
 | FR-025 归档不计入授权数 | `services/admin-api/app/services/tenant_lifecycle.py:235` `count_documents({"status": "active"})`；`tests/test_tenant_lifecycle.py:170` 有断言 |
 | FR-028 confirmName 严格相等 | `services/admin-api/app/api/routes/platform/tenants.py:219-221` 用 `!=` 完全一致校验 |
 | FR-034 墓碑写入 + 一个月自动删除 | 成功路径写 `status=purged`+`purged_at`（`tenant_purge.py:180-183`）；`app/main.py:24` 导入、`:71` `await cleanup_expired_tombstones()` 确实在 `on_startup` 执行；`TOMBSTONE_RETENTION = timedelta(days=30)`（`:81`） |
@@ -302,8 +304,8 @@ BUG CONFIRMED: a rename-only PATCH wiped member_limit (was 10).
 | FR-013 引导不建租户 | `services/admin-api/app/api/routes/setup.py:250-276` 只 `ensure_platform_admin` |
 
 **两处"看起来像 bug 但实际安全"**（避免重复排查）：
-1. `services/admin-api/app/services/admin_bootstrap.py:19` 的 `... or settings.bootstrap_main_id` 会落到 `"default"`，但它在 `if settings.tenant_bootstrap_admin_enabled:`（`:17`，默认 **False**）之内，生产走租户供给管线，不违反 FR-017。
-2. `services/admin-api/app/api/routes/directory.py:834` `main_id = str(invite.get("main_id", "default"))` 是默认租户回退，但紧随的 `:835-836` 立即拦截，且 `:738-742` 另有第二重防护。
+1. `services/admin-api/app/services/admin_bootstrap.py:19` 的 `... or settings.bootstrap_tenant_id` 会落到 `"default"`，但它在 `if settings.tenant_bootstrap_admin_enabled:`（`:17`，默认 **False**）之内，生产走租户供给管线，不违反 FR-017。
+2. `services/admin-api/app/api/routes/directory.py:834` `tenant_id = str(invite.get("tenant_id", "default"))` 是默认租户回退，但紧随的 `:835-836` 立即拦截，且 `:738-742` 另有第二重防护。
 
 ---
 
@@ -317,7 +319,7 @@ BUG CONFIRMED: a rename-only PATCH wiped member_limit (was 10).
 | P0 | 归档租户员工仍可登录 | `services/chat-api/app/services/end_user_tenant_access.py:62`、`api/endpoints/auth.py` login/switch-tenant、`services/admin-api/app/api/routes/directory.py:830-939` | 四处补「查 `tenants`，非 active 即拒」 |
 | P1 | `PATCH` 清空 memberLimit | `platform/tenants.py:144` | 缺省值由 `"null"` 改为 `None`；补 PATCH 路由层测试 |
 | P1 | 向量删除静默成功 | `tenant_purge.py:210-212, 227-236` | 失败聚合进 `errors`；无 token 时不要标 `done` |
-| P1 | 头像目录永不删除 | `tenant_purge.py:264` | 用 `_safe_path_part(main_id)` 推导目录名，**不要**改用裸前缀匹配 |
+| P1 | 头像目录永不删除 | `tenant_purge.py:264` | 用 `_safe_path_part(tenant_id)` 推导目录名，**不要**改用裸前缀匹配 |
 | P1 | 执行时不复检 archived | `tenant_purge.py:277` 起 | 开头加状态断言；路由与任务间加最小互斥 |
 | P2 | 进度查询不可靠 | `tenant_purge.py:84-137` | task store 落 Mongo（可复用 `tenants` 行或独立集合） |
 | P2 | 契约字段大小写 | `contracts/tenants.md:108` | 与 `contracts/tenants.md:184` 一并对齐实现（或给 `ProvisionResult` 加 alias） |
@@ -340,15 +342,15 @@ BUG CONFIRMED: a rename-only PATCH wiped member_limit (was 10).
 
 | # | plan.md 承诺 | 位置 | 核对结果 |
 |---|---|---|---|
-| R1 | 「`directory_bootstrap.py` 排除 `__platform__`；按 `tenants.status=active` 枚举」 | plan.md:128、:164 | ✅ **已兑现**。`services/admin-api/app/services/directory_bootstrap.py:4` 导入 `PLATFORM_MAIN_ID`，枚举为 `db["tenants"].find({"status": "active", "main_id": {"$nin": [None, "", PLATFORM_MAIN_ID]}})` |
-| R2 | 「`employee_tenant_identity.py` 同上（排除 `__platform__` + 只认 active）」 | plan.md:129、:164 | ✅ **已兑现**。`services/admin-api/app/services/employee_tenant_identity.py` `excluded = {"$nin": [None, "", "default", PLATFORM_MAIN_ID]}`，`active_main_ids` 取自 `tenants.find({"status": "active", "main_id": excluded})`，并带 `# T042: only active tenants are authoritative for identity repair; archived or purged tenants must not resurrect stale organization names.` |
-| R3 | 「`provision_tenant()` 入口拒绝该（`__platform__`）标识」 | plan.md:164 | ✅ **事实安全，但为隐式保证**。`grep -n 'PLATFORM_MAIN_ID\|is_reserved\|RESERVED\|__platform__' services/admin-api/app/services/tenant_provisioning.py` → **无命中**（exit 1），即**没有显式守卫**。但 `_next_main_id`（`:60-67`）生成 `f"{_slug(org_name)[:12]}-{secrets.token_hex(12)}"`，`_slug`（`:55-57`）为 `re.sub(r"[^a-zA-Z0-9]+", "-", text.strip().lower()).strip("-")`，**结构上不可能产出 `__platform__` 或 `default`**；`provision_tenant` 也不接收调用方传入的 main_id。→ 不构成缺陷，但属**隐式不变量**：若将来有人给供给入口加「指定 main_id」参数，守卫就缺了。建议补一行显式断言 |
-| R4 | 「抽 `provision_tenant()` 成为**唯一**供给入口」（plan.md:13、阶段 1） | plan.md:13、:147 | ✅ **已兑现**。`services/admin-api/app/api/routes/setup.py` 现存路由仅 `GET /status`、`GET /model-providers`、`POST /model/test`、`GET /search-providers`、`POST /search/test`、`POST /platform-admin`（`:186/212/219/230/236/250`）；`grep -n 'provision_tenant\|_next_main_id\|setup_initialize\|ensure_group_exists\|mark_setup_completed' setup.py` → **无命中**（exit 1）。plan.md:9、:43 描述的「内联在 setup.py 343–463 行」已不存在 |
-| R5 | 「逐步消除 114 处 `or "default"` 兜底」 | plan.md:54、:166 | ⚠️ **语义已消化，字面量未消除**。实测：admin-api **81** + chat-api **33** = **114**，与 plan.md 记载**完全一致**，逐文件分布也与 plan.md:54 点名的一致（`knowledge_documents.py` 27 / `skills.py` 17 / `tools.py` 11 / `analytics.py` 5 / `hooks.py` 4）。**但风险已被 R6 从源头关闭**：`services/admin-api/app/api/deps.py:29-32` `main_id = str(subject.get("main_id") or "").strip()` + `if not username or not session_id or not main_id: raise HTTPException(401, "Invalid token subject")`，且 `:44-46` 返回字典**无条件**写 `"main_id": main_id`；token 签发方 `auth.py` 从账号行取 `main_id`。故 `current_user.get("main_id") or "default"` 的 `or` 分支**不可达**，与 FR-017 不冲突。plan.md 原话即为「**逐步**消除」，属已记录的延后项，**不计为缺陷**。补充观察：`knowledge_documents.py:200` 等 `str(doc.get("main_id") or "default")` 是**输出投影**（文档本体的 main_id 落空时才兜底），风险等级更低 |
-| R6 | 「`deps` 入口强校验租户标识」（阶段 11 / FR-018） | plan.md:113、:157、:166 | ✅ **已兑现**。`grep -n 'bootstrap_main_id' services/admin-api/app/api/deps.py` 仅剩 `:15` 的**文档字符串**提及（「…has no `bootstrap_main_id` fallback any more (removing it is what closes the …)」），无代码引用 → plan.md:53 记载的 `deps.py:24 ... or settings.bootstrap_main_id` 已消除 |
+| R1 | 「`directory_bootstrap.py` 排除 `__platform__`；按 `tenants.status=active` 枚举」 | plan.md:128、:164 | ✅ **已兑现**。`services/admin-api/app/services/directory_bootstrap.py:4` 导入 `PLATFORM_TENANT_ID`，枚举为 `db["tenants"].find({"status": "active", "tenant_id": {"$nin": [None, "", PLATFORM_TENANT_ID]}})` |
+| R2 | 「`employee_tenant_identity.py` 同上（排除 `__platform__` + 只认 active）」 | plan.md:129、:164 | ✅ **已兑现**。`services/admin-api/app/services/employee_tenant_identity.py` `excluded = {"$nin": [None, "", "default", PLATFORM_TENANT_ID]}`，`active_tenant_ids` 取自 `tenants.find({"status": "active", "tenant_id": excluded})`，并带 `# T042: only active tenants are authoritative for identity repair; archived or purged tenants must not resurrect stale organization names.` |
+| R3 | 「`provision_tenant()` 入口拒绝该（`__platform__`）标识」 | plan.md:164 | ✅ **事实安全，但为隐式保证**。`grep -n 'PLATFORM_TENANT_ID\|is_reserved\|RESERVED\|__platform__' services/admin-api/app/services/tenant_provisioning.py` → **无命中**（exit 1），即**没有显式守卫**。但 `_next_tenant_id`（`:60-67`）生成 `f"{_slug(org_name)[:12]}-{secrets.token_hex(12)}"`，`_slug`（`:55-57`）为 `re.sub(r"[^a-zA-Z0-9]+", "-", text.strip().lower()).strip("-")`，**结构上不可能产出 `__platform__` 或 `default`**；`provision_tenant` 也不接收调用方传入的 tenant_id。→ 不构成缺陷，但属**隐式不变量**：若将来有人给供给入口加「指定 tenant_id」参数，守卫就缺了。建议补一行显式断言 |
+| R4 | 「抽 `provision_tenant()` 成为**唯一**供给入口」（plan.md:13、阶段 1） | plan.md:13、:147 | ✅ **已兑现**。`services/admin-api/app/api/routes/setup.py` 现存路由仅 `GET /status`、`GET /model-providers`、`POST /model/test`、`GET /search-providers`、`POST /search/test`、`POST /platform-admin`（`:186/212/219/230/236/250`）；`grep -n 'provision_tenant\|_next_tenant_id\|setup_initialize\|ensure_group_exists\|mark_setup_completed' setup.py` → **无命中**（exit 1）。plan.md:9、:43 描述的「内联在 setup.py 343–463 行」已不存在 |
+| R5 | 「逐步消除 114 处 `or "default"` 兜底」 | plan.md:54、:166 | ⚠️ **语义已消化，字面量未消除**。实测：admin-api **81** + chat-api **33** = **114**，与 plan.md 记载**完全一致**，逐文件分布也与 plan.md:54 点名的一致（`knowledge_documents.py` 27 / `skills.py` 17 / `tools.py` 11 / `analytics.py` 5 / `hooks.py` 4）。**但风险已被 R6 从源头关闭**：`services/admin-api/app/api/deps.py:29-32` `tenant_id = str(subject.get("tenant_id") or "").strip()` + `if not username or not session_id or not tenant_id: raise HTTPException(401, "Invalid token subject")`，且 `:44-46` 返回字典**无条件**写 `"tenant_id": tenant_id`；token 签发方 `auth.py` 从账号行取 `tenant_id`。故 `current_user.get("tenant_id") or "default"` 的 `or` 分支**不可达**，与 FR-017 不冲突。plan.md 原话即为「**逐步**消除」，属已记录的延后项，**不计为缺陷**。补充观察：`knowledge_documents.py:200` 等 `str(doc.get("tenant_id") or "default")` 是**输出投影**（文档本体的 tenant_id 落空时才兜底），风险等级更低 |
+| R6 | 「`deps` 入口强校验租户标识」（阶段 11 / FR-018） | plan.md:113、:157、:166 | ✅ **已兑现**。`grep -n 'bootstrap_tenant_id' services/admin-api/app/api/deps.py` 仅剩 `:15` 的**文档字符串**提及（「…has no `bootstrap_tenant_id` fallback any more (removing it is what closes the …)」），无代码引用 → plan.md:53 记载的 `deps.py:24 ... or settings.bootstrap_tenant_id` 已消除 |
 | R7 | 「彻底清理残留（尤其向量）｜重新盘点集合清单（现有 17 个 vs 实际 72 个集合常量）」 | plan.md:165 | ❌ **未兑现，且这正是 §1 的根因**。独立证据：`services/admin-api/app/services/setup_cleanup.py:18` 的 `SETUP_SCOPED_COLLECTIONS` 恰为 **17** 项，其中含 `org_units`，且 `:12` 注释自证改名——而 `tenant_purge.py:39` 的 `TENANT_SCOPED_COLLECTIONS` 里放的是**废名 `departments`**，`org_units` 在两张 purge 名单中**都不存在**（脚本差集：`SETUP(17) not in purge: ['org_units', 'tenants']`，其中 `tenants` 由墓碑路径单独处理属正常）。plan.md 明确要求做的事没做 |
 
-**另需修正的 plan.md 文本一处**：plan.md:52 与 :151 要求「移除 `auth.py:228`（后为 `:237`）的 `setup_state.main_id` 兜底」，该处**已消除**；但 plan.md 未提及的 `services/admin-api/app/api/routes/auth.py:319/327/356/392` 仍保留**四处 `str(current_user.get("main_id", settings.bootstrap_main_id))`**。经核**不可达**（`deps.py:46` 的字典总是含 `main_id` 键，dict 的 `get` 默认值永不生效），故不违反 FR-017——但这是与 plan.md「移除兜底」精神不符的**残留死代码**，建议随 §9 P3 清理。
+**另需修正的 plan.md 文本一处**：plan.md:52 与 :151 要求「移除 `auth.py:228`（后为 `:237`）的 `setup_state.tenant_id` 兜底」，该处**已消除**；但 plan.md 未提及的 `services/admin-api/app/api/routes/auth.py:319/327/356/392` 仍保留**四处 `str(current_user.get("tenant_id", settings.bootstrap_tenant_id))`**。经核**不可达**（`deps.py:46` 的字典总是含 `tenant_id` 键，dict 的 `get` 默认值永不生效），故不违反 FR-017——但这是与 plan.md「移除兜底」精神不符的**残留死代码**，建议随 §9 P3 清理。
 
 **R5/R6 的合并结论（重要）**：`or "default"` 的**数字没降**，但**风险已由 R6 关闭**。这两条必须一起看，单独报「114 处兜底未消除」会是误报。
 
@@ -358,18 +360,18 @@ BUG CONFIRMED: a rename-only PATCH wiped member_limit (was 10).
 
 ```
 # Kept deliberately separate from the purge path (app/services/tenant_purge.py)
-# which sweeps every main_id-partitioned collection.
+# which sweeps every tenant_id-partitioned collection.
 ```
 
-这个断言**不成立**。改用**与 §1.1 不同的方法**（不是比对常量名，而是解析全部 `create_index([...])` 中含 `"main_id"` 的块）复核：admin-api 侧共 **21** 个集合声明了 `main_id` 索引，其中未进 purge 名单的 3 个：
+这个断言**不成立**。改用**与 §1.1 不同的方法**（不是比对常量名，而是解析全部 `create_index([...])` 中含 `"tenant_id"` 的块）复核：admin-api 侧共 **21** 个集合声明了 `tenant_id` 索引，其中未进 purge 名单的 3 个：
 
 | 集合 | 声明处 | 判定 |
 |---|---|---|
 | `org_units` | `services/admin-api/app/repositories/directory_repository.py:26` | ❌ **真漏项**（与 §1.1 一致，两种方法交叉印证）；purge 名单里躺着废名 `departments` |
 | `page_collection_settings` | `services/admin-api/app/api/routes/page_collection.py:106` | ❌ **真漏项**（与 §1.1 一致） |
-| `system_bootstrap` | `services/admin-api/app/repositories/setup_repository.py:24` `create_index([("main_id", 1)], unique=True, sparse=True, name="setup_main_id_unique")` | ✅ **假阳性，不清理是正确的**。它是 `_id: "singleton"` 单例（`:29` `find_one({"_id": "singleton"})`、`:40`/`:88` 写入），`main_id` 被钉死为保留标识（`:92` `"main_id": PLATFORM_MAIN_ID`，`:80-82` 注释「the `system_bootstrap` singleton no longer … ``main_id`` is pinned to the reserved」）。非租户分区数据 |
+| `system_bootstrap` | `services/admin-api/app/repositories/setup_repository.py:24` `create_index([("tenant_id", 1)], unique=True, sparse=True, name="setup_tenant_id_unique")` | ✅ **假阳性，不清理是正确的**。它是 `_id: "singleton"` 单例（`:29` `find_one({"_id": "singleton"})`、`:40`/`:88` 写入），`tenant_id` 被钉死为保留标识（`:92` `"tenant_id": PLATFORM_TENANT_ID`，`:80-82` 注释「the `system_bootstrap` singleton no longer … ``tenant_id`` is pinned to the reserved」）。非租户分区数据 |
 
-**方法学教训**：「某集合有 `main_id` 唯一索引」**不等于**「该集合按租户分区」。单例集合（`_id: "singleton"`）也会用 `main_id` 索引来约束「只允许一行」。审计此类清单时，**必须同时看 `_id` 语义**，否则会把单例表误报为漏项（本次 `system_bootstrap` 即为实例，已剔除）。
+**方法学教训**：「某集合有 `tenant_id` 唯一索引」**不等于**「该集合按租户分区」。单例集合（`_id: "singleton"`）也会用 `tenant_id` 索引来约束「只允许一行」。审计此类清单时，**必须同时看 `_id` 语义**，否则会把单例表误报为漏项（本次 `system_bootstrap` 即为实例，已剔除）。
 
 ### 11.2 tasks.md 勾选项与实现的偏离（「勾了但没做到」）
 
@@ -377,7 +379,7 @@ BUG CONFIRMED: a rename-only PATCH wiped member_limit (was 10).
 
 | 任务 | tasks.md 原文（`:122-129`） | 实际实现 | 判定 |
 |---|---|---|---|
-| **T045**（`:122`） | 「盘点并固化 `TENANT_SCOPED_COLLECTIONS`（**现有 17 个不足，需扫描实际含 `main_id` 的集合**）」 | 交付的是**硬编码 31 项列表**，且仍漏 chat-api 侧 22 个集合（§1.2）、admin-api 侧 `org_units` / `page_collection_settings`（§1.1、§11.1）。**任务书自己写明了「需扫描实际含 main_id 的集合」，这件事没有做** | ❌ 勾选不实 |
+| **T045**（`:122`） | 「盘点并固化 `TENANT_SCOPED_COLLECTIONS`（**现有 17 个不足，需扫描实际含 `tenant_id` 的集合**）」 | 交付的是**硬编码 31 项列表**，且仍漏 chat-api 侧 22 个集合（§1.2）、admin-api 侧 `org_units` / `page_collection_settings`（§1.1、§11.1）。**任务书自己写明了「需扫描实际含 tenant_id 的集合」，这件事没有做** | ❌ 勾选不实 |
 | **T051**（`:128`） | 「成功置 `status=purged` 留墓碑；**任一步失败中止并保持 `archived` 且记录原因**」 | `tenant_purge.py:319-323` 无条件置 `purged`（§2）。**且注释明写这是故意的**：`:316-318` `# T050: ensure the tombstone is written even if the mongo phase failed / # before the in-phase update. The row was set to purged inside _phase_mongo; / # if that failed we set it here as a fallback.` | ❌ 勾选不实（且与 T051 自身验收文本直接矛盾） |
 
 **这项交叉验证的价值**：T045/T051 的验收标准是**实现者自己写的**，因此「未达成」不依赖我对 spec 的解读，而是代码与自身任务书冲突的直接证据。§2、§1.2 的结论由此从「审计员判读」升级为「内部矛盾」。

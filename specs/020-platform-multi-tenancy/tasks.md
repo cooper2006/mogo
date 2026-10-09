@@ -50,7 +50,7 @@
 - [x] T005 [P] 阶段 2：`provision_tenant()` 内各可选块加守卫 —— `employee` / `model` / `additionalModels` / `externalSearch` / `quota` 全为 `None` 时跳过且不校验连通性
 - [x] T006 [P] 阶段 2：从 `provision_tenant()` 与 `/initialize` 移除 `_deployment_services()` 门禁
 - [x] T007 [P] 阶段 3：新建 `app/services/tenant_registry.py` —— `tenants` 集合读写、`ensure_indexes()`、`ensure_tenant_record()`
-- [x] T008 [P] 阶段 3：实现存量回填迁移（按 `admin_accounts.distinct("main_id")` 幂等登记，排除保留标识）
+- [x] T008 [P] 阶段 3：实现存量回填迁移（按 `admin_accounts.distinct("tenant_id")` 幂等登记，排除保留标识）
 - [x] T009 [P] 阶段 4：`config.py` 6 项 `bootstrap_admin_*` → `tenant_bootstrap_admin_*`
 - [x] T010 [P] 阶段 4：同步 `admin_bootstrap.py`、`.env.example`、`docker-compose.yml`、`deploy/production/docker-compose.portainer.yml.tpl`
 - [x] T011 [P] 阶段 4：`bootstrap_admin_role_name` 默认值由"平台超级管理员"改为"租户管理员"（消除误导）
@@ -60,7 +60,7 @@
 **Goal**: 全新部署首次启动可通过引导创建平台超管；引导不创建任何租户。
 **独立测试**: 仅 MongoDB 可用时也能完成引导；完成后登录进入空控制台。
 
-- [x] T012 定义 `PLATFORM_MAIN_ID = "__platform__"` 常量与其校验工具
+- [x] T012 定义 `PLATFORM_TENANT_ID = "__platform__"` 常量与其校验工具
 - [x] T013 `setup_repository.py`：singleton 语义改为"平台超管是否已创建"，`_ensure_setup_open()` 随之调整
 - [x] T014 `setup.py` 新增 `POST /api/setup/platform-admin`（已存在返回 409）
 - [x] T015 部署检测门禁收紧：仅 MongoDB 必绿，其余 5 项降级为告警（`services` 增 `core` 标记）
@@ -74,8 +74,8 @@
 **Goal**: 跨租户零可见；缺失或保留标识一律拒绝，不回退默认租户。
 **独立测试**: 两租户同名账号各自只见自己数据；多归属账号登录出现选择步骤。
 
-- [x] T020 [P] `auth.py:228` 移除 `setup_state.main_id` 兜底，改为一律走跨租户搜索 + challenge
-- [x] T021 [P] `deps.py::get_current_admin_user` 入口强校验：`main_id` 为空 / `default` / `__platform__` 按路由类型分别拒绝
+- [x] T020 [P] `auth.py:228` 移除 `setup_state.tenant_id` 兜底，改为一律走跨租户搜索 + challenge
+- [x] T021 [P] `deps.py::get_current_admin_user` 入口强校验：`tenant_id` 为空 / `default` / `__platform__` 按路由类型分别拒绝
 - [x] T022 [P] 新增 `get_current_platform_admin` 依赖；业务路由加反向守卫拒绝 `__platform__`
 - [x] T023 [P] `directory_bootstrap.py:15` 与 `employee_tenant_identity.py:37,40` 过滤追加 `"__platform__"`
 - [x] T024 补隔离测试：跨租户读取返回空；保留标识调业务接口 403
@@ -91,8 +91,8 @@
 - [x] T028 前端 `components/platform/TenantCreateForm.vue`：3 必填 + 折叠可选（员工/LLM/搜索/配额）
 - [x] T029 前端 `views/platform/TenantsPage.vue`：列表 / 新建 / 详情 / 重置密码
 - [x] T030 前端控制台**空状态引导**（"还没有租户，立即创建"）—— 决策 11 必需
-- [x] T031 `router/routes.ts` 增加 `/platform` 路由组，按 `mainId === '__platform__'` 控制显隐
-- [x] T032 登录页增加"平台管理员"入口，提交 `mainId: __platform__`
+- [x] T031 `router/routes.ts` 增加 `/platform` 路由组，按 `tenantId === '__platform__'` 控制显隐
+- [x] T032 登录页增加"平台管理员"入口，提交 `tenantId: __platform__`
 
 ## Phase 6: User Story 8 (P3) —— 配额默认不限额（阶段 7）
 
@@ -123,9 +123,9 @@
 **Goal**: 已归档租户可被完全清除（数据库 + 向量 + 文件），仅留墓碑 1 个月。
 **独立测试**: 清理后三类存储残留为 0；未归档租户请求清理被拒。
 
-- [x] T045 盘点并固化 `TENANT_SCOPED_COLLECTIONS`（现有 17 个不足，需扫描实际含 `main_id` 的集合）
+- [x] T045 盘点并固化 `TENANT_SCOPED_COLLECTIONS`（现有 17 个不足，需扫描实际含 `tenant_id` 的集合）
 - [x] T046 新建 `app/services/tenant_purge.py`：MongoDB 清理
-- [x] T047 向量清理：按 `mainId` 删除（对齐 `retrieval_client.py:45` 的过滤方式）
+- [x] T047 向量清理：按 `tenantId` 删除（对齐 `retrieval_client.py:45` 的过滤方式）
 - [x] T048 文件清理：`knowledge_local_storage_dir` / `admin_static_dir` 下按标识前缀的目录
 - [x] T049 异步任务 + 进度查询 `GET /tenants/{id}/purge-status`
 - [x] T050 `POST /tenants/{id}/purge`：仅 `archived` 可执行（否则 409），`confirmName` 必须完全匹配

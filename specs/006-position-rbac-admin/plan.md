@@ -26,10 +26,10 @@
 
 - 常量：`constants.py` → `FULL_ACCESS_ROLE_KEY = full_access_admin`、`POSITION_ROLE_COLLECTION = position_roles`、`USER_ROLE_COLLECTION = end_user_position_roles`
 - 仓库：`repository.py`（PositionRoleRepository）：
-  - `ensure_full_access_role(main_id)` → 内置全能力管理员
+  - `ensure_full_access_role(tenant_id)` → 内置全能力管理员
   - `assign_role` / `replace_user_roles`（主角色 + 多角色）
   - `complete_migration` → 历史补全
-  - `audit(main_id, actor, action, target_type, target_id, details)` → 审计落点
+  - `audit(tenant_id, actor, action, target_type, target_id, details)` → 审计落点
 - 服务：`service.py`（PositionRoleService）：
   - `normalized_capabilities` → 能力开关归一化
   - `validate_resource_ids` → tool/skill 资源 ID 存在性校验（external_tools / skills 集合）

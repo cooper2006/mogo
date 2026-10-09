@@ -80,7 +80,7 @@
 
 - [x] **C3 · P2 · skill 适配器的 fallback 查询无租户过滤** → 确认为有界兜底
   - `db["user_skills"].find_one({"_id": skill_id})` 无 tenant 条件
-  - 但前两次查询已带 `add_main_scope(..., resolve_main_id(org_id))`，仅当 skill 未按 org 存储时才走此兜底；`user_skills` 以 `_id` 为主键且调用方已过 `check_skill_visibility`（校验 `identifiers[0] == ctx.tenant_id`）→ 风险可控，记录待后续收紧
+  - 但前两次查询已带 `add_tenant_scope(..., resolve_tenant_id(org_id))`，仅当 skill 未按 org 存储时才走此兜底；`user_skills` 以 `_id` 为主键且调用方已过 `check_skill_visibility`（校验 `identifiers[0] == ctx.tenant_id`）→ 风险可控，记录待后续收紧
 
 - [x] **C4 · P2 · 模块级可变状态并发安全** → 已核定为安全
   - 6 处模块级状态：`_SEDIMENTED`（单事件循环内 set 操作，原子）、`_SUBSCRIBERS`（dict 保序 + 派发时 list 快照）、`_ADAPTERS`（构造后只读）、`SCOPE_VISIBILITY`/`SCOPE_PRIORITY`/`TYPE_PRIORITY`（常量表）

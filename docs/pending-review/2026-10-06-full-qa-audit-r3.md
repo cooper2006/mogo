@@ -132,7 +132,7 @@ R2 报告宣称 `2226 passed / 0 failed`。**该结论不成立**：它依赖临
   - **验证**：新增 5 项越权回归测试（伪造 owner / 伪造 org scope / 正常读自己 / session 同理）
 
 - [x] **B2 · P0 · session 适配器只按 `_id` + tenant 查询** → 已修复
-  - **证据**：`adapters/session.py` 的 `_load` 查询条件为 `{"_id": oid}` + `add_main_scope(...)`，**无 `user_id`**
+  - **证据**：`adapters/session.py` 的 `_load` 查询条件为 `{"_id": oid}` + `add_tenant_scope(...)`，**无 `user_id`**
   - **影响**：同一租户内任一成员可读他人会话（含 L2 逐字稿）
   - **修复**：查询加入 `"user_id": str(viewer_id)`；`_load` 增加 `viewer_id` 形参
   - **验证**：新增 `test_resolve_session_other_user_is_denied` / `test_resolve_session_owner_still_reads_own`
@@ -162,8 +162,8 @@ R2 报告宣称 `2226 passed / 0 failed`。**该结论不成立**：它依赖临
   - **验证**：新增 `test_document_shape_uses_orchestration_id`
 
 - [x] **C4 · P1 · `revoke_share` 引用未定义变量** → 已修复
-  - `main_id, _ = await _authorize(...)` 丢弃了 `user_id`，函数体后续却引用 `user_id` → 端点必 500
-  - **修复**：`main_id, user_id = await _authorize(...)`
+  - `tenant_id, _ = await _authorize(...)` 丢弃了 `user_id`，函数体后续却引用 `user_id` → 端点必 500
+  - **修复**：`tenant_id, user_id = await _authorize(...)`
 
 - [x] **C5 · P2 · `memory/address.py` 未拒绝超长 URI** → 已修复
   - `> 4` 段未校验，畸形 URI 可绕过作用域解析

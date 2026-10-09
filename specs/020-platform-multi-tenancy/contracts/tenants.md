@@ -13,7 +13,7 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `_id` | string | uuid4 hex |
-| `main_id` | string | 租户标识，唯一索引 |
+| `tenant_id` | string | 租户标识，唯一索引 |
 | `name` | string | 企业名称 |
 | `status` | enum | `active` \| `disabled` \| `archived` \| `purged` |
 | `edition` | string | `community` \| `enterprise` |
@@ -29,7 +29,7 @@
 索引：
 
 ```
-{main_id: 1}                    unique
+{tenant_id: 1}                    unique
 {status: 1, created_at: -1}
 ```
 
@@ -54,7 +54,7 @@
 {
   "completed": false,          // 平台超管是否已创建
   "orgName": "",
-  "mainId": "",
+  "tenantId": "",
   "initializedAt": "",
   "ready": true,               // 仅由核心服务决定
   "platformAdminMissing": true,// 存量升级未配置凭据时为 true（告警）
@@ -78,7 +78,7 @@
 { "username": "platform", "password": "...", "displayName": "平台管理员" }
 
 // response
-{ "completed": true, "mainId": "__platform__", "username": "platform" }
+{ "completed": true, "tenantId": "__platform__", "username": "platform" }
 ```
 
 ---
@@ -105,7 +105,7 @@
 }
 
 // response —— snake_case（ProvisionResult 未配 alias，序列化即蛇形）
-{ "main_id": "acme-9f3c...", "org_name": "示例科技有限公司", "model_instance_id": null, "additional_model_instance_ids": [] }
+{ "tenant_id": "acme-9f3c...", "org_name": "示例科技有限公司", "model_instance_id": null, "additional_model_instance_ids": [] }
 ```
 
 **契约要点**：`model` / `additionalModels` / `externalSearch` / `quota` / `employee` 全部可省略；省略时跳过对应配置且不校验其连通性。创建过程**不做任何服务就绪校验**。
@@ -121,18 +121,18 @@
 ```jsonc
 {
   "items": [
-    { "mainId": "...", "name": "...", "status": "active", "edition": "community",
+    { "tenantId": "...", "name": "...", "status": "active", "edition": "community",
       "adminUsername": "admin", "memberLimit": null, "createdAt": "...", "createdBy": "platform-admin" }
   ],
   "total": 12
 }
 ```
 
-### `GET /api/platform/tenants/{main_id}`
+### `GET /api/platform/tenants/{tenant_id}`
 
 同上字段，附带 `archivedAt` / `archiveReason` / `purgedAt`。
 
-### `PATCH /api/platform/tenants/{main_id}`
+### `PATCH /api/platform/tenants/{tenant_id}`
 
 可改：`name`、`status`（`active` ↔ `disabled`）、`memberLimit`。
 
@@ -140,7 +140,7 @@
 
 `memberLimit` 只写 `tenants.member_limit`（平台侧记录），**不会**同步到库内 `organizations.user_limit`
 （该字段是版本默认，由 edition 决定）。成员上限的**最终取值**由
-`app.core.product_edition.resolve_member_limit(main_id)` 解析：
+`app.core.product_edition.resolve_member_limit(tenant_id)` 解析：
 
 ```
 organizations 是 community  →  无限（community 版为无限成员版本）
@@ -168,7 +168,7 @@ community 版的 `user_limit` 为 `None`，含义是**按版本无限**，而不
 因此对 community 租户设置 `memberLimit`（非 null）会**在写入侧**直接失败：
 
 ```jsonc
-// PATCH /api/platform/tenants/{main_id}   { "memberLimit": 3 }
+// PATCH /api/platform/tenants/{tenant_id}   { "memberLimit": 3 }
 // 409
 { "detail": "community 版为无限成员版本，不支持设置成员上限" }
 ```
@@ -185,7 +185,7 @@ community 版的 `user_limit` 为 `None`，含义是**按版本无限**，而不
 
 清除上限（`"null"`）**始终允许**——它是回到版本默认，而 community 的默认本就是无限。
 
-### `POST /api/platform/tenants/{main_id}/admin/reset-password`
+### `POST /api/platform/tenants/{tenant_id}/admin/reset-password`
 
 ```jsonc
 // request
@@ -196,7 +196,7 @@ community 版的 `user_limit` 为 `None`，含义是**按版本无限**，而不
 
 重置后**不强制**该管理员首次登录改密。
 
-### `DELETE /api/platform/tenants/{main_id}`
+### `DELETE /api/platform/tenants/{tenant_id}`
 
 软归档。
 
@@ -209,11 +209,11 @@ community 版的 `user_limit` 为 `None`，含义是**按版本无限**，而不
 
 副作用：同步置 `organizations` / `org_quota_policies` 为 `disabled`；该租户所有账号登录被拒。
 
-### `POST /api/platform/tenants/{main_id}/restore`
+### `POST /api/platform/tenants/{tenant_id}/restore`
 
 恢复。仅 `archived` 可执行。恢复 `organizations` / `org_quota_policies` 为 `active`。
 
-### `POST /api/platform/tenants/{main_id}/purge`
+### `POST /api/platform/tenants/{tenant_id}/purge`
 
 彻底清理。**仅 `archived` 可执行**（未归档返回 409）。
 
@@ -226,7 +226,7 @@ community 版的 `user_limit` 为 `None`，含义是**按版本无限**，而不
 
 `confirmName` 必须与该租户 `name` 完全一致，否则 400。**无需第二人审批**。
 
-### `GET /api/platform/tenants/{main_id}/purge-status`
+### `GET /api/platform/tenants/{tenant_id}/purge-status`
 
 ```jsonc
 { "taskId": "...", "status": "running", "progress": { "mongo": "done", "vectors": "running", "files": "pending" }, "error": "" }
@@ -246,10 +246,10 @@ community 版的 `user_limit` 为 `None`，含义是**按版本无限**，而不
 
 ```jsonc
 // request
-{ "username": "admin", "password": "...", "mainId": "acme-9f3c..." }  // mainId 可选
+{ "username": "admin", "password": "...", "tenantId": "acme-9f3c..." }  // tenantId 可选
 ```
 
-- 携带 `mainId` → 直接校验该租户
+- 携带 `tenantId` → 直接校验该租户
 - 未携带且账号唯一 → 直接进入
 - 未携带且账号属于多个租户 → 返回 `candidates` + `challengeToken`，前端选租户后调 `/login/select-tenant`
 - **移除**：原"用引导状态中的租户标识兜底"行为

@@ -55,7 +55,7 @@ def check_memory_visibility(*, addr, memory: Memory, ctx: ViewerContext) -> bool
 ```
 `router.py` 的 `check_visibility(addr=addr, ctx=viewer)` 改为同时传 `memory=memory`。
 
-**顺带确认安全**：`store.get` / `delete` 均带 `tenant_id` + `resolve_main_id` 过滤（`store.py:179, 188-192`），租户隔离本身成立；`tenant_id` 取自 `_resolve_session_user` 的 `main_id` 而非 URI（`memory.py:11`），正确。
+**顺带确认安全**：`store.get` / `delete` 均带 `tenant_id` + `resolve_tenant_id` 过滤（`store.py:179, 188-192`），租户隔离本身成立；`tenant_id` 取自 `_resolve_session_user` 的 `tenant_id` 而非 URI（`memory.py:11`），正确。
 
 ---
 
@@ -149,7 +149,7 @@ assert check_visibility(addr=addr, ctx=ViewerContext(viewer_id="u1")) is True
 
 - **无硬编码密钥**：`config.py` 全部密钥默认空串，docker-compose 由 bootstrap 服务 `random_hex()` 运行时生成；`scripts/dev/internal_service_auth.sh` 用 `openssl rand`/`secrets.token_hex`。`qf_scan` 报的 20 处"疑似凭据"经核对均为测试脚本中的 test-only JWT secret。
 - **密码学强度充足**：PBKDF2-HMAC-SHA256 ×120,000 迭代 + 16 字节随机盐；会话令牌 HMAC-SHA256 且用 `hmac.compare_digest` 防时序侧信道。
-- **租户隔离成立**：`MemoryStore.get/delete`、`resolve_main_id`、端点侧 `tenant_id` 均取自已认证 session 的 `main_id`，非 URI。
+- **租户隔离成立**：`MemoryStore.get/delete`、`resolve_tenant_id`、端点侧 `tenant_id` 均取自已认证 session 的 `tenant_id`，非 URI。
 - **无 Mongo 注入**：所有查询用参数字典，未见字符串拼接；`tenant.py` 的 `$or` 仅限 default 主租户匹配。
 
 ---

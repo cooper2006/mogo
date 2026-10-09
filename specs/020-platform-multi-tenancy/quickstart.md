@@ -54,7 +54,7 @@ result = await provision_tenant(
     admin_password="...",
     created_by="platform-admin",
 )
-print(result.main_id)
+print(result.tenant_id)
 ```
 
 不传 `model` / `external_search` / `quota` / `employee` 时，对应配置全部跳过，配额默认为不限额。
@@ -66,7 +66,7 @@ print(result.main_id)
 ```bash
 # 指定租户
 curl -X POST /api/auth/login \
-  -d '{"username":"admin","password":"...","mainId":"acme-9f3c..."}'
+  -d '{"username":"admin","password":"...","tenantId":"acme-9f3c..."}'
 
 # 不指定且账号属于多个租户 → 返回 candidates + challengeToken
 # 再调 POST /api/auth/login/select-tenant 选择进入
@@ -81,17 +81,17 @@ curl -X POST /api/auth/login \
 GET  /api/platform/tenants?status=active&keyword=示例
 
 # 归档（账号禁止登录，不计入授权数）
-DELETE /api/platform/tenants/{main_id}  -d '{"reason":"合同终止"}'
+DELETE /api/platform/tenants/{tenant_id}  -d '{"reason":"合同终止"}'
 
 # 恢复
-POST /api/platform/tenants/{main_id}/restore
+POST /api/platform/tenants/{tenant_id}/restore
 
 # 彻底清理（必须先归档；需输入企业名确认）
-POST /api/platform/tenants/{main_id}/purge -d '{"confirmName":"示例科技有限公司"}'
-GET  /api/platform/tenants/{main_id}/purge-status
+POST /api/platform/tenants/{tenant_id}/purge -d '{"confirmName":"示例科技有限公司"}'
+GET  /api/platform/tenants/{tenant_id}/purge-status
 
 # 重置租户管理员密码（不强制首次改密）
-POST /api/platform/tenants/{main_id}/admin/reset-password -d '{"newPassword":"..."}'
+POST /api/platform/tenants/{tenant_id}/admin/reset-password -d '{"newPassword":"..."}'
 ```
 
 ---
@@ -127,7 +127,7 @@ POST /api/platform/tenants/{main_id}/admin/reset-password -d '{"newPassword":"..
 - [ ] 清理完成后数据库记录 / 向量 / 磁盘文件残留均为 0，仅剩墓碑
 
   > **口径**：下列为**有意豁免**，不计入「残留」——
-  > ① `system_audit_logs`（按 `main_id` 存，但记的是平台管理员对租户的操作，是 SC-007 要保留的溯源，删它等于销毁证据）；
+  > ① `system_audit_logs`（按 `tenant_id` 存，但记的是平台管理员对租户的操作，是 SC-007 要保留的溯源，删它等于销毁证据）；
   > ② 租户注册表 `tenants` 本身（转为 `status=purged` 墓碑，不删行）；
   > ③ OSS / 对象存储里的知识库对象（bucket 自有生命周期策略，清理只覆盖本地磁盘）；
   > ④ 无租户键且无业务价值的瞬时集合（`end_user_login_challenges` 5 分钟 TTL、`presence_heartbeats`、`session_presence_state`）。

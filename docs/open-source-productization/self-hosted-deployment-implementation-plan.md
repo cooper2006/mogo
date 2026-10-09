@@ -54,7 +54,7 @@
 
 当前 Setup 创建：
 
-- 企业名称与随机 `main_id`
+- 企业名称与随机 `tenant_id`
 - 管理员账号
 - 首个员工账号
 - 根部门
@@ -350,8 +350,8 @@ Agent WSS：    wss://movo.company.com/.../agent/connect
 - [ ] 固定 Desktop/API/Agent 的公共路径协议。
 - [ ] 增加服务发现接口，例如 `/.well-known/movo-desktop.json`。
 - [ ] 桌面端首次启动输入企业服务地址并获取发现信息。
-- [ ] WebSocket 使用 Token 验证并由服务端派生 `main_id/user_id`。
-- [ ] 使用 `main_id + user_id + device_id` 标识 Agent 连接。
+- [ ] WebSocket 使用 Token 验证并由服务端派生 `tenant_id/user_id`。
+- [ ] 使用 `tenant_id + user_id + device_id` 标识 Agent 连接。
 - [ ] 验证多员工同时连接、执行和断线重连。
 
 ### M4：生产化

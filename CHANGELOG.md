@@ -81,7 +81,7 @@ image.
   刷新周期硬编码 30 天；现由 `_configured_refresh_days()` 统一解析。
 - **`orchestration/store.py` 落库主键为空 + 未导入 `load_orchestration_document`（P1）**：
   `_document_shape` 读的是 `loaded.definition.id`（真实字段为 `orchestration_id`）。
-- **`revoke_share` 引用未定义变量（P1）**：`main_id, _ = await _authorize(...)`
+- **`revoke_share` 引用未定义变量（P1）**：`tenant_id, _ = await _authorize(...)`
   丢弃 `user_id` 后仍引用它，端点必 500。
 - **`memory/address.py` 未拒绝超长 URI（P2）**：段数 > 4 现抛 `ValueError`。
 - **017 记忆永不落库（P0）**：`MemoryStore.save` 对 motor 的 `replace_one` 未

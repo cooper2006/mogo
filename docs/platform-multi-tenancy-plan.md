@@ -6,7 +6,7 @@
 
 | # | 议题 | 决策 |
 | - | ---- | ---- |
-| 1 | 平台超管形态 | 复用 `admin_accounts`，`main_id` 用保留值 `__platform__` |
+| 1 | 平台超管形态 | 复用 `admin_accounts`，`tenant_id` 用保留值 `__platform__` |
 | 2 | 租户主表 | **新增 `tenants` 集合**（不复用 `organizations`） |
 | 3 | 删除租户 | **软归档**，且**允许恢复**（`archived → active`） |
 | 4 | 配额默认值 | **不限额**（新租户默认不限额） |
@@ -34,9 +34,9 @@
 
 | 层 | 状态 | 依据 |
 | - | ---- | ---- |
-| 数据层 | 已就绪 | 全部集合带 `main_id`，复合索引齐全；admin-api 与 chat-api 双端隔离 |
-| 认证层 | 已就绪 | `POST /login` 接受 `mainId`；不带时跨租户查账号，命中多个走 challenge → `POST /login/select-tenant` |
-| 供给层 | **缺口** | `system_bootstrap` 为 `_id: "singleton"`；`main_id` 仅在 `setup.py::_next_main_id()` 一处生成；无开租户接口 |
+| 数据层 | 已就绪 | 全部集合带 `tenant_id`，复合索引齐全；admin-api 与 chat-api 双端隔离 |
+| 认证层 | 已就绪 | `POST /login` 接受 `tenantId`；不带时跨租户查账号，命中多个走 challenge → `POST /login/select-tenant` |
+| 供给层 | **缺口** | `system_bootstrap` 为 `_id: "singleton"`；`tenant_id` 仅在 `setup.py::_next_tenant_id()` 一处生成；无开租户接口 |
 
 当前实际语义：**一套部署 = 一个企业**。
 
@@ -50,7 +50,7 @@
 阶段一：平台引导（一次性，系统级）
   /setup
     ├─ 步骤 1  部署检测（MongoDB 必绿；其余 5 项仅告警，可继续）
-    └─ 步骤 2  创建平台超级管理员（main_id = __platform__）
+    └─ 步骤 2  创建平台超级管理员（tenant_id = __platform__）
           └─► 完成 → 去登录（此时还没有任何租户）
 
 阶段二：租户供给（可重复，平台控制台）
@@ -92,7 +92,7 @@
 ```jsonc
 {
   "_id": "uuid4-hex",
-  "main_id": "acme-9f3c...",        // 唯一索引
+  "tenant_id": "acme-9f3c...",        // 唯一索引
   "name": "示例科技有限公司",
   "status": "active",               // active | disabled | archived | purged
   "edition": "community",
@@ -109,7 +109,7 @@
 
 ### 3.2 与 `organizations` 的关系
 
-`organizations` 保持不变，按 `{"main_id": ...}` 一条，承载租户内业务档案。
+`organizations` 保持不变，按 `{"tenant_id": ...}` 一条，承载租户内业务档案。
 
 | 集合 | 层次 | 职责 |
 | - | ---- | ---- |
@@ -119,7 +119,7 @@
 ### 3.3 索引
 
 ```python
-await db["tenants"].create_index([("main_id", 1)], unique=True, name="tenant_main_id_unique")
+await db["tenants"].create_index([("tenant_id", 1)], unique=True, name="tenant_tenant_id_unique")
 await db["tenants"].create_index([("status", 1), ("created_at", -1)], name="tenant_status_created")
 ```
 
@@ -129,10 +129,10 @@ await db["tenants"].create_index([("status", 1), ("created_at", -1)], name="tena
 
 ```python
 tenant_ids = await db.admin_accounts.distinct(
-    "main_id", {"main_id": {"$nin": [None, "", "default", "__platform__"]}}
+    "tenant_id", {"tenant_id": {"$nin": [None, "", "default", "__platform__"]}}
 )
-for main_id in tenant_ids:
-    await ensure_tenant_record(main_id, created_by="migration")
+for tenant_id in tenant_ids:
+    await ensure_tenant_record(tenant_id, created_by="migration")
 ```
 
 企业名取 `system_bootstrap.org_name` 或 `organizations.org_name`；`admin_username` 取 `system_bootstrap.admin_username`。
@@ -163,7 +163,7 @@ async def provision_tenant(
 
 ### 4.2 内部步骤
 
-1. `_next_main_id(org_name)`
+1. `_next_tenant_id(org_name)`
 2. **写 `tenants` 记录**（新增）
 3. `ensure_group_exists(system_admin)`
 4. `ensure_bootstrap_account()` 建租户内管理员
@@ -253,7 +253,7 @@ async def bootstrap_platform_admin() -> None:
         return
     await ensure_group_exists("平台管理员", "platform_admin", "__platform__", ...)
     await ensure_bootstrap_account(
-        main_id=PLATFORM_MAIN_ID,          # "__platform__"
+        tenant_id=PLATFORM_TENANT_ID,          # "__platform__"
         username=settings.platform_admin_username,
         password=settings.platform_admin_password,
         role_name="平台超级管理员",
@@ -269,32 +269,32 @@ async def bootstrap_platform_admin() -> None:
 从"首个租户是否已创建"变为"**平台超管是否已创建**"。连带影响：
 
 - `setup.py::_ensure_setup_open()`：条件改为 `admin_accounts` 中是否存在 `__platform__` 账号（或直接复用 `completed`）
-- **`auth.py:228` 的兜底必须移除**：登录不带 `mainId` 时现会用 `setup_state.main_id` 作为默认租户，多租户下这是错误行为（会把人塞进首次创建的那个租户）。改为一律走跨租户搜索 + challenge 选租户（该机制已存在）。
+- **`auth.py:228` 的兜底必须移除**：登录不带 `tenantId` 时现会用 `setup_state.tenant_id` 作为默认租户，多租户下这是错误行为（会把人塞进首次创建的那个租户）。改为一律走跨租户搜索 + challenge 选租户（该机制已存在）。
 
 ### 5.6 鉴权依赖
 
 ```python
-PLATFORM_MAIN_ID = "__platform__"
+PLATFORM_TENANT_ID = "__platform__"
 
 async def get_current_platform_admin(user=Depends(get_current_admin_user)) -> dict:
-    if str(user.get("main_id")) != PLATFORM_MAIN_ID:
+    if str(user.get("tenant_id")) != PLATFORM_TENANT_ID:
         raise HTTPException(403, "platform admin required")
     return user
 ```
 
-**反向守卫**：业务路由须拒绝 `main_id == "__platform__"`，否则带该 main_id 调业务接口会因兜底逻辑落到错误租户。
+**反向守卫**：业务路由须拒绝 `tenant_id == "__platform__"`，否则带该 tenant_id 调业务接口会因兜底逻辑落到错误租户。
 
 ### 5.7 数据权限边界（决策 7）
 
-平台超管**只能**访问 `/api/platform/*`。租户列表只返回生命周期字段（`name / main_id / status / edition / created_at / admin_username / member_limit`），**不含成员数、用量、知识库数等业务指标**。业务数据由租户管理员在自己的控制台查看。
+平台超管**只能**访问 `/api/platform/*`。租户列表只返回生命周期字段（`name / tenant_id / status / edition / created_at / admin_username / member_limit`），**不含成员数、用量、知识库数等业务指标**。业务数据由租户管理员在自己的控制台查看。
 
 ### 5.8 ⚠️ 必须处理的坑
 
-`services/admin-api/app/services/directory_bootstrap.py:15` 遍历 `admin_accounts.distinct("main_id")`，会把 `__platform__` 当租户建岗位角色。现有过滤 `{"$nin": [None, "", "default"]}` **需加入 `"__platform__"`**。同类过滤见 `employee_tenant_identity.py:37,40`。
+`services/admin-api/app/services/directory_bootstrap.py:15` 遍历 `admin_accounts.distinct("tenant_id")`，会把 `__platform__` 当租户建岗位角色。现有过滤 `{"$nin": [None, "", "default"]}` **需加入 `"__platform__"`**。同类过滤见 `employee_tenant_identity.py:37,40`。
 
 ### 5.9 登录
 
-`auth.py` 已支持 `mainId`，平台登录入口显式提交 `mainId: "__platform__"` 即可命中现有分支。前端登录页增加"平台管理员"入口。
+`auth.py` 已支持 `tenantId`，平台登录入口显式提交 `tenantId: "__platform__"` 即可命中现有分支。前端登录页增加"平台管理员"入口。
 
 ---
 
@@ -351,30 +351,30 @@ if not summary.get("unlimited") and int(summary.get("remainingPoints") or 0) <= 
 
 ### 7.1 归档
 
-`DELETE /api/platform/tenants/{main_id}`：
+`DELETE /api/platform/tenants/{tenant_id}`：
 - `tenants.status = "archived"`，写 `archived_at` / `archive_reason`
 - 同步将 `organizations`、`org_quota_policies` 置为 `disabled`
 - **归档租户的 `admin_username` 禁止登录**（决策 13）：`auth.py` 在登录校验时查 `tenants.status`，非 `active` 一律 403
 
 ### 7.2 恢复
 
-`POST /api/platform/tenants/{main_id}/restore`：`status → active`，清空 `archived_at`，恢复 `organizations` / `org_quota_policies` 的 `active`。
+`POST /api/platform/tenants/{tenant_id}/restore`：`status → active`，清空 `archived_at`，恢复 `organizations` / `org_quota_policies` 的 `active`。
 
 ### 7.3 彻底清理（物理删，决策 15）
 
 **前置约束**：
 
 - **必须先归档再清理** —— 仅 `status == archived` 的租户允许 purge，杜绝误删活跃租户
-- **无需二次审批**（决策 16）—— 平台超管权限本身即门禁；前端只需单人手动输入企业名称（或 `main_id`）确认。不引入第二人审批流。
+- **无需二次审批**（决策 16）—— 平台超管权限本身即门禁；前端只需单人手动输入企业名称（或 `tenant_id`）确认。不引入第二人审批流。
 - **不可恢复** —— UI 明确警示；执行前写入 `system_audit`
 
 **清理范围（三层，缺一不可）**：
 
 | 层 | 内容 | 说明 |
 | - | ---- | ---- |
-| MongoDB | 所有带 `main_id` 的集合 | ⚠️ 现有 `setup_cleanup.py::SETUP_SCOPED_COLLECTIONS` **只有 17 个**，而两个服务共有 **72 个集合常量**，远超该清单。必须重新盘点生成完整的 `TENANT_SCOPED_COLLECTIONS`（建议用脚本扫描 `db.list_collection_names()` 抽样含 `main_id` 的集合，人工确认后固化） |
-| Weaviate | 向量数据 | chat-api 的知识检索按 `mainId` 过滤（`knowledge/retrieval/retrieval_client.py:45`），只删 Mongo 会留下向量残留在库中，必须一并清除 |
-| 文件存储 | 磁盘文件 | `knowledge_local_storage_dir` / `admin_static_dir` 下按 `main_id` 前缀的目录（如 `admin-avatars/{main_id}`、知识库文档目录） |
+| MongoDB | 所有带 `tenant_id` 的集合 | ⚠️ 现有 `setup_cleanup.py::SETUP_SCOPED_COLLECTIONS` **只有 17 个**，而两个服务共有 **72 个集合常量**，远超该清单。必须重新盘点生成完整的 `TENANT_SCOPED_COLLECTIONS`（建议用脚本扫描 `db.list_collection_names()` 抽样含 `tenant_id` 的集合，人工确认后固化） |
+| Weaviate | 向量数据 | chat-api 的知识检索按 `tenantId` 过滤（`knowledge/retrieval/retrieval_client.py:45`），只删 Mongo 会留下向量残留在库中，必须一并清除 |
+| 文件存储 | 磁盘文件 | `knowledge_local_storage_dir` / `admin_static_dir` 下按 `tenant_id` 前缀的目录（如 `admin-avatars/{tenant_id}`、知识库文档目录） |
 
 **执行方式**：
 
@@ -387,12 +387,12 @@ if not summary.get("unlimited") and int(summary.get("remainingPoints") or 0) <= 
 - purge 成功后 `tenants` 中仅剩墓碑记录（`status = "purged"` + `purged_at`）
 - **保留 1 个月**，到期由定时清理任务物理删除该条记录
 - 清理任务可复用 admin-api 既有的 `scheduled_tasks` 机制，或随 `bootstrap_directory()` 一类启动钩子做惰性清理
-- 墓碑期间该 `main_id` 不可复用（创建租户时 `_next_main_id()` 本就随机生成，不会撞）
+- 墓碑期间该 `tenant_id` 不可复用（创建租户时 `_next_tenant_id()` 本就随机生成，不会撞）
 
 ### 7.5 其他配套
 
-- 各业务查询的租户枚举（现为 `distinct("main_id")`，不过滤状态）需改为先取 `tenants` 中 `status == "active"` 的 main_id 列表 —— 涉及 `directory_bootstrap.py:15` 与 `employee_tenant_identity.py:37,40`
-- `setup_cleanup.py::cleanup_failed_setup()` **保留原职责**：仅用于 provision 失败回滚，与上述 purge 是两套逻辑；需收紧 main_id 格式校验，并改为按"本次实际写入的集合"回滚
+- 各业务查询的租户枚举（现为 `distinct("tenant_id")`，不过滤状态）需改为先取 `tenants` 中 `status == "active"` 的 tenant_id 列表 —— 涉及 `directory_bootstrap.py:15` 与 `employee_tenant_identity.py:37,40`
+- `setup_cleanup.py::cleanup_failed_setup()` **保留原职责**：仅用于 provision 失败回滚，与上述 purge 是两套逻辑；需收紧 tenant_id 格式校验，并改为按"本次实际写入的集合"回滚
 
 ### 7.6 授权 / 许可计数（决策 18）
 
@@ -402,7 +402,7 @@ if not summary.get("unlimited") and int(summary.get("remainingPoints") or 0) <= 
 
 ### 7.7 重置密码（决策 14）
 
-`POST /api/platform/tenants/{main_id}/admin/reset-password`：重置后**不强制**租户管理员首次登录改密。
+`POST /api/platform/tenants/{tenant_id}/admin/reset-password`：重置后**不强制**租户管理员首次登录改密。
 
 ---
 
@@ -423,13 +423,13 @@ if not summary.get("unlimited") and int(summary.get("remainingPoints") or 0) <= 
 ```
 POST   /api/platform/tenants                                  开租户
 GET    /api/platform/tenants                                  列表（分页 / 搜索 / 状态筛选）
-GET    /api/platform/tenants/{main_id}                        详情（仅生命周期字段）
-PATCH  /api/platform/tenants/{main_id}                        改名 / 启停 / 成员上限
-POST   /api/platform/tenants/{main_id}/admin/reset-password   重置租户内管理员密码（不强制改密）
-DELETE /api/platform/tenants/{main_id}                        软归档
-POST   /api/platform/tenants/{main_id}/restore                恢复
-POST   /api/platform/tenants/{main_id}/purge                  彻底清理（仅 archived 可执行）
-GET    /api/platform/tenants/{main_id}/purge-status           清理进度
+GET    /api/platform/tenants/{tenant_id}                        详情（仅生命周期字段）
+PATCH  /api/platform/tenants/{tenant_id}                        改名 / 启停 / 成员上限
+POST   /api/platform/tenants/{tenant_id}/admin/reset-password   重置租户内管理员密码（不强制改密）
+DELETE /api/platform/tenants/{tenant_id}                        软归档
+POST   /api/platform/tenants/{tenant_id}/restore                恢复
+POST   /api/platform/tenants/{tenant_id}/purge                  彻底清理（仅 archived 可执行）
+GET    /api/platform/tenants/{tenant_id}/purge-status           清理进度
 GET    /api/platform/system/health                            服务健康（只读）
 ```
 
@@ -439,7 +439,7 @@ GET    /api/platform/system/health                            服务健康（只
 
 admin-api 81 处 + chat-api 33 处，集中在 `knowledge_documents.py`(27)、`skills.py`(17)、`tools.py`(11)、`analytics.py`(5)、`hooks.py`(4)。
 
-- **短期（必做）**：`deps.py::get_current_admin_user` 入口强校验 —— `main_id` 为空、等于 `default`、或等于 `__platform__` 时按路由类型分别拒绝，兜底永不触发
+- **短期（必做）**：`deps.py::get_current_admin_user` 入口强校验 —— `tenant_id` 为空、等于 `default`、或等于 `__platform__` 时按路由类型分别拒绝，兜底永不触发
 - **长期**：逐模块把 `or "default"` 改为显式必填参数
 
 ---
@@ -463,8 +463,8 @@ admin-api 81 处 + chat-api 33 处，集中在 `knowledge_documents.py`(27)、`s
 **公共**
 
 - **`views/platform/SystemHealthPage.vue`**：服务健康只读展示
-- `router/routes.ts` 增加 `/platform` 路由组（现有路由只有 `public` 标记，无角色体系，平台页按 `mainId === '__platform__'` 控制显隐）
-- 登录页增加"平台管理员"入口，提交 `mainId: "__platform__"`
+- `router/routes.ts` 增加 `/platform` 路由组（现有路由只有 `public` 标记，无角色体系，平台页按 `tenantId === '__platform__'` 控制显隐）
+- 登录页增加"平台管理员"入口，提交 `tenantId: "__platform__"`
 - 配额展示支持"不限额"
 
 ---
@@ -483,7 +483,7 @@ admin-api 81 处 + chat-api 33 处，集中在 `knowledge_documents.py`(27)、`s
 | **8** | 租户管理 API + 平台前端页（`TenantCreateForm`、列表、空状态引导） | 6 |
 | **9** | 归档 + 恢复 + 归档租户禁止登录 + 租户枚举排除非 active | 8 |
 | **10** | **彻底清理（purge）**：盘点 `TENANT_SCOPED_COLLECTIONS` + Weaviate 向量 + 文件存储，异步任务与进度 | 9 |
-| **11** | `deps` 入口 main_id 强校验 | 6 |
+| **11** | `deps` 入口 tenant_id 强校验 | 6 |
 
 **原"阶段 0 初始化简化"已并入阶段 2**，不再作为独立前置。
 
