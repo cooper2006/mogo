@@ -42,6 +42,13 @@ export class RuntimeManager {
     return runtime
   }
 
+  // Non-throwing lookup for the cross-replica probes (§12.4): a replica that
+  // does not hold the runtime must be able to answer "owned: false" /
+  // "seed: null" instead of raising.
+  findByRuntimeId(runtimeId) {
+    return this.#runtimes.get(runtimeId)
+  }
+
   findByIsolation(isolationKey) {
     const runtimeId = this.#isolationOwners.get(isolationKey)
     return runtimeId === undefined ? undefined : this.#runtimes.get(runtimeId)

@@ -4,7 +4,7 @@ import { validBearerToken, assertSecureHost } from './host-auth.mjs'
 import { runtimeHealth } from './host-protocol.mjs'
 import { readJson, routeParts, sendJson } from './http-utils.mjs'
 import { RuntimeManager } from './runtime-manager.mjs'
-import { resolveSessionSeed } from './session-seed.mjs'
+import { resolveSessionSeed, sealSeed } from './session-seed.mjs'
 
 export class RuntimeHttpServer {
   #server
@@ -99,6 +99,43 @@ export class RuntimeHttpServer {
       await this.#manager.dispose(runtimeId)
       return sendJson(response, 200, { disposed: true })
     }
+    // Cross-replica session probes (§12.4) run *before* the runtime is
+    // resolved: a replica that does not hold the runtime must answer
+    // "owned: false" (B) or "seed: null" (A) instead of 400 "runtime not
+    // found", otherwise the pool-wide probe stops at the first replica it
+    // asks.
+    if (parts[3] === 'sessions' && parts[4] !== undefined) {
+      const sessionId = decodeURIComponent(parts[4])
+      if (request.method === 'GET' && parts[5] === 'owner' && parts.length === 6) {
+        const local = this.#manager.findByRuntimeId(runtimeId)
+        return sendJson(response, 200, {
+          owned: local !== undefined && local.ownsSession(sessionId),
+          instanceId: this.instanceId,
+          runtimeId,
+          sessionId,
+        })
+      }
+      if (request.method === 'GET' && parts[5] === 'export-seed' && parts.length === 6) {
+        const local = this.#manager.findByRuntimeId(runtimeId)
+        if (local === undefined) {
+          return sendJson(response, 404, { seed: null, instanceId: this.instanceId })
+        }
+        try {
+          const seed = await local.exportCompletedSeed(sessionId)
+          return sendJson(response, 200, sealSeed(
+            this.authToken,
+            this.instanceId,
+            sessionId,
+            seed,
+          ))
+        } catch (error) {
+          if (/session is not live/.test(String(error))) {
+            return sendJson(response, 404, { seed: null, instanceId: this.instanceId })
+          }
+          throw error
+        }
+      }
+    }
     const runtime = this.#manager.get(runtimeId)
     if (request.method === 'GET' && parts.length === 3) return sendJson(response, 200, this.#manager.describe(runtime))
     if (parts[3] === 'workspaces') {
@@ -124,7 +161,7 @@ export class RuntimeHttpServer {
     if (request.method === 'POST' && parts[3] === 'sessions' && parts.length === 4) {
       let body = await readJson(request)
       if (Object.hasOwn(body, 'cwd')) throw new Error('raw cwd is forbidden over the Runtime Host API; use workspaceId')
-      body = await resolveSessionSeed(this.#manager, body)
+      body = await resolveSessionSeed(this.#manager, body, { authToken: this.authToken })
       if (body.presetId === 'code') {
         if (body.workspaceId === undefined) throw new Error('Code Session requires a DSH workspaceId')
         if (body.permissionPreset !== undefined && body.permissionPreset !== 'workspace-write') {

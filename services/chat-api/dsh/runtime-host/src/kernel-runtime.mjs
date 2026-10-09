@@ -278,6 +278,13 @@ export class KernelRuntime {
     return await this.describeSession(this.#requireAgent(sessionId))
   }
 
+  // Multi-replica ownership probe (§12.4 option B). A replica that does not
+  // hold a session must answer false instead of throwing, so the caller can
+  // probe every replica and learn which one owns the session.
+  ownsSession(sessionId) {
+    return this.#handles.has(sessionId)
+  }
+
   async upgradeContractInventory(sessionId) {
     const agent = this.#requireAgent(sessionId)
     const assembly = await this.#ctx.systemPrompt.assemble(assembleContextFor(agent))
