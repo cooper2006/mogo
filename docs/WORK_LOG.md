@@ -7402,3 +7402,43 @@ R-01/R-02/R-03/R-05 四条问题全部消除。方案 §12.4 核心开放问题�
 **残留缺口（如实记录）**：仍有 3/147 `session:400`——consistent hash 在 upstream 集合变更时的固有重映射窗口：create 落在副本 B、紧随的 session 请求被映射到副本 C，C 上没有该 runtime。**这是短暂窗口、重试可恢复**（`discover` 能找回 runtime，已实测重试 201），与 R1 解决的「turn 被强制取消」是不同量级的问题。
 
 **提交**：`806b51d`（R1）、`a597aaa` + `66b382c`（L3）、`774c47e`（LB failover）
+
+---
+
+## 2026-10-09 方案 1：跨副本自动转交（滚动升级可用性 → 100%）
+
+**起因**：上一轮 LB failover 把滚动升级可用性从 87% 提到 98%，残留 3/147 `session:400`——consistent hash 在 upstream 集合变更时重映射一部分 key，请求落到不持有该 runtime 的副本，host 直接回 400 `runtime not found`。用户选择方案 1（host 端错副本自动转交）治本。
+
+**根因**：不是"hash 算错"，而是**两个副本对同一 isolation key 给出不同答案**——chat-api 已经在请求里带了 isolation key，host 完全有能力"我不是 owner 就去问别人"，但它只会回 400。
+
+**改动**：新增 `replica-forward.mjs` + 接入 `runtime-http-server.mjs`
+
+| 组件 | 作用 |
+|---|---|
+| `GET /v1/runtimes/{id}/holds` | **runtime 级**归属探针（非 session 级）。未持有的副本也回 200 `{holds:false}`，保证探测不提前中断 |
+| `findOwnerByIsolation` | 优先按 isolation key 定位 owner——每次调用都带、且跨副本重启稳定（runtimeId 会变） |
+| `findOwner` | 退化为按 runtimeId 探测（无 isolation key 时） |
+| `forwardRequest` | 原样转发 method/body/authorization，带 `x-dsh-forward-hops`；达 `MAX_HOPS=2` 拒绝转发（508）防环 |
+| `#handOff` | runtime 本地缺失时触发；owner 的 runtimeId 不同则改写路径为对方自己的 id |
+| draining 重试 | 转发收到 `503 service_draining`（R1 drain guard）**不透传**，改试下一个 owner |
+
+`DSH_RUNTIME_PEERS` 注入 pool 成员（compose 三个固定服务名），`DSH_RUNTIME_SELF_URL` 排除自身。
+
+**踩坑（已修 + 回归测试覆盖）**：转交后若无 owner，代码回落到本地 `manager.get()` 抛错，而顶层 catch **无条件** `sendJson` → 响应已发出后再写头 → `ERR_HTTP_HEADERS_SENT` **直接把进程打挂**（实测 host-1 反复重启）。两处修复：
+1. catch 里判断 `headersSent`/`writableEnded` 再决定是否回包
+2. 请求体改为 `readBody` **预缓冲一次**，转交与本地路径共用同一 buffer（流只能读一次）
+
+**E2E**：runtime 建在 host-2，把 session/send **直发 host-1、host-3** → 201/202 且 `x-dsh-forwarded-to` 指向 host-2；未知 runtime 仍 400 诚实失败；到达 hop 上限不转发；归属仍只有 host-2。
+
+**滚动升级实测（逐个重启 3 副本）**：
+
+| 指标 | 基线 | LB failover | **+ 方案 1** |
+|---|---|---|---|
+| 成功率 | 87.0% | 98.0% | **100.0%**（159/159） |
+| 失败数 | 12 | 3 | **0** |
+| P95 延迟 | 3378 ms | 330 ms | **284 ms** |
+| journal 校验 | — | — | 24 started / 24 ended / **0 cancelled** |
+
+**副产物**：转交让哈希分布更均衡——本轮播种 50 用户首次**分布到全部 3 个副本**（16/14/20），而此前只落在 2 个副本上。
+
+**提交**：`e39dfb6`。测试：host 侧 112 项全过（+13）。
