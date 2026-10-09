@@ -7327,3 +7327,78 @@ E2E 首轮（3 并发 create 同 isolationKey 经真实 LB）暴露 **host 侧�
 - M1（卷隔离）：`fddc97a`
 
 R-01/R-02/R-03/R-05 四条问题全部消除。方案 §12.4 核心开放问题（M1 卷隔离后跨副本 resume）已由 §12.4 A+B 兜底解决。Phase 3/4（压测、优雅上下线、跨版本灰度、背压）按方案延后，不阻塞"多副本安全可用"。
+
+---
+
+## 2026-10-09 Phase 3/4：R1 优雅上下线 + L3 背压 + 压测与演练
+
+**起因**：用户要求继续做 Phase 3/4。范围确认为 **R1 优雅上下线 + 压测 + 演练 + L3 背压**。
+
+### R1 优雅上下线（两阶段关闭）
+
+**问题**：`docker compose restart` 给副本发 SIGTERM 时，host 立即 `disposeAll()`，正在跑的 turn 被强制取消——滚动升级会打断用户正在进行的工作。
+
+**改动**（host 侧 5 文件 + compose + chat-api 聚合）：
+- `runtime-http-server.mjs`：新增 `#state`/`#draining`，`POST /drain` 端点，drain 期间对新建 runtime / session / workspace 返回 `503 service_draining`；`stop()` 先 `#drain()`（等 in-flight turn，上限 `DRAIN_WAIT_MS=30000`）再 dispose；`/health` 带 `state` 字段
+- `kernel-runtime.mjs`：`ownsSession()`、`activeSessionCount()`、`whenSessionsIdle({intervalMs,timeoutMs})`
+- `runtime-manager.mjs`：`activeSessionCount()`/`whenSessionsIdle()` 聚合
+- `host-protocol.mjs`：`HOST_STATES{ready,draining}`、`runtimeHealth(inventory, instanceId, state)`
+- `main.py`：`/health` 的 `dsh_hosts` detail 增加 `state`
+- `docker-compose.yml`：host `stop_grace_period: 45s`（给 drain 留出时间）
+- 单测 `runtime-drain.test.mjs`（3 项）
+
+**E2E 验证（两段）**：
+- **part 1（drain 语义）**：host-2 建 session 后发 `[slow]` turn（deterministic 模型 1.5s 延迟，确保 turn 真在途）→ 中途 `POST /drain` → 新 create 被 `503 service_draining` 拒绝 → **在途 turn 正常完成**（journal 出现 `turn/end`，无 `turn/cancelled`）
+- **part 2（SIGTERM 语义）**：发 `[slow]` turn 期间执行 `docker compose restart dsh-runtime-host-2` → 重启后 resume session → journal `completed=True cancelled=False`，`PASS: SIGTERM restart let the in-flight turn settle`
+
+### L3 背压（turn 级信号量）
+
+**问题**：多副本后 LLM 网关负载随副本数线性放大，缺少进程级并发闸门。
+
+**改动**：新增 `turn_backpressure.py`（`TurnBackpressure`，`asyncio.Semaphore` + `in_flight`/`waiting` 计数）；`gateway.backpressure` 普通公开属性；`turn_runner.run()` 入口 acquire、`finally` release（**整个 turn 周期持有**：send + stream + finalize，慢 turn 挡的是 slot 而不是只挡 send）；`DSH_RUNTIME_TURN_MAX_CONCURRENT`（默认 32，0=关闭）；4 项单测。
+
+**踩坑**：首次把 `backpressure` 写成只读 `property`（无 setter），`application` 装配时抛 `AttributeError` 导致 chat-api 启动失败 → 改为 `__init__` 里初始化的普通公开属性（`66b382c`）。
+
+**回归**：`tests/dsh_runtime/` 失败清单与 M2 基线一致（9 项既有失败），无新增回归。
+
+### 压测（200 并发 × 1 会话）
+
+**路径**：经 LB（sticky by `X-Isolation-Key`，与 chat-api transport 一致）直连 3 副本池。
+
+| 指标 | 结果 |
+|---|---|
+| 成功 | **200/200** |
+| P50 / P95 / P99 | 31874 / 34703 / **35067 ms** |
+| 总耗时 | 36.16 s |
+| **会话亲和性违规** | **0**（20 抽样全部恰好 1 个 owner） |
+
+**踩坑**：初版脚本没带 `X-Isolation-Key`，LB 退化为 `$request_id` 随机分发，create/session 落到不同副本 → 150/200 失败（`runtime not found`）。带上 header 后全通。**这从反面证明了 sticky header 是该拓扑的硬前提**。
+
+### 演练（滚动升级）
+
+**权威判据**：M1 卷上的 `session.v4.jsonl` journal——统计 `turn/start` / `turn/end` / `turn/cancelled`。这比 HTTP 视角可靠：重启后 LB discover 返回的是**新建的空 runtime**，而旧 runtime 的 journal 仍在卷上。
+
+| 演练 | 副本 | started | ended | **cancelled** | 结果 |
+|---|---|---|---|---|---|
+| 单副本重启 | host-2 | 38 | 38 | **0** | PASS |
+| 全量滚动（3 副本逐个） | host-1/2/3 | 60 | 60 | **0** | PASS |
+
+**诚实记录**：重启后该副本的**内存态 runtime 确实消失**（这是内存态 kernel 的固有事实，非数据丢失）——journal 保留在 M1 卷上，chat-api 通过 §12.4 密封 seed / resume 路径重建。
+
+### LB 故障转移（演练中发现的缺口）
+
+**问题**：滚动 3 副本期间可用性只有 **87.0%**（92 次尝试，11 次 `create:502`），P95 延迟 3378ms。原因是副本刚被 stop 时 `max_fails/fail_timeout` 尚未触发，nginx 仍认为它 up 并把请求转过去。
+
+**改动**：`dsh-runtime-lb.conf` 加 `proxy_next_upstream error timeout http_502 http_503 http_504`（`tries 2`，`timeout 5s`）——同一请求内转移到健康 upstream。只重试「上游已消失」类条件，副本返回的 4xx 是真实答复，不重试。
+
+**效果**：
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| 成功率 | 87.0% | **98.0%** |
+| create:502 | 11 | **0** |
+| P95 延迟 | 3378 ms | **330 ms** |
+
+**残留缺口（如实记录）**：仍有 3/147 `session:400`——consistent hash 在 upstream 集合变更时的固有重映射窗口：create 落在副本 B、紧随的 session 请求被映射到副本 C，C 上没有该 runtime。**这是短暂窗口、重试可恢复**（`discover` 能找回 runtime，已实测重试 201），与 R1 解决的「turn 被强制取消」是不同量级的问题。
+
+**提交**：`806b51d`（R1）、`a597aaa` + `66b382c`（L3）、`774c47e`（LB failover）
