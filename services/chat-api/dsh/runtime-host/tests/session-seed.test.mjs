@@ -46,6 +46,26 @@ test('a sealed cross-replica seed is accepted when the MAC matches', async () =>
   assert.ok(!('seedSourceInstanceId' in resolved))
 })
 
+test('an export-seed response shipped verbatim is accepted', async () => {
+  // The GET export-seed endpoint returns sealSeed's shape; the caller ships
+  // it straight back into POST sessions. The source session id rides along
+  // as seedSourceSessionId and is promoted to parentSessionId on arrival.
+  const events = [{ type: 'message', data: { role: 'user', content: 'prior context' } }]
+  const manager = { exportCompletedSeed: async () => assert.fail('must stay remote') }
+  const sealed = sealSeed(TOKEN, 'instance-b', 'session-old', events)
+  const { seedSignature, seedSourceInstanceId, seedSourceSessionId, ...rest } = sealed
+  const wireBody = {
+    ...rest,
+    seedSignature,
+    seedSourceInstanceId,
+    seedSourceSessionId,
+  }
+  delete wireBody.parentSessionId
+  const resolved = await resolveSessionSeed(manager, { sessionId: 'next', ...wireBody }, { authToken: TOKEN })
+  assert.deepEqual(resolved.seed, events)
+  assert.equal(resolved.parentSessionId, 'session-old')
+})
+
 test('a sealed seed signed with a different token is rejected', async () => {
   const events = [{ type: 'message', data: { role: 'user', content: 'prior context' } }]
   const manager = { exportCompletedSeed: async () => [] }

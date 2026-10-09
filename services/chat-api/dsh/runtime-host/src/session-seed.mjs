@@ -11,10 +11,18 @@ export async function resolveSessionSeed(manager, input, { authToken = '' } = {}
     // below rejects anything not produced by this pool's token, and the
     // source identity is pinned to the MAC so a replayer cannot retarget the
     // seed at a different session.
+    const sourceSessionId = String(body.seedSourceSessionId ?? '')
     verifySeededSession(body, authToken)
     delete body.seedSignature
     delete body.seedSourceInstanceId
     delete body.seedSourceSessionId
+    if (Object.hasOwn(body, 'parentSessionId')) {
+      // Caller supplied it; the MAC already bound it to the source.
+    } else {
+      // Convenience: the export endpoint's seal shape carries the source
+      // session id, so callers can ship the export response verbatim.
+      body.parentSessionId = sourceSessionId
+    }
     return body
   }
   if (Object.hasOwn(body, 'parentSessionId')) {
