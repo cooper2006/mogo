@@ -30,9 +30,20 @@ export class RuntimeManager {
       storageRoot: this.storageRoot,
       modelProfile: normalizeModelProfile(modelProfile, profileVersion),
     })
-    await runtime.start()
+    // Claim the isolation key *before* the async start so two concurrent
+    // creates cannot both pass the check above: the second sees the owner
+    // entry and fails fast with "already has a runtime" instead of forking
+    // a second kernel for the same isolation key. Roll both registrations
+    // back if the start itself fails.
     this.#runtimes.set(runtimeId, runtime)
     this.#isolationOwners.set(isolationKey, runtimeId)
+    try {
+      await runtime.start()
+    } catch (error) {
+      this.#runtimes.delete(runtimeId)
+      this.#isolationOwners.delete(isolationKey)
+      throw error
+    }
     return runtime
   }
 
