@@ -23,6 +23,7 @@ from .credential_lease import KeyedAsyncLock
 from .errors import DshNotFoundError, DshProtocolError, DshTransportError
 from .event_mapper import DshEventMapper
 from .transport import KernelHostTransport
+from .turn_backpressure import TurnBackpressure
 from .temporal_context import build_temporal_context
 
 
@@ -78,6 +79,14 @@ class DshAgentKernelGateway(AgentKernelContract):
         self._runtimes: dict[str, _RuntimeBinding] = {}
         self._profile_resolver = profile_resolver
         self._credential_refresh_locks = KeyedAsyncLock()
+        # L3: the backpressure cap is owned by the coordinator so one cap
+        # spans the whole process (all runtimes, all sessions). The gateway
+        # acquires/releases the slot around each turn.
+        self._backpressure: TurnBackpressure | None = None
+
+    @property
+    def backpressure(self) -> TurnBackpressure | None:
+        return self._backpressure
 
     def _isolation_key(self, runtime_id: str) -> str | None:
         """The stable sticky key for a runtime, when it is known.

@@ -58,6 +58,7 @@ class DshTurnRunner:
         execution_evidence: ExecutionEvidenceRepository | None = None,
         authoritative_deliveries: DeliveryStore | None = None,
         credential_refresh_interval_seconds: float = 240.0,
+        backpressure: "TurnBackpressure | None" = None,
     ) -> str:
         self._gateway = gateway
         self._conversations = conversations
@@ -70,6 +71,7 @@ class DshTurnRunner:
         self._finalizer = TurnStateFinalizer(bindings, conversations)
         self._credential_refresh_interval_seconds = credential_refresh_interval_seconds
         self._mapper = DshEventMapper(kernel_version=kernel_version)
+        self._backpressure = backpressure or getattr(gateway, "backpressure", None)
 
     async def run(
         self,
@@ -108,6 +110,10 @@ class DshTurnRunner:
             session_id=str(binding["kernel_session_id"]),
             interval_seconds=self._credential_refresh_interval_seconds,
         )
+        # L3: hold a backpressure slot for the whole turn so a slow turn
+        # blocks its slot, not just the send call.
+        if self._backpressure is not None:
+            await self._backpressure.acquire()
         try:
             profile = await self._profiles.get(str(binding["profile_version"]))
             tool_ui = tool_presentations(profile)
@@ -286,6 +292,8 @@ class DshTurnRunner:
                     flush=True,
                 )
         finally:
+            if self._backpressure is not None:
+                self._backpressure.release()
             await credential_lease.stop()
             if browser_intervention is not None and status == "completed":
                 await self._conversations.suspend_active_run(

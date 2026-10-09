@@ -15,6 +15,7 @@ from app.dsh_runtime.errors import DshRuntimeError
 from app.dsh_runtime.gateway import DshAgentKernelGateway
 from app.dsh_runtime.model_gateway.token import ModelGatewayTokenService
 from app.dsh_runtime.runtime_lock import RuntimeLock
+from app.dsh_runtime.turn_backpressure import TurnBackpressure
 from app.dsh_runtime.tool_gateway.token import ToolGatewayTokenService
 from app.dsh_runtime.profile.catalog import MongoModelCatalog
 from app.dsh_runtime.session_affinity import SessionAffinityCache
@@ -78,6 +79,9 @@ class DshRuntimeApplication:
             kernel_version=self.KERNEL_VERSION,
             profile_resolver=resolver,
         )
+        # L3 backpressure: cap concurrent in-flight turns per chat-api
+        # process so LLM load does not scale linearly with replica count.
+        gateway.backpressure = TurnBackpressure(settings.DSH_RUNTIME_TURN_MAX_CONCURRENT)
         conversations = ConversationRepository(db)
         bindings = KernelBindingRepository(db)
         events = KernelEventRepository(db)

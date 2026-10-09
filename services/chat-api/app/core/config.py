@@ -142,6 +142,11 @@ class Settings(BaseSettings):
     # degrades to uncoordinated creation when it is empty or unreachable.
     DSH_RUNTIME_DISTRIBUTED_LOCK: bool = True
     DSH_RUNTIME_LOCK_TTL_SECONDS: float = 30.0
+    # L3 backpressure: cap on concurrent in-flight DSH turns per chat-api
+    # process. 0 disables the cap (legacy unbounded behaviour). Set when
+    # scaling chat-api so the LLM gateway's load grows sub-linearly with
+    # replica count.
+    DSH_RUNTIME_TURN_MAX_CONCURRENT: int = 32
 
     # SkillHub is a server-owned distribution source. Model-supplied URLs are
     # never fetched; only validated slugs are sent to this configured API.
