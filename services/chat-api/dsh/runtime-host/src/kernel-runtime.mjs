@@ -285,6 +285,30 @@ export class KernelRuntime {
     return this.#handles.has(sessionId)
   }
 
+  // Graceful drain support (R1): how many live sessions still have a busy
+  // agent (an in-flight turn). Draining waits for this count to reach zero
+  // (or a timeout) before disposing, so rolling upgrades no longer cancel
+  // active turns. A session that is idle is not a hazard: dispose() is safe
+  // for it and its state is persisted on disk.
+  activeSessionCount() {
+    let busy = 0
+    for (const handle of this.#handles.values()) {
+      if (handle.agent.status === 'busy') busy += 1
+    }
+    return busy
+  }
+
+  // Resolve when every live session is idle. `onTick` is called after each
+  // poll with the remaining busy count; returning true ends the wait early.
+  async whenSessionsIdle({ intervalMs = 200, timeoutMs = 60_000 } = {}) {
+    const deadline = Date.now() + timeoutMs
+    while (this.activeSessionCount() > 0) {
+      if (Date.now() >= deadline) return false
+      await new Promise(resolve => setTimeout(resolve, intervalMs))
+    }
+    return true
+  }
+
   async upgradeContractInventory(sessionId) {
     const agent = this.#requireAgent(sessionId)
     const assembly = await this.#ctx.systemPrompt.assemble(assembleContextFor(agent))

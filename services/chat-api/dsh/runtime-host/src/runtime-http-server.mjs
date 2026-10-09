@@ -1,15 +1,19 @@
 import { createServer } from 'node:http'
 
 import { validBearerToken, assertSecureHost } from './host-auth.mjs'
-import { runtimeHealth } from './host-protocol.mjs'
+import { HOST_STATES, runtimeHealth } from './host-protocol.mjs'
 import { readJson, routeParts, sendJson } from './http-utils.mjs'
 import { RuntimeManager } from './runtime-manager.mjs'
 import { resolveSessionSeed, sealSeed } from './session-seed.mjs'
+
+const DRAIN_WAIT_MS = 30_000
 
 export class RuntimeHttpServer {
   #server
   #manager
   #started = false
+  #state = HOST_STATES.ready
+  #draining = false
 
   constructor({ host = '127.0.0.1', port = 0, storageRoot, authToken = '', instanceId = '' }) {
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('port must be an integer from 0 to 65535')
@@ -61,20 +65,71 @@ export class RuntimeHttpServer {
   async stop() {
     if (!this.#started) return
     this.#started = false
+    // R1 two-phase shutdown: first drain (stop accepting new work, let
+    // in-flight turns finish up to a bound) so a rolling upgrade no longer
+    // force-cancels active sessions; then close connections and dispose.
+    await this.#drain()
     const closed = new Promise(resolvePromise => this.#server.close(() => resolvePromise()))
     await this.#manager.disposeAll()
     this.#server.closeAllConnections()
     await closed
   }
 
+  // Phase 1 of shutdown: reject new work, wait for in-flight turns to settle.
+  async #drain() {
+    if (this.#draining) return
+    this.#draining = true
+    this.#state = HOST_STATES.draining
+    await this.#manager.whenSessionsIdle({ intervalMs: 200, timeoutMs: DRAIN_WAIT_MS })
+    // Any session still busy after the timeout is disposed in phase 2; its
+    // state is persisted so a later resume can recover it.
+  }
+
+  // Explicit drain trigger (R1): operations or the container's preStop hook
+  // can call POST /drain to start draining without killing the process,
+  // e.g. to let an active turn finish before a planned restart.
+  async #drainNow() {
+    await this.#drain()
+  }
+
+  get state() {
+    return this.#state
+  }
+
   async #dispatch(request, response) {
     const { parts, query } = routeParts(request)
     if (request.method === 'GET' && parts.join('/') === 'health') {
-      return sendJson(response, 200, runtimeHealth(this.#manager.inventory(), this.instanceId))
+      // /health stays 200 while draining so the sticky LB does not evict the
+      // replica mid-turn; the state field is the signal for operators and for
+      // chat-api's aggregation to treat the replica as unavailable for new
+      // work.
+      return sendJson(response, 200, runtimeHealth(this.#manager.inventory(), this.instanceId, this.#state))
+    }
+    if (request.method === 'POST' && parts.join('/') === 'drain') {
+      await this.#drainNow()
+      return sendJson(response, 200, {
+        state: this.#state,
+        activeSessions: this.#manager.activeSessionCount(),
+      })
+    }
+    // Drain guard: once the host is draining it must not take on new work.
+    // Existing sessions keep their in-flight turns (send/resume/cancel/
+    // events) so a rolling upgrade never force-cancels them; only new
+    // runtimes, new sessions and new workspaces are refused.
+    if (this.#state === HOST_STATES.draining && request.method === 'POST') {
+      const path = parts.join('/')
+      if (path === 'v1/runtimes'
+        || /^v1\/runtimes\/[^/]+\/sessions$/.test(path)
+        || /^v1\/runtimes\/[^/]+\/workspaces$/.test(path)) {
+        return sendJson(response, 503, {
+          error: { code: 'service_draining', message: `host is draining; new work is not accepted on ${path}` },
+          instanceId: this.instanceId,
+        })
+      }
     }
     if (request.method === 'POST' && parts.join('/') === 'v1/runtimes') {
       const runtime = await this.#manager.create(await readJson(request))
-      const health = runtimeHealth([], this.instanceId)
+      const health = runtimeHealth([], this.instanceId, this.#state)
       return sendJson(response, 201, {
         runtimeId: runtime.runtimeId,
         kernel: health.kernel,

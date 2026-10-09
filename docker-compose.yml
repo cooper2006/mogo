@@ -124,6 +124,10 @@ services:
     image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
+    # R1: on SIGTERM the host first drains (waits up to 30s for in-flight
+    # turns to finish) before disposing runtimes. The grace period must cover
+    # that drain window or docker kills the process and the drain is cut off.
+    stop_grace_period: 45s
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host
     volumes:

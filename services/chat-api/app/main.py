@@ -434,6 +434,7 @@ async def health_check():
         {
             "url": detail["url"],
             "healthy": detail["healthy"],
+            "state": (detail["detail"] or {}).get("state"),
             "instance_id": (detail["detail"] or {}).get("instanceId"),
             "runtimes": len((detail["detail"] or {}).get("runtimes") or []),
             "version": (detail["detail"] or {}).get("version"),

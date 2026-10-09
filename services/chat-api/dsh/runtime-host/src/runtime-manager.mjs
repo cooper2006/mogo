@@ -92,4 +92,22 @@ export class RuntimeManager {
   inventory() {
     return [...this.#runtimes.values()].map(runtime => this.describe(runtime))
   }
+
+  // R1 drain support: aggregate in-flight turns across all runtimes.
+  activeSessionCount() {
+    let total = 0
+    for (const runtime of this.#runtimes.values()) total += runtime.activeSessionCount()
+    return total
+  }
+
+  async whenSessionsIdle(options) {
+    // Poll until every runtime reports zero busy sessions, or the caller's
+    // timeout elapses. All runtimes share the same poll interval.
+    const deadline = Date.now() + (options?.timeoutMs ?? 60_000)
+    while (this.activeSessionCount() > 0) {
+      if (Date.now() >= deadline) return false
+      await new Promise(resolve => setTimeout(resolve, options?.intervalMs ?? 200))
+    }
+    return true
+  }
 }
