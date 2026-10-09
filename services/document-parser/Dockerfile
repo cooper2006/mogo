@@ -1,4 +1,8 @@
-ARG BASE_IMAGE=python:3.10-slim-bookworm@sha256:5be5aaecb962a41567bc8041f1e9e3432cb085b037fe057f9a562630b2e4b370
+# Base image by name, not digest: the digest form forces a registry manifest
+# lookup even when the image is already present locally, which fails outright
+# on an air-gapped or registry-restricted host. Pin by tag and let the local
+# image win; override BASE_IMAGE to pin a digest when reproducible pulls matter.
+ARG BASE_IMAGE=python:3.10-slim-bookworm
 FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
@@ -19,7 +23,11 @@ WORKDIR /app
 ARG INSTALL_SYSTEM_DEPS_AT_BUILD=true
 ARG INSTALL_PYTHON_DEPS_AT_BUILD=true
 ARG PYTORCH_ACCELERATOR=cpu
-ARG PYTORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
+# PyTorch CPU wheels: default to a domestic mirror. download.pytorch.org is
+# unreachable/slow from CN networks, and the CPU build only exists there (PyPI
+# ships the CUDA build), so this is the one index that cannot fall back to the
+# PyPI mirror. Override with PYTORCH_CPU_INDEX_URL to point anywhere else.
+ARG PYTORCH_CPU_INDEX_URL=https://mirror.sjtu.edu.cn/pytorch-wheels/cpu
 ARG PYTORCH_CUDA_INDEX_URL=
 ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
 ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
@@ -75,7 +83,7 @@ RUN if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
                     python -m pip install --progress-bar off --index-url "${PYTORCH_CPU_INDEX_URL}" "torch>=2.2.2,<3.0.0" "torchvision>=0,<1"; \
                 fi ;; \
             cu128|cu130) \
-                python -m pip install --progress-bar off --index-url "${PYTORCH_CUDA_INDEX_URL:-https://download.pytorch.org/whl/${PYTORCH_ACCELERATOR}}" "torch>=2.2.2,<3.0.0" "torchvision>=0,<1" ;; \
+                python -m pip install --progress-bar off --index-url "${PYTORCH_CUDA_INDEX_URL:-https://mirror.sjtu.edu.cn/pytorch-wheels/${PYTORCH_ACCELERATOR}}" "torch>=2.2.2,<3.0.0" "torchvision>=0,<1" ;; \
             default) \
                 echo "Skip PyTorch preinstall (PYTORCH_ACCELERATOR=default)" ;; \
             *) \
@@ -92,7 +100,9 @@ RUN if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
     && python -c "import torch; print(f'torch {torch.__version__}, cuda_available={torch.cuda.is_available()}, cuda={torch.version.cuda}')"
 
 ARG INSTALL_DOCLING_MODELS_AT_BUILD=true
-ARG MOVO_HF_ENDPOINT=
+# Only used when the offline model bundle is absent (placeholder): points the
+# HuggingFace client at a domestic mirror instead of huggingface.co.
+ARG MOVO_HF_ENDPOINT=https://hf-mirror.com
 ARG MOVO_HF_TIMEOUT=120
 # Offline model bundle: `docling-models-bundle.tar.gz` in the build context
 # (services/document-parser/), a tar.gz laid out exactly as /opt/docling/models

@@ -1,4 +1,8 @@
-ARG BASE_IMAGE=python:3.13-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+# Base image by name, not digest: the digest form forces a registry manifest
+# lookup even when the image is already present locally, which fails outright
+# on an air-gapped or registry-restricted host. Pin by tag and let the local
+# image win; override BASE_IMAGE to pin a digest when reproducible pulls matter.
+ARG BASE_IMAGE=python:3.13-slim-bookworm
 FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
@@ -22,9 +26,26 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 # the latest distro security patches; an empty or "false" value skips the
 # upgrade, which keeps this layer cacheable so a local rebuild does not
 # re-download every package.
+#
+# Point apt at a domestic mirror before the update: the default deb.debian.org
+# is slow or unreachable from CN networks, and the mirror is harmless when the
+# refresh is skipped.
+ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
+RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \
+        for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+            if [ -f "${source_file}" ]; then \
+                sed -i "s|http://deb.debian.org/debian|${MOVO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOVO_APT_MIRROR}|g" "${source_file}"; \
+                if [ -n "${MOVO_APT_SECURITY_MIRROR}" ]; then \
+                    sed -i "s|http://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g" "${source_file}"; \
+                fi; \
+            fi; \
+        done; \
+    fi
+
 ARG MOVO_SECURITY_REFRESH=
 RUN if [ -n "${MOVO_SECURITY_REFRESH}" ] && [ "${MOVO_SECURITY_REFRESH}" != "false" ]; then \
-        apt-get update \
+        apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
         && apt-get upgrade -y \
         && rm -rf /var/lib/apt/lists/*; \
     else \

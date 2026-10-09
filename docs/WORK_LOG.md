@@ -7442,3 +7442,78 @@ R-01/R-02/R-03/R-05 四条问题全部消除。方案 §12.4 核心开放问题�
 **副产物**：转交让哈希分布更均衡——本轮播种 50 用户首次**分布到全部 3 个副本**（16/14/20），而此前只落在 2 个副本上。
 
 **提交**：`e39dfb6`。测试：host 侧 112 项全过（+13）。
+
+---
+
+## DSH 多实例文档第二版（2026-10-09）
+
+- **基线**：`main` @ `36546a4`（第一版基线 `dc35112`，其间 34 个非合并提交）
+- **产出**：`deliverables/gstack/dsh-multi-instance-2026-10-09.md`（814 行，17 章 + 4 附录）
+- **范围**：全量更新 DSH 多实例改造文档，反映 2026-10-08 至 2026-10-09 的代码变化
+- **关键变化**：
+  - M1–M4（阻断项）全部落地：卷隔离（`fddc97a`）、分布式锁（`f1e68c5`）、全副本健康检查、归属缓存（`17f87c2`）
+  - R1–R4（建议项）全部落地：优雅 drain（`806b51d`）、归属查询接口、`DshAffinityError` 分类、结构化日志
+  - 新增能力：方案 1 跨副本自动转交（`e39dfb6`）、L3 turn 背压（`a597aaa`）、§12.4 A+B seed 重建、nginx 故障转移（`774c47e`）
+  - 3 副本从可选 profile 变为默认拓扑（`6179fb7`）
+  - 滚动升级可用性：87% → 98%（nginx 故障转移）→ 100%（方案 1 转交）
+- **遗留**：层 B（多 chat-api）进程内状态外置未解决；`org_id` 注入未解决
+
+---
+
+## 2026-10-09 打包新镜像并重启（构建源治理 + LB 缓存坑）
+
+**起因**：用户要求"打包生成新的镜像并重启服务"，并指出 document-parser 仍在从 `download.pytorch.org` 拉 torch，要求尽量换成国内源；同时要求基础镜像默认用 OrbStack 本地已有的裸镜像名。
+
+### 构建源治理
+
+**基础镜像去 digest 钉版**：`document-parser` / `chat-api` / `admin-api` 三个 Dockerfile 原来写成
+`FROM python:3.x-slim-bookworm@sha256:...`。digest 形式**即使本地已有该镜像也会强制查 registry manifest**，
+在受限网络上直接失败。改为裸名 `python:3.x-slim-bookworm`（本地四个基础镜像 sha256 与钉版完全一致，
+已逐一核对）。审计确认全仓 7 个 Dockerfile 的 4 个基础镜像（node / nginx / python:3.13 / python:3.10）**全部本地可用**。
+
+**PyTorch CPU 轮子换国内镜像**：torch 的 `--index-url` 显式覆盖了全局 PyPI 配置，是唯一无法跟随 PyPI 镜像的依赖
+（CPU 版只在 pytorch 官方 index 有，PyPI 上是 CUDA 版）。默认改为 `mirror.sjtu.edu.cn/pytorch-wheels/cpu`
+（实测 3.05 MB/s 可用），CUDA 分支同步改为镜像地址。
+
+**补齐遗漏的镜像配置**：
+- `admin-api`：原来只有 pip 清华源，apt 未改写 → 补 apt 清华镜像（仅 `MOVO_SECURITY_REFRESH` 启用时生效）
+- `gateway`（Alpine）：`apk upgrade` 走 `dl-cdn.alpinelinux.org` → 补 apk 清华镜像
+- `docker-compose.build.yml`：`MOVO_HF_ENDPOINT: ${MOVO_HF_ENDPOINT:-}` **会把空值传给 Dockerfile 覆盖其默认值** →
+  改为 `:-https://hf-mirror.com`；并显式暴露 `PYTORCH_CPU_INDEX_URL` 构建参数
+
+**最终源配置**：PyPI/apt = 清华，apk = 清华 alpine，npm = npmmirror，PyTorch = 交大，HuggingFace = hf-mirror。
+审计确认 Dockerfile 默认值中**已无外网直连**。
+
+### 消除重复构建
+
+`docker-compose.build.yml` 里 `document-api` 与 `document-worker` 通过 YAML 锚点 `*document-build` **共用同一份构建配置**
+（同一 context、同一 Dockerfile），且两者镜像名相同（都是 `document-parser`），只是 command 不同（`["api"]` / `["worker"]`）。
+Compose 因服务名不同而各建一遍 → 最慢的目标（docling + torch，6.1GB）被完整构建两次。
+改为只在 `document-api` 保留 build 定义，`document-worker` 复用同名镜像。构建目标 8 → 7。
+
+### 构建结果
+
+`./mogo build` 全部成功（exit 0），产物统一打 `36546a4`（= git short hash）：
+
+| 镜像 | 大小 |
+|---|---|
+| document-parser | 6.1 GB |
+| chat-api | 3.14 GB |
+| dsh-runtime-host | 1.04 GB |
+| admin-api | 378 MB |
+| user-web / admin-web | 38.3 / 37.8 MB |
+| gateway | 30.9 MB |
+
+**实测确认**：document-parser 走的是**离线 bundle**（日志 `Installing Docling models from offline bundle`），
+全程未访问 HuggingFace；torch 从交大镜像拉取。
+
+### 重启与踩坑：LB 缓存上游 IP
+
+`.env` 补齐 8 个服务的镜像变量并统一到 `36546a4`，`docker compose up -d` 全量重启，15 个容器 14 个 healthy。
+
+**踩中的坑**（与 10-09 白屏同源）：池副本被 recreate 后 IP 变化，但 **`dsh-runtime-host-lb` 已运行 5 小时，nginx 在启动时
+静态解析 upstream 只是首次有效**，导致带任意 sticky key 的请求**全部落到单副本 `dsh-runtime-host`**（12/12、6/6 探测）。
+`docker compose restart dsh-runtime-host-lb` 后恢复正常分布（`-1`: 7 / `-2`: 6 / `-3`: 2）。
+
+**经验（与 gateway 相同）**：凡 recreate 了 LB 的上游（`dsh-runtime-host-1/2/3`），必须同步重启 `dsh-runtime-host-lb`，
+否则路由全部塌陷到单副本。多副本部署期间 recreate 频繁，这是高频陷阱。

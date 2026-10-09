@@ -26,6 +26,11 @@ services:
       args:
         MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
 
+  # document-api and document-worker are the same image running different
+  # commands (["api"] vs ["worker"]) and share the same image name. Only
+  # document-api carries the build definition; document-worker reuses that
+  # image instead of building the identical context a second time, which
+  # previously doubled the slowest target in the build (docling + torch).
   document-api:
     pull_policy: build
     build: &document-build
@@ -36,16 +41,18 @@ services:
         INSTALL_PYTHON_DEPS_AT_BUILD: "true"
         INSTALL_DOCLING_MODELS_AT_BUILD: "true"
         PYTORCH_ACCELERATOR: cpu
+        # PyTorch CPU wheels come from a domestic mirror by default; the CPU
+        # build is not on PyPI, so this index cannot follow the PyPI mirror.
+        PYTORCH_CPU_INDEX_URL: ${PYTORCH_CPU_INDEX_URL:-https://mirror.sjtu.edu.cn/pytorch-wheels/cpu}
         MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
-        # Docling downloads its models from HuggingFace. Set MOVO_HF_ENDPOINT
-        # to a reachable mirror (for example https://hf-mirror.com) when the
-        # default endpoint is blocked; timeout controls the per-request budget.
-        MOVO_HF_ENDPOINT: ${MOVO_HF_ENDPOINT:-}
+        # Docling downloads its models from HuggingFace when the offline bundle
+        # is absent. Default to a domestic mirror so an online build does not
+        # stall on huggingface.co; override MOVO_HF_ENDPOINT to point elsewhere.
+        MOVO_HF_ENDPOINT: ${MOVO_HF_ENDPOINT:-https://hf-mirror.com}
         MOVO_HF_TIMEOUT: ${MOVO_HF_TIMEOUT:-120}
 
   document-worker:
     pull_policy: build
-    build: *document-build
 
   user-web:
     pull_policy: build
