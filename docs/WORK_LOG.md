@@ -7107,3 +7107,149 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **修改文件**：24 个 git 跟踪 md（`README.md`/`README.zh-CN.md`/`CHANGELOG.md`、`docs/` 下 8 个、`specs/` 下 12 个）+ 2 个未跟踪 `.workbuddy*/memory/`。
 
 **最终状态**：文档侧命名已统一；代码侧零改动（本轮仅文档）。**未提交**（与其他会话在途改动共存，需按文件分批暂存）。
+
+---
+
+## 2026-10-09 DSH 多副本实跑验证（Phase 1 效果 + R-05 复现）
+
+**起因**：为判断 Phase 2 的 M2（Redis 锁）是否值得排期，需先在多副本拓扑下实跑验证 —— 单副本无法暴露 R-02/R-03/R-04/R-05，Phase 1 声称的修复在此之前只在单实例上观察过。
+
+**拓扑**：`COMPOSE_PROFILES=runtime-pool` 起 `dsh-runtime-host-1/2/3`（均 `dsh-runtime-host:phase1`），chat-api（`tenant-clean`，含 Phase 1 提交 `4e6b78d`）指向三副本。**LB 未参与验证**（见下）。
+
+### 验证结果
+
+| 项 | 方法 | 结果 |
+|---|---|---|
+| **R4**（宿主标识） | 各副本日志 `instanceId` | ✅ 三副本各自上报 `dsh-runtime-host-1/2/3` |
+| **M3**（全副本健康检查） | `/health` 的 `dsh_hosts` | ✅ 三副本逐条明细（url/healthy/instance_id/version/error） |
+| **M3 容灾** | `stop dsh-runtime-host-1` 后查 `/ready` | ✅ 仍 200；明细标记该副本 `healthy=false` + `error=[Errno -2] Name or service not known`，聚合 `dsh_host` 仍 healthy |
+| **sticky hash 分布** | 300 个 isolationKey 落位统计 | ✅ 108/105/87 均衡，无偏斜（`hashlib.sha256` 生效，未退化） |
+| **R-05**（同 key 多 runtime） | **绕过 sticky，直接对三副本各发一次同 isolationKey 的 `POST /v1/runtimes`** | ❌ **复现**：三副本**各建一份** runtime（3 个不同 runtimeId，均 HTTP 201） |
+
+**R-05 实证细节**（这是本次最有价值的产出）：
+- 同一 `isolationKey=cross-replica-test` 在三副本各持有一份 runtime；`/health` 显示 `runtimes` 分别为 2/1/1。
+- host 侧**存在**单副本内唯一性约束：同 key 第二次创建被拒（`isolation key already has a runtime`），但该约束**只在本副本进程内生效**，跨副本无防护。
+- sticky 路由本身是**一致**的：`cross-replica-test` 的 sticky 落 idx2，discover 命中 host-3 的 `7b514e52`。所以 R-05 的语义不是"路由错乱"，而是**同一租户状态在多副本各存一份** —— 正常路径永远只看到一份，另两份成为永久孤儿。
+
+**结论：M2 的必要性得到证实**，但它防的是"副本被绕过/sticky 降级时产生分裂"，而非日常路径的失效。是否排期仍取决于是否启用多副本。
+
+### 两个环境事实（影响后续操作）
+
+1. **chat-api 无 Redis 客户端依赖**：`requirements.txt` 无 `redis`/`aioredis`；`app/` 里 3 处 "redis" 全是英文单词（`rediscovering`/`redistribute`）。故 M2 不只是"加个锁"，而是**给 chat-api 引入一条新基础设施依赖**（依赖 + 配置 + `runtime_lock.py` + 接入 `create_runtime` 关键路径）。
+2. **nginx 拉不到**：compose 原 `nginx:1.29.8-alpine` 在 registry 已不可获取（`Bad Gateway`）。已改为本地可用的 `nginx:1.31.5-alpine3.24-slim`。
+
+**LB 未参与**：`dsh-runtime-host-lb` 虽已用新 nginx 启动成功（healthy），但验证脚本第 3/4/5 步是让 chat-api **直连**各副本（`DSH_RUNTIME_HOSTS_URL`），不经 LB，故未纳入验证链。
+
+### 踩坑
+
+1. **误执行无参 `./mogo up`** → 触发按默认 tag 拉镜像（registry `denied`）。所幸拉取失败即中止，运行栈未被扰动（容器仍原镜像且 healthy）。后续一律用 `docker compose` + 显式镜像变量。
+2. **`docker compose up -d chat-api` 未指定镜像 tag** → chat-api 回落到 `chat-api:f58bca7`（**改名前的旧镜像**），启动时建 `main_id` 索引与库中 `tenant_id` 索引同名冲突（`IndexKeySpecsConflict`, code 86）→ 崩溃重启循环。用 `MOGO_CHAT_API_IMAGE=chat-api:tenant-clean` 恢复。
+   - 教训：本仓库 compose 的镜像 tag 由 `MOGO_<SERVICE>_IMAGE` / `MOGO_VERSION` 决定，**单服务重建时必须显式指定**，否则静默回落到 `latest`/git HEAD tag。
+
+**回退**：验证后已移除三副本与 LB 容器，恢复 compose 的 `DSH_RUNTIME_HOST_URL` 默认值；chat-api 用 `tenant-clean` 重建，栈回到单副本基线（`/health` 单条 `instance_id=dsh-runtime-host`、`runtimes=0`），测试数据（4 个 runtime）已全部 DELETE 清理。
+
+**修改文件**：`docker-compose.yml`（仅 LB 的 nginx 版本升级 1.29.8-alpine → 1.31.5-alpine3.24-slim）。
+
+**最终状态**：Phase 1 的 R4/M3 已在多副本下实证生效；R-05 已复现。栈已回单副本基线。**未提交**（nginx 升级待确认是否要保留）。
+
+---
+
+## 2026-10-09 DSH 多副本验证（补）：LB 纳入链路
+
+**起因**：上一轮虽然起了 LB，但 chat-api 配的是 `DSH_RUNTIME_HOSTS_URL` 直连三副本，LB 完全没走流量。真正的生产拓扑是 chat-api **只指向 LB**。补做。
+
+**关键前提（代码事实）**：`normalize_base_urls()` 中 `base_urls`（即 `DSH_RUNTIME_HOSTS_URL`）**优先于** `base_url`。故只要配了 HOSTS_URL，LB 就被静默绕过。正确配置是：**`DSH_RUNTIME_HOST_URL=LB` 且 `HOSTS_URL` 留空**。
+
+### 拓扑与结果
+
+| 项 | 结果 |
+|---|---|
+| LB 在链路中 | ✅ `/health` 的 `dsh_hosts` 仅 LB 一条 URL，但探测经 LB 轮询到了 `dsh-runtime-host-2`（证明流量穿过 LB） |
+| 创建时 sticky 分发 | ❌ **失效**：LB 日志 `isolation=-`、`key=<随机 request_id>`，落点随机 |
+| 显式 sticky_key 时 | ✅ LB 日志 `key=probe-B1`、`isolation=probe-B1`，**稳定落同一副本**（`.10`） |
+| LB 模式容灾 | ✅ 停掉 2 个副本（仅剩 1 个），`/ready` 仍 200 |
+
+### 发现的缺陷：create_runtime 未向 LB 传递隔离键
+
+**现象**：`POST /v1/runtimes` 经 LB 时，日志显示 `isolation=-`，`key` 为随机 request_id → LB 按 `$request_id` 随机分发，sticky 完全失效。
+
+**根因**（读代码确认，非推测）：
+- `runtime_routing_key()` 的 sticky key 来源只有三级：显式 `sticky_key` → `params["isolationKey"]`（**query string**）→ 路径中的 runtime_id/session_id。它**不读 request body**。
+- 而 `gateway.create_runtime()` 把 `isolationKey` 放在 **JSON body** 里（`payload["isolationKey"]`），调用 `transport.request()` 时**既未传 `sticky_key`，也未作为 `params`**。
+- 结果：创建请求既不携带 `X-Isolation-Key` header，也不产生 sticky key → LB 回落到 `$request_id` → 随机分发。
+
+**对照实验证实**：同一 transport 下，不传 sticky_key → `key=07abb5cf...`（随机）落点随机；传 `sticky_key=k` → `key=k`、`isolation=k` 稳定落同一副本（且重复创建被拒 `isolation key already has a runtime`，反证路由确实稳定命中持有者）。
+
+**影响**：仅影响 **LB 模式**。直连模式（HOSTS_URL）下 chat-api 自己用 `sticky_index()` 算落点，创建请求因无 sticky key 也会落到 `base_urls[0]`，但后续 discover 带 `params.isolationKey` 能算出正确索引 —— 上一轮直连验证中 sticky 一致性成立即为此原因。LB 模式没有这层兜底，故创建与后续请求可能落在**不同副本**。
+
+**另需注意**：chat-api 的 `sticky_index()`（`sha256 % count`）与 nginx 的 `hash ... consistent` 是**两套不同算法**，对同一 isolationKey 算出的副本并不一致（实测 `lb-key-1`：chat-api 算 idx0/host-1，LB 落到 `.12`/host-2）。故 LB 模式下**不应**同时配置 HOSTS_URL，否则两套路由并存会互相打架。
+
+**未修**：本轮为验证，未改代码。修复方向是让 `create_runtime` 在调 `transport.request` 时显式传 `sticky_key=request.isolation_key`（`discover_runtime` 已通过 `params` 正确传递，可作参照）。
+
+**回退**：已移除三副本与 LB 容器，恢复 compose 的 `DSH_RUNTIME_HOST_URL` 默认值；chat-api 用 `tenant-clean` 重建，栈回单副本基线（`/health` 单条 `instance_id=dsh-runtime-host`、`runtimes=0`），测试 runtime 全部清理（三副本均 0）。
+
+**修改文件**：无（验证轮；`docker-compose.yml` 的 nginx 升级仍为上一轮遗留，未变）。
+
+---
+
+## 2026-10-09 修复：create_runtime 未向 sticky 路由传递隔离键
+
+**缺陷**（上一轮 LB 验证发现）：LB 模式下 `POST /v1/runtimes` 日志显示 `isolation=-`、`key=<随机 request_id>` —— LB 拿不到隔离键，回落到 `$request_id` 随机分发，导致 runtime 创建在某副本、后续请求却路由到另一副本。
+
+**根因**：`runtime_routing_key()` 的 sticky key 只取三级来源（显式 `sticky_key` → `params["isolationKey"]` → 路径中的 runtime_id/session_id），**不读 request body**；而 `gateway.create_runtime()` 把 `isolationKey` 放在 JSON body，调 `transport.request()` 时既未传 `sticky_key` 也未传 `params`。
+
+**修复**：`gateway.py` 的 `create_runtime` 补 `sticky_key=request.isolation_key`（6 行，含注释）。`isolation_key` 是契约层的 `NonEmptyId`（min_length=1），非空有保证。全文件 16 处 `transport.request` 调用中仅此处遗漏，`dispose_runtime`/`discover_runtime` 等均已有正确写法可参照。
+
+**顺带发现：原测试覆盖的是假路径。** `test_multi_host_transport.py::test_create_and_use_runtime_stay_on_one_replica` 自己构造 `transport.request(..., params={"isolationKey": ...})` 来模拟创建，而**真实 `create_runtime` 从不传 `params`** —— 该测试断言的是生产代码从未发出的请求形状，因此缺陷能存活。故新增 `test_gateway_create_runtime_sends_isolation_header`，用 stub transport 驱动**真实 gateway**，断言发出的请求带 `X-Isolation-Key` header。
+
+**验证**：
+- 单测：目标文件 **30 passed**；gateway 相关三文件（`test_multi_host_transport` / `test_gateway_step2` / `test_runtime_host_e2e`）**38 passed**。
+- **反证**：临时撤销修复 → 新测试立刻失败（`X-Isolation-Key` 为 None），其余 29 仍通过 → 确认测试确实钉住该缺陷。
+- **回归对比**：`tests/dsh_runtime/` 全量 **9 failed / 339 passed**；`git stash` 后基线同样 **9 failed / 338 passed** → 那 9 个失败**预先存在**（差值 1 即新增测试），与本次修复无关。
+- **端到端（真实 LB 拓扑）**：修复注入容器 → 起三副本 + LB → 经真实 `gateway.create_runtime` 创建，LB 日志由修复前的 `isolation=- / key=<随机>` 变为 `isolation=fix-key-1 / key=fix-key-1`；创建落 `.10`、5 次 discover 全 `.10`，`fix-key-4` 创建落 `.12`、5 次 discover 全 `.12` → **创建与后续请求落点一致**（修复前会分裂）。
+
+**未采用全量镜像构建验证**：`docker compose build` 在本环境失败（BuildKit 写 `~/.docker/buildx/activity` 被拒；改 `DOCKER_BUILDKIT=0` 后跑满 20 分钟无产物，进程退出）。改为把修复文件 `docker cp` 进运行容器验证，效果等价且不依赖构建。
+
+**修改文件**：`services/chat-api/app/dsh_runtime/gateway.py`（修复）、`services/chat-api/tests/dsh_runtime/test_multi_host_transport.py`（新增回归测试）。
+
+**最终状态**：栈已回单副本基线（容器代码未注入、`/health` 单条 `instance_id=dsh-runtime-host`、`runtimes=0`），测试 runtime 已清理。**未提交**。
+
+**关联**：此缺陷比 Phase 2 的 M2 更基础 —— M2 防"同 key 多 runtime"，而此缺陷会让 runtime 创建后**后续请求找不到它**。
+
+---
+
+## 2026-10-09 默认启用 3 副本 + §12.4 A+B（session 归属缓存 + 跨副本 seed 重建）
+
+**用户决策**：默认启用 DSH 3 副本模式实测；确认做完整 §12.4 A+B。
+
+### 提交序列
+
+| 提交 | 内容 |
+|---|---|
+| `1d97d5d` | `create_runtime` 向 sticky 路由传 `sticky_key`（修复 LB 模式 sticky 失效） |
+| `6179fb7` | 3 副本池 + sticky LB 设为默认拓扑，单副本停保留定义 |
+| `d027597` | chat-api 加 `redis==8.1.0` 依赖（归属缓存后端） |
+| `bb97e88` | host：`GET /v1/runtimes/{rid}/sessions/{sid}/owner` + `export-seed`（HMAC 密封）+ `create_session` 接受密封 seed；探测端点前置于 runtime 解析（缺 runtime 回 `owned:false`/404 而非 400） |
+| `a1fc032` | host：密封 seed 到达时自动从 `seedSourceSessionId` 补全 `parentSessionId`（调用方可把 export 响应原样塞回） |
+| `17f87c2` | chat-api：`probe_session_owner`/`export_session_seed`（transport 绕过 sticky 直连副本）+ `SessionAffinityCache`（Redis TTL，不可达降级内存）+ `restore` 兜底（resume 失败→拉 seed 重建+rotate；transport 层错误原样抛出不重建） |
+
+### 关键设计点
+
+- **LB 模式下归属探测必须绕过 LB**：chat-api 业务流量只认识 LB，而"问每个副本你是否持有此 session"需要直连各副本 → 新增 `DSH_RUNTIME_REPLICA_URLS` 仅供探测，业务仍走 `DSH_RUNTIME_HOST_URL`(LB)。
+- **A 方案的签名**：seed 用池共享 token 做 HMAC-SHA256 密封（`sealSeed`），接收方复核 MAC + 逐事件形状校验。安全性边界未提升：拿到有效 MAC 等价于已持有池 token。
+- **A 兜底只在 resume 因"副本可达但 session 不活/路由错"时触发**（`DshRuntimeError` 非 transport 子类）；副本暂不可达（`DshTransportError`）原样抛出，避免在副本恢复后 session 重复分叉。
+- **方案盲点（已验证）**：§12.4 A 原文的"复用 `exportCompletedSeed` 重建"只在**同副本**内成立——`resolveSessionSeed` 在目标 host 本地调 `manager.exportCompletedSeed`，跨副本时源 runtime 不存在。本轮通过新增 `export-seed` HTTP 端点 + 密封传输解决，比方案预估工作量更大。
+
+### 验证
+
+- host 侧 93 项测试通过（含 session-seed 10 项：合法 MAC/异 token 拒绝/篡改拒绝/无签名 raw seed 拒绝/事件形状校验/verbatim 回塞）。
+- chat-api `tests/dsh_runtime/` **350 passed**，9 failed 与基线一致（预先存在，非回归）。
+- **E2E（真实 3 副本+LB+Redis）**：
+  - owner 探测：`sess-mig-2` 在 host-2 → 3 副本并发探测 `found=True, instance=dsh-runtime-host-2`；host-1/3 回 `owned=False`（修复前它们回 400 会中断池级探测）。
+  - seed 迁移：host-1 session 的 3 条事件经 `export-seed` 签名导出 → host-2 用同 isolationKey 的 runtime + 密封 seed 创建 `sess-mig-2` **201**，`describe` 显示 `seedLength: 3`（内核已继承）；篡改 seed 后 **400 `seedSignature does not match`**。
+  - Redis 缓存：`SessionAffinityCache` backend=redis，set/get/forget 往返正常（`redis://redis:6379/1`）。
+- 测试 runtime 已清理（三副本 `GET /v1/runtimes` 均空，Redis db1 无残留 key）。
+
+**当前栈**：`chat-api:124ab` + `dsh-runtime-host:124ab` × 3 + LB `nginx:1.31.5` 全部 healthy，`/ready` 200。单副本 `dsh-runtime-host` 保留定义（stopped）可回退。
+
+**未提交**：`docs/intro-v4.pptx`、`deliverables/`（其他会话在途）。
