@@ -7517,3 +7517,75 @@ Compose 因服务名不同而各建一遍 → 最慢的目标（docling + torch�
 
 **经验（与 gateway 相同）**：凡 recreate 了 LB 的上游（`dsh-runtime-host-1/2/3`），必须同步重启 `dsh-runtime-host-lb`，
 否则路由全部塌陷到单副本。多副本部署期间 recreate 频繁，这是高频陷阱。
+
+## 2026-10-09 document-parser pip wheel 离线缓存（arm64 + amd64 双架构）
+
+**起因**：用户反馈 document-parser 镜像构建中，pip 安装层（`[8/16]`）耗时**一个多小时**、apt 层（`[5/16]`）16 分钟，
+要求把需要联网下载的内容缓存到 `base-images/`，下次从缓存读取；并明确要求 **amd64 也一起缓存**。
+
+### 定位过程（用实测数据逐步推翻假设）
+
+1. **先怀疑网络慢 → 不成立**。实测清华源 13–18 MB/s（41.7MB 的 opencv wheel 仅 3 秒），
+   交大源 dry-run 一个 torch 只要 16.5 秒。用户也确认公司网络与家里网络下耗时都长。
+2. **再怀疑 pip 解析风暴 → 不成立**。用户的 `pip install --dry-run` 实测 18.5 秒，
+   说明解析器在交大源上并未穷举回退。
+3. **真正原因**：`Dockerfile` 里的 `PIP_NO_CACHE_DIR=1` **主动禁用了 pip 缓存**，
+   导致**每次构建都全量重新下载**全部 wheel。对照实测：同一个 torch 安装命令，
+   有缓存 16.5 秒 vs `--no-cache-dir` 65~76 秒，差 4.6 倍。
+4. **架构错配放大问题**：本地是 arm64（镜像实测 `Arch: arm64`），
+   而 `.github/workflows/container-release.yml` 是 `platforms: linux/amd64,linux/arm64` 双架构。
+   **两种架构的层缓存完全不互通**，同一台机器构建两个架构要各下一次。
+5. **torch 去不掉（已验证）**：`docling-ibm-models`（布局+表格模型）硬依赖 `torch<3.0.0,>=2.2.2` 和 `torchvision`，
+   不是可选 extra。torch 占 629MB。现状装的是 `2.14.1+cpu`（已正确规避 CUDA 版），这点无需改动。
+
+### 实现（对齐既有 docling / playwright bundle 范式）
+
+**新增 `scripts/pip_wheels_bundle.sh`**（可执行）：`fetch [arch...]` / `pack` / `save` / `list` / `verify`。
+- 跨平台下载用 `pip download --only-binary=:all: --platform ... --python-version 3.10 --implementation cp --abi cp310`，
+  宿主架构无关（已验证：arm64 宿主可抓 amd64 轮子）。
+- `platform_flags()` 对每个架构给出**多个** manylinux 标签（`manylinux_2_28` / `manylinux_2_17` / `manylinux2014`）：
+  只给最新的会**静默漏掉**大量包（实测 `manylinux_2_28_x86_64` 单独用会让 numpy 找不到）。
+- **sdist-only 包自动探测**：`crcmod==1.7` 与 `oss2==2.19.1` 上游只有 sdist。
+  跨平台下载强制要求 `--only-binary=:all:`，**任意一个这类 pin 都会让整个 61 包的解析原子失败**
+  （`No matching distribution found ... from versions: none`），结果是一个包都缓存不到。
+  脚本先逐 pin 探测、再拆成 `requirements-wheels.txt`（59 个）+ `requirements-sdist.txt`（2 个），
+  **不写死名单**，避免 pip-compile 闭包变化后名单失效。
+- **过滤非 CPU torch**：`docling-ibm-models` 的元数据写的是无 `+cpu` 限定的 `torch>=2.2.2`，
+  解析时会从 PyPI 拖入非 CPU 版（实测 139MB 冗余），且 `--no-index` 下可能选错版本。
+  脚本按 `*+cpu-*.whl` 白名单过滤并校验 CPU 版必须存在。
+- 持久缓存落 `base-images/pip-wheels/<arch>/`（已被 `/base-images/` 忽略），
+  再打包成构建上下文内的 `services/document-parser/pip-wheels-bundle.tar.gz`。
+
+**`services/document-parser/Dockerfile`**：新增 `COPY pip-wheels-bundle.tar.gz`；
+解包后按 `${TARGETARCH}`（buildx 注入，普通 `docker build` 回退 `dpkg --print-architecture`）选目录；
+命中则整段 pip 安装改用 `--no-index --find-links`，**缺失或占位符时自动回退联网**（已验证分支逻辑）。
+新增 `ARG PIP_OFFLINE_INSTALL=true` 可强制走联网。
+
+**`.gitignore` / `.dockerignore`**：忽略真实 bundle 与派生目录 `.pip-wheels-staging/`；
+`.dockerignore` 顺带排除 `.coverage`、`coverage.json`、`tests/`、`=0.6.23`（构建上下文从 657MB 降下来）。
+占位符按既有约定入库：`git add -f` 一个 **29 字节**空 tar（与 docling bundle 的 29 字节一致）。
+
+### 实测结果
+
+| 项目 | 改造前 | 改造后 |
+|---|---|---|
+| pip 层（arm64，含 294 个 wheel 安装） | 1 小时以上 | **78.6 秒** |
+| pip 层（amd64，跨架构验证） | — | **97.1 秒** |
+| 缓存体积 | — | arm64 414MiB + amd64 499MiB |
+
+- 离线路径确认生效：构建日志出现 `Installing pip wheels offline for arm64 (294 wheels)`，
+  后续全部 `Processing /tmp/pip-wheels/arm64/...`，无任何联网下载。
+- amd64 跨架构验证通过：自动识别 `wheel_arch=amd64`，产物 `x86_64` + `torch 2.14.1+cpu, cuda_available=False`。
+- 镜像内依赖核验：`torch` / `torchvision` / `docling` / `fastapi` / `celery` / `pymongo` 全部可导入，
+  sdist 构建的 `crcmod`、`oss2` 正常（crcmod 的 C 扩展编译失败后走纯 Python 回退，产物 `py3-none-any`）；
+  `pip` 按预期在最后被卸载。
+
+### 未做与本轮无关
+
+- **镜像体积优化未做**（原报告里提到的「模型 COPY 层白付 458MB」）：实测模型包解压仅 1.8 秒，
+  与本次**构建耗时**问题无关，属独立议题，留待后续。
+- `apt` 层 16 分钟未优化：那是 dpkg 串行解包 300+ 个包（LibreOffice 全家桶 + 108MB 中日韩字体），
+  基本是物理下限，缓存只能省下载省不了解包。
+
+**改动文件**：`scripts/pip_wheels_bundle.sh`（新增）、`services/document-parser/Dockerfile`、
+`services/document-parser/.dockerignore`、`.gitignore`、`services/document-parser/pip-wheels-bundle.tar.gz`（29B 占位符，`git add -f`）。
