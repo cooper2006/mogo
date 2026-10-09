@@ -7272,3 +7272,31 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **验证**：重启后 `/askai-api/health`、`/admin-api/health` → 200，`/` → 200。
 
 **经验**：凡 recreate 了 gateway 的上游服务（chat-api / admin-api / user-web / admin-web），必须同步重启 gateway，否则 502。多副本部署期间 recreate 频繁，这是本次踩中的场景。
+
+---
+
+## 2026-10-09 M2 Runtime 创建分布式锁（消除 R-05 租户状态分裂）
+
+**起因**：用户要求补 M2（方案 Phase 2 唯一未做的核心项）。多副本下每副本独立持有 kernel 状态，无协调点时同一 isolationKey 会在各副本各建一份 runtime，租户状态静默分叉（R-05）。
+
+### 提交序列
+
+| 提交 | 内容 |
+|---|---|
+| `f1e68c5` | chat-api：`runtime_lock.py`（Redis `SET key token NX EX ttl`，随机 token + Lua 比较释放，TTL 过期后迟到 release 不误删他人锁；Redis 不可达降级 no-op）+ `coordinator._runtime` create 前抢锁 + config `DSH_RUNTIME_DISTRIBUTED_LOCK`（默认开）/`DSH_RUNTIME_LOCK_TTL_SECONDS=30` + `test_runtime_lock.py` 7 项 |
+| `8372300` | host：`runtime-manager.mjs` 关闭 create 的 check/set 竞态窗口（owner 注册移到 `await start()` 之前，失败回滚） |
+| `66a5a87` | host：`tests/runtime-manager-isolation.test.mjs` 钉住该竞态修复 |
+
+### 关键发现（E2E 暴露）
+
+E2E 首轮（3 并发 create 同 isolationKey 经真实 LB）暴露 **host 侧竞态**：`create` 的 `#isolationOwners.has()` 检查与 `.set()` 之间隔着 `await runtime.start()`，两个并发 create 都能通过检查 → host-2 一次出现 3 个同 key runtime。这是 R-05 的 host 层根源（方案 D2(c) 的"仅 M2"假设 lock 能全覆盖，但 lock 降级/失效时 host 侧无兜底）。修复：注册移到 await 之前 + 失败回滚。
+
+### E2E 验证（真实 3 副本 + LB + Redis）
+
+- **3 并发 create（裸 gateway，锁直连）**：1 成功 + 2 被 host 拒（`isolation key already has a runtime`），host-3 仅 1 个 runtime → 竞态修复生效
+- **3 并发 create（经 `RuntimeCoordinator._runtime`，锁 + discover 兜底）**：3 次返回**同一** `48df4f0e` → 锁串行化成功，败者 discover 胜出者的 runtime 而非分叉
+- host 全量 96 passed；chat-api `tests/dsh_runtime/` 357 passed，失败 9 项与基线一致
+
+**修改文件**：`runtime_lock.py`（新增）、`runtime_coordinator.py`、`application.py`、`config.py`、`test_runtime_lock.py`（新增）、`runtime-manager.mjs`、`runtime-manager-isolation.test.mjs`（新增）。
+
+**最终状态**：`chat-api:m2`（f58bca7）+ `dsh-runtime-host:m2`（66a5a87）× 3 + LB `nginx:1.31.5` + gateway `f58bca7` 全部 healthy，`/askai-api/health` 200。测试 runtime 已清理（三副本均 0）。
