@@ -162,6 +162,14 @@ services:
     <<: *dsh-runtime-host
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-1
+      # Cross-replica hand-off: the pool membership (self excluded by the
+      # host) so a replica handed a runtime it does not hold can relay the
+      # request to the owner instead of failing with 400.
+      DSH_RUNTIME_SELF_URL: http://dsh-runtime-host-1:8101
+      DSH_RUNTIME_PEERS: >-
+        http://dsh-runtime-host-1:8101,
+        http://dsh-runtime-host-2:8101,
+        http://dsh-runtime-host-3:8101
     # M1: per-replica storage isolation. The anchor's shared
     # dsh-runtime-data volume would let two replicas write the same kernel
     # state files at once, so each replica mounts its own volume here.
@@ -173,6 +181,14 @@ services:
     <<: *dsh-runtime-host
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-2
+      # Cross-replica hand-off: the pool membership (self excluded by the
+      # host) so a replica handed a runtime it does not hold can relay the
+      # request to the owner instead of failing with 400.
+      DSH_RUNTIME_SELF_URL: http://dsh-runtime-host-2:8101
+      DSH_RUNTIME_PEERS: >-
+        http://dsh-runtime-host-1:8101,
+        http://dsh-runtime-host-2:8101,
+        http://dsh-runtime-host-3:8101
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
       - dsh-runtime-data-2:/data/dsh-runtime
@@ -181,6 +197,14 @@ services:
     <<: *dsh-runtime-host
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-3
+      # Cross-replica hand-off: the pool membership (self excluded by the
+      # host) so a replica handed a runtime it does not hold can relay the
+      # request to the owner instead of failing with 400.
+      DSH_RUNTIME_SELF_URL: http://dsh-runtime-host-3:8101
+      DSH_RUNTIME_PEERS: >-
+        http://dsh-runtime-host-1:8101,
+        http://dsh-runtime-host-2:8101,
+        http://dsh-runtime-host-3:8101
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
       - dsh-runtime-data-3:/data/dsh-runtime

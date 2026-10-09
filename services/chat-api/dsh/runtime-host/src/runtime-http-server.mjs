@@ -2,7 +2,15 @@ import { createServer } from 'node:http'
 
 import { validBearerToken, assertSecureHost } from './host-auth.mjs'
 import { HOST_STATES, runtimeHealth } from './host-protocol.mjs'
-import { readJson, routeParts, sendJson } from './http-utils.mjs'
+import { readBody, readJson, routeParts, sendJson } from './http-utils.mjs'
+import {
+  findOwner,
+  findOwnerByIsolation,
+  forwardRequest,
+  HOP_HEADER,
+  parsePeers,
+  shouldForward,
+} from './replica-forward.mjs'
 import { RuntimeManager } from './runtime-manager.mjs'
 import { resolveSessionSeed, sealSeed } from './session-seed.mjs'
 
@@ -14,8 +22,10 @@ export class RuntimeHttpServer {
   #started = false
   #state = HOST_STATES.ready
   #draining = false
+  #peers = []
+  #selfUrl = ''
 
-  constructor({ host = '127.0.0.1', port = 0, storageRoot, authToken = '', instanceId = '' }) {
+  constructor({ host = '127.0.0.1', port = 0, storageRoot, authToken = '', instanceId = '', peers = '', selfUrl = '' }) {
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('port must be an integer from 0 to 65535')
     if (authToken && authToken.length < 32) throw new TypeError('authToken must contain at least 32 characters')
     assertSecureHost(host, authToken)
@@ -23,6 +33,11 @@ export class RuntimeHttpServer {
     this.port = port
     this.authToken = authToken
     this.instanceId = instanceId || process.env.DSH_INSTANCE_ID || ''
+    // Cross-replica hand-off (§方案 1). DSH_RUNTIME_PEERS is the pool's own
+    // membership list, used only to locate the replica that holds a runtime
+    // when the sticky LB hands us a request we cannot serve.
+    this.#selfUrl = selfUrl || process.env.DSH_RUNTIME_SELF_URL || ''
+    this.#peers = parsePeers(peers || process.env.DSH_RUNTIME_PEERS || '', this.#selfUrl)
     this.#manager = new RuntimeManager({ storageRoot })
     this.#server = createServer((request, response) => {
       if (!validBearerToken(request.headers.authorization, this.authToken)) {
@@ -31,6 +46,10 @@ export class RuntimeHttpServer {
         return
       }
       this.#dispatch(request, response).catch(error => {
+        // A hand-off may have already relayed a response before a later error
+        // surfaced; writing again would trip ERR_HTTP_HEADERS_SENT and kill
+        // the process. Only answer when nothing has been sent yet.
+        if (response.headersSent || response.writableEnded) return
         sendJson(response, 400, {
           error: {
             code: 'kernel_request_failed',
@@ -96,6 +115,107 @@ export class RuntimeHttpServer {
     return this.#state
   }
 
+  /**
+   * Relay a runtime-scoped request this replica cannot serve to the replica
+   * that holds the runtime. Returns the response, or null when no peer holds
+   * it (caller then falls through to the local "runtime not found" error, so
+   * a genuinely unknown runtime still fails honestly).
+   */
+  async #handOff({ request, response, runtimeId, parts, query, body }) {
+    const path = `/${parts.join('/')}`
+    if (!shouldForward({ request, selfUrl: this.#selfUrl, path })) return null
+    if (this.#peers.length === 0) return null
+
+    const authorization = request.headers.authorization ?? ''
+    let targetParts = parts
+    // Prefer the isolation key: it is carried on every runtime/session call
+    // and stays valid after a replica restart, whereas the runtime id changes
+    // when chat-api rebuilds the binding.
+    const isolationKey = request.headers['x-isolation-key']
+    let target = null
+    if (typeof isolationKey === 'string' && isolationKey !== '') {
+      target = await findOwnerByIsolation({
+        peers: this.#peers,
+        isolationKey,
+        authorization,
+        instanceId: this.instanceId,
+        selfUrl: this.#selfUrl,
+      })
+      if (target && target.runtimeId !== runtimeId) {
+        // The owning replica minted its own runtime id; rewrite the path so
+        // the peer serves its own runtime rather than the stale id.
+        targetParts = parts.slice()
+        targetParts[2] = target.runtimeId
+      }
+    }
+    if (target === null) {
+      target = await findOwner({
+        peers: this.#peers,
+        runtimeId,
+        authorization,
+        instanceId: this.instanceId,
+        selfUrl: this.#selfUrl,
+      })
+    }
+    if (target === null) return null
+
+    const search = query.toString() === '' ? '' : `?${query.toString()}`
+    const hops = Number.parseInt(request.headers[HOP_HEADER] ?? '0', 10) || 0
+    // A peer that is draining refuses new sessions (R1 drain guard). That is
+    // correct for the peer, but relaying its 503 to the caller would fail a
+    // request another replica could still serve — so try the next owner.
+    const attempted = new Set()
+    while (target !== null) {
+      attempted.add(target.url)
+      let targetTargetParts = targetParts
+      if (target.runtimeId && target.runtimeId !== runtimeId) {
+        targetTargetParts = parts.slice()
+        targetTargetParts[2] = target.runtimeId
+      }
+      const result = await forwardRequest({
+        targetUrl: target.url,
+        request,
+        path: `/${targetTargetParts.join('/')}`,
+        search,
+        hops,
+        body,
+      })
+      const draining = result.status === 503
+        && result.body?.error?.code === 'service_draining'
+      if (!draining || result.forwarded === false) {
+        if (result.forwarded) {
+          response.setHeader('x-dsh-forwarded-to', target.instanceId ?? target.url)
+        }
+        return sendJson(response, result.status, result.body)
+      }
+      target = await this.#nextTarget({ peers: this.#peers, attempted, isolationKey, runtimeId, authorization })
+    }
+    return null
+  }
+
+  /** Find another peer that holds the runtime, skipping already-tried ones. */
+  async #nextTarget({ peers, attempted, isolationKey, runtimeId, authorization }) {
+    const remaining = peers.filter(peer => !attempted.has(peer))
+    if (remaining.length === 0) return null
+    if (typeof isolationKey === 'string' && isolationKey !== '') {
+      const byKey = await findOwnerByIsolation({
+        peers: remaining,
+        isolationKey,
+        authorization,
+        instanceId: this.instanceId,
+        selfUrl: this.#selfUrl,
+      })
+      if (byKey) return byKey
+    }
+    return findOwner({
+      peers: remaining,
+      runtimeId,
+      authorization,
+      instanceId: this.instanceId,
+      selfUrl: this.#selfUrl,
+    })
+  }
+
   async #dispatch(request, response) {
     const { parts, query } = routeParts(request)
     if (request.method === 'GET' && parts.join('/') === 'health') {
@@ -150,6 +270,17 @@ export class RuntimeHttpServer {
       return sendJson(response, 404, { error: { code: 'not_found', message: 'route not found' } })
     }
     const runtimeId = parts[2]
+    // Runtime-ownership probe used by cross-replica hand-off: answers for the
+    // runtime itself (not a session), so a peer can be located before any
+    // session exists there. Always 200 so probing never stops early.
+    if (request.method === 'GET' && parts[3] === 'holds' && parts.length === 4) {
+      const local = this.#manager.findByRuntimeId(runtimeId)
+      return sendJson(response, 200, {
+        holds: local !== undefined,
+        instanceId: this.instanceId,
+        runtimeId,
+      })
+    }
     if (request.method === 'DELETE' && parts.length === 3) {
       await this.#manager.dispose(runtimeId)
       return sendJson(response, 200, { disposed: true })
@@ -191,7 +322,23 @@ export class RuntimeHttpServer {
         }
       }
     }
-    const runtime = this.#manager.get(runtimeId)
+    let runtime = this.#manager.findByRuntimeId(runtimeId)
+    if (runtime === undefined) {
+      // The sticky LB handed this request to a replica that does not hold the
+      // runtime. That happens when consistency-hash membership changes (most
+      // visibly while a replica restarts). Instead of failing the caller with
+      // 400 "runtime not found", locate the owning replica and relay the
+      // request — the client then sees a normal answer across the remap.
+      //
+      // The body is buffered first: the hand-off may need it, and if no owner
+      // exists the local path still has to parse it. Reading the stream twice
+      // is impossible, so both paths share one buffer.
+      const buffered = await readBody(request)
+      const handoff = await this.#handOff({ request, response, runtimeId, parts, query, body: buffered })
+      if (handoff) return handoff
+      request._bufferedBody = buffered
+      runtime = this.#manager.get(runtimeId)
+    }
     if (request.method === 'GET' && parts.length === 3) return sendJson(response, 200, this.#manager.describe(runtime))
     if (parts[3] === 'workspaces') {
       if (request.method === 'GET' && parts.length === 4) {

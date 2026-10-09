@@ -35,6 +35,10 @@ async function main() {
     storageRoot: resolve(options.storageRoot),
     authToken: (await consumeTokenFile(options.authTokenFile)) || process.env.DSH_RUNTIME_HOST_TOKEN || '',
     instanceId: options.instanceId || process.env.DSH_INSTANCE_ID || '',
+    // Cross-replica hand-off: the pool's own membership, used to relay a
+    // request the sticky LB misrouted during a membership change.
+    peers: process.env.DSH_RUNTIME_PEERS || '',
+    selfUrl: process.env.DSH_RUNTIME_SELF_URL || '',
   })
   const address = await runtime.start()
   process.stdout.write(`${JSON.stringify({
