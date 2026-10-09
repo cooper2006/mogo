@@ -80,13 +80,11 @@ class DshAgentKernelGateway(AgentKernelContract):
         self._profile_resolver = profile_resolver
         self._credential_refresh_locks = KeyedAsyncLock()
         # L3: the backpressure cap is owned by the coordinator so one cap
-        # spans the whole process (all runtimes, all sessions). The gateway
-        # acquires/releases the slot around each turn.
-        self._backpressure: TurnBackpressure | None = None
-
-    @property
-    def backpressure(self) -> TurnBackpressure | None:
-        return self._backpressure
+        # spans the whole process (all runtimes, all sessions). The turn
+        # runner acquires/releases the slot around each turn. It is a plain
+        # public attribute (not a property) so the application can set it
+        # after construction.
+        self.backpressure: TurnBackpressure | None = None
 
     def _isolation_key(self, runtime_id: str) -> str | None:
         """The stable sticky key for a runtime, when it is known.
