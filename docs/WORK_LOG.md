@@ -7253,3 +7253,22 @@ B8 已落地 3/8、N2 勾掉）、`docs/WORK_LOG.md`（本条）。
 **当前栈**：`chat-api:124ab` + `dsh-runtime-host:124ab` × 3 + LB `nginx:1.31.5` 全部 healthy，`/ready` 200。单副本 `dsh-runtime-host` 保留定义（stopped）可回退。
 
 **未提交**：`docs/intro-v4.pptx`、`deliverables/`（其他会话在途）。
+
+---
+
+## 2026-10-09 修复：3000 端口页面空白（gateway nginx 缓存过期 upstream IP）
+
+**现象**：`localhost:3000` 页面空白。
+
+**诊断**：
+- SPA 本体正常：`/`、`/admin/` 均 200，JS/CSS 资源齐全
+- 所有 API 前缀 502：`/askai-api/health`、`/admin-api/health` → 502
+- 前端拿不到后端数据 → Vue 应用初始化失败 → 白屏
+
+**根因**：gateway（nginx）静态 DNS 解析 upstream 服务名（`chat-api`、`admin-api`）**只发生在容器启动时**并缓存 IP。本轮部署 3 副本时 chat-api 容器被 recreate（10-09 04:02），IP 变化；gateway 自 10-08 11:55 起连续运行 17 小时未重启，缓存的 upstream IP 已失效 → 502。
+
+**修复**：`docker compose restart gateway` 使其重新解析 upstream IP。
+
+**验证**：重启后 `/askai-api/health`、`/admin-api/health` → 200，`/` → 200。
+
+**经验**：凡 recreate 了 gateway 的上游服务（chat-api / admin-api / user-web / admin-web），必须同步重启 gateway，否则 502。多副本部署期间 recreate 频繁，这是本次踩中的场景。
