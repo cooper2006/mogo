@@ -158,16 +158,28 @@ services:
     <<: *dsh-runtime-host
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-1
+    # M1: per-replica storage isolation. The anchor's shared
+    # dsh-runtime-data volume would let two replicas write the same kernel
+    # state files at once, so each replica mounts its own volume here.
+    volumes:
+      - deployment-secrets:/run/askai-secrets:ro
+      - dsh-runtime-data-1:/data/dsh-runtime
 
   dsh-runtime-host-2:
     <<: *dsh-runtime-host
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-2
+    volumes:
+      - deployment-secrets:/run/askai-secrets:ro
+      - dsh-runtime-data-2:/data/dsh-runtime
 
   dsh-runtime-host-3:
     <<: *dsh-runtime-host
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-3
+    volumes:
+      - deployment-secrets:/run/askai-secrets:ro
+      - dsh-runtime-data-3:/data/dsh-runtime
 
   # Sticky LB in front of the Runtime Host pool. nginx' consistent hash keeps
   # every request of one kernel session on the same host; chat-api talks to this
@@ -424,6 +436,18 @@ volumes:
     name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_weaviate-data
   dsh-runtime-data:
     name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_dsh-runtime-data
+  # Per-replica storage isolation (§ M1). Each pool replica gets its own
+  # volume so kernel state (session JSONL, workspace registry) cannot be
+  # written by two replicas at once. Cross-replica recovery of a session
+  # whose data lives on another replica's volume goes through the §12.4
+  # seed-migration path (probe owner -> export sealed seed -> rebuild), not
+  # through reading the JSONL directly.
+  dsh-runtime-data-1:
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_dsh-runtime-data-1
+  dsh-runtime-data-2:
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_dsh-runtime-data-2
+  dsh-runtime-data-3:
+    name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_dsh-runtime-data-3
   askai-storage:
     name: ${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}_askai-storage
   knowledge-storage:
