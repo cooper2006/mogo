@@ -7300,3 +7300,30 @@ E2E 首轮（3 并发 create 同 isolationKey 经真实 LB）暴露 **host 侧�
 **修改文件**：`runtime_lock.py`（新增）、`runtime_coordinator.py`、`application.py`、`config.py`、`test_runtime_lock.py`（新增）、`runtime-manager.mjs`、`runtime-manager-isolation.test.mjs`（新增）。
 
 **最终状态**：`chat-api:m2`（f58bca7）+ `dsh-runtime-host:m2`（66a5a87）× 3 + LB `nginx:1.31.5` + gateway `f58bca7` 全部 healthy，`/askai-api/health` 200。测试 runtime 已清理（三副本均 0）。
+
+---
+
+## 2026-10-09 M1 存储卷按副本隔离（消除 R-01 跨副本踩踏）
+
+**起因**：用户要求继续做 M1（方案 Phase 2 最后一项）。此前三副本共享 `dsh-runtime-data` 卷，两副本同时写同一 session 的 JSONL / workspace registry 存在踩踏风险（sticky 降级/LB 重排时触发，方案 R-01）。
+
+**改动**：
+- `docker-compose.yml`：新增 3 个独立卷 `dsh-runtime-data-1/2/3`（沿用 `MOGO_VOLUME_PREFIX` 命名），各副本覆盖 `volumes` 挂自己的卷；单副本 `dsh-runtime-host` 保持共享卷不动（无踩踏场景）
+- 跨副本既有 session 恢复不读 JSONL，改走 §12.4 兜底链（probe owner → export 密封 seed → 目标副本重建），该能力在 M2 前已就位（`17f87c2`/`a1fc032`）
+
+**验证**：
+- 3 副本挂载 `movo_dsh-runtime-data-{1,2,3}`（独立卷 UUID），各副本 `/data/dsh-runtime` 只含自身数据（host-1: 2 items, host-2: 2, host-3: 1）
+- **E2E**：host-1 建 session（3 事件）后 dispose 其 runtime；host-2 用自己的 runtime + host-1 的密封 seed 重建 session **201**，describe 显示 `seedLength: 3` → 跨卷 seed 迁移成功
+- 全链路 `/askai-api/health` 200，`/health` `dsh_hosts` healthy
+
+**提交**：`fddc97a feat(compose): M1 存储卷按副本隔离（消除 R-01 跨副本踩踏）`
+
+### 方案落地总收口
+
+`dsh-multi-instance-plan-2026-10-08.md` 的全部改造项现已落地：
+- Phase 1（M4/M3/R3/R4）：`4e6b78d`
+- §12.4 A+B（归属缓存 + 跨副本 seed 重建）：`17f87c2`/`a1fc032`
+- M2（Redis 创建锁 + host 竞态修复）：`f1e68c5`/`8372300`/`66a5a87`
+- M1（卷隔离）：`fddc97a`
+
+R-01/R-02/R-03/R-05 四条问题全部消除。方案 §12.4 核心开放问题（M1 卷隔离后跨副本 resume）已由 §12.4 A+B 兜底解决。Phase 3/4（压测、优雅上下线、跨版本灰度、背压）按方案延后，不阻塞"多副本安全可用"。
