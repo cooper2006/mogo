@@ -14,6 +14,7 @@ from app.dsh_runtime.events.turn_channel import TurnEventRegistry
 from app.dsh_runtime.errors import DshRuntimeError
 from app.dsh_runtime.gateway import DshAgentKernelGateway
 from app.dsh_runtime.model_gateway.token import ModelGatewayTokenService
+from app.dsh_runtime.runtime_lock import RuntimeLock
 from app.dsh_runtime.tool_gateway.token import ToolGatewayTokenService
 from app.dsh_runtime.profile.catalog import MongoModelCatalog
 from app.dsh_runtime.session_affinity import SessionAffinityCache
@@ -127,6 +128,10 @@ class DshRuntimeApplication:
                     settings.DSH_RUNTIME_REPLICA_URLS and settings.DSH_KERNEL_REDIS_URL or None,
                     ttl_seconds=settings.DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS,
                 ),
+                RuntimeLock(
+                    settings.DSH_KERNEL_REDIS_URL or None,
+                    ttl_seconds=settings.DSH_RUNTIME_LOCK_TTL_SECONDS,
+                ) if settings.DSH_RUNTIME_DISTRIBUTED_LOCK else None,
             ),
             conversations=conversations,
             bindings=bindings,

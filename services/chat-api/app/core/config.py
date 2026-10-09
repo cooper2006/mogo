@@ -136,6 +136,12 @@ class Settings(BaseSettings):
     # coordinator keeps its previous resume-blind behaviour.
     DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS: float = 7200.0
     DSH_KERNEL_REDIS_URL: str = ""
+    # Runtime creation lock (§ M2). Serialises runtime creation for one
+    # isolation key across chat-api instances and pool replicas so a tenant's
+    # kernel state cannot fork across replicas. Requires DSH_KERNEL_REDIS_URL;
+    # degrades to uncoordinated creation when it is empty or unreachable.
+    DSH_RUNTIME_DISTRIBUTED_LOCK: bool = True
+    DSH_RUNTIME_LOCK_TTL_SECONDS: float = 30.0
 
     # SkillHub is a server-owned distribution source. Model-supplied URLs are
     # never fetched; only validated slugs are sent to this configured API.

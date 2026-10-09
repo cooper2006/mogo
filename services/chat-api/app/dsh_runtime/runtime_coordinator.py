@@ -9,6 +9,7 @@ from app.dsh_runtime.bindings import KernelBindingRepository
 from app.dsh_runtime.contracts import CreateRuntimeRequest, CreateSessionRequest, SessionSpec
 from app.dsh_runtime.errors import DshRuntimeError, DshTransportError
 from app.dsh_runtime.gateway import DshAgentKernelGateway
+from app.dsh_runtime.runtime_lock import RuntimeLock
 from app.dsh_runtime.session_affinity import SessionAffinityCache
 
 logger = logging.getLogger(__name__)
@@ -20,10 +21,12 @@ class RuntimeCoordinator:
         gateway: DshAgentKernelGateway,
         bindings: KernelBindingRepository,
         affinity: SessionAffinityCache | None = None,
+        runtime_lock: RuntimeLock | None = None,
     ) -> None:
         self._gateway = gateway
         self._bindings = bindings
         self._affinity = affinity
+        self._runtime_lock = runtime_lock
 
     @staticmethod
     def isolation_key(tenant_id: str, profile_version: str) -> str:
@@ -339,6 +342,13 @@ class RuntimeCoordinator:
         )
         if runtime is not None:
             return runtime
+        # § M2: serialise creation of a runtime for this isolation key across
+        # all chat-api instances and pool replicas. Without the lock, each
+        # replica happily creates its own runtime and tenant kernel state
+        # silently forks. The lock only coordinates *creation*; a holder that
+        # cannot create (because a concurrent holder already did) falls
+        # through to the discover below.
+        token = self._runtime_lock.acquire(isolation_key) if self._runtime_lock else None
         try:
             return await self._gateway.create_runtime(
                 CreateRuntimeRequest(
@@ -354,5 +364,16 @@ class RuntimeCoordinator:
                 isolation_key=isolation_key,
             )
             if concurrent is not None:
+                logger.info(
+                    "concurrent runtime creation won; discovered the winner",
+                    extra={
+                        "event": "dsh.runtime_lock.concurrent_won",
+                        "isolation_key": isolation_key,
+                        "acquired": token is not None,
+                    },
+                )
                 return concurrent
             raise
+        finally:
+            if self._runtime_lock is not None and token is not None:
+                self._runtime_lock.release(isolation_key, token)
