@@ -126,6 +126,16 @@ class Settings(BaseSettings):
     DSH_RUNTIME_HOST_TOKEN: str = ""
     DSH_MODEL_GATEWAY_URL: str = "http://127.0.0.1:8000/internal/dsh/model/generate"
     DSH_RUNTIME_HTTP_TIMEOUT_SECONDS: float = 5.0
+    # Replica addresses used only by the §12.4 session ownership probe. Behind a
+    # sticky LB, DSH_RUNTIME_HOST_URL points at the LB and the transport cannot
+    # address a single replica; this list lets it ask each one "do you hold this
+    # session?". Business traffic still goes through DSH_RUNTIME_HOST_URL.
+    DSH_RUNTIME_REPLICA_URLS: str = ""
+    # Session -> Runtime Host affinity cache (§12.4 option B). It only engages
+    # when both a replica list and a Redis URL are configured; otherwise the
+    # coordinator keeps its previous resume-blind behaviour.
+    DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS: float = 7200.0
+    DSH_KERNEL_REDIS_URL: str = ""
 
     # SkillHub is a server-owned distribution source. Model-supplied URLs are
     # never fetched; only validated slugs are sent to this configured API.

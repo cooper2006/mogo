@@ -191,6 +191,51 @@ class DshAgentKernelGateway(AgentKernelContract):
             isolation_key=isolation_key,
         )
 
+    async def probe_session_owner(
+        self,
+        *,
+        runtime_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Ask every replica which one holds ``session_id`` (§12.4 option B).
+
+        Unlike every other call here this deliberately bypasses sticky routing:
+        the whole point is to find the replica that owns the session even when
+        the router would send us somewhere else. Returns
+        ``{"found": bool, "instance_id": str | None, "url": str | None, ...}``.
+        """
+        probe = getattr(self._transport, "probe_session_owner", None)
+        if probe is None:
+            return {"found": False, "instance_id": None, "url": None, "probed": []}
+        return await probe(runtime_id=runtime_id, session_id=session_id)
+
+    async def export_session_seed(
+        self,
+        *,
+        runtime_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Fetch the sealed seed of ``session_id`` from its owning replica.
+
+        §12.4 option A. Unlike every other call here this deliberately bypasses
+        sticky routing: the whole point is to pull the session's completed event
+        log off the one replica that still has it, so another replica can
+        rehydrate it via a signed ``create_session``. The MAC binds the payload
+        to the pool token, so it cannot be forged in flight.
+        """
+        probe = getattr(self._transport, "export_session_seed", None)
+        if probe is None:
+            return {
+                "found": False,
+                "seed": None,
+                "seedSignature": None,
+                "seedSourceInstanceId": None,
+                "seedSourceSessionId": None,
+                "source_url": None,
+                "probed": [],
+            }
+        return await probe(runtime_id=runtime_id, session_id=session_id)
+
     def attach_session(
         self,
         *,
@@ -224,12 +269,28 @@ class DshAgentKernelGateway(AgentKernelContract):
         )
         return self._session_handle(session_id, response)
 
-    async def create_session(self, request: CreateSessionRequest) -> SessionHandle:
+    async def create_session(
+        self,
+        request: CreateSessionRequest,
+        *,
+        sealed_seed: dict[str, Any] | None = None,
+    ) -> SessionHandle:
         session_id = f"dsh-{uuid4()}"
         spec = request.session_spec
         runtime_binding = self._runtime_binding(request.runtime_id)
         if spec.tenant_id != runtime_binding.tenant_id or spec.profile_version != runtime_binding.profile_version:
             raise DshProtocolError("Session identity does not match its immutable Runtime Profile")
+        seed_payload: dict[str, Any] = {}
+        if sealed_seed:
+            # Cross-replica rebuild (§12.4 option A): a sealed seed is the
+            # event log a source replica exported for this very session. The
+            # receiving replica re-verifies the MAC with the pool token.
+            seed_payload = {
+                "seed": sealed_seed.get("seed"),
+                "seedSignature": sealed_seed.get("seedSignature"),
+                "seedSourceInstanceId": sealed_seed.get("seedSourceInstanceId"),
+                "seedSourceSessionId": sealed_seed.get("seedSourceSessionId"),
+            }
         response = await self._transport.request(
             "POST",
             f"/v1/runtimes/{request.runtime_id}/sessions",
@@ -242,6 +303,7 @@ class DshAgentKernelGateway(AgentKernelContract):
                     "seedRuntimeId": spec.seed_runtime_id,
                     "seedSessionId": spec.seed_session_id,
                 } if spec.seed_runtime_id and spec.seed_session_id else {}),
+                **seed_payload,
             },
         )
         returned_id = self._required_text(response, "sessionId")

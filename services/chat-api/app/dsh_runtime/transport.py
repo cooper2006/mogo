@@ -198,6 +198,7 @@ class HttpKernelHostTransport:
         base_url: str | None = None,
         *,
         base_urls: Sequence[str] | None = None,
+        replica_urls: Sequence[str] | None = None,
         timeout_seconds: float = 10.0,
         access_token: str = "",
         transport_factory: "Callable[[str], httpx.AsyncBaseTransport] | None" = None,
@@ -219,11 +220,153 @@ class HttpKernelHostTransport:
             )
             for url in self._base_urls
         ]
+        # Replica addresses used only by ownership probes (§12.4 option B).
+        # Behind a sticky LB ``base_urls`` holds the LB alone, which is enough
+        # for routed traffic but not for asking each replica "do you hold this
+        # session?". These clients bypass the LB on purpose. Empty by default,
+        # so single-host and LB-less deployments keep the previous behaviour.
+        self._replica_urls: tuple[str, ...] = tuple(replica_urls or ())
+        self._replica_clients = [
+            httpx.AsyncClient(
+                base_url=url,
+                timeout=httpx.Timeout(timeout_seconds),
+                headers=headers,
+                transport=transport_factory(url) if transport_factory else None,
+            )
+            for url in self._replica_urls
+        ]
 
     @property
     def base_urls(self) -> tuple[str, ...]:
         """The configured Runtime Host URLs, in routing order."""
         return self._base_urls
+
+    @property
+    def replica_urls(self) -> tuple[str, ...]:
+        """Replica URLs used only for ownership probes (empty when unset)."""
+        return self._replica_urls
+
+    async def probe_session_owner(
+        self,
+        *,
+        runtime_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Ask every replica whether it holds ``session_id`` (§12.4 option B).
+
+        Returns ``{"found": bool, "instance_id": str | None, "url": str | None,
+        "probed": list[dict]}``. ``found`` is False when no replica claims the
+        session, which is the signal to fall back rather than to resume blind.
+        """
+        path = f"/v1/runtimes/{runtime_id}/sessions/{session_id}/owner"
+        clients: list[tuple[str, httpx.AsyncClient]] = []
+        if self._replica_clients:
+            clients = list(zip(self._replica_urls, self._replica_clients))
+        else:
+            clients = list(zip(self._base_urls, self._clients))
+
+        async def ask(url: str, client: httpx.AsyncClient) -> dict[str, Any]:
+            try:
+                response = await client.get(path)
+            except httpx.HTTPError as exc:
+                return {"url": url, "owned": False, "instance_id": None, "error": str(exc)}
+            if response.status_code >= 400:
+                return {
+                    "url": url,
+                    "owned": False,
+                    "instance_id": None,
+                    "error": f"HTTP {response.status_code}",
+                }
+            try:
+                payload = response.json()
+            except ValueError:
+                return {"url": url, "owned": False, "instance_id": None, "error": "non-JSON"}
+            if not isinstance(payload, dict):
+                return {"url": url, "owned": False, "instance_id": None, "error": "bad shape"}
+            return {
+                "url": url,
+                "owned": payload.get("owned") is True,
+                "instance_id": payload.get("instanceId"),
+                "error": None,
+            }
+
+        probed = await asyncio.gather(*(ask(u, c) for u, c in clients))
+        hit = next((item for item in probed if item["owned"]), None)
+        return {
+            "found": hit is not None,
+            "instance_id": hit["instance_id"] if hit else None,
+            "url": hit["url"] if hit else None,
+            "probed": list(probed),
+        }
+
+    async def export_session_seed(
+        self,
+        *,
+        runtime_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Fetch the sealed seed of ``session_id`` from whichever replica holds it.
+
+        §12.4 option A. The seed is sealed on the source replica (HMAC under the
+        shared Runtime Host token) and verified again on the receiving replica,
+        so an untrusted hop in between cannot forge or tamper with it.
+
+        Returns ``{"found": bool, "seed": list | None, "seedSignature": str |
+        None, "seedSourceInstanceId": str | None, "seedSourceSessionId": str |
+        None, "source_url": str | None, "probed": list[dict]}``. ``found`` is
+        False when no replica still holds the session: the caller must fall
+        back to a fresh unseeded session rather than resume blind.
+        """
+        path = f"/v1/runtimes/{runtime_id}/sessions/{session_id}/export-seed"
+        clients: list[tuple[str, httpx.AsyncClient]] = []
+        if self._replica_clients:
+            clients = list(zip(self._replica_urls, self._replica_clients))
+        else:
+            clients = list(zip(self._base_urls, self._clients))
+
+        async def ask(url: str, client: httpx.AsyncClient) -> dict[str, Any]:
+            try:
+                response = await client.get(path)
+            except httpx.HTTPError as exc:
+                return {"url": url, "found": False, "seed": None, "error": str(exc)}
+            if response.status_code == 404:
+                # This replica no longer holds the session; keep asking the
+                # rest, but remember that we have checked.
+                return {"url": url, "found": False, "seed": None, "error": "session not live"}
+            if response.status_code >= 400:
+                return {
+                    "url": url,
+                    "found": False,
+                    "seed": None,
+                    "error": f"HTTP {response.status_code}",
+                }
+            try:
+                payload = response.json()
+            except ValueError:
+                return {"url": url, "found": False, "seed": None, "error": "non-JSON"}
+            if not isinstance(payload, dict) or "seed" not in payload:
+                return {"url": url, "found": False, "seed": None, "error": "bad shape"}
+            return {
+                "url": url,
+                "found": True,
+                "seed": payload.get("seed"),
+                "seedSignature": payload.get("seedSignature"),
+                "seedSourceInstanceId": payload.get("seedSourceInstanceId"),
+                "seedSourceSessionId": payload.get("seedSourceSessionId"),
+                "error": None,
+            }
+
+        probed = await asyncio.gather(*(ask(u, c) for u, c in clients))
+        hit = next((item for item in probed if item["found"]), None)
+        return {
+            "found": hit is not None,
+            "seed": hit["seed"] if hit else None,
+            "seedSignature": hit.get("seedSignature") if hit else None,
+            "seedSourceInstanceId": hit.get("seedSourceInstanceId") if hit else None,
+            "seedSourceSessionId": hit.get("seedSourceSessionId") if hit else None,
+            "source_url": hit["url"] if hit else None,
+            "probed": list(probed),
+        }
 
     async def probe_all_hosts(self) -> list[dict[str, Any]]:
         """Probe every configured host concurrently and report per-replica health.
@@ -375,4 +518,6 @@ class HttpKernelHostTransport:
 
     async def close(self) -> None:
         for client in self._clients:
+            await client.aclose()
+        for client in self._replica_clients:
             await client.aclose()

@@ -16,6 +16,7 @@ from app.dsh_runtime.gateway import DshAgentKernelGateway
 from app.dsh_runtime.model_gateway.token import ModelGatewayTokenService
 from app.dsh_runtime.tool_gateway.token import ToolGatewayTokenService
 from app.dsh_runtime.profile.catalog import MongoModelCatalog
+from app.dsh_runtime.session_affinity import SessionAffinityCache
 from app.dsh_runtime.profile.compiler import ModelProfileCompiler
 from app.dsh_runtime.profile.tools import MongoToolCatalog, ToolProfileCompiler
 from app.dsh_runtime.profile.skills import MongoSkillCatalog, SkillProfileCompiler
@@ -62,6 +63,10 @@ class DshRuntimeApplication:
         self._transport = HttpKernelHostTransport(
             settings.DSH_RUNTIME_HOST_URL,
             base_urls=configured_runtime_hosts(settings.DSH_RUNTIME_HOSTS_URL),
+            # Ownership probes (§12.4 option B) must reach individual replicas.
+            # Behind a sticky LB the base URL is the LB alone, so the probe
+            # would only ever ask whichever replica the LB picks.
+            replica_urls=configured_runtime_hosts(settings.DSH_RUNTIME_REPLICA_URLS),
             timeout_seconds=settings.DSH_RUNTIME_HTTP_TIMEOUT_SECONDS,
             access_token=settings.DSH_RUNTIME_HOST_TOKEN,
         )
@@ -115,7 +120,14 @@ class DshRuntimeApplication:
         )
         self.chat = DshChatService(
             gateway=gateway,
-            coordinator=RuntimeCoordinator(gateway, bindings),
+            coordinator=RuntimeCoordinator(
+                gateway,
+                bindings,
+                SessionAffinityCache(
+                    settings.DSH_RUNTIME_REPLICA_URLS and settings.DSH_KERNEL_REDIS_URL or None,
+                    ttl_seconds=settings.DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS,
+                ),
+            ),
             conversations=conversations,
             bindings=bindings,
             events=events,
