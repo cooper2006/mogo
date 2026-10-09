@@ -455,6 +455,92 @@ async def test_create_and_use_runtime_stay_on_one_replica():
     )
 
 
+# --------------------------------------------------------------------------
+# Regression: gateway.create_runtime must carry the isolation key.
+#
+# The isolation key travels in the JSON body, which a sticky router in front of
+# the pool (nginx LB) cannot read: it only sees headers and the query string.
+# The previous implementation passed neither, so the LB fell back to
+# ``$request_id`` and scattered a create away from the replica that later
+# session calls are routed to. The test above could not catch it because it
+# hand-built the request with ``params=`` instead of going through the gateway,
+# so it asserted a shape the production code never sent. This one drives the
+# real gateway and pins the header contract.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gateway_create_runtime_sends_isolation_header():
+    """``create_runtime`` must expose the isolation key to the sticky router."""
+    isolation_key = "tenant:t1:profile:p1"
+
+    class _CreateAwareTransport(httpx.AsyncBaseTransport):
+        """Records requests and answers a create with a well-formed runtime."""
+
+        def __init__(self, host: str) -> None:
+            self.host = host
+            self.requests: list[httpx.Request] = []
+
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            await asyncio.sleep(0)
+            return httpx.Response(200, json={
+                "ok": True,
+                "host": self.host,
+                "runtimeId": "rt-created",
+                "kernelVersion": "0.2.0-rc.2",
+                "profileVersion": "profile-p1",
+                "isolationKey": isolation_key,
+            })
+
+    recorders: dict[str, _CreateAwareTransport] = {}
+
+    def _factory(url: str) -> httpx.AsyncBaseTransport:
+        recorder = _CreateAwareTransport(url)
+        recorders[url] = recorder
+        return recorder
+
+    transport = HttpKernelHostTransport(
+        base_url="http://a:1",
+        base_urls=("http://a:1", "http://b:2", "http://c:3"),
+        transport_factory=_factory,
+    )
+
+    class _RecordingHost:
+        """Minimal AgentKernelHost that defers to the recording transport."""
+
+        def __init__(self, inner) -> None:
+            self._inner = inner
+
+        async def request(self, method, path, *, json=None, params=None,
+                          session_id=None, sticky_key=None):
+            return await self._inner.request(
+                method, path, json=json, params=params,
+                session_id=session_id, sticky_key=sticky_key,
+            )
+
+    from app.dsh_runtime.gateway import DshAgentKernelGateway
+    from app.dsh_runtime.contracts.kernel import CreateRuntimeRequest
+
+    gateway = DshAgentKernelGateway(_RecordingHost(transport))
+    await gateway.create_runtime(CreateRuntimeRequest(
+        tenant_id="tenant-t1",
+        profile_version="profile-p1",
+        isolation_key=isolation_key,
+    ))
+
+    create_requests = [
+        request
+        for recorder in recorders.values()
+        for request in recorder.requests
+    ]
+    assert len(create_requests) == 1, f"expected one create request, got {create_requests}"
+    assert create_requests[0].headers.get("X-Isolation-Key") == isolation_key, (
+        "create_runtime did not send the isolation key as a header, so a sticky "
+        "router cannot pin the runtime to the replica that owns it"
+    )
+
+
 
 # --------------------------------------------------------------------------
 # Wiring regression

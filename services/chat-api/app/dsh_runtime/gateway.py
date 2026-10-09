@@ -118,6 +118,12 @@ class DshAgentKernelGateway(AgentKernelContract):
             "POST",
             "/v1/runtimes",
             json=payload,
+            # The isolation key travels in the JSON body, which the sticky
+            # router (nginx LB) cannot read. Pass it explicitly so the create
+            # lands on the same replica that later session calls will be routed
+            # to; without it the LB falls back to ``$request_id`` and scatters a
+            # runtime away from its own follow-up requests.
+            sticky_key=request.isolation_key,
         )
         runtime_id = self._required_text(response, "runtimeId")
         self._runtimes[runtime_id] = _RuntimeBinding(
