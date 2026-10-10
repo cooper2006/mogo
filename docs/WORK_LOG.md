@@ -7832,3 +7832,67 @@ DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose \
 
 **改动文件**：`docs/pending-review/2026-10-10-stale-base-image-archives.md`（标记已处理）、
 `docs/WORK_LOG.md`（本条目）。`base-images/` 下的 tar 与 manifest 均未跟踪，不入库。
+
+## 2026-10-10 完整生产构建 + 修复 playwright 架构不匹配（审计漏网项）
+
+**起因**：用户要求跑一次完整生产构建（把所有镜像统一到 amd64）。
+
+### 构建结果
+
+```
+DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose \
+  -f docker-compose.yml -f docker-compose.build.yml build
+```
+
+- **8 分 59 秒**，7 个镜像全部转为 amd64（document-parser / chat-api / admin-api /
+  user-web / admin-web / gateway / dsh-runtime-host）
+- 26 次离线安装，**零次真实回退**（日志里的 "falling back to the network" 全是
+  BuildKit 回显 RUN 命令原文，实际执行行均显示 `offline=true`）
+
+### 发现并修复：playwright bundle 架构不匹配（审计第 6 个缺口）
+
+**现象**：chat-api 镜像里 chromium 无法启动，报
+`spawn /ms-playwright/chromium_headless_shell-1194/chrome-linux/headless_shell ENOENT`，
+但文件存在且带可执行位。
+
+**根因**：bundle 里的 chromium 是 **AArch64（arm64）**，而镜像是 amd64。
+架构不符时 exec 直接 ENOENT，**文件属性完全看不出来**。
+
+**这是上一轮审计的漏网项**：当时只检查了「bundle 是否存在/是否占位符」，
+没检查「架构是否与目标镜像匹配」。
+
+**更值得注意**：构建日志里其实**早有警告**——
+`WARNING: chromium is installed but failed to launch`——但它只是 WARNING，
+不中断构建，因而被忽略。
+
+**修复三处**：
+
+1. **取回 amd64 的 chromium**：在 amd64 容器里用 playwright 1.56.0 从 npmmirror
+   下载对应架构浏览器（`PLAYWRIGHT_BROWSERS_PATH` 指向挂载目录），
+   替换缓存并重打 bundle（280.3MB）。
+2. **`scripts/playwright_browsers_bundle.sh` 增加架构感知**：
+   - 新增 `elf_arch()`（直接读 ELF 头 e_machine，不依赖 `file` 命令）与 `cached_arch()`
+   - 新增 `fetch [arch]` 子命令：直接按目标架构下载，不依赖已有镜像
+   - `save` 记录 `arch=` 到 manifest，且无 chromium 二进制时拒绝写入
+   - `list` 显示架构
+   - `verify` 增强为三重校验：文件可执行 → **ELF 架构与镜像一致** → **真实启动并渲染 DOM**
+3. **`services/chat-api/Dockerfile`**：chromium 启动失败从 `WARNING` 改为 **`exit 1` 硬失败**，
+   并打印两种常见原因与修复命令。因为无法启动的浏览器等于坏镜像，不该被静默放过。
+
+**验证**：
+- 最终产物 `chat-api:36546a4` 经 `verify` 确认：`chromium binary: amd64`、
+  `chromium launched: 141.0.7390.37`、DOM 渲染测试通过
+- **防回归测试**：故意构造一个「amd64 基础镜像 + arm64 chromium」的镜像，
+  `verify` 正确报 `BAD: browser is arm64 but the image is amd64` 并返回退出码 5
+  ——证明新增的架构检查确实能拦住这个 bug 类
+
+### 附：基础镜像统一裸名
+
+按用户要求，本地 4 个构建基础镜像（python:3.10/3.13-slim-bookworm、
+node:24-bookworm-slim、nginx:1.31.5-alpine3.24-slim）统一为**裸名**，
+从国内镜像站 `docker.1ms.run` 拉取 amd64 变体后移除镜像站前缀标签。
+注意：`docker image inspect` 只显示默认 tag 的架构，判断 amd64 可用性
+必须用 `docker run --platform linux/amd64` 实测。
+
+**改动文件**：`scripts/playwright_browsers_bundle.sh`、`services/chat-api/Dockerfile`、
+`docs/WORK_LOG.md`。playwright 缓存与 bundle 未跟踪，不入库。

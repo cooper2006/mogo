@@ -186,7 +186,15 @@ RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" != "true" ]; then \
         if python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); b.close(); p.stop()" 2>/dev/null; then \
             echo "playwright chromium launch OK"; \
         else \
-            echo "WARNING: chromium is installed but failed to launch (missing system libraries are the usual cause; install them or build with PLAYWRIGHT_WITH_DEPS=true)"; \
+            echo "ERROR: chromium is installed but does not launch." >&2; \
+            echo "  Usual causes, in order of likelihood:" >&2; \
+            echo "    1. bundle is for another architecture (an arm64 chromium in an amd64 image" >&2; \
+            echo "       fails exec with ENOENT, and the files still look 'executable')" >&2; \
+            echo "    2. missing shared libraries (build with PLAYWRIGHT_WITH_DEPS=true)" >&2; \
+            echo "  Diagnose with: file \$(ls -d ${PLAYWRIGHT_BROWSERS_PATH}/chromium*-*/chrome-linux/headless_shell | head -1)" >&2; \
+            echo "  Regenerate the bundle for this architecture:" >&2; \
+            echo "    ARCH=<arm64|amd64> scripts/playwright_browsers_bundle.sh save" >&2; \
+            exit 1; \
         fi; \
     fi
 
