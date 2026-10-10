@@ -106,9 +106,9 @@ class _FakeCursor:
         # Only the {"$group": {"_id": {"main_id", "skill_key"}}} shape is used.
         seen = {}
         for r in self._rows:
-            key = (str(r.get("main_id") or ""), str(r.get("skill_key") or ""))
+            key = (str(r.get("tenant_id") or ""), str(r.get("skill_key") or ""))
             seen[key] = True
-        return _FakeResult([{"_id": {"main_id": k[0], "skill_key": k[1]}} for k in seen])
+        return _FakeResult([{"_id": {"tenant_id": k[0], "skill_key": k[1]}} for k in seen])
 
     async def update_one(self, flt, update, upsert=False):
         if isinstance(update, list):
@@ -229,7 +229,7 @@ def test_interrupted_window_resets_sustained_streak():
     mid = (date.today() - timedelta(days=3)).isoformat()
     cursor._rows.append(
         {
-            "main_id": "t1",
+            "tenant_id": "t1",
             "skill_key": "weak",
             "date": mid,
             "total_calls": 100,
@@ -252,7 +252,7 @@ def test_healthy_skill_is_not_marked():
         day = (date.today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
             {
-                "main_id": "t1",
+                "tenant_id": "t1",
                 "skill_key": "good",
                 "date": day,
                 "total_calls": 100,
@@ -344,7 +344,7 @@ def test_total_only_metrics_are_not_scored_mass_marked():
         day = (date.today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
             {
-                "main_id": "t1",
+                "tenant_id": "t1",
                 "skill_key": "totalonly",
                 "date": day,
                 "total_calls": 100,
@@ -366,7 +366,7 @@ def test_below_min_samples_is_not_scored():
         day = (date.today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
             {
-                "main_id": "t1",
+                "tenant_id": "t1",
                 "skill_key": "rare",
                 "date": day,
                 "total_calls": 2,  # below MIN_EFFECT_SAMPLES
