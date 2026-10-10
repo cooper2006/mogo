@@ -7771,3 +7771,64 @@ scripts/export_base_images.sh save --manifest-only base-images
 
 **改动文件**：`base-images/manifest.txt`（本地缓存，未跟踪，不入库）、
 新增 `docs/pending-review/2026-10-10-stale-base-image-archives.md`。
+
+## 2026-10-10 删除陈旧基础镜像归档 + 统一基础镜像为裸名
+
+**起因**：用户确认删除 `base-images/` 下两个陈旧 tar，并要求进到本地环境的镜像统一采用裸镜像名称。
+
+### 1. 删除陈旧归档并补齐缺失项
+
+按用户确认执行（删除前已核验绝对路径与内含镜像）：
+
+- 删除 `base-images/node_20-slim.tar`（71M，内含 `node:20-slim`）
+- 删除 `base-images/nginx_1.29.8-alpine.tar`（26M，内含 `nginx:1.29.8-alpine`）
+- 补导出 `base-images/python_3.13-slim-bookworm.tar`（46M）——之前缺失，
+  而 `services/chat-api/Dockerfile`、`services/admin-api/Dockerfile` 都以它为 `ARG BASE_IMAGE`
+
+命令：`scripts/export_base_images.sh save base-images`（按 Dockerfile 自动发现）。
+最终 `base-images/` 4 个 tar 与 `manifest.txt` **完全一致**。
+
+### 2. 基础镜像统一为裸名
+
+**背景**：验证 `export_base_images.sh load` 路径时确认了脚本注释所述的语义——
+**单平台归档会替换本地 tag**，导入后 4 个构建基础镜像在本机只剩 arm64，
+amd64 变体丢失，导致生产构建（`DOCKER_DEFAULT_PLATFORM=linux/amd64`）无法进行。
+
+**处置**：从国内镜像站重新拉取 amd64 变体，并按用户要求**统一采用裸镜像名**，
+不保留 `docker.1ms.run/library/...` 前缀标签：
+
+| 裸名 | amd64 实测 |
+|---|---|
+| `python:3.10-slim-bookworm` | `x86_64` ✓ |
+| `python:3.13-slim-bookworm` | `x86_64` ✓ |
+| `node:24-bookworm-slim` | `x86_64` ✓ |
+| `nginx:1.31.5-alpine3.24-slim` | `x86_64` ✓ |
+
+镜像站标签已清理（仅删标签引用，底层 layer 由裸名共享）。
+实测 `docker.1ms.run` 与 `docker.m.daocloud.io` 均可用（HTTP 401 = 需认证，属正常）。
+
+### 3. 端到端验证（生产路径）
+
+用生产脚本同款调用实测：
+
+```
+DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose \
+  -f docker-compose.yml -f docker-compose.build.yml build document-api
+```
+
+- 结果：成功，**5 分 23 秒**
+- 产物：`Architecture: amd64`
+- 离线路径：`Installing apt packages offline for amd64 (388 deb files)`、
+  `Installing pip wheels offline for amd64 (294 wheels)`
+- 镜像内验证：torch/docling/crcmod/oss2/fastapi 全部可导入，运行架构 `x86_64`，
+  LibreOffice 7.4.7.2、CJK 字体 40 项
+
+### 4. 另导入生产运行镜像
+
+按用户指示从 `prod-images-7d95ade/01-base.tar` 导入 4 个 **amd64** 运行时镜像
+（alpine:3.21 / mongo:6.0.20 / redis:7.4.2-alpine / semitechnologies/weaviate:1.25.7），
+标签为 `mogo-staging/<name>:amd64`——这是 `prepare-release.sh` 第 223 行
+`stage="mogo-staging/${safe}:amd64"` 的命名规范，属生产流程的中间产物。
+
+**改动文件**：`docs/pending-review/2026-10-10-stale-base-image-archives.md`（标记已处理）、
+`docs/WORK_LOG.md`（本条目）。`base-images/` 下的 tar 与 manifest 均未跟踪，不入库。

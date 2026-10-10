@@ -1,6 +1,7 @@
 # 待确认：陈旧的基础镜像 tar 归档
 
 **日期**：2026-10-10
+**状态**：**已处理完毕**（2026-10-10 用户确认后执行，见下方「处置结果」）
 **来源**：三类缓存审计时发现（用户确认清理 `base-images/manifest.txt` 陈旧条目时一并整理）
 
 ## 背景
@@ -53,3 +54,44 @@ scripts/export_base_images.sh save base-images
 
 注：即使保留也不影响构建——`save` 每次都会按 Dockerfile 重新发现集合，
 陈旧 tar 只是占地方，不会被 `load` 用于当前版本。
+
+---
+
+## 处置结果（2026-10-10 执行）
+
+用户确认选择**方案 1**，已执行完毕：
+
+1. **删除**陈旧归档（删除前已核验绝对路径与内含镜像）：
+   - `base-images/node_20-slim.tar`（71M，内含 `node:20-slim`）
+   - `base-images/nginx_1.29.8-alpine.tar`（26M，内含 `nginx:1.29.8-alpine`）
+2. **补导出**缺失的 `base-images/python_3.13-slim-bookworm.tar`（46M）：
+   ```bash
+   scripts/export_base_images.sh save base-images
+   ```
+
+**最终状态**：`base-images/` 现有 4 个 tar，与 `manifest.txt` 完全一致：
+
+| 归档 | 大小 | 镜像 |
+|---|---|---|
+| `python_3.13-slim-bookworm.tar` | 46M | `python:3.13-slim-bookworm` |
+| `node_24-bookworm-slim.tar` | 79M | `node:24-bookworm-slim` |
+| `python_3.10-slim-bookworm.tar` | 47M | `python:3.10-slim-bookworm` |
+| `nginx_1.31.5-alpine3.24-slim.tar` | 9.0M | `nginx:1.31.5-alpine3.24-slim` |
+
+### 附带记录：`load` 的单平台语义
+
+验证 `load` 路径时确认（并已实测复现）：**单平台归档会替换本地 tag**，
+即 `export_base_images.sh load` 之后，这些 tag 在本机只解析为归档所含的平台
+（本次归档为 `linux/arm64`）。脚本第 342 行注释已说明这一点。
+
+由此带来的影响与后续处置：
+- 本机 4 个构建基础镜像一度只剩 arm64，amd64 变体丢失 → 生产构建
+  （`DOCKER_DEFAULT_PLATFORM=linux/amd64`）会失败。
+- 已从国内镜像站 `docker.1ms.run` 重新拉取 4 个 amd64 变体，
+  并**统一使用裸镜像名**（`python:3.10-slim-bookworm` 等），
+  不保留 `docker.1ms.run/library/...` 前缀标签，便于后续处理。
+- 实测 `docker run --platform linux/amd64 <裸名>` 均返回 `x86_64`；
+  生产路径 `DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose ... build`
+  构建 `document-api` 成功（5 分 23 秒），产物 `Architecture: amd64`，
+  离线装 388 个 .deb + 294 个 wheel，LibreOffice 与 CJK 字体均正常。
+
