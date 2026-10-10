@@ -99,7 +99,7 @@ def test_generated_skill_share_installs_an_independent_profile(monkeypatch):
     _install_db(monkeypatch, db)
     original_markdown = "---\nname: 招生写作规范\nskill_type: style\n---\n# Rules\nUse verified facts."
     db.user_skills.rows["source"] = {
-        "_id": "source", "main_id": "tenant", "user_id": "owner",
+        "_id": "source", "tenant_id": "tenant", "user_id": "owner",
         "name": "招生写作规范", "description": "学校招生内容规范", "scenario": "撰写招生内容",
         "type": "writing_style", "skill_type": "style", "role": "style",
         "skill_markdown": original_markdown,
@@ -108,13 +108,13 @@ def test_generated_skill_share_installs_an_independent_profile(monkeypatch):
     }
     service = SkillShareService()
     created = asyncio.run(service.create(
-        main_id="tenant", owner_user_id="owner", skill_id="source", expires_in_days=30,
+        tenant_id="tenant", owner_user_id="owner", skill_id="source", expires_in_days=30,
     ))
     preview = asyncio.run(service.preview(
-        main_id="tenant", recipient_user_id="recipient", token=created["token"],
+        tenant_id="tenant", recipient_user_id="recipient", token=created["token"],
     ))
     installed = asyncio.run(service.install(
-        main_id="tenant", recipient_user_id="recipient", token=created["token"],
+        tenant_id="tenant", recipient_user_id="recipient", token=created["token"],
     ))
 
     recipient = next(row for row in db.user_skills.rows.values() if row.get("user_id") == "recipient")
@@ -128,7 +128,7 @@ def test_generated_skill_share_installs_an_independent_profile(monkeypatch):
     assert recipient["package_source"]["kind"] == "movo_share"
     assert db.user_skills.rows["source"]["user_id"] == "owner"
     repeated = asyncio.run(service.install(
-        main_id="tenant", recipient_user_id="recipient", token=created["token"],
+        tenant_id="tenant", recipient_user_id="recipient", token=created["token"],
     ))
     assert repeated["duplicate"] is True
     assert len([row for row in db.user_skills.rows.values() if row.get("user_id") == "recipient"]) == 1
@@ -139,12 +139,12 @@ def test_packaged_skill_share_reuses_validated_archive(monkeypatch):
     archive = _archive()
     package = validate_skill_package(archive)
     db.user_skills.rows["source"] = {
-        "_id": "source", "main_id": "tenant", "user_id": "owner", "name": "Package Skill",
+        "_id": "source", "tenant_id": "tenant", "user_id": "owner", "name": "Package Skill",
         "description": "Package description", "type": "ordinary", "skill_type": "execution",
         "package_id": "package", "package_slug": package.name, "package_digest": package.archive_digest,
     }
     db.skill_packages.rows["package"] = {
-        "_id": "package", "main_id": "tenant", "owner_scope": "personal", "owner_id": "owner",
+        "_id": "package", "tenant_id": "tenant", "owner_scope": "personal", "owner_id": "owner",
         "archive_base64": base64.b64encode(archive).decode("ascii"),
     }
 
@@ -157,21 +157,21 @@ def test_share_is_tenant_scoped_and_can_be_revoked(monkeypatch):
     db = Database()
     _install_db(monkeypatch, db)
     db.user_skills.rows["source"] = {
-        "_id": "source", "main_id": "tenant-a", "user_id": "owner",
+        "_id": "source", "tenant_id": "tenant-a", "user_id": "owner",
         "name": "Simple", "description": "Simple skill", "skill_markdown": "Do the task.",
     }
     service = SkillShareService()
-    created = asyncio.run(service.create(main_id="tenant-a", owner_user_id="owner", skill_id="source"))
+    created = asyncio.run(service.create(tenant_id="tenant-a", owner_user_id="owner", skill_id="source"))
 
     with pytest.raises(SkillShareError) as cross_tenant:
-        asyncio.run(service.preview(main_id="tenant-b", recipient_user_id="user", token=created["token"]))
+        asyncio.run(service.preview(tenant_id="tenant-b", recipient_user_id="user", token=created["token"]))
     assert cross_tenant.value.code == "skill_share_unavailable"
 
     asyncio.run(service.revoke(
-        main_id="tenant-a", owner_user_id="owner", skill_id="source", share_id=created["shareId"],
+        tenant_id="tenant-a", owner_user_id="owner", skill_id="source", share_id=created["shareId"],
     ))
     with pytest.raises(SkillShareError) as revoked:
-        asyncio.run(service.preview(main_id="tenant-a", recipient_user_id="user", token=created["token"]))
+        asyncio.run(service.preview(tenant_id="tenant-a", recipient_user_id="user", token=created["token"]))
     assert revoked.value.code == "skill_share_unavailable"
 
 
@@ -179,30 +179,30 @@ def test_expired_share_and_conflicting_install_fail_closed(monkeypatch):
     db = Database()
     _install_db(monkeypatch, db)
     db.user_skills.rows["source"] = {
-        "_id": "source", "main_id": "tenant", "user_id": "owner",
+        "_id": "source", "tenant_id": "tenant", "user_id": "owner",
         "name": "Conflict Skill", "description": "Shared", "skill_markdown": "Shared instructions.",
     }
     service = SkillShareService()
-    created = asyncio.run(service.create(main_id="tenant", owner_user_id="owner", skill_id="source"))
+    created = asyncio.run(service.create(tenant_id="tenant", owner_user_id="owner", skill_id="source"))
     share = db.skill_shares.rows[created["shareId"]]
     slug = share["package"]["slug"]
     db.user_skills.rows["existing"] = {
-        "_id": "existing", "main_id": "tenant", "user_id": "recipient",
+        "_id": "existing", "tenant_id": "tenant", "user_id": "recipient",
         "package_slug": slug, "package_digest": "different", "source_kind": "zip",
     }
-    preview = asyncio.run(service.preview(main_id="tenant", recipient_user_id="recipient", token=created["token"]))
+    preview = asyncio.run(service.preview(tenant_id="tenant", recipient_user_id="recipient", token=created["token"]))
     assert preview["hasConflict"] is True
     with pytest.raises(SkillShareError) as conflict:
-        asyncio.run(service.install(main_id="tenant", recipient_user_id="recipient", token=created["token"]))
+        asyncio.run(service.install(tenant_id="tenant", recipient_user_id="recipient", token=created["token"]))
     assert conflict.value.code == "skill_share_conflict"
 
     replaced = asyncio.run(service.install(
-        main_id="tenant", recipient_user_id="recipient", token=created["token"], replace_existing=True,
+        tenant_id="tenant", recipient_user_id="recipient", token=created["token"], replace_existing=True,
     ))
     assert replaced["id"] == "existing"
     assert db.user_skills.rows["existing"]["name"] == "Conflict Skill"
 
     share["expires_at"] = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=1)
     with pytest.raises(SkillShareError) as expired:
-        asyncio.run(service.preview(main_id="tenant", recipient_user_id="another", token=created["token"]))
+        asyncio.run(service.preview(tenant_id="tenant", recipient_user_id="another", token=created["token"]))
     assert expired.value.code == "skill_share_expired"

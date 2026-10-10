@@ -98,16 +98,16 @@ def fake_db(monkeypatch):
     ):
         monkeypatch.setattr(target, lambda: db)
     for target in (
-        "app.core.tenant.add_main_scope",
-        "app.context_space.adapters.resource.add_main_scope",
-        "app.context_space.adapters.skill.add_main_scope",
-        "app.context_space.adapters.session.add_main_scope",
-        "app.core.tenant.resolve_main_id",
-        "app.context_space.adapters.resource.resolve_main_id",
-        "app.context_space.adapters.skill.resolve_main_id",
-        "app.context_space.adapters.session.resolve_main_id",
+        "app.core.tenant.add_tenant_scope",
+        "app.context_space.adapters.resource.add_tenant_scope",
+        "app.context_space.adapters.skill.add_tenant_scope",
+        "app.context_space.adapters.session.add_tenant_scope",
+        "app.core.tenant.resolve_tenant_id",
+        "app.context_space.adapters.resource.resolve_tenant_id",
+        "app.context_space.adapters.skill.resolve_tenant_id",
+        "app.context_space.adapters.session.resolve_tenant_id",
     ):
-        if "add_main_scope" in target:
+        if "add_tenant_scope" in target:
             monkeypatch.setattr(target, lambda q, _m=None: q)
         else:
             monkeypatch.setattr(target, lambda t: t)
@@ -167,7 +167,7 @@ def _seed(db: _FakeDb) -> None:
     db["knowledge_document_chunks"] = _Collection(
         [
             {
-                "main_id": "t1",
+                "tenant_id": "t1",
                 "document_id": "doc-1",
                 "chunk_id": "c1",
                 "text": "the full chunk text body",
@@ -406,37 +406,37 @@ async def test_skill_no_tenant_agnostic_fallback(fake_db, memory_store, monkeypa
     tenant-agnostic ``_id`` lookup. A skill stored under another org's ``main_id``
     must resolve to 404, not leak across tenants.
 
-    The shared ``fake_db`` fixture patches ``add_main_scope`` to a no-op so most
+    The shared ``fake_db`` fixture patches ``add_tenant_scope`` to a no-op so most
     adapter tests can ignore scoping.  This test restores the real
-    ``add_main_scope`` / ``resolve_main_id`` so the scoping filter is applied.
+    ``add_tenant_scope`` / ``resolve_tenant_id`` so the scoping filter is applied.
     We inline the real implementations because the fixture has already patched
     the originals on the ``app.core.tenant`` module.
     """
     from app.context_space.visibility import ContextNotFoundError
 
-    def _real_resolve_main_id(value=None) -> str:
-        main_id = str(value or "").strip()
-        return main_id or "default"
+    def _real_resolve_tenant_id(value=None) -> str:
+        tenant_id = str(value or "").strip()
+        return tenant_id or "default"
 
-    def _real_add_main_scope(query, main_id=None):
-        resolved = _real_resolve_main_id(main_id)
+    def _real_add_tenant_scope(query, tenant_id=None):
+        resolved = _real_resolve_tenant_id(tenant_id)
         base = dict(query or {})
         if resolved == "default":
             scope = {"$or": [
-                {"main_id": resolved},
-                {"main_id": {"$exists": False}},
-                {"main_id": ""},
-                {"main_id": None},
+                {"tenant_id": resolved},
+                {"tenant_id": {"$exists": False}},
+                {"tenant_id": ""},
+                {"tenant_id": None},
             ]}
             if not base:
                 return scope
             return {"$and": [base, scope]}
-        base.update({"main_id": resolved})
+        base.update({"tenant_id": resolved})
         return base
 
-    # Seed a skill stored under main_id="org-A", but the request comes for
+    # Seed a skill stored under tenant_id="org-A", but the request comes for
     # tenant "org-B" — the visibility guard passes (URI says org-B, tenant is
-    # org-B), but the real scoping query looks for main_id="org-B" and finds
+    # org-B), but the real scoping query looks for tenant_id="org-B" and finds
     # nothing.  The removed fallback would have found it by _id alone.
     fake_db["user_skills"] = _Collection(
         [
@@ -444,7 +444,7 @@ async def test_skill_no_tenant_agnostic_fallback(fake_db, memory_store, monkeypa
                 "_id": "sk-cross-org",
                 "name": "Cross-org Skill",
                 "summary": "belongs to org-A",
-                "main_id": "org-A",
+                "tenant_id": "org-A",
                 "contract_json": {},
                 "skill_markdown": "# cross-org skill",
             }
@@ -455,8 +455,8 @@ async def test_skill_no_tenant_agnostic_fallback(fake_db, memory_store, monkeypa
     # Restore the real tenant scoping helpers (undo the fixture's no-op patches).
     import importlib
     skill_mod = importlib.import_module("app.context_space.adapters.skill")
-    monkeypatch.setattr(skill_mod, "add_main_scope", _real_add_main_scope)
-    monkeypatch.setattr(skill_mod, "resolve_main_id", _real_resolve_main_id)
+    monkeypatch.setattr(skill_mod, "add_tenant_scope", _real_add_tenant_scope)
+    monkeypatch.setattr(skill_mod, "resolve_tenant_id", _real_resolve_tenant_id)
 
     with pytest.raises(ContextNotFoundError, match="skill not found"):
         await resolve_memory(

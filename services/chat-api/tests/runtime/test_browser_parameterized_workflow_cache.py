@@ -369,7 +369,7 @@ def test_unknown_browser_operation_still_gets_cache_identity() -> None:
     )
 
     identity = build_workflow_identity(
-        user_id="u1", main_id="task", node=node,
+        user_id="u1", tenant_id="task", node=node,
         input_context=BrowserInputContext(original_request=node.goal),
     )
 
@@ -636,7 +636,7 @@ def test_navigation_only_success_is_cached_without_input_candidates() -> None:
 
     async def run_capture():
         service.schedule_success_capture(
-            user_id="u1", main_id="task", node=node, input_context=context,
+            user_id="u1", tenant_id="task", node=node, input_context=context,
             history=history, run_id="run", replayed=False,
         )
         await asyncio.sleep(0)
@@ -665,7 +665,7 @@ def test_success_capture_recovers_missing_site_from_successful_trace() -> None:
 
     async def run_capture():
         service.schedule_success_capture(
-            user_id="u1", main_id="task", node=node, input_context=context,
+            user_id="u1", tenant_id="task", node=node, input_context=context,
             history=history, run_id="run", replayed=False,
         )
         await asyncio.sleep(0)
@@ -702,7 +702,7 @@ def test_unknown_task_does_not_guess_a_different_cached_operation() -> None:
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="new-task", node=node,
+        user_id="u1", tenant_id="new-task", node=node,
         input_context=BrowserInputContext(original_request="处理客户李四"),
     ))
 
@@ -734,7 +734,7 @@ def test_missing_site_scope_skips_cache_without_cross_site_model_guessing() -> N
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m", node=node,
+        user_id="u1", tenant_id="m", node=node,
         input_context=BrowserInputContext(original_request=request),
     ))
 
@@ -768,7 +768,7 @@ def test_resume_keeps_checkpoint_workflow_across_operation_label_drift() -> None
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m2", node=resumed_node,
+        user_id="u1", tenant_id="m2", node=resumed_node,
         input_context=BrowserInputContext(original_request=request),
         preferred_workflow_id="wf-original",
     ))
@@ -815,7 +815,7 @@ def test_local_ranking_never_crosses_operation_boundary_for_health() -> None:
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m", node=node,
+        user_id="u1", tenant_id="m", node=node,
         input_context=BrowserInputContext(original_request=request),
     ))
 
@@ -854,7 +854,7 @@ def test_deterministic_selector_allows_capability_drift_with_same_operation() ->
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m", node=node,
+        user_id="u1", tenant_id="m", node=node,
         input_context=BrowserInputContext(original_request=request),
     ))
 
@@ -883,7 +883,7 @@ def test_different_operation_does_not_force_local_cache_replay() -> None:
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m", node=node,
+        user_id="u1", tenant_id="m", node=node,
         input_context=BrowserInputContext(original_request=request),
     ))
 
@@ -918,7 +918,7 @@ def test_pre_semantic_revision_manual_workflow_is_not_replayed() -> None:
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m", node=node,
+        user_id="u1", tenant_id="m", node=node,
         input_context=BrowserInputContext(original_request=request),
     ))
 
@@ -946,7 +946,7 @@ def test_deterministic_selector_matches_without_a_model_dependency() -> None:
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m", node=node,
+        user_id="u1", tenant_id="m", node=node,
         input_context=BrowserInputContext(original_request=request),
     ))
 
@@ -982,7 +982,7 @@ def test_same_operation_group_is_ranked_locally_by_route_health() -> None:
     )
 
     matched = asyncio.run(service.lookup(
-        user_id="u1", main_id="m", node=node,
+        user_id="u1", tenant_id="m", node=node,
         input_context=BrowserInputContext(original_request=request),
     ))
 

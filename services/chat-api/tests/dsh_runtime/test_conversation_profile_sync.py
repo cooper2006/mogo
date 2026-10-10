@@ -157,7 +157,7 @@ class _ModelCatalog:
         return (
             {
                 "_id": model_instance_id or "model-a",
-                "main_id": tenant_id,
+                "tenant_id": tenant_id,
                 "provider_id": "provider-a",
                 "model_name": "deepseek-chat",
                 "display_name": "DeepSeek",

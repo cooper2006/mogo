@@ -26,11 +26,11 @@ from app.api.dashboard_metrics import (
 # --- sharing helpers (T002) --------------------------------------------------
 
 def test_tenant_match_scopes_by_main_id() -> None:
-    assert tenant_match("tenant-a") == {"main_id": "tenant-a"}
+    assert tenant_match("tenant-a") == {"tenant_id": "tenant-a"}
 
 
 def test_tenant_match_defaults_to_default_tenant() -> None:
-    assert tenant_match("") == {"main_id": "default"}
+    assert tenant_match("") == {"tenant_id": "default"}
 
 
 def test_tenant_match_applies_time_window() -> None:

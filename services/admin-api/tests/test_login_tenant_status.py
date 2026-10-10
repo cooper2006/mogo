@@ -28,7 +28,7 @@ class _TenantCollection:
         self._rows = rows
 
     async def find_one(self, query, projection=None):
-        return self._rows.get(query.get("main_id"))
+        return self._rows.get(query.get("tenant_id"))
 
 
 class _DB:
@@ -52,10 +52,10 @@ def _patch_db(monkeypatch, tenant_rows: dict) -> None:
 def test_reserved_identifiers_skip_tenant_check(monkeypatch) -> None:
     checks: list[str] = []
     monkeypatch.setattr(auth, "get_db", lambda: (_ for _ in ()).throw(AssertionError("db touched")))
-    for ident in ("", "default", PLATFORM_MAIN_ID):
+    for ident in ("", "default", PLATFORM_TENANT_ID):
         asyncio.run(auth._assert_tenant_login_allowed(ident))
         checks.append(ident)
-    assert checks == ["", "default", PLATFORM_MAIN_ID]
+    assert checks == ["", "default", PLATFORM_TENANT_ID]
 
 
 def test_unknown_tenant_keeps_legacy_semantics(monkeypatch) -> None:
@@ -90,7 +90,7 @@ def test_candidate_filter_is_blocked_for_archived(monkeypatch) -> None:
 def test_candidate_filter_allows_active_and_reserved(monkeypatch) -> None:
     _patch_db(monkeypatch, {"acme": {"status": "active"}})
     assert asyncio.run(auth._tenant_blocked_for_login("acme")) is False
-    assert asyncio.run(auth._tenant_blocked_for_login(PLATFORM_MAIN_ID)) is False
+    assert asyncio.run(auth._tenant_blocked_for_login(PLATFORM_TENANT_ID)) is False
     assert asyncio.run(auth._tenant_blocked_for_login("default")) is False
 
 

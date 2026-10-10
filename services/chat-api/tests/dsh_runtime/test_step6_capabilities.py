@@ -218,7 +218,7 @@ def test_knowledge_scope_comes_only_from_trusted_turn_context(monkeypatch) -> No
     ))
     assert result["success"] is True
     assert calls[0]["knowledge_ids"] == ["server-selected"]
-    assert calls[0]["main_id"] == "tenant-a"
+    assert calls[0]["tenant_id"] == "tenant-a"
     assert calls[0]["user_id"] == "user-a"
 
 
@@ -235,7 +235,7 @@ def test_knowledge_tool_is_available_in_automatic_retrieval_mode(monkeypatch) ->
         _context(knowledge_qa_enabled=False),
     ))
     assert result["success"] is True
-    assert calls[0]["main_id"] == "tenant-a"
+    assert calls[0]["tenant_id"] == "tenant-a"
     assert calls[0]["user_id"] == "user-a"
     assert calls[0]["knowledge_ids"] == []
     assert result["retrieval_status"] == "empty"

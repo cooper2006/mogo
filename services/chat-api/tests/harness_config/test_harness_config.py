@@ -217,7 +217,7 @@ class _FakeColl:
         self._rows: list[dict] = [dict(r) for r in (rows or [])]
 
     def find(self, query):
-        query = {k: v for k, v in query.items() if v is not None and k != "main_id"}
+        query = {k: v for k, v in query.items() if v is not None and k != "tenant_id"}
         rows = [r for r in self._rows]
         for k, v in query.items():
             rows = [r for r in rows if r.get(k) == v]
@@ -229,14 +229,14 @@ class _FakeColl:
         return _Cur(rows)
 
     async def find_one(self, query):
-        query = {k: v for k, v in query.items() if v is not None and k != "main_id"}
+        query = {k: v for k, v in query.items() if v is not None and k != "tenant_id"}
         for row in self._rows:
             if all(row.get(k) == v for k, v in query.items()):
                 return dict(row)
         return None
 
     async def replace_one(self, query, doc, upsert=False):
-        query = {k: v for k, v in query.items() if v is not None and k != "main_id"}
+        query = {k: v for k, v in query.items() if v is not None and k != "tenant_id"}
         for i, row in enumerate(self._rows):
             if all(row.get(k) == v for k, v in query.items()):
                 self._rows[i] = dict(doc)
@@ -246,7 +246,7 @@ class _FakeColl:
         return type("R", (), {})()
 
     async def delete_one(self, query):
-        query = {k: v for k, v in query.items() if v is not None and k != "main_id"}
+        query = {k: v for k, v in query.items() if v is not None and k != "tenant_id"}
         for i, row in enumerate(self._rows):
             if all(row.get(k) == v for k, v in query.items()):
                 del self._rows[i]
@@ -262,12 +262,12 @@ class _FakeDB:
         return self._coll
 
 
-def _fake_resolve(monkeypatch, *, main_id="main-test", user_id="u-1", role="full_access_admin"):
+def _fake_resolve(monkeypatch, *, tenant_id="main-test", user_id="u-1", role="full_access_admin"):
     """Patch the session-user resolver so the endpoint doesn't hit the DB."""
     import app.services.end_user_session as _s
 
     async def _resolve(authorization=None):
-        return {"main_id": main_id, "user": {"_id": user_id}, "user_id": user_id, "role": role}
+        return {"tenant_id": tenant_id, "user": {"_id": user_id}, "user_id": user_id, "role": role}
 
     monkeypatch.setattr(_s, "resolve_session_user", _resolve)
 
@@ -275,7 +275,7 @@ def _fake_resolve(monkeypatch, *, main_id="main-test", user_id="u-1", role="full
 def _fake_full_access(monkeypatch, allowed=True):
     import app.api.endpoints.dsh_session_versioning as _sv
 
-    async def _fake(db, main_id, user_id):
+    async def _fake(db, tenant_id, user_id):
         return allowed
 
     monkeypatch.setattr(_sv, "_user_has_full_access", _fake)

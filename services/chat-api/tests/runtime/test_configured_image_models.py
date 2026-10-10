@@ -14,7 +14,7 @@ def test_image_service_resolves_explicit_model_id(monkeypatch):
 
     async def _fake_get_image_model_config(model_id: str, main_id: str):
         calls["model_id"] = model_id
-        calls["main_id"] = main_id
+        calls["tenant_id"] = main_id
         return {"id": model_id, "model_name": "gpt-image-2"}
 
     async def _fake_get_default_image_model_config(main_id: str):
@@ -22,7 +22,7 @@ def test_image_service_resolves_explicit_model_id(monkeypatch):
 
     monkeypatch.setattr("app.services.image_generation.get_image_model_config", _fake_get_image_model_config)
     monkeypatch.setattr("app.services.image_generation.get_default_image_model_config", _fake_get_default_image_model_config)
-    previous = set_request_context({"main_id": "tenant_ctx"})
+    previous = set_request_context({"tenant_id": "tenant_ctx"})
     try:
         config, source = asyncio.run(
             service._resolve_image_model_config(
@@ -34,7 +34,7 @@ def test_image_service_resolves_explicit_model_id(monkeypatch):
 
     assert source == "admin_config"
     assert config["id"] == "img_model_1"
-    assert calls == {"model_id": "img_model_1", "main_id": "tenant_ctx"}
+    assert calls == {"model_id": "img_model_1", "tenant_id": "tenant_ctx"}
 
 
 def test_available_models_supports_capability_filter(monkeypatch):
@@ -49,7 +49,7 @@ def test_available_models_supports_capability_filter(monkeypatch):
     monkeypatch.setattr(model_endpoints, "list_model_options", _fake_list_model_options)
     monkeypatch.setattr(model_endpoints, "list_chat_model_options", _fake_list_chat_model_options)
 
-    result = asyncio.run(model_endpoints.available_models(main_id="tenant_a", capability="image_generation"))
+    result = asyncio.run(model_endpoints.available_models(tenant_id="tenant_a", capability="image_generation"))
 
     assert result == {"code": 0, "data": [{"id": "img_a"}]}
 
@@ -61,7 +61,7 @@ def test_image_service_has_no_environment_model_fallback(monkeypatch):
         return None
 
     monkeypatch.setattr("app.services.image_generation.get_default_image_model_config", _no_default)
-    previous = set_request_context({"main_id": "tenant-no-image"})
+    previous = set_request_context({"tenant_id": "tenant-no-image"})
     try:
         with pytest.raises(ModelConfigError, match="管理后台"):
             asyncio.run(service.generate(prompt="生成封面", user_id="user-a"))
@@ -86,7 +86,7 @@ def test_image_model_test_uses_configured_image_model(monkeypatch):
     async def _fake_update_model_health(model_id: str, main_id: str, health_status: str, last_error: str = ""):
         calls["health"] = {
             "model_id": model_id,
-            "main_id": main_id,
+            "tenant_id": main_id,
             "health_status": health_status,
             "last_error": last_error,
         }
@@ -96,13 +96,13 @@ def test_image_model_test_uses_configured_image_model(monkeypatch):
 
     payload = model_endpoints.ImageModelTestPayload(
         prompt="生成一张没有文字的封面背景",
-        main_id="tenant_b",
+        tenant_id="tenant_b",
         size="1536x864",
     )
     result = asyncio.run(model_endpoints.image_model_test("img_model_2", payload))
 
     assert result["code"] == 0
     assert result["data"]["success"] is True
-    assert calls["output_spec"] == {"main_id": "tenant_b", "image_model_id": "img_model_2"}
+    assert calls["output_spec"] == {"tenant_id": "tenant_b", "image_model_id": "img_model_2"}
     assert calls["size"] == "1536x864"
     assert calls["health"]["health_status"] == "healthy"

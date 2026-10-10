@@ -159,7 +159,7 @@ def seed_seq(fake_db):
     ``seq: N`` must first have ``N - 1`` messages stored for that session.
     """
 
-    def _seed(session_id: str, next_seq: int, main_id: str = "default") -> None:
+    def _seed(session_id: str, next_seq: int, tenant_id: str = "default") -> None:
         db_obj, _collections = fake_db
         messages = db_obj["chat_messages"]
         for index in range(1, next_seq):
@@ -167,7 +167,7 @@ def seed_seq(fake_db):
                 {
                     "session_id": session_id,
                     "user_id": "u-1",
-                    "main_id": main_id,
+                    "tenant_id": tenant_id,
                     "seq": index,
                     "role": "user",
                     "content": f"history {index}",
@@ -197,7 +197,7 @@ def client(fake_db, monkeypatch):
     monkeypatch.setattr(endpoint, "CoPresence", _fake_presence)
 
     async def _fake_user(authorization: str | None):
-        return {"user": {"_id": "u-1"}, "main_id": "default"}
+        return {"user": {"_id": "u-1"}, "tenant_id": "default"}
 
     monkeypatch.setattr(endpoint, "_resolve_session_user", _fake_user)
 
@@ -323,7 +323,7 @@ def test_session_co_presence_resolves_member_display_names(client, fake_db, monk
     # The heartbeat records the *authorized* user, so drive each beat with its own principal.
     for uid in ("u-1", "u-2"):
         async def _as_user(authorization, _uid=uid):
-            return {"user": {"_id": _uid}, "main_id": "default"}
+            return {"user": {"_id": _uid}, "tenant_id": "default"}
 
         monkeypatch.setattr(endpoint, "_resolve_session_user", _as_user)
         response = client.post(
@@ -347,7 +347,7 @@ def test_session_co_presence_unknown_member_falls_back_to_id(client, fake_db, mo
     from app.api.endpoints import dsh_session_versioning as endpoint
 
     async def _as_ghost(authorization):
-        return {"user": {"_id": "ghost"}, "main_id": "default"}
+        return {"user": {"_id": "ghost"}, "tenant_id": "default"}
 
     monkeypatch.setattr(endpoint, "_resolve_session_user", _as_ghost)
     response = client.post(
@@ -463,11 +463,11 @@ def test_commit_falls_back_to_chat_messages_for_redaction(client, fake_db, seed_
     db_obj, collections = fake_db
     # Backfill turns 1-5 so the server-side seq check accepts seq 7 (the
     # secret-bearing message below is turn 6).
-    seed_seq("s-fb", 6, main_id="m-1")
+    seed_seq("s-fb", 6, tenant_id="m-1")
     # A real server-side message carrying a suspected secret.
     db_obj["chat_messages"]._docs.append({
         "session_id": "s-fb",
-        "main_id": "m-1",
+        "tenant_id": "m-1",
         "user_id": "u-1",
         "seq": 6,
         "role": "user",
@@ -476,7 +476,7 @@ def test_commit_falls_back_to_chat_messages_for_redaction(client, fake_db, seed_
     # Point the auth fixture at a non-default main so the tenant scope filter
     # stays a plain dict (no nested $or) in the fake DB.
     async def _user(authorization: str | None):
-        return {"user": {"_id": "u-1"}, "main_id": "m-1"}
+        return {"user": {"_id": "u-1"}, "tenant_id": "m-1"}
 
     monkeypatch.setattr(endpoint, "_resolve_session_user", _user)
 
@@ -565,7 +565,7 @@ def client_with_user(fake_db, user_id: str):
     audit_module.get_db = lambda: db_obj
 
     async def _user(authorization):
-        return {"user": {"_id": user_id}, "main_id": "default"}
+        return {"user": {"_id": user_id}, "tenant_id": "default"}
 
     endpoint._resolve_session_user = _user
 

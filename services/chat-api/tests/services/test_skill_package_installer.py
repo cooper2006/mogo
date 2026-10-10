@@ -59,8 +59,8 @@ def test_personal_and_organization_installations_keep_separate_ownership(monkeyp
     db = Database()
     monkeypatch.setattr(installer_module, "get_db", lambda: db)
     service = SkillPackageInstaller()
-    personal = asyncio.run(service.install(package(), scope="personal", main_id="tenant", user_id="user"))
-    organization = asyncio.run(service.install(package(), scope="organization", main_id="tenant"))
+    personal = asyncio.run(service.install(package(), scope="personal", tenant_id="tenant", user_id="user"))
+    organization = asyncio.run(service.install(package(), scope="organization", tenant_id="tenant"))
     assert personal["enabled"] is True
     assert organization["enabled"] is False
     assert next(iter(db.user_skills.rows.values()))["user_id"] == "user"
@@ -71,9 +71,9 @@ def test_reinstall_updates_in_place_and_exact_duplicate_is_idempotent(monkeypatc
     db = Database()
     monkeypatch.setattr(installer_module, "get_db", lambda: db)
     service = SkillPackageInstaller()
-    first = asyncio.run(service.install(package(), scope="personal", main_id="tenant", user_id="user"))
-    duplicate = asyncio.run(service.install(package(), scope="personal", main_id="tenant", user_id="user"))
-    updated = asyncio.run(service.install(package("2.0.0", "Changed"), scope="personal", main_id="tenant", user_id="user"))
+    first = asyncio.run(service.install(package(), scope="personal", tenant_id="tenant", user_id="user"))
+    duplicate = asyncio.run(service.install(package(), scope="personal", tenant_id="tenant", user_id="user"))
+    updated = asyncio.run(service.install(package("2.0.0", "Changed"), scope="personal", tenant_id="tenant", user_id="user"))
     assert duplicate["duplicate"] is True
     assert updated["updated"] is True
     assert updated["id"] == first["id"]
@@ -89,7 +89,7 @@ def test_expert_package_persists_as_one_skill_with_internal_children(monkeypatch
         children=({"slug": "child-one", "name": "Child One", "description": "Child", "version": "1.0.0"},),
     )
     result = asyncio.run(SkillPackageInstaller().install(
-        expert, scope="organization", main_id="tenant",
+        expert, scope="organization", tenant_id="tenant",
     ))
     row = next(iter(db.skills.rows.values()))
     assert result["type"] == "expert_package"
@@ -104,7 +104,7 @@ def test_remote_source_is_persisted_without_changing_zip_ownership(monkeypatch):
     monkeypatch.setattr(installer_module, "get_db", lambda: db)
     source = {"kind": "skillhub", "coordinate": "@owner/imported-skill", "slug": "imported-skill"}
     result = asyncio.run(SkillPackageInstaller().install(
-        package(), scope="personal", main_id="tenant", user_id="user", package_source=source,
+        package(), scope="personal", tenant_id="tenant", user_id="user", package_source=source,
     ))
     row = next(iter(db.user_skills.rows.values()))
     package_row = next(iter(db.skill_packages.rows.values()))
@@ -118,10 +118,10 @@ def test_duplicate_remote_install_records_its_distribution_source(monkeypatch):
     db = Database()
     monkeypatch.setattr(installer_module, "get_db", lambda: db)
     service = SkillPackageInstaller()
-    asyncio.run(service.install(package(), scope="personal", main_id="tenant", user_id="user"))
+    asyncio.run(service.install(package(), scope="personal", tenant_id="tenant", user_id="user"))
     source = {"kind": "skillhub", "coordinate": "@owner/imported-skill", "slug": "imported-skill"}
     result = asyncio.run(service.install(
-        package(), scope="personal", main_id="tenant", user_id="user", package_source=source,
+        package(), scope="personal", tenant_id="tenant", user_id="user", package_source=source,
     ))
     assert result["duplicate"] is True
     assert next(iter(db.user_skills.rows.values()))["package_source"] == source
@@ -134,11 +134,11 @@ def test_upgrade_inspector_distinguishes_upgrade_replace_and_downgrade(monkeypat
     monkeypatch.setattr(upgrade_module, "get_db", lambda: db)
     installer = SkillPackageInstaller()
     inspector = SkillPackageUpgradeInspector()
-    asyncio.run(installer.install(package("2.0.0"), scope="personal", main_id="tenant", user_id="user"))
-    duplicate = asyncio.run(inspector.inspect(package("2.0.0"), scope="personal", main_id="tenant", user_id="user"))
-    replacement = asyncio.run(inspector.inspect(package("2.0.0", "Changed"), scope="personal", main_id="tenant", user_id="user"))
-    upgrade = asyncio.run(inspector.inspect(package("2.1.0"), scope="personal", main_id="tenant", user_id="user"))
-    downgrade = asyncio.run(inspector.inspect(package("1.9.0"), scope="personal", main_id="tenant", user_id="user"))
+    asyncio.run(installer.install(package("2.0.0"), scope="personal", tenant_id="tenant", user_id="user"))
+    duplicate = asyncio.run(inspector.inspect(package("2.0.0"), scope="personal", tenant_id="tenant", user_id="user"))
+    replacement = asyncio.run(inspector.inspect(package("2.0.0", "Changed"), scope="personal", tenant_id="tenant", user_id="user"))
+    upgrade = asyncio.run(inspector.inspect(package("2.1.0"), scope="personal", tenant_id="tenant", user_id="user"))
+    downgrade = asyncio.run(inspector.inspect(package("1.9.0"), scope="personal", tenant_id="tenant", user_id="user"))
     assert duplicate["action"] == "duplicate"
     assert replacement["action"] == "replace"
     assert upgrade["action"] == "upgrade"

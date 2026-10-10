@@ -90,7 +90,7 @@ async def test_quality_metrics_scopes_by_tenant() -> None:
     await dashboard._quality_metrics(db, "tenant-scope")
 
     first_match = collection.pipelines[0][0]["$match"]
-    assert first_match["main_id"] == "tenant-scope"
+    assert first_match["tenant_id"] == "tenant-scope"
     assert "created_at" in first_match  # time window applied
 
 

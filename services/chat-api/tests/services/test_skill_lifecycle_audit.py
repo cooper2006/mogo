@@ -33,7 +33,7 @@ def test_unknown_action_is_rejected(monkeypatch) -> None:
     with pytest.raises(ValueError, match="unknown 004 FR-8 audit action"):
         asyncio.run(
             record_skill_event(
-                main_id="m-1", user_id="u-1", action="skill.bogus", target="s-1"
+                tenant_id="m-1", user_id="u-1", action="skill.bogus", target="s-1"
             )
         )
     assert "action" not in captured or captured.get("action") != "skill.bogus"
@@ -50,7 +50,7 @@ def test_skill_event_lands_on_the_001_stream(monkeypatch) -> None:
 
     asyncio.run(
         record_skill_event(
-            main_id="m-1",
+            tenant_id="m-1",
             user_id="u-1",
             action="skill.published",
             target="skill-9",

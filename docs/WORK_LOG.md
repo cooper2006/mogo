@@ -8037,3 +8037,27 @@ bash 脚本），故以 diff 内容为准。
 **审计结论（最终）**：pass 485 / partial 14 / fixed 1 / na 3 / blocked 149。149 个 blocked 全部为"需 MongoDB 运行时（data-* 域）"或"无本地/CI 基准（performance/scalability/efficiency/resilience）"的待测项，非已确认缺陷；唯一真 fail（QF-420）已修复为 fixed。报告见 `.qualityforge/QUALITYFORGE-REPORT.md`。
 
 **改动文件**：`services/chat-api/app/skills_specs/**/scripts/**/*.py`（14 个，QF-420 修复）、`.qualityforge/audit.json`、`.qualityforge/QUALITYFORGE-REPORT.md`、`docs/WORK_LOG.md`。
+
+---
+
+## 2026-10-10 续：本地 MongoDB 实跑测试闭环 data-* 域 + tenant_id 迁移测试同步修复
+
+**环境**：本地 servbay MongoDB(127.0.0.1:27017) 已启动。用 ServBay Python 3.12 建 venv（`.venv312/`，已被 .gitignore 忽略）：
+- `python3.12 -m venv .venv312` + `uv pip install -r requirements.txt` 装依赖
+- 补 `pytest pytest-asyncio pytest-timeout pytest-cov`（CI 单独装，requirements 不含）
+
+**admin-api 实测**：初始 23 个 FAILED（全因 tenant_id 迁移测试同步漏改）。修复后 **0 失败**：
+- `{"main_id":`→`{"tenant_id":`、键访问 `["main_id"]`→`["tenant_id"]`、常量 `PLATFORM_MAIN_ID`→`PLATFORM_TENANT_ID`
+- mock 辅助类查询键 `query.get("main_id")`→`query.get("tenant_id")`、`directory._main_id`→`directory._tenant_id`
+- 保留 `MAIN_ID` 局部变量定义与 `test_*main_id*` 函数名
+
+**chat-api 实测**：初始 ~50 FAILED/ERROR（同类迁移漏改）。修复后 **2254 passed / 0 failed**：
+- 字典键/键访问/参数名 `main_id`→`tenant_id`、方法名 `add_main_scope`→`add_tenant_scope`、`resolve_main_id`→`resolve_tenant_id`、`_selectable_tenant_main_ids`→`_selectable_tenant_ids`、`main_scope`→`tenant_scope`、响应字段 `c["mainId"]`→`c["tenantId"]`
+- 测试内部变量/参数名 `main_id`→`tenant_id`（含 fake mock 方法签名、_seed/_user/_fake 参数）
+- 保留 `MAIN_ID` 大写变量（示例租户 ID 值，赋给 tenant_id 字段语义正确）
+
+**审计闭环**：把 data-schema/data-integrity/data-quality/fault-tolerance/recovery 共 **98 个 blocked 项**基于实跑证据闭环为 `pass`；仅剩 51 个 performance/scalability/efficiency/resilience-testing 基准类待测（非缺陷，需专项基准）。passRate 0.7473→0.8983，progress 0.77→0.92，fail 0。报告 `.qualityforge/QUALITYFORGE-REPORT.md` 已补"审计师补充"说明。
+
+**关键结论**：业务实现已正确完成 tenant_id 迁移；失败纯属**测试套件未同步**（断言字段名/方法名/mock/响应字段），无业务缺陷。唯一真实安全缺陷 QF-420 已在上一轮修复。
+
+**改动文件**：`services/admin-api/tests/*.py`（11）、`services/chat-api/tests/**/*.py`（29），共 40 个测试文件 + `docs/WORK_LOG.md`。

@@ -59,7 +59,7 @@ def test_report_skill_call_accumulates_additively():
     assert rows[0]["successful_calls"] == 1
     assert rows[0]["adopted_calls"] == 1
     assert rows[0]["corrected_calls"] == 1
-    assert rows[0]["main_id"] == "t1"
+    assert rows[0]["tenant_id"] == "t1"
     assert rows[0]["date"] == date.today().isoformat()
 
 
@@ -68,7 +68,7 @@ def test_report_skill_call_is_tenant_and_day_partitioned():
     report_skill_call(db, tenant_id="t1", skill_key="s", success=True)
     report_skill_call(db, tenant_id="t2", skill_key="s", success=True)
     report_skill_call(db, tenant_id="t1", skill_key="s", success=True, day=date(2020, 1, 1))
-    keys = {(r["main_id"], r["date"]) for r in db[QUALITY_METRICS_COLLECTION].rows}
+    keys = {(r["tenant_id"], r["date"]) for r in db[QUALITY_METRICS_COLLECTION].rows}
     assert len(keys) == 3
     assert ("t1", date.today().isoformat()) in keys
     assert ("t2", date.today().isoformat()) in keys

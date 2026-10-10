@@ -78,13 +78,13 @@ def _observation(url: str, revision: str, elements=None, text: str = "") -> Obse
 def test_identity_ignores_business_values_and_wording() -> None:
     first = build_workflow_identity(
         user_id="u1",
-        main_id="another-task",
+        tenant_id="another-task",
         node=_publish_node("把文章发布到微信公众号"),
         input_context=_input_context("标题一", "正文一", "/tmp/one.png"),
     )
     second = build_workflow_identity(
         user_id="u1",
-        main_id="m1",
+        tenant_id="m1",
         node=_publish_node("将新的图文发表到公众号"),
         input_context=_input_context("完全不同的标题", "新的正文", "/tmp/two.png"),
     )
@@ -98,13 +98,13 @@ def test_identity_ignores_business_values_and_wording() -> None:
 def test_identity_separates_publish_from_save_draft() -> None:
     published = build_workflow_identity(
         user_id="u1",
-        main_id="m1",
+        tenant_id="m1",
         node=_publish_node("正式发布公众号文章"),
         input_context=_input_context("标题", "正文", "/tmp/one.png"),
     )
     drafted = build_workflow_identity(
         user_id="u1",
-        main_id="m1",
+        tenant_id="m1",
         node=_publish_node("保存到微信公众号草稿箱"),
         input_context=_input_context("标题", "正文", "/tmp/one.png"),
     )
@@ -122,10 +122,10 @@ def test_identity_uses_business_operation_not_internal_capability_variant() -> N
     compatible.meta["capability_id"] = "browser.publish_or_submit"
 
     first = build_workflow_identity(
-        user_id="u1", main_id="task-a", node=publish, input_context=context,
+        user_id="u1", tenant_id="task-a", node=publish, input_context=context,
     )
     second = build_workflow_identity(
-        user_id="u1", main_id="task-b", node=compatible, input_context=context,
+        user_id="u1", tenant_id="task-b", node=compatible, input_context=context,
     )
 
     assert first is not None and second is not None
@@ -149,7 +149,7 @@ def test_identity_uses_original_request_when_resumed_node_goal_omits_object_type
     )
 
     identity = build_workflow_identity(
-        user_id="u1", main_id="m1", node=node, input_context=context,
+        user_id="u1", tenant_id="m1", node=node, input_context=context,
     )
 
     assert identity is not None
@@ -261,7 +261,7 @@ class _Fallback(BrowserDriver):
 def test_learned_driver_resolves_new_ref_then_hands_dynamic_form_to_fallback() -> None:
     identity = build_workflow_identity(
         user_id="u1",
-        main_id="m1",
+        tenant_id="m1",
         node=_publish_node(),
         input_context=_input_context("标题", "正文", "/tmp/one.png"),
     )

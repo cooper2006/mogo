@@ -52,7 +52,7 @@ def _wire(monkeypatch, mem: _Mem) -> None:
 def _seed(mem: _Mem, status: str | None) -> None:
     """Seed a registry row; ``status=None`` means *no row at all*."""
     if status is not None:
-        mem["tenants"].docs.append({"main_id": MAIN_ID, "status": status})
+        mem["tenants"].docs.append({"tenant_id": MAIN_ID, "status": status})
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ async def test_blank_identifier_is_rejected(monkeypatch, main_id: Any) -> None:
 
 def _archive(mem: _Mem, status: str = "archived") -> None:
     mem["tenants"].docs.clear()
-    mem["tenants"].docs.append({"main_id": MAIN_ID, "status": status})
+    mem["tenants"].docs.append({"tenant_id": MAIN_ID, "status": status})
 
 
 def test_invite_accept_rejected_for_archived_tenant(monkeypatch) -> None:
@@ -116,7 +116,7 @@ def test_invite_accept_rejected_for_archived_tenant(monkeypatch) -> None:
     _wire(monkeypatch, mem)
 
     async def fake_find_invite(token: str) -> dict:
-        return {"main_id": MAIN_ID, "status": "active", "role_ids": [], "primary_role_id": ""}
+        return {"tenant_id": MAIN_ID, "status": "active", "role_ids": [], "primary_role_id": ""}
 
     monkeypatch.setattr(directory, "_find_active_invite", fake_find_invite)
 
@@ -132,7 +132,7 @@ def test_invite_accept_allowed_for_active_tenant(monkeypatch) -> None:
     _wire(monkeypatch, mem)
 
     async def fake_find_invite(token: str) -> dict:
-        return {"main_id": MAIN_ID, "status": "active", "role_ids": [], "primary_role_id": ""}
+        return {"tenant_id": MAIN_ID, "status": "active", "role_ids": [], "primary_role_id": ""}
 
     class _StubRoleService:
         def __init__(self) -> None:
@@ -155,7 +155,7 @@ def test_create_user_rejected_for_archived_tenant(monkeypatch) -> None:
     mem = _Mem()
     _archive(mem)
     _wire(monkeypatch, mem)
-    monkeypatch.setattr(directory, "_main_id", lambda user: MAIN_ID)
+    monkeypatch.setattr(directory, "_tenant_id", lambda user: MAIN_ID)
 
     calls: list[str] = []
 
@@ -165,7 +165,7 @@ def test_create_user_rejected_for_archived_tenant(monkeypatch) -> None:
     monkeypatch.setattr(directory, "assert_member_capacity", fail_capacity)
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(directory.create_user(_EmptyPayload(), {"main_id": MAIN_ID}))
+        asyncio.run(directory.create_user(_EmptyPayload(), {"tenant_id": MAIN_ID}))
     assert exc.value.status_code == 409
     assert calls == [], "the tenant gate must run before the capacity gate"
 

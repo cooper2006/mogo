@@ -99,7 +99,7 @@ def test_service_reuses_package_validation_and_personal_installer() -> None:
     assert result["availability"] == "next_turn"
     _, call = installer.calls[0]
     assert call["scope"] == "personal"
-    assert call["main_id"] == "tenant-a"
+    assert call["tenant_id"] == "tenant-a"
     assert call["user_id"] == "user-a"
     assert call["package_source"]["coordinate"] == "@owner/birdwatching"
 

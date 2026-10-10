@@ -59,7 +59,7 @@ def test_collect_retries_unresolved_selection_and_uses_prior_rows_only() -> None
         artifacts = await service.collect(
             session_id="unused",
             user_id="user",
-            main_id="main",
+            tenant_id="main",
             current_request="Publish using Atlas",
             evidence_requirement="Use the prior Atlas product facts",
         )

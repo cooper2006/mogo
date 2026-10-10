@@ -50,18 +50,18 @@ class Database:
 def test_existing_skill_keeps_published_projection_until_publish(monkeypatch):
     db = Database()
     db.user_skills.rows["skill"] = {
-        "_id": "skill", "main_id": "tenant", "user_id": "owner", "type": "writing_style",
+        "_id": "skill", "tenant_id": "tenant", "user_id": "owner", "type": "writing_style",
         "name": "Published name", "description": "published", "enabled": True,
     }
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
 
-    async def update_skill(user_id, skill_id, updates, main_id="default"):
-        await db.user_skills.update_one({"_id": skill_id, "main_id": main_id, "user_id": user_id}, {"$set": updates})
+    async def update_skill(user_id, skill_id, updates, tenant_id="default"):
+        await db.user_skills.update_one({"_id": skill_id, "tenant_id": tenant_id, "user_id": user_id}, {"$set": updates})
         return await db.user_skills.find_one({"_id": skill_id})
     monkeypatch.setattr(skills_module.user_skill_service, "update_skill", update_skill)
     service = SkillLifecycleService()
 
-    asyncio.run(service.save_draft(main_id="tenant", user_id="owner", skill_id="skill", draft={
+    asyncio.run(service.save_draft(tenant_id="tenant", user_id="owner", skill_id="skill", draft={
         "name": "Draft name", "description": "draft", "type": "writing_style",
     }))
     stored = db.user_skills.rows["skill"]
@@ -70,7 +70,7 @@ def test_existing_skill_keeps_published_projection_until_publish(monkeypatch):
     assert stored["published_version"] == "1.0.0"
     assert stored["has_unpublished_changes"] is True
 
-    published, release = asyncio.run(service.publish(main_id="tenant", user_id="owner", skill_id="skill", release_notes="ready"))
+    published, release = asyncio.run(service.publish(tenant_id="tenant", user_id="owner", skill_id="skill", release_notes="ready"))
     assert published["name"] == "Draft name"
     assert published["published_version"] == "1.0.1"
     assert published["has_unpublished_changes"] is False
@@ -80,12 +80,12 @@ def test_existing_skill_keeps_published_projection_until_publish(monkeypatch):
 def test_new_platform_skill_stays_draft_without_release(monkeypatch):
     db = Database()
     db.user_skills.rows["skill"] = {
-        "_id": "skill", "main_id": "tenant", "user_id": "owner", "type": "workflow",
+        "_id": "skill", "tenant_id": "tenant", "user_id": "owner", "type": "workflow",
         "name": "Draft workflow", "enabled": False,
     }
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
     row = asyncio.run(SkillLifecycleService().initialize_draft(
-        main_id="tenant", user_id="owner", skill_id="skill", draft=db.user_skills.rows["skill"], new_skill=True,
+        tenant_id="tenant", user_id="owner", skill_id="skill", draft=db.user_skills.rows["skill"], new_skill=True,
     ))
     assert row["publication_status"] == "draft"
     assert row["has_unpublished_changes"] is True
@@ -95,13 +95,13 @@ def test_new_platform_skill_stays_draft_without_release(monkeypatch):
 def test_release_history_lazily_migrates_existing_skill(monkeypatch):
     db = Database()
     db.user_skills.rows["skill"] = {
-        "_id": "skill", "main_id": "tenant", "user_id": "owner", "type": "writing_style",
+        "_id": "skill", "tenant_id": "tenant", "user_id": "owner", "type": "writing_style",
         "name": "Legacy Skill", "description": "existing published content", "enabled": True,
     }
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
 
     releases = asyncio.run(SkillLifecycleService().list_releases(
-        main_id="tenant", user_id="owner", skill_id="skill",
+        tenant_id="tenant", user_id="owner", skill_id="skill",
     ))
 
     assert [release["version"] for release in releases] == ["1.0.0"]

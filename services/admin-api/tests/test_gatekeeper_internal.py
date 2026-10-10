@@ -61,9 +61,9 @@ def test_resolve_roles_reads_the_employee_bindings(monkeypatch):
     """RBAC's role source: 006 binds roles to employees in end_user_position_roles."""
     db = _FakeDb(
         [
-            {"main_id": "t1", "user_id": "u1", "role_id": "system:t1:editor"},
-            {"main_id": "t1", "user_id": "u1", "role_id": "system:t1:viewer"},
-            {"main_id": "t1", "user_id": "u2", "role_id": "system:t1:other"},
+            {"tenant_id": "t1", "user_id": "u1", "role_id": "system:t1:editor"},
+            {"tenant_id": "t1", "user_id": "u1", "role_id": "system:t1:viewer"},
+            {"tenant_id": "t1", "user_id": "u2", "role_id": "system:t1:other"},
         ]
     )
     monkeypatch.setattr("app.core.db.get_db", lambda: db, raising=False)

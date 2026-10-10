@@ -159,13 +159,13 @@ def _install_db(monkeypatch, db):
 
 def _seed(db):
     db.end_users.rows = {
-        "owner": {"_id": "owner", "main_id": "tenant", "status": "active", "name": "Owner", "login_name": "owner"},
-        "alice": {"_id": "alice", "main_id": "tenant", "status": "active", "name": "Alice", "login_name": "alice"},
-        "bob": {"_id": "bob", "main_id": "tenant", "status": "active", "name": "Bob", "login_name": "bob"},
-        "outsider": {"_id": "outsider", "main_id": "other", "status": "active", "name": "Outsider", "login_name": "out"},
+        "owner": {"_id": "owner", "tenant_id": "tenant", "status": "active", "name": "Owner", "login_name": "owner"},
+        "alice": {"_id": "alice", "tenant_id": "tenant", "status": "active", "name": "Alice", "login_name": "alice"},
+        "bob": {"_id": "bob", "tenant_id": "tenant", "status": "active", "name": "Bob", "login_name": "bob"},
+        "outsider": {"_id": "outsider", "tenant_id": "other", "status": "active", "name": "Outsider", "login_name": "out"},
     }
     db.user_skills.rows["source"] = {
-        "_id": "source", "main_id": "tenant", "user_id": "owner",
+        "_id": "source", "tenant_id": "tenant", "user_id": "owner",
         "name": "Team Helper", "description": "Shared safely", "skill_markdown": "Follow the team rules.",
         "config": {"tone": "clear", "api_key": "never-share"},
     }
@@ -178,7 +178,7 @@ def test_direct_share_creates_one_snapshot_and_recipient_inboxes(monkeypatch):
     service = DirectSkillShareService()
 
     result = asyncio.run(service.create(
-        main_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice", "bob"],
+        tenant_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice", "bob"],
     ))
     assert result["recipientCount"] == 2
     assert len(db.skill_shares.rows) == 1
@@ -186,15 +186,15 @@ def test_direct_share_creates_one_snapshot_and_recipient_inboxes(monkeypatch):
     snapshot = next(iter(db.skill_shares.rows.values()))
     assert snapshot["profile"]["config"] == {"tone": "clear"}
 
-    inbox = asyncio.run(service.inbox(main_id="tenant", recipient_user_id="alice"))
+    inbox = asyncio.run(service.inbox(tenant_id="tenant", recipient_user_id="alice"))
     assert inbox["pendingCount"] == 1
-    assert asyncio.run(service.pending_count(main_id="tenant", recipient_user_id="alice")) == 1
-    assert asyncio.run(service.pending_count(main_id="other", recipient_user_id="alice")) == 0
+    assert asyncio.run(service.pending_count(tenant_id="tenant", recipient_user_id="alice")) == 1
+    assert asyncio.run(service.pending_count(tenant_id="other", recipient_user_id="alice")) == 0
     assert inbox["items"][0]["name"] == "Team Helper"
     assert inbox["items"][0]["sender"]["displayName"] == "Owner"
 
     asyncio.run(service.create(
-        main_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice"],
+        tenant_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice"],
     ))
     alice_rows = [row for row in db.skill_share_deliveries.rows.values() if row["recipient_user_id"] == "alice"]
     assert sorted(row["status"] for row in alice_rows) == ["pending", "superseded"]
@@ -207,16 +207,16 @@ def test_member_directory_is_tenant_scoped_searchable_and_paginated(monkeypatch)
     directory = SkillShareMemberDirectory()
 
     first = asyncio.run(directory.search(
-        main_id="tenant", requester_user_id="owner", keyword="", limit=1,
+        tenant_id="tenant", requester_user_id="owner", keyword="", limit=1,
     ))
     assert [item["userId"] for item in first["items"]] == ["alice"]
     assert first["hasMore"] is True
     second = asyncio.run(directory.search(
-        main_id="tenant", requester_user_id="owner", keyword="", cursor=first["nextCursor"], limit=1,
+        tenant_id="tenant", requester_user_id="owner", keyword="", cursor=first["nextCursor"], limit=1,
     ))
     assert [item["userId"] for item in second["items"]] == ["bob"]
     match = asyncio.run(directory.search(
-        main_id="tenant", requester_user_id="owner", keyword="bo", limit=10,
+        tenant_id="tenant", requester_user_id="owner", keyword="bo", limit=10,
     ))
     assert [item["displayName"] for item in match["items"]] == ["Bob"]
 
@@ -227,12 +227,12 @@ def test_recipient_accepts_independent_copy_and_cannot_cross_tenant(monkeypatch)
     _install_db(monkeypatch, db)
     service = DirectSkillShareService()
     created = asyncio.run(service.create(
-        main_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice"],
+        tenant_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice"],
     ))
     delivery_id = next(iter(db.skill_share_deliveries.rows))
 
     installed = asyncio.run(service.accept(
-        main_id="tenant", recipient_user_id="alice", delivery_id=delivery_id,
+        tenant_id="tenant", recipient_user_id="alice", delivery_id=delivery_id,
     ))
     assert installed["name"] == "Team Helper"
     recipient_skill = next(row for row in db.user_skills.rows.values() if row.get("user_id") == "alice")
@@ -242,10 +242,10 @@ def test_recipient_accepts_independent_copy_and_cannot_cross_tenant(monkeypatch)
     assert recipient_skill["package_source"]["mode"] == "direct"
     assert recipient_skill["package_source"]["sender"]["displayName"] == "Owner"
     assert db.skill_share_deliveries.rows[delivery_id]["status"] == "accepted"
-    assert asyncio.run(service.inbox(main_id="tenant", recipient_user_id="alice"))["pendingCount"] == 0
+    assert asyncio.run(service.inbox(tenant_id="tenant", recipient_user_id="alice"))["pendingCount"] == 0
 
     with pytest.raises(SkillShareError) as cross_tenant:
-        asyncio.run(service.accept(main_id="other", recipient_user_id="alice", delivery_id=delivery_id))
+        asyncio.run(service.accept(tenant_id="other", recipient_user_id="alice", delivery_id=delivery_id))
     assert cross_tenant.value.code == "skill_share_delivery_unavailable"
     assert created["recipientCount"] == 1
 
@@ -258,17 +258,17 @@ def test_invalid_recipient_is_rejected_and_decline_removes_pending(monkeypatch):
 
     with pytest.raises(SkillShareError) as outsider:
         asyncio.run(service.create(
-            main_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["outsider"],
+            tenant_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["outsider"],
         ))
     assert outsider.value.code == "skill_share_recipient_invalid"
 
     asyncio.run(service.create(
-        main_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["bob"],
+        tenant_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["bob"],
     ))
     delivery_id = next(iter(db.skill_share_deliveries.rows))
-    asyncio.run(service.decline(main_id="tenant", recipient_user_id="bob", delivery_id=delivery_id))
+    asyncio.run(service.decline(tenant_id="tenant", recipient_user_id="bob", delivery_id=delivery_id))
     assert db.skill_share_deliveries.rows[delivery_id]["status"] == "declined"
-    assert asyncio.run(service.inbox(main_id="tenant", recipient_user_id="bob"))["pendingCount"] == 0
+    assert asyncio.run(service.inbox(tenant_id="tenant", recipient_user_id="bob"))["pendingCount"] == 0
 
 
 def test_published_change_notifies_recipient_and_updates_same_copy(monkeypatch):
@@ -277,26 +277,26 @@ def test_published_change_notifies_recipient_and_updates_same_copy(monkeypatch):
     _install_db(monkeypatch, db)
     service = DirectSkillShareService()
     asyncio.run(service.create(
-        main_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice"],
+        tenant_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice"],
     ))
-    inbox = asyncio.run(service.inbox(main_id="tenant", recipient_user_id="alice"))
+    inbox = asyncio.run(service.inbox(tenant_id="tenant", recipient_user_id="alice"))
     installed = asyncio.run(service.accept(
-        main_id="tenant", recipient_user_id="alice", delivery_id=inbox["items"][0]["deliveryId"],
+        tenant_id="tenant", recipient_user_id="alice", delivery_id=inbox["items"][0]["deliveryId"],
     ))
     installed_id = installed["id"]
     db.user_skills.rows["source"]["skill_markdown"] = "Updated shared instructions."
     release = asyncio.run(SkillDistributionService().publish_from_skill(
-        main_id="tenant", owner_user_id="owner", source_skill_id="source", version="1.0.1", release_notes="Improved",
+        tenant_id="tenant", owner_user_id="owner", source_skill_id="source", version="1.0.1", release_notes="Improved",
     ))
     assert release is not None
-    updates = asyncio.run(SkillDistributionService().list_updates(main_id="tenant", recipient_user_id="alice"))
+    updates = asyncio.run(SkillDistributionService().list_updates(tenant_id="tenant", recipient_user_id="alice"))
     assert updates["pendingCount"] == 1
     assert updates["items"][0]["currentVersion"] == "1.0.0"
     assert updates["items"][0]["newVersion"] == "1.0.1"
     assert updates["items"][0]["releaseNotes"] == "Improved"
     assert "instructions" in updates["items"][0]["changes"]
     result = asyncio.run(SkillDistributionService().install_update(
-        main_id="tenant", recipient_user_id="alice", notification_id=updates["items"][0]["id"],
+        tenant_id="tenant", recipient_user_id="alice", notification_id=updates["items"][0]["id"],
     ))
     assert result["id"] == installed_id
     assert db.user_skills.rows[installed_id]["skill_markdown"] == "Updated shared instructions."
@@ -308,11 +308,11 @@ def test_legacy_shared_install_is_backfilled_without_resharing(monkeypatch):
     _install_db(monkeypatch, db)
     service = DirectSkillShareService()
     asyncio.run(service.create(
-        main_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice"],
+        tenant_id="tenant", owner_user_id="owner", skill_id="source", recipient_user_ids=["alice"],
     ))
     delivery_id = next(iter(db.skill_share_deliveries.rows))
     installed = asyncio.run(service.accept(
-        main_id="tenant", recipient_user_id="alice", delivery_id=delivery_id,
+        tenant_id="tenant", recipient_user_id="alice", delivery_id=delivery_id,
     ))
 
     share = next(iter(db.skill_shares.rows.values()))
@@ -325,10 +325,10 @@ def test_legacy_shared_install_is_backfilled_without_resharing(monkeypatch):
     db.skill_distributions.rows.clear(); db.skill_distribution_releases.rows.clear(); db.skill_distribution_members.rows.clear()
 
     migration = LegacySkillShareMigration()
-    asyncio.run(migration.migrate_owned(main_id="tenant", owner_user_id="owner"))
+    asyncio.run(migration.migrate_owned(tenant_id="tenant", owner_user_id="owner"))
     assert db.skill_shares.rows[share["_id"]]["distribution_id"]
     asyncio.run(migration.migrate_installed(
-        main_id="tenant", recipient_user_id="alice",
+        tenant_id="tenant", recipient_user_id="alice",
     ))
 
     migrated = db.user_skills.rows[installed["id"]]

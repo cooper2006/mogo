@@ -29,7 +29,7 @@ class FakeCatalog:
         self.instances = {
             "model-a": {
                 "_id": "model-a",
-                "main_id": "tenant-a",
+                "tenant_id": "tenant-a",
                 "provider_id": "provider-a",
                 "model_name": "deepseek-chat",
                 "display_name": "Default A",
@@ -40,7 +40,7 @@ class FakeCatalog:
             },
             "model-b": {
                 "_id": "model-b",
-                "main_id": "tenant-a",
+                "tenant_id": "tenant-a",
                 "provider_id": "provider-a",
                 "model_name": "deepseek-reasoner",
                 "display_name": "Explicit B",
@@ -50,7 +50,7 @@ class FakeCatalog:
             },
             "model-foreign": {
                 "_id": "model-foreign",
-                "main_id": "tenant-b",
+                "tenant_id": "tenant-b",
                 "provider_id": "provider-a",
                 "model_name": "forbidden",
                 "status": "active",

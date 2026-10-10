@@ -44,7 +44,7 @@ def _rows():
 
 def test_tenant_match_scopes_by_main_id():
     match = tenant_match("t1", since=window_start())
-    assert match["main_id"] == "t1"
+    assert match["tenant_id"] == "t1"
     assert "created_at" in match
     # Every 008 aggregation query must carry this match -> no cross-tenant reads.
 
@@ -54,17 +54,17 @@ def test_usage_aggregation_uses_tenant_match():
     from app.api.dashboard_metrics import tenant_match as tm
 
     filter_doc = tm("tenant-a")
-    assert filter_doc["main_id"] == "tenant-a"
+    assert filter_doc["tenant_id"] == "tenant-a"
 
 
 def test_analytics_scope_rejects_other_tenant():
     """008 analytics helper hard-blocks cross-tenant mainId (FR-7 / US2)."""
     from app.api.routes.analytics import _resolve_main_scope
 
-    actor = {"main_id": "t1"}
+    actor = {"tenant_id": "t1"}
     # Same tenant is fine
     scope, main = _resolve_main_scope(actor, "t1")
-    assert main == "t1" and scope == {"main_id": "t1"}
+    assert main == "t1" and scope == {"tenant_id": "t1"}
     # Other tenant -> HTTP 403
     from fastapi import HTTPException
 

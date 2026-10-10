@@ -6,12 +6,12 @@ from app.dsh_runtime.profile.skills import catalog as catalog_module
 
 
 class PersonalService:
-    async def list_skills(self, user_id, main_id):
+    async def list_skills(self, user_id, tenant_id):
         return [{"id": "personal-1", "name": "Mine", "enabled": True, "visibility": "private"}]
 
 
 class OrganizationService:
-    async def list_runtime_skills(self, *, main_id):
+    async def list_runtime_skills(self, *, tenant_id):
         return [{"id": "org_skill:org-1", "name": "Org", "enabled": True, "visibility": "organization"}]
 
 
@@ -26,7 +26,7 @@ class PolicyResolver:
 
 
 class PackagePersonalService:
-    async def list_skills(self, user_id, main_id):
+    async def list_skills(self, user_id, tenant_id):
         return [{
             "id": "personal-package", "name": "Foshan guide", "enabled": True,
             "visibility": "private", "package_id": "package-1",
@@ -34,7 +34,7 @@ class PackagePersonalService:
 
 
 class EmptyOrganizationService:
-    async def list_runtime_skills(self, *, main_id):
+    async def list_runtime_skills(self, *, tenant_id):
         return []
 
 
@@ -48,7 +48,7 @@ class AsyncCursor:
 
 class PackageCollection:
     def find(self, query):
-        assert query == {"_id": {"$in": ["package-1"]}, "main_id": "tenant-a"}
+        assert query == {"_id": {"$in": ["package-1"]}, "tenant_id": "tenant-a"}
         return AsyncCursor([{
             "_id": "package-1", "archive_base64": "YXJjaGl2ZQ==", "root_prefix": "foshan/",
             "files": [
