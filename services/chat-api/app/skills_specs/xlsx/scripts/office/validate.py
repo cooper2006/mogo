@@ -14,6 +14,22 @@ Auto-repair fixes:
 """
 
 import argparse
+import pathlib
+
+
+def _safe_extract(zf, dest):
+    """Zip-slip-safe extraction (QF-420).
+
+    Extract every member only when its resolved path stays inside *dest*.
+    Guards against absolute paths and ``../`` traversal entries. Works on
+    Python 3.10+ without relying on the 3.12+ ``filter=`` argument.
+    """
+    dest = pathlib.Path(dest).resolve()
+    for member in zf.infolist():
+        target = (dest / member.filename).resolve()
+        if target != dest and dest not in target.parents:
+            raise ValueError(f"Refusing zip-slip entry: {member.filename!r}")
+        zf.extract(member, str(dest))
 import sys
 import tempfile
 import zipfile
@@ -71,7 +87,7 @@ def main():
     if path.is_file() and path.suffix.lower() in [".docx", ".pptx", ".xlsx"]:
         temp_dir = tempfile.mkdtemp()
         with zipfile.ZipFile(path, "r") as zf:
-            zf.extractall(temp_dir)
+            _safe_extract(zf, temp_dir)
         unpacked_dir = Path(temp_dir)
     else:
         assert path.is_dir(), f"Error: {path} is not a directory or Office file"

@@ -3,6 +3,22 @@ Validator for Word document XML files against XSD schemas.
 """
 
 import re
+import pathlib
+
+
+def _safe_extract(zf, dest):
+    """Zip-slip-safe extraction (QF-420).
+
+    Extract every member only when its resolved path stays inside *dest*.
+    Guards against absolute paths and ``../`` traversal entries. Works on
+    Python 3.10+ without relying on the 3.12+ ``filter=`` argument.
+    """
+    dest = pathlib.Path(dest).resolve()
+    for member in zf.infolist():
+        target = (dest / member.filename).resolve()
+        if target != dest and dest not in target.parents:
+            raise ValueError(f"Refusing zip-slip entry: {member.filename!r}")
+        zf.extract(member, str(dest))
 import tempfile
 import zipfile
 
@@ -198,7 +214,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Unpack original docx
                 with zipfile.ZipFile(self.original_file, "r") as zip_ref:
-                    zip_ref.extractall(temp_dir)
+                    _safe_extract(zip_ref, temp_dir)
 
                 # Parse document.xml
                 doc_xml_path = temp_dir + "/word/document.xml"
