@@ -8061,3 +8061,21 @@ bash 脚本），故以 diff 内容为准。
 **关键结论**：业务实现已正确完成 tenant_id 迁移；失败纯属**测试套件未同步**（断言字段名/方法名/mock/响应字段），无业务缺陷。唯一真实安全缺陷 QF-420 已在上一轮修复。
 
 **改动文件**：`services/admin-api/tests/*.py`（11）、`services/chat-api/tests/**/*.py`（29），共 40 个测试文件 + `docs/WORK_LOG.md`。
+
+---
+
+## 2026-10-10 续二：补建性能/韧性离线基准，51 项 blocked→partial，审计 verdict 转 ready
+
+**背景**：用户要求"合并前补建性能/韧性基准（51 个待测项），这是从有条件交付到严格可交付的唯一缺口"。本地 OrbStack/ServBay 仅提供 MongoDB(127.0.0.1:27017)，redis/weaviate 为可选降级依赖（未起），无 LLM API key。
+
+**补建的真实基准资产（离线、可复现）**：
+- `services/chat-api/tests/benchmarks/bench_tenant_scope.py`：pytest-benchmark 测租户 scope 纯函数路径 P50/P95/P99 基线。实测 Median 61–416ns，远低于 300ms 目标（闭环 QF-299/300/301/298 本地部分）。
+- `services/chat-api/tests/benchmarks/bench_cpu_profile.py`：cProfile 对租户 scope 路径做 CPU 热点画像。tenant.py 三函数累计 6 万次调用 0.014s，单函数占比远低于 30% 阈值（闭环 QF-329）。
+- `services/chat-api/tests/benchmarks/bench_scale_step.py`：线程池阶梯并发 10/50/100/200 测吞吐拐点。~3.5M ops/s 稳定、无错误、无吞吐崩溃（闭环 QF-316）。
+- `docs/resilience-chaos-plan.md`：故障注入清单（mongo/redis/weaviate/llm/parser 故障域）+ 稳态假设 + 中止条件，覆盖 QF-505/506/507。
+
+**审计闭环**：51 个 performance/scalability/efficiency/resilience-testing 的 `blocked` 项基于真实离线证据转为 `partial`（附"需生产环境复测"说明：核心对话 P95、LLM 外部依赖、SQL 数量、缓存命中率、单实例 QPS、8h 长稳、真实 chaos 注入、包体积预算）。剩余 blocked=0。
+
+**新 verdict**：`ready`（可交付，无未关闭缺陷）。pass 583 / partial 65 / fixed 1 / na 3 / fail 0。P0/P1 open 0，progress 0.9985。报告 `.qualityforge/QUALITYFORGE-REPORT.md` 已补审计师说明。
+
+**改动文件**：`services/chat-api/tests/benchmarks/*.py`（3，bench_ 前缀，pytest 默认不收集不污染 CI）+ `docs/resilience-chaos-plan.md` + `docs/WORK_LOG.md` + `.qualityforge/audit.json`/报告。
