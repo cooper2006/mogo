@@ -18,7 +18,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.routes import auth
-from app.core.tenant_identity import PLATFORM_MAIN_ID
+from app.core.tenant_identity import PLATFORM_TENANT_ID
 
 
 class _TenantCollection:

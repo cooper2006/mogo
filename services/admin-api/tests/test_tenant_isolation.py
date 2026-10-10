@@ -14,7 +14,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api import deps
-from app.core.tenant_identity import DEFAULT_MAIN_ID, PLATFORM_MAIN_ID
+from app.core.tenant_identity import DEFAULT_TENANT_ID, PLATFORM_TENANT_ID
 
 
 def _patch_account(monkeypatch, main_id: str) -> None:
@@ -29,7 +29,7 @@ def _patch_account(monkeypatch, main_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("reserved", [PLATFORM_MAIN_ID, DEFAULT_MAIN_ID, ""])
+@pytest.mark.parametrize("reserved", [PLATFORM_TENANT_ID, DEFAULT_TENANT_ID, ""])
 def test_business_route_rejects_reserved_main_id(monkeypatch, reserved) -> None:
     _patch_account(monkeypatch, reserved)
     with pytest.raises(HTTPException) as exc:
@@ -57,7 +57,7 @@ def test_platform_route_rejects_real_tenant(monkeypatch) -> None:
     assert exc.value.detail == "Platform administrator privileges are required"
 
 
-@pytest.mark.parametrize("reserved", [DEFAULT_MAIN_ID, ""])
+@pytest.mark.parametrize("reserved", [DEFAULT_TENANT_ID, ""])
 def test_platform_route_rejects_other_reserved_ids(monkeypatch, reserved) -> None:
     _patch_account(monkeypatch, reserved)
     with pytest.raises(HTTPException) as exc:
@@ -66,9 +66,9 @@ def test_platform_route_rejects_other_reserved_ids(monkeypatch, reserved) -> Non
 
 
 def test_platform_route_accepts_platform_admin(monkeypatch) -> None:
-    _patch_account(monkeypatch, PLATFORM_MAIN_ID)
+    _patch_account(monkeypatch, PLATFORM_TENANT_ID)
     user = asyncio.run(deps.get_current_platform_admin("Bearer t"))
-    assert user["main_id"] == PLATFORM_MAIN_ID
+    assert user["main_id"] == PLATFORM_TENANT_ID
 
 
 # ---------------------------------------------------------------------------
