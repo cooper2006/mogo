@@ -87,8 +87,8 @@ def test_ensure_tenant_record_is_idempotent(monkeypatch) -> None:
     mem = _Mem()
     monkeypatch.setattr(tenant_registry, "get_db", lambda: mem)
 
-    asyncio.run(tenant_registry.ensure_tenant_record(main_id="t1", name="First", created_by="setup-wizard"))
-    asyncio.run(tenant_registry.ensure_tenant_record(main_id="t1", name="Updated", created_by="migration"))
+    asyncio.run(tenant_registry.ensure_tenant_record(tenant_id="t1", name="First", created_by="setup-wizard"))
+    asyncio.run(tenant_registry.ensure_tenant_record(tenant_id="t1", name="Updated", created_by="migration"))
 
     docs = mem["tenants"].docs
     assert len(docs) == 1
@@ -100,39 +100,39 @@ def test_ensure_tenant_record_is_idempotent(monkeypatch) -> None:
 def test_backfill_excludes_reserved_and_skips_existing(monkeypatch) -> None:
     mem = _Mem()
     mem["admin_accounts"].docs = [
-        {"_id": "1", "main_id": "tenant-a", "username": "adminA", "is_protected": True},
-        {"_id": "2", "main_id": "tenant-b", "username": "adminB"},
-        {"_id": "3", "main_id": "default", "username": "x"},
-        {"_id": "4", "main_id": None, "username": "y"},
-        {"_id": "5", "main_id": "__platform__", "username": "plat"},
+        {"_id": "1", "tenant_id": "tenant-a", "username": "adminA", "is_protected": True},
+        {"_id": "2", "tenant_id": "tenant-b", "username": "adminB"},
+        {"_id": "3", "tenant_id": "default", "username": "x"},
+        {"_id": "4", "tenant_id": None, "username": "y"},
+        {"_id": "5", "tenant_id": "__platform__", "username": "plat"},
     ]
     mem["organizations"].docs = [
-        {"main_id": "tenant-a", "org_name": "Acme A", "edition": "enterprise"},
-        {"main_id": "tenant-b", "org_name": "Acme B"},
+        {"tenant_id": "tenant-a", "org_name": "Acme A", "edition": "enterprise"},
+        {"tenant_id": "tenant-b", "org_name": "Acme B"},
     ]
     # tenant-a already registered by a prior run — must not be re-created.
-    mem["tenants"].docs = [{"_id": "t0", "main_id": "tenant-a", "name": "Acme A", "created_by": "old", "status": "active"}]
+    mem["tenants"].docs = [{"_id": "t0", "tenant_id": "tenant-a", "name": "Acme A", "created_by": "old", "status": "active"}]
 
     monkeypatch.setattr(tenant_registry, "get_db", lambda: mem)
     registered = asyncio.run(tenant_registry.backfill_tenants_from_accounts())
 
     # only tenant-b is newly registered (reserved ids skipped, tenant-a existing)
     assert registered == 1
-    assert {d["main_id"] for d in mem["tenants"].docs} == {"tenant-a", "tenant-b"}
+    assert {d["tenant_id"] for d in mem["tenants"].docs} == {"tenant-a", "tenant-b"}
 
-    tb = next(d for d in mem["tenants"].docs if d["main_id"] == "tenant-b")
+    tb = next(d for d in mem["tenants"].docs if d["tenant_id"] == "tenant-b")
     assert tb["name"] == "Acme B"
     assert tb["edition"] == "community"  # defaults when the org has no edition
     assert tb["admin_username"] == "adminB"
     assert tb["created_by"] == "migration"
 
-    ta = next(d for d in mem["tenants"].docs if d["main_id"] == "tenant-a")
+    ta = next(d for d in mem["tenants"].docs if d["tenant_id"] == "tenant-a")
     assert ta["created_by"] == "old"  # untouched
 
 
 def test_backfill_is_reentrant(monkeypatch) -> None:
     mem = _Mem()
-    mem["admin_accounts"].docs = [{"_id": "1", "main_id": "tenant-a", "username": "adminA"}]
+    mem["admin_accounts"].docs = [{"_id": "1", "tenant_id": "tenant-a", "username": "adminA"}]
 
     monkeypatch.setattr(tenant_registry, "get_db", lambda: mem)
     first = asyncio.run(tenant_registry.backfill_tenants_from_accounts())

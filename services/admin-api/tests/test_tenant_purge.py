@@ -139,9 +139,9 @@ def _patch(monkeypatch, mem: _Mem) -> None:
 
 
 def _seed(mem: _Mem, status: str = "archived") -> None:
-    mem["tenants"].docs.append({"_id": "t1", "main_id": MAIN_ID, "name": "Acme", "status": status})
-    mem["organizations"].docs.append({"main_id": MAIN_ID, "name": "Acme"})
-    mem["chat_messages"].docs.append({"main_id": MAIN_ID, "content": "hi"})
+    mem["tenants"].docs.append({"_id": "t1", "tenant_id": MAIN_ID, "name": "Acme", "status": status})
+    mem["organizations"].docs.append({"tenant_id": MAIN_ID, "name": "Acme"})
+    mem["chat_messages"].docs.append({"tenant_id": MAIN_ID, "content": "hi"})
 
 
 def _no_phases(monkeypatch) -> None:
@@ -278,8 +278,8 @@ def test_governance_list_includes_hook_rules() -> None:
 def test_collection_list_covers_tenant_id_partitioned_collections() -> None:
     """Regression: 5 governance collections were missing from the purge lists.
 
-    These are all partitioned by ``tenant_id`` (not ``main_id``), so they were
-    invisible to the pass that scanned for ``main_id`` writes.
+    These are all partitioned by ``tenant_id`` (not ``tenant_id``), so they were
+    invisible to the pass that scanned for ``tenant_id`` writes.
     """
     governance = set(tenant_purge.TENANT_GOVERNANCE_COLLECTIONS)
     for name in (
@@ -296,18 +296,18 @@ def test_collection_list_covers_tenant_id_partitioned_collections() -> None:
         assert name in governance, f"{name} is tenant_id-partitioned and must be purged"
 
 
-def test_collection_list_covers_main_id_partitioned_preferences() -> None:
-    """``user_shortcut_preferences`` and ``session_snapshots`` carry ``main_id``."""
+def test_collection_list_covers_tenant_id_partitioned_preferences() -> None:
+    """``user_shortcut_preferences`` and ``session_snapshots`` carry ``tenant_id``."""
     scoped = set(tenant_purge.TENANT_SCOPED_COLLECTIONS)
     for name in ("user_shortcut_preferences", "session_snapshots"):
-        assert name in scoped, f"{name} carries main_id and must be purged"
+        assert name in scoped, f"{name} carries tenant_id and must be purged"
 
 
 def test_session_shares_is_resolved_not_matched() -> None:
     """``session_shares`` has no tenant key, so a plain sweep cannot find it.
 
     Putting it in either keyed list would look correct and silently delete
-    nothing (there is no ``main_id``/``tenant_id`` field to match). It belongs
+    nothing (there is no ``tenant_id``/``tenant_id`` field to match). It belongs
     to ``TENANT_ORPHANED_COLLECTIONS``, which is cascaded from ``chat_sessions``.
     """
     assert "session_shares" in tenant_purge.TENANT_ORPHANED_COLLECTIONS
@@ -315,16 +315,16 @@ def test_session_shares_is_resolved_not_matched() -> None:
     assert "session_shares" not in tenant_purge.TENANT_GOVERNANCE_COLLECTIONS
 
 
-def test_every_main_id_keyed_collection_in_the_tree_is_covered() -> None:
+def test_every_tenant_id_keyed_collection_in_the_tree_is_covered() -> None:
     """T045's own wording, turned into a guard: scan the tree, not memory.
 
     T045 said ``TENANT_SCOPED_COLLECTIONS`` should be "scanned from the
-    collections that actually carry ``main_id``". The delivered artefact was a
+    collections that actually carry ``tenant_id``". The delivered artefact was a
     hand-written list, which is exactly why it drifted. This test does the
     scan for real, so drift fails CI instead of failing an audit.
 
     It greps every ``*_COLLECTION = "..."`` constant in both services, finds
-    the ones whose write sites include a ``main_id``/``tenant_id`` key, and
+    the ones whose write sites include a ``tenant_id``/``tenant_id`` key, and
     asserts they are covered (or explicitly exempted).
     """
     import re
@@ -425,7 +425,7 @@ def test_transient_collections_are_exempt_not_forgotten() -> None:
 def test_platform_side_collections_are_deliberately_exempt() -> None:
     """Two collections hold *platform* records and must NOT be swept.
 
-    - ``system_audit_logs`` *is* keyed by ``main_id``, but the rows record what
+    - ``system_audit_logs`` *is* keyed by ``tenant_id``, but the rows record what
       the platform administrator did **to** a tenant. Deleting them on purge
       would erase the very trail SC-007 exists to keep. This is the §1.3
       decision, now written down as an executable answer rather than a comment.
@@ -462,13 +462,13 @@ def test_task_store_is_bounded() -> None:
         store.create(f"tenant-{i}", f"task-{i}")
 
     assert len(store._tasks) <= cap, "task map grew past its bound"
-    assert len(store._main_id_to_task) <= cap, "index grew past its bound"
+    assert len(store._tenant_id_to_task) <= cap, "index grew past its bound"
 
 
 def test_task_store_eviction_clears_the_index() -> None:
-    """Evicting a task must not leave the main_id index pointing at nothing.
+    """Evicting a task must not leave the tenant_id index pointing at nothing.
 
-    ``get_for_main_id`` resolves through ``_main_id_to_task``; a stale entry
+    ``get_for_tenant_id`` resolves through ``_tenant_id_to_task``; a stale entry
     there would make it return ``None`` for a tenant whose purge we dropped,
     which reads as "never purged" rather than "forgotten". Both are wrong, but
     the stale-index version is the one that looks like a bug in the caller.
@@ -481,12 +481,12 @@ def test_task_store_eviction_clears_the_index() -> None:
         store.create(f"tenant-{i}", f"task-{i}")
 
     # "tenant-0" was evicted, so its index entry must have gone with it.
-    assert store.get_for_main_id("tenant-0") is None
+    assert store.get_for_tenant_id("tenant-0") is None
     # The newest tenant is still resolvable.
-    assert store.get_for_main_id(f"tenant-{cap + 9}") is not None
+    assert store.get_for_tenant_id(f"tenant-{cap + 9}") is not None
     # Every surviving index entry points at a task that actually exists.
-    for main_id, key in store._main_id_to_task.items():
-        assert store.get(key) is not None, f"stale index entry for {main_id}"
+    for tenant_id, key in store._tenant_id_to_task.items():
+        assert store.get(key) is not None, f"stale index entry for {tenant_id}"
 
 
 def test_mongo_phase_deletes_tenant_rows(monkeypatch) -> None:
@@ -517,10 +517,10 @@ def test_shares_are_purged_by_cascading_from_sessions(monkeypatch) -> None:
     """
     mem = _Mem()
     _seed(mem)
-    mem["chat_sessions"].docs.append({"_id": "s1", "main_id": MAIN_ID})
-    mem["chat_sessions"].docs.append({"_id": "s2", "main_id": MAIN_ID})
+    mem["chat_sessions"].docs.append({"_id": "s1", "tenant_id": MAIN_ID})
+    mem["chat_sessions"].docs.append({"_id": "s2", "tenant_id": MAIN_ID})
     # A session belonging to someone else must be left alone.
-    mem["chat_sessions"].docs.append({"_id": "s9", "main_id": "other-tenant"})
+    mem["chat_sessions"].docs.append({"_id": "s9", "tenant_id": "other-tenant"})
     mem["session_shares"].docs.append({"share_id": "sh1", "session_id": "s1"})
     mem["session_shares"].docs.append({"share_id": "sh2", "session_id": "s2"})
     mem["session_shares"].docs.append({"share_id": "sh9", "session_id": "s9"})
@@ -538,7 +538,7 @@ def test_cascade_needs_sessions_so_ordering_matters(monkeypatch) -> None:
     """The cascade resolves shares through sessions, so ordering is load-bearing.
 
     If someone moved ``session_shares`` into ``TENANT_SCOPED_COLLECTIONS`` it
-    would match on ``main_id`` and delete nothing (that field is not stored
+    would match on ``tenant_id`` and delete nothing (that field is not stored
     there). This pins that the real thing works — and the sibling test above
     proves it works through the full phase, i.e. while sessions still exist.
     """
@@ -551,7 +551,7 @@ def test_cascade_needs_sessions_so_ordering_matters(monkeypatch) -> None:
     assert len(mem["session_shares"].docs) == 1, "no sessions → no cascade, nothing deleted"
 
     # With a session of our own, its share goes.
-    mem["chat_sessions"].docs.append({"_id": "s1", "main_id": MAIN_ID})
+    mem["chat_sessions"].docs.append({"_id": "s1", "tenant_id": MAIN_ID})
     mem["session_shares"].docs.append({"share_id": "mine", "session_id": "s1"})
     asyncio.run(tenant_purge._purge_key_only_collections(mem, MAIN_ID))
     left = [doc["share_id"] for doc in mem["session_shares"].docs]
@@ -565,7 +565,7 @@ def test_cascade_needs_sessions_so_ordering_matters(monkeypatch) -> None:
 
 def test_vector_phase_raises_when_token_missing(monkeypatch) -> None:
     mem = _Mem()
-    mem["knowledge_documents"].docs.append({"main_id": MAIN_ID, "document_id": "doc-1"})
+    mem["knowledge_documents"].docs.append({"tenant_id": MAIN_ID, "document_id": "doc-1"})
     monkeypatch.setattr(tenant_purge, "get_db", lambda: mem)
     monkeypatch.setattr(tenant_purge.settings, "document_processing_service_token", "", raising=False)
 
@@ -575,7 +575,7 @@ def test_vector_phase_raises_when_token_missing(monkeypatch) -> None:
 
 def test_vector_phase_raises_when_delete_fails(monkeypatch) -> None:
     mem = _Mem()
-    mem["knowledge_documents"].docs.append({"main_id": MAIN_ID, "document_id": "doc-1"})
+    mem["knowledge_documents"].docs.append({"tenant_id": MAIN_ID, "document_id": "doc-1"})
     monkeypatch.setattr(tenant_purge, "get_db", lambda: mem)
     _pp(monkeypatch)
 
@@ -649,20 +649,20 @@ def test_purge_progress_persists_to_mongo(monkeypatch) -> None:
 async def _run_with_store(store, mem) -> None:
     """Run the real pipeline against a given store + Mongo (no monkeypatch of
     the module-level _task_store, so the Mongo side effects are observable)."""
-    main_id = MAIN_ID
+    tenant_id = MAIN_ID
     task_id = "task-1"
-    store.create(main_id, task_id)
+    store.create(tenant_id, task_id)
 
     db = mem
-    tenant = await db["tenants"].find_one({"main_id": main_id}, {"status": 1})
+    tenant = await db["tenants"].find_one({"tenant_id": tenant_id}, {"status": 1})
     assert tenant and tenant["status"] == "archived"
 
-    await store.mark_persisted(main_id, task_id, "mongo", "running")
-    await tenant_purge._phase_mongo(main_id)
-    await store.mark_persisted(main_id, task_id, "mongo", "done")
-    await store.mark_persisted(main_id, task_id, "vectors", "done")
-    await store.mark_persisted(main_id, task_id, "files", "done")
-    await store.finish_persisted(main_id, task_id, True, "")
+    await store.mark_persisted(tenant_id, task_id, "mongo", "running")
+    await tenant_purge._phase_mongo(tenant_id)
+    await store.mark_persisted(tenant_id, task_id, "mongo", "done")
+    await store.mark_persisted(tenant_id, task_id, "vectors", "done")
+    await store.mark_persisted(tenant_id, task_id, "files", "done")
+    await store.finish_persisted(tenant_id, task_id, True, "")
 
 
 def test_get_purge_status_falls_back_to_mongo(monkeypatch) -> None:
@@ -674,7 +674,7 @@ def test_get_purge_status_falls_back_to_mongo(monkeypatch) -> None:
 
     # Seed a persisted progress doc directly (as if replica A ran the purge).
     mem["tenant_purge_progress"].docs.append({
-        "main_id": MAIN_ID,
+        "tenant_id": MAIN_ID,
         "task_id": "task-9",
         "status": "done",
         "progress": {"mongo": "done", "vectors": "done", "files": "done"},
