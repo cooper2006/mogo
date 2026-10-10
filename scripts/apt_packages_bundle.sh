@@ -53,16 +53,36 @@ CACHE_DIR="base-images/apt"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 
 # Services whose apt layer is cached. Kept in sync with the Dockerfiles that
-# declare INSTALL_SYSTEM_DEPS_AT_BUILD.
-SERVICE_LIST="${SERVICE_LIST:-document-parser chat-api}"
+# declare INSTALL_SYSTEM_DEPS_AT_BUILD (plus dsh-runtime-host, which installs
+# ca-certificates/gosu unconditionally).
+SERVICE_LIST="${SERVICE_LIST:-document-parser chat-api dsh-runtime-host}"
+
+# Dockerfile location per service. Most services keep it at services/<name>/,
+# but dsh-runtime-host lives under services/chat-api/dsh/runtime-host/ and has
+# its own build context.
+dockerfile_for() {
+  case "$1" in
+    dsh-runtime-host) printf 'services/chat-api/dsh/runtime-host/Dockerfile' ;;
+    *)                printf 'services/%s/Dockerfile' "$1" ;;
+  esac
+}
+
+# Build context (where the bundle must live) per service.
+context_dir_for() {
+  case "$1" in
+    dsh-runtime-host) printf 'services/chat-api/dsh/runtime-host' ;;
+    *)                printf 'services/%s' "$1" ;;
+  esac
+}
 
 # Base image per service: the .deb set must match the distro the Dockerfile
 # installs into, because apt resolves against that image's package index.
 base_image_for() {
   case "$1" in
-    document-parser) printf 'python:3.10-slim-bookworm' ;;
-    chat-api)        printf 'python:3.13-slim-bookworm' ;;
-    *)               printf 'python:3.10-slim-bookworm' ;;
+    document-parser)  printf 'python:3.10-slim-bookworm' ;;
+    chat-api)         printf 'python:3.13-slim-bookworm' ;;
+    dsh-runtime-host) printf 'node:24-bookworm-slim' ;;
+    *)                printf 'python:3.10-slim-bookworm' ;;
   esac
 }
 
@@ -82,6 +102,8 @@ Usage:
   scripts/apt_packages_bundle.sh pack [service...]   Re-pack bundles from the cache
   scripts/apt_packages_bundle.sh save [service...]   fetch + pack in one step
   scripts/apt_packages_bundle.sh list                Show cache + bundle status
+  scripts/apt_packages_bundle.sh audit               Check every cached .deb
+                                                      matches its target architecture
   scripts/apt_packages_bundle.sh verify [image]      Check that the expected
                                                       binaries/fonts exist in an image
 
@@ -133,7 +155,7 @@ debian_arch() {
 }
 
 bundle_path_for() {
-  printf 'services/%s/apt-packages-bundle.tar.gz' "$1"
+  printf '%s/apt-packages-bundle.tar.gz' "$(context_dir_for "$1")"
 }
 
 # Extract the package list from a service Dockerfile's apt-get install block.
@@ -144,7 +166,8 @@ bundle_path_for() {
 # package names are the bare tokens that are neither flags nor continuations.
 packages_for() {
   local service="$1"
-  local dockerfile="services/${service}/Dockerfile"
+  local dockerfile
+  dockerfile="$(dockerfile_for "${service}")"
   [[ -f "${dockerfile}" ]] || die "Missing ${dockerfile}"
 
   python3 - "${dockerfile}" <<'PY'
@@ -174,9 +197,12 @@ for raw in lines:
             continue
 
     # A line ending in "\" continues the block; the install list ends at the
-    # first line that does not.
+    # first line that does not. A line that also carries a ";" terminates the
+    # statement outright (e.g. "libreoffice-impress; \"), so the block stops
+    # there and does not run on into the next branch of the if/else.
     continues = line.rstrip().endswith('\\')
     body = line.rstrip().rstrip('\\').strip()
+    terminated =';' in body
 
     # Everything after a shell operator is not a package name.
     body = re.split(r'&&|\|\||;', body)[0]
@@ -191,7 +217,7 @@ for raw in lines:
         if re.fullmatch(r'[a-z0-9][a-z0-9.+-]*', tok):
             pkgs.append(tok)
 
-    if not continues:
+    if not continues or terminated:
         break
 
 # De-duplicate while preserving order.
@@ -214,7 +240,7 @@ fetch_one() {
   while IFS= read -r pkg; do
     [[ -n "${pkg}" ]] && packages+=("${pkg}")
   done < <(packages_for "${service}")
-  [[ "${#packages[@]}" -gt 0 ]] || die "No apt packages parsed from services/${service}/Dockerfile"
+  [[ "${#packages[@]}" -gt 0 ]] || die "No apt packages parsed from $(dockerfile_for "${service}")"
 
   local host_uid host_gid
   host_uid="$(id -u)"
@@ -231,11 +257,37 @@ fetch_one() {
   rm -rf "${dest}"
   mkdir -p "${dest}"
 
+  # The .deb set must match the target architecture, so the fetch runs in a
+  # container of that architecture. A foreign-arch image is resolved through
+  # MOGO_BASE_IMAGE_MIRROR when set (default: the same daocloud mirror the
+  # release script uses), because Docker Hub is frequently unreachable from
+  # these networks — and requiring it would make an amd64 fetch fail on an
+  # arm64 host that only has native images cached.
+  #
+  # Doing this by architecture (rather than by apt tricks such as
+  # dpkg --add-architecture plus an APT::Architecture pin) is deliberate: apt
+  # will happily satisfy a dependency with the *host* architecture, and pinning
+  # it globally then conflicts with the base image's already-installed host-arch
+  # packages ("ca-certificates : Depends: openssl" — observed).
+  local run_image="${image}"
+  if [[ "${arch}" != "$(docker image inspect "${image}" --format '{{.Architecture}}' 2>/dev/null || printf 'unknown')" ]]; then
+    local mirror="${MOGO_BASE_IMAGE_MIRROR-docker.m.daocloud.io}"
+    if [[ -n "${mirror}" ]]; then
+      # docker.m.daocloud.io/library/python:... — rewrite the Docker Hub
+      # reference onto the mirror, adding the implicit library/ namespace.
+      local mirrored
+      mirrored="${mirror}/library/${image}"
+      if "${DOCKER_BIN}" pull --platform "linux/${arch}" "${mirrored}" >/dev/null 2>&1; then
+        run_image="${mirrored}"
+      fi
+    fi
+  fi
+
   "${DOCKER_BIN}" run --rm \
     --platform "linux/${arch}" \
     -v "${ROOT_DIR}/${dest}:/out" \
     -e DEBIAN_FRONTEND=noninteractive \
-    "${image}" bash -c "
+    "${run_image}" bash -c "
       set -euo pipefail
 
       # The cached .deb files are deleted after every apt operation by this
@@ -251,6 +303,23 @@ fetch_one() {
       apt-get -o Acquire::Retries=5 update >/dev/null 2>&1
 
       apt-get install -y --no-install-recommends --download-only $(printf '%s ' "${packages[@]}")
+
+      # Guard: every .deb must match the requested architecture. The container is
+      # the target architecture, so this should always hold; it is checked
+      # because a stray foreign-arch file would be cached, shipped and installed
+      # into the wrong image with no error until something fails at runtime.
+      deb_arch_expected="$(debian_arch "${arch}")"
+      for deb in /var/cache/apt/archives/*.deb; do
+        [ -f \"\$deb\" ] || continue
+        deb_arch=\"\$(dpkg-deb -f \"\$deb\" Architecture 2>/dev/null || echo unknown)\"
+        case \"\$deb_arch\" in
+          all|\${deb_arch_expected}) ;;
+          *)
+            echo \"ERROR: \$(basename \$deb) is \${deb_arch}, expected \${deb_arch_expected}\" >&2
+            exit 3
+            ;;
+        esac
+      done
 
       # Copy the .deb files and the package index. --no-download needs the
       # index to map names to versions; without it apt reports
@@ -281,7 +350,7 @@ fetch_one() {
     printf '# mirror: %s\n' "${MOVO_APT_MIRROR}"
     printf '# security_mirror: %s\n' "${MOVO_APT_SECURITY_MIRROR}"
     printf '# dockerfile_sha256: %s\n' \
-      "$(shasum -a 256 "services/${service}/Dockerfile" 2>/dev/null | cut -d' ' -f1 || printf 'n/a')"
+      "$(shasum -a 256 "$(dockerfile_for "${service}")" 2>/dev/null | cut -d' ' -f1 || printf 'n/a')"
     printf 'deb_count=%s\n' "${n}"
     printf 'size=%s\n' "$(human_size "$((size * 1024))")"
     printf 'packages=%s\n' "$(printf '%s,' "${packages[@]}" | sed 's/,$//')"
@@ -397,6 +466,65 @@ cmd_list() {
   done
 }
 
+# Audit the cached .deb set for architecture purity.
+#
+# This exists because a wrong-architecture .deb is invisible until runtime: apt
+# installs it into the image without complaint, and the failure surfaces much
+# later as a missing library. It is cheap to check and has already caught one
+# real mistake (a dpkg --add-architecture approach that pulled libssl3_arm64
+# into an amd64 cache), so it is a first-class command rather than a footnote.
+cmd_audit() {
+  require_docker
+  local bad=0 checked=0
+
+  printf 'Auditing cached .deb architectures:\n\n'
+  for service in ${SERVICE_LIST}; do
+    for arch in ${ARCH_LIST}; do
+      local d="${CACHE_DIR}/${service}/${arch}"
+      [[ -d "${d}" ]] || continue
+      local expect
+      expect="$(debian_arch "${arch}")"
+
+      # dpkg-deb is not available on the host (macOS), so the inspection runs in
+      # a throwaway container; reading the control member by hand would
+      # duplicate ar/tar parsing for no benefit.
+      local counts
+      counts="$("${DOCKER_BIN}" run --rm -v "${ROOT_DIR}/${d}:/d:ro" \
+        python:3.10-slim-bookworm bash -c '
+          for f in /d/*.deb; do
+            [ -f "$f" ] || continue
+            dpkg-deb -f "$f" Architecture 2>/dev/null || echo unreadable
+          done | sort | uniq -c | sort -rn
+        ' 2>/dev/null)"
+
+      local n
+      n="$(printf '%s\n' "${counts}" | awk '{s+=$1} END {print s+0}')"
+      checked=$((checked + n))
+
+      # Every entry must be the expected arch or "all".
+      local offenders
+      offenders="$(printf '%s\n' "${counts}" | awk -v e="${expect}" '$2 != e && $2 != "all" && $2 != "" {print}')"
+
+      if [[ -n "${offenders}" ]]; then
+        bad=1
+        printf '  BAD  %-18s %-6s expected %s, found:\n' "${service}" "${arch}" "${expect}"
+        printf '%s\n' "${offenders}" | sed 's/^/         /'
+      else
+        printf '  OK   %-18s %-6s %s files (%s)\n' "${service}" "${arch}" "${n}" \
+          "$(printf '%s' "${counts}" | tr '\n' ' ' | sed 's/  */ /g')"
+      fi
+    done
+  done
+
+  [[ "${checked}" -gt 0 ]] || die "No cached .deb files found under ${CACHE_DIR}."
+  printf '\n'
+  if [[ "${bad}" -eq 0 ]]; then
+    printf 'All %s cached .deb files match their target architecture.\n' "${checked}"
+    return 0
+  fi
+  die "Architecture mismatches found. Re-run fetch for the affected service/arch."
+}
+
 cmd_verify() {
   local image="${1:-document-parser:latest}"
   require_docker
@@ -482,6 +610,9 @@ case "${command}" in
     ;;
   list)
     cmd_list
+    ;;
+  audit)
+    cmd_audit
     ;;
   verify)
     cmd_verify "${1:-}"

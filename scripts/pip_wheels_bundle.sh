@@ -41,50 +41,105 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-CONTEXT_DIR="services/document-parser"
 BUNDLE_NAME="pip-wheels-bundle.tar.gz"
-BUNDLE_PATH="${CONTEXT_DIR}/${BUNDLE_NAME}"
 CACHE_DIR="base-images/pip-wheels"
-MANIFEST="${CACHE_DIR}/manifest.txt"
 
-REQUIREMENTS_MAIN="${CONTEXT_DIR}/requirements.txt"
-REQUIREMENTS_DOCLING="${CONTEXT_DIR}/requirements-docling.txt"
+# Services whose pip layer is cached. Each gets its own cache subtree and its
+# own bundle inside its own build context, mirroring apt_packages_bundle.sh.
+# document-parser additionally has requirements-docling.txt (the Docling/Torch
+# stack) and is the only one that preinstalls torch from the PyTorch CPU index.
+SERVICE_LIST="${SERVICE_LIST:-document-parser chat-api admin-api}"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-
-# Python target of the document-parser image (python:3.10-slim-bookworm).
-PY_VERSION="3.10"
-PY_TAG="310"
-
-# Indexes. The CPU torch wheels only exist on the PyTorch CPU index (PyPI
-# ships the CUDA build), so that leg cannot follow the PyPI mirror.
-PYPI_INDEX="${PYPI_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
-PYTORCH_CPU_INDEX="${PYTORCH_CPU_INDEX:-https://mirror.sjtu.edu.cn/pytorch-wheels/cpu}"
 
 # Platform labels pip must consider for each arch. manylinux tags are cumulative
 # and pip does not infer older ones from a newer tag, so all of them are listed;
 # omitting manylinux2014_x86_64 silently drops most amd64 wheels (verified).
 ARCH_LIST="${ARCH_LIST:-arm64 amd64}"
 
+# --- per-service configuration -------------------------------------------
+
+context_dir_for() { printf 'services/%s' "$1"; }
+bundle_path_for() { printf 'services/%s/%s' "$1" "${BUNDLE_NAME}"; }
+
+# Python target of the service image. The interpreter tag decides which wheel
+# ABI pip may pick, so it must match the base image.
+py_version_for() {
+  case "$1" in
+    document-parser) printf '3.10' ;;
+    chat-api)        printf '3.13' ;;
+    admin-api)       printf '3.13' ;;
+    *)               printf '3.10' ;;
+  esac
+}
+py_tag_for() {
+  case "$1" in
+    document-parser) printf '310' ;;
+    chat-api)        printf '313' ;;
+    admin-api)       printf '313' ;;
+    *)               printf '310' ;;
+  esac
+}
+base_image_for() {
+  case "$1" in
+    document-parser) printf 'python:3.10-slim-bookworm' ;;
+    chat-api)        printf 'python:3.13-slim-bookworm' ;;
+    admin-api)       printf 'python:3.13-slim-bookworm' ;;
+    *)               printf 'python:3.10-slim-bookworm' ;;
+  esac
+}
+# Extra requirement files beyond requirements.txt, in install order.
+extra_requirements_for() {
+  case "$1" in
+    document-parser) printf 'requirements-docling.txt' ;;
+    *)               printf '' ;;
+  esac
+}
+# Only document-parser preinstalls torch; the others resolve it (not at all) via
+# their own closures.
+needs_torch_for() {
+  case "$1" in
+    document-parser) printf 'true' ;;
+    *)               printf 'false' ;;
+  esac
+}
+
+# Sdist-only packages per service. These have no cross-platform wheel and would
+# abort the whole --only-binary resolution; they are fetched separately. The
+# set is *probed* at fetch time (see split_requirements), and this list only
+# seeds the probe result for services whose closure is known.
+# (Probing handles new ones automatically; nothing must be added here for
+# correctness.)
+
+# Indexes. The CPU torch wheels only exist on the PyTorch CPU index (PyPI
+# ships the CUDA build), so that leg cannot follow the PyPI mirror.
+PYPI_INDEX="${PYPI_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+PYTORCH_CPU_INDEX="${PYTORCH_CPU_INDEX:-https://mirror.sjtu.edu.cn/pytorch-wheels/cpu}"
+
+REQUIREMENTS_MAIN="requirements.txt"
+
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/pip_wheels_bundle.sh fetch [arch...]  Download wheels into base-images/pip-wheels/
-                                                (default: arm64 amd64)
-  scripts/pip_wheels_bundle.sh pack             Re-pack the bundle from the cache
-  scripts/pip_wheels_bundle.sh save [arch...]   fetch + pack in one step
-  scripts/pip_wheels_bundle.sh list             Show cache + bundle status
-  scripts/pip_wheels_bundle.sh verify [image]   Check that an image has the expected
-                                                runtime packages installed
+  scripts/pip_wheels_bundle.sh fetch [service...] [--arch <a>]  Download wheels
+  scripts/pip_wheels_bundle.sh pack [service...]                Re-pack bundles
+  scripts/pip_wheels_bundle.sh save [service...]                fetch + pack
+  scripts/pip_wheels_bundle.sh list                             Show cache + bundles
+  scripts/pip_wheels_bundle.sh verify [image]                   Check an image's packages
+
+Arguments:
+  service     One or more of: document-parser chat-api admin-api
+              (default: all of them)
 
 Environment:
   DOCKER_BIN        Docker binary to use (default: docker)
+  SERVICE_LIST      Services to process
   ARCH_LIST         Architectures to fetch (default: "arm64 amd64")
   PYPI_INDEX        PyPI mirror (default: Tsinghua)
   PYTORCH_CPU_INDEX PyTorch CPU wheel index (default: SJTU)
 
-`fetch` uses a throwaway python:3.10-slim-bookworm container and
-`pip download --platform`, so the host architecture is irrelevant. The bundle
+`fetch` uses a throwaway container matching the service's base image and
+`pip download --platform`, so the host architecture is irrelevant. Each bundle
 is a tar.gz whose top level is <arch>/<wheel files>; the Dockerfile extracts
 the directory matching TARGETARCH and installs from it with --no-index,
 falling back to the network when the bundle is absent.
@@ -155,7 +210,7 @@ platform_flags() {
 # pip_download_into), which passes the sdist-only set back in.
 split_requirements() {
   local staging="$1"
-  local main="${REQUIREMENTS_MAIN}"
+  local main="$2"
 
   python3 - "${main}" "${staging}" <<'PY'
 import re, sys, pathlib
@@ -240,8 +295,14 @@ PY
 # to the invoking user afterwards; a root-owned cache dir would break the next
 # local `git clean`/mtime-sensitive tooling and is surprising on a dev box.
 pip_download_into() {
-  local arch="$1" dest="$2"
-  shift 2
+  local service="$1" arch="$2" dest="$3"
+
+  local ctx
+  ctx="$(context_dir_for "${service}")"
+  local py_tag base_image needs_torch
+  py_tag="$(py_tag_for "${service}")"
+  base_image="$(base_image_for "${service}")"
+  needs_torch="$(needs_torch_for "${service}")"
 
   mkdir -p "${dest}"
   local host_uid host_gid
@@ -250,10 +311,10 @@ pip_download_into() {
 
   # Derived requirement split, staged next to the real files so the container
   # sees them under /ctx.
-  local staging="${CONTEXT_DIR}/.pip-wheels-staging"
+  local staging="${ctx}/.pip-wheels-staging"
   mkdir -p "${staging}"
   printf 'Deriving requirement split:\n'
-  split_requirements "${staging}"
+  split_requirements "${staging}" "${ctx}/${REQUIREMENTS_MAIN}"
 
   # Probe which pins have no cross-platform wheel. Runs before the main
   # download so the split is decided by observation rather than by a list that
@@ -262,10 +323,10 @@ pip_download_into() {
   sdist_only="$(
     "${DOCKER_BIN}" run --rm \
       -v "${ROOT_DIR}/${staging}:/stage:ro" \
-      python:3.10-slim-bookworm bash -c "
+      "${base_image}" bash -c "
         set -euo pipefail
-        pip config set global.index-url '${PYPI_INDEX}' >/dev/null
-        target=\"--only-binary=:all: $(platform_flags "${arch}") --python-version ${PY_TAG} --implementation cp --abi cp${PY_TAG}\"
+        pip config set global.index-url '${PYPI_INDEX}' >/dev/null 2>&1 || true
+        target=\"--only-binary=:all: $(platform_flags "${arch}") --python-version ${py_tag} --implementation cp --abi cp${py_tag}\"
         while read -r spec; do
           [ -n \"\$spec\" ] || continue
           if ! pip download --no-deps -q -d /tmp/probe \$target \"\$spec\" >/dev/null 2>&1; then
@@ -277,45 +338,53 @@ pip_download_into() {
   # shellcheck disable=SC2086  # word splitting is intended: names are space separated
   emit_requirement_split "${staging}" ${sdist_only}
 
+  # Extra requirement files (e.g. requirements-docling.txt) are expanded on the
+  # host so the container string needs no nested command substitution.
+  local extras
+  extras="$(extra_requirements_for "${service}")"
+
   "${DOCKER_BIN}" run --rm \
     -v "${ROOT_DIR}/${dest}:/wheels" \
-    -v "${ROOT_DIR}/${CONTEXT_DIR}:/ctx:ro" \
-    python:3.10-slim-bookworm bash -c "
+    -v "${ROOT_DIR}/${ctx}:/ctx:ro" \
+    "${base_image}" bash -c "
       set -euo pipefail
-      pip config set global.index-url '${PYPI_INDEX}' >/dev/null
+      pip config set global.index-url '${PYPI_INDEX}' >/dev/null 2>&1 || true
 
       # Platform + interpreter target: what pip is allowed to pick. Kept on one
       # physical line because the enclosing docker -c argument is itself a
       # double-quoted string and a backslash continuation would need a second
       # level of escaping to survive it.
-      target=\"--only-binary=:all: $(platform_flags "${arch}") --python-version ${PY_TAG} --implementation cp --abi cp${PY_TAG}\"
+      target=\"--only-binary=:all: $(platform_flags "${arch}") --python-version ${py_tag} --implementation cp --abi cp${py_tag}\"
 
-      echo '--- [1/3] pip / setuptools / wheel ---'
-      # tools=for-build: a wheel whose build backend needs these still resolves
-      # locally, which matters because the cached set is installed offline.
+      echo '--- [1/4] pip / setuptools / wheel ---'
+      # A wheel whose build backend needs these still resolves locally, which
+      # matters because the cached set is installed offline.
       pip download --progress-bar off -d /wheels \$target \
         pip setuptools wheel 2>&1 | tail -2 || true
 
-      echo '--- [2/3] torch + torchvision (CPU index) ---'
-      pip download --progress-bar off -d /wheels \$target --no-deps \
-        --index-url '${PYTORCH_CPU_INDEX}' \
-        'torch>=2.2.2,<3.0.0' 'torchvision>=0,<1' 2>&1 | tail -3 || true
-      # torch's own metadata deps must be present for the offline install; the
-      # CPU index carries them too, so fetch them here rather than relying on
-      # the PyPI mirror resolving the same names later.
-      pip download --progress-bar off -d /wheels \$target \
-        --index-url '${PYTORCH_CPU_INDEX}' \
-        --no-deps 'filelock>=3.13.1' 'typing-extensions>=4.10.0' 'sympy>=1.13.3' \
-        'networkx>=2.5.1' 'jinja2>=3.1.3' 'fsspec>=0.8.5' \
-        'mpmath>=1.1.0' 'markupsafe>=2.0' 2>&1 | tail -2 || true
+      echo '--- [2/4] torch + torchvision (CPU index) ---'
+      if [ '${needs_torch}' = 'true' ]; then
+        pip download --progress-bar off -d /wheels \$target --no-deps \
+          --index-url '${PYTORCH_CPU_INDEX}' \
+          'torch>=2.2.2,<3.0.0' 'torchvision>=0,<1' 2>&1 | tail -3 || true
+        # torch's own metadata deps must be present for the offline install;
+        # the CPU index carries them too, so fetch them here rather than
+        # relying on the PyPI mirror resolving the same names later.
+        pip download --progress-bar off -d /wheels \$target \
+          --index-url '${PYTORCH_CPU_INDEX}' \
+          --no-deps 'filelock>=3.13.1' 'typing-extensions>=4.10.0' 'sympy>=1.13.3' \
+          'networkx>=2.5.1' 'jinja2>=3.1.3' 'fsspec>=0.8.5' \
+          'mpmath>=1.1.0' 'markupsafe>=2.0' 2>&1 | tail -2 || true
+      else
+        echo '  (this service does not preinstall torch)'
+      fi
 
-      echo '--- [3/3] application requirements ---'
-      # requirements.txt is a pip-compile closure of 61 pins, one of which
-      # (crcmod==1.7) upstream ships as an sdist only. A cross-platform download
-      # requires --only-binary=:all:, so that single pin makes pip fail the whole
-      # resolution atomically and not one of the 61 packages would be cached.
-      # Strip the sdist-only pins into a second file, fetch the rest as wheels,
-      # and take the stripped ones as sdists in the side directory below.
+      echo '--- [3/4] application requirements ---'
+      # requirements.txt is a pip-compile closure whose pins may include
+      # sdist-only packages (crcmod, oss2 in document-parser). A cross-platform
+      # download requires --only-binary=:all:, so one such pin makes pip fail
+      # the whole resolution atomically and nothing would be cached. The
+      # sdist-only pins were stripped into a second file and are fetched below.
       pip download --progress-bar off -d /wheels \$target \
         -r /ctx/.pip-wheels-staging/requirements-wheels.txt 2>&1 | tail -3 || true
 
@@ -324,62 +393,82 @@ pip_download_into() {
       # resulting install is py3-none-any and architecture independent — safe to
       # share between amd64 and arm64.
       mkdir -p /wheels-sdist
-      while read -r spec; do
-        [ -n \"\$spec\" ] || continue
-        pip download --progress-bar off -d /wheels-sdist --no-deps \"\$spec\" 2>&1 | tail -1 || true
-      done < /ctx/.pip-wheels-staging/requirements-sdist.txt
+      if [ -s /ctx/.pip-wheels-staging/requirements-sdist.txt ]; then
+        while read -r spec; do
+          [ -n \"\$spec\" ] || continue
+          pip download --progress-bar off -d /wheels-sdist --no-deps \"\$spec\" 2>&1 | tail -1 || true
+        done < /ctx/.pip-wheels-staging/requirements-sdist.txt
+      fi
 
-      pip download --progress-bar off -d /wheels \$target \
-        -r /ctx/requirements-docling.txt 2>&1 | tail -3 || true
+      echo '--- [4/4] extra requirement files ---'
+      for extra in ${extras}; do
+        [ -f \"/ctx/\$extra\" ] || continue
+        pip download --progress-bar off -d /wheels \$target \
+          -r \"/ctx/\$extra\" 2>&1 | tail -3 || true
+      done
 
       # Merge the sdist-only artefacts in, then drop any non-CPU torch.
       cp -f /wheels-sdist/* /wheels/ 2>/dev/null || true
 
       # Drop any non-CPU torch/torchvision the resolver pulled in anyway, so the
       # offline install can only ever see the +cpu build. The CPU wheels are
-      # the ones whose filename carries "+cpu"; everything else is the CUDA
+      # the ones whose filename carries \"+cpu\"; everything else is the CUDA
       # build from PyPI and would both bloat the bundle and let --no-index pick
       # a torch the image was never tested with.
-      find /wheels -maxdepth 1 -type f -name 'torch-*.whl' ! -name '*+cpu-*.whl' -delete
-      find /wheels -maxdepth 1 -type f -name 'torchvision-*.whl' ! -name '*+cpu-*.whl' -delete
+      if [ '${needs_torch}' = 'true' ]; then
+        find /wheels -maxdepth 1 -type f -name 'torch-*.whl' ! -name '*+cpu-*.whl' -delete
+        find /wheels -maxdepth 1 -type f -name 'torchvision-*.whl' ! -name '*+cpu-*.whl' -delete
+      fi
 
       chown -R ${host_uid}:${host_gid} /wheels
-    " || die "pip download for ${arch} failed."
+    " || die "pip download for ${service}/${arch} failed."
 
-  # A CPU torch must be present; without it the offline install would fail
-  # outright, and the failure would only surface much later in the image build.
-  local cpu_torch
-  cpu_torch="$(find "${dest}" -maxdepth 1 -name 'torch-*+cpu-*.whl' | wc -l | tr -d ' ')"
-  [[ "${cpu_torch}" -ge 1 ]] \
-    || die "No CPU torch wheel for ${arch} in ${dest}. Check PYTORCH_CPU_INDEX=${PYTORCH_CPU_INDEX}."
+  # A CPU torch must be present when this service preinstalls it; without it the
+  # offline install would fail outright, and the failure would only surface much
+  # later in the image build.
+  if [[ "${needs_torch}" == "true" ]]; then
+    local cpu_torch
+    cpu_torch="$(find "${dest}" -maxdepth 1 -name 'torch-*+cpu-*.whl' | wc -l | tr -d ' ')"
+    [[ "${cpu_torch}" -ge 1 ]] \
+      || die "No CPU torch wheel for ${service}/${arch} in ${dest}. Check PYTORCH_CPU_INDEX=${PYTORCH_CPU_INDEX}."
+  fi
 }
 
 cmd_fetch() {
-  local archs=("$@")
-  [[ "${#archs[@]}" -eq 0 ]] && read -r -a archs <<< "${ARCH_LIST}"
+  local services=("$@")
+  [[ "${#services[@]}" -eq 0 ]] && read -r -a services <<< "${SERVICE_LIST}"
 
   require_docker
-  [[ -f "${REQUIREMENTS_MAIN}" ]] || die "Missing ${REQUIREMENTS_MAIN}"
-  [[ -f "${REQUIREMENTS_DOCLING}" ]] || die "Missing ${REQUIREMENTS_DOCLING}"
 
-  for arch in "${archs[@]}"; do
-    platform_flags "${arch}" >/dev/null   # validate early
-    local dest="${CACHE_DIR}/${arch}"
-    printf 'Fetching wheels for linux/%s into %s ...\n' "${arch}" "${dest}"
-    # Clear first: a wheel left from an earlier requirements revision would be
-    # installed silently, because --no-index cannot tell it is stale.
-    rm -rf "${dest}"
-    pip_download_into "${arch}" "${dest}"
+  for service in "${services[@]}"; do
+    local ctx main
+    ctx="$(context_dir_for "${service}")"
+    main="${ctx}/${REQUIREMENTS_MAIN}"
+    [[ -f "${main}" ]] || die "Missing ${main}"
+    for extra in $(extra_requirements_for "${service}"); do
+      [[ -f "${ctx}/${extra}" ]] || die "Missing ${ctx}/${extra}"
+    done
 
-    local n size
-    n="$(count_artifacts "${dest}")"
-    size="$(du -sk "${dest}" | cut -f1)"
-    [[ "${n}" -gt 0 ]] || die "No wheels downloaded for ${arch}."
-    printf '  %s: %s artifacts, %s\n' "${arch}" "${n}" "$(human_size "$((size * 1024))")"
+    for arch in ${ARCH_LIST}; do
+      platform_flags "${arch}" >/dev/null   # validate early
+      local dest="${CACHE_DIR}/${service}/${arch}"
+      printf 'Fetching wheels for %s/linux/%s into %s ...\n' "${service}" "${arch}" "${dest}"
+      # Clear first: a wheel left from an earlier requirements revision would be
+      # installed silently, because --no-index cannot tell it is stale.
+      rm -rf "${dest}"
+      pip_download_into "${service}" "${arch}" "${dest}"
+
+      local n size
+      n="$(count_artifacts "${dest}")"
+      size="$(du -sk "${dest}" | cut -f1)"
+      [[ "${n}" -gt 0 ]] || die "No wheels downloaded for ${service}/${arch}."
+      printf '  %s/%s: %s artifacts, %s\n' \
+        "${service}" "${arch}" "${n}" "$(human_size "$((size * 1024))")"
+    done
   done
 
   write_manifest
-  printf '\nRun `%s pack` to refresh the build-context bundle.\n' "$0"
+  printf '\nRun `%s pack` to refresh the build-context bundles.\n' "$0"
 }
 
 write_manifest() {
@@ -387,117 +476,131 @@ write_manifest() {
   {
     printf '# movo pip wheel cache\n'
     printf '# generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    printf '# python: %s (cp%s)\n' "${PY_VERSION}" "${PY_TAG}"
     printf '# pypi_index: %s\n' "${PYPI_INDEX}"
     printf '# pytorch_cpu_index: %s\n' "${PYTORCH_CPU_INDEX}"
-    for arch in ${ARCH_LIST}; do
-      local d="${CACHE_DIR}/${arch}"
-      [[ -d "${d}" ]] || continue
-      local n size
-      n="$(count_artifacts "${d}")"
-      size="$(du -sk "${d}" | cut -f1)"
-      printf 'arch_%s=%s artifacts, %s\n' "${arch}" "${n}" "$(human_size "$((size * 1024))")"
-      # Record the torch cpu build so a stale cache is detectable when the
-      # Dockerfile's torch constraint moves.
-      local tv
-      tv="$(find "${d}" -name 'torch-*+cpu-*.whl' -exec basename {} \; 2>/dev/null | head -1 || true)"
-      [[ -n "${tv}" ]] && printf '  %s_torch=%s\n' "${arch}" "${tv}"
+    for service in ${SERVICE_LIST}; do
+      printf '\n[%s]\n' "${service}"
+      printf 'python=%s (cp%s)\n' "$(py_version_for "${service}")" "$(py_tag_for "${service}")"
+      printf 'base_image=%s\n' "$(base_image_for "${service}")"
+      local ctx
+      ctx="$(context_dir_for "${service}")"
+      for req in "${REQUIREMENTS_MAIN}" $(extra_requirements_for "${service}"); do
+        printf '  %s_sha256=%s\n' "${req%.txt}" \
+          "$(shasum -a 256 "${ctx}/${req}" 2>/dev/null | cut -d' ' -f1 || printf 'n/a')"
+      done
+      for arch in ${ARCH_LIST}; do
+        local d="${CACHE_DIR}/${service}/${arch}"
+        [[ -d "${d}" ]] || continue
+        local n size
+        n="$(count_artifacts "${d}")"
+        size="$(du -sk "${d}" | cut -f1)"
+        printf '  %s=%s artifacts, %s\n' "${arch}" "${n}" "$(human_size "$((size * 1024))")"
+        # Record the torch cpu build so a stale cache is detectable when the
+        # Dockerfile's torch constraint moves.
+        local tv
+        tv="$(find "${d}" -name 'torch-*+cpu-*.whl' -exec basename {} \; 2>/dev/null | head -1 || true)"
+        [[ -n "${tv}" ]] && printf '  %s_torch=%s\n' "${arch}" "${tv}"
+      done
     done
-    printf '# requirements_main_sha256=%s\n' \
-      "$(shasum -a 256 "${REQUIREMENTS_MAIN}" 2>/dev/null | cut -d' ' -f1 || printf 'n/a')"
-    printf '# requirements_docling_sha256=%s\n' \
-      "$(shasum -a 256 "${REQUIREMENTS_DOCLING}" 2>/dev/null | cut -d' ' -f1 || printf 'n/a')"
-  } > "${MANIFEST}"
+  } > "${CACHE_DIR}/manifest.txt"
 }
 
 cmd_pack() {
+  local services=("$@")
+  [[ "${#services[@]}" -eq 0 ]] && read -r -a services <<< "${SERVICE_LIST}"
+
   [[ -d "${CACHE_DIR}" ]] || die "No cache at ${CACHE_DIR}. Run fetch first."
 
-  local staged
-  staged="$(mktemp -d)"
-  trap 'rm -rf "${staged:-}"' EXIT
+  local found=0
+  for service in "${services[@]}"; do
+    local staged bundle
+    staged="$(mktemp -d)"
+    bundle="$(bundle_path_for "${service}")"
 
-  local total=0 found=0
-  for arch in ${ARCH_LIST}; do
-    local d="${CACHE_DIR}/${arch}"
-    [[ -d "${d}" ]] || continue
-    local n
-    # Count and copy wheels *and* sdists: the sdist-only pins (crcmod, oss2)
-    # are what make the offline install of requirements.txt resolve at all, so
-    # packing only *.whl would produce a bundle that cannot install.
-    n="$(find "${d}" -maxdepth 1 -type f \( -name '*.whl' -o -name '*.tar.gz' \) | wc -l | tr -d ' ')"
-    [[ "${n}" -gt 0 ]] || continue
-    mkdir -p "${staged}/${arch}"
-    cp "${d}"/*.whl "${staged}/${arch}/" 2>/dev/null || true
-    cp "${d}"/*.tar.gz "${staged}/${arch}/" 2>/dev/null || true
-    total=$((total + n))
+    local total=0
+    for arch in ${ARCH_LIST}; do
+      local d="${CACHE_DIR}/${service}/${arch}"
+      [[ -d "${d}" ]] || continue
+      local n
+      # Count and copy wheels *and* sdists: the sdist-only pins are what make
+      # the offline install of requirements.txt resolve at all, so packing only
+      # *.whl would produce a bundle that cannot install.
+      n="$(find "${d}" -maxdepth 1 -type f \( -name '*.whl' -o -name '*.tar.gz' \) | wc -l | tr -d ' ')"
+      [[ "${n}" -gt 0 ]] || continue
+      mkdir -p "${staged}/${arch}"
+      cp "${d}"/*.whl "${staged}/${arch}/" 2>/dev/null || true
+      cp "${d}"/*.tar.gz "${staged}/${arch}/" 2>/dev/null || true
+      total=$((total + n))
+    done
+
+    if [[ "${total}" -eq 0 ]]; then
+      rm -rf "${staged}"
+      printf '  %s: no cached wheels, skipped\n' "${service}"
+      continue
+    fi
+
+    printf '  %s: packing %s artifacts -> %s\n' "${service}" "${total}" "${bundle}"
+    tar -czf "${bundle}" -C "${staged}" .
+    rm -rf "${staged}"
+
+    local out_size
+    out_size="$(wc -c < "${bundle}" | tr -d ' ')"
+    printf '    %s\n' "$(human_size "${out_size}")"
     found=1
   done
 
-  [[ "${found}" -eq 1 ]] || die "No wheels in ${CACHE_DIR}/*/. Run fetch first."
-
-  printf 'Packing %s files -> %s ...\n' "${total}" "${BUNDLE_PATH}"
-  tar -czf "${BUNDLE_PATH}" -C "${staged}" .
-
-  local out_size
-  out_size="$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')"
-  printf '\nBundle written: %s (%s, %s artifacts)\n' \
-    "${BUNDLE_PATH}" "$(human_size "${out_size}")" "${total}"
-  printf 'Sizes by arch:\n'
-  for arch in ${ARCH_LIST}; do
-    local d="${CACHE_DIR}/${arch}"
-    [[ -d "${d}" ]] || continue
-    printf '  %-6s %s\n' "${arch}" "$(human_size "$(( $(du -sk "${d}" | cut -f1) * 1024 ))")"
-  done
-  printf '\nRebuild the image to use it:\n'
-  printf '  docker compose -f docker-compose.yml -f docker-compose.build.yml build document-api\n'
-  printf 'The COPY layer re-executes only when this tar.gz changes; same bundle = cached.\n'
+  [[ "${found}" -eq 1 ]] || die "Nothing packed. Run fetch first."
+  printf '\nRebuild to use them:\n'
+  printf '  docker compose -f docker-compose.yml -f docker-compose.build.yml build document-api chat-api admin-api\n'
+  printf 'The COPY layer re-executes only when a bundle changes; same bundle = cached.\n'
 }
 
 cmd_save() {
-  cmd_fetch "$@"
-  cmd_pack
+  if [[ "$#" -gt 0 ]]; then
+    cmd_fetch "$@"
+    cmd_pack "$@"
+  else
+    cmd_fetch
+    cmd_pack
+  fi
 }
 
 cmd_list() {
   printf 'pip wheel cache:\n\n'
 
-  if [[ -d "${CACHE_DIR}" ]]; then
-    local any=0
+  local any=0
+  for service in ${SERVICE_LIST}; do
     for arch in ${ARCH_LIST}; do
-      local d="${CACHE_DIR}/${arch}"
+      local d="${CACHE_DIR}/${service}/${arch}"
       [[ -d "${d}" ]] || continue
       any=1
       local n size
       n="$(count_artifacts "${d}")"
       size="$(du -sk "${d}" | cut -f1)"
-      printf '  [cache]     %-6s %s  (%s artifacts, %s)\n' \
-        "${arch}" "${d}" "${n}" "$(human_size "$((size * 1024))")"
+      printf '  [cache]  %-18s %-6s %4s artifacts  %s\n' \
+        "${service}" "${arch}" "${n}" "$(human_size "$((size * 1024))")"
     done
-    [[ "${any}" -eq 1 ]] || printf '  [empty]     %s  - run fetch first\n' "${CACHE_DIR}"
-  else
-    printf '  [missing]   %s  - run fetch first\n' "${CACHE_DIR}"
-  fi
+  done
+  [[ "${any}" -eq 1 ]] || printf '  [empty]  %s - run fetch first\n' "${CACHE_DIR}"
 
-  if [[ -f "${MANIFEST}" ]]; then
-    printf '\n'
-    sed 's/^/  /' "${MANIFEST}"
-  fi
-
-  printf '\nBundle for the build context:\n\n'
-  if [[ -f "${BUNDLE_PATH}" ]]; then
-    local bsize
-    bsize="$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')"
-    if [[ "${bsize}" -gt 1024 ]]; then
-      printf '  [bundle]    %s  (%s)  - offline install will work\n' \
-        "${BUNDLE_PATH}" "$(human_size "${bsize}")"
+  printf '\nBundles for the build contexts:\n\n'
+  for service in ${SERVICE_LIST}; do
+    local bundle
+    bundle="$(bundle_path_for "${service}")"
+    if [[ -f "${bundle}" ]]; then
+      local bsize
+      bsize="$(wc -c < "${bundle}" | tr -d ' ')"
+      if [[ "${bsize}" -gt 1024 ]]; then
+        printf '  [bundle]      %-18s %s  (%s)\n' \
+          "${service}" "${bundle}" "$(human_size "${bsize}")"
+      else
+        printf '  [placeholder] %-18s %s  (%s) - online install will be used\n' \
+          "${service}" "${bundle}" "$(human_size "${bsize}")"
+      fi
     else
-      printf '  [placeholder] %s  (%s)  - online install path will be used\n' \
-        "${BUNDLE_PATH}" "$(human_size "${bsize}")"
+      printf '  [missing]     %-18s %s - run pack\n' "${service}" "${bundle}"
     fi
-  else
-    printf '  [missing]   %s  - run pack (or restore the placeholder)\n' "${BUNDLE_PATH}"
-  fi
+  done
 }
 
 cmd_verify() {
@@ -562,7 +665,7 @@ case "${command}" in
     cmd_fetch "$@"
     ;;
   pack)
-    cmd_pack
+    cmd_pack "$@"
     ;;
   save)
     cmd_save "$@"

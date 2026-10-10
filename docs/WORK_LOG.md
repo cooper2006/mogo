@@ -7654,3 +7654,87 @@ chat-api 41.2 + 41.5 MiB。bundle 分别为 499MB 与 74MB（均 git 忽略，�
 **改动文件**：`scripts/apt_packages_bundle.sh`（新增）、`services/document-parser/Dockerfile`、
 `services/chat-api/Dockerfile`、`.gitignore`、
 两个 `apt-packages-bundle.tar.gz`（各 29B 占位符，`git add -f`）。
+
+## 2026-10-10 三类缓存全面审计：补齐 playwright / chat-api / admin-api / runtime-host
+
+**起因**：用户要求按本会话的整改内容，对 apt、pip、镜像三类缓存做一次全面检查。
+
+### 审计结果：5 个缺口（按影响排序）
+
+| # | 缺口 | 影响 |
+|---|---|---|
+| 1 | **playwright bundle 只是占位符** | 901MB 浏览器缓存明明在 `base-images/playwright/`，bundle 却只有 104 字节 → **每次构建真的联网下 Chromium，实测 layer 14 = 781 秒** |
+| 2 | chat-api pip 未缓存 | layer 12 = 502 秒 |
+| 3 | admin-api pip 未缓存 | 同上机制 |
+| 4 | dsh-runtime-host apt（ca-certificates/gosu）未缓存 | — |
+| 5 | 4 个 Dockerfile 硬编码 `FROM`（admin-web / user-web / gateway / runtime-host） | 无法用 `BASE_IMAGE` 指向镜像站；Docker Hub 不可达时构建直接失败 |
+
+第 1 项最严重：缓存版本（playwright 1.56.0 / chromium-1194）与 `chat-api/requirements.txt` 里钉的 `playwright==1.56.0` **完全匹配**，缓存完全可用，只是从未打包。
+
+### 修复
+
+**playwright**：`scripts/playwright_browsers_bundle.sh pack` 重建 bundle（283.5MB）。
+实测 layer 14 **781.3s → 211.9s**，日志确认 `Installing playwright browsers from offline bundle` 且 `playwright chromium launch OK`。
+
+**pip 脚本多服务化**（`scripts/pip_wheels_bundle.sh`）：支持 `document-parser` / `chat-api` / `admin-api`，
+缓存路径改为 `base-images/pip-wheels/<service>/<arch>/`，各服务有独立 bundle。
+- 每服务独立配置：`py_version_for` / `py_tag_for`（chat-api、admin-api 是 cp313）/ `base_image_for` /
+  `extra_requirements_for`（仅 document-parser 有 requirements-docling.txt）/ `needs_torch_for`。
+- 修复 `pack` 分支未转发 `"$@"` 的 bug（`pack document-parser` 会误处理全部服务）。
+- 旧缓存已迁移到新结构；pack 产物尺寸一致（940046921 → 940047063 字节，仅 gzip 元数据差异）。
+
+**apt 脚本多服务化**（`scripts/apt_packages_bundle.sh`）：新增 `dsh-runtime-host`
+（其 Dockerfile 在嵌套路径 `services/chat-api/dsh/runtime-host/`，故新增 `dockerfile_for` / `context_dir_for`）。
+修复解析器：遇到以 `;` 终止的行也要结束解析，否则会串到 `if/else` 的另一个分支、把 `update` 当成包名。
+
+**三个 Dockerfile 接入 bundle**：`services/chat-api/Dockerfile`（pip）、
+`services/admin-api/Dockerfile`（pip）、`services/chat-api/dsh/runtime-host/Dockerfile`（apt，并合并了原
+独立的 apt-mirror RUN）。后者的两个 `FROM` 改为 `ARG BASE_IMAGE` 以便指向镜像站。
+
+### 过程中发现并修正的两个真问题
+
+**1. 架构混入（严重）**：试图用「原生容器 + `dpkg --add-architecture` + `APT::Architecture` pin」
+在 arm64 宿主上抓 amd64 的 .deb，结果 apt 用 **host 架构**满足依赖，
+把 `libssl3_arm64.deb`、`openssl_arm64.deb` 混进了 amd64 缓存（会静默装进 amd64 镜像）；
+加全局 pin 后又与基础镜像已装的 arm64 包冲突（`ca-certificates : Depends: openssl`）。
+最终回到「用目标架构容器」，并**新增 `audit` 命令**：用容器内 `dpkg-deb` 逐一校验每个 .deb 的架构。
+实测 445 个文件全部通过（如 document-parser/amd64 = 176 amd64 + 18 all）。
+
+**2. 不必要的 Docker Hub 依赖（用户指正）**：用户指出「镜像本地都有，没有必要连接 docker hub」。
+原 `fetch` 用 `--platform linux/amd64` 跑容器，本地只有 arm64 变体 → Docker 去 Docker Hub 拉 →
+Hub 故障时失败。改为经 `MOGO_BASE_IMAGE_MIRROR`（默认 `docker.m.daocloud.io`，与
+`deploy/production/prepare-release.sh` 同一镜像站）拉取目标架构变体。
+
+### 生产路径验证
+
+`deploy/production/prepare-release.sh` 第 146 行 `export DOCKER_DEFAULT_PLATFORM=linux/amd64`、
+第 181 行 `docker compose ... build`——脚本注释自称「耗时较长（实测 1 小时以上），瓶颈是外网带宽」，
+正是本次优化的对象。用同款调用实测 amd64 构建：`apt_arch=amd64` 自动识别，
+离线装 388 个 .deb + 294 个 wheel，**整机 6 分 50 秒**（apt 99.6s / pip 118.5s）。
+注意 `docker compose build` 不注入 `TARGETARCH`，Dockerfile 回退 `dpkg --print-architecture`，
+在 amd64 环境下返回 `amd64`（已实测）——该回退设计正是为兼容这条路径。
+
+### 实测汇总
+
+| 层 | 改造前 | 改造后 |
+|---|---|---|
+| chat-api playwright | 781.3s | 211.9s |
+| chat-api pip | 502.0s | 离线装 228 wheels |
+| document-parser apt | 315.2s | 99.6s（amd64） |
+| document-parser 整机（amd64） | — | 6 分 50 秒 |
+
+镜像产物验证：chat-api（playwright/fastapi/pymongo/oss2/crcmod 全部可导入，x86_64）、
+admin-api（100 wheels 离线装）、runtime-host（gosu 1.14 可执行）。
+
+### 未做
+
+- 前端 `admin-web` / `user-web` 的 `npm ci` 仍走 npmmirror 联网（未做离线化）。
+- `base-images/manifest.txt` 有陈旧条目（`node:20-slim`、`nginx:1.29.8-alpine`，当前 Dockerfile 已不引用）。
+  该 manifest 由 `export_base_images.sh` 从 Dockerfile 自动生成，属历史遗留，未擅自改动。
+
+**改动文件**：`scripts/pip_wheels_bundle.sh`、`scripts/apt_packages_bundle.sh`、
+`services/chat-api/Dockerfile`、`services/admin-api/Dockerfile`、
+`services/chat-api/dsh/runtime-host/Dockerfile`、`.gitignore`、
+新增 3 个 29B 占位符（`chat-api/pip-wheels-bundle.tar.gz`、`admin-api/pip-wheels-bundle.tar.gz`、
+`chat-api/dsh/runtime-host/apt-packages-bundle.tar.gz`）、
+重建 `chat-api/playwright-browsers-bundle.tar.gz`（283.5MB，git 忽略）。
