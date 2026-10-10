@@ -62,9 +62,9 @@ def test_pricing_table_mirrors_admin_dashboard() -> None:
 
 def _rows() -> list[dict[str, Any]]:
     return [
-        {"model_name": "gpt-5.2", "main_id": "t1", "agent_id": "agent-a", "prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150, "cost_estimate_usd": 0.001, "provider": "openai"},
-        {"model_name": "gpt-5.2", "main_id": "t1", "agent_id": "agent-b", "prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150, "cost_estimate_usd": 0.001, "provider": "openai"},
-        {"model_name": "qwen3-vl-plus", "main_id": "t2", "agent_id": "agent-a", "prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300, "cost_estimate_usd": 0.0003, "provider": "qwen"},
+        {"model_name": "gpt-5.2", "tenant_id": "t1", "agent_id": "agent-a", "prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150, "cost_estimate_usd": 0.001, "provider": "openai"},
+        {"model_name": "gpt-5.2", "tenant_id": "t1", "agent_id": "agent-b", "prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150, "cost_estimate_usd": 0.001, "provider": "openai"},
+        {"model_name": "qwen3-vl-plus", "tenant_id": "t2", "agent_id": "agent-a", "prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300, "cost_estimate_usd": 0.0003, "provider": "qwen"},
     ]
 
 

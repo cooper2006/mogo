@@ -91,7 +91,7 @@ def _seed(
         mem["tenants"].docs.append(
             {
                 "_id": "t1",
-                "main_id": MAIN_ID,
+                "tenant_id": MAIN_ID,
                 "name": "Acme",
                 "status": "active",
                 "edition": edition,
@@ -100,7 +100,7 @@ def _seed(
         )
     mem["organizations"].docs.append(
         {
-            "main_id": MAIN_ID,
+            "tenant_id": MAIN_ID,
             "org_name": "Acme",
             "edition": edition,
             "tier": "free",
@@ -108,7 +108,7 @@ def _seed(
         }
     )
     for i in range(members):
-        mem["end_users"].docs.append({"main_id": MAIN_ID, "name": f"user-{i}"})
+        mem["end_users"].docs.append({"tenant_id": MAIN_ID, "name": f"user-{i}"})
 
 
 def _wire(monkeypatch, mem: _Mem) -> None:
@@ -276,7 +276,7 @@ async def test_count_members_counts_disabled_seats(monkeypatch) -> None:
     """
     mem = _Mem()
     _seed(mem, members=2)
-    mem["end_users"].docs.append({"main_id": MAIN_ID, "name": "off", "status": "disabled"})
+    mem["end_users"].docs.append({"tenant_id": MAIN_ID, "name": "off", "status": "disabled"})
     _wire(monkeypatch, mem)
 
     assert await product_edition.count_members(MAIN_ID) == 3

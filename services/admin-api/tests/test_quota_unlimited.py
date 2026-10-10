@@ -103,7 +103,7 @@ def test_existing_org_policy_is_not_overwritten(monkeypatch) -> None:
     mem = _Mem()
     _patch(monkeypatch, mem)
     main_id = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
-    mem["org_quota_policies"].docs.append({"main_id": main_id, "total_tokens": 500, "unlimited": False})
+    mem["org_quota_policies"].docs.append({"tenant_id": main_id, "total_tokens": 500, "unlimited": False})
 
     policy = asyncio.run(quota_policy.ensure_org_quota_policy(main_id))
 
@@ -124,7 +124,7 @@ def test_enterprise_summary_is_unlimited_by_default(monkeypatch) -> None:
     mem = _Mem()
     _patch(monkeypatch, mem)
     main_id = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
-    mem["organizations"].docs.append({"main_id": main_id, "org_name": "Acme"})
+    mem["organizations"].docs.append({"tenant_id": main_id, "org_name": "Acme"})
     # No quota config at all — the zero-config tenant must still work.
 
     summary = asyncio.run(quota_policy.get_quota_summary(main_id, _enterprise_user()))
@@ -138,8 +138,8 @@ def test_legacy_enterprise_row_without_flag_is_limited(monkeypatch) -> None:
     mem = _Mem()
     _patch(monkeypatch, mem)
     main_id = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
-    mem["organizations"].docs.append({"main_id": main_id, "org_name": "Acme"})
-    mem["org_quota_policies"].docs.append({"main_id": main_id, "total_tokens": 100, "status": "active"})
+    mem["organizations"].docs.append({"tenant_id": main_id, "org_name": "Acme"})
+    mem["org_quota_policies"].docs.append({"tenant_id": main_id, "total_tokens": 100, "status": "active"})
 
     summary = asyncio.run(quota_policy.get_quota_summary(main_id, _enterprise_user()))
 
@@ -152,10 +152,10 @@ def test_explicitly_limited_enterprise_reports_remaining(monkeypatch) -> None:
     mem = _Mem()
     _patch(monkeypatch, mem)
     main_id = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
-    mem["organizations"].docs.append({"main_id": main_id, "org_name": "Acme"})
-    mem["org_quota_policies"].docs.append({"main_id": main_id, "total_tokens": 100, "unlimited": False, "status": "active"})
+    mem["organizations"].docs.append({"tenant_id": main_id, "org_name": "Acme"})
+    mem["org_quota_policies"].docs.append({"tenant_id": main_id, "total_tokens": 100, "unlimited": False, "status": "active"})
     mem["user_quota_policies"].docs.append(
-        {"main_id": main_id, "scope_type": "user", "scope_id": "u1", "quota_tokens": 40, "status": "active"}
+        {"tenant_id": main_id, "scope_type": "user", "scope_id": "u1", "quota_tokens": 40, "status": "active"}
     )
 
     summary = asyncio.run(quota_policy.get_quota_summary(main_id, _enterprise_user()))
@@ -173,7 +173,7 @@ def test_personal_summary_defaults_to_unlimited(monkeypatch) -> None:
     mem = _Mem()
     _patch(monkeypatch, mem)
     main_id = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
-    mem["organizations"].docs.append({"main_id": main_id, "org_name": "个人空间"})
+    mem["organizations"].docs.append({"tenant_id": main_id, "org_name": "个人空间"})
 
     summary = asyncio.run(quota_policy.get_quota_summary(main_id, {"_id": "u1", "space_type": "personal"}))
 
@@ -187,7 +187,7 @@ def test_personal_summary_respects_explicit_limit(monkeypatch) -> None:
     _patch(monkeypatch, mem)
     main_id = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
     mem["organizations"].docs.append(
-        {"main_id": main_id, "org_name": "个人空间", "total_points": 200, "used_points": 50, "points_unlimited": False}
+        {"tenant_id": main_id, "org_name": "个人空间", "total_points": 200, "used_points": 50, "points_unlimited": False}
     )
 
     summary = asyncio.run(quota_policy.get_quota_summary(main_id, {"_id": "u1", "space_type": "personal"}))
@@ -207,7 +207,7 @@ def test_unlimited_personal_user_is_not_blocked_when_used_exceeds_total(monkeypa
     main_id = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
     # Used well past a zero total: without the flag this would raise.
     mem["organizations"].docs.append(
-        {"main_id": main_id, "org_name": "个人空间", "total_points": 0, "used_points": 9999, "points_unlimited": True}
+        {"tenant_id": main_id, "org_name": "个人空间", "total_points": 0, "used_points": 9999, "points_unlimited": True}
     )
 
     summary = asyncio.run(quota_policy.assert_quota_available(main_id, {"_id": "u1", "space_type": "personal"}))
@@ -220,7 +220,7 @@ def test_limited_personal_user_is_blocked_when_exhausted(monkeypatch) -> None:
     _patch(monkeypatch, mem)
     main_id = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
     mem["organizations"].docs.append(
-        {"main_id": main_id, "org_name": "个人空间", "total_points": 100, "used_points": 100, "points_unlimited": False}
+        {"tenant_id": main_id, "org_name": "个人空间", "total_points": 100, "used_points": 100, "points_unlimited": False}
     )
 
     try:

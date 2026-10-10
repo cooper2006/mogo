@@ -75,7 +75,7 @@ def test_platform_admin_creates_and_marks_completed(monkeypatch) -> None:
 
     result = asyncio.run(setup_route.setup_platform_admin(payload))
 
-    assert result == {"completed": True, "mainId": "__platform__", "username": "platform"}
+    assert result == {"completed": True, "tenantId": "__platform__", "username": "platform"}
     assert mocks["ensure_platform_admin"].call_args.kwargs == {
         "username": "platform",
         "password": "platformpass123",
@@ -162,7 +162,7 @@ def _patch_provision_internals(monkeypatch):
 
     async def _fake_ensure_tenant_record(**kwargs):
         captured["tenant_record"] = kwargs
-        return {"_id": "t", "main_id": kwargs["main_id"]}
+        return {"_id": "t", "tenant_id": kwargs["tenant_id"]}
 
     async def _fake_configure_quota(**kwargs):
         captured["quota"] = kwargs
@@ -230,12 +230,12 @@ def test_provision_tenant_minimal_skips_optional_blocks(monkeypatch) -> None:
             admin_display_name="系统管理员",
         )
     )
-    assert result.main_id
+    assert result.tenant_id
     assert result.org_name == "Acme"
     assert result.model_instance_id is None
     assert result.additional_model_instance_ids == []
     # tenant registry written
-    assert captured["tenant_record"]["main_id"] == result.main_id
+    assert captured["tenant_record"]["tenant_id"] == result.tenant_id
     assert captured["tenant_record"]["created_by"] == "setup-wizard"
     # optional blocks skipped — no connectivity checks happened
     assert "quota" not in captured
@@ -305,7 +305,7 @@ def test_provision_tenant_rolls_back_on_failure(monkeypatch) -> None:
     async def fake_cleanup(main_id: str) -> None:
         captured["main_id"] = main_id
 
-    monkeypatch.setattr(tenant_provisioning, "_next_main_id", fake_next_main_id)
+    monkeypatch.setattr(tenant_provisioning, "_next_tenant_id", fake_next_main_id)
     monkeypatch.setattr(tenant_provisioning, "ensure_group_exists", boom)
     monkeypatch.setattr(tenant_provisioning, "cleanup_failed_setup", fake_cleanup)
 
@@ -343,7 +343,7 @@ def test_provision_tenant_audits_success(monkeypatch) -> None:
     audits = captured.get("audits") or []
     assert len(audits) == 1, f"SC-007: exactly one create audit expected, got {audits}"
     row = audits[0]
-    assert row["main_id"] == result.main_id
+    assert row["main_id"] == result.tenant_id
     assert row["actor"] == "platform-admin:root"
     assert row["action"] == "create"
     assert row["result"] == "success"

@@ -68,5 +68,5 @@ def test_platform_admin_completion_pins_platform_main_id(monkeypatch) -> None:
     )
     update = collection.update_one.await_args.args[1]
     assert update["$set"]["completed"] is True
-    assert update["$set"]["main_id"] == "__platform__"
+    assert update["$set"]["tenant_id"] == "__platform__"
     assert update["$set"]["platform_admin_username"] == "platform"

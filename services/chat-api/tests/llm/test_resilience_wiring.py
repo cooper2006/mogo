@@ -117,7 +117,7 @@ def _fake_db(instances: list[dict], providers: dict[str, dict], end_users: list[
 def _instance(provider_key: str, *, instance_id=None, **fields) -> dict:
     base = {
         "_id": instance_id or ObjectId(),
-        "main_id": "m1",
+        "tenant_id": "m1",
         "status": "active",
         "priority": 0,
         "model_name": "gpt-high",
@@ -140,7 +140,7 @@ def _provider(provider_key: str, **fields) -> dict:
 def _fake_config_loader(instances: list[dict], providers: dict[str, dict], primary_id):
     """Async stand-in for configured_models.get_model_config."""
 
-    async def _load(model_id: str, main_id: str):
+    async def _load(model_id: str, tenant_id: str):
         for instance in instances:
             if str(instance.get("_id")) == str(model_id):
                 provider = providers.get(str(instance.get("provider_id")), {})
@@ -259,7 +259,7 @@ def test_get_llm_client_by_model_id_fails_over_to_backup(monkeypatch) -> None:
 
     monkeypatch.setattr(configured_models, "build_llm_client_from_config", fake_build)
 
-    client = asyncio.run(configured_models.get_llm_client_by_model_id(str(primary_id), main_id="m1"))
+    client = asyncio.run(configured_models.get_llm_client_by_model_id(str(primary_id), tenant_id="m1"))
     from app.llm.resilience.failover import ResilientLLMClient
     assert isinstance(client, ResilientLLMClient)
 
@@ -288,5 +288,5 @@ def test_get_llm_client_by_model_id_single_provider_is_noop(monkeypatch) -> None
         configured_models, "build_llm_client_from_config", lambda config, **kwargs: only_echo
     )
 
-    client = asyncio.run(configured_models.get_llm_client_by_model_id(str(primary_id), main_id="m1"))
+    client = asyncio.run(configured_models.get_llm_client_by_model_id(str(primary_id), tenant_id="m1"))
     assert client is only_echo  # FR-9: single provider stays unwrapped

@@ -71,7 +71,7 @@ def _seed(mem: _Mem, member_limit: int | None = 10) -> None:
     mem["tenants"].docs.append(
         {
             "_id": "t1",
-            "main_id": MAIN_ID,
+            "tenant_id": MAIN_ID,
             "name": "Acme",
             "status": "active",
             "member_limit": member_limit,
