@@ -7962,3 +7962,51 @@ tracked）。本轮回滚这 7 个文件到 HEAD 占位符，**避免约 2.9GB �
 `services/chat-api/Dockerfile`、`scripts/apt_packages_bundle.sh`、
 `deploy/production/prepare-release.sh`、`docs/intro-v4.pptx`、`docs/WORK_LOG.md`。
 7 个 bundle 还原为 HEAD 占位符，不入库。
+
+---
+
+## 2026-10-10 构建源泄漏根因与修复：MOVO_NPM_REGISTRY 空值回退 npmjs.org
+
+**起因**：完整 amd64 构建实测 admin-web `npm ci` 约 7min、`npm run build` 约 11min、
+runtime-host `pnpm install` 约 6min、chat-api playwright step 约 11min+。屏蔽 npmmirror
+后仍能装上，用户判断"确有请求走了非国内源"，要求确认具体是哪些。
+
+**结论先讲**：**npm/pnpm 源没有写死境外 URL 的泄漏**（lockfile 层面零 npmjs.org）；
+"屏蔽 npmmirror 仍能装上"的真实机制是 **BuildKit cache mount 命中**（warm 缓存下
+`npm ci`/`pnpm install` 不发网络请求）+ 离线 bundle/apt。但排查中**发现一处真实的、
+此前漏掉的条件性泄漏**：
+
+**根因（真实泄漏点）**：三处 Dockerfile 的 registry 设置都是
+`if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry ...; fi`。
+当 `MOVO_NPM_REGISTRY` 被显式传为空（或 unset）时，这行被跳过，npm 的 `registry`
+回退到内置默认 **`https://registry.npmjs.org/`（境外）**。已用
+`npm config get registry`（无 .npmrc 覆盖、无 env）→ 实测返回 `https://registry.npmjs.org/`
+坐实该机制。标准 `docker compose build` 路径因 ARG 默认非空不会触发；但任何手动
+`--build-arg MOVO_NPM_REGISTRY=` 或 CI 覆盖为空值的路径都会静默泄漏到 npmjs.org——
+这正是"屏蔽 npmmirror 仍装上"的成因（当时根本没用 npmmirror）。
+
+**另外两个慢点的客观成因（非源泄漏，已用代码证据确认）**：
+- admin-web `npm run build` 的 11min = **纯 `vite build` 本身**（vue-tsc 已于上轮从
+  `build` 脚本移除，`package.json` 的 `build` 现为 `vite build`）。13 万行级 Vue admin
+  应用的打包+压缩本来就慢，与源无关。
+- chat-api playwright step 的 11min+：日志显示走的是 `No offline browser bundle;
+  downloading from ...`（即 bundle 为占位符、回退联网下载 chromium + `install-deps`
+  装 32 个系统库）。这正是 `prepare-release.sh` 的 `check_build_bundles` 现已拦截的
+  "占位符回退联网"路径——带真实 bundle 时该步为 `tar` 解包、零联网。
+
+**修复（三处 Dockerfile 统一）**：
+- `apps/admin-web/Dockerfile`、`apps/user-web/Dockerfile.prod`、
+  `services/chat-api/dsh/runtime-host/Dockerfile`。
+- 把 `if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry ...; fi` 改为
+  **无条件 `npm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}"`**。
+  `${VAR:-default}` 保证空值也兜底到 npmmirror，彻底堵死回退 npmjs.org 的路径。
+- 三处均把 `MOVO_NPM_REGISTRY` 写入 `ENV`（使其进入构建环境、可被后续步骤读取）。
+- runtime-host 额外显式 `pnpm config set registry "${MOVO_NPM_REGISTRY:-...}"`——
+  pnpm 在某些版本下不读 npm 的 user .npmrc，显式设置最稳。
+
+**验证**：`git diff` 三处确认 `if [ -n ... ]` 守卫已全部移除、`${VAR:-default}` 兜底已就位；
+`bash -n` 对 Dockerfile 不适用（误报 `RUN if ... then` 为语法错误，那是 Docker 指令而非
+bash 脚本），故以 diff 内容为准。
+
+**改动文件**：`apps/admin-web/Dockerfile`、`apps/user-web/Dockerfile.prod`、
+`services/chat-api/dsh/runtime-host/Dockerfile`、`docs/WORK_LOG.md`。

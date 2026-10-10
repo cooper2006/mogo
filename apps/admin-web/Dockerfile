@@ -6,7 +6,8 @@ ARG VITE_BASE_PATH=/admin/
 ARG VITE_ADMIN_API_BASE_URL=/admin-api
 ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
 ENV VITE_BASE_PATH=${VITE_BASE_PATH} \
-    VITE_ADMIN_API_BASE_URL=${VITE_ADMIN_API_BASE_URL}
+    VITE_ADMIN_API_BASE_URL=${VITE_ADMIN_API_BASE_URL} \
+    MOVO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}
 
 COPY package*.json ./
 # npm's cache is a BuildKit cache mount rather than a layer: it survives a
@@ -14,7 +15,7 @@ COPY package*.json ./
 # tarballs instead of re-downloading them. This dependency tree measured ~7
 # minutes against npmmirror.
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-    if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_REGISTRY}"; fi \
+    npm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
     && npm ci --legacy-peer-deps
 
 COPY . .

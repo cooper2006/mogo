@@ -6,6 +6,7 @@ ARG BASE_IMAGE=node:24-bookworm-slim
 FROM ${BASE_IMAGE} AS dependencies
 
 ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
+ENV MOVO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}
 
 ENV NODE_ENV=production \
     PNPM_HOME=/pnpm \
@@ -13,7 +14,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-RUN if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_REGISTRY}"; fi \
+RUN npm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
     && npm install --global pnpm@10.34.4
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -23,6 +24,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # user-level .npmrc), so the registry itself is already domestic.
 RUN --mount=type=cache,target=/pnpm-store,sharing=locked \
     pnpm config set store-dir /pnpm-store \
+    && pnpm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
     && pnpm install --frozen-lockfile --prod
 RUN node -e "const declared=require('./package.json').dependencies['@deepseek-ai/dsh']; const installed=require('@deepseek-ai/dsh/package.json').version; if (declared !== installed) throw new Error('DSH version mismatch: declared='+declared+' installed='+installed); console.log('DSH Runtime installed version: '+installed)"
 
