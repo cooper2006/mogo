@@ -101,7 +101,7 @@ def _seed_metrics(days: int = 3, calls_per_day: int = 40, success_frac: float = 
         success = int(round(total * success_frac))
         docs.append(
             {
-                "main_id": MAIN,
+                "tenant_id": MAIN,
                 "skill_key": SKILL,
                 "date": day,
                 "total_calls": total,
@@ -122,7 +122,7 @@ def _seed_metrics(days: int = 3, calls_per_day: int = 40, success_frac: float = 
 def test_monitor_day_granularity_series() -> None:
     db = _seed_metrics(days=3)
     result = asyncio.run(
-        skill_monitoring.skill_usage_monitor(db, main_id=MAIN, skill_key=SKILL, days=3, granularity="day")
+        skill_monitoring.skill_usage_monitor(db, tenant_id=MAIN, skill_key=SKILL, days=3, granularity="day")
     )
     assert result["data_available"] is True
     assert len(result["series"]) == 3
@@ -141,7 +141,7 @@ def test_monitor_day_granularity_series() -> None:
 def test_monitor_empty_when_no_data() -> None:
     db = _DB({})
     result = asyncio.run(
-        skill_monitoring.skill_usage_monitor(db, main_id="nope", skill_key="x", days=1)
+        skill_monitoring.skill_usage_monitor(db, tenant_id="nope", skill_key="x", days=1)
     )
     assert result["data_available"] is False
     assert result["series"] == []
@@ -155,14 +155,14 @@ def test_monitor_unknown_granularity_raises() -> None:
     db = _DB({})
     with pytest.raises(skill_monitoring.MonitorError):
         asyncio.run(
-            skill_monitoring.skill_usage_monitor(db, main_id=MAIN, granularity="week")
+            skill_monitoring.skill_usage_monitor(db, tenant_id=MAIN, granularity="week")
         )
 
 
 def test_monitor_invalid_days_raises() -> None:
     db = _DB({})
     with pytest.raises(skill_monitoring.MonitorError):
-        asyncio.run(skill_monitoring.skill_usage_monitor(db, main_id=MAIN, days=0))
+        asyncio.run(skill_monitoring.skill_usage_monitor(db, tenant_id=MAIN, days=0))
 
 
 def test_monitor_hour_granularity_approximate() -> None:
@@ -170,7 +170,7 @@ def test_monitor_hour_granularity_approximate() -> None:
     is flagged so callers do not mistake it for real per-hour data."""
     db = _seed_metrics(days=1, calls_per_day=24, success_frac=1.0)
     result = asyncio.run(
-        skill_monitoring.skill_usage_monitor(db, main_id=MAIN, skill_key=SKILL, days=1, granularity="hour")
+        skill_monitoring.skill_usage_monitor(db, tenant_id=MAIN, skill_key=SKILL, days=1, granularity="hour")
     )
     assert result["data_available"] is True
     # Only slots inside the seeded day are emitted.
@@ -189,15 +189,15 @@ def test_monitor_hour_granularity_approximate() -> None:
 def test_monitor_skill_key_filter() -> None:
     db = _seed_metrics(days=2)
     db["skill_quality_metrics"].docs.append(
-        {"main_id": MAIN, "skill_key": "other", "date": date.today().isoformat(),
+        {"tenant_id": MAIN, "skill_key": "other", "date": date.today().isoformat(),
          "total_calls": 99, "successful_calls": 0}
     )
     result = asyncio.run(
-        skill_monitoring.skill_usage_monitor(db, main_id=MAIN, skill_key=SKILL, days=2, granularity="day")
+        skill_monitoring.skill_usage_monitor(db, tenant_id=MAIN, skill_key=SKILL, days=2, granularity="day")
     )
     assert result["totals"]["calls"] == 80  # only the SKILL buckets
     all_result = asyncio.run(
-        skill_monitoring.skill_usage_monitor(db, main_id=MAIN, days=2, granularity="day")
+        skill_monitoring.skill_usage_monitor(db, tenant_id=MAIN, days=2, granularity="day")
     )
     assert all_result["totals"]["calls"] == 179  # SKILL + other
 
@@ -212,7 +212,7 @@ def _seed_audit_events(n: int = 5) -> list[dict]:
     return [
         {
             "event_id": f"ev-{i}",
-            "main_id": MAIN,
+            "tenant_id": MAIN,
             "event_type": "skill.selected",
             "skill_key": SKILL,
             "payload": {"version": 3, "ok": i % 2 == 0},
@@ -226,13 +226,13 @@ def test_drilldown_returns_buckets_and_events() -> None:
     day = date.today().isoformat()
     db = _DB({
         "skill_quality_metrics": [
-            {"main_id": MAIN, "skill_key": SKILL, "date": day,
+            {"tenant_id": MAIN, "skill_key": SKILL, "date": day,
              "total_calls": 10, "successful_calls": 4}
         ],
         "kernel_event_projections": _seed_audit_events(5),
     })
     result = asyncio.run(
-        skill_monitoring.skill_anomaly_drilldown(db, main_id=MAIN, skill_key=SKILL, day=day)
+        skill_monitoring.skill_anomaly_drilldown(db, tenant_id=MAIN, skill_key=SKILL, day=day)
     )
     assert len(result["buckets"]) == 1
     assert result["buckets"][0]["total_calls"] == 10
@@ -246,13 +246,13 @@ def test_drilldown_no_events_honest() -> None:
     day = date.today().isoformat()
     db = _DB({
         "skill_quality_metrics": [
-            {"main_id": MAIN, "skill_key": SKILL, "date": day,
+            {"tenant_id": MAIN, "skill_key": SKILL, "date": day,
              "total_calls": 10, "successful_calls": 4}
         ],
         "kernel_event_projections": [],
     })
     result = asyncio.run(
-        skill_monitoring.skill_anomaly_drilldown(db, main_id=MAIN, skill_key=SKILL, day=day)
+        skill_monitoring.skill_anomaly_drilldown(db, tenant_id=MAIN, skill_key=SKILL, day=day)
     )
     assert result["events_available"] is False
     assert result["events"] == []
@@ -264,7 +264,7 @@ def test_drilldown_no_day_buckets() -> None:
     day = "2000-01-01"
     db = _DB({"skill_quality_metrics": []})
     result = asyncio.run(
-        skill_monitoring.skill_anomaly_drilldown(db, main_id=MAIN, skill_key=SKILL, day=day)
+        skill_monitoring.skill_anomaly_drilldown(db, tenant_id=MAIN, skill_key=SKILL, day=day)
     )
     assert result["buckets"] == []
     assert result["events_available"] is False

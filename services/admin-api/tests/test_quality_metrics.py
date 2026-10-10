@@ -175,13 +175,13 @@ def _fake_db(rows):
     return _Db(), metrics, adoption, projections, state, deliveries, receipts, edits
 
 
-def _seed_low_days(db_cursor, *, main_id, skill_key, days, success=False):
+def _seed_low_days(db_cursor, *, tenant_id, skill_key, days, success=False):
     """Seed ``days`` consecutive daily buckets, all below the 0.4 effect threshold."""
     for offset in range(days):
         day = (date.today() - timedelta(days=offset)).isoformat()
         db_cursor._rows.append(
             {
-                "main_id": main_id,
+                "tenant_id": tenant_id,
                 "skill_key": skill_key,
                 "date": day,
                 "total_calls": 100,
@@ -198,12 +198,12 @@ def _seed_low_days(db_cursor, *, main_id, skill_key, days, success=False):
 def test_record_skill_call_accumulates_daily_buckets():
     db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     asyncio.run(
-        record_skill_call(db, main_id="t1", skill_key="s", success=True, adopted=1, corrected=0)
+        record_skill_call(db, tenant_id="t1", skill_key="s", success=True, adopted=1, corrected=0)
     )
     asyncio.run(
-        record_skill_call(db, main_id="t1", skill_key="s", success=False, adopted=0, corrected=1)
+        record_skill_call(db, tenant_id="t1", skill_key="s", success=False, adopted=0, corrected=1)
     )
-    bucket = [r for r in cursor._rows if r["main_id"] == "t1" and r["skill_key"] == "s"][0]
+    bucket = [r for r in cursor._rows if r["tenant_id"] == "t1" and r["skill_key"] == "s"][0]
     assert bucket["total_calls"] == 2
     assert bucket["successful_calls"] == 1
     assert bucket["adopted_calls"] == 1
@@ -212,19 +212,19 @@ def test_record_skill_call_accumulates_daily_buckets():
 
 def test_sustained_low_quality_marks_shared_bit():
     db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
-    _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
+    _seed_low_days(cursor, tenant_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
 
-    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="weak"))
+    outcome = asyncio.run(evaluate_skill_quality(db, tenant_id="t1", skill_key="weak"))
     assert outcome["marked_low_quality"] is True
     assert outcome["sustained_low_days"] >= LOW_QUALITY_SUSTAINED_DAYS
     # The 016 write loop surfaces through the shared reader the market list uses.
-    marked = asyncio.run(fetch_marked_skill_keys(db, main_id="t1"))
+    marked = asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1"))
     assert marked == {"weak"}
 
 
 def test_interrupted_window_resets_sustained_streak():
     db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
-    _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
+    _seed_low_days(cursor, tenant_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
     # Insert one healthy day in the middle of the window -> streak breaks.
     mid = (date.today() - timedelta(days=3)).isoformat()
     cursor._rows.append(
@@ -239,10 +239,10 @@ def test_interrupted_window_resets_sustained_streak():
             "success_tracked": True,
         }
     )
-    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="weak"))
+    outcome = asyncio.run(evaluate_skill_quality(db, tenant_id="t1", skill_key="weak"))
     assert outcome["sustained_low_days"] < LOW_QUALITY_SUSTAINED_DAYS
     # Not sustained long enough -> aggregated bit stays clear.
-    marked = asyncio.run(fetch_marked_skill_keys(db, main_id="t1"))
+    marked = asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1"))
     assert marked == set()
 
 
@@ -262,21 +262,21 @@ def test_healthy_skill_is_not_marked():
                 "success_tracked": True,
             }
         )
-    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="good"))
+    outcome = asyncio.run(evaluate_skill_quality(db, tenant_id="t1", skill_key="good"))
     assert outcome["marked_low_quality"] is False
-    assert asyncio.run(fetch_marked_skill_keys(db, main_id="t1")) == set()
+    assert asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1")) == set()
 
 
 def test_evaluate_all_scores_every_key():
     db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
-    _seed_low_days(cursor, main_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
-    _seed_low_days(cursor, main_id="t1", skill_key="weaker", days=LOW_QUALITY_SUSTAINED_DAYS)
+    _seed_low_days(cursor, tenant_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
+    _seed_low_days(cursor, tenant_id="t1", skill_key="weaker", days=LOW_QUALITY_SUSTAINED_DAYS)
     # A different tenant must not leak.
-    _seed_low_days(cursor, main_id="t2", skill_key="weak2", days=LOW_QUALITY_SUSTAINED_DAYS)
+    _seed_low_days(cursor, tenant_id="t2", skill_key="weak2", days=LOW_QUALITY_SUSTAINED_DAYS)
 
     scored = asyncio.run(evaluate_all(db))
     assert scored == 3
-    marked_t1 = asyncio.run(fetch_marked_skill_keys(db, main_id="t1"))
+    marked_t1 = asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1"))
     assert marked_t1 == {"weak", "weaker"}
 
 
@@ -325,7 +325,7 @@ def test_collect_skill_activity_writes_total_and_advances_watermark():
     result = asyncio.run(collect_skill_activity_metrics(db))
     assert result["collected"] == 3
     assert result["last_stream_seq"] == 12
-    buckets = {(r["main_id"], r["skill_key"]): r["total_calls"] for r in cursor._rows}
+    buckets = {(r["tenant_id"], r["skill_key"]): r["total_calls"] for r in cursor._rows}
     assert buckets[("t1", "skill-a")] == 2
     assert buckets[("t2", "skill-b")] == 1
     # Watermark persisted -> a second pass re-reads nothing (idempotent).
@@ -353,11 +353,11 @@ def test_total_only_metrics_are_not_scored_mass_marked():
                 "corrected_calls": 0,
             }
         )
-    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="totalonly"))
+    outcome = asyncio.run(evaluate_skill_quality(db, tenant_id="t1", skill_key="totalonly"))
     assert outcome["evaluated"] is False
     assert outcome["reason"] == "insufficient_signal"
     # Nothing was written to the shared bit -> the market keeps it ranked normally.
-    assert asyncio.run(fetch_marked_skill_keys(db, main_id="t1")) == set()
+    assert asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1")) == set()
 
 
 def test_below_min_samples_is_not_scored():
@@ -375,7 +375,7 @@ def test_below_min_samples_is_not_scored():
                 "corrected_calls": 1,
             }
         )
-    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="rare"))
+    outcome = asyncio.run(evaluate_skill_quality(db, tenant_id="t1", skill_key="rare"))
     assert outcome["evaluated"] is False
     assert MIN_EFFECT_SAMPLES > 2
 
@@ -542,10 +542,10 @@ def test_three_dimensions_can_actually_mark_a_low_quality_skill():
                 {"kernel_session_id": f"s{seq}", "status": "failed", "created_at": when}
             )
     asyncio.run(collect_skill_activity_metrics(db))
-    outcome = asyncio.run(evaluate_skill_quality(db, main_id="t1", skill_key="weak"))
+    outcome = asyncio.run(evaluate_skill_quality(db, tenant_id="t1", skill_key="weak"))
     assert outcome["evaluated"] is True
     assert outcome["marked_low_quality"] is True
-    assert asyncio.run(fetch_marked_skill_keys(db, main_id="t1")) == {"weak"}
+    assert asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1")) == {"weak"}
 
 
 def test_edit_is_attributed_to_the_manual_skill_when_a_turn_loads_several():

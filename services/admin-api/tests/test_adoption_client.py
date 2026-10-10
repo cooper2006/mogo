@@ -107,7 +107,7 @@ def test_fetch_marked_skill_keys_reads_shared_bit():
             {"tenant_id": "t2", "skill_key": "other-bad", "marked_low_quality": True},
         ]
     )
-    marked = asyncio.run(fetch_marked_skill_keys(db, main_id="t1"))
+    marked = asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1"))
     assert marked == {"bad"}
 
 
@@ -151,7 +151,7 @@ def test_016_quality_assessment_writes_shared_bit():
     outcome = asyncio.run(
         apply_quality_assessment(
             db,
-            main_id="t1",
+            tenant_id="t1",
             skill_key="weak",
             total_calls=100,
             successful_calls=10,
@@ -161,7 +161,7 @@ def test_016_quality_assessment_writes_shared_bit():
         )
     )
     assert outcome["marked_low_quality"] is True
-    marked = asyncio.run(fetch_marked_skill_keys(db, main_id="t1"))
+    marked = asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1"))
     assert marked == {"weak"}
     # The 016 source bit (not the 011 one) is what was set.
     rows = db[ADOPTION_COLLECTION].find_one({"tenant_id": "t1", "skill_key": "weak"})
@@ -183,12 +183,12 @@ def test_016_restore_keeps_011_mark():
             }
         ]
     )
-    asyncio.run(restore_quality(db, main_id="t1", skill_key="shared", actor="admin"))
+    asyncio.run(restore_quality(db, tenant_id="t1", skill_key="shared", actor="admin"))
     rows = db[ADOPTION_COLLECTION].find_one({"tenant_id": "t1", "skill_key": "shared"})
     # 016 bit cleared, but the aggregated bit stays True because 011 is still set.
     assert rows[SOURCE_016_QUALITY] is False
     assert rows[SOURCE_011_ADOPTION] is True
     assert rows[MARKED_LOW_QUALITY] is True
-    marked = asyncio.run(fetch_marked_skill_keys(db, main_id="t1"))
+    marked = asyncio.run(fetch_marked_skill_keys(db, tenant_id="t1"))
     assert marked == {"shared"}
 

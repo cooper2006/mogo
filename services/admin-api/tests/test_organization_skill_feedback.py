@@ -37,7 +37,7 @@ class Database:
 
 def test_admin_can_read_enterprise_skill_feedback(monkeypatch):
     db = Database(); monkeypatch.setattr(feedback_module, "get_db", lambda: db)
-    result = asyncio.run(OrganizationSkillFeedbackService().list(main_id="tenant", skill_id="skill"))
+    result = asyncio.run(OrganizationSkillFeedbackService().list(tenant_id="tenant", skill_id="skill"))
     assert result["likes"] == 1
     assert result["items"][0]["content"] == "建议增加示例"
     assert result["items"][0]["likes"] == 1

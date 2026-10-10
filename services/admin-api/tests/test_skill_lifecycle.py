@@ -37,16 +37,16 @@ class Database:
 
 def test_enterprise_draft_does_not_replace_runtime_until_publish(monkeypatch):
     db = Database()
-    db.skills.rows["skill"] = {"_id": "skill", "main_id": "tenant", "name": "Published", "type": "workflow", "enabled": True}
+    db.skills.rows["skill"] = {"_id": "skill", "tenant_id": "tenant", "name": "Published", "type": "workflow", "enabled": True}
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
     lifecycle = OrganizationSkillLifecycle()
 
-    asyncio.run(lifecycle.save(main_id="tenant", skill_id="skill", draft={"name": "Draft", "type": "workflow", "config": {}}))
+    asyncio.run(lifecycle.save(tenant_id="tenant", skill_id="skill", draft={"name": "Draft", "type": "workflow", "config": {}}))
     assert db.skills.rows["skill"]["name"] == "Published"
     assert db.skills.rows["skill"]["draft"]["name"] == "Draft"
     assert db.skills.rows["skill"]["published_version"] == "1.0.0"
 
-    published, release = asyncio.run(lifecycle.publish(main_id="tenant", skill_id="skill", notes="ready"))
+    published, release = asyncio.run(lifecycle.publish(tenant_id="tenant", skill_id="skill", notes="ready"))
     assert published["name"] == "Draft"
     assert published["published_version"] == "1.0.1"
     assert release["release_notes"] == "ready"
@@ -54,10 +54,10 @@ def test_enterprise_draft_does_not_replace_runtime_until_publish(monkeypatch):
 
 def test_enterprise_release_history_lazily_migrates_existing_skill(monkeypatch):
     db = Database()
-    db.skills.rows["skill"] = {"_id": "skill", "main_id": "tenant", "name": "Legacy", "type": "writing_style"}
+    db.skills.rows["skill"] = {"_id": "skill", "tenant_id": "tenant", "name": "Legacy", "type": "writing_style"}
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
 
-    releases = asyncio.run(OrganizationSkillLifecycle().releases(main_id="tenant", skill_id="skill"))
+    releases = asyncio.run(OrganizationSkillLifecycle().releases(tenant_id="tenant", skill_id="skill"))
     assert [release["version"] for release in releases] == ["1.0.0"]
     assert db.skills.rows["skill"]["published_version"] == "1.0.0"
 
@@ -69,7 +69,7 @@ def test_verify_release_detects_tampered_digest():
 
     lifecycle = OrganizationSkillLifecycle()
     snapshot = {"name": "Skill", "type": "workflow", "config": {}}
-    row = {"_id": "rel-1", "main_id": "tenant", "skill_id": "skill",
+    row = {"_id": "rel-1", "tenant_id": "tenant", "skill_id": "skill",
            "version": "1.0.0", "snapshot": snapshot, "digest": compute_digest(snapshot)}
     assert lifecycle.verify_release(row=row) is True
 

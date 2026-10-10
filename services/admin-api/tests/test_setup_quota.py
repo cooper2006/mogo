@@ -9,7 +9,7 @@ class SetupQuotaValidationTests(IsolatedAsyncioTestCase):
     async def test_rejects_default_employee_quota_above_org_total(self) -> None:
         with self.assertRaisesRegex(ValueError, "不能超过企业总 Token"):
             await configure_setup_quotas(
-                main_id="test-main-id",
+                tenant_id="test-main-id",
                 total_tokens=100,
                 default_user_tokens=101,
                 period="monthly",
@@ -21,7 +21,7 @@ class SetupQuotaValidationTests(IsolatedAsyncioTestCase):
         # T036/decision 12: 0 now means "unlimited", so only negatives are invalid.
         with self.assertRaisesRegex(ValueError, "不能为负数"):
             await configure_setup_quotas(
-                main_id="test-main-id",
+                tenant_id="test-main-id",
                 total_tokens=-1,
                 default_user_tokens=0,
                 period="monthly",
@@ -33,7 +33,7 @@ class SetupQuotaValidationTests(IsolatedAsyncioTestCase):
         # 0 must NOT be rejected before touching the database; it means unlimited.
         with self.assertRaises(RuntimeError):
             await configure_setup_quotas(
-                main_id="test-main-id",
+                tenant_id="test-main-id",
                 total_tokens=0,
                 default_user_tokens=0,
                 period="monthly",
