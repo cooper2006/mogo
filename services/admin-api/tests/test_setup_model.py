@@ -143,12 +143,19 @@ class SetupModelValidationTests(IsolatedAsyncioTestCase):
             "apiKey": "secret",
         }
         delete = AsyncMock(return_value=True)
+        cleanup = AsyncMock(return_value=None)
         with (
             patch("app.services.setup_model.find_provider_by_id", AsyncMock(return_value=provider)),
             patch("app.services.setup_model.create_instance", AsyncMock(return_value="507f1f77bcf86cd799439012")),
             patch("app.services.setup_model.run_saved_model_test", AsyncMock(return_value=(False, "connection failed"))),
             patch("app.services.setup_model.delete_instance", delete),
+            # The probe also sweeps the whole throwaway tenant (organizations,
+            # quota policies, usage logs), not just the model instance. Patch it
+            # too: left real it would reach MongoDB through a stale event loop
+            # left over from another test module.
+            patch("app.services.setup_model.cleanup_failed_setup", cleanup),
         ):
             with self.assertRaisesRegex(SetupModelError, "connection failed"):
                 await test_setup_model(payload)
         delete.assert_awaited_once()
+        cleanup.assert_awaited_once()

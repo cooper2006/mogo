@@ -8,7 +8,7 @@ MongoDB.
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -18,6 +18,18 @@ from app.services.skill_market import skill_monitoring
 
 MAIN = "acme-0000000000000000000000"
 SKILL = "pdf-report"
+
+
+def _utc_today() -> date:
+    """The day the monitor buckets by.
+
+    ``skill_monitoring`` anchors every window on
+    ``datetime.now(timezone.utc).date()``, so seeded rows must use the same
+    anchor. Using ``date.today()`` here made these tests fail for the eight
+    hours after local midnight in any zone east of UTC (local date had rolled
+    over while the UTC date had not), i.e. a wall-clock-dependent red CI.
+    """
+    return datetime.now(timezone.utc).date()
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +105,7 @@ class _DB:
 
 
 def _seed_metrics(days: int = 3, calls_per_day: int = 40, success_frac: float = 0.85) -> _DB:
-    today = date.today()
+    today = _utc_today()
     docs = []
     for offset in range(days):
         day = (today - timedelta(days=days - 1 - offset)).isoformat()
@@ -182,14 +194,15 @@ def test_monitor_hour_granularity_approximate() -> None:
     # the wall clock, so assert the per-slot distribution (24 calls / 24 slots
     # = 1 each) and that the emitted total matches the emitted slot count.
     assert all(p["calls"] == 1 for p in approx)
-    total_calls = sum(p["calls"] for p in result["series"] if p["time"].startswith(date.today().isoformat()))
-    assert total_calls == len([p for p in result["series"] if p["time"].startswith(date.today().isoformat())])
+    today_iso = _utc_today().isoformat()
+    total_calls = sum(p["calls"] for p in result["series"] if p["time"].startswith(today_iso))
+    assert total_calls == len([p for p in result["series"] if p["time"].startswith(today_iso)])
 
 
 def test_monitor_skill_key_filter() -> None:
     db = _seed_metrics(days=2)
     db["skill_quality_metrics"].docs.append(
-        {"tenant_id": MAIN, "skill_key": "other", "date": date.today().isoformat(),
+        {"tenant_id": MAIN, "skill_key": "other", "date": _utc_today().isoformat(),
          "total_calls": 99, "successful_calls": 0}
     )
     result = asyncio.run(

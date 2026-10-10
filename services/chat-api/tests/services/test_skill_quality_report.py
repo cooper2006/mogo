@@ -9,12 +9,23 @@ entry point itself.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from app.services.skill_quality_report import (
     QUALITY_METRICS_COLLECTION,
     report_skill_call,
 )
+
+
+def _utc_today() -> date:
+    """The day ``report_skill_call`` buckets into.
+
+    The service defaults ``day`` to ``datetime.now(timezone.utc).date()``
+    (``_today()``), so assertions must use the same anchor. ``date.today()``
+    made these tests fail for the eight hours after local midnight in any zone
+    east of UTC: the local date had rolled over while the UTC date had not.
+    """
+    return datetime.now(timezone.utc).date()
 
 
 class _FakeCollection:
@@ -60,7 +71,7 @@ def test_report_skill_call_accumulates_additively():
     assert rows[0]["adopted_calls"] == 1
     assert rows[0]["corrected_calls"] == 1
     assert rows[0]["tenant_id"] == "t1"
-    assert rows[0]["date"] == date.today().isoformat()
+    assert rows[0]["date"] == _utc_today().isoformat()
 
 
 def test_report_skill_call_is_tenant_and_day_partitioned():
@@ -70,8 +81,8 @@ def test_report_skill_call_is_tenant_and_day_partitioned():
     report_skill_call(db, tenant_id="t1", skill_key="s", success=True, day=date(2020, 1, 1))
     keys = {(r["tenant_id"], r["date"]) for r in db[QUALITY_METRICS_COLLECTION].rows}
     assert len(keys) == 3
-    assert ("t1", date.today().isoformat()) in keys
-    assert ("t2", date.today().isoformat()) in keys
+    assert ("t1", _utc_today().isoformat()) in keys
+    assert ("t2", _utc_today().isoformat()) in keys
     assert ("t1", "2020-01-01") in keys
 
 

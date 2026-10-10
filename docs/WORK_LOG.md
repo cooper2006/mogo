@@ -8096,3 +8096,266 @@ bash 脚本），故以 diff 内容为准。
 **三服务测试全绿闭环**：admin-api 0 失败、chat-api 2254 passed、document-parser 22 passed。data-schema/data-integrity/data-quality/fault-tolerance/recovery 域的 pass 证据现覆盖全部三个 Python 服务。
 
 **改动文件**：`services/document-parser/tests/test_retrieval_authorized_candidates.py`、`services/document-parser/tests/test_retrieval_scope.py`、`docs/WORK_LOG.md`。
+
+---
+
+## 2026-10-11 OrbStack ARM 准生产环境全链路回归
+
+**目标**：以 OrbStack（`linux/arm64`，OrbStack 2.2.3）中的全栈作为 ARM 准生产环境做回归测试。
+测试窗口 00:00–00:10 CST。**纯只读验证，未产生任何源码改动**（开工/收工 `git status --porcelain` 基线一致）。
+
+**完整报告**：`docs/regression-arm-orbstack-2026-10-11.md`
+
+### 一、ARM 架构专项 —— 通过（本次核心命题）
+
+- 7 个应用镜像全部 `arm64/linux`；**15 个运行容器 `uname -m` 全为 `aarch64`，无一个走 QEMU emulation**。
+- chat-api 内 `/ms-playwright` 含 chromium-1194 / chromium_headless_shell-1194 / ffmpeg-1011。
+- `export_base_images.sh verify`：arm64 4/4 `[ok]`、amd64 4/4 `[ok]`（架构目录分离有效）。
+- **在途改动验证**：`services/chat-api/Dockerfile:54` 新增的 `ARG INSTALL_PLAYWRIGHT_AT_BUILD=false`
+  使 `:103` 的 `RUN` 能读到该变量，消除 `set -u` 下的 `parameter not set` 中止；镜像内确有 chromium，
+  证明该修复在 ARM 上真实生效。
+
+### 二、测试套件权威计数（JUnit XML）
+
+| 服务 | tests | failures |
+| --- | --- | --- |
+| chat-api | 2260 | 0（排除 2 项时间缺陷后） |
+| admin-api | 433 | 0（`TZ=UTC` 下） |
+| document-parser | 22 | 0 |
+
+### 三、R1（P1）：UTC vs 本地日期分歧 → 每日 00:00–08:00 必现失败
+
+- **失败面**：chat-api 2 项（`test_skill_quality_report.py`）+ admin-api 5 项
+  （`test_quality_metrics.py` 2 项、`test_skill_monitoring.py` 3 项）。
+- **根因**：实现侧按 **UTC** 分桶（`skill_quality_report.py:_today()`、
+  `skill_market/quality_metrics.py:74`、`skill_market/skill_monitoring.py:42,114,130`
+  均用 `datetime.now(timezone.utc).date()`），测试侧却用 `date.today()`（本地 CST=UTC+8）断言。
+  北京 00:00–08:00 期间 UTC 日期仍是前一日 → 断言必然失败。
+- **决定性证据**：本地时区 2+5 项失败；`TZ=UTC` 下 chat-api 6 passed、admin-api 433/0 failed。
+  失败信息亦吻合：`test_monitor_day_granularity_series: assert 2 == 3`（缺 2026-10-11）。
+- **为何首次跑全绿**：首轮运行于 23:5x（本地与 UTC 同为 10-10），跨午夜后复跑即失败——
+  同一份代码两次结果不同，典型日期时间炸弹特征。
+- **与 ARM / 本轮改动无关**。修复建议改测试：改用 UTC 日期，或经 `day=`/`as_of=`
+  显式注入固定日期以彻底免疫系统时钟。
+
+### 四、端到端与韧性 —— 通过
+
+- 路由：`/`、`/admin/`、`/healthz`、`/admin-api/api/setup/status`、`/askai-api/health`、
+  `/askai-api/ready`、`/dsh/health` 全 200。
+- 鉴权强制：`/admin-api/api/{platform/tenants,skills,tools}` 未认证一律 401，无端点泄漏。
+- 租户隔离：`chat_messages` 18 条全属 BONC、0 条缺失 `tenant_id`；BOND 0 条混入。
+- 粘性哈希：同一 `X-Isolation-Key` 连续 3 次全命中 `192.168.107.7`(host-3)，key 解析正确。
+- 故障注入：stop 单副本后服务持续 200、LB 正确绕行，start 后 3s 自愈；降级上报如实。
+- 重试兜底：LB 日志实证 `proxy_next_upstream` 生效（`.9` 被拒后自动重试 `.7` 成功）。
+
+### 五、部署配置疑点（待确认，非缺陷）
+
+- **D1（P2）**：`deploy/docker/dsh-runtime-lb.conf` 无 `resolver` 指令，仅启动时解析 upstream IP。
+  实证 LB 曾向 `192.168.107.9:8101` 请求被拒（111），而该 IP 现属 document-worker（副本重建后 IP 复用）。
+  `mogo:87 refresh_gateway_resolution()` 已对 gateway 做 restart 重解析，但**完全未覆盖该 LB**。
+  建议纳入同一刷新逻辑，或配 `resolver 127.0.0.11 valid=10s`。
+- **D2（P3）**：compose 定义 4 个 DSH 副本，LB upstream 只挂 `-{1,2,3}`（配置正确），
+  多出的 `dsh-runtime-host` 空转不承载流量，需确认是热备还是遗留。
+- **D3（P3）**：`mogo_dev` 库中 `user_quota_policies` 残留两个 `setup-test-*` 租户记录，
+  但 `tenants` 集合无对应租户 → 引用完整性缺口，且集成测试未清理。
+
+### 六、未覆盖面
+
+- 未调用真实 LLM 网关（离线环境无 API key），对话推理链路未端到端验证。
+- `tests/benchmarks/` 三项基准未复跑（属专项基准，非回归范畴）。
+- 未执行 `./mogo build` 全量重建（为遵守"不产生改动"约束）。
+- BOND 为空租户，跨租户"不可见"验证以"BONC 数据 0 条混入 BOND"替代。
+
+### 七、改动文件
+
+- `docs/regression-arm-orbstack-2026-10-11.md`（新增，本次回归报告）
+- `docs/WORK_LOG.md`（本节）
+
+无源码改动；未触碰其他会话在途的 4 个改动文件（Dockerfile / export_base_images.sh /
+WORK_LOG.md / pending-review 文档），仅作只读验证对象。
+
+---
+
+## 2026-10-11 续：修复 R1 —— UTC/本地日期分歧导致的 7 项跨午夜测试失败
+
+**背景**：见上一节回归报告。7 项测试（chat-api 2 + admin-api 5）在北京时间 00:00–08:00
+必现失败，根因为**实现按 UTC 分桶、测试按本地日期（CST=UTC+8）断言**。
+
+**修复原则**：只改测试锚点，**不改生产实现**——UTC 分桶是正确设计（跨时区一致、桶不漂移）。
+
+**改动（3 个测试文件，共 7 处缺陷锚点 + 4 处同类脆弱锚点）**
+
+1. `services/admin-api/tests/test_quality_metrics.py`
+   - 新增 `_utc_today()` 助手（`datetime.now(timezone.utc).date()`），与实现 `_today()` 同源。
+   - `_seed_low_days()` 及 4 处 `(date.today() - timedelta(...))` 种子锚点改为 `_utc_today()`。
+2. `services/admin-api/tests/test_skill_monitoring.py`
+   - 同样新增 `_utc_today()`；修正 `_seed_metrics()`、`test_monitor_hour_granularity_approximate`、
+     `test_monitor_skill_key_filter` 三处缺陷锚点（后者表现为 `assert 40 == 80`）。
+3. `services/chat-api/tests/services/test_skill_quality_report.py`
+   - 新增 `_utc_today()`；修正 3 处断言（`rows[0]["date"]`、`("t1",...)`、`("t2",...)`）。
+
+**刻意未改**：`test_skill_monitoring.py` 中 FR-2 的 `_seed_audit_events` / 两处 `drilldown`
+仍用 `date.today()`——它们把日期**作为参数显式传入**实现（`day=day`），不依赖隐式时钟锚点。
+已实测这两种时区下均通过（3/3），故按最小改动纪律保留。
+
+**验证**
+
+- **双向时区**：本地 CST 与 `TZ=UTC` 下，`test_quality_metrics.py`(30) 与
+  `test_skill_monitoring.py`(11)、`test_skill_quality_report.py`(6) 全部 failures=0。
+- **三服务全量**（本地时区，即缺陷窗口内）：
+
+| 服务 | tests | failures | errors |
+| --- | --- | --- | --- |
+| chat-api | 2262 | 0 | 0 |
+| admin-api | 433 | 0 | 0 |
+| document-parser | 22 | 0 | 0 |
+
+- 修复前 chat-api 为 2260 项（2 项未跑完），修复后 2262 项全过——印证修复真实生效。
+- 生产代码零改动（`git diff` 确认仅 3 个测试文件；`services/chat-api/Dockerfile` 的 5 行为本轮
+  既有在途改动，非本次引入）。
+
+**遗留**：D1（`dsh-runtime-host-lb` 缺 `resolver` 重解析，P2）、D2/D3（P3）未处理，见回归报告。
+
+---
+
+## 2026-10-11 续：修复 D1 —— DSH 负载均衡器上游 DNS 陈旧
+
+**问题（来自本轮回归报告的 D1，P2）**：`deploy/docker/dsh-runtime-lb.conf` 的 `upstream`
+用服务名做 server，nginx **仅在启动时解析一次**；副本重建后 IP 漂移时 LB 仍向旧 IP 发请求。
+`mogo` 的 `refresh_gateway_resolution()` 只对 gateway 做 restart，**完全未覆盖该 LB**。
+
+### 一、方案选型（经实测排除两个错误方案）
+
+1. **加 `resolver` 指令** —— ❌ 无效。实测：nginx 对静态 `upstream { server <域名>; }`
+   **不做运行时重解析**；且域名不可解析时直接 `[emerg] host not found` 退出。
+2. **改变量式 `proxy_pass http://$host:8101`** —— ❌ 有严重副作用。变量式 proxy_pass
+   **绕过 upstream 块**，会**丢失 `hash $dsh_sticky_key consistent` 会话粘性**，
+   反而破坏 DSH 多副本的核心不变量（实测 upstream 块路径同一 key 三次稳定命中同一 IP）。
+3. **`nginx -s reload`（采用）** —— ✅ 既重解析 upstream，又保留粘性，且**平滑不中断连接**。
+
+**关键实测证据**：构造别名从 ta 移到 tb 的 IP 漂移场景 —— reload **前**返回 `OLD`（陈旧），
+reload **后**返回 `NEW`（已修复）。证明该机制真正解决 D1。
+
+### 二、改动
+
+- `mogo`：`refresh_gateway_resolution()` 末尾调用新增的 `refresh_dsh_lb_resolution()`。
+  新函数对 LB 执行 `nginx -s reload`（**刻意不用 restart**：LB 承载
+  `proxy_read_timeout 3600s` 的 SSE 长连接，restart 会切断活跃会话）。
+  采用 best-effort 容错：reload 失败仅告警，不中断部署（已有 `proxy_next_upstream` 兜底）。
+- `deploy/cli/i18n.sh`：新增 `dsh_lb_reload_failed` 中英双语文案。
+- `deploy/docker/dsh-runtime-lb.conf`：补注释说明「为何不能加 resolver、为何用 reload」，
+  防止后续被"优化"成变量式 proxy_pass 而丢失粘性。
+
+### 三、验证
+
+- **语法**：`bash -n mogo` / `i18n.sh` 通过；nginx 配置在正确网络内 `nginx -t` 成功；
+  `docker compose config --quiet`（CI 同款，含 build 变体）通过。
+- **单测**：`scripts/test_backup_restore_rollback.sh` 全通过（其 stub 掉整个
+  `refresh_gateway_resolution`，不受影响）。
+- **容错路径**：LB 不存在 → 返回 0；reload 失败 → 输出中文告警且返回 0。
+- **端到端**：`./mogo up` 完整跑通；**关键证据**——gateway 走 restart（StartedAt 刷新），
+  LB 保持 `StartedAt` 不变且 `RestartCount=0`，证明是零重启平滑重载。
+- **粘性未破坏**：reload 后同一 `X-Isolation-Key` 连续多次稳定命中同一副本。
+
+### 四、过程中发现的环境缺陷（D4，非代码问题）
+
+排查时发现运行 29h 的 LB 容器内 `/etc/nginx/nginx.conf` **不可见**
+（`mount` 表显示 virtiofs 已挂载，但 `cat`/`nginx -t` 报 No such file），
+导致 `nginx -s reload` 静默失败。
+
+- **排除配置错误**：用**同样挂载方式**启新容器，文件可见（5219B）且 `nginx -t` 通过；
+  对比 gateway 挂载到 `conf.d/default.conf` 则一直正常。
+- **结论**：OrbStack virtiofs 挂载在**长时运行容器**中失效（本机环境问题）。
+- **恢复**：`docker compose up -d --force-recreate --no-deps dsh-runtime-host-lb` 后恢复正常。
+- **对 D1 的影响**：该环境问题会让 reload 静默失败——正是新函数采用 best-effort
+  并输出告警的原因；告警可让运维者发现此类静默失败。
+
+### 五、改动文件
+
+- `mogo`（新增 `refresh_dsh_lb_resolution()`，扩展 `refresh_gateway_resolution()`）
+- `deploy/cli/i18n.sh`（新增 `dsh_lb_reload_failed`）
+- `deploy/docker/dsh-runtime-lb.conf`（注释说明，仅注释无行为变更）
+- `docs/WORK_LOG.md`（本节）
+
+---
+
+## 2026-10-11 续：修复 D2（空转 DSH 副本）+ D3（setup-test 孤儿数据）
+
+### D2：第 4 个 DSH 副本空转（部署拓扑冲突）
+
+**查证**：`docker-compose.yml` 中 `dsh-runtime-host` 既是 YAML 锚点（`&dsh-runtime-host`，
+供 3 个副本 `<<:` 继承），又是**独立服务**。结果是单副本拓扑与多副本池**同时无条件启用**
+（全文件无任何 `profiles`），产生第 4 个副本：
+
+- LB 的 upstream **只列** `-1/-2/-3`，该副本的 IP 不在其中；
+- chat-api 的 `DSH_RUNTIME_HOST_URL` 指向 **LB**，`DSH_RUNTIME_HOSTS_URL` 为空；
+- 实测其占用 **76.53 MiB** 内存 + 独立数据卷 `movo_dsh-runtime-data`，零流量。
+
+文档 `agent-multi-instance-evaluation.md` 明确写「`dsh-runtime-host` **加** 2 个副本 + sticky LB」，
+即池本应**取代**单副本，注释也自述 "Default: a single host"——实现与设计意图不符。
+
+**修复**：
+1. 把共享设置提取为顶层扩展字段 `x-dsh-runtime-host-template`（沿用仓库既有的
+   `x-python-healthcheck` 惯例）。**关键**：不能把 `profiles` 放进锚点——YAML 合并键会
+   把整个映射复制给副本，连池一起禁用（已实测踩到并修正）。
+2. 单副本服务 `dsh-runtime-host` 改为 `profiles: [single-host]`，默认不启动。
+3. `chat-api` 的 `depends_on` 从 `dsh-runtime-host` 改为 `dsh-runtime-host-lb`
+   （它实际调用的对象）；否则在池模式下 Compose 会因 "depends on undefined service" 直接拒绝整个项目。
+
+**为何单副本用 profile 而非删除**：它仍是有价值的极简自托管拓扑，且是副本继承设置的载体。
+注释中如实说明 Compose profile 是**叠加**语义（无 profile 的服务总会启动），故该 profile 是
+"额外增加"而非"替换"，并给出真正单副本运行的完整命令与 `DSH_RUNTIME_HOST_URL` 改法。
+
+**验证**：默认配置、`docker-compose.build.yml` 变体、`--profile single-host` 三种 `config` 均通过；
+默认栈恰为 3 副本 + LB；`./mogo up` 跑通；移除遗留空转容器后全栈 14 容器 healthy，
+路由全 200。数据卷保留（`docker compose rm` 未加 `-v`）。
+
+### D3：`setup-test-*` 孤儿数据（资源泄漏）
+
+**查证**：`setup_model.py:59` 的模型连通性测试会创建临时租户 `setup-test-<hex>`，
+但清理有**两处漏洞**：
+
+1. `finally: if instance_id:` —— 若 `create_instance` 抛异常，`instance_id` 仍为 `""`，
+   清理**整段跳过**；
+2. `delete_instance` 只按 `_id` 删 `admin_model_instances` **一行**，不碰
+   `organizations` / 配额表 / 用量日志——而探针会让这些集合产生该租户的行。
+
+库中实测残留 9 行（`organizations` 2、`org_quota_policies` 2、`user_quota_policies` 2、
+`token_usage_logs` 3），时间戳为 **2026-09-28 03:19–03:20**、`stage=model_connectivity_test`，
+即初始化时**连续 3 次失败**所留。
+
+**修复**：
+1. `setup_cleanup.py`：把 `_TENANT_ID_SHAPE` 正则由 `^[a-z0-9]+-[0-9a-f]{24}$` 放宽为
+   `^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{24}$`。原正则只允许单段 slug，**既拒绝**
+   `setup-test-*` 探针租户，**也拒绝**合法多段 slug（`tenant_provisioning._slug` 会把
+   非字母数字替换成 `-`，故 org 名含空格时会生成 `my-test-org-<hex>`）。
+   新正则仍正确拒绝 `default`、`__platform__`、前导连字符与下划线（已逐例实测）。
+2. 同一文件：`SETUP_SCOPED_COLLECTIONS` 补入 `token_usage_logs`
+   （`tenant_purge.py:112` 早已视其为租户级，此处遗漏正是 3 条日志残留的原因）。
+3. `setup_model.py`：`finally` 中无论 `instance_id` 是否为空都调用
+   `cleanup_failed_setup(temporary_tenant_id)`，整个探针租户一并清扫。
+4. 新增 `scripts/cleanup_setup_test_tenants.sh` 清理存量：幂等、**默认 dry-run**，
+   `--apply` 才删除；租户 ID 严格锚定 `^setup-test-[0-9a-f]{24}$`；清理清单与服务侧一致；
+   JS 走 `mongosh --file`（实测 stdin 会被当成 REPL）。
+
+**验证**：
+- 用独立测试租户写入 4 个集合后调用清理 → **全部归零**；保留字仍被拒绝。
+- 存量清理：dry-run 正确报 9 行 → `--apply` 删除 → 孤儿全为 0，而真实租户数据**逐项不变**
+  （organizations 2、chat_messages 18、skills 1、knowledge_documents 5、tenants 2），零误伤。
+- 修 `test_setup_model.py`：原测试只 patch `delete_instance`，新增的 `cleanup_failed_setup`
+  会真连库、经陈旧事件循环报 `Event loop is closed`（仅在与其他测试文件同跑时复现）。
+  已一并 patch 并断言两者各被 await 一次——这是新行为的正当测试更新，非掩盖失败。
+
+### 改动文件
+
+- `docker-compose.yml`（D2：模板提取为 `x-` 字段、单副本 profile 化、chat-api 依赖修正）
+- `services/admin-api/app/services/setup_cleanup.py`（D3：正则放宽 + 补 `token_usage_logs`）
+- `services/admin-api/app/services/setup_model.py`（D3：finally 全量清扫）
+- `services/admin-api/tests/test_setup_model.py`（D3：补 patch 与断言）
+- `scripts/cleanup_setup_test_tenants.sh`（新增，存量清理，dry-run 默认）
+- `docs/WORK_LOG.md`（本节）
+
+### 环境状态说明
+
+为完成 D2，移除了空转容器 `mogo-dsh-runtime-host-1`（`docker compose rm`，**未加 `-v`**，
+数据卷 `movo_dsh-runtime-data` 保留）。当前 DSH 为 3 副本 + LB，全栈 14 容器 healthy。

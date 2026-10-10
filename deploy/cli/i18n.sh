@@ -75,6 +75,8 @@ movo_msg() {
     en:pruned_previous_release) printf 'Pruned %s image(s) from the previous release, reclaimed about %s MB.\n' "$1" "$2" ;;
     zh:updating) printf '正在拉取 MOGO 镜像并更新服务...\n' ;;
     en:updating) printf 'Pulling MOGO images and updating services...\n' ;;
+    zh:dsh_lb_reload_failed) printf '提示：DSH 负载均衡器重载配置失败，其上游地址可能仍是旧 IP（已有自动重试兜底）。\n' ;;
+    en:dsh_lb_reload_failed) printf 'Note: the DSH load balancer failed to reload; its upstreams may still hold stale IPs (automatic retry still covers this).\n' ;;
     zh:pulling_images) printf '正在串行拉取镜像（第 %s 次）...\n' "$1" ;;
     en:pulling_images) printf 'Pulling images sequentially (attempt %s)...\n' "$1" ;;
     zh:pull_retry) printf '第 %s 次拉取失败，%s 秒后继续重试；按 Ctrl+C 可停止。\n' "$1" "$2" ;;

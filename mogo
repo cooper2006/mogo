@@ -90,10 +90,34 @@ refresh_gateway_resolution() {
   if [[ -z "${gateway_id}" ]]; then
     return 0
   fi
-  # The stock Nginx image resolves Compose service names when it starts.
-  # Rebuilt upstream containers may receive new IPs while gateway is kept,
-  # so restart this stateless proxy before probing deployment readiness.
+  # The stock Nginx image resolves Compose service names when it starts, and a
+  # `resolver` directive does NOT re-resolve servers inside a static `upstream`
+  # block — so both proxies below keep the IPs they saw at startup.
+  # Rebuilt upstream containers may receive new IPs while a proxy is kept,
+  # so restart the gateway (stateless, restart is fine) before probing
+  # deployment readiness.
   mogo_compose restart gateway
+  refresh_dsh_lb_resolution
+}
+
+refresh_dsh_lb_resolution() {
+  local lb_id=""
+  lb_id="$(mogo_compose ps -q dsh-runtime-host-lb 2>/dev/null || true)"
+  if [[ -z "${lb_id}" ]]; then
+    return 0
+  fi
+  # The DSH load balancer pins each kernel session to one replica with
+  # `hash $dsh_sticky_key consistent`, so it must NOT be restarted here: a
+  # restart drops the long-lived SSE event streams (`proxy_read_timeout 3600s`)
+  # that active sessions are reading from. A plain `nginx -s reload` re-reads
+  # the config and re-resolves the upstream names through a graceful worker
+  # handover, which is what we need after replicas are recreated with new IPs.
+  #
+  # Best-effort: the LB ships a `nginx -t` healthcheck and `proxy_next_upstream`
+  # covers a stale IP, so a failed reload must not abort the deploy.
+  if ! mogo_compose exec -T dsh-runtime-host-lb nginx -s reload >/dev/null 2>&1; then
+    movo_msg dsh_lb_reload_failed >&2 || true
+  fi
 }
 
 dotenv_value() {

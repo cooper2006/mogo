@@ -25,14 +25,24 @@ SETUP_SCOPED_COLLECTIONS = (
     "org_quota_policies",
     "user_quota_policies",
     "user_token_allocation_logs",
+    # The model-connectivity probe during setup writes a usage log per attempt
+    # (stage="model_connectivity_test"). ``tenant_purge`` already treats this as
+    # tenant-scoped; it was missing here, so those rows outlived the cleanup.
+    "token_usage_logs",
     "external_search_configs",
     "knowledge_document_settings",
     "organizations",
     "tenants",
 )
 
-# A freshly generated tenant_id looks like ``slug-hex`` (slug >= 1 char, 24 hex chars).
-_TENANT_ID_SHAPE = re.compile(r"^[a-z0-9]+-[0-9a-f]{24}$")
+# A freshly generated tenant_id looks like ``slug-hex`` (24 hex chars).
+# The slug may itself contain hyphens: ``tenant_provisioning._slug`` rewrites
+# every run of non-alphanumerics to "-", so an org named "My Test Org" yields
+# ``my-test-org-<hex>``. The previous pattern (``^[a-z0-9]+-[0-9a-f]{24}$``)
+# allowed only a single hyphen-free segment, so it rejected both those legal
+# ids and the ``setup-test-*`` probe tenants — which is why failed model
+# connectivity probes left rows behind instead of being cleaned up.
+_TENANT_ID_SHAPE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{24}$")
 
 
 def _assert_cleanup_target(tenant_id: str) -> None:

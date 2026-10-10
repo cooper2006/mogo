@@ -15,6 +15,7 @@ from app.repositories.model_repository import (
     list_providers,
 )
 from app.services.model_connectivity import run_saved_model_test
+from app.services.setup_cleanup import cleanup_failed_setup
 from app.services.setup_model_probe import SetupModelProbeError, probe_knowledge_model_details
 
 
@@ -65,8 +66,22 @@ async def inspect_setup_model(payload: dict[str, Any]) -> SetupModelInspection:
             raise SetupModelError(message)
         return SetupModelInspection(message=message)
     finally:
+        # Two leaks this must not have:
+        #
+        # 1. ``if instance_id`` skipped cleanup entirely when create_instance
+        #    raised, since instance_id was still "". The probe tenant then
+        #    survived forever — three such rows were found in the dev database
+        #    from the 2026-09-28 setup, one per failed attempt.
+        # 2. ``delete_instance`` only removes the admin_model_instances row. The
+        #    probe also makes unrelated collections materialise rows for this
+        #    tenant (organizations, quota policies, usage logs) — those are not
+        #    model instances, so they stayed behind too.
+        #
+        # So clean the whole probe tenant, and treat "nothing was created" as a
+        # successful no-op: the helper is idempotent, deleting zero rows is fine.
         if instance_id:
             await delete_instance(instance_id, temporary_tenant_id)
+        await cleanup_failed_setup(temporary_tenant_id)
 
 
 # The public service function name is retained for API compatibility; prevent

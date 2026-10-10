@@ -6,6 +6,50 @@ x-python-healthcheck: &python-healthcheck
   retries: 20
   start_period: 30s
 
+# The DSH Runtime Host owns kernel session state in process memory, so one
+# kernel_session_id must always reach the same instance.
+#
+# Two mutually exclusive topologies share this template:
+#
+#   * pool (default) — ``dsh-runtime-host-{1,2,3}`` behind the sticky LB.
+#     chat-api talks to the LB.
+#   * single host — one bare host for a minimal self-hosted deployment,
+#     enabled with ``--profile single-host``.
+#
+# ``&dsh-runtime-host-template`` holds the settings the replicas inherit. The
+# single-host service that consumes it carries its own ``profiles`` entry:
+# putting ``profiles`` inside the anchor would be merged into every replica
+# too (a YAML merge key copies the whole mapping), which would disable the
+# pool along with it.
+x-dsh-runtime-host-template: &dsh-runtime-host-template
+  image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
+  pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
+  restart: unless-stopped
+  # R1: on SIGTERM the host first drains (waits up to 30s for in-flight
+  # turns to finish) before disposing runtimes. The grace period must cover
+  # that drain window or docker kills the process and the drain is cut off.
+  stop_grace_period: 45s
+  environment:
+    DSH_INSTANCE_ID: dsh-runtime-host
+  volumes:
+    - deployment-secrets:/run/askai-secrets:ro
+    - dsh-runtime-data:/data/dsh-runtime
+  depends_on:
+    bootstrap:
+      condition: service_completed_successfully
+  networks:
+    - backend
+  healthcheck:
+    test:
+      - CMD-SHELL
+      - >-
+        set -a; . /run/askai-secrets/runtime.env; set +a;
+        node -e "fetch('http://127.0.0.1:8101/health',{headers:{authorization:'Bearer '+process.env.DSH_RUNTIME_HOST_TOKEN}}).then(r=>{if(!r.ok)process.exit(1);return r.json()}).then(v=>{if(v.ok!==true||v.kernel!=='dsh')process.exit(1)}).catch(()=>process.exit(1))"
+    interval: 10s
+    timeout: 5s
+    retries: 20
+    start_period: 20s
+
 services:
   bootstrap:
     image: alpine:3.21
@@ -116,38 +160,29 @@ services:
       retries: 30
       start_period: 30s
 
-  # The DSH Runtime Host owns kernel session state in process memory, so one
-  # kernel_session_id must always reach the same instance.
+  # Single-host topology, for a minimal self-hosted deployment.
   #
-  # Default: a single host, which is what the self-hosted deployment runs.
-  dsh-runtime-host: &dsh-runtime-host
-    image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
-    pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
-    restart: unless-stopped
-    # R1: on SIGTERM the host first drains (waits up to 30s for in-flight
-    # turns to finish) before disposing runtimes. The grace period must cover
-    # that drain window or docker kills the process and the drain is cut off.
-    stop_grace_period: 45s
-    environment:
-      DSH_INSTANCE_ID: dsh-runtime-host
-    volumes:
-      - deployment-secrets:/run/askai-secrets:ro
-      - dsh-runtime-data:/data/dsh-runtime
-    depends_on:
-      bootstrap:
-        condition: service_completed_successfully
-    networks:
-      - backend
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          set -a; . /run/askai-secrets/runtime.env; set +a;
-          node -e "fetch('http://127.0.0.1:8101/health',{headers:{authorization:'Bearer '+process.env.DSH_RUNTIME_HOST_TOKEN}}).then(r=>{if(!r.ok)process.exit(1);return r.json()}).then(v=>{if(v.ok!==true||v.kernel!=='dsh')process.exit(1)}).catch(()=>process.exit(1))"
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
+  # Off by default on purpose. In pool mode (the default) this host is a fourth
+  # instance that the LB does not list and chat-api never calls, so it would
+  # idle holding its own data volume — that is exactly what used to happen when
+  # this service was enabled unconditionally.
+  #
+  # Compose profiles are additive: a service without a profile always starts,
+  # and the pool replicas intentionally have no profile so `./mogo up` keeps
+  # working. Selecting this profile therefore *adds* a bare host alongside the
+  # pool rather than replacing it. To actually run single-host, start only this
+  # service and the app services:
+  #
+  #   docker compose --profile single-host up -d dsh-runtime-host \
+  #     mongo redis weaviate admin-api admin-web chat-api \
+  #     document-api document-worker user-web gateway bootstrap
+  #
+  # and point chat-api at it (DSH_RUNTIME_HOST_URL=http://dsh-runtime-host:8101)
+  # instead of the LB, which is then simply not started.
+  dsh-runtime-host:
+    <<: *dsh-runtime-host-template
+    profiles:
+      - single-host
 
   # Runtime Host pool for horizontal scaling (see
   # docs/open-source-productization/agent-multi-instance-evaluation.md).
@@ -159,7 +194,7 @@ services:
   # chat-api would then bypass the LB and hash with a different algorithm
   # (sha256 % count vs nginx consistent hash), and the two would disagree.
   dsh-runtime-host-1:
-    <<: *dsh-runtime-host
+    <<: *dsh-runtime-host-template
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-1
       # Cross-replica hand-off: the pool membership (self excluded by the
@@ -178,7 +213,7 @@ services:
       - dsh-runtime-data-1:/data/dsh-runtime
 
   dsh-runtime-host-2:
-    <<: *dsh-runtime-host
+    <<: *dsh-runtime-host-template
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-2
       # Cross-replica hand-off: the pool membership (self excluded by the
@@ -194,7 +229,7 @@ services:
       - dsh-runtime-data-2:/data/dsh-runtime
 
   dsh-runtime-host-3:
-    <<: *dsh-runtime-host
+    <<: *dsh-runtime-host-template
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-3
       # Cross-replica hand-off: the pool membership (self excluded by the
@@ -283,7 +318,12 @@ services:
         condition: service_healthy
       document-api:
         condition: service_healthy
-      dsh-runtime-host:
+      # chat-api reaches the Runtime Host pool through the sticky LB, so that
+      # is what it must wait on. It previously waited on ``dsh-runtime-host``,
+      # which is now the profile-gated single-host topology: naming it here
+      # would make Compose reject the project ("depends on undefined service")
+      # in the default pool mode.
+      dsh-runtime-host-lb:
         condition: service_healthy
     networks:
       - public

@@ -10,7 +10,7 @@ No asyncio pytest mode is configured, so every coroutine is driven via ``asyncio
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from app.services.skill_market.adoption_client import (
     ADOPTION_COLLECTION,
@@ -175,10 +175,22 @@ def _fake_db(rows):
     return _Db(), metrics, adoption, projections, state, deliveries, receipts, edits
 
 
+def _utc_today() -> date:
+    """The day ``quality_metrics`` buckets its rolling window on.
+
+    The service anchors on ``datetime.now(timezone.utc).date()`` (``_today()``),
+    so seeded rows must use the same anchor. With ``date.today()`` these tests
+    failed for the eight hours after local midnight in any zone east of UTC:
+    the local date had rolled over while the UTC date had not, so the seeded
+    "last N days" fell outside the window the scorer computed.
+    """
+    return datetime.now(timezone.utc).date()
+
+
 def _seed_low_days(db_cursor, *, tenant_id, skill_key, days, success=False):
     """Seed ``days`` consecutive daily buckets, all below the 0.4 effect threshold."""
     for offset in range(days):
-        day = (date.today() - timedelta(days=offset)).isoformat()
+        day = (_utc_today() - timedelta(days=offset)).isoformat()
         db_cursor._rows.append(
             {
                 "tenant_id": tenant_id,
@@ -226,7 +238,7 @@ def test_interrupted_window_resets_sustained_streak():
     db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     _seed_low_days(cursor, tenant_id="t1", skill_key="weak", days=LOW_QUALITY_SUSTAINED_DAYS)
     # Insert one healthy day in the middle of the window -> streak breaks.
-    mid = (date.today() - timedelta(days=3)).isoformat()
+    mid = (_utc_today() - timedelta(days=3)).isoformat()
     cursor._rows.append(
         {
             "tenant_id": "t1",
@@ -249,7 +261,7 @@ def test_interrupted_window_resets_sustained_streak():
 def test_healthy_skill_is_not_marked():
     db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
-        day = (date.today() - timedelta(days=offset)).isoformat()
+        day = (_utc_today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
             {
                 "tenant_id": "t1",
@@ -341,7 +353,7 @@ def test_total_only_metrics_are_not_scored_mass_marked():
     # The completeness gate must skip instead.
     db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
-        day = (date.today() - timedelta(days=offset)).isoformat()
+        day = (_utc_today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
             {
                 "tenant_id": "t1",
@@ -363,7 +375,7 @@ def test_total_only_metrics_are_not_scored_mass_marked():
 def test_below_min_samples_is_not_scored():
     db, cursor, _adoption, _proj, _state, _deliv, _recv, _edits = _fake_db([])
     for offset in range(LOW_QUALITY_SUSTAINED_DAYS):
-        day = (date.today() - timedelta(days=offset)).isoformat()
+        day = (_utc_today() - timedelta(days=offset)).isoformat()
         cursor._rows.append(
             {
                 "tenant_id": "t1",
