@@ -7738,3 +7738,36 @@ admin-api（100 wheels 离线装）、runtime-host（gosu 1.14 可执行）。
 新增 3 个 29B 占位符（`chat-api/pip-wheels-bundle.tar.gz`、`admin-api/pip-wheels-bundle.tar.gz`、
 `chat-api/dsh/runtime-host/apt-packages-bundle.tar.gz`）、
 重建 `chat-api/playwright-browsers-bundle.tar.gz`（283.5MB，git 忽略）。
+
+## 2026-10-10 清理 base-images/manifest.txt 陈旧条目
+
+**起因**：用户确认清理上一轮审计发现的陈旧条目。
+
+**发现**：`manifest.txt` 生成于 2026-09-26，但 2026-10-08 的 commit `d6c4982`
+统一了 node / nginx 版本（node:20 → node:24、nginx:1.29.8 → 1.31.5），
+当时删除了镜像 tag，**却忘了同步这份清单**。
+
+**做法**：没有手改，而是用 `export_base_images.sh` 自身的机制重新生成——
+该脚本的 manifest 由 `required_images()`（从 Dockerfile 的 `FROM` 自动发现）驱动，
+所以走官方路径才能保证与实际需求一致：
+
+```bash
+scripts/export_base_images.sh save --manifest-only base-images
+```
+
+**结果**（脚本扫描出的需求为 4 个，与生成结果 diff 一致）：
+
+- 移除陈旧：`node:20-slim`、`nginx:1.29.8-alpine`
+- **补齐缺失：`python:3.13-slim-bookworm`** —— 旧清单里根本没有这一项，
+  而 `services/chat-api/Dockerfile` 与 `services/admin-api/Dockerfile` 都以它为 `ARG BASE_IMAGE`
+- 顺带修正头部注释 `movo` → `mogo`（品牌改名时的遗留）
+
+**验证**：`diff <(manifest 内容) <(export_base_images.sh list)` 完全一致。
+
+**顺带发现（已记入待确认清单，未擅自删除）**：`base-images/` 下的 tar 归档同样未同步——
+存在陈旧的 `node_20-slim.tar`(71M)、`nginx_1.29.8-alpine.tar`(26M)，
+且**缺少** `python_3.13-slim-bookworm.tar`。按 AGENTS.md「禁止删除文件」，
+已写入 `docs/pending-review/2026-10-10-stale-base-image-archives.md` 待用户确认。
+
+**改动文件**：`base-images/manifest.txt`（本地缓存，未跟踪，不入库）、
+新增 `docs/pending-review/2026-10-10-stale-base-image-archives.md`。
