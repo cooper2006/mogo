@@ -100,21 +100,22 @@ def _memories() -> list[Memory]:
     return [
         Memory(content="personal note", scope="personal", owner_id="u1", memory_id="m-personal"),
         Memory(content="workspace plan", scope="workspace", workspace_id="w1", owner_id="u1", memory_id="m-workspace"),
-        Memory(content="org policy", scope="org", tenant_id="t1", owner_id="admin", memory_id="m-org"),
-        Memory(content="other tenant org", scope="org", tenant_id="t2", owner_id="admin", memory_id="m-other"),
+        Memory(content="org policy", scope="org", tenant_id="t1", owner_id="admin", org_id="t1", memory_id="m-org"),
+        Memory(content="other tenant org", scope="org", tenant_id="t2", owner_id="admin", org_id="t2", memory_id="m-other"),
     ]
 
 
 def test_scope_filter_personal_only_owner():
     memories = _memories()
-    # u1 owns the personal memory, is a workspace member, and any org-scope is visible to members
-    filtered = scope_filter(memories, viewer_id="u1", is_workspace_member=True)
+    # u1 owns the personal memory, is a workspace member, and belongs to org t1
+    filtered = scope_filter(memories, viewer_id="u1", is_workspace_member=True, viewer_org_id="t1")
     ids = {m.memory_id for m in filtered}
-    # personal (owner) + workspace (member) + org (t1) visible; t2 org still visible
-    # (visible_to checks viewer non-empty within tenant) — assert the three own-scope ones:
+    # personal (owner) + workspace (member) + org t1 (matching org_id) visible;
+    # org t2 is a different organization and must NOT be visible (R-04).
     assert "m-personal" in ids
     assert "m-workspace" in ids
     assert "m-org" in ids
+    assert "m-other" not in ids
 
 
 def test_scope_filter_non_owner_cannot_read_personal():
@@ -130,7 +131,7 @@ def test_scope_filter_non_owner_cannot_read_personal():
 
 def test_memory_rag_candidates_ranked_by_scope_then_recency():
     memories = [
-        Memory(content="org rule", scope="org", owner_id="a", last_accessed_at=10.0, memory_id="m-org"),
+        Memory(content="org rule", scope="org", owner_id="a", org_id="t1", last_accessed_at=10.0, memory_id="m-org"),
         Memory(content="ws plan", scope="workspace", owner_id="u1", last_accessed_at=20.0, memory_id="m-ws"),
         Memory(content="my note", scope="personal", owner_id="u1", last_accessed_at=30.0, memory_id="m-p"),
     ]
@@ -138,6 +139,7 @@ def test_memory_rag_candidates_ranked_by_scope_then_recency():
         memories,
         viewer_id="u1",
         is_workspace_member=True,
+        viewer_org_id="t1",
         top_n=3,
     )
     # org (weight 3) > workspace (2) > personal (1)
@@ -168,10 +170,26 @@ def test_promoted_org_memory_retrievable_by_member():
         scope="org",
         owner_id="u1",
         tenant_id="t1",
+        org_id="t1",
         memory_id="m-promoted",
     )
-    retrievable = promoted_memories_retrievable([promoted], viewer_id="u1", viewer_role="")
+    retrievable = promoted_memories_retrievable([promoted], viewer_id="u1", viewer_role="", viewer_org_id="t1")
     assert "m-promoted" in retrievable
+
+
+def test_promoted_org_memory_not_retrievable_for_other_org():
+    """R-04: a member of a different organization cannot read an org-scoped
+    memory even if it has been promoted."""
+    promoted = Memory(
+        content="shared guideline",
+        scope="org",
+        owner_id="u1",
+        tenant_id="t1",
+        org_id="t1",
+        memory_id="m-promoted",
+    )
+    retrievable = promoted_memories_retrievable([promoted], viewer_id="u2", viewer_role="", viewer_org_id="t2")
+    assert "m-promoted" not in retrievable
 
 
 def test_unpromoted_memory_not_in_retrieval():

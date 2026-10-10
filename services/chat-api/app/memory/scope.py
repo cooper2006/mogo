@@ -54,6 +54,7 @@ class Memory:
     owner_id: str = ""
     workspace_id: str = ""
     tenant_id: str = "default"
+    org_id: str = ""           # R-04: organization id for org-scoped memories
     created_at: float = 0.0
     last_accessed_at: float = 0.0
     memory_id: str = ""
@@ -96,11 +97,17 @@ def visible_to(
     viewer_id: str,
     viewer_role: str = "",
     is_workspace_member: bool = False,
+    viewer_org_id: str = "",
 ) -> bool:
     """Whether ``viewer_id`` may read ``memory`` (FR-2, no privilege escalation).
 
     * full-access admins may read any scope within the tenant;
     * otherwise visibility follows the scope: owner / member / org.
+
+    R-04 fix: the ``org`` scope used to check ``viewer_id != ""`` — any
+    authenticated user in the tenant could read any org-scoped memory. It
+    now requires ``viewer_org_id == memory.org_id``, so an org-scoped memory
+    is visible only to members of the organization that owns it.
     """
     if viewer_role in ORG_PROMOTION_ROLES:
         return True
@@ -109,7 +116,8 @@ def visible_to(
     if memory.scope == MemoryScope.WORKSPACE.value:
         return is_workspace_member and viewer_id != ""
     if memory.scope == MemoryScope.ORG.value:
-        return viewer_id != ""  # any member of the same tenant
+        # R-04: org scope must be bounded by the organization, not the tenant.
+        return bool(memory.org_id) and viewer_org_id == memory.org_id
     return False
 
 

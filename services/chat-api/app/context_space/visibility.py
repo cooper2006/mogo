@@ -45,6 +45,7 @@ class ViewerContext:
     viewer_role: str = ""
     is_workspace_member: bool = False
     tenant_id: str = ""
+    viewer_org_id: str = ""   # R-04: organization id for org-scoped visibility
 
 
 def check_memory_visibility(
@@ -78,6 +79,7 @@ def check_memory_visibility(
         viewer_id=ctx.viewer_id,
         viewer_role=ctx.viewer_role,
         is_workspace_member=ctx.is_workspace_member,
+        viewer_org_id=ctx.viewer_org_id,
     )
 
 

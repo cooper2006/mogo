@@ -53,6 +53,7 @@ def _row_to_memory(row: dict[str, Any]) -> Memory:
         owner_id=str(row.get("owner_id") or ""),
         workspace_id=str(row.get("workspace_id") or ""),
         tenant_id=str(row.get("tenant_id") or "default"),
+        org_id=str(row.get("org_id") or ""),
         created_at=float(row.get("created_at") or 0.0),
         last_accessed_at=float(row.get("last_accessed_at") or 0.0),
         l0_summary=str(row.get("l0_summary") or ""),
@@ -88,6 +89,7 @@ class MemoryStore:
         summary_refresh_days: int = 0,
         source_session_id: str = "",
         source_type: str = "",
+        org_id: str = "",
     ) -> Memory:
         """Upsert a memory record. Returns the saved ``Memory``.
 
@@ -122,6 +124,7 @@ class MemoryStore:
                 owner_id=owner_id,
                 workspace_id=workspace_id,
                 tenant_id=tenant_id,
+                org_id=org_id,
                 created_at=now,
                 last_accessed_at=now,
                 l0_summary=l0_summary,
@@ -141,6 +144,7 @@ class MemoryStore:
             "owner_id": owner_id,
             "workspace_id": workspace_id,
             "tenant_id": tenant_id,
+            "org_id": org_id,
             "created_at": now,
             "last_accessed_at": now,
             "l0_summary": l0_summary,
@@ -166,6 +170,7 @@ class MemoryStore:
         viewer_id: str,
         viewer_role: str = "",
         is_workspace_member: bool = False,
+        viewer_org_id: str = "",
         top_n: int = 20,
     ) -> list[Memory]:
         """Return memories visible to ``viewer_id`` within ``tenant_id``."""
@@ -183,6 +188,7 @@ class MemoryStore:
             viewer_id=viewer_id,
             viewer_role=viewer_role,
             is_workspace_member=is_workspace_member,
+            viewer_org_id=viewer_org_id,
         )
         # Sort: org > workspace > personal, then recency.
         weight = {

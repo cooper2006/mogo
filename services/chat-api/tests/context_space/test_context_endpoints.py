@@ -27,6 +27,7 @@ def client(monkeypatch):
             "main_id": "t1",
             "role": "",
             "is_workspace_member": False,
+            "org_id": "",
         }
 
     monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _fake_resolve)
@@ -142,7 +143,7 @@ def test_trace_readback_is_tenant_scoped(client, monkeypatch):
     assert client.get("/api/context/trace/trace-t1").status_code == 200
 
     async def _other_tenant(authorization: str):
-        return {"user_id": "u9", "main_id": "t2", "role": "", "is_workspace_member": False}
+        return {"user_id": "u9", "main_id": "t2", "role": "", "is_workspace_member": False, "org_id": ""}
 
     monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _other_tenant)
     # 404 (not 403) so the trace's existence is not disclosed.

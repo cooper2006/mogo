@@ -63,8 +63,14 @@ async def resolve_session_user(authorization: str | None) -> dict:
     if not user_doc:
         raise HTTPException(status_code=401, detail="user_not_found")
 
+    # R-04: resolve the caller's primary organization so org-scoped memories
+    # can be bounded by organization rather than tenant. The field is set by
+    # _assign_user_primary_department (auth.py:800) and is empty for users
+    # who have never been assigned to a department.
+    org_id = str(user_doc.get("primary_org_id") or "")
+
     await db[USER_SESSION_COLLECTION].update_one(
         {"_id": session_doc["_id"]},
         {"$set": {"last_seen_at": now, "updated_at": now}},
     )
-    return {"session": session_doc, "user": user_doc, "tenant_id": tenant_id}
+    return {"session": session_doc, "user": user_doc, "tenant_id": tenant_id, "org_id": org_id}

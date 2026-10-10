@@ -53,10 +53,22 @@ def test_workspace_visible_to_members() -> None:
     assert visible_to(memory, viewer_id="u3", is_workspace_member=False) is False
 
 
-def test_org_visible_to_any_member() -> None:
+def test_org_visible_to_member_of_own_org() -> None:
+    """R-04: an org-scoped memory is visible only to members of the organization
+    that owns it — not to any authenticated user in the tenant."""
+    memory = Memory(scope="org", org_id="org1")
+    assert visible_to(memory, viewer_id="u9", viewer_org_id="org1") is True
+    assert visible_to(memory, viewer_id="u9", viewer_org_id="org2") is False
+
+
+def test_org_memory_without_org_id_is_invisible() -> None:
+    """Safe fail-closed: an org-scoped memory that was never tagged with an
+    org_id (legacy data, or written before the R-04 fix) is invisible to
+    everyone — including full-access admins, who are handled earlier in
+    visible_to but still require a real org_id for the org branch."""
     memory = Memory(scope="org")
-    assert visible_to(memory, viewer_id="u9") is True
-    assert visible_to(memory, viewer_id="") is False
+    assert visible_to(memory, viewer_id="u9", viewer_org_id="org1") is False
+    assert visible_to(memory, viewer_id="u9", viewer_org_id="") is False
 
 
 def test_full_access_admin_sees_every_scope() -> None:
@@ -219,8 +231,8 @@ def test_clean_decayed_delete_disposition() -> None:
 
 def test_scope_filter_excludes_archived_memories() -> None:
     from app.memory.retrieval import scope_filter
-    live = _Mem(content="live", scope="org", owner_id="u1", memory_id="m1")
-    gone = _Mem(content="archived", scope="org", owner_id="u2", memory_id="m2")
+    live = _Mem(content="live", scope="org", owner_id="u1", memory_id="m1", org_id="org1")
+    gone = _Mem(content="archived", scope="org", owner_id="u2", memory_id="m2", org_id="org1")
     gone.archived = True
-    survivors = scope_filter([live, gone], viewer_id="viewer")
+    survivors = scope_filter([live, gone], viewer_id="viewer", viewer_org_id="org1")
     assert [m.memory_id for m in survivors] == ["m1"]

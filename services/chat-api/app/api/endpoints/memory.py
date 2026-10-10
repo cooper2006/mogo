@@ -34,6 +34,7 @@ async def create_memory(
     tenant_id = str(resolved.get("tenant_id") or "")
     user_id = str(resolved.get("user_id") or "")
     role = str(resolved.get("role") or "")
+    org_id = str(resolved.get("org_id") or "")
 
     content = str(payload.get("content") or "").strip()
     if not content:
@@ -51,6 +52,10 @@ async def create_memory(
             status_code=403,
             detail="org scope requires full_access_admin",
         )
+
+    # R-04: an org-scoped memory is tagged with the caller's organization so
+    # ``visible_to`` can bound org visibility by org rather than by tenant.
+    memory_org_id = org_id if scope == MemoryScope.ORG.value else ""
 
     # 017 FR-13/FR-15: derive density tiers (write-time summaries if supplied,
     # lazy fallback handled at read time via tier_content).
@@ -75,6 +80,7 @@ async def create_memory(
             tenant_id=tenant_id,
             workspace_id=str(payload.get("workspace_id") or ""),
             scope=scope,
+            org_id=memory_org_id,
             l0_summary=tier.l0_summary,
             l1_overview=tier.l1_overview,
             l2_raw=tier.l2_raw,
@@ -112,12 +118,14 @@ async def list_memories(
     tenant_id = str(resolved.get("tenant_id") or "")
     viewer_id = str(resolved.get("user_id") or "")
     viewer_role = str(resolved.get("role") or "")
+    viewer_org_id = str(resolved.get("org_id") or "")
 
     store = MemoryStore()
     memories = await store.list_for_viewer(
         tenant_id=tenant_id,
         viewer_id=viewer_id,
         viewer_role=viewer_role,
+        viewer_org_id=viewer_org_id,
         is_workspace_member=bool(resolved.get("is_workspace_member") or False),
     )
     # Client-side scope filter when requested.
@@ -187,6 +195,7 @@ async def promote_memory(
     tenant_id = str(resolved.get("tenant_id") or "")
     user_id = str(resolved.get("user_id") or "")
     role = str(resolved.get("role") or "")
+    org_id = str(resolved.get("org_id") or "")
 
     store = MemoryStore()
     memory = await store.get(tenant_id=tenant_id, memory_id=memory_id)
@@ -200,6 +209,8 @@ async def promote_memory(
     except MemoryAccessError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
 
+    # R-04: tag the promoted memory with the caller's organization so org
+    # visibility is bounded by org, not by tenant.
     await store.save(
         memory_id=promoted.memory_id,
         content=promoted.content,
@@ -207,6 +218,7 @@ async def promote_memory(
         tenant_id=promoted.tenant_id,
         workspace_id=promoted.workspace_id,
         scope=promoted.scope,
+        org_id=org_id,
     )
     return {"code": 0, "message": "promoted", "data": {
         "memory_id": promoted.memory_id,

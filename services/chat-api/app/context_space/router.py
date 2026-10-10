@@ -49,6 +49,7 @@ async def resolve_memory(
     viewer_id: str,
     viewer_role: str = "",
     is_workspace_member: bool = False,
+    viewer_org_id: str = "",
     tier: Optional[str] = None,
     session_id: str = "",
     turn_id: str = "",
@@ -75,6 +76,7 @@ async def resolve_memory(
         viewer_role=viewer_role,
         is_workspace_member=is_workspace_member,
         tenant_id=tenant_id,
+        viewer_org_id=viewer_org_id,
     )
 
     skipped: list[dict] = []

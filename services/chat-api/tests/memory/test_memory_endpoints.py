@@ -48,10 +48,15 @@ class _FakeStore:
         return m
 
     async def list_for_viewer(self, *, tenant_id, viewer_id, viewer_role="",
-                              is_workspace_member=False, top_n=20):
+                              is_workspace_member=False, viewer_org_id="",
+                              top_n=20):
+        from app.memory.scope import visible_to
         return [
             m for (tid, _), m in self._memories.items()
-            if tid == tenant_id and m.owner_id == viewer_id
+            if tid == tenant_id and visible_to(m, viewer_id=viewer_id,
+                                               viewer_role=viewer_role,
+                                               is_workspace_member=is_workspace_member,
+                                               viewer_org_id=viewer_org_id)
         ][:top_n]
 
     async def get(self, *, tenant_id, memory_id):
@@ -76,6 +81,7 @@ def fake_store(monkeypatch):
             "main_id": "t1",
             "role": "",
             "is_workspace_member": False,
+            "org_id": "t1",
         }
 
     monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _fake_resolve)

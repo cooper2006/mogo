@@ -101,6 +101,7 @@ async def resolve_context(
     viewer_id = str(resolved_auth.get("user_id") or "")
     viewer_role = str(resolved_auth.get("role") or "")
     is_workspace_member = bool(resolved_auth.get("is_workspace_member") or False)
+    viewer_org_id = str(resolved_auth.get("org_id") or "")
 
     uris = [u for u in ([payload.uri] if payload.uri else []) + list(payload.uris or []) if u]
     if not uris:
@@ -118,6 +119,7 @@ async def resolve_context(
                 viewer_id=viewer_id,
                 viewer_role=viewer_role,
                 is_workspace_member=is_workspace_member,
+                viewer_org_id=viewer_org_id,
                 tier=payload.tier,
                 session_id=payload.session_id,
                 turn_id=payload.turn_id,

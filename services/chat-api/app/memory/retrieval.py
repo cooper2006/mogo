@@ -21,6 +21,7 @@ def scope_filter(
     viewer_id: str,
     viewer_role: str = "",
     is_workspace_member: bool = False,
+    viewer_org_id: str = "",
     only_scopes: Optional[tuple[str, ...]] = None,
 ) -> list[Memory]:
     """T010 — the pre-retrieval scope filter (按 scope 过滤).
@@ -37,7 +38,7 @@ def scope_filter(
         # FR-8 decayed + archived memories are no longer RAG candidates.
         if _row_archived(memory):
             continue
-        if visible_to(memory, viewer_id=viewer_id, viewer_role=viewer_role, is_workspace_member=is_workspace_member):
+        if visible_to(memory, viewer_id=viewer_id, viewer_role=viewer_role, is_workspace_member=is_workspace_member, viewer_org_id=viewer_org_id):
             survivors.append(memory)
     return survivors
 
@@ -53,6 +54,7 @@ def memory_rag_candidates(
     viewer_id: str,
     viewer_role: str = "",
     is_workspace_member: bool = False,
+    viewer_org_id: str = "",
     top_n: int = 8,
     now: float = 0.0,
     include_tier: str = "L2",
@@ -77,6 +79,7 @@ def memory_rag_candidates(
         viewer_id=viewer_id,
         viewer_role=viewer_role,
         is_workspace_member=is_workspace_member,
+        viewer_org_id=viewer_org_id,
     )
 
     def _rank(memory: Memory) -> tuple[int, float]:
@@ -117,6 +120,7 @@ def progressive_memory_retrieval(
     viewer_id: str,
     viewer_role: str = "",
     is_workspace_member: bool = False,
+    viewer_org_id: str = "",
     include_tier: str = "L1",
     top_n: int = 8,
     now: float = 0.0,
@@ -144,6 +148,7 @@ def progressive_memory_retrieval(
         viewer_id=viewer_id,
         viewer_role=viewer_role,
         is_workspace_member=is_workspace_member,
+        viewer_org_id=viewer_org_id,
     )
     ranked = sorted(filtered, key=_rank, reverse=True)[: max(1, int(top_n))]
 
@@ -189,18 +194,20 @@ def promoted_memories_retrievable(
     viewer_id: str,
     promoted_by: str = "",
     viewer_role: str = "",
+    viewer_org_id: str = "",
 ) -> list[str]:
     """T011 — verify promoted (org-scope) memories are retrievable by the viewer.
 
-    A memory promoted to ``org`` becomes readable by any tenant member
-    (``visible_to`` returns True for a non-empty viewer within the tenant).
-    This is the US2 upgrade-authorization + retrieval-filter acceptance.
+    A memory promoted to ``org`` becomes readable by members of the same
+    organization (``visible_to`` returns True when ``viewer_org_id`` matches
+    ``memory.org_id``). This is the US2 upgrade-authorization + retrieval-filter
+    acceptance.
     """
     result: list[str] = []
     for memory in memories:
         if memory.scope != MemoryScope.ORG.value:
             continue
-        if visible_to(memory, viewer_id=viewer_id, viewer_role=viewer_role):
+        if visible_to(memory, viewer_id=viewer_id, viewer_role=viewer_role, viewer_org_id=viewer_org_id):
             result.append(memory.memory_id)
     return result
 
