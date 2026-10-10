@@ -7589,3 +7589,68 @@ Compose 因服务名不同而各建一遍 → 最慢的目标（docling + torch�
 
 **改动文件**：`scripts/pip_wheels_bundle.sh`（新增）、`services/document-parser/Dockerfile`、
 `services/document-parser/.dockerignore`、`.gitignore`、`services/document-parser/pip-wheels-bundle.tar.gz`（29B 占位符，`git add -f`）。
+
+## 2026-10-10 apt 系统依赖离线缓存（document-parser + chat-api）
+
+**起因**：用户反馈上一轮 pip 缓存改造后，apt 层（`[5/17]`）仍然较慢，要求把安装的软件包也缓存到本地。
+
+### 定位（实测分解，非估算）
+
+重建实测 apt 层 **315.2 秒**，按时间轴拆开：
+
+| 阶段 | 耗时 |
+|---|---|
+| `apt-get update`（拉 Packages 索引） | 21 秒 |
+| 下载 239MB 的 .deb | **268 秒（895 kB/s）** |
+| dpkg 解包 + postinst | ~24 秒 |
+
+**瓶颈是下载，不是解包**。同一个清华镜像，apt 端只有 **555–895 kB/s**，而它的 PyPI 端有 13–18 MB/s。
+LibreOffice 单独就拖入约 190 个传递依赖（239MB），所以这里是纯粹的重复下载浪费。
+
+### 实现
+
+**新增 `scripts/apt_packages_bundle.sh`**：`fetch` / `pack` / `save` / `list` / `verify` / `packages`。
+- 包列表**从 Dockerfile 的 `apt-get install` 块自动解析**，不维护第二份清单——
+  在 Dockerfile 里加包后重跑 `save` 即可。解析需滤掉 `rm`/`else`/`echo` 这类 shell 关键字（已加白名单）。
+- 离线安装用两步：`apt-get install --download-only` 抓 .deb，再 `--no-download` 从本地装。
+- **bundle 必须同时携带 apt 索引**：`--no-download` 仍需要 Packages 索引把包名映射到版本。
+- 支持多服务（`document-parser` / `chat-api`），各自 bundle 落在各自构建上下文。
+
+**过程中踩到两个坑，都已记录在脚本注释里**：
+1. Debian 镜像自带 `/etc/apt/apt.conf.d/docker-clean`，其中的 `DPkg::Post-Invoke` 钩子会
+   **在每次 apt 操作后删除 `/var/cache/apt/archives/*.deb`**。服务 Dockerfile 原有的
+   `rm -f /etc/apt/apt.conf.d/docker-clean` 正是为绕开它；抓取时也必须先删，否则 .deb 抓不到。
+2. 验证"离线"时若去改 `sources.list`，会**改变索引身份**导致 apt 报
+   `Unable to locate package`（即使 .deb 和索引都在）。正确的离线验证是保持 sources 不变、只用 `--no-download`。
+
+**两个 Dockerfile**（`services/document-parser`、`services/chat-api`）：apt 层改为
+`COPY apt-packages-bundle.tar.gz` → 解包 → 按 `${TARGETARCH}` 选目录 → 命中则 `--no-download` 离线装，
+占位符或架构目录缺失时自动回退联网。新增 `ARG APT_OFFLINE_INSTALL=true`。
+
+**`.gitignore`**：忽略两个真实 bundle；占位符按既有约定以 **29 字节**空 tar `git add -f` 入库
+（与 docling / playwright / pip-wheels 四个 bundle 契约一致）。
+
+### 实测结果
+
+| 层 | 改造前 | 改造后 |
+|---|---|---|
+| apt 层（document-parser，382 .deb 离线装） | 315.2s | **53.8s**（−83%） |
+| apt 层（chat-api，52 .deb） | — | **9.4s** |
+| document-parser 整机构建 | 9 分 10 秒 | **6 分 01 秒** |
+
+- 离线路径确认：日志出现 `Installing apt packages offline for arm64 (382 deb files)`，
+  后续无任何 .deb 下载。
+- **回退路径回归验证**：临时替换为占位符后重建，日志正确输出
+  `Skip offline apt bundle (placeholder ...); using the network` 且构建成功——CI 安全性确认。
+- 镜像功能验证：`curl` / `libGL.so.1` / `libglib-2.0` / `libgomp1` 均在；
+  fontconfig 40 项、CJK 字体 33 项；**LibreOffice 7.4.7 真实转换冒烟通过**（txt → PDF 成功生成 8314 字节）。
+- chat-api 镜像同样离线装成功。
+
+### 缓存体积
+
+`base-images/apt/`：document-parser 246.8 MiB(arm64) + 261.7 MiB(amd64)，
+chat-api 41.2 + 41.5 MiB。bundle 分别为 499MB 与 74MB（均 git 忽略，仅本地构建上下文）。
+
+**改动文件**：`scripts/apt_packages_bundle.sh`（新增）、`services/document-parser/Dockerfile`、
+`services/chat-api/Dockerfile`、`.gitignore`、
+两个 `apt-packages-bundle.tar.gz`（各 29B 占位符，`git add -f`）。

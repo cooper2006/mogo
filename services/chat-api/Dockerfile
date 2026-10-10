@@ -33,11 +33,60 @@ RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \
         done; \
     fi
 
+# Offline apt package bundle (see scripts/apt_packages_bundle.sh).
+#
+# The apt mirror serves .deb at ~555-895 kB/s here, far below the same mirror's
+# PyPI endpoint, so a rebuild re-downloading these is pure waste. The bundle
+# carries the .deb files plus the apt index, because `--no-download` still needs
+# the index to map names to versions.
+#
+# Same contract as the docling / playwright / pip bundles: git ships a <1KB
+# empty-tar placeholder (tracked via git add -f) so COPY never fails, and
+# `save` overwrites it in place. The RUN sizes it to decide offline vs network.
+COPY apt-packages-bundle.tar.gz /tmp/apt-packages-bundle.tar.gz
+
+ARG APT_OFFLINE_INSTALL=true
 ARG INSTALL_SYSTEM_DEPS_AT_BUILD=false
-RUN if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" = "true" ]; then \
-        unset XZ_DEFAULTS XZ_OPT \
-        && rm -f /etc/apt/apt.conf.d/docker-clean \
-        && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+RUN set -eux; \
+    if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" != "true" ]; then \
+        echo "Skip apt system dependencies in build stage (INSTALL_SYSTEM_DEPS_AT_BUILD=false)"; \
+        rm -f /tmp/apt-packages-bundle.tar.gz; \
+        exit 0; \
+    fi; \
+    unset XZ_DEFAULTS XZ_OPT; \
+    rm -f /etc/apt/apt.conf.d/docker-clean; \
+    apt_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    offline=false; \
+    if [ "${APT_OFFLINE_INSTALL}" = "true" ] \
+        && [ "$(du -sb /tmp/apt-packages-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
+        mkdir -p /tmp/apt-offline \
+        && tar -xzf /tmp/apt-packages-bundle.tar.gz -C /tmp/apt-offline \
+        && if [ -d "/tmp/apt-offline/${apt_arch}" ]; then \
+               offline=true; \
+               echo "Installing apt packages offline for ${apt_arch} ($(find /tmp/apt-offline/${apt_arch} -name '*.deb' | wc -l) deb files)"; \
+               cp /tmp/apt-offline/${apt_arch}/*.deb /var/cache/apt/archives/ 2>/dev/null || true; \
+               if [ -d "/tmp/apt-offline/${apt_arch}/Packages" ]; then \
+                   cp /tmp/apt-offline/${apt_arch}/Packages/* /var/lib/apt/lists/ 2>/dev/null || true; \
+               fi; \
+           else \
+               echo "Bundle has no ${apt_arch}/ directory; falling back to the network."; \
+           fi; \
+    else \
+        echo "Skip offline apt bundle (placeholder or APT_OFFLINE_INSTALL=false); using the network."; \
+    fi; \
+    rm -f /tmp/apt-packages-bundle.tar.gz; \
+    if [ "${offline}" = "true" ]; then \
+        apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update >/dev/null 2>&1 || true; \
+        apt-get install -y --no-install-recommends --no-download \
+            ca-certificates \
+            curl \
+            wget \
+            unzip \
+            fontconfig \
+            fonts-wqy-zenhei \
+            fonts-noto-color-emoji; \
+    else \
+        apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
         && apt-get install -y --no-install-recommends \
             ca-certificates \
             curl \
@@ -45,11 +94,9 @@ RUN if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" = "true" ]; then \
             unzip \
             fontconfig \
             fonts-wqy-zenhei \
-            fonts-noto-color-emoji \
-        && rm -rf /var/lib/apt/lists/*; \
-    else \
-        echo "Skip apt system dependencies in build stage (INSTALL_SYSTEM_DEPS_AT_BUILD=false)"; \
-    fi
+            fonts-noto-color-emoji; \
+    fi; \
+    rm -rf /var/lib/apt/lists/* /tmp/apt-offline
 
 COPY requirements.txt /tmp/requirements.txt
 
