@@ -15,8 +15,8 @@ class _Store:
 
 
 class _Policy:
-    def filter_candidates(self, items, *, main_id, user_id):
-        assert main_id == "tenant"
+    def filter_candidates(self, items, *, tenant_id, user_id):
+        assert tenant_id == "tenant"
         assert user_id == "user"
         return [item for item in items if int(item["documentId"].split("-")[1]) >= 70]
 
@@ -29,7 +29,7 @@ def test_expands_tenant_recall_when_authorized_results_are_too_sparse(monkeypatc
         store=store,
         query_vector=[0.1],
         query="query",
-        main_id="tenant",
+        tenant_id="tenant",
         user_id="user",
         knowledge_base_id="",
         mode="vector",

@@ -42,18 +42,18 @@ def _items(*document_ids):
 def test_allows_existing_admin_knowledge_and_owned_personal_knowledge(monkeypatch):
     db = _Db(
         documents=[
-            {"_id": "org", "main_id": "tenant", "scope": "organization", "name": "员工手册", "deleted_at": None},
-            {"_id": "legacy", "main_id": "tenant", "original_filename": "legacy.pdf", "deleted_at": None},
-            {"_id": "personal", "main_id": "tenant", "scope": "personal", "name": "项目笔记", "resource_id": "resource", "owner_user_id": "owner", "deleted_at": None},
+            {"_id": "org", "tenant_id": "tenant", "scope": "organization", "name": "员工手册", "deleted_at": None},
+            {"_id": "legacy", "tenant_id": "tenant", "original_filename": "legacy.pdf", "deleted_at": None},
+            {"_id": "personal", "tenant_id": "tenant", "scope": "personal", "name": "项目笔记", "resource_id": "resource", "owner_user_id": "owner", "deleted_at": None},
         ],
         resources=[
-            {"_id": "resource", "main_id": "tenant", "owner_user_id": "owner", "deleted_at": None},
+            {"_id": "resource", "tenant_id": "tenant", "owner_user_id": "owner", "deleted_at": None},
         ],
     )
     monkeypatch.setattr(policy_module, "get_db", lambda: db)
 
     result = OpenSourceKnowledgeRetrievalAccessPolicy().filter_candidates(
-        _items("org", "legacy", "personal"), main_id="tenant", user_id="owner",
+        _items("org", "legacy", "personal"), tenant_id="tenant", user_id="owner",
     )
 
     assert [item["documentId"] for item in result] == ["org", "legacy", "personal"]
@@ -72,33 +72,33 @@ def test_allows_existing_admin_knowledge_and_owned_personal_knowledge(monkeypatc
 
 def test_allows_active_share_but_rejects_revoked_share_and_outsider(monkeypatch):
     documents = [
-        {"_id": "personal", "main_id": "tenant", "scope": "personal", "resource_id": "resource", "owner_user_id": "owner", "deleted_at": None},
+        {"_id": "personal", "tenant_id": "tenant", "scope": "personal", "resource_id": "resource", "owner_user_id": "owner", "deleted_at": None},
     ]
     resources = [
-        {"_id": "resource", "main_id": "tenant", "owner_user_id": "owner", "deleted_at": None},
+        {"_id": "resource", "tenant_id": "tenant", "owner_user_id": "owner", "deleted_at": None},
     ]
     grants = [
-        {"main_id": "tenant", "resource_type": "personal_knowledge", "resource_id": "resource", "recipient_user_id": "shared", "status": "active"},
-        {"main_id": "tenant", "resource_type": "personal_knowledge", "resource_id": "resource", "recipient_user_id": "revoked", "status": "revoked"},
+        {"tenant_id": "tenant", "resource_type": "personal_knowledge", "resource_id": "resource", "recipient_user_id": "shared", "status": "active"},
+        {"tenant_id": "tenant", "resource_type": "personal_knowledge", "resource_id": "resource", "recipient_user_id": "revoked", "status": "revoked"},
     ]
     monkeypatch.setattr(policy_module, "get_db", lambda: _Db(
         documents=documents, resources=resources, grants=grants,
     ))
     policy = OpenSourceKnowledgeRetrievalAccessPolicy()
 
-    assert policy.filter_candidates(_items("personal"), main_id="tenant", user_id="shared")
-    assert not policy.filter_candidates(_items("personal"), main_id="tenant", user_id="revoked")
-    assert not policy.filter_candidates(_items("personal"), main_id="tenant", user_id="outsider")
+    assert policy.filter_candidates(_items("personal"), tenant_id="tenant", user_id="shared")
+    assert not policy.filter_candidates(_items("personal"), tenant_id="tenant", user_id="revoked")
+    assert not policy.filter_candidates(_items("personal"), tenant_id="tenant", user_id="outsider")
 
 
 def test_anonymous_retrieval_never_returns_personal_knowledge(monkeypatch):
     monkeypatch.setattr(policy_module, "get_db", lambda: _Db(documents=[
-        {"_id": "org", "main_id": "tenant", "scope": "organization", "deleted_at": None},
-        {"_id": "personal", "main_id": "tenant", "scope": "personal", "resource_id": "resource", "deleted_at": None},
+        {"_id": "org", "tenant_id": "tenant", "scope": "organization", "deleted_at": None},
+        {"_id": "personal", "tenant_id": "tenant", "scope": "personal", "resource_id": "resource", "deleted_at": None},
     ]))
 
     result = OpenSourceKnowledgeRetrievalAccessPolicy().filter_candidates(
-        _items("org", "personal"), main_id="tenant", user_id="",
+        _items("org", "personal"), tenant_id="tenant", user_id="",
     )
 
     assert [item["documentId"] for item in result] == ["org"]

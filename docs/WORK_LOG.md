@@ -8079,3 +8079,20 @@ bash 脚本），故以 diff 内容为准。
 **新 verdict**：`ready`（可交付，无未关闭缺陷）。pass 583 / partial 65 / fixed 1 / na 3 / fail 0。P0/P1 open 0，progress 0.9985。报告 `.qualityforge/QUALITYFORGE-REPORT.md` 已补审计师说明。
 
 **改动文件**：`services/chat-api/tests/benchmarks/*.py`（3，bench_ 前缀，pytest 默认不收集不污染 CI）+ `docs/resilience-chaos-plan.md` + `docs/WORK_LOG.md` + `.qualityforge/audit.json`/报告。
+
+---
+
+## 2026-10-10 续三：document-parser 本地测试闭环
+
+**环境**：ServBay Python 3.12 建 venv（`services/document-parser/.venv312/`，gitignore 忽略）。装 `requirements.txt`（不含 docling 重模型，docling 在独立 requirements-docling.txt，测试用 mock 不依赖真模型）+ pytest 系列。MongoDB(127.0.0.1:27017) 实跑。
+
+**实测**：初始 18 passed / 4 FAILED（全因 tenant_id 迁移测试同步漏改）：
+- `test_retrieval_authorized_candidates.py` / `test_retrieval_scope.py` 调用业务 `_search_authorized_candidates()` / `OpenSourceKnowledgeRetrievalAccessPolicy.filter_candidates()` 时仍传 `main_id=` 关键字参数（业务已改 `tenant_id=`）。
+- 测试内部 fake `_Policy.filter_candidates` 签名参数为 `main_id`（应为 `tenant_id`）。
+- 测试构造的 mock 文档数据字段 `"main_id":` 应为 `"tenant_id":`。
+
+修复后 **22 passed / 0 failed**。无业务实现改动，纯测试同步。
+
+**三服务测试全绿闭环**：admin-api 0 失败、chat-api 2254 passed、document-parser 22 passed。data-schema/data-integrity/data-quality/fault-tolerance/recovery 域的 pass 证据现覆盖全部三个 Python 服务。
+
+**改动文件**：`services/document-parser/tests/test_retrieval_authorized_candidates.py`、`services/document-parser/tests/test_retrieval_scope.py`、`docs/WORK_LOG.md`。
