@@ -7896,3 +7896,69 @@ node:24-bookworm-slim、nginx:1.31.5-alpine3.24-slim）统一为**裸名**，
 
 **改动文件**：`scripts/playwright_browsers_bundle.sh`、`services/chat-api/Dockerfile`、
 `docs/WORK_LOG.md`。playwright 缓存与 bundle 未跟踪，不入库。
+
+---
+
+## 2026-10-10 构建优化：离线 bundle 管线 + 发布前检查 + web/runtime-host 缓存挂载
+
+**起因**：完整 amd64 生产构建（上一条目）跑通后，把构建管线本身做薄、做稳——
+把「每次重建都重新联网拉取」的环节改为复用缓存，并在发布脚本里把此前踩到的
+坑（占位符误判、playwright 架构错配）显式拦下来。本条目补齐上一条目**未记录**的
+四块改动（playwright/Dockerfile 那条已在上面记过）。
+
+**改动一 · web 与 runtime-host 的包管理器缓存挂载（BuildKit cache mount）**
+- `apps/admin-web/Dockerfile`：`npm ci --legacy-peer-deps` 包进
+  `--mount=type=cache,target=/root/.npm,sharing=locked`。npm 缓存是挂载层而非
+  镜像层，故它能**跨 package.json 变更存活**（package.json 变更会令该层失效，
+  但挂载缓存不受影响），重建时直接复用 tarball 而非重下。该依赖树实测约 7 分钟
+  （npmmirror）。
+- `apps/admin-web/package.json`：`build` 脚本由 `vue-tsc --noEmit && vite build`
+  改为纯 `vite build`；类型检查拆到独立 `typecheck` 脚本，由 CI 的
+  `quality-gate.yml` 跑。镜像构建里去掉约 12 分钟 / 次的 vue-tsc（已通过的检查不必
+  每镜像重建都重跑）。
+- `apps/user-web/Dockerfile.prod`：同 admin-web，给 `npm ci` 加 npm 缓存挂载。
+- `services/chat-api/dsh/runtime-host/Dockerfile`：`pnpm install --frozen-lockfile --prod`
+  包进 `--mount=type=cache,target=/pnpm-store,sharing=locked`，先 `pnpm config set
+  store-dir /pnpm-store`。pnpm store 挂载后跨 lockfile 变更复用，省掉约 6 分钟安装。
+
+**改动二 · chat-api 的 apt 安装统一走 bundle + playwright 系统库去重**
+（与上一条目的 playwright 修复同属一次构建改造，这里补全脚本侧）
+- `services/chat-api/Dockerfile`：抽出 `apt_install()` 助手，离线时 `--no-download`、
+  在线时正常装，避免包名列表在两条分支里漂移。
+- playwright 的 ~32 个系统库**改由 apt bundle 步骤安装**，不再每次重建都跑
+  `playwright install-deps chromium`（慢镜实测约 11 分钟、且慢镜 hiccup 会失败）。
+  这些库已被 `scripts/apt_packages_bundle.sh` 从 playwright 自身的 install-deps 声明里
+  采集进 bundle；`INSTALL_SYSTEM_DEPS_AT_BUILD=true` 时跳过 `install-deps`。
+
+**改动三 · `scripts/apt_packages_bundle.sh`：解析两种形态 + 自包含 + 架构感知**
+- 新增 `host_debian_arch()`，尊重 `DOCKER_DEFAULT_PLATFORM`（生产传
+  `linux/amd64`），发现容器用目标架构跑。
+- `packages_for` 现识别两种形态：行内 `apt-get install …` 列表，以及 Dockerfile 用的
+  `apt_install pkg-a pkg-b …` 助手调用（`"$@"` 定义内的字面量自然跳过）。
+- `fetch_one` 去重保序；`apt-get install --download-only` 加 `--reinstall`——
+  基础镜像已带的包（ca-certificates、fontconfig 带的 fonts-dejavu-core）普通
+  `--download-only` 会跳过，导致离线安装 `Unable to fetch some archives`；`--reinstall`
+  让 bundle 自包含。
+
+**改动四 · `deploy/production/prepare-release.sh`：发布前 bundle 检查**
+- 新增 `check_build_bundles()`：逐个核对 8 个 bundle 是否存在、是否仍是 <1KB 占位符
+  （缺失 → 直接 die 并给出补齐命令；占位符 → warn + 列出 `scripts/*_bundle.sh save`
+  命令 + 要求显式 `MOGO_ALLOW_ONLINE_BUILD=1` 才允许联网兜底）。
+- **提前拦 playwright 架构错配**：读 bundle 里 chromium 的 ELF `e_machine`，
+  非 amd64 直接 die（这正是上一条目修掉的「arm64 chromium 进 amd64 镜像 ENOENT」坑，
+  之前只查了「是否存在/是否占位符」没查架构）。
+- 同步重写了脚本头部的「两段逻辑分工 / 构建前置条件 / 已知耗时」注释。
+
+**关于 bundle 入库的关键纪律**：7 个 `*-bundle.tar.gz` 在 git 里是 `<1KB` 占位符
+（`.gitignore` 约定「只跟踪占位符、真实 bundle 不入库」，但曾被 `git add -f` 成
+tracked）。本轮回滚这 7 个文件到 HEAD 占位符，**避免约 2.9GB 真实 bundle 进仓库**。
+提交只含代码/配置改动 + `docs/intro-v4.pptx`（18 页终版，HEAD 为 17 页）+ 本 WORK_LOG。
+
+**验证**：`bash -n deploy/production/prepare-release.sh` 与 `scripts/apt_packages_bundle.sh`
+均通过解析；bundle 还原后 `wc -c` 全部 ≤104 字节（占位符口径）。
+
+**改动文件**：`apps/admin-web/Dockerfile`、`apps/admin-web/package.json`、
+`apps/user-web/Dockerfile.prod`、`services/chat-api/dsh/runtime-host/Dockerfile`、
+`services/chat-api/Dockerfile`、`scripts/apt_packages_bundle.sh`、
+`deploy/production/prepare-release.sh`、`docs/intro-v4.pptx`、`docs/WORK_LOG.md`。
+7 个 bundle 还原为 HEAD 占位符，不入库。

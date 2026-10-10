@@ -7,7 +7,10 @@ ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
 ENV VITE_ADMIN_WEB_URL=$VITE_ADMIN_WEB_URL
 
 COPY package*.json ./
-RUN if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_REGISTRY}"; fi \
+# npm cache as a BuildKit cache mount: it outlives package.json changes (which
+# invalidate this layer), so a rebuild reuses tarballs instead of re-fetching.
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_REGISTRY}"; fi \
     && npm ci
 
 COPY . .

@@ -9,10 +9,19 @@ ENV VITE_BASE_PATH=${VITE_BASE_PATH} \
     VITE_ADMIN_API_BASE_URL=${VITE_ADMIN_API_BASE_URL}
 
 COPY package*.json ./
-RUN if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_REGISTRY}"; fi \
+# npm's cache is a BuildKit cache mount rather than a layer: it survives a
+# change to package.json (which invalidates this layer) so a rebuild reuses the
+# tarballs instead of re-downloading them. This dependency tree measured ~7
+# minutes against npmmirror.
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_REGISTRY}"; fi \
     && npm ci --legacy-peer-deps
 
 COPY . .
+# `build` is plain `vite build`; type checking lives in the separate
+# `typecheck` script, which CI runs (quality-gate.yml). Keeping it out of the
+# image build avoids ~12 minutes of vue-tsc per build for a check that has
+# already passed.
 RUN npm run build
 
 FROM nginx:1.31.5-alpine3.24-slim

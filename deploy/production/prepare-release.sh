@@ -15,6 +15,28 @@
 #                      （也可用环境变量 MOGO_BASE_IMAGE_MIRROR 指定）
 #   -h, --help         显示帮助
 #
+# 环境变量：
+#   MOGO_ALLOW_ONLINE_BUILD=1   允许在构建 bundle 仍是占位符时继续（会回退联网，慢）
+#
+# 两段逻辑的分工（改动时请保持）：
+#
+#   ① 构建镜像（第 5 步）：用 Dockerfile 里的**离线 bundle** 逻辑。
+#      各 Dockerfile 的 apt / pip / Docling 模型 / Playwright 浏览器步骤都优先
+#      从构建上下文里的 *-bundle.tar.gz 安装，缺失时才回退联网。bundle 由
+#      scripts/*_bundle.sh 生成（git 里只是 <1KB 占位符），见下方「构建前置条件」。
+#
+#   ② 导出镜像到 prod-images（第 7-8 步）：保持**原有的 buildx staging 逻辑**。
+#      把基础镜像（alpine / mongo / redis / weaviate）经镜像站拉成 amd64 并打上
+#      mogo-staging/<name>:amd64 标签，再由 merge_images.py 合并成 01-base.tar。
+#      这一步是纯粹的「导出适配」，与构建缓存无关，不要改成 bundle 逻辑。
+#
+# 构建前置条件（第 5 步会检查，缺失时给出补齐命令并中止）：
+#   scripts/apt_packages_bundle.sh save        # apt 系统依赖（3 个服务）
+#   scripts/pip_wheels_bundle.sh save          # pip wheel（3 个服务）
+#   scripts/docling_models_bundle.sh save      # Docling 模型
+#   ARCH=amd64 scripts/playwright_browsers_bundle.sh fetch
+#                                              # Playwright 浏览器（架构须为 amd64）
+#
 # 产出（<out>/）：
 #   01-base.tar                   运行时基础镜像 alpine / mongo / redis / weaviate
 #   02-app-small.tar              小体积应用镜像
@@ -24,7 +46,11 @@
 #   DEPLOY.md                     自包含的部署单（含实测体积与 sha256）
 #   bundle.json                   发布包元数据（版本号 / commit / 校验结果）
 #
-# 已知耗时：应用镜像的交叉构建实测 1 小时以上，瓶颈是外网带宽。建议后台跑：
+# 已知耗时：应用镜像的交叉构建。Dockerfile 走的是离线 bundle 路径
+# （scripts/{pip_wheels,apt_packages,docling_models,playwright_browsers}_bundle.sh
+# 生成的构建上下文 tar.gz），实测约 9 分钟。bundle 缺失或只是 git 占位符时
+# Dockerfile 会回退联网，构建会慢很多且结果不确定，因此第 5 步有前置检查。
+# 仍建议后台跑：
 #   nohup ./prepare-release.sh > /tmp/prepare-release.log 2>&1 &
 
 set -euo pipefail
@@ -174,10 +200,98 @@ printf '%s' "$BASE_IMAGES" | sed 's/^/      /'
 
 # ------------------------------------------------------------ 5. 构建应用镜像
 say "5/9 交叉构建应用镜像"
+
+# 构建走的是 Dockerfile 的离线 bundle 路径。bundle 在 git 里只是 <1KB 占位符，
+# 真实内容由 scripts/*_bundle.sh 在本地生成；缺失时 Dockerfile 会静默回退联网，
+# 结果仍能构建成功、只是慢很多，因此这里显式检查并把「怎么补」讲清楚。
+#
+# 顺序与每个 bundle 的生成脚本对齐；同名 bundle 出现在多个服务下时逐个说明。
+check_build_bundles() {
+  local missing=0 placeholder=0 f size
+  local -a fixes=()
+
+  check_bundle() {
+    local path="$1" fix="$2" label="$3"
+    [ -f "$path" ] || { missing=$((missing + 1)); fixes+=("$fix"); printf '  ! 缺失     %s（%s）\n' "$path" "$label" >&2; return; }
+    size=$(wc -c < "$path" | tr -d ' ')
+    if [ "$size" -le 1024 ]; then
+      placeholder=$((placeholder + 1))
+      fixes+=("$fix")
+      printf '  ! 占位符   %s（%s，%s 字节）\n' "$path" "$label" "$size" >&2
+    else
+      info "OK  $(printf '%-56s' "$path") $((size / 1024 / 1024)) MB"
+    fi
+  }
+
+  check_bundle "services/document-parser/apt-packages-bundle.tar.gz" \
+    "scripts/apt_packages_bundle.sh save" "apt 系统依赖"
+  check_bundle "services/chat-api/apt-packages-bundle.tar.gz" \
+    "scripts/apt_packages_bundle.sh save" "apt 系统依赖"
+  check_bundle "services/chat-api/dsh/runtime-host/apt-packages-bundle.tar.gz" \
+    "scripts/apt_packages_bundle.sh save" "apt 系统依赖"
+  check_bundle "services/document-parser/pip-wheels-bundle.tar.gz" \
+    "scripts/pip_wheels_bundle.sh save" "pip wheel"
+  check_bundle "services/chat-api/pip-wheels-bundle.tar.gz" \
+    "scripts/pip_wheels_bundle.sh save" "pip wheel"
+  check_bundle "services/admin-api/pip-wheels-bundle.tar.gz" \
+    "scripts/pip_wheels_bundle.sh save" "pip wheel"
+  check_bundle "services/document-parser/docling-models-bundle.tar.gz" \
+    "scripts/docling_models_bundle.sh save" "Docling 模型"
+  check_bundle "services/chat-api/playwright-browsers-bundle.tar.gz" \
+    "ARCH=amd64 scripts/playwright_browsers_bundle.sh fetch" "Playwright 浏览器（须为目标架构）"
+
+  if [ "$missing" -gt 0 ]; then
+    die "有 $missing 个构建 bundle 缺失、$placeholder 个仍是占位符，构建会回退联网。先补齐再跑。"
+  fi
+  if [ "$placeholder" -gt 0 ]; then
+    # 不是硬失败：联网路径是正确的兜底，只是慢。但这通常意味着 bundle 从没生成过，
+    # 而这是个离线发布流程，值得让操作者明确确认。
+    warn "有 $placeholder 个构建 bundle 仍是占位符，构建将回退联网（慢且不确定）。"
+    # shellcheck disable=SC2086
+    printf '      补齐命令：\n' >&2
+    printf '%s\n' "${fixes[@]}" | sort -u | while IFS= read -r fix; do
+      [ -n "$fix" ] || continue
+      printf '        %s\n' "$fix" >&2
+    done
+    if [ "${MOGO_ALLOW_ONLINE_BUILD:-0}" != "1" ]; then
+      die "如需接受联网构建，请显式设置 MOGO_ALLOW_ONLINE_BUILD=1 后重跑。"
+    fi
+    warn "MOGO_ALLOW_ONLINE_BUILD=1，继续联网构建"
+  fi
+
+  # Playwright 的浏览器是编译产物，架构必须与目标镜像一致。bundle 存在但
+  # 架构不对时，构建期会失败（Dockerfile 已改为硬失败），这里提前拦下来，
+  # 省掉一次十几分钟的构建。
+  local pw_bundle="services/chat-api/playwright-browsers-bundle.tar.gz"
+  if [ -f "$pw_bundle" ] && [ "$(wc -c < "$pw_bundle" | tr -d ' ')" -gt 1024 ]; then
+    local pw_arch
+    pw_arch=$("$PY" - "$pw_bundle" <<'PY'
+import struct, sys, tarfile
+want = ('chrome-linux/headless_shell', 'chrome-linux/chrome')
+with tarfile.open(sys.argv[1]) as tf:
+    for member in tf.getmembers():
+        if member.isfile() and member.name.endswith(want):
+            head = tf.extractfile(member).read(20)
+            machine = struct.unpack('<H', head[18:20])[0]
+            print({0x3e: 'amd64', 0xb7: 'arm64'}.get(machine, 'unknown'))
+            break
+    else:
+        print('missing')
+PY
+)
+    if [ "$pw_arch" != "amd64" ]; then
+      die "Playwright bundle 的 chromium 是 ${pw_arch}，但生产镜像是 amd64（构建期会失败）。
+      重新生成：ARCH=amd64 scripts/playwright_browsers_bundle.sh fetch"
+    fi
+    info "OK  Playwright bundle 架构：amd64"
+  fi
+}
+
 if [ "$SKIP_BUILD" = "1" ]; then
   info "跳过（--skip-build）"
 else
-  info "耗时较长（实测 1 小时以上），瓶颈是外网带宽；下面会实时输出构建日志"
+  check_build_bundles
+  info "开始构建（离线 bundle 命中时约 9 分钟）；下面实时输出构建日志"
   ( cd "$ROOT_DIR" && docker compose -f docker-compose.yml -f docker-compose.build.yml build )
 fi
 

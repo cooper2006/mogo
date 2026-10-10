@@ -17,7 +17,13 @@ RUN if [ -n "${MOVO_NPM_REGISTRY}" ]; then npm config set registry "${MOVO_NPM_R
     && npm install --global pnpm@10.34.4
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+# The pnpm store is mounted so it outlives lockfile changes (which invalidate
+# this layer) and is reused across builds. This install measured ~6 minutes;
+# note that `npm config set registry` above does reach pnpm (it reads the same
+# user-level .npmrc), so the registry itself is already domestic.
+RUN --mount=type=cache,target=/pnpm-store,sharing=locked \
+    pnpm config set store-dir /pnpm-store \
+    && pnpm install --frozen-lockfile --prod
 RUN node -e "const declared=require('./package.json').dependencies['@deepseek-ai/dsh']; const installed=require('@deepseek-ai/dsh/package.json').version; if (declared !== installed) throw new Error('DSH version mismatch: declared='+declared+' installed='+installed); console.log('DSH Runtime installed version: '+installed)"
 
 FROM ${BASE_IMAGE}

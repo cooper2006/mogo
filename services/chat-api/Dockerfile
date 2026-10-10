@@ -77,24 +77,57 @@ RUN set -eux; \
     rm -f /tmp/apt-packages-bundle.tar.gz; \
     if [ "${offline}" = "true" ]; then \
         apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update >/dev/null 2>&1 || true; \
-        apt-get install -y --no-install-recommends --no-download \
-            ca-certificates \
-            curl \
-            wget \
-            unzip \
-            fontconfig \
-            fonts-wqy-zenhei \
-            fonts-noto-color-emoji; \
     else \
-        apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
-        && apt-get install -y --no-install-recommends \
-            ca-certificates \
-            curl \
-            wget \
-            unzip \
-            fontconfig \
-            fonts-wqy-zenhei \
-            fonts-noto-color-emoji; \
+        apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update; \
+    fi; \
+    apt_install() { \
+        if [ "${offline}" = "true" ]; then \
+            apt-get install -y --no-install-recommends --no-download "$@"; \
+        else \
+            apt-get install -y --no-install-recommends "$@"; \
+        fi; \
+    }; \
+    apt_install \
+        ca-certificates \
+        curl \
+        wget \
+        unzip \
+        fontconfig \
+        fonts-wqy-zenhei \
+        fonts-noto-color-emoji; \
+    if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" = "true" ]; then \
+        echo "Installing chromium system libraries (playwright install-deps set) from the apt bundle"; \
+        apt_install \
+            libasound2 \
+            libatk-bridge2.0-0 \
+            libatk1.0-0 \
+            libatspi2.0-0 \
+            libcairo2 \
+            libcups2 \
+            libdbus-1-3 \
+            libdrm2 \
+            libgbm1 \
+            libglib2.0-0 \
+            libnspr4 \
+            libnss3 \
+            libpango-1.0-0 \
+            libx11-6 \
+            libxcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxext6 \
+            libxfixes3 \
+            libxkbcommon0 \
+            libxrandr2 \
+            xvfb \
+            fonts-unifont \
+            libfontconfig1 \
+            libfreetype6 \
+            xfonts-scalable \
+            fonts-liberation \
+            fonts-ipafont-gothic \
+            fonts-tlwg-loma-otf \
+            fonts-freefont-ttf; \
     fi; \
     rm -rf /var/lib/apt/lists/* /tmp/apt-offline
 
@@ -175,9 +208,20 @@ RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" != "true" ]; then \
                 PLAYWRIGHT_SKIP_BROWSER_GC=1 playwright install chromium; \
             fi; \
         fi; \
-        if [ "${PLAYWRIGHT_WITH_DEPS}" = "true" ] && [ "${bundle_bytes}" -gt 1024 ]; then \
-            playwright install-deps chromium \
-            || echo "WARNING: playwright install-deps failed (apt mirror unreachable); continuing with browsers only"; \
+        # `playwright install-deps chromium` installs ~32 system packages
+        # unconditionally, even when the browser came from the offline bundle:
+        # measured at ~11 minutes against a slow apt mirror, on every rebuild.
+        # Those same packages are already in the apt bundle and were installed
+        # by the apt step above (scripts/apt_packages_bundle.sh discovers them
+        # from playwright's own install-deps declaration), so re-running it is
+        # pure waste. Skipped only when that step actually ran.
+        if [ "${PLAYWRIGHT_WITH_DEPS}" = "true" ]; then \
+            if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" = "true" ]; then \
+                echo "Skipping 'playwright install-deps': the apt bundle step already installed chromium's system libraries from the local .deb set."; \
+            else \
+                playwright install-deps chromium \
+                || echo "WARNING: playwright install-deps failed (apt mirror unreachable); continuing with browsers only"; \
+            fi; \
         fi; \
         rm -f /tmp/playwright-browsers-bundle.tar.gz; \
         ls -d "${PLAYWRIGHT_BROWSERS_PATH}"/chromium*-* >/dev/null 2>&1 \

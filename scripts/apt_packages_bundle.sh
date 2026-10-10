@@ -154,6 +154,18 @@ debian_arch() {
   esac
 }
 
+# The architecture the runtime images are built for. Production builds pass
+# DOCKER_DEFAULT_PLATFORM=linux/amd64, so honour it: the deb dependency set is
+# the same across architectures but the discovery container must be able to run.
+host_debian_arch() {
+  local platform="${DOCKER_DEFAULT_PLATFORM:-}"
+  case "${platform}" in
+    *amd64*) printf 'amd64'; return ;;
+    *arm64*) printf 'arm64'; return ;;
+  esac
+  "${DOCKER_BIN}" version --format '{{.Server.Arch}}' 2>/dev/null || printf 'amd64'
+}
+
 bundle_path_for() {
   printf '%s/apt-packages-bundle.tar.gz' "$(context_dir_for "$1")"
 }
@@ -175,59 +187,62 @@ import re, sys
 
 lines = open(sys.argv[1]).read().splitlines()
 
-# Shell keywords and builtins that can appear in the surrounding RUN body. The
-# install list is terminated by the first line that does not end in a
-# backslash, so these should never be reached — but a Dockerfile that puts the
-# package list inline (no continuation) would otherwise leak them in.
+# Two shapes are recognised:
+#
+#   apt-get install -y --no-install-recommends pkg-a pkg-b ...   (inline)
+#   apt_install pkg-a pkg-b ...                                   (helper call)
+#
+# The helper form is what the Dockerfiles use once the package set grows: it
+# keeps one install path for the offline (`--no-download`) and online branches,
+# so the list cannot drift between them. `"$@"` inside the helper *definition*
+# is skipped naturally, because it is a single quoted token and not a name.
+NAME = re.compile(r'^[a-z0-9][a-z0-9.+-]*$')
 SHELL_WORDS = {
     'rm', 'echo', 'else', 'fi', 'then', 'if', 'for', 'do', 'done', 'set',
     'unset', 'export', 'cd', 'cp', 'mv', 'true', 'false', 'apt', 'apt-get',
     'install', 'system', 'dependencies', 'build', 'stage', 'in', 'skip',
+    'apt_install', 'no', 'download', 'recommends',
 }
 
 pkgs = []
-in_block = False
+collecting = False
 for raw in lines:
     line = raw.rstrip()
-    if not in_block:
+    if not collecting:
+        stripped = line.strip()
         if 'apt-get install' in line:
-            in_block = True
             line = line.split('apt-get install', 1)[1]
+        elif re.match(r'^apt_install\b', stripped):
+            line = re.sub(r'^apt_install\b', '', stripped)
         else:
             continue
+        collecting = True
 
-    # A line ending in "\" continues the block; the install list ends at the
-    # first line that does not. A line that also carries a ";" terminates the
-    # statement outright (e.g. "libreoffice-impress; \"), so the block stops
-    # there and does not run on into the next branch of the if/else.
     continues = line.rstrip().endswith('\\')
     body = line.rstrip().rstrip('\\').strip()
-    terminated =';' in body
+    terminated = ';' in body
 
     # Everything after a shell operator is not a package name.
     body = re.split(r'&&|\|\||;', body)[0]
 
     for tok in body.split():
-        tok = tok.strip('\\')
-        if not tok or tok.startswith('-'):
+        tok = tok.strip('\\').strip('"')
+        if not tok or tok.startswith('-') or tok.startswith('$'):
             continue
         if tok in SHELL_WORDS:
             continue
-        # Debian package names: lowercase, digits, and . + -
-        if re.fullmatch(r'[a-z0-9][a-z0-9.+-]*', tok):
+        if NAME.match(tok):
             pkgs.append(tok)
 
     if not continues or terminated:
-        break
+        collecting = False
 
 # De-duplicate while preserving order.
 seen = set()
-out = []
-for p in pkgs:
-    if p not in seen:
-        seen.add(p)
-        out.append(p)
-print('\n'.join(out))
+for pkg in pkgs:
+    if pkg not in seen:
+        seen.add(pkg)
+        print(pkg)
 PY
 }
 
@@ -241,6 +256,16 @@ fetch_one() {
     [[ -n "${pkg}" ]] && packages+=("${pkg}")
   done < <(packages_for "${service}")
   [[ "${#packages[@]}" -gt 0 ]] || die "No apt packages parsed from $(dockerfile_for "${service}")"
+
+  # De-duplicate, preserving order.
+  local -a uniq=()
+  local seen="" p
+  for p in "${packages[@]}"; do
+    case " ${seen} " in *" ${p} "*) continue ;; esac
+    seen="${seen} ${p}"
+    uniq+=("${p}")
+  done
+  packages=("${uniq[@]}")
 
   local host_uid host_gid
   host_uid="$(id -u)"
@@ -302,7 +327,15 @@ fetch_one() {
 
       apt-get -o Acquire::Retries=5 update >/dev/null 2>&1
 
-      apt-get install -y --no-install-recommends --download-only $(printf '%s ' "${packages[@]}")
+      # --reinstall matters: the base image already ships some of these
+      # (ca-certificates, fonts-dejavu-core via fontconfig), and plain
+      # --download-only skips anything already installed, so those .deb files
+      # would never reach the cache. The offline install then fails with
+      # "Unable to fetch some archives" because apt resolves the dependency
+      # against the cached index but finds no matching file. Fetching with
+      # --reinstall keeps the bundle self-sufficient.
+      apt-get install -y --no-install-recommends --download-only --reinstall \
+        $(printf '%s ' "${packages[@]}")
 
       # Guard: every .deb must match the requested architecture. The container is
       # the target architecture, so this should always hold; it is checked
