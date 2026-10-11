@@ -347,6 +347,21 @@ git log -S "EXPECTED_MOVO_VOLUMES = 8" -- scripts/check_open_source_hygiene.py
 > 真的按预期执行**。已证明的只有：YAML 可解析、shell 逻辑在等价环境正确、
 > 真有违规时会失败。**最终确认需等下一次 push 后 `version-consistency` job 实跑。**
 
+### O1 加固（code review 后续 2026-10-11）· 提取改为括号深度追踪
+
+code review 指出 `check_fastapi` 原用 `sed -n '/FastAPI(/,/)/p'`，停在**第一个含 `)` 的行**。
+若将来有人在 `version=` 之后加 `middleware=[Depends(...)]` 之类带 `)` 的默认参数，
+范围会提前截断 → 提取为空 → **误报红 CI**（仍 fail-safe，不会放过错误，但会无谓变红）。
+
+**加固**：新增 `extract_fastapi_version()`，用 awk 做**括号深度追踪**——只在 `FastAPI(`
+到其匹配闭合 `)` 之间提取 `version=`，内部嵌套 `(` `)` 不干扰。无关的 `/health`
+`app.version`、DSH kernel 版本等仍不会被误抓。
+
+- [x] O1 加固：awk 深度追踪替代 `sed` 范围；本地验证：在 `version=` 之后插入
+  `middleware=[Depends(...), Auth()]` 含嵌套 `)`，提取仍正确不截断
+- [x] O1 负控：删除 `FastAPI(` 后提取为空 → 判失败（fail-safe）
+- [x] YAML 可解析；抽取 run 块 `bash -n` 语法通过
+
 ### O2（用户拍板后已处置 2026-10-11）· 两处对外版本字面量
 
 **背景**：O1 修复时发现两处版本字面量在 `FastAPI(...)` 块外，新门禁覆盖不到。
@@ -387,13 +402,24 @@ git log -S "EXPECTED_MOVO_VOLUMES = 8" -- scripts/check_open_source_hygiene.py
 - [x] O2 验证：静态门禁三服务全过；CI 版本提取正向模拟三条 `ok`（`app.version` 未干扰 `FastAPI(...)` 块提取）
 - [x] O2 回归：chat-api 全量 **2254 / 0 失败 0 错误**，与基线逐数一致
 
-### 遗留观察（未擅改，需用户另行拍板）
+### O3（已处置 2026-10-11 · code review 后续）· `MCP_CLIENT_VERSION` 纳入 `version-consistency` 门禁
 
-- [ ] **O3 · `/health` 与 `clientInfo` 仍不受门禁保护**：`/health` 现在取 `app.version`，
-  天然随 CI 门禁钉死的值走，不会再漂；但 `MCP_CLIENT_VERSION` 是一个**新常量**，
-  与 `FastAPI(version=)` 仍是两份值，将来仍可能只改一处。是否要在
-  `version-consistency` 门禁里加一条 `MCP_CLIENT_VERSION` 检查（或把它改为从
-  `app.version` 派生），**待用户拍板**。
+**决策**：在 `version-consistency` 门禁中新增 `check_mcp_client_version`，把
+`services/chat-api/app/services/mcp_streamable_http.py` 的 `MCP_CLIENT_VERSION` 常量
+与 CHANGELOG 版本钉死（与 `FastAPI(version=)` 共用同一个 `expected`）。校验数 7→8
+（2 pyproject + 2 package.json + 3 FastAPI + 1 MCP_CLIENT_VERSION）。
+
+**为何选"加门禁检查"而非"从 `app.version` 派生"**：O2 已确认从 `mcp_streamable_http.py`
+反向 `import app.main` 会构成环（该模块被 `external_tools` 导入、而 `external_tools`
+又被 `main.py` 引用）。派生方案需引入延迟导入等 hack，收益仅为消除一份常量值；
+加门禁检查零架构风险，且让 O2 注释里"gate 已钉死"从过度承诺变为事实。
+
+- [x] O3 处置：`check_mcp_client_version` 已加入 `quality-gate.yml`
+- [x] O3 验证：正向本地模拟 4 条 `ok`（FastAPI×3 + MCP×1）
+- [x] O3 负控：`MCP_CLIENT_VERSION` 改坏为 `0.1.0` 被检出 → `NEGATIVE-CONTROL-PASS`
+- [x] `mcp_streamable_http.py` 注释已改为准确表述（gate 现在检查该常量，不再"声称"）
+
+> **诚实边界**：CI 改动仍需下次 push 后 `version-consistency` job 实跑确认。
 
 ### N1 收尾后的最终回归计数
 

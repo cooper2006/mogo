@@ -15,9 +15,17 @@ jobs:
   # `info.version` in /openapi.json — an externally visible contract. QA R7
   # (2026-10-11) found all three services stuck at 0.1.0 while every manifest
   # said 0.2.0: the drift survived precisely because these three files were
-  # outside this gate's view. Extraction is anchored on the FastAPI(...) call
-  # so unrelated `"version"` literals in the same file (/health payload, MCP
-  # clientInfo, DSH kernel versions) are not picked up.
+  # outside this gate's view.
+  #
+  # Two more version literals are checked separately (O3):
+  #   - `MCP_CLIENT_VERSION` in mcp_streamable_http.py — the version MOVO
+  #     advertises as an MCP client in the initialize handshake. It is a
+  #     distinct, named constant (not the MCP protocol version), so it is
+  #     matched by name rather than by the FastAPI extraction below.
+  # The FastAPI extraction is anchored on the FastAPI(...) call and uses
+  # parenthesis-depth tracking, so unrelated `"version"` literals in the same
+  # file (/health payload, DSH kernel versions) are not picked up, and it
+  # survives default args that contain `)` (e.g. middleware=[Depends(...)]).
   version-consistency:
     runs-on: ubuntu-latest
     steps:
@@ -51,9 +59,35 @@ jobs:
           check "services/admin-api/pyproject.toml"    "$(grep -oE '^version = "[^"]+"' services/admin-api/pyproject.toml    | head -1 | grep -oE '[0-9.]+')"
           check "apps/admin-web/package.json"          "$(node -p "require('./apps/admin-web/package.json').version")"
           check "apps/user-web/package.json"           "$(node -p "require('./apps/user-web/package.json').version")"
+          # Extract the version= string passed to the FastAPI(...) call.
+          # Uses parenthesis-depth tracking (not a naive `sed ... , /)/`) so the
+          # extraction survives default args that contain `)` — e.g.
+          # middleware=[Depends(...)] placed after version= — which would
+          # otherwise truncate the range and falsely fail the gate on a future
+          # refactor. Fail-safe: prints nothing if the call or its version
+          # kwarg is missing.
+          extract_fastapi_version() {
+            awk '
+              /FastAPI\(/ { in_call=1; depth=0 }
+              in_call {
+                if (match($0, /version[[:space:]]*=[[:space:]]*"[^"]+"/)) {
+                  s=substr($0, RSTART, RLENGTH)
+                  gsub(/version[[:space:]]*=[[:space:]]*"|"/, "", s)
+                  print s
+                  in_call=0
+                  next
+                }
+                n=split($0, a, "")
+                for (i=1; i<=n; i++) {
+                  if (a[i]=="(") depth++
+                  else if (a[i]==")") { depth--; if (depth<=0) { in_call=0; break } }
+                }
+              }
+            ' "$1"
+          }
           check_fastapi() {
             label="$1"
-            actual="$(sed -n '/FastAPI(/,/)/p' "$label" | grep -oE 'version="[^"]+"' | head -1 | grep -oE '[0-9.]+')"
+            actual="$(extract_fastapi_version "$label")"
             if [ -z "$actual" ]; then
               echo "::error file=$label::could not extract FastAPI(version=...) — is the FastAPI( call still present?"
               failed=1
@@ -64,9 +98,26 @@ jobs:
               echo "ok  $label (FastAPI version=$actual)"
             fi
           }
+          # O3: the version MOVO advertises as an MCP client must track the
+          # release version too. It is a plain module-level constant, so a
+          # simple anchored grep is enough (no nesting risk).
+          check_mcp_client_version() {
+            label="$1"
+            actual="$(grep -oE 'MCP_CLIENT_VERSION[[:space:]]*=[[:space:]]*"[0-9.]+"' "$label" | grep -oE '[0-9.]+')"
+            if [ -z "$actual" ]; then
+              echo "::error file=$label::could not extract MCP_CLIENT_VERSION = \"...\""
+              failed=1
+            elif [ "$actual" != "$expected" ]; then
+              echo "::error file=$label::$label MCP_CLIENT_VERSION is $actual but CHANGELOG declares $expected"
+              failed=1
+            else
+              echo "ok  $label (MCP_CLIENT_VERSION=$actual)"
+            fi
+          }
           check_fastapi "services/chat-api/app/main.py"
           check_fastapi "services/admin-api/app/main.py"
           check_fastapi "services/document-parser/app/main.py"
+          check_mcp_client_version "services/chat-api/app/services/mcp_streamable_http.py"
           exit $failed
 
   # Frontend builds and type checks

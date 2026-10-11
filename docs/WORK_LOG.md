@@ -8768,3 +8768,27 @@ failures/errors/skipped 全 **0**，退出码全 0。静态门禁三服务全过
 - G1 抖动测试修复复跑确认：该文件 2 用例连跑 3 次均退出 0，机制确定性（不再依赖墙钟）。
 - **结论**：0 阻断；2 低危待跟进 —— ① `mcp_streamable_http.py` 注释过度承诺（称 gate 已钉 `MCP_CLIENT_VERSION`，实际 O3 未做，待拍板）；② `check_fastapi` 的 `sed` 提取停在首个 `)`，未来加带 `)` 默认参数可能误报 CI，建议改 AST/锚定提取（不阻塞）。
 - 报告：`docs/pending-review/2026-10-11-code-review-r7-changeset.md`
+
+## 2026-10-11 · O3 + O1 加固落地（code review 后续）
+
+用户拍板"O3、O1 都做"，在 R7 已提交（349b733）基础上继续处理两项遗留。
+
+- **O3（已处置）**：`quality-gate.yml` 新增 `check_mcp_client_version`，把
+  `services/chat-api/app/services/mcp_streamable_http.py` 的 `MCP_CLIENT_VERSION`
+  常量钉到 CHANGELOG 版本（与 `FastAPI(version=)` 共用 `expected`）。校验数 7→8。
+  决策选"加门禁检查"而非"从 app.version 派生"——后者反向 import 会成环（O2 已确认）。
+  `mcp_streamable_http.py` 注释改为准确表述（gate 现在检查该常量，非"声称"）。
+- **O1 加固（已处置）**：`check_fastapi` 的 `sed -n '/FastAPI(/,/)/p'` 改为 awk
+  **括号深度追踪**（`extract_fastapi_version`），解决"将来在 version= 后加带 `)` 的
+  默认参数（如 `middleware=[Depends(...)]`）会提前截断、误报红 CI"的脆弱点。
+- **验证（本地可证伪）**：
+  - 正控：4 条 `ok`（FastAPI×3 + MCP×1，`expected=0.2.0`）。
+  - 负控 1：FastAPI `version` 改坏 0.1.0 → 被检出。
+  - 负控 2：`MCP_CLIENT_VERSION` 改坏 0.1.0 → 被检出。
+  - 负控 3：`version=` 后插入 `middleware=[Depends(...), Auth()]` 含嵌套 `)` → 提取仍正确不截断（O1 加固生效）。
+  - 负控 4：删除 `FastAPI(` → 提取为空 → fail-safe 判失败。
+  - YAML 可解析（pyyaml 不在，改用抽取 run 块 `bash -n` 通过）。
+- 改动文件（本轮）：`.github/workflows/quality-gate.yml`、`services/chat-api/app/services/mcp_streamable_http.py`、
+  `docs/pending-review/2026-10-11-full-qa-audit-r7.md`（O3 标已处置 + O1 加固小节）、
+  `docs/pending-review/2026-10-11-code-review-r7-changeset.md`（两项结论改已处置）、本文件。
+- **诚实边界**：CI 改动本地无法证明在 runner 生效，需下次 push 后 `version-consistency` job 实跑确认。

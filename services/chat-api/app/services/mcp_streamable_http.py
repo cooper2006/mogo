@@ -13,8 +13,9 @@ MCP_PROTOCOL_VERSION = "2025-06-18"
 # protocol version (that is MCP_PROTOCOL_VERSION above). MOVO only ever acts
 # as a client here — there is no serverInfo/initialize response anywhere in
 # the codebase — so this string unambiguously identifies MOVO's MCP client
-# implementation and must track the release version pinned by the CI
-# `version-consistency` gate on `FastAPI(version=...)` in app/main.py.
+# implementation. The `version-consistency` CI gate now checks this constant
+# against the release version (the same `expected` it enforces on
+# `FastAPI(version=...)` in app/main.py), so keep the two in sync.
 # It is what a remote MCP server operator sees when diagnosing a MOVO
 # conversation, so do not let it drift.
 MCP_CLIENT_VERSION = "0.2.0"

@@ -39,12 +39,12 @@ R7 改动集文件清单（13 tracked + 1 新建报告）：
 ### O2 · `/health` 取 `app.version` + 新增 `MCP_CLIENT_VERSION`
 - ✅ `/health` 改用 `app.version` 是正确决策：单一来源、零新环、避开循环导入（不引入 `import app.main`）。已验证 TestClient `GET /health` → 200 且 `health.version == 0.2.0`。
 - ✅ `MCP_CLIENT_VERSION = "0.2.0"` 语义注释清楚（client implementation version ≠ protocol version）。
-- ⚠️ **低危 · 文档过度承诺（O3 衍生）**：`mcp_streamable_http.py` 注释写「must track the release version pinned by the CI `version-consistency` gate」——但当前 gate **并不检查** `MCP_CLIENT_VERSION`（即 O3）。注释承诺了不存在的约束。建议 O3 落地前，先把这句改为「should match the release version」；或随 O3 一并解决。
+- ✅ **O3（已处置 2026-10-11）**：`version-consistency` 门禁新增 `check_mcp_client_version`，把 `MCP_CLIENT_VERSION` 与 CHANGELOG 版本钉死（共用 `expected`）。`mcp_streamable_http.py` 注释已改为准确表述（gate 现在检查该常量，非"声称"）。决策选"加门禁检查"而非"从 `app.version` 派生"——后者反向 import 会成环（O2 已确认）。
 
 ### O1 · `quality-gate.yml` 新增 `check_fastapi()`
 - ✅ 结构正确：`expected` 取自 CHANGELOG step 输出；`failed=0` 初始化；三处 `failed=1` 兜底；**提取为空也判失败**（fail-safe，不会假绿）。
 - ✅ 负控已验证：把 `main.py` 改坏为 `0.1.0` 能被检出。
-- ⚠️ **低危 · 提取健壮性**：`sed -n '/FastAPI(/,/)/p'` 停在**第一个含 `)` 的行**。当前三文件 `FastAPI(...)` 构造体简单、闭合 `)` 前无其它 `)`，故正确。但若将来有人加 `middleware=[Depends(...)]` 之类带 `)` 的默认参数且 `version=` 在其后，范围会提前截断 → 提取空 → **误报失败 CI**（仍 fail-safe，不会放过错误，但会无谓变红）。建议后续加固：只锚 `app = FastAPI(` 块，或改用 Python AST 解析。不阻塞合并。
+- ✅ **O1 加固（已处置 2026-10-11）**：`sed -n '/FastAPI(/,/)/p'` 已替换为 awk **括号深度追踪**（`extract_fastapi_version`）。本地验证：在 `version=` 之后插入 `middleware=[Depends(...), Auth()]` 含嵌套 `)`，提取仍正确不截断；删除 `FastAPI(` 则提取为空 → fail-safe 判失败。YAML 可解析、抽取 run 块 `bash -n` 通过。
 
 ### F1 · 6 处重复字典键
 - ✅ 全部为「复制粘贴连写同一键」，删前删后值完全相同，运行时零差异。已验证三服务 JUnit 权威计数 **2709 逐项逐数一致**。
@@ -66,11 +66,9 @@ R7 改动集文件清单（13 tracked + 1 新建报告）：
 | 等级 | 数量 | 说明 |
 | --- | --- | --- |
 | 阻断 | 0 | 无 |
-| 低危 / 待跟进 | 2 | ① O3 文档过度承诺（已记录）② O1 提取健壮性（技术债，不阻塞） |
+| 低危 / 待跟进 | 0 | O3 与 O1 加固均已于 2026-10-11 处置（加 `check_mcp_client_version` + awk 深度追踪提取） |
 
-**放行建议**：本轮 R7 改动集可进入提交；无阻断问题。
-**后续动作（待用户拍板 / 排期）**：
-- O3：是否给 `version-consistency` 门禁加 `MCP_CLIENT_VERSION` 检查，或改为从 `app.version` 派生；并顺手修正 `mcp_streamable_http.py` 注释的过度承诺。
-- O1 加固：把 `check_fastapi` 的 `sed` 提取换成更稳的锚定/AST 解析（低优先，当前正确）。
+**放行建议**：本轮 R7 改动集 + O3/O1 加固均可进入提交；无阻断问题。
+**诚实边界（沿用）**：CI workflow 改动本地无法证明在 GitHub runner 上生效，最终确认需等下次 push 后 `version-consistency` job 实跑。
 
 > **诚实边界（沿用 R7 纪律）**：CI workflow 改动本地无法证明在 GitHub runner 生效，最终确认需等下次 push 后 `version-consistency` job 实跑；「测试全绿 / 本地模拟通过」不构成放行依据。
