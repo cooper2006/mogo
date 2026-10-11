@@ -1,7 +1,7 @@
 # PR 交接单：document-parser Python 3.10 → 3.13 + docling 2.108.0
 
 **作者**：AI Agent（分析验证）  
-**状态**：构建验证中（第一次构建因版本冲突失败，已修正为 2.108.0 配套版本）  
+**状态**：✅ 构建验证通过（docker build + verify_docling_runtime.py 均成功）  
 **风险等级**：中（需抽样对比 OCR 输出）
 
 ---
@@ -21,7 +21,7 @@
 | 检查项 | 结果 |
 |---|---|
 | torch CPU cp313 wheel 存在性 | ✅ SJTU 源 `torch-2.11.0+cpu-cp313-*.whl` 完整 |
-| docling 2.108.0 + rapidocr 3.8.4 + 485MB bundle | ✅ 依赖解析通过（dry-run），容器内安装待验证 |
+| docling 2.108.0 + rapidocr 3.8.4 + 485MB bundle | ✅ `verify_docling_runtime.py` 输出 "Docling offline runtime ready"；RapidOCR 加载 PP-OCRv4 三件套 |
 | 生产 API 兼容 | ✅ `RapidOcrOptions`/`HybridChunker`/`BaseTokenizer` 等全通过 |
 | numpy 版本 | 3.13 自动解 `numpy 2.5.x`（与 docling 约束 `<3.0.0,>=1.24.0` 兼容） |
 | 真实文档转换 | ✅ CSV/表格 → Markdown 中文正确 |
