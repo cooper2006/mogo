@@ -56,16 +56,16 @@ architecture you are not currently running on:
 When docker.io is unreachable, point the export at a registry mirror:
 
   scripts/export_base_images.sh save --platform linux/amd64 \
-    --mirror docker.1panel.live ./base-images/images/amd64
+    --mirror docker.m.daocloud.io ./base-images/images/amd64
 
 Note: a mirror that serves incomplete manifests (some domestic mirrors return
 an image whose config is empty) makes `docker save --platform` fail with "no
 suitable export target found" even though the pull succeeded. In that case pull
 the mirror reference explicitly, then save it under the mirror's own name:
 
-  docker pull --platform linux/amd64 docker.1panel.live/library/node:24-bookworm-slim
+  docker pull --platform linux/amd64 docker.m.daocloud.io/library/node:24-bookworm-slim
   docker save --platform linux/amd64 -o /tmp/node_24-bookworm-slim.tar \
-    docker.1panel.live/library/node:24-bookworm-slim
+    docker.m.daocloud.io/library/node:24-bookworm-slim
 
 Always verify what actually landed in the archive before shipping it, since the
 archive (not the local image store) is the ground truth:
@@ -454,7 +454,7 @@ case "${command}" in
           ;;
       esac
     done
-    [[ "${SAVE_MIRROR}" != */* ]] || die "--mirror expects a registry host, for example docker.m.daocloud.io (got: ${SAVE_MIRROR})."
+    [[ "${SAVE_MIRROR}" != */* ]] || die "--mirror expects a registry host (e.g. docker.m.daocloud.io), not a full reference (got: ${SAVE_MIRROR})."
     require_docker
     cmd_save
     ;;

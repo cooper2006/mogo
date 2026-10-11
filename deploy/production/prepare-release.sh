@@ -70,7 +70,7 @@ TAG_ARG=""
 SKIP_BUILD=0
 SKIP_PACK=0
 OUT_DIR=""
-MIRROR="${MOGO_BASE_IMAGE_MIRROR:-docker.m.daocloud.io}"
+MIRROR="${MOGO_BASE_IMAGE_MIRROR:-}"
 PY="${MOGO_PYTHON:-python3}"
 
 say()  { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }

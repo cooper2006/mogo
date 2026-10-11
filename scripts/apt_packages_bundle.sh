@@ -284,9 +284,9 @@ fetch_one() {
 
   # The .deb set must match the target architecture, so the fetch runs in a
   # container of that architecture. A foreign-arch image is resolved through
-  # MOGO_BASE_IMAGE_MIRROR when set (default: the same daocloud mirror the
-  # release script uses), because Docker Hub is frequently unreachable from
-  # these networks — and requiring it would make an amd64 fetch fail on an
+  # MOGO_BASE_IMAGE_MIRROR when set (default: no mirror, use Docker Hub
+  # directly), because Docker Hub may be unreachable from some networks —
+  # and requiring it would make an amd64 fetch fail on an
   # arm64 host that only has native images cached.
   #
   # Doing this by architecture (rather than by apt tricks such as
@@ -296,7 +296,7 @@ fetch_one() {
   # packages ("ca-certificates : Depends: openssl" — observed).
   local run_image="${image}"
   if [[ "${arch}" != "$(docker image inspect "${image}" --format '{{.Architecture}}' 2>/dev/null || printf 'unknown')" ]]; then
-    local mirror="${MOGO_BASE_IMAGE_MIRROR-docker.m.daocloud.io}"
+    local mirror="${MOGO_BASE_IMAGE_MIRROR-}"
     if [[ -n "${mirror}" ]]; then
       # docker.m.daocloud.io/library/python:... — rewrite the Docker Hub
       # reference onto the mirror, adding the implicit library/ namespace.
