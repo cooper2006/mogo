@@ -257,3 +257,33 @@ CI 同款检查（`check_compose_image_modes`、断言变异 9/9 捕获、三种
 
 **遗留（非阻断）**：D4 属本机 OrbStack virtiofs 环境问题，代码侧已通过 best-effort 告警使其可见；
 真实 LLM 网关与 `tests/benchmarks/` 专项基准不在本次回归范围（见第六节）。
+
+---
+
+## 八、复验记录（2026-10-11 09:10–09:40 CST，镜像 `b4d8782`）
+
+对同一环境做第二轮全量复验，结论与首轮一致，**全项通过、无新增缺陷**：
+
+| 检查项 | 首轮（`dd8ed63`） | 本轮（`b4d8782`） |
+| --- | --- | --- |
+| 全栈容器 | 14 容器 healthy | 14 容器在跑（13 healthy + document-worker 无 healthcheck，正常） |
+| 网关 7 条路由 | 全 200 | `/`、`/admin/`、`/healthz`、`setup/status`、`askai` health/ready 全 200（端口 3000） |
+| 鉴权强制 | 401 | `platform/tenants`、`skills`、`tools` 未认证均 401 |
+| 镜像架构 | 7/7 arm64 | 7/7 `arm64/linux`；14 容器 `uname -m` 全 `aarch64` |
+| Playwright | 可用 | `chromium-1194` 等齐全，容器 `aarch64` |
+| 基础镜像归档 | 4/4 双架构 | arm64 4/4 `[ok]`、amd64 4/4 `[ok]`，架构目录未互相覆盖 |
+| 三服务测试 | 2717/0 | **chat-api 2262 / admin-api 433 / document-parser 22，合计 2717 项 0 失败 0 错误**（JUnit 权威计数） |
+| 租户隔离 | 通过 | `chat_messages` 18 条全属 `bonc-2331b8a0…`、缺失 `tenant_id` 0 条；`knowledge_documents`/`skills`/`end_users` 各 1 个租户、`chunks` 0，无混入；`setup-test-*` 孤儿 0 |
+| 粘性哈希 | 通过 | 同一 `X-Isolation-Key: reg-arm-sticky` 连续 3 次均命中 `dsh-runtime-host-2`（`.5`），LB 日志 `key=reg-arm-sticky` 可证 |
+| 副本故障注入 | 通过 | `stop dsh-runtime-host-1` 后 LB 侧探针持续 200（粘性键漂到 host-2 后稳定）；`start` 后约 50s 恢复 healthy，6 条路由复检全 200 |
+| 工作区基线 | 无源码改动 | `git status` 与开工时一致（仅既有在途改动 + `.venv312/`），本轮**零源码改动** |
+
+**测试运行说明**（与首轮环境差异，均为环境侧、非代码问题）：
+- 必须在各服务目录内执行 pytest——在仓库根目录跑会触发 172/243/253 个跨服务 collection error。
+- WorkBuddy 的 sitecustomize shim 会拦截 pytest 在默认 `TMPDIR` 下的 `mkdir`，
+  报 `PermissionError: EEXIST ... pytest-of-root/unknown`（表现为 29 个 ERROR）；
+  加 `--basetemp=/tmp/pt-<svc>` 后全部消失。两个坑叠加时假象是"172 个错误"，
+  与记忆中"collection error 掩盖真实状态"的教训同型，故先做 collect 计数确认再下结论。
+
+**串台杂音**：本轮中途出现一条与本项目无关的命令（查找 Windows 路径、调用 adb），
+报 `command not found`，判定为串台输入，未执行任何操作、不影响回归结论。
