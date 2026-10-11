@@ -16,6 +16,7 @@ usage() {
 Usage:
   scripts/export_base_images.sh save [directory]   Export base images to a directory
   scripts/export_base_images.sh load [directory]   Import base images from a directory
+  scripts/export_base_images.sh verify [directory] Check the platform of exported archives
   scripts/export_base_images.sh list               List required base images and status
 
 Options:
@@ -40,15 +41,36 @@ Environment:
 The archive set is derived from the FROM lines of the Dockerfiles that take
 part in a source build, so it always matches the current requirements.
 
-Export and import must agree on the platform. To build on an x86_64 host from
-archives produced on Apple Silicon, export with an explicit target:
+Export and import must agree on the platform. Archives are kept per
+architecture under base-images/images/<arch>/ so one checkout can serve both an
+Apple Silicon workstation and an x86_64 server:
 
-  scripts/export_base_images.sh save --platform linux/amd64 ./base-images-amd64
+  base-images/images/arm64/*.tar
+  base-images/images/amd64/*.tar
 
-When docker.io is unreachable, point the export at the mirror the build uses:
+Each directory carries its own manifest.txt recording the platform. Export the
+architecture you are not currently running on:
+
+  scripts/export_base_images.sh save --platform linux/amd64 ./base-images/images/amd64
+
+When docker.io is unreachable, point the export at a registry mirror:
 
   scripts/export_base_images.sh save --platform linux/amd64 \
-    --mirror docker.m.daocloud.io ./base-images-amd64
+    --mirror docker.1panel.live ./base-images/images/amd64
+
+Note: a mirror that serves incomplete manifests (some domestic mirrors return
+an image whose config is empty) makes `docker save --platform` fail with "no
+suitable export target found" even though the pull succeeded. In that case pull
+the mirror reference explicitly, then save it under the mirror's own name:
+
+  docker pull --platform linux/amd64 docker.1panel.live/library/node:24-bookworm-slim
+  docker save --platform linux/amd64 -o /tmp/node_24-bookworm-slim.tar \
+    docker.1panel.live/library/node:24-bookworm-slim
+
+Always verify what actually landed in the archive before shipping it, since the
+archive (not the local image store) is the ground truth:
+
+  scripts/export_base_images.sh verify ./base-images/images/amd64
 USAGE
 }
 
@@ -144,6 +166,54 @@ cmd_list() {
       printf '  [missing] %-38s\n' "${image}"
     fi
   done < <(required_images)
+}
+
+# Inspect what a directory of archives actually contains, reading each platform
+# out of the archive rather than the local image store. This is the check that
+# catches the two silent failures: a mirror that handed back the wrong
+# architecture, and an archive whose image has no platform metadata at all.
+cmd_verify() {
+  local input_dir="${VERIFY_INPUT_DIR}"
+  [[ -n "${input_dir}" ]] || die "verify requires a directory."
+  [[ -d "${input_dir}" ]] || die "Directory not found: ${input_dir}"
+
+  local expected=""
+  local manifest="${input_dir}/manifest.txt"
+  if [[ -f "${manifest}" ]]; then
+    expected="$(sed -n 's/^# platform:[[:space:]]*//p' "${manifest}" | head -n1)"
+  fi
+
+  local archive name actual failed=0 count=0
+  printf 'Verifying archives in %s\n' "${input_dir}"
+  [[ -n "${expected}" ]] && printf 'Manifest declares platform: %s\n' "${expected}"
+  printf '\n'
+
+  shopt -s nullglob
+  for archive in "${input_dir}"/*.tar; do
+    count=$((count + 1))
+    name="$(basename "${archive}")"
+    actual="$(archive_platform "${archive}")"
+    if [[ -z "${actual}" ]]; then
+      printf '  [BAD]     %-45s no platform metadata in archive\n' "${name}"
+      failed=$((failed + 1))
+      continue
+    fi
+    if [[ -n "${expected}" && "${actual}" != "$(platform_base "${expected}")" ]]; then
+      printf '  [MISMATCH] %-44s %s (expected %s)\n' \
+        "${name}" "${actual}" "$(platform_base "${expected}")"
+      failed=$((failed + 1))
+      continue
+    fi
+    printf '  [ok]      %-45s %s\n' "${name}" "${actual}"
+  done
+  shopt -u nullglob
+
+  [[ "${count}" -gt 0 ]] || die "No archives found in ${input_dir}."
+  printf '\n'
+  if [[ "${failed}" -gt 0 ]]; then
+    die "${failed}/${count} archive(s) failed verification."
+  fi
+  printf 'All %s archive(s) verified.\n' "${count}"
 }
 
 # "linux/arm64/v8" -> "linux/arm64"; the variant only refines the platform.
@@ -355,6 +425,7 @@ SAVE_PLATFORM=""
 SAVE_MIRROR=""
 LOAD_INPUT_DIR=""
 LOAD_ALLOW_MISMATCH=false
+VERIFY_INPUT_DIR=""
 
 case "${command}" in
   save)
@@ -409,6 +480,20 @@ case "${command}" in
   list)
     require_docker
     cmd_list
+    ;;
+  verify)
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -*)
+          die "Unknown option: $1"
+          ;;
+        *)
+          VERIFY_INPUT_DIR="$1"
+          shift
+          ;;
+      esac
+    done
+    cmd_verify
     ;;
   help|-h|--help|"")
     usage

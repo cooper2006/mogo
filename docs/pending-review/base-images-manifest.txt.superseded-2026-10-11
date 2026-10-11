@@ -1,0 +1,7 @@
+# mogo base images
+# platform: linux/arm64
+# generated: 2026-10-10T03:54:15Z
+python:3.13-slim-bookworm
+node:24-bookworm-slim
+python:3.10-slim-bookworm
+nginx:1.31.5-alpine3.24-slim

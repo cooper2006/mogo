@@ -47,6 +47,11 @@ COPY apt-packages-bundle.tar.gz /tmp/apt-packages-bundle.tar.gz
 
 ARG APT_OFFLINE_INSTALL=true
 ARG INSTALL_SYSTEM_DEPS_AT_BUILD=false
+# Declared here as well as in the later playwright stage: this RUN block reads
+# it to decide whether to install the chromium system libraries, and without a
+# declaration in this stage `set -u` aborts the build with
+# "INSTALL_PLAYWRIGHT_AT_BUILD: parameter not set".
+ARG INSTALL_PLAYWRIGHT_AT_BUILD=false
 RUN set -eux; \
     if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" != "true" ]; then \
         echo "Skip apt system dependencies in build stage (INSTALL_SYSTEM_DEPS_AT_BUILD=false)"; \

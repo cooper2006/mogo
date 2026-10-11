@@ -95,3 +95,48 @@ scripts/export_base_images.sh save base-images
   构建 `document-api` 成功（5 分 23 秒），产物 `Architecture: amd64`，
   离线装 388 个 .deb + 294 个 wheel，LibreOffice 与 CJK 字体均正常。
 
+---
+
+## 后续：归档改为按架构分目录（2026-10-11）
+
+上一节的「单平台归档替换 tag」问题，根因是**两种架构的归档混放在同一目录、同名同名**：
+`base-images/*.tar` 每个文件名不含架构，`load` 谁后执行谁生效，于是两种架构互相覆盖。
+本次改为按架构分目录，从目录约定上消除这种覆盖：
+
+```
+base-images/images/arm64/*.tar   + manifest.txt（# platform: linux/arm64）
+base-images/images/amd64/*.tar   + manifest.txt（# platform: linux/amd64）
+```
+
+每个架构各 4 个归档，与 apt / pip-wheels 既有的 `<类别>/<arch>/` 约定一致。
+
+### 本轮实测到的两个坑（已写入脚本文档）
+
+1. **镜像站的 node 镜像元数据为空**：`docker.1ms.run` / `docker.m.daocloud.io` /
+   `docker.1panel.live` 拉取的 `node:24-bookworm-slim` 在 OrbStack 里
+   `Architecture`/`Os` 为空、`Config` 为 `{}`、`Created` 显示 "56 years ago"，
+   且 `RootFS.Layers` 为 `null`。BuildKit 据此无法解析平台，会回退到远程查询
+   docker.io —— 而本机 docker.io 已被完全阻断（DNS 可解析但连接超时），
+   构建因此报 `Bad Gateway`。
+   **镜像内容本身可用**（`docker run` 实测 `process.arch === 'x64'`），
+   缺陷只在 OrbStack 记录的元数据，故用完好 tar 重新 `docker load` 即可修复。
+2. **`docker save --platform` 会因上述元数据缺失而失败**：报
+   `no suitable export target found`，即使 `docker pull --platform` 已成功；
+   且镜像站拉取会落到 `docker.1panel.live/library/<name>` 这个带前缀的 tag 上。
+   绕行方式：显式 pull 镜像站引用后，**用镜像站自己的名字** `docker save`，
+   归档内 config 的 `architecture` 字段是正确的（已验证为 `amd64`）。
+
+### 新增 `verify` 子命令
+
+为避免再次出现"归档架构与目录声称不符"，`scripts/export_base_images.sh`
+新增 `verify <directory>`：逐个读取**归档自身**的 platform（而非本地镜像库，
+因为本地库正是不可信的一方），与 `manifest.txt` 声明的平台比对，不一致则以
+非 0 退出。已实测：两个架构目录均全部 `[ok]`；故意混入错误架构时正确报
+`[MISMATCH]` 并退出码 1。
+
+### 旧文件处置
+
+原平铺的 `base-images/manifest.txt`（已被 `images/<arch>/manifest.txt` 取代）
+按 `AGENTS.md` 规约移入待确认清单，未删除：
+`docs/pending-review/base-images-manifest.txt.superseded-2026-10-11`。
+
