@@ -1,7 +1,9 @@
-import js from '@eslint/js';
-import tseslint from 'typescript-eslint';
+// apps/admin-web/eslint.config.js
+// admin-web 专属 ESLint 配置（QF-040）
+// 共享规则见 ../eslint.shared.config.js
+
 import pluginVue from 'eslint-plugin-vue';
-import prettier from 'eslint-config-prettier';
+import { sharedConfig } from '../eslint.shared.config.js';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -12,10 +14,11 @@ const requireFromVue = createRequire(
   fileURLToPath(import.meta.resolve('eslint-plugin-vue')),
 );
 const vueESLintParser = requireFromVue('vue-eslint-parser');
+const tseslint = (await import('typescript-eslint')).default;
 
 export default [
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...sharedConfig,
+  ...pluginVue.configs['flat/recommended'],
   {
     files: ['*.vue'],
     languageOptions: {
@@ -40,11 +43,7 @@ export default [
   },
   {
     rules: {
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
-      'vue/multi-word-component-names': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      // admin-web 专属规则（如有）
     },
   },
-  prettier,
 ];

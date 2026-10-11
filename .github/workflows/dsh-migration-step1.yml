@@ -23,9 +23,14 @@ on:
   push:
     branches: [main]
 
+# Least privilege: this gate only checks out code and runs contract checks.
+permissions:
+  contents: read
+
 jobs:
   contract-and-supply-chain:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,6 +90,7 @@ jobs:
         # separately and does not expose the DSH `bash` tool used by this suite.
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v6
@@ -104,6 +110,7 @@ jobs:
 
   web-contracts:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

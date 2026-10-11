@@ -30,6 +30,7 @@ concurrency:
 jobs:
   validate-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,6 +52,7 @@ jobs:
   plan-release:
     needs: validate-release
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       base_ref: ${{ steps.plan.outputs.base_ref }}
       images: ${{ steps.plan.outputs.images }}
@@ -112,6 +114,7 @@ jobs:
     needs: plan-release
     if: needs.plan-release.outputs.changed_count != '0'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -168,7 +171,7 @@ jobs:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
-       - name: Scan candidate image
+      - name: Scan candidate image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
@@ -219,6 +222,7 @@ jobs:
         (needs.publish-candidates.result == 'success' || needs.publish-candidates.result == 'skipped')
       }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v4

@@ -561,6 +561,7 @@ class ScriptPluginExecutor(BaseExecutor):
             r'''
             import importlib.util
             import builtins
+            import _io
             import io
             import json
             import os
@@ -575,21 +576,42 @@ class ScriptPluginExecutor(BaseExecutor):
             socket.create_connection = _deny_network
 
             plugin_path, stdin_path = sys.argv[1], sys.argv[2]
-            with open(stdin_path, "r", encoding="utf-8") as f:
+            _open = builtins.open
+            with _open(stdin_path, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-
-            spec = importlib.util.spec_from_file_location("askai_user_plugin", plugin_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            run = getattr(module, "run", None)
-            if not callable(run):
-                raise RuntimeError("script plugin must define run(inputs, context)")
 
             context = payload.get("context") or {}
             work_dir = os.path.realpath(str(context.get("work_dir") or ""))
-            _open = builtins.open
+
+            # Warm the modules a plugin is allowed to import *before* the file
+            # guard is installed. Some of them (mimetypes, pulled in by
+            # docx/openpyxl/pptx) read system config such as /etc/mime.types at
+            # import time; importing them here keeps library imports working for
+            # user code while user code itself still runs under the guard.
+            for _module_name in (
+                "mimetypes",
+                "collections",
+                "csv",
+                "datetime",
+                "math",
+                "re",
+                "shutil",
+                "statistics",
+                "urllib.parse",
+                "zipfile",
+                "docx",
+                "openpyxl",
+                "pptx",
+            ):
+                try:
+                    importlib.import_module(_module_name)
+                except Exception:
+                    pass
+
             _io_open = io.open
             _os_open = os.open
+            _file_io = io.FileIO
+            _scandir = os.scandir
             package_roots = set()
             for key in ("purelib", "platlib"):
                 value = sysconfig.get_paths().get(key)
@@ -630,9 +652,29 @@ class ScriptPluginExecutor(BaseExecutor):
                     _check_path(file, write=write)
                 return _os_open(file, flags, mode, dir_fd=dir_fd)
 
+            class _GuardedFileIO(_file_io):
+                def __init__(self, file, mode="r", *args, **kwargs):
+                    _check_path(file, write=_is_write_mode(mode))
+                    super().__init__(file, mode, *args, **kwargs)
+
+            def _guarded_scandir(path="."):
+                _check_path(path)
+                return _scandir(path)
+
             builtins.open = _guarded_open
             io.open = _guarded_io_open
             os.open = _guarded_os_open
+            io.FileIO = _GuardedFileIO
+            _io.FileIO = _GuardedFileIO
+            os.scandir = _guarded_scandir
+
+            spec = importlib.util.spec_from_file_location("askai_user_plugin", plugin_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            run = getattr(module, "run", None)
+            if not callable(run):
+                raise RuntimeError("script plugin must define run(inputs, context)")
+
             result = run(payload.get("inputs") or {}, context)
             if result is None:
                 result = {}

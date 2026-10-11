@@ -61,8 +61,8 @@ RUN set -eux; \
 # Point apt at a domestic mirror before the update: the default deb.debian.org
 # is slow or unreachable from CN networks, and the mirror is harmless when the
 # refresh is skipped.
-ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
-ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
+ARG MOVO_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOVO_APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \
         for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
             if [ -f "${source_file}" ]; then \

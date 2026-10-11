@@ -21,6 +21,23 @@
 
 <br>
 
+## 典型场景与不适用边界
+
+**典型场景**（本仓库开箱即用的能力）：
+- 自建企业内网 Agent 平台：Docker Compose 一键拉起 13 服务（chat-api / admin-api / document-parser / user-web / admin-web 等），本地或私有云自托管。
+- 文档与知识检索：PDF / DOCX / XLSX / PPTX / CSV 多格式解析 + Docling OCR + 企业知识 RAG。
+- 多形态 Agent 执行：Browser Agent、Code Agent、桌面子代理、SkillHub 技能市场。
+- 报告与内容生成：文章、PPTX、Excel、PDF、翻译与表单填充。
+
+**不适用边界**（本仓库不覆盖的场景）：
+- **商业多租户 SaaS**：MOGO 开源版是单租户自托管，不提供多租户隔离、计费与 SaaS 运营后台；相关能力在 MOVO 商业版中。
+- **多区域 / 多活灾备**：首期仅支持单区域部署 + 可验证的备份恢复；跨区域灾备属后续版本。
+- **全自动弹性扩缩容**：水平扩展需手动扩副本 + 前置容量模型；不内置 K8s 或自动弹性调度。
+- **微服务拆分**：仓库内服务是模块化单体（Python + Vue3），不引入微服务治理。
+- **非 Apache-2.0 商用**：LICENSE 允许在 Apache-2.0 下商用，但不得移除或修改商标与版权声明；若需 MOVO 社区许可或商业白名单，联系维护者。
+
+> **一句话定位**：DSH 运行 Agent，MOGO 把 Agent 带进企业生产。
+
 MOGO is an enterprise Agent platform built on top of the open-source MOVO platform. It keeps the execution foundation and product surface MOVO already proved, and carries them into enterprise production along three lines: **adopting the spec-kit SDD workflow**, **hardening enterprise capabilities**, and **supporting horizontal scaling of Agent instances**.
 
 > **In one sentence:** DSH runs the Agent; MOGO brings the Agent into enterprise production.
@@ -216,6 +233,21 @@ The desktop client provides the local browser session, code workspace, project t
 | Code Agent, local projects, terminal and Git | — | ✓ |
 | Requires a self-hosted MOGO service | ✓ | ✓, connects to that service |
 | Source included in this repository | ✓ | —, distributed separately |
+
+## 浏览器与系统支持矩阵
+
+| 浏览器 | 支持版本 | 备注 |
+| --- | --- | --- |
+| Chrome / Chromium | 最近 2 个大版本 | 推荐浏览器 |
+| Microsoft Edge | 最近 2 个大版本 | Chromium 内核 |
+| Safari | 最近 2 个大版本 | iOS Safari 同步支持 |
+| Firefox | 最近 2 个大版本 | 基础功能支持 |
+
+**不支持**：Internet Explorer 及所有版本；Chrome/Firefox 的 ESR 旧版本（超过
+2 个大版本）；非标准浏览器（如 Opera 仅保证基础功能）。
+
+**降级行为**：不支持的浏览器可能无法显示部分 UI 或功能受限。vite 构建目标为
+`es2015+`（见 `apps/*/package.json` 的 `browserslist` 字段）。
 
 ## Architecture
 

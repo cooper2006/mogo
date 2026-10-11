@@ -1,30 +1,19 @@
-import js from '@eslint/js';
-import tseslint from 'typescript-eslint';
+// apps/user-web/eslint.config.js
+// user-web 专属 ESLint 配置（QF-040）
+// 共享规则见 ../eslint.shared.config.js
+
 import pluginVue from 'eslint-plugin-vue';
-import prettier from 'eslint-config-prettier';
-import vueParser from 'vue-eslint-parser';
+import { sharedConfig } from '../eslint.shared.config.js';
 
 export default [
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...sharedConfig,
   ...pluginVue.configs['flat/recommended'],
-  prettier,
-  {
-    files: ['**/*.ts', '**/*.tsx'],
-    languageOptions: {
-      parser: tseslint.parser,
-      parserOptions: {
-        ecmaVersion: 'latest',
-        sourceType: 'module',
-      },
-    },
-  },
   {
     files: ['**/*.vue'],
     languageOptions: {
-      parser: vueParser,
+      parser: (await import('vue-eslint-parser')).default,
       parserOptions: {
-        parser: tseslint.parser,
+        parser: (await import('typescript-eslint')).parser,
         ecmaVersion: 'latest',
         sourceType: 'module',
       },
@@ -32,14 +21,7 @@ export default [
   },
   {
     rules: {
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
-      'vue/multi-word-component-names': 'off',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
-      complexity: ['warn', { max: 15 }],
-      'max-depth': ['warn', 4],
-      'max-params': ['warn', 6],
-      'max-lines': ['warn', { max: 2000, skipBlankLines: true, skipComments: true }],
+      // user-web 专属规则（如有）
     },
     languageOptions: {
       globals: {
@@ -104,8 +86,7 @@ export default [
         TransitionEvent: 'readonly',
         CompositionEvent: 'readonly',
         IMECompositionEvent: 'readonly',
-        InputEvent: 'readonly',
-        // 补全缺失的浏览器 DOM/全局接口，消除 no-undef 误报
+        // DOM 元素类型
         HTMLElement: 'readonly',
         HTMLInputElement: 'readonly',
         HTMLCanvasElement: 'readonly',

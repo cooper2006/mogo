@@ -200,3 +200,16 @@ def constant_time_bool(condition: bool) -> bool:
     # Use hmac.compare_digest to prevent timing attacks.
     # Convert bool to a constant-length comparison.
     return hmac.compare_digest(b"1" if condition else b"0", b"1" if condition else b"0")
+
+
+def constant_time_equals(candidate: str, expected: str) -> bool:
+    """Compare two secrets in constant time.
+
+    Both sides are encoded to UTF-8 first so that a non-ASCII header value
+    cannot make ``hmac.compare_digest`` raise ``TypeError``, which would turn
+    an auth rejection into a 500.
+    """
+    return hmac.compare_digest(
+        str(candidate or "").encode("utf-8"),
+        str(expected or "").encode("utf-8"),
+    )

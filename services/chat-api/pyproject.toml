@@ -3,9 +3,11 @@ name = "movo-chat-api"
 version = "0.2.0"
 description = "Backend for the MOVO agent platform"
 authors = ["MOVO Team"]
+license = "Apache-2.0"
+readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.13"
 # Compatibility metadata only. backend/requirements.txt is the canonical
 # runtime dependency source used by Docker and deployment.
 fastapi = "^0.109.0"

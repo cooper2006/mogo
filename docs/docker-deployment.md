@@ -143,6 +143,35 @@ becomes a single-platform one.
 `./mogo update` pulls the configured image tag and recreates services. Pin a new
 `MOVO_VERSION` before running it. It does not migrate or delete data volumes.
 
+### 升级路径矩阵 (Upgrade Path Matrix)
+
+声明支持的版本跨越范围（QF-875）：
+
+| 起始版本 | 目标版本 | 允许直升 | 前置步骤 |
+| --- | --- | --- | --- |
+| `v0.1.x` | `v0.2.0` | ✅ | ① `./mogo backup` ② 检查 CHANGELOG breaking changes ③ 升级 MongoDB 至 6.0+ |
+| `v0.1.x` | `v0.3.0` | ❌ | 必须先升级到 `v0.2.0`，再升级到 `v0.3.0` |
+| `v0.2.0` | `v0.3.0` | ✅ | 检查 DB schema 变更，可能需要手动迁移脚本 |
+| `vX.Y.Z` | `latest` | ❌ | `latest` 不稳定，禁止生产使用 |
+
+**升级顺序**（破坏性变更累积）：
+1. 数据库 schema 变更（MongoDB 索引、字段改名）
+2. 配置文件变更（`.env` 新增键）
+3. 镜像标签升级（`MOVO_VERSION=vX.Y.Z`）
+4. `./mogo update` 重启服务
+
+**回滚**：
+- 若升级后发现问题，将 `MOVO_VERSION` 改回旧 tag，执行 `./mogo update`。
+- 数据层变更需先执行 `./mogo restore /path/to/movo-backup --yes`。
+- 详见 `specs/024-deployment-hardening/spec.md` US3（灰度与回滚）。
+
+**兼容性检查清单**：
+- [ ] 数据库版本符合要求（MongoDB ≥ 6.0）
+- [ ] `.env` 中新增必需键已填写
+- [ ] 备份已完成且可恢复（在非生产环境演练）
+- [ ] 已阅读目标版本的 CHANGELOG 中 breaking changes 段落
+- [ ] 已确认旧版本镜像 tag 可用于回滚
+
 `./mogo down -v` permanently deletes all MOVO data and now requires an explicit
 interactive confirmation. Automation must pass `./mogo down -v --yes`.
 

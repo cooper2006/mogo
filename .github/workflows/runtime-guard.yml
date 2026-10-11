@@ -5,9 +5,15 @@ on:
   push:
     branches: [ main, master ]
 
+# Least privilege: this guard only checks out code and builds; it never
+# publishes artifacts or pushes images.
+permissions:
+  contents: read
+
 jobs:
   web-build-guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,6 +32,7 @@ jobs:
 
   runtime-boundary-guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -62,6 +69,7 @@ jobs:
 
   community-release-guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       MOVO_IMAGE_REGISTRY: ghcr.io/example
       MOVO_VERSION: test

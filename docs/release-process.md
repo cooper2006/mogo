@@ -42,3 +42,23 @@ support responses must continue recommending an explicit version tag.
 If any image build, vulnerability scan or attestation fails, do not create a
 GitHub Release. Fix the cause, create a new candidate commit and use a new tag;
 never move or overwrite an existing public release tag.
+
+## 依赖冻结期 (Dependency Freeze)
+
+发布前 **7 天** 进入依赖冻结期（QF-908）：
+
+1. **冻结范围**：`services/*/requirements.txt`、`apps/*/pnpm-lock.yaml`、
+   `.github/dependabot.yml`、`services/*/pyproject.toml` 中的依赖声明。
+2. **例外审批**：
+   - P0 安全漏洞修复：需 security team 批准 + 单独 PR + 回滚方案。
+   - 阻塞发布的构建问题：需 release manager 批准 + 记录在 release checklist。
+   - 其余依赖变更延后到下一个发布周期。
+3. **豁免清单**：
+   - `services/document-parser` 的 docling 2.108.0 / rapidocr 3.8.4 钉死版本
+     （因 ARM 镜像与模型兼容性，见 WORK_LOG 2026-10-11 记录）。
+4. **检查时机**：
+   - 冻结期开始：依赖变更 PR 自动打 `do-not-merge` 标签。
+   - 冻结期结束：release checklist 中确认"依赖变更已清零"。
+5. **Dependabot 节奏**：见 `.github/dependabot.yml`，默认 weekly；冻结期期间
+   将 `open-pull-requests-limit` 临时设为 0。
+

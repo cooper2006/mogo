@@ -5,6 +5,12 @@ on:
   push:
     branches: [ main, master ]
 
+# Least privilege for PR/push triggers: read-only by default. Fork PRs
+# otherwise inherit the repository default token scope, which is wider than
+# this gate needs (it only checks out code and runs build/test/scan).
+permissions:
+  contents: read
+
 jobs:
   # Release blocker: the version declared in package manifests AND in the
   # FastAPI app objects must match the newest CHANGELOG entry. Without this,
@@ -28,6 +34,7 @@ jobs:
   # survives default args that contain `)` (e.g. middleware=[Depends(...)]).
   version-consistency:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -123,6 +130,7 @@ jobs:
   # Frontend builds and type checks
   frontend-quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -148,9 +156,17 @@ jobs:
         working-directory: apps/user-web
         run: pnpm lint
 
+      - name: Format check user-web
+        working-directory: apps/user-web
+        run: pnpm format:check
+
       - name: ESLint admin-web
         working-directory: apps/admin-web
         run: pnpm lint
+
+      - name: Format check admin-web
+        working-directory: apps/admin-web
+        run: pnpm format:check
 
       - name: Dependency audit (user-web)
         working-directory: apps/user-web
@@ -163,6 +179,7 @@ jobs:
   # Backend Python compilation and tests
   backend-quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         include:
@@ -266,6 +283,7 @@ jobs:
   # regression in the primary test job.
   dsh-host-e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -305,6 +323,7 @@ jobs:
   # Security checks
   security-quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Check for debug endpoints in production config

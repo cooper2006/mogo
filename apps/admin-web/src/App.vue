@@ -1,4 +1,5 @@
 <template>
+  <a href="#main-content" class="skip-link">跳转到主内容</a>
   <n-config-provider
     :theme="themeInstance"
     :theme-overrides="themeOverrides"
@@ -7,7 +8,9 @@
   >
     <n-dialog-provider>
       <n-message-provider>
-        <router-view />
+        <main id="main-content">
+          <router-view />
+        </main>
       </n-message-provider>
     </n-dialog-provider>
   </n-config-provider>
@@ -54,3 +57,20 @@ const themeOverrides = {
   },
 };
 </script>
+
+<style scoped>
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  z-index: 1000;
+  padding: 8px 16px;
+  background: #366AFF;
+  color: white;
+  text-decoration: none;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+}
+</style>

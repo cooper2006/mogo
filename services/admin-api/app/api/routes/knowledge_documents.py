@@ -23,6 +23,7 @@ from app.api.deps import get_current_admin_user
 from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.security import constant_time_equals
 from app.api.routes.knowledge_settings import get_effective_knowledge_settings, get_effective_parse_settings
 from app.repositories.org_user_repository import find_account_by_username
 from app.services.knowledge_storage import get_storage_service
@@ -1267,7 +1268,7 @@ async def preview_conversion_callback(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing callback token")
     token = authorization.replace("Bearer ", "", 1).strip()
-    if token != settings.document_processing_callback_token:
+    if not constant_time_equals(token, settings.document_processing_callback_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid callback token")
 
     now = _now()
@@ -1305,7 +1306,7 @@ async def document_parse_callback(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing callback token")
     token = authorization.replace("Bearer ", "", 1).strip()
-    if token != settings.document_processing_callback_token:
+    if not constant_time_equals(token, settings.document_processing_callback_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid callback token")
 
     db = get_db()
@@ -1472,7 +1473,7 @@ async def document_index_callback(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing callback token")
     token = authorization.replace("Bearer ", "", 1).strip()
-    if token != settings.document_processing_callback_token:
+    if not constant_time_equals(token, settings.document_processing_callback_token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid callback token")
 
     db = get_db()

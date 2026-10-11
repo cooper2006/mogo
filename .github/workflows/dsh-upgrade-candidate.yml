@@ -10,9 +10,14 @@ on:
   schedule:
     - cron: "23 3 * * 1"
 
+# Least privilege: evaluation job only checks out code and runs in isolation.
+permissions:
+  contents: read
+
 jobs:
   isolated-candidate-evaluation:
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

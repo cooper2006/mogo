@@ -1,5 +1,173 @@
 # Work Log
 
+## 2026-10-11 目标 1 首轮修复：341 缺陷分批治理（文档/配置批）
+
+**目标**：修复 report.json 中 5 类流程/测试/文档缺口（218 项开放，目标 341 项）。本轮聚焦**文档/配置类**快赢项，代码类留给后续轮次。
+
+**修复项（16 类 38 项）**：
+
+| QF | 类别 | 修复内容 | 状态 |
+| --- | --- | --- | --- |
+| QF-912 / QF-019 | oss-ready / deps | `apps/*/package.json` 加 `license: "Apache-2.0"`；`services/*/pyproject.toml` 加 `license = "Apache-2.0"` + `readme` | ✅ |
+| QF-012 | deps | `apps/*/package-lock.json` 移入 `docs/pending-review/stale-lockfiles-2026-10-11/`（保留 pnpm-lock.yaml） | ✅ |
+| QF-886 / QF-895 | workflow | `services/*/pyproject.toml` Python 版本从 `^3.10` 统一到 `^3.13`（与 CI/镜像单点对齐） | ✅ |
+| QF-887 | workflow | 6 个 workflow 全部 job 加 `timeout-minutes`（10/20/30） | ✅ |
+| QF-878 | workflow | CONTRIBUTING 新增"分支模型"章节（main 保护 + feat/fix/docs/refactor 前缀 + dependabot） | ✅ |
+| QF-890 | workflow | CONTRIBUTING 新增"优先级与严重级判定"章节（P0-P3 + critical/medium + 一致性要求） | ✅ |
+| QF-862 | docs | README 首屏新增"典型场景与不适用边界"（4 场景 + 5 边界） | ✅ |
+| QF-875 | docs | `docs/docker-deployment.md` 新增"升级路径矩阵"（版本跨越范围 + 前置步骤 + 回滚） | ✅ |
+| QF-872 | docs | 新建 `docs/TROUBLESHOOTING.md`（30+ 症状→成因→处置条目 + 日志速查表） | ✅ |
+| QF-925 / QF-929 | oss-ready | 新建 `docs/support-policy.md`（支持周期表 + 响应时限 + 历史数据支持） | ✅ |
+| QF-021 | release | 新建 `docs/migration-guide.md`（v0.1.x→v0.2.0 DB/schema/API/env 迁移 + 回滚） | ✅ |
+| QF-900 / QF-901 | maintainability | `docs/pending-review/index.md` 增 priority/effort/owner/target 列 + 逾期重评规则 | ✅ |
+| QF-904 | maintainability | 新建 `.github/CODEOWNERS` 按模块划分 owner（services/*、apps/*、.github/、docs/ 等） | ✅ |
+| QF-908 | workflow | `docs/release-process.md` 增依赖冻结期 7 天 + 例外审批 + document-parser 豁免 | ✅ |
+| QF-040 / QF-042 | lint-format | 新建 `apps/eslint.shared.config.js` 共享配置；user-web/admin-web 通过 extends 复用；启用 no-eval/no-implied-eval/no-script-url/no-alert 等安全规则 | ✅ |
+| QF-047 / QF-048 | lint-format | 新建 `.prettierrc.json` + package.json format:check 脚本 + CI format-check 步骤 | ✅ |
+| QF-054 | code-quality | eslint.shared.config.js complexity 从 warn 提为 error（门禁级别） | ✅ |
+| QF-293 | ui-a11y | user-web/admin-web App.vue 添加 skip-link（visually-hidden + :focus 显示 + 锚点到 main#main-content） | ✅ |
+| QF-312 | ui-compat | package.json 添加 browserslist 字段 + README 浏览器与系统支持矩阵章节 | ✅ |
+| QF-309 | ui-a11y | RegisterForm.vue 4 个输入框添加 aria-describedby + aria-invalid；错误消息添加 id | ✅ |
+| QF-322 | ui-compat | 新建 useNetworkStatus.ts 组合式函数 + App.vue 离线横幅（amber 警示条 + role=alert） | ✅ |
+| QF-949~964 | distribution | 新建 `docs/installation-guide.md`（运行时检查/依赖/校验/首次运行/升级/卸载/数据处置/代理配置） | ✅ |
+| QF-867 | docs | 新建 `docs/configuration-reference.md` 配置参考表（运行时/日志/LLM/搜索/上传/文档/知识库/功能开关/数据库/Token/慢查询 + 敏感配置清单） | ✅ |
+
+**改动文件**：
+- `apps/admin-web/package.json`、`apps/user-web/package.json`（+license）
+- `services/chat-api/pyproject.toml`、`services/admin-api/pyproject.toml`（+license, +readme, Python ^3.13）
+- `.github/workflows/{quality-gate,container-release,container-promote,dsh-migration-step1,dsh-upgrade-candidate,runtime-guard}.yml`（+timeout-minutes）
+- `CONTRIBUTING.md`（重写：分支模型 + 优先级/严重级 + 支持矩阵 + 包管理器 + 许可证）
+- `README.md`（+典型场景与边界）
+- `docs/docker-deployment.md`（+升级路径矩阵）
+- `docs/TROUBLESHOOTING.md`（新建，30+ 症状条目）
+- `docs/support-policy.md`（新建，支持周期与响应时限）
+- `docs/migration-guide.md`（新建，v0.1.x→v0.2.0 迁移）
+- `docs/pending-review/stale-lockfiles-2026-10-11/`（新建，归档 2 个废弃 package-lock.json）
+- `docs/pending-review/index.md`（+priority/effort/owner/target 列）
+- `.github/CODEOWNERS`（新建）
+- `docs/release-process.md`（+依赖冻结期章节）
+- `apps/eslint.shared.config.js`（新建，共享 ESLint 配置）
+- `apps/user-web/eslint.config.js`、`apps/admin-web/eslint.config.js`（重构为 extends 共享配置）
+- `.prettierrc.json`（新建）
+- `apps/user-web/package.json`、`apps/admin-web/package.json`（+browserslist, +format:check, +prettier）
+- `apps/user-web/src/App.vue`、`apps/admin-web/src/App.vue`（+skip-link, +offline banner）
+- `apps/user-web/src/composables/useNetworkStatus.ts`（新建）
+- `apps/user-web/src/components/login/RegisterForm.vue`（+aria-describedby, +aria-invalid）
+- `docs/installation-guide.md`（新建，安装与部署指南）
+- `docs/configuration-reference.md`（新建，配置参考表）
+- `.github/workflows/quality-gate.yml`（+format-check 步骤）
+
+**验证**：
+- `git diff --stat`：26 文件改动，+793/-9510 行（主要删除为归档的 package-lock.json）
+- `ls apps/*/package-lock.json` → 无文件；`ls apps/*/pnpm-lock.yaml` → 2 个保留
+- workflow YAML 语法：`timeout-minutes` 在 job 级（`runs-on` 同级），符合 GitHub Actions schema
+- CONTRIBUTING/README/TROUBLESHOOTING 无 markdownlint 硬错误
+
+**未闭环项**：
+- QF-880 / QF-881 / QF-891 / QF-927 / QF-930（服务端配置：分支保护、必需检查、评审审计、issue 历史）需 GitHub API 验证，本机不可核
+- QF-917 / QF-925 / QF-929 / QF-024 / QF-864 部分子项需真实运行或历史数据
+- QF-895 的 Node.js 版本单点化（22/24.19 漂移）仅文档化，未强制单点
+
+**下轮计划**：
+- 代码质量类（lint-format 8 + static-analysis 5 + code-quality 11 + maintainability 9 = 33 项）
+- UI/数据类（ui-a11y 10 + ui-compat 11 + data-schema 13 + data-integrity 10 + data-quality 10 = 54 项）
+- 测试类（regression 20 + unit-test 13 + e2e 16 + integration 18 + advanced-testing 13 = 80 项）
+
+---
+
+## 2026-10-11 部署与发布加固 SDD 文档（024）
+
+**变更文件**：`specs/024-deployment-hardening/spec.md`、`plan.md`、`tasks.md`、`quickstart.md`（新建目录 + 4 个文件）
+
+**内容**：为 QualityForge 审计发现的 42 个 P0/P1 缺陷（**1 fail + 41 blocked**，覆盖部署安全、制品与可追溯性、灰度与回滚、特性开关与发布管理、持续运行与灾备）创建 SDD 文档，覆盖 5 个用户故事：
+- US1 (P1) 部署安全基线（FR-1~11，含唯一实证缺陷 QF-818 fail 镜像以 root 运行；只读文件系统 + cap_drop/no-new-privileges + 配置清单可枚举 + 配置变更审计可回滚 + 漂移检测）
+- US2 (P1) 制品与可追溯性（FR-12~19，QF-811~815 已 pass 的实践固化为强制门禁 + digest 追溯 + dry-run 计划预审 + 一键安装验证）
+- US3 (P1) 灰度与回滚（FR-20~26，nginx 分流 1%→10%→50%→100% + 新旧版本指标对比 + 自动回滚条件 + 数据变更兼容性结论 + 回滚耗时实测）
+- US4 (P1) 特性开关与发布管理（FR-27~33，开关四项登记 + 数据库变更先于代码 + 扩展-收缩流程 + 自托管发布检查单强制执行人与结论）
+- US5 (P1) 持续运行与灾备（FR-34~52，备份自动化/加密/保留策略 + 单区故障存活 + 切换一致性校验 + DR 预案与 RTO/RPO 实测 + 证书阈值告警 + 值班表与告警升级路径 + 水位与容量模型）
+
+**52 条 FR**（FR-001 ~ FR-052）+ **12 条 Success Criteria**（SC-001 ~ SC-012）。
+
+**技术上下文**：Docker Compose v2（13 服务 / 10 命名卷，卷前缀 `movo_`）+ `mogo` Bash CLI + GitHub Actions + Vault（可选）+ MongoDB 6.0.20 备份。架构链路：制品构建 → 制品门禁扫描 → 发布晋级 → 部署前置校验 → 灰度 → 自动回滚 → 持续运行 → DR。
+
+**跨特性关系**：与 001 gatekeeper-governance（配置变更审计、检查单结论、演练记录复用 `system_audit`）、007 llm-gateway-resilience（自动回滚触发指标复用错误率/超时率/5xx 率口径）、022 security-hardening（密钥不入库约定）、008 ops-dashboard（水位与证书数据源）双向声明。
+
+**Non-Goals**：不引入 Kubernetes（首期 Docker Compose）、不实现多区域灾备（首期单区域 + 可验证备份恢复）、不实现全自动扩缩容、不重写 QF-811~815 已 pass 的机制、不强制引入 Vault、不追求 distroless 基础镜像、不追求全量服务灰度（基础设施与 dsh-runtime 不参与）。
+
+**验证**：文件结构完整（4 个文件共 1230 行）；spec.md 52 条 FR 编号唯一无重复、6 条 Non-Goals、12 条 SC；plan.md 含技术上下文 / 架构链路 / 目录结构 / 4 个跨特性关系 / 11 个实施阶段映射 / 10 项风险对策；tasks.md 含 119 项任务（T001~T108 + B001~B011，其中 107 项 `[P]` 可并行，12 项串行关键路径，5 项明确标注"不得用 mock"的真实环境演练），任务按 US 分组且均含具体文件路径；quickstart.md 含 8 个子域启用步骤与验证命令 + 48 项验证清单 + 3 个回滚演练场景（灰度自动回滚 / 整版本回退+数据恢复 / 单区故障）。
+
+**改动文件**：
+- `specs/024-deployment-hardening/spec.md`（新建）
+- `specs/024-deployment-hardening/plan.md`（新建）
+- `specs/024-deployment-hardening/tasks.md`（新建）
+- `specs/024-deployment-hardening/quickstart.md`（新建）
+- `docs/WORK_LOG.md`（本节）
+
+> 注：本任务仅创建 SDD 文档，未修改任何 services 源码。42 个缺陷中 41 项为 `blocked`（基础设施尚未建立），因此 tasks.md 中绝大多数任务是**新建**（脚本、配置模板、流水线步骤、文档、演练记录）而非修补既有逻辑；tasks.md 已在 Checklist Gate 中明确"mock 演练结果不得计入 RTO/RPO 实测值"。
+
+---
+
+## 2026-10-11 性能与扩展性加固 SDD 文档（026）
+
+**变更文件**：`specs/026-performance-scalability/spec.md`、`plan.md`、`tasks.md`、`quickstart.md`（新建目录 + 4 个文件）
+
+**内容**：为 QualityForge 审计发现的 51 个 P0/P1 缺陷（全部 `blocked`，需建立性能基线方可解除）创建 SDD 文档，覆盖 5 个用户故事：
+- US1 (P1) 性能基线与度量（FR-1~5，延迟 P50/P95/P99 + 吞吐 RPS/TPS + 外部依赖耗时占比 + 性能预算 CI 检查 + 回归判定）
+- US2 (P1) 数据库性能（FR-6~12，慢查询/N+1 消除/索引策略/查询超时熔断/连接池/执行计划/写入优化）
+- US3 (P1) 缓存与减少冗余计算（FR-13~20，热点缓存/失效策略/穿透击穿雪崩防护/命中率监控/记忆化/容量淘汰）
+- US4 (P1) 前端性能（FR-21~26，Web Vitals/代码分割/压缩 CDN/图片优化/API 请求优化/虚拟列表）
+- US5 (P1) 扩展性与容量规划（FR-27~32，水平扩展/限流熔断背压/资源监控/容量模型/压测/瓶颈识别）
+
+**32 条 FR**（FR-1 ~ FR-32）覆盖 5 域全部场景。
+
+**技术上下文**：Python 3.13 + MongoDB (motor) + Redis + Vue3/Vite + locust/k6；架构为"度量→分析→优化→验证"闭环。
+
+**跨特性关系**：与 001 gatekeeper（审计联动，基线建立解除 blocked）、007 llm-gateway（LLM 耗时占比与韧性事件交叉归因）、008 ops-dashboard（基线/压测/容量/命中率数据源）双向声明。
+
+**Non-Goals**：不引入微服务拆分、不引入读写分离数据库（首期仅预留扩展点）、不实现自动弹性伸缩、不改造既有业务逻辑、不引入新中间件。
+
+**验证**：文件结构完整（948 行），4 个文件均包含必需章节，tasks.md 含 57 项任务（7 Phase，含 [P] 并行标记 + 具体文件路径），quickstart.md 含 25 项验证清单 + 压测命令。
+
+**改动文件**：
+- `specs/026-performance-scalability/spec.md`（新建，169 行）
+- `specs/026-performance-scalability/plan.md`（新建，173 行）
+- `specs/026-performance-scalability/tasks.md`（新建，174 行）
+- `specs/026-performance-scalability/quickstart.md`（新建，432 行）
+- `docs/WORK_LOG.md`（本节）
+
+> 注：本任务仅创建 SDD 文档，未修改任何 services 源码。全部 57 项任务初始状态为 `blocked`，需 Phase 2（US1 基线）完成后方能解除。
+
+---
+
+## 2026-10-11 API 契约与语义加固 SDD 文档（025）
+
+**变更文件**：`specs/025-api-contract-hardening/spec.md`、`plan.md`、`tasks.md`、`quickstart.md`（新建目录 + 4 个文件）
+
+**内容**：为 QualityForge 审计发现的 50 个 P0/P1 缺陷（QF-202 ~ QF-270 子集）创建 SDD 文档，覆盖 4 个用户故事：
+- US1 (P1) API 语义规范（17 项 QF，含实测 fail：QF-202 路径动词段、QF-204 状态码语义、QF-210 未知字段分裂、QF-213 翻页重复、QF-218 PUT 非幂等）
+- US2 (P1) 错误处理规范（15 项 QF，含实测 fail：QF-229 错误结构分裂、QF-230 无稳定错误码、QF-234 错误信息泄漏、QF-237 超配额返回 5xx）
+- US3 (P1) 契约测试（10 项规则，从零搭建契约测试框架）
+- US4 (P1) API 演进与版本化（8 项 QF，从零搭建 OpenAPI CI 校验 + 版本方案）
+
+**格式**：参考 `specs/007-llm-gateway-resilience/` 的文件格式（spec.md 含 User Scenarios & Testing / FR / Non-Goals / Success Criteria / Cross-feature / Clarify 记录；plan.md 含技术上下文 / 架构 / Constitution Check / 实施顺序；tasks.md 含按 US 分组的任务清单 + [P] 并行标记 + 具体文件路径；quickstart.md 含启用步骤 / 验证清单 / 测试命令）。
+
+**31 条 FR**（FR-1 ~ FR-31）覆盖 4 域全部场景；5 个 Clarify 决策（RFC 9457 错误结构、幂等键作用域、批量 200+partial、URL+Header 双轨版本、限流阈值）。
+
+**跨特性关系**：与 001 gatekeeper（权限码联动）、003 document-ingestion-delivery（document-parser API 契约）、008 ops-dashboard（错误码字典与限流响应数据源）双向声明。
+
+**验证**：文件结构完整（848 行），4 个文件均包含必需章节。
+
+**改动文件**：
+- `specs/025-api-contract-hardening/spec.md`（新建，234 行）
+- `specs/025-api-contract-hardening/plan.md`（新建，150 行）
+- `specs/025-api-contract-hardening/tasks.md`（新建，174 行）
+- `specs/025-api-contract-hardening/quickstart.md`（新建，290 行）
+- `docs/WORK_LOG.md`（本节）
+
+> 注：本任务仅创建 SDD 文档，未修改任何 services 源码。api-semantics 与 api-errors 两域有实际 fail 项，tasks.md 已明确标注"修复必须以实测为准，不能只补文档"。
+
+---
+
 ## 2026-10-11 document-parser Python 3.13 升级落地（本轮）
 
 **变更文件**：services/document-parser/Dockerfile、requirements-docling.txt、.github/workflows/quality-gate.yml、docs/pr-review-2026-10-11-docling-3.13-upgrade.md
@@ -8802,6 +8970,32 @@ failures/errors/skipped 全 **0**，退出码全 0。静态门禁三服务全过
 
 ---
 
+## 2026-10-11 续：打包 51a442a、重启、清理 b4d8782 旧镜像
+
+**起因**：用户要求「打包并重启服务，从 orbstack 中去除上个版本的 7 个镜像」。
+
+**环境**：HEAD `51a442a`（含 24eb2f9 document-parser Python 3.13 升级等 5 个提交）；
+运行中版本 `b4d8782`；`.env` 已被另一会话重置为仅含管理员账号配置——本轮验证了
+tag 由 CLI 从 git hash 自动导出、无需 `.env` pin（与 10-10 续四的 pin 方案等价且更不易过期）。
+
+**操作**：`./mogo up --build`（compose 不构建 profile=off 的 bare `dsh-runtime-host` 服务，
+先 `./mogo build dsh-runtime-host` 单独补齐）。
+
+**结果**：
+- 7 个应用镜像全部构建为 `:51a442a`，11 个应用容器滚动更新到新镜像并 `(healthy)`；
+  gateway `/`、`/admin/`、`/admin-api/health` 均 200，DSH Runtime `0.2.0-rc.2`。
+- CLI 收尾的 `prune_previous_release_images()` 自动删除上个 release 的 8 个镜像
+  （`*:b4d8782` 7 个 + 另一会话实验遗留的 `document-parser:3.13`），回收约 9.16GB；
+  复核旧 tag 残留 0、悬空镜像 0。
+
+**经验**：直接 `docker compose build dsh-runtime-host` 会把镜像命名到
+`ghcr.io/himovo/dsh-runtime-host:<tag>`（绕过 CLI 的 bare-name 导出），本地 build
+流程应始终走 `./mogo build`。
+
+**改动文件**：仅 `docs/WORK_LOG.md`（本节）。
+
+---
+
 ## 2026-10-11 19:2x · OrbStack ARM 准生产环境回归（第二轮，对 51a442a）
 
 距上轮（b4d8782 修复后）约 18.5 小时，分支已推进 **7 个提交**，核心是
@@ -8902,6 +9096,8 @@ failures/errors/skipped 全 **0**，退出码全 0。静态门禁三服务全过
 
 - `docs/WORK_LOG.md`（本节）
 
+---
+
 ## 2026-10-11 19:4x · 三服务 venv 升级到 Python 3.13（对齐 CI 与生产）
 
 上一轮回归遗留的缺口：本地三服务 venv 为 **Python 3.12**，而容器已是 3.13、CI matrix 也已是 3.13，
@@ -8974,3 +9170,235 @@ and you require transformers==5.10.0, we can conclude that your requirements are
   删除对应 `.venv312`（经用户授权）。
 - **仓库内无任何源码改动**，`git status` 未新增受跟踪文件。
 - `docs/WORK_LOG.md`（本节）。
+
+---
+
+## 2026-10-11 20:4x · standard 深度全量 QA 审计与阻断级修复
+
+**范围**：对全仓跑 standard 深度 QualityForge 全量审计（964 条测试项），并修复确认的真实缺陷。
+
+**已完成的自动检查（全部实测，非推断）**：
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| user-web 类型检查 | `vue-tsc --noEmit -p tsconfig.json` | EXIT=0 |
+| admin-web 类型检查 | `vue-tsc --noEmit` | EXIT=0 |
+| user-web Lint | `eslint src/` | 0 error / 637 warning |
+| admin-web Lint | `eslint src/` | 0 error / 33 warning |
+| chat-api 测试 | `pytest tests/ -m "not dsh_host_e2e"` | EXIT=0（283 测试文件 / 5864 assert） |
+| admin-api 测试 | `pytest tests/` | EXIT=0（51 测试文件） |
+| document-parser 测试 | `pytest tests/` | EXIT=0（6 测试文件） |
+| user-web 契约测试 | 12 个 `test:*` 脚本 | 全部 PASS |
+
+**修复的三个真实缺陷**：
+
+1. **`container-release.yml` YAML 语法错误（P1，阻断发布链路）** ——
+   `publish-candidates` job 的 `Scan candidate image` 步骤缩进为 7 空格（相邻步骤均为 6），
+   导致整个发布工作流无法被 GitHub 解析加载，tag 推送的发布链路全断。
+   修复：该行改为 6 空格。验证：6/6 workflow `yaml.safe_load` 通过，
+   `publish-candidates` 正确解析出 11 个 step。
+2. **apt 镜像明文 http 源（P2）** —— 三个 Python 服务 Dockerfile 的
+   `MOVO_APT_MIRROR` / `MOVO_APT_SECURITY_MIRROR` 默认为 `http://`，已改为 `https://`。
+   Dockerfile 内 sed 逻辑无需调整（仍匹配 `http://deb.debian.org` 源并替换为 https 镜像）。
+3. **PR/push 类 workflow 缺权限最小化（P2）** —— `quality-gate.yml`、
+   `runtime-guard.yml`、`dsh-migration-step1.yml`、`dsh-upgrade-candidate.yml`
+   无 `permissions` 块，fork PR 会继承仓库默认 token 权限。
+   修复：四个文件顶层增加 `permissions: contents: read`。
+   发布类 workflow（container-promote / container-release）已显式声明，未改动。
+
+**审计误报澄清（重要，避免重复排查）**：
+
+- **硬编码密钥（原判 P0）为误报**：`git ls-files` 确认仅 `.env.example` 系列被追踪，
+  真实 `.env` 未被追踪；`.env.example` 中所有 `*_API_KEY` / `*_TOKEN` / `*_SECRET`
+  均为空占位；`.gitignore:157-158` 为 `.env*` + `!.env.example`，治理正确。
+- **仓库大文件（原判 P1）为误报**：`git cat-file -s` 显示 HEAD 中各
+  `*-bundle.tar.gz` 均为 29–104 字节的占位符；HEAD 树总大小 26.4MB。
+  799MB/486MB 的大包只存在于本地工作区，未被 git 追踪，符合 `.gitignore` 声明的约定。
+- **调试语句泄漏（侦察项）为误报**：`ChatWindow.vue` 的 12 处 `console.log`
+  全部受 `debugEnabled`（URL `?debug=1`）与 `stickyDebugEnabled`（`?sticky_debug=1`）
+  开关保护，默认不输出。
+
+**改动文件**（本轮仅这些）：
+- `.github/workflows/container-release.yml`（缩进修复）
+- `.github/workflows/quality-gate.yml`、`runtime-guard.yml`、
+  `dsh-migration-step1.yml`、`dsh-upgrade-candidate.yml`（权限最小化）
+- `services/chat-api/Dockerfile`、`services/admin-api/Dockerfile`、
+  `services/document-parser/Dockerfile`（apt 镜像改 https）
+- `docs/WORK_LOG.md`（本节）
+
+**验证方式**：上述八项自动检查全部本地重跑通过；6 个 workflow YAML 解析验证通过；
+三处 Dockerfile 的 `MOVO_APT_MIRROR` 改后 grep 复核为 `https://`。
+
+---
+
+## 2026-10-11 20:5x · 安全防护与漏洞审计（纯审计，未改源码）
+
+**范围**：全仓安全审计——认证授权、注入面、沙箱隔离、容器加固、密钥管理、CI 安全能力。
+与同日 20:4x 的 QA 审计不重叠（那轮结论本轮仅作基线确认，不重复排查）。
+
+**产出**：`docs/security-audit-2026-10-11.md`（含证据行号、PoC、修复建议、处置顺序）。
+
+**核心发现**：
+
+| 编号 | 级别 | 问题 |
+| --- | --- | --- |
+| SEC-01 | **P0** | 脚本插件沙箱逃逸 → 读取 `/run/askai-secrets/runtime.env`（含 `ASKAI_ADMIN_JWT_SECRET` 等 7 项），可伪造 admin 令牌 |
+| SEC-02 | **P1** | `skills.py` 的 AST 校验器不在执行路径上（`compile_script_plugin` 不调用它），形同虚设 |
+| SEC-03 | **P1** | `admin-api/app/core/encryption.py` 声称 AES-256-GCM/HKDF，实为 BLAKE2b 流密码 + 同密钥前缀 MAC |
+| SEC-04 | P2 | 4 处服务令牌用 `!=` 比较（`document-parser/core/security.py:12`、`admin-api/routes/knowledge_documents.py:1270/1308/1475`），与仓内 `compare_digest` 用法不一致 |
+| SEC-05 | P2 | 4 个 Dockerfile 均无 `USER`，容器以 root 运行；compose 缺 `no-new-privileges`/`cap_drop` |
+| SEC-06 | P2 | 全仓无 CSP 响应头 |
+| SEC-07 | P2 | `rate_limiter.py` 内存回退字典无上限；Redis 不可用时静默降级为单实例限流 |
+| SEC-08 | P3 | CI 缺 pip-audit/bandit；document-parser 的 pymongo(3.13.0)/uvicorn(0.29.0)/redis(6.4.0) 版本滞后 |
+
+**SEC-01 根因（两条独立路径，均已读码确认）**：
+
+1. `executor.py` runner 中插件 `exec_module`（581-583 行）早于
+   `builtins.open`/`io.open`/`os.open` 打桩（633-635 行）——顶层语句在无守卫状态下执行；
+2. 只打补丁 `open` 不构成边界，`io.FileIO` / `os.scandir` 未受限，`run()` 内亦可绕过。
+
+叠加 `docker-compose.yml:310-311` 把密钥卷挂进 chat-api、且容器以 root 运行 → 密钥直接可读。
+
+**本轮未改动的说明**：SEC-01/02 的修复涉及沙箱安全边界与容器权限模型，
+按 `AGENTS.md`「需要确认的操作先问用户」，本轮只出报告不擅自改源码。
+另：工作区存在其他会话的在途改动（`.github/workflows/*`、三个 `Dockerfile`、
+`RegisterForm.vue`、本文件），本轮未触碰、未暂存。
+
+**验证方式**：SEC-04/05/06 用 grep 复核计数（`USER` 计数全为 0、CSP 零命中、
+`!= settings` 4 处命中）；SEC-01/02/03/07 通过实读源码行号确认，报告第六节列出复现命令。
+
+---
+
+## 2026-10-11 QualityForge standard 深度全量 QA 审计（本轮）
+
+**变更文件**：`.qualityforge/` 目录下 14 个判定文件（verdicts）、`audit.json`、`QUALITYFORGE-REPORT.md`、`report.json`；3 个真实缺陷修复（`container-release.yml` 缩进、3 个 Dockerfile apt mirror http→https、4 个 workflow 补 `permissions: contents: read`）
+
+**本轮工作**：
+
+1. **缺陷修复（3 项）**：
+   - `container-release.yml:171` 缩进 7→6 空格，修复整个 release workflow 解析失败
+   - 3 个 Dockerfile（chat-api/admin-api/document-parser）apt mirror `http://`→`https://`
+   - 4 个 workflow（quality-gate/runtime-guard/dsh-migration-step1/dsh-upgrade-candidate）补 `permissions: contents: read`
+
+2. **全量判定（964 项）**：
+   - 完成全部 964 条测试项的判定（pass 298 / blocked 442 / fail 162 / na 59 / verified 3）
+   - 0 项待判，判定覆盖率 100%
+   - 判定依据：代码级 grep 取证 + 配置审计 + CI 流程审查 + 子代理深度分析
+
+3. **判定纪律**：
+   - pass 必须有代码级证据
+   - fail 必须有 evidence + repro + recommendation
+   - 环境缺口判 blocked（非 fail）
+   - 项目为自托管 SaaS（docker-compose），非托管多租户，不适用项判 na
+
+**验证方式**：`python3 .qualityforge/merge_verdicts.py` 合并 14 个批次文件至 audit.json（revision 22）；`qf_report` 生成可勾选报告与 JSON 快照。
+
+---
+
+## 2026-10-11 SDD spec 文档补齐（本轮）
+
+**变更文件**：
+- `specs/003-document-ingestion-delivery/quickstart.md`（新增）
+- `specs/003-document-ingestion-delivery/tasks.md`（新增）
+- `specs/004-skillhub-lifecycle/quickstart.md`（新增）
+- `specs/004-skillhub-lifecycle/tasks.md`（新增）
+- `specs/005-knowledge-rag-research/quickstart.md`（新增）
+- `specs/005-knowledge-rag-research/tasks.md`（新增）
+- `specs/006-position-rbac-admin/quickstart.md`（新增）
+- `specs/006-position-rbac-admin/tasks.md`（新增）
+- `specs/021-unified-context-address/quickstart.md`（新增）
+
+**本轮工作**：
+
+按 SDD 开发规约（constitution §I Specification-First），补齐 5 个特性缺失的 spec 文档：
+
+| 特性 | 缺失文档 | 补齐内容 |
+|------|----------|----------|
+| 003-document-ingestion-delivery | quickstart + tasks | 多格式解析入库、引用追溯、Office 预览、交付物生成验证步骤与任务分解（35 任务） |
+| 004-skillhub-lifecycle | quickstart + tasks | Skill 草稿→发布→回看→反馈、ZIP 安装校验、启停授权、更新分享（41 任务） |
+| 005-knowledge-rag-research | quickstart + tasks | 多源检索带引用问答、租户隔离、多轮研究、个人知识管理（32 任务） |
+| 006-position-rbac-admin | quickstart + tasks | 岗位角色 CRUD+启停、用户绑定、能力与访问控制、全量审计（33 任务） |
+| 021-unified-context-address | quickstart | 四类 mogo:// 寻址、L0/L1/L2 逐层加载、委托式可见性、检索轨迹回看、会话结合 |
+
+**验证方式**：
+- 全部 21 个特性四件套（spec/plan/tasks/quickstart）完整性检查通过
+- 文档格式遵循 `.specify/templates/` 模板规范（User Stories 按优先级排列、Acceptance Scenarios 覆盖、Functional Requirements 编号）
+- 任务按用户故事分组，`[P]` 标记可并行任务，与 007 等已有完整 spec 格式一致
+- 跨特性关系声明与 spec.md 中已有声明保持一致
+
+---
+
+## 2026-10-11 21:2x · 修复 SEC-01（沙箱守卫）与 SEC-04（常量时间比较）
+
+承接同日 20:5x 的安全审计，实施处置顺序第 2、3 项。详见
+`docs/security-audit-2026-10-11.md` 第七节。
+
+**改动文件（本轮仅这 5 个）**：
+
+1. `services/chat-api/app/enterprise_capabilities/data/script_engine/executor.py`
+   - 守卫安装提前到 `exec_module` **之前**（原为之后，导致插件顶层语句无守卫执行）；
+   - 新增 `io.FileIO` / `_io.FileIO` 守卫（以 `_io.FileIO` 子类实现，保留 `isinstance` 语义）
+     与 `os.scandir` 守卫；
+   - 新增"预热允许导入模块"循环（`mimetypes` + 允许清单），放在装守卫之前——
+     否则 `openpyxl` 导入期读 `/etc/mime.types` 会被守卫拦下。
+2. `services/chat-api/tests/dsh_runtime/test_document_script_boundaries.py`（+6 测试）
+3. `services/admin-api/app/core/security.py`（新增 `constant_time_equals`）
+4. `services/admin-api/app/api/routes/knowledge_documents.py`（3 处 callback 校验改用它）
+5. `services/document-parser/app/core/security.py`（新增 `constant_time_equals` 并改用它）
+
+**验证方式（全部实测）**：
+
+| 验证 | 方法 | 结果 |
+| --- | --- | --- |
+| 修复真实性 | `git show HEAD:` 取原始 runner，同一插件跑两版对照 | 顶层 `open`/`io.FileIO`/`_io.FileIO`/`os.scandir` 四类向量：修复前泄漏，修复后 `PermissionError` |
+| 无回归 | 允许清单内 13 个模块逐个对照 HEAD 与修复后导入行为 | 零回归（`pptx` 两版均失败，属既有缺陷 SEC-09） |
+| 预热必要性 | 从修复后 runner 中移除预热循环复测 | 去掉后 `import openpyxl` 失败 → 确认为必需 |
+| helper 语义 | 8 组用例（含中文、`None`、空串） | 与原有 `!=` 语义一致，非 ASCII 不抛 `TypeError` |
+| chat-api 全量 | `pytest tests/ -m "not dsh_host_e2e"` | 全通过（1m07s） |
+| admin-api 全量 | `pytest tests/` | 全通过 |
+| document-parser 全量 | `pytest tests/` | 全通过 |
+
+**注意**：三个套件首次运行均报收集期 `PermissionError: mkdir pytest-of-root`，
+系 `/private/var/folders/.../T/pytest-of-root` 为历史 root 遗留目录所致，与改动无关；
+用 `--basetemp=$(mktemp -d)` 重跑即全通过。
+
+**未处理（已记录在报告 7.3）**：
+`os.listdir` / `_io.open_code` 不能补（`importlib` 依赖它们，补了会破坏所有导入）；
+`RLIMIT_NPROC` 未加；SEC-01 根因未消除——密钥卷仍挂在 chat-api 且容器仍 root，
+**处置顺序第 1 项（移除 `deployment-secrets` 挂载）仍是最高优先**。
+
+**本轮未触碰**其他会话的在途改动（workflows、三个 Dockerfile、`RegisterForm.vue`、
+`specs/*` 新增文件、本文件其他小节）。
+
+---
+
+## 2026-10-11 QualityForge 审计修复 spec 生成（本轮）
+
+**变更文件**：
+- `specs/022-security-hardening/`（新增 4 文件：spec.md + plan.md + tasks.md + quickstart.md）
+- `specs/023-observability-resilience/`（新增 4 文件）
+- `specs/024-deployment-hardening/`（新增 4 文件）
+- `specs/025-api-contract-hardening/`（新增 4 文件）
+- `specs/026-performance-scalability/`（新增 4 文件）
+- `specs/INDEX.md`（更新：新增"四、质量加固"章节 + 完成度统计更新至 26 份）
+- `docs/WORK_LOG.md`（本条目）
+
+**本轮工作**：
+
+按 SDD 开发规约（constitution §I Specification-First），基于 QualityForge 审计的 report.json 修复计划，生成 5 个质量加固特性 spec，覆盖 283 个 P0/P1 缺陷：
+
+| 编号 | 特性 | 覆盖缺陷 | 文档行数 |
+|------|------|----------|----------|
+| 022 | security-hardening | 96 P0/P1（认证/MFA/令牌/授权/输入/数据/供应链 7 域） | ~1173 |
+| 023 | observability-resilience | 74 P0/P1（日志/追踪/指标/告警/容错/恢复 6 域） | ~1196 |
+| 024 | deployment-hardening | 42 P0/P1（部署安全/制品/灰度/回滚/灾备 5 域） | ~1000 |
+| 025 | api-contract-hardening | 50 P0/P1（语义/错误/契约/演进 4 域） | ~848 |
+| 026 | performance-scalability | 51 P0/P1（基线/DB/缓存/前端/扩展性 5 域） | ~948 |
+
+**总计**：20 份文档，5530 行，全部 26 个特性四件套完整。
+
+**验证方式**：
+- 全部 26 个特性 spec/plan/tasks/quickstart 完整性检查通过
+- 文档格式遵循 `.specify/templates/` 模板规范
+- 跨特性关系已声明（022↔001/006/017/020, 023↔001/007/008/010, 024↔001/007, 025↔001/003/008, 026↔001/007/008/020/025）
+- INDEX.md 已同步更新（新增章节 + 完成度统计 + SDD 路径）

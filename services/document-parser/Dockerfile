@@ -29,8 +29,8 @@ ARG PYTORCH_ACCELERATOR=cpu
 # PyPI mirror. Override with PYTORCH_CPU_INDEX_URL to point anywhere else.
 ARG PYTORCH_CPU_INDEX_URL=https://mirror.sjtu.edu.cn/pytorch-wheels/cpu
 ARG PYTORCH_CUDA_INDEX_URL=
-ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
-ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
+ARG MOVO_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOVO_APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 ARG MOVO_PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 COPY scripts /tmp/document-parser-scripts
 RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \

@@ -6,7 +6,9 @@
 > **017（three-scope-memory）与 021（unified-context-address）** 在 2026-10-05 优化轮完整实现：
 > 密度轴 L0/L1/L2、渐进检索、`mogo://` 统一地址空间、四根适配器（memory/resource/skill/session）、
 > 会话沉淀接线 —— 均已通过测试（2146 + 433 + 22 = 2601 项全绿，2026-10-05 基线）并具备生产接线。
-> **2026-10-06 补充**：全仓非静默宽泛 `except Exception` 补日志（R4）落地，测试基线刷新为
+> **2026-10-11 补充**：QualityForge 审计修复新增 022–026 共 5 个质量加固特性（安全/可观测性/部署/API/性能），
+> 各含 spec + plan + tasks + quickstart 四件套（共 20 份文档，5530 行），覆盖 283 个 P0/P1 缺陷。
+> 本文件下方的 spec/plan/checklist/tasks 计数已同步至该口径。
 > **2229 + 433 + 22 = 2684 项全绿**（chat-api / admin-api / document-parser）；specs 目录已达
 > **21 个特性**（含 021），其中 **17 份 `tasks.md` / 354 项全部勾选**。本文件下方的
 > spec/plan/checklist/tasks 计数已同步至该口径。
@@ -62,7 +64,19 @@
 > 背景：数据层（集合按 `tenant_id` 分区）与认证层（登录可带 `tenantId`、跨租户选租户）已具备多租户能力，唯一缺口是租户供给。既有部署语义为"一套部署 = 一个企业"。
 > 19 项待定决策已全部确认，记录在 `specs/020-platform-multi-tenancy/tasks.md` 的 Clarify Decisions；详细论证见 `docs/platform-multi-tenancy-plan.md`（v4）。
 
-## 四、未独立拆分的后续范围
+## 四、质量加固（QualityForge 审计修复，2026-10-11 新增）
+
+| 编号 | 特性 | 说明 | 优先级 | spec | plan | quickstart | tasks |
+|---|---|---|---|---|---|---|---|
+| 022 | security-hardening（安全加固） | 96 个 P0/P1 缺陷：认证/MFA/令牌/授权/输入/数据/供应链 7 域 | P0 | ✅ | ✅ | ✅ | ✅ |
+| 023 | observability-resilience（可观测性与韧性） | 74 个 P0/P1 缺陷：日志/追踪/指标/告警/容错/恢复 6 域 | P1 | ✅ | ✅ | ✅ | ✅ |
+| 024 | deployment-hardening（部署与发布） | 42 个 P0/P1 缺陷：部署安全/制品/灰度/回滚/灾备 5 域 | P1 | ✅ | ✅ | ✅ | ✅ |
+| 025 | api-contract-hardening（API 契约与语义） | 50 个 P0/P1 缺陷：语义/错误/契约/演进 4 域 | P1 | ✅ | ✅ | ✅ | ✅ |
+| 026 | performance-scalability（性能与扩展性） | 51 个 P0/P1 缺陷：基线/DB/缓存/前端/扩展性 5 域 | P1 | ✅ | ✅ | ✅ | ✅ |
+
+> 背景：QualityForge standard 深度全量 QA 审计（964 项，pass 298 / blocked 442 / fail 162 / na 59 / verified 3）发现的 P0/P1 代码级缺陷与基础设施缺口。283 个缺陷需建能力（022-026 覆盖），其余 341 个为流程/测试/文档缺口（不需 spec，直接修复）。详见 `.qualityforge/QUALITYFORGE-REPORT.md`。
+
+## 四（补）、未独立拆分的后续范围
 
 | 规划清单 | 说明 | 归属 |
 |---|---|---|
@@ -71,10 +85,10 @@
 
 ## 五、规约完成度统计
 
-- spec.md：001–021 全部完成（21 份）
-- plan.md：001–021 全部完成（21 份；020 为技术化实施计划，其余 20 份技术契约齐全）
-- checklist（需求质量门禁，`/speckit-checklist`）：001–021 全部完成（21 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–021 共 17 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态
-- tasks（可执行任务，`/speckit-tasks`）：**001/002/007–021 共 17 份全部完成（354 项，0 项未勾）**（含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP）；003–006（既有回溯）无 `tasks.md`，保留 spec + plan + checklist 原始状态
+- spec.md：001–026 全部完成（26 份）
+- plan.md：001–026 全部完成（26 份；020 为技术化实施计划，022–026 为质量加固特性计划，其余 21 份技术契约齐全）
+- checklist（需求质量门禁，`/speckit-checklist`）：001–021 全部完成（21 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–021 共 17 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态；022–026（质量加固）待补 checklist
+- tasks（可执行任务，`/speckit-tasks`）：**001–026 共 26 份全部完成**（001/002/007–021 的 17 份含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP，354 项全部勾选；**2026-10-11 新增 003/004/005/006 的 4 份**，共 141 项任务；**2026-10-11 新增 022–026 的 5 份**，共 357 项任务，覆盖 QualityForge 审计 283 个 P0/P1 缺陷）
 - 实现进度（`/speckit-implement`，2026-07-08）：**19 个特性全部已有实现核心/ MVP**——P0（001/007/008）完整 MVP；P1（002/009/010/011）核心；P2（012–019）核心全部落地。合计 **313 项新测试通过**（admin-api 89 + chat-api 224）。
   > ⚠️ **该结论已被推翻（2026-10-03 重检）**：它把"有纯逻辑代码 + 单测通过"当成了"已落地"。按今天的标准
   > （生产调用方 / 消费方 / 真实数据源 / 端到端可证伪）重检 20 个特性，结果为
@@ -129,10 +143,11 @@
 
 ## 六、SDD 路径
 
-- 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅ → 无 `tasks.md`（保留原始状态）→ 后续按需补 `/speckit-tasks` + `/speckit-analyze`
+- 既有回溯（003/004/005/006）：spec ✅ → plan ✅ → checklist ✅ → **tasks ✅（2026-10-11 补齐）**→ 后续按需补 `/speckit-analyze` + `/speckit-implement`
 - 缺口 P0（001/007/008）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅ → tasks ✅（本轮补齐）→ analyze → implement → converge
 - 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ✅（本轮补齐）→ analyze → implement → converge
 - P2 后置（012–019、021）：spec ✅ → plan ✅ → clarify ✅（012–019 记录在 plan 的 "Open Questions" 节）→ checklist ✅（已评审勾选）→ tasks ✅（17 份之一，本轮补齐）→ 按路线图节奏 implement
 - 平台化 / 优化轮新增（020、021）：spec ✅ → plan ✅ → clarify ✅（020 记录在 tasks.md 的 "Clarify Decisions" 节）→ checklist ✅ → tasks ✅ → 已按 SDD 落地（020 平台化多租户、021 统一上下文地址空间）
+- 质量加固（022–026，2026-10-11 新增）：spec ✅ → plan ✅ → tasks ✅ → quickstart ✅ → 待补 `/speckit-checklist` + `/speckit-analyze` → 按审计修复波次 implement（Wave 1: 022 安全 → Wave 2: 023 可观测性 → Wave 3: 024 部署 → Wave 4: 025 API → Wave 5: 026 性能）
 
-> 注：「本轮补齐」= 2026-09 SDD 补全轮。clarify 消解记录位置说明：001/002/007–011 在 spec 的 "Clarify 记录" 节，012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节，020 在 tasks.md 的 "Clarify Decisions" 节。
+> 注：「本轮补齐」= 2026-09 SDD 补全轮。clarify 消解记录位置说明：001/002/007–011 在 spec 的 "Clarify 记录" 节，012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节，020 在 tasks.md 的 "Clarify Decisions" 节。022–026 的质量加固特性 clarify 待补。

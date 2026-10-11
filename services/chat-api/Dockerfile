@@ -18,8 +18,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
-ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
+ARG MOVO_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOVO_APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 # Point apt at a reachable mirror before any apt-get call so both the system
 # dependency stage and playwright --with-deps pick it up.
 RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \

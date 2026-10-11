@@ -163,7 +163,7 @@ async function submit() {
       >
         <option value="">{{ t('login.register_department_root') }}</option>
         <option v-for="dept in departments" :key="dept.id" :value="dept.id">
-          {{ '　'.repeat(dept.depth) }}{{ dept.name }}
+          {{ '\u3000'.repeat(dept.depth) }}{{ dept.name }}
         </option>
       </select>
     </div>
@@ -177,6 +177,8 @@ async function submit() {
         autocomplete="nickname"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         :placeholder="t('login.register_nickname_placeholder')"
+        :aria-describedby="errorMessage ? 'movo-register-error' : undefined"
+        :aria-invalid="!!errorMessage"
         @input="resetError"
       />
     </div>
@@ -190,6 +192,8 @@ async function submit() {
         autocomplete="email"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         :placeholder="t('login.register_email_placeholder')"
+        :aria-describedby="errorMessage ? 'movo-register-error' : undefined"
+        :aria-invalid="!!errorMessage"
         @input="resetError"
       />
     </div>
@@ -203,6 +207,8 @@ async function submit() {
         autocomplete="new-password"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         :placeholder="t('login.register_password_placeholder')"
+        :aria-describedby="errorMessage ? 'movo-register-error' : undefined"
+        :aria-invalid="!!errorMessage"
         @input="resetError"
       />
     </div>
@@ -216,11 +222,13 @@ async function submit() {
         autocomplete="new-password"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         :placeholder="t('login.register_confirm_placeholder')"
+        :aria-describedby="errorMessage ? 'movo-register-error' : undefined"
+        :aria-invalid="!!errorMessage"
         @input="resetError"
       />
     </div>
 
-    <p v-if="errorMessage" role="alert" class="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
+    <p v-if="errorMessage" id="movo-register-error" role="alert" class="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
       {{ errorMessage }}
     </p>
 

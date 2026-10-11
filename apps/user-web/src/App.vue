@@ -40,6 +40,7 @@ import { useSkillShareInboxBadge } from './composables/useSkillShareInboxBadge'
 import { usePersonalKnowledgeBadge } from './composables/usePersonalKnowledgeBadge'
 import { useDesktopToolTabs } from './composables/desktop/useDesktopToolTabs'
 import { clearDesktopAuthSession, restoreDesktopAuthToken } from './composables/desktop/desktopAuthSession'
+import { useNetworkStatus } from './composables/useNetworkStatus'
 import { AppsOutline, SettingsOutline } from '@vicons/ionicons5'
 
 const ChatWindow = defineAsyncComponent(() => import('./components/ChatWindow.vue'))
@@ -146,6 +147,7 @@ let sessionSearchTimer: ReturnType<typeof setTimeout> | null = null
 let sessionRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 const { locale } = useLocale()
+const { offline: isOffline } = useNetworkStatus()
 const timezoneOptions = computed(() => [
   {
     label: locale.value === 'en'
@@ -1880,6 +1882,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <a href="#main-content" class="skip-link">跳转到主内容</a>
+  <div v-if="isOffline" class="offline-banner fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 bg-amber-500 px-4 py-2 text-sm font-medium text-white" role="alert">
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+    网络已断开，部分功能可能不可用
+  </div>
   <n-config-provider :theme="isDarkTheme ? darkTheme : null" :theme-overrides="naiveThemeOverrides">
   <n-message-provider>
   <n-notification-provider>
@@ -2344,7 +2351,7 @@ onBeforeUnmount(() => {
     </aside>
 
     <!-- MAIN CONTENT -->
-    <main class="app-main flex-1 flex flex-col min-w-0 min-h-0 bg-white">
+    <main id="main-content" class="app-main flex-1 flex flex-col min-w-0 min-h-0 bg-white">
 
       <!-- Main Area -->
       <div class="flex-1 flex min-w-0 min-h-0 overflow-hidden">
@@ -2925,6 +2932,21 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  z-index: 1000;
+  padding: 8px 16px;
+  background: #366AFF;
+  color: white;
+  text-decoration: none;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
 .app-shell--desktop > .app-sidebar,
 .app-shell--desktop > .app-main {
   padding-top: 48px;
