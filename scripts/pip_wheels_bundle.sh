@@ -66,26 +66,26 @@ bundle_path_for() { printf 'services/%s/%s' "$1" "${BUNDLE_NAME}"; }
 # ABI pip may pick, so it must match the base image.
 py_version_for() {
   case "$1" in
-    document-parser) printf '3.10' ;;
+    document-parser) printf '3.13' ;;
     chat-api)        printf '3.13' ;;
     admin-api)       printf '3.13' ;;
-    *)               printf '3.10' ;;
+    *)               printf '3.13' ;;
   esac
 }
 py_tag_for() {
   case "$1" in
-    document-parser) printf '310' ;;
+    document-parser) printf '313' ;;
     chat-api)        printf '313' ;;
     admin-api)       printf '313' ;;
-    *)               printf '310' ;;
+    *)               printf '313' ;;
   esac
 }
 base_image_for() {
   case "$1" in
-    document-parser) printf 'python:3.10-slim-bookworm' ;;
+    document-parser) printf 'python:3.13-slim-bookworm' ;;
     chat-api)        printf 'python:3.13-slim-bookworm' ;;
     admin-api)       printf 'python:3.13-slim-bookworm' ;;
-    *)               printf 'python:3.10-slim-bookworm' ;;
+    *)               printf 'python:3.13-slim-bookworm' ;;
   esac
 }
 # Extra requirement files beyond requirements.txt, in install order.

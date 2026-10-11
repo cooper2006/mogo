@@ -79,10 +79,10 @@ context_dir_for() {
 # installs into, because apt resolves against that image's package index.
 base_image_for() {
   case "$1" in
-    document-parser)  printf 'python:3.10-slim-bookworm' ;;
+    document-parser)  printf 'python:3.13-slim-bookworm' ;;
     chat-api)         printf 'python:3.13-slim-bookworm' ;;
     dsh-runtime-host) printf 'node:24-bookworm-slim' ;;
-    *)                printf 'python:3.10-slim-bookworm' ;;
+    *)                printf 'python:3.13-slim-bookworm' ;;
   esac
 }
 
@@ -523,7 +523,7 @@ cmd_audit() {
       # duplicate ar/tar parsing for no benefit.
       local counts
       counts="$("${DOCKER_BIN}" run --rm -v "${ROOT_DIR}/${d}:/d:ro" \
-        python:3.10-slim-bookworm bash -c '
+        python:3.13-slim-bookworm bash -c '
           for f in /d/*.deb; do
             [ -f "$f" ] || continue
             dpkg-deb -f "$f" Architecture 2>/dev/null || echo unreadable
