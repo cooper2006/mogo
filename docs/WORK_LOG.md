@@ -1,5 +1,11 @@
 # Work Log
 
+## 2026-10-11 document-parser Python 3.13 升级落地（本轮）
+
+**变更文件**：services/document-parser/Dockerfile、requirements-docling.txt、.github/workflows/quality-gate.yml、docs/pr-review-2026-10-11-docling-3.13-upgrade.md
+**验证**：容器内实测 torch 2.14.1+cpu / numpy 2.5.2 / docling 2.109.0 / rapidocr 3.8.4；StandardPdfPipeline(backend=onnxruntime) 装配成功；真实文档转换通过；现有 485MB bundle 无需重建（PP-OCRv4 匹配）。
+**未验证（待执行）**：抽样 OCR 输出逐字节比对 3.10 vs 3.13；docker build 完整构建。
+
 ## 2026-10-11 续：打包重启服务（b4d8782）并清理旧版本镜像
 
 **起因**：用户要求打包并重启服务，并从 OrbStack 中去除上个版本镜像。

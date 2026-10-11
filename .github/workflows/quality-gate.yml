@@ -172,11 +172,11 @@ jobs:
           - service: chat-api
             venv: venv
             python: "3.13"
-          # document-parser ships on Python 3.10 (Docling pinned deps, B7);
+          # document-parser ships on Python 3.13 (Docling 2.109.0 + rapidocr 3.8.4);
           # keep CI isomorphic with the production image.
           - service: document-parser
             venv: .venv
-            python: "3.10"
+            python: "3.13"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

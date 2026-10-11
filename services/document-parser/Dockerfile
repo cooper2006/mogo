@@ -2,7 +2,7 @@
 # lookup even when the image is already present locally, which fails outright
 # on an air-gapped or registry-restricted host. Pin by tag and let the local
 # image win; override BASE_IMAGE to pin a digest when reproducible pulls matter.
-ARG BASE_IMAGE=python:3.10-slim-bookworm
+ARG BASE_IMAGE=python:3.13-slim-bookworm
 FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
@@ -107,6 +107,7 @@ RUN set -eux; \
             libgl1 \
             libglib2.0-0 \
             libgomp1 \
+            libxcb1 \
             libreoffice-core \
             libreoffice-common \
             libreoffice-writer \
@@ -123,6 +124,7 @@ RUN set -eux; \
             libgl1 \
             libglib2.0-0 \
             libgomp1 \
+            libxcb1 \
             libreoffice-core \
             libreoffice-common \
             libreoffice-writer \
@@ -188,7 +190,7 @@ RUN if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
                         --find-links=/tmp/pip-wheels/${wheel_arch} \
                         "torch>=2.2.2,<3.0.0" "torchvision>=0,<1"; \
                 elif [ -n "${PYTORCH_CPU_FIND_LINKS}" ]; then \
-                    python -m pip install --progress-bar off --find-links "${PYTORCH_CPU_FIND_LINKS}" "torch>=2.2.2,<3.0.0" "torchvision>=0,<1"; \
+                    python -m pip install --progress-bar off --index-url "${PYTORCH_CPU_FIND_LINKS}" "torch>=2.2.2,<3.0.0" "torchvision>=0,<1"; \
                 else \
                     python -m pip install --progress-bar off --index-url "${PYTORCH_CPU_INDEX_URL}" "torch>=2.2.2,<3.0.0" "torchvision>=0,<1"; \
                 fi ;; \
@@ -202,7 +204,7 @@ RUN if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
         && python -m pip install --progress-bar off ${offline_args} --require-hashes -r /tmp/requirements.txt \
         && python -m pip install --progress-bar off ${offline_args} --prefer-binary -r /tmp/requirements-docling.txt \
         && python -m pip uninstall --yes pip wheel \
-        && find /usr/local/lib/python3.10/ensurepip/_bundled -type f -delete \
+        && find /usr/local/lib/python3.13/ensurepip/_bundled -type f -delete \
         && rm -rf /tmp/pip-wheels; \
     else \
         echo "Skip Python dependencies in build stage (INSTALL_PYTHON_DEPS_AT_BUILD=false)"; \
