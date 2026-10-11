@@ -165,9 +165,16 @@ document-parser 3.13 升级引入的回归**；反而确认该升级**修复了�
 
 ## 九、未覆盖面（诚实记录）
 
-- **本地三服务 venv 仍为 Python 3.12，容器内已 3.13** —— pytest 跑在 3.12 上，
-  故 docling/rapidocr 相关代码**未被 3.13 解释器下的 pytest 覆盖**；
-  本轮以容器内真实推理（§3.1–3.3）弥补该缺口。
+- ~~**本地三服务 venv 仍为 Python 3.12，容器内已 3.13**~~ — **已于同日补齐**：
+  三服务 venv 全部升级到 **Python 3.13.16**（与容器内版本完全一致，也与 CI matrix 对齐），
+  2717 项测试在 3.13 下重跑**全绿**。详见 `docs/WORK_LOG.md` 同日
+  「三服务 venv 升级到 Python 3.13」条目。
+
+  > **但仍有一处未闭合**：`requirements-docling.txt` 内部存在平台相关矛盾
+  > （钉 `transformers==5.10.0`，而同文件 `docling-ibm-models==3.15.0` 在 darwin 分支要求
+  > `transformers<5.9.0`），导致 **docling 组无法在 macOS 本地安装**（Linux 生产无此限制）。
+  > 经用户拍板不改生产依赖，故 docling/rapidocr 相关代码**仍未进入 3.13 的 pytest 覆盖范围**，
+  > 继续由 §3.1–3.3 的容器内真实推理保证。
 - 未执行 `./mogo build` 全量重建（本轮以现有 `51a442a` 镜像为回归对象）。
 - `tests/benchmarks/` 三项专项基准未执行。
 - 单副本（`--profile single-host`）拓扑仅配置校验，未实跑。

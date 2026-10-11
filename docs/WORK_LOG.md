@@ -8901,3 +8901,76 @@ failures/errors/skipped 全 **0**，退出码全 0。静态门禁三服务全过
 ### 改动文件
 
 - `docs/WORK_LOG.md`（本节）
+
+## 2026-10-11 19:4x · 三服务 venv 升级到 Python 3.13（对齐 CI 与生产）
+
+上一轮回归遗留的缺口：本地三服务 venv 为 **Python 3.12**，而容器已是 3.13、CI matrix 也已是 3.13，
+导致 docling/rapidocr 相关代码**未被 3.13 解释器下的 pytest 覆盖**。本轮补上。
+
+### 前置：安装 Python 3.13
+
+本机原仅有 3.12.15（uv 管理）与 3.14.8（ServBay），**无 3.13**。沿用既有来源（uv 独立构建）安装，
+版本与容器**完全一致**：
+
+```
+uv python install 3.13   →  cpython-3.13.16-macos-aarch64-none
+```
+
+### 三个 venv 的实际结果
+
+按用户拍板 `.venv312` → **`.venv313`**（名字与实际版本一致，不留名不副实的目录）：
+
+| 服务 | 旧 | 新 | 依赖安装 | 测试 |
+| --- | --- | --- | --- | --- |
+| admin-api | 3.12.15 | **3.13.16** | ✅ | **433 passed** |
+| chat-api | 3.12.15 | **3.13.16** | ✅ | **2262 passed** |
+| document-parser | 3.12.15 | **3.13.16** | ✅ | **22 passed** |
+| | | | | **合计 2717 / 0 失败** |
+
+- 三服务统一 **3.13.16**，与容器内 `Python 3.13.16` **完全一致**，也与 CI matrix（3.13）对齐。
+- chat-api 依赖经比对：3.13 venv 与旧 3.12 venv **同名包 0 处版本差异**，测试等价性无损失。
+- admin-api 在 3.13 下 12.3s 跑完 433 项（旧 3.12 未计时对比）。
+
+### 发现：`requirements-docling.txt` 存在**平台相关依赖矛盾**（已在 macOS 上实测触发）
+
+该文件钉 `transformers==5.10.0`，但同文件依赖的 `docling-ibm-models==3.15.0` 在
+**darwin 分支**要求 `transformers>=4.42,<5.0` 或 `>=5.4.dev0,<5.9.0` —— 与 5.10.0 **互斥**：
+
+```
+Because docling-ibm-models==3.15.0 depends on transformers{sys_platform=='darwin'}>=5.4.dev0,<5.9.0
+and you require transformers==5.10.0, we can conclude that your requirements are unsatisfiable.
+```
+
+- **Linux（生产）无此限制**：容器实测 `transformers 5.10.0` + `docling-ibm-models 3.15.0` 并存正常，
+  因 Linux 分支约束不同 → 故该矛盾**只在 macOS 本地暴露**，属典型「本地装不上、CI/生产却正常」缺口。
+- 已验证成因：临时移除 `transformers==5.10.0` 钉版本后，darwin 上可解析出 `transformers==5.8.1`
+  （满足 `<5.9.0`）并完成 dry-run 安装，确证是**钉版本与 darwin 约束互斥**，而非其他依赖问题。
+
+**处置（经用户拍板）**：**保持现状、不改生产依赖**。理由是生产运行在 Linux，此矛盾不影响交付；
+若为迁就本地而改动依赖声明，反而可能破坏已验证的容器组合。故 docling 组**仍不进本地 venv**，
+其正确性继续由上一轮的**容器内真实推理**保证（OCR 三重复合证据 + 离线 pipeline 加载 770 权重）。
+
+### 旧 venv 处置
+
+`.venv312` 共 **653M**（admin 84M + chat 443M + document-parser 127M）。经用户明确授权后删除，
+回收空间；删除前已把三份 `pip list` 快照存至 `/tmp/venv312-snapshot-*.txt` 供回溯。
+三者均被 `.gitignore` 覆盖，**全程未进入版本控制**。
+
+> 附带收益：此前审计把 `.gitignore` 的 `.venv` 改为 `.venv*`（覆盖带版本号后缀的 venv），
+> 本轮新建的 `.venv313` 实测**自动被忽略**，该修复持续生效。
+
+**未触碰**：`services/admin-api/.venv-test`（98M，无 python 可执行文件）与
+`services/document-parser/.venv`（3.13.12，171M）—— 归属非本轮，按并行会话纪律不动。
+
+### 文档处理
+
+`docs/regression-arm-orbstack-2026-10-11.md`（第一轮报告）中 3 处 `.venv312` 引用
+**刻意保留不改**：那是「当时用 3.12 跑的」这一历史事实，改写会篡改回归记录。
+本轮事实记于本条目与 round2 报告。
+
+### 改动
+
+- 本地开发环境：新建 `services/{admin-api,chat-api,document-parser}/.venv313`（均为 Python 3.13.16）；
+  删除对应 `.venv312`（经用户授权）。
+- **仓库内无任何源码改动**，`git status` 未新增受跟踪文件。
+- `docs/WORK_LOG.md`（本节）。
