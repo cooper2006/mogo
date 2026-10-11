@@ -25,7 +25,7 @@
 #   - 文件头原注释保留（QA-R5-B7 原因）。
 numpy>=1.24.0,<3.0.0
 docling==2.108.0
-docling-core==2.99.0
+docling-core==2.101.0
 docling-ibm-models==3.15.0
 docling-parse==7.22.2
 transformers==5.10.0
