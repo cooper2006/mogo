@@ -156,7 +156,10 @@ celerybeat.pid
 # Environments
 .env*
 !.env.example
-.venv
+# Covers versioned interpreter dirs too (e.g. .venv312), which the exact
+# `.venv` rule misses and which the open-source hygiene gate would otherwise
+# treat as publishable artifacts (symlinks escaping the repository).
+.venv*
 env/
 venv/
 ENV/

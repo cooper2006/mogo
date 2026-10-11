@@ -1,5 +1,35 @@
 # Work Log
 
+## 2026-10-11 续：打包重启服务（b4d8782）并清理旧版本镜像
+
+**起因**：用户要求打包并重启服务，并从 OrbStack 中去除上个版本镜像。
+
+**根因排查**：
+1. `.env` 第 4-11 行硬编码了 `MOGO_*_IMAGE=xxx:dd8ed63` 完整镜像引用。Compose 展开 `image:` 字段时，这些顶层变量优先级高于 `movo_export_service_images` 导出的 `MOVO_*_IMAGE`，导致 `MOGO_VERSION` 被完全无视——构建产物仍 tag 为 `dd8ed63`，与运行中同名镜像直接覆盖，没有产生可清理的独立旧版本。
+2. 移除 `.env` 中这 8 行残留后，`./mogo up --build` 仍漏构建 `dsh-runtime-host`（构建日志只列出 6 个 image，缺它）。原因是 `./mogo` 的 `command_up` 对 `dsh-runtime-host` 的 build 调用依赖 `movo_configure_images` 的变量导出，但 dsh-runtime-host 的 image 字段回退默认值带了 `ghcr.io/himovo` registry 前缀，而 build 产物被 tag 成 bare 名，两者不匹配，导致 `up -d` 时报 "No such image: dsh-runtime-host:b4d8782"。
+
+**修复**：
+- 移除 `.env` 中 8 行 `MOGO_*_IMAGE` 硬编码（保留第 14 行起的平台管理员配置）。
+- 手动补构建 `dsh-runtime-host:b4d8782`（bare 名，匹配 compose 实际引用的 image 名），导出 `MOVO_DSH_RUNTIME_HOST_IMAGE=dsh-runtime-host:b4d8782` 让 build 产物 tag 正确。
+- 最终 `./mogo up --build` 全栈 14 容器 healthy，镜像 tag 统一为 `b4d8782`（bare 名）。
+
+**清理**：
+- 移除 `dd8ed63` 全部旧版本镜像（7 个服务）+ 残留的 `ghcr.io/himovo/` 前缀镜像（6 个）。
+- 磁盘回收：dsh-runtime-host 1.15GB、chat-api 833MB、document-parser 2.13GB 等旧镜像 layer 已释放。
+
+**验证**：
+- `docker compose ps` 全 14 容器 healthy，镜像统一 `b4d8782` bare 名。
+- `docker images` 无 `dd8ed63`、无 `ghcr.io/himovo/` 前缀残留。
+- 服务地址：`http://localhost:3000/admin/setup`。
+
+**改动文件**：
+- `.env`（移除 8 行 `MOGO_*_IMAGE` 硬编码，保留平台管理员配置）
+- `docs/WORK_LOG.md`（本节）
+
+> 注：`./mogo up --build` 漏构建 `dsh-runtime-host` 是部署脚本的既有缺陷，与 D2 修复（单副本 profile 化）相关——`dsh-runtime-host` 单副本服务在 default 拓扑下不启动，但 build 时仍应被纳入构建目标。当前通过手动补 build 绕过，后续需在 `mogo` 脚本的 `command_up` 构建列表中补充 `dsh-runtime-host`。
+
+---
+
 > **命名说明（2026-10-08）**：租户标识已全仓统一为 `tenant_id`。本文中的 `tenant_id`
 > 在 2026-10-08 之前写作 `main_id`，两者指同一概念（详见文末 Phase 1/2/3 迁移记录）。
 > 为保留历史可追溯性，**2026-10-08 的迁移记录章节原文保留 `main_id` 未改**，其余章节
@@ -8099,6 +8129,123 @@ bash 脚本），故以 diff 内容为准。
 
 ---
 
+## 2026-10-10 续四：打包新版本 dd8ed63、重启服务、清理旧版本镜像、base-images 按架构重构
+
+**起因**：用户要求「打包并重启服务，从 orbstack 中去除上个版本的 7 个镜像」，随后追加「base-images 下的 tar 都是 arm64 的，需要同时再生成一份 amd64 的，组织一下目录」。
+
+### 一、环境事实（开工前核查）
+
+- Git HEAD = `dd8ed63`；但 `.env` 把 7 个镜像 pin 在旧 tag `36546a4`（比 HEAD 更早的提交）。
+- 容器原本跑在 `36546a4` / `f58bca7` 上。
+- 用户确认的清理口径：「先构建新版本，再删所有非当前版本的 mogo 应用镜像」。
+
+### 二、修复阻断构建的两个真实缺陷
+
+**缺陷 1：`services/chat-api/Dockerfile` 的 ARG 作用域错误（阻断构建）**
+
+- 现象：`chat-api` 构建在 apt 阶段失败，`/bin/sh: 1: INSTALL_PLAYWRIGHT_AT_BUILD: parameter not set`。
+- 根因：`INSTALL_PLAYWRIGHT_AT_BUILD` 在第 189 行才 `ARG` 声明，但第 98 行的 apt RUN 块就已引用它；
+  该阶段内此变量不存在，`set -u` 直接中止。由 commit `7c49995` 引入，与本次任务无关。
+- 修复：在该 RUN 块之前补 `ARG INSTALL_PLAYWRIGHT_AT_BUILD=false` 声明（含注释说明为何两处都要声明）。
+- 影响面：`docker-compose.build.yml` 对 chat-api 传 `INSTALL_PLAYWRIGHT_AT_BUILD=true`，
+  即**任何带 playwright 的 chat-api 构建此前都必然失败**；修复后该分支才真正生效。
+
+**缺陷 2：OrbStack 中 `node:24-bookworm-slim` 镜像元数据损坏（阻断构建）**
+
+- 现象：`admin-web`/`user-web` 构建报 `failed to resolve source metadata for node:24-bookworm-slim ... Bad Gateway`。
+- 根因：该镜像 `Architecture`/`Os` 为空、`Config` 为 `{}`、`Created` 显示 "56 years ago"，
+  BuildKit 无法据此解析平台，于是回退远程查询 docker.io —— 而本机 docker.io 被完全阻断
+  （DNS 可解析 `128.242.240.180`，但连接超时）。
+- 验证：`base-images/node_24-bookworm-slim.tar` 内的 config 元数据是**完好的**（`arm64`/`linux`），
+  证明压缩包没问题，坏的是 OrbStack 里已加载的那份。
+- 修复：`docker rmi` 后 `docker load -i base-images/node_24-bookworm-slim.tar` 重新载入；
+  元数据恢复正常（`arm64`/`linux`，时间戳正常）。其余 3 个基础镜像经查元数据均正常。
+
+### 三、构建与重启
+
+- 构建命令：`MOVO_BASE_IMAGE_POLICY=local ./mogo build`（复用本地基础镜像，避免触碰不可达的 docker.io）。
+- 注意：服务名是 `document-api`/`document-worker`，**不是** `document-parser`（后者只是镜像名）。
+- 结果：7 个镜像全部构建为 `:dd8ed63`（admin-api / admin-web / chat-api / document-parser /
+  dsh-runtime-host / gateway / user-web），并回收悬空层约 163MB。
+- `.env`：8 条 `MOGO_*_IMAGE` 从 `:36546a4` 统一改 pin 到 `:dd8ed63`（改前已备份到 `/tmp`）。
+- 重启：`./mogo up`。11 个应用容器全部 `Up (healthy)`，gateway `/` 与 `/admin/` 均 HTTP 200，
+  DSH Runtime version `0.2.0-rc.2`。
+- 验证修复生效：新 `chat-api:dd8ed63` 内 `/ms-playwright` 含 chromium-1194 / ffmpeg-1011，
+  证明 `INSTALL_PLAYWRIGHT_AT_BUILD=true` 分支确实执行了。
+
+### 四、清理旧版本镜像（本轮核心诉求）
+
+删除前逐个核验「无任何容器（含已停止）引用」，再删。共删除 8 个旧 tag：
+
+`admin-api:36546a4`、`admin-web:36546a4`、`chat-api:36546a4`、`chat-api:f58bca7`、
+`document-parser:36546a4`、`dsh-runtime-host:36546a4`、`gateway:36546a4`、`user-web:36546a4`，
+外加损坏的悬空镜像 `d6aa754f16b3`（即上文缺陷 2 的残骸，无 tag 无引用）。
+
+- 说明：用户口中的「上个版本的 7 个镜像」实际对应 `36546a4` 那 7 个应用镜像
+  （`f58bca7` 一组仅 `chat-api` 存活），已一并清除。
+- 效果：镜像总量 34.27GB → 22.22GB；应用镜像现**恰好 7 个**且全为 `:dd8ed63`。
+- 机制说明：`./mogo` 内置的 `prune_previous_release_images()` 只在构建收尾时清理，
+  且会跳过 `MOGO_VERSION` 当前 tag；本次是重启后显式清理，故手动逐条 `rmi` 并单独核验引用。
+
+### 五、base-images 按架构重构
+
+**问题**：原 `base-images/*.tar` 平铺混放，文件名不含架构，arm64 与 amd64 同名互相覆盖
+（`docs/pending-review/2026-10-10-stale-base-image-archives.md` 已记录过一次 amd64 被覆盖丢失的事故）。
+
+**新结构**（与 apt / pip-wheels 既有的 `<类别>/<arch>/` 约定一致）：
+
+```
+base-images/images/arm64/*.tar + manifest.txt（# platform: linux/arm64）
+base-images/images/amd64/*.tar + manifest.txt（# platform: linux/amd64）
+```
+
+各 4 个归档（python:3.13 / node:24 / python:3.10 / nginx:1.31.5）。arm64 用原 tar 迁移；
+amd64 重新拉取生成。
+
+**新增 `verify` 子命令**：逐个读**归档自身**的 platform（而非本地镜像库——本地库正是不可信方），
+与 manifest 声明比对，不符则非 0 退出。实测两目录全 `[ok]`；故意混入错误架构时正确报
+`[MISMATCH]` 并退出 1。
+
+**amd64 导出踩坑记录**（已写入脚本文档）：
+
+1. `docker.1ms.run` / `docker.m.daocloud.io` / `docker.1panel.live` 返回的 node 镜像
+   **元数据为空**（`Config={}`、`RootFS.Layers=null`），且三者 digest 相同（`d6aa754f`），
+   即镜像站不区分架构。但**内容可用**：`docker run` 实测 `process.arch === 'x64'`。
+2. 由于上述元数据缺失，`scripts/export_base_images.sh save --platform linux/amd64` 报
+   `no suitable export target found`（即使 pull 已成功）；且镜像站拉取落在
+   `docker.1panel.live/library/<name>` 这个带前缀 tag 上。
+   绕行：显式 pull 镜像站引用后，**用镜像站自己的名字** `docker save`，归档内 config 的
+   `architecture` 字段是正确的。
+3. 端到端验证：加载 amd64 归档后运行，Docker 明确提示
+   `platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)`，
+   且 `process.arch === 'x64'`，确认归档为真 amd64。
+
+**旧文件处置**：原平铺 `base-images/manifest.txt` 已被 `images/<arch>/manifest.txt` 取代，
+按 `AGENTS.md`「禁止删除，移入待确认清单」移入
+`docs/pending-review/base-images-manifest.txt.superseded-2026-10-11`，未删除。
+
+### 六、改动文件
+
+- `services/chat-api/Dockerfile`（补 ARG 声明，修复阻断构建的缺陷 1）
+- `.env`（8 条镜像 pin `36546a4` → `dd8ed63`；本地文件，未跟踪）
+- `scripts/export_base_images.sh`（新增 `verify` 子命令 + 文档更新为按架构目录约定）
+- `base-images/`：新增 `images/arm64/`、`images/amd64/` 各 4 个 tar + manifest；
+  旧 `manifest.txt` 移入待确认清单
+- `docs/pending-review/2026-10-10-stale-base-image-archives.md`（补 2026-10-11 章节）
+- `docs/WORK_LOG.md`（本节）
+
+### 七、验证方式
+
+- 三服务构建产物存在且 tag 正确：`docker images | grep :dd8ed63` → 恰好 7 个。
+- 服务健康：`docker compose ps` 全部 `(healthy)`（document-worker 按设计无 healthcheck）；
+  `curl localhost:3000/` 与 `/admin/`、`/admin-api/health` 均 200。
+- 修复有效性：新 chat-api 镜像内含 `/ms-playwright/chromium-1194`。
+- 归档正确性：`./scripts/export_base_images.sh verify ./base-images/images/{arm64,amd64}` 全部通过；
+  amd64 归档实跑 `process.arch === 'x64'`。
+- 清理有效性：旧 tag 逐个核验容器引用数为 0 后才删除；删后无悬空镜像。
+
+---
+
 ## 2026-10-11 OrbStack ARM 准生产环境全链路回归
 
 **目标**：以 OrbStack（`linux/arm64`，OrbStack 2.2.3）中的全栈作为 ARM 准生产环境做回归测试。
@@ -8359,3 +8506,265 @@ reload **后**返回 `NEW`（已修复）。证明该机制真正解决 D1。
 
 为完成 D2，移除了空转容器 `mogo-dsh-runtime-host-1`（`docker compose rm`，**未加 `-v`**，
 数据卷 `movo_dsh-runtime-data` 保留）。当前 DSH 为 3 副本 + LB，全栈 14 容器 healthy。
+
+## 2026-10-11 复验：OrbStack ARM 准生产回归第二轮（镜像 `b4d8782`）
+
+**做了什么**：对同一 OrbStack ARM 栈做第二轮全量回归复验（09:10–09:40 CST），结论与首轮
+（`dd8ed63`）一致，**全项通过、零源码改动**：
+
+- **测试**：三服务 JUnit 权威计数 **chat-api 2262 / admin-api 433 / document-parser 22，
+  合计 2717 项 0 失败 0 错误**，与基线完全一致（跨午夜修复 R1 复验仍全绿）。
+- **架构**：7 应用镜像全 `arm64/linux`，14 容器 `uname -m` 全 `aarch64`；Playwright
+  chromium-1194 齐全；基础镜像归档 arm64/amd64 各 4/4 `[ok]`。
+- **栈与路由**：14 容器在跑（13 healthy + document-worker 无 healthcheck，正常），
+  网关 7 条路由全 200（端口 3000），未认证 3 端点均 401。
+- **隔离**：`chat_messages` 18 条全属 `bonc-2331b8a0…`、缺失 `tenant_id` 0；单租户不变量
+  保持；`setup-test-*` 孤儿 0（D3 修复持续有效）。
+- **韧性**：粘性键 `reg-arm-sticky` 3 次均命中 host-2（LB 日志可证）；`stop host-1`
+  探针持续 200、`start` 后约 50s 恢复 healthy，路由复检全 200。
+
+**踩坑（环境侧，非代码）**：
+1. pytest 必须在各服务目录内跑，仓库根目录会触发 172/243/253 个跨服务 collection error。
+2. WorkBuddy sitecustomize shim 拦截 pytest 默认 `TMPDIR` 的 `mkdir`，报
+   `PermissionError: EEXIST pytest-of-root/unknown`（29 个 ERROR）；加
+   `--basetemp=/tmp/pt-<svc>` 解决。两坑叠加时假象是"172 个错误"，先做 collect 计数再下结论。
+3. 出现一条与本项目无关的串台命令（Windows 路径 + adb），报 command not found，已忽略。
+
+**改了哪些文件**：
+- `docs/regression-arm-orbstack-2026-10-11.md`（新增「八、复验记录」章节）
+- `docs/WORK_LOG.md`（本节）
+
+**验证方式**：JUnit XML 解析计数、`docker image inspect` 架构、curl 路由探针、
+Mongo 聚合审计、LB access log 粘性/故障注入实证、`git status` 开工前后一致。
+
+## 2026-10-11 · Standard 深度全量 QA 审计（第七轮 · R7）
+
+**做了什么**：在 R5（发布链路/供应链/治理资产/自证式测试）、R6（zip-slip / tenant_id 迁移 /
+性能基准）之后换新维度，对 `main` @ `b4d8782` 再跑一轮全量 QA 审计。**2 项发现，均 P0，均已修**；
+1 项口径不一致待用户拍板。逐条可勾报告见 `docs/pending-review/2026-10-11-full-qa-audit-r7.md`。
+
+**方法论要点**：所有结论来自实跑 / grep / `git log -S` 追溯，不采信 `tasks.md` 的 `[x]`、
+`CHANGELOG` 版本节、`LANDING_AUDIT` 总览。测试计数只认 JUnit XML 解析结果，不信 `tail` 摘要行。
+
+### 测试基线（JUnit XML 权威计数）
+
+chat-api **2254** / admin-api **433** / document-parser **22** = **2709**，0 失败 0 错误 0 跳过，
+退出码全 0。**修复前与修复后逐数一致**（重复字典键对运行时本就不产生行为差异，符合预期）。
+
+> **环境陷阱**：在仓库根目录跑 pytest 会触发 **172 个 collection error**（三个服务的 `tests/`
+> 被一起收集、相对导入失效）。表象像"全线崩"，实为用法错误。**纪律：先看 collected 数量，
+> 再看 passed/failed 摘要。**
+
+### F1（P0，已修）· 6 处重复字典键，前一个值被 Python 静默丢弃
+
+`scripts/check_python_static.py` 的 `duplicate-dict-key` 检查（**冻结配额 = 0**）在 chat-api 上
+**首次报出 6 处违规**，全部围绕 `tenantId` / `tenant_id`，与 R6 的 tenant_id 迁移改造同源，
+高度疑似批量重命名的残渣：
+
+| 文件 | 位置 | 病灶性质 |
+| --- | --- | --- |
+| `app/api/endpoints/auth.py` | 165 / 398 / 835 | 登录响应、企业租户列表、组织信息，连写两遍 |
+| `app/services/end_user_tenant_access.py` | 56 / 118 | 响应体重复键；**Mongo 投影**重复 `"tenant_id": 1` |
+| `app/token_usage/push.py` | 43 | **远端用量上报 payload**，`record.tenant_id or record.tenant_id` 自我 or 废表达式 |
+
+**为何 P0**：重复字典键对 Python 运行时**完全不可见**，2709 项测试不可能发现；其中 2 处跨服务
+契约面（push payload 被 admin-api 消费、Mongo 投影），错了会静默丢字段。
+修复后 `duplicate-dict-key` 6 → 0，`silent-except` 仍为 41/41、14/14、2/2（三服务全过）。
+
+### F2（P0，已修）· 开源发布卫生门禁两处失效（首跑 failed，11 条失败）
+
+**F2-a（9 条 symlink escapes repository）**：`services/{admin-api,chat-api,document-parser}/.venv312/bin/python*`
+指向仓外解释器。根因：`.gitignore` Environments 段只有 `.venv` / `venv/` / `.venv/`，
+**没覆盖带版本号后缀的 `.venv312`**；而门禁的 `publication_files()` 取
+`git ls-files --cached --others --exclude-standard`，所有未被忽略的文件都被当作待发布产物扫描。
+**严重性**：这类缺陷 **CI 上永远复现不出来**（runner 没有该目录），门禁长期绿灯，
+却在开发者本机必红 —— 门禁在真实发布路径上从未被有效执行。
+**修复**：`.venv` → `.venv*` 并加原因注释。验证：`git check-ignore -v` 三服务均命中 `.gitignore:162`。
+
+**F2-b（1 条卷数不符）**：`EXPECTED_MOVO_VOLUMES = 8` 但 compose 实有 11 个。
+用 `git log -S` 追溯（不靠推测）：
+
+```
+git log -S "dsh-runtime-data-1" -- docker-compose.yml
+  → fddc97a feat(compose): M1 存储卷按副本隔离（消除 R-01 跨副本踩踏）
+git log -S "EXPECTED_MOVO_VOLUMES = 8" -- scripts/check_open_source_hygiene.py
+  → 82e4d20 Initial MOVO Community Edition release
+```
+
+`fddc97a` **有意**新增 3 个 per-replica 卷 `dsh-runtime-data-1/2/3`（每副本独立卷，
+防两个副本同时写同一份 kernel 状态 JSONL），而门禁常量**自初始发布起从未更新**。
+**定性：门禁过期，不是 compose 错** —— 不修 compose（那会撤销 M1 的跨副本隔离修复），只同步常量 8 → 11
+并注释来源提交与"何时需再改"提示。
+
+### 无发现项（查证留证）
+
+- **密钥卫生**：全仓形如 `(api_key|secret|password|token)\s*[:=]\s*["'][A-Za-z0-9_-]{20,}["']`
+  命中 2 处。`admin-api/app/core/config.py:121` 的 `"dev-secret-change-me-in-production"`
+  **非缺陷** —— 仅在 `app_env ∈ {local, development}` 且未配置时兜底，紧邻注释写明
+  「MUST NOT be used in shared/staging or production」，生产分支走 `token_urlsafe(64)` 并双 warning。
+  另 1 处是测试夹具输入值。**不动。**
+- **compose 三变体**：`config -q` 默认 / `-f docker-compose.build.yml` / `--profile single-host` 全通过。
+
+### 改动文件
+
+- `services/chat-api/app/api/endpoints/auth.py`（删 3 处重复 `"tenantId"`）
+- `services/chat-api/app/services/end_user_tenant_access.py`（删 1 处重复响应键 + 1 处 Mongo 投影重复）
+- `services/chat-api/app/token_usage/push.py`（删自我 or 废表达式）
+- `.gitignore`（`.venv` → `.venv*` + 原因注释）
+- `scripts/check_open_source_hygiene.py`（`EXPECTED_MOVO_VOLUMES` 8 → 11 + 来源注释）
+- `docs/pending-review/2026-10-11-full-qa-audit-r7.md`（新增，R7 逐条可勾报告）
+- `docs/WORK_LOG.md`（本节）
+
+### 待用户拍板（N1，P2）
+
+三个服务 `main.py` 的 FastAPI `version="0.1.0"`，而 `pyproject.toml`、两个前端 `package.json`、
+`CHANGELOG` 最新发布节均为 `0.2.0`。仅影响 `/openapi.json` 的 `info.version`；
+全仓测试无任何用例断言该字段（测试中的 `0.1.0` 均为 DSH kernel `0.1.0-rc.x`，无关）。
+因属**对外可见行为变更**，按 `AGENTS.md` 未擅改，记入报告待决栏。
+
+### 并行会话纪律
+
+工作区另有他轮在途改动（`docs/regression-arm-orbstack-2026-10-11.md`、
+`scripts/export_base_images.sh`、`services/chat-api/Dockerfile`、
+`docs/pending-review/2026-10-10-stale-base-image-archives.md` 及 3 个未跟踪文件）。
+本轮**只改上述 5 个代码/配置文件，未回滚、未覆盖、未格式化**，未使用 `git add -A`。
+
+### 验证方式
+
+JUnit XML 解析计数（修复前/后各一次，逐数比对）、`check_python_static.py` 三服务实跑、
+`pyflakes app | grep "undefined name"`、`check_open_source_hygiene.py`、
+`docker compose config -q` 三变体、`git check-ignore -v`、`git log -S` 追溯。
+
+### 本轮边界（诚实声明）
+
+未实跑 `dsh-host-e2e`；未做运行时/端到端验证（未启服务、未跑 compose 栈、未做 HTTP 路由探针）；
+未重新逐条判定 21 个 spec 的 `landed`（R5 仅机械化 4 条标准中的第 1 条）；
+未复审 R5/R6 待决尾巴；未审计前端 typecheck/lint/构建产物。
+
+## 2026-10-11 · N1 拍板落地：对外 API 版本统一到 0.2.0（附修 1 项抖动用例）
+
+**背景**：R7 审计（`docs/pending-review/2026-10-11-full-qa-audit-r7.md`）的 N1 待决项，
+用户拍板「统一到 0.2.0 并记 CHANGELOG」。
+
+### N1-fix · 三个服务的对外 API 版本对齐 0.2.0
+
+| 位置 | 改前 | 改后 |
+| --- | --- | --- |
+| `services/chat-api/app/main.py:43` | `0.1.0` | `0.2.0` |
+| `services/admin-api/app/main.py:51` | `0.1.0` | `0.2.0` |
+| `services/document-parser/app/main.py:16` | `0.1.0` | `0.2.0` |
+
+三处各加注释：该字段是 `/openapi.json` 的 `info.version`，属**对外可见契约**
+（下游若按 version 做兼容性判断会受影响），需与 `pyproject.toml` / CHANGELOG 同步，
+防止再悄悄漂回 0.1.0。`CHANGELOG.md` 的 `## Unreleased` → `### Changed` 顶部
+新增一条，记明对齐动作与影响面。
+
+### G1 · 回归时暴露的抖动用例（独立缺陷，与 N1 无关）
+
+`tests/dsh_runtime/test_credential_lease.py::test_transient_refresh_failure_does_not_end_the_lease`
+在 chat-api 全量回归中失败：`assert 1 >= 2`，`refresher.calls` 只有 1 次。
+
+**取证链**（不猜）：
+1. 测试总数仍 2254 与基线一致 → 排除 collection 问题；
+2. 单文件连跑 20 次 → **19 过 1 失败**（约 5% 抖动率），确认是可复现的时序敏感用例；
+3. 100 次采样量 tick 间隔 p50=51.6ms / max=61.7ms，发现测试用
+   `await asyncio.sleep(0.13)` 等第二次 tick（名义 t=0.100s），**余量仅约 28ms**，
+   叠加 `logger.exception` 的 traceback 格式化耗时会被推出窗口；
+4. 对照组 `failures=0` 反有 1 次只拿到 1 次调用 → **排除**「瞬时失败终止了租约」
+   这一假设。生产代码 `credential_lease._run` 的 `while True` + `refresh_now`
+   捕获 `Exception` 后只记日志不退出循环，**逻辑本身正确**。
+
+**改法（不改生产代码）**：测试从「等固定墙钟窗口」改为「等信号」——
+`_Refresher` 加 `asyncio.Event` 在第二次调用时 set，用
+`asyncio.wait_for(..., timeout=5)` 等待真正要断言的那个 tick；
+并给第二个测试补上 `refresher.calls == ["session-b"] * len(...)`
+（原断言只查次数，漏了一半强度）。
+
+**验证**：修复后单文件连跑 **20/20 全过**；chat-api 全量 **2254 / 0 失败**。
+
+### 遗留观察（未擅改，需另行拍板）
+
+- **O1 · `version-consistency` CI job 不含 `main.py`**：`.github/workflows/quality-gate.yml`
+  该 job 只校验 `chat-api`/`admin-api` 的 `pyproject.toml` + 两个前端 `package.json`，
+  **恰不包含三个 `main.py`** —— 这正是 N1 能长期存活的原因。根治需把三个 `main.py`
+  加进该 job，属改 CI workflow 构建行为，按 `AGENTS.md` 需用户同意，**本轮未改**。
+
+### 改动文件
+
+- `services/chat-api/app/main.py`、`services/admin-api/app/main.py`、
+  `services/document-parser/app/main.py`（版本对齐 + 注释）
+- `CHANGELOG.md`（`Unreleased → Changed` 新增一条）
+- `services/chat-api/tests/dsh_runtime/test_credential_lease.py`（G1 抖动修复）
+- `docs/pending-review/2026-10-11-full-qa-audit-r7.md`（N1 标为已解决 + 文末新增第十一章）
+- `docs/WORK_LOG.md`（本节）
+
+### 最终回归计数（JUnit XML 权威计数）
+
+chat-api **2254** / admin-api **433** / document-parser **22** = **2709**，
+failures/errors/skipped 全 **0**，退出码全 0。静态门禁三服务全过
+（duplicate-dict-key 0/0、duplicate-except 0/0、silent-except 41/41、14/14、2/2）。
+
+### 并行会话纪律
+
+工作区另有他轮在途改动（`docs/regression-arm-orbstack-2026-10-11.md`、
+`scripts/export_base_images.sh`、`services/chat-api/Dockerfile`、
+`docs/pending-review/2026-10-10-stale-base-image-archives.md` 及若干未跟踪文件），
+本轮**只改上述确认文件，未回滚、未覆盖、未格式化**，未使用 `git add -A`。
+
+## 2026-10-11 续 · O1 拍板落地：version-consistency 门禁扩到三个 main.py（4 → 7 条校验）
+
+**背景**：R7 报告的 O1 遗留观察项——`version-consistency` CI job 只校验 4 个清单文件
+（两个 `pyproject.toml` + 两个前端 `package.json`），**恰恰不含三个 `main.py`**，
+这正是 N1「FastAPI 版本长期滞后」能存活的根因：该字段根本不在门禁视野里。
+用户拍板「这个需改」。
+
+### 改动（`.github/workflows/quality-gate.yml`）
+
+- job 头部注释改写：校验范围从「清单文件」扩到「清单文件 **+** FastAPI app 对象」，
+  并写明 R7 发现的版本漂移正因这三个文件在门禁视野之外。
+- 新增 `check_fastapi()` 函数 + 三条调用，校验数 **4 → 7**。
+- **提取锚定 `FastAPI(...)` 调用块**（`sed -n '/FastAPI(/,/)/p'`），不用全文
+  `grep version` —— 后者在 `chat-api/app/main.py` 会误抓无关字面量：
+  `/health` 响应体里硬编码的 `"version": "0.1.0"`、MCP `clientInfo`、
+  `dsh_session_versioning` 路由名、索引创建里的 `"version": 1`，造成假红灯。
+- **提取失败也判失败**（找不到 `FastAPI(` 或抓不到版本号 → `::error` + `failed=1`），
+  不做「抓不到就当过了」——否则又一条形同虚设的门禁。
+
+### 验证（三条均实跑）
+
+- YAML 可解析：5 个 job 完好，`version-consistency` 3 个 step 结构正确（pyyaml 实跑）。
+- 正向本地等价模拟：`expected=0.2.0`，7 条全部 `ok`，`failed=0` → exit 0。
+- **对抗验证（关键）**：把 `chat-api/app/main.py` 拷到 `/tmp/vc-negctl/` 改坏为
+  `0.1.0`，门禁逻辑检出 `expected=0.2.0 actual=0.1.0` → `NEGATIVE-CONTROL-PASS`。
+  不验这条就无法排除「新门禁压根不生效却自以为修好了」。
+
+> **诚实边界**：本次改的是 CI workflow，**本地没有任何东西能证明它在 GitHub
+> runner 上真的按预期执行**。已证明的仅：YAML 可解析、shell 逻辑在等价环境正确、
+> 真有违规时会失败。**最终确认需等下一次 push 后 `version-consistency` job 实跑。**
+
+### 改动文件
+
+- `.github/workflows/quality-gate.yml`（`version-consistency`：注释 + `check_fastapi` + 3 条调用）
+- `CHANGELOG.md`（`Unreleased → Changed` 新增「门禁覆盖范围扩大」一条）
+- `docs/pending-review/2026-10-11-full-qa-audit-r7.md`（O1 标为已处置，补验证链与诚实边界）
+- `docs/WORK_LOG.md`（本节）
+
+### 新遗留观察 O2（未擅改，待用户拍板）
+
+两处对外版本字面量在 `FastAPI(...)` 块外，O1 新门禁碰不到：
+- `services/chat-api/app/main.py:450` `/health` 响应体的 `"version": "0.1.0"`（独立硬编码）
+- `services/chat-api/app/services/mcp_streamable_http.py:67` MCP `clientInfo` 的 `"version": "0.1.0"`
+
+二者都是对外响应/协议字段，且 MCP `clientInfo` 的 version 语义是「MCP 客户端实现版本」
+而非「MOVO 服务版本」，是否应随发布版本走需先确认语义。**本轮未改**，已记入 R7 报告。
+
+---
+
+## 2026-10-11 · Code Review（R7 改动集）
+
+对 R7 落地的 13 个 tracked 文件 + 新建报告做一轮 code review（未触碰他轮在途改动）。
+
+- 全部改动逐文件读 diff，并对 3 项做实地可证伪核对：docker-compose 中 movo 物理卷恰为 11（证 `EXPECTED_MOVO_VOLUMES=11` 成立）；`.venv312` 未被跟踪且现已被忽略（证 F2 `.gitignore` 真生效）；`quality-gate.yml` 的 `expected`/`failed` 初始化正确。
+- G1 抖动测试修复复跑确认：该文件 2 用例连跑 3 次均退出 0，机制确定性（不再依赖墙钟）。
+- **结论**：0 阻断；2 低危待跟进 —— ① `mcp_streamable_http.py` 注释过度承诺（称 gate 已钉 `MCP_CLIENT_VERSION`，实际 O3 未做，待拍板）；② `check_fastapi` 的 `sed` 提取停在首个 `)`，未来加带 `)` 默认参数可能误报 CI，建议改 AST/锚定提取（不阻塞）。
+- 报告：`docs/pending-review/2026-10-11-code-review-r7-changeset.md`

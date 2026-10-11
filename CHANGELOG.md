@@ -106,6 +106,19 @@ image.
 
 ### Changed
 
+- **对外暴露的 API 版本统一到 `0.2.0`**：chat-api / admin-api / document-parser
+  三个服务的 `FastAPI(version=...)` 从 `0.1.0` 对齐到 `0.2.0`，与
+  `pyproject.toml`、两个前端 `package.json` 及本文件已发布版本一致。
+  该字段是 `/openapi.json` 的 `info.version`，属**对外可见契约**，下游若按版本
+  做兼容性判断会受影响；此前长期滞后会让排障时出现「代码是 0.2.0 但文档说 0.1.0」
+  的口径冲突。  三处均已加注释说明需与 CHANGELOG 保持同步。
+- **`version-consistency` 门禁覆盖范围扩大**（`.github/workflows/quality-gate.yml`）：
+  原先只校验 4 个清单文件（两个 `pyproject.toml` + 两个前端 `package.json`），
+  **恰不含三个 `main.py`** —— 这正是上一条版本滞后能长期存活的根因（该字段根本不在门禁视野里）。
+  现新增 `check_fastapi`，对三个服务的 `FastAPI(version=...)` 一并校验，共 **7 条**。
+  提取用 `sed -n '/FastAPI(/,/)/p'` 锚定 `FastAPI(...)` 调用块，避免误抓同文件里其他
+  `"version"` 字面量（`/health` 响应体的硬编码 `0.1.0`、MCP `clientInfo`、DSH kernel 版本等）。
+  提取失败（找不到 `FastAPI(` 或抓不到版本号）也会判失败，不会静默放过。
 - **CI 质量门禁扩为五 job**（`.github/workflows/quality-gate.yml`）：
   `version-consistency`（manifest 版本与 CHANGELOG 声明一致）、`frontend-quality`、
   `backend-quality`、`dsh-host-e2e`、`security-quality`。

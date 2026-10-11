@@ -10,7 +10,10 @@ from app.repositories.job_repository import ensure_job_indexes
 def create_app() -> FastAPI:
     app = FastAPI(
         title="MOGO Document Processing Service",
-        version="0.1.0",
+        # Keep in sync with the release version recorded in CHANGELOG.md: this
+        # is the value published in /openapi.json info.version, i.e. an
+        # externally visible contract, not a private cosmetic string.
+        version="0.2.0",
         description="Async document preview conversion, parsing, chunking and indexing service for MOGO.",
     )
     app.include_router(api_router, prefix="/api")

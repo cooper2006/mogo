@@ -59,7 +59,10 @@ REQUIRED_ROOT_FILES = (
     "SUPPORT.md",
     "CODE_OF_CONDUCT.md",
 )
-EXPECTED_MOVO_VOLUMES = 8
+# 8 base volumes + 3 per-replica DSH runtime volumes (dsh-runtime-data-1/2/3),
+# added by commit fddc97a "M1 storage isolation per replica". Bump this constant
+# whenever docker-compose.yml gains or drops a physical volume.
+EXPECTED_MOVO_VOLUMES = 11
 # A physical volume name is ``<prefix>_<suffix>``, where the prefix may be
 # spelled flat (``${MOVO_VOLUME_PREFIX:-movo}``) or nested to let a fork's
 # legacy prefix win: ``${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}``.

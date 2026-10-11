@@ -54,7 +54,6 @@ def project_tenant_candidate(
     )
     return {
         "tenantId": tenant_id,
-        "tenantId": tenant_id,
         "orgName": org_name,
         "spaceType": space_type,
         "userId": str(user.get("_id") or ""),
@@ -115,7 +114,7 @@ async def _selectable_tenant_ids(db: Any, tenant_ids: list[str]) -> set[str]:
     if not tenant_ids:
         return set()
     rows = await db["tenants"].find(
-        {"tenant_id": {"$in": tenant_ids}}, {"tenant_id": 1, "tenant_id": 1, "status": 1}
+        {"tenant_id": {"$in": tenant_ids}}, {"tenant_id": 1, "status": 1}
     ).to_list(length=max(1, len(tenant_ids)))
     active = {_tenant_id_of(row) for row in rows if str(row.get("status") or "") == "active"}
     known = {_tenant_id_of(row) for row in rows}

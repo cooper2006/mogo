@@ -8,6 +8,16 @@ import httpx
 
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
+# Version MOVO advertises as an MCP client in the `initialize` handshake.
+# Per the MCP spec this is the *client implementation* version, NOT the
+# protocol version (that is MCP_PROTOCOL_VERSION above). MOVO only ever acts
+# as a client here — there is no serverInfo/initialize response anywhere in
+# the codebase — so this string unambiguously identifies MOVO's MCP client
+# implementation and must track the release version pinned by the CI
+# `version-consistency` gate on `FastAPI(version=...)` in app/main.py.
+# It is what a remote MCP server operator sees when diagnosing a MOVO
+# conversation, so do not let it drift.
+MCP_CLIENT_VERSION = "0.2.0"
 _LEGACY_INITIALIZE_HTTP_STATUSES = {400, 404, 405}
 
 
@@ -64,7 +74,7 @@ class StreamableHttpMcpClient:
             "params": {
                 "protocolVersion": MCP_PROTOCOL_VERSION,
                 "capabilities": {},
-                "clientInfo": {"name": "MOVO", "version": "0.1.0"},
+                "clientInfo": {"name": "MOVO", "version": MCP_CLIENT_VERSION},
             },
         }
         response = await client.post(self._endpoint, json=payload, headers=headers)

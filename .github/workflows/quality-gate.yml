@@ -6,9 +6,18 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # Release blocker: the version declared in package manifests must match the
-  # newest CHANGELOG entry. Without this, tagging v0.2.0 while manifests still
-  # say 0.1.0 ships an inconsistent release.
+  # Release blocker: the version declared in package manifests AND in the
+  # FastAPI app objects must match the newest CHANGELOG entry. Without this,
+  # tagging v0.2.0 while manifests still say 0.1.0 ships an inconsistent
+  # release.
+  #
+  # The FastAPI checks matter because `version=` is published as
+  # `info.version` in /openapi.json — an externally visible contract. QA R7
+  # (2026-10-11) found all three services stuck at 0.1.0 while every manifest
+  # said 0.2.0: the drift survived precisely because these three files were
+  # outside this gate's view. Extraction is anchored on the FastAPI(...) call
+  # so unrelated `"version"` literals in the same file (/health payload, MCP
+  # clientInfo, DSH kernel versions) are not picked up.
   version-consistency:
     runs-on: ubuntu-latest
     steps:
@@ -42,6 +51,22 @@ jobs:
           check "services/admin-api/pyproject.toml"    "$(grep -oE '^version = "[^"]+"' services/admin-api/pyproject.toml    | head -1 | grep -oE '[0-9.]+')"
           check "apps/admin-web/package.json"          "$(node -p "require('./apps/admin-web/package.json').version")"
           check "apps/user-web/package.json"           "$(node -p "require('./apps/user-web/package.json').version")"
+          check_fastapi() {
+            label="$1"
+            actual="$(sed -n '/FastAPI(/,/)/p' "$label" | grep -oE 'version="[^"]+"' | head -1 | grep -oE '[0-9.]+')"
+            if [ -z "$actual" ]; then
+              echo "::error file=$label::could not extract FastAPI(version=...) — is the FastAPI( call still present?"
+              failed=1
+            elif [ "$actual" != "$expected" ]; then
+              echo "::error file=$label::$label FastAPI version is $actual but CHANGELOG declares $expected"
+              failed=1
+            else
+              echo "ok  $label (FastAPI version=$actual)"
+            fi
+          }
+          check_fastapi "services/chat-api/app/main.py"
+          check_fastapi "services/admin-api/app/main.py"
+          check_fastapi "services/document-parser/app/main.py"
           exit $failed
 
   # Frontend builds and type checks

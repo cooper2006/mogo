@@ -37,7 +37,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="MOVO Backend",
     description="API for Multi-Agent Platform",
-    version="0.1.0"
+    # Keep in sync with pyproject.toml / CHANGELOG: this is the value
+    # published in /openapi.json info.version, i.e. an externally visible
+    # contract, not a private cosmetic string.
+    version="0.2.0"
 )
 _receipt_gc_task: asyncio.Task | None = None
 
@@ -444,7 +447,12 @@ async def health_check():
     ]
     return {
         "status": "ok",
-        "version": "0.1.0",
+        # Read the version off the FastAPI app instead of a second literal: the
+        # literal here sat at 0.1.0 for the entire 0.2.0 line (introduced in
+        # 82e4d20, never touched again) because nothing pointed at a single
+        # source of truth. app.version is also what the CI version-consistency
+        # gate pins, so this payload can no longer drift.
+        "version": app.version,
         "service": "MOVO Backend",
         "agent_kernel": "dsh",
         "dsh_host": "healthy" if dsh_healthy else "degraded",

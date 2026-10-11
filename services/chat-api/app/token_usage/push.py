@@ -40,7 +40,6 @@ class TokenUsagePushService:
             log_print(f"[token_usage.push._to_remote_payload] suppressed {type(exc).__name__}: {exc}", flush=True)
             user_id = str(record.user_id or "")
         return {
-            "tenantId": record.tenant_id or record.tenant_id,
             "tenantId": record.tenant_id,
             "userId": user_id,
             "modelName": record.model_name,

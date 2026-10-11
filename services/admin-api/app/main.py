@@ -45,7 +45,10 @@ def create_app() -> FastAPI:
     is_prod = settings.app_env == "production"
     app = FastAPI(
         title="MOVO Admin API",
-        version="0.1.0",
+        # Keep in sync with pyproject.toml / CHANGELOG: this is the value
+        # published in /openapi.json info.version, i.e. an externally visible
+        # contract, not a private cosmetic string.
+        version="0.2.0",
         description="Control plane API for MOVO admin backend",
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",

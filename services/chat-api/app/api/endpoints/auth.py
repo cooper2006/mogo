@@ -163,7 +163,6 @@ def _profile_from_user(
         "email": str(user.get("email") or ""),
         "avatar": avatar,
         "tenantId": resolve_tenant_id(tenant_id),
-        "tenantId": resolve_tenant_id(tenant_id),
         "orgName": str(tenant.get("orgName") or user.get("org_name") or resolve_tenant_id(tenant_id)),
         "spaceType": str(tenant.get("spaceType") or _space_type_from_user(user)),
         "canAccessAdmin": bool(tenant.get("canAccessAdmin")),
@@ -396,7 +395,6 @@ async def registerable_tenants(request: Request) -> ApiResponse:
         if resolve_space_type(fake_user) != "enterprise":
             continue
         tenants.append({
-            "tenantId": tenant_id,
             "tenantId": tenant_id,
             "orgName": str(org.get("org_name") or tenant_id),
         })
@@ -832,7 +830,6 @@ async def get_org_details(
     used_points = int(org.get("used_points") or 0)
     
     data = {
-        "tenantId": org.get("tenant_id"),
         "tenantId": org.get("tenant_id"),
         "orgName": org.get("org_name"),
         "edition": capabilities["edition"],
