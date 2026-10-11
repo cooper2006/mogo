@@ -110,7 +110,7 @@ function scheduleSearch(keyword: string) {
 
 async function loadMembers(keyword: string, append: boolean) {
   const sequence = ++searchSequence
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- ternary for conditional loading state
   append ? loadingMore.value = true : memberLoading.value = true
   try {
     const page = await searchSkillShareMembers({ keyword, cursor: append ? memberCursor.value : '', limit: 30 })

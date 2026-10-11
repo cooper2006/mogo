@@ -99,7 +99,7 @@ export function useMenuOptions() {
   const authStore = useAuthStore();
 
   const menuOptions = computed(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- explicit dependency on locale reactive state
     locale.value; // Explicitly depend on locale reactive state
     return buildOptions(authStore.isPlatformAdmin);
   });

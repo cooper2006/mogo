@@ -38,7 +38,7 @@ function syncHtmlClass(mode: 'light' | 'dark') {
   }
 }
 
-// eslint-disable-next-line no-useless-assignment
+// eslint-disable-next-line no-useless-assignment -- initial null assignment before matchMedia check
 let mediaQuery: MediaQueryList | null = null;
 const handleSystemThemeChange = () => {
   if (_theme.value === 'system') {

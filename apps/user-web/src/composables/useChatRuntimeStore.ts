@@ -548,7 +548,7 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
   } finally {
     // Returning here intentionally overrides any error/value from the try block
     // only when this operation was superseded; see control-flow note above.
-    // eslint-disable-next-line no-unsafe-finally
+    // eslint-disable-next-line no-unsafe-finally -- intentional early return when operation superseded
     if (pane.operationId !== operationId) return
     // Transport completion owns the running flag. Clear it before any optional
     // refresh callback so a slow or failed sidebar/billing request can never
