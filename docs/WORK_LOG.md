@@ -8799,3 +8799,105 @@ failures/errors/skipped 全 **0**，退出码全 0。静态门禁三服务全过
   `docs/pending-review/2026-10-11-full-qa-audit-r7.md`（O3 标已处置 + O1 加固小节）、
   `docs/pending-review/2026-10-11-code-review-r7-changeset.md`（两项结论改已处置）、本文件。
 - **诚实边界**：CI 改动本地无法证明在 runner 生效，需下次 push 后 `version-consistency` job 实跑确认。
+
+---
+
+## 2026-10-11 19:2x · OrbStack ARM 准生产环境回归（第二轮，对 51a442a）
+
+距上轮（b4d8782 修复后）约 18.5 小时，分支已推进 **7 个提交**，核心是
+**document-parser 的 Python 3.13 升级 + docling 降级至 2.108.0**。故本轮把重点放在
+该变更的真实生产影响上，而非重复上轮已验证的内容。
+
+### 环境基线
+
+- 镜像 tag `51a442a`，全栈运行 4 小时；Docker Server `aarch64/linux`（OrbStack 2.2.3）。
+- 7 个应用镜像 + LB **全部原生 `linux/arm64`**，无 emulation。
+- document-parser 容器内实测 **Python 3.13.16**，docling 2.108.0 / docling-core 2.99.0 /
+  docling-ibm-models 3.15.0 / docling-parse 7.22.2 / rapidocr 3.8.4 / **numpy 2.5.2** /
+  torch 2.14.1+cpu / onnxruntime 1.22.1，与 `requirements-docling.txt` 钉定完全一致。
+
+> ⚠️ **numpy 由 1.26.4 升到 2.5.2**（跨大版本，NumPy 2.x 有 ABI 破坏性变更），是本次升级风险最高项。
+
+### 重点验证 1：声称已修复的生产 PDF OCR bug —— **确认修复**
+
+提交 `51a442a` 声称修复"rapidocr v3→v4 模型不匹配"。评审文档称旧版 PDF OCR **失败**
+（`en_PP-OCRv3_det_mobile.onnx` 不存在）。本轮用**真实推理**坐实：
+
+- 模型文件实证：bundle 内 `/opt/docling/models/RapidOcr/onnx/PP-OCRv4/`（中文 v4 三件套）
+  与 rapidocr 包内 `ch_PP-OCRv4_*` 一致；**全容器搜不到** `en_PP-OCRv3_det_mobile.onnx`
+  （即旧版报错的那个文件）。
+- 引擎日志：`Det`/`Cls`/`Rec` 三模型均 `File exists and is valid`，**无下载、无报错**。
+- **真实 OCR 结果**：`('Hello MOGO OCR 2026', 'Regression Test')` —— 识别正确。
+  → 旧版的 OCR 失败在本版本不复现，**修复属实**。
+
+### 重点验证 2：docling 离线运行时 + numpy 2.x 兼容性 —— **通过**
+
+- `DocumentConverter()` 构造成功；`StandardPdfPipeline(download_models=False)` 加载
+  770 项权重，**零网络请求**（模型全部来自 bundle）。
+- `HybridChunker` / `BaseTokenizer` / `PdfPipelineOptions` 均可导入。
+
+### 重点验证 3：真实 PDF 端到端解析 —— **通过**
+
+宿主机手工构造合法 PDF（775 字节，无外部依赖），`docker cp` 进容器后经生产
+`DocumentConverter` 解析：`ConversionStatus.SUCCESS`，标题/段落/坐标全部正确识别。
+
+再直接调用生产函数 `chunk_docling_document()`（`document_parsing_service.py:178`）验证分块：
+返回 1 块，内容为 `'Service: document-parser Docling 2.108.0 on Python 3.13\nARM aarch64 native'`，
+**完全离线**。
+
+> 过程中两次"失败"经查均**非服务缺陷**，记录以免后续误判：
+> ① 裸 `HybridChunker()` 会尝试连 HuggingFace 而失败——生产代码注入本地
+> `AskAILocalTokenizer`（`_estimate_token_count`，正则估词）刻意规避了此问题；
+> ② 自造 tokenizer 对象被 pydantic 拒绝——因生产 `AskAILocalTokenizer` **继承**
+> `BaseTokenizer`，而我最初未继承。
+
+### 回归结果
+
+| 服务 | tests | failures |
+| --- | --- | --- |
+| chat-api | 2262 | 0 |
+| admin-api | 433 | 0 |
+| document-parser | 22 | 0 |
+| **合计** | **2717** | **0** |
+
+（测试窗口 19:2x CST，非凌晨，与 R1 缺陷窗口无关。）
+
+### 上轮修复的复发检查 —— **均未复发**
+
+- **D2**：DSH 恰为 3 副本 + LB，空转的第 4 个副本未回来。
+- **D1**：LB `RestartCount=0`（保持 reload 语义而非 restart）。
+- **D3**：`setup-test-*` 孤儿残留 **0**；真实数据不变（tenants 2、BONC chat_messages 18、
+  BOND 混入 0）。
+
+### 韧性与不变量
+
+- **故障转移**：停 `dsh-runtime-host-2` 后 `/askai-api/health`、`/healthz` 仍 **200**；
+  LB 正常分流到剩余副本（`max_fails` 熔断生效）；已恢复 healthy。
+- **sticky 粘性**：同一 `X-Isolation-Key` 连续 8 次请求 **8/8 全部命中同一上游**
+  `192.168.107.5:8101`，`hash consistent` 完好——D1 采用 reload 而非变量式 `proxy_pass`
+  的关键收益得到再次确认。
+- **CI 同款**：`check_compose_image_modes` PASS；三种 compose 配置（默认 / build 变体 /
+  `--profile single-host`）均校验通过。
+
+### 本轮发现（不构成缺陷，建议澄清文档）
+
+`docs/pr-review-2026-10-11-docling-3.13-upgrade.md:25` 称
+"`BaseTokenizer` 等生产 API 兼容全通过"，但 docling 2.108 中旧路径
+`docling_core.transforms.tokenizer.base_tokenizer` **已失效**（模块被重构为
+`docling_core.transforms.chunker.tokenizer.base`）。
+
+生产代码 `document_parsing_service.py:181` **用的是新路径**，故运行正常；但若外部/后续代码
+沿用文档所述的旧路径则会 ImportError。建议在该评审文档中标注实际路径，避免误导。
+
+### 未覆盖面
+
+- 本地三服务 venv 仍为 **Python 3.12**，容器内已 3.13 —— 测试在 3.12 上跑，
+  **docling/rapidocr 相关代码未被 3.13 解释器下的 pytest 覆盖**（仅容器内做了上述真实推理验证）。
+- 未做 `./mogo build` 全量重建（本轮以现有 `51a442a` 镜像为回归对象）。
+- `tests/benchmarks/` 专项基准仍未执行。
+- 单副本（`--profile single-host`）拓扑仅配置校验，未实跑。
+- D4（OrbStack virtiofs 挂载长时运行失效）本轮未复现，LB 已连续运行 19 小时正常。
+
+### 改动文件
+
+- `docs/WORK_LOG.md`（本节）
