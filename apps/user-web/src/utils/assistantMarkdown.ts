@@ -12,6 +12,39 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#039;')
 }
 
+/** Detect if code block content is actually prose/markdown rather than code. */
+function isProseContent(content: string, language: string): boolean {
+  const markdownSignals =
+    (content.match(/^#{1,6}\s+/gm)?.length || 0)
+    + (content.match(/^\s*[-*]\s+/gm)?.length || 0)
+    + (content.match(/^\s*[–—]\s+/gm)?.length || 0)
+    + (content.match(/^\s*\d+\.\s+/gm)?.length || 0)
+    + (content.match(/^\s*---+\s*$/gm)?.length || 0)
+    + (content.match(/<hr\b[^>]*>/gi)?.length || 0)
+  const paragraphSignals = (content.match(/[。！？.!?]\s*(?:\n|$)/g)?.length || 0) + (content.match(/\n\s*\n/g)?.length || 0)
+  const codeSignals =
+    (content.match(/\b(function|class|const|let|var|def|import|return|if|else|for|while|try|catch)\b/g)?.length || 0)
+    + (content.match(/[{};=]/g)?.length || 0)
+    + (content.match(/<\s*(script|style|div|span|table|tr|td|th)\b/gi)?.length || 0)
+  return (markdownSignals >= 2 && paragraphSignals >= 1 && codeSignals <= 12)
+    || (markdownSignals >= 3 && codeSignals <= 16)
+    || (['', 'text', 'plaintext', 'markdown', 'md'].includes(language) && markdownSignals >= 1 && codeSignals <= 20)
+}
+
+/** Render a fenced code block, detecting prose vs code. */
+function renderCodeBlock(content: string, language: string, stash: (html: string) => string): string {
+  const trimmed = content.trim()
+  const lang = language.trim().toLowerCase()
+  if (isProseContent(trimmed, lang)) return trimmed
+  const label = lang ? lang.toUpperCase() : 'TEXT'
+  return stash(`
+    <div class="assistant-code-block my-4 rounded-lg overflow-hidden group">
+      <div class="assistant-code-header flex items-center justify-between px-3 py-1.5"><span class="assistant-code-language text-xs font-medium select-none">${label}</span></div>
+      <div class="assistant-code-scroll p-3 overflow-x-auto"><pre class="assistant-code-content text-sm font-mono leading-relaxed whitespace-pre table min-w-full">${escapeHtml(trimmed)}</pre></div>
+    </div>
+  `)
+}
+
 export function normalizeAssistantContent(content: string): string {
   if (!content) return content
   const lines = content.replace(/<br\s*\/?>/gi, '\n').split('\n')
@@ -91,31 +124,7 @@ export function renderAssistantMarkdown(text: string, options: { workspaceFileRe
   html = html.replace(/```\s*([\s\S]*?\|[\s\S]*?\n[\s\S]*?\|[\s\S]*?)```/g, (_match, table) => String(table || '').trim())
 
   html = html.replace(/```([a-zA-Z0-9_-]*)\s*([\s\S]*?)```/g, (_match, lang, code) => {
-    const content = String(code || '').trim()
-    const language = String(lang || '').trim().toLowerCase()
-    const markdownSignals =
-      (content.match(/^#{1,6}\s+/gm)?.length || 0)
-      + (content.match(/^\s*[-*]\s+/gm)?.length || 0)
-      + (content.match(/^\s*[–—]\s+/gm)?.length || 0)
-      + (content.match(/^\s*\d+\.\s+/gm)?.length || 0)
-      + (content.match(/^\s*---+\s*$/gm)?.length || 0)
-      + (content.match(/<hr\b[^>]*>/gi)?.length || 0)
-    const paragraphSignals = (content.match(/[。！？.!?]\s*(?:\n|$)/g)?.length || 0) + (content.match(/\n\s*\n/g)?.length || 0)
-    const codeSignals =
-      (content.match(/\b(function|class|const|let|var|def|import|return|if|else|for|while|try|catch)\b/g)?.length || 0)
-      + (content.match(/[{};=]/g)?.length || 0)
-      + (content.match(/<\s*(script|style|div|span|table|tr|td|th)\b/gi)?.length || 0)
-    const prose = (markdownSignals >= 2 && paragraphSignals >= 1 && codeSignals <= 12)
-      || (markdownSignals >= 3 && codeSignals <= 16)
-      || (['', 'text', 'plaintext', 'markdown', 'md'].includes(language) && markdownSignals >= 1 && codeSignals <= 20)
-    if (prose) return content
-    const label = language ? language.toUpperCase() : 'TEXT'
-    return stash(`
-      <div class="assistant-code-block my-4 rounded-lg overflow-hidden group">
-        <div class="assistant-code-header flex items-center justify-between px-3 py-1.5"><span class="assistant-code-language text-xs font-medium select-none">${label}</span></div>
-        <div class="assistant-code-scroll p-3 overflow-x-auto"><pre class="assistant-code-content text-sm font-mono leading-relaxed whitespace-pre table min-w-full">${escapeHtml(content)}</pre></div>
-      </div>
-    `)
+    return renderCodeBlock(String(code || ''), String(lang || ''), stash)
   })
 
   html = html.replace(/`([^`]+)`/g, (_match, raw) => {
