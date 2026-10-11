@@ -257,6 +257,9 @@ jobs:
       - name: Run tests
         working-directory: services/${{ matrix.service }}
         env:
+          TZ: Asia/Shanghai  # QF-106: 固定时区
+          LANG: en_US.UTF-8  # QF-106: 固定语言环境
+          LC_ALL: en_US.UTF-8  # QF-106: 固定 locale
           ASKAI_ADMIN_MONGODB_URI: mongodb://127.0.0.1:27017
           ASKAI_ADMIN_MONGODB_DB: mogo_test
           ASKAI_ADMIN_JWT_SECRET: test-secret-key-for-ci

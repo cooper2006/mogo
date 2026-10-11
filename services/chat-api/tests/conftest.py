@@ -1,5 +1,16 @@
 """Test-session bootstrap for the chat-api test suite.
 
+QF-106: Fix TZ/LANG to Asia/Shanghai and en_US.UTF-8 for test determinism.
+"""
+import os
+import sys
+
+# QF-106: 显式固定时区与语言环境
+os.environ.setdefault("TZ", "Asia/Shanghai")
+os.environ.setdefault("LANG", "en_US.UTF-8")
+os.environ.setdefault("LC_ALL", "en_US.UTF-8")
+
+
 The session-versioning / hooks / resilience tests exercise pure logic and only
 import Mongo-backed modules (or the DSH runtime package) for their constants. On
 interpreters where the pinned ``motor==2.5.1`` cannot be imported (e.g. Python
