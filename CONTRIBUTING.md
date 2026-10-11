@@ -80,6 +80,7 @@ Pull Request，至少一名他人评审通过 + 全部必需状态检查（Quali
    cd ../admin-web && pnpm install --frozen-lockfile && pnpm build && pnpm lint
    ```
 3. 打开 PR，填写模板：描述用户可见行为、迁移影响、验证结果、配置变更。
+   - **新增 mock 须注明替换的边界与理由**（QF-183）。
 4. **必需状态检查**：Quality Gate（`quality-gate.yml`）所有 job 通过。
 5. **评审**：至少一名他人评审通过；P0/P1 变更需两名评审。
 6. 合并后 squash 或 merge commit，删除源分支。
