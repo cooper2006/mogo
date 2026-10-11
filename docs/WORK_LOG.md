@@ -5,7 +5,7 @@
 **变更文件**：services/document-parser/Dockerfile、requirements-docling.txt、.github/workflows/quality-gate.yml、docs/pr-review-2026-10-11-docling-3.13-upgrade.md
 **版本选择**：docling 2.108.0（最后一个允许 rapidocr>=3.8,<4.0.0 的版本，3.8.4 默认 PP-OCRv4 与现有 bundle 匹配；2.109.0 要求 rapidocr>=3.9.1 默认切 v6）
 **第一次构建失败**：docling-slim 2.109.0 的 standard extra 要求 docling-ibm-models<4.0.0（钉的 4.0.3 违例）+ rapidocr>=3.9.1（钉的 3.8.4 违例），修正为 2.108.0 + ibm-models 3.15.0 + parse 7.22.2
-**验证**：docker build 成功（`document-parser:3.13`）；`verify_docling_runtime.py` 输出 "Docling offline runtime ready"；RapidOCR 加载 PP-OCRv4 三件套与 bundle 匹配；torch 2.14.1+cpu（纯 CPU，无 CUDA）；numpy 2.5.2
+**验证**：docker build 成功；verify_docling_runtime.py 通过；CSV 3.10 vs 3.13 输出完全一致（SHA256 相同）；PDF 无 OCR 基本一致；**旧版 3.10 PDF OCR 实际是坏的**（rapidocr 3.10.0 查找 v3 英文模型但 bundle 只有 v4 中文），3.13 修复了此 bug
 
 ## 2026-10-11 续：打包重启服务（b4d8782）并清理旧版本镜像
 
