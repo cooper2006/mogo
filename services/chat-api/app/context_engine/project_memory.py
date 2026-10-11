@@ -3,7 +3,7 @@ from app.infrastructure.observability.config import log_print
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from app.core.db import get_db
@@ -105,7 +105,7 @@ class ProjectMemoryService:
             return
         pid = str(project_id or "default").strip() or "default"
         mid = resolve_tenant_id(tenant_id)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         try:
             db = get_db()
             for item in list(memories or []):

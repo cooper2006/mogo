@@ -3,7 +3,7 @@ from app.infrastructure.observability.config import log_print
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from app.core.db import get_db
@@ -56,7 +56,7 @@ class SubAgentStateStore:
                 raise StateVersionConflict(f"CAS failed for {record.subagent_id}: expected {existing.state_version}, got {record.state_version}")
             
             record.state_version += 1
-            record.updated_at = datetime.utcnow()
+            record.updated_at = datetime.now(timezone.utc)
             self._records[record.subagent_id] = deepcopy(record)
             await self._persist(record)
             return deepcopy(record)

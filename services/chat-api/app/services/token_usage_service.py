@@ -3,7 +3,7 @@ from app.infrastructure.observability.config import log_print
 
 import re
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from app.core.db import get_db
@@ -209,7 +209,7 @@ class TokenUsageService:
     async def _summary(self, match: Dict[str, Any]) -> Dict[str, Any]:
         db = get_db()
         coll = db.token_usage_logs
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         recent_threshold = now - timedelta(days=1)
         group_id = self._request_group_id_expr()
         pipeline = [
@@ -297,7 +297,7 @@ class TokenUsageService:
 
     @staticmethod
     def _summary_from_rows(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         recent_threshold = now - timedelta(days=1)
         total_tokens = 0
         prompt_tokens = 0
