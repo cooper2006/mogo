@@ -29,6 +29,26 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
   # turns to finish) before disposing runtimes. The grace period must cover
   # that drain window or docker kills the process and the drain is cut off.
   stop_grace_period: 45s
+  # 022 US3 (T027): container hardening, same shape as the other app services.
+  # The image declares `USER node`, so `cap_drop: ALL` costs nothing: there is
+  # no privilege drop at start-up and therefore no CAP_SETUID/CAP_SETGID needed.
+  # Everything the host writes at runtime already lives outside the image:
+  #   * kernel sessions / workspaces -> the dsh-runtime-data volume
+  #   * $HOME/.dsh (anonymous user id) -> HOME is pinned into that same volume
+  #   * the cordis host profile -> tmpfs (regenerated on every boot)
+  #   * scratch -> tmpfs /tmp
+  # so `read_only` is safe. tmpfs entries must state mode explicitly: Docker's
+  # default is 0755, which the non-root user cannot write to.
+  security_opt:
+    - "no-new-privileges:true"
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+    # The cordis host profile is rewritten from config on every boot, so it
+    # needs writable space but no persistence.
+    - /app/host-profile-home:rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0755
   environment:
     DSH_INSTANCE_ID: dsh-runtime-host
   volumes:

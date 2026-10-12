@@ -48,6 +48,32 @@ To build without starting services:
 ./mogo build
 ```
 
+### The DSH Runtime Host is not built by default
+
+`./mogo build` builds six images. The seventh — `dsh-runtime-host` — is **not**
+one of them: its Compose service carries `profiles: [single-host]`, so the
+default (pool) topology never asks Compose to build it.
+
+This matters because both topologies share one image reference. The pool
+replicas (`dsh-runtime-host-{1,2,3}`) and the single-host service all resolve
+`dsh-runtime-host:<tag>`, and `./mogo` exports exactly that name for a source
+build. So a bare `./mogo build` followed by `./mogo up` leaves the replicas
+pointing at a tag that was never produced locally, and start-up falls back to
+pulling `ghcr.io/himovo/dsh-runtime-host:<tag>` — which either fails on an
+offline host or silently runs a published image that does not match your
+working tree. `./mogo up --build` has the same gap, for the same reason.
+
+Build it explicitly:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml \
+  --profile single-host build dsh-runtime-host
+```
+
+> `--profile` is a **global** Compose flag and must precede the subcommand.
+> `./mogo build --profile single-host dsh-runtime-host` fails with
+> `unknown flag: --profile` because the flag is forwarded after `build`.
+
 Both build paths reuse the base images already present in the local Docker
 store (for example the ones OrbStack has cached) and reach the registry only
 for base images that are genuinely missing. This keeps a rebuild that changed

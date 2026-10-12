@@ -40,6 +40,19 @@ echo $BASH_VERSION | grep -qE '^[45]' || { echo "❌ Bash 4.0+ 所需"; exit 1; 
 | libreoffice | DOCX/PPTX 转换 | `apt install libreoffice` |
 | tesseract-ocr | OCR | `apt install tesseract-ocr` |
 
+> `./mogo build` 默认**不**构建 `dsh-runtime-host`：它的 Compose 服务带
+> `profiles: [single-host]`，默认（池模式）拓扑不会构建它。而池模式的 3 个副本
+> 与单副本服务复用同一个镜像名，裸 `./mogo build` 之后 `./mogo up` 会回退去拉
+> `ghcr.io/himovo/dsh-runtime-host:<tag>`（离线主机直接失败，联网则静默跑成
+> 与工作区不一致的已发布镜像）。需要时显式补建：
+>
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.build.yml \
+>   --profile single-host build dsh-runtime-host
+> ```
+>
+> `--profile` 是全局 flag，必须放在子命令之前。详见 `docs/docker-deployment.md`。
+
 ## 完整性校验（QF-949/962）
 
 ### GHCR 镜像校验

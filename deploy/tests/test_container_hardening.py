@@ -49,6 +49,17 @@ NGINX_MAIN_CONFIGS = {
 }
 
 # 需要 read_only + tmpfs 的全部应用/网关服务
+#
+# DSH Runtime Host 池副本（dsh-runtime-host-{1,2,3}）的加固字段来自
+# ``x-dsh-runtime-host-template``：副本自身只覆盖 ``environment``/``volumes``，
+# 而 YAML 锚点（``<<:``）是**浅合并** —— 只要锚点带上加固，三个副本都会继承。
+# 这里把副本一起钉住，避免将来有人只改锚点或只改副本而产生漂移。
+DSH_RUNTIME_HOST_POOL = [
+    "dsh-runtime-host-1",
+    "dsh-runtime-host-2",
+    "dsh-runtime-host-3",
+]
+
 HARDENED_SERVICES = [
     "bootstrap",
     "chat-api",
@@ -58,6 +69,7 @@ HARDENED_SERVICES = [
     "user-web",
     "admin-web",
     "gateway",
+    *DSH_RUNTIME_HOST_POOL,
 ]
 
 # 镜像名 -> 服务。用于运行时 uid 校验（T029 的 `docker exec id` 一步）。
@@ -76,10 +88,17 @@ def _dockerfile(name: str) -> str:
     return (REPO_ROOT / rel).read_text(encoding="utf-8")
 
 
-def _compose_config() -> dict:
-    """返回 `docker compose config --format json` 解析后的结构。"""
+def _compose_config(profile: str | None = None) -> dict:
+    """返回 `docker compose config --format json` 解析后的结构。
+
+    ``profile`` 用于渲染被 profile 门控的服务：``dsh-runtime-host`` 的单副本
+    拓扑只存在于 ``--profile single-host`` 下，默认配置里根本看不到它。
+    """
+    cmd = ["docker", "compose", "-f", "docker-compose.yml"]
+    if profile:
+        cmd += ["--profile", profile]
     out = subprocess.run(
-        ["docker", "compose", "-f", "docker-compose.yml", "config", "--format", "json"],
+        cmd + ["config", "--format", "json"],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
@@ -212,7 +231,8 @@ def test_compose_service_forbids_privilege_escalation(service: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "service", ["chat-api", "admin-api", "document-api", "document-worker", "user-web", "admin-web", "gateway"]
+    "service",
+    ["chat-api", "admin-api", "document-api", "document-worker", "user-web", "admin-web", "gateway", *DSH_RUNTIME_HOST_POOL],
 )
 def test_compose_service_runs_read_only(service: str) -> None:
     """应用/网关容器的镜像 rootfs 必须只读，禁止运行期落地后门。"""
@@ -220,7 +240,8 @@ def test_compose_service_runs_read_only(service: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "service", ["chat-api", "admin-api", "document-api", "document-worker", "user-web", "admin-web", "gateway"]
+    "service",
+    ["chat-api", "admin-api", "document-api", "document-worker", "user-web", "admin-web", "gateway", *DSH_RUNTIME_HOST_POOL],
 )
 def test_compose_service_mounts_writable_tmpfs(service: str) -> None:
     tmpfs = list(_compose_config()["services"][service].get("tmpfs") or [])
@@ -252,6 +273,79 @@ def test_compose_bootstrap_writes_world_readable_secrets() -> None:
     text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     assert "umask 022" in text, "bootstrap 必须用 umask 022 生成 0644 的 runtime.env"
     assert "umask 077" not in text
+
+
+# ---------------------------------------------------------------------------
+# DSH Runtime Host 加固（补齐 022 US3 的覆盖缺口）
+# ---------------------------------------------------------------------------
+#
+# 池副本的 cap_drop / no-new-privileges / read_only 走
+# ``x-dsh-runtime-host-template``（见 HARDENED_SERVICES 与 read_only/tmpfs 参数表），
+# 但另有三处容易漏，单独钉住：
+#
+#   1. 镜像自身的 USER 指令 —— 它用 ``node``（UID 1000）而不是 ``appuser``
+#      （10001）。正因为进程直接以非 root 启动、不需要 gosu 的
+#      CAP_SETUID/CAP_SETGID，``cap_drop: ALL`` 才成立。
+#   2. entrypoint 的降权分支必须是条件式的 —— ``cap_drop: ALL`` 下非 root
+#      进程无权 chown，无条件执行会让容器启动即退出。
+#   3. HOME 必须落在可写卷内 —— DSH 的 anonymous-user-id 插件把身份写进
+#      ``$HOME/.dsh``，只读 rootfs 下 HOME 若仍是 /home/node 就会写失败。
+#   4. ``--profile single-host`` 的单副本服务不能绕过加固。
+
+DSH_RUNTIME_HOST_DOCKERFILE = "services/chat-api/dsh/runtime-host/Dockerfile"
+DSH_RUNTIME_HOST_ENTRYPOINT = "services/chat-api/dsh/runtime-host/entrypoint.sh"
+
+
+def test_dsh_runtime_host_image_declares_non_root_user() -> None:
+    text = (REPO_ROOT / DSH_RUNTIME_HOST_DOCKERFILE).read_text(encoding="utf-8")
+    assert re.search(r"^USER\s+node\b", text, re.M), (
+        "dsh-runtime-host 镜像必须以 node 用户运行（USER node）"
+    )
+    assert not re.search(r"^USER\s+root\b", text, re.M)
+
+
+def test_dsh_runtime_host_privilege_drop_is_conditional() -> None:
+    """chown/gosu 只能在 uid 0 下执行，且非 root 路径要有可跑的命令。"""
+    text = (REPO_ROOT / DSH_RUNTIME_HOST_ENTRYPOINT).read_text(encoding="utf-8")
+    assert "gosu node" in text, "root 分支应保留 gosu 降权（兼容 docker run -u 0）"
+    assert re.search(r'id -u\)"\s*=\s*"0"', text), (
+        "chown/gosu 必须被 `id -u` = 0 条件包住，否则非 root 下必然失败"
+    )
+    assert re.search(r'^\s*exec "\$@"', text, re.M), (
+        "条件块之后需要一条无条件 exec，否则非 root 路径无命令可跑"
+    )
+
+
+def test_dsh_runtime_host_home_is_on_a_writable_volume() -> None:
+    """read_only 下 $HOME/.dsh 必须落在已挂载的可写卷里。"""
+    dockerfile = (REPO_ROOT / DSH_RUNTIME_HOST_DOCKERFILE).read_text(encoding="utf-8")
+    match = re.search(r"^ENV\s+HOME=(\S+)", dockerfile, re.M)
+    assert match, "Dockerfile 必须显式设置 HOME（compose 锚点的 environment 会被副本覆盖）"
+    home = match.group(1)
+    assert home.startswith("/data/dsh-runtime/"), (
+        f"HOME 应指向 dsh-runtime-data 卷内，实际 {home!r}"
+    )
+    for service in DSH_RUNTIME_HOST_POOL:
+        # `docker compose config --format json` 渲染成长格式（dict），不是
+        # 短格式字符串，所以按 target 取而不是按字符串后缀。
+        volumes = _compose_config()["services"][service].get("volumes") or []
+        targets = [v.get("target") if isinstance(v, dict) else str(v).rsplit(":", 1)[-1] for v in volumes]
+        assert "/data/dsh-runtime" in targets, (
+            f"{service} 未把数据卷挂到 /data/dsh-runtime：{targets}"
+        )
+
+
+def test_dsh_runtime_host_single_host_profile_is_hardened() -> None:
+    """`--profile single-host` 的单副本服务不能绕过加固。"""
+    service = _compose_config(profile="single-host")["services"]["dsh-runtime-host"]
+    assert service.get("cap_drop") == ["ALL"], service.get("cap_drop")
+    assert "no-new-privileges:true" in [str(o) for o in service.get("security_opt") or []]
+    assert service.get("read_only") is True
+    tmpfs = [str(m) for m in service.get("tmpfs") or []]
+    assert any(m.startswith("/tmp") for m in tmpfs), tmpfs
+    assert any(m.startswith("/app/host-profile-home") for m in tmpfs), (
+        f"host profile 目录必须是 tmpfs，否则 read_only 下无法重建：{tmpfs}"
+    )
 
 
 # ---------------------------------------------------------------------------

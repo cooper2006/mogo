@@ -419,6 +419,17 @@ To build the images without starting the services:
 
 Source builds download Playwright, LibreOffice, Docling and model assets, so they need substantially more time and disk space than the prebuilt-image path.
 
+`./mogo build` skips the DSH Runtime Host, whose Compose service is gated behind
+the `single-host` profile. The Runtime Host pool reuses that same image name, so
+build it explicitly when you want it to match your working tree:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml \
+  --profile single-host build dsh-runtime-host
+```
+
+See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
+
 ## Repository layout
 
 | Path | Component |

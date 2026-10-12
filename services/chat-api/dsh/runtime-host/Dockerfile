@@ -115,6 +115,31 @@ RUN chmod -R a+rX /app \
     && mkdir -p /data/dsh-runtime \
     && chown -R node:node /data/dsh-runtime
 
+# 022 US3 (T027): container hardening, same shape as the other app images.
+#
+# The runtime host keeps every mutable byte outside the image filesystem:
+#   * kernel sessions / workspaces -> the dsh-runtime-data volume
+#   * $HOME/.dsh (anonymous user id) -> HOME points into that same volume
+#   * the cordis host profile      -> tmpfs (regenerated on every boot)
+#   * scratch space                -> tmpfs /tmp
+# so the image rootfs can be mounted read-only.
+#
+# Running as the non-root `node` user (UID 1000) is what makes `cap_drop: ALL`
+# safe: the process starts unprivileged, so no CAP_SETUID/CAP_SETGID is needed
+# for a privilege drop. The entrypoint still supports a forced uid 0 (gosu).
+#
+# HOME is set here rather than in compose on purpose: the pool replicas each
+# declare their own `environment`, and a YAML merge key (`<<:`) is a *shallow*
+# merge — a replica's `environment` replaces the anchor's wholesale, so a HOME
+# defined in the anchor would silently disappear for every replica.
+#
+# The DSH anonymous-user-id plugin persists under $HOME/.dsh, so keeping HOME
+# inside the writable (and per-replica isolated) data volume makes that identity
+# survive restarts without adding another volume per replica.
+ENV HOME=/data/dsh-runtime/home
+
+USER node
+
 EXPOSE 8101
 
 ENTRYPOINT ["/app/entrypoint.sh"]
