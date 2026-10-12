@@ -10373,5 +10373,46 @@ LB 粘性 6/6 未受影响。守卫测试 `deploy/tests` **153 passed / 6 skippe
 **验证**：两轮扫描累计 **54 条被提示行全部清零**；`test_supply_chain_us6.py` **36 passed**
 （新增 2 项：长变量名不提示 / 值位置长串仍提示）；`deploy/tests` **167 passed / 6 skipped**。
 
+---
+
+## 2026-10-12 构建版本号改取 git tag（弃用 HEAD 短 SHA）+ v0.2.1 镜像重建
+
+### 改动
+- `mogo`：新增 `movo_default_version()`，默认镜像 tag 由 `git rev-parse --short HEAD`
+  改为 `git describe --tags --always`。`command_up` / `command_build` 两处调用点同步；
+  环境变量 `MOGO_VERSION` 仍优先。
+  降级行为：HEAD 在 tag 上 → `v0.2.1`；越过 tag → `v0.2.1-3-gd153d2d`；无 tag → 短 SHA。
+  **刻意不加 `--dirty`**：本工作区常有并行会话的未提交改动，加了会让每次本地构建都变成
+  `-dirty`，tag 就失去与发布对齐的意义。
+- 目的：让本地镜像名与 GHCR 发布 tag、`./mogo up` 的拉取 tag 三者对齐（`v0.2.1`），
+  而不是用不可读的提交短哈希。**用裸 `0.2.1` 会导致 registry 上无此 tag、拉取失败。**
+
+### 过程中撞到的坑（构建文档里已写明，这次仍先踩了一次）
+首次执行 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` **失败**：
+`dsh-runtime-host` 的 compose 服务带 `profiles: [single-host]`，`up --build` 会跳过它，
+而池模式 3 个副本复用同一镜像名 → `No such image: dsh-runtime-host:d153d2d`。
+旧容器完好保留（脚本的失败保护生效，可回滚）。
+**正确顺序**：先显式补建 DSH 镜像，再 `up`：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml \
+  --profile single-host build dsh-runtime-host
+```
+
+### 执行结果
+- 先补建 `dsh-runtime-host:v0.2.1`，再 `./mogo up --build`（**不传 `MOGO_VERSION`**，
+  顺带验证新的 tag 解析逻辑）→ 日志确认解析为 `v0.2.1`，6 个镜像以 `:v0.2.1` 构建。
+- 7 个镜像统一为 `v0.2.1`：chat-api / admin-api / document-parser / gateway /
+  user-web / admin-web / dsh-runtime-host。
+- **上一版 7 个 `f1c9c20` 镜像已全部移除**，另清掉失败构建留下的 6 个 `d153d2d` 残留；
+  脚本自动回收：`Pruned 13 image(s) from the previous release, reclaimed about 13382 MB`。
+- 13 容器 healthy；`/healthz` 与 `/askai-api/health` 均 200；
+  **`/askai-api/openapi.json` 的 `info.version` = `0.2.1`**（版本号变更已在运行时生效）。
+
+### 遗留
+`docker system df` 显示 **Build Cache 17.24GB**（构建前为 0B），磁盘可用由 60Gi 降至 48Gi。
+这是构建缓存（第二次构建只花 54 秒的原因），**不是**"上个版本的镜像"，故未擅自清理；
+需要时 `docker builder prune` 可回收。
+
 
 
