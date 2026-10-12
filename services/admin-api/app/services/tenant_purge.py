@@ -48,6 +48,9 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "admin_sessions",
     "admin_model_instances",
     "admin_presentation_settings",
+    # 022 FR-13: separate, tamper-evident audit trail (hash-chained events),
+    # partitioned by tenant_id — distinct from ``audit_logs`` below.
+    "audit_events",
     "audit_logs",
     "chat_messages",
     "chat_sessions",
@@ -91,6 +94,11 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "experience_fragments",
     # 011 ②: generated skill drafts + MR flags written for 004 consumption.
     "skill_drafts",
+    # 022 FR-3/FR-4: MFA login lockout counters + TOTP used-step anti-replay
+    # state. ``tenant_id`` is stamped on write (derived from the composite key /
+    # scope), so the keyed sweep reaches every row of a deleted tenant.
+    "mfa_lockouts",
+    "mfa_used_steps",
     # 017: three-scope memory records (tenant-partitioned, scope-filtered reads).
     "memories",
     # 019: harness thickness profiles (tenant-partitioned via tenant_id).

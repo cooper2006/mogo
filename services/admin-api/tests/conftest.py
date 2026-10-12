@@ -2,30 +2,26 @@
 
 QF-106: Fix TZ/LANG to Asia/Shanghai and en_US.UTF-8 for test determinism.
 """
+from __future__ import annotations
+
 import os
 import sys
+import types
 
 # QF-106: 显式固定时区与语言环境
 os.environ.setdefault("TZ", "Asia/Shanghai")
 os.environ.setdefault("LANG", "en_US.UTF-8")
 os.environ.setdefault("LC_ALL", "en_US.UTF-8")
 
-
-The governance / dashboard aggregation tests exercise pure logic and only import
-Mongo-backed modules for their constants. On interpreters where the pinned
-``motor==2.5.1`` cannot be imported (e.g. Python 3.11+, where
-``asyncio.coroutine`` was removed), those imports would fail at collection time
-even though the tests never touch a database.
-
-To keep such tests runnable everywhere, we install a minimal ``motor`` stub **only
-when the real driver is unavailable**. On a supported interpreter the real motor
-imports fine and this module does nothing.
-"""
-
-from __future__ import annotations
-
-import sys
-import types
+# The governance / dashboard aggregation tests exercise pure logic and only import
+# Mongo-backed modules for their constants. On interpreters where the pinned
+# ``motor==2.5.1`` cannot be imported (e.g. Python 3.11+, where
+# ``asyncio.coroutine`` was removed), those imports would fail at collection time
+# even though the tests never touch a database.
+#
+# To keep such tests runnable everywhere, we install a minimal ``motor`` stub **only
+# when the real driver is unavailable**. On a supported interpreter the real motor
+# imports fine and this module does nothing.
 
 
 def _ensure_motor_available() -> None:

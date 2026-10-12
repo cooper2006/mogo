@@ -1,5 +1,73 @@
 # Work Log
 
+## 2026-10-12 022 安全加固 Phase 0「安全基座」落地（T001–T006，双服务）
+
+**目标**：按 `specs/022-security-hardening/tasks.md` 落地 Phase 0 的 6 个阻塞性前置任务，建立被所有用户故事依赖的安全基础设施。
+
+**产出（双服务同构，各 6 模块 + 1 `__init__.py`）**：
+
+| 模块 | 规格项 | 实现要点 |
+| --- | --- | --- |
+| `security/password_policy.py` | FR-1 | `MIN_PASSWORD_LENGTH=12`、`MIN_CLASSES=3`（4 类中至少 3 类）；严格 ASCII 数字判定（规避 `str.isdigit()` 上标数字泄漏）；`PasswordVerdict` + 原因码；阈值可注入 |
+| `security/kms.py` | FR-19 | `KMSProvider` 抽象 + `EnvVarKmsProvider`（`MASTER_KEY_ENV` 环境变量 → `MASTER_KEY_FILE_ENV` 文件回退，读取时 `.strip()`）+ `VaultKmsProvider`（预留，抛 `KmsProviderUnavailable`）；HKDF-SHA256 purpose-scoped 数据密钥派生；`ALLOW_DEV_KEY_ENV` 门禁的开发密钥逃生口 |
+| `security/encryption.py` | FR-19 | `cryptography==50.0.2` 原生 AES-256-GCM（未自研），密文格式 `v1|nonce(12)|ct|tag(16)`，AAD 绑定 purpose，`MAX_PLAINTEXT_BYTES=1MB`；篡改/错 purpose/错密钥均抛 `EncryptionError`；`reencrypt`/`is_encrypted_blob`/`decrypt_optional` |
+| `security/redaction.py` | FR-20/21 | 递归 mask/remove（`MODE_MASK`/`MODE_REMOVE`）；键名子串匹配 + 豁免 + 额外敏感键；`Authorization: Bearer/Basic` 整值 mask、URL query token mask；`max_depth` 超限整枝掩码；`RedactionConfig`（frozen，`object.__setattr__` 归一化键名）；`assert_no_sensitive`/`leak_report` 泄漏检测 |
+| `security/mfa_policy.py` | FR-2/3/4 | 高权限角色门禁决策（锁定优先于验证、`attempts_remaining`）；限流 `MAX_FAILURES=5`/`LOCKOUT_WINDOW_SECONDS=300`（窗口过期自动复位）；TOTP `STEP=30`/`WINDOW=1` 候选步对称窗口 + `USED_STEP_TTL=90s` 防重放；`InMemory*` 与 `Mongo*` 双实现（TTL 索引） |
+| `security/audit_events.py` | FR-23 | `chain_hash = SHA256(prev_hash ‖ 0x1F ‖ canonical_json(body))`（分隔符避免边界歧义、键排序规范化 JSON）；唯一 `seq` 索引 + `__chain_cursor__` 游标 + 冲突重试；`verify_chain` 检测 seq 断号/prev_hash 漂移/事件哈希不符/缺哈希；`build_event` 写入前自动脱敏 `detail` |
+
+**顺带修复的阻断级缺陷（HEAD 即坏，两个服务的测试套件完全无法收集）**：
+- `services/admin-api/tests/conftest.py`、`services/chat-api/tests/conftest.py`：QF-106 提交 `1dd5e82` 引入未闭合三引号（模块 docstring 之后遗留散文块 + 一个裸 `"""`），触发 `SyntaxError: unterminated triple-quoted string literal`，并连带 `from __future__ import` 位置非法。已改为注释块 + 前置 `from __future__ import annotations`。
+- 修复后暴露 `services/chat-api/tests/dsh_runtime/test_document_script_boundaries.py` 2 个用例仍失败（`tzinfo argument must be None or of a tzinfo subclass, not type 'type'`，源于 `app/enterprise_capabilities/data/` 的脚本执行器）。与本任务无关、改动面在本轮范围之外，**未修**，留待其归属会话处理。
+
+**顺带补齐的租户清理覆盖（020 FR-033 相关）**：
+- 新增 3 个集合声明后，`test_every_tenant_id_keyed_collection_in_the_tree_is_covered` 正确告警 → 已加入 `TENANT_SCOPED_COLLECTIONS`：`audit_events`、`mfa_lockouts`、`mfa_used_steps`。
+- 两个 MFA 集合原本只有复合 key/scope、无 `tenant_id` 字段，keyed sweep 扫不到 → 写入路径补写 `tenant_id`（新增 `tenant_id_from_failure_key()` / `tenant_id_from_scope()` 反解），保证租户删除后不残留 MFA 状态。
+
+**改动文件**：
+- 新增 `services/admin-api/app/security/{__init__,password_policy,kms,encryption,redaction,mfa_policy,audit_events}.py`（2122 行）
+- 新增 `services/admin-api/tests/test_security_{password_policy,kms,encryption,redaction,mfa_policy,audit_events}.py`（176 用例）
+- 同套 6 模块 + 6 测试文件镜像到 `services/chat-api/`
+- `services/admin-api/app/security/mfa_policy.py`（tenant_id 补写 + 2 个反解助手 + `candidate_steps` 含本步修正）
+- `services/admin-api/app/services/tenant_purge.py`（+3 集合）
+- `services/{admin-api,chat-api}/tests/conftest.py`（SyntaxError 修复）
+- `specs/022-security-hardening/tasks.md`（T001–T006 勾选 + Phase 0 完成状态）、`specs/INDEX.md`、`docs/WORK_LOG.md`
+
+**验证方式**：
+- `services/admin-api/venv/bin/python -m pytest tests/test_security_*.py -p no:cacheprovider` → **176 passed**
+- admin-api 全量 → **609 passed**（含租户清理双向守护、既有治理/仪表盘/配额用例）
+- `services/chat-api/venv/bin/python -m pytest tests/test_security_*.py -p no:cacheprovider` → **176 passed**
+- 两服务 venv 内 `cryptography==50.0.2`、`motor` 均已确认在位
+
+**下一轮**：022 Phase 1（T007–T013，口令/MFA 接入 `auth.py` 路由链路）。
+
+
+## 2026-10-12 main_id → tenant_id 收尾：清理测试 / 前端 / 注释 / 文档残留
+
+**背景**：Phase 1（双写兼容）与 r05/r06 两轮测试同步已完成，生产代码 `services/*/app` 与 `apps/*/src` 已零 `main_id`。本轮清理剩余残留。
+
+**范围（用户确认）**：测试文件命名与桩字段、前端契约测试 fixture、生产代码注释、运维文档路径修正。
+**保持原样**：历史记录章节（本文件旧章节 / `pr-review-*` / `DELIVERY-2026-10-10.md` / `020-...SDD审计报告.md`）与迁移脚本 `scripts/migrate_main_id_to_tenant_id.py`（它必须读写旧字段）。
+
+**改动（33 文件 / 201 处替换 + 人工语义修正 + 2 文档）**：
+- 替换规则：`MAIN_ID→TENANT_ID`、`mainId→tenantId`、`main-id→tenant-id`、`main_id→tenant_id`
+- 测试：admin-api 16 文件、chat-api 11 文件、document-parser 1 文件（`test_*main_id*` 函数名、`MAIN_ID` 常量、fake 签名、`{"main_id": ...}` 桩字段）
+- 前端：`apps/user-web/tests/code-platform-contract.test.ts` fixture `mainId`→`tenantId`（此前为失效字段，测试属假通过）
+- 生产注释：`services/chat-api/app/core/tenant.py`、`services/chat-api/app/api/endpoints/auth.py`（原文案因改名失真，已重写）
+- 脚本：`services/chat-api/scripts/kb_search_probe.py`（`--main-id`→`--tenant-id`、`E2E_KB_MAIN_ID`→`E2E_KB_TENANT_ID`、`main_id=`→`tenant_id=`，修正与 `remote_knowledge_rag_service.search(tenant_id=...)` 的关键字不匹配）、`services/chat-api/scripts/validate_dsh_live_models.py`（`row.get("main_id")`→`tenant_id`）
+- 人工修正机械替换失真 3 处：`test_directory_tenant_gate.py` 文档串 `_selectable_tenant_tenant_ids`→`_selectable_tenant_ids`；上述两处注释重写
+- 文档：`docs/migration-guide.md`、`docs/installation-guide.md` 脚本路径 `scripts/migrate/...`→`scripts/migrate_main_id_to_tenant_id.py`
+
+**验证方式**：
+- admin-api（`.venv313`）：`test_tenant_identity`+`test_tenant_isolation`（13 passed）；`dashboard_metrics/dashboard_selfcheck/governance_us4_us5/quality_metrics/login_tenant_status/setup_repository_lock`；`directory_tenant_gate/member_capacity/platform_tenant_patch/presentation_settings/quota_unlimited/setup_initialize`（54 passed）
+- chat-api（`.venv313`）：a2a/knowledge_sources/task_resume_admission/vision_capability/resilience_wiring/mcp_call_results/quota_unlimited（55 passed）；adapters_integration/knowledge_graph/memory_endpoints/configured_image_models（74 passed）
+- document-parser（`.venv313`）：`test_vector_store_anchor.py`（4 passed）
+- 前端：`npm run test:code-platform` 通过
+- 说明：`test_setup_quota.py::test_zero_total_tokens_is_unlimited` 失败，经 `git checkout` 还原 HEAD 原版对照确认为**环境性预存失败**（本机 MongoDB 可达导致未抛 RuntimeError），与本轮改动无关
+
+**待确认（未做）**：
+- `services/admin-api/app/services/tenant_registry.py:57` 索引名 `tenant_tenant_id_unique`（Phase 3a 提交 `5f0eb6a` 机械替换遗留，建议改为 `tenant_id_unique`）
+- `docs/migration-guide.md` 其余失实项：`--mongo-uri` / `--reverse` 脚本并不支持；`scripts/migrate/owner_to_created_by.py`、`check_preconditions.py`、`./mogo migrate` 均不存在
+
 ## 2026-10-11 目标 1 首轮修复：341 缺陷分批治理（文档/配置批）
 
 **目标**：修复 report.json 中 5 类流程/测试/文档缺口（218 项开放，目标 341 项）。本轮聚焦**文档/配置类**快赢项，代码类留给后续轮次。

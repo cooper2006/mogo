@@ -21,12 +21,17 @@
 
 **Goal**: 建立被所有用户故事依赖的安全基础设施（加密模块、审计落点、KMS 接口）。
 
-- [ ] T001 [P] 创建 `services/admin-api/app/security/__init__.py` + 各模块文件占位（`password_policy.py`、`mfa_policy.py`、`kms.py`、`encryption.py`、`redaction.py`）（3h）
-- [ ] T002 [P] 创建 `services/chat-api/app/security/__init__.py` + 各模块文件占位（与 admin-api 结构一致）（3h）
-- [ ] T003 [P] 实现 `security/encryption.py`：敏感字段加密/解密（`cryptography` 库，AES-GCM，密钥从环境变量或 KMS 读取）（4h）
-- [ ] T004 [P] 实现 `security/kms.py`：`KMSProvider` 抽象接口 + `EnvVarKMSProvider`（首期）+ `VaultKMSProvider`（可选，预留）（4h）
-- [ ] T005 [P] 实现 `security/redaction.py`：日志脱敏（`password`/`token`/`sso_token`/`api_key` 等字段 mask/remove）+ 响应裁剪（按调用者权限）（4h）
-- [ ] T006 [P] 扩展审计落点：`audit_events` 集合（防篡改 + 与业务库分离），复用 001 gatekeeper 的审计体系（`gate_events`）（3h）
+- [x] T001 [P] 创建 `services/admin-api/app/security/__init__.py` + 各模块文件（`password_policy.py`、`mfa_policy.py`、`kms.py`、`encryption.py`、`redaction.py`、`audit_events.py`）（3h）✅ 2026-10-12，7 文件 / 2122 行
+- [x] T002 [P] 创建 `services/chat-api/app/security/__init__.py` + 各模块文件（与 admin-api 结构一致）（3h）✅ 2026-10-12，双服务同构
+- [x] T003 [P] 实现 `security/encryption.py`：敏感字段加密/解密（`cryptography==50.0.2`，AES-256-GCM，`v1|nonce|ct|tag`，AAD 绑定 purpose，密钥经 KMS/HKDF 派生）（4h）
+- [x] T004 [P] 实现 `security/kms.py`：`KMSProvider` 抽象接口 + `EnvVarKmsProvider`（env 变量/文件回退）+ `VaultKmsProvider`（可选，预留）+ HKDF-SHA256 purpose-scoped 数据密钥派生（4h）
+- [x] T005 [P] 实现 `security/redaction.py`：递归 mask/remove 脱敏（含 `password`/`token`/`sso_token`/`api_key`/`Authorization`/URL query token）+ 深度上限 + 泄漏检测报告（4h）
+- [x] T006 [P] 扩展审计落点：`audit_events` 集合（哈希链防篡改 + 唯一 seq + 游标重试），新增 `security/audit_events.py`；`mfa_lockouts`/`mfa_used_steps` 同步落库（3h）
+
+**Phase 0 完成状态（2026-10-12）**：
+- 双服务各 6 个测试文件 / 176 用例全部通过（admin-api 609 passed，chat-api 同套 176 passed）。
+- 顺带修复 2 个阻断级缺陷：`services/{admin-api,chat-api}/tests/conftest.py` 在 HEAD 上存在未闭合三引号导致的 `SyntaxError`，整个测试套件无法收集（QF-106 提交 `1dd5e82` 引入）。
+- 顺带补齐租户清理覆盖：`audit_events` / `mfa_lockouts` / `mfa_used_steps` 三个新集合已加入 `TENANT_SCOPED_COLLECTIONS`；两个 MFA 集合的写入路径补写 `tenant_id`（由复合 key / scope 反解），保证租户删除后不残留（`test_every_tenant_id_keyed_collection_in_the_tree_is_covered` 双向守护）。
 
 ---
 

@@ -87,14 +87,14 @@
 
 - spec.md：001–026 全部完成（26 份）
 - plan.md：001–026 全部完成（26 份；020 为技术化实施计划，022–026 为质量加固特性计划，其余 21 份技术契约齐全）
-- checklist（需求质量门禁，`/speckit-checklist`）：001–021 全部完成（21 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–021 共 17 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态；022–026（质量加固）待补 checklist
+- checklist（需求质量门禁，`/speckit-checklist`）：001–026 全部完成（26 份，`checklists/requirements.md`，reviewer-owned）；**001/002/007–021 共 17 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态；**022–026（质量加固）已于 2026-10-12 补齐 checklist（17–18 项/份，含 FR 覆盖、跨特性一致性、Non-Goals 边界与 OQ 待定标记），100% 勾选达标**
 - tasks（可执行任务，`/speckit-tasks`）：**001–026 共 26 份全部完成**（001/002/007–021 的 17 份含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP，354 项全部勾选；**2026-10-11 新增 003/004/005/006 的 4 份**，共 141 项任务；**2026-10-11 新增 022–026 的 5 份**，共 357 项任务，覆盖 QualityForge 审计 283 个 P0/P1 缺陷）
 - 实现进度（`/speckit-implement`，2026-07-08）：**19 个特性全部已有实现核心/ MVP**——P0（001/007/008）完整 MVP；P1（002/009/010/011）核心；P2（012–019）核心全部落地。合计 **313 项新测试通过**（admin-api 89 + chat-api 224）。
   > ⚠️ **该结论已被推翻（2026-10-03 重检）**：它把"有纯逻辑代码 + 单测通过"当成了"已落地"。按今天的标准
   > （生产调用方 / 消费方 / 真实数据源 / 端到端可证伪）重检 20 个特性，结果为
   > **`landed` 0 · `partial` 10 · `hollow` 9**（高危缺口 ≥60 条）。详见
   > [`LANDING_AUDIT_2026-10-03.md`](./LANDING_AUDIT_2026-10-03.md)。**本文其余"✅/已实现"表述仅指文档层面完成度，不代表功能落地。**
-- clarify（OQ 消解）：**001/002/007–020 共 16 份已消解**（003–006 既有回溯未做 clarify；021 未单列 clarify 节，其决策随 017 优化轮一并确定）。消解记录位置：001/002/007–011 在 spec 的 "Clarify 记录" 节；012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节；020 在 tasks.md 的 "Clarify Decisions" 节（19 项）。关键消解：
+- clarify（OQ 消解）：**001/002/007–020 + 022 共 17 份已消解**（003–006 既有回溯未做 clarify；021 未单列 clarify 节，其决策随 017 优化轮一并确定）。消解记录位置：001/002/007–011 在 spec 的 "Clarify 记录" 节；012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节；020 与 022 在 tasks.md 的 "Clarify Decisions" 节（19 项 / 5 项）。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
   - 007：tenacity 既有依赖；退避 1.5s/30s/±10%/3 次；事件落 token_usage_logs
   - 008：人工介入率=审批挂起数；P50/P95 取 token_usage_logs.duration_ms；瓶颈 top-N；DashboardPage 加标签页
@@ -103,6 +103,7 @@
   - 010：JSON 条件对象（禁代码 AST）；并行度 4；节点/模型重试分层；双轨迁移
   - 011：Jaccard ≥0.7 + 样本 ≥5 建 MR；14 天低采纳淘汰；与 016 共用标记位
   - 012–019：各自口径/阈值/依赖顺序已定（019 薄模式保留身份/RBAC/脱敏/审计/红线，可省审批/配额）
+  - 022（2026-10-12）：OQ-1 MFA 通知通道未接入时降级为审计事件；OQ-2 首期 KMS 用环境变量 + 集成接口预留、Vault 可选；OQ-3 TLS 终结在反向代理层、应用层经 `SECURE_PROXY_SSL_HEADER` 感知；OQ-4 服务间首期内网隔离 + 独立凭证、mTLS 可选；OQ-5 CORS 白名单由环境变量配置且默认空
 
 ## 五（补）、checklist 暴露的缺陷修正记录（✅ 已修，2026-07-08）
 
@@ -148,6 +149,7 @@
 - 缺口 P1（002/009/010/011）：spec ✅ → plan ✅ → clarify ✅ → checklist ✅（已评审勾选）→ tasks ✅（本轮补齐）→ analyze → implement → converge
 - P2 后置（012–019、021）：spec ✅ → plan ✅ → clarify ✅（012–019 记录在 plan 的 "Open Questions" 节）→ checklist ✅（已评审勾选）→ tasks ✅（17 份之一，本轮补齐）→ 按路线图节奏 implement
 - 平台化 / 优化轮新增（020、021）：spec ✅ → plan ✅ → clarify ✅（020 记录在 tasks.md 的 "Clarify Decisions" 节）→ checklist ✅ → tasks ✅ → 已按 SDD 落地（020 平台化多租户、021 统一上下文地址空间）
-- 质量加固（022–026，2026-10-11 新增）：spec ✅ → plan ✅ → tasks ✅ → quickstart ✅ → 待补 `/speckit-checklist` + `/speckit-analyze` → 按审计修复波次 implement（Wave 1: 022 安全 → Wave 2: 023 可观测性 → Wave 3: 024 部署 → Wave 4: 025 API → Wave 5: 026 性能）
+- 质量加固（022–026，2026-10-11 新增）：spec ✅ → plan ✅ → tasks ✅ → quickstart ✅ → **checklist ✅（2026-10-12 补齐）** → 按审计修复波次 implement（Wave 1: 022 安全 → Wave 2: 023 可观测性 → Wave 3: 024 部署 → Wave 4: 025 API → Wave 5: 026 性能）
+  - **022 Wave 1 进度（2026-10-12）**：Phase 0「安全基座」T001–T006 已落地 —— 双服务 `app/security/` 6 模块（password_policy / kms / encryption / redaction / mfa_policy / audit_events）+ 各 176 单测（admin-api 全量 609 passed）；Phase 1–7（T007 起）未开始
 
-> 注：「本轮补齐」= 2026-09 SDD 补全轮。clarify 消解记录位置说明：001/002/007–011 在 spec 的 "Clarify 记录" 节，012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节，020 在 tasks.md 的 "Clarify Decisions" 节。022–026 的质量加固特性 clarify 待补。
+> 注：「本轮补齐」= 2026-09 SDD 补全轮。clarify 消解记录位置说明：001/002/007–011 在 spec 的 "Clarify 记录" 节，012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节，020 与 022 在 tasks.md 的 "Clarify Decisions" 节。**023–026 的 clarify 仍待补**（其 checklist 已标出 023 有 8 个 OQ、024/025/026 的待澄清项，需 `/speckit-clarify` 消解后方可进入 implement）。
