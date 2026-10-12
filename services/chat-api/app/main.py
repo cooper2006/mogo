@@ -9,6 +9,7 @@ import time
 import uuid
 
 from app.core.db import close_db, get_db, init_db
+from app.middleware.cors import build_cors_middleware_kwargs
 from app.core.config import get_settings
 from app.infrastructure.observability.config import configure_logging
 from app.infrastructure.observability.spans import log_span
@@ -46,12 +47,12 @@ _receipt_gc_task: asyncio.Task | None = None
 
 origins = settings.allowed_origins_list()
 
+# 022 FR-16（T034）：allow_methods / allow_headers 从 ['*'] 收敛为显式白名单。
+# Starlette 对 ['*'] 会把预检请求提出的任意方法/头部原样反射回响应，
+# 等价于对跨域预检整体放行 —— 见 app.middleware.cors 的说明。
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    **build_cors_middleware_kwargs(origins),
 )
 
 @app.middleware("http")

@@ -1,4 +1,5 @@
 import hashlib
+import json
 import hmac
 import logging
 import re
@@ -437,6 +438,133 @@ async def _assert_tenant_login_allowed(tenant_id: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant is not active",
         )
+
+
+class SSOExchangeRequest(BaseModel):
+    """022 FR-14（T030）：SSO 令牌走 POST 换票，不出现在 URL 查询串。
+
+    令牌作为请求体（``Content-Type: text/plain``）提交，等价于
+    ``{"sso_token": "..."}``，从而避免令牌进入浏览器地址栏、访问日志、
+    书签与分享链接。
+    """
+
+    sso_token: str = Field(..., min_length=16, max_length=4096, description="由 chat-api 签发的 SSO 票据")
+
+
+def _verify_sso_token(sso_token: str) -> dict[str, Any]:
+    """校验 chat-api 签发的 SSO 票据，返回其 subject。
+
+    失败语义：**fail-closed** —— 签名不匹配、格式错误或已过期一律 401，
+    不降级、不猜测。
+    """
+    parts = str(sso_token or "").split(".")
+    if len(parts) != 2:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SSO 凭证格式不正确")
+    encoded_payload, encoded_signature = parts
+
+    import base64
+
+    try:
+        padded = encoded_payload + "=" * (-len(encoded_payload) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8"))
+        sig_expected = base64.urlsafe_b64encode(
+            hmac.new(
+                settings.jwt_secret.encode("utf-8"),
+                encoded_payload.encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8").rstrip("=")
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SSO 凭证无效") from exc
+
+    if not hmac.compare_digest(sig_expected, encoded_signature):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SSO 凭证签名无效")
+
+    expires_at = int(payload.get("exp") or 0)
+    if expires_at <= int(time.time()):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SSO 凭证已过期，请重新进入")
+
+    subject = payload.get("sub")
+    if not isinstance(subject, dict) or not subject.get("username"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SSO 凭证无效")
+    return dict(subject)
+
+
+@router.post("/sso/exchange")
+async def exchange_sso_token(
+    payload: SSOExchangeRequest,
+    request: Request,
+    user_agent: str = Header(default="", alias="User-Agent"),
+) -> dict[str, object]:
+    """SSO 换票：用 chat-api 签发的一次性 SSO 票据换取管理端 access token。
+
+    022 FR-14（T030 / QF-634）：令牌不再走 URL 查询串。
+    1. **POST 请求体**承载令牌（不落地址栏 / 访问日志 / 书签 / 分享链接）；
+    2. **一次性幂等**：票据内嵌的 ``session_id`` 在同一时刻只能换票一次，
+       重放直接 401；
+    3. **fail-closed**：签名、过期、格式任一不满足即拒绝。
+    """
+    subject = _verify_sso_token(payload.sso_token)
+
+    session_id = str(subject.get("session_id") or "")
+    if not session_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SSO 凭证无效")
+
+    username = str(subject.get("username") or "")
+    tenant_id = str(subject.get("tenant_id") or "default")
+    db = get_db()
+
+    # 一次性幂等：同一 session_id 只能换票一次。
+    already = await db["admin_sessions"].find_one(
+        {"session_id": session_id, "exchanged": True}
+    )
+    if already:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="该 SSO 凭证已使用，请重新进入管理台",
+        )
+
+    account = await db["admin_accounts"].find_one({"username": username, "tenant_id": tenant_id})
+    if not account or str(account.get("status") or "") != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="该账号不存在或已停用",
+        )
+
+    access_token, expires_at, admin_session_id = create_access_token(
+        {
+            "username": username,
+            "role_name": subject.get("role_name") or str(account.get("role_name") or ""),
+            "org_name": subject.get("org_name") or str(account.get("org_name") or ""),
+            "tenant_id": tenant_id,
+        }
+    )
+
+    # 标记票据已消费。upsert=True：SSO 票据对应的会话文档由 chat-api 在
+    # 签发时写入，本服务只做消费标记；若文档缺失（例如签发端未注册会话）
+    # 也要留下幂等凭据，否则重放检查会失效。
+    await db["admin_sessions"].update_one(
+        {"session_id": session_id},
+        {"$set": {"exchanged": True, "exchanged_at": _now()}},
+        upsert=True,
+    )
+    await create_session(
+        admin_session_id,
+        username,
+        expires_at,
+        user_agent=str(user_agent or "")[:256],
+        ip=request.client.host if request.client else "",
+        tenant_id=tenant_id,
+    )
+    return {
+        "code": 0,
+        "message": "单点登录换票成功",
+        "data": {
+            "accessToken": access_token,
+            "expiresAt": expires_at,
+            "sessionId": admin_session_id,
+        },
+    }
 
 
 @router.post("/login")

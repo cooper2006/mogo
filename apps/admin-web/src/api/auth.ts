@@ -38,6 +38,29 @@ export async function selectTenantLogin(payload: { challengeToken: string; tenan
   return data;
 }
 
+export interface SsoExchangeResponse {
+  accessToken: string;
+  expiresAt: number;
+  sessionId: string;
+}
+
+/**
+ * 022 FR-14（T031）：SSO 令牌走 POST 换票，不再出现在 URL 查询串。
+ * 令牌由 user-web 通过 ``window.open(..., state)`` 传入，落在
+ * ``window.history.state`` 里，绝不出现在地址栏 / 访问日志 / 书签中。
+ */
+export async function exchangeSsoToken(ssoToken: string) {
+  const { data } = await apiClient.post<{
+    code: number;
+    message?: string;
+    data: SsoExchangeResponse;
+  }>('/api/auth/sso/exchange', { sso_token: ssoToken });
+  if (data.code !== 0 || !data.data?.accessToken) {
+    throw new Error(data.message || 'SSO 换票失败');
+  }
+  return data.data;
+}
+
 export async function fetchCurrentProfile() {
   const { data } = await apiClient.get<AdminProfile & { username: string }>('/api/auth/me');
   return data;

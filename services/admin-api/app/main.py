@@ -7,6 +7,7 @@ import logging
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.middleware.cors import build_cors_middleware_kwargs
 from app.core.db import close_db, init_db
 from app.core.product_edition import migrate_bootstrapped_community_organization
 from app.repositories.model_repository import ensure_indexes as ensure_model_indexes
@@ -55,12 +56,12 @@ def create_app() -> FastAPI:
         openapi_url=None if is_prod else "/openapi.json",
     )
 
+    # 022 FR-16（T033）：allow_methods / allow_headers 从 ['*'] 收敛为显式白名单。
+    # Starlette 对 ['*'] 会把预检请求提出的任意方法/头部原样反射回响应，
+    # 等价于对跨域预检整体放行 —— 见 app.middleware.cors 的说明。
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        **build_cors_middleware_kwargs(settings.cors_origins),
     )
     app.add_middleware(SystemAuditMiddleware)
 

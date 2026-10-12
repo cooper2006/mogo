@@ -194,9 +194,31 @@ export async function createSession(
 }
 
 export async function getSession(sessionId: string, userId: string, tenantId?: string, authToken?: string | null): Promise<SessionDetail> {
+  // 022 FR-15（T032）：GET 只读；已读标记（scheduled_unread）走显式 POST。
   const query = new URLSearchParams({ userId })
   if (tenantId) query.set('tenantId', tenantId)
   const response = await client.get(`/askai-api/api/sessions/${sessionId}?${query.toString()}`, { headers: authHeaders(authToken) })
+  await markSessionRead(sessionId, userId, tenantId, authToken).catch(() => undefined)
+  return response.data?.data
+}
+
+/**
+ * 022 FR-15（T032）：把会话标记为已读（清除 scheduled_unread）。
+ * 原先夹在 GET /sessions/{id} 里，GET 因此产生写副作用；现在显式 POST。
+ */
+export async function markSessionRead(
+  sessionId: string,
+  userId: string,
+  tenantId?: string,
+  authToken?: string | null,
+): Promise<Record<string, unknown> | undefined> {
+  const query = new URLSearchParams({ userId })
+  if (tenantId) query.set('tenantId', tenantId)
+  const response = await client.post(
+    `/askai-api/api/sessions/${encodeURIComponent(sessionId)}/read?${query.toString()}`,
+    undefined,
+    { headers: authHeaders(authToken) },
+  )
   return response.data?.data
 }
 

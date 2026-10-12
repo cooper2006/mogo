@@ -213,6 +213,9 @@ export async function fetchUserProfile(token: string): Promise<{ ok: boolean; da
         Authorization: `Bearer ${token}`,
       },
     })
+    // 022 FR-15（T032）：GET /auth/me 只读；租户快照写回走显式 POST。
+    // 放在 GET 之后、读取响应之前，保证返回给调用方的 availableTenants 是最新的。
+    await refreshTenantSnapshot(token).catch(() => undefined)
     const payload = response.data
     if (!isOk(payload)) {
       return { ok: false, message: payload?.message || t('api.auth.get_user_info_failed') }
@@ -241,6 +244,17 @@ export async function fetchUserProfile(token: string): Promise<{ ok: boolean; da
   } catch (error: any) {
     return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.get_user_info_failed') }
   }
+}
+
+/**
+ * 022 FR-15（T032）：刷新当前会话的租户快照（available_tenants）。
+ * 原先由 GET /auth/me 顺手写入，GET 因此有写副作用；现在拆成显式 POST。
+ */
+export async function refreshTenantSnapshot(token: string): Promise<unknown> {
+  const response = await client.post('/auth/me/refresh-tenants', undefined, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return response.data?.data
 }
 
 export async function updateUserProfile(

@@ -920,15 +920,42 @@ async def get_session(
             )
         )
     data = _serialize_session(session_doc)
-    if session_doc.get("scheduled_unread"):
-        await db.chat_sessions.update_one(
-            add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id),
-            {"$set": {"scheduled_unread": False}},
-        )
+    # 022 FR-15（T032 / QF-637）：GET 必须无副作用。原先读取会话详情时会顺手
+    # 把 ``scheduled_unread`` 置为 False，属于惰性写语义 —— GET 重放（代理缓存、
+    # 浏览器重试）确实会产生数据变更。标记已读拆到显式的
+    # ``POST /sessions/{id}/read``（见 :func:`mark_scheduled_read`）。
     return ApiResponse(
         code=0,
         message="success",
         data=SessionDetail(**data, messages=messages).model_dump(),
+    )
+
+
+@router.post("/sessions/{session_id}/read", response_model=ApiResponse)
+async def mark_scheduled_read(
+    session_id: str,
+    user_id: str = Query(..., alias="userId"),
+    tenant_id: str = Query("default", alias="tenantId"),
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """显式标记会话的计划任务消息为已读（022 FR-15 / T032）。
+
+    从 ``GET /sessions/{id}`` 拆出的写操作：把 ``scheduled_unread`` 置为 False。
+    用 POST 显式声明副作用，前端在用户真正打开会话后再调用。
+    """
+    db = get_db()
+    try:
+        oid = ObjectId(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+    updated = await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": oid, "user_id": str(user_id), "scheduled_unread": True}, tenant_id),
+        {"$set": {"scheduled_unread": False, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return ApiResponse(
+        code=0,
+        message="success",
+        data={"acknowledged": bool(getattr(updated, "modified_count", 0))},
     )
 
 

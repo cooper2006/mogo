@@ -176,13 +176,32 @@ async def get_resource(resource_id: str, principal: ApiPrincipal = Depends(requi
             **service.resource_view(inactive.resource, grant=inactive_grant),
             "isOwner": False, "canShare": False,
         })
-    if access.grant:
-        seen_at = datetime.datetime.now(datetime.timezone.utc)
-        await get_db()[GRANT_COLLECTION].update_one({"_id": access.grant["_id"]}, {"$set": {"seen_at": seen_at}})
-        access_grant = {**access.grant, "seen_at": seen_at}
-    else:
-        access_grant = None
-    return _response({**service.resource_view(access.resource, grant=access_grant), "isOwner": access.is_owner, "canShare": access.can_share})
+    # 022 FR-15（T032 / QF-637）：GET 必须无副作用。原先读取共享资源详情会
+    # 顺手写入 ``grant.seen_at``（表示"看过"），属于惰性写语义 —— GET 重放
+    # （代理缓存、浏览器重试、预取）确实会产生数据变更。ack 拆到显式的
+    # ``POST /personal-knowledge/{id}/ack``（见 :func:`acknowledge_resource`），
+    # 前端在用户真正打开资源后再调用。
+    return _response({**service.resource_view(access.resource, grant=access.grant), "isOwner": access.is_owner, "canShare": access.can_share})
+
+
+@router.post("/personal-knowledge/{resource_id}/ack")
+async def acknowledge_resource(resource_id: str, principal: ApiPrincipal = Depends(require_end_user_principal)):
+    """显式确认已查看共享资源（022 FR-15 / T032）。
+
+    从 ``GET /personal-knowledge/{id}`` 拆出的写操作：把 ``grant.seen_at``
+    置为当前时间。用 POST 显式声明副作用，避免 GET 重放写入数据。
+    """
+    try:
+        access = await service.access.require_view(tenant_id=principal.tenant_id, user_id=principal.user_id, resource_id=resource_id)
+    except Exception as exc:
+        _raise(exc)
+    if not access.grant:
+        return _response({"acknowledged": False})
+    seen_at = datetime.datetime.now(datetime.timezone.utc)
+    await get_db()[GRANT_COLLECTION].update_one(
+        {"_id": access.grant["_id"]}, {"$set": {"seen_at": seen_at}}
+    )
+    return _response({"acknowledged": True, "seenAt": seen_at.isoformat()})
 
 
 @router.patch("/personal-knowledge/{resource_id}")

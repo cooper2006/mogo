@@ -31,7 +31,14 @@ export async function fetchPersonalKnowledge(view: 'mine' | 'shared', directoryI
   return dataOf<{ items: PersonalKnowledge[]; total: number; page: number; pageSize: number }>(await api.get('/personal-knowledge', { params: { view, directoryId, keyword, page, pageSize } }))
 }
 export async function fetchPersonalKnowledgeItem(id: string) {
-  return dataOf<PersonalKnowledge>(await api.get(`/personal-knowledge/${encodeURIComponent(id)}`))
+  // 022 FR-15（T032）：GET 只读。已读标记（grant.seen_at）走显式 POST。
+  const item = dataOf<PersonalKnowledge>(await api.get(`/personal-knowledge/${encodeURIComponent(id)}`))
+  await acknowledgePersonalKnowledge(id).catch(() => undefined)
+  return item
+}
+export async function acknowledgePersonalKnowledge(id: string) {
+  // 022 FR-15（T032）：把「已读」写成显式副作用，不再夹在 GET 里。
+  return dataOf<Record<string, unknown>>(await api.post(`/personal-knowledge/${encodeURIComponent(id)}/ack`))
 }
 export async function uploadPersonalKnowledge(files: File[], directoryId = '', tags = '', onProgress?: (value: number) => void) {
   const form = new FormData()

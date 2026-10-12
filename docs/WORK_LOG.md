@@ -1,5 +1,42 @@
 # Work Log
 
+## 2026-10-12 022 安全加固 Phase 4「输入安全加固」落地（T030–T035）
+
+**目标**：完成 022 的 US4（P1）——SSO 令牌不走 URL 查询串、GET 端点无副作用、CORS 收敛为显式白名单。
+
+### 改动清单
+
+| 项 | 文件 | 要点 |
+| --- | --- | --- |
+| T030 | `services/admin-api/app/api/routes/auth.py` | 新增 `POST /api/auth/sso/exchange`（`SSOExchangeRequest` + `_verify_sso_token`）。票据为 chat-api 签发的 HMAC-SHA256 JWT：`hmac.compare_digest` 常数时间比较、格式/签名/过期任一不满足 fail-closed 401。**accept-once 幂等**：按票据内嵌 `session_id` 在 `admin_sessions` 打 `exchanged=True` 标记（`upsert=True` —— 会话文档由签发端写入，缺失时也要留消费凭据，否则重放检查失效），二次换票 401。成功后签发新的管理端 access token 并 `create_session` 注册会话。账号停用 403 |
+| T031 | `services/chat-api/app/api/endpoints/auth.py` | `ADMIN_SSO_TOKEN_TTL_SECONDS = 60`（原 12 小时）。SSO 票据是一次性换票凭证，窗口从 12h 收敛到 60s，过期即必须重新进入 |
+| T031 前端 | `apps/user-web/src/utils/adminUrl.ts` | `buildAdminSsoUrl()` 不再接收令牌、不再拼 `?sso_token=`（并清掉遗留 query/hash）；新增 `ssoWindowState(token)` 生成 `window.open` 的 `state=` 片段 |
+| T031 前端 | `apps/user-web/src/App.vue` | 同源窗口用 `history.replaceState({ssoToken}, '')`，新窗口用 `window.open(url, '_blank', ssoFeatures)` —— 令牌进 `window.history.state`，不进地址栏 |
+| T031 前端 | `apps/admin-web/src/api/auth.ts` | 新增 `exchangeSsoToken()`（`POST /api/auth/sso/exchange`，令牌在请求体） |
+| T031 前端 | `apps/admin-web/src/stores/auth.ts` | 从 `window.history.state` 读令牌（不再读 `location.search`），**立即 `history.replaceState({}, '')` 清除**保证只被消费一次，再 POST 换票；换票失败 `clearSession()` 回登录页，不猜测 |
+| T032 | `services/chat-api/app/api/endpoints/auth.py` | `GET /auth/me` 去掉 `update_one`（写 `session.available_tenants`）；拆到 `POST /auth/me/refresh-tenants` |
+| T032 | `services/chat-api/app/api/endpoints/sessions.py` | `GET /sessions/{id}` 去掉 `scheduled_unread` 置 False；拆到 `POST /sessions/{session_id}/read`（`mark_scheduled_read`，返回 `acknowledged`） |
+| T032 | `services/chat-api/app/api/endpoints/personal_knowledge.py` | `GET /personal-knowledge/{id}` 去掉 `grant.seen_at` 写入；拆到 `POST /personal-knowledge/{resource_id}/ack` |
+| T032 | `services/admin-api/app/api/routes/organizations.py` | `GET /billing` 去掉惰性 `insert_one` 建库（组织缺失时返回 `needsInit` 标记，不建库）；拆到幂等的 `POST /organizations/billing/init`（文档已存在直接返回 `alreadyExists`） |
+| T033/T034 | `services/{admin-api,chat-api}/app/middleware/cors.py`（新，双服务镜像） | `parse_origins()` 去空白/去重/`rstrip("/")`，**任何含 `*` 的 origin 一律拒绝并告警**（`allow_credentials=True` 下 Starlette 无法正确反射通配源，放行只会让部署方误以为跨域已开）；`build_cors_middleware_kwargs()` 剔除 `*`、方法大写归一、`allow_credentials=True` 固定；空 origins 是合法状态（拒绝所有跨域）但告警可见 |
+| T033/T034 接入 | `services/{admin-api,chat-api}/app/main.py` + `services/chat-api/app/middleware/__init__.py`（新） | 两服务 `add_middleware(CORSMiddleware, **build_cors_middleware_kwargs(...))` |
+| T035 | `deploy/tests/test_no_side_effects_get.py`（新，4 条） | AST 静态扫描两个服务全部 `@router.get` 函数，断言函数体内不出现 `insert_one`/`insert_many`/`update_one`/`update_many`/`delete_one`/`delete_many`/`replace_one`/`bulk_write`。作为**回归防线**：将来任何人再往 GET 端点塞写操作立即失败。另含"扫描确实拿到 ≥20 个 GET 路由"的哨兵（避免空集假绿）与"4 个被点名端点已只读 + 写操作已落在显式 POST"的定向校验 |
+| T035 | `deploy/tests/test_sso_token_not_in_url.py`（新，6 条） | 静态扫描兜底：前端任何非注释源码把 `sso_token` 拼进 URL 查询串/hash 即失败；校验 user-web 用 state 传递、admin-web 从 `history.state` 读 + POST 换票、chat-api SSO TTL ≤ 300s、admin-api 换票有 `exchanged` + `upsert=True` + `compare_digest` |
+| T035 | `services/admin-api/tests/test_security_cors.py` + `services/chat-api/tests/test_security_cors.py`（各新，29 条） | `parse_origins` 归一化/通配拒绝（`*`、`*.example.com`、`http://a/*`）/混配置保合法项；kwargs 剔除 `*`、方法大写、空 origins 告警；**真实 `CORSMiddleware` preflight**：origin 不在表 400、方法只回显白名单、头白名单、攻击头 400 且响应不回显攻击头、通配源不被反射 |
+| T035 | `services/admin-api/tests/test_security_sso_exchange.py`（新，15 条） | `_verify_sso_token` 有效/篡改 payload/错误密钥/过期/6 种畸形输入/缺 `session_id`；端到端换票签发 token 并注册会话、重放 401、账号停用 403；请求体模型拒空令牌 |
+
+### 验证
+
+- `services/admin-api/tests/`：**816 passed**（Phase 3 基线 772，+44 = CORS 29 + SSO 换票 15）
+- `services/chat-api/tests/`：全量回归，仅 2 条既有失败（`tests/dsh_runtime/test_document_script_boundaries.py`，来自其他会话在途改动 `tzinfo argument must be None or of a tzinfo subclass`），本轮 SSO TTL 改动未引入新失败
+- `deploy/tests/test_no_side_effects_get.py`：**4 passed**；`deploy/tests/test_sso_token_not_in_url.py`：**6 passed**
+- `docker compose -f docker-compose.yml config --quiet`：通过
+
+### 注意
+
+- 前端改动（`apps/user-web`、`apps/admin-web`）为纯 TS/Vue 源码改动，本轮**未运行前端构建**（`pnpm` 锁文件不在改动范围）；建议下一轮补一次 `pnpm build` + 手工走一遍 SSO 跳转链路。
+- 4 个 chat-api/admin-api GET 端点的写行为已拆到 POST，**前端调用方需同步改调用**（`/auth/me/refresh-tenants`、`/sessions/{id}/read`、`/personal-knowledge/{id}/ack`）；`GET /organizations/billing` 的前端实际走 `GET /dashboard` 聚合（`dashboard.py::_billing` 本就只读、不建库），无前端调用需要改。
+
 ## 2026-10-12 022 安全加固 Phase 3「容器非 root + 服务身份最小权限」落地（T023–T029）
 
 **目标**：完成 022 的 US3（P1）——4 个应用镜像非 root 运行、容器加固（`no-new-privileges` / `cap_drop ALL` / `read_only` / tmpfs）、服务间令牌携带最小权限码。

@@ -123,12 +123,24 @@
 **Goal**: SSO 令牌 POST 换票 + GET 无副作用 + CORS 白名单。
 **独立测试**: SSO 令牌不在 URL；GET 端点无副作用；CORS 拒绝 `*`。
 
-- [ ] T030 [P] 修改 `services/admin-api/app/api/routes/sso.py`：SSO 令牌从 URL 查询串改为 POST 换票端点（4h）
-- [ ] T031 [P] 修改 `services/chat-api/app/api/routes/sso.py`（如适用）：SSO 令牌 POST 换票（3h）
-- [ ] T032 识别并改造 4 个 GET 写端点为 POST（`services/admin-api/app/api/routes/*.py`，需先 grep 确认端点列表）（5h）
-- [ ] T033 [P] 修改 `services/admin-api/app/middleware/cors.py`：`allow_methods` 与 `allow_headers` 收敛为显式白名单，拒绝 `*`，来源由 `CORS_ORIGINS` 环境变量配置（4h）
-- [ ] T034 [P] 修改 `services/chat-api/app/middleware/cors.py`：同 T033（3h）
-- [ ] T035 US4 集成测试：SSO 令牌 POST / GET 无副作用 / CORS 白名单（4h）
+- [x] T030 [P] SSO 令牌从 URL 查询串改为 POST 换票端点（4h）—— 实际落点在 `services/admin-api/app/api/routes/auth.py`（新增 `POST /api/auth/sso/exchange` + `_verify_sso_token`）与 `apps/admin-web/src/api/auth.ts` / `src/stores/auth.ts`
+- [x] T031 [P] chat-api 侧 SSO 签发收敛：`ADMIN_SSO_TOKEN_TTL_SECONDS = 60`（原 12h），票据为一次性换票凭证；`apps/user-web/src/utils/adminUrl.ts` 不再拼接 `?sso_token=`，改为 `window.open(url, '_blank', 'state=...')` 随新窗口传入（3h）
+- [x] T032 4 个 GET 写端点改造（QF-637 逐一点名，5h）：
+  - `chat-api GET /auth/me` → 只读；写操作拆到 `POST /auth/me/refresh-tenants`
+  - `chat-api GET /sessions/{id}` → 只读；清除 `scheduled_unread` 拆到 `POST /sessions/{id}/read`
+  - `chat-api GET /personal-knowledge/{id}` → 只读；写入 `grant.seen_at` 拆到 `POST /personal-knowledge/{id}/ack`
+  - `admin-api GET /organizations/billing` → 只读（组织缺失时返回 `needsInit` 不建库）；惰性 `insert_one` 拆到幂等的 `POST /organizations/billing/init`
+- [x] T033 [P] `services/admin-api/app/middleware/cors.py`（新建）：`allow_methods` / `allow_headers` 收敛为显式白名单，入口拒绝 `*`，来源由 `CORS_ORIGINS` 配置（4h）
+- [x] T034 [P] `services/chat-api/app/middleware/cors.py`（新建）：同 T033（3h）
+- [x] T035 US4 集成测试：SSO 令牌 POST / GET 无副作用 / CORS 白名单（4h）
+
+**Phase 4 完成状态**：
+- **T030/T031 SSO**：audit 发现 chat-api 签发的管理端 JWT（12h TTL）被前端拼进 `?sso_token=` 后作为跳转 URL 打开，令牌进入地址栏/浏览历史/书签/分享链接。改造后：① 票据 TTL 收敛到 **60 秒**（`ADMIN_SSO_TOKEN_TTL_SECONDS`）；② 新增 admin-api `POST /api/auth/sso/exchange`（`_verify_sso_token` 校验 HMAC-SHA256 签名 + 过期，`hmac.compare_digest` 常数时间比较，fail-closed 一律 401）；③ **accept-once 幂等** —— 按票据内嵌 `session_id` 打 `exchanged=True` 标记（`upsert=True`，保证会话文档缺失时重放检查仍生效），二次换票 401；④ 成功后签发新的管理端 access token 并注册会话；⑤ 前端 user-web 用 `window.open(url, '_blank', 'state=...')` 传令牌，admin-web 从 `window.history.state` 读取并立即 `history.replaceState({}, '')` 清除，再 POST 换票。
+- **T032 GET 无副作用**：新增 `deploy/tests/test_no_side_effects_get.py` —— 用 AST 静态扫描两个服务全部 GET 路由函数，断言函数体内不出现 `insert_one`/`update_one`/`update_many`/`delete_one`/`delete_many`/`replace_one`/`insert_many`/`bulk_write`，作为**回归防线**：将来任何人再往 GET 端点塞写操作立即失败。
+- **T033/T034 CORS**：新建 `app/middleware/cors.py`（双服务共用同一实现），`parse_origins` 归一化来源列表并在入口**拒绝通配符**（`*`、`*.example.com`、`http://a/*` 一并拦截，因 `allow_credentials=True` 下 Starlette 无法正确反射通配源，放行只会让部署方误以为跨域已开），`allow_methods` 显式白名单（含 `OPTIONS` 预检方法）+ 大小写归一，`allow_headers` 显式白名单（含 `X-MOVO-Service-Token`、`X-Request-ID`）；来源为空是合法状态（拒绝所有跨域）但必须告警可见。
+- 测试：`deploy/tests/test_sso_token_not_in_url.py`（6 条，静态扫描兜底：前端任何源码把 sso_token 拼进 URL 即失败）；`services/admin-api/tests/test_security_cors.py` + `services/chat-api/tests/test_security_cors.py`（各 29 条，含真实 `CORSMiddleware` preflight 行为：非白名单 origin 400、请求的头部不在白名单时预检 400 且不反射攻击头、通配源不被反射）；`services/admin-api/tests/test_security_sso_exchange.py`（15 条，签名/格式/过期/篡改/重放/账号停用全覆盖）。
+- 验证：admin-api **816 passed**（基线 772，+44）；chat-api 全量回归进行中（见下方）；`deploy/tests/test_no_side_effects_get.py` 4 passed；`docker compose -f docker-compose.yml config --quiet` 通过。
+- 前端 `apps/admin-web` / `apps/user-web` 的改动为纯 TS/Vue 源码改动，未运行前端构建（本轮聚焦后端与静态防线；前端 `pnpm` 锁文件不在本轮改动范围）。
 
 ---
 

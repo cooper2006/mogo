@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import axios from 'axios';
-import { fetchCurrentProfile, logout as logoutApi } from '@/api/auth';
+import { exchangeSsoToken, fetchCurrentProfile, logout as logoutApi } from '@/api/auth';
 
 export interface AdminProfile {
   name: string;
@@ -77,18 +77,26 @@ export const useAuthStore = defineStore('auth', {
       persistState({ token: this.token, profile: this.profile });
     },
     async initializeSession() {
+      // 022 FR-14（T031）：SSO 令牌不再从 URL 查询串读取。
+      // user-web 用 window.open(url, '_blank', 'state=...') 传入，落在
+      // window.history.state 中 —— 不进地址栏、不进浏览器历史、不进访问日志。
       if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        const ssoToken = params.get('sso_token');
+        const state = window.history.state as { ssoToken?: string } | null;
+        const ssoToken = typeof state?.ssoToken === 'string' ? state.ssoToken.trim() : '';
         if (ssoToken) {
-          this.token = ssoToken;
-          this.profile = null;
-          this.initialized = false;
-          persistState({ token: this.token, profile: null });
-
-          const url = new URL(window.location.href);
-          url.searchParams.delete('sso_token');
-          window.history.replaceState({}, '', url.toString());
+          // 立即清掉，保证令牌只被消费一次；即使下方换票失败也不残留。
+          window.history.replaceState({}, '');
+          try {
+            const result = await exchangeSsoToken(ssoToken);
+            this.token = result.accessToken;
+            this.profile = null;
+            this.initialized = false;
+            persistState({ token: this.token, profile: null });
+          } catch (error) {
+            // 换票失败（过期 / 已使用 / 账号停用）→ 回到登录页，不猜测。
+            this.clearSession();
+            console.warn('[auth] SSO exchange failed:', (error as Error)?.message || error);
+          }
         }
       }
 

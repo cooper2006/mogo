@@ -609,9 +609,33 @@ async def switch_tenant(
 
 @router.get("/auth/me", response_model=ApiResponse)
 async def me(authorization: str | None = Header(default=None)) -> ApiResponse:
+    """读取当前登录用户资料。
+
+    022 FR-15（T032 / QF-637）：GET 必须无副作用。原先这里会顺手刷新
+    ``session.available_tenants``（惰性初始化），属于缓存写语义但字面上违反
+    『GET 不修改任何状态』—— 重复 GET 会推进 ``updated_at``，代理/CDN 缓存
+    与浏览器重放都可能产生非预期的数据变更。写入动作拆到
+    :func:`refresh_tenant_snapshot`（``POST /auth/me/refresh-tenants``）。
+    """
     resolved = await _resolve_session_user(authorization)
     stale_tenants = list(resolved["session"].get("available_tenants") or [])
     user = await _backfill_missing_avatar(resolved["user"], stale_tenants)
+    available_tenants = await _load_available_tenants(str(user.get("login_name") or ""))
+    return ApiResponse(code=0, data=await _profile_with_policy(user, resolved["tenant_id"], available_tenants))
+
+
+@router.post("/auth/me/refresh-tenants", response_model=ApiResponse)
+async def refresh_tenant_snapshot(authorization: str | None = Header(default=None)) -> ApiResponse:
+    """显式刷新当前会话的租户快照（022 FR-15 / T032）。
+
+    从 ``GET /auth/me`` 拆出的写操作：重新计算 ``available_tenants`` 并写回
+    会话文档。用 POST 显式声明"这次调用有副作用"，前端在需要刷新租户列表时
+    主动调用，而不是每次读资料都附带写。
+    """
+    resolved = await _resolve_session_user(authorization)
+    user = await _backfill_missing_avatar(
+        resolved["user"], list(resolved["session"].get("available_tenants") or [])
+    )
     available_tenants = await _load_available_tenants(str(user.get("login_name") or ""))
     await get_db()[USER_SESSION_COLLECTION].update_one(
         {"_id": resolved["session"]["_id"]},
@@ -731,7 +755,11 @@ async def logout(authorization: str | None = Header(default=None)) -> ApiRespons
     return ApiResponse(code=0, data={"success": True})
 
 
-def _create_admin_token(subject: dict, secret: str, expires_in_seconds: int = 12 * 60 * 60) -> tuple[str, int, str]:
+# 022 FR-14（T030 / QF-634）：SSO 票据是一次性换票凭证，窗口收敛到 60 秒。
+ADMIN_SSO_TOKEN_TTL_SECONDS = 60
+
+
+def _create_admin_token(subject: dict, secret: str, expires_in_seconds: int = ADMIN_SSO_TOKEN_TTL_SECONDS) -> tuple[str, int, str]:
     expires_at = int(time.time()) + expires_in_seconds
     session_id = str(uuid.uuid4())
     payload = {
@@ -895,7 +923,11 @@ async def admin_sso(
         "tenant_id": tenant_id,
     }
     
-    token, expires_at, session_id = _create_admin_token(subject, jwt_secret)
+    # 022 FR-14（T030）：票据只用于一次性 POST 换票，TTL 收敛到 60 秒。
+    # 票据在 URL 里停留的时间被压到最低；过期即必须重新进入。
+    token, expires_at, session_id = _create_admin_token(
+        subject, jwt_secret, expires_in_seconds=ADMIN_SSO_TOKEN_TTL_SECONDS
+    )
     
     # 3. 在后台活跃 session 表 (admin_sessions) 写入授权，允许直接握手通过
     admin_session = {

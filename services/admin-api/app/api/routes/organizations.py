@@ -250,24 +250,22 @@ async def remove_account(
 
 @router.get("/billing")
 async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) -> dict[str, object]:
+    """读取当前租户的组织订阅与配额。
+
+    022 FR-15（T032 / QF-637）：GET 必须无副作用。原先组织文档不存在时会
+    在这里 ``insert_one`` 惰性建库 —— 字面上违反『GET 不修改任何状态』，
+    重复 GET 首次确实会产生数据变更。创建动作拆到显式的
+    ``POST /billing/init``（见 :func:`init_org_billing`），
+    组织不存在时这里返回 ``needsInit`` 标记而不建库。
+    """
     tenant_id = str(current_user.get("tenant_id", "default"))
     db = get_db()
-    
-    org = await db["organizations"].find_one({"tenant_id": tenant_id})
-    if not org:
-        from app.product.extensions import get_admin_product_extension
 
-        now = datetime.now(timezone.utc)
-        org = {
-            "tenant_id": tenant_id,
-            "org_name": current_user.get("org_name") or "组织空间",
-            **dict(get_admin_product_extension().organization_defaults),
-            "owner_user_id": str(current_user.get("_id") or ""),
-            "created_at": now,
-            "updated_at": now,
-        }
-        await db["organizations"].insert_one(org)
-        
+    org = await db["organizations"].find_one({"tenant_id": tenant_id})
+    if org is None:
+        # 不建库：交给 POST /billing/init 显式初始化，或租户创建流程写入。
+        return {"code": 0, "data": {"needsInit": True, "tenantId": tenant_id}}
+
     from app.core.product_edition import billing_enabled, count_members, is_community_organization, resolve_member_limit
 
     current_members = await count_members(tenant_id)
@@ -291,3 +289,33 @@ async def get_org_billing(current_user: dict = Depends(get_current_admin_user)) 
             "isOwnModel": bool(org.get("is_own_model", False)),
         }
     }
+
+
+@router.post("/billing/init")
+async def init_org_billing(current_user: dict = Depends(get_current_admin_user)) -> dict[str, object]:
+    """显式初始化当前租户的组织文档（022 FR-15 / T032）。
+
+    从 ``GET /billing`` 拆出的写操作：组织文档不存在时用产品扩展的默认值建库。
+    用 POST 显式声明副作用，避免 GET 重放（代理缓存、浏览器重试）意外建库。
+    幂等：文档已存在时直接返回成功，不重复写入。
+    """
+    tenant_id = str(current_user.get("tenant_id", "default"))
+    db = get_db()
+
+    existing = await db["organizations"].find_one({"tenant_id": tenant_id})
+    if existing is not None:
+        return {"code": 0, "data": {"initialized": False, "alreadyExists": True}}
+
+    from app.product.extensions import get_admin_product_extension
+
+    now = datetime.now(timezone.utc)
+    org = {
+        "tenant_id": tenant_id,
+        "org_name": current_user.get("org_name") or "组织空间",
+        **dict(get_admin_product_extension().organization_defaults),
+        "owner_user_id": str(current_user.get("_id") or ""),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db["organizations"].insert_one(org)
+    return {"code": 0, "data": {"initialized": True, "tenantId": tenant_id}}

@@ -27,7 +27,7 @@ import { deleteSkill, enrichSkillDraft, generateSkill, listSkills, updateSkill, 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { registerProductMessages, setLocale as setAppLocale, t, useLocale, type Locale } from './composables/i18n'
 import { getBrowserTimezone, setAppTimezone } from './composables/appTimezone'
-import { buildAdminSsoUrl } from './utils/adminUrl'
+import { buildAdminSsoUrl, ssoWindowState } from './utils/adminUrl'
 import { sortSessionsByRecentActivity } from './utils/sessionOrdering'
 import { formatExactTokenAmount, formatQuotaUsagePercent, formatTokenAmount, quotaUsagePercent } from './utils/tokenNumberFormat'
 import { useChatRuntimeStore, type PendingRuntimeDocument } from './composables/useChatRuntimeStore'
@@ -1467,7 +1467,9 @@ async function openAdminConsole(tenantId = getTenantId()) {
       window.alert(result.message || t('api.auth.auth_failed'))
       return
     }
-    const adminUrl = buildAdminSsoUrl(result.ssoToken)
+    // 022 FR-14（T030）：令牌不进 URL；改由 window.open 的 state 参数传递。
+    const adminUrl = buildAdminSsoUrl()
+    const ssoFeatures = ssoWindowState(result.ssoToken)
     if (capabilities.embeddedBrowser) {
       if (activeChatKey.value) navigateTo('chat')
       else startLocalSession()
@@ -1481,9 +1483,11 @@ async function openAdminConsole(tenantId = getTenantId()) {
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
       await openResource(adminUrl, 'internal')
     } else if (adminWindow) {
+      // 同源窗口直接写入 history.state，不经过 URL。
+      adminWindow.history.replaceState({ ssoToken: result.ssoToken }, '')
       adminWindow.location.href = adminUrl
     } else {
-      window.open(adminUrl, '_blank')
+      window.open(adminUrl, '_blank', ssoFeatures)
     }
     closeUserMenu()
   } catch (error: any) {
