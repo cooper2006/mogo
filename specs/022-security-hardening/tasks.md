@@ -179,14 +179,26 @@
 **Goal**: 依赖漏洞扫描阻断 + 构建权限分离 + 提交钩子阻止密钥 + 容器非 root。
 **独立测试**: 高危 CVE 阻断构建；构建/部署权限分离；提交钩子阻止密钥；容器非 root。
 
-- [ ] T046 [P] 新增 `.github/workflows/ci-security.yml`：`pip-audit` / `pnpm audit --audit-level high` 在 PR 门禁阻断高危 CVE（4h）
-- [ ] T047 [P] 新增 `.github/workflows/ci-security.yml`：`osv-scanner`（可选）+ trivy 镜像扫描阻断（4h）
-- [ ] T048 [P] 新增 `scripts/check-secrets.sh`：提交钩子/CI 步骤阻止 `.pem`/`.key`/`BEGIN PRIVATE KEY`/`AKIA` 等密钥模式（3h）
-- [ ] T049 [P] 修改 `.github/workflows/release.yml`：构建与部署使用独立 OIDC/service account，构建 job 无部署权限（4h）
-- [ ] T050 [P] 修改 `.github/workflows/release.yml`：第三方构建步骤固定到不可变版本 + 产物发布前评审与来源校验（4h）
-- [ ] T051 新增 `docs/security/VULNERABILITY_POLICY.md`：漏洞工单分级 + 修复披露时限 + 安全公告模板（3h）
-- [ ] T052 新增 `docs/security/RESIDUAL_RISK.md`：残余风险豁免模板（3h）
-- [ ] T053 US6 集成测试：高危 CVE 阻断构建 / 构建部署权限分离 / 提交钩子阻止密钥 / 容器非 root（依赖 T023–T027）（4h）
+- [x] T046 [P] 依赖漏洞扫描阻断高危 CVE（4h）—— `quality-gate.yml` 的 `backend-quality` 作业新增 `pip-audit -r requirements.txt`（HIGH/CRITICAL 即失败），置于测试之前；`pnpm audit --production --audit-level high` 保留（user-web / admin-web 各一处）
+- [x] T047 [P] trivy 镜像扫描阻断（4h）—— `container-release.yml` 与 `quality-gate.yml` 均使用 `aquasecurity/trivy-action`（SHA 固定），`exit-code: "1"` + `severity: CRITICAL,HIGH` + `ignore-unfixed: true`
+- [x] T048 [P] 提交钩子 / CI 阻止密钥（3h）—— 新增 `scripts/check-secrets.sh`（13 条高置信模式 + 1 条低置信模式，PEM/AWS/GCP/GitHub PAT/Slack/Stripe/JWT/通用 secret 赋值）+ `.githooks/pre-commit`（按 `git diff --cached` 范围扫描，`SKIP_SECRETS_CHECK` 紧急绕过）+ `quality-gate.yml` 的 `supply-chain-gate` 作业全量 `--all` 扫描
+- [x] T049 [P] 构建/部署权限分离（4h）—— `container-release.yml` 新增作业级 `permissions`：`validate-release`/`plan-release` 只读；`publish-candidates` 持 `packages: write` + `id-token: write` 但**无** `contents: write`（无法推 tag 或改 workflow 绕过审批）；`promote-release` 绑定 `environment: production` 触发仓库环境保护规则（可要求人工审批）+ 限定 `github.event_name == 'push'`
+- [x] T050 [P] 第三方构建步骤不可变固定 + 来源校验（4h）—— 新增 `scripts/check_action_pinning.py`：把「发布关键动作必须 SHA 固定」变成可执行政策（MUST_PIN 8 个 / TAG_OK 12 个 / 迁移期豁免 6 个），`quality-gate.yml` 接入阻断；发布路径已有 `provenance: mode=max` + `sbom: true` + `attest-build-provenance` + 二次构建可复现性校验；6 个 Docker action 因环境无法访问 GitHub API 解析 tag→SHA，登记为 RR-001 迁移期豁免（详见 `docs/security/RESIDUAL_RISK.md`）
+- [x] T051 漏洞管理政策（3h）—— 新增 `docs/security/VULNERABILITY_POLICY.md`：CVSS+可达性双维度分级（CRITICAL 7 日 / HIGH 30 日 / MEDIUM 下 minor / LOW 下 major）、工单模板（11 字段）、处理流程、残余风险豁免衔接、公告时机；新增 `docs/security/SECURITY_ADVISOIR_TEMPLATE.md` 公告模板；`SECURITY.md` 追加 §6 索引
+- [x] T052 残余风险豁免登记（3h）—— 新增 `docs/security/RESIDUAL_RISK.md`：四要素强制（风险接受人 + 临时缓解 + 重审日期 ≤90 日 + 补偿性控制）、活的豁免台账、失效规则（到期未续自动失效、缓解措施移除立即失效、累计 ≥3 条触发架构复盘）；已登记 RR-001（发布动作 SHA 固定）
+- [x] T053 US6 集成测试（4h）—— 新增 `deploy/tests/test_supply_chain_us6.py`（22 条）：CVE 阻断 5 条（pip-audit/pnpm audit/trivy/provenance+SBOM/二次构建）+ 权限分离 5 条（作业级 permissions/校验作业只读/promote 绑 environment/promote 限 push/构建作业无 contents:write）+ 密钥钩子 7 条（脚本存在且可执行/6 类密钥正向识别/干净代码不误报/CI 全量扫描/钩子委托脚本/pinning 政策接入 CI）+ 容器非 root 交叉引用 1 条
+
+---
+
+
+**Phase 6 完成状态**：
+- **T046/T047 依赖与镜像扫描**：`pip-audit` 覆盖三个 Python 服务（admin-api / chat-api / document-parser），置于测试之前 —— 依赖缺陷与代码缺陷是两条独立风险线，依赖树有问题不必再跑一遍测试。trivy 已 SHA 固定并限定 CRITICAL/HIGH + `ignore-unfixed`（避免无补丁的 CVE 永久阻断节奏）。
+- **T048 密钥防线**：钩子按提交范围扫（快，开发体验好），CI 按全量扫（覆盖钩子拦不住的「改了再改回」的历史密钥）。13 条高置信模式覆盖 PEM/AWS/GCP/GitHub PAT/Slack/Stripe/JWT/通用 secret 赋值；1 条低置信模式（40+ 位 base64）仅在 `--all` 提示不阻断。测试用 6 类真实格式样例做正向验证 + 1 条干净代码反例验证，防止误报吞掉真缺陷。
+- **T049 权限分离**：核心是 `promote-release` 绑定 `environment: production` —— 构建与部署之间形成真正的权限分离，而不仅是同一个 token 的两次调用。`publish-candidates` 不给 `contents: write`，因此它无法推 tag、改 workflow 或绕过环境审批。
+- **T050 不可变固定**：政策脚本化（`check_action_pinning.py`），`MUST_PIN` 8 个发布关键动作 + `TAG_OK` 12 个标准动作 + 6 个迁移期豁免。豁免不是"永久白名单"：新增一个未固定的发布动作会立即失败，存量欠债按节奏清。6 个 Docker action 因当前环境无法访问 GitHub API 解析 tag→SHA，登记为 RR-001。
+- **T051/T052 政策文档**：漏洞分级用 CVSS + 可达性双维度（只看基础分会高估不可达漏洞）；残余风险豁免四要素强制，重审期 ≤90 日，到期自动失效。
+- **T053 测试**：22 条，含 6 类密钥模式的正向识别验证（真实运行钩子脚本）与权限分离的 YAML 静态断言。
+- 验证：`deploy/tests/test_data_security_us5.py` + `test_supply_chain_us6.py` 合计 **45 passed**；`scripts/check_action_pinning.py` exit=0；`docker compose config --quiet` 通过。
 
 ---
 

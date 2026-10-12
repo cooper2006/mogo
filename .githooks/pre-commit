@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# 022 FR-26 (T048)：pre-commit 钩子 —— 提交前阻止密钥进入版本库。
+#
+# 启用方式（一次性）：
+#   git config core.hooksPath .githooks
+#
+# 紧急绕过（仅限本地，不推荐）：
+#   SKIP_SECRETS_CHECK=1 git commit ...
+#   —— 绕过不会被记录，所以请同时走 docs/security/RESIDUAL_RISK.md 登记。
+#
+# 注：钩子只检查本次提交涉及的文件（HEAD^..HEAD 或工作区），速度可控；
+# 全量扫描在 CI 里跑（scripts/check-secrets.sh --all），避免漏网。
+
+if [[ -n "${SKIP_SECRETS_CHECK:-}" ]]; then
+  echo "⚠  SKIP_SECRETS_CHECK 已设置，跳过密钥检查（请走 RESIDUAL_RISK.md 登记）"
+  exit 0
+fi
+
+# 钩子在仓库根目录执行；从任意子目录提交时定位脚本。
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CHECK="$SCRIPT_DIR/scripts/check-secrets.sh"
+
+if [[ ! -x "$CHECK" ]]; then
+  echo "⚠  $CHECK 不存在或不可执行，跳过密钥检查"
+  exit 0
+fi
+
+# 本次提交涉及的文件（新提交时 HEAD 仍是上一版，用 --cached 更准）。
+files="$(git diff --name-only --cached --diff-filter=ACM)"
+if [[ -z "$files" ]]; then
+  exit 0
+fi
+
+echo "→ 检查提交中的密钥模式..."
+while IFS= read -r f; do
+  [[ -n "$f" ]] && "$CHECK" "$f" || exit 1
+done <<< "$files"
+
+echo "✓ 密钥检查通过"
+exit 0

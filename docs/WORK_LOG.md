@@ -1,5 +1,57 @@
 # Work Log
 
+## 2026-10-12 022 安全加固 Phase 6「供应链安全」落地（T046–T053）
+
+**目标**：完成 022 的 US6（P1）——高危 CVE 阻断构建、构建/部署权限分离、提交钩子阻止密钥、第三方构建步骤不可变固定、漏洞与残余风险政策。
+
+### 改动清单
+
+| # | 文件 | 改动 |
+|---|---|---|
+| T046 | `.github/workflows/quality-gate.yml` | `backend-quality` 作业新增 `pip-audit -r requirements.txt`（HIGH/CRITICAL 即失败），**置于测试步骤之前** —— 依赖缺陷与代码缺陷是两条独立风险线 |
+| T047 | `.github/workflows/quality-gate.yml`、`container-release.yml` | 复核 trivy 已 SHA 固定 + `exit-code: "1"` + `severity: CRITICAL,HIGH` + `ignore-unfixed`（避免无补丁 CVE 永久阻断节奏） |
+| T048 | `scripts/check-secrets.sh`（新） | 13 条高置信模式（PEM/AWS Access Key + Secret/GCP/GitHub PAT/Slack/Stripe/JWT/通用 secret 赋值）+ 1 条低置信模式（40+ 位 base64，仅 `--all` 提示不阻断）；支持 `--all`/`--baseline`/显式路径三种模式；`ALLOWLIST_PATHS` 集中登记测试固件与文档示例 |
+| T048 | `.githooks/pre-commit`（新） | 按 `git diff --cached --diff-filter=ACM` 范围扫描，委托 `check-secrets.sh`（单一事实来源）；`SKIP_SECRETS_CHECK` 紧急绕过并提示登记豁免 |
+| T048/T050 | `.github/workflows/quality-gate.yml` | 新增 `supply-chain-gate` 作业：全量 `check-secrets.sh --all` + `check_action_pinning.py` |
+| T049 | `.github/workflows/container-release.yml` | 新增作业级 `permissions`：`validate-release`/`plan-release` 只读；`publish-candidates` 持 `packages: write` + `id-token: write` 但**无** `contents: write`；`promote-release` 绑定 `environment: production` + 限定 `github.event_name == 'push'` |
+| T050 | `scripts/check_action_pinning.py`（新） | 政策脚本化：`MUST_PIN` 8 个发布关键动作（docker 构建链 + attest + trivy）/ `TAG_OK` 12 个标准动作 / `PINNING_EXCEPTIONS` 6 个迁移期豁免。新增一个未固定的发布动作立即失败 |
+| T050 | `.github/dependabot.yml` | 复核 `github-actions` 生态已覆盖（周更 tag 固定） |
+| T051 | `docs/security/VULNERABILITY_POLICY.md`（新） | CVSS + 可达性双维度分级（CRITICAL 7 日 / HIGH 30 日 / MEDIUM 下 minor / LOW 下 major）；11 字段工单模板；处理流程；公告时机（CRITICAL 补丁同时公开，HIGH 及以下先公告后补丁）；自动化防线矩阵 |
+| T051 | `docs/security/SECURITY_ADVISOIR_TEMPLATE.md`（新） | 安全公告模板：摘要/受影响版本/影响/修复/临时缓解/时间线/致谢 |
+| T051 | `SECURITY.md` | 追加 §6 详细政策文档索引 + §7 供应链防线矩阵 + 本地钩子启用方式 |
+| T052 | `docs/security/RESIDUAL_RISK.md`（新） | 四要素强制（风险接受人 + 临时缓解 + 重审日期 ≤90 日 + 补偿性控制）；活的豁免台账；失效规则（到期未续自动失效、缓解措施移除立即失效、累计 ≥3 条触发架构复盘）；登记 RR-001（发布动作 SHA 固定，阻塞原因：环境无法访问 GitHub API） |
+| T053 | `deploy/tests/test_supply_chain_us6.py`（新，22 条） | CVE 阻断 5 + 权限分离 5 + 密钥钩子 7（含 6 类密钥**真实脚本运行**正向验证 + 干净代码反例验证）+ 容器非 root 交叉引用 1 |
+| — | `specs/022-security-hardening/tasks.md` | T046–T053 勾选 + Phase 6 完成状态 |
+| — | `specs/INDEX.md` | Wave 1 进度追加 Phase 6 |
+| — | `docs/WORK_LOG.md` | 本条 |
+
+### 关键设计取舍
+
+- **pip-audit 置于测试之前**：依赖缺陷与代码缺陷是两条独立风险线。依赖树有问题时，测试结果没有意义（跑出来的 pass 也是建立在有漏洞的依赖上），因此先扫依赖、失败即止，不必浪费 CI 时间。
+- **钩子与 CI 双防线**：钩子按提交范围扫（快，开发体验好），但拦不住「改了再改回」的历史密钥（`git diff HEAD^..HEAD` 看不到已入库的内容）。CI 全量 `--all` 扫描补这个洞。两者不是重复，是互补。
+- **grep 而非 ripgrep**：`rg` 不是默认安装的工具，CI runner 与 macOS/Linux 上不一定有。`grep` 在所有环境都有。代价是 POSIX ERE 语法（不能用 `(?i)`，改用 `-i` 全局大小写不敏感）。
+- **每个 pattern 单独跟 `-e`**：`grep -e p1 p2 p3` 里 `p2`/`p3` 会被当成**文件名**而不是 pattern —— 这是数组展开时最容易踩的坑。用参数数组逐个拼 `-e`。
+- **不用 `local -n`（nameref）**：macOS 自带 bash 3.2 不支持，只在 bash 4.3+ 可用。改为按位置传参，保证钩子在 macOS 本地也能跑。
+- **AKIA 模式收紧到官方格式**：`AKIA[0-9A-Z]{16}`（AKIA + 16 位大写字母数字，共 20 字符）。早期用 `{16}` 无前缀会误伤含 "AKIA" 的普通字符串。
+- **权限分离的关键是 `environment: production`**：`promote-release` 绑定环境后，仓库环境保护规则可以要求人工审批 —— 构建与部署之间形成真正的权限分离，而不仅是同一个 token 的两次调用。`publish-candidates` 不给 `contents: write`，因此它无法推 tag、改 workflow 或绕过环境审批。
+- **action pinning 用迁移期豁免而非硬阻断**：6 个 Docker action 因当前环境无法访问 GitHub API 解析 tag→SHA，登记为 RR-001（90 日重审）。豁免不是永久白名单：新增一个未固定的发布动作会**立即失败**，存量欠债按节奏清。
+- **trivy 的 `ignore-unfixed`**：无补丁的 CVE 不应永久阻断发布节奏。`ignore-unfixed: true` 让这类 CVE 不阻断，已修复的仍阻断。
+
+### 验证
+
+- `deploy/tests/test_data_security_us5.py` + `deploy/tests/test_supply_chain_us6.py`：**45 passed**
+- `scripts/check_action_pinning.py`：exit=0（4 SHA 固定 + 39 tag 已归类 + 11 迁移期豁免 + 0 未达标）
+- `scripts/check-secrets.sh`：6 类密钥模式正向识别（AWS Access Key/Secret、PEM、GitHub PAT、Stripe、长口令）+ 干净代码反例验证（0 误报）
+- `docker compose -f docker-compose.yml config --quiet`：通过
+- admin-api 全量回归：816 passed（未受影响）
+
+### 遗留
+
+- **RR-001**：6 个 Docker action 待解析 tag→SHA（`docker/build-push-action@v6`、`setup-buildx@v4`、`login@v4`、`setup-qemu@v4`、`metadata@v5`、`attest-build-provenance@v4`）。阻塞原因：当前环境无法访问 GitHub API。在有网络的环境执行 `gh api repos/docker/build-push-action/git/ref/tags/v6` 拿到 SHA 后逐条消除，重审期 2027-01-10。
+- `scripts/check-secrets.sh` 的 `--all` 模式对低置信命中仅提示不阻断 —— 如果后续发现低置信模式噪音过高，可考虑直接移除（避免"提示疲劳"导致真正的问题被忽略）。
+
+---
+
 ## 2026-10-12 022 安全加固 Phase 5「数据安全与加密」落地（T036–T045）
 
 **目标**：完成 022 的 US5（P1）——HTTPS 强制、敏感字段密文、日志脱敏、响应裁剪、生产关闭调试、数据地图、审计防篡改 + 保留期 + 库分离。

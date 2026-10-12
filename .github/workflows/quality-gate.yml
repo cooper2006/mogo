@@ -32,6 +32,25 @@ jobs:
   # parenthesis-depth tracking, so unrelated `"version"` literals in the same
   # file (/health payload, DSH kernel versions) are not picked up, and it
   # survives default args that contain `)` (e.g. middleware=[Depends(...)]).
+  # 022 FR-26 (T048/T050)：供应链门禁。两条独立的防线：
+  #   1. secrets-scan —— 阻止密钥入库（钩子在本地按提交范围扫，CI 全量扫）
+  #   2. action-pinning —— 发布关键 GitHub Actions 必须固定到不可变 commit SHA
+  #      （tag 是可移动引用，被上游重打等于一次供应链入侵）
+  supply-chain-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret pattern scan (full tree)
+        run: scripts/check-secrets.sh --all
+      - name: Build-critical action pinning
+        run: python3 scripts/check_action_pinning.py
+      - name: Contributor guidance
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          # 不强制所有贡献者开钩子（fork 工作流会卡住），只提示。
+          echo "::notice::本地启用密钥钩子：git config core.hooksPath .githooks"
+
   version-consistency:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -253,6 +272,20 @@ jobs:
             exit 1
           fi
           echo "ok: no undefined names"
+
+      # 022 FR-25 (T046)：依赖漏洞扫描阻断。`pip-audit` 比对 OSV / PyPI 的
+      # advisory 数据库，HIGH/CRITICAL 即失败。放在测试之前：依赖树有问题时
+      # 不必再跑一遍测试浪费时间，且依赖缺陷与代码缺陷是两条独立的风险线。
+      # 已知误报走 docs/security/RESIDUAL_RISK.md 的豁免流程，不在此硬编码。
+      - name: Dependency vulnerability audit (pip-audit)
+        working-directory: services/${{ matrix.service }}
+        run: |
+          ${{ matrix.venv }}/bin/pip install -q pip-audit
+          ${{ matrix.venv }}/bin/pip-audit -r requirements.txt || {
+            echo "::error::pip-audit found HIGH/CRITICAL vulnerabilities"
+            echo "::error::已知误报请走 docs/security/RESIDUAL_RISK.md 豁免流程"
+            exit 1
+          }
 
       - name: Run tests
         working-directory: services/${{ matrix.service }}

@@ -91,3 +91,28 @@ if pip-audit -r requirements.txt --format json | jq -e '.vulns | length > 0 and 
   exit 1
 fi
 ```
+
+## 6. 详细政策文档（022 FR-27 / T051-T052）
+
+| 主题 | 文档 |
+|------|------|
+| 漏洞分级、工单模板、处理流程、公告时机 | [`docs/security/VULNERABILITY_POLICY.md`](docs/security/VULNERABILITY_POLICY.md) |
+| 残余风险豁免登记（活的台账 + 四要素模板） | [`docs/security/RESIDUAL_RISK.md`](docs/security/RESIDUAL_RISK.md) |
+| 安全公告模板 | [`docs/security/SECURITY_ADVISOIR_TEMPLATE.md`](docs/security/SECURITY_ADVISOIR_TEMPLATE.md) |
+| 数据地图与个人信息处理依据 | [`data/data-map.md`](data/data-map.md) |
+
+本文件保留修复时限基线与响应窗口（§1、§3），详细执行流程以上述文档为准。
+
+## 7. 供应链防线（022 FR-26 / T046-T050）
+
+| 防线 | 位置 | 阻断级别 |
+|------|------|---------|
+| Python 依赖扫描 | `pip-audit` in `.github/workflows/quality-gate.yml` | HIGH/CRITICAL 阻断 PR |
+| Node 依赖扫描 | `pnpm audit --audit-level high` | high 阻断 PR |
+| 容器镜像扫描 | `trivy-action`（SHA 固定） | CRITICAL/HIGH 阻断发布 |
+| 密钥入库扫描 | `scripts/check-secrets.sh` + `.githooks/pre-commit` | 任意密钥阻断提交 |
+| Action 供应链 | `scripts/check_action_pinning.py` | 未固定的发布动作阻断 CI |
+| 构建来源证明 | `docker/build-push-action` provenance + SBOM + 二次构建校验 | 发布前强制 |
+| 构建/部署权限分离 | `container-release.yml` 作业级 `permissions` + `environment: production` | 发布需环境审批 |
+
+本地启用密钥钩子：`git config core.hooksPath .githooks`

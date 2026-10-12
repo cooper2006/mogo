@@ -29,6 +29,10 @@ concurrency:
 
 jobs:
   validate-release:
+    # 022 FR-26 (T049)：构建/部署权限分离。校验作业只需读源码，
+    # 不授予 packages / id-token，避免校验失败时泄露发布能力。
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -51,6 +55,10 @@ jobs:
 
   plan-release:
     needs: validate-release
+    # 022 FR-26 (T049)：规划作业只读仓库（取 base ref 与比对 image 摘要），
+    # 不授予发布权限。
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -113,6 +121,13 @@ jobs:
   publish-candidates:
     needs: plan-release
     if: needs.plan-release.outputs.changed_count != '0'
+    # 022 FR-26 (T049/T050)：构建作业只拿到它需要的三项 —— 读源码、写包、
+    # 用 OIDC 换 GHCR 凭据（同时支撑 build provenance）。不给 contents:write，
+    # 因此它无法推 tag、改 workflow 或绕过环境审批。
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -221,6 +236,15 @@ jobs:
         needs.plan-release.result == 'success' &&
         (needs.publish-candidates.result == 'success' || needs.publish-candidates.result == 'skipped')
       }}
+    # 022 FR-26 (T049)：promote 是把候选提升为版本 tag / latest 的动作，
+    # 相当于部署。绑定到 environment: production，触发受仓库环境保护规则
+    # 约束（可要求人工审批）—— 构建与部署之间形成真正的权限分离，而不仅是
+    # 同一个 token 的两次调用。
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
