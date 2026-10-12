@@ -43,13 +43,20 @@ logger = logging.getLogger(__name__)
 
 def create_app() -> FastAPI:
     # QF-447/448: Disable docs endpoints in production
-    is_prod = settings.app_env == "production"
+    # 022 FR-18（T042）：生产环境判定覆盖 prod/release 别名。
+    is_prod = str(settings.app_env).strip().lower() in {"production", "prod", "release"}
+
+    # 生产环境强制关闭调试模式：即使误配 debug=true 也降级为告警，
+    # 避免启用自动 reload / 详细 traceback 造成信息泄露。
+    if is_prod and bool(settings.debug):
+        logger.warning("app_env=%s 时 debug 必须为 false；已忽略 debug=true 的误配置", settings.app_env)
+        settings.debug = False
     app = FastAPI(
         title="MOVO Admin API",
         # Keep in sync with pyproject.toml / CHANGELOG: this is the value
         # published in /openapi.json info.version, i.e. an externally visible
         # contract, not a private cosmetic string.
-        version="0.2.0",
+        version="0.2.1",
         description="Control plane API for MOVO admin backend",
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",

@@ -59,11 +59,11 @@ echo $BASH_VERSION | grep -qE '^[45]' || { echo "❌ Bash 4.0+ 所需"; exit 1; 
 
 ```bash
 # 1. 获取镜像摘要
-docker pull ghcr.io/himovo/movo-chat-api:v0.2.0
-docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/himovo/movo-chat-api:v0.2.0
+docker pull ghcr.io/himovo/movo-chat-api:v0.2.1
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/himovo/movo-chat-api:v0.2.1
 
 # 2. 对照发布页
-# 访问 https://github.com/cooper2006/mogo/releases/tag/v0.2.0
+# 访问 https://github.com/cooper2006/mogo/releases/tag/v0.2.1
 # 发布说明中包含所有镜像的 digest 列表
 
 # 3. 验证摘要一致
@@ -74,11 +74,11 @@ docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/himovo/movo-chat-api:
 
 ```bash
 # 1. 克隆指定 tag
-git clone --branch v0.2.0 https://github.com/cooper2006/mogo.git
+git clone --branch v0.2.1 https://github.com/cooper2006/mogo.git
 cd mogo
 
 # 2. 验证 tag 签名
-git tag -v v0.2.0
+git tag -v v0.2.1
 
 # 3. 验证文件完整性（如提供）
 sha256sum -c CHECKSUMS.txt
@@ -92,13 +92,13 @@ git clone https://github.com/cooper2006/mogo.git
 cd mogo
 
 # 2. 设置版本
-export MOVO_VERSION=v0.2.0
+export MOVO_VERSION=v0.2.1
 
 # 3. 启动
 ./mogo up
 
 # 首次启动输出示例：
-# === MOGO v0.2.0 ===
+# === MOGO v0.2.1 ===
 # 正在拉取镜像...
 # ✅ 7 个服务已启动
 #

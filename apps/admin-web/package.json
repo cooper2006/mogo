@@ -1,7 +1,7 @@
 {
   "name": "movo-admin-web",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "Apache-2.0",
   "type": "module",
   "browserslist": ["last 2 Chrome versions", "last 2 Edge versions", "last 2 Safari versions", "last 2 Firefox versions"],

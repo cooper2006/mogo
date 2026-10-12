@@ -30,7 +30,7 @@ docker info        # 验证
 **处置**：
 1. 确认 `MOVO_VERSION` 指向存在的 tag：`docker manifest inspect ghcr.io/himovo/movo-chat-api:$MOVO_VERSION`
 2. 若网络受限，配置镜像加速器：`MOVO_BASE_IMAGE_MIRROR=docker.m.daocloud.io ./mogo build`
-3. 若使用 `latest` tag，改用固定版本：`MOVO_VERSION=v0.2.0 ./mogo up`
+3. 若使用 `latest` tag，改用固定版本：`MOVO_VERSION=v0.2.1 ./mogo up`
 
 ### 症状：`port is already allocated`
 
