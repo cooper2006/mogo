@@ -655,8 +655,8 @@ bash scripts/check-secrets.sh
 | 10 | 4 个容器非 root | US3 | `uid=10001` | `docker exec ... id` |
 | 11 | 服务身份最小权限 | US3 | 跨租户 403 | `curl /api/internal/readonly` |
 | 12 | SSO 令牌 POST 换票 | US4 | URL 查询串拒绝 | `curl /api/sso/verify?sso_token=` |
-| 13 | GET 无副作用 | US4 | 405 Method Not Allowed | `curl -X GET /api/knowledge/{id}/delete` |
-| 14 | CORS 白名单 | US4 | 非白名单拒绝 | `curl -X OPTIONS -H "Origin: https://evil.com"` |
+| 13 | GET 无副作用 | US4 | GET 端点零写操作 | `pytest deploy/tests/test_no_side_effects_get.py` |
+| 14 | CORS 白名单 | US4 | 非白名单 origin 预检 400 | `curl -X OPTIONS -H "Origin: https://evil.com" -v` |
 | 15 | 全站 HTTPS 301 | US5 | `Location: https://` | `curl -I http://` |
 | 16 | 敏感字段加密 | US5 | 数据库无明文 | `mongosh findOne({plain_value:1})` |
 | 17 | 日志无明文 | US5 | 0 明文敏感字段 | `grep -iE "password|token" audit_events` |
@@ -665,6 +665,12 @@ bash scripts/check-secrets.sh
 | 20 | 高危 CVE 阻断构建 | US6 | PR 门禁失败 | `pip-audit --strict` |
 | 21 | 构建/部署权限分离 | US6 | build 无部署权限 | `grep permissions: release.yml` |
 | 22 | 提交钩子阻止密钥 | US6 | 非零退出码 | `bash scripts/check-secrets.sh` |
+| 23 | Action 不可变固定 | US6 | 0 未达标 | `python3 scripts/check_action_pinning.py` |
+| 24 | 漏洞管理政策 | US6 | 分级+工单+公告 | `ls docs/security/VULNERABILITY_POLICY.md` |
+| 25 | 残余风险豁免 | US6 | 四要素+重审期 | `ls docs/security/RESIDUAL_RISK.md` |
+| 26 | 性能回归检测 | P7 | p95 不超阈值 | `pytest deploy/tests/test_performance_us7.py` |
+| 27 | 安全配置文档 | P7 | 全部配置项记录 | `ls docs/security/SECURITY_CONFIGURATION.md` |
+| 28 | 全量验证通过 | P7 | 0 failed | `pytest deploy/tests/test_*_us[4-7].py` |
 
 ---
 
