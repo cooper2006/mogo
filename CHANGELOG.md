@@ -4,7 +4,7 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
-## Unreleased
+## v0.2.1 - 2026-10-12
 
 ### Added
 
@@ -103,12 +103,44 @@ image.
   传播（`raise` / re-raise helper）与 38 处有意 `pass`（吞取消异常的关停惯用法、
   链式尝试的预期失败、以及日志基础设施自身 `emit()` / `_log_stage()`）。
   与 `707c8ea` 的 165 文件正则 sweep 形成对照：后者一次引入 4 类缺陷。
+- **chat-api 全部上传链路在生产不可用（P0）**：`utils/oss_uploader.py` 的
+  `generate_object_path()` 写成 `datetime.datetime.now(timezone)` —— `timezone`
+  是 `datetime.timezone` **类**而非 tzinfo 实例，必然抛
+  `TypeError: tzinfo argument must be None or of a tzinfo subclass, not type 'type'`。
+  该函数经 `upload_bytes_with_path()` 被约 15 处生产调用点使用（头像、聊天附件、
+  文档解析结果、生成图片、PPTX/PDF/表格导出、技能包、脚本产物、写作引擎产物），
+  即**任何落盘并回传文件的功能都会 500**。由 `3f82068`（QF-445 机械替换
+  `datetime.utcnow()`）引入：同提交另 4 处均正确写作 `now(timezone.utc)`，仅此
+  一处漏了 `.utc`。全仓库检索同类误用（`now(timezone)` / `astimezone(timezone)` /
+  `replace(tzinfo=timezone)`）仅此 1 处。
+- **供应链密钥门禁首跑即红**：`scripts/check-secrets.sh` 与 CI 的
+  `supply-chain-gate` 由 `1634e9b` 引入后**从未通过**——11 处高置信命中 + 12 条
+  低置信提示，逐条核对全部是误报（`token = <函数调用>` 这类变量名、开发/测试
+  固件里的假密钥、锁定文件的 `sha512` 校验和、40+ 字符长变量名）。现补齐两条
+  **不放宽 pattern**（检出能力零损失）的豁免通道：**行级标记**
+  （行尾 `pragma: allowlist secret`，detect-secrets 惯例）与**路径白名单**
+  （新增 `specs/`、`scripts/dev/`、`pnpm-lock.yaml`、`versions.lock`，并把
+  `is_allowlisted()` 由纯前缀匹配改为任意层级匹配，使 `services/*/tests/` 可被
+  豁免）；低置信模式加**值位置**约束以排除 40+ 字符的长变量名。`--all`
+  （2821 文件）现 exit 0、输出仅 `✓ 未发现疑似密钥`。
+- **`dsh-runtime-host` 未纳入 022 US3 容器加固**：compose 模板此前没有
+  `cap_drop: [ALL]` / `no-new-privileges` / 只读根，仅靠 entrypoint 的 gosu 降权。
+  现镜像改以 `USER node` 直接非 root 启动（因此不需要 gosu 的
+  `CAP_SETUID`/`CAP_SETGID`，`cap_drop: ALL` 才成立），entrypoint 的
+  chown/gosu 改为 `id -u` = 0 条件分支，`HOME` 指向数据卷内的
+  `/data/dsh-runtime/home`（DSH anonymous-user-id 落盘），cordis host profile
+  走 tmpfs。七个服务现加固一致。
 
 ### Changed
 
 - **对外暴露的 API 版本统一到 `0.2.0`**：chat-api / admin-api / document-parser
   三个服务的 `FastAPI(version=...)` 从 `0.1.0` 对齐到 `0.2.0`，与
   `pyproject.toml`、两个前端 `package.json` 及本文件已发布版本一致。
+- **构建文档补充 DSH Runtime Host 的构建方式**：`./mogo build` 默认**不**构建
+  `dsh-runtime-host`（其 Compose 服务带 `profiles: [single-host]`），而池模式的
+  3 个副本复用同一镜像名，裸 `build` 后 `up` 会回退去拉 GHCR 镜像。已在
+  `docs/docker-deployment.md` 新增专节，`README.md` 与 `docs/installation-guide.md`
+  各加指引（含 `--profile` 为全局 flag、须置于子命令之前）。
   该字段是 `/openapi.json` 的 `info.version`，属**对外可见契约**，下游若按版本
   做兼容性判断会受影响；此前长期滞后会让排障时出现「代码是 0.2.0 但文档说 0.1.0」
   的口径冲突。  三处均已加注释说明需与 CHANGELOG 保持同步。
