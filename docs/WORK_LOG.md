@@ -1,5 +1,40 @@
 # Work Log
 
+## 2026-10-12 TLS 证书集成：项目根目录自签名证书接入 deploy/tls
+
+**背景**：用户自签名证书 `server.crt` / `server.key` 位于项目根目录，需接入 nginx TLS 配置。
+
+### 改动清单
+
+| 文件 | 改动 |
+|------|------|
+| `deploy/tls/setup-certs.sh`（新） | 一键证书部署脚本：检查证书有效性 + 过期检查 + SAN 扩展检查 + 复制到 deploy/tls/ |
+| `deploy/tls/.gitignore`（新） | 忽略 `*.pem` / `*.crt` / `*.key`，证书不入库 |
+| `.gitignore` | 追加 `server.crt` / `server.key` / `deploy/tls/*.pem` |
+| `deploy/tls/fullchain.pem` / `privkey.pem` | 从项目根目录复制（不入库） |
+
+### 证书信息
+
+- 主题：`CN=localhost`
+- 有效期：2026-10-12 → 2027-10-12
+- 类型：RSA 2048，自签名 CA:TRUE
+- ⚠️ 缺少 Subject Alternative Name (SAN) 扩展 —— 现代浏览器会拒绝，仅适用于 `curl -k` / 后端 API 调用
+
+### 启用方式
+
+```bash
+bash deploy/tls/setup-certs.sh
+MOGO_NGINX_CONF=./deploy/nginx/nginx.conf docker compose up -d
+```
+
+### 验证
+
+- `docker compose config --quiet`：通过
+- `openssl verify -CAfile server.crt server.crt`：OK
+- `openssl rsa -in server.key -check -noout`：RSA key ok
+
+---
+
 ## 2026-10-12 QF-660/662/707/710 关闭：响应权限裁剪 + 数据脱敏 + 备份加密 + 灾备演练
 
 **目标**：关闭 QualityForge 报告中 022 遗留的 4 个 QF 条目。
