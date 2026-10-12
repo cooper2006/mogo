@@ -9402,3 +9402,27 @@ and you require transformers==5.10.0, we can conclude that your requirements are
 - 文档格式遵循 `.specify/templates/` 模板规范
 - 跨特性关系已声明（022↔001/006/017/020, 023↔001/007/008/010, 024↔001/007, 025↔001/003/008, 026↔001/007/008/020/025）
 - INDEX.md 已同步更新（新增章节 + 完成度统计 + SDD 路径）
+
+## 2026-10-12 闭合 document-parser(docling) 的 3.13 pytest 覆盖缺口
+
+**变更文件**：
+- `services/document-parser/tests/test_docling_pipeline.py`（新增：4 个 docling 链路测试）
+- `docs/WORK_LOG.md`（本条目）
+- 注：`requirements-docling.txt` 未改动 —— 经评估，darwin 本地装 docling 会引入 transformers 5.8.1≠生产5.10.0 的版本差异且 torch 121MB 下载极慢，故改走"容器内跑 docling 测试"路径，不动生产依赖声明。
+
+**背景 / 缺口**：
+- 上一轮回归指出 document-parser 的 docling/rapidocr 相关代码"未被 3.13 pytest 覆盖"——根因是 `requirements-docling.txt` 只在 Docker 镜像内安装（`quality-gate.yml` 注释明说），普通/CI venv 从不装 docling，而 `document_parsing_service.py` 对 docling 是函数内延迟 import + ImportError fallback，现有 22 个测试都不触发重型路径。
+
+**方案（用户拍板：容器内跑 docling 测试）**：
+- 新增 `test_docling_pipeline.py`，用 `pytest.importorskip("docling")` 保护：
+  - 普通/CI venv（无 docling）→ 自动 SKIP，不破坏现有流程；
+  - 已装 docling 的容器（生产等价环境）→ 真实触发 `DocumentConverter().convert()` → `export_to_markdown` → `HybridChunker` 全链路。
+- 覆盖 4 个用例：txt 完整链路、chunk_docling_document 结构、BaseTokenizer 新路径导入（3.15 重构差异点）、重型模块真实加载（非回退）。
+
+**验证方式**：
+- 容器内实测（生产镜像 `document-parser:51a442a`，Python 3.13.16 + transformers 5.10.0 + docling 2.108.0 + torch 2.14.1+cpu + `/opt/docling/models` 离线）：4 passed, 8.20s，零联网。
+- 本地 `.venv313`（无 docling）：1 skipped（importorskip 生效），符合设计。
+- 修正了初版错误断言（生产代码 `raw` 是 DoclingDocument schema 导出，无 `parser` 字段；`parser=docling` 仅回退路径才有），改为校验 `raw.schema_name=="DoclingDocument"` 与 `raw_chunks[].metadata.parser=="docling"`。
+
+**待确认（未做）**：
+- 是否要把 docling 测试接入 `quality-gate.yml`（需在容器内临时装 pytest 并挂载 tests 跑）；本轮仅在容器内手动验证通过，测试文件已落库，CI 接入需单独排期/评估。

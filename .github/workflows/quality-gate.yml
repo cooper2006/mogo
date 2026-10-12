@@ -376,3 +376,48 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: "CRITICAL,HIGH"
+
+  # Docling pipeline coverage for document-parser.
+  # requirements-docling.txt is installed only inside the Docker image (not the
+  # venv used by backend-quality — see the "Create venv and install" note), so
+  # docling-dependent code is never exercised there. That was the coverage hole
+  # flagged in the 2026-10-11 regression round. This job builds the
+  # document-parser image (production-equivalent: 3.13 + transformers 5.10.0 +
+  # docling 2.108.0 + offline /opt/docling/models) and runs the docling pipeline
+  # tests inside it, closing that hole without touching the production
+  # dependency declaration.
+  #
+  # The image's Dockerfile uninstalls pip at build time, so we bootstrap it
+  # inside the run (get-pip) and install pytest, then mount the repo's tests/
+  # read-only and run only the docling tests. They are protected by
+  # pytest.importorskip("docling"), so on any environment without docling they
+  # skip rather than fail.
+  #
+  # Cost: building the image pulls LibreOffice + torch, so this is heavier than
+  # backend-quality. It runs in parallel and is isolated, so a slow docling
+  # build never blocks the primary gate.
+  document-parser-docling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build document-parser image
+        working-directory: services/document-parser
+        run: docker build -t document-parser:docling-test .
+
+      - name: Run docling pipeline tests in container
+        env:
+          DOCLING_ARTIFACTS_PATH: /opt/docling/models
+          PYTORCH_ACCELERATOR: cpu
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/services/document-parser/tests:/app/tests:ro" \
+            -e DOCLING_ARTIFACTS_PATH \
+            -e PYTORCH_ACCELERATOR \
+            document-parser:docling-test \
+            bash -c "curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
+              && python /tmp/get-pip.py --quiet \
+              && python -m pip install --quiet pytest pytest-timeout \
+              && cd /app \
+              && python -m pytest tests/test_docling_pipeline.py -v --tb=short --timeout=120 -p no:cacheprovider"
