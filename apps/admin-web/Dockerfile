@@ -5,25 +5,35 @@ WORKDIR /app
 ARG VITE_BASE_PATH=/admin/
 ARG VITE_ADMIN_API_BASE_URL=/admin-api
 ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
+# Same pin as .github/workflows/quality-gate.yml (frontend-quality). The
+# lockfile is a pnpm lockfile, so the image must use the project's pnpm, not npm.
+ARG PNPM_VERSION=10.14.0
 ENV VITE_BASE_PATH=${VITE_BASE_PATH} \
     VITE_ADMIN_API_BASE_URL=${VITE_ADMIN_API_BASE_URL} \
     MOVO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}
 
-COPY package*.json ./
-# npm's cache is a BuildKit cache mount rather than a layer: it survives a
+COPY package.json pnpm*.yaml* ./
+
+# The official Node image ships npm plus a dormant corepack — `pnpm` is NOT on
+# PATH, so it has to be installed explicitly or the build dies at
+# `pnpm: not found` (exit 127).
+#
+# pnpm's store is a BuildKit cache mount rather than a layer: it survives a
 # change to package.json (which invalidates this layer) so a rebuild reuses the
 # tarballs instead of re-downloading them. This dependency tree measured ~7
 # minutes against npmmirror.
-RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-    npm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
-    && npm ci --legacy-peer-deps
+RUN --mount=type=cache,target=/pnpm-store,sharing=locked \
+    npm install --global "pnpm@${PNPM_VERSION}" --registry="${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
+    && pnpm config set store-dir /pnpm-store \
+    && pnpm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
+    && pnpm install --frozen-lockfile
 
 COPY . .
 # `build` is plain `vite build`; type checking lives in the separate
 # `typecheck` script, which CI runs (quality-gate.yml). Keeping it out of the
 # image build avoids ~12 minutes of vue-tsc per build for a check that has
 # already passed.
-RUN npm run build
+RUN pnpm run build
 
 FROM nginx:1.31.5-alpine3.24-slim
 

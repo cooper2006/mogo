@@ -34,6 +34,18 @@ APPLICATION_SERVICES = {
     "chat-api": ("services/chat-api/Dockerfile", "chat-api"),
     "document-parser": ("services/document-parser/Dockerfile", "document-api"),
     "admin-web": ("apps/admin-web/Dockerfile", "admin-web"),
+    "user-web": ("apps/user-web/Dockerfile.prod", "user-web"),
+}
+
+# 三个 nginx 服务 -> 它们各自的「非 root 主配置」。
+# user-web 与 gateway 曾经漏做这一步：compose 已给它们 read_only + cap_drop ALL，
+# 但镜像里仍是 root master + stock 主配置（`user nginx;` + pid 在 /var/run），
+# 启动即 `chown("/var/cache/nginx/client_temp", 101) failed (1: Operation not permitted)`
+# 崩溃重启。这里把三个服务一起钉住，防止再漏。
+NGINX_MAIN_CONFIGS = {
+    "admin-web": "apps/admin-web/nginx-main.conf",
+    "user-web": "apps/user-web/nginx-main.conf",
+    "gateway": "deploy/docker/nginx-main.conf",
 }
 
 # 需要 read_only + tmpfs 的全部应用/网关服务
@@ -140,6 +152,39 @@ def test_admin_web_ships_non_root_nginx_main_config() -> None:
     )
 
 
+@pytest.mark.parametrize("service", sorted(NGINX_MAIN_CONFIGS))
+def test_nginx_images_ship_non_root_main_config(service: str) -> None:
+    """三个 nginx 服务都必须带非 root 主配置，且镜像里确实 COPY 了它。
+
+    只断言配置文件存在是不够的：曾经存在「文件在、Dockerfile 没 COPY」的形态，
+    镜像实际仍跑 stock 主配置。所以这里同时检查 Dockerfile 的 COPY 与 USER。
+    """
+    conf_rel = NGINX_MAIN_CONFIGS[service]
+    conf_path = REPO_ROOT / conf_rel
+    assert conf_path.exists(), f"缺少 {conf_rel}"
+
+    conf = conf_path.read_text(encoding="utf-8")
+    assert not re.search(r"^\s*user\s+nginx\s*;", conf, re.M), (
+        f"{conf_rel}: 非 root master 不应保留 `user nginx;` 指令"
+    )
+    assert re.search(r"^\s*pid\s+/tmp/nginx\.pid\s*;", conf, re.M), (
+        f"{conf_rel}: pid 文件必须放在非 root 可写的 /tmp"
+    )
+
+    dockerfile_rel = APPLICATION_SERVICES.get(service, (None, None))[0]
+    if dockerfile_rel is None:
+        # gateway 的 Dockerfile 不在 APPLICATION_SERVICES 里（它不是 Python/前端应用镜像）。
+        dockerfile_rel = "deploy/docker/gateway.Dockerfile"
+    text = (REPO_ROOT / dockerfile_rel).read_text(encoding="utf-8")
+    conf_basename = conf_rel.rsplit("/", 1)[-1]
+    assert re.search(rf"^COPY\s+{re.escape(conf_basename)}\s+/etc/nginx/nginx\.conf", text, re.M), (
+        f"{dockerfile_rel}: 未把 {conf_basename} COPY 成 /etc/nginx/nginx.conf"
+    )
+    assert re.search(r"^USER\s+appuser\b", text, re.M), (
+        f"{dockerfile_rel}: 缺少 `USER appuser`"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 静态检查：docker-compose
 # ---------------------------------------------------------------------------
@@ -186,7 +231,7 @@ def test_compose_service_mounts_writable_tmpfs(service: str) -> None:
         assert re.search(r"mode=0?\d+", spec), f"{service} tmpfs 缺少 mode={spec}"
 
 
-@pytest.mark.parametrize("service", ["admin-web", "gateway"])
+@pytest.mark.parametrize("service", ["admin-web", "user-web", "gateway"])
 def test_compose_nginx_services_mount_cache_and_logs(service: str) -> None:
     """read_only 下 nginx 的缓存/日志目录必须是 tmpfs，否则启动即退出。"""
     tmpfs = [str(m) for m in _compose_config()["services"][service].get("tmpfs") or []]
@@ -194,7 +239,7 @@ def test_compose_nginx_services_mount_cache_and_logs(service: str) -> None:
     assert any(m.startswith("/var/log/nginx") for m in tmpfs)
 
 
-@pytest.mark.parametrize("service", ["admin-web", "gateway"])
+@pytest.mark.parametrize("service", ["admin-web", "user-web", "gateway"])
 def test_compose_nginx_grants_only_net_bind_service(service: str) -> None:
     caps = _compose_config()["services"][service].get("cap_add") or []
     assert caps == ["NET_BIND_SERVICE"], (
