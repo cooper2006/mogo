@@ -1,5 +1,40 @@
 # Work Log
 
+## 2026-10-12 022 安全加固 Phase 3「容器非 root + 服务身份最小权限」落地（T023–T029）
+
+**目标**：完成 022 的 US3（P1）——4 个应用镜像非 root 运行、容器加固（`no-new-privileges` / `cap_drop ALL` / `read_only` / tmpfs）、服务间令牌携带最小权限码。
+
+### 改动清单
+
+| 项 | 文件 | 要点 |
+| --- | --- | --- |
+| T023 | `services/admin-api/Dockerfile` | 新增 `appuser`（UID/GID 10001），`mkdir -p` + `chown -R` `/data/knowledge-documents` 与 `/data/admin-static`，`chmod -R a+rX /app`，`USER appuser` 置于 `EXPOSE` 之前 |
+| T024 | `services/chat-api/Dockerfile` | 同上；数据目录 `/app/storage`、`/data/knowledge-documents`、`/ms-playwright` |
+| T025 | `services/document-parser/Dockerfile` | 同上；数据目录 `/data/knowledge-documents` |
+| T026 | `apps/admin-web/Dockerfile` + `apps/admin-web/nginx-main.conf`（新） | Alpine/BusyBox 用 `addgroup -g 10001 -S` + `adduser -S -H -D -G`（不是 Debian 的 `groupadd`/`useradd`）；新增非 root 主配置（删 `user nginx;`、`pid /tmp/nginx.pid;`），否则非 root master 起不来；`RUN chmod 0644` 归一化 conf 模式（避免 host 编辑器 0600 导致 nginx 读不了自己的配置） |
+| T027 | `docker-compose.yml` | 8 个服务加固：`security_opt: ["no-new-privileges:true"]` + `cap_drop: [ALL]` + `read_only: true` + tmpfs；两个 nginx 服务（admin-web / gateway）仅保留 `NET_BIND_SERVICE` 并额外挂 `/var/cache/nginx`、`/var/log/nginx`；**tmpfs 必须显式 `mode=1777`/`mode=0777`**（Docker 默认 0755，非 root 写不进，实测 nginx 在 `/var/cache/nginx/client_temp` 上 EACCES）；`bootstrap` 的 `umask 077 → 022`（否则非 root 容器读不到 `runtime.env`） |
+| T027 配套 | `services/admin-api/app/core/config.py` + `app/main.py`；`services/chat-api/app/utils/report_file_manager.py`；`services/document-parser/app/core/config.py` | 存储路径默认值改绝对路径（`/data/admin-static`、`/app/storage/reports/markdown`、`/data/knowledge-documents`）；`mkdir` 失败降级为告警 —— 静态文件挂载 / 报告持久化是可选能力，不能阻断 API 启动 |
+| T028 | `services/{admin-api,chat-api}/app/security/service_token.py` + `app/security/gatekeeper.py`（双服务镜像） | `ServiceTokenClaim` 新增 `scope: tuple[str, ...]`；`issue(scope=...)` 接受单串 / 序列 / 逗号分隔串并去重归一化；`_normalize_scope` helper；`gatekeeper` 新增 `GATEKEEPER_ENDPOINT_SCOPES` 注册表（evaluate / decide / list_approvals / list_events）+ `ALL_SERVICE_SCOPES`；`verify_service_call(required_scope=...)`：未携带 → `insufficient_scope`，端点要求未注册 scope → `unknown_scope`，均 fail-closed；`bind_context_to_claim` 保留 scope |
+| T028 接入 | `admin-api/app/api/routes/gatekeeper_internal.py` + `chat-api/app/services/gatekeeper_client.py` + `chat-api/app/api/principal.py` | 4 个 gatekeeper 端点各传所需 scope；chat-api 客户端签发时携带 `gatekeeper.evaluate`；chat-api `principal.py` 按请求路径前缀解析所需 scope 并核对（`SERVICE_SCOPE_REGISTRY`） |
+| T029 | `deploy/tests/test_container_hardening.py`（新）+ `services/admin-api/tests/test_security_gatekeeper.py` + `services/chat-api/tests/test_security_gatekeeper.py` | 容器加固静态检查（Dockerfile `USER appuser` / 10001 / chown 顺序 / BusyBox 语法 / nginx 主配置 / compose 8 服务 cap/security_opt/read_only/tmpfs/mode / bootstrap umask / 存储路径绝对性 + 卷挂载一致性）+ 运行时 `docker run` uid 校验（镜像不在本地自动 skip）；scope 最小权限 12 用例（roundtrip / 逗号分隔 / 空默认 / 篡改 payload 签名失效 / insufficient_scope / unknown_scope / 端点不要求则跳过 / scope 不豁免租户绑定 / bind 保留 / 注册表唯一性） |
+
+### 验证
+
+- `docker build --check` 4 个 Dockerfile：`Check complete, no warnings found.`
+- **admin-api 镜像**（实际构建）：`id` → `uid=10001(appuser) gid=10001(appuser)`；在 `--cap-drop ALL --security-opt no-new-privileges:true --read-only --tmpfs /tmp:...,mode=1777` 下 `id -u` = 10001，uvicorn 启动至连接 MongoDB 前 **0 条权限错误**（`grep -icE "permission denied|read-only file system|errno 13|errno 30"` = 0）；无静态卷时告警降级并跳过 `/static` 挂载，有卷时正常。
+- **admin-web(nginx) 镜像**（实际构建运行时阶段）：在同等加固参数 + `NET_BIND_SERVICE` + nginx 专用 tmpfs 下 `nginx -t` 通过，`curl` 返回 **http 200**，pid 文件落在 `/tmp/nginx.pid`。
+- 测试：`deploy/tests/test_container_hardening.py` **58 passed / 6 skipped**；admin-api 安全 + gatekeeper 全套 **336 passed**；chat-api 安全全套 **306 passed**；admin-api 全量 **772 passed**（基线 760，+12）；chat-api 全量 **2560 passed / 2 failed**（基线 2549，+11；2 条失败是其他会话在途的 `tests/dsh_runtime/test_document_script_boundaries.py`，`tzinfo argument must be None or of a tzinfo subclass`，非本轮改动）；document-parser **18 passed**。
+- `docker compose -f docker-compose.yml config --quiet`：compose OK。
+
+### 说明
+
+- T026/T027 在 `tasks.md` 里写的路径 `services/admin-web/Dockerfile` 与 `deploy/docker-compose.yml` 在仓库中不存在，实际路径为 `apps/admin-web/Dockerfile` 与根目录 `docker-compose.yml`，已在 tasks.md 中更正。
+- `apps/admin-web` 的 Dockerfile 用 `npm ci` 但仓库只有 `pnpm-lock.yaml`（无 `package-lock.json`），本机无法完整构建；该问题为本轮之前就存在的预置缺陷，已用等价运行时阶段（nginx 基础镜像 + `dist` + 非 root 层）单独验证非 root 行为。
+
+### 涉及文件
+
+`services/admin-api/Dockerfile`、`services/chat-api/Dockerfile`、`services/document-parser/Dockerfile`、`apps/admin-web/Dockerfile`、`apps/admin-web/nginx-main.conf`、`docker-compose.yml`、`services/{admin-api,chat-api}/app/security/service_token.py`、`services/{admin-api,chat-api}/app/security/gatekeeper.py`、`services/admin-api/app/api/routes/gatekeeper_internal.py`、`services/chat-api/app/services/gatekeeper_client.py`、`services/chat-api/app/api/principal.py`、`services/admin-api/app/core/config.py`、`services/admin-api/app/main.py`、`services/chat-api/app/utils/report_file_manager.py`、`services/document-parser/app/core/config.py`、`deploy/tests/test_container_hardening.py`、`services/admin-api/tests/test_security_gatekeeper.py`、`services/chat-api/tests/test_security_gatekeeper.py`、`specs/022-security-hardening/tasks.md`、`specs/INDEX.md`、`docs/WORK_LOG.md`
+
 ## 2026-10-12 022 安全加固 Phase 2「令牌与会话生命周期」落地（T014–T022，双服务）
 
 **目标**：完成 022 的 US2（P1）——access token TTL ≤ 1h、refresh 链路可达且一次性轮换、空闲 30min / 绝对 24h 超时、服务间独立凭证、口令重置强制改密。

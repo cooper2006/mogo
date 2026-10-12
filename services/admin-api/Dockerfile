@@ -87,6 +87,24 @@ COPY app /app/app
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod -R a+rX /app && chmod +x /app/entrypoint.sh
 
+# ── Non-root runtime (022 FR-26 / T023) ──────────────────────────────────
+# App containers run as an unprivileged user so a container escape cannot land
+# with root in the host namespace, and a compromised process cannot overwrite
+# its own binary layer. UID/GID 10001 is the repo-wide convention.
+#
+# Writable paths are created *here* on purpose: when Compose mounts a named
+# volume over them, Docker seeds the volume from this image directory, so the
+# volume inherits appuser ownership. Skip this and the volume is root-owned
+# and the service dies on its first write.
+RUN groupadd --gid 10001 --system appuser \
+    && useradd --uid 10001 --gid appuser --home-dir /home/appuser \
+        --create-home --shell /usr/sbin/nologin appuser \
+    && mkdir -p /data/knowledge-documents /data/admin-static \
+    && chown -R appuser:appuser /data/knowledge-documents /data/admin-static /app /home/appuser \
+    && chmod -R a+rX /app
+
+USER appuser
+
 EXPOSE 8100
 
 ENTRYPOINT ["/app/entrypoint.sh"]

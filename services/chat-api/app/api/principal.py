@@ -63,6 +63,30 @@ async def _assert_end_user_scope(request: Request, principal: ApiPrincipal) -> N
 EXPECTED_CALLER_SERVICE_ID = "admin-api"
 _LEGACY_TOKEN_ENV_NAMES = ("ADMIN_BACKEND_SERVICE_TOKEN",)
 
+# 022 T028：服务身份权限最小化。
+# admin-api 调本服务（chat-api）时，令牌必须携带对应端点要求的权限码。
+# 命名约定与 admin-api 侧的 GATEKEEPER_ENDPOINT_SCOPES 对称：``<领域>.<动作>``。
+SCOPE_MODELS_LIST = "models.list"
+SCOPE_SKILLS_LIST = "skills.list"
+SCOPE_EXTERNAL_TOOLS_LIST = "external_tools.list"
+
+#: 请求路径前缀 -> 所需 scope（按最长前缀匹配）。
+SERVICE_SCOPE_REGISTRY: dict[str, str] = {
+    "/api/v1/models": SCOPE_MODELS_LIST,
+    "/api/v1/skills": SCOPE_SKILLS_LIST,
+    "/api/v1/external-tools": SCOPE_EXTERNAL_TOOLS_LIST,
+}
+
+
+def _required_scope_for_path(path: str) -> str:
+    """按请求路径解析所需 scope；未登记的内部路径不做 scope 校验。"""
+    text = str(path or "")
+    best = ""
+    for prefix, scope in SERVICE_SCOPE_REGISTRY.items():
+        if text.startswith(prefix) and len(prefix) > len(best):
+            best = prefix
+    return SERVICE_SCOPE_REGISTRY.get(best, "")
+
 
 def _incoming_service_issuer() -> Any:
     """惰性构建签发器（未配置新式凭据时返回 None → 回退静态比对）。"""
@@ -103,6 +127,7 @@ async def require_api_principal(
             tenant_id=tenant_hint,
             user_id=user_hint,
             issuer=_incoming_service_issuer(),
+            required_scope=_required_scope_for_path(str(request.url.path or "")),
         )
     except _gk.GatekeeperDenied as exc:
         raise HTTPException(status_code=401, detail=str(exc.reason)) from exc

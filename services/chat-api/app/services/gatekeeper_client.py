@@ -58,8 +58,12 @@ def _legacy_token() -> str:
     return str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")
 
 
-def _issue_for_context(tenant_id: str, user_id: str) -> str:
-    """按调用上下文签发令牌（租户/用户绑定进 claim，供双因子核对）。"""
+def _issue_for_context(tenant_id: str, user_id: str, *, scopes: tuple[str, ...] = ()) -> str:
+    """按调用上下文签发令牌（租户/用户绑定进 claim，供双因子核对）。
+
+    022 T028：``scopes`` 声明本次调用需要的权限码，写进 claim 的 ``scope``
+    集合。接收端只放行它被授权做过的事，而不是"认得出是谁"就全放行。
+    """
     issuer = _shared_issuer()
     if issuer is None:
         return ""
@@ -68,6 +72,7 @@ def _issue_for_context(tenant_id: str, user_id: str) -> str:
             audience=CALLER_SERVICE_ID,
             tenant_id=str(tenant_id or ""),
             extra={"user_id": str(user_id or "")},
+            scope=tuple(scopes),
         )
     except Exception:  # noqa: BLE001 - 签发失败则回退静态密钥
         return ""
@@ -85,16 +90,21 @@ class GatekeeperClient:
         settings = get_settings()
         return (self._base_url or str(settings.ADMIN_API_BASE_URL or "http://127.0.0.1:8100")).rstrip("/")
 
-    def _issue_service_token(self, *, tenant_id: str = "", user_id: str = "") -> str:
+    def _issue_service_token(
+        self, *, tenant_id: str = "", user_id: str = "", scope: str = ""
+    ) -> str:
         """022 T020：优先签发新式签名令牌，未配置时回退静态共享密钥。
 
         - 显式覆盖（``self._token``）始终优先 —— 便于测试与运维手工签发；
         - 新式令牌把调用方声明的租户/用户写进 claim，admin-api 侧据此做
-          双因子核对（令牌绑定 + 租户/用户一致）。
+          双因子核对（令牌绑定 + 租户/用户一致）；
+        - 022 T028：``scope`` 写进 claim，接收端按端点要求核对权限码。
         """
         if self._token:
             return self._token
-        return _issue_for_context(tenant_id, user_id) or _legacy_token()
+        return _issue_for_context(
+            tenant_id, user_id, scopes=(scope,) if scope else ()
+        ) or _legacy_token()
 
     async def evaluate(
         self,
@@ -115,7 +125,13 @@ class GatekeeperClient:
         Fail-closed: any error reaching/understanding admin-api denies the call.
         """
         base_url = self._resolve_base_url()
-        token = self._issue_service_token(tenant_id=tenant_id, user_id=user_id)
+        # 022 T028：本端点需要的权限码是 gatekeeper.evaluate，显式声明而不是
+        # 拿到一张全权限令牌。
+        token = self._issue_service_token(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            scope=_gk.SCOPE_GATEKEEPER_EVALUATE,
+        )
         payload = {
             "tool": tool,
             "tenantId": tenant_id,

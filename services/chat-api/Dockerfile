@@ -269,6 +269,24 @@ COPY .env.example /app/.env.example
 # COPY layer stays cacheable across host permission churn.
 RUN chmod -R a+rX /app
 
+# ── Non-root runtime (022 FR-26 / T024) ──────────────────────────────────
+# App containers run as an unprivileged user so a container escape cannot land
+# with root in the host namespace, and a compromised process cannot overwrite
+# its own binary layer. UID/GID 10001 is the repo-wide convention.
+#
+# Writable paths are created *here* on purpose: when Compose mounts a named
+# volume over them, Docker seeds the volume from this image directory, so the
+# volume inherits appuser ownership. Skip this and the volume is root-owned
+# and the service dies on its first write.
+RUN groupadd --gid 10001 --system appuser \
+    && useradd --uid 10001 --gid appuser --home-dir /home/appuser \
+        --create-home --shell /usr/sbin/nologin appuser \
+    && mkdir -p /app/storage /data/knowledge-documents /ms-playwright \
+    && chown -R appuser:appuser /app/storage /data/knowledge-documents /ms-playwright /app /home/appuser \
+    && chmod -R a+rX /app
+
+USER appuser
+
 EXPOSE 8000
 
 ENTRYPOINT ["/app/entrypoint.sh"]

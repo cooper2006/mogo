@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import aiofiles
 from datetime import datetime
@@ -7,13 +8,28 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
+logger = logging.getLogger(__name__)
+
 
 class ReportFileManager:
     """Persist long report files to disk."""
     
-    def __init__(self, base_dir: str = "static/reports/markdown"):
+    def __init__(self, base_dir: str = "/app/storage/reports/markdown"):
         self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        # 022 US3 (T027)：read_only 容器 + 未挂载存储卷时 mkdir 会失败。
+        # 报告文件属于可选能力，不能因为它阻断模块导入 / 服务启动 ——
+        # 降级为告警，写入时再按需重试。
+        self._dir_ready = False
+        try:
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+            self._dir_ready = True
+        except OSError as exc:
+            logger.warning(
+                "report_file_manager base_dir %s is not writable (%s); "
+                "report persistence will retry on first write",
+                self.base_dir,
+                exc,
+            )
 
     @staticmethod
     def _safe_path_token(value: str) -> str:

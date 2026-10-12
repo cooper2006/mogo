@@ -29,7 +29,7 @@ import secrets
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -189,6 +189,25 @@ class ServiceCredentialVault:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_scope(scope: str | Iterable[str] | None) -> list[str]:
+    """把 scope 入参归一化成去重、去空白的有序列表。
+
+    接受单个字符串、字符串序列或逗号分隔的字符串（例如从环境变量读取时）。
+    """
+    if scope is None:
+        return []
+    if isinstance(scope, str):
+        items = [part for part in scope.split(",")]
+    else:
+        items = list(scope)
+    result: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
 @dataclass(frozen=True)
 class ServiceTokenClaim:
     """校验通过后的凭证声明。"""
@@ -199,6 +218,9 @@ class ServiceTokenClaim:
     jti: str
     audience: str = ""
     tenant_id: str = ""
+    # 022 T028：最小权限。令牌显式携带被授权的权限码集合；接收方据此判定
+    # 本次调用是否在授权范围内，而不是"认得出是谁"就全放行。
+    scope: tuple[str, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)
 
     def ttl_seconds(self) -> int:
@@ -273,6 +295,7 @@ class ServiceTokenIssuer:
         jti: str | None = None,
         now: float | None = None,
         extra: dict | None = None,
+        scope: str | Iterable[str] | None = None,
     ) -> str:
         """签发一枚新令牌。
 
@@ -291,6 +314,7 @@ class ServiceTokenIssuer:
             "iat": ts,
             "exp": ts + ttl,
             "jti": jti or str(uuid.uuid4()),
+            "scope": _normalize_scope(scope),
         }
         # 022 T020：允许调用方把业务上下文（如 user_id）写进 claim，
         # 供接收方做双因子核对。这些键不进白名单结构，保留在 extra 里。
@@ -348,7 +372,11 @@ class ServiceTokenIssuer:
         if exp + self._leeway < ts:
             raise ServiceTokenExpired(f"token expired at {exp}, now={int(ts)}")
 
-        extra = {k: v for k, v in payload.items() if k not in {"service_id", "audience", "tenant_id", "iat", "exp", "jti"}}
+        extra = {k: v for k, v in payload.items() if k not in {"service_id", "audience", "tenant_id", "iat", "exp", "jti", "scope"}}
+        try:
+            scope = tuple(str(item) for item in _normalize_scope(payload.get("scope")))
+        except ServiceTokenInvalid:
+            raise
         return ServiceTokenClaim(
             service_id=service_id,
             exp=exp,
@@ -356,6 +384,7 @@ class ServiceTokenIssuer:
             jti=str(payload.get("jti") or ""),
             audience=audience,
             tenant_id=str(payload.get("tenant_id") or ""),
+            scope=scope,
             extra=extra,
         )
 

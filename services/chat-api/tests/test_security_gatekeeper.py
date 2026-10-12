@@ -280,3 +280,114 @@ def test_bind_context_preserves_existing_tenant() -> None:
 def test_constants_match_spec() -> None:
     assert gk.DEFAULT_ENV_PREFIX == "MOGO"
     assert gk.DEFAULT_LEEWAY_SECONDS == 300
+
+
+# ---------------------------------------------------------------------------
+# 022 T028：服务身份权限最小化（scope 权限码）
+# ---------------------------------------------------------------------------
+
+
+def test_scope_claim_roundtrips_through_token() -> None:
+    issuer = _issuer()
+    token = issuer.issue(scope=["gatekeeper.evaluate", "gatekeeper.decide"])
+    claim = issuer.verify(token)
+    assert claim.scope == ("gatekeeper.evaluate", "gatekeeper.decide")
+
+
+def test_scope_accepts_comma_separated_string() -> None:
+    issuer = _issuer()
+    claim = issuer.verify(issuer.issue(scope="a,b,a,c"))
+    assert claim.scope == ("a", "b", "c")
+
+
+def test_scope_defaults_to_empty_tuple() -> None:
+    assert _issuer().verify(_issuer().issue()).scope == ()
+
+
+def test_scope_verifies_against_tampered_payload() -> None:
+    import base64, json
+
+    issuer = _issuer()
+    parts = issuer.issue(scope=["gatekeeper.evaluate"]).split("|")
+    payload = json.loads(base64.urlsafe_b64decode(parts[1] + "==").decode())
+    payload["scope"] = ["admin.*"]
+    forged = f"{parts[0]}|{base64.urlsafe_b64encode(json.dumps(payload, separators=(',', ':')).encode()).decode().rstrip('=')}|{parts[2]}"
+    with pytest.raises(ServiceTokenInvalid):
+        issuer.verify(forged)
+
+
+def test_verify_requires_scope_when_endpoint_demands_it() -> None:
+    issuer = _issuer()
+    token = issuer.issue()
+    with pytest.raises(gk.GatekeeperDenied) as excinfo:
+        gk.verify_service_call(
+            token,
+            expected_service_id=CHAT,
+            issuer=issuer,
+            required_scope=gk.SCOPE_GATEKEEPER_EVALUATE,
+        )
+    assert excinfo.value.reason == "insufficient_scope"
+
+
+def test_verify_passes_when_scope_granted() -> None:
+    issuer = _issuer()
+    claim = gk.verify_service_call(
+        issuer.issue(scope=["gatekeeper.evaluate"]),
+        expected_service_id=CHAT,
+        issuer=issuer,
+        required_scope=gk.SCOPE_GATEKEEPER_EVALUATE,
+    )
+    assert claim is not None
+    assert gk.SCOPE_GATEKEEPER_EVALUATE in claim.scope
+
+
+def test_verify_rejects_out_of_scope() -> None:
+    issuer = _issuer()
+    token = issuer.issue(scope=["gatekeeper.evaluate"])
+    with pytest.raises(gk.GatekeeperDenied) as excinfo:
+        gk.verify_service_call(
+            token,
+            expected_service_id=CHAT,
+            issuer=issuer,
+            required_scope=gk.SCOPE_GATEKEEPER_DECIDE,
+        )
+    assert excinfo.value.reason == "insufficient_scope"
+
+
+def test_verify_rejects_unregistered_scope() -> None:
+    issuer = _issuer()
+    token = issuer.issue(scope=["admin.*"])
+    with pytest.raises(gk.GatekeeperDenied) as excinfo:
+        gk.verify_service_call(
+            token,
+            expected_service_id=CHAT,
+            issuer=issuer,
+            required_scope="admin.*",
+        )
+    assert excinfo.value.reason == "unknown_scope"
+
+
+def test_verify_skips_scope_check_when_endpoint_does_not_demand_it() -> None:
+    issuer = _issuer()
+    claim = gk.verify_service_call(
+        issuer.issue(),
+        expected_service_id=CHAT,
+        issuer=issuer,
+        required_scope="",
+    )
+    assert claim is not None
+
+
+def test_bind_context_preserves_scope() -> None:
+    issuer = _issuer()
+    claim = gk.bind_context_to_claim(
+        issuer.verify(issuer.issue(scope=["gatekeeper.evaluate"], tenant_id=TENANT)),
+        tenant_id=TENANT,
+        user_id="user-1",
+    )
+    assert claim.scope == ("gatekeeper.evaluate",)
+
+
+def test_all_service_scopes_are_registered_and_unique() -> None:
+    assert gk.ALL_SERVICE_SCOPES == frozenset(gk.GATEKEEPER_ENDPOINT_SCOPES.values())
+    assert len(gk.ALL_SERVICE_SCOPES) == 4

@@ -280,3 +280,142 @@ def test_bind_context_preserves_existing_tenant() -> None:
 def test_constants_match_spec() -> None:
     assert gk.DEFAULT_ENV_PREFIX == "MOGO"
     assert gk.DEFAULT_LEEWAY_SECONDS == 300
+
+
+# ---------------------------------------------------------------------------
+# 022 T028：服务身份权限最小化（scope 权限码）
+# ---------------------------------------------------------------------------
+
+
+def test_scope_claim_roundtrips_through_token() -> None:
+    """scope 必须写进 payload 并在 verify 后还原。"""
+    issuer = _issuer()
+    token = issuer.issue(scope=["gatekeeper.evaluate", "gatekeeper.decide"])
+    claim = issuer.verify(token)
+    assert claim.scope == ("gatekeeper.evaluate", "gatekeeper.decide")
+
+
+def test_scope_accepts_comma_separated_string() -> None:
+    """从环境变量读取时 scope 常是逗号分隔字符串，必须能归一化。"""
+    issuer = _issuer()
+    claim = issuer.verify(issuer.issue(scope="a,b,a,c"))
+    assert claim.scope == ("a", "b", "c")
+
+
+def test_scope_defaults_to_empty_tuple() -> None:
+    issuer = _issuer()
+    assert issuer.verify(issuer.issue()).scope == ()
+
+
+def test_scope_verifies_against_tampered_payload() -> None:
+    """攻击者改 payload 里的 scope 必须因签名失效被拒。"""
+    issuer = _issuer()
+    token = issuer.issue(scope=["gatekeeper.evaluate"])
+    parts = token.split("|")
+    import base64, json
+
+    payload = json.loads(base64.urlsafe_b64decode(parts[1] + "==").decode())
+    payload["scope"] = ["gatekeeper.decide", "admin.*"]
+    forged = f"{parts[0]}|{base64.urlsafe_b64encode(json.dumps(payload, separators=(',', ':')).encode()).decode().rstrip('=')}|{parts[2]}"
+    with pytest.raises(ServiceTokenInvalid):
+        issuer.verify(forged)
+
+
+def test_verify_requires_scope_when_endpoint_demands_it() -> None:
+    """端点要求 scope 时，令牌未携带即拒绝。"""
+    issuer = _issuer()
+    token = issuer.issue()  # 无 scope
+    with pytest.raises(gk.GatekeeperDenied) as excinfo:
+        gk.verify_service_call(
+            token,
+            expected_service_id=CHAT,
+            issuer=issuer,
+            required_scope=gk.SCOPE_GATEKEEPER_EVALUATE,
+        )
+    assert excinfo.value.reason == "insufficient_scope"
+
+
+def test_verify_passes_when_scope_granted() -> None:
+    issuer = _issuer()
+    token = issuer.issue(scope=["gatekeeper.evaluate"])
+    claim = gk.verify_service_call(
+        token,
+        expected_service_id=CHAT,
+        issuer=issuer,
+        required_scope=gk.SCOPE_GATEKEEPER_EVALUATE,
+    )
+    assert claim is not None
+    assert gk.SCOPE_GATEKEEPER_EVALUATE in claim.scope
+
+
+def test_verify_rejects_out_of_scope() -> None:
+    """令牌只有 evaluate 权限，不能调用 decide 端点。"""
+    issuer = _issuer()
+    token = issuer.issue(scope=["gatekeeper.evaluate"])
+    with pytest.raises(gk.GatekeeperDenied) as excinfo:
+        gk.verify_service_call(
+            token,
+            expected_service_id=CHAT,
+            issuer=issuer,
+            required_scope=gk.SCOPE_GATEKEEPER_DECIDE,
+        )
+    assert excinfo.value.reason == "insufficient_scope"
+
+
+def test_verify_rejects_unregistered_scope() -> None:
+    """接收端不能接受随手编造的 scope 名，防止配置漂移。"""
+    issuer = _issuer()
+    token = issuer.issue(scope=["admin.*"])
+    with pytest.raises(gk.GatekeeperDenied) as excinfo:
+        gk.verify_service_call(
+            token,
+            expected_service_id=CHAT,
+            issuer=issuer,
+            required_scope="admin.*",
+        )
+    assert excinfo.value.reason == "unknown_scope"
+
+
+def test_verify_skips_scope_check_when_endpoint_does_not_demand_it() -> None:
+    """兼容既有调用方：required_scope 为空时不做 scope 校验。"""
+    issuer = _issuer()
+    token = issuer.issue()  # 无 scope
+    claim = gk.verify_service_call(
+        token,
+        expected_service_id=CHAT,
+        issuer=issuer,
+        required_scope="",
+    )
+    assert claim is not None
+
+
+def test_verify_scope_does_not_bypass_tenant_binding() -> None:
+    """scope 通过也不能豁免双因子核对（fail-closed 语义不变）。"""
+    issuer = _issuer()
+    token = issuer.issue(
+        scope=["gatekeeper.evaluate"], tenant_id="tenant-A"
+    )
+    with pytest.raises(gk.GatekeeperDenied) as excinfo:
+        gk.verify_service_call(
+            token,
+            expected_service_id=CHAT,
+            tenant_id="tenant-B",
+            issuer=issuer,
+            required_scope=gk.SCOPE_GATEKEEPER_EVALUATE,
+        )
+    assert excinfo.value.reason == "tenant_mismatch"
+
+
+def test_bind_context_preserves_scope() -> None:
+    issuer = _issuer()
+    token = issuer.issue(scope=["gatekeeper.evaluate"], tenant_id=TENANT)
+    claim = gk.bind_context_to_claim(
+        issuer.verify(token), tenant_id=TENANT, user_id="user-1"
+    )
+    assert claim.scope == ("gatekeeper.evaluate",)
+
+
+def test_all_service_scopes_are_registered_and_unique() -> None:
+    assert gk.ALL_SERVICE_SCOPES == frozenset(gk.GATEKEEPER_ENDPOINT_SCOPES.values())
+    assert len(gk.GATEKEEPER_ENDPOINT_SCOPES) == 4
+    assert len(gk.ALL_SERVICE_SCOPES) == 4

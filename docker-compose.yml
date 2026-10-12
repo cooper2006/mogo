@@ -54,6 +54,12 @@ services:
   bootstrap:
     image: alpine:3.21
     restart: "no"
+    # 022 US3 (T027): the bootstrap container only generates secrets into a
+    # named volume, so it needs no privileges at all.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
     environment:
       MOGO_PORT: ${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}
     volumes:
@@ -62,7 +68,10 @@ services:
       - /bin/sh
       - -ec
       - |
-        umask 077
+        # 022 US3 (T027): runtime.env 必须 0644。应用容器内的进程以非 root
+        # 用户 appuser (UID 10001) 运行（见各 Dockerfile），0600 会让它们
+        # 读不到自己的密钥。卷本身只在 docker 网络内以 :ro 挂载，不会暴露到宿主机。
+        umask 022
         secret_file=/run/askai-secrets/runtime.env
         random_hex() { head -c 48 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
         if [ ! -s "$$secret_file" ]; then
@@ -272,6 +281,21 @@ services:
     image: ${MOGO_CHAT_API_IMAGE:-${MOVO_CHAT_API_IMAGE:-ghcr.io/himovo/chat-api:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
+    # 022 US3 (T027): container hardening.
+    # - no-new-privileges: a setuid binary inside the container can't escalate
+    # - cap_drop ALL: the container starts with zero Linux capabilities
+    # - read_only: the image filesystem cannot be modified at runtime, so a
+    #   compromise can't drop a backdoor or overwrite a binary
+    # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid).
+    #   mode=1777 is required: Docker's tmpfs default is 0755, which the
+    #   non-root container user cannot write to.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     environment:
       OPENAI_API_KEY: ""
       MONGODB_URI: mongodb://mongo:27017
@@ -336,6 +360,19 @@ services:
     image: ${MOGO_ADMIN_API_IMAGE:-${MOVO_ADMIN_API_IMAGE:-ghcr.io/himovo/admin-api:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
+    # 022 US3 (T027): container hardening.
+    # - no-new-privileges: a setuid binary inside the container can't escalate
+    # - cap_drop ALL: the container starts with zero Linux capabilities
+    # - read_only: the image filesystem cannot be modified at runtime, so a
+    #   compromise can't drop a backdoor or overwrite a binary
+    # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     environment:
       ASKAI_ADMIN_APP_ENV: production
       ASKAI_ADMIN_MONGODB_URI: mongodb://mongo:27017
@@ -378,6 +415,19 @@ services:
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     command: ["api"]
+    # 022 US3 (T027): container hardening.
+    # - no-new-privileges: a setuid binary inside the container can't escalate
+    # - cap_drop ALL: the container starts with zero Linux capabilities
+    # - read_only: the image filesystem cannot be modified at runtime, so a
+    #   compromise can't drop a backdoor or overwrite a binary
+    # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     environment: &document-environment
       MOVO_DOC_PROCESSING_APP_ENV: production
       MOVO_DOC_PROCESSING_LOCAL_STORAGE_DIR: /data/knowledge-documents
@@ -416,6 +466,19 @@ services:
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
     command: ["worker"]
+    # 022 US3 (T027): container hardening.
+    # - no-new-privileges: a setuid binary inside the container can't escalate
+    # - cap_drop ALL: the container starts with zero Linux capabilities
+    # - read_only: the image filesystem cannot be modified at runtime, so a
+    #   compromise can't drop a backdoor or overwrite a binary
+    # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     environment: *document-environment
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
@@ -437,6 +500,19 @@ services:
     image: ${MOGO_USER_WEB_IMAGE:-${MOVO_USER_WEB_IMAGE:-ghcr.io/himovo/user-web:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
+    # 022 US3 (T027): container hardening.
+    # - no-new-privileges: a setuid binary inside the container can't escalate
+    # - cap_drop ALL: the container starts with zero Linux capabilities
+    # - read_only: the image filesystem cannot be modified at runtime, so a
+    #   compromise can't drop a backdoor or overwrite a binary
+    # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     networks:
       - public
     healthcheck:
@@ -449,6 +525,31 @@ services:
     image: ${MOGO_ADMIN_WEB_IMAGE:-${MOVO_ADMIN_WEB_IMAGE:-ghcr.io/himovo/admin-web:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
+    # 022 US3 (T027): container hardening.
+    # - no-new-privileges: a setuid binary inside the container can't escalate
+    # - cap_drop ALL: the container starts with zero Linux capabilities
+    # - read_only: the image filesystem cannot be modified at runtime, so a
+    #   compromise can't drop a backdoor or overwrite a binary
+    # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    # nginx still needs to bind port 80, which is below the unprivileged range.
+    # Grant exactly that one capability instead of running the whole container
+    # as root (see apps/admin-web/Dockerfile).
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+      # nginx keeps its client-body / proxy / cache scratch areas and its log
+      # files outside the image rootfs, so with read_only: true they must be
+      # explicit tmpfs mounts. Without this nginx exits at startup with
+      # `mkdir() "/var/cache/nginx/client_temp" failed (30: Read-only file system)`.
+      - /var/cache/nginx:rw,nosuid,nodev,size=128m,mode=0777
+      - /var/log/nginx:rw,nosuid,nodev,size=64m,mode=0777
+
     networks:
       - public
     healthcheck:
@@ -461,6 +562,24 @@ services:
     image: ${MOGO_GATEWAY_IMAGE:-${MOVO_GATEWAY_IMAGE:-ghcr.io/himovo/gateway:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
     pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
     restart: unless-stopped
+    # 022 US3 (T027): gateway 是 nginx，同样加固。它还要做 TLS 终结并绑定低
+    # 端口，所以保留唯一必要的一项 capability。
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+      # nginx keeps its client-body / proxy / cache scratch areas and its log
+      # files outside the image rootfs, so with read_only: true they must be
+      # explicit tmpfs mounts. Without this nginx exits at startup with
+      # `mkdir() "/var/cache/nginx/client_temp" failed (30: Read-only file system)`.
+      - /var/cache/nginx:rw,nosuid,nodev,size=128m,mode=0777
+      - /var/log/nginx:rw,nosuid,nodev,size=64m,mode=0777
+
     ports:
       - "${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}:80"
       # Expose HTTPS when TLS is configured (copy nginx-https.conf → nginx.conf)

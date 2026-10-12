@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     app_env: str = "development"
     service_token: str = ""
     callback_token: str = ""
-    local_storage_dir: str = "../admin-api/data/knowledge-documents"
+    # 022 US3 (T027)：必须是绝对路径。旧默认是相对路径
+    # (../admin-api/data/knowledge-documents)，在容器里既不存在也不可写；
+    # compose 已把 knowledge-storage 卷挂到 /data/knowledge-documents。
+    local_storage_dir: str = "/data/knowledge-documents"
     artifacts_prefix: str = "artifacts"
     oss_endpoint: str = "https://oss-cn-beijing.aliyuncs.com"
     oss_bucket: str = "askagentic"

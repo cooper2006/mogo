@@ -52,7 +52,9 @@ class Settings(BaseSettings):
     document_processing_service_token: str = ""
     document_processing_callback_token: str = ""
     admin_api_public_base_url: str = "http://127.0.0.1:8101"
-    admin_static_dir: str = "data/admin-static"
+    # 022 US3 (T027)：默认必须是绝对路径。相对路径会解析到 WORKDIR
+    # (/app)，在 read_only: true 的容器里 mkdir 直接失败。
+    admin_static_dir: str = "/data/admin-static"
     avatar_max_upload_mb: int = 2
     knowledge_min_chunk_size: int = 800
     knowledge_chunk_size: int = 1500

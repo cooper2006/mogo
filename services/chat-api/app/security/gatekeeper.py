@@ -5,7 +5,9 @@
 1. 令牌的 ``service_id`` 必须与期望的服务一致 —— 防止 chat-api 的令牌被
    转发去访问 admin-api 的另一个服务身份；
 2. 令牌携带 ``tenant_id`` 且调用方声明了租户时，两者必须一致 —— 防止
-   跨租户调用（token 是租户 A 签发的，却去访问租户 B 的数据）。
+   跨租户调用（token 是租户 A 签发的，却去访问租户 B 的数据）；
+3. **最小权限**（022 T028）：令牌显式携带权限码集合 ``scope``，接收端按
+   端点要求核对，防止"认得出是谁"就全放行。
 
 失败语义：**fail-closed**。令牌签名/有效期/绑定任一不满足即抛异常。
 
@@ -34,7 +36,13 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "DEFAULT_ENV_PREFIX",
     "DEFAULT_LEEWAY_SECONDS",
+    "ALL_SERVICE_SCOPES",
+    "GATEKEEPER_ENDPOINT_SCOPES",
     "GatekeeperDenied",
+    "SCOPE_GATEKEEPER_DECIDE",
+    "SCOPE_GATEKEEPER_EVALUATE",
+    "SCOPE_GATEKEEPER_LIST_APPROVALS",
+    "SCOPE_GATEKEEPER_LIST_EVENTS",
     "bind_context_to_claim",
     "build_issuer_from_env",
     "verify_service_call",
@@ -42,6 +50,31 @@ __all__ = [
 
 DEFAULT_ENV_PREFIX = "MOGO"
 DEFAULT_LEEWAY_SECONDS = 300
+
+# ---------------------------------------------------------------------------
+# 022 T028：服务身份权限最小化
+#
+# 每个服务间端点声明自己需要的权限码。令牌签发时只能拿到它被授权的那几个
+# scope（由调用方在 issue() 里显式声明），接收端再核对一次。这样即使密钥泄露
+# 或令牌被转发，攻击者也只能做它被授权做过的事，拿不到整套管理端点。
+#
+# scope 命名约定：``<领域>.<动作>``，全小写点分。
+# ---------------------------------------------------------------------------
+SCOPE_GATEKEEPER_EVALUATE = "gatekeeper.evaluate"
+SCOPE_GATEKEEPER_DECIDE = "gatekeeper.decide"
+SCOPE_GATEKEEPER_LIST_APPROVALS = "gatekeeper.list_approvals"
+SCOPE_GATEKEEPER_LIST_EVENTS = "gatekeeper.list_events"
+
+#: 端点路径 -> 所需 scope（供路由层与测试共用，避免两处漂移）。
+GATEKEEPER_ENDPOINT_SCOPES = {
+    "evaluate": SCOPE_GATEKEEPER_EVALUATE,
+    "decide": SCOPE_GATEKEEPER_DECIDE,
+    "list_approvals": SCOPE_GATEKEEPER_LIST_APPROVALS,
+    "list_events": SCOPE_GATEKEEPER_LIST_EVENTS,
+}
+
+#: 全部已注册的 scope。校验 scope 名称合法性时用来挡住随手编造的字符串。
+ALL_SERVICE_SCOPES = frozenset(GATEKEEPER_ENDPOINT_SCOPES.values())
 
 
 class GatekeeperDenied(PermissionError):
@@ -117,6 +150,7 @@ def verify_service_call(
     tenant_id: str = "",
     user_id: str = "",
     issuer: ServiceTokenIssuer | None,
+    required_scope: str = "",
 ) -> ServiceTokenClaim | None:
     """双因子校验服务令牌。
 
@@ -126,6 +160,8 @@ def verify_service_call(
         tenant_id: 调用方声明的租户；非空时与令牌内的 ``tenant_id`` 核对。
         user_id: 调用方声明的用户；非空时与令牌 ``extra["user_id"]`` 核对。
         issuer: 签发器；``None`` 表示本服务未启用新式凭据。
+        required_scope: 本次调用需要的权限码；非空时令牌必须显式携带它。
+            空字符串表示该端点不做 scope 校验（兼容既有调用方）。
 
     Returns:
         校验通过的 claim；``None`` 表示未启用新式凭据（调用方回退旧逻辑）。
@@ -166,6 +202,19 @@ def verify_service_call(
             "user_mismatch",
             detail=f"expected={user_id} got={claimed_user}",
         )
+
+    # 最小权限：令牌必须显式携带本端点要求的 scope。
+    if required_scope:
+        if required_scope not in ALL_SERVICE_SCOPES:
+            raise GatekeeperDenied(
+                "unknown_scope",
+                detail=f"endpoint requires unregistered scope={required_scope}",
+            )
+        if required_scope not in set(claim.scope or ()):
+            raise GatekeeperDenied(
+                "insufficient_scope",
+                detail=f"required={required_scope} granted={list(claim.scope)}",
+            )
     return claim
 
 
@@ -180,5 +229,6 @@ def bind_context_to_claim(
         jti=claim.jti,
         audience=claim.audience or tenant_id,
         tenant_id=claim.tenant_id or tenant_id,
+        scope=tuple(claim.scope or ()),
         extra={**dict(claim.extra or {}), "user_id": str(user_id or "")},
     )

@@ -139,7 +139,20 @@ def create_app() -> FastAPI:
     for extension_router in get_admin_product_extension().routers:
         app.include_router(extension_router, prefix="/api")
     static_dir = Path(settings.admin_static_dir).expanduser().resolve()
-    static_dir.mkdir(parents=True, exist_ok=True)
+    # 022 US3 (T027)：read_only 容器 + 未配置静态卷时 mkdir 会失败。静态文件
+    # 挂载属于可选能力，不能因为它阻断整个 API 启动 —— 降级为告警并跳过挂载。
+    try:
+        static_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "admin_static_dir %s is not writable (%s); /static mount skipped. "
+            "Mount a volume at %s or set ASKAI_ADMIN_ADMIN_STATIC_DIR to a "
+            "writable path.",
+            static_dir,
+            exc,
+            static_dir,
+        )
+        return app
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     return app
 

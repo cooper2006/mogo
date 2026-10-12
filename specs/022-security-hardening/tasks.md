@@ -99,13 +99,22 @@
 **Goal**: 4 个 Dockerfile 非 root + 服务身份权限最小化。
 **独立测试**: 容器非 root；服务身份最小权限。
 
-- [ ] T023 [P] 修改 `services/admin-api/Dockerfile`：新增 `USER appuser`（UID 10001），创建用户 + 调整数据卷权限（3h）
-- [ ] T024 [P] 修改 `services/chat-api/Dockerfile`：新增 `USER appuser`（UID 10001），创建用户 + 调整数据卷权限（3h）
-- [ ] T025 [P] 修改 `services/document-parser/Dockerfile`：新增 `USER appuser`（UID 10001），创建用户 + 调整数据卷权限（3h）
-- [ ] T026 [P] 修改 `services/admin-web/Dockerfile`：新增 `USER appuser`（UID 10001），创建用户（3h）
-- [ ] T027 [P] 修改 `deploy/docker-compose.yml`：`security_opt: ["no-new-privileges:true"]` + `cap_drop: [ALL]` + `read_only: true` + 必要的 tmpfs 挂载（5h）
-- [ ] T028 实现服务身份权限最小化：服务 token 仅携带必要权限码，不允许跨租户越权（依赖 T020，3h）
-- [ ] T029 US3 集成测试：4 个容器非 root（`docker exec id`）/ 服务身份最小权限 / 跨租户拒绝 403（3h）
+- [x] T023 [P] 修改 `services/admin-api/Dockerfile`：新增 `USER appuser`（UID 10001），创建用户 + 调整数据卷权限（3h）
+- [x] T024 [P] 修改 `services/chat-api/Dockerfile`：新增 `USER appuser`（UID 10001），创建用户 + 调整数据卷权限（3h）
+- [x] T025 [P] 修改 `services/document-parser/Dockerfile`：新增 `USER appuser`（UID 10001），创建用户 + 调整数据卷权限（3h）
+- [x] T026 [P] 修改 `apps/admin-web/Dockerfile`：新增 `USER appuser`（UID 10001），创建用户；另新增 `apps/admin-web/nginx-main.conf` 供非 root master 使用（3h）
+- [x] T027 [P] 修改 `docker-compose.yml`：`security_opt: ["no-new-privileges:true"]` + `cap_drop: [ALL]` + `read_only: true` + 必要的 tmpfs 挂载；`bootstrap` 的 `umask 077 → 022` 保证非 root 容器能读 `runtime.env`（5h）
+- [x] T028 实现服务身份权限最小化：服务 token 携带 `scope` 权限码集合，接收端按端点要求核对（`insufficient_scope` / `unknown_scope` 均 fail-closed）（依赖 T020，3h）
+- [x] T029 US3 集成测试：4 个容器非 root（`docker exec id`）/ 服务身份最小权限 / 跨租户拒绝 403（3h）
+
+**Phase 3 完成状态**：
+- Dockerfile 非 root 已落地 4 个（admin-api / chat-api / document-parser 用 Debian `groupadd`/`useradd`；admin-web 基于 Alpine 用 BusyBox `addgroup`/`adduser`），UID/GID 统一 10001。
+- compose 8 个服务加固（bootstrap / chat-api / admin-api / document-api / document-worker / user-web / admin-web / gateway）：`no-new-privileges` + `cap_drop ALL` + `read_only` + tmpfs；两个 nginx 服务仅保留 `NET_BIND_SERVICE`，并额外挂载 `/var/cache/nginx` 与 `/var/log/nginx`（`read_only` 下 nginx 启动必需）。
+- tmpfs 必须显式 `mode=`：Docker 默认 0755，非 root 用户写不进去（实测 nginx 在 `/var/cache/nginx/client_temp` 上 EACCES）。
+- 存储路径默认值改为绝对路径（admin-api `/data/admin-static`、document-parser `/data/knowledge-documents`、chat-api `ReportFileManager` `/app/storage/reports/markdown`）；`admin-api/app/main.py` 的静态目录 `mkdir` 与 `ReportFileManager` 的 `mkdir` 均改为失败降级告警，不阻断启动。
+- 服务身份最小权限：`ServiceTokenClaim` 新增 `scope: tuple[str, ...]`；`gatekeeper` 新增 `GATEKEEPER_ENDPOINT_SCOPES` 注册表（evaluate / decide / list_approvals / list_events）；`verify_service_call(required_scope=...)` 拒绝未授权或未注册的 scope。
+- 集成测试见 `deploy/tests/test_container_hardening.py`（58 passed / 6 skipped：镜像不在本地时运行时用例自动 skip）。
+- 实测验证：`admin-api` 镜像在 `read_only` + `cap_drop ALL` + `no-new-privileges` + tmpfs 下 `id -u` = 10001，uvicorn 启动至连接 MongoDB 前 **0 条权限错误**；`admin-web` 镜像（nginx）在同等参数 + `NET_BIND_SERVICE` 下返回 `http 200`。
 
 ---
 

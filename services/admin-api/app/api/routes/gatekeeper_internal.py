@@ -20,6 +20,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.security import gatekeeper as gk
 from app.governance import GateContext, gatekeeper
 
 router = APIRouter()
@@ -45,12 +46,19 @@ def _service_token_issuer() -> Any:
 
 
 def _require_service(
-    token: str, *, tenant_id: str = "", user_id: str = ""
+    token: str,
+    *,
+    tenant_id: str = "",
+    user_id: str = "",
+    scope: str = "",
 ) -> Any:
-    """校验服务令牌（022 FR-12 / T020：双因子 = 令牌绑定 + 租户/用户核对）。
+    """校验服务令牌（022 FR-12 / T020 双因子 + T028 最小权限）。
 
     优先使用新式签名令牌；未配置时回退到既有静态共享密钥（灰度可回滚）。
     任何失败都 fail-closed 抛 401。
+
+    ``scope`` 非空时，令牌必须显式携带该权限码 —— 认得出调用方身份不等于
+    允许它做这件事。
     """
     from app.security import gatekeeper as gk
 
@@ -61,6 +69,7 @@ def _require_service(
             tenant_id=str(tenant_id or ""),
             user_id=str(user_id or ""),
             issuer=_service_token_issuer(),
+            required_scope=scope,
         )
     except gk.GatekeeperDenied as exc:
         raise HTTPException(status_code=401, detail=str(exc.reason)) from exc
@@ -127,6 +136,7 @@ async def evaluate_gate(
         service_token,
         tenant_id=str(payload.tenantId or ""),
         user_id=str(payload.userId or ""),
+        scope=gk.SCOPE_GATEKEEPER_EVALUATE,
     )
 
     roles = await _resolve_roles(
@@ -187,7 +197,7 @@ async def decide_gate_approval(
     Moves the ticket ``pending -> approved|denied``. The requester then re-enters
     ``/evaluate`` with the token; only an ``approved`` ticket is consumable.
     """
-    _require_service(service_token)
+    _require_service(service_token, scope=gk.SCOPE_GATEKEEPER_DECIDE)
 
     from app.governance.layers.approval import ApprovalRegistry
 
@@ -217,7 +227,11 @@ async def list_gate_approvals(
     Without this the suspended calls were invisible to any approver — the ticket
     existed in ``gate_approvals`` with nobody able to see it (001 audit, 2026-10-03).
     """
-    _require_service(service_token, tenant_id=str(tenantId or ""))
+    _require_service(
+        service_token,
+        tenant_id=str(tenantId or ""),
+        scope=gk.SCOPE_GATEKEEPER_LIST_APPROVALS,
+    )
 
     from app.core.db import get_db
     from app.governance.layers.approval import GATE_APPROVALS_COLLECTION
@@ -254,7 +268,11 @@ async def list_gate_events(
     read it — so "audit coverage 100%" was unverifiable (001 audit, 2026-10-03).
     This is the missing consumer.
     """
-    _require_service(service_token, tenant_id=str(tenantId or ""))
+    _require_service(
+        service_token,
+        tenant_id=str(tenantId or ""),
+        scope=gk.SCOPE_GATEKEEPER_LIST_EVENTS,
+    )
 
     from app.core.db import get_db
     from app.governance.layers.audit import GATE_EVENTS_COLLECTION
