@@ -257,6 +257,13 @@ docker_reclaimable_bytes() {
   frac="$(printf '%s' "${frac}" | tr -cd '0-9' | cut -c1-3)"
   while [[ ${#frac} -lt 3 ]]; do frac="${frac}0"; done
   unit="$(printf '%s' "${raw}" | grep -oE '[A-Za-z]+' | head -1)"
+  # ``docker system df`` only prints a decimal when it has one to print, so the
+  # integer part still carries the unit suffix for values like "11GB" (while
+  # "5.232GB" splits cleanly). Left as-is the arithmetic below dies with
+  # ``10#11GB: value too great for base``, and under ``set -e`` that aborts the
+  # whole command -- before any previous-release image is pruned. Strip the
+  # suffix here instead.
+  whole="$(printf '%s' "${whole}" | tr -cd '0-9')"
   whole="${whole:-0}"
   case "${unit}" in
     kB) echo $(( 10#${whole} * 1024 + 10#${frac} * 1024 / 1000 )) ;;
