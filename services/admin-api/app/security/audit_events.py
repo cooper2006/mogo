@@ -25,13 +25,28 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping
 
 from . import redaction as _redaction
 from .redaction import RedactionConfig, DEFAULT_CONFIG
 
 AUDIT_EVENTS_COLLECTION = "audit_events"
+# 022 FR-17（T044）：审计日志保留期下限（合规取证基线，≥180 天）。
+# 低于该值的配置会被提升到此下限并打告警 —— 保留期不能由运维随意缩短。
+MIN_AUDIT_RETENTION_DAYS = 180
+
+
+def normalize_retention_days(days: int) -> int:
+    """把配置的保留天数规整到合规下限。
+
+    ``-1``（或任何负数）表示禁用 TTL 自动清理；其余值不低于
+    :data:`MIN_AUDIT_RETENTION_DAYS`。
+    """
+    value = int(days)
+    if value < 0:
+        return value
+    return max(value, MIN_AUDIT_RETENTION_DAYS)
 CHAIN_CURSOR_ID = "__chain_cursor__"
 MAX_RECORD_RETRIES = 5
 
@@ -296,12 +311,21 @@ class AuditEventRepository:
         cursor_id: str = CHAIN_CURSOR_ID,
         source_service: str = "",
         redaction_config: RedactionConfig = DEFAULT_CONFIG,
+        retention_days: int = MIN_AUDIT_RETENTION_DAYS,
     ) -> None:
         self._db = db
         self._collection_name = collection
         self._cursor_id = cursor_id
         self._source_service = source_service
         self._redaction_config = redaction_config
+        # 022 FR-17（T044）：规整到合规下限；-1 表示禁用 TTL 自动清理。
+        configured = int(retention_days)
+        self._retention_days = normalize_retention_days(configured)
+        if self._retention_days != configured and configured >= 0:
+            logger.warning(
+                "audit_retention_days=%s 低于合规下限 %s 天，已提升到 %s 天",
+                configured, MIN_AUDIT_RETENTION_DAYS, self._retention_days,
+            )
 
     def _coll(self) -> Any:
         return self._db[self._collection_name]
@@ -312,6 +336,15 @@ class AuditEventRepository:
         await coll.create_index([("tenant_id", 1), ("occurred_at", -1)], name="audit_events_tenant_time")
         await coll.create_index([("tenant_id", 1), ("action", 1)], name="audit_events_tenant_action")
         await coll.create_index([("actor_id", 1), ("occurred_at", -1)], name="audit_events_actor_time")
+        # 022 FR-17（T044）：TTL 索引是保留期的自动执行机制（MongoDB 后台
+        # 定期删除过期文档），与显式 :meth:`purge_expired` 互为双保险。
+        # 索引建立在 occurred_at 上 —— 事件写入时必填，天然单调递增。
+        if self._retention_days > 0:
+            await coll.create_index(
+                [("occurred_at", 1)],
+                expireAfterSeconds=self._retention_days * 86400,
+                name="audit_events_retention_ttl",
+            )
 
     async def latest_cursor(self) -> dict[str, Any]:
         doc = await self._coll().find_one({"_id": self._cursor_id})
@@ -416,6 +449,42 @@ class AuditEventRepository:
         if tenant_id is not None:
             query["tenant_id"] = tenant_id
         return int(await self._coll().count_documents(query))
+
+    @property
+    def retention_days(self) -> int:
+        """规整后的保留天数（≥ :data:`MIN_AUDIT_RETENTION_DAYS`，或 -1 表示禁用）。"""
+        return self._retention_days
+
+    async def purge_expired(
+        self,
+        *,
+        retention_days: int | None = None,
+        now: datetime | None = None,
+    ) -> int:
+        """删除超过保留期的审计事件，返回删除条数（022 FR-17 / T044）。
+
+        TTL 索引会异步做同样的事；这个方法用于：
+        1. 需要立即生效的场景（例如合规窗口收窄后的首次清理）；
+        2. TTL 索引不可用时的兜底；
+        3. 测试。
+
+        ``retention_days`` 显式覆盖时用覆盖值（同样规整到下限）；
+        ``now`` 可注入以冻结时钟做单元测试。
+
+        注意：游标文档（``_id == self._cursor_id``）不参与保留期判定，
+        否则哈希链的续写基准会被清掉。
+        """
+        if self._retention_days < 0:
+            return 0
+        days = normalize_retention_days(self._retention_days if retention_days is None else retention_days)
+        if days < 0:
+            return 0
+        reference = now or utcnow()
+        cutoff = reference - timedelta(days=days)
+        result = await self._coll().delete_many(
+            {"_id": {"$ne": self._cursor_id}, "occurred_at": {"$lt": cutoff}}
+        )
+        return int(getattr(result, "deleted_count", 0) or 0)
 
 
 def _is_duplicate_key(exc: Exception) -> bool:

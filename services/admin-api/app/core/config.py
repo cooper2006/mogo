@@ -14,9 +14,19 @@ MAX_ACCESS_TOKEN_TTL_SECONDS = 3600
 
 class Settings(BaseSettings):
     app_env: str = "development"
+    # 022 FR-18（T042）：调试模式开关。生产环境强制为 false ——
+    # 生产环境不启用 FastAPI debug 行为（自动 reload、详细 traceback）。
+    debug: bool = False
     cors_origins: list[str] = ["http://localhost:3100"]
     mongodb_uri: str = ""
     mongodb_db: str = ""
+    # 022 FR-17（T044）：审计日志与业务库分离。
+    # 留空时复用 mongodb_db（向后兼容的默认）；生产环境应指向独立库，
+    # 以获得独立的备份、权限与生命周期 —— 避免业务运维误删或改写审计链。
+    audit_db: str = ""
+    # 022 FR-17（T044）：审计日志保留期，下限 180 天（合规取证基线）。
+    # 低于 180 会被提升到 180 并打告警；负数表示禁用 TTL 自动清理。
+    audit_retention_days: int = 180
     jwt_secret: str = ""
     # 022 FR-11（T015）：access token TTL 上限 1h；默认值已收紧到 3600s。
     access_token_ttl_seconds: int = 3600
@@ -73,6 +83,12 @@ class Settings(BaseSettings):
     @property
     def effective_mongodb_db(self) -> str:
         return self.mongodb_db or os.getenv("MONGODB_DB", "") or _read_env_file_value("MONGODB_DB") or "mogo_dev"
+
+    @property
+    def effective_audit_db(self) -> str:
+        """022 FR-17（T044）：审计库名；未配置时回退到业务库。"""
+        return self.audit_db or os.getenv("MONGODB_AUDIT_DB", "") or _read_env_file_value("MONGODB_AUDIT_DB")
+
 
 def _read_env_file_value(key: str) -> str:
     candidate_paths = [

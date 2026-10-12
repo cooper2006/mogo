@@ -116,7 +116,17 @@ def secret_scope(*, user_id: str, tenant_id: str = "", secret_hint: str = "") ->
 
 
 def _default_repo(db: Any, *, collection: str | None = None) -> AuditEventRepository:
-    return AuditEventRepository(db, source_service=SOURCE_SERVICE)
+    """构造默认审计仓库。
+
+    022 FR-17（T044）：保留期从配置读取并规整到合规下限（≥180 天）。
+    """
+    from app.core.config import settings
+
+    return AuditEventRepository(
+        db,
+        source_service=SOURCE_SERVICE,
+        retention_days=int(settings.audit_retention_days),
+    )
 
 
 # ---------------------------------------------------------------------------

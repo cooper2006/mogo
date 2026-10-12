@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # 022 FR-11（T014）：终端用户 access token TTL 上限 1h；默认值已收紧到 3600s。
     END_USER_AUTH_TOKEN_TTL_SECONDS: int = 3600
     END_USER_AUTH_SECRET: str = ""
+    # 022 FR-18（T042）：运行环境标识。production 时强制关闭调试模式
+    # （DEBUG 视为 False）、禁止回显异常详情与堆栈。
+    APP_ENV: str = "development"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
     LOG_FILE_ENABLED: bool = False
@@ -184,6 +187,8 @@ class Settings(BaseSettings):
     # Aliyun OSS behavior; STORAGE_BACKEND=local stores artifacts on disk and
     # serves them through /api/files.
     STORAGE_BACKEND: str = "local"
+    # 022 US3 (T027)：compose 会把 askai-storage 卷挂到 /app/storage 并显式
+    # 设置本变量；这里保留相对默认值以便 host 侧 dev/测试直接跑。
     LOCAL_STORAGE_PATH: str = "storage"
     FILE_PUBLIC_BASE_URL: str = ""
     FILE_PUBLIC_PATH_PREFIX: str = "/askai-api/api/files"

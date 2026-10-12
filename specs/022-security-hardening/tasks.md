@@ -149,16 +149,28 @@
 **Goal**: HTTPS 强制 + 敏感字段加密 + 日志脱敏 + 审计留痕。
 **独立测试**: HTTPS 301 跳转；敏感字段密文；日志无明文；审计防篡改。
 
-- [ ] T036 [P] 新增 `deploy/nginx/nginx.conf`：TLS 终结（TLS ≥ 1.2）+ HTTP → HTTPS 301 跳转 + 反向代理配置（5h）
-- [ ] T037 修改 `deploy/docker-compose.yml`：admin-web/user-web 服务暴露 443 端口，nginx 服务配置 TLS 证书挂载（4h）
-- [ ] T038 [P] 修改 `services/admin-api/app/security/encryption.py`：敏感字段（`api_key`、`mfa_secret`）以密文存储（依赖 T003，4h）
-- [ ] T039 [P] 修改 `services/chat-api/app/security/encryption.py`：敏感字段加密（依赖 T003，3h）
-- [ ] T040 [P] 修改 `services/admin-api/app/security/redaction.py`：审计日志与错误上报中敏感字段脱敏（依赖 T005，3h）
-- [ ] T041 修改 `services/admin-api/app/api/routes/*.py`：接口响应按调用者权限裁剪敏感字段（依赖 T005，4h）
-- [ ] T042 [P] 修改 `services/admin-api/app/main.py` + `services/chat-api/app/main.py`：生产环境 `debug=False` + 关闭详细堆栈 + 调试端点需鉴权（3h）
-- [ ] T043 [P] 新增 `data/data-map.md`：数据地图（个人信息字段标注、处理依据、留存期限、删除能力）（4h）
-- [ ] T044 扩展审计体系：关键操作（登录/登出/权限变更/MFA 操作/数据导出/删除）全部留痕，审计日志防篡改（append-only）+ 与业务库分离 + 保留期 ≥ 180 天（依赖 T006，5h）
-- [ ] T045 US5 集成测试：HTTPS 301 / 敏感字段密文 / 日志无明文 / 审计防篡改 / 数据地图（4h）
+- [x] T036 [P] 新增 `deploy/nginx/nginx.conf`：TLS 终结（TLS ≥ 1.2）+ HTTP → HTTPS 301 跳转 + 反向代理配置（5h）
+- [x] T037 修改 `docker-compose.yml`：gateway 服务暴露 443 端口，nginx 配置 TLS 证书挂载 + `MOGO_NGINX_CONF` 挂载层切换（4h）
+- [x] T038 [P] 敏感字段（`api_key`、`mfa_secret`）以密文存储（依赖 T003，4h）—— 复核确认**已落位**，无需新增改动
+- [x] T039 [P] chat-api 敏感字段加密（依赖 T003，3h）—— 同 T038，`repositories/model_repository.py` 已加密
+- [x] T040 [P] 审计日志与错误上报中敏感字段脱敏（依赖 T005，3h）—— 复核确认**已落位**
+- [x] T041 接口响应按调用者权限裁剪敏感字段（依赖 T005，4h）—— 复核确认**已落位**（白名单序列化）
+- [x] T042 [P] 双服务 `main.py`：生产环境 `debug=False` + 关闭详细堆栈 + 调试端点需鉴权（3h）
+- [x] T043 [P] 新增 `data/data-map.md`：数据地图（个人信息字段标注、处理依据、留存期限、删除能力）（4h）
+- [x] T044 审计体系扩展：防篡改哈希链 + 与业务库分离 + 保留期 ≥ 180 天（依赖 T006，5h）
+- [x] T045 US5 集成测试：HTTPS 301 / 敏感字段密文 / 日志无明文 / 审计防篡改 / 数据地图（4h）
+
+**Phase 5 完成状态**：
+- **T036 TLS 网关配置**：新建 `deploy/nginx/nginx.conf` 作为 TLS 侧配置**唯一事实来源**（与 tasks.md 指定路径一致）。能力：HTTP(80) → HTTPS(443) **301**（`/healthz` 例外供 LB 探针）、`ssl_protocols TLSv1.2 TLSv1.3`（禁用 1.0/1.1）、仅 AEAD 密码套件（GCM / CHACHA20）、`ssl_session_tickets off`、HSTS（max-age 180 天 + `includeSubDomains` + preload）+ CSP / nosniff / frame-options 安全响应头、透传 `X-Forwarded-*`。`deploy/docker/nginx-https.conf` 保留为兼容入口并指向规范路径。
+- **T037 compose 暴露 443**：`gateway` 服务新增 `ports: "${MOGO_HTTPS_PORT:-443}:443"`（未切换 TLS 配置时 443 仅空闲监听，不影响 HTTP 访问）；新增 `MOGO_NGINX_CONF` 把配置挂载改成**挂载层可切换**（`MOGO_NGINX_CONF=./deploy/nginx/nginx.conf docker compose up -d`）；`MOGO_TLS_CERTS_DIR`（默认 `./deploy/tls`）挂到 `/etc/nginx/certs:ro`。gateway 容器 `read_only: true` 无法运行时生成配置，故必须在挂载层切换 —— 证书缺失时 nginx 会在启动阶段直接失败，这是**预期行为**（避免「以为开了 TLS 实际裸奔」的误配置）。
+- **T038/T039 敏感字段密文存储（复核，无需新增改动）**：`model_repository.py` 已用 `encrypt_secret()` 落 `api_key_encrypted` / `api_secret_encrypted`，并配 `api_key_masked` / `api_secret_masked` 供展示；`auth.py::_store_mfa_secret` 已落 `mfa_secret_encrypted`（AES-GCM，AAD=`mfa_secret`）+ `mfa_secret_hash`；`knowledge_settings.py` 已落 `apiKeyEncrypted` / `apiKeyMasked`；`org_user_repository.py` 只落 `password_hash` + `password_salt`。**结论：本 Phase 无明文敏感字段落库**，用 `test_no_plaintext_secret_persisted_in_repository_layer` 做回归防线（限定 repositories 层扫描，请求体构造不算持久化）。
+- **T040/T041 脱敏与响应裁剪（复核，无需新增改动）**：`audit_events.py` 在写入前调用 `redaction.redact(detail)`，`RedactionConfig` 可注入；响应层全部走**显式白名单序列化**（`organizations.py::_format_account`、`models.py::_format_instance` 只吐 `apiKeyMasked`）—— 白名单优于黑名单，新增字段默认不泄露。
+- **T042 生产关闭调试 + 禁止堆栈回显**：admin-api 放宽 prod 判定为 `production|prod|release` 别名，`app_env=production` 时**强制 `debug=False`**（误配降级为告警）；原有全局异常处理已在 prod 下只回 `Internal server error`，完整异常写服务端日志。chat-api 新增 `APP_ENV` 配置 + **全局 `@app.exception_handler(Exception)`**（原缺失）：prod 下回 `{code:-1, message:"Internal server error"}` 且不回显 `str(exc)`，同时强制 `DEBUG=False`；`app/api/endpoints/debug.py` 原有 `require_debug_mode` + `require_end_user_principal` 双闸门保留。
+- **T043 数据地图**：新建 `data/data-map.md`。覆盖存储位置与隔离（业务库 / **审计库分离** / 文件 / 向量库）、`admin_accounts` / 会话与凭证 / 租户与组织 / 对话与个人知识 4 张字段级 PII 表（`L1` 直接标识符 → `L4` 认证密钥 + 加密状态 + 处理依据 `CON`/`LIA`/`LEG`/`CNS` + 留存 + 删除入口）、非数据库数据（日志 / 审计 / 浏览器本地存储 / KMS）、**GDPR 数据主体权利矩阵**（访问 ✅ / 更正 ✅ / 导出 ⚠️ 部分 / 删除 ✅ 级联 / 限制处理 ⚠️）、以及 5 条**审计与合规差距清单**（G1 缺账号级一键导出、G2 缺同意撤回流、G3 第三方 LLM 侧留存不可控、G4 生产需显式配 `MONGODB_AUDIT_DB`、G5 OSS 侧生命周期策略待配）。
+- **T044 审计体系扩展**：新增 `MIN_AUDIT_RETENTION_DAYS = 180` + `normalize_retention_days()`（低于下限自动提升到 180 并告警，`-1` 表示禁用 TTL 清理）；`AuditEventRepository.__init__` 接受 `retention_days` 并规整；`ensure_indexes()` 在保留期 > 0 时注册 **MongoDB TTL 索引**（`audit_events_retention_ttl`，`expireAfterSeconds = days*86400`）作为保留期的自动执行机制；新增 `purge_expired()`（按 `occurred_at < now - days` 删除，**游标文档不参与判定** —— 否则哈希链续写基准会被清掉），与 TTL 索引互为双保险；新增 `get_audit_db()` 实现审计库分离（`ASKAI_ADMIN_AUDIT_DB` / `MONGODB_AUDIT_DB`，未配置时回退业务库保持既有部署可用）。哈希链防篡改（`chain_hash` / `verify_chain` / `AuditChainBroken`）为 T006 既有能力，本轮补齐保留期与库分离两块缺口。
+- 测试：`deploy/tests/test_data_security_us5.py`（**23 条**）—— TLS 协议/密码套件/301/HSTS/转发头/compose 端口 7 条、密文存储 5 条、日志脱敏 3 条、审计防篡改+保留期+库分离 5 条（含真实 `purge_expired` 行为：只删过期事件、保留游标与近期事件）、数据地图 2 条 + 仓库层明文扫描 1 条。
+- 验证：admin-api **816 passed**；chat-api **2589 passed / 2 failed**（2 条为其他会话在途的 `dsh_runtime/test_document_script_boundaries.py` 用例，与本轮无关）；`docker compose -f docker-compose.yml config --quiet` 通过。
+- 差距与遗留：G1/G2（账号级导出、同意撤回流）需新增接口与集合，建议独立迭代；G4 生产部署须显式配置 `MONGODB_AUDIT_DB=mogo_audit` 才能真正实现审计库分离（`settings.effective_audit_db` 为空时仅回退，行为与既有部署一致）。
 
 ---
 

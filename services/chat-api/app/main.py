@@ -1,5 +1,6 @@
 from app.infrastructure.observability.config import log_print
 from fastapi import FastAPI, HTTPException
+from starlette.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
@@ -54,6 +55,35 @@ app.add_middleware(
     CORSMiddleware,
     **build_cors_middleware_kwargs(origins),
 )
+
+# 022 FR-18（T042）：生产环境禁止回显异常详情与堆栈。
+# 完整异常仍记录到服务端日志（logger.exception），客户端只拿到通用错误码。
+# 开发/本地环境保留 str(exc) 便于调试。
+_ENV_NORMALIZE = {"production", "prod", "release"}
+_IS_PROD = str(getattr(settings, "APP_ENV", "") or "").strip().lower() in _ENV_NORMALIZE
+
+# 022 FR-18（T042）：生产环境强制关闭调试模式 —— 即使有人误配 DEBUG=true，
+# 生产环境也不允许回显异常详情（信息泄露面），只降级为告警。
+if _IS_PROD and bool(getattr(settings, "DEBUG", False)):
+    logger.warning(
+        "APP_ENV=%s 时 DEBUG 必须为 false；已忽略 DEBUG=true 的误配置",
+        settings.APP_ENV,
+    )
+    settings.DEBUG = False
+
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request, exc: Exception):  # type: ignore[override]
+    logger.exception("Unhandled exception: %s", exc)
+    if _IS_PROD:
+        return JSONResponse(
+            status_code=500,
+            content={"code": -1, "message": "Internal server error"},
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"code": -1, "message": str(exc)},
+    )
 
 @app.middleware("http")
 async def request_logging_middleware(request, call_next):
