@@ -170,11 +170,17 @@ document-parser 3.13 升级引入的回归**；反而确认该升级**修复了�
   2717 项测试在 3.13 下重跑**全绿**。详见 `docs/WORK_LOG.md` 同日
   「三服务 venv 升级到 Python 3.13」条目。
 
-  > **但仍有一处未闭合**：`requirements-docling.txt` 内部存在平台相关矛盾
+  > **（已闭合，2026-10-12）**：`requirements-docling.txt` 内部存在平台相关矛盾
   > （钉 `transformers==5.10.0`，而同文件 `docling-ibm-models==3.15.0` 在 darwin 分支要求
   > `transformers<5.9.0`），导致 **docling 组无法在 macOS 本地安装**（Linux 生产无此限制）。
-  > 经用户拍板不改生产依赖，故 docling/rapidocr 相关代码**仍未进入 3.13 的 pytest 覆盖范围**，
-  > 继续由 §3.1–3.3 的容器内真实推理保证。
+  > 经评估，放弃"macOS 本地装 docling"路径（会引入 darwin `transformers 5.8.1`≠生产 `5.10.0`
+  > 的版本差异且 torch 121MB 下载极慢），改为**在容器内（生产等价环境 3.13 + transformers 5.10.0
+  > + docling 2.108.0 + 离线模型）跑 docling 测试**——零版本差异，且无需改动生产依赖声明。
+  > 新增 `services/document-parser/tests/test_docling_pipeline.py`（4 个用例，用
+  > `pytest.importorskip("docling")` 保护：无 docling 的 venv 自动 SKIP，不破坏现有 CI），并在
+  > `quality-gate.yml` 新增 `document-parser-docling` job 可持续闭合该覆盖缺口。
+  > 验证：容器内 4 passed/8.20s（零联网），本地无 docling venv 自动 1 skipped。
+  > 详见 `docs/WORK_LOG.md` 2026-10-12 条目。
 - 未执行 `./mogo build` 全量重建（本轮以现有 `51a442a` 镜像为回归对象）。
 - `tests/benchmarks/` 三项专项基准未执行。
 - 单副本（`--profile single-host`）拓扑仅配置校验，未实跑。
