@@ -219,11 +219,32 @@ rclone config create s3-mogo s3 \
   bucket mogo-backups
 ```
 
-### 密钥管理
+### 备份加密策略（QF-707）
 
-- 备份密钥与备份文件分离存放
-- 密钥使用 HashiCorp Vault 或 AWS KMS 管理
-- 密钥轮换周期：90 天
+#### 加密算法
+
+| 层级 | 算法 | 密钥长度 | 说明 |
+| --- | --- | --- | --- |
+| 传输层 | TLS 1.2+ / TLS 1.3 | — | 备份推送到远端时自动加密（见 `deploy/nginx/nginx.conf`） |
+| 存储层 | AES-256-GCM | 256 位 | 备份文件本身加密（GPG 默认） |
+| 密钥管理 | HashiCorp Vault / AWS KMS | — | 备份密钥由 KMS 管理，与应用密钥分离 |
+
+#### 密钥管理
+
+- 备份密钥（`backup.key`）与备份文件**物理分离存放**（密钥在 Vault/KMS，文件在 S3）
+- 密钥轮换周期：**90 天**（Vault 自动轮换或手动触发）
+- 密钥访问审计：所有密钥使用操作记录到 Vault audit device
+- 密钥分级：
+  - **主密钥（MK）**：Vault/KMS 根密钥，仅 Vault 管理员可访问
+  - **数据密钥（DEK）**：每次备份生成独立的 DEK，用于加密备份文件
+  - DEK 由 MK 加密后随备份文件一起存储（envelope encryption）
+
+#### 恢复验证
+
+- 每次备份后立即执行**校验和验证**（`sha256sum`）
+- 每周执行一次**恢复演练**（从备份恢复到测试环境，验证数据完整性）
+- 每月执行一次**全量恢复演练**（见 `docs/security/DISASTER_RECOVERY_DRILL.md`）
+- 恢复演练记录保留至少 1 年，纳入合规审计范围
 
 ## 审计与合规
 

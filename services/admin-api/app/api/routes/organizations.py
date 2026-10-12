@@ -10,6 +10,7 @@ from pymongo.errors import DuplicateKeyError
 from app.api.deps import get_current_admin_user
 from app.api.time_utils import utc_iso
 from app.core.db import get_db
+from app.security.response_policy import format_account_by_role
 from app.repositories.org_user_repository import (
     count_accounts_by_group_code,
     create_account,
@@ -162,7 +163,7 @@ async def get_accounts(current_user: dict = Depends(get_current_admin_user)) -> 
     groups = await list_account_groups(tenant_id)
     group_name_map = {item.get("code", ""): item.get("name", "") for item in groups}
     accounts = await list_accounts(tenant_id)
-    return [_format_account(item, group_name_map) for item in accounts]
+    return [format_account_by_role(item, current_user, group_name_map) for item in accounts]
 
 
 @router.post("/accounts", status_code=status.HTTP_201_CREATED)
@@ -193,7 +194,7 @@ async def post_account(
     except DuplicateKeyError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="登录账号已存在") from exc
 
-    return _format_account(created, {group.get("code", ""): group.get("name", "")})
+    return format_account_by_role(created, current_user, {group.get("code", ""): group.get("name", "")})
 
 
 @router.put("/accounts/{account_id}")
@@ -224,7 +225,7 @@ async def put_account(
     updated = await find_account_by_id(account_id, tenant_id)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="账号不存在")
-    return _format_account(updated, {group.get("code", ""): group.get("name", "")})
+    return format_account_by_role(updated, current_user, {group.get("code", ""): group.get("name", "")})
 
 
 @router.delete("/accounts/{account_id}")

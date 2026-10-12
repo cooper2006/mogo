@@ -1,5 +1,44 @@
 # Work Log
 
+## 2026-10-12 QF-660/662/707/710 关闭：响应权限裁剪 + 数据脱敏 + 备份加密 + 灾备演练
+
+**目标**：关闭 QualityForge 报告中 022 遗留的 4 个 QF 条目。
+
+### 改动清单
+
+| QF | 优先级 | 文件 | 改动 |
+|----|--------|------|------|
+| QF-660 | P0 | `services/admin-api/app/security/response_policy.py`（新） | 按调用者角色裁剪响应字段：L0（基础标识）→ L1（组织信息）→ L2（联系信息）→ L3（安全状态），未知角色 fail-closed 到 L0 |
+| QF-660 | P0 | `services/admin-api/app/api/routes/organizations.py` | `_format_account` 替换为 `format_account_by_role`，按调用者权限裁剪（3 个调用点） |
+| QF-662 | P0 | `services/admin-api/app/security/data_sanitizer.py`（新） | 非生产环境数据脱敏：`sanitize_value`（邮箱/手机/密码分级脱敏）+ `sanitize_document`（文档级）+ `generate_synthetic_account`/`seed_synthetic_data`（合成数据生成） |
+| QF-707 | P1 | `docs/backup-recovery.md` | 密钥管理段扩展为完整加密策略：算法矩阵（TLS/AES-256-GCM/Vault KMS）、密钥分级（MK/DEK envelope encryption）、轮换 90 天、恢复验证流程 |
+| QF-710 | P1 | `docs/security/DISASTER_RECOVERY_DRILL.md`（新） | 灾备演练规程：3 种类型（桌面/组件/全量）、7 步演练流程、时间线记录模板、问题跟踪表、合规映射 |
+| — | — | `services/admin-api/tests/test_qf_response_sanitize.py`（新，47 条） | QF-660 字段分级+角色映射+响应裁剪测试 + QF-662 脱敏+合成数据测试 |
+
+### 关键设计取舍
+
+- **白名单而非黑名单**：`filter_response(deny_all=True)` 确保未授权字段不会出现，而非从完整响应中逐个删除。
+- **fail-closed 回退**：未知角色回退到 L0（最小字段集），而非 L2（默认字段集）。
+- **环境级脱敏与运行时脱敏分层**：`redaction.py` 负责运行时策略脱敏（生产也生效），`data_sanitizer.py` 负责环境级脱敏（仅非生产）+ 合成数据生成。
+- **合成数据零真实 PII**：邮箱限定 example.com/org/test.local，密码字段为空，用户名含 `user_` 前缀。
+
+### 验证
+
+- `tests/test_qf_response_sanitize.py`：**47 passed**
+- admin-api 全量回归：**exit=0**（~816 tests，与 Phase 7 基线一致）
+- deploy US5+US6+US7：**52 passed**
+
+### QF 条目状态更新
+
+| QF | 状态 | 说明 |
+|----|------|------|
+| QF-660 | ✅ 关闭 | 响应按调用者角色裁剪，47 条测试覆盖 |
+| QF-662 | ✅ 关闭 | 非生产环境自动脱敏 + 合成数据生成 |
+| QF-707 | ✅ 关闭 | 加密策略文档化（算法/密钥分级/轮换/恢复验证） |
+| QF-710 | ✅ 关闭 | 灾备演练规程 + 模板 + 合规映射 |
+
+---
+
 ## 2026-10-12 022 安全加固 Phase 7「收尾与全量验证」落地（T054–T058）
 
 **目标**：完成 022 的最后收尾——性能验证、配置文档化、QF 基线自检、quickstart 更新、全量验证。**022 全部 7 Phase（T001–T058）至此完成。**

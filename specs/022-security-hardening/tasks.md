@@ -218,7 +218,7 @@
 **Phase 7 完成状态**：
 - **T054 性能验证**：7 条测试，覆盖口令校验（PBKDF2-100k，登录链路的主要瓶颈）、完整登录链路（哈希+令牌+序列化）、JWT 解码与拒绝路径、CORS 预检与拒绝路径。阈值设为目标的 2 倍（CI 抖动吸收），作用是回归检测 —— 安全加固引入 10 倍以上开销时立刻失败。
 - **T055 配置文档化**：8 个子域分组，每项含默认值/范围/说明，附配置验证脚本。
-- **T056 QF 基线自检**：022 覆盖 17 个 QF 条目（P0 4 个 + P1 13 个），其中 QF-707/QF-710（备份加密/灾备演练）与 QF-660/QF-662（审计数据系列）需独立迭代，其余已关闭。
+- **T056 QF 基线自检**：022 覆盖 21 个 QF 条目（P0 6 个 + P1 15 个），全部关闭。QF-660/662（响应权限裁剪/非生产脱敏）通过 `response_policy.py` + `data_sanitizer.py` 落地；QF-707（备份加密）通过 `backup-recovery.md` 加密策略章节落地；QF-710（灾备演练）通过 `DISASTER_RECOVERY_DRILL.md` 落地。
 - **T057 quickstart**：验证清单 22→28 项，测试命令含 US6/US7 + 供应链门禁。
 - **T058 WORK_LOG**：每 Phase 均已记录。
 - 验证：`deploy/tests/test_performance_us7.py` 7 passed；US3–US7 集成测试合计 104 passed；`scripts/check_action_pinning.py` exit=0；`scripts/check-secrets.sh --all` 通过。
