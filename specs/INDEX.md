@@ -150,6 +150,6 @@
 - P2 后置（012–019、021）：spec ✅ → plan ✅ → clarify ✅（012–019 记录在 plan 的 "Open Questions" 节）→ checklist ✅（已评审勾选）→ tasks ✅（17 份之一，本轮补齐）→ 按路线图节奏 implement
 - 平台化 / 优化轮新增（020、021）：spec ✅ → plan ✅ → clarify ✅（020 记录在 tasks.md 的 "Clarify Decisions" 节）→ checklist ✅ → tasks ✅ → 已按 SDD 落地（020 平台化多租户、021 统一上下文地址空间）
 - 质量加固（022–026，2026-10-11 新增）：spec ✅ → plan ✅ → tasks ✅ → quickstart ✅ → **checklist ✅（2026-10-12 补齐）** → 按审计修复波次 implement（Wave 1: 022 安全 → Wave 2: 023 可观测性 → Wave 3: 024 部署 → Wave 4: 025 API → Wave 5: 026 性能）
-  - **022 Wave 1 进度（2026-10-12）**：Phase 0「安全基座」T001–T006 已落地 —— 双服务 `app/security/` 6 模块（password_policy / kms / encryption / redaction / mfa_policy / audit_events）+ 各 176 单测（admin-api 全量 609 passed）；Phase 1–7（T007 起）未开始
+  - **022 Wave 1 进度（2026-10-12）**：Phase 0「安全基座」T001–T006 ✅（双服务 `app/security/` 6 模块 + 各 176 单测）；Phase 1「口令与 MFA 强制策略」T007–T013 ✅（新增 `mfa_gate.py` 组合层；admin-api 登录闸门 + `/mfa/verify` 限流与 90s 防重放 + 绑定/解绑审计与通知降级；双服务口令策略统一 ≥12 位、4 类取 3；+32 条 gate 集成测试；admin-api 641 passed / chat-api 2474 passed）；Phase 2–7（T014 起）未开始
 
 > 注：「本轮补齐」= 2026-09 SDD 补全轮。clarify 消解记录位置说明：001/002/007–011 在 spec 的 "Clarify 记录" 节，012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节，020 与 022 在 tasks.md 的 "Clarify Decisions" 节。**023–026 的 clarify 仍待补**（其 checklist 已标出 023 有 8 个 OQ、024/025/026 的待澄清项，需 `/speckit-clarify` 消解后方可进入 implement）。

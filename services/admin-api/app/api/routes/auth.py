@@ -31,6 +31,13 @@ from app.core.tenant_identity import PLATFORM_TENANT_ID, is_reserved_tenant_id
 from app.core.totp import compute_totp, generate_secret, totp_uri, verify_totp
 from app.core.encryption import decrypt_secret, encrypt_secret, verify_and_decrypt
 from app.core.rate_limiter import get_default_limiter
+# 022 Phase 1: FR-1 口令策略 + FR-2/3/4 MFA 闸门组合层
+from app.security import mfa_gate
+from app.security.password_policy import (
+    MIN_CLASSES,
+    MIN_PASSWORD_LENGTH,
+    validate_password as validate_password_policy,
+)
 from app.repositories.org_user_repository import (
     find_account_by_username,
     list_accounts_by_username,
@@ -60,22 +67,22 @@ class ProfileUpdateRequest(BaseModel):
 
 
 class PasswordChangeRequest(BaseModel):
+    # 022 FR-1: 最小长度 12（原 10）。字符类别由 password_policy 统一判定。
     currentPassword: str = Field(min_length=1, max_length=128)
-    newPassword: str = Field(min_length=10, max_length=128)
+    newPassword: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
 
     @staticmethod
     def validate_strength(password: str) -> str | None:
-        """Return a human-readable reason if the password is too weak, else None."""
-        if len(password) < 10:
-            return "密码长度至少 10 位"
-        if not re.search(r"[A-Z]", password):
-            return "密码必须包含大写字母"
-        if not re.search(r"[a-z]", password):
-            return "密码必须包含小写字母"
-        if not re.search(r"\d", password):
-            return "密码必须包含数字"
-        if not re.search(r"[^A-Za-z0-9]", password):
-            return "密码必须包含特殊字符"
+        """Return a human-readable reason if the password is too weak, else None.
+
+        022 FR-1：策略收敛到 :mod:`app.security.password_policy`（长度 ≥ 12、
+        4 类中至少 3 类、严格 ASCII 数字判定）。保留本静态方法是因为
+        ``/password-reset`` 端点与既有测试都通过 ``PasswordChangeRequest.
+        validate_strength`` 调用；实现已不再是本地正则。
+        """
+        verdict = validate_password_policy(password)
+        if verdict.is_rejected:
+            return verdict.public_message()
         return None
 
 
@@ -243,9 +250,67 @@ async def _create_login_challenge(username: str, candidates: list[dict[str, obje
 
 
 async def _issue_login_response(user: dict[str, Any], tenant_id: str, request: Request) -> dict[str, object]:
+    """Issue the post-password-login response.
+
+    022 FR-2（T011）：口令通过后先过 MFA 登录闸门 —— 高权限账号（平台管理员 /
+    租户管理员）必须已绑定 MFA，否则阻断业务访问并提示先完成绑定；MFA 校验
+    失败次数达到上限则锁定。闸门判定同时落 FR-23 审计事件。
+    """
     await touch_account_last_login(user["username"], tenant_id)
     profile = _profile_from_user(user, tenant_id)
 
+    # 022 FR-2: 高权限账号登录闸门（限流维度 = username + tenant_id + IP）
+    gate = await mfa_gate.evaluate_login_gate(
+        get_db(), user, client_ip=mfa_gate.client_ip_from_request(request)
+    )
+    if gate.action == mfa_gate.mp.DECISION_LOCKED:
+        await mfa_gate.emit_mfa_audit(
+            get_db(),
+            tenant_id=tenant_id,
+            actor_id=str(user.get("username") or ""),
+            action=mfa_gate.AUDIT_MFA_LOCKED,
+            decision=mfa_gate.DECISION_DENY,
+            target_id=str(user.get("username") or ""),
+            detail={
+                "reason_code": gate.reason_code,
+                "window_seconds": mfa_gate.mp.LOCKOUT_WINDOW_SECONDS,
+                "attempts_remaining": gate.attempts_remaining,
+            },
+            client_ip=mfa_gate.client_ip_from_request(request),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail={
+                "message": gate.message or "MFA 校验失败次数过多，账号已临时锁定",
+                "reason": gate.reason_code,
+                "lockedUntil": (gate.locked_until.isoformat() if gate.locked_until else None),
+            },
+        )
+    if gate.action == mfa_gate.mp.DECISION_BIND_REQUIRED:
+        # 高权限账号未绑定 MFA：不签发任何令牌，前端引导到 /mfa/setup。
+        await mfa_gate.emit_mfa_audit(
+            get_db(),
+            tenant_id=tenant_id,
+            actor_id=str(user.get("username") or ""),
+            action=mfa_gate.AUDIT_MFA_BIND_REQUIRED,
+            decision=mfa_gate.DECISION_DENY,
+            target_id=str(user.get("username") or ""),
+            detail={
+                "reason_code": gate.reason_code,
+                "attempts_remaining": gate.attempts_remaining,
+            },
+            client_ip=mfa_gate.client_ip_from_request(request),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "mfaBindRequired": True,
+                "message": gate.message or "该账号为高权限账号，必须先绑定 MFA",
+                "reason": gate.reason_code,
+                "attemptsRemaining": gate.attempts_remaining,
+                "profile": profile,
+            },
+        )
     # QF-342~347: if MFA is enabled, issue a short-lived mfaToken instead of a full token.
     mfa_enabled = bool(user.get("mfa_enabled"))
     mfa_secret_hash = str(user.get("mfa_secret_hash") or "")
@@ -570,6 +635,7 @@ async def mfa_setup(current_user: dict = Depends(get_authenticated_admin)) -> di
 @router.post("/mfa/enable")
 async def mfa_enable(
     payload: MfaEnableRequest,
+    request: Request,
     authorization: str | None = Header(default=None),
     current_user: dict = Depends(get_authenticated_admin),
 ) -> dict[str, bool]:
@@ -581,16 +647,31 @@ async def mfa_enable(
     3. Store ``mfa_secret_encrypted`` (for future verification) and
        ``mfa_secret_hash`` (for integrity check).
     4. Revoke the current session — user must re-login with MFA.
+
+    022 Phase 1（T012）：绑定成功后发送变更通知（OQ-1：通道未接入时降级为
+    审计事件）并落 FR-23 审计。
     """
     if not verify_totp(payload.secret, payload.code):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="TOTP code is invalid")
 
     tenant_id = str(current_user["tenant_id"])
     username = str(current_user["username"])
+    client_ip = mfa_gate.client_ip_from_request(request)
     master_key = str(settings.jwt_secret)
     secret_hash = hashlib.sha256(payload.secret.encode("utf-8")).hexdigest()
     secret_encrypted = encrypt_secret(payload.secret, master_key)
     await _store_mfa_secret(username, tenant_id, secret_hash, secret_encrypted)
+
+    notification = await mfa_gate.notify_mfa_change(
+        get_db(),
+        tenant_id=tenant_id,
+        username=username,
+        event_type="mfa_enabled",
+        detail={"role": str(current_user.get("role_name") or "")},
+        client_ip=client_ip,
+        audit_action=mfa_gate.AUDIT_MFA_ENABLE,
+        decision=mfa_gate.DECISION_ALLOW,
+    )
 
     # Revoke the current session — the user must re-login with MFA.
     if authorization and authorization.startswith("Bearer "):
@@ -600,22 +681,54 @@ async def mfa_enable(
         session_id = subject.get("session_id")
         if session_id:
             await revoke_session(str(session_id))
-    return {"success": True}
+    # 022 T012: 通知降级信息回显给调用方，便于前端提示「变更已记录」。
+    return {"success": True, "notification": notification}
 
 
 @router.post("/mfa/disable")
 async def mfa_disable(
     payload: MfaDisableRequest,
+    request: Request,
     authorization: str | None = Header(default=None),
     current_user: dict = Depends(get_authenticated_admin),
-) -> dict[str, bool]:
-    """Disable MFA after verifying the current password."""
+) -> dict[str, object]:
+    """Disable MFA after verifying the current password.
+
+    022 Phase 1（T012）：解绑需要校验当前口令（防止令牌被盗后静默降级），
+    成功后发送变更通知并落 FR-23 审计；通知通道未接入时按 OQ-1 降级为
+    审计事件，并在响应中回显 ``notification.degraded``。
+    """
     if not _password_matches(current_user, payload.currentPassword):
+        await mfa_gate.emit_mfa_audit(
+            get_db(),
+            tenant_id=str(current_user.get("tenant_id") or ""),
+            actor_id=str(current_user.get("username") or ""),
+            action=mfa_gate.AUDIT_MFA_DISABLE,
+            decision=mfa_gate.DECISION_DENY,
+            target_id=str(current_user.get("username") or ""),
+            detail={"reason_code": "wrong_password"},
+            client_ip=mfa_gate.client_ip_from_request(request),
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
 
     tenant_id = str(current_user["tenant_id"])
     username = str(current_user["username"])
+    was_high_privilege = mfa_gate.mp.is_high_privilege_role(current_user.get("role_name"))
     await _clear_mfa_secret(username, tenant_id)
+
+    notification = await mfa_gate.notify_mfa_change(
+        get_db(),
+        tenant_id=tenant_id,
+        username=username,
+        event_type="mfa_disabled",
+        detail={
+            "role": str(current_user.get("role_name") or ""),
+            "high_privilege_account": was_high_privilege,
+        },
+        client_ip=mfa_gate.client_ip_from_request(request),
+        audit_action=mfa_gate.AUDIT_MFA_DISABLE,
+        decision=mfa_gate.DECISION_ALLOW,
+    )
 
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "", 1).strip()
@@ -624,16 +737,26 @@ async def mfa_disable(
         session_id = subject.get("session_id")
         if session_id:
             await revoke_session(str(session_id))
-    return {"success": True}
+    return {
+        "success": True,
+        "notification": notification,
+        # 高权限账号解绑 MFA 会在下次登录被闸门阻断（FR-2），提示前端。
+        "highPrivilegeAccount": was_high_privilege,
+    }
 
 
 @router.post("/mfa/verify")
-async def mfa_verify(payload: MfaVerifyRequest) -> dict[str, object]:
+async def mfa_verify(payload: MfaVerifyRequest, request: Request) -> dict[str, object]:
     """Two-step login: verify TOTP code after password succeeds.
 
     The first step (``POST /login``) returns ``{"mfaRequired": true, "mfaToken": "..."}``.
     The client calls this endpoint with the mfaToken + TOTP code.  On success
     a real access token is issued.
+
+    022 Phase 1（T011）：本端点接入 FR-3 限流与 FR-4 used_step 防重放 ——
+    校验失败按 ``username + tenant_id + client_ip`` 维度计数，5 次/300s 后
+    锁定；已通过校验的 TOTP step 在 90s 内不可重复使用。判定全程落 FR-23
+    审计事件。
     """
     from app.core.db import get_db as _get_db
 
@@ -682,8 +805,54 @@ async def mfa_verify(payload: MfaVerifyRequest) -> dict[str, object]:
     if not hmac.compare_digest(computed_hash, secret_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA secret integrity check failed")
 
-    if not verify_totp(raw_secret, payload.code):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="TOTP code is invalid")
+    # 022 FR-3 + FR-4（T011）：限流 + used_step 防重放 + 审计
+    client_ip = mfa_gate.client_ip_from_request(request)
+    ok, verdict = await mfa_gate.check_and_consume_totp(
+        db,
+        username=username,
+        tenant_id=tenant_id,
+        code=payload.code,
+        raw_secret=raw_secret,
+        client_ip=client_ip,
+        secret_hint=secret_hash[:16],
+    )
+    audit_action = (
+        mfa_gate.AUDIT_MFA_VERIFY_OK
+        if ok
+        else (mfa_gate.AUDIT_MFA_REPLAY if verdict.reason_code == "replay_blocked" else mfa_gate.AUDIT_MFA_VERIFY_FAIL)
+    )
+    await mfa_gate.emit_mfa_audit(
+        db,
+        tenant_id=tenant_id,
+        actor_id=username,
+        action=audit_action,
+        decision=mfa_gate.DECISION_ALLOW if ok else mfa_gate.DECISION_DENY,
+        target_id=username,
+        detail={
+            "reason_code": verdict.reason_code,
+            "attempts_remaining": verdict.attempts_remaining,
+            "window_seconds": mfa_gate.mp.LOCKOUT_WINDOW_SECONDS,
+        },
+        client_ip=client_ip,
+    )
+    if not ok:
+        if verdict.action == mfa_gate.mp.DECISION_LOCKED:
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail={
+                    "message": verdict.message or "MFA 校验失败次数过多，账号已临时锁定",
+                    "reason": verdict.reason_code,
+                    "lockedUntil": (verdict.locked_until.isoformat() if verdict.locked_until else None),
+                },
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": verdict.message or "TOTP code is invalid",
+                "reason": verdict.reason_code,
+                "attemptsRemaining": verdict.attempts_remaining,
+            },
+        )
 
     token_out, expires_at, sid = await _issue_mfa_login_response(
         db, user_doc, tenant_id, session_id

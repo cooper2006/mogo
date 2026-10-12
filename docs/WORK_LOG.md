@@ -1,5 +1,70 @@
 # Work Log
 
+## 2026-10-12 022 安全加固 Phase 1「口令与 MFA 强制策略」落地（T008/T009/T011/T012/T013）
+
+**目标**：按 `specs/022-security-hardening/tasks.md` 落地 Phase 1 剩余任务（T007 / T010 已在 Phase 0 随模块交付），把 FR-1 口令策略与 FR-2/3/4 MFA 强制真正接入登录链路。
+
+**变更文件**：
+
+| 文件 | 变更 |
+|---|---|
+| `services/admin-api/app/security/mfa_gate.py` | 新增：FR-2/3/4 登录闸门组合层（纯逻辑 `mfa_policy` + `MongoMfaLockoutTracker` / `MongoTotpUsedStepStore` + FR-23 审计落点） |
+| `services/chat-api/app/security/mfa_gate.py` | 镜像（双服务安全包同构） |
+| `services/{admin-api,chat-api}/app/security/mfa_policy.py` | `AccountMfaState.from_row` 增补 `role_name` 兜底（`admin_accounts` 历史字段与治理层规范字段 `role` 不一致，不改则闸门永远识别不出高权限账号） |
+| `services/admin-api/app/api/routes/auth.py` | FR-1：`PasswordChangeRequest.newPassword` 最小长度 10→12，`validate_strength` 委托 `password_policy.validate_password`；FR-2/3/4：`_issue_login_response` 前置登录闸门（未绑 MFA→403 `mfaBindRequired`，达上限→423），`/mfa/verify` 接入限流 + 90s used_step 防重放；FR-23/OQ-1：`/mfa/enable` `/mfa/disable` 落审计 + 通知降级 |
+| `services/admin-api/app/api/routes/platform/tenants.py` | 租户管理员重置口令由 `len < 6` 收紧到同一口令策略 |
+| `services/chat-api/app/api/endpoints/auth.py` | 自助注册口令校验由「8 位 + 字母 + 数字」收紧到同一策略，`RegisterRequest.password.min_length` 8→12 |
+| `services/{admin-api,chat-api}/tests/test_security_mfa_gate.py` | 新增 32 用例（内存 fake motor，双服务镜像同套） |
+| `specs/022-security-hardening/tasks.md`、`specs/INDEX.md` | T007–T013 勾选 + Phase 1 完成状态块 |
+| `docs/WORK_LOG.md` | 本条目 |
+
+**关键设计决策**：
+- **组合层保持纯逻辑可注入**：`check_and_consume_totp` 的 TOTP 校验器、限流 store、used_step store 全部可注入，模块单测不需要 MongoDB 也不依赖真实时钟（`_now_epoch` 可 monkeypatch）。
+- **判定顺序**：先判重放、再校验 code（重放比错误更危险）；达失败上限时**不消耗 step、不调用校验器**，避免向攻击者泄漏「code 是否有效」。
+- **审计 fail-open**：`emit_mfa_audit` / `notify_mfa_change` 吞掉全部异常，审计链路故障不阻断登录与解绑主流程（与 `tenant_lifecycle.record_tenant_audit` 语义一致）。
+- **OQ-1 落地形态**：通知通道以可注入协议 `MfaNotificationChannel` 表达；未注入时仅落审计事件并在响应中回显 `notification.degraded`，便于前端提示「变更已记录」。
+
+**验证方式**：
+- `services/admin-api/venv/bin/python -m pytest` → **641 passed**（原 609 + 新增 32）
+- `services/chat-api/venv/bin/python -m pytest` → **2474 passed**，2 failed（`tests/dsh_runtime/test_document_script_boundaries.py`，`enterprise_capabilities.data` 脚本执行器 `tzinfo` 缺陷，属其他会话在途工作，与本轮无关）
+- 新增测试覆盖：登录闸门四态（not_required / bind_required / verify_required / locked）、窗口到期归零、IP 维度隔离、used_step 消费与 90s TTL、重放拦截、下一窗口放行、锁定优先于校验、审计链自洽（`verify_chain` + `prev_hash` 串联）与 detail 自动脱敏、通知降级三条路径、`role_name` 字段兼容。
+
+## 2026-10-12 新增《MOGO × 业务系统 集成方案》（接口级展开）
+
+**目标**：承接上一轮《MOGO 与现有 Web 应用结合使用规划》，把"业务系统"场景展开到接口级可执行方案。
+
+**变更文件**：
+- `docs/业务系统集成方案.md`（新增）
+- `docs/WORK_LOG.md`（本条目）
+
+**关键发现（本轮源码核实，影响选型）**：
+- **对话/Agent 入口只认终端用户 Bearer token**：`app/services/end_user_session.py::resolve_session_user` 仅校验 `end_user_sessions`；`/api/chat/completions`、`/api/chat`、`/api/sessions*`、`/api/tasks/*` 均走该路径。
+- **服务令牌 `X-MOVO-Service-Token` 仅 4 组端点接受**（走 `require_api_principal`）：`external-tools` / `models` / `skills` / `skill-package-install`。→ 业务系统后端**无法仅凭服务令牌调对话入口**，这是方案的阻塞点，据此给出路径 A（用户 token，零改造）/ B（给 `dsh_chat._identity` 加服务主体通道 + 强制 userId，推荐）/ C（A2A 入站，需网关放行 `/internal/a2a/`）。
+- `/api/business-index/*` 走 `require_end_user_principal`，**只认用户 token**，不接受服务令牌。
+- `/askai-api/` 网关前缀会剥离转发到 chat-api 根路径，而 chat-api 未在根路径注册路由 → 统一用 `/api/`。
+- 工具创建需岗位 `tool_access_mode == "all"`（默认 `selected` 会 403）；`ToolPayload.status` 默认 `disabled`，须显式 `enabled` 才生效。
+- 实体类型白名单 `("customer","order","supplier","account")`，对齐键 `customer_code`/`order_no`/`supplier_code`/`account_period`，PII 字段 `phone/id_card/mobile/email` 索引前掩码。
+
+**内容结构**：结论先行 → 两条链路总览 → 链路一（认证三路径 + 请求/响应契约 + SSE 头 + 错误码表 + curl/Node 示例 + BFF 设计）→ 链路二（HTTP 工具 / 业务语义索引 / Skill 沉淀）→ 阶段化路线 → 12 条约束坑表 → 决策速查 → 4 个待确认项 → 核对点表。
+
+**验证方式**：所有接口/头部/状态码/字段均对照源码核对（`deploy/docker/nginx.conf`、`app/services/end_user_session.py`、`app/api/principal.py`、`app/api/endpoints/dsh_chat.py`、`app/api/endpoints/external_tools.py`、`app/services/external_tools.py`、`app/api/endpoints/business_index.py`、`app/business_index/entities.py`、`app/governance/position_policy.py`、`app/main.py`）。纯文档变更，未改动服务代码，无测试影响。
+
+## 2026-10-12 新增《MOGO 与现有 Web 应用结合使用规划》
+
+**目标**：应需求输出一份 MOGO 与团队已有 Web 应用（门户 / 业务系统 / 内部后台 / 第三方 Agent 平台）结合的选型与落地规划。
+
+**变更文件**：
+- `docs/web应用集成规划.md`（新增：集成规划文档）
+- `docs/WORK_LOG.md`（本条目）
+
+**内容要点**：
+- 先列事实清单（均核对自仓库实现，非推测）：网关路径路由表（`/`、`/admin/`、`/api/`、`/askai-api/`、`/admin-api/`、`/healthz`）、三类认证（Bearer 用户态 / `X-MOVO-Service-Token` 服务态 / Admin SSO）、作用域 fail-closed 强校验。
+- 归纳四类关系与四种模式：嵌入（iframe / SSO / 组件级）、API 化（服务令牌 + BFF / 用户态直连 / 流式）、网关统一（同域路径前缀 / 子域名）、能力互操作（external tools / business-index / A2A 双向 / IM webhook / Skill 沉淀）。
+- 关键发现：`/internal/a2a` 与 `/internal/im/webhook` **不在默认网关路由表内**，对外使用需显式新增 `location`；网关默认 `X-Frame-Options: SAMEORIGIN` 会拦跨域 iframe，需改 CSP `frame-ancestors`；`X-Session-Id` 会话亲和头不可被前置代理吃掉。
+- 给出分阶段落地路线（阶段 0 决策 → 阶段 1 最小闭环 → 阶段 2 业务接入 → 阶段 3 生态互操作）、约束与坑清单、选型速查表。
+
+**验证方式**：文档内所有接口/头部/网关行为均对照源码核对（`deploy/docker/nginx.conf`、`app/api/principal.py`、`app/api/endpoints/auth.py`、`app/api/endpoints/a2a.py`、`app/api/endpoints/im_gateway.py`、`app/main.py`、`contracts/a2a-gateway.md`、`docker-compose.yml`）。纯文档变更，未改动任何服务代码，无测试影响。
+
 ## 2026-10-12 022 安全加固 Phase 0「安全基座」落地（T001–T006，双服务）
 
 **目标**：按 `specs/022-security-hardening/tasks.md` 落地 Phase 0 的 6 个阻塞性前置任务，建立被所有用户故事依赖的安全基础设施。

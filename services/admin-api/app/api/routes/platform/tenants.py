@@ -17,6 +17,8 @@ from app.api.deps import get_current_platform_admin
 from app.core.db import get_db
 from app.core.tenant_identity import PLATFORM_TENANT_ID
 from app.repositories.org_user_repository import set_account_password
+# 022 FR-1（T008）：统一口令策略
+from app.security.password_policy import validate_password as validate_password_policy
 from app.services import tenant_lifecycle, tenant_purge
 from app.services.tenant_provisioning import ProvisionResult, provision_tenant
 from app.services.tenant_registry import TENANT_COLLECTION
@@ -167,8 +169,11 @@ async def reset_tenant_admin_password(
     new_password = str(payload.get("newPassword") or payload.get("new_password") or "")
     if not username:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant has no admin username")
-    if len(new_password) < 6:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="newPassword must have at least 6 characters")
+    # 022 FR-1（T008）：口令策略统一收敛到 security.password_policy（长度 ≥ 12、
+    # 4 类中至少 3 类）。原实现只校验 6 位长度，明显弱于规格基线。
+    verdict = validate_password_policy(new_password)
+    if verdict.is_rejected:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=verdict.public_message())
 
     await set_account_password(username, new_password, str(tenant.get("tenant_id")))
     await tenant_lifecycle._record_audit(

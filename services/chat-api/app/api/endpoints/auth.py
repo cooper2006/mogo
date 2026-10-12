@@ -18,6 +18,12 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.end_user_auth import build_session_token, hash_password, parse_and_verify_session_token, verify_password
+# 022 FR-1（T009）：注册链路统一口令策略（与 admin-api 共用同一套模块）
+from app.security.password_policy import (
+    MIN_CLASSES,
+    MIN_PASSWORD_LENGTH,
+    validate_password as validate_password_policy,
+)
 from app.core.tenant import DEFAULT_TENANT_ID, add_tenant_scope, resolve_tenant_id
 from app.utils.oss_uploader import ObjectStorageClient
 from app.utils.uploads import read_upload_with_limit
@@ -66,7 +72,7 @@ async def _check_org_name_duplicate(org_name: str) -> bool:
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
-    # Phase 1: accept both ``mainId`` (legacy) and ``tenantId`` (canonical).
+    # Accept both snake_case ``tenant_id`` and camelCase ``tenantId`` keys.
     tenant_id: str = Field(default="", max_length=64, alias="tenantId")
     tenantId: str = Field(default="", max_length=64, alias="tenantId")
 
@@ -81,7 +87,8 @@ class RegisterRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
     tenantId: str = Field(min_length=1, max_length=64, alias="tenantId")
     email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=8, max_length=128)
+    # 022 FR-1（T009）：最小长度 12（原 8），与 password_policy 的 FR-1 基线一致。
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
     nickname: str = Field(default="", max_length=64)
     departmentId: str = Field(default="", max_length=64)
 
@@ -464,8 +471,15 @@ async def register(payload: RegisterRequest) -> ApiResponse:
     if "@" not in email or len(email) < 3:
         return ApiResponse(code=400, message="请输入有效的邮箱地址")
     password = str(payload.password or "")
-    if len(password) < 8 or not any(c.isalpha() for c in password) or not any(c.isdigit() for c in password):
-        return ApiResponse(code=400, message="密码至少 8 位，且需同时包含字母和数字")
+    # 022 FR-1（T009）：口令策略统一收敛到 security.password_policy（长度 ≥ 12、
+    # 4 类中至少 3 类）。原实现仅要求 8 位 + 字母 + 数字，明显弱于规格基线。
+    verdict = validate_password_policy(password)
+    if verdict.is_rejected:
+        return ApiResponse(
+            code=400,
+            message=f"密码不符合安全策略：{verdict.public_message()}（至少 {MIN_PASSWORD_LENGTH} 位，"
+            f"大小写字母 / 数字 / 特殊字符中至少 {MIN_CLASSES} 类）",
+        )
 
     existing = await db[USER_COLLECTION].find_one({
         "$and": [

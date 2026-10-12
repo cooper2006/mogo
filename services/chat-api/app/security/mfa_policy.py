@@ -65,12 +65,17 @@ class AccountMfaState:
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "AccountMfaState":
-        """从用户文档构建视图；缺字段按安全侧默认（未启用 MFA）。"""
+        """从用户文档构建视图；缺字段按安全侧默认（未启用 MFA）。
+
+        角色字段兼容 ``role`` 与 ``role_name`` 两种存储口径：
+        - ``role``：001 gatekeeper / 治理层的规范字段；
+        - ``role_name``：``admin_accounts`` 仓库的历史字段（mogo 现状）。
+        """
         return cls(
             user_id=str(row.get("id") or row.get("user_id") or row.get("_id") or ""),
             username=str(row.get("username") or ""),
             tenant_id=str(row.get("tenant_id") or ""),
-            role=str(row.get("role") or ""),
+            role=str(row.get("role") or row.get("role_name") or ""),
             mfa_enabled=bool(row.get("mfa_enabled", False)),
             has_mfa_secret=bool(row.get("mfa_secret") or row.get("mfa_secret_hash")),
         )

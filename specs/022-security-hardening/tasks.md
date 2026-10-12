@@ -40,13 +40,24 @@
 **Goal**: 弱口令拒绝 + MFA 强制 + TOTP 防重放 + MFA 解绑通知。
 **独立测试**: 弱口令 400；高权限未绑 MFA 无法进入；TOTP 90s 不可重放；解绑通知审计。
 
-- [ ] T007 [P] 实现 `security/password_policy.py`：弱口令策略（长度 ≥ 12 + 四类至少三类），`validate_password(password) -> bool`（3h）
-- [ ] T008 修改 `services/admin-api/app/api/routes/auth.py`：登录/改密链路调用 `password_policy.validate()`，拒绝弱口令（4h）
-- [ ] T009 修改 `services/chat-api/app/api/routes/auth.py`：注册/改密链路调用 `password_policy.validate()`，拒绝弱口令（3h）
-- [ ] T010 [P] 实现 `security/mfa_policy.py`：MFA 强制策略（高权限账号检查）+ 限流（5 次/300s）+ used_step 持久化（MongoDB `mfa_used_steps`）（5h）
-- [ ] T011 修改 `services/admin-api/app/api/routes/auth.py`：登录流程强制 MFA 绑定（高权限账号）+ `/auth/mfa/verify` 限流 + used_step 防重放（6h）
-- [ ] T012 修改 `services/admin-api/app/api/routes/auth.py`：`/auth/mfa/disable` 解绑通知（邮箱/手机，未接入时降级为审计事件）+ 审计（4h）
-- [ ] T013 US1 集成测试：弱口令 400 / MFA 未绑无法进入 / TOTP 90s 不可重放 / 解绑通知审计（4h）
+- [x] T007 [P] 实现 `security/password_policy.py`：弱口令策略（长度 ≥ 12 + 四类至少三类），`validate_password(password) -> bool`（3h）
+- [x] T008 修改 `services/admin-api/app/api/routes/auth.py`：登录/改密链路调用 `password_policy.validate()`，拒绝弱口令（4h）
+- [x] T009 修改 `services/chat-api/app/api/routes/auth.py`：注册/改密链路调用 `password_policy.validate()`，拒绝弱口令（3h）
+- [x] T010 [P] 实现 `security/mfa_policy.py`：MFA 强制策略（高权限账号检查）+ 限流（5 次/300s）+ used_step 持久化（MongoDB `mfa_used_steps`）（5h）
+- [x] T011 修改 `services/admin-api/app/api/routes/auth.py`：登录流程强制 MFA 绑定（高权限账号）+ `/auth/mfa/verify` 限流 + used_step 防重放（6h）
+- [x] T012 修改 `services/admin-api/app/api/routes/auth.py`：`/auth/mfa/disable` 解绑通知（邮箱/手机，未接入时降级为审计事件）+ 审计（4h）
+- [x] T013 US1 集成测试：弱口令 400 / MFA 未绑无法进入 / TOTP 90s 不可重放 / 解绑通知审计（4h）
+
+**Phase 1 完成状态（2026-10-12）**：
+- T007 / T010 已在 Phase 0 随 `password_policy.py` / `mfa_policy.py` 一并交付；本轮补齐 T008 / T009 / T011 / T012 / T013。
+- T008：`auth.py` 的 `PasswordChangeRequest` 最小长度 10 → 12，`validate_strength` 改为委托 `password_policy.validate_password`（字符类别由策略统一判定，保留原静态方法以兼容 `/password-reset` 与既有调用方）；`platform/tenants.py` 的租户管理员重置口令由 `len < 6` 收紧到同一策略。
+- T009：`chat-api` 自助注册口令校验由「8 位 + 字母 + 数字」收紧到同一策略，`RegisterRequest.password.min_length` 8 → 12。
+- T011：新增 `app/security/mfa_gate.py` 组合层（`evaluate_login_gate` / `record_mfa_failure` / `clear_mfa_failures` / `check_and_consume_totp`），把 `mfa_policy` 纯逻辑与 `MongoMfaLockoutTracker` / `MongoTotpUsedStepStore` 接起来；`/login` 响应签发前过闸门（高权限未绑 MFA → 403 `mfaBindRequired`，达上限 → 423 锁定）；`/mfa/verify` 接入限流与 used_step 防重放（90s 窗口，先判重放再校验，锁定时不消耗 step、不调用校验器）。
+- T012：`/mfa/enable` 与 `/mfa/disable` 落 FR-23 审计事件并接入 OQ-1 通知降级（通道未接入时仅落审计事件并在响应中回显 `notification.degraded`）；解绑口令错误的尝试也落 `decision=deny` 审计。
+- T013：新增 `tests/test_security_mfa_gate.py` 32 用例（内存 fake motor，双服务镜像同套），覆盖登录闸门四态、窗口到期归零、IP 维度隔离、used_step 消费与 TTL、90s 重放拦截、下一窗口放行、锁定优先于校验、审计链自洽与 detail 自动脱敏、通知降级三条路径。
+- 兼容性修复：`AccountMfaState.from_row` 增补 `role_name` 兜底（`admin_accounts` 历史字段名与治理层规范字段 `role` 不一致，不改则闸门永远识别不出高权限账号）。
+- 验证：admin-api 全量 641 passed；chat-api 全量 2474 passed（2 个失败为在途会话遗留的 `enterprise_capabilities.data` 脚本执行器 tzinfo 缺陷，与本轮无关）。
+
 
 ---
 
