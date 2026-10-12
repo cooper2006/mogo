@@ -9940,3 +9940,143 @@ and you require transformers==5.10.0, we can conclude that your requirements are
 
 **待确认（未做）**：
 - 是否要把 docling 测试接入 `quality-gate.yml`（需在容器内临时装 pytest 并挂载 tests 跑）；本轮仅在容器内手动验证通过，测试文件已落库，CI 接入需单独排期/评估。
+
+---
+
+## 2026-10-12 打包重启服务（eac386c）——修复构建失败 + 清除上个版本镜像
+
+**起因**：用户要求「打包并重启服务，从 orbstack 中去除上个版本的镜像；最近构建镜像失败了，修复一下」。
+
+**修复了 3 个让构建/重启失败的缺陷（均为既有缺陷，非本轮新引入）**：
+
+1. **前端镜像构建直接失败（用户报告的失败）**——`apps/admin-web/Dockerfile` 与 `apps/user-web/Dockerfile.prod`
+   被改成 `pnpm install --frozen-lockfile`，但基础镜像 `node:24-bookworm-slim` 只带 npm + 未启用的
+   corepack，PATH 上没有 pnpm：
+   `#11 0.349 /bin/sh: 1: pnpm: not found` → `exit code: 127`。
+   修法：按 `services/chat-api/dsh/runtime-host/Dockerfile` 的既有惯例显式
+   `npm install --global pnpm@10.14.0`（与 `quality-gate.yml` frontend-quality 的 pin 一致），
+   并 `pnpm config set store-dir /pnpm-store` + `set registry`。
+   同时 `apps/admin-web/Dockerfile` 末尾的**非 root 运行段被整段删掉**（`COPY nginx-main.conf`、
+   `chmod 0644`、`addgroup/adduser appuser`、`USER appuser`、`EXPOSE`、`CMD`）——HEAD 里该段存在
+   （e915f0f 验证过 http 200），属在途改动误删，已恢复。
+
+2. **user-web 与 gateway 是 022 Phase 3（T027）的漏网之鱼**——compose 已给这两个 nginx 服务
+   `read_only: true` + `cap_drop: ALL`，但镜像里仍是 root master + stock 主配置（`user nginx;`
+   + pid 在 /var/run）。root master 会 `chown` 自己的 cache 目录，而 `cap_drop ALL` 拿掉了
+   CAP_CHOWN，于是：
+   - 缺 tmpfs → `mkdir() "/var/cache/nginx/client_temp" failed (30: Read-only file system)`
+   - 补了 tmpfs 仍失败 → `chown("/var/cache/nginx/client_temp", 101) failed (1: Operation not permitted)`
+   实测 gateway 在本次重启中就是这样 crash-loop（`Restarting (1)`）。
+   修法（与 admin-web 同款）：
+   - 新增 `apps/user-web/nginx-main.conf`、`deploy/docker/nginx-main.conf`（删 `user nginx;`、pid → /tmp）；
+   - `apps/user-web/Dockerfile.prod`、`deploy/docker/gateway.Dockerfile` 补非 root 运行段（appuser UID/GID 10001）；
+   - `docker-compose.yml` 的 user-web 补 `cap_add: NET_BIND_SERVICE` + `/var/cache/nginx`、`/var/log/nginx` 两个 tmpfs。
+   注：T027 的实现把「两个 nginx 服务」理解成 admin-web + gateway，漏了同样是 nginx 的 user-web；
+   而 `deploy/tests/test_container_hardening.py` 的 nginx 用例当时也只覆盖这两个，所以漏检。
+
+3. **`./mogo` 的 `docker_reclaimable_bytes` 在当前磁盘状态下会中断脚本（影响本次的镜像清理）**——
+   `docker system df` 只在需要时才打印小数（`11GB` vs `5.232GB`）。无小数点时 `whole` 仍带单位后缀，
+   `echo $(( 10#11GB * ... ))` 报 `value too great for base`；在 `set -Eeuo pipefail` 下这会**中断整个
+   `./mogo`**。`prune_previous_release_images` 的第一条语句就是 `before="$(docker_reclaimable_bytes)"`，
+   因此旧版本镜像**一个都不会被删**。修法：对 `whole` 也做 `tr -cd '0-9'` 归一化。
+
+**另发现（未改，留给对应会话）**：
+- `deploy/tls/privkey.pem` 是 `0600`。网关现在以 appuser(10001) 运行，一旦按 T037 切到
+  `MOGO_NGINX_CONF=deploy/nginx/nginx.conf` 启用 TLS，nginx 读不到私钥。compose 注释里写的
+  「nginx 只读 0644 即可」是对的，但文件实际权限没对齐。
+- `./mogo build` / `up --build` 永远漏构建 `dsh-runtime-host`（单副本服务被 `profiles: [single-host]`
+  门控，default 拓扑下不进构建目标）。这是 2026-10-11 已记录的既有缺陷，本轮按同样方式手动补构建。
+  两轮构建均观察到 chat-api/document-parser 的重量层反复重跑，疑似 `prune_dangling_images` 里的
+  `docker image prune -f` 在 containerd 镜像存储下连带清掉了 BuildKit 构建缓存（未确证，待单独排查）。
+
+**改动文件**：
+- `apps/admin-web/Dockerfile`（pnpm 安装 + 恢复被删的非 root 运行段）
+- `apps/user-web/Dockerfile.prod`（pnpm 安装 + 非 root 运行段）
+- `apps/user-web/nginx-main.conf`（新增）
+- `deploy/docker/gateway.Dockerfile`（非 root 运行段）
+- `deploy/docker/nginx-main.conf`（新增）
+- `docker-compose.yml`（user-web 补 NET_BIND_SERVICE + 两个 tmpfs）
+- `mogo`（`docker_reclaimable_bytes` 单位后缀归一化）
+- `deploy/tests/test_container_hardening.py`（回归守卫：APPLICATION_SERVICES 增 user-web；
+  两个 nginx 用例的参数列表增 user-web；新增 `test_nginx_images_ship_non_root_main_config`
+  覆盖三个 nginx 服务，同时校验主配置内容与 Dockerfile 的 COPY/USER）
+
+**执行与验证（全部实测）**：
+
+| 验证 | 方法 | 结果 |
+| --- | --- | --- |
+| 构建失败复现 | `docker build -f apps/admin-web/Dockerfile apps/admin-web` | 修复前 `pnpm: not found` (127)；修复后 exit 0 |
+| 前端镜像加固启动 | `--read-only --cap-drop ALL --cap-add NET_BIND_SERVICE` + tmpfs 实跑 | admin-web `HTTP/1.1 200 OK`；user-web 返回 index.html 且 `assets/pdf.worker.min-*.mjs` 在位 |
+| 全量构建 | `./mogo build` + 手动补 `dsh-runtime-host`（`--profile single-host`） | 7 个镜像全部 `:eac386c`，exit 0 |
+| 部署 | `./mogo up --build` | `UP2_EXIT=0`，14 容器全 healthy，`http://localhost:3000/admin/setup` |
+| 端点 | curl 网关 | `/healthz`、`/`、`/admin/setup`、`/admin-api/api/setup/status` 全 200；`setup/status` `ready:true` |
+| 非 root 生效 | `docker exec <c> id -u` | admin-web / user-web / gateway / admin-api / chat-api / document-api 全为 `10001` |
+| 加固回归 | `pytest deploy/tests/test_container_hardening.py -q` | 65 passed / 6 skipped（基线 58/6，+7 为新增守卫） |
+| 守卫有效性 | 用 `git show HEAD:<file>` 跑新守卫的断言 | HEAD 的 user-web / gateway 均失败（即修复前的问题），admin-web 通过 |
+| 旧镜像清理 | `docker images` | `51a442a` 残留 0；`./mogo` 报告 `Pruned 7 image(s) from the previous release, reclaimed about 10356 MB` |
+
+**提交注意**：`apps/*/pnpm-lock.yaml`、`apps/user-web/tests/code-platform-contract.test.ts` 等
+属其他会话的在途改动，本轮未触碰，提交时勿一并暂存。
+
+---
+
+## 2026-10-12 TLS 网关：修掉启用路径上的两个致命缺陷（含权限归一化）
+
+**起因**：上一轮留的待办 —— `deploy/tls/privkey.pem` 是 0600，而网关已改非 root
+（appuser UID 10001），启用 TLS 后 nginx 读不到私钥。
+
+**核实结论（与起因不完全一致，按实测修正）**：
+
+1. **私钥权限在 macOS/OrbStack 上不是阻塞点**。实测 `gateway:eac386c`（`USER appuser`）
+   挂载 `deploy/tls` 后，容器内 `ls -l` 显示 `-rw------- appuser appuser`，
+   `head -c 20 privkey.pem` 成功 —— OrbStack 的 bind mount 把文件属主映射成容器运行用户。
+   但在 **Linux 上 bind mount 保留宿主 uid**，0600 的私钥归宿主用户，容器内 uid 10001
+   读不到 → 仍然必须修，只是本地无法复现。
+
+2. **真正的阻塞点是 TLS 配置漂移**：`deploy/nginx/nginx.conf`（TLS 侧「唯一事实来源」）
+   **缺少 `map $http_upgrade $connection_upgrade` 块**，却仍在第 120/136 行使用
+   `$connection_upgrade`。实测用该配置启动网关镜像：
+   ```
+   nginx: [emerg] unknown "connection_upgrade" variable
+   ```
+   即文档给出的启用命令 `MOGO_NGINX_CONF=./deploy/nginx/nginx.conf docker compose up -d`
+   **100% 打不开 TLS**，与权限无关。兼容入口 `deploy/docker/nginx-https.conf` 一直是好的 ——
+   去掉注释后两份配置的语义差异**恰好只有这一个 map 块**（已 diff 验证）。
+
+**修复**：
+
+| 文件 | 改动 |
+| --- | --- |
+| `deploy/nginx/nginx.conf` | 补回 `map $http_upgrade $connection_upgrade` 块（附成因注释）；证书指令旁补 UID 10001/0644 提醒 |
+| `deploy/docker/nginx-https.conf` | 证书指令旁补同样的模式提醒（保持两份语义等价） |
+| `deploy/tls/setup-certs.sh` | 复制后显式 `chmod 0644`；补 `find -perm -004` 自检；注释写明「cp 会保留 openssl 的 0600」与 Linux/macOS 差异，并给出 `sudo chown 10001:10001` 的严格方案 |
+| `deploy/tls/README.md` | 重写：加 Mode 列与权限要求章节、修正过时段落（原文档还在教「覆盖 nginx.conf」「手动取消 443 注释」，而 T037 后 443 已无条件暴露、配置走 `MOGO_NGINX_CONF`）、补 Troubleshooting 表 |
+| `deploy/tls/privkey.pem`（未入库） | `chmod 0644` 对齐 |
+| `deploy/tests/test_tls_gateway_config.py`（新增） | 9 项静态回归守卫，无需 docker |
+
+**为何只 chmod 0644 而不 chown 10001**：`chgrp/chown` 到 10001 需要 root 或组成员资格，
+脚本无法 sudo；0644 在 macOS 与 Linux 上都能work，且与 `docker-compose.yml` 里 gateway
+的既有注释一致。要求更严格时文档给出 `sudo chown 10001:10001 + 0600` 的手动路径。
+
+**验证（全部实测）**：
+
+| 验证 | 方法 | 结果 |
+| --- | --- | --- |
+| 缺陷 2 复现 | 网关镜像 + `deploy/nginx/nginx.conf` + 加固参数启动 | 修复前 `[emerg] unknown "connection_upgrade" variable`，容器 Exited(1) |
+| 修复后 TLS 端到端 | 同上（`--read-only --cap-drop ALL --cap-add NET_BIND_SERVICE` + tmpfs，`USER appuser`） | 容器稳定 Up；`https://…/healthz` **200**、`/admin/setup` **200**、`http://…/admin/setup` **301**；`openssl s_client` 取到 `CN=localhost`，有效期 2026-10-12 → 2027-10-12 |
+| 私钥可读性 | 网关镜像内 `id -u` + 读 privkey | uid=10001，可读（macOS 映射）；Linux 场景由 0644 覆盖 |
+| 权限归一化 | `bash deploy/tls/setup-certs.sh` | 脚本自检通过，`privkey.pem` 600 → **644** |
+| 守卫有效性 | 用 `git show HEAD:<file>` 跑新守卫断言 | 守卫 1（规范配置）失败、守卫 2（两份配置不等价）失败、守卫 3（脚本无 chmod）失败 —— 均命中修复前的问题；修复后 9 passed |
+| 两份 TLS 配置等价 | `diff <(grep -v '^#' a) <(grep -v '^#' b)` | 语义等价 ✅ |
+| 运行中部署未受影响 | `docker compose ps` + `curl :3000/healthz` | gateway Up (healthy)、200（跑的是默认 HTTP 配置，本轮只改 TLS 侧文件） |
+| 完整 deploy/tests | `pytest deploy/tests/ -q --basetemp=$(mktemp -d)` | 126 passed / 6 skipped / 10 failed；**10 个失败在 HEAD 干净 worktree 上完全相同**（`test_data_security_us5` 4 项 + `test_performance_us7` 6 项），属预存问题，与本轮无关 |
+
+**未做（留给用户决定）**：没有把运行中的网关切到 TLS。切换命令：
+`MOGO_NGINX_CONF=./deploy/nginx/nginx.conf docker compose up -d gateway`
+（切换后 HTTP 会 301 跳 HTTPS，`/healthz` 例外）。
+
+**遗留**：`deploy/nginx/nginx.conf` 与 `deploy/docker/nginx-https.conf` 的
+`listen 443 ssl http2` 会触发 nginx 1.31 的弃用告警（`the "listen ... http2" directive
+is deprecated`）。仅告警、不影响功能，未改。
+
+

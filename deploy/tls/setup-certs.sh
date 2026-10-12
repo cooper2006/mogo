@@ -60,11 +60,38 @@ if ! openssl x509 -in "$PROJECT_ROOT/server.crt" -noout -text 2>/dev/null | grep
 fi
 
 # 复制证书
+#
+# ⚠️ 权限必须显式归一化，不能只 cp 完就走：``cp`` 会保留源文件模式，而
+# ``server.key`` 是 openssl 生成的 0600，cp 出来就是 0600。
+#
+# 为什么 0600 会让网关起不来：自 022 FR-26/T026 起网关以非 root 的
+# appuser(UID 10001) 运行，证书是 bind mount 进容器的。Linux 上 bind mount
+# 保留宿主 uid，0600 的私钥归宿主用户所有 → 容器内 nginx 启动即失败：
+#   nginx: [emerg] cannot load certificate key "/etc/nginx/certs/privkey.pem"
+#                  (13: Permission denied)
+# 随后进入 crash-loop。
+#
+# ⚠️ macOS / OrbStack 的 bind mount 会把文件属主映射成容器运行用户，所以 0600
+# 在本地也能跑。不要因为本机跑得通就认为权限没问题 —— 生产 Linux 会挂。
+#
+# 0644 = 容器内任意 uid 都能读，与 docker-compose.yml 里 gateway 的注释一致。
+# 若要求更严格（私钥不 world-readable），脚本无法 sudo，请手动改属主：
+#   sudo chown 10001:10001 deploy/tls/privkey.pem && chmod 0600 deploy/tls/privkey.pem
 cp "$PROJECT_ROOT/server.crt" "$TLS_DIR/fullchain.pem"
 cp "$PROJECT_ROOT/server.key" "$TLS_DIR/privkey.pem"
+chmod 0644 "$TLS_DIR/fullchain.pem" "$TLS_DIR/privkey.pem"
+
+# 自检：确认私钥至少有一个「非 owner」可读位。容器内跑的是 uid 10001，它不是宿主
+# 上的文件属主，所以只靠 owner 位（0600/0400）在 Linux 上必然读不到。
+if [[ -z "$(find "$TLS_DIR/privkey.pem" -perm -004 -print 2>/dev/null)" ]]; then
+    echo "❌ deploy/tls/privkey.pem 缺少 o+r，容器内 appuser(UID 10001) 读不到，"
+    echo "   网关会在启用 TLS 后 crash-loop。修复: chmod 0644 $TLS_DIR/privkey.pem"
+    exit 1
+fi
 
 echo ""
 echo "✅ 证书已复制到 deploy/tls/"
+echo "   私钥模式: $(ls -l "$TLS_DIR/privkey.pem" | awk '{print $1}')（容器内 UID 10001 可读）"
 echo ""
 echo "启用 HTTPS:"
 echo "  MOGO_NGINX_CONF=./deploy/nginx/nginx.conf docker compose up -d"
