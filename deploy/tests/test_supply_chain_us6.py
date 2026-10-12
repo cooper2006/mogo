@@ -258,6 +258,138 @@ def test_precommit_hook_delegates_to_script() -> None:
     assert "SKIP_SECRETS_CHECK" in text, "缺少紧急绕过开关"
 
 
+# ---------------------------------------------------------------------------
+# 2. 豁免通道：行级标记 + 任意层级路径白名单
+# ---------------------------------------------------------------------------
+#
+# 高置信模式 `(secret|password|passwd|token|api[_-]?key)\s*[:=]\s*\S{20,}`
+# 必然会把「赋值给标识符 / 函数调用」算作候选，例如
+# `signing_secret = resolve_local_file_signing_secret(`。路径白名单管不到单行，
+# 而收紧 pattern 会同时削弱对真实密钥的检出——那是不可接受的取舍。
+#
+# 所以脚本提供两条**都不放宽 pattern** 的豁免通道：
+#   1. 路径级 ALLOWLIST_PATHS（任意层级目录名匹配）
+#   2. 行级 LINE_ALLOWLIST_MARKER（精确到单行）
+# 下面把两条都钉住，防止它们被无意中削弱。
+
+LINE_ALLOWLIST_MARKER = "pragma: allowlist secret"
+
+# 已登记的误报行所在文件：它们必须带行级豁免标记，否则 `--all` 立刻变红。
+KNOWN_FALSE_POSITIVE_FILES = [
+    "dev_dsh.sh",
+    "services/admin-api/app/api/routes/directory.py",
+    "services/admin-api/app/core/config.py",
+    "services/chat-api/app/api/endpoints/documents.py",
+    "services/chat-api/app/enterprise_capabilities/content/writer_engine/compose_skill.py",
+    "services/chat-api/app/enterprise_capabilities/evidence/foundation/external_web_raw.py",
+    "services/chat-api/app/governance/suspensions/resume_admission.py",
+    "services/chat-api/dsh/runtime-host/scripts/runtime-inventory-probe.mjs",
+    "services/document-parser/app/services/model_center_runtime.py",
+]
+
+
+def _scan_path(path: Path) -> int:
+    return subprocess.run(
+        [str(SECRETS_SCRIPT), str(path)],
+        capture_output=True, text=True, timeout=60,
+    ).returncode
+
+
+def test_secrets_script_supports_line_allowlist_marker(tmp_path: Path) -> None:
+    """行尾标记必须精确豁免该行。"""
+    payload = "password = '" + "a" * 30 + "'"
+
+    unmarked = tmp_path / "unmarked.py"
+    unmarked.write_text(payload + "\n", encoding="utf-8")
+    marked = tmp_path / "marked.py"
+    marked.write_text(payload + f"  # {LINE_ALLOWLIST_MARKER}\n", encoding="utf-8")
+
+    assert _scan_path(unmarked) == 1, "未标记的密钥赋值必须被拦下"
+    assert _scan_path(marked) == 0, "带行级豁免标记的行不应被拦下"
+
+
+def test_secrets_allowlist_matches_nested_directories(tmp_path: Path) -> None:
+    """`tests/` 这类目录名必须按任意层级匹配，而不是只匹配仓库根。"""
+    payload = "JWT_SECRET = '" + "b" * 30 + "'\n"
+
+    nested = tmp_path / "services" / "admin-api" / "tests" / "fixture.py"
+    nested.parent.mkdir(parents=True)
+    nested.write_text(payload, encoding="utf-8")
+
+    plain = tmp_path / "app" / "leak.py"
+    plain.parent.mkdir(parents=True)
+    plain.write_text(payload, encoding="utf-8")
+
+    assert _scan_path(nested) == 0, "嵌套的 tests/ 目录必须被豁免"
+    assert _scan_path(plain) == 1, "非豁免目录里的同一内容仍必须被拦下"
+
+
+def test_secrets_allowlist_registers_fixture_and_doc_directories() -> None:
+    """测试固件、文档、生成物必须登记在 ALLOWLIST_PATHS，而不是靠放宽 pattern。"""
+    text = _read(SECRETS_SCRIPT)
+    for entry in (
+        '"tests/"',
+        '"specs/"',
+        '"scripts/dev/"',
+        '"docs/"',
+        '"node_modules/"',
+        '"pnpm-lock.yaml"',
+        '"versions.lock"',
+    ):
+        assert entry in text, f"ALLOWLIST_PATHS 缺少 {entry}"
+
+
+def _scan_all(path: Path) -> str:
+    """`--all` 模式下的完整输出（低置信提示只在该模式下、且走 stderr）。"""
+    result = subprocess.run(
+        [str(SECRETS_SCRIPT), "--all", str(path)],
+        capture_output=True, text=True, timeout=60,
+    )
+    return result.stdout + result.stderr
+
+
+def test_low_confidence_pattern_ignores_long_identifier_names(tmp_path: Path) -> None:
+    """40+ 字符的**变量名**不是随机串，不应触发低置信提示。
+
+    旧写法 `[A-Za-z0-9_\\-]{40,}==?` 里 `==?` 读作「一个**必选** `=` + 一个可选
+    `=`」，于是该模式实际只匹配「长名字 + `=`」：`.env.example`、compose、
+    部署模板里的长 KEY 名全部被误报，而真正的长值（不带 base64 填充）反而漏掉。
+    """
+    name = "ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_ENABLED"
+    assert len(name) >= 40, "用例前提：名字本身要够长"
+    target = tmp_path / "settings.env.example"
+    target.write_text(f"{name}=false\n", encoding="utf-8")
+
+    out = _scan_all(target)
+    assert "低置信" not in out, f"长变量名不应触发低置信提示：\n{out}"
+
+
+def test_low_confidence_pattern_flags_padded_long_values(tmp_path: Path) -> None:
+    """值位置 + base64 填充的长随机串仍必须被提示（本通道不能变成死代码）。
+
+    键名刻意选一个不在高置信关键词表（secret/password/token/api_key…）里的词，
+    这样命中的只可能是低置信通道。
+    """
+    value = "aB3xZ9qL7mN2pR5tY8uI4oP6sD1fG0hJ2kM9nB4vC7xZ3q=="
+    target = tmp_path / "payload.txt"
+    target.write_text(f'blob = "{value}"\n', encoding="utf-8")
+
+    out = _scan_all(target)
+    assert "低置信" in out, f"值位置的长随机串应触发低置信提示：\n{out}"
+    # 低置信通道是提示性的：不得出现阻断标记 `✗ 疑似密钥`。
+    assert "✗ 疑似密钥" not in out, "低置信通道不应阻断"
+
+
+@pytest.mark.parametrize("rel", KNOWN_FALSE_POSITIVE_FILES)
+def test_known_false_positive_lines_carry_the_marker(rel: str) -> None:
+    """钉住已登记的误报行：标记被删掉时全量扫描会立刻变红。"""
+    text = _read(REPO_ROOT / rel)
+    assert LINE_ALLOWLIST_MARKER in text, (
+        f"{rel} 缺少行级豁免标记 {LINE_ALLOWLIST_MARKER!r}；"
+        "删除它会让 scripts/check-secrets.sh --all 重新变红"
+    )
+
+
 def test_action_pinning_policy_is_enforced() -> None:
     """发布关键 action 必须 SHA 固定的政策已被脚本化并接入 CI。"""
     assert PINNING_SCRIPT.exists(), "缺少 scripts/check_action_pinning.py"

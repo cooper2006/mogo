@@ -34,7 +34,7 @@ def resolve_model_instance(tenant_id: str, instance_id: str, capability: str) ->
     if capability not in capabilities:
         raise ModelCenterConfigError(f"所选模型不具备 {capability} 能力")
     provider = db[PROVIDER_COLLECTION].find_one({"_id": instance.get("provider_id")}) or {}
-    api_key = decrypt_admin_secret(str(instance.get("api_key_encrypted") or ""))
+    api_key = decrypt_admin_secret(str(instance.get("api_key_encrypted") or ""))  # pragma: allowlist secret
     if not api_key:
         raise ModelCenterConfigError(f"{capability} 模型 API Key 无法解密或为空")
     return {

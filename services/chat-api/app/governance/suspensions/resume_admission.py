@@ -47,7 +47,7 @@ _trusted_resume_admission: ContextVar[bool] = ContextVar(
 
 @contextmanager
 def trusted_resume_admission() -> Iterator[None]:
-    token = _trusted_resume_admission.set(True)
+    token = _trusted_resume_admission.set(True)  # pragma: allowlist secret
     try:
         yield
     finally:

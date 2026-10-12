@@ -549,7 +549,7 @@ async def create_user(payload: UserCreatePayload, current_user: dict = Depends(g
 
     now = _now()
     try:
-        login_name, initial_password = normalize_employee_credentials(
+        login_name, initial_password = normalize_employee_credentials(  # pragma: allowlist secret
             source=payload.source,
             login_name=payload.loginName,
             password=payload.initialPassword,
@@ -629,7 +629,7 @@ async def update_user(user_id: str, payload: UserUpdatePayload, current_user: di
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写邮箱")
 
     try:
-        login_name, reset_password = normalize_employee_credentials(
+        login_name, reset_password = normalize_employee_credentials(  # pragma: allowlist secret
             source=payload.source,
             login_name=payload.loginName,
             password=payload.resetPassword,

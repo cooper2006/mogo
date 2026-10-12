@@ -341,7 +341,7 @@ async def get_stored_file(
     uploader = ObjectStorageClient()
     path = unquote(object_path)
     settings = get_settings()
-    signing_secret = resolve_local_file_signing_secret(
+    signing_secret = resolve_local_file_signing_secret(  # pragma: allowlist secret
         configured_secret=str(settings.END_USER_AUTH_SECRET or ""),
         storage_root=settings.LOCAL_STORAGE_PATH,
     )

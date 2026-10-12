@@ -1054,7 +1054,7 @@ class ToolWriterEngineComposeSkill(BaseSkill):
         ).strip()
         candidate_subjects = []
         for item in list(subject_resolution.get("candidate_subjects") or []):
-            token = strip_visual_or_production_clauses(str(item or "")).strip()
+            token = strip_visual_or_production_clauses(str(item or "")).strip()  # pragma: allowlist secret
             if token and token not in candidate_subjects:
                 candidate_subjects.append(token)
         supporting_facts = [

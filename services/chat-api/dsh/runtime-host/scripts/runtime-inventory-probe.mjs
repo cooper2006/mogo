@@ -15,10 +15,10 @@ const runtime = new KernelRuntime({
     modelInstanceId: 'upgrade-inventory-model',
     modelName: 'upgrade-inventory-model',
     gatewayUrl: 'http://127.0.0.1:9/model',
-    accessToken: 'UPGRADE_INVENTORY_MODEL_TOKEN',
+    accessToken: 'UPGRADE_INVENTORY_MODEL_TOKEN', // pragma: allowlist secret
     toolProfile: {
       gatewayUrl: 'http://127.0.0.1:9/tools',
-      accessToken: 'UPGRADE_INVENTORY_TOOL_TOKEN',
+      accessToken: 'UPGRADE_INVENTORY_TOOL_TOKEN', // pragma: allowlist secret
       tools: [],
       nativeReplacements: [],
     },

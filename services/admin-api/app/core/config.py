@@ -116,7 +116,7 @@ def _read_env_file_value(key: str) -> str:
 
 
 settings = Settings()
-settings.backend_service_token = resolve_backend_service_token(settings.backend_service_token)
+settings.backend_service_token = resolve_backend_service_token(settings.backend_service_token)  # pragma: allowlist secret
 if not settings.mongodb_uri:
     settings.mongodb_uri = settings.effective_mongodb_uri
 if not settings.mongodb_db:
@@ -140,7 +140,7 @@ if not settings.jwt_secret or len(settings.jwt_secret) < 32:
         # a developer's own machine but MUST NOT be used in shared/staging or
         # production, where it would allow forging admin tokens.
         if not settings.jwt_secret:
-            settings.jwt_secret = "dev-secret-change-me-in-production"
+            settings.jwt_secret = "dev-secret-change-me-in-production"  # pragma: allowlist secret
         logger.warning(
             "Using DEV JWT secret (app_env=%s). DO NOT use this in shared/staging/production.",
             settings.app_env,

@@ -10,9 +10,15 @@
 # 退出码：0 = 干净；1 = 发现疑似密钥。
 #
 # 设计取舍：
-# - **不做上下文豁免**：密钥是「零容忍」类，任何路径出现都失败。需要豁免的
-#   是**测试固件**（.qualityforge/、tests/ 下的伪造样例），集中登记在
-#   ALLOWLIST_PATHS，而不是靠 pattern 白名单绕过。
+# - **两条豁免通道，都不放宽 pattern**：
+#     1. 路径级 ALLOWLIST_PATHS —— 整棵目录（测试固件 .qualityforge/、tests/、
+#        docs/、specs/、scripts/dev/ 下的伪造样例与文档示例）。
+#     2. 行级 LINE_ALLOWLIST_MARKER —— 单行（源码里「看着像密钥赋值、实为
+#        变量名 / 函数调用 / 开发占位符」的行）。
+#   之所以需要第 2 条：高置信模式 (secret|password|token|api_key)\s*[:=]\s*\S{20,}
+#   必然会把 `signing_secret = resolve_...(` 这类赋值算作候选。路径白名单管不到
+#   单行，而收紧 pattern 会同时削弱对真实密钥的检出——用行级标记精确豁免，
+#   检出能力零损失。
 # - **只报不猜**：AKIA / BEGIN PRIVATE KEY 这类高置信模式直接判失败；
 #   低置信模式（长随机串）只在 --all 模式下报告，避免钩子里噪音太大。
 # - 钩子版本用 git 的 diff 范围，速度可控；CI 用 --all 保证全量覆盖。
@@ -27,13 +33,32 @@ ALLOWLIST_PATHS=(
   "node_modules/"
   # 文档里的示例（占位符而非真实密钥）
   "docs/"
+  "specs/"
   ".github/workflows/"
+  # 开发/测试辅助脚本：内含伪造的本地凭据（与 tests/ 同类）
+  "scripts/dev/"
+  # 机器生成的依赖锁定文件：内容是 sha512 integrity 哈希（不是密钥），
+  # 且每次安装都会重写，行级标记无法持久。
+  "pnpm-lock.yaml"
+  "versions.lock"
   # 前端构建产物
   "dist/"
   "build/"
   ".venv/"
   "venv/"
 )
+
+# 行级豁免标记（detect-secrets 的通行写法）。
+#
+# 路径白名单只能豁免整棵目录；源码里「看起来像密钥赋值、实际是变量名 / 函数调用 /
+# 开发占位符」的行无法靠它消除，而放宽模式会同时削弱对真实密钥的检出——那是不可
+# 接受的取舍。所以在行尾加这个标记来精确豁免单行，例如：
+#
+#     signing_secret = resolve_local_file_signing_secret(  # pragma: allowlist secret
+#     accessToken: 'UPGRADE_INVENTORY_MODEL_TOKEN',        // pragma: allowlist secret
+#
+# 只跳过**命中行**，不影响同文件其它行，也不改变任何 pattern。
+LINE_ALLOWLIST_MARKER="pragma: allowlist secret"
 
 # 高置信模式：任何路径出现即失败。
 HIGH_CONFIDENCE_PATTERNS=(
@@ -64,8 +89,31 @@ HIGH_CONFIDENCE_PATTERNS=(
 
 # 低置信模式：仅在 --all 模式报告（不阻断钩子）。
 LOW_CONFIDENCE_PATTERNS=(
-  # 40+ 位 base64url 随机串
-  '[A-Za-z0-9_\-]{40,}==?'
+  # 40+ 位 base64url 随机串，且必须：① 出现在**值位置**（`=` / `:` 右侧，
+  # 可带引号）；② 以 base64 填充 `=` 结尾。
+  #
+  # 两个约束都是实测选出来的，不是随手写的：
+  #
+  #  ① 值位置。否则任何 40+ 字符的**标识符名字**都会命中，例如
+  #       ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_ENABLED=false
+  #       MOVO_DOC_PROCESSING_OSS_ACCESS_KEY_SECRET=
+  #     以及 `.env.example` / compose / 部署模板里的长 KEY 名。实测 `--all`
+  #     最初的 12 条低置信提示**全部**是这类误报，而本通道的意图是
+  #     「长**随机串**」（见文件头设计取舍）——变量名不是随机串。
+  #
+  #  ② 以 `=` 结尾。注意 `==?` 读作「一个**必选** `=` + 一个可选 `=`」，
+  #     并不是「可选填充」——这是**刻意保留**的窄化，不是笔误：把它改成语义
+  #     正确的 `={0,2}` 后实测 `--all` 的低置信提示由 12 条涨到 24 条
+  #     （`.specify/*.manifest.json` 的文件校验和、`sbom.cdx.json`、4 个 XSD、
+  #     3 个 requirements.txt、Vue 里的长 CSS 类名…），**逐条核对没有一条是
+  #     密钥**。根因是「40+ 字符」这个长度门槛本身就区分不了随机串与校验和 /
+  #     长标识符，所以这里只保留最窄的形态：值位置 + base64 填充。
+  #
+  # 高置信模式（AKIA / ghp_ / PEM / sk_live_ / JWT / `secret = <20+>` 等）
+  # 完全不受影响，真实凭据仍会被直接阻断；本通道只是提示、不阻断。
+  # 机器生成物里的 `sha512-…==`（pnpm-lock.yaml、versions.lock）由
+  # ALLOWLIST_PATHS 豁免。
+  $'[:=][[:space:]]*[\'\"]?[A-Za-z0-9_\\-]{40,}==?'
 )
 
 MODE="commit"
@@ -105,7 +153,17 @@ collect_files() {
 is_allowlisted() {
   local path="$1" entry
   for entry in "${ALLOWLIST_PATHS[@]}"; do
-    [[ "$path" == "$entry"* ]] && return 0
+    # 条目（目录名或文件名）可能在任意层级出现，不能只做前缀匹配。
+    #
+    # `--all` 模式用 `git ls-files` 产出的是仓库根相对全路径
+    # （`services/admin-api/tests/...`、`apps/user-web/pnpm-lock.yaml`），
+    # 而白名单只做前缀比较时会漏掉它们，于是测试固件里的伪造密钥样例、
+    # 锁定文件里的 integrity 哈希都会被当成真实泄露报出来。
+    #
+    # 两种形式都接受：
+    #   * `"$entry"*`      —— 仓库根下的 `tests/`、`docs/`、`pnpm-lock.yaml` 等
+    #   * `*"/$entry"*`    —— 任意层级下的同名目录 / 文件
+    [[ "$path" == "$entry"* || "$path" == *"/$entry"* ]] && return 0
   done
   return 1
 }
@@ -130,7 +188,10 @@ grep_patterns() {
     args+=(-e "$1")
     shift
   done
-  grep "${args[@]}" -- "$file" 2>/dev/null
+  # 行级豁免：命中行若带 LINE_ALLOWLIST_MARKER 则丢弃。`-F` 走字面匹配，
+  # 避免标记里的 `:` 被当成 ERE 语法。输出为空时管道返回 1，调用方只看
+  # 「输出是否为空」，故用 `|| true` 收尾。
+  grep "${args[@]}" -- "$file" 2>/dev/null | grep -vF "${LINE_ALLOWLIST_MARKER}" || true
 }
 
 found=0

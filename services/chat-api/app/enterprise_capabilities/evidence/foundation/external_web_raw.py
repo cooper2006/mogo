@@ -30,7 +30,7 @@ def tool_name_from_record(record: Dict[str, Any]) -> str:
     nested = record.get("result") if isinstance(record.get("result"), dict) else {}
     candidates.extend([nested.get("tool"), nested.get("tool_name")])
     for item in candidates:
-        token = _normalize_tool_name(item)
+        token = _normalize_tool_name(item)  # pragma: allowlist secret
         if token:
             return token
     return ""

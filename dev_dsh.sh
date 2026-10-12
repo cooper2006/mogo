@@ -108,7 +108,7 @@ mkdir -p "$DSH_STORAGE_ROOT"
 export DSH_RUNTIME_HOST_URL="http://127.0.0.1:$DSH_PORT"
 export DSH_MODEL_GATEWAY_URL="http://127.0.0.1:$BACKEND_PORT/internal/dsh/model/generate"
 export DSH_TOOL_GATEWAY_URL="http://127.0.0.1:$BACKEND_PORT/internal/dsh/tools"
-export DSH_MODEL_GATEWAY_SIGNING_SECRET="${DSH_MODEL_GATEWAY_SIGNING_SECRET:-askai-dsh-local-development-signing-secret}"
+export DSH_MODEL_GATEWAY_SIGNING_SECRET="${DSH_MODEL_GATEWAY_SIGNING_SECRET:-askai-dsh-local-development-signing-secret}"  # pragma: allowlist secret
 
 echo "Starting pinned DSH Runtime Host on :$DSH_PORT ..."
 "$NODE_BIN" "$HOST_ENTRY" \
