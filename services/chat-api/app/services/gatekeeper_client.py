@@ -17,9 +17,14 @@ from typing import Any, Optional
 import httpx
 
 from app.core.config import get_settings
+from app.security import gatekeeper as _gk
 
 # Keep this short: the gate sits on the hot path of every tool call.
 DEFAULT_TIMEOUT_SECONDS = 5.0
+
+#: 022 FR-12（T020）：本服务调用 admin-api 时声明的服务身份。
+CALLER_SERVICE_ID = "chat-api"
+LEGACY_TOKEN_ENV_NAMES = ("ADMIN_BACKEND_SERVICE_TOKEN",)
 
 
 class GateDeniedError(PermissionError):
@@ -32,6 +37,42 @@ class GateDeniedError(PermissionError):
         self.status_code = status_code
 
 
+def _shared_issuer() -> Any:
+    """惰性构建签发器（未配置时返回 None）。"""
+    if not hasattr(_shared_issuer, "_cached"):
+        _shared_issuer._cached = _gk.build_issuer_from_env(
+            CALLER_SERVICE_ID, extra_primary_names=LEGACY_TOKEN_ENV_NAMES
+        )
+    return _shared_issuer._cached
+
+
+def issuer_is_signed(token: str) -> bool:
+    """新式签名令牌形如 ``v1|payload|sig``（三段、首段为版本前缀）。"""
+    parts = str(token or "").split("|")
+    return len(parts) == 3 and parts[0] == "v1"
+
+
+def _legacy_token() -> str:
+    """回退：历史静态共享密钥。"""
+    settings = get_settings()
+    return str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")
+
+
+def _issue_for_context(tenant_id: str, user_id: str) -> str:
+    """按调用上下文签发令牌（租户/用户绑定进 claim，供双因子核对）。"""
+    issuer = _shared_issuer()
+    if issuer is None:
+        return ""
+    try:
+        return issuer.issue(
+            audience=CALLER_SERVICE_ID,
+            tenant_id=str(tenant_id or ""),
+            extra={"user_id": str(user_id or "")},
+        )
+    except Exception:  # noqa: BLE001 - 签发失败则回退静态密钥
+        return ""
+
+
 class GatekeeperClient:
     """HTTP client for ``POST /api/internal/gatekeeper/evaluate``."""
 
@@ -40,11 +81,20 @@ class GatekeeperClient:
         self._token = token
         self._timeout = timeout
 
-    def _resolve(self) -> tuple[str, str]:
+    def _resolve_base_url(self) -> str:
         settings = get_settings()
-        base_url = (self._base_url or str(settings.ADMIN_API_BASE_URL or "http://127.0.0.1:8100")).rstrip("/")
-        token = self._token or str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")
-        return base_url, token
+        return (self._base_url or str(settings.ADMIN_API_BASE_URL or "http://127.0.0.1:8100")).rstrip("/")
+
+    def _issue_service_token(self, *, tenant_id: str = "", user_id: str = "") -> str:
+        """022 T020：优先签发新式签名令牌，未配置时回退静态共享密钥。
+
+        - 显式覆盖（``self._token``）始终优先 —— 便于测试与运维手工签发；
+        - 新式令牌把调用方声明的租户/用户写进 claim，admin-api 侧据此做
+          双因子核对（令牌绑定 + 租户/用户一致）。
+        """
+        if self._token:
+            return self._token
+        return _issue_for_context(tenant_id, user_id) or _legacy_token()
 
     async def evaluate(
         self,
@@ -64,7 +114,8 @@ class GatekeeperClient:
 
         Fail-closed: any error reaching/understanding admin-api denies the call.
         """
-        base_url, token = self._resolve()
+        base_url = self._resolve_base_url()
+        token = self._issue_service_token(tenant_id=tenant_id, user_id=user_id)
         payload = {
             "tool": tool,
             "tenantId": tenant_id,

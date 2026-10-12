@@ -5,6 +5,8 @@ import hmac
 from dataclasses import dataclass
 from typing import Literal
 
+from typing import Any
+
 from fastapi import Header, HTTPException, Request
 
 from app.core.config import get_settings
@@ -57,17 +59,60 @@ async def _assert_end_user_scope(request: Request, principal: ApiPrincipal) -> N
         raise HTTPException(status_code=403, detail="tenant_scope_mismatch")
 
 
+#: 022 FR-12（T020）：本服务接受的调用方服务身份。
+EXPECTED_CALLER_SERVICE_ID = "admin-api"
+_LEGACY_TOKEN_ENV_NAMES = ("ADMIN_BACKEND_SERVICE_TOKEN",)
+
+
+def _incoming_service_issuer() -> Any:
+    """惰性构建签发器（未配置新式凭据时返回 None → 回退静态比对）。"""
+    if not hasattr(_incoming_service_issuer, "_cached"):
+        from app.security import gatekeeper as _gk
+
+        _incoming_service_issuer._cached = _gk.build_issuer_from_env(
+            EXPECTED_CALLER_SERVICE_ID,
+            extra_primary_names=_LEGACY_TOKEN_ENV_NAMES,
+        )
+    return _incoming_service_issuer._cached
+
+
 async def require_api_principal(
     request: Request,
     authorization: str | None = Header(default=None),
     service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
 ) -> ApiPrincipal:
     settings = get_settings()
+    tenant_hint = str(
+        request.query_params.get("tenantId")
+        or request.query_params.get("tenant_id")
+        or ""
+    )
+    user_hint = str(
+        request.query_params.get("userId")
+        or request.query_params.get("user_id")
+        or ""
+    )
+
+    # 022 T020：优先用新式签名令牌做双因子校验，未配置时回退静态比对。
+    from app.security import gatekeeper as _gk
+
+    try:
+        claim = _gk.verify_service_call(
+            str(service_token or ""),
+            expected_service_id=EXPECTED_CALLER_SERVICE_ID,
+            tenant_id=tenant_hint,
+            user_id=user_hint,
+            issuer=_incoming_service_issuer(),
+        )
+    except _gk.GatekeeperDenied as exc:
+        raise HTTPException(status_code=401, detail=str(exc.reason)) from exc
+    if claim is not None:
+        tenant_id = resolve_tenant_id(str(claim.tenant_id or tenant_hint))
+        return ApiPrincipal(kind="admin_service", tenant_id=tenant_id)
+
     expected_service_token = str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")
     if _matches(service_token, expected_service_token):
-        tenant_id = resolve_tenant_id(
-            request.query_params.get("tenantId") or request.query_params.get("tenant_id")
-        )
+        tenant_id = resolve_tenant_id(tenant_hint)
         return ApiPrincipal(kind="admin_service", tenant_id=tenant_id)
 
     resolved = await resolve_session_user(authorization)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import Header, HTTPException, status
 
 from app.core.security import decode_access_token
+from app.middleware import timeout as timeout_middleware
 from app.core.tenant_identity import is_platform_tenant_id, is_reserved_tenant_id
 from app.repositories.org_user_repository import find_account_by_username
 from app.repositories.admin_session_repository import find_session
@@ -34,6 +35,16 @@ async def _load_authenticated_account(authorization: str | None) -> dict:
     session = await find_session(str(session_id))
     if session is None or session.get("status") != "active":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is not active")
+
+    # 022 FR-11（T017）：空闲 30min / 绝对 24h 判定。这里是唯一加载会话的
+    # 入口，因此判定覆盖全部需认证路由。
+    verdict = await timeout_middleware.enforce_session_timeout(session)
+    if not verdict.ok:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=timeout_middleware.rejection_detail(verdict),
+        )
+    await timeout_middleware.touch_session_activity(str(session_id))
 
     user = await find_account_by_username(str(username), tenant_id)
     if user is None or user.get("status") != "active":

@@ -25,10 +25,53 @@ from app.governance import GateContext, gatekeeper
 router = APIRouter()
 
 
-def _require_service(token: str) -> None:
+#: 022 FR-12（T020）：期望的调用方服务身份。chat-api 是唯一的服务间调用方。
+EXPECTED_SERVICE_ID = "chat-api"
+
+#: 历史命名兼容：新式凭据未配置时回退到该静态共享密钥。
+LEGACY_TOKEN_ENV_NAMES = ("ADMIN_BACKEND_SERVICE_TOKEN",)
+
+
+def _service_token_issuer() -> Any:
+    """惰性构建签发器（未配置新式凭据时返回 None → 回退静态比对）。"""
+    if not hasattr(_service_token_issuer, "_cached"):
+        from app.security import gatekeeper as gk
+
+        _service_token_issuer._cached = gk.build_issuer_from_env(
+            EXPECTED_SERVICE_ID,
+            extra_primary_names=LEGACY_TOKEN_ENV_NAMES,
+        )
+    return _service_token_issuer._cached
+
+
+def _require_service(
+    token: str, *, tenant_id: str = "", user_id: str = ""
+) -> Any:
+    """校验服务令牌（022 FR-12 / T020：双因子 = 令牌绑定 + 租户/用户核对）。
+
+    优先使用新式签名令牌；未配置时回退到既有静态共享密钥（灰度可回滚）。
+    任何失败都 fail-closed 抛 401。
+    """
+    from app.security import gatekeeper as gk
+
+    try:
+        claim = gk.verify_service_call(
+            str(token or ""),
+            expected_service_id=EXPECTED_SERVICE_ID,
+            tenant_id=str(tenant_id or ""),
+            user_id=str(user_id or ""),
+            issuer=_service_token_issuer(),
+        )
+    except gk.GatekeeperDenied as exc:
+        raise HTTPException(status_code=401, detail=str(exc.reason)) from exc
+    if claim is not None:
+        return claim
+
+    # 回退：既有静态共享密钥（ADMIN_BACKEND_SERVICE_TOKEN）。
     expected = str(settings.backend_service_token or "")
-    if not token or not expected or not hmac.compare_digest(token, expected):
-        raise HTTPException(status_code=401, detail="invalid_service_token")
+    if str(token or "") and expected and hmac.compare_digest(str(token), expected):
+        return None
+    raise HTTPException(status_code=401, detail="invalid_service_token")
 
 
 class GateEvaluatePayload(BaseModel):
@@ -80,7 +123,11 @@ async def evaluate_gate(
     service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
 ) -> dict[str, Any]:
     """Run the six-layer chain and return the verdict (+ redacted request)."""
-    _require_service(service_token)
+    _require_service(
+        service_token,
+        tenant_id=str(payload.tenantId or ""),
+        user_id=str(payload.userId or ""),
+    )
 
     roles = await _resolve_roles(
         str(payload.tenantId or ""), str(payload.userId or ""), list(payload.roles or [])
@@ -170,7 +217,7 @@ async def list_gate_approvals(
     Without this the suspended calls were invisible to any approver — the ticket
     existed in ``gate_approvals`` with nobody able to see it (001 audit, 2026-10-03).
     """
-    _require_service(service_token)
+    _require_service(service_token, tenant_id=str(tenantId or ""))
 
     from app.core.db import get_db
     from app.governance.layers.approval import GATE_APPROVALS_COLLECTION
@@ -207,7 +254,7 @@ async def list_gate_events(
     read it — so "audit coverage 100%" was unverifiable (001 audit, 2026-10-03).
     This is the missing consumer.
     """
-    _require_service(service_token)
+    _require_service(service_token, tenant_id=str(tenantId or ""))
 
     from app.core.db import get_db
     from app.governance.layers.audit import GATE_EVENTS_COLLECTION

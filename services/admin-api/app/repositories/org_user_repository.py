@@ -251,19 +251,33 @@ async def touch_account_last_login(username: str, tenant_id: str) -> None:
     )
 
 
-async def set_account_password(username: str, password: str, tenant_id: str) -> None:
+async def set_account_password(
+    username: str,
+    password: str,
+    tenant_id: str,
+    *,
+    must_change_password: bool | None = None,
+) -> None:
+    """重置/修改口令。
+
+    Args:
+        must_change_password: 022 FR-13（T021）——由口令重置路径传入 ``True``
+            时，账号下次登录必须强制改密；由用户自助改密路径传入 ``False``
+            以清除标记。``None`` 表示不改动该字段（保持原值）。
+    """
     db = get_db()
     now = utcnow()
     password_hash, password_salt = hash_password(password)
+    fields: dict = {
+        "password_hash": password_hash,
+        "password_salt": password_salt,
+        "updated_at": now,
+    }
+    if must_change_password is not None:
+        fields["must_change_password"] = bool(must_change_password)
     await db[ACCOUNT_COLLECTION].update_one(
         {"username": username, "tenant_id": tenant_id},
-        {
-            "$set": {
-                "password_hash": password_hash,
-                "password_salt": password_salt,
-                "updated_at": now,
-            }
-        },
+        {"$set": fields},
     )
 
 

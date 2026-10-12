@@ -9,10 +9,24 @@ from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.end_user_auth import parse_and_verify_session_token
 from app.core.tenant import add_tenant_scope, resolve_tenant_id
+from app.security.session_timeout import (
+    ABSOLUTE_TIMEOUT_SECONDS,
+    IDLE_TIMEOUT_SECONDS,
+    REASON_ABSOLUTE,
+    REASON_IDLE,
+    enforce_session_timeout,
+    rejection_detail,
+)
 
 
 USER_COLLECTION = "end_users"
 USER_SESSION_COLLECTION = "end_user_sessions"
+
+# 022 FR-11（T018）：会话超时窗口与 admin-api 保持一致。
+SESSION_IDLE_TIMEOUT_SECONDS = IDLE_TIMEOUT_SECONDS
+SESSION_ABSOLUTE_TIMEOUT_SECONDS = ABSOLUTE_TIMEOUT_SECONDS
+#: chat-api 会话文档使用的时间字段（datetime，非 epoch）。
+LAST_SEEN_FIELD = "last_seen_at"
 
 
 def extract_bearer_token(authorization: str | None) -> str:
@@ -51,6 +65,24 @@ async def resolve_session_user(authorization: str | None) -> dict:
                 {"$set": {"status": "expired", "updated_at": now}},
             )
             raise HTTPException(status_code=401, detail="session_expired")
+
+    # 022 FR-11（T018）：空闲 30min / 绝对 24h 判定。
+    verdict = await enforce_session_timeout(
+        session_doc,
+        last_activity_field=LAST_SEEN_FIELD,
+        idle_limit_seconds=SESSION_IDLE_TIMEOUT_SECONDS,
+        absolute_limit_seconds=SESSION_ABSOLUTE_TIMEOUT_SECONDS,
+    )
+    if not verdict.ok:
+        await db[USER_SESSION_COLLECTION].update_one(
+            {"_id": session_doc["_id"]},
+            {"$set": {"status": "expired", "updated_at": now}},
+        )
+        detail = rejection_detail(verdict)
+        detail["reason"] = (
+            REASON_IDLE if verdict.reason == REASON_IDLE else REASON_ABSOLUTE
+        )
+        raise HTTPException(status_code=401, detail=detail)
 
     user_id = str(session_doc.get("user_id") or "")
     if not ObjectId.is_valid(user_id):

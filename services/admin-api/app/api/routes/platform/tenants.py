@@ -8,6 +8,7 @@ super-admin dependency (``get_current_platform_admin``). See
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -16,7 +17,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from app.api.deps import get_current_platform_admin
 from app.core.db import get_db
 from app.core.tenant_identity import PLATFORM_TENANT_ID
-from app.repositories.org_user_repository import set_account_password
+from app.repositories.org_user_repository import (
+    ACCOUNT_COLLECTION,
+    set_account_password,
+)
 # 022 FR-1（T008）：统一口令策略
 from app.security.password_policy import validate_password as validate_password_policy
 from app.services import tenant_lifecycle, tenant_purge
@@ -175,7 +179,15 @@ async def reset_tenant_admin_password(
     if verdict.is_rejected:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=verdict.public_message())
 
-    await set_account_password(username, new_password, str(tenant.get("tenant_id")))
+    # 022 FR-13（T021）：管理员代重置口令 → 首次登录强制改密（5h 兜底过期）
+    db = get_db()
+    await set_account_password(
+        username, new_password, str(tenant.get("tenant_id")), must_change_password=True
+    )
+    await db[ACCOUNT_COLLECTION].update_one(
+        {"username": username, "tenant_id": str(tenant.get("tenant_id"))},
+        {"$set": {"must_change_password_set_at": int(time.time())}},
+    )
     await tenant_lifecycle._record_audit(
         str(tenant.get("tenant_id")),
         _actor(platform_admin),

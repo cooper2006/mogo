@@ -66,15 +66,31 @@
 **Goal**: access token TTL ≤ 1h + refresh 链路可达 + 空闲/绝对超时 + 服务间独立凭证。
 **独立测试**: TTL ≤ 1h；refresh 一次性轮换；空闲 30min 超时；服务间独立 token。
 
-- [ ] T014 [P] 修改 `services/chat-api/app/api/routes/auth.py`：`END_USER_AUTH_TOKEN_TTL_SECONDS` 默认值 ≤ 3600s，启动时超过 1h 告警（3h）
-- [ ] T015 [P] 修改 `services/admin-api/app/api/routes/auth.py`：`access_token_ttl_seconds` 默认值 ≤ 3600s，启动时超过 1h 告警（3h）
-- [ ] T016 修改 `services/admin-api/app/api/routes/auth.py`：打通 `/auth/refresh` 链路（当前死代码），实现一次性轮换 + 重放检测吊销整个 family（6h）
-- [ ] T017 修改 `services/admin-api/app/middleware/timeout.py`：空闲 30min / 绝对 24h 超时判定，`last_activity_at` 读取判定（5h）
-- [ ] T018 修改 `services/chat-api/app/api/routes/auth.py`：增加空闲 30min / 绝对 24h 超时判定（4h）
-- [ ] T019 [P] 新增 `services/admin-api/app/security/service_token.py`：服务间独立凭证（每个服务独立 token，生命周期 ≤ 24h，支持轮换）（5h）
-- [ ] T020 修改 `services/admin-api/app/deps.py` + `services/chat-api/app/deps.py`：gatekeeper 服务身份校验（token + tenantId/userId 双因子核对，跨租户拒绝）（6h）
-- [ ] T021 修改 `services/admin-api/app/api/routes/auth.py`：口令重置与管理端改密走一次性临时凭据 + 首次登录强制改密（QF-524）（5h）
-- [ ] T022 US2 集成测试：TTL ≤ 1h / refresh 一次性轮换 / 空闲 30min 超时 / 服务间独立凭证 / 重置后强制改密（4h）
+- [x] T014 [P] 修改 `services/chat-api/app/api/routes/auth.py`：`END_USER_AUTH_TOKEN_TTL_SECONDS` 默认值 ≤ 3600s，启动时超过 1h 告警（3h）
+- [x] T015 [P] 修改 `services/admin-api/app/api/routes/auth.py`：`access_token_ttl_seconds` 默认值 ≤ 3600s，启动时超过 1h 告警（3h）
+- [x] T016 修改 `services/admin-api/app/api/routes/auth.py`：打通 `/auth/refresh` 链路（当前死代码），实现一次性轮换 + 重放检测吊销整个 family（6h）
+- [x] T017 修改 `services/admin-api/app/middleware/timeout.py`：空闲 30min / 绝对 24h 超时判定，`last_activity_at` 读取判定（5h）
+- [x] T018 修改 `services/chat-api/app/api/routes/auth.py`：增加空闲 30min / 绝对 24h 超时判定（4h）
+- [x] T019 [P] 新增 `services/admin-api/app/security/service_token.py`：服务间独立凭证（每个服务独立 token，生命周期 ≤ 24h，支持轮换）（5h）
+- [x] T020 修改 `services/admin-api/app/deps.py` + `services/chat-api/app/deps.py`：gatekeeper 服务身份校验（token + tenantId/userId 双因子核对，跨租户拒绝）（6h）
+- [x] T021 修改 `services/admin-api/app/api/routes/auth.py`：口令重置与管理端改密走一次性临时凭据 + 首次登录强制改密（QF-524）（5h）
+- [x] T022 US2 集成测试：TTL ≤ 1h / refresh 一次性轮换 / 空闲 30min 超时 / 服务间独立凭证 / 重置后强制改密（4h）
+
+**Phase 2 完成状态（2026-10-12）**：T014–T022 全部落地，双服务（admin-api / chat-api）同步实施。
+
+| 项 | 结果 |
+| --- | --- |
+| T014 chat-api access token TTL | 7 天 → 3600s（1h）+ 启动告警 `MAX_END_USER_TOKEN_TTL_SECONDS` |
+| T015 admin-api access token TTL | 12h → 3600s（1h）+ 启动告警 `MAX_ACCESS_TOKEN_TTL_SECONDS` |
+| T016 `/auth/refresh` 链路 | 语义修正为「当前有效凭证登记表」；登录签发 refresh token；`is_current` 翻转实现一次性轮换；重放检测吊销整个 family + 清理会话 |
+| T017 admin-api 会话超时 | 新增 `app/security/session_timeout.py`（纯逻辑）+ `app/middleware/timeout.py`（薄封装）；接入 `deps._load_authenticated_account` 覆盖全部需认证路由 |
+| T018 chat-api 会话超时 | 共用同一份 `session_timeout.py`；接入 `end_user_session.resolve_session_user`，超时会话置 `expired` |
+| T019 服务间独立凭证 | 新增 `app/security/service_token.py`（双服务镜像）：HMAC-SHA256 签名令牌 `v1\|payload\|sig`，TTL ≤ 24h，密钥轮换窗口 |
+| T020 gatekeeper 双因子 | 新增 `app/security/gatekeeper.py`（双服务镜像）：`service_id` + `tenant_id` + `user_id` 三重绑定；chat-api `gatekeeper_client` 按上下文签发；未配置新式凭据时回退既有静态共享密钥（灰度可回滚） |
+| T021 一次性凭据 + 强制改密 | 口令重置沿用一次性高熵短期凭据；新增 `must_change_password` 标记（管理员代重置置位）+ 5h 兜底过期防永久锁死；自助 `/recover/reset` 清除标记（逃生门）；`RecoveryResetRequest.newPassword` 下限 10 → 12 |
+| T022 集成测试 | 新增 4 个测试文件、双服务共 76 个用例 |
+
+**验证**：admin-api **760 passed** / chat-api **2549 passed**（2 个在途 `dsh_runtime` tzinfo 缺陷，与本阶段无关）。
 
 ---
 

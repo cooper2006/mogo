@@ -1,5 +1,88 @@
 # Work Log
 
+## 2026-10-12 022 安全加固 Phase 2「令牌与会话生命周期」落地（T014–T022，双服务）
+
+**目标**：完成 022 的 US2（P1）——access token TTL ≤ 1h、refresh 链路可达且一次性轮换、空闲 30min / 绝对 24h 超时、服务间独立凭证、口令重置强制改密。
+
+### 改动清单
+
+| 项 | 文件 | 要点 |
+| --- | --- | --- |
+| T014 | `services/chat-api/app/core/config.py` | `END_USER_AUTH_TOKEN_TTL_SECONDS` 7 天 → 3600；新增 `MAX_END_USER_TOKEN_TTL_SECONDS` 并在 `get_settings()` 启动校验告警 |
+| T015 | `services/admin-api/app/core/config.py` | `access_token_ttl_seconds` 12h → 3600；新增 `MAX_ACCESS_TOKEN_TTL_SECONDS` 启动校验告警 |
+| T016 | `services/admin-api/app/api/routes/auth.py` | `_issue_refresh_token_pair`（fail-open 签发）；`/auth/refresh` 重写为「当前有效凭证登记表」语义 —— `is_current` 翻转实现一次性轮换，重放即吊销整个 family + 清理会话，新增 `_revoke_refresh_family`；绝对/空闲超时判定 |
+| T017 | `services/admin-api/app/security/session_timeout.py`（新）+ `app/middleware/timeout.py`（新）+ `app/api/deps.py` + `app/repositories/admin_session_repository.py` | 纯判定层 `evaluate_session_timeout`（空闲 30min / 绝对 24h，双服务共用）；接入 `deps._load_authenticated_account` 覆盖全部需认证路由；`touch_session_activity` 刷新 `last_activity_at`；`create_session` 增补 `tenant_id` + `last_activity_at` 字段与索引；`_epoch_seconds` 归一化 Mongo 混用的 datetime / epoch 写入 |
+| T018 | `services/chat-api/app/security/session_timeout.py`（镜像）+ `app/services/end_user_session.py` | 共用同一份判定逻辑（`last_activity_field="last_seen_at"`）；超时返回统一 `SESSION_TIMEOUT` 详情并把会话置 `expired` |
+| T019 | `services/{admin-api,chat-api}/app/security/service_token.py`（镜像） | HMAC-SHA256 签名令牌 `v1\|payload\|sig`；`ServiceCredentialVault.from_env`（`MOGO_{SID}_TOKEN` → `MOGO_SERVICE_TOKEN` 回退 + `_PREVIOUS` 轮换窗口）；`issue()` TTL 夹取到 24h 上限；`verify()` 签名→结构→身份→受众→时效校验；39 用例 |
+| T020 | `app/security/gatekeeper.py`（双服务镜像）+ `chat-api/app/services/gatekeeper_client.py` + `chat-api/app/api/principal.py` + `admin-api/app/api/routes/gatekeeper_internal.py` | 三重绑定（`service_id` / `tenant_id` / `user_id`）fail-closed；chat-api 客户端按调用上下文签发令牌；admin-api `/api/internal/gatekeeper/*` 校验；`build_issuer_from_env` 未配置时返回 `None` → 回退既有 `ADMIN_BACKEND_SERVICE_TOKEN` 静态比对（灰度可回滚）；`issue()` 增补 `extra` 承载业务上下文；22 用例 |
+| T021 | `services/admin-api/app/api/routes/auth.py` + `app/repositories/org_user_repository.py` + `app/api/routes/platform/tenants.py` | 管理员代重置置 `must_change_password=True` + 写入 `must_change_password_set_at`；登录闸门 `_assert_password_change_not_required` 在签发任何令牌前拦截，5h 兜底过期防永久锁死；自助 `/recover/reset` 与 `/me/password` 清除标记（逃生门，避免「重置后无法登录」死锁）；`RecoveryResetRequest.newPassword` 下限 10 → `MIN_PASSWORD_LENGTH`(12) |
+| T022 | `tests/test_token_lifecycle.py`(20) / `test_security_session_timeout.py`(28 + chat-api 14) / `test_security_service_token.py`(39×2) / `test_security_gatekeeper.py`(22×2) / `test_security_password_reset.py`(11) | 纯函数判定 + 接入点 401 语义 + 边界（恰好 30min / 24h / 5h）+ fail-open 降级路径全覆盖 |
+
+### 关键设计决策
+
+- **纯判定层与接入层分离**：`app/security/session_timeout.py` 只吃「会话文档 + 当前时间」，产出 verdict；接入层（admin-api `deps`、chat-api `resolve_session_user`）负责触库与 401 语义。双服务共用同一份逻辑，避免口径漂移。
+- **fail-closed 但向后兼容**：会话文档缺失时不阻断（由令牌 `exp` 兜底），避免历史数据把存量用户全部登出；令牌/租户/用户任一绑定不满足即拒绝。
+- **服务间凭据灰度**：新式签名令牌未配置时，`build_issuer_from_env` 返回 `None`，调用方回退到既有静态共享密钥 —— 可逐环境开启、随时回滚，不是一次性大爆炸切换。
+- **强制改密的死锁规避**：管理员代重置置位强制改密，但自助一次性凭据重置与 `/me/password` 必须**清除**标记，否则用户会陷入「无法登录 → 无法改密 → 只能反复重置」的死锁；再加 5h 兜底过期，防止配置异常导致永久锁死。
+- **`admin_sessions` 时间字段统一**：历史写入既可能是 `datetime`（`create_session`）也可能是 epoch int（refresh 轮换），读取侧用 `_epoch_seconds` 统一归一化，不强制迁移历史数据。
+- **refresh 语义修正**：原实现把 `admin_refresh_tokens` 误当「已使用日志」，导致登录签发的那枚 refresh token 第一次使用即被判为重放而吊销整个 family。改为「当前有效凭证登记表」+ `is_current` 翻转。
+
+### 验证
+
+- `services/admin-api/venv/bin/python -m pytest -p no:cacheprovider -p no:warnings --timeout=120` → **760 passed**（Phase 1 后为 641，本阶段 +119）
+- `services/chat-api/venv/bin/python -m pytest -p no:cacheprovider -p no:warnings --timeout=120` → **2549 passed**，2 个在途失败 `tests/dsh_runtime/test_document_script_boundaries.py`（`tzinfo argument must be None or of a tzinfo subclass`，来自 `app/enterprise_capabilities/data/script.py:55` 脚本执行器，属其他会话在途工作，与本阶段无关）
+
+### 更新文件
+
+- `specs/022-security-hardening/tasks.md`（T014–T022 勾选 + Phase 2 完成状态块）
+- `specs/INDEX.md`（第 153 行进度更新）
+- `docs/WORK_LOG.md`（本条目）
+
+
+## 2026-10-12 022 ↔ W1 对齐（不改代码，产出对齐备忘）
+
+**目标**：按用户决定"先与 022 对齐"，在动 W1（对话入口服务主体通道）代码前钉死能力边界。**本轮未改动任何服务代码。**
+
+**变更文件**：
+- `docs/022-W1-对齐备忘.md`（新增）
+- `docs/WORK_LOG.md`（本条目）
+
+**对齐结论**：
+- W1 与 022 的 **QF-558 / QF-561 / QF-562** 属同一能力域。**QF-561**（"gatekeeper 校验 token + 声明的 tenantId/userId 一致、跨租户拒绝"）与 W1 设计的"userId 显式声明 + 校验归属租户"是同一件事。
+- → **W1 不应自建服务身份校验**；净增量收窄为 3 项：①接到对话入口 `/api/chat/completions` ②对话入口特有约束（tenant 只取自签名 claim）③配置开关默认关闭。
+- 依赖关系：W1 等 022 **T020**（gatekeeper 服务身份校验）落地后再接线。
+
+**给 022 实施者的两条高价值提醒（本轮核实）**：
+1. **tasks.md / plan.md 有 4 处路径过期**：`admin-api/app/deps.py` 实际是 `app/api/deps.py`（T017 已落此）；`chat-api/app/deps.py` **不存在**（对应物是 `app/api/principal.py`）；`chat-api/app/api/routes/auth.py` 实际是 `app/api/endpoints/auth.py`；`chat-api/app/middleware/` **不存在**。注：admin-api 侧 `app/api/routes/`、`app/middleware/` 确实存在，错的只有 chat-api 侧与两处 `deps.py`。
+2. **plan.md 的 `service_tokens` 集合不存在且不该建**：已落库的 `service_token.py` 是无状态签名 envelope（docstring 明说"不需要存储表"），全仓库检索该集合零引用（唯一命中为测试函数名）。按 plan 去建集合是白做工。
+- 另：**T019 勾选状态与实际不符**（仍标 `[ ]`，但模块已在 admin-api 与 chat-api 双侧落库）。
+
+**交接契约（写入备忘 §5）**：T020 落点建议 `chat-api/app/api/principal.py`；W1 接线点 `dsh_chat.py::_identity`（14 处调用点，用**可选关键字参数**保证既有调用行为不变）；开关 `CHAT_SERVICE_PRINCIPAL_ENABLED` 默认 `False`。
+
+**验证方式**：对照 `specs/022-security-hardening/{spec,plan,tasks}.md` 与源码实际落点逐一核对（`services/{chat-api,admin-api}/app/security/service_token.py`、`admin-api/app/api/deps.py`、`chat-api/app/api/principal.py`、`chat-api/app/api/endpoints/dsh_chat.py`）。纯文档变更，无测试影响。
+
+**待办**：等 022 落地后走 W1 一轮（清单见备忘 §6）；网关同域路径前缀反代（W5）与 022 无耦合，可并行。
+
+## 2026-10-12 新增《MOGO × 业务系统 集成实施方案》（按已确认决策落到工作项）
+
+**目标**：用户确认四项决策（业务系统"两者都有" / 接受源码改造走路径 B / 允许 MOGO 直连其 API 与数据库 / 同域分域未明确）后，把方案落到可执行的改动点。
+
+**变更文件**：
+- `docs/业务系统集成-实施方案.md`（新增）
+- `docs/WORK_LOG.md`（本条目）
+
+**本轮新增的关键发现**：
+- 仓库存在**两套服务凭证机制**：机制 A（旧，在用）= `app/api/principal.py` 用 `hmac.compare_digest` 比对环境变量 `ADMIN_BACKEND_SERVICE_TOKEN` 的共享静态密钥；机制 B（新）= `app/security/service_token.py` 的签名令牌 `v1|payload|signature`（租户绑定 + audience 绑定 + ≤24h TTL + 主备双密钥轮换）。
+- **机制 B 当前零生产引用**（`app/security/` 下全模块 grep 无外部引用）—— 属"实现了但未接线"，正是 `scripts/check_production_wiring.py` 要防的那类缺陷。
+- 机制 B 归属 **022 安全加固**（`specs/022-security-hardening/spec.md` 的 QF-558「服务间独立凭证」，`tasks.md` 的 **T019 仍未勾选**）。022 spec 明确指出旧机制的洞：*"`backend_service_token` 全服务共享；gatekeeper 仅校验 token 即放行任意 tenantId/userId"*。
+- → 因此实施方案主张：**路径 B 必须建在机制 B 上，不能建在旧共享密钥上**，否则把"服务方可自称任意租户/用户"的洞留给业务系统。
+
+**内容结构**：决策回填 → 目标架构 → W1 服务主体通道（机制选型对比表 + 5 处改动点清单 + `require_chat_principal` 设计草案 + 6 条安全约束 + 测试门禁 + **并行会话协调提醒**）→ W2 事件入站（路径 A 复用链路一 / 路径 B IM webhook 对比与选择建议）→ W3 直连业务系统（HTTP 工具清单 + 语义索引认证限制）→ W4 BFF → W5 网关（同域/分域/`/internal/im/` 三套 nginx 配置）→ 排期验收 → 风险回滚 → 待确认 5 项。
+
+**验证方式**：全部对照源码核对（`app/api/principal.py`、`app/security/service_token.py`、`tests/test_security_service_token.py`、`app/api/endpoints/dsh_chat.py`、`app/core/quota_policy.py`、`app/dsh_runtime/turn_admission.py`、`scripts/check_production_wiring.py`、`specs/022-security-hardening/{spec,tasks}.md`）。纯文档变更，未改动服务代码，无测试影响。
+
+**并行会话提醒**：022 正在并行推进（本轮 09:56 读到 `tasks.md` 的 T019 仍未勾选而模块已落库；本轮写入 `WORK_LOG.md` 时顶部已被 022 Phase 1 条目占据）。W1 落地前需与该会话对齐，避免重复实现 `ServiceTokenIssuer.from_env` 与撞车。提交时只暂存本轮确认改过的文件。
+
 ## 2026-10-12 022 安全加固 Phase 1「口令与 MFA 强制策略」落地（T008/T009/T011/T012/T013）
 
 **目标**：按 `specs/022-security-hardening/tasks.md` 落地 Phase 1 剩余任务（T007 / T010 已在 Phase 0 随模块交付），把 FR-1 口令策略与 FR-2/3/4 MFA 强制真正接入登录链路。

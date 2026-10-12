@@ -10,6 +10,10 @@
 - :mod:`app.security.encryption` — FR-19 敏感字段 AES-256-GCM 加密
 - :mod:`app.security.redaction` — FR-20/21 日志脱敏 / 响应裁剪
 - :mod:`app.security.audit_events` — FR-23 防篡改审计事件（哈希链）
+- :mod:`app.security.mfa_gate` — FR-2/3/4 登录闸门组合层（T011/T012/T013）
+- :mod:`app.security.service_token` — FR-12 服务间独立凭证（T019）
+- :mod:`app.security.session_timeout` — FR-11 会话空闲/绝对超时判定（T017/T018）
+- :mod:`app.security.gatekeeper` — FR-12 服务间调用双因子校验（T020）
 
 这些模块保持「纯逻辑 + 可注入依赖」形态：口令/MFA/加密/脱敏/哈希链的核心判定
 不依赖数据库或网络，便于单元测试；只有 :class:`AuditEventRepository` 与
@@ -21,8 +25,12 @@ from __future__ import annotations
 __all__ = [
     "audit_events",
     "encryption",
+    "gatekeeper",
     "kms",
+    "mfa_gate",
     "mfa_policy",
     "password_policy",
     "redaction",
+    "session_timeout",
+    "service_token",
 ]

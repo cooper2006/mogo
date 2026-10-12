@@ -1,7 +1,8 @@
 import hashlib
 import hmac
-import secrets
+import logging
 import re
+import secrets
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -47,6 +48,9 @@ from app.repositories.org_user_repository import (
     update_account_profile,
 )
 from app.repositories.admin_session_repository import create_session, revoke_session
+
+
+logger = logging.getLogger(__name__)
 
 
 class LoginRequest(BaseModel):
@@ -249,6 +253,48 @@ async def _create_login_challenge(username: str, candidates: list[dict[str, obje
     }
 
 
+#: 强制改密状态的兜底过期窗口（5h）：防止配置错误或管理员代设口令后
+#: 用户长期无法联系运维而被永久锁死。
+PASSWORD_CHANGE_REQUIRED_TTL_SECONDS = 5 * 3600
+
+
+async def _assert_password_change_not_required(user: dict[str, Any]) -> None:
+    """022 FR-13（T021）：口令被管理员重置后首次登录必须强制改密。
+
+    在签发任何令牌之前拦截 —— 否则攻击者拿到一次性凭据完成重置后，
+    还能用旧口令换取一个可用会话。
+
+    兜底：标记写入超过 5h 后自动失效（fail-open），避免永久锁死；
+    自助一次性凭据重置（``/recover/reset``）会主动清除标记。
+    """
+    if not user.get("must_change_password"):
+        return
+
+    set_at = user.get("must_change_password_set_at")
+    if set_at is not None:
+        try:
+            set_ts = int(float(set_at))
+        except (TypeError, ValueError):
+            set_ts = 0
+        if set_ts and int(time.time()) - set_ts > PASSWORD_CHANGE_REQUIRED_TTL_SECONDS:
+            # 超过 5h：标记过期，放行但记录告警（配置异常，需人工排查）。
+            logger.warning(
+                "passwordChangeRequired expired after %ss for user %s",
+                PASSWORD_CHANGE_REQUIRED_TTL_SECONDS,
+                user.get("username"),
+            )
+            return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "passwordChangeRequired": True,
+            "message": "口令已被重置，请修改口令后再登录",
+            "username": str(user.get("username") or ""),
+            "tenantId": str(user.get("tenant_id") or ""),
+        },
+    )
+
+
 async def _issue_login_response(user: dict[str, Any], tenant_id: str, request: Request) -> dict[str, object]:
     """Issue the post-password-login response.
 
@@ -258,6 +304,9 @@ async def _issue_login_response(user: dict[str, Any], tenant_id: str, request: R
     """
     await touch_account_last_login(user["username"], tenant_id)
     profile = _profile_from_user(user, tenant_id)
+
+    # 022 FR-13（T021）：口令重置后首次登录必须强制改密（先于一切签发）。
+    await _assert_password_change_not_required(user)
 
     # 022 FR-2: 高权限账号登录闸门（限流维度 = username + tenant_id + IP）
     gate = await mfa_gate.evaluate_login_gate(
@@ -350,10 +399,16 @@ async def _issue_login_response(user: dict[str, Any], tenant_id: str, request: R
         user_agent=request.headers.get("user-agent"),
         ip=request.client.host if request.client else None,
     )
-    return {
+    response: dict[str, object] = {
         "token": token,
         "profile": profile,
     }
+    # 022 T016：签发 refresh token，让 /refresh 轮换链路真正可达。
+    refresh_pair = await _issue_refresh_token_pair(user["username"], tenant_id, session_id)
+    if refresh_pair is not None:
+        response["refreshToken"] = refresh_pair[0]
+        response["refreshExpiresAt"] = refresh_pair[1]
+    return response
 
 
 def _password_matches(user: dict[str, Any], password: str) -> bool:
@@ -532,7 +587,11 @@ async def change_my_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=strength_error)
 
     tenant_id = str(current_user["tenant_id"])
-    await set_account_password(str(current_user["username"]), payload.newPassword, tenant_id)
+    # 022 T021：自助改密成功即视为已完成强制改密，清除标记。
+    await set_account_password(
+        str(current_user["username"]), payload.newPassword, tenant_id,
+        must_change_password=False,
+    )
 
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "", 1).strip()
@@ -780,15 +839,19 @@ async def mfa_verify(payload: MfaVerifyRequest, request: Request) -> dict[str, o
     secret_hash = str(user_doc.get("mfa_secret_hash") or "")
     if not secret_hash:
         # MFA was disabled after the login started; fall through.
-        token_out, expires_at, sid = await _issue_mfa_login_response(
+        token_out, expires_at, sid, refresh_pair = await _issue_mfa_login_response(
             db, user_doc, tenant_id, session_id
         )
-        return {
+        body: dict[str, object] = {
             "success": True,
             "accessToken": token_out,
             "expiresAt": expires_at,
             "sessionId": sid,
         }
+        if refresh_pair is not None:
+            body["refreshToken"] = refresh_pair[0]
+            body["refreshExpiresAt"] = refresh_pair[1]
+        return body
 
     # Decrypt the stored secret and verify the TOTP code.
     secret_encrypted = str(user_doc.get("mfa_secret_encrypted") or "")
@@ -854,15 +917,19 @@ async def mfa_verify(payload: MfaVerifyRequest, request: Request) -> dict[str, o
             },
         )
 
-    token_out, expires_at, sid = await _issue_mfa_login_response(
+    token_out, expires_at, sid, refresh_pair = await _issue_mfa_login_response(
         db, user_doc, tenant_id, session_id
     )
-    return {
+    body = {
         "success": True,
         "accessToken": token_out,
         "expiresAt": expires_at,
         "sessionId": sid,
     }
+    if refresh_pair is not None:
+        body["refreshToken"] = refresh_pair[0]
+        body["refreshExpiresAt"] = refresh_pair[1]
+    return body
 
 
 async def _store_mfa_secret(username: str, tenant_id: str, secret_hash: str, secret_encrypted: str) -> None:
@@ -899,8 +966,12 @@ async def _clear_mfa_secret(username: str, tenant_id: str) -> None:
 
 async def _issue_mfa_login_response(
     db, user_doc: dict, tenant_id: str, session_id: str
-) -> tuple[str, int, str]:
-    """Issue a full access token after MFA verification succeeds."""
+) -> tuple[str, int, str, tuple[str, int] | None]:
+    """Issue a full access token after MFA verification succeeds.
+
+    022 T016：同时签发 refresh token（family 复用原 session_id）。
+    Returns ``(token, expires_at, session_id, refresh_pair | None)``。
+    """
     username = str(user_doc.get("username") or "")
     display_name = str(user_doc.get("display_name") or username)
     token, expires_at, sid = create_access_token(
@@ -916,13 +987,45 @@ async def _issue_mfa_login_response(
     )
     # Reuse the original session_id if available, otherwise create a new one.
     await create_session(sid, username, tenant_id, expires_at)
-    return token, expires_at, sid
+    return token, expires_at, sid, await _issue_refresh_token_pair(username, tenant_id, sid)
 
 
-# ── QF-350: Refresh token rotation with replay detection ─────────────────
+# ── QF-350 / 022 FR-11 (T016): refresh token family ───────────────────────
 
 REFRESH_TOKEN_COLLECTION = "admin_refresh_tokens"
 RECOVERY_TOKEN_COLLECTION = "admin_recovery_tokens"
+
+
+async def _issue_refresh_token_pair(
+    username: str, tenant_id: str, session_id: str
+) -> tuple[str, int] | None:
+    """T016：为一次成功登录签发 refresh token，并登记 family 的首枚凭证。
+
+    返回 ``(refresh_token, refresh_expires_at)``；存储失败时返回 ``None`` ——
+    access token 不受影响，refresh 链路静默降级，避免因为 token 表故障把
+    整条登录流程打断（fail-open，与 MFA 审计降级语义一致）。
+    """
+    db = get_db()
+    try:
+        refresh_token, expires_at, token_id, family_id = create_refresh_token(
+            {"username": username, "tenant_id": tenant_id}, family_id=session_id
+        )
+        await db[REFRESH_TOKEN_COLLECTION].insert_one(
+            {
+                "token_id": token_id,
+                "family_id": family_id,
+                "username": username,
+                "tenant_id": tenant_id,
+                "created_at": int(time.time()),
+                "is_current": True,
+            }
+        )
+        return refresh_token, expires_at
+    except Exception as exc:  # noqa: BLE001 - 存储故障降级，不阻断登录
+        logger.warning(
+            "refresh token issuance failed for %s/%s: %s", username, tenant_id, exc
+        )
+        return None
 
 
 class RefreshTokenRequest(BaseModel):
@@ -940,7 +1043,41 @@ class RecoveryRequest(BaseModel):
 
 class RecoveryResetRequest(BaseModel):
     token: str = Field(min_length=20, max_length=200)
-    newPassword: str = Field(min_length=10, max_length=128)
+    newPassword: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
+
+
+def _epoch_seconds(value: Any) -> int:
+    """把 Mongo 里混用的 datetime / epoch int / epoch float 统一成 Unix 秒。
+
+    `admin_sessions` 的历史写入既可能是 `datetime`（`create_session`）也可能是
+    epoch int（refresh 轮换时写入），读取侧必须两种都吃。
+    """
+    if value is None:
+        return 0
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _revoke_refresh_family(
+    db, family_id: str, tenant_id: str, username: str, *, reason: str
+) -> None:
+    """吊销整个 refresh family 并清理对应会话（QF-350 / 022 T016）。
+
+    会话删除精确到 ``session_id == family_id``：``admin_sessions`` 历史文档
+    不一定带 ``tenant_id``，用租户+用户名匹配会漏删或误删。
+    """
+    await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": family_id})
+    await db["admin_sessions"].delete_many(
+        {"username": username, "session_id": family_id}
+    )
+    logger.warning(
+        "refresh family revoked: reason=%s user=%s tenant=%s family=%s",
+        reason, username, tenant_id, family_id[:8],
+    )
 
 
 @router.post("/refresh")
@@ -949,10 +1086,11 @@ async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
 
     Flow:
     1. Decode the refresh token.
-    2. Check if the token ID has been used before (replay detection).
-    3. If used, revoke the entire family and return 401.
-    4. If not used, mark it as used and issue a new token.
-    5. Also check session timeout (QF-352).
+    2. 凭证不存在 → 吊销 family 并返回 401（未知 token 与重放同处置）。
+    3. 凭证已被轮换消费（`is_current=False`）→ 重放攻击，吊销整个 family
+       并清掉该用户在本租户下的所有会话，返回 401。
+    4. 校验会话超时：绝对 24h（QF-352）/ 空闲 30min（022 T017）。
+    5. 一次性轮换：旧凭证置为 `is_current=False`，签发新凭证与新 access token。
     """
     from app.repositories.admin_session_repository import create_session, revoke_session
     from app.repositories.org_user_repository import find_account_by_username
@@ -972,50 +1110,64 @@ async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
     db = get_db()
+    now_ts = int(time.time())
 
-    # QF-350: Check if this token ID has been used before (replay detection).
-    used_token = await db[REFRESH_TOKEN_COLLECTION].find_one({"token_id": token_id})
-    if used_token:
-        # Replay detected! Revoke the entire family.
-        await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": family_id})
-        await db["admin_sessions"].delete_many({"tenant_id": tenant_id, "username": username})
+    # ── QF-350 / 022 FR-11（T016）：一次性轮换 + 重放检测 ────────────────
+    # `admin_refresh_tokens` 是"当前有效凭证登记表"：每个 token_id 恰好一条，
+    # `is_current=True` 表示该凭证尚未被轮换消费过。
+    credential = await db[REFRESH_TOKEN_COLLECTION].find_one(
+        {"token_id": token_id, "family_id": family_id}
+    )
+    if credential is None:
+        # 从未签发、或整个 family 已被吊销 —— 与"重放"同样处置，统一清场。
+        await _revoke_refresh_family(db, family_id, tenant_id, username, reason="unknown_token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
+    if credential.get("is_current", True) is False:
+        # 已被轮换消费的凭证再次出现 → 判定为重放，吊销整个 family 并踢掉会话。
+        await _revoke_refresh_family(
+            db, family_id, tenant_id, username, reason="replay_detected"
+        )
+        logger.warning(
+            "refresh token replay detected: user=%s tenant=%s family=%s token=%s",
+            username, tenant_id, family_id, token_id[:8],
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token reuse detected. All sessions revoked.",
         )
 
-    # QF-352: Check absolute session timeout.
-    created_at = int(used_token.get("created_at") or 0) if used_token else 0
-    # If no record yet, this is the first use — check the session.
-    session_doc = None
-    if family_id:
-        session_doc = await db["admin_sessions"].find_one({"session_id": family_id, "tenant_id": tenant_id})
-        if session_doc:
-            session_created = int(session_doc.get("created_at") or 0)
-            if session_created and (int(time.time()) - session_created) > ABSOLUTE_TIMEOUT_SECONDS:
-                # Absolute timeout exceeded — revoke family.
-                await db[REFRESH_TOKEN_COLLECTION].delete_many({"family_id": family_id})
-                await db["admin_sessions"].delete_many({"session_id": family_id, "tenant_id": tenant_id})
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Session expired. Please log in again.",
-                )
-            # Update last activity for idle timeout tracking.
-            await db["admin_sessions"].update_one(
-                {"session_id": family_id, "tenant_id": tenant_id},
-                {"$set": {"last_activity_at": int(time.time())}},
+    # ── QF-352 / 022 FR-11（T017）：会话超时判定（绝对 24h / 空闲 30min）──
+    session_doc = await db["admin_sessions"].find_one(
+        {"session_id": family_id, "tenant_id": tenant_id}
+    )
+    if session_doc:
+        session_created = _epoch_seconds(session_doc.get("created_at"))
+        last_activity = _epoch_seconds(session_doc.get("last_activity_at")) or session_created
+        if session_created and (now_ts - session_created) > ABSOLUTE_TIMEOUT_SECONDS:
+            await _revoke_refresh_family(
+                db, family_id, tenant_id, username, reason="absolute_timeout"
             )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please log in again.",
+            )
+        if last_activity and (now_ts - last_activity) > IDLE_TIMEOUT_SECONDS:
+            await _revoke_refresh_family(
+                db, family_id, tenant_id, username, reason="idle_timeout"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired due to inactivity. Please log in again.",
+            )
+        # 刷新活动时间，作为下一次空闲判定的基准。
+        await db["admin_sessions"].update_one(
+            {"session_id": family_id},
+            {"$set": {"last_activity_at": now_ts, "updated_at": now_ts}},
+        )
 
-    # Mark the current token as used.
-    await db[REFRESH_TOKEN_COLLECTION].insert_one({
-        "token_id": token_id,
-        "family_id": family_id,
-        "username": username,
-        "tenant_id": tenant_id,
-        "created_at": int(time.time()),
-    })
-
-    # Issue a new refresh token with the same family ID.
+    # ── 轮换：旧凭证置为非当前，新凭证登记为当前 ─────────────────────────
     user = await find_account_by_username(username, tenant_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
@@ -1029,13 +1181,12 @@ async def refresh_token(payload: RefreshTokenRequest) -> dict[str, object]:
         "family_id": new_family,
         "username": username,
         "tenant_id": tenant_id,
-        "created_at": int(time.time()),
+        "created_at": now_ts,
         "is_current": True,
     })
-    # Mark old token as not current.
     await db[REFRESH_TOKEN_COLLECTION].update_one(
         {"token_id": token_id, "family_id": family_id},
-        {"$set": {"is_current": False}},
+        {"$set": {"is_current": False, "rotated_at": now_ts}},
     )
 
     # Issue a new access token.
@@ -1215,8 +1366,13 @@ async def reset_with_recovery(payload: RecoveryResetRequest) -> dict[str, bool]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=strength_error)
 
     # Update password.
+    # 022 FR-13（T021）：一次性临时凭据是"逃生门" —— 用户亲手设置的新口令
+    # 已确认为其本人意愿，因此清除强制改密标记。若此处也置 True 会形成死锁
+    # （无法登录 → 无法改密 → 只能反复走重置流程）。
     from app.repositories.org_user_repository import set_account_password
-    await set_account_password(username, payload.newPassword, tenant_id)
+    await set_account_password(
+        username, payload.newPassword, tenant_id, must_change_password=False
+    )
 
     # QF-361: Immediately invalidate the token (one-time use).
     await db[RECOVERY_TOKEN_COLLECTION].update_one(

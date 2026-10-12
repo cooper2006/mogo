@@ -83,7 +83,8 @@ class Settings(BaseSettings):
     # MongoDB
     MONGODB_URI: str = ""
     MONGODB_DB: str = "mogo_dev"
-    END_USER_AUTH_TOKEN_TTL_SECONDS: int = 60 * 60 * 24 * 7
+    # 022 FR-11（T014）：终端用户 access token TTL 上限 1h；默认值已收紧到 3600s。
+    END_USER_AUTH_TOKEN_TTL_SECONDS: int = 3600
     END_USER_AUTH_SECRET: str = ""
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
@@ -231,6 +232,21 @@ class Settings(BaseSettings):
         case_sensitive = True
         extra = "ignore"
 
+# 022 FR-11（T014）：终端用户 access token 生命周期上限 1h。
+MAX_END_USER_TOKEN_TTL_SECONDS = 3600
+
+
 @lru_cache()
 def get_settings():
-    return Settings()
+    """返回进程级单例配置；首次调用即启动校验（超过 1h TTL 告警）。"""
+    s = Settings()
+    if s.END_USER_AUTH_TOKEN_TTL_SECONDS > MAX_END_USER_TOKEN_TTL_SECONDS:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "END_USER_AUTH_TOKEN_TTL_SECONDS=%ss exceeds the %ss security ceiling "
+            "(022 FR-11); tokens will outlive the 1h session guarantee",
+            s.END_USER_AUTH_TOKEN_TTL_SECONDS,
+            MAX_END_USER_TOKEN_TTL_SECONDS,
+        )
+    return s

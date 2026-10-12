@@ -8,6 +8,9 @@ from app.core.internal_service_auth import resolve_backend_service_token
 
 logger = logging.getLogger(__name__)
 
+# 022 FR-11（T015）：access token 生命周期上限 1h（超出即启动告警，不阻断启动）
+MAX_ACCESS_TOKEN_TTL_SECONDS = 3600
+
 
 class Settings(BaseSettings):
     app_env: str = "development"
@@ -15,7 +18,8 @@ class Settings(BaseSettings):
     mongodb_uri: str = ""
     mongodb_db: str = ""
     jwt_secret: str = ""
-    access_token_ttl_seconds: int = 60 * 60 * 12
+    # 022 FR-11（T015）：access token TTL 上限 1h；默认值已收紧到 3600s。
+    access_token_ttl_seconds: int = 3600
     tenant_bootstrap_admin_enabled: bool = False
     tenant_bootstrap_admin_username: str = "admin"
     tenant_bootstrap_admin_password: str = ""
@@ -131,5 +135,11 @@ if not settings.jwt_secret or len(settings.jwt_secret) < 32:
             f"'{settings.app_env}'. Set ASKAI_ADMIN_JWT_SECRET before starting. "
             "Refusing to start with a predictable dev secret in this environment."
         )
-if settings.access_token_ttl_seconds > 7 * 24 * 3600:
-    logger.warning("Access token TTL exceeds 7 days; consider shortening for security")
+if settings.access_token_ttl_seconds > MAX_ACCESS_TOKEN_TTL_SECONDS:
+    logger.warning(
+        "Access token TTL %ss exceeds the %ss security ceiling (022 FR-11); "
+        "tokens will outlive the 1h session guarantee",
+        settings.access_token_ttl_seconds,
+        MAX_ACCESS_TOKEN_TTL_SECONDS,
+    )
+
