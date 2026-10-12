@@ -187,3 +187,37 @@ def test_compose_exposes_https_port() -> None:
     gateway = _compose_config()["services"]["gateway"]
     ports = [str(p) for p in (gateway.get("ports") or [])]
     assert any("443" in p for p in ports), f"gateway 未暴露 443；实际 {ports}"
+
+
+# ---------------------------------------------------------------------------
+# 部署脚本侧的契约：启用 TLS 后 ./mogo up 的就绪门不能失效
+# ---------------------------------------------------------------------------
+
+
+def test_readiness_probe_tolerates_tls_redirect() -> None:
+    """启用 TLS 后 /admin-api/ 会 301，就绪探针必须能跟过去。
+
+    否则 ``./mogo up`` 会在健康的部署上白等 90×2s 后报
+    "Services did not become ready in time" —— 这正是 2026-10-12 切 TLS 时踩到的。
+    """
+    text = _read("mogo")
+    match = re.search(r"^status_is_ready\(\) \{.*?^\}", text, re.M | re.S)
+    assert match, "mogo 里找不到 status_is_ready"
+    body = match.group(0)
+
+    assert "-fsSLk" in body, (
+        "status_is_ready 未跟随 HTTP→HTTPS 跳转（-L）或未跳过自签名校验（-k），"
+        "启用 TLS 后 ./mogo up 会一直等不到就绪"
+    )
+    assert "--no-check-certificate" in body, (
+        "status_is_ready 的 wget 分支同样需要跳过自签名校验"
+    )
+    # 宿主端口可能被别的进程占用（实测 443 被第三方代理占用），兜底走容器内直连。
+    assert "admin-api:8100" in body, (
+        "status_is_ready 缺少容器内直连 admin-api 的兜底路径"
+    )
+    # 容器内直连的路径**不能**带网关前缀 /admin-api —— 该前缀是 nginx 路由加上的，
+    # admin-api 自身只认 /api/setup/status。（这个坑已实际踩过一次。）
+    assert re.search(r'direct_path="/api/setup/status"', body), (
+        "容器内兜底路径应是不带 /admin-api 前缀的 /api/setup/status"
+    )

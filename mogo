@@ -153,16 +153,33 @@ deployment_urls() {
 }
 
 status_is_ready() {
-  local status_url="${MOVO_LOCAL_BASE}/admin-api/api/setup/status"
+  # 经网关的路径带 /admin-api 前缀（由 nginx 路由剥掉），容器内直连 admin-api 则没有。
+  local status_path="/admin-api/api/setup/status"
+  local direct_path="/api/setup/status"
+  local status_url="${MOVO_LOCAL_BASE}${status_path}"
   local response=""
+
+  # 网关启用 TLS（MOGO_NGINX_CONF 指向 deploy/nginx/nginx.conf）后，除 /healthz 之外的
+  # HTTP 路径都会 301 到 HTTPS，所以探针必须能跟随跳转；证书是 deploy/tls 里的自签名
+  # 证书，故加 -k（loopback 就绪探针，不做证书链校验）。
   if command -v curl >/dev/null 2>&1; then
     response="$(curl -fsS --max-time 5 "${status_url}" 2>/dev/null || true)"
+    if [[ "${response}" != *'"ready":true'* ]]; then
+      response="$(curl -fsSLk --max-time 5 "${status_url}" 2>/dev/null || true)"
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    response="$(wget -qO- -T 5 "${status_url}" 2>/dev/null || true)"
-  else
-    response="$(mogo_compose exec -T gateway wget -qO- \
-      http://admin-api:8100/api/setup/status 2>/dev/null || true)"
+    # wget 默认跟随跳转，--no-check-certificate 对应上面的 -k
+    response="$(wget -qO- -T 5 --no-check-certificate "${status_url}" 2>/dev/null || true)"
   fi
+
+  # 兜底：容器内直连 admin-api。宿主侧探针依赖网关的 80/443 端口映射，而宿主端口可能
+  # 被别的进程占用（实测 443 被第三方代理占用时，HTTP→HTTPS 的跳转目标打不通），
+  # 这条路径完全不经过宿主端口。
+  if [[ "${response}" != *'"ready":true'* ]]; then
+    response="$(mogo_compose exec -T gateway wget -qO- \
+      "http://admin-api:8100${direct_path}" 2>/dev/null || true)"
+  fi
+
   [[ "${response}" == *'"ready":true'* ]]
 }
 

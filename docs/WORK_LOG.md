@@ -10079,4 +10079,72 @@ and you require transformers==5.10.0, we can conclude that your requirements are
 `listen 443 ssl http2` 会触发 nginx 1.31 的弃用告警（`the "listen ... http2" directive
 is deprecated`）。仅告警、不影响功能，未改。
 
+---
+
+## 2026-10-12 网关切到 TLS + 清掉 http2 弃用告警 + 文档补齐
+
+**起因**：用户确认「切运行中的网关切到 TLS」与「清掉 http2 弃用告警」，并要求把切换操作写进 README。
+
+**1. 清掉弃用告警**：`listen 443 ssl http2;` → `listen 443 ssl;` + `http2 on;`
+（nginx ≥1.25.1 的新写法），两份 TLS 配置同步改，改后仍语义等价。
+
+**2. 把运行中的网关切到 TLS**：
+- `.env` 增加 `MOGO_NGINX_CONF=./deploy/nginx/nginx.conf`（写进 .env 而不是命令行，
+  这样后续 `./mogo up` / `docker compose up` 都保持 TLS，不会悄悄退回 HTTP）
+- 只重建 gateway 容器（TLS 配置是挂载的，不需要重建镜像）
+- 实测：容器 healthy、挂载源已是 `deploy/nginx/nginx.conf`、运行身份仍 uid 10001；
+  `https://localhost/healthz` 200、`/admin/setup` 200、`/admin-api/api/setup/status` 200；
+  `http://127.0.0.1:3000/admin/setup` 301、`/healthz` 200（探针豁免）
+
+**3. 连带修掉一个只有切了 TLS 才暴露的部署缺陷 —— `./mogo` 的就绪门失效**：
+`status_is_ready` 用 `curl -fsS http://127.0.0.1:3000/admin-api/api/setup/status`，
+启用 TLS 后该路径返回 **301 页面**（168 字节，不含 `"ready":true`），于是
+`./mogo up` 会在**健康**的部署上白等 90×2s 后报
+"Services did not become ready in time"。
+修法（`mogo`）：
+- curl 分支：先试 `-fsS`，未命中再试 `-fsSLk`（`-L` 跟随 HTTP→HTTPS 跳转，
+  `-k` 因证书是 deploy/tls 的自签名证书，属 loopback 就绪探针）
+- wget 分支：补 `--no-check-certificate`
+- 新增兜底：`mogo_compose exec -T gateway wget -qO- http://admin-api:8100/api/setup/status`，
+  完全不经过宿主端口（宿主 443 被占用时前两条都打不通）。
+  注意容器内路径**不带**网关前缀 `/admin-api`（这个坑本轮实际踩到过并修正）。
+
+**4. 文档**：
+- `deploy/tls/README.md`：新增「把运行中的网关切到 TLS」完整流程（持久化开关 → 重建容器
+  → 验证 → 回退），以及「切换后的行为与已知坑」表
+- `docker-compose.yml` gateway 的 TLS 注释：原文教 `MOGO_NGINX_CONF=… docker compose up -d`，
+  但源码构建栈缺 bare 镜像名会解析成 `ghcr.io/himovo/gateway:latest` 去拉远端镜像
+  （要么失败、要么覆盖本地构建），已改为给出 `--no-deps` + `MOGO_GATEWAY_IMAGE` 的写法
+- `deploy/tests/test_tls_gateway_config.py`：新增
+  `test_readiness_probe_tolerates_tls_redirect`（钉住 `-fsSLk`、`--no-check-certificate`、
+  容器内兜底路径与「不带 /admin-api 前缀」）
+
+**本轮发现的坑（都写进了 README 的坑表）**：
+
+| 坑 | 事实 |
+| --- | --- |
+| 跳转端口 | `return 301 https://$host$request_uri` 里 nginx 的 `$host` **不含端口**，所以 `http://localhost:3000/x` 会跳到 `https://localhost/x`（443）—— 与 `3000:80` / `443:443` 的映射正好自洽 |
+| 宿主 443 冲突 | 本机 IPv4 443 被 `Steam++`（Watt Toolkit）占用，OrbStack 只拿到 IPv6 → `https://127.0.0.1/` 打到 Steam++（404），`https://localhost/`、`https://[::1]/` 正常（`curl -4` 复现 404、`-6` 200） |
+| `--build` 不过滤服务名 | `./mogo up --build gateway` 会把 6 个应用镜像**全部**重建，只是最后只 recreate gateway 容器；想只动容器要用 `--no-deps` |
+| 非默认 `MOGO_HTTPS_PORT` | 跳转目标仍固定指向 443（静态配置拿不到宿主端口），需手改 `return 301` 行 |
+
+**验证（全部实测）**：
+
+| 验证 | 方法 | 结果 |
+| --- | --- | --- |
+| 弃用告警 | 网关镜像 + 加固参数实跑，`docker logs \| grep -iE "warn\|emerg"` | 修复前 `the "listen ... http2" directive is deprecated`；修复后无任何 warn/emerg |
+| HTTP/2 仍可用 | `curl -sk --http2` | `200 (http_version=2)` |
+| 两份配置等价 | `diff <(grep -v '^#') …` | 语义等价 ✅ |
+| 跳转端口 | `curl -H "Host: localhost:3000"` | `Location: https://localhost/admin/setup` ✅ |
+| 运行中的网关 | `docker inspect` 挂载 + `id -u` | 挂载 `deploy/nginx/nginx.conf`(ro) + `deploy/tls`(ro)，uid 10001，healthy |
+| TLS 端点 | `curl -k`（`--noproxy` 隔离 Agent 代理） | `localhost/healthz` 200、`[::1]/healthz` 200、`/admin/setup` 200、`setup/status` 200；`127.0.0.1/healthz` 404（Steam++ 占用 IPv4 443） |
+| HTTP 行为 | `curl http://127.0.0.1:3000/...` | `/healthz` 200（豁免）、`/admin/setup` 301 |
+| 就绪探针 | 从 `mogo` 抽出 `status_is_ready` 实调 | TLS 启用：READY ✅；另起纯 HTTP 网关（`deploy/docker/nginx.conf`）回归：READY ✅（分支 1 未被改坏） |
+| 回归测试 | `pytest deploy/tests/test_tls_gateway_config.py test_container_hardening.py` | 75 passed / 6 skipped |
+| compose 解析 | `docker compose config -q` | 通过 |
+
+**未做**：没有把宿主 443 上的 Steam++ 关掉（那是用户本机环境），README 里给了
+「释放 443」与「统一用 `https://localhost/`」两个选项。
+
+
 
