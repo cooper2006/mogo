@@ -57,7 +57,7 @@ class ObjectStorageClient:
         self.bucket = oss2.Bucket(self.auth, self.endpoint, self.bucket_name, region=self.region)
 
     def generate_object_path(self, user_id: str, file_name: str, now: Optional[datetime.datetime] = None) -> str:
-        timestamp = (now or datetime.datetime.now(timezone)).strftime("%Y/%m/%d/%H/%M/%S")
+        timestamp = (now or datetime.datetime.now(timezone.utc)).strftime("%Y/%m/%d/%H/%M/%S")
         safe_user_id = str(user_id).strip() or "anonymous"
         safe_user_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in safe_user_id)
         safe_name = os.path.basename(str(file_name or "").strip() or "file.bin")
