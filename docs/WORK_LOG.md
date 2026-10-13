@@ -10798,3 +10798,73 @@ spec → plan → tasks → implement → converge 推进。
 
 **备注**：三个提交都在 `feat/migrate-mongo-to-panweidb` 分支上，**未推送远端**。
 按 AGENTS.md 的远端边界，推送需用户显式确认。
+
+## 2026-10-13 R1 阶段数据入库到 PanWeiDB（真实数据）
+
+**目标**：用户要求「R1 阶段入库到 panweidb」——把 R1 的工具真正跑在真实数据上，
+不只是自造样本。
+
+**源与目标**：运行中的 `mogo-mongo-1`（MongoDB 6.0.20，`mogo_dev`，88 集合，
+14 MB）→ PanWeiDB `bonc` 库的 `mogo_dev` schema。
+
+**先解决一个网络障碍**：`mogo_backend` 是 `Internal=true` 的网络，容器**既无外网
+也无法发布端口**（实测：容器建在该网络上 `docker port` 为空、`NetworkSettings.Ports`
+为 `null`）。用一个**纯 stdlib 的 TCP 转发容器**绕开：建在默认 bridge（可发布端口）
+再 `docker network connect mogo_backend`（可达 `mongo:27017`），把源库端口映射到
+宿主机，然后在宿主机上跑既有工具链。用完即删，未改动用户的任何容器。
+
+**结果**：**17,785 篇文档 / 5.5s**；计数校验 **88 个集合全部一致、不一致项 0**；
+兼容门面回读 **13/13** 通过。目标 schema 最终 **115 张表 / 229 个 btree 索引 / 0 GIN**。
+
+**过程中暴露并修复的三个真实问题**（静态验证发现不了，只有跑真实数据才会碰到）：
+
+1. **GIN 索引在 openGauss 上不可用**。`USING GIN (doc jsonb_ops)` 遇**任何空字符串值**
+   即报 `jsonb_gin.cpp : 519 : The parameter destMax is equal to zero or larger than
+   the macro : SECUREC_STRING_MAX_LEN`。定位过程：搬迁在第二个集合就失败 → 逐条试插
+   三条文档全失败 → 构造 7 组对照（空串/非空串/嵌套空串/空数组/空对象/null/无空串）
+   → **只有空字符串触发**。且表里已有一行含空串时**连 `CREATE INDEX` 本身都会失败**。
+   进一步对照四种索引：无索引 ✅ / `btree (tenant_id)` ✅ / `btree ((doc #> '{f}'))` ✅ /
+   `GIN (doc jsonb_ops)` ❌。
+   **修复**：DDL 只建 `tenant_id` btree 索引；删除已建的 103 个 GIN 索引。
+   代价可控——GIN 只服务于 `@>` / `?`，兼容层里只有 `$all` 用到 `@>`（全代码库 1 处）。
+2. **DDL 生成器漏扫 11 个集合**。静态扫描覆盖不到：大写常量（`INBOX = "kernel_event_inbox"`）、
+   实例属性（`self._collection = "runtime_action_receipts"`）、带前缀下标
+   （`self._db["presence_heartbeats"]`）、属性访问（`db.scheduled_jobs.find(...)`）、
+   配置项驱动（document-parser 的 `settings.jobs_collection`）。
+   期间试过放宽正则，但「任意下标」模式会引入 **932 个误报**，不可取。
+   **修复**：新增 `--from-mongo`，以**源库实际集合为权威来源**；静态扫描降为补充，
+   并在工具文档字符串里写明漏扫场景。
+3. **搬迁不传播删除**。`--verify` 报 `end_user_sessions` 目标 20 行 vs 源 19 行。
+   对比 id 集合后确认：多出的一行是**已过期会话**，运行中的 chat-api 的会话 GC 在
+   两次搬迁之间把它从 MongoDB 删了，而 upsert 只增不删。
+   **修复**：新增 `--prune` 对账（删除目标库中源库已不存在的行）；跑完清理 1 行，
+   `--verify` 归零。同时在文档里把「不传播删除」写成搬迁的三条语义之一。
+
+**新增守卫测试 3 项**（`deploy/tests/test_pg_compat_parity.py`，共 14 项）：
+禁止生成 GIN（用 AST 去 docstring 后检查真实代码，避免被解释性注释误报）/
+生成器必须支持 `--from-mongo` / 搬迁工具必须提供 `--prune`。
+
+**改动文件**：
+- `scripts/pg/generate_ddl.py`：去掉 GIN 索引生成（含详细原因与实测对照表）；
+  新增 `--from-mongo` / `--mongo-db`；放宽常量与下标的匹配（允许缩进、覆盖 `self._db[...]`）
+- `scripts/pg/migrate_mongo_to_panweidb.py`：新增 `--prune` 与 `prune_collection()`；
+  文档字符串写明「不传播删除」语义
+- `services/*/app/core/pg_compat.py` ×3：文档字符串补 GIN 缺陷说明（改异步版后重新生成同步版）
+- `deploy/pg/schema.sql`：重新生成（114 集合 / 无 GIN）
+- `deploy/tests/test_pg_compat_parity.py`：+3 项守卫（含 `_strip_docstrings()` 工具）
+- `docs/mongo-to-panweidb-migration-plan.md`：新增 2.5「GIN 索引不可用」节；
+  第 4 节表结构去掉 GIN；第 8 节补「集合清单来源」与「搬迁三条语义」；第 9 节索引策略；
+  R1 节补真实数据入库实测表
+- `specs/027-mongo-to-panweidb-migration/{plan,tasks,quickstart}.md`：同步上述事实，
+  新增 Phase 8（补）T063–T068
+- `CHANGELOG.md`：`## Unreleased` 的 Added 与 Known limitations 同步
+
+**验证方式**：
+- 搬迁：演练 → 正式 → **幂等重跑** → `--prune` 对账 → `--verify` 计数全一致
+- 门面回读真实数据 13/13（含中文字段、**空字符串字段**、布尔字段、`_id` 归一、
+  深合并更新、未覆盖能力显式失败）
+- 守卫 14 项通过；单测 29 项通过
+- DDL：114 表 / 229 btree 索引 / 0 GIN；巡检「全部表已就位」
+
+**备注**：数据已入库到 PanWeiDB 的 `mogo_dev` schema，但**运行中的服务仍连 MongoDB**
+（`MOGO_DATA_BACKEND` 未设置）。真正切换要等 R2 处理完 25 处聚合管道与 6 处 `bulk_write`。
