@@ -386,11 +386,13 @@ DSH_RUNTIME_HOSTS_URL=http://dsh-runtime-host-1:8101,http://dsh-runtime-host-2:8
 
 | 服务 | Python | 依赖完整性 |
 | --- | --- | --- |
-| chat-api | 3.13 | `--require-hashes` 校验 2773 条 sha256 |
+| chat-api | 3.13 | `--require-hashes` 校验 2775 条 sha256 |
 | admin-api | 3.13 | `--require-hashes` 校验 1063 条 sha256 |
-| document-parser | 3.10 | 普通安装——Docling 钉死了 `numpy==1.26.4` 等版本，在 3.13 上无法构建 |
+| document-parser | 3.13 | `requirements.txt` 用 `--require-hashes` 校验 1312 条 sha256；`requirements-docling.txt` 只钉版本、按设计不带哈希（见下） |
 
-完整哈希集在 `services/*/requirements.txt` 中；用 `scripts/generate-hashes.sh` 重新生成（脚本指向清华源，仅此一项就把哈希生成从 5 分钟以上压到约 3 分钟）。CI 对 chat-api 与 admin-api 使用 `--require-hashes`，对 document-parser 按上表跳过该参数。
+三个服务的完整哈希集都在 `services/*/requirements.txt` 中；用 `scripts/generate-hashes.sh` 重新生成（脚本指向清华源，仅此一项就把哈希生成从 5 分钟以上压到约 3 分钟）。CI 对三个服务都使用 `--require-hashes`，保证 CI 环境与生产镜像同构。
+
+document-parser 另有一份 `requirements-docling.txt`，装 Docling 家族（`docling==2.108.0`、`docling-core`、`docling-ibm-models`、`docling-parse`、`rapidocr`）与放宽后的 `numpy>=1.24.0,<3.0.0`。该文件**刻意不加哈希**：这份依赖树在 PyPI 上会解析到 CUDA 版 `torch` 与 15 个 `nvidia-*` 包，而镜像实际从 `download.pytorch.org/whl/cpu` 装 CPU 版——强行加哈希要么构建失败，要么把数 GB 的 CUDA 轮子拖进镜像。因此它只做全 `==` 钉版本，且仅在 Docker 镜像内以 `--prefer-binary`（不带哈希参数）安装。探查过程与结论记录在 `docs/WORK_LOG.md` 2026-10-07 条目。
 
 ### 无外网与跨架构发布
 

@@ -208,8 +208,10 @@ jobs:
           - service: chat-api
             venv: venv
             python: "3.13"
-          # document-parser ships on Python 3.13 (Docling 2.109.0 + rapidocr 3.8.4);
-          # keep CI isomorphic with the production image.
+          # document-parser ships on Python 3.13 (Docling 2.108.0 + rapidocr 3.8.4);
+          # keep CI isomorphic with the production image. 2.108.0 is the ceiling:
+          # 2.109.0 requires rapidocr>=3.9.1, which defaults to PP-OCRv6 while the
+          # shipped 485MB model bundle only carries v4.
           - service: document-parser
             venv: .venv
             python: "3.13"

@@ -421,11 +421,13 @@ Each service pins its Python runtime on the first line of its Dockerfile (`ARG B
 
 | Service | Python | Dependency integrity |
 | --- | --- | --- |
-| chat-api | 3.13 | `--require-hashes` against 2773 sha256 hashes |
+| chat-api | 3.13 | `--require-hashes` against 2775 sha256 hashes |
 | admin-api | 3.13 | `--require-hashes` against 1063 sha256 hashes |
-| document-parser | 3.10 | plain install — Docling pins `numpy==1.26.4` and friends, which do not build on 3.13 |
+| document-parser | 3.13 | `--require-hashes` against 1312 sha256 hashes in `requirements.txt`; `requirements-docling.txt` pins versions but carries no hashes by design (see below) |
 
-`services/*/requirements.txt` carries the full hash set. Regenerate it with `scripts/generate-hashes.sh`, which points pip-compile at the Tsinghua mirror — that alone cuts hash generation from over five minutes to about three. CI installs with `--require-hashes` for chat-api and admin-api, and skips the flag for document-parser to match the table above.
+`services/*/requirements.txt` carries the full hash set for all three services. Regenerate it with `scripts/generate-hashes.sh`, which points pip-compile at the Tsinghua mirror — that alone cuts hash generation from over five minutes to about three. CI installs all three services with `--require-hashes`, so the CI environment stays isomorphic with the production image.
+
+document-parser additionally ships `requirements-docling.txt`, holding the Docling family (`docling==2.108.0`, `docling-core`, `docling-ibm-models`, `docling-parse`, `rapidocr`) plus a relaxed `numpy>=1.24.0,<3.0.0`. That file is deliberately **not** hashed: the pinned Docling tree resolves to CUDA-flavoured `torch` plus 15 `nvidia-*` packages on PyPI, while the image installs CPU wheels from `download.pytorch.org/whl/cpu` — hashing that set either fails the build or drags gigabytes of CUDA wheels into the image. It therefore ships fully `==`-pinned and is installed with `--prefer-binary` (no hash flag) inside the Docker image only. The probe and reasoning are recorded in `docs/WORK_LOG.md` (2026-10-07).
 
 ### Air-gapped and cross-architecture releases
 

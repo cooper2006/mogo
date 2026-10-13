@@ -1,4 +1,4 @@
-# Python 3.10-compatible versions used by the Linux container release.
+# Python 3.13 versions used by the Linux container release.
 # Keep the Docling family pinned together for reproducible model/runtime behavior.
 #
 # 显式降级：本文件**故意不使用 `--require-hashes`**（QA R5 B7 / 2026-10-07 探查结论）
