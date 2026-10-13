@@ -215,19 +215,30 @@ UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.i
 
 ### 覆盖范围与缺口
 
-**R1 已覆盖**：上表全部算子 + `find_one` / `find` / `insert_one` / `insert_many` /
-`replace_one` / `update_one` / `update_many` / `find_one_and_update` / `delete_one` /
-`delete_many` / `count_documents` / `distinct` / `create_index` / `create_indexes` /
-`list_collection_names` / `command`。
+**R1+R2 已覆盖**：
 
-**R1 未覆盖**（调用即抛 `PgCompatUnsupported`，异常信息指向方案文档）：
+- 过滤算子：等值 / `$ne` / 范围（数值与文本）/ `$in` / `$nin` / `$exists` / `$regex`(含 `$options`) /
+  `$size` / `$all` / `$elemMatch` / `$or` / `$and` / `$nor` / `$not` / 点号嵌套路径
+- 更新算子：`$set` / `$setOnInsert` / `$unset` / `$inc` / `$max` / `$min` / `$push`(含 `$each`) /
+  `$addToSet`(含 `$each`) / `$pull` / `$currentDate`
+- 集合 API：`find_one` / `find` / `insert_one` / `insert_many` / `replace_one` / `update_one` /
+  `update_many` / `find_one_and_update` / `delete_one` / `delete_many` / `count_documents` /
+  `distinct` / `create_index` / `create_indexes` / `list_collection_names` / `command` /
+  **`aggregate`** / **`bulk_write`**
+- 聚合：阶段 `$match` / `$group` / `$sort` / `$limit` / `$skip` / `$count` / `$project`；
+  累加器 `$sum` / `$avg` / `$min` / `$max` / `$push` / `$addToSet` / `$first` / `$last` / `$count`；
+  表达式 `$ifNull` / `$cond` / 比较 / `$and` / `$or` / `$not` / `$add` / `$subtract` /
+  `$multiply` / `$divide` / `$max` / `$min` / `$literal` / `$percentile`
 
-| 未覆盖项 | 代码中出现次数 | R2 处理方式 |
+**R2 精确盘点后修正的范围**（R1 阶段曾高估）：
+
+| 未覆盖项 | 实际出现次数 | 说明 |
 |---|---|---|
-| 聚合管道 | 25（`$group` 26 / `$match` 25 / `$sort` 6 / `$unwind` 2 / `$lookup` 1 / `$facet` 1 / …） | 逐点重写为 SQL |
-| `bulk_write` | 6 | 展开为多次写或单条 SQL |
-| `$elemMatch` / `$pull` | 各 1 | 逐点重写 |
-| `$text` / geo | 0 | 不需要 |
+| `$lookup` / `$facet` / `$unwind` / `$unionWith` / `$out` / `$merge` | **0** | 只出现在 `app/core/nosql_guard.py` 的**白名单常量**里，无实际调用。R1 的估算把白名单当成了使用 |
+| `$elemMatch` / `$pull` | 0 | 同上（白名单常量） |
+
+**仍未覆盖**（调用即抛 `PgCompatUnsupported`）：`$text` / geo / 稀疏/部分索引 /
+`$setWindowFields` / `$geoNear`。
 
 ### 已知语义差异（R2 需逐点核对）
 
@@ -281,9 +292,10 @@ UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.i
 |---|---|---|---|
 | 1 | 兼容模式固定导致 JSON 函数受限 | 高 | 已实测出可用子集并内联规避；守卫测试禁止引入禁用函数（FR-025） |
 | 2 | `jsonb_set` 不建中间层导致静默丢更新 | 高 | 已用逐层回卷修复 + 专项回归用例 |
-| 3 | 612 处调用点仍可能用到未覆盖算子 | 中 | 未覆盖即抛显式异常（FR-016），R2 逐条清 |
-| 4 | 25 处聚合管道需重写 | 中 | 以 `$group`/`$match` 为主，工作量可控 |
-| 5 | 兼容层三份副本漂移 | 中 | `deploy/tests/test_pg_compat_parity.py` 守卫 |
-| 6 | 唯一索引语义差异 | 中 | R2 逐点核对 202 处索引声明 |
-| 7 | 投影在 Python 侧裁剪 | 低 | R2 下推 SQL |
+| 3 | 612 处调用点仍可能用到未覆盖算子 | 中 | 未覆盖即抛显式异常（FR-016） |
+| 4 | `min()`/`max()` 聚合对 jsonb 按**文本**比较 | 高 | `$min`/`$max` 改用 `(array_agg(x ORDER BY x))[1]`；差分测试已覆盖 |
+| 5 | 兼容层三份副本漂移 | 中 | `scripts/pg/sync_pg_compat.py` 为唯一变换来源 + `deploy/tests/test_pg_compat_parity.py` 守卫 |
+| 6 | 唯一索引的稀疏/部分语义差异 | 中 | `unique` 已支持；稀疏/部分索引无直接对应物，R3 按需核对 |
+| 7 | 投影在 Python 侧裁剪 | 低 | R3 下推 SQL |
 | 8 | 本地镜像源不可达影响锁定文件生成 | 低 | 已记录补跑命令；哈希与 Python 版本无关已验证 |
+| 9 | `$percentile` 口径差异（Mongo 近似 vs PanWeiDB 精确） | 低 | 代码已有 `try/except` 兜底到 `_duration_percentiles_fallback()`，两条路径均可用 |

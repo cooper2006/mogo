@@ -248,3 +248,143 @@ def test_apply_update_to_document_does_not_mutate_input():
     doc = {"a": {"b": 1}}
     apply_update_to_document(doc, {"$set": {"a.b": 2}})
     assert doc == {"a": {"b": 1}}
+
+
+# ── 聚合管道编译（R2）──────────────────────────────────────────────────
+from app.core.pg_compat import _AggregationCompiler  # noqa: E402
+
+
+def _compile_pipeline(pipeline):
+    compiler = _AggregationCompiler('"s"."t"')
+    sql = compiler.compile(pipeline)
+    assert sql.count("%s") == len(compiler.params), (
+        f"占位符/参数数量不符: {sql!r} vs {compiler.params!r}"
+    )
+    return sql, compiler.params
+
+
+def test_aggregation_rejects_empty_and_malformed_pipeline():
+    with pytest.raises(PgCompatUnsupported):
+        _compile_pipeline([])
+    with pytest.raises(PgCompatUnsupported):
+        _compile_pipeline("not-a-list")
+    with pytest.raises(PgCompatUnsupported):
+        _compile_pipeline([{"$match": {}, "$group": {}}])   # 阶段必须是单键
+
+
+def test_aggregation_unsupported_stage_fails_loudly():
+    for stage in ({"$lookup": {}}, {"$facet": {}}, {"$unwind": "$x"}, {"$out": "t"}):
+        with pytest.raises(PgCompatUnsupported):
+            _compile_pipeline([stage])
+
+
+def test_aggregation_match_group_sum_one():
+    sql, params = _compile_pipeline([
+        {"$match": {"tenant_id": "t1"}},
+        {"$group": {"_id": "$event", "count": {"$sum": 1}}},
+    ])
+    assert "GROUP BY 1" in sql          # 用序号分组，避免重复写 key 表达式
+    assert "count(*)" in sql
+    assert params == ['"t1"']
+
+
+def test_aggregation_group_uses_two_step_cte():
+    """$group 必须拆成两步：先聚合出普通列，再组装文档。
+
+    一步写完会被 PG 9.2 拒（jsonb_set 里引用的 key 表达式与 GROUP BY 的
+    被判定为不同表达式 → column must appear in the GROUP BY clause）。
+    """
+    sql, _ = _compile_pipeline([{"$group": {"_id": "$a", "n": {"$sum": 1}}}])
+    assert sql.count("jsonb_set") >= 1
+    assert "GROUP BY 1" in sql
+    # 组装阶段的来源必须是上一个 CTE，而不是原表
+    assert "FROM ag2" in sql
+
+
+def test_aggregation_min_max_avoid_textual_min_max():
+    """$min/$max 不得用 min()/max() 聚合：openGauss 对 jsonb 按文本比较。"""
+    sql, _ = _compile_pipeline([{"$group": {"_id": None, "m": {"$min": "$x"}, "M": {"$max": "$x"}}}])
+    assert "min((doc #> '{x}'))" not in sql
+    assert "max((doc #> '{x}'))" not in sql
+    assert "array_agg" in sql and "ORDER BY" in sql
+
+
+def test_aggregation_last_reverses_sort_direction():
+    sql, _ = _compile_pipeline([
+        {"$sort": {"created_at": 1}},
+        {"$group": {"_id": "$m", "last": {"$last": "$stage"}}},
+    ])
+    # $last 用反向排序取数组首元素
+    assert "DESC" in sql
+
+
+def test_aggregation_group_key_expression_built_once():
+    """key 表达式含字符串字面量时，占位符数量必须与参数一致（不重复构建）。"""
+    sql, params = _compile_pipeline([
+        {"$group": {"_id": {"$cond": [{"$eq": ["$s", "failed"]}, "failed", "ok"]}, "n": {"$sum": 1}}},
+    ])
+    assert sql.count("%s") == len(params) == 3
+
+
+def test_aggregation_count_stage():
+    sql, _ = _compile_pipeline([{"$group": {"_id": "$u"}}, {"$count": "count"}])
+    assert "'{count}'" in sql           # 不能出现 '{{count}}'
+    assert "HAVING count(*) > 0" in sql  # 输入为空时 Mongo 返回空结果集
+
+
+def test_aggregation_numeric_accumulators_are_wrapped_as_jsonb():
+    sql, _ = _compile_pipeline([{"$group": {"_id": None, "s": {"$sum": "$n"}, "a": {"$avg": "$n"}}}])
+    assert "to_jsonb(COALESCE(sum(" in sql
+    assert "to_jsonb(avg(" in sql
+
+
+def test_aggregation_string_literals_are_json_encoded():
+    """字符串字面量必须编码成 JSON（带引号），否则 ::jsonb 会报 invalid input syntax。"""
+    sql, params = _compile_pipeline([
+        {"$group": {"_id": {"$cond": [{"$eq": ["$s", "failed"]}, "failed", "ok"]}, "n": {"$sum": 1}}},
+    ])
+    assert params == ['"failed"', '"failed"', '"ok"']   # 注意带引号
+    assert "to_jsonb" not in sql.split("to_jsonb(COALESCE")[0].split("CASE WHEN")[0][-40:]
+
+
+def test_aggregation_expressions():
+    sql, _ = _compile_pipeline([
+        {"$group": {
+            "_id": None,
+            "a": {"$sum": {"$ifNull": ["$x", 0]}},
+            # $max 的**数组形式**是表达式（取两值较大者），只有在 $group 字段值位置上
+            # 才是累加器；这里嵌在 $sum 里，因此走表达式分支。
+            "b": {"$sum": {"$max": [0, {"$subtract": [{"$ifNull": ["$e", 0]}, {"$ifNull": ["$s", 0]}]}]}},
+        }},
+    ])
+    assert "COALESCE(NULLIF(" in sql
+    assert "GREATEST(" in sql and " - " in sql
+
+
+def test_aggregation_group_max_is_accumulator_not_expression():
+    """$group 字段值位置上的 $max 是累加器（对数组表达式取最大），不是 GREATEST。"""
+    sql, _ = _compile_pipeline([{"$group": {"_id": None, "m": {"$max": [0, "$x"]}}}])
+    assert "array_agg" in sql
+    assert "GREATEST(" not in sql
+
+
+def test_aggregation_unsupported_accumulator_and_expression_fail_loudly():
+    with pytest.raises(PgCompatUnsupported):
+        _compile_pipeline([{"$group": {"_id": None, "x": {"$stdDevPop": "$a"}}}])
+    with pytest.raises(PgCompatUnsupported):
+        _compile_pipeline([{"$group": {"_id": None, "x": {"$sum": {"$toUpper": "$a"}}}}])
+
+
+def test_aggregation_percentile_uses_ordered_set_aggregate():
+    sql, _ = _compile_pipeline([
+        {"$project": {"p": {"$percentile": {"input": "$v", "p": [0.5, 0.95], "method": "approximate"}}}},
+    ])
+    assert sql.count("percentile_cont(") == 2
+    assert "WITHIN GROUP (ORDER BY" in sql
+
+
+def test_aggregation_project_inclusion_exclusion_rules():
+    with pytest.raises(PgCompatUnsupported):
+        _compile_pipeline([{"$project": {"a": 1, "b": 0}}])
+    sql, _ = _compile_pipeline([{"$project": {"a": 0}}])
+    assert "- 'a'" in sql

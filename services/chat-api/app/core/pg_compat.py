@@ -115,6 +115,45 @@ class DeleteResult:
         self.acknowledged = True
 
 
+class BulkWriteResult:
+    """``bulk_write()`` 的结果，字段对齐 pymongo 的 ``BulkWriteResult``。"""
+
+    __slots__ = (
+        "inserted_count",
+        "matched_count",
+        "modified_count",
+        "deleted_count",
+        "upserted_count",
+        "upserted_ids",
+        "acknowledged",
+        "bulk_api_result",
+    )
+
+    def __init__(
+        self,
+        *,
+        inserted_count: int = 0,
+        matched_count: int = 0,
+        modified_count: int = 0,
+        deleted_count: int = 0,
+        upserted_ids: Mapping[Any, Any] | None = None,
+    ) -> None:
+        self.inserted_count = inserted_count
+        self.matched_count = matched_count
+        self.modified_count = modified_count
+        self.deleted_count = deleted_count
+        self.upserted_ids = dict(upserted_ids or {})
+        self.upserted_count = len(self.upserted_ids)
+        self.acknowledged = True
+        self.bulk_api_result = {
+            "nInserted": inserted_count,
+            "nMatched": matched_count,
+            "nModified": modified_count,
+            "nRemoved": deleted_count,
+            "nUpserted": self.upserted_count,
+        }
+
+
 # ── 路径与字面量工具（纯函数，便于单测）──────────────────────────────
 _SAFE_PART = re.compile(r"^[A-Za-z0-9_]+$")
 
@@ -528,7 +567,341 @@ def apply_update_to_document(document: Mapping[str, Any], update: Mapping[str, A
     return doc
 
 
-# ── 游标 ─────────────────────────────────────────────────────────────
+# ── 聚合管道编译 ─────────────────────────────────────────────────────
+
+#: 无 `$sort` 时 `$first` / `$last` 的兜底排序。Mongo 在无 `$sort` 时顺序未定义，
+#: 用主键兜底至少保证结果可复现。
+_DEFAULT_ORDER = "id"
+
+#: Mongo 比较运算符 → SQL
+_COMPARE_OPS = {"$eq": "=", "$ne": "<>", "$gt": ">", "$gte": ">=", "$lt": "<", "$lte": "<="}
+#: Mongo 算术运算符 → SQL（操作数先转 numeric）
+_ARITH_OPS = {"$add": "+", "$subtract": "-", "$multiply": "*", "$divide": "/"}
+
+
+class _AggregationCompiler:
+    """把 Mongo 聚合管道编译成 ``WITH`` 链 + 最终 ``SELECT``。
+
+    每个阶段产出一个 ``(id, doc)`` 形状的 CTE，与其它 API 保持一致，因此
+    ``$sort`` / ``$group`` 里的字段路径都能统一写成 ``doc #> '{field}'``。
+
+    只实现**代码里实际用到**的阶段与算子（全仓库扫描结果：``$match`` 25、
+    ``$group`` 26、``$sort`` 5、``$project`` 1、``$limit`` 1、``$count`` 1；
+    累加器 ``$sum``/``$avg``/``$min``/``$max``/``$push``/``$addToSet``/``$first``/``$last``）。
+    其余显式抛 :class:`PgCompatUnsupported`。
+
+    **A 模式约束**：``jsonb_build_object`` / ``jsonb_build_array`` 不可用，因此
+    构造对象一律用 ``jsonb_set`` 链、构造数组用 ``'[]'::jsonb || elem``。
+
+    **占位符纪律**：任何在 SQL 文本里出现多次的子表达式，都必须**重新构建**多次
+    （而不是复用字符串），否则占位符数量会多于参数数量。``_num()`` 与
+    ``_stage_group()`` 里的三处 key 表达式都遵循这条规则。
+    """
+
+    def __init__(self, qualified: str) -> None:
+        self._qualified = qualified
+        self.params: list[Any] = []
+        self._ctes: list[str] = []
+        self._src: str | None = None
+        self._counter = 0
+        self._order: list[tuple[str, str]] = []
+
+    # -- 基础设施 --------------------------------------------------------
+    def _p(self, value: Any) -> str:
+        self.params.append(value)
+        return "%s"
+
+    def _from(self) -> str:
+        return self._src or self._qualified
+
+    def _emit(self, body: str) -> None:
+        self._counter += 1
+        name = f"ag{self._counter}"
+        self._ctes.append(f"{name} AS ({body})")
+        self._src = name
+
+    def _order_sql(self, *, reverse: bool = False) -> str:
+        """当前 ``$sort`` 的 ORDER BY 子句；``reverse=True`` 时方向取反（供 ``$last``）。"""
+        if not self._order:
+            return _DEFAULT_ORDER
+        parts = []
+        for expr, direction in self._order:
+            if reverse:
+                direction = "ASC" if direction == "DESC" else "DESC"
+            parts.append(f"{expr} {direction}")
+        return ", ".join(parts)
+
+    def _num(self, node: Any) -> str:
+        """表达式 → 「numeric 或 NULL」（非数值取 NULL，供 sum/avg 忽略）。
+
+        表达式在 SQL 文本里出现两次（``jsonb_typeof`` 与 ``#>>``），因此**构建两次**
+        以保证占位符数量与参数数量一致。
+        """
+        first = self._expr_json(node)
+        second = self._expr_json(node)
+        return f"CASE WHEN jsonb_typeof({first}) = 'number' THEN ({second} #>> '{{}}')::numeric END"
+
+    def _json_number(self, sql: str) -> str:
+        """把 SQL 数值表达式包成 jsonb（``jsonb_set`` 的第三个参数必须是 jsonb）。"""
+        return f"to_jsonb({sql})"
+
+    # -- 入口 ------------------------------------------------------------
+    def compile(self, pipeline: Any) -> str:
+        if not isinstance(pipeline, (list, tuple)):
+            raise PgCompatUnsupported("aggregate(pipeline) 需要一个管道列表")
+        if not pipeline:
+            raise PgCompatUnsupported("aggregate() 空管道（请改用 find()）")
+        for stage in pipeline:
+            if not isinstance(stage, Mapping) or len(stage) != 1:
+                raise PgCompatUnsupported(f"非法的聚合阶段：{stage!r}")
+            ((name, spec),) = stage.items()
+            handler = getattr(self, f"_stage_{name.lstrip('$')}", None)
+            if handler is None:
+                raise PgCompatUnsupported(
+                    f"聚合阶段 {name}。R2 只实现了代码实际用到的阶段；"
+                    "若确需该阶段，请先扩展 app/core/pg_compat.py 并补充用例。"
+                )
+            handler(spec)
+        order = f" ORDER BY {self._order_sql()}" if self._order else ""
+        # 最终只取 doc 一列：`_fetch()` 读的是第 0 列（与 find 的 SELECT doc 一致）。
+        return f"WITH {', '.join(self._ctes)} SELECT doc FROM {self._src}{order}"
+
+    # -- 阶段 ------------------------------------------------------------
+    def _stage_match(self, spec: Any) -> None:
+        compiler = _FilterCompiler()
+        where = compiler.compile(spec)
+        self.params.extend(compiler.params)
+        self._emit(f"SELECT id, doc FROM {self._from()} WHERE {where}")
+
+    def _stage_sort(self, spec: Any) -> None:
+        if not isinstance(spec, Mapping):
+            raise PgCompatUnsupported("$sort 需要字段映射")
+        self._order = []
+        for field, direction in spec.items():
+            expr = f"(doc #> '{path_literal(str(field))}')"
+            self._order.append((expr, "DESC" if int(direction) < 0 else "ASC"))
+        self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {self._order_sql()}")
+
+    def _stage_limit(self, spec: Any) -> None:
+        self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {self._order_sql()} LIMIT {int(spec)}")
+
+    def _stage_skip(self, spec: Any) -> None:
+        self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {self._order_sql()} OFFSET {int(spec)}")
+
+    def _stage_count(self, spec: Any) -> None:
+        """``$count: "field"`` → 单个 ``{field: N}``。输入为空时 Mongo 返回空结果集。"""
+        path = path_literal(str(spec))
+        self._emit(
+            f"SELECT '' AS id, "
+            f"jsonb_set('{{}}'::jsonb, '{path}', to_jsonb(count(*)), true) AS doc "
+            f"FROM {self._from()} HAVING count(*) > 0"
+        )
+
+    def _stage_group(self, spec: Any) -> None:
+        """``$group`` 拆成两步 CTE：先聚合出普通列，再组装输出文档。
+
+        不能一步写完，原因有三（都实测踩过）：
+
+        1. 输出文档用 ``jsonb_set`` 链拼装，里面引用了 key 表达式；而 key 表达式
+           同时出现在 ``GROUP BY`` 里 —— PG 9.2 判定不了「嵌套在 ``jsonb_set`` 里的
+           表达式」与 ``GROUP BY`` 的是同一个，直接报
+           ``column "..." must appear in the GROUP BY clause``。
+        2. key 表达式若在 SQL 文本里出现两次而只构建一次，占位符就会多于参数。
+        3. 累加器结果要先落成普通列，组装阶段才不再有聚合函数。
+
+        第一步用 ``GROUP BY 1``（按输出列序号分组）避免重复写 key 表达式；
+        jsonb 的 ``::text`` 是规范形式（键有序、空白归一），因此按文本分组与按
+        jsonb 分组等价。
+        """
+        if not isinstance(spec, Mapping) or "_id" not in spec:
+            raise PgCompatUnsupported("$group 必须包含 _id")
+        key_sql = self._expr_json(spec["_id"])
+        accumulators = [(field, self._accumulator(acc)) for field, acc in spec.items() if field != "_id"]
+
+        columns = [f"({key_sql}) AS k", *(f"{sql} AS a{i}" for i, (_, sql) in enumerate(accumulators))]
+        self._emit(f"SELECT {', '.join(columns)} FROM {self._from()} GROUP BY 1")
+
+        doc = "jsonb_set('{}'::jsonb, '{_id}', k, true)"
+        for index, (field, _) in enumerate(accumulators):
+            doc = f"jsonb_set({doc}, '{path_literal(str(field))}', a{index}, true)"
+        self._emit(f"SELECT k::text AS id, {doc} AS doc FROM {self._from()}")
+
+    def _stage_project(self, spec: Any) -> None:
+        if not isinstance(spec, Mapping):
+            raise PgCompatUnsupported("$project 需要字段映射")
+        percentiles = {
+            field: value["$percentile"]
+            for field, value in spec.items()
+            if isinstance(value, Mapping) and "$percentile" in value
+        }
+        if percentiles:
+            # `$percentile` 是累加器：`$project` 含它时整个阶段塌缩成一行。
+            if len(percentiles) != len(spec):
+                raise PgCompatUnsupported("$project 里混用 $percentile 与普通投影")
+            doc = "jsonb_set('{}'::jsonb, '{_id}', 'null'::jsonb, true)"
+            for field, value in percentiles.items():
+                doc = f"jsonb_set({doc}, '{path_literal(str(field))}', {self._percentile(value)}, true)"
+            self._emit(f"SELECT '' AS id, {doc} AS doc FROM {self._from()}")
+            return
+
+        # 普通投影：只支持「纯包含」或「纯排除」，与 Mongo 的规则一致。
+        expressions = {f: v for f, v in spec.items() if isinstance(v, Mapping)}
+        included = [f for f, v in spec.items() if not isinstance(v, Mapping) and v not in (0, False)]
+        excluded = [f for f, v in spec.items() if not isinstance(v, Mapping) and v in (0, False)]
+        if expressions:
+            doc = "doc"
+            for field, value in expressions.items():
+                doc = f"jsonb_set({doc}, '{path_literal(str(field))}', {self._expr_json(value)}, true)"
+            for field in excluded:
+                doc = _unset_expression(doc, str(field))
+            self._emit(f"SELECT id, {doc} AS doc FROM {self._from()}")
+            return
+        if included and excluded:
+            raise PgCompatUnsupported("$project 不能同时包含与排除字段（_id 除外）")
+        if excluded:
+            doc = "doc"
+            for field in excluded:
+                doc = _unset_expression(doc, str(field))
+            self._emit(f"SELECT id, {doc} AS doc FROM {self._from()}")
+            return
+        doc = "jsonb_set('{}'::jsonb, '{_id}', COALESCE(doc #> '{_id}', 'null'::jsonb), true)"
+        for field in included:
+            if field == "_id":
+                continue
+            path = path_literal(str(field))
+            doc = f"jsonb_set({doc}, '{path}', COALESCE(doc #> '{path}', 'null'::jsonb), true)"
+        self._emit(f"SELECT id, {doc} AS doc FROM {self._from()}")
+
+    # -- 累加器 ----------------------------------------------------------
+    def _accumulator(self, spec: Any) -> str:
+        if not isinstance(spec, Mapping) or len(spec) != 1:
+            raise PgCompatUnsupported(f"非法的累加器：{spec!r}")
+        ((op, arg),) = spec.items()
+        if op == "$sum":
+            if isinstance(arg, (int, float)) and not isinstance(arg, bool):
+                return self._json_number(f"count(*) * {arg}" if arg != 1 else "count(*)")
+            return self._json_number(f"COALESCE(sum({self._num(arg)}), 0)")
+        if op == "$avg":
+            return self._json_number(f"avg({self._num(arg)})")
+        if op in {"$min", "$max"}:
+            # **不能用 min()/max() 聚合**：openGauss 的 min/max 作用在 jsonb 上按
+            # **文本**比较（PostgreSQL 用 jsonb 自身的类型序），实测 max 在
+            # 999 与 4343 之间取到 "999"（字典序）。而 jsonb 的**排序运算符**是正确的
+            # （`ORDER BY jsonb` 对 10/9/2 给出 2/9/10），因此改用
+            # `(array_agg(x ORDER BY x))[1]` 取真极值。
+            # 表达式在 ORDER BY 与聚合里各出现一次，构建两次以对齐占位符。
+            direction = "ASC" if op == "$min" else "DESC"
+            first = self._expr_json(arg)
+            second = self._expr_json(arg)
+            return f"(array_agg({first} ORDER BY {second} {direction}))[1]"
+        if op == "$push":
+            return f"COALESCE(jsonb_agg({self._expr_json(arg)}), '[]'::jsonb)"
+        if op == "$addToSet":
+            return f"COALESCE(jsonb_agg(DISTINCT {self._expr_json(arg)}), '[]'::jsonb)"
+        if op in {"$first", "$last"}:
+            order = self._order_sql(reverse=op == "$last")
+            return f"(array_agg({self._expr_json(arg)} ORDER BY {order}))[1]"
+        if op == "$count":
+            return self._json_number("count(*)")
+        raise PgCompatUnsupported(f"聚合累加器 {op}")
+
+    def _percentile(self, spec: Any) -> str:
+        if not isinstance(spec, Mapping):
+            raise PgCompatUnsupported("$percentile 需要配置对象")
+        pcts = spec.get("p")
+        if not isinstance(pcts, (list, tuple)) or not pcts:
+            raise PgCompatUnsupported("$percentile.p 需要非空列表")
+        value = self._num(spec.get("input"))
+        parts = [f"percentile_cont({float(p)}) WITHIN GROUP (ORDER BY {value})" for p in pcts]
+        # to_jsonb 对未知类型会报错，这里显式标注 numeric[]。
+        return f"to_jsonb(ARRAY[{', '.join(parts)}]::numeric[])"
+
+    # -- 表达式（返回 jsonb）---------------------------------------------
+    def _expr_json(self, node: Any) -> str:
+        if node is None:
+            return "'null'::jsonb"
+        if isinstance(node, bool):
+            return "'true'::jsonb" if node else "'false'::jsonb"
+        if isinstance(node, (int, float)):
+            return f"'{node}'::jsonb"
+        if isinstance(node, str):
+            if node.startswith("$"):
+                field = node[1:]
+                if not field:
+                    raise PgCompatUnsupported(f"非法的字段引用：{node!r}")
+                return f"(doc #> '{path_literal(field)}')"
+            # 字符串字面量必须**编码成 JSON**（带引号）再转 jsonb：
+            # 直接把原文当 jsonb 会报 invalid input syntax for type json。
+            return f"{self._p(to_json_text(node))}::jsonb"
+        if isinstance(node, Mapping):
+            if len(node) == 1 and str(next(iter(node))).startswith("$"):
+                ((op, arg),) = node.items()
+                return self._op_json(op, arg)
+            doc = "'{}'::jsonb"
+            for key, value in node.items():
+                doc = f"jsonb_set({doc}, '{path_literal(str(key))}', {self._expr_json(value)}, true)"
+            return doc
+        if isinstance(node, (list, tuple)):
+            if not node:
+                return "'[]'::jsonb"
+            return "(" + " || ".join(["'[]'::jsonb", *(self._expr_json(item) for item in node)]) + ")"
+        raise PgCompatUnsupported(f"不支持的表达式：{node!r}")
+
+    def _expr_bool(self, node: Any) -> str:
+        if isinstance(node, Mapping) and len(node) == 1:
+            op = str(next(iter(node)))
+            if op in _COMPARE_OPS:
+                return self._compare(op, node[op])
+            if op in {"$and", "$or"}:
+                joiner = " AND " if op == "$and" else " OR "
+                return "(" + joiner.join(self._expr_bool(x) for x in node[op]) + ")"
+            if op == "$not":
+                args = node[op] if isinstance(node[op], (list, tuple)) else [node[op]]
+                return "NOT (" + " AND ".join(self._expr_bool(x) for x in args) + ")"
+        # 非布尔表达式（如 "$field"）：按其 jsonb 真值判断
+        return f"({self._expr_json(node)} NOT IN ('null'::jsonb, 'false'::jsonb))"
+
+    def _compare(self, op: str, arg: Any) -> str:
+        if not isinstance(arg, (list, tuple)) or len(arg) != 2:
+            raise PgCompatUnsupported(f"{op} 需要两个操作数")
+        return f"({self._expr_json(arg[0])} {_COMPARE_OPS[op]} {self._expr_json(arg[1])})"
+
+    def _op_json(self, op: str, arg: Any) -> str:
+        if op in _COMPARE_OPS:
+            return f"to_jsonb({self._compare(op, arg)})"
+        if op == "$ifNull":
+            if not isinstance(arg, (list, tuple)) or len(arg) < 2:
+                raise PgCompatUnsupported("$ifNull 需要两个操作数")
+            return f"COALESCE(NULLIF({self._expr_json(arg[0])}, 'null'::jsonb), {self._expr_json(arg[1])})"
+        if op == "$cond":
+            if isinstance(arg, Mapping):
+                condition, then, otherwise = arg.get("if"), arg.get("then"), arg.get("else")
+            elif isinstance(arg, (list, tuple)) and len(arg) == 3:
+                condition, then, otherwise = arg
+            else:
+                raise PgCompatUnsupported("$cond 需要 {if,then,else} 或 [if,then,else]")
+            return (
+                f"CASE WHEN {self._expr_bool(condition)} "
+                f"THEN {self._expr_json(then)} ELSE {self._expr_json(otherwise)} END"
+            )
+        if op in _ARITH_OPS:
+            if not isinstance(arg, (list, tuple)) or len(arg) < 2:
+                raise PgCompatUnsupported(f"{op} 需要至少两个操作数")
+            result = f"({self._num(arg[0])} {_ARITH_OPS[op]} {self._num(arg[1])})"
+            for extra in arg[2:]:
+                result = f"({result} {_ARITH_OPS[op]} {self._num(extra)})"
+            return f"to_jsonb({result})"
+        if op in {"$max", "$min"}:
+            if not isinstance(arg, (list, tuple)) or len(arg) < 2:
+                raise PgCompatUnsupported(f"{op} 数组形式需要至少两个操作数")
+            fn = "GREATEST" if op == "$max" else "LEAST"
+            return f"{fn}(" + ", ".join(self._expr_json(x) for x in arg) + ")"
+        if op == "$literal":
+            return self._expr_json(arg)
+        raise PgCompatUnsupported(f"聚合表达式 {op}")
+
+
+
 class PgCursor:
     """``find()`` 的返回物；支持 ``async for``、``await cursor``、``to_list()``。"""
 
@@ -570,6 +943,39 @@ class PgCursor:
         return docs
 
 
+class PgAggregationCursor:
+    """``aggregate()`` 的返回物；``to_list()`` 与 ``async for`` 均可用。
+
+    motor 的 ``aggregate()`` 是**同步**方法（返回游标），``to_list()`` 才是协程；
+    业务代码里两种写法都有（``await coll.aggregate(p).to_list(n)`` 与
+    ``async for row in coll.aggregate(p)``），因此这里保持同样的形状。
+    管道在首次取数时才执行，因此构造游标不会产生查询。
+    """
+
+    def __init__(self, collection: "PgCollection", pipeline: Any) -> None:
+        self._collection = collection
+        self._pipeline = pipeline
+        self._docs: list[dict[str, Any]] | None = None
+
+    async def _load(self) -> list[dict[str, Any]]:
+        if self._docs is None:
+            self._docs = await self._collection._run_aggregate(self._pipeline)
+        return self._docs
+
+    async def to_list(self, length: int | None = None) -> list[dict[str, Any]]:
+        docs = await self._load()
+        if length is not None and length >= 0:
+            return docs[:length]
+        return docs
+
+    def __aiter__(self) -> Any:
+        return self._iterate()
+
+    async def _iterate(self) -> Any:
+        for doc in await self._load():
+            yield doc
+
+
 # ── 集合 ─────────────────────────────────────────────────────────────
 #: 单集合建表模板。``IF NOT EXISTS`` + 惰性调用，等价于 Mongo 的「首次写入隐式建集合」。
 TABLE_DDL = """
@@ -581,6 +987,10 @@ CREATE TABLE IF NOT EXISTS {qualified} (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )
 """
+
+#: 隐式建 schema。审计库用独立 schema 时它可能还不存在（业务 schema 由 DDL 预建），
+#: 因此建表前先确保 schema 在位——否则会报 ``schema "..." does not exist``。
+SCHEMA_DDL = 'CREATE SCHEMA IF NOT EXISTS {schema}'
 
 
 class PgCollection:
@@ -603,6 +1013,7 @@ class PgCollection:
             return
         async with self._pool.connection() as conn:
             async with conn.cursor() as cur:
+                await cur.execute(SCHEMA_DDL.format(schema=f'"{self._schema}"'), [])
                 await cur.execute(TABLE_DDL.format(qualified=self._qualified), [])
         self._table_ready = True
 
@@ -883,12 +1294,74 @@ class PgCollection:
             names.append(await self.create_index(keys, unique=bool(getattr(spec, "unique", False))))
         return names
 
-    # -- 明确未覆盖 -------------------------------------------------------
-    def aggregate(self, pipeline: Any, **_: Any) -> Any:
-        raise PgCompatUnsupported("aggregate 聚合管道")
+    # -- 聚合 ------------------------------------------------------------
+    def aggregate(self, pipeline: Any, **_: Any) -> PgAggregationCursor:
+        """聚合管道。返回游标（**同步**构造），与 motor 一致。
 
-    async def bulk_write(self, requests: Any, **_: Any) -> Any:
-        raise PgCompatUnsupported("bulk_write")
+        支持的阶段与算子见 :class:`_AggregationCompiler`；未覆盖的显式抛
+        :class:`PgCompatUnsupported`。
+        """
+        return PgAggregationCursor(self, pipeline)
+
+    async def _run_aggregate(self, pipeline: Any) -> list[dict[str, Any]]:
+        compiler = _AggregationCompiler(self._qualified)
+        sql = compiler.compile(pipeline)
+        return await self._fetch(sql, compiler.params)
+
+    # -- 批量写 ----------------------------------------------------------
+    async def bulk_write(self, requests: Any, ordered: bool = True, **_: Any) -> BulkWriteResult:
+        """逐条执行 pymongo 的批量写请求。
+
+        ``ordered=True`` 时遇错即停（与 pymongo 一致）；这里逐条执行，任一条抛错
+        都会向上传播，已执行的部分不会回滚（与 pymongo 的 ordered 语义一致：
+        前面成功的操作保留）。请求对象按**类名**识别，避免依赖 pymongo 私有属性
+        的导入路径（``InsertOne`` / ``UpdateOne`` / ``UpdateMany`` / ``ReplaceOne`` /
+        ``DeleteOne`` / ``DeleteMany``）。
+        """
+        inserted = matched = modified = deleted = 0
+        upserted_ids: dict[Any, Any] = {}
+        for index, request in enumerate(requests or ()):
+            kind = type(request).__name__
+            if kind == "InsertOne":
+                await self.insert_one(getattr(request, "_doc"))
+                inserted += 1
+            elif kind in {"UpdateOne", "UpdateMany"}:
+                # pymongo 把更新文档存在 `_doc`（不是 `_update`），实测确认。
+                upsert = bool(getattr(request, "_upsert", False))
+                result = await (
+                    self.update_one(getattr(request, "_filter"), getattr(request, "_doc"), upsert=upsert)
+                    if kind == "UpdateOne"
+                    else self.update_many(getattr(request, "_filter"), getattr(request, "_doc"), upsert=upsert)
+                )
+                matched += result.matched_count
+                modified += result.modified_count
+                if result.upserted_id is not None:
+                    upserted_ids[index] = result.upserted_id
+            elif kind == "ReplaceOne":
+                result = await self.replace_one(
+                    getattr(request, "_filter"), getattr(request, "_doc"),
+                    upsert=bool(getattr(request, "_upsert", False)),
+                )
+                matched += result.matched_count
+                modified += result.modified_count
+                if result.upserted_id is not None:
+                    upserted_ids[index] = result.upserted_id
+            elif kind == "DeleteOne":
+                deleted += (await self.delete_one(getattr(request, "_filter"))).deleted_count
+            elif kind == "DeleteMany":
+                deleted += (await self.delete_many(getattr(request, "_filter"))).deleted_count
+            else:
+                raise PgCompatUnsupported(
+                    f"bulk_write 请求类型 {kind}（支持 InsertOne / UpdateOne / UpdateMany / "
+                    "ReplaceOne / DeleteOne / DeleteMany）"
+                )
+        return BulkWriteResult(
+            inserted_count=inserted,
+            matched_count=matched,
+            modified_count=modified,
+            deleted_count=deleted,
+            upserted_ids=upserted_ids,
+        )
 
 
 def _return_after(return_document: Any) -> bool:

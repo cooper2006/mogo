@@ -8,7 +8,20 @@ image.
 
 ### Added
 
-- **027 数据后端迁移 R1（MongoDB → PanWeiDB）—— 基础设施与兼容层**：
+- **027 数据后端迁移 R2（兼容层接线）**：在 R1 的门面上补齐**聚合管道**与
+  **`bulk_write`**，使 25 处 `aggregate()` 调用点**仍然零修改**即可在 PanWeiDB 上工作。
+  - 聚合管道编译器 `app/core/pg_compat.py::_AggregationCompiler`：阶段
+    `$match`/`$group`/`$sort`/`$limit`/`$skip`/`$count`/`$project`；累加器
+    `$sum`/`$avg`/`$min`/`$max`/`$push`/`$addToSet`/`$first`/`$last`；表达式
+    `$ifNull`/`$cond`/比较/`$and`/`$or`/`$not`/算术/`$max`/`$min`/`$literal`/`$percentile`。
+    未覆盖的阶段/算子显式抛 `PgCompatUnsupported`。
+  - `bulk_write`：`InsertOne`/`UpdateOne`/`UpdateMany`/`ReplaceOne`/`DeleteOne`/
+    `DeleteMany`，`BulkWriteResult` 字段对齐 pymongo。
+  - 审计库分离：`get_audit_db()` 在 PanWeiDB 下指向独立 **schema**
+    （未配置时回退业务 schema），schema 不存在时由 `CREATE SCHEMA IF NOT EXISTS` 自举。
+  - 新增 `scripts/pg/sync_pg_compat.py`：把「同步三份兼容层副本」固化为脚本
+    （`--check` 可作 CI 漂移检查），守卫测试改为复用它的变换，消除变换规则的第二份来源。
+- 027 数据后端迁移 R1（MongoDB → PanWeiDB）—— 基础设施与兼容层：
   三个服务新增可选数据后端 **PanWeiDB 3.2.0**（openGauss 内核 / PostgreSQL 兼容线协议），
   由 `MOGO_DATA_BACKEND` 开关选择，**默认仍为 `mongo` 且行为不变**；回滚只需改环境变量
   并重启，**不需要回滚代码**。
@@ -29,6 +42,10 @@ image.
 
 ### Known limitations
 
+- **`min()` / `max()` 聚合在 openGauss 上按文本比较 jsonb**（PostgreSQL 按类型序），
+  实测 `$max` 在 `999` 与 `4343` 之间会取到 `"999"`；且其返回类型是 `text` 而非 jsonb。
+  兼容层已改用 `(array_agg(x ORDER BY x))[1]`（jsonb 的**排序运算符本身是正确的**），
+  并有差分测试覆盖。
 - **GIN 索引不可用（openGauss 缺陷）**：`USING GIN (doc jsonb_ops)` 遇到**任何空字符串值**
   即报 `jsonb_gin.cpp : 519 : The parameter destMax is equal to zero ...`（顶层与嵌套值
   都触发；空数组 / 空对象 / `null` 正常）。且表里只要已有一行含空串，**连 `CREATE INDEX`
@@ -49,9 +66,11 @@ image.
 - **DDL 生成器的静态扫描有漏扫**（实测漏 11 个集合）：集合名若来自大写常量、实例属性、
   带前缀下标、属性访问或配置项（如 `settings.jobs_collection`），扫描不到。
   迁移场景**必须加 `--from-mongo`**（以源库实际集合为权威来源）。
-- 聚合管道（25 处）、`bulk_write`（6 处）、`$elemMatch` / `$pull`（各 1 处）**尚未覆盖**，
-  调用即抛显式异常（不静默降级），列为 R2 待办。
-- 迁移后主键由对象类型归一为字符串；按对象比较主键的调用点需在 R2 逐点核对。
+- 聚合与批量写**已在 R2 落地**（见上）。仍未覆盖：`$text` / geo 查询、
+  稀疏/部分索引、`$setWindowFields` / `$geoNear`；调用即抛显式异常（不静默降级）。
+  `$lookup` / `$facet` / `$unwind` / `$unionWith` / `$elemMatch` / `$pull` 在代码中
+  **没有任何实际调用**（只出现在 `nosql_guard.py` 的白名单常量里），因此无需实现。
+- 迁移后主键由对象类型归一为字符串；按对象比较主键的调用点需在 R3 逐点核对。
 
 ## v0.2.1 - 2026-10-12
 

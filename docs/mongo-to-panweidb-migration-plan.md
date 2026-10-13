@@ -110,6 +110,32 @@ than the macro : SECUREC_STRING_MAX_LEN
   （`deploy/tests/test_pg_compat_parity.py::test_ddl_generator_does_not_emit_gin_index`），
   防止后续修改重新引入 GIN。
 
+### 2.6 聚合与排序相关的偏差（**R2 实测踩到**）
+
+| 偏差 | 影响 | 规避 |
+|---|---|---|
+| `min()` / `max()` **聚合**作用在 jsonb 上按**文本**比较（PostgreSQL 按 jsonb 类型序） | `$max` 在 `999` 与 `4343` 之间会取到 `"999"`（字典序） | `$min`/`$max` 改用 `(array_agg(x ORDER BY x))[1]` —— jsonb 的**排序运算符本身是正确的** |
+| `min(jsonb)` / `max(jsonb)` 的**返回类型是 `text`**，不是 jsonb | 外层 `jsonb_set` 报 `function jsonb_set(jsonb, unknown, text, boolean) does not exist` | 同上（不再用 min/max 聚合） |
+| 不支持 `FILTER (WHERE ...)` 聚合子句（PG 9.4+） | 报 syntax error | 改子查询或 `sum(case when ... then 1 else 0 end)` |
+| `GROUP BY <expr>` 与 `SELECT <同一 expr 但套了 ::text>` 被判定为不同表达式 | 报 `column "..." must appear in the GROUP BY clause` | 用 `GROUP BY 1`（按输出列序号），并把文档组装拆到第二个 CTE |
+| `jsonb_build_object` / `jsonb_build_array` 不可用 | 无法直接构造对象/数组 | 对象用 `jsonb_set` 链；数组用 `'[]'::jsonb \|\| elem` |
+
+**可用的能力**（实测）：`array_agg(x ORDER BY y)`、`jsonb_agg(DISTINCT x)`、
+`percentile_cont` / `percentile_disc`（有序集聚合）、`jsonb` 的排序运算符、
+`jsonb_set` 的参数化路径、`(jsonb #>> '{}')::numeric`、`GROUP BY jsonb`。
+
+### 2.7 `$percentile` 与 MongoDB 版本
+
+`$percentile` 是 **MongoDB 7.0+** 才有的表达式；当前栈的 MongoDB 6.0.20 **不支持**，
+会报 `Unknown expression $percentile`。`dashboard.py` 已经用 `try/except` 兜底到
+`_duration_percentiles_fallback()`（`find()` + Python 侧算分位数），因此：
+
+- 在 MongoDB 6.0 上：走兜底路径；
+- 在 PanWeiDB 上：兼容层用 `percentile_cont` 直接算（精确值，而非 Mongo 7.0 的
+  近似 t-digest），兜底路径保留。
+
+两者结果口径略有差异（精确 vs 近似），但都在合理范围内，且代码路径一致。
+
 ### 2.4 另一处与 PostgreSQL 的语义差异（踩过）
 
 **openGauss 的 `jsonb_set` 不会创建中间层对象**，而 PostgreSQL 会：
@@ -366,14 +392,29 @@ PANWEIDB_POOL_MAX_SIZE=10
 > 因此实测时用一个纯 stdlib 的 TCP 转发容器（双网络：默认 bridge 发布端口 +
 > 接入 `mogo_backend` 连 mongo）把源库端口映射到宿主机，再在宿主机上跑工具。
 
-### R2 — 兼容层接线（未开始）
+### R2 — 兼容层接线（**本分支已交付**）
 
-1. **逐域开关**：把 `MOGO_DATA_BACKEND` 细化到域级（如
-   `MOGO_DATA_BACKEND_<DOMAIN>`），使不同域可以先后切换，而不是整体一刀切。
-2. **补齐缺口**：25 处 `aggregate()`、6 处 `bulk_write`、`$lookup`/`$facet`/`$unwind`。
-3. **索引对齐**：核对 202 处 `create_index` 的 unique/sparse/partial 语义。
-4. **全量回归**：在 PanWeiDB 后端上跑三服务测试套件，逐条修复不兼容点。
-5. **审计分库**：把 `get_audit_db()` 真正指向独立 schema，并对齐 FR-17 的保留期策略。
+**先修正一处早先的估算失实**：R1 阶段曾按「25 处聚合管道 + 6 处 `bulk_write` +
+`$lookup`/`$facet`/`$unwind` 各 1 处」估算 R2 范围。R2 精确盘点后发现
+**`$lookup`/`$facet`/`$unwind`/`$unionWith`/`$out`/`$merge` 全部为 0 处** ——
+它们只出现在 `app/core/nosql_guard.py` 的**白名单常量**里，没有任何实际调用。
+同样 `$elemMatch` / `$pull` 也是 0 处。实际用到的阶段只有
+`$match`(25) / `$group`(26) / `$sort`(5) / `$project`(1) / `$limit`(1) / `$count`(1)。
+
+| 项 | 状态 |
+|---|---|
+| **聚合管道编译器**（`$match`/`$group`/`$sort`/`$limit`/`$skip`/`$count`/`$project`；累加器 `$sum`/`$avg`/`$min`/`$max`/`$push`/`$addToSet`/`$first`/`$last`；表达式 `$ifNull`/`$cond`/`$eq` 等比较/`$and`/`$or`/`$not`/`$add`/`$subtract`/`$multiply`/`$divide`/`$max`/`$min`/`$literal`/`$percentile`） | ✅ |
+| **`bulk_write`**（`InsertOne`/`UpdateOne`/`UpdateMany`/`ReplaceOne`/`DeleteOne`/`DeleteMany`，结果对象对齐 pymongo） | ✅ |
+| **审计库分离**（独立 schema + 未配置时回退 + schema 自举） | ✅ |
+| **差分测试**：同一管道/同一批操作在 MongoDB 与 PanWeiDB 上跑并比对结果 | ✅ 聚合 11/11、`bulk_write` 8/8 |
+| **纯逻辑单测**（聚合编译器，含占位符不变量与 openGauss 偏差回归） | ✅ +15 项（共 44 项） |
+| **三服务全量回归** | 见下 |
+| 逐域开关（`MOGO_DATA_BACKEND_<DOMAIN>`） | 未做（整体切换已足够，域级开关留待 R3 前按需加） |
+| 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对 | 未做（`create_index` 已支持 `unique`；稀疏/部分索引无直接对应物，见「已知语义差异」） |
+
+**R2 的关键设计决策**：把「补齐缺口」实现为**兼容层能力**而不是改写 25 处业务调用点 ——
+这样调用点仍然零修改，符合 R1 定下的路线。代价是兼容层多了一个聚合编译器，
+但它有差分测试兜底（同一管道两边跑、比结果），可靠性高于逐点手改 SQL。
 
 ### R3 — 逐域关系化（未开始，可选）
 

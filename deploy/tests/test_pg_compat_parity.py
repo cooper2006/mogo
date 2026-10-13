@@ -44,49 +44,6 @@ FORBIDDEN_FUNCTIONS = (
 #: A 模式下不可用的 **运算符**：`doc #- '{a,b}'`（删路径）。
 FORBIDDEN_OPERATOR_PATTERN = re.compile(r"#-\s*'")
 
-#: 同步版游标块的替换文本，必须与生成脚本一致。
-SYNC_CURSOR_BLOCK = '''class PgCursor:
-    """``find()`` 的返回物；支持 ``for doc in cursor`` 与 ``to_list()``。"""
-
-    def __init__(self, collection: "PgCollection", filt: Mapping[str, Any] | None) -> None:
-        self._collection = collection
-        self._filter = filt or {}
-        self._sort: list[tuple[str, int]] = []
-        self._limit = 0
-        self._skip = 0
-        self.projection: Mapping[str, Any] | None = None
-
-    def sort(self, key: Any, direction: int | None = None) -> "PgCursor":
-        if isinstance(key, str):
-            self._sort.append((key, 1 if direction is None else int(direction)))
-        else:
-            for field, order in key:
-                self._sort.append((str(field), int(order)))
-        return self
-
-    def limit(self, count: int) -> "PgCursor":
-        self._limit = int(count)
-        return self
-
-    def skip(self, count: int) -> "PgCursor":
-        self._skip = int(count)
-        return self
-
-    def __iter__(self) -> Iterator[dict[str, Any]]:
-        yield from self._collection._run_find(self)
-
-    def __len__(self) -> int:
-        return len(self._collection._run_find(self))
-
-    def to_list(self, length: int | None = None) -> list[dict[str, Any]]:
-        docs = self._collection._run_find(self)
-        if length is not None and length >= 0:
-            return docs[:length]
-        return docs
-
-
-'''
-
 
 def _read(service: str, module: str) -> str:
     path = REPO_ROOT / "services" / service / "app" / "core" / module
@@ -95,19 +52,18 @@ def _read(service: str, module: str) -> str:
 
 
 def _to_sync(async_source: str) -> str:
-    """把异步兼容层机械变换成同步版（与生成时使用的变换完全一致）。"""
-    text = async_source.replace(
-        "from typing import Any, AsyncIterator, Iterable, Mapping, Sequence",
-        "from typing import Any, Iterable, Iterator, Mapping, Sequence",
-    )
-    text = text.replace("async with ", "with ")
-    text = text.replace("async for ", "for ")
-    text = text.replace("async def ", "def ")
-    text = re.sub(r"\bawait\s+", "", text)
-    start = text.index("class PgCursor:")
-    end = text.index("# ── 集合 ─")
-    text = text[:start] + SYNC_CURSOR_BLOCK + text[end:]
-    return text.replace("**R1 已实现**", "**R1 已实现（同步 pymongo 子集）**")
+    """复用 ``scripts/pg/sync_pg_compat.py`` 的变换（**唯一**的变换实现）。
+
+    刻意不在这里复制一份变换规则：两份来源必然漂移，而漂移正是本守卫要防的东西。
+    """
+    import sys
+
+    scripts = str(REPO_ROOT / "scripts" / "pg")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from sync_pg_compat import to_sync
+
+    return to_sync(async_source)
 
 
 @pytest.mark.parametrize("service", SERVICES)

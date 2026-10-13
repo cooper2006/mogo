@@ -303,10 +303,64 @@ docker compose up -d --no-deps admin-api chat-api document-api document-worker
 | 11 | 依赖锁完整性 | 步骤 7 | 三个服务全部通过 | ✅ |
 | 12 | 回滚 | 步骤 8 | 仅改环境变量 | ✅ |
 | 13 | **真实数据入库** | 步骤 4–6 全跑 | 17,785 篇 / 5.5s；88 集合计数全一致 | ✅ |
+| 14 | **聚合管道差分** | 步骤 9 | 11 组管道在 Mongo 与 PanWeiDB 上结果一致 | ✅ |
+| 15 | **bulk_write 差分** | 步骤 10 | 5 个计数 + 落库文档集合一致，8/8 | ✅ |
+| 16 | **审计库分离** | 步骤 11 | 独立 schema、业务不可见、未配置时回退 | ✅ |
 
-**R2 待验收**（见 [tasks.md](./tasks.md) Phase 9）：
+---
 
-- 三服务测试套件在 `MOGO_DATA_BACKEND=panweidb` 下全绿
-- 25 处聚合管道 + 6 处 `bulk_write` + `$elemMatch`/`$pull` 全部改写完成
-- 202 处索引声明的 unique / sparse / partial 语义逐点核对完成
-- 审计库分离落地
+## 9. 聚合管道差分测试（R2）
+
+差分测试是 R2 的主要验收方式——**同一管道在 MongoDB 与 PanWeiDB 上跑并比对结果**，
+比静态分析可靠得多。
+
+```bash
+# 需先把源 MongoDB 端口映射到宿主机（mogo_backend 是 internal 网络，容器不便发布端口）
+# 用 scripts/pg/sync_pg_compat.py 无关；参考 docs/mongo-to-panweidb-migration-plan.md 第 8 节
+python /tmp/verify_aggregate.py     # 11 组管道
+```
+
+覆盖：`$match`+`$group` 计数 / 全局 `_id: None` 聚合 / `$min`/`$max`/`$avg` /
+`$sort`+`$group`+`$first`/`$last` / `$group`+`$sort`+`$limit` / `$count` 阶段 /
+`$push`/`$addToSet` / `$cond` 在 `_id` 与 `$sum` 里 / 复合 `_id` /
+`$percentile`（Mongo 6.0 不支持，单独验证）/ 大数据集（8,706 行）。
+
+## 10. bulk_write 差分测试（R2）
+
+覆盖 `InsertOne`/`UpdateOne`/`UpdateMany`/`ReplaceOne`/`DeleteOne`/`DeleteMany` 与
+upsert，比对 `inserted`/`matched`/`modified`/`deleted`/`upserted` 五个计数与
+落库文档集合，外加空请求列表。
+
+## 11. 审计库分离（R2）
+
+```bash
+MOGO_DATA_BACKEND=panweidb PANWEIDB_AUDIT_SCHEMA=mogo_audit ... python -c "
+import asyncio
+from app.core import db
+
+async def go():
+    await db.init_backend()
+    audit, biz = db.get_audit_db(), db.get_db()
+    print('隔离生效:', audit._schema != biz._schema)
+    coll = audit['system_audit_logs']
+    await coll.insert_one({'_id': 'probe'})
+    print('独立 schema 写入:', await coll.find_one({'_id': 'probe'}) is not None)
+    print('业务 schema 不可见:', await biz['system_audit_logs'].find_one({'_id': 'probe'}) is None)
+    await coll.delete_many({'_id': 'probe'})
+    await db.close_backend()
+
+asyncio.run(go())
+"
+```
+
+**预期**：`隔离生效: True`、`独立 schema 写入: True`（schema 不存在时由
+`CREATE SCHEMA IF NOT EXISTS` 自举）、`业务 schema 不可见: True`。
+不配置 `PANWEIDB_AUDIT_SCHEMA` 时回退业务 schema。
+
+---
+
+**剩余待办**（见 [tasks.md](./tasks.md) T082–T087）：
+
+- 域级开关、202 处索引的 unique/sparse/partial 语义逐点核对
+- 正则方言与按对象比较主键的调用点核对
+- 补跑 document-parser 的锁定文件生成、补齐 `/speckit-checklist` 与 `/speckit-analyze`

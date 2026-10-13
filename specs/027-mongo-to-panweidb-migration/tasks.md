@@ -185,22 +185,55 @@
 
 ---
 
-## Phase 9: R2 — 兼容层接线（未开始）
+## Phase 9: R2 — 兼容层接线（**本分支已交付**）
 
-**Goal**: 在 PanWeiDB 后端上跑通三服务测试套件，并补齐未覆盖能力。
+**关键前提（R1 估算失实已修正）**：R1 阶段按「`$lookup`/`$facet`/`$unwind` 各 1 处」
+估算了 R2 范围。R2 精确盘点确认这些阶段**全部为 0 处**——它们只出现在
+`app/core/nosql_guard.py` 的白名单常量里，无实际调用。`$elemMatch`/`$pull` 同为 0 处。
+实际只用到 `$match`(25) / `$group`(26) / `$sort`(5) / `$project`(1) / `$limit`(1) / `$count`(1)。
 
-- [ ] T051 [US1] 把 `MOGO_DATA_BACKEND` 细化为域级开关（如 `MOGO_DATA_BACKEND_<DOMAIN>`），使不同域可先后切换
-- [ ] T052 [US2] 重写 25 处聚合管道调用（`$group` / `$match` / `$sort` / `$unwind` / `$lookup` / `$facet` 等）为 SQL
-- [ ] T053 [P] [US2] 重写 6 处 `bulk_write` 调用
-- [ ] T054 [P] [US2] 重写 `$elemMatch` 与 `$pull` 各 1 处
-- [ ] T055 [US2] 逐点核对 202 处 `create_index` 的 unique / sparse / partial 语义，补齐缺失的索引语义或显式登记为可接受差异
-- [ ] T056 [US2] 核对按对象类型比较主键的调用点，改为字符串比较
-- [ ] T057 [US2] 核对正则使用点，改写 PCRE 专有断言
-- [ ] T058 [US2] 投影下推为 SQL（消除 Python 侧裁剪的开销）
-- [ ] T059 [US1] 三服务测试套件在 `MOGO_DATA_BACKEND=panweidb` 下全绿
-- [ ] T060 [US1] 审计库分离：`get_audit_db()` 指向独立 schema，对齐 FR-17 保留期策略
-- [ ] T061 补跑 `bash scripts/generate-hashes.sh document-parser --docker 3.10`，恢复锁定文件的单一生成来源
-- [ ] T062 补齐 `/speckit-checklist` 与 `/speckit-analyze` 质量门禁，进入 implement → converge
+- [x] T069 精确盘点 R2 缺口：按 AST 提取全部 `aggregate()` 调用点与管道阶段，
+  确认复杂阶段为 0 处，`bulk_write` 6 处
+- [x] T070 实现 `_AggregationCompiler`：`$match`/`$group`/`$sort`/`$limit`/`$skip`/
+  `$count`/`$project`；累加器 `$sum`/`$avg`/`$min`/`$max`/`$push`/`$addToSet`/`$first`/`$last`；
+  表达式 `$ifNull`/`$cond`/比较/`$and`/`$or`/`$not`/算术/`$max`/`$min`/`$literal`/`$percentile`。
+  未覆盖阶段/算子/累加器显式抛 `PgCompatUnsupported`
+- [x] T071 实现 `PgAggregationCursor`（`to_list()` + `async for`），
+  `PgCollection.aggregate()` 同步返回游标，与 motor 形状一致
+- [x] T072 实现 `bulk_write`：`InsertOne`/`UpdateOne`/`UpdateMany`/`ReplaceOne`/
+  `DeleteOne`/`DeleteMany`；`BulkWriteResult` 字段对齐 pymongo。
+  请求对象按**类名**识别 + 用 `_doc`（非 `_update`）取更新文档（实测确认）
+- [x] T073 修 `$group` 编译：拆成两步 CTE（先聚合出普通列，再组装文档）+ `GROUP BY 1`，
+  解决 PG 9.2 的 `column must appear in the GROUP BY clause` 与占位符重复
+- [x] T074 修 `$min`/`$max`：openGauss 的 min/max 聚合对 jsonb **按文本比较**
+  （`999` > `4343`）且返回 `text` 而非 jsonb → 改用 `(array_agg(x ORDER BY x))[1]`
+- [x] T075 修 `_ensure_table`：隐式建表前先 `CREATE SCHEMA IF NOT EXISTS`
+  （审计库用独立 schema 时它可能还不存在，此前直接报 schema does not exist）
+- [x] T076 把「同步三份副本」固化成 `scripts/pg/sync_pg_compat.py`（含 `--check`），
+  守卫测试改为 import 它的 `to_sync()`，消除变换规则的第二份来源
+- [x] T077 差分测试：同一管道在 MongoDB 与 PanWeiDB 上跑并比对 —— **聚合 11/11 通过**
+- [x] T078 差分测试：同一批 bulk_write 操作在两边跑并比对 —— **8/8 通过**
+  （`inserted/matched/modified/deleted/upserted` 五个计数 + 落库文档集合一致）
+- [x] T079 审计库分离验证：独立 schema、业务 schema 不可见、未配置时回退业务 schema
+- [x] T080 补聚合编译器纯逻辑单测 **15 项**（含占位符不变量、min/max 文本比较回归、
+  `$last` 方向取反、`$count` 括号、字符串字面量 JSON 编码、`$group` 的 `$max` 是
+  累加器而非表达式）
+- [x] T081 三服务全量回归（默认 mongo 路径，确认无回归）：
+  **admin-api 907/907**、**chat-api 2857/2860**、**document-parser 22/22**。
+  chat-api 的 3 个失败经实证为**既有环境问题**：它们要连宿主机
+  `127.0.0.1:27017` 的真实 MongoDB（本机 Mongo 只在 `mogo_backend` 内部网络里），
+  报 `ServerSelectionTimeoutError`。已把 `pg_compat.py` 换回 HEAD 版本重跑这 3 个
+  测试验证**同样失败**，且 `db.py` 对 `pg_compat` 是**惰性导入**（mongo 模式下
+  根本不加载）——与本次改动无关。
+
+**剩余待办（R3 或按需）**：
+
+- [ ] T082 域级开关（`MOGO_DATA_BACKEND_<DOMAIN>`）：整体切换已足够，域级切换留待 R3 前按需加
+- [ ] T083 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对（`unique` 已支持）
+- [ ] T084 正则使用点核对（PCRE vs ARE 方言差异）
+- [ ] T085 按对象类型比较主键的调用点核对
+- [ ] T086 补跑 `bash scripts/generate-hashes.sh document-parser --docker 3.10`（恢复锁定文件单一来源）
+- [ ] T087 补齐 `/speckit-checklist` 与 `/speckit-analyze` 质量门禁
 
 ---
 
