@@ -71,13 +71,44 @@ pymongo 与 motor**，避免引入第二套驱动。
 | `jsonb_extract_path(_text)` | |
 | `jsonb_insert` / `jsonb_path_query` | |
 | `jsonb - text` / `jsonb - int` / `jsonb_delete` | |
-| GIN 算子类 `jsonb_ops` | |
+| GIN 算子类 `jsonb_ops`（可建，但见 2.5 —— **实际不可用**） | |
 
 不可用函数在调用时报
 `FeatureNotSupported: ... is supported only in PG-format database`。
 
 **规避手法已内联在 `pg_compat.py`**（`_unset_expression`、`$push` 分支），
 修改该模块时不要引入上表右侧的函数。
+
+### 2.5 GIN 索引不可用（**openGauss 缺陷，R1 实测踩到**）
+
+`USING GIN (doc jsonb_ops)` **遇到任何空字符串值就报错**：
+
+```
+jsonb_gin.cpp : 519 : The parameter destMax is equal to zero or larger
+than the macro : SECUREC_STRING_MAX_LEN
+```
+
+- **触发条件**：文档里存在空字符串值（顶层与嵌套值都触发）。
+  空数组、空对象、`null`、非空字符串均正常。
+- **更麻烦的是**：表里只要**已有一行**含空串，**连 `CREATE INDEX` 本身都会失败**，
+  所以不能靠「先建索引再灌数据」绕开。
+- **实测对照**（同一张含空串的表，逐项验证）：
+
+  | 索引类型 | 结果 |
+  |---|---|
+  | 无索引 | ✅ 可写 |
+  | `btree (tenant_id)` | ✅ 可写 |
+  | `btree ((doc #> '{f}'))`（兼容层 `create_index` 的形态） | ✅ 可写 |
+  | `GIN (doc jsonb_ops)` | ❌ 报错 |
+
+- **结论：建表 DDL 只建 `tenant_id` btree 索引，不建 GIN。**
+- **代价可控**：GIN 只服务于 JSONB 包含/键存在性查询（`@>` / `?`），而兼容层里
+  只有 `$all` 用到 `@>`（全代码库 **1 处**）。按字段过滤走
+  `doc #> '{f}'` 表达式索引（各服务启动时的 `ensure_indexes()` 建立），
+  租户过滤走 `tenant_id`，主键查询走主键索引。
+- 该约束已固化为守卫测试
+  （`deploy/tests/test_pg_compat_parity.py::test_ddl_generator_does_not_emit_gin_index`），
+  防止后续修改重新引入 GIN。
 
 ### 2.4 另一处与 PostgreSQL 的语义差异（踩过）
 
@@ -161,7 +192,7 @@ CREATE TABLE "<schema>"."<collection>" (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX "<collection>_tenant_idx" ON ... (tenant_id);
-CREATE INDEX "<collection>_doc_gin"    ON ... USING GIN (doc jsonb_ops);
+-- 刻意不建 GIN：见 2.5（openGauss 的 jsonb GIN 索引遇空字符串即报错）
 ```
 
 设计要点：
@@ -169,8 +200,8 @@ CREATE INDEX "<collection>_doc_gin"    ON ... USING GIN (doc jsonb_ops);
 - **字段一律走 JSONB 路径表达式**（`doc #> '{a,b}'`），**不预建列** →
   新增业务字段**不需要 DDL 变更**，这是兼容层能低成本落地的根本原因。
 - `id` / `tenant_id` 提升为真实列，用于主键、租户过滤与 `tenant_purge` 的批量删除。
-- `jsonb_ops` 而非 `jsonb_path_ops`：后者在 PanWeiDB 3.2 不存在，且前者额外支持
-  `?`/`?&`/`?|` 键存在性算子。
+- **只建 `tenant_id` btree 索引**，不建 GIN（见 2.5）。按字段过滤的表达式索引由各服务
+  启动时的 `ensure_indexes()` 通过兼容层的 `create_index` 建立。
 - **隐式建表**：兼容层首次操作某集合时执行 `CREATE TABLE IF NOT EXISTS`，
   等价于 Mongo 的「首次写入隐式建集合」，避免启动期因表缺失而崩。
 
@@ -311,11 +342,29 @@ PANWEIDB_POOL_MAX_SIZE=10
 | `app/core/db.py` × 3：`MOGO_DATA_BACKEND` 分派，mongo 分支行为不变 | ✅ |
 | `app/core/config.py` × 3：开关 + `PANWEIDB_*` 配置项与回退 | ✅ |
 | 健康检查接入（`backend` / `target` / `reachable`） | ✅ |
-| `scripts/pg/generate_ddl.py`：扫描集合 → 幂等 DDL + 连库巡检 | ✅ |
-| `scripts/pg/migrate_mongo_to_panweidb.py`：幂等搬迁 + 计数校验 | ✅ |
-| `deploy/pg/schema.sql`：103 集合建表 DDL | ✅ |
+| `scripts/pg/generate_ddl.py`：集合扫描（静态 + `--from-mongo` 权威来源）→ 幂等 DDL + 连库巡检 | ✅ |
+| `scripts/pg/migrate_mongo_to_panweidb.py`：幂等搬迁 + `--prune` 对账 + 计数校验 | ✅ |
+| `deploy/pg/schema.sql`：114 集合建表 DDL（**不含 GIN**，见 2.5） | ✅ |
 | `requirements.in` × 3：psycopg 依赖声明 | ✅ |
 | 真实 PanWeiDB 端到端验证（异步 64/64、同步 26/26、搬迁全链路） | ✅ |
+| **GIN 索引缺陷发现与规避**（2.5）+ 守卫测试固化 | ✅ |
+| **真实数据入库验证**（下节） | ✅ |
+
+#### R1 真实数据入库实测（2026-10-13）
+
+把本机运行中的 `mogo` 开发栈数据搬进了 PanWeiDB：
+
+| 项 | 结果 |
+|---|---|
+| 源库 | 运行中的 `mogo-mongo-1`（MongoDB 6.0.20，`mogo_dev`，88 集合） |
+| 目标 | PanWeiDB `bonc` 库的 `mogo_dev` schema，**115 张表 / 229 个 btree 索引 / 0 GIN** |
+| 搬迁量 | **17,785 篇文档**，耗时 5.5s |
+| 计数校验 | **88 个集合全部一致，不一致项 0** |
+| 门面回读 | 13/13 通过（含中文字段、空字符串字段、布尔字段、`_id` 归一、深合并更新、未覆盖能力显式失败） |
+
+> 网络备注：`mogo_backend` 是 `Internal=true` 的网络，容器既无外网也无法发布端口，
+> 因此实测时用一个纯 stdlib 的 TCP 转发容器（双网络：默认 bridge 发布端口 +
+> 接入 `mogo_backend` 连 mongo）把源库端口映射到宿主机，再在宿主机上跑工具。
 
 ### R2 — 兼容层接线（未开始）
 
@@ -337,8 +386,10 @@ PANWEIDB_POOL_MAX_SIZE=10
 ## 8. 数据搬迁与校验
 
 ```bash
-# 0) 建表（幂等）
-python scripts/pg/generate_ddl.py --schema mogo_dev --out deploy/pg/schema.sql
+# 0) 建表（幂等）。迁移场景务必加 --from-mongo：静态扫描有已知漏扫（见下）
+python scripts/pg/generate_ddl.py --schema mogo_dev \
+  --from-mongo "mongodb://127.0.0.1:27017" --mongo-db mogo_dev \
+  --out deploy/pg/schema.sql
 psql "$PANWEIDB_DSN" -f deploy/pg/schema.sql
 
 # 1) 演练：只统计不写库
@@ -349,13 +400,40 @@ python scripts/pg/migrate_mongo_to_panweidb.py \
 # 2) 正式搬迁（幂等；中断后直接重跑）
 python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev
 
-# 3) 校验计数
+# 3) 对账收敛（源库在搬迁期间仍被写入时必需，见下）
+python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --prune
+
+# 4) 校验计数
 python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
 ```
 
-特性：**幂等**（`ON CONFLICT (id) DO UPDATE`，重跑即自愈）、**可续跑**
-（`--resume` 跳过已完成集合，进度记在 `<schema>._migration_progress`）、
-**只读 MongoDB**。
+### 集合清单的来源（DDL 生成器）
+
+**权威来源是源 MongoDB 的实际集合**（`--from-mongo`），静态扫描只作补充。
+实测静态扫描漏了 **11 个集合**，原因是集合名的四种写法它覆盖不到：
+
+| 漏扫的写法 | 例子 |
+|---|---|
+| 大写常量（无 `_COLLECTION` 后缀） | `INBOX = "kernel_event_inbox"` |
+| 实例属性赋值 | `self._collection = "runtime_action_receipts"` |
+| 带前缀的下标 | `self._db["presence_heartbeats"]` |
+| 属性访问 | `db.scheduled_jobs.find(...)` |
+| 配置项驱动 | `settings.jobs_collection`（document-parser） |
+
+漏掉的表不会导致失败（兼容层首次写入时隐式建表），但**巡检与容量规划会失真**，
+因此迁移场景必须加 `--from-mongo`。
+
+### 搬迁的三条语义（**务必先读**）
+
+1. **幂等**：`ON CONFLICT (id) DO UPDATE`，重跑即自愈，中断后直接重跑。
+2. **不传播删除**：upsert 只能保证「源库有的目标库也有」，**不能**保证
+   「目标库没有源库已删的」。对**活跃的**源库（有会话 GC / TTL 清理）会留残留，
+   此时 `--verify` 报「目标多于源」属预期。实测踩到过：搬迁期间运行中的 chat-api
+   清理了一个过期会话，导致 `end_user_sessions` 目标比源多 1 行。
+   需要收敛时加 `--prune`（删除目标库中源库已不存在的行）。
+3. **可续跑**：`--resume` 跳过已完成集合，进度记在 `<schema>._migration_progress`。
+
+工具**只读 MongoDB**，只写 PanWeiDB 目标表。
 
 ---
 
@@ -363,7 +441,8 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
 
 - **主键**：`id` 上天然有唯一索引 → `find_one({"_id": ...})` 走索引。
 - **租户过滤**：`tenant_id` 有独立 btree 索引 → 绝大多数查询的公共前缀。
-- **JSONB 包含查询**：`doc` 上的 GIN（`jsonb_ops`）支撑 `@>` / `?`。
+- **JSONB 包含查询**：**没有 GIN 可用**（见 2.5），`@>` / `?` 会退化为顺序扫描。
+  兼容层里只有 `$all` 用到 `@>`（全代码库 1 处），影响可忽略。
 - **等值查询走 `doc #> '{f}' = %s::jsonb`**：表达式索引需要按需建。
   R1 的 `create_index` 会把 Mongo 的索引声明翻译成 PG 表达式索引
   （单字段与复合都支持），因此**既有 `ensure_indexes()` 在启动时会自动补齐**。

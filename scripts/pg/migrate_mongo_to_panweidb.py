@@ -9,10 +9,13 @@
 
 * **幂等**：写入一律 ``INSERT ... ON CONFLICT (id) DO UPDATE``。中断后**直接重跑**
   即可，无需断点续传——重跑会覆盖已写入的行，不会产生重复。
+* **不传播删除**（默认）：只做 upsert，**不删除**目标库里源库已经没有的行。
+  对**活跃的**源库这意味着会留残留：源库在两次搬迁之间删掉的行，目标库仍保留。
+  此时 ``--verify`` 会报「目标多于源」，属预期。需要收敛时用 ``--prune``。
 * **可续跑**：进度表 ``<schema>._migration_progress`` 记录每个集合的状态与计数；
   ``--resume`` 跳过已完成集合，用于大库分批搬。
 * **可校验**：``--verify`` 只做「Mongo 计数 vs PanWeiDB 计数」比对，不改数据。
-* **不删不改**：工具只读 MongoDB，只写 PanWeiDB 目标表。
+* **不删不改源库**：工具只读 MongoDB，只写 PanWeiDB 目标表。
 
 用法::
 
@@ -24,6 +27,9 @@
 
     # 正式搬迁
     python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev
+
+    # 对账收敛：删除目标库里源库已不存在的行（源库在搬迁期间仍在写入时必须）
+    python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --prune
 
     # 搬迁后校验
     python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
@@ -135,6 +141,25 @@ def migrate_collection(
     return written
 
 
+def prune_collection(mongo_db: Any, pg_conn: Any, schema: str, collection: str) -> int:
+    """删除目标库中**源库已不存在**的行，返回删除数。
+
+    用于源库在搬迁期间仍在写入的场景（例如运行中的服务有会话 GC / TTL 清理）：
+    upsert 只能保证「源库有的目标库也有」，不能保证「目标库没有源库已删的」。
+    加 ``--prune`` 后两边集合才真正收敛，``--verify`` 才有意义。
+    """
+    qualified = _qualified(schema, collection)
+    ids = [str(doc["_id"]) for doc in mongo_db[collection].find({}, {"_id": 1})]
+    with pg_conn.cursor() as cur:
+        if not ids:
+            cur.execute(f"DELETE FROM {qualified}")
+        else:
+            cur.execute(f"DELETE FROM {qualified} WHERE NOT (id = ANY(%s))", [ids])
+        deleted = cur.rowcount
+    pg_conn.commit()
+    return max(deleted, 0)
+
+
 def mark_progress(pg_conn: Any, schema: str, collection: str, migrated: int, done: bool) -> None:
     with pg_conn.cursor() as cur:
         cur.execute(
@@ -189,6 +214,11 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="只统计，不写库")
     parser.add_argument("--verify", action="store_true", help="只做计数校验")
     parser.add_argument("--resume", action="store_true", help="跳过已完成的集合")
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="对账：删除目标库中源库已不存在的行（源库在搬迁期间仍被写入时需要）",
+    )
     args = parser.parse_args()
 
     try:
@@ -223,6 +253,7 @@ def main() -> int:
 
         started = time.time()
         grand_total = 0
+        pruned_total = 0
         for collection in collections:
             if collection in skip:
                 continue
@@ -232,10 +263,17 @@ def main() -> int:
             )
             grand_total += count
             if not args.dry_run:
+                if args.prune:
+                    removed = prune_collection(mongo_db, pg_conn, args.schema, collection)
+                    if removed:
+                        print(f"  {collection}: 清理 {removed} 行（源库已不存在）")
+                    pruned_total += removed
                 mark_progress(pg_conn, args.schema, collection, count, True)
 
         action = "演练统计" if args.dry_run else "已搬迁"
         print(f"\n{action} {grand_total} 篇文档，耗时 {time.time() - started:.1f}s")
+        if args.prune and not args.dry_run:
+            print(f"对账清理 {pruned_total} 行（源库已不存在的行）")
         if not args.dry_run:
             print("下一步：用 --verify 校验计数")
     return 0

@@ -107,22 +107,40 @@ tables = 103
 
 ## 4. 建表：生成 + 巡检（FR-017 / FR-018 / SC-005）
 
+> **迁移场景务必加 `--from-mongo`**：静态扫描有已知漏扫（大写常量 / 实例属性 /
+> 带前缀下标 / 属性访问 / 配置项驱动的集合名），实测漏了 11 个集合。
+> 源 MongoDB 的**实际集合**才是权威来源。
+
 ```bash
-# 4a. 列出扫描到的集合与来源文件
+# 4a. 列出扫描到的集合与来源（静态）
 python scripts/pg/generate_ddl.py --list | tail -3
-# 预期: 共 103 个集合
+# 预期: 共 103 个集合（静态扫描 103 个）
 
-# 4b. 生成 DDL
-python scripts/pg/generate_ddl.py --schema "$PW_SCHEMA" --out deploy/pg/schema.sql
-# 预期: ✅ 已写入 deploy/pg/schema.sql（103 个集合）
+# 4b. 权威来源：并上源 MongoDB 的实际集合
+python scripts/pg/generate_ddl.py --from-mongo "mongodb://127.0.0.1:27017" \
+  --mongo-db mogo_dev --list 2>/dev/null | tail -1
+# 预期: 共 114 个集合（静态扫描 103 个）
 
-# 4c. 建表（幂等，可重复执行）
+# 4c. 生成 DDL
+python scripts/pg/generate_ddl.py --schema "$PW_SCHEMA" \
+  --from-mongo "mongodb://127.0.0.1:27017" --mongo-db mogo_dev \
+  --out deploy/pg/schema.sql
+# 预期: ✅ 已写入 deploy/pg/schema.sql（114 个集合）
+
+# 4d. 建表（幂等，可重复执行）
 time psql "$PW_DSN" -f deploy/pg/schema.sql
-# 预期: 103 张表 / 309 个索引，耗时 < 10s（实测 1.6s）
+# 预期: 114 张表 / 229 个 btree 索引，耗时 < 10s（实测 1.6s）
+#       DDL 里不应出现 USING GIN（见步骤 4e）
 
-# 4d. 巡检
-python scripts/pg/generate_ddl.py --schema "$PW_SCHEMA" --check --dsn "$PW_DSN"
-# 预期: schema=<schema> 已有 103 张表；期望 103 张 / ✅ 全部表已就位
+# 4e. 确认没有 GIN 索引（openGauss 的 jsonb GIN 遇空字符串即报错）
+grep -c "USING GIN" deploy/pg/schema.sql
+# 预期: 0
+
+# 4f. 巡检
+python scripts/pg/generate_ddl.py --schema "$PW_SCHEMA" \
+  --from-mongo "mongodb://127.0.0.1:27017" --mongo-db mogo_dev \
+  --check --dsn "$PW_DSN" 2>/dev/null | tail -2
+# 预期: ✅ 全部表已就位
 ```
 
 **验证隐式建表（FR-015）**: 对一个未预建表的集合直接写入。
@@ -210,17 +228,27 @@ python scripts/pg/migrate_mongo_to_panweidb.py \
 python scripts/pg/migrate_mongo_to_panweidb.py ... --schema "$PW_SCHEMA"
 # 预期: 再次输出同样的写入数，但目标库文档数不变（ON CONFLICT DO UPDATE）
 
-# 6d. 计数校验（SC-003）
+# 6d. 对账收敛（源库在搬迁期间仍被写入时必需）
+python scripts/pg/migrate_mongo_to_panweidb.py ... --schema "$PW_SCHEMA" --prune
+# 预期: 若源库在搬迁期间删过行，输出 "对账清理 N 行（源库已不存在的行）"
+#       否则输出 "对账清理 0 行"
+
+# 6e. 计数校验（SC-003）
 python scripts/pg/migrate_mongo_to_panweidb.py ... --schema "$PW_SCHEMA" --verify
 # 预期: 逐集合 "✅ <coll> mongo=N panweidb=N"，最后 "✅ 计数全部一致"
 
-# 6e. 续跑
+# 6f. 续跑
 python scripts/pg/migrate_mongo_to_panweidb.py ... --schema "$PW_SCHEMA" --resume
 # 预期: "--resume：跳过 K 个已完成集合"
 ```
 
+> **为什么需要 6d**：搬迁只做 upsert，**不传播删除**。upsert 能保证「源库有的目标库
+> 也有」，但保证不了「目标库没有源库已删的」。对**活跃的**源库（有会话 GC / TTL 清理），
+> 两次搬迁之间源库删掉的行会残留在目标库，导致 `--verify` 报「目标多于源」。
+> 实测踩到过：`end_user_sessions` 目标 20 行 vs 源 19 行，多出的是一行已过期会话。
+
 **只读保证（FR-022）**: 搬迁工具只对源库执行 `find`，不对源库做任何写操作；
-目标库写入一律 `ON CONFLICT DO UPDATE`。
+目标库写入一律 `ON CONFLICT DO UPDATE`，`--prune` 的删除只作用于**目标库**。
 
 ---
 
@@ -264,16 +292,17 @@ docker compose up -d --no-deps admin-api chat-api document-api document-worker
 |---|---|---|---|---|
 | 1 | 默认后端不变 | 步骤 1 | `mongo`，零额外连接 | ✅ |
 | 2 | 参数缺失显式失败 | 步骤 2 | 两处显式拒绝，不回退 | ✅ |
-| 3 | 真实连通与健康 | 步骤 3 | `reachable: True`，103 张表 | ✅ |
-| 4 | 建表与巡检 | 步骤 4 | 103 表 / 309 索引 / 1.6s | ✅ |
+| 3 | 真实连通与健康 | 步骤 3 | `reachable: True`，表数正确 | ✅ |
+| 4 | 建表与巡检 | 步骤 4 | 114 表 / 229 btree 索引 / **0 GIN** / 1.6s | ✅ |
 | 5 | 隐式建表 | 步骤 4 末 | 未预建表也能写入 | ✅ |
 | 6 | 纯逻辑单测 | 步骤 5a | 29 passed | ✅ |
-| 7 | 一致性守卫 | 步骤 5b | 11 passed | ✅ |
+| 7 | 一致性守卫 | 步骤 5b | 14 passed | ✅ |
 | 8 | 门面端到端 | 步骤 5c | 异步 64/64、同步 26/26 | ✅ |
-| 9 | 搬迁全链路 | 步骤 6 | 演练/搬迁/重跑/校验全通过 | ✅ |
+| 9 | 搬迁全链路 | 步骤 6 | 演练/搬迁/对账/校验全通过 | ✅ |
 | 10 | 门面回读搬迁数据 | 步骤 6 + 5c | 字段与嵌套结构一致，可继续更新 | ✅ |
 | 11 | 依赖锁完整性 | 步骤 7 | 三个服务全部通过 | ✅ |
 | 12 | 回滚 | 步骤 8 | 仅改环境变量 | ✅ |
+| 13 | **真实数据入库** | 步骤 4–6 全跑 | 17,785 篇 / 5.5s；88 集合计数全一致 | ✅ |
 
 **R2 待验收**（见 [tasks.md](./tasks.md) Phase 9）：
 

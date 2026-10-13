@@ -59,10 +59,23 @@
 - **可用**：`jsonb_set`、`jsonb_typeof`、`jsonb_array_length`、`to_jsonb`、`||`、
   `@>`、`?`、`jsonb_agg`、`jsonb_array_elements`、`jsonb_extract_path(_text)`、
   `jsonb_insert`、`jsonb_path_query`、`jsonb - text`、`jsonb - int`、`jsonb_delete`、
-  GIN 算子类 `jsonb_ops`
+  GIN 算子类 `jsonb_ops`（可建，但见下）
 - **不可用**（报 `FeatureNotSupported: ... is only supported in PG-format database`）：
   `jsonb_build_array`、`jsonb_build_object`、`#-`、`jsonb_strip_nulls`、
   `jsonb_pretty`、`jsonb_to_record`、`jsonb_object_agg`、`jsonb_path_ops`（GIN 算子类）
+
+### GIN 索引不可用（openGauss 缺陷，真实数据入库时踩到）
+
+`USING GIN (doc jsonb_ops)` **遇到任何空字符串值就报错**：
+`jsonb_gin.cpp : 519 : The parameter destMax is equal to zero or larger than the macro`。
+顶层与嵌套值都触发；空数组 / 空对象 / `null` 正常。**表里只要已有一行含空串，
+连 `CREATE INDEX` 本身都会失败**，因此不能靠「先建索引再灌数据」绕开。
+
+实测对照（同一张含空串的表）：无索引 ✅ / `btree (tenant_id)` ✅ /
+`btree ((doc #> '{f}'))` ✅ / `GIN (doc jsonb_ops)` ❌。
+
+**结论：建表 DDL 只建 `tenant_id` btree 索引，不建 GIN。** 代价可控——GIN 只服务于
+`@>` / `?`，而兼容层里只有 `$all` 用到 `@>`（全代码库 1 处）。已固化为守卫测试。
 
 ### 三个必须规避的语义差异（R1 已全部修复并加回归）
 
@@ -89,11 +102,11 @@ CREATE TABLE IF NOT EXISTS "<schema>"."<collection>" (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX "<collection>_tenant_idx" ON ... (tenant_id);
-CREATE INDEX "<collection>_doc_gin"    ON ... USING GIN (doc jsonb_ops);
+-- 刻意不建 GIN：openGauss 的 jsonb GIN 索引遇空字符串即报错（见「GIN 索引不可用」节）
 ```
 
-- `jsonb_ops` 而非 `jsonb_path_ops`：后者在 PanWeiDB 3.2 不存在，且前者额外支持
-  `?` / `?&` / `?|` 键存在性算子。
+- **只建 `tenant_id` btree 索引，不建 GIN**（见「GIN 索引不可用」节）。按字段过滤的
+  表达式索引由各服务启动时的 `ensure_indexes()` 通过门面的 `create_index` 建立。
 - **隐式建表**：门面首次操作某集合时执行 `CREATE TABLE IF NOT EXISTS`，对齐文档
   数据库「首次写入隐式建集合」的语义。
 - 审计库：MongoDB 侧用独立 database，PanWeiDB 侧用独立 **schema**

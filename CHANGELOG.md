@@ -16,17 +16,26 @@ image.
   `(id, tenant_id, doc JSONB, created_at, updated_at)`，字段一律走 JSON 路径表达式，
   **新增业务字段不需要 DDL 变更**，因此既有 612 处数据访问入口**无需改写**。
   驱动用 psycopg3（同步 + 异步一套依赖，同时替代 pymongo 与 motor）。
-  新增 `scripts/pg/generate_ddl.py`（集合扫描 → 幂等 DDL + 连库巡检，产出 103 表 /
-  309 索引）与 `scripts/pg/migrate_mongo_to_panweidb.py`（幂等搬迁 + 计数校验 + 续跑，
-  **只读源库**）。
+  新增 `scripts/pg/generate_ddl.py`（集合扫描，支持以源 MongoDB 为权威来源的
+  `--from-mongo` → 幂等 DDL + 连库巡检）与 `scripts/pg/migrate_mongo_to_panweidb.py`
+  （幂等搬迁 + `--prune` 对账 + 计数校验 + 续跑，**只读源库**）。
   方案与目标库实测事实见 `docs/mongo-to-panweidb-migration-plan.md`；
   SDD 规约见 `specs/027-mongo-to-panweidb-migration/`。
-  实测：兼容门面在真实 PanWeiDB 上**异步 64/64、同步 26/26** 通过；搬迁
-  「演练 → 搬迁 → 幂等重跑 → 计数校验 → 门面回读」全链路通过；三服务带哈希锁定文件
-  均通过完整性安装。
+  实测：兼容门面在真实 PanWeiDB 上**异步 64/64、同步 26/26** 通过；三服务带哈希锁定
+  文件均通过完整性安装；**真实数据入库**——本机运行中的 `mogo_dev` 库
+  （88 集合 / **17,785 篇文档**）在 5.5s 内搬完，计数校验 **88 个集合全部一致、
+  不一致项 0**，兼容门面回读 **13/13** 通过（含中文字段、空字符串字段、布尔字段、
+  `_id` 归一、深合并更新、未覆盖能力显式失败）。
 
 ### Known limitations
 
+- **GIN 索引不可用（openGauss 缺陷）**：`USING GIN (doc jsonb_ops)` 遇到**任何空字符串值**
+  即报 `jsonb_gin.cpp : 519 : The parameter destMax is equal to zero ...`（顶层与嵌套值
+  都触发；空数组 / 空对象 / `null` 正常）。且表里只要已有一行含空串，**连 `CREATE INDEX`
+  本身都会失败**。空串在真实数据里极常见（`email: ""` / `phone: ""`），因此建表 DDL
+  **只建 `tenant_id` btree 索引、不建 GIN**。实测对照：无索引 / `btree (tenant_id)` /
+  `btree ((doc #> '{f}'))` 三者遇空串均可写，只有 GIN 失败。代价可控——GIN 只服务于
+  `@>` / `?`，而兼容层里只有 `$all` 用到 `@>`（全代码库 1 处）。已加守卫测试防止重新引入。
 - PanWeiDB 的 `sql_compatibility` 固定为 `A`（Oracle 模式）且为 `internal` 上下文不可修改，
   该模式下 `jsonb_build_array` / `jsonb_build_object` / `#-` / `jsonb_strip_nulls` /
   `jsonb_pretty` / `jsonb_to_record` / `jsonb_object_agg` / `jsonb_path_ops` 不可用。
@@ -34,6 +43,12 @@ image.
   `$push` 改用数组字面量），并有守卫测试禁止引入禁用函数。
 - openGauss 的 `jsonb_set` **不创建中间层对象**（PostgreSQL 会），点号路径更新已用逐层
   回卷实现真深合并，避免静默丢更新。
+- **搬迁不传播删除**：upsert 只保证「源库有的目标库也有」。源库在搬迁期间仍被写入
+  （会话 GC / TTL 清理）时目标库会留残留，`--verify` 会报「目标多于源」。
+  需要收敛时用 `--prune`。
+- **DDL 生成器的静态扫描有漏扫**（实测漏 11 个集合）：集合名若来自大写常量、实例属性、
+  带前缀下标、属性访问或配置项（如 `settings.jobs_collection`），扫描不到。
+  迁移场景**必须加 `--from-mongo`**（以源库实际集合为权威来源）。
 - 聚合管道（25 处）、`bulk_write`（6 处）、`$elemMatch` / `$pull`（各 1 处）**尚未覆盖**，
   调用即抛显式异常（不静默降级），列为 R2 待办。
 - 迁移后主键由对象类型归一为字符串；按对象比较主键的调用点需在 R2 逐点核对。

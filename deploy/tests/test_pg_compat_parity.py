@@ -193,3 +193,76 @@ def test_pg_module_has_both_pools(service: str) -> None:
         # 异步服务的健康检查必须走异步探测，否则会为了探活额外建一组同步连接池。
         assert "async def health_payload" in source
         assert "await ping_async()" in source
+
+
+def _strip_docstrings(source: str) -> str:
+    """去掉模块/类/函数的 docstring，返回可检查的代码文本。
+
+    本仓库的守卫普遍需要「只看真实代码」——被检查的模块**必须**在文档字符串里
+    提到被禁用的东西（那正是用来解释「为什么不能用」的），直接子串匹配会误报。
+    """
+    import ast
+
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", None)
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                body.pop(0)
+    return ast.unparse(tree)
+
+
+def test_ddl_generator_does_not_emit_gin_index() -> None:
+    """建表 DDL 不得生成 GIN 索引。
+
+    实测（2026-10-13）：openGauss 的 ``USING GIN (doc jsonb_ops)`` 遇到**任何空字符串
+    值**就报 ``jsonb_gin.cpp : 519 : The parameter destMax is equal to zero ...``，
+    顶层与嵌套值都触发；更麻烦的是表里只要已有一行含空串，连 ``CREATE INDEX`` 本身
+    都会失败。空串在真实数据里极其常见（``email: ""`` / ``phone: ""``），
+    因此 DDL 只建 ``tenant_id`` btree 索引。
+
+    实测对照（同一张含空串的表）：无索引 ✅ / ``btree (tenant_id)`` ✅ /
+    ``btree ((doc #> '{f}'))`` ✅ / ``GIN (doc jsonb_ops)`` ❌。
+    """
+    source = (REPO_ROOT / "scripts" / "pg" / "generate_ddl.py").read_text(encoding="utf-8")
+    assert "USING GIN" not in _strip_docstrings(source), (
+        "scripts/pg/generate_ddl.py 又生成了 GIN 索引。openGauss 的 jsonb GIN 索引"
+        "在遇到空字符串值时会报错（见本测试文档字符串），请勿恢复。"
+    )
+    schema_sql = REPO_ROOT / "deploy" / "pg" / "schema.sql"
+    if schema_sql.is_file():
+        # SQL 文件没有 docstring，但 `--` 注释里会解释原因，同样要先剔除。
+        sql_body = "\n".join(
+            line for line in schema_sql.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("--")
+        )
+        assert "USING GIN" not in sql_body, (
+            "deploy/pg/schema.sql 含 GIN 索引；请重新运行 generate_ddl.py 生成。"
+        )
+
+
+def test_ddl_generator_supports_authoritative_mongo_source() -> None:
+    """DDL 生成器必须支持以源 MongoDB 为权威来源（静态扫描有已知漏扫）。
+
+    集合名若来自配置项（如 document-parser 的 ``settings.jobs_collection``）、
+    f-string 或变量传递，静态扫描看不到。实测该漏扫会导致 DDL 少 11 张表。
+    """
+    source = (REPO_ROOT / "scripts" / "pg" / "generate_ddl.py").read_text(encoding="utf-8")
+    assert "--from-mongo" in source
+    assert "collect_names_from_mongo" in source
+
+
+def test_migration_tool_documents_delete_semantics() -> None:
+    """搬迁工具必须提供 --prune 并有说明。
+
+    upsert 只能保证「源库有的目标库也有」；源库在搬迁期间被写入（会话 GC / TTL 清理）
+    时，目标库会留残留，导致 ``--verify`` 报「目标多于源」。
+    """
+    source = (REPO_ROOT / "scripts" / "pg" / "migrate_mongo_to_panweidb.py").read_text(encoding="utf-8")
+    assert "--prune" in source
+    assert "def prune_collection" in source

@@ -43,6 +43,16 @@ $not $all $size``。
 * **不可用**：``jsonb_build_array`` / ``jsonb_build_object`` / ``#-`` /
   ``jsonb_strip_nulls`` / ``jsonb_pretty`` / ``jsonb_to_record`` / ``jsonb_object_agg``
 
+**GIN 索引不可用（openGauss 缺陷，实测 2026-10-13）**：
+``USING GIN (doc jsonb_ops)`` 遇到**任何空字符串值**就报
+``jsonb_gin.cpp : 519 : The parameter destMax is equal to zero ...``（顶层与嵌套值均触发）。
+更麻烦的是表里只要已有一行含空串，**连 ``CREATE INDEX`` 本身都会失败**。
+空串在真实数据里极其常见（``email: ""`` / ``phone: ""``），因此建表 DDL
+**只建 ``tenant_id`` btree 索引，不建 GIN**。实测对照：无索引 / ``btree (tenant_id)`` /
+``btree ((doc #> '{f}'))`` 三者遇空串均可写，只有 GIN 失败。
+代价可控：GIN 只服务于 ``@>`` / ``?``，而本模块只有 ``$all`` 用到 ``@>``；
+按字段过滤走 ``create_index`` 生成的表达式索引。
+
 对应的规避手法已内联在实现里（``_unset_expression`` 与 ``$push`` 分支），
 修改本模块时不要引入上述不可用函数。
 """
