@@ -10414,5 +10414,223 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml \
 这是构建缓存（第二次构建只花 54 秒的原因），**不是**"上个版本的镜像"，故未擅自清理；
 需要时 `docker builder prune` 可回收。
 
+---
+
+## 2026-10-12 网关 TLS 改为默认启用 + README 补充 TLS 文档
+
+### 背景
+用户确认网关默认地址已由 http 改为 https，要求把 TLS 内容补进 README。
+
+### 先核实到的三个关键事实（决定了改哪里）
+1. **`mogo` 只读仓库根 `.env`（第 125 行），不会从 `.env.example` 生成 `.env`**；
+   而 compose 的网关配置默认值是 `${MOGO_NGINX_CONF:-./deploy/docker/nginx.conf}`。
+   → **单改 `.env.example` 不会让 https 成为默认**，真正的开关是 compose 默认值。
+2. **证书不入库**：`deploy/tls/.gitignore` 忽略 `*.pem/*.crt/*.key`，根目录
+   `server.crt`/`server.key` 也未跟踪 —— 全新克隆没有证书。
+3. **`deploy/tls/setup-certs.sh` 不生成证书**：它把根目录的 `server.crt`/`server.key`
+   复制成 `deploy/tls/fullchain.pem`/`privkey.pem`，强制 `chmod 0644` 并自检 o+r
+   （容器内 UID 10001 必须可读）。所以文档里的证书流程要写成
+   「根目录生成 → 跑脚本」，而不是直接往 `deploy/tls/` 写。
+
+### 改动
+| 文件 | 改动 |
+| --- | --- |
+| `docker-compose.yml` | 网关配置默认值 `./deploy/docker/nginx.conf` → `./deploy/nginx/nginx.conf`（TLS 侧），注释改写为「默认 TLS + 证书前置 + HTTP 回退方法」 |
+| `.env.example` | 新增 `MOGO_NGINX_CONF=./deploy/nginx/nginx.conf`，并写明证书前置条件、`MOGO_TLS_CERTS_DIR` 与 HTTP 回退注释 |
+| `README.md` / `README.zh-CN.md` | ① 快速启动加证书两步（openssl 生成根目录 `server.key`/`server.crt` → `setup-certs.sh`），入口改 `https://localhost/admin/setup`；② 访问表三行改 https，并说明 HTTP 除 `/healthz` 外 301；③ 新增「HTTPS and TLS certificates」/「HTTPS 与 TLS 证书」小节 |
+
+### README 新增小节覆盖
+证书必须前置（否则网关卡在 `cannot load certificate key` crash-loop）、`privkey.pem`
+必须 `0644` 及其原因（非 root UID 10001 + bind mount 保留宿主 uid，macOS 上 0600 假通过）、
+`MOGO_TLS_CERTS_DIR` 自定义目录（Let's Encrypt `live/` 是符号链接、穿不过）、
+只重建 gateway 容器（配置是挂载的）、**不要**用裸 `docker compose up -d gateway`
+（会拉 `ghcr.io/himovo/gateway:latest` 覆盖本地构建）、HTTP 回退方法、验证命令、
+两条已知行为（`$host` 不含端口；宿主 IPv4 443 被占用时跳转目标打不通）。
+
+### 验证
+- `docker compose config` 合法。**默认值切换真实生效**：无 `.env` 时 `default.conf`
+  挂载源解析为 `deploy/nginx/nginx.conf`（TLS）；显式设
+  `MOGO_NGINX_CONF=./deploy/docker/nginx.conf` 时解析为 HTTP 侧。
+- 运行中栈不受影响：`https://localhost/healthz` → 200，
+  `http://localhost:3000/admin/setup` → 301。
+- `deploy/tests` **167 passed / 6 skipped**（含 `test_tls_gateway_config.py` 全部断言）。
+- README 中残留的 `http://localhost:3000/...` 均在跳转验证示例与说明中，属有意保留。
+
+### 遗留（需用户决定）
+HTTPS 成为默认后，**全新克隆必须先放证书**，否则网关 crash-loop —— 这与 README 原先
+「开箱即用、无需 `.env`」的承诺有张力。可选加固：让 `./mogo up` 在启用 TLS 且
+`deploy/tls/` 缺证书时自动生成一对自签证书（或至少明确报错并给出修复命令），
+而不是让 nginx 反复重启。
+
+---
+
+## 2026-10-12/13 新增规格清单补录到 README
+
+### 背景
+用户指出 `specs/` 下新增的几个规格清单没有反映在 README 中。
+
+### 先核实到的事实（README 已过时）
+`specs/` 现有 **26 个**编号规格，权威清单 `specs/INDEX.md` §四 记录 2026-10-11
+新增了 022–026 五个「质量加固」特性（QualityForge 全量 QA 审计 964 项中
+283 个 P0/P1 代码级缺陷，按风险域拆成安全/可观测性/部署/API/性能 5 个）。
+README 多处仍写「21 features」，且有两处描述已被推翻：
+- README 称 003–006「未建 `tasks.md`」——实际 **26 个规格全部有
+  spec/plan/tasks/checklist/quickstart**（003–006 的 tasks.md 与 022–026 的
+  5 份均在 2026-10-11 补齐；001/002/007–021 共 354 项、003–006 共 141 项、
+  022–026 共 357 项）。
+- README 称「其中 16 个（除 021 外）另附 quickstart.md」——实际 26 个全有
+  `quickstart.md`。
+- 带 `contracts/` 目录的仍是 5 个（001/007/008/009/020），未变。
+
+### 改动（README.md 与 README.zh-CN.md 同步）
+1. 目录树示例补列 022–026 六个目录；
+2. 计数 21 → **26**，并把「处分出两组」改为「分为四组」（补齐特性 / 质量加固 /
+   既有回溯，各自注明 tasks 项数）；
+3. `specs/INDEX.md` 那句改为四组口径（新增「质量加固（022–026）」）；
+4. 「清单之外的新增范围」下新增 `#### 质量加固：022–026` 小节，含 5 行规格表
+   （#12–16，编号接续 020/021 的 10/11），022 一行按其 spec 概述展开；
+5. 仓库结构表 `specs/` 条目计数同步改为 26。
+
+### 验证
+- 残留「21 特性/features」计数：0 处；26 计数两版各 4 处一致。
+- `specs/022..026` 链接逐一指向真实目录（5/5 有效，目录名与标题一致）。
+- 新增表格列数一致（两版各 7 行 × 4 列）。
+- 站内锚点按 GitHub 规则手工推导核对：`#### Quality hardening: 022–026` →
+  `#quality-hardening-022026`；`#### 质量加固：022–026` → `#质量加固022026`
+  （`:` 与 `–` 均被剔除、空格转连字符），与文中链接一致。
+
+---
+
+## 2026-10-13 ./mogo 缺证书时自动生成自签名证书（消解 TLS 默认化后的 crash-loop）
+
+### 背景
+TLS 改为默认后遗留的问题：证书刻意不入库（`deploy/tls/.gitignore`），全新克隆
+没有证书，而网关容器 `read_only` 且以非 root(UID 10001) 运行，nginx 无法在运行时
+自建 → 只会 `cannot load certificate key ... (13: Permission denied)` 反复
+crash-loop，最终表现为 "services did not become ready in time"，完全看不出是缺证书。
+
+### 改动（3 文件，纯新增 283 行，无删除）
+| 文件 | 改动 |
+| --- | --- |
+| `mogo` | 新增 `movo_ensure_tls_certs()`；`command_up` / `command_update` / `restart` 三个会启动网关的入口在 `deployment_urls` 之后调用 |
+| `deploy/cli/i18n.sh` | 新增 6 组中英消息（生成中/已生成/无 SAN 回退/无 openssl 失败/生成失败/重启网关失败） |
+| `deploy/tests/test_tls_gateway_config.py` | 新增 8 项守卫（含 6 项**真实执行**该函数的子进程测试） |
+
+**函数行为**：解析与 compose 完全一致的两个变量
+（`MOGO_NGINX_CONF` 默认 `./deploy/nginx/nginx.conf`、`MOGO_TLS_CERTS_DIR`
+默认 `./deploy/tls`，均支持环境变量 → `.env` 的兜底链）→ 指向 HTTP 侧配置
+（`deploy/docker/nginx.conf`）则直接返回 → 证书已存在则原样保留（不覆盖 CA 证书）→
+缺证书且有 openssl 则生成自签名对（CN=localhost + SAN localhost/127.0.0.1，
+`chmod 0644`）→ 生成后若 gateway 容器在运行则 `restart gateway`
+（nginx 只在启动时读私钥，而 `compose up -d` 不会重建 spec 未变的容器）。
+
+**降级路径**：openssl 不支持 `-addext`（<1.1.1）时去掉该参数重试并警告无 SAN；
+完全没有 openssl 时**在 mkdir 之前**快速失败，报错里带齐「放哪些文件 + 私钥 0644」。
+
+### 验证
+- **8 个场景单测全通过**：缺证书生成 / 证书已存在不覆盖 / HTTP 侧跳过 /
+  无 openssl 快速失败且不落盘 / 有容器时重启网关 / `.env` 读取开关 /
+  i18n 双语键齐全 / 函数定义与三处接线。
+- `test_tls_gateway_config.py` **18 passed**（10 项既有 + 8 项新增）。
+- `deploy/tests` **175 passed / 6 skipped**（较改动前 167 + 8）。
+- **真实仓库上下文验证**：证书在位 → 静默返回 0 不改动；临时移走证书 → 生成成功，
+  随后已还原（`deploy/tls` 被 gitignore，无 git 噪音）。
+- 现网完好：14 容器健康、`/healthz` 200、证书指纹未变、7 个 `v0.2.1` 镜像仍在。
+
+### 顺带发现（预先存在，非本轮引入，需单独排查）
+`./mogo up` **不构建**时会去拉 `ghcr.io/himovo/<svc>:latest`（**无 `movo-` 前缀**），
+实测 `error from registry: denied`。这与先前「GHCR 包名带 `movo-` 前缀而 compose
+默认引用无前缀」的怀疑吻合，即**纯 registry 部署链路是断的**——只有
+`./mogo up --build`（本地构建走裸名）可用。本轮 `./mogo up` 实跑已证实并已中止，
+未对现网造成影响（`up -d` 未执行）。
+
+---
+
+## 2026-10-13 停用纯 registry 拉取链路：`./mogo up` 只跑本地镜像
+
+### 背景
+上一轮实跑 `./mogo up` 时确认：本仓库生成的引用是 `ghcr.io/himovo/<service>`，
+而 GHCR 上真实存在的包名是 `ghcr.io/himovo/movo-<service>`，实测
+`error from registry: denied`。更糟的是 `movo_pull_images_serially` 对失败
+**无限重试**，裸 `./mogo up` 会在拉取里挂住好几分钟才失败。
+
+### 决策（用户 2026-10-13 明确）
+**纯 registry 部署链路断开，不从 registry 拉取应用镜像。**
+
+### 改动（3 文件）
+| 文件 | 改动 |
+| --- | --- |
+| `mogo` | 新增 `movo_tls_is_enabled()` 与 `movo_require_local_images()`；`command_up` 非构建分支改为「按 git tag 解析版本 + 裸名 + 校验本地镜像」，删掉 `movo_pull_images_serially`；`command_update` 停用并快速失败；`deployment_urls` 改为 TLS 感知 |
+| `deploy/cli/i18n.sh` | 新增 `local_images_missing` / `local_images_missing_hint` / `update_registry_retired` 三组中英消息 |
+| `deploy/tests/test_mogo_local_images.py` | **新建**，7 项守卫（静态 4 + 真实执行 2 + i18n 1） |
+
+**关键点**：
+- 非构建分支的版本也改为 `movo_default_version`（原先默认 `latest`），这样裸
+  `./mogo up` 才能找到 `up --build` 刚产出的 `chat-api:v0.2.1`。
+- 镜像命名改用 `movo_configure_images true`（裸名），与源码构建产物一致；否则
+  compose 引用 `ghcr.io/himovo/<svc>`，本地裸名镜像对不上。
+- `movo_require_local_images` 依次检查 6 个 `MOVO_IMAGE_SERVICES` 变量 +
+  `MOVO_DOCUMENT_API_IMAGE`（document-parser 被 api/worker 共用），缺哪个点名哪个，
+  并给出 `./mogo up --build` 修复命令。
+- **基础镜像链路保留**：非构建分支仍调 `movo_prepare_base_images`（mongo/redis/
+  weaviate/nginx/alpine 是另一条可用链路，`MOVO_BASE_IMAGE_POLICY=local` 可完全离线）。
+- `./mogo update` 原本就是纯 registry 链路，现直接返回 2 并提示改用
+  `./mogo up --build`。
+- `deployment_urls` 抽出 `movo_tls_is_enabled()` 复用（`movo_ensure_tls_certs` 也
+  调它，避免两处判定漂移）；TLS 启用时打印 `https://localhost` 而非
+  `http://localhost:3000`——否则用户会被 301 带到被别的进程占用的 IPv4 443 上。
+
+### 验证
+- **端到端实跑 `./mogo up`：exit=0，零 registry 拉取**（全程无 `ghcr.io`、
+  无 `Pulling images`），基础镜像本地复用，健康检查通过。
+- 就绪消息已打印 `https://localhost/admin/setup`。
+- `deploy/tests` **182 passed / 6 skipped**（较改动前 175 + 7）。
+- `test_mogo_local_images.py` 7 项全通过，含两项**真实执行** `movo_require_local_images`
+  的子进程测试（假 docker 桩控制 inspect 结果：全在 → 0；缺 chat-api → 点名报错）。
+- `test_tls_gateway_config.py` 18 项仍全通过（refactor 后 harness 同步补抽
+  `movo_tls_is_enabled`）。
+
+### 遗留
+- 「GHCR 包名带 `movo-` 前缀而 compose 默认引用无前缀」这个根因仍在：现在是靠
+  `mogo` 走裸名绕开的，`docker-compose.yml` 的 `${MOGO_*_IMAGE:-ghcr.io/himovo/<svc>}`
+  兜底链依旧指向不存在的包名。若要恢复 registry 部署，需统一包名或让
+  `movo_configure_images` 在 registry 模式下补 `movo-` 前缀。
+
+---
+
+## 2026-10-13 按最近提交刷新 README 与 intro-v4.pptx
+
+### 依据（最近提交的文档口径）
+- v0.2.1 已发布（`d153d2d` CHANGELOG 定版 / `25b10ac` 构建 tag 改取 git tag）
+- 022–026 五个质量加固特性（`specs/INDEX.md` §四，2026-10-11 新增）
+- OrbStack ARM 准生产回归：**3469 项测试 0 失败**（chat-api 2583 / admin-api 863 /
+  document-parser 23），见 `docs/regression-arm-orbstack-2026-10-12.md`
+- 网关默认启用 TLS（`4ebd3a0`）
+
+### README.md / README.zh-CN.md
+- 服务数口径修正：EN 13 → **14**，zh-CN 的模糊「多服务」→ **14 个服务**。
+  依据：`docker-compose.yml` 有 16 个服务定义，其中 `dsh-runtime-host` 带
+  `profiles: [single-host]`（默认不部署）、`bootstrap` 是一次性引导（已退出），
+  默认运行 14 个服务（`docker ps` 实测 14 个 mogo 容器）。
+- 26 个规格 / TLS 两节为上一轮已提交内容，本轮复核仍在位（各 4 处 / 6 处）。
+
+### docs/intro-v4.pptx（18 页，29 处替换）
+| 页 | 改动 |
+| --- | --- |
+| 1（封面） | `2026-10 ·` → `2026-10-13 · v0.2.1 已发布` |
+| 4 / 5 | 「Docker Compose 一键 12 服务」→ **14 服务** |
+| 6 | `specs / 21 个特性（17 份 tasks.md / 354 项）` → `26 个特性（26 份 / 852 项）` |
+| 7（Spec 清单） | 标题与三项计数 21/17/354 → **26 / 26 / 852**；「003–006 保留原始状态、不补 tasks.md」→ 「tasks.md 已于 2026-10-11 补齐（141 项）」；「落地审计」→ 「落地审计 · 质量加固」并补一行 022–026（覆盖 QF 审计 283 项 P0/P1） |
+| 13 | 测试基线 `chat-api 2229 / admin-api 433` → **3469 项（2026-10-12 回归）** |
+| 全 18 页 | **页码重编**：原有 15 页页码与物理顺序不符（第 3 页写 16/18、第 7 页写 12/18、第 14 页写 17/18……），全部按真实序号重排 |
+
+### 方法与验证
+- 用 zipfile 直接改 `ppt/slides/slideN.xml` 的 `<a:t>` 文本节点，逐条**完整字符串**
+  匹配（先 XML 转义再匹配），避免 run 切分导致漏改；非 slide 条目按原样字节拷贝。
+- 29 处替换**零未命中**；`zipfile.testzip()` 校验压缩包完好（135 条目）。
+- 复核校验：18 页页码全部等于物理序号；10 项新内容逐一命中；旧值
+  （「12 服务」「21 个特性」「354 项」「2229」「不补 tasks.md」）**零残留**。
+- 备份在 `/tmp/intro-v4.backup.pptx`。
+
 
 
