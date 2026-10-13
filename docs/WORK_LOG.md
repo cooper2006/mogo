@@ -10868,3 +10868,84 @@ spec → plan → tasks → implement → converge 推进。
 
 **备注**：数据已入库到 PanWeiDB 的 `mogo_dev` schema，但**运行中的服务仍连 MongoDB**
 （`MOGO_DATA_BACKEND` 未设置）。真正切换要等 R2 处理完 25 处聚合管道与 6 处 `bulk_write`。
+---
+
+## 2026-10-13 R2 落地：聚合管道 + bulk_write + 审计库分离 + 全量回归
+
+**目标**：用户要求「启动 R2 落地 处理完」——让兼容层能在 PanWeiDB 上真正跑起来。
+
+### 先修正一处严重的估算失实
+
+R1 阶段按「25 处聚合管道 + 6 处 `bulk_write` + `$lookup`/`$facet`/`$unwind` 各 1 处」
+估算了 R2 范围。R2 用 AST 精确盘点后发现：
+
+**`$lookup`/`$facet`/`$unwind`/`$unionWith`/`$out`/`$merge`/`$elemMatch`/`$pull` 全部为
+0 处** —— 它们只出现在 `app/core/nosql_guard.py` 的**白名单常量**里，没有任何实际调用。
+R1 的估算把「白名单常量」当成了「使用」。
+
+实际只用到 `$match`(25) / `$group`(26) / `$sort`(5) / `$project`(1) / `$limit`(1) /
+`$count`(1)，累加器 `$sum`/`$avg`/`$min`/`$max`/`$push`/`$addToSet`/`$first`/`$last`。
+范围比估算小得多。
+
+### 实现
+
+- **`_AggregationCompiler`**（`pg_compat.py`）：管道 → `WITH` 链 + 最终 `SELECT`，
+  每阶段产 `(id, doc)` 形状的 CTE（与其它 API 一致）。未覆盖阶段/算子显式抛
+  `PgCompatUnsupported`
+- **`PgAggregationCursor`** + `PgCollection.aggregate()`：同步返回游标，与 motor 形状一致
+  （业务里既有 `await coll.aggregate(p).to_list(n)` 也有 `async for row in coll.aggregate(p)`）
+- **`bulk_write`**：六种请求 + `BulkWriteResult`（字段对齐 pymongo）
+- **审计库分离**：`get_audit_db()` 在 PanWeiDB 下指向独立 schema，未配置时回退业务 schema
+
+### 实施过程中踩到并修掉的 6 个真实问题
+
+1. **`_fetch` 读第 0 列**，而聚合的 `SELECT id, doc` 把 `id` 放在第 0 列 → 读到的是 id。
+   改为最终 `SELECT doc`。
+2. **`$group` 一步写完被 PG 9.2 拒**：`jsonb_set` 里引用的 key 表达式与 `GROUP BY` 里的
+   被判定为不同表达式（`column must appear in the GROUP BY clause`）；且 key 表达式复用字符串
+   会让占位符多于参数。**改成两步 CTE**（先聚合出普通列，再组装文档）+ `GROUP BY 1`。
+3. **`min()`/`max()` 聚合在 openGauss 上对 jsonb 按文本比较**（`$max` 在 `999` 与 `4343`
+   之间取到 `"999"`），且返回 `text` 而非 jsonb。而 jsonb 的**排序运算符是正确的**
+   （`ORDER BY jsonb` 对 10/9/2 给出 2/9/10）→ 改用 `(array_agg(x ORDER BY x))[1]`。
+   *注：R1 时我用探针测过这事但把结果读错了（把字典序结果当成数值序），差分测试抓了出来。*
+4. **`$cond` 里的字符串字面量缺 JSON 编码**：直接 `::jsonb` 原文 `failed` 报
+   `invalid input syntax for type json` → 改用 `to_json_text()`。
+5. **`to_jsonb` 对未知类型报错**：`count(*)`/`sum()`/`avg()` 等数值结果进 `jsonb_set`
+   前必须显式 `to_jsonb(...)`，否则报 `function jsonb_set(jsonb, unknown, bigint, boolean)`。
+6. **`_ensure_table` 只建表不建 schema**：审计库用独立 schema 时它可能还不存在 →
+   报 `schema "mogo_audit" does not exist`。改为建表前先 `CREATE SCHEMA IF NOT EXISTS`。
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| **聚合差分测试**（同一管道在 Mongo 与 PanWeiDB 上跑并比对） | **11/11 通过** |
+| **bulk_write 差分测试**（5 个计数 + 落库文档集合） | **8/8 通过** |
+| 纯逻辑单测（聚合编译器，含 openGauss 偏差回归） | **44 项通过**（+15） |
+| 一致性守卫 | **14 项通过**（+3） |
+| admin-api 全量 | **907/907** |
+| chat-api 全量 | **2857/2860** |
+| document-parser 全量 | **22/22** |
+
+chat-api 的 3 个失败经**实证**判定为既有环境问题：它们要连宿主机 `127.0.0.1:27017` 的
+真实 MongoDB（本机 Mongo 只在 `mogo_backend` 内部网络里），报 `ServerSelectionTimeoutError`。
+验证方式：把 `pg_compat.py` 换回 HEAD 版本重跑这 3 个测试**同样失败**；且 `db.py` 对
+`pg_compat` 是**惰性导入**（第 105 行，mongo 模式下根本不加载）。
+
+### 一项工程改进
+
+把「同步三份兼容层副本」固化成 **`scripts/pg/sync_pg_compat.py`**（含 `--check` 可作
+CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变换规则散在我的操作和
+守卫测试里**两份**，是漂移隐患。
+
+### 改动文件
+
+- `services/*/app/core/pg_compat.py` ×3：聚合编译器、聚合游标、`bulk_write`、
+  `BulkWriteResult`、`SCHEMA_DDL` 自举
+- `services/admin-api/tests/test_pg_compat.py`：+15 项聚合编译器单测
+- `scripts/pg/sync_pg_compat.py`：**新增**，同步脚本 + `--check`
+- `deploy/tests/test_pg_compat_parity.py`：+3 项守卫，`_to_sync` 改为复用脚本变换
+- `docs/mongo-to-panweidb-migration-plan.md`：新增 2.6「聚合与排序相关的偏差」、
+  2.7「`$percentile` 与 MongoDB 版本」；R2 节改为已交付并修正估算失实
+- `specs/027-mongo-to-panweidb-migration/{plan,tasks,quickstart}.md`：同步 R2 事实
+- `CHANGELOG.md`：新增 R2 条目与 min/max 文本比较的已知限制
