@@ -79,22 +79,30 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 21 feature specifications, each with a complete chain
+specs/                    # 26 feature specifications, each with a complete chain
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
   021-unified-context-address/
+  022-security-hardening/
+  023-observability-resilience/
+  024-deployment-hardening/
+  025-api-contract-hardening/
+  026-performance-scalability/
   INDEX.md                # specification index
 ```
 
-Each of the 21 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `checklists/requirements.md` (quality checklist). Two groups diverge from there:
+Every one of the 26 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach), `checklists/requirements.md` (quality checklist), `tasks.md` and `quickstart.md`. Five of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
 
-- **17 gap-closing features** (001/002/007–021) run the full chain — spec, plan, checklist and `tasks.md`, with `quickstart.md` on 16 of them (all but 021). **All 17 `tasks.md` files (354 items) are checked off**, with implementation and tests landed together.
-- **4 retrospective features** (003–006) re-document capabilities MOVO already had and keep their original `spec.md` + `plan.md` + checklist state without `tasks.md`.
+They fall into four groups:
+
+- **17 gap-closing features** (001/002/007–021) — the original backlog plus the platform and context-address scope. **All 17 `tasks.md` files (354 items) are checked off**, with implementation and tests landed together.
+- **5 quality-hardening features** (022–026) — split out of the 2026-10-11 QualityForge full-repository QA audit; 357 tasks, implemented and tested in waves (see [Quality hardening: 022–026](#quality-hardening-022026) below).
+- **4 retrospective features** (003–006) — re-document capabilities MOVO already had. They originally shipped without `tasks.md`; it was backfilled on 2026-10-11 (141 items).
 
 Interface contracts live in two places: the 5 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
 
-[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 21 features into retrospective (003–006), gap-closing (001/002/007–019 and 021) and newly-added platform scope (020), and records the clarify decisions behind each threshold.
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 26 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020) and the quality-hardening set (022–026), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -148,6 +156,18 @@ Two capabilities sit outside the 15-item backlog. Both were added afterwards as 
 
 Together the nine backlog items point at the same target: stringing **session → experience → Skill** into one line, so that one person's session becomes the starting point for a team and for later automation. Platform multi-tenancy (020) extends the reach from a single enterprise to many, on one deployment — the existing deployment semantics were "one deployment, one enterprise". The unified context address space (021) then gives every capability one addressable context: a memory, a Skill, a session and a resource are all reached through the same `mogo://` grammar instead of four ad-hoc APIs.
 
+#### Quality hardening: 022–026
+
+The 2026-10-11 QualityForge full-repository QA audit (964 items) surfaced 283 P0/P1 defects that needed new capability rather than a point fix, so they were split into five features — one per risk domain. Each runs the full spec → plan → tasks → checklist chain (357 tasks in total) and is delivered in waves, 022 → 026:
+
+| # | Capability | What it delivers | Spec |
+| :-: | --- | --- | :-: |
+| 12 | **Security hardening** | 96 P0/P1 defects closed across seven domains (authentication, MFA, tokens, authorisation, input, data, supply chain): a unified password/MFA policy, 1-hour access tokens with one-time refresh rotation and whole-family replay revocation, idle and absolute session timeouts, per-service credentials bound to `service_id`/`tenant_id`/`user_id`, AES-GCM storage with masked responses, an explicit CORS origin allow-list, SSO ticket exchange that keeps tokens out of URLs and browser history, a TLS-terminating gateway, a tamper-evident audit chain in a separate database, and a repository-wide secret-scan gate | [022](specs/022-security-hardening/) |
+| 13 | **Observability and resilience** | 74 P0/P1 defects across logging, tracing, metrics, alerting, fault tolerance and recovery | [023](specs/023-observability-resilience/) |
+| 14 | **Deployment and release hardening** | 42 P0/P1 defects across deployment security, artefacts, canary release, rollback and disaster recovery | [024](specs/024-deployment-hardening/) |
+| 15 | **API contract and semantics** | 50 P0/P1 defects across semantics, error handling, contracts and evolution — including a static check that no GET route writes to the database | [025](specs/025-api-contract-hardening/) |
+| 16 | **Performance and scalability** | 51 P0/P1 defects across performance baselines, database, cache, frontend and scaling, with p95 latency regression guards | [026](specs/026-performance-scalability/) |
+
 ## Line three: multi-instance Agent runtime
 
 In a single-instance deployment the Node DSH Runtime Host keeps kernel session state in process memory. Scale it out and any session request load-balanced to a different replica can no longer find its session.
@@ -197,16 +217,25 @@ With Git and Docker Desktop (or Docker Engine with Docker Compose v2) installed:
 git clone https://github.com/cooper2006/mogo.git
 cd mogo
 chmod +x mogo
+
+# The gateway serves HTTPS by default and certificates are not committed, so
+# generate a self-signed pair first (browsers will warn; fine for localhost).
+# For a real deployment, drop your CA-issued server.crt/server.key here instead.
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout server.key -out server.crt -subj '/CN=localhost' \
+  -addext 'subjectAltName = DNS:localhost,IP:127.0.0.1'
+bash deploy/tls/setup-certs.sh   # copies into deploy/tls/ and normalises the key mode to 0644
+
 ./mogo up
 ```
 
 Then open:
 
 ```text
-http://localhost:3000/admin/setup
+https://localhost/admin/setup
 ```
 
-The launcher pulls the official prebuilt images, waits for the services to become healthy and prints the setup address. No `.env` file or local image build is required. Windows users should run MOGO inside an Ubuntu WSL 2 distribution; see the [Windows installation guide](docs/windows-installation.md).
+The launcher pulls the official prebuilt images, waits for the services to become healthy and prints the setup address. No `.env` file or local image build is required. HTTPS is on by default — certificates are **not** committed, so the `openssl` step above (or your own CA-issued pair) is a prerequisite; see [HTTPS and TLS certificates](#https-and-tls-certificates). Windows users should run MOGO inside an Ubuntu WSL 2 distribution; see the [Windows installation guide](docs/windows-installation.md).
 
 ## Open-Source Edition
 
@@ -289,11 +318,77 @@ After setup:
 
 | Entry | Default URL | Purpose |
 | --- | --- | --- |
-| User workspace | `http://localhost:3000/` | Conversations, research, knowledge, files and content generation |
-| Admin console | `http://localhost:3000/admin/` | Users, models, knowledge, Skills, Tools and governance |
-| Setup wizard | `http://localhost:3000/admin/setup` | First-run initialization only |
+| User workspace | `https://localhost/` | Conversations, research, knowledge, files and content generation |
+| Admin console | `https://localhost/admin/` | Users, models, knowledge, Skills, Tools and governance |
+| Setup wizard | `https://localhost/admin/setup` | First-run initialization only |
+
+The gateway terminates TLS on 443 by default. Plain HTTP on the host port (`MOGO_PORT`, default 3000) answers `301` to the matching HTTPS URL, except `/healthz`, which keeps answering HTTP `200` so load balancers and container health checks are unaffected.
 
 The setup wizard checks the deployment and guides you through creating the organization and initial accounts, connecting a default chat model, and optionally configuring embedding, reranking, vision, image generation and Web search providers. Provider credentials are encrypted before storage.
+
+### HTTPS and TLS certificates
+
+The gateway terminates TLS itself. `deploy/nginx/nginx.conf` is the single source of truth for the HTTPS server and `docker-compose.yml` mounts it by default; TLS 1.2/1.3 only, HSTS with `preload`, and the usual security headers are configured there.
+
+**A certificate pair must exist before the first start.** Certificates are deliberately not committed (`deploy/tls/.gitignore`), so a fresh clone has none and the gateway crash-loops on `cannot load certificate key`.
+
+| File | Mode | Description |
+| --- | --- | --- |
+| `deploy/tls/fullchain.pem` | `0644` | Certificate plus intermediates |
+| `deploy/tls/privkey.pem` | `0644` | Private key |
+
+Place them either directly in `deploy/tls/`, or as `server.crt` / `server.key` in the repository root and run `bash deploy/tls/setup-certs.sh`, which copies them across, checks expiry and SAN, normalises the key mode and self-checks that the key is readable by a non-owner uid.
+
+**The private key must be `0644`.** The gateway runs as the non-root `appuser` (UID 10001) and the certificate directory is a bind mount, which on Linux preserves the host uid — a `0600` key is then unreadable inside the container and nginx exits immediately:
+
+```text
+nginx: [emerg] cannot load certificate key "/etc/nginx/certs/privkey.pem" (13: Permission denied)
+```
+
+`openssl req -newkey` writes `0600` and `cp` preserves the source mode, so always `chmod` after installing certificates. macOS/OrbStack maps bind-mount ownership to the container user, so `0600` looks fine locally while still breaking on production Linux. To keep the key out of world-readable territory, hand it to the container uid instead:
+
+```bash
+sudo chown 10001:10001 deploy/tls/privkey.pem && chmod 0600 deploy/tls/privkey.pem
+```
+
+Both the certificate directory and the gateway config are parameterised, so CA-managed certificates work too — point `MOGO_TLS_CERTS_DIR` at a **copy** rather than Let's Encrypt's `live/` directory, whose symlinks lead into `archive/` (root `0700`) that UID 10001 cannot traverse.
+
+```env
+MOGO_TLS_CERTS_DIR=/etc/letsencrypt/live/example.com
+MOGO_NGINX_CONF=./deploy/nginx/nginx.conf
+```
+
+Because the configuration is mounted rather than baked into the image, switching TLS on or off only needs the gateway container recreated — no image rebuild:
+
+```bash
+MOGO_GATEWAY_IMAGE="$(docker inspect mogo-gateway-1 --format '{{.Config.Image}}')" \
+  docker compose up -d --no-deps gateway
+```
+
+Do **not** use a bare `docker compose up -d gateway`: without an explicit image name the gateway resolves to `ghcr.io/himovo/gateway:latest` and pulls a remote image over your local build.
+
+To fall back to plain HTTP (local or trusted-network debugging only), point the same variable at the HTTP config and recreate the gateway:
+
+```env
+MOGO_NGINX_CONF=./deploy/docker/nginx.conf
+```
+
+Verify the switch:
+
+```bash
+curl -k https://localhost/healthz                                           # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/admin/setup   # 301
+curl -s http://localhost:3000/healthz                                       # 200 (probe exemption)
+openssl s_client -connect localhost:443 -servername localhost </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -dates
+```
+
+Two behaviours worth knowing before debugging:
+
+- The redirect is `return 301 https://$host$request_uri`. nginx's `$host` carries no port, so `http://localhost:3000/x` lands on `https://localhost/x` (443). Changing `MOGO_HTTPS_PORT` away from 443 therefore also needs the redirect target edited in the config — it is a static file and cannot see the host port.
+- If another process already owns host IPv4 `443`, the redirect target is unreachable even though the stack is healthy; use `https://localhost/` (IPv6/loopback) or free the port.
+
+Full operational detail — including the certificate helper, the known-pitfall table and troubleshooting — lives in [`deploy/tls/README.md`](deploy/tls/README.md); the regression guard is `deploy/tests/test_tls_gateway_config.py`.
 
 ### Common operations
 
@@ -434,7 +529,7 @@ See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (21 features, plus `INDEX.md`) |
+| `specs/` | spec-kit SDD specification assets (26 features, plus `INDEX.md`) |
 | `contracts/` | the 5 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |

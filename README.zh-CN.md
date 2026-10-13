@@ -62,22 +62,30 @@
   scripts/bash/           #   create-new-feature、setup-plan 等脚本
   workflows/speckit/      #   工作流注册表
 
-specs/                    # 21 个特性规格，每个含完整规格链路
+specs/                    # 26 个特性规格，每个含完整规格链路
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
   021-unified-context-address/
+  022-security-hardening/
+  023-observability-resilience/
+  024-deployment-hardening/
+  025-api-contract-hardening/
+  026-performance-scalability/
   INDEX.md                # 规格索引
 ```
 
-21 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `checklists/requirements.md`（质量清单）。从此处分出两组：
+26 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）、`checklists/requirements.md`（质量清单）、`tasks.md` 与 `quickstart.md`。其中 5 个（001、007、008、009、020）另附 `contracts/` 目录。
 
-- **17 个补齐特性**（001/002/007–021）走完整链路——spec、plan、checklist 与 `tasks.md`，其中 16 个（除 021 外）另附 `quickstart.md`。**17 份 `tasks.md`（354 项）已全部勾选完成**，实现与测试同步落地。
-- **4 个既有回溯特性**（003–006）重述 MOVO 已有能力，保留 `spec.md` + `plan.md` + checklist 的原始状态，未建 `tasks.md`。
+它们分为四组：
+
+- **17 个补齐特性**（001/002/007–021）——原始补强清单加上平台化与地址空间两个新增范围。**17 份 `tasks.md`（354 项）已全部勾选完成**，实现与测试同步落地。
+- **5 个质量加固特性**（022–026）——从 2026-10-11 QualityForge 全量 QA 审计中拆出，共 357 项任务，按 022 → 026 分波交付（详见下文[质量加固：022–026](#质量加固022026)）。
+- **4 个既有回溯特性**（003–006）——重述 MOVO 已有能力。它们最初未建 `tasks.md`，2026-10-11 补齐了 141 项任务。
 
 接口契约分布在两处：顶层 [`contracts/`](contracts/) 下 5 份 T998 契约（`orchestration`、`self-evolution`、`session-versioning-contract`、`harness-config`、`a2a-gateway`），加上 `specs/` 内 5 个按特性划分的 `contracts/` 目录（[`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md)、[`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md)、[`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md)、[`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md)、[`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)）。
 
-[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 21 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）与新增平台范围（020）三组，并记录每条阈值的 clarify 决策依据。
+[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 26 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）与质量加固（022–026）四组，并记录每条阈值的 clarify 决策依据。
 
 这样做的收益是：每一条企业能力都有对应的需求来源、验收标准与测试证据，界面触点与规格的映射关系记录在 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md)。
 
@@ -131,6 +139,18 @@ specs/                    # 21 个特性规格，每个含完整规格链路
 
 这九项补强能力共同指向"Agent 越用越聪明"的目标形态：把**会话 → 经验 → Skill** 串成主线，让一个人的会话成为团队与后续自动化的起点；平台化多租户（020）则把这套形态从单个企业延伸到一套部署承载多个企业——既有部署语义本是"一套部署 = 一个企业"；统一上下文地址空间（021）进一步让每类上下文都有唯一可寻址的入口：记忆、Skill、会话与资源走同一套 `mogo://` 语法，而不是四套各写各的 API。
 
+#### 质量加固：022–026
+
+2026-10-11 的 QualityForge 全量 QA 审计（964 项）暴露出 283 个 P0/P1 缺陷，它们需要新建能力才能修复，而不是打补丁，于是按风险域拆成 5 个特性。每个都走完整的 spec → plan → tasks → checklist 链路（共 357 项任务），按 022 → 026 分波交付：
+
+| # | 能力 | 交付内容 | 规格 |
+| :-: | --- | --- | :-: |
+| 12 | **安全加固** | 闭合 96 个 P0/P1 缺陷，覆盖认证、MFA、令牌、授权、输入、数据、供应链 7 个域：统一口令/MFA 策略；1 小时访问令牌 + 一次性刷新轮换与整族重放吊销；空闲/绝对会话超时；按 `service_id`/`tenant_id`/`user_id` 绑定的服务间凭证；AES-GCM 加密存储与脱敏响应；显式 CORS 源白名单；SSO 票据换取（令牌不再进地址栏与历史）；TLS 终结网关；独立数据库中的防篡改审计链；以及全仓密钥扫描门禁 | [022](specs/022-security-hardening/) |
+| 13 | **可观测性与韧性** | 74 个 P0/P1 缺陷，覆盖日志、追踪、指标、告警、容错与恢复 6 个域 | [023](specs/023-observability-resilience/) |
+| 14 | **部署与发布加固** | 42 个 P0/P1 缺陷，覆盖部署安全、制品、灰度、回滚与灾备 5 个域 | [024](specs/024-deployment-hardening/) |
+| 15 | **API 契约与语义** | 50 个 P0/P1 缺陷，覆盖语义、错误处理、契约与演进 4 个域——含一个静态检查：任何 GET 路由都不得写数据库 | [025](specs/025-api-contract-hardening/) |
+| 16 | **性能与扩展性** | 51 个 P0/P1 缺陷，覆盖性能基线、数据库、缓存、前端与扩展性 5 个域，附 p95 延迟回归守卫 | [026](specs/026-performance-scalability/) |
+
 ## 主线三：智能体多实例运行改造
 
 单实例部署下，Node DSH Runtime Host 把 kernel 会话状态保存在进程内存中——一旦横向扩展，同一个会话的请求被负载均衡到另一台实例就会找不到会话。
@@ -180,16 +200,24 @@ specs/                    # 21 个特性规格，每个含完整规格链路
 git clone https://github.com/cooper2006/mogo.git
 cd mogo
 chmod +x mogo
+
+# 网关默认启用 HTTPS，而证书不入库，所以先生成一对自签证书
+# （浏览器会提示不安全，本地访问无妨）。生产请换成 CA 签发的 server.crt/server.key。
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout server.key -out server.crt -subj '/CN=localhost' \
+  -addext 'subjectAltName = DNS:localhost,IP:127.0.0.1'
+bash deploy/tls/setup-certs.sh   # 复制到 deploy/tls/，并把私钥权限归一化为 0644
+
 ./mogo up
 ```
 
 然后打开：
 
 ```text
-http://localhost:3000/admin/setup
+https://localhost/admin/setup
 ```
 
-启动器会拉取官方预构建镜像、等待服务就绪并打印初始化地址，无需准备 `.env` 文件或本地构建镜像。Windows 用户请在 Ubuntu WSL 2 发行版中运行墨攻，参见 [Windows 安装指南](docs/windows-installation.zh-CN.md)。
+启动器会拉取官方预构建镜像、等待服务就绪并打印初始化地址，无需准备 `.env` 文件或本地构建镜像。**HTTPS 默认开启**——证书不入库，所以上面那步 `openssl`（或你自备的证书）是前置条件，详见 [HTTPS 与 TLS 证书](#https-与-tls-证书)。Windows 用户请在 Ubuntu WSL 2 发行版中运行墨攻，参见 [Windows 安装指南](docs/windows-installation.zh-CN.md)。
 
 ## 开源版说明
 
@@ -257,11 +285,75 @@ Windows 用户请使用 Docker Desktop 配合 WSL 2 与 Ubuntu。可以先用 `w
 
 | 入口 | 默认地址 | 用途 |
 | --- | --- | --- |
-| 用户工作台 | `http://localhost:3000/` | 对话、研究、知识、文件与内容生成 |
-| 管理后台 | `http://localhost:3000/admin/` | 组织、用户、模型、知识、Skill、工具与治理 |
-| 初始化向导 | `http://localhost:3000/admin/setup` | 仅用于首次初始化 |
+| 用户工作台 | `https://localhost/` | 对话、研究、知识、文件与内容生成 |
+| 管理后台 | `https://localhost/admin/` | 组织、用户、模型、知识、Skill、工具与治理 |
+| 初始化向导 | `https://localhost/admin/setup` | 仅用于首次初始化 |
+
+网关默认在 443 上终结 TLS。宿主 HTTP 端口（`MOGO_PORT`，默认 3000）除 `/healthz` 外一律 `301` 跳到对应的 HTTPS 地址；`/healthz` 保持 HTTP `200`，以免影响负载均衡与容器健康检查。
 
 初始化向导会检查部署状态，并引导你创建组织与初始账号、连接默认对话模型，以及按需配置 embedding、rerank、视觉、图像生成与网络搜索服务。凭据在存储前会加密。
+
+### HTTPS 与 TLS 证书
+
+网关自己终结 TLS：`deploy/nginx/nginx.conf` 是 HTTPS 服务的**唯一事实来源**，`docker-compose.yml` 默认就挂载它；其中已配好仅 TLS 1.2/1.3、带 `preload` 的 HSTS 以及常用安全响应头。
+
+**首次启动前必须准备好证书对。** 证书刻意不入库（`deploy/tls/.gitignore`），全新克隆是没有的，网关会因 `cannot load certificate key` 进入 crash-loop。
+
+| 文件 | 权限 | 说明 |
+| --- | --- | --- |
+| `deploy/tls/fullchain.pem` | `0644` | 证书链（含中间证书） |
+| `deploy/tls/privkey.pem` | `0644` | 私钥 |
+
+**私钥必须是 `0644`。** 网关以非 root 的 `appuser`（UID 10001）运行，而证书目录是 bind mount，Linux 上会保留宿主 uid——`0600` 的私钥容器内读不到，nginx 启动即退出：
+
+```text
+nginx: [emerg] cannot load certificate key "/etc/nginx/certs/privkey.pem" (13: Permission denied)
+```
+
+`openssl req -newkey` 生成的私钥默认是 `0600`，`cp` 也会保留源模式，所以**每次放完证书都要显式 `chmod`**。macOS/OrbStack 会把 bind mount 的属主映射成容器运行用户，所以 `0600` 本地看着没事，生产 Linux 照样挂。若要求私钥不 world-readable，改为交给容器 uid：
+
+```bash
+sudo chown 10001:10001 deploy/tls/privkey.pem && chmod 0600 deploy/tls/privkey.pem
+```
+
+证书目录与网关配置都是参数化的，所以 CA 签发的证书同样可用——请把 `MOGO_TLS_CERTS_DIR` 指向证书的**副本**，而不是 Let's Encrypt 的 `live/` 目录：那里是符号链接，指向 root `0700` 的 `archive/`，容器内 UID 10001 穿不过去。
+
+```env
+MOGO_TLS_CERTS_DIR=/etc/letsencrypt/live/example.com
+MOGO_NGINX_CONF=./deploy/nginx/nginx.conf
+```
+
+配置是**挂载**进容器的、不是烤进镜像的，所以开关 TLS 只需重建 gateway 容器，不必重建镜像：
+
+```bash
+MOGO_GATEWAY_IMAGE="$(docker inspect mogo-gateway-1 --format '{{.Config.Image}}')" \
+  docker compose up -d --no-deps gateway
+```
+
+**不要**用裸 `docker compose up -d gateway`：缺了镜像名会解析成 `ghcr.io/himovo/gateway:latest`，去拉远端镜像覆盖你本地构建的镜像。
+
+要退回纯 HTTP（仅限本地或可信内网调试），把同一个变量指向 HTTP 侧配置再重建 gateway：
+
+```env
+MOGO_NGINX_CONF=./deploy/docker/nginx.conf
+```
+
+验证切换结果：
+
+```bash
+curl -k https://localhost/healthz                                           # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/admin/setup   # 301
+curl -s http://localhost:3000/healthz                                       # 200（探针豁免）
+openssl s_client -connect localhost:443 -servername localhost </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -dates
+```
+
+排障前值得先知道两条行为：
+
+- 跳转规则是 `return 301 https://$host$request_uri`。nginx 的 `$host` **不含端口**，所以 `http://localhost:3000/x` 会落到 `https://localhost/x`（443）。因此把 `MOGO_HTTPS_PORT` 改成非 443 时，还得同步改配置里的跳转目标——它是静态文件，拿不到宿主端口。
+- 若宿主 IPv4 `443` 已被别的进程占用，跳转目标就是打不通的（哪怕容器全健康）；改用 `https://localhost/`（IPv6/loopback），或把端口让出来。
+
+完整运维细节——证书辅助脚本、已知坑位表与故障排查——见 [`deploy/tls/README.md`](deploy/tls/README.md)；回归守卫是 `deploy/tests/test_tls_gateway_config.py`。
 
 ### 常用运维命令
 
@@ -391,7 +483,7 @@ PUBLIC_BASE_URL=https://movo.example.com
 
 | 路径 | 组件 |
 | --- | --- |
-| `specs/` | spec-kit SDD 规格资产（21 个特性 + `INDEX.md`） |
+| `specs/` | spec-kit SDD 规格资产（26 个特性 + `INDEX.md`） |
 | `contracts/` | 5 份 T998 接口契约（编排、自进化、会话版本化、Harness 配置、A2A 网关） |
 | `.specify/` | spec-kit 工作流、模板与项目宪法 |
 | `apps/user-web/` | Vue 3 用户工作台 |
