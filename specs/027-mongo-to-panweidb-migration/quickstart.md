@@ -309,27 +309,32 @@ docker compose up -d --no-deps admin-api chat-api document-api document-worker
 
 ---
 
-## 9. 聚合管道差分测试（R2）
+## 9. 差分测试（R2，最主要的验收方式）
 
-差分测试是 R2 的主要验收方式——**同一管道在 MongoDB 与 PanWeiDB 上跑并比对结果**，
-比静态分析可靠得多。
+差分测试是 R2 的主要验收手段——**同一批操作在 MongoDB 与 PanWeiDB 上跑并比对结果**，
+比静态分析可靠得多。脚本已固化在仓库里：
 
 ```bash
-# 需先把源 MongoDB 端口映射到宿主机（mogo_backend 是 internal 网络，容器不便发布端口）
-# 用 scripts/pg/sync_pg_compat.py 无关；参考 docs/mongo-to-panweidb-migration-plan.md 第 8 节
-python /tmp/verify_aggregate.py     # 11 组管道
+# 前置：mogo_backend 是 internal 网络，容器无外网且发布不了端口，需先起一个
+# TCP 转发容器把栈内 MongoDB 映射到宿主机（详见 docs/mongo-to-panweidb-migration-plan.md 第 8 节）
+python scripts/pg/verify_mongo_pg_diff.py \
+  --mongo-uri "mongodb://127.0.0.1:27018" --mongo-db mogo_dev \
+  --dsn "host=127.0.0.1 port=5432 user=boncuser password=... dbname=bonc" \
+  --schema mogo_dev
 ```
 
-覆盖：`$match`+`$group` 计数 / 全局 `_id: None` 聚合 / `$min`/`$max`/`$avg` /
+**预期**：`通过 19 / 失败 0`（聚合 10 组管道 + `$percentile` 1 项 + `bulk_write` 8 项）。
+
+脚本覆盖的管道：`$match`+`$group` 计数 / 全局 `_id: None` 聚合 / `$min`/`$max`/`$avg` /
 `$sort`+`$group`+`$first`/`$last` / `$group`+`$sort`+`$limit` / `$count` 阶段 /
-`$push`/`$addToSet` / `$cond` 在 `_id` 与 `$sum` 里 / 复合 `_id` /
-`$percentile`（Mongo 6.0 不支持，单独验证）/ 大数据集（8,706 行）。
+`$push`/`$addToSet` / `$cond` 在 `_id` 与 `$sum` 里 / 复合 `_id` / 大数据集（8,706 行）。
+`$percentile` 因 MongoDB 6.0 不支持而单独验证。
+bulk_write 覆盖六种请求与 upsert，比对 `inserted`/`matched`/`modified`/`deleted`/`upserted`
+五个计数与落库文档集合，外加空请求列表。
 
-## 10. bulk_write 差分测试（R2）
+## 10. bulk_write 差分测试
 
-覆盖 `InsertOne`/`UpdateOne`/`UpdateMany`/`ReplaceOne`/`DeleteOne`/`DeleteMany` 与
-upsert，比对 `inserted`/`matched`/`modified`/`deleted`/`upserted` 五个计数与
-落库文档集合，外加空请求列表。
+已并入步骤 9 的脚本。
 
 ## 11. 审计库分离（R2）
 
