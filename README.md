@@ -24,7 +24,7 @@
 ## 典型场景与不适用边界
 
 **典型场景**（本仓库开箱即用的能力）：
-- 自建企业内网 Agent 平台：Docker Compose 一键拉起 13 服务（chat-api / admin-api / document-parser / user-web / admin-web 等），本地或私有云自托管。
+- 自建企业内网 Agent 平台：Docker Compose 一键拉起 14 服务（chat-api / admin-api / document-parser / user-web / admin-web 等），本地或私有云自托管。
 - 文档与知识检索：PDF / DOCX / XLSX / PPTX / CSV 多格式解析 + Docling OCR + 企业知识 RAG。
 - 多形态 Agent 执行：Browser Agent、Code Agent、桌面子代理、SkillHub 技能市场。
 - 报告与内容生成：文章、PPTX、Excel、PDF、翻译与表单填充。
