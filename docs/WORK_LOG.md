@@ -10760,3 +10760,41 @@ admin-api 303、chat-api 302、document-parser 7。驱动分裂：motor ×2 + py
 003–006（既有能力回溯）的处理方式一致（宪法 Development Workflow：「既有代码采用 SDD 时
 遵循 existing-projects 指南：先为关键既有特性回溯补规格」）。R2 起严格按
 spec → plan → tasks → implement → converge 推进。
+---
+
+## 2026-10-13 027 R1 代码入库（3 个提交）
+
+**目标**：用户要求「落地 R1 代码」。
+
+**提交拆分**（按关注点拆，便于评审与回溯）：
+
+| 提交 | 类型 | 内容 | 规模 |
+|---|---|---|---|
+| `0f13656` | `feat(db)` | PanWeiDB 后端与 Mongo 兼容层（027 R1）：连接池、兼容门面、后端分派、配置开关、健康检查、DDL 生成器、搬迁工具、依赖接入、compose/env 接入、方案文档、单测与守卫、CHANGELOG | 32 文件，+6638 / −36 |
+| `146dd14` | `docs(specs)` | 027 特性规约五件套 + `specs/INDEX.md` 同步 | 6 文件，+1222 / −4 |
+| `d36889b` | `docs(worklog)` | 本工作记录的前两节 | 1 文件，+126 |
+
+**只暂存本轮改动，未误提交其他会话的在途工作**：开工前工作区已有 75 处其他会话的
+未提交改动。本次用「逐文件显式 `git add <具体路径>`」暂存，**未使用 `git add -A`**。
+
+`docs/WORK_LOG.md` 被多方改动（其他会话的服务令牌头改名、README 修正、panweidb 镜像
+导出三节与本轮两节混在同一文件），按 AGENTS.md 的「拆 patch 只暂存自己的 hunk」约定处理：
+用 `git hash-object -w` + `git update-index --cacheinfo` 把「HEAD 版本 + 本轮两节」构造成
+一个 blob 暂存，**工作区文件保持不动**，其他会话的 hunk 原样保留。提交后
+`git status` 仍显示 `docs/WORK_LOG.md` 为 M —— 那正是其他会话尚未提交的部分。
+
+**验证方式**：
+- 提交前预检 pre-commit 密钥扫描（`scripts/check-secrets.sh`）对 6 个可能触发的文件
+  （quickstart 的口令占位、三个 `.env.example`、方案文档、compose）全部通过
+- 提交后 `git status` 核对：本轮全部文件已干净；其他会话的 4 个抽样文件
+  （`WORK_LOG.md` / `chat-api/app/core/tenant.py` / `specs/022-*/tasks.md` /
+  `apps/user-web/pnpm-lock.yaml`）仍为 M，未被误提交
+- 三个提交的 `--stat` 逐条核对文件清单与规模
+- 提交后重跑：单测 29 项通过、一致性守卫 11 项通过、DDL 生成器仍报 103 个集合
+- CHANGELOG 首个 `^## vX.Y.Z` 仍为 `v0.2.1` → CI 的 `version-consistency` 版本契约不受影响
+  （新增的 `## Unreleased` 节不匹配该正则）
+
+**改动文件**：`docs/WORK_LOG.md`（本节）。
+
+**备注**：三个提交都在 `feat/migrate-mongo-to-panweidb` 分支上，**未推送远端**。
+按 AGENTS.md 的远端边界，推送需用户显式确认。
