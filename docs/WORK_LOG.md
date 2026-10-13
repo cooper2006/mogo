@@ -10634,3 +10634,129 @@ crash-loop，最终表现为 "services did not become ready in time"，完全看
 
 
 
+---
+
+## 2026-10-13 新建分支 `feat/migrate-mongo-to-panweidb`：R1 基础设施落地
+
+**目标**：按用户要求新建分支把 MongoDB 迁移到 PanWeiDB。用户确认的三条路线决策：
+① **兼容层先行**（自建 motor/pymongo 形状的门面，而非改写 612 处调用点）；
+② **本轮只做基础设施 + 方案文档**，不触碰业务调用点；
+③ **开关式回滚**（`MOGO_DATA_BACKEND`，默认 mongo，不需要回滚代码）。
+
+**目标库实测（OrbStack 容器 `panweidb`）**：PanWeiDB 3.2.0 / openGauss 内核 /
+`version()` 报 PostgreSQL 9.2.4 / `sql_compatibility=A`（**internal 上下文，不可改**，
+且 3.2 的 `CREATE DATABASE` 已不支持 `DBCOMPATIBILITY`）/ 端口 5432 /
+`password_encryption_type=1`（MD5）。`boncuser` 可远程连，`omm` 远程被拒。
+**psycopg3 的同步、异步、连接池、JSONB、参数绑定、事务实测全部可用。**
+**PanWeiDB 不提供 Mongo 线协议兼容**（那是金仓 KingbaseES 的能力）。
+
+**规模盘点（app 层）**：3 服务 / 149 文件 / **612 处 `get_db()`** / **103 个集合**；
+admin-api 303、chat-api 302、document-parser 7。驱动分裂：motor ×2 + pymongo ×1。
+聚合很轻（`aggregate()` 仅 25 处，以 `$group`/`$match` 为主）。
+
+**踩到的三个真实坑（都已修 + 加回归）**：
+1. **A 模式禁用了多个标准 JSONB 函数**：`jsonb_build_array`/`jsonb_build_object`/`#-`/
+   `jsonb_strip_nulls`/`jsonb_pretty`/`jsonb_to_record`/`jsonb_object_agg`/
+   `jsonb_path_ops`（GIN 算子类）全部报 `FeatureNotSupported`。已实测出可用子集，
+   并把规避手法内联（`_unset_expression` 用「取父节点 → `-` 删键 → 写回」替代 `#-`；
+   `$push` 用数组字面量替代 `jsonb_build_array`）。GIN 用 `jsonb_ops`。
+2. **openGauss 的 `jsonb_set` 不创建中间层对象**（PG 会），导致
+   `{"$set": {"a.b.c": 1}}` 在 `a` 不存在时**静默丢更新**。已用 `_jsonb_set_path()`
+   逐层回卷实现真深合并。
+3. **嵌套表达式会让占位符重复**，psycopg 报 placeholder/parameter 数量不符。
+   更新算子改为 `WITH s0/s1/...` 步骤链（每步只引用上一步的列名 `doc`），
+   占位符恰好出现一次。
+
+**新增文件**：
+- `services/{admin-api,chat-api}/app/core/{pg.py,pg_compat.py}`（异步）
+- `services/document-parser/app/core/{pg.py,pg_compat.py}`（同步）
+- `scripts/pg/generate_ddl.py`（扫描集合 → 幂等 DDL + 连库巡检）
+- `scripts/pg/migrate_mongo_to_panweidb.py`（幂等搬迁 + 计数校验 + 续跑）
+- `deploy/pg/schema.sql`（103 集合建表 DDL，生成物）
+- `docs/mongo-to-panweidb-migration-plan.md`（权威方案，含映射规则表与分阶段计划）
+- `services/admin-api/tests/test_pg_compat.py`（29 个纯逻辑单测）
+- `deploy/tests/test_pg_compat_parity.py`（11 个一致性守卫）
+
+**改动文件**：`services/*/app/core/{config.py,db.py,main.py}`（分派 + 开关 + 健康检查）、
+`services/document-parser/app/api/routes/health.py`、`services/*/requirements.in`
+（加 `psycopg[binary]` / `psycopg-pool`）、`services/*/requirements.txt`（重生成带哈希）、
+`services/*/.env.example`、`docker-compose.yml`（4 个服务条目注入 `MOGO_DATA_BACKEND`/`PANWEIDB_*`）。
+
+**验证方式**：
+- 兼容门面在**真实 PanWeiDB** 上：异步 **64/64**、同步 **26/26** 通过。
+- 搬迁工具全链路：临时 Mongo 灌数据 → 演练 → 搬迁 → **幂等重跑** → 计数校验 →
+  **兼容层回读 + 更新** 10/10 通过（含「父对象缺失时深合并」回归）。
+- DDL 生成器：103 张表 / 309 个索引，实测 1.6s 建完；`--check` 巡检通过。
+- `db.py` 两分支：默认 mongo 行为不变（stub motor 验证）；panweidb 模式下
+  `init_db()`/`get_db()` 给出可操作错误；真实异步建池 + ping + `list_collection_names()`
+  返回 103 张表；`health_payload()` 返回 `reachable: True`。
+- 三个服务的 `requirements.txt` 均通过 **`pip install --require-hashes` 实测安装**。
+
+**备注 / 待办**：
+- **三个服务的 `requirements.txt` 均已重生成并核对**：admin-api 与 chat-api 由
+  `pip-compile` 生成（chat-api 为 **77 行纯新增、零删除**；admin-api 仅新增 psycopg
+  三件套 + 一行生成命令注释），**零无关版本漂移**。
+- **document-parser 的锁是手工合并**：Docker Hub 与 DaoCloud 镜像均不可达，
+  无法用 `--docker 3.10` 重生成。已验证 pip-compile 的 `--generate-hashes` 输出覆盖
+  该版本在 PyPI 上的**全部文件**（psycopg-binary 66/66，含全部 11 个 cp310 wheel），
+  因此这三条条目与目标 Python 版本无关，可安全复用 admin-api 的条目。
+  **网络可用时应补跑** `bash scripts/generate-hashes.sh document-parser --docker 3.10`
+  以恢复「由 pip-compile 生成」的单一来源。
+- R2（兼容层接线）未开始：25 处 `aggregate()`、6 处 `bulk_write`、
+  `$lookup`/`$facet`/`$unwind` 各 1 处需逐点重写；202 处 `create_index` 的
+  unique/sparse/partial 语义需逐点核对。
+- 兼容层代码在 3 个服务间重复（与仓库既有架构一致，`db.py`/`config.py` 本就每服务一份），
+  已用 `deploy/tests/test_pg_compat_parity.py` 守卫防漂移。
+
+---
+
+## 2026-10-13 按 SDD 规范为迁移工作补建 027 特性规约
+
+**目标**：用户要求「根据 sdd 开发规范，把迁移工作单独建一个 spec」。
+
+**遵循的规范**：仓库用 Specify CLI（`speckit_version: 1.0.8`，集成 claude）。规范要点：
+- 特性目录 `specs/NNN-<topic>/`，编号顺序递增（`create-new-feature.sh` 自动取最大值 +1）
+- 四件套 `spec.md` / `plan.md` / `tasks.md` / `quickstart.md` + `checklists/requirements.md`
+- 模板在 `.specify/templates/`，宪法在 `.specify/memory/constitution.md`
+- 宪法原则 I（Specification-First，NON-NEGOTIABLE）：规格描述「做什么/为什么」，计划承载实现细节
+
+**做法**：用官方脚本创建，未手工造目录。
+`bash .specify/scripts/bash/create-new-feature.sh --short-name "mongo-to-panweidb-migration" "..."` →
+`specs/027-mongo-to-panweidb-migration/`（FEATURE_NUM=027）。脚本另写入 `.specify/feature.json`
+（活跃特性指针，该文件在 `.specify/.gitignore` 中，属本机状态、不入库）。
+
+**产出（5 份文档 / 1193 行）**：
+
+| 文件 | 行数 | 内容 |
+|---|---|---|
+| `spec.md` | 303 | 5 个用户故事（US1 后端可切换 → US5 显式失败）、**32 条 FR**、**10 条 SC**、Non-Goals、Assumptions、Edge Cases |
+| `plan.md` | 276 | 目标库实测事实、A 模式 JSON 函数子集、三个必须规避的语义差异、表结构、**完整映射规则表**、Constitution Check、Structure Decision、R1/R2/R3 计划、7 条 Open Questions（已消解）、风险表 |
+| `tasks.md` | 263 | **62 项任务**（Phase 1–8 的 **50 项已勾选**并附实测证据；Phase 9 的 12 项 R2 待办）、Clarify Decisions、依赖与并行点、MVP 策略 |
+| `quickstart.md` | 283 | 9 步**可执行验收清单**（含确切命令与预期输出）；**不硬编码口令**，用环境变量占位（宪法原则 III） |
+| `checklists/requirements.md` | 68 | **35 项**需求质量评审（勾选 33/35） |
+
+**审自己的 spec 时发现的 2 处真实缺口（已补）**：
+- 补 **FR-029**：租户数据批量删除能力必须保全（对应既有租户销毁流程）
+- 补 **FR-030**：审计与业务隔离能力必须保全（022 FR-17 的 PG 侧等价物 = 独立 schema）
+- 另补 FR-031（池耗尽/不可达时的可用性语义）、FR-032（按时间清理过期数据）
+- 补 SC-009（按主键/租户过滤必须走索引）、SC-010（租户销毁与审计保留期不退化）
+
+**刻意留 2 项未勾选**（诚实标注，不阻塞 R1）：
+- CHK015 兼容层**性能预算未定值**（缺 `find_one` p95 目标，会影响 R3「是否关系化」的判定依据）
+- CHK027 **索引验收口径未定值**（SC-009 只说「不出现全表扫描」，抽样比例未定）
+
+**改动文件**：新增 `specs/027-mongo-to-panweidb-migration/{spec,plan,tasks,quickstart}.md` +
+`checklists/requirements.md`；更新 `specs/INDEX.md`（新增「四（补 2）」节登记 027；
+§五 计数同步到 27 个特性；§六 SDD 路径补 027 一条；顶部口径提示补 2026-10-13 说明）。
+`.specify/feature.json` 被脚本改写（gitignored 本机状态）。
+
+**验证方式**：核对全部自报数字，避免文档失实——
+- `tasks.md`：总 62 / 已勾选 50 / 待办 12（与 INDEX 所述一致）
+- `checklists/requirements.md`：总 35 / 勾选 33 / 未勾 2（与 INDEX 所述一致）
+- `spec.md`：FR 32 条（FR-001–FR-032）、SC 10 条（SC-001–SC-010）、用户故事 5 个
+- 5 份文档合计 1193 行
+
+**备注**：本特性属「既有工作回溯补规格」——R1 代码先于 spec 落地，与本仓库
+003–006（既有能力回溯）的处理方式一致（宪法 Development Workflow：「既有代码采用 SDD 时
+遵循 existing-projects 指南：先为关键既有特性回溯补规格」）。R2 起严格按
+spec → plan → tasks → implement → converge 推进。
