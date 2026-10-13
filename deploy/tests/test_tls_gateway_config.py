@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -221,3 +222,183 @@ def test_readiness_probe_tolerates_tls_redirect() -> None:
     assert re.search(r'direct_path="/api/setup/status"', body), (
         "容器内兜底路径应是不带 /admin-api 前缀的 /api/setup/status"
     )
+
+
+# ── ./mogo 的证书保障（2026-10-13）───────────────────────────────────────
+#
+# 网关自 2026-10-13 起默认加载 TLS 侧配置（compose 里
+# `${MOGO_NGINX_CONF:-./deploy/nginx/nginx.conf}`），而证书刻意不入库
+# （`deploy/tls/.gitignore`）。全新克隆没有证书时，网关容器是 read_only 且以
+# 非 root 运行，nginx 无法在运行时自建，只会
+# `cannot load certificate key` 反复 crash-loop，最终表现为
+# "services did not become ready in time" —— 完全看不出是缺证书。
+#
+# `movo_ensure_tls_certs()` 因此负责：解析同 compose 一致的两个变量 → 缺证书时
+# 用 openssl 生成自签名对 → 已存在则不动 → 指向 HTTP 侧配置则直接跳过。
+
+_MOGO_PATH = "mogo"
+
+# 真实执行 movo_ensure_tls_certs 所需的桩（不碰 docker）。
+_ENSURE_HARNESS = """set -Eeuo pipefail
+source "$ROOT_DIR/deploy/cli/i18n.sh"
+movo_detect_locale
+dotenv_value() { sed -n "s/^[[:space:]]*$1=//p" "$FAKE_ENV" 2>/dev/null | tail -n1 || true; }
+mogo_compose() {
+  echo "mogo_compose $*" >> "$MOCK_LOG"
+  if [ "$1" = ps ] && [ "$FAKE_CONTAINER" = 1 ]; then echo fake-container-id; fi
+  return 0
+}
+if [ "$NO_OPENSSL" = 1 ]; then
+  command() {
+    if [ "${1:-}" = "-v" ] && [ "${2:-}" = "openssl" ]; then return 1; fi
+    builtin command "$@"
+  }
+fi
+# movo_ensure_tls_certs 委托 movo_tls_is_enabled 做开关判定，两个都要抽出。
+eval "$(sed -n '/^movo_tls_is_enabled()/,/^}/p' "$ROOT_DIR/mogo")"
+eval "$(sed -n '/^movo_ensure_tls_certs()/,/^}/p' "$ROOT_DIR/mogo")"
+movo_ensure_tls_certs
+"""
+
+
+def _run_ensure_tls(
+    tmp_path: Path,
+    *,
+    nginx_conf: str | None = None,
+    certs_dir: str | None = None,
+    no_openssl: bool = False,
+    fake_container: bool = False,
+):
+    """在隔离目录里真实执行 mogo 的 movo_ensure_tls_certs（配桩，不碰 docker）。"""
+    (tmp_path / ".env").write_text("", encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        ROOT_DIR=str(REPO_ROOT),
+        FAKE_ENV=str(tmp_path / ".env"),
+        MOCK_LOG=str(tmp_path / "mock.log"),
+        NO_OPENSSL="1" if no_openssl else "0",
+        FAKE_CONTAINER="1" if fake_container else "0",
+    )
+    # 显式清空：测试不应受开发者本机 .env 影响（dotenv_value 读的是 FAKE_ENV）。
+    env.pop("MOGO_NGINX_CONF", None)
+    env.pop("MOGO_TLS_CERTS_DIR", None)
+    if nginx_conf is not None:
+        env["MOGO_NGINX_CONF"] = nginx_conf
+    if certs_dir is not None:
+        env["MOGO_TLS_CERTS_DIR"] = str(certs_dir)
+    script = tmp_path / "harness.sh"
+    script.write_text(_ENSURE_HARNESS, encoding="utf-8")
+    return subprocess.run(
+        ["bash", str(script)], capture_output=True, text=True, env=env, timeout=120
+    )
+
+
+def test_mogo_defines_and_wires_tls_cert_guard() -> None:
+    """mogo 必须定义证书保障函数，并在三个会启动网关的命令里调用。"""
+    text = _read(_MOGO_PATH)
+    assert "movo_ensure_tls_certs() {" in text, "mogo 缺少 movo_ensure_tls_certs 定义"
+
+    for command in ("command_up()", "command_update()"):
+        match = re.search(rf"{re.escape(command)} \{{.*?^\}}", text, re.M | re.S)
+        assert match, f"mogo 里找不到 {command}"
+        assert "movo_ensure_tls_certs" in match.group(0), (
+            f"{command} 未调用 movo_ensure_tls_certs，缺证书仍会 crash-loop"
+        )
+
+    # restart 分支直接写在 case 里，没有独立函数。
+    restart = re.search(r"^  restart\).*?^    ;;", text, re.M | re.S)
+    assert restart, "mogo 的 restart 分支不存在"
+    assert "movo_ensure_tls_certs" in restart.group(0), "restart 分支未调用 movo_ensure_tls_certs"
+
+
+def test_tls_cert_guard_generates_self_signed_pair(tmp_path: Path) -> None:
+    """缺证书时应生成自签名对，且私钥为 0644（容器内 UID 10001 要能读）。"""
+    certs = tmp_path / "tls"
+    result = _run_ensure_tls(tmp_path, certs_dir=str(certs))
+
+    assert result.returncode == 0, f"应成功生成证书：{result.stderr}"
+    for name in ("fullchain.pem", "privkey.pem"):
+        assert (certs / name).is_file(), f"未生成 {name}"
+    mode = (certs / "privkey.pem").stat().st_mode & 0o777
+    assert mode == 0o644, f"私钥模式是 {mode:o}，容器内 UID 10001 读不到会 crash-loop"
+    assert "fullchain.pem" in result.stdout or "Generated" in result.stdout
+
+
+def test_tls_cert_guard_never_overwrites_existing_pair(tmp_path: Path) -> None:
+    """已存在的证书对必须原样保留（不覆盖用户放进去的 CA 证书）。"""
+    certs = tmp_path / "tls"
+    certs.mkdir()
+    chain = certs / "fullchain.pem"
+    key = certs / "privkey.pem"
+    chain.write_text("EXISTING-CHAIN\n", encoding="utf-8")
+    key.write_text("EXISTING-KEY\n", encoding="utf-8")
+
+    result = _run_ensure_tls(tmp_path, certs_dir=str(certs))
+
+    assert result.returncode == 0, result.stderr
+    assert chain.read_text(encoding="utf-8") == "EXISTING-CHAIN\n", "已有证书链被覆盖"
+    assert key.read_text(encoding="utf-8") == "EXISTING-KEY\n", "已有私钥被覆盖"
+
+
+def test_tls_cert_guard_skips_http_side_config(tmp_path: Path) -> None:
+    """指向 HTTP 侧配置时不得生成任何证书（用户明确退回 HTTP）。"""
+    certs = tmp_path / "tls"
+    result = _run_ensure_tls(
+        tmp_path, nginx_conf="deploy/docker/nginx.conf", certs_dir=str(certs)
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not certs.exists(), "HTTP 侧配置不应触发证书生成"
+
+
+def test_tls_cert_guard_fails_loudly_without_openssl(tmp_path: Path) -> None:
+    """没有 openssl 时必须快速失败并给出修复命令，而不是让 nginx 反复重启。"""
+    certs = tmp_path / "tls"
+    result = _run_ensure_tls(tmp_path, certs_dir=str(certs), no_openssl=True)
+
+    assert result.returncode != 0, "无 openssl 时应失败"
+    assert not certs.exists(), "无 openssl 时不应创建目录/文件（检查应在 mkdir 之前）"
+    message = result.stdout + result.stderr
+    assert "fullchain.pem" in message, "错误信息应告诉用户要放什么文件"
+    assert "0644" in message, "错误信息应说明私钥权限要求"
+
+
+def test_tls_cert_guard_restarts_running_gateway(tmp_path: Path) -> None:
+    """生成证书后必须重启已在运行的网关：nginx 只在启动时读私钥。"""
+    certs = tmp_path / "tls"
+    result = _run_ensure_tls(tmp_path, certs_dir=str(certs), fake_container=True)
+
+    assert result.returncode == 0, result.stderr
+    mock = (tmp_path / "mock.log").read_text(encoding="utf-8")
+    assert "mogo_compose ps -q gateway" in mock, "未探测 gateway 容器是否在运行"
+    assert "mogo_compose restart gateway" in mock, (
+        "生成证书后未重启网关；compose up -d 不会重建 spec 未变的容器，"
+        "nginx 仍读不到新证书"
+    )
+
+
+def test_tls_cert_guard_reads_switch_from_dotenv(tmp_path: Path) -> None:
+    """开关从 .env 读取（不传环境变量时），与 compose 的行为保持一致。"""
+    (tmp_path / ".env").write_text(
+        "MOGO_NGINX_CONF=./deploy/nginx/nginx.conf\n", encoding="utf-8"
+    )
+    certs = tmp_path / "from-env"
+    result = _run_ensure_tls(tmp_path, certs_dir=str(certs))
+
+    assert result.returncode == 0, result.stderr
+    assert (certs / "fullchain.pem").is_file(), "未识别 .env 中的 MOGO_NGINX_CONF"
+
+
+def test_i18n_covers_tls_cert_guard_messages() -> None:
+    """两种语言都必须有新消息，否则默认 locale 下会打印裸键名。"""
+    text = _read("deploy/cli/i18n.sh")
+    for key in (
+        "tls_generating_certs",
+        "tls_certs_generated",
+        "tls_cert_generated_without_san",
+        "tls_certs_missing_no_openssl",
+        "tls_cert_generation_failed",
+        "tls_gateway_restart_failed",
+    ):
+        for locale in ("zh", "en"):
+            assert f"{locale}:{key})" in text, f"i18n 缺少 {locale}:{key}"

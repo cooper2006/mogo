@@ -145,10 +145,24 @@ deployment_urls() {
   configured_base="${PUBLIC_BASE_URL:-$(dotenv_value PUBLIC_BASE_URL)}"
   MOVO_PORT="${configured_port:-3000}"
   export MOVO_PORT
-  MOVO_LOCAL_BASE="http://127.0.0.1:${MOVO_PORT}"
-  MOVO_PUBLIC_BASE="${configured_base%/}"
-  if [[ -z "${MOVO_PUBLIC_BASE}" ]]; then
-    MOVO_PUBLIC_BASE="http://localhost:${MOVO_PORT}"
+
+  # Resolve the same gateway switch the compose file reads, so the address we
+  # print matches the scheme the gateway actually serves. TLS is the default and
+  # plain HTTP answers 301 to HTTPS for everything except /healthz, so printing
+  # an `http://` URL on a TLS deployment just sends the user through a redirect
+  # that lands on the wrong port. `PUBLIC_BASE_URL` still wins outright.
+  if movo_tls_is_enabled; then
+    MOVO_LOCAL_BASE="https://localhost"
+    MOVO_PUBLIC_BASE="${configured_base%/}"
+    if [[ -z "${MOVO_PUBLIC_BASE}" ]]; then
+      MOVO_PUBLIC_BASE="https://localhost"
+    fi
+  else
+    MOVO_LOCAL_BASE="http://127.0.0.1:${MOVO_PORT}"
+    MOVO_PUBLIC_BASE="${configured_base%/}"
+    if [[ -z "${MOVO_PUBLIC_BASE}" ]]; then
+      MOVO_PUBLIC_BASE="http://localhost:${MOVO_PORT}"
+    fi
   fi
 }
 
@@ -228,10 +242,160 @@ movo_default_version() {
     || git -C "${ROOT_DIR}" rev-parse --short HEAD
 }
 
+# Does the gateway terminate TLS?
+#
+# Resolves `MOGO_NGINX_CONF` exactly like docker-compose does (environment, then
+# `.env`, then the compose default), because the default is the TLS side config
+# since 2026-10-12. Only an explicit pointer at the HTTP side config means "no
+# TLS"; anything else (including a custom config) is treated as TLS so the
+# certificate check and the printed address stay on the safe side.
+movo_tls_is_enabled() {
+  local nginx_conf
+  nginx_conf="${MOGO_NGINX_CONF:-$(dotenv_value MOGO_NGINX_CONF)}"
+  if [[ -z "${nginx_conf}" ]]; then
+    nginx_conf="./deploy/nginx/nginx.conf"
+  fi
+  case "${nginx_conf#./}" in
+    deploy/docker/nginx.conf) return 1 ;;
+  esac
+  return 0
+}
+
+# Make sure the gateway has a certificate pair whenever TLS is enabled.
+#
+# The gateway now loads the **TLS side** nginx config by default
+# (`docker-compose.yml` mounts `${MOGO_NGINX_CONF:-./deploy/nginx/nginx.conf}`).
+# Certificates are deliberately not committed (`deploy/tls/.gitignore`), so a
+# fresh clone has none -- and the gateway container is `read_only` and runs as
+# non-root (UID 10001), so nginx cannot create anything at runtime. The result
+# used to be
+#
+#   nginx: [emerg] cannot load certificate key "/etc/nginx/certs/privkey.pem"
+#               (13: Permission denied)
+#
+# which only surfaced much later as "services did not become ready in time",
+# with nothing pointing at a missing certificate.
+#
+# So resolve the same two variables docker-compose resolves and, when the pair
+# is missing, try to make one:
+#   * `openssl` available -> generate a self-signed pair (CN=localhost plus a
+#     localhost/127.0.0.1 SAN) and say so loudly. Browsers will warn; replace it
+#     with a CA-issued pair for anything real.
+#   * no `openssl`        -> fail fast with the exact commands to run.
+#
+# An existing pair is never touched, nothing is generated when the gateway is
+# pointed at the HTTP side config, and a freshly generated pair is picked up by
+# restarting an already-running gateway (nginx reads the key only at startup,
+# and `compose up -d` will not recreate a container whose spec did not change).
+movo_ensure_tls_certs() {
+  local certs_dir fullchain privkey
+  certs_dir="${MOGO_TLS_CERTS_DIR:-$(dotenv_value MOGO_TLS_CERTS_DIR)}"
+
+  # Mirror the compose default so a bare `./mogo up` is covered too.
+  if [[ -z "${certs_dir}" ]]; then
+    certs_dir="./deploy/tls"
+  fi
+
+  # Only the HTTP side config runs without certificates.
+  if ! movo_tls_is_enabled; then
+    return 0
+  fi
+
+  fullchain="${certs_dir%/}/fullchain.pem"
+  privkey="${certs_dir%/}/privkey.pem"
+  if [[ -f "${fullchain}" && -f "${privkey}" ]]; then
+    return 0
+  fi
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    movo_msg tls_certs_missing_no_openssl "${certs_dir}" >&2
+    return 1
+  fi
+
+  mkdir -p "${certs_dir}"
+  movo_msg tls_generating_certs "${certs_dir}"
+  if ! openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout "${privkey}" -out "${fullchain}" \
+      -subj "/CN=localhost" \
+      -addext "subjectAltName = DNS:localhost,IP:127.0.0.1" \
+      >/dev/null 2>&1; then
+    # OpenSSL < 1.1.1 has no `-addext`: retry without it so the stack still
+    # comes up. Browsers then reject the certificate (no SAN) while curl -k and
+    # server-to-server calls keep working.
+    if ! openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "${privkey}" -out "${fullchain}" \
+        -subj "/CN=localhost" \
+        >/dev/null 2>&1; then
+      movo_msg tls_cert_generation_failed "${certs_dir}" >&2
+      return 1
+    fi
+    movo_msg tls_cert_generated_without_san >&2
+  fi
+  # The gateway runs as UID 10001 and the directory is a bind mount, so 0644 is
+  # what makes the key readable inside the container. See deploy/tls/README.md.
+  chmod 0644 "${fullchain}" "${privkey}"
+  movo_msg tls_certs_generated "${certs_dir}"
+
+  if [[ -n "$(mogo_compose ps -q gateway 2>/dev/null || true)" ]]; then
+    if ! mogo_compose restart gateway >/dev/null 2>&1; then
+      movo_msg tls_gateway_restart_failed >&2
+    fi
+  fi
+  return 0
+}
+
+# Verify the application images exist locally.
+#
+# The pure-registry deployment path is retired. The published GHCR packages are
+# named `ghcr.io/himovo/movo-<service>` while the reference this repository
+# generates is `ghcr.io/himovo/<service>`, so every registry pull fails with
+# `error from registry: denied` (verified 2026-10-13) -- and
+# `movo_pull_images_serially` retries that forever, so a plain `./mogo up` used
+# to hang for minutes before dying.
+#
+# `./mogo up` without `--build` therefore runs strictly on local images: it uses
+# the bare names a source build produces, checks they are present, and names the
+# missing ones instead of pretending a pull will work.
+#
+# Base images (mongo / redis / weaviate / nginx / alpine) are a separate, working
+# path and stay with `movo_prepare_base_images`, which honours
+# `MOVO_BASE_IMAGE_POLICY` for fully offline setups.
+movo_require_local_images() {
+  local entry var reference
+  local -a missing=()
+
+  for entry in "${MOVO_IMAGE_SERVICES[@]}"; do
+    var="${entry%%:*}"
+    reference="${!var:-}"
+    [[ -z "${reference}" ]] && continue
+    if ! "${DOCKER_BIN}" image inspect "${reference}" >/dev/null 2>&1; then
+      missing+=("${reference}")
+    fi
+  done
+  # document-parser is shared by document-api and document-worker; only the
+  # first carries the variable.
+  reference="${MOVO_DOCUMENT_API_IMAGE:-}"
+  if [[ -n "${reference}" ]] \
+      && ! "${DOCKER_BIN}" image inspect "${reference}" >/dev/null 2>&1; then
+    missing+=("${reference}")
+  fi
+
+  if [[ "${#missing[@]}" -eq 0 ]]; then
+    return 0
+  fi
+  movo_msg local_images_missing "${#missing[@]}" >&2
+  printf '  %s\n' "${missing[@]}" >&2
+  movo_msg local_images_missing_hint >&2
+  return 1
+}
+
 command_up() {
   print_logo
   require_docker
   deployment_urls
+  # Before anything expensive: a missing certificate used to surface only as a
+  # gateway crash-loop after the whole stack had already been built/started.
+  movo_ensure_tls_certs
   if movo_has_build_flag "$@"; then
     # Same rule as `./mogo build`: default the tag to the release tag so a bare
     # `./mogo up --build` never falls back to `latest`. An explicit
@@ -239,7 +403,13 @@ command_up() {
     export MOGO_VERSION="${MOGO_VERSION:-$(movo_default_version)}"
     movo_configure_images true
   else
-    movo_configure_images false
+    # No registry pull any more (see movo_require_local_images): the GHCR
+    # reference this repository builds does not exist, and retrying it only
+    # hangs. Use the same bare local names a source build produced, and resolve
+    # the tag the same way so a bare `./mogo up` finds what `up --build` made.
+    export MOGO_VERSION="${MOGO_VERSION:-$(movo_default_version)}"
+    movo_configure_images true
+    movo_require_local_images || return 1
   fi
   retire_legacy_compose_project
   if movo_has_build_flag "$@"; then
@@ -256,9 +426,9 @@ command_up() {
       return 1
     fi
   else
-    if ! movo_pull_images_serially missing; then
-      return 1
-    fi
+    # Base images are the only thing still pulled, and only the working
+    # Docker Hub path: MOVO_BASE_IMAGE_POLICY=local turns that off too.
+    movo_prepare_base_images || return 1
     movo_msg starting
     if ! mogo_compose up -d --pull never "$@"; then
       movo_msg start_failed >&2
@@ -469,20 +639,14 @@ command_update() {
   print_logo
   require_docker
   deployment_urls
-  movo_configure_images false
-  if [[ "${MOVO_USING_LOCAL_IMAGES:-false}" == "true" ]]; then
-    movo_msg update_local_only >&2
-    return 2
-  fi
-  movo_msg updating
-  MOVO_PULL_POLICY=always
-  export MOVO_PULL_POLICY
-  movo_pull_images_serially always
-  mogo_compose up -d --pull never
-  refresh_gateway_resolution
-  wait_until_ready
-  movo_print_running_dsh_version
-  show_ready_message
+  movo_ensure_tls_certs
+  # `update` was the pure-registry path: pull the newest published images and
+  # roll the running containers onto them. That path is retired -- the GHCR
+  # reference this repository generates (`ghcr.io/himovo/<service>`) does not
+  # exist, so the pull fails and `movo_pull_images_serially` retries forever.
+  # Rebuilding locally is the supported upgrade route now.
+  movo_msg update_registry_retired >&2
+  return 2
 }
 
 command="${1:-up}"
@@ -532,6 +696,7 @@ case "${command}" in
     print_logo
     require_docker
     deployment_urls
+    movo_ensure_tls_certs
     mogo_compose restart
     wait_until_ready
     show_ready_message
