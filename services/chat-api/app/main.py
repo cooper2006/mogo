@@ -9,7 +9,7 @@ import sys
 import time
 import uuid
 
-from app.core.db import close_db, get_db, init_db
+from app.core.db import close_backend, get_db, init_backend
 from app.middleware.cors import build_cors_middleware_kwargs
 from app.core.config import get_settings
 from app.infrastructure.observability.config import configure_logging
@@ -281,7 +281,7 @@ async def _ensure_end_user_login_name_index(db) -> None:
 @app.on_event("startup")
 async def startup_event() -> None:
     global _receipt_gc_task
-    init_db()
+    await init_backend()
     db = get_db()
     # Keep session history list query fast: find by user_id and sort by updated_at desc.
     await db.chat_sessions.create_index([("user_id", 1), ("updated_at", -1)])
@@ -452,7 +452,7 @@ async def shutdown_event() -> None:
     await token_usage_dispatcher.stop()
     from app.dsh_runtime.application import dsh_runtime_application
     await dsh_runtime_application.stop()
-    close_db()
+    await close_backend()
 
 @app.get("/health")
 async def health_check():
@@ -476,6 +476,14 @@ async def health_check():
         }
         for detail in dsh_runtime_application.host_health_details
     ]
+    # 数据后端快照：MOGO_DATA_BACKEND=mongo（默认）时不引入额外连接开销，
+    # =panweidb 时附带一次真实连通性探测。
+    try:
+        from app.core import pg
+
+        backend_info = await pg.health_payload()
+    except Exception:  # pragma: no cover - 健康检查自身绝不应抛错
+        backend_info = {}
     return {
         "status": "ok",
         # Read the version off the FastAPI app instead of a second literal: the
@@ -488,6 +496,7 @@ async def health_check():
         "agent_kernel": "dsh",
         "dsh_host": "healthy" if dsh_healthy else "degraded",
         "dsh_hosts": hosts,
+        **backend_info,
     }
 
 

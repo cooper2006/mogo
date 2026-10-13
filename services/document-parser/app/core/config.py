@@ -30,6 +30,21 @@ class Settings(BaseSettings):
     celery_queue: str = "document_processing"
     mongodb_uri: str = ""
     mongodb_db: str = ""
+    # ── 数据后端开关（MongoDB → PanWeiDB 迁移，见
+    # docs/mongo-to-panweidb-migration-plan.md）────────────────────────
+    # 留空 = "mongo"（默认，行为与迁移前完全一致）；"panweidb" 走 openGauss 内核
+    # / PostgreSQL 兼容线协议。规范环境变量 MOGO_DATA_BACKEND（不带服务前缀）。
+    data_backend: str = ""
+    panweidb_host: str = ""
+    panweidb_port: int = 0
+    panweidb_user: str = ""
+    panweidb_password: str = ""
+    panweidb_db: str = ""
+    panweidb_schema: str = ""
+    panweidb_sslmode: str = ""
+    panweidb_pool_min_size: int = 1
+    panweidb_pool_max_size: int = 10
+    panweidb_connect_timeout: int = 5
     jobs_collection: str = "document_jobs"
     azure_embedding_endpoint: str = ""
     azure_embedding_deployment_name: str = "text_embedding"
@@ -59,6 +74,65 @@ class Settings(BaseSettings):
     @property
     def effective_mongodb_db(self) -> str:
         return self.mongodb_db or os.getenv("MONGODB_DB", "") or _read_env_file_value("MONGODB_DB") or "mogo_dev"
+
+    # ── PanWeiDB（MongoDB → PanWeiDB 迁移）────────────────────────────
+    @property
+    def effective_data_backend(self) -> str:
+        """数据后端：``mongo``（默认）或 ``panweidb``。"""
+        raw = (
+            self.data_backend
+            or os.getenv("MOGO_DATA_BACKEND", "")
+            or _read_env_file_value("MOGO_DATA_BACKEND")
+            or "mongo"
+        )
+        return raw.strip().lower()
+
+    @property
+    def effective_panweidb_host(self) -> str:
+        return (
+            self.panweidb_host
+            or os.getenv("PANWEIDB_HOST", "")
+            or _read_env_file_value("PANWEIDB_HOST")
+            or "127.0.0.1"
+        )
+
+    @property
+    def effective_panweidb_port(self) -> int:
+        raw = self.panweidb_port or os.getenv("PANWEIDB_PORT", "") or _read_env_file_value("PANWEIDB_PORT")
+        try:
+            return int(raw) if raw else 5432
+        except (TypeError, ValueError):
+            return 5432
+
+    @property
+    def effective_panweidb_user(self) -> str:
+        return self.panweidb_user or os.getenv("PANWEIDB_USER", "") or _read_env_file_value("PANWEIDB_USER")
+
+    @property
+    def effective_panweidb_password(self) -> str:
+        return (
+            self.panweidb_password
+            or os.getenv("PANWEIDB_PASSWORD", "")
+            or _read_env_file_value("PANWEIDB_PASSWORD")
+        )
+
+    @property
+    def effective_panweidb_db(self) -> str:
+        return (
+            self.panweidb_db
+            or os.getenv("PANWEIDB_DB", "")
+            or _read_env_file_value("PANWEIDB_DB")
+            or self.effective_mongodb_db
+        )
+
+    @property
+    def effective_panweidb_schema(self) -> str:
+        return (
+            self.panweidb_schema
+            or os.getenv("PANWEIDB_SCHEMA", "")
+            or _read_env_file_value("PANWEIDB_SCHEMA")
+            or "public"
+        )
 
 
 def _read_env_file_value(key: str) -> str:

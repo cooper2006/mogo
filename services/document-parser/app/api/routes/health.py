@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import socket
 import urllib.parse
 import urllib.request
+from typing import Any
 
 from fastapi import APIRouter, Response, status
 
@@ -11,22 +13,34 @@ from app.core.db import get_db
 from app.services.docling_runtime import docling_runtime_status
 from app.workers.celery_app import celery_app
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
 @router.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "movo-document-processing-service"}
+async def health() -> dict[str, Any]:
+    """存活 + 数据后端快照。"""
+    payload: dict[str, Any] = {"status": "ok", "service": "movo-document-processing-service"}
+    try:
+        from app.core import pg
+
+        payload.update(pg.health_payload())
+    except Exception:  # pragma: no cover - 健康检查自身绝不应抛错
+        logger.warning("采集数据后端健康信息失败", exc_info=True)
+    return payload
 
 
 @router.get("/ready")
 def ready(response: Response) -> dict:
     checks: dict[str, bool] = {}
+    # 按当前后端命名检查项：mongo 模式下键名保持不变，避免影响既有探针。
+    backend_key = "panweidb" if settings.effective_data_backend == "panweidb" else "mongo"
     try:
         get_db().command("ping")
-        checks["mongo"] = True
+        checks[backend_key] = True
     except Exception:
-        checks["mongo"] = False
+        checks[backend_key] = False
 
     parsed = urllib.parse.urlparse(settings.redis_url)
     try:

@@ -65,3 +65,9 @@ xlrd>=2.0.1
 pdfplumber==0.11.9
 black>=24.0.0
 isort>=5.13.0
+# ── MongoDB → PanWeiDB 迁移（见 docs/mongo-to-panweidb-migration-plan.md）──
+# PanWeiDB 是 openGauss 内核 / PostgreSQL 兼容线协议，用 psycopg3 接入：
+#   psycopg[binary]  —— 同步 + 异步连接（替代 pymongo / motor）
+#   psycopg-pool     —— 连接池
+psycopg[binary]>=3.2.0
+psycopg-pool>=3.2.0

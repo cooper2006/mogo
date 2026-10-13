@@ -1,0 +1,434 @@
+# MongoDB → PanWeiDB 迁移方案
+
+| 项 | 值 |
+|---|---|
+| 分支 | `feat/migrate-mongo-to-panweidb`（基于 `main` @ `1d0b1fc` / v0.2.1） |
+| 状态 | **R1（基础设施）已落地并实测通过**；R2（兼容层接线）未开始 |
+| 回滚方式 | 环境变量开关 `MOGO_DATA_BACKEND=mongo`（默认），**不需要回滚代码** |
+| 目标库 | PanWeiDB 3.2.0（openGauss 内核），OrbStack 容器 `panweidb`，端口 5432 |
+
+---
+
+## 1. 结论摘要
+
+1. **这是一次「文档模型 → 关系模型」的范式迁移，不是换连接串。** 涉及 3 个服务、
+   149 个文件、612 处 `get_db()`、103 个集合。
+2. **PanWeiDB 不提供 MongoDB 线协议兼容**（那是金仓 KingbaseES 的能力）。
+   因此只有两条路：自建兼容层，或把 612 处调用点改写成 SQL。
+3. **既定路线（用户 2026-10-13 确认）：兼容层先行**——把集合映射成
+   `(id, tenant_id, doc JSONB)` 单表，在 `app/core/db.py` 后面实现一个形状与
+   motor/pymongo 一致的门面，使业务调用点几乎不用改。
+4. **R1 已完成且实测通过**：连接池、配置开关、后端分派、兼容门面、DDL 生成器、
+   数据搬迁工具、健康检查接入。兼容门面在真实 PanWeiDB 上 **64/64（异步）+
+   26/26（同步）** 通过；搬迁工具在真实 MongoDB → PanWeiDB 上完成
+   「演练 / 搬迁 / 幂等重跑 / 校验 / 门面回读」全链路验证。
+5. **关键约束（务必先读第 5 节）**：PanWeiDB 的 `sql_compatibility` 固定为 `A`
+   （Oracle 模式）且**不可修改**，该模式下多个标准 JSONB 函数/运算符被禁用，
+   兼容层必须在其子集内实现。
+
+---
+
+## 2. 目标库实测事实
+
+2026-10-13 在用户本机 OrbStack 的 `panweidb` 容器上实测。
+
+### 2.1 实例信息
+
+| 项 | 实测值 |
+|---|---|
+| 镜像 | `registry.cn-shenzhen.aliyuncs.com/shine_fei/panweidb:3.2.0` |
+| 内核 | openGauss 系；`version()` 报 `PostgreSQL 9.2.4 on aarch64` |
+| 兼容模式 | `sql_compatibility = A`（Oracle 模式），`pg_settings.context = internal` → **不可改** |
+| 端口 / 认证 | 5432；`password_encryption_type = 1`（**MD5**） |
+| 建库选项 | `CREATE DATABASE` **不支持** `DBCOMPATIBILITY`（PanWeiDB 3.2 已移除） |
+| 已有库 | `bonc`（owner `boncuser`）、`panweidb`、`postgres`、`testdb` |
+| 远程账号 | `boncuser` 可远程连；`omm` 远程被拒（openGauss 的 initial user 保护） |
+| `pg_hba` | local/127.0.0.1 = `trust`；`0.0.0.0/0` = `md5` |
+
+### 2.2 驱动选型：psycopg3
+
+已实测通过：**同步连接、异步连接（`AsyncConnection`）、`AsyncConnectionPool`、
+`Jsonb` 适配器、参数绑定、事务上下文、`client_encoding=UTF8` 中文往返**。
+
+选择 psycopg3 的理由：它同时提供同步与异步 API，可以**一个依赖同时替代
+pymongo 与 motor**，避免引入第二套驱动。
+
+> 未选 asyncpg：openGauss 的 `server_version` 报 9.2.4，asyncpg 的协议/特性门控
+> 在该版本串下有已知风险，且社区实践普遍使用 psycopg2/psycopg3 对接 openGauss。
+
+### 2.3 A 模式下的 JSONB 能力（**关键约束**）
+
+| 可用 ✅ | 不可用 ❌ |
+|---|---|
+| `jsonb_set` | `jsonb_build_array` |
+| `jsonb_typeof` | `jsonb_build_object` |
+| `jsonb_array_length` | `#-`（删路径运算符） |
+| `to_jsonb` | `jsonb_strip_nulls` |
+| `\|\|`（合并） | `jsonb_pretty` |
+| `@>` / `?` | `jsonb_to_record` |
+| `jsonb_agg` | `jsonb_object_agg` |
+| `jsonb_array_elements` | `jsonb_path_ops`（GIN 算子类） |
+| `jsonb_extract_path(_text)` | |
+| `jsonb_insert` / `jsonb_path_query` | |
+| `jsonb - text` / `jsonb - int` / `jsonb_delete` | |
+| GIN 算子类 `jsonb_ops` | |
+
+不可用函数在调用时报
+`FeatureNotSupported: ... is supported only in PG-format database`。
+
+**规避手法已内联在 `pg_compat.py`**（`_unset_expression`、`$push` 分支），
+修改该模块时不要引入上表右侧的函数。
+
+### 2.4 另一处与 PostgreSQL 的语义差异（踩过）
+
+**openGauss 的 `jsonb_set` 不会创建中间层对象**，而 PostgreSQL 会：
+
+```sql
+-- PG:      {"x":1,"a":{"b":2}}
+-- PanWeiDB: {"x":1}          ← 原样返回，静默失效
+jsonb_set('{"x":1}'::jsonb, '{a,b}', '2'::jsonb, true);
+```
+
+因此 `{"$set": {"profile.city": "上海"}}` 在 `profile` 不存在时会**静默丢更新**。
+`_jsonb_set_path()` 用「逐层回卷」实现真正的深合并（内层 → 父层 → 收口），
+既补中间层又保留同级字段。这是 R1 修掉的一个真实缺陷，已加回归用例。
+
+---
+
+## 3. 现状盘点
+
+### 3.1 规模
+
+| 指标 | 数量 |
+|---|---|
+| 涉及服务 | 3（admin-api / chat-api / document-parser） |
+| `get_db()` / `get_audit_db()` 调用点 | **612** |
+| 涉及文件（app 层） | **149** |
+| 集合数（DDL 生成器扫描所得） | **103** |
+
+服务分布：admin-api **303**、chat-api **302**、document-parser **7**。
+
+### 3.2 驱动分裂
+
+| 服务 | 驱动 | 特性 |
+|---|---|---|
+| admin-api | motor（异步） | 另有 `get_audit_db()`：审计与业务分库（FR-17/T044） |
+| chat-api | motor（异步） | `get_db()` 在无事件循环时返回 `None` |
+| document-parser | pymongo（同步） | 只用同步路径 |
+
+迁移后统一为 psycopg3 的同步 / 异步连接。
+
+### 3.3 API 与算子使用面
+
+集合 API 调用次数（app 层）：
+
+| API | 次数 | API | 次数 |
+|---|---|---|---|
+| `find_one` | 373 | `delete_many` | 31 |
+| `update_one` | 269 | `delete_one` | 28 |
+| `find` | 248 | `aggregate` | 25 |
+| `create_index` | 202 | `find_one_and_update` | 17 |
+| `insert_one` | 96 | `insert_many` | 12 |
+| `count_documents` | 59 | `replace_one` | 11 |
+| `update_many` | 33 | `distinct` | 8 |
+| | | `bulk_write` | 6 |
+
+聚合管道阶段：`$group` 26、`$match` 25、`$sort` 6、`$project` 2、`$unwind` 2、
+`$limit` 2、`$count` 2、`$lookup` 1、`$facet` 1、`$skip` 1、`$addFields` 1、
+`$replaceRoot` 1、`$unionWith` 1、`$sample` 1、`$out` 1、`$merge` 1。
+
+**结论：聚合用得很少**（`aggregate()` 仅 25 处，且以 `$group`/`$match` 为主），
+这是兼容层路线的最大利好——真正难翻译的 `$lookup`/`$facet`/`$graphLookup`
+各只有 1 处（或 0 处），可以单独重写。
+
+查询/更新算子：`$set` 305、`$in` 106、`$or` 56、`$ifNull` 50、`$setOnInsert` 48、
+`$ne` 47、`$regex` 37、`$exists` 33、`$lt/$gt/$gte` 72、`$and` 14、`$unset` 12、
+`$inc` 11、`$cond` 10、`$lte` 8、`$nin` 7、`$push` 4、`$addToSet` 3、`$each` 3、
+`$slice` 2、`$all`/`$elemMatch`/`$size`/`$pull`/`$rename`/`$currentDate`/`$mul`/`$pop`/`$bit` 各 1。
+
+---
+
+## 4. 表结构与访问约定
+
+**每个集合一张表，表名 = 集合名**：
+
+```sql
+CREATE TABLE "<schema>"."<collection>" (
+    id         TEXT PRIMARY KEY,        -- str(_id)
+    tenant_id  TEXT,                    -- 从文档提升，用于租户隔离与批量清理
+    doc        JSONB NOT NULL,          -- 完整文档（含 _id）
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX "<collection>_tenant_idx" ON ... (tenant_id);
+CREATE INDEX "<collection>_doc_gin"    ON ... USING GIN (doc jsonb_ops);
+```
+
+设计要点：
+
+- **字段一律走 JSONB 路径表达式**（`doc #> '{a,b}'`），**不预建列** →
+  新增业务字段**不需要 DDL 变更**，这是兼容层能低成本落地的根本原因。
+- `id` / `tenant_id` 提升为真实列，用于主键、租户过滤与 `tenant_purge` 的批量删除。
+- `jsonb_ops` 而非 `jsonb_path_ops`：后者在 PanWeiDB 3.2 不存在，且前者额外支持
+  `?`/`?&`/`?|` 键存在性算子。
+- **隐式建表**：兼容层首次操作某集合时执行 `CREATE TABLE IF NOT EXISTS`，
+  等价于 Mongo 的「首次写入隐式建集合」，避免启动期因表缺失而崩。
+
+> 审计库：MongoDB 用独立 **database**（`ASKAI_ADMIN_AUDIT_DB`），PanWeiDB 侧
+> 用独立 **schema**（`PANWEIDB_AUDIT_SCHEMA`）作为等价隔离手段。
+
+---
+
+## 5. 兼容层设计
+
+### 5.1 位置与形态
+
+```
+services/<svc>/app/core/pg.py         # psycopg3 同步/异步连接池、DSN、健康探测
+services/<svc>/app/core/pg_compat.py  # Mongo 兼容门面（Motor/PyMongo 子集）
+services/<svc>/app/core/db.py         # 按 MOGO_DATA_BACKEND 分派
+```
+
+`get_db()` 在 PanWeiDB 模式下返回 `PgDatabase`，其形状对齐 motor 的 `Database`：
+
+- `db["collection"]` / `db.collection` → `PgCollection`
+- `db.command("ping")` / `db.list_collection_names()` 可用
+
+`PgCollection` 提供 `find_one` / `find` / `insert_one` / `insert_many` /
+`replace_one` / `update_one` / `update_many` / `find_one_and_update` /
+`delete_one` / `delete_many` / `count_documents` / `distinct` / `create_index` /
+`create_indexes`；`find()` 返回的游标支持 `sort/limit/skip`、
+`await cursor.to_list(n)`、`async for`（同步版为 `for` 与 `len()`）。
+
+### 5.2 过滤条件映射规则
+
+| Mongo | SQL / JSONB |
+|---|---|
+| `{f: v}` | `(doc #> '{f}') = %s::jsonb` |
+| `{f: {"$eq": v}}` | 同上 |
+| `{f: {"$ne": v}}` | `(doc #> '{f}' IS NULL OR doc #> '{f}' <> %s::jsonb)`（含字段缺失语义） |
+| `{f: {"$gt/$gte/$lt/$lte": v}}` | 数值：`(CASE WHEN jsonb_typeof(doc#>'{f}')='number' THEN (doc#>>'{f}')::numeric END) > v`；否则文本比较 |
+| `{f: {"$in": [...]}}` | `(doc #> '{f}') IN (%s::jsonb, ...)` |
+| `{f: {"$nin": [...]}}` | `IS NULL OR NOT IN (...)` |
+| `{f: {"$exists": true}}` | `(doc #> '{f}') IS NOT NULL` |
+| `{f: {"$regex": p, "$options": "i"}}` | `(doc #>> '{f}') ~* %s`（无 `i` 则 `~`） |
+| `{f: {"$size": n}}` | `jsonb_array_length(...) = n`（先判 `jsonb_typeof='array'`） |
+| `{f: {"$all": [...]}}` | 逐项 `doc #> '{f}' @> %s::jsonb` |
+| `$or` / `$and` / `$nor` / `$not` | `OR` / `AND` / `NOT (OR)` / `NOT (...)` |
+| 点号路径 `a.b` | `doc #> '{a,b}'` |
+
+### 5.3 更新算子映射规则
+
+**关键实现约束**：`UPDATE ... SET` 不允许对同一列多次赋值，且嵌套表达式会让
+**占位符重复出现**（psycopg 报 placeholder/parameter 数量不符）。因此更新编译成
+**步骤链**：
+
+```sql
+WITH s0 AS (SELECT id, doc FROM t WHERE <filter> LIMIT 1),
+     s1 AS (SELECT id, jsonb_set(doc, '{age}', %s::jsonb, true) AS doc FROM s0),
+     s2 AS (SELECT id, <step2> AS doc FROM s1)
+UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.id
+```
+
+每一步只引用上一步的列名 `doc`，占位符恰好出现一次。
+
+| Mongo | 实现 |
+|---|---|
+| `$set` | `_jsonb_set_path()`（逐层回卷，真深合并） |
+| `$setOnInsert` | 仅 upsert 插入路径生效（Python 侧合成文档） |
+| `$unset` | 顶层 `doc - 'k'`；嵌套 `jsonb_set(doc,'{a}',COALESCE(doc#>'{a,b}','{}') - 'c',false)` |
+| `$inc` | `jsonb_set(doc,'{f}',to_jsonb(COALESCE((doc#>>'{f}')::numeric,0)+n),true)` |
+| `$max` / `$min` | `GREATEST` / `LEAST` |
+| `$push`（含 `$each`） | `COALESCE(doc#>'{f}','[]') \|\| %s::jsonb` |
+| `$addToSet`（含 `$each`） | `CASE WHEN arr @> item THEN arr ELSE arr \|\| item END` |
+| `$currentDate` | `to_jsonb(now())` |
+
+### 5.4 覆盖范围与缺口
+
+**R1 已覆盖**：上表全部算子 + 全部列出的集合 API。
+
+**R1 明确未覆盖**（调用即抛 `PgCompatUnsupported`，异常消息指向本文档）：
+
+| 未覆盖项 | 代码中出现次数 | R2 处理方式 |
+|---|---|---|
+| `aggregate()` 管道 | 25 | 逐点重写为 SQL（`$group`/`$match` 为主，难度低） |
+| `bulk_write` | 6 | 逐条展开为多次 `insert/update` 或单条 SQL |
+| `$lookup` / `$facet` / `$unwind` / `$unionWith` | 各 1 | 单独重写为 JOIN / UNION |
+| `$elemMatch` / `$pull` | 各 1 | 单独重写 |
+| `$text` / `$near` / geo | 0 | 不需要 |
+
+### 5.5 已知语义差异（消费侧需注意）
+
+| 差异 | 说明 | 影响 |
+|---|---|---|
+| `_id` 类型 | JSONB 存不下 `ObjectId`，统一落成 hex **字符串** | `str(doc["_id"])` 无影响；`doc["_id"] == ObjectId(...)` 会不等 |
+| `$regex` 方言 | Mongo 用 PCRE，PG 用 ARE | 复杂断言（lookahead 等）需改写 |
+| 投影 | 在 Python 侧裁剪（R1 简化） | 大文档投影有额外内存/传输开销，R2 可下推 SQL |
+| `$inc` / `$max` / `$min` | 走 `::numeric` 转换 | 仅支持数值字段 |
+| 唯一索引 | 建在 `(doc #> '{f}')` 表达式上 | 与 Mongo 的 sparse/partial 索引语义不同，需逐点确认 |
+| 索引方向 | 忽略 `-1` | PG btree 可双向扫描，不影响可用性 |
+
+---
+
+## 6. 开关与回滚
+
+```bash
+# 默认：完全保持迁移前行为
+MOGO_DATA_BACKEND=mongo        # 或不设
+
+# 切到 PanWeiDB
+MOGO_DATA_BACKEND=panweidb
+PANWEIDB_HOST=127.0.0.1
+PANWEIDB_PORT=5432
+PANWEIDB_USER=boncuser
+PANWEIDB_PASSWORD=...
+PANWEIDB_DB=bonc
+PANWEIDB_SCHEMA=mogo_dev
+PANWEIDB_AUDIT_SCHEMA=mogo_audit   # 可选；缺省与业务同 schema
+PANWEIDB_POOL_MIN_SIZE=1
+PANWEIDB_POOL_MAX_SIZE=10
+```
+
+**回滚 = 把 `MOGO_DATA_BACKEND` 改回 `mongo` 并重启**，不需要回滚代码、不需要
+数据回迁（MongoDB 侧数据保持原样、只读）。这是选择「开关切换」而非「硬切」的核心收益。
+
+各服务还有带服务前缀的等价变量（`ASKAI_ADMIN_*` / `MOVO_DOC_PROCESSING_*`）；
+规范变量 `MOGO_DATA_BACKEND` / `PANWEIDB_*` 不带前缀，便于三服务统一切换。
+
+**健康检查**：三服务的 `/health`（document-parser 另有 `/ready`）会输出
+`backend` 字段；PanWeiDB 模式下附带 `target` 与 `reachable`（真实探测）。
+
+---
+
+## 7. 分阶段计划
+
+### R1 — 基础设施（**本分支已交付**）
+
+| 交付物 | 状态 |
+|---|---|
+| `app/core/pg.py` × 3：同步/异步连接池、DSN 组装、健康探测、优雅关闭 | ✅ |
+| `app/core/pg_compat.py` × 3：Mongo 兼容门面（异步 × 2 + 同步 × 1） | ✅ |
+| `app/core/db.py` × 3：`MOGO_DATA_BACKEND` 分派，mongo 分支行为不变 | ✅ |
+| `app/core/config.py` × 3：开关 + `PANWEIDB_*` 配置项与回退 | ✅ |
+| 健康检查接入（`backend` / `target` / `reachable`） | ✅ |
+| `scripts/pg/generate_ddl.py`：扫描集合 → 幂等 DDL + 连库巡检 | ✅ |
+| `scripts/pg/migrate_mongo_to_panweidb.py`：幂等搬迁 + 计数校验 | ✅ |
+| `deploy/pg/schema.sql`：103 集合建表 DDL | ✅ |
+| `requirements.in` × 3：psycopg 依赖声明 | ✅ |
+| 真实 PanWeiDB 端到端验证（异步 64/64、同步 26/26、搬迁全链路） | ✅ |
+
+### R2 — 兼容层接线（未开始）
+
+1. **逐域开关**：把 `MOGO_DATA_BACKEND` 细化到域级（如
+   `MOGO_DATA_BACKEND_<DOMAIN>`），使不同域可以先后切换，而不是整体一刀切。
+2. **补齐缺口**：25 处 `aggregate()`、6 处 `bulk_write`、`$lookup`/`$facet`/`$unwind`。
+3. **索引对齐**：核对 202 处 `create_index` 的 unique/sparse/partial 语义。
+4. **全量回归**：在 PanWeiDB 后端上跑三服务测试套件，逐条修复不兼容点。
+5. **审计分库**：把 `get_audit_db()` 真正指向独立 schema，并对齐 FR-17 的保留期策略。
+
+### R3 — 逐域关系化（未开始，可选）
+
+按访问频次把热点集合（`chat_sessions` / `chat_messages` / `token_usage_logs` /
+`admin_accounts` / `end_users`）从「单表 + JSONB」改成真实列 + 索引，提升查询性能。
+这一步是可选的，只有当 JSONB 路径查询成为瓶颈时才需要。
+
+---
+
+## 8. 数据搬迁与校验
+
+```bash
+# 0) 建表（幂等）
+python scripts/pg/generate_ddl.py --schema mogo_dev --out deploy/pg/schema.sql
+psql "$PANWEIDB_DSN" -f deploy/pg/schema.sql
+
+# 1) 演练：只统计不写库
+python scripts/pg/migrate_mongo_to_panweidb.py \
+  --mongo-uri "mongodb://127.0.0.1:27017" --mongo-db mogo_dev \
+  --dsn "$PANWEIDB_DSN" --schema mogo_dev --dry-run
+
+# 2) 正式搬迁（幂等；中断后直接重跑）
+python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev
+
+# 3) 校验计数
+python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
+```
+
+特性：**幂等**（`ON CONFLICT (id) DO UPDATE`，重跑即自愈）、**可续跑**
+（`--resume` 跳过已完成集合，进度记在 `<schema>._migration_progress`）、
+**只读 MongoDB**。
+
+---
+
+## 9. 性能与索引
+
+- **主键**：`id` 上天然有唯一索引 → `find_one({"_id": ...})` 走索引。
+- **租户过滤**：`tenant_id` 有独立 btree 索引 → 绝大多数查询的公共前缀。
+- **JSONB 包含查询**：`doc` 上的 GIN（`jsonb_ops`）支撑 `@>` / `?`。
+- **等值查询走 `doc #> '{f}' = %s::jsonb`**：表达式索引需要按需建。
+  R1 的 `create_index` 会把 Mongo 的索引声明翻译成 PG 表达式索引
+  （单字段与复合都支持），因此**既有 `ensure_indexes()` 在启动时会自动补齐**。
+- **已知性能风险**：`find()` 的 `skip` 是 `OFFSET`，大偏移为 O(n)；
+  R2 建议改成基于 `id` 的游标分页。
+
+---
+
+## 10. 风险清单
+
+| # | 风险 | 等级 | 缓解 |
+|---|---|---|---|
+| 1 | `sql_compatibility=A` 不可改，JSONB 函数受限 | **高** | 已实测出可用子集并内联规避；新增代码不得引入禁用函数 |
+| 2 | `jsonb_set` 不建中间层 → 点号 `$set` 静默丢更新 | **高** | 已用 `_jsonb_set_path()` 逐层回卷修复 + 回归用例 |
+| 3 | 612 处调用点里仍可能用到未覆盖算子 | 中 | 未覆盖即抛 `PgCompatUnsupported`（**不静默降级**），R2 逐条清 |
+| 4 | 25 处 `aggregate()` 需重写 | 中 | 以 `$group`/`$match` 为主，工作量可控 |
+| 5 | 兼容层代码在 3 个服务间重复 | 中 | 与仓库既有架构一致（`db.py`/`config.py` 本就每服务一份）；R3 可抽成共享包 |
+| 6 | 投影在 Python 侧裁剪 | 低 | R2 下推为 SQL |
+| 7 | 唯一索引语义（sparse/partial）差异 | 中 | R2 逐点核对 202 处索引声明 |
+| 8 | `_id` 由 ObjectId 变字符串 | 中 | 已明确记录；受影响调用点需按字符串比较 |
+
+---
+
+## 11. 验收标准
+
+**R1（已达成）**
+
+- [x] `MOGO_DATA_BACKEND` 未设置时，三服务行为与迁移前**完全一致**（mongo 分支代码路径未改语义）
+- [x] 兼容门面在真实 PanWeiDB 上通过 64/64（异步）+ 26/26（同步）用例
+- [x] 搬迁工具完成「演练 → 搬迁 → 幂等重跑 → 计数校验 → 门面回读」全链路
+- [x] DDL 生成器产出 103 张表 / 309 个索引，实测 1.6s 建完
+- [x] 未覆盖算子显式失败并给出可操作的错误信息
+
+**R2（待达成）**
+
+- [ ] 三服务测试套件在 `MOGO_DATA_BACKEND=panweidb` 下全绿
+- [ ] 25 处 `aggregate()` 与 6 处 `bulk_write` 全部改写完成
+- [ ] 索引语义逐点核对完成
+- [ ] 生产数据搬迁 + 计数校验通过，且能在一个发布周期内回滚
+
+---
+
+## 12. R1 改动文件清单
+
+**新增**
+
+```
+services/{admin-api,chat-api}/app/core/pg.py          # 异步连接池
+services/{admin-api,chat-api}/app/core/pg_compat.py   # 异步兼容门面
+services/{admin-api,chat-api}/app/core/db.py          # 后端分派（重写）
+services/document-parser/app/core/pg.py               # 同步连接池
+services/document-parser/app/core/pg_compat.py        # 同步兼容门面
+services/document-parser/app/core/db.py               # 后端分派（重写）
+scripts/pg/generate_ddl.py                            # DDL 生成器
+scripts/pg/migrate_mongo_to_panweidb.py               # 数据搬迁工具
+deploy/pg/schema.sql                                  # 103 集合建表 DDL（生成物）
+docs/mongo-to-panweidb-migration-plan.md              # 本文档
+```
+
+**修改**
+
+```
+services/*/app/core/config.py         # 加 MOGO_DATA_BACKEND + PANWEIDB_* 配置
+services/*/app/main.py                # init_db/close_db → init_backend/close_backend
+services/*/app/main.py, document-parser/app/api/routes/health.py   # /health 加 backend
+services/*/requirements.in            # 加 psycopg[binary] / psycopg-pool
+services/*/requirements.txt           # 重新生成（带哈希）
+```

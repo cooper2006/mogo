@@ -4,6 +4,40 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
+## Unreleased
+
+### Added
+
+- **027 数据后端迁移 R1（MongoDB → PanWeiDB）—— 基础设施与兼容层**：
+  三个服务新增可选数据后端 **PanWeiDB 3.2.0**（openGauss 内核 / PostgreSQL 兼容线协议），
+  由 `MOGO_DATA_BACKEND` 开关选择，**默认仍为 `mongo` 且行为不变**；回滚只需改环境变量
+  并重启，**不需要回滚代码**。
+  核心是 `app/core/pg_compat.py` 提供的 Motor/PyMongo 形状**兼容门面**：集合映射为单表
+  `(id, tenant_id, doc JSONB, created_at, updated_at)`，字段一律走 JSON 路径表达式，
+  **新增业务字段不需要 DDL 变更**，因此既有 612 处数据访问入口**无需改写**。
+  驱动用 psycopg3（同步 + 异步一套依赖，同时替代 pymongo 与 motor）。
+  新增 `scripts/pg/generate_ddl.py`（集合扫描 → 幂等 DDL + 连库巡检，产出 103 表 /
+  309 索引）与 `scripts/pg/migrate_mongo_to_panweidb.py`（幂等搬迁 + 计数校验 + 续跑，
+  **只读源库**）。
+  方案与目标库实测事实见 `docs/mongo-to-panweidb-migration-plan.md`；
+  SDD 规约见 `specs/027-mongo-to-panweidb-migration/`。
+  实测：兼容门面在真实 PanWeiDB 上**异步 64/64、同步 26/26** 通过；搬迁
+  「演练 → 搬迁 → 幂等重跑 → 计数校验 → 门面回读」全链路通过；三服务带哈希锁定文件
+  均通过完整性安装。
+
+### Known limitations
+
+- PanWeiDB 的 `sql_compatibility` 固定为 `A`（Oracle 模式）且为 `internal` 上下文不可修改，
+  该模式下 `jsonb_build_array` / `jsonb_build_object` / `#-` / `jsonb_strip_nulls` /
+  `jsonb_pretty` / `jsonb_to_record` / `jsonb_object_agg` / `jsonb_path_ops` 不可用。
+  兼容层已在该子集内实现（嵌套删除改用「取父节点 → `-` 删键 → 写回」，
+  `$push` 改用数组字面量），并有守卫测试禁止引入禁用函数。
+- openGauss 的 `jsonb_set` **不创建中间层对象**（PostgreSQL 会），点号路径更新已用逐层
+  回卷实现真深合并，避免静默丢更新。
+- 聚合管道（25 处）、`bulk_write`（6 处）、`$elemMatch` / `$pull`（各 1 处）**尚未覆盖**，
+  调用即抛显式异常（不静默降级），列为 R2 待办。
+- 迁移后主键由对象类型归一为字符串；按对象比较主键的调用点需在 R2 逐点核对。
+
 ## v0.2.1 - 2026-10-12
 
 ### Added

@@ -4,11 +4,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import logging
+from typing import Any
 
 from app.api.router import api_router
 from app.core.config import settings
 from app.middleware.cors import build_cors_middleware_kwargs
-from app.core.db import close_db, init_db
+from app.core.db import close_backend, init_backend
 from app.core.product_edition import migrate_bootstrapped_community_organization
 from app.repositories.model_repository import ensure_indexes as ensure_model_indexes
 from app.api.routes.skills import ensure_indexes as ensure_skill_indexes
@@ -73,12 +74,24 @@ def create_app() -> FastAPI:
     app.add_middleware(SystemAuditMiddleware)
 
     @app.get("/health", tags=["system"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok", "service": "movo-admin-api"}
+    async def health() -> dict[str, Any]:
+        """存活 + 数据后端快照。
+
+        ``backend`` 反映 ``MOGO_DATA_BACKEND``；``reachable`` 仅在 PanWeiDB 模式下
+        做一次真实探测（MongoDB 模式保持原样的轻量返回，不引入额外连接开销）。
+        """
+        payload: dict[str, Any] = {"status": "ok", "service": "movo-admin-api"}
+        try:
+            from app.core import pg
+
+            payload.update(await pg.health_payload())
+        except Exception:  # pragma: no cover - 健康检查自身绝不应抛错
+            logger.warning("采集数据后端健康信息失败", exc_info=True)
+        return payload
 
     @app.on_event("startup")
     async def on_startup() -> None:
-        init_db()
+        await init_backend()
         await bootstrap_admin_user()
         if get_admin_product_extension().edition == "community":
             await migrate_bootstrapped_community_organization()
@@ -127,7 +140,7 @@ def create_app() -> FastAPI:
             await _CANARY_ROLLBACK_SCANNER.stop()
         except Exception:  # pragma: no cover - defensive
             pass
-        close_db()
+        await close_backend()
 
     # QF-447/449: Global exception handler - no stack traces in production
     @app.exception_handler(Exception)

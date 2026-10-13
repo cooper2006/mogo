@@ -27,6 +27,27 @@ class Settings(BaseSettings):
     # 022 FR-17（T044）：审计日志保留期，下限 180 天（合规取证基线）。
     # 低于 180 会被提升到 180 并打告警；负数表示禁用 TTL 自动清理。
     audit_retention_days: int = 180
+    # ── 数据后端开关（MongoDB → PanWeiDB 迁移，见
+    # docs/mongo-to-panweidb-migration-plan.md）────────────────────────
+    # 留空 = "mongo"（默认，行为与迁移前完全一致）。
+    # 取值 "panweidb" 时走 openGauss 内核 / PostgreSQL 兼容线协议。
+    # 规范环境变量是 MOGO_DATA_BACKEND（不带服务前缀，便于三服务统一切换）。
+    data_backend: str = ""
+    # PanWeiDB 连接参数。留空时按 127.0.0.1:5432 回退，方便对接本地 OrbStack。
+    panweidb_host: str = ""
+    panweidb_port: int = 0
+    panweidb_user: str = ""
+    panweidb_password: str = ""
+    panweidb_db: str = ""
+    panweidb_schema: str = ""
+    # 022 FR-17（T044）在 PG 侧的对应物：审计与业务**分离**。
+    # MongoDB 用独立 database，PanWeiDB 用独立 schema。留空 = 与业务同 schema
+    # （仅用于本地开发；生产应显式配置，否则审计链与业务共享备份/权限边界）。
+    panweidb_audit_schema: str = ""
+    panweidb_sslmode: str = ""
+    panweidb_pool_min_size: int = 1
+    panweidb_pool_max_size: int = 10
+    panweidb_connect_timeout: int = 5
     jwt_secret: str = ""
     # 022 FR-11（T015）：access token TTL 上限 1h；默认值已收紧到 3600s。
     access_token_ttl_seconds: int = 3600
@@ -88,6 +109,79 @@ class Settings(BaseSettings):
     def effective_audit_db(self) -> str:
         """022 FR-17（T044）：审计库名；未配置时回退到业务库。"""
         return self.audit_db or os.getenv("MONGODB_AUDIT_DB", "") or _read_env_file_value("MONGODB_AUDIT_DB")
+
+    # ── PanWeiDB（MongoDB → PanWeiDB 迁移）────────────────────────────
+    @property
+    def effective_data_backend(self) -> str:
+        """数据后端：``mongo``（默认）或 ``panweidb``。"""
+        raw = (
+            self.data_backend
+            or os.getenv("MOGO_DATA_BACKEND", "")
+            or _read_env_file_value("MOGO_DATA_BACKEND")
+            or "mongo"
+        )
+        return raw.strip().lower()
+
+    @property
+    def effective_panweidb_host(self) -> str:
+        return (
+            self.panweidb_host
+            or os.getenv("PANWEIDB_HOST", "")
+            or _read_env_file_value("PANWEIDB_HOST")
+            or "127.0.0.1"
+        )
+
+    @property
+    def effective_panweidb_port(self) -> int:
+        raw = self.panweidb_port or os.getenv("PANWEIDB_PORT", "") or _read_env_file_value("PANWEIDB_PORT")
+        try:
+            return int(raw) if raw else 5432
+        except (TypeError, ValueError):
+            return 5432
+
+    @property
+    def effective_panweidb_user(self) -> str:
+        return (
+            self.panweidb_user
+            or os.getenv("PANWEIDB_USER", "")
+            or _read_env_file_value("PANWEIDB_USER")
+        )
+
+    @property
+    def effective_panweidb_password(self) -> str:
+        return (
+            self.panweidb_password
+            or os.getenv("PANWEIDB_PASSWORD", "")
+            or _read_env_file_value("PANWEIDB_PASSWORD")
+        )
+
+    @property
+    def effective_panweidb_db(self) -> str:
+        return (
+            self.panweidb_db
+            or os.getenv("PANWEIDB_DB", "")
+            or _read_env_file_value("PANWEIDB_DB")
+            or self.effective_mongodb_db
+        )
+
+    @property
+    def effective_panweidb_schema(self) -> str:
+        return (
+            self.panweidb_schema
+            or os.getenv("PANWEIDB_SCHEMA", "")
+            or _read_env_file_value("PANWEIDB_SCHEMA")
+            or "public"
+        )
+
+    @property
+    def effective_panweidb_audit_schema(self) -> str:
+        """审计 schema；未配置时与业务同 schema（FR-17 的 PG 侧等价物）。"""
+        return (
+            self.panweidb_audit_schema
+            or os.getenv("PANWEIDB_AUDIT_SCHEMA", "")
+            or _read_env_file_value("PANWEIDB_AUDIT_SCHEMA")
+            or self.effective_panweidb_schema
+        )
 
 
 def _read_env_file_value(key: str) -> str:

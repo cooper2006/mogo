@@ -1,6 +1,7 @@
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
 
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
@@ -83,6 +84,22 @@ class Settings(BaseSettings):
     # MongoDB
     MONGODB_URI: str = ""
     MONGODB_DB: str = "mogo_dev"
+    # ── 数据后端开关（MongoDB → PanWeiDB 迁移，见
+    # docs/mongo-to-panweidb-migration-plan.md）────────────────────────
+    # 留空 = "mongo"（默认，行为与迁移前完全一致）；"panweidb" 走 openGauss 内核
+    # / PostgreSQL 兼容线协议。规范环境变量 MOGO_DATA_BACKEND（不带服务前缀）。
+    DATA_BACKEND: str = ""
+    PANWEIDB_HOST: str = ""
+    PANWEIDB_PORT: int = 0
+    PANWEIDB_USER: str = ""
+    PANWEIDB_PASSWORD: str = ""
+    PANWEIDB_DB: str = ""
+    PANWEIDB_SCHEMA: str = ""
+    PANWEIDB_AUDIT_SCHEMA: str = ""
+    PANWEIDB_SSLMODE: str = ""
+    PANWEIDB_POOL_MIN_SIZE: int = 1
+    PANWEIDB_POOL_MAX_SIZE: int = 10
+    PANWEIDB_CONNECT_TIMEOUT: int = 5
     # 022 FR-11（T014）：终端用户 access token TTL 上限 1h；默认值已收紧到 3600s。
     END_USER_AUTH_TOKEN_TTL_SECONDS: int = 3600
     END_USER_AUTH_SECRET: str = ""
@@ -231,6 +248,49 @@ class Settings(BaseSettings):
     def allowed_planning_intents(self) -> list[str]:
         intents = ["chat", "task"]
         return [intent for intent in intents if self.is_planning_intent_enabled(intent)]
+
+    # ── PanWeiDB（MongoDB → PanWeiDB 迁移）────────────────────────────
+    @property
+    def effective_data_backend(self) -> str:
+        """数据后端：``mongo``（默认）或 ``panweidb``。"""
+        raw = self.DATA_BACKEND or os.getenv("MOGO_DATA_BACKEND", "") or "mongo"
+        return raw.strip().lower()
+
+    @property
+    def effective_panweidb_host(self) -> str:
+        return self.PANWEIDB_HOST or os.getenv("PANWEIDB_HOST", "") or "127.0.0.1"
+
+    @property
+    def effective_panweidb_port(self) -> int:
+        raw = self.PANWEIDB_PORT or os.getenv("PANWEIDB_PORT", "")
+        try:
+            return int(raw) if raw else 5432
+        except (TypeError, ValueError):
+            return 5432
+
+    @property
+    def effective_panweidb_user(self) -> str:
+        return self.PANWEIDB_USER or os.getenv("PANWEIDB_USER", "")
+
+    @property
+    def effective_panweidb_password(self) -> str:
+        return self.PANWEIDB_PASSWORD or os.getenv("PANWEIDB_PASSWORD", "")
+
+    @property
+    def effective_panweidb_db(self) -> str:
+        return self.PANWEIDB_DB or os.getenv("PANWEIDB_DB", "") or self.MONGODB_DB
+
+    @property
+    def effective_panweidb_schema(self) -> str:
+        return self.PANWEIDB_SCHEMA or os.getenv("PANWEIDB_SCHEMA", "") or "public"
+
+    @property
+    def effective_panweidb_audit_schema(self) -> str:
+        return (
+            self.PANWEIDB_AUDIT_SCHEMA
+            or os.getenv("PANWEIDB_AUDIT_SCHEMA", "")
+            or self.effective_panweidb_schema
+        )
 
     class Config:
         env_file = ".env"

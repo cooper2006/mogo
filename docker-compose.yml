@@ -320,6 +320,16 @@ services:
       OPENAI_API_KEY: ""
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB: mogo_dev
+      # 数据后端开关（MongoDB → PanWeiDB 迁移，见
+      # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
+      # PanWeiDB 不在本 compose 网络内，需能通过 PANWEIDB_HOST 解析到它。
+      MOGO_DATA_BACKEND: ${MOGO_DATA_BACKEND:-mongo}
+      PANWEIDB_HOST: ${PANWEIDB_HOST:-host.docker.internal}
+      PANWEIDB_PORT: ${PANWEIDB_PORT:-5432}
+      PANWEIDB_USER: ${PANWEIDB_USER:-}
+      PANWEIDB_PASSWORD: ${PANWEIDB_PASSWORD:-}
+      PANWEIDB_DB: ${PANWEIDB_DB:-mogo_dev}
+      PANWEIDB_SCHEMA: ${PANWEIDB_SCHEMA:-public}
       ALLOWED_ORIGINS: http://localhost:${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}
       STORAGE_BACKEND: local
       LOCAL_STORAGE_PATH: /app/storage
@@ -397,6 +407,16 @@ services:
       ASKAI_ADMIN_APP_ENV: production
       ASKAI_ADMIN_MONGODB_URI: mongodb://mongo:27017
       ASKAI_ADMIN_MONGODB_DB: mogo_dev
+      # 数据后端开关（MongoDB → PanWeiDB 迁移，见
+      # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
+      # PanWeiDB 不在本 compose 网络内，需能通过 PANWEIDB_HOST 解析到它。
+      MOGO_DATA_BACKEND: ${MOGO_DATA_BACKEND:-mongo}
+      PANWEIDB_HOST: ${PANWEIDB_HOST:-host.docker.internal}
+      PANWEIDB_PORT: ${PANWEIDB_PORT:-5432}
+      PANWEIDB_USER: ${PANWEIDB_USER:-}
+      PANWEIDB_PASSWORD: ${PANWEIDB_PASSWORD:-}
+      PANWEIDB_DB: ${PANWEIDB_DB:-mogo_dev}
+      PANWEIDB_SCHEMA: ${PANWEIDB_SCHEMA:-public}
       ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_ENABLED: "false"
       ASKAI_ADMIN_PLATFORM_ADMIN_USERNAME: ${ASKAI_ADMIN_PLATFORM_ADMIN_USERNAME:-platform}
       ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD: ${ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD:-}
@@ -454,6 +474,16 @@ services:
       MOVO_DOC_PROCESSING_REDIS_URL: redis://redis:6379/0
       MOVO_DOC_PROCESSING_MONGODB_URI: mongodb://mongo:27017
       MOVO_DOC_PROCESSING_MONGODB_DB: mogo_dev
+      # 数据后端开关（MongoDB → PanWeiDB 迁移，见
+      # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
+      # PanWeiDB 不在本 compose 网络内，需能通过 PANWEIDB_HOST 解析到它。
+      MOGO_DATA_BACKEND: ${MOGO_DATA_BACKEND:-mongo}
+      PANWEIDB_HOST: ${PANWEIDB_HOST:-host.docker.internal}
+      PANWEIDB_PORT: ${PANWEIDB_PORT:-5432}
+      PANWEIDB_USER: ${PANWEIDB_USER:-}
+      PANWEIDB_PASSWORD: ${PANWEIDB_PASSWORD:-}
+      PANWEIDB_DB: ${PANWEIDB_DB:-mogo_dev}
+      PANWEIDB_SCHEMA: ${PANWEIDB_SCHEMA:-public}
       MOVO_DOC_PROCESSING_WEAVIATE_ENDPOINT: http://weaviate:8080
       MOVO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME: AskAIKnowledgeChunks
       MOVO_DOC_PROCESSING_WEAVIATE_DISTANCE_METRIC: cosine
