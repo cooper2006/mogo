@@ -534,6 +534,8 @@ async def select_tenant_login(payload: SelectTenantRequest) -> ApiResponse:
     # Normalise to aware UTC before comparing, matching quota_policy.py.
     challenge_expires_at = challenge.get("expires_at")
     if challenge_expires_at is not None:
+        if isinstance(challenge_expires_at, str):
+            challenge_expires_at = datetime.fromisoformat(challenge_expires_at)
         if challenge_expires_at.tzinfo is None:
             challenge_expires_at = challenge_expires_at.replace(tzinfo=timezone.utc)
         if challenge_expires_at < now:
