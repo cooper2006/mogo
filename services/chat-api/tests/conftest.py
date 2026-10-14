@@ -110,6 +110,55 @@ def _reset_db_state():
     close_db()
 
 
+@pytest.fixture(autouse=True)
+def _panwei_backend_stub(monkeypatch):
+    """（迁移适配）PanWeiDB 模式下隔离 db 门面缓存，并给「不连真库」的单测提供
+    惰性池替身。
+
+    ``get_db()`` 在 panwei 模式、异步池未初始化时**显式 raise**——异步池须绑定
+    事件循环，而本套单测多用 ``asyncio.run`` 各自建 loop，无法跨 loop 复用真池。
+    这里让 ``get_async_pool`` **透传真池**（若已由 lifespan / async fixture 建好），
+    否则返回 stub 使 ``get_db()`` 不 raise；真查询打到 stub 会**显式报错**（不静默
+    返回空）。同时重置 db 门面缓存，避免跨测试拿到上一测试的池。仅 panwei 模式生效。
+    """
+    from app.core import pg
+
+    if not pg.is_panweidb_backend():
+        yield
+        return
+
+    from app.core import db
+
+    db._pg_db = None
+    db._pg_audit_db = None
+    real = pg.get_async_pool
+
+    class _StubPool:
+        def connection(self, *args, **kwargs):  # pragma: no cover - 真查询即报错
+            raise RuntimeError("test stub: 单测不连真实 PanWeiDB")
+
+    monkeypatch.setattr(pg, "get_async_pool", lambda: real() or _StubPool())
+    yield
+
+
+@pytest.fixture(autouse=True)
+async def _panwei_init_backend():
+    """（迁移适配）PanWeiDB 模式下为 async 测试建立真池（绑定本测试事件循环），
+    使需要真实查询的集成测试可用；teardown 关闭，供下个测试重建。仅 panwei 生效。
+    """
+    from app.core import pg
+
+    if not pg.is_panweidb_backend():
+        yield
+        return
+
+    from app.core import db
+
+    await db.init_backend()
+    yield
+    await db.close_backend()
+
+
 # --- DSH Runtime Host end-to-end tagging -----------------------------------
 #
 # These tests spawn the real Node Runtime Host (``dsh/runtime-host``) via

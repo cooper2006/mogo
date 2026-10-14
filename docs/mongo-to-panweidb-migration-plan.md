@@ -465,7 +465,7 @@ PANWEIDB_POOL_MAX_SIZE=10
 | 正则方言核对（PCRE→ARE `translate_regex_pattern`） | ✅ 差分 32/32，实际调用点无拒绝分支命中 |
 | 主键 `_id` 类型归一化调用点核对 | ✅ 登记 115 处强耦合点（§2.9），R3 切流前置 |
 | document-parser 锁定文件单一来源 | ✅ `--docker 3.13` 重生成，1342 hashes，正文不变仅清头部噪声 |
-| 三服务 panwei 后端全量回归（连真实 PanWeiDB，独立回归 schema `regress_*`） | ✅ **admin-api rc=0 无回归；document-parser rc=0 无回归**。chat-api 12 失败根因统一：单测直接调 `get_db()` 却未 `init_backend()`——mongo 模式靠 `get_db()` 懒初始化，panwei 模式为绑定事件循环**要求显式初始化**（生产经 app lifespan 已满足）。属接入/测试侧适配，**非 pg_compat 数据层缺陷**（其中 1 个 AssertionError 为该 RuntimeError 的次生冒泡） |
+| 三服务 panwei 后端全量回归（连真实 PanWeiDB，独立回归 schema `regress_*`） | ✅ **admin-api rc=0；document-parser rc=0；chat-api rc=0（全量全绿）**。chat-api 原 12 失败=单测直接调 `get_db()` 未 `init_backend()`（panwei 不懒建池的接入契约），已在 `tests/conftest.py` 加 panwei 适配 fixture（惰性池替身透传真池 + async 真池 init）修复；**非 pg_compat 数据层缺陷** |
 
 **R2 的关键设计决策**：把「补齐缺口」实现为**兼容层能力**而不是改写 25 处业务调用点 ——
 这样调用点仍然零修改，符合 R1 定下的路线。代价是兼容层多了一个聚合编译器，
