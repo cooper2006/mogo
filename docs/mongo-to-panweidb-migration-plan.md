@@ -150,6 +150,35 @@ jsonb_set('{"x":1}'::jsonb, '{a,b}', '2'::jsonb, true);
 `_jsonb_set_path()` 用「逐层回卷」实现真正的深合并（内层 → 父层 → 收口），
 既补中间层又保留同级字段。这是 R1 修掉的一个真实缺陷，已加回归用例。
 
+### 2.8 `INSERT ... ON CONFLICT` 不可用（**2026-10-14 回归实测**）
+
+openGauss 不支持 `ON CONFLICT DO NOTHING` 的无 target 形式，**带 target 也不行**：
+
+```sql
+-- 无 target
+INSERT INTO t VALUES ('a',99) ON CONFLICT DO NOTHING
+  -- FeatureNotSupported: Conflict without target is not yet supported within
+  --   INSERT ON CONFLICT KEY DO UPDATE statement.
+
+-- 带 target（无唯一约束）
+INSERT INTO t VALUES ('a',99) ON CONFLICT (id) DO NOTHING
+  -- InFailedSqlTransaction（首条事务已中止）
+
+-- 带 target（有 PRIMARY KEY）
+INSERT INTO t VALUES ('a',1) ON CONFLICT (id,n) DO NOTHING
+  -- 同样不通过
+```
+
+**结论：幂等/去重写入必须靠"先查后写"，不能用 `ON CONFLICT`。** pg_compat 的写路径
+本就采用先查后写（`find_one` 判定存在性后再 `insert` / `update`），因此不触发；但
+数据搬迁工具、差分测试脚本、以及任何手写幂等 upsert 的 SQL 都必须遵守此约束。
+
+> 附：同一轮实测还确认了一处**误记**——`SELECT count(*), id FROM t`（无 `GROUP BY`）
+> 报 `GroupingError` 并非 openGauss 的特有差异，标准 PostgreSQL 报完全相同的错。
+> 另 `SELECT count(*), id::text FROM t GROUP BY id` 实测通过，提示 §2.6 中
+> 「`GROUP BY <expr>` 与 `SELECT <同一 expr 但套了 ::text>` 判定为不同表达式」的
+> 边界比字面描述更窄（§2.6 的原始场景是 jsonb 表达式），值得复核。
+
 ---
 
 ## 3. 现状盘点

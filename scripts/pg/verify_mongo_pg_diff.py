@@ -178,13 +178,17 @@ async def _check_aggregation(mongo, pg) -> tuple[int, int]:
     return ok, fail
 
 
-async def _check_bulk_write(mongo, pg, pool) -> tuple[int, int]:
+async def _check_bulk_write(mongo, pg, pool, schema) -> tuple[int, int]:
     print("\n[bulk_write 差分]")
     coll = "bulk_write_probe"
     mongo[coll].drop()
+    # DROP 必须带 schema 限定：连接的 search_path 是 '"$user",public'（不含目标
+    # schema），裸标识符会解析到不存在的同名表，IF EXISTS 静默 no-op，上一轮残留
+    # 数据就会污染本轮计数——2026-10-14 回归时 bulk_write 的 matched/modified/
+    # upserted 因此误报失败（实际计数与 MongoDB 一致）。见 WORK_LOG 2026-10-14。
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
-            await cur.execute(f'DROP TABLE IF EXISTS "{coll}"')
+            await cur.execute(f'DROP TABLE IF EXISTS {schema}."{coll}"')
     ok = fail = 0
 
     def check(label, actual, expected):
@@ -216,7 +220,7 @@ async def _check_bulk_write(mongo, pg, pool) -> tuple[int, int]:
     mongo[coll].drop()
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
-            await cur.execute(f'DROP TABLE IF EXISTS "{coll}"')
+            await cur.execute(f'DROP TABLE IF EXISTS {schema}."{coll}"')
     return ok, fail
 
 
@@ -239,7 +243,7 @@ async def main() -> int:
 
     try:
         ok1, fail1 = await _check_aggregation(mongo, pg)
-        ok2, fail2 = await _check_bulk_write(mongo, pg, pool)
+        ok2, fail2 = await _check_bulk_write(mongo, pg, pool, args.schema)
     finally:
         await pool.close()
 
