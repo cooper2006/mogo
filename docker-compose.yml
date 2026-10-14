@@ -9,18 +9,22 @@ x-python-healthcheck: &python-healthcheck
 # The DSH Runtime Host owns kernel session state in process memory, so one
 # kernel_session_id must always reach the same instance.
 #
-# Two mutually exclusive topologies share this template:
+# Two mutually exclusive topologies share this template, switched by compose
+# profiles (single host is the default; pool is opt-in):
 #
-#   * pool (default) — ``dsh-runtime-host-{1,2,3}`` behind the sticky LB.
-#     chat-api talks to the LB.
-#   * single host — one bare host for a minimal self-hosted deployment,
-#     enabled with ``--profile single-host``.
+#   * single host (default) — one bare host, for minimal self-hosted
+#     deployments. Started by plain `docker compose up -d` (no profile).
+#     chat-api talks to it directly.
+#   * pool — ``dsh-runtime-host-{1,2,3}`` behind the sticky LB.
+#     Enable with `docker compose --profile pool up -d`; this also loads
+#     `docker-compose.pool.yml` (auto-included when the `pool` profile is
+#     active), which repoints chat-api at the LB and sets up replica URLs.
 #
-# ``&dsh-runtime-host-template`` holds the settings the replicas inherit. The
-# single-host service that consumes it carries its own ``profiles`` entry:
-# putting ``profiles`` inside the anchor would be merged into every replica
-# too (a YAML merge key copies the whole mapping), which would disable the
-# pool along with it.
+# `x-dsh-runtime-host-template` holds the settings both topologies inherit.
+# The pool replicas and the LB carry their own `profiles: [pool]` entry:
+# putting `profiles` inside the anchor would be merged into every service
+# that inherits it (a YAML merge key copies the whole mapping), so the
+# single-host service must stay profile-free to remain the default.
 x-dsh-runtime-host-template: &dsh-runtime-host-template
   image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-${MOVO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/himovo/dsh-runtime-host:${MOGO_VERSION:-${MOVO_VERSION:-latest}}}}
   pull_policy: ${MOGO_PULL_POLICY:-${MOVO_PULL_POLICY:-missing}}
@@ -51,6 +55,22 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
     - /app/host-profile-home:rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0755
   environment:
     DSH_INSTANCE_ID: dsh-runtime-host
+    # 官方 dsh web 模式开关（可选，默认关闭）：
+    #   DSH_WEB_MODE=1           额外启动 `dsh --profile web`，把官方 Web GUI 暴露出来
+    #   DSH_WEB_HOST=127.0.0.1   web 绑定地址（默认 127.0.0.1；dsh 有意拒绝
+    #                            0.0.0.0，属官方安全设计，不要改）
+    #   DSH_WEB_PORT=3080        web 端口（默认 3080，与 headless host 的 8101 互不影响）
+    #   DSH_WEB_TRUSTED_HOST=    额外信任的 Host 值（逗号分隔），仅在部署到
+    #                            非 localhost/127.0.0.1 的主机名/公网域名后需要；
+    #                            localhost/127.0.0.1 访问永远被 dsh 的 browser-
+    #                            trust fence 识别为 loopback，无需配置。
+    # 不设置 DSH_WEB_MODE 时行为与旧镜像完全一致，仅运行 headless host。
+    #
+    # Web GUI 的对外暴露路径：mogo-gateway nginx 的 /dsh-web/ location
+    # （见 deploy/nginx/nginx.conf），浏览器访问 http(s)://<gateway>/dsh-web/。
+    # 不直接映射 3080 到宿主机——那种映射转发到的是容器网桥 IP 而非容器内
+    # loopback，对 127.0.0.1 绑定无效（已实测确认）。
+    DSH_WEB_MODE: ${DSH_WEB_MODE:-0}
   volumes:
     - deployment-secrets:/run/askai-secrets:ro
     - dsh-runtime-data:/data/dsh-runtime
@@ -189,41 +209,43 @@ services:
       retries: 30
       start_period: 30s
 
-  # Single-host topology, for a minimal self-hosted deployment.
+  # 单节点拓扑（默认）：一个裸 host，最小化自托管部署用。
   #
-  # Off by default on purpose. In pool mode (the default) this host is a fourth
-  # instance that the LB does not list and chat-api never calls, so it would
-  # idle holding its own data volume — that is exactly what used to happen when
-  # this service was enabled unconditionally.
+  # 无 profile，普通 `docker compose up -d` / `./mogo up` 即启动。
+  # chat-api 默认直连它（DSH_RUNTIME_HOST_URL -> dsh-runtime-host:8101）。
   #
-  # Compose profiles are additive: a service without a profile always starts,
-  # and the pool replicas intentionally have no profile so `./mogo up` keeps
-  # working. Selecting this profile therefore *adds* a bare host alongside the
-  # pool rather than replacing it. To actually run single-host, start only this
-  # service and the app services:
+  # 池化拓扑（opt-in，`docker compose --profile pool up -d`）只启动
+  # 下面 `profiles: [pool]` 的 `dsh-runtime-host-{1,2,3}` + `dsh-runtime-host-lb`；
+  # 同时会自动加载 `docker-compose.pool.yml`（compose 的 profile 自动包含机制），
+  # 把 chat-api 重新指向 LB 并配置 replica 探测 URL。
   #
-  #   docker compose --profile single-host up -d dsh-runtime-host \
-  #     mongo redis weaviate admin-api admin-web chat-api \
-  #     document-api document-worker user-web gateway bootstrap
-  #
-  # and point chat-api at it (DSH_RUNTIME_HOST_URL=http://dsh-runtime-host:8101)
-  # instead of the LB, which is then simply not started.
+  # 两种拓扑下本服务都会被创建（YAML 服务定义与 profile 过滤是两回事：
+  # profile 只决定"是否启动"，不决定"服务名是否存在"），所以 chat-api 的
+  # `depends_on` 可以同时写 `dsh-runtime-host` 和 `dsh-runtime-host-lb` 而不报错；
+  # 未启动拓扑下的那个服务不会阻塞等待（未启动的服务不参与 condition 判定）。
   dsh-runtime-host:
     <<: *dsh-runtime-host-template
-    profiles:
-      - single-host
+    # 官方 dsh web 模式（DSH_WEB_MODE=1）在容器内绑定 127.0.0.1:3080（dsh
+    # 官方安全设计，拒绝 0.0.0.0 绑定，见 dsh-web-app 的 startup.js 校验），
+    # 因此不直接映射 3080 到宿主机——那条路走不通（端口转发到的是容器
+    # 网桥 IP，不是容器内 loopback）。Web GUI 统一走 mogo-gateway nginx 的
+    # /dsh-web/ location 反代（见 deploy/nginx/nginx.conf），浏览器经
+    # gateway 访问 http(s)://<gateway>/dsh-web/。
+    # headless host 的 8101 是内部 backend 网络端口，不对外映射。
 
   # Runtime Host pool for horizontal scaling (see
   # docs/open-source-productization/agent-multi-instance-evaluation.md).
   #
-  # Enabled by default: chat-api talks to the sticky LB
-  # (DSH_RUNTIME_HOST_URL -> dsh-runtime-host-lb) and DSH_RUNTIME_HOSTS_URL is
-  # left empty, so every request goes through the LB and nginx pins it to one
-  # replica by isolation key. Do NOT set DSH_RUNTIME_HOSTS_URL in this mode:
-  # chat-api would then bypass the LB and hash with a different algorithm
-  # (sha256 % count vs nginx consistent hash), and the two would disagree.
+  # 池化拓扑：`docker compose --profile pool up -d` 启用（自动加载
+  # docker-compose.pool.yml，见文件头部注释）。chat-api 经 sticky LB
+  # 访问（DSH_RUNTIME_HOST_URL -> dsh-runtime-host-lb），DSH_RUNTIME_HOSTS_URL
+  # 保持为空，让 nginx 用 consistent hash 把每个 session 钉到一个副本上。
+  # 此模式下不要设置 DSH_RUNTIME_HOSTS_URL：chat-api 会用
+  # sha256 % count 自己算路由，和 nginx 的算法不一致，请求会分裂到两套路由。
   dsh-runtime-host-1:
     <<: *dsh-runtime-host-template
+    profiles:
+      - pool
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-1
       # Cross-replica hand-off: the pool membership (self excluded by the
@@ -243,6 +265,8 @@ services:
 
   dsh-runtime-host-2:
     <<: *dsh-runtime-host-template
+    profiles:
+      - pool
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-2
       # Cross-replica hand-off: the pool membership (self excluded by the
@@ -259,6 +283,8 @@ services:
 
   dsh-runtime-host-3:
     <<: *dsh-runtime-host-template
+    profiles:
+      - pool
     environment:
       DSH_INSTANCE_ID: dsh-runtime-host-3
       # Cross-replica hand-off: the pool membership (self excluded by the
@@ -278,6 +304,8 @@ services:
   # service instead of a single Runtime Host.
   dsh-runtime-host-lb:
     image: nginx:1.31.5-alpine3.24-slim
+    profiles:
+      - pool
     restart: unless-stopped
     volumes:
       - ./deploy/docker/dsh-runtime-lb.conf:/etc/nginx/nginx.conf:ro
@@ -342,20 +370,22 @@ services:
       AUTO_INSTALL_SYSTEM_DEPS_ON_START: "false"
       AUTO_INSTALL_PLAYWRIGHT_ON_START: "false"
       REQUEST_DEBUG_SNAPSHOT_ENABLED: "false"
-      # Runtime Host pool is the default topology: chat-api talks to the sticky
-      # LB and the LB pins each session to one replica by isolation key.
+      # 默认（单节点模式）：chat-api 直连裸 host。
+      # 池化模式（`--profile pool`，自动加载 docker-compose.pool.yml）会用
+      # ${DSH_RUNTIME_HOST_URL:-} 把本默认值覆盖掉——未设置该变量时本行留空
+      # 即不生效，pool 覆盖文件提供实际值；设置该变量（例如想手动切换拓扑）
+      # 时优先于覆盖文件。
       #
-      # Do NOT set DSH_RUNTIME_HOSTS_URL here. It takes precedence over the LB in
-      # the transport, and chat-api hashes with sha256 % count while nginx uses
-      # consistent hashing -- the two disagree, so requests would split across
-      # two different routing schemes.
-      DSH_RUNTIME_HOST_URL: ${DSH_RUNTIME_HOST_URL:-http://dsh-runtime-host-lb:8101}
+      # 单节点模式下不要设置 DSH_RUNTIME_HOSTS_URL；池化模式由 pool 覆盖文件
+      # 单独配置。
+      DSH_RUNTIME_HOST_URL: ${DSH_RUNTIME_HOST_URL:-http://dsh-runtime-host:8101}
       DSH_RUNTIME_HOSTS_URL: ${DSH_RUNTIME_HOSTS_URL:-}
-      # Ownership probe targets (§12.4 option B). The probe deliberately bypasses
-      # the LB to ask each replica "do you hold this session?", which is what
-      # lets chat-api recover when the LB routes a session to a replica that
-      # lost it (ring reshuffle on scale up/down, or a replica restart).
-      DSH_RUNTIME_REPLICA_URLS: ${DSH_RUNTIME_REPLICA_URLS:-http://dsh-runtime-host-1:8101,http://dsh-runtime-host-2:8101,http://dsh-runtime-host-3:8101}
+      # Ownership probe targets（§12.4 option B）。单节点模式下只有一个裸
+      # host，没有副本可探测，默认为空；池化模式（`--profile pool`，自动
+      # 加载 docker-compose.pool.yml）注入三个副本的 URL，让 chat-api 在 LB
+      # 把 session 路由到刚丢副本的副本上时（ring reshuffle、副本重启）
+      # 能绕过 LB 直接问每个副本"你持有这个 session 吗"来恢复。
+      DSH_RUNTIME_REPLICA_URLS: ${DSH_RUNTIME_REPLICA_URLS:-}
       # Session affinity cache. Needs a Redis URL to leave process memory.
       DSH_KERNEL_REDIS_URL: ${DSH_KERNEL_REDIS_URL:-redis://redis:6379/1}
       DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS: ${DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS:-7200}
@@ -372,12 +402,12 @@ services:
         condition: service_healthy
       document-api:
         condition: service_healthy
-      # chat-api reaches the Runtime Host pool through the sticky LB, so that
-      # is what it must wait on. It previously waited on ``dsh-runtime-host``,
-      # which is now the profile-gated single-host topology: naming it here
-      # would make Compose reject the project ("depends on undefined service")
-      # in the default pool mode.
-      dsh-runtime-host-lb:
+      # chat-api 等待的是它实际连的 Runtime Host。单节点模式（默认）是裸
+      # host；池化模式（`--profile pool`）由 docker-compose.pool.yml 的
+      # `depends_on` 合并在上面追加 `dsh-runtime-host-lb`。YAML 对
+      # depends_on 这类映射按 key 合并，同名 key 后者覆盖前者，所以这里
+      # 只写裸 host 不会挡住 pool 覆盖文件的追加。
+      dsh-runtime-host:
         condition: service_healthy
     networks:
       - public
@@ -688,6 +718,10 @@ services:
         condition: service_healthy
     networks:
       - public
+      # backend 只用于 /dsh-web/ 反代（转发到 dsh-runtime-host:3080，
+      # 该服务只在 backend 网络）；其余上游（user-web/admin-web/
+      # admin-api/chat-api）都在 public 网络。
+      - backend
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null"]
       interval: 10s

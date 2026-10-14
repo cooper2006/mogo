@@ -113,7 +113,12 @@ RUN chmod -R a+rX /app \
     && mkdir -p /app/host-profile-home \
     && chown -R node:node /app/host-profile-home \
     && mkdir -p /data/dsh-runtime \
-    && chown -R node:node /data/dsh-runtime
+    && chown -R node:node /data/dsh-runtime \
+    # 官方 dsh web 模式（DSH_WEB_MODE=1 时由 entrypoint.sh 启用）依赖
+    # @deepseek-ai/dsh-web-frontend 的构建产物；它只在 pnpm 虚拟仓库里，
+    # 不在顶层 node_modules，按目录名（带版本后缀）直接探测，避免依赖
+    # 作用域解析路径变化。
+    && node -e "const fs=require('fs'),path=require('path');const store=path.join(process.cwd(),'node_modules','.pnpm');const d=path.join(store,'@deepseek-ai+dsh-web-frontend@0.2.0-rc.2','node_modules','@deepseek-ai','dsh-web-frontend');if(!fs.existsSync(path.join(d,'dist','index.html')))throw new Error('dsh-web-frontend dist/index.html not found under '+d);console.log('DSH web frontend dist verified at '+d);const dshBin=path.join(store,'.bin','dsh');if(!fs.existsSync(path.join(process.cwd(),'node_modules','.bin','dsh')))throw new Error('dsh CLI binary not linked in node_modules/.bin');console.log('dsh CLI verified in node_modules/.bin');"
 
 # 022 US3 (T027): container hardening, same shape as the other app images.
 #
@@ -140,7 +145,9 @@ ENV HOME=/data/dsh-runtime/home
 
 USER node
 
-EXPOSE 8101
+# 8101 — mogo 自研 headless runtime host（默认 CMD）
+# 3080 — 官方 `dsh --profile web` Web GUI（DSH_WEB_MODE=1 时启用，默认关闭）
+EXPOSE 8101 3080
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "src/host.mjs", "--host", "0.0.0.0", "--port", "8101", "--storage-root", "/data/dsh-runtime"]

@@ -30,4 +30,48 @@ if [ "$(id -u)" = "0" ]; then
   exec gosu node "$@"
 fi
 
+if [ "${DSH_WEB_MODE:-0}" = "1" ]; then
+  # 官方 DSH web 模式：额外启动 `dsh --profile web`，把官方 Web GUI 暴露出来。
+  # 与 headless host（8101）共用同一个 $HOME/.dsh（持久化在 dsh-runtime-data
+  # 卷里），无需预置 profile。
+  #
+  # 绑定策略：dsh CLI 有意拒绝 `--host 0.0.0.0`（web 模式下会把远程代码执行面
+  # 暴露到网络，属官方安全设计，见 dsh-web-app 的 startup.js 校验）。容器内
+  # 统一绑定 127.0.0.1，由 mogo-gateway nginx 的反代 location（/dsh-web/，
+  # 见 deploy/nginx/nginx.conf）把浏览器请求转发进来，不需要 0.0.0.0，也
+  # 不需要 docker 端口映射（那种映射转发到的是容器网桥 IP，而非容器内
+  # loopback，对 127.0.0.1 绑定无效，已实测确认走不通）。
+  #
+  # 浏览器访问的是 gateway 的域名/主机（Host 头保留浏览器视角，nginx 的
+  # proxy_set_header Host $http_host），dsh 的 browser-trust fence 会校验该
+  # authority 是否为 loopback 或在 trustedHosts 里。localhost/127.0.0.1 是
+  # loopback，永远放行，无需额外配置；部署到公网域名或内网主机名后，需要
+  # 通过 DSH_WEB_TRUSTED_HOST 追加 authority（逗号分隔），entrypoint 会转成
+  # 对应的 --trusted-host 参数传给 dsh。
+  web_host="${DSH_WEB_HOST:-127.0.0.1}"
+  web_port="${DSH_WEB_PORT:-3080}"
+  echo "[askai-dsh-runtime] starting official dsh web profile on ${web_host}:${web_port}"
+  # trusted-host 列表按空格转 CLI 参数（sh 没有 IFS 词分割的简单数组写法）
+  trusted_args=""
+  if [ -n "${DSH_WEB_TRUSTED_HOST:-}" ]; then
+    old_ifs="$IFS"; IFS=","; set -- ${DSH_WEB_TRUSTED_HOST}; IFS="$old_ifs"
+    for h in "$@"; do
+      h="$(printf '%s' "$h" | tr -d ' ')"
+      [ -n "$h" ] && trusted_args="$trusted_args --trusted-host $h"
+    done
+  fi
+  # shellcheck disable=SC2086
+  node_modules/.bin/dsh --profile web --host "${web_host}" --port "${web_port}" --no-open ${trusted_args} &
+  web_pid=$!
+  # 给 web profile 一点时间完成绑定（它会在打印 URL 后常驻运行）；绑定
+  # 失败（进程提前退出）则让容器启动失败，不静默吞掉。
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! kill -0 "${web_pid}" 2>/dev/null; then
+      echo "[askai-dsh-runtime] web profile exited during startup." >&2
+      exit 1
+    fi
+    sleep 1
+  done
+fi
+
 exec "$@"
