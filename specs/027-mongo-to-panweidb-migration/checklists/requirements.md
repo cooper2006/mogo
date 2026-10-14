@@ -86,4 +86,8 @@ analyze 环节以四道**实际门禁**替代（均可复跑，027 独有）：
 p95/吞吐）、CHK027（索引验收抽样口径）。
 
 **R3 前置阻塞项**：① 主键 `_id` 类型归一化的 115 处调用点改造（plan §2.9）；
-② 建索引 TTL（`expireAfterSeconds`）4 处未实现（plan §5.5）。
+② 建索引 TTL（`expireAfterSeconds`）**7 处**未实现——openGauss 无 TTL 索引，需应用层定期清理（plan §5.5 清单+方案）；③ chat-api 12 个单测未 `init_backend()`（plan R2 回归表，测试侧适配）。
+
+**CHK015 性能预算定值（提案，待 `/speckit-clarify` 确认）**：以 mongo 基线为参照的相对门槛——`find_one`（主键）p95 ≤ **1.5×** mongo 基线；条件查询（`tenant_id` + JSONB 字段）p95 ≤ **4×** mongo 基线；单集合写吞吐 ≥ **0.7×** mongo。绝对目标值留待 R3 启动前压测校准。
+
+**CHK027 索引验收口径定值（提案，待 `/speckit-clarify` 确认）**：SC-009 改按**模式 + 表规模**判定——`id` 主键等值、`tenant_id` 等值/前缀两类查询模式，对全部表（119）执行 `EXPLAIN`：行数 > 1,000 的表 MUST 走 Index Scan（不得 Seq Scan）；行数 ≤ 1,000 的小表允许 Seq Scan（登记为合理例外）。抽样=全量模式覆盖（每表 1 主键 + 1 租户查询），非随机。JSONB 字段过滤（非主键/租户）不强制——GIN 不可用（§2.5）。
