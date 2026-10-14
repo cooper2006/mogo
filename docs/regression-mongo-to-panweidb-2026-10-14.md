@@ -75,7 +75,7 @@
 
 3. **QF-DB-003**（S）：~~为 document-parser 补齐本地 venv。~~ **✅ 已补齐并复测 22/22（2026-10-14）**
 4. **QF-DB-012**（S）：~~放宽 `requirements.in` 的 `pymongo` 上界并重编译 `requirements.txt`。~~ **✅ 已修复并复测（2026-10-14）**
-5. QF-DB-007 的附带建议（S）：为 FR-025 增加「源码禁用符号扫描」守卫测试。
+5. QF-OK-007 的附带建议（S）：为 FR-025 增加「源码禁用符号扫描」守卫测试。
 
 ---
 
@@ -422,38 +422,38 @@ grep -nE '^(pymongo|motor|psycopg)' requirements.txt | head
 
 ## 5. 全部测试项核对表
 
-> **编号说明**：本节沿用 `QF-DB-` 前缀但含义与 §4 不同——§4 的编号是**问题**，本节的编号是**通过的测试项**，两者共用一个编号空间且交错排列（问题项 001/002/003/012，通过项 004–011/013/014）。引用时请以章节为准，不要只凭编号判断性质。
+> **编号说明**：问题项与通过项使用不同前缀——§4 的问题用 `QF-DB-`，本节的通过项用 `QF-OK-`。两套编号独立分配，因此编号不连续（问题项 001/002/003/012，通过项 004–011/013/014）。
 
 ### 5.1 执行结果汇总
 
 | # | 检查项 | 类别 | 结果 | 证据 |
 |---|---|---|---|---|
-| QF-DB-004 | admin-api 全量回归 | regression | **PASS** | 919/919，0 失败，exit 0 |
-| QF-DB-011 | chat-api 全量回归 | regression | **PASS** | 2591 项，3 失败均归因 QF-DB-002，其余全绿 |
-| QF-DB-013 | document-parser 全量回归 | regression | **PASS** | 22/22（补齐依赖后），exit 0 |
-| QF-DB-006 | MongoDB ↔ PanWeiDB 差分测试 | integration | **PASS** | 19/19（修复 schema 限定后） |
-| QF-DB-005 | 兼容层三副本不漂移守卫（FR-026） | regression | **PASS** | `sync_pg_compat --check`：chat-api ✅ document-parser ✅ |
-| QF-DB-007 | FR-025 禁用函数零命中 | contract | **PASS** | 禁用符号全文扫描无命中 |
-| QF-DB-008 | FR-016 未覆盖能力显式失败 | contract | **PASS** | 五类拒绝路径 + 三类正则拒绝 |
-| QF-DB-009 | FR-030 审计/业务 schema 分离与回退 | integration | **PASS** | 四层回退链，schema 永不为空 |
-| QF-DB-010 | FR-001 后端开关实测 | integration | **PASS** | 4 实例 `MOGO_DATA_BACKEND=panweidb` 且 healthy |
-| QF-DB-014 | 同步版 `pg_compat` 端到端（PanWeiDB 实跑） | integration | **PASS** | 9 项能力与异步版行为一致 |
+| QF-OK-004 | admin-api 全量回归 | regression | **PASS** | 919/919，0 失败，exit 0 |
+| QF-OK-011 | chat-api 全量回归 | regression | **PASS** | 2591 项，3 失败均归因 QF-DB-002，其余全绿 |
+| QF-OK-013 | document-parser 全量回归 | regression | **PASS** | 22/22（补齐依赖后），exit 0 |
+| QF-OK-006 | MongoDB ↔ PanWeiDB 差分测试 | integration | **PASS** | 19/19（修复 schema 限定后） |
+| QF-OK-005 | 兼容层三副本不漂移守卫（FR-026） | regression | **PASS** | `sync_pg_compat --check`：chat-api ✅ document-parser ✅ |
+| QF-OK-007 | FR-025 禁用函数零命中 | contract | **PASS** | 禁用符号全文扫描无命中 |
+| QF-OK-008 | FR-016 未覆盖能力显式失败 | contract | **PASS** | 五类拒绝路径 + 三类正则拒绝 |
+| QF-OK-009 | FR-030 审计/业务 schema 分离与回退 | integration | **PASS** | 四层回退链，schema 永不为空 |
+| QF-OK-010 | FR-001 后端开关实测 | integration | **PASS** | 4 实例 `MOGO_DATA_BACKEND=panweidb` 且 healthy |
+| QF-OK-014 | 同步版 `pg_compat` 端到端（PanWeiDB 实跑） | integration | **PASS** | 9 项能力与异步版行为一致 |
 
 ### 5.2 关键通过项明细
 
-**admin-api 全量回归（QF-DB-004）**：`venv/bin/python -m pytest tests/`，进度条 13 段至 100%，共 919 个用例，无 F/E 标记，退出码 0。覆盖含 `test_pg_compat.py`（56 项，含本轮新增的 regex 方言翻译、`$type`、`create_index` unique/sparse/partial）、`test_tenant_purge.py`（28 项，FR-029）、`test_security_audit_events.py`、`test_setup_*` 系列。
+**admin-api 全量回归（QF-OK-004）**：`venv/bin/python -m pytest tests/`，进度条 13 段至 100%，共 919 个用例，无 F/E 标记，退出码 0。覆盖含 `test_pg_compat.py`（56 项，含本轮新增的 regex 方言翻译、`$type`、`create_index` unique/sparse/partial）、`test_tenant_purge.py`（28 项，FR-029）、`test_security_audit_events.py`、`test_setup_*` 系列。
 
-**差分测试（QF-DB-006）**：
+**差分测试（QF-OK-006）**：
 - `$percentile`：返回 `[p50=11712.0, p95=84268.2]`，`p50<=p95` 且非负
 - `bulk_write` 8/8：`inserted=2`、`matched=4`、`modified=4`、`deleted=1`、`upserted=1`、落库文档集合一致、文档条数 2、空请求列表全 0
 
-**FR-025 映射规则（QF-DB-007）**：对 `pg_compat.py` 全文扫描 `REGEXP_MATCHES` / `REGEXP_REPLACE` / `REGEXP_SUBSTR` / `JSONB_PATH_QUERY` / `JSONB_PATH_EXISTS` / `STRING_AGG` / `ARRAY_AGG` / `ROW_NUMBER` / `NTH_VALUE` / `PERCENTILE_CONT` / `DISTINCT ON`，禁用集合**零命中**。正则统一用 `~` / `~*` 操作符；百分位用 ordered-set 聚合；聚合键表达式只构建一次。
+**FR-025 映射规则（QF-OK-007）**：对 `pg_compat.py` 全文扫描 `REGEXP_MATCHES` / `REGEXP_REPLACE` / `REGEXP_SUBSTR` / `JSONB_PATH_QUERY` / `JSONB_PATH_EXISTS` / `STRING_AGG` / `ARRAY_AGG` / `ROW_NUMBER` / `NTH_VALUE` / `PERCENTILE_CONT` / `DISTINCT ON`，禁用集合**零命中**。正则统一用 `~` / `~*` 操作符；百分位用 ordered-set 聚合；聚合键表达式只构建一次。
 
-**FR-016 显式失败（QF-DB-008）**：五条拒绝路径均覆盖——`test_unsupported_filter_operators_fail_loudly`、`test_unsupported_update_operators_fail_loudly`、`test_aggregation_unsupported_stage_fails_loudly`、`test_aggregation_unsupported_accumulator_and_expression_fail_loudly`、以及三类正则拒绝（`\p{L}`、`(?P<name>...)`、`[[:word:]]`）。异常类型统一为 `PgCompatUnsupported`（继承 `NotImplementedError`）。
+**FR-016 显式失败（QF-OK-008）**：五条拒绝路径均覆盖——`test_unsupported_filter_operators_fail_loudly`、`test_unsupported_update_operators_fail_loudly`、`test_aggregation_unsupported_stage_fails_loudly`、`test_aggregation_unsupported_accumulator_and_expression_fail_loudly`、以及三类正则拒绝（`\p{L}`、`(?P<name>...)`、`[[:word:]]`）。异常类型统一为 `PgCompatUnsupported`（继承 `NotImplementedError`）。
 
-**FR-030 审计隔离（QF-DB-009）**：回退链为 `panweidb_audit_schema` → 环境变量 `PANWEIDB_AUDIT_SCHEMA` → `.env` 文件 → `effective_panweidb_schema`（业务 schema）→ `'public'`，四层全非空兜底，因此 `PgCollection` 的 schema 永不为空字符串（避免 `""."table"` 空标识符 SQL）。`db.get_audit_db` 在 panweidb 后端下用独立 `PgDatabase(pool, effective_panweidb_audit_schema)` 构造审计门面，与业务门面分离但共用连接池。
+**FR-030 审计隔离（QF-OK-009）**：回退链为 `panweidb_audit_schema` → 环境变量 `PANWEIDB_AUDIT_SCHEMA` → `.env` 文件 → `effective_panweidb_schema`（业务 schema）→ `'public'`，四层全非空兜底，因此 `PgCollection` 的 schema 永不为空字符串（避免 `""."table"` 空标识符 SQL）。`db.get_audit_db` 在 panweidb 后端下用独立 `PgDatabase(pool, effective_panweidb_audit_schema)` 构造审计门面，与业务门面分离但共用连接池。
 
-**FR-001 后端开关（QF-DB-010）**：4 个实例（admin-api、chat-api、document-api、document-worker）`MOGO_DATA_BACKEND` 均为 `panweidb`，镜像 tag 均为 `v0.2.5-panweidb`，docker 报告 healthy。
+**FR-001 后端开关（QF-OK-010）**：4 个实例（admin-api、chat-api、document-api、document-worker）`MOGO_DATA_BACKEND` 均为 `panweidb`，镜像 tag 均为 `v0.2.5-panweidb`，docker 报告 healthy。
 
 ### 5.3 本轮新增能力的守卫覆盖
 
@@ -487,7 +487,7 @@ grep -nE '^(pymongo|motor|psycopg)' requirements.txt | head
 | **SC-005 建表 10 秒内完成** | 103 张表的建表耗时未实测。 |
 | **SC-009 无全表扫描** | 未抽样验证执行计划。 |
 | **SC-010 租户销毁与保留期零退化** | 未做端到端对比。 |
-| ~~**document-parser 端到端执行**~~ | ~~见 QF-DB-003，环境阻塞。~~ **已于 2026-10-14 解除：22/22 全过，同步版 `pg_compat` 端到端另见 QF-DB-014。** |
+| ~~**document-parser 端到端执行**~~ | ~~见 QF-DB-003，环境阻塞。~~ **已于 2026-10-14 解除：22/22 全过，同步版 `pg_compat` 端到端另见 QF-OK-014。** |
 | **前端回归**（admin-web / user-web） | 本次范围限定在数据后端切换；前端未涉及。 |
 
 ---
