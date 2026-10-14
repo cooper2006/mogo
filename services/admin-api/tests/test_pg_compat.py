@@ -21,8 +21,10 @@ from app.core.pg_compat import (
     PgCompatUnsupported,
     _FilterCompiler,
     _UpdateCompiler,
+    _build_create_index_sql,
     apply_update_to_document,
     path_literal,
+    translate_regex_pattern,
 )
 
 PLACEHOLDER = re.compile(r"%s")
@@ -388,3 +390,81 @@ def test_aggregation_project_inclusion_exclusion_rules():
         _compile_pipeline([{"$project": {"a": 1, "b": 0}}])
     sql, _ = _compile_pipeline([{"$project": {"a": 0}}])
     assert "- 'a'" in sql
+
+
+# ── $regex 方言翻译（PCRE → openGauss ARE）─────────────────────────────
+def test_regex_word_boundary_translated_to_are():
+    # PG 的 ARE 里 \b 是退格符而非词边界，必须翻成 \y
+    assert translate_regex_pattern(r"\badmin\b") == r"\yadmin\y"
+
+
+def test_regex_non_boundary_translated_to_are():
+    assert translate_regex_pattern(r"\Bx") == r"\Yx"
+
+
+def test_regex_word_class_translated_to_ascii():
+    # PG 在 UTF-8 locale 下 \w 含非 ASCII，这里锁成 ASCII 语义
+    assert translate_regex_pattern(r"\w+") == r"[A-Za-z0-9_]+"
+    assert translate_regex_pattern(r"\W") == r"[^A-Za-z0-9_]"
+
+
+def test_regex_common_constructs_passthrough():
+    # 这些构造在两种方言里语义一致，不应被改动
+    for pattern in (r"^a", r"a|b", r"a\.b", r"foo", r"[a-z]+", r"\d", r"café", r"(?i)abc"):
+        assert translate_regex_pattern(pattern) == pattern
+
+
+def test_regex_rejects_unicode_property():
+    with pytest.raises(PgCompatUnsupported):
+        translate_regex_pattern(r"\p{L}")
+
+
+def test_regex_rejects_named_group():
+    with pytest.raises(PgCompatUnsupported):
+        translate_regex_pattern(r"(?P<name>abc)")
+
+
+def test_regex_rejects_posix_word_class():
+    with pytest.raises(PgCompatUnsupported):
+        translate_regex_pattern(r"[[:word:]]")
+
+
+# ── create_index 的 unique / sparse / partial 语义（纯 SQL 生成）─────────
+def test_create_index_plain_no_where():
+    sql = _build_create_index_sql('"s"."t"', "t_tenant_idx", ["tenant_id"])
+    assert "CREATE INDEX IF NOT EXISTS \"t_tenant_idx\"" in sql
+    assert "ON \"s\".\"t\" ((doc #> '{tenant_id}'))" in sql
+    assert "WHERE" not in sql
+
+
+def test_create_index_unique_adds_unique_keyword():
+    sql = _build_create_index_sql('"s"."t"', "t_code_idx", ["code"], unique=True)
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS" in sql
+
+
+def test_create_index_sparse_adds_not_null_where():
+    sql = _build_create_index_sql('"s"."t"', "t_seq_idx", ["seq"], unique=True, sparse=True)
+    assert "CREATE UNIQUE INDEX" in sql
+    assert "WHERE (doc #> '{seq}') IS NOT NULL" in sql
+
+
+def test_create_index_partial_inlines_filter_as_literal():
+    sql = _build_create_index_sql(
+        '"s"."t"', "t_status_idx", ["status"],
+        partialFilterExpression={"status": "active"},
+    )
+    assert "WHERE" in sql
+    # 参数已被内联成字面量，SQL 里不应残留占位符，且值以 JSON 文本形式出现
+    assert "'\"active\"'" in sql and "::jsonb" in sql
+    assert "%s" not in sql
+
+
+def test_create_index_partial_and_sparse_conjunction():
+    sql = _build_create_index_sql(
+        '"s"."t"', "t_idx", ["a", "b"], unique=True, sparse=True,
+        partialFilterExpression={"b": 1},
+    )
+    assert sql.count("AND") == 2  # 两个稀疏字段 + 一个 partial
+    assert "IS NOT NULL" in sql
+    assert "(doc #> '{b}') = '1'::jsonb" in sql
+

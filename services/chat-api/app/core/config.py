@@ -256,6 +256,20 @@ class Settings(BaseSettings):
         raw = self.DATA_BACKEND or os.getenv("MOGO_DATA_BACKEND", "") or "mongo"
         return raw.strip().lower()
 
+    def effective_data_backend_for(self, domain: str) -> str:
+        """按域取数据后端；未设 ``MOGO_DATA_BACKEND_<DOMAIN>`` 时回退全局。
+
+        域级覆盖用于 R3 增量灰度切流（先把某域切到 PanWeiDB，其余保持 Mongo）。
+        运行时逐域路由需双池，属 R3；这里先落地开关能力。
+        """
+        key = "MOGO_DATA_BACKEND_" + "".join(
+            c if c.isalnum() else "_" for c in domain.upper()
+        )
+        raw = os.getenv(key, "")
+        if raw:
+            return raw.strip().lower()
+        return self.effective_data_backend
+
     @property
     def effective_panweidb_host(self) -> str:
         return self.PANWEIDB_HOST or os.getenv("PANWEIDB_HOST", "") or "127.0.0.1"

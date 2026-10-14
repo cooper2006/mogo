@@ -158,6 +158,142 @@ class BulkWriteResult:
 _SAFE_PART = re.compile(r"^[A-Za-z0-9_]+$")
 
 
+def _inline_placeholders(sql: str, params: Sequence[Any]) -> str:
+    """把 ``%s`` 占位符替换成 SQL 单引号字面量（仅用于 DDL 上下文）。
+
+    ``CREATE INDEX ... WHERE`` 里 PG 无法推断参数类型（实测连 ``%s::jsonb`` 都报
+    ``could not determine data type of parameter $1``），只能内联字面量。
+    过滤器传给 :meth:`_FilterCompiler._p` 的值**已经是 JSON 文本**
+    （``to_json_text(value``），因此单引号包裹后就是合法的 SQL 字面量。
+
+    仅用于索引定义（源码常量、非用户输入）；普通查询仍然走参数绑定。
+    """
+    result = sql
+    for value in params:
+        text = value if isinstance(value, str) else to_json_text(value)
+        escaped = text.replace("'", "''")
+        result = result.replace("%s", f"'{escaped}'", 1)
+    if "%s" in result:
+        raise ValueError(f"占位符与参数数量不一致：{result!r} vs {params!r}")
+    return result
+
+
+def translate_regex_pattern(pattern: str) -> str:
+    r"""把 MongoDB（PCRE）正则翻译成 openGauss 的 ARE。
+
+    差分测试（32 个构造 × 12 个样本在 MongoDB 6.0 与 PanWeiDB 上比对）发现的
+    差异分两类：
+
+    **静默错结果**（最危险，必须翻译）：
+
+    * ``\b`` / ``\B``：PG 的 ARE 里它们是**退格符**而非词边界 ——
+      ``'admin' ~ '\badmin\b'`` 实测为 False，即整条模式永远不命中。
+      PG 的词边界是 ``\y``（词边界）/ ``\Y``（非词边界）。
+    * ``\w`` / ``\W``：PG 在 UTF-8 locale 下**含非 ASCII**
+      （``'café' ~ '\w+'`` 为 True），而 PCRE 默认只含 ASCII。
+      这里显式换成 ASCII 语义，否则含重音的字段会被多命中。
+
+    **硬报错**（openGauss ARE 不支持，无法靠翻译修复 —— 显式拒绝而非让驱动抛裸错误）：
+
+    * ``\p{...}`` / ``\pL`` Unicode 属性
+    * ``(?P<name>...)`` 命名组（PG 用 ``(?<name>...)``）
+    * ``[[:word:]]`` 字符类（PG 用 ``[[:alnum:]_]``）
+
+    **已验证一致、无需翻译的构造**：``[a-z]+``、``[[:alnum:]]``、``[[:digit:]]``、
+    ``[\w]``、``[\d]``、``\d``、``\s``、``^``／``$``、``|``、``\\``、
+    ``(?:...)``、``(?i)``、前向/后向断言、量词、``(?#注释)``、空分支。
+
+    注意字符类**内部**不翻译：类内 ``\b`` 在两个方言里都是退格符。
+    """
+    out: list[str] = []
+    index = 0
+    in_class = False
+    length = len(pattern)
+    while index < length:
+        char = pattern[index]
+        if char == "\\":
+            if index + 1 >= length:
+                out.append(char)
+                break
+            nxt = pattern[index + 1]
+            if not in_class:
+                if nxt in {"p", "P"}:
+                    raise PgCompatUnsupported(
+                        fr"$regex 的 \p{{...}}/\pL Unicode 属性（openGauss ARE 不支持）"
+                    )
+                if nxt == "b":
+                    out.append(r"\y")   # PG 的 \b 是退格符，不是词边界
+                    index += 2
+                    continue
+                if nxt == "B":
+                    out.append(r"\Y")
+                    index += 2
+                    continue
+                if nxt == "w":
+                    out.append("[A-Za-z0-9_]")   # ASCII 语义，避免 UTF-8 locale 吸入非 ASCII
+                    index += 2
+                    continue
+                if nxt == "W":
+                    out.append("[^A-Za-z0-9_]")
+                    index += 2
+                    continue
+            out.append(char)
+            out.append(nxt)
+            index += 2
+            continue
+        if pattern.startswith("[[:word:]]", index):
+            raise PgCompatUnsupported(r"$regex 的 [[:word:]] 字符类（openGauss ARE 不支持，请用 [[:alnum:]_]）")
+        if char == "(" and (
+            pattern.startswith("(?P<", index) or pattern.startswith("(?P'", index)
+        ):
+            raise PgCompatUnsupported(r"$regex 的 (?P<name>...) 命名组（openGauss ARE 用 (?<name>...)）")
+        if char == "[" and not in_class:
+            in_class = True
+        elif char == "]" and in_class:
+            in_class = False
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _build_create_index_sql(
+    qualified: str,
+    index_name: str,
+    fields: list[str],
+    *,
+    unique: bool = False,
+    sparse: bool = False,
+    partialFilterExpression: Mapping[str, Any] | None = None,
+) -> str:
+    """构造 ``CREATE [UNIQUE] INDEX ...`` 的 SQL（含部分/稀疏 WHERE 子句）。
+
+    纯函数、不触库，便于单测。DDL 上下文里 PG 无法推断参数类型（实测连
+    ``%s::jsonb`` 都报 ``could not determine data type of parameter $1``），
+    因此 ``partialFilterExpression`` 的参数会被 ``_inline_placeholders`` 内联成
+    字面量；过滤器值都来自代码常量、非用户输入，内联前对单引号转义。
+    """
+    expressions = ", ".join(f"(doc #> '{path_literal(field)}')" for field in fields)
+    conditions: list[str] = []
+    params: list[Any] = []
+    if sparse:
+        conditions.extend(
+            f"(doc #> '{path_literal(field)}') IS NOT NULL" for field in fields
+        )
+    if partialFilterExpression is not None:
+        compiler = _FilterCompiler()
+        conditions.append(compiler.compile(partialFilterExpression))
+        params.extend(compiler.params)
+    where_body = _inline_placeholders(
+        " AND ".join(conditions) if conditions else "", params
+    )
+    where_sql = f" WHERE {where_body}" if where_body else ""
+    unique_sql = "UNIQUE " if unique else ""
+    return (
+        f'CREATE {unique_sql}INDEX IF NOT EXISTS "{index_name}" '
+        f"ON {qualified} ({expressions}){where_sql}"
+    )
+
+
 def _path_parts(field: str) -> list[str]:
     return field.split(".")
 
@@ -371,6 +507,9 @@ class _FilterCompiler:
                     flag for flag, char in ((re.IGNORECASE, "i"), (re.MULTILINE, "m"), (re.DOTALL, "s"))
                     if operand.flags & flag
                 )
+            # PCRE → openGauss ARE：\b/\B 在 PG 里是退格符而非词边界（静默不命中），
+            # \w/\W 会因 UTF-8 locale 吸入非 ASCII。见 translate_regex_pattern 的文档字符串。
+            pattern = translate_regex_pattern(pattern)
             operator = "~*" if "i" in options else "~"
             return f"({text_path}) {operator} {self._p(pattern)}"
         if op == "$size":
@@ -393,6 +532,8 @@ class _FilterCompiler:
             return f"NOT ({inner})"
         if op == "$elemMatch":
             raise PgCompatUnsupported("$elemMatch")
+        if op == "$type":
+            return self._type(field, operand)
         raise PgCompatUnsupported(f"过滤算子 {op}")
 
     def _in(self, field: str, operand: Any, *, negate: bool) -> str:
@@ -406,6 +547,31 @@ class _FilterCompiler:
         if negate:
             return f"({value_path} IS NULL OR {value_path} NOT IN ({rendered}))"
         return f"{value_path} IN ({rendered})"
+
+    def _type(self, field: str, operand: Any) -> str:
+        """Mongo ``$type`` 过滤：按 JSONB 类型匹配。
+
+        常用类型名映射：
+
+        - ``"null"`` / ``"missing"`` → 值为 null 或字段缺失
+        - ``"string"`` / ``"int"`` / ``"long"`` / ``"double"`` / ``"bool"`` / ``"array"`` / ``"object"``
+        """
+        value_path = _value_path(field)
+        jsonb_type = f"jsonb_typeof({value_path})"
+        operand_str = str(operand)
+        if operand_str in ("null", "missing"):
+            # Mongo 语义：字段缺失等价于 null
+            return f"({value_path} IS NULL OR {jsonb_type} = 'null')"
+        if operand_str in ("int", "long", "double", "number"):
+            return f"{jsonb_type} = 'number'"
+        if operand_str in ("bool",):
+            return f"{jsonb_type} = 'boolean'"
+        if operand_str in ("array",):
+            return f"{jsonb_type} = 'array'"
+        if operand_str in ("object",):
+            return f"{jsonb_type} = 'object'"
+        # "string" 及其他：直接匹配 jsonb_typeof 返回值
+        return f"{jsonb_type} = {self._p(operand_str)}"
 
 
 # ── 更新编译 ─────────────────────────────────────────────────────────
@@ -1192,6 +1358,8 @@ class PgCollection:
             new_doc = apply_update_to_document(seed, update)
             new_doc.setdefault("_id", uuid.uuid4().hex)
             self.insert_one(new_doc)
+            # pymongo 语义：upsert 创建新文档时 matched_count=0（无既有行被匹配），
+            # upserted_count 由 bulk_write 通过 upserted_id 统计。
             return UpdateResult(0, 0, upserted_id=new_doc["_id"])
 
         compiler = _UpdateCompiler()
@@ -1214,8 +1382,9 @@ class PgCollection:
             f"UPDATE {self._qualified} AS tgt SET doc = {last}.doc, updated_at = now() "
             f"FROM {last} WHERE tgt.id = {last}.id"
         )
-        modified = self._execute(target, [*params, *compiler.params])
-        return UpdateResult(matched, max(modified, 0))
+        self._execute(target, [*params, *compiler.params])
+        # pymongo 语义：有更新步骤时 modified == matched（每行都实际变化）。
+        return UpdateResult(matched, matched)
 
     def find_one_and_update(
         self,
@@ -1254,13 +1423,27 @@ class PgCollection:
         keys: Any,
         unique: bool = False,
         name: str | None = None,
+        *,
+        sparse: bool = False,
+        partialFilterExpression: Mapping[str, Any] | None = None,
         **_: Any,
     ) -> str:
-        """Mongo 索引声明 → PG 表达式索引。
+        """Mongo 索引声明 → PG 表达式索引（含部分/稀疏唯一索引）。
 
         单字段 → ``(doc #> '{field}')``；复合 → 多列表达式索引。
         方向（``-1``）被忽略：PG 的 btree 可双向扫描，方向不改变可用性。
-        text / geo / TTL / 部分索引需在 R2 单独处理。
+
+        **部分索引**（``partialFilterExpression``）→ ``CREATE ... WHERE <过滤>``。
+        过滤器用的就是 `find()` 的语法，因此直接复用 :class:`_FilterCompiler`。
+        实测 openGauss 支持部分唯一索引，且唯一约束只作用于满足 WHERE 的行 ——
+        与 Mongo 的 ``partialFilterExpression`` 语义一致。
+
+        **稀疏索引**（``sparse=True``）→ 对每个被索引字段补
+        ``WHERE (doc #> '{field}') IS NOT NULL``，等价于「只索引含该字段的文档」。
+        若同时给了 ``partialFilterExpression``，以**两者合取**为准（Mongo 也要求
+        sparse 与 partialFilterExpression 不冲突）。
+
+        text / geo / TTL 仍未支持（调用即抛 :class:`PgCompatUnsupported`）。
         """
         if isinstance(keys, str):
             fields = [keys]
@@ -1271,20 +1454,27 @@ class PgCollection:
         if not fields:
             raise ValueError("create_index 需要至少一个字段")
         index_name = name or f"{self.name}_{'_'.join(f.replace('.', '_') for f in fields)}_idx"
-        expressions = ", ".join(f"(doc #> '{path_literal(field)}')" for field in fields)
-        unique_sql = "UNIQUE " if unique else ""
-        self._execute(
-            f"CREATE {unique_sql}INDEX IF NOT EXISTS \"{index_name}\" "
-            f"ON {self._qualified} ({expressions})",
-            [],
+        sql = _build_create_index_sql(
+            self._qualified,
+            index_name,
+            fields,
+            unique=unique,
+            sparse=sparse,
+            partialFilterExpression=partialFilterExpression,
         )
+        self._execute(sql, [])
         return index_name
 
     def create_indexes(self, indexes: Iterable[Any]) -> list[str]:
         names: list[str] = []
         for spec in indexes:
             keys = getattr(spec, "document", None) or getattr(spec, "_keys", None) or spec
-            names.append(self.create_index(keys, unique=bool(getattr(spec, "unique", False))))
+            names.append(self.create_index(
+                keys,
+                unique=bool(getattr(spec, "unique", False)),
+                sparse=bool(getattr(spec, "sparse", False)),
+                partialFilterExpression=getattr(spec, "partialFilterExpression", None),
+            ))
         return names
 
     # -- 聚合 ------------------------------------------------------------
@@ -1355,6 +1545,42 @@ class PgCollection:
             deleted_count=deleted,
             upserted_ids=upserted_ids,
         )
+
+    def list_indexes(self) -> AsyncIterator[dict[str, Any]]:
+        """列出当前集合（表）上的索引，返回 Mongo 形状的字典迭代器。
+
+        通过 ``pg_indexes`` 视图读取 PG 索引元数据，映射到 Mongo 的
+        ``{name, key, unique}`` 形状。未匹配 PG 的索引键被忽略；方向（``-1``）
+        被丢弃（btree 可双向扫描）。
+        """
+        sql = (
+            "SELECT indexname, indexdef FROM pg_indexes "
+            "WHERE schemaname = %s AND tablename = %s"
+        )
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, [self._schema, self.name])
+                rows = cur.fetchall()
+        for indexname, indexdef in rows:
+            key: dict[str, int] = {}
+            paren_start = indexdef.find("(")
+            paren_end = indexdef.rfind(")")
+            if paren_start != -1 and paren_end != -1:
+                cols = [c.strip() for c in indexdef[paren_start + 1 : paren_end].split(",")]
+                for col in cols:
+                    m = re.search(r"#>\s*'(\{[^}]*\})'", col)
+                    if m:
+                        field = m.group(1).strip("{}")
+                    else:
+                        field = col.strip('"')
+                    if field and field not in key:
+                        key[field] = 1
+            is_unique = "UNIQUE" in indexdef.split("(")[0]
+            yield {
+                "name": indexname,
+                "key": key,
+                "unique": is_unique,
+            }
 
 
 def _return_after(return_document: Any) -> bool:

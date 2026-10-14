@@ -122,6 +122,25 @@ class Settings(BaseSettings):
         )
         return raw.strip().lower()
 
+    def effective_data_backend_for(self, domain: str) -> str:
+        """按域取数据后端；未设 ``MOGO_DATA_BACKEND_<DOMAIN>`` 时回退全局。
+
+        域级覆盖用于 R3 的**增量灰度切流**：可先把某个数据域（如 ``audit``）
+        切到 PanWeiDB，其余保持 Mongo，再逐步扩大覆盖面。域名的非字母数字字符
+        统一规范成 ``_``（例如 ``document-parser`` → ``MOGO_DATA_BACKEND_DOCUMENT_PARSER``）。
+
+        注意：本方法只做**配置解析**。运行时真正按域路由到不同后端需要两个后端
+        连接池同时存活（当前架构是「整体切换、单池」），因此逐域路由的接线属于 R3
+        工作；这里先把「开关能力」落地，避免后续重复设计。
+        """
+        key = "MOGO_DATA_BACKEND_" + "".join(
+            c if c.isalnum() else "_" for c in domain.upper()
+        )
+        raw = os.getenv(key, "") or _read_env_file_value(key)
+        if raw:
+            return raw.strip().lower()
+        return self.effective_data_backend
+
     @property
     def effective_panweidb_host(self) -> str:
         return (
