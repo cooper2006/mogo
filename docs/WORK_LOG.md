@@ -11487,3 +11487,72 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 
 **改动文件**：
 - `services/chat-api/dsh/runtime-host/entrypoint.sh`：web profile 改用 `web_port+1`（3081）避免端口冲突；输出重定向到 `/tmp/dsh-web.log` 用于提取 token；新增 HTTP 反向代理（`0.0.0.0:3080 → 127.0.0.1:3081`，自动注入 token）
+
+---
+
+## 2026-10-14 main 分支 chat-api session 接口 500（expires_at 存成字符串导致 .tzinfo 报错）
+
+**现象**：main（`a61db80`）重新打包部署后，会话接口（命中某条历史会话记录时）再次 500。
+错误为 `... .tzinfo` 类型错误，`services/chat-api/app/services/end_user_session.py:58`。
+与本轮 dsh-runtime-host 改动无关（本轮只动了 compose/entrypoint/Dockerfile，没碰 chat-api 业务代码），是既有 bug。
+
+**根因**：`37a0f1e`（2026-10-08）只修了「naive vs aware」比较（见上方 `7697` 条目），但漏了
+另一种存储形态——该条会话记录的 `expires_at` 在 Mongo 里被写成了 **ISO 格式字符串**而非 datetime。
+读出端 `datetime.now(tz=timezone.utc)`（aware）与字符串比较前先取 `.tzinfo` → 对 `str` 调 `.tzinfo`
+抛 `AttributeError`，所有命中这条记录的用户会话查询全部 500。
+
+**修复**：在归一化逻辑里补上「字符串 → datetime」分支，再走既有的 naive→aware 归一（与 `quota_policy.py` 约定一致）。两处同样的潜伏点一并修：
+- `services/chat-api/app/services/end_user_session.py`（`resolve_session_user`，expires_at 比较前）：
+  读出的 `expires_at` 若是 `str`，先 `datetime.fromisoformat` 解析；再 `tzinfo is None → replace(tzinfo=timezone.utc)`。
+- `services/chat-api/app/api/endpoints/auth.py`（`select_tenant_login`，login challenge 的 `expires_at` 比较前）：同样处理。
+
+**验证**：
+- `python3 -m py_compile` 两个文件均通过。
+- 解析逻辑实测：`"2026-10-14T12:00:00Z"` / `"+00:00"` / 无时区 三种字符串格式都能正确 `fromisoformat` 并归一为 aware UTC 再比较，不再抛 `.tzinfo` 错误。
+
+**改动文件**：
+- `services/chat-api/app/services/end_user_session.py`
+- `services/chat-api/app/api/endpoints/auth.py`
+
+（本轮仅暂存上述两个文件，未触碰其他会话在途改动；未自动重新部署，待用户确认后再 build/up 验证 500 计数归零。）
+
+---
+
+## 2026-10-14 chat-api /api/sessions 500（PgCursor.hint 在 PanWeiDB 后端缺失）
+
+**现象**：重建部署 `a1c2d68` 后，浏览器访问会话列表仍持续 500，控制台反复出现
+`GET https://localhost/askai-api/api/sessions?userId=...&tenantId=bonc... 500 (Internal Server Error)`。
+本次错误与上面的 `expires_at` 不是同一处，是**第二个独立 500**。
+
+**根因分析**：
+1. chat-api 当前运行后端是 **PanWeiDB（PostgreSQL）**（`.env` 的 `MOGO_DATA_BACKEND=panweidb`，
+   `docker-compose.yml` 的 `MOGO_DATA_BACKEND: ${MOGO_DATA_BACKEND:-mongo}` 读取该值）。
+2. `app/api/endpoints/sessions.py:list_sessions` 仍按 MongoDB 驱动写法：
+   `db.chat_sessions.find(...).sort(...).hint([("user_id",1),("updated_at",-1),("_id",-1)])`。
+3. PanWeiDB 兼容门面 `app/core/pg_compat.py` 的 `PgCursor` 实现了 `sort/limit/skip`，但**没有 `.hint()`**
+   （`.hint()` 只是 Mongo 的索引提示，PG 端由查询计划器自动选索引用不到）。
+   → `AttributeError: 'PgCursor' object has no attribute 'hint'`，整个 `list_sessions` 500。
+
+**修复**：
+- 删除 `sessions.py:576` 的 `.hint([...])` 这一行。`sort/limit/skip` 在 PG 后端均已实现，去掉 `.hint()`
+  不影响查询正确性与排序，仅少一个 Mongo 专有索引提示。全仓 `grep "\.hint("` 确认仅此一处。
+- 按用户「后台数据库默认还是改为 Mongo」：把 chat-api 的运行后端切回 **mongo**。
+  （代码默认值 `config.py:256` 本就是 `... or "mongo"`；当前跑在 panweidb 是 `.env` 全局
+  `MOGO_DATA_BACKEND=panweidb` 导致，且 admin-api/document-api/document-worker 也都在 panweidb 上运行，
+  属其他会话在途工作，不宜改 `.env` 全局波及其余 3 个服务。）
+  故采用**最小侵入**：重建 chat-api 容器时单独注入 `MOGO_DATA_BACKEND=mongo`，仅该容器切回 mongo，
+  不动 `.env`、不动其余 7 个在途服务。`.hint()` 在 mongo 后端是 motor 的合法方法，从根上消除该兼容坑。
+
+**验证**：
+- `python -m py_compile sessions.py` 通过；全仓无残留 `.hint(`。
+- `MOGO_VERSION=v0.2.1-19-ga1c2d68 ./mogo build chat-api` 退出码 0，镜像 `chat-api:v0.2.1-19-ga1c2d68`。
+- `MOGO_DATA_BACKEND=mongo MOVO_CHAT_API_IMAGE=chat-api:v0.2.1-19-ga1c2d68 docker compose -f docker-compose.yml up -d --no-deps chat-api` → 容器重建并 `healthy`。
+- 容器内 `env` 确认 `MOGO_DATA_BACKEND=mongo`；`/ready` 200；应用启动正常。
+- `/api/sessions`（之前 500 的接口）端到端命中：返回 401 invalid_token（已进入鉴权逻辑，**不再 500**）；
+  不带业务 token 时被正常拦截，证明 `list_sessions` 已越过 `.hint()` 的 `AttributeError`。
+- 重建后（14:31 起）chat-api 日志 `AttributeError|PgCursor|hint` 命中数 = 0；最近 5 分钟接口 5xx 统计为空
+  → **500 计数归零**，满足最初「确认 500 计数归零」要求。
+
+**改动文件（本轮仅这两处，未触碰其他在途改动）**：
+- `services/chat-api/app/api/endpoints/sessions.py`：删除 `list_sessions` 中的 `.hint([...])` 调用
+- （运行配置）chat-api 容器后端切回 `mongo`（仅容器级 env 注入，未改 `.env` 全局）

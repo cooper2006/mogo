@@ -573,7 +573,6 @@ async def list_sessions(
     base_cursor = (
         db.chat_sessions.find(add_tenant_scope({"user_id": str(user_id)}, tenant_id), projection)
         .sort([("updated_at", -1), ("_id", -1)])
-        .hint([("user_id", 1), ("updated_at", -1), ("_id", -1)])
     )
 
     if not paged:
