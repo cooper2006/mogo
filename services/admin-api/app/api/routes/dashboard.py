@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_current_admin_user
@@ -463,7 +463,7 @@ async def _trend_metrics(db: Any, tenant_id: str, *, current_cost: float) -> dic
 
 async def _format_recent_activity(db: Any, tenant_id: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     user_ids = [str(row.get("user_id") or "") for row in rows if str(row.get("user_id") or "").strip()]
-    user_oid_map = {user_id: ObjectId(user_id) for user_id in user_ids if ObjectId.is_valid(user_id)}
+    user_oid_map = {user_id: to_backend_id(user_id) for user_id in user_ids if is_valid_backend_id(user_id)}
     user_docs = []
     if user_oid_map:
         user_docs = await db[USER_COLLECTION].find({"_id": {"$in": list(user_oid_map.values())}}).to_list(length=500)
@@ -479,7 +479,7 @@ async def _format_recent_activity(db: Any, tenant_id: str, rows: list[dict[str, 
             rel_map[user_id] = org_id
             dept_ids.add(org_id)
 
-    dept_oid_map = {dept_id: ObjectId(dept_id) for dept_id in dept_ids if ObjectId.is_valid(dept_id)}
+    dept_oid_map = {dept_id: to_backend_id(dept_id) for dept_id in dept_ids if is_valid_backend_id(dept_id)}
     dept_docs = []
     if dept_oid_map:
         dept_docs = await db[DEPARTMENT_COLLECTION].find({"_id": {"$in": list(dept_oid_map.values())}}, {"name": 1}).to_list(length=500)

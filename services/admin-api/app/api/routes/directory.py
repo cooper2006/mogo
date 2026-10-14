@@ -4,6 +4,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.core.db import is_panweidb_backend
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -54,7 +56,10 @@ def _is_login_name_duplicate(error: DuplicateKeyError) -> bool:
     return "login_name" in str(error) or "user_main_login_name_unique" in str(error)
 
 
-def _safe_oid(value: str, detail: str) -> ObjectId:
+def _safe_oid(value: str, detail: str) -> Any:
+    if is_panweidb_backend():
+        # PanWeiDB 主键即字符串，任意非空串都是合法主键，无需 ObjectId 规范化。
+        return str(value)
     try:
         return ObjectId(value)
     except InvalidId as exc:
@@ -446,7 +451,7 @@ async def list_users(
         dept_filter_ids.extend(str(row["_id"]) for row in child_rows)
         rel_rows = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id, "org_id": {"$in": dept_filter_ids}}).to_list(length=20000)
         user_ids = [row.get("user_id") for row in rel_rows]
-        query["_id"] = {"$in": [ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)]} if user_ids else {"$in": []}
+        query["_id"] = {"$in": [to_backend_id(uid) for uid in user_ids if is_valid_backend_id(uid)]} if user_ids else {"$in": []}
     users = await db[USER_COLLECTION].find(query).sort("updated_at", -1).to_list(length=5000)
     deps = await db[DEPARTMENT_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=5000)
     dep_map = {str(item["_id"]): item.get("name", "") for item in deps}
@@ -851,7 +856,7 @@ async def accept_invite_link(token: str, payload: InviteAcceptPayload) -> dict[s
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="当前邀请策略仅支持新用户注册，请联系管理员重置密码")
     user_id = str(invite.get("user_id", "") or "")
     user: dict[str, Any] | None = None
-    user_oid: ObjectId | None = None
+    user_oid: Any | None = None
     if user_id:
         user_oid = _safe_oid(user_id, "邀请数据异常")
         user = await db[USER_COLLECTION].find_one({"_id": user_oid, "tenant_id": tenant_id})
