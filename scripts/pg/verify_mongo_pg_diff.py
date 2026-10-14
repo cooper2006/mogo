@@ -185,10 +185,14 @@ async def _check_bulk_write(mongo, pg, pool, schema) -> tuple[int, int]:
     # DROP 必须带 schema 限定：连接的 search_path 是 '"$user",public'（不含目标
     # schema），裸标识符会解析到不存在的同名表，IF EXISTS 静默 no-op，上一轮残留
     # 数据就会污染本轮计数——2026-10-14 回归时 bulk_write 的 matched/modified/
-    # upserted 因此误报失败（实际计数与 MongoDB 一致）。见 WORK_LOG 2026-10-14。
+    # upserted 因此误报失败（实际计数与 MongoDB 一致）。见
+    # docs/regression-mongo-to-panweidb-2026-10-14.md §4 QF-DB-001。
+    # schema 也须用双引号包裹（与 pg_compat._qualified 一致）：不带引号的标识符会
+    # 被折叠为小写，遇到 pg_compat 带引号创建的含大写 schema 名会报
+    # "schema does not exist"。实测 2026-10-14。
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
-            await cur.execute(f'DROP TABLE IF EXISTS {schema}."{coll}"')
+            await cur.execute(f'DROP TABLE IF EXISTS "{schema}"."{coll}"')
     ok = fail = 0
 
     def check(label, actual, expected):
@@ -220,7 +224,7 @@ async def _check_bulk_write(mongo, pg, pool, schema) -> tuple[int, int]:
     mongo[coll].drop()
     async with pool.connection() as conn:
         async with conn.cursor() as cur:
-            await cur.execute(f'DROP TABLE IF EXISTS {schema}."{coll}"')
+            await cur.execute(f'DROP TABLE IF EXISTS "{schema}"."{coll}"')
     return ok, fail
 
 

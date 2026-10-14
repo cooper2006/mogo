@@ -120,7 +120,7 @@ SELECT count(*) FROM mogo_dev."bulk_write_probe";  -- 2（DROP 后仍残留）
 - 对 `PgCollection.bulk_write` 插桩逐步计数：`update_one matched=1`、`update_many matched=2`、`replace_one matched=1`、upsert 分支 `matched=0/upserted_id=r-9`，合计 `matched=4/modified=4/upserted=1`，与 MongoDB 逐项对应
 
 **修复建议**：
-把 `scripts/pg/verify_mongo_pg_diff.py` 里两处 `DROP TABLE IF EXISTS "{coll}"` 改为带 schema 的 `DROP TABLE IF EXISTS {schema}."{coll}"`（schema 取自 `--schema` 参数），与 `pg_compat` 内部 `_qualified` 的写法保持一致。
+把 `scripts/pg/verify_mongo_pg_diff.py` 里两处 `DROP TABLE IF EXISTS "{coll}"` 改为带 schema 的 `DROP TABLE IF EXISTS "{schema}"."{coll}"`（schema 取自 `--schema` 参数，双引号包裹以与 `pg_compat` 内部 `_qualified` 的写法保持一致）。
 
 这是**测试工具的隔离缺陷**而非兼容层缺陷，但会造成 R2 验收误判：任何按此脚本报告的「bulk_write 计数不符」都是假阳性。
 
@@ -131,7 +131,7 @@ SELECT count(*) FROM mogo_dev."bulk_write_probe";  -- 2（DROP 后仍残留）
 **改动**：`scripts/pg/verify_mongo_pg_diff.py`，4 处（8 insertions / 4 deletions）：
 
 1. `_check_bulk_write(mongo, pg, pool)` → `_check_bulk_write(mongo, pg, pool, schema)`
-2. 两处 `DROP TABLE IF EXISTS "{coll}"` → `DROP TABLE IF EXISTS {schema}."{coll}"`
+2. 两处 `DROP TABLE IF EXISTS "{coll}"` → `DROP TABLE IF EXISTS "{schema}"."{coll}"`（schema 带引号，与 `pg_compat._qualified` 一致）
 3. 调用处传入 `args.schema`
 4. 在首处 DROP 前加注释说明「为何必须带 schema 限定」，防止未来回退：
 
@@ -139,7 +139,11 @@ SELECT count(*) FROM mogo_dev."bulk_write_probe";  -- 2（DROP 后仍残留）
     # DROP 必须带 schema 限定：连接的 search_path 是 '"$user",public'（不含目标
     # schema），裸标识符会解析到不存在的同名表，IF EXISTS 静默 no-op，上一轮残留
     # 数据就会污染本轮计数——2026-10-14 回归时 bulk_write 的 matched/modified/
-    # upserted 因此误报失败（实际计数与 MongoDB 一致）。见 WORK_LOG 2026-10-14。
+    # upserted 因此误报失败（实际计数与 MongoDB 一致）。见
+    # docs/regression-mongo-to-panweidb-2026-10-14.md §4 QF-DB-001。
+    # schema 也须用双引号包裹（与 pg_compat._qualified 一致）：不带引号的标识符会
+    # 被折叠为小写，遇到 pg_compat 带引号创建的含大写 schema 名会报
+    # "schema does not exist"。实测 2026-10-14。
 ```
 
 **复测方法（关键：在故障场景下验证，而非干净状态下验证）**：
@@ -174,6 +178,18 @@ SELECT count(*) FROM information_schema.tables
 | 落库文档集合一致 | ✅ | ✅ | ✅ |
 | 文档条数 | ✅ 2 | ✅ 2 | 2 |
 | 汇总 | 16 / 19 | **19 / 19** | — |
+
+**Code review 中发现的第二个问题（2026-10-14 追加修复）**：
+
+上面的修复写成 `f'DROP TABLE IF EXISTS {schema}."{coll}"'`，但 `pg_compat.py:1162` 的 `_qualified` 是 `f'"{schema}"."{name}"'`——**带引号**。不带引号的 schema 标识符会被折叠为小写，而 `pg_compat` 带引号建 schema 会保留大小写。用含大写的 schema 实测：
+
+```
+建 schema "Review_Mixed_Case" + 表（pg_compat 带引号写法）
+  ❌ 无引号  {schema}     → ProgrammingError: schema "review_mixed_case" does not exist
+  ✅ 带引号  "{schema}"   → 已删除
+```
+
+当前环境 `PANWEIDB_SCHEMA=mogo_dev` 全小写，所以不触发；但 `--schema` 是可配置参数，任何含大写的配置都会让差分测试直接崩。已把两处改成 `"{schema}"` 与 `pg_compat` 一致，并把注释里的悬空引用（"见 WORK_LOG 2026-10-14"，当时 `WORK_LOG.md` 未提交、HEAD 不可达）改为指向本报告 §4 QF-DB-001。
 
 **复测过程的一个附带发现**：造残留数据时发现 openGauss 与标准 PostgreSQL 的一处行为差异，值得记入 FR-024「目标库实测事实」：
 
@@ -405,6 +421,8 @@ grep -nE '^(pymongo|motor|psycopg)' requirements.txt | head
 ---
 
 ## 5. 全部测试项核对表
+
+> **编号说明**：本节沿用 `QF-DB-` 前缀但含义与 §4 不同——§4 的编号是**问题**，本节的编号是**通过的测试项**，两者共用一个编号空间且交错排列（问题项 001/002/003/012，通过项 004–011/013/014）。引用时请以章节为准，不要只凭编号判断性质。
 
 ### 5.1 执行结果汇总
 
