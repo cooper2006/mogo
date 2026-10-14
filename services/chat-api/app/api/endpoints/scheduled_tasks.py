@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
@@ -32,10 +33,10 @@ async def _validate_session_target(payload: Dict[str, Any], *, tenant_id: str, u
     if str(payload.get("session_mode") or "fixed") != "fixed":
         return
     session_id = str(payload.get("session_id") or "")
-    if not ObjectId.is_valid(session_id):
+    if not is_valid_backend_id(session_id):
         raise HTTPException(status_code=400, detail="目标会话无效")
     session = await get_db().chat_sessions.find_one(
-        add_tenant_scope({"_id": ObjectId(session_id), "user_id": user_id}, tenant_id), {"_id": 1}
+        add_tenant_scope({"_id": to_backend_id(session_id), "user_id": user_id}, tenant_id), {"_id": 1}
     )
     if not session:
         raise HTTPException(status_code=404, detail="目标会话不存在或无权访问")

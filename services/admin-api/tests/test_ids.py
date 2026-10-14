@@ -28,8 +28,29 @@ def test_panwei_mode_uses_string(monkeypatch):
     assert ids.to_backend_id("custom-id-1") == "custom-id-1"
     assert ids.to_backend_id(ObjectId(VALID)) == VALID
     assert ids.to_backend_id(None) is None
-    # panwei 主键即字符串：任意非空即合法，空串不合法
+    # 合法性判定与 mongo 一致（主键即 24-hex 字符串）：非 24-hex / 空 均非法
     assert ids.is_valid_backend_id(VALID) is True
-    assert ids.is_valid_backend_id("any-nonempty") is True
+    assert ids.is_valid_backend_id("any-nonempty") is False
     assert ids.is_valid_backend_id("") is False
     assert ids.is_valid_backend_id(None) is False
+
+
+def test_to_backend_id_strict_raises_on_invalid(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(ids, "_is_panweidb", lambda: False)
+    assert ids.to_backend_id_strict(VALID) == ObjectId(VALID)
+    with pytest.raises(ValueError):
+        ids.to_backend_id_strict("not-an-id")
+    with pytest.raises(ValueError):
+        ids.to_backend_id_strict(None)
+
+
+def test_to_backend_id_strict_panwei(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(ids, "_is_panweidb", lambda: True)
+    assert ids.to_backend_id_strict(VALID) == VALID
+    assert ids.to_backend_id_strict(ObjectId(VALID)) == VALID
+    with pytest.raises(ValueError):
+        ids.to_backend_id_strict("not-an-id")

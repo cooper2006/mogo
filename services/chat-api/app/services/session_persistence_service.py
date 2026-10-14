@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 from bson import ObjectId
 
 from app.context_engine.compactor import context_compactor
@@ -428,7 +429,7 @@ class SessionPersistenceService:
         messages: List[Any],
     ) -> Dict[str, Any]:
         db = get_db()
-        oid = ObjectId(str(session_id))
+        oid = to_backend_id_strict(session_id)
         mid = resolve_tenant_id(tenant_id)
         session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, mid))
         if not session_doc:
@@ -591,7 +592,7 @@ class SessionPersistenceService:
         """
         db = get_db()
         try:
-            oid = ObjectId(str(session_id))
+            oid = to_backend_id_strict(session_id)
         except Exception as exc:
             raise ValueError("Invalid session id") from exc
         mid = resolve_tenant_id(tenant_id)

@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 
 from app.core.db import get_db
@@ -25,11 +26,11 @@ class ScheduledChatRunner:
     async def start(self, job: dict[str, Any], run: dict[str, Any]) -> None:
         tenant_id = resolve_tenant_id(job.get("tenant_id"))
         user_id = str(job.get("run_as_user_id") or job.get("owner_user_id") or "")
-        if not ObjectId.is_valid(user_id):
+        if not is_valid_backend_id(user_id):
             await self._fail_before_start(job, run, "执行用户不存在")
             return
         user = await get_db().end_users.find_one(
-            add_tenant_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id)
+            add_tenant_scope({"_id": to_backend_id(user_id), "status": "active"}, tenant_id)
         )
         if not user:
             await self._fail_before_start(job, run, "执行用户已停用或不属于当前租户")
@@ -64,11 +65,11 @@ class ScheduledChatRunner:
     ) -> tuple[str | None, str | None]:
         if str(job.get("session_mode") or "fixed") == "fixed":
             session_id = str(job.get("session_id") or "")
-            if not ObjectId.is_valid(session_id):
+            if not is_valid_backend_id(session_id):
                 raise LookupError("目标会话不存在")
             exists = await get_db().chat_sessions.find_one(
                 add_tenant_scope(
-                    {"_id": ObjectId(session_id), "user_id": user_id}, tenant_id
+                    {"_id": to_backend_id(session_id), "user_id": user_id}, tenant_id
                 ),
                 {"_id": 1},
             )

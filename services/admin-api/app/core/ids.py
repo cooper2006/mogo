@@ -49,7 +49,22 @@ def is_valid_backend_id(value: Any) -> bool:
     if isinstance(value, ObjectId):
         return True
     text = str(value)
-    if _is_panweidb():
-        # panwei 主键就是字符串，任意非空值都可能是合法主键。
-        return text != ""
+    # 两种后端的主键都由 ObjectId 生成（panwei 落成 str(_id) = 24-hex），故合法性
+    # 判定一致，保持依赖 ObjectId.is_valid 的既有校验语义（invalid id 应被拒）。
     return ObjectId.is_valid(text)
+
+
+def to_backend_id_strict(value: Any) -> Any:
+    """同 :func:`to_backend_id`，但非法 id 抛 ``ValueError``。
+
+    用于原先依赖 ``ObjectId(...)`` 构造抛错的调用点，保持其校验语义：
+    mongo 下非法 24-hex 会抛错，panwei 下同样拒绝非法 id（主键即 24-hex 字符串）。
+    """
+    if value is None:
+        raise ValueError("id 不能为空")
+    if isinstance(value, ObjectId):
+        return str(value) if _is_panweidb() else value
+    text = str(value)
+    if not ObjectId.is_valid(text):
+        raise ValueError(f"非法 id: {value!r}")
+    return text if _is_panweidb() else ObjectId(text)

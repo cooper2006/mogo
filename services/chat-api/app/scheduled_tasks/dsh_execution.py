@@ -7,6 +7,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 
 from app.core.config import get_settings
@@ -174,10 +175,10 @@ class ScheduledDshExecution:
     ) -> None:
         now = utc_now()
         db = get_db()
-        if conversation_title and ObjectId.is_valid(turn.conversation_id):
+        if conversation_title and is_valid_backend_id(turn.conversation_id):
             await db.chat_sessions.update_one(
                 add_tenant_scope(
-                    {"_id": ObjectId(turn.conversation_id), "user_id": user_id}, tenant_id
+                    {"_id": to_backend_id(turn.conversation_id), "user_id": user_id}, tenant_id
                 ),
                 {"$set": {"title": conversation_title[:160], "updated_at": now}},
             )
@@ -188,7 +189,7 @@ class ScheduledDshExecution:
         }
         await db.chat_messages.update_one(
             add_tenant_scope(
-                {"session_id": ObjectId(turn.conversation_id), "message_id": turn.message_id},
+                {"session_id": to_backend_id(turn.conversation_id), "message_id": turn.message_id},
                 tenant_id,
             ),
             {"$set": schedule_fields},
@@ -227,7 +228,7 @@ class ScheduledDshExecution:
         db = get_db()
         await db.chat_sessions.update_one(
             add_tenant_scope(
-                {"_id": ObjectId(turn.conversation_id), "user_id": user_id}, tenant_id
+                {"_id": to_backend_id(turn.conversation_id), "user_id": user_id}, tenant_id
             ),
             {"$set": {
                 "scheduled_unread": True,

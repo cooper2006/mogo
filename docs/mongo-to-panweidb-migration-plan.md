@@ -179,7 +179,7 @@ INSERT INTO t VALUES ('a',1) ON CONFLICT (id,n) DO NOTHING
 > 「`GROUP BY <expr>` 与 `SELECT <同一 expr 但套了 ::text>` 判定为不同表达式」的
 > 边界比字面描述更窄（§2.6 的原始场景是 jsonb 表达式），值得复核。
 
-### 2.9 主键 `_id` 类型归一化的调用点核对（T085，2026-10-14）
+### 2.9 主键 `_id` 类型归一化的调用点改造（T085，2026-10-14）
 
 §4 已约定 `_id` 统一落成 hex **字符串**（`str(ObjectId)`，24 位十六进制）。本节为切流前的调用点核对结论。
 
@@ -196,7 +196,10 @@ INSERT INTO t VALUES ('a',1) ON CONFLICT (id,n) DO NOTHING
 
 **改造方向（R3 / 灰度切流前置）**：将 115 处与后端类型解耦——查询用 `str(x)`、校验改为字符串长度/hex 判断、`isinstance(_, ObjectId)` 改为字符串判断或删除。**未完成前不得把对应域切到 PanWeiDB**，否则第 3 类会静默改变分支、第 1 类会扩大异常面。
 
-**现状**：R3 增量化切流的**前置阻塞项**；本轮仅登记，不改业务代码。
+**现状**：已完成三服务（admin-api / chat-api / document-parser）解耦——新增 `app/core/ids.py`
+提供 `to_backend_id`（归一化）、`to_backend_id_strict`（非法即抛错，替代原 `ObjectId(...)` 的
+抛错语义）、`is_valid_backend_id`（合法性判定）。mongo 模式行为**不变**，panwei 模式一律字符串。
+三服务 panwei 全量回归全绿。
 
 ---
 
@@ -463,7 +466,7 @@ PANWEIDB_POOL_MAX_SIZE=10
 | 逐域开关（`MOGO_DATA_BACKEND_<DOMAIN>`） | ✅ `effective_data_backend_for`（域级覆盖回退全局；逐域路由双池属 R3） |
 | 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对 | ✅ sparse/partial 已支持；实测 unique 34 处、sparse 3 处、partial 0 处；TTL（`expireAfterSeconds`）7 处**已实现**为应用层清理（§5.5） |
 | 正则方言核对（PCRE→ARE `translate_regex_pattern`） | ✅ 差分 32/32，实际调用点无拒绝分支命中 |
-| 主键 `_id` 类型归一化调用点核对 | ✅ 登记 115 处强耦合点（§2.9），R3 切流前置 |
+| 主键 `_id` 类型归一化调用点改造 | ✅ 三服务 115 处已解耦（`to_backend_id`/`to_backend_id_strict`/`is_valid_backend_id`，§2.9）；mongo 行为不变、panwei 用字符串 |
 | document-parser 锁定文件单一来源 | ✅ `--docker 3.13` 重生成，1342 hashes，正文不变仅清头部噪声 |
 | 三服务 panwei 后端全量回归（连真实 PanWeiDB，独立回归 schema `regress_*`） | ✅ **admin-api rc=0；document-parser rc=0；chat-api rc=0（全量全绿）**。chat-api 原 12 失败=单测直接调 `get_db()` 未 `init_backend()`（panwei 不懒建池的接入契约），已在 `tests/conftest.py` 加 panwei 适配 fixture（惰性池替身透传真池 + async 真池 init）修复；**非 pg_compat 数据层缺陷** |
 
@@ -558,7 +561,7 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
 | 5 | 兼容层代码在 3 个服务间重复 | 中 | 与仓库既有架构一致（`db.py`/`config.py` 本就每服务一份）；R3 可抽成共享包 |
 | 6 | 投影在 Python 侧裁剪 | 低 | R2 下推为 SQL |
 | 7 | 唯一索引语义（sparse/partial）差异 | 中 | R2 逐点核对 202 处索引声明 |
-| 8 | `_id` 由 ObjectId 变字符串 | 中 | 已明确记录；**115 处调用点**（71 `ObjectId(` 构造 + 44 `is_valid`/`isinstance`）需与后端类型解耦、按字符串比较，详见 §2.9，改造前不得切域 |
+| 8 | `_id` 由 ObjectId 变字符串 | 中 | ✅ 已解决：**115 处调用点**（71 `ObjectId(` 构造 + 44 `is_valid`/`isinstance`）已用 `to_backend_id`/`to_backend_id_strict` 与后端类型解耦（§2.9），mongo 行为不变 |
 
 ---
 

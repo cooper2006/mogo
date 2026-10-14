@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, Field
@@ -798,7 +799,7 @@ async def get_session(
 ) -> ApiResponse:
     db = get_db()
     try:
-        oid = ObjectId(session_id)
+        oid = to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
@@ -945,7 +946,7 @@ async def mark_scheduled_read(
     """
     db = get_db()
     try:
-        oid = ObjectId(session_id)
+        oid = to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
     updated = await db.chat_sessions.update_one(
@@ -967,7 +968,7 @@ async def update_session(
 ) -> ApiResponse:
     db = get_db()
     try:
-        oid = ObjectId(session_id)
+        oid = to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
@@ -1012,7 +1013,7 @@ async def end_session(
     current state without re-triggering sedimentation.
     """
     try:
-        oid = ObjectId(session_id)
+        oid = to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
@@ -1049,7 +1050,7 @@ async def delete_session(
 ) -> ApiResponse:
     db = get_db()
     try:
-        oid = ObjectId(session_id)
+        oid = to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
 
@@ -1108,7 +1109,7 @@ async def append_messages(
     authorization: str | None = Header(default=None),
 ) -> ApiResponse:
     try:
-        ObjectId(session_id)
+        to_backend_id(session_id)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid session id") from exc
     if not payload.messages:

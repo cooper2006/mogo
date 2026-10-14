@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 from fastapi import HTTPException
 
@@ -85,12 +86,12 @@ async def resolve_session_user(authorization: str | None) -> dict:
         raise HTTPException(status_code=401, detail=detail)
 
     user_id = str(session_doc.get("user_id") or "")
-    if not ObjectId.is_valid(user_id):
+    if not is_valid_backend_id(user_id):
         raise HTTPException(status_code=401, detail="invalid_session_user")
 
     tenant_id = resolve_tenant_id(session_doc.get("tenant_id"))
     user_doc = await db[USER_COLLECTION].find_one(
-        add_tenant_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id)
+        add_tenant_scope({"_id": to_backend_id(user_id), "status": "active"}, tenant_id)
     )
     if not user_doc:
         raise HTTPException(status_code=401, detail="user_not_found")

@@ -231,7 +231,7 @@
 - [x] T082 域级开关：三服务 config 加 `effective_data_backend_for`（域级覆盖回退全局；逐域路由双池属 R3）
 - [x] T083 202 处索引核对：`create_index` 支持 sparse/partial（`_inline_placeholders` 内联字面量规避 PG 参数类型推断失败），抽 `_build_create_index_sql` 并补单测。实测 unique 34 处、sparse 3 处、partial 0 处；TTL（`expireAfterSeconds`）**7 处已实现**为应用层清理（兼容层 `create_index` 登记声明 + `purge_expired_ttl` + 各服务 `ttl_purge_loop`，见 plan §5.5）
 - [x] T084 正则核对：`translate_regex_pattern`（`\b`→`\y`、`\w`→ASCII、拒 `\p{}`/`(?P<>)`/`[[:word:]]`），差分 32/32；实际调用点均简单构造、无拒绝命中。单测全 56 项过
-- [x] T085 主键核对：登记 115 处强耦合点（71 `ObjectId(` + 44 `is_valid`/`isinstance`）+ 三类失效模式 → plan §2.9 / §10#8；R3 切流前置阻塞项（本轮仅登记）
+- [x] T085 主键改造：三服务 115 处已解耦（新增 `app/core/ids.py` 的 `to_backend_id`/`to_backend_id_strict`/`is_valid_backend_id`）；mongo 行为不变、panwei 用字符串；三服务 panwei 回归全绿（见 plan §2.9）
 - [x] T086 锁定文件：`--docker 3.10` 更新为 **3.13**（随 Dockerfile 升级）；1342 hashes/1512 lines，diff 仅清头部 2 处非标准残留（`--no-index`、`---trusted-host mirrors.aliyun.com`），正文不变
 - [x] T087 质量门禁：本仓无 speckit-checklist/analyze 脚本；checklist 产物即 `checklists/requirements.md`（CHK001–035，追加 R2/R3 收敛登记），analyze 以四道实际门禁（parity 14/14 + 编译 + 差分 + 回归）替代并登记
 

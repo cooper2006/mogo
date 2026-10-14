@@ -14,7 +14,13 @@ import asyncio
 from app.llm import configured_models
 from app.llm.configured_models import ModelConfigError
 from app.llm.types import LLMResponse, Message, Role
+from app.core.ids import to_backend_id
 from bson import ObjectId
+
+
+def _new_id():
+    """后端无关的新 id（mongo→ObjectId，panwei→str），与生产代码一致。"""
+    return to_backend_id(ObjectId())
 
 
 class _EchoClient:
@@ -116,7 +122,7 @@ def _fake_db(instances: list[dict], providers: dict[str, dict], end_users: list[
 
 def _instance(provider_key: str, *, instance_id=None, **fields) -> dict:
     base = {
-        "_id": instance_id or ObjectId(),
+        "_id": instance_id or _new_id(),
         "tenant_id": "m1",
         "status": "active",
         "priority": 0,
@@ -175,8 +181,8 @@ def _match(doc: dict, query: dict) -> bool:
 def test_fallback_configs_ordered_and_primary_excluded(monkeypatch) -> None:
     from bson import ObjectId
 
-    primary_id = ObjectId()
-    backup_ids = [ObjectId(), ObjectId()]
+    primary_id = _new_id()
+    backup_ids = [_new_id(), _new_id()]
     instances = [
         _instance("p-high", instance_id=primary_id, priority=0, model_name="gpt-high",
                   base_url="https://h.example"),
@@ -205,7 +211,7 @@ def test_fallback_configs_ordered_and_primary_excluded(monkeypatch) -> None:
 def test_fallback_configs_empty_when_only_primary(monkeypatch) -> None:
     from bson import ObjectId
 
-    primary_id = ObjectId()
+    primary_id = _new_id()
     instances = [
         _instance("p-high", instance_id=primary_id, priority=0, model_name="gpt-high",
                   base_url="https://h.example"),
@@ -227,8 +233,8 @@ def test_fallback_configs_empty_when_only_primary(monkeypatch) -> None:
 def test_get_llm_client_by_model_id_fails_over_to_backup(monkeypatch) -> None:
     from bson import ObjectId
 
-    primary_id = ObjectId()
-    backup_id = ObjectId()
+    primary_id = _new_id()
+    backup_id = _new_id()
     instances = [
         _instance("p-high", instance_id=primary_id, priority=0, model_name="gpt-high",
                   base_url="https://h.example"),
@@ -272,7 +278,7 @@ def test_get_llm_client_by_model_id_fails_over_to_backup(monkeypatch) -> None:
 def test_get_llm_client_by_model_id_single_provider_is_noop(monkeypatch) -> None:
     from bson import ObjectId
 
-    primary_id = ObjectId()
+    primary_id = _new_id()
     instances = [
         _instance("p-high", instance_id=primary_id, priority=0, model_name="gpt-high",
                   base_url="https://h.example"),

@@ -33,6 +33,7 @@ from app.security.session_timeout import (
     evaluate_session_timeout,
     rejection_detail,
 )
+from app.core.ids import to_backend_id
 from bson import ObjectId
 
 from app.services import end_user_session
@@ -208,7 +209,7 @@ def _session_doc(**overrides: Any) -> dict:
 
 def _user_doc() -> dict:
     return {
-        "_id": ObjectId(USER_ID),
+        "_id": to_backend_id(USER_ID),
         "tenant_id": TENANT,
         "status": "active",
         "primary_org_id": "",

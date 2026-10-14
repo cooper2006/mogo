@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 from bson import ObjectId
 
 from app.core.db import get_db
@@ -117,7 +118,7 @@ class LocalKnowledgeRAGService:
         sid = str(session_id or "").strip()
         if sid:
             try:
-                msg_filter["session_id"] = ObjectId(sid)
+                msg_filter["session_id"] = to_backend_id_strict(sid)
             except Exception as exc:
                 log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
         rows = (
@@ -188,7 +189,7 @@ class LocalKnowledgeRAGService:
         sess_filter: Dict[str, Any] = {"user_id": uid, "latest_artifact_ref": {"$exists": True}}
         if sid:
             try:
-                sess_filter["_id"] = ObjectId(sid)
+                sess_filter["_id"] = to_backend_id_strict(sid)
             except Exception as exc:
                 log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
         sessions = (
