@@ -71,6 +71,10 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
     # 不直接映射 3080 到宿主机——那种映射转发到的是容器网桥 IP 而非容器内
     # loopback，对 127.0.0.1 绑定无效（已实测确认）。
     DSH_WEB_MODE: ${DSH_WEB_MODE:-0}
+    # /tmp 在容器内是 noexec tmpfs，native cache 把 .node 二进制拷到
+    # /tmp 后加载会失败（failed to map segment from shared object）。
+    # 禁用 native cache，直接从原始路径加载。
+    NARB_DISABLE_NATIVE_CACHE: "1"
   volumes:
     - deployment-secrets:/run/askai-secrets:ro
     - dsh-runtime-data:/data/dsh-runtime

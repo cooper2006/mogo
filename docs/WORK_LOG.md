@@ -1,5 +1,24 @@
 # Work Log
 
+## 2026-10-14 user-web 复用 dsh web 会话能力 —— 调研方案（未落地）
+
+**触发**：用户对比 mogo 默认启动（user-web）与 dsh web 模式，发现后者有「对话 / 轨迹」两个可切换 tab，user-web 缺失；希望在 user-web 中直接使用 dsh web 的会话功能，先出文档、不落地。
+
+**做了什么**（本轮**只出文档，未改任何代码**）：
+
+1. **两侧勘察**：
+   - user-web：顶层视图枚举无 trajectory（`App.vue:120`）；「轨迹」是**每条 assistant 消息内联**的可折叠处理过程（`ChatWindow.vue:2005-2009` + `features/execution-v3`），非会话级 tab；发消息走 NDJSON over HTTP（`POST /askai-api/api/chat/completions`），事件契约自研 V3；会话落 Mongo（ID=ObjectId）；「对话」与「轨迹」同源（同一批 V3 事件）。
+   - 官方 dsh web（3080）：React shell + cordis client 插件；协议为 Typert Remote（unary `POST /api/<ns>/<method>` + WS `/api/remote.mux`）；会话落内核 JSONL（内核 session id）；鉴权 = launchToken→Cookie + browser-trust fence；「对话/轨迹」两 tab 由 `dsh-client-ui-conversation` 的 view-selection + `dsh-client-ui-trajectory` 提供。
+2. **产出方案文档**：`docs/user-web-复用dsh-web会话能力-方案.md`，含 7 条硬约束、4 条集成路线对比矩阵（A iframe / B 直连 /api / C 自研补 tab / D 网关适配）、推荐与决策点。
+
+**关键结论**：user-web 直连官方 `/api` 或 iframe 嵌入均与 mogo 业务治理冲突（dsh web 无多租户、无配额、无企业技能准入，且所有访问者共享同一 `$HOME/.dsh`；v0.2.1 默认 `X-Frame-Options: DENY`）；官方前端（React）与 user-web（Vue3）架构不兼容；官方 API 为 `0.2.0-rc.2` RC、无稳定性承诺。**推荐路线 C**（在 user-web 上把 execution-v3 从内联提升为会话级「轨迹」tab，数据零新增、零协议风险、保留治理），备选路线 A（iframe 旁路，仅单租户/管理员自用）。
+
+**改动文件**：新增 `docs/user-web-复用dsh-web会话能力-方案.md`。
+
+**遗留 / 后续**：待用户拍板方向——① 轨迹 tab 形态（会话级时间线 vs 内联+总览）；② 是否接受旁路入口绕过治理；③ 目标场景（单租户 vs 多租户）。另记录一处既有死链路：`resolvePermission → POST /chat/permission` 后端无此路由，轨迹 tab 复用审批交互时需改接 `/api/dsh/tool-approvals`。
+
+---
+
 ## 2026-10-14 web 模式绑定策略改走 gateway 反代（方案2）+ 单节点拓扑收尾
 
 **触发**：上一轮端到端验证发现一个真实缺陷——`dsh-runtime-host` 用默认 `127.0.0.1:3080` 绑定时，宿主机 `curl localhost:13080` 返回 `HTTP 000`（空响应），而容器内 `docker exec` 访问 127.0.0.1:3080 正常。根因：docker/OrbStack 端口映射转发到的是**容器网桥 IP**（如 `192.168.x.x:3080`），不是容器内 loopback，所以 127.0.0.1 绑定的进程收不到映射进来的请求。dsh CLI 又**有意拒绝 `--host 0.0.0.0`**（`dsh-web-app/lib/startup.js:40`，明确写了"会把远程代码执行面暴露到网络"），因此"直接端口映射"这条路在官方安全设计下走不通。用户选定**方案2**：维持官方安全边界，web 走反代网关暴露。
@@ -11410,3 +11429,61 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
   2.7「`$percentile` 与 MongoDB 版本」；R2 节改为已交付并修正估算失实
 - `specs/027-mongo-to-panweidb-migration/{plan,tasks,quickstart}.md`：同步 R2 事实
 - `CHANGELOG.md`：新增 R2 条目与 min/max 文本比较的已知限制
+
+## 2026-10-14 main 分支打包重启 + 离线包修复
+
+**触发**：用户要求在 main 分支下打包并重启服务。
+
+**做了什么**：
+
+1. **全量构建**：`./mogo build` 构建 8 个服务镜像（版本 `v0.2.1-17-ga61db80`）。
+   - admin-api、admin-web、chat-api、dsh-runtime-host、gateway、user-web 构建成功
+   - document-parser 构建失败：离线 pip 包 `pip-wheels-bundle.tar.gz` 中缺少 `dnspython==2.9.0`
+
+2. **dnspython 补包**：从阿里云 PyPI 镜像下载
+   `dnspython-2.9.0-py3-none-any.whl`（sha256:
+   `9a4aedb833c3c1b49214d04d44d3032ab7a9135f7c1d29a549b4ff78fd82fda9`，
+   与 `requirements.txt` 中 hash 一致），解包后放入 `arm64/` 目录，重建
+   `services/document-parser/pip-wheels-bundle.tar.gz`（803M→804M）。
+   之后 document-parser 可以走离线安装，无需 `PIP_OFFLINE_INSTALL=false`。
+
+3. **chat-api 镜像 tag 修正**：首次手动构建时未正确设置
+   `MOGO_CHAT_API_IMAGE`，导致镜像被 tag 为
+   `ghcr.io/himovo/chat-api:v0.2.1-17-ga61db80`（带 registry 前缀），
+   已重新 tag 为裸名 `chat-api:v0.2.1-17-ga61db80`。
+
+4. **dsh-runtime-host 原生插件缓存修复**：容器内 `/tmp` 是
+   `noexec` tmpfs，`node-addon-native-custom-loader` 的
+   `materializedNativeBinaryPath` 把 `.node` 二进制拷贝到 `/tmp`
+   后加载失败（`failed to map segment from shared object`）。
+   在 `docker-compose.yml` 的 `x-dsh-runtime-host-template` 中添加
+   `NARB_DISABLE_NATIVE_CACHE: "1"`，禁用 native cache，直接从原始路径加载。
+
+5. **重启**：`./mogo up` 重建并启动全部服务，所有 8 个服务 healthy。
+
+**改动文件**：
+- `services/document-parser/pip-wheels-bundle.tar.gz`：补入 dnspython==2.9.0 wheel
+- `docker-compose.yml`：dsh-runtime-host 模板添加 `NARB_DISABLE_NATIVE_CACHE: "1"`
+
+## 2026-10-14 /dsh-web/ 502 修复：HTTP 反向代理 + token 自动注入
+
+**触发**：浏览器访问 `https://localhost/dsh-web/` 返回 502。
+
+**根因分析**：
+1. dsh web profile 出于安全设计只绑 `127.0.0.1:3081`（`--host 0.0.0.0` 被官方拒绝，见 `startup.js`）。
+2. 网关 nginx 的 `proxy_pass http://dsh-runtime-host:3080` 解析到容器网桥 IP，连不上 loopback。
+3. 即使容器内起 TCP 转发，dsh 的 browser-trust fence 也要求 `GET /` 必须带 `?token=XXX`（动态生成的 launch token，每次启动随机），无 token 返回 401/重置。
+
+**方案**：在 entrypoint 中起一个 HTTP 反向代理（Node.js），监听 `0.0.0.0:3080`，转发到 `127.0.0.1:3081`，并自动注入 token：
+- 从 dsh 输出中提取 token（`dsh web: http://...?token=XXX`）
+- 仅在请求无 token 且无 `dsh-auth-*` cookie 时追加 `?token=XXX`
+- 已有 cookie 的后续请求直接转发，避免 303 死循环
+- 保留原始 Host 头（nginx 传过来的 `localhost`），使 cookie authority 一致
+
+**验证**：
+- 首次请求（无 cookie）：303 → 设置 `dsh-auth-*` cookie（authority=localhost）
+- 二次请求（带 cookie）：200 → `<!doctype html><title>DeepSeek Harness</title>`
+- `curl -L` 不死循环
+
+**改动文件**：
+- `services/chat-api/dsh/runtime-host/entrypoint.sh`：web profile 改用 `web_port+1`（3081）避免端口冲突；输出重定向到 `/tmp/dsh-web.log` 用于提取 token；新增 HTTP 反向代理（`0.0.0.0:3080 → 127.0.0.1:3081`，自动注入 token）
