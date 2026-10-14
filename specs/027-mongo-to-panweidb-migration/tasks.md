@@ -226,14 +226,14 @@
   测试验证**同样失败**，且 `db.py` 对 `pg_compat` 是**惰性导入**（mongo 模式下
   根本不加载）——与本次改动无关。
 
-**剩余待办（R3 或按需）**：
+**收敛核对（R2 收尾，2026-10-14 全部完成）**：
 
-- [ ] T082 域级开关（`MOGO_DATA_BACKEND_<DOMAIN>`）：整体切换已足够，域级切换留待 R3 前按需加
-- [ ] T083 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对（`unique` 已支持）
-- [ ] T084 正则使用点核对（PCRE vs ARE 方言差异）
-- [ ] T085 按对象类型比较主键的调用点核对
-- [ ] T086 补跑 `bash scripts/generate-hashes.sh document-parser --docker 3.10`（恢复锁定文件单一来源）
-- [ ] T087 补齐 `/speckit-checklist` 与 `/speckit-analyze` 质量门禁
+- [x] T082 域级开关：三服务 config 加 `effective_data_backend_for`（域级覆盖回退全局；逐域路由双池属 R3）
+- [x] T083 202 处索引核对：`create_index` 支持 sparse/partial（`_inline_placeholders` 内联字面量规避 PG 参数类型推断失败），抽 `_build_create_index_sql` 并补单测。实测 unique 34 处、sparse 3 处、partial 0 处；TTL（`expireAfterSeconds`）4 处**未实现**（透传丢弃，plan §5.5 已登记）
+- [x] T084 正则核对：`translate_regex_pattern`（`\b`→`\y`、`\w`→ASCII、拒 `\p{}`/`(?P<>)`/`[[:word:]]`），差分 32/32；实际调用点均简单构造、无拒绝命中。单测全 56 项过
+- [x] T085 主键核对：登记 115 处强耦合点（71 `ObjectId(` + 44 `is_valid`/`isinstance`）+ 三类失效模式 → plan §2.9 / §10#8；R3 切流前置阻塞项（本轮仅登记）
+- [x] T086 锁定文件：`--docker 3.10` 更新为 **3.13**（随 Dockerfile 升级）；1342 hashes/1512 lines，diff 仅清头部 2 处非标准残留（`--no-index`、`---trusted-host mirrors.aliyun.com`），正文不变
+- [x] T087 质量门禁：本仓无 speckit-checklist/analyze 脚本；checklist 产物即 `checklists/requirements.md`（CHK001–035，追加 R2/R3 收敛登记），analyze 以四道实际门禁（parity 14/14 + 编译 + 差分 + 回归）替代并登记
 
 ---
 

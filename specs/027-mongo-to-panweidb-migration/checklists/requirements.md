@@ -66,3 +66,24 @@
   spec → plan → tasks → implement → converge 推进。
 - 跨特性关系已就位（022 审计分离、020 多租户、026 数据库性能、023 可观测性、
   002/017 的聚合管道调用点），实施时避免与其他特性重叠或口径冲突。
+
+## R2/R3 收敛门禁（T087，2026-10-14 登记）
+
+`/speckit-checklist` 的产物即本 `checklists/requirements.md`（CHK001–035）。本仓
+`.specify/scripts` **无** `/speckit-checklist`、`/speckit-analyze` 可执行脚本，故
+analyze 环节以四道**实际门禁**替代（均可复跑，027 独有）：
+
+1. **兼容层 parity 守卫**：`python -m pytest deploy/tests/test_pg_compat_parity.py`
+   （异步两份逐字节一致 + 同步等于机械变换）→ **14/14**。
+2. **编译门禁**：三服务 `pg_compat.py` + `config.py` 全部 `py_compile` 通过。
+3. **差分测试**（脚本在 `/tmp`，需连真实 MongoDB，未入库）：聚合 19/19、`bulk_write`
+   8/8、正则 32/32、partial/sparse 索引 4/4。
+4. **全量回归**（默认 mongo 路径）：admin-api 907/907、document-parser 22/22、
+   chat-api 2857/2860（3 个失败为既有环境问题——需宿主机真实 Mongo，HEAD 版本同样
+   失败，与本次改动无关）。
+
+**待定值项（不阻塞 R2，R3 前需 `/speckit-clarify` 消解）**：CHK015（兼容层性能预算
+p95/吞吐）、CHK027（索引验收抽样口径）。
+
+**R3 前置阻塞项**：① 主键 `_id` 类型归一化的 115 处调用点改造（plan §2.9）；
+② 建索引 TTL（`expireAfterSeconds`）4 处未实现（plan §5.5）。

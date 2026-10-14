@@ -179,6 +179,25 @@ INSERT INTO t VALUES ('a',1) ON CONFLICT (id,n) DO NOTHING
 > 「`GROUP BY <expr>` 与 `SELECT <同一 expr 但套了 ::text>` 判定为不同表达式」的
 > 边界比字面描述更窄（§2.6 的原始场景是 jsonb 表达式），值得复核。
 
+### 2.9 主键 `_id` 类型归一化的调用点核对（T085，2026-10-14）
+
+§4 已约定 `_id` 统一落成 hex **字符串**（`str(ObjectId)`，24 位十六进制）。本节为切流前的调用点核对结论。
+
+**规模（仅 `app/` 应用代码）**：共 **115 处** 与 `_id`/`ObjectId` 强耦合——
+71 处 `ObjectId(...)` 构造 + 44 处 `ObjectId.is_valid(...)`/`isinstance(_, ObjectId)` 守卫。
+分布：admin-api 41（29 构造 / 12 守卫）、chat-api 65（43 构造 / 22 守卫）、document-parser 1。
+重灾区：`chat-api` 的 `api/endpoints/{sessions(6), auth(6 构造/5 守卫)}`、`dsh_runtime/conversation/repository.py(7/5)`、`scheduled_tasks/{repository(3), runner(2), dsh_execution(3/1)}`；`admin-api` 的 `repositories/{model_repository(9), org_user_repository(8)}`、`api/routes/{traffic_allocations, analytics, position_roles, dashboard, directory, knowledge_documents}(共 22)`。
+
+**三类失效模式**：
+
+1. `ObjectId(x)` 构造查询 `_id`：迁移后 `_id` 为 24-hex 字符串，`ObjectId(x)` 仅当 `x` 合法 24-hex 才成功；若上层把任意用户输入直接 `ObjectId(...)` 会抛 `InvalidId`（Mongo 下同样抛，非新差异），但穿透到字符串后端时**应改为直接用字符串 `x`**，去掉多余转换与额外异常面。
+2. `ObjectId.is_valid(s)` 守卫：`_id` 恒为 24-hex，结果与原一致，不影响；但若把 `is_valid` 当资源存在性之外的业务校验，需复核语义。
+3. `isinstance(v, ObjectId)`：**必失效**——迁移后 `doc["_id"]` 与入参均为 `str`，判断恒为 `False`，会改变分支走向（如 `if isinstance(id, ObjectId): … else: str 规范化` 的 else 分支）。
+
+**改造方向（R3 / 灰度切流前置）**：将 115 处与后端类型解耦——查询用 `str(x)`、校验改为字符串长度/hex 判断、`isinstance(_, ObjectId)` 改为字符串判断或删除。**未完成前不得把对应域切到 PanWeiDB**，否则第 3 类会静默改变分支、第 1 类会扩大异常面。
+
+**现状**：R3 增量化切流的**前置阻塞项**；本轮仅登记，不改业务代码。
+
 ---
 
 ## 3. 现状盘点
@@ -347,7 +366,7 @@ UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.i
 
 | 差异 | 说明 | 影响 |
 |---|---|---|
-| `_id` 类型 | JSONB 存不下 `ObjectId`，统一落成 hex **字符串** | `str(doc["_id"])` 无影响；`doc["_id"] == ObjectId(...)` 会不等 |
+| `_id` 类型 | JSONB 存不下 `ObjectId`，统一落成 hex **字符串**（T085 核对：115 处调用点受字符串化影响，见 §2.9） | `str(doc["_id"])` 无影响；`doc["_id"] == ObjectId(...)` 会不等 |
 | `$regex` 方言 | Mongo 用 PCRE，PG 用 ARE | 复杂断言（lookahead 等）需改写 |
 | 投影 | 在 Python 侧裁剪（R1 简化） | 大文档投影有额外内存/传输开销，R2 可下推 SQL |
 | `$inc` / `$max` / `$min` | 走 `::numeric` 转换 | 仅支持数值字段 |
@@ -438,8 +457,11 @@ PANWEIDB_POOL_MAX_SIZE=10
 | **差分测试**：同一管道/同一批操作在 MongoDB 与 PanWeiDB 上跑并比对结果 | ✅ 聚合 11/11、`bulk_write` 8/8 |
 | **纯逻辑单测**（聚合编译器，含占位符不变量与 openGauss 偏差回归） | ✅ +15 项（共 44 项） |
 | **三服务全量回归** | 见下 |
-| 逐域开关（`MOGO_DATA_BACKEND_<DOMAIN>`） | 未做（整体切换已足够，域级开关留待 R3 前按需加） |
-| 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对 | 未做（`create_index` 已支持 `unique`；稀疏/部分索引无直接对应物，见「已知语义差异」） |
+| 逐域开关（`MOGO_DATA_BACKEND_<DOMAIN>`） | ✅ `effective_data_backend_for`（域级覆盖回退全局；逐域路由双池属 R3） |
+| 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对 | ✅ sparse/partial 已支持；实测 unique 34 处、sparse 3 处、partial 0 处；TTL（`expireAfterSeconds`）4 处未实现（见 §5.5） |
+| 正则方言核对（PCRE→ARE `translate_regex_pattern`） | ✅ 差分 32/32，实际调用点无拒绝分支命中 |
+| 主键 `_id` 类型归一化调用点核对 | ✅ 登记 115 处强耦合点（§2.9），R3 切流前置 |
+| document-parser 锁定文件单一来源 | ✅ `--docker 3.13` 重生成，1342 hashes，正文不变仅清头部噪声 |
 
 **R2 的关键设计决策**：把「补齐缺口」实现为**兼容层能力**而不是改写 25 处业务调用点 ——
 这样调用点仍然零修改，符合 R1 定下的路线。代价是兼容层多了一个聚合编译器，
@@ -532,7 +554,7 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
 | 5 | 兼容层代码在 3 个服务间重复 | 中 | 与仓库既有架构一致（`db.py`/`config.py` 本就每服务一份）；R3 可抽成共享包 |
 | 6 | 投影在 Python 侧裁剪 | 低 | R2 下推为 SQL |
 | 7 | 唯一索引语义（sparse/partial）差异 | 中 | R2 逐点核对 202 处索引声明 |
-| 8 | `_id` 由 ObjectId 变字符串 | 中 | 已明确记录；受影响调用点需按字符串比较 |
+| 8 | `_id` 由 ObjectId 变字符串 | 中 | 已明确记录；**115 处调用点**（71 `ObjectId(` 构造 + 44 `is_valid`/`isinstance`）需与后端类型解耦、按字符串比较，详见 §2.9，改造前不得切域 |
 
 ---
 
