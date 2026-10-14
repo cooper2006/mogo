@@ -372,9 +372,9 @@ UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.i
 | `$inc` / `$max` / `$min` | 走 `::numeric` 转换 | 仅支持数值字段 |
 | 唯一索引 | 建在 `(doc #> '{f}')` 表达式上 | 与 Mongo 的 sparse/partial 索引语义不同，需逐点确认 |
 | 索引方向 | 忽略 `-1` | PG btree 可双向扫描，不影响可用性 |
-| TTL 索引（`expireAfterSeconds`） | openGauss **无原生 TTL 索引**等价物 | 7 处调用点改由应用层定期清理实现；兼容层暂透传丢弃（不报错），过期逻辑属 R3 |
+| TTL 索引（`expireAfterSeconds`） | openGauss **无原生 TTL 索引**等价物 | ✅ 7 处已由应用层清理实现：兼容层登记声明 + `purge_expired_ttl()` + 各服务 `ttl_purge_loop` 定期执行 |
 
-**TTL 7 处清单与清理方案**：openGauss 无 Mongo 的 TTL 索引机制。7 处 —— admin-api 3：`directory_repository`（`user_invite_expires_ttl`，`expires_at`,0）、`security/mfa_policy`（`mfa_used_steps_ttl`，`expires_at`,0）、`security/audit_events`（retention_days×86400）；chat-api 4：`security/mfa_policy`（`mfa_used_steps_ttl`）、`main`（`end_user_sessions`/`end_user_login_challenges`，`expires_at`,0）、`enterprise_capabilities/browser/engine/recording/store`（24h）。兼容层 `create_index` 暂透传 `expireAfterSeconds`（不影响建索引），过期删除由各服务 Celery/定时任务执行 `DELETE FROM <collection> WHERE (doc->>'expires_at')::timestamptz < now()`，R3 落地。
+**TTL 7 处清单与清理方案（已实现）**：openGauss 无 Mongo 的 TTL 索引机制。7 处 —— admin-api 3：`directory_repository`（`user_invite_expires_ttl`，`expires_at`,0）、`security/mfa_policy`（`mfa_used_steps_ttl`，`expires_at`,0）、`security/audit_events`（retention_days×86400）；chat-api 4：`security/mfa_policy`（`mfa_used_steps_ttl`）、`main`（`end_user_sessions`/`end_user_login_challenges`，`expires_at`,0）、`enterprise_capabilities/browser/engine/recording/store`（24h）。**实现**：兼容层 `create_index` 登记 `(collection, field, N)` 到 `_TTL_REGISTRY`；`purge_expired_ttl(pool, schema)` 执行 `DELETE FROM <schema>.<collection> WHERE (doc->>'<field>')::timestamptz <= now() - N 秒`；各服务 `app/core/ttl_purge.py` 的 `TtlPurgeLoop` 在 startup 起、shutdown 停（默认每小时，`MOGO_TTL_PURGE_INTERVAL_SECONDS` 可调；mongo 模式 no-op）。审计（admin `audit_events.purge_expired`）本就有应用层兜底。
 
 ---
 
@@ -461,7 +461,7 @@ PANWEIDB_POOL_MAX_SIZE=10
 | **纯逻辑单测**（聚合编译器，含占位符不变量与 openGauss 偏差回归） | ✅ +15 项（共 44 项） |
 | **三服务全量回归** | 见下 |
 | 逐域开关（`MOGO_DATA_BACKEND_<DOMAIN>`） | ✅ `effective_data_backend_for`（域级覆盖回退全局；逐域路由双池属 R3） |
-| 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对 | ✅ sparse/partial 已支持；实测 unique 34 处、sparse 3 处、partial 0 处；TTL（`expireAfterSeconds`）7 处未实现（openGauss 无 TTL 索引，改应用层清理，见 §5.5） |
+| 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对 | ✅ sparse/partial 已支持；实测 unique 34 处、sparse 3 处、partial 0 处；TTL（`expireAfterSeconds`）7 处**已实现**为应用层清理（§5.5） |
 | 正则方言核对（PCRE→ARE `translate_regex_pattern`） | ✅ 差分 32/32，实际调用点无拒绝分支命中 |
 | 主键 `_id` 类型归一化调用点核对 | ✅ 登记 115 处强耦合点（§2.9），R3 切流前置 |
 | document-parser 锁定文件单一来源 | ✅ `--docker 3.13` 重生成，1342 hashes，正文不变仅清头部噪声 |

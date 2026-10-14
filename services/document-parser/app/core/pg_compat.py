@@ -256,6 +256,47 @@ def translate_regex_pattern(pattern: str) -> str:
     return "".join(out)
 
 
+#: TTL 索引声明登记表：``collection -> (field, expireAfterSeconds)``。
+#: openGauss 无原生 TTL 索引，``create_index(..., expireAfterSeconds=N)`` 只登记声明，
+#: 过期删除由 :func:`purge_expired_ttl` 在应用层定期执行。
+_TTL_REGISTRY: dict[str, tuple[str, int]] = {}
+
+
+def ttl_registry_snapshot() -> dict[str, tuple[str, int]]:
+    """返回 TTL 声明快照（测试 / 诊断用）。"""
+    return dict(_TTL_REGISTRY)
+
+
+def purge_expired_ttl(pool: Any, schema: str, *, now: Any = None) -> int:
+    """按登记的 TTL 声明删除过期文档，返回删除总条数（best-effort）。
+
+    对每条声明 ``(field, N)`` 执行
+    ``DELETE FROM <schema>.<collection> WHERE (doc->>'<field>')::timestamptz <= now - N 秒``；
+    ``N=0`` 即字段值本身是绝对过期时间，与 Mongo ``expireAfterSeconds=0`` 语义一致。
+    表不存在（未建表）或权限不足时跳过并记日志，不中断清理循环。
+    """
+    import logging
+    from datetime import datetime, timedelta, timezone
+
+    log = logging.getLogger(__name__)
+    reference = now or datetime.now(timezone.utc)
+    total = 0
+    for collection, (field, seconds) in list(_TTL_REGISTRY.items()):
+        cutoff = reference - timedelta(seconds=seconds)
+        sql = (
+            f'DELETE FROM "{schema}"."{collection}" '
+            f"WHERE (doc ->> %s)::timestamptz <= %s"
+        )
+        try:
+            with pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, [field, cutoff])
+                    total += int(getattr(cur, "rowcount", 0) or 0)
+        except Exception:  # noqa: BLE001 - best-effort：单表失败不阻断其余表
+            log.warning("TTL 清理失败：%s.%s", schema, collection, exc_info=True)
+    return total
+
+
 def _build_create_index_sql(
     qualified: str,
     index_name: str,
@@ -1426,6 +1467,7 @@ class PgCollection:
         *,
         sparse: bool = False,
         partialFilterExpression: Mapping[str, Any] | None = None,
+        expireAfterSeconds: int | None = None,
         **_: Any,
     ) -> str:
         """Mongo 索引声明 → PG 表达式索引（含部分/稀疏唯一索引）。
@@ -1443,7 +1485,9 @@ class PgCollection:
         若同时给了 ``partialFilterExpression``，以**两者合取**为准（Mongo 也要求
         sparse 与 partialFilterExpression 不冲突）。
 
-        text / geo / TTL 仍未支持（调用即抛 :class:`PgCompatUnsupported`）。
+        text / geo 仍未支持（调用即抛 :class:`PgCompatUnsupported`）；TTL
+        （``expireAfterSeconds``）在 openGauss 无原生等价物，改为**登记声明**，
+        由 :func:`purge_expired_ttl` 在应用层定期清理。
         """
         if isinstance(keys, str):
             fields = [keys]
@@ -1454,6 +1498,10 @@ class PgCollection:
         if not fields:
             raise ValueError("create_index 需要至少一个字段")
         index_name = name or f"{self.name}_{'_'.join(f.replace('.', '_') for f in fields)}_idx"
+        if expireAfterSeconds is not None:
+            # openGauss 无原生 TTL 索引：登记声明，改由 ``purge_expired_ttl`` 应用层清理；
+            # 仍建普通 btree 索引以加速过期字段的过滤。
+            _TTL_REGISTRY[self.name] = (fields[0], int(expireAfterSeconds))
         sql = _build_create_index_sql(
             self._qualified,
             index_name,

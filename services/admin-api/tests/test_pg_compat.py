@@ -468,3 +468,96 @@ def test_create_index_partial_and_sparse_conjunction():
     assert "IS NOT NULL" in sql
     assert "(doc #> '{b}') = '1'::jsonb" in sql
 
+
+# ── TTL（expireAfterSeconds）登记与清理 ─────────────────────────────────
+
+
+class _FakeCursor:
+    def __init__(self, log, rowcount):
+        self._log = log
+        self.rowcount = rowcount
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, sql, params=None):
+        self._log.append((sql, params))
+
+
+class _FakeConn:
+    def __init__(self, log, rowcount):
+        self._log = log
+        self._rowcount = rowcount
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def cursor(self):
+        return _FakeCursor(self._log, self._rowcount)
+
+
+class _FakePool:
+    def __init__(self, rowcount=0):
+        self.log: list = []
+        self._rowcount = rowcount
+
+    def connection(self):
+        return _FakeConn(self.log, self._rowcount)
+
+
+@pytest.fixture(autouse=True)
+def _clean_ttl_registry():
+    from app.core import pg_compat
+
+    pg_compat._TTL_REGISTRY.clear()
+    yield
+    pg_compat._TTL_REGISTRY.clear()
+
+
+@pytest.mark.asyncio
+async def test_create_index_registers_ttl_declaration():
+    from app.core import pg_compat
+    from app.core.pg_compat import PgCollection
+
+    coll = PgCollection(_FakePool(), "end_user_sessions", "s")
+
+    async def _noop(sql, params):
+        return None
+
+    coll._execute = _noop  # type: ignore[assignment]
+    await coll.create_index([("expires_at", 1)], expireAfterSeconds=0)
+    assert pg_compat.ttl_registry_snapshot()["end_user_sessions"] == ("expires_at", 0)
+
+
+@pytest.mark.asyncio
+async def test_purge_expired_ttl_builds_delete_and_counts():
+    from app.core import pg_compat
+    from app.core.pg_compat import purge_expired_ttl
+
+    pg_compat._TTL_REGISTRY["t"] = ("expires_at", 0)
+    pool = _FakePool(rowcount=3)
+    deleted = await purge_expired_ttl(pool, "s")
+    assert deleted == 3
+    sql, params = pool.log[0]
+    assert 'DELETE FROM "s"."t"' in sql
+    assert "doc ->> %s" in sql
+    assert params[0] == "expires_at"
+
+
+@pytest.mark.asyncio
+async def test_purge_expired_ttl_applies_offset_for_nonzero_seconds():
+    from app.core import pg_compat
+    from app.core.pg_compat import purge_expired_ttl
+
+    pg_compat._TTL_REGISTRY["audit"] = ("occurred_at", 86400)
+    pool = _FakePool(rowcount=1)
+    await purge_expired_ttl(pool, "s")
+    _, params = pool.log[0]
+    assert params[0] == "occurred_at"
+
