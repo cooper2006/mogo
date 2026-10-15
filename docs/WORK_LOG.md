@@ -11754,3 +11754,23 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 
 **验证**：
 - [x] `git diff README.md` 仅 18/19 两行变更，内容与 spec 028/029 正文逐项对应。
+
+---
+
+## 校正 README 对 027 迁移「已完成」的偏差
+
+**背景**：上一轮刷新 028/029 后，提示 README 第 178 行「all three are implemented」与 spec 028/029 为 Draft 的张力，以及 027 迁移现状偏差。本轮先核实再改，发现真实状态与初判不同：
+- spec 028/029 虽标 `Draft`，但其代码已在 main 落地（028 的 `apps/user-web/src/components/chat/ChatViewTabs.vue`、`SessionTrajectoryView.vue`、`useChatRuntimeStore.ts`；029 的 `services/chat-api/app/api/endpoints/auth.py`、`app/core/portal_sso.py` 及测试 `test_auth_portal_sso.py` 均在 main）。故 README 对 028/029 的「已实现」描述是**准确的，偏差不成立**。
+- **真实偏差仅在 027**：spec 027 Status = `Draft（R1 基础设施已落地；R2 接线、R3 关系化待办）`，`pg_compat.py` 已在三服务落地，但 main 默认后端仍为 `mongo`（`docker-compose.yml` / `.env.example` 中 `MOGO_DATA_BACKEND:-mongo` / `=mongo`）。README 却把迁移写成「data layer moves to PanWeiDB … all three are implemented」完成态。
+
+**改动（仅 `README.md`）**，均按 spec 027 状态与 main 现状校正，028/029 保持不变：
+- 行 105（分组概述）：「moves from MongoDB to PanWeiDB … keep working untouched」→「opt-in 兼容层已落地 (R1)，但默认仍是 MongoDB；R2 接线、R3 关系化待办，mongo 仍是出厂默认」。
+- 行 178（引导句）：「all three are implemented」→「028/029 已在 main 实现；027 的 PanWeiDB 兼容层 (R1) 已落地但默认仍是 MongoDB，R2/R3 待办」。
+- 行 182（表格 17 行）：标题加「(in progress)」，描述改为「opt-in 兼容层 (R1) 已落地但默认 MongoDB；R2/R3 待办，panweidb 路径尚非出厂默认」。
+
+**验证**：
+- [x] `git grep` 确认 027/028/029 代码真实状态（pg_compat.py 在三服务；trajectory 与 portal 端点在 main）。
+- [x] `MOGO_DATA_BACKEND` 在 main 默认 `mongo`（docker-compose.yml:358/447/514、chat-api/.env.example:123、document-parser/.env.example:15）。
+- [x] `git diff README.md` 仅 027 相关 3 处变更，028/029 行未动。
+
+**改动文件（本轮 1 处）**：`M README.md`
