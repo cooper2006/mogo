@@ -63,6 +63,20 @@ test('App mounts the tab switcher for both views', () => {
   assert.match(app, /v-show="pane\.activeView !== 'trajectory'"/, 'the conversation view toggles by pane state')
   assert.match(app, /v-show="pane\.activeView === 'trajectory'"/, 'the trajectory view toggles by pane state')
   assert.doesNotMatch(app, /v-if="pane\.activeView/, 'views must toggle with v-show, never v-if (FR-007)')
+
+  // Regression guard (found by the 2026-10-15 visual check): `v-show` placed on
+  // an async component (defineAsyncComponent) is silently dropped once the
+  // component resolves, because the async placeholder vnode gets replaced and the
+  // directive lives on the outer vnode. The views then never hide. Both
+  // components must therefore be wrapped in a plain div that carries the v-show.
+  const chatWindowBlock = app.slice(app.indexOf('<ChatWindow'), app.indexOf('/>', app.indexOf('<ChatWindow')) + 2)
+  const trajectoryBlock = app.slice(
+    app.indexOf('<SessionTrajectoryView'),
+    app.indexOf('/>', app.indexOf('<SessionTrajectoryView')) + 2,
+  )
+  assert.doesNotMatch(chatWindowBlock, /v-show=/, 'v-show must not sit on the async ChatWindow component')
+  assert.doesNotMatch(trajectoryBlock, /v-show=/, 'v-show must not sit on the async trajectory component')
+  assert.match(app, /<div v-show="pane\.activeView !== 'trajectory'"/, 'a plain wrapper div must carry the v-show')
 })
 
 // ---- contract: the trajectory view reuses the shared store, read-only ----

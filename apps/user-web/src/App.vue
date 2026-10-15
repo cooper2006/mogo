@@ -2569,8 +2569,8 @@ onBeforeUnmount(() => {
               @update:view="(view: 'chat' | 'trajectory') => chatRuntime.setPaneView(pane.key, view)"
             />
             <div class="relative min-h-0 flex-1">
+            <div v-show="pane.activeView !== 'trajectory'" class="h-full w-full">
             <ChatWindow
-              v-show="pane.activeView !== 'trajectory'"
               :initial-messages="pane.messages"
               :session-id="pane.sessionId || undefined"
               :model-instance-id="pane.modelInstanceId || undefined"
@@ -2629,11 +2629,12 @@ onBeforeUnmount(() => {
               @review-code-changes="reviewCodeChanges"
               @open-code-file="openCodeFile"
             />
+            </div>
+            <div v-show="pane.activeView === 'trajectory'" class="absolute inset-0">
             <SessionTrajectoryView
-              v-show="pane.activeView === 'trajectory'"
-              class="absolute inset-0"
               :messages="pane.messages"
             />
+            </div>
             </div>
           </div>
           </div>
