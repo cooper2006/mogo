@@ -11682,4 +11682,9 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - [x] 增量复用已确认：重跑日志 `[1/4]`/`[2/4]`/`[3/4]` 多轮打印 `File was already downloaded`；amd64 复用 437M 旧缓存，仅增量补 `pymongo-4.18.3` 等 4 个新/变动 wheel，未全量重下。
 - [x] 离线包 `services/document-parser/pip-wheels-bundle.tar.gz`（813MiB，309 artifacts）经 `tar -tzf` 校验，同时含 `arm64/pymongo-4.18.3-...aarch64.whl` 与 `amd64/pymongo-4.18.3-...x86_64.whl`。（旧 `amd64/pymongo-3.13.0.tar.gz` 残留同入包，离线安装按 `==4.18.3` 精确钉，不装旧版。）
 - [x] 已 `git add scripts/pip_wheels_bundle.sh && git commit`（e0e041a）并推 `cooper2006/mogo`（离线包被 .gitignore 忽略，不入库，由 Dockerfile 从工作区 COPY）。
-- [ ] 重新 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 成功，document-api 用新镜像且 healthy（执行中）。
+- [x] 重新 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 成功：document-api 离线安装日志 `Processing /tmp/pip-wheels/arm64/pymongo-4.18.3-...aarch64.whl` → `Successfully installed ... pymongo-4.18.3`，容器 Healthy；全部服务 Healthy，`MOGO is running`，回收 13 个旧镜像约 9GB。（构建用 commit e0e041a 镜像。）
+
+**合并到 main**：
+- 远端 `mogo/main` 期间被另一会话推进到 `1bc64f7`（含与 029 的 `128d8a7` 重复的同一份 dsh-runtime-host WebSocket 修复）。029 相对 main 仅独有 pip-wheels 修复。
+- 按用户确认「仅合入 029 独有的 pip-wheels 修复」：从 `mogo/main` 起临时分支，cherry-pick `e0e041a` 生成 `4b15c5e`，快进推送到 `mogo/main`（无冲突、无重复提交）。
+- 结果：`mogo/main = 4b15c5e`，已含 029 全部有效改动（WebSocket 修复 `1bc64f7` + pip-wheels 修复）。本地 `029-user-web-sso-receiver` 现由另一会话推进到 `4cd7c86`（chore，含我的修复），与 main 分叉但二者均含本任务修复。
