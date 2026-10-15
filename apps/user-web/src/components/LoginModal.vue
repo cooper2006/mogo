@@ -4,11 +4,13 @@ import PasswordLoginForm from './login/PasswordLoginForm.vue'
 import RegisterForm from './login/RegisterForm.vue'
 import DesktopLoginServerSwitch from './desktop/DesktopLoginServerSwitch.vue'
 import { t } from '../composables/i18n'
-import type { UserProfile } from '../api/auth'
+import type { TenantCandidate, UserProfile } from '../api/auth'
 
 defineProps<{
   open: boolean
   savedUsers: string[]
+  challengeToken?: string
+  tenantCandidates?: TenantCandidate[]
 }>()
 
 const emit = defineEmits<{
@@ -69,6 +71,8 @@ function handleAuthSuccess(payload: { token: string; username: string; profile?:
         v-if="mode === 'login'"
         class="mt-5"
         :suggested-username="savedUsers[0]"
+        :challenge-token="challengeToken"
+        :tenant-candidates="tenantCandidates"
         @login-success="handleAuthSuccess"
       />
       <RegisterForm

@@ -5,6 +5,8 @@ import { t } from '../../composables/i18n'
 
 const props = defineProps<{
   suggestedUsername?: string
+  challengeToken?: string
+  tenantCandidates?: TenantCandidate[]
 }>()
 
 const emit = defineEmits<{
@@ -24,6 +26,27 @@ watch(
   () => props.suggestedUsername,
   (value) => {
     if (!username.value) username.value = value || ''
+  },
+  { immediate: true },
+)
+
+// 029：门户 SSO 多租户——外部传入选租户挑战时，直接进入"只选组织"状态
+// （免二次输密码）。挑战被清空（弹窗关闭 / 登录成功后）时同步复位，避免污染下次普通登录。
+watch(
+  () => [props.challengeToken, props.tenantCandidates] as const,
+  () => {
+    const token = props.challengeToken
+    const candidates = props.tenantCandidates
+    if (token && (candidates?.length ?? 0) > 0) {
+      challengeToken.value = token
+      tenantCandidates.value = candidates || []
+      selectedTenantId.value = tenantCandidates.value[0]?.tenantId || ''
+      errorMessage.value = ''
+    } else {
+      challengeToken.value = ''
+      tenantCandidates.value = []
+      selectedTenantId.value = ''
+    }
   },
   { immediate: true },
 )

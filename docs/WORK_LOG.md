@@ -1,5 +1,44 @@
 # Work Log
 
+## 2026-10-15 落地 spec 029：user-web 门户 SSO 接收方（后端）
+
+**触发**：用户要求「落地 spec 029」——外部门户免二次登录进入 MOGO 用户工作台。
+
+**做什么**（SDD：规格先行，`specs/029-user-web-sso-receiver/` 五件套；本条目为**后端**部分，前端见后续条目）：
+
+1. **配置**（`services/chat-api/app/core/config.py`）：新增 `PORTAL_SSO_SECRET: str = ""`，用 `field_validator` 在留空时回退到 `END_USER_AUTH_SECRET`（独立配置可让门户票据与用户会话密钥解耦）。
+2. **门卫权限**（`services/chat-api/app/security/gatekeeper.py`）：新增 scope 常量 `SCOPE_PORTAL_ISSUE_TICKET = "portal.issue_ticket"`，注册进 `GATEKEEPER_ENDPOINT_SCOPES`（键 `portal-ticket`），从而纳入 `ALL_SERVICE_SCOPES`。
+3. **票据模块**（新增 `services/chat-api/app/core/portal_sso.py`）：
+   - `create_portal_ticket()`：签发一次性票据，形状复用 022 admin_sso —— `base64url(payload).base64url(HMAC-SHA256)`，payload 含 `sub{user_id,username,tenant_id,session_id}` + `exp`，TTL 固定 60s。
+   - `verify_portal_ticket()`：**fail-closed** 验签（格式/签名/过期任一不过即抛 `PortalTicketInvalid`），`hmac.compare_digest` 常量时间比对。
+   - `mark_ticket_exchanged(db, session_id)`：accept-once 幂等，条件更新 `{session_id, exchanged:{$ne:True}}` + `upsert=True`，仅首次 `modified_count==1` 返回 True，复药/并发第二次拒绝。
+4. **端点**（`services/chat-api/app/api/endpoints/auth.py`）：
+   - `POST /api/auth/portal-ticket`：服务身份（scope `portal.issue_ticket`）校验（镜像 `principal.py` 的 `Header(alias="X-MOVO-Service-Token")` + `verify_service_call`，**无**旧式静态密钥回退，fail-closed）→ 按共享主键 `end_users._id` 解析 active 用户（无 JIT）→ 签发票据；单租户票据携带 `tenant_id`，多租户只携带身份并预插 `exchanged:False` 会话行。
+   - `POST /api/auth/portal-exchange`：验签 → accept-once（第二次 401）→ 解析用户 → 单租户复用 `_create_session()` 直建会话（返回 `{token,profile,expiresAt}` 与登录同构）/ 多租户复用 `_create_login_challenge()` 返回选租户挑战 / 跨租户拒绝。
+
+5. **前端**（`apps/user-web`）：`api/auth.ts` 新增 `exchangePortalTicket()`（POST `/auth/portal-exchange`，映射 `candidates`→`tenantCandidates`，识别多租户挑战）；`App.vue` `onMounted` 开头读 `window.history.state.portalToken` → 立即 `replaceState({},'')` 清票 → `handlePortalEntry()`：单租户成功写 `localStorage`（auth_token/auth_account/auth_user_profile）交由常规启动建会话，多租户打开登录弹窗并透传选租户挑战，失败不写 token 回退登录弹窗；`LoginModal.vue`/`PasswordLoginForm.vue` 增 `challengeToken`/`tenantCandidates` 透传 props，种子「只选组织」状态（免二次输密码），挑战清空时复位。
+6. **门户接入示例**（`docs/samples/portal-sso-integration/`）：`portal_backend.py`（签 022 服务令牌 → 调 portal-ticket）、`entry.js`（经 history.state 跳 user-web，不落 URL）、`README.md`（前置条件/配置/失败语义/安全要点）。
+7. **文档同步**（T018）：`docs/MOGO-Web应用集成方案.md` §1.3.2 标注已实现 + 纠正服务身份请求头为 `X-MOVO-Service-Token`（022 代码常量，正文 `X-MOGO-` 系笔误）+ 请求体字段 `user_id`；`specs/INDEX.md` 029 行更新为已实现；`specs/029-user-web-sso-receiver/tasks.md` T001–T020 全部勾选。
+
+**关键设计**：
+- **共享主键匹配**：按 `end_users._id`（=集成方案 §1.3.2 的 `end_users.id`），**无 JIT**——未命中即拒绝 → 前端回退登录弹窗。
+- **门户不持签名密钥**：portal-ticket 走 022 服务身份（`MOGO_PORTAL_TOKEN`），票据签名密钥 `PORTAL_SSO_SECRET` 只留在 chat-api。
+- **票据绝不下落 URL**：仅经前端 `window.history.state.portalToken` 传递。
+- **accept-once 原子性**：portal-ticket 预插 `exchanged:False` 行，exchange 用条件更新保证只有一次能真正建会话。
+
+**改动文件**：
+- 新增：`services/chat-api/app/core/portal_sso.py`、`services/chat-api/tests/api/test_auth_portal_sso.py`、`apps/user-web/tests/portal-sso-receiver.test.ts`、`docs/samples/portal-sso-integration/{README.md,portal_backend.py,entry.js}`
+- 修改：`services/chat-api/app/core/config.py`、`services/chat-api/app/security/gatekeeper.py`、`services/chat-api/app/api/endpoints/auth.py`、`services/chat-api/tests/test_security_gatekeeper.py`（scope 数 4→5）、`apps/user-web/src/api/auth.ts`、`apps/user-web/src/App.vue`、`apps/user-web/src/components/LoginModal.vue`、`apps/user-web/src/components/login/PasswordLoginForm.vue`、`apps/user-web/package.json`（增 `test:portal-sso`）、`docs/MOGO-Web应用集成方案.md`、`specs/INDEX.md`、`specs/029-user-web-sso-receiver/tasks.md`
+
+**验证**：
+- [x] `config` 回退：未配 `PORTAL_SSO_SECRET` 时取 `END_USER_AUTH_SECRET`，显式配置优先。
+- [x] `pytest tests/api/test_auth_portal_sso.py`：9 项全过（签发→换票建会话、复药 401、多租户返回挑战、未知用户 404、签名/篡改/格式/空票据 401、跨租户 401）。
+- [x] 回归：`tests/api/` + `tests/core/` + `test_security_gatekeeper.py` / `test_security_service_token.py` / `test_security_session_timeout.py` / `test_security_mfa_gate.py` 全过（exit 0）；`import app.main` 通过（无循环依赖、路由挂载正常）。
+- [x] 前端：`vue-tsc --noEmit` 0 错误；`tests/portal-sso-receiver.test.ts`（esbuild+node）契约测试通过（读票/清票、单租户写 localStorage、多租户透传挑战、失败回退、票据不进 URL）。
+- [x] 示例：`portal_backend.py` `py_compile` 通过、`entry.js` `node --check` 通过。
+
+---
+
 ## 2026-10-15 按路线 C 落地：user-web 会话级「对话 / 轨迹」双 tab（specs/028）
 
 **触发**：用户确认按 `docs/user-web-复用dsh-web会话能力-方案.md` 的**路线 C** 落地。

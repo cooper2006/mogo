@@ -390,4 +390,6 @@ def test_bind_context_preserves_scope() -> None:
 
 def test_all_service_scopes_are_registered_and_unique() -> None:
     assert gk.ALL_SERVICE_SCOPES == frozenset(gk.GATEKEEPER_ENDPOINT_SCOPES.values())
-    assert len(gk.ALL_SERVICE_SCOPES) == 4
+    # 022 gatekeeper 四权限 + 029 门户 SSO 票据签发权限。
+    assert len(gk.ALL_SERVICE_SCOPES) == 5
+    assert gk.SCOPE_PORTAL_ISSUE_TICKET in gk.ALL_SERVICE_SCOPES

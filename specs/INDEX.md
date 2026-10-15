@@ -112,22 +112,28 @@
 | 编号 | 特性 | 说明 | 优先级 | spec | plan | quickstart | tasks |
 |---|---|---|---|---|---|---|---|
 | 028 | user-web-trajectory-tab（user-web 会话级「对话 / 轨迹」双 tab） | 按 `docs/user-web-复用dsh-web会话能力-方案.md` 的**路线 C** 落地：对话与轨迹本同源（同一批 V3 事件的两种投影），把 execution-v3 从「消息内联」提升为会话级「轨迹」tab；**不引入官方 React/cordis 前端、不绕过 chat-api 治理、后端零改动** | P2 | ✅ | ✅ | ✅ | ✅ 10/10 |
-| 029 | user-web-sso-receiver（user-web SSO 接收方） | 外部门户免二次登录进入 MOGO 用户工作台；设计闭环于 `docs/MOGO-Web应用集成方案.md` §1.3.2，落地 4 阶段 T001–T020 | P2 | ✅ | ✅ | — | ✅（20 项，尚未实现） |
+| 029 | user-web-sso-receiver（user-web SSO 接收方） | 外部门户免二次登录进入 MOGO 用户工作台；设计闭环于 `docs/MOGO-Web应用集成方案.md` §1.3.2，落地 4 阶段 T001–T020 | P2 | ✅ | ✅ | — | ✅ 20/20（已实现） |
 
 > **028 的实现要点**：tab 状态挂 pane（会话级，多会话不串味），对话/轨迹用 `v-show` 而非 `v-if`
 > 切换——避免卸载 ChatWindow 中断 `useChatStream` 流式读取与丢失滚动状态（FR-007）；
 > `ChatWindow.vue` 零改动以保对话 tab 零回归。已实现并提交（commit `90fef32`，14 files），
 > 自动化验证 8/8 + 三项回归 + `vue-tsc` 0 错误 + `vite build` 通过；**quickstart 的 6 步目视验证待用户在 dev 环境执行**。
 >
-> **029 由另一会话建规约**：spec/plan/tasks 三件已就绪，quickstart 与 checklist 未建，
-> 20 项任务尚未开始实现。
+> **029 由另一会话建规约**：spec/plan/tasks 三件已就绪，quickstart 与 checklist 未建。
+> **2026-10-15 已按 T001–T020 全部实现并验证**：chat-api 新增 `app/core/portal_sso.py`（票据签发/验签/accept-once）+
+> `POST /api/auth/portal-ticket`（服务身份 scope `portal.issue_ticket`，按 `end_users._id` 匹配、无 JIT）+
+> `POST /api/auth/portal-exchange`（验签 fail-closed + accept-once + 复用 `_create_session`，单租户直建 / 多租户选租户挑战 / 跨租户拒绝）；
+> `config.py` 增 `PORTAL_SSO_SECRET`（回退 `END_USER_AUTH_SECRET`）；gatekeeper 注册 `portal.issue_ticket` scope；
+> user-web `App.vue` onMounted 读票/清票/换票/失败回落登录弹窗，多租户透传选租户挑战给登录弹窗。
+> 门户接入示例见 `docs/samples/portal-sso-integration/`。测试：chat-api `tests/api/test_auth_portal_sso.py` 9 项 +
+> user-web `tests/portal-sso-receiver.test.ts` 契约测试通过；api/security/core 回归全绿。
 
 ## 五、规约完成度统计
 
 - spec.md：001–029 全部完成（29 份；028 会话级轨迹双 tab、029 user-web SSO 接收方，均于 2026-10-15 新增）
 - plan.md：001–029 全部完成（29 份；020 为技术化实施计划，022–026 为质量加固特性计划，027 为数据后端迁移计划，028 为路线 C 前端视图方案，029 为 SSO 接收方实施计划，其余 22 份技术契约齐全）
 - checklist（需求质量门禁，`/speckit-checklist`）：001–028 完成（28 份，029 未建，`checklists/requirements.md`，reviewer-owned）；**001/002/007–021 共 17 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态；**022–026（质量加固）已于 2026-10-12 补齐 checklist（17–18 项/份，含 FR 覆盖、跨特性一致性、Non-Goals 边界与 OQ 待定标记），100% 勾选达标**；**027（数据后端迁移）于 2026-10-13 新建（35 项，勾选 33/35，未勾 2 项为 R2 进入前待消解的性能预算与索引验收口径）**
-- tasks（可执行任务，`/speckit-tasks`）：**001–029 共 29 份全部建齐**（001/002/007–021 的 17 份含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP，354 项全部勾选；**2026-10-11 新增 003/004/005/006 的 4 份**，共 141 项任务；**2026-10-11 新增 022–026 的 5 份**，共 357 项任务，覆盖 QualityForge 审计 283 个 P0/P1 缺陷；**2026-10-13 新增 027 的 1 份**，共 62 项任务，其中 R1 的 50 项已全部勾选并附实测证据）；**2026-10-15 新增 028/029 的 2 份**——028 共 10 项已全部勾选（实现与自动化验证均完成，quickstart 的 6 步目视验证待用户在 dev 环境执行）；029 共 20 项，尚未开始实现
+- tasks（可执行任务，`/speckit-tasks`）：**001–029 共 29 份全部建齐**（001/002/007–021 的 17 份含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP，354 项全部勾选；**2026-10-11 新增 003/004/005/006 的 4 份**，共 141 项任务；**2026-10-11 新增 022–026 的 5 份**，共 357 项任务，覆盖 QualityForge 审计 283 个 P0/P1 缺陷；**2026-10-13 新增 027 的 1 份**，共 62 项任务，其中 R1 的 50 项已全部勾选并附实测证据）；**2026-10-15 新增 028/029 的 2 份**——028 共 10 项已全部勾选（实现与自动化验证均完成，quickstart 的 6 步目视验证待用户在 dev 环境执行）；029 共 20 项已全部勾选并实现（2026-10-15，端点 + 换票 + 门户示例 + 前端换票闭环，api/security/core 回归全绿）
 - 实现进度（`/speckit-implement`，2026-07-08）：**19 个特性全部已有实现核心/ MVP**——P0（001/007/008）完整 MVP；P1（002/009/010/011）核心；P2（012–019）核心全部落地。合计 **313 项新测试通过**（admin-api 89 + chat-api 224）。
   > ⚠️ **该结论已被推翻（2026-10-03 重检）**：它把"有纯逻辑代码 + 单测通过"当成了"已落地"。按今天的标准
   > （生产调用方 / 消费方 / 真实数据源 / 端到端可证伪）重检 20 个特性，结果为

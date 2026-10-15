@@ -119,6 +119,38 @@ export async function selectTenantAndLogin(challengeToken: string, tenantId: str
   }
 }
 
+/**
+ * 029：门户 SSO 换票。前端把 `window.history.state.portalToken`（一次性票据，
+ * 已由 portal-ticket 端点签发）POST 到 `/auth/portal-exchange` 换取会话。
+ * - 单租户：返回 `{token, profile}`，与登录同构，可直接建会话。
+ * - 多租户：返回 `requiresTenantSelection` + 挑战，交由选租户流程继续。
+ * - 签名错 / 过期 / 复药 / 跨租户 / 未知用户：`ok:false`，前端回退登录弹窗。
+ */
+export async function exchangePortalTicket(portalToken: string): Promise<AuthResult> {
+  try {
+    const response = await client.post('/auth/portal-exchange', { portal_token: portalToken })
+    const payload = response.data
+    if (payload?.data?.requiresTenantSelection) {
+      return {
+        ok: false,
+        requiresTenantSelection: true,
+        challengeToken: payload?.data?.challengeToken,
+        tenantCandidates: payload?.data?.candidates || [],
+        message: payload?.message || t('api.auth.select_org'),
+      }
+    }
+    if (!isOk(payload)) {
+      return { ok: false, message: payload?.message || t('api.auth.login_failed') }
+    }
+    const token = payload?.data?.token
+    const profile = payload?.data?.profile
+    if (!token) return { ok: false, message: t('api.auth.missing_token') }
+    return { ok: true, token, profile }
+  } catch (error: any) {
+    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.login_failed') }
+  }
+}
+
 export type RegisterableTenant = {
   tenantId: string
   orgName: string

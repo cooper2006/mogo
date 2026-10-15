@@ -342,6 +342,13 @@ user-web（已登录终端用户） ──免密跳转──▶ admin-web（管�
 
 > 设计现已**完整可落地**：账号映射用共享 `id`、不做 JIT、租户走挑战流程、票据跨域传递。实施见「落地阶段」4 个阶段（端点 + 换票 + 门户接入 + 挑战流程）。
 
+> **实现状态（2026-10-15，spec 029 已落地）**：
+> - 两端点已实现并测试：`POST /api/auth/portal-ticket`（服务身份 + scope `portal.issue_ticket`，按 `end_users._id` 匹配，无 JIT）与 `POST /api/auth/portal-exchange`（验签 fail-closed + accept-once + 复用 `_create_session`）。user-web `App.vue` `onMounted` 已接读票/清票/换票/失败回落。
+> - ⚠️ **实际服务身份请求头为 `X-MOVO-Service-Token`**（沿用 022 `app/api/principal.py` 与 `app/security/service_token.py` 的常量 `SERVICE_TOKEN_HEADER`），本文正文的 `X-MOGO-Service-Token` 系笔误，以代码为准（两者仅差一个字母）。
+> - `portal-ticket` 请求体字段为 **`user_id`**（= `end_users._id`，共享主键）；单租户可附 `tenant_id`，多租户留空走选租户挑战。
+> - 票据签名密钥 `PORTAL_SSO_SECRET`（留空回退 `END_USER_AUTH_SECRET`）只留在 chat-api，**门户不持有**；门户仅持有 022 服务凭据 `MOGO_PORTAL_TOKEN`。
+> - 门户侧接入示例见 `docs/samples/portal-sso-integration/`（`portal_backend.py` + `entry.js` + `README.md`）。
+
 #### 现状与既有路径
 
 - MOGO 有独立的 `end_users` 与 `end_user_sessions`，**不内置 OIDC/SAML 对接**。

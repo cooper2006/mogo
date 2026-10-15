@@ -43,6 +43,7 @@ __all__ = [
     "SCOPE_GATEKEEPER_EVALUATE",
     "SCOPE_GATEKEEPER_LIST_APPROVALS",
     "SCOPE_GATEKEEPER_LIST_EVENTS",
+    "SCOPE_PORTAL_ISSUE_TICKET",
     "bind_context_to_claim",
     "build_issuer_from_env",
     "verify_service_call",
@@ -64,6 +65,8 @@ SCOPE_GATEKEEPER_EVALUATE = "gatekeeper.evaluate"
 SCOPE_GATEKEEPER_DECIDE = "gatekeeper.decide"
 SCOPE_GATEKEEPER_LIST_APPROVALS = "gatekeeper.list_approvals"
 SCOPE_GATEKEEPER_LIST_EVENTS = "gatekeeper.list_events"
+# 029：门户 SSO 接收方——门户以服务身份调用 chat-api 签发一次性登录票据所需权限。
+SCOPE_PORTAL_ISSUE_TICKET = "portal.issue_ticket"
 
 #: 端点路径 -> 所需 scope（供路由层与测试共用，避免两处漂移）。
 GATEKEEPER_ENDPOINT_SCOPES = {
@@ -71,6 +74,7 @@ GATEKEEPER_ENDPOINT_SCOPES = {
     "decide": SCOPE_GATEKEEPER_DECIDE,
     "list_approvals": SCOPE_GATEKEEPER_LIST_APPROVALS,
     "list_events": SCOPE_GATEKEEPER_LIST_EVENTS,
+    "portal-ticket": SCOPE_PORTAL_ISSUE_TICKET,
 }
 
 #: 全部已注册的 scope。校验 scope 名称合法性时用来挡住随手编造的字符串。

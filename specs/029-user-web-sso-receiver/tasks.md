@@ -20,7 +20,7 @@
 
 **Purpose**: 密钥与配置注入，为后续端点提供签名材料
 
-- [ ] T001 [P] [US1] 在 `services/chat-api/app/core/config.py` 新增 `PORTAL_SSO_SECRET` 配置项（可选；缺省降级复用 `END_USER_AUTH_SECRET`），并在 `.env.example` 追加说明（不改 `.env` 默认值，mogo 只读 `.env`）
+- [x] T001 [P] [US1] 在 `services/chat-api/app/core/config.py` 新增 `PORTAL_SSO_SECRET` 配置项（可选；缺省降级复用 `END_USER_AUTH_SECRET`），并在 `.env.example` 追加说明（不改 `.env` 默认值，mogo 只读 `.env`）
 
 **Checkpoint**: 签名密钥可经配置注入，缺省路径不破坏现有行为
 
@@ -32,9 +32,9 @@
 
 **⚠️ CRITICAL**: 本阶段未完成前不得开始端点实现
 
-- [ ] T002 [P] [US1] 在 `services/chat-api/app/api/endpoints/auth.py`（或新建 `app/security/portal_ticket.py`）实现票据签发与验签辅助函数：`sign_portal_ticket(sub, tenant_id, session_id, secret)` 与 `verify_portal_ticket(token, secret)`——`base64url(payload).base64url(HMAC-SHA256)`，payload 含 `sub`/`exp`(TTL 60s)/`session_id`，验签用 `hmac.compare_digest` 常数时间比较、fail-closed
-- [ ] T003 [P] [US1] 在 `services/chat-api/app/security/gatekeeper.py` 端点注册表登记 `portal-ticket` 的 `required_scope`（如 `portal:issue-ticket`），并在 `ServiceTokenClaim` 的 `scope` 集合语义中确认最小权限
-- [ ] T004 [P] [US3] 在 `services/chat-api/app/api/endpoints/auth.py` 实现 accept-once 幂等辅助：换票时按 `session_id` 在 `end_user_sessions` 打 `exchanged: true`（`upsert=True`），二次换票返回 401（对齐 admin-api `sso/exchange` 做法）
+- [x] T002 [P] [US1] 在 `services/chat-api/app/api/endpoints/auth.py`（或新建 `app/security/portal_ticket.py`）实现票据签发与验签辅助函数：`sign_portal_ticket(sub, tenant_id, session_id, secret)` 与 `verify_portal_ticket(token, secret)`——`base64url(payload).base64url(HMAC-SHA256)`，payload 含 `sub`/`exp`(TTL 60s)/`session_id`，验签用 `hmac.compare_digest` 常数时间比较、fail-closed
+- [x] T003 [P] [US1] 在 `services/chat-api/app/security/gatekeeper.py` 端点注册表登记 `portal-ticket` 的 `required_scope`（如 `portal:issue-ticket`），并在 `ServiceTokenClaim` 的 `scope` 集合语义中确认最小权限
+- [x] T004 [P] [US3] 在 `services/chat-api/app/api/endpoints/auth.py` 实现 accept-once 幂等辅助：换票时按 `session_id` 在 `end_user_sessions` 打 `exchanged: true`（`upsert=True`），二次换票返回 401（对齐 admin-api `sso/exchange` 做法）
 
 **Checkpoint**: 签名 / 验签 / scope 校验 / accept-once 基础就绪，可进入端点实现
 
@@ -50,14 +50,14 @@
 
 > **NOTE: 先写测试并确保实现前 FAIL**
 
-- [ ] T005 [P] [US1] 契约 / 集成测试：有效服务令牌签发 + 换票成功，返回 `{token, profile, expiresAt}` —— `services/chat-api/tests/.../test_portal_sso.py`
-- [ ] T006 [P] [US3] 参数化安全测试：过期 / 重放（二次换票）/ 篡改签名 → 均 401 —— 同上文件
+- [x] T005 [P] [US1] 契约 / 集成测试：有效服务令牌签发 + 换票成功，返回 `{token, profile, expiresAt}` —— `services/chat-api/tests/.../test_portal_sso.py`
+- [x] T006 [P] [US3] 参数化安全测试：过期 / 重放（二次换票）/ 篡改签名 → 均 401 —— 同上文件
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] 在 `services/chat-api/app/api/endpoints/auth.py` 新增 `POST /api/auth/portal-ticket`：鉴权走 022 服务身份 `verify_service_call(required_scope="portal:issue-ticket")`；按声明外部身份（共享 `id`）解析 `end_users`；解析失败拒绝（不 JIT）；签发一次性 HMAC 票据（TTL 60s）返回（FR-001/002/003）
-- [ ] T008 [US1] 在 `services/chat-api/app/api/endpoints/auth.py` 新增 `POST /api/auth/portal-exchange`：验签（fail-closed）→ accept-once（T004）→ 复用既有 `_create_session(user_doc, available_tenants)` 建会话 → 返回 `{token, profile, expiresAt}`（FR-004/005/006/007）
-- [ ] T009 [US1] 账号匹配严格走共享 `id`（T007 内），不依赖 email / login_name、不建号（FR-009）
+- [x] T007 [US1] 在 `services/chat-api/app/api/endpoints/auth.py` 新增 `POST /api/auth/portal-ticket`：鉴权走 022 服务身份 `verify_service_call(required_scope="portal:issue-ticket")`；按声明外部身份（共享 `id`）解析 `end_users`；解析失败拒绝（不 JIT）；签发一次性 HMAC 票据（TTL 60s）返回（FR-001/002/003）
+- [x] T008 [US1] 在 `services/chat-api/app/api/endpoints/auth.py` 新增 `POST /api/auth/portal-exchange`：验签（fail-closed）→ accept-once（T004）→ 复用既有 `_create_session(user_doc, available_tenants)` 建会话 → 返回 `{token, profile, expiresAt}`（FR-004/005/006/007）
+- [x] T009 [US1] 账号匹配严格走共享 `id`（T007 内），不依赖 email / login_name、不建号（FR-009）
 
 **Checkpoint**: User Story 1 独立完成——门户可签票、user-web 可换票建会话；正向 + 安全测试通过
 
@@ -69,9 +69,9 @@
 
 **Independent Test**: 在 user-web 启动注入 `window.history.state.portalToken` 模拟跳转 → 断言调用 `portal-exchange`、写 `auth_token`/`auth_account`/`auth_user_profile`、清除 state；注入无效票 → 断言回落登录弹窗
 
-- [ ] T010 [US1] 在 `apps/user-web/src/App.vue` 的 `onMounted`（约 1819 行）开头：读取 `window.history.state.portalToken` → 立即 `replaceState({}, '')` 清除 → 调 `POST /api/auth/portal-exchange {portal_token}`（FR-011/013）
-- [ ] T011 [US1] 换票成功：写入 `localStorage` 的 `auth_token` / `auth_account` / `auth_user_profile`（key 名对齐 `App.vue:60-63`），继续正常启动（FR-011）
-- [ ] T012 [US3] 换票失败（过期 / 已用 / 映射不到账号）：立即 `replaceState` 清除 state 并**回落登录弹窗**，不静默失败（参考 `apps/admin-web/src/stores/auth.ts:80-100`）（FR-012）
+- [x] T010 [US1] 在 `apps/user-web/src/App.vue` 的 `onMounted`（约 1819 行）开头：读取 `window.history.state.portalToken` → 立即 `replaceState({}, '')` 清除 → 调 `POST /api/auth/portal-exchange {portal_token}`（FR-011/013）
+- [x] T011 [US1] 换票成功：写入 `localStorage` 的 `auth_token` / `auth_account` / `auth_user_profile`（key 名对齐 `App.vue:60-63`），继续正常启动（FR-011）
+- [x] T012 [US3] 换票失败（过期 / 已用 / 映射不到账号）：立即 `replaceState` 清除 state 并**回落登录弹窗**，不静默失败（参考 `apps/admin-web/src/stores/auth.ts:80-100`）（FR-012）
 
 **Checkpoint**: 前端换票闭环；成功进工作台、失败回落登录
 
@@ -83,9 +83,9 @@
 
 **Independent Test**: 构造多租户 `end_users` → `portal-exchange` 返回 `requiresTenantSelection` + 候选列表 → 复用 `POST /api/auth/login/select-tenant` 完成选租户并建会话
 
-- [ ] T013 [US2] 在 `portal-exchange`（T008）内：换票验签通过后用 `load_tenant_candidates()` 取可用租户；>1 个返回 `requiresTenantSelection` + `tenants` 候选（不建会话、不返 token）（FR-010）
-- [ ] T014 [US2] 单租户分支：候选 = 1 时直接复用 `_create_session` 进入，不触发选租户挑战（FR-010）
-- [ ] T015 [US2] 跨租户兜底：`portal-exchange` 校验票据 `tenant_id` 与用户可用租户集合；不符返回 401（FR-016）；选租户阶段复用既有 `_create_login_challenge` / `POST /api/auth/login/select-tenant`，零改动
+- [x] T013 [US2] 在 `portal-exchange`（T008）内：换票验签通过后用 `load_tenant_candidates()` 取可用租户；>1 个返回 `requiresTenantSelection` + `tenants` 候选（不建会话、不返 token）（FR-010）
+- [x] T014 [US2] 单租户分支：候选 = 1 时直接复用 `_create_session` 进入，不触发选租户挑战（FR-010）
+- [x] T015 [US2] 跨租户兜底：`portal-exchange` 校验票据 `tenant_id` 与用户可用租户集合；不符返回 401（FR-016）；选租户阶段复用既有 `_create_login_challenge` / `POST /api/auth/login/select-tenant`，零改动
 
 **Checkpoint**: 多租户用户经挑战流程进入正确租户；跨租户被拒
 
@@ -97,8 +97,8 @@
 
 **Independent Test**: 用示例门户后端（服务令牌）调 `portal-ticket` → 前端 `state=` 跳转 user-web → 完成换票；确认 MOGO 不要求门户持有签名密钥
 
-- [ ] T016 [P] [US3] 在 `docs/samples/portal-sso-integration/` 提供门户后端示例：用服务令牌（`X-MOGO-Service-Token`）调 `portal-ticket` + 前端带 `state=` 跳转（FR-015）
-- [ ] T017 [P] [US3] 示例说明「MOGO 不要求门户持有签名密钥」「票据仅经 `state=`/POST 传递」两条关键约束（决策 #4 / FR-013）
+- [x] T016 [P] [US3] 在 `docs/samples/portal-sso-integration/` 提供门户后端示例：用服务令牌（`X-MOGO-Service-Token`）调 `portal-ticket` + 前端带 `state=` 跳转（FR-015）
+- [x] T017 [P] [US3] 示例说明「MOGO 不要求门户持有签名密钥」「票据仅经 `state=`/POST 传递」两条关键约束（决策 #4 / FR-013）
 
 **Checkpoint**: 端到端链路有可复现的外部系统示例
 
@@ -108,9 +108,9 @@
 
 **Purpose**: 安全对齐兜底与文档同步
 
-- [ ] T018 [P] [US3] 在 `docs/MOGO-Web应用集成方案.md` §1.3.2 标注「已实现 / 规约号 029」，并同步 `specs/INDEX.md` 增加 029 行（spec/plan/tasks 完成度）
-- [ ] T019 [P] [US3] 安全复盘：确认 `portal-ticket` 端点不裸暴露（走 `verify_service_call`）、密钥独立 `PORTAL_SSO_SECRET` 可轮换（FR-001/014）、票据不落 URL（FR-013）
-- [ ] T020 [P] [US1] 运行 quickstart / 既有 auth 测试套件，确认未破坏 `admin_sso` / `_create_session` 现有行为
+- [x] T018 [P] [US3] 在 `docs/MOGO-Web应用集成方案.md` §1.3.2 标注「已实现 / 规约号 029」，并同步 `specs/INDEX.md` 增加 029 行（spec/plan/tasks 完成度）
+- [x] T019 [P] [US3] 安全复盘：确认 `portal-ticket` 端点不裸暴露（走 `verify_service_call`）、密钥独立 `PORTAL_SSO_SECRET` 可轮换（FR-001/014）、票据不落 URL（FR-013）
+- [x] T020 [P] [US1] 运行 quickstart / 既有 auth 测试套件，确认未破坏 `admin_sso` / `_create_session` 现有行为
 
 ---
 

@@ -10,7 +10,7 @@ import DesktopWindowChrome from './components/desktop/DesktopWindowChrome.vue'
 import DesktopServerSetup from './components/desktop/DesktopServerSetup.vue'
 import type { DesktopToolLauncherKind } from './components/desktop/desktopToolTabs'
 import CreateProjectDialog from './components/code/CreateProjectDialog.vue'
-import { fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
+import { exchangePortalTicket, fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
 import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
 import { activateEmbeddedBrowserSession, capabilities, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, renameDshWorkspace } from './platform'
 import type { DshTaskChangeSet, DshWorkspace, DshWorkspaceSummary } from './platform/types'
@@ -67,6 +67,9 @@ const authUsersKey = 'auth_users'
 const authUserProfileKey = 'auth_user_profile'
 
 const loginOpen = ref(false)
+// 029：门户 SSO 多租户——外部经 history.state 传入的选租户挑战，透传给登录弹窗。
+const portalChallengeToken = ref('')
+const portalTenantCandidates = ref<TenantCandidate[]>([])
 const billingOpen = ref(false)
 const profileOpen = ref(false)
 const createOrganizationOpen = ref(false)
@@ -681,6 +684,9 @@ async function syncDesktopAgentIdentity(token: string, userId: string | number |
 }
 
 function handleLoginSuccess(payload: { token: string; username: string; profile?: UserProfile }) {
+  // 029：登录成功后清掉门户选租户挑战，避免污染下次普通登录。
+  portalChallengeToken.value = ''
+  portalTenantCandidates.value = []
   clearUserBoundProjectState(true)
   if (typeof window !== 'undefined') {
     const url = new URL(window.location.href)
@@ -727,7 +733,41 @@ function handleOrganizationCreated(payload: { token: string; username: string; p
 }
 
 function openLogin() {
+  // 029：普通登录入口不带门户挑战，防御性清空。
+  portalChallengeToken.value = ''
+  portalTenantCandidates.value = []
   loginOpen.value = true
+}
+
+function closeLogin() {
+  portalChallengeToken.value = ''
+  portalTenantCandidates.value = []
+  loginOpen.value = false
+}
+
+// 029：门户 SSO——消费 history.state.portalToken 换票建会话。
+// 单租户成功：写 localStorage，交由下方常规启动流程建会话（不重复拉起）。
+// 多租户：打开登录弹窗并透传选租户挑战（免二次输密码，只选组织）。
+// 失败（签名/过期/复药/跨租户/未知用户）：不写 token，下方 !authToken 分支回退登录弹窗。
+async function handlePortalEntry(portalToken: string): Promise<void> {
+  const result = await exchangePortalTicket(portalToken)
+  if (result.ok && result.token) {
+    localStorage.setItem(authTokenKey, result.token)
+    localStorage.setItem(authAccountKey, result.profile?.username || '')
+    if (result.profile) {
+      localStorage.setItem(authUserProfileKey, JSON.stringify(result.profile))
+    }
+    return
+  }
+  if (
+    result.requiresTenantSelection &&
+    result.challengeToken &&
+    (result.tenantCandidates?.length ?? 0) > 0
+  ) {
+    portalChallengeToken.value = result.challengeToken
+    portalTenantCandidates.value = result.tenantCandidates || []
+    loginOpen.value = true
+  }
 }
 
 function openProfileEditor() {
@@ -1825,6 +1865,14 @@ onMounted(async () => {
   applyThemeMode()
   systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
   systemThemeMedia.addEventListener('change', handleSystemThemeChange)
+  // 029：门户 SSO 票据优先消费（免二次登录）。票据经 history.state 传入，立即清除避免残留/刷新复用。
+  if (typeof window !== 'undefined') {
+    const portalToken = (window.history.state && (window.history.state as { portalToken?: string }).portalToken) || ''
+    if (portalToken) {
+      window.history.replaceState({}, '')
+      await handlePortalEntry(portalToken)
+    }
+  }
   currentView.value = resolveViewFromPath(window.location.pathname)
   let serverConfigured = !capabilities.isDesktop
   let storedSettings = null
@@ -2645,7 +2693,9 @@ onBeforeUnmount(() => {
       :is="ProductLoginModal"
       :open="loginOpen"
       :saved-users="savedUsers"
-      @close="loginOpen = false"
+      :challenge-token="portalChallengeToken"
+      :tenant-candidates="portalTenantCandidates"
+      @close="closeLogin"
       @login-success="handleLoginSuccess"
     />
     <component
