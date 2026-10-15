@@ -1,5 +1,39 @@
 # Work Log
 
+## 2026-10-15 检测 MongoDB / PanWeiDB 双库健康
+
+**触发**：用户要求检测 mongo 与 panweidb 两种数据库的健康状况。
+
+### 发现
+
+- **MongoDB**（compose 服务 `mogo-mongo-1`）：Up 3h (healthy)，版本 6.0.20，`ping` ok，`mogo_dev` 库 89 个集合，三服务 `/health` 均报 `backend: mongo`，**正在被生产使用**。
+- **PanWeiDB**（OrbStack 容器 `panweidb`）：Up 2h，端口 5432 发布到宿主机，进程健康。库 `bonc` 存在，schema `mogo_dev` 有 **119 张表**（覆盖 027-R3 规划的关键域：admin / chat / end_user / knowledge / enterprise / skill / org / tenant / audit / quota），`organizations` 有 2 行数据，迁移处于「部分域已导入」状态。
+
+### 关键根因：客户端兼容性，不是数据库故障
+
+- `.env` 的 `PANWEIDB_HOST=host.docker.internal` 是给**容器内服务**用的域名；宿主机 shell 解析不了（容器内解析为 OrbStack 网关 `0.250.250.254`）。
+- openGauss 3.2.0 的 `password_encryption_type=1`（MD5）是 **openGauss 自有 MD5 变体**，与 PostgreSQL 原生 libpq / psycopg / psql 18 **不兼容**——用非 `gsql` 客户端连一律报 `password authentication failed`。只有 openGauss 原生的 `gsql` 能登录。
+- `pg_hba.conf`：`local/127.0.0.1/::1` 走 `trust`，`0.0.0.0/0` 走 `md5`。
+- 因此宿主机 `psql` 直连、以及 chat-api（Python/psycopg）经 `host.docker.internal` 连，都因客户端 MD5 不兼容而失败——**这是迁移接入前必须解决的客户端适配点，不是 panweidb 自身问题**。
+
+### 改动清单
+
+| 项 | 内容 |
+|----|------|
+| 新建只读探针用户 | `panweidb` 库 `bonc` 内新增 `mogo_probe`（仅 `connect` + `mogo_dev` schema `select` 权限，含未来表默认授权）；**不动 `boncuser2` 运行配置** |
+| 用户密码格式核对 | `mogo_probe` / `boncuser2` 为 `md5` 前缀 35 字符；`boncuser` 为 `sha` 前缀 244 字符 |
+| 客户端路径确认 | `omm` 本地 `gsql` 绝对路径 `/database/panweidb/soft/bin/gsql`，需 `LD_LIBRARY_PATH=/database/panweidb/soft/lib` |
+
+> 探针用户密码 `MogoProbe#ro2026` 仅用于本轮健康探测，未写回 `.env`（`.env` 为 600 权限不入库文件）。后续若要让 Python 服务真正连上 panweidb，需在 chat-api/admin-api 接入 openGauss 兼容的驱动或 gsql 通道，而非原生 psycopg。
+
+### 验证
+
+- mongo：`docker exec mogo-mongo-1 mongosh --eval "db.adminCommand('ping').ok"` → 1；`mogo_dev` 集合数 89
+- panweidb：`gsql -U mogo_probe` 本地 `select 1 / current_user / mogo_dev 表数=119 / organizations 行数=2` 全部成功
+- 容器健康：`docker ps` 两库容器均 Up
+
+---
+
 ## 2026-10-15 切到 feat/migrate-mongo-to-panweidb 并将 main 合并进来（含 027-R3 方案文档）
 
 **触发**：用户要求熟悉 `docs/027-r3-relational-four-tables-plan.md` 内容，并将分支切换到 `feat/migrate-mongo-to-panweidb`。
