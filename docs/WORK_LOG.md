@@ -11735,3 +11735,22 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 **交付物**：`docs/regression-arm-orbstack-2026-10-15.md`（回归报告，含结果总览、缺陷分类、环境阻塞说明）。
 
 **未做**：未提交（按 AGENTS.md 提交边界，待用户确认后由对应会话提交）；未触碰业务代码；未修 data_security 环境阻塞（需服务 venv，留作报告待办）。
+
+---
+
+## 根据 spec 028/029 刷新 README
+
+**背景**：用户要求按 spec 028（user-web 会话级「对话/轨迹」双 tab，路线 C）、spec 029（user-web SSO 接收方）正文刷新 README。HEAD `9fc8cf6` 已写过摘要，但两行表格描述未展开 spec 明确记载的关键约束/决策，本轮按 spec 正文补齐。
+
+**改动（仅 `README.md` §027–029 表格 18/19 行）**：
+- 028 行：补路线 C 四条「明确不做」架构边界（不嵌官方 dsh web / 不直连 /api / 不引 `@deepseek-ai/dsh-client-ui-*` / 不绕过 chat-api 治理）。
+- 029 行：补四项已定决策（共享主键 `id` 匹配、不 JIT、多租户走选租户挑战、票据跨域经 `state=`/POST）+ 端点名（`POST /api/auth/portal-ticket`、`POST /api/auth/portal-exchange`）+ 签名密钥 `PORTAL_SSO_SECRET` 可轮换。
+
+**对齐校验**：补入的表述逐字对应 `specs/028-user-web-trajectory-tab/spec.md`（§背景与边界）与 `specs/029-user-web-sso-receiver/spec.md`（§已定决策、端点、SC-006）；README 其余段落（specs 目录树、能力分组、security 行）与 spec 一致，未改动。
+
+**未做**：未调整 README 对 027/028/029「已实现/landed」的措辞——spec 028/029 的 Status 为 Draft，而 README 第 178 行写「all three are implemented」；该张力本轮不在刷新范围内（用户仅要求按 028/029 内容刷新），留作后续与 027 现状（main 仍为 mongo，迁移在 feat 分支）一并校正。
+
+**改动文件（本轮 1 处）**：`M README.md`
+
+**验证**：
+- [x] `git diff README.md` 仅 18/19 两行变更，内容与 spec 028/029 正文逐项对应。
