@@ -11894,3 +11894,32 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 **改动文件（本轮）**：
 - `scripts/pg/panweidb_up.sh`：修正 `configure_db()` 认证方式（本地 trust / 远程 sha256）+ 顶部注释纠偏。
 - `docs/WORK_LOG.md`：本条工作记录。
+
+---
+
+## 2026-10-15（续二）脚本末尾补客户端连接地址建议 + 还原 backups 两库到 panweidb
+
+**A. 脚本补客户端连接地址建议**（用户要求）
+- `scripts/pg/panweidb_up.sh` 末尾原来只打印 `127.0.0.1` 一条连接串；改为按**客户端所在位置**给三条：
+  - 宿主机（裸进程/本机脚本）→ `127.0.0.1:5432`；
+  - 另一个 Docker 容器（orbstack 网络）→ `host.docker.internal:5432`；
+  - 备用 → 容器真实 IP（`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'`，重启后可能变）。
+- 附说明：panweidb 禁「远程 + trust」，三条均走密码认证；**宿主机不解析 `host.docker.internal`**（实测 `gethostbyname` 失败、`/etc/hosts` 无该条目），裸宿主机别用。
+- `bash -n` 通过；实跑 `up` 打印三条连接串均正确。
+
+**B. 还原 `backups/` 两 dump 到 panweidb（方案 B：两个独立库）**
+- 源：`backups/mogo_audit.dump`（9 TOC，2.4KB）、`backups/mogo_dev.dump`（769 TOC，2.7MB）。均为 **PGDMP custom 格式**，dump 头显示 **`Dumped by gs_dump version: 9.2.4`**——实为 openGauss 原生 gs_dump 格式，故用容器内 **`gs_restore`** 还原最正统。
+- 排障关键点：
+  1. dump 内有 **`TABLE DATA public utl_file_dir`**（空 COPY、0 行），但**无该表建表语句** → 目标库无表会报错；用 `--exclude-table=public.utl_file_dir` 排除。
+  2. dump 的 `CREATE TABLE ... WITH (orientation=row, compression=no, fillfactor=80)` 是 openGauss 专有参数，进一步确认是 openGauss 系 dump。
+  3. 角色 **`mogo_probe`** 原本不存在（dump 里大量 `GRANT ... TO mogo_probe`）→ 先 `CREATE ROLE mogo_probe LOGIN`。
+  4. `docker cp` 进容器的 dump 属主 `501:games 600`，`omm` 读不到 → `chown omm:dbgrp; chmod 644`。
+  5. 引号坑：SQL 字符串字面量须用**单引号**；我一度写 `WHERE datname IN ("mogo_audit")`（双引号=标识符）报 `column does not exist`，且多 `-c` 时首条报错导致后续 CREATE 全未执行，需拆开重跑并复核。
+- 执行：`CREATE DATABASE mogo_audit / mogo_dev` + `CREATE ROLE mogo_probe`，随后
+  `gs_restore -d mogo_audit --exclude-table=public.utl_file_dir -e` 与 `gs_restore -d mogo_dev --exclude-table=public.utl_file_dir -e`，两者 `restore operation successful`（exit 0）。
+- 核验：`mogo_audit.system_audit_logs` 建成（0 行，源本空）、PK+ACL 就位；`mogo_dev` **119 张业务表**、`mogo_probe` **119 条授权**全部落地；`boncuser` 密码认证连 `mogo_dev` 成功；数据行数 `kernel_event_inbox=8706 / knowledge_document_chunks=255 / tenants=2 / admin_accounts=3 / system_audit_logs=39`。
+
+**改动文件（本轮）**：
+- `scripts/pg/panweidb_up.sh`：末尾连接地址建议扩为三条（127 / host.docker.internal / 容器真实 IP）+ 说明。
+- `docs/WORK_LOG.md`：本条工作记录。
+- （未提交改动，见 `deploy/docker/nginx-https.conf` 属其他会话，未纳入。）

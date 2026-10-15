@@ -291,5 +291,13 @@ fi
 
 verify
 echo ""
-echo "完成。连接方式："
-echo "  postgresql://$APP_USER:$APP_PW@127.0.0.1:$HOST_PORT/$APP_DB"
+echo "完成。连接方式（按客户端所在位置选择）："
+echo "  宿主机（裸进程 / 本机脚本）："
+echo "    postgresql://$APP_USER:$APP_PW@127.0.0.1:$HOST_PORT/$APP_DB"
+echo "  另一个 Docker 容器（在 orbstack 网络内）："
+echo "    postgresql://$APP_USER:$APP_PW@host.docker.internal:$HOST_PORT/$APP_DB"
+echo "  备用（容器真实 IP，重启容器后可能变化）："
+echo "    postgresql://$APP_USER:$APP_PW@$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER" 2>/dev/null || echo '<容器IP>'):$HOST_PORT/$APP_DB"
+echo ""
+echo "说明：panweidb 的安全插件禁止“远程 + trust”，pg_hba 已设为本地 trust / 远程 sha256；"
+echo "      上面连接串均走密码认证。客户端在宿主机时不要用 host.docker.internal（宿主机不解析该名）。"
