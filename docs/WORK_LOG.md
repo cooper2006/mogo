@@ -1,5 +1,28 @@
 # Work Log
 
+## 2026-10-15 刷新 README（README.md / README.zh-CN.md）：纳入 spec 027–029，重点 028 / 029
+
+**触发**：用户要求「切换到 main 分支，根据 spec 028、029 内容刷新 README 和 intro-v4.pptx」；随后用户调整为**只刷新 README**（PPTX 本轮不动）。
+
+**做什么**（README 两个语言版本同步更新，内容均取自 `specs/028-user-web-trajectory-tab/` 与 `specs/029-user-web-sso-receiver/` 的 spec/plan/tasks，两特性均 10/10、20/20 任务已勾选实现）：
+
+1. **specs 目录树与计数**（README.md:82-93 / zh-CN:65-76）：26 → 29 个特性规格，补入 `027-mongo-to-panweidb-migration/`、`028-user-web-trajectory-tab/`、`029-user-web-sso-receiver/` 三行。
+2. **每目录文件构成**（README.md:98 / zh-CN:81）：措辞由「每个目录都含 spec/plan/checklists/tasks/quickstart」改为「spec/plan/tasks 必备，除最新的 029（quickstart 与 checklist 待补）外均另有 checklists/requirements.md 与 quickstart.md」——与 `specs/INDEX.md` 第 122 行的实际状态一致。
+3. **分组描述**（README.md:97-106 / zh-CN:80-89）：四组 → 六组，新增「1 个数据后端迁移（027）」与「2 个 user-web 体验特性（028–029）」两个 bullet；INDEX.md 权威清单描述同步更新为六组。
+4. **新增小节「Data backend and user-web experience: 027–029」**（README.md:176-184 / zh-CN:159-167，位于质量加固 022–026 之后、主线三之前）：编号 17/18/19 三行表格。028 描述要点——对话与轨迹是同一批 V3 事件的两种投影，纯前端视图层改动、数据层零新增、tab 按会话（pane）独立、默认「对话」、`v-show` 不中断流式生成、ChatWindow.vue 零改动；029 描述要点——门户服务身份签一次性 HMAC 票据（TTL 60s）、`state=` 传票不进 URL、换票复用 `_create_session()`、共享主键 `id` 匹配不 JIT、多租户挑战流程、常数时间验签 + accept-once 防重放、失败回落登录弹窗。
+5. **Repository layout**（README.md:549 / zh-CN:503）：26 → 29 个特性。
+
+**改动文件**：
+- `README.md`、`README.zh-CN.md`（本轮全部实质改动）、`docs/WORK_LOG.md`（本条记录）
+
+**验证**：
+- [x] 当前分支为 `main`，开工前 `git status --porcelain` 为空（基线干净）。
+- [x] 两个 README 中「26 个特性 / 26 features / 26 feature」残留检索为零（grep 无输出）。
+- [x] 目录树缩进、表格管道符、锚点链接（`#data-backend-and-user-web-experience-027029` / `#数据后端与-user-web-体验027029`，与既有 `#质量加固022026` 同规则）逐行核对无误。
+- [x] 内容与 spec 原文核对：028（spec.md FR-001~009、plan.md 设计要点）、029（spec.md FR-001~016、已定决策表 #1-#4）表述一致。
+
+---
+
 ## 2026-10-15 落地 spec 029：user-web 门户 SSO 接收方（后端）
 
 **触发**：用户要求「落地 spec 029」——外部门户免二次登录进入 MOGO 用户工作台。
