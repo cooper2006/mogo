@@ -46,6 +46,8 @@ ALLOWLIST_PATHS=(
   "build/"
   ".venv/"
   "venv/"
+  # 环境配置示例：含占位符值（CHANGE_ME_*），非真实密钥
+  ".env.example"
 )
 
 # 行级豁免标记（detect-secrets 的通行写法）。

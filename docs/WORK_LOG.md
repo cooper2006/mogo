@@ -11677,8 +11677,9 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 
 **说明**：`cmd_pack` 仍是「拷贝缓存目录全部 `*.whl` + `*.tar.gz`」的盲拷贝，故若缓存里残留同名旧版本（如 amd64 仍含 `pymongo-3.13.0.tar.gz`），它也会被打进包。离线安装按 `pymongo==4.18.3` 精确钉版本，旧 sdist 不会被安装，仅使离线包体积略增，不影响正确性。后续如需进一步瘦身可再加「删同名旧版本」的裁剪步骤（本轮按用户要求只做「不重复下载」）。
 
-**验证（进行中）**：
+**验证（完成）**：
 - [x] `bash -n` 语法检查通过。
-- [x] 增量复用已确认：重跑日志出现 `File was already downloaded`。
-- [ ] 离线包同时含 `pymongo-4.18.3`（arm64 + amd64）：待后台 `bash-54` 跑完用 `tar -tzf` 校验。
-- [ ] 重新 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 成功，document-api 用 `4852b20` 镜像且 healthy。
+- [x] 增量复用已确认：重跑日志 `[1/4]`/`[2/4]`/`[3/4]` 多轮打印 `File was already downloaded`；amd64 复用 437M 旧缓存，仅增量补 `pymongo-4.18.3` 等 4 个新/变动 wheel，未全量重下。
+- [x] 离线包 `services/document-parser/pip-wheels-bundle.tar.gz`（813MiB，309 artifacts）经 `tar -tzf` 校验，同时含 `arm64/pymongo-4.18.3-...aarch64.whl` 与 `amd64/pymongo-4.18.3-...x86_64.whl`。（旧 `amd64/pymongo-3.13.0.tar.gz` 残留同入包，离线安装按 `==4.18.3` 精确钉，不装旧版。）
+- [x] 已 `git add scripts/pip_wheels_bundle.sh && git commit`（e0e041a）并推 `cooper2006/mogo`（离线包被 .gitignore 忽略，不入库，由 Dockerfile 从工作区 COPY）。
+- [ ] 重新 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 成功，document-api 用新镜像且 healthy（执行中）。
