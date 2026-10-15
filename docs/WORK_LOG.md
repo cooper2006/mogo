@@ -1,5 +1,32 @@
 # Work Log
 
+## 2026-10-15 重置 panweidb 账号（删 boncuser/boncuser2，新建 boncuser，刷新 .env）
+
+**触发**：用户确认两个旧用户密码均遗忘，要求删除后新建一个用户并把凭据刷新回 `.env`。
+
+### 数据库侧操作（omm 本地 gsql，绝对路径 + LD_LIBRARY_PATH）
+- 因 `boncuser2`/`boncuser` 拥有 `mogo_dev` 119 表及 `mogo_audit` 权限，直接 drop 失败。处理顺序：
+  1. `reassign owned by boncuser/boncuser2 to omm`（转移表所有权，避免 drop 因对象归属失败）
+  2. `alter database bonc owner to omm`（boncuser 曾是库 owner）
+  3. 逐 schema `revoke all ... from` 两用户（含 `mogo_dev`/`mogo_audit` 的表/序列/函数/default privileges）
+  4. `drop user if exists boncuser2` / `drop user if exists boncuser` —— 均成功
+- 新建 `boncuser`（读写）：`connect` + `mogo_dev` usage/create + 全部表 `select,insert,update,delete,truncate` + 序列 usage/select + 未来表默认授权
+- 逐表 `alter table ... owner to boncuser` 把 119 张表所有权从 omm 转回（omm 系统对象不可转，故逐表而非 blanket reassign）
+
+### 验证
+- `gsql -U boncuser` 登录成功；读 `mogo_dev` 119 表、`organizations` 2 行正常
+- 写冒烟：create/insert/truncate/drop 临时表全过（`write-ok`）
+
+### 文件侧（仅 .env，均被 .gitignore 忽略，不入库）
+- `PANWEIDB_USER=boncuser`、`PANWEIDB_PASSWORD=JCpolbfHiyimCVlquFd3` 写入：`.env`、`services/chat-api/.env`、`services/admin-api/.env`、`services/document-parser/.env`
+- 根 `.env` 过时注释（"boncuser 被锁定用 boncuser2"）已更新为重置说明 + MD5 兼容性提醒
+
+### 遗留提醒（非本轮范围）
+- openGauss 自有 MD5 与 psycopg/psql18 不兼容，Python 服务仍无法直连；需接入 openGauss 兼容驱动才能真正切后端。
+- `mogo_probe`（只读探针，上一轮建）仍存在，仅供健康检测。
+
+---
+
 ## 2026-10-15 检测 MongoDB / PanWeiDB 双库健康
 
 **触发**：用户要求检测 mongo 与 panweidb 两种数据库的健康状况。
