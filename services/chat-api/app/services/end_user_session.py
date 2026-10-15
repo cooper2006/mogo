@@ -58,6 +58,8 @@ async def resolve_session_user(authorization: str | None) -> dict:
     # Normalise to aware UTC before comparing, matching quota_policy.py.
     expires_at = session_doc.get("expires_at")
     if expires_at is not None:
+        if isinstance(expires_at, str):
+            expires_at = datetime.fromisoformat(expires_at)
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at < now:

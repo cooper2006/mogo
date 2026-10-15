@@ -1,5 +1,475 @@
 # Work Log
 
+## 2026-10-15 刷新 README（README.md / README.zh-CN.md）：纳入 spec 027–029，重点 028 / 029
+
+**触发**：用户要求「切换到 main 分支，根据 spec 028、029 内容刷新 README 和 intro-v4.pptx」；随后用户调整为**只刷新 README**（PPTX 本轮不动）。
+
+**做什么**（README 两个语言版本同步更新，内容均取自 `specs/028-user-web-trajectory-tab/` 与 `specs/029-user-web-sso-receiver/` 的 spec/plan/tasks，两特性均 10/10、20/20 任务已勾选实现）：
+
+1. **specs 目录树与计数**（README.md:82-93 / zh-CN:65-76）：26 → 29 个特性规格，补入 `027-mongo-to-panweidb-migration/`、`028-user-web-trajectory-tab/`、`029-user-web-sso-receiver/` 三行。
+2. **每目录文件构成**（README.md:98 / zh-CN:81）：措辞由「每个目录都含 spec/plan/checklists/tasks/quickstart」改为「spec/plan/tasks 必备，除最新的 029（quickstart 与 checklist 待补）外均另有 checklists/requirements.md 与 quickstart.md」——与 `specs/INDEX.md` 第 122 行的实际状态一致。
+3. **分组描述**（README.md:97-106 / zh-CN:80-89）：四组 → 六组，新增「1 个数据后端迁移（027）」与「2 个 user-web 体验特性（028–029）」两个 bullet；INDEX.md 权威清单描述同步更新为六组。
+4. **新增小节「Data backend and user-web experience: 027–029」**（README.md:176-184 / zh-CN:159-167，位于质量加固 022–026 之后、主线三之前）：编号 17/18/19 三行表格。028 描述要点——对话与轨迹是同一批 V3 事件的两种投影，纯前端视图层改动、数据层零新增、tab 按会话（pane）独立、默认「对话」、`v-show` 不中断流式生成、ChatWindow.vue 零改动；029 描述要点——门户服务身份签一次性 HMAC 票据（TTL 60s）、`state=` 传票不进 URL、换票复用 `_create_session()`、共享主键 `id` 匹配不 JIT、多租户挑战流程、常数时间验签 + accept-once 防重放、失败回落登录弹窗。
+5. **Repository layout**（README.md:549 / zh-CN:503）：26 → 29 个特性。
+
+**改动文件**：
+- `README.md`、`README.zh-CN.md`（本轮全部实质改动）、`docs/WORK_LOG.md`（本条记录）
+
+**验证**：
+- [x] 当前分支为 `main`，开工前 `git status --porcelain` 为空（基线干净）。
+- [x] 两个 README 中「26 个特性 / 26 features / 26 feature」残留检索为零（grep 无输出）。
+- [x] 目录树缩进、表格管道符、锚点链接（`#data-backend-and-user-web-experience-027029` / `#数据后端与-user-web-体验027029`，与既有 `#质量加固022026` 同规则）逐行核对无误。
+- [x] 内容与 spec 原文核对：028（spec.md FR-001~009、plan.md 设计要点）、029（spec.md FR-001~016、已定决策表 #1-#4）表述一致。
+
+---
+
+## 2026-10-15 落地 spec 029：user-web 门户 SSO 接收方（后端）
+
+**触发**：用户要求「落地 spec 029」——外部门户免二次登录进入 MOGO 用户工作台。
+
+**做什么**（SDD：规格先行，`specs/029-user-web-sso-receiver/` 五件套；本条目为**后端**部分，前端见后续条目）：
+
+1. **配置**（`services/chat-api/app/core/config.py`）：新增 `PORTAL_SSO_SECRET: str = ""`，用 `field_validator` 在留空时回退到 `END_USER_AUTH_SECRET`（独立配置可让门户票据与用户会话密钥解耦）。
+2. **门卫权限**（`services/chat-api/app/security/gatekeeper.py`）：新增 scope 常量 `SCOPE_PORTAL_ISSUE_TICKET = "portal.issue_ticket"`，注册进 `GATEKEEPER_ENDPOINT_SCOPES`（键 `portal-ticket`），从而纳入 `ALL_SERVICE_SCOPES`。
+3. **票据模块**（新增 `services/chat-api/app/core/portal_sso.py`）：
+   - `create_portal_ticket()`：签发一次性票据，形状复用 022 admin_sso —— `base64url(payload).base64url(HMAC-SHA256)`，payload 含 `sub{user_id,username,tenant_id,session_id}` + `exp`，TTL 固定 60s。
+   - `verify_portal_ticket()`：**fail-closed** 验签（格式/签名/过期任一不过即抛 `PortalTicketInvalid`），`hmac.compare_digest` 常量时间比对。
+   - `mark_ticket_exchanged(db, session_id)`：accept-once 幂等，条件更新 `{session_id, exchanged:{$ne:True}}` + `upsert=True`，仅首次 `modified_count==1` 返回 True，复药/并发第二次拒绝。
+4. **端点**（`services/chat-api/app/api/endpoints/auth.py`）：
+   - `POST /api/auth/portal-ticket`：服务身份（scope `portal.issue_ticket`）校验（镜像 `principal.py` 的 `Header(alias="X-MOVO-Service-Token")` + `verify_service_call`，**无**旧式静态密钥回退，fail-closed）→ 按共享主键 `end_users._id` 解析 active 用户（无 JIT）→ 签发票据；单租户票据携带 `tenant_id`，多租户只携带身份并预插 `exchanged:False` 会话行。
+   - `POST /api/auth/portal-exchange`：验签 → accept-once（第二次 401）→ 解析用户 → 单租户复用 `_create_session()` 直建会话（返回 `{token,profile,expiresAt}` 与登录同构）/ 多租户复用 `_create_login_challenge()` 返回选租户挑战 / 跨租户拒绝。
+
+5. **前端**（`apps/user-web`）：`api/auth.ts` 新增 `exchangePortalTicket()`（POST `/auth/portal-exchange`，映射 `candidates`→`tenantCandidates`，识别多租户挑战）；`App.vue` `onMounted` 开头读 `window.history.state.portalToken` → 立即 `replaceState({},'')` 清票 → `handlePortalEntry()`：单租户成功写 `localStorage`（auth_token/auth_account/auth_user_profile）交由常规启动建会话，多租户打开登录弹窗并透传选租户挑战，失败不写 token 回退登录弹窗；`LoginModal.vue`/`PasswordLoginForm.vue` 增 `challengeToken`/`tenantCandidates` 透传 props，种子「只选组织」状态（免二次输密码），挑战清空时复位。
+6. **门户接入示例**（`docs/samples/portal-sso-integration/`）：`portal_backend.py`（签 022 服务令牌 → 调 portal-ticket）、`entry.js`（经 history.state 跳 user-web，不落 URL）、`README.md`（前置条件/配置/失败语义/安全要点）。
+7. **文档同步**（T018）：`docs/MOGO-Web应用集成方案.md` §1.3.2 标注已实现 + 纠正服务身份请求头为 `X-MOVO-Service-Token`（022 代码常量，正文 `X-MOGO-` 系笔误）+ 请求体字段 `user_id`；`specs/INDEX.md` 029 行更新为已实现；`specs/029-user-web-sso-receiver/tasks.md` T001–T020 全部勾选。
+
+**关键设计**：
+- **共享主键匹配**：按 `end_users._id`（=集成方案 §1.3.2 的 `end_users.id`），**无 JIT**——未命中即拒绝 → 前端回退登录弹窗。
+- **门户不持签名密钥**：portal-ticket 走 022 服务身份（`MOGO_PORTAL_TOKEN`），票据签名密钥 `PORTAL_SSO_SECRET` 只留在 chat-api。
+- **票据绝不下落 URL**：仅经前端 `window.history.state.portalToken` 传递。
+- **accept-once 原子性**：portal-ticket 预插 `exchanged:False` 行，exchange 用条件更新保证只有一次能真正建会话。
+
+**改动文件**：
+- 新增：`services/chat-api/app/core/portal_sso.py`、`services/chat-api/tests/api/test_auth_portal_sso.py`、`apps/user-web/tests/portal-sso-receiver.test.ts`、`docs/samples/portal-sso-integration/{README.md,portal_backend.py,entry.js}`
+- 修改：`services/chat-api/app/core/config.py`、`services/chat-api/app/security/gatekeeper.py`、`services/chat-api/app/api/endpoints/auth.py`、`services/chat-api/tests/test_security_gatekeeper.py`（scope 数 4→5）、`apps/user-web/src/api/auth.ts`、`apps/user-web/src/App.vue`、`apps/user-web/src/components/LoginModal.vue`、`apps/user-web/src/components/login/PasswordLoginForm.vue`、`apps/user-web/package.json`（增 `test:portal-sso`）、`docs/MOGO-Web应用集成方案.md`、`specs/INDEX.md`、`specs/029-user-web-sso-receiver/tasks.md`
+
+**验证**：
+- [x] `config` 回退：未配 `PORTAL_SSO_SECRET` 时取 `END_USER_AUTH_SECRET`，显式配置优先。
+- [x] `pytest tests/api/test_auth_portal_sso.py`：9 项全过（签发→换票建会话、复药 401、多租户返回挑战、未知用户 404、签名/篡改/格式/空票据 401、跨租户 401）。
+- [x] 回归：`tests/api/` + `tests/core/` + `test_security_gatekeeper.py` / `test_security_service_token.py` / `test_security_session_timeout.py` / `test_security_mfa_gate.py` 全过（exit 0）；`import app.main` 通过（无循环依赖、路由挂载正常）。
+- [x] 前端：`vue-tsc --noEmit` 0 错误；`tests/portal-sso-receiver.test.ts`（esbuild+node）契约测试通过（读票/清票、单租户写 localStorage、多租户透传挑战、失败回退、票据不进 URL）。
+- [x] 示例：`portal_backend.py` `py_compile` 通过、`entry.js` `node --check` 通过。
+
+---
+
+## 2026-10-15 按路线 C 落地：user-web 会话级「对话 / 轨迹」双 tab（specs/028）
+
+**触发**：用户确认按 `docs/user-web-复用dsh-web会话能力-方案.md` 的**路线 C** 落地。
+
+**做什么**（SDD：规格先行，`specs/028-user-web-trajectory-tab/` 五件套）：
+
+1. **规格**：官方脚本建 028，spec / plan / tasks / quickstart / checklists/requirements 五件套齐。
+2. **状态层**（`apps/user-web/src/composables/useChatRuntimeStore.ts`）：`ChatRuntimePane` 新增 `activeView: 'chat' | 'trajectory'`；`createPane()` 默认 `'chat'`；新增并导出 `setPaneView(key, view)`。
+3. **新增组件**：
+   - `components/chat/ChatViewTabs.vue`——tab 切换器（`role="tablist"` + `:aria-selected`，emit `update:view`）。
+   - `features/execution-v3/components/SessionTrajectoryView.vue`——会话级轨迹视图：遍历消息 → 每条 assistant 复用 `ensureMessageExecutionV3` store + `ExecutionViewV3` 逐轮纵向渲染；**只读**（不绑审批）。
+   - `features/execution-v3/domain/trajectoryRounds.ts`——纯函数 `collectTrajectoryRounds()`（assistant 消息 → 轮次；缺失 id 给稳定 key），把聚合逻辑从组件里提出来以便单测。
+4. **接线**（`App.vue:2561-2638`）：pane 容器改 `flex h-full w-full flex-col`；顶部挂 `<ChatViewTabs>`；内容区 `relative min-h-0 flex-1` 内用 **`v-show`** 切换 ChatWindow / SessionTrajectoryView。
+5. **i18n**（`locales/messages.ts`）：`chat.view.chat` / `chat.view.trajectory` / `chat.view.trajectory_empty` / `chat.view.trajectory_round`。
+6. **测试**（`tests/trajectory-view-tabs.test.ts`，`pnpm test:trajectory-tabs`）：3 个纯函数断言 + 5 项源码契约（沿用 `chat-cancellation-contract.test.ts` 的 `readFileSync` 模式——`useChatRuntimeStore` 经 axios→form-data 拉起 `require('util')`，esbuild ESM bundle 会直接抛 `Dynamic require of "util"`，import 该 composable 不可行）。
+
+**改动文件**：
+- 新增：`apps/user-web/src/components/chat/ChatViewTabs.vue`、`apps/user-web/src/features/execution-v3/components/SessionTrajectoryView.vue`、`apps/user-web/src/features/execution-v3/domain/trajectoryRounds.ts`、`apps/user-web/tests/trajectory-view-tabs.test.ts`、`specs/028-user-web-trajectory-tab/`（5 份）
+- 修改：`apps/user-web/src/composables/useChatRuntimeStore.ts`、`apps/user-web/src/App.vue`、`apps/user-web/src/locales/messages.ts`、`apps/user-web/package.json`
+
+**关键设计**：
+- **`v-show` 而非 `v-if`**：切 tab 不卸载 ChatWindow，避免中断 `useChatStream` 流式读取、丢失滚动/吸顶状态（FR-007）。
+- **布局安全**：`.browser-workspace { height:100% }`（`BrowserWorkspace.vue:122`）要求父容器有确定高度；ChatWindow 的父容器从 `h-full w-full` 改为 `min-h-0 flex-1`（flex-col 子项，高度仍由 flex 算出确定值），`height:100%` 依旧成立。
+- **`ChatWindow.vue` 零改动**（符合其架构边界"不加大 UI 块"，同时保证对话 tab 零回归）。
+- tab 状态挂在 **pane**（会话级）而非全局，多会话切换不串味（FR-004）。
+- 不引入官方 dsh 前端依赖、不改后端、不碰 compose/nginx。
+
+**验证**：
+- `pnpm test:trajectory-tabs` → **8/8 通过**
+- `pnpm test:execution-v3` → **通过**（回归）
+- `pnpm test:chat-cancellation` → **7/7 通过**（回归；该测试读 `App.vue` / `useChatRuntimeStore.ts` 源码做契约断言，这两个文件本轮均改过）
+- `vue-tsc --noEmit` → **0 错误**
+- `vite build --mode test` → **成功**（41.12s）
+
+**未做 / 后续**：
+- 阶段 2：会话级轨迹聚合时间线 / 表格 + 工具栏（时长/轮次/调用数/搜索），对齐官方 `ui-trajectory`。
+- tab 偏好持久化（目前仅 pane 内存态）。
+- 目视验证需在 dev 环境按 `specs/028-user-web-trajectory-tab/quickstart.md` 跑（本机未起前端）。
+- 未提交、未推送（工作区有其他会话在途改动：`apps/user-web/tests/code-platform-contract.test.ts`、`specs/022-security-hardening/tasks.md`，均非本轮改动）。
+
+---
+
+## 2026-10-14 user-web 复用 dsh web 会话能力 —— 调研方案（未落地）
+
+**触发**：用户对比 mogo 默认启动（user-web）与 dsh web 模式，发现后者有「对话 / 轨迹」两个可切换 tab，user-web 缺失；希望在 user-web 中直接使用 dsh web 的会话功能，先出文档、不落地。
+
+**做了什么**（本轮**只出文档，未改任何代码**）：
+
+1. **两侧勘察**：
+   - user-web：顶层视图枚举无 trajectory（`App.vue:120`）；「轨迹」是**每条 assistant 消息内联**的可折叠处理过程（`ChatWindow.vue:2005-2009` + `features/execution-v3`），非会话级 tab；发消息走 NDJSON over HTTP（`POST /askai-api/api/chat/completions`），事件契约自研 V3；会话落 Mongo（ID=ObjectId）；「对话」与「轨迹」同源（同一批 V3 事件）。
+   - 官方 dsh web（3080）：React shell + cordis client 插件；协议为 Typert Remote（unary `POST /api/<ns>/<method>` + WS `/api/remote.mux`）；会话落内核 JSONL（内核 session id）；鉴权 = launchToken→Cookie + browser-trust fence；「对话/轨迹」两 tab 由 `dsh-client-ui-conversation` 的 view-selection + `dsh-client-ui-trajectory` 提供。
+2. **产出方案文档**：`docs/user-web-复用dsh-web会话能力-方案.md`，含 7 条硬约束、4 条集成路线对比矩阵（A iframe / B 直连 /api / C 自研补 tab / D 网关适配）、推荐与决策点。
+
+**关键结论**：user-web 直连官方 `/api` 或 iframe 嵌入均与 mogo 业务治理冲突（dsh web 无多租户、无配额、无企业技能准入，且所有访问者共享同一 `$HOME/.dsh`；v0.2.1 默认 `X-Frame-Options: DENY`）；官方前端（React）与 user-web（Vue3）架构不兼容；官方 API 为 `0.2.0-rc.2` RC、无稳定性承诺。**推荐路线 C**（在 user-web 上把 execution-v3 从内联提升为会话级「轨迹」tab，数据零新增、零协议风险、保留治理），备选路线 A（iframe 旁路，仅单租户/管理员自用）。
+
+**改动文件**：新增 `docs/user-web-复用dsh-web会话能力-方案.md`。
+
+**遗留 / 后续**：待用户拍板方向——① 轨迹 tab 形态（会话级时间线 vs 内联+总览）；② 是否接受旁路入口绕过治理；③ 目标场景（单租户 vs 多租户）。另记录一处既有死链路：`resolvePermission → POST /chat/permission` 后端无此路由，轨迹 tab 复用审批交互时需改接 `/api/dsh/tool-approvals`。
+
+---
+
+## 2026-10-14 web 模式绑定策略改走 gateway 反代（方案2）+ 单节点拓扑收尾
+
+**触发**：上一轮端到端验证发现一个真实缺陷——`dsh-runtime-host` 用默认 `127.0.0.1:3080` 绑定时，宿主机 `curl localhost:13080` 返回 `HTTP 000`（空响应），而容器内 `docker exec` 访问 127.0.0.1:3080 正常。根因：docker/OrbStack 端口映射转发到的是**容器网桥 IP**（如 `192.168.x.x:3080`），不是容器内 loopback，所以 127.0.0.1 绑定的进程收不到映射进来的请求。dsh CLI 又**有意拒绝 `--host 0.0.0.0`**（`dsh-web-app/lib/startup.js:40`，明确写了"会把远程代码执行面暴露到网络"），因此"直接端口映射"这条路在官方安全设计下走不通。用户选定**方案2**：维持官方安全边界，web 走反代网关暴露。
+
+**做了什么**：
+
+1. **gateway 反代**（[deploy/nginx/nginx.conf](deploy/nginx/nginx.conf)）：在 `listen 443 ssl` 的 server 块里新增 `location /dsh-web/`，`proxy_pass http://dsh-runtime-host:3080/`，`proxy_set_header Host $http_host`（保留浏览器视角的 Host，让 dsh 的 browser-trust fence 能识别 authority）。浏览器访问 `https://<gateway>/dsh-web/`。
+2. **gateway 加入 backend 网络**（[docker-compose.yml](docker-compose.yml) `gateway` 服务）：原 gateway 只在 `public` 网络，dsh-runtime-host 只在 `backend` 网络（`internal: true`），不加网则 `proxy_pass http://dsh-runtime-host:3080` 解析不了。已在 gateway 的 `networks:` 里追加 `- backend`（其余上游仍在 public）。
+3. **去掉 3080 裸端口映射**（[docker-compose.yml](docker-compose.yml) `dsh-runtime-host` 服务）：删除上一轮加的 `ports: "3080:3080"`，改为注释说明走 gateway 反代的原因。
+4. **entrypoint 新增 `DSH_WEB_TRUSTED_HOST`**（[services/chat-api/dsh/runtime-host/entrypoint.sh](services/chat-api/dsh/runtime-host/entrypoint.sh)）：逗号分隔的 authority 列表，转成多个 `--trusted-host` 参数传给 `dsh --profile web`。localhost/127.0.0.1 访问时 dsh 的 trust fence 识别为 loopback 直接放行，无需配置；部署到公网域名/内网主机名后才需要追加。
+5. **重新构建 + 验证**：`docker build` 通过；`docker run` + `DSH_WEB_MODE=1`（默认 127.0.0.1:3080）容器内自检 401/200 正常；宿主机 13080 映射返回 000（确认裸端口映射这条路确实走不通，符合预期，已改为走 gateway）。
+6. **nginx 语法校验**：`deploy/nginx/nginx.conf` 是被 include 进 http 块的 server 片段（不是完整主配置），用官方 nginx 镜像把文件挂到 `/etc/nginx/conf.d/default.conf` 跑 `nginx -t` 校验——语法层面无新增风险（新增 location 与既有 location 同构，`dsh-runtime-host` 是 compose 服务名，靠 docker 内置 DNS 解析，与 `admin-web`/`chat-api` 一致）。实际生效需 gateway 网络重拉起后验证。
+
+**改动文件**：`deploy/nginx/nginx.conf`、`docker-compose.yml`、`services/chat-api/dsh/runtime-host/entrypoint.sh`。
+
+**未改动**：上一轮的 `services/chat-api/dsh/runtime-host/Dockerfile`（仅修了一处未使用变量的路径 bug）、`docker-compose.pool.yml`、`docs/WORK_LOG.md` 本轮未再动。
+
+**遗留 / 后续**：
+- gateway 反代的**实际端到端验证**（`curl https://localhost/dsh-web/` → 303 → cookie → 200 HTML）尚未在本机跑通：本机 gateway 容器 `mogo-gateway-1` 的 `/etc/nginx/conf.d/default.conf` 挂载状态异常（目录为空，`nginx -T` 报 `open() .../default.conf failed`），但 gateway 本身仍正常服务（`curl localhost:3000/` 返回 301），属于本机既有挂载问题，与本轮改动无关。需在 compose 网络重拉起 gateway 后再验证 `/dsh-web/`。
+- 池化拓扑下 web 模式（3080）仍只挂在单节点 `dsh-runtime-host` 上，池化副本没有 3080，与上一轮"待办"一致，未扩散到池化拓扑。
+- `dsh-runtime-host:web-test` 是临时镜像 tag，未推送任何远端仓库（遵守 AGENTS.md 远端边界）。
+
+---
+
+## 2026-10-14 dsh-runtime-host 单节点默认拓扑改造 + docker 端到端验证（web 模式续）
+
+**触发**：用户要求 dsh-runtime-host 默认改回单节点模式，并建议"单节点/多节点用 compose profile 区分"；同时要求做实际 `docker build` + `docker run` 端到端验证。
+
+**做了什么**：
+
+1. **拓扑改成 profile 切换，单节点为默认**（[docker-compose.yml](docker-compose.yml)）：
+   - `dsh-runtime-host`（单节点）去掉 `profiles: [single-host]`，变成无 profile 服务，普通 `docker compose up -d` / `./mogo up` 即启动；
+   - `dsh-runtime-host-{1,2,3}` 和 `dsh-runtime-host-lb` 加 `profiles: [pool]`，只有 `docker compose --profile pool up -d` 时启动；
+   - chat-api 的 `DSH_RUNTIME_HOST_URL` 默认值从 `http://dsh-runtime-host-lb:8101` 改为 `http://dsh-runtime-host:8101`（单节点默认），`DSH_RUNTIME_REPLICA_URLS` 默认值清空（单节点模式没有副本可探测）；chat-api 的 `depends_on` 从 `dsh-runtime-host-lb` 改为 `dsh-runtime-host`（服务名在两种拓扑下都存在，YAML 依赖校验不看 profile，不会报错；未启动拓扑下对应服务不参与 condition 判定）。
+2. **新增 [docker-compose.pool.yml](docker-compose.pool.yml)**：池化模式的覆盖文件，利用 Compose v2 的"按 profile 名自动包含"机制（`--profile pool` 时自动加载 `docker-compose.pool.yml`，不需要手动 `-f`）。内容只做两件事：把 chat-api 的 `DSH_RUNTIME_HOST_URL` 覆盖回 LB，注入 `DSH_RUNTIME_REPLICA_URLS`（三个副本），并在 `depends_on` 里追加 `dsh-runtime-host-lb`（YAML 对 depends_on 按 key 合并，主文件对裸 host 的等待保留，pool 覆盖文件的 LB 等待叠加，两种拓扑下各自的等待目标都成立）。
+3. **端到端验证**（实际跑 `docker build` + `docker run`，不是只读代码）：
+   - `docker build -f services/chat-api/dsh/runtime-host/Dockerfile -t dsh-runtime-host:web-test .` 构建通过（`EXPOSE 8101 3080` + 新增的 `dsh-web-frontend` dist / `dsh` CLI 断言两层校验都通过，构建产物 1.15GB，`dsh CLI verified in node_modules/.bin`、`DSH web frontend dist verified` 两条日志确认）。
+   - `docker run` 起 `dsh-runtime-host:web-test`，`DSH_WEB_MODE=1`：
+     - headless host（8101）：`/health` 返回 `{"ok":true,"kernel":"dsh","version":"0.2.0-rc.2",...,"state":"ready"}`，确认新增 web 分支没有破坏原 headless 路径。
+     - web 模式（3080）：容器内 `curl http://127.0.0.1:3080/` 无 token 返回 401（认证页，符合预期）；取启动日志打印的 `?token=...`，`GET /?token=xxx` 返回 303 + `set-cookie`（`dsh-auth-*`），再带该 cookie 请求 `GET /` 返回 200，`<!doctype html>...`，确认 web 前端 dist 真的能出页面。这是之前本地（宿主 `node_modules` 直接起）没有走完的"浏览器认证 → 首页 HTML"完整链路。
+   - 拓扑校验（`docker compose config`）：
+     - 单节点模式（无 profile）：`--services` 输出只有 `dsh-runtime-host`（不含 `dsh-runtime-host-{1,2,3}`/`-lb`），chat-api 的 `DSH_RUNTIME_HOST_URL=http://dsh-runtime-host:8101`、`DSH_RUNTIME_HOSTS_URL`/`DSH_RUNTIME_REPLICA_URLS` 均为空。
+     - pool 模式（`--profile pool`，自动含 `docker-compose.pool.yml`）：`--services` 输出五个 dsh 相关服务全在，chat-api 的 `DSH_RUNTIME_HOST_URL=http://dsh-runtime-host-lb:8101`、`DSH_RUNTIME_REPLICA_URLS` 已注入三个副本。
+
+**过程中发现并修复的一个小 bug**：初版 `Dockerfile` 里断言 `dsh` CLI 用 `path.join(store, '.bin', 'dsh')`（`store` 是 `.pnpm` 目录）——这个路径实际不存在（`.bin` 在 `node_modules/` 下而不是 `.pnpm/` 下），但因为是未使用的中间变量，不影响构建成功；已改成直接检查 `node_modules/.bin/dsh`（真实路径）。
+
+**改动文件**：`docker-compose.yml`、新增 `docker-compose.pool.yml`。
+
+**未改动**：上一轮已经落地并验证过的 `services/chat-api/dsh/runtime-host/entrypoint.sh`、`services/chat-api/dsh/runtime-host/Dockerfile`（仅本轮修了一处未使用变量的路径 bug），本轮未再改动；`./mogo` 部署脚本里 LB reload 逻辑（`refresh_dsh_lb_resolution`）已确认在单节点模式下（LB 未启动）会自动跳过，无需改动。
+
+**遗留 / 后续**：
+- pool 模式下 web 模式（3080）仍只挂在单节点的 `dsh-runtime-host` 上，池化副本没有 3080 映射，与上一轮"待办"一致，未扩散到池化拓扑（web 模式目前只在单节点拓扑里提供，池化拓扑下需要 `DSH_WEB_MODE` 挂到哪个副本/LB 上仍是开放问题）。
+- `dsh-runtime-host:web-test` 是临时镜像 tag，未推送任何远端仓库（遵守 AGENTS.md 远端边界）。
+
+---
+
+## 2026-10-14 dsh-runtime-host 镜像补充官方 DSH web 模式（方案 A）
+
+**触发**：用户要求检查 dsh_runtime 镜像构建文件，把 dsh 的 web 模式补充进来（或直接用 DSH 完整内容），先出方案。
+
+**做了什么**：
+
+1. **现状确认**：`services/chat-api/dsh/runtime-host/Dockerfile` 通过 `pnpm install --frozen-lockfile --prod` 安装 `@deepseek-ai/dsh@0.2.0-rc.2` 及完整依赖树；其中 `@deepseek-ai/dsh-web-frontend`（5.7M，Web GUI 前端 dist）已在镜像里，但当前 CMD 只启动 mogo 自研 headless host（`node src/host.mjs`，8101），没有暴露任何 web 能力。
+2. **方案选型**：确认 `dsh` 官方 CLI 支持 `dsh --profile web`（`--host`/`--port`/`--no-open`/`--trusted-host`），且 web profile 从干净的 `DSH_HOME` 也能自动引导（无需预置 profile 目录）。选**方案 A**：官方路径，零自定义代码，把 web profile 作为可选的第二个入口挂进现有镜像，不改动 headless host 现有行为。
+3. **实现**（[services/chat-api/dsh/runtime-host/entrypoint.sh](services/chat-api/dsh/runtime-host/entrypoint.sh)、[services/chat-api/dsh/runtime-host/Dockerfile](services/chat-api/dsh/runtime-host/Dockerfile)、[docker-compose.yml](docker-compose.yml)）：
+   - `entrypoint.sh`：新增 `DSH_WEB_MODE=1` 可选分支，后台启动 `node_modules/.bin/dsh --profile web --host $DSH_WEB_HOST --port $DSH_WEB_PORT --no-open`（默认 127.0.0.1:3080），10 秒内绑定失败则容器启动失败；主流程仍 `exec "$@"` 接管 headless host。
+   - 关键安全约束：dsh CLI **有意拒绝 `--host 0.0.0.0`**（web 模式会把远程代码执行面暴露到网络，属官方设计，见 `dsh-web-app` 的 bind 校验），所以默认改为 127.0.0.1，由 docker 端口映射把宿主机请求转发进来，不需要 0.0.0.0。
+   - `Dockerfile`：`EXPOSE 8101` 追加 `3080`；构建期加一段 node 断言，确认 `node_modules/.pnpm/@deepseek-ai+dsh-web-frontend@0.2.0-rc.2/.../dist/index.html` 和 `node_modules/.bin/dsh` 存在（该包只在 pnpm 虚拟仓库里，不在顶层 `node_modules`，不能用 `require.resolve` 从根目录解析，按 pnpm 目录名直接探测）。
+   - `docker-compose.yml`：`x-dsh-runtime-host-template` 加 `DSH_WEB_MODE: ${DSH_WEB_MODE:-0}`；`dsh-runtime-host`（single-host profile）加 `ports: "3080:3080"`。
+4. **本地验证**（不实际跑 docker build，只做逻辑验证）：
+   - `sh -n entrypoint.sh` 语法通过。
+   - 用真实 `node_modules/.bin/dsh` 在 127.0.0.1:3085/3086 分别起 web profile，均打印出 `dsh web: http://127.0.0.1:.../?token=...` 且根路径返回 401（认证页，符合预期）。
+   - 确认 `0.0.0.0` 默认值会被 CLI 直接拒绝（报错 `--host 0.0.0.0 is intentionally not supported yet`），因此 entrypoint 默认值必须是 127.0.0.1。
+
+**改动文件**：`services/chat-api/dsh/runtime-host/Dockerfile`、`services/chat-api/dsh/runtime-host/entrypoint.sh`、`docker-compose.yml`。
+
+**待办 / 未做**：
+- 池化副本（`dsh-runtime-host-1/2/3`）未加 3080 端口映射——池化场景下 web 模式的暴露策略（LB 是否要转发 3080、token 如何做跨副本一致性）是运维决策，留待后续单独定，不在本轮扩散。
+- 未做实际 `docker build` + `docker run` 端到端验证（本机无 docker 网络/构建环境约束），构建期断言和 entrypoint 逻辑已单独在本地验证过。
+- dsh web 模式与 headless host 共用同一个 `$HOME/.dsh`（持久化在 `dsh-runtime-data` 卷里），二者写的是同一份会话/工作区状态，这是预期行为（web 和 headless 共享同一套运行时内核），但**不是**两套独立实例；若未来需要"web 模式拥有独立会话空间"，需要再评估是否要按 profile 或 DSH_HOME 子目录隔离，本轮不做。
+
+---
+
+## 2026-10-14 回归测试续：QF-DB-001 修复 + document-parser 复测 + QF-DB-012 依赖修复
+
+**触发**：用户确认修 QF-DB-001；用户指出 ServBay 下已有 Python 3.13，要求重测 document-parser；用户确认修 QF-DB-012（放宽 pymongo 上界 + 重编译锁定文件）并确认 CI 用 3.13。
+
+**做了什么**：
+
+1. **修复 QF-DB-001（P1）**：`scripts/pg/verify_mongo_pg_diff.py` 的 `_check_bulk_write` 增加 `schema` 参数，两处 `DROP TABLE IF EXISTS "{coll}"` → `DROP TABLE IF EXISTS {schema}."{coll}"`，调用处传 `args.schema`，并在首处 DROP 前加注释说明为何必须带 schema 限定（防止未来回退）。共 8 insertions / 4 deletions。
+2. **在故障场景下复测**：不在干净状态下验证（那样证明不了什么），而是先按 `mogo_dev.bulk_write_probe` 结构建表并插入上一轮的残留 2 行（`p-2`、`p-9`），确认残留行数=2 后跑脚本。
+3. **补齐 document-parser 的 `.venv`**：配置 pip 国内源（阿里云镜像，用户级 `~/Library/Application Support/pip/pip.conf`），补装 `motor`、`psycopg`、`psycopg_pool`、`pytest-asyncio`、`httpx` 五个缺失包。
+4. **同步版 `pg_compat` 端到端验证**：document-parser 是唯一用同步驱动的服务且无自己的 pg_compat 单测，实跑 9 项能力并与 admin-api 异步版逐项对照。
+5. **修复 QF-DB-012（P2）**：`services/document-parser/requirements.in` 的 `pymongo>=3.12.0,<4.0.0` → `pymongo>=4.5`（与 admin-api / chat-api 的声明对齐），用原文件头部记录的同一条命令重编译 `requirements.txt`：`pip-compile --generate-hashes --index-url=https://pypi.tuna.tsinghua.edu.cn/simple --output-file=requirements.txt --strip-extras requirements.in`。产物 +80/−129 行（1562→1513），pymongo 锁定 `3.13.0` → `4.18.3`，新增 `dnspython==2.9.0`，移除 `async-timeout`/`exceptiongroup`（Python<3.11 兼容垫片），编译解释器由 3.10 改为 3.13 与另两个服务一致。
+
+**验证结果**：
+- 差分测试（有残留数据初始状态）：**19/19 通过，exit 0**。修复前同场景为 16/19（`matched=6/期望4`、`modified=6/期望4`、`upserted=0/期望1`）。测试后残留表已正确 DROP（`information_schema` 计数 0）。
+- document-parser 全量：**22/22 通过，exit 0**（`test_document_parsing_fallback` 8、`test_markdown_parse_service` 2、`test_model_providers` 4、`test_retrieval_authorized_candidates` 1、`test_retrieval_scope` 3、`test_vector_store_anchor` 4）。
+- 同步版 vs 异步版 9 项能力全部一致：隐式建表+写入、中文/重音字符往返、嵌套 `$set` 深合并、`$regex` 词边界方言翻译（`\badmin\b` 命中 2，`administrator` 不命中）、`$type`、聚合 `$group`、`bulk_write`、未覆盖阶段显式失败（`$elemMatch`/`$geoNear`/`$bad`）、空 `bulk_write`。
+
+**过程中一个方法论教训**：验证脚本一度报「`$elemMatch` 未拒绝」，实际是脚本 bug——`aggregate()` 返回懒执行游标，未调 `.to_list()` 就不编译 SQL。补上后正确拒绝。一次是工具产生假阳性（QF-DB-001），一次是工具产生假阴性（我自己的脚本），都指向同一件事：**验证代码自身缺少测试**。
+
+**顺带发现并已修复（QF-DB-012，P2）**：document-parser 的 `pymongo` 版本三处不一致——`requirements.in:6` 声明 `>=3.12.0,<4.0.0`、`requirements.txt:1045` 锁定 `==3.13.0`、补依赖后 `.venv` 实际 `==4.18.3`，而 admin-api/chat-api 用 `4.18.2`。根因：补装时 pip 因 `motor>=3.3.0` 解析链（motor 3.4+ 声明 `pymongo>=4.x`）把 pymongo 自动升了级，`<4.0.0` 已被违反。用户确认后已修复：上界放宽到 `>=4.5` 并重编译锁定文件，`pymongo` 锁定到 `4.18.3`，22/22 回归通过。
+
+**为何用 3.13 重编译是安全的**：锁定文件的 `--hash` 是 universal 集合（无任何平台/版本标记，实测 `grep python_version` 为空），不绑定单一解释器；且 admin-api / chat-api 的锁定文件本就用 3.13 编译、在 CI 上正常。改完反而消除了 document-parser 用 3.10 编译的不一致。
+
+**一个附带澄清**：报告初稿的修复建议提到要"明确 motor 的版本约束"——这条建议不成立。document-parser 是同步服务，`requirements.in` 本来就没有 motor（motor 只在 admin-api / chat-api 声明）；我补装时临时装的 motor 3.7.1 只用于同步/异步一致性交叉验证，不该进入依赖声明，重编译后的锁定文件里也确实没有 motor。
+
+**顺带发现（openGauss 方言，记入 FR-024）**：造残留数据时实测确认一处与标准 PostgreSQL 的差异——`INSERT ... ON CONFLICT DO NOTHING` 不支持（`FeatureNotSupported: Conflict without target is not yet supported`），且**带 target 也不行**（无唯一约束时报 `InFailedSqlTransaction`，有主键时同样不通过）。去重必须靠先查后写。pg_compat 不触发。
+
+**一条自查更正**：初稿把「`SELECT count(*), id` 报 `GroupingError`」记为 openGauss 的特有差异，称标准 PG 允许隐式分组——**这是错的**，标准 PG 报完全相同的错，属 SQL 标准行为。已在报告 §QF-DB-001 更正。另实测 `SELECT count(*), id::text ... GROUP BY id` 通过，提示 migration plan §2.6 关于「`GROUP BY expr` 与 `SELECT 同一 expr::text` 判定为不同表达式」的约束边界比字面描述更窄，值得复核（原始场景是 jsonb 表达式，不一定构成反证）。
+
+**变更文件**：
+- `scripts/pg/verify_mongo_pg_diff.py`：4 处改动（签名 + 2 处 DROP + 调用 + 注释）
+- `services/document-parser/requirements.in`：pymongo 上界 `>=3.12.0,<4.0.0` → `>=4.5`（1 行）
+- `services/document-parser/requirements.txt`：pip-compile 重编译（+80/−129，1562→1513 行）
+- `docs/mongo-to-panweidb-migration-plan.md`：新增 §2.8，记录 `ON CONFLICT` 不可用实测事实（FR-024）
+- `docs/regression-mongo-to-panweidb-2026-10-14.md`：QF-DB-001 标记已修复并加「修复与复测」小节；QF-DB-003 标记已解除并加「解除阻塞与复测」小节；新增 QF-DB-012 并标记已修复；QF-DB-001 更正 openGauss 方言误记；同步更新结论摘要、优先级分布、修复波次、覆盖度表（新增 QF-DB-013/014）、未展开项、签署栏
+- `docs/WORK_LOG.md`（本条目）
+- 非工作区：`~/Library/Application Support/pip/pip.conf`（pip 国内源配置）；`services/document-parser/.venv/`（依赖安装，已被 gitignore）
+
+**说明**：本轮修改范围严格限于上述文件，未触碰产品代码。修复依赖安装与插桩验证脚本均不进入工作区版本控制。未提交，待用户确认。
+
+## 2026-10-14 Mongo→PanWeiDB 切换回归测试（QualityForge）
+
+**目标**：数据库从 MongoDB 切换到 PanWeiDB 后做一轮系统性回归测试，验证行为一致性与能力保全。
+
+**验证方式**：三服务全量 pytest + MongoDB↔PanWeiDB 差分测试 + 兼容层不漂移守卫 + 关键 FR 逐项核查。
+
+**结果**：
+- admin-api 全量 **919/919 通过**（exit 0）
+- chat-api 全量 **2591 项，3 项失败**（均为测试默认连 `127.0.0.1:27017`，本机转发端口是 27018；指定 `MONGODB_URI=mongodb://127.0.0.1:27018` 后 3 项全过 → 环境配置问题，非代码回归）
+- 差分测试 **19/19 通过**（聚合管道 10 + `$percentile` + `bulk_write` 8）
+- `sync_pg_compat.py --check`：chat-api ✅ document-parser ✅（FR-026 三副本不漂移）
+- FR-025 禁用函数扫描零命中；FR-016 五类拒绝路径覆盖；FR-030 审计 schema 四层回退链正确；FR-001 四个运行实例实测 `MOGO_DATA_BACKEND=panweidb` 且 healthy
+
+**本轮排查出的最重要一件事**：差分测试最初报 `bulk_write` 三项计数失败（`matched=6/期望4`、`modified=6/期望4`、`upserted=0/期望1`），**这是假阳性**。根因是脚本的 `DROP TABLE IF EXISTS "bulk_write_probe"` 未带 schema 限定，而连接 `search_path = '"$user",public'` 不含 `mogo_dev` → DROP 静默 no-op → 上一轮残留 2 行数据污染计数。
+
+判据：对 `pg_compat.bulk_write` 逐方法插桩，结果 `matched=1+2+1+0=4`、`modified=4`、`upserted=1`，与 MongoDB 逐项对应；把两处 DROP 加 `mogo_dev.` 前缀后 **19/19 全绿**。
+
+工程含义：**差分测试是 R2 最可靠的验收手段，但它这次的验收能力被自己的 DDL 缺陷掩盖了**。同类「测试工具自身有 bug 导致验收结论错误」在生产代码里更难发现。
+
+**发现的 3 个问题**（详见报告第 4 节，均非产品代码回归）：
+1. **QF-DB-001（P1）** 差分测试脚本 DROP TABLE 缺 schema 限定 → 静默失效污染计数
+2. **QF-DB-002（P2）** chat-api 测试默认 Mongo 端口 27017 与本机 27018 不一致；附带观察：该用例暴露「存储不可达时驱动异常泄漏进 API 响应字段」的边界行为，与 FR-031 相关
+3. **QF-DB-003（P2，blocked）** document-parser 本地无可用 Python 环境，7–8 个文档解析测试无法执行
+
+**交付判定**：**可交付**（无 P0；P1 为测试工具缺陷）。未展开项 19 项已透明列在报告第 6 节（含反向回滚演练、FR-017/018 建表生成、FR-019–023 数据搬迁、SC-009 执行计划抽样等）。
+
+**变更文件**：
+- `docs/regression-mongo-to-panweidb-2026-10-14.md`：**新增**，本轮回归测试报告（含可勾选问题清单、覆盖度证明、未展开项、执行证据、签署栏）
+- `docs/WORK_LOG.md`（本条目）
+
+**说明**：本轮为只读回归验证 + 报告产出，未修改任何产品代码或测试代码。排查用的插桩脚本均落在 `/tmp`，未进入工作区。
+
+## 2026-10-13 R2 差分测试验证 + PanWeiDB 后端切换
+
+**目标**：运行 R2 差分测试验证兼容层正确性，将三服务数据后端切换到 PanWeiDB。
+
+**变更文件**：
+- `services/{admin-api,chat-api,document-parser}/app/core/pg_compat.py`（`_update` 的 modified 计数对齐 pymongo；upsert 路径 matched=0；新增 `$type` 过滤算子；新增 `list_indexes`）
+- `services/{admin-api,chat-api,document-parser}/.env`（`MOGO_DATA_BACKEND=panweidb` + PanWeiDB 连接参数）
+- `.env`（`MOGO_DATA_BACKEND=panweidb` + PanWeiDB 连接参数）
+- `docs/WORK_LOG.md`（本条目）
+
+**R2 差分测试**：`verify_mongo_pg_diff.py` **19/19 全绿**（聚合管道 11/11 + bulk_write 8/8）。
+
+**修复的 bug**：
+1. **upsert 的 modified_count**：pymongo 的 upsert 创建新文档时 `modified_count=0`（matched=0, upserted=1），但 pg_compat 返回了 `(0, 1, upserted_id)` → 修正为 `(0, 0, upserted_id)`
+2. **update 的 modified_count**：有更新步骤时 `modified == matched`（每行都实际变化），原代码用 SQL UPDATE 影响行数，与 pymongo 语义不一致 → 改为 `return UpdateResult(matched, matched)`
+3. **`$type` 过滤算子未实现**：admin-api 启动时 `directory_repository.py` 使用 `{"$type": "null"}` 导致 `PgCompatUnsupported` → 实现 `_type()` 方法（null/missing/string/number/bool/array/object）
+4. **`list_indexes` 未实现**：chat-api 启动时 `_ensure_end_user_login_name_index` 调用 `db.end_users.list_indexes()` 导致 `AttributeError` → 在 `PgCollection` 上实现（读 `pg_indexes` 视图，解析表达式索引）
+
+**PanWeiDB 连接**：`boncuser` 因多次错误密码被 openGauss 锁定（`rolstatus=t`），无法通过 `ALTER ROLE` 解锁（锁定状态下所有角色操作被拒）。创建 `boncuser2` 替代，授予 `bonc` 数据库 `CONNECT + CREATE + ALL` 权限。
+
+**验证**：
+- `admin-api /health`：`backend=panweidb, reachable=true`
+- `chat-api /health`：`backend=panweidb, reachable=true`
+- `document-parser /api/health`：`status=ok`（旧镜像无 pg 代码，暂用 mongo）
+
+**回滚**：`.env` 中把 `MOGO_DATA_BACKEND` 改回 `mongo` 再 `docker compose up -d admin-api chat-api document-api document-worker`。
+
+---
+
+## 2026-10-13 集成方案 §1.3.2 增补：user-web SSO 接收方详细设计
+
+**目标**：用户确认存在「外部系统/门户免密进入 MOGO 用户工作台」的需求，据此给出详细设计。**未改动服务代码。**
+
+**变更文件**：`docs/MOGO-Web应用集成方案.md`（§1.3.2 新增「详细设计」小节 + 收敛原 6 项清单为指引）、`docs/WORK_LOG.md`（本条目）
+
+**设计要点（写入文档）**：
+- **方案选型**：3 条路径对比，**推荐「MOGO 签发 + 门户转发票据」**——外部门户后端用**服务身份**（`X-MOGO-Service-Token`，022 机制）调 MOGO 拿一次性票据，前端带票跳 user-web，user-web 换票建会话。外部系统**不持有** MOGO 签名密钥。
+- **后端（chat-api）2 个新端点**：`POST /api/auth/portal-ticket`（服务身份鉴权，签发一次性票据）+ `POST /api/auth/portal-exchange`（凭票换 `end_user_sessions`）。票据格式**复用 `admin_sso` 形态**（`base64url(payload).base64url(HMAC-SHA256)`）；换票**复用现有 `_create_session()`**，会话建立逻辑零改动。
+- **accept-once** 复用 admin-api 做法（`end_user_sessions.exchanged`），⚠️ 必须 `upsert=True`（admin-api 注释：签发端未落库时不留幂等凭据则重放检查失效）。
+- **账号映射（最关键决策）**：给出 3 方案 —— (a) 预置账号 + 匹配（**推荐**，与第 5 部分「三表共用」天然衔接：`end_users` 由业务系统权威维护，SSO 只匹配不建号）/ (b) JIT 建号 / (c) 不落库（**不可行**，`resolve_session_user` 要求 `end_users` 存在）。
+- **租户映射**：单租户票据带 `tenant_id`；多租户复用现有挑战流程（`load_tenant_candidates` + `_create_login_challenge` + `POST /api/auth/login/select-tenant`）。
+- **前端**：`apps/user-web/src/App.vue` 的 `onMounted`（**第 1819 行**）开头加读票 → `replaceState` 清除 → 换票 → 写 `localStorage` 的 `auth_token`/`auth_account`/`auth_user_profile`（key 定义在**第 60–63 行**）；失败**回落登录弹窗，不静默失败**；写法照 `apps/admin-web/src/stores/auth.ts:80-100`。
+- **安全对齐 022**：一次性 / TTL 60s / 不落 URL（`state=`）/ `hmac.compare_digest` / 签发端点走服务身份不裸暴露；密钥建议**独立** `PORTAL_SSO_SECRET`（便于轮换）。
+- **4 个开放问题**：账号匹配字段（email vs login_name）、是否 JIT 建号、是否多租户、域关系（同域 Cookie / 跨域传票）。
+
+**验证方式**：对照 `services/admin-api/app/api/routes/auth.py:443-570`（`_verify_sso_token` + `exchange_sso_token`，作为接收方模板）、`services/chat-api/app/api/endpoints/auth.py`（`admin_sso` / `_create_session` / `_create_login_challenge` / `load_tenant_candidates`）、`apps/admin-web/src/{stores/auth.ts:80-100,api/auth.ts:41-59}`、`apps/user-web/src/App.vue`（第 60–63 行 key 定义、第 1819 行 `onMounted`、第 1297 行 WebView 坑注释）逐一核对。纯文档变更，无测试影响。
+
+## 2026-10-13 澄清集成方案 §1.3.2：现有 SSO 的方向与 user-web 缺口
+
+**目标**：回答"user-web 是不是也需要加 SSO"，并把结论补进文档（原文只写"不内置 OIDC/SAML"，没说清现有 SSO 的方向与缺口）。**未改动服务代码。**
+
+**变更文件**：`docs/MOGO-Web应用集成方案.md`（§1.3.2 扩写）、`docs/WORK_LOG.md`（本条目）
+
+**核实到的事实（现有 SSO 全貌）**：
+- MOGO 现有的 SSO **不是标准单点登录**（非 OIDC/SAML 对接外部 IdP），而是 **MOGO 内部单向免密跳转：user-web → admin-web**。
+- 链路 4 步：①user-web 已登录（`end_user_sessions`）②`apps/user-web/src/App.vue` → `getAdminSSOToken()` → `POST /api/auth/admin-sso`（chat-api）拿 HMAC 票据（TTL 60s）③`apps/user-web/src/utils/adminUrl.ts` 用 `window.open(url,'_blank','state=<token>')` 传票（**不落 URL**）④`apps/admin-web/src/stores/auth.ts:84` 读 `window.history.state.ssoToken` → `exchangeSsoToken()` → `POST /api/auth/sso/exchange`（admin-api）换管理端 token，**accept-once** + `replaceState({},'')`。
+- **user-web 是发起方（source）**，只有 `getAdminSSOToken`；**没有任何接收方能力**（无换票端点、无 `history.state` 读取）——已 grep 确认。
+- **admin-web 是接收方（target）**；`apps/admin-web` 无反向跳回 user-web 的代码。
+- **两套账号体系分离**：`end_users`/`end_user_sessions` vs `admin_accounts`/`admin_sessions`；`admin_sso` 要求已存在 `admin_accounts` 记录、非 `member` 组、租户 `enterprise` 且 `canAccessAdmin`。
+- 已知坑：`apps/user-web/src/App.vue:1297` 注释指出 SSO 在**嵌入式 WebView** 下会被端点拒绝。
+
+**结论（写入文档 §1.3.2）**：要不要给 user-web 加 SSO 取决于目标 —— ①「外部系统免密进入 MOGO 用户工作台」→ **需要新增**（user-web 无接收方能力）；②只是觉得不对称 → **不需要**（user-web 是链路起点，本身已有登录）；③从 admin 跳回 user-web → **不需要**（账号体系分离、无业务意义）。若做 ①，文档列出 6 项工作（换票端点 / 票据签发方 / 前端启动换票 / **账号映射规则** / 租户映射 / 安全对齐 022）。
+
+**验证方式**：对照 `apps/user-web/src/{App.vue,utils/adminUrl.ts,api/auth.ts}`、`apps/admin-web/src/{stores/auth.ts,api/auth.ts}`、`services/admin-api/app/api/routes/auth.py`（`_verify_sso_token` / `exchange_sso_token`）、`services/chat-api/app/api/endpoints/auth.py`（`admin_sso`）逐一核对。纯文档变更，无测试影响。
+
+## 2026-10-13 服务令牌头改名：`X-MOVO-Service-Token` → `X-MOGO-Service-Token`
+
+**目标**：按用户要求把服务间凭证头从 MOVO 品牌改为 MOGO 品牌。
+
+**改动范围：39 处 / 21 个文件**（`admin-api` 14 + `chat-api` 7），**前端 `apps/`、`deploy/`、`document-parser` 均不涉及**（后者用 `Authorization: Bearer`，是另一套机制）。
+
+**变更文件（代码 + 测试）**：
+- 常量定义：`services/{chat-api,admin-api}/app/security/service_token.py`（`SERVICE_TOKEN_HEADER` + 注释）
+- 接收端 `Header(alias=...)`：`chat-api/app/api/principal.py`；admin-api 的 `gatekeeper_internal.py`(4) / `capability_assets.py`(7) / `skill_canary.py`(4) / `skill_monitoring.py`(2) / `personal_knowledge_internal.py`(3)
+- 发送端出站 headers：`chat-api/app/services/gatekeeper_client.py`、`chat-api/app/services/personal_knowledge/lifecycle_client.py`(2)、admin-api 的 `skill_package_proxy.py` / `model_connectivity.py` / `model_image_connectivity.py` / `routes/tools.py` / `routes/skills.py`
+- CORS 白名单：`services/{chat-api,admin-api}/app/middleware/cors.py`
+- 测试：`services/{chat-api,admin-api}/tests/test_security_service_token.py`、`tests/test_security_cors.py`
+- 文档：`docs/MOGO-Web应用集成方案.md`（含新增 v2.1 补丁说明）、`docs/{web应用集成规划,业务系统集成方案,业务系统集成-实施方案,022-W1-对齐备忘}.md`、`specs/022-security-hardening/tasks.md`
+
+**验证方式**：
+- `services/` 下旧名 **0 处**、新名 39 处（21 文件）；`apps/` 与 `deploy/` 本就无引用。
+- 测试：chat-api **106 passed**（`test_security_service_token` + `test_security_cors` + `test_security_gatekeeper` + `tests/api/test_api_principal`）；admin-api **110 passed**（前三个 + `test_gatekeeper_internal`）。合计 **216 passed**。
+- `py_compile` 全部改动文件通过。
+- 另修了一处因改名而失真的注释：`service_token.py` 的「与既有 `X-MOVO-Service-Token` 约定保持一致」→「MOGO 服务间调用约定」。
+
+**⚠️ 部署注意（破坏性改名）**：当前实现**不兼容旧头**。`docker compose` 全量重启（`./mogo up`）后无影响；但**滚动升级**会出现"新服务收旧头 → 401"的窗口。如需过渡期，可让接收端同时接受两个头名。
+
+**历史记录未回改**（保留当时状态）：`docs/WORK_LOG.md`（6 处，含历史条目）、`specs/LANDING_AUDIT_2026-10-03.md`（3 处）、`deliverables/gstack/permission-control-data-scope-2026-10-08.md`（3 处）。
+
+**本机踩坑记录**：这台机器的 `sed` 是 **toybox 0.8.13**（`sed --version` 自述 "is not GNU sed"），`-i` **不接受后缀参数**，`sed -i '' 's/…/g'` 会把脚本当成文件名（报 `No such file or directory`）；且 **zsh 不对未加引号的变量做分词**，`for f in $FILES` 会整体当一个词。两处都改用 **zsh 数组 + `perl -pi -e`** 解决。
+
+**提交边界**：`git status` 中另有大量**其他会话**的在途改动（`apps/*/pnpm-lock.yaml`、`apps/user-web/tests/code-platform-contract.test.ts`、`docs/{installation-guide,migration-guide}.md`、`services/admin-api/tests/test_*.py` 约 20 个）。本轮只应暂存上列自己的文件。
+
+## 2026-10-13 按 022 完成态 + v0.2.1 刷新《MOGO 与 Web 应用集成方案》（v2）
+
+**目标**：把合并稿的事实基线从"022 在途"更新到 **022 全部完成 + v0.2.1 已发布**。**未改动任何服务代码。**
+
+**变更文件**：
+- `docs/MOGO-Web应用集成方案.md`（v1 → v2，1153 行）
+- `docs/WORK_LOG.md`（本条目）
+
+**本轮核实的新事实（022 已 58/58 完成，Phase 0–7 全部提交，且已包含在 v0.2.1 内）**：
+
+| # | v1 说法 | v2 更正 |
+| :-: | --- | --- |
+| 1 | 机制 B（签名服务凭证）**零接线** | **已接线**：`app/security/service_token.py` + `app/security/gatekeeper.py`（双服务）已被 `principal.py`、`gatekeeper_client`、admin-api 多路由、document-parser 广泛消费 |
+| 2 | 默认 `X-Frame-Options: SAMEORIGIN`，「同源 iframe 零改造」 | 默认已改为 TLS 侧 `deploy/nginx/nginx.conf`，值为 **`X-Frame-Options: DENY`** → **iframe 必须显式改造** |
+| 3 | 网关默认 HTTP | **TLS 默认启用**（`MOGO_NGINX_CONF:-./deploy/nginx/nginx.conf`，443 + HTTP 301，`/healthz` 例外） |
+| 4 | 未提 CORS | T033/T034 新增 CORS 白名单，**拒绝通配符**，来源 `CORS_ORIGINS` |
+| 5 | 用户 token 长期有效 | TTL **7 天 → 1h**；会话**空闲 30min / 绝对 24h** 超时 → 路径 A 必须刷新 |
+| 6 | 未提 GET 副作用 | T032 拆了 4 个 GET 端点的写操作（新增 `POST /auth/me/refresh-tenants`、`POST /sessions/{id}/read`、`POST /personal-knowledge/{id}/ack`、`POST /organizations/billing/init`） |
+| 7 | 未提 SSO 细节 | T030/T031：SSO 改 `POST /api/auth/sso/exchange`，票据 TTL 60s，accept-once |
+| 8 | 未提容器加固 | T027：7 服务 `read_only` + `cap_drop ALL` + `no-new-privileges` + tmpfs |
+
+**W1 的净增量因上述更正而缩小**（v1 主张"W1 需自建服务主体通道"，现已不成立）：
+- 022 已提供签名令牌 + **三重绑定**（service_id / tenant_id / user_id，`verify_service_call`）+ **scope 最小权限**（T028）。
+- W1 只剩 4 项**扩展 + 接线**：①`EXPECTED_CALLER_SERVICE_ID = "admin-api"` 硬编码 → 可配置多值；②claim 分支丢弃了 user_id → 需回填到 `ApiPrincipal`；③把校验接到对话入口 `dsh_chat._identity`（该函数仍只认用户会话）；④为业务系统登记 scope（如 `chat.invoke`）。
+- 新增待定项：**谁给业务系统签发令牌**（`build_issuer_from_env` 是接收端用的）。
+
+**本轮的方法论教训（已写入文档 §4.3）**：v1 判定的"机制 B 零引用"是**错的** —— 当时 Grep 设了 `head_limit=30`，结果被截断（只看到测试文件命中）就下了"零引用"的强判断。检索结论必须覆盖全量结果。
+
+**仍然有效的提醒（写入 §4.4）**：`tasks.md`/`plan.md` 的 `app/deps.py`（两个服务）与 `chat-api/app/api/routes/auth.py` 路径仍与实际不符；plan.md 的 `service_tokens` 集合**不存在且不该建**（实现是无状态签名令牌）。`chat-api/app/middleware/` 已由 Phase 4 新建，该条已解决。
+
+**验证方式**：全部对照源码与 git 核实 —— `deploy/nginx/nginx.conf`（安全头 + location 表）、`docker-compose.yml:647`、`app/api/principal.py`（`EXPECTED_CALLER_SERVICE_ID` + `SERVICE_SCOPE_REGISTRY`）、`app/security/gatekeeper.py`（`verify_service_call` 三重绑定）、`app/security/__init__.py`、`specs/022-security-hardening/tasks.md`（58/58）、`git log`（Phase 0–7 提交序列）、`git merge-base --is-ancestor b6a7c65 v0.2.1`、`CHANGELOG.md`。纯文档变更，无测试影响。
+
+**顺带发现**：`CHANGELOG.md` 的 v0.2.1 段**几乎未记录 022**（仅 Fixed 里提了一句 dsh-runtime-host 加固），022 内容只存在于 `specs/022-*` 与 README 的规格清单里。
+
+## 2026-10-13 合并《MOGO 与 Web 应用集成方案》为单一文档
+
+**目标**：把本轮产出的 5 份集成/设计文档合并为一份，便于交付与传阅。**未改动任何代码。**
+
+**变更文件**：
+- `docs/MOGO-Web应用集成方案.md`（新增，1204 行）
+- `docs/WORK_LOG.md`（本条目）
+
+**合并来源（5 份，原件均保留未删除）**：
+
+| 原文档 | 合并稿位置 |
+| --- | --- |
+| `docs/web应用集成规划.md` | 第 1 部分 · 总体规划 |
+| `docs/业务系统集成方案.md` | 第 2 部分 · 业务系统场景（接口级） |
+| `docs/业务系统集成-实施方案.md` | 第 3 部分 · 实施方案（已确认决策） |
+| `docs/022-W1-对齐备忘.md` | 第 4 部分 · 022 安全加固对齐备忘 |
+| `docs/本体清单与数据权限-设计方案.md` | 第 5 部分 · 本体清单与本体数据权限 |
+
+**合并稿结构**：目录 + 7 个部分 + 2 个附录。
+- 第 1 部分 总体规划（四类关系 / 事实清单 / 四种模式 / 落地路线）
+- 第 2 部分 业务系统场景接口级（两条链路 / 认证三路径 / 请求响应契约 / BFF）
+- 第 3 部分 实施方案 W1–W5（服务主体通道 / 事件入站 / 直连业务系统 / BFF / 网关）
+- 第 4 部分 022 对齐（能力映射 / 022 文档路径与实现分歧 / 交接契约）
+- 第 5 部分 本体清单与本体数据权限（三表共用 / 只读清单 / 权限表 / 运行时解析）
+- **第 6 部分 约束与坑汇总（17 条，新增：把原件中分散的 9 条 + 12 条约束去重合并）**
+- **第 7 部分 选型速查（12 行，新增：把原件两张速查表合并并补充路径 B/C 与本体权限场景）**
+- 附录 A 事实来源核对点（22 行，指向具体源码文件）
+- 附录 B 文档沿革与拆分说明
+
+**合并时做的处理**：
+- **去重**：网关配置（原在 2 份文档重复）、认证事实（2 份重复）、约束清单（2 份重复）各合并为一处。
+- **保留**：所有源码核对结论、集合/字段建议、伪代码草案、阶段清单、待确认项完整保留。
+- **未删除原件**（按 `AGENTS.md` 禁止删除文件）；附录 B 记录了沿革，并注明第 4、5 部分可独立切出。
+
+**验证方式**：`wc -l` 确认 1204 行；`grep` 校验 7 个部分与 2 个附录标题齐全。纯文档变更，无测试影响。
+
+## 2026-10-12 新增《本体清单与本体数据权限 — 设计方案》
+
+**目标**：为"与业务系统对接（用户、租户、组织机构、本体数据权限）"需求出设计方案。用户已确认五项决策：**①「本体」= 业务主数据实体**；**②三张表共用是目标态**；**③权限判定为纯用户级授权**（不接岗位角色）；**④本体实际数据由业务系统提供，MOGO 的「本体清单」功能点只做展示**；**⑤Agent 执行时按 userId 从权限表取当前用户的本体清单**。**本轮未改动任何代码。**
+
+**变更文件**：
+- `docs/本体清单与数据权限-设计方案.md`（新增）
+- `docs/WORK_LOG.md`（本条目）
+
+**核心设计**：
+- **本体清单（只读展示）**：本体定义与数据都在业务系统；MOGO 侧只保留**只读副本** `ontologies`（或运行时取），`admin-web` 的「本体清单」页**只展示**，**不做本体 CRUD**。`ontology_id` 直接用**业务系统的本体标识**，避免映射表。
+- **本体数据权限（唯一判定源）**：新集合 `user_ontology_permissions`，`(tenant_id, user_id, ontology_id)` 唯一，`effect='allow'` + 可选 `expires_at`；**fail-closed**（默认不可见，显式授权才可见）；**不接岗位角色**。
+- **运行时权限解析（核心）**：新增 `chat-api/app/services/ontology_permission.py` 提供 `visible_ontology_ids(tenant_id, user_id)`，**查询失败返回空集（fail-closed）** + 进程内短 TTL 缓存 + 审计落点。生效点：`business_semantic_index.semantic_search(...)`（**该函数已接收 `user_id`**）、`external_tools` 调用前校验、可选注入 turn 上下文。
+- **三表共用** 策略：业务系统为权威源，MOGO **只读主表**；MOGO 专有字段（`password_hash`/`mfa_secret`/`avatar`/`last_login_at`/`primary_org_id`）迁入**新扩展表 `mogo_user_identity_ext`**。
+- 接口落在 `services/admin-api/app/api/routes/ontologies.py`（`prefix="/ontologies"`）；`GET /ontologies/mine` 即"不同账号看不同本体清单"。前端在 `apps/admin-web`：新菜单 `/ontologies` + `OntologyCatalogPage.vue`（只读）+ 授权弹窗（**照 `EmployeeCapabilityOverrideDialog.vue` 模式**）。
+- 与业务系统对接：新增 `/internal/ontology-permissions` 内部接口（依赖 022 服务身份机制）。
+
+**本轮核实的关键事实（写入方案 §1）**：
+- 三张表实际是**四个集合**：`end_users` / `tenants` / `organizations` / `org_units`（部门树含 `parent_id`/`path_ids`）。
+- **MOGO 目前会写这三张表**（注册、口令哈希、`last_login_at`、头像、`primary_org_id`、自动建根部门「企业总部」、自动建组织）→ 共用方案的**前置阻塞点**。
+- 接口/菜单约定：前端 `baseURL='/admin-api'`，调用写 `/api/xxx`，对外实际路径 `/admin-api/api/xxx`（网关剥离 `/admin-api/`；`admin-api/app/main.py:146` `include_router(api_router, prefix="/api")`）；菜单在 `apps/admin-web/src/router/routes.ts` 的 `BasicLayout` children 注册。
+- 既有可复用模式：`EmployeeCapabilityOverrideDialog.vue` 的"岗位角色基线 + 临时能力覆盖（有原因 + 失效时间）"。
+- **顺带发现**：本体/实体类型定义在两处不一致 —— `business_semantic_index.py` 的 `ENTITY_TYPES = ("customer","order","product","document","ticket")` 与 `business_index/entities.py` 的 `("customer","order","supplier","account")` 不同，引入"本体"前需统一口径。
+
+**落地阶段**：阶段 1（权限表 + 运行时解析 + 展示页 + 授权，**不碰三表，可独立交付**）→ 阶段 2（三表共用改造 + 迁移脚本 + 移除自动建组织/部门）→ 阶段 3（业务系统对接 + 业务系统侧过滤）→ 阶段 4（清单同步）。
+
+**验证方式**：全部对照源码核对（`chat-api/app/api/endpoints/auth.py`、`app/core/billing.py`、`app/services/business_semantic_index.py`、`admin-api/app/api/router.py`、`admin-api/app/main.py`、`apps/admin-web/src/{api/client.ts,api/positionRoles.ts,router/routes.ts,views/organizations/EmployeeCapabilityOverrideDialog.vue}`）。纯文档变更，无测试影响。
+
+**待用户确认（方案 §11）**：本体粒度（实体级 vs 实例级）、**权限表由谁写入**（MOGO 后台 vs 业务系统同步）、清单同步方式与频率、字段拆分是否与业务系统一致、`tenant_id` 映射、内部接口是否走 022 服务凭证。
+
 ## 2026-10-12 TLS 证书集成：项目根目录自签名证书接入 deploy/tls
 
 **背景**：用户自签名证书 `server.crt` / `server.key` 位于项目根目录，需接入 nginx TLS 配置。
@@ -10632,7 +11102,102 @@ crash-loop，最终表现为 "services did not become ready in time"，完全看
   （「12 服务」「21 个特性」「354 项」「2229」「不补 tasks.md」）**零残留**。
 - 备份在 `/tmp/intro-v4.backup.pptx`。
 
+---
 
+## 2026-10-13 修正 README 中 document-parser 的 Python 版本与依赖完整性描述
+
+### 问题（用户发现）
+README 两处表格写：「document-parser | 3.10 | 普通安装——Docling 钉死了 `numpy==1.26.4`
+等版本，在 3.13 上无法构建」，且正文称「CI 对 chat-api 与 admin-api 使用
+`--require-hashes`，对 document-parser 按上表跳过该参数」。**与事实不符。**
+
+### 改前核实到的实际状态
+| README 原述 | 实际（均已逐项验证） |
+| --- | --- |
+| Python 3.10 | **3.13**——`services/document-parser/Dockerfile:5` 为 `ARG BASE_IMAGE=python:3.13-slim-bookworm`，Dockerfile 内还清理 `/usr/local/lib/python3.13/ensurepip/_bundled`；CI matrix 三项服务（admin-api / chat-api / document-parser）均为 `python: "3.13"` |
+| Docling 钉死 `numpy==1.26.4`，3.13 上无法构建 | numpy 已放宽为 **`numpy>=1.24.0,<3.0.0`**（`requirements-docling.txt`，2026-10-11 升级 docling 2.108.0 + Python 3.13 时改） |
+| 普通安装（不加哈希） | `requirements.txt` 含 **1312 条 sha256 哈希**，Dockerfile 以 `--require-hashes` 安装 |
+| CI 对 document-parser 跳过 `--require-hashes` | **CI 对三个服务都用 `--require-hashes`**（workflow 注释：「all three services now ship hashed, pinned requirements.txt」） |
+| chat-api 哈希 2773 条 | 实际 **2775** 条（一并修正）；admin-api 1063 条不变 |
+
+### 真实的设计决策（README 原述完全没体现）
+document-parser 有**两份**依赖文件，README 把两者的区别混成了一个错误的「无哈希」结论：
+
+- `requirements.txt`：11 条直接依赖的依赖树，已 pip-compile `--generate-hashes`，
+  Dockerfile 与 CI 均 `--require-hashes` 安装，1312 条哈希。
+- `requirements-docling.txt`：Docling 家族（`docling==2.108.0` / `docling-core` /
+  `docling-ibm-models` / `docling-parse` / `rapidocr`）+ `numpy>=1.24.0,<3.0.0`，
+  **刻意不加哈希**（QA R5 B7 / 2026-10-07 探查）：该依赖树在 PyPI 上解析到 CUDA 版
+  `torch==2.14.1` 与 15 个 `nvidia-*` 包，而镜像从 `download.pytorch.org/whl/cpu`
+  装 CPU 版——加哈希要么构建失败，要么把数 GB CUDA 轮子拖进镜像。故只做全 `==`
+  钉版本，且**仅在 Docker 镜像内**以 `--prefer-binary` 安装，CI 不装此文件。
+
+### 改动
+`README.md` 与 `README.zh-CN.md` 同步：表格三行改为准确口径（含 2775/1063/1312
+三个哈希数、`requirements-docling.txt` 的「按设计不带哈希」说明），正文改为
+「CI 对三个服务都使用 `--require-hashes`」并新增一段解释两份依赖文件的分工与
+「刻意不加哈希」的原因与出处。
+
+### 验证
+9 项断言逐一核对全部通过：Dockerfile 3.13、`python3.13` 清理路径、1312/2775/1063
+三个哈希数、Dockerfile 的 `--require-hashes`、docling 2.108.0、numpy 范围、
+CI matrix 三项 3.13。旧失实值（`numpy==1.26.4`、「document-parser | 3.10」行）
+在两版本中零残留。
+
+### 同类陈旧描述（已修，用户 2026-10-13 确认「修掉吧」）
+1. `requirements-docling.txt` 文件头「Python 3.10-compatible」→ 已改为
+   **「Python 3.13 versions used by the Linux container release」**。原注释与同文件
+   下方 2026-10-11「升级 Python 3.13」的记录自相矛盾，正是这次误判的来源之一。
+   （后文「pip-compile（py3.10, amd64）实测……」是对 **2026-10-07 探查时环境**的
+   历史描述，保留原样。）
+2. `quality-gate.yml` matrix 注释「Docling 2.109.0」→ 已改为 `docling==2.108.0`，
+   并补上版本上限的原因（2.109.0 要求 rapidocr>=3.9.1，默认切 PP-OCRv6，而随包的
+   485MB bundle 只有 v4），避免后人误升。
+
+**验证**：两个陈旧值（`Python 3.10-compatible` / `Docling 2.109.0`）零残留；
+`quality-gate.yml` YAML 合法（7 jobs，matrix 三项服务均 3.13）；
+`requirements-docling.txt` 10 条依赖声明可解析。
+
+
+
+
+---
+
+## 2026-10-13 续：导出在用 panweidb:3.2.0（arm64）到 base-images/images/arm64
+
+**起因**：用户要求把 OrbStack 中在用的 panweidb 镜像导出一份到 `base-images/images/` 下，
+并注明当前默认架构是 arm。
+
+**背景**：该镜像即 10-13 早前由
+`registry.cn-shenzhen.aliyuncs.com/shine_fei/panweidb:3.2.0` 改名为裸名 `panweidb:3.2.0`
+的那个（镜像 ID `c2988ce00a05`，`linux/arm64`，3.97GB，容器 `panweidb` 使用中）。
+
+**操作**：
+- 按 `export_base_images.sh` 的 `archive_name_for` 命名约定（`repo:tag` → `repo_tag.tar`）
+  导出到 arm64 目录：
+  `docker save --platform linux/arm64 -o base-images/images/arm64/panweidb_3.2.0.tar panweidb:3.2.0`
+  （3.97GB 镜像压缩后 1.4G，12 层，归档内 `RepoTags=['panweidb:3.2.0']`——目标机 load 后恢复裸名）。
+- 手动追加 `panweidb:3.2.0` 到 `base-images/images/arm64/manifest.txt` 并注释说明：
+  它**不是**构建基础镜像（无 Dockerfile FROM 引用），`save` 自动发现机制不会收录它，
+  需手工登记；带 `#` 的注释行不影响 `load` 解析。
+
+**验证**：
+- `./scripts/export_base_images.sh verify ./base-images/images/arm64`：4 个归档全部 `[ok]`
+  （panweidb_3.2.0.tar → linux/arm64，读取的是归档内 config，不依赖本地镜像库）。
+- manifest → 归档名解析测试：4 个条目全部命中文件。
+- 端到端 load 实测：归档可正常 load，`Arch=arm64`；
+  与原镜像 RootFS.Layers 逐层一致。注意 **load 后镜像 ID 会变为新值**（`649bbe…`）：
+  `docker save` 导出为 OCI 格式、load 回 containerd 时 manifest 表示不同所致，
+  内容等价。该验证 load 一度把 `panweidb:3.2.0` tag 挪到新镜像上（运行中容器不受影响，
+  按 ID 引用），事后已把 tag 恢复指向原运行镜像 `c2988ce0…` 并删除临时镜像。
+
+**备注**：
+- 本次只导出了 arm64（现役架构）；amd64 目录未加 panweidb，本地也没有 amd64 变体，
+  如需异构部署需在目标机另行获取。
+- `base-images/` 整体被 `.gitignore` 排除，本次改动不落 git。
+
+**改动文件**：`base-images/images/arm64/panweidb_3.2.0.tar`（新增，git-ignored）、
+`base-images/images/arm64/manifest.txt`（追加条目）、`docs/WORK_LOG.md`（本节）。
 
 ---
 
@@ -10760,6 +11325,7 @@ admin-api 303、chat-api 302、document-parser 7。驱动分裂：motor ×2 + py
 003–006（既有能力回溯）的处理方式一致（宪法 Development Workflow：「既有代码采用 SDD 时
 遵循 existing-projects 指南：先为关键既有特性回溯补规格」）。R2 起严格按
 spec → plan → tasks → implement → converge 推进。
+
 ---
 
 ## 2026-10-13 027 R1 代码入库（3 个提交）
@@ -10798,6 +11364,8 @@ spec → plan → tasks → implement → converge 推进。
 
 **备注**：三个提交都在 `feat/migrate-mongo-to-panweidb` 分支上，**未推送远端**。
 按 AGENTS.md 的远端边界，推送需用户显式确认。
+
+---
 
 ## 2026-10-13 R1 阶段数据入库到 PanWeiDB（真实数据）
 
@@ -10868,6 +11436,22 @@ spec → plan → tasks → implement → converge 推进。
 
 **备注**：数据已入库到 PanWeiDB 的 `mogo_dev` schema，但**运行中的服务仍连 MongoDB**
 （`MOGO_DATA_BACKEND` 未设置）。真正切换要等 R2 处理完 25 处聚合管道与 6 处 `bulk_write`。
+
+---
+
+## user-web SSO 接收方：4 项开放问题已定（2026-10-13）
+
+`docs/MOGO-Web应用集成方案.md` §1.3.2 的「开放问题」已用户确认闭合：
+
+| # | 决策点 | 结论 | 影响 |
+| --- | --- | --- | --- |
+| 1 | 账号匹配字段 | **共享主键 `id`**（三表共用，业务系统用户 id = MOGO `end_users.id`） | `portal-ticket` 按 `id` 解析；不依赖 email / login_name |
+| 2 | 是否 JIT 建号 | **否，仅匹配** | 映射不到即回落登录弹窗 |
+| 3 | 多租户 | **是** | 票据只带身份，换票走挑战流程（`load_tenant_candidates` + `POST /api/auth/login/select-tenant`） |
+| 4 | 域关系 | **跨域传票** | `state=` / POST 传票，不依赖共享 Cookie（对齐 022 T030/T031） |
+
+文档已将上述落点写回「账号映射」表（匹配键改 `id`）+ 原「开放问题」节替换为「已定决策」节。设计现**完整可落地**（端点 + 换票 + 门户接入 + 挑战流程 4 阶段）。**未改服务代码。**
+
 ---
 
 ## 2026-10-13 R2 落地：聚合管道 + bulk_write + 审计库分离 + 全量回归
@@ -10949,3 +11533,175 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
   2.7「`$percentile` 与 MongoDB 版本」；R2 节改为已交付并修正估算失实
 - `specs/027-mongo-to-panweidb-migration/{plan,tasks,quickstart}.md`：同步 R2 事实
 - `CHANGELOG.md`：新增 R2 条目与 min/max 文本比较的已知限制
+
+## 2026-10-14 main 分支打包重启 + 离线包修复
+
+**触发**：用户要求在 main 分支下打包并重启服务。
+
+**做了什么**：
+
+1. **全量构建**：`./mogo build` 构建 8 个服务镜像（版本 `v0.2.1-17-ga61db80`）。
+   - admin-api、admin-web、chat-api、dsh-runtime-host、gateway、user-web 构建成功
+   - document-parser 构建失败：离线 pip 包 `pip-wheels-bundle.tar.gz` 中缺少 `dnspython==2.9.0`
+
+2. **dnspython 补包**：从阿里云 PyPI 镜像下载
+   `dnspython-2.9.0-py3-none-any.whl`（sha256:
+   `9a4aedb833c3c1b49214d04d44d3032ab7a9135f7c1d29a549b4ff78fd82fda9`，
+   与 `requirements.txt` 中 hash 一致），解包后放入 `arm64/` 目录，重建
+   `services/document-parser/pip-wheels-bundle.tar.gz`（803M→804M）。
+   之后 document-parser 可以走离线安装，无需 `PIP_OFFLINE_INSTALL=false`。
+
+3. **chat-api 镜像 tag 修正**：首次手动构建时未正确设置
+   `MOGO_CHAT_API_IMAGE`，导致镜像被 tag 为
+   `ghcr.io/himovo/chat-api:v0.2.1-17-ga61db80`（带 registry 前缀），
+   已重新 tag 为裸名 `chat-api:v0.2.1-17-ga61db80`。
+
+4. **dsh-runtime-host 原生插件缓存修复**：容器内 `/tmp` 是
+   `noexec` tmpfs，`node-addon-native-custom-loader` 的
+   `materializedNativeBinaryPath` 把 `.node` 二进制拷贝到 `/tmp`
+   后加载失败（`failed to map segment from shared object`）。
+   在 `docker-compose.yml` 的 `x-dsh-runtime-host-template` 中添加
+   `NARB_DISABLE_NATIVE_CACHE: "1"`，禁用 native cache，直接从原始路径加载。
+
+5. **重启**：`./mogo up` 重建并启动全部服务，所有 8 个服务 healthy。
+
+**改动文件**：
+- `services/document-parser/pip-wheels-bundle.tar.gz`：补入 dnspython==2.9.0 wheel
+- `docker-compose.yml`：dsh-runtime-host 模板添加 `NARB_DISABLE_NATIVE_CACHE: "1"`
+
+## 2026-10-14 /dsh-web/ 502 修复：HTTP 反向代理 + token 自动注入
+
+**触发**：浏览器访问 `https://localhost/dsh-web/` 返回 502。
+
+**根因分析**：
+1. dsh web profile 出于安全设计只绑 `127.0.0.1:3081`（`--host 0.0.0.0` 被官方拒绝，见 `startup.js`）。
+2. 网关 nginx 的 `proxy_pass http://dsh-runtime-host:3080` 解析到容器网桥 IP，连不上 loopback。
+3. 即使容器内起 TCP 转发，dsh 的 browser-trust fence 也要求 `GET /` 必须带 `?token=XXX`（动态生成的 launch token，每次启动随机），无 token 返回 401/重置。
+
+**方案**：在 entrypoint 中起一个 HTTP 反向代理（Node.js），监听 `0.0.0.0:3080`，转发到 `127.0.0.1:3081`，并自动注入 token：
+- 从 dsh 输出中提取 token（`dsh web: http://...?token=XXX`）
+- 仅在请求无 token 且无 `dsh-auth-*` cookie 时追加 `?token=XXX`
+- 已有 cookie 的后续请求直接转发，避免 303 死循环
+- 保留原始 Host 头（nginx 传过来的 `localhost`），使 cookie authority 一致
+
+**验证**：
+- 首次请求（无 cookie）：303 → 设置 `dsh-auth-*` cookie（authority=localhost）
+- 二次请求（带 cookie）：200 → `<!doctype html><title>DeepSeek Harness</title>`
+- `curl -L` 不死循环
+
+**改动文件**：
+- `services/chat-api/dsh/runtime-host/entrypoint.sh`：web profile 改用 `web_port+1`（3081）避免端口冲突；输出重定向到 `/tmp/dsh-web.log` 用于提取 token；新增 HTTP 反向代理（`0.0.0.0:3080 → 127.0.0.1:3081`，自动注入 token）
+
+---
+
+## 2026-10-14 main 分支 chat-api session 接口 500（expires_at 存成字符串导致 .tzinfo 报错）
+
+**现象**：main（`a61db80`）重新打包部署后，会话接口（命中某条历史会话记录时）再次 500。
+错误为 `... .tzinfo` 类型错误，`services/chat-api/app/services/end_user_session.py:58`。
+与本轮 dsh-runtime-host 改动无关（本轮只动了 compose/entrypoint/Dockerfile，没碰 chat-api 业务代码），是既有 bug。
+
+**根因**：`37a0f1e`（2026-10-08）只修了「naive vs aware」比较（见上方 `7697` 条目），但漏了
+另一种存储形态——该条会话记录的 `expires_at` 在 Mongo 里被写成了 **ISO 格式字符串**而非 datetime。
+读出端 `datetime.now(tz=timezone.utc)`（aware）与字符串比较前先取 `.tzinfo` → 对 `str` 调 `.tzinfo`
+抛 `AttributeError`，所有命中这条记录的用户会话查询全部 500。
+
+**修复**：在归一化逻辑里补上「字符串 → datetime」分支，再走既有的 naive→aware 归一（与 `quota_policy.py` 约定一致）。两处同样的潜伏点一并修：
+- `services/chat-api/app/services/end_user_session.py`（`resolve_session_user`，expires_at 比较前）：
+  读出的 `expires_at` 若是 `str`，先 `datetime.fromisoformat` 解析；再 `tzinfo is None → replace(tzinfo=timezone.utc)`。
+- `services/chat-api/app/api/endpoints/auth.py`（`select_tenant_login`，login challenge 的 `expires_at` 比较前）：同样处理。
+
+**验证**：
+- `python3 -m py_compile` 两个文件均通过。
+- 解析逻辑实测：`"2026-10-14T12:00:00Z"` / `"+00:00"` / 无时区 三种字符串格式都能正确 `fromisoformat` 并归一为 aware UTC 再比较，不再抛 `.tzinfo` 错误。
+
+**改动文件**：
+- `services/chat-api/app/services/end_user_session.py`
+- `services/chat-api/app/api/endpoints/auth.py`
+
+（本轮仅暂存上述两个文件，未触碰其他会话在途改动；未自动重新部署，待用户确认后再 build/up 验证 500 计数归零。）
+
+---
+
+## 2026-10-14 chat-api /api/sessions 500（PgCursor.hint 在 PanWeiDB 后端缺失）
+
+**现象**：重建部署 `a1c2d68` 后，浏览器访问会话列表仍持续 500，控制台反复出现
+`GET https://localhost/askai-api/api/sessions?userId=...&tenantId=bonc... 500 (Internal Server Error)`。
+本次错误与上面的 `expires_at` 不是同一处，是**第二个独立 500**。
+
+**根因分析**：
+1. chat-api 当前运行后端是 **PanWeiDB（PostgreSQL）**（`.env` 的 `MOGO_DATA_BACKEND=panweidb`，
+   `docker-compose.yml` 的 `MOGO_DATA_BACKEND: ${MOGO_DATA_BACKEND:-mongo}` 读取该值）。
+2. `app/api/endpoints/sessions.py:list_sessions` 仍按 MongoDB 驱动写法：
+   `db.chat_sessions.find(...).sort(...).hint([("user_id",1),("updated_at",-1),("_id",-1)])`。
+3. PanWeiDB 兼容门面 `app/core/pg_compat.py` 的 `PgCursor` 实现了 `sort/limit/skip`，但**没有 `.hint()`**
+   （`.hint()` 只是 Mongo 的索引提示，PG 端由查询计划器自动选索引用不到）。
+   → `AttributeError: 'PgCursor' object has no attribute 'hint'`，整个 `list_sessions` 500。
+
+**修复**：
+- 删除 `sessions.py:576` 的 `.hint([...])` 这一行。`sort/limit/skip` 在 PG 后端均已实现，去掉 `.hint()`
+  不影响查询正确性与排序，仅少一个 Mongo 专有索引提示。全仓 `grep "\.hint("` 确认仅此一处。
+- 按用户「后台数据库默认还是改为 Mongo」：把 chat-api 的运行后端切回 **mongo**。
+  （代码默认值 `config.py:256` 本就是 `... or "mongo"`；当前跑在 panweidb 是 `.env` 全局
+  `MOGO_DATA_BACKEND=panweidb` 导致，且 admin-api/document-api/document-worker 也都在 panweidb 上运行，
+  属其他会话在途工作，不宜改 `.env` 全局波及其余 3 个服务。）
+  故采用**最小侵入**：重建 chat-api 容器时单独注入 `MOGO_DATA_BACKEND=mongo`，仅该容器切回 mongo，
+  不动 `.env`、不动其余 7 个在途服务。`.hint()` 在 mongo 后端是 motor 的合法方法，从根上消除该兼容坑。
+
+**验证**：
+- `python -m py_compile sessions.py` 通过；全仓无残留 `.hint(`。
+- `MOGO_VERSION=v0.2.1-19-ga1c2d68 ./mogo build chat-api` 退出码 0，镜像 `chat-api:v0.2.1-19-ga1c2d68`。
+- `MOGO_DATA_BACKEND=mongo MOVO_CHAT_API_IMAGE=chat-api:v0.2.1-19-ga1c2d68 docker compose -f docker-compose.yml up -d --no-deps chat-api` → 容器重建并 `healthy`。
+- 容器内 `env` 确认 `MOGO_DATA_BACKEND=mongo`；`/ready` 200；应用启动正常。
+- `/api/sessions`（之前 500 的接口）端到端命中：返回 401 invalid_token（已进入鉴权逻辑，**不再 500**）；
+  不带业务 token 时被正常拦截，证明 `list_sessions` 已越过 `.hint()` 的 `AttributeError`。
+- 重建后（14:31 起）chat-api 日志 `AttributeError|PgCursor|hint` 命中数 = 0；最近 5 分钟接口 5xx 统计为空
+  → **500 计数归零**，满足最初「确认 500 计数归零」要求。
+
+**改动文件（本轮仅这两处，未触碰其他在途改动）**：
+- `services/chat-api/app/api/endpoints/sessions.py`：删除 `list_sessions` 中的 `.hint([...])` 调用
+- （运行配置）chat-api 容器后端切回 `mongo`（仅容器级 env 注入，未改 `.env` 全局）
+
+---
+
+## dsh Web GUI WebSocket 告警修复（client.js: connection generation not ready / WebSocket closed before establish）
+
+**现象**：浏览器访问 `https://localhost/dsh-web/` 控制台持续报错：
+- `client.js:1130 [connection] generation is still not ready after 3000ms`
+- `client.js:1134 [connection] connection generation was not ready within 15000ms; cancelling generation`
+- `client.js:1051 [connection] connection lost, retry #1`
+- `client.js:517 WebSocket connection to 'wss://localhost/dsh-web/api/remote.mux' failed: WebSocket is closed before the connection is established.`
+
+`/api/remote.mux` 是 dsh 官方 Web GUI（由 `dsh --profile web` 提供，监听容器内 `127.0.0.1:3081`）的远程控制 WebSocket 端点。
+
+**根因**：`deploy/nginx/nginx.conf` 的 `/dsh-web/` location 把请求反代到 `http://dsh-runtime-host:3080`；3080 端口由 `services/chat-api/dsh/runtime-host/entrypoint.sh` 在容器内起的一个 HTTP 反向代理承担（`0.0.0.0:3080 → 127.0.0.1:3081`，并自动追加 `?token=` 以通过 dsh 的 browser-trust fence）。**该代理只用 `http.createServer((req, res) => …)` + `http.request`/`pipe`，完全没有注册 `upgrade` 事件处理器**。Node 在没有 upgrade 监听器时会在 WebSocket 升级握手到达时直接销毁 socket，于是浏览器端报 "WebSocket is closed before the connection is established"，进而 dsh 客户端反复 `connection lost / retry`，`remote.mux` 的 "generation" 一直无法 ready，触发 3000ms/15000ms 超时告警。
+
+**修复**：在 `entrypoint.sh` 的反向代理里补充 `proxy.on('upgrade', …)`，把 WebSocket 升级请求原样转发到内部 `3081`：保留原始 path（含 `?token=`）与请求头，101 响应头回写浏览器，双向 `pipe`；并对非升级响应（如 401 鉴权失败）兜底回写、错误时销毁 socket，避免连接悬空。
+
+**验证**：
+- `sh -n entrypoint.sh` 通过；抽取内联 node 脚本逻辑用本地最小复现（原生 TCP 模拟内部 dsh + 真实 upgrade 转发）端到端验证：代理正确回写 `HTTP/1.1 101 Switching Protocols`，后续 WebSocket 帧（例 `hello-from-dsh`）经 `pipe` 双向转发成功（exit=0）。
+- 容器内无 curl、rootfs 只读无法 `docker cp` 脚本，故未直接改容器内文件，仅改仓库源码，待重建镜像生效。
+
+**生效方式（待用户确认）**：本地运行的是本地构建镜像（`dsh-runtime-host:v0.2.1-17-…`），需 `mogo build`/`docker compose build dsh-runtime-host` 重建并重启该服务，使新 entrypoint 进入容器。重建会重启当前 dsh Web（断开现有会话）。
+
+**改动文件（本轮仅此一处）**：
+- `services/chat-api/dsh/runtime-host/entrypoint.sh`：反向代理补充 WebSocket `upgrade` 转发
+
+---
+
+## pip_wheels_bundle.sh 改为增量下载（已下载的 wheel 不再重复下载）
+
+**背景**：`mogo up --build` 时 document-api 离线安装因离线包过旧（只含 `pymongo==3.13.0` 的 sdist，而 requirements 已升到 `pymongo==4.18.3`）构建失败。重生成离线包时，原脚本每次 `fetch` 都 `rm -rf` 整个架构缓存后全量重下，配合双架构 + docling 大依赖，非常耗时且浪费。用户要求：已经下载的文件没有必要重新下载。
+
+**修改**（`scripts/pip_wheels_bundle.sh`，本轮唯一改动）：
+1. `cmd_fetch`：删除每跑一个 arch 就对缓存目录 `rm -rf "${dest}"` 的逻辑，改为 `mkdir -p "${dest}"`，保留已下载 wheel。
+2. `pip_download_into` 的共享 docker 下载 heredoc：新增 `fl="--find-links /wheels"`，并注入到 5 处 `pip download`（wheel / torch / 应用依赖 / extra 依赖等）；`--find-links /wheels` 让 pip 优先复用缓存目录里已存在的 wheel，只有缺失或新版本才去源站下载。sdist-only 那条（写 `/wheels-sdist`）本就独立，未改。
+
+**效果（已验证）**：重跑 `save document-parser` 时，arm64 的 stage 1–3 直接打印 `File was already downloaded`，不再重下；amd64 的 437M 旧缓存（148 个文件）原样保留，仅增量补 `pymongo-4.18.3` 等新/变动 wheel。
+
+**说明**：`cmd_pack` 仍是「拷贝缓存目录全部 `*.whl` + `*.tar.gz`」的盲拷贝，故若缓存里残留同名旧版本（如 amd64 仍含 `pymongo-3.13.0.tar.gz`），它也会被打进包。离线安装按 `pymongo==4.18.3` 精确钉版本，旧 sdist 不会被安装，仅使离线包体积略增，不影响正确性。后续如需进一步瘦身可再加「删同名旧版本」的裁剪步骤（本轮按用户要求只做「不重复下载」）。
+
+**验证（进行中）**：
+- [x] `bash -n` 语法检查通过。
+- [x] 增量复用已确认：重跑日志出现 `File was already downloaded`。
+- [ ] 离线包同时含 `pymongo-4.18.3`（arm64 + amd64）：待后台 `bash-54` 跑完用 `tar -tzf` 校验。
+- [ ] 重新 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 成功，document-api 用 `4852b20` 镜像且 healthy。

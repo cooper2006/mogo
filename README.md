@@ -79,7 +79,7 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 26 feature specifications, each with a complete chain
+specs/                    # 29 feature specifications, each with a complete chain
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -89,20 +89,25 @@ specs/                    # 26 feature specifications, each with a complete chai
   024-deployment-hardening/
   025-api-contract-hardening/
   026-performance-scalability/
+  027-mongo-to-panweidb-migration/
+  028-user-web-trajectory-tab/
+  029-user-web-sso-receiver/
   INDEX.md                # specification index
 ```
 
-Every one of the 26 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach), `checklists/requirements.md` (quality checklist), `tasks.md` and `quickstart.md`. Five of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
+Each of the 29 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all but the newest (029, the user-web SSO receiver) also carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Five of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
 
-They fall into four groups:
+They fall into six groups:
 
 - **17 gap-closing features** (001/002/007–021) — the original backlog plus the platform and context-address scope. **All 17 `tasks.md` files (354 items) are checked off**, with implementation and tests landed together.
 - **5 quality-hardening features** (022–026) — split out of the 2026-10-11 QualityForge full-repository QA audit; 357 tasks, implemented and tested in waves (see [Quality hardening: 022–026](#quality-hardening-022026) below).
 - **4 retrospective features** (003–006) — re-document capabilities MOVO already had. They originally shipped without `tasks.md`; it was backfilled on 2026-10-11 (141 items).
+- **1 data-backend migration** (027) — the data layer moves from MongoDB to PanWeiDB (openGauss kernel) behind a compatibility layer with switch-based rollback, so existing call sites keep working untouched.
+- **2 user-web experience features** (028–029) — both landed on 2026-10-15: 028 promotes the per-message execution process to a session-level Chat/Trajectory dual tab, and 029 turns user-web into an SSO receiver so an external portal's logged-in users enter the workspace without a second login (see [Data backend and user-web experience: 027–029](#data-backend-and-user-web-experience-027029) below).
 
 Interface contracts live in two places: the 5 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
 
-[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 26 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020) and the quality-hardening set (022–026), and records the clarify decisions behind each threshold.
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 29 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027) and the user-web experience set (028–029), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -167,6 +172,16 @@ The 2026-10-11 QualityForge full-repository QA audit (964 items) surfaced 283 P0
 | 14 | **Deployment and release hardening** | 42 P0/P1 defects across deployment security, artefacts, canary release, rollback and disaster recovery | [024](specs/024-deployment-hardening/) |
 | 15 | **API contract and semantics** | 50 P0/P1 defects across semantics, error handling, contracts and evolution — including a static check that no GET route writes to the database | [025](specs/025-api-contract-hardening/) |
 | 16 | **Performance and scalability** | 51 P0/P1 defects across performance baselines, database, cache, frontend and scaling, with p95 latency regression guards | [026](specs/026-performance-scalability/) |
+
+### Data backend and user-web experience: 027–029
+
+Three features landed after the hardening waves — one infrastructure migration and two user-web experience upgrades. Each carries its own spec, plan and tasks, and all three are implemented:
+
+| # | Capability | What it delivers | Spec |
+| :-: | --- | --- | :-: |
+| 17 | **Data backend migration: MongoDB → PanWeiDB** | The data layer moves to PanWeiDB (openGauss kernel) behind a compatibility layer with switch-based rollback, so existing call sites keep working untouched | [027](specs/027-mongo-to-panweidb-migration/) |
+| 18 | **user-web session-level Chat / Trajectory tabs** | The per-message collapsible execution process is promoted to a session-level "Trajectory" tab sitting next to "Chat". The two views are projections of the same V3 events, so the switch is a pure front-end view change with zero data-layer additions: per-session (pane) tab memory, default "Chat", bilingual labels, and `v-show` switching that never interrupts an in-flight stream — `ChatWindow.vue` itself stays untouched | [028](specs/028-user-web-trajectory-tab/) |
+| 19 | **user-web SSO receiver** | Users already logged into an external portal enter the MOGO user workspace without a second login. The portal's backend mints a one-time HMAC ticket using the 022 service identity (60 s TTL); the browser carries it via `state=` so no token ever reaches the URL; user-web exchanges the ticket on startup and reuses the existing `_create_session()`. Accounts match on the shared primary key `id` with no JIT provisioning, multi-tenant users pass through the existing tenant-selection challenge, replay and expired tickets are rejected by constant-time verification with accept-once, and any failure falls back to the login dialog instead of a dead page | [029](specs/029-user-web-sso-receiver/) |
 
 ## Line three: multi-instance Agent runtime
 
@@ -531,7 +546,7 @@ See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (26 features, plus `INDEX.md`) |
+| `specs/` | spec-kit SDD specification assets (29 features, plus `INDEX.md`) |
 | `contracts/` | the 5 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |

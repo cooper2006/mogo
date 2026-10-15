@@ -36,9 +36,26 @@ from app.services.end_user_tenant_access import (
     selectable_tenant_ids,
 )
 from app.services.end_user_session import resolve_session_user as _resolve_session_user
+# 029：门户 SSO 接收方——一次性票据签发/验签/幂等消费。
+from app.core.portal_sso import (
+    PortalTicketInvalid,
+    create_portal_ticket,
+    mark_ticket_exchanged,
+    verify_portal_ticket,
+)
+from app.security.gatekeeper import (
+    GatekeeperDenied,
+    SCOPE_PORTAL_ISSUE_TICKET,
+    build_issuer_from_env,
+    verify_service_call,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# 029：调用 portal-ticket 的外部服务身份（门户）。其服务令牌密钥经
+# ServiceCredentialVault.from_env 读取环境变量 MOGO_PORTAL_TOKEN（前缀 MOGO）。
+EXPECTED_PORTAL_SERVICE_ID = "portal"
 
 USER_COLLECTION = "end_users"
 USER_SESSION_COLLECTION = "end_user_sessions"
@@ -110,6 +127,37 @@ class SelectTenantRequest(BaseModel):
     @property
     def effective_tenant_id(self) -> str:
         return (self.tenant_id or self.tenantId).strip()
+
+
+class PortalTicketRequest(BaseModel):
+    # 029：门户以服务身份请求为某 MOGO 终端用户签发一次性票据。
+    # 匹配键为共享主键 end_users._id；不接受 email / login_name，杜绝 JIT。
+    user_id: Optional[str] = Field(default=None, max_length=64, alias="userId")
+    userId: Optional[str] = Field(default=None, max_length=64, alias="userId")
+    tenant_id: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
+    tenantId: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_user_id(self) -> str:
+        return (self.user_id or self.userId or "").strip()
+
+    @property
+    def effective_tenant_id(self) -> str:
+        return (self.tenant_id or self.tenantId or "").strip()
+
+
+class PortalExchangeRequest(BaseModel):
+    # 029：user-web 前端把票据放进请求体 POST 换票（票据绝不下落 URL）。
+    portal_token: Optional[str] = Field(default=None, max_length=4096, alias="portalToken")
+    portalToken: Optional[str] = Field(default=None, max_length=4096, alias="portalToken")
+
+    model_config = {"populate_by_name": True}
+
+    @property
+    def effective_portal_token(self) -> str:
+        return (self.portal_token or self.portalToken or "").strip()
 
 
 class SwitchTenantRequest(BaseModel):
@@ -535,6 +583,8 @@ async def select_tenant_login(payload: SelectTenantRequest) -> ApiResponse:
     # Normalise to aware UTC before comparing, matching quota_policy.py.
     challenge_expires_at = challenge.get("expires_at")
     if challenge_expires_at is not None:
+        if isinstance(challenge_expires_at, str):
+            challenge_expires_at = datetime.fromisoformat(challenge_expires_at)
         if challenge_expires_at.tzinfo is None:
             challenge_expires_at = challenge_expires_at.replace(tzinfo=timezone.utc)
         if challenge_expires_at < now:
@@ -887,6 +937,147 @@ async def get_org_details(
         "isOwner": str(org.get("owner_user_id")) == str(current_user["_id"]),
     }
     return ApiResponse(code=0, data=data)
+
+
+# ---------------------------------------------------------------------------
+# 029：门户 SSO 接收方（外部门户免二次登录进入 MOGO 用户工作台）
+# ---------------------------------------------------------------------------
+def _verify_portal_service_identity(service_token: str) -> None:
+    """校验门户服务身份（scope ``portal.issue_ticket``），fail-closed。
+
+    镜像 022 :func:`app.api.principal.require_api_principal` 的
+    ``Header(alias=...)`` + :func:`verify_service_call` 模式，避免破坏 022 机制。
+    门户**不**回退旧式静态共享密钥——未配置新式凭据即拒绝，保证 portal-ticket
+    只能由持牌门户（服务身份 + 权限码）调用。
+    """
+    issuer = build_issuer_from_env(EXPECTED_PORTAL_SERVICE_ID)
+    if issuer is None:
+        raise HTTPException(status_code=401, detail="portal_service_not_configured")
+    try:
+        claim = verify_service_call(
+            service_token,
+            expected_service_id=EXPECTED_PORTAL_SERVICE_ID,
+            issuer=issuer,
+            required_scope=SCOPE_PORTAL_ISSUE_TICKET,
+        )
+    except GatekeeperDenied as exc:
+        raise HTTPException(status_code=401, detail=str(exc.reason))
+    if claim is None:
+        raise HTTPException(status_code=401, detail="portal_service_not_authenticated")
+
+
+async def _find_active_user_by_id(db: Any, user_id: str) -> Optional[dict]:
+    """按共享主键 ``end_users._id`` 解析 active 终端用户（029，无 JIT）。
+
+    非法 ObjectId 一律视为未命中（fail-closed），绝不自动建号。
+    """
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        return None
+    return await db[USER_COLLECTION].find_one({"_id": oid, "status": "active"})
+
+
+@router.post("/auth/portal-ticket", response_model=ApiResponse)
+async def portal_ticket(
+    payload: PortalTicketRequest,
+    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+) -> ApiResponse:
+    """门户 SSO 第一步：以服务身份为某 MOGO 终端用户签发一次性登录票据。
+
+    门户（持牌外部服务）调用本端点，chat-api 校验服务身份后，按共享主键
+    ``end_users._id`` 解析用户并签发一次性票据（TTL 60s，``PORTAL_SSO_SECRET`` 签名）。
+    票据**绝不下落 URL**，由门户经前端 ``window.history.state`` 带进 user-web。
+    匹配失败即拒绝（无 JIT）；单租户票据携带 ``tenant_id``，多租户只携带身份。
+    """
+    _verify_portal_service_identity(service_token)
+    user_id = payload.effective_user_id
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+    db = get_db()
+    user_doc = await _find_active_user_by_id(db, user_id)
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="user not found")
+    candidates = await load_tenant_candidates(db, [user_doc])
+    username = str(user_doc.get("login_name") or "")
+    secret = get_settings().PORTAL_SSO_SECRET
+
+    if len(candidates) > 1:
+        # 多租户：票据只携带身份，不绑定租户；换票后走选租户挑战流。
+        token, expires_at, session_id = create_portal_ticket(
+            secret, user_id=user_id, username=username, tenant_id=""
+        )
+        await db[USER_SESSION_COLLECTION].insert_one(
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+                "username": username,
+                "status": "pending_exchange",
+                "exchanged": False,
+                "created_at": _now(),
+                "updated_at": _now(),
+            }
+        )
+        return ApiResponse(
+            code=0,
+            data={"token": token, "expiresAt": expires_at, "requiresTenantSelection": True},
+        )
+
+    tenant_id = resolve_tenant_id(candidates[0].get("tenantId")) if candidates else DEFAULT_TENANT_ID
+    token, expires_at, session_id = create_portal_ticket(
+        secret, user_id=user_id, username=username, tenant_id=tenant_id
+    )
+    await db[USER_SESSION_COLLECTION].insert_one(
+        {
+            "session_id": session_id,
+            "user_id": user_id,
+            "username": username,
+            "tenant_id": tenant_id,
+            "status": "active",
+            "exchanged": False,
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+    )
+    return ApiResponse(code=0, data={"token": token, "expiresAt": expires_at})
+
+
+@router.post("/auth/portal-exchange", response_model=ApiResponse)
+async def portal_exchange(payload: PortalExchangeRequest) -> ApiResponse:
+    """门户 SSO 第二步：前端携一次性票据 POST 换票建会话。
+
+    验签（fail-closed）→ 按 ``session_id`` accept-once（第二次 401）→ 解析用户 →
+    单租户直建会话（复用 :func:`_create_session`）/ 多租户返回选租户挑战 / 跨租户拒绝。
+    单租户返回 ``{token, profile, expiresAt}`` 与登录接口同构，前端
+    :func:`handleLoginSuccess` 无需改动即可消费。
+    """
+    token = payload.effective_portal_token
+    secret = get_settings().PORTAL_SSO_SECRET
+    try:
+        sub = verify_portal_ticket(secret, token)
+    except PortalTicketInvalid:
+        raise HTTPException(status_code=401, detail="invalid or expired portal ticket")
+
+    if not await mark_ticket_exchanged(get_db(), str(sub["session_id"])):
+        raise HTTPException(status_code=401, detail="portal ticket already used")
+
+    db = get_db()
+    user_doc = await _find_active_user_by_id(db, str(sub["user_id"]))
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="user not found or inactive")
+
+    candidates = await load_tenant_candidates(db, [user_doc])
+    ticket_tenant = str(sub.get("tenant_id") or "")
+    if ticket_tenant:
+        candidate_tenants = {resolve_tenant_id(c.get("tenantId")) for c in candidates}
+        if ticket_tenant not in candidate_tenants:
+            raise HTTPException(status_code=401, detail="tenant mismatch")
+        data = await _create_session(user_doc, candidates)
+        return ApiResponse(code=0, data=data)
+
+    # 多租户：返回选租户挑战，前端继续调用既有 POST /api/auth/login/select-tenant。
+    challenge = await _create_login_challenge(str(user_doc.get("login_name") or ""), candidates)
+    return ApiResponse(code=0, data={"requiresTenantSelection": True, **challenge})
 
 
 @router.post("/auth/admin-sso", response_model=ApiResponse)

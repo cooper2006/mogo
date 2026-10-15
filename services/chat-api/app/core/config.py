@@ -103,6 +103,17 @@ class Settings(BaseSettings):
     # 022 FR-11（T014）：终端用户 access token TTL 上限 1h；默认值已收紧到 3600s。
     END_USER_AUTH_TOKEN_TTL_SECONDS: int = 3600
     END_USER_AUTH_SECRET: str = ""
+    # 029：门户 SSO 接收方票据签名密钥。留空时复用 END_USER_AUTH_SECRET（见下方校验器）。
+    PORTAL_SSO_SECRET: str = ""
+
+    @field_validator("PORTAL_SSO_SECRET")
+    @classmethod
+    def _fallback_portal_sso_secret(cls, value: str, info) -> str:
+        # 029：未单独配置 PORTAL_SSO_SECRET 时，回退到终端用户会话密钥，
+        # 保证不配置也能跑通；独立配置则可让门户票据与用户会话密钥解耦。
+        if value:
+            return value
+        return str((info.data or {}).get("END_USER_AUTH_SECRET") or "")
     # 022 FR-18（T042）：运行环境标识。production 时强制关闭调试模式
     # （DEBUG 视为 False）、禁止回显异常详情与堆栈。
     APP_ENV: str = "development"

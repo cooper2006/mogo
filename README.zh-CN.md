@@ -62,7 +62,7 @@
   scripts/bash/           #   create-new-feature、setup-plan 等脚本
   workflows/speckit/      #   工作流注册表
 
-specs/                    # 26 个特性规格，每个含完整规格链路
+specs/                    # 29 个特性规格，每个含完整规格链路
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -72,20 +72,25 @@ specs/                    # 26 个特性规格，每个含完整规格链路
   024-deployment-hardening/
   025-api-contract-hardening/
   026-performance-scalability/
+  027-mongo-to-panweidb-migration/
+  028-user-web-trajectory-tab/
+  029-user-web-sso-receiver/
   INDEX.md                # 规格索引
 ```
 
-26 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）、`checklists/requirements.md`（质量清单）、`tasks.md` 与 `quickstart.md`。其中 5 个（001、007、008、009、020）另附 `contracts/` 目录。
+29 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分）；除最新的 029（user-web SSO 接收方，spec/plan/tasks 已就绪，quickstart 与 checklist 待补）外，都另有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 5 个（001、007、008、009、020）另附 `contracts/` 目录。
 
-它们分为四组：
+它们分为六组：
 
 - **17 个补齐特性**（001/002/007–021）——原始补强清单加上平台化与地址空间两个新增范围。**17 份 `tasks.md`（354 项）已全部勾选完成**，实现与测试同步落地。
 - **5 个质量加固特性**（022–026）——从 2026-10-11 QualityForge 全量 QA 审计中拆出，共 357 项任务，按 022 → 026 分波交付（详见下文[质量加固：022–026](#质量加固022026)）。
 - **4 个既有回溯特性**（003–006）——重述 MOVO 已有能力。它们最初未建 `tasks.md`，2026-10-11 补齐了 141 项任务。
+- **1 个数据后端迁移**（027）——数据层从 MongoDB 迁到 PanWeiDB（openGauss 内核），兼容层先行、开关式回滚，既有调用点零改写。
+- **2 个 user-web 体验特性**（028–029）——均于 2026-10-15 落地：028 把每条消息内联的执行过程提升为会话级「对话 / 轨迹」双 tab；029 把 user-web 变成 SSO 接收方，外部门户已登录用户免二次登录进入工作台（详见下文[数据后端与 user-web 体验：027–029](#数据后端与-user-web-体验027029)）。
 
 接口契约分布在两处：顶层 [`contracts/`](contracts/) 下 5 份 T998 契约（`orchestration`、`self-evolution`、`session-versioning-contract`、`harness-config`、`a2a-gateway`），加上 `specs/` 内 5 个按特性划分的 `contracts/` 目录（[`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md)、[`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md)、[`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md)、[`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md)、[`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)）。
 
-[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 26 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）与质量加固（022–026）四组，并记录每条阈值的 clarify 决策依据。
+[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 29 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）、质量加固（022–026）、数据后端迁移（027）与 user-web 体验（028–029）六组，并记录每条阈值的 clarify 决策依据。
 
 这样做的收益是：每一条企业能力都有对应的需求来源、验收标准与测试证据，界面触点与规格的映射关系记录在 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md)。
 
@@ -150,6 +155,16 @@ specs/                    # 26 个特性规格，每个含完整规格链路
 | 14 | **部署与发布加固** | 42 个 P0/P1 缺陷，覆盖部署安全、制品、灰度、回滚与灾备 5 个域 | [024](specs/024-deployment-hardening/) |
 | 15 | **API 契约与语义** | 50 个 P0/P1 缺陷，覆盖语义、错误处理、契约与演进 4 个域——含一个静态检查：任何 GET 路由都不得写数据库 | [025](specs/025-api-contract-hardening/) |
 | 16 | **性能与扩展性** | 51 个 P0/P1 缺陷，覆盖性能基线、数据库、缓存、前端与扩展性 5 个域，附 p95 延迟回归守卫 | [026](specs/026-performance-scalability/) |
+
+### 数据后端与 user-web 体验：027–029
+
+质量加固之后又落地了 3 个特性——1 项基础设施迁移与 2 项 user-web 体验升级。每个都配有 spec、plan 与 tasks，且均已实现：
+
+| # | 能力 | 交付内容 | 规格 |
+| :-: | --- | --- | :-: |
+| 17 | **数据后端迁移：MongoDB → PanWeiDB** | 数据层迁到 PanWeiDB（openGauss 内核），兼容层先行 + 开关式回滚，既有调用点零改写 | [027](specs/027-mongo-to-panweidb-migration/) |
+| 18 | **user-web 会话级「对话 / 轨迹」双 tab** | 把每条 assistant 消息内联的可折叠执行过程，提升为会话级「轨迹」tab，与「对话」tab 并列切换。对话与轨迹本是同一批 V3 事件的两种投影，因此切换是纯前端视图层改动、数据层零新增：tab 状态按会话（pane）独立保持、默认「对话」、中英双语文案、`v-show` 切换不中断流式生成——`ChatWindow.vue` 本身零改动 | [028](specs/028-user-web-trajectory-tab/) |
+| 19 | **user-web SSO 接收方** | 外部门户已登录用户免二次登录进入 MOGO 用户工作台：门户后端用 022 服务身份（`X-MOGO-Service-Token`）申领一次性 HMAC 票据（TTL 60s），浏览器经 `state=` 传票（令牌不进 URL），user-web 启动即换票并复用既有 `_create_session()` 建会话。账号按共享主键 `id` 匹配、不 JIT 建号；多租户用户走既有选租户挑战流程；重放与过期票据经常数时间验签 + accept-once 拒绝；换票失败回落登录弹窗，不静默失败 | [029](specs/029-user-web-sso-receiver/) |
 
 ## 主线三：智能体多实例运行改造
 
@@ -485,7 +500,7 @@ PUBLIC_BASE_URL=https://movo.example.com
 
 | 路径 | 组件 |
 | --- | --- |
-| `specs/` | spec-kit SDD 规格资产（26 个特性 + `INDEX.md`） |
+| `specs/` | spec-kit SDD 规格资产（29 个特性 + `INDEX.md`） |
 | `contracts/` | 5 份 T998 接口契约（编排、自进化、会话版本化、Harness 配置、A2A 网关） |
 | `.specify/` | spec-kit 工作流、模板与项目宪法 |
 | `apps/user-web/` | Vue 3 用户工作台 |

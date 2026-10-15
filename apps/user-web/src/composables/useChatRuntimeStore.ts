@@ -100,6 +100,11 @@ export type ChatRuntimePane = {
   runtimePresetId: string
   modelInstanceId: string
   codeProject: { workspace_id: string; git_branch: string; worktree: boolean } | null
+  /**
+   * Session-level view tab (028): 'chat' = conversation, 'trajectory' = process.
+   * Kept per-pane so switching sessions never leaks the selected tab.
+   */
+  activeView: 'chat' | 'trajectory'
 }
 
 type SendInput = {
@@ -187,6 +192,7 @@ function createPane(input: { key?: string; sessionId: string | null; messages?: 
     runtimePresetId: 'askai-enterprise',
     modelInstanceId: '',
     codeProject: null,
+    activeView: 'chat',
   }
 }
 
@@ -736,6 +742,12 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     // remains local to ChatWindow because it is visual-only state.
   }
 
+  /** Switch a pane between the conversation view and the trajectory view (028). */
+  function setPaneView(key: string, view: 'chat' | 'trajectory') {
+    const pane = findPaneByKey(key)
+    if (pane) pane.activeView = view
+  }
+
   /**
    * Renderer-neutral boundary for a Runtime owned by the desktop main process.
    * It deliberately reuses the authoritative message and V3 execution stores;
@@ -797,6 +809,7 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     clearUnread,
     clearPaneIntervention,
     setPanePreviewExpanded,
+    setPaneView,
     beginExternalTurn,
     sendMessage: (key: string, input: SendInput) => sendMessage(key, input, callbacks),
     stopGeneration,

@@ -356,21 +356,27 @@ pip_download_into() {
       # level of escaping to survive it.
       target=\"--only-binary=:all: $(platform_flags "${arch}") --python-version ${py_tag} --implementation cp --abi cp${py_tag}\"
 
+      # Reuse wheels already in the cache so a re-run only downloads what
+      # changed. With the rm -rf removed from cmd_fetch, fetch is incremental:
+      # a bumped pin pulls just the new version, the old one is left in place
+      # but ignored by the version-pinned offline install.
+      fl=\"--find-links /wheels\"
+
       echo '--- [1/4] pip / setuptools / wheel ---'
       # A wheel whose build backend needs these still resolves locally, which
       # matters because the cached set is installed offline.
-      pip download --progress-bar off -d /wheels \$target \
+      pip download --progress-bar off -d /wheels \$fl \$target \
         pip setuptools wheel 2>&1 | tail -2 || true
 
       echo '--- [2/4] torch + torchvision (CPU index) ---'
       if [ '${needs_torch}' = 'true' ]; then
-        pip download --progress-bar off -d /wheels \$target --no-deps \
+        pip download --progress-bar off -d /wheels \$fl \$target --no-deps \
           --index-url '${PYTORCH_CPU_INDEX}' \
           'torch>=2.2.2,<3.0.0' 'torchvision>=0,<1' 2>&1 | tail -3 || true
         # torch's own metadata deps must be present for the offline install;
         # the CPU index carries them too, so fetch them here rather than
         # relying on the PyPI mirror resolving the same names later.
-        pip download --progress-bar off -d /wheels \$target \
+        pip download --progress-bar off -d /wheels \$fl \$target \
           --index-url '${PYTORCH_CPU_INDEX}' \
           --no-deps 'filelock>=3.13.1' 'typing-extensions>=4.10.0' 'sympy>=1.13.3' \
           'networkx>=2.5.1' 'jinja2>=3.1.3' 'fsspec>=0.8.5' \
@@ -385,7 +391,7 @@ pip_download_into() {
       # download requires --only-binary=:all:, so one such pin makes pip fail
       # the whole resolution atomically and nothing would be cached. The
       # sdist-only pins were stripped into a second file and are fetched below.
-      pip download --progress-bar off -d /wheels \$target \
+      pip download --progress-bar off -d /wheels \$fl \$target \
         -r /ctx/.pip-wheels-staging/requirements-wheels.txt 2>&1 | tail -3 || true
 
       # sdist-only pins. crcmod falls back to a pure-Python build (its setup.py
@@ -403,7 +409,7 @@ pip_download_into() {
       echo '--- [4/4] extra requirement files ---'
       for extra in ${extras}; do
         [ -f \"/ctx/\$extra\" ] || continue
-        pip download --progress-bar off -d /wheels \$target \
+        pip download --progress-bar off -d /wheels \$fl \$target \
           -r \"/ctx/\$extra\" 2>&1 | tail -3 || true
       done
 
@@ -453,9 +459,13 @@ cmd_fetch() {
       platform_flags "${arch}" >/dev/null   # validate early
       local dest="${CACHE_DIR}/${service}/${arch}"
       printf 'Fetching wheels for %s/linux/%s into %s ...\n' "${service}" "${arch}" "${dest}"
-      # Clear first: a wheel left from an earlier requirements revision would be
-      # installed silently, because --no-index cannot tell it is stale.
-      rm -rf "${dest}"
+      # Incremental cache: keep already-downloaded wheels so a re-run only
+      # fetches what actually changed (e.g. a bumped pin). pip reuses a local
+      # wheel that satisfies the requirement via --find-links, so wheels are
+      # never re-downloaded. A stale wheel of the same name is harmless: the
+      # offline install pins exact versions (and --require-hashes), so an
+      # unreferenced wheel is simply ignored, not installed.
+      mkdir -p "${dest}"
       pip_download_into "${service}" "${arch}" "${dest}"
 
       local n size
