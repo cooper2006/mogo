@@ -11819,3 +11819,27 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - [x] `docker compose ps` 全服务 healthy 不变。
 
 **改动文件（本轮 1 处）**：`A .env`（根目录，未纳入版本库）
+
+---
+
+## 2026-10-15 playwright_browsers_bundle.sh fetch 改为增量下载（对齐 pip 思路）
+
+**触发**：用户要求"按 pip 的同款思路改 playwright_browsers_bundle.sh"，即让离线浏览器缓存支持增量下载，而不是每次重跑都全量重下。
+
+**改动（1 个文件）**：`scripts/playwright_browsers_bundle.sh` 的 `cmd_fetch`
+- 删除开头的临时目录方案：原实现是 `tmp_dir=$(mktemp -d)` → 容器 `-v "${tmp_dir}:/out"` → 下载后 `rm -rf "${BROWSERS_DIR}"; mkdir -p; cp -R "${tmp_dir}/." "${BROWSERS_DIR}/"`。这等于每次 fetch 都先删掉约 900MB 的持久缓存再全量重下，版本号微调或中途失败都要重付全部下载成本。
+- 改为挂载持久缓存：`-v "${ROOT_DIR}/${BROWSERS_DIR}:/out"`，`PLAYWRIGHT_BROWSERS_PATH=/out` 不变。`playwright install` 会跳过已存在于 `PLAYWRIGHT_BROWSERS_PATH` 的浏览器，因此重跑只补差量。
+- 删除下载后的 `rm -rf` + `cp -R` 回搬块：容器直接写进持久缓存，不再需要中转目录。
+- 缓存防串架构：新增 `cached="$(cached_arch)"`，仅当缓存已存在且 `cached != 目标 arch` 时才 `rm -rf "${BROWSERS_DIR}"`（不同架构的 chromium revision 目录同名，不可混用）；架构一致时保留缓存实现增量。
+- 顺带修复一个既有阻塞缺陷：原校验 `[[ -x "${BROWSERS_DIR}/chromium_headless_shell-"*/... ]] || [[ -x "${tmp_dir}/chromium-"*/... ]]` 中，`[[ ]]` **不做通配符展开**，字面量 glob 永远匹配不到文件，导致 `cmd_fetch` 下载成功后仍必然 `die "No chromium binary was downloaded"`。改为 `for b in "${BROWSERS_DIR}"/chromium_headless_shell-*/... "${BROWSERS_DIR}"/chromium-*/...; do [[ -x "${b}" ]] && { found=1; break; }; done`，用会展开 glob 的循环实现，校验才能真正生效。
+- 后续 `for candidate` 的 arch 核对与 `find ... browser_dirs` 同步改读 `${BROWSERS_DIR}`（原读已删除的 `tmp_dir`）。
+
+**关键判断**：docker 挂载源必须用 `${ROOT_DIR}/${BROWSERS_DIR}`（绝对路径），而宿主机侧校验用 `${BROWSERS_DIR}`（相对 CWD）。生产环境 CWD == ROOT_DIR，两者指向同一目录，一致；测试若把 `ROOT_DIR` 指到别处而仍在仓库内执行，宿主机侧校验会看错目录——这是此前几次自测失败的根因，属测试脚手架问题而非脚本缺陷。
+
+**验证（stub docker，三段场景全部 exit 0）**：用假 `docker` 二进制（置于 PATH 首位，模拟 `docker run` 在 `PLAYWRIGHT_BROWSERS_PATH` 已有浏览器时跳过下载、缺失时生成合法 ELF）在复刻生产布局的临时目录中执行：
+- RUN 1 空缓存 → 真实生成浏览器，manifest `arch=amd64`；
+- RUN 2 同架构重跑 → **未触发 `rm -rf`**，容器侧判定为"复用"，证明增量生效；
+- RUN 3 缓存为 amd64 而请求 arm64 → 正确清空并重下，manifest 转为 `arch=arm64`。
+- `bash -n scripts/playwright_browsers_bundle.sh` 通过。
+
+**改动文件（本轮 1 处）**：`M scripts/playwright_browsers_bundle.sh`

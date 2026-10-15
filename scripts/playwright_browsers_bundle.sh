@@ -216,14 +216,25 @@ cmd_fetch() {
 
   printf 'Downloading playwright %s browsers for linux/%s ...\n' "${version}" "${arch}"
 
-  local tmp_dir
-  tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "${tmp_dir:-}"' EXIT
+  # Incremental cache: reuse browsers already under BROWSERS_DIR so a re-run
+  # (e.g. after a version bump or a partial download) only fetches what
+  # changed, instead of wiping ~900MB and re-downloading everything.
+  # A cache built for a *different* arch cannot be reused (the revision dirs
+  # share names), so clear it only in that conflicting case.
+  local cached
+  cached="$(cached_arch)"
+  if [[ -n "${cached}" && "${cached}" != "${arch}" ]]; then
+    printf '  cache holds %s binaries; clearing for linux/%s ...\n' "${cached}" "${arch}"
+    rm -rf "${BROWSERS_DIR}"
+  fi
+  mkdir -p "${BROWSERS_DIR}"
 
   # The download runs in a container of the target architecture so the CDN
-  # serves the matching build; the host architecture is irrelevant.
+  # serves the matching build; the host architecture is irrelevant. The
+  # existing cache is mounted as PLAYWRIGHT_BROWSERS_PATH, so `playwright
+  # install` skips already-present browsers and downloads only the missing ones.
   "${DOCKER_BIN}" run --rm --platform "linux/${arch}" \
-    -v "${tmp_dir}:/out" \
+    -v "${ROOT_DIR}/${BROWSERS_DIR}:/out" \
     -e PLAYWRIGHT_BROWSERS_PATH=/out \
     -e PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST}" \
     "python:3.13-slim-bookworm" bash -c "
@@ -235,22 +246,25 @@ cmd_fetch() {
       ls -d /out/chromium*-* >/dev/null 2>&1
     " || die "playwright install for ${arch} failed."
 
-  [[ -x "${tmp_dir}/chromium_headless_shell-"*/chrome-linux/headless_shell ]] \
-    || [[ -x "${tmp_dir}/chromium-"*/chrome-linux/chrome ]] \
+  # NOTE: `[[ -x glob ]]` does not perform pathname expansion in bash, so the
+  # original guard (a literal glob inside [[ ]]) could never match and would
+  # always report "No chromium binary". Use a loop, which does expand globs.
+  local found=0
+  for b in "${BROWSERS_DIR}"/chromium_headless_shell-*/chrome-linux/headless_shell \
+           "${BROWSERS_DIR}"/chromium-*/chrome-linux/chrome; do
+    [[ -x "${b}" ]] && { found=1; break; }
+  done
+  [[ "${found}" -eq 1 ]] \
     || die "No chromium binary was downloaded for ${arch}."
 
   local got_arch
-  for candidate in "${tmp_dir}"/chromium*-*/chrome-linux/headless_shell; do
+  for candidate in "${BROWSERS_DIR}"/chromium*-*/chrome-linux/headless_shell; do
     [[ -f "${candidate}" ]] || continue
     got_arch="$(elf_arch "${candidate}")"
     break
   done
   [[ "${got_arch}" == "${arch}" ]] \
     || die "Downloaded browsers are ${got_arch:-unknown}, expected ${arch}."
-
-  rm -rf "${BROWSERS_DIR}"
-  mkdir -p "${BROWSERS_DIR}"
-  cp -R "${tmp_dir}/." "${BROWSERS_DIR}/"
 
   local browser_dirs
   browser_dirs="$(find "${BROWSERS_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | paste -sd ',' -)"
