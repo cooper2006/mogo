@@ -15,7 +15,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 RUN npm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
-    && npm install --global pnpm@10.34.4
+    && npm install --global pnpm@12.14.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # The pnpm store is mounted so it outlives lockfile changes (which invalidate

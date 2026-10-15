@@ -7,7 +7,7 @@ ARG VITE_ADMIN_API_BASE_URL=/admin-api
 ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
 # Same pin as .github/workflows/quality-gate.yml (frontend-quality). The
 # lockfile is a pnpm lockfile, so the image must use the project's pnpm, not npm.
-ARG PNPM_VERSION=10.14.0
+ARG PNPM_VERSION=12.14.0
 ENV VITE_BASE_PATH=${VITE_BASE_PATH} \
     VITE_ADMIN_API_BASE_URL=${VITE_ADMIN_API_BASE_URL} \
     MOVO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}

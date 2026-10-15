@@ -11774,3 +11774,27 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - [x] `git diff README.md` 仅 027 相关 3 处变更，028/029 行未动。
 
 **改动文件（本轮 1 处）**：`M README.md`
+
+---
+
+## 2026-10-15 升级镜像构建 pnpm 至 12 并完成 009e1df 打包重启 + 清理旧镜像
+
+**触发**：用户要求用 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 打包重启，并从 OrbStack 移除上一版本镜像；随后明确要把镜像构建器的 pnpm 一同升级到 12。
+
+**根因**：`admin-web` 构建失败（`ERR_PNPM_OUTDATED_LOCKFILE`）：`apps/admin-web/package.json` 声明了 `prettier@^3.6.0`，但 `apps/admin-web/pnpm-lock.yaml` 缺失该条目。该缺陷为 HEAD `009e1df` 固有（非本轮引入，工作区原本 clean）。
+
+**改动（本轮 4 处）**：
+- `M apps/admin-web/pnpm-lock.yaml`：用与 Dockerfile 钉版一致的 `pnpm@10.14.0` 以 `--lockfile-only` 重新生成，补全缺失的 prettier 条目（13 行变更全为 prettier 相关，无其它依赖漂移）。
+- `M apps/admin-web/Dockerfile`：`ARG PNPM_VERSION=10.14.0` → `12.14.0`。
+- `M apps/user-web/Dockerfile.prod`：`ARG PNPM_VERSION=10.14.0` → `12.14.0`。
+- `M services/chat-api/dsh/runtime-host/Dockerfile`：`npm install --global pnpm@10.34.4` → `pnpm@12.14.0`。
+
+**关键判断**：升 pnpm 12 是否正确取决于 lockfile 兼容性——用 `pnpm@12.14.0 install --lockfile-only --frozen-lockfile` 离线校验 `apps/admin-web`、`apps/user-web`、`services/chat-api/dsh/runtime-host` 三处 lockfile 全部通过，证实 pnpm 12 向后兼容现有 lockfile v9，**无需重生 lockfile**。
+
+**验证**：
+- [x] `MOGO_VERSION=009e1df ./mogo up --build` 退出码 0，7 个服务镜像全部以 `009e1df` 构建成功。
+- [x] `docker images` 仅剩 `009e1df` tag，旧 `e0e041a` 计数为 0（已被 `prune_previous_release_images` 清理，回收约 11698 MB）。
+- [x] `docker compose ps`：10 个容器均 running，应用服务除 document-worker 外均 healthy。
+- [x] 部署提示访问 `https://localhost/admin/setup` 完成初始配置。
+
+**改动文件（本轮 4 处）**：`M apps/admin-web/Dockerfile`、`M apps/admin-web/pnpm-lock.yaml`、`M apps/user-web/Dockerfile.prod`、`M services/chat-api/dsh/runtime-host/Dockerfile`
