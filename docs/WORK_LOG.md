@@ -11637,3 +11637,48 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 **改动文件（本轮仅这两处，未触碰其他在途改动）**：
 - `services/chat-api/app/api/endpoints/sessions.py`：删除 `list_sessions` 中的 `.hint([...])` 调用
 - （运行配置）chat-api 容器后端切回 `mongo`（仅容器级 env 注入，未改 `.env` 全局）
+
+---
+
+## dsh Web GUI WebSocket 告警修复（client.js: connection generation not ready / WebSocket closed before establish）
+
+**现象**：浏览器访问 `https://localhost/dsh-web/` 控制台持续报错：
+- `client.js:1130 [connection] generation is still not ready after 3000ms`
+- `client.js:1134 [connection] connection generation was not ready within 15000ms; cancelling generation`
+- `client.js:1051 [connection] connection lost, retry #1`
+- `client.js:517 WebSocket connection to 'wss://localhost/dsh-web/api/remote.mux' failed: WebSocket is closed before the connection is established.`
+
+`/api/remote.mux` 是 dsh 官方 Web GUI（由 `dsh --profile web` 提供，监听容器内 `127.0.0.1:3081`）的远程控制 WebSocket 端点。
+
+**根因**：`deploy/nginx/nginx.conf` 的 `/dsh-web/` location 把请求反代到 `http://dsh-runtime-host:3080`；3080 端口由 `services/chat-api/dsh/runtime-host/entrypoint.sh` 在容器内起的一个 HTTP 反向代理承担（`0.0.0.0:3080 → 127.0.0.1:3081`，并自动追加 `?token=` 以通过 dsh 的 browser-trust fence）。**该代理只用 `http.createServer((req, res) => …)` + `http.request`/`pipe`，完全没有注册 `upgrade` 事件处理器**。Node 在没有 upgrade 监听器时会在 WebSocket 升级握手到达时直接销毁 socket，于是浏览器端报 "WebSocket is closed before the connection is established"，进而 dsh 客户端反复 `connection lost / retry`，`remote.mux` 的 "generation" 一直无法 ready，触发 3000ms/15000ms 超时告警。
+
+**修复**：在 `entrypoint.sh` 的反向代理里补充 `proxy.on('upgrade', …)`，把 WebSocket 升级请求原样转发到内部 `3081`：保留原始 path（含 `?token=`）与请求头，101 响应头回写浏览器，双向 `pipe`；并对非升级响应（如 401 鉴权失败）兜底回写、错误时销毁 socket，避免连接悬空。
+
+**验证**：
+- `sh -n entrypoint.sh` 通过；抽取内联 node 脚本逻辑用本地最小复现（原生 TCP 模拟内部 dsh + 真实 upgrade 转发）端到端验证：代理正确回写 `HTTP/1.1 101 Switching Protocols`，后续 WebSocket 帧（例 `hello-from-dsh`）经 `pipe` 双向转发成功（exit=0）。
+- 容器内无 curl、rootfs 只读无法 `docker cp` 脚本，故未直接改容器内文件，仅改仓库源码，待重建镜像生效。
+
+**生效方式（待用户确认）**：本地运行的是本地构建镜像（`dsh-runtime-host:v0.2.1-17-…`），需 `mogo build`/`docker compose build dsh-runtime-host` 重建并重启该服务，使新 entrypoint 进入容器。重建会重启当前 dsh Web（断开现有会话）。
+
+**改动文件（本轮仅此一处）**：
+- `services/chat-api/dsh/runtime-host/entrypoint.sh`：反向代理补充 WebSocket `upgrade` 转发
+
+---
+
+## pip_wheels_bundle.sh 改为增量下载（已下载的 wheel 不再重复下载）
+
+**背景**：`mogo up --build` 时 document-api 离线安装因离线包过旧（只含 `pymongo==3.13.0` 的 sdist，而 requirements 已升到 `pymongo==4.18.3`）构建失败。重生成离线包时，原脚本每次 `fetch` 都 `rm -rf` 整个架构缓存后全量重下，配合双架构 + docling 大依赖，非常耗时且浪费。用户要求：已经下载的文件没有必要重新下载。
+
+**修改**（`scripts/pip_wheels_bundle.sh`，本轮唯一改动）：
+1. `cmd_fetch`：删除每跑一个 arch 就对缓存目录 `rm -rf "${dest}"` 的逻辑，改为 `mkdir -p "${dest}"`，保留已下载 wheel。
+2. `pip_download_into` 的共享 docker 下载 heredoc：新增 `fl="--find-links /wheels"`，并注入到 5 处 `pip download`（wheel / torch / 应用依赖 / extra 依赖等）；`--find-links /wheels` 让 pip 优先复用缓存目录里已存在的 wheel，只有缺失或新版本才去源站下载。sdist-only 那条（写 `/wheels-sdist`）本就独立，未改。
+
+**效果（已验证）**：重跑 `save document-parser` 时，arm64 的 stage 1–3 直接打印 `File was already downloaded`，不再重下；amd64 的 437M 旧缓存（148 个文件）原样保留，仅增量补 `pymongo-4.18.3` 等新/变动 wheel。
+
+**说明**：`cmd_pack` 仍是「拷贝缓存目录全部 `*.whl` + `*.tar.gz`」的盲拷贝，故若缓存里残留同名旧版本（如 amd64 仍含 `pymongo-3.13.0.tar.gz`），它也会被打进包。离线安装按 `pymongo==4.18.3` 精确钉版本，旧 sdist 不会被安装，仅使离线包体积略增，不影响正确性。后续如需进一步瘦身可再加「删同名旧版本」的裁剪步骤（本轮按用户要求只做「不重复下载」）。
+
+**验证（进行中）**：
+- [x] `bash -n` 语法检查通过。
+- [x] 增量复用已确认：重跑日志出现 `File was already downloaded`。
+- [ ] 离线包同时含 `pymongo-4.18.3`（arm64 + amd64）：待后台 `bash-54` 跑完用 `tar -tzf` 校验。
+- [ ] 重新 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 成功，document-api 用 `4852b20` 镜像且 healthy。

@@ -118,6 +118,66 @@ if [ "${DSH_WEB_MODE:-0}" = "1" ]; then
       upstream.on("error", (e) => { res.writeHead(502); res.end("Bad Gateway"); });
       req.pipe(upstream);
     });
+    // WebSocket 转发：dsh Web GUI 通过 /api/remote.mux 的 WebSocket 做远程
+    // 控制。没有 upgrade 监听器时，Node 会在升级握手到达时直接销毁 socket，
+    // 于是浏览器端报 "WebSocket is closed before the connection is established"。
+    // 这里把 upgrade 请求原样转发给内部 dsh（保留原始 path 与请求头，让 dsh
+    // 的 browser-trust fence 用 cookie / ?token= 照常鉴权），并双向 pipe 字节流。
+    proxy.on("upgrade", (req, clientSocket, head) => {
+      // 与普通请求一致的 token 补丁：浏览器对 WebSocket 也带同样的 cookie，
+      // 已有 cookie 时无需追加；仅无 token 无 cookie 的裸 GET / 才补 token。
+      let wsPath = req.url;
+      const hasToken = wsPath.includes("token=");
+      const hasCookie = req.headers["cookie"] && req.headers["cookie"].indexOf("dsh-auth-") !== -1;
+      if (token && !hasToken && !hasCookie && (wsPath === "/" || wsPath === "")) {
+        const sep = wsPath.includes("?") ? "&" : "?";
+        wsPath = wsPath + sep + "token=" + token;
+      }
+      const upstream = http.request({
+        hostname: targetHost,
+        port: targetPort,
+        path: wsPath,
+        method: req.method,
+        headers: req.headers,
+      });
+      upstream.on("upgrade", (upRes, upstreamSocket, upstreamHead) => {
+        // 把服务端 101 响应头回写给浏览器，再打通双向流。
+        clientSocket.write(
+          "HTTP/1.1 101 Switching Protocols\r\n" +
+          Object.entries(upRes.headers)
+            .map(([k, v]) => k + ": " + v)
+            .join("\r\n") +
+          "\r\n\r\n"
+        );
+        if (upstreamHead && upstreamHead.length) upstreamSocket.unshift(upstreamHead);
+        if (head && head.length) clientSocket.unshift(head);
+        upstreamSocket.pipe(clientSocket);
+        clientSocket.pipe(upstreamSocket);
+        const onError = () => { try { clientSocket.destroy(); } catch {} try { upstreamSocket.destroy(); } catch {} };
+        upstreamSocket.on("error", onError);
+        clientSocket.on("error", onError);
+      });
+      upstream.on("response", (upRes) => {
+        // 非升级响应（如鉴权 401）：原样回写，避免浏览器端连接悬空。
+        const chunks = [];
+        upRes.on("data", (c) => chunks.push(c));
+        upRes.on("end", () => {
+          try {
+            clientSocket.write(
+              "HTTP/1.1 " + upRes.statusCode + " " + (upRes.statusMessage || "") + "\r\n" +
+              Object.entries(upRes.headers).map(([k, v]) => k + ": " + (Array.isArray(v) ? v.join(", ") : v)).join("\r\n") +
+              "\r\n\r\n" + Buffer.concat(chunks).toString("binary")
+            );
+            clientSocket.end();
+          } catch {}
+        });
+      });
+      upstream.on("error", () => { try { clientSocket.destroy(); } catch {} });
+      // http.request 会按 {method, path, headers} 自动发出请求行与头（已含
+      // Upgrade/Connection/Sec-WebSocket-*），无需手动写 socket。升级请求无
+      // body，调用 end() 真正发出握手。
+      upstream.end();
+    });
     proxy.listen(port, "0.0.0.0", () =>
       console.log("[askai-dsh-runtime] HTTP reverse proxy listening on 0.0.0.0:" + port + " -> " + targetHost + ":" + targetPort)
     );
