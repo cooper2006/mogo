@@ -78,6 +78,9 @@ importers:
       postcss:
         specifier: ^8.5.28
         version: 8.5.28
+      prettier:
+        specifier: ^3.6.0
+        version: 3.9.10
       tailwindcss:
         specifier: ^3.4.1
         version: 3.4.19
@@ -1583,6 +1586,11 @@ packages:
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
+
+  prettier@3.9.10:
+    resolution: {integrity: sha512-skGHTH1Yb9QvaTC4hWnRTzEYtCpApF0UMBPz+t/0ZPzP8ihefo/btKd+QA7pUE0fEwA1SbS/NmhyEcstdXOIdA==}
+    engines: {node: '>=14'}
+    hasBin: true
 
   proxy-from-env@2.1.0:
     resolution: {integrity: sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA==}
@@ -3375,6 +3383,8 @@ snapshots:
     optional: true
 
   prelude-ls@1.2.1: {}
+
+  prettier@3.9.10: {}
 
   proxy-from-env@2.1.0: {}
 
