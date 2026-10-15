@@ -11818,7 +11818,30 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - [x] 宿主机 `curl -sk https://localhost/dsh-web/` 返回 **303**（非 502），gateway 已成功转发到上游 dsh web，502 消失。
 - [x] `docker compose ps` 全服务 healthy 不变。
 
-**改动文件（本轮 1 处）**：`A .env`（根目录，未纳入版本库）
+**改动文件（本轮 1 处）**：`A .env`（根目录，已纳入版本库）
+
+---
+
+## 2026-10-16 修复 dsh-runtime-host 外网不可达（第三方模型添加报错）
+
+**触发**：浏览器访问 `https://localhost/dsh-web/` 添加第三方模型时提示 `could not reach https://note3-prev-api.askdiandian.com/v1/models`。
+
+**根因**：`dsh-runtime-host` 模板仅加入了 `mogo_backend` 网络，而 `mogo_backend` 在 compose 中定义为 `internal: true`（第 738 行），这是一个完全隔离的内部网络——容器内 DNS 解析返回 `ESERVFAIL`、TCP 连外网报 `ENETUNREACH`。dsh 发起外部模型 API 调用时 DNS 都解析不了，自然无法到达目标服务。`gateway` 能出网是因为它同时挂载了 `mogo_public`（非 internal）。
+
+**改动（1 个文件 2 处）**：
+- `M docker-compose.yml` `x-dsh-runtime-host-template` 的 `networks` 段新增 `- public`（在 `- backend` 之前），使 dsh-runtime-host 同时具备内部服务间通信与外网访问能力。
+- `M docker-compose.yml` gateway 段注释更新，反映 dsh-runtime-host 已挂 public 网络的新拓扑。
+
+**关键判断**：给 dsh-runtime-host 加 `public` 不影响安全——容器入口点仍强制绑定 `127.0.0.1`（dsh web 模式），外部无法直接访问其服务端口。只增加了 DNS 解析和出站 HTTP 的能力。
+
+**验证**：
+- [x] `docker inspect` 确认 dsh-runtime-host 同时挂在 `mogo_backend` (192.168.107.5) 和 `mogo_public` (192.168.97.5)。
+- [x] 容器内 DNS：`resolve4("note3-prev-api.askdiandian.com")` → `47.102.139.206, 139.224.187.188`（之前 ESERVFAIL）。
+- [x] 容器内 TCP 到宿主机 80：`CONNECTED`（之前 ENETUNREACH）。
+- [x] 容器内 `fetch("https://note3-prev-api.askdiandian.com/v1/models")` → **HTTP 200**，返回 `[{"id":"dots3-note-prev","owned_by":"system"}]`。
+- [x] `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 退出码 0，所有服务 healthy。
+
+**改动文件（本轮 1 处）**：`M docker-compose.yml`（`dsh-runtime-host-template` 加 `public` 网络 + gateway 注释更新）
 
 ---
 
