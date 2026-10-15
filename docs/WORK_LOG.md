@@ -1,5 +1,33 @@
 # Work Log
 
+## 2026-10-15 实测 openGauss 客户端兼容性 + 回滚加密类型
+
+**触发**：用户要求"接入 openGauss 兼容驱动"，先尝试"改服务端加密类型 → 保留 psycopg3"路径（路径 B）。
+
+### 实测结论（关键，纠正此前假设）
+- 服务端 `password_encryption_type` 实测为 **0（即 PG 标准 md5，非此前误记的 openGauss 自有 MD5 变体）**，且该 GUC 为 `PGC_POSTMASTER` 级，**只能改 `postgresql.conf` 后重启集群生效**，不能在线 `set`。
+- 建临时测试用户 `pgprobe`，重设 `password_encryption_type=2`（sha256）后其密码存为 `sha25641bd...`；**用 chat-api venv 的 psycopg3 连该 sha256 用户仍报 `password authentication failed`**。
+- 结论：**openGauss 的 "SHA256"(type=2) 是其自有认证算法，并非 PostgreSQL 标准 SCRAM-SHA-256**，psycopg3/libpq 一律无法握手。无论服务端 md5 还是 openGauss-sha256，标准 libpq 系驱动都连不上。此前"SHA256 兼容 psycopg3"的判断被实测证伪。
+- 因此路径 B（保留 psycopg3）**不可行**；唯一能连的是 openGauss 官方驱动（psycopg2 风格、同步，需从官网下 wheel，且 PyPI 无此包）。
+
+### 操作过程（已回滚到基线）
+1. 改 `password_encryption_type 0→2` 前先备份 `postgresql.conf` → `postgresql.conf.bak.20261015`（容器内 `/database/panweidb/data/`，omm 可写，数据目录未挂载宿主机）。
+2. `gs_ctl restart` 首次失败：`FATAL: Get environment of GAUSSHOME failed`（docker exec 未注入 GAUSSHOME）。已用 `-e GAUSSHOME=/database/panweidb/soft -e LD_LIBRARY_PATH=/database/panweidb/soft/lib` 修复并成功启动；期间旧实例已被 fast 停掉、残留空 `postmaster.pid`，删后重启成功。
+3. 实测证伪假设后，用备份 `postgresql.conf.bak.20261015` 覆盖恢复（type=0），再次 `gs_ctl restart`（带完整环境变量）成功。
+4. 临时用户 `pgprobe` 因被授予 database 级 connect 权限，`drop` 被依赖挡住，先 `revoke all on database bonc from pgprobe` 再 `drop user` 成功（已清理，库内无残留）。
+
+### 回滚后基线状态（已验证）
+- `show password_encryption_type` = 0；`gs_ctl query` `db_state: Normal`。
+- `gsql -U boncuser` 登录正常；`boncuser` 仍持有 `mogo_dev` 119 表所有权，未受影响。
+- 备份 `postgresql.conf.bak.20261015` 保留作为本次操作记录（未删除）。
+- 三个服务（chat-api/admin-api/document-parser）的 `pg.py`（psycopg3 异步池）**未改动**，psycopg3 仍连不上 panweidb（预期，记录基线）。
+
+### 下一步（待用户决策）
+- 路径 A：从 openGauss 官网下载 `opengauss` wheel（匹配 Python 3.13）装进三服务 venv，将各 `pg.py` 从 psycopg3 异步池改写为同步连接（连接层范式迁移，工作量大）。
+- WORK_LOG 历史（2026-10-15 健康检测条目）仅记录了"需接 openGauss 兼容驱动"的结论，无已验证的落地步骤。
+
+---
+
 ## 2026-10-15 重置 panweidb 账号（删 boncuser/boncuser2，新建 boncuser，刷新 .env）
 
 **触发**：用户确认两个旧用户密码均遗忘，要求删除后新建一个用户并把凭据刷新回 `.env`。
@@ -11803,3 +11831,36 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - [x] 增量复用已确认：重跑日志出现 `File was already downloaded`。
 - [ ] 离线包同时含 `pymongo-4.18.3`（arm64 + amd64）：待后台 `bash-54` 跑完用 `tar -tzf` 校验。
 - [ ] 重新 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 成功，document-api 用 `4852b20` 镜像且 healthy。
+
+---
+
+## 2026-10-15 panweidb 容器重装 + 宿主机一键拉起脚本
+
+**触发**：用户要求参考之前会话，删除 orbstack 下现有 `panweidb` 容器，从镜像 `panweidb:3.2.0`（local id `c2988ce00a05`，非 `panwei-signalnode:3.2.0`）重新安装；并明确「本容器是用 `bash -c 'tail -f /dev/null'` 常驻的，数据库不会随容器自动启动」，要求做成**宿主机脚本**一键拉起。
+
+**沿用配置（与 2026-10-13/15 会话一致）**：
+- 数据库 `bonc` / 用户 `boncuser`(`1qaz!QAZ`) / schema `ihr_hrd`，`search_path=ihr_hrd`。
+- 监听 `0.0.0.0:5432`；`dbcompatibility=B`；omm 口令 `Pw@123456`。
+- 容器常驻命令：`docker run --privileged -d --name panweidb -p 5432:5432 --entrypoint bash panweidb:3.2.0 -c 'tail -f /dev/null'`。
+
+**重装关键事实 / 坑**（已沉淀到脚本，供后续复用）：
+1. 镜像里 `/database/panweidb/soft/bin` 为空，**必须先解包** `/root/PanWeiDB_*_install-openeuler_20.03.tar.gz`，内含主包 `PanWeiDB_V2.0-S3.2.0_B01-openEuler-64bit.tar.bz2` 与 om 包 `...-om.tar.gz`，都要解。
+2. 容器内 `gs_*` 不在 `omm` 的 login shell PATH 里，且 login shell 会清空 `PGHOME`/`PATH`；脚本统一用 `docker exec -e` 注入环境 + `su omm`（**非 login**）切换身份。
+3. `gsql` 不读 `PGPASSWORD`、不认 `<<<` heredoc；走 TCP 的口令通过容器内 `python3 -c` + 环境变量传参，把口令喂到 stdin（SQL 里的单引号只是数据，不影响 Python 源码解析）。
+4. `gs_initdb` 启动后 omm 处于「inituser's password was not set」锁定态，本地 gsql 会被拒；因此**就绪探活改用 TCP/5432 端口可达**判断，把 `ALTER ROLE omm PASSWORD` 放在 `gs_ctl start` 之后。
+5. `pg_hba.conf` 全 `trust`（安全插件拦截 TCP 口令认证，只有 trust 能免密连）；`postgresql.conf` 设 `listen_addresses='*'`；`gaussdb.version` 必须在 `gs_initdb` **之后**再写回 `data` 目录。
+
+**新增宿主机一键脚本**（`scripts/pg/panweidb_up.sh`，已 `chmod +x`）：
+- 幂等：容器缺失→重建、已停→`docker start`、数据已初始化→仅 `gs_ctl start`、未初始化→完整解包→initdb→配置→建库/用户/模式；`--reinit` 清空 data 重来（数据全丢）。
+- 提供 `--status` 仅打印容器/初始化/就绪状态不改动。
+- 末尾打印连接方式：`postgresql://boncuser:1qaz!QAZ@127.0.0.1:5432/bonc`。
+
+**验证（已实跑）**：
+- `bash scripts/pg/panweidb_up.sh --status` → 容器 Up、`data: initialized`、`bin: unpacked`、`db: READY`、端口 `0.0.0.0:5432`+`[::]:5432`。
+- `bash scripts/pg/panweidb_up.sh --reinit`（风险最高的全清重建路径）跑通：`gs_initdb` → 配置 → `gs_ctl start` → omm 口令 → `CREATE DATABASE bonc / CREATE ROLE boncuser / CREATE SCHEMA ihr_hrd` 全成功。
+- 重跑普通 `up`（幂等分支）秒过；`verify` 输出 `current_database=bonc / current_user=boncuser / current_schema=ihr_hrd`、`search_path=ihr_hrd`，与预期一致。
+- 宿主机 `TCP 127.0.0.1:5432` 可达，业务连 `bonc` 库 `ihr_hrd` schema 正常。
+
+**改动文件（本轮）**：
+- `scripts/pg/panweidb_up.sh`：新增宿主机一键拉起脚本（容器创建/启动、解包、initdb、配置、建库、探活、verify）。
+- `docs/WORK_LOG.md`：本条工作记录。
