@@ -1,5 +1,42 @@
 # Work Log
 
+## 2026-10-15 切到 feat/migrate-mongo-to-panweidb 并将 main 合并进来（含 027-R3 方案文档）
+
+**触发**：用户要求熟悉 `docs/027-r3-relational-four-tables-plan.md` 内容，并将分支切换到 `feat/migrate-mongo-to-panweidb`。
+
+### 背景
+
+阅读 027-R3 文档时发现：该文档由提交 `4852b20` 引入，只存在于 `main` 与 `029-user-web-sso-receiver` 分支，目标分支 `feat/migrate-mongo-to-panweidb` 上**没有**该文件。两分支已双向分叉（main 领先 15 个提交，mig 分支领先 5 个提交），非简单前后继关系。
+
+经用户确认，选择「把当前分支合并到 main 之后」，使文档与 main 全部新进度一并进入迁移分支。
+
+### 改动清单
+
+| 项 | 内容 |
+|----|------|
+| 分支 | `main` → `feat/migrate-mongo-to-panweidb`（`7a4efcb`） |
+| worktree | `git worktree prune` 清理失效注册 `/private/tmp/mogo-mig`（目录已不存在，属残留元数据，不删文件） |
+| 合并 | `git merge main --no-ff`，生成合并提交 `a832ad5`（仅本地，未推送远端） |
+| 文档 | `docs/027-r3-relational-four-tables-plan.md`（495 行）随合入进入分支，与 main 版本逐字节一致 |
+
+### 关键决策
+
+- **merge 而非 rebase**：该分支已与远端 `mogo/feat/migrate-mongo-to-panweidb` 同步，rebase 会重写 5 个已推送提交的哈希，需强推远端，属不可逆远端写操作，未获授权。merge 不动历史、不推送。
+- **未单独 cherry-pick**：合并已把含文档的 `4852b20` 带入分支，cherry-pick 会重复引入同一内容。
+- **冲突预演**：先用 `git merge-tree --write-tree` 做无副作用预演，无冲突。两分支实际重叠 3 个文件（`chat-api/app/api/endpoints/auth.py`、`endpoints/sessions.py`、`services/end_user_session.py`），均三方合并干净。
+
+### 验证
+
+- `git diff main:<doc> HEAD:<doc>`：无输出，文档与 main 逐字节一致
+- `git status --porcelain`：合并后工作区干净
+- chat-api：`tests/api/test_auth_portal_sso.py` + `test_security_session_timeout.py` + `test_security_gatekeeper.py` → 56 passed
+- chat-api：`tests/llm/test_resilience_wiring.py` → 6 passed
+- admin-api：`tests/test_ids.py` + `tests/test_pg_compat.py` → 55 passed
+
+> 注：chat-api 测试需 `PYTHONPATH=. ./venv/bin/pytest`（`app` 为命名空间包，pyproject 未配 pythonpath，靠 cwd 隐式导入）。
+
+---
+
 ## 2026-10-15 刷新 README（README.md / README.zh-CN.md）：纳入 spec 027–029，重点 028 / 029
 
 **触发**：用户要求「切换到 main 分支，根据 spec 028、029 内容刷新 README 和 intro-v4.pptx」；随后用户调整为**只刷新 README**（PPTX 本轮不动）。
