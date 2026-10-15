@@ -11798,3 +11798,24 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - [x] 部署提示访问 `https://localhost/admin/setup` 完成初始配置。
 
 **改动文件（本轮 4 处）**：`M apps/admin-web/Dockerfile`、`M apps/admin-web/pnpm-lock.yaml`、`M apps/user-web/Dockerfile.prod`、`M services/chat-api/dsh/runtime-host/Dockerfile`
+
+---
+
+## 2026-10-15 修复 /dsh-web/ 访问 502（启用 DSH_WEB_MODE=1）
+
+**触发**：浏览器访问 `https://localhost/dsh-web/` 持续 502，当天已反复重启多次仍未解决，要求彻底排查。
+
+**根因（与当日 pnpm/lockfile 打包修复无关）**：`/dsh-web/` 的链路是 `gateway nginx → proxy_pass http://dsh-runtime-host:3080/ → 容器内反代 → 127.0.0.1:3081 dsh web`。`dsh-runtime-host` 的 web 分支仅在 `DSH_WEB_MODE=1` 时启动（见 `services/chat-api/dsh/runtime-host/entrypoint.sh` 的 `if [ "${DSH_WEB_MODE:-0}" = "1" ]`）。而 compose 默认 `DSH_WEB_MODE: ${DSH_WEB_MODE:-0}`，根目录无 `.env`，故实际为 `0`——3080 反代与 3081 dsh web **从未启动**，gateway 连 3080 得 `Connection refused` → 502。当日多轮重启都只是重建了同一份 `DSH_WEB_MODE=0` 的容器，未触达真正开关。
+
+**改动（本轮 1 处）**：
+- `A .env`（仓库根）：写入 `DSH_WEB_MODE=1`。compose 通过 `${DSH_WEB_MODE:-0}` 读取；本地 `localhost` 访问被 dsh browser-trust fence 识别为 loopback 直接放行，无需 `DSH_WEB_TRUSTED_HOST`。`.gitignore` 仅忽略 `/backend/.env*`，根 `.env` 不进版本库（仅含非敏感的开关值）。
+
+**关键判断**：`docker compose up -d`（默认 `docker-compose.yml`）会尝试拉 `ghcr.io/himovo/*:latest` 导致 `denied` 且找不到本地镜像；本仓库走 `./mogo` 脚本（读 build compose + 本地 `009e1df` 镜像）。故用 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 重建，仅 dsh-runtime-host 与 gateway 因环境变量变更被重新创建，其余镜像 no-op。
+
+**验证**：
+- [x] dsh-runtime-host 日志含 `starting official dsh web profile on 127.0.0.1:3081`、`HTTP reverse proxy listening on 0.0.0.0:3080 -> 127.0.0.1:3081`，确认 web 分支已执行、3080 已监听。
+- [x] 容器内直连 3080：裸 `GET /` → 303（`Set-Cookie: dsh-auth-*`）；带该 cookie 再 `GET /` → **200 `text/html` 36151 字节**，真实 dsh web 页面（`<!doctype html>...`）。
+- [x] 宿主机 `curl -sk https://localhost/dsh-web/` 返回 **303**（非 502），gateway 已成功转发到上游 dsh web，502 消失。
+- [x] `docker compose ps` 全服务 healthy 不变。
+
+**改动文件（本轮 1 处）**：`A .env`（根目录，未纳入版本库）
