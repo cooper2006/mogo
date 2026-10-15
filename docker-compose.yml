@@ -82,6 +82,7 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
     bootstrap:
       condition: service_completed_successfully
   networks:
+    - public
     - backend
   healthcheck:
     test:
@@ -722,9 +723,9 @@ services:
         condition: service_healthy
     networks:
       - public
-      # backend 只用于 /dsh-web/ 反代（转发到 dsh-runtime-host:3080，
-      # 该服务只在 backend 网络）；其余上游（user-web/admin-web/
-      # admin-api/chat-api）都在 public 网络。
+      # backend 用于 /dsh-web/ 反代（转发到 dsh-runtime-host:3080）；
+      # dsh-runtime-host 同时挂在 public 网络以访问外部模型 API。
+      # 其余上游（user-web/admin-web/admin-api/chat-api）都在 public 网络。
       - backend
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz >/dev/null"]
