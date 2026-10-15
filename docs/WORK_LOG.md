@@ -11705,3 +11705,33 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - [x] 增量复用已确认：重跑日志出现 `File was already downloaded`。
 - [ ] 离线包同时含 `pymongo-4.18.3`（arm64 + amd64）：待后台 `bash-54` 跑完用 `tar -tzf` 校验。
 - [ ] 重新 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 成功，document-api 用 `4852b20` 镜像且 healthy。
+
+---
+
+## 准生产回归（main + mongo）并修复 2 个部署质量缺陷
+
+**背景**：用户要求以 OrbStack ARM 准生产环境对切回 main 后的现状做全量回归（不切分支、不切后端、不改动业务代码）。范围 = main 现状 + MongoDB 后端。
+
+**回归结论**：未发现与 mongo/panweidb 切换相关的产品回归。
+- 准生产 4 服务容器内 API 探针全 200，网关 443/3000 可达。
+- pg_compat 兼容层守卫 14 全过（三服务 `pg_compat.py` 未漂移）。
+- 三服务单测：admin-api / document-parser 0 产品回归；chat-api 8 失败全为 `dsh_runtime` 环境阻塞（本地拉不起独立 dsh-runtime-host 进程），与后端无关。
+- deploy/tests 集成守卫：修复前 90 过 / 18 失败；修复后 103 过 / 5 失败（仅余 `test_data_security_us5` 的 5 个环境阻塞——本机未加载服务 venv 的 `app` 包，与产品无关）。
+
+**本次修复的 2 个真实缺陷（D1 含两个脚本可执行位）**：
+1. `scripts/check-secrets.sh` 与 `.githooks/pre-commit` 的 git 模式位为 `100644`（不可执行），导致 CI 密钥扫描（`scripts/check-secrets.sh --all` 裸调用）与 pre-commit 钩子静默失效。修复：`chmod +x` 并 `git add`（现 `100755`）。
+2. `deploy/docker/nginx-https.conf` 与事实源 `deploy/nginx/nginx.conf` 的 TLS 配置漂移：`a61db80` 给 `nginx.conf` 加了 `location /dsh-web/ { ... }`，兼容入口 `nginx-https.conf` 未同步。修复：把 `/dsh-web/` 段（含同源注释）同步进 `nginx-https.conf`（插在 `/api/` 段之后、`location /` 之前）。当前运行镜像 `e0e041a` 早于该提交，故漂移尚未上线，属代码层、下次 build 才暴露。
+
+**验证**：
+- [x] `test_tls_gateway_config.py::test_tls_configs_are_semantically_equivalent` 通过（drift 消除）。
+- [x] `test_supply_chain_us6.py` 36 全过（含 check-secrets + pre-commit 可执行位断言）。
+- [x] 完整 deploy/tests（忽略 container_hardening / performance）103 过 / 5 失败。
+
+**改动文件（本轮 3 处）**：
+- `M scripts/check-secrets.sh`（可执行位 100644→100755）
+- `M .githooks/pre-commit`（可执行位 100644→100755）
+- `M deploy/docker/nginx-https.conf`（同步 /dsh-web/ location 段）
+
+**交付物**：`docs/regression-arm-orbstack-2026-10-15.md`（回归报告，含结果总览、缺陷分类、环境阻塞说明）。
+
+**未做**：未提交（按 AGENTS.md 提交边界，待用户确认后由对应会话提交）；未触碰业务代码；未修 data_security 环境阻塞（需服务 venv，留作报告待办）。
