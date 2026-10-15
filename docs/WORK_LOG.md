@@ -11864,3 +11864,33 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 **改动文件（本轮）**：
 - `scripts/pg/panweidb_up.sh`：新增宿主机一键拉起脚本（容器创建/启动、解包、initdb、配置、建库、探活、verify）。
 - `docs/WORK_LOG.md`：本条工作记录。
+
+---
+
+## 2026-10-15（续）修复客户端连接 boncuser 报 28P01（密码认证失败）
+
+**触发**：客户端连接报 `FATAL: password authentication failed for user "boncuser" (SQLSTATE 28P01)`。
+
+**根因（两个相互独立，先后定位）**：
+1. **端口冲突**：宿主机 `127.0.0.1:5432` 原本被 **ServBay 自带的 PostgreSQL 18.6**（PID 377）占用并监听 `*:5432`。它的认证是 `SASL/密码`，客户端从宿主机连 `127.0.0.1:5432` 命中了 ServBay 而非容器内 panweidb（panweidb 配的是 trust，本不应要求密码、更不会报 28P01）。→ 用户停掉 ServBay 的 postgres 让出 5432。
+2. **PanWeiDB 安全插件禁止「远程 + trust」**：停掉 ServBay 后实测 `127.0.0.1:5432` 一度 `Connection refused`（端口映射未重新挂起，靠 `docker restart panweidb` 修复转发）。转发恢复后，从宿主机直连容器 IP 验证得到真正报错：
+   `FATAL: Forbid remote connection with trust method! (SQLSTATE 28000)`。
+   即 panweidb 的 `pg_hba.conf` 全 `trust` 只允许**容器内本地**连接；任何外部 TCP（在库看来来源是宿主网关 IP，非 127）一律被安全插件拒绝。容器内 `127.0.0.1` 能连成功，正是因为属于本地。→ 这才是客户端 `28P01` 的本质：原本脚本把远程写成 trust，被安全插件拦下后客户端端到端表现为认证失败。
+
+**修正动作**：
+- 在运行中的容器里把 `pg_hba.conf` 改为：本地（`local` + `127.0.0.1/32` + `::1/128`）`trust`，远程 `0.0.0.0/0` 与 `::0/0` 改 **`sha256`**；改前已备份为 `pg_hba.conf.bak-20261015`。
+- `gs_ctl reload -D /database/panweidb/data` 生效。
+- 确认 `password_encryption_type=1`（密码以 sha256 存储，前缀 `sha`），`omm`/`boncuser` 口令已就绪，远程走密码认证可行。
+- `docker restart panweidb` 修复宿主机 `127.0.0.1:5432` 端口转发（容器无 systemd，DB 未自启，用 `panweidb_up.sh` 重新 `gs_ctl start`）。
+- **同步修正脚本** `scripts/pg/panweidb_up.sh`：`configure_db()` 原写「全 trust」是错误写法（会复现本问题），改为「本地 trust / 远程 sha256」；并更正顶部注释里「全 trust 才能免密连」的错误描述。
+
+**验证（已实跑）**：
+- 宿主机真实 `psql`（ServBay 客户端）端到端：
+  `PGPASSWORD='1qaz!QAZ' psql "postgresql://boncuser@127.0.0.1:5432/bonc" -c "select current_database(),current_user,current_schema;"`
+  → 返回 `db=bonc / u=boncuser / s=ihr_hrd`，连接成功，原 `28P01` 消失。
+- 反向验证：错误口令 → `FATAL: Invalid username/password, login denied`，证明密码认证确实生效（非 trust 直通）。
+- 容器内 `127.0.0.1` 维护连接仍走 trust，未受影响。
+
+**改动文件（本轮）**：
+- `scripts/pg/panweidb_up.sh`：修正 `configure_db()` 认证方式（本地 trust / 远程 sha256）+ 顶部注释纠偏。
+- `docs/WORK_LOG.md`：本条工作记录。

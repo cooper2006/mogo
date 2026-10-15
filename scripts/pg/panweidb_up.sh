@@ -11,7 +11,10 @@
 # 设计要点（复刻 2026-10-15 会话验证过的配方）：
 #   - 二进制不在镜像 PATH 里，需从 /root/PanWeiDB_*_install-openeuler_20.03.tar.gz
 #     解包到 /database/panweidb/soft，主包 + om 包都要解。
-#   - 连接走 0.0.0.0:5432；pg_hba.conf 全 trust（安全插件拦截 TCP 口令认证，trust 才能免密连）。
+#   - 连接走 0.0.0.0:5432。pg_hba 本地（local + 127）用 trust 方便维护；
+#     远程 TCP 必须用 sha256（PanWeiDB 安全插件禁止“远程 + trust”，否则报
+#     "Forbid remote connection with trust method!" / SQLSTATE 28000，客户端会收到 28P01）。
+#     应用账户 boncuser 的口令已用 sha256 存储（password_encryption_type=1），远程走密码认证即可。
 #   - 超级用户 omm 必须在 gs_initdb 后 ALTER ROLE 设口令，否则其后再做操作会被拒。
 #   - gsql 不读 PGPASSWORD，脚本用 python 子进程把口令喂到 stdin。
 #   - 用 `docker exec -e` 注入环境 + `su omm`（非 login）切换身份，避免 login shell
@@ -188,17 +191,17 @@ init_data() {
 }
 
 configure_db() {
-  echo ">> 配置 listen_addresses='*' 与 pg_hba.conf 全 trust ..."
+  echo ">> 配置 listen_addresses='*' 与 pg_hba.conf（本地 trust / 远程 sha256）..."
   docker_exec bash -c "
     set -e
     sed -i \"s/^#*listen_addresses = .*/listen_addresses = '*'/\" $PGDATA/postgresql.conf
     cat > $PGDATA/pg_hba.conf <<'HBA'
 # TYPE  DATABASE        USER            ADDRESS                 METHOD
 local   all             all                                     trust
-host    all             all             0.0.0.0/0               trust
-host    all             all             ::0/0                   trust
 host    all             all             127.0.0.1/32            trust
 host    all             all             ::1/128                 trust
+host    all             all             0.0.0.0/0               sha256
+host    all             all             ::0/0                   sha256
 HBA
     chown omm:dbgrp $PGDATA/pg_hba.conf
     chmod 600 $PGDATA/pg_hba.conf
