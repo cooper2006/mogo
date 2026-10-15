@@ -487,6 +487,11 @@ export const messages = {
   'chat.markdown_edit': { zh: 'Markdown 编辑', en: 'Markdown Edit' },
   'chat.preview_panel': { zh: '预览', en: 'Preview' },
   'chat.reopen_preview': { zh: '恢复预览', en: 'Reopen Preview' },
+  // Session-level view tabs (028): conversation vs trajectory.
+  'chat.view.chat': { zh: '对话', en: 'Chat' },
+  'chat.view.trajectory': { zh: '轨迹', en: 'Trajectory' },
+  'chat.view.trajectory_empty': { zh: '本次会话暂无处理过程', en: 'No process steps in this session yet' },
+  'chat.view.trajectory_round': { zh: '第 {index} 轮', en: 'Round {index}' },
 
   // UI additional
   'ui.theme.light': { zh: '浅色', en: 'Light' },

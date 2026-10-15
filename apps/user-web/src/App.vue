@@ -42,8 +42,12 @@ import { useDesktopToolTabs } from './composables/desktop/useDesktopToolTabs'
 import { clearDesktopAuthSession, restoreDesktopAuthToken } from './composables/desktop/desktopAuthSession'
 import { useNetworkStatus } from './composables/useNetworkStatus'
 import { AppsOutline, SettingsOutline } from '@vicons/ionicons5'
+import ChatViewTabs from './components/chat/ChatViewTabs.vue'
 
 const ChatWindow = defineAsyncComponent(() => import('./components/ChatWindow.vue'))
+// Session-level trajectory view (028): lazily loaded, only needed when the user
+// switches a pane to the trajectory tab.
+const SessionTrajectoryView = defineAsyncComponent(() => import('./features/execution-v3/components/SessionTrajectoryView.vue'))
 const SkillsPage = defineAsyncComponent(() => import('./components/MySkillsPage.vue'))
 const ToolsPage = defineAsyncComponent(() => import('./components/MyToolsPage.vue'))
 const KnowledgePage = defineAsyncComponent(() => import('./components/MyKnowledgePage.vue'))
@@ -2558,9 +2562,15 @@ onBeforeUnmount(() => {
             v-for="pane in visibleChatPanes"
             v-show="pane.key === activeChatKey"
             :key="pane.key"
-            class="h-full w-full"
+            class="flex h-full w-full flex-col"
           >
+            <ChatViewTabs
+              :view="pane.activeView"
+              @update:view="(view: 'chat' | 'trajectory') => chatRuntime.setPaneView(pane.key, view)"
+            />
+            <div class="relative min-h-0 flex-1">
             <ChatWindow
+              v-show="pane.activeView !== 'trajectory'"
               :initial-messages="pane.messages"
               :session-id="pane.sessionId || undefined"
               :model-instance-id="pane.modelInstanceId || undefined"
@@ -2619,6 +2629,12 @@ onBeforeUnmount(() => {
               @review-code-changes="reviewCodeChanges"
               @open-code-file="openCodeFile"
             />
+            <SessionTrajectoryView
+              v-show="pane.activeView === 'trajectory'"
+              class="absolute inset-0"
+              :messages="pane.messages"
+            />
+            </div>
           </div>
           </div>
         </template>

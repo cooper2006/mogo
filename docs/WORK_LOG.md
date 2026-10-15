@@ -1,5 +1,47 @@
 # Work Log
 
+## 2026-10-15 按路线 C 落地：user-web 会话级「对话 / 轨迹」双 tab（specs/028）
+
+**触发**：用户确认按 `docs/user-web-复用dsh-web会话能力-方案.md` 的**路线 C** 落地。
+
+**做什么**（SDD：规格先行，`specs/028-user-web-trajectory-tab/` 五件套）：
+
+1. **规格**：官方脚本建 028，spec / plan / tasks / quickstart / checklists/requirements 五件套齐。
+2. **状态层**（`apps/user-web/src/composables/useChatRuntimeStore.ts`）：`ChatRuntimePane` 新增 `activeView: 'chat' | 'trajectory'`；`createPane()` 默认 `'chat'`；新增并导出 `setPaneView(key, view)`。
+3. **新增组件**：
+   - `components/chat/ChatViewTabs.vue`——tab 切换器（`role="tablist"` + `:aria-selected`，emit `update:view`）。
+   - `features/execution-v3/components/SessionTrajectoryView.vue`——会话级轨迹视图：遍历消息 → 每条 assistant 复用 `ensureMessageExecutionV3` store + `ExecutionViewV3` 逐轮纵向渲染；**只读**（不绑审批）。
+   - `features/execution-v3/domain/trajectoryRounds.ts`——纯函数 `collectTrajectoryRounds()`（assistant 消息 → 轮次；缺失 id 给稳定 key），把聚合逻辑从组件里提出来以便单测。
+4. **接线**（`App.vue:2561-2638`）：pane 容器改 `flex h-full w-full flex-col`；顶部挂 `<ChatViewTabs>`；内容区 `relative min-h-0 flex-1` 内用 **`v-show`** 切换 ChatWindow / SessionTrajectoryView。
+5. **i18n**（`locales/messages.ts`）：`chat.view.chat` / `chat.view.trajectory` / `chat.view.trajectory_empty` / `chat.view.trajectory_round`。
+6. **测试**（`tests/trajectory-view-tabs.test.ts`，`pnpm test:trajectory-tabs`）：3 个纯函数断言 + 5 项源码契约（沿用 `chat-cancellation-contract.test.ts` 的 `readFileSync` 模式——`useChatRuntimeStore` 经 axios→form-data 拉起 `require('util')`，esbuild ESM bundle 会直接抛 `Dynamic require of "util"`，import 该 composable 不可行）。
+
+**改动文件**：
+- 新增：`apps/user-web/src/components/chat/ChatViewTabs.vue`、`apps/user-web/src/features/execution-v3/components/SessionTrajectoryView.vue`、`apps/user-web/src/features/execution-v3/domain/trajectoryRounds.ts`、`apps/user-web/tests/trajectory-view-tabs.test.ts`、`specs/028-user-web-trajectory-tab/`（5 份）
+- 修改：`apps/user-web/src/composables/useChatRuntimeStore.ts`、`apps/user-web/src/App.vue`、`apps/user-web/src/locales/messages.ts`、`apps/user-web/package.json`
+
+**关键设计**：
+- **`v-show` 而非 `v-if`**：切 tab 不卸载 ChatWindow，避免中断 `useChatStream` 流式读取、丢失滚动/吸顶状态（FR-007）。
+- **布局安全**：`.browser-workspace { height:100% }`（`BrowserWorkspace.vue:122`）要求父容器有确定高度；ChatWindow 的父容器从 `h-full w-full` 改为 `min-h-0 flex-1`（flex-col 子项，高度仍由 flex 算出确定值），`height:100%` 依旧成立。
+- **`ChatWindow.vue` 零改动**（符合其架构边界"不加大 UI 块"，同时保证对话 tab 零回归）。
+- tab 状态挂在 **pane**（会话级）而非全局，多会话切换不串味（FR-004）。
+- 不引入官方 dsh 前端依赖、不改后端、不碰 compose/nginx。
+
+**验证**：
+- `pnpm test:trajectory-tabs` → **8/8 通过**
+- `pnpm test:execution-v3` → **通过**（回归）
+- `pnpm test:chat-cancellation` → **7/7 通过**（回归；该测试读 `App.vue` / `useChatRuntimeStore.ts` 源码做契约断言，这两个文件本轮均改过）
+- `vue-tsc --noEmit` → **0 错误**
+- `vite build --mode test` → **成功**（41.12s）
+
+**未做 / 后续**：
+- 阶段 2：会话级轨迹聚合时间线 / 表格 + 工具栏（时长/轮次/调用数/搜索），对齐官方 `ui-trajectory`。
+- tab 偏好持久化（目前仅 pane 内存态）。
+- 目视验证需在 dev 环境按 `specs/028-user-web-trajectory-tab/quickstart.md` 跑（本机未起前端）。
+- 未提交、未推送（工作区有其他会话在途改动：`apps/user-web/tests/code-platform-contract.test.ts`、`specs/022-security-hardening/tasks.md`，均非本轮改动）。
+
+---
+
 ## 2026-10-14 user-web 复用 dsh web 会话能力 —— 调研方案（未落地）
 
 **触发**：用户对比 mogo 默认启动（user-web）与 dsh web 模式，发现后者有「对话 / 轨迹」两个可切换 tab，user-web 缺失；希望在 user-web 中直接使用 dsh web 的会话功能，先出文档、不落地。
