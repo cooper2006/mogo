@@ -12301,3 +12301,42 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 **已知非缺陷现象**：`quality.totalCalls = 0` / `metrics.calls24h = 0` 是因为 `DEFAULT_PERIOD_DAYS = 1` 而库中最新 `token_usage_logs` 是 2026-09-29（17 天前）——空窗口的正确结果；同一管道在 30 天窗口下能查到 115 行。
 
 **遗留**：`./mogo up`（不带 `--build`）会因 `v0.2.2-26-g49fe7da` 标签下缺 4 个前端/网关镜像而拒绝启动；本次改用显式 `MOGO_*_IMAGE` 环境变量 + `docker compose up -d --no-deps` 精确重建所需服务，未影响其余服务。
+
+## 2026-10-16（续）解锁被锁定的 PanWeiDB 账号 boncuser + 锁定来源排查
+
+**触发**：用户报告 PanWeiDB 中 `boncuser` **又被锁**，要求执行 `ALTER USER boncuser ACCOUNT UNLOCK;`。
+
+**执行（以数据库属主 omm 身份，容器内 gsql）**：
+- 客户端位置：`panweidb` 容器 `/database/panweidb/soft/bin/gsql`（**不在 PATH**，且需 `LD_LIBRARY_PATH=/database/panweidb/soft/lib`，否则报 `libcjson.so.1: cannot open shared object file`）。
+- 执行方式：`docker exec -i -u omm -e LD_LIBRARY_PATH=/database/panweidb/soft/lib panweidb /database/panweidb/soft/bin/gsql -d postgres -p 5432`。
+- 锁定状态查询用 **`pg_user_status`** 视图（`roloid / failcount / locktime / rolstatus`，smallint：0=正常、1=锁定），而非 `pg_authid.rolstatus`（后者对 omm 也为 `t`，不是锁定判据）。
+- 结果：`boncuser`（roloid 18071）由 `failcount=5 / rolstatus=1` → `0 / 0`，连接验证通过。
+
+**关键机制（实测，容易踩）**：
+- `ALTER USER ... ACCOUNT UNLOCK` **只清 `rolstatus`，不清 `failcount`**；**必须再成功登录一次**才会把 `failcount` 归零。解锁后若不立刻成功登录，剩余计数仍会加速下一次锁定。
+- 阈值：`SHOW failed_login_attempts` = **5**。
+- `audit_enabled = off`、`log_connections = off` → 服务端不记录成功连接，事后溯源只能靠 `pg_log` 里的 FATAL 行。
+
+**锁定来源排查（今天这次）**：
+- 失败时间线（UTC，+8 为本地）：`03:00 / 03:06 / 03:54` 零星；`08:00:04`×2（源 127.0.0.1，库 `bonc`）、`08:00:09`×1（源 192.168.215.1，库 `bonc`）；**`08:08:21` 共 5 次**（源 192.168.215.1，库 `mogo_dev`）→ `08:08:33` 起锁定。
+- 历史锁定仅 2 次：`2026-10-15 15:49`（账号重置当天）与本次 `2026-10-16 08:08`。
+- **源 IP 判读**：`192.168.215.1` 是 docker bridge 网关，**宿主机进程与容器经 `host.docker.internal` 的连接都显示为该地址**（受控实验：宿主机侧报错显示 `127.0.0.1`，服务端日志记的却是 `192.168.215.1`）；`host.docker.internal` 在容器内解析为 `0.250.250.254`（OrbStack 网关注入，非配置项）。一次 `connect()` 可能产生 2 条日志（IPv6+IPv4 各一次）。
+- **排除服务容器**：`08:08:15–08:08:35` 窗口内，chat-api / admin-api / document-api / document-worker / gateway / 前端容器日志**只有健康检查**，无任何数据库连接尝试 → 该批失败**不来自 mogo 服务容器**。
+- **配置全部正确**：`.env`、以及 chat-api / admin-api / document-api / document-worker **PID 1 的实际环境变量**（读 `/proc/1/environ`）中 `PANWEIDB_PASSWORD` 哈希与 `.env` **完全一致**；密码为 20 位纯字母数字，无引号/空格/反斜杠等 conninfo 转义风险；项目内所有 `.env*` 中该键只出现 1 次、无旧值残留。
+- **副发现（非本次元凶）**：`document-api` 在 `07:58:24–07:59:44` 连续 9 次 `Application startup failed. Exiting.`（`mogo-document-parser-sync` 池 `pool.open(wait=True)` 失败，报 `server closed the connection unexpectedly`），`08:00:11` 后自行恢复、现 healthy；`document-api` 重启计数 9，其余服务 0。该批失败用的是**正确密码**，属连接建立期问题，与锁定无关。
+- **另一副本**：宿主机还存在 `/Users/cooper/Github/mogo`（同一 compose project `mogo`，容器 `mogo-mongo-1/redis-1/weaviate-1/bootstrap-1` 的 `working_dir` 指向它）。该副本 `MOGO_DATA_BACKEND=mongo`（不连 PanWeiDB），但其 `.env` 里 `PANWEIDB_DB=bonc` —— 与 `08:00` 那批连 `bonc` 库的失败吻合，疑为该目录下临时手工连接的残留配置。
+- **未能精确定位**：`08:08:21` 那 5 次的确切客户端进程（宿主机无 python/服务进程在跑，容器侧无活动）。结合「所有受管配置的密码均正确」，判断为**未受管客户端**（手工输入的旧密码 / 缓存旧凭据的 GUI 工具 / 其他会话的临时脚本）。
+
+**改动文件**：仅本工作日志（本轮为数据库运维操作与排查，**未改代码、未提交**）。
+
+**验证**：
+- [x] `SELECT rolname, failcount, rolstatus` → `boncuser | 0 | 0`。
+- [x] 宿主机 psycopg 以 `.env` 凭据连 `mogo_dev` 成功（`current_user=boncuser`）。
+- [x] 解锁后复查 `pg_log`：除解锁前一刻的并发残留外，**无新增失败登录**。
+- [x] `pg_stat_activity`：chat-api 3 / admin-api 2 / document-parser 1 个 idle 连接，全部正常。
+
+**建议（待确认，未执行）**：
+1. `failed_login_attempts` 5 → 10（`gs_guc reload` 改 `postgresql.conf`），降低误锁概率。
+2. 开启 `log_connections`，便于下次直接定位来源。
+3. 排查宿主机上连 PanWeiDB 的 GUI 客户端是否缓存了 10-15 重置前的旧密码。
+4. 解锁操作规范：`ACCOUNT UNLOCK` 之后**必须立刻用正确凭据成功登录一次**，确保 `failcount` 归零。
