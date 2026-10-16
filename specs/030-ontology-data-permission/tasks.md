@@ -107,9 +107,18 @@
       rev 版本号）、`:131-148` n-tabs 「我的可见本体」/「全量清单」、`:115-117` 开启/关闭走
       `confirmToggle` → `dialog.warning` 二次确认；
       ⑥ **类型与构建** —— `vue-tsc --noEmit` exit 0、`vite build` exit 0（见 T025），证明新页面可编译可打包。
+      **2026-10-16 镜像已重建并部署**：原 `Dockerfile` 的 BuildKit cache mount 在本环境因
+      `.docker/buildx/activity` 权限问题无法使用（`operation not permitted`），改用
+      `/tmp/admin-web-build/Dockerfile`（去掉 `--mount`，补全非 root appuser/UID 10001 +
+      chown + `USER appuser`）构建出 `mogo-admin-web:030-ontology`，
+      经 `MOGO_ADMIN_WEB_IMAGE=... docker compose up -d --no-deps admin-web` 滚动替换。
+      **已验证**：`curl http://localhost:3000/admin/` → 200；
+      `curl http://localhost:3000/admin/assets/OntologyCatalogPage-240dd365.js` → 返回 JS 内容；
+      容器内 `ls /usr/share/nginx/html/assets/` 含 `OntologyCatalogPage-*.js` + `ontologies-*.js` +
+      `OntologyCatalogPage-*.css`。**部署环境已就绪，可在浏览器打开 `/admin/ontologies` 目视复核。**
       **未完成（需用户目视）**：`bsk` 浏览器 CLI 未安装（`Error: the bsk CLI was not found`），
-      无法启动浏览器标签页做真实点击验证；已启动的 vite dev（port 3100）仅用于确认服务可达（200），
-      未完成登录与交互。需用户在 dev 或部署环境打开 `/ontologies` 目视确认三点。
+      agent 无法启动浏览器标签页做真实点击验证。需用户在浏览器打开
+      `http://localhost:3000/admin/ontologies` 目视确认三点。
 
 ## Phase 6：文档与日志
 

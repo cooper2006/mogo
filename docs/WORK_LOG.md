@@ -12537,3 +12537,25 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - **剩余未闭环**：T026 前端联调复核（需用户在 dev/部署环境目视执行，agent 无法点击浏览器）；
   未闭环表 8 项（索引未填 ontology_id / sourceEntity 空串 / 类明细未接生效点 / 60s 缓存窗口 /
   `/internal/*` 网关来源网段 / 冒烟镜像未入版本管理）均已在 tasks 与 design 文档中如实记录，不隐瞒。
+
+## 2026-10-16 落地（七）：030 admin-web 镜像重建与部署
+
+- **背景**：T026 前端联调复核需要部署环境里有新页面。此前 `mogo-admin-web-1` 用的是旧镜像，
+  `dist/assets/` 无 ontology 分块（`docker exec ... ls | grep -i onto` → exit 1），用户看不到新页面。
+- **构建受阻**：`apps/admin-web/Dockerfile` 的 `RUN --mount=type=cache,target=/pnpm-store` 需要 BuildKit，
+  但本环境 `docker buildx` 因 `.docker/buildx/activity` 目录权限问题持续报
+  `open .../activity/.tmp-orbstack*: operation not permitted`；切 `DOCKER_BUILDKIT=0` 后
+  legacy builder 又不支持 `--mount`。改用 `/tmp/admin-web-build/Dockerfile`：
+  不走 pnpm 依赖安装（直接用 `apps/admin-web/dist` 已构建产物），补全原 Dockerfile 的
+  非 root `appuser`/UID 10001 + `chown -R` + `chmod 0644` + `USER appuser`，构建出
+  `mogo-admin-web:030-ontology`。
+- **滚动部署**：`MOGO_ADMIN_WEB_IMAGE=mogo-admin-web:030-ontology docker compose up -d --no-deps admin-web`。
+  首版因缺 `appuser` chown 导致 nginx `chown("/var/cache/nginx/client_temp", 101) failed`，
+  补全非 root 设置后重建，容器 `Up 5 seconds (health: starting)` → healthy。
+- **验证**：`curl http://localhost:3000/admin/` → **200**；
+  `curl http://localhost:3000/admin/assets/OntologyCatalogPage-240dd365.js` → 返回 JS 内容；
+  `docker exec mogo-admin-web-1 ls /usr/share/nginx/html/assets/` 含
+  `OntologyCatalogPage-240dd365.js` + `OntologyCatalogPage-500d5782.css` + `ontologies-cb9844d6.js`。
+- **T026 状态**：代码级六点复核已完成（菜单/弹窗选项/撤销刷新/挂载/enforce横栏+双Tab/类型+构建），
+  部署环境已就绪；浏览器目视因 `bsk` CLI 未安装仍需用户在
+  `http://localhost:3000/admin/ontologies` 执行。
