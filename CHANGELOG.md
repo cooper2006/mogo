@@ -20,6 +20,11 @@ image.
     （命中键走真实列可用 btree）。非平铺表 map 为空，生成 SQL 与改造前一致。
   - 真库端到端冒烟（`r3-flatten/e2e_smoke.py`）：捕获兼容层真实 SQL 至 openGauss
     执行，验证 `UPDATE 1` 且列值正确同步（含语义别名 `user_id→owner_user_id`）。
+  - 后续优化（同日落地）：`ORDER BY`（find_one / cursor sort）与 `distinct` 对命中
+    COLUMN_MAP 的顶层键路由到真实列（可用 btree 索引；列值归一化保持 doc 形状：
+    timestamptz→ISO 字符串、Decimal→int/float）；`aggregate` 的 `$match` / `$sort`
+    仅在直接读基表的首阶段路由（CTE 阶段只有 `(id, doc)`，维持 doc 路径）；
+    `$group` 的 `_id` 与累加器仍走 doc 路径。
 - **027 数据后端迁移 R2（兼容层接线）**：在 R1 的门面上补齐**聚合管道**与
   **`bulk_write`**，使 25 处 `aggregate()` 调用点**仍然零修改**即可在 PanWeiDB 上工作。
   - 聚合管道编译器 `app/core/pg_compat.py::_AggregationCompiler`：阶段

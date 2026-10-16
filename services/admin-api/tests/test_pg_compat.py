@@ -878,3 +878,228 @@ async def test_read_path_merges_columns_over_doc():
     assert docs[0]["created_by"] == "creator-1"
 
 
+# ── R3 后续优化：排序 / 去重 / 聚合路由 ──────────────────────────────────
+from app.core.pg_compat import (  # noqa: E402
+    _AggregationCompiler,
+    _order_by,
+    _order_expr,
+)
+
+
+def test_order_expr_routes_mapped_keys_to_real_columns():
+    columns = mapped_columns("chat_sessions")
+    assert _order_expr("user_id", 1, columns) == '"owner_user_id" ASC'
+    assert _order_expr("last_message_at", -1, columns) == '"last_message_at" DESC'
+    # 未命中 / 嵌套路径维持 doc 路径
+    assert _order_expr("custom_dynamic", 1, columns) == "doc #> '{custom_dynamic}' ASC"
+    assert _order_expr("a.b", -1, columns) == "doc #> '{a,b}' DESC"
+    # 非扁平表：columns 为空 → doc 路径（与改造前一致）
+    assert _order_expr("status", 1, {}) == "doc #> '{status}' ASC"
+
+
+def test_order_by_accepts_optional_column_map():
+    sort = [("user_id", 1), ("custom_dynamic", -1)]
+    assert _order_by(sort, mapped_columns("chat_sessions")) == (
+        ' ORDER BY "owner_user_id" ASC, doc #> \'{custom_dynamic}\' DESC'
+    )
+    assert _order_by(sort) == (
+        " ORDER BY doc #> '{user_id}' ASC, doc #> '{custom_dynamic}' DESC"
+    )
+    assert _order_by(None, mapped_columns("chat_sessions")) == ""
+
+
+@pytest.mark.asyncio
+async def test_find_one_sort_routes_mapped_keys():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    async def _merged(sql, params, entries):
+        captured.append(sql)
+        return []
+
+    coll._fetch_merged = _merged  # type: ignore[assignment]
+    await coll.find_one({"user_id": "u1"}, sort=[("user_id", -1), ("custom_dynamic", 1)])
+    sql = captured[0]
+    assert 'ORDER BY "owner_user_id" DESC, doc #> \'{custom_dynamic}\' ASC LIMIT 1' in sql
+
+
+@pytest.mark.asyncio
+async def test_cursor_sort_routes_mapped_keys():
+    coll = PgCollection(_RowsPool(rows=[("{}",)] + [None] * 11), "chat_sessions", "s")
+    captured: list = []
+
+    async def _merged(sql, params, entries):
+        captured.append(sql)
+        return []
+
+    coll._fetch_merged = _merged  # type: ignore[assignment]
+    cursor = coll.find({}).sort("user_id", 1).sort("custom_dynamic", -1).limit(5)
+    await cursor.to_list()
+    sql = captured[0]
+    assert 'ORDER BY "owner_user_id" ASC, doc #> \'{custom_dynamic}\' DESC LIMIT 5' in sql
+    assert "->'" not in sql and "->>'" not in sql
+
+
+@pytest.mark.asyncio
+async def test_distinct_routes_mapped_key():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    class _Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return _CapturingCursor(captured, rows=[("u1",), (None,)])
+
+    coll._pool.connection = lambda: _Conn()  # type: ignore[assignment]
+    result = await coll.distinct("user_id", {"tenant_id": "t1"})
+    sql = captured[0]
+    assert 'SELECT DISTINCT "owner_user_id" AS v' in sql
+    assert "->'" not in sql and "->>'" not in sql
+    assert result == ["u1"]  # None 被过滤；text 列形状不变
+
+
+@pytest.mark.asyncio
+async def test_distinct_normalizes_column_value_shapes():
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    coll = PgCollection(_RowsPool(), "knowledge_documents", "s")
+    captured: list = []
+
+    class _Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return _CapturingCursor(
+                captured,
+                rows=[
+                    (datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc), "file_size"),
+                    (Decimal("1024"), "file_size"),
+                    (Decimal("10.5"), "file_size"),
+                ],
+            )
+
+    coll._pool.connection = lambda: _Conn()  # type: ignore[assignment]
+    result = await coll.distinct("file_size")
+    assert result == [
+        "2026-10-16T08:00:00+00:00",  # timestamptz → ISO 字符串（doc 路径同形状）
+        1024,                          # Decimal 整数 → int
+        10.5,                          # Decimal 小数 → float
+    ]
+
+
+@pytest.mark.asyncio
+async def test_distinct_keeps_doc_path_for_unmapped_key():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    class _Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return _CapturingCursor(captured, rows=[("x",)])
+
+    coll._pool.connection = lambda: _Conn()  # type: ignore[assignment]
+    await coll.distinct("a.b")
+    assert "SELECT DISTINCT doc #> '{a,b}' AS v" in captured[0]
+
+
+class _CapturingCursor:
+    def __init__(self, log, rows):
+        self._log = log
+        self._rows = rows
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, sql, params=None):
+        self._log.append(sql)
+
+    async def fetchall(self):
+        return self._rows
+
+
+def _agg_sql(pipeline, table="chat_sessions"):
+    compiler = _AggregationCompiler('"s"."chat_sessions"', mapped_columns(table))
+    sql = compiler.compile(pipeline)
+    assert len(PLACEHOLDER.findall(sql)) == len(compiler.params), (
+        f"占位符/参数数量不符: {sql!r} vs {compiler.params!r}"
+    )
+    return sql, compiler.params
+
+
+def test_aggregate_first_stage_match_routes_mapped_keys():
+    sql, params = _agg_sql([{"$match": {"user_id": "u1", "status": {"$in": ["a"]}}}])
+    assert '("owner_user_id" = %s::text)' in sql
+    assert '(("status" IN (%s::text)))' in sql
+    # 路由到 text 列后 $in 参数是原始值（doc 路径才会 JSON 序列化成 '"a"'）
+    assert params == ["u1", "a"]
+    assert "->'" not in sql and "->>'" not in sql
+
+
+def test_aggregate_match_after_group_keeps_doc_path():
+    # $group 之后的阶段输入是 (id, doc) CTE，没有真实列 → 必须走 doc 路径
+    sql, _params = _agg_sql([
+        {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+        {"$match": {"user_id": "u1"}},
+    ])
+    assert "(doc #> '{user_id}') = %s::jsonb" in sql
+    assert '"owner_user_id"' not in sql
+
+
+def test_aggregate_first_stage_sort_routes_mapped_keys():
+    # $sort 首阶段：自身 ORDER BY 走列；存入 _order 的复用表达式保持 doc 路径
+    sql, _params = _agg_sql([{"$sort": {"user_id": -1, "custom_dynamic": 1}}])
+    assert 'ORDER BY "owner_user_id" DESC, doc #> \'{custom_dynamic}\' ASC' in sql
+    assert "->'" not in sql and "->>'" not in sql
+    # 后续 $limit 复用 doc 路径（CTE 上才有效）
+    sql2, _p2 = _agg_sql([
+        {"$sort": {"user_id": -1}},
+        {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+        {"$limit": 5},
+    ])
+    assert 'ORDER BY "owner_user_id" DESC' in sql2
+    assert "(doc #> '{user_id}') DESC" in sql2
+
+
+def test_aggregate_sort_after_match_keeps_doc_path():
+    sql, _params = _agg_sql([
+        {"$match": {"status": "ready"}},
+        {"$sort": {"user_id": 1}},
+    ])
+    # 第二个阶段的输入是 CTE（ag1），只有 (id, doc)
+    assert "ORDER BY (doc #> '{user_id}') ASC" in sql
+    assert '"owner_user_id" ASC' not in sql
+
+
+def test_aggregate_group_still_uses_doc_path():
+    # $group 的 _id 与累加器仍走 doc 路径（本次不改语义）
+    sql, _params = _agg_sql([{"$group": {"_id": "$user_id", "n": {"$sum": 1}}}])
+    assert "GROUP BY 1" in sql
+    # _expr_json 自带一层括号，f"({key_sql}) AS k" 再包一层
+    assert "((doc #> '{user_id}')) AS k" in sql
+
+
+def test_column_value_to_doc_normalizes_decimal():
+    from decimal import Decimal
+
+    assert _column_value_to_doc(Decimal("5")) == 5
+    assert isinstance(_column_value_to_doc(Decimal("5")), int)
+    assert _column_value_to_doc(Decimal("5.5")) == 5.5
+    assert isinstance(_column_value_to_doc(Decimal("5.5")), float)

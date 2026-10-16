@@ -35,7 +35,7 @@ docker exec panweidb sh -c "su - omm -c 'export PATH=/database/panweidb/soft/bin
 | `gen_fix.py` | 基于 doc 真实 key 生成候选映射表 + 03b SQL | 工具 |
 | `collect.py` / `collect_keys.sql` | 导出各表 doc 实际 key（供匹配分析） | 工具 |
 | `analyze.py` | 列名 vs doc key 匹配分析 → `mapping_report.md` | 工具 |
-| `e2e_smoke.py` | 兼容层端到端冒烟：fake pool 捕获真实 SQL → 内联参数 → 可 gsql 执行；验证筛选/双写/列同步/索引路由 | 工具 |
+| `e2e_smoke.py` | 兼容层端到端冒烟：fake pool 捕获真实 SQL → 内联参数 → 可 gsql 执行；覆盖筛选 / 双写 / 列同步 / 索引路由 / 排序 / 去重 / 聚合 | 工具 |
 | `exec_01.txt` … `exec_03b.txt` | 四个阶段的执行日志（gsql 原样输出，含 `UPDATE/ANONYMOUS BLOCK EXECUTE` 回显）。仓库 `.gitignore` 忽略 `*.log`，故以 `.txt` 存档 | 执行证据 |
 
 工具默认读写 `/tmp/migration/`，归档副本仅作留存；重跑时改 `OUT`/路径即可。
@@ -63,8 +63,13 @@ docker exec panweidb sh -c "su - omm -c 'export PATH=/database/panweidb/soft/bin
 - **读路径列优先**：`find_one` / `find` 的 `SELECT` 附带映射列，列值非空即覆盖 doc 同名键
   （datetime 序列化回 ISO 字符串，doc 形状不变）；doc 仍是兜底与动态字段存储。
 - **筛选 / 索引路由**：COLUMN_MAP 命中的顶层键走真实列（btree 可用），未命中走 doc JSONB 路径。
-- **测试**：`services/admin-api/tests/test_pg_compat.py` 74 例（含 15 个 R3 新增）+ `deploy/tests/test_pg_compat_parity.py` 14 例全过；
-  真库端到端冒烟（捕获兼容层真实 SQL → gsql 执行）验证 `UPDATE 1` 且列值正确同步。
+- **后续优化（同日落地）**：`ORDER BY`（find_one / cursor sort）、`distinct` 对命中的顶层键
+  走真实列（列值归一化保持 doc 形状：timestamptz→ISO 字符串、Decimal→int/float）；
+  `aggregate` 的 `$match` / `$sort` **仅在直接读基表的首阶段**路由（后续阶段输入是
+  `(id, doc)` CTE，没有那些列，维持 doc 路径；`$sort` 存入的复用表达式同样保持 doc 路径）；
+  `$group` 的 `_id` 与累加器仍走 doc 路径（语义不变，留待后续）。
+- **测试**：`services/admin-api/tests/test_pg_compat.py` 89 例（含 30 个 R3 相关）+ `deploy/tests/test_pg_compat_parity.py` 14 例全过；
+  真库端到端冒烟（`e2e_smoke.py`，覆盖筛选 / 双写 / 列同步 / 索引路由 / 排序 / 去重 / 聚合）全部通过。
 - **向后兼容红线**：非平铺表 `COLUMN_MAP` 为空，生成 SQL 与改造前逐字节一致。
 
 ## 踩坑与注意事项

@@ -69,8 +69,11 @@ $not $all $size``。
   兜底与 ❌ / 🔶 动态字段的存储，因此 ``doc JSONB NOT NULL`` 保留。
 * **筛选 / 索引路由**：COLUMN_MAP 命中的键走真实列（可用 btree 索引），未命中
   走 doc JSONB 路径；``$size`` / ``$all`` / ``$type`` 仅对 JSONB 型映射列生效。
-* **暂未路由**：``distinct`` 与 ``aggregate`` 仍走 doc 路径（双写保证正确，
-  待后续优化）；``ORDER BY`` 同样保持 doc 路径。
+* **排序 / 去重 / 聚合路由（后续优化已落地）**：``ORDER BY``（find_one、cursor
+  sort）与 ``distinct`` 对命中的顶层键走真实列；``aggregate`` 的 ``$match`` /
+  ``$sort`` 仅在**直接读基表的首阶段**路由（CTE 阶段只有 ``(id, doc)``，
+  没有那些列，维持 doc 路径）。``$group`` 的 ``_id`` 与累加器仍走 doc 路径
+  （jsonb 分组与输出组装语义不变，留待后续）。
 """
 
 from __future__ import annotations
@@ -80,6 +83,7 @@ import logging
 import re
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 from app.core.column_map import column_type, mapped_columns
@@ -403,14 +407,19 @@ def _column_param_sql(column: str) -> str:
 
 
 def _column_value_to_doc(value: Any) -> Any:
-    """读路径列值 → doc 值形状：datetime 序列化为 ISO 字符串。
+    """读路径列值 → doc 值形状：datetime 序列化为 ISO 字符串、Decimal 归一回数字。
 
     doc JSONB 里日期以 ISO 字符串存储（写入时 ``to_json_text``），业务代码
     拿到的一直是字符串；列值覆盖 doc 键时必须保持同形状，否则 datetime
-    对象会改变既有代码对 doc 字段类型的假设。
+    对象会改变既有代码对 doc 字段类型的假设。同理 jsonb 数字解码出
+    int/float，而 numeric/bigint 列解码出 Decimal——JSON 序列化与等值
+    比较都要求保持 int/float 形状（``Decimal(5) == 5`` 虽为真，但
+    ``json.dumps`` 不认 Decimal）。
     """
     if isinstance(value, (datetime, date)):
         return value.isoformat()
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
     return value
 
 
@@ -963,15 +972,24 @@ class _AggregationCompiler:
     **占位符纪律**：任何在 SQL 文本里出现多次的子表达式，都必须**重新构建**多次
     （而不是复用字符串），否则占位符数量会多于参数数量。``_num()`` 与
     ``_stage_group()`` 里的三处 key 表达式都遵循这条规则。
+
+    **R3 后续优化（列路由）**：``column_map`` 传入表的 ``{doc_key: column}`` 后，
+    ``$match`` / ``$sort`` **仅在阶段直接读基表时**（``self._src is None``，
+    即管道第一个阶段）把命中的顶层键路由到真实列——彼时的输入就是基表，
+    列真实存在。后续阶段的输入是 ``(id, doc)`` 形状的 CTE，没有那些列，
+    因此一律维持 doc JSONB 路径。``$sort`` 存入 ``self._order`` 的供后续
+    阶段复用的表达式同样保持 doc 路径（CTE 上才有效），只有本阶段自己
+    的 ``ORDER BY`` 用路由形式。
     """
 
-    def __init__(self, qualified: str) -> None:
+    def __init__(self, qualified: str, column_map: Mapping[str, str] | None = None) -> None:
         self._qualified = qualified
         self.params: list[Any] = []
         self._ctes: list[str] = []
         self._src: str | None = None
         self._counter = 0
         self._order: list[tuple[str, str]] = []
+        self._columns: dict[str, str] = dict(column_map or {})
 
     # -- 基础设施 --------------------------------------------------------
     def _p(self, value: Any) -> str:
@@ -1035,7 +1053,8 @@ class _AggregationCompiler:
 
     # -- 阶段 ------------------------------------------------------------
     def _stage_match(self, spec: Any) -> None:
-        compiler = _FilterCompiler()
+        # 只有直接读基表时才能路由到真实列；CTE 输入只有 (id, doc)
+        compiler = _FilterCompiler(self._columns if self._src is None else None)
         where = compiler.compile(spec)
         self.params.extend(compiler.params)
         self._emit(f"SELECT id, doc FROM {self._from()} WHERE {where}")
@@ -1044,10 +1063,19 @@ class _AggregationCompiler:
         if not isinstance(spec, Mapping):
             raise PgCompatUnsupported("$sort 需要字段映射")
         self._order = []
+        order_parts: list[str] = []
         for field, direction in spec.items():
-            expr = f"(doc #> '{path_literal(str(field))}')"
-            self._order.append((expr, "DESC" if int(direction) < 0 else "ASC"))
-        self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {self._order_sql()}")
+            field = str(field)
+            arrow = "DESC" if int(direction) < 0 else "ASC"
+            # 存入的是供后续阶段（$limit/$skip/$first/$last）复用的 doc 路径；
+            # 本阶段直接读基表时才改用路由的列表达式（可用索引排序）。
+            self._order.append((f"(doc #> '{path_literal(field)}')", arrow))
+            order_parts.append(
+                _order_expr(field, 1 if arrow == "ASC" else -1, self._columns)
+                if self._src is None
+                else f"(doc #> '{path_literal(field)}') {arrow}"
+            )
+        self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {', '.join(order_parts)}")
 
     def _stage_limit(self, spec: Any) -> None:
         self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {self._order_sql()} LIMIT {int(spec)}")
@@ -1457,7 +1485,7 @@ class PgCollection:
         entries = self._column_entries()
         sql = (
             f"SELECT doc{self._columns_sql(entries)} FROM {self._qualified} "
-            f"WHERE {where}{_order_by(sort)} LIMIT 1"
+            f"WHERE {where}{_order_by(sort, self._columns)} LIMIT 1"
         )
         if entries:
             docs = self._fetch_merged(sql, params, entries)
@@ -1482,7 +1510,7 @@ class PgCollection:
         sql = f"SELECT doc{self._columns_sql(entries)} FROM {self._qualified} WHERE {where}"
         if cursor._sort:
             sql += " ORDER BY " + ", ".join(
-                f"doc #> '{path_literal(field)}' {'ASC' if direction >= 0 else 'DESC'}"
+                _order_expr(field, direction, self._columns)
                 for field, direction in cursor._sort
             )
         if cursor._limit:
@@ -1501,16 +1529,24 @@ class PgCollection:
         return int(total or 0)
 
     def distinct(self, key: str, filter: Mapping[str, Any] | None = None) -> list[Any]:
+        """去重取值。R3 后续优化：命中 COLUMN_MAP 的顶层键走真实列。
+
+        列值解码类型与 doc JSONB 路径不同（numeric/bigint → Decimal、
+        timestamptz → datetime），返回前统一过 :func:`_column_value_to_doc`
+        归一化，保持 doc 路径时期的形状（数字 int/float、日期 ISO 字符串）。
+        """
         where, params = self._where(filter)
+        col = self._columns.get(key) if "." not in key else None
+        target = f'"{col}"' if col else f"doc #> '{path_literal(key)}'"
         sql = (
-            f"SELECT DISTINCT doc #> '{path_literal(key)}' AS v "
+            f"SELECT DISTINCT {target} AS v "
             f"FROM {self._qualified} WHERE {where}"
         )
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 rows = cur.fetchall()
-        return [row[0] for row in rows if row[0] is not None]
+        return [_column_value_to_doc(row[0]) for row in rows if row[0] is not None]
 
     # -- 写入 ------------------------------------------------------------
     def insert_one(self, document: Mapping[str, Any]) -> InsertOneResult:
@@ -1777,7 +1813,7 @@ class PgCollection:
         return PgAggregationCursor(self, pipeline)
 
     def _run_aggregate(self, pipeline: Any) -> list[dict[str, Any]]:
-        compiler = _AggregationCompiler(self._qualified)
+        compiler = _AggregationCompiler(self._qualified, self._columns)
         sql = compiler.compile(pipeline)
         return self._fetch(sql, compiler.params)
 
@@ -1889,7 +1925,28 @@ def _return_after(return_document: Any) -> bool:
     return str(return_document).strip().upper() in {"AFTER", "TRUE", "1"}
 
 
-def _order_by(sort: Any) -> str:
+def _order_expr(
+    field: str, order: int, columns: Mapping[str, str] | None = None
+) -> str:
+    """单个排序键的 SQL 表达式：COLUMN_MAP 命中的顶层键走真实列，其余 doc 路径。
+
+    R3 后续优化：映射列是强类型（timestamptz 按时间、numeric 按数值、
+    text 按字典序），既能命中列上的 btree 索引避免全表排序，也比 jsonb
+    的通用序更接近 Mongo 的 BSON 排序语义。未命中（含 ``a.b`` 嵌套路径，
+    扁平化只覆盖顶层键）维持 ``doc #> '{a,b}'``。非扁平表 ``columns``
+    为空，输出与改造前逐字节一致。
+
+    NULL 排序沿用 openGauss 默认（ASC 时 NULL 在后、DESC 在前），与改造前
+    doc 路径对**缺失键**（``#>`` 得 SQL NULL）的行为一致；显式写 JSON null
+    的旧行经双写/回填后同列为 SQL NULL，排序位置统一。
+    """
+    direction = "ASC" if order >= 0 else "DESC"
+    col = columns.get(field) if columns and "." not in field else None
+    target = f'"{col}"' if col else f"doc #> '{path_literal(field)}'"
+    return f"{target} {direction}"
+
+
+def _order_by(sort: Any, columns: Mapping[str, str] | None = None) -> str:
     if not sort:
         return ""
     if isinstance(sort, str):
@@ -1898,10 +1955,7 @@ def _order_by(sort: Any) -> str:
         pairs = [(str(field), int(order)) for field, order in sort.items()]
     else:
         pairs = [(str(field), int(order)) for field, order in sort]
-    rendered = ", ".join(
-        f"doc #> '{path_literal(field)}' {'ASC' if order >= 0 else 'DESC'}"
-        for field, order in pairs
-    )
+    rendered = ", ".join(_order_expr(field, order, columns) for field, order in pairs)
     return f" ORDER BY {rendered}" if rendered else ""
 
 

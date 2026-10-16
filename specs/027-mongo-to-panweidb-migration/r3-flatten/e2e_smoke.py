@@ -159,6 +159,45 @@ def main():
     asyncio.run(cap_index())
     captured.extend(pool.log)
 
+    # ---- 6. ORDER BY 路由（find_one + cursor sort）----
+    pool = CapturePool()
+    coll = PgCollection(pool, "chat_sessions", SCHEMA)
+
+    async def cap_sort():
+        await coll.find_one({"user_id": USER_ID}, sort=[("user_id", -1)])
+        cursor = coll.find({}).sort("user_id", 1).sort("custom_dynamic", -1).limit(3)
+        await cursor.to_list()
+
+    asyncio.run(cap_sort())
+    captured.append(pool.log[0])
+    captured.append(pool.log[-1])
+
+    # ---- 7. distinct 路由 ----
+    pool = CapturePool(rows=[(USER_ID,), (None,), ("other",)])
+    coll = PgCollection(pool, "chat_sessions", SCHEMA)
+
+    async def cap_distinct():
+        await coll.distinct("user_id", {"tenant_id": "bonc-2331b8a0ecdbd2ebcbf253c4"})
+
+    asyncio.run(cap_distinct())
+    captured.append(pool.log[-1])
+
+    # ---- 8. aggregate：首阶段 $match/$sort 路由 + $group  doc 路径 ----
+    pool = CapturePool(rows=[('{"_id": "active", "n": 2}',)])
+    coll = PgCollection(pool, "chat_sessions", SCHEMA)
+
+    async def cap_aggregate():
+        pipeline = [
+            {"$match": {"user_id": USER_ID}},
+            {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}},
+        ]
+        await coll.aggregate(pipeline).to_list(10)
+        await coll.aggregate([{"$sort": {"user_id": 1}}, {"$limit": 3}]).to_list(3)
+
+    asyncio.run(cap_aggregate())
+    captured.extend(pool.log)
+
     # ---- 输出 ----
     lines = [
         "-- R3 兼容层端到端冒烟（自动生成，勿手改）",
