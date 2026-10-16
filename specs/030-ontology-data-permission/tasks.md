@@ -91,10 +91,25 @@
       `TS5023: Unknown compiler option`，已改为 NODE_OPTIONS 环境变量）；
       `vite build` **exit 0、6.81s 构建完成**，`dist/assets/` 含
       `OntologyCatalogPage-*.js` + `ontologies-*.js` + `OntologyCatalogPage-*.css`。
-- [ ] **T026** 前端联调复核：`/ontologies` 菜单可见、弹窗选项来自全量清单、撤销后列表即时刷新。
-      **需用户在 dev / 部署环境目视执行**（agent 无法点击浏览器）。已就绪的部分：路由与菜单项已注册
-      （`routes.ts:178`，顶级菜单「本体清单」+ `OntologyIcon`），弹窗从 `fetchOntologyCatalog()` 取选项，
-      撤销后 `loadGrants()` 刷新。
+- [~] **T026** 前端联调复核：`/ontologies` 菜单可见、弹窗选项来自全量清单、撤销后列表即时刷新。
+      **2026-10-16 代码级复核已完成**（浏览器目视仍需用户执行，原因见末节）：
+      ① **菜单可见** —— `routes.ts:177-182` 顶级菜单项 `path:'/ontologies'`、`name:'Ontologies'`、
+      `meta:{title:'本体清单', icon:OntologyIcon}`，非子路由嵌套、无 `hideInMenu`，会出现在主导航；
+      ② **弹窗选项来自全量清单** —— `UserOntologyPermissionDialog.vue:49-64` 的 `load()` 并行拉取
+      `fetchUserOntologyPermissions` + `fetchOntologyCatalog`；`:28-35` 的 `options` computed 从
+      `catalog.value` 过滤掉已授予项后映射为 n-select options；
+      ③ **撤销后即时刷新** —— `:86-94` 的 `revoke()` 调用 `revokeUserOntologyPermission` 后 `await load()`
+      重新拉取 grants+catalog；保存后 `:78` 同样 `await load()`；
+      ④ **弹窗挂载** —— `OrganizationUsersPage.vue:256-260` 挂载 `UserOntologyPermissionDialog`，
+      `:443-445` 的 `openOntologyPermission(row)` 设置 target 并置 `ontologyDialogVisible=true`，
+      用户行按钮 `:684` `onClick` 接入；
+      ⑤ **enforce 横栏 + 双 Tab** —— `OntologyCatalogPage.vue:121-129` n-alert 横栏（预演/拦截两态 +
+      rev 版本号）、`:131-148` n-tabs 「我的可见本体」/「全量清单」、`:115-117` 开启/关闭走
+      `confirmToggle` → `dialog.warning` 二次确认；
+      ⑥ **类型与构建** —— `vue-tsc --noEmit` exit 0、`vite build` exit 0（见 T025），证明新页面可编译可打包。
+      **未完成（需用户目视）**：`bsk` 浏览器 CLI 未安装（`Error: the bsk CLI was not found`），
+      无法启动浏览器标签页做真实点击验证；已启动的 vite dev（port 3100）仅用于确认服务可达（200），
+      未完成登录与交互。需用户在 dev 或部署环境打开 `/ontologies` 目视确认三点。
 
 ## Phase 6：文档与日志
 
