@@ -1,5 +1,27 @@
 # Work Log
 
+## 2026-10-16 打包重启（v0.2.2 tag）
+
+**触发**：用户要求 `MOGO_VERSION=$(git tag --sort=-creatordate | head -n 1) ./mogo up --build` 打包重启并去除 orbstack 上个版本镜像。
+
+**操作**：
+1. `MOGO_VERSION=v0.2.2 ./mogo up --build` → 7 个镜像构建成功，但 document-api 因 panweidb 容器宕机启动失败。
+2. `bash scripts/pg/panweidb_up.sh` 重新拉起 panweidb（此前容器退化为 `tail -f /dev/null`，PostgreSQL 进程丢失）。
+3. 用本地镜像名重建 document-api / gateway / chat-api / admin-api 容器 → 9 个服务全部 healthy。
+4. 手动清除旧镜像：`9f824bb` 全系列（7 个）+ `v0.2.2-26-g49fe7da` 中间标签（4 个）。
+
+**验证**：
+- [x] 9 个服务全部 healthy。
+- [x] `curl http://localhost:3000/` → 200。
+- [x] `curl http://localhost:3000/dsh-web/` → 303（DSH 登录页）。
+- [x] `curl http://localhost:3000/admin/` → 200。
+- [x] `curl http://localhost:3000/healthz` → 200。
+- [x] 仅保留 `v0.2.2` 系列镜像。
+
+**改动文件（本轮）**：无（仅重建镜像，代码未变）。
+
+---
+
 ## 2026-10-16 第二次打包重启（9f824bb）
 
 **触发**：用户要求 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 打包重启并去除 orbstack 上个版本镜像。
