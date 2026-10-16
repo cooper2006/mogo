@@ -12340,3 +12340,174 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 2. 开启 `log_connections`，便于下次直接定位来源。
 3. 排查宿主机上连 PanWeiDB 的 GUI 客户端是否缓存了 10-15 重置前的旧密码。
 4. 解锁操作规范：`ACCOUNT UNLOCK` 之后**必须立刻用正确凭据成功登录一次**，确保 `failcount` 归零。
+
+## 2026-10-16（续）分析「panweidb 容器重启后就连不上数据库」的成因
+
+**触发**：用户提问——为什么 panweidb 容器重启之后用户就连不上数据库。本轮为**只读排查**（未改配置、未改代码）。
+
+**结论：三层机制叠加，且重启不会「自愈」**
+
+1. **重启是非优雅的，崩溃恢复期内连接全不可用（表象层）**
+   - 容器 `PID 1` 是 `tail -f /dev/null`（root），数据库进程 `panweidb`（omm，PID 120）的父进程正是它 —— **PID 1 不转发信号给数据库**。`docker stop` 只终止 tail，数据库被强杀。
+   - 证据：日志里最近 3 次重启全是 `database system was interrupted`（10-15 15:05、10-16 03:54、10-16 08:00），只有 10-15 14:32 那次是 `database system was shut down`（优雅）。
+   - 本次：容器 15:53:38 启动 → **16:00:00 才 ready**，崩溃恢复耗时 **6.5 分钟**；这期间任何连接都被拒。
+   - 连带现象：`document-api` 恰好在这 6.5 分钟里连续 9 次 `Application startup failed`（连接池 `pool.open(wait=True)` 等不到数据库就退出），16:00:11 后自愈 —— 用的是正确密码，不计入 failcount。
+
+2. **重启把「偶发认证失败」放大成「瞬时并发失败」（核心层）**
+   - 平时服务持长连接、认证只发生一次；重启打断所有连接，客户端被迫**集中重连**，连接池会**并发建连**。
+   - 今天 `16:08:21` 的 5 次 `Invalid username/password` 集中在 **0.33 秒内**（`.358 → .683`），是并发连接池的特征；叠加 `16:00:04` 的 3 次（连 `bonc` 库），累计越过当时阈值 `failed_login_attempts=5` → `16:08:33` 锁定。
+
+3. **锁定状态持久化，重启不能解锁（为什么「重启试试」无效）**
+   - 锁定状态在 `pg_user_status`（表空间 `pg_global`，随数据目录落盘），`docker restart` / 重建容器都**不会清除**，只有 `ALTER USER ... ACCOUNT UNLOCK` 才行。
+   - 证据：10-15 15:49 锁定 → **21:58 容器重建** → 22:26 仍报 `The account has been locked.`
+
+**附：认证方式曾在 10-15 被改动（背景因素）**
+- `pg_hba.conf.bak-20261015`（14:32）：`host all all 0.0.0.0/0 trust`（**外部免密**）
+- 当前 `pg_hba.conf`（15:03）：`0.0.0.0/0 sha256`（**外部需密码**），本地/127.0.0.1/::1 仍为 `trust`
+- `10-15 15:03:22` 有对应的 `received SIGHUP, reloading configuration files`，即该改动当时已生效。此后任何仍在用旧密码/空密码的外部客户端都会持续认证失败。
+- 另注：`08:23:06` 的 reload 日志带 `configuration file ".../postgresql.conf" contains errors; unaffected changes were applied`，说明 `postgresql.conf` 存在**部分配置项不生效**的情况（openGauss 无 `pg_file_settings` 视图，未能列出具体条目）。
+
+**认证与凭据侧排除项**（本轮复核）
+- `pg_hba.conf`：本地/127.0.0.1/::1 = `trust`，其余 = `sha256`。
+- `password_encryption_type=1`，`pg_authid.rolpassword` 前缀为 `sha256`（长度 244）→ 存储方式与认证方式**匹配**。
+- `password_effect_time=36500`（天，≈100 年）→ **密码不会过期**。
+- `listen_addresses=*`、`port=5432`、`max_connections=200`（当前仅用 17）→ 监听与容量正常。
+- `password_lock_time=1440` 分钟（锁定时长未动）。
+
+**建议（未执行，待确认）**
+1. **改重启姿势**：先优雅停库再停容器，避免每次崩溃恢复 6.5 分钟——
+   `docker exec -u omm -e GAUSSHOME=/database/panweidb/soft -e LD_LIBRARY_PATH=/database/panweidb/soft/lib panweidb /database/panweidb/soft/bin/gs_ctl stop -D /database/panweidb/data`，之后再 `docker restart panweidb`。
+2. **重启后立刻用正确凭据成功登录一次**，把 `failcount` 清零，避免「重启 + 偶发失败」叠加。
+3. 确认 `pg_hba.conf` 的 `trust → sha256` 改动是否为有意为之；若是，需保证所有客户端都已更新密码。
+4. 可选：开启 `log_connections`，下次重启后能直接看到连接来源。
+
+**改动文件**：仅本工作日志（未改代码/配置）。
+
+## 2026-10-16 设计：本体权限架构合并方案（评审稿）
+- 产出：`docs/ontology-permission-merge-plan.md`（评审稿，**未落库**）。
+- 结论：`docs/ontology-permission-ddl.sql` 的 `mesc_*` 三表是本体域新增的**数据范围权限层**，与既有 `permission_grants`/RBAC（功能权限）正交互补；合并 = 功能权限 AND 本体数据权限。
+- 关键合并点：表结构别套通用 `doc` JSONB 壳（加结构化列到 `deploy/pg/`）；DDL 注释引用的 `sys_config` 表在仓库不存在（需补）；DDL 注释指向 Flyway(Java) 与现 Python+PanWeiDB+generate_ddl.py 栈不符；`role` 主体复用 `position_roles._id`；审计配置变更走 `mesc_ontology_perm_audit`、运行时落 `gate_events`；`enforce` 默认 false=只预演不拦。
+- 已知缺口：`${user.id}` 语义不成立（端用户 ObjectId ≠ 业务 customer id，已 disabled）；`org_units` 组织树来源待核；`defaultMode=allow` 与 mogo fail-closed 基调冲突（建议 deny）。
+- 待拍板：sys_config 补否、kg:read 是否强制前置、defaultMode 默认 deny/allow。
+- 验证：无（设计稿，未执行任何建表/代码改动）。
+
+## 2026-10-16 续：本体权限合并方案 3 决策已拍板
+- 文件：`docs/ontology-permission-merge-plan.md`（状态 🟢 决策已定，未落库）。
+- 决策：① `sys_config` 新建通用配置表 `sys_config(key text primary key, value jsonb)`；② 本体数据权限层**独立可选**，不强制先过 `kg:read`，与 RBAC 正交互补；③ `enforce=true` 时缺省 **deny**（fail-closed）。
+- 已同步文档 §3.2/§3.3/§3.5/§5/§6 与附录；未改任何代码/表。
+
+## 2026-10-16 续：产出本体权限 deploy/pg 建表段（未入库）
+- 文件：`deploy/pg/ontology_permission.sql`（独立段，未执行）。
+- 内容：`sys_config(key text pk, value jsonb)` 新建 + `mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit` 三表；风格对齐 `deploy/pg/schema.sql`（mogo_dev. 前缀、复合 PK、jsonb 列、IF NOT EXISTS）；审计表用 bigserial。
+- 已落决策：① sys_config 新建；② 本体层独立可选（enforce 开关控制，不依赖 kg:read）；③ enforce=true 缺省 deny。示例数据未展开，指向原 docs/ontology-permission-ddl.sql。
+- 验证：无（未执行任何 SQL）。
+
+## 2026-10-16 续：产出本体权限 MongoDB 侧集合结构（未执行）
+- 文件：`deploy/mongo/ontology_permission.js`（mongosh 脚本，未执行）。幂等 createCollection($jsonSchema)/collMod + createIndex，含 sys_config 种子。
+- 与 PG 段对齐：mongo `_id` 由复合键确定性拼接（等价 PG 复合主键）；jsonb↔数组/对象、timestamptz↔Date、CHECK↔enum；priority/enabled 等默认值由应用层补。
+- **关键发现**：pg_compat 门面（app/core/pg_compat.py:11-13）假定通用壳 `(id, tenant_id, doc JSONB, created_at, updated_at)`；结构化列的表不经该门面 → 应用层二选一：(A) 原生 repository（PG SQL / mongo motor）；(B) 改壳式 + COLUMN_MAP 提升热字段，不可混用。已在 `deploy/pg/ontology_permission.sql` 与 `deploy/mongo/ontology_permission.js` 头部标注 caveat。
+- 验证：无（未执行任何 mongo 命令 / SQL）。
+
+## 2026-10-16 续：后端策略定为 (A) 原生 repository
+- 决策：本体权限采用 (A) 原生 repository —— PG 走 SQL、mongo 走 motor，`mesc_*` 结构化列不经 pg_compat 门面；(B) 通用壳+COLUMN_MAP 否决，不混用。
+- 文档：`docs/ontology-permission-merge-plan.md` 新增 §3.8 + §5 决策表第 4 行；结论段同步。
+- 现有文件无需改动：`deploy/pg/ontology_permission.sql` + `deploy/mongo/ontology_permission.js` 即 A 的落点。
+- 后续（未做）：双实现 repository（遵循"不着急落地"）。
+- 验证：无（仅文档）。
+
+## 2026-10-16 实现：本体数据权限运行时解析（设计四 §5.6.1/§5.6.2，按 mesc_* 方案）
+- 新增 `services/chat-api/app/services/ontology_permission.py`：`visible_ontology_ids(tenant_id,user_id)` + `ontology_scope_snapshot`；主体四态（tenant + 组织含下级（`org_units.path_ids` 展开）+ `end_user_position_roles` 角色 + user）→ 取 `mesc_ontology_grant` 按 `priority` 大者胜（同优先级取更严格，fail-closed 偏置）→ `access_mode∈{read,write}` 可见。
+- fail-closed：空 tenant/user 不查库；解析异常返回空集且**不写缓存**；进程内 60s TTL 缓存 + `invalidate(tenant,user)`；每次实际解析落 `gate_events`。
+- 数据访问（决策 A 原生）：`mesc_*` 结构化表 → mongo motor / PanWeiDB 原生 SQL（占位符顺序对齐）；主体壳表 → `get_db()` 门面。provider/store/audit 可注入（`configure()`）。
+- 生效点：`business_semantic_index.semantic_search` 新增**可选** `visible_ontology_ids`（默认 None 不过滤，非破坏）；空集 fail-closed 返回 []。enforcement 由调用方按 `enforce` 开关决定；本体↔实体映射待定。
+- 测试：新增 `tests/services/test_ontology_permission.py`(11) + `test_semantic_search_ontology_filter.py`(3)，全绿；既有 semantic index 测试无回归。
+- 验证：`cd services/chat-api && PYTHONPATH=. /Users/cooper/.workbuddy-ai/binaries/python/envs/default/bin/python -m pytest tests/services/test_ontology_permission.py tests/services/test_semantic_search_ontology_filter.py tests/services/test_business_index_endpoint.py tests/services/test_014_017_semantic_memory.py -q` → 28 passed。
+- 未做：admin-api `routes/ontologies.py`、前端页面、`/internal/ontology-permissions` 接口、enforce 开关读取（sys_config）——待后续。
+
+## 2026-10-16 修正：本体权限判定键 = ontology_id（entity_type 仅类型标签）
+- 决策：权限以**本体标识 `ontology_id`** 为准；`entity_type` 只是类型标签（前端查询条件），**不参与判权**。
+- 修正生效点：`business_semantic_index.SemanticHit` 新增 `ontology_id` 字段（取自 metadata `ontology_id`/`ontology`，并加入 `with_anchor()`）；`semantic_search` 的 `visible_ontology_ids` 过滤改为按 `hit.ontology_id`（缺失即不可见，fail-closed），**不再用 `entity_type`**。
+- 文档：merge-plan 新增 §3.9 + §5 决策表第 5 行。
+- 测试：`test_semantic_search_ontology_filter.py` 更新为 5 条（含 entity_type 不授权、无 ontology_id 被隐藏）；与 resolver + 既有 semantic index 测试合计 32 passed，无回归。
+- 验证：`cd services/chat-api && PYTHONPATH=. <managed-venv>/bin/python -m pytest tests/services/test_ontology_permission.py tests/services/test_semantic_search_ontology_filter.py tests/services/test_business_index_endpoint.py tests/services/test_014_017_semantic_memory.py -q`。
+
+## 2026-10-16 补：业务语义索引侧带 ontology_id
+- `business_semantic_index.EntityRecord` 新增 `ontology_id: str = ""`（权限判定键；`entity_type` 仅类型标签）。
+- 落点：`as_document()` 输出 `ontology_id`；`index_entity` 的 `entity.indexed` 审计事件带 `ontology_id`。
+- 测试：新增 `test_entity_record_carries_ontology_id_into_document`；resolver+filter+index 合计 33 passed。
+- 约定：014 索引写入方须带 `ontology_id`，否则 enforcement 开启后命中因缺键一律不可见。
+
+## 2026-10-16 落地（一）：本体权限建表入库（双后端）
+- 执行 `deploy/pg/ontology_permission.sql`（PanWeiDB `mogo_dev`）：建出 `sys_config` + `mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit`，`sys_config` 种子 `{"enforce": false, "defaultMode": "allow"}`。连接走宿主 `127.0.0.1:5432`（`pg_hba` 对 localhost 为 trust）。
+- 执行 `deploy/mongo/ontology_permission.js`（MongoDB `mogo_dev`）：建出 4 个集合 + 9 个索引 + 同值种子；幂等（`createCollection`/`collMod`/`createIndex`）。
+- 两份文件头已由「评审稿·尚未落库」改为「已落地」，并保留「不并入 schema.sql（结构化列与通用壳生成器不兼容）」的说明。
+- 验证：PG `information_schema.tables` 命中 4 张表；mongo `getCollectionNames()` 命中 4 个集合，索引名与 DDL 一致。
+
+## 2026-10-16 落地（二）：admin-api 原生 repository + 管理端路由
+- 新增包 `services/admin-api/app/ontology_permission/`：
+  - `constants.py`：表名/枚举/复合键拼接（`grant_key` / `detail_key`，等价 mongo `_id`）。
+  - `repository.py`：原生双后端（mongo motor / PanWeiDB 原生 SQL）。**A 模式坑规避**：upsert 走「先 UPDATE、`rowcount=0` 再 INSERT」（避开 `ON CONFLICT ... DO UPDATE` 兼容性）；jsonb 路径用 `#>>`；不对 jsonb 文本做 `<> ''` 比较；占位符参数顺序与 SQL 文本出现顺序一致。
+  - `service.py`：`resolve_visible_ontologies`（与 chat-api 镜像，注释声明必须同步）+ `visible_ontologies`（当前账号）+ `resolve_for_user`（四态展开，供内部接口）+ `batch_grant`/`revoke`（撤销级联删类明细）+ `bump_revision` + `get_config`/`set_enforce` + `list_catalog` + `list_audit`。
+  - `subjects.py`：四态主体展开（`end_user_org_relations` + `org_units.path_ids` 含下级 + `end_user_position_roles`）。
+- 新增 `app/api/routes/ontologies.py`（13 条路由）：`GET /mine`、`GET /`、`POST /sync`（业务系统未接入时诚实降级为「按索引聚合」并在响应标注来源）、`GET|PUT /config`、`GET /audit`、用户级 `GET|POST|DELETE /users/{uid}/permissions`、四态通用 `GET|POST|DELETE /subjects/{type}/{id}/permissions`。
+- 新增 `app/api/routes/ontology_permission_internal.py`：`GET /internal/ontology-permissions?tenantId=&userId=`，服务凭证 `X-MOVO-Service-Token` + `hmac.compare_digest`（fail-closed 401），与 `personal_knowledge_internal.py` 同机制。
+- `app/api/router.py` 注册两个 router。
+- 清单接口对外统一 camelCase（`ontologyId`/`entityCount`/`entityTypes`/`grantCount`），内部接口同步。
+- 测试：新增 `tests/admin-api/tests/test_ontology_permission_service.py` 20 条（含 `enforce=true → effectiveDefault=deny`、跨租户不泄漏、fail-closed 空用户、批量去重、撤销级联、清单含未索引本体）。
+- 验证：`docker run --rm --entrypoint python -v <repo>/services/admin-api:/app -w /app admin-api:v0.2.2 -m pytest tests/test_ontology_permission_service.py -o addopts=""` → **20 passed**；OpenAPI 中出现 13 条本体路由（`app.routes` 在 FastAPI 0.142 下为延迟 `_IncludedRouter`，须用 `app.openapi()` 枚举）。
+- 未做：容器镜像重建（代码已进工作区，镜像仍是旧版）、网关放行 `/internal/*`。
+
+## 2026-10-16 落地（三）：admin-web 本体权限页面
+- 新增 `src/api/ontologies.ts`（类型 + 13 个 API 函数，含四态通用形态）；`src/icons/OntologyIcon.ts`（照 `PositionRolesIcon`）。
+- 新增 `src/views/ontologies/OntologyCatalogPage.vue`：`enforce` 状态横幅（预演/拦截）+「我的可见本体」/「全量清单」双 Tab + 同步清单 + 开启/关闭拦截（二次确认）。
+- 新增 `src/views/ontologies/UserOntologyPermissionDialog.vue`：照 `EmployeeCapabilityOverrideDialog` 写；批量勾选本体 + 访问模式 + 优先级 + 备注 + 已授予列表逐条撤销。
+- `src/router/routes.ts` 加 `/ontologies` 顶级菜单项；`OrganizationUsersPage.vue` 用户行新增「本体数据权限」按钮 + 弹窗挂载。
+- 验证：待 `vue-tsc --noEmit`（首轮因超时被 SIGTERM，已提高 `--max-old-space-size` 重跑）。
+
+## 2026-10-16 补录：本体数据权限 SDD 规约（specs/030）
+- **问题**：本轮「落地本体权限」时跳过了 SDD 的 spec 步骤（Constitution 的 Specification-First 为 NON-NEGOTIABLE），代码先于规约落地。用户指出后补录。
+- 新增 `specs/030-ontology-data-permission/{spec.md,plan.md,tasks.md}`：4 个用户故事（管理端配置 / 运行时解析 / 灰度与内部接口 / 双后端一致）、27 条 FR、26 项任务（Phase 0–4 已落地 22 项，Phase 5–6 待收口）、6 条 Clarify Decisions、明确列出 6 项未闭环项。
+- `specs/INDEX.md` 新增「四（补 4）、本体数据权限」小节 + 头部计数更新至 30 个特性。
+- `docs/ontology-permission-merge-plan.md` 状态改为「🟢 已落地」并新增落地状态表；§3.8 补已实现细节与「主体侧壳表仍走门面」的边界；§6 补 3 条落地后风险（缓存传播窗口 60s、类明细未接生效点、`/internal/*` 未放行）；§7 阶段标注进度；新增 §8.1 落地产物清单。
+- 口径声明：与 027 同属**回溯补规格**（代码先于 spec），已在 spec 的 Constitution Check 中如实标注。
+
+## 2026-10-16 落地（四）：030 端到端收口（建表验证 / 冒烟固化 / 网关核实）
+- **真实 PanWeiDB 集成验证**：以 `docker run --rm -v <repo>/services/admin-api:/app admin-api:<tag>` 挂载工作区直连 `mogo_dev`，跑通 repository 全流程（grant upsert/update、批量 for_subjects、类明细 jsonb、审计、sys_config、清单、删除）。**捕获并修复 2 个真 bug**（均在 `app/ontology_permission/repository.py`）：
+  1. **占位符顺序错位**：`UPDATE ... SET <set_cols> ... WHERE <key_cols>` 的参数此前按 key→set 追加，与文本出现顺序不一致（A 模式按位置绑定，会静默写错列）。已改为先 set 后 key。
+  2. **psycopg3 不会自动把 dict/list 适配到 jsonb 占位符**（`cannot adapt type 'dict'`）：新增 `_jsonb()` 助手，`column_list` / `row_condition` / `sys_config.value` / 审计 `detail` 全部显式包 `Jsonb`；读取侧（jsonb→Python）本就自动。
+- **镜像与滚动重启**：`./mogo build admin-api` → `admin-api:v0.2.2-30-gb5a1963`；按部分重建惯例用显式镜像变量 `MOGO_ADMIN_API_IMAGE=... docker compose up -d --no-deps admin-api`，随后 `restart gateway`（容器 IP 变化，不重启会 502）。
+- **端到端冒烟固化**：新增 `deploy/tests/test_ontology_permission_smoke.py`。容器内 stdin 直跑（`docker exec -i ... python - < ...`，因 gateway 侧 `read_only` 无法 `docker cp`）；缺 `ASKAI_ADMIN_JWT_SECRET` 或 active 账号时自动 skip；借用现有 active 管理员身份签一次性 session，**结束即 `revoke_session`**；自建冒烟数据用完即删。**实测 12/12 通过**（批量去重 / 四态 role 授权 / enforce 开+复原 / 未认证 401 / 内部接口无凭证 401）。
+- **网关链路核实（更正一处此前的误判）**：`deploy/nginx/nginx.conf:119` 的 `location /admin-api/` 已前缀代理到 `admin-api:8100/`，故 `/admin-api/api/internal/ontology-permissions` **天然放行**，无需新增 location。实测：带前缀 → 401（已打到服务且 token 生效）、不带前缀 → 404、`/admin-api/api/ontologies` → 401。「限制内部接口来源网段」（设计 §6 约束 6）列为遗留——需先确认服务间调用的实际来源网段，否则有拦错风险。
+- **fail-closed 结构确认**：chat-api resolver **不读 `defaultMode`**（grep 零命中），无显式授权即返回空集 → 恒 deny；`enforce` 也不在 resolver 内，由调用方决定是否把 `visible_ontology_ids` 传给 `semantic_search`（`None` = 不过滤，保持既有行为）。故 `sys_config` 里 `defaultMode:'allow'` 仅预演展示口径，不会放开未授权本体。
+- **环境事件（与改动无关但需记录）**：本轮收口期间 PanWeiDB 发生**优雅关闭**（容器日志时区与本地差 8 小时，勿据日志钟点反推）（日志 `Gaussdb exit(0)`、`database system is shut down`，非崩溃），而容器 PID 1 仍是 `tail -f /dev/null`、数据库进程无人拉起 → 全站连接报 `server closed the connection unexpectedly`。按既有姿势 `gs_ctl start -D /database/panweidb/data` 手动拉起后**立刻用正确凭据成功登录一次**清零 failcount（重启后客户端集中重连会在瞬间累积失败、越过阈值把 `boncuser` 锁住），再 `restart admin-api` 即恢复 healthy。
+- 验证：冒烟 12/12；前端静态一致性（icon/路由/组件 import 对齐、naive-ui 依赖闭合——template 组件均在 `bootstrap.ts` 46 项全局注册内，唯一例外 `NAlert` 已显式 import）；`vue-tsc`/`vite build` 全量各试跑 11–13 分钟未产出，未取得 exit code，故**未**标记为通过（见 tasks T025）。
+
+## 2026-10-16 落地（五）：030 继续未闭环项 —— mongo 等价冒烟抓到高危 bug
+
+- **新增 mongo 后端等价冒烟并抓到一个高危 bug**（SC-004，原先只做了 PG 侧验证）。
+  `deploy/tests/test_ontology_permission_mongo_parity.py`（8/8 通过）：`--network mogo_backend`
+  进内网连 `mogo-mongo-1`（mongo 未映射宿主机端口），直接驱动 `OntologyPermissionRepository`
+  跑通 grant/detail/audit/sys_config/清单读写与清理。
+- **bug 根因**：`repository.upsert_grant` / `upsert_detail` 用 `bool(row.get("enabled", True))` 归一化。
+  上游 dict **含** `"enabled"` 键且值为 `None` 时（调用方省略该字段的常见形态），`.get(key, default)`
+  返回 `None` 而非 default → `bool(None)` = `False` → 授权被静默写成「已禁用」，随后被
+  `enabled = true`（PG）/ `enabled: {$ne: False}`（mongo）全部滤掉，表现为**授予成功但判权热路径
+  `list_grants_for_subjects` 查不到任何授权**。
+  - **为何 PG 侧冒烟全过**：管理端 `service.batch_grant` 显式传了 `"enabled": True`，恰好绕过。
+    即这是「调用方碰巧没踩到」而非「代码正确」——双后端必须各跑一遍，一边的绿灯不能替代另一边。
+- **修复**：`repository.py` 两处 upsert 与 `service.py` 两处序列化统一改为
+  `True if row.get("enabled") is None else bool(row.get("enabled"))`，并加注释说明陷阱。
+- **回归测试**：`services/admin-api/tests/test_ontology_permission_service.py` 新增 3 条
+  （省略 `enabled`→True、显式 `False`→保持 False、detail 同样归一化），用 `db_override` 走 mongo
+  分支捕获 `replace_one` 收到的文档。**23 passed**（原 20 + 3）。镜像已重建并强制重建容器，
+  HTTP 冒烟复跑 **12/12 无回归**。
+- **补 `specs/030-ontology-data-permission/checklists/requirements.md`**（照 028 五段式），
+  如实标注 2 项未达标：spec 有实现细节泄漏（回溯补规格固有问题）、双后端等价此前未被自动化守护。
+- **类明细接入检索生效点：查清阻塞链后有意不实现**。除已登记的「索引未填 `ontology_id`」外，
+  还要求命中携带 `class_name` 与行条件判定用的**结构化属性**，两者同样只存在于索引写入侧。
+  在不动索引写入侧的前提下写 resolver 侧 detail 合并只会产出**无调用方的死代码**，
+  故不实现，改为把依赖链精确记录到 tasks 未闭环表。
+- **跨进程缓存 60s 窗口：评估后决定不做**。收益（秒级生效）低于成本（双服务新增 redis 依赖 +
+  广播通道 + 失败降级）；`mogo-redis-1` 虽在，60s 对「改配置」是可接受上界。若业务要求秒级，
+  应作为独立特性立项。
+- **网关链路再确认**：`location /admin-api/` 前缀已覆盖 `/api/internal/*`，T024 结论不变。
