@@ -1,5 +1,32 @@
 # Work Log
 
+## 2026-10-16 合并 feat/migrate-mongo-to-panweidb 到 main（027 数据后端迁移）
+
+**触发**：用户要求「合并当前分支到main分支」。
+
+**分支关系**：`feat/migrate-mongo-to-panweidb` 分叉于旧 main（`9fc8cf6`）；`mogo/main`（`17fe687`）领先，`feat` 领先旧 main 17 个提交。
+
+**操作**（隔离在独立 worktree 中执行，避免触碰主工作区并行会话在途的 `deploy/docker/nginx-https.conf`）：
+1. `git merge --ff-only mogo/main` → main 前进到 `17fe687`（带入 `.githooks/pre-commit` / `scripts/check-secrets.sh` 的 `100755` mode 变更与 `docs/regression-arm-orbstack-2026-10-15.md`）。
+2. `git merge feat/migrate-mongo-to-panweidb` → 唯一冲突 **`docs/WORK_LOG.md` 两处**（3–178、11888–12137），均为**追加式日志**、两侧条目互不重叠。
+3. 合并提交 **`534ec2e`**（双亲 `17fe687` + `a4e0d45`；70 文件：29 新增 / 41 修改）。
+
+**冲突解决**：保留两侧全部条目，仅删 6 个标记行并补回 `''`/`'---'` 分隔符。
+- 摸清 `WORK_LOG.md` 排序约定：**顶部是「新→旧」前置追加区**（10-15…10-11），**底部是历史「旧→新」顺序追加区**（10-08…10-14）；两处冲突恰好一顶一底。
+- 完整性校验：`Counter(ours) + Counter(theirs) - Counter(base)` 与结果比对 → **0 行缺失**（仅 2 行「多余」，即补回的分隔符）；`git ls-files -s` 确认 `scripts/check-secrets.sh` / `.githooks/pre-commit` mode 仍为 `100755`。
+
+**验证**：
+- [x] `deploy/tests/test_pg_compat_parity.py` → 14 passed（三副本一致性守卫）。
+- [x] admin-api `tests/test_pg_compat.py` + `tests/test_ids.py` → 91 passed。
+- [x] 合并后工作区干净；`feat` 已完全并入（`rev-list --left-right --count main...feat` = 11 / 0）。
+- [x] 推送 `mogo main`：`17fe687..534ec2e`；远端 `main` = `534ec2e`、远端 `feat/migrate-mongo-to-panweidb` = `a4e0d45`，均与本地一致。
+
+**未做（经用户确认）**：未把 `feat` 分支快进到 main——快进会带入 `deploy/docker/nginx-https.conf`，而该文件在主工作区有并行会话的未提交改动（22 插入 vs main 的 21，多 3 行注释头），会被阻塞。
+
+**改动文件（本轮）**：`docs/WORK_LOG.md`（本条记录）。
+
+---
+
 ## 2026-10-16 离线包增量下载审计 + docling-models 改为增量下载
 
 **触发**：用户要求以 pip_wheels_bundle.sh 的增量方案为参照，审计 `base-images/` 下全部离线内容（apt / docling-models / images / pip-wheels / playwright）是否均为增量下载，并按同款思路改造。
