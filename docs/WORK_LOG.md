@@ -12559,3 +12559,19 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - **T026 状态**：代码级六点复核已完成（菜单/弹窗选项/撤销刷新/挂载/enforce横栏+双Tab/类型+构建），
   部署环境已就绪；浏览器目视因 `bsk` CLI 未安装仍需用户在
   `http://localhost:3000/admin/ontologies` 执行。
+
+## 2026-10-16 补：030 测试造数 + 未闭环项复核
+
+- **测试造数**（用户要求：本体数据权限没有数据，造几条来测试）：
+  双后端 `mogo_dev` 各写入 6 条业务实体索引 + 2 条授权 + 1 条类明细 + 1 条审计，
+  租户 `bonc-2331b8a0ecdbd2ebcbf253c4`、用户 `6ab9dd0382f60252a4a40aa5`：
+  - 本体清单：`ontology://customer`（2 实体）、`ontology://product`（2 实体）、`ontology://order`（2 实体）
+  - 授权：customer + product 均为 read
+  - 类明细：Customer 类，selected 列 `["name","code","tenant_id"]`，行条件 `{status:"active"}`
+  - PG 直接 INSERT；Mongo 因 `$jsonSchema` 校验器拦截，先 `collMod` 清空 validator 再插入
+- **未闭环项复核**（tasks.md 末节 8 项）：
+  - #5 `/internal/*` 网关未放行 → **已由 T024 闭环**，实测 `curl /admin-api/api/internal/ontology-permissions` → 422
+    （已打到服务、缺 query 参数，符合预期），标记为已闭环，原条目改为 #5b
+  - #1 索引写入方未填 `ontology_id` → 标注测试造数已临时填充，业务系统正式接入后须由索引写入方填充
+  - #8 本期 admin-web 镜像 → 已构建 `mogo-admin-web:030-ontology` 并部署，但为本地 tag 未推 GHCR
+  - #2/#3/#4/#6/#7 → 归属业务系统集成阶段或部署侧决策，原因不变

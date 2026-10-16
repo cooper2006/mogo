@@ -139,12 +139,13 @@
 
 | # | 项 | 原因 | 归属 |
 | --- | --- | --- | --- |
-| 1 | 索引写入方未填真实 `ontology_id` | 用户明确要求：业务系统集成后再接入 | 业务系统集成阶段 |
+| 1 | 索引写入方未填真实 `ontology_id` | 用户明确要求：业务系统集成后再接入。**2026-10-16 测试造数已临时填充**：`business_entity_index` 写入 6 条带 `ontology_id` 的记录（customer/product/order 各 2 条），使清单与授权页有数据可看；造数为临时验证用途，业务系统正式接入后须由索引写入方填充 | 业务系统集成阶段（测试造数见 WORK_LOG 落地七） |
 | 1b | SC-004 mongo 后端等价冒烟 | ~~未跑通~~ **已闭环**：`deploy/tests/test_ontology_permission_mongo_parity.py`（8/8），并因此抓到 enabled 归一化高危 bug | 已完成 |
 | 2 | `sourceEntity` / `keyField` 返回空串 | 设计 §5.4 的独立副本集合属阶段 4 | 业务系统集成阶段 |
 | 3 | 类明细的列投影 / 行过滤未接进检索生效点 | 表与仓储已就绪，但**阻塞链查清后确认无法在不动索引写入侧的前提下诚实实现**：除已登记的「索引未填 `ontology_id`」外，还要求命中携带 `class_name` 与行条件判定用的**结构化属性**，两者同样只存在于索引写入侧。强行在 resolver 侧写 detail 合并只会产出无调用方的死代码，故本轮**有意不实现** | 业务系统集成 + 索引补 `ontology_id`/`class_name`/属性后，按 §5.6.2 接入 |
 | 4 | 跨进程缓存传播窗口 = 60s TTL | 两服务均未引入 Redis 客户端，无推送通道 | **本轮评估后决定不做**：收益（秒级生效）低于成本（双服务新增 redis 依赖 + 广播通道 + 失败降级）。队列 `mogo-redis-1` 虽在，但 60s 对「改配置」是可接受上界；若业务要求秒级，应作为独立特性立项 |
 | 5 | ~~无独立 checklist 文件~~ | **已补**：`specs/030-ontology-data-permission/checklists/requirements.md`（照 028 五段式），如实标注 2 项未达标（spec 有实现细节泄漏、双后端等价未被自动化守护） | 已闭环 |
-| 6 | `/internal/*` 网关未放行 | 需按部署环境显式配置 | T024 |
-| 7 | 内部接口来源网段未限制（设计 §6 约束 6） | 需先确认服务间调用的实际来源网段，避免拦错 | 部署侧决策，见 T024 备注 |
-| 8 | 冒烟用的 `admin-api` 镜像未纳入版本管理 | 本地构建 tag `admin-api:v0.2.2-30-gb5a1963`，需推 GHCR 才能在别处复现 | 发版流程 |
+| 5b | ~~`/internal/*` 网关未放行~~ | **已由 T024 闭环**：`deploy/nginx/nginx.conf:119` 的 `location /admin-api/` 前缀代理到 `admin-api:8100/`，`/admin-api/api/internal/ontology-permissions` 自动转成服务的 `/api/internal/ontology-permissions`。实测：带前缀 → 422（已打到服务、缺 query 参数，符合预期）；不带前缀 → 404（不会误暴露） | 已闭环（T024） |
+| 6 | 内部接口来源网段未限制（设计 §6 约束 6） | 需先确认服务间调用的实际来源网段，避免拦错 | 部署侧决策，见 T024 备注 |
+| 7 | 冒烟用的 `admin-api` 镜像未纳入版本管理 | 本地构建 tag `admin-api:v0.2.2-30-gb5a1963`，需推 GHCR 才能在别处复现 | 发版流程 |
+| 8 | 本期 admin-web 镜像未纳入版本管理 | **2026-10-16 已构建** `mogo-admin-web:030-ontology`（精简 Dockerfile，非 root appuser/UID 10001）并滚动部署，已验证 `/admin/` 200 + ontology 分块可访问；但为本地 tag，未推 GHCR | 发版流程 |
