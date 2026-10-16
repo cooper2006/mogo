@@ -1,5 +1,54 @@
 # Work Log
 
+## 2026-10-16 离线包增量下载审计 + docling-models 改为增量下载
+
+**触发**：用户要求以 pip_wheels_bundle.sh 的增量方案为参照，审计 `base-images/` 下全部离线内容（apt / docling-models / images / pip-wheels / playwright）是否均为增量下载，并按同款思路改造。
+
+**审计结论**（5 类，逐脚本核对 + `rm -rf` 全仓检索）：
+
+| 离线内容 | 脚本 | 结论 | 依据 |
+|---|---|---|---|
+| pip-wheels | `scripts/pip_wheels_bundle.sh` | ✅ 增量 | `cmd_fetch` 用 `mkdir -p`（无 per-arch `rm -rf`）；`pip_download_into` 注入 `--find-links /wheels` 复用缓存（commit 4b15c5e） |
+| playwright | `scripts/playwright_browsers_bundle.sh` | ✅ 增量 | `cmd_fetch` 持久挂载缓存，仅架构冲突时 `rm -rf`；`PLAYWRIGHT_BROWSERS_PATH` 原生复用（commit d63da04，已按 pip 同款思路改造，无需再改） |
+| images | `scripts/export_base_images.sh` | ✅ 增量 | `cmd_save` 已存在的 archive 直接 `[skip]`；`.part` + 平台校验后 `mv` 防中断残留 |
+| apt | `scripts/apt_packages_bundle.sh` | ❌ 非增量 | `fetch_one()` 第 282 行 `rm -rf "${dest}"`，每次清空 per-arch `.deb` + `Packages/` 索引全量重下；且 apt 无 `--find-links` 等价物（改动涉及索引身份一致性，风险高，已向用户呈报待确认） |
+| docling-models | `scripts/docling_models_bundle.sh` | ⚪→✅ 本轮改造 | 原只有 save/list/verify，无缓存、无版本判断，每次从镜像重新 tar + 重打包 |
+
+**做什么**（docling-models 按 pip 同款思路改造为增量下载）：
+
+1. **新增持久缓存** `base-images/docling-models/{models,manifest.txt}`（由 `.gitignore` 的 `/base-images/` 覆盖，不入库），与 pip-wheels/apt/playwright 的缓存布局一致。
+2. **新增 `fetch` 命令**：在 `python:3.13-slim-bookworm` throwaway 容器内装 CPU torch（download.pytorch.org/whl/cpu，先装以避免 docling 依赖拉入 CUDA 版）+ docling 栈，运行 `download_docling_models.py` 把模型下载到挂载的缓存。**两层增量**：huggingface_hub 跳过已存在于 `DOCLING_ARTIFACTS_PATH` 的文件（版本变动只补差量）；持久 pip cache（`base-images/docling-models/.pip-cache`）让 torch/docling 重装也增量。
+3. **版本门禁**：`docling_version_pin()` 从 `requirements-docling.txt` 读钉版本；`cache_current()` 比对 manifest 的 `docling_version` + `inventory`（文件数 + 总字节，`wc -c` 可移植实现），版本未变且清单一致则**跳过整个容器**——即"版本没有变化不重新下载 / 本地已经有版本不重新下载"。
+4. **`save` 改为增量**：读镜像的 docling 版本，`cache_current` 为真即跳过抽取；否则清空旧树后从镜像抽取到缓存并写 manifest。
+5. **`pack` 改为增量**：manifest 记 `packed_inventory`；当前缓存清单与之一致且 bundle 存在则跳过重打包，否则重打包并更新 `packed_inventory`。
+6. **可移植性**：`set_manifest_key` 用 temp file + mv 而非 `sed -i`（macOS BSD sed 的 `-i "script" file` 会把脚本当备份后缀，会弄坏 manifest）；`inventory()` 用 `find -exec wc -c {} +` 而非 GNU `-printf`。
+
+**验证**：沙箱（`/tmp/dl-*`，已清理）覆盖 10 个场景全部符合预期——无 manifest 不判定为 current；版本+清单匹配为 current；版本不一致/清单变动（增改文件）均正确判定为 not current；pack 首次打包、二次跳过、缓存变动后重打包、恢复后再次跳过，manifest 的 `packed_inventory` 随每次真实打包更新。`bash -n` 语法检查通过，`list` 在干净工作区正常输出。
+
+**改动文件**：
+- `scripts/docling_models_bundle.sh`（唯一实质改动；沙箱测试产物 `/tmp/dl-*` 与误建的 `base-images/docling-models/` 假缓存已清理）
+- `docs/WORK_LOG.md`（本条记录）
+
+### 追加：apt 也改为增量下载（用户确认后一起修）
+
+**做什么**（`scripts/apt_packages_bundle.sh` 的 `fetch_one`，按 pip 同款思路）：
+
+1. **去掉 per-arch `rm -rf`**：第 282 行 `rm -rf "${dest}"; mkdir -p` → 只留 `mkdir -p "${dest}"`，保留已下载的 `.deb` + `Packages/` 索引。
+2. **apt 侧"复用缓存"**（apt 的 `--find-links` 等价物）：在容器内 `apt-get update` 之后、`apt-get install --download-only --reinstall` 之前，加一行
+   `cp -f /out/*.deb /var/cache/apt/archives/ 2>/dev/null || true`
+   把持久缓存里的 `.deb` 回灌进容器的 apt archive cache。apt 在决定下载什么时会跳过 archive cache 中已有的文件（同名 = 同版本+架构），所以未变动的包**一次也不重复下载**；只有新增、 bumped、缺失的包才从镜像拉。旧版本 `.deb` 残留无害：离线安装从缓存索引解析版本，未被引用的 `.deb` 被忽略（与 pip 残留 wheel 同理）。
+3. `--reinstall` 保留不变：基础镜像已自带的包（ca-certificates 等）仍需进入 bundle 保证自足；配合 archive cache 复用，首次全量、后续增量。
+4. 头部注释与 `fetch_one` 内注释同步说明增量行为。
+
+**验证（真实 docker，非沙箱）**：
+- Run 1（fresh）：`apt-get install --download-only --reinstall curl` → 15 个 `.deb`，`Fetched 2204 kB`。
+- Run 2（把 run 1 的 15 个 `.deb` 回灌进 `/var/cache/apt/archives` 后重跑同一命令）：apt 输出 **`Need to get 0 B/2204 kB of archives`**，`Download complete`，**下载 0 字节**——全部复用，未重复下载。证 apt archive cache 复用机制成立，修复有效。
+- 期间一次带 `Debug::Acquire::true` 的重跑因镜像侧版本变动出现 exit 100（非修复引入；干净重跑 exit 0），已在日志中注明。
+
+**改动文件**：
+- `scripts/apt_packages_bundle.sh`（`fetch_one` 两处改动 + 注释）
+- `docs/WORK_LOG.md`（本条记录）
+
 ## 2026-10-15 刷新 README（README.md / README.zh-CN.md）：纳入 spec 027–029，重点 028 / 029
 
 **触发**：用户要求「切换到 main 分支，根据 spec 028、029 内容刷新 README 和 intro-v4.pptx」；随后用户调整为**只刷新 README**（PPTX 本轮不动）。

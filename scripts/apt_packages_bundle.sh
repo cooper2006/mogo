@@ -22,6 +22,14 @@ set -Eeuo pipefail
 # durable copy stays under base-images/ so it survives `git clean` and can be
 # re-packed without downloading again.
 #
+# Incremental fetch: `fetch` keeps the per-arch cache instead of wiping it, and
+# seeds /var/cache/apt/archives from it before the install so apt skips .deb
+# files it already fetched (the apt analogue of pip's --find-links). A re-run
+# whose package set is unchanged downloads 0 B; a bumped or added package pulls
+# only the new .deb. Stale old-version .deb files are harmless — the offline
+# install resolves versions from the cached index, so an unreferenced .deb is
+# simply ignored (the same deal as pip's stale wheels).
+#
 # How the offline install works — and what it needs:
 #
 #   apt-get install --download-only <pkgs>   pulls every .deb into
@@ -279,7 +287,14 @@ fetch_one() {
   printf '  %s/%s: %s packages -> %s\n' \
     "${service}" "${arch}" "${#packages[@]}" "${dest}"
 
-  rm -rf "${dest}"
+  # Incremental cache: keep already-downloaded .deb files so a re-run only
+  # fetches what actually changed (a bumped package, or a package added to the
+  # Dockerfile). apt reuses a .deb already sitting in /var/cache/apt/archives —
+  # seeded from this cache just before the install — so unchanged packages are
+  # never re-downloaded, exactly as pip's --find-links lets pip reuse a cached
+  # wheel. A stale .deb of the same name is harmless: the offline install
+  # resolves versions from the cached index, so an unreferenced .deb is simply
+  # ignored, not installed (the same deal as pip's stale wheels).
   mkdir -p "${dest}"
 
   # The .deb set must match the target architecture, so the fetch runs in a
@@ -326,6 +341,15 @@ fetch_one() {
       done
 
       apt-get -o Acquire::Retries=5 update >/dev/null 2>&1
+
+      # Seed the archive cache from the persistent cache so apt skips .deb files
+      # it already fetched on a previous run instead of re-downloading them.
+      # This is the apt analogue of pip's --find-links: a package whose .deb is
+      # already present (same name = same version+arch) is not fetched again;
+      # only packages that are new, bumped, or missing are pulled from the
+      # mirror. The seed runs after `update` so the index is current, and before
+      # the install so apt sees the cached files when it decides what to fetch.
+      cp -f /out/*.deb /var/cache/apt/archives/ 2>/dev/null || true
 
       # --reinstall matters: the base image already ships some of these
       # (ca-certificates, fonts-dejavu-core via fontconfig), and plain
