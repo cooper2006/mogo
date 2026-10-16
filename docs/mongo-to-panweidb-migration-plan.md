@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 分支 | `feat/migrate-mongo-to-panweidb`（基于 `main` @ `1d0b1fc` / v0.2.1） |
-| 状态 | **R1（基础设施）已落地并实测通过**；R2（兼容层接线）未开始 |
+| 状态 | **R1（基础设施）+ R2（兼容层接线）+ R3（关系扁平化）均已落地并实测通过** |
 | 回滚方式 | 环境变量开关 `MOGO_DATA_BACKEND=mongo`（默认），**不需要回滚代码** |
 | 目标库 | PanWeiDB 3.2.0（openGauss 内核），OrbStack 容器 `panweidb`，端口 5432 |
 
@@ -194,7 +194,7 @@ INSERT INTO t VALUES ('a',1) ON CONFLICT (id,n) DO NOTHING
 2. `ObjectId.is_valid(s)` 守卫：`_id` 恒为 24-hex，结果与原一致，不影响；但若把 `is_valid` 当资源存在性之外的业务校验，需复核语义。
 3. `isinstance(v, ObjectId)`：**必失效**——迁移后 `doc["_id"]` 与入参均为 `str`，判断恒为 `False`，会改变分支走向（如 `if isinstance(id, ObjectId): … else: str 规范化` 的 else 分支）。
 
-**改造方向（R3 / 灰度切流前置）**：将 115 处与后端类型解耦——查询用 `str(x)`、校验改为字符串长度/hex 判断、`isinstance(_, ObjectId)` 改为字符串判断或删除。**未完成前不得把对应域切到 PanWeiDB**，否则第 3 类会静默改变分支、第 1 类会扩大异常面。
+**改造方向（R3 / 灰度切流前置）**：将 115 处与后端类型解耦——查询用 `str(x)`、校验改为字符串长度/hex 判断、`isinstance(_, ObjectId)` 改为字符串判断或删除。**已完成**（见下「现状」），因此可将对应域切到 PanWeiDB 而不会改变分支走向或扩大异常面。
 
 **现状**：已完成三服务（admin-api / chat-api / document-parser）解耦——新增 `app/core/ids.py`
 提供 `to_backend_id`（归一化）、`to_backend_id_strict`（非法即抛错，替代原 `ObjectId(...)` 的
@@ -474,11 +474,13 @@ PANWEIDB_POOL_MAX_SIZE=10
 这样调用点仍然零修改，符合 R1 定下的路线。代价是兼容层多了一个聚合编译器，
 但它有差分测试兜底（同一管道两边跑、比结果），可靠性高于逐点手改 SQL。
 
-### R3 — 逐域关系化（未开始，可选）
+### R3 — 逐域关系化（**已完成**，2026-10-16）
 
-按访问频次把热点集合（`chat_sessions` / `chat_messages` / `token_usage_logs` /
-`admin_accounts` / `end_users`）从「单表 + JSONB」改成真实列 + 索引，提升查询性能。
-这一步是可选的，只有当 JSONB 路径查询成为瓶颈时才需要。
+已按访问频次把 44 张表（✅ 全平铺 21 + 🔶 部分平铺 23）从「单表 + JSONB」改成真实列 + 索引
+（455 列 + 44 索引，真库 0 错误）；热点集合（`chat_sessions` / `chat_messages` /
+`token_usage_logs` / `admin_accounts` / `end_users`）均已包含。兼容层经 `column_map.py`
+双写，并在读路径 / 筛选 / 排序 / 去重 / 聚合首阶段路由到真实列。详见
+`specs/027-mongo-to-panweidb-migration/r3-flatten/` 与 `docs/027-r3-relational-four-tables-plan.md`。
 
 ---
 
@@ -546,7 +548,7 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
   R1 的 `create_index` 会把 Mongo 的索引声明翻译成 PG 表达式索引
   （单字段与复合都支持），因此**既有 `ensure_indexes()` 在启动时会自动补齐**。
 - **已知性能风险**：`find()` 的 `skip` 是 `OFFSET`，大偏移为 O(n)；
-  R2 建议改成基于 `id` 的游标分页。
+  可考虑改成基于 `id` 的游标分页（当前仍用 `OFFSET`，尚未实现）。
 
 ---
 
@@ -556,11 +558,11 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
 |---|---|---|---|
 | 1 | `sql_compatibility=A` 不可改，JSONB 函数受限 | **高** | 已实测出可用子集并内联规避；新增代码不得引入禁用函数 |
 | 2 | `jsonb_set` 不建中间层 → 点号 `$set` 静默丢更新 | **高** | 已用 `_jsonb_set_path()` 逐层回卷修复 + 回归用例 |
-| 3 | 612 处调用点里仍可能用到未覆盖算子 | 中 | 未覆盖即抛 `PgCompatUnsupported`（**不静默降级**），R2 逐条清 |
-| 4 | 25 处 `aggregate()` 需重写 | 中 | 以 `$group`/`$match` 为主，工作量可控 |
+| 3 | 612 处调用点里仍可能用到未覆盖算子 | 中 | 未覆盖即抛 `PgCompatUnsupported`（**不静默降级**），R2 已逐条清 |
+| 4 | 25 处 `aggregate()` 需重写 | 中 | ✅ R2 已实现聚合编译器覆盖（`$match`/`$group`/`$sort`/…），调用点零改写 |
 | 5 | 兼容层代码在 3 个服务间重复 | 中 | 与仓库既有架构一致（`db.py`/`config.py` 本就每服务一份）；R3 可抽成共享包 |
-| 6 | 投影在 Python 侧裁剪 | 低 | R2 下推为 SQL |
-| 7 | 唯一索引语义（sparse/partial）差异 | 中 | R2 逐点核对 202 处索引声明 |
+| 6 | 投影在 Python 侧裁剪 | 低 | 可后续下推为 SQL（当前仍 Python 侧裁剪） |
+| 7 | 唯一索引语义（sparse/partial）差异 | 中 | ✅ R2 已逐点核对 202 处索引声明 |
 | 8 | `_id` 由 ObjectId 变字符串 | 中 | ✅ 已解决：**115 处调用点**（71 `ObjectId(` 构造 + 44 `is_valid`/`isinstance`）已用 `to_backend_id`/`to_backend_id_strict` 与后端类型解耦（§2.9），mongo 行为不变 |
 
 ---
@@ -572,15 +574,15 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
 - [x] `MOGO_DATA_BACKEND` 未设置时，三服务行为与迁移前**完全一致**（mongo 分支代码路径未改语义）
 - [x] 兼容门面在真实 PanWeiDB 上通过 64/64（异步）+ 26/26（同步）用例
 - [x] 搬迁工具完成「演练 → 搬迁 → 幂等重跑 → 计数校验 → 门面回读」全链路
-- [x] DDL 生成器产出 103 张表 / 309 个索引，实测 1.6s 建完
+- [x] DDL 生成器产出 114 张表 / 229 个 btree 索引（**0 GIN**），实测 1.6s 建完
 - [x] 未覆盖算子显式失败并给出可操作的错误信息
 
-**R2（待达成）**
+**R2（已达成）**
 
-- [ ] 三服务测试套件在 `MOGO_DATA_BACKEND=panweidb` 下全绿
-- [ ] 25 处 `aggregate()` 与 6 处 `bulk_write` 全部改写完成
-- [ ] 索引语义逐点核对完成
-- [ ] 生产数据搬迁 + 计数校验通过，且能在一个发布周期内回滚
+- [x] 三服务测试套件在 `MOGO_DATA_BACKEND=panweidb` 下全绿（admin-api / chat-api / document-parser 全量 rc=0）
+- [x] 25 处 `aggregate()` 与 6 处 `bulk_write` 全部覆盖（实现为兼容层能力，调用点零改写）
+- [x] 索引语义逐点核对完成（202 处；unique 34 / sparse 3 / partial 0；TTL 7 处应用层清理）
+- [x] 生产数据搬迁 + 计数校验通过（88 集合全一致、不一致 0），可在一个发布周期内回滚
 
 ---
 

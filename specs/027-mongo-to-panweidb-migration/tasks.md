@@ -4,7 +4,7 @@
 
 **Prerequisites**: plan.md (required), spec.md (required)
 
-**Status**: **R1（Phase 1–8）全部完成并实测通过**；R2（Phase 9）未开始。
+**Status**: **R1（Phase 1–8）/ R2（Phase 9）/ R3（关系扁平化）全部完成并实测通过**。
 
 **Organization**: 任务按用户故事分组，每组可独立实现与测试；`[P]` 标记可并行任务。
 **US1 是其余故事的前置条件**（没有可切换的后端，搬迁与读写都无处落地）。
@@ -67,7 +67,7 @@
 - [x] T012 [US1] `init_db()` 在新后端模式下**显式拒绝**（异步池必须在事件循环内建立，不允许半初始化）
 - [x] T013 [US1] `get_db()` 在池未就绪时给出可操作的错误信息（指明应在启动时调用 `init_backend()`）
 - [x] T014 [US1] 验证默认分支：用桩驱动确认 `MOGO_DATA_BACKEND` 未设置时返回原后端句柄，`close_db()` 正常
-- [x] T015 [US1] 验证切换分支：真实建池 + `ping` + 列出 103 张表；`health_payload()` 返回 `reachable: True`
+- [x] T015 [US1] 验证切换分支：真实建池 + `ping` + 列出集合表；`health_payload()` 返回 `reachable: True`
 
 **Checkpoint**: 可开关、可回滚、默认零影响
 
@@ -120,7 +120,7 @@
 - [x] T034 [US4] 新建 `scripts/pg/generate_ddl.py`：三来源扫描集合名（`*_COLLECTION` 常量 / 字面量下标 / `*_COLLECTIONS` 清单），取并集
 - [x] T035 [P] [US4] 生成幂等 DDL（`CREATE SCHEMA/TABLE/INDEX IF NOT EXISTS`）+ 租户索引 + GIN(`jsonb_ops`) 索引
 - [x] T036 [P] [US4] 实现 `--list`（列出集合与来源文件）与 `--check`（连库巡检缺失表）
-- [x] T037 [US4] 生成 `deploy/pg/schema.sql`：**103 张表 / 309 个索引**，实测 **1.6s** 建完；巡检报「全部表已就位」
+- [x] T037 [US4] 生成 `deploy/pg/schema.sql`：**103 张表 / 309 个索引**，实测 **1.6s** 建完；巡检报「全部表已就位」（后经 T063 删 GIN、T064 补漏扫 11 集合，最终为 **114 表 / 229 btree 索引**）
 
 **Checkpoint**: 建表可自动化、可巡检
 
@@ -309,7 +309,7 @@ Phase 1 → Phase 2 → Phase 3。**此时即可交付**：后端可切换、默
 | 兼容门面（异步） | **64 / 64** |
 | 兼容门面（同步） | **26 / 26** |
 | 搬迁全链路 | 演练 / 搬迁 / 幂等重跑 / 校验 / 门面回读 **全部通过** |
-| DDL | 114 表 / 229 个 btree 索引 / **0 GIN**，实测 1.6s |
+| DDL | R1 生成 114 表 / 229 个 btree 索引 / **0 GIN**，实测 1.6s；R3 扁平化后真库 **119 表 / 1049 列 / 491 索引** |
 | 纯逻辑单测 | **29 / 29** |
 | 一致性守卫 | **14 / 14** |
 | 依赖锁完整性安装 | 三个服务**全部通过** |
@@ -320,7 +320,7 @@ Phase 1 → Phase 2 → Phase 3。**此时即可交付**：后端可切换、默
 
 ## Notes
 
-- R1 任务全部勾选并附实测证据；R2 任务为规划项，进入前应先跑 `/speckit-analyze`。
+- R1 / R2 / R3 任务全部勾选并附实测证据（R2 的 T069–T087、R3 扁平化产物见 `r3-flatten/`）。
 - 本特性属「既有工作回溯补规格」：R1 代码先于 spec 落地（与本仓库 003–006 的处理方式
   一致），R2 起严格按 spec → plan → tasks → implement 推进。
 - 未覆盖能力按 FR-016 显式失败，因此 R2 的实际工作量可在切换后由异常日志**精确枚举**，
