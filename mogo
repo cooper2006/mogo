@@ -244,13 +244,19 @@ movo_default_version() {
 
 # Does the gateway terminate TLS?
 #
-# Resolves `MOGO_NGINX_CONF` exactly like docker-compose does (environment, then
-# `.env`, then the compose default), because the default is the TLS side config
-# since 2026-10-12. Only an explicit pointer at the HTTP side config means "no
-# TLS"; anything else (including a custom config) is treated as TLS so the
-# certificate check and the printed address stay on the safe side.
+# Priority order:
+#   1. MOGO_TLS env var (1/true/yes/on → TLS, 0/false/no/off → HTTP)
+#   2. MOGO_NGINX_CONF path (deploy/docker/nginx.conf → HTTP, else → TLS)
+#   3. default → HTTP (off)
+# TLS is off by default; set MOGO_TLS=1 to enable.
 movo_tls_is_enabled() {
-  local nginx_conf
+  local nginx_conf tls_switch
+  # Explicit MOGO_TLS switch takes precedence over the nginx conf path.
+  tls_switch="${MOGO_TLS:-$(dotenv_value MOGO_TLS)}"
+  case "${tls_switch:-0}" in
+    0|false|no|off) return 1 ;;
+  esac
+  # Fall back to the nginx conf path for backward compatibility.
   nginx_conf="${MOGO_NGINX_CONF:-$(dotenv_value MOGO_NGINX_CONF)}"
   if [[ -z "${nginx_conf}" ]]; then
     nginx_conf="./deploy/nginx/nginx.conf"

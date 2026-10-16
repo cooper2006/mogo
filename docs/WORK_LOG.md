@@ -1,5 +1,26 @@
 # Work Log
 
+## 2026-10-16 TLS 开关抽取到 .env + 服务打包重启
+
+**触发**：用户要求「使用 MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build 打包并重启服务，从 orbstack 中去除上个版本的镜像」+ 「把 .env 中的 PANWEIDB_HOST 改回 host.docker.internal 并重启 document-api」+ 「抽取 tls 开关到 .env 文件中」。
+
+**操作**：
+1. `MOGO_VERSION=4c1932f ./mogo up --build` → 7 个服务镜像全部构建成功，但 document-api 因 PanWeiDB 连接失败无法启动。
+2. 排查根因：`.env` 中 `PANWEIDB_HOST=127.0.0.1`（未提交改动），容器内 127.0.0.1 指向自身而非宿主机；panweidb 容器也处于 Exited 状态。
+3. `bash scripts/pg/panweidb_up.sh` 拉起 panweidb；`.env` 中 `PANWEIDB_HOST` 改回 `host.docker.internal`。
+4. `MOGO_DOCUMENT_API_IMAGE=document-parser:4c1932f docker compose up -d --no-build document-api` 重建容器 → healthy。
+5. 手动清除 orbstack 中全部 7 个旧版本镜像（`d63da04`）。
+6. **TLS 开关抽取**：`.env` 新增 `MOGO_TLS=0` 作为显式 TLS 开关（默认关闭）；`mogo` 脚本 `movo_tls_is_enabled()` 优先读取 `MOGO_TLS`（1→TLS，0/false/no/off→HTTP），未设置时默认 0，再回退到 `MOGO_NGINX_CONF` 路径判断（向后兼容）。
+
+**验证**：
+- [x] `bash -n ./mogo` 语法检查通过。
+- [x] TLS 开关逻辑 6 组用例全部通过（MOGO_TLS=1/0/false/unset + nginx conf 回退）。
+- [x] 7 个服务全部 healthy。
+
+**改动文件（本轮）**：`.env`（新增 MOGO_TLS=1，修正 PANWEIDB_HOST）、`mogo`（movo_tls_is_enabled 逻辑更新）。
+
+---
+
 ## 2026-10-16 合并 feat/migrate-mongo-to-panweidb 到 main（027 数据后端迁移）
 
 **触发**：用户要求「合并当前分支到main分支」。
