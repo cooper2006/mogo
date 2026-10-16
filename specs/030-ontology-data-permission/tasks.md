@@ -79,15 +79,18 @@
       > **遗留（不入本期）**：设计 §6 约束 6 的「限制内部接口来源网段」**未做**。当前任何能到网关的
       > 客户端都能触达该端点（有服务 token 兜底）。若要加固，需先确认服务间调用的**实际**来源网段，
       > 否则有把合法调用拦错的风险 —— 属部署侧决策，不在代码落地范围。
-- [~] **T025** `vue-tsc --noEmit` + `vite build` 通过（admin-web 类型检查与构建）。
+- [x] **T025** `vue-tsc --noEmit` + `vite build` 通过（admin-web 类型检查与构建）。
       **已完成的验证**：① 静态接口一致性 —— icon 导出/import 对齐、路由 `component()` 路径与实际文件对齐、
       弹窗组件 import/使用对齐；② naive-ui 依赖闭合 —— template 用到的组件全部在 `bootstrap.ts` 的
       46 个全局注册项内，唯一例外 `NAlert`（未全局注册）已在两个新文件中**显式 import**；
       ③ 前后端字段契约 —— 批量授予用扁平 `{ontologyIds[], accessMode, priority, remark}`，回读用
       `{subjectType, subjectId, grants[], details[]}`，前端 `api/ontologies.ts` 与弹窗读取处均已核对一致，
       并在真实容器冒烟（T023）中走通。
-      **未完成**：`vue-tsc` 全量类型检查与 `vite build` 各试跑 11–13 分钟未产出（本项目全量检查历来 >10min），
-      未拿到 exit code，故不标记完成。需要时在 `apps/admin-web` 下单独执行并等待。
+      **2026-10-16 收口**：`pnpm install` 后以 `NODE_OPTIONS="--max-old-space-size=8192"` 分别跑通——
+      `vue-tsc --noEmit` **exit 0、零错误**（此前误把 `--max-old-space-size` 当 vue-tsc 参数导致
+      `TS5023: Unknown compiler option`，已改为 NODE_OPTIONS 环境变量）；
+      `vite build` **exit 0、6.81s 构建完成**，`dist/assets/` 含
+      `OntologyCatalogPage-*.js` + `ontologies-*.js` + `OntologyCatalogPage-*.css`。
 - [ ] **T026** 前端联调复核：`/ontologies` 菜单可见、弹窗选项来自全量清单、撤销后列表即时刷新。
       **需用户在 dev / 部署环境目视执行**（agent 无法点击浏览器）。已就绪的部分：路由与菜单项已注册
       （`routes.ts:178`，顶级菜单「本体清单」+ `OntologyIcon`），弹窗从 `fetchOntologyCatalog()` 取选项，
@@ -98,7 +101,13 @@
 - [x] **T027** 补 `specs/030-ontology-data-permission/`（spec.md / plan.md / tasks.md）—— 本次补录。
 - [x] **T028** 同步 `docs/ontology-permission-merge-plan.md`：状态改「已落地」并新增落地状态表；§3.2 补「已落库」、§3.8 补「已实现原生 repository」、§6 风险补「跨进程缓存传播窗口 = 60s TTL」与「类明细尚未接进检索生效点」、§7 落地阶段已执行。
 - [x] **T029** 更新 `specs/INDEX.md` 增补 030 条目与 SDD 路径。
-- [ ] **T030** 更新 `docs/WORK_LOG.md`（建表入库 / 后端 / 前端 / spec 补录各一条），并写工作区记忆。
+- [x] **T030** 更新 `docs/WORK_LOG.md`（建表入库 / 后端 / 前端 / spec 补录各一条），并写工作区记忆。
+      **2026-10-16 收口**：WORK_LOG 已有 落地（一）建表入库 /（二）后端 /（三）前端 / 补录 spec /（四）端到端收口 /（五）mongo 等价冒烟，共 6 条，无需新增；
+      工作区记忆（obsidian-mem，本会话 bind）已写 4 条：
+      - `Decisions/ADR-1-030 本体数据权限：6 条澄清决策.md`
+      - `Pitfalls/mongo upsert 的 enabled 归一化陷阱（bool(None)=False 静默禁用授权）.md`
+      - `Pitfalls/PanWeiDB A 模式：占位符顺序 + psycopg3 jsonb 适配两个坑.md`
+      - `Conventions/回溯补规格（代码先于 spec）的处理约定.md`
 
 ---
 

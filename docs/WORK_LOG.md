@@ -12511,3 +12511,29 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
   广播通道 + 失败降级）；`mogo-redis-1` 虽在，60s 对「改配置」是可接受上界。若业务要求秒级，
   应作为独立特性立项。
 - **网关链路再确认**：`location /admin-api/` 前缀已覆盖 `/api/internal/*`，T024 结论不变。
+
+## 2026-10-16 落地（六）：030 前端类型检查/构建收口 + 工作区记忆落地
+
+- **T025 收口（vue-tsc + vite build）**：`apps/admin-web` 无 `node_modules`，先 `pnpm install --prefer-offline`
+  （33.6s）。随后分别跑通：
+  - `NODE_OPTIONS="--max-old-space-size=8192" npx vue-tsc --noEmit` → **exit 0、零错误**。
+    （踩坑：首轮误把 `--max-old-space-size=8192` 当 vue-tsc 参数，报
+    `TS5023: Unknown compiler option`；这是 Node 的堆上限参数，必须走 `NODE_OPTIONS` 环境变量。）
+  - `NODE_OPTIONS="--max-old-space-size=8192" npx vite build` → **exit 0、6.81s 构建完成**，
+    `dist/assets/` 含 `OntologyCatalogPage-*.js` + `ontologies-*.js` + `OntologyCatalogPage-*.css`。
+- **前后端字段契约逐条核对**（不靠冒烟推定）：
+  - `get_config` → `{enforce, defaultMode, rev, effectiveDefault}` ↔ `OntologyPermissionConfig`
+  - `list_catalog` → `[{ontologyId, entityCount, entityTypes, grantCount}]` ↔ `OntologyCatalogItem`
+  - `visible_ontologies` → `{tenantId, userId, ontologies, count}` ↔ `MyOntologyScope`
+  - `list_subject_grants` → `{subjectType, subjectId, grants[], details[]}` ↔ `SubjectPermissionBundle`
+  - `_serialize_grant` → `{id, subjectType, subjectId, ontologyId, accessMode, priority, enabled, remark, updatedAt}` ↔ `OntologyGrant`
+  - `_serialize_detail` → `{id, subjectType, subjectId, ontologyId, className, accessMode, columnMode, columnList, rowCondition, priority, enabled, remark, updatedAt}` ↔ `OntologyClassDetail`
+  - `batch_grant` → `{granted, ontologyIds}` ↔ 前端 `GrantPayload` 回读；`revoke` → `{deleted, detailsDeleted}` ↔ 前端删除回读。
+- **T030 收口**：WORK_LOG 已有 落地（一）~（五）+ 补录 共 7 条，覆盖 建表入库/后端/前端/spec补录/端到端收口/mongo等价冒烟，无需新增；
+  工作区记忆（obsidian-mem，本会话 `mem_admin bind local`）已写 4 条：
+  `Decisions/ADR-1-030`、`Pitfalls/mongo upsert enabled 归一化陷阱`、
+  `Pitfalls/PanWeiDB A 模式两个坑`、`Conventions/回溯补规格处理约定`。
+- **tasks.md 更新**：T025 `[~]` → `[x]`，T030 `[ ]` → `[x]`。
+- **剩余未闭环**：T026 前端联调复核（需用户在 dev/部署环境目视执行，agent 无法点击浏览器）；
+  未闭环表 8 项（索引未填 ontology_id / sourceEntity 空串 / 类明细未接生效点 / 60s 缓存窗口 /
+  `/internal/*` 网关来源网段 / 冒烟镜像未入版本管理）均已在 tasks 与 design 文档中如实记录，不隐瞒。
