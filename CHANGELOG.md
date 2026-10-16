@@ -4,7 +4,21 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
-## Unreleased
+## v0.2.2 - 2026-10-16
+
+### Changed
+
+- **离线包增量下载（base-images 五类全部增量）**：按 `pip_wheels_bundle.sh`
+  的同款思路，把剩余离线包改为增量下载，重跑不再全量重下。
+  - `apt_packages_bundle.sh`：`fetch_one` 去掉 per-arch `rm -rf`（改 `mkdir -p`），
+    容器内 `apt-get install` 前把缓存 `.deb` 回灌进 `/var/cache/apt/archives`，
+    让 apt 跳过已下载的 `.deb`（apt 版 `--find-links`）。真实 docker 验证：
+    重跑需要 **0 B / 2204 kB**，下载 0 字节。
+  - `docling_models_bundle.sh`：新增 `base-images/docling-models/` 持久缓存与
+    `fetch` 命令，`docling_version` + `inventory` 版本门禁，`save`/`pack` 按
+    缓存是否 current 跳过。沙箱 10 场景验证通过。
+  - 审计结论：pip-wheels / playwright / images / docling-models / apt 五类
+    均为增量下载（playwright 于 v0.2.1 的 d63da04 已改造，本轮确认）。
 
 ### Added
 
