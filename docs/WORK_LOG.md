@@ -12242,3 +12242,40 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - `scripts/pg/panweidb_up.sh`：末尾连接地址建议扩为三条（127 / host.docker.internal / 容器真实 IP）+ 说明。
 - `docs/WORK_LOG.md`：本条工作记录。
 - （未提交改动，见 `deploy/docker/nginx-https.conf` 属其他会话，未纳入。）
+
+---
+
+## 2026-10-16（续）修复 dashboard overview 500：聚合表达式 $in/$toLower 未实现 + 占位符顺序错位
+
+**触发**：浏览器 `:3000/admin-api/api/dashboard/overview` 返回 **500 Internal Server Error**。
+
+**根因（两层，先后定位）**：
+
+1. **聚合表达式缺实现**：`admin-api` 的 `pg_compat.py` 里 `_AggregationCompiler` 没有 `$in` / `$toLower` 分支（`_expr_bool` / `_op_json` 落到兜底 `raise PgCompatUnsupported`）。而 `dashboard.py::_quality_metrics` 的 `$group` 用了
+   `{"$in": [{"$toLower": {"$ifNull": ["$status",""]}}, ["failed","timeout","error"]]}` → 抛 `PgCompatUnsupported("聚合表达式 $in")` → 500。
+   **注意**：`chat-api` 与 `admin-api` 是平行副本，此前 9f824bb 只把「数组元素匹配」修复打进了 chat-api，admin-api 那份仍停留在旧版 —— 这是同一个漂移问题的延续。
+
+2. **占位符顺序错位（修完 1 之后暴露的真 bug）**：补上 `$in` 后管道能跑通，但 `anomalies` 统计恒为 **0**（应为 10）。逐层比对编译出的 SQL 与参数列表发现：`$in` 分支**先渲染 values、后编译 expr**，而 SQL 文本里 **expr 的占位符先出现**；psycopg 按位置绑定，于是 `IN` 列表实际绑成了 `('"timeout"','"error"','""')`——`"failed"` 被挤到 `$ifNull` 的默认值位上，判定恒假。
+   修复：先 `self._expr_json(expr)` 再渲染 values，保证参数追加顺序与文本占位符顺序一致。
+   真库复核：`anomalies` 由 0 → **10**（与逐行手工核对的 10 行 failed 一致）。
+
+**关键坑（本轮实测补充）**：
+- **openGauss / PanWeiDB A 模式（Oracle 兼容）下 `''` 等价于 NULL**：`SELECT '' = ''` → NULL、`length('')` → NULL。因此凡是把「空串」直接内联进 SQL 的地方都会静默变成 NULL。`pg_compat` 全走参数绑定（`to_json_text("")` → `'""'::jsonb`），不受影响；但**手写诊断 SQL 时踩过这个坑**（`sum(CASE WHEN doc->>'user_id' = '' ...)` 全返回 0）。
+- `$percentile` 的 input 表达式此前只构建一次却在文本里用多次，属同类隐患（占位符多于参数），本轮顺手改为**按 part 重建**。
+- 三份副本的同步有**官方机制**：`admin-api` 是唯一数据源，`scripts/pg/sync_pg_compat.py` 负责同步（chat-api 逐字节复制、document-parser 机械变换），`deploy/tests/test_pg_compat_parity.py` 做漂移守卫。**修兼容层只改 admin-api 那一份，然后跑同步脚本**，不要手改另两份。
+
+**改动文件（本轮 4 处）**：
+- `M services/admin-api/app/core/pg_compat.py`：`_AggregationCompiler._expr_bool` 补 `$in`（含顺序修复）、`_op_json` 补 `$toLower`、`_percentile` 按 part 重建；同时带上此前只在 chat-api 的等值族修复（`_jsonb_eq_or_contains` / `$ne`·`$nin` 的 `IS NOT TRUE` / `_in` 元素匹配）。
+- `M services/chat-api/app/core/pg_compat.py`、`M services/document-parser/app/core/pg_compat.py`：由同步脚本生成，与 admin-api 保持一致。
+- `M services/admin-api/tests/test_pg_compat.py`：9 个断言随新语义更新（等值族每字段两个参数、negate 改 `IS NOT TRUE`、`$in` 占位符 2→4、partial 索引 AND 计数 2→3、`jsonb_typeof` 断言收窄到 SET 子句）。
+
+**验证（已实跑）**：
+- [x] 真库直连（chat-api 修复版编译器）执行 dashboard 全部 4 类聚合模式：quality totals（`calls=115 / failed=10 / anomalies=10 / timed_calls=115 / duration_sum=3144021`）、`$percentile`（`[11712, 84268.2]`）、`_usage_metrics` 分组（含 `$addToSet`/`$max`）、trend 分组，全部正确。
+- [x] 单元测试：`services/admin-api/tests/test_pg_compat.py` **87 passed**、dashboard 三套件 **41 passed**、`deploy/tests/test_pg_compat_parity.py` **14 passed**。（全量套件仅 `test_token_lifecycle` 1 例失败，因本机缺 `services/chat-api/venv/bin/python`，属环境问题、与本次改动无关。）
+- [x] 容器内直调 `overview()` 路由函数（真实 DB）跑通，无异常、返回全部 10 个顶层分区。
+- [x] **HTTP 端到端**：`GET http://localhost:3000/admin-api/api/dashboard/overview` → **HTTP 200**（原为 500），返回 `health/quality/metrics/usage/cost/trend/assets/billing/todos/recentActivity`。
+- [x] 部署：`./mogo build admin-api chat-api document-api` + 显式镜像名重建 4 容器（admin-api / chat-api / document-api / document-worker），全部 healthy；网关因上游 IP 变更重启一次。
+
+**已知非缺陷现象**：`quality.totalCalls = 0` / `metrics.calls24h = 0` 是因为 `DEFAULT_PERIOD_DAYS = 1` 而库中最新 `token_usage_logs` 是 2026-09-29（17 天前）——空窗口的正确结果；同一管道在 30 天窗口下能查到 115 行。
+
+**遗留**：`./mogo up`（不带 `--build`）会因 `v0.2.2-26-g49fe7da` 标签下缺 4 个前端/网关镜像而拒绝启动；本次改用显式 `MOGO_*_IMAGE` 环境变量 + `docker compose up -d --no-deps` 精确重建所需服务，未影响其余服务。
