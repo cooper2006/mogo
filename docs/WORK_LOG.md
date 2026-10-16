@@ -1,5 +1,25 @@
 # Work Log
 
+## 2026-10-16 第二次打包重启（9f824bb）
+
+**触发**：用户要求 `MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build` 打包重启并去除 orbstack 上个版本镜像。
+
+**操作**：
+1. `MOGO_VERSION=9f824bb ./mogo up --build` → 7 个镜像全部构建成功，9 个服务全部 healthy。
+2. `prune_previous_release_images` 自动清除 8 个旧镜像（含 `4c1932f` 全系列 + `chat-api:v0.2.1-59-g4c1932f`），回收约 2692 MB。
+
+**验证**：
+- [x] 9 个服务全部 healthy。
+- [x] `curl http://localhost:3000/` → 200。
+- [x] `curl http://localhost:3000/dsh-web/` → 303（DSH 登录页）。
+- [x] `curl http://localhost:3000/admin/` → 200。
+- [x] `curl http://localhost:3000/healthz` → 200。
+- [x] 旧镜像已全部清除，仅保留 `9f824bb` 系列。
+
+**改动文件（本轮）**：无（仅重建镜像，代码未变）。
+
+---
+
 ## 2026-10-16 修复 PanWeiDB 兼容层 capabilities 数组等值查询回归（前台"未配置模型"）
 
 **触发**：用户反馈 localhost:3000 新建对话页面提示"未配置模型"，但 admin/models 页面显示已有 2 个模型。
