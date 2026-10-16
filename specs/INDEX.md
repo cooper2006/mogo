@@ -126,7 +126,7 @@
 
 | 编号 | 特性 | 说明 | 优先级 | spec | plan | quickstart | tasks |
 |---|---|---|---|---|---|---|---|
-| 030 | ontology-data-permission（本体数据权限） | 给本体域新增一层**数据范围（data scope）**权限，与既有 RBAC **功能权限正交**：`mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit` + 通用 `sys_config`（`enforce` 开关）；运行时按 `(tenant_id, user_id)` 解析可见本体（fail-closed，60s 缓存），检索按 `ontology_id` 过滤；管理端 13 条路由 + 1 内部接口 + admin-web 清单页与用户授权弹窗 | P1 | ✅ | ✅ | — | ✅ 25/26（Phase 0–4 已落地；T023 HTTP 冒烟 12/12 + mongo parity 8/8 均通过、T024 网关已天然放行；本轮补 checklist 并抓到 enabled 归一化高危 bug；仅 T025/T026 前端构建与目视复核待收口） |
+| 030 | ontology-data-permission（本体数据权限） | 给本体域新增一层**数据范围（data scope）**权限，与既有 RBAC **功能权限正交**：`mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit` + 通用 `sys_config`（`enforce` 开关）；运行时按 `(tenant_id, user_id)` 解析可见本体（fail-closed，60s 缓存），检索按 `ontology_id` 过滤；管理端 13 条路由 + 1 内部接口 + admin-web 清单页与用户授权弹窗 | P1 | ✅ | ✅ | — | ✅ 26/26（Phase 0–5 全部落地；T023 HTTP 冒烟 12/12 + mongo parity 8/8、T024 网关已天然放行、T025 `vue-tsc`+`vite build` 双 exit 0、T026 前端代码级复核六点通过；本轮补 checklist 并抓到 enabled 归一化高危 bug；仅 T026 浏览器目视需用户执行） |
 
 > **性质**：**回溯补规格**（代码先于 spec 落地，与 027 同处理方式）——建表入库、运行时解析、
 > 管理端 API/前端均已实现，spec/plan/tasks 于本轮补齐并把实现口径固化。
