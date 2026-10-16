@@ -69,12 +69,15 @@ def test_empty_filter_is_true():
 def test_equality_uses_jsonb_comparison():
     sql, params = _compile_filter({"tenant_id": "t1"})
     assert "(doc #> '{tenant_id}') = %s::jsonb" in sql
-    assert params == ['"t1"']
+    # 等值 + 数组元素匹配两个参数（MongoDB 语义：标量也命中含该元素的数组）
+    assert params == ['"t1"', '["t1"]']
+    assert "@>" in sql and "jsonb_typeof" in sql
 
 
 def test_equality_keeps_native_json_types():
     _, params = _compile_filter({"age": 30, "ok": True, "ratio": 1.5, "nil": None})
-    assert params == ["30", "true", "1.5", "null"]
+    # 每字段两个参数：等值与数组元素匹配（["v"]）
+    assert params == ["30", "[30]", "true", "[true]", "1.5", "[1.5]", "null", "[null]"]
 
 
 def test_dotted_path_equality():
@@ -84,8 +87,9 @@ def test_dotted_path_equality():
 
 def test_ne_matches_missing_field_semantics():
     sql, _ = _compile_filter({"age": {"$ne": 30}})
-    # Mongo 语义：字段缺失也满足 $ne
-    assert "IS NULL" in sql and "NOT IN" not in sql
+    # Mongo 语义：字段缺失也满足 $ne。A 模式下 NOT (jsonb @> ...) 求值不可靠，
+    # 用 IS NOT TRUE 谓词表达「不等于且不含」；缺失字段 NULL IS NOT TRUE 为真。
+    assert "IS NOT TRUE" in sql
 
 
 def test_numeric_range_uses_numeric_cast():
@@ -102,11 +106,13 @@ def test_text_range_falls_back_to_text_comparison():
 
 def test_in_and_nin():
     sql, params = _compile_filter({"role": {"$in": ["a", "b"]}})
-    assert sql.count("%s") == 2
-    assert params == ['"a"', '"b"']
+    # 每项两个占位符：等值 + 数组元素匹配（$in 命中任一元素即匹配）
+    assert sql.count("%s") == 4
+    assert params == ['"a"', '["a"]', '"b"', '["b"]']
 
     sql, _ = _compile_filter({"role": {"$nin": ["a"]}})
-    assert "IS NULL OR" in sql and "NOT IN" in sql
+    # $nin：不含任一元素才匹配；IS NOT TRUE 而非 NOT（openGauss A 模式缺陷）
+    assert "IS NOT TRUE" in sql and "@>" in sql
 
 
 def test_in_empty_list_short_circuits():
@@ -287,7 +293,8 @@ def test_aggregation_match_group_sum_one():
     ])
     assert "GROUP BY 1" in sql          # 用序号分组，避免重复写 key 表达式
     assert "count(*)" in sql
-    assert params == ['"t1"']
+    # $match 等值带数组元素匹配参数
+    assert params == ['"t1"', '["t1"]']
 
 
 def test_aggregation_group_uses_two_step_cte():
@@ -464,7 +471,8 @@ def test_create_index_partial_and_sparse_conjunction():
         '"s"."t"', "t_idx", ["a", "b"], unique=True, sparse=True,
         partialFilterExpression={"b": 1},
     )
-    assert sql.count("AND") == 2  # 两个稀疏字段 + 一个 partial
+    # AND ×3：两个稀疏字段合取 + partial 等值的数组元素分支各一个
+    assert sql.count("AND") == 3
     assert "IS NOT NULL" in sql
     assert "(doc #> '{b}') = '1'::jsonb" in sql
 
@@ -639,15 +647,20 @@ def test_filter_keeps_doc_path_for_unmapped_and_nested_keys():
     sql = compiler.compile({"custom_dynamic": "x", "a.b": 1})
     assert '(doc #> \'{custom_dynamic}\') = %s::jsonb' in sql
     assert "(doc #> '{a,b}') = %s::jsonb" in sql
-    # to_json_text 把值统一序列化成 JSON 文本（字符串带引号，数字不带）
-    assert compiler.params == ['"x"', '1']
+    # to_json_text 把值统一序列化成 JSON 文本（字符串带引号，数字不带）；
+    # 每字段两个参数：等值 + 数组元素匹配
+    assert compiler.params == ['"x"', '["x"]', '1', '[1]']
 
 
 def test_filter_jsonb_mapped_column_uses_jsonb_equality():
     compiler = _flat_filter_compiler("chat_sessions")
     sql = compiler.compile({"participant_ids": ["x"]})
-    assert sql == '("participant_ids" = %s::jsonb)'
-    assert compiler.params == ['["x"]']
+    # 等值 + 数组元素匹配：标量等值，或数组含该元素
+    assert sql == (
+        '(("participant_ids" = %s::jsonb OR (jsonb_typeof("participant_ids") '
+        "= 'array' AND \"participant_ids\" @> %s::jsonb)))"
+    )
+    assert compiler.params == ['["x"]', '[["x"]]']
 
 
 def test_create_index_uses_real_columns_for_mapped_fields():
@@ -823,7 +836,9 @@ async def test_update_cte_syncs_mapped_columns():
     # JSON null 防护：纯运算符比较；路径一律 #> / #>>（无 ->> text[] 运算符）
     assert "(CASE WHEN (s2.doc #> '{user_id}') = 'null'::jsonb THEN NULL ELSE (s2.doc #>> '{user_id}')::text END)" in sql
     assert "(s2.doc #>> '{title}')::text" in sql
-    assert "jsonb_typeof" not in sql
+    # jsonb_typeof 只允许出现在 WHERE 的数组元素匹配分支；SET 的列同步
+    # 必须是纯运算符比较（JSON null 防护）
+    assert "jsonb_typeof" not in sql[sql.index("SET"):]
     # 回归：花括号路径字面量禁止走 -> / ->>（真库上静默写 NULL）
     assert "->'" not in sql and "->>'" not in sql
 

@@ -1232,8 +1232,12 @@ class _AggregationCompiler:
         pcts = spec.get("p")
         if not isinstance(pcts, (list, tuple)) or not pcts:
             raise PgCompatUnsupported("$percentile.p 需要非空列表")
-        value = self._num(spec.get("input"))
-        parts = [f"percentile_cont({float(p)}) WITHIN GROUP (ORDER BY {value})" for p in pcts]
+        # input 表达式在每个 part 的文本里各出现一次，因此**逐个 part 重建**：
+        # 构建一次而文本用多次时，占位符数量会多于参数数量（占位符纪律）。
+        parts = [
+            f"percentile_cont({float(p)}) WITHIN GROUP (ORDER BY {self._num(spec.get('input'))})"
+            for p in pcts
+        ]
         # to_jsonb 对未知类型会报错，这里显式标注 numeric[]。
         return f"to_jsonb(ARRAY[{', '.join(parts)}]::numeric[])"
 
@@ -1279,6 +1283,24 @@ class _AggregationCompiler:
             if op == "$not":
                 args = node[op] if isinstance(node[op], (list, tuple)) else [node[op]]
                 return "NOT (" + " AND ".join(self._expr_bool(x) for x in args) + ")"
+            if op == "$in":
+                # 聚合 $in：expr 是否命中字面量数组中的任一（dashboard 质量指标
+                # 用它判断 status 是否 ∈ {failed,timeout,error}）。
+                # **占位符顺序**：SQL 文本里 expr 的占位符先出现，因此必须先编译
+                # expr 再渲染 values，保证参数追加顺序与文本出现顺序一致（psycopg
+                # 按位置绑定；顺序颠倒会把 values 绑到 expr 的占位符上——2026-10-16
+                # 实测 anomalies=0 的根因：failed 绑到了 ifNull 默认值位）。
+                arg = node[op]
+                if not isinstance(arg, (list, tuple)) or len(arg) != 2:
+                    raise PgCompatUnsupported("$in 需要 [expr, array]")
+                expr, values = arg
+                if not isinstance(values, (list, tuple)):
+                    raise PgCompatUnsupported("$in 第二操作数需为数组")
+                if not values:
+                    return "false"
+                expr_sql = self._expr_json(expr)
+                rendered = ", ".join(self._expr_json(v) for v in values)
+                return f"({expr_sql} IN ({rendered}))"
         # 非布尔表达式（如 "$field"）：按其 jsonb 真值判断
         return f"({self._expr_json(node)} NOT IN ('null'::jsonb, 'false'::jsonb))"
 
@@ -1319,6 +1341,11 @@ class _AggregationCompiler:
             return f"{fn}(" + ", ".join(self._expr_json(x) for x in arg) + ")"
         if op == "$literal":
             return self._expr_json(arg)
+        if op == "$toLower":
+            # 字符串转小写：必须用 #>> '{}' 取无引号文本再 lower 再 to_jsonb。
+            # 若用 ::text，jsonb 字符串会带引号（"failed"），to_jsonb 把带引号的
+            # 文本当字符串内容，得到含引号的 jsonb，与字面量 '"failed"'::jsonb 不等。
+            return f"to_jsonb(lower({self._expr_json(arg)} #>> '{{}}'))"
         raise PgCompatUnsupported(f"聚合表达式 {op}")
 
 
