@@ -593,6 +593,20 @@ class _FilterCompiler:
             return f'"{col}"', f'"{col}"::text'
         return _value_path(field), _text_path(field)
 
+    def _jsonb_eq_or_contains(self, value_sql: str, value: Any) -> str:
+        """MongoDB 等值对数组字段的隐式「元素匹配」语义。
+
+        ``{field: scalar}`` 在 Mongo 下既匹配标量 ``scalar``，也匹配含 ``scalar``
+        的数组；严格 jsonb 等值（数组 ≠ 标量）会漏掉数组形态。非数组字段
+        ``jsonb_typeof(...) != 'array'``，只走标量相等分支，行为与迁移前一致。
+        ``value_sql`` 为 JSONB 路径（``doc #> '{...}'``）或 JSONB 映射列名。
+        """
+        return (
+            f"({value_sql} = {self._p(to_json_text(value))}::jsonb OR "
+            f"(jsonb_typeof({value_sql}) = 'array' AND "
+            f"{value_sql} @> {self._p(to_json_text([value]))}::jsonb))"
+        )
+
     def _column_eq(self, column: str, value: Any) -> str:
         """映射列等值：JSONB 列走 jsonb 相等，其余按列类型比较。
 
@@ -604,7 +618,7 @@ class _FilterCompiler:
         if value is None:
             return f'"{column}" IS NULL'
         if column_type(column) == "JSONB":
-            return f'"{column}" = {self._p(to_json_text(value))}::jsonb'
+            return self._jsonb_eq_or_contains(f'"{column}"', value)
         return f'"{column}" = {self._p(value)}::{column_type(column).lower()}'
 
     def compile(self, filt: Mapping[str, Any] | None) -> str:
@@ -640,7 +654,10 @@ class _FilterCompiler:
         col = self._mapped(field)
         if col is not None:
             return self._column_eq(col, value)
-        return f"{_value_path(field)} = {self._p(to_json_text(value))}::jsonb"
+        # 标量等值走 JSONB 路径时恢复 MongoDB 数组「元素匹配」语义（见
+        # _jsonb_eq_or_contains）。{capabilities: "chat"} 等数组字段的等值查询
+        # 因此不再恒空——2026-10-13 切 PanWeiDB 后前台「未配置模型」的回归。
+        return self._jsonb_eq_or_contains(_value_path(field), value)
 
     def _operators(self, field: str, spec: Mapping[str, Any]) -> str:
         # $options 是 $regex 的修饰符，不是独立算子，由 $regex 分支消费。
@@ -658,7 +675,7 @@ class _FilterCompiler:
         if op == "$eq":
             if col is not None:
                 return self._column_eq(col, operand)
-            return f"{value_path} = {self._p(to_json_text(operand))}::jsonb"
+            return self._jsonb_eq_or_contains(value_path, operand)
         if op == "$ne":
             # Mongo 语义：字段缺失同样满足 $ne。
             if col is not None:
@@ -666,15 +683,22 @@ class _FilterCompiler:
                     # {field: {$ne: null}} → 只匹配非空值（缺失=列 NULL，不匹配）。
                     return f'"{col}" IS NOT NULL'
                 if column_type(col) == "JSONB":
+                    # openGauss A 模式缺陷：NOT (jsonb @> ...) 求值错误（实测），
+                    # 改用 IS NOT TRUE 谓词正确表达「不等于/不含」。
                     return (
-                        f'("{col}" IS NULL OR "{col}" <> '
-                        f"{self._p(to_json_text(operand))}::jsonb)"
+                        f"({self._jsonb_eq_or_contains(f'\"{col}\"', operand)}) "
+                        f"IS NOT TRUE"
                     )
                 return (
                     f'("{col}" IS NULL OR "{col}" <> '
                     f"{self._p(operand)}::{column_type(col).lower()})"
                 )
-            return f"({value_path} IS NULL OR {value_path} <> {self._p(to_json_text(operand))}::jsonb)"
+            # openGauss A 模式缺陷：NOT (jsonb @> ...) 求值错误（实测），改用
+            # IS NOT TRUE 谓词正确表达「不等于/不含」；缺失字段 NULL IS NOT TRUE
+            # 为真，与 Mongo $ne 匹配缺失语义一致。
+            return (
+                f"({self._jsonb_eq_or_contains(value_path, operand)}) IS NOT TRUE"
+            )
         if op in {"$gt", "$gte", "$lt", "$lte"}:
             symbol = {"$gt": ">", "$gte": ">=", "$lt": "<", "$lte": "<="}[op]
             if col is not None:
@@ -742,21 +766,23 @@ class _FilterCompiler:
         if not items:
             return "TRUE" if negate else "FALSE"
         col = self._mapped(field)
-        if col is not None:
+        if col is not None and column_type(col) != "JSONB":
             typ = column_type(col)
-            if typ == "JSONB":
-                rendered = ", ".join(f"{self._p(to_json_text(item))}::jsonb" for item in items)
-            else:
-                cast = "::numeric" if typ in {"INTEGER", "BIGINT"} else f"::{typ.lower()}"
-                rendered = ", ".join(f"{self._p(item)}{cast}" for item in items)
+            cast = "::numeric" if typ in {"INTEGER", "BIGINT"} else f"::{typ.lower()}"
+            rendered = ", ".join(f"{self._p(item)}{cast}" for item in items)
             if negate:
                 return f'("{col}" IS NULL OR "{col}" NOT IN ({rendered}))'
             return f'"{col}" IN ({rendered})'
-        value_path = _value_path(field)
-        rendered = ", ".join(f"{self._p(to_json_text(item))}::jsonb" for item in items)
+        # JSONB 映射列或 JSONB 路径：恢复 MongoDB「数组元素匹配」语义（$in 命中任一
+        # 元素即算匹配）。非数组字段只走标量相等分支，行为与迁移前一致。
+        value_sql = f'"{col}"' if col is not None else _value_path(field)
+        match_parts = [self._jsonb_eq_or_contains(value_sql, item) for item in items]
         if negate:
-            return f"({value_path} IS NULL OR {value_path} NOT IN ({rendered}))"
-        return f"{value_path} IN ({rendered})"
+            # $nin：不含任一元素才匹配。用 IS NOT TRUE 而非 NOT，规避 openGauss
+            # 对 NOT (jsonb @> ...) 的求值缺陷；缺失字段 NULL IS NOT TRUE 为真，
+            # 与 Mongo $nin 匹配缺失语义一致。
+            return f"(({' OR '.join(match_parts)})) IS NOT TRUE"
+        return f"({' OR '.join(match_parts)})"
 
     def _type(self, field: str, operand: Any) -> str:
         """Mongo ``$type`` 过滤：按 JSONB 类型匹配。

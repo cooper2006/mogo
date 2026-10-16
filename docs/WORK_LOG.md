@@ -1,5 +1,36 @@
 # Work Log
 
+## 2026-10-16 修复 PanWeiDB 兼容层 capabilities 数组等值查询回归（前台"未配置模型"）
+
+**触发**：用户反馈 localhost:3000 新建对话页面提示"未配置模型"，但 admin/models 页面显示已有 2 个模型。
+
+**根因**：数据后端 2026-10-13 由 MongoDB 切到 PanWeiDB（`.env` `MOGO_DATA_BACKEND=PanWeiDB`）后，`services/chat-api/app/core/pg_compat.py` 的 `_FilterCompiler._field` 对 JSONB 路径的标量等值查询只做了严格 JSON 等值，未实现 MongoDB 对数组字段的隐式「元素匹配」语义。`list_model_options` 查询 `{"tenant_id": ..., "status": "active", "capabilities": "chat"}`，编译成 `doc->'capabilities' = '"chat"'::jsonb`；而 capabilities 以数组形态 `["chat"]` 存于 doc JSONB，数组 ≠ 标量 → 恒查不到 → 返回空 → 前端显示"未配置模型"。经真库验证：`doc->'capabilities' = '"chat"'::jsonb` 命中 **0**，`doc->'capabilities' @> '["chat"]'::jsonb` 命中 **2**。
+
+**修复**：`_FilterCompiler` 新增统一辅助 `_jsonb_eq_or_contains(value_sql, value)`，把 JSONB 路径 / JSONB 映射列的标量等值统一改为 `(等值 OR (jsonb_typeof(...)='array' AND @> [value]))`，恢复 MongoDB 数组元素匹配语义；非数组字段 `jsonb_typeof(...) != 'array'`，只走等值分支，行为与迁移前一致。同一根因的等值族全部收敛到该辅助：`_field`（标量等值）、`$eq`、`_column_eq`（JSONB 映射列，覆盖 member_ids/tags/participant_ids 等数组列）。
+
+**$in/$ne/$nin 的 negate**：改用 `(...) IS NOT TRUE` 而非 `NOT (...)`。原因：真库实测 **openGauss A 模式对 `NOT (jsonb @> jsonb)` 求值错误**（`@>` 为 true 时 `NOT` 仍返回 true；`(@>) = false` 同样错误），而 `IS NOT TRUE` 谓词求值正确。属 openGauss 3.2 A 模式缺陷，pg_compat 内已用 `IS NOT TRUE` 规避。
+
+**验证**（导入真实 `_FilterCompiler` + `column_map`，真库 `mogo_dev` 执行，10 组全 PASS）：
+- [x] 等值 / `$eq` capabilities='chat' → 2（数组匹配）
+- [x] `$in [chat,image_generation]` → 2；`$in [image_generation,image]` → 0（image 模型查询）
+- [x] `$nin [chat]` → 0；`$nin [vision]` → 2
+- [x] `$ne capabilities=chat` → 0；`$ne capabilities=vision` → 2
+- [x] 非数组映射列 tenant_id/status 等值 → 2（不受影响）
+- [x] jsonb 原语（eq / typeof / @> / IS NOT TRUE）全 PASS
+- [x] `py_compile` 语法通过
+
+**其他发现（未改，记录备查）**：
+1. openGauss 对 `NOT (jsonb @> ...)` 与 `(@>) = false` 求值错误（本次已用 `IS NOT TRUE` 规避）。
+2. `jsonb_array_length` 对标量报错且不尊重 `jsonb_typeof='array'` 过滤（探测数组列需先 typeof 过滤）。
+3. `$regex` 对数组字段（如 personal_knowledge `tags`）语义为"数组文本匹配"而非"元素匹配"，属另一类问题，未修。
+4. `chat_sessions.participant_ids` 存在标量数据（R3 双写数据质量问题），与本次无关。
+
+**生效前提**：需重建/重启 chat-api 容器（`./mogo build chat-api` + 重启），Python 改动才会生效。
+
+**改动文件（本轮）**：`services/chat-api/app/core/pg_compat.py`（`_FilterCompiler`：新增 `_jsonb_eq_or_contains`，`_field`/`$eq`/`_column_eq`/`$in`/`$ne`/`$nin` 收敛）、`docs/WORK_LOG.md`（本条记录）。
+
+---
+
 ## 2026-10-16 TLS 开关抽取到 .env + 服务打包重启
 
 **触发**：用户要求「使用 MOGO_VERSION=$(git rev-parse --short HEAD) ./mogo up --build 打包并重启服务，从 orbstack 中去除上个版本的镜像」+ 「把 .env 中的 PANWEIDB_HOST 改回 host.docker.internal 并重启 document-api」+ 「抽取 tls 开关到 .env 文件中」。
