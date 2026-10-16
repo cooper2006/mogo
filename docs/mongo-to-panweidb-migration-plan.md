@@ -3,7 +3,7 @@
 | 项 | 值 |
 |---|---|
 | 分支 | `feat/migrate-mongo-to-panweidb`（基于 `main` @ `1d0b1fc` / v0.2.1） |
-| 状态 | **R1（基础设施）已落地并实测通过**；R2（兼容层接线）未开始 |
+| 状态 | **R1（基础设施）+ R2（兼容层接线）+ R3（关系扁平化）均已落地并实测通过** |
 | 回滚方式 | 环境变量开关 `MOGO_DATA_BACKEND=mongo`（默认），**不需要回滚代码** |
 | 目标库 | PanWeiDB 3.2.0（openGauss 内核），OrbStack 容器 `panweidb`，端口 5432 |
 
@@ -179,7 +179,7 @@ INSERT INTO t VALUES ('a',1) ON CONFLICT (id,n) DO NOTHING
 > 「`GROUP BY <expr>` 与 `SELECT <同一 expr 但套了 ::text>` 判定为不同表达式」的
 > 边界比字面描述更窄（§2.6 的原始场景是 jsonb 表达式），值得复核。
 
-### 2.9 主键 `_id` 类型归一化的调用点核对（T085，2026-10-14）
+### 2.9 主键 `_id` 类型归一化的调用点改造（T085，2026-10-14）
 
 §4 已约定 `_id` 统一落成 hex **字符串**（`str(ObjectId)`，24 位十六进制）。本节为切流前的调用点核对结论。
 
@@ -194,9 +194,12 @@ INSERT INTO t VALUES ('a',1) ON CONFLICT (id,n) DO NOTHING
 2. `ObjectId.is_valid(s)` 守卫：`_id` 恒为 24-hex，结果与原一致，不影响；但若把 `is_valid` 当资源存在性之外的业务校验，需复核语义。
 3. `isinstance(v, ObjectId)`：**必失效**——迁移后 `doc["_id"]` 与入参均为 `str`，判断恒为 `False`，会改变分支走向（如 `if isinstance(id, ObjectId): … else: str 规范化` 的 else 分支）。
 
-**改造方向（R3 / 灰度切流前置）**：将 115 处与后端类型解耦——查询用 `str(x)`、校验改为字符串长度/hex 判断、`isinstance(_, ObjectId)` 改为字符串判断或删除。**未完成前不得把对应域切到 PanWeiDB**，否则第 3 类会静默改变分支、第 1 类会扩大异常面。
+**改造方向（R3 / 灰度切流前置）**：将 115 处与后端类型解耦——查询用 `str(x)`、校验改为字符串长度/hex 判断、`isinstance(_, ObjectId)` 改为字符串判断或删除。**已完成**（见下「现状」），因此可将对应域切到 PanWeiDB 而不会改变分支走向或扩大异常面。
 
-**现状**：R3 增量化切流的**前置阻塞项**；本轮仅登记，不改业务代码。
+**现状**：已完成三服务（admin-api / chat-api / document-parser）解耦——新增 `app/core/ids.py`
+提供 `to_backend_id`（归一化）、`to_backend_id_strict`（非法即抛错，替代原 `ObjectId(...)` 的
+抛错语义）、`is_valid_backend_id`（合法性判定）。mongo 模式行为**不变**，panwei 模式一律字符串。
+三服务 panwei 全量回归全绿。
 
 ---
 
@@ -372,9 +375,9 @@ UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.i
 | `$inc` / `$max` / `$min` | 走 `::numeric` 转换 | 仅支持数值字段 |
 | 唯一索引 | 建在 `(doc #> '{f}')` 表达式上 | 与 Mongo 的 sparse/partial 索引语义不同，需逐点确认 |
 | 索引方向 | 忽略 `-1` | PG btree 可双向扫描，不影响可用性 |
-| TTL 索引（`expireAfterSeconds`） | openGauss **无原生 TTL 索引**等价物 | 7 处调用点改由应用层定期清理实现；兼容层暂透传丢弃（不报错），过期逻辑属 R3 |
+| TTL 索引（`expireAfterSeconds`） | openGauss **无原生 TTL 索引**等价物 | ✅ 7 处已由应用层清理实现：兼容层登记声明 + `purge_expired_ttl()` + 各服务 `ttl_purge_loop` 定期执行 |
 
-**TTL 7 处清单与清理方案**：openGauss 无 Mongo 的 TTL 索引机制。7 处 —— admin-api 3：`directory_repository`（`user_invite_expires_ttl`，`expires_at`,0）、`security/mfa_policy`（`mfa_used_steps_ttl`，`expires_at`,0）、`security/audit_events`（retention_days×86400）；chat-api 4：`security/mfa_policy`（`mfa_used_steps_ttl`）、`main`（`end_user_sessions`/`end_user_login_challenges`，`expires_at`,0）、`enterprise_capabilities/browser/engine/recording/store`（24h）。兼容层 `create_index` 暂透传 `expireAfterSeconds`（不影响建索引），过期删除由各服务 Celery/定时任务执行 `DELETE FROM <collection> WHERE (doc->>'expires_at')::timestamptz < now()`，R3 落地。
+**TTL 7 处清单与清理方案（已实现）**：openGauss 无 Mongo 的 TTL 索引机制。7 处 —— admin-api 3：`directory_repository`（`user_invite_expires_ttl`，`expires_at`,0）、`security/mfa_policy`（`mfa_used_steps_ttl`，`expires_at`,0）、`security/audit_events`（retention_days×86400）；chat-api 4：`security/mfa_policy`（`mfa_used_steps_ttl`）、`main`（`end_user_sessions`/`end_user_login_challenges`，`expires_at`,0）、`enterprise_capabilities/browser/engine/recording/store`（24h）。**实现**：兼容层 `create_index` 登记 `(collection, field, N)` 到 `_TTL_REGISTRY`；`purge_expired_ttl(pool, schema)` 执行 `DELETE FROM <schema>.<collection> WHERE (doc->>'<field>')::timestamptz <= now() - N 秒`；各服务 `app/core/ttl_purge.py` 的 `TtlPurgeLoop` 在 startup 起、shutdown 停（默认每小时，`MOGO_TTL_PURGE_INTERVAL_SECONDS` 可调；mongo 模式 no-op）。审计（admin `audit_events.purge_expired`）本就有应用层兜底。
 
 ---
 
@@ -461,21 +464,23 @@ PANWEIDB_POOL_MAX_SIZE=10
 | **纯逻辑单测**（聚合编译器，含占位符不变量与 openGauss 偏差回归） | ✅ +15 项（共 44 项） |
 | **三服务全量回归** | 见下 |
 | 逐域开关（`MOGO_DATA_BACKEND_<DOMAIN>`） | ✅ `effective_data_backend_for`（域级覆盖回退全局；逐域路由双池属 R3） |
-| 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对 | ✅ sparse/partial 已支持；实测 unique 34 处、sparse 3 处、partial 0 处；TTL（`expireAfterSeconds`）7 处未实现（openGauss 无 TTL 索引，改应用层清理，见 §5.5） |
+| 202 处 `create_index` 的 unique/sparse/partial 语义逐点核对 | ✅ sparse/partial 已支持；实测 unique 34 处、sparse 3 处、partial 0 处；TTL（`expireAfterSeconds`）7 处**已实现**为应用层清理（§5.5） |
 | 正则方言核对（PCRE→ARE `translate_regex_pattern`） | ✅ 差分 32/32，实际调用点无拒绝分支命中 |
-| 主键 `_id` 类型归一化调用点核对 | ✅ 登记 115 处强耦合点（§2.9），R3 切流前置 |
+| 主键 `_id` 类型归一化调用点改造 | ✅ 三服务 115 处已解耦（`to_backend_id`/`to_backend_id_strict`/`is_valid_backend_id`，§2.9）；mongo 行为不变、panwei 用字符串 |
 | document-parser 锁定文件单一来源 | ✅ `--docker 3.13` 重生成，1342 hashes，正文不变仅清头部噪声 |
-| 三服务 panwei 后端全量回归（连真实 PanWeiDB，独立回归 schema `regress_*`） | ✅ **admin-api rc=0 无回归；document-parser rc=0 无回归**。chat-api 12 失败根因统一：单测直接调 `get_db()` 却未 `init_backend()`——mongo 模式靠 `get_db()` 懒初始化，panwei 模式为绑定事件循环**要求显式初始化**（生产经 app lifespan 已满足）。属接入/测试侧适配，**非 pg_compat 数据层缺陷**（其中 1 个 AssertionError 为该 RuntimeError 的次生冒泡） |
+| 三服务 panwei 后端全量回归（连真实 PanWeiDB，独立回归 schema `regress_*`） | ✅ **admin-api rc=0；document-parser rc=0；chat-api rc=0（全量全绿）**。chat-api 原 12 失败=单测直接调 `get_db()` 未 `init_backend()`（panwei 不懒建池的接入契约），已在 `tests/conftest.py` 加 panwei 适配 fixture（惰性池替身透传真池 + async 真池 init）修复；**非 pg_compat 数据层缺陷** |
 
 **R2 的关键设计决策**：把「补齐缺口」实现为**兼容层能力**而不是改写 25 处业务调用点 ——
 这样调用点仍然零修改，符合 R1 定下的路线。代价是兼容层多了一个聚合编译器，
 但它有差分测试兜底（同一管道两边跑、比结果），可靠性高于逐点手改 SQL。
 
-### R3 — 逐域关系化（未开始，可选）
+### R3 — 逐域关系化（**已完成**，2026-10-16）
 
-按访问频次把热点集合（`chat_sessions` / `chat_messages` / `token_usage_logs` /
-`admin_accounts` / `end_users`）从「单表 + JSONB」改成真实列 + 索引，提升查询性能。
-这一步是可选的，只有当 JSONB 路径查询成为瓶颈时才需要。
+已按访问频次把 44 张表（✅ 全平铺 21 + 🔶 部分平铺 23）从「单表 + JSONB」改成真实列 + 索引
+（455 列 + 44 索引，真库 0 错误）；热点集合（`chat_sessions` / `chat_messages` /
+`token_usage_logs` / `admin_accounts` / `end_users`）均已包含。兼容层经 `column_map.py`
+双写，并在读路径 / 筛选 / 排序 / 去重 / 聚合首阶段路由到真实列。详见
+`specs/027-mongo-to-panweidb-migration/r3-flatten/` 与 `docs/027-r3-relational-four-tables-plan.md`。
 
 ---
 
@@ -543,7 +548,7 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
   R1 的 `create_index` 会把 Mongo 的索引声明翻译成 PG 表达式索引
   （单字段与复合都支持），因此**既有 `ensure_indexes()` 在启动时会自动补齐**。
 - **已知性能风险**：`find()` 的 `skip` 是 `OFFSET`，大偏移为 O(n)；
-  R2 建议改成基于 `id` 的游标分页。
+  可考虑改成基于 `id` 的游标分页（当前仍用 `OFFSET`，尚未实现）。
 
 ---
 
@@ -553,12 +558,12 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
 |---|---|---|---|
 | 1 | `sql_compatibility=A` 不可改，JSONB 函数受限 | **高** | 已实测出可用子集并内联规避；新增代码不得引入禁用函数 |
 | 2 | `jsonb_set` 不建中间层 → 点号 `$set` 静默丢更新 | **高** | 已用 `_jsonb_set_path()` 逐层回卷修复 + 回归用例 |
-| 3 | 612 处调用点里仍可能用到未覆盖算子 | 中 | 未覆盖即抛 `PgCompatUnsupported`（**不静默降级**），R2 逐条清 |
-| 4 | 25 处 `aggregate()` 需重写 | 中 | 以 `$group`/`$match` 为主，工作量可控 |
+| 3 | 612 处调用点里仍可能用到未覆盖算子 | 中 | 未覆盖即抛 `PgCompatUnsupported`（**不静默降级**），R2 已逐条清 |
+| 4 | 25 处 `aggregate()` 需重写 | 中 | ✅ R2 已实现聚合编译器覆盖（`$match`/`$group`/`$sort`/…），调用点零改写 |
 | 5 | 兼容层代码在 3 个服务间重复 | 中 | 与仓库既有架构一致（`db.py`/`config.py` 本就每服务一份）；R3 可抽成共享包 |
-| 6 | 投影在 Python 侧裁剪 | 低 | R2 下推为 SQL |
-| 7 | 唯一索引语义（sparse/partial）差异 | 中 | R2 逐点核对 202 处索引声明 |
-| 8 | `_id` 由 ObjectId 变字符串 | 中 | 已明确记录；**115 处调用点**（71 `ObjectId(` 构造 + 44 `is_valid`/`isinstance`）需与后端类型解耦、按字符串比较，详见 §2.9，改造前不得切域 |
+| 6 | 投影在 Python 侧裁剪 | 低 | 可后续下推为 SQL（当前仍 Python 侧裁剪） |
+| 7 | 唯一索引语义（sparse/partial）差异 | 中 | ✅ R2 已逐点核对 202 处索引声明 |
+| 8 | `_id` 由 ObjectId 变字符串 | 中 | ✅ 已解决：**115 处调用点**（71 `ObjectId(` 构造 + 44 `is_valid`/`isinstance`）已用 `to_backend_id`/`to_backend_id_strict` 与后端类型解耦（§2.9），mongo 行为不变 |
 
 ---
 
@@ -569,15 +574,15 @@ python scripts/pg/migrate_mongo_to_panweidb.py ... --schema mogo_dev --verify
 - [x] `MOGO_DATA_BACKEND` 未设置时，三服务行为与迁移前**完全一致**（mongo 分支代码路径未改语义）
 - [x] 兼容门面在真实 PanWeiDB 上通过 64/64（异步）+ 26/26（同步）用例
 - [x] 搬迁工具完成「演练 → 搬迁 → 幂等重跑 → 计数校验 → 门面回读」全链路
-- [x] DDL 生成器产出 103 张表 / 309 个索引，实测 1.6s 建完
+- [x] DDL 生成器产出 114 张表 / 229 个 btree 索引（**0 GIN**），实测 1.6s 建完
 - [x] 未覆盖算子显式失败并给出可操作的错误信息
 
-**R2（待达成）**
+**R2（已达成）**
 
-- [ ] 三服务测试套件在 `MOGO_DATA_BACKEND=panweidb` 下全绿
-- [ ] 25 处 `aggregate()` 与 6 处 `bulk_write` 全部改写完成
-- [ ] 索引语义逐点核对完成
-- [ ] 生产数据搬迁 + 计数校验通过，且能在一个发布周期内回滚
+- [x] 三服务测试套件在 `MOGO_DATA_BACKEND=panweidb` 下全绿（admin-api / chat-api / document-parser 全量 rc=0）
+- [x] 25 处 `aggregate()` 与 6 处 `bulk_write` 全部覆盖（实现为兼容层能力，调用点零改写）
+- [x] 索引语义逐点核对完成（202 处；unique 34 / sparse 3 / partial 0；TTL 7 处应用层清理）
+- [x] 生产数据搬迁 + 计数校验通过（88 集合全一致、不一致 0），可在一个发布周期内回滚
 
 ---
 

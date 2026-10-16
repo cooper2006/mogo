@@ -49,6 +49,134 @@
 - `scripts/apt_packages_bundle.sh`（`fetch_one` 两处改动 + 注释）
 - `docs/WORK_LOG.md`（本条记录）
 
+---
+
+## 2026-10-15 实测 openGauss 客户端兼容性 + 回滚加密类型
+
+**触发**：用户要求"接入 openGauss 兼容驱动"，先尝试"改服务端加密类型 → 保留 psycopg3"路径（路径 B）。
+
+### 实测结论（关键，纠正此前假设）
+- 服务端 `password_encryption_type` 实测为 **0（即 PG 标准 md5，非此前误记的 openGauss 自有 MD5 变体）**，且该 GUC 为 `PGC_POSTMASTER` 级，**只能改 `postgresql.conf` 后重启集群生效**，不能在线 `set`。
+- 建临时测试用户 `pgprobe`，重设 `password_encryption_type=2`（sha256）后其密码存为 `sha25641bd...`；**用 chat-api venv 的 psycopg3 连该 sha256 用户仍报 `password authentication failed`**。
+- 结论：**openGauss 的 "SHA256"(type=2) 是其自有认证算法，并非 PostgreSQL 标准 SCRAM-SHA-256**，psycopg3/libpq 一律无法握手。无论服务端 md5 还是 openGauss-sha256，标准 libpq 系驱动都连不上。此前"SHA256 兼容 psycopg3"的判断被实测证伪。
+- 因此路径 B（保留 psycopg3）**不可行**；唯一能连的是 openGauss 官方驱动（psycopg2 风格、同步，需从官网下 wheel，且 PyPI 无此包）。
+
+### 操作过程（已回滚到基线）
+1. 改 `password_encryption_type 0→2` 前先备份 `postgresql.conf` → `postgresql.conf.bak.20261015`（容器内 `/database/panweidb/data/`，omm 可写，数据目录未挂载宿主机）。
+2. `gs_ctl restart` 首次失败：`FATAL: Get environment of GAUSSHOME failed`（docker exec 未注入 GAUSSHOME）。已用 `-e GAUSSHOME=/database/panweidb/soft -e LD_LIBRARY_PATH=/database/panweidb/soft/lib` 修复并成功启动；期间旧实例已被 fast 停掉、残留空 `postmaster.pid`，删后重启成功。
+3. 实测证伪假设后，用备份 `postgresql.conf.bak.20261015` 覆盖恢复（type=0），再次 `gs_ctl restart`（带完整环境变量）成功。
+4. 临时用户 `pgprobe` 因被授予 database 级 connect 权限，`drop` 被依赖挡住，先 `revoke all on database bonc from pgprobe` 再 `drop user` 成功（已清理，库内无残留）。
+
+### 回滚后基线状态（已验证）
+- `show password_encryption_type` = 0；`gs_ctl query` `db_state: Normal`。
+- `gsql -U boncuser` 登录正常；`boncuser` 仍持有 `mogo_dev` 119 表所有权，未受影响。
+- 备份 `postgresql.conf.bak.20261015` 保留作为本次操作记录（未删除）。
+- 三个服务（chat-api/admin-api/document-parser）的 `pg.py`（psycopg3 异步池）**未改动**，psycopg3 仍连不上 panweidb（预期，记录基线）。
+
+### 下一步（待用户决策）
+- 路径 A：从 openGauss 官网下载 `opengauss` wheel（匹配 Python 3.13）装进三服务 venv，将各 `pg.py` 从 psycopg3 异步池改写为同步连接（连接层范式迁移，工作量大）。
+- WORK_LOG 历史（2026-10-15 健康检测条目）仅记录了"需接 openGauss 兼容驱动"的结论，无已验证的落地步骤。
+
+---
+
+## 2026-10-15 重置 panweidb 账号（删 boncuser/boncuser2，新建 boncuser，刷新 .env）
+
+**触发**：用户确认两个旧用户密码均遗忘，要求删除后新建一个用户并把凭据刷新回 `.env`。
+
+### 数据库侧操作（omm 本地 gsql，绝对路径 + LD_LIBRARY_PATH）
+- 因 `boncuser2`/`boncuser` 拥有 `mogo_dev` 119 表及 `mogo_audit` 权限，直接 drop 失败。处理顺序：
+  1. `reassign owned by boncuser/boncuser2 to omm`（转移表所有权，避免 drop 因对象归属失败）
+  2. `alter database bonc owner to omm`（boncuser 曾是库 owner）
+  3. 逐 schema `revoke all ... from` 两用户（含 `mogo_dev`/`mogo_audit` 的表/序列/函数/default privileges）
+  4. `drop user if exists boncuser2` / `drop user if exists boncuser` —— 均成功
+- 新建 `boncuser`（读写）：`connect` + `mogo_dev` usage/create + 全部表 `select,insert,update,delete,truncate` + 序列 usage/select + 未来表默认授权
+- 逐表 `alter table ... owner to boncuser` 把 119 张表所有权从 omm 转回（omm 系统对象不可转，故逐表而非 blanket reassign）
+
+### 验证
+- `gsql -U boncuser` 登录成功；读 `mogo_dev` 119 表、`organizations` 2 行正常
+- 写冒烟：create/insert/truncate/drop 临时表全过（`write-ok`）
+
+### 文件侧（仅 .env，均被 .gitignore 忽略，不入库）
+- `PANWEIDB_USER=boncuser`、`PANWEIDB_PASSWORD=JCpolbfHiyimCVlquFd3` 写入：`.env`、`services/chat-api/.env`、`services/admin-api/.env`、`services/document-parser/.env`
+- 根 `.env` 过时注释（"boncuser 被锁定用 boncuser2"）已更新为重置说明 + MD5 兼容性提醒
+
+### 遗留提醒（非本轮范围）
+- openGauss 自有 MD5 与 psycopg/psql18 不兼容，Python 服务仍无法直连；需接入 openGauss 兼容驱动才能真正切后端。
+- `mogo_probe`（只读探针，上一轮建）仍存在，仅供健康检测。
+
+---
+
+## 2026-10-15 检测 MongoDB / PanWeiDB 双库健康
+
+**触发**：用户要求检测 mongo 与 panweidb 两种数据库的健康状况。
+
+### 发现
+
+- **MongoDB**（compose 服务 `mogo-mongo-1`）：Up 3h (healthy)，版本 6.0.20，`ping` ok，`mogo_dev` 库 89 个集合，三服务 `/health` 均报 `backend: mongo`，**正在被生产使用**。
+- **PanWeiDB**（OrbStack 容器 `panweidb`）：Up 2h，端口 5432 发布到宿主机，进程健康。库 `bonc` 存在，schema `mogo_dev` 有 **119 张表**（覆盖 027-R3 规划的关键域：admin / chat / end_user / knowledge / enterprise / skill / org / tenant / audit / quota），`organizations` 有 2 行数据，迁移处于「部分域已导入」状态。
+
+### 关键根因：客户端兼容性，不是数据库故障
+
+- `.env` 的 `PANWEIDB_HOST=host.docker.internal` 是给**容器内服务**用的域名；宿主机 shell 解析不了（容器内解析为 OrbStack 网关 `0.250.250.254`）。
+- openGauss 3.2.0 的 `password_encryption_type=1`（MD5）是 **openGauss 自有 MD5 变体**，与 PostgreSQL 原生 libpq / psycopg / psql 18 **不兼容**——用非 `gsql` 客户端连一律报 `password authentication failed`。只有 openGauss 原生的 `gsql` 能登录。
+- `pg_hba.conf`：`local/127.0.0.1/::1` 走 `trust`，`0.0.0.0/0` 走 `md5`。
+- 因此宿主机 `psql` 直连、以及 chat-api（Python/psycopg）经 `host.docker.internal` 连，都因客户端 MD5 不兼容而失败——**这是迁移接入前必须解决的客户端适配点，不是 panweidb 自身问题**。
+
+### 改动清单
+
+| 项 | 内容 |
+|----|------|
+| 新建只读探针用户 | `panweidb` 库 `bonc` 内新增 `mogo_probe`（仅 `connect` + `mogo_dev` schema `select` 权限，含未来表默认授权）；**不动 `boncuser2` 运行配置** |
+| 用户密码格式核对 | `mogo_probe` / `boncuser2` 为 `md5` 前缀 35 字符；`boncuser` 为 `sha` 前缀 244 字符 |
+| 客户端路径确认 | `omm` 本地 `gsql` 绝对路径 `/database/panweidb/soft/bin/gsql`，需 `LD_LIBRARY_PATH=/database/panweidb/soft/lib` |
+
+> 探针用户密码 `MogoProbe#ro2026` 仅用于本轮健康探测，未写回 `.env`（`.env` 为 600 权限不入库文件）。后续若要让 Python 服务真正连上 panweidb，需在 chat-api/admin-api 接入 openGauss 兼容的驱动或 gsql 通道，而非原生 psycopg。
+
+### 验证
+
+- mongo：`docker exec mogo-mongo-1 mongosh --eval "db.adminCommand('ping').ok"` → 1；`mogo_dev` 集合数 89
+- panweidb：`gsql -U mogo_probe` 本地 `select 1 / current_user / mogo_dev 表数=119 / organizations 行数=2` 全部成功
+- 容器健康：`docker ps` 两库容器均 Up
+
+---
+
+## 2026-10-15 切到 feat/migrate-mongo-to-panweidb 并将 main 合并进来（含 027-R3 方案文档）
+
+**触发**：用户要求熟悉 `docs/027-r3-relational-four-tables-plan.md` 内容，并将分支切换到 `feat/migrate-mongo-to-panweidb`。
+
+### 背景
+
+阅读 027-R3 文档时发现：该文档由提交 `4852b20` 引入，只存在于 `main` 与 `029-user-web-sso-receiver` 分支，目标分支 `feat/migrate-mongo-to-panweidb` 上**没有**该文件。两分支已双向分叉（main 领先 15 个提交，mig 分支领先 5 个提交），非简单前后继关系。
+
+经用户确认，选择「把当前分支合并到 main 之后」，使文档与 main 全部新进度一并进入迁移分支。
+
+### 改动清单
+
+| 项 | 内容 |
+|----|------|
+| 分支 | `main` → `feat/migrate-mongo-to-panweidb`（`7a4efcb`） |
+| worktree | `git worktree prune` 清理失效注册 `/private/tmp/mogo-mig`（目录已不存在，属残留元数据，不删文件） |
+| 合并 | `git merge main --no-ff`，生成合并提交 `a832ad5`（仅本地，未推送远端） |
+| 文档 | `docs/027-r3-relational-four-tables-plan.md`（495 行）随合入进入分支，与 main 版本逐字节一致 |
+
+### 关键决策
+
+- **merge 而非 rebase**：该分支已与远端 `mogo/feat/migrate-mongo-to-panweidb` 同步，rebase 会重写 5 个已推送提交的哈希，需强推远端，属不可逆远端写操作，未获授权。merge 不动历史、不推送。
+- **未单独 cherry-pick**：合并已把含文档的 `4852b20` 带入分支，cherry-pick 会重复引入同一内容。
+- **冲突预演**：先用 `git merge-tree --write-tree` 做无副作用预演，无冲突。两分支实际重叠 3 个文件（`chat-api/app/api/endpoints/auth.py`、`endpoints/sessions.py`、`services/end_user_session.py`），均三方合并干净。
+
+### 验证
+
+- `git diff main:<doc> HEAD:<doc>`：无输出，文档与 main 逐字节一致
+- `git status --porcelain`：合并后工作区干净
+- chat-api：`tests/api/test_auth_portal_sso.py` + `test_security_session_timeout.py` + `test_security_gatekeeper.py` → 56 passed
+- chat-api：`tests/llm/test_resilience_wiring.py` → 6 passed
+- admin-api：`tests/test_ids.py` + `tests/test_pg_compat.py` → 55 passed
+
+> 注：chat-api 测试需 `PYTHONPATH=. ./venv/bin/pytest`（`app` 为命名空间包，pyproject 未配 pythonpath，靠 cwd 隐式导入）。
+
+---
+
 ## 2026-10-15 刷新 README（README.md / README.zh-CN.md）：纳入 spec 027–029，重点 028 / 029
 
 **触发**：用户要求「切换到 main 分支，根据 spec 028、029 内容刷新 README 和 intro-v4.pptx」；随后用户调整为**只刷新 README**（PPTX 本轮不动）。
@@ -11915,3 +12043,95 @@ CI 漂移检查），守卫测试改为 import 它的 `to_sync()`——此前变
 - `bash -n scripts/playwright_browsers_bundle.sh` 通过。
 
 **改动文件（本轮 1 处）**：`M scripts/playwright_browsers_bundle.sh`
+
+---
+
+## 2026-10-15 panweidb 容器重装 + 宿主机一键拉起脚本
+
+**触发**：用户要求参考之前会话，删除 orbstack 下现有 `panweidb` 容器，从镜像 `panweidb:3.2.0`（local id `c2988ce00a05`，非 `panwei-signalnode:3.2.0`）重新安装；并明确「本容器是用 `bash -c 'tail -f /dev/null'` 常驻的，数据库不会随容器自动启动」，要求做成**宿主机脚本**一键拉起。
+
+**沿用配置（与 2026-10-13/15 会话一致）**：
+- 数据库 `bonc` / 用户 `boncuser`(`1qaz!QAZ`) / schema `ihr_hrd`，`search_path=ihr_hrd`。
+- 监听 `0.0.0.0:5432`；`dbcompatibility=B`；omm 口令 `Pw@123456`。
+- 容器常驻命令：`docker run --privileged -d --name panweidb -p 5432:5432 --entrypoint bash panweidb:3.2.0 -c 'tail -f /dev/null'`。
+
+**重装关键事实 / 坑**（已沉淀到脚本，供后续复用）：
+1. 镜像里 `/database/panweidb/soft/bin` 为空，**必须先解包** `/root/PanWeiDB_*_install-openeuler_20.03.tar.gz`，内含主包 `PanWeiDB_V2.0-S3.2.0_B01-openEuler-64bit.tar.bz2` 与 om 包 `...-om.tar.gz`，都要解。
+2. 容器内 `gs_*` 不在 `omm` 的 login shell PATH 里，且 login shell 会清空 `PGHOME`/`PATH`；脚本统一用 `docker exec -e` 注入环境 + `su omm`（**非 login**）切换身份。
+3. `gsql` 不读 `PGPASSWORD`、不认 `<<<` heredoc；走 TCP 的口令通过容器内 `python3 -c` + 环境变量传参，把口令喂到 stdin（SQL 里的单引号只是数据，不影响 Python 源码解析）。
+4. `gs_initdb` 启动后 omm 处于「inituser's password was not set」锁定态，本地 gsql 会被拒；因此**就绪探活改用 TCP/5432 端口可达**判断，把 `ALTER ROLE omm PASSWORD` 放在 `gs_ctl start` 之后。
+5. `pg_hba.conf` 全 `trust`（安全插件拦截 TCP 口令认证，只有 trust 能免密连）；`postgresql.conf` 设 `listen_addresses='*'`；`gaussdb.version` 必须在 `gs_initdb` **之后**再写回 `data` 目录。
+
+**新增宿主机一键脚本**（`scripts/pg/panweidb_up.sh`，已 `chmod +x`）：
+- 幂等：容器缺失→重建、已停→`docker start`、数据已初始化→仅 `gs_ctl start`、未初始化→完整解包→initdb→配置→建库/用户/模式；`--reinit` 清空 data 重来（数据全丢）。
+- 提供 `--status` 仅打印容器/初始化/就绪状态不改动。
+- 末尾打印连接方式：`postgresql://boncuser:1qaz!QAZ@127.0.0.1:5432/bonc`。
+
+**验证（已实跑）**：
+- `bash scripts/pg/panweidb_up.sh --status` → 容器 Up、`data: initialized`、`bin: unpacked`、`db: READY`、端口 `0.0.0.0:5432`+`[::]:5432`。
+- `bash scripts/pg/panweidb_up.sh --reinit`（风险最高的全清重建路径）跑通：`gs_initdb` → 配置 → `gs_ctl start` → omm 口令 → `CREATE DATABASE bonc / CREATE ROLE boncuser / CREATE SCHEMA ihr_hrd` 全成功。
+- 重跑普通 `up`（幂等分支）秒过；`verify` 输出 `current_database=bonc / current_user=boncuser / current_schema=ihr_hrd`、`search_path=ihr_hrd`，与预期一致。
+- 宿主机 `TCP 127.0.0.1:5432` 可达，业务连 `bonc` 库 `ihr_hrd` schema 正常。
+
+**改动文件（本轮）**：
+- `scripts/pg/panweidb_up.sh`：新增宿主机一键拉起脚本（容器创建/启动、解包、initdb、配置、建库、探活、verify）。
+- `docs/WORK_LOG.md`：本条工作记录。
+
+---
+
+## 2026-10-15（续）修复客户端连接 boncuser 报 28P01（密码认证失败）
+
+**触发**：客户端连接报 `FATAL: password authentication failed for user "boncuser" (SQLSTATE 28P01)`。
+
+**根因（两个相互独立，先后定位）**：
+1. **端口冲突**：宿主机 `127.0.0.1:5432` 原本被 **ServBay 自带的 PostgreSQL 18.6**（PID 377）占用并监听 `*:5432`。它的认证是 `SASL/密码`，客户端从宿主机连 `127.0.0.1:5432` 命中了 ServBay 而非容器内 panweidb（panweidb 配的是 trust，本不应要求密码、更不会报 28P01）。→ 用户停掉 ServBay 的 postgres 让出 5432。
+2. **PanWeiDB 安全插件禁止「远程 + trust」**：停掉 ServBay 后实测 `127.0.0.1:5432` 一度 `Connection refused`（端口映射未重新挂起，靠 `docker restart panweidb` 修复转发）。转发恢复后，从宿主机直连容器 IP 验证得到真正报错：
+   `FATAL: Forbid remote connection with trust method! (SQLSTATE 28000)`。
+   即 panweidb 的 `pg_hba.conf` 全 `trust` 只允许**容器内本地**连接；任何外部 TCP（在库看来来源是宿主网关 IP，非 127）一律被安全插件拒绝。容器内 `127.0.0.1` 能连成功，正是因为属于本地。→ 这才是客户端 `28P01` 的本质：原本脚本把远程写成 trust，被安全插件拦下后客户端端到端表现为认证失败。
+
+**修正动作**：
+- 在运行中的容器里把 `pg_hba.conf` 改为：本地（`local` + `127.0.0.1/32` + `::1/128`）`trust`，远程 `0.0.0.0/0` 与 `::0/0` 改 **`sha256`**；改前已备份为 `pg_hba.conf.bak-20261015`。
+- `gs_ctl reload -D /database/panweidb/data` 生效。
+- 确认 `password_encryption_type=1`（密码以 sha256 存储，前缀 `sha`），`omm`/`boncuser` 口令已就绪，远程走密码认证可行。
+- `docker restart panweidb` 修复宿主机 `127.0.0.1:5432` 端口转发（容器无 systemd，DB 未自启，用 `panweidb_up.sh` 重新 `gs_ctl start`）。
+- **同步修正脚本** `scripts/pg/panweidb_up.sh`：`configure_db()` 原写「全 trust」是错误写法（会复现本问题），改为「本地 trust / 远程 sha256」；并更正顶部注释里「全 trust 才能免密连」的错误描述。
+
+**验证（已实跑）**：
+- 宿主机真实 `psql`（ServBay 客户端）端到端：
+  `PGPASSWORD='1qaz!QAZ' psql "postgresql://boncuser@127.0.0.1:5432/bonc" -c "select current_database(),current_user,current_schema;"`
+  → 返回 `db=bonc / u=boncuser / s=ihr_hrd`，连接成功，原 `28P01` 消失。
+- 反向验证：错误口令 → `FATAL: Invalid username/password, login denied`，证明密码认证确实生效（非 trust 直通）。
+- 容器内 `127.0.0.1` 维护连接仍走 trust，未受影响。
+
+**改动文件（本轮）**：
+- `scripts/pg/panweidb_up.sh`：修正 `configure_db()` 认证方式（本地 trust / 远程 sha256）+ 顶部注释纠偏。
+- `docs/WORK_LOG.md`：本条工作记录。
+
+---
+
+## 2026-10-15（续二）脚本末尾补客户端连接地址建议 + 还原 backups 两库到 panweidb
+
+**A. 脚本补客户端连接地址建议**（用户要求）
+- `scripts/pg/panweidb_up.sh` 末尾原来只打印 `127.0.0.1` 一条连接串；改为按**客户端所在位置**给三条：
+  - 宿主机（裸进程/本机脚本）→ `127.0.0.1:5432`；
+  - 另一个 Docker 容器（orbstack 网络）→ `host.docker.internal:5432`；
+  - 备用 → 容器真实 IP（`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'`，重启后可能变）。
+- 附说明：panweidb 禁「远程 + trust」，三条均走密码认证；**宿主机不解析 `host.docker.internal`**（实测 `gethostbyname` 失败、`/etc/hosts` 无该条目），裸宿主机别用。
+- `bash -n` 通过；实跑 `up` 打印三条连接串均正确。
+
+**B. 还原 `backups/` 两 dump 到 panweidb（方案 B：两个独立库）**
+- 源：`backups/mogo_audit.dump`（9 TOC，2.4KB）、`backups/mogo_dev.dump`（769 TOC，2.7MB）。均为 **PGDMP custom 格式**，dump 头显示 **`Dumped by gs_dump version: 9.2.4`**——实为 openGauss 原生 gs_dump 格式，故用容器内 **`gs_restore`** 还原最正统。
+- 排障关键点：
+  1. dump 内有 **`TABLE DATA public utl_file_dir`**（空 COPY、0 行），但**无该表建表语句** → 目标库无表会报错；用 `--exclude-table=public.utl_file_dir` 排除。
+  2. dump 的 `CREATE TABLE ... WITH (orientation=row, compression=no, fillfactor=80)` 是 openGauss 专有参数，进一步确认是 openGauss 系 dump。
+  3. 角色 **`mogo_probe`** 原本不存在（dump 里大量 `GRANT ... TO mogo_probe`）→ 先 `CREATE ROLE mogo_probe LOGIN`。
+  4. `docker cp` 进容器的 dump 属主 `501:games 600`，`omm` 读不到 → `chown omm:dbgrp; chmod 644`。
+  5. 引号坑：SQL 字符串字面量须用**单引号**；我一度写 `WHERE datname IN ("mogo_audit")`（双引号=标识符）报 `column does not exist`，且多 `-c` 时首条报错导致后续 CREATE 全未执行，需拆开重跑并复核。
+- 执行：`CREATE DATABASE mogo_audit / mogo_dev` + `CREATE ROLE mogo_probe`，随后
+  `gs_restore -d mogo_audit --exclude-table=public.utl_file_dir -e` 与 `gs_restore -d mogo_dev --exclude-table=public.utl_file_dir -e`，两者 `restore operation successful`（exit 0）。
+- 核验：`mogo_audit.system_audit_logs` 建成（0 行，源本空）、PK+ACL 就位；`mogo_dev` **119 张业务表**、`mogo_probe` **119 条授权**全部落地；`boncuser` 密码认证连 `mogo_dev` 成功；数据行数 `kernel_event_inbox=8706 / knowledge_document_chunks=255 / tenants=2 / admin_accounts=3 / system_audit_logs=39`。
+
+**改动文件（本轮）**：
+- `scripts/pg/panweidb_up.sh`：末尾连接地址建议扩为三条（127 / host.docker.internal / 容器真实 IP）+ 说明。
+- `docs/WORK_LOG.md`：本条工作记录。
+- （未提交改动，见 `deploy/docker/nginx-https.conf` 属其他会话，未纳入。）

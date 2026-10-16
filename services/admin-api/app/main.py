@@ -128,6 +128,15 @@ def create_app() -> FastAPI:
             await _CANARY_ROLLBACK_SCANNER.start()
         except Exception:  # pragma: no cover - defensive
             logger.exception("failed to start canary rollback scanner")
+        # MongoDB → PanWeiDB 迁移：openGauss 无原生 TTL 索引，用后台循环定期清理
+        # 过期文档（对兼容层登记的 expireAfterSeconds 声明）。Best-effort：绝不应
+        # 阻断启动；mongo 模式下 start() 为 no-op。
+        try:
+            from app.core.ttl_purge import ttl_purge_loop
+
+            await ttl_purge_loop.start()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("failed to start ttl purge loop")
 
 
     @app.on_event("shutdown")
@@ -138,6 +147,12 @@ def create_app() -> FastAPI:
             pass
         try:
             await _CANARY_ROLLBACK_SCANNER.stop()
+        except Exception:  # pragma: no cover - defensive
+            pass
+        try:
+            from app.core.ttl_purge import ttl_purge_loop
+
+            await ttl_purge_loop.stop()
         except Exception:  # pragma: no cover - defensive
             pass
         await close_backend()

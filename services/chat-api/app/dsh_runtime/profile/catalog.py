@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 from bson import ObjectId
-from bson.errors import InvalidId
 
 from app.core.db import get_db
 from app.llm.configured_models import INSTANCE_COLLECTION, PROVIDER_COLLECTION
@@ -24,8 +24,8 @@ class MongoModelCatalog:
         db = get_db()
         if model_instance_id:
             try:
-                identifier = ObjectId(model_instance_id)
-            except InvalidId as exc:
+                identifier = to_backend_id_strict(model_instance_id)
+            except ValueError as exc:
                 raise ValueError("model instance id is invalid") from exc
             instance = await db[INSTANCE_COLLECTION].find_one(
                 {"_id": identifier, "tenant_id": tenant_id}

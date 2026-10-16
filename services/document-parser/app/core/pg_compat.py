@@ -55,6 +55,25 @@ $not $all $size``。
 
 对应的规避手法已内联在实现里（``_unset_expression`` 与 ``$push`` 分支），
 修改本模块时不要引入上述不可用函数。
+
+**R3 扁平化（027 方案 §5，2026-10-16 起）**：``docs/027-r3-relational-four-tables-plan.md``
+对 44 张表做了扁平化（21 全 + 23 部分），库内已加列回填（见
+``specs/027-mongo-to-panweidb-migration/r3-flatten/``）。本模块据此做 §5 的
+兼容层改造，数据源是 ``app/core/column_map.py`` 的 ``COLUMN_MAP``：
+
+* **双写**：``INSERT`` / ``UPDATE`` / ``replace_one`` 在同一语句内把 doc 键同步
+  写进映射列（``_update`` 直接基于新 doc 的 ``#>>`` 表达式，保持原子性；
+  jsonb 路径一律用 ``#>`` / ``#>>``，本库没有 ``->> text[]`` 运算符）。
+* **读路径列优先**：``find_one`` / ``find`` 的 ``SELECT`` 附带映射列，列值非空
+  即覆盖 doc 同名键（datetime 序列化回 ISO 字符串，doc 形状不变）。doc 仍是
+  兜底与 ❌ / 🔶 动态字段的存储，因此 ``doc JSONB NOT NULL`` 保留。
+* **筛选 / 索引路由**：COLUMN_MAP 命中的键走真实列（可用 btree 索引），未命中
+  走 doc JSONB 路径；``$size`` / ``$all`` / ``$type`` 仅对 JSONB 型映射列生效。
+* **排序 / 去重 / 聚合路由（后续优化已落地）**：``ORDER BY``（find_one、cursor
+  sort）与 ``distinct`` 对命中的顶层键走真实列；``aggregate`` 的 ``$match`` /
+  ``$sort`` 仅在**直接读基表的首阶段**路由（CTE 阶段只有 ``(id, doc)``，
+  没有那些列，维持 doc 路径）。``$group`` 的 ``_id`` 与累加器仍走 doc 路径
+  （jsonb 分组与输出组装语义不变，留待后续）。
 """
 
 from __future__ import annotations
@@ -63,7 +82,11 @@ import json
 import logging
 import re
 import uuid
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Iterable, Iterator, Mapping, Sequence
+
+from app.core.column_map import column_type, mapped_columns
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +279,47 @@ def translate_regex_pattern(pattern: str) -> str:
     return "".join(out)
 
 
+#: TTL 索引声明登记表：``collection -> (field, expireAfterSeconds)``。
+#: openGauss 无原生 TTL 索引，``create_index(..., expireAfterSeconds=N)`` 只登记声明，
+#: 过期删除由 :func:`purge_expired_ttl` 在应用层定期执行。
+_TTL_REGISTRY: dict[str, tuple[str, int]] = {}
+
+
+def ttl_registry_snapshot() -> dict[str, tuple[str, int]]:
+    """返回 TTL 声明快照（测试 / 诊断用）。"""
+    return dict(_TTL_REGISTRY)
+
+
+def purge_expired_ttl(pool: Any, schema: str, *, now: Any = None) -> int:
+    """按登记的 TTL 声明删除过期文档，返回删除总条数（best-effort）。
+
+    对每条声明 ``(field, N)`` 执行
+    ``DELETE FROM <schema>.<collection> WHERE (doc->>'<field>')::timestamptz <= now - N 秒``；
+    ``N=0`` 即字段值本身是绝对过期时间，与 Mongo ``expireAfterSeconds=0`` 语义一致。
+    表不存在（未建表）或权限不足时跳过并记日志，不中断清理循环。
+    """
+    import logging
+    from datetime import datetime, timedelta, timezone
+
+    log = logging.getLogger(__name__)
+    reference = now or datetime.now(timezone.utc)
+    total = 0
+    for collection, (field, seconds) in list(_TTL_REGISTRY.items()):
+        cutoff = reference - timedelta(seconds=seconds)
+        sql = (
+            f'DELETE FROM "{schema}"."{collection}" '
+            f"WHERE (doc ->> %s)::timestamptz <= %s"
+        )
+        try:
+            with pool.connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, [field, cutoff])
+                    total += int(getattr(cur, "rowcount", 0) or 0)
+        except Exception:  # noqa: BLE001 - best-effort：单表失败不阻断其余表
+            log.warning("TTL 清理失败：%s.%s", schema, collection, exc_info=True)
+    return total
+
+
 def _build_create_index_sql(
     qualified: str,
     index_name: str,
@@ -264,6 +328,7 @@ def _build_create_index_sql(
     unique: bool = False,
     sparse: bool = False,
     partialFilterExpression: Mapping[str, Any] | None = None,
+    column_map: Mapping[str, str] | None = None,
 ) -> str:
     """构造 ``CREATE [UNIQUE] INDEX ...`` 的 SQL（含部分/稀疏 WHERE 子句）。
 
@@ -271,16 +336,24 @@ def _build_create_index_sql(
     ``%s::jsonb`` 都报 ``could not determine data type of parameter $1``），
     因此 ``partialFilterExpression`` 的参数会被 ``_inline_placeholders`` 内联成
     字面量；过滤器值都来自代码常量、非用户输入，内联前对单引号转义。
+
+    R3 扁平化：``column_map``（表的 {doc_key: column}）命中且顶层字段时，
+    直接在真实列上建 btree 索引（替代 ``(doc #> path)`` 表达式索引），
+    ``partialFilterExpression`` 也按同一映射编译，保持筛选路径一致。
     """
-    expressions = ", ".join(f"(doc #> '{path_literal(field)}')" for field in fields)
+    columns = dict(column_map or {})
+
+    def _expr(field: str) -> str:
+        col = columns.get(field) if "." not in field else None
+        return f'"{col}"' if col else f"(doc #> '{path_literal(field)}')"
+
+    expressions = ", ".join(_expr(field) for field in fields)
     conditions: list[str] = []
     params: list[Any] = []
     if sparse:
-        conditions.extend(
-            f"(doc #> '{path_literal(field)}') IS NOT NULL" for field in fields
-        )
+        conditions.extend(f"{_expr(field)} IS NOT NULL" for field in fields)
     if partialFilterExpression is not None:
-        compiler = _FilterCompiler()
+        compiler = _FilterCompiler(columns)
         conditions.append(compiler.compile(partialFilterExpression))
         params.extend(compiler.params)
     where_body = _inline_placeholders(
@@ -318,6 +391,72 @@ def _value_path(field: str) -> str:
 def _text_path(field: str) -> str:
     """``doc #>> '{a,b}'`` —— 取文本。"""
     return f"(doc #>> '{path_literal(field)}')"
+
+
+def _column_param_sql(column: str) -> str:
+    """映射列写入占位符的 SQL：JSONB 列 ``::jsonb``，其余按列类型强转。
+
+    psycopg3 把 Python bool/int/str 适配成对应 PG 类型；``::text`` /
+    ``::timestamptz`` 这类赋值转换对 text 参数同样成立（ISO 字符串可解析），
+    None 落 NULL。强转会在脏数据上直接报错——与 r3-flatten 回填补写用的
+    是同一套 CAST 语义（该批数据已验证 0 错误）， fail-loud 优于静默不一致。
+    """
+    if column_type(column) == "JSONB":
+        return "%s::jsonb"
+    return f"%s::{column_type(column).lower()}"
+
+
+def _column_value_to_doc(value: Any) -> Any:
+    """读路径列值 → doc 值形状：datetime 序列化为 ISO 字符串、Decimal 归一回数字。
+
+    doc JSONB 里日期以 ISO 字符串存储（写入时 ``to_json_text``），业务代码
+    拿到的一直是字符串；列值覆盖 doc 键时必须保持同形状，否则 datetime
+    对象会改变既有代码对 doc 字段类型的假设。同理 jsonb 数字解码出
+    int/float，而 numeric/bigint 列解码出 Decimal——JSON 序列化与等值
+    比较都要求保持 int/float 形状（``Decimal(5) == 5`` 虽为真，但
+    ``json.dumps`` 不认 Decimal）。
+    """
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    return value
+
+
+def _column_sync_sql(source: str, key: str, column: str) -> str:
+    """UPDATE 里的列同步表达式：基于新 doc 的键取值并强转到列类型。
+
+    JSON null 必须转成 SQL NULL：``#>>`` 会把 JSON null 渲染成字符串
+    ``'null'``，直接 ``::integer`` / ``::boolean`` / ``::timestamptz`` 会
+    cast 报错，而 doc-only 时代写 JSON null 是**合法更新**——双写不能把
+    合法写入变成故障。
+
+    **jsonb 路径必须用 ``#>`` / ``#>>``（2026-10-16 真库复测定位的坑）**：
+    本库（openGauss 3.2.0 A 模式）**没有 ``jsonb ->> text[]`` 运算符**，
+    ``->`` / ``->>`` 右遇 ``'{a,b}'`` 字面量只匹配 **text 重载**，键名变成
+    字面字符串 ``"{a,b}"`` → 恒为 NULL。常量即可复现：
+    ``'{"{title}":"Y"}'::jsonb ->> '{title}'`` 得 ``'Y'``，而
+    ``'{"title":"X"}'::jsonb ->> '{title}'`` 得 NULL；显式
+    ``doc ->> ('{title}'::text[])`` 直接报 ``operator does not exist``。
+    ``#>`` / ``#>>`` 只接受 text[]，无歧义，且缺失键返回 SQL NULL、
+    JSON null 返回 JSON null：
+
+    * 键缺失 → ``#>`` 得 SQL NULL → 比较为 unknown → 走 ELSE → ``#>>``
+      为 NULL → cast 得 NULL（✓ 缺失即 NULL）；
+    * JSON null → ``#>`` 得 JSON null → 比较为真 → THEN NULL（✓）；
+    * 有值 → 走 ELSE cast（✓）。
+
+    历史教训：列同步曾写成 ``->>'{key}'``，真库上**列被静默写 NULL**
+    （doc 完好、``UPDATE 1`` 照常返回，极具迷惑性），一度被误诊为
+    「SET 上下文函数调用返回 NULL」。凡jsonb路径表达式一律 ``#>`` / ``#>>``。
+    """
+    if column_type(column) == "JSONB":
+        return f"{source} #> '{path_literal(key)}'"
+    raw = f"{source} #>> '{path_literal(key)}'"
+    return (
+        f"(CASE WHEN ({source} #> '{path_literal(key)}') = 'null'::jsonb "
+        f"THEN NULL ELSE ({raw})::{column_type(column).lower()} END)"
+    )
 
 
 def to_json_text(value: Any) -> str:
@@ -426,14 +565,47 @@ class _FilterCompiler:
     取舍：等值 / ``$in`` 一律走 JSONB 比较（``doc #> path = %s::jsonb``），
     统一覆盖字符串、数字、布尔、null 与嵌套结构；范围比较在字面量为数值时
     走 ``numeric`` 转换，否则退化为文本比较。
+
+    R3 扁平化（027 方案 §5.3）：``column_map`` 传入表的 ``{doc_key: column}``
+    后，命中的顶层键改走真实列（按列类型比较，可命中列上的 btree 索引），
+    未命中维持 doc JSONB 路径；``$size`` / ``$all`` / ``$type`` 只对 JSONB
+    型映射列生效（直接用列名替代 ``doc #> path``），非 JSONB 列退回 doc 路径。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, column_map: Mapping[str, str] | None = None) -> None:
         self.params: list[Any] = []
+        self._columns: dict[str, str] = dict(column_map or {})
 
     def _p(self, value: Any) -> str:
         self.params.append(value)
         return "%s"
+
+    def _mapped(self, field: str) -> str | None:
+        """字段命中 COLUMN_MAP 且是顶层键（无点号嵌套路径）时返回列名。"""
+        if "." in field:
+            return None
+        return self._columns.get(field)
+
+    def _accessor(self, field: str) -> tuple[str, str]:
+        """返回 ``(value_sql, text_sql)``：JSONB 型映射列直接用列名，其余 doc 路径。"""
+        col = self._mapped(field)
+        if col is not None and column_type(col) == "JSONB":
+            return f'"{col}"', f'"{col}"::text'
+        return _value_path(field), _text_path(field)
+
+    def _column_eq(self, column: str, value: Any) -> str:
+        """映射列等值：JSONB 列走 jsonb 相等，其余按列类型比较。
+
+        ``value is None`` 时走 ``IS NULL``：SQL 的 ``= NULL`` 恒不为真，且
+        DDL 内联上下文（create_index 的 partialFilterExpression）会把 None
+        变成字面量 ``'null'``，``'null'::timestamptz`` 直接 cast 失败。
+        列缺失即 NULL，与 Mongo「{field: null} 匹配缺失」语义一致。
+        """
+        if value is None:
+            return f'"{column}" IS NULL'
+        if column_type(column) == "JSONB":
+            return f'"{column}" = {self._p(to_json_text(value))}::jsonb'
+        return f'"{column}" = {self._p(value)}::{column_type(column).lower()}'
 
     def compile(self, filt: Mapping[str, Any] | None) -> str:
         if not filt:
@@ -465,6 +637,9 @@ class _FilterCompiler:
     def _field(self, field: str, value: Any) -> str:
         if isinstance(value, Mapping) and any(str(k).startswith("$") for k in value):
             return self._operators(field, value)
+        col = self._mapped(field)
+        if col is not None:
+            return self._column_eq(col, value)
         return f"{_value_path(field)} = {self._p(to_json_text(value))}::jsonb"
 
     def _operators(self, field: str, spec: Mapping[str, Any]) -> str:
@@ -477,16 +652,35 @@ class _FilterCompiler:
         return " AND ".join(f"({c})" for c in clauses)
 
     def _operator(self, field: str, op: str, operand: Any, spec: Mapping[str, Any]) -> str:
-        value_path = _value_path(field)
-        text_path = _text_path(field)
+        value_path, text_path = self._accessor(field)
+        col = self._mapped(field)
 
         if op == "$eq":
+            if col is not None:
+                return self._column_eq(col, operand)
             return f"{value_path} = {self._p(to_json_text(operand))}::jsonb"
         if op == "$ne":
             # Mongo 语义：字段缺失同样满足 $ne。
+            if col is not None:
+                if operand is None:
+                    # {field: {$ne: null}} → 只匹配非空值（缺失=列 NULL，不匹配）。
+                    return f'"{col}" IS NOT NULL'
+                if column_type(col) == "JSONB":
+                    return (
+                        f'("{col}" IS NULL OR "{col}" <> '
+                        f"{self._p(to_json_text(operand))}::jsonb)"
+                    )
+                return (
+                    f'("{col}" IS NULL OR "{col}" <> '
+                    f"{self._p(operand)}::{column_type(col).lower()})"
+                )
             return f"({value_path} IS NULL OR {value_path} <> {self._p(to_json_text(operand))}::jsonb)"
         if op in {"$gt", "$gte", "$lt", "$lte"}:
             symbol = {"$gt": ">", "$gte": ">=", "$lt": "<", "$lte": "<="}[op]
+            if col is not None:
+                typ = column_type(col)
+                cast = "::numeric" if typ in {"INTEGER", "BIGINT"} else f"::{typ.lower()}"
+                return f'"{col}" {symbol} {self._p(operand)}{cast}'
             num = _numeric_literal(operand)
             if num is not None:
                 return (
@@ -497,7 +691,10 @@ class _FilterCompiler:
         if op in {"$in", "$nin"}:
             return self._in(field, operand, negate=(op == "$nin"))
         if op == "$exists":
-            exists_sql = f"(doc #> '{path_literal(field)}') IS NOT NULL"
+            if col is not None:
+                exists_sql = f'"{col}" IS NOT NULL'
+            else:
+                exists_sql = f"(doc #> '{path_literal(field)}') IS NOT NULL"
             return exists_sql if operand else f"NOT ({exists_sql})"
         if op == "$regex":
             pattern = operand.pattern if isinstance(operand, re.Pattern) else str(operand)
@@ -511,6 +708,8 @@ class _FilterCompiler:
             # \w/\W 会因 UTF-8 locale 吸入非 ASCII。见 translate_regex_pattern 的文档字符串。
             pattern = translate_regex_pattern(pattern)
             operator = "~*" if "i" in options else "~"
+            if col is not None:
+                return f'("{col}"::text) {operator} {self._p(pattern)}'
             return f"({text_path}) {operator} {self._p(pattern)}"
         if op == "$size":
             return (
@@ -540,9 +739,20 @@ class _FilterCompiler:
         if not isinstance(operand, (list, tuple, set)):
             raise ValueError("$in/$nin 需要一个数组")
         items = list(operand)
-        value_path = _value_path(field)
         if not items:
             return "TRUE" if negate else "FALSE"
+        col = self._mapped(field)
+        if col is not None:
+            typ = column_type(col)
+            if typ == "JSONB":
+                rendered = ", ".join(f"{self._p(to_json_text(item))}::jsonb" for item in items)
+            else:
+                cast = "::numeric" if typ in {"INTEGER", "BIGINT"} else f"::{typ.lower()}"
+                rendered = ", ".join(f"{self._p(item)}{cast}" for item in items)
+            if negate:
+                return f'("{col}" IS NULL OR "{col}" NOT IN ({rendered}))'
+            return f'"{col}" IN ({rendered})'
+        value_path = _value_path(field)
         rendered = ", ".join(f"{self._p(to_json_text(item))}::jsonb" for item in items)
         if negate:
             return f"({value_path} IS NULL OR {value_path} NOT IN ({rendered}))"
@@ -762,15 +972,24 @@ class _AggregationCompiler:
     **占位符纪律**：任何在 SQL 文本里出现多次的子表达式，都必须**重新构建**多次
     （而不是复用字符串），否则占位符数量会多于参数数量。``_num()`` 与
     ``_stage_group()`` 里的三处 key 表达式都遵循这条规则。
+
+    **R3 后续优化（列路由）**：``column_map`` 传入表的 ``{doc_key: column}`` 后，
+    ``$match`` / ``$sort`` **仅在阶段直接读基表时**（``self._src is None``，
+    即管道第一个阶段）把命中的顶层键路由到真实列——彼时的输入就是基表，
+    列真实存在。后续阶段的输入是 ``(id, doc)`` 形状的 CTE，没有那些列，
+    因此一律维持 doc JSONB 路径。``$sort`` 存入 ``self._order`` 的供后续
+    阶段复用的表达式同样保持 doc 路径（CTE 上才有效），只有本阶段自己
+    的 ``ORDER BY`` 用路由形式。
     """
 
-    def __init__(self, qualified: str) -> None:
+    def __init__(self, qualified: str, column_map: Mapping[str, str] | None = None) -> None:
         self._qualified = qualified
         self.params: list[Any] = []
         self._ctes: list[str] = []
         self._src: str | None = None
         self._counter = 0
         self._order: list[tuple[str, str]] = []
+        self._columns: dict[str, str] = dict(column_map or {})
 
     # -- 基础设施 --------------------------------------------------------
     def _p(self, value: Any) -> str:
@@ -834,7 +1053,8 @@ class _AggregationCompiler:
 
     # -- 阶段 ------------------------------------------------------------
     def _stage_match(self, spec: Any) -> None:
-        compiler = _FilterCompiler()
+        # 只有直接读基表时才能路由到真实列；CTE 输入只有 (id, doc)
+        compiler = _FilterCompiler(self._columns if self._src is None else None)
         where = compiler.compile(spec)
         self.params.extend(compiler.params)
         self._emit(f"SELECT id, doc FROM {self._from()} WHERE {where}")
@@ -843,10 +1063,19 @@ class _AggregationCompiler:
         if not isinstance(spec, Mapping):
             raise PgCompatUnsupported("$sort 需要字段映射")
         self._order = []
+        order_parts: list[str] = []
         for field, direction in spec.items():
-            expr = f"(doc #> '{path_literal(str(field))}')"
-            self._order.append((expr, "DESC" if int(direction) < 0 else "ASC"))
-        self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {self._order_sql()}")
+            field = str(field)
+            arrow = "DESC" if int(direction) < 0 else "ASC"
+            # 存入的是供后续阶段（$limit/$skip/$first/$last）复用的 doc 路径；
+            # 本阶段直接读基表时才改用路由的列表达式（可用索引排序）。
+            self._order.append((f"(doc #> '{path_literal(field)}')", arrow))
+            order_parts.append(
+                _order_expr(field, 1 if arrow == "ASC" else -1, self._columns)
+                if self._src is None
+                else f"(doc #> '{path_literal(field)}') {arrow}"
+            )
+        self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {', '.join(order_parts)}")
 
     def _stage_limit(self, spec: Any) -> None:
         self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {self._order_sql()} LIMIT {int(spec)}")
@@ -1160,6 +1389,8 @@ class PgCollection:
         self.name = name
         self._schema = schema
         self._qualified = f'"{schema}"."{name}"'
+        # R3 扁平化：本表的 {doc_key: column}（❌ 表为空，行为与改造前一致）。
+        self._columns = mapped_columns(self.name)
         # 首次操作时惰性建表；建过就置位，避免每次操作多一次往返。
         self._table_ready = False
 
@@ -1178,8 +1409,12 @@ class PgCollection:
 
     # -- 内部 ------------------------------------------------------------
     def _where(self, filt: Mapping[str, Any] | None) -> tuple[str, list[Any]]:
-        compiler = _FilterCompiler()
+        compiler = _FilterCompiler(self._columns)
         return compiler.compile(filt), compiler.params
+
+    def _column_entries(self) -> list[tuple[str, str]]:
+        """本表的 ``[(doc_key, column)]``（1:1，顺序即 SELECT 列顺序）。"""
+        return list(self._columns.items())
 
     @staticmethod
     def _decode(doc: Any) -> dict[str, Any]:
@@ -1194,6 +1429,35 @@ class PgCollection:
                 cur.execute(sql, params)
                 rows = cur.fetchall()
         return [self._decode(row[0]) for row in rows]
+
+    def _fetch_merged(
+        self, sql: str, params: Sequence[Any], entries: Sequence[tuple[str, str]]
+    ) -> list[dict[str, Any]]:
+        """读路径：doc JSONB + 映射列，列值非空即覆盖 doc 同名键。
+
+        R3 方案 §5.2「读取时以列为准拼 doc」：SELECT 第 0 列是 doc，其后按
+        ``entries`` 顺序是各映射列；列 NULL 不覆盖（doc 保持兜底值）。
+        """
+        self._ensure_table()
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+        merged: list[dict[str, Any]] = []
+        for row in rows:
+            doc = self._decode(row[0])
+            if entries:
+                for (key, _col), value in zip(entries, row[1:]):
+                    if value is None:
+                        continue
+                    doc[key] = _column_value_to_doc(value)
+            merged.append(doc)
+        return merged
+
+    @staticmethod
+    def _columns_sql(entries: Sequence[tuple[str, str]]) -> str:
+        """SELECT 里附加的映射列清单（非扁平表返回空串，SQL 与改造前一致）。"""
+        return "".join(f', "{col}"' for _key, col in entries)
 
     def _scalar(self, sql: str, params: Sequence[Any]) -> Any:
         self._ensure_table()
@@ -1218,8 +1482,15 @@ class PgCollection:
         sort: Any = None,
     ) -> dict[str, Any] | None:
         where, params = self._where(filter)
-        sql = f"SELECT doc FROM {self._qualified} WHERE {where}{_order_by(sort)} LIMIT 1"
-        docs = self._fetch(sql, params)
+        entries = self._column_entries()
+        sql = (
+            f"SELECT doc{self._columns_sql(entries)} FROM {self._qualified} "
+            f"WHERE {where}{_order_by(sort, self._columns)} LIMIT 1"
+        )
+        if entries:
+            docs = self._fetch_merged(sql, params, entries)
+        else:
+            docs = self._fetch(sql, params)
         if not docs:
             return None
         return _apply_projection(docs[0], projection)
@@ -1235,17 +1506,21 @@ class PgCollection:
 
     def _run_find(self, cursor: PgCursor) -> list[dict[str, Any]]:
         where, params = self._where(cursor._filter)
-        sql = f"SELECT doc FROM {self._qualified} WHERE {where}"
+        entries = self._column_entries()
+        sql = f"SELECT doc{self._columns_sql(entries)} FROM {self._qualified} WHERE {where}"
         if cursor._sort:
             sql += " ORDER BY " + ", ".join(
-                f"doc #> '{path_literal(field)}' {'ASC' if direction >= 0 else 'DESC'}"
+                _order_expr(field, direction, self._columns)
                 for field, direction in cursor._sort
             )
         if cursor._limit:
             sql += f" LIMIT {int(cursor._limit)}"
         if cursor._skip:
             sql += f" OFFSET {int(cursor._skip)}"
-        docs = self._fetch(sql, params)
+        if entries:
+            docs = self._fetch_merged(sql, params, entries)
+        else:
+            docs = self._fetch(sql, params)
         return [_apply_projection(doc, cursor.projection) for doc in docs]
 
     def count_documents(self, filter: Mapping[str, Any] | None = None) -> int:
@@ -1254,16 +1529,24 @@ class PgCollection:
         return int(total or 0)
 
     def distinct(self, key: str, filter: Mapping[str, Any] | None = None) -> list[Any]:
+        """去重取值。R3 后续优化：命中 COLUMN_MAP 的顶层键走真实列。
+
+        列值解码类型与 doc JSONB 路径不同（numeric/bigint → Decimal、
+        timestamptz → datetime），返回前统一过 :func:`_column_value_to_doc`
+        归一化，保持 doc 路径时期的形状（数字 int/float、日期 ISO 字符串）。
+        """
         where, params = self._where(filter)
+        col = self._columns.get(key) if "." not in key else None
+        target = f'"{col}"' if col else f"doc #> '{path_literal(key)}'"
         sql = (
-            f"SELECT DISTINCT doc #> '{path_literal(key)}' AS v "
+            f"SELECT DISTINCT {target} AS v "
             f"FROM {self._qualified} WHERE {where}"
         )
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 rows = cur.fetchall()
-        return [row[0] for row in rows if row[0] is not None]
+        return [_column_value_to_doc(row[0]) for row in rows if row[0] is not None]
 
     # -- 写入 ------------------------------------------------------------
     def insert_one(self, document: Mapping[str, Any]) -> InsertOneResult:
@@ -1273,14 +1556,36 @@ class PgCollection:
             doc_id = uuid.uuid4().hex
             doc["_id"] = doc_id
         tenant_id = doc.get("tenant_id")
-        sql = (
-            f"INSERT INTO {self._qualified} (id, tenant_id, doc) "
-            f"VALUES (%s, %s, %s::jsonb) ON CONFLICT (id) DO NOTHING"
-        )
-        self._execute(
-            sql,
-            [str(doc_id), None if tenant_id is None else str(tenant_id), to_json_text(doc)],
-        )
+        entries = self._column_entries()
+        if entries:
+            # R3 双写：doc 键同步落映射列（同一 INSERT，原子）。
+            cols_sql = "".join(f', "{col}"' for _key, col in entries)
+            values_sql = "".join(f", {_column_param_sql(col)}" for _key, col in entries)
+            sql = (
+                f"INSERT INTO {self._qualified} (id, tenant_id, doc{cols_sql}) "
+                f"VALUES (%s, %s, %s::jsonb{values_sql}) ON CONFLICT (id) DO NOTHING"
+            )
+            params: list[Any] = [
+                str(doc_id), None if tenant_id is None else str(tenant_id), to_json_text(doc)
+            ]
+            for key, col in entries:
+                value = doc.get(key)
+                # JSONB 列的 None 也落 SQL NULL（与 _update 的 CASE 防护一致），
+                # 避免 insert 写进 jsonb 'null' 而 update 写 SQL NULL 的两套语义。
+                params.append(
+                    to_json_text(value)
+                    if column_type(col) == "JSONB" and value is not None
+                    else value
+                )
+        else:
+            sql = (
+                f"INSERT INTO {self._qualified} (id, tenant_id, doc) "
+                f"VALUES (%s, %s, %s::jsonb) ON CONFLICT (id) DO NOTHING"
+            )
+            params = [
+                str(doc_id), None if tenant_id is None else str(tenant_id), to_json_text(doc)
+            ]
+        self._execute(sql, params)
         return InsertOneResult(doc_id)
 
     def insert_many(
@@ -1311,10 +1616,17 @@ class PgCollection:
             return UpdateResult(0, 0, upserted_id=result.inserted_id)
         doc["_id"] = doc.get("_id", existing)
         tenant_id = doc.get("tenant_id")
+        assignments = ["doc = %s::jsonb", "tenant_id = %s", "updated_at = now()"]
+        params: list[Any] = [to_json_text(doc), None if tenant_id is None else str(tenant_id)]
+        # R3 双写：整份替换时同步刷新映射列。
+        for key, col in self._column_entries():
+            assignments.append(f'"{col}" = {_column_param_sql(col)}')
+            value = doc.get(key)
+            params.append(to_json_text(value) if column_type(col) == "JSONB" else value)
+        params.append(existing)
         self._execute(
-            f"UPDATE {self._qualified} SET doc = %s::jsonb, tenant_id = %s, updated_at = now() "
-            f"WHERE id = %s",
-            [to_json_text(doc), None if tenant_id is None else str(tenant_id), existing],
+            f"UPDATE {self._qualified} SET {', '.join(assignments)} WHERE id = %s",
+            params,
         )
         return UpdateResult(1, 1)
 
@@ -1377,9 +1689,14 @@ class PgCollection:
         for index, step in enumerate(steps, start=1):
             ctes.append(f"s{index} AS (SELECT id, {step} AS doc FROM s{index - 1})")
         last = f"s{len(steps)}"
+        # R3 双写：最终 UPDATE 基于新 doc（{last}.doc）同步刷新映射列，
+        # 与 SET doc 同一语句，保持原子性；JSON null → SQL NULL（见 _column_sync_sql）。
+        assignments = [f"doc = {last}.doc", "updated_at = now()"]
+        for key, col in self._column_entries():
+            assignments.append(f'"{col}" = {_column_sync_sql(last + ".doc", key, col)}')
         target = (
             f"WITH {', '.join(ctes)} "
-            f"UPDATE {self._qualified} AS tgt SET doc = {last}.doc, updated_at = now() "
+            f"UPDATE {self._qualified} AS tgt SET {', '.join(assignments)} "
             f"FROM {last} WHERE tgt.id = {last}.id"
         )
         self._execute(target, [*params, *compiler.params])
@@ -1426,11 +1743,13 @@ class PgCollection:
         *,
         sparse: bool = False,
         partialFilterExpression: Mapping[str, Any] | None = None,
+        expireAfterSeconds: int | None = None,
         **_: Any,
     ) -> str:
         """Mongo 索引声明 → PG 表达式索引（含部分/稀疏唯一索引）。
 
         单字段 → ``(doc #> '{field}')``；复合 → 多列表达式索引。
+        R3 扁平化：命中 COLUMN_MAP 的顶层字段直接在真实列上建 btree。
         方向（``-1``）被忽略：PG 的 btree 可双向扫描，方向不改变可用性。
 
         **部分索引**（``partialFilterExpression``）→ ``CREATE ... WHERE <过滤>``。
@@ -1443,7 +1762,9 @@ class PgCollection:
         若同时给了 ``partialFilterExpression``，以**两者合取**为准（Mongo 也要求
         sparse 与 partialFilterExpression 不冲突）。
 
-        text / geo / TTL 仍未支持（调用即抛 :class:`PgCompatUnsupported`）。
+        text / geo 仍未支持（调用即抛 :class:`PgCompatUnsupported`）；TTL
+        （``expireAfterSeconds``）在 openGauss 无原生等价物，改为**登记声明**，
+        由 :func:`purge_expired_ttl` 在应用层定期清理。
         """
         if isinstance(keys, str):
             fields = [keys]
@@ -1454,6 +1775,10 @@ class PgCollection:
         if not fields:
             raise ValueError("create_index 需要至少一个字段")
         index_name = name or f"{self.name}_{'_'.join(f.replace('.', '_') for f in fields)}_idx"
+        if expireAfterSeconds is not None:
+            # openGauss 无原生 TTL 索引：登记声明，改由 ``purge_expired_ttl`` 应用层清理；
+            # 仍建普通 btree 索引以加速过期字段的过滤。
+            _TTL_REGISTRY[self.name] = (fields[0], int(expireAfterSeconds))
         sql = _build_create_index_sql(
             self._qualified,
             index_name,
@@ -1461,6 +1786,7 @@ class PgCollection:
             unique=unique,
             sparse=sparse,
             partialFilterExpression=partialFilterExpression,
+            column_map=self._columns,
         )
         self._execute(sql, [])
         return index_name
@@ -1487,7 +1813,7 @@ class PgCollection:
         return PgAggregationCursor(self, pipeline)
 
     def _run_aggregate(self, pipeline: Any) -> list[dict[str, Any]]:
-        compiler = _AggregationCompiler(self._qualified)
+        compiler = _AggregationCompiler(self._qualified, self._columns)
         sql = compiler.compile(pipeline)
         return self._fetch(sql, compiler.params)
 
@@ -1599,7 +1925,28 @@ def _return_after(return_document: Any) -> bool:
     return str(return_document).strip().upper() in {"AFTER", "TRUE", "1"}
 
 
-def _order_by(sort: Any) -> str:
+def _order_expr(
+    field: str, order: int, columns: Mapping[str, str] | None = None
+) -> str:
+    """单个排序键的 SQL 表达式：COLUMN_MAP 命中的顶层键走真实列，其余 doc 路径。
+
+    R3 后续优化：映射列是强类型（timestamptz 按时间、numeric 按数值、
+    text 按字典序），既能命中列上的 btree 索引避免全表排序，也比 jsonb
+    的通用序更接近 Mongo 的 BSON 排序语义。未命中（含 ``a.b`` 嵌套路径，
+    扁平化只覆盖顶层键）维持 ``doc #> '{a,b}'``。非扁平表 ``columns``
+    为空，输出与改造前逐字节一致。
+
+    NULL 排序沿用 openGauss 默认（ASC 时 NULL 在后、DESC 在前），与改造前
+    doc 路径对**缺失键**（``#>`` 得 SQL NULL）的行为一致；显式写 JSON null
+    的旧行经双写/回填后同列为 SQL NULL，排序位置统一。
+    """
+    direction = "ASC" if order >= 0 else "DESC"
+    col = columns.get(field) if columns and "." not in field else None
+    target = f'"{col}"' if col else f"doc #> '{path_literal(field)}'"
+    return f"{target} {direction}"
+
+
+def _order_by(sort: Any, columns: Mapping[str, str] | None = None) -> str:
     if not sort:
         return ""
     if isinstance(sort, str):
@@ -1608,10 +1955,7 @@ def _order_by(sort: Any) -> str:
         pairs = [(str(field), int(order)) for field, order in sort.items()]
     else:
         pairs = [(str(field), int(order)) for field, order in sort]
-    rendered = ", ".join(
-        f"doc #> '{path_literal(field)}' {'ASC' if order >= 0 else 'DESC'}"
-        for field, order in pairs
-    )
+    rendered = ", ".join(_order_expr(field, order, columns) for field, order in pairs)
     return f" ORDER BY {rendered}" if rendered else ""
 
 

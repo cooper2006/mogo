@@ -33,7 +33,7 @@
 
 **Project Type**: web-service（三服务单仓库，各自独立镜像）
 
-**Performance Goals**: 建表 103 张 ≤ 10s（实测 1.6s）；查询走主键/租户/JSON 表达式索引；
+**Performance Goals**: 建表 114 张 ≤ 10s（实测 1.6s）；查询走主键/租户/JSON 表达式索引；
 兼容门面无额外往返（隐式建表仅在首次操作时发生）
 
 **Constraints**: 目标库 `sql_compatibility=A` 固定不可改（见下）；兼容层不得使用
@@ -257,7 +257,12 @@ UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.i
 连接池、兼容门面、后端分派、配置开关、健康检查、DDL 生成器、搬迁工具、
 依赖接入、方案文档、单测与守卫。详见 `tasks.md` Phase 1–5。
 
-### R2 — 兼容层接线（未开始）
+### R2 — 兼容层接线（**已完成**，T069–T087）
+
+实际交付：域级开关 `effective_data_backend_for`、聚合编译器（`$match`/`$group`/`$sort`/
+`$limit`/`$skip`/`$count`/`$project` + 累加器/表达式）、`bulk_write`、索引对齐（202 处，
+含 sparse/partial 与 7 处 TTL 应用层清理）、主键字符串化解耦（115 处）、同步副本生成器
+`sync_pg_compat.py`、审计库分离。原计划 5 项：
 
 1. **域级开关**：把 `MOGO_DATA_BACKEND` 细化到域级，使不同域可以先后切换。
 2. **补齐缺口**：25 处聚合管道、6 处 `bulk_write`、`$lookup`/`$facet`/`$unwind`。
@@ -265,10 +270,13 @@ UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.i
 4. **全量回归**：三服务测试套件在 PanWeiDB 后端下全绿，逐条修复不兼容点。
 5. **审计分库**：把 `get_audit_db()` 指向独立 schema，对齐 FR-17 保留期策略。
 
-### R3 — 逐域关系化（未开始，可选）
+### R3 — 逐域关系化（**已完成**，2026-10-16）
 
-仅当 JSON 路径查询成为瓶颈时，把热点集合（`chat_sessions` / `chat_messages` /
-`token_usage_logs` / `admin_accounts` / `end_users`）从「单表 + JSON」改为真实列 + 索引。
+已把 44 张表（✅ 全平铺 21 + 🔶 部分平铺 23）从「单表 + JSON」扁平化为真实列 + 索引
+（455 列 + 44 索引，真库 0 错误）；兼容层经 `column_map.py` 双写，并在读路径 / 筛选 /
+排序 / 去重 / 聚合首阶段路由到真实列。热点集合（`chat_sessions` / `chat_messages` /
+`token_usage_logs` / `admin_accounts` / `end_users`）均已包含在内。详见
+`docs/027-r3-relational-four-tables-plan.md` 与 `r3-flatten/`。
 
 ## Open Questions（已消解）
 

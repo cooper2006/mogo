@@ -11,6 +11,7 @@ import time
 import uuid
 from typing import Any, Optional
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -269,10 +270,10 @@ async def _backfill_missing_avatar(
         target_user_id = str(target_user.get("_id") or "")
         for candidate in available_tenants:
             candidate_user_id = str(candidate.get("userId") or "")
-            if candidate_user_id == target_user_id or not ObjectId.is_valid(candidate_user_id):
+            if candidate_user_id == target_user_id or not is_valid_backend_id(candidate_user_id):
                 continue
             candidate_user = await db[USER_COLLECTION].find_one(
-                {"_id": ObjectId(candidate_user_id), "status": "active"}
+                {"_id": to_backend_id(candidate_user_id), "status": "active"}
             )
             source_fields = _avatar_fields_from_user(candidate_user)
             if source_fields:
@@ -602,12 +603,12 @@ async def select_tenant_login(payload: SelectTenantRequest) -> ApiResponse:
         return ApiResponse(code=1, message="所选组织不可用")
 
     user_id = str(selected.get("userId") or "")
-    if not ObjectId.is_valid(user_id):
+    if not is_valid_backend_id(user_id):
         return ApiResponse(code=1, message="用户数据异常")
     tenant_id = resolve_tenant_id(selected.get("tenantId"))
     if not _is_valid_tenant_id(tenant_id):
         return ApiResponse(code=1, message="组织ID无效")
-    user_doc = await db[USER_COLLECTION].find_one(add_tenant_scope({"_id": ObjectId(user_id), "status": "active"}, tenant_id))
+    user_doc = await db[USER_COLLECTION].find_one(add_tenant_scope({"_id": to_backend_id(user_id), "status": "active"}, tenant_id))
     if not user_doc:
         return ApiResponse(code=1, message="用户不存在或已禁用")
 
@@ -639,9 +640,9 @@ async def switch_tenant(
     if not await is_tenant_selectable(db, target_tenant_id):
         return ApiResponse(code=1, message="该组织已停用，无法切换到该组织")
     user_id = str(target.get("userId") or "")
-    if not ObjectId.is_valid(user_id):
+    if not is_valid_backend_id(user_id):
         return ApiResponse(code=1, message="用户数据异常")
-    user_doc = await db[USER_COLLECTION].find_one(add_tenant_scope({"_id": ObjectId(user_id), "status": "active"}, target_tenant_id))
+    user_doc = await db[USER_COLLECTION].find_one(add_tenant_scope({"_id": to_backend_id(user_id), "status": "active"}, target_tenant_id))
     if not user_doc:
         return ApiResponse(code=1, message="组织内用户不存在或已禁用")
     user_doc = await _backfill_missing_avatar(
@@ -772,9 +773,9 @@ async def upload_profile_avatar(
     login_name = str(current_user.get("login_name") or "").strip()
     available_tenants = list(resolved["session"].get("available_tenants") or [])
     tenant_user_ids = {
-        ObjectId(str(item.get("userId")))
+        to_backend_id(str(item.get("userId")))
         for item in available_tenants
-        if ObjectId.is_valid(str(item.get("userId") or ""))
+        if is_valid_backend_id(str(item.get("userId") or ""))
     }
     tenant_user_ids.add(current_user["_id"])
     await db[USER_COLLECTION].update_many(
@@ -869,10 +870,10 @@ async def _ensure_root_department(tenant_id: str) -> str:
 
 async def _resolve_primary_department(tenant_id: str, requested_department_id: str | None = None) -> str:
     db = get_db()
-    if requested_department_id and ObjectId.is_valid(str(requested_department_id)):
+    if requested_department_id and is_valid_backend_id(str(requested_department_id)):
         department = await db[DEPARTMENT_COLLECTION].find_one(
             {
-                "_id": ObjectId(str(requested_department_id)),
+                "_id": to_backend_id(str(requested_department_id)),
                 "tenant_id": tenant_id,
                 "status": "active",
             }
@@ -886,7 +887,7 @@ async def _assign_user_primary_department(tenant_id: str, user_id: str, departme
     db = get_db()
     now = _now()
     await db[USER_COLLECTION].update_one(
-        {"_id": ObjectId(user_id), "tenant_id": tenant_id},
+        {"_id": to_backend_id(user_id), "tenant_id": tenant_id},
         {"$set": {"primary_org_id": department_id, "updated_at": now}},
     )
     await db[USER_ORG_REL_COLLECTION].delete_many({"tenant_id": tenant_id, "user_id": user_id})

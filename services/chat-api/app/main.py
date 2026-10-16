@@ -421,6 +421,11 @@ async def startup_event() -> None:
             await asyncio.sleep(3600)  # hourly
 
     _memory_decay_task = asyncio.create_task(_memory_decay_loop())
+    # MongoDB → PanWeiDB 迁移：openGauss 无原生 TTL 索引，用后台循环定期清理过期
+    # 文档（对兼容层登记的 expireAfterSeconds 声明）。mongo 模式下 start() 为 no-op。
+    from app.core.ttl_purge import ttl_purge_loop
+
+    await ttl_purge_loop.start()
     settings = get_settings()
     logger.info(
         "application startup complete",
@@ -447,6 +452,9 @@ async def shutdown_event() -> None:
     if _memory_decay_task is not None:
         _memory_decay_task.cancel()
         _memory_decay_task = None
+    from app.core.ttl_purge import ttl_purge_loop
+
+    await ttl_purge_loop.stop()
     await dream_cycle_runtime.dream_cycle_scanner.stop()
     await scheduled_task_scheduler.stop()
     await token_usage_dispatcher.stop()

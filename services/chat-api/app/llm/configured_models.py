@@ -8,8 +8,8 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any
 
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 from bson import ObjectId
-from bson.errors import InvalidId
 
 from app.core.db import get_db
 from app.core.config import get_settings
@@ -104,9 +104,10 @@ async def get_model_config_by_capability(
 ) -> dict[str, Any] | None:
     db = get_db()
     try:
-        instance = await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(model_id), "tenant_id": tenant_id})
-    except InvalidId as exc:
+        oid = to_backend_id_strict(model_id)
+    except ValueError as exc:
         raise ModelConfigError("模型配置 ID 无效") from exc
+    instance = await db[INSTANCE_COLLECTION].find_one({"_id": oid, "tenant_id": tenant_id})
     if instance is None:
         return None
     provider = await db[PROVIDER_COLLECTION].find_one({"_id": instance.get("provider_id")})
@@ -166,7 +167,7 @@ async def list_model_options(
 async def update_model_health(model_id: str, tenant_id: str, health_status: str, last_error: str = "") -> None:
     db = get_db()
     await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(model_id), "tenant_id": tenant_id},
+        {"_id": to_backend_id(model_id), "tenant_id": tenant_id},
         {
             "$set": {
                 "health_status": health_status,
@@ -329,9 +330,9 @@ async def get_fallback_runtime_configs(
         "capabilities": _capability_query_value(capability),
     }
     if primary_instance_id:
-        try:
-            query["_id"] = {"$ne": ObjectId(primary_instance_id)}
-        except InvalidId:
+        if is_valid_backend_id(primary_instance_id):
+            query["_id"] = {"$ne": to_backend_id(primary_instance_id)}
+        else:
             # An invalid/empty primary id simply means "no exclusion".
             query.pop("_id", None)
     cursor = db[INSTANCE_COLLECTION].find(query).sort([("priority", 1), ("updated_at", -1)])
@@ -389,8 +390,8 @@ async def get_llm_client_by_model_id(
         raise ModelConfigError("没有可用的模型配置")
     
     user_id = str((output_spec or {}).get("user_id") or "").strip()
-    if user_id and ObjectId.is_valid(user_id):
-        user_doc = await get_db()["end_users"].find_one({"_id": ObjectId(user_id), "tenant_id": tenant_id})
+    if user_id and is_valid_backend_id(user_id):
+        user_doc = await get_db()["end_users"].find_one({"_id": to_backend_id(user_id), "tenant_id": tenant_id})
         if user_doc:
             from app.core.quota_policy import QuotaExceededError, assert_quota_available
 

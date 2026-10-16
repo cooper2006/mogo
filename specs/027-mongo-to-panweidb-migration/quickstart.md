@@ -364,8 +364,8 @@ asyncio.run(go())
 
 ---
 
-**剩余待办**（见 [tasks.md](./tasks.md) T082–T087）：
+**R2 已交付**（见 [tasks.md](./tasks.md) T082–T087，均已勾选）：
 
-- 域级开关、202 处索引的 unique/sparse/partial 语义逐点核对
-- 正则方言与按对象比较主键的调用点核对
-- 补跑 document-parser 的锁定文件生成、补齐 `/speckit-checklist` 与 `/speckit-analyze`
+- 域级开关（`effective_data_backend_for`）、202 处索引的 unique/sparse/partial 语义逐点核对（T082–T083）
+- 正则方言与按对象比较主键的调用点核对（T084–T085）
+- document-parser 锁定文件生成、`/speckit-checklist` 与 `/speckit-analyze` 门禁登记（T086–T087）

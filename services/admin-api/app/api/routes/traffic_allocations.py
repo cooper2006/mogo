@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
@@ -94,7 +94,7 @@ async def get_traffic_allocation_overview(current_user: dict[str, Any] = Depends
         {"scope_id": 1, "quota_tokens": 1},
     ).to_list(length=50000)
     policy_user_ids = [str(policy.get("scope_id") or "") for policy in assigned_policies]
-    valid_user_oids = [ObjectId(user_id) for user_id in policy_user_ids if ObjectId.is_valid(user_id)]
+    valid_user_oids = [to_backend_id(user_id) for user_id in policy_user_ids if is_valid_backend_id(user_id)]
     existing_user_rows = (
         await db[USER_COLLECTION].find({"_id": {"$in": valid_user_oids}, "tenant_id": tenant_id}, {"_id": 1}).to_list(length=len(valid_user_oids))
         if valid_user_oids
@@ -287,9 +287,9 @@ async def update_user_policy(
     if payload.userId != user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户ID不一致")
     db = get_db()
-    if not ObjectId.is_valid(user_id):
+    if not is_valid_backend_id(user_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户ID无效")
-    user = await db[USER_COLLECTION].find_one({"_id": ObjectId(user_id), "tenant_id": tenant_id})
+    user = await db[USER_COLLECTION].find_one({"_id": to_backend_id(user_id), "tenant_id": tenant_id})
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
         
@@ -351,7 +351,7 @@ async def list_allocation_logs(
     skip = (page - 1) * pageSize
     total = await db[USER_QUOTA_LOG_COLLECTION].count_documents(query)
     logs = await db[USER_QUOTA_LOG_COLLECTION].find(query).sort("created_at", -1).skip(skip).limit(pageSize).to_list(length=pageSize)
-    user_ids = [ObjectId(row["user_id"]) for row in logs if ObjectId.is_valid(str(row.get("user_id") or ""))]
+    user_ids = [to_backend_id(row["user_id"]) for row in logs if is_valid_backend_id(str(row.get("user_id") or ""))]
     users = await db[USER_COLLECTION].find({"_id": {"$in": user_ids}}).to_list(length=pageSize) if user_ids else []
     user_map = {str(user.get("_id")): user for user in users}
     return {

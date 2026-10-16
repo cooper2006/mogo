@@ -125,8 +125,8 @@ async def pending_assignments(current_user: dict = Depends(get_current_admin_use
     assigned = await db[USER_ROLE_COLLECTION].distinct("user_id", {"tenant_id": tenant_id})
     query: dict[str, Any] = {"tenant_id": tenant_id, "status": {"$ne": "deleted"}}
     if assigned:
-        from bson import ObjectId
-        query["_id"] = {"$nin": [ObjectId(item) for item in assigned if ObjectId.is_valid(item)]}
+        from app.core.ids import is_valid_backend_id, to_backend_id
+        query["_id"] = {"$nin": [to_backend_id(item) for item in assigned if is_valid_backend_id(item)]}
     rows = await db.end_users.find(query).sort("updated_at", -1).to_list(length=5000)
     migration = await db[MIGRATION_COLLECTION].find_one({"tenant_id": tenant_id})
     return {
@@ -143,8 +143,8 @@ async def complete_assignment_migration(current_user: dict = Depends(get_current
     assigned = await db[USER_ROLE_COLLECTION].distinct("user_id", {"tenant_id": tenant_id})
     query: dict[str, Any] = {"tenant_id": tenant_id, "status": {"$ne": "deleted"}}
     if assigned:
-        from bson import ObjectId
-        query["_id"] = {"$nin": [ObjectId(item) for item in assigned if ObjectId.is_valid(item)]}
+        from app.core.ids import is_valid_backend_id, to_backend_id
+        query["_id"] = {"$nin": [to_backend_id(item) for item in assigned if is_valid_backend_id(item)]}
     pending_count = await db.end_users.count_documents(query)
     if pending_count:
         raise HTTPException(status_code=409, detail=f"仍有 {pending_count} 名员工未分配岗位角色")

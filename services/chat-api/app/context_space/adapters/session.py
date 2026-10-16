@@ -75,10 +75,11 @@ async def _load(
     db = get_db()
     if db is None:
         return None, {}
+    from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
     from bson import ObjectId
 
     try:
-        oid = ObjectId(addr.session_id)
+        oid = to_backend_id_strict(addr.session_id)
     except Exception as exc:
         log_print(f"[context_space.adapters.session._load] suppressed {type(exc).__name__}: {exc}", flush=True)
         return None, {}

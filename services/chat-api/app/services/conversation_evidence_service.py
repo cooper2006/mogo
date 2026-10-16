@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List
 
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 from bson import ObjectId
 from pydantic import BaseModel, Field
 
@@ -125,7 +126,7 @@ class ConversationEvidenceService:
 
     async def _load_rows(self, *, session_id: str, user_id: str, tenant_id: str) -> List[Dict[str, Any]]:
         try:
-            oid = ObjectId(str(session_id))
+            oid = to_backend_id_strict(str(session_id))
         except Exception as exc:
             raise LookupError("Invalid conversation session id") from exc
         query = add_tenant_scope(

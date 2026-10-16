@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -45,11 +46,11 @@ class ConversationRepository:
         return document
 
     async def delete_if_empty(self, conversation_id: str, *, tenant_id: str, user_id: str) -> None:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             return
         await self._sessions.delete_one(
             {
-                "_id": ObjectId(conversation_id),
+                "_id": to_backend_id(conversation_id),
                 "tenant_id": tenant_id,
                 "user_id": user_id,
                 "message_count": 0,
@@ -57,10 +58,10 @@ class ConversationRepository:
         )
 
     async def owned(self, conversation_id: str, *, tenant_id: str, user_id: str) -> dict[str, Any]:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             raise LookupError("conversation_not_found")
         row = await self._sessions.find_one(
-            {"_id": ObjectId(conversation_id), "tenant_id": tenant_id, "user_id": user_id}
+            {"_id": to_backend_id(conversation_id), "tenant_id": tenant_id, "user_id": user_id}
         )
         if row is None:
             raise LookupError("conversation_not_found")
@@ -94,7 +95,7 @@ class ConversationRepository:
                 raise ValueError("message id belongs to another Conversation")
             return existing
         session = await self._sessions.find_one_and_update(
-            {"_id": ObjectId(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
+            {"_id": to_backend_id(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
             {"$inc": {"next_message_seq": 1}},
             return_document=ReturnDocument.AFTER,
         )
@@ -165,7 +166,7 @@ class ConversationRepository:
         run_id: str,
     ) -> None:
         result = await self._sessions.update_one(
-            {"_id": ObjectId(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
+            {"_id": to_backend_id(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
             {"$set": {
                 "active_run": {
                     "run_id": run_id,
@@ -188,11 +189,11 @@ class ConversationRepository:
         user_id: str,
         message_id: str,
     ) -> None:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             return
         await self._sessions.update_one(
             {
-                "_id": ObjectId(conversation_id),
+                "_id": to_backend_id(conversation_id),
                 "tenant_id": tenant_id,
                 "user_id": user_id,
                 "active_run.message_id": message_id,
@@ -203,10 +204,10 @@ class ConversationRepository:
     async def set_pending_approval_count(
         self, *, conversation_id: str, tenant_id: str, user_id: str, count: int,
     ) -> None:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             return
         await self._sessions.update_one(
-            {"_id": ObjectId(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
+            {"_id": to_backend_id(conversation_id), "tenant_id": tenant_id, "user_id": user_id},
             {"$set": {"pending_approval_count": max(0, int(count)), "updated_at": datetime.now(tz=timezone.utc)}},
         )
 
@@ -219,11 +220,11 @@ class ConversationRepository:
         message_id: str,
         intervention: dict[str, Any],
     ) -> None:
-        if not ObjectId.is_valid(conversation_id):
+        if not is_valid_backend_id(conversation_id):
             return
         await self._sessions.update_one(
             {
-                "_id": ObjectId(conversation_id),
+                "_id": to_backend_id(conversation_id),
                 "tenant_id": tenant_id,
                 "user_id": user_id,
                 "active_run.message_id": message_id,

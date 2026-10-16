@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_current_admin_user
@@ -240,7 +240,7 @@ async def list_token_usage(
         filtered_rows = rows
 
     user_ids = list({str(row.get("user_id") or "").strip() for row in rows if str(row.get("user_id") or "").strip()})
-    user_oid_map = {uid: ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)}
+    user_oid_map = {uid: to_backend_id(uid) for uid in user_ids if is_valid_backend_id(uid)}
     user_docs = []
     if user_oid_map:
         user_docs = await user_coll.find({"_id": {"$in": list(user_oid_map.values())}}).to_list(length=20000)
@@ -260,7 +260,7 @@ async def list_token_usage(
         if key not in rel_map:
             rel_map[key] = rel_org_id
 
-    dept_oid_map = {dept_id: ObjectId(dept_id) for dept_id in dept_ids if ObjectId.is_valid(dept_id)}
+    dept_oid_map = {dept_id: to_backend_id(dept_id) for dept_id in dept_ids if is_valid_backend_id(dept_id)}
     dept_docs = []
     if dept_oid_map:
         dept_docs = await dept_coll.find({"_id": {"$in": list(dept_oid_map.values())}}, {"name": 1}).to_list(length=50000)

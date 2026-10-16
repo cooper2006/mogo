@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 
 from app.core.db import get_db
@@ -16,7 +17,7 @@ def _id_after(value: str) -> ObjectId | str | None:
     token = str(value or "").strip()
     if not token:
         return None
-    return ObjectId(token) if ObjectId.is_valid(token) else token
+    return to_backend_id(token) if is_valid_backend_id(token) else token
 
 
 def member_id_candidates(values: list[str]) -> list[ObjectId | str]:
@@ -25,7 +26,7 @@ def member_id_candidates(values: list[str]) -> list[ObjectId | str]:
         normalized = str(value or "").strip()
         if not normalized:
             continue
-        candidates.append(ObjectId(normalized) if ObjectId.is_valid(normalized) else normalized)
+        candidates.append(to_backend_id(normalized) if is_valid_backend_id(normalized) else normalized)
     return candidates
 
 
@@ -104,11 +105,12 @@ class SkillShareMemberDirectory:
         to ``{"userId": id, "displayName": "", "username": "", "email": ""}``
         so callers can still render the raw identifier.
         """
+        from app.core.ids import is_valid_backend_id, to_backend_id
         from bson import ObjectId
 
         def _norm(value: str) -> str:
             token = str(value or "").strip()
-            return str(ObjectId(token)) if ObjectId.is_valid(token) else token
+            return str(to_backend_id(token)) if is_valid_backend_id(token) else token
 
         by_id: dict[str, dict[str, str]] = {}
         for row in rows:

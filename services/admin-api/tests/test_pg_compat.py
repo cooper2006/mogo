@@ -468,3 +468,638 @@ def test_create_index_partial_and_sparse_conjunction():
     assert "IS NOT NULL" in sql
     assert "(doc #> '{b}') = '1'::jsonb" in sql
 
+
+# ── TTL（expireAfterSeconds）登记与清理 ─────────────────────────────────
+
+
+class _FakeCursor:
+    def __init__(self, log, rowcount):
+        self._log = log
+        self.rowcount = rowcount
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, sql, params=None):
+        self._log.append((sql, params))
+
+
+class _FakeConn:
+    def __init__(self, log, rowcount):
+        self._log = log
+        self._rowcount = rowcount
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def cursor(self):
+        return _FakeCursor(self._log, self._rowcount)
+
+
+class _FakePool:
+    def __init__(self, rowcount=0):
+        self.log: list = []
+        self._rowcount = rowcount
+
+    def connection(self):
+        return _FakeConn(self.log, self._rowcount)
+
+
+@pytest.fixture(autouse=True)
+def _clean_ttl_registry():
+    from app.core import pg_compat
+
+    pg_compat._TTL_REGISTRY.clear()
+    yield
+    pg_compat._TTL_REGISTRY.clear()
+
+
+@pytest.mark.asyncio
+async def test_create_index_registers_ttl_declaration():
+    from app.core import pg_compat
+    from app.core.pg_compat import PgCollection
+
+    coll = PgCollection(_FakePool(), "end_user_sessions", "s")
+
+    async def _noop(sql, params):
+        return None
+
+    coll._execute = _noop  # type: ignore[assignment]
+    await coll.create_index([("expires_at", 1)], expireAfterSeconds=0)
+    assert pg_compat.ttl_registry_snapshot()["end_user_sessions"] == ("expires_at", 0)
+
+
+@pytest.mark.asyncio
+async def test_purge_expired_ttl_builds_delete_and_counts():
+    from app.core import pg_compat
+    from app.core.pg_compat import purge_expired_ttl
+
+    pg_compat._TTL_REGISTRY["t"] = ("expires_at", 0)
+    pool = _FakePool(rowcount=3)
+    deleted = await purge_expired_ttl(pool, "s")
+    assert deleted == 3
+    sql, params = pool.log[0]
+    assert 'DELETE FROM "s"."t"' in sql
+    assert "doc ->> %s" in sql
+    assert params[0] == "expires_at"
+
+
+@pytest.mark.asyncio
+async def test_purge_expired_ttl_applies_offset_for_nonzero_seconds():
+    from app.core import pg_compat
+    from app.core.pg_compat import purge_expired_ttl
+
+    pg_compat._TTL_REGISTRY["audit"] = ("occurred_at", 86400)
+    pool = _FakePool(rowcount=1)
+    await purge_expired_ttl(pool, "s")
+    _, params = pool.log[0]
+    assert params[0] == "occurred_at"
+
+
+# ── R3 扁平化（027 方案 §5）────────────────────────────────────────────
+from app.core.column_map import (  # noqa: E402
+    COLUMN_MAP,
+    COLUMN_TYPES,
+    column_type,
+    mapped_columns,
+)
+from app.core.pg_compat import (  # noqa: E402
+    PgCollection,
+    _column_param_sql,
+    _column_sync_sql,
+    _column_value_to_doc,
+)
+
+
+def _flat_filter_compiler(table: str) -> _FilterCompiler:
+    """按 COLUMN_MAP 构造编译器（模拟 PgCollection 的用法）。"""
+    return _FilterCompiler(mapped_columns(table))
+
+
+def test_column_map_invariants():
+    """单一数据源不变量：44 表、列都有类型、doc_key↔column 1:1、基础列不入表。"""
+    assert len(COLUMN_MAP) == 44
+    base = {"id", "tenant_id", "created_at", "updated_at"}
+    for table, entries in COLUMN_MAP.items():
+        seen: dict[str, str] = {}
+        for key, col in entries.items():
+            assert col in COLUMN_TYPES, f"{table}.{col} 缺少类型"
+            assert col not in base, f"{table}: 基础列 {col} 不应入映射"
+            assert col not in seen, f"{table}: 列 {col} 被 {seen[col]} 与 {key} 重复映射"
+            seen[col] = key
+        assert entries, f"{table} 映射为空"
+    # 语义别名（doc_key != column）必须在档
+    assert COLUMN_MAP["admin_accounts"]["username"] == "login_name"
+    assert COLUMN_MAP["admin_accounts"]["display_name"] == "name"
+    assert COLUMN_MAP["chat_sessions"]["user_id"] == "owner_user_id"
+    assert COLUMN_MAP["organizations"]["org_name"] == "name"
+    # 非扁平表无映射
+    assert mapped_columns("audit_events") == {}
+
+
+def test_filter_routes_mapped_keys_to_real_columns():
+    # 注意：过滤键是 **doc_key**（业务代码视角），命中后走真实列。
+    compiler = _flat_filter_compiler("chat_sessions")
+    sql = compiler.compile({"user_id": "u1"})
+    assert sql == '("owner_user_id" = %s::text)'
+    assert compiler.params == ["u1"]
+
+    compiler = _flat_filter_compiler("knowledge_documents")
+    sql = compiler.compile({"status": {"$in": ["ready", "failed"]}})
+    assert sql == '(("status" IN (%s::text, %s::text)))'
+    assert compiler.params == ["ready", "failed"]
+
+    compiler = _flat_filter_compiler("knowledge_documents")
+    sql = compiler.compile({"file_size": {"$gte": 1024}})
+    assert sql == '(("file_size" >= %s::numeric))'
+    assert compiler.params == [1024]
+
+    # end_users 的别名方向：doc 键 name → 列 display_name
+    compiler = _flat_filter_compiler("end_users")
+    sql = compiler.compile({"name": {"$regex": "张.*"}})
+    assert sql == '((("display_name"::text) ~ %s))'
+    assert compiler.params == ["张.*"]
+
+    compiler = _flat_filter_compiler("chat_sessions")
+    assert compiler.compile({"deleted_at": None}) == '("deleted_at" IS NULL)'
+    assert compiler.compile({"deleted_at": {"$ne": None}}) == '(("deleted_at" IS NOT NULL))'
+    assert compiler.compile({"deleted_at": {"$exists": False}}) == (
+        '((NOT ("deleted_at" IS NOT NULL)))'
+    )
+
+
+def test_filter_keeps_doc_path_for_unmapped_and_nested_keys():
+    compiler = _flat_filter_compiler("chat_sessions")
+    sql = compiler.compile({"custom_dynamic": "x", "a.b": 1})
+    assert '(doc #> \'{custom_dynamic}\') = %s::jsonb' in sql
+    assert "(doc #> '{a,b}') = %s::jsonb" in sql
+    # to_json_text 把值统一序列化成 JSON 文本（字符串带引号，数字不带）
+    assert compiler.params == ['"x"', '1']
+
+
+def test_filter_jsonb_mapped_column_uses_jsonb_equality():
+    compiler = _flat_filter_compiler("chat_sessions")
+    sql = compiler.compile({"participant_ids": ["x"]})
+    assert sql == '("participant_ids" = %s::jsonb)'
+    assert compiler.params == ['["x"]']
+
+
+def test_create_index_uses_real_columns_for_mapped_fields():
+    # 索引键同样是 doc_key：user_id 命中 owner_user_id 列，title 同名命中。
+    sql = _build_create_index_sql(
+        '"s"."chat_sessions"',
+        "idx_x",
+        ["user_id", "title"],
+        column_map=mapped_columns("chat_sessions"),
+    )
+    assert sql == 'CREATE INDEX IF NOT EXISTS "idx_x" ON "s"."chat_sessions" ("owner_user_id", "title")'
+
+
+def test_create_index_partial_filter_routes_mapped_null():
+    sql = _build_create_index_sql(
+        '"s"."chat_sessions"',
+        "uq_y",
+        ["status"],
+        unique=True,
+        partialFilterExpression={"deleted_at": None},
+        column_map=mapped_columns("chat_sessions"),
+    )
+    # 软删除部分唯一索引：None 必须编译成 IS NULL（不能是 'null'::timestamptz）
+    assert sql.endswith('WHERE ("deleted_at" IS NULL)')
+    assert "'null'" not in sql
+
+
+def test_create_index_unmapped_field_keeps_expression_form():
+    sql = _build_create_index_sql(
+        '"s"."end_user_sessions"',
+        "idx_z",
+        ["expires_at"],
+        column_map=mapped_columns("end_user_sessions"),
+    )
+    assert "(doc #> '{expires_at}')" in sql
+
+
+def test_column_sync_sql_guards_json_null():
+    # 本库没有 jsonb ->> text[] 运算符：-> / ->> 遇 '{a,b}' 字面量只匹配
+    # text 重载（键名变成字面 "{a,b}"），恒为 NULL，列会被静默写空。
+    # 因此路径必须用 #> / #>>；JSON null 识别用纯运算符比较（#> = 'null'::jsonb）。
+    assert _column_sync_sql("s1.doc", "owner_user_id", "owner_user_id") == (
+        "(CASE WHEN (s1.doc #> '{owner_user_id}') = 'null'::jsonb "
+        "THEN NULL ELSE (s1.doc #>> '{owner_user_id}')::text END)"
+    )
+    assert _column_sync_sql("s1.doc", "sort_order", "sort_order") == (
+        "(CASE WHEN (s1.doc #> '{sort_order}') = 'null'::jsonb "
+        "THEN NULL ELSE (s1.doc #>> '{sort_order}')::integer END)"
+    )
+    assert _column_sync_sql("s1.doc", "tags", "tags") == "s1.doc #> '{tags}'"
+    synced = _column_sync_sql("s1.doc", "deleted_at", "deleted_at")
+    assert "jsonb_typeof" not in synced
+    # 回归：任何 -> / ->> 花括号路径字面量都不允许出现（真库上静默写 NULL）
+    assert "->'" not in synced and "->>'" not in synced
+
+
+def test_column_param_sql_types():
+    assert _column_param_sql("owner_user_id") == "%s::text"
+    assert _column_param_sql("sort_order") == "%s::integer"
+    assert _column_param_sql("file_size") == "%s::bigint"
+    assert _column_param_sql("tags") == "%s::jsonb"
+
+
+def test_column_value_to_doc_serializes_datetime():
+    from datetime import datetime, timezone
+
+    iso = "2026-10-16T08:00:00+00:00"
+    assert _column_value_to_doc(datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc)) == iso
+    assert _column_value_to_doc("plain") == "plain"
+    assert _column_value_to_doc(12) == 12
+
+
+class _RecordingPool(_FakePool):
+    """记录 SQL 且可按脚本返回行的连接池。"""
+
+    def __init__(self, rows=None, rowcount=0):
+        super().__init__(rowcount=rowcount)
+        self._rows = rows or []
+
+
+class _RowsCursor(_FakeCursor):
+    def __init__(self, log, rows):
+        super().__init__(log, 0)
+        self._rows = rows
+
+    async def fetchall(self):
+        return self._rows
+
+    async def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+
+class _RowsConn(_FakeConn):
+    def __init__(self, log, rows):
+        super().__init__(log, 0)
+        self._rows = rows
+
+    def cursor(self):
+        return _RowsCursor(self._log, self._rows)
+
+
+class _RowsPool(_FakePool):
+    def __init__(self, rows=None):
+        super().__init__()
+        self._rows = rows or []
+
+    def connection(self):
+        return _RowsConn(self.log, self._rows)
+
+
+@pytest.mark.asyncio
+async def test_insert_one_dual_writes_mapped_columns():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    async def _capture(sql, params):
+        captured.append((sql, params))
+        return 1
+
+    coll._execute = _capture  # type: ignore[assignment]
+    await coll.insert_one({
+        "_id": "s1", "tenant_id": "t1", "title": "会话",
+        "user_id": "u9",  # doc 键 user_id → owner_user_id 列
+        "tags": ["a"],
+    })
+    sql, params = captured[0]
+    assert "INSERT INTO \"s\".\"chat_sessions\" (id, tenant_id, doc," in sql
+    assert '"owner_user_id"' in sql and '"title"' in sql and '"participant_ids"' in sql
+    # doc 仍是第一份载荷；列值按 doc 键取值（JSONB 列序列化）
+    assert params[0] == "s1" and params[1] == "t1"
+    assert '"user_id": "u9"' in params[2]
+    assert "u9" in params            # owner_user_id 列参数
+    assert '"tags": ["a"]' in params[2]  # 未映射键只进 doc
+
+
+@pytest.mark.asyncio
+async def test_insert_one_without_mapping_keeps_original_sql():
+    coll = PgCollection(_RowsPool(), "end_user_sessions", "s")
+    captured: list = []
+
+    async def _capture(sql, params):
+        captured.append((sql, params))
+        return 1
+
+    coll._execute = _capture  # type: ignore[assignment]
+    await coll.insert_one({"_id": "x", "tenant_id": "t"})
+    sql, params = captured[0]
+    assert sql == (
+        'INSERT INTO "s"."end_user_sessions" (id, tenant_id, doc) '
+        "VALUES (%s, %s, %s::jsonb) ON CONFLICT (id) DO NOTHING"
+    )
+    assert len(params) == 3
+
+
+@pytest.mark.asyncio
+async def test_update_cte_syncs_mapped_columns():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    async def _scalar(sql, params):
+        return 1
+
+    async def _execute(sql, params):
+        captured.append((sql, params))
+        return 1
+
+    coll._scalar = _scalar  # type: ignore[assignment]
+    coll._execute = _execute  # type: ignore[assignment]
+    await coll.update_one({"_id": "s1"}, {"$set": {"user_id": "u7", "title": "新标题"}})
+    sql, _params = captured[0]
+    # 两个 $set → 步骤链 s0/s1/s2，末段 s2.doc 是最终 doc
+    assert "SET" in sql and "doc = s2.doc" in sql
+    # JSON null 防护：纯运算符比较；路径一律 #> / #>>（无 ->> text[] 运算符）
+    assert "(CASE WHEN (s2.doc #> '{user_id}') = 'null'::jsonb THEN NULL ELSE (s2.doc #>> '{user_id}')::text END)" in sql
+    assert "(s2.doc #>> '{title}')::text" in sql
+    assert "jsonb_typeof" not in sql
+    # 回归：花括号路径字面量禁止走 -> / ->>（真库上静默写 NULL）
+    assert "->'" not in sql and "->>'" not in sql
+
+
+@pytest.mark.asyncio
+async def test_find_one_selects_mapped_columns():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    async def _merged(sql, params, entries):
+        captured.append((sql, entries))
+        return []
+
+    coll._fetch_merged = _merged  # type: ignore[assignment]
+    await coll.find_one({"_id": "s1"})
+    sql, entries = captured[0]
+    assert sql.startswith('SELECT doc, "')
+    assert '"owner_user_id"' in sql and '"title"' in sql and '"participant_ids"' in sql
+    assert ("user_id", "owner_user_id") in entries
+
+
+@pytest.mark.asyncio
+async def test_read_path_merges_columns_over_doc():
+    """列值非空覆盖 doc；datetime 序列化回 ISO 字符串保持 doc 形状。"""
+    from datetime import datetime, timezone
+
+    doc_json = '{"_id": "s1", "title": "旧标题", "user_id": "u1"}'
+    # 行值顺序 = chat_sessions 的 entries 顺序（doc_key 排序，见 COLUMN_MAP）
+    rows = [(
+        doc_json,
+        "creator-1",                                        # created_by
+        datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc),  # deleted_at
+        None,                                               # last_message_at
+        "m-1",                                              # last_message_id
+        "预览",                                              # last_message_preview
+        ["u1", "u2"],                                       # participant_ids (JSONB)
+        "active",                                           # status
+        "标题",                                              # title
+        "p2p",                                              # type
+        None,                                               # updated_by
+        "u2",                                               # user_id -> owner_user_id
+    )]
+    coll = PgCollection(_RowsPool(rows=rows), "chat_sessions", "s")
+    # 用真实 _fetch_merged 走一遍
+    docs = await coll._fetch_merged("SELECT doc, ...", [], coll._column_entries())
+    assert docs[0]["_id"] == "s1"
+    assert docs[0]["title"] == "标题"             # 列覆盖 doc 旧值
+    assert docs[0]["user_id"] == "u2"             # doc 键被别名列值覆盖（列优先）
+    assert docs[0]["deleted_at"] == "2026-10-16T08:00:00+00:00"  # datetime 保形
+    assert "last_message_at" not in docs[0]       # 列 NULL 且 doc 无键 → 不新增
+    assert docs[0]["participant_ids"] == ["u1", "u2"]
+    assert docs[0]["created_by"] == "creator-1"
+
+
+# ── R3 后续优化：排序 / 去重 / 聚合路由 ──────────────────────────────────
+from app.core.pg_compat import (  # noqa: E402
+    _AggregationCompiler,
+    _order_by,
+    _order_expr,
+)
+
+
+def test_order_expr_routes_mapped_keys_to_real_columns():
+    columns = mapped_columns("chat_sessions")
+    assert _order_expr("user_id", 1, columns) == '"owner_user_id" ASC'
+    assert _order_expr("last_message_at", -1, columns) == '"last_message_at" DESC'
+    # 未命中 / 嵌套路径维持 doc 路径
+    assert _order_expr("custom_dynamic", 1, columns) == "doc #> '{custom_dynamic}' ASC"
+    assert _order_expr("a.b", -1, columns) == "doc #> '{a,b}' DESC"
+    # 非扁平表：columns 为空 → doc 路径（与改造前一致）
+    assert _order_expr("status", 1, {}) == "doc #> '{status}' ASC"
+
+
+def test_order_by_accepts_optional_column_map():
+    sort = [("user_id", 1), ("custom_dynamic", -1)]
+    assert _order_by(sort, mapped_columns("chat_sessions")) == (
+        ' ORDER BY "owner_user_id" ASC, doc #> \'{custom_dynamic}\' DESC'
+    )
+    assert _order_by(sort) == (
+        " ORDER BY doc #> '{user_id}' ASC, doc #> '{custom_dynamic}' DESC"
+    )
+    assert _order_by(None, mapped_columns("chat_sessions")) == ""
+
+
+@pytest.mark.asyncio
+async def test_find_one_sort_routes_mapped_keys():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    async def _merged(sql, params, entries):
+        captured.append(sql)
+        return []
+
+    coll._fetch_merged = _merged  # type: ignore[assignment]
+    await coll.find_one({"user_id": "u1"}, sort=[("user_id", -1), ("custom_dynamic", 1)])
+    sql = captured[0]
+    assert 'ORDER BY "owner_user_id" DESC, doc #> \'{custom_dynamic}\' ASC LIMIT 1' in sql
+
+
+@pytest.mark.asyncio
+async def test_cursor_sort_routes_mapped_keys():
+    coll = PgCollection(_RowsPool(rows=[("{}",)] + [None] * 11), "chat_sessions", "s")
+    captured: list = []
+
+    async def _merged(sql, params, entries):
+        captured.append(sql)
+        return []
+
+    coll._fetch_merged = _merged  # type: ignore[assignment]
+    cursor = coll.find({}).sort("user_id", 1).sort("custom_dynamic", -1).limit(5)
+    await cursor.to_list()
+    sql = captured[0]
+    assert 'ORDER BY "owner_user_id" ASC, doc #> \'{custom_dynamic}\' DESC LIMIT 5' in sql
+    assert "->'" not in sql and "->>'" not in sql
+
+
+@pytest.mark.asyncio
+async def test_distinct_routes_mapped_key():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    class _Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return _CapturingCursor(captured, rows=[("u1",), (None,)])
+
+    coll._pool.connection = lambda: _Conn()  # type: ignore[assignment]
+    result = await coll.distinct("user_id", {"tenant_id": "t1"})
+    sql = captured[0]
+    assert 'SELECT DISTINCT "owner_user_id" AS v' in sql
+    assert "->'" not in sql and "->>'" not in sql
+    assert result == ["u1"]  # None 被过滤；text 列形状不变
+
+
+@pytest.mark.asyncio
+async def test_distinct_normalizes_column_value_shapes():
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    coll = PgCollection(_RowsPool(), "knowledge_documents", "s")
+    captured: list = []
+
+    class _Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return _CapturingCursor(
+                captured,
+                rows=[
+                    (datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc), "file_size"),
+                    (Decimal("1024"), "file_size"),
+                    (Decimal("10.5"), "file_size"),
+                ],
+            )
+
+    coll._pool.connection = lambda: _Conn()  # type: ignore[assignment]
+    result = await coll.distinct("file_size")
+    assert result == [
+        "2026-10-16T08:00:00+00:00",  # timestamptz → ISO 字符串（doc 路径同形状）
+        1024,                          # Decimal 整数 → int
+        10.5,                          # Decimal 小数 → float
+    ]
+
+
+@pytest.mark.asyncio
+async def test_distinct_keeps_doc_path_for_unmapped_key():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    class _Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def cursor(self):
+            return _CapturingCursor(captured, rows=[("x",)])
+
+    coll._pool.connection = lambda: _Conn()  # type: ignore[assignment]
+    await coll.distinct("a.b")
+    assert "SELECT DISTINCT doc #> '{a,b}' AS v" in captured[0]
+
+
+class _CapturingCursor:
+    def __init__(self, log, rows):
+        self._log = log
+        self._rows = rows
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, sql, params=None):
+        self._log.append(sql)
+
+    async def fetchall(self):
+        return self._rows
+
+
+def _agg_sql(pipeline, table="chat_sessions"):
+    compiler = _AggregationCompiler('"s"."chat_sessions"', mapped_columns(table))
+    sql = compiler.compile(pipeline)
+    assert len(PLACEHOLDER.findall(sql)) == len(compiler.params), (
+        f"占位符/参数数量不符: {sql!r} vs {compiler.params!r}"
+    )
+    return sql, compiler.params
+
+
+def test_aggregate_first_stage_match_routes_mapped_keys():
+    sql, params = _agg_sql([{"$match": {"user_id": "u1", "status": {"$in": ["a"]}}}])
+    assert '("owner_user_id" = %s::text)' in sql
+    assert '(("status" IN (%s::text)))' in sql
+    # 路由到 text 列后 $in 参数是原始值（doc 路径才会 JSON 序列化成 '"a"'）
+    assert params == ["u1", "a"]
+    assert "->'" not in sql and "->>'" not in sql
+
+
+def test_aggregate_match_after_group_keeps_doc_path():
+    # $group 之后的阶段输入是 (id, doc) CTE，没有真实列 → 必须走 doc 路径
+    sql, _params = _agg_sql([
+        {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+        {"$match": {"user_id": "u1"}},
+    ])
+    assert "(doc #> '{user_id}') = %s::jsonb" in sql
+    assert '"owner_user_id"' not in sql
+
+
+def test_aggregate_first_stage_sort_routes_mapped_keys():
+    # $sort 首阶段：自身 ORDER BY 走列；存入 _order 的复用表达式保持 doc 路径
+    sql, _params = _agg_sql([{"$sort": {"user_id": -1, "custom_dynamic": 1}}])
+    assert 'ORDER BY "owner_user_id" DESC, doc #> \'{custom_dynamic}\' ASC' in sql
+    assert "->'" not in sql and "->>'" not in sql
+    # 后续 $limit 复用 doc 路径（CTE 上才有效）
+    sql2, _p2 = _agg_sql([
+        {"$sort": {"user_id": -1}},
+        {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+        {"$limit": 5},
+    ])
+    assert 'ORDER BY "owner_user_id" DESC' in sql2
+    assert "(doc #> '{user_id}') DESC" in sql2
+
+
+def test_aggregate_sort_after_match_keeps_doc_path():
+    sql, _params = _agg_sql([
+        {"$match": {"status": "ready"}},
+        {"$sort": {"user_id": 1}},
+    ])
+    # 第二个阶段的输入是 CTE（ag1），只有 (id, doc)
+    assert "ORDER BY (doc #> '{user_id}') ASC" in sql
+    assert '"owner_user_id" ASC' not in sql
+
+
+def test_aggregate_group_still_uses_doc_path():
+    # $group 的 _id 与累加器仍走 doc 路径（本次不改语义）
+    sql, _params = _agg_sql([{"$group": {"_id": "$user_id", "n": {"$sum": 1}}}])
+    assert "GROUP BY 1" in sql
+    # _expr_json 自带一层括号，f"({key_sql}) AS k" 再包一层
+    assert "((doc #> '{user_id}')) AS k" in sql
+
+
+def test_column_value_to_doc_normalizes_decimal():
+    from decimal import Decimal
+
+    assert _column_value_to_doc(Decimal("5")) == 5
+    assert isinstance(_column_value_to_doc(Decimal("5")), int)
+    assert _column_value_to_doc(Decimal("5.5")) == 5.5
+    assert isinstance(_column_value_to_doc(Decimal("5.5")), float)

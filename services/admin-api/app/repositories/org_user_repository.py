@@ -4,7 +4,7 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from bson import ObjectId
+from app.core.ids import to_backend_id
 from pymongo import ReturnDocument
 from pymongo.errors import OperationFailure
 
@@ -92,7 +92,7 @@ async def find_group_by_code(code: str, tenant_id: str) -> dict | None:
 
 async def find_group_by_id(group_id: str, tenant_id: str) -> dict | None:
     db = get_db()
-    filter_q = sanitize_query_filter({"_id": ObjectId(group_id), "tenant_id": tenant_id})
+    filter_q = sanitize_query_filter({"_id": to_backend_id(group_id), "tenant_id": tenant_id})
     return await db[GROUP_COLLECTION].find_one(filter_q)
 
 
@@ -120,7 +120,7 @@ async def create_account_group(payload: dict) -> dict:
 async def update_account_group(group_id: str, payload: dict) -> bool:
     db = get_db()
     result = await db[GROUP_COLLECTION].update_one(
-        {"_id": ObjectId(group_id), "tenant_id": payload["tenant_id"]},
+        {"_id": to_backend_id(group_id), "tenant_id": payload["tenant_id"]},
         {
             "$set": {
                 "name": payload["name"],
@@ -135,13 +135,13 @@ async def update_account_group(group_id: str, payload: dict) -> bool:
 
 async def delete_account_group(group_id: str, tenant_id: str) -> bool:
     db = get_db()
-    group = await db[GROUP_COLLECTION].find_one({"_id": ObjectId(group_id), "tenant_id": tenant_id})
+    group = await db[GROUP_COLLECTION].find_one({"_id": to_backend_id(group_id), "tenant_id": tenant_id})
     if group is None:
         return False
     in_use_count = await db[ACCOUNT_COLLECTION].count_documents({"group_code": group["code"], "tenant_id": tenant_id})
     if in_use_count > 0:
         raise ValueError("账号组下仍有账号，无法删除")
-    result = await db[GROUP_COLLECTION].delete_one({"_id": ObjectId(group_id), "tenant_id": tenant_id})
+    result = await db[GROUP_COLLECTION].delete_one({"_id": to_backend_id(group_id), "tenant_id": tenant_id})
     return result.deleted_count > 0
 
 
@@ -182,7 +182,7 @@ async def list_accounts_by_username(username: str) -> list[dict]:
 
 async def find_account_by_id(account_id: str, tenant_id: str) -> dict | None:
     db = get_db()
-    filter_q = sanitize_query_filter({"_id": ObjectId(account_id), "tenant_id": tenant_id})
+    filter_q = sanitize_query_filter({"_id": to_backend_id(account_id), "tenant_id": tenant_id})
     return await db[ACCOUNT_COLLECTION].find_one(filter_q)
 
 
@@ -215,7 +215,7 @@ async def create_account(payload: dict) -> dict:
 async def update_account(account_id: str, payload: dict) -> bool:
     db = get_db()
     result = await db[ACCOUNT_COLLECTION].update_one(
-        {"_id": ObjectId(account_id), "tenant_id": payload["tenant_id"]},
+        {"_id": to_backend_id(account_id), "tenant_id": payload["tenant_id"]},
         {
             "$set": {
                 "display_name": payload["display_name"],
@@ -233,12 +233,12 @@ async def update_account(account_id: str, payload: dict) -> bool:
 
 async def delete_account(account_id: str, tenant_id: str) -> bool:
     db = get_db()
-    account = await db[ACCOUNT_COLLECTION].find_one({"_id": ObjectId(account_id), "tenant_id": tenant_id})
+    account = await db[ACCOUNT_COLLECTION].find_one({"_id": to_backend_id(account_id), "tenant_id": tenant_id})
     if account is None:
         return False
     if bool(account.get("is_protected", False)):
         raise ValueError("系统内置账号不可删除")
-    result = await db[ACCOUNT_COLLECTION].delete_one({"_id": ObjectId(account_id), "tenant_id": tenant_id})
+    result = await db[ACCOUNT_COLLECTION].delete_one({"_id": to_backend_id(account_id), "tenant_id": tenant_id})
     return result.deleted_count > 0
 
 

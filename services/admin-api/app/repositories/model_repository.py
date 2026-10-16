@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
+from app.core.ids import to_backend_id
 from pymongo.errors import OperationFailure
 
 from app.core.config import settings
@@ -120,7 +120,7 @@ async def list_providers() -> list[dict[str, Any]]:
 
 async def find_provider_by_id(provider_id: str) -> dict[str, Any] | None:
     db = get_db()
-    return await db[PROVIDER_COLLECTION].find_one({"_id": ObjectId(provider_id)})
+    return await db[PROVIDER_COLLECTION].find_one({"_id": to_backend_id(provider_id)})
 
 
 async def list_instances(tenant_id: str) -> list[dict[str, Any]]:
@@ -131,7 +131,7 @@ async def list_instances(tenant_id: str) -> list[dict[str, Any]]:
 
 async def find_instance_by_id(instance_id: str, tenant_id: str) -> dict[str, Any] | None:
     db = get_db()
-    return await db[INSTANCE_COLLECTION].find_one({"_id": ObjectId(instance_id), "tenant_id": tenant_id})
+    return await db[INSTANCE_COLLECTION].find_one({"_id": to_backend_id(instance_id), "tenant_id": tenant_id})
 
 
 async def create_instance(payload: dict[str, Any]) -> str:
@@ -139,7 +139,7 @@ async def create_instance(payload: dict[str, Any]) -> str:
     now = utcnow()
     doc = {
         "tenant_id": payload["tenant_id"],
-        "provider_id": ObjectId(payload["provider_id"]),
+        "provider_id": to_backend_id(payload["provider_id"]),
         "org_id": payload.get("org_id") or "",
         "display_name": payload["display_name"],
         "model_name": payload["model_name"],
@@ -171,7 +171,7 @@ async def create_instance(payload: dict[str, Any]) -> str:
 async def update_instance(instance_id: str, payload: dict[str, Any]) -> bool:
     db = get_db()
     set_doc: dict[str, Any] = {
-        "provider_id": ObjectId(payload["provider_id"]),
+        "provider_id": to_backend_id(payload["provider_id"]),
         "org_id": payload.get("org_id") or "",
         "display_name": payload["display_name"],
         "model_name": payload["model_name"],
@@ -195,7 +195,7 @@ async def update_instance(instance_id: str, payload: dict[str, Any]) -> bool:
         set_doc["api_secret_masked"] = mask_secret(payload["api_secret"])
 
     result = await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(instance_id), "tenant_id": payload["tenant_id"]},
+        {"_id": to_backend_id(instance_id), "tenant_id": payload["tenant_id"]},
         {"$set": set_doc},
     )
     if result.matched_count > 0 and set_doc["is_default"]:
@@ -205,7 +205,7 @@ async def update_instance(instance_id: str, payload: dict[str, Any]) -> bool:
 
 async def delete_instance(instance_id: str, tenant_id: str) -> bool:
     db = get_db()
-    result = await db[INSTANCE_COLLECTION].delete_one({"_id": ObjectId(instance_id), "tenant_id": tenant_id})
+    result = await db[INSTANCE_COLLECTION].delete_one({"_id": to_backend_id(instance_id), "tenant_id": tenant_id})
     return result.deleted_count > 0
 
 
@@ -216,11 +216,11 @@ async def set_default_instance(instance_id: str, tenant_id: str) -> bool:
         return False
     now = utcnow()
     await db[INSTANCE_COLLECTION].update_many(
-        {"tenant_id": tenant_id, "_id": {"$ne": ObjectId(instance_id)}},
+        {"tenant_id": tenant_id, "_id": {"$ne": to_backend_id(instance_id)}},
         {"$set": {"is_default": False, "updated_at": now}},
     )
     await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(instance_id), "tenant_id": tenant_id},
+        {"_id": to_backend_id(instance_id), "tenant_id": tenant_id},
         {"$set": {"is_default": True, "updated_at": now}},
     )
     return True
@@ -229,7 +229,7 @@ async def set_default_instance(instance_id: str, tenant_id: str) -> bool:
 async def update_instance_health(instance_id: str, tenant_id: str, health_status: str, last_error: str = "") -> None:
     db = get_db()
     await db[INSTANCE_COLLECTION].update_one(
-        {"_id": ObjectId(instance_id), "tenant_id": tenant_id},
+        {"_id": to_backend_id(instance_id), "tenant_id": tenant_id},
         {
             "$set": {
                 "health_status": health_status,

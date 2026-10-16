@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
+from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -77,10 +78,10 @@ class ScheduledTaskRepository:
         return [serialize_job(row) async for row in cursor]
 
     async def get_job(self, job_id: str, *, tenant_id: str, user_id: str) -> Dict[str, Any] | None:
-        if not ObjectId.is_valid(job_id):
+        if not is_valid_backend_id(job_id):
             return None
         return await get_db()[JOBS].find_one(
-            {"_id": ObjectId(job_id), "tenant_id": resolve_tenant_id(tenant_id), "owner_user_id": str(user_id)}
+            {"_id": to_backend_id(job_id), "tenant_id": resolve_tenant_id(tenant_id), "owner_user_id": str(user_id)}
         )
 
     async def create_job(self, payload: Dict[str, Any], *, tenant_id: str, user_id: str) -> Dict[str, Any]:
@@ -147,10 +148,10 @@ class ScheduledTaskRepository:
         return serialize_job(doc) if doc else None
 
     async def delete_job(self, job_id: str, *, tenant_id: str, user_id: str) -> bool:
-        if not ObjectId.is_valid(job_id):
+        if not is_valid_backend_id(job_id):
             return False
         result = await get_db()[JOBS].delete_one(
-            {"_id": ObjectId(job_id), "tenant_id": resolve_tenant_id(tenant_id), "owner_user_id": str(user_id)}
+            {"_id": to_backend_id(job_id), "tenant_id": resolve_tenant_id(tenant_id), "owner_user_id": str(user_id)}
         )
         return bool(result.deleted_count)
 
@@ -215,7 +216,7 @@ class ScheduledTaskRepository:
 
     async def get_job_for_run(self, run: Dict[str, Any]) -> Dict[str, Any] | None:
         job_id = str(run.get("job_id") or "")
-        return await get_db()[JOBS].find_one({"_id": ObjectId(job_id)}) if ObjectId.is_valid(job_id) else None
+        return await get_db()[JOBS].find_one({"_id": to_backend_id(job_id)}) if is_valid_backend_id(job_id) else None
 
     async def fail_pending_run(self, run: Dict[str, Any], error: str) -> None:
         now = utc_now()
