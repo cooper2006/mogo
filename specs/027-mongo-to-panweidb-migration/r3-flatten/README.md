@@ -35,6 +35,7 @@ docker exec panweidb sh -c "su - omm -c 'export PATH=/database/panweidb/soft/bin
 | `gen_fix.py` | 基于 doc 真实 key 生成候选映射表 + 03b SQL | 工具 |
 | `collect.py` / `collect_keys.sql` | 导出各表 doc 实际 key（供匹配分析） | 工具 |
 | `analyze.py` | 列名 vs doc key 匹配分析 → `mapping_report.md` | 工具 |
+| `e2e_smoke.py` | 兼容层端到端冒烟：fake pool 捕获真实 SQL → 内联参数 → 可 gsql 执行；验证筛选/双写/列同步/索引路由 | 工具 |
 | `exec_01.txt` … `exec_03b.txt` | 四个阶段的执行日志（gsql 原样输出，含 `UPDATE/ANONYMOUS BLOCK EXECUTE` 回显）。仓库 `.gitignore` 忽略 `*.log`，故以 `.txt` 存档 | 执行证据 |
 
 工具默认读写 `/tmp/migration/`，归档副本仅作留存；重跑时改 `OUT`/路径即可。
@@ -49,6 +50,22 @@ docker exec panweidb sh -c "su - omm -c 'export PATH=/database/panweidb/soft/bin
 | 同名列回填 | 455 条 UPDATE，0 错误 |
 | 语义映射回填 | 24 条 UPDATE，0 错误；抽查值与 doc 完全一致 |
 | 索引 | **44 条**，0 错误；库内现存索引 491 个（本目录 44 + 既有 btree 447） |
+
+## 兼容层 §5 改造（2026-10-16 已落地，代码侧）
+
+加列与回填只是让「列存在」；让列真正生效的是兼容层改造（方案 §5），本次已实现并真库冒烟通过：
+
+- **单一数据源**：`services/{chat-api,admin-api,document-parser}/app/core/column_map.py`（三份逐字节相同），
+  `COLUMN_MAP` = 44 张表的 `{doc_key: column}` 1:1 映射（含 24 条语义别名，如
+  `chat_sessions.user_id→owner_user_id`），另有全局 `COLUMN_TYPES` 与 `mapped_columns()` 等辅助函数。
+- **双写**：`INSERT` / `UPDATE` / `replace_one` 在同一语句内把 doc 键同步进映射列
+  （`_update` 用 CTE 链算新 doc，列同步基于新 doc 的 `#>>` 表达式，保持原子性）。
+- **读路径列优先**：`find_one` / `find` 的 `SELECT` 附带映射列，列值非空即覆盖 doc 同名键
+  （datetime 序列化回 ISO 字符串，doc 形状不变）；doc 仍是兜底与动态字段存储。
+- **筛选 / 索引路由**：COLUMN_MAP 命中的顶层键走真实列（btree 可用），未命中走 doc JSONB 路径。
+- **测试**：`services/admin-api/tests/test_pg_compat.py` 74 例（含 15 个 R3 新增）+ `deploy/tests/test_pg_compat_parity.py` 14 例全过；
+  真库端到端冒烟（捕获兼容层真实 SQL → gsql 执行）验证 `UPDATE 1` 且列值正确同步。
+- **向后兼容红线**：非平铺表 `COLUMN_MAP` 为空，生成 SQL 与改造前逐字节一致。
 
 ## 踩坑与注意事项
 
@@ -65,10 +82,17 @@ docker exec panweidb sh -c "su - omm -c 'export PATH=/database/panweidb/soft/bin
    等留空列上的部分唯一索引可正常创建。
 5. **回填可重跑**：全部 `UPDATE ... WHERE doc->>'key' IS NOT NULL` 形式，重复执行结果一致。
    但注意：若应用随后通过 `doc` 写入新值，重跑回填会用旧 doc 值覆盖列值。
+6. **【兼容层最关键】本库没有 `jsonb ->> text[]` 运算符**：`->` / `->>` 右遇 `'{a,b}'`
+   字面量只匹配 **text 重载**，键名变成字面字符串 `"{a,b}"` → 恒为 NULL（常量即可复现；
+   显式 `doc ->> ('{title}'::text[])` 直接报 `operator does not exist`）。列同步曾写成
+   `->>'{key}'`，真库上**列被静默写 NULL**（doc 完好、`UPDATE 1` 照常返回，极具迷惑性），
+   还一度被误诊为「SET 上下文函数调用返回 NULL」。**jsonb 路径表达式一律用 `#>` / `#>>`**
+   （只接受 text[]，无歧义），测试已固化 `"->'" not in sql` 回归断言。
 
 ## 遗留项（未映射列保持 NULL）
 
-约 83 列留空，待兼容层 `COLUMN_MAP`（方案 §5）实现后由应用双写填充：
+约 83 列留空。兼容层 `COLUMN_MAP`（`app/core/column_map.py`）已落地，其中已映射的键由应用双写填充；
+以下列**不在 COLUMN_MAP 内**，保持 NULL 待后续处理：
 
 - **doc 结构完全不同的表**：`autonomy_matrix`（doc 仅 cell/risk/level/decision）、
   `gatekeeper_rules`（仅 kind/mode 等）；

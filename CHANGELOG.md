@@ -8,6 +8,18 @@ image.
 
 ### Added
 
+- **027 数据后端迁移 R3（关系扁平化 + 兼容层 §5 改造）**：在 R1/R2 兼容门面之上，
+  对 44 张表做「列 + doc」双形态落库，并让扁平化**真正生效**：
+  - 实体库落地：455 列加列、同名列 + 24 条语义映射回填、44 条索引（含
+    `WHERE deleted_at IS NULL` 部分唯一索引），openGauss 实测 0 错误；
+    产物与审查清单归档于 `specs/027-mongo-to-panweidb-migration/r3-flatten/`。
+  - 兼容层改造：新增 `app/core/column_map.py`（44 表 `{doc_key: column}` 1:1 映射，
+    三服务副本逐字节相同）作为单一数据源；`pg_compat.py` 据此实现**双写**
+    （INSERT/UPDATE/replace_one 同语句写列，CTE 保证原子性）、**读路径列优先**
+    （SELECT 带列，非空覆盖 doc，datetime 序列化回 ISO 保形）、**筛选/索引路由**
+    （命中键走真实列可用 btree）。非平铺表 map 为空，生成 SQL 与改造前一致。
+  - 真库端到端冒烟（`r3-flatten/e2e_smoke.py`）：捕获兼容层真实 SQL 至 openGauss
+    执行，验证 `UPDATE 1` 且列值正确同步（含语义别名 `user_id→owner_user_id`）。
 - **027 数据后端迁移 R2（兼容层接线）**：在 R1 的门面上补齐**聚合管道**与
   **`bulk_write`**，使 25 处 `aggregate()` 调用点**仍然零修改**即可在 PanWeiDB 上工作。
   - 聚合管道编译器 `app/core/pg_compat.py::_AggregationCompiler`：阶段
@@ -42,6 +54,12 @@ image.
 
 ### Known limitations
 
+- **本库没有 `jsonb ->> text[]` 运算符**：`->` / `->>` 右遇 `'{a,b}'` 字面量只匹配
+  **text 重载**，键名变成字面字符串 `"{a,b}"` → 恒为 NULL（常量即可复现；显式
+  `doc ->> ('{k}'::text[])` 直接报 `operator does not exist`）。**jsonb 路径表达式
+  一律用 `#>` / `#>>`**（只接受 text[]、无歧义）；若误用 `->>'{k}'` 写列同步，
+  真库上列被**静默写 NULL**（doc 完好、`UPDATE 1` 照常返回），测试已固化
+  `"->'" not in sql` 回归断言。
 - **`min()` / `max()` 聚合在 openGauss 上按文本比较 jsonb**（PostgreSQL 按类型序），
   实测 `$max` 在 `999` 与 `4343` 之间会取到 `"999"`；且其返回类型是 `text` 而非 jsonb。
   兼容层已改用 `(array_agg(x ORDER BY x))[1]`（jsonb 的**排序运算符本身是正确的**），

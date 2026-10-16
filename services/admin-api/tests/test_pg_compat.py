@@ -561,3 +561,320 @@ async def test_purge_expired_ttl_applies_offset_for_nonzero_seconds():
     _, params = pool.log[0]
     assert params[0] == "occurred_at"
 
+
+# ── R3 扁平化（027 方案 §5）────────────────────────────────────────────
+from app.core.column_map import (  # noqa: E402
+    COLUMN_MAP,
+    COLUMN_TYPES,
+    column_type,
+    mapped_columns,
+)
+from app.core.pg_compat import (  # noqa: E402
+    PgCollection,
+    _column_param_sql,
+    _column_sync_sql,
+    _column_value_to_doc,
+)
+
+
+def _flat_filter_compiler(table: str) -> _FilterCompiler:
+    """按 COLUMN_MAP 构造编译器（模拟 PgCollection 的用法）。"""
+    return _FilterCompiler(mapped_columns(table))
+
+
+def test_column_map_invariants():
+    """单一数据源不变量：44 表、列都有类型、doc_key↔column 1:1、基础列不入表。"""
+    assert len(COLUMN_MAP) == 44
+    base = {"id", "tenant_id", "created_at", "updated_at"}
+    for table, entries in COLUMN_MAP.items():
+        seen: dict[str, str] = {}
+        for key, col in entries.items():
+            assert col in COLUMN_TYPES, f"{table}.{col} 缺少类型"
+            assert col not in base, f"{table}: 基础列 {col} 不应入映射"
+            assert col not in seen, f"{table}: 列 {col} 被 {seen[col]} 与 {key} 重复映射"
+            seen[col] = key
+        assert entries, f"{table} 映射为空"
+    # 语义别名（doc_key != column）必须在档
+    assert COLUMN_MAP["admin_accounts"]["username"] == "login_name"
+    assert COLUMN_MAP["admin_accounts"]["display_name"] == "name"
+    assert COLUMN_MAP["chat_sessions"]["user_id"] == "owner_user_id"
+    assert COLUMN_MAP["organizations"]["org_name"] == "name"
+    # 非扁平表无映射
+    assert mapped_columns("audit_events") == {}
+
+
+def test_filter_routes_mapped_keys_to_real_columns():
+    # 注意：过滤键是 **doc_key**（业务代码视角），命中后走真实列。
+    compiler = _flat_filter_compiler("chat_sessions")
+    sql = compiler.compile({"user_id": "u1"})
+    assert sql == '("owner_user_id" = %s::text)'
+    assert compiler.params == ["u1"]
+
+    compiler = _flat_filter_compiler("knowledge_documents")
+    sql = compiler.compile({"status": {"$in": ["ready", "failed"]}})
+    assert sql == '(("status" IN (%s::text, %s::text)))'
+    assert compiler.params == ["ready", "failed"]
+
+    compiler = _flat_filter_compiler("knowledge_documents")
+    sql = compiler.compile({"file_size": {"$gte": 1024}})
+    assert sql == '(("file_size" >= %s::numeric))'
+    assert compiler.params == [1024]
+
+    # end_users 的别名方向：doc 键 name → 列 display_name
+    compiler = _flat_filter_compiler("end_users")
+    sql = compiler.compile({"name": {"$regex": "张.*"}})
+    assert sql == '((("display_name"::text) ~ %s))'
+    assert compiler.params == ["张.*"]
+
+    compiler = _flat_filter_compiler("chat_sessions")
+    assert compiler.compile({"deleted_at": None}) == '("deleted_at" IS NULL)'
+    assert compiler.compile({"deleted_at": {"$ne": None}}) == '(("deleted_at" IS NOT NULL))'
+    assert compiler.compile({"deleted_at": {"$exists": False}}) == (
+        '((NOT ("deleted_at" IS NOT NULL)))'
+    )
+
+
+def test_filter_keeps_doc_path_for_unmapped_and_nested_keys():
+    compiler = _flat_filter_compiler("chat_sessions")
+    sql = compiler.compile({"custom_dynamic": "x", "a.b": 1})
+    assert '(doc #> \'{custom_dynamic}\') = %s::jsonb' in sql
+    assert "(doc #> '{a,b}') = %s::jsonb" in sql
+    # to_json_text 把值统一序列化成 JSON 文本（字符串带引号，数字不带）
+    assert compiler.params == ['"x"', '1']
+
+
+def test_filter_jsonb_mapped_column_uses_jsonb_equality():
+    compiler = _flat_filter_compiler("chat_sessions")
+    sql = compiler.compile({"participant_ids": ["x"]})
+    assert sql == '("participant_ids" = %s::jsonb)'
+    assert compiler.params == ['["x"]']
+
+
+def test_create_index_uses_real_columns_for_mapped_fields():
+    # 索引键同样是 doc_key：user_id 命中 owner_user_id 列，title 同名命中。
+    sql = _build_create_index_sql(
+        '"s"."chat_sessions"',
+        "idx_x",
+        ["user_id", "title"],
+        column_map=mapped_columns("chat_sessions"),
+    )
+    assert sql == 'CREATE INDEX IF NOT EXISTS "idx_x" ON "s"."chat_sessions" ("owner_user_id", "title")'
+
+
+def test_create_index_partial_filter_routes_mapped_null():
+    sql = _build_create_index_sql(
+        '"s"."chat_sessions"',
+        "uq_y",
+        ["status"],
+        unique=True,
+        partialFilterExpression={"deleted_at": None},
+        column_map=mapped_columns("chat_sessions"),
+    )
+    # 软删除部分唯一索引：None 必须编译成 IS NULL（不能是 'null'::timestamptz）
+    assert sql.endswith('WHERE ("deleted_at" IS NULL)')
+    assert "'null'" not in sql
+
+
+def test_create_index_unmapped_field_keeps_expression_form():
+    sql = _build_create_index_sql(
+        '"s"."end_user_sessions"',
+        "idx_z",
+        ["expires_at"],
+        column_map=mapped_columns("end_user_sessions"),
+    )
+    assert "(doc #> '{expires_at}')" in sql
+
+
+def test_column_sync_sql_guards_json_null():
+    # 本库没有 jsonb ->> text[] 运算符：-> / ->> 遇 '{a,b}' 字面量只匹配
+    # text 重载（键名变成字面 "{a,b}"），恒为 NULL，列会被静默写空。
+    # 因此路径必须用 #> / #>>；JSON null 识别用纯运算符比较（#> = 'null'::jsonb）。
+    assert _column_sync_sql("s1.doc", "owner_user_id", "owner_user_id") == (
+        "(CASE WHEN (s1.doc #> '{owner_user_id}') = 'null'::jsonb "
+        "THEN NULL ELSE (s1.doc #>> '{owner_user_id}')::text END)"
+    )
+    assert _column_sync_sql("s1.doc", "sort_order", "sort_order") == (
+        "(CASE WHEN (s1.doc #> '{sort_order}') = 'null'::jsonb "
+        "THEN NULL ELSE (s1.doc #>> '{sort_order}')::integer END)"
+    )
+    assert _column_sync_sql("s1.doc", "tags", "tags") == "s1.doc #> '{tags}'"
+    synced = _column_sync_sql("s1.doc", "deleted_at", "deleted_at")
+    assert "jsonb_typeof" not in synced
+    # 回归：任何 -> / ->> 花括号路径字面量都不允许出现（真库上静默写 NULL）
+    assert "->'" not in synced and "->>'" not in synced
+
+
+def test_column_param_sql_types():
+    assert _column_param_sql("owner_user_id") == "%s::text"
+    assert _column_param_sql("sort_order") == "%s::integer"
+    assert _column_param_sql("file_size") == "%s::bigint"
+    assert _column_param_sql("tags") == "%s::jsonb"
+
+
+def test_column_value_to_doc_serializes_datetime():
+    from datetime import datetime, timezone
+
+    iso = "2026-10-16T08:00:00+00:00"
+    assert _column_value_to_doc(datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc)) == iso
+    assert _column_value_to_doc("plain") == "plain"
+    assert _column_value_to_doc(12) == 12
+
+
+class _RecordingPool(_FakePool):
+    """记录 SQL 且可按脚本返回行的连接池。"""
+
+    def __init__(self, rows=None, rowcount=0):
+        super().__init__(rowcount=rowcount)
+        self._rows = rows or []
+
+
+class _RowsCursor(_FakeCursor):
+    def __init__(self, log, rows):
+        super().__init__(log, 0)
+        self._rows = rows
+
+    async def fetchall(self):
+        return self._rows
+
+    async def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+
+class _RowsConn(_FakeConn):
+    def __init__(self, log, rows):
+        super().__init__(log, 0)
+        self._rows = rows
+
+    def cursor(self):
+        return _RowsCursor(self._log, self._rows)
+
+
+class _RowsPool(_FakePool):
+    def __init__(self, rows=None):
+        super().__init__()
+        self._rows = rows or []
+
+    def connection(self):
+        return _RowsConn(self.log, self._rows)
+
+
+@pytest.mark.asyncio
+async def test_insert_one_dual_writes_mapped_columns():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    async def _capture(sql, params):
+        captured.append((sql, params))
+        return 1
+
+    coll._execute = _capture  # type: ignore[assignment]
+    await coll.insert_one({
+        "_id": "s1", "tenant_id": "t1", "title": "会话",
+        "user_id": "u9",  # doc 键 user_id → owner_user_id 列
+        "tags": ["a"],
+    })
+    sql, params = captured[0]
+    assert "INSERT INTO \"s\".\"chat_sessions\" (id, tenant_id, doc," in sql
+    assert '"owner_user_id"' in sql and '"title"' in sql and '"participant_ids"' in sql
+    # doc 仍是第一份载荷；列值按 doc 键取值（JSONB 列序列化）
+    assert params[0] == "s1" and params[1] == "t1"
+    assert '"user_id": "u9"' in params[2]
+    assert "u9" in params            # owner_user_id 列参数
+    assert '"tags": ["a"]' in params[2]  # 未映射键只进 doc
+
+
+@pytest.mark.asyncio
+async def test_insert_one_without_mapping_keeps_original_sql():
+    coll = PgCollection(_RowsPool(), "end_user_sessions", "s")
+    captured: list = []
+
+    async def _capture(sql, params):
+        captured.append((sql, params))
+        return 1
+
+    coll._execute = _capture  # type: ignore[assignment]
+    await coll.insert_one({"_id": "x", "tenant_id": "t"})
+    sql, params = captured[0]
+    assert sql == (
+        'INSERT INTO "s"."end_user_sessions" (id, tenant_id, doc) '
+        "VALUES (%s, %s, %s::jsonb) ON CONFLICT (id) DO NOTHING"
+    )
+    assert len(params) == 3
+
+
+@pytest.mark.asyncio
+async def test_update_cte_syncs_mapped_columns():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    async def _scalar(sql, params):
+        return 1
+
+    async def _execute(sql, params):
+        captured.append((sql, params))
+        return 1
+
+    coll._scalar = _scalar  # type: ignore[assignment]
+    coll._execute = _execute  # type: ignore[assignment]
+    await coll.update_one({"_id": "s1"}, {"$set": {"user_id": "u7", "title": "新标题"}})
+    sql, _params = captured[0]
+    # 两个 $set → 步骤链 s0/s1/s2，末段 s2.doc 是最终 doc
+    assert "SET" in sql and "doc = s2.doc" in sql
+    # JSON null 防护：纯运算符比较；路径一律 #> / #>>（无 ->> text[] 运算符）
+    assert "(CASE WHEN (s2.doc #> '{user_id}') = 'null'::jsonb THEN NULL ELSE (s2.doc #>> '{user_id}')::text END)" in sql
+    assert "(s2.doc #>> '{title}')::text" in sql
+    assert "jsonb_typeof" not in sql
+    # 回归：花括号路径字面量禁止走 -> / ->>（真库上静默写 NULL）
+    assert "->'" not in sql and "->>'" not in sql
+
+
+@pytest.mark.asyncio
+async def test_find_one_selects_mapped_columns():
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    captured: list = []
+
+    async def _merged(sql, params, entries):
+        captured.append((sql, entries))
+        return []
+
+    coll._fetch_merged = _merged  # type: ignore[assignment]
+    await coll.find_one({"_id": "s1"})
+    sql, entries = captured[0]
+    assert sql.startswith('SELECT doc, "')
+    assert '"owner_user_id"' in sql and '"title"' in sql and '"participant_ids"' in sql
+    assert ("user_id", "owner_user_id") in entries
+
+
+@pytest.mark.asyncio
+async def test_read_path_merges_columns_over_doc():
+    """列值非空覆盖 doc；datetime 序列化回 ISO 字符串保持 doc 形状。"""
+    from datetime import datetime, timezone
+
+    doc_json = '{"_id": "s1", "title": "旧标题", "user_id": "u1"}'
+    # 行值顺序 = chat_sessions 的 entries 顺序（doc_key 排序，见 COLUMN_MAP）
+    rows = [(
+        doc_json,
+        "creator-1",                                        # created_by
+        datetime(2026, 10, 16, 8, 0, tzinfo=timezone.utc),  # deleted_at
+        None,                                               # last_message_at
+        "m-1",                                              # last_message_id
+        "预览",                                              # last_message_preview
+        ["u1", "u2"],                                       # participant_ids (JSONB)
+        "active",                                           # status
+        "标题",                                              # title
+        "p2p",                                              # type
+        None,                                               # updated_by
+        "u2",                                               # user_id -> owner_user_id
+    )]
+    coll = PgCollection(_RowsPool(rows=rows), "chat_sessions", "s")
+    # 用真实 _fetch_merged 走一遍
+    docs = await coll._fetch_merged("SELECT doc, ...", [], coll._column_entries())
+    assert docs[0]["_id"] == "s1"
+    assert docs[0]["title"] == "标题"             # 列覆盖 doc 旧值
+    assert docs[0]["user_id"] == "u2"             # doc 键被别名列值覆盖（列优先）
+    assert docs[0]["deleted_at"] == "2026-10-16T08:00:00+00:00"  # datetime 保形
+    assert "last_message_at" not in docs[0]       # 列 NULL 且 doc 无键 → 不新增
+    assert docs[0]["participant_ids"] == ["u1", "u2"]
+    assert docs[0]["created_by"] == "creator-1"
+
+
