@@ -1,0 +1,47 @@
+-- 03 索引/部分唯一索引 (按文档 §3 约束列)
+-- 带 WHERE deleted_at IS NULL 的生成 UNIQUE 部分索引; 其余普通索引
+
+CREATE UNIQUE INDEX uq_admin_account_groups_tenant_id_name ON mogo_dev.admin_account_groups (tenant_id, name, parent_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_admin_accounts_tenant_id_login_name ON mogo_dev.admin_accounts (tenant_id, login_name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_admin_model_instances_tenant_id_model_key ON mogo_dev.admin_model_instances (tenant_id, model_key) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_admin_model_providers_tenant_id_name ON mogo_dev.admin_model_providers (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE INDEX idx_admin_presentation_settings_tenant_id ON mogo_dev.admin_presentation_settings (tenant_id);
+CREATE UNIQUE INDEX uq_agent_kernel_bindings_tenant_id_kernel_type ON mogo_dev.agent_kernel_bindings (tenant_id, kernel_type, kernel_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_autonomy_matrix_tenant_id_scope_type ON mogo_dev.autonomy_matrix (tenant_id, scope_type, scope_ref, name) WHERE deleted_at IS NULL;
+CREATE INDEX idx_chat_messages_tenant_id_session_id ON mogo_dev.chat_messages (tenant_id, session_id, created_at);
+CREATE INDEX idx_chat_sessions_tenant_id_owner_user_id ON mogo_dev.chat_sessions (tenant_id, owner_user_id, deleted_at);
+CREATE UNIQUE INDEX uq_dag_definitions_tenant_id_name ON mogo_dev.dag_definitions (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE INDEX idx_desktop_projects_tenant_id_owner_user_id ON mogo_dev.desktop_projects (tenant_id, owner_user_id, deleted_at);
+CREATE UNIQUE INDEX uq_end_user_capability_overrides_tenant_id_user_id ON mogo_dev.end_user_capability_overrides (tenant_id, user_id, capability_key) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_end_user_org_relations_tenant_id_user_id ON mogo_dev.end_user_org_relations (tenant_id, user_id, org_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_end_user_position_roles_tenant_id_user_id ON mogo_dev.end_user_position_roles (tenant_id, user_id, position_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_end_users_tenant_id_login_name ON mogo_dev.end_users (tenant_id, login_name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_external_search_configs_tenant_id_name ON mogo_dev.external_search_configs (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_external_tools_tenant_id_name ON mogo_dev.external_tools (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_gatekeeper_rules_tenant_id_name ON mogo_dev.gatekeeper_rules (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_harness_profiles_tenant_id_name ON mogo_dev.harness_profiles (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_hook_rules_tenant_id_name ON mogo_dev.hook_rules (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE INDEX idx_im_channels_tenant_id_owner_user_id ON mogo_dev.im_channels (tenant_id, owner_user_id, deleted_at);
+CREATE UNIQUE INDEX uq_knowledge_directories_tenant_id_owner_user_id ON mogo_dev.knowledge_directories (tenant_id, owner_user_id, parent_id, name) WHERE deleted_at IS NULL;
+CREATE INDEX idx_knowledge_document_chunks_tenant_id_document_id ON mogo_dev.knowledge_document_chunks (tenant_id, document_id, chunk_stage, ordinal);
+CREATE INDEX idx_knowledge_document_settings_tenant_id_kind ON mogo_dev.knowledge_document_settings (tenant_id, kind);
+CREATE UNIQUE INDEX uq_knowledge_documents_tenant_id_knowledge_base_id ON mogo_dev.knowledge_documents (tenant_id, knowledge_base_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_knowledge_resources_tenant_id_owner_user_id ON mogo_dev.knowledge_resources (tenant_id, owner_user_id, directory_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_org_quota_policies_tenant_id_org_id ON mogo_dev.org_quota_policies (tenant_id, org_id, quota_type) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_org_units_tenant_id_parent_id ON mogo_dev.org_units (tenant_id, parent_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_organization_shortcut_schemes_tenant_id_scope_type ON mogo_dev.organization_shortcut_schemes (tenant_id, scope_type, scope_ref, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_organizations_tenant_id_parent_id ON mogo_dev.organizations (tenant_id, parent_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_page_collection_settings_tenant_id_page_id ON mogo_dev.page_collection_settings (tenant_id, page_id, collection_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_personal_knowledge_directories_tenant_id_owner_user_id ON mogo_dev.personal_knowledge_directories (tenant_id, owner_user_id, parent_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_pii_policies_tenant_id_name ON mogo_dev.pii_policies (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_position_roles_tenant_id_name ON mogo_dev.position_roles (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE INDEX idx_resource_comment_reactions_tenant_id_comment_id ON mogo_dev.resource_comment_reactions (tenant_id, comment_id, user_id, reaction);
+CREATE INDEX idx_resource_comments_tenant_id_resource_type ON mogo_dev.resource_comments (tenant_id, resource_type, resource_id, created_at);
+CREATE INDEX idx_resource_feedback_notifications_tenant_id_recipient_user_id ON mogo_dev.resource_feedback_notifications (tenant_id, recipient_user_id, status, created_at);
+CREATE INDEX idx_resource_grants_tenant_id_resource_type ON mogo_dev.resource_grants (tenant_id, resource_type, resource_id, recipient_user_id);
+CREATE INDEX idx_resource_reactions_tenant_id_resource_type ON mogo_dev.resource_reactions (tenant_id, resource_type, resource_id, user_id, reaction);
+CREATE UNIQUE INDEX uq_risk_tiers_tenant_id_name ON mogo_dev.risk_tiers (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_scheduled_jobs_tenant_id_name ON mogo_dev.scheduled_jobs (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_site_profiles_tenant_id_name ON mogo_dev.site_profiles (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_skills_tenant_id_name ON mogo_dev.skills (tenant_id, name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_tenants_tenant_id_name ON mogo_dev.tenants (tenant_id, name) WHERE deleted_at IS NULL;
