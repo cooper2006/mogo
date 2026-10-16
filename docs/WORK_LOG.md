@@ -12,12 +12,20 @@
 5. 手动清除 orbstack 中全部 7 个旧版本镜像（`d63da04`）。
 6. **TLS 开关抽取**：`.env` 新增 `MOGO_TLS=0` 作为显式 TLS 开关（默认关闭）；`mogo` 脚本 `movo_tls_is_enabled()` 优先读取 `MOGO_TLS`（1→TLS，0/false/no/off→HTTP），未设置时默认 0，再回退到 `MOGO_NGINX_CONF` 路径判断（向后兼容）。
 
+**后续修复**：
+- 用户反馈 `http://localhost:3000/` ERR_CONNECTION_REFUSED：gateway 容器处于 Created 未启动。
+- `MOGO_TLS=0` 后 `.env` 中 `MOGO_NGINX_CONF` 同步改为 `./deploy/docker/nginx.conf`（HTTP 侧），重建 gateway → 200。
+- admin-api / chat-api 因旧容器 env 仍指向 127.0.0.1 重启失败，用本地镜像名重建后恢复。
+- **chat-api `config.py` 缺模块级 `settings`**：`ttl_purge.py` import `settings` 但 `config.py` 只有 `get_settings()` 函数，补 `settings = get_settings()` 后 `./mogo build chat-api` 重建镜像 → healthy。
+
 **验证**：
 - [x] `bash -n ./mogo` 语法检查通过。
 - [x] TLS 开关逻辑 6 组用例全部通过（MOGO_TLS=1/0/false/unset + nginx conf 回退）。
-- [x] 7 个服务全部 healthy。
+- [x] 9 个服务全部 healthy。
+- [x] `curl http://localhost:3000/` → HTTP 200。
+- [x] `curl http://localhost:3000/healthz` → HTTP 200。
 
-**改动文件（本轮）**：`.env`（新增 MOGO_TLS=1，修正 PANWEIDB_HOST）、`mogo`（movo_tls_is_enabled 逻辑更新）。
+**改动文件（本轮）**：`.env`（MOGO_TLS=0 + MOGO_NGINX_CONF 指向 HTTP 配置，修正 PANWEIDB_HOST）、`.env.example`（同步 TLS 开关）、`mogo`（movo_tls_is_enabled 逻辑更新）、`services/chat-api/app/core/config.py`（补模块级 settings）、`docs/WORK_LOG.md`（本条记录）。
 
 ---
 

@@ -340,3 +340,7 @@ def get_settings():
             MAX_END_USER_TOKEN_TTL_SECONDS,
         )
     return s
+
+
+# 模块级单例，供 ttl_purge 等模块直接 import使用
+settings = get_settings()
