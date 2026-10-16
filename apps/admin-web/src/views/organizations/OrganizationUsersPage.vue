@@ -253,6 +253,11 @@
     :user-id="overrideTarget?.id || ''"
     :user-name="overrideTarget?.name || ''"
   />
+  <UserOntologyPermissionDialog
+    v-model:show="ontologyDialogVisible"
+    :user-id="ontologyTarget?.id || ''"
+    :user-name="ontologyTarget?.name || ''"
+  />
   <BulkPositionRoleDialog
     v-model:show="bulkRoleDialogVisible"
     :user-ids="selectedUserIds"
@@ -416,6 +421,7 @@ import {
 } from '@/api/directory';
 import { listPositionRoles, type PositionRole } from '@/api/positionRoles';
 import EmployeeCapabilityOverrideDialog from './EmployeeCapabilityOverrideDialog.vue';
+import UserOntologyPermissionDialog from '@/views/ontologies/UserOntologyPermissionDialog.vue';
 import BulkPositionRoleDialog from './BulkPositionRoleDialog.vue';
 import EmployeeCredentialsFields from '@/components/directory/EmployeeCredentialsFields.vue';
 
@@ -424,12 +430,19 @@ const dialog = useDialog();
 const saving = ref(false);
 const overrideDialogVisible = ref(false);
 const overrideTarget = ref<DirectoryUserItem | null>(null);
+const ontologyDialogVisible = ref(false);
+const ontologyTarget = ref<DirectoryUserItem | null>(null);
 const bulkRoleDialogVisible = ref(false);
 const selectedUserIds = ref<string[]>([]);
 
 function openCapabilityOverride(row: DirectoryUserItem) {
   overrideTarget.value = row;
   overrideDialogVisible.value = true;
+}
+
+function openOntologyPermission(row: DirectoryUserItem) {
+  ontologyTarget.value = row;
+  ontologyDialogVisible.value = true;
 }
 
 async function handleBulkRolesSaved() {
@@ -663,6 +676,14 @@ const columns = computed<DataTableColumns<DirectoryUserItem>>(() => {
               onClick: () => openCapabilityOverride(row),
             },
             t('临时授权'),
+          ),
+          h(
+            'button',
+            {
+              class: 'action-link',
+              onClick: () => openOntologyPermission(row),
+            },
+            t('本体数据权限'),
           ),
           row.status === 'active'
             ? h(

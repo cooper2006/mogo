@@ -12,6 +12,9 @@
 > **2026-10-13 补充**：新增 027（数据后端迁移：MongoDB → PanWeiDB），含 spec + plan + tasks +
 > quickstart + checklist 五件套。该特性属**既有工作回溯补规格**（R1 代码先于 spec 落地），
 > R1 已完成并实测通过，R2 起严格按 SDD 流程推进。本文件下方计数已同步至 **27 个特性**。
+> **2026-10-16 补充**：新增 **030（本体数据权限）**，属**回溯补规格**（建表入库 + 运行时解析 +
+> 管理端 API/前端代码先落地，本轮补 spec/plan/tasks）。本文件下方计数已同步至 **30 个特性**
+> （含 028/029 会话轨迹与 SSO 接收方）。
 > **2229 + 433 + 22 = 2684 项全绿**（chat-api / admin-api / document-parser）；specs 目录已达
 > **21 个特性**（含 021），其中 **17 份 `tasks.md` / 354 项全部勾选**。本文件下方的
 > spec/plan/checklist/tasks 计数已同步至该口径。
@@ -118,6 +121,26 @@
 > 切换——避免卸载 ChatWindow 中断 `useChatStream` 流式读取与丢失滚动状态（FR-007）；
 > `ChatWindow.vue` 零改动以保对话 tab 零回归。已实现并提交（commit `90fef32`，14 files），
 > 自动化验证 8/8 + 三项回归 + `vue-tsc` 0 错误 + `vite build` 通过；**quickstart 的 6 步目视验证待用户在 dev 环境执行**。
+
+## 四（补 4）、本体数据权限（2026-10-16 新增）
+
+| 编号 | 特性 | 说明 | 优先级 | spec | plan | quickstart | tasks |
+|---|---|---|---|---|---|---|---|
+| 030 | ontology-data-permission（本体数据权限） | 给本体域新增一层**数据范围（data scope）**权限，与既有 RBAC **功能权限正交**：`mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit` + 通用 `sys_config`（`enforce` 开关）；运行时按 `(tenant_id, user_id)` 解析可见本体（fail-closed，60s 缓存），检索按 `ontology_id` 过滤；管理端 13 条路由 + 1 内部接口 + admin-web 清单页与用户授权弹窗 | P1 | ✅ | ✅ | — | ✅ 25/26（Phase 0–4 已落地；T023 HTTP 冒烟 12/12 + mongo parity 8/8 均通过、T024 网关已天然放行；本轮补 checklist 并抓到 enabled 归一化高危 bug；仅 T025/T026 前端构建与目视复核待收口） |
+
+> **性质**：**回溯补规格**（代码先于 spec 落地，与 027 同处理方式）——建表入库、运行时解析、
+> 管理端 API/前端均已实现，spec/plan/tasks 于本轮补齐并把实现口径固化。
+>
+> **设计来源**：`docs/ontology-permission-merge-plan.md`（合并方案，5 项决策已拍板）+ `docs/ontology-permission-ddl.sql`
+> （原始三表设计稿）+ `docs/MOGO-Web应用集成方案.md` §5.4–§5.9（清单 / 接口 / 内部对接 / 前端设计）。
+>
+> **关键决策**：① 新建通用 `sys_config`；② 本体层**独立可选**、不强制 `kg:read` 前置；
+> ③ `enforce=true` 时缺省固定 **deny**（fail-closed）；④ 后端走**原生 repository**（PG SQL / mongo motor，
+> **不经** `pg_compat` 通用壳门面）；⑤ 权限判定键为 **`ontology_id`**，`entity_type` 仅作类型标签。
+>
+> **双后端**：`deploy/pg/ontology_permission.sql` 与 `deploy/mongo/ontology_permission.js` 字段一一对应，**两侧均已执行入库**。
+> 未闭环项（索引写入方暂不填真实 `ontology_id`、`sourceEntity`/`keyField` 占位、类明细列/行过滤未接生效点、
+> 跨进程缓存窗口 = 60s TTL、`/internal/*` 网关未放行）见 `specs/030-ontology-data-permission/tasks.md` 末节。
 >
 > **029 由另一会话建规约**：spec/plan/tasks 三件已就绪，quickstart 与 checklist 未建。
 > **2026-10-15 已按 T001–T020 全部实现并验证**：chat-api 新增 `app/core/portal_sso.py`（票据签发/验签/accept-once）+

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, capability_assets, dashboard, directory, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, organizations, page_collection, personal_knowledge_internal, position_roles, presentation_settings, setup, shortcut_settings, skill_canary, skill_lifecycle, skill_monitoring, skills, system, system_audit, tools, traffic_allocations
+from app.api.routes import analytics, auth, capability_assets, dashboard, directory, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, presentation_settings, setup, shortcut_settings, skill_canary, skill_lifecycle, skill_monitoring, skills, system, system_audit, tools, traffic_allocations
 from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
@@ -12,6 +12,12 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])
 api_router.include_router(directory.router, prefix="/directory", tags=["directory"])
 api_router.include_router(position_roles.router, prefix="/position-roles", tags=["position-roles"])
+api_router.include_router(ontologies.router, prefix="/ontologies", tags=["ontologies"])
+api_router.include_router(
+    ontology_permission_internal.router,
+    prefix="/internal/ontology-permissions",
+    tags=["ontology-permission-internal"],
+)
 api_router.include_router(system_audit.router, prefix="/system-audit", tags=["system-audit"])
 api_router.include_router(models.router, prefix="/models", tags=["models"])
 api_router.include_router(knowledge_directories.router, prefix="/knowledge/directories", tags=["knowledge-directories"])

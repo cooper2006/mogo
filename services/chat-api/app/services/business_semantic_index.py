@@ -20,10 +20,15 @@ ENTITY_TYPES = ("customer", "order", "product", "document", "ticket")
 
 @dataclass
 class EntityRecord:
-    """A business entity index entry — pointers + lightweight fields only."""
+    """A business entity index entry — pointers + lightweight fields only.
+
+    ``ontology_id`` 是该实体所属的**本体标识**（**权限判定键**）；``entity_type`` 只是
+    类型标签（前端查询条件用），不参与判权。
+    """
     entity_id: str
     entity_type: str
     tenant_id: str
+    ontology_id: str = ""
     title: str = ""
     source_ref: str = ""
     fields: dict[str, Any] = field(default_factory=dict)
@@ -37,6 +42,7 @@ class EntityRecord:
             "entity_id": self.entity_id,
             "entity_type": self.entity_type,
             "tenant_id": self.tenant_id,
+            "ontology_id": self.ontology_id,
             "title": self.title,
             "source_ref": self.source_ref,
             "fields": dict(self.fields),
@@ -45,13 +51,18 @@ class EntityRecord:
 
 @dataclass
 class SemanticHit:
-    """One semantic-search hit with a citation anchor (014 US1)."""
+    """One semantic-search hit with a citation anchor (014 US1).
+
+    ``ontology_id`` 是**权限判定键**（业务系统的本体标识）；``entity_type`` 只是**类型标签**
+    （前端查询条件用），不参与权限判定。
+    """
     entity_id: str
     entity_type: str
     title: str
     score: float
     source_ref: str
     chunk: str = ""
+    ontology_id: str = ""
 
     def with_anchor(self) -> dict[str, Any]:
         return {
@@ -61,6 +72,7 @@ class SemanticHit:
             "score": self.score,
             "source_ref": self.source_ref,
             "chunk": self.chunk,
+            "ontology_id": self.ontology_id,
             "citation": f"{self.entity_type}:{self.entity_id}#{self.source_ref}",
         }
 
@@ -98,6 +110,7 @@ class BusinessSemanticIndex:
                 {
                     "entity_type": record.entity_type,
                     "entity_id": record.entity_id,
+                    "ontology_id": record.ontology_id,
                     "tenant_id": record.tenant_id,
                     "source_ref": record.source_ref,
                 },
@@ -162,12 +175,21 @@ class BusinessSemanticIndex:
         top_n: int = 8,
         client: KnowledgeRetrievalClient | None = None,
         knowledge_base_ids: list[str] | None = None,
+        visible_ontology_ids: frozenset[str] | None = None,
     ) -> list[SemanticHit]:
         """Search entities semantically via the 005 retrieval client.
 
         Hits are annotated with a source/citation anchor (US1 acceptance 2).
         Empty query or no client returns an honest empty list (never fabricates).
+
+        ``visible_ontology_ids``（设计四 §5.6.2 生效点）：非 None 时按**可见本体**过滤命中，
+        **默认 None = 不过滤**（保持既有行为不变，enforcement 由调用方按 ``enforce`` 开关决定）。
+        过滤键取命中的 ``ontology_id``（权限以**本体标识**为准）；``entity_type`` 只是类型标签
+        （前端查询条件用），**不参与权限判定**。命中未携带 ``ontology_id`` 时按不可见处理（fail-closed）。
         """
+        if visible_ontology_ids is not None and not visible_ontology_ids:
+            # fail-closed：可见集为空即无可返回。
+            return []
         if not query or not query.strip():
             return []
         client = client or KnowledgeRetrievalClient()
@@ -188,6 +210,7 @@ class BusinessSemanticIndex:
             metadata = item.metadata or {}
             entity_type = str(metadata.get("entity_type") or "document")
             entity_id = str(metadata.get("entity_id") or item.documentId or "")
+            ontology_id = str(metadata.get("ontology_id") or metadata.get("ontology") or "")
             hits.append(
                 SemanticHit(
                     entity_id=entity_id,
@@ -196,8 +219,15 @@ class BusinessSemanticIndex:
                     score=float(item.rerankScore if item.rerankScore is not None else item.score or 0),
                     source_ref=str(item.chunkId or ""),
                     chunk=str(item.text or "")[:200],
+                    ontology_id=ontology_id,
                 )
             )
+        if visible_ontology_ids is not None:
+            # 权限键 = ontology_id；缺失即不可见（fail-closed）。
+            hits = [
+                hit for hit in hits
+                if hit.ontology_id and hit.ontology_id in visible_ontology_ids
+            ]
         return hits[:top_n]
 
 

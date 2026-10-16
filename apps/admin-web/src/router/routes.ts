@@ -12,6 +12,7 @@ import { SettingsIcon } from '@/icons/SettingsIcon';
 import { PositionRolesIcon } from '@/icons/PositionRolesIcon';
 import { SystemAuditIcon } from '@/icons/SystemAuditIcon';
 import { HookRulesIcon } from '@/icons/HookRulesIcon';
+import { OntologyIcon } from '@/icons/OntologyIcon';
 
 export const appRoutes: RouteRecordRaw[] = [
   {
@@ -172,6 +173,12 @@ export const appRoutes: RouteRecordRaw[] = [
         path: '/organizations',
         redirect: '/organizations/accounts',
         meta: { hideInMenu: true },
+      },
+      {
+        path: '/ontologies',
+        name: 'Ontologies',
+        component: () => import('@/views/ontologies/OntologyCatalogPage.vue'),
+        meta: { title: '本体清单', icon: OntologyIcon },
       },
       {
         path: '/hooks/rules',
