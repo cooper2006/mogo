@@ -29,7 +29,7 @@ import { resolveDshInstallation } from '../src/official-host/installation.mjs'
 // （registry train 装单数 `dsh-agent-preset` + `dsh-agent-preset-registry`；
 // 旧 train（0.1.2–0.1.6）装复数 `dsh-agent-presets`），而不是内核版本号。
 // 此前这里写成 `ASKAI_DSH_KERNEL_VERSION === '0.1.7-rc.2'`，内核一升到
-// 0.2.0-rc.2 就跌回旧 train 分支、要求根本不存在的 `dsh-agent-presets`。
+// 0.2.1-rc.2 就跌回旧 train 分支、要求根本不存在的 `dsh-agent-presets`。
 // `resolveDshInstallation()` 从文件系统解析出该事实，与本测试同源可信。
 const installation = await resolveDshInstallation()
 
