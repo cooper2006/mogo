@@ -174,6 +174,7 @@ from app.api.endpoints import (
     tasks,
     business_index,
     token_usage,
+    ontology_grants,
 )
 from app.scheduled_tasks import scheduled_task_scheduler
 from app.services.dream_cycle import runtime as dream_cycle_runtime
@@ -221,6 +222,8 @@ app.include_router(context_space.router)
 app.include_router(research.router, prefix="/api")
 # 014: business semantic index — search / index / align production surface.
 app.include_router(business_index.router)
+# 030: 终端用户侧本体授权自查（admin-web 本体页的 user-web 迁移；只读）。
+app.include_router(ontology_grants.router)
 # 015: knowledge graph query surface (FR-2 / FR-10 minimal wiring).
 app.include_router(knowledge_graph.router)
 # 019: harness elastic-config CRUD (FR-7 / FR-9 — admin-only writes).
