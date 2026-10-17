@@ -193,10 +193,16 @@ async def grant_user_permissions(
     return result
 
 
-@router.delete("/users/{user_id}/permissions/{ontology_id}")
+@router.delete("/users/{user_id}/permissions/{ontology_id:path}")
 async def revoke_user_permission(
     user_id: str, ontology_id: str, current_user: dict = Depends(get_current_admin_user)
 ) -> dict[str, Any]:
+    """撤销单个本体授权（明细随授权一并撤销）。
+
+    ⚠ ``ontology_id`` 形如 ``ontology://customer``（含 ``://``）：APIRouter 默认
+    ``str`` 路径参数不匹配 ``/``，浏览器 ``encodeURIComponent`` 后（%3A%2F%2F）
+    经 uvicorn 解码仍还原为 ``/`` → 一律 404。故此处必须用 ``:path`` 换算器。
+    """
     service = OntologyPermissionService()
     result = await service.revoke(
         tenant_id=_tenant_id(current_user),
@@ -248,13 +254,14 @@ async def grant_subject_permissions(
     return result
 
 
-@router.delete("/subjects/{subject_type}/{subject_id}/permissions/{ontology_id}")
+@router.delete("/subjects/{subject_type}/{subject_id}/permissions/{ontology_id:path}")
 async def revoke_subject_permission(
     subject_type: str,
     subject_id: str,
     ontology_id: str,
     current_user: dict = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
+    """撤销单个本体授权（四态主体通用）。``ontology_id:path`` 原因同用户级撤销。"""
     _validate_subject_type(subject_type)
     service = OntologyPermissionService()
     result = await service.revoke(
