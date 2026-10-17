@@ -150,6 +150,18 @@ async def sync_ontologies(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/users/grants")
+async def list_user_grant_summary(
+    current_user: dict = Depends(get_current_admin_user),
+) -> list[dict[str, Any]]:
+    """按用户汇总本体授权（admin-web「用户本体授权」视图，030 迁移新增）。
+
+    只含 ``subject_type='user'`` 的行；``tenant`` 兜底授权不归属任何用户，
+    在清单页单独呈现。某用户此处为空 = 仅继承租户兜底，不等于「看不到任何本体」。
+    """
+    return await OntologyPermissionService().list_user_grant_summary(_tenant_id(current_user))
+
+
 @router.get("/users/{user_id}/permissions")
 async def get_user_permissions(
     user_id: str, current_user: dict = Depends(get_current_admin_user)

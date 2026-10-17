@@ -488,3 +488,78 @@ async def test_upsert_detail_defaults_enabled_true_when_field_omitted() -> None:
     assert doc["enabled"] is True
     assert db.detail_coll.captured is not None
     assert db.detail_coll.captured["enabled"] is True
+
+
+# ---------------------------------------------------------------------------
+# 按用户汇总授权（030：admin-web「用户本体授权」视图）
+# ---------------------------------------------------------------------------
+
+
+def _repo_with_user_grants() -> FakeRepository:
+    repo = FakeRepository()
+    repo.grants[("t1", "user", "u1", "material")] = {
+        "tenant_id": "t1", "subject_type": "user", "subject_id": "u1",
+        "ontology_uri": "material", "access_mode": "read", "priority": 100,
+        "enabled": True, "remark": "租户兜底外的用户授权",
+    }
+    repo.grants[("t1", "user", "u1", "order")] = {
+        "tenant_id": "t1", "subject_type": "user", "subject_id": "u1",
+        "ontology_uri": "order", "access_mode": "none", "priority": 200,
+        "enabled": True, "remark": "高优先级显式拒绝",
+    }
+    repo.grants[("t1", "user", "u1", "customer")] = {
+        "tenant_id": "t1", "subject_type": "user", "subject_id": "u1",
+        "ontology_uri": "customer", "access_mode": "read", "priority": 100,
+        "enabled": False, "remark": "",
+    }
+    repo.grants[("t1", "user", "u2", "material")] = {
+        "tenant_id": "t1", "subject_type": "user", "subject_id": "u2",
+        "ontology_uri": "material", "access_mode": "write", "priority": 10,
+        "enabled": True, "remark": "",
+    }
+    # tenant 兜底行不属于任何用户，必须被排除在汇总之外。
+    repo.grants[("t1", "tenant", "t1", "material")] = {
+        "tenant_id": "t1", "subject_type": "tenant", "subject_id": "t1",
+        "ontology_uri": "material", "access_mode": "read", "priority": 100,
+        "enabled": True, "remark": "租户兜底",
+    }
+    return repo
+
+
+@pytest.mark.asyncio
+async def test_user_grant_summary_groups_by_user_and_excludes_tenant_fallback() -> None:
+    service = OntologyPermissionService(repository=_repo_with_user_grants())
+    summary = await service.list_user_grant_summary("t1")
+
+    assert [row["userId"] for row in summary] == ["u1", "u2"]
+    u1, u2 = summary
+
+    # 同本体高优先级 none 覆盖低优先级 read → 不可见。
+    assert [grant["ontologyId"] for grant in u1["grants"]] == ["material", "order"]
+    assert u1["grants"][1]["accessMode"] == "none"
+    assert u1["grants"][1]["visible"] is False
+    assert u1["grantCount"] == 2
+    assert u1["visibleCount"] == 1
+    # 停用行不计入 grants，但要被报出来（否则管理员看不到"配了却没用上"）。
+    assert u1["disabledCount"] == 1
+
+    assert [grant["ontologyId"] for grant in u2["grants"]] == ["material"]
+    assert u2["grants"][0]["accessMode"] == "write"
+    assert u2["visibleCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_user_grant_summary_empty_tenant_returns_empty() -> None:
+    service = OntologyPermissionService(repository=_repo_with_user_grants())
+    assert await service.list_user_grant_summary("") == []
+
+
+@pytest.mark.asyncio
+async def test_user_grant_summary_no_user_rows_returns_empty() -> None:
+    repo = FakeRepository()
+    repo.grants[("t1", "tenant", "t1", "material")] = {
+        "tenant_id": "t1", "subject_type": "tenant", "subject_id": "t1",
+        "ontology_uri": "material", "access_mode": "read", "priority": 100, "enabled": True,
+    }
+    service = OntologyPermissionService(repository=repo)
+    assert await service.list_user_grant_summary("t1") == []

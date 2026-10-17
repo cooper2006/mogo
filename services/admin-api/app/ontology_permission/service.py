@@ -210,6 +210,77 @@ class OntologyPermissionService:
 
     # ------------------------------------------------------------------ 授权
 
+    async def list_user_grant_summary(self, tenant_id: str) -> list[dict[str, Any]]:
+        """按用户汇总本体授权（admin-web「用户本体授权」视图）。
+
+        口径：租户内所有 ``subject_type='user'`` 的授权行，按 ``subject_id`` 分组，
+        每组给出「每本体一条」的合并结果（同 ``resolve_visible_ontologies``：
+        priority 大者胜、同优先级取更严格模式），另附该用户已停用的授权条数。
+
+        ``tenant`` 兜底行**不计入**任何用户（它是租户级配置，在清单页单独呈现），
+        因此某用户此处为空 = 只继承租户兜底，不代表「看不到任何本体」。
+        """
+        tenant_id = str(tenant_id or "")
+        if not tenant_id:
+            return []
+        rows = await self.repo.list_grants(tenant_id, subject_type="user")
+        grouped: dict[str, list[Mapping[str, Any]]] = {}
+        for row in rows:
+            subject_id = str(row.get("subject_id") or "")
+            if not subject_id:
+                continue
+            grouped.setdefault(subject_id, []).append(row)
+
+        items: list[dict[str, Any]] = []
+        for subject_id in sorted(grouped):
+            grants, disabled = self._merge_user_grants(subject_id, grouped[subject_id])
+            items.append(
+                {
+                    "userId": subject_id,
+                    "grants": grants,
+                    "grantCount": len(grants),
+                    "visibleCount": sum(1 for item in grants if item["visible"]),
+                    "disabledCount": disabled,
+                }
+            )
+        return items
+
+    @staticmethod
+    def _merge_user_grants(
+        subject_id: str, rows: Iterable[Mapping[str, Any]]
+    ) -> tuple[list[dict[str, Any]], int]:
+        """把某用户的授权行合并成「每本体一条」（``enabled is False`` 视为不存在）。"""
+        best: dict[str, dict[str, Any]] = {}
+        disabled = 0
+        for row in rows:
+            uri = str(row.get("ontology_uri") or "")
+            if not uri:
+                continue
+            if row.get("enabled") is False:
+                disabled += 1
+                continue
+            mode = str(row.get("access_mode") or "")
+            try:
+                priority = int(row.get("priority")) if row.get("priority") is not None else 100
+            except (TypeError, ValueError):
+                priority = 100
+            current = best.get(uri)
+            if current is None or priority > int(current["priority"]) or (
+                priority == int(current["priority"])
+                and _MODE_RANK.get(mode, 0) < _MODE_RANK.get(str(current["accessMode"]), 0)
+            ):
+                best[uri] = {
+                    "ontologyId": uri,
+                    "subjectId": subject_id,
+                    "accessMode": mode,
+                    "priority": priority,
+                    "visible": mode in VISIBLE_ACCESS_MODES,
+                    "remark": str(row.get("remark") or ""),
+                    "updatedAt": row.get("updated_at"),
+                }
+        grants = sorted(best.values(), key=lambda item: str(item["ontologyId"]))
+        return grants, disabled
+
     async def list_subject_grants(
         self, tenant_id: str, subject_type: str, subject_id: str
     ) -> dict[str, Any]:
