@@ -33,7 +33,7 @@
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - **Specification-First（NON-NEGOTIABLE）**：⚠️ **本特性为回溯补规格** —— 建表 + 运行时解析 + 管理端 API/前端代码**先于本 spec 落地**（与 027 数据后端迁移的处理方式一致：代码先于规格）。本 spec/plan/tasks 已补齐并把实现口径固化，剩余任务见 `tasks.md`。后续同类特性必须先出 spec 再动代码。
-- **Agent Operating Rules（AGENTS.md）**：仅改本轮必要文件、不顺手重构；只 `git add` 具体路径（禁 `git add -A`）；不越出工作区；每轮实际修改后更新 `docs/WORK_LOG.md`。✅ 规划已约束改动面。
+- **Agent Operating Rules（AGENTS.md）**：仅改本轮必要文件、不顺手重构；只 `git add` 具体路径（禁 `git add -A`）；不越出工作区；每轮实际修改后写入 obsidian vault 当日 session-log（`docs/WORK_LOG.md` 自 2026-10-17 停更，见 constitution v1.2.0）。✅ 规划已约束改动面。
 - **双后端对等**：新表必须双后端可用（027 迁移期硬约束）。✅ 已产出 PG DDL + mongo JS 两份。
 - 无 Constitution 违规需 Complexity Tracking 声明（见文末）。
 

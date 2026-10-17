@@ -1,5 +1,16 @@
 # Work Log
 
+> **⚠️ 本文件自 2026-10-17 起停更，仅作历史存档保留，不再写入。**
+>
+> 后续工作日志改由 obsidian vault 接管：
+> - 当日工作记录写入 `Daily/YYYY-MM-DD.md`（session-log，用 `mem_log` 带 `idempotencyKey`）
+> - 跨轮次仍有价值的结论分流到 `Pitfalls/`（症状/根因/修复/验证）、`Decisions/`（ADR）、`Conventions/`（长期约束）
+>
+> 依据：`AGENTS.md` 与 `.specify/memory/constitution.md` 的「工作记录」条款（constitution v1.2.0）。
+> 本文件 441 个历史轮次（截至 2026-10-17）完整保留，可随时查阅。
+
+---
+
 ## 2026-10-17 本体清单：我的可见本体迁移到 user-web + 新增用户本体授权视图
 
 **触发**：用户要求「admin 下本体清单下的『我的可见本体』迁移到 user-web 下，主要是查看个人用户的可见本体授权；再增加一个本体授权，展示不同用户的本体授权情况；全量清单改名为『本体清单』，以展示本体为主」。

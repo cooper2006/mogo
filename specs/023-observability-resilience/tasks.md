@@ -197,7 +197,7 @@
 - [ ] T121 更新 `docs/observability/monitoring-dashboard.md`：监控看板配置指南
 - [ ] T122 更新 `quickstart.md`：完善启用步骤与验证命令
 - [ ] T123 更新 `CHANGELOG.md`：记录本特性变更
-- [ ] T124 更新 `docs/WORK_LOG.md`：记录实施过程（日期、改动、文件、验证方式）
+- [ ] T124 写入 obsidian vault 当日 session-log：记录实施过程（日期、改动、文件、验证方式）；`docs/WORK_LOG.md` 自 2026-10-17 停更
 - [ ] T125 全量回归测试：验证不破坏既有 001/007/008 特性的行为
 - [ ] T126 QualityForge 缺陷最终核对：74 个 P0/P1 缺陷全部关闭（对照 Success Criteria）
 

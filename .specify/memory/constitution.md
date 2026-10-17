@@ -38,8 +38,8 @@ MOVO 的定位是将 DSH Agent 带入企业生产环境。任何变更不得引�
 - 禁止删除任何文件；需要移除时移入"待确认清单"而非删除。
 - 需要确认的操作（不可逆、影响面大、涉及远端仓库）先问用户，不擅自执行。
 - 无法判断归属/用途的文件放入"待确认清单"（docs/pending-review/ 或等价位置），不要强行处理。
-- 每次实际修改后更新 `docs/WORK_LOG.md`（日期 + 做了什么 + 改了哪些文件 + 验证方式）。
-- 每轮只读取 `AGENTS.md`、`WORK_LOG.md` 最新状态和本轮相关文件，不重复扫描整个项目、不重复读无关文档。
+- 每次实际修改后写入 obsidian vault 的当日 session-log（`Daily/YYYY-MM-DD.md`，用 `mem_log` 带 `idempotencyKey`）；跨轮次仍有价值的结论按类型分流到 `Pitfalls/` / `Decisions/` / `Conventions/`。`docs/WORK_LOG.md` 自 2026-10-17 起停更，仅作历史存档保留，不再写入。
+- 每轮只读取 `AGENTS.md`、obsidian vault 的当日 session-log 与本轮相关文件，不重复扫描整个项目、不重复读无关文档。
 - 只修改当前任务必要文件，不顺手重构、格式化、升级依赖或扩展功能。
 - 已明确的低风险任务一次完成，减少重复确认与拆轮次。
 - 测试只做本轮必要范围，未受影响模块不重复全量测试。
@@ -51,6 +51,7 @@ MOVO 的定位是将 DSH Agent 带入企业生产环境。任何变更不得引�
 
 ### Amendment Log
 
+- **1.2.0 (2026-10-17)** — 工作记录改由 obsidian vault 接管。理由：`docs/WORK_LOG.md` 累积 12628 行 / 441 个轮次后，检索与复用成本高于收益；vault 的 Daily session-log 可按日切分、可被 `mem_search` 检索，且 Pitfalls / Decisions / Conventions 分流让跨轮次结论不再埋没在流水里。`docs/WORK_LOG.md` 停更但保留作历史存档（不删除）。批准：仓库所有者指令。
 - **1.1.1 (2026-09-24)** — 更新远端仓库写入边界。理由：`cooper2006/mogong` 已改名为 `cooper2006/mogo`，remote 名同步由 `mogong` 改为 `mogo`；旧地址由 GitHub 重定向。推送边界本身不变（仍不触碰 origin）。批准：仓库所有者指令。
 
-**Version**: 1.1.1 | **Ratified**: 2026-07-08 | **Last Amended**: 2026-09-24
+**Version**: 1.2.0 | **Ratified**: 2026-07-08 | **Last Amended**: 2026-10-17

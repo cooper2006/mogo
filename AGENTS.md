@@ -13,8 +13,9 @@
 - 无法判断归属/用途的文件放入"待确认清单"（`docs/pending-review/` 或等价位置），不要强行处理。
 
 ## 工作记录
-- 每次实际修改后更新 `docs/WORK_LOG.md`（日期 + 做了什么 + 改了哪些文件 + 验证方式）。
-- 每轮只读取 `AGENTS.md`、`WORK_LOG.md` 最新状态和本轮相关文件。
+- 每次实际修改后写入 obsidian vault 的当日 session-log（`Daily/YYYY-MM-DD.md`，用 `mem_log` 带 `idempotencyKey`）；跨轮次仍有价值的结论按类型分流到 `Pitfalls/` / `Decisions/` / `Conventions/`。
+- `docs/WORK_LOG.md` 自 2026-10-17 起**停更**，仅作历史存档保留，不再写入。
+- 每轮只读取 `AGENTS.md`、obsidian vault 的当日 session-log 和本轮相关文件。
 - 不重复扫描整个项目，不重复读取无关文档。
 
 ## 改动纪律
