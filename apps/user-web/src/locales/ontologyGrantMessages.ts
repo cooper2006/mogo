@@ -42,5 +42,5 @@ export const ontologyGrantMessages = {
     en: 'The same ontology may have both a tenant fallback and a personal grant: the higher priority wins, and ties resolve to the stricter mode. Contact an administrator to change grants.',
   },
   // 侧边栏入口
-  'ontology_grant.sidebar': { zh: '本体授权', en: 'Ontology Grants' },
+  'ontology_grant.sidebar': { zh: '我的本体', en: 'My Ontologies' },
 } as const
