@@ -1,5 +1,56 @@
 # Work Log
 
+## 2026-10-17 本体清单：我的可见本体迁移到 user-web + 新增用户本体授权视图
+
+**触发**：用户要求「admin 下本体清单下的『我的可见本体』迁移到 user-web 下，主要是查看个人用户的可见本体授权；再增加一个本体授权，展示不同用户的本体授权情况；全量清单改名为『本体清单』，以展示本体为主」。
+
+**操作**：
+1. **chat-api 新增终端用户侧只读端点** `services/chat-api/app/api/endpoints/ontology_grants.py`：
+   `GET /api/ontology-grants/mine`（`require_end_user_principal` 鉴权），主体口径 = tenant 兜底 + 用户自身，
+   与 admin-api `visible_ontologies` 同源；不展开 org/role（判权热路径仍在 `visible_ontology_ids` 四态展开）。
+   查询失败返回空清单 + `degraded=true`（展示页 fail-open，不阻断其它功能）；双后端（mongo motor / PanWeiDB 原生 SQL）。
+   在 `app/main.py` 注册（**不带** `prefix="/api"` —— router 自带 `/api/ontology-grants`，否则会出现 `/api/api/...` 双前缀）。
+2. **admin-api 新增按用户汇总授权**：`service.py` 加 `list_user_grant_summary` / `_merge_user_grants`，
+   路由 `GET /api/ontologies/users/grants`（注册在 `/users/{user_id}/permissions` **之前**，否则 `grants` 会被当成 user_id）。
+   口径：仅 `subject_type='user'` 的行，tenant 兜底不归属任何用户；每本体一条（priority 大者胜、同优先级取更严格模式），
+   另报 `disabledCount`（"配了却没生效"的授权条数）。
+3. **user-web 新增「本体授权」页**：`src/api/ontologyGrants.ts` + `src/components/MyOntologyPage.vue`，
+   接入 `App.vue`（新 view `ontology-grants`、路由 `/ontology-grants`、侧边栏入口、窗口标题）；
+   i18n 拆到 `src/locales/ontologyGrantMessages.ts`。
+4. **admin-web 改造本体清单页**：`OntologyCatalogPage.vue` 的两个 tab 从「我的可见本体 / 全量清单」改为
+   **「本体清单 / 用户本体授权」**，默认落在「本体清单」；新增 `fetchUserOntologyGrantSummaries()`；
+   i18n 拆到 `src/locales/modules/ontology.ts`（原页面大量 key 走未覆盖中文回退，本轮补齐英文）。
+   `UserOntologyPermissionDialog.vue` 与用户管理页入口不变（仍是单个用户的授予/撤销入口）。
+
+**验证**：
+- [x] chat-api 新测试 `tests/api/test_ontology_grants.py` 10/10 通过（合并逻辑 7 + 端点 3）。
+- [x] admin-api `tests/test_ontology_permission_service.py` 26/26 通过（含新增 3 个汇总用例）。
+- [x] admin-api 全量 976 passed；4 个失败（`test_setup_initialize` / `test_setup_quota` / `test_tenant_purge` / `test_token_lifecycle`）
+      经 `git stash` 在基线代码上复现，属环境缺 mongo URI / subprocess，与本轮无关。
+- [x] 端到端（TestClient + 项目网络真实 DB）：
+      chat-api `/api/ontology-grants/mine` 无 token→**401**、带身份→**200** 且响应字段完整（tenant 兜底被用户高优先级 `none` 正确覆盖）；
+      admin-api `/api/ontologies/users/grants` 无 token→**401**、带身份→**200** 且为 list，路由顺序正确。
+- [x] `vue-tsc --noEmit`：user-web 与 admin-web 均无错误。
+- [x] `vite build`：user-web 与 admin-web 均构建成功（`MyOntologyPage` 独立 chunk 已生成）。
+- [ ] 需重新构建镜像并 `./mogo up --build` 才能在运行中的服务里生效（容器内为旧镜像代码，未挂载源码）。
+
+**改动文件（本轮）**：
+- 新增 `services/chat-api/app/api/endpoints/ontology_grants.py`
+- 新增 `services/chat-api/tests/api/test_ontology_grants.py`
+- 改 `services/chat-api/app/main.py`（注册路由）
+- 改 `services/admin-api/app/ontology_permission/service.py`（`list_user_grant_summary` / `_merge_user_grants`）
+- 改 `services/admin-api/app/api/routes/ontologies.py`（`GET /users/grants`）
+- 改 `services/admin-api/tests/test_ontology_permission_service.py`（3 个新用例）
+- 新增 `apps/user-web/src/api/ontologyGrants.ts`、`apps/user-web/src/components/MyOntologyPage.vue`、`apps/user-web/src/locales/ontologyGrantMessages.ts`
+- 改 `apps/user-web/src/App.vue`、`apps/user-web/src/locales/messages.ts`
+- 改 `apps/admin-web/src/views/ontologies/OntologyCatalogPage.vue`、`apps/admin-web/src/api/ontologies.ts`
+- 新增 `apps/admin-web/src/locales/modules/ontology.ts`、改 `apps/admin-web/src/locales/uncoveredMessages.ts`
+
+**注意事项（遗留）**：验证过程中用 `docker kill` 清理临时验证容器时误杀了运行中的 `mogo-chat-api-1`，
+已立即 `docker start` 重启并确认 healthy、网关 `/askai-api/health` 返回 200，服务无数据丢失。
+
+---
+
 ## 2026-10-16 打包重启（v0.2.2 tag）
 
 **触发**：用户要求 `MOGO_VERSION=$(git tag --sort=-creatordate | head -n 1) ./mogo up --build` 打包重启并去除 orbstack 上个版本镜像。
