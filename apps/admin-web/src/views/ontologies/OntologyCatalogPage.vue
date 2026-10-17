@@ -1,42 +1,54 @@
 <script setup lang="ts">
 import { t } from '@/composables/i18n';
 import { computed, h, onMounted, ref } from 'vue';
-import { NAlert, NTag, useDialog, useMessage, type DataTableColumns } from 'naive-ui';
+import { NAlert, NButton, NTag, useDialog, useMessage, type DataTableColumns } from 'naive-ui';
 import PageIntro from '@/components/PageIntro.vue';
 import {
-  fetchMyOntologies,
   fetchOntologyCatalog,
   fetchOntologyPermissionConfig,
+  fetchUserOntologyGrantSummaries,
   syncOntologies,
   updateOntologyPermissionConfig,
-  type MyOntologyScope,
   type OntologyCatalogItem,
+  type OntologyGrant,
   type OntologyPermissionConfig,
+  type UserOntologyGrantSummary,
 } from '@/api/ontologies';
+import { fetchUsers, type DirectoryUserItem } from '@/api/directory';
 
 const message = useMessage();
 const dialog = useDialog();
 const loading = ref(false);
 const syncing = ref(false);
 const toggling = ref(false);
-const tab = ref<'mine' | 'all'>('mine');
-const mine = ref<MyOntologyScope>({ tenantId: '', userId: '', ontologies: [], count: 0 });
+/** 默认落在「本体清单」：全量清单迁移后以展示本体为主（030）。 */
+const tab = ref<'catalog' | 'users'>('catalog');
 const catalog = ref<OntologyCatalogItem[]>([]);
 const config = ref<OntologyPermissionConfig | null>(null);
+const userSummaries = ref<UserOntologyGrantSummary[]>([]);
+const userNameById = ref<Record<string, string>>({});
 
 const enforcing = computed(() => Boolean(config.value?.enforce));
+
+const modeTagType = (mode: OntologyGrant['accessMode']) =>
+  mode === 'none' ? 'default' : mode === 'write' ? 'warning' : 'success';
+
+const userDisplayName = (userId: string) =>
+  userNameById.value[userId] || userId || t('未知用户');
 
 async function load() {
   loading.value = true;
   try {
-    const [myScope, rows, cfg] = await Promise.all([
-      fetchMyOntologies(),
+    const [rows, cfg, summaries, users] = await Promise.all([
       fetchOntologyCatalog(),
       fetchOntologyPermissionConfig(),
+      fetchUserOntologyGrantSummaries(),
+      fetchUsers({}).catch(() => [] as DirectoryUserItem[]),
     ]);
-    mine.value = myScope;
     catalog.value = rows;
     config.value = cfg;
+    userSummaries.value = summaries;
+    userNameById.value = Object.fromEntries(users.map(user => [user.id, user.name || user.loginName || user.id]));
   } catch (error: any) {
     message.error(error?.response?.data?.detail || error?.message || t('本体清单加载失败'));
   } finally {
@@ -98,6 +110,52 @@ const catalogColumns: DataTableColumns<OntologyCatalogItem> = [
   { title: t('已配置授权'), key: 'grantCount', width: 120 },
 ];
 
+const userSummaryColumns: DataTableColumns<UserOntologyGrantSummary> = [
+  {
+    title: t('用户'),
+    key: 'userId',
+    render: row => h('strong', userDisplayName(row.userId)),
+  },
+  {
+    title: t('已授予本体'),
+    key: 'grants',
+    render: row =>
+      row.grants.length
+        ? h(
+            'div',
+            { class: 'tag-row' },
+            row.grants.map(grant =>
+              h(
+                NTag,
+                {
+                  key: grant.ontologyId,
+                  size: 'small',
+                  bordered: false,
+                  type: grant.visible ? modeTagType(grant.accessMode) : 'default',
+                },
+                { default: () => `${grant.ontologyId} · ${grant.accessMode}` },
+              ),
+            ),
+          )
+        : h('span', { class: 'muted' }, t('仅继承租户兜底')),
+  },
+  { title: t('授权条数'), key: 'grantCount', width: 110 },
+  {
+    title: t('其中可见'),
+    key: 'visibleCount',
+    width: 110,
+  },
+  {
+    title: t('已停用'),
+    key: 'disabledCount',
+    width: 110,
+    render: row =>
+      row.disabledCount
+        ? h(NTag, { size: 'small', type: 'warning', bordered: false }, { default: () => row.disabledCount })
+        : h('span', { class: 'muted' }, '—'),
+  },
+];
+
 onMounted(load);
 </script>
 
@@ -129,20 +187,25 @@ onMounted(load);
         </n-alert>
 
         <n-tabs v-model:value="tab" type="line" animated>
-          <n-tab-pane name="mine" :tab="t('我的可见本体')">
-            <n-spin :show="loading">
-              <n-empty v-if="!mine.count" :description="t('当前账号暂无可见本体')" />
-              <div v-else class="tag-row">
-                <n-tag v-for="item in mine.ontologies" :key="item" type="info" :bordered="false">{{ item }}</n-tag>
-              </div>
-              <p class="muted hint">
-                {{ t('展示口径：租户兜底授权 + 当前账号自身授权（授权管理在「用户管理」中按用户配置）。') }}
-              </p>
-            </n-spin>
-          </n-tab-pane>
-          <n-tab-pane name="all" :tab="t('全量清单')">
+          <n-tab-pane name="catalog" :tab="t('本体清单')">
             <div class="table-card">
               <n-data-table :columns="catalogColumns" :data="catalog" :loading="loading" :bordered="false" />
+            </div>
+            <p class="muted hint">
+              {{ t('清单聚合自 MOGO 侧业务实体索引的 ontology_id，并补上已授权但索引未出现的本体；本体 CRUD 不在 MOGO 侧。') }}
+            </p>
+          </n-tab-pane>
+          <n-tab-pane name="users" :tab="t('用户本体授权')">
+            <n-alert type="info" :bordered="false">
+              {{ t('按用户汇总 subject_type=user 的本体授权；租户兜底授权不归属任何用户。同一本体按优先级高者胜、同优先级取更严格模式。单个用户的授予与撤销在「用户管理」的用户行操作。') }}
+            </n-alert>
+            <div class="table-card">
+              <n-data-table
+                :columns="userSummaryColumns"
+                :data="userSummaries"
+                :loading="loading"
+                :bordered="false"
+              />
             </div>
           </n-tab-pane>
         </n-tabs>

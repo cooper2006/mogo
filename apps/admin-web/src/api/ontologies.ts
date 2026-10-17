@@ -39,6 +39,11 @@ export type OntologyGrant = {
   enabled: boolean;
   remark: string;
   updatedAt: string;
+  /**
+   * 仅在「用户本体授权」汇总（`GET /api/ontologies/users/grants`）返回：
+   * `accessMode ∈ {read, write}` 即可见。单个主体的权限接口不返回该字段。
+   */
+  visible?: boolean;
 };
 
 export type OntologyClassDetail = {
@@ -64,6 +69,15 @@ export type SubjectPermissionBundle = {
   details: OntologyClassDetail[];
 };
 
+/** 某用户的本体授权汇总（030：admin-web「用户本体授权」视图）。 */
+export type UserOntologyGrantSummary = {
+  userId: string;
+  grants: OntologyGrant[];
+  grantCount: number;
+  visibleCount: number;
+  disabledCount: number;
+};
+
 export type GrantPayload = {
   ontologyIds: string[];
   accessMode?: 'none' | 'read' | 'write';
@@ -82,6 +96,17 @@ export type OntologySyncResult = {
 /** 当前账号可见的本体清单（登录即可）。 */
 export async function fetchMyOntologies(): Promise<MyOntologyScope> {
   return (await apiClient.get('/api/ontologies/mine')).data;
+}
+
+/**
+ * 按用户汇总本体授权（admin-web「用户本体授权」视图）。
+ *
+ * 只含 ``subject_type='user'`` 的行；``tenant`` 兜底授权不归属任何用户，
+ * 在「本体清单」tab 单独呈现。某用户此处为空 = 仅继承租户兜底，
+ * 不等于「看不到任何本体」。
+ */
+export async function fetchUserOntologyGrantSummaries(): Promise<UserOntologyGrantSummary[]> {
+  return (await apiClient.get('/api/ontologies/users/grants')).data;
 }
 
 /** 全量本体清单（授权时勾选）。 */

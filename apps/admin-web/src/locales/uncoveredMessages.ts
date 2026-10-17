@@ -5,6 +5,7 @@ import { knowledgeMessages } from './modules/knowledge';
 import { settingsMessages } from './modules/settings';
 import { organizationMessages } from './modules/organization';
 import { skillWorkflowMessages } from './modules/skillWorkflow';
+import { ontologyMessages } from './modules/ontology';
 
 export const uncoveredMessages = {
   ...runtimeMessages,
@@ -14,6 +15,7 @@ export const uncoveredMessages = {
   ...settingsMessages,
   ...organizationMessages,
   ...skillWorkflowMessages,
+  ...ontologyMessages,
   '面向组织、部门、用户、角色和权限的控制面。': { 'zh-CN': '面向组织、部门、用户、角色和权限的控制面。', 'en-US': 'Control organizations, departments, users, roles, and permissions.' },
   '组织管理': { 'zh-CN': '组织管理', 'en-US': 'Organization Management' },
   '权限': { 'zh-CN': '权限', 'en-US': 'Permissions' },
