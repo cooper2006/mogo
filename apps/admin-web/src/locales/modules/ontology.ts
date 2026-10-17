@@ -8,6 +8,7 @@ import type { LabelMap } from '../messages';
  * 清单展示与按用户汇总授权两个视图。
  */
 export const ontologyMessages: Record<string, LabelMap> = {
+  '本体授权': { 'zh-CN': '本体授权', 'en-US': 'Ontology Grants' },
   '本体清单': { 'zh-CN': '本体清单', 'en-US': 'Ontology Catalog' },
   '用户本体授权': { 'zh-CN': '用户本体授权', 'en-US': 'User Ontology Grants' },
   '全量清单': { 'zh-CN': '全量清单', 'en-US': 'Full Catalog' },

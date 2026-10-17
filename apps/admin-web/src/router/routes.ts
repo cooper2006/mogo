@@ -178,7 +178,7 @@ export const appRoutes: RouteRecordRaw[] = [
         path: '/ontologies',
         name: 'Ontologies',
         component: () => import('@/views/ontologies/OntologyCatalogPage.vue'),
-        meta: { title: '本体清单', icon: OntologyIcon },
+        meta: { title: '本体授权', icon: OntologyIcon },
       },
       {
         path: '/hooks/rules',
