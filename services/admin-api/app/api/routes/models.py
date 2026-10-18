@@ -135,6 +135,13 @@ class ModelTestPayload(BaseModel):
     prompt: str = Field(default="请用一句话回复当前模型连接测试。", max_length=500)
 
 
+class ModelDiscoverPayload(BaseModel):
+    providerType: str = Field(pattern=r"^(openai_compatible|azure_openai|anthropic|gemini|ollama)$")
+    baseUrl: str = Field(min_length=1, max_length=300)
+    apiKey: str = Field(default="", max_length=600)
+    apiVersion: str = Field(default="", max_length=40)
+
+
 @router.get("/providers")
 async def get_model_providers(current_user: dict = Depends(get_current_admin_user)) -> list[dict[str, object]]:
     del current_user
@@ -180,6 +187,49 @@ async def get_available_chat_models(
             }
         )
     return result
+
+
+@router.post("/discover")
+async def discover_provider_models(
+    payload: ModelDiscoverPayload,
+    current_user: dict = Depends(get_current_admin_user),
+) -> dict[str, object]:
+    """探测 provider 真实可用的模型列表（OpenAI 兼容走 /v1/models，Azure 走 deployments 列表）。
+
+    用于 admin-web「新增模型配置」中的「获取模型列表」功能：管理员填入 Base URL 与
+    API Key 后，调用本端点拉取该账户真实可调用的模型，点选其一即可免去手填模型 ID。
+    """
+    del current_user
+    base_url = payload.baseUrl.strip().rstrip("/")
+    api_key = payload.apiKey.strip()
+    try:
+        if payload.providerType == "azure_openai":
+            models = await asyncio.to_thread(_discover_azure_models, base_url, api_key, payload.apiVersion.strip())
+        elif payload.providerType == "anthropic":
+            models = await asyncio.to_thread(_discover_anthropic_models, base_url, api_key)
+        elif payload.providerType == "gemini":
+            models = await asyncio.to_thread(_discover_gemini_models, base_url, api_key)
+        elif payload.providerType == "ollama":
+            models = await asyncio.to_thread(_discover_ollama_models, base_url, api_key)
+        else:
+            models = await asyncio.to_thread(_discover_openai_compatible_models, base_url, api_key)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"无法从模型服务获取模型列表 (HTTP {exc.code}): {detail[:400]}",
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_format_url_error(exc),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - surface upstream failure as 502
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"获取模型列表失败: {exc}",
+        ) from exc
+    return {"models": models}
 
 
 @router.post("/instances", status_code=status.HTTP_201_CREATED)
@@ -455,6 +505,12 @@ def _provider_test_events(
     provider_type = str(provider.get("provider_type") or "openai_compatible").strip()
     if provider_type == "azure_openai":
         return _azure_openai_test_events(instance, provider, prompt)
+    if provider_type == "anthropic":
+        return _anthropic_test_events(instance, provider, prompt)
+    if provider_type == "gemini":
+        return _gemini_test_events(instance, provider, prompt)
+    if provider_type == "ollama":
+        return _ollama_test_events(instance, provider, prompt)
     return _openai_compatible_test_events(instance, provider, prompt)
 
 
@@ -617,6 +673,311 @@ def _azure_openai_test_events(
         yield {"type": "error", "message": _format_url_error(exc)}
     except TimeoutError:
         yield {"type": "error", "message": "模型接口连接超时"}
+    except Exception as exc:
+        yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
+
+
+def _discover_openai_compatible_models(base_url: str, api_key: str) -> list[dict[str, str]]:
+    """调用 OpenAI 兼容接口的 ``GET /models``，返回该账户真实可用模型清单。"""
+    target = f"{base_url.rstrip('/')}/models"
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Accept": "application/json",
+    }
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("data") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id") or item.get("name") or item.get("model")
+        if not model_id:
+            continue
+        model_id = str(model_id)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": str(item.get("name") or model_id),
+                "ownedBy": str(item.get("owned_by") or ""),
+            }
+        )
+    return result
+
+
+def _discover_azure_models(base_url: str, api_key: str, api_version: str) -> list[dict[str, str]]:
+    """调用 Azure OpenAI 的 deployments 列表（``GET /openai/deployments``）。"""
+    endpoint = base_url.rstrip("/")
+    version = urllib.parse.quote(api_version or "2024-10-21", safe="")
+    target = f"{endpoint}/openai/deployments?api-version={version}"
+    headers = {
+        "api-key": api_key.strip(),
+        "Accept": "application/json",
+    }
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("data") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id") or item.get("name") or item.get("model")
+        if not model_id:
+            continue
+        model_id = str(model_id)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": str(item.get("display_name") or item.get("name") or model_id),
+                "ownedBy": "",
+            }
+        )
+    return result
+
+
+def _discover_anthropic_models(base_url: str, api_key: str) -> list[dict[str, str]]:
+    """调用 Anthropic 的 ``GET /v1/models``（需要 x-api-key + anthropic-version）。"""
+    target = f"{base_url.rstrip('/')}/v1/models"
+    headers = {
+        "x-api-key": api_key.strip(),
+        "anthropic-version": "2023-06-01",
+        "Accept": "application/json",
+    }
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("data") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id") or item.get("name")
+        if not model_id:
+            continue
+        model_id = str(model_id)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": str(item.get("display_name") or model_id),
+                "ownedBy": "anthropic",
+            }
+        )
+    return result
+
+
+def _discover_gemini_models(base_url: str, api_key: str) -> list[dict[str, str]]:
+    """调用 Google Gemini 的 ``GET /v1beta/models?key=...``。"""
+    encoded_key = urllib.parse.quote(api_key.strip(), safe="")
+    target = f"{base_url.rstrip('/')}/v1beta/models?key={encoded_key}"
+    headers = {"Accept": "application/json"}
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("models") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("name") or "")
+        # Gemini 返回形如 "models/gemini-1.5-pro"，去掉前缀更便于作为模型 ID 使用
+        model_id = model_id.split("/")[-1]
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": str(item.get("displayName") or model_id),
+                "ownedBy": "google",
+            }
+        )
+    return result
+
+
+def _discover_ollama_models(base_url: str, api_key: str) -> list[dict[str, str]]:
+    """调用本地 Ollama 的 ``GET /api/tags``（无需鉴权）。"""
+    target = f"{base_url.rstrip('/')}/api/tags"
+    headers = {"Accept": "application/json"}
+    request = urllib.request.Request(target, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=30, context=_build_ssl_context()) as response:
+        raw = json.loads(response.read().decode("utf-8", errors="replace"))
+    items = raw.get("models") or []
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("name") or item.get("model")
+        if not model_id:
+            continue
+        model_id = str(model_id)
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        result.append(
+            {
+                "id": model_id,
+                "name": model_id,
+                "ownedBy": "ollama",
+            }
+        )
+    return result
+
+
+def _anthropic_test_events(
+    instance: dict[str, Any],
+    provider: dict[str, Any],
+    prompt: str,
+) -> Iterator[dict[str, object]]:
+    model_name = str(instance.get("model_name") or "").strip()
+    base_url = str(instance.get("base_url") or provider.get("default_base_url") or "").strip().rstrip("/")
+    if not model_name:
+        yield {"type": "error", "message": "模型 ID 不能为空"}
+        return
+    if not base_url:
+        yield {"type": "error", "message": "Base URL 不能为空"}
+        return
+    api_key, key_error = _decrypt_api_key(instance)
+    if key_error:
+        yield {"type": "error", "message": key_error}
+        return
+    url = f"{base_url}/v1/messages"
+    body = {
+        "model": model_name,
+        "max_tokens": 120,
+        "messages": [{"role": "user", "content": prompt or "请用一句话回复当前模型连接测试。"}],
+        "stream": False,
+    }
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    try:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60, context=_build_ssl_context()) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        blocks = data.get("content") or []
+        text = "".join(str(block.get("text") or "") for block in blocks if block.get("type") == "text")
+        if not text:
+            yield {"type": "error", "message": "模型返回内容为空"}
+            return
+        yield {"type": "delta", "content": text}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
+    except urllib.error.URLError as exc:
+        yield {"type": "error", "message": _format_url_error(exc)}
+    except Exception as exc:
+        yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
+
+
+def _gemini_test_events(
+    instance: dict[str, Any],
+    provider: dict[str, Any],
+    prompt: str,
+) -> Iterator[dict[str, object]]:
+    model_name = str(instance.get("model_name") or "").strip()
+    base_url = str(instance.get("base_url") or provider.get("default_base_url") or "").strip().rstrip("/")
+    if not model_name:
+        yield {"type": "error", "message": "模型 ID 不能为空"}
+        return
+    if not base_url:
+        yield {"type": "error", "message": "Base URL 不能为空"}
+        return
+    api_key, key_error = _decrypt_api_key(instance)
+    if key_error:
+        yield {"type": "error", "message": key_error}
+        return
+    url = f"{base_url}/v1beta/models/{urllib.parse.quote(model_name, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt or "请用一句话回复当前模型连接测试。"}]}],
+    }
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    try:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60, context=_build_ssl_context()) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts") or []
+        text = "".join(str(part.get("text") or "") for part in parts)
+        if not text:
+            yield {"type": "error", "message": "模型返回内容为空"}
+            return
+        yield {"type": "delta", "content": text}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
+    except urllib.error.URLError as exc:
+        yield {"type": "error", "message": _format_url_error(exc)}
+    except Exception as exc:
+        yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
+
+
+def _ollama_test_events(
+    instance: dict[str, Any],
+    provider: dict[str, Any],
+    prompt: str,
+) -> Iterator[dict[str, object]]:
+    model_name = str(instance.get("model_name") or "").strip()
+    base_url = str(instance.get("base_url") or provider.get("default_base_url") or "").strip().rstrip("/")
+    if not model_name:
+        yield {"type": "error", "message": "模型 ID 不能为空"}
+        return
+    if not base_url:
+        yield {"type": "error", "message": "Base URL 不能为空"}
+        return
+    url = f"{base_url}/api/chat"
+    body = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": prompt or "请用一句话回复当前模型连接测试。"}],
+        "stream": False,
+    }
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    try:
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60, context=_build_ssl_context()) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        text = str((data.get("message") or {}).get("content") or "")
+        if not text:
+            yield {"type": "error", "message": "模型返回内容为空"}
+            return
+        yield {"type": "delta", "content": text}
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
+    except urllib.error.URLError as exc:
+        yield {"type": "error", "message": _format_url_error(exc)}
     except Exception as exc:
         yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
 

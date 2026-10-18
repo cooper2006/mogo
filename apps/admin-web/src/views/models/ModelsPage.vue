@@ -160,7 +160,10 @@
           </n-grid-item>
           <n-grid-item>
             <n-form-item :label="modelFieldLabel">
-              <n-input v-model:value="form.modelName" :placeholder="modelFieldPlaceholder" />
+              <n-input-group>
+                <n-input v-model:value="form.modelName" :placeholder="modelFieldPlaceholder" />
+                <n-button :loading="discoverLoading" @click="openModelPicker">{{ t('获取列表') }}</n-button>
+              </n-input-group>
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
@@ -260,13 +263,39 @@
       </n-space>
     </template>
   </n-modal>
+
+  <n-modal v-model:show="modelPickerVisible" preset="card" :title="t('选择模型')" style="width: 640px">
+    <n-spin :show="discoverLoading">
+      <div v-if="discoveredModels.length" class="model-picker-list">
+        <button
+          v-for="row in discoveredModels"
+          :key="row.id"
+          class="model-picker-item"
+          type="button"
+          @click="pickModel(row)"
+        >
+          <span class="mp-id">{{ row.id }}</span>
+          <span v-if="row.ownedBy" class="mp-owner">{{ row.ownedBy }}</span>
+        </button>
+      </div>
+      <n-empty
+        v-else
+        :description="discoverLoading ? t('正在获取模型列表...') : t('暂无可选项，请检查 Base URL 与 API Key 是否正确')"
+      />
+    </n-spin>
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="modelPickerVisible = false">{{ t('取消') }}</n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
-import { useDialog, useMessage } from 'naive-ui';
+import { NInputGroup, useDialog, useMessage } from 'naive-ui';
 import PageIntro from '@/components/PageIntro.vue';
 import { t } from '@/composables/i18n';
 import { formatAdminDateTime } from '@/composables/adminTimezone';
@@ -274,11 +303,13 @@ import ImageModelRuntimeFields from '@/components/models/ImageModelRuntimeFields
 import {
   createModelInstance,
   deleteModelInstance,
+  discoverProviderModels,
   fetchModelInstances,
   fetchModelProviders,
   streamModelInstanceTest,
   testImageModelInstance,
   updateModelInstance,
+  type DiscoveredModel,
   type ModelInstanceItem,
   type ModelInstancePayload,
   type ModelProviderItem,
@@ -313,6 +344,10 @@ const testPrompt = ref(t('测试模型默认提示'));
 const testResultText = ref(t('测试模型未保存'));
 const testResultType = ref<'idle' | 'success' | 'failed'>('idle');
 const testImageUrl = ref('');
+
+const discoverLoading = ref(false);
+const discoveredModels = ref<DiscoveredModel[]>([]);
+const modelPickerVisible = ref(false);
 
 const filters = ref({
   keyword: '',
@@ -371,15 +406,41 @@ const editorTitle = computed(() => (editorMode.value === 'create' ? t('新增模
 const apiKeyPlaceholder = computed(() =>
   editorMode.value === 'create' ? t('请输入 API Key') : t('留空则保留当前 Key'),
 );
+const providerType = computed(() => currentProvider.value?.providerType || '');
 const modelFieldLabel = computed(() => (isAzureProvider.value ? t('Deployment 名称') : t('模型 ID')));
-const modelFieldPlaceholder = computed(() =>
-  hasImageCapability.value
-    ? (isAzureProvider.value ? t('如: gpt-image-2-prod（Azure 部署名）') : t('如: qwen-image-plus / gpt-image-1'))
-    : (isAzureProvider.value ? t('如: gpt-4o-mini-prod（Azure 部署名）') : t('如: gpt-4.1 / qwen-plus / deepseek-chat')),
-);
-const baseUrlPlaceholder = computed(() =>
-  isAzureProvider.value ? 'https://YOUR-RESOURCE-NAME.openai.azure.com' : 'https://api.openai.com/v1',
-);
+const modelFieldPlaceholder = computed(() => {
+  if (hasImageCapability.value) {
+    return providerType.value === 'azure_openai'
+      ? t('如: gpt-image-2-prod（Azure 部署名）')
+      : t('如: qwen-image-plus / gpt-image-1');
+  }
+  switch (providerType.value) {
+    case 'azure_openai':
+      return t('如: gpt-4o-mini-prod（Azure 部署名）');
+    case 'anthropic':
+      return t('如: claude-3-5-sonnet-20241022');
+    case 'gemini':
+      return t('如: gemini-1.5-pro');
+    case 'ollama':
+      return t('如: llama3.1');
+    default:
+      return t('如: gpt-4.1 / qwen-plus / deepseek-chat');
+  }
+});
+const baseUrlPlaceholder = computed(() => {
+  switch (providerType.value) {
+    case 'azure_openai':
+      return 'https://YOUR-RESOURCE-NAME.openai.azure.com';
+    case 'anthropic':
+      return 'https://api.anthropic.com';
+    case 'gemini':
+      return 'https://generativelanguage.googleapis.com';
+    case 'ollama':
+      return 'http://localhost:11434';
+    default:
+      return 'https://api.openai.com/v1';
+  }
+});
 const keyStateText = computed(() => {
   if (form.value.apiKey.trim()) {
     return t('已填写新 Key');
@@ -424,6 +485,45 @@ function resetTestState(text = t('保存模型配置后可测试。')) {
   testResultText.value = text;
   testResultType.value = 'idle';
   testImageUrl.value = '';
+}
+
+/** 参考 dsh 的模型库交互：带凭据探测 provider 真实可用模型，弹出列表供点选。 */
+async function openModelPicker() {
+  if (!currentProvider.value) {
+    message.warning(t('请先选择供应商'));
+    return;
+  }
+  if (!form.value.baseUrl.trim()) {
+    message.warning(t('请先填写 Base URL'));
+    return;
+  }
+  if (!form.value.apiKey.trim()) {
+    message.warning(t('请先填写 API Key 以获取模型列表'));
+    return;
+  }
+  discoverLoading.value = true;
+  modelPickerVisible.value = true;
+  try {
+    discoveredModels.value = await discoverProviderModels({
+      providerType: currentProvider.value.providerType,
+      baseUrl: form.value.baseUrl.trim(),
+      apiKey: form.value.apiKey,
+      apiVersion: form.value.apiVersion,
+    });
+    if (!discoveredModels.value.length) {
+      message.warning(t('未获取到模型列表，请检查凭据是否有效，或手动输入模型 ID'));
+    }
+  } catch (error) {
+    message.error(readError(error, t('获取模型列表失败')));
+  } finally {
+    discoverLoading.value = false;
+  }
+}
+
+function pickModel(row: DiscoveredModel) {
+  form.value.modelName = row.id;
+  modelPickerVisible.value = false;
+  message.success(t('已选择模型：{name}', { name: row.id }));
 }
 
 function recommendedImageRuntime(provider?: ModelProviderItem): ImageRuntimeKind {
@@ -1092,6 +1192,51 @@ onMounted(reload);
 .test-result.failed {
   color: #b42318;
   background: #fff1f2;
+}
+
+.model-picker-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.model-picker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid rgba(28, 45, 82, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.model-picker-item:hover {
+  border-color: rgba(54, 106, 255, 0.4);
+  box-shadow: 0 6px 18px rgba(33, 58, 126, 0.08);
+  background: #f7faff;
+}
+
+.mp-id {
+  color: #17233d;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.mp-owner {
+  color: #8a96a8;
+  font-size: 12px;
 }
 
 </style>

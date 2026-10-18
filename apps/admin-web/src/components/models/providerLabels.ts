@@ -9,6 +9,9 @@ type ProviderLike = {
 const providerMessageKeys: Record<string, string> = {
   openai: 'OpenAI',
   azure_openai: 'Azure OpenAI',
+  anthropic: 'Anthropic Claude',
+  gemini: 'Google Gemini',
+  ollama: 'Ollama',
   qwen: '通义千问',
   tongyi: '通义千问',
   dashscope: '通义千问',

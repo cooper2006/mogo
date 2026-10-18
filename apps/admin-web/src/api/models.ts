@@ -26,7 +26,7 @@ export interface ModelProviderItem {
   id: string;
   name: string;
   code: string;
-  providerType: 'openai_compatible' | 'azure_openai';
+  providerType: 'openai_compatible' | 'azure_openai' | 'anthropic' | 'gemini' | 'ollama';
   defaultBaseUrl: string;
   authType: string;
   status: ModelStatus;
@@ -170,7 +170,28 @@ export async function streamModelInstanceTest(
       if (!line) {
         continue;
       }
-      onEvent(JSON.parse(line.slice(5).trim()));
-    }
+    onEvent(JSON.parse(line.slice(5).trim()));
   }
+}
+
+export interface DiscoveredModel {
+  id: string;
+  name: string;
+  ownedBy?: string;
+}
+
+/**
+ * 代理探测 provider 真实可用的模型列表（参考 dsh 的模型库交互）。
+ * OpenAI 兼容走 `/v1/models`，Azure 走 deployments 列表。返回该账户可调用的模型，
+ * 供「新增模型配置」中「获取模型列表」直接点选，免去手填模型 ID。
+ */
+export async function discoverProviderModels(payload: {
+  providerType: 'openai_compatible' | 'azure_openai' | 'anthropic' | 'gemini' | 'ollama';
+  baseUrl: string;
+  apiKey: string;
+  apiVersion?: string;
+}): Promise<DiscoveredModel[]> {
+  const { data } = await apiClient.post<{ models: DiscoveredModel[] }>('/api/models/discover', payload);
+  return data?.models ?? [];
+}
 }
