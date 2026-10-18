@@ -140,6 +140,8 @@ class ModelDiscoverPayload(BaseModel):
     baseUrl: str = Field(min_length=1, max_length=300)
     apiKey: str = Field(default="", max_length=600)
     apiVersion: str = Field(default="", max_length=40)
+    # 编辑已保存配置时前端拿不到已加密 Key（字段留空=保留），传实例 ID 让后端取已存密钥解密
+    instanceId: str = Field(default="", max_length=64)
 
 
 @router.get("/providers")
@@ -198,10 +200,20 @@ async def discover_provider_models(
 
     用于 admin-web「新增模型配置」中的「获取模型列表」功能：管理员填入 Base URL 与
     API Key 后，调用本端点拉取该账户真实可调用的模型，点选其一即可免去手填模型 ID。
+
+    编辑已保存配置时，前端刻意将 API Key 字段置空（占位提示“留空则保留当前 Key”，已加密
+    Key 不可回显）。此时 payload 会带上 ``instanceId``，本端点从库中取出该实例已加密的
+    Key 解密复用，免去每次「获取模型列表」都要重新输入。Ollama 无需 Key，跳过此逻辑。
     """
-    del current_user
+    tenant_id = str(current_user.get("tenant_id", "default"))
     base_url = payload.baseUrl.strip().rstrip("/")
     api_key = payload.apiKey.strip()
+    instance_id = payload.instanceId.strip()
+    if not api_key and instance_id and payload.providerType != "ollama":
+        resolved_key, key_error = await _resolve_stored_api_key(instance_id, tenant_id)
+        if key_error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=key_error)
+        api_key = resolved_key
     try:
         if payload.providerType == "azure_openai":
             models = await asyncio.to_thread(_discover_azure_models, base_url, api_key, payload.apiVersion.strip())
@@ -626,6 +638,17 @@ def _decrypt_api_key(instance: dict[str, Any]) -> tuple[str, str]:
         return decrypt_secret(api_key_encrypted), ""
     except Exception:
         return "", "API Key 解密失败，请重新保存模型配置"
+
+
+async def _resolve_stored_api_key(instance_id: str, tenant_id: str) -> tuple[str, str]:
+    """编辑已保存配置且前端未填入 API Key 时，取该实例已加密存储的 Key 解密复用。"""
+    try:
+        instance = await find_instance_by_id(instance_id, tenant_id)
+    except InvalidId:
+        return "", "模型配置ID无效，请改为手动输入 API Key"
+    if instance is None:
+        return "", "未找到对应模型配置，请改为手动输入 API Key"
+    return _decrypt_api_key(instance)
 
 
 def _azure_openai_test_events(

@@ -83,6 +83,12 @@
 
 ---
 
+## Phase 7: 缺陷修复（2026-10-18）
+
+- [x] T019 [US1] 修复「编辑已保存配置时点获取列表需重输 API Key」：`ModelDiscoverPayload` 增 `instanceId`；`/discover` 在 Key 留空且有实例时经 `_resolve_stored_api_key()` 解密复用已存 Key（实例缺失/解密失败→400，前端显式填新 Key 时新 Key 优先，ollama 跳过查库）；前端 `openModelPicker()` 守卫改为「ollama 或编辑已有实例免填 Key」并传 `instanceId`。回归测试 +4 条（共 15 passed），ModelsPage.vue SFC 编译通过
+
+---
+
 ## Dependencies & Execution Order
 
 - Setup/Foundational 已完成（commit `6ea16f3`）。

@@ -173,3 +173,113 @@ def test_discover_route_ollama(monkeypatch) -> None:
     resp = client.post("/discover", json={"providerType": "ollama", "baseUrl": "http://localhost:11434", "apiKey": ""})
     assert resp.status_code == 200
     assert resp.json()["models"][0]["id"] == "llama3.1"
+
+
+def test_discover_reuses_stored_key_for_existing_instance(monkeypatch) -> None:
+    """编辑已保存配置、前端未重填 Key 时，后端取实例已加密 Key 解密复用（免去每次重输）。"""
+    captured: dict[str, str] = {}
+
+    async def _fake_find(*_a, **_k):
+        return {"_id": "i1", "api_key_encrypted": "enc"}
+
+    monkeypatch.setattr(models_route, "find_instance_by_id", _fake_find)
+    monkeypatch.setattr(models_route, "_decrypt_api_key", lambda instance: ("sk-stored", ""))
+
+    def _fake_discover(base_url, api_key):
+        captured["api_key"] = api_key
+        return [{"id": "gpt-4o", "name": "gpt-4o", "ownedBy": "openai"}]
+
+    monkeypatch.setattr(models_route, "_discover_openai_compatible_models", _fake_discover)
+    client = _mount_app()
+    resp = client.post(
+        "/discover",
+        json={
+            "providerType": "openai_compatible",
+            "baseUrl": "https://api.openai.com/v1",
+            "apiKey": "",
+            "instanceId": "507f1f77bcf86cd799439011",
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["api_key"] == "sk-stored"
+    assert resp.json()["models"][0]["id"] == "gpt-4o"
+
+
+def test_discover_stored_key_instance_not_found_returns_400(monkeypatch) -> None:
+    async def _fake_find(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(models_route, "find_instance_by_id", _fake_find)
+
+    def _should_not_run(*_a, **_k):
+        raise AssertionError("_decrypt_api_key should not run when instance missing")
+
+    monkeypatch.setattr(models_route, "_decrypt_api_key", _should_not_run)
+    client = _mount_app()
+    resp = client.post(
+        "/discover",
+        json={
+            "providerType": "openai_compatible",
+            "baseUrl": "https://api.openai.com/v1",
+            "apiKey": "",
+            "instanceId": "507f1f77bcf86cd799439011",
+        },
+    )
+    assert resp.status_code == 400
+    assert "未找到" in resp.json()["detail"]
+
+
+def test_discover_prefers_provided_key_over_stored(monkeypatch) -> None:
+    """前端显式填了新 Key 时，直接用新 Key，不回退已存密钥。"""
+    captured: dict[str, str] = {}
+
+    async def _should_not_run(*_a, **_k):
+        raise AssertionError("find_instance_by_id should not run when apiKey provided")
+
+    monkeypatch.setattr(models_route, "find_instance_by_id", _should_not_run)
+
+    def _fake_discover(base_url, api_key):
+        captured["api_key"] = api_key
+        return [{"id": "x", "name": "x", "ownedBy": ""}]
+
+    monkeypatch.setattr(models_route, "_discover_openai_compatible_models", _fake_discover)
+    client = _mount_app()
+    resp = client.post(
+        "/discover",
+        json={
+            "providerType": "openai_compatible",
+            "baseUrl": "https://api.openai.com/v1",
+            "apiKey": "sk-new",
+            "instanceId": "507f1f77bcf86cd799439011",
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["api_key"] == "sk-new"
+
+
+def test_discover_ollama_skips_stored_key_lookup(monkeypatch) -> None:
+    """Ollama 无需 Key：即使带 instanceId 也不查库，直接用空 Key。"""
+    captured: dict[str, str] = {}
+
+    async def _should_not_run(*_a, **_k):
+        raise AssertionError("find_instance_by_id should not run for ollama")
+
+    monkeypatch.setattr(models_route, "find_instance_by_id", _should_not_run)
+
+    def _fake_discover(base_url, api_key):
+        captured["api_key"] = api_key
+        return [{"id": "llama3.1", "name": "llama3.1", "ownedBy": "ollama"}]
+
+    monkeypatch.setattr(models_route, "_discover_ollama_models", _fake_discover)
+    client = _mount_app()
+    resp = client.post(
+        "/discover",
+        json={
+            "providerType": "ollama",
+            "baseUrl": "http://localhost:11434",
+            "apiKey": "",
+            "instanceId": "507f1f77bcf86cd799439011",
+        },
+    )
+    assert resp.status_code == 200
+    assert captured["api_key"] == ""

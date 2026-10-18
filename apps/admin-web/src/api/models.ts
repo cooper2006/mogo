@@ -170,7 +170,8 @@ export async function streamModelInstanceTest(
       if (!line) {
         continue;
       }
-    onEvent(JSON.parse(line.slice(5).trim()));
+      onEvent(JSON.parse(line.slice(5).trim()));
+    }
   }
 }
 
@@ -190,8 +191,9 @@ export async function discoverProviderModels(payload: {
   baseUrl: string;
   apiKey: string;
   apiVersion?: string;
+  // 编辑已保存配置且未重填 Key 时带上实例 ID，后端复用已存密钥解密，免去每次重输
+  instanceId?: string;
 }): Promise<DiscoveredModel[]> {
   const { data } = await apiClient.post<{ models: DiscoveredModel[] }>('/api/models/discover', payload);
   return data?.models ?? [];
-}
 }

@@ -497,7 +497,10 @@ async function openModelPicker() {
     message.warning(t('请先填写 Base URL'));
     return;
   }
-  if (!form.value.apiKey.trim()) {
+  // Ollama 本地部署无需 Key；编辑已保存配置时 Key 留空将由后端取已存密钥解密复用，
+  // 无需每次重新输入（否则会强制用户重填 API Key）。
+  const needsKey = currentProvider.value.providerType !== 'ollama' && !form.value.apiKey.trim() && !form.value.id;
+  if (needsKey) {
     message.warning(t('请先填写 API Key 以获取模型列表'));
     return;
   }
@@ -509,6 +512,7 @@ async function openModelPicker() {
       baseUrl: form.value.baseUrl.trim(),
       apiKey: form.value.apiKey,
       apiVersion: form.value.apiVersion,
+      instanceId: form.value.id || '',
     });
     if (!discoveredModels.value.length) {
       message.warning(t('未获取到模型列表，请检查凭据是否有效，或手动输入模型 ID'));
