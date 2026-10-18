@@ -13,8 +13,9 @@
 > quickstart + checklist 五件套。该特性属**既有工作回溯补规格**（R1 代码先于 spec 落地），
 > R1 已完成并实测通过，R2 起严格按 SDD 流程推进。本文件下方计数已同步至 **27 个特性**。
 > **2026-10-16 补充**：新增 **030（本体数据权限）**，属**回溯补规格**（建表入库 + 运行时解析 +
-> 管理端 API/前端代码先落地，本轮补 spec/plan/tasks）。本文件下方计数已同步至 **30 个特性**
-> （含 028/029 会话轨迹与 SSO 接收方）。
+> 管理端 API/前端代码先落地，本轮补 spec/plan/tasks）。本文件下方计数已同步至 **31 个特性**
+> （含 028/029 会话轨迹与 SSO 接收方、030 本体数据权限、031 模型供应商发现与多协议接入）。
+> **2026-10-18 补充**：新增 **031（模型供应商发现与多协议接入）**，属**回溯补规格**（后端 discover 五协议 + 三协议种子 + 前端「获取列表」弹窗与首次向导字段提示先于 spec 落地，本轮补 spec/plan/tasks，详见「四（补 5）」）。
 > **2229 + 433 + 22 = 2684 项全绿**（chat-api / admin-api / document-parser）；specs 目录已达
 > **21 个特性**（含 021），其中 **17 份 `tasks.md` / 354 项全部勾选**。本文件下方的
 > spec/plan/checklist/tasks 计数已同步至该口径。
@@ -150,6 +151,20 @@
 > user-web `App.vue` onMounted 读票/清票/换票/失败回落登录弹窗，多租户透传选租户挑战给登录弹窗。
 > 门户接入示例见 `docs/samples/portal-sso-integration/`。测试：chat-api `tests/api/test_auth_portal_sso.py` 9 项 +
 > user-web `tests/portal-sso-receiver.test.ts` 契约测试通过；api/security/core 回归全绿。
+
+## 四（补 5）、模型供应商发现与多协议接入（2026-10-18 新增）
+
+| 编号 | 特性 | 说明 | 优先级 | spec | plan | quickstart | tasks |
+|---|---|---|---|---|---|---|---|
+| 031 | model-provider-discover（模型供应商发现与多协议接入） | admin-web「新增模型配置」免手填模型 ID：后端 `POST /api/models/discover` 用已配置 baseUrl+apiKey 直连 provider 真实 API 拉回模型清单，前端「获取列表」弹窗点选回填；discover 由 OpenAI/Azure 扩展到 Anthropic Claude / Google Gemini / Ollama（本地）三类协议（种子 + 前端类型 + 连接测试分发）；首次配置向导 `SetupModelFields` 为三类补专属字段提示 | P1 | ✅ | ✅ | — | ✅（T001–T014 已落地于 commit `6ea16f3`，T015–T018 本轮收尾） |
+
+> **性质**：**回溯补规格**（代码先于 spec 落地，与 027/030 同类）——后端 discover 端点、三协议种子、前端「获取列表」弹窗与首次向导字段提示均已实现，spec/plan/tasks 于本轮补齐并把实现口径固化。
+>
+> **设计来源**：commit `6ea16f3`（`feat(models): 新增「获取模型列表」并支持 Anthropic/Gemini/Ollama`）。
+>
+> **关键决策**：① 数据来源 = 代理 provider 真实 API（非 dsh 静态 catalog）；② 完整接入 anthropic/gemini/ollama（种子 + 前端类型/标签 + 连接测试分发）；③ provider_type 五值体系贯穿 seed/setup/连接测试/前端；④ 各协议列表端点与解析口径见 `specs/031-model-provider-discover/spec.md` §已定决策；⑤ 三类新协议无 API Version 概念，向导不强行加版本字段，仅以占位符 + feedback 提示（YAGNI）。
+>
+> **验证**：admin-api `tests/test_models_discover.py` 11/11 全绿（OpenAI/Azure 解析、Anthropic/Gemini/Ollama 解析、HTTP 错误→502、路由分发、未知类型→422）；前端 `SetupModelFields.vue` 经 `@vue/compiler-sfc` 单文件编译通过。
 
 ## 五、规约完成度统计
 
