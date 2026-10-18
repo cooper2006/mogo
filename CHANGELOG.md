@@ -4,6 +4,44 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
+## v0.2.3 - 2026-10-18
+
+### Added
+
+- **027 数据后端迁移：PanWeiDB（MongoDB → openGauss 系）R1/R2/R3 全量落地**。
+  三服务新增可选后端 `MOGO_DATA_BACKEND=panweidb`（默认仍为 `mongo`，回滚只改
+  环境变量）。核心是 `app/core/pg_compat.py` Motor/PyMongo 兼容门面：集合映射
+  `(id, tenant_id, doc JSONB, created_at, updated_at)` 单表；R2 补齐聚合管道编译
+  器与 `bulk_write`（25 处 `aggregate()` 零修改可用）；R3 对 44 张表做「列 + doc」
+  双写扁平化，读路径列优先、筛选/ORDER BY/distinct 路由真实列可用 btree；T083
+  七处 TTL 应用层清理（openGauss 无 TTL 索引）；T085 主键调用点后端解耦。
+  新增宿主机一键拉起脚本 `scripts/pg/`。完整回归报告见 `specs/027-*`。
+- **030 本体数据权限层**：chat-api 终端用户侧本体授权自查端点、admin-api 按用户
+  汇总授权接口、admin-web「本体清单」+「用户本体授权」双视图、user-web「我的本体」
+  页；撤销路由支持 `ontology://` 形态 URI；演示数据补种脚本。菜单/侧边栏文案
+  国际化（本体授权 → 我的本体）。
+- **031 模型供应商发现与多协议接入**：admin-web「获取模型列表」支持
+  Anthropic/Gemini/Ollama（后端代理探测 provider 真实可用模型，点选免手填）；
+  编辑已保存配置时复用已存 API Key。
+- **部署：容器经 `host.docker.internal` 访问宿主机模型网关**，loopback 地址报错
+  提示，方便本机 Ollama/网关直连。
+
+### Fixed
+
+- PanWeiDB 兼容层恢复 MongoDB 数组元素匹配语义（9f824bb）；补聚合 `$in`/`$toLower`
+  并修占位符顺序，修复 dashboard overview 500（0f607a4）。
+- 访问链路：localhost:3000 访问 + chat-api settings 导入（ceb47e5）、HTTP 补
+  `/dsh-web/` 路由（1e7f4f0）、HSTS max-age=0 清除浏览器缓存（6005cbe）。
+- panweidb 客户端 boncuser 连接 28P01 修复（7c30db1）。
+- admin-web `src/api/models.ts` 括号错乱导致 `vite build` 失败（6ea16f3 引入，
+  b5c3bfb 修复）。
+
+### Changed
+
+- TLS 开关抽取到 `.env`，默认关闭（b3bf111）。
+- dsh-runtime-host 升级 dsh 至 `0.2.1-rc.2`（dsh-invariants 按 peer 例外保留
+  `0.2.0-rc.2`，SBOM 295:1 单列车）。
+
 ## v0.2.2 - 2026-10-16
 
 ### Changed
