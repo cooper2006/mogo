@@ -79,7 +79,7 @@
 
 - [x] T016 [P] 在 `specs/INDEX.md` 登记 031 条目（「四（补 5）」+ 顶部 2026-10-18 补充 + 计数 30→31）并更新
 - [x] T017 [P] 用 `@vue/compiler-sfc` 校验 `SetupModelFields.vue` SFC 编译通过（替代全量 vue-tsc/build）
-- [ ] T018 提交并推送本轮向导扩展改动（`git add` 具体文件，推 `cooper2006/mogo`）；更新 `specs/031` 任务勾选状态
+- [x] T018 提交并推送本轮向导扩展改动（`git add` 具体文件，推 `cooper2006/mogo`，commit `6a2e46b`，5 files）；更新 `specs/031` 任务勾选状态（含本条）
 
 ---
 
