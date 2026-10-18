@@ -86,6 +86,7 @@
 ## Phase 7: 缺陷修复（2026-10-18）
 
 - [x] T019 [US1] 修复「编辑已保存配置时点获取列表需重输 API Key」：`ModelDiscoverPayload` 增 `instanceId`；`/discover` 在 Key 留空且有实例时经 `_resolve_stored_api_key()` 解密复用已存 Key（实例缺失/解密失败→400，前端显式填新 Key 时新 Key 优先，ollama 跳过查库）；前端 `openModelPicker()` 守卫改为「ollama 或编辑已有实例免填 Key」并传 `instanceId`。回归测试 +4 条（共 15 passed），ModelsPage.vue SFC 编译通过
+- [x] T020 [US1] 本地网关可移植性：`docker-compose.yml` 为 admin-api / chat-api / document-api / document-worker / dsh-runtime-host（含 pool 副本模板）补 `extra_hosts: host.docker.internal:host-gateway`（Linux Docker 可解析；OrbStack 实测仍解析到 0.250.250.254）；`_format_url_error()` 对 `127.0.0.1`/`localhost`/`::1`/`0.0.0.0` 的 Base URL 追加「容器内请改用 host.docker.internal」提示。回归测试 +3 条（共 18 passed），`docker compose config` 通过
 
 ---
 

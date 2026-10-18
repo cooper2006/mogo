@@ -53,6 +53,11 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
     # The cordis host profile is rewritten from config on every boot, so it
     # needs writable space but no persistence.
     - /app/host-profile-home:rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0755
+  # Linux 可移植性：让容器经 host.docker.internal 访问宿主机服务（如本机模型网关）。
+  # Docker Desktop / OrbStack 已内置该域名（此条为幂等覆盖，实测仍解析到 OrbStack 的
+  # 0.250.250.254）；Linux Docker 20.10+ 必须靠 host-gateway 才能解析。
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   environment:
     DSH_INSTANCE_ID: dsh-runtime-host
     # 官方 dsh web 模式开关（可选，默认关闭）：
@@ -414,6 +419,8 @@ services:
       # 只写裸 host 不会挡住 pool 覆盖文件的追加。
       dsh-runtime-host:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - public
       - backend
@@ -478,6 +485,8 @@ services:
         condition: service_healthy
       document-api:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - public
       - backend
@@ -539,6 +548,8 @@ services:
         condition: service_healthy
       weaviate:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - public
       - backend
@@ -577,6 +588,8 @@ services:
         condition: service_healthy
       weaviate:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - public
       - backend

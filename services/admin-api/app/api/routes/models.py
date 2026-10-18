@@ -234,7 +234,7 @@ async def discover_provider_models(
     except urllib.error.URLError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=_format_url_error(exc),
+            detail=_format_url_error(exc, base_url),
         ) from exc
     except Exception as exc:  # noqa: BLE001 - surface upstream failure as 502
         raise HTTPException(
@@ -620,7 +620,24 @@ def _build_ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
-def _format_url_error(exc: urllib.error.URLError) -> str:
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def _loopback_base_url_hint(base_url: str) -> str:
+    """Base URL 指向 loopback 时，提示容器内应改用 host.docker.internal。"""
+    try:
+        host = (urllib.parse.urlsplit((base_url or "").strip()).hostname or "").lower()
+    except ValueError:
+        return ""
+    if host not in _LOOPBACK_HOSTS:
+        return ""
+    return (
+        "（提示：请求由容器内的 admin-api 发出，127.0.0.1/localhost 指向容器自身；"
+        "若模型服务运行在宿主机，请把 Base URL 改为 http://host.docker.internal:<端口>/...）"
+    )
+
+
+def _format_url_error(exc: urllib.error.URLError, base_url: str = "") -> str:
     reason_text = str(exc.reason)
     if "CERTIFICATE_VERIFY_FAILED" in reason_text:
         return (
@@ -629,7 +646,7 @@ def _format_url_error(exc: urllib.error.URLError) -> str:
             "仅开发环境可临时设置 ASKAI_ADMIN_MODEL_TEST_INSECURE_SKIP_VERIFY=true。"
             f" 原始错误: {reason_text}"
         )
-    return f"模型接口连接失败: {reason_text}"
+    return f"模型接口连接失败: {reason_text}{_loopback_base_url_hint(base_url)}"
 
 
 def _decrypt_api_key(instance: dict[str, Any]) -> tuple[str, str]:
@@ -693,7 +710,7 @@ def _azure_openai_test_events(
         detail = exc.read().decode("utf-8", errors="replace")
         yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
     except urllib.error.URLError as exc:
-        yield {"type": "error", "message": _format_url_error(exc)}
+        yield {"type": "error", "message": _format_url_error(exc, endpoint)}
     except TimeoutError:
         yield {"type": "error", "message": "模型接口连接超时"}
     except Exception as exc:
@@ -911,7 +928,7 @@ def _anthropic_test_events(
         detail = exc.read().decode("utf-8", errors="replace")
         yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
     except urllib.error.URLError as exc:
-        yield {"type": "error", "message": _format_url_error(exc)}
+        yield {"type": "error", "message": _format_url_error(exc, base_url)}
     except Exception as exc:
         yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
 
@@ -957,7 +974,7 @@ def _gemini_test_events(
         detail = exc.read().decode("utf-8", errors="replace")
         yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
     except urllib.error.URLError as exc:
-        yield {"type": "error", "message": _format_url_error(exc)}
+        yield {"type": "error", "message": _format_url_error(exc, base_url)}
     except Exception as exc:
         yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
 
@@ -1000,7 +1017,7 @@ def _ollama_test_events(
         detail = exc.read().decode("utf-8", errors="replace")
         yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
     except urllib.error.URLError as exc:
-        yield {"type": "error", "message": _format_url_error(exc)}
+        yield {"type": "error", "message": _format_url_error(exc, base_url)}
     except Exception as exc:
         yield {"type": "error", "message": f"模型连接测试失败: {exc}"}
 
@@ -1045,7 +1062,7 @@ def _openai_compatible_test_events(
         detail = exc.read().decode("utf-8", errors="replace")
         yield {"type": "error", "message": f"模型接口返回 {exc.code}: {detail[:600]}"}
     except urllib.error.URLError as exc:
-        yield {"type": "error", "message": _format_url_error(exc)}
+        yield {"type": "error", "message": _format_url_error(exc, base_url)}
     except TimeoutError:
         yield {"type": "error", "message": "模型接口连接超时"}
     except Exception as exc:

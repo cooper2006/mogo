@@ -283,3 +283,34 @@ def test_discover_ollama_skips_stored_key_lookup(monkeypatch) -> None:
     )
     assert resp.status_code == 200
     assert captured["api_key"] == ""
+
+
+def test_format_url_error_appends_loopback_hint() -> None:
+    exc = urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+    message = models_route._format_url_error(exc, "http://127.0.0.1:8326/v1")
+    assert "模型接口连接失败" in message
+    assert "host.docker.internal" in message
+
+
+def test_format_url_error_no_hint_for_remote_host() -> None:
+    exc = urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+    message = models_route._format_url_error(exc, "https://api.openai.com/v1")
+    assert "host.docker.internal" not in message
+
+
+def test_discover_loopback_base_url_includes_hint(monkeypatch) -> None:
+    def _boom(*_a, **_k):
+        raise urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", _boom)
+    client = _mount_app()
+    resp = client.post(
+        "/discover",
+        json={
+            "providerType": "openai_compatible",
+            "baseUrl": "http://127.0.0.1:8326/v1",
+            "apiKey": "sk-test",
+        },
+    )
+    assert resp.status_code == 502
+    assert "host.docker.internal" in resp.json()["detail"]
