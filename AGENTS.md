@@ -15,6 +15,7 @@
 ## 工作记录
 - 每次实际修改后写入 obsidian vault 的当日 session-log（`Daily/YYYY-MM-DD.md`，用 `mem_log` 带 `idempotencyKey`）；跨轮次仍有价值的结论按类型分流到 `Pitfalls/` / `Decisions/` / `Conventions/`。
 - `docs/WORK_LOG.md` 自 2026-10-17 起**停更**，仅作历史存档保留，不再写入。
+- `dsh-obsidian-mem` 插件已将记忆内容**自动同步到 Obsidian**，**无需再**手工往 `WORK_LOG.md` 同步更新；记忆以 Obsidian vault 为唯一权威落点。
 - 每轮只读取 `AGENTS.md`、obsidian vault 的当日 session-log 和本轮相关文件。
 - 不重复扫描整个项目，不重复读取无关文档。
 
