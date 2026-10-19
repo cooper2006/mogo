@@ -57,7 +57,7 @@ def create_app() -> FastAPI:
         # Keep in sync with pyproject.toml / CHANGELOG: this is the value
         # published in /openapi.json info.version, i.e. an externally visible
         # contract, not a private cosmetic string.
-        version="0.2.1",
+        version="0.2.3",
         description="Control plane API for MOVO admin backend",
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",
@@ -153,8 +153,8 @@ def create_app() -> FastAPI:
             from app.core.ttl_purge import ttl_purge_loop
 
             await ttl_purge_loop.stop()
-        except Exception:  # pragma: no cover - defensive
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("ttl_purge_loop stop failed: %s", exc)
         await close_backend()
 
     # QF-447/449: Global exception handler - no stack traces in production
