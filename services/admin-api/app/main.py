@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import logging
+import os
 from typing import Any
 
 from app.api.router import api_router
@@ -91,6 +92,16 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def on_startup() -> None:
+        # 001 运维加固：启动即打印构建标识，用于核对「运行中代码 == git HEAD」。
+        # 背景：98bfb22 修好的 redaction.py 有 85 分钟处于「容器文件已更新、进程仍
+        # 加载旧模块」的状态（镜像是提交前 build 的），日志无任何版本线索，导致
+        # 误判为「代码没修」。GIT_SHA 由 Dockerfile 的 ARG 注入；本地/未注入时
+        # 为 unknown，不影响启动。
+        logger.info(
+            "admin-api build git_sha=%s image=%s",
+            os.environ.get("GIT_SHA", "unknown"),
+            os.environ.get("IMAGE_TAG", "unknown"),
+        )
         await init_backend()
         await bootstrap_admin_user()
         if get_admin_product_extension().edition == "community":

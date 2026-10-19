@@ -5,6 +5,14 @@
 ARG BASE_IMAGE=python:3.13-slim-bookworm
 FROM ${BASE_IMAGE}
 
+# 001 运维加固：把构建时的 git sha 烧进镜像，供启动日志与 docker inspect 核对
+# 「运行中代码 == git HEAD」。构建时：--build-arg GIT_SHA=$(git rev-parse HEAD)
+ARG GIT_SHA=unknown
+ARG IMAGE_TAG=unknown
+ENV GIT_SHA=${GIT_SHA} \
+    IMAGE_TAG=${IMAGE_TAG}
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
