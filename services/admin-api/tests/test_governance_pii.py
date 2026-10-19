@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.governance.gatekeeper import GateDecision
 from app.governance.pii import (
     DEFAULT_STRATEGY,
     PII_TYPES,
@@ -117,3 +118,87 @@ class TestRedactText:
         from app.governance.schema import DEFAULT_PII_POLICY
 
         assert DEFAULT_STRATEGY == DEFAULT_PII_POLICY
+
+
+class TestRedactionLayerTrace:
+    """The gate layer path, not just the pure PII helpers.
+
+    001 hotfix (2026-10-19): ``RedactionLayer.evaluate`` read ``trace.count``,
+    which the dataclass never declared — every PII-carrying gate call raised
+    ``AttributeError`` inside the layer, admin-api returned 500, and chat-api
+    fail-closed the whole turn into a 403. The bug survived from 2026-09-23
+    because only ``as_document()`` computed a count and nothing exercised the
+    layer itself. These tests drive the real layer so it cannot regress.
+    """
+
+    @staticmethod
+    def _ctx(request: dict, response: dict | None = None) -> "GateContext":
+        from app.governance.gatekeeper import GateContext
+
+        return GateContext(
+            tool="browser",
+            tenant_id="tenant-a",
+            user_id="user-1",
+            request=request,
+            response=response or {},
+        )
+
+    @staticmethod
+    async def _run(layer, ctx: "GateContext"):
+        from app.governance.layers.redaction import RedactionLayer
+
+        # The layer reads pii_policies from the DB; an empty policy store must
+        # degrade to the built-in defaults, so patch the lookup, not the layer.
+        class _EmptyCollection:
+            def find(self, *_a, **_k):
+                class _Cursor:
+                    def __aiter__(self):
+                        return self
+
+                    async def __anext__(self):
+                        raise StopAsyncIteration
+
+                return _Cursor()
+
+        class _Db:
+            def __getitem__(self, _name):
+                return _EmptyCollection()
+
+        from app.core import db as db_module
+
+        original = db_module.get_db
+        db_module.get_db = lambda: _Db()
+        try:
+            return await RedactionLayer().evaluate(ctx)
+        finally:
+            db_module.get_db = original
+
+    @pytest.mark.asyncio
+    async def test_pii_in_request_redacts_and_counts(self):
+        ctx = self._ctx({"text": "call 13800138000 please"})
+        verdict = await self._run(None, ctx)
+
+        assert verdict.decision is GateDecision.ALLOW
+        # The count lives on the trace, not only in the document helper.
+        assert ctx.annotations["redaction"]["count"] == 1
+        assert ctx.annotations["redaction"]["types"] == {"phone": 1}
+        # The plaintext is rewritten in place, never kept.
+        assert "13800138000" not in ctx.request["text"]
+
+    @pytest.mark.asyncio
+    async def test_no_pii_keeps_layer_allow_without_trace(self):
+        ctx = self._ctx({"text": "plain text, no pii"})
+        verdict = await self._run(None, ctx)
+
+        assert verdict.decision is GateDecision.ALLOW
+        assert "redaction" not in ctx.annotations
+
+    @pytest.mark.asyncio
+    async def test_response_text_is_also_redacted(self):
+        ctx = self._ctx({"text": "ok"}, {"note": "mail bob@corp.io"})
+        verdict = await self._run(None, ctx)
+
+        assert verdict.decision is GateDecision.ALLOW
+        assert ctx.annotations["redaction"]["count"] == 1
+        assert "bob@corp.io" not in ctx.response["note"]
+

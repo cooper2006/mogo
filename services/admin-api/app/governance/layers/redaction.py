@@ -33,11 +33,24 @@ class RedactionTrace:
     types: dict[str, int] = field(default_factory=dict)
     fingerprints: list[str] = field(default_factory=list)
 
+    @property
+    def count(self) -> int:
+        """Number of redacted PII values in this trace.
+
+        001 hotfix (2026-10-19): the evaluate() path read ``trace.count`` but the
+        dataclass only declared ``types`` / ``fingerprints`` — every PII-carrying
+        gate call raised ``AttributeError`` inside the layer, which admin-api
+        surfaced as a 500 and chat-api then fail-closed the turn into a 403
+        ("门禁服务返回 500（fail-closed）"). Only the document helper computed the
+        count, so no test ever touched the attribute.
+        """
+        return sum(self.types.values())
+
     def as_document(self) -> dict[str, Any]:
         return {
             "types": dict(self.types),
             "fingerprints": list(self.fingerprints),
-            "count": sum(self.types.values()),
+            "count": self.count,
         }
 
 
