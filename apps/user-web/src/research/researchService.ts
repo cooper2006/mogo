@@ -1,9 +1,7 @@
 /**
- * /research 调研服务层 —— mock 先行（产品经理拍板：门禁 001 端到端验收通过前只走 mock，
- * 不得真实调用 /askai-api/api/chat/completions，否则会被 fail-closed 拒掉）。
- *
- * 切真接口的方式：把 USE_MOCK 置 false 并填好 askaiEndpoint。页面与四章渲染不感知差异，
- * 因为返回的是同一种 ResearchReport 结构。
+ * /research 调研服务层 —— 门禁 001 端到端验收已通过，改为走真接口
+ * /askai-api/api/chat/completions（前端登录态 auth_token）。返回结构与 mock 层一致，
+ * 页面与四章渲染不感知差异。若要回退 mock，把 USE_MOCK 置 true。
  */
 
 /** 四章数据源配置（可配置：按需增删来源，优先级由 ORDER 定义） */
@@ -41,7 +39,7 @@ export interface ResearchReport {
 }
 
 /** 门禁验收通过前保持 true；切真接口置 false（见文件头注释） */
-const USE_MOCK = true
+const USE_MOCK = false
 const askaiEndpoint = '/askai-api/api/chat/completions'
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -134,6 +132,93 @@ async function mockReport(subject: string): Promise<ResearchReport> {
  */
 export async function generateResearch(subject: string): Promise<ResearchReport> {
     if (USE_MOCK) return mockReport(subject)
-    // TODO(切真接口): POST askaiEndpoint，prompt 约定四章结构后解析成 ResearchReport
-    throw new Error(`真接口尚未接入（${askaiEndpoint}），请等待 001 端到端验收通过`)
+    return realReport(subject)
+}
+
+/** 真接口：POST /askai-api/api/chat/completions，用前端登录态 auth_token */
+async function realReport(subject: string): Promise<ResearchReport> {
+    const token = typeof window !== 'undefined' ? window.localStorage.getItem('auth_token') : null
+    if (!token) throw new Error('未登录，请先登录再使用调研')
+
+    const resp = await fetch(askaiEndpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+            messages: [{ role: 'user', content: researchPrompt(subject) }],
+            output_spec: { format: 'json' },
+        }),
+    })
+    if (!resp.ok) {
+        let msg = `调研请求失败：${resp.status}`
+        try {
+            const json = await resp.json()
+            if (json?.detail) msg = String(json.detail)
+            else if (json?.message) msg = String(json.message)
+        } catch { /* keep status-based message */ }
+        throw new Error(msg)
+    }
+    const text = await resp.text()
+    const assistant = extractAssistantContent(text)
+    let data: any = null
+    try { data = JSON.parse(assistant) } catch { data = null }
+    if (!data || !Array.isArray(data.chapters)) {
+        // 降级：原文整段放进单章，保证页面不空白
+        return {
+            subject,
+            generatedAt: new Date().toISOString(),
+            mock: false,
+            judgment: { verdict: '调研已完成（未返回结构化报告，以下为模型原文）', points: [assistant.slice(0, 300)] },
+            chapters: [{ key: 'market', title: '① 市场情报', sources: researchSources.market, sections: [{ heading: '模型原文', body: assistant }] }],
+        }
+    }
+    return {
+        subject,
+        generatedAt: new Date().toISOString(),
+        mock: false,
+        judgment: data.judgment || { verdict: '', points: [] },
+        chapters: (data.chapters as any[]).map((c: any) => ({
+            key: c.key,
+            title: c.title || c.key,
+            sources: researchSources[c.key as ChapterKey] || [],
+            sections: (c.sections || []).map((s: any) => ({ heading: s.heading || '', body: s.body || '' })),
+        })),
+    }
+}
+
+function researchPrompt(subject: string): string {
+    return `你是一名资深行业分析师。请针对竞品「${subject}」输出一份结构化调研报告，且**只输出一个合法的 JSON 对象，不要包含 Markdown 代码块或任何说明文字**。JSON Schema：
+{
+  "judgment": {"verdict": "一句话综合判断结论", "points": ["市场","产品","财务","舆情"四个维度各一条要点]},
+  "chapters": [
+    {"key":"market","title":"① 市场情报","sections":[{"heading":"...","body":"..."}]},
+    {"key":"features","title":"② 产品功能对比","sections":[{"heading":"...","body":"..."}]},
+    {"key":"finance","title":"③ 财务估值","sections":[{"heading":"...","body":"..."}]},
+    {"key":"sentiment","title":"④ 社媒舆情","sections":[{"heading":"...","body":"..."}]}
+  ]
+}
+要求：章节顺序固定为市场情报→产品功能对比→财务估值→社媒舆情；每章 2–3 个 section，每个 section 有 heading 与 body；语言用中文；所有字段都要填写，不要留空。`
+}
+
+function extractAssistantContent(ndjson: string): string {
+    const parts: string[] = []
+    for (const line of ndjson.split('\n')) {
+        const s = line.trim()
+        if (!s) continue
+        try {
+            const ev = JSON.parse(s)
+            if (!ev || typeof ev !== 'object') continue
+            const content =
+                ev.choices?.[0]?.delta?.content ??
+                ev.choices?.[0]?.message?.content ??
+                ev.message?.content ??
+                ev.content ??
+                ev.text ??
+                ev.delta?.content
+            if (typeof content === 'string') parts.push(content)
+        } catch { /* ignore non-JSON lines */ }
+    }
+    return parts.join('')
 }
