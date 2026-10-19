@@ -108,20 +108,26 @@ class RedactionLayer:
             )
         return GateVerdict(decision=GateDecision.ALLOW, layer=self.name, reason="no PII found")
 
-    def _redact_fields(self, payload: dict, policies: dict[str, str], trace: RedactionTrace) -> None:
+    def _redact_fields(self, payload: dict, policies: dict[str, str], trace: RedactionTrace, depth: int = 0) -> None:
+        if depth >= 8:
+            return
         for key, value in list(payload.items()):
-            if not isinstance(value, str) or not value:
-                continue
-            from ..pii import find_pii
+            if isinstance(value, str) and value:
+                from ..pii import find_pii
 
-            hits = find_pii(value, list(policies.keys()))
-            if not hits:
-                continue
-            redacted = redact_text(value, policies)
-            payload[key] = redacted
-            for pii_type, _start, _end, hit in hits:
-                trace.types[pii_type] = trace.types.get(pii_type, 0) + 1
-                trace.fingerprints.append(fingerprint(hit))
+                hits = find_pii(value, list(policies.keys()))
+                if hits:
+                    redacted = redact_text(value, policies)
+                    payload[key] = redacted
+                    for pii_type, _start, _end, hit in hits:
+                        trace.types[pii_type] = trace.types.get(pii_type, 0) + 1
+                        trace.fingerprints.append(fingerprint(hit))
+            elif isinstance(value, dict):
+                self._redact_fields(value, policies, trace, depth + 1)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        self._redact_fields(item, policies, trace, depth + 1)
 
 
 __all__ = ["RedactionLayer", "RedactionTrace"]
