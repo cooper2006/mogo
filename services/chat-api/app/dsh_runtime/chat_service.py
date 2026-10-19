@@ -146,10 +146,12 @@ class DshChatService:
             if isinstance(browser_resume, dict):
                 turn_context["browser_resume"] = dict(browser_resume)
         binding: dict[str, Any] | None = None
+        binding_is_new = False
         if conversation_id:
             await self._conversations.owned(conversation_id, tenant_id=tenant_id, user_id=user_id)
             binding = await self._bindings.current(conversation_id, tenant_id=tenant_id, user_id=user_id)
             if binding is None:
+                binding_is_new = True
                 # Conversations created before the DSH cut-over (and empty
                 # scheduled-task targets) are ASKAI business records without
                 # a Kernel Binding. Continue them by creating the first DSH
@@ -196,6 +198,7 @@ class DshChatService:
                     "another turn refreshed this Conversation; retry on the current binding"
                 ) from exc
         else:
+            binding_is_new = True
             profile = await self._profiles.publish_model_profile(
                 tenant_id=tenant_id,
                 actor_id=user_id,
@@ -224,6 +227,22 @@ class DshChatService:
                     conversation_id, tenant_id=tenant_id, user_id=user_id
                 )
                 raise
+
+        # After a chat-api restart, gateway._sessions (in-memory) is empty.
+        # Reattach an existing binding's session to the gateway so that
+        # turn_runner.run() -> gateway.send() finds it instead of raising
+        # DshNotFoundError, which turn_runner.py:208 silently suppresses,
+        # leaving the turn as a zombie with active_turn=failed.
+        # New bindings (create_binding()) already register the session, so
+        # restore() is only needed for bindings fetched from the DB.
+        if not binding_is_new:
+            try:
+                binding = await self._coordinator.restore(binding)
+            except Exception as exc:
+                log_print(
+                    f"[dsh_runtime.chat_service] prepare_turn restore failed: {exc}",
+                    flush=True,
+                )
 
         message_id = f"msg-{uuid4()}"
         request_id = f"turn-{uuid4()}"
