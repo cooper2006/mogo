@@ -10,10 +10,34 @@ replaced so failures can be injected deterministically.
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
 
 import pytest
 
 from app.services import tenant_purge
+
+
+def _repo_root() -> Path:
+    """仓库根目录：容器内显式设 MOGO_TEST_ROOT，否则由物理布局向上推断。
+
+    容器内测试经过 bind 挂载后，物理路径可能不包含 ``services/`` 前缀；对应
+    场景下回退到当运行时 env（真实 checkout）；两者都不满足时沿路径向上走
+    （最长 12 层）直到遇到含 ``services/`` 的祖先。
+    """
+    env = os.environ.get("MOGO_TEST_ROOT")
+    if env:
+        p = Path(env).expanduser().resolve()
+        if (p / "services").is_dir():
+            return p
+    p = Path(__file__).resolve().parent
+    for _ in range(12):
+        if (p / "services").is_dir():
+            return p
+        if p == p.parent:
+            break
+        p = p.parent
+    raise RuntimeError("无法定位仓库根目录 — 请设置 MOGO_TEST_ROOT 或检查文件布局")
 
 MAIN_ID = "acme-1a2b3c4d5e6f7a8b9c0d1e2f"
 
@@ -330,7 +354,7 @@ def test_every_tenant_id_keyed_collection_in_the_tree_is_covered() -> None:
     import re
     from pathlib import Path
 
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = _repo_root()
     services_root = repo_root / "services"
 
     # 1. Collect every collection-name constant declared in the tree.

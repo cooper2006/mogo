@@ -13,11 +13,31 @@
 
 from __future__ import annotations
 
+import os
+import re
+import sys
 import time
-from typing import Any
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+
+
+def _repo_root() -> Path:
+    """仓库根目录：容器内显式设 MOGO_TEST_ROOT，否则由物理布局向上推断。"""
+    env = os.environ.get("MOGO_TEST_ROOT")
+    if env:
+        p = Path(env).expanduser().resolve()
+        if (p / "services").is_dir():
+            return p
+    p = Path(__file__).resolve().parent
+    for _ in range(12):
+        if (p / "services").is_dir():
+            return p
+        if p == p.parent:
+            break
+        p = p.parent
+    raise RuntimeError("无法定位仓库根目录 — 请设置 MOGO_TEST_ROOT 或检查文件布局")
 
 from app.api.routes import auth as auth_routes
 from app.api.routes.auth import (
@@ -155,21 +175,24 @@ def test_refresh_token_ttl_remains_14_days() -> None:
 
 
 def test_chat_api_token_ttl_defaults_to_one_hour() -> None:
-    """双服务口径一致（跨服务 import，chat-api 使用大写常量名）。"""
-    import subprocess
-    import sys
+    """T014/T015：双服务口径一致。直接读 chat 源码常量，不依赖部署路径。"""
+    _repo_root()
 
-    chat_api = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "chat-api")
-    out = subprocess.run(
-        [f"{chat_api}/venv/bin/python", "-c",
-         "from app.core.config import MAX_END_USER_TOKEN_TTL_SECONDS, Settings; "
-         "print(Settings(_env_file=None).END_USER_AUTH_TOKEN_TTL_SECONDS, "
-         "MAX_END_USER_TOKEN_TTL_SECONDS)"],
-        capture_output=True, text=True, check=True, cwd=chat_api,
+    cfg = _repo_root() / "services" / "chat-api" / "app" / "core" / "config.py"
+    if not cfg.is_file():
+        raise AssertionError(f"找不到 chat 源码配置：{cfg}")
+    text = cfg.read_text(encoding="utf-8")
+
+    end_user = re.search(r"END_USER_AUTH_TOKEN_TTL_SECONDS\s*:\s*int\s*=\s*(\d+)", text)
+    max_end = re.search(r"MAX_END_USER_TOKEN_TTL_SECONDS\s*=\s*(\d+)", text)
+    assert end_user is not None, "在 chat 源码中未找到 END_USER_AUTH_TOKEN_TTL_SECONDS"
+    assert max_end is not None, "在 chat 源码中未找到 MAX_END_USER_TOKEN_TTL_SECONDS"
+    assert end_user.group(1) == "3600", (
+        f"END_USER_AUTH_TOKEN_TTL_SECONDS 应为 3600，实际为 {end_user.group(1)}"
     )
-    default_ttl, ceiling = out.stdout.strip().split()
-    assert default_ttl == "3600"
-    assert ceiling == "3600"
+    assert max_end.group(1) == "3600", (
+        f"MAX_END_USER_TOKEN_TTL_SECONDS 应为 3600，实际为 {max_end.group(1)}"
+    )
 
 
 # ---------------------------------------------------------------------------

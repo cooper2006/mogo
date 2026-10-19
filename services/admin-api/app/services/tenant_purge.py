@@ -63,6 +63,11 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "execution_logs",
     "external_search_configs",
     "external_tools",
+    # 011/MO 权限数据：chat-api ontology 集合（按租户隔离）。admin 侧 purge 必须
+    # 把这些 tenant-scoped 集合也收进来，避免跨服务租户数据残留。
+    "mesc_ontology_grant",
+    "mesc_ontology_class_detail",
+    "sys_config",
     "knowledge_directories",
     "knowledge_document_chunks",
     "knowledge_documents",
