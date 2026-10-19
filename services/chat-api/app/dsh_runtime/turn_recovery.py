@@ -1,6 +1,7 @@
 """Durable terminal-event recovery for DSH turns."""
 
 from __future__ import annotations
+from datetime import datetime, timedelta, timezone
 from app.infrastructure.observability.config import log_print
 
 from typing import Any
@@ -134,19 +135,43 @@ class TurnTerminalRecovery:
         return True
 
     async def recover(self, binding: dict[str, Any]) -> dict[str, Any]:
-        """Repair a stale lock only when its durable event log proves termination."""
+        """Repair a stale lock only when its durable event log proves termination.
+
+        兜底：若无终态事件（turn 中途死亡未写事件），且 active_turn 已运行
+        超过阈值（10 分钟），直接置 failed 释放锁。每次请求都会走 recover()，
+        无需单独定时任务。
+        """
 
         message_id = str((binding.get("active_turn") or {}).get("message_id") or "")
         if not message_id:
             return binding
         try:
-            await self.finalize_persisted_terminal(binding=binding, message_id=message_id)
-            current = await self._bindings.current(
-                str(binding["conversation_id"]),
-                tenant_id=str(binding["tenant_id"]),
-                user_id=str(binding["user_id"]),
-            )
-            return current or binding
+            recovered = await self.finalize_persisted_terminal(binding=binding, message_id=message_id)
+            if recovered:
+                current = await self._bindings.current(
+                    str(binding["conversation_id"]),
+                    tenant_id=str(binding["tenant_id"]),
+                    user_id=str(binding["user_id"]),
+                )
+                return current or binding
+            # 无终态事件：尝试基于运行时长的兜底回收。
+            active = dict(binding.get("active_turn") or {})
+            started_at = active.get("started_at")
+            if started_at and isinstance(started_at, datetime):
+                if datetime.now(tz=timezone.utc) - started_at > timedelta(minutes=10):
+                    await self._finalizer.finalize(
+                        binding=binding,
+                        message_id=message_id,
+                        status="failed",
+                        clear_conversation=True,
+                    )
+                    current = await self._bindings.current(
+                        str(binding["conversation_id"]),
+                        tenant_id=str(binding["tenant_id"]),
+                        user_id=str(binding["user_id"]),
+                    )
+                    return current or binding
+            return binding
         except Exception as exc:
             log_print(f"[dsh_runtime.turn_recovery.recover] suppressed {type(exc).__name__}: {exc}", flush=True)
             return binding
