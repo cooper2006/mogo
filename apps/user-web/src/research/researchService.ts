@@ -1,7 +1,7 @@
 /**
  * /research 调研服务层 —— 门禁 001 端到端验收已通过，改为走真接口
  * /askai-api/api/chat/completions（前端登录态 auth_token）。返回结构与 mock 层一致，
- * 页面与四章渲染不感知差异。若要回退 mock，把 USE_MOCK 置 true。
+ * 页面与四章渲染不感知差异。数据源由 researchConfig 控制，切换时无需改代码重构。
  */
 
 /** 四章数据源配置（可配置：按需增删来源，优先级由 ORDER 定义） */
@@ -23,6 +23,19 @@ export const CHAPTER_TITLES: Record<ChapterKey, string> = {
     sentiment: '④ 社媒舆情'
 }
 
+/** 调研数据源配置——切换真/假接口只需改这里，无需动服务层签名或页面代码 */
+export interface ResearchConfig {
+    useMock: boolean
+    endpoint: string
+    version: string
+}
+
+export const researchConfig: ResearchConfig = {
+    useMock: false,
+    endpoint: '/askai-api/api/chat/completions',
+    version: '1.0.0'
+}
+
 export interface Chapter {
     key: ChapterKey
     title: string
@@ -34,20 +47,17 @@ export interface ResearchReport {
     subject: string
     generatedAt: string
     mock: boolean
+    metadata: { createdAt: string; version: string }
     judgment: { verdict: string; points: string[] }
     chapters: Chapter[]
 }
 
-/** 门禁验收通过前保持 true；切真接口置 false（见文件头注释） */
-const USE_MOCK = false
-const askaiEndpoint = '/askai-api/api/chat/completions'
-
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** mock 报告生成：竞品名 → 四章 + 综合判断（结构与真接口约定一致） */
-async function mockReport(subject: string): Promise<ResearchReport> {
+async function mockReport(subject: string, selected?: ChapterKey[]): Promise<ResearchReport> {
     await delay(900)
-    const chapters: Chapter[] = [
+    const allChapters: Chapter[] = [
         {
             key: 'market',
             title: CHAPTER_TITLES.market,
@@ -109,10 +119,15 @@ async function mockReport(subject: string): Promise<ResearchReport> {
             ]
         }
     ]
+    const chapters = selected && selected.length > 0
+        ? allChapters.filter((c) => selected.includes(c.key))
+        : allChapters
+    const now = new Date().toISOString()
     return {
         subject,
-        generatedAt: new Date().toISOString(),
-        mock: USE_MOCK,
+        generatedAt: now,
+        mock: researchConfig.useMock,
+        metadata: { createdAt: now, version: researchConfig.version },
         judgment: {
             verdict: `${subject} 是第一梯队的全功能竞品，我方应在私有化与权限治理保持差异，同时补齐生态与移动端体验。`,
             points: [
@@ -128,26 +143,30 @@ async function mockReport(subject: string): Promise<ResearchReport> {
 
 /**
  * 统一入口：竞品名 → ResearchReport。
- * mock 关闭后走真接口；骨架阶段不实现真调用（001 验收闸门未过，见文件头）。
+ * opts.chapter 可按需指定生成哪些章节（不传则全量四章）。
+ * researchConfig.useMock 为 false 时走真接口 /askai-api/api/chat/completions。
  */
-export async function generateResearch(subject: string): Promise<ResearchReport> {
-    if (USE_MOCK) return mockReport(subject)
-    return realReport(subject)
+export async function generateResearch(
+    subject: string,
+    opts?: { chapter?: ChapterKey[] }
+): Promise<ResearchReport> {
+    if (researchConfig.useMock) return mockReport(subject, opts?.chapter)
+    return realReport(subject, opts?.chapter)
 }
 
 /** 真接口：POST /askai-api/api/chat/completions，用前端登录态 auth_token */
-async function realReport(subject: string): Promise<ResearchReport> {
+async function realReport(subject: string, selected?: ChapterKey[]): Promise<ResearchReport> {
     const token = typeof window !== 'undefined' ? window.localStorage.getItem('auth_token') : null
     if (!token) throw new Error('未登录，请先登录再使用调研')
 
-    const resp = await fetch(askaiEndpoint, {
+    const resp = await fetch(researchConfig.endpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-            messages: [{ role: 'user', content: researchPrompt(subject) }],
+            messages: [{ role: 'user', content: researchPrompt(subject, selected) }],
             output_spec: { format: 'json' },
         }),
     })
@@ -164,39 +183,48 @@ async function realReport(subject: string): Promise<ResearchReport> {
     const assistant = extractAssistantContent(text)
     let data: any = null
     try { data = JSON.parse(assistant) } catch { data = null }
+    const now = new Date().toISOString()
     if (!data || !Array.isArray(data.chapters)) {
         // 降级：原文整段放进单章，保证页面不空白
         return {
             subject,
-            generatedAt: new Date().toISOString(),
+            generatedAt: now,
             mock: false,
+            metadata: { createdAt: now, version: researchConfig.version },
             judgment: { verdict: '调研已完成（未返回结构化报告，以下为模型原文）', points: [assistant.slice(0, 300)] },
             chapters: [{ key: 'market', title: '① 市场情报', sources: researchSources.market, sections: [{ heading: '模型原文', body: assistant }] }],
         }
     }
-    return {
-        subject,
-        generatedAt: new Date().toISOString(),
-        mock: false,
-        judgment: data.judgment || { verdict: '', points: [] },
-        chapters: (data.chapters as any[]).map((c: any) => ({
+    const chapters = (data.chapters as any[])
+        .filter((c) => !selected || selected.includes(c.key as ChapterKey))
+        .map((c: any) => ({
             key: c.key,
             title: c.title || c.key,
             sources: researchSources[c.key as ChapterKey] || [],
             sections: (c.sections || []).map((s: any) => ({ heading: s.heading || '', body: s.body || '' })),
-        })),
+        }))
+    return {
+        subject,
+        generatedAt: now,
+        mock: false,
+        metadata: { createdAt: now, version: researchConfig.version },
+        judgment: data.judgment || { verdict: '', points: [] },
+        chapters,
     }
 }
 
-function researchPrompt(subject: string): string {
+function researchPrompt(subject: string, selected?: ChapterKey[]): string {
+    const chapterList = selected && selected.length > 0
+        ? selected.map((k) => `{"key":"${k}","title":"${CHAPTER_TITLES[k]}","sections":[{"heading":"...","body":"..."}]}`).join(',')
+        : `{"key":"market","title":"① 市场情报","sections":[{"heading":"...","body":"..."}]},
+    {"key":"features","title":"② 产品功能对比","sections":[{"heading":"...","body":"..."}]},
+    {"key":"finance","title":"③ 财务估值","sections":[{"heading":"...","body":"..."}]},
+    {"key":"sentiment","title":"④ 社媒舆情","sections":[{"heading":"...","body":"..."}]}`
     return `你是一名资深行业分析师。请针对竞品「${subject}」输出一份结构化调研报告，且**只输出一个合法的 JSON 对象，不要包含 Markdown 代码块或任何说明文字**。JSON Schema：
 {
   "judgment": {"verdict": "一句话综合判断结论", "points": ["市场","产品","财务","舆情"四个维度各一条要点]},
   "chapters": [
-    {"key":"market","title":"① 市场情报","sections":[{"heading":"...","body":"..."}]},
-    {"key":"features","title":"② 产品功能对比","sections":[{"heading":"...","body":"..."}]},
-    {"key":"finance","title":"③ 财务估值","sections":[{"heading":"...","body":"..."}]},
-    {"key":"sentiment","title":"④ 社媒舆情","sections":[{"heading":"...","body":"..."}]}
+    ${chapterList}
   ]
 }
 要求：章节顺序固定为市场情报→产品功能对比→财务估值→社媒舆情；每章 2–3 个 section，每个 section 有 heading 与 body；语言用中文；所有字段都要填写，不要留空。`

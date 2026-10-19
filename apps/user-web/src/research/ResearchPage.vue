@@ -33,6 +33,21 @@ async function submit() {
         loading.value = false
     }
 }
+
+async function regenerate() {
+    const name = subject.value.trim()
+    if (!name || loading.value) return
+    loading.value = true
+    error.value = ''
+    report.value = null
+    try {
+        report.value = await generateResearch(name)
+    } catch (e) {
+        error.value = e instanceof Error ? e.message : String(e)
+    } finally {
+        loading.value = false
+    }
+}
 </script>
 
 <template>
@@ -50,6 +65,9 @@ async function submit() {
                 />
                 <button class="rp-btn" type="submit" :disabled="!canSubmit">
                     {{ loading ? '调研生成中…' : '开始调研' }}
+                </button>
+                <button v-if="report && !loading" class="rp-btn rp-btn-secondary" type="button" @click="regenerate" :disabled="loading">
+                    再生成
                 </button>
             </form>
             <p v-if="error" class="rp-error">{{ error }}</p>
@@ -120,6 +138,12 @@ async function submit() {
     background: var(--brand-6, #3370ff); border: none; border-radius: 8px; cursor: pointer;
 }
 .rp-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.rp-btn-secondary {
+    padding: 10px 24px; font-size: 15px; font-weight: 600; color: #3370ff;
+    background: transparent; border: 1px solid var(--line-3, #d0d3d6); border-radius: 8px; cursor: pointer;
+    margin-left: 8px;
+}
+.rp-btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
 .rp-error { color: #d83931; font-size: 13px; margin-top: 8px; }
 .rp-mock-badge {
     display: inline-block; margin-top: 8px; padding: 2px 10px; font-size: 12px;
