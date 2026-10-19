@@ -130,7 +130,10 @@ assert_image() {
 
 # MOVO_IMAGE_REGISTRY must override the default registry.
 (
-  unset MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX
+  # 版本变量同样要清：CI 把 MOVO_VERSION=${{ github.ref_name }} 注入本步，泄漏进
+  # 该子壳会把断言的 :latest 变成 :<branch> 而假失败（其余子壳均已清）。
+  unset MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX \
+    MOGO_VERSION MOVO_VERSION
   ROOT_DIR="${ROOT_DIR}"
   DOCKER_BIN=docker
   source "${ROOT_DIR}/deploy/cli/images.sh"
@@ -145,7 +148,9 @@ assert_image() {
 # cannot be expressed as <registry>/<service>, so it must never produce a path
 # such as ghcr.io/himovo/movo/chat-api nor leak a movo- image name.
 (
-  unset MOVO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX
+  # 清版本变量防 CI 环境泄漏（同上）。
+  unset MOVO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX \
+    MOGO_VERSION MOVO_VERSION
   ROOT_DIR="${ROOT_DIR}"
   DOCKER_BIN=docker
   source "${ROOT_DIR}/deploy/cli/images.sh"
@@ -166,7 +171,9 @@ assert_image() {
 
 # MOVO_EXPORTED_IMAGE_PREFIX remains the documented override.
 (
-  unset MOVO_IMAGE_REGISTRY MOVO_IMAGE_PREFIX
+  # 清版本变量防 CI 环境泄漏（同上）。
+  unset MOVO_IMAGE_REGISTRY MOVO_IMAGE_PREFIX \
+    MOGO_VERSION MOVO_VERSION
   ROOT_DIR="${ROOT_DIR}"
   DOCKER_BIN=docker
   source "${ROOT_DIR}/deploy/cli/images.sh"

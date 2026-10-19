@@ -62,7 +62,7 @@ class ContainerReleasePlanTests(unittest.TestCase):
         workflow = (REPOSITORY_ROOT / ".github/workflows/container-release.yml").read_text()
         self.assertIn(
             "if: ${{ github.event.repository.visibility == 'public' }}\n"
-            "        uses: actions/attest-build-provenance@v3",
+            "        uses: actions/attest-build-provenance@v4",
             workflow,
         )
 
@@ -128,6 +128,12 @@ class ContainerReleasePlanTests(unittest.TestCase):
                 "DOCKER_CALL_LOG": str(call_log),
                 "GITHUB_REF_NAME": "v0.1.13",
                 "GITHUB_REPOSITORY": "HiMOVO/MOVO",
+                # GitHub Actions 运行器会注入 GITHUB_REPOSITORY_OWNER（真实仓库
+                # owner），而 promote 脚本优先读它；不在此显式钉住就会随 CI 环境
+                # 漂移（曾致断言 ghcr.io/himovo/... 实得 ghcr.io/<真实owner>/...）。
+                "GITHUB_REPOSITORY_OWNER": "HiMOVO",
+                # GITHUB_SHA 决定 candidate tag，必须 16 进制短 SHA 一致——
+                # 用完整 SHA（workflow 与 promote 脚本均为 candidate-${GITHUB_SHA} 全长）。
                 "GITHUB_SHA": "0123456789abcdef0123456789abcdef01234567",
                 "PATH": f"{temporary_path}:{os.environ['PATH']}",
             }
@@ -147,7 +153,12 @@ class ContainerReleasePlanTests(unittest.TestCase):
         # Images are published as ghcr.io/<owner>/<service>; the repository name
         # must not leak into the image name (it used to be
         # ghcr.io/<owner>/<repository>-<service>, i.e. ghcr.io/himovo/movo-chat-api).
-        self.assertIn("ghcr.io/himovo/chat-api:candidate-0123456789abcdef", calls[0])
+        # candidate tag 是完整 GITHUB_SHA（promote 脚本 candidate="${GITHUB_SHA}"），
+        # 断言全长而非前缀，防止又一轮 tag 形态漂移。
+        self.assertIn(
+            "ghcr.io/himovo/chat-api:candidate-0123456789abcdef0123456789abcdef01234567",
+            calls[0],
+        )
         self.assertIn("ghcr.io/himovo/admin-api:v0.1.12", calls[1])
         self.assertNotIn("movo-chat-api", calls[0])
         self.assertNotIn("movo-admin-api", calls[1])
