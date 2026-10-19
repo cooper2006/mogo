@@ -96,11 +96,17 @@ def config_from_document(document: dict[str, Any] | None) -> GateConfig:
     return config
 
 
-def load_gate_config() -> GateConfig:
-    """Load the gate config from MongoDB, falling back to the thick default.
+async def load_gate_config() -> GateConfig:
+    """Load the gate config from the data backend, falling back to the thick default.
 
     Never raises on a missing store: an unavailable config degrades to the
     thick default (fail-safe), never to a thinner chain.
+
+    NOTE (001 fix): the backend handle is async for *every* supported backend
+    (motor for MongoDB, ``PgDatabase`` for PanWeiDB), so ``find_one`` returns a
+    coroutine and MUST be awaited here. Awaiting it under both backends keeps
+    the fail-closed semantics intact (an await error is still caught below and
+    degrades to the thick default).
     """
     try:
         from app.core.db import get_db
@@ -109,7 +115,7 @@ def load_gate_config() -> GateConfig:
     except Exception:
         return default_config()
     try:
-        document = db[GATE_CONFIG_COLLECTION].find_one({"kind": "gate_config"})
+        document = await db[GATE_CONFIG_COLLECTION].find_one({"kind": "gate_config"})
     except Exception:
         return default_config()
     try:
@@ -119,8 +125,8 @@ def load_gate_config() -> GateConfig:
         return default_config()
 
 
-def layer_enabled(name: str, config: GateConfig | None = None) -> bool:
-    cfg = config or load_gate_config()
+async def layer_enabled(name: str, config: GateConfig | None = None) -> bool:
+    cfg = config or await load_gate_config()
     return name in cfg.layers_in_order()
 
 

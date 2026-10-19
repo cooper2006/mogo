@@ -98,14 +98,28 @@ class Gatekeeper:
 
     @property
     def config(self) -> GateConfig:
+        # 001 fix: ``load_gate_config`` is async (the backend handle is async for
+        # every supported backend); callers must ``await gatekeeper.config`` and
+        # ``await gatekeeper._resolve_layers``. Kept as a plain property for the
+        # (rare) already-resolved case; resolution is done via the async helpers.
         if self._config is None:
-            self._config = load_gate_config()
+            raise RuntimeError(
+                "Gatekeeper.config was accessed before async resolution; "
+                "call `await gatekeeper.config_` first."
+            )
         return self._config
 
-    def _resolve_layers(self, *, harness_mode: str = "thick") -> list[GateLayer]:
+    async def config_(self) -> GateConfig:
+        """Async resolver for the (lazily loaded) config (001 fix)."""
+        if self._config is None:
+            self._config = await load_gate_config()
+        return self._config
+
+    async def _resolve_layers(self, *, harness_mode: str = "thick") -> list[GateLayer]:
         from .layers import build_layers
 
-        layers = build_layers(self.config)
+        cfg = await self.config_()
+        layers = build_layers(cfg)
         # 019: thin mode drops approval + quota (the floor = identity/rbac/redaction/audit stay).
         # Per-request harness_mode from the client overrides the global config.
         if str(harness_mode).lower() == "thin":
@@ -124,7 +138,7 @@ class Gatekeeper:
         if not context.tool:
             context.tool = tool
 
-        layers = self._resolve_layers(harness_mode=context.harness_mode)
+        layers = await self._resolve_layers(harness_mode=context.harness_mode)
         # The audit layer must be set aside *before* running the chain: because it
         # sits last, a mid-chain rejection would otherwise return before we ever
         # reach it, and the reject event would never be recorded (FR-9).
