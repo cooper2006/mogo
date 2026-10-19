@@ -121,13 +121,23 @@ class InsertManyResult:
 
 
 class UpdateResult:
-    __slots__ = ("matched_count", "modified_count", "upserted_id", "acknowledged")
+    __slots__ = ("matched_count", "modified_count", "upserted_id", "acknowledged", "changed_ids")
 
-    def __init__(self, matched_count: int, modified_count: int, upserted_id: Any = None) -> None:
+    def __init__(
+        self,
+        matched_count: int,
+        modified_count: int,
+        upserted_id: Any = None,
+        changed_ids: Any = None,
+    ) -> None:
         self.matched_count = matched_count
         self.modified_count = modified_count
         self.upserted_id = upserted_id
         self.acknowledged = True
+        #: 本条 UPDATE **实际改写**的行 id（``RETURNING tgt.id``）。``None`` 表示
+        #: 根本没执行 UPDATE（无更新步骤 / upsert 新插）；空列表表示执行了但一行
+        #: 未改（谓词不再命中，典型为并发败者）。
+        self.changed_ids = None if changed_ids is None else list(changed_ids)
 
 
 class DeleteResult:
@@ -383,14 +393,20 @@ def path_literal(field: str) -> str:
     return "{" + ",".join(parts) + "}"
 
 
-def _value_path(field: str) -> str:
-    """``doc #> '{a,b}'`` —— 保留 JSON 类型。"""
-    return f"(doc #> '{path_literal(field)}')"
+def _value_path(field: str, source: str | None = None) -> str:
+    """``doc #> '{a,b}'`` —— 保留 JSON 类型。
+
+    ``source`` 为 UPDATE 主表别名（如 ``tgt``）时输出 ``tgt.doc #> …``，
+    供谓词锁后重评的 CAS 形态使用；缺省维持裸 ``doc``（普通读路径）。
+    """
+    prefix = f"{source}." if source else ""
+    return f"({prefix}doc #> '{path_literal(field)}')"
 
 
-def _text_path(field: str) -> str:
-    """``doc #>> '{a,b}'`` —— 取文本。"""
-    return f"(doc #>> '{path_literal(field)}')"
+def _text_path(field: str, source: str | None = None) -> str:
+    """``doc #>> '{a,b}'`` —— 取文本。``source`` 同 :func:`_value_path`。"""
+    prefix = f"{source}." if source else ""
+    return f"({prefix}doc #>> '{path_literal(field)}')"
 
 
 def _column_param_sql(column: str) -> str:
@@ -572,9 +588,13 @@ class _FilterCompiler:
     型映射列生效（直接用列名替代 ``doc #> path``），非 JSONB 列退回 doc 路径。
     """
 
-    def __init__(self, column_map: Mapping[str, str] | None = None) -> None:
+    def __init__(self, column_map: Mapping[str, str] | None = None, *, source: str | None = None) -> None:
         self.params: list[Any] = []
-        self._columns: dict[str, str] = dict(column_map or {})
+        # CAS 形态（source 非空，如 "tgt"）：doc 路径加主表别名前缀，且**禁用映射列**
+        # ——别名列引用在 openGauss 的 UPDATE..FROM 里语义不清（tgt 的新旧行可见性
+        # 与 s0 快照不同源），一律走 doc 路径最稳；该形态只用于本兼容层内部。
+        self._source = source
+        self._columns: dict[str, str] = {} if source else dict(column_map or {})
 
     def _p(self, value: Any) -> str:
         self.params.append(value)
@@ -591,7 +611,7 @@ class _FilterCompiler:
         col = self._mapped(field)
         if col is not None and column_type(col) == "JSONB":
             return f'"{col}"', f'"{col}"::text'
-        return _value_path(field), _text_path(field)
+        return _value_path(field, self._source), _text_path(field, self._source)
 
     def _jsonb_eq_or_contains(self, value_sql: str, value: Any) -> str:
         """MongoDB 等值对数组字段的隐式「元素匹配」语义。
@@ -657,7 +677,7 @@ class _FilterCompiler:
         # 标量等值走 JSONB 路径时恢复 MongoDB 数组「元素匹配」语义（见
         # _jsonb_eq_or_contains）。{capabilities: "chat"} 等数组字段的等值查询
         # 因此不再恒空——2026-10-13 切 PanWeiDB 后前台「未配置模型」的回归。
-        return self._jsonb_eq_or_contains(_value_path(field), value)
+        return self._jsonb_eq_or_contains(_value_path(field, self._source), value)
 
     def _operators(self, field: str, spec: Mapping[str, Any]) -> str:
         # $options 是 $regex 的修饰符，不是独立算子，由 $regex 分支消费。
@@ -718,7 +738,7 @@ class _FilterCompiler:
             if col is not None:
                 exists_sql = f'"{col}" IS NOT NULL'
             else:
-                exists_sql = f"(doc #> '{path_literal(field)}') IS NOT NULL"
+                exists_sql = f"({_value_path(field, self._source)}) IS NOT NULL"
             return exists_sql if operand else f"NOT ({exists_sql})"
         if op == "$regex":
             pattern = operand.pattern if isinstance(operand, re.Pattern) else str(operand)
@@ -775,7 +795,7 @@ class _FilterCompiler:
             return f'"{col}" IN ({rendered})'
         # JSONB 映射列或 JSONB 路径：恢复 MongoDB「数组元素匹配」语义（$in 命中任一
         # 元素即算匹配）。非数组字段只走标量相等分支，行为与迁移前一致。
-        value_sql = f'"{col}"' if col is not None else _value_path(field)
+        value_sql = f'"{col}"' if col is not None else _value_path(field, self._source)
         match_parts = [self._jsonb_eq_or_contains(value_sql, item) for item in items]
         if negate:
             # $nin：不含任一元素才匹配。用 IS NOT TRUE 而非 NOT，规避 openGauss
@@ -792,7 +812,7 @@ class _FilterCompiler:
         - ``"null"`` / ``"missing"`` → 值为 null 或字段缺失
         - ``"string"`` / ``"int"`` / ``"long"`` / ``"double"`` / ``"bool"`` / ``"array"`` / ``"object"``
         """
-        value_path = _value_path(field)
+        value_path = _value_path(field, self._source)
         jsonb_type = f"jsonb_typeof({value_path})"
         operand_str = str(operand)
         if operand_str in ("null", "missing"):
@@ -1468,8 +1488,10 @@ class PgCollection:
         self._table_ready = True
 
     # -- 内部 ------------------------------------------------------------
-    def _where(self, filt: Mapping[str, Any] | None) -> tuple[str, list[Any]]:
-        compiler = _FilterCompiler(self._columns)
+    def _where(
+        self, filt: Mapping[str, Any] | None, *, source: str | None = None
+    ) -> tuple[str, list[Any]]:
+        compiler = _FilterCompiler(self._columns, source=source)
         return compiler.compile(filt), compiler.params
 
     def _column_entries(self) -> list[tuple[str, str]]:
@@ -1533,6 +1555,17 @@ class PgCollection:
             async with conn.cursor() as cur:
                 await cur.execute(sql, params)
                 return cur.rowcount
+
+    async def _execute_returning(
+        self, sql: str, params: Sequence[Any]
+    ) -> tuple[int, list[Any]]:
+        """执行写语句并取 RETURNING 列；返回 ``(rowcount, 单列值列表)``。"""
+        await self._ensure_table()
+        async with self._pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql, params)
+                rows = await cur.fetchall()
+                return cur.rowcount, [row[0] for row in rows]
 
     # -- 查询 ------------------------------------------------------------
     async def find_one(
@@ -1759,9 +1792,26 @@ class PgCollection:
             f"UPDATE {self._qualified} AS tgt SET {', '.join(assignments)} "
             f"FROM {last} WHERE tgt.id = {last}.id"
         )
-        await self._execute(target, [*params, *compiler.params])
-        # pymongo 语义：有更新步骤时 modified == matched（每行都实际变化）。
-        return UpdateResult(matched, matched)
+        if many:
+            await self._execute(target, [*params, *compiler.params])
+            # pymongo 语义：有更新步骤时 modified == matched（每行都实际变化）。
+            return UpdateResult(matched, matched)
+        # ── 单行原子领取（claim 的存储层形态）────────────────────────────
+        # 谓词必须**同时**施加在外层 tgt 上：s0 的圈定快照在 UPDATE 拿到行锁**之前**
+        # 求值，若只按 tgt.id=id 回写，两个并发领取会都改写同一行（后提交者盲覆盖，
+        # 实测双 changed=1）。外层带谓词时，败者在锁后重评谓词落空 → 0 行，恰好一个
+        # 赢家——这是 openGauss 上 UPDATE..FROM 形态的实测 CAS 语义（2026-10-19）。
+        # alias 形态只走 doc 路径（_FilterCompiler(source=...) 内禁用映射列），参数
+        # 与 s0 完全相同，故直接复用。
+        outer_where, outer_params = self._where(filter, source="tgt")
+        _, changed_ids = await self._execute_returning(
+            f"{target} AND ({outer_where}) RETURNING tgt.id",
+            [*params, *compiler.params, *outer_params],
+        )
+        # pymongo 语义：modified_count = 实际改写行数；matched 为提交前圈定数。
+        # 败者 matched=1/modified=0（谓词失配），与驱动行为一致；changed_ids 只由
+        # 本条 UPDATE 填充，供 find_one_and_update(AFTER) 按实际改写行回读。
+        return UpdateResult(matched, len(changed_ids), changed_ids=changed_ids)
 
     async def find_one_and_update(
         self,
@@ -1775,9 +1825,23 @@ class PgCollection:
         result = await self.update_one(filter, update, upsert=upsert)
         want_after = _return_after(return_document)
         if want_after:
-            if before is None and result.upserted_id is not None:
+            if result.changed_ids is not None:
+                # UPDATE 已执行：返回本条语句**实际改写**的那一行的新形态。
+                # 空列表 = 谓词不再命中、一行未改（并发败者），与 pymongo 的
+                # find_one_and_update「无匹配即 None」一致。
+                # 不能用原 filter 重查：领取/锁定类更新（如 bindings.claim_turn：
+                # filter 要求 active_turn 为终态、$set 写入 running）执行后文档
+                # 必然不再满足原 filter，重查恒得 None，会把**成功领取**误报成
+                # 冲突（2026-10-19 生产：409 假 busy + 无人回滚的僵尸锁）。
+                if not result.changed_ids:
+                    return None
+                return await self.find_one({"_id": result.changed_ids[0]})
+            if result.upserted_id is not None:
                 return await self.find_one({"_id": result.upserted_id})
-            return await self.find_one(filter, sort=sort)
+            if result.matched_count == 0:
+                return None
+            # 未执行 UPDATE（无更新步骤的合法 $set 之外情形）：值未变，返回读到的原文档。
+            return before
         return before
 
     async def delete_one(self, filter: Mapping[str, Any]) -> DeleteResult:

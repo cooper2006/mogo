@@ -823,24 +823,80 @@ async def test_update_cte_syncs_mapped_columns():
     async def _scalar(sql, params):
         return 1
 
-    async def _execute(sql, params):
+    async def _execute_returning(sql, params):
         captured.append((sql, params))
-        return 1
+        return 1, ["s1"]
 
     coll._scalar = _scalar  # type: ignore[assignment]
-    coll._execute = _execute  # type: ignore[assignment]
-    await coll.update_one({"_id": "s1"}, {"$set": {"user_id": "u7", "title": "新标题"}})
+    coll._execute_returning = _execute_returning  # type: ignore[assignment]
+    result = await coll.update_one({"_id": "s1"}, {"$set": {"user_id": "u7", "title": "新标题"}})
     sql, _params = captured[0]
+    # 单行 UPDATE 带 RETURNING（本条语句实际改写行，供 CAS 语义与 AFTER 回读）
+    assert sql.endswith("RETURNING tgt.id") and result.changed_ids == ["s1"]
     # 两个 $set → 步骤链 s0/s1/s2，末段 s2.doc 是最终 doc
     assert "SET" in sql and "doc = s2.doc" in sql
     # JSON null 防护：纯运算符比较；路径一律 #> / #>>（无 ->> text[] 运算符）
     assert "(CASE WHEN (s2.doc #> '{user_id}') = 'null'::jsonb THEN NULL ELSE (s2.doc #>> '{user_id}')::text END)" in sql
     assert "(s2.doc #>> '{title}')::text" in sql
     # jsonb_typeof 只允许出现在 WHERE 的数组元素匹配分支；SET 的列同步
-    # 必须是纯运算符比较（JSON null 防护）
-    assert "jsonb_typeof" not in sql[sql.index("SET"):]
+    # 必须是纯运算符比较（JSON null 防护）。范围收敛到 SET…FROM 段：段后的
+    # 外层谓词（tgt.doc 形态，锁后重评的 CAS 条件）允许数组匹配。
+    set_start = sql.index("SET")
+    set_segment = sql[set_start:sql.index(" FROM ", set_start)]
+    assert "jsonb_typeof" not in set_segment
     # 回归：花括号路径字面量禁止走 -> / ->>（真库上静默写 NULL）
     assert "->'" not in sql and "->>'" not in sql
+
+
+@pytest.mark.asyncio
+async def test_find_one_and_update_after_returns_rewritten_row():
+    """领取/锁定类更新的 AFTER 语义（2026-10-19 生产 409 根因回归）。
+
+    filter 里的锁条件被 $set 改写后文档必然不再满足原 filter；AFTER 必须按
+    RETURNING 回传的**实际改写行**回读，而不是拿原 filter 重查（恒 None → 把
+    成功领取误报成冲突）。并发败者（0 行改写）才返回 None。
+    """
+    coll = PgCollection(_RowsPool(), "chat_sessions", "s")
+    reads: list = []
+    writes: list = []
+
+    async def _find_one(filt, projection=None, sort=None):
+        reads.append(filt)
+        return {"_id": "s1", "lease_owner": None}
+
+    async def _scalar(sql, params):
+        return 1
+
+    coll.find_one = _find_one  # type: ignore[assignment]
+    coll._scalar = _scalar  # type: ignore[assignment]
+
+    async def _win(sql, params):
+        writes.append(sql)
+        return 1, ["s1"]
+
+    coll._execute_returning = _win  # type: ignore[assignment]
+    doc = await coll.find_one_and_update(
+        {"_id": "s1", "lease_owner": None},
+        {"$set": {"lease_owner": "worker-1"}},
+        return_document=True,
+    )
+    assert doc is not None
+    # 回读按 _id 定位实际改写行（不是原 filter 重查）
+    assert reads[-1] == {"_id": "s1"}
+    # 外层谓词在 tgt 上锁后重评：并发同键败者 0 行
+    assert "AND (tgt.doc" in writes[0] and writes[0].endswith("RETURNING tgt.id")
+
+    async def _lose(sql, params):
+        writes.append(sql)
+        return 0, []
+
+    coll._execute_returning = _lose  # type: ignore[assignment]
+    lost = await coll.find_one_and_update(
+        {"_id": "s1", "lease_owner": "worker-1"},
+        {"$set": {"lease_owner": "worker-2"}},
+        return_document=True,
+    )
+    assert lost is None
 
 
 @pytest.mark.asyncio
