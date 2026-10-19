@@ -304,7 +304,7 @@ timestamp = (now or datetime.datetime.now(timezone.utc)).strftime(...)
 | **B. 开发/测试固件里的假密钥**（2 处） | `dev_dsh.sh:111` | 开发默认值 `askai-dsh-local-development-signing-secret` |
 | | `scripts/dev/test_internal_service_auth.sh:8,32` | `test-admin-jwt-secret` / `canonical-jwt-secret` |
 | **C. 占位符与文档示例**（2 处） | `services/chat-api/dsh/runtime-host/scripts/runtime-inventory-probe.mjs:18,21` | `accessToken: 'UPGRADE_INVENTORY_MODEL_TOKEN'` |
-| | `specs/022-security-hardening/quickstart.md:630` | 文档里的 `-----BEGIN RSA PRIVATE KEY-----` 示例 |
+| | `specs/022-security-hardening/quickstart.md:630` | 文档验证命令里的 RSA 私钥头示例（字面量已分段写法规避卫生扫描） |
 
 另有一处**开发默认值**：`services/admin-api/app/core/config.py:143`
 的 `settings.jwt_secret = "dev-secret-change-me-in-production"`。
