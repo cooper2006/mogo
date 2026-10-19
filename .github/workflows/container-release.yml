@@ -124,10 +124,14 @@ jobs:
     # 022 FR-26 (T049/T050)：构建作业只拿到它需要的三项 —— 读源码、写包、
     # 用 OIDC 换 GHCR 凭据（同时支撑 build provenance）。不给 contents:write，
     # 因此它无法推 tag、改 workflow 或绕过环境审批。
+    # attestations: write 是 attest-build-provenance@v4 调用 REST
+    # POST /repos/.../attestations 所必需；job 级 permissions 会覆盖顶层声明，
+    # 缺它会 403 "Resource not accessible by integration"（run 39257742755）。
     permissions:
       contents: read
       packages: write
       id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
