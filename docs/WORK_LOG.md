@@ -288,7 +288,7 @@
 - 写冒烟：create/insert/truncate/drop 临时表全过（`write-ok`）
 
 ### 文件侧（仅 .env，均被 .gitignore 忽略，不入库）
-- `PANWEIDB_USER=boncuser`、`PANWEIDB_PASSWORD=JCpolbfHiyimCVlquFd3` 写入：`.env`、`services/chat-api/.env`、`services/admin-api/.env`、`services/document-parser/.env`
+- `PANWEIDB_USER=boncuser`、`PANWEIDB_PASSWORD=<REDACTED：已于 2026-10-18 安全事件后轮换，明文不再落库>` 写入：`.env`、`services/chat-api/.env`、`services/admin-api/.env`、`services/document-parser/.env`
 - 根 `.env` 过时注释（"boncuser 被锁定用 boncuser2"）已更新为重置说明 + MD5 兼容性提醒
 
 ### 遗留提醒（非本轮范围）
