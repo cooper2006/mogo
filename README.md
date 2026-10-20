@@ -79,7 +79,7 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 29 feature specifications, each with a complete chain
+specs/                    # 31 feature specifications, each with a complete chain
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -92,10 +92,12 @@ specs/                    # 29 feature specifications, each with a complete chai
   027-mongo-to-panweidb-migration/
   028-user-web-trajectory-tab/
   029-user-web-sso-receiver/
+  030-ontology-data-permission/
+  031-model-provider-discover/
   INDEX.md                # specification index
 ```
 
-Each of the 29 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all but the newest (029, the user-web SSO receiver) also carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Five of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
+Each of the 31 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Six of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
 
 They fall into six groups:
 
@@ -103,11 +105,11 @@ They fall into six groups:
 - **5 quality-hardening features** (022–026) — split out of the 2026-10-11 QualityForge full-repository QA audit; 357 tasks, implemented and tested in waves (see [Quality hardening: 022–026](#quality-hardening-022026) below).
 - **4 retrospective features** (003–006) — re-document capabilities MOVO already had. They originally shipped without `tasks.md`; it was backfilled on 2026-10-11 (141 items).
 - **1 data-backend migration** (027) — an opt-in MongoDB → PanWeiDB (openGauss kernel) compatibility layer has landed (R1), but the default backend is still MongoDB; runtime switch-over wiring (R2) and the relational migration (R3) are pending, so `mongo` remains the shipped default.
-- **2 user-web experience features** (028–029) — both landed on 2026-10-15: 028 promotes the per-message execution process to a session-level Chat/Trajectory dual tab, and 029 turns user-web into an SSO receiver so an external portal's logged-in users enter the workspace without a second login (see [Data backend and user-web experience: 027–029](#data-backend-and-user-web-experience-027029) below).
+- **4 data-backend and user-web experience features** (028–031) — both user-web experience features (028–029) landed on 2026-10-15: 028 promotes the per-message execution process to a session-level Chat/Trajectory dual tab, and 029 turns user-web into an SSO receiver so an external portal's logged-in users enter the workspace without a second login; 030 adds per-ontology data-scoped permission (P1, 2026-10-16); 031 adds model-provider discover with multi-protocol support including Anthropic / Gemini / Ollama (P1, 2026-10-18) (see [Data backend and user-web experience: 027–031](#data-backend-and-user-web-experience-027031) below).
 
-Interface contracts live in two places: the 5 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
+Interface contracts live in two places: the 6 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`, `memory-context-contract`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
 
-[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 29 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027) and the user-web experience set (028–029), and records the clarify decisions behind each threshold.
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 31 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027) and the user-web / data-permission / model-discover experience set (028–031), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -173,15 +175,17 @@ The 2026-10-11 QualityForge full-repository QA audit (964 items) surfaced 283 P0
 | 15 | **API contract and semantics** | 50 P0/P1 defects across semantics, error handling, contracts and evolution — including a static check that no GET route writes to the database | [025](specs/025-api-contract-hardening/) |
 | 16 | **Performance and scalability** | 51 P0/P1 defects across performance baselines, database, cache, frontend and scaling, with p95 latency regression guards | [026](specs/026-performance-scalability/) |
 
-### Data backend and user-web experience: 027–029
+### Data backend and user-web experience: 027–031
 
-Three specs landed after the hardening waves — one data-backend migration and two user-web experience upgrades. Each carries its own spec, plan and tasks. The two user-web features (028–029) are implemented on main; for 027 the PanWeiDB compatibility layer (R1) has landed but the data layer still defaults to MongoDB, with switch-over wiring (R2) and relational migration (R3) pending:
+Four specs landed after the hardening waves — one data-backend migration, two user-web experience upgrades, one ontology data-permission feature and one model-provider discover feature. Each carries its own spec, plan and tasks. The two user-web features (028–029) are implemented on main; for 027 the PanWeiDB compatibility layer (R1) has landed but the data layer still defaults to MongoDB, with switch-over wiring (R2) and relational migration (R3) pending:
 
 | # | Capability | What it delivers | Spec |
 | :-: | --- | --- | :-: |
 | 17 | **Data backend migration: MongoDB → PanWeiDB (in progress)** | An opt-in compatibility layer (R1) behind `MOGO_DATA_BACKEND` has landed in admin-api / chat-api / document-parser, but the default backend is still **MongoDB**. Runtime switch-over wiring (R2) and the relational migration (R3) remain pending, so existing call sites keep working on mongo today; the panweidb path is not yet the shipped default | [027](specs/027-mongo-to-panweidb-migration/) |
 | 18 | **user-web session-level Chat / Trajectory tabs** | The per-message collapsible execution process is promoted to a session-level "Trajectory" tab sitting next to "Chat". The two views are projections of the same V3 events, so the switch is a pure front-end view change with zero data-layer additions: per-session (pane) tab memory, default "Chat", bilingual labels, and `v-show` switching that never interrupts an in-flight stream — `ChatWindow.vue` itself stays untouched. Route C deliberately keeps four boundaries: no embedded official dsh web (iframe), no direct call to its `/api`, no `@deepseek-ai/dsh-client-ui-*` dependency (React + cordis vs Vue 3), and no bypass of chat-api governance (multi-tenancy / quota / enterprise-skill admission / approval / Mongo persistence) | [028](specs/028-user-web-trajectory-tab/) |
 | 19 | **user-web SSO receiver** | Users already logged into an external portal enter the MOGO user workspace without a second login. Four decisions are fixed: accounts match on the shared primary key `id` (not email/login_name), no JIT provisioning, multi-tenant users go through the existing tenant-selection challenge, and tickets cross domains via `state=`/POST (no shared cookie). The portal backend mints a one-time HMAC ticket through the 022 service identity (`POST /api/auth/portal-ticket`, 60 s TTL); user-web exchanges it on startup (`POST /api/auth/portal-exchange`) and reuses the existing `_create_session()`. Replay and expired tickets are rejected by constant-time `hmac.compare_digest` with accept-once, the signing key is the independent `PORTAL_SSO_SECRET` and is rotatable, and any failure falls back to the login dialog instead of a dead page | [029](specs/029-user-web-sso-receiver/) |
+| 20 | **ontology data permission** | A data-scope permission layer over the existing ontology domain, orthogonal to RBAC: `mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit` plus a general `sys_config` toggle. Runtime resolves visible ontologies per `(tenant_id, user_id)` with fail-closed semantics and 60 s cache; retrieval filters by `ontology_id`. Admin side ships 13 routes plus 1 internal endpoint, a full-list view and a per-user grant dialog. Dual-backend (Mongo + PanWeiDB) both populated; unimplemented rows flagged in tasks | [030](specs/030-ontology-data-permission/) |
+| 21 | **model provider discover & multi-protocol** | admin-web 「新增模型配置」免手填模型 ID: backend `POST /api/models/discover` calls the configured provider's real API to pull the model list; frontend 「获取列表」 popup pre-fills the form. Discovered protocols expanded from OpenAI/Azure to Anthropic Claude, Google Gemini and Ollama (local); three new protocol seeds plus dedicated `SetupModelFields` hints per type; five-value `provider_type` system贯穿 seed/setup/connection-test/frontend | [031](specs/031-model-provider-discover/) |
 
 ## Line three: multi-instance Agent runtime
 
@@ -478,7 +482,7 @@ MOGO pins the DeepSeek Harness (DSH) Agent kernel to an exact release train rath
 
 | Item | Value |
 | --- | --- |
-| DSH release train | `0.2.0-rc.2` |
+| DSH release train | `0.2.1-rc.2` |
 | Pinned packages | 40 `@deepseek-ai/dsh*` packages in `services/chat-api/dsh/runtime-host/package.json` |
 | Node runtime | `^22.19.0 \|\| >=24.0.0` |
 | Host protocol | `askai.dsh-host.v1` |
@@ -546,8 +550,8 @@ See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (29 features, plus `INDEX.md`) |
-| `contracts/` | the 5 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway) |
+| `specs/` | spec-kit SDD specification assets (31 features, plus `INDEX.md`) |
+| `contracts/` | the 6 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway, memory-context) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |
 | `apps/admin-web/` | Vue 3 setup and administration console |

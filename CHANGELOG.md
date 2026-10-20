@@ -4,6 +4,19 @@ All notable MOVO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
 
+## v0.2.4 - 2026-10-20
+
+### Fixed
+
+- **会话删除不生效**（P0）：`DELETE /api/sessions/{id}` 在会话没有活跃 DSH
+  conversation 时 `dispose_conversation()` 抛 `LookupError`，导致整个请求
+  返回 500、MongoDB 删除未执行；前端仅 console.warn，5 秒后
+  `refreshSessionSummaries` 又拉回已删会话。修复：将
+  `dispose_conversation` 包入 try/except（与已有 sedimentation 块一致），降级
+  为 warn 日志后继续执行 MongoDB 删除；前端补 catch 块并显示错误 toast。同时
+  修正 `refreshSessionSummaries` 中 `mergeSessionPages` 参数顺序反了的问题
+  （原调用把服务器列表当基础集，已删会话被重新加回）。
+
 ## v0.2.3 - 2026-10-18
 
 ### Added
