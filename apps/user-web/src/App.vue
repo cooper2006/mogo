@@ -308,6 +308,7 @@ const projectHistoryGroups = computed(() => {
       }
     })
 })
+const message = useMessage()
 const chatRuntime = useChatRuntimeStore({
   onSessionResolved: (sessionId) => {
     if (!sessions.value.some((item) => item.id === sessionId)) {
