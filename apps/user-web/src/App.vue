@@ -1465,7 +1465,10 @@ const accountTierLabel = computed(() => {
 
 const quotaTotal = computed(() => Number(billingSummary.value?.totalPoints || 0))
 const quotaUsed = computed(() => Number(billingSummary.value?.usedPoints || 0))
-const quotaRemaining = computed(() => Math.max(0, Number(billingSummary.value?.remainingPoints ?? quotaTotal.value - quotaUsed.value)))
+const quotaRemaining = computed(() => {
+  if (billingSummary.value?.unlimited === true) return -1
+  return Math.max(0, Number(billingSummary.value?.remainingPoints ?? quotaTotal.value - quotaUsed.value))
+})
 const quotaUsedPercent = computed(() => {
   return quotaUsagePercent(quotaUsed.value, quotaTotal.value)
 })

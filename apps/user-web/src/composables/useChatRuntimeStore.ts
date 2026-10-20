@@ -345,8 +345,9 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
   try {
     const quota = await fetchOrgBilling(input.authToken)
     if (pane.operationId !== operationId) return
-    const remaining = Number(quota.data?.remainingPoints || 0)
-    if (!quota.ok || remaining <= 0) {
+    const remaining = Number(quota.data?.remainingPoints ?? 0)
+    const unlimited = quota.data?.unlimited === true
+    if (!quota.ok || (!unlimited && remaining <= 0)) {
       const isEnterprise = quota.data?.spaceType === 'enterprise'
       pane.messages.push({
         _id: nextMessageId(),
