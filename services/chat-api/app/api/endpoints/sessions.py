@@ -1084,9 +1084,12 @@ async def delete_session(
         log_print(f"[sessions] delete-path sedimentation skipped: {exc}", flush=True)
 
     from app.dsh_runtime.application import dsh_runtime_application
-    await dsh_runtime_application.require_chat().dispose_conversation(
-        str(oid), tenant_id=tenant_id, user_id=user_id
-    )
+    try:
+        await dsh_runtime_application.require_chat().dispose_conversation(
+            str(oid), tenant_id=tenant_id, user_id=user_id
+        )
+    except Exception as exc:  # noqa: BLE001 — conversation may have never existed
+        log_print(f"[sessions] delete-path dispose_conversation skipped: {exc}", flush=True)
     await db.chat_sessions.delete_one(add_tenant_scope({"_id": oid, "user_id": str(user_id)}, tenant_id))
     await db.chat_messages.delete_many(add_tenant_scope({"session_id": oid, "user_id": str(user_id)}, tenant_id))
     try:

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect } from 'naive-ui'
+import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect, useMessage } from 'naive-ui'
 import TokenInput from './components/TokenInput.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import ShortcutPreferencesPanel from './components/settings/ShortcutPreferencesPanel.vue'
@@ -1683,6 +1683,7 @@ async function confirmDeleteSession() {
     chatRuntime.removeSession(sessionId)
   } catch (error) {
     console.warn('[sessions] delete failed:', error)
+    message.error(t('app.delete_chat.failed'))
   } finally {
     pendingDeleteSession.value = null
     deletingSessionId.value = null

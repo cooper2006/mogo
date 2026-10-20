@@ -295,6 +295,7 @@ export const messages = {
   'app.delete_chat.title': { zh: '删除对话？', en: 'Delete chat?' },
   'app.delete_chat.body': { zh: '这会从历史记录中永久删除“{title}”。', en: 'This will permanently remove "{title}" from your history.' },
   'app.delete_chat.deleting': { zh: '删除中...', en: 'Deleting...' },
+  'app.delete_chat.failed': { zh: '删除失败，请重试。', en: 'Delete failed, please try again.' },
   'chat.welcome_title': { zh: '你在忙什么？', en: 'What are you working on?' },
   'app.skill_form.title': { zh: '创建技能', en: 'Create Skill' },
   'app.skill_form.subtitle': { zh: '先定义基础信息，再用 Smart Fill 扩展合约。', en: 'Define the basics first, then let Smart Fill expand the contract.' },
