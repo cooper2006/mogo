@@ -23,6 +23,7 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from app.api.endpoints import auth as auth_module
+from app.core.ids import to_backend_id
 
 PORTAL_SECRET = "portal-sso-secret-0123456789abcdef"
 USER_ID = "665f1c0c0b1e2a3f4a5b6c7d"
@@ -181,9 +182,11 @@ async def env(monkeypatch):
 
 
 async def _seed_user(db: FakeDB) -> None:
+    # 主键形态随后端（T085）：mongo 为 24-hex ObjectId，panwei 为 24-hex 字符串。
+    # 端点用 to_backend_id 做查询，故种子也必须按同一形态写入，否则查不到。
     await db[auth_module.USER_COLLECTION].insert_one(
         {
-            "_id": ObjectId(USER_ID),
+            "_id": to_backend_id(USER_ID),
             "login_name": USERNAME,
             "status": "active",
             "tenant_id": TENANT_ID,

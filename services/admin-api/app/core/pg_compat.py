@@ -81,7 +81,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-import uuid
+from bson import ObjectId
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, AsyncIterator, Iterable, Mapping, Sequence
@@ -89,6 +89,17 @@ from typing import Any, AsyncIterator, Iterable, Mapping, Sequence
 from app.core.column_map import column_type, mapped_columns
 
 logger = logging.getLogger(__name__)
+
+
+def new_backend_id() -> str:
+    """生成新记录主键：``str(ObjectId())``（24-hex）。
+
+    迁移计划 §2.9/§4 约定 PanWeiDB 主键统一落成 ``str(ObjectId)``；
+    0f13656 曾在此用 ``uuid4().hex``（32-hex），导致 ``is_valid_backend_id``
+    （仅认 24-hex）守卫误杀全部新建记录，详见 docs/mongo-to-panweidb-
+    migration-plan.md §2.9。
+    """
+    return str(ObjectId())
 
 
 class PgCompatUnsupported(NotImplementedError):
@@ -1646,7 +1657,7 @@ class PgCollection:
         doc = dict(document)
         doc_id = doc.get("_id")
         if doc_id is None:
-            doc_id = uuid.uuid4().hex
+            doc_id = new_backend_id()
             doc["_id"] = doc_id
         tenant_id = doc.get("tenant_id")
         entries = self._column_entries()
@@ -1704,7 +1715,7 @@ class PgCollection:
         if existing is None:
             if not upsert:
                 return UpdateResult(0, 0)
-            doc.setdefault("_id", uuid.uuid4().hex)
+            doc.setdefault("_id", new_backend_id())
             result = await self.insert_one(doc)
             return UpdateResult(0, 0, upserted_id=result.inserted_id)
         doc["_id"] = doc.get("_id", existing)
@@ -1761,7 +1772,7 @@ class PgCollection:
                 if not str(field).startswith("$") and not isinstance(value, Mapping)
             }
             new_doc = apply_update_to_document(seed, update)
-            new_doc.setdefault("_id", uuid.uuid4().hex)
+            new_doc.setdefault("_id", new_backend_id())
             await self.insert_one(new_doc)
             # pymongo 语义：upsert 创建新文档时 matched_count=0（无既有行被匹配），
             # upserted_count 由 bulk_write 通过 upserted_id 统计。

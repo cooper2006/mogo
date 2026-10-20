@@ -10,13 +10,26 @@ Mongo 的 ``_id`` 是 ``ObjectId``；PanWeiDB 侧落成 ``str(_id)`` 字符串�
 
 * mongo 模式行为与改造前**完全一致**（合法 24-hex → ObjectId）；
 * panwei 模式一律用字符串（主键在库中即字符串）。
+
+panwei 模式下的**存量兼容**：027 R1（commit 0f13656，2026-10-13）起
+``pg_compat.insert_one`` 曾用 ``uuid4().hex``（32 位 hex）生成缺失的 ``_id``，
+迁移期已产生一批 32-hex 主键（``end_users`` / ``end_user_sessions`` /
+``chat_messages``）。迁移计划 §2.9/§4 约定主键统一为 ``str(ObjectId)``
+（24-hex），故新 id 一律 24-hex；但存量的 32-hex 记录不能因此被守卫误杀
+（否则新注册用户在 PanWeiDB 下完全无法登录），``is_valid_backend_id`` /
+``to_backend_id_strict`` 在 panwei 模式下因此同时接受 24-hex 与 32-hex，
+mongo 模式维持原语义（仅 24-hex 合法）。
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from bson import ObjectId
+
+# 存量 PanWeiDB 32-hex 主键（commit 0f13656 的 uuid4().hex 遗留）。
+_HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
 
 
 def _is_panweidb() -> bool:
@@ -49,22 +62,25 @@ def is_valid_backend_id(value: Any) -> bool:
     if isinstance(value, ObjectId):
         return True
     text = str(value)
-    # 两种后端的主键都由 ObjectId 生成（panwei 落成 str(_id) = 24-hex），故合法性
-    # 判定一致，保持依赖 ObjectId.is_valid 的既有校验语义（invalid id 应被拒）。
-    return ObjectId.is_valid(text)
+    if ObjectId.is_valid(text):
+        return True
+    # 存量兼容：panwei 下迁移期 uuid4().hex 生成的 32-hex 主键仍需可查（见模块
+    # docstring）；mongo 模式不接受 32-hex（其主键恒为 24-hex ObjectId）。
+    return _is_panweidb() and bool(_HEX32.match(text))
 
 
 def to_backend_id_strict(value: Any) -> Any:
     """同 :func:`to_backend_id`，但非法 id 抛 ``ValueError``。
 
     用于原先依赖 ``ObjectId(...)`` 构造抛错的调用点，保持其校验语义：
-    mongo 下非法 24-hex 会抛错，panwei 下同样拒绝非法 id（主键即 24-hex 字符串）。
+    mongo 下非法 24-hex 会抛错，panwei 下接受 24-hex（新建）与 32-hex
+    （0f13656 存量）字符串主键，其余拒绝。
     """
     if value is None:
         raise ValueError("id 不能为空")
     if isinstance(value, ObjectId):
         return str(value) if _is_panweidb() else value
     text = str(value)
-    if not ObjectId.is_valid(text):
+    if not is_valid_backend_id(text):
         raise ValueError(f"非法 id: {value!r}")
     return text if _is_panweidb() else ObjectId(text)

@@ -104,16 +104,34 @@ services:
   bootstrap:
     image: alpine:3.21
     restart: "no"
-    # 022 US3 (T027): the bootstrap container only generates secrets into a
-    # named volume, so it needs no privileges at all.
+    # 022 US3 (T027): the bootstrap container generates secrets into a
+    # named volume and fixes the ownership of the writable app volumes, so it
+    # needs no privileges other than CHOWN/FOWNER for that last step.
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
     environment:
       MOGO_PORT: ${MOGO_PORT:-${MOVO_PORT:-${ASKAI_PORT:-3000}}}
     volumes:
       - deployment-secrets:/run/askai-secrets
+      # 027 P2 修复（2026-10-20）：三个可写卷必须由应用进程（UID 10001）可写，
+      # 否则 admin-api / chat-api / document-api（均以 appuser 运行）的
+      # 知识存储 / 静态资源 / 会话产物落盘会失败，setup/status 的 storage
+      # 健康项也恒为 false。
+      #
+      # 为什么需要这里而不是依赖 Docker 的卷初始化行为：
+      #   Docker 只在卷**首次创建且为空**时，用镜像里对应路径的内容（含
+      #   属主）初始化它。老部署环境（如 2026-09-29 创建的 movo_* 卷）在
+      #   Dockerfile 增加 chown 之前就建好了卷，卷内容仍是 root:root 0755，
+      #   后续重建镜像不会修正已有卷的属主。因此由 bootstrap 在每次启动
+      #   前做一次幂等的 chown（卷已是 10001 时 chown 无副作用）。
+      - knowledge-storage:/storage/knowledge
+      - admin-static:/storage/admin-static
+      - askai-storage:/storage/askai
     command:
       - /bin/sh
       - -ec
@@ -167,6 +185,14 @@ services:
           echo "ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=$$admin_backend_service_token"
         } >> "$$temp_file"
         mv "$$temp_file" "$$secret_file"
+        # 027 P2 修复（2026-10-20）：可写卷的属主兜底。
+        # 老部署环境里，movo_knowledge-storage 等卷在 Dockerfile 加入
+        # chown 之前就已创建，卷内容仍是 root:root 0755，应用容器以
+        # appuser (UID 10001) 运行无法写入。这里在启动前做一次幂等 chown；
+        # 卷已属 10001 时无副作用。挂载到 /storage/* 而非 /data/* 是因为
+        # 镜像的 /data 路径在 rootfs 上（read_only 且与卷挂载点同名易混淆），
+        # bootstrap 只用 alpine，挂载点只在本容器内有效。
+        chown -R 10001:10001 /storage/knowledge /storage/admin-static /storage/askai
         echo "MOVO deployment secrets are ready."
         echo "After services become healthy, open http://localhost:$${MOGO_PORT:-${MOVO_PORT:-3000}}/admin/setup"
 

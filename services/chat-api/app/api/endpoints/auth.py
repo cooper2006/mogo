@@ -12,7 +12,7 @@ import uuid
 from typing import Any, Optional
 
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
+
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
@@ -969,13 +969,15 @@ def _verify_portal_service_identity(service_token: str) -> None:
 async def _find_active_user_by_id(db: Any, user_id: str) -> Optional[dict]:
     """按共享主键 ``end_users._id`` 解析 active 终端用户（029，无 JIT）。
 
-    非法 ObjectId 一律视为未命中（fail-closed），绝不自动建号。
+    非法主键一律视为未命中（fail-closed），绝不自动建号。主键形态随后端
+    （T085）：mongo 为 24-hex ``ObjectId``，panwei 为 24-hex 字符串（新建）
+    或 32-hex 字符串（0f13656 存量），统一经 :mod:`app.core.ids` 归一。
     """
-    try:
-        oid = ObjectId(user_id)
-    except Exception:
+    if not is_valid_backend_id(user_id):
         return None
-    return await db[USER_COLLECTION].find_one({"_id": oid, "status": "active"})
+    return await db[USER_COLLECTION].find_one(
+        {"_id": to_backend_id(user_id), "status": "active"}
+    )
 
 
 @router.post("/auth/portal-ticket", response_model=ApiResponse)
