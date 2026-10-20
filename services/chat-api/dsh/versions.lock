@@ -21,6 +21,10 @@ policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exac
 # 例外：@deepseek-ai/dsh-invariants 未发布 0.2.1-rc.2（npm 上顶版即 0.2.0-rc.2），
 # 作为 peer 依赖由消费方(@deepseek-ai/dsh-better-sidebar@0.26.1 / dshmarket)以 ^0.2.0-rc.2
 # 声明，0.2.0-rc.2 已满足范围，故保留 0.2.0-rc.2，混用列车已获用户授权。
+# 机器可读白名单：release gate 只认这一行，格式为 "<包名>@<版本>"，逐字匹配。
+# 例外必须精确到包名与版本；上游一旦发布同列车版本，此处必须同步删除该条目，
+# 否则守卫会因「例外已失效」报错。守卫脚本不依赖 TOML 库，故这里用行内数组。
+allowed_mixed_exceptions = ["@deepseek-ai/dsh-invariants@0.2.0-rc.2"]
 
 
 [[artifact]]

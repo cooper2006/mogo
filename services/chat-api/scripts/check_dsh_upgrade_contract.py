@@ -30,14 +30,7 @@ def _constant(path: Path, name: str) -> str:
     return match.group(1)
 
 
-def _lock_scalar(section: str, name: str) -> str | bool:
-    """Read the two admission fields without adding a Python-version dependency.
-
-    ``versions.lock`` is intentionally a human-auditable policy file.  The
-    release gate only needs one string and one boolean from it, so requiring a
-    TOML package merely to run the repository guard would make the guard less
-    portable than the artifact it protects.
-    """
+def _lock_section(section: str) -> str:
     text = VERSIONS_LOCK.read_text(encoding="utf-8")
     section_match = re.search(
         rf"^\[{re.escape(section)}\]\s*$([\s\S]*?)(?=^\[|\Z)",
@@ -46,9 +39,20 @@ def _lock_scalar(section: str, name: str) -> str | bool:
     )
     if not section_match:
         raise ValueError(f"missing [{section}] in versions.lock")
+    return section_match.group(1)
+
+
+def _lock_scalar(section: str, name: str) -> str | bool:
+    """Read the two admission fields without adding a Python-version dependency.
+
+    ``versions.lock`` is intentionally a human-auditable policy file.  The
+    release gate only needs one string and one boolean from it, so requiring a
+    TOML package merely to run the repository guard would make the guard less
+    portable than the artifact it protects.
+    """
     value_match = re.search(
         rf"^{re.escape(name)}\s*=\s*(.+?)\s*$",
-        section_match.group(1),
+        _lock_section(section),
         re.MULTILINE,
     )
     if not value_match:
@@ -59,6 +63,40 @@ def _lock_scalar(section: str, name: str) -> str | bool:
     if len(value) >= 2 and value[0] == value[-1] == '"':
         return value[1:-1]
     raise ValueError(f"unsupported [{section}].{name} value in versions.lock")
+
+
+def _lock_string_list(section: str, name: str) -> list[str]:
+    """Read a list of strings without adding a Python-version dependency."""
+    value_match = re.search(
+        rf"^{re.escape(name)}\s*=\s*\[(.*?)\]\s*$",
+        _lock_section(section),
+        re.MULTILINE | re.DOTALL,
+    )
+    if not value_match:
+        raise ValueError(f"missing [{section}].{name} in versions.lock")
+    return re.findall(r'"([^"]*)"', value_match.group(1))
+
+
+def _allowed_mixed_exceptions() -> dict[str, str]:
+    """Read the authorized mixed-train exceptions as ``{package: version}``.
+
+    ``versions.lock`` records one authorized exception per upstream package
+    that cannot join the current release train (for example a package the
+    upstream never republished for this train).  The exception is exact: both
+    the package name and its pinned version must match, so an exception can
+    never authorize an arbitrary version of an arbitrary package.
+    """
+    exceptions: dict[str, str] = {}
+    for entry in _lock_string_list("release_train", "allowed_mixed_exceptions"):
+        name, separator, version = entry.rpartition("@")
+        if not separator or not name or not version:
+            raise ValueError(f"invalid allowed_mixed_exceptions entry: {entry!r}")
+        if not (name == "@deepseek-ai/dsh" or name.startswith("@deepseek-ai/dsh-")):
+            raise ValueError(f"allowed_mixed_exceptions only covers DSH packages: {entry!r}")
+        if name in exceptions:
+            raise ValueError(f"duplicated allowed_mixed_exceptions entry: {entry!r}")
+        exceptions[name] = version
+    return exceptions
 
 
 def current_candidate() -> dict[str, Any]:
@@ -136,6 +174,7 @@ def validate_repository() -> None:
 
     active = matrix["active_release"]
     version = str(active["dsh_release_train"])
+    exceptions = _allowed_mixed_exceptions()
     package = json.loads(HOST_PACKAGE.read_text(encoding="utf-8"))
     if package.get("engines", {}).get("node") != active["node_runtime"]:
         raise ValueError("Runtime Host Node engine differs from the compatibility matrix")
@@ -143,7 +182,10 @@ def validate_repository() -> None:
         name: value for name, value in package["dependencies"].items()
         if name == "@deepseek-ai/dsh" or name.startswith("@deepseek-ai/dsh-")
     }
-    mismatched = {name: value for name, value in dsh_dependencies.items() if value != version}
+    mismatched = {
+        name: value for name, value in dsh_dependencies.items()
+        if value != version and exceptions.get(name) != value
+    }
     if not dsh_dependencies or mismatched:
         raise ValueError(f"Runtime Host DSH dependencies are not one exact release train: {mismatched}")
 
@@ -161,8 +203,25 @@ def validate_repository() -> None:
         if component.get("name") == "@deepseek-ai/dsh"
         or str(component.get("name") or "").startswith("@deepseek-ai/dsh-")
     ]
-    if not dsh_components or any(component.get("version") != version for component in dsh_components):
+    sbom_mismatched = {
+        str(component.get("name")): str(component.get("version"))
+        for component in dsh_components
+        if component.get("version") != version
+        and exceptions.get(str(component.get("name"))) != str(component.get("version"))
+    }
+    if not dsh_components or sbom_mismatched:
         raise ValueError("DSH SBOM is missing or contains a mixed release train")
+    observed = {
+        **{name: value for name, value in dsh_dependencies.items() if value != version},
+        **{str(component.get("name")): str(component.get("version")) for component in dsh_components},
+    }
+    stale = sorted(
+        f"{name}@{expected}"
+        for name, expected in exceptions.items()
+        if observed.get(name) != expected
+    )
+    if stale:
+        raise ValueError(f"allowed_mixed_exceptions entries are stale: {stale}")
     validate_candidate(current_candidate(), matrix)
 
 

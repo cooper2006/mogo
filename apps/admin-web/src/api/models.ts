@@ -5,6 +5,17 @@ export type ModelStatus = 'active' | 'disabled';
 export type HealthStatus = 'unknown' | 'healthy' | 'failed';
 export type ImageRuntimeKind = 'openai_images' | 'azure_openai_images' | 'dashscope_image' | 'custom_images';
 
+/**
+ * 供应商协议类型全集（后端 `provider_type` 枚举）。
+ *
+ * 后端 `ModelDiscoverPayload.providerType` 用正则
+ * `^(openai_compatible|azure_openai|anthropic|gemini|ollama)$` 约束，
+ * 种子 `DEFAULT_PROVIDERS` 也覆盖这五类；此处是前端唯一权威声明，
+ * 首次配置向导（api/setup.ts）与模型管理页（api/models.ts）共用，
+ * 避免两处各自抄一份而漏改（031 曾因 setup.ts 漏改导致 typecheck 报错）。
+ */
+export type ModelProviderType = 'openai_compatible' | 'azure_openai' | 'anthropic' | 'gemini' | 'ollama';
+
 const IMAGE_MODEL_TEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface ImageModelSettings {
@@ -26,7 +37,7 @@ export interface ModelProviderItem {
   id: string;
   name: string;
   code: string;
-  providerType: 'openai_compatible' | 'azure_openai' | 'anthropic' | 'gemini' | 'ollama';
+  providerType: ModelProviderType;
   defaultBaseUrl: string;
   authType: string;
   status: ModelStatus;
@@ -187,7 +198,7 @@ export interface DiscoveredModel {
  * 供「新增模型配置」中「获取模型列表」直接点选，免去手填模型 ID。
  */
 export async function discoverProviderModels(payload: {
-  providerType: 'openai_compatible' | 'azure_openai' | 'anthropic' | 'gemini' | 'ollama';
+  providerType: ModelProviderType;
   baseUrl: string;
   apiKey: string;
   apiVersion?: string;

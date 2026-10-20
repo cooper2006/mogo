@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import type { SearchProviderId } from '@/components/search-provider/providerGuides';
+import type { ModelProviderType } from './models';
 
 export interface SetupStatus {
   completed: boolean;
@@ -43,7 +44,7 @@ export interface SetupModelProvider {
   id: string;
   name: string;
   code: string;
-  providerType: 'openai_compatible' | 'azure_openai';
+  providerType: ModelProviderType;
   defaultBaseUrl: string;
 }
 
