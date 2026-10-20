@@ -1681,6 +1681,8 @@ async function confirmDeleteSession() {
     sessions.value = sessions.value.filter((item) => item.id !== sessionId)
     sessionSearchResults.value = sessionSearchResults.value.filter((item) => item.id !== sessionId)
     chatRuntime.removeSession(sessionId)
+  } catch (error) {
+    console.warn('[sessions] delete failed:', error)
   } finally {
     pendingDeleteSession.value = null
     deletingSessionId.value = null
@@ -1718,7 +1720,7 @@ async function refreshSessionSummaries() {
   if (!userId || document.visibilityState === 'hidden') return
   try {
     const page = await listSessionsPaged(userId, getTenantId(), { limit: sessionPageSize, offset: 0 }, authToken.value || null)
-    sessions.value = mergeSessionPages(page.items, sessions.value).slice(0, Math.max(sessionPageSize, sessions.value.length))
+    sessions.value = mergeSessionPages(sessions.value, page.items).slice(0, Math.max(sessionPageSize, sessions.value.length))
     sessionsHasMore.value = page.has_more
   } catch {
     // Best-effort visibility refresh; explicit navigation still retries.
