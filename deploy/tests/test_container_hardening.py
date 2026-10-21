@@ -210,22 +210,25 @@ def test_nginx_images_ship_non_root_main_config(service: str) -> None:
 
 
 def test_compose_file_parses() -> None:
-    cfg = _compose_config()
+    # HARDENED_SERVICES 包含 pool 拓扑的 dsh-runtime-host-{1,2,3}，
+    # 这些服务仅在 --profile pool 下可见；单副本拓扑由
+    # test_dsh_runtime_host_single_host_profile_is_hardened 单独覆盖。
+    cfg = _compose_config(profile="pool")
     assert "services" in cfg
     for service in HARDENED_SERVICES:
-        assert service in cfg["services"], f"compose 缺少服务 {service}"
+        assert service in cfg["services"], f"compose --profile pool 缺少服务 {service}"
 
 
 @pytest.mark.parametrize("service", HARDENED_SERVICES)
 def test_compose_service_drops_all_capabilities(service: str) -> None:
-    services = _compose_config()["services"]
+    services = _compose_config(profile="pool")["services"]
     caps = services[service].get("cap_drop") or []
     assert caps == ["ALL"], f"{service}.cap_drop 应为 [ALL]，实际 {caps}"
 
 
 @pytest.mark.parametrize("service", HARDENED_SERVICES)
 def test_compose_service_forbids_privilege_escalation(service: str) -> None:
-    services = _compose_config()["services"]
+    services = _compose_config(profile="pool")["services"]
     opts = [str(o) for o in (services[service].get("security_opt") or [])]
     assert "no-new-privileges:true" in opts, f"{service} 缺少 no-new-privileges"
 
@@ -236,7 +239,7 @@ def test_compose_service_forbids_privilege_escalation(service: str) -> None:
 )
 def test_compose_service_runs_read_only(service: str) -> None:
     """应用/网关容器的镜像 rootfs 必须只读，禁止运行期落地后门。"""
-    assert _compose_config()["services"][service].get("read_only") is True
+    assert _compose_config(profile="pool")["services"][service].get("read_only") is True
 
 
 @pytest.mark.parametrize(
@@ -244,7 +247,7 @@ def test_compose_service_runs_read_only(service: str) -> None:
     ["chat-api", "admin-api", "document-api", "document-worker", "user-web", "admin-web", "gateway", *DSH_RUNTIME_HOST_POOL],
 )
 def test_compose_service_mounts_writable_tmpfs(service: str) -> None:
-    tmpfs = list(_compose_config()["services"][service].get("tmpfs") or [])
+    tmpfs = list(_compose_config(profile="pool")["services"][service].get("tmpfs") or [])
     assert any(str(m).startswith("/tmp") for m in tmpfs), f"{service} 缺少 /tmp tmpfs"
     for mount in tmpfs:
         spec = str(mount)
@@ -328,7 +331,8 @@ def test_dsh_runtime_host_home_is_on_a_writable_volume() -> None:
     for service in DSH_RUNTIME_HOST_POOL:
         # `docker compose config --format json` 渲染成长格式（dict），不是
         # 短格式字符串，所以按 target 取而不是按字符串后缀。
-        volumes = _compose_config()["services"][service].get("volumes") or []
+        # pool 拓扑的副本仅在 --profile pool 下可见。
+        volumes = _compose_config(profile="pool")["services"][service].get("volumes") or []
         targets = [v.get("target") if isinstance(v, dict) else str(v).rsplit(":", 1)[-1] for v in volumes]
         assert "/data/dsh-runtime" in targets, (
             f"{service} 未把数据卷挂到 /data/dsh-runtime：{targets}"

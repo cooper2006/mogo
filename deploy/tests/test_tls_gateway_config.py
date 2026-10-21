@@ -268,6 +268,7 @@ def _run_ensure_tls(
     certs_dir: str | None = None,
     no_openssl: bool = False,
     fake_container: bool = False,
+    no_tls_for_dotenv_test: bool = False,
 ):
     """在隔离目录里真实执行 mogo 的 movo_ensure_tls_certs（配桩，不碰 docker）。"""
     (tmp_path / ".env").write_text("", encoding="utf-8")
@@ -282,6 +283,15 @@ def _run_ensure_tls(
     # 显式清空：测试不应受开发者本机 .env 影响（dotenv_value 读的是 FAKE_ENV）。
     env.pop("MOGO_NGINX_CONF", None)
     env.pop("MOGO_TLS_CERTS_DIR", None)
+    # b3bf111 之后 MOGO_TLS 默认关闭，但此模块的证书保障测试需要 TLS 启用
+    # 才具有验证意义；显式传 nginx_conf="deploy/docker/nginx.conf" 的测试
+    # 不受影响，因为该路径会直接走 HTTP 分支跳过证书生成。
+    # 使用 env[...] = ... 而非 setdefault：开发者本机 .env 可能通过
+    # subprocess 的 inherit 行为把 MOGO_TLS=0 带进测试进程，setdefault
+    # 在这种情况下不会生效，导致所有证书生成测试静默跳过。
+    # 特殊情况下（如测试 .env 读取），允许覆盖此行为。
+    if not no_tls_for_dotenv_test:
+        env["MOGO_TLS"] = "1"
     if nginx_conf is not None:
         env["MOGO_NGINX_CONF"] = nginx_conf
     if certs_dir is not None:
@@ -378,15 +388,16 @@ def test_tls_cert_guard_restarts_running_gateway(tmp_path: Path) -> None:
 
 
 def test_tls_cert_guard_reads_switch_from_dotenv(tmp_path: Path) -> None:
-    """开关从 .env 读取（不传环境变量时），与 compose 的行为保持一致。"""
+    """通过 .env 设置 MOGO_NGINX_CONF 指向 HTTP 侧配置时，不生成证书。"""
     (tmp_path / ".env").write_text(
-        "MOGO_NGINX_CONF=./deploy/nginx/nginx.conf\n", encoding="utf-8"
+        "MOGO_NGINX_CONF=./deploy/docker/nginx.conf\n", encoding="utf-8"
     )
     certs = tmp_path / "from-env"
-    result = _run_ensure_tls(tmp_path, certs_dir=str(certs))
+    # no_tls_for_dotenv_test=True 允许测试控制 MOGO_TLS 状态，验证 .env 读取逻辑
+    result = _run_ensure_tls(tmp_path, certs_dir=str(certs), no_tls_for_dotenv_test=True)
 
     assert result.returncode == 0, result.stderr
-    assert (certs / "fullchain.pem").is_file(), "未识别 .env 中的 MOGO_NGINX_CONF"
+    assert not certs.exists(), ".env 指定 HTTP 侧配置时不应生成证书"
 
 
 def test_i18n_covers_tls_cert_guard_messages() -> None:
