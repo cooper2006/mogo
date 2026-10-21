@@ -99,6 +99,11 @@ docker rmi admin-api:60eff81 admin-web:60eff81 chat-api:60eff81 document-parser:
 效果：镜像占用 28.78GB → 17.47GB，本地卷 1.269GB → 792.3MB；11 个容器全程未受影响
 （删除后复检仍全部 healthy）。
 
+同一次清理中另按用户确认清掉了与品牌迁移无关的残留：6 个无容器引用的孤儿匿名卷
+（其中 1 个含 300MB 停用的 mongo 数据，2026-10-13 生成）与 BuildKit 构建缓存
+（`docker builder prune -f`）。最终 `docker system df`：镜像 17.47GB、本地卷 477.3MB
+（可回收 0B）、构建缓存 7.702GB（可回收 0B），本地卷只剩 `mogo_*` 8 个加 mongo 在用的 1 个匿名卷。
+
 ## 方案 A：克隆迁移（推荐，旧卷保留作回滚）
 
 ```bash
