@@ -77,8 +77,8 @@ docker compose -f docker-compose.yml up -d --no-deps gateway
 ```
 
 > ⚠️ **不要**用裸 `docker compose up -d gateway`。`docker-compose.yml` 里 gateway 的
-> image 是 `${MOGO_GATEWAY_IMAGE:-…ghcr.io/mogoai/mogo/gateway:${MOGO_VERSION:-latest}}`，
-> 缺了镜像名时会解析成 `ghcr.io/mogoai/mogo/gateway:latest`，于是去拉远端镜像 ——
+> image 是 `${MOGO_GATEWAY_IMAGE:-…ghcr.io/mogoai/gateway:${MOGO_VERSION:-latest}}`，
+> 缺了镜像名时会解析成 `ghcr.io/mogoai/gateway:latest`，于是去拉远端镜像 ——
 > 要么失败，要么把你本地构建的镜像换掉。`./mogo` 会导出正确的 bare 名。
 >
 > ⚠️ `--build` 不受服务名过滤：`./mogo up --build gateway` 会把全部 6 个应用镜像重建一遍，

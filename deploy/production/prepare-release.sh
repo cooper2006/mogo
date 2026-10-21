@@ -58,7 +58,7 @@ set -euo pipefail
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT_DIR=$(cd "$SELF_DIR/../.." && pwd)
 
-APP_PREFIX="ghcr.io/himovo"
+APP_PREFIX="ghcr.io/mogoai"
 # <服务名>:<tar 文件名>，每个大镜像单独打包（网页上传时可单独重传）
 BIG_SPECS="chat-api:03-chat-api.tar document-parser:04-document-parser.tar"
 BASE_TAR="01-base.tar"
@@ -158,8 +158,8 @@ fi
 
 # ------------------------------------------------- 3. 固定 compose 变量（关键）
 say "3/9 固定 compose 变量"
-# .env 里的 MOVO_*_IMAGE 会被 ${MOGO_*_IMAGE:-${MOVO_*_IMAGE:-默认}} 当成兜底值，
-# 导致构建产物被打成别的名字。显式导出 MOGO_*_IMAGE（shell 环境优先于 .env）来屏蔽它。
+# .env 里的 MOGO_*_IMAGE 会覆盖 compose 内联默认值，导致构建产物被打成别的名字。
+# 显式导出 MOGO_*_IMAGE（shell 环境优先于 .env）来屏蔽它。
 export MOGO_VERSION="$TAG"
 export MOGO_CHAT_API_IMAGE="$APP_PREFIX/chat-api:$TAG"
 export MOGO_ADMIN_API_IMAGE="$APP_PREFIX/admin-api:$TAG"

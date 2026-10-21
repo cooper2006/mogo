@@ -26,7 +26,7 @@ x-python-healthcheck: &python-healthcheck
 # that inherits it (a YAML merge key copies the whole mapping), so the
 # single-host service must stay profile-free to remain the default.
 x-dsh-runtime-host-template: &dsh-runtime-host-template
-  image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/mogo/dsh-runtime-host:${MOGO_VERSION:-latest}}
+  image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/dsh-runtime-host:${MOGO_VERSION:-latest}}
   pull_policy: ${MOGO_PULL_POLICY:-missing}
   restart: unless-stopped
   # R1: on SIGTERM the host first drains (waits up to 30s for in-flight
@@ -125,8 +125,8 @@ services:
       #
       # 为什么需要这里而不是依赖 Docker 的卷初始化行为：
       #   Docker 只在卷**首次创建且为空**时，用镜像里对应路径的内容（含
-      #   属主）初始化它。老部署环境（如 2026-09-29 创建的 movo_* 卷）在
-      #   Dockerfile 增加 chown 之前就建好了卷，卷内容仍是 root:root 0755，
+      #   属主）初始化它。当前默认卷名是 mogo_*（如 mogo_knowledge-storage），
+      #   属主 10001:10001；但升级自更早部署的卷可能仍是 root:root 0755，
       #   后续重建镜像不会修正已有卷的属主。因此由 bootstrap 在每次启动
       #   前做一次幂等的 chown（卷已是 10001 时 chown 无副作用）。
       - knowledge-storage:/storage/knowledge
@@ -186,8 +186,9 @@ services:
         } >> "$$temp_file"
         mv "$$temp_file" "$$secret_file"
         # 027 P2 修复（2026-10-20）：可写卷的属主兜底。
-        # 老部署环境里，movo_knowledge-storage 等卷在 Dockerfile 加入
-        # chown 之前就已创建，卷内容仍是 root:root 0755，应用容器以
+        # 当前默认卷名为 mogo_knowledge-storage、mogo_admin-static、
+        # mogo_askai-storage，属主 10001:10001；升级自更早部署的卷可能仍是
+        # root:root 0755，应用容器以
         # appuser (UID 10001) 运行无法写入。这里在启动前做一次幂等 chown；
         # 卷已属 10001 时无副作用。挂载到 /storage/* 而非 /data/* 是因为
         # 镜像的 /data 路径在 rootfs 上（read_only 且与卷挂载点同名易混淆），
@@ -362,7 +363,7 @@ services:
       start_period: 10s
 
   chat-api:
-    image: ${MOGO_CHAT_API_IMAGE:-ghcr.io/mogoai/mogo/chat-api:${MOGO_VERSION:-latest}}
+    image: ${MOGO_CHAT_API_IMAGE:-ghcr.io/mogoai/chat-api:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -455,7 +456,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()"]
 
   admin-api:
-    image: ${MOGO_ADMIN_API_IMAGE:-ghcr.io/mogoai/mogo/admin-api:${MOGO_VERSION:-latest}}
+    image: ${MOGO_ADMIN_API_IMAGE:-ghcr.io/mogoai/admin-api:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -521,7 +522,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3).read()"]
 
   document-api:
-    image: ${MOGO_DOCUMENT_API_IMAGE:-ghcr.io/mogoai/mogo/document-parser:${MOGO_VERSION:-latest}}
+    image: ${MOGO_DOCUMENT_API_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["api"]
@@ -584,7 +585,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/api/health', timeout=3).read()"]
 
   document-worker:
-    image: ${MOGO_DOCUMENT_WORKER_IMAGE:-ghcr.io/mogoai/mogo/document-parser:${MOGO_VERSION:-latest}}
+    image: ${MOGO_DOCUMENT_WORKER_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["worker"]
@@ -621,7 +622,7 @@ services:
       - backend
 
   user-web:
-    image: ${MOGO_USER_WEB_IMAGE:-ghcr.io/mogoai/mogo/user-web:${MOGO_VERSION:-latest}}
+    image: ${MOGO_USER_WEB_IMAGE:-ghcr.io/mogoai/user-web:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -657,7 +658,7 @@ services:
       retries: 20
 
   admin-web:
-    image: ${MOGO_ADMIN_WEB_IMAGE:-ghcr.io/mogoai/mogo/admin-web:${MOGO_VERSION:-latest}}
+    image: ${MOGO_ADMIN_WEB_IMAGE:-ghcr.io/mogoai/admin-web:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -694,7 +695,7 @@ services:
       retries: 20
 
   gateway:
-    image: ${MOGO_GATEWAY_IMAGE:-ghcr.io/mogoai/mogo/gateway:${MOGO_VERSION:-latest}}
+    image: ${MOGO_GATEWAY_IMAGE:-ghcr.io/mogoai/gateway:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): gateway 是 nginx，同样加固。它还要做 TLS 终结并绑定低
@@ -743,7 +744,7 @@ services:
       #          --format '{{.Config.Image}}')" \
       #          docker compose up -d --no-deps gateway
       #      裸 `docker compose up -d gateway` 缺镜像名，会解析成
-      #      ghcr.io/mogoai/mogo/gateway:latest 去拉远端镜像（可能覆盖本地构建）。
+      #      ghcr.io/mogoai/gateway:latest 去拉远端镜像（可能覆盖本地构建）。
       #      完整步骤见 deploy/tls/README.md。
       # 回退到 HTTP（仅限本地/内网调试）：把 MOGO_NGINX_CONF 指向
       # ./deploy/docker/nginx.conf，或写进 .env 让后续 up 都生效。

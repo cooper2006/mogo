@@ -74,12 +74,12 @@ HARDENED_SERVICES = [
 
 # 镜像名 -> 服务。用于运行时 uid 校验（T029 的 `docker exec id` 一步）。
 IMAGE_NAMES = {
-    "admin-api": "ghcr.io/mogoai/mogo/admin-api",
-    "chat-api": "ghcr.io/mogoai/mogo/chat-api",
-    "document-parser": "ghcr.io/mogoai/mogo/document-parser",
-    "admin-web": "ghcr.io/mogoai/mogo/admin-web",
-    "user-web": "ghcr.io/mogoai/mogo/user-web",
-    "gateway": "ghcr.io/mogoai/mogo/gateway",
+    "admin-api": "ghcr.io/mogoai/admin-api",
+    "chat-api": "ghcr.io/mogoai/chat-api",
+    "document-parser": "ghcr.io/mogoai/document-parser",
+    "admin-web": "ghcr.io/mogoai/admin-web",
+    "user-web": "ghcr.io/mogoai/user-web",
+    "gateway": "ghcr.io/mogoai/gateway",
 }
 
 

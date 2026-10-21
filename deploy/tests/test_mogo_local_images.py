@@ -1,7 +1,7 @@
 """`./mogo` 本地镜像解析与 registry 链路停用的回归守卫。
 
 背景（2026-10-13）：纯 registry 部署链路已确认断开。GHCR 上真实存在的包名与本仓库
-生成的引用曾经拼不上（旧 `ghcr.io/himovo/movo-<service>` 形态），实测
+生成的引用拼不上（`ghcr.io/mogoai/<service>` 形态），实测
 `error from registry: denied`。更糟的是 `mogo_pull_images_serially` 对失败
 **无限重试**，所以裸 `./mogo up` 会在拉取里挂住好几分钟才失败。
 
@@ -112,7 +112,7 @@ def test_up_requires_local_images_and_uses_release_tag() -> None:
         "chat-api:latest（不存在）而不是刚构建的 chat-api:v0.2.1"
     )
     # 源码构建（裸名）与「不构建但用本地镜像」必须走同一个镜像命名，
-    # 否则 compose 引用的是 ghcr.io/mogoai/mogo/<svc>，本地裸名镜像对不上。
+    # 否则 compose 引用的是 ghcr.io/mogoai/<svc>，本地裸名镜像对不上。
     assert "mogo_configure_images true" in else_part, (
         "非构建分支仍用 registry 前缀命名；本地构建产物是裸名，会失配"
     )

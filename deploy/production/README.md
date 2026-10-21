@@ -77,13 +77,13 @@ nohup ./prepare-release.sh > /tmp/prepare-release.log 2>&1 &   # 建议后台跑
 | `mongo:6.0.20` | 数据库 |
 | `redis:7.4.2-alpine` | 缓存 / 队列 |
 | `semitechnologies/weaviate:1.25.7` | 向量库 |
-| `ghcr.io/mogoai/mogo/chat-api:<TAG>` | 用户侧 API |
-| `ghcr.io/mogoai/mogo/admin-api:<TAG>` | 管理侧 API |
-| `ghcr.io/mogoai/mogo/document-parser:<TAG>` | 文档解析（`document-api` 与 `document-worker` 共用） |
-| `ghcr.io/mogoai/mogo/dsh-runtime-host:<TAG>` | Agent 运行时 |
-| `ghcr.io/mogoai/mogo/user-web:<TAG>` | 用户前端 |
-| `ghcr.io/mogoai/mogo/admin-web:<TAG>` | 管理前端 |
-| `ghcr.io/mogoai/mogo/gateway:<TAG>` | 网关（nginx） |
+| `ghcr.io/mogoai/chat-api:<TAG>` | 用户侧 API |
+| `ghcr.io/mogoai/admin-api:<TAG>` | 管理侧 API |
+| `ghcr.io/mogoai/document-parser:<TAG>` | 文档解析（`document-api` 与 `document-worker` 共用） |
+| `ghcr.io/mogoai/dsh-runtime-host:<TAG>` | Agent 运行时 |
+| `ghcr.io/mogoai/user-web:<TAG>` | 用户前端 |
+| `ghcr.io/mogoai/admin-web:<TAG>` | 管理前端 |
+| `ghcr.io/mogoai/gateway:<TAG>` | 网关（nginx） |
 
 全部为 `linux/amd64`，由 arm64 Mac 交叉构建后导出。
 
