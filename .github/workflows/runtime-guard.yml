@@ -76,8 +76,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      MOVO_IMAGE_REGISTRY: ghcr.io/example
-      MOVO_VERSION: test
+      MOGO_IMAGE_REGISTRY: ghcr.io/example
+      MOGO_VERSION: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

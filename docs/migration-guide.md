@@ -2,6 +2,8 @@
 
 破坏性变更的迁移说明。每次发布包含 breaking changes 时，本文件必须更新。
 
+> **品牌归一说明（2026-10-21）**：环境变量前缀已从 `MOVO_` 归一为 `MOGO_`（`MOGO_` 优先，旧 `MOVO_` 过渡期仍被接受）。下文历史迁移条目中的 `MOVO_*` 键名按当时原文保留；其中 `MOVO_VOLUME_PREFIX` 现对应 `MOGO_VOLUME_PREFIX`（卷名默认值仍为 `movo`，以兼容既有数据卷）。
+
 ## v0.1.x → v0.2.0
 
 ### 1. 数据库 schema 变更

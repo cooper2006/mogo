@@ -28,6 +28,7 @@ image_suffixes=(
 compose_images() {
   env \
     -u MOVO_IMAGE_REGISTRY \
+    -u MOGO_IMAGE_REGISTRY \
     -u MOVO_EXPORTED_IMAGE_PREFIX \
     -u MOVO_IMAGE_PREFIX \
     -u MOGO_VERSION \
@@ -52,7 +53,7 @@ done
 # Source-build path: the CLI exports bare service names.
 source_env="$(
   (
-    unset MOVO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX MOGO_VERSION MOVO_VERSION
+    unset MOVO_IMAGE_REGISTRY MOGO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX MOGO_VERSION MOVO_VERSION
     ROOT_DIR="${ROOT_DIR}"
     DOCKER_BIN=docker
     # shellcheck source=../deploy/cli/images.sh
@@ -107,7 +108,7 @@ assert_image() {
 
 # CLI configuration invariants.
 (
-  unset MOVO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX \
+  unset MOVO_IMAGE_REGISTRY MOGO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX MOVO_IMAGE_PREFIX \
     MOGO_VERSION MOVO_VERSION MOVO_BUILD_IMAGE_REGISTRY
   ROOT_DIR="${ROOT_DIR}"
   DOCKER_BIN=docker
@@ -149,7 +150,7 @@ assert_image() {
 # such as ghcr.io/himovo/movo/chat-api nor leak a movo- image name.
 (
   # 清版本变量防 CI 环境泄漏（同上）。
-  unset MOVO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX \
+  unset MOVO_IMAGE_REGISTRY MOGO_IMAGE_REGISTRY MOVO_EXPORTED_IMAGE_PREFIX \
     MOGO_VERSION MOVO_VERSION
   ROOT_DIR="${ROOT_DIR}"
   DOCKER_BIN=docker

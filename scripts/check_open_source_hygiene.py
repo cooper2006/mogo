@@ -62,13 +62,13 @@ REQUIRED_ROOT_FILES = (
 # 8 base volumes + 3 per-replica DSH runtime volumes (dsh-runtime-data-1/2/3),
 # added by commit fddc97a "M1 storage isolation per replica". Bump this constant
 # whenever docker-compose.yml gains or drops a physical volume.
-EXPECTED_MOVO_VOLUMES = 11
+EXPECTED_MOGO_VOLUMES = 11
 # A physical volume name is ``<prefix>_<suffix>``, where the prefix may be
 # spelled flat (``${MOVO_VOLUME_PREFIX:-movo}``) or nested to let a fork's
 # legacy prefix win: ``${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}``.
 # Counting the literal flat string silently reports 0 volumes once the nested
 # form is used, so match the shape instead of one spelling of it.
-MOVO_VOLUME_NAME_PATTERN = re.compile(
+MOGO_VOLUME_NAME_PATTERN = re.compile(
     r"\$\{(?:[A-Z0-9_]*VOLUME_PREFIX)[^}]*\}\}\}?_(?=[a-z0-9][a-z0-9-]*)"
 )
 # Secret-shaped literals inside test fixtures are intentional inputs for
@@ -107,11 +107,11 @@ def main() -> int:
     compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     if re.search(r"^\s*name:\s*askai_", compose_text, flags=re.MULTILINE):
         failures.append("Compose reuses an AskAI physical volume name")
-    volume_prefix_count = len(MOVO_VOLUME_NAME_PATTERN.findall(compose_text))
-    if volume_prefix_count != EXPECTED_MOVO_VOLUMES:
+    volume_prefix_count = len(MOGO_VOLUME_NAME_PATTERN.findall(compose_text))
+    if volume_prefix_count != EXPECTED_MOGO_VOLUMES:
         failures.append(
             "Compose must define exactly "
-            f"{EXPECTED_MOVO_VOLUMES} MOVO-prefixed physical volumes; "
+            f"{EXPECTED_MOGO_VOLUMES} volume-prefix physical volumes; "
             f"found {volume_prefix_count}"
         )
     for relative in publication_files():

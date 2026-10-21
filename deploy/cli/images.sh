@@ -43,7 +43,12 @@ movo_export_service_images() {
 
 movo_configure_images() {
   local source_build="${1:-false}"
-  local configured_registry="${MOVO_IMAGE_REGISTRY:-$(dotenv_value MOVO_IMAGE_REGISTRY)}"
+  # 品牌归一（2026-10-21）：MOGO_ 优先，旧 MOVO_ 过渡期仍接受（含 .env 回读）。
+  local configured_registry="${MOGO_IMAGE_REGISTRY:-${MOVO_IMAGE_REGISTRY:-}}"
+  if [ -z "${configured_registry}" ]; then
+    configured_registry="$(dotenv_value MOGO_IMAGE_REGISTRY)"
+    [ -n "${configured_registry}" ] || configured_registry="$(dotenv_value MOVO_IMAGE_REGISTRY)"
+  fi
 
   # MOVO_IMAGE_PREFIX is a legacy variable from before the image rename. Its old
   # semantics were a *name prefix* (`${MOVO_IMAGE_PREFIX}-chat-api` →

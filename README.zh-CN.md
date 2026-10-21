@@ -475,14 +475,14 @@ cp .env.example .env
 ```
 
 ```env
-MOVO_PORT=3000
-MOVO_VOLUME_PREFIX=mogo
-MOVO_IMAGE_REGISTRY=ghcr.io/himovo
+MOGO_PORT=3000
+MOGO_VOLUME_PREFIX=mogo
+MOGO_IMAGE_REGISTRY=ghcr.io/himovo
 MOGO_VERSION=vX.Y.Z
-PUBLIC_BASE_URL=https://movo.example.com
+PUBLIC_BASE_URL=https://mogo.example.com
 ```
 
-首次启动后请保持 `MOVO_VOLUME_PREFIX` 不变。DNS、TLS 证书与外部反向代理由部署方负责。
+首次启动后请保持 `MOGO_VOLUME_PREFIX` 不变。DNS、TLS 证书与外部反向代理由部署方负责。
 
 ## 从源码构建
 

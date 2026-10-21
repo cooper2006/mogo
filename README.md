@@ -510,14 +510,14 @@ cp .env.example .env
 ```
 
 ```env
-MOVO_PORT=3000
-MOVO_VOLUME_PREFIX=mogo
-MOVO_IMAGE_REGISTRY=ghcr.io/himovo
+MOGO_PORT=3000
+MOGO_VOLUME_PREFIX=mogo
+MOGO_IMAGE_REGISTRY=ghcr.io/himovo
 MOGO_VERSION=vX.Y.Z
-PUBLIC_BASE_URL=https://movo.example.com
+PUBLIC_BASE_URL=https://mogo.example.com
 ```
 
-Keep `MOVO_VOLUME_PREFIX` stable after first startup. DNS, TLS certificates and the external reverse proxy remain the deployment operator's responsibility.
+Keep `MOGO_VOLUME_PREFIX` stable after first startup. DNS, TLS certificates and the external reverse proxy remain the deployment operator's responsibility.
 
 ## Build from source
 

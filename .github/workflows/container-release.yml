@@ -46,8 +46,8 @@ jobs:
         run: python scripts/release/test_plan_container_release.py
       - name: Validate Compose variants
         env:
-          MOVO_IMAGE_REGISTRY: ghcr.io/example
-          MOVO_VERSION: ${{ github.ref_name }}
+          MOGO_IMAGE_REGISTRY: ghcr.io/example
+          MOGO_VERSION: ${{ github.ref_name }}
         run: |
           bash scripts/check_compose_image_modes.sh
           bash scripts/test_serial_image_pull.sh

@@ -102,12 +102,12 @@ BuildKit resolve.
 The distro security refresh (`apt-get upgrade` / `apk upgrade`) is off by
 default so its layer stays cacheable: a rebuild that changed only application
 code then reuses the cached dependency installation instead of downloading
-everything again. The release workflow sets `MOVO_SECURITY_REFRESH` to its run
+everything again. The release workflow sets `MOGO_SECURITY_REFRESH` to its run
 id, which re-enables the refresh for published images. To apply the patches to
 a local build as well, pass a non-empty value:
 
 ```bash
-MOVO_SECURITY_REFRESH=1 ./mogo build
+MOGO_SECURITY_REFRESH=1 ./mogo build
 ```
 
 ### Moving base images to another machine

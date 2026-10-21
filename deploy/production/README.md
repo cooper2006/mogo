@@ -90,7 +90,7 @@ nohup ./prepare-release.sh > /tmp/prepare-release.log 2>&1 &   # 建议后台跑
 ## 两个必须屏蔽的坑
 
 **1. 仓库根 `.env` 会污染构建产物名。** `.env` 被 compose 自动加载，里面的
-`MOVO_CHAT_API_IMAGE=chat-api:92a0c98` 这类覆盖会让镜像被打成别的名字
+`MOGO_CHAT_API_IMAGE=chat-api:92a0c98`（或旧名 `MOVO_CHAT_API_IMAGE`）这类覆盖会让镜像被打成别的名字
 （实测踩过）。脚本的做法是显式导出 `MOGO_*_IMAGE`——shell 环境优先于 `.env`，
 所以无需你去改 `.env`。
 
