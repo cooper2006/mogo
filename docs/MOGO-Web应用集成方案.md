@@ -344,7 +344,7 @@ user-web（已登录终端用户） ──免密跳转──▶ admin-web（管�
 
 > **实现状态（2026-10-15，spec 029 已落地）**：
 > - 两端点已实现并测试：`POST /api/auth/portal-ticket`（服务身份 + scope `portal.issue_ticket`，按 `end_users._id` 匹配，无 JIT）与 `POST /api/auth/portal-exchange`（验签 fail-closed + accept-once + 复用 `_create_session`）。user-web `App.vue` `onMounted` 已接读票/清票/换票/失败回落。
-> - ⚠️ **实际服务身份请求头为 `X-MOVO-Service-Token`**（沿用 022 `app/api/principal.py` 与 `app/security/service_token.py` 的常量 `SERVICE_TOKEN_HEADER`），本文正文的 `X-MOGO-Service-Token` 系笔误，以代码为准（两者仅差一个字母）。
+> - ✅ **实际服务身份请求头为 `X-MOGO-Service-Token`**（022 `app/api/principal.py` 与 `app/security/service_token.py` 的常量 `SERVICE_TOKEN_HEADER`）。品牌归一已完成（2026-10-21）：`X-MOVO-Service-Token` 双 header 过渡已拆除，`X-MOGO-Service-Token` 是唯一被接受的服务身份请求头，本文正文写法与代码一致。
 > - `portal-ticket` 请求体字段为 **`user_id`**（= `end_users._id`，共享主键）；单租户可附 `tenant_id`，多租户留空走选租户挑战。
 > - 票据签名密钥 `PORTAL_SSO_SECRET`（留空回退 `END_USER_AUTH_SECRET`）只留在 chat-api，**门户不持有**；门户仅持有 022 服务凭据 `MOGO_PORTAL_TOKEN`。
 > - 门户侧接入示例见 `docs/samples/portal-sso-integration/`（`portal_backend.py` + `entry.js` + `README.md`）。
@@ -1213,7 +1213,7 @@ GET /admin-api/api/internal/ontology-permissions?tenantId=<t>&userId=<u>
 | 14 | 流式被中间层缓冲 | SSE 退化成一次性返回 | 链路每层 `proxy_buffering off` |
 | 15 | **容器只读根 + `cap_drop ALL`** | 自定义挂载/写文件失败 | 用 tmpfs 或卷；参考 022 T027 |
 | 16 | 开源版单租户 | 一套部署 = 一个组织 | 多组织走 020 或分环境 |
-| 17 | 许可证（MOVO 社区许可） | 不得运营多租户托管 SaaS、不得改删前端 logo | 商用前确认授权 |
+| 17 | 许可证（MOGO 社区许可） | 不得运营多租户托管 SaaS、不得改删前端 logo | 商用前确认授权 |
 | 18 | DSH 内核钉版 | 升级 train 属兼容性变更 | 按 README 流程走 |
 | 19 | 创建工具需岗位 `tool_access_mode=all` | 默认 `selected` 会 403 | 先调岗位策略 |
 | 20 | 工具 `status` 默认 `disabled` | 建了不生效 | 显式置 `enabled` |

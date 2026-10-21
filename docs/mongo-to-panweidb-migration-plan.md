@@ -403,7 +403,7 @@ PANWEIDB_POOL_MAX_SIZE=10
 **回滚 = 把 `MOGO_DATA_BACKEND` 改回 `mongo` 并重启**，不需要回滚代码、不需要
 数据回迁（MongoDB 侧数据保持原样、只读）。这是选择「开关切换」而非「硬切」的核心收益。
 
-各服务还有带服务前缀的等价变量（`ASKAI_ADMIN_*` / `MOVO_DOC_PROCESSING_*`）；
+各服务还有带服务前缀的等价变量（`ASKAI_ADMIN_*` / `MOGO_DOC_PROCESSING_*`）；
 规范变量 `MOGO_DATA_BACKEND` / `PANWEIDB_*` 不带前缀，便于三服务统一切换。
 
 **健康检查**：三服务的 `/health`（document-parser 另有 `/ready`）会输出

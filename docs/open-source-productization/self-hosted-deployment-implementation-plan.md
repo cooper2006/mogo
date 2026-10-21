@@ -1,4 +1,4 @@
-# MOVO 私有化一键部署与桌面端连接实施基线
+# MOGO 私有化一键部署与桌面端连接实施基线
 
 > 状态：第一阶段已实现，并已通过真实 Docker 构建与整套容器联调
 > 范围：开源服务端与 Web 端；不包含 `apps/desktop-electron` 和 `apps/local-browser-agent` 的源码发布
@@ -11,7 +11,7 @@
 ./mogo up
 ```
 
-启动器会显示 MOVO 标识，内部执行 `docker compose up -d`，等待部署状态全部就绪后输出浏览器初始化地址。原生 Compose 命令仍然支持。
+启动器会显示 MOGO 标识，内部执行 `docker compose up -d`，等待部署状态全部就绪后输出浏览器初始化地址。原生 Compose 命令仍然支持。
 
 随后访问首次初始化页面，依次完成部署检测、企业与账号、基础对话模型及可选模型配置。系统最终展示：
 
@@ -188,7 +188,7 @@ bootstrap ── deployment-secrets ── chat-api/dsh-runtime-host/admin-api/d
 
 ### 3.4 Weaviate 当前情况
 
-当前代码已经通过 `MOVO_DOC_PROCESSING_WEAVIATE_ENDPOINT` 使用 Weaviate，默认开发地址是 `http://127.0.0.1:8080`。截图中的 `askai-weaviate` 也是单独运行的 Weaviate 容器。目标 Compose 中必须将它改成默认必启服务，并让 Document Processing 使用容器内地址：
+当前代码已经通过 `MOGO_DOC_PROCESSING_WEAVIATE_ENDPOINT` 使用 Weaviate，默认开发地址是 `http://127.0.0.1:8080`。截图中的 `askai-weaviate` 也是单独运行的 Weaviate 容器。目标 Compose 中必须将它改成默认必启服务，并让 Document Processing 使用容器内地址：
 
 ```text
 http://weaviate:8080
@@ -229,7 +229,7 @@ Docker 无法自动生成企业 DNS 域名。可实现的是：
 
 - 本机体验默认显示 `http://localhost:<port>`。
 - 局域网部署可以根据管理员访问初始化页时的 Origin 显示候选地址。
-- 正式部署通过 `PUBLIC_BASE_URL=https://movo.company.com` 明确配置。
+- 正式部署通过 `PUBLIC_BASE_URL=https://mogo.company.com` 明确配置。
 - 最终地址以 `PUBLIC_BASE_URL` 为准；未配置时才使用请求 Origin。
 
 ## 5. 初始化流程目标
@@ -293,10 +293,10 @@ Docker 无法自动生成企业 DNS 域名。可实现的是：
 展示并允许复制：
 
 ```text
-员工 Web：     https://movo.company.com/
-管理后台：     https://movo.company.com/admin/
-桌面端服务：   https://movo.company.com
-Agent WSS：    wss://movo.company.com/.../agent/connect
+员工 Web：     https://mogo.company.com/
+管理后台：     https://mogo.company.com/admin/
+桌面端服务：   https://mogo.company.com
+Agent WSS：    wss://mogo.company.com/.../agent/connect
 ```
 
 同时允许下载不包含密码和 API Key 的 `mogo-connection.txt`，用于企业内部保存或分发连接地址。
@@ -348,7 +348,7 @@ Agent WSS：    wss://movo.company.com/.../agent/connect
 ### M3：桌面端连接
 
 - [ ] 固定 Desktop/API/Agent 的公共路径协议。
-- [ ] 增加服务发现接口，例如 `/.well-known/movo-desktop.json`。
+- [ ] 增加服务发现接口，例如 `/.well-known/mogo-desktop.json`。
 - [ ] 桌面端首次启动输入企业服务地址并获取发现信息。
 - [ ] WebSocket 使用 Token 验证并由服务端派生 `tenant_id/user_id`。
 - [ ] 使用 `tenant_id + user_id + device_id` 标识 Agent 连接。
@@ -419,8 +419,8 @@ http://localhost:3000/admin/setup
 如果端口不是 3000，或已经有正式 HTTPS 域名，可在根目录创建 `.env`：
 
 ```dotenv
-MOVO_PORT=8080
-PUBLIC_BASE_URL=https://movo.company.com
+MOGO_PORT=8080
+PUBLIC_BASE_URL=https://mogo.company.com
 AZURE_EMBEDDING_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-large
 AZURE_EMBEDDING_API_VERSION=2024-02-01

@@ -1,6 +1,6 @@
 # Windows 安装与启动
 
-Windows 用户推荐使用 **Docker Desktop + WSL 2 + Ubuntu** 运行 MOVO 启动器。Docker Desktop 创建的 `docker-desktop` 是内部发行版，不是 Ubuntu，不能作为 MOVO 的命令行环境。
+Windows 用户推荐使用 **Docker Desktop + WSL 2 + Ubuntu** 运行 MOGO 启动器。Docker Desktop 创建的 `docker-desktop` 是内部发行版，不是 Ubuntu，不能作为 MOGO 的命令行环境。
 
 ## 1. 安装 WSL 2 与 Ubuntu
 
@@ -43,7 +43,7 @@ docker version
 docker compose version
 ```
 
-## 3. 获取并启动 MOVO
+## 3. 获取并启动 MOGO
 
 建议将仓库克隆到 Ubuntu 的 Linux 主目录，以获得更好的文件权限兼容性和磁盘性能：
 
@@ -67,7 +67,7 @@ http://localhost:3000/admin/setup
 如果通过浏览器下载并解压到 `D:\dsh\mogo`，请在 Ubuntu 中执行：
 
 ```bash
-cd /mnt/d/dsh/movo
+cd /mnt/d/dsh/mogo
 bash ./mogo --lang zh-CN up
 ```
 
@@ -101,4 +101,4 @@ bash ./mogo --lang zh-CN up
 
 ## 不使用 Ubuntu
 
-安装 Git for Windows 后，也可以在 MOVO 目录打开 Git Bash 并执行 `./mogo --lang zh-CN up`。Windows PowerShell 或 CMD 还可以直接执行 `docker compose up -d`，但原生 Compose 会采用默认的并发拉取方式，也不会提供 MOVO 启动器的重试、健康等待和初始化提示。
+安装 Git for Windows 后，也可以在 MOGO 目录打开 Git Bash 并执行 `./mogo --lang zh-CN up`。Windows PowerShell 或 CMD 还可以直接执行 `docker compose up -d`，但原生 Compose 会采用默认的并发拉取方式，也不会提供 MOGO 启动器的重试、健康等待和初始化提示。

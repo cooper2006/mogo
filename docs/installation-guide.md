@@ -43,7 +43,7 @@ echo $BASH_VERSION | grep -qE '^[45]' || { echo "❌ Bash 4.0+ 所需"; exit 1; 
 > `./mogo build` 默认**不**构建 `dsh-runtime-host`：它的 Compose 服务带
 > `profiles: [single-host]`，默认（池模式）拓扑不会构建它。而池模式的 3 个副本
 > 与单副本服务复用同一个镜像名，裸 `./mogo build` 之后 `./mogo up` 会回退去拉
-> `ghcr.io/himovo/dsh-runtime-host:<tag>`（离线主机直接失败，联网则静默跑成
+> `ghcr.io/mogoai/dsh-runtime-host:<tag>`（离线主机直接失败，联网则静默跑成
 > 与工作区不一致的已发布镜像）。需要时显式补建：
 >
 > ```bash
@@ -59,8 +59,8 @@ echo $BASH_VERSION | grep -qE '^[45]' || { echo "❌ Bash 4.0+ 所需"; exit 1; 
 
 ```bash
 # 1. 获取镜像摘要
-docker pull ghcr.io/himovo/movo-chat-api:v0.2.1
-docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/himovo/movo-chat-api:v0.2.1
+docker pull ghcr.io/mogoai/chat-api:v0.2.1
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/mogoai/chat-api:v0.2.1
 
 # 2. 对照发布页
 # 访问 https://github.com/cooper2006/mogo/releases/tag/v0.2.1
@@ -92,7 +92,7 @@ git clone https://github.com/cooper2006/mogo.git
 cd mogo
 
 # 2. 设置版本
-export MOVO_VERSION=v0.2.1
+export MOGO_VERSION=v0.2.1
 
 # 3. 启动
 ./mogo up
@@ -130,7 +130,7 @@ export MOVO_VERSION=v0.2.1
 ./mogo backup /path/to/backup
 
 # 2. 更新版本
-export MOVO_VERSION=v0.2.1
+export MOGO_VERSION=v0.2.1
 
 # 3. 拉取新镜像并重启
 ./mogo update
@@ -161,7 +161,7 @@ python scripts/migrate/main_id_to_tenant_id.py --mongo-uri $MONGO_URI --apply
 # 编辑 .env，添加 v0.2.0 新增的必需键
 
 # 5. 拉取新版本
-export MOVO_VERSION=v0.2.0
+export MOGO_VERSION=v0.2.0
 ./mogo up
 
 # 6. 验证
@@ -178,7 +178,7 @@ curl http://localhost:8000/health
 ./mogo restore /path/to/backup --yes
 
 # 3. 启动旧版本
-export MOVO_VERSION=v0.1.x
+export MOGO_VERSION=v0.1.x
 ./mogo up
 ```
 
@@ -206,7 +206,7 @@ export MOVO_VERSION=v0.1.x
 ./mogo down -v --yes
 
 # 3. 删除镜像
-docker rmi ghcr.io/himovo/movo-*
+docker rmi ghcr.io/mogoai/*
 
 # 4. 删除仓库（可选）
 rm -rf /path/to/mogo
@@ -219,7 +219,7 @@ rm -rf /path/to/mogo
 curl http://localhost:3000  # 应返回连接失败
 
 # 数据已删除
-docker volume ls | grep movo  # 应无结果
+docker volume ls | grep mogo  # 应无结果
 ```
 
 ## 用户数据与配置处置（QF-959）
@@ -228,7 +228,7 @@ docker volume ls | grep movo  # 应无结果
 
 | 数据 | 位置 | 卸载后 |
 | --- | --- | --- |
-| 用户配置 | `/config` 卷（`MOVO_VOLUME_PREFIX`） | 保留（`./mogo down` 不删卷） |
+| 用户配置 | `/config` 卷（`MOGO_VOLUME_PREFIX`） | 保留（`./mogo down` 不删卷） |
 | 文档上传 | `/data/documents` 卷 | 保留 |
 | 数据库 | MongoDB 卷 | 保留 |
 | 日志 | `/logs` 卷 | 保留 |
@@ -241,7 +241,7 @@ docker volume ls | grep movo  # 应无结果
 ./mogo down -v --yes
 
 # 仅清除特定数据
-docker volume rm ${MOVO_VOLUME_PREFIX:-movo_}mongodb-data
+docker volume rm ${MOGO_VOLUME_PREFIX:-mogo}_mongo-data
 ```
 
 ### 数据迁移
@@ -272,7 +272,7 @@ export NO_PROXY=localhost,127.0.0.1,.local
 
 ```bash
 # 配置镜像加速器
-export MOVO_BASE_IMAGE_MIRROR=registry.example.com
+export MOGO_BASE_IMAGE_MIRROR=registry.example.com
 
 # 或使用 docker daemon 配置
 # /etc/docker/daemon.json
@@ -300,7 +300,7 @@ export NPM_CONFIG_REGISTRY=https://npm.example.com/
 docker login ghcr.example.com
 
 # 配置镜像拉取
-export MOVO_IMAGE_REGISTRY=ghcr.example.com
+export MOGO_IMAGE_REGISTRY=ghcr.example.com
 ./mogo up
 ```
 

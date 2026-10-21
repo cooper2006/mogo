@@ -24,7 +24,7 @@ jobs:
   # outside this gate's view.
   #
   # Two more version literals are checked separately (O3):
-  #   - `MCP_CLIENT_VERSION` in mcp_streamable_http.py — the version MOVO
+  #   - `MCP_CLIENT_VERSION` in mcp_streamable_http.py — the version MOGO
   #     advertises as an MCP client in the initialize handshake. It is a
   #     distinct, named constant (not the MCP protocol version), so it is
   #     matched by name rather than by the FastAPI extraction below.
@@ -124,7 +124,7 @@ jobs:
               echo "ok  $label (FastAPI version=$actual)"
             fi
           }
-          # O3: the version MOVO advertises as an MCP client must track the
+          # O3: the version MOGO advertises as an MCP client must track the
           # release version too. It is a plain module-level constant, so a
           # simple anchored grep is enough (no nesting risk).
           check_mcp_client_version() {

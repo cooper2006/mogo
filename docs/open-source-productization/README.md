@@ -1,14 +1,14 @@
-# MOVO Community Source Productization Strategy
+# MOGO Community Source Productization Strategy
 
-本文档沉淀 MOVO 开源产品化方向的核心判断。重点不是把现有能力包装成通用工作流平台，而是围绕企业真实任务现场，明确 MOVO 与 Dify 类产品的差异、用户使用路径、部署形态和后续工程拆分节奏。
+本文档沉淀 MOGO 开源产品化方向的核心判断。重点不是把现有能力包装成通用工作流平台，而是围绕企业真实任务现场，明确 MOGO 与 Dify 类产品的差异、用户使用路径、部署形态和后续工程拆分节奏。
 
 ## 1. 核心定位
 
-MOVO 应定位为：
+MOGO 应定位为：
 
 > 面向企业真实业务现场的目标驱动智能体平台。终端用户只描述目标，管理员通过对话、文档和操作示范教会系统，AI 自动编排并执行任务。
 
-这个定位和传统低代码工作流平台不同。传统平台强调用户手工设计 workflow：选择节点、连接分支、配置工具、填写 API 参数、处理失败路径。MOVO 的产品立场应该是：
+这个定位和传统低代码工作流平台不同。传统平台强调用户手工设计 workflow：选择节点、连接分支、配置工具、填写 API 参数、处理失败路径。MOGO 的产品立场应该是：
 
 > 不要求人从零设计工作流，而是由 AI 根据目标自动生成执行计划，人类只审阅关键决策、约束策略和批准风险动作。
 
@@ -20,7 +20,7 @@ MOVO 应定位为：
 
 Dify 的强项是 LLM 应用开发平台：可视化 workflow、Prompt IDE、RAG pipeline、模型管理、工具接入、应用发布和 LLMOps。它适合技术人员或实施人员构建 AI 应用。
 
-MOVO 不应该直接复制这条路线。MOVO 的差异应集中在以下方向：
+MOGO 不应该直接复制这条路线。MOGO 的差异应集中在以下方向：
 
 1. 目标驱动自动编排
    用户描述业务目标，系统自动生成任务图、选择技能和工具、插入审批点，并展示可解释执行计划。
@@ -39,7 +39,7 @@ MOVO 不应该直接复制这条路线。MOVO 的差异应集中在以下方向�
 
 一句话区分：
 
-> Dify 让人设计自动化；MOVO 让 AI 设计自动化，并负责把任务执行到可验收结果。
+> Dify 让人设计自动化；MOGO 让 AI 设计自动化，并负责把任务执行到可验收结果。
 
 ## 3. 用户角色
 
@@ -137,7 +137,7 @@ MOVO 不应该直接复制这条路线。MOVO 的差异应集中在以下方向�
 - 表单字段经常变化
 - 业务规则藏在人的经验里
 
-这不是障碍，而是 MOVO 的机会。浏览器自动化、录制生成技能、页面理解、人工接管和轨迹学习可以让 MOVO 覆盖 Dify 类 API-first 平台不擅长的场景。
+这不是障碍，而是 MOGO 的机会。浏览器自动化、录制生成技能、页面理解、人工接管和轨迹学习可以让 MOGO 覆盖 Dify 类 API-first 平台不擅长的场景。
 
 推荐能力闭环：
 
@@ -151,7 +151,7 @@ MOVO 不应该直接复制这条路线。MOVO 的差异应集中在以下方向�
 
 ## 6. 社区源码仓库组织
 
-第一阶段采用独立 monorepo，由 ASKAI 云服务和未来企业版锁定具体 MOVO
+第一阶段采用独立 monorepo，由 ASKAI 云服务和未来企业版锁定具体 MOGO
 提交并基于其构建。社区仓库不继承 ASKAI 的 Git 历史。
 
 当前实际发布目录为：
@@ -178,7 +178,7 @@ mogo/
 开源用户最需要的是：
 
 ```bash
-git clone https://github.com/your-org/movo.git
+git clone https://github.com/your-org/mogo.git
 cd mogo
 cp .env.example .env
 docker compose up -d
@@ -271,7 +271,7 @@ BACKEND_INTERNAL_BASE_URL=http://backend:8000
 
 本地模式下后端实际文件路由是 `/api/files/{object_path}`。如果前端统一通过
 `/askai-api` 访问后端，需要网关或开发代理继续把 `/askai-api/api/*` 转发到
-后端 `/api/*`，这样 MOVO 前端和 gr_wechat_dialog 的现有调用路径都不需要改。
+后端 `/api/*`，这样 MOGO 前端和 gr_wechat_dialog 的现有调用路径都不需要改。
 
 可选：
 
@@ -286,7 +286,7 @@ OSS_REGION=cn-beijing
 
 ## 9. 参考 Dify 的工程实践
 
-Dify 的工程组织对 MOVO 有参考价值：
+Dify 的工程组织对 MOGO 有参考价值：
 
 - 使用 monorepo，而不是前后端分仓库。
 - 根目录包含 `api/`、`web/`、`docker/`、`packages/`、`sdks/`、`docs/`。
@@ -297,7 +297,7 @@ Dify 的工程组织对 MOVO 有参考价值：
 - 依赖服务本地化，包括数据库、Redis、sandbox、plugin daemon 等。
 - 可选能力通过 compose profiles 启用，如向量数据库和证书服务。
 
-MOVO 可以学习这些工程策略，但不应复制 Dify 的产品定位。MOVO 应把重点放在：
+MOGO 可以学习这些工程策略，但不应复制 Dify 的产品定位。MOGO 应把重点放在：
 
 - AI 自动编排任务图
 - 交付物生成流水线
@@ -375,7 +375,7 @@ MOVO 可以学习这些工程策略，但不应复制 Dify 的产品定位。MOV
 
 ## 12. 关键结论
 
-MOVO 不应只是另一个工作流平台。它应该把复杂性从用户侧拿回来：
+MOGO 不应只是另一个工作流平台。它应该把复杂性从用户侧拿回来：
 
 - 终端用户只提目标。
 - 管理员用对话、文档和示范训练能力。
@@ -564,4 +564,4 @@ worker + redis + minio + browser-sandbox + vector-db
 - 企业身份体系整合
 - 审计与推广运营
 
-这种分层方式有助于避免后台被做成杂乱的“配置页面堆积”，也更符合 MOVO 后续面向企业落地的产品方向。
+这种分层方式有助于避免后台被做成杂乱的“配置页面堆积”，也更符合 MOGO 后续面向企业落地的产品方向。

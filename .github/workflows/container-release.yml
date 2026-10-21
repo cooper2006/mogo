@@ -145,7 +145,7 @@ jobs:
         shell: bash
         run: |
           # Images are named <registry>/<owner>/<service>, for example
-          # ghcr.io/himovo/admin-web. The repository name is deliberately not
+          # ghcr.io/mogoai/admin-web. The repository name is deliberately not
           # part of the image name so a repository rename does not orphan the
           # published images.
           owner="${GITHUB_REPOSITORY_OWNER,,}"

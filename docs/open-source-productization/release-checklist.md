@@ -1,11 +1,11 @@
-# MOVO Community Repository Release Checklist
+# MOGO Community Repository Release Checklist
 
 ## Legal and public identity
 
 - [x] LICENSE and NOTICE identify 北京果然智汇科技有限公司 as the legal
       copyright owner.
-- [x] Security, commercial licensing and support use `support@himovo.com`.
-- [ ] Review the MOVO logo and every bundled third-party asset for distribution rights.
+- [x] Security, commercial licensing and support use `support@mogo.com`.
+- [ ] Review the MOGO logo and every bundled third-party asset for distribution rights.
 - [x] Confirm that release messaging says “source-available” rather than claiming
       an unmodified OSI-approved Apache 2.0 license.
 
@@ -37,7 +37,7 @@
 ## GitHub publication
 
 - [x] The GitHub repository is public.
-- [x] The repository contains only the intended new MOVO history.
+- [x] The repository contains only the intended new MOGO history.
 - [x] Branch protection requires the always-on runtime and Web build guards;
       path-specific DSH guards run whenever their protected sources change.
 - [x] Private vulnerability reporting and Discussions are enabled.

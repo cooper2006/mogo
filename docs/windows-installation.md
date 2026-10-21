@@ -1,6 +1,6 @@
-# Install and start MOVO on Windows
+# Install and start MOGO on Windows
 
-The recommended Windows environment is **Docker Desktop + WSL 2 + Ubuntu**. The `docker-desktop` distribution created by Docker Desktop is an internal appliance, not an Ubuntu user environment, and must not be used to run the MOVO launcher.
+The recommended Windows environment is **Docker Desktop + WSL 2 + Ubuntu**. The `docker-desktop` distribution created by Docker Desktop is an internal appliance, not an Ubuntu user environment, and must not be used to run the MOGO launcher.
 
 ## 1. Install WSL 2 and Ubuntu
 
@@ -43,7 +43,7 @@ docker version
 docker compose version
 ```
 
-## 3. Get and start MOVO
+## 3. Get and start MOGO
 
 Clone into the Linux home directory for the best permission compatibility and filesystem performance:
 
@@ -67,7 +67,7 @@ http://localhost:3000/admin/setup
 For a ZIP extracted to `D:\dsh\mogo`, enter Ubuntu and run:
 
 ```bash
-cd /mnt/d/dsh/movo
+cd /mnt/d/dsh/mogo
 bash ./mogo up
 ```
 
@@ -101,4 +101,4 @@ This usually indicates unstable access to Docker Hub or GitHub Container Registr
 
 ## Without Ubuntu
 
-After installing Git for Windows, you may open Git Bash in the MOVO directory and run `./mogo up`. PowerShell or Command Prompt can also run `docker compose up -d`, but native Compose retains its default parallel pulling and does not provide the launcher's retry loop, readiness wait or setup guidance.
+After installing Git for Windows, you may open Git Bash in the MOGO directory and run `./mogo up`. PowerShell or Command Prompt can also run `docker compose up -d`, but native Compose retains its default parallel pulling and does not provide the launcher's retry loop, readiness wait or setup guidance.

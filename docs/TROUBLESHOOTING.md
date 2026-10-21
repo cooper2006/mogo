@@ -28,9 +28,9 @@ docker info        # 验证
 **成因**：镜像 tag 不存在或 registry 不可达。
 
 **处置**：
-1. 确认 `MOVO_VERSION` 指向存在的 tag：`docker manifest inspect ghcr.io/himovo/movo-chat-api:$MOVO_VERSION`
-2. 若网络受限，配置镜像加速器：`MOVO_BASE_IMAGE_MIRROR=docker.m.daocloud.io ./mogo build`
-3. 若使用 `latest` tag，改用固定版本：`MOVO_VERSION=v0.2.1 ./mogo up`
+1. 确认 `MOGO_VERSION` 指向存在的 tag：`docker manifest inspect ghcr.io/mogoai/chat-api:$MOGO_VERSION`
+2. 若网络受限，配置镜像加速器：`MOGO_BASE_IMAGE_MIRROR=docker.m.daocloud.io ./mogo build`
+3. 若使用 `latest` tag，改用固定版本：`MOGO_VERSION=v0.2.1 ./mogo up`
 
 ### 症状：`port is already allocated`
 
@@ -202,10 +202,10 @@ echo $ASKAI_ADMIN_MONGODB_URI
 
 ### 症状：`./mogo restore` 报 `volume prefix mismatch`
 
-**成因**：`MOVO_VOLUME_PREFIX` 与备份时不一致。
+**成因**：`MOGO_VOLUME_PREFIX` 与备份时不一致。
 
 **处置**：
-- 恢复时保持 `MOVO_VOLUME_PREFIX` 不变
+- 恢复时保持 `MOGO_VOLUME_PREFIX` 不变
 - 若必须更换前缀，需手动迁移卷
 
 ## CI / 构建

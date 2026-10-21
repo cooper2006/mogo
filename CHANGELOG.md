@@ -14,7 +14,7 @@ image.
   `movo-mongo-data` → `mogo-mongo-data`；secrets 双写（同时写 `movo_` 与
   `mogo_` 两份）取消，只保留 `MOGO_*` 权威键；`./mogo` CLI 内部 `movo_*`
   辅助函数命名与 `MOVO_*_IMAGE` 环境覆盖键一并退役；文档与镜像 registry 示例
-  统一为 `ghcr.io/mogoai/mogo`，`MOVO_*` / `himovo` 字样从用户可见文档、
+  统一为 `ghcr.io/mogoai`，`MOVO_*` / `himovo` 字样从用户可见文档、
   NOTICE、LICENSE 与测试断言中清除。`MOGO_` 是唯一权威拼写，`.env` / CI 中
   残留的 `MOVO_*` 键需改名为 `MOGO_*`。
 

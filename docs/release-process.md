@@ -1,6 +1,6 @@
 # Release process
 
-MOVO Community releases are immutable Git commits, Git tags and matching GHCR
+MOGO Community releases are immutable Git commits, Git tags and matching GHCR
 image tags. Do not publish a release while an item in
 `docs/open-source-productization/release-checklist.md` remains unresolved.
 
@@ -22,7 +22,7 @@ image tags. Do not publish a release while an item in
 2. Update `CHANGELOG.md` and choose a semantic version such as `v0.1.0-rc.1`.
 3. Run all required checks and the manual container workflow on the exact
    candidate commit.
-4. On fresh amd64 and arm64 hosts, clone the tag, set `MOVO_VERSION` to that
+4. On fresh amd64 and arm64 hosts, clone the tag, set `MOGO_VERSION` to that
    tag, run `./mogo up`, complete setup, and exercise chat, document parsing,
    knowledge retrieval and presentation generation.
 5. Restore a backup into a disposable installation and exercise rollback to

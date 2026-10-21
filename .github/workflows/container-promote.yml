@@ -42,7 +42,7 @@ jobs:
 
           # Images are published as ghcr.io/<owner>/<service>; the repository
           # name is deliberately not part of the image name. This used to be
-          # ghcr.io/<owner>/<repository>-<service> (e.g. ghcr.io/himovo/movo-chat-api)
+          # ghcr.io/<owner>/<repository>-<service> (e.g. ghcr.io/mogoai/mogo-chat-api)
           # and must stay in step with container-release.yml and
           # scripts/release/promote_container_release.sh.
           owner="${GITHUB_REPOSITORY_OWNER:-${GITHUB_REPOSITORY%%/*}}"

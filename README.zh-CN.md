@@ -349,7 +349,7 @@ MOGO_GATEWAY_IMAGE="$(docker inspect mogo-gateway-1 --format '{{.Config.Image}}'
   docker compose up -d --no-deps gateway
 ```
 
-**不要**用裸 `docker compose up -d gateway`：缺了镜像名会解析成 `ghcr.io/mogoai/mogo/gateway:latest`，去拉远端镜像覆盖你本地构建的镜像。
+**不要**用裸 `docker compose up -d gateway`：缺了镜像名会解析成 `ghcr.io/mogoai/gateway:latest`，去拉远端镜像覆盖你本地构建的镜像。
 
 要退回纯 HTTP（仅限本地或可信内网调试），把同一个变量指向 HTTP 侧配置再重建 gateway：
 
@@ -477,7 +477,7 @@ cp .env.example .env
 ```env
 MOGO_PORT=3000
 MOGO_VOLUME_PREFIX=mogo
-MOGO_IMAGE_REGISTRY=ghcr.io/mogoai/mogo
+MOGO_IMAGE_REGISTRY=ghcr.io/mogoai
 MOGO_VERSION=vX.Y.Z
 PUBLIC_BASE_URL=https://mogo.example.com
 ```

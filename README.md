@@ -384,7 +384,7 @@ MOGO_GATEWAY_IMAGE="$(docker inspect mogo-gateway-1 --format '{{.Config.Image}}'
   docker compose up -d --no-deps gateway
 ```
 
-Do **not** use a bare `docker compose up -d gateway`: without an explicit image name the gateway resolves to `ghcr.io/mogoai/mogo/gateway:latest` and pulls a remote image over your local build.
+Do **not** use a bare `docker compose up -d gateway`: without an explicit image name the gateway resolves to `ghcr.io/mogoai/gateway:latest` and pulls a remote image over your local build.
 
 To fall back to plain HTTP (local or trusted-network debugging only), point the same variable at the HTTP config and recreate the gateway:
 
@@ -512,7 +512,7 @@ cp .env.example .env
 ```env
 MOGO_PORT=3000
 MOGO_VOLUME_PREFIX=mogo
-MOGO_IMAGE_REGISTRY=ghcr.io/mogoai/mogo
+MOGO_IMAGE_REGISTRY=ghcr.io/mogoai
 MOGO_VERSION=vX.Y.Z
 PUBLIC_BASE_URL=https://mogo.example.com
 ```

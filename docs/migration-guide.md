@@ -2,7 +2,7 @@
 
 破坏性变更的迁移说明。每次发布包含 breaking changes 时，本文件必须更新。
 
-> **品牌归一说明（2026-10-21）**：环境变量前缀已从 `MOVO_` 归一为 `MOGO_`（`MOGO_` 优先，旧 `MOVO_` 过渡期仍被接受）。下文历史迁移条目中的 `MOVO_*` 键名按当时原文保留；其中 `MOVO_VOLUME_PREFIX` 现对应 `MOGO_VOLUME_PREFIX`（卷名默认值仍为 `movo`，以兼容既有数据卷）。
+> **品牌归一说明（2026-10-21）**：`MOVO_` 前缀已彻底下线（不再作为回退被接受），只认 `MOGO_`；卷名前缀默认值已由 `movo` 改为 `mogo`，升级既有部署需按 `docs/migrate-volumes-movo-to-mogo.md` 迁移数据卷。
 
 ## v0.1.x → v0.2.0
 
@@ -43,14 +43,14 @@ python scripts/migrate/main_id_to_tenant_id.py --mongo-uri $MONGO_URI --apply
 
 **新增必需键**：
 ```env
-MOVO_VOLUME_PREFIX=movo_          # 必填，默认 movo_
-MOVO_BASE_IMAGE_POLICY=reuse      # 可选，默认 reuse
-MOVO_SECURITY_REFRESH=            # 可选，发布镜像时设置
+MOGO_VOLUME_PREFIX=mogo           # 必填，默认 mogo
+MOGO_BASE_IMAGE_POLICY=reuse      # 可选，默认 reuse
+MOGO_SECURITY_REFRESH=            # 可选，发布镜像时设置
 ```
 
 **已移除键**：
-- `MOVO_DATA_DIR`（v0.1.x）→ 使用 `MOVO_VOLUME_PREFIX` 替代
-- `MOVO_REGISTRY`（v0.1.x）→ 使用 `MOVO_IMAGE_REGISTRY` 替代
+- `MOGO_DATA_DIR`（v0.1.x）→ 使用 `MOGO_VOLUME_PREFIX` 替代
+- `MOGO_REGISTRY`（v0.1.x）→ 使用 `MOGO_IMAGE_REGISTRY` 替代
 
 ### 3. API 变更
 
@@ -88,7 +88,7 @@ MOVO_SECURITY_REFRESH=            # 可选，发布镜像时设置
 python scripts/migrate/main_id_to_tenant_id.py --mongo-uri $MONGO_URI --reverse
 
 # 4. 启动旧版本
-MOVO_VERSION=v0.1.x ./mogo up
+MOGO_VERSION=v0.1.x ./mogo up
 ```
 
 ## v0.2.0 → v0.3.0

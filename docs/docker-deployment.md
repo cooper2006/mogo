@@ -10,9 +10,9 @@ cd mogo
 ./mogo up
 ```
 
-Both `./mogo up` and `docker compose up -d` pull the seven official MOVO images
-from `ghcr.io/himovo/movo-*` by default. Neither command requires an `.env`
-file. The MOVO launcher pulls images sequentially and keeps retrying registry
+Both `./mogo up` and `docker compose up -d` pull the seven official MOGO images
+from `ghcr.io/mogoai/*` by default. Neither command requires an `.env`
+file. The MOGO launcher pulls images sequentially and keeps retrying registry
 failures until they succeed or the user presses `Ctrl+C`; native Compose retains
 Docker's default parallel pull behavior.
 
@@ -24,7 +24,7 @@ environment required by `./mogo`.
 To pin a production deployment to the checked-out release, set:
 
 ```env
-MOVO_VERSION=vX.Y.Z
+MOGO_VERSION=vX.Y.Z
 ```
 
 Do not use `latest` for a production deployment. Upgrade only after reading the
@@ -59,7 +59,7 @@ replicas (`dsh-runtime-host-{1,2,3}`) and the single-host service all resolve
 `dsh-runtime-host:<tag>`, and `./mogo` exports exactly that name for a source
 build. So a bare `./mogo build` followed by `./mogo up` leaves the replicas
 pointing at a tag that was never produced locally, and start-up falls back to
-pulling `ghcr.io/himovo/dsh-runtime-host:<tag>` — which either fails on an
+pulling `ghcr.io/mogoai/dsh-runtime-host:<tag>` — which either fails on an
 offline host or silently runs a published image that does not match your
 working tree. `./mogo up --build` has the same gap, for the same reason.
 
@@ -77,7 +77,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml \
 Both build paths reuse the base images already present in the local Docker
 store (for example the ones OrbStack has cached) and reach the registry only
 for base images that are genuinely missing. This keeps a rebuild that changed
-only application code off the network. `MOVO_BASE_IMAGE_POLICY` changes that
+only application code off the network. `MOGO_BASE_IMAGE_POLICY` changes that
 behaviour:
 
 | Value | Behaviour |
@@ -91,7 +91,7 @@ pull-through cache. The mirror proxies the Docker Hub namespace, so a
 single-component reference is resolved as `library/<name>`:
 
 ```bash
-MOVO_BASE_IMAGE_MIRROR=docker.m.daocloud.io ./mogo build
+MOGO_BASE_IMAGE_MIRROR=docker.m.daocloud.io ./mogo build
 ```
 
 References that already name a registry (`ghcr.io/...`) are passed through
@@ -162,12 +162,12 @@ becomes a single-platform one.
 ./mogo logs chat-api
 ./mogo restart
 ./mogo update
-./mogo backup /path/on/a/large-disk/movo-backup
+./mogo backup /path/on/a/large-disk/mogo-backup
 ./mogo down
 ```
 
 `./mogo update` pulls the configured image tag and recreates services. Pin a new
-`MOVO_VERSION` before running it. It does not migrate or delete data volumes.
+`MOGO_VERSION` before running it. It does not migrate or delete data volumes.
 
 ### 升级路径矩阵 (Upgrade Path Matrix)
 
@@ -183,12 +183,12 @@ becomes a single-platform one.
 **升级顺序**（破坏性变更累积）：
 1. 数据库 schema 变更（MongoDB 索引、字段改名）
 2. 配置文件变更（`.env` 新增键）
-3. 镜像标签升级（`MOVO_VERSION=vX.Y.Z`）
+3. 镜像标签升级（`MOGO_VERSION=vX.Y.Z`）
 4. `./mogo update` 重启服务
 
 **回滚**：
-- 若升级后发现问题，将 `MOVO_VERSION` 改回旧 tag，执行 `./mogo update`。
-- 数据层变更需先执行 `./mogo restore /path/to/movo-backup --yes`。
+- 若升级后发现问题，将 `MOGO_VERSION` 改回旧 tag，执行 `./mogo update`。
+- 数据层变更需先执行 `./mogo restore /path/to/mogo-backup --yes`。
 - 详见 `specs/024-deployment-hardening/spec.md` US3（灰度与回滚）。
 
 **兼容性检查清单**：
@@ -198,7 +198,7 @@ becomes a single-platform one.
 - [ ] 已阅读目标版本的 CHANGELOG 中 breaking changes 段落
 - [ ] 已确认旧版本镜像 tag 可用于回滚
 
-`./mogo down -v` permanently deletes all MOVO data and now requires an explicit
+`./mogo down -v` permanently deletes all MOGO data and now requires an explicit
 interactive confirmation. Automation must pass `./mogo down -v --yes`.
 
 `./mogo backup` briefly stops the deployment and archives all eight named
@@ -207,7 +207,7 @@ it on a disk with sufficient free space. Verify restoration only on a
 disposable host:
 
 ```bash
-./mogo restore /path/to/movo-backup --yes
+./mogo restore /path/to/mogo-backup --yes
 ```
 
 Restore verifies SHA-256 checksums and requires the configured volume prefix to
@@ -217,7 +217,7 @@ match the backup. It replaces all data in the target volumes; it is not a merge.
 
 - Terminate TLS in an external reverse proxy and expose only the gateway port.
 - Keep MongoDB, Redis and Weaviate on the internal Compose network.
-- Keep `MOVO_VOLUME_PREFIX` unchanged throughout the installation lifecycle.
+- Keep `MOGO_VOLUME_PREFIX` unchanged throughout the installation lifecycle.
 - Back up deployment secrets together with MongoDB, generated files, knowledge
   documents, Weaviate and DSH state.
 - Restrict Docker daemon access; Docker access is equivalent to root access on
