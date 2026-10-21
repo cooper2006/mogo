@@ -1,6 +1,6 @@
 """A2A Agent Gateway (feature 012).
 
-Exposes MOVO agents over the A2A protocol and calls external A2A agents:
+Exposes MOGO agents over the A2A protocol and calls external A2A agents:
 
 * **AgentCard** generation / registration (FR-1) with the A2A standard fields;
 * a **JSON-RPC** task surface: ``message/send`` / ``tasks/get`` / ``tasks/result``

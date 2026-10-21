@@ -17,7 +17,7 @@ from app.a2a.protocol import (
     ERROR_INVALID_PARAMS,
     ERROR_INVALID_REQUEST,
     ERROR_METHOD_NOT_FOUND,
-    ERROR_MOVO_DENIED,
+    ERROR_MOGO_DENIED,
     METHOD_MESSAGE_SEND,
     METHOD_TASKS_GET,
     METHOD_TASKS_RESULT,
@@ -150,13 +150,13 @@ def test_response_shape_with_error() -> None:
 
 def test_rpc_error_from_denial_maps_to_movo_code() -> None:
     error = rpc_error_from_denial(layer="rbac", reason="no code", status_code=403)
-    assert error.code == ERROR_MOVO_DENIED
+    assert error.code == ERROR_MOGO_DENIED
     assert error.data["layer"] == "rbac"
     assert error.data["statusCode"] == 403
 
 
-def test_error_codes_include_movo_denied() -> None:
-    assert ERROR_CODES["movo_denied"] == ERROR_MOVO_DENIED
+def test_error_codes_include_mogo_denied() -> None:
+    assert ERROR_CODES["mogo_denied"] == ERROR_MOGO_DENIED
 
 
 # --- task lifecycle / idempotency --------------------------------------------
@@ -190,10 +190,10 @@ def test_complete_and_result() -> None:
 def test_fail_records_error() -> None:
     lifecycle = TaskLifecycle()
     lifecycle.submit("t-1")
-    lifecycle.fail("t-1", JsonRpcError(ERROR_MOVO_DENIED, "denied"))
+    lifecycle.fail("t-1", JsonRpcError(ERROR_MOGO_DENIED, "denied"))
     result = lifecycle.result("t-1")
     assert result["state"] == TaskState.FAILED.value
-    assert result["error"]["code"] == ERROR_MOVO_DENIED
+    assert result["error"]["code"] == ERROR_MOGO_DENIED
 
 
 def test_result_for_unknown_task_is_none() -> None:
@@ -276,14 +276,14 @@ def test_jsonrpc_tasks_result_returns_result_and_error(monkeypatch):
     or error field (FR-10)."""
     import asyncio
     import app.api.endpoints.a2a as a2a_endpoint
-    from app.a2a.protocol import JsonRpcError, ERROR_MOVO_DENIED
+    from app.a2a.protocol import JsonRpcError, ERROR_MOGO_DENIED
 
     _patch_auth(monkeypatch)
     lifecycle = TaskLifecycle()
     lifecycle.submit("ok-task")
     lifecycle.complete("ok-task", {"data": 42})
     lifecycle.submit("bad-task")
-    lifecycle.fail("bad-task", JsonRpcError(ERROR_MOVO_DENIED, "denied"))
+    lifecycle.fail("bad-task", JsonRpcError(ERROR_MOGO_DENIED, "denied"))
     a2a_endpoint._lifecycle = lifecycle
 
     ok = asyncio.run(a2a_endpoint.a2a_jsonrpc(
@@ -297,7 +297,7 @@ def test_jsonrpc_tasks_result_returns_result_and_error(monkeypatch):
         {"method": "tasks/result", "id": 2, "params": {"taskId": "bad-task"}},
         authorization="Bearer test",
     ))
-    assert bad["result"]["error"]["code"] == ERROR_MOVO_DENIED
+    assert bad["result"]["error"]["code"] == ERROR_MOGO_DENIED
 
 
 def test_jsonrpc_invalid_params_rejected(monkeypatch):

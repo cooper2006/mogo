@@ -4,7 +4,7 @@ import type { EvidenceBundleItem, EvidenceSourceItem } from '../../features/exec
 import { t } from '../../composables/i18n'
 import { loadPdfjs } from '../../utils/pdfjs'
 import NativeSourcePreview from './NativeSourcePreview.vue'
-import productUiExtension from '@movo-product-extension'
+import productUiExtension from '@mogo-product-extension'
 import {
   fetchKnowledgeSourceChunk,
   fetchKnowledgeSourceDocument,

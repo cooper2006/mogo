@@ -1,7 +1,7 @@
 """A2A JSON-RPC protocol shapes (012 FR-2 / FR-7 / FR-10).
 
 Standard methods: ``message/send`` (dispatch), ``tasks/get`` (status),
-``tasks/result`` (result). Errors follow the JSON-RPC spec; a MOVO gatekeeper
+``tasks/result`` (result). Errors follow the JSON-RPC spec; a MOGO gatekeeper
 denial is mapped into the server-error range with the denial reason preserved
 (FR-7) so callers can distinguish "rejected by governance" from other failures.
 """
@@ -25,7 +25,7 @@ ERROR_METHOD_NOT_FOUND = -32601
 ERROR_INVALID_PARAMS = -32602
 ERROR_INTERNAL = -32603
 # Server-error range used for governance denials (FR-7).
-ERROR_MOVO_DENIED = -32000
+ERROR_MOGO_DENIED = -32000
 
 ERROR_CODES: dict[str, int] = {
     "parse_error": ERROR_PARSE,
@@ -33,7 +33,7 @@ ERROR_CODES: dict[str, int] = {
     "method_not_found": ERROR_METHOD_NOT_FOUND,
     "invalid_params": ERROR_INVALID_PARAMS,
     "internal_error": ERROR_INTERNAL,
-    "movo_denied": ERROR_MOVO_DENIED,
+    "mogo_denied": ERROR_MOGO_DENIED,
 }
 
 
@@ -94,7 +94,7 @@ class JsonRpcResponse:
 def rpc_error_from_denial(*, layer: str, reason: str, status_code: Optional[int] = None) -> JsonRpcError:
     """Map a gatekeeper denial into a JSON-RPC error (FR-7)."""
     return JsonRpcError(
-        ERROR_MOVO_DENIED,
+        ERROR_MOGO_DENIED,
         "调用被治理层拒绝",
         data={"layer": layer, "reason": reason, "statusCode": status_code},
     )
@@ -178,7 +178,7 @@ __all__ = [
     "ERROR_METHOD_NOT_FOUND",
     "ERROR_INVALID_PARAMS",
     "ERROR_INTERNAL",
-    "ERROR_MOVO_DENIED",
+    "ERROR_MOGO_DENIED",
     "ERROR_CODES",
     "JsonRpcRequest",
     "JsonRpcResponse",

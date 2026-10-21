@@ -23,7 +23,7 @@
 | `-32601` | `ERROR_METHOD_NOT_FOUND` | 方法不支持 |
 | `-32602` | `ERROR_INVALID_PARAMS` | 参数非法 |
 | `-32603` | `ERROR_INTERNAL` | 内部错误 |
-| `-32000` | `ERROR_MOVO_DENIED` | 治理层拒绝（001 gatekeeper） |
+| `-32000` | `ERROR_MOGO_DENIED` | 治理层拒绝（001 gatekeeper） |
 
 `map_error_code(exc)` 把出站异常映射为 JSON-RPC 错误码：
 `JsonRpcError` 透传其 code、`PermissionError` → `-32000`、其它 → `-32603`。

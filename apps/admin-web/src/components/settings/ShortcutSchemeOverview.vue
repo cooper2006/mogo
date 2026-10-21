@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { NEmpty, NSpin, useMessage } from 'naive-ui'
 import { fetchShortcutPlan, type ShortcutPlan } from '@/api/shortcut-settings'
 import { t } from '@/composables/i18n'
-import adminProductUiExtension from '@movo-admin-product-extension'
+import adminProductUiExtension from '@mogo-admin-product-extension'
 
 const props = defineProps<{ onEditDefault?: () => void }>()
 const message = useMessage()

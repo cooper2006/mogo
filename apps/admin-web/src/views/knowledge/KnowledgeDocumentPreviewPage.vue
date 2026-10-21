@@ -310,7 +310,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import adminProductUiExtension from '@movo-admin-product-extension';
+import adminProductUiExtension from '@mogo-admin-product-extension';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { apiClient } from '@/api/client';

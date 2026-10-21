@@ -1,6 +1,6 @@
 """Outbound A2A client (012 T009 / US2 / FR-3).
 
-MOVO acts as an A2A client calling an external Agent: JSON-RPC
+MOGO acts as an A2A client calling an external Agent: JSON-RPC
 ``message/send`` with a 30s default timeout, failover to a configured backup
 agent, and retry reusing the 007 backoff primitives (no duplicated backoff).
 Errors are mapped to JSON-RPC error codes so callers can distinguish a
@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from app.a2a.protocol import (
     ERROR_INTERNAL,
-    ERROR_MOVO_DENIED,
+    ERROR_MOGO_DENIED,
     JsonRpcError,
     JsonRpcResponse,
     METHOD_MESSAGE_SEND,
@@ -145,7 +145,7 @@ class A2AClient:
             # A governance denial carried on the response stops failover:
             # surface the JSON-RPC error code immediately, no retry, no backup
             # (012 US2 错误码映射).
-            if isinstance(last_error, JsonRpcError) and last_error.code == ERROR_MOVO_DENIED:
+            if isinstance(last_error, JsonRpcError) and last_error.code == ERROR_MOGO_DENIED:
                 call.error = last_error
                 call.agent_name = agent
                 if result is not None:
@@ -173,7 +173,7 @@ def map_error_code(exc: Exception) -> int:
     if isinstance(exc, JsonRpcError):
         return exc.code
     if isinstance(exc, PermissionError):
-        return ERROR_MOVO_DENIED
+        return ERROR_MOGO_DENIED
     return ERROR_INTERNAL
 
 

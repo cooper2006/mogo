@@ -443,7 +443,7 @@ import { useRouter } from 'vue-router';
 import type { DataTableColumns, DataTableRowKey, SelectOption, TreeOption } from 'naive-ui';
 import { NButton, NDropdown, NInputGroup, NProgress, NSpace, NTag, useDialog, useMessage } from 'naive-ui';
 import axios from 'axios';
-import adminProductUiExtension from '@movo-admin-product-extension';
+import adminProductUiExtension from '@mogo-admin-product-extension';
 import FileIcon from '@/components/FileIcon.vue';
 import DocumentStatus from '@/components/DocumentStatus.vue';
 import { t } from '@/composables/i18n';

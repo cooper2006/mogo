@@ -7,7 +7,7 @@ import asyncio
 from app.a2a.client import A2AClient, ClientConfig, map_error_code
 from app.a2a.protocol import (
     ERROR_INTERNAL,
-    ERROR_MOVO_DENIED,
+    ERROR_MOGO_DENIED,
     JsonRpcError,
     JsonRpcResponse,
 )
@@ -70,7 +70,7 @@ def test_all_agents_exhausted_returns_internal_error():
 
 
 def test_governance_denial_not_retried_not_failover():
-    denial = JsonRpcError(ERROR_MOVO_DENIED, "调用被治理层拒绝", data={"layer": "gatekeeper", "reason": "rbac"})
+    denial = JsonRpcError(ERROR_MOGO_DENIED, "调用被治理层拒绝", data={"layer": "gatekeeper", "reason": "rbac"})
 
     async def transport(agent, method, params, timeout):
         if agent == "primary":
@@ -83,15 +83,15 @@ def test_governance_denial_not_retried_not_failover():
     # A denial surfaces immediately with its JSON-RPC code; no retry, no failover.
     assert call.is_ok() is False
     assert call.error is not None
-    assert call.error.code == ERROR_MOVO_DENIED
+    assert call.error.code == ERROR_MOGO_DENIED
     assert call.agent_name == "primary"
     assert call.failed_over_to == ""
     assert call.attempts == 1
 
 
 def test_error_code_mapping():
-    assert map_error_code(JsonRpcError(ERROR_MOVO_DENIED, "denied")) == ERROR_MOVO_DENIED
-    assert map_error_code(PermissionError("denied")) == ERROR_MOVO_DENIED
+    assert map_error_code(JsonRpcError(ERROR_MOGO_DENIED, "denied")) == ERROR_MOGO_DENIED
+    assert map_error_code(PermissionError("denied")) == ERROR_MOGO_DENIED
     assert map_error_code(RuntimeError("boom")) == ERROR_INTERNAL
     assert map_error_code(JsonRpcError(ERROR_INTERNAL, "x")) == ERROR_INTERNAL
 

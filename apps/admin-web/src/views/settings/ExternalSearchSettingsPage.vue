@@ -690,7 +690,7 @@ import {
   saveKnowledgeSettings,
   type KnowledgeSettings,
 } from '@/api/knowledge-settings';
-import adminProductUiExtension from '@movo-admin-product-extension';
+import adminProductUiExtension from '@mogo-admin-product-extension';
 
 const message = useMessage();
 type SettingsSection = 'general' | 'shortcuts' | 'presentation' | 'external-search' | 'page-collection' | 'knowledge';

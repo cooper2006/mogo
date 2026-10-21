@@ -15,8 +15,8 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@movo-product-extension": ["src/product/community.ts"],
-      "@movo-user-web/*": ["src/*"]
+      "@mogo-product-extension": ["src/product/community.ts"],
+      "@mogo-user-web/*": ["src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"]

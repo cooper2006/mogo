@@ -303,7 +303,7 @@ import { apiClient } from '@/api/client';
 import { t, useLocale } from '@/composables/i18n';
 import { formatAdminShortDateTime } from '@/composables/adminTimezone';
 import { translateDashboardText } from './dashboardText';
-import adminProductUiExtension from '@movo-admin-product-extension';
+import adminProductUiExtension from '@mogo-admin-product-extension';
 
 type HealthStatus = 'healthy' | 'warning' | 'critical';
 type TodoLevel = 'error' | 'warning' | 'info';

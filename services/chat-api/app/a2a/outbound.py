@@ -19,7 +19,7 @@ from app.a2a.protocol import (
     JsonRpcError,
     JsonRpcResponse,
     METHOD_MESSAGE_SEND,
-    ERROR_MOVO_DENIED,
+    ERROR_MOGO_DENIED,
     rpc_error_from_denial,
 )
 
@@ -117,7 +117,7 @@ async def call_external_agent(
     )
     if call.error is not None:
         from app.a2a.client import map_error_code
-        if call.error.code == ERROR_MOVO_DENIED:
+        if call.error.code == ERROR_MOGO_DENIED:
             raise PermissionError(call.error.message)
         raise RuntimeError(f"outbound a2a failed: {call.error.message}")
     return call.as_dict()
