@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect, useMessage } from 'naive-ui'
+import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect } from 'naive-ui'
 import TokenInput from './components/TokenInput.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import ShortcutPreferencesPanel from './components/settings/ShortcutPreferencesPanel.vue'
@@ -43,6 +43,8 @@ import { clearDesktopAuthSession, restoreDesktopAuthToken } from './composables/
 import { useNetworkStatus } from './composables/useNetworkStatus'
 import { AppsOutline, SettingsOutline } from '@vicons/ionicons5'
 import ChatViewTabs from './components/chat/ChatViewTabs.vue'
+import AppMessageBridge from './components/AppMessageBridge.vue'
+import { useAppMessage } from './composables/appMessage'
 
 const ChatWindow = defineAsyncComponent(() => import('./components/ChatWindow.vue'))
 // Session-level trajectory view (028): lazily loaded, only needed when the user
@@ -308,7 +310,6 @@ const projectHistoryGroups = computed(() => {
       }
     })
 })
-const message = useMessage()
 const chatRuntime = useChatRuntimeStore({
   onSessionResolved: (sessionId) => {
     if (!sessions.value.some((item) => item.id === sessionId)) {
@@ -1684,7 +1685,10 @@ async function confirmDeleteSession() {
     chatRuntime.removeSession(sessionId)
   } catch (error) {
     console.warn('[sessions] delete failed:', error)
-    message.error(t('app.delete_chat.failed'))
+    const messageApi = useAppMessage()
+    if (messageApi) {
+      messageApi.error(t('app.delete_chat.failed'))
+    }
   } finally {
     pendingDeleteSession.value = null
     deletingSessionId.value = null
@@ -1965,6 +1969,7 @@ onBeforeUnmount(() => {
   </div>
   <n-config-provider :theme="isDarkTheme ? darkTheme : null" :theme-overrides="naiveThemeOverrides">
   <n-message-provider>
+  <AppMessageBridge />
   <n-notification-provider>
   <n-dialog-provider>
   <div
