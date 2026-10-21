@@ -92,8 +92,20 @@
 - `docker compose config` 实测卷名：mogo_admin-static / mogo_askai-storage / mogo_deployment-secrets /
   mogo_dsh-runtime-data / mogo_knowledge-storage / mogo_mongo-data / mogo_redis-data / mogo_weaviate-data。
 
-### 运行环境数据卷迁移
-按 `docs/migrate-volumes-movo-to-mogo.md` 方案 A 对 8 个实际存在的旧卷做克隆迁移，
-停机→克隆→校验（项数/属主）→`MOGO_VERSION=60eff81 ./mogo up -d` 滚动重启。
-旧卷 `movo_*` 保留作回滚，未删除。
+### 运行环境数据卷迁移（已执行完成）
+
+1. `./mogo build` 重建 7 个镜像 → tag `v0.2.4-19-g41b272c`。
+2. `docker compose -f docker-compose.yml -f docker-compose.build.yml down` → 8 个 `movo_*` 卷逐卷
+   `cp -a` 克隆为 `mogo_*`，项数/字节数/属主**逐卷一致**（见 docs/migrate-volumes-movo-to-mogo.md 记录表）。
+3. 密钥键归一：`movo_deployment-secrets/runtime.env` 的 3 个 `MOVO_DOC_PROCESSING_*` 键按原值补成
+   `MOGO_DOC_PROCESSING_*` 并删旧键（sha256 比对与旧卷一致，**未轮换令牌**）。
+4. `MOGO_VERSION=v0.2.4-19-g41b272c ./mogo up -d` → 11 容器全部 Up（除无 healthcheck 的
+   document-worker 外全 healthy），镜像均为新 tag。
+
+迁移后实测验证：mongo/mogo_dev 两库每个集合文档数与迁移前快照 **0 差异**；document-parser
+服务令牌链路 正确令牌 422 / 错误 403 / 无令牌 401；`/api/health` 报
+`backend=panweidb reachable=true`、`/api/ready` 200、weaviate class `AskAIKnowledgeChunks` 仍在；
+网关 `/`、`/health`、`/admin/` 均 200；前端产物内 `movo` 计数为 0 且引用 `mogo-logo.png`。
+
+回滚路径：8 个旧卷 `movo_*` 与旧镜像 tag（`60eff81`）均保留未动，未删除。
 

@@ -27,7 +27,61 @@
 | `movo_admin-static` | 0 | 0 | admin-api（`/data/admin-static`） |
 
 主机上还观察到一个**空**的 `mogo_deployment-secrets`（早前误建，0 项）。克隆流程会直接复用它，
-但升级后应确认其内容非空，否则内部令牌会被重新生成。
+但升级后应确认其内容非空，否则内部令牌会被重新生成。（本次迁移已复用它，克隆后 1 个条目。）
+
+## 本次迁移执行记录（2026-10-21，本机 mogo 项目）
+
+品牌迁移收尾提交（`48b1f31` … `41b272c`）完成后，本机按下面的方案 A 实际执行了迁移并滚动重启，
+过程与结果记录如下，可作为其他存量部署的参照。
+
+1. `./mogo build` 重建全部 7 个镜像 → tag `v0.2.4-19-g41b272c`（admin-api / admin-web / chat-api /
+   document-parser / dsh-runtime-host / gateway / user-web）。
+2. `docker compose -f docker-compose.yml -f docker-compose.build.yml down`（停机，卷保留）。
+3. 8 个 `movo_<suffix>` 卷逐卷 `cp -a` 克隆为 `mogo_<suffix>`（脚本见下方方案 A），
+   校验项数/字节数/属主完全一致：
+
+   | 卷 | 项数 | 字节数 | 属主 |
+   | --- | --- | --- | --- |
+   | `mogo_deployment-secrets` | 1 | 1698 | 0:0 |
+   | `mogo_mongo-data` | 495 | 465545326 | 999:0, 999:999 |
+   | `mogo_redis-data` | 2 | 2000584 | 999:1000 |
+   | `mogo_weaviate-data` | 8 | 354769 | 0:0 |
+   | `mogo_dsh-runtime-data` | 162 | 3952418 | 1000:1000 |
+   | `mogo_askai-storage` | 2 | 114962 | 10001:10001 |
+   | `mogo_knowledge-storage` | 1 | 5247888 | 10001:10001 |
+   | `mogo_admin-static` | 0 | 0 | — |
+
+4. **密钥键归一**（本次新增的必要步骤）：旧 `runtime.env` 里是 `MOVO_DOC_PROCESSING_*` 键，新代码
+   只认 `MOGO_DOC_PROCESSING_*`，而 bootstrap 只在文件缺失/为空时才重写 —— 直接克隆会让
+   document-parser 读到空令牌。因此按原值补齐 `MOGO_` 键并删除 `MOVO_` 行（**值不变，不轮换令牌**，
+   已用 sha256 比对确认与旧卷逐字节一致）。
+
+   ```bash
+   docker run --rm -v mogo_deployment-secrets:/v alpine:3.21 sh -c '
+     f=/v/runtime.env
+     for k in SERVICE_TOKEN CALLBACK_TOKEN ADMIN_JWT_SECRET; do
+       v=$(sed -n "s/^MOVO_DOC_PROCESSING_${k}=//p" "$f" | head -n1)
+       [ -n "$v" ] && ! grep -q "^MOGO_DOC_PROCESSING_${k}=" "$f" \
+         && echo "MOGO_DOC_PROCESSING_${k}=$v" >> "$f"
+     done
+     sed -i "/^MOVO_DOC_PROCESSING_/d" "$f"; chmod 644 "$f"'
+   ```
+
+5. `MOGO_VERSION=v0.2.4-19-g41b272c ./mogo up -d` → 11 个容器全部 Up，除无 healthcheck 的
+   `mogo-document-worker-1` 外全部 healthy。
+
+**迁移后验证（全部通过）**：
+
+- `mongo` / `mogo_dev` 两库**每个集合的文档数**与迁移前快照逐行比对：**0 处差异**。
+- document-parser 服务令牌链路实测：`Authorization: Bearer <MOGO_DOC_PROCESSING_SERVICE_TOKEN>`
+    → `422`（鉴权通过，仅 body 校验失败）；错误令牌 → `403`；无令牌 → `401`。
+- `/api/health` 返回 `{"service":"mogo-document-processing-service","backend":"panweidb",…,"reachable":true}`，
+   `/api/ready` 200；weaviate 原有 class `AskAIKnowledgeChunks` 仍在。
+- 网关 `http://localhost:3000/`、`/health`、`/admin/` 均 200；前端产物内 `movo` 出现次数为 0，
+  引用的是 `mogo-logo.png`（`/mogo-logo.png` 200，`/movo-logo.png` 落到 SPA 回退返回 HTML）。
+
+**回滚路径**：旧卷 `movo_*` 8 个全部保留且未被改动，旧镜像 tag（如 `60eff81`）也仍在本地。
+回滚 = `docker compose down` → 旧 compose（或 `.env` 显式 `MOGO_VOLUME_PREFIX=movo`）+ 旧 tag 起栈。
 
 ## 方案 A：克隆迁移（推荐，旧卷保留作回滚）
 
@@ -88,10 +142,11 @@ done
 复用现有本地镜像时必须显式钉住 tag：
 
 ```bash
-MOGO_VERSION=60eff81 ./mogo up -d          # 60eff81 = 本次迁移前运行中容器的镜像 tag
+MOGO_VERSION=v0.2.4-19-g41b272c ./mogo up -d   # 本次迁移实际使用的、由 ./mogo build 产出的 tag
 ```
 
-要连镜像一起更新（含前端 logo / DOM id 等品牌资源）则用 `./mogo up --build`。
+要连镜像一起更新（含前端 logo / DOM id 等品牌资源）则用 `./mogo up --build`。本次迁移走的是
+「先 `./mogo build` 再 `MOGO_VERSION=<新 tag> ./mogo up -d`」这条路径。
 
 ## 方案 B：不改卷名（零迁移，显式钉住旧前缀）
 
