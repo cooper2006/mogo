@@ -107,5 +107,8 @@
 `backend=panweidb reachable=true`、`/api/ready` 200、weaviate class `AskAIKnowledgeChunks` 仍在；
 网关 `/`、`/health`、`/admin/` 均 200；前端产物内 `movo` 计数为 0 且引用 `mogo-logo.png`。
 
-回滚路径：8 个旧卷 `movo_*` 与旧镜像 tag（`60eff81`）均保留未动，未删除。
+回滚路径：迁移刚完成时 8 个旧卷 `movo_*` 与旧镜像 tag（`60eff81`）均保留未动。验证稳定后按用户
+要求已清理（删除前确认 0 容器引用、`mogo_*` 就绪）：`docker volume rm` 8 个旧卷 + `docker rmi`
+7 个旧 tag；镜像占用 28.78GB→17.47GB、本地卷 1.269GB→792.3MB，11 容器复检仍全部 healthy。
+清理后回到迁移前状态只能靠重建旧镜像 + 反向克隆卷。
 

@@ -80,8 +80,24 @@
 - 网关 `http://localhost:3000/`、`/health`、`/admin/` 均 200；前端产物内 `movo` 出现次数为 0，
   引用的是 `mogo-logo.png`（`/mogo-logo.png` 200，`/movo-logo.png` 落到 SPA 回退返回 HTML）。
 
-**回滚路径**：旧卷 `movo_*` 8 个全部保留且未被改动，旧镜像 tag（如 `60eff81`）也仍在本地。
-回滚 = `docker compose down` → 旧 compose（或 `.env` 显式 `MOGO_VOLUME_PREFIX=movo`）+ 旧 tag 起栈。
+**回滚路径**：迁移刚完成时旧卷 `movo_*` 8 个与旧镜像 tag（`60eff81`）都保留未动，可随时回滚。
+验证稳定后已按用户要求清理（见下）：回滚能力随之消失 —— 如需回到迁移前状态，只能用迁移前的
+代码重新构建镜像，并把现有 `mogo_*` 卷内容按同样的 `cp -a` 方式反向克隆。
+
+**清理记录（2026-10-21，用户确认后执行）**：
+
+```bash
+# 旧数据卷（删除前逐一确认 0 容器引用、且 mogo_<suffix> 已就绪）
+docker volume rm movo_admin-static movo_askai-storage movo_deployment-secrets \
+                 movo_dsh-runtime-data movo_knowledge-storage movo_mongo-data \
+                 movo_redis-data movo_weaviate-data
+# 旧镜像（迁移前运行中的 tag）
+docker rmi admin-api:60eff81 admin-web:60eff81 chat-api:60eff81 document-parser:60eff81 \
+           dsh-runtime-host:60eff81 gateway:60eff81 user-web:60eff81
+```
+
+效果：镜像占用 28.78GB → 17.47GB，本地卷 1.269GB → 792.3MB；11 个容器全程未受影响
+（删除后复检仍全部 healthy）。
 
 ## 方案 A：克隆迁移（推荐，旧卷保留作回滚）
 
@@ -175,4 +191,5 @@ docker volume clone movo_mongo-data mogo_mongo-data
 - OrbStack 与 Docker Desktop 对 VM 内卷的复制均按上面的命令执行即可。
 - 迁移期间 `.env` 里所有 `MOVO_*` 键应顺手改名为 `MOGO_*`（`MOVO_PORT`→`MOGO_PORT`、
   `MOVO_VERSION`→`MOGO_VERSION` 等）；旧键升级后会被**静默忽略**并落回默认值。
-- 旧卷 `movo_*` 在验证稳定后再清理（`docker volume rm` 逐个确认）；本仓库约定不主动删除数据卷。
+- 旧卷 `movo_*` 在验证稳定后再清理（`docker volume rm` 逐个确认，删除前确认 0 容器引用）；
+  本仓库约定不主动删除数据卷，必须由使用者在确认迁移无误后显式要求。本机已于 2026-10-21 清理完毕。
