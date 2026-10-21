@@ -18,7 +18,7 @@ done
 
 # Images are published as ghcr.io/<owner>/<service>; the repository name is
 # deliberately not part of the image name (it used to be
-# ghcr.io/<owner>/<repository>-<service>, e.g. ghcr.io/himovo/movo-chat-api).
+# ghcr.io/<owner>/<repository>-<service>, e.g. ghcr.io/mogoai/mogo-chat-api).
 # Keep this in step with .github/workflows/container-release.yml, which builds
 # the candidate tags under the same scheme.
 owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER:-${GITHUB_REPOSITORY%%/*}}" | tr '[:upper:]' '[:lower:]')"
@@ -78,4 +78,4 @@ for index in "${!image_names[@]}"; do
   docker buildx imagetools create "${tags[@]}" "${source_ref}"
 done
 
-echo "Published all MOVO container tags for ${GITHUB_REF_NAME}."
+echo "Published all MOGO container tags for ${GITHUB_REF_NAME}."

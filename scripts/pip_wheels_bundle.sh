@@ -484,7 +484,7 @@ cmd_fetch() {
 write_manifest() {
   mkdir -p "${CACHE_DIR}"
   {
-    printf '# movo pip wheel cache\n'
+    printf '# mogo pip wheel cache\n'
     printf '# generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     printf '# pypi_index: %s\n' "${PYPI_INDEX}"
     printf '# pytorch_cpu_index: %s\n' "${PYTORCH_CPU_INDEX}"

@@ -50,11 +50,11 @@ mogo_configure_images() {
 
   # MOGO_IMAGE_PREFIX is a legacy variable from before the image rename. Its old
   # semantics were a *name prefix* (`${MOGO_IMAGE_PREFIX}-chat-api` →
-  # ghcr.io/mogoai/mogo-chat-api), which cannot be expressed as the new
-  # `<registry>/<service>` form. It used to be silently ignored; pretending to
-  # honour it would build a non-existent path such as
-  # ghcr.io/mogoai/mogo/chat-api, so we fail loudly and fall back to the default
-  # registry instead. Set MOGO_IMAGE_REGISTRY to point at a different registry.
+  # ghcr.io/mogoai/mogo-chat-api), which no longer matches the
+  # `<registry>/<service>` form the release pipeline publishes
+  # (ghcr.io/mogoai/chat-api). It is therefore ignored with a warning
+  # and the default registry is used instead. Set MOGO_IMAGE_REGISTRY to point
+  # at a different registry.
   local legacy_prefix="${MOGO_IMAGE_PREFIX:-$(dotenv_value MOGO_IMAGE_PREFIX)}"
   if [[ -n "${legacy_prefix}" ]]; then
     printf 'Warning: MOGO_IMAGE_PREFIX=%s is no longer supported (images were renamed from\n' "${legacy_prefix}" >&2

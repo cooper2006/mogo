@@ -130,11 +130,11 @@ class ContainerReleasePlanTests(unittest.TestCase):
                 "BASE_REF": "v0.1.12",
                 "DOCKER_CALL_LOG": str(call_log),
                 "GITHUB_REF_NAME": "v0.1.13",
-                "GITHUB_REPOSITORY": "HiMOVO/MOVO",
+                "GITHUB_REPOSITORY": "MOGOAI/MOGO",
                 # GitHub Actions 运行器会注入 GITHUB_REPOSITORY_OWNER（真实仓库
                 # owner），而 promote 脚本优先读它；不在此显式钉住就会随 CI 环境
-                # 漂移（曾致断言 ghcr.io/himovo/... 实得 ghcr.io/<真实owner>/...）。
-                "GITHUB_REPOSITORY_OWNER": "HiMOVO",
+                # 漂移（曾致断言 ghcr.io/mogoai/... 实得 ghcr.io/<真实owner>/...）。
+                "GITHUB_REPOSITORY_OWNER": "MOGOAI",
                 # GITHUB_SHA 决定 candidate tag，必须 16 进制短 SHA 一致——
                 # 用完整 SHA（workflow 与 promote 脚本均为 candidate-${GITHUB_SHA} 全长）。
                 "GITHUB_SHA": "0123456789abcdef0123456789abcdef01234567",
@@ -155,16 +155,16 @@ class ContainerReleasePlanTests(unittest.TestCase):
         self.assertTrue(all("imagetools create" in call for call in calls[2:]))
         # Images are published as ghcr.io/<owner>/<service>; the repository name
         # must not leak into the image name (it used to be
-        # ghcr.io/<owner>/<repository>-<service>, i.e. ghcr.io/himovo/movo-chat-api).
+        # ghcr.io/<owner>/<repository>-<service>, i.e. ghcr.io/mogoai/mogo-chat-api).
         # candidate tag 是完整 GITHUB_SHA（promote 脚本 candidate="${GITHUB_SHA}"），
         # 断言全长而非前缀，防止又一轮 tag 形态漂移。
         self.assertIn(
-            "ghcr.io/himovo/chat-api:candidate-0123456789abcdef0123456789abcdef01234567",
+            "ghcr.io/mogoai/chat-api:candidate-0123456789abcdef0123456789abcdef01234567",
             calls[0],
         )
-        self.assertIn("ghcr.io/himovo/admin-api:v0.1.12", calls[1])
-        self.assertNotIn("movo-chat-api", calls[0])
-        self.assertNotIn("movo-admin-api", calls[1])
+        self.assertIn("ghcr.io/mogoai/admin-api:v0.1.12", calls[1])
+        self.assertNotIn("mogo-chat-api", calls[0])
+        self.assertNotIn("mogo-admin-api", calls[1])
         self.assertTrue(all(":v0.1.13" in call for call in calls[2:]))
         self.assertTrue(all(":latest" in call for call in calls[2:]))
 

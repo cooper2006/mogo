@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-_movo_read_env_value() {
+_mogo_read_env_value() {
     local key="$1"
     local file="$2"
     local line value
@@ -26,7 +26,7 @@ _movo_read_env_value() {
 # Prepare credentials shared by source-development services. The optional
 # repository root lets this function reuse persisted local secrets without
 # sourcing .env files as executable shell code.
-movo_prepare_internal_service_auth() {
+mogo_prepare_internal_service_auth() {
     local root_dir="${1:-}"
     local token="${ADMIN_BACKEND_SERVICE_TOKEN:-${ASKAI_ADMIN_BACKEND_SERVICE_TOKEN:-}}"
 
@@ -65,17 +65,17 @@ movo_prepare_internal_service_auth() {
     # the exact same stable value or every embedding/rerank key is unreadable.
     local admin_jwt_secret="${MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET:-${ASKAI_ADMIN_JWT_SECRET:-}}"
     if [ -z "$admin_jwt_secret" ] && [ -n "$root_dir" ]; then
-        admin_jwt_secret="$(_movo_read_env_value ASKAI_ADMIN_JWT_SECRET "$root_dir/services/admin-api/.env")"
+        admin_jwt_secret="$(_mogo_read_env_value ASKAI_ADMIN_JWT_SECRET "$root_dir/services/admin-api/.env")"
     fi
     if [ -z "$admin_jwt_secret" ] && [ -n "$root_dir" ]; then
-        admin_jwt_secret="$(_movo_read_env_value MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET "$root_dir/services/document-parser/.env")"
+        admin_jwt_secret="$(_mogo_read_env_value MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET "$root_dir/services/document-parser/.env")"
     fi
     if [ -z "$admin_jwt_secret" ] && [ -n "$root_dir" ]; then
-        admin_jwt_secret="$(_movo_read_env_value JWT_SECRET "$root_dir/services/chat-api/.env")"
+        admin_jwt_secret="$(_mogo_read_env_value JWT_SECRET "$root_dir/services/chat-api/.env")"
     fi
     local generated_secret_file=""
     if [ -z "$admin_jwt_secret" ] && [ -n "$root_dir" ]; then
-        generated_secret_file="$root_dir/.movo-dev/admin_jwt_secret"
+        generated_secret_file="$root_dir/.mogo-dev/admin_jwt_secret"
         if [ -s "$generated_secret_file" ]; then
             IFS= read -r admin_jwt_secret < "$generated_secret_file"
         else

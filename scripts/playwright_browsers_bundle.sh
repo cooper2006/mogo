@@ -179,7 +179,7 @@ cmd_save() {
   [[ -n "${bin_arch}" ]] \
     || die "No chromium binary found under ${BROWSERS_DIR}; refusing to record an unusable cache."
   {
-    printf '# movo playwright browser cache\n'
+    printf '# mogo playwright browser cache\n'
     printf '# generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     printf '# source image: %s\n' "${image}"
     printf 'playwright_version=%s\n' "${version}"
@@ -269,7 +269,7 @@ cmd_fetch() {
   local browser_dirs
   browser_dirs="$(find "${BROWSERS_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | paste -sd ',' -)"
   {
-    printf '# movo playwright browser cache\n'
+    printf '# mogo playwright browser cache\n'
     printf '# generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     printf '# source: %s (playwright %s)\n' "${PLAYWRIGHT_DOWNLOAD_HOST}" "${version}"
     printf 'playwright_version=%s\n' "${version}"

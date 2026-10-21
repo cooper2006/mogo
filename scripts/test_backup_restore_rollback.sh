@@ -106,8 +106,7 @@ assert_file_exists() {
 
 # ── setup ────────────────────────────────────────────────────────────────
 MOGO_VERSION="abc1234"
-MOGO_VERSION="abc1234"
-export MOGO_VERSION MOGO_VERSION
+export MOGO_VERSION
 
 tmp_parent="$(mktemp -d)"
 trap 'rm -rf "${tmp_parent}"' EXIT
@@ -188,8 +187,7 @@ echo "=== 4. rollback ==="
 calls=()
 
 MOGO_VERSION="def5678"
-MOGO_VERSION="def5678"
-export MOGO_VERSION MOGO_VERSION
+export MOGO_VERSION
 mogo_configure_images false
 
 found_new=0
@@ -206,8 +204,7 @@ fi
 
 calls=()
 MOGO_VERSION="abc1234"
-MOGO_VERSION="abc1234"
-export MOGO_VERSION MOGO_VERSION
+export MOGO_VERSION
 mogo_configure_images false
 
 found_rollback=0
