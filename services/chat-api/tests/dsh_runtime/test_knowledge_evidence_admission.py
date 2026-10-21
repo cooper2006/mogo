@@ -20,13 +20,13 @@ def test_rejects_low_score_tail_from_an_unrelated_document() -> None:
         _item("token-report", 0.39212327124471413),
         _item("token-report", 0.2485870671359841),
         _item("token-report", 0.19698542092259758),
-        _item("movo-acceptance", 0.005949579483329656),
+        _item("mogo-acceptance", 0.005949579483329656),
     ]
 
     decision = admit_knowledge_evidence(candidates)
 
     assert [item["documentId"] for item in decision.admitted] == ["token-report"] * 4
-    assert [item["documentId"] for item in decision.rejected] == ["movo-acceptance"]
+    assert [item["documentId"] for item in decision.rejected] == ["mogo-acceptance"]
     assert decision.strategy == "scored_adaptive"
 
 

@@ -14,7 +14,7 @@ dependency graph is represented by the checked-in CycloneDX inventory at
 `../sbom.cdx.json`.
 
 The npm `0.1.6-alpha.1` metadata does not publish a verified source mapping.
-MOVO therefore treats the npm integrity hash as the deployable artifact
+MOGO therefore treats the npm integrity hash as the deployable artifact
 identity and the Git commit as a separate reviewed-source baseline. They must
 not be claimed as a verified source/binary correspondence without new upstream
 evidence.

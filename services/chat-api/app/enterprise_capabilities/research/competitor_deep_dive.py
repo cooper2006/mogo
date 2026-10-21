@@ -341,7 +341,7 @@ class DeepDiveOrchestrator:
         self,
         *,
         competitor_name: str,
-        our_product: str = "movo",
+        our_product: str = "mogo",
         industry: str = "",
         time_window: str = "last 12 months",
         depth: str = "deep",

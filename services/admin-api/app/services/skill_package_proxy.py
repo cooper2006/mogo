@@ -14,7 +14,7 @@ from app.core.config import settings
 
 
 def install_organization_skill_zip(*, tenant_id: str, filename: str, content: bytes, confirm_replace: bool = False) -> dict[str, Any]:
-    boundary = f"movo-skill-{uuid.uuid4().hex}"
+    boundary = f"mogo-skill-{uuid.uuid4().hex}"
     safe_name = str(filename or "skill.zip").replace('"', "_").replace("\r", "_").replace("\n", "_")
     body = b"".join([
         f"--{boundary}\r\n".encode(),

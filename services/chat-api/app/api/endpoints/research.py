@@ -29,7 +29,7 @@ router = APIRouter(dependencies=[Depends(require_end_user_principal)])
 
 class CompetitorDeepDiveRequest(BaseModel):
     competitor_name: str = Field(min_length=1, max_length=160)
-    our_product: str = Field(default="movo", max_length=80)
+    our_product: str = Field(default="mogo", max_length=80)
     industry: str = Field(default="", max_length=120)
     time_window: str = Field(default="last 12 months", max_length=80)
     depth: str = Field(default="deep", max_length=40)

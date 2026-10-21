@@ -1,4 +1,4 @@
-schema_version: movo.dsh-compatibility-matrix.v1
+schema_version: mogo.dsh-compatibility-matrix.v1
 active_release:
   dsh_release_train: 0.2.1-rc.2
   node_runtime: "^22.19.0 || >=24.0.0"

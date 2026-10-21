@@ -243,7 +243,7 @@ class SkillShareService:
     @staticmethod
     def _package_source(row: dict[str, Any]) -> dict[str, Any]:
         source = {
-            "kind": "movo_share",
+            "kind": "mogo_share",
             "mode": str(row.get("mode") or "link"),
             "shareId": str(row["_id"]),
             "sourceSkillId": str(row["source_skill_id"]),

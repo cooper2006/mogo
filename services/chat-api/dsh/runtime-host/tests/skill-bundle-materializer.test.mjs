@@ -9,7 +9,7 @@ import { zipSync, strToU8 } from 'fflate'
 import { SkillBundleMaterializer } from '../src/skill-bundle-materializer.mjs'
 
 test('materializes an immutable nested Skill bundle for DSH directory resources', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-skill-bundle-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-skill-bundle-'))
   const archive = Buffer.from(zipSync({
     'sample/SKILL.md': strToU8('---\nname: sample\ndescription: Sample\n---\nBody'),
     'sample/references/a.txt': strToU8('resource'),
@@ -27,7 +27,7 @@ test('materializes an immutable nested Skill bundle for DSH directory resources'
 })
 
 test('rejects a bundle whose immutable digest does not match', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-skill-bundle-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-skill-bundle-'))
   try {
     await assert.rejects(
       new SkillBundleMaterializer(root).materialize({

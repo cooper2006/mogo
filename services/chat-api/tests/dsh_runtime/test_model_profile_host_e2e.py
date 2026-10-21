@@ -228,7 +228,7 @@ async def _test_real_dsh_uses_default_and_explicit_immutable_model_profiles(tmp_
                 if block["type"] == "text" and str(block["text"]).startswith("Current runtime context.")
             ]
             assert snapshots
-            assert "Trusted time context supplied by MOVO" in snapshots[-1]
+            assert "Trusted time context supplied by MOGO" in snapshots[-1]
             assert "User timezone: UTC" in snapshots[-1]
 
         error_session = handles[0][1]

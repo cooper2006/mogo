@@ -1038,7 +1038,7 @@ class UserSkillService:
         updates["skill_contract"] = contract
         updates["skill_contract_version"] = str(contract.get("version") or "v1")
         updates["skill_lint_warnings"] = list(contract.get("lint_warnings") or [])
-        if str((current.get("package_source") or {}).get("kind") or "") == "movo_share":
+        if str((current.get("package_source") or {}).get("kind") or "") == "mogo_share":
             updates["locally_modified"] = True
         updates["updated_at"] = datetime.datetime.now(tz=datetime.timezone.utc)
         await db.user_skills.update_one(

@@ -82,7 +82,7 @@ async def handle_webhook(
     msg = _router.route(channel, payload)
     # 013 FR-10: persist the conversation <-> session binding (first binder
     # wins, FR-14) so a restart does not lose the 1:1 mapping.
-    session_ref = str(payload.get("session_id") or payload.get("movoSessionId") or "")
+    session_ref = str(payload.get("session_id") or payload.get("mogoSessionId") or "")
     if session_ref:
         await _bindings.bind(
             channel=msg.channel,

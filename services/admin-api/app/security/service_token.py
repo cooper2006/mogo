@@ -397,7 +397,11 @@ def service_token_headers(token: str) -> dict[str, str]:
 
 
 #: FastAPI 参数注解：直接注入 ``X-MOGO-Service-Token`` 请求头原始值。
-ServiceTokenHeader = Annotated[str, Header(default="", alias=SERVICE_TOKEN_HEADER)]
+#:
+#: 默认值只写在调用点的 ``= ""`` 上：FastAPI 0.141 起禁止在 ``Annotated`` 内给出
+#: ``Header(default=...)``（会抛 ``Header default value cannot be set in Annotated``），
+#: 默认值必须用 ``=`` 形式提供。
+ServiceTokenHeader = Annotated[str, Header(alias=SERVICE_TOKEN_HEADER)]
 
 __all__ = [
     "DEFAULT_LEEWAY_SECONDS",

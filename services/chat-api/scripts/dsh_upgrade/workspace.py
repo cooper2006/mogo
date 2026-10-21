@@ -78,7 +78,7 @@ class ReleasedWorkspace:
         if archive.returncode != 0:
             message = archive.stderr.decode("utf-8", errors="replace").strip()
             raise ValueError(f"cannot materialize rollback source {self.source_ref}: {message}")
-        self._temporary = tempfile.TemporaryDirectory(prefix="movo-dsh-release-")
+        self._temporary = tempfile.TemporaryDirectory(prefix="mogo-dsh-release-")
         root = Path(self._temporary.name)
         with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as bundle:
             for member in bundle.getmembers():

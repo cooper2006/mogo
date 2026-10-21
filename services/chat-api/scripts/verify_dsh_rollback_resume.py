@@ -40,7 +40,7 @@ def configured_rollback_release(chat_api_root: Path) -> tuple[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("baseline", nargs="?", help="exact DSH version used by the rollback release")
-    parser.add_argument("--source-ref", help="immutable MOVO ref containing the released Runtime Host")
+    parser.add_argument("--source-ref", help="immutable MOGO ref containing the released Runtime Host")
     parser.add_argument("--node", default="node")
     parser.add_argument("--pnpm", default="pnpm")
     args = parser.parse_args()

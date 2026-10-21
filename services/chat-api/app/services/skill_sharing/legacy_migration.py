@@ -42,7 +42,7 @@ class LegacySkillShareMigration:
         }).to_list(length=10_000)
         for skill in skills:
             source = dict(skill.get("package_source") or {})
-            if source.get("kind") != "movo_share" or source.get("distributionId"):
+            if source.get("kind") != "mogo_share" or source.get("distributionId"):
                 continue
             share_id = str(source.get("shareId") or "")
             share = await db.skill_shares.find_one({"_id": share_id, "tenant_id": tenant_id})

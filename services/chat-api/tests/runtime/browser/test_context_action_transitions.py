@@ -12,17 +12,17 @@ def test_completed_plan_is_exposed_as_atomic_context_transitions() -> None:
         elements=[{"ref": "search", "role": "searchbox", "editable": True}],
     )
     after = Observation(
-        url="https://www.baidu.com/s?wd=MOVO",
-        title="MOVO_百度搜索",
+        url="https://www.baidu.com/s?wd=MOGO",
+        title="MOGO_百度搜索",
         revision="r2",
         elements=[
-            {"ref": "r1", "role": "link", "href": "https://www.himovo.com/"},
+            {"ref": "r1", "role": "link", "href": "https://www.mogo.example/"},
             {"ref": "r2", "role": "link", "href": "https://example.com/"},
         ],
     )
     decision = Decision("browser_execute_plan", {
         "actions": [
-            {"tool": "browser_fill", "args": {"ref": "search", "value": "MOVO"}},
+            {"tool": "browser_fill", "args": {"ref": "search", "value": "MOGO"}},
             {"tool": "browser_press", "args": {"ref": "search", "key": "Enter"}},
         ],
     })
@@ -50,11 +50,11 @@ def test_completed_plan_is_exposed_as_atomic_context_transitions() -> None:
         lang="zh",
         node=CapabilityTask(
             node_id="browser",
-            goal="在百度搜索 MOVO 官网并打开结果",
+            goal="在百度搜索 MOGO 官网并打开结果",
             assigned_agent="agent.browser",
         ),
-        goal="在百度搜索 MOVO 官网并打开结果",
-        original_user_request="在百度搜索 MOVO 官网并打开结果",
+        goal="在百度搜索 MOGO 官网并打开结果",
+        original_user_request="在百度搜索 MOGO 官网并打开结果",
     )
     for item in transitions:
         context.after_transition(item.transition, item.result, item.ok, error=item.error)

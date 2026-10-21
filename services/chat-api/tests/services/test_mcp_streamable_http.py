@@ -92,7 +92,7 @@ def test_streamable_http_uses_negotiated_version_and_matches_sse_response_id():
         StreamableHttpMcpClient(
             endpoint="https://mcp.example.test/mcp",
             transport=httpx.MockTransport(handler),
-        ).call("tools/call", {"name": "search", "arguments": {"q": "MOVO"}})
+        ).call("tools/call", {"name": "search", "arguments": {"q": "MOGO"}})
     )
 
     assert result["content"][0]["text"] == "ok"

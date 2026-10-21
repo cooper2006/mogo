@@ -31,7 +31,7 @@ from app.enterprise_capabilities.content.invocation_contract import ResolvedCont
 
 @pytest.fixture(autouse=True)
 def _no_hook_rules_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tool-gateway tests assert the MOVO policy; the 009 hook defaults to "no rules".
+    """Tool-gateway tests assert the MOGO policy; the 009 hook defaults to "no rules".
 
     The real ``run_pre_tool_use`` queries Mongo; keep it out of these tests unless
     a test explicitly re-patches it (the two ``pre_tool_use`` tests below do).

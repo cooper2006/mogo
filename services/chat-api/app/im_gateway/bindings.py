@@ -142,10 +142,7 @@ def _row_to_binding(row: dict) -> ImSessionBinding:
     return ImSessionBinding(
         channel=str(row.get("channel") or ""),
         channel_conversation_id=str(row.get("channel_conversation_id") or ""),
-        # 读旧键兼容：历史行用 "movo_session_id" 写入（品牌迁移前）。
-        mogo_session_id=str(
-            row.get("mogo_session_id") or row.get("movo_session_id") or ""
-        ),
+        mogo_session_id=str(row.get("mogo_session_id") or ""),
         tenant_id=str(row.get("tenant_id") or "default"),
         initiated_by=str(row.get("initiated_by") or ""),
         read_only=bool(row.get("read_only") or False),

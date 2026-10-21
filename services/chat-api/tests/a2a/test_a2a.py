@@ -148,7 +148,7 @@ def test_response_shape_with_error() -> None:
     assert payload["error"]["code"] == ERROR_INVALID_PARAMS
 
 
-def test_rpc_error_from_denial_maps_to_movo_code() -> None:
+def test_rpc_error_from_denial_maps_to_mogo_code() -> None:
     error = rpc_error_from_denial(layer="rbac", reason="no code", status_code=403)
     assert error.code == ERROR_MOGO_DENIED
     assert error.data["layer"] == "rbac"

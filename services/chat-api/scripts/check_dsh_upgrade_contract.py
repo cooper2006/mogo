@@ -156,7 +156,7 @@ def validate_candidate(candidate: dict[str, Any], matrix: dict[str, Any]) -> Non
 
 def validate_repository() -> None:
     matrix = yaml.safe_load(MATRIX_PATH.read_text(encoding="utf-8"))
-    if matrix.get("schema_version") != "movo.dsh-compatibility-matrix.v1":
+    if matrix.get("schema_version") != "mogo.dsh-compatibility-matrix.v1":
         raise ValueError("unsupported DSH compatibility matrix schema")
     policy = matrix["upgrade_policy"]
     required_policy = {
@@ -226,7 +226,7 @@ def validate_repository() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Admit a bundled DSH release against MOVO's versioned contracts.")
+    parser = argparse.ArgumentParser(description="Admit a bundled DSH release against MOGO's versioned contracts.")
     parser.add_argument("--candidate", type=Path, help="optional JSON candidate inventory produced by the contract suite")
     args = parser.parse_args()
     matrix = yaml.safe_load(MATRIX_PATH.read_text(encoding="utf-8"))

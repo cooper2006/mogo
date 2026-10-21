@@ -32,7 +32,7 @@ test('ASKAI provider exposes immutable DSH candidates and bodies', async () => {
 })
 
 test('bundled Skill resources are exposed through the provider-managed reader', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'movo-provider-resource-'))
+  const root = await mkdtemp(join(tmpdir(), 'mogo-provider-resource-'))
   const archive = Buffer.from(zipSync({
     'foshan/SKILL.md': strToU8('# Foshan'),
     'foshan/assets/contacts.json': strToU8('{"phone":"0757-123456"}'),

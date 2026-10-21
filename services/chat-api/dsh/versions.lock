@@ -1,4 +1,4 @@
-# MOVO DSH dependency lock policy (format 1)
+# MOGO DSH dependency lock policy (format 1)
 # Updated for the admitted DSH 0.2.1-rc.2 train on 2026-10-17 (dsh-invariants 保留 0.2.0-rc.2，见下).
 # This file records approved direct artifacts; pnpm-lock.yaml and the SBOM pin
 # the resolved graph, and the release gate rejects a mixed DSH release train.

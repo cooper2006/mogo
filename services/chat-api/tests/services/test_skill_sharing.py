@@ -125,7 +125,7 @@ def test_generated_skill_share_installs_an_independent_profile(monkeypatch):
     assert recipient["config"] == {"styleNotes": "Use verified facts"}
     assert is_writing_style(recipient) is True
     assert recipient["visibility"] == "private"
-    assert recipient["package_source"]["kind"] == "movo_share"
+    assert recipient["package_source"]["kind"] == "mogo_share"
     assert db.user_skills.rows["source"]["user_id"] == "owner"
     repeated = asyncio.run(service.install(
         tenant_id="tenant", recipient_user_id="recipient", token=created["token"],

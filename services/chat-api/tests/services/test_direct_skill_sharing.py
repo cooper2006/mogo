@@ -238,7 +238,7 @@ def test_recipient_accepts_independent_copy_and_cannot_cross_tenant(monkeypatch)
     recipient_skill = next(row for row in db.user_skills.rows.values() if row.get("user_id") == "alice")
     assert recipient_skill["visibility"] == "private"
     assert recipient_skill["config"] == {"tone": "clear"}
-    assert recipient_skill["package_source"]["kind"] == "movo_share"
+    assert recipient_skill["package_source"]["kind"] == "mogo_share"
     assert recipient_skill["package_source"]["mode"] == "direct"
     assert recipient_skill["package_source"]["sender"]["displayName"] == "Owner"
     assert db.skill_share_deliveries.rows[delivery_id]["status"] == "accepted"
