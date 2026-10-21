@@ -36,7 +36,7 @@ async function connect() {
       <div class="flex flex-col justify-between bg-[#173f9f] p-10 text-white md:p-12">
         <div>
           <div class="mb-10 flex h-14 w-16 items-center justify-center rounded-2xl border border-white/25 bg-white/10" aria-hidden="true">
-            <img src="/movo-logo.png" alt="" class="h-10 w-12 object-contain" />
+            <img src="/mogo-logo.png" alt="" class="h-10 w-12 object-contain" />
           </div>
           <p class="text-xs font-semibold uppercase tracking-[0.22em] text-blue-100">MOGO Desktop</p>
           <h1 class="mt-4 text-3xl font-semibold leading-tight">{{ t('desktop.server.title') }}</h1>
@@ -59,7 +59,7 @@ async function connect() {
           v-model:value="address"
           size="large"
           class="mt-2"
-          placeholder="https://movo.company.com"
+          placeholder="https://mogo.company.com"
           :disabled="connecting"
           :input-props="{ spellcheck: false, autocomplete: 'url', inputmode: 'url' }"
         />

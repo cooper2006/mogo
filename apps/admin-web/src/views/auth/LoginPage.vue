@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-panel">
       <div class="login-copy">
-        <img class="login-logo" :src="movoLogo" alt="MOVO" />
+        <img class="login-logo" :src="mogoLogo" alt="MOGO" />
         <h1>{{ t('墨攻智能体控制台') }}</h1>
         <p>
           {{ t('管理组织、模型与流程配置，确保平台运行稳定、可控、可追踪。') }}
@@ -69,7 +69,7 @@ import { useMessage } from 'naive-ui';
 import { login, selectTenantLogin, type TenantCandidate } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth';
 import { t } from '@/composables/i18n';
-import movoLogo from '@/assets/images/movo-logo.png';
+import mogoLogo from '@/assets/images/mogo-logo.png';
 
 const router = useRouter();
 const message = useMessage();

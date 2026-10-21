@@ -113,8 +113,8 @@ function event(overrides: Partial<ExecutionEventV3>): ExecutionEventV3 {
   assert.equal(resolveArtifactKind({ kind: 'document' }), 'generic')
   assert.equal(resolveArtifactKind({
     type: 'presentation_preview_bundle',
-    filename: 'presentation_preview_v5_MOVO.html',
-    object_path: 'files/presentation_preview_v5_MOVO.html',
+    filename: 'presentation_preview_v5_MOGO.html',
+    object_path: 'files/presentation_preview_v5_MOGO.html',
   }), 'presentation_preview_bundle')
   assert.equal(resolveArtifactKind({
     kind: 'presentation_preview_bundle',

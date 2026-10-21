@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-panel">
       <div class="login-copy">
-        <img class="login-logo" :src="movoLogo" alt="MOVO" />
+        <img class="login-logo" :src="mogoLogo" alt="MOGO" />
         <h1>{{ t('平台控制台') }}</h1>
         <p>{{ t('仅平台超级管理员可访问，用于管理各企业租户的生命周期。') }}</p>
       </div>
@@ -42,7 +42,7 @@ import { useMessage } from 'naive-ui';
 import { login } from '@/api/auth';
 import { PLATFORM_TENANT_ID, useAuthStore } from '@/stores/auth';
 import { t } from '@/composables/i18n';
-import movoLogo from '@/assets/images/movo-logo.png';
+import mogoLogo from '@/assets/images/mogo-logo.png';
 
 const router = useRouter();
 const message = useMessage();

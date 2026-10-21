@@ -135,9 +135,9 @@ async function submit() {
     </div>
 
     <div v-if="showTenantSelector" class="space-y-2">
-      <label for="movo-register-tenant" class="text-sm font-medium text-slate-700">{{ t('login.register_org_label') }}</label>
+      <label for="mogo-register-tenant" class="text-sm font-medium text-slate-700">{{ t('login.register_org_label') }}</label>
       <select
-        id="movo-register-tenant"
+        id="mogo-register-tenant"
         v-model="selectedTenantId"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         @change="resetError"
@@ -154,9 +154,9 @@ async function submit() {
     </div>
 
     <div v-if="departments.length > 1" class="space-y-2">
-      <label for="movo-register-department" class="text-sm font-medium text-slate-700">{{ t('login.register_department_label') }}</label>
+      <label for="mogo-register-department" class="text-sm font-medium text-slate-700">{{ t('login.register_department_label') }}</label>
       <select
-        id="movo-register-department"
+        id="mogo-register-department"
         v-model="selectedDepartmentId"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         @change="resetError"
@@ -169,66 +169,66 @@ async function submit() {
     </div>
 
     <div class="space-y-2">
-      <label for="movo-register-nickname" class="text-sm font-medium text-slate-700">{{ t('login.register_nickname_label') }}</label>
+      <label for="mogo-register-nickname" class="text-sm font-medium text-slate-700">{{ t('login.register_nickname_label') }}</label>
       <input
-        id="movo-register-nickname"
+        id="mogo-register-nickname"
         v-model="nickname"
         type="text"
         autocomplete="nickname"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         :placeholder="t('login.register_nickname_placeholder')"
-        :aria-describedby="errorMessage ? 'movo-register-error' : undefined"
+        :aria-describedby="errorMessage ? 'mogo-register-error' : undefined"
         :aria-invalid="!!errorMessage"
         @input="resetError"
       />
     </div>
 
     <div class="space-y-2">
-      <label for="movo-register-email" class="text-sm font-medium text-slate-700">{{ t('login.register_email_label') }}</label>
+      <label for="mogo-register-email" class="text-sm font-medium text-slate-700">{{ t('login.register_email_label') }}</label>
       <input
-        id="movo-register-email"
+        id="mogo-register-email"
         v-model="email"
         type="email"
         autocomplete="email"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         :placeholder="t('login.register_email_placeholder')"
-        :aria-describedby="errorMessage ? 'movo-register-error' : undefined"
+        :aria-describedby="errorMessage ? 'mogo-register-error' : undefined"
         :aria-invalid="!!errorMessage"
         @input="resetError"
       />
     </div>
 
     <div class="space-y-2">
-      <label for="movo-register-password" class="text-sm font-medium text-slate-700">{{ t('login.register_password_label') }}</label>
+      <label for="mogo-register-password" class="text-sm font-medium text-slate-700">{{ t('login.register_password_label') }}</label>
       <input
-        id="movo-register-password"
+        id="mogo-register-password"
         v-model="password"
         type="password"
         autocomplete="new-password"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         :placeholder="t('login.register_password_placeholder')"
-        :aria-describedby="errorMessage ? 'movo-register-error' : undefined"
+        :aria-describedby="errorMessage ? 'mogo-register-error' : undefined"
         :aria-invalid="!!errorMessage"
         @input="resetError"
       />
     </div>
 
     <div class="space-y-2">
-      <label for="movo-register-confirm" class="text-sm font-medium text-slate-700">{{ t('login.register_confirm_label') }}</label>
+      <label for="mogo-register-confirm" class="text-sm font-medium text-slate-700">{{ t('login.register_confirm_label') }}</label>
       <input
-        id="movo-register-confirm"
+        id="mogo-register-confirm"
         v-model="confirmPassword"
         type="password"
         autocomplete="new-password"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none transition-colors focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         :placeholder="t('login.register_confirm_placeholder')"
-        :aria-describedby="errorMessage ? 'movo-register-error' : undefined"
+        :aria-describedby="errorMessage ? 'mogo-register-error' : undefined"
         :aria-invalid="!!errorMessage"
         @input="resetError"
       />
     </div>
 
-    <p v-if="errorMessage" id="movo-register-error" role="alert" class="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
+    <p v-if="errorMessage" id="mogo-register-error" role="alert" class="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-600">
       {{ errorMessage }}
     </p>
 

@@ -3,7 +3,7 @@
     <div class="setup-panel">
       <header class="setup-copy">
         <div class="brand-mark">
-          <img :src="movoLogo" alt="MOVO" />
+          <img :src="mogoLogo" alt="MOGO" />
         </div>
         <div>
           <div class="eyebrow">MOGO PLATFORM SETUP</div>
@@ -60,7 +60,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useMessage } from 'naive-ui';
 import axios from 'axios';
-import movoLogo from '@/assets/images/movo-logo.png';
+import mogoLogo from '@/assets/images/mogo-logo.png';
 import { createPlatformAdmin } from '@/api/setup';
 import SetupCompleteStep from '@/components/setup/SetupCompleteStep.vue';
 import SetupDeploymentStatus from '@/components/setup/SetupDeploymentStatus.vue';

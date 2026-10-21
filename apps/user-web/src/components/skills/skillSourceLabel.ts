@@ -4,7 +4,7 @@ import { t } from '../../composables/i18n'
 export function skillSourceLabel(skill: SkillItem): string {
   const source = skill.packageSource
   if (!source?.kind) return ''
-  if (source.kind === 'movo_share') {
+  if (source.kind === 'mogo_share') {
     const sender = source.sender?.displayName || source.sender?.username || ''
     return sender
       ? t('skills.detail.source_shared_by', { name: sender })

@@ -91,9 +91,9 @@ async function submit() {
 <template>
   <form class="space-y-4" @submit.prevent="submit">
     <div class="space-y-2">
-      <label for="movo-login-username" class="text-sm font-medium text-slate-700">{{ t('login.username_label') }}</label>
+      <label for="mogo-login-username" class="text-sm font-medium text-slate-700">{{ t('login.username_label') }}</label>
       <input
-        id="movo-login-username"
+        id="mogo-login-username"
         v-model="username"
         type="text"
         autocomplete="username"
@@ -105,9 +105,9 @@ async function submit() {
     </div>
 
     <div class="space-y-2">
-      <label for="movo-login-password" class="text-sm font-medium text-slate-700">{{ t('login.password_label') }}</label>
+      <label for="mogo-login-password" class="text-sm font-medium text-slate-700">{{ t('login.password_label') }}</label>
       <input
-        id="movo-login-password"
+        id="mogo-login-password"
         v-model="password"
         type="password"
         autocomplete="current-password"
@@ -119,9 +119,9 @@ async function submit() {
     </div>
 
     <div v-if="pendingSelection" class="space-y-2">
-      <label for="movo-login-tenant" class="text-sm font-medium text-slate-700">{{ t('login.select_org_label') }}</label>
+      <label for="mogo-login-tenant" class="text-sm font-medium text-slate-700">{{ t('login.select_org_label') }}</label>
       <select
-        id="movo-login-tenant"
+        id="mogo-login-tenant"
         v-model="selectedTenantId"
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         @change="resetError"

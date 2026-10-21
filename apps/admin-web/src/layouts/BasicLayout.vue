@@ -11,7 +11,7 @@
       style="backdrop-filter: blur(16px);"
     >
       <div class="brand-block" :class="{ compact: collapsed }">
-        <img class="brand-logo" :src="movoLogo" alt="墨攻" />
+        <img class="brand-logo" :src="mogoLogo" alt="墨攻" />
         <span v-if="!collapsed" class="brand-name">墨攻</span>
       </div>
       <n-menu
@@ -144,7 +144,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { appRoutes } from '@/router/routes';
 import { useMenuOptions } from '@/composables/useMenuOptions';
 import { useAuthStore } from '@/stores/auth';
-import movoLogo from '@/assets/images/movo-logo.png';
+import mogoLogo from '@/assets/images/mogo-logo.png';
 import { resolveAdminAssetUrlWithVersion } from '@/composables/adminAsset';
 import { isLocale, useLocale, t } from '@/composables/i18n';
 import { displayAdminName, isMobileLike } from '@/composables/privacy';

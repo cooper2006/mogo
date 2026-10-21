@@ -117,7 +117,7 @@ async function onAgentAction(action: 'start' | 'stop' | 'restart') {
         <n-form-item v-if="capabilities.isDesktop" :label="t('settings.service_url')" :show-feedback="false">
           <n-input
             v-model:value="serviceAddress"
-            placeholder="https://movo.company.com"
+            placeholder="https://mogo.company.com"
             :input-props="{ spellcheck: false, autocomplete: 'off' }"
             style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px"
           />

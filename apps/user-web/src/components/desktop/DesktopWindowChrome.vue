@@ -52,7 +52,7 @@ const emit = defineEmits<{
   <header class="desktop-window-chrome" aria-label="Desktop window header">
     <div class="desktop-window-chrome__sidebar">
       <span class="desktop-window-chrome__brand">
-        <img src="/movo-logo.png" alt="" />
+        <img src="/mogo-logo.png" alt="" />
         <span>MOGO</span>
       </span>
     </div>

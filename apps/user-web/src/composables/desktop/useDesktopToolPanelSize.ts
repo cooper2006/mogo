@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 
-const WIDTH_KEY = 'movo.desktop-tool-panel-width'
+const WIDTH_KEY = 'mogo.desktop-tool-panel-width'
 const LEGACY_BROWSER_RATIO_KEY = 'askai.browser-pane-ratio'
 const DEFAULT_WIDTH = 720
 const MIN_WIDTH = 520

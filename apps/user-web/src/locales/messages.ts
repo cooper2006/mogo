@@ -224,7 +224,7 @@ export const messages = {
   'desktop.server.connect_heading': { zh: '输入企业服务地址', en: 'Enter the enterprise service address' },
   'desktop.server.hint': { zh: '请向企业管理员获取初始化完成后的访问地址。系统会自动识别 API 和 Agent 连接地址。', en: 'Ask your administrator for the initialized deployment address. MOGO will derive the API and Agent endpoints automatically.' },
   'desktop.server.address': { zh: '企业服务地址', en: 'Enterprise service address' },
-  'desktop.server.example': { zh: '例如：https://movo.company.com；内网部署也可以使用 IP 和端口。', en: 'Example: https://movo.company.com. Private IP addresses and ports are also supported.' },
+  'desktop.server.example': { zh: '例如：https://mogo.company.com；内网部署也可以使用 IP 和端口。', en: 'Example: https://mogo.company.com. Private IP addresses and ports are also supported.' },
   'desktop.server.connect': { zh: '验证并连接', en: 'Verify and connect' },
   'desktop.server.validating': { zh: '正在验证企业服务…', en: 'Verifying enterprise service…' },
   'desktop.server.saved': { zh: '连接成功后会自动保存，后续启动无需再次配置。', en: 'Once connected, this address is remembered for future launches.' },

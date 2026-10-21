@@ -62,7 +62,7 @@
     </div>
 
     <footer class="invite-brand-footer" aria-label="MOGO Brand">
-      <img class="invite-brand-logo" :src="movoLogo" alt="MOGO" />
+      <img class="invite-brand-logo" :src="mogoLogo" alt="MOGO" />
       <span class="brand-text">Powered by MOGO</span>
     </footer>
   </div>
@@ -74,7 +74,7 @@ import { useRoute } from 'vue-router';
 import axios from 'axios';
 import { acceptInviteLink, fetchInviteLinkDetail, type InviteLinkDetail } from '@/api/directory';
 import { t } from '@/composables/i18n';
-import movoLogo from '@/assets/images/movo-logo.png';
+import mogoLogo from '@/assets/images/mogo-logo.png';
 
 const route = useRoute();
 const state = ref<'loading' | 'ready' | 'success' | 'error'>('loading');
