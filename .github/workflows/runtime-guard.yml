@@ -16,19 +16,24 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # 仓库唯一权威的前端锁文件是 pnpm-lock.yaml（package-lock.json 已于
+      # ccd94a6 / QF-012 归档废弃）。npm ci 会因缺 lock 直接失败，统一改走 pnpm。
+      - uses: pnpm/action-setup@v6
+        with:
+          version: "10.14.0"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
+          cache: pnpm
           cache-dependency-path: |
-            apps/user-web/package-lock.json
-            apps/admin-web/package-lock.json
+            apps/user-web/pnpm-lock.yaml
+            apps/admin-web/pnpm-lock.yaml
       - name: Build user web
         working-directory: apps/user-web
-        run: npm ci && npm run typecheck && npm run build
+        run: pnpm install --frozen-lockfile && pnpm run typecheck && pnpm run build
       - name: Build admin web
         working-directory: apps/admin-web
-        run: npm ci --legacy-peer-deps && npm run build
+        run: pnpm install --frozen-lockfile && pnpm run build
 
   runtime-boundary-guard:
     runs-on: ubuntu-latest
