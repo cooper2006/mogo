@@ -36,7 +36,7 @@ def community_extension() -> AdminProductExtension:
 
 @lru_cache(maxsize=1)
 def get_admin_product_extension() -> AdminProductExtension:
-    module_name = (os.getenv("MOGO_ADMIN_PRODUCT_EXTENSION_MODULE", "") or os.getenv("MOVO_ADMIN_PRODUCT_EXTENSION_MODULE", "")).strip()
+    module_name = os.getenv("MOGO_ADMIN_PRODUCT_EXTENSION_MODULE", "").strip()
     if not module_name:
         return community_extension()
     module = importlib.import_module(module_name)

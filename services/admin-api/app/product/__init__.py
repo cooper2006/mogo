@@ -1,1 +1,1 @@
-"""Distribution extension boundary for the MOVO administration service."""
+"""Distribution extension boundary for the MOGO administration service."""

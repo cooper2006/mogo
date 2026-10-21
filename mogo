@@ -11,18 +11,18 @@ case "${1:-}" in
       printf 'Error: --lang requires zh-CN or en.\n' >&2
       exit 2
     fi
-    MOVO_LANG="$2"
+    MOGO_LANG="$2"
     shift 2
     ;;
   --lang=*)
-    MOVO_LANG="${1#*=}"
+    MOGO_LANG="${1#*=}"
     shift
     ;;
 esac
 
 # shellcheck source=deploy/cli/i18n.sh
 source "${ROOT_DIR}/deploy/cli/i18n.sh"
-movo_detect_locale
+mogo_detect_locale
 # shellcheck source=deploy/cli/dsh-version.sh
 source "${ROOT_DIR}/deploy/cli/dsh-version.sh"
 # shellcheck source=deploy/cli/images.sh
@@ -59,27 +59,27 @@ require_docker() {
     fi
   fi
   if ! command -v "${DOCKER_BIN}" >/dev/null 2>&1; then
-    movo_msg docker_missing >&2
+    mogo_msg docker_missing >&2
     exit 1
   fi
   if ! "${DOCKER_BIN}" compose version >/dev/null 2>&1; then
-    movo_msg compose_missing >&2
+    mogo_msg compose_missing >&2
     exit 1
   fi
   if ! "${DOCKER_BIN}" info >/dev/null 2>&1; then
-    movo_msg docker_stopped >&2
+    mogo_msg docker_stopped >&2
     exit 1
   fi
 }
 
 retire_legacy_compose_project() {
-  if [[ "${MOVO_MIGRATE_LEGACY_PROJECT:-false}" != "true" ]]; then
+  if [[ "${MOGO_MIGRATE_LEGACY_PROJECT:-false}" != "true" ]]; then
     return 0
   fi
   local legacy_containers=""
   legacy_containers="$("${DOCKER_BIN}" compose -p askai ps -q 2>/dev/null || true)"
   if [[ -n "${legacy_containers}" ]]; then
-    movo_msg migrating_project
+    mogo_msg migrating_project
     "${DOCKER_BIN}" compose -p askai down --remove-orphans
   fi
 }
@@ -116,7 +116,7 @@ refresh_dsh_lb_resolution() {
   # Best-effort: the LB ships a `nginx -t` healthcheck and `proxy_next_upstream`
   # covers a stale IP, so a failed reload must not abort the deploy.
   if ! mogo_compose exec -T dsh-runtime-host-lb nginx -s reload >/dev/null 2>&1; then
-    movo_msg dsh_lb_reload_failed >&2 || true
+    mogo_msg dsh_lb_reload_failed >&2 || true
   fi
 }
 
@@ -138,30 +138,30 @@ dotenv_value() {
 
 deployment_urls() {
   local configured_port configured_base
-  configured_port="${MOVO_PORT:-$(dotenv_value MOVO_PORT)}"
+  configured_port="${MOGO_PORT:-$(dotenv_value MOGO_PORT)}"
   if [[ -z "${configured_port}" ]]; then
     configured_port="${ASKAI_PORT:-$(dotenv_value ASKAI_PORT)}"
   fi
   configured_base="${PUBLIC_BASE_URL:-$(dotenv_value PUBLIC_BASE_URL)}"
-  MOVO_PORT="${configured_port:-3000}"
-  export MOVO_PORT
+  MOGO_PORT="${configured_port:-3000}"
+  export MOGO_PORT
 
   # Resolve the same gateway switch the compose file reads, so the address we
   # print matches the scheme the gateway actually serves. TLS is the default and
   # plain HTTP answers 301 to HTTPS for everything except /healthz, so printing
   # an `http://` URL on a TLS deployment just sends the user through a redirect
   # that lands on the wrong port. `PUBLIC_BASE_URL` still wins outright.
-  if movo_tls_is_enabled; then
-    MOVO_LOCAL_BASE="https://localhost"
-    MOVO_PUBLIC_BASE="${configured_base%/}"
-    if [[ -z "${MOVO_PUBLIC_BASE}" ]]; then
-      MOVO_PUBLIC_BASE="https://localhost"
+  if mogo_tls_is_enabled; then
+    MOGO_LOCAL_BASE="https://localhost"
+    MOGO_PUBLIC_BASE="${configured_base%/}"
+    if [[ -z "${MOGO_PUBLIC_BASE}" ]]; then
+      MOGO_PUBLIC_BASE="https://localhost"
     fi
   else
-    MOVO_LOCAL_BASE="http://127.0.0.1:${MOVO_PORT}"
-    MOVO_PUBLIC_BASE="${configured_base%/}"
-    if [[ -z "${MOVO_PUBLIC_BASE}" ]]; then
-      MOVO_PUBLIC_BASE="http://localhost:${MOVO_PORT}"
+    MOGO_LOCAL_BASE="http://127.0.0.1:${MOGO_PORT}"
+    MOGO_PUBLIC_BASE="${configured_base%/}"
+    if [[ -z "${MOGO_PUBLIC_BASE}" ]]; then
+      MOGO_PUBLIC_BASE="http://localhost:${MOGO_PORT}"
     fi
   fi
 }
@@ -170,7 +170,7 @@ status_is_ready() {
   # 经网关的路径带 /admin-api 前缀（由 nginx 路由剥掉），容器内直连 admin-api 则没有。
   local status_path="/admin-api/api/setup/status"
   local direct_path="/api/setup/status"
-  local status_url="${MOVO_LOCAL_BASE}${status_path}"
+  local status_url="${MOGO_LOCAL_BASE}${status_path}"
   local response=""
 
   # 网关启用 TLS（MOGO_NGINX_CONF 指向 deploy/nginx/nginx.conf）后，除 /healthz 之外的
@@ -199,22 +199,22 @@ status_is_ready() {
 
 wait_until_ready() {
   local attempt
-  movo_msg waiting
+  mogo_msg waiting
   for attempt in $(seq 1 90); do
     if status_is_ready; then
-      movo_msg done
+      mogo_msg done
       return 0
     fi
     printf '.'
     sleep 2
   done
-  movo_msg timeout >&2
+  mogo_msg timeout >&2
   return 1
 }
 
 show_ready_message() {
-  movo_msg ready_title
-  printf '  %s/admin/setup\n\n' "${MOVO_PUBLIC_BASE}"
+  mogo_msg ready_title
+  printf '  %s/admin/setup\n\n' "${MOGO_PUBLIC_BASE}"
 }
 
 # Default build tag when `MOGO_VERSION` is not set in the environment.
@@ -237,7 +237,7 @@ show_ready_message() {
 #
 # An explicit `MOGO_VERSION` in the environment still wins -- that is how the
 # release pipeline pins a version and how a developer builds an arbitrary ref.
-movo_default_version() {
+mogo_default_version() {
   git -C "${ROOT_DIR}" describe --tags --always 2>/dev/null \
     || git -C "${ROOT_DIR}" rev-parse --short HEAD
 }
@@ -249,7 +249,7 @@ movo_default_version() {
 #   2. MOGO_NGINX_CONF path (deploy/docker/nginx.conf → HTTP, else → TLS)
 #   3. default → HTTP (off)
 # TLS is off by default; set MOGO_TLS=1 to enable.
-movo_tls_is_enabled() {
+mogo_tls_is_enabled() {
   local nginx_conf tls_switch
   # Explicit MOGO_TLS switch takes precedence over the nginx conf path.
   tls_switch="${MOGO_TLS:-$(dotenv_value MOGO_TLS)}"
@@ -293,7 +293,7 @@ movo_tls_is_enabled() {
 # pointed at the HTTP side config, and a freshly generated pair is picked up by
 # restarting an already-running gateway (nginx reads the key only at startup,
 # and `compose up -d` will not recreate a container whose spec did not change).
-movo_ensure_tls_certs() {
+mogo_ensure_tls_certs() {
   local certs_dir fullchain privkey
   certs_dir="${MOGO_TLS_CERTS_DIR:-$(dotenv_value MOGO_TLS_CERTS_DIR)}"
 
@@ -303,7 +303,7 @@ movo_ensure_tls_certs() {
   fi
 
   # Only the HTTP side config runs without certificates.
-  if ! movo_tls_is_enabled; then
+  if ! mogo_tls_is_enabled; then
     return 0
   fi
 
@@ -314,12 +314,12 @@ movo_ensure_tls_certs() {
   fi
 
   if ! command -v openssl >/dev/null 2>&1; then
-    movo_msg tls_certs_missing_no_openssl "${certs_dir}" >&2
+    mogo_msg tls_certs_missing_no_openssl "${certs_dir}" >&2
     return 1
   fi
 
   mkdir -p "${certs_dir}"
-  movo_msg tls_generating_certs "${certs_dir}"
+  mogo_msg tls_generating_certs "${certs_dir}"
   if ! openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
       -keyout "${privkey}" -out "${fullchain}" \
       -subj "/CN=localhost" \
@@ -332,19 +332,19 @@ movo_ensure_tls_certs() {
         -keyout "${privkey}" -out "${fullchain}" \
         -subj "/CN=localhost" \
         >/dev/null 2>&1; then
-      movo_msg tls_cert_generation_failed "${certs_dir}" >&2
+      mogo_msg tls_cert_generation_failed "${certs_dir}" >&2
       return 1
     fi
-    movo_msg tls_cert_generated_without_san >&2
+    mogo_msg tls_cert_generated_without_san >&2
   fi
   # The gateway runs as UID 10001 and the directory is a bind mount, so 0644 is
   # what makes the key readable inside the container. See deploy/tls/README.md.
   chmod 0644 "${fullchain}" "${privkey}"
-  movo_msg tls_certs_generated "${certs_dir}"
+  mogo_msg tls_certs_generated "${certs_dir}"
 
   if [[ -n "$(mogo_compose ps -q gateway 2>/dev/null || true)" ]]; then
     if ! mogo_compose restart gateway >/dev/null 2>&1; then
-      movo_msg tls_gateway_restart_failed >&2
+      mogo_msg tls_gateway_restart_failed >&2
     fi
   fi
   return 0
@@ -353,10 +353,10 @@ movo_ensure_tls_certs() {
 # Verify the application images exist locally.
 #
 # The pure-registry deployment path is retired. The published GHCR packages are
-# named `ghcr.io/himovo/movo-<service>` while the reference this repository
-# generates is `ghcr.io/himovo/<service>`, so every registry pull fails with
+# named `ghcr.io/mogoai/mogo-<service>` while the reference this repository
+# generates is `ghcr.io/mogoai/<service>`, so every registry pull fails with
 # `error from registry: denied` (verified 2026-10-13) -- and
-# `movo_pull_images_serially` retries that forever, so a plain `./mogo up` used
+# `mogo_pull_images_serially` retries that forever, so a plain `./mogo up` used
 # to hang for minutes before dying.
 #
 # `./mogo up` without `--build` therefore runs strictly on local images: it uses
@@ -364,13 +364,13 @@ movo_ensure_tls_certs() {
 # missing ones instead of pretending a pull will work.
 #
 # Base images (mongo / redis / weaviate / nginx / alpine) are a separate, working
-# path and stay with `movo_prepare_base_images`, which honours
-# `MOVO_BASE_IMAGE_POLICY` for fully offline setups.
-movo_require_local_images() {
+# path and stay with `mogo_prepare_base_images`, which honours
+# `MOGO_BASE_IMAGE_POLICY` for fully offline setups.
+mogo_require_local_images() {
   local entry var reference
   local -a missing=()
 
-  for entry in "${MOVO_IMAGE_SERVICES[@]}"; do
+  for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
     var="${entry%%:*}"
     reference="${!var:-}"
     [[ -z "${reference}" ]] && continue
@@ -380,7 +380,7 @@ movo_require_local_images() {
   done
   # document-parser is shared by document-api and document-worker; only the
   # first carries the variable.
-  reference="${MOVO_DOCUMENT_API_IMAGE:-}"
+  reference="${MOGO_DOCUMENT_API_IMAGE:-}"
   if [[ -n "${reference}" ]] \
       && ! "${DOCKER_BIN}" image inspect "${reference}" >/dev/null 2>&1; then
     missing+=("${reference}")
@@ -389,9 +389,9 @@ movo_require_local_images() {
   if [[ "${#missing[@]}" -eq 0 ]]; then
     return 0
   fi
-  movo_msg local_images_missing "${#missing[@]}" >&2
+  mogo_msg local_images_missing "${#missing[@]}" >&2
   printf '  %s\n' "${missing[@]}" >&2
-  movo_msg local_images_missing_hint >&2
+  mogo_msg local_images_missing_hint >&2
   return 1
 }
 
@@ -401,55 +401,55 @@ command_up() {
   deployment_urls
   # Before anything expensive: a missing certificate used to surface only as a
   # gateway crash-loop after the whole stack had already been built/started.
-  movo_ensure_tls_certs
-  if movo_has_build_flag "$@"; then
+  mogo_ensure_tls_certs
+  if mogo_has_build_flag "$@"; then
     # Same rule as `./mogo build`: default the tag to the release tag so a bare
     # `./mogo up --build` never falls back to `latest`. An explicit
     # `MOGO_VERSION` in the environment still wins.
-    export MOGO_VERSION="${MOGO_VERSION:-$(movo_default_version)}"
-    movo_configure_images true
+    export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
+    mogo_configure_images true
   else
-    # No registry pull any more (see movo_require_local_images): the GHCR
+    # No registry pull any more (see mogo_require_local_images): the GHCR
     # reference this repository builds does not exist, and retrying it only
     # hangs. Use the same bare local names a source build produced, and resolve
     # the tag the same way so a bare `./mogo up` finds what `up --build` made.
-    export MOGO_VERSION="${MOGO_VERSION:-$(movo_default_version)}"
-    movo_configure_images true
-    movo_require_local_images || return 1
+    export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
+    mogo_configure_images true
+    mogo_require_local_images || return 1
   fi
   retire_legacy_compose_project
-  if movo_has_build_flag "$@"; then
-    movo_msg starting
-    movo_print_dsh_build_target
+  if mogo_has_build_flag "$@"; then
+    mogo_msg starting
+    mogo_print_dsh_build_target
     # $@ already carries --build here; only the pull policy is added. Base
     # images are resolved locally first so the build never re-downloads them.
     # `up --pull` takes a string policy (never), unlike `build --pull`.
-    movo_prepare_base_images || return 1
+    mogo_prepare_base_images || return 1
     if ! mogo_compose up -d --pull never "$@"; then
-      movo_msg start_failed >&2
+      mogo_msg start_failed >&2
       mogo_compose ps >&2 || true
-      movo_msg logs_hint >&2
+      mogo_msg logs_hint >&2
       return 1
     fi
   else
     # Base images are the only thing still pulled, and only the working
-    # Docker Hub path: MOVO_BASE_IMAGE_POLICY=local turns that off too.
-    movo_prepare_base_images || return 1
-    movo_msg starting
+    # Docker Hub path: MOGO_BASE_IMAGE_POLICY=local turns that off too.
+    mogo_prepare_base_images || return 1
+    mogo_msg starting
     if ! mogo_compose up -d --pull never "$@"; then
-      movo_msg start_failed >&2
+      mogo_msg start_failed >&2
       mogo_compose ps >&2 || true
-      movo_msg logs_hint >&2
+      mogo_msg logs_hint >&2
       return 1
     fi
   fi
   refresh_gateway_resolution
   wait_until_ready
-  movo_print_running_dsh_version
+  mogo_print_running_dsh_version
   # Housekeeping only after the new deployment is up and healthy: a failed
   # start must keep the previous release's images so it can still be rolled
   # back. `./mogo build` already does the same after a successful build.
-  if movo_has_build_flag "$@"; then
+  if mogo_has_build_flag "$@"; then
     prune_previous_release_images
     prune_dangling_images
   fi
@@ -510,7 +510,7 @@ prune_dangling_images() {
   after="$(docker_reclaimable_bytes)"
   if [[ -n "${before}" && -n "${after}" && "${after}" -lt "${before}" ]]; then
     reclaimed=$(( (before - after) / 1024 / 1024 ))
-    [[ "${reclaimed}" -gt 0 ]] && movo_msg pruned_dangling "${reclaimed}"
+    [[ "${reclaimed}" -gt 0 ]] && mogo_msg pruned_dangling "${reclaimed}"
   fi
 }
 
@@ -580,14 +580,14 @@ prune_previous_release_images() {
 
   # Both naming modes are swept: a source build tags bare service names
   # (chat-api:5aab407) while a registry deployment prefixes them
-  # (ghcr.io/himovo/chat-api:5aab407). Stale tags of either kind are residue.
-  for entry in "${MOVO_IMAGE_SERVICES[@]}"; do
+  # (ghcr.io/mogoai/chat-api:5aab407). Stale tags of either kind are residue.
+  for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
     service="${entry##*:}"
-    repos="${repos}${MOVO_EXPORTED_IMAGE_PREFIX:-}${service}"$'\n'
+    repos="${repos}${MOGO_EXPORTED_IMAGE_PREFIX:-}${service}"$'\n'
     repos="${repos}${service}"$'\n'
   done
   # document-parser is shared by two services and lives outside the array.
-  repos="${repos}${MOVO_EXPORTED_IMAGE_PREFIX:-}document-parser"$'\n'
+  repos="${repos}${MOGO_EXPORTED_IMAGE_PREFIX:-}document-parser"$'\n'
   repos="${repos}document-parser"$'\n'
 
   while IFS= read -r repo; do
@@ -615,7 +615,7 @@ prune_previous_release_images() {
     after="$(docker_reclaimable_bytes)"
     reclaimed=$(( (before - after) / 1024 / 1024 ))
     [[ "${reclaimed}" -lt 0 ]] && reclaimed=0
-    movo_msg pruned_previous_release "${removed}" "${reclaimed}"
+    mogo_msg pruned_previous_release "${removed}" "${reclaimed}"
   fi
 }
 
@@ -625,15 +625,15 @@ command_build() {
   # Default the image tag to the git **tag** so a bare `./mogo build` never
   # falls back to `latest` (which is untraceable and defeats rollback
   # comparison). An explicit `MOGO_VERSION` in the environment still wins.
-  export MOGO_VERSION="${MOGO_VERSION:-$(movo_default_version)}"
-  movo_configure_images true
-  movo_msg building
-  movo_print_dsh_build_target
+  export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
+  mogo_configure_images true
+  mogo_msg building
+  mogo_print_dsh_build_target
   # Reuse base images that OrbStack already holds and pull only what is truly
   # missing. `--pull` is deliberately omitted: it would force BuildKit to
   # re-resolve every base image upstream, which is what made each rebuild wait
   # on the network.
-  movo_prepare_base_images || return 1
+  mogo_prepare_base_images || return 1
   mogo_compose build "$@"
   # Rebuilding retags the same service names, which leaves the previous image
   # layers unreferenced (dangling). Left alone they accumulate on every build
@@ -645,13 +645,13 @@ command_update() {
   print_logo
   require_docker
   deployment_urls
-  movo_ensure_tls_certs
+  mogo_ensure_tls_certs
   # `update` was the pure-registry path: pull the newest published images and
   # roll the running containers onto them. That path is retired -- the GHCR
-  # reference this repository generates (`ghcr.io/himovo/<service>`) does not
-  # exist, so the pull fails and `movo_pull_images_serially` retries forever.
+  # reference this repository generates (`ghcr.io/mogoai/<service>`) does not
+  # exist, so the pull fails and `mogo_pull_images_serially` retries forever.
   # Rebuilding locally is the supported upgrade route now.
-  movo_msg update_registry_retired >&2
+  mogo_msg update_registry_retired >&2
   return 2
 }
 
@@ -673,13 +673,13 @@ case "${command}" in
   backup)
     require_docker
     deployment_urls
-    movo_configure_images false
-    movo_backup "${1:-}"
+    mogo_configure_images false
+    mogo_backup "${1:-}"
     ;;
   restore)
     require_docker
     if [[ -z "${1:-}" ]]; then
-      movo_usage >&2
+      mogo_usage >&2
       exit 2
     fi
     restore_confirmed=false
@@ -687,8 +687,8 @@ case "${command}" in
       [[ "${argument}" == "--yes" ]] && restore_confirmed=true
     done
     deployment_urls
-    movo_configure_images false
-    movo_restore "$1" "${restore_confirmed}"
+    mogo_configure_images false
+    mogo_restore "$1" "${restore_confirmed}"
     ;;
   status)
     require_docker
@@ -702,7 +702,7 @@ case "${command}" in
     print_logo
     require_docker
     deployment_urls
-    movo_ensure_tls_certs
+    mogo_ensure_tls_certs
     mogo_compose restart
     wait_until_ready
     show_ready_message
@@ -724,11 +724,11 @@ case "${command}" in
       if [[ "${confirmed}" != "true" ]]; then
         confirmation=""
         if [[ -t 0 ]]; then
-          movo_msg remove_confirm
+          mogo_msg remove_confirm
           read -r confirmation
         fi
-        if [[ "${confirmation}" != "MOVO" ]]; then
-          movo_msg remove_aborted >&2
+        if [[ "${confirmation}" != "MOGO" ]]; then
+          mogo_msg remove_aborted >&2
           exit 2
         fi
       fi
@@ -736,17 +736,17 @@ case "${command}" in
     mogo_compose down "${compose_down_args[@]}"
     retire_legacy_compose_project
     if [[ "${remove_volumes}" == "true" ]]; then
-      movo_msg stopped_removed
+      mogo_msg stopped_removed
     else
-      movo_msg stopped
+      mogo_msg stopped
     fi
     ;;
   help|-h|--help)
-    movo_usage
+    mogo_usage
     ;;
   *)
-    movo_msg unknown "${command}" >&2
-    movo_usage >&2
+    mogo_msg unknown "${command}" >&2
+    mogo_usage >&2
     exit 2
     ;;
 esac

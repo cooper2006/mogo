@@ -4,7 +4,7 @@ import test from 'node:test'
 import { compatibleSessionEvents } from '../src/official-host/event-compat.mjs'
 import { stableModelRequest } from '../src/official-host/model-request-compat.mjs'
 
-test('V3 compact assistant streams retain MOVO text deltas and completion', () => {
+test('V3 compact assistant streams retain MOGO text deltas and completion', () => {
   const completed = {
     type: 'assistant/message',
     seq: 12,
@@ -32,7 +32,7 @@ test('V3 compact assistant streams retain MOVO text deltas and completion', () =
   assert.equal(events.at(-1), completed)
 })
 
-test('V3 failed assistant attempts retain MOVO model failure events', () => {
+test('V3 failed assistant attempts retain MOGO model failure events', () => {
   const failed = {
     type: 'assistant/attempt',
     data: {
@@ -53,7 +53,7 @@ test('V3 failed assistant attempts retain MOVO model failure events', () => {
   assert.equal(events.at(-1), failed)
 })
 
-test('V3 in-history system nodes keep the MOVO Model Gateway envelope stable', () => {
+test('V3 in-history system nodes keep the MOGO Model Gateway envelope stable', () => {
   const user = { role: 'user', content: [{ type: 'text', text: 'question' }] }
   const request = stableModelRequest({
     messages: [

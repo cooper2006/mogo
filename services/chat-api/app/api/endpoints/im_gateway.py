@@ -87,7 +87,7 @@ async def handle_webhook(
         await _bindings.bind(
             channel=msg.channel,
             conversation_id=msg.channel_conversation_id,
-            movo_session_id=session_ref,
+            mogo_session_id=session_ref,
             tenant_id=tenant_id,
             initiator=str(payload.get("sender_id") or ""),
         )

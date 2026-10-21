@@ -530,4 +530,4 @@ async def readiness_check():
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to MOVO Agent Platform API"}
+    return {"message": "Welcome to MOGO Agent Platform API"}

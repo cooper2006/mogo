@@ -40,7 +40,7 @@ class SourceSpec:
         if self.interval not in SUPPORTED_INTERVALS:
             raise ValueError(f"unsupported pull interval: {self.interval!r}")
         if not self.read_only:
-            # MOVO never writes back to a business system (Non-Goal).
+            # MOGO never writes back to a business system (Non-Goal).
             raise ValueError("business sources must be read-only")
 
 

@@ -3,7 +3,7 @@ import https from 'node:https'
 
 function abortError(signal) {
   if (signal?.reason instanceof Error) return signal.reason
-  const error = new Error('MOVO Tool Gateway request aborted')
+  const error = new Error('MOGO Tool Gateway request aborted')
   error.name = 'AbortError'
   return error
 }
@@ -48,7 +48,7 @@ export function postGatewayJson(urlValue, body, { headers = {}, signal } = {}) {
         try {
           payload = text ? JSON.parse(text) : {}
         } catch {
-          finish(reject, new Error('MOVO Tool Gateway returned invalid JSON'))
+          finish(reject, new Error('MOGO Tool Gateway returned invalid JSON'))
           return
         }
         finish(resolve, {

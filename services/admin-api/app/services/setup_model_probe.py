@@ -41,11 +41,11 @@ def _probe_embedding(model: dict[str, Any], provider: dict[str, Any]) -> SetupKn
         api_version = str(model.get("api_version") or "2025-04-01-preview")
         url = f"{base_url}/openai/deployments/{model_name}/embeddings?api-version={api_version}"
         headers = {"api-key": api_key, "Content-Type": "application/json"}
-        payload = {"input": ["MOVO knowledge model connectivity test"]}
+        payload = {"input": ["MOGO knowledge model connectivity test"]}
     else:
         url = base_url if base_url.endswith("/embeddings") else f"{base_url}/embeddings"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {"model": model_name, "input": ["MOVO knowledge model connectivity test"]}
+        payload = {"model": model_name, "input": ["MOGO knowledge model connectivity test"]}
     body = _post_json(url, headers, payload)
     data = body.get("data")
     if not isinstance(data, list) or not data or not isinstance(data[0].get("embedding"), list):
@@ -65,15 +65,15 @@ def _probe_rerank(model: dict[str, Any], provider: dict[str, Any]) -> SetupKnowl
         url = base_url if "/rerank/" in base_url else "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
         payload = {
             "model": str(model.get("model_name") or ""),
-            "input": {"query": "MOVO", "documents": ["MOVO enterprise AI", "unrelated text"]},
+            "input": {"query": "MOGO", "documents": ["MOGO enterprise AI", "unrelated text"]},
             "parameters": {"return_documents": False, "top_n": 1},
         }
     else:
         url = base_url if base_url.endswith("/rerank") else f"{base_url}/rerank"
         payload = {
             "model": str(model.get("model_name") or ""),
-            "query": "MOVO",
-            "documents": ["MOVO enterprise AI", "unrelated text"],
+            "query": "MOGO",
+            "documents": ["MOGO enterprise AI", "unrelated text"],
             "top_n": 1,
         }
     body = _post_json(

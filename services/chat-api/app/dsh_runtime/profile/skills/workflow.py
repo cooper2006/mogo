@@ -112,7 +112,7 @@ def compile_workflow_body(
 
 ## 验收
 - 用户要求的交付物完整，关键结论有可追溯证据。
-- 所有外部写操作遵循 MOVO 审批策略。
+- 所有外部写操作遵循 MOGO 审批策略。
 - 写作规范只约束内容生成节点，不约束检索、计算、浏览器或普通工具调用。
 """
     return body.strip(), tuple(dict.fromkeys(capability_refs))

@@ -98,8 +98,8 @@ base_image_for() {
 SUITE="${SUITE:-bookworm}"
 
 # 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可用作为回退。
-MOGO_APT_MIRROR="${MOGO_APT_MIRROR:-${MOVO_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian}}"
-MOGO_APT_SECURITY_MIRROR="${MOGO_APT_SECURITY_MIRROR:-${MOVO_APT_SECURITY_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian-security}}"
+MOGO_APT_MIRROR="${MOGO_APT_MIRROR:-${MOGO_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian}}"
+MOGO_APT_SECURITY_MIRROR="${MOGO_APT_SECURITY_MIRROR:-${MOGO_APT_SECURITY_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian-security}}"
 
 ARCH_LIST="${ARCH_LIST:-arm64 amd64}"
 
@@ -120,8 +120,8 @@ Environment:
   DOCKER_BIN                Docker binary to use (default: docker)
   SERVICE_LIST              Services to process (default: "document-parser chat-api")
   ARCH_LIST                 Architectures to fetch (default: "arm64 amd64")
-  MOGO_APT_MIRROR           Debian mirror (default: Tsinghua; 旧 MOVO_APT_MIRROR 仍可用)
-  MOGO_APT_SECURITY_MIRROR  Debian security mirror (default: Tsinghua; 旧 MOVO_APT_SECURITY_MIRROR 仍可用)
+  MOGO_APT_MIRROR           Debian mirror (default: Tsinghua; 旧 MOGO_APT_MIRROR 仍可用)
+  MOGO_APT_SECURITY_MIRROR  Debian security mirror (default: Tsinghua; 旧 MOGO_APT_SECURITY_MIRROR 仍可用)
 
 The package list per service is read from the Dockerfile itself (the
 `apt-get install` block), so adding a package there and re-running `save` is

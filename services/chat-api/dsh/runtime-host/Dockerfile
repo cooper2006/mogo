@@ -5,9 +5,7 @@
 ARG BASE_IMAGE=node:24-bookworm-slim
 FROM ${BASE_IMAGE} AS dependencies
 
-# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
-ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
-ARG MOGO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}
+ARG MOGO_NPM_REGISTRY=https://registry.npmmirror.com
 ENV MOGO_NPM_REGISTRY=${MOGO_NPM_REGISTRY}
 
 ENV NODE_ENV=production \
@@ -32,16 +30,12 @@ RUN node -e "const declared=require('./package.json').dependencies['@deepseek-ai
 
 FROM ${BASE_IMAGE}
 
-# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
-ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
-ARG MOGO_APT_MIRROR=${MOVO_APT_MIRROR}
-ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
-ARG MOGO_APT_SECURITY_MIRROR=${MOVO_APT_SECURITY_MIRROR}
+ARG MOGO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOGO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
 # Security refresh is opt-in. A non-empty value (CI passes its run id) also
 # applies the latest distro security patches. ca-certificates and gosu are
 # functional dependencies, so they are always installed regardless.
-ARG MOVO_SECURITY_REFRESH=
-ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}
+ARG MOGO_SECURITY_REFRESH=
 
 ENV NODE_ENV=production
 

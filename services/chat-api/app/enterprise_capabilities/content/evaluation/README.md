@@ -54,7 +54,7 @@ Verdict 推导规则（derive_verdict）:
 | **长报告 / 长分析** | content / mixed | `generate` (sectional) | ✓ 每章 1 次 regen | ✓ | ❌ gate 拦截 | 章节级修，跨章节按设计跳过 |
 | **长文章一次性** | content / mixed | `generate_direct` | ❌ 单次写 | ✓ | ✓ verdict≠pass 触发整篇 retry | 整篇 1 次 retry |
 | 中等文章 | content / mixed | `generate_direct` 或 `generate` | 走 generate 时 ✓，走 direct 时 ❌ | ✓ | ✓（仅 direct）/ ❌（sectional） | 看 mode |
-| 短内容 | chat | DSH 直接生成 | ❌ | ❌ | ❌ | 不进入 MOVO 写作引擎 |
+| 短内容 | chat | DSH 直接生成 | ❌ | ❌ | ❌ | 不进入 MOGO 写作引擎 |
 | 翻译 | content | — | `generate_translation` | ❌ | ❌ | ❌ | 不评估，原样输出 |
 | 演示文稿（PPT） | presentation | — | — | ❌ | ❌ 早期短路 | ❌ | 不评估 |
 | 浏览器自动化 | browser | — | — | ❌ | ❌ 早期短路 | ❌ | 不评估，仅 execution_retry 失败重试 |
@@ -95,8 +95,8 @@ Verdict 推导规则（derive_verdict）:
 
 | 用户场景 | 实际行为 |
 |---------|---------|
-| "写份简历" | DSH 直接生成，不调用 MOVO 写作引擎 |
-| "写一篇 800 字小红书种草文" | DSH 直接生成，不调用 MOVO 写作引擎 |
+| "写份简历" | DSH 直接生成，不调用 MOGO 写作引擎 |
+| "写一篇 800 字小红书种草文" | DSH 直接生成，不调用 MOGO 写作引擎 |
 | "写一份 3000 字市场分析报告" | direct → 文档级 dynamic eval → 必要时整篇重写 |
 
 ## 关键约束（避免重蹈旧评估器覆辙）

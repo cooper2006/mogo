@@ -1,4 +1,4 @@
-"""Governed SkillHub downloads installed through MOVO's Skill control plane."""
+"""Governed SkillHub downloads installed through MOGO's Skill control plane."""
 
 from .client import SkillHubClient
 from .coordinate import SkillHubCoordinate, parse_skillhub_coordinate

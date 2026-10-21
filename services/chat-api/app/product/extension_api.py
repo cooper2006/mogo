@@ -1,6 +1,6 @@
 """Stable core API available to separately distributed product extensions.
 
-The implementation remains owned by MOVO. Extensions import through this
+The implementation remains owned by MOGO. Extensions import through this
 module instead of reaching into endpoint-private helpers directly.
 """
 

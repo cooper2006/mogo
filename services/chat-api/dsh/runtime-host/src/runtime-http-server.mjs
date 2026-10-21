@@ -367,7 +367,7 @@ export class RuntimeHttpServer {
       if (body.presetId === 'code') {
         if (body.workspaceId === undefined) throw new Error('Code Session requires a DSH workspaceId')
         if (body.permissionPreset !== undefined && body.permissionPreset !== 'workspace-write') {
-          throw new Error('desktop Code Session permissionPreset exceeds MOVO policy')
+          throw new Error('desktop Code Session permissionPreset exceeds MOGO policy')
         }
         body.permissionPreset = 'workspace-write'
       }

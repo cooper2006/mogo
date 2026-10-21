@@ -1,90 +1,88 @@
 #!/usr/bin/env bash
 
-MOVO_COMPOSE_BUILD=false
-# Published images are named <registry>/<service> (ghcr.io/himovo/admin-web).
+MOGO_COMPOSE_BUILD=false
+# Published images are named <registry>/<service> (ghcr.io/mogoai/admin-web).
 # A local source build keeps the bare service name (admin-web:latest) so local
 # images never collide with the published ones.
-MOVO_DEFAULT_IMAGE_REGISTRY=ghcr.io/himovo
-MOVO_IMAGE_SERVICES=(
-  MOVO_DSH_RUNTIME_HOST_IMAGE:dsh-runtime-host
-  MOVO_CHAT_API_IMAGE:chat-api
-  MOVO_ADMIN_API_IMAGE:admin-api
-  MOVO_USER_WEB_IMAGE:user-web
-  MOVO_ADMIN_WEB_IMAGE:admin-web
-  MOVO_GATEWAY_IMAGE:gateway
+MOGO_DEFAULT_IMAGE_REGISTRY=ghcr.io/mogoai
+MOGO_IMAGE_SERVICES=(
+  MOGO_DSH_RUNTIME_HOST_IMAGE:dsh-runtime-host
+  MOGO_CHAT_API_IMAGE:chat-api
+  MOGO_ADMIN_API_IMAGE:admin-api
+  MOGO_USER_WEB_IMAGE:user-web
+  MOGO_ADMIN_WEB_IMAGE:admin-web
+  MOGO_GATEWAY_IMAGE:gateway
 )
 
 mogo_compose() {
   local compose_args=(-f "${ROOT_DIR}/docker-compose.yml")
-  if [[ "${MOVO_COMPOSE_BUILD}" == "true" ]]; then
+  if [[ "${MOGO_COMPOSE_BUILD}" == "true" ]]; then
     compose_args+=(-f "${ROOT_DIR}/docker-compose.build.yml")
   fi
   "${DOCKER_BIN}" compose "${compose_args[@]}" "$@"
 }
 
-movo_export_shared_document_image() {
-  MOVO_DOCUMENT_API_IMAGE="${MOVO_EXPORTED_IMAGE_PREFIX}document-parser:${MOGO_VERSION}"
-  MOVO_DOCUMENT_WORKER_IMAGE="${MOVO_DOCUMENT_API_IMAGE}"
-  export MOVO_DOCUMENT_API_IMAGE MOVO_DOCUMENT_WORKER_IMAGE
+mogo_export_shared_document_image() {
+  MOGO_DOCUMENT_API_IMAGE="${MOGO_EXPORTED_IMAGE_PREFIX}document-parser:${MOGO_VERSION}"
+  MOGO_DOCUMENT_WORKER_IMAGE="${MOGO_DOCUMENT_API_IMAGE}"
+  export MOGO_DOCUMENT_API_IMAGE MOGO_DOCUMENT_WORKER_IMAGE
 }
 
 # Publish one complete image reference per service. The registry is empty for a
 # source build, which is what yields the bare admin-web:latest style names.
-movo_export_service_images() {
+mogo_export_service_images() {
   local entry var service
-  for entry in "${MOVO_IMAGE_SERVICES[@]}"; do
+  for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
     var="${entry%%:*}"
     service="${entry##*:}"
-    printf -v "${var}" '%s%s:%s' "${MOVO_EXPORTED_IMAGE_PREFIX}" "${service}" "${MOGO_VERSION}"
+    printf -v "${var}" '%s%s:%s' "${MOGO_EXPORTED_IMAGE_PREFIX}" "${service}" "${MOGO_VERSION}"
     export "${var?}"
   done
-  movo_export_shared_document_image
+  mogo_export_shared_document_image
 }
 
-movo_configure_images() {
+mogo_configure_images() {
   local source_build="${1:-false}"
-  # 品牌归一（2026-10-21）：MOGO_ 优先，旧 MOVO_ 过渡期仍接受（含 .env 回读）。
-  local configured_registry="${MOGO_IMAGE_REGISTRY:-${MOVO_IMAGE_REGISTRY:-}}"
+  local configured_registry="${MOGO_IMAGE_REGISTRY:-}"
   if [ -z "${configured_registry}" ]; then
     configured_registry="$(dotenv_value MOGO_IMAGE_REGISTRY)"
-    [ -n "${configured_registry}" ] || configured_registry="$(dotenv_value MOVO_IMAGE_REGISTRY)"
   fi
 
-  # MOVO_IMAGE_PREFIX is a legacy variable from before the image rename. Its old
-  # semantics were a *name prefix* (`${MOVO_IMAGE_PREFIX}-chat-api` →
-  # ghcr.io/himovo/movo-chat-api), which cannot be expressed as the new
+  # MOGO_IMAGE_PREFIX is a legacy variable from before the image rename. Its old
+  # semantics were a *name prefix* (`${MOGO_IMAGE_PREFIX}-chat-api` →
+  # ghcr.io/mogoai/mogo-chat-api), which cannot be expressed as the new
   # `<registry>/<service>` form. It used to be silently ignored; pretending to
   # honour it would build a non-existent path such as
-  # ghcr.io/himovo/movo/chat-api, so we fail loudly and fall back to the default
-  # registry instead. Set MOVO_IMAGE_REGISTRY to point at a different registry.
-  local legacy_prefix="${MOVO_IMAGE_PREFIX:-$(dotenv_value MOVO_IMAGE_PREFIX)}"
+  # ghcr.io/mogoai/mogo/chat-api, so we fail loudly and fall back to the default
+  # registry instead. Set MOGO_IMAGE_REGISTRY to point at a different registry.
+  local legacy_prefix="${MOGO_IMAGE_PREFIX:-$(dotenv_value MOGO_IMAGE_PREFIX)}"
   if [[ -n "${legacy_prefix}" ]]; then
-    printf 'Warning: MOVO_IMAGE_PREFIX=%s is no longer supported (images were renamed from\n' "${legacy_prefix}" >&2
+    printf 'Warning: MOGO_IMAGE_PREFIX=%s is no longer supported (images were renamed from\n' "${legacy_prefix}" >&2
     printf '  %s-<service> to <registry>/<service>). It is being ignored.\n' "${legacy_prefix}" >&2
-    printf '  Set MOVO_IMAGE_REGISTRY (e.g. ghcr.io/himovo) instead.\n' >&2
+    printf '  Set MOGO_IMAGE_REGISTRY (e.g. ghcr.io/mogoai) instead.\n' >&2
   fi
 
-  local configured_prefix="${MOVO_EXPORTED_IMAGE_PREFIX:-$(dotenv_value MOVO_EXPORTED_IMAGE_PREFIX)}"
+  local configured_prefix="${MOGO_EXPORTED_IMAGE_PREFIX:-$(dotenv_value MOGO_EXPORTED_IMAGE_PREFIX)}"
   if [[ -n "${configured_prefix}" && -z "${configured_registry}" ]]; then
     configured_registry="${configured_prefix}"
   fi
 
-  MOGO_VERSION="${MOGO_VERSION:-${MOVO_VERSION:-$(dotenv_value MOGO_VERSION)}}"
+  MOGO_VERSION="${MOGO_VERSION:-$(dotenv_value MOGO_VERSION)}"
   MOGO_VERSION="${MOGO_VERSION:-latest}"
   export MOGO_VERSION
 
   if [[ "${source_build}" == "true" ]]; then
     # Local source build: bare service names (admin-web:latest), so they never
     # collide with the published images.
-    MOVO_COMPOSE_BUILD=true
-    MOVO_EXPORTED_IMAGE_PREFIX=""
+    MOGO_COMPOSE_BUILD=true
+    MOGO_EXPORTED_IMAGE_PREFIX=""
   elif [[ -n "${configured_registry}" ]]; then
-    MOVO_EXPORTED_IMAGE_PREFIX="${configured_registry%/}/"
+    MOGO_EXPORTED_IMAGE_PREFIX="${configured_registry%/}/"
   else
-    MOVO_EXPORTED_IMAGE_PREFIX="${MOVO_DEFAULT_IMAGE_REGISTRY%/}/"
+    MOGO_EXPORTED_IMAGE_PREFIX="${MOGO_DEFAULT_IMAGE_REGISTRY%/}/"
   fi
 
-  MOVO_IMAGE_REGISTRY="${MOVO_EXPORTED_IMAGE_PREFIX%/}"
-  export MOVO_IMAGE_REGISTRY
-  movo_export_service_images
+  MOGO_IMAGE_REGISTRY="${MOGO_EXPORTED_IMAGE_PREFIX%/}"
+  export MOGO_IMAGE_REGISTRY
+  mogo_export_service_images
 }

@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="apps/user-web/public/movo-logo.png" alt="MOGO" width="180">
+  <img src="apps/user-web/public/mogo-logo.png" alt="MOGO" width="180">
 </p>
 
 <h1 align="center">MOGO</h1>
 
 <p align="center">
-  An enterprise Agent platform built on DeepSeek Harness (DSH), developed from the open-source MOVO platform.
+  An enterprise Agent platform built on DeepSeek Harness (DSH), developed from the open-source MOGO platform.
 </p>
 
 <p align="center">
@@ -30,33 +30,33 @@
 - 报告与内容生成：文章、PPTX、Excel、PDF、翻译与表单填充。
 
 **不适用边界**（本仓库不覆盖的场景）：
-- **商业多租户 SaaS**：MOGO 开源版是单租户自托管，不提供多租户隔离、计费与 SaaS 运营后台；相关能力在 MOVO 商业版中。
+- **商业多租户 SaaS**：MOGO 开源版是单租户自托管，不提供多租户隔离、计费与 SaaS 运营后台；相关能力在 MOGO 商业版中。
 - **多区域 / 多活灾备**：首期仅支持单区域部署 + 可验证的备份恢复；跨区域灾备属后续版本。
 - **全自动弹性扩缩容**：水平扩展需手动扩副本 + 前置容量模型；不内置 K8s 或自动弹性调度。
 - **微服务拆分**：仓库内服务是模块化单体（Python + Vue3），不引入微服务治理。
-- **非 Apache-2.0 商用**：LICENSE 允许在 Apache-2.0 下商用，但不得移除或修改商标与版权声明；若需 MOVO 社区许可或商业白名单，联系维护者。
+- **非 Apache-2.0 商用**：LICENSE 允许在 Apache-2.0 下商用，但不得移除或修改商标与版权声明；若需 MOGO 社区许可或商业白名单，联系维护者。
 
 > **一句话定位**：DSH 运行 Agent，MOGO 把 Agent 带进企业生产。
 
-MOGO is an enterprise Agent platform built on top of the open-source MOVO platform. It keeps the execution foundation and product surface MOVO already proved, and carries them into enterprise production along three lines: **adopting the spec-kit SDD workflow**, **hardening enterprise capabilities**, and **supporting horizontal scaling of Agent instances**.
+MOGO is an enterprise Agent platform built on top of the open-source MOGO platform. It keeps the execution foundation and product surface the upstream project already proved, and carries them into enterprise production along three lines: **adopting the spec-kit SDD workflow**, **hardening enterprise capabilities**, and **supporting horizontal scaling of Agent instances**.
 
 > **In one sentence:** DSH runs the Agent; MOGO brings the Agent into enterprise production.
 
 <br>
 
 <p align="center">
-  <img src="docs/assets/dsh-movo-responsibilities-en.png" alt="How DeepSeek Harness and MOGO divide responsibilities" width="760">
+  <img src="docs/assets/dsh-responsibilities-en.png" alt="How DeepSeek Harness and MOGO divide responsibilities" width="760">
 </p>
 
 <br>
 
 This repository contains the self-hosted MOGO Open-Source Edition.
 
-## Relationship to open-source MOVO
+## Relationship to open-source MOGO
 
-MOGO is not a platform written from scratch. It is the enterprise evolution of MOVO, a comparatively complete starting point. Five capabilities MOVO already proved are treated as a "do not rebuild" boundary:
+MOGO is not a platform written from scratch. It is the enterprise evolution of the open-source MOGO project, a comparatively complete starting point. Five capabilities the upstream project already proved are treated as a "do not rebuild" boundary:
 
-| Capability MOVO leads on | What it provides |
+| Capability MOGO leads on | What it provides |
 | --- | --- |
 | Containerised self-hosting | One-command multi-service Docker Compose deployment, CLI launcher and backup/restore — the production operations base is ready |
 | Docling multi-format parsing | PDF / DOCX / XLSX / PPTX / CSV plus LibreOffice preview, with complete document understanding |
@@ -103,7 +103,7 @@ They fall into six groups:
 
 - **17 gap-closing features** (001/002/007–021) — the original backlog plus the platform and context-address scope. **All 17 `tasks.md` files (354 items) are checked off**, with implementation and tests landed together.
 - **5 quality-hardening features** (022–026) — split out of the 2026-10-11 QualityForge full-repository QA audit; 357 tasks, implemented and tested in waves (see [Quality hardening: 022–026](#quality-hardening-022026) below).
-- **4 retrospective features** (003–006) — re-document capabilities MOVO already had. They originally shipped without `tasks.md`; it was backfilled on 2026-10-11 (141 items).
+- **4 retrospective features** (003–006) — re-document capabilities the upstream project already had. They originally shipped without `tasks.md`; it was backfilled on 2026-10-11 (141 items).
 - **1 data-backend migration** (027) — an opt-in MongoDB → PanWeiDB (openGauss kernel) compatibility layer has landed (R1), but the default backend is still MongoDB; runtime switch-over wiring (R2) and the relational migration (R3) are pending, so `mongo` remains the shipped default.
 - **4 data-backend and user-web experience features** (028–031) — both user-web experience features (028–029) landed on 2026-10-15: 028 promotes the per-message execution process to a session-level Chat/Trajectory dual tab, and 029 turns user-web into an SSO receiver so an external portal's logged-in users enter the workspace without a second login; 030 adds per-ontology data-scoped permission (P1, 2026-10-16); 031 adds model-provider discover with multi-protocol support including Anthropic / Gemini / Ollama (P1, 2026-10-18) (see [Data backend and user-web experience: 027–031](#data-backend-and-user-web-experience-027031) below).
 
@@ -384,7 +384,7 @@ MOGO_GATEWAY_IMAGE="$(docker inspect mogo-gateway-1 --format '{{.Config.Image}}'
   docker compose up -d --no-deps gateway
 ```
 
-Do **not** use a bare `docker compose up -d gateway`: without an explicit image name the gateway resolves to `ghcr.io/himovo/gateway:latest` and pulls a remote image over your local build.
+Do **not** use a bare `docker compose up -d gateway`: without an explicit image name the gateway resolves to `ghcr.io/mogoai/mogo/gateway:latest` and pulls a remote image over your local build.
 
 To fall back to plain HTTP (local or trusted-network debugging only), point the same variable at the HTTP config and recreate the gateway:
 
@@ -416,7 +416,7 @@ Full operational detail — including the certificate helper, the known-pitfall 
 ./mogo logs chat-api
 ./mogo restart
 ./mogo update
-./mogo backup /path/on/a/large-disk/movo-backup
+./mogo backup /path/on/a/large-disk/mogo-backup
 ./mogo down       # Stop containers and preserve data
 ./mogo down -v    # Permanently delete MOGO data after confirmation
 ```
@@ -512,7 +512,7 @@ cp .env.example .env
 ```env
 MOGO_PORT=3000
 MOGO_VOLUME_PREFIX=mogo
-MOGO_IMAGE_REGISTRY=ghcr.io/himovo
+MOGO_IMAGE_REGISTRY=ghcr.io/mogoai/mogo
 MOGO_VERSION=vX.Y.Z
 PUBLIC_BASE_URL=https://mogo.example.com
 ```
@@ -567,13 +567,13 @@ See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
 
 Issues and feature requests are welcome. Clear use cases and reproducible feedback may be implemented quickly when they benefit the wider community.
 
-- [GitHub Discussions](https://github.com/himovo/movo/discussions) for questions, ideas and deployment experience
-- [GitHub Issues](https://github.com/himovo/movo/issues) for reproducible bugs
+- [GitHub Discussions](https://github.com/cooper2006/mogo/discussions) for questions, ideas and deployment experience
+- [GitHub Issues](https://github.com/cooper2006/mogo/issues) for reproducible bugs
 - [Contribution guide](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Community support policy](SUPPORT.md)
 - [Maintainer release process](docs/release-process.md)
-- Security, commercial licensing and support: `support@himovo.com`
+- Security, commercial licensing and support: `support@mogo.com`
 
 Before submitting a change, run the relevant checks described in [CONTRIBUTING.md](CONTRIBUTING.md). CI enforces five jobs on every pull request: `version-consistency` (the version in every manifest must match the newest CHANGELOG heading), `frontend-quality` (typecheck, build and lint for both Vue apps), `backend-quality` (compile, production-wiring check, test suite and per-module coverage floors), `dsh-host-e2e` (the Node Runtime Host as a subprocess) and `security-quality` (secret, content-type and container image scanning). At minimum, the repository hygiene check is:
 
@@ -585,9 +585,9 @@ Two of those are worth calling out because they catch failures unit tests cannot
 
 ## License
 
-MOGO Open-Source Edition is source-available under the [MOVO Community License](LICENSE), based on Apache License 2.0 with additional conditions. Without written authorization, the license does not permit operating a hosted multi-tenant SaaS offering, removing or modifying the logo and copyright notices in the included frontends, or selling MOGO or a derivative as an OEM, white-label, or rebranded enterprise Agent platform whose primary product is MOGO itself.
+MOGO Open-Source Edition is source-available under the [MOGO Community License](LICENSE), based on Apache License 2.0 with additional conditions. Without written authorization, the license does not permit operating a hosted multi-tenant SaaS offering, removing or modifying the logo and copyright notices in the included frontends, or selling MOGO or a derivative as an OEM, white-label, or rebranded enterprise Agent platform whose primary product is MOGO itself.
 
-These additional restrictions mean that the MOVO Community License is not the unmodified Apache License 2.0 and should not be represented as an OSI-approved open-source license. For commercial licensing, multi-tenant SaaS authorization, OEM or white-label distribution, or alternative branding rights, contact `support@himovo.com`.
+These additional restrictions mean that the MOGO Community License is not the unmodified Apache License 2.0 and should not be represented as an OSI-approved open-source license. For commercial licensing, multi-tenant SaaS authorization, OEM or white-label distribution, or alternative branding rights, contact `support@mogo.com`.
 
 ## Dependency Mirror Sources
 
@@ -604,7 +604,7 @@ The Docker build images use Chinese mirrors by default, so dependency installati
 
 Three more mirrors are wired in alongside them: the Python base images come from `docker.m.daocloud.io` through `ARG BASE_IMAGE`, chat-api downloads Playwright browsers from `cdn.npmmirror.com`, and chat-api, document-parser and the Runtime Host rewrite `deb.debian.org` to `mirrors.tuna.tsinghua.edu.cn/debian` via `ARG MOGO_APT_MIRROR`.
 
-During the movo→mogo brand migration the legacy `MOVO_`-prefixed build args are still accepted as a fallback (`MOGO_` takes precedence).
+The movo→mogo brand migration is complete: build args accept the `MOGO_` prefix only, and `MOGO_` is now the single authoritative spelling. The transitional fallback mechanism (the `MOVO_` key fallback, secret double-writes, the `movo` volume-prefix default and the CLI's internal `movo_*` helper names) has been fully retired — any `MOVO_*` keys still left in `.env` or CI must be renamed to `MOGO_*`.
 
 To use official sources instead, override the build args:
 

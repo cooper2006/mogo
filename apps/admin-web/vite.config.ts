@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
 
-const productExtensionEnv = (process.env.MOGO_ADMIN_PRODUCT_UI_EXTENSION || process.env.MOVO_ADMIN_PRODUCT_UI_EXTENSION)?.trim();
+const productExtensionEnv = process.env.MOGO_ADMIN_PRODUCT_UI_EXTENSION?.trim();
 const productExtensionPath = productExtensionEnv
   ? path.resolve(productExtensionEnv)
   : path.resolve(__dirname, './src/product/community.ts');

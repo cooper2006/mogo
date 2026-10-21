@@ -105,11 +105,11 @@ class ContainerReleasePlanTests(unittest.TestCase):
                 # The refresh is opt-in: CI passes a run id, while an empty or
                 # "false" value skips the upgrade so a local rebuild stays
                 # cacheable. Assert the *semantics*, not one spelling of them.
-                # 品牌归一（2026-10-21）：使用处一律读 MOGO_ 名；旧 MOVO_ 声明保留
-                # 作为 --build-arg 回退（MOGO_ = ${MOVO_} 链）。
-                self.assertIn("ARG MOVO_SECURITY_REFRESH=", contents)
-                self.assertNotIn("ARG MOVO_SECURITY_REFRESH=local", contents)
-                self.assertIn("ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}", contents)
+                # 品牌迁移完成（2026-10-21）：MOVO_ 声明与回退链已移除，
+                # 仅保留 MOGO_ 单名 opt-in 语义。
+                self.assertNotIn("MOVO", contents)
+                self.assertIn("ARG MOGO_SECURITY_REFRESH=", contents)
+                self.assertNotIn("ARG MOGO_SECURITY_REFRESH=local", contents)
                 self.assertIn('"${MOGO_SECURITY_REFRESH}" != "false"', contents)
                 self.assertIn("apt-get upgrade -y", contents)
 

@@ -590,7 +590,7 @@ class PageRepairReport(BaseModel):
 
 
 class ComposerPageBlueprint(FreeformPageBlueprint):
-    # LLM-composed pages must declare the MOVO-assigned archetype. Keeping the
+    # LLM-composed pages must declare the MOGO-assigned archetype. Keeping the
     # legacy FreeformPageBlueprint default would hide missing assignments.
     layout_type: str = ""
     # No min_length at pydantic level — business logic in _page_quality_issues handles this

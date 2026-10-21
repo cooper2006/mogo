@@ -18,7 +18,7 @@ export function compatibleModelToolCall(event) {
   if (args === undefined) return event
   let changed = false
 
-  // Every MOVO desktop Code Session already runs at workspace-write. Some
+  // Every MOGO desktop Code Session already runs at workspace-write. Some
   // providers echo that standing mode as an escalation, which DSH correctly
   // rejects because an escalation must be strictly wider. Treat the redundant
   // request as a no-op while preserving real danger-full-access approvals.

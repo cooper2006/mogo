@@ -69,11 +69,8 @@ RUN set -eux; \
 # Point apt at a domestic mirror before the update: the default deb.debian.org
 # is slow or unreachable from CN networks, and the mirror is harmless when the
 # refresh is skipped.
-# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
-ARG MOVO_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
-ARG MOGO_APT_MIRROR=${MOVO_APT_MIRROR}
-ARG MOVO_APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
-ARG MOGO_APT_SECURITY_MIRROR=${MOVO_APT_SECURITY_MIRROR}
+ARG MOGO_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOGO_APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 RUN if [ -n "${MOGO_APT_MIRROR}" ]; then \
         for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
             if [ -f "${source_file}" ]; then \
@@ -85,8 +82,7 @@ RUN if [ -n "${MOGO_APT_MIRROR}" ]; then \
         done; \
     fi
 
-ARG MOVO_SECURITY_REFRESH=
-ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}
+ARG MOGO_SECURITY_REFRESH=
 RUN if [ -n "${MOGO_SECURITY_REFRESH}" ] && [ "${MOGO_SECURITY_REFRESH}" != "false" ]; then \
         apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
         && apt-get upgrade -y \

@@ -115,7 +115,7 @@ def test_default_methods_are_explicit_whitelist() -> None:
 def test_default_headers_cover_actual_headers() -> None:
     assert "*" not in DEFAULT_ALLOW_HEADERS
     # 服务端真正读取的请求头必须都在白名单里，否则预检会被拒。
-    for header in ("Authorization", "Content-Type", "X-MOGO-Service-Token", "X-MOVO-Service-Token", "X-Request-ID"):
+    for header in ("Authorization", "Content-Type", "X-MOGO-Service-Token", "X-Request-ID"):
         assert header in DEFAULT_ALLOW_HEADERS
 
 

@@ -4,7 +4,7 @@ import { stableModelRequest } from './official-host/model-request-compat.mjs'
 import { compatibleModelToolCall } from './official-host/model-tool-call-compat.mjs'
 
 async function *readNdjson(response) {
-  if (response.body === null) throw new Error('MOVO Model Gateway returned an empty stream')
+  if (response.body === null) throw new Error('MOGO Model Gateway returned an empty stream')
   const decoder = new TextDecoder()
   let buffer = ''
   for await (const chunk of response.body) {
@@ -27,7 +27,7 @@ export class AskaiModelGatewayAdapter extends LlmAdapter {
   }
 
   updateCredential({ gatewayUrl, accessToken }) {
-    if (!gatewayUrl || !accessToken) throw new Error('MOVO Model Gateway credential is incomplete')
+    if (!gatewayUrl || !accessToken) throw new Error('MOGO Model Gateway credential is incomplete')
     this.config = Object.freeze({ ...this.config, gatewayUrl, accessToken })
   }
 
@@ -74,7 +74,7 @@ export class AskaiModelGatewayAdapter extends LlmAdapter {
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}))
       const code = payload?.error?.code ?? 'askai_model_gateway_error'
-      const message = payload?.error?.message ?? `MOVO Model Gateway returned ${response.status}`
+      const message = payload?.error?.message ?? `MOGO Model Gateway returned ${response.status}`
       throw new LlmError(message, String(code).toUpperCase(), { status: response.status })
     }
     let text = ''
@@ -112,7 +112,7 @@ export class AskaiModelGatewayAdapter extends LlmAdapter {
         finishReason = event.reason ?? finishReason
       } else if (event?.type === 'error') {
         const code = event.error?.code ?? 'askai_model_gateway_error'
-        const message = event.error?.message ?? 'MOVO Model Gateway stream failed'
+        const message = event.error?.message ?? 'MOGO Model Gateway stream failed'
         throw new LlmError(message, String(code).toUpperCase(), { retryable: Boolean(event.error?.retryable) })
       }
     }
@@ -127,7 +127,7 @@ export const inject = ['llm']
 
 export function apply(ctx, config) {
   if (!config?.gatewayUrl || !config?.accessToken || !config?.modelInstanceId || !config?.modelName) {
-    throw new Error('MOVO Model Gateway profile is incomplete')
+    throw new Error('MOGO Model Gateway profile is incomplete')
   }
   return ctx.llm.registerAdapter(['askai-model-gateway'], new AskaiModelGatewayAdapter(config))
 }

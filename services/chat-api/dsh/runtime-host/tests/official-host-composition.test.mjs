@@ -143,7 +143,7 @@ test('plugin inventory compatibility flattens native preset compositions', async
   assert.deepEqual(inventory.entries.map(row => row.moduleName), ['root-module', 'fs-module'])
 })
 
-test('V3 migration keeps the MOVO code preset identity stable', () => {
+test('V3 migration keeps the MOGO code preset identity stable', () => {
   assert.equal(normalizePersistedPreset('ptc'), DSH_CODE_PRESET_ID)
   assert.equal(normalizePersistedPreset(ASKAI_ENTERPRISE_PRESET_ID), ASKAI_ENTERPRISE_PRESET_ID)
 })

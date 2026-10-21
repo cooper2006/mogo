@@ -8,7 +8,7 @@
 # 与仓库根目录 docker-compose.yml 的差异（都是为了适配 Portainer Stack）：
 #   1. 所有 ${VAR} 已解析为字面量。Portainer 会对 ${VAR} 做插值，未定义的变量会变成空串，
 #      因此这里不留任何 ${...}；仅保留 $$（compose 转义成字面 $，供容器内 shell 使用）。
-#   2. 所有镜像写死为 ghcr.io/himovo/<svc>:__MOGO_TAG__ 与官方基础镜像，pull_policy: never，
+#   2. 所有镜像写死为 ghcr.io/mogoai/mogo/<svc>:__MOGO_TAG__ 与官方基础镜像，pull_policy: never，
 #      避免无外网时 Portainer 尝试拉取镜像而失败。
 #   3. gateway 的 nginx.conf 原本是相对路径 bind mount（./deploy/docker/nginx.conf），
 #      Portainer Stack 会把相对路径解析到它自己的 stack 目录，文件必然不存在。
@@ -19,8 +19,8 @@
 #
 # 前置条件：以下 11 个镜像已通过 Portainer 导入到生产 Docker：
 #   alpine:3.21 / mongo:6.0.20 / redis:7.4.2-alpine / semitechnologies/weaviate:1.25.7
-#   ghcr.io/himovo/{chat-api,admin-api,document-parser,dsh-runtime-host,user-web,admin-web,gateway}:__MOGO_TAG__
-# 另：document-api 与 document-worker 共用 ghcr.io/himovo/document-parser:__MOGO_TAG__。
+#   ghcr.io/mogoai/mogo/{chat-api,admin-api,document-parser,dsh-runtime-host,user-web,admin-web,gateway}:__MOGO_TAG__
+# 另：document-api 与 document-worker 共用 ghcr.io/mogoai/mogo/document-parser:__MOGO_TAG__。
 
 x-python-healthcheck: &python-healthcheck
   interval: 10s
@@ -60,16 +60,10 @@ services:
             echo "DSH_RUNTIME_HOST_TOKEN=$$(random_hex)"
             echo "DOCUMENT_PROCESSING_SERVICE_TOKEN=$$document_service_token"
             echo "ASKAI_ADMIN_DOCUMENT_PROCESSING_SERVICE_TOKEN=$$document_service_token"
-            # 品牌归一（movo→mogo）过渡期双写：MOGO_ 为规范键；MOVO_ 旧键保留，
-            # 供仍读旧前缀的消费端使用（admin-api/chat-api 的 .env 兼容链、
-            # 旧版 document-parser 镜像）。document-parser 新版 MOGO_ 优先、MOVO_ 回退。
             echo "MOGO_DOC_PROCESSING_SERVICE_TOKEN=$$document_service_token"
-            echo "MOVO_DOC_PROCESSING_SERVICE_TOKEN=$$document_service_token"
             echo "ASKAI_ADMIN_DOCUMENT_PROCESSING_CALLBACK_TOKEN=$$document_callback_token"
             echo "MOGO_DOC_PROCESSING_CALLBACK_TOKEN=$$document_callback_token"
-            echo "MOVO_DOC_PROCESSING_CALLBACK_TOKEN=$$document_callback_token"
             echo "MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET=$$admin_secret"
-            echo "MOVO_DOC_PROCESSING_ADMIN_JWT_SECRET=$$admin_secret"
           } > "$$temp_file"
           mv "$$temp_file" "$$secret_file"
         fi
@@ -93,7 +87,7 @@ services:
           echo "ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=$$admin_backend_service_token"
         } >> "$$temp_file"
         mv "$$temp_file" "$$secret_file"
-        echo "MOVO deployment secrets are ready."
+        echo "MOGO deployment secrets are ready."
         echo "After services become healthy, open http://localhost:$${MOGO_PORT:-3000}/admin/setup"
 
   mongo:
@@ -151,7 +145,7 @@ services:
   # DSH Runtime Host 把 kernel session 状态放在进程内存里，同一个 kernel_session_id
   # 必须始终落到同一个实例。默认单实例。
   dsh-runtime-host:
-    image: ghcr.io/himovo/dsh-runtime-host:__MOGO_TAG__
+    image: ghcr.io/mogoai/mogo/dsh-runtime-host:__MOGO_TAG__
     pull_policy: never
     restart: unless-stopped
     volumes:
@@ -174,7 +168,7 @@ services:
       start_period: 20s
 
   chat-api:
-    image: ghcr.io/himovo/chat-api:__MOGO_TAG__
+    image: ghcr.io/mogoai/mogo/chat-api:__MOGO_TAG__
     pull_policy: never
     restart: unless-stopped
     environment:
@@ -218,7 +212,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()"]
 
   admin-api:
-    image: ghcr.io/himovo/admin-api:__MOGO_TAG__
+    image: ghcr.io/mogoai/mogo/admin-api:__MOGO_TAG__
     pull_policy: never
     restart: unless-stopped
     environment:
@@ -256,7 +250,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3).read()"]
 
   document-api:
-    image: ghcr.io/himovo/document-parser:__MOGO_TAG__
+    image: ghcr.io/mogoai/mogo/document-parser:__MOGO_TAG__
     pull_policy: never
     restart: unless-stopped
     command: ["api"]
@@ -294,7 +288,7 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/api/health', timeout=3).read()"]
 
   document-worker:
-    image: ghcr.io/himovo/document-parser:__MOGO_TAG__
+    image: ghcr.io/mogoai/mogo/document-parser:__MOGO_TAG__
     pull_policy: never
     restart: unless-stopped
     command: ["worker"]
@@ -316,7 +310,7 @@ services:
       - backend
 
   user-web:
-    image: ghcr.io/himovo/user-web:__MOGO_TAG__
+    image: ghcr.io/mogoai/mogo/user-web:__MOGO_TAG__
     pull_policy: never
     restart: unless-stopped
     networks:
@@ -328,7 +322,7 @@ services:
       retries: 20
 
   admin-web:
-    image: ghcr.io/himovo/admin-web:__MOGO_TAG__
+    image: ghcr.io/mogoai/mogo/admin-web:__MOGO_TAG__
     pull_policy: never
     restart: unless-stopped
     networks:
@@ -340,7 +334,7 @@ services:
       retries: 20
 
   gateway:
-    image: ghcr.io/himovo/gateway:__MOGO_TAG__
+    image: ghcr.io/mogoai/mogo/gateway:__MOGO_TAG__
     pull_policy: never
     restart: unless-stopped
     ports:
@@ -381,18 +375,18 @@ networks:
 
 volumes:
   deployment-secrets:
-    name: movo_deployment-secrets
+    name: mogo_deployment-secrets
   mongo-data:
-    name: movo_mongo-data
+    name: mogo_mongo-data
   redis-data:
-    name: movo_redis-data
+    name: mogo_redis-data
   weaviate-data:
-    name: movo_weaviate-data
+    name: mogo_weaviate-data
   dsh-runtime-data:
-    name: movo_dsh-runtime-data
+    name: mogo_dsh-runtime-data
   askai-storage:
-    name: movo_askai-storage
+    name: mogo_askai-storage
   knowledge-storage:
-    name: movo_knowledge-storage
+    name: mogo_knowledge-storage
   admin-static:
-    name: movo_admin-static
+    name: mogo_admin-static

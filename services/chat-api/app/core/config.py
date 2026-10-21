@@ -223,7 +223,7 @@ class Settings(BaseSettings):
     BACKEND_INTERNAL_BASE_URL: str = "http://127.0.0.1:8000"
     OSS_ACCESS_KEY_ID: str = ""
     OSS_ACCESS_KEY_SECRET: str = ""
-    OSS_BUCKET_NAME: str = "movo-artifacts"
+    OSS_BUCKET_NAME: str = "mogo-artifacts"
     OSS_ENDPOINT: str = "https://oss-cn-beijing.aliyuncs.com"
     OSS_REGION: str = "cn-beijing"
     OSS_SIGN_EXPIRE_SECONDS: int = 3600

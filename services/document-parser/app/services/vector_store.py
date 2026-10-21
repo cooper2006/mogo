@@ -50,7 +50,7 @@ class WeaviateVectorStore:
             return
         body = {
             "class": self.collection,
-            "description": "MOVO knowledge RAG chunks",
+            "description": "MOGO knowledge RAG chunks",
             "vectorizer": "none",
             "vectorIndexConfig": {"distance": _weaviate_distance(self.distance)},
             "properties": [

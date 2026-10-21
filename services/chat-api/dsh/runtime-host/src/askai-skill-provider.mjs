@@ -55,7 +55,7 @@ export class AskaiSkillProvider {
             kind: 'opaque',
             description: 'Package resources are available through skill_resource_read. Pass a path relative to this Skill package.',
           }
-        : { kind: 'opaque', description: `MOVO immutable Skill ${skill.version}` },
+        : { kind: 'opaque', description: `MOGO immutable Skill ${skill.version}` },
       metadata: candidate.metadata,
       content: skill.content,
     }

@@ -1,7 +1,7 @@
 """A2A agent gateway internal endpoints (feature 012).
 
 Production wiring:
-* AgentCard lookup so external A2A routers can discover MOVO agents (FR-1 / FR-8);
+* AgentCard lookup so external A2A routers can discover MOGO agents (FR-1 / FR-8);
 * inbound JSON-RPC surface (FR-2 / FR-10): ``message/send`` / ``tasks/get`` /
   ``tasks/result`` with task-id idempotency;
 * governance denial is mapped to a JSON-RPC error (FR-7) via
@@ -165,7 +165,7 @@ async def a2a_jsonrpc(
 
 
 # ---------------------------------------------------------------------------
-# FR-6: outbound call entry (MOVO -> external agent), gated by the 001 chain
+# FR-6: outbound call entry (MOGO -> external agent), gated by the 001 chain
 # ---------------------------------------------------------------------------
 
 

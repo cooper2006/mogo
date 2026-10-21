@@ -10,7 +10,7 @@ Exposes the business-entity index as a real API so the feature is no longer
   * ``POST /api/business-index/align`` — cross-system alignment of staged entities
     (FR-5/FR-6; unaligned/missing systems are reported, never refused).
 
-Read-only by design: MOVO never writes back to source business systems.
+Read-only by design: MOGO never writes back to source business systems.
 """
 
 from __future__ import annotations

@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="apps/user-web/public/movo-logo.png" alt="墨攻 MOGO" width="180">
+  <img src="apps/user-web/public/mogo-logo.png" alt="墨攻 MOGO" width="180">
 </p>
 
 <h1 align="center">墨攻 MOGO</h1>
 
 <p align="center">
-  基于 DeepSeek Harness（DSH）的企业级智能体平台，在开源 MOVO 基础上构建。
+  基于 DeepSeek Harness（DSH）的企业级智能体平台，在开源 MOGO 基础上构建。
 </p>
 
 <p align="center">
@@ -21,23 +21,23 @@
 
 <br>
 
-墨攻（MOGO）是在开源 MOVO 平台基础上构建的企业级智能体平台。它保留 MOVO 已验证的执行底座与产品形态，并沿三条主线推进到企业生产：**引入 spec-kit SDD 开发规范**、**补强企业级功能**、**支持智能体多实例横向扩展**。
+墨攻（MOGO）是在开源 MOGO 平台基础上构建的企业级智能体平台。它保留上游项目已验证的执行底座与产品形态，并沿三条主线推进到企业生产：**引入 spec-kit SDD 开发规范**、**补强企业级功能**、**支持智能体多实例横向扩展**。
 
 > **一句话理解墨攻：** DSH 负责智能体如何运行，墨攻负责智能体如何进入企业生产环境。
 
 <br>
 
 <p align="center">
-  <img src="docs/assets/dsh-movo-responsibilities-zh-cn.png" alt="DeepSeek Harness 与墨攻的职责分工" width="760">
+  <img src="docs/assets/dsh-responsibilities-zh-cn.png" alt="DeepSeek Harness 与墨攻的职责分工" width="760">
 </p>
 
 <br>
 
 本仓库包含可私有化部署的墨攻开源版。
 
-## 与开源 MOVO 的关系
+## 与开源 MOGO 的关系
 
-墨攻不是从零开始的新平台，而是站在 MOVO 这个较完整起点上的企业化演进。已在 MOVO 验证并**明确不重复投入**的五块能力，作为"不重复造轮子"的边界：
+墨攻不是从零开始的新平台，而是站在开源 MOGO 这个较完整起点上的企业化演进。已在上游项目验证并**明确不重复投入**的五块能力，作为"不重复造轮子"的边界：
 
 | 已领先的能力 | 说明 |
 | --- | --- |
@@ -86,7 +86,7 @@ specs/                    # 31 个特性规格，每个含完整规格链路
 
 - **17 个补齐特性**（001/002/007–021）——原始补强清单加上平台化与地址空间两个新增范围。**17 份 `tasks.md`（354 项）已全部勾选完成**，实现与测试同步落地。
 - **5 个质量加固特性**（022–026）——从 2026-10-11 QualityForge 全量 QA 审计中拆出，共 357 项任务，按 022 → 026 分波交付（详见下文[质量加固：022–026](#质量加固022026)）。
-- **4 个既有回溯特性**（003–006）——重述 MOVO 已有能力。它们最初未建 `tasks.md`，2026-10-11 补齐了 141 项任务。
+- **4 个既有回溯特性**（003–006）——重述上游项目已有能力。它们最初未建 `tasks.md`，2026-10-11 补齐了 141 项任务。
 - **1 个数据后端迁移**（027）——数据层从 MongoDB 迁到 PanWeiDB（openGauss 内核），兼容层先行、开关式回滚，既有调用点零改写。
 - **4 个 user-web / 数据体验特性**（028–031）——028 把每条消息内联的执行过程提升为会话级「对话 / 轨迹」双 tab；029 把 user-web 变成 SSO 接收方，外部门户已登录用户免二次登录进入工作台（2026-10-15）；030 为本体域新增数据范围权限（P1，2026-10-16）；031 新增模型供应商发现与多协议接入（Anthropic / Gemini / Ollama，P1，2026-10-18）（详见下文[数据后端与 user-web 体验：027–031](#数据后端与-user-web-体验027031)）。
 
@@ -349,7 +349,7 @@ MOGO_GATEWAY_IMAGE="$(docker inspect mogo-gateway-1 --format '{{.Config.Image}}'
   docker compose up -d --no-deps gateway
 ```
 
-**不要**用裸 `docker compose up -d gateway`：缺了镜像名会解析成 `ghcr.io/himovo/gateway:latest`，去拉远端镜像覆盖你本地构建的镜像。
+**不要**用裸 `docker compose up -d gateway`：缺了镜像名会解析成 `ghcr.io/mogoai/mogo/gateway:latest`，去拉远端镜像覆盖你本地构建的镜像。
 
 要退回纯 HTTP（仅限本地或可信内网调试），把同一个变量指向 HTTP 侧配置再重建 gateway：
 
@@ -381,7 +381,7 @@ openssl s_client -connect localhost:443 -servername localhost </dev/null 2>/dev/
 ./mogo logs chat-api
 ./mogo restart
 ./mogo update
-./mogo backup /path/to/large-disk/movo-backup
+./mogo backup /path/to/large-disk/mogo-backup
 ./mogo down       # 停止容器并保留数据
 ./mogo down -v    # 确认后永久删除墨攻数据
 ```
@@ -477,7 +477,7 @@ cp .env.example .env
 ```env
 MOGO_PORT=3000
 MOGO_VOLUME_PREFIX=mogo
-MOGO_IMAGE_REGISTRY=ghcr.io/himovo
+MOGO_IMAGE_REGISTRY=ghcr.io/mogoai/mogo
 MOGO_VERSION=vX.Y.Z
 PUBLIC_BASE_URL=https://mogo.example.com
 ```
@@ -521,13 +521,13 @@ PUBLIC_BASE_URL=https://mogo.example.com
 
 欢迎提交 Issue 与功能建议。清晰的使用场景与可复现反馈通常能较快落地。
 
-- [GitHub Discussions](https://github.com/himovo/movo/discussions)：提问、想法与部署经验
-- [GitHub Issues](https://github.com/himovo/movo/issues)：可复现的缺陷
+- [GitHub Discussions](https://github.com/cooper2006/mogo/discussions)：提问、想法与部署经验
+- [GitHub Issues](https://github.com/cooper2006/mogo/issues)：可复现的缺陷
 - [贡献指南](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)
 - [社区支持说明](SUPPORT.md)
 - [发布流程](docs/release-process.md)
-- 安全、商业授权与支持：`support@himovo.com`
+- 安全、商业授权与支持：`support@mogo.com`
 
 提交变更前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 中的检查要求。CI 在每个 PR 上强制执行五个 job：`version-consistency`（各 manifest 的版本号必须与 CHANGELOG 最新标题一致）、`frontend-quality`（两个 Vue 应用的类型检查、构建与 lint）、`backend-quality`（编译、生产接线检查、测试套件与分模块覆盖率门禁）、`dsh-host-e2e`（把 Node Runtime Host 作为子进程跑端到端）与 `security-quality`（密钥、内容类型与容器镜像扫描）。仓库卫生检查至少需要执行：
 
@@ -539,9 +539,9 @@ python3 scripts/check_open_source_hygiene.py
 
 ## 许可证
 
-墨攻开源版基于 [MOVO 社区许可证](LICENSE) 发布，该许可证以 Apache License 2.0 为基础并附加条件。未经书面授权，不得用于运营多租户托管 SaaS 服务，不得删除或修改所包含前端的标识与版权声明，也不得将本项目或其衍生作品作为以本项目为主要产品的 OEM、白标或贴牌企业级 Agent 平台进行销售。
+墨攻开源版基于 [MOGO 社区许可证](LICENSE) 发布，该许可证以 Apache License 2.0 为基础并附加条件。未经书面授权，不得用于运营多租户托管 SaaS 服务，不得删除或修改所包含前端的标识与版权声明，也不得将本项目或其衍生作品作为以本项目为主要产品的 OEM、白标或贴牌企业级 Agent 平台进行销售。
 
-由于上述附加条件，MOVO 社区许可证并非未经修改的 Apache License 2.0，也不应被表述为经 OSI 认证的开源许可证。如需商业授权、多租户 SaaS 授权、OEM 或白标分发，请联系 `support@himovo.com`。
+由于上述附加条件，MOGO 社区许可证并非未经修改的 Apache License 2.0，也不应被表述为经 OSI 认证的开源许可证。如需商业授权、多租户 SaaS 授权、OEM 或白标分发，请联系 `support@mogo.com`。
 
 ## 依赖镜像源
 
@@ -558,7 +558,7 @@ Docker 构建镜像默认使用国内镜像源，以便在中国大陆保持较�
 
 此外还有三处镜像接入：Python 基础镜像经 `ARG BASE_IMAGE` 取自 `docker.m.daocloud.io`；chat-api 从 `cdn.npmmirror.com` 下载 Playwright 浏览器；chat-api、document-parser 与 Runtime Host 通过 `ARG MOGO_APT_MIRROR` 把 `deb.debian.org` 改写为 `mirrors.tuna.tsinghua.edu.cn/debian`。
 
-品牌迁移（movo→mogo）过渡期内，旧的 `MOVO_` 前缀构建参数仍被接受作为回退（`MOGO_` 优先）。
+品牌迁移已完成：构建参数只接受 `MOGO_` 前缀，`MOGO_` 是唯一权威拼写。过渡回退机制（`MOVO_` 键回退、secrets 双写、`movo` 卷名前缀默认值、CLI 内部 `movo_*` 辅助函数命名）已彻底下线；`.env` / CI 中若仍残留 `MOVO_*` 键，需改名为 `MOGO_*`。
 
 如需改用官方源，覆盖构建参数即可：
 

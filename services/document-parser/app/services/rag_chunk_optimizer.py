@@ -93,7 +93,7 @@ def _make_rag_chunk(
     contextual_text = "\n".join([*title_path, text]).strip() if title_path else text
     metadata = {
         "parser": "docling",
-        "chunker": "MOVO-RAG-Optimizer",
+        "chunker": "MOGO-RAG-Optimizer",
         "baseChunker": "HybridChunker",
         "sourceChunkIds": source_ids,
         "sourceChunkCount": len(source_ids),

@@ -63,13 +63,14 @@ REQUIRED_ROOT_FILES = (
 # added by commit fddc97a "M1 storage isolation per replica". Bump this constant
 # whenever docker-compose.yml gains or drops a physical volume.
 EXPECTED_MOGO_VOLUMES = 11
-# A physical volume name is ``<prefix>_<suffix>``, where the prefix may be
-# spelled flat (``${MOVO_VOLUME_PREFIX:-movo}``) or nested to let a fork's
-# legacy prefix win: ``${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}``.
-# Counting the literal flat string silently reports 0 volumes once the nested
-# form is used, so match the shape instead of one spelling of it.
+# A physical volume name is ``<prefix>_<suffix>``, where the prefix is spelled
+# ``${MOGO_VOLUME_PREFIX:-mogo}`` — the transitional fallback chain that also
+# honoured a legacy prefix default has been retired, so ``MOGO_`` is the only
+# authoritative spelling now. Counting the literal flat string silently reports
+# 0 volumes once the spelling changes, so match the shape instead. The optional
+# second ``}`` keeps the pattern tolerant of a nested prefix spelling.
 MOGO_VOLUME_NAME_PATTERN = re.compile(
-    r"\$\{(?:[A-Z0-9_]*VOLUME_PREFIX)[^}]*\}\}\}?_(?=[a-z0-9][a-z0-9-]*)"
+    r"\$\{(?:[A-Z0-9_]*VOLUME_PREFIX)[^}]*\}\}?_(?=[a-z0-9][a-z0-9-]*)"
 )
 # Secret-shaped literals inside test fixtures are intentional inputs for
 # redaction/validation tests, not leaked credentials. Skip *content* scanning

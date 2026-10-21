@@ -45,29 +45,29 @@ export function normalizeTurnContext(value) {
 export function renderTurnContext(value) {
   if (value === undefined) return ''
   const sections = [
-    'MOVO interaction language policy: use the language of the user\'s latest message for all user-facing text, including progress notes before tools, retry explanations, questions, and the final answer. If the user explicitly requests another output language, follow that request. Tool commands and source-code identifiers may remain in their technically required language.',
+    'MOGO interaction language policy: use the language of the user\'s latest message for all user-facing text, including progress notes before tools, retry explanations, questions, and the final answer. If the user explicitly requests another output language, follow that request. Tool commands and source-code identifiers may remain in their technically required language.',
   ]
   if (value.strictKnowledgeMode) {
     const scope = value.knowledgeBaseCount > 0
       ? `${value.knowledgeBaseCount} explicitly selected server-authorized knowledge base(s)`
       : 'the server-authorized tenant knowledge scope'
-    sections.push(`MOVO Knowledge QA mode is enabled for ${scope}. You must call knowledge_search before answering, ground the answer only in returned chunks, and state clearly when evidence is insufficient. citation_ref, documentId, chunkId, kb:// addresses, and chunk_* identifiers are private MOVO locators: never include them in the answer or create a raw technical reference list. MOVO renders source evidence separately.`)
+    sections.push(`MOGO Knowledge QA mode is enabled for ${scope}. You must call knowledge_search before answering, ground the answer only in returned chunks, and state clearly when evidence is insufficient. citation_ref, documentId, chunkId, kb:// addresses, and chunk_* identifiers are private MOGO locators: never include them in the answer or create a raw technical reference list. MOGO renders source evidence separately.`)
   } else {
-    sections.push('MOVO retrieval mode is automatic. Choose knowledge_search for enterprise-internal facts, policies, documents, or follow-ups grounded in prior internal knowledge; choose web_search for one bounded public or current lookup; choose progressive_research for multi-source research, comparisons, coverage analysis, or evidence-sufficiency checks; combine internal and public evidence only when the user needs a comparison; and answer directly when retrieval is unnecessary. Internal citation locators are private MOVO metadata and must never appear in the answer. MOVO renders source evidence separately.')
+    sections.push('MOGO retrieval mode is automatic. Choose knowledge_search for enterprise-internal facts, policies, documents, or follow-ups grounded in prior internal knowledge; choose web_search for one bounded public or current lookup; choose progressive_research for multi-source research, comparisons, coverage analysis, or evidence-sufficiency checks; combine internal and public evidence only when the user needs a comparison; and answer directly when retrieval is unnecessary. Internal citation locators are private MOGO metadata and must never appear in the answer. MOGO renders source evidence separately.')
   }
   if (value.documents.length > 0) {
-    sections.push(`MOVO document references for this turn:\n${JSON.stringify(value.documents)}\nUse document_parse or document_extract_resources when their contents are needed. Do not invent file contents.`)
+    sections.push(`MOGO document references for this turn:\n${JSON.stringify(value.documents)}\nUse document_parse or document_extract_resources when their contents are needed. Do not invent file contents.`)
   }
   if (value.images.length > 0) {
-    sections.push(`MOVO image references for this turn:\n${JSON.stringify(value.images)}\nUse image_extract_facts when image facts are needed. Do not invent unseen image details.`)
+    sections.push(`MOGO image references for this turn:\n${JSON.stringify(value.images)}\nUse image_extract_facts when image facts are needed. Do not invent unseen image details.`)
   }
   if (value.browserResume) {
     sections.push(`A server-authorized browser checkpoint is ready to resume. Call browser_task exactly once with these mission arguments: ${JSON.stringify(value.browserResume)}. Do not start a different browser mission.`)
   }
   if (value.writingStyle?.instructions) {
-    sections.push(`MOVO writing standard selected for this turn: ${value.writingStyle.name}. Apply the following standard only when authoring or rewriting prose or a user-facing content deliverable. It must not change retrieval choices, search queries, tool arguments, calculations, extracted facts, browser actions, approvals, or ordinary factual answers. If the task is not writing, ignore this standard completely.\n\n${value.writingStyle.instructions}`)
+    sections.push(`MOGO writing standard selected for this turn: ${value.writingStyle.name}. Apply the following standard only when authoring or rewriting prose or a user-facing content deliverable. It must not change retrieval choices, search queries, tool arguments, calculations, extracted facts, browser actions, approvals, or ordinary factual answers. If the task is not writing, ignore this standard completely.\n\n${value.writingStyle.instructions}`)
   }
-  return sections.length === 0 ? '' : `Trusted MOVO turn scope:\n${sections.join('\n\n')}`
+  return sections.length === 0 ? '' : `Trusted MOGO turn scope:\n${sections.join('\n\n')}`
 }
 
 export class RuntimeTurnContext {

@@ -13,12 +13,12 @@ export async function resolveNativePreset(presets, requestedPreset) {
   }
 }
 
-/** Preserve MOVO's public preset identity across DSH's V2-to-V3 rename. */
+/** Preserve MOGO's public preset identity across DSH's V2-to-V3 rename. */
 export function normalizePersistedPreset(presetId) {
   return MIGRATED_CODE_PRESET_IDS.has(presetId) ? DSH_CODE_PRESET_ID : presetId
 }
 
-/** Keep the native permission projection behind MOVO's stable Session contract. */
+/** Keep the native permission projection behind MOGO's stable Session contract. */
 export function currentPermissionPreset(permissionPresets, session) {
   return permissionPresets.current(session)
 }

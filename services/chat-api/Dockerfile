@@ -18,11 +18,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
-ARG MOVO_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
-ARG MOGO_APT_MIRROR=${MOVO_APT_MIRROR}
-ARG MOVO_APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
-ARG MOGO_APT_SECURITY_MIRROR=${MOVO_APT_SECURITY_MIRROR}
+ARG MOGO_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOGO_APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 # Point apt at a reachable mirror before any apt-get call so both the system
 # dependency stage and playwright --with-deps pick it up.
 RUN if [ -n "${MOGO_APT_MIRROR}" ]; then \
@@ -254,9 +251,7 @@ RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" != "true" ]; then \
 # the latest distro security patches; an empty or "false" value skips the
 # upgrade, which keeps this layer cacheable so a local rebuild does not
 # re-download every package.
-# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
-ARG MOVO_SECURITY_REFRESH=
-ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}
+ARG MOGO_SECURITY_REFRESH=
 RUN if [ -n "${MOGO_SECURITY_REFRESH}" ] && [ "${MOGO_SECURITY_REFRESH}" != "false" ]; then \
         apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
         && apt-get upgrade -y \

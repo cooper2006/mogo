@@ -1,17 +1,17 @@
-# MOVO Community License
+# MOGO Community License
 
-MOVO is made available under the Apache License, Version 2.0, subject to the
+MOGO is made available under the Apache License, Version 2.0, subject to the
 additional conditions below. If an additional condition conflicts with the
-Apache License, the additional condition controls for MOVO.
+Apache License, the additional condition controls for MOGO.
 
 ## Additional conditions
 
 1. Commercial use is permitted, including internal enterprise deployment,
    secondary development, delivery as part of an enterprise solution, and use
    as a backend for another application. A separate written commercial license
-   from MOVO is required for either of the following uses:
+   from MOGO is required for either of the following uses:
 
-   a. **Multi-tenant SaaS.** You may not use MOVO or a derivative work to
+   a. **Multi-tenant SaaS.** You may not use MOGO or a derivative work to
       provide a hosted multi-tenant software-as-a-service offering to third
       parties. For this condition, a tenant is an organization or workspace
       whose data and configuration are logically separated from those of other
@@ -19,25 +19,25 @@ Apache License, the additional condition controls for MOVO.
       single-tenant deployments operated for different customers are not a
       multi-tenant service under this definition.
 
-   b. **Logo and copyright notices.** When using or distributing the MOVO
-      frontends, you may not remove, obscure, replace, or modify the MOVO logo
-      or MOVO copyright notices. The frontends are the source under
+   b. **Logo and copyright notices.** When using or distributing the MOGO
+      frontends, you may not remove, obscure, replace, or modify the MOGO logo
+      or MOGO copyright notices. The frontends are the source under
       `apps/user-web/` and `apps/admin-web/`, and the container images built
       from those directories. This condition does not apply to uses that do
       not include either frontend.
 
    c. **OEM, white-label, and rebranded platform sales.** Without a separate
-      written commercial license from MOVO, you may not offer, license, or sell
-      MOVO or a derivative work as the primary product to third parties in the
+      written commercial license from MOGO, you may not offer, license, or sell
+      MOGO or a derivative work as the primary product to third parties in the
       form of an OEM, white-label, or rebranded enterprise Agent platform.
 
-2. By intentionally submitting a contribution for inclusion in MOVO, you
+2. By intentionally submitting a contribution for inclusion in MOGO, you
    agree that:
 
-   a. the contribution may be used in MOVO's commercial products and services;
+   a. the contribution may be used in MOGO's commercial products and services;
       and
 
-   b. MOVO may make future versions of this license more or less restrictive.
+   b. MOGO may make future versions of this license more or less restrictive.
       A license change does not retroactively alter the license already granted
       for an earlier published version.
 

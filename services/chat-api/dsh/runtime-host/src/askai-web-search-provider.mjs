@@ -5,7 +5,7 @@ async function readJson(response) {
   if (!response.ok) {
     const detail = payload?.detail
     const message = typeof detail === 'string' ? detail : detail?.message
-    throw new Error(message || `MOVO Web Search Gateway returned ${response.status}`)
+    throw new Error(message || `MOGO Web Search Gateway returned ${response.status}`)
   }
   return payload
 }
@@ -58,7 +58,7 @@ export class AskaiWebSearchProvider {
   async search(request, signal) {
     const agent = this.#ctx.get('agents')?.currentInitiator()
     const sessionId = String(agent?.id ?? '')
-    if (!sessionId) throw new Error('MOVO web search requires an initiating DSH session')
+    if (!sessionId) throw new Error('MOGO web search requires an initiating DSH session')
     const actionId = `native-web-search:${randomUUID()}`
     const payload = await this.#post('/execute', {
       profileVersion: this.#config.profileVersion,

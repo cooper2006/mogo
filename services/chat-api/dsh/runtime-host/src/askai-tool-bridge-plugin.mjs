@@ -14,7 +14,7 @@ function unwrapGatewayResponse(response) {
   if (!response.ok) {
     const detail = payload?.detail
     const message = typeof detail === 'string' ? detail : detail?.message
-    throw new Error(message || `MOVO Tool Gateway returned ${response.status}`)
+    throw new Error(message || `MOGO Tool Gateway returned ${response.status}`)
   }
   return payload
 }
@@ -80,7 +80,7 @@ export class AskaiToolBridge {
         && descriptor.approval_values.includes(String(exec.arguments?.[descriptor.approval_argument] ?? ''))
       if (descriptor.approval_required || dynamicApproval) {
         this.#approvalArguments.set(`${exec.agent?.id ?? ''}:${String(exec.callId)}`, structuredClone(exec.arguments ?? {}))
-        return { kind: 'ask', reason: `MOVO policy requires approval for ${descriptor.risk_level} tool ${descriptor.name}` }
+        return { kind: 'ask', reason: `MOGO policy requires approval for ${descriptor.risk_level} tool ${descriptor.name}` }
       }
       return { kind: 'allow' }
     }))

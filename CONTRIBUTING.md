@@ -1,11 +1,11 @@
-# Contributing to MOVO
+# Contributing to MOGO
 
 Contributions should be focused, modular, and covered by tests appropriate to
 the change. Do not commit environment files, credentials, generated build
 caches, uploaded documents, avatars, logs, or other runtime data.
 
 By intentionally submitting a contribution, you agree to the contribution
-terms in LICENSE, including use of the contribution in MOVO commercial products
+terms in LICENSE, including use of the contribution in MOGO commercial products
 and services. Do not submit code or assets that you do not have the right to
 license under those terms.
 

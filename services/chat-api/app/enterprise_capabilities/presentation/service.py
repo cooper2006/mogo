@@ -1,4 +1,4 @@
-"""Thin DSH adapter over MOVO's durable, editable presentation pipeline."""
+"""Thin DSH adapter over MOGO's durable, editable presentation pipeline."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from .job_coordinator import PresentationJobCoordinator
 
 
 def build_presentation_pipeline(_: dict[str, Any] | None = None) -> ImageNativePresentationPipeline:
-    """Build MOVO's single supported presentation pipeline."""
+    """Build MOGO's single supported presentation pipeline."""
 
     return ImageNativePresentationPipeline()
 
@@ -226,9 +226,9 @@ class PresentationCreationCapability:
             return request
         language = str(context.turn_context.get("language") or "zh").lower()
         contract = (
-            f"MOVO 交付合同：必须生成且仅生成 {count} 页幻灯片。"
+            f"MOGO 交付合同：必须生成且仅生成 {count} 页幻灯片。"
             if language.startswith("zh")
-            else f"MOVO delivery contract: produce exactly {count} slides."
+            else f"MOGO delivery contract: produce exactly {count} slides."
         )
         return f"{request}\n\n{contract}"
 

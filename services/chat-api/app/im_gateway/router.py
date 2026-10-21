@@ -68,7 +68,7 @@ class ChannelRouter:
         *,
         channel: str,
         conversation_id: str,
-        movo_session_id: str,
+        mogo_session_id: str,
         tenant_id: str = "default",
         initiator: str = "",
     ):
@@ -78,7 +78,7 @@ class ChannelRouter:
         return self.registry.bind(
             channel=channel,
             conversation_id=conversation_id,
-            movo_session_id=movo_session_id,
+            mogo_session_id=mogo_session_id,
             tenant_id=tenant_id,
             initiator=initiator,
         )

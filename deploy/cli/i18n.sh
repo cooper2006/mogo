@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 
-movo_detect_locale() {
-  local requested="${MOVO_LANG:-en}"
+mogo_detect_locale() {
+  local requested="${MOGO_LANG:-en}"
   requested="$(printf '%s' "${requested}" | tr '[:upper:]' '[:lower:]')"
   case "${requested}" in
     zh|zh-*|zh_*|cn|chinese)
-      MOVO_LOCALE=zh
+      MOGO_LOCALE=zh
       ;;
     *)
-      MOVO_LOCALE=en
+      MOGO_LOCALE=en
       ;;
   esac
 }
 
-movo_usage() {
-  if [[ "${MOVO_LOCALE}" == "zh" ]]; then
+mogo_usage() {
+  if [[ "${MOGO_LOCALE}" == "zh" ]]; then
     printf '用法：\n'
     printf '  ./mogo [--lang zh-CN|en] up [--build]  启动 MOGO 并输出初始化地址\n'
     printf '  ./mogo build                          从源码构建 MOGO 镜像\n'
@@ -41,10 +41,10 @@ movo_usage() {
   fi
 }
 
-movo_msg() {
+mogo_msg() {
   local key="$1"
   shift
-  case "${MOVO_LOCALE}:${key}" in
+  case "${MOGO_LOCALE}:${key}" in
     zh:docker_missing) printf '错误：未找到 Docker，请先安装 Docker Engine 或 Docker Desktop。\n' ;;
     en:docker_missing) printf 'Error: Docker was not found. Install Docker Engine or Docker Desktop first.\n' ;;
     zh:compose_missing) printf '错误：未找到 Docker Compose v2。\n' ;;
@@ -131,10 +131,10 @@ movo_msg() {
     en:tls_gateway_restart_failed) printf 'Note: restarting the gateway to apply the new certificate failed; run ./mogo restart manually.\n' ;;
     zh:local_images_missing) printf '错误：本地缺少 %s 个 MOGO 应用镜像。\n' "$1" ;;
     en:local_images_missing) printf 'Error: %s MOGO application image(s) are missing locally.\n' "$1" ;;
-    zh:local_images_missing_hint) printf '纯 registry 拉取链路已停用：本仓库生成的 ghcr.io/himovo/<service> 引用并不存在（实测 denied）。请改用 ./mogo up --build 从源码构建；若要固定版本，先设 MOGO_VERSION=vX.Y.Z。\n' ;;
-    en:local_images_missing_hint) printf 'The pure-registry path is retired: the ghcr.io/himovo/<service> reference this repository generates does not exist (verified denied). Build from source with ./mogo up --build instead; set MOGO_VERSION=vX.Y.Z to pin a version.\n' ;;
-    zh:update_registry_retired) printf '错误：./mogo update 依赖的 registry 拉取链路已停用——本仓库生成的 ghcr.io/himovo/<service> 引用并不存在（实测 denied），且旧实现会无限重试。请改用 ./mogo up --build 从源码构建并更新（先 MOGO_VERSION=vX.Y.Z 可固定到某个发布 tag）。\n' ;;
-    en:update_registry_retired) printf 'Error: ./mogo update relied on the registry pull path, which is retired -- the ghcr.io/himovo/<service> reference this repository generates does not exist (verified denied), and the old implementation retried it forever. Rebuild and update from source with ./mogo up --build instead (set MOGO_VERSION=vX.Y.Z to pin a release tag).\n' ;;
+    zh:local_images_missing_hint) printf '纯 registry 拉取链路已停用：本仓库生成的 ghcr.io/mogoai/<service> 引用并不存在（实测 denied）。请改用 ./mogo up --build 从源码构建；若要固定版本，先设 MOGO_VERSION=vX.Y.Z。\n' ;;
+    en:local_images_missing_hint) printf 'The pure-registry path is retired: the ghcr.io/mogoai/<service> reference this repository generates does not exist (verified denied). Build from source with ./mogo up --build instead; set MOGO_VERSION=vX.Y.Z to pin a version.\n' ;;
+    zh:update_registry_retired) printf '错误：./mogo update 依赖的 registry 拉取链路已停用——本仓库生成的 ghcr.io/mogoai/<service> 引用并不存在（实测 denied），且旧实现会无限重试。请改用 ./mogo up --build 从源码构建并更新（先 MOGO_VERSION=vX.Y.Z 可固定到某个发布 tag）。\n' ;;
+    en:update_registry_retired) printf 'Error: ./mogo update relied on the registry pull path, which is retired -- the ghcr.io/mogoai/<service> reference this repository generates does not exist (verified denied), and the old implementation retried it forever. Rebuild and update from source with ./mogo up --build instead (set MOGO_VERSION=vX.Y.Z to pin a release tag).\n' ;;
     zh:unknown) printf '未知命令：%s\n\n' "$1" ;;
     en:unknown) printf 'Unknown command: %s\n\n' "$1" ;;
     *) printf '%s' "${key}" ;;

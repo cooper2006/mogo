@@ -1,4 +1,4 @@
-/** Expand DSH V3's compact assistant stream into MOVO's stable native events. */
+/** Expand DSH V3's compact assistant stream into MOGO's stable native events. */
 export function compatibleSessionEvents(event) {
   if (!['assistant/message', 'assistant/attempt'].includes(event?.type)
       || !Array.isArray(event.data?.stream)) return [event]

@@ -18,7 +18,7 @@ from app.services.document_parsing_service import (
 def _copy_source_to_path(request: ParseMarkdownRequest, source_path: Path) -> None:
     source_url = str(request.sourceUrl or "").strip()
     if source_url.startswith(("http://", "https://")):
-        http_request = Request(source_url, headers={"User-Agent": "MOVO-DocumentParser/1.0"})
+        http_request = Request(source_url, headers={"User-Agent": "MOGO-DocumentParser/1.0"})
         with urlopen(http_request, timeout=60) as response, source_path.open("wb") as output:
             while True:
                 chunk = response.read(1024 * 1024)

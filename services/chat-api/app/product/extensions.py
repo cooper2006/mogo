@@ -77,7 +77,7 @@ def _load_factory(module_name: str) -> ProductExtensionFactory:
 
 @lru_cache(maxsize=1)
 def get_product_extension() -> ProductExtension:
-    module_name = (os.getenv("MOGO_PRODUCT_EXTENSION_MODULE", "") or os.getenv("MOVO_PRODUCT_EXTENSION_MODULE", "")).strip()
+    module_name = os.getenv("MOGO_PRODUCT_EXTENSION_MODULE", "").strip()
     if not module_name:
         return community_extension()
     extension = _load_factory(module_name)()

@@ -100,34 +100,34 @@ def test_render_reply_produces_chunks() -> None:
 
 def test_bind_creates_one_to_one_mapping() -> None:
     registry = SessionBindingRegistry()
-    binding = registry.bind(channel="feishu", conversation_id="oc_1", movo_session_id="s-1")
+    binding = registry.bind(channel="feishu", conversation_id="oc_1", mogo_session_id="s-1")
     assert binding.channel == "feishu"
-    assert binding.movo_session_id == "s-1"
+    assert binding.mogo_session_id == "s-1"
 
 
 def test_rebind_same_conversation_to_same_session_is_idempotent() -> None:
     registry = SessionBindingRegistry()
-    first = registry.bind(channel="feishu", conversation_id="oc_1", movo_session_id="s-1")
-    second = registry.bind(channel="feishu", conversation_id="oc_1", movo_session_id="s-1")
+    first = registry.bind(channel="feishu", conversation_id="oc_1", mogo_session_id="s-1")
+    second = registry.bind(channel="feishu", conversation_id="oc_1", mogo_session_id="s-1")
     assert first is second
 
 
 def test_session_cannot_bind_two_channels() -> None:
     registry = SessionBindingRegistry()
-    registry.bind(channel="feishu", conversation_id="oc_1", movo_session_id="s-1")
+    registry.bind(channel="feishu", conversation_id="oc_1", mogo_session_id="s-1")
     with pytest.raises(BindingError):
-        registry.bind(channel="wecom", conversation_id="oc_9", movo_session_id="s-1")
+        registry.bind(channel="wecom", conversation_id="oc_9", mogo_session_id="s-1")
 
 
 def test_bind_rejects_empty_ids() -> None:
     registry = SessionBindingRegistry()
     with pytest.raises(BindingError):
-        registry.bind(channel="", conversation_id="oc_1", movo_session_id="s-1")
+        registry.bind(channel="", conversation_id="oc_1", mogo_session_id="s-1")
 
 
 def test_disabling_channel_marks_bindings_read_only() -> None:
     registry = SessionBindingRegistry()
-    registry.bind(channel="feishu", conversation_id="oc_1", movo_session_id="s-1")
+    registry.bind(channel="feishu", conversation_id="oc_1", mogo_session_id="s-1")
     affected = registry.disable_channel("feishu")
     assert affected == 1
     assert registry.get("feishu", "oc_1").read_only is True
@@ -137,12 +137,12 @@ def test_disabled_channel_rejects_new_bindings() -> None:
     registry = SessionBindingRegistry()
     registry.disable_channel("feishu")
     with pytest.raises(BindingError):
-        registry.bind(channel="feishu", conversation_id="oc_2", movo_session_id="s-2")
+        registry.bind(channel="feishu", conversation_id="oc_2", mogo_session_id="s-2")
 
 
 def test_enabling_channel_restores_bindings() -> None:
     registry = SessionBindingRegistry()
-    registry.bind(channel="feishu", conversation_id="oc_1", movo_session_id="s-1")
+    registry.bind(channel="feishu", conversation_id="oc_1", mogo_session_id="s-1")
     registry.disable_channel("feishu")
     assert registry.enable_channel("feishu") == 1
     assert registry.get("feishu", "oc_1").read_only is False
@@ -233,7 +233,7 @@ def test_router_disable_marks_bindings_read_only() -> None:
 
     router = ChannelRouter()
     router.register("feishu")
-    router.bind_conversation(channel="feishu", conversation_id="oc_1", movo_session_id="s-1")
+    router.bind_conversation(channel="feishu", conversation_id="oc_1", mogo_session_id="s-1")
     router.disable("feishu")
     assert router.registry.get("feishu", "oc_1").read_only is True
 
@@ -246,7 +246,7 @@ def test_router_rebind_after_enable_works() -> None:
     router.disable("feishu")
     router.enable("feishu")
     assert router.is_enabled("feishu") is True
-    binding = router.bind_conversation(channel="feishu", conversation_id="oc_2", movo_session_id="s-2")
+    binding = router.bind_conversation(channel="feishu", conversation_id="oc_2", mogo_session_id="s-2")
     assert binding.read_only is False
 
 
@@ -333,20 +333,20 @@ def test_persisted_registry_bind_roundtrip(monkeypatch):
     reg = PersistedSessionBindingRegistry()
     binding = asyncio.run(reg.bind(
         channel="feishu", conversation_id="c-1",
-        movo_session_id="s-1", tenant_id="t-1",
+        mogo_session_id="s-1", tenant_id="t-1",
     ))
     assert binding.channel_conversation_id == "c-1"
     # The row is persisted.
     rows = colls.get("im_session_bindings", [])
-    assert len(rows) == 1 and rows[0]["movo_session_id"] == "s-1"
+    assert len(rows) == 1 and rows[0]["mogo_session_id"] == "s-1"
     # get() reads the persisted row back.
     loaded = asyncio.run(reg.get("feishu", "c-1", tenant_id="t-1"))
-    assert loaded is not None and loaded.movo_session_id == "s-1"
+    assert loaded is not None and loaded.mogo_session_id == "s-1"
     # First binder wins (FR-14): a second channel for the same session fails.
     with pytest.raises(BindingError):
         asyncio.run(reg.bind(
             channel="dingtalk", conversation_id="c-2",
-            movo_session_id="s-1", tenant_id="t-1",
+            mogo_session_id="s-1", tenant_id="t-1",
         ))
 
 
@@ -362,7 +362,7 @@ def test_persisted_registry_disable_enable_channel(monkeypatch):
 
     reg = PersistedSessionBindingRegistry()
     asyncio.run(reg.bind(channel="feishu", conversation_id="c-1",
-                         movo_session_id="s-1", tenant_id="t-1"))
+                         mogo_session_id="s-1", tenant_id="t-1"))
     disabled_rows = colls.get("im_channels", [])
     assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is True
     affected = asyncio.run(reg.disable_channel("feishu", tenant_id="t-1"))
@@ -387,8 +387,8 @@ def test_persisted_registry_degrades_without_db(monkeypatch):
     monkeypatch.setattr("app.core.db.get_db", _no_db)
     reg = PersistedSessionBindingRegistry()
     binding = asyncio.run(reg.bind(channel="feishu", conversation_id="c-1",
-                                   movo_session_id="s-1", tenant_id="t-1"))
-    assert binding.movo_session_id == "s-1"
+                                   mogo_session_id="s-1", tenant_id="t-1"))
+    assert binding.mogo_session_id == "s-1"
     assert asyncio.run(reg.get("feishu", "c-1", tenant_id="t-1")) is None
     assert asyncio.run(reg.disable_channel("feishu", tenant_id="t-1")) == 0
     assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is True

@@ -1,4 +1,4 @@
-"""Business-level DSH contract for MOVO's presentation pipeline."""
+"""Business-level DSH contract for MOGO's presentation pipeline."""
 
 from __future__ import annotations
 

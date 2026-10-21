@@ -1,6 +1,6 @@
 // Model-facing names admitted from DSH 0.1.6-alpha.1's official PTC-backed
 // `code` composition. Keep this collision boundary explicit when DSH adds a
-// native tool; MOVO enterprise tools must not shadow native Code semantics.
+// native tool; MOGO enterprise tools must not shadow native Code semantics.
 // The pinned-preset compatibility test inventories this same surface. ASKAI
 // keeps obsolete names reserved until the rollback train is retired.
 export const DSH_CODE_RESERVED_TOOL_NAMES = Object.freeze(new Set([
@@ -17,6 +17,6 @@ export function assertNoDshCodeToolCollisions(descriptors) {
     .map(item => item?.name)
     .filter(name => DSH_CODE_RESERVED_TOOL_NAMES.has(name))
   if (collisions.length > 0) {
-    throw new Error(`MOVO enterprise tools collide with DSH Code tools: ${[...new Set(collisions)].join(', ')}`)
+    throw new Error(`MOGO enterprise tools collide with DSH Code tools: ${[...new Set(collisions)].join(', ')}`)
   }
 }

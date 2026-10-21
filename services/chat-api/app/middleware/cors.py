@@ -62,8 +62,6 @@ DEFAULT_ALLOW_HEADERS: tuple[str, ...] = (
     "X-Request-ID",
     # 022 FR-12：服务间调用的独立凭证头（admin-api / chat-api 内部端点）。
     "X-MOGO-Service-Token",
-    # 过渡期旧名（品牌归一 2026-10-21，接收端新名优先）。
-    "X-MOVO-Service-Token",
 )
 
 #: 通配来源。在 ``allow_credentials=True`` 下 Starlette 不能正确反射通配源，

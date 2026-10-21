@@ -8,7 +8,7 @@ GET /admin-api/api/internal/ontology-permissions?tenantId=<t>&userId=<u>
 
 闭环：**MOGO 侧授权 → 业务系统侧过滤**。
 
-鉴权：服务凭证（``X-MOGO-Service-Token``，过渡期兼容旧名 ``X-MOVO-Service-Token``），与 ``personal_knowledge_internal.py`` 同一机制
+鉴权：服务凭证（``X-MOGO-Service-Token``），与 ``personal_knowledge_internal.py`` 同一机制
 （``settings.backend_service_token``，``hmac.compare_digest`` 常量时间比较）。
 
 部署注意（设计 §6 约束 6）：``/internal/*`` **默认不在网关路由表内**，需显式加

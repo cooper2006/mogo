@@ -190,7 +190,7 @@ export class KernelRuntime {
   send({ sessionId, mode, content, temporalContext, turnContext }) {
     const agent = this.#requireAgent(sessionId)
     if (temporalContext === undefined || temporalContext === null) {
-      throw new TypeError('temporalContext is required for every MOVO turn')
+      throw new TypeError('temporalContext is required for every MOGO turn')
     }
     this.#temporalContext.update(sessionId, temporalContext)
     const resolvedTurnContext = resolveSkillTurnContext(this.modelProfile, turnContext)
@@ -240,13 +240,13 @@ export class KernelRuntime {
   }
 
   refreshModelCredential(credential) {
-    if (this.#modelAdapter === undefined) throw new Error('runtime does not use MOVO Model Gateway')
+    if (this.#modelAdapter === undefined) throw new Error('runtime does not use MOGO Model Gateway')
     this.#modelAdapter.updateCredential(credential)
     return { refreshed: true }
   }
 
   refreshToolCredential(credential) {
-    if (this.#toolBridge === undefined) throw new Error('runtime does not use MOVO Tool Gateway')
+    if (this.#toolBridge === undefined) throw new Error('runtime does not use MOGO Tool Gateway')
     this.#toolBridge.updateCredential(credential.accessToken)
     this.#webSearchProvider?.updateCredential(credential.accessToken)
     return { refreshed: true }

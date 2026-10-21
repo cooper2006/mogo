@@ -1,6 +1,6 @@
-# MOVO Document Processing Service
+# MOGO Document Processing Service
 
-This service owns asynchronous document processing tasks for MOVO.
+This service owns asynchronous document processing tasks for MOGO.
 
 Current scope:
 
@@ -57,10 +57,10 @@ PUSH=false ./build_document_processing_bigpack.sh
 The image includes the pinned Docling stack and offline model assets, LibreOffice, Chinese fonts and common OpenCV runtime libraries. The same image can run the API service or Celery worker:
 
 ```bash
-docker run --rm -p 8200:8200 movo-document-processing:dev-0.0.1 api
-docker run --rm movo-document-processing:dev-0.0.1 worker
+docker run --rm -p 8200:8200 mogo-document-processing:dev-0.0.1 api
+docker run --rm mogo-document-processing:dev-0.0.1 worker
 ```
 
 For cluster deployment, set Redis, MongoDB, storage and callback variables through environment variables, for example `MOGO_DOC_PROCESSING_REDIS_URL`, `MOGO_DOC_PROCESSING_MONGODB_URI`, `MOGO_DOC_PROCESSING_MONGODB_DB`, `MOGO_DOC_PROCESSING_OSS_ENDPOINT`, `MOGO_DOC_PROCESSING_OSS_BUCKET`, `MOGO_DOC_PROCESSING_OSS_ACCESS_KEY_ID` and `MOGO_DOC_PROCESSING_OSS_ACCESS_KEY_SECRET`.
 
-品牌归一（movo→mogo）说明：配置前缀已统一为 `MOGO_DOC_PROCESSING_`。旧前缀 `MOVO_DOC_PROCESSING_`（及更早的 `ASKAI_DOC_PROCESSING_`）在过渡期仍被服务接受；同名键同时存在时 `MOGO_` 优先，建议尽快迁移到新前缀。
+品牌归一（movo→mogo）说明：配置前缀已统一为 `MOGO_DOC_PROCESSING_`。更早的 `ASKAI_DOC_PROCESSING_` 在过渡期仍被接受，可直接沿用；建议改用 `MOGO_DOC_PROCESSING_` 前缀。

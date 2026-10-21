@@ -6,7 +6,7 @@
   1. 用户已在本门户登录，取得其用户 id（= MOGO end_users._id，共享主键）。
   2. 用共享密钥 MOGO_PORTAL_TOKEN 签一枚 022 服务令牌（service_id=portal，
      scope=["portal.issue_ticket"]）。
-  3. POST {MOGO_BASE_URL}/api/auth/portal-ticket，头带 X-MOVO-Service-Token，
+  3. POST {MOGO_BASE_URL}/api/auth/portal-ticket，头带 X-MOGO-Service-Token，
      体带 {"user_id": ...}。
   4. 返回 {"portal_token": ...} 给前端，前端经 history.state 跳 user-web。
 
@@ -36,8 +36,7 @@ PORTAL_SERVICE_TOKEN = os.environ["MOGO_PORTAL_TOKEN"]
 PORTAL_SERVICE_ID = "portal"
 # 权限码：必须与 chat-api gatekeeper 注册的 scope 一致。
 PORTAL_ISSUE_TICKET_SCOPE = "portal.issue_ticket"
-# 服务身份请求头：沿用 022 代码常量 SERVICE_TOKEN_HEADER（注意是 MOVO，非 MOGO）。
-# 品牌归一 2026-10-21：规范头 X-MOGO-Service-Token（旧名 X-MOVO-Service-Token 过渡期仍被接受）。
+# 服务身份请求头：沿用 chat-api / admin-api 代码常量 SERVICE_TOKEN_HEADER（X-MOGO-Service-Token）。
 SERVICE_TOKEN_HEADER = "X-MOGO-Service-Token"
 
 

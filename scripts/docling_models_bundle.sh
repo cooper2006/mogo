@@ -55,8 +55,8 @@ DOCKER_BIN="${DOCKER_BIN:-docker}"
 # HuggingFace endpoint + timeout, matching the Dockerfile's MOGO_HF_ENDPOINT /
 # MOGO_HF_TIMEOUT args so `fetch` and the build never disagree about the mirror.
 # 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可用作为回退。
-HF_ENDPOINT="${MOGO_HF_ENDPOINT:-${MOVO_HF_ENDPOINT:-https://hf-mirror.com}}"
-HF_TIMEOUT="${MOGO_HF_TIMEOUT:-${MOVO_HF_TIMEOUT:-120}}"
+HF_ENDPOINT="${MOGO_HF_ENDPOINT:-${MOGO_HF_ENDPOINT:-https://hf-mirror.com}}"
+HF_TIMEOUT="${MOGO_HF_TIMEOUT:-${MOGO_HF_TIMEOUT:-120}}"
 
 usage() {
   cat <<'USAGE'
@@ -74,8 +74,8 @@ Usage:
 
 Environment:
   DOCKER_BIN              Docker binary to use (default: docker)
-  MOGO_HF_ENDPOINT          HuggingFace mirror (default: hf-mirror.com; 旧 MOVO_HF_ENDPOINT 仍可用)
-  MOGO_HF_TIMEOUT           Per-request timeout in seconds (default: 120; 旧 MOVO_HF_TIMEOUT 仍可用)
+  MOGO_HF_ENDPOINT          HuggingFace mirror (default: hf-mirror.com; 旧 MOGO_HF_ENDPOINT 仍可用)
+  MOGO_HF_TIMEOUT           Per-request timeout in seconds (default: 120; 旧 MOGO_HF_TIMEOUT 仍可用)
 
 `save` defaults to document-parser:latest. The bundle is a tar.gz of the
 image's /opt/docling/models tree; build the image normally (or with

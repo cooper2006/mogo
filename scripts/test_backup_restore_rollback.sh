@@ -6,7 +6,7 @@
 # Exercises the full backup → upgrade → rollback cycle against the
 # backup.sh functions with Docker calls mocked. Covers:
 #   1. backup:  stops compose, archives 8 named volumes, writes SHA256SUMS,
-#               volume-prefix.txt, movo-version.txt, git-commit.txt, restarts.
+#               volume-prefix.txt, mogo-version.txt, git-commit.txt, restarts.
 #   2. restore: validates backup dir, verifies SHA256SUMS, checks volume
 #               prefix match, recreates volumes, extracts archives, restarts.
 #   3. rollback: update to a different MOGO_VERSION and back.
@@ -23,7 +23,7 @@ source "${ROOT_DIR}/deploy/cli/backup.sh"
 source "${ROOT_DIR}/deploy/cli/images.sh"
 
 # ── mocks ────────────────────────────────────────────────────────────────
-movo_msg() { :; }
+mogo_msg() { :; }
 sleep() { :; }
 dotenv_value() { :; }
 refresh_gateway_resolution() { :; }
@@ -106,27 +106,27 @@ assert_file_exists() {
 
 # ── setup ────────────────────────────────────────────────────────────────
 MOGO_VERSION="abc1234"
-MOVO_VERSION="abc1234"
-export MOGO_VERSION MOVO_VERSION
+MOGO_VERSION="abc1234"
+export MOGO_VERSION MOGO_VERSION
 
 tmp_parent="$(mktemp -d)"
 trap 'rm -rf "${tmp_parent}"' EXIT
-backup_dir="${tmp_parent}/movo-backup-test"
+backup_dir="${tmp_parent}/mogo-backup-test"
 
 # ── 1. backup ────────────────────────────────────────────────────────────
 echo "=== 1. backup ==="
 
-movo_backup "${backup_dir}"
+mogo_backup "${backup_dir}"
 
 assert_file_exists "${backup_dir}/SHA256SUMS"
 assert_file_exists "${backup_dir}/volume-prefix.txt"
-assert_file_exists "${backup_dir}/movo-version.txt"
+assert_file_exists "${backup_dir}/mogo-version.txt"
 assert_file_exists "${backup_dir}/git-commit.txt"
 
 tar_count=$(find "${backup_dir}" -maxdepth 1 -name '*.tar.gz' | wc -l | tr -d ' ')
 assert_eq "${tar_count}" "8" "backup archives 8 volumes"
 
-ver="$(tr -d '\r\n' < "${backup_dir}/movo-version.txt")"
+ver="$(tr -d '\r\n' < "${backup_dir}/mogo-version.txt")"
 assert_eq "${ver}" "abc1234" "backup records MOGO_VERSION"
 
 stop_count=$(grep -c 'stop' <<< "$(printf '%s\n' "${calls[@]}")" || true)
@@ -145,7 +145,7 @@ calls=()
 created_volumes=()
 extracted_volumes=()
 
-movo_restore "${backup_dir}" "true"
+mogo_restore "${backup_dir}" "true"
 
 assert_eq "${#created_volumes[@]}" "8" "restore recreates 8 volumes"
 assert_eq "${#extracted_volumes[@]}" "8" "restore extracts 8 archives"
@@ -163,19 +163,19 @@ echo "  PASS"
 echo ""
 echo "=== 3. restore validation ==="
 
-if movo_restore "/nonexistent/dir" "true" 2>/dev/null; then
+if mogo_restore "/nonexistent/dir" "true" 2>/dev/null; then
   fail "restore should reject missing backup dir"
 fi
 
 bad_dir="${tmp_parent}/bad-backup"
 mkdir -p "${bad_dir}"
-if movo_restore "${bad_dir}" "true" 2>/dev/null; then
+if mogo_restore "${bad_dir}" "true" 2>/dev/null; then
   fail "restore should reject dir without SHA256SUMS"
 fi
 
 printf 'different\n' > "${bad_dir}/volume-prefix.txt"
 printf 'dummy' > "${bad_dir}/SHA256SUMS"
-if movo_restore "${bad_dir}" "true" 2>/dev/null; then
+if mogo_restore "${bad_dir}" "true" 2>/dev/null; then
   fail "restore should reject volume prefix mismatch"
 fi
 
@@ -188,37 +188,37 @@ echo "=== 4. rollback ==="
 calls=()
 
 MOGO_VERSION="def5678"
-MOVO_VERSION="def5678"
-export MOGO_VERSION MOVO_VERSION
-movo_configure_images false
+MOGO_VERSION="def5678"
+export MOGO_VERSION MOGO_VERSION
+mogo_configure_images false
 
 found_new=0
-for entry in "${MOVO_IMAGE_SERVICES[@]}"; do
+for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
   var="${entry%%:*}"
   if [[ "${!var}" == *"def5678"* ]]; then
     found_new=$((found_new + 1))
   fi
 done
 assert_eq "${found_new}" "6" "update pins 6 array service images to new version"
-if [[ "${MOVO_DOCUMENT_API_IMAGE}" != *"def5678"* ]]; then
+if [[ "${MOGO_DOCUMENT_API_IMAGE}" != *"def5678"* ]]; then
   fail "document-parser image not pinned to new version"
 fi
 
 calls=()
 MOGO_VERSION="abc1234"
-MOVO_VERSION="abc1234"
-export MOGO_VERSION MOVO_VERSION
-movo_configure_images false
+MOGO_VERSION="abc1234"
+export MOGO_VERSION MOGO_VERSION
+mogo_configure_images false
 
 found_rollback=0
-for entry in "${MOVO_IMAGE_SERVICES[@]}"; do
+for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
   var="${entry%%:*}"
   if [[ "${!var}" == *"abc1234"* ]]; then
     found_rollback=$((found_rollback + 1))
   fi
 done
 assert_eq "${found_rollback}" "6" "rollback pins 6 array service images to previous version"
-if [[ "${MOVO_DOCUMENT_API_IMAGE}" != *"abc1234"* ]]; then
+if [[ "${MOGO_DOCUMENT_API_IMAGE}" != *"abc1234"* ]]; then
   fail "document-parser image not pinned to rollback version"
 fi
 
@@ -230,7 +230,7 @@ echo "  PASS"
 echo ""
 echo "=== 5. backup idempotency ==="
 
-if movo_backup "${backup_dir}" 2>/dev/null; then
+if mogo_backup "${backup_dir}" 2>/dev/null; then
   fail "backup should reject existing destination"
 fi
 echo "  PASS"

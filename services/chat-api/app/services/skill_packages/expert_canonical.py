@@ -17,7 +17,7 @@ def restore_expert_distribution(
     slug: str,
     child_slugs: list[str],
 ) -> bytes:
-    """Rebuild the distributable expert shape from MOVO's persisted canonical archive."""
+    """Rebuild the distributable expert shape from MOGO's persisted canonical archive."""
     if "skillset.md" not in file_names:
         raise SkillPackageError("missing_expert_descriptor", "Canonical expert package has no skillset.md", file="skillset.md")
     child_files = [name for name in file_names if name.startswith("children/")]

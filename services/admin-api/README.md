@@ -1,4 +1,4 @@
-# MOVO Admin API
+# MOGO Admin API
 
 `admin/api` 是管理后台的独立后端，用于承载控制面能力：
 

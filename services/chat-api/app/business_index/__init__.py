@@ -1,7 +1,7 @@
 """Business semantic index (feature 014).
 
 Indexes business entities from source systems (CRM first) and answers semantic
-queries with source attribution. Read-only: MOVO never writes back to the business
+queries with source attribution. Read-only: MOGO never writes back to the business
 database.
 
 This package holds the dependency-light core (entity model / source schema /

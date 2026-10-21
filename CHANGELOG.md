@@ -1,8 +1,22 @@
 # Changelog
 
-All notable MOVO Community Edition changes are recorded here. Releases use
+All notable MOGO Community Edition changes are recorded here. Releases use
 semantic version tags and the same tag is applied to every published container
 image.
+
+## Unreleased
+
+### Removed
+
+- **彻底下线 movo 过渡回退机制**：`docker-compose.yml` 的卷名前缀回退链
+  （`${MOGO_VOLUME_PREFIX:-${MOVO_VOLUME_PREFIX:-movo}}`）简化为只写
+  `MOGO_VOLUME_PREFIX`，默认值由 `movo` 改为 `mogo`，卷名示例
+  `movo-mongo-data` → `mogo-mongo-data`；secrets 双写（同时写 `movo_` 与
+  `mogo_` 两份）取消，只保留 `MOGO_*` 权威键；`./mogo` CLI 内部 `movo_*`
+  辅助函数命名与 `MOVO_*_IMAGE` 环境覆盖键一并退役；文档与镜像 registry 示例
+  统一为 `ghcr.io/mogoai/mogo`，`MOVO_*` / `himovo` 字样从用户可见文档、
+  NOTICE、LICENSE 与测试断言中清除。`MOGO_` 是唯一权威拼写，`.env` / CI 中
+  残留的 `MOVO_*` 键需改名为 `MOGO_*`。
 
 ## v0.2.4 - 2026-10-20
 

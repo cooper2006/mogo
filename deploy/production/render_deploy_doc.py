@@ -50,7 +50,7 @@ Portainer → 左侧 **Images** → 右上 **Import** → **Upload**，逐个选
 
 Portainer → **Stacks** → **Add stack**：
 
-- **Name**：`mogo`（决定网络与容器前缀；卷名前缀由清单里的 `movo_*` 固定，不受它影响）
+- **Name**：`mogo`（决定网络与容器前缀；卷名前缀由清单里的 `mogo_*` 固定，不受它影响）
 - **Build method**：选 **Upload**，上传 `docker-compose.portainer.yml`
   （也可用 Web editor 粘贴，但文件含 3.5KB 的 base64 长行，Upload 更稳妥）
 - 不要勾选任何 "re-pull image" 类选项（清单已设 `pull_policy: never`）
@@ -95,7 +95,7 @@ Portainer → Containers 里应看到 12 个 `mogo-*` 容器：
 - **`{largest}` 是最大的包**，网页上传耗时最长；若上传中断，单独重传该包即可，其余包不受影响。
 - **端口**：gateway 占用宿主 `3000`，部署前确认空闲。
 - **架构**：所有镜像均为 amd64，不要把这些 tar 导回 arm64 机器使用。
-- **回滚**：Stack 页 Delete 可移除容器与网络；数据在命名卷 `movo_*` 里，不会随之丢失。
+- **回滚**：Stack 页 Delete 可移除容器与网络；数据在命名卷 `mogo_*` 里，不会随之丢失。
   彻底重来需另行删除这些卷。
 """
 

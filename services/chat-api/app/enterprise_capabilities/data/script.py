@@ -19,7 +19,7 @@ async def run_script(arguments: dict[str, Any], context: CapabilityExecutionCont
     files = governed_script_files(arguments, context)
     reserved = {"user_id", "files", "input_artifacts", "graph_artifacts"}
     if reserved.intersection(input_data):
-        raise ValueError("script data uses a reserved MOVO context key")
+        raise ValueError("script data uses a reserved MOGO context key")
     node = CapabilityTask(
         node_id=f"dsh-script-{context.action_id}", goal="Run governed data-processing script",
         assigned_agent="agent.analysis", expected_artifacts=["plugin_result", "documents", "images"],

@@ -1,8 +1,8 @@
 """`./mogo` 本地镜像解析与 registry 链路停用的回归守卫。
 
-背景（2026-10-13）：纯 registry 部署链路已确认断开。GHCR 上真实存在的包名是
-`ghcr.io/himovo/movo-<service>`，而本仓库生成的引用是 `ghcr.io/himovo/<service>`，
-实测 `error from registry: denied`。更糟的是 `movo_pull_images_serially` 对失败
+背景（2026-10-13）：纯 registry 部署链路已确认断开。GHCR 上真实存在的包名与本仓库
+生成的引用曾经拼不上（旧 `ghcr.io/himovo/movo-<service>` 形态），实测
+`error from registry: denied`。更糟的是 `mogo_pull_images_serially` 对失败
 **无限重试**，所以裸 `./mogo up` 会在拉取里挂住好几分钟才失败。
 
 现在的约定：
@@ -12,7 +12,7 @@
   才能找到刚构建的 `chat-api:v0.2.1`），并校验镜像在位，缺失则点名报错。
 * `./mogo update` 已停用并快速失败——它原本就是那条 registry 链路。
 * 基础镜像（mongo / redis / weaviate / nginx / alpine）是另一条可用链路，仍由
-  `movo_prepare_base_images` 处理，`MOVO_BASE_IMAGE_POLICY=local` 可完全离线。
+  `mogo_prepare_base_images` 处理，`MOGO_BASE_IMAGE_POLICY=local` 可完全离线。
 
 运行::
 
@@ -30,15 +30,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _MOGO = "mogo"
 
-# 真实执行 movo_require_local_images 所需的桩（不碰 docker）。
+# 真实执行 mogo_require_local_images 所需的桩（不碰 docker）。
 _HARNESS = """set -Eeuo pipefail
 source "$ROOT_DIR/deploy/cli/images.sh"
 source "$ROOT_DIR/deploy/cli/i18n.sh"
-movo_detect_locale
+mogo_detect_locale
 dotenv_value() { sed -n "s/^[[:space:]]*$1=//p" "$FAKE_ENV" 2>/dev/null | tail -n1 || true; }
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-eval "$(sed -n '/^movo_require_local_images()/,/^}/p' "$ROOT_DIR/mogo")"
-movo_require_local_images
+eval "$(sed -n '/^mogo_require_local_images()/,/^}/p' "$ROOT_DIR/mogo")"
+mogo_require_local_images
 """
 
 
@@ -93,8 +93,8 @@ def test_up_never_builds_pulls_application_images() -> None:
     """非构建分支不得再调用串行拉取（那只会在 denied 上无限重试）。"""
     body = _command_up_body(_read(_MOGO))
     else_part = _non_build_branch(body)
-    assert not _calls(else_part, "movo_pull_images_serially"), (
-        "command_up 的非构建分支仍在调用 movo_pull_images_serially；"
+    assert not _calls(else_part, "mogo_pull_images_serially"), (
+        "command_up 的非构建分支仍在调用 mogo_pull_images_serially；"
         "GHCR 引用不存在，它会无限重试"
     )
 
@@ -104,16 +104,16 @@ def test_up_requires_local_images_and_uses_release_tag() -> None:
     text = _read(_MOGO)
     else_part = _non_build_branch(_command_up_body(text))
 
-    assert _calls(else_part, "movo_require_local_images"), (
+    assert _calls(else_part, "mogo_require_local_images"), (
         "command_up 非构建分支未校验本地镜像"
     )
-    assert "${MOGO_VERSION:-$(movo_default_version)}" in else_part, (
+    assert "${MOGO_VERSION:-$(mogo_default_version)}" in else_part, (
         "非构建分支的版本没有取自 git tag；裸 ./mogo up 会去找 "
         "chat-api:latest（不存在）而不是刚构建的 chat-api:v0.2.1"
     )
     # 源码构建（裸名）与「不构建但用本地镜像」必须走同一个镜像命名，
-    # 否则 compose 引用的是 ghcr.io/himovo/<svc>，本地裸名镜像对不上。
-    assert "movo_configure_images true" in else_part, (
+    # 否则 compose 引用的是 ghcr.io/mogoai/mogo/<svc>，本地裸名镜像对不上。
+    assert "mogo_configure_images true" in else_part, (
         "非构建分支仍用 registry 前缀命名；本地构建产物是裸名，会失配"
     )
 
@@ -122,7 +122,7 @@ def test_update_is_retired_and_fails_fast() -> None:
     """update 是纯 registry 链路，必须快速失败而不是无限重试。"""
     body = _update_body(_read(_MOGO))
     assert "update_registry_retired" in body, "command_update 未给出明确的停用提示"
-    assert not _calls(body, "movo_pull_images_serially"), (
+    assert not _calls(body, "mogo_pull_images_serially"), (
         "command_update 仍在调用会无限重试的 registry 拉取"
     )
     assert "return 2" in body, "command_update 应以非零码退出"
@@ -132,7 +132,7 @@ def test_base_images_still_resolved_for_up() -> None:
     """基础镜像链路保留：非构建分支仍要准备基础镜像。"""
     body = _command_up_body(_read(_MOGO))
     else_part = _non_build_branch(body)
-    assert _calls(else_part, "movo_prepare_base_images"), (
+    assert _calls(else_part, "mogo_prepare_base_images"), (
         "非构建分支不再准备基础镜像；裸 ./mogo up 会因缺 mongo/redis 等直接失败"
     )
 
@@ -140,7 +140,7 @@ def test_base_images_still_resolved_for_up() -> None:
 def _run_require_local_images(
     tmp_path: Path, *, present: list[str], missing: list[str]
 ):
-    """真实执行 movo_require_local_images：用假 docker 桩控制 inspect 结果。"""
+    """真实执行 mogo_require_local_images：用假 docker 桩控制 inspect 结果。"""
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     (fake_bin / ".env").write_text("", encoding="utf-8")
@@ -170,13 +170,13 @@ def _run_require_local_images(
         FAKE_ENV=str(fake_bin / ".env"),
         DOCKER_BIN=str(docker_stub),
         # 七个别名全部指向「存在」，只留 missing 里的为失败
-        MOVO_DSH_RUNTIME_HOST_IMAGE="dsh-runtime-host:v0.2.1",
-        MOVO_CHAT_API_IMAGE="chat-api:v0.2.1",
-        MOVO_ADMIN_API_IMAGE="admin-api:v0.2.1",
-        MOVO_USER_WEB_IMAGE="user-web:v0.2.1",
-        MOVO_ADMIN_WEB_IMAGE="admin-web:v0.2.1",
-        MOVO_GATEWAY_IMAGE="gateway:v0.2.1",
-        MOVO_DOCUMENT_API_IMAGE="document-parser:v0.2.1",
+        MOGO_DSH_RUNTIME_HOST_IMAGE="dsh-runtime-host:v0.2.1",
+        MOGO_CHAT_API_IMAGE="chat-api:v0.2.1",
+        MOGO_ADMIN_API_IMAGE="admin-api:v0.2.1",
+        MOGO_USER_WEB_IMAGE="user-web:v0.2.1",
+        MOGO_ADMIN_WEB_IMAGE="admin-web:v0.2.1",
+        MOGO_GATEWAY_IMAGE="gateway:v0.2.1",
+        MOGO_DOCUMENT_API_IMAGE="document-parser:v0.2.1",
     )
     for ref in missing:
         for key, value in list(env.items()):

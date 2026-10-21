@@ -208,7 +208,7 @@ def _extract_answer(value: dict[str, Any]) -> str:
 
 async def test_provider(provider: str, config: dict[str, str], query: str) -> list[dict[str, str]]:
     token = provider_or_error(provider)
-    search_query = str(query or "").strip() or "MOVO enterprise AI"
+    search_query = str(query or "").strip() or "MOGO enterprise AI"
 
     def run() -> list[dict[str, str]]:
         if token == "tavily":

@@ -1,4 +1,4 @@
-"""Single MOVO policy and execution authority for DSH-managed tool calls."""
+"""Single MOGO policy and execution authority for DSH-managed tool calls."""
 
 from __future__ import annotations
 from app.infrastructure.observability.config import log_print
@@ -77,7 +77,7 @@ class EnterpriseToolService:
         user_id: str,
         conversation_id: str,
     ) -> int:
-        """Cancel MOVO-owned capability work without waiting for DSH disconnect."""
+        """Cancel MOGO-owned capability work without waiting for DSH disconnect."""
 
         cancelled = await self._presentation_jobs.cancel_conversation(
             tenant_id,
@@ -255,7 +255,7 @@ class EnterpriseToolService:
                     scope_key=scope.key,
                 )
                 if grant is None:
-                    raise ToolPolicyDenied("one-shot or session MOVO approval is required")
+                    raise ToolPolicyDenied("one-shot or session MOGO approval is required")
         receipt = EnterpriseActionReceipt(
             action_id=request.actionId,
             idempotency_key=request.idempotencyKey,

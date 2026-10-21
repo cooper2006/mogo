@@ -23,7 +23,6 @@ def _default_vector_endpoint() -> str:
     return (
         os.getenv("ASKAI_ADMIN_KNOWLEDGE_WEAVIATE_ENDPOINT", "")
         or os.getenv("MOGO_DOC_PROCESSING_WEAVIATE_ENDPOINT", "")
-        or os.getenv("MOVO_DOC_PROCESSING_WEAVIATE_ENDPOINT", "")
         or "http://127.0.0.1:8080"
     )
 
@@ -32,7 +31,6 @@ def _default_vector_collection_name() -> str:
     return (
         os.getenv("ASKAI_ADMIN_KNOWLEDGE_WEAVIATE_COLLECTION_NAME", "")
         or os.getenv("MOGO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME", "")
-        or os.getenv("MOVO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME", "")
         or "AskAIKnowledgeChunks"
     )
 
@@ -41,7 +39,6 @@ def _default_vector_distance_metric() -> str:
     value = (
         os.getenv("ASKAI_ADMIN_KNOWLEDGE_WEAVIATE_DISTANCE_METRIC", "")
         or os.getenv("MOGO_DOC_PROCESSING_WEAVIATE_DISTANCE_METRIC", "")
-        or os.getenv("MOVO_DOC_PROCESSING_WEAVIATE_DISTANCE_METRIC", "")
         or "cosine"
     )
     return value if value in {"cosine", "dot", "l2"} else "cosine"

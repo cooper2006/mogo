@@ -26,7 +26,7 @@ class ImSessionBinding:
 
     channel: str
     channel_conversation_id: str
-    movo_session_id: str
+    mogo_session_id: str
     tenant_id: str = "default"
     initiated_by: str = ""            # MOGO user id resolved from the IM sender
     read_only: bool = False           # set when the channel is disabled (FR-9)
@@ -36,8 +36,8 @@ class ImSessionBinding:
             raise BindingError("channel must not be empty")
         if not str(self.channel_conversation_id or "").strip():
             raise BindingError("channel_conversation_id must not be empty")
-        if not str(self.movo_session_id or "").strip():
-            raise BindingError("movo_session_id must not be empty")
+        if not str(self.mogo_session_id or "").strip():
+            raise BindingError("mogo_session_id must not be empty")
 
 
 @dataclass
@@ -45,7 +45,7 @@ class SessionBindingRegistry:
     """Tracks IM-channel <-> MOGO-session bindings and channel switches."""
 
     bindings: dict[str, ImSessionBinding] = field(default_factory=dict)   # key: channel:conv
-    session_owner: dict[str, str] = field(default_factory=dict)           # movo_session_id -> channel
+    session_owner: dict[str, str] = field(default_factory=dict)           # mogo_session_id -> channel
     disabled_channels: set[str] = field(default_factory=set)
 
     @staticmethod
@@ -57,7 +57,7 @@ class SessionBindingRegistry:
         *,
         channel: str,
         conversation_id: str,
-        movo_session_id: str,
+        mogo_session_id: str,
         tenant_id: str = "default",
         initiator: str = "",
     ) -> ImSessionBinding:
@@ -68,28 +68,28 @@ class SessionBindingRegistry:
         key = self._key(channel, conversation_id)
         existing = self.bindings.get(key)
         if existing is not None:
-            if existing.movo_session_id != movo_session_id:
+            if existing.mogo_session_id != mogo_session_id:
                 raise BindingError(
-                    f"conversation already bound to session {existing.movo_session_id}"
+                    f"conversation already bound to session {existing.mogo_session_id}"
                 )
             return existing
 
-        owner_channel = self.session_owner.get(movo_session_id)
+        owner_channel = self.session_owner.get(mogo_session_id)
         if owner_channel is not None and owner_channel != channel:
             # A MOGO session may be bound by only one IM channel (FR-14).
             raise BindingError(
-                f"session {movo_session_id} already bound by channel {owner_channel}"
+                f"session {mogo_session_id} already bound by channel {owner_channel}"
             )
 
         binding = ImSessionBinding(
             channel=channel,
             channel_conversation_id=conversation_id,
-            movo_session_id=movo_session_id,
+            mogo_session_id=mogo_session_id,
             tenant_id=tenant_id,
             initiated_by=initiator,
         )
         self.bindings[key] = binding
-        self.session_owner[movo_session_id] = channel
+        self.session_owner[mogo_session_id] = channel
         return binding
 
     def get(self, channel: str, conversation_id: str) -> Optional[ImSessionBinding]:
@@ -131,7 +131,7 @@ def _binding_to_row(binding: ImSessionBinding) -> dict:
     return {
         "channel": binding.channel,
         "channel_conversation_id": binding.channel_conversation_id,
-        "movo_session_id": binding.movo_session_id,
+        "mogo_session_id": binding.mogo_session_id,
         "tenant_id": binding.tenant_id,
         "initiated_by": binding.initiated_by,
         "read_only": bool(binding.read_only),
@@ -142,7 +142,10 @@ def _row_to_binding(row: dict) -> ImSessionBinding:
     return ImSessionBinding(
         channel=str(row.get("channel") or ""),
         channel_conversation_id=str(row.get("channel_conversation_id") or ""),
-        movo_session_id=str(row.get("movo_session_id") or ""),
+        # 读旧键兼容：历史行用 "movo_session_id" 写入（品牌迁移前）。
+        mogo_session_id=str(
+            row.get("mogo_session_id") or row.get("movo_session_id") or ""
+        ),
         tenant_id=str(row.get("tenant_id") or "default"),
         initiated_by=str(row.get("initiated_by") or ""),
         read_only=bool(row.get("read_only") or False),
@@ -185,7 +188,7 @@ class PersistedSessionBindingRegistry:
             binding = _row_to_binding(row)
             key = SessionBindingRegistry._key(binding.channel, binding.channel_conversation_id)
             registry.bindings[key] = binding
-            registry.session_owner[binding.movo_session_id] = binding.channel
+            registry.session_owner[binding.mogo_session_id] = binding.channel
             if binding.read_only:
                 registry.disabled_channels.add(binding.channel)
         return registry
@@ -195,7 +198,7 @@ class PersistedSessionBindingRegistry:
         *,
         channel: str,
         conversation_id: str,
-        movo_session_id: str,
+        mogo_session_id: str,
         tenant_id: str = "default",
         initiator: str = "",
     ) -> ImSessionBinding:
@@ -204,7 +207,7 @@ class PersistedSessionBindingRegistry:
         binding = registry.bind(
             channel=channel,
             conversation_id=conversation_id,
-            movo_session_id=movo_session_id,
+            mogo_session_id=mogo_session_id,
             tenant_id=tenant_id,
             initiator=initiator,
         )
@@ -295,7 +298,7 @@ def resolve_group_sender(
     Raises ``BindingError`` when the sender has no MOGO user bound — the caller
     rejects the message and prompts the user to bind.
     """
-    movo_user = str(user_map.get(sender_id) or "")
-    if not movo_user:
+    mogo_user = str(user_map.get(sender_id) or "")
+    if not mogo_user:
         raise BindingError(f"IM sender not bound to a MOGO user: {sender_id}")
-    return movo_user
+    return mogo_user

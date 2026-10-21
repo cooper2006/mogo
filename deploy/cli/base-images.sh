@@ -15,7 +15,7 @@
 # Dockerfiles that participate in a source build. Kept in sync with the build
 # targets in docker-compose.build.yml; the list only names the build contexts,
 # because each Dockerfile's FROM lines are discovered from the file itself.
-MOVO_BASE_IMAGE_DOCKERFILES=(
+MOGO_BASE_IMAGE_DOCKERFILES=(
   "services/chat-api/Dockerfile"
   "services/chat-api/dsh/runtime-host/Dockerfile"
   "services/admin-api/Dockerfile"
@@ -33,9 +33,9 @@ MOVO_BASE_IMAGE_DOCKERFILES=(
 # to look up. Multi-stage builds also name earlier stages in FROM
 # (``FROM dependencies``); those are internal references, not images, so they
 # are filtered out by requiring a tag, a digest, or a slash.
-movo_base_images() {
+mogo_base_images() {
   local dockerfile line var value
-  for dockerfile in "${MOVO_BASE_IMAGE_DOCKERFILES[@]}"; do
+  for dockerfile in "${MOGO_BASE_IMAGE_DOCKERFILES[@]}"; do
     [[ -f "${ROOT_DIR}/${dockerfile}" ]] || continue
 
     # Collect ARG defaults first so they can be substituted below.
@@ -77,7 +77,7 @@ movo_base_images() {
 
 # True when the reference already exists in the local image store. A bare name
 # is looked up as "name:latest" to match Docker's own resolution.
-movo_base_image_is_local() {
+mogo_base_image_is_local() {
   local image="$1"
   local lookup="${image}"
   if [[ "${lookup}" != *:* && "${lookup}" != *@* ]]; then
@@ -90,16 +90,16 @@ movo_base_image_is_local() {
 #
 # ``registry-1.docker.io`` is frequently unreachable from mainland China
 # networks, which turns a first build into a hard failure even though a
-# pull-through cache is available. Setting MOVO_BASE_IMAGE_MIRROR routes every
+# pull-through cache is available. Setting MOGO_BASE_IMAGE_MIRROR routes every
 # Docker Hub reference through that cache:
 #
-#   MOVO_BASE_IMAGE_MIRROR=docker.m.daocloud.io
+#   MOGO_BASE_IMAGE_MIRROR=docker.m.daocloud.io
 #
 # A reference that already names a registry (ghcr.io/..., localhost:5000/...)
 # is returned untouched. A bare Hub reference gains the mirror host, and a
 # single-component name also gains the implicit "library/" namespace, because
 # the mirror proxies the Hub namespace rather than the short form.
-movo_mirror_ref() {
+mogo_mirror_ref() {
   local image="$1" mirror="${2:-}" first
   [[ -n "${mirror}" ]] || { printf '%s' "${image}"; return 0; }
 
@@ -121,13 +121,13 @@ movo_mirror_ref() {
 # the ones that do not. Returns non-zero only when an image could not be made
 # available, so a genuine failure still stops the build.
 #
-# MOVO_BASE_IMAGE_POLICY controls the behaviour:
+# MOGO_BASE_IMAGE_POLICY controls the behaviour:
 #   reuse  (default) - use local images, pull only what is missing
 #   pull             - always refresh base images from the registry
 #   local            - never touch the network; fail when something is missing
-movo_prepare_base_images() {
-  local policy="${MOVO_BASE_IMAGE_POLICY:-reuse}"
-  local mirror="${MOVO_BASE_IMAGE_MIRROR:-}"
+mogo_prepare_base_images() {
+  local policy="${MOGO_BASE_IMAGE_POLICY:-reuse}"
+  local mirror="${MOGO_BASE_IMAGE_MIRROR:-}"
   local image source reused=0
   local -a missing=()
 
@@ -139,30 +139,30 @@ movo_prepare_base_images() {
       continue
     fi
 
-    if movo_base_image_is_local "${image}"; then
+    if mogo_base_image_is_local "${image}"; then
       reused=$((reused + 1))
       continue
     fi
 
     if [[ "${policy}" == "local" ]]; then
-      movo_msg base_image_missing "${image}" >&2
+      mogo_msg base_image_missing "${image}" >&2
       return 1
     fi
 
     missing+=("${image}")
-  done < <(movo_base_images | awk '!seen[$0]++')
+  done < <(mogo_base_images | awk '!seen[$0]++')
 
   if [[ "${reused}" -gt 0 ]]; then
-    movo_msg base_images_reused "${reused}"
+    mogo_msg base_images_reused "${reused}"
   fi
 
   [[ "${#missing[@]}" -eq 0 ]] && return 0
 
   for image in "${missing[@]}"; do
-    source="$(movo_mirror_ref "${image}" "${mirror}")"
-    movo_msg base_image_pulling "${image}"
+    source="$(mogo_mirror_ref "${image}" "${mirror}")"
+    mogo_msg base_image_pulling "${image}"
     if ! "${DOCKER_BIN}" pull "${source}"; then
-      movo_msg base_image_pull_failed "${image}" >&2
+      mogo_msg base_image_pull_failed "${image}" >&2
       return 1
     fi
 
@@ -171,7 +171,7 @@ movo_prepare_base_images() {
     # names share one image, because a pull-through cache serves the same
     # digests.
     if [[ "${source}" != "${image}" ]] && ! "${DOCKER_BIN}" tag "${source}" "${image}"; then
-      movo_msg base_image_pull_failed "${image}" >&2
+      mogo_msg base_image_pull_failed "${image}" >&2
       return 1
     fi
   done

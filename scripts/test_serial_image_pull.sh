@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../deploy/cli/pull.sh
 source "${ROOT_DIR}/deploy/cli/pull.sh"
 
-movo_msg() { :; }
+mogo_msg() { :; }
 sleep() { :; }
 
 calls=()
@@ -35,20 +35,20 @@ assert_eq() {
   [[ "${actual}" == "${expected}" ]] || fail "${label}: expected '${expected}', got '${actual}'"
 }
 
-movo_pull_images_serially missing
+mogo_pull_images_serially missing
 assert_eq "${#calls[@]}" "1" "first pull issues exactly one call"
 assert_eq "${calls[0]}" "--parallel 1 pull --policy missing" "first pull policy"
 
 calls=()
 failures_remaining=4
-MOVO_PULL_RETRY_DELAY_SECONDS=0 movo_pull_images_serially always
+MOGO_PULL_RETRY_DELAY_SECONDS=0 mogo_pull_images_serially always
 assert_eq "${#calls[@]}" "5" "retries until success"
 assert_eq "${calls[4]}" "--parallel 1 pull --policy always" "final retry policy"
 
 calls=()
 failures_remaining=1
 failure_status=130
-if MOVO_PULL_RETRY_DELAY_SECONDS=0 movo_pull_images_serially missing; then
+if MOGO_PULL_RETRY_DELAY_SECONDS=0 mogo_pull_images_serially missing; then
   printf 'Expected an interrupted pull to stop.\n' >&2
   exit 1
 else

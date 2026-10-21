@@ -6,15 +6,15 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# 品牌归一（movo→mogo）：规范前缀改为 MOGO_DOC_PROCESSING_。
-# 过渡期语义：同名后缀字段按 MOGO_ > MOVO_ > ASKAI_ 的优先级取值；
-# 旧前缀（MOVO_、ASKAI_）在过渡期仍被接受，不删除旧回退逻辑。
+# 品牌归一（movo→mogo）：规范前缀为 MOGO_DOC_PROCESSING_。
+# MOVO_ 前缀已随品牌迁移移除，不再被接受。
+# 过渡期语义：同名后缀字段按 MOGO_ > ASKAI_ 的优先级取值；
+# ASKAI_（更早期一代）仍被接受，另行处理。
 ENV_PREFIX = "MOGO_DOC_PROCESSING_"
-LEGACY_ENV_PREFIX = "MOVO_DOC_PROCESSING_"
 # 更早一代（askai 时期）的前缀，保留为最后一级回退（原有逻辑）。
 ANCIENT_ENV_PREFIX = "ASKAI_DOC_PROCESSING_"
-# 旧前缀按优先级排列；运行时只接受这两个前缀下的键作为 MOGO_ 的回退。
-LEGACY_ENV_PREFIXES = (LEGACY_ENV_PREFIX, ANCIENT_ENV_PREFIX)
+# 旧前缀按优先级排列；运行时只接受这些前缀下的键作为 MOGO_ 的回退。
+LEGACY_ENV_PREFIXES = (ANCIENT_ENV_PREFIX,)
 
 
 class Settings(BaseSettings):
@@ -186,8 +186,9 @@ def _read_env_file_value(key: str) -> str:
 
 
 def _apply_legacy_env_prefix(current_settings: Settings) -> None:
-    # 过渡期两级旧前缀回退（.env 文件路径兜底）：MOGO_ 优先（env_prefix + new_key
-    # 检查），未设置时依次回退 MOVO_、ASKAI_（更早期前缀，原有逻辑保留为最后一级）。
+    # 过渡期旧前缀回退（.env 文件路径兜底）：MOGO_ 优先（env_prefix + new_key
+    # 检查），未设置时回退 ASKAI_（更早期前缀，原有逻辑保留为最后一级）。
+    # MOVO_ 前缀已随品牌迁移移除。
     for field_name, field_info in Settings.model_fields.items():
         env_name = f"{field_name}".upper()
         new_key = f"{ENV_PREFIX}{env_name}"
@@ -215,9 +216,10 @@ def _promote_legacy_env_vars() -> None:
     """构造 Settings() 前把 os.environ 里的旧前缀变量提升到 MOGO_ 前缀。
 
     pydantic-settings 的 env_prefix 只认一个前缀（现为 MOGO_），所以 compose /
-    entrypoint / CI 注入的 MOVO_（或更早的 ASKAI_）前缀变量需要先映射成 MOGO_ 键。
+    entrypoint / CI 注入的 ASKAI_（更早期一代）前缀变量需要先映射成 MOGO_ 键。
+    MOVO_ 前缀已随品牌迁移移除，不再提升。
     语义：幂等、不覆盖——MOGO_ 键已有非空值时保持不动；旧前缀按
-    MOVO_ > ASKAI_ 顺序取第一个非空值。`.env` 文件中的旧前缀键由
+    LEGACY_ENV_PREFIXES 顺序取第一个非空值。`.env` 文件中的旧前缀键由
     _apply_legacy_env_prefix() 兜底（env_file 读取同样只认单一前缀）。
     """
     for legacy_prefix in LEGACY_ENV_PREFIXES:
@@ -231,7 +233,7 @@ def _promote_legacy_env_vars() -> None:
             os.environ[new_key] = value
 
 
-# 先提升旧前缀环境变量（MOVO_/ASKAI_ → MOGO_），再构造 Settings，
+# 先提升旧前缀环境变量（ASKAI_ → MOGO_；MOVO_ 已随品牌迁移移除），再构造 Settings，
 # 使 pydantic-settings 的单一 env_prefix=MOGO_ 能读到过渡期旧值。
 _promote_legacy_env_vars()
 settings = Settings()

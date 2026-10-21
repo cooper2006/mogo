@@ -233,15 +233,15 @@ def test_readiness_probe_tolerates_tls_redirect() -> None:
 # `cannot load certificate key` 反复 crash-loop，最终表现为
 # "services did not become ready in time" —— 完全看不出是缺证书。
 #
-# `movo_ensure_tls_certs()` 因此负责：解析同 compose 一致的两个变量 → 缺证书时
+# `mogo_ensure_tls_certs()` 因此负责：解析同 compose 一致的两个变量 → 缺证书时
 # 用 openssl 生成自签名对 → 已存在则不动 → 指向 HTTP 侧配置则直接跳过。
 
 _MOGO_PATH = "mogo"
 
-# 真实执行 movo_ensure_tls_certs 所需的桩（不碰 docker）。
+# 真实执行 mogo_ensure_tls_certs 所需的桩（不碰 docker）。
 _ENSURE_HARNESS = """set -Eeuo pipefail
 source "$ROOT_DIR/deploy/cli/i18n.sh"
-movo_detect_locale
+mogo_detect_locale
 dotenv_value() { sed -n "s/^[[:space:]]*$1=//p" "$FAKE_ENV" 2>/dev/null | tail -n1 || true; }
 mogo_compose() {
   echo "mogo_compose $*" >> "$MOCK_LOG"
@@ -254,10 +254,10 @@ if [ "$NO_OPENSSL" = 1 ]; then
     builtin command "$@"
   }
 fi
-# movo_ensure_tls_certs 委托 movo_tls_is_enabled 做开关判定，两个都要抽出。
-eval "$(sed -n '/^movo_tls_is_enabled()/,/^}/p' "$ROOT_DIR/mogo")"
-eval "$(sed -n '/^movo_ensure_tls_certs()/,/^}/p' "$ROOT_DIR/mogo")"
-movo_ensure_tls_certs
+# mogo_ensure_tls_certs 委托 mogo_tls_is_enabled 做开关判定，两个都要抽出。
+eval "$(sed -n '/^mogo_tls_is_enabled()/,/^}/p' "$ROOT_DIR/mogo")"
+eval "$(sed -n '/^mogo_ensure_tls_certs()/,/^}/p' "$ROOT_DIR/mogo")"
+mogo_ensure_tls_certs
 """
 
 
@@ -270,7 +270,7 @@ def _run_ensure_tls(
     fake_container: bool = False,
     no_tls_for_dotenv_test: bool = False,
 ):
-    """在隔离目录里真实执行 mogo 的 movo_ensure_tls_certs（配桩，不碰 docker）。"""
+    """在隔离目录里真实执行 mogo 的 mogo_ensure_tls_certs（配桩，不碰 docker）。"""
     (tmp_path / ".env").write_text("", encoding="utf-8")
     env = os.environ.copy()
     env.update(
@@ -306,19 +306,19 @@ def _run_ensure_tls(
 def test_mogo_defines_and_wires_tls_cert_guard() -> None:
     """mogo 必须定义证书保障函数，并在三个会启动网关的命令里调用。"""
     text = _read(_MOGO_PATH)
-    assert "movo_ensure_tls_certs() {" in text, "mogo 缺少 movo_ensure_tls_certs 定义"
+    assert "mogo_ensure_tls_certs() {" in text, "mogo 缺少 mogo_ensure_tls_certs 定义"
 
     for command in ("command_up()", "command_update()"):
         match = re.search(rf"{re.escape(command)} \{{.*?^\}}", text, re.M | re.S)
         assert match, f"mogo 里找不到 {command}"
-        assert "movo_ensure_tls_certs" in match.group(0), (
-            f"{command} 未调用 movo_ensure_tls_certs，缺证书仍会 crash-loop"
+        assert "mogo_ensure_tls_certs" in match.group(0), (
+            f"{command} 未调用 mogo_ensure_tls_certs，缺证书仍会 crash-loop"
         )
 
     # restart 分支直接写在 case 里，没有独立函数。
     restart = re.search(r"^  restart\).*?^    ;;", text, re.M | re.S)
     assert restart, "mogo 的 restart 分支不存在"
-    assert "movo_ensure_tls_certs" in restart.group(0), "restart 分支未调用 movo_ensure_tls_certs"
+    assert "mogo_ensure_tls_certs" in restart.group(0), "restart 分支未调用 mogo_ensure_tls_certs"
 
 
 def test_tls_cert_guard_generates_self_signed_pair(tmp_path: Path) -> None:

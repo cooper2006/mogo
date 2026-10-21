@@ -96,7 +96,7 @@ LOW_CONFIDENCE_PATTERNS=(
   #
   #  ① 值位置。否则任何 40+ 字符的**标识符名字**都会命中，例如
   #       ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_ENABLED=false
-  #       MOVO_DOC_PROCESSING_OSS_ACCESS_KEY_SECRET=
+  #       MOGO_DOC_PROCESSING_OSS_ACCESS_KEY_SECRET=
   #     以及 `.env.example` / compose / 部署模板里的长 KEY 名。实测 `--all`
   #     最初的 12 条低置信提示**全部**是这类误报，而本通道的意图是
   #     「长**随机串**」（见文件头设计取舍）——变量名不是随机串。

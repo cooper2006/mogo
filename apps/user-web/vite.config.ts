@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath } from 'node:url'
 
 const communityProductExtension = fileURLToPath(new URL('./src/product/community.ts', import.meta.url))
-const configuredProductExtension = (process.env.MOGO_PRODUCT_UI_EXTENSION || process.env.MOVO_PRODUCT_UI_EXTENSION)?.trim()
+const configuredProductExtension = process.env.MOGO_PRODUCT_UI_EXTENSION?.trim()
 
 // https://vitejs.dev/config/
 export default defineConfig({

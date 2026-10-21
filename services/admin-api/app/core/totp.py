@@ -15,7 +15,7 @@ import time
 TOTP_STEP_SECONDS = 30
 TOTP_DIGITS = 6
 TOTP_SECRET_BYTES = 20
-TOTP_ISSUER = "MOVO Admin"
+TOTP_ISSUER = "MOGO Admin"
 
 
 def generate_secret() -> str:

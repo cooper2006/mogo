@@ -14,11 +14,11 @@ load_runtime_secrets() {
 load_runtime_secrets
 
 start_worker() {
+  # MOVO_ 前缀已随品牌迁移移除；ASKAI_（更早期一代）保留为回退。
   celery -A app.workers.celery_app:celery_app worker \
     --loglevel="${CELERY_LOG_LEVEL:-info}" \
-    # 品牌归一（movo→mogo）：MOGO_ 优先，MOVO_/ASKAI_ 为过渡期旧前缀回退。
-    --queues="${MOGO_DOC_PROCESSING_CELERY_QUEUE:-${MOVO_DOC_PROCESSING_CELERY_QUEUE:-${ASKAI_DOC_PROCESSING_CELERY_QUEUE:-document_processing}}}" \
-    --concurrency="${MOGO_DOC_PROCESSING_WORKER_CONCURRENCY:-${MOVO_DOC_PROCESSING_WORKER_CONCURRENCY:-${ASKAI_DOC_PROCESSING_WORKER_CONCURRENCY:-2}}}"
+    --queues="${MOGO_DOC_PROCESSING_CELERY_QUEUE:-${ASKAI_DOC_PROCESSING_CELERY_QUEUE:-document_processing}}" \
+    --concurrency="${MOGO_DOC_PROCESSING_WORKER_CONCURRENCY:-${ASKAI_DOC_PROCESSING_WORKER_CONCURRENCY:-2}}"
 }
 
 case "${1:-api}" in

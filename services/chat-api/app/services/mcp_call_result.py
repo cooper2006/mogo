@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 
 def build_mcp_call_outcome(tool_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
-    """Translate an MCP CallToolResult into MOVO's shared execution contract."""
+    """Translate an MCP CallToolResult into MOGO's shared execution contract."""
     failed = result.get("isError") is True
     summary = _result_summary(result)
     if failed:

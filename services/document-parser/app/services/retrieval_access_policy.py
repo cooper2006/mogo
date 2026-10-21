@@ -143,11 +143,8 @@ def _keep_documents(
 @lru_cache(maxsize=1)
 def get_knowledge_retrieval_access_policy() -> KnowledgeRetrievalAccessPolicy:
     """Load a distribution-owned policy when installed; default to community behavior."""
-    # 品牌归一（movo→mogo）：MOGO_ 优先，MOVO_ 为过渡期旧前缀回退。
-    module_name = (
-        os.getenv("MOGO_DOC_PROCESSING_RETRIEVAL_POLICY_MODULE", "")
-        or os.getenv("MOVO_DOC_PROCESSING_RETRIEVAL_POLICY_MODULE", "")
-    ).strip()
+    # MOVO_ 前缀已随品牌迁移移除，仅接受 MOGO_ 前缀。
+    module_name = os.getenv("MOGO_DOC_PROCESSING_RETRIEVAL_POLICY_MODULE", "").strip()
     if not module_name:
         return OpenSourceKnowledgeRetrievalAccessPolicy()
     module = importlib.import_module(module_name)

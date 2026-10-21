@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-movo_pull_images_serially() {
+mogo_pull_images_serially() {
   local policy="${1:-missing}"
-  local retry_delay="${MOVO_PULL_RETRY_DELAY_SECONDS:-3}"
+  local retry_delay="${MOGO_PULL_RETRY_DELAY_SECONDS:-3}"
   local attempt=1
   local pull_status
 
@@ -11,7 +11,7 @@ movo_pull_images_serially() {
   fi
 
   while true; do
-    movo_msg pulling_images "${attempt}"
+    mogo_msg pulling_images "${attempt}"
     if mogo_compose --parallel 1 pull --policy "${policy}"; then
       return 0
     else
@@ -21,7 +21,7 @@ movo_pull_images_serially() {
       return "${pull_status}"
     fi
 
-    movo_msg pull_retry "${attempt}" "${retry_delay}" >&2
+    mogo_msg pull_retry "${attempt}" "${retry_delay}" >&2
     sleep "${retry_delay}"
     attempt=$((attempt + 1))
   done

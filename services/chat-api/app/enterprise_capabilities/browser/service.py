@@ -39,7 +39,7 @@ async def browser_task(arguments: dict[str, Any], context: CapabilityExecutionCo
     target_url = str(arguments.get("target_url") or "").strip()
     reject_internal_artifact_target(target_url)
     if agent_registry.get(context.user_id) is None:
-        raise ConnectionError("MOVO local browser agent is not connected")
+        raise ConnectionError("MOGO local browser agent is not connected")
     target = " ".join(item for item in (target_name, target_url) if item)
     goal = f"{target}\n{objective}".strip()
     resume = dict(context.turn_context.get("browser_resume") or {})

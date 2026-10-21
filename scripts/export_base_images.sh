@@ -96,7 +96,7 @@ archive_name_for() {
 
 # Print the unique base image list, one per line.
 required_images() {
-  movo_base_images | awk '!seen[$0]++'
+  mogo_base_images | awk '!seen[$0]++'
 }
 
 current_platform() {
@@ -151,7 +151,7 @@ supports_save_platform() {
 # place and the archive keeps the tag the Dockerfiles ask for; a divergent
 # mirror is caught later by the archive platform check.
 mirror_ref() {
-  movo_mirror_ref "$1" "$2"
+  mogo_mirror_ref "$1" "$2"
 }
 
 cmd_list() {

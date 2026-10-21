@@ -3,9 +3,7 @@ FROM nginx:1.31.5-alpine3.24-slim
 # Point apk at a domestic mirror before any package operation:
 # dl-cdn.alpinelinux.org is slow or unreachable from CN networks, and
 # rewriting the repositories is harmless when the upgrade below is skipped.
-# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
-ARG MOVO_APK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
-ARG MOGO_APK_MIRROR=${MOVO_APK_MIRROR}
+ARG MOGO_APK_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
 RUN if [ -n "${MOGO_APK_MIRROR}" ]; then \
         for source_file in /etc/apk/repositories /etc/apk/repositories.d/*.repositories; do \
             if [ -f "${source_file}" ]; then \
@@ -16,9 +14,7 @@ RUN if [ -n "${MOGO_APK_MIRROR}" ]; then \
 
 # Opt-in: only apply Alpine security patches when MOGO_SECURITY_REFRESH is set
 # (CI passes its run id). Skipping keeps this layer cacheable locally.
-# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
-ARG MOVO_SECURITY_REFRESH=
-ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}
+ARG MOGO_SECURITY_REFRESH=
 RUN if [ -n "${MOGO_SECURITY_REFRESH}" ] && [ "${MOGO_SECURITY_REFRESH}" != "false" ]; then \
         apk upgrade --no-cache; \
     else \

@@ -74,12 +74,12 @@ HARDENED_SERVICES = [
 
 # 镜像名 -> 服务。用于运行时 uid 校验（T029 的 `docker exec id` 一步）。
 IMAGE_NAMES = {
-    "admin-api": "ghcr.io/himovo/admin-api",
-    "chat-api": "ghcr.io/himovo/chat-api",
-    "document-parser": "ghcr.io/himovo/document-parser",
-    "admin-web": "ghcr.io/himovo/admin-web",
-    "user-web": "ghcr.io/himovo/user-web",
-    "gateway": "ghcr.io/himovo/gateway",
+    "admin-api": "ghcr.io/mogoai/mogo/admin-api",
+    "chat-api": "ghcr.io/mogoai/mogo/chat-api",
+    "document-parser": "ghcr.io/mogoai/mogo/document-parser",
+    "admin-web": "ghcr.io/mogoai/mogo/admin-web",
+    "user-web": "ghcr.io/mogoai/mogo/user-web",
+    "gateway": "ghcr.io/mogoai/mogo/gateway",
 }
 
 
@@ -441,7 +441,7 @@ def _image_present(image_ref: str) -> bool:
 
 
 def _version_tag() -> str:
-    return os.environ.get("MOGO_VERSION") or os.environ.get("MOVO_VERSION") or "latest"
+    return os.environ.get("MOGO_VERSION") or "latest"
 
 
 @pytest.mark.parametrize("service", sorted(IMAGE_NAMES))
