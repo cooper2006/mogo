@@ -191,3 +191,47 @@ async def test_cost_section_is_wired_and_reconciles() -> None:
     assert section["departmentAttribution"]["available"] is False
     # OQ-5: the 4-period moving average is computed from the trailing daily history.
     assert section["forecast"] is not None
+
+
+@pytest.mark.asyncio
+async def test_daily_costs_accepts_string_created_at_from_panweidb() -> None:
+    """Regression: PanWeiDB surfaces ``timestamptz`` as ISO strings.
+
+    ``_daily_costs`` used to call ``datetime.fromtimestamp(created_at)`` on the
+    raw stored value. With the PanWeiDB backend that value is a string like
+    ``"2026-09-28 03:20:35.371000"``, so the call raised
+    ``TypeError: 'str' object cannot be interpreted as an integer`` and made
+    ``GET /api/dashboard/overview`` return 500 (verified 2026-10-21).
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    stamp = "%Y-%m-%d %H:%M:%S.%f"
+    rows = [
+        {"created_at": (now - timedelta(days=3)).strftime(stamp), "model_name": "gpt-5.2", "prompt_tokens": 1000, "completion_tokens": 500},
+        {"created_at": (now - timedelta(days=1)).strftime(stamp), "model_name": "gpt-5.2", "prompt_tokens": 1000, "completion_tokens": 500},
+    ]
+
+    class _FindCursor:
+        async def to_list(self, length: int | None = None) -> list[dict[str, Any]]:
+            return [dict(r) for r in rows]
+
+        def sort(self, *a: Any, **k: Any):
+            return self
+
+        def limit(self, *a: Any, **k: Any):
+            return self
+
+    class _FindCollection(_FakeCollection):
+        def find(self, *a: Any, **k: Any):
+            return _FindCursor()
+
+    db = _FakeDB({"token_usage_logs": _FindCollection()})
+
+    daily = await dashboard._daily_costs(db, "m-1", days=7)
+
+    # Both rows parsed and bucketed into two distinct days, oldest first.
+    assert len(daily) == 2
+    # Identical per-day token counts -> equal costs; a skipped row would drop a bucket.
+    assert daily[0] == pytest.approx(daily[1])
+    assert daily[0] > 0

@@ -45,16 +45,48 @@ DEFAULT_PRICE = (10.0, 30.0)
 
 
 def _fmt_time(value: Any) -> str | None:
-    if not isinstance(value, datetime):
+    normalized = _as_utc(value)
+    if normalized is None:
         return None
-    normalized = value
-    if normalized.tzinfo is None:
-        normalized = normalized.replace(tzinfo=timezone.utc)
-    return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return normalized.isoformat().replace("+00:00", "Z")
+
+
+def _as_utc(value: Any) -> datetime | None:
+    """Normalize epoch / BSON datetime / ISO string to an aware UTC datetime.
+
+    PanWeiDB surfaces ``timestamptz`` columns as ISO strings
+    (``"2026-09-28 03:20:35.371000"``), so any consumer doing date math on a
+    stored timestamp has to accept that form alongside a real ``datetime``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                dt = datetime.fromtimestamp(float(text), tz=timezone.utc)
+            except (TypeError, ValueError, OSError, OverflowError):
+                return None
+    elif isinstance(value, (int, float)):
+        try:
+            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+        except (TypeError, ValueError, OSError, OverflowError):
+            return None
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _to_ms(value: Any) -> int:
-    """start_time/end_time may be epoch int or BSON datetime; normalize to ms."""
+    """start_time/end_time may be epoch int, BSON datetime or ISO string; normalize to ms."""
     if value is None:
         return 0
     if isinstance(value, datetime):
@@ -62,7 +94,9 @@ def _to_ms(value: Any) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
-        return 0
+        pass
+    dt = _as_utc(value)
+    return int(dt.timestamp() * 1000) if dt is not None else 0
 
 
 def _duration_ms(row: dict[str, Any]) -> int:
@@ -617,10 +651,10 @@ async def _daily_costs(db: Any, tenant_id: str, days: int = 7) -> list[float]:
         return []
     per_day: dict[str, float] = {}
     for row in rows:
-        created = row.get("created_at")
+        created = _as_utc(row.get("created_at"))
         if created is None:
             continue
-        day = created.date() if hasattr(created, "date") else datetime.fromtimestamp(created, tz=timezone.utc).date()
+        day = created.date()
         prompt = int(row.get("prompt_tokens") or 0)
         completion = int(row.get("completion_tokens") or 0)
         per_day[day] = per_day.get(day, 0.0) + _cost(str(row.get("model_name") or ""), prompt, completion)
