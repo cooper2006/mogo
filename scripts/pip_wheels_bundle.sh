@@ -21,8 +21,13 @@ set -Eeuo pipefail
 #       amd64/                                    wheels for linux/amd64
 #       manifest.txt                              source refs + per-arch contents
 #   services/document-parser/pip-wheels-bundle.tar.gz
-#       - tracked in git as a <1KB placeholder so COPY never fails
-#       - overwritten in place by `save` with the real bundle
+#       - NOT tracked in git (as of 2026-10-21: git rm --cached, ignored)
+#       - generated here by `pack`; the Dockerfile's COPY needs it present
+#
+# IMPORTANT: because the bundle is no longer tracked, a fresh clone has no
+# bundle file at all and `docker build` fails at the COPY line until you run
+# `pack` (or `fetch` then `pack`) once. The real bundle is kept out of git so a
+# ~850MB binary never enters history; `.local-bundles/` holds a local copy.
 #
 # The build context is services/document-parser, so the bundle has to live
 # there; the durable per-arch cache stays under base-images/ so it survives
@@ -608,7 +613,7 @@ cmd_list() {
           "${service}" "${bundle}" "$(human_size "${bsize}")"
       fi
     else
-      printf '  [missing]     %-18s %s - run pack\n' "${service}" "${bundle}"
+      printf '  [missing]     %-18s %s - run pack (no placeholder in git: COPY will fail until this exists)\n' "${service}" "${bundle}"
     fi
   done
 }

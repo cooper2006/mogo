@@ -11,8 +11,15 @@ set -Eeuo pipefail
 #       models/                                    the /opt/docling/models tree
 #       manifest.txt                               docling version + model inventory
 #   services/document-parser/docling-models-bundle.tar.gz
-#       - tracked in git as a <1KB empty placeholder so COPY never fails
-#       - overwritten in place by `save` with the real bundle
+#       - NOT tracked in git (as of 2026-10-21: git rm --cached, ignored)
+#       - generated here by `pack`; the Dockerfile's COPY needs it present
+#
+# IMPORTANT: because the bundle is no longer tracked, a fresh clone has no
+# bundle file at all and `docker build` fails at the COPY line until you run
+# `pack` (or `save` then `pack`) once. The real ~508MB bundle is kept out of git
+# so it never enters history; `.local-bundles/` holds a local copy.
+# (Historically this file was tracked as a 29-byte placeholder guarded by
+# `git update-index --skip-worktree`; that guard is no longer needed.)
 #
 # The build context is services/document-parser, so `save` runs against a
 # locally-built image (or copies out of a running one) and writes the bundle
@@ -380,7 +387,7 @@ cmd_list() {
         "${BUNDLE_PATH}" "$(human_size "${bsize}")"
     fi
   else
-    printf '  [missing]   %s  - run pack (or restore the placeholder)\n' "${BUNDLE_PATH}"
+    printf '  [missing]   %s  - run pack (no placeholder in git: COPY will fail until this exists)\n' "${BUNDLE_PATH}"
   fi
 }
 

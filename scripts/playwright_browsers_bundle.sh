@@ -14,12 +14,17 @@ set -Eeuo pipefail
 #       browsers/                                 the /ms-playwright tree as-is
 #       manifest.txt                              playwright version + browser dirs
 #   services/chat-api/playwright-browsers-bundle.tar.gz
-#       - tracked in git as a <1KB placeholder so COPY never fails
-#       - overwritten in place by `save` with the real bundle
+#       - NOT tracked in git (as of 2026-10-21: git rm --cached, ignored)
+#       - generated here by `save`; the Dockerfile's COPY needs it present
+#
+# IMPORTANT: because the bundle is no longer tracked, a fresh clone has no
+# bundle file at all and `docker build` fails at the COPY line until you run
+# `save` once. The real bundle is kept out of git so it never enters history;
+# `.local-bundles/` holds a local copy.
 #
 # The build context is services/chat-api, so the bundle has to live there; the
 # durable copy stays under base-images/ so it survives `git clean` and can be
-# reused after the placeholder is restored.
+# reused after the bundle is regenerated.
 #
 # NOTE: the bundle covers the *browser binaries* only. The apt libraries that
 # `--with-deps` would install still come from the distro mirror; cache those
@@ -344,7 +349,7 @@ cmd_list() {
         "${BUNDLE_PATH}" "$(human_size "${bsize}")"
     fi
   else
-    printf '  [missing]   %s  - run save (or restore the placeholder)\n' "${BUNDLE_PATH}"
+    printf '  [missing]   %s  - run save (no placeholder in git: COPY will fail until this exists)\n' "${BUNDLE_PATH}"
   fi
 }
 
