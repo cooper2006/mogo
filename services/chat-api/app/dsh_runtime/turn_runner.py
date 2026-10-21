@@ -25,6 +25,7 @@ from app.dsh_runtime.evidence_projection import (
 )
 from app.dsh_runtime.gateway import DshAgentKernelGateway
 from app.dsh_runtime.profile.service import RuntimeProfilePublisher
+from app.dsh_runtime.turn_backpressure import TurnBackpressure
 from app.dsh_runtime.turn_finalization import TurnStateFinalizer
 from app.enterprise_capabilities.evidence import ExecutionEvidenceRepository
 

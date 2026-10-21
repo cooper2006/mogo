@@ -115,6 +115,10 @@ def to_sync(async_source: str) -> str:
     text = text.replace("async for ", "for ")
     text = text.replace("async def ", "def ")
     text = re.sub(r"\bawait\s+", "", text)
+    # async 生成器被上面的 "async def " → "def " 变换成了同步生成器，
+    # 但其返回注解仍是 AsyncIterator；typing 导入行已换成 Iterator，
+    # 若不同步替换注解，同步副本就会留下 F821 undefined name。
+    text = text.replace("-> AsyncIterator[", "-> Iterator[")
     # 两个游标类需要手工替换（异步迭代 / 等待 → 同步迭代）
     text = text.replace(
         text[text.index("class PgCursor:"):text.index("class PgAggregationCursor:")],

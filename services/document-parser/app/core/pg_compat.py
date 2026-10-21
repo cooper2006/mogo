@@ -2000,7 +2000,7 @@ class PgCollection:
             upserted_ids=upserted_ids,
         )
 
-    def list_indexes(self) -> AsyncIterator[dict[str, Any]]:
+    def list_indexes(self) -> Iterator[dict[str, Any]]:
         """列出当前集合（表）上的索引，返回 Mongo 形状的字典迭代器。
 
         通过 ``pg_indexes`` 视图读取 PG 索引元数据，映射到 Mongo 的

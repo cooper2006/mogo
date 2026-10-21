@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -30,6 +31,8 @@ from typing import Any, Iterable, Mapping
 
 from . import redaction as _redaction
 from .redaction import RedactionConfig, DEFAULT_CONFIG
+
+logger = logging.getLogger(__name__)
 
 AUDIT_EVENTS_COLLECTION = "audit_events"
 # 022 FR-17（T044）：审计日志保留期下限（合规取证基线，≥180 天）。
