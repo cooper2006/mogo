@@ -29,14 +29,18 @@ import secrets
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Annotated, Any, Iterable, Mapping
+
+from fastapi import Depends, Header
 
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------
 
-#: HTTP 头名（与既有 `X-MOVO-Service-Token` 约定保持一致）。
-SERVICE_TOKEN_HEADER = "X-MOVO-Service-Token"
+#: HTTP 头名（品牌归一 2026-10-21：规范名 `X-MOGO-Service-Token`；
+#: 旧名 `X-MOVO-Service-Token` 过渡期继续接受，新名优先）。
+SERVICE_TOKEN_HEADER = "X-MOGO-Service-Token"
+LEGACY_SERVICE_TOKEN_HEADER = "X-MOVO-Service-Token"
 
 #: FR-12：服务间凭证生命周期上限 24h。
 SERVICE_TOKEN_MAX_TTL_SECONDS = 24 * 3600
@@ -389,17 +393,44 @@ class ServiceTokenIssuer:
         )
 
 
+def resolve_service_token_headers(
+    mogo_token: str = Header(default="", alias=SERVICE_TOKEN_HEADER),
+    legacy_token: str = Header(default="", alias=LEGACY_SERVICE_TOKEN_HEADER),
+) -> str:
+    """过渡期双读服务凭证头：``X-MOGO-Service-Token`` 优先，旧名回退。
+
+    直接用作 FastAPI 依赖参数注解 :data:`ServiceTokenHeader`。
+    """
+    return mogo_token or legacy_token
+
+
+def service_token_headers(token: str) -> dict[str, str]:
+    """构造服务凭证请求头：新名 ``X-MOGO-Service-Token`` + 旧名各一份（过渡期双写）。
+
+    接收端 :data:`ServiceTokenHeader` 新名优先、旧名回退；双写保证滚动
+    升级窗口内新旧服务都能校验通过。
+    """
+    return {SERVICE_TOKEN_HEADER: token, LEGACY_SERVICE_TOKEN_HEADER: token}
+
+
+#: FastAPI 依赖：注入已按「新名优先、旧名回退」解析后的服务凭证头原始值。
+ServiceTokenHeader = Annotated[str, Depends(resolve_service_token_headers)]
+
 __all__ = [
     "DEFAULT_LEEWAY_SECONDS",
     "ENV_PREFIX_DEFAULT",
+    "LEGACY_SERVICE_TOKEN_HEADER",
     "MIN_SECRET_BYTES",
     "SERVICE_TOKEN_HEADER",
     "SERVICE_TOKEN_MAX_TTL_SECONDS",
     "ServiceCredentialError",
     "ServiceCredentialVault",
     "ServiceTokenClaim",
-    "ServiceTokenExpired",
+    "service_token_headers",
     "ServiceTokenError",
+    "ServiceTokenExpired",
+    "ServiceTokenHeader",
     "ServiceTokenInvalid",
     "ServiceTokenIssuer",
+    "resolve_service_token_headers",
 ]

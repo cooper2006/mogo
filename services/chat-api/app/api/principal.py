@@ -8,6 +8,7 @@ from typing import Literal
 from typing import Any
 
 from fastapi import Header, HTTPException, Request
+from app.security.service_token import ServiceTokenHeader
 
 from app.core.config import get_settings
 from app.core.tenant import resolve_tenant_id
@@ -103,7 +104,7 @@ def _incoming_service_issuer() -> Any:
 async def require_api_principal(
     request: Request,
     authorization: str | None = Header(default=None),
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> ApiPrincipal:
     settings = get_settings()
     tenant_hint = str(

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, HTTPException
+from app.security.service_token import ServiceTokenHeader
 
 from app.services.capability_assets.registry import (
     ASSET_STATES,
@@ -30,7 +31,7 @@ def _get_registry() -> PersistedCapabilityRegistry:
 @router.post("/discover")
 async def discover_capabilities(
     payload: dict[str, Any],
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Discover capabilities from candidate definitions and register them (FR-2 / FR-10)."""
     from app.core.config import settings
@@ -56,7 +57,7 @@ async def discover_capabilities(
 @router.get("")
 async def list_capabilities(
     state: Optional[str] = None,
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """List registered capabilities, optionally filtered by state (FR-1)."""
     from app.core.config import settings
@@ -82,7 +83,7 @@ async def list_capabilities(
 @router.get("/{asset_id}")
 async def get_capability(
     asset_id: str,
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Get a single capability asset (FR-1)."""
     from app.core.config import settings
@@ -115,7 +116,7 @@ def _require_service(service_token: str) -> None:
 async def update_asset_contract(
     asset_id: str,
     payload: dict[str, Any],
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Replace the asset contract, bumping the version (FR-5, audited FR-11)."""
     _require_service(service_token)
@@ -131,7 +132,7 @@ async def update_asset_contract(
 async def set_asset_state(
     asset_id: str,
     payload: dict[str, Any],
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Change the asset state; ``offline`` requires an authorized approver (FR-6)."""
     _require_service(service_token)
@@ -151,7 +152,7 @@ async def set_asset_state(
 async def transfer_asset_owner(
     asset_id: str,
     payload: dict[str, Any],
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Transfer the asset owner role (FR-11; audited inside transfer_owner)."""
     _require_service(service_token)
@@ -169,7 +170,7 @@ async def transfer_asset_owner(
 async def set_asset_a2a_exposed(
     asset_id: str,
     payload: dict[str, Any],
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Explicitly mark/unmark A2A exposure (FR-12; gates 012 AgentCard)."""
     _require_service(service_token)

@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from app.security.service_token import service_token_headers
 from app.core.config import settings
 
 
@@ -33,7 +34,7 @@ def install_organization_skill_zip(*, tenant_id: str, filename: str, content: by
         headers={
             "Accept": "application/json",
             "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "X-MOVO-Service-Token": settings.backend_service_token,
+            **service_token_headers(settings.backend_service_token),
         },
         method="POST",
     )

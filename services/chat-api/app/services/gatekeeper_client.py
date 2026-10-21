@@ -18,6 +18,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.security import gatekeeper as _gk
+from app.security.service_token import service_token_headers
 
 # Keep this short: the gate sits on the hot path of every tool call.
 DEFAULT_TIMEOUT_SECONDS = 5.0
@@ -151,7 +152,7 @@ class GatekeeperClient:
                 response = await client.post(
                     f"{base_url}/api/internal/gatekeeper/evaluate",
                     json=payload,
-                    headers={"X-MOVO-Service-Token": token},
+                    headers=service_token_headers(token),
                 )
         except Exception as exc:  # transport / timeout -> fail closed
             raise GateDeniedError(f"门禁服务不可用（fail-closed）：{exc}") from exc

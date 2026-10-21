@@ -6,6 +6,7 @@ import httpx
 from fastapi import UploadFile
 
 from app.core.config import get_settings
+from app.security.service_token import service_token_headers
 
 
 class KnowledgeLifecycleClient:
@@ -15,7 +16,7 @@ class KnowledgeLifecycleClient:
         replace_existing: bool = False,
     ) -> dict[str, Any]:
         settings = get_settings()
-        headers = {"X-MOVO-Service-Token": str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")}
+        headers = service_token_headers(str(settings.ADMIN_BACKEND_SERVICE_TOKEN or ""))
         data = {
             "tenantId": tenant_id,
             "ownerUserId": owner_user_id,
@@ -44,7 +45,7 @@ class KnowledgeLifecycleClient:
             response = await client.post(
                 f"{base_url}/api/internal/personal-knowledge/{resource_id}/{action}",
                 json={"tenantId": tenant_id, "ownerUserId": owner_user_id},
-                headers={"X-MOVO-Service-Token": str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")},
+                headers=service_token_headers(str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")),
             )
         if response.status_code >= 400:
             raise RuntimeError(f"knowledge_lifecycle_{action}_failed:{response.status_code}:{response.text[:500]}")

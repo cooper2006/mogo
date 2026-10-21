@@ -13,6 +13,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     certifi = None
 
+from app.security.service_token import service_token_headers
 from app.core.config import settings
 
 
@@ -31,7 +32,7 @@ def backend_model_test_events(instance_id: str, tenant_id: str, prompt: str) -> 
         headers={
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
-            "X-MOVO-Service-Token": settings.backend_service_token,
+            **service_token_headers(settings.backend_service_token),
         },
         method="POST",
     )

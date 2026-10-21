@@ -37,7 +37,8 @@ PORTAL_SERVICE_ID = "portal"
 # 权限码：必须与 chat-api gatekeeper 注册的 scope 一致。
 PORTAL_ISSUE_TICKET_SCOPE = "portal.issue_ticket"
 # 服务身份请求头：沿用 022 代码常量 SERVICE_TOKEN_HEADER（注意是 MOVO，非 MOGO）。
-SERVICE_TOKEN_HEADER = "X-MOVO-Service-Token"
+# 品牌归一 2026-10-21：规范头 X-MOGO-Service-Token（旧名 X-MOVO-Service-Token 过渡期仍被接受）。
+SERVICE_TOKEN_HEADER = "X-MOGO-Service-Token"
 
 
 def _b64url(raw: bytes) -> str:

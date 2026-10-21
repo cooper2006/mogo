@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from app.security.service_token import ServiceTokenHeader
 from pydantic import BaseModel
 
 from app.api.routes.knowledge_documents import delete_document, retry_document_parse, retry_document_preview, upload_document
@@ -28,7 +29,7 @@ async def upload_personal_document(
     file: UploadFile = File(...), tenantId: str = Form(...), ownerUserId: str = Form(...),
     resourceId: str = Form(...), name: str = Form(default=""), description: str = Form(default=""),
     tags: str = Form(default=""), replaceExisting: bool = Form(default=False),
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ):
     _require_service(service_token)
     result = await upload_document(
@@ -46,7 +47,7 @@ class ActionPayload(BaseModel):
 
 
 @router.post("/{resource_id}/relearn")
-async def relearn_personal_document(resource_id: str, payload: ActionPayload, service_token: str = Header(default="", alias="X-MOVO-Service-Token")):
+async def relearn_personal_document(resource_id: str, payload: ActionPayload, service_token: ServiceTokenHeader):
     _require_service(service_token)
     resource = await get_db().knowledge_resources.find_one({
         "_id": resource_id, "tenant_id": payload.tenantId,
@@ -72,7 +73,7 @@ async def relearn_personal_document(resource_id: str, payload: ActionPayload, se
 
 
 @router.post("/{resource_id}/delete")
-async def delete_personal_document(resource_id: str, payload: ActionPayload, service_token: str = Header(default="", alias="X-MOVO-Service-Token")):
+async def delete_personal_document(resource_id: str, payload: ActionPayload, service_token: ServiceTokenHeader):
     _require_service(service_token)
     resource = await get_db().knowledge_resources.find_one({
         "_id": resource_id, "tenant_id": payload.tenantId,

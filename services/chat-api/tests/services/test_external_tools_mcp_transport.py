@@ -35,7 +35,7 @@ def test_external_tool_service_passes_auth_and_runtime_identity_to_mcp_transport
             tool,
             "tools/call",
             {"name": "search", "arguments": {}},
-            runtime_headers={"X-MOVO-User-ID": "user-7"},
+            runtime_headers={"X-MOGO-User-ID": "user-7", "X-MOVO-User-ID": "user-7"},
         )
     )
 
@@ -45,6 +45,7 @@ def test_external_tool_service_passes_auth_and_runtime_identity_to_mcp_transport
     assert captured["headers"]["Authorization"] == "Bearer configured-token"
     assert captured["headers"]["X-Custom"] == "kept"
     assert captured["headers"]["X-MOVO-User-ID"] == "user-7"
+    assert captured["headers"]["X-MOGO-User-ID"] == "user-7"
     assert captured["method"] == "tools/call"
 
 

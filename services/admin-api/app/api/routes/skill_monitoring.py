@@ -17,7 +17,8 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
+from app.security.service_token import ServiceTokenHeader
 
 from app.core.db import get_db
 from app.services.skill_market.skill_monitoring import (
@@ -47,7 +48,7 @@ async def monitor_usage(
     skill_key: str = Query(default=""),
     days: int = Query(default=7, ge=1, le=366),
     granularity: str = Query(default="day"),
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """FR-1: skill usage monitoring (volume / success-rate / error-rate series)."""
     _require_service(service_token)
@@ -73,7 +74,7 @@ async def monitor_anomaly_drilldown(
     tenant_id: str = Query(default=""),
     skill_key: str = Query(default=""),
     limit: int = Query(default=100, ge=1, le=500),
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """FR-2: drill down one anomalous day (buckets + underlying skill events)."""
     _require_service(service_token)

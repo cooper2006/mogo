@@ -14,6 +14,7 @@ from typing import Any, Optional
 from app.core.ids import is_valid_backend_id, to_backend_id
 
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
+from app.security.service_token import ServiceTokenHeader
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
@@ -983,7 +984,7 @@ async def _find_active_user_by_id(db: Any, user_id: str) -> Optional[dict]:
 @router.post("/auth/portal-ticket", response_model=ApiResponse)
 async def portal_ticket(
     payload: PortalTicketRequest,
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> ApiResponse:
     """门户 SSO 第一步：以服务身份为某 MOGO 终端用户签发一次性登录票据。
 

@@ -9,7 +9,7 @@
 
 ```
 ① 用户已在外部门户登录
-② 门户后端 ──X-MOVO-Service-Token──▶ POST {MOGO}/api/auth/portal-ticket
+② 门户后端 ──X-MOGO-Service-Token──▶ POST {MOGO}/api/auth/portal-ticket
                                        （服务身份 + scope portal.issue_ticket + user_id）
 ③ MOGO 签发一次性票据（HMAC-SHA256，TTL 60s，含 session_id）
 ④ 门户前端 ──跳转──▶ user-web  （票据经 history.state.portalToken 传入，不落 URL）
@@ -19,7 +19,7 @@
 ⑧ user-web 写 localStorage（auth_token / auth_account / auth_user_profile）→ 进入工作台
 ```
 
-> ⚠️ 实际服务身份请求头为 **`X-MOVO-Service-Token`**（沿用 022 `app/api/principal.py`
+> ⚠️ 实际服务身份请求头为 **`X-MOGO-Service-Token`**（沿用 022 `app/api/principal.py`
 > 与 `app/security/service_token.py` 的常量 `SERVICE_TOKEN_HEADER`），而非集成方案正文里的
 > `X-MOGO-Service-Token`。二者仅差一个字母，以代码为准。
 

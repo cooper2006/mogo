@@ -9,7 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, HTTPException
+from app.security.service_token import ServiceTokenHeader
 
 from app.core.db import get_db
 from app.services.skill_market.canary import (
@@ -60,7 +61,7 @@ def _require_service(token: str) -> None:
 @router.post("")
 async def create_rollout(
     payload: dict[str, Any],
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Start a canary rollout for a Skill version (FR-4, FR-10 persistence)."""
     _require_service(service_token)
@@ -102,7 +103,7 @@ async def create_rollout(
 async def record_rollout_calls(
     skill_id: str,
     payload: dict[str, Any],
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Record call/error counts for a canary rollout (FR-4 / FR-5)."""
     _require_service(service_token)
@@ -138,7 +139,7 @@ async def evaluate_rollout(
     skill_id: str,
     threshold: Optional[float] = None,
     min_samples: Optional[int] = None,
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Evaluate canary health and decide rollback (FR-5)."""
     _require_service(service_token)
@@ -171,7 +172,7 @@ async def evaluate_rollout(
 @router.post("/{skill_id}/rollback")
 async def do_rollback(
     skill_id: str,
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Manually trigger rollback for a canary rollout (FR-11)."""
     _require_service(service_token)

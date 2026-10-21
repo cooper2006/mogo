@@ -501,6 +501,9 @@ class ExternalToolService:
                 "tools/call",
                 {"name": tool_name, "arguments": args},
                 runtime_headers={
+                    "X-MOGO-Main-ID": resolve_tenant_id(tenant_id),
+                    "X-MOGO-User-ID": str(actor_user_id or "").strip(),
+                    # 过渡期旧名（外部 MCP 提供方可能已按旧名配置）。
                     "X-MOVO-Main-ID": resolve_tenant_id(tenant_id),
                     "X-MOVO-User-ID": str(actor_user_id or "").strip(),
                     "X-AskAI-Main-ID": resolve_tenant_id(tenant_id),

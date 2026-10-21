@@ -13,6 +13,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     certifi = None
 
+from app.security.service_token import service_token_headers
 from app.core.config import settings
 
 
@@ -45,7 +46,7 @@ def _request_image_test(instance_id: str, tenant_id: str, prompt: str) -> dict[s
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "X-MOVO-Service-Token": settings.backend_service_token,
+            **service_token_headers(settings.backend_service_token),
         },
         method="POST",
     )

@@ -8,7 +8,7 @@ GET /admin-api/api/internal/ontology-permissions?tenantId=<t>&userId=<u>
 
 闭环：**MOGO 侧授权 → 业务系统侧过滤**。
 
-鉴权：服务凭证（``X-MOVO-Service-Token``），与 ``personal_knowledge_internal.py`` 同一机制
+鉴权：服务凭证（``X-MOGO-Service-Token``，过渡期兼容旧名 ``X-MOVO-Service-Token``），与 ``personal_knowledge_internal.py`` 同一机制
 （``settings.backend_service_token``，``hmac.compare_digest`` 常量时间比较）。
 
 部署注意（设计 §6 约束 6）：``/internal/*`` **默认不在网关路由表内**，需显式加
@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
+from app.security.service_token import ServiceTokenHeader
 
 from app.core.config import settings
 from app.ontology_permission.service import OntologyPermissionService
@@ -37,7 +38,7 @@ def _require_service(token: str) -> None:
 async def ontology_permissions_for_user(
     tenantId: str = Query(...),
     userId: str = Query(...),
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, object]:
     """按 ``(tenantId, userId)`` 返回该用户可见的本体清单（含来源实体提示）。"""
     _require_service(service_token)

@@ -11,6 +11,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
+from app.security.service_token import service_token_headers
 from app.api.deps import get_current_admin_user
 from app.api.time_utils import utc_iso
 from app.api.tool_limits import validate_mcp_activation
@@ -151,7 +152,7 @@ def _request_backend(method: str, path: str, tenant_id: str, body: Any | None = 
     data = None
     headers = {
         "Accept": "application/json",
-        "X-MOVO-Service-Token": settings.backend_service_token,
+        **service_token_headers(settings.backend_service_token),
     }
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -302,7 +303,7 @@ async def test_tool(tool_id: str, request: Request, response: Response, current_
     await _enforce_gate(str(tool_id), tenant_id, current_user, payload)
     timeout = _config_timeout_seconds(_safe_dict((doc or {}).get("config")))
     result = _backend_data(_request_backend("POST", f"/{tool_id}/test", tenant_id, payload, timeout=timeout))
-    response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
+    response.headers["X-MOGO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
     return result
 
 
@@ -313,7 +314,7 @@ async def test_draft_tool(request: Request, response: Response, current_user: di
     tool_id = str(payload.get("id") or payload.get("tool_id") or "test-draft")
     await _enforce_gate(tool_id, tenant_id, current_user, payload)
     result = _backend_data(_request_backend("POST", "/test-draft", tenant_id, payload, timeout=_tool_timeout_seconds(payload)))
-    response.headers["X-MOVO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
+    response.headers["X-MOGO-Operation-Result"] = "success" if _operation_succeeded(result) else "failed"
     return result
 
 

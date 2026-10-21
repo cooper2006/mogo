@@ -31,7 +31,7 @@ class SystemAuditMiddleware(BaseHTTPMiddleware):
             context,
             response.status_code,
             monotonic() - started,
-            operation_result=response.headers.get("X-MOVO-Operation-Result"),
+            operation_result=response.headers.get("X-MOGO-Operation-Result"),
         )
         return response
 

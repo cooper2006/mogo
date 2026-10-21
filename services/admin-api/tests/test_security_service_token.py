@@ -15,6 +15,7 @@ import pytest
 from app.security.service_token import (
     DEFAULT_LEEWAY_SECONDS,
     ENV_PREFIX_DEFAULT,
+    LEGACY_SERVICE_TOKEN_HEADER,
     MIN_SECRET_BYTES,
     SERVICE_TOKEN_HEADER,
     SERVICE_TOKEN_MAX_TTL_SECONDS,
@@ -322,7 +323,8 @@ def test_service_id_empty_rejected() -> None:
 
 
 def test_header_constant_matches_gateway_contract() -> None:
-    assert SERVICE_TOKEN_HEADER == "X-MOVO-Service-Token"
+    assert SERVICE_TOKEN_HEADER == "X-MOGO-Service-Token"
+    assert LEGACY_SERVICE_TOKEN_HEADER == "X-MOVO-Service-Token"
 
 
 def test_max_ttl_constant_is_24h() -> None:

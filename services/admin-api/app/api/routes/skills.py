@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
+from app.security.service_token import service_token_headers
 from app.api.deps import get_current_admin_user
 from app.api.time_utils import utc_iso
 from app.core.config import settings
@@ -96,7 +97,7 @@ def _request_backend(method: str, path: str, tenant_id: str, body: Any | None = 
     data = None
     headers = {
         "Accept": "application/json",
-        "X-MOVO-Service-Token": settings.backend_service_token,
+        **service_token_headers(settings.backend_service_token),
     }
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")

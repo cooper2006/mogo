@@ -16,7 +16,8 @@ from __future__ import annotations
 import hmac
 from typing import Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, HTTPException
+from app.security.service_token import ServiceTokenHeader
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
@@ -129,7 +130,7 @@ async def _resolve_roles(tenant_id: str, user_id: str, provided: list[str]) -> l
 @router.post("/evaluate")
 async def evaluate_gate(
     payload: GateEvaluatePayload,
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Run the six-layer chain and return the verdict (+ redacted request)."""
     _require_service(
@@ -190,7 +191,7 @@ class GateApprovalDecision(BaseModel):
 @router.post("/decide")
 async def decide_gate_approval(
     payload: GateApprovalDecision,
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Human-approver decision on a suspended call (FR-2 / FR-11).
 
@@ -220,7 +221,7 @@ async def decide_gate_approval(
 async def list_gate_approvals(
     tenantId: str = "",
     status: str = "pending",
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Approver inbox: list tickets awaiting a decision (FR-2).
 
@@ -260,7 +261,7 @@ async def list_gate_events(
     decision: str = "",
     tool: str = "",
     limit: int = 100,
-    service_token: str = Header(default="", alias="X-MOVO-Service-Token"),
+    service_token: ServiceTokenHeader = "",
 ) -> dict[str, Any]:
     """Read the 001 audit trail (``gate_events``).
 
