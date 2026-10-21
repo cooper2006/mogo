@@ -31,7 +31,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVIRONMENT="${ENVIRONMENT:-test}"
 REGISTRY="${REGISTRY:-ghcr.io}"
 REGISTRY_NAMESPACE="${REGISTRY_NAMESPACE:-}"
-IMAGE_NAME="${IMAGE_NAME:-movo-document-processing}"
+IMAGE_NAME="${IMAGE_NAME:-mogo-document-processing}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 BASE_IMAGE="${BASE_IMAGE:-python:3.13-slim-bookworm}"
 USE_COMMITTED_SYSTEM_BASE="${USE_COMMITTED_SYSTEM_BASE:-true}"
@@ -184,7 +184,7 @@ prepare_committed_system_base() {
     build_source_image="${staging_image}"
     echo "Resuming system base build from staging image: ${staging_image}"
   fi
-  echo "Preparing movo document parser base image: ${SYSTEM_BASE_IMAGE}"
+  echo "Preparing mogo document parser base image: ${SYSTEM_BASE_IMAGE}"
   echo "Source image: ${build_source_image}"
   docker rm -f "${container_name}" >/dev/null 2>&1 || true
 

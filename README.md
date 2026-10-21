@@ -595,29 +595,31 @@ The Docker build images use Chinese mirrors by default, so dependency installati
 
 | Image | Mirror | Configuration |
 | --- | --- | --- |
-| user-web | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in `apps/user-web/Dockerfile.prod` |
-| admin-web | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in `apps/admin-web/Dockerfile` |
+| user-web | npmmirror.com | `ARG MOGO_NPM_REGISTRY=https://registry.npmmirror.com` in `apps/user-web/Dockerfile.prod` |
+| admin-web | npmmirror.com | `ARG MOGO_NPM_REGISTRY=https://registry.npmmirror.com` in `apps/admin-web/Dockerfile` |
 | chat-api | tuna.tsinghua.edu.cn | `ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in `services/chat-api/Dockerfile` |
 | admin-api | tuna.tsinghua.edu.cn | `ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in `services/admin-api/Dockerfile` |
-| document-parser | tuna.tsinghua.edu.cn | `ARG MOVO_PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in `services/document-parser/Dockerfile` |
-| DSH Runtime Host | npmmirror.com | `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` in `services/chat-api/dsh/runtime-host/Dockerfile` |
+| document-parser | tuna.tsinghua.edu.cn | `ARG MOGO_PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` in `services/document-parser/Dockerfile` |
+| DSH Runtime Host | npmmirror.com | `ARG MOGO_NPM_REGISTRY=https://registry.npmmirror.com` in `services/chat-api/dsh/runtime-host/Dockerfile` |
 
-Three more mirrors are wired in alongside them: the Python base images come from `docker.m.daocloud.io` through `ARG BASE_IMAGE`, chat-api downloads Playwright browsers from `cdn.npmmirror.com`, and chat-api, document-parser and the Runtime Host rewrite `deb.debian.org` to `mirrors.tuna.tsinghua.edu.cn/debian` via `ARG MOVO_APT_MIRROR`.
+Three more mirrors are wired in alongside them: the Python base images come from `docker.m.daocloud.io` through `ARG BASE_IMAGE`, chat-api downloads Playwright browsers from `cdn.npmmirror.com`, and chat-api, document-parser and the Runtime Host rewrite `deb.debian.org` to `mirrors.tuna.tsinghua.edu.cn/debian` via `ARG MOGO_APT_MIRROR`.
+
+During the movo→mogo brand migration the legacy `MOVO_`-prefixed build args are still accepted as a fallback (`MOGO_` takes precedence).
 
 To use official sources instead, override the build args:
 
 ```bash
 # npm
-docker build --build-arg MOVO_NPM_REGISTRY=https://registry.npmjs.org -t image-name .
+docker build --build-arg MOGO_NPM_REGISTRY=https://registry.npmjs.org -t image-name .
 
 # pip (document-parser)
-docker build --build-arg MOVO_PYPI_INDEX_URL=https://pypi.org/simple -t image-name .
+docker build --build-arg MOGO_PYPI_INDEX_URL=https://pypi.org/simple -t image-name .
 
 # Python base image
 docker build --build-arg BASE_IMAGE=python:3.13-slim-bookworm -t image-name .
 
 # Debian packages
-docker build --build-arg MOVO_APT_MIRROR=http://deb.debian.org/debian -t image-name .
+docker build --build-arg MOGO_APT_MIRROR=http://deb.debian.org/debian -t image-name .
 ```
 
 chat-api and admin-api declare `PIP_INDEX_URL` as an `ENV` rather than an `ARG`, so switching those two to an official index means editing the Dockerfile. No authentication credentials are required for any of these mirrors; they are public read-only proxies.

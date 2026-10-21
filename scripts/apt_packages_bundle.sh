@@ -97,8 +97,9 @@ base_image_for() {
 # Debian suite used by those base images.
 SUITE="${SUITE:-bookworm}"
 
-MOVO_APT_MIRROR="${MOVO_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian}"
-MOVO_APT_SECURITY_MIRROR="${MOVO_APT_SECURITY_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian-security}"
+# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可用作为回退。
+MOGO_APT_MIRROR="${MOGO_APT_MIRROR:-${MOVO_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian}}"
+MOGO_APT_SECURITY_MIRROR="${MOGO_APT_SECURITY_MIRROR:-${MOVO_APT_SECURITY_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian-security}}"
 
 ARCH_LIST="${ARCH_LIST:-arm64 amd64}"
 
@@ -119,8 +120,8 @@ Environment:
   DOCKER_BIN                Docker binary to use (default: docker)
   SERVICE_LIST              Services to process (default: "document-parser chat-api")
   ARCH_LIST                 Architectures to fetch (default: "arm64 amd64")
-  MOVO_APT_MIRROR           Debian mirror (default: Tsinghua)
-  MOVO_APT_SECURITY_MIRROR  Debian security mirror (default: Tsinghua)
+  MOGO_APT_MIRROR           Debian mirror (default: Tsinghua; 旧 MOVO_APT_MIRROR 仍可用)
+  MOGO_APT_SECURITY_MIRROR  Debian security mirror (default: Tsinghua; 旧 MOVO_APT_SECURITY_MIRROR 仍可用)
 
 The package list per service is read from the Dockerfile itself (the
 `apt-get install` block), so adding a package there and re-running `save` is
@@ -336,8 +337,8 @@ fetch_one() {
 
       for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do
         [ -f \"\$f\" ] || continue
-        sed -i 's|http://deb.debian.org/debian|${MOVO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOVO_APT_MIRROR}|g' \"\$f\"
-        sed -i 's|http://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g' \"\$f\"
+        sed -i 's|http://deb.debian.org/debian|${MOGO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOGO_APT_MIRROR}|g' \"\$f\"
+        sed -i 's|http://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g' \"\$f\"
       done
 
       apt-get -o Acquire::Retries=5 update >/dev/null 2>&1
@@ -404,8 +405,8 @@ fetch_one() {
     printf '# arch: linux/%s (debian %s)\n' "${arch}" "${darch}"
     printf '# base_image: %s\n' "${image}"
     printf '# suite: %s\n' "${SUITE}"
-    printf '# mirror: %s\n' "${MOVO_APT_MIRROR}"
-    printf '# security_mirror: %s\n' "${MOVO_APT_SECURITY_MIRROR}"
+    printf '# mirror: %s\n' "${MOGO_APT_MIRROR}"
+    printf '# security_mirror: %s\n' "${MOGO_APT_SECURITY_MIRROR}"
     printf '# dockerfile_sha256: %s\n' \
       "$(shasum -a 256 "$(dockerfile_for "${service}")" 2>/dev/null | cut -d' ' -f1 || printf 'n/a')"
     printf 'deb_count=%s\n' "${n}"

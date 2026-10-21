@@ -81,7 +81,7 @@ class ContainerReleasePlanTests(unittest.TestCase):
         self.assertIn("needs.publish-candidates.result == 'success'", workflow)
         self.assertIn("group: container-release-${{ github.repository }}", workflow)
         self.assertIn(
-            "MOVO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}",
+            "MOGO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}",
             workflow,
         )
 
@@ -105,9 +105,12 @@ class ContainerReleasePlanTests(unittest.TestCase):
                 # The refresh is opt-in: CI passes a run id, while an empty or
                 # "false" value skips the upgrade so a local rebuild stays
                 # cacheable. Assert the *semantics*, not one spelling of them.
+                # 品牌归一（2026-10-21）：使用处一律读 MOGO_ 名；旧 MOVO_ 声明保留
+                # 作为 --build-arg 回退（MOGO_ = ${MOVO_} 链）。
                 self.assertIn("ARG MOVO_SECURITY_REFRESH=", contents)
                 self.assertNotIn("ARG MOVO_SECURITY_REFRESH=local", contents)
-                self.assertIn('"${MOVO_SECURITY_REFRESH}" != "false"', contents)
+                self.assertIn("ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}", contents)
+                self.assertIn('"${MOGO_SECURITY_REFRESH}" != "false"', contents)
                 self.assertIn("apt-get upgrade -y", contents)
 
     def test_promotion_preflights_all_sources_before_tagging(self):

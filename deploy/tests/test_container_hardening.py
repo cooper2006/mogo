@@ -384,8 +384,8 @@ def test_storage_defaults_are_absolute_and_writable(path: str, default: str) -> 
     [
         ("chat-api", "LOCAL_STORAGE_PATH"),
         ("admin-api", "ASKAI_ADMIN_ADMIN_STATIC_DIR"),
-        ("document-api", "MOVO_DOC_PROCESSING_LOCAL_STORAGE_DIR"),
-        ("document-worker", "MOVO_DOC_PROCESSING_LOCAL_STORAGE_DIR"),
+        ("document-api", "MOGO_DOC_PROCESSING_LOCAL_STORAGE_DIR"),
+        ("document-worker", "MOGO_DOC_PROCESSING_LOCAL_STORAGE_DIR"),
     ],
 )
 def test_compose_pins_storage_paths_to_mounted_volumes(service: str, env_var: str) -> None:

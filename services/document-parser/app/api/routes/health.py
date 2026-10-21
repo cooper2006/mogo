@@ -21,7 +21,7 @@ router = APIRouter()
 @router.get("/health")
 async def health() -> dict[str, Any]:
     """存活 + 数据后端快照。"""
-    payload: dict[str, Any] = {"status": "ok", "service": "movo-document-processing-service"}
+    payload: dict[str, Any] = {"status": "ok", "service": "mogo-document-processing-service"}
     try:
         from app.core import pg
 
@@ -65,4 +65,4 @@ def ready(response: Response) -> dict:
     is_ready = all(checks.values())
     if not is_ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return {"status": "ok" if is_ready else "degraded", "service": "movo-document-processing-service", "checks": checks}
+    return {"status": "ok" if is_ready else "degraded", "service": "mogo-document-processing-service", "checks": checks}

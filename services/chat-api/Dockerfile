@@ -18,16 +18,19 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
 ARG MOVO_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOGO_APT_MIRROR=${MOVO_APT_MIRROR}
 ARG MOVO_APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
+ARG MOGO_APT_SECURITY_MIRROR=${MOVO_APT_SECURITY_MIRROR}
 # Point apt at a reachable mirror before any apt-get call so both the system
 # dependency stage and playwright --with-deps pick it up.
-RUN if [ -n "${MOVO_APT_MIRROR}" ]; then \
+RUN if [ -n "${MOGO_APT_MIRROR}" ]; then \
         for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
             if [ -f "${source_file}" ]; then \
-                sed -i "s|http://deb.debian.org/debian|${MOVO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOVO_APT_MIRROR}|g" "${source_file}"; \
-                if [ -n "${MOVO_APT_SECURITY_MIRROR}" ]; then \
-                    sed -i "s|http://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g" "${source_file}"; \
+                sed -i "s|http://deb.debian.org/debian|${MOGO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOGO_APT_MIRROR}|g" "${source_file}"; \
+                if [ -n "${MOGO_APT_SECURITY_MIRROR}" ]; then \
+                    sed -i "s|http://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g" "${source_file}"; \
                 fi; \
             fi; \
         done; \
@@ -251,13 +254,15 @@ RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" != "true" ]; then \
 # the latest distro security patches; an empty or "false" value skips the
 # upgrade, which keeps this layer cacheable so a local rebuild does not
 # re-download every package.
+# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
 ARG MOVO_SECURITY_REFRESH=
-RUN if [ -n "${MOVO_SECURITY_REFRESH}" ] && [ "${MOVO_SECURITY_REFRESH}" != "false" ]; then \
+ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}
+RUN if [ -n "${MOGO_SECURITY_REFRESH}" ] && [ "${MOGO_SECURITY_REFRESH}" != "false" ]; then \
         apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
         && apt-get upgrade -y \
         && rm -rf /var/lib/apt/lists/*; \
     else \
-        echo "Skip apt upgrade (set MOVO_SECURITY_REFRESH to apply security patches)"; \
+        echo "Skip apt upgrade (set MOGO_SECURITY_REFRESH to apply security patches)"; \
     fi
 
 COPY entrypoint.sh /app/entrypoint.sh

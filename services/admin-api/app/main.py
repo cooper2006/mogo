@@ -54,12 +54,12 @@ def create_app() -> FastAPI:
         logger.warning("app_env=%s 时 debug 必须为 false；已忽略 debug=true 的误配置", settings.app_env)
         settings.debug = False
     app = FastAPI(
-        title="MOVO Admin API",
+        title="MOGO Admin API",
         # Keep in sync with pyproject.toml / CHANGELOG: this is the value
         # published in /openapi.json info.version, i.e. an externally visible
         # contract, not a private cosmetic string.
         version="0.2.4",
-        description="Control plane API for MOVO admin backend",
+        description="Control plane API for MOGO admin backend",
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",
         openapi_url=None if is_prod else "/openapi.json",
@@ -81,7 +81,7 @@ def create_app() -> FastAPI:
         ``backend`` 反映 ``MOGO_DATA_BACKEND``；``reachable`` 仅在 PanWeiDB 模式下
         做一次真实探测（MongoDB 模式保持原样的轻量返回，不引入额外连接开销）。
         """
-        payload: dict[str, Any] = {"status": "ok", "service": "movo-admin-api"}
+        payload: dict[str, Any] = {"status": "ok", "service": "mogo-admin-api"}
         try:
             from app.core import pg
 

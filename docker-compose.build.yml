@@ -5,7 +5,8 @@ services:
       context: ./services/chat-api/dsh/runtime-host
       dockerfile: Dockerfile
       args:
-        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
+        # 品牌归一（2026-10-21）：build args 改用 MOGO_* 名；env 展开链保留旧 MOVO_* 回退。
+        MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-${MOVO_SECURITY_REFRESH:-}}
 
   chat-api:
     pull_policy: build
@@ -16,7 +17,7 @@ services:
         INSTALL_SYSTEM_DEPS_AT_BUILD: "true"
         INSTALL_PLAYWRIGHT_AT_BUILD: "true"
         PLAYWRIGHT_WITH_DEPS: "true"
-        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
+        MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-${MOVO_SECURITY_REFRESH:-}}
 
   admin-api:
     pull_policy: build
@@ -24,7 +25,7 @@ services:
       context: ./services/admin-api
       dockerfile: Dockerfile
       args:
-        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
+        MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-${MOVO_SECURITY_REFRESH:-}}
 
   # document-api and document-worker are the same image running different
   # commands (["api"] vs ["worker"]) and share the same image name. Only
@@ -44,12 +45,13 @@ services:
         # PyTorch CPU wheels come from a domestic mirror by default; the CPU
         # build is not on PyPI, so this index cannot follow the PyPI mirror.
         PYTORCH_CPU_INDEX_URL: ${PYTORCH_CPU_INDEX_URL:-https://mirror.sjtu.edu.cn/pytorch-wheels/cpu}
-        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
+        MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-${MOVO_SECURITY_REFRESH:-}}
         # Docling downloads its models from HuggingFace when the offline bundle
         # is absent. Default to a domestic mirror so an online build does not
-        # stall on huggingface.co; override MOVO_HF_ENDPOINT to point elsewhere.
-        MOVO_HF_ENDPOINT: ${MOVO_HF_ENDPOINT:-https://hf-mirror.com}
-        MOVO_HF_TIMEOUT: ${MOVO_HF_TIMEOUT:-120}
+        # stall on huggingface.co; override MOGO_HF_ENDPOINT to point elsewhere
+        # (旧 MOVO_HF_ENDPOINT 在过渡期仍被接受，优先 MOGO_).
+        MOGO_HF_ENDPOINT: ${MOGO_HF_ENDPOINT:-${MOVO_HF_ENDPOINT:-https://hf-mirror.com}}
+        MOGO_HF_TIMEOUT: ${MOGO_HF_TIMEOUT:-${MOVO_HF_TIMEOUT:-120}}
 
   document-worker:
     pull_policy: build
@@ -61,7 +63,7 @@ services:
       dockerfile: Dockerfile.prod
       args:
         VITE_ADMIN_WEB_URL: /admin/
-        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
+        MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-${MOVO_SECURITY_REFRESH:-}}
 
   admin-web:
     pull_policy: build
@@ -71,7 +73,7 @@ services:
       args:
         VITE_BASE_PATH: /admin/
         VITE_ADMIN_API_BASE_URL: /admin-api
-        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
+        MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-${MOVO_SECURITY_REFRESH:-}}
 
   gateway:
     pull_policy: build
@@ -79,4 +81,4 @@ services:
       context: ./deploy/docker
       dockerfile: gateway.Dockerfile
       args:
-        MOVO_SECURITY_REFRESH: ${MOVO_SECURITY_REFRESH:-}
+        MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-${MOVO_SECURITY_REFRESH:-}}

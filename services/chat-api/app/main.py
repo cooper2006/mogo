@@ -37,7 +37,7 @@ configure_logging(settings)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="MOVO Backend",
+    title="MOGO Backend",
     description="API for Multi-Agent Platform",
     # Keep in sync with pyproject.toml / CHANGELOG: this is the value
     # published in /openapi.json info.version, i.e. an externally visible
@@ -503,7 +503,7 @@ async def health_check():
         # source of truth. app.version is also what the CI version-consistency
         # gate pins, so this payload can no longer drift.
         "version": app.version,
-        "service": "MOVO Backend",
+        "service": "MOGO Backend",
         "agent_kernel": "dsh",
         "dsh_host": "healthy" if dsh_healthy else "degraded",
         "dsh_hosts": hosts,
@@ -523,7 +523,7 @@ async def readiness_check():
         raise HTTPException(status_code=503, detail="DSH Runtime Host is unavailable")
     return {
         "status": "ready",
-        "service": "MOVO Backend",
+        "service": "MOGO Backend",
         "agent_kernel": "dsh",
         "dsh_host": "healthy",
     }

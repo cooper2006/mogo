@@ -178,7 +178,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             ${{ matrix.build_args }}
-            MOVO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
+            MOGO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           cache-from: type=gha,scope=${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
           provenance: mode=max
@@ -215,7 +215,7 @@ jobs:
           tags: repro-check
           build-args: |
             ${{ matrix.build_args }}
-            MOVO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
+            MOGO_SECURITY_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           cache-from: type=gha,scope=${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
           provenance: mode=max

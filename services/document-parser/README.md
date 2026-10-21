@@ -61,4 +61,6 @@ docker run --rm -p 8200:8200 movo-document-processing:dev-0.0.1 api
 docker run --rm movo-document-processing:dev-0.0.1 worker
 ```
 
-For cluster deployment, set Redis, MongoDB, storage and callback variables through environment variables, for example `MOVO_DOC_PROCESSING_REDIS_URL`, `MOVO_DOC_PROCESSING_MONGODB_URI`, `MOVO_DOC_PROCESSING_MONGODB_DB`, `MOVO_DOC_PROCESSING_OSS_ENDPOINT`, `MOVO_DOC_PROCESSING_OSS_BUCKET`, `MOVO_DOC_PROCESSING_OSS_ACCESS_KEY_ID` and `MOVO_DOC_PROCESSING_OSS_ACCESS_KEY_SECRET`.
+For cluster deployment, set Redis, MongoDB, storage and callback variables through environment variables, for example `MOGO_DOC_PROCESSING_REDIS_URL`, `MOGO_DOC_PROCESSING_MONGODB_URI`, `MOGO_DOC_PROCESSING_MONGODB_DB`, `MOGO_DOC_PROCESSING_OSS_ENDPOINT`, `MOGO_DOC_PROCESSING_OSS_BUCKET`, `MOGO_DOC_PROCESSING_OSS_ACCESS_KEY_ID` and `MOGO_DOC_PROCESSING_OSS_ACCESS_KEY_SECRET`.
+
+品牌归一（movo→mogo）说明：配置前缀已统一为 `MOGO_DOC_PROCESSING_`。旧前缀 `MOVO_DOC_PROCESSING_`（及更早的 `ASKAI_DOC_PROCESSING_`）在过渡期仍被服务接受；同名键同时存在时 `MOGO_` 优先，建议尽快迁移到新前缀。

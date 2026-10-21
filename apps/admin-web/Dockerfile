@@ -4,13 +4,15 @@ WORKDIR /app
 
 ARG VITE_BASE_PATH=/admin/
 ARG VITE_ADMIN_API_BASE_URL=/admin-api
+# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
 ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
+ARG MOGO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}
 # Same pin as .github/workflows/quality-gate.yml (frontend-quality). The
 # lockfile is a pnpm lockfile, so the image must use the project's pnpm, not npm.
 ARG PNPM_VERSION=12.14.0
 ENV VITE_BASE_PATH=${VITE_BASE_PATH} \
     VITE_ADMIN_API_BASE_URL=${VITE_ADMIN_API_BASE_URL} \
-    MOVO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}
+    MOGO_NPM_REGISTRY=${MOGO_NPM_REGISTRY}
 
 COPY package.json pnpm*.yaml* ./
 
@@ -23,9 +25,9 @@ COPY package.json pnpm*.yaml* ./
 # tarballs instead of re-downloading them. This dependency tree measured ~7
 # minutes against npmmirror.
 RUN --mount=type=cache,target=/pnpm-store,sharing=locked \
-    npm install --global "pnpm@${PNPM_VERSION}" --registry="${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
+    npm install --global "pnpm@${PNPM_VERSION}" --registry="${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
     && pnpm config set store-dir /pnpm-store \
-    && pnpm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
+    && pnpm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
     && pnpm install --frozen-lockfile
 
 COPY . .
@@ -37,13 +39,15 @@ RUN pnpm run build
 
 FROM nginx:1.31.5-alpine3.24-slim
 
-# Opt-in: only apply Alpine security patches when MOVO_SECURITY_REFRESH is set
+# Opt-in: only apply Alpine security patches when MOGO_SECURITY_REFRESH is set
 # (CI passes its run id). Skipping keeps this layer cacheable locally.
+# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
 ARG MOVO_SECURITY_REFRESH=
-RUN if [ -n "${MOVO_SECURITY_REFRESH}" ] && [ "${MOVO_SECURITY_REFRESH}" != "false" ]; then \
+ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}
+RUN if [ -n "${MOGO_SECURITY_REFRESH}" ] && [ "${MOGO_SECURITY_REFRESH}" != "false" ]; then \
         apk upgrade --no-cache; \
     else \
-        echo "Skip apk upgrade (set MOVO_SECURITY_REFRESH to apply security patches)"; \
+        echo "Skip apk upgrade (set MOGO_SECURITY_REFRESH to apply security patches)"; \
     fi
 
 COPY --from=build /app/dist /usr/share/nginx/html

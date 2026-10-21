@@ -549,29 +549,31 @@ Docker 构建镜像默认使用国内镜像源，以便在中国大陆保持较�
 
 | 镜像 | 镜像源 | 配置位置 |
 | --- | --- | --- |
-| user-web | npmmirror.com | `apps/user-web/Dockerfile.prod` 中的 `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` |
-| admin-web | npmmirror.com | `apps/admin-web/Dockerfile` 中的 `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` |
+| user-web | npmmirror.com | `apps/user-web/Dockerfile.prod` 中的 `ARG MOGO_NPM_REGISTRY=https://registry.npmmirror.com` |
+| admin-web | npmmirror.com | `apps/admin-web/Dockerfile` 中的 `ARG MOGO_NPM_REGISTRY=https://registry.npmmirror.com` |
 | chat-api | tuna.tsinghua.edu.cn | `services/chat-api/Dockerfile` 中的 `ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
 | admin-api | tuna.tsinghua.edu.cn | `services/admin-api/Dockerfile` 中的 `ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
-| document-parser | tuna.tsinghua.edu.cn | `services/document-parser/Dockerfile` 中的 `ARG MOVO_PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
-| DSH Runtime Host | npmmirror.com | `services/chat-api/dsh/runtime-host/Dockerfile` 中的 `ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com` |
+| document-parser | tuna.tsinghua.edu.cn | `services/document-parser/Dockerfile` 中的 `ARG MOGO_PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |
+| DSH Runtime Host | npmmirror.com | `services/chat-api/dsh/runtime-host/Dockerfile` 中的 `ARG MOGO_NPM_REGISTRY=https://registry.npmmirror.com` |
 
-此外还有三处镜像接入：Python 基础镜像经 `ARG BASE_IMAGE` 取自 `docker.m.daocloud.io`；chat-api 从 `cdn.npmmirror.com` 下载 Playwright 浏览器；chat-api、document-parser 与 Runtime Host 通过 `ARG MOVO_APT_MIRROR` 把 `deb.debian.org` 改写为 `mirrors.tuna.tsinghua.edu.cn/debian`。
+此外还有三处镜像接入：Python 基础镜像经 `ARG BASE_IMAGE` 取自 `docker.m.daocloud.io`；chat-api 从 `cdn.npmmirror.com` 下载 Playwright 浏览器；chat-api、document-parser 与 Runtime Host 通过 `ARG MOGO_APT_MIRROR` 把 `deb.debian.org` 改写为 `mirrors.tuna.tsinghua.edu.cn/debian`。
+
+品牌迁移（movo→mogo）过渡期内，旧的 `MOVO_` 前缀构建参数仍被接受作为回退（`MOGO_` 优先）。
 
 如需改用官方源，覆盖构建参数即可：
 
 ```bash
 # npm
-docker build --build-arg MOVO_NPM_REGISTRY=https://registry.npmjs.org -t image-name .
+docker build --build-arg MOGO_NPM_REGISTRY=https://registry.npmjs.org -t image-name .
 
 # pip（document-parser）
-docker build --build-arg MOVO_PYPI_INDEX_URL=https://pypi.org/simple -t image-name .
+docker build --build-arg MOGO_PYPI_INDEX_URL=https://pypi.org/simple -t image-name .
 
 # Python 基础镜像
 docker build --build-arg BASE_IMAGE=python:3.13-slim-bookworm -t image-name .
 
 # Debian 软件包
-docker build --build-arg MOVO_APT_MIRROR=http://deb.debian.org/debian -t image-name .
+docker build --build-arg MOGO_APT_MIRROR=http://deb.debian.org/debian -t image-name .
 ```
 
 注意 chat-api 与 admin-api 的 `PIP_INDEX_URL` 是 `ENV` 而非 `ARG`，这两个服务要切官方源需直接改 Dockerfile。上述镜像源均无需认证凭据，都是公开只读代理。

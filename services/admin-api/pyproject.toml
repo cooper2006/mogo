@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "movo-admin-api"
+name = "mogo-admin-api"
 version = "0.2.4"
-description = "Control plane API for the MOVO admin system"
-authors = ["MOVO Team"]
+description = "Control plane API for the MOGO admin system"
+authors = ["MOGO Team"]
 license = "Apache-2.0"
 readme = "README.md"
 

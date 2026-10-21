@@ -5,8 +5,10 @@
 ARG BASE_IMAGE=node:24-bookworm-slim
 FROM ${BASE_IMAGE} AS dependencies
 
+# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
 ARG MOVO_NPM_REGISTRY=https://registry.npmmirror.com
-ENV MOVO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}
+ARG MOGO_NPM_REGISTRY=${MOVO_NPM_REGISTRY}
+ENV MOGO_NPM_REGISTRY=${MOGO_NPM_REGISTRY}
 
 ENV NODE_ENV=production \
     PNPM_HOME=/pnpm \
@@ -14,7 +16,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-RUN npm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
+RUN npm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
     && npm install --global pnpm@12.14.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -24,18 +26,22 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # user-level .npmrc), so the registry itself is already domestic.
 RUN --mount=type=cache,target=/pnpm-store,sharing=locked \
     pnpm config set store-dir /pnpm-store \
-    && pnpm config set registry "${MOVO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
+    && pnpm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
     && pnpm install --frozen-lockfile --prod
 RUN node -e "const declared=require('./package.json').dependencies['@deepseek-ai/dsh']; const installed=require('@deepseek-ai/dsh/package.json').version; if (declared !== installed) throw new Error('DSH version mismatch: declared='+declared+' installed='+installed); console.log('DSH Runtime installed version: '+installed)"
 
 FROM ${BASE_IMAGE}
 
+# 品牌归一（2026-10-21）：MOGO_* 优先；旧 MOVO_* 仍可传入作为回退。
 ARG MOVO_APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian
+ARG MOGO_APT_MIRROR=${MOVO_APT_MIRROR}
 ARG MOVO_APT_SECURITY_MIRROR=http://mirrors.tuna.tsinghua.edu.cn/debian-security
+ARG MOGO_APT_SECURITY_MIRROR=${MOVO_APT_SECURITY_MIRROR}
 # Security refresh is opt-in. A non-empty value (CI passes its run id) also
 # applies the latest distro security patches. ca-certificates and gosu are
 # functional dependencies, so they are always installed regardless.
 ARG MOVO_SECURITY_REFRESH=
+ARG MOGO_SECURITY_REFRESH=${MOVO_SECURITY_REFRESH}
 
 ENV NODE_ENV=production
 
@@ -74,12 +80,12 @@ RUN set -eux; \
         echo "Skip offline apt bundle (placeholder or APT_OFFLINE_INSTALL=false); using the network."; \
     fi; \
     rm -f /tmp/apt-packages-bundle.tar.gz; \
-    if [ -n "${MOVO_APT_MIRROR}" ]; then \
+    if [ -n "${MOGO_APT_MIRROR}" ]; then \
         for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
             if [ -f "${source_file}" ]; then \
-                sed -i "s|http://deb.debian.org/debian|${MOVO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOVO_APT_MIRROR}|g" "${source_file}"; \
-                if [ -n "${MOVO_APT_SECURITY_MIRROR}" ]; then \
-                    sed -i "s|http://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOVO_APT_SECURITY_MIRROR}|g" "${source_file}"; \
+                sed -i "s|http://deb.debian.org/debian|${MOGO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOGO_APT_MIRROR}|g" "${source_file}"; \
+                if [ -n "${MOGO_APT_SECURITY_MIRROR}" ]; then \
+                    sed -i "s|http://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g" "${source_file}"; \
                 fi; \
             fi; \
         done; \
@@ -89,10 +95,10 @@ RUN set -eux; \
     else \
         apt-get update; \
     fi; \
-    if [ -n "${MOVO_SECURITY_REFRESH}" ] && [ "${MOVO_SECURITY_REFRESH}" != "false" ]; then \
+    if [ -n "${MOGO_SECURITY_REFRESH}" ] && [ "${MOGO_SECURITY_REFRESH}" != "false" ]; then \
         apt-get upgrade -y; \
     else \
-        echo "Skip apt upgrade (set MOVO_SECURITY_REFRESH to apply security patches)"; \
+        echo "Skip apt upgrade (set MOGO_SECURITY_REFRESH to apply security patches)"; \
     fi; \
     if [ "${offline}" = "true" ]; then \
         apt-get install -y --no-install-recommends --no-download ca-certificates gosu; \

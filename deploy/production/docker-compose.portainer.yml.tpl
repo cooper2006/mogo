@@ -60,9 +60,15 @@ services:
             echo "DSH_RUNTIME_HOST_TOKEN=$$(random_hex)"
             echo "DOCUMENT_PROCESSING_SERVICE_TOKEN=$$document_service_token"
             echo "ASKAI_ADMIN_DOCUMENT_PROCESSING_SERVICE_TOKEN=$$document_service_token"
+            # 品牌归一（movo→mogo）过渡期双写：MOGO_ 为规范键；MOVO_ 旧键保留，
+            # 供仍读旧前缀的消费端使用（admin-api/chat-api 的 .env 兼容链、
+            # 旧版 document-parser 镜像）。document-parser 新版 MOGO_ 优先、MOVO_ 回退。
+            echo "MOGO_DOC_PROCESSING_SERVICE_TOKEN=$$document_service_token"
             echo "MOVO_DOC_PROCESSING_SERVICE_TOKEN=$$document_service_token"
             echo "ASKAI_ADMIN_DOCUMENT_PROCESSING_CALLBACK_TOKEN=$$document_callback_token"
+            echo "MOGO_DOC_PROCESSING_CALLBACK_TOKEN=$$document_callback_token"
             echo "MOVO_DOC_PROCESSING_CALLBACK_TOKEN=$$document_callback_token"
+            echo "MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET=$$admin_secret"
             echo "MOVO_DOC_PROCESSING_ADMIN_JWT_SECRET=$$admin_secret"
           } > "$$temp_file"
           mv "$$temp_file" "$$secret_file"
@@ -255,19 +261,19 @@ services:
     restart: unless-stopped
     command: ["api"]
     environment: &document-environment
-      MOVO_DOC_PROCESSING_APP_ENV: production
-      MOVO_DOC_PROCESSING_LOCAL_STORAGE_DIR: /data/knowledge-documents
-      MOVO_DOC_PROCESSING_REDIS_URL: redis://redis:6379/0
-      MOVO_DOC_PROCESSING_MONGODB_URI: mongodb://mongo:27017
-      MOVO_DOC_PROCESSING_MONGODB_DB: mogo_dev
-      MOVO_DOC_PROCESSING_WEAVIATE_ENDPOINT: http://weaviate:8080
-      MOVO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME: AskAIKnowledgeChunks
-      MOVO_DOC_PROCESSING_WEAVIATE_DISTANCE_METRIC: cosine
-      MOVO_DOC_PROCESSING_AZURE_EMBEDDING_ENDPOINT: ""
-      MOVO_DOC_PROCESSING_AZURE_EMBEDDING_DEPLOYMENT_NAME: text_embedding
-      MOVO_DOC_PROCESSING_AZURE_EMBEDDING_API_VERSION: 2025-04-01-preview
-      MOVO_DOC_PROCESSING_AZURE_EMBEDDING_API_KEY: ""
-      MOVO_DOC_PROCESSING_DASHSCOPE_API_KEY: ""
+      MOGO_DOC_PROCESSING_APP_ENV: production
+      MOGO_DOC_PROCESSING_LOCAL_STORAGE_DIR: /data/knowledge-documents
+      MOGO_DOC_PROCESSING_REDIS_URL: redis://redis:6379/0
+      MOGO_DOC_PROCESSING_MONGODB_URI: mongodb://mongo:27017
+      MOGO_DOC_PROCESSING_MONGODB_DB: mogo_dev
+      MOGO_DOC_PROCESSING_WEAVIATE_ENDPOINT: http://weaviate:8080
+      MOGO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME: AskAIKnowledgeChunks
+      MOGO_DOC_PROCESSING_WEAVIATE_DISTANCE_METRIC: cosine
+      MOGO_DOC_PROCESSING_AZURE_EMBEDDING_ENDPOINT: ""
+      MOGO_DOC_PROCESSING_AZURE_EMBEDDING_DEPLOYMENT_NAME: text_embedding
+      MOGO_DOC_PROCESSING_AZURE_EMBEDDING_API_VERSION: 2025-04-01-preview
+      MOGO_DOC_PROCESSING_AZURE_EMBEDDING_API_KEY: ""
+      MOGO_DOC_PROCESSING_DASHSCOPE_API_KEY: ""
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
       - knowledge-storage:/data/knowledge-documents
