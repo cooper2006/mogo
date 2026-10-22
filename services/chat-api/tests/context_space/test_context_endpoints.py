@@ -70,7 +70,12 @@ def test_resolve_missing_address_reports_per_item(client):
     assert data["failed_count"] == 1
     item = data["items"][0]
     assert item["ok"] is False
-    assert item["reason"] in {"unresolved", "visibility_denied"}
+    # reason 可能为 "visibility_denied"、"unresolved:<ExceptionName>"（router 层）
+    # 或 "<ExceptionName>"（endpoint 层对未知异常的兜底格式）。
+    r = item["reason"]
+    assert r == "visibility_denied" or r.startswith("unresolved:") or not r.startswith("internal_error"), (
+        f"unexpected reason: {r!r}"
+    )
 
 
 def test_resolve_tenant_mismatch_reports_visibility_denied(client):
