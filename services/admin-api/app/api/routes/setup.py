@@ -190,7 +190,7 @@ async def setup_status(request: Request) -> SetupStatusResponse:
     services = await _deployment_services()
     platform_admin_present = await platform_admin_exists()
     completed = platform_admin_present or bool(state and state.get("completed"))
-    platform_admin_missing = (not completed) and not str(settings.platform_admin_password or "").strip()
+    platform_admin_missing = not completed
     common = {
         # Only core services (MongoDB) gate readiness; the rest are advisory.
         "ready": all(item.ok for item in services if item.core),

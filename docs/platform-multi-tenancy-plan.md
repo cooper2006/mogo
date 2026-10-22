@@ -224,6 +224,9 @@ bootstrap_admin_org_name       → tenant_bootstrap_admin_org_name
 | **环境变量预置**（辅） | 无界面 / 自动化部署；**存量部署补建** | `platform_admin_password` 非空时启动时 ensure |
 
 ```python
+# ⚠ 已废弃（2026-10-22）：平台管理员账号密码不再由环境变量预置，改为仅通过
+# /setup 向导创建并存入 admin_accounts。config.py 已删除这三个字段，
+# bootstrap_platform_admin() 启动时只做存在性告警、不再补建。
 platform_admin_username: str = "platform"
 platform_admin_password: str = ""      # 为空则不自动创建
 platform_admin_display_name: str = "平台管理员"
@@ -242,6 +245,9 @@ platform_admin_display_name: str = "平台管理员"
 - 升级后首次启动前，必须配置 `ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD`
 - 启动时 `bootstrap_platform_admin()` 自动补建 `__platform__` 账号
 - 若未配置，应在启动日志与 `/api/setup/status` 中给出明确告警
+
+> ⚠ **2026-10-22 已废弃**：env 预置路径已整体移除，平台超管仅通过 `/setup`
+> 向导创建并存入 `admin_accounts`（本文件的 §5.2/§5.3 描述均已过时）。
 
 ### 5.4 启动 ensure
 

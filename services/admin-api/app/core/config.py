@@ -57,9 +57,6 @@ class Settings(BaseSettings):
     tenant_bootstrap_admin_display_name: str = "系统管理员"
     tenant_bootstrap_admin_role_name: str = "租户管理员"
     tenant_bootstrap_admin_org_name: str = "MOGO 平台"
-    platform_admin_username: str = "platform"
-    platform_admin_password: str = ""
-    platform_admin_display_name: str = "平台管理员"
     bootstrap_tenant_id: str = "default"
     user_portal_base_url: str = "http://localhost:3100"
     invite_token_ttl_hours: int = 72

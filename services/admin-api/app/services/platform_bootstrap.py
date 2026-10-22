@@ -1,16 +1,16 @@
 """Platform super-admin bootstrap.
 
 The platform super-admin is the single tenant-lifecycle operator. It lives in
-the reserved ``__platform__`` tenant_id (decision 1) and is created either by the
-first-boot wizard (``POST /api/setup/platform-admin``) or, for existing
-deployments, from environment variables at startup (decision 5).
+the reserved ``__platform__`` tenant_id (decision 1) and is created only by the
+first-boot wizard (``POST /api/setup/platform-admin``). Its credentials are
+stored in ``admin_accounts`` — there is no environment-variable bootstrap
+anymore, so account/password management is entirely database-driven.
 """
 
 from __future__ import annotations
 
 import logging
 
-from app.core.config import settings
 from app.core.db import get_db
 from app.core.tenant_identity import PLATFORM_TENANT_ID
 from app.repositories.org_user_repository import (
@@ -57,26 +57,16 @@ async def ensure_platform_admin(*, username: str, password: str, display_name: s
 
 
 async def bootstrap_platform_admin() -> None:
-    """Startup hook: idempotently ensure the platform admin from env vars.
+    """Startup hook: ensure a platform admin exists, otherwise warn.
 
-    Only creates one when none exists (decision 19: the platform admin is
-    single). When no password is configured and no platform admin exists, emits
-    a clear warning so existing deployments know they must either set
-    ``ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD`` or run the /setup wizard.
+    The environment-variable bootstrap was removed: the platform super-admin is
+    created only through the ``/setup`` wizard and its credentials live in the
+    ``admin_accounts`` collection, so account/password management is entirely
+    database-driven (no ``ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD`` anymore).
     """
-    password = str(settings.platform_admin_password or "").strip()
-    if not password:
-        if not await platform_admin_exists():
-            logger.warning(
-                "no platform admin found and ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD is not set; "
-                "existing deployments must configure it (or use the /setup wizard) to reach the platform console"
-            )
-        return
     if await platform_admin_exists():
         return
-    await ensure_platform_admin(
-        username=settings.platform_admin_username,
-        password=password,
-        display_name=settings.platform_admin_display_name,
+    logger.warning(
+        "no platform admin found; run the /setup wizard to create the platform "
+        "super-admin (ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD is no longer supported)"
     )
-    logger.info("platform admin '%s' created from environment", settings.platform_admin_username)

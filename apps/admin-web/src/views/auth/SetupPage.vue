@@ -34,7 +34,7 @@
               {{ t('核心服务（MongoDB）尚未就绪，无法继续；其余服务可稍后恢复。') }}
             </n-alert>
             <n-alert v-else-if="setupStore.platformAdminMissing" type="info" :show-icon="true" class="readiness-alert">
-              {{ t('尚未检测到平台超级管理员。请在此创建，或配置环境变量 ASKAI_ADMIN_PLATFORM_ADMIN_PASSWORD。') }}
+              {{ t('尚未检测到平台超级管理员。请在此创建。') }}
             </n-alert>
             <div class="deployment-actions">
               <n-button block type="primary" size="large" :disabled="!setupStore.ready" @click="currentStep = 2">
