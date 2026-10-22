@@ -395,6 +395,36 @@ mogo_require_local_images() {
   return 1
 }
 
+# Fail fast when the PanWeiDB backend is selected but its image is unavailable.
+#
+# `MOGO_DATA_BACKEND=panweidb` both points the services at PanWeiDB and turns on
+# the `panweidb` compose profile (see mogo_compose in deploy/cli/images.sh), so
+# one switch is all an operator needs. The image is not published to any registry
+# -- it is arm64/openEuler and ships through
+# base-images/images/<arch>/panweidb_3.2.0.tar -- and docker-compose.yml declares
+# `pull_policy: never`, so a missing image would otherwise surface late: the apps
+# sit behind `depends_on: panweidb: service_healthy` and time out with no message
+# pointing at the actual cause.
+#
+# Same shape as mogo_ensure_tls_certs: check the precondition the compose file
+# really needs, before starting anything expensive.
+mogo_ensure_panweidb_image() {
+  # Gated on the *intent* switch, not on mogo_panweidb_enabled: a leftover
+  # panweidb container must not turn a mongo deployment into a hard failure over
+  # an image it never asked for.
+  if ! mogo_panweidb_backend_selected; then
+    return 0
+  fi
+  local image="${MOGO_PANWEIDB_IMAGE:-panweidb:3.2.0}"
+  if "${DOCKER_BIN}" image inspect "${image}" >/dev/null 2>&1; then
+    mogo_msg panweidb_profile_enabled
+    return 0
+  fi
+  mogo_msg panweidb_image_missing "${image}" >&2
+  mogo_msg panweidb_image_missing_hint >&2
+  return 1
+}
+
 command_up() {
   print_logo
   require_docker
@@ -402,6 +432,9 @@ command_up() {
   # Before anything expensive: a missing certificate used to surface only as a
   # gateway crash-loop after the whole stack had already been built/started.
   mogo_ensure_tls_certs
+  # Same idea for the optional PanWeiDB backend: the profile is turned on by
+  # MOGO_DATA_BACKEND, so verify the image it needs before starting the stack.
+  mogo_ensure_panweidb_image || return 1
   if mogo_has_build_flag "$@"; then
     # Same rule as `./mogo build`: default the tag to the release tag so a bare
     # `./mogo up --build` never falls back to `latest`. An explicit
@@ -733,7 +766,15 @@ case "${command}" in
         fi
       fi
     fi
-    mogo_compose down "${compose_down_args[@]}"
+    # bash 3.2 (the version macOS ships) treats `"${empty_array[@]}"` under
+    # `set -u` as an unbound variable, so a bare `./mogo down` -- with no extra
+    # arguments, which is the common case -- died before it ever reached docker.
+    # Expand the array only when it actually holds something.
+    if [[ "${#compose_down_args[@]}" -gt 0 ]]; then
+      mogo_compose down "${compose_down_args[@]}"
+    else
+      mogo_compose down
+    fi
     retire_legacy_compose_project
     if [[ "${remove_volumes}" == "true" ]]; then
       mogo_msg stopped_removed

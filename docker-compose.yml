@@ -211,6 +211,78 @@ services:
       retries: 20
       start_period: 20s
 
+  # PanWeiDB 3.2.0（openGauss 内核）——MongoDB → PanWeiDB 迁移的目标库。
+  #
+  # 与 mongo / redis / weaviate 不同，这个服务默认**不启动**：它挂在 `panweidb`
+  # profile 上，只有显式启用才进拓扑。原因是镜像 `panweidb:3.2.0` 只在本地
+  # （arm64，来自 base-images/images/arm64/panweidb_3.2.0.tar），公共部署里根本
+  # 拉不到；而 `.env` 的 `MOGO_DATA_BACKEND` 默认仍是 mongo。启用方式：
+  #
+  #     MOGO_DATA_BACKEND=panweidb docker compose --profile panweidb up -d
+  #
+  # 上面两个开关都要给：profile 决定容器是否进拓扑，`MOGO_DATA_BACKEND` 决定应用
+  # 连哪个后端（见 services/*/app/core/config.py）。只开 profile 不改后端，库会
+  # 空转；只改后端不开 profile，应用会连不上 PanWeiDB。
+  #
+  # 生命周期一体化：之前 PanWeiDB 是手工 `docker run --privileged ... -c 'tail -f
+  # /dev/null'` 起来的空转容器，数据库进程要人在外面 `gs_ctl start` 才有；容器
+  # 重启 = 数据库消失，`docker compose down` 更会把它连数据一起删（数据在可写层，
+  # 没有卷）。现在：
+  #   * 数据落在命名卷 `panweidb-storage`（挂 /database/panweidb），可重建容器；
+  #   * `deploy/panweidb/entrypoint.sh` 作为 PID 1 supervisor 负责解包二进制、
+  #     首次 gs_initdb、gs_ctl start、探活守命，并在 SIGTERM 时 `gs_ctl stop -m
+  #     fast` 干净关库 —— 所以 `docker compose up/down/restart` 一套命令就够。
+  #
+  # 为什么 privileged：openGauss/PanWeiDB 需要 `kernel.sched_*`、大共享内存等
+  # sysctl 写权限与直接 shm 操作，镜像上游文档即要求 --privileged（原容器也是这么
+  # 跑的）。这使它成为本文件里**唯一**不做 cap_drop/read_only 加固的服务；它只挂在
+  # backend + 宿主机回环端口上，不对外暴露。见 docs/mongo-to-panweidb-migration-plan.md。
+  panweidb:
+    image: ${MOGO_PANWEIDB_IMAGE:-panweidb:3.2.0}
+    # 本地镜像（离线交付从 base-images load 进来），不要让 compose 去 registry 找。
+    pull_policy: never
+    profiles:
+      - panweidb
+    restart: unless-stopped
+    # gs_ctl stop -m fast 会等在途事务收敛；给足窗口，别让 docker 用 KILL 打断，
+    # 否则卷里留下 crash recovery 状态，下次启动要回放 WAL。
+    stop_grace_period: 90s
+    # 与 mongo 同样的定位：只在 backend 网络里被应用访问。挂 public 的唯一目的是
+    # 让宿主机端口发布生效——backend 是 internal 网络，internal 上发布的端口宿主
+    # 侧不可达（实测），而 scripts/pg/*.py、deploy/tests 里的宿主工具都按
+    # 127.0.0.1:5432 连库（见 scripts/pg/dev-forward/README.md 记录的同一限制）。
+    networks:
+      - public
+      - backend
+    # 默认只绑回环：这个库的 pg_hba 远程段是 sha256 口令认证，且账号口令写在 .env 里，
+    # 绑到 0.0.0.0 等于把口令暴露在本机网段。确实需要局域网访问时显式设
+    # MOGO_PANWEIDB_BIND=0.0.0.0。
+    ports:
+      - "${MOGO_PANWEIDB_BIND:-127.0.0.1}:${MOGO_PANWEIDB_PORT:-5432}:5432"
+    environment:
+      PANWEIDB_PORT: "5432"
+      # 首次初始化（空卷）时用这几个值建应用账号/库/schema；已有数据卷不会改动账号。
+      # 应用真正连接的口令由 chat-api 等服务的 PANWEIDB_* 决定，见下面各服务。
+      PANWEIDB_ADMIN_PASSWORD: ${PANWEIDB_ADMIN_PASSWORD:-}
+      PANWEIDB_USER: ${PANWEIDB_USER:-}
+      PANWEIDB_PASSWORD: ${PANWEIDB_PASSWORD:-}
+      PANWEIDB_DB: ${PANWEIDB_DB:-mogo_dev}
+      PANWEIDB_SCHEMA: ${PANWEIDB_SCHEMA:-mogo_dev}
+    volumes:
+      - panweidb-storage:/database/panweidb
+      - ./deploy/panweidb/entrypoint.sh:/usr/local/bin/mogo-panweidb-entrypoint.sh:ro
+    # 镜像自带 entrypoint 会去起 systemd（数据库进程并不会跟着起来），必须换掉。
+    entrypoint: ["bash", "/usr/local/bin/mogo-panweidb-entrypoint.sh"]
+    privileged: true
+    healthcheck:
+      # 只探 TCP：gs_ctl status 依赖口令/环境，端口可达才是「库能提供服务」的准确信号。
+      test: ["CMD-SHELL", "python3 -c \"import socket,sys;sys.exit(0 if socket.create_connection(('127.0.0.1',5432),3) else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      # 首次启动要从镜像里的安装包解包二进制（~1.6G）再 gs_initdb，给足时间。
+      start_period: 300s
+
   redis:
     image: redis:7.4.2-alpine
     restart: unless-stopped
@@ -387,9 +459,11 @@ services:
       MONGODB_DB: mogo_dev
       # 数据后端开关（MongoDB → PanWeiDB 迁移，见
       # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
-      # PanWeiDB 不在本 compose 网络内，需能通过 PANWEIDB_HOST 解析到它。
+      # PanWeiDB 现在就在本 compose 网络内（`panweidb` 服务，profile 门控），
+      # 默认走服务名解析；把它设成外部地址（如 host.docker.internal）仍可用，
+      # 用于连不在本栈里的库。
       MOGO_DATA_BACKEND: ${MOGO_DATA_BACKEND:-mongo}
-      PANWEIDB_HOST: ${PANWEIDB_HOST:-host.docker.internal}
+      PANWEIDB_HOST: ${PANWEIDB_HOST:-panweidb}
       PANWEIDB_PORT: ${PANWEIDB_PORT:-5432}
       PANWEIDB_USER: ${PANWEIDB_USER:-}
       PANWEIDB_PASSWORD: ${PANWEIDB_PASSWORD:-}
@@ -437,6 +511,13 @@ services:
         condition: service_completed_successfully
       mongo:
         condition: service_healthy
+      # PanWeiDB 走 profile（默认不启动），`required: false` 让 compose 在它未启用时
+      # 跳过这个依赖；启用（`--profile panweidb`）时应用会等它 healthy 再起。
+      # 注意：不能省 `required: false` —— compose 对「depends_on 指向未启用 profile 的
+      # 服务」直接报 `service ... depends on undefined service ...`，整个文件都解析不了。
+      panweidb:
+        condition: service_healthy
+        required: false
       document-api:
         condition: service_healthy
       # chat-api 等待的是它实际连的 Runtime Host。单节点模式（默认）是裸
@@ -478,9 +559,11 @@ services:
       ASKAI_ADMIN_MONGODB_DB: mogo_dev
       # 数据后端开关（MongoDB → PanWeiDB 迁移，见
       # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
-      # PanWeiDB 不在本 compose 网络内，需能通过 PANWEIDB_HOST 解析到它。
+      # PanWeiDB 现在就在本 compose 网络内（`panweidb` 服务，profile 门控），
+      # 默认走服务名解析；把它设成外部地址（如 host.docker.internal）仍可用，
+      # 用于连不在本栈里的库。
       MOGO_DATA_BACKEND: ${MOGO_DATA_BACKEND:-mongo}
-      PANWEIDB_HOST: ${PANWEIDB_HOST:-host.docker.internal}
+      PANWEIDB_HOST: ${PANWEIDB_HOST:-panweidb}
       PANWEIDB_PORT: ${PANWEIDB_PORT:-5432}
       PANWEIDB_USER: ${PANWEIDB_USER:-}
       PANWEIDB_PASSWORD: ${PANWEIDB_PASSWORD:-}
@@ -510,6 +593,9 @@ services:
         condition: service_completed_successfully
       mongo:
         condition: service_healthy
+      panweidb:
+        condition: service_healthy
+        required: false
       document-api:
         condition: service_healthy
     extra_hosts:
@@ -547,9 +633,11 @@ services:
       MOGO_DOC_PROCESSING_MONGODB_DB: mogo_dev
       # 数据后端开关（MongoDB → PanWeiDB 迁移，见
       # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
-      # PanWeiDB 不在本 compose 网络内，需能通过 PANWEIDB_HOST 解析到它。
+      # PanWeiDB 现在就在本 compose 网络内（`panweidb` 服务，profile 门控），
+      # 默认走服务名解析；把它设成外部地址（如 host.docker.internal）仍可用，
+      # 用于连不在本栈里的库。
       MOGO_DATA_BACKEND: ${MOGO_DATA_BACKEND:-mongo}
-      PANWEIDB_HOST: ${PANWEIDB_HOST:-host.docker.internal}
+      PANWEIDB_HOST: ${PANWEIDB_HOST:-panweidb}
       PANWEIDB_PORT: ${PANWEIDB_PORT:-5432}
       PANWEIDB_USER: ${PANWEIDB_USER:-}
       PANWEIDB_PASSWORD: ${PANWEIDB_PASSWORD:-}
@@ -571,6 +659,9 @@ services:
         condition: service_completed_successfully
       mongo:
         condition: service_healthy
+      panweidb:
+        condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
       weaviate:
@@ -611,6 +702,9 @@ services:
         condition: service_completed_successfully
       mongo:
         condition: service_healthy
+      panweidb:
+        condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
       weaviate:
@@ -785,6 +879,10 @@ volumes:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_deployment-secrets
   mongo-data:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_mongo-data
+  # PanWeiDB 的 soft/ + data/ 都在这里（旧部署把两者放在容器可写层，`docker rm`
+  # 即全丢；这是把它们纳入卷的那次修复）。
+  panweidb-storage:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_panweidb-storage
   redis-data:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_redis-data
   weaviate-data:

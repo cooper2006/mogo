@@ -14,10 +14,66 @@ MOGO_IMAGE_SERVICES=(
   MOGO_GATEWAY_IMAGE:gateway
 )
 
+# True when MOGO_DATA_BACKEND selects the PanWeiDB backend.
+#
+# This is the *intent* switch -- what the services connect to, and the only thing
+# that may make a deployment fail for a missing image. Resolution mirrors
+# compose's own precedence: the exported variable wins, then the .env file (which
+# `docker compose` also reads).
+mogo_panweidb_backend_selected() {
+  local backend
+  # `${VAR+x}` (not `${VAR:-}`) so that a deliberately-empty MOGO_DATA_BACKEND is
+  # treated as "set to empty", exactly like compose's `${MOGO_DATA_BACKEND:-mongo}`
+  # does: empty resolves to the mongo default, it does not fall through to .env.
+  if [[ -n "${MOGO_DATA_BACKEND+x}" ]]; then
+    backend="${MOGO_DATA_BACKEND}"
+  else
+    backend="$(dotenv_value MOGO_DATA_BACKEND)"
+  fi
+  # Trim and lower-case: the services resolve the same variable with
+  # `raw.strip().lower()` (app/core/config.py) and the field has been written as
+  # `PanWeiDB`. A raw string compare here would let the CLI and the apps disagree
+  # about which backend is live.
+  backend="${backend#"${backend%%[![:space:]]*}"}"
+  backend="${backend%"${backend##*[![:space:]]}"}"
+  backend="$(printf '%s' "${backend}" | tr '[:upper:]' '[:lower:]')"
+  [[ "${backend}" == "panweidb" ]]
+}
+
+# True when the `panweidb` compose profile has to be passed for the lifecycle to
+# stay closed.
+#
+# `panweidb` is a profile, not a default service: the image is local-only (arm64,
+# shipped from base-images/images/arm64) and the default backend stays `mongo`,
+# so a plain `./mogo up` must keep creating exactly the stack it created before.
+# Turning MOGO_DATA_BACKEND=panweidb on therefore has to carry the database into
+# the topology in the same breath -- otherwise the apps start and sit behind
+# `depends_on: panweidb: service_healthy` waiting on a service that was never
+# created.
+#
+# The second check covers the other direction: once the container exists it stays
+# under management even if the backend switch is later flipped back to `mongo`,
+# so `./mogo down` / `stop` / `restart` still take the database down instead of
+# leaving it running outside the stack. The probe is best-effort and never fails
+# the caller: `mogo_compose` runs it on every command, including on hosts where
+# the daemon is unreachable, and a lookup error simply means "not enabled".
+mogo_panweidb_enabled() {
+  if mogo_panweidb_backend_selected; then
+    return 0
+  fi
+  local existing=""
+  existing="$("${DOCKER_BIN}" ps -aq \
+    --filter "label=com.docker.compose.service=panweidb" 2>/dev/null | head -n 1 || true)"
+  [[ -n "${existing}" ]]
+}
+
 mogo_compose() {
   local compose_args=(-f "${ROOT_DIR}/docker-compose.yml")
   if [[ "${MOGO_COMPOSE_BUILD}" == "true" ]]; then
     compose_args+=(-f "${ROOT_DIR}/docker-compose.build.yml")
+  fi
+  if mogo_panweidb_enabled; then
+    compose_args+=(--profile panweidb)
   fi
   "${DOCKER_BIN}" compose "${compose_args[@]}" "$@"
 }

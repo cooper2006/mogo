@@ -60,9 +60,11 @@ REQUIRED_ROOT_FILES = (
     "CODE_OF_CONDUCT.md",
 )
 # 8 base volumes + 3 per-replica DSH runtime volumes (dsh-runtime-data-1/2/3),
-# added by commit fddc97a "M1 storage isolation per replica". Bump this constant
-# whenever docker-compose.yml gains or drops a physical volume.
-EXPECTED_MOGO_VOLUMES = 11
+# added by commit fddc97a "M1 storage isolation per replica", + panweidb-storage
+# (the PanWeiDB soft/ + data/ volume, brought into compose so the database stops
+# living in a container's writable layer). Bump this constant whenever
+# docker-compose.yml gains or drops a physical volume.
+EXPECTED_MOGO_VOLUMES = 12
 # A physical volume name is ``<prefix>_<suffix>``, where the prefix is spelled
 # ``${MOGO_VOLUME_PREFIX:-mogo}`` — the transitional fallback chain that also
 # honoured a legacy prefix default has been retired, so ``MOGO_`` is the only

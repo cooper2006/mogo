@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 # panweidb_up.sh — PanWeiDB (orbstack 容器) 一键拉起脚本
 #
+# ⚠️ 已被 compose 取代（2026-10-22）：PanWeiDB 现在由 docker-compose.yml 的
+#    `panweidb` 服务管理（profile: panweidb），入口是 deploy/panweidb/entrypoint.sh，
+#    数据落在命名卷 panweidb-storage。详见 docs/panweidb-compose-integration.md。
+#
+#    本脚本与 compose 服务**互斥**：两者都要宿主 5432，同时跑会端口冲突。
+#    新的部署请用：
+#        docker compose --profile panweidb up -d panweidb
+#    或（.env 里 MOGO_DATA_BACKEND=panweidb 时）直接 ./mogo up。
+#
+#    本脚本保留给「纯手工起库、不进 compose 栈」的场景（例如把 PanWeiDB 单独跑在
+#    另一台机器上）。若本机已有 compose 管理的 panweidb 容器在跑，本脚本会检测到
+#    并拒绝执行，避免两边抢同一个宿主端口。
+#
 # 用途：
 #   - 容器不存在         → 按原会话方式创建容器（--privileged，tail -f /dev/null 常驻）
 #   - 容器已停 (Exited)  → docker start
@@ -9,8 +22,11 @@
 #   - 全程幂等：重复执行不会破坏既有数据；除非 --reinit。
 #
 # 设计要点（复刻 2026-10-15 会话验证过的配方）：
-#   - 二进制不在镜像 PATH 里，需从 /root/PanWeiDB_*_install-openeuler_20.03.tar.gz
+#   - 二进制不在镜像 PATH 里，需从 /root/PanWeiDB*install*.tar.gz
 #     解包到 /database/panweidb/soft，主包 + om 包都要解。
+#     注意实际包名是 `PanWeiDB_V2.0-S3.2.0_B01-install-openeuler_20.03.tar.gz`
+#     （B01 与 install 之间是**连字符**）；下面 glob 写成下划线时永远匹配不上——
+#     这条分支从未被执行过（该容器的 soft/ 一直是 ansible 装的），所以错一直没暴露。
 #   - 连接走 0.0.0.0:5432。pg_hba 本地（local + 127）用 trust 方便维护；
 #     远程 TCP 必须用 sha256（PanWeiDB 安全插件禁止“远程 + trust”，否则报
 #     "Forbid remote connection with trust method!" / SQLSTATE 28000，客户端会收到 28P01）。
@@ -259,16 +275,41 @@ show_status() {
 
 # ---------- 主流程 ----------
 need_docker
+
+# 与 compose 管理的 panweidb 互斥。
+#
+# compose 里的 panweidb 服务（profile: panweidb，见 docker-compose.yml）同样把宿主
+# 5432 发布出来。两个实例抢同一个宿主端口：谁先起谁拿到端口，另一个 `docker run`
+# 直接报 "port is already allocated"，或者更糟——两个库分别被不同服务连上，
+# 数据分叉。宁可在这里明确拒绝，也不要让人在排查时才发现。
+compose_managed_container() {
+  docker ps -aq --filter "label=com.docker.compose.service=panweidb" 2>/dev/null | head -n 1
+}
+
+assert_not_compose_managed() {
+  local existing
+  existing="$(compose_managed_container)"
+  [[ -z "${existing}" ]] && return 0
+  echo "ERROR: 已有 compose 管理的 panweidb 容器（id=${existing}）在占用宿主 ${HOST_PORT}。" >&2
+  echo "       本脚本与 compose 服务互斥，请二选一：" >&2
+  echo "         - 用 compose：docker compose --profile panweidb up -d panweidb" >&2
+  echo "         - 或先停掉 compose 的：docker compose --profile panweidb stop panweidb" >&2
+  echo "       详见 docs/panweidb-compose-integration.md" >&2
+  exit 1
+}
+
 case "$MODE" in
   status)
     show_status
     exit 0
     ;;
   reinit)
+    assert_not_compose_managed
     ensure_container
     reinit
     ;;
   up)
+    assert_not_compose_managed
     ensure_container
     ;;
 esac

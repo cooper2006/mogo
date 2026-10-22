@@ -135,6 +135,12 @@ mogo_msg() {
     en:local_images_missing_hint) printf 'The pure-registry path is retired: the ghcr.io/mogoai/<service> reference this repository generates does not exist (verified denied). Build from source with ./mogo up --build instead; set MOGO_VERSION=vX.Y.Z to pin a version.\n' ;;
     zh:update_registry_retired) printf '错误：./mogo update 依赖的 registry 拉取链路已停用——本仓库生成的 ghcr.io/mogoai/<service> 引用并不存在（实测 denied），且旧实现会无限重试。请改用 ./mogo up --build 从源码构建并更新（先 MOGO_VERSION=vX.Y.Z 可固定到某个发布 tag）。\n' ;;
     en:update_registry_retired) printf 'Error: ./mogo update relied on the registry pull path, which is retired -- the ghcr.io/mogoai/<service> reference this repository generates does not exist (verified denied), and the old implementation retried it forever. Rebuild and update from source with ./mogo up --build instead (set MOGO_VERSION=vX.Y.Z to pin a release tag).\n' ;;
+    zh:panweidb_profile_enabled) printf '已启用 PanWeiDB 数据后端（compose profile: panweidb），数据库容器随本次部署一起启动。\n' ;;
+    en:panweidb_profile_enabled) printf 'PanWeiDB data backend is enabled (compose profile: panweidb); the database container starts with this deployment.\n' ;;
+    zh:panweidb_image_missing) printf '错误：MOGO_DATA_BACKEND=panweidb 已启用 PanWeiDB 后端，但本地没有镜像 %s。\n' "$1" ;;
+    en:panweidb_image_missing) printf 'Error: MOGO_DATA_BACKEND=panweidb enables the PanWeiDB backend, but image %s is not present locally.\n' "$1" ;;
+    zh:panweidb_image_missing_hint) printf '该镜像不发布到 registry（openEuler/arm64，仅离线交付）。请先载入：docker load -i base-images/images/arm64/panweidb_3.2.0.tar；或把 MOGO_DATA_BACKEND 改回 mongo。\n' ;;
+    en:panweidb_image_missing_hint) printf 'This image is not published to a registry (openEuler/arm64, offline delivery only). Load it first: docker load -i base-images/images/arm64/panweidb_3.2.0.tar ; or set MOGO_DATA_BACKEND back to mongo.\n' ;;
     zh:unknown) printf '未知命令：%s\n\n' "$1" ;;
     en:unknown) printf 'Unknown command: %s\n\n' "$1" ;;
     *) printf '%s' "${key}" ;;

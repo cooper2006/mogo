@@ -316,6 +316,8 @@ flowchart LR
 
 The default Docker Compose deployment starts the gateway, two Web applications, three application APIs, the DSH Runtime Host (multiple replicas behind a sticky load balancer), a document worker, MongoDB, Redis, Weaviate and a one-time secret bootstrap service.
 
+PanWeiDB (the optional MongoDB → PanWeiDB migration target) is managed by the same Compose file behind the `panweidb` profile: setting `MOGO_DATA_BACKEND=panweidb` in `.env` brings the database container into the topology, so a single `./mogo up` starts the whole stack including the database. Its data lives in the `panweidb-storage` volume, and the container starts and stops the database itself (no manual `gs_ctl`). See [docs/panweidb-compose-integration.md](docs/panweidb-compose-integration.md).
+
 ## Deployment and operations
 
 ### Requirements and platform notes
