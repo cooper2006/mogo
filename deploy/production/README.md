@@ -60,7 +60,7 @@ nohup ./prepare-release.sh > /tmp/prepare-release.log 2>&1 &   # 建议后台跑
 | --- | --- | --- |
 | gateway 起不来 | `./deploy/docker/nginx.conf` 是**相对路径** bind mount，Portainer 会把它解析到自己的 stack 目录，文件必然不存在 | 把 nginx.conf 以 base64 放进 `MOGO_GATEWAY_NGINX_CONF_B64`，容器启动时解码落盘 |
 | nginx 配置被破坏 | compose 会对 `$VAR` 做插值，而 nginx 配置里全是 `$http_upgrade` / `$connection_upgrade` | 同上：base64 规避插值 |
-| 启动即报拉取失败 | 生产无外网，`${MOGO_VERSION}` 之类未定义变量会被插值成空串，镜像名不成立 | 所有 `${VAR}` 已解析为字面量，镜像名写死，并加 `pull_policy: never` |
+| 启动即报拉取失败 | 生产无外网，`${MOGO_VERSION}` 之类未定义变量会被插值成空串，镜像名不成立 | 除 `mongo` / `redis` / `weaviate` 三行刻意保留 `${VAR:-默认值}` 形式的镜像覆盖（Stack 环境变量面板可指到内网镜像仓库）外，所有 `${VAR}` 已解析为字面量，镜像名写死，并加 `pull_policy: never` |
 
 另外省略了 `runtime-pool` profile 下的 `dsh-runtime-host-1/2/3` 与 `dsh-runtime-host-lb`
 （默认不启动，且 LB 依赖 `nginx` 基础镜像，生产上不需要）；去掉了顶层 `name:`，
@@ -74,9 +74,9 @@ nohup ./prepare-release.sh > /tmp/prepare-release.log 2>&1 &   # 建议后台跑
 | 镜像 | 用途 |
 | --- | --- |
 | `alpine:3.21` | bootstrap（生成密钥后退出，一次性） |
-| `mongo:8.3.13` | 数据库（已有 6.0 数据卷须逐级升级，不可直换，见 `docs/backup-recovery.md`） |
-| `redis:7.4.2-alpine` | 缓存 / 队列 |
-| `semitechnologies/weaviate:1.25.7` | 向量库 |
+| `mongo:8.3.13` | 数据库（Stack 环境变量面板可设 `MOGO_MONGO_IMAGE` 覆盖；已有 6.0 数据卷须逐级升级，不可直换，见 `docs/backup-recovery.md`） |
+| `redis:7.4.2-alpine` | 缓存 / 队列（Stack 环境变量面板可设 `MOGO_REDIS_IMAGE` 覆盖） |
+| `semitechnologies/weaviate:1.25.7` | 向量库（Stack 环境变量面板可设 `MOGO_WEAVIATE_IMAGE` 覆盖） |
 | `ghcr.io/mogoai/chat-api:<TAG>` | 用户侧 API |
 | `ghcr.io/mogoai/admin-api:<TAG>` | 管理侧 API |
 | `ghcr.io/mogoai/document-parser:<TAG>` | 文档解析（`document-api` 与 `document-worker` 共用） |

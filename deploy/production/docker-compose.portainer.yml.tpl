@@ -21,6 +21,9 @@
 #   alpine:3.21 / mongo:8.3.13 / redis:7.4.2-alpine / semitechnologies/weaviate:1.25.7
 #   ghcr.io/mogoai/{chat-api,admin-api,document-parser,dsh-runtime-host,user-web,admin-web,gateway}:__MOGO_TAG__
 # 另：document-api 与 document-worker 共用 ghcr.io/mogoai/document-parser:__MOGO_TAG__。
+#
+# mongo / redis / weaviate 三个镜像名刻意保留成 ${VAR:-默认值} 形式（Portainer Stack
+# 环境变量面板可覆盖，指到内网镜像仓库里的同名镜像）；其余镜像名已写死。
 
 x-python-healthcheck: &python-healthcheck
   interval: 10s
@@ -94,7 +97,7 @@ services:
     # 全新部署直接 8.3.13；已有 6.0 数据卷的生产环境**不能**直接换这个镜像
     # （8.3 拒绝 FCV 6.0 数据，启动即 exit）：须按 6.0 → 7.0 → 8.0 → 8.3 逐级升，
     # 每步先换二进制再 setFeatureCompatibilityVersion，见 docs/backup-recovery.md。
-    image: mongo:8.3.13
+    image: ${MOGO_MONGO_IMAGE:-mongo:8.3.13}
     pull_policy: never
     restart: unless-stopped
     volumes:
@@ -109,7 +112,7 @@ services:
       start_period: 20s
 
   redis:
-    image: redis:7.4.2-alpine
+    image: ${MOGO_REDIS_IMAGE:-redis:7.4.2-alpine}
     pull_policy: never
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
@@ -124,7 +127,10 @@ services:
       retries: 20
 
   weaviate:
-    image: semitechnologies/weaviate:1.25.7
+    # 这三个数据源镜像名刻意保留成 ${VAR:-默认值} 形式：Portainer Stack 的环境变量
+    # 面板里设 MOGO_MONGO_IMAGE / MOGO_REDIS_IMAGE / MOGO_WEAVIATE_IMAGE 可指到
+    # 内网镜像仓库里的同名镜像；不设则用默认值（与离线 tar 导入的 RepoTags 一致）。
+    image: ${MOGO_WEAVIATE_IMAGE:-semitechnologies/weaviate:1.25.7}
     pull_policy: never
     restart: unless-stopped
     environment:
