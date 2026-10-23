@@ -712,6 +712,19 @@ command_update() {
   return 2
 }
 
+# `./mogo check`: run the external-database preflight on its own, without
+# starting anything. Useful while wiring up an external MongoDB/Redis before the
+# first `./mogo up`.
+command_check() {
+  require_docker
+  deployment_urls
+  if [[ "${MOGO_USE_EXTERNAL_DB:-$(dotenv_value MOGO_USE_EXTERNAL_DB)}" != "1" ]]; then
+    mogo_msg external_db_disabled
+    return 0
+  fi
+  mogo_check_external_db
+}
+
 command="${1:-up}"
 if [[ $# -gt 0 ]]; then
   shift
@@ -750,6 +763,9 @@ case "${command}" in
   status)
     require_docker
     mogo_compose ps
+    ;;
+  check)
+    command_check
     ;;
   logs)
     require_docker

@@ -22,6 +22,7 @@ mogo_usage() {
     printf '  ./mogo backup [目录]                  停机一致性备份全部 MOGO 数据卷\n'
     printf '  ./mogo restore <目录> --yes           校验并恢复 MOGO 数据卷\n'
     printf '  ./mogo status                         查看服务状态\n'
+    printf '  ./mogo check                          体检外部数据库连接信息\n'
     printf '  ./mogo logs [服务名]                  查看日志\n'
     printf '  ./mogo restart                        重启服务\n'
     printf '  ./mogo down                           停止服务（保留数据卷）\n'
@@ -34,6 +35,7 @@ mogo_usage() {
     printf '  ./mogo backup [directory]              Back up all MOGO volumes while stopped\n'
     printf '  ./mogo restore <directory> --yes       Verify and restore MOGO volumes\n'
     printf '  ./mogo status                          Show service status\n'
+    printf '  ./mogo check                           Check external database settings\n'
     printf '  ./mogo logs [service]                  Show logs\n'
     printf '  ./mogo restart                         Restart services\n'
     printf '  ./mogo down                            Stop services and preserve volumes\n'
@@ -145,6 +147,8 @@ mogo_msg() {
     en:external_db_checking) printf 'MOGO_USE_EXTERNAL_DB=1: checking external database connection settings\n' ;;
     zh:external_db_check_failed) printf '错误：外部数据库连接信息有硬伤（上方明细）。请先修 .env 再 ./mogo up；或把 MOGO_USE_EXTERNAL_DB 改回 0 用栈内数据库。\n' ;;
     en:external_db_check_failed) printf 'Error: external database connection settings are broken (see details above). Fix .env before ./mogo up, or set MOGO_USE_EXTERNAL_DB back to 0 to use the stack databases.\n' ;;
+    zh:external_db_disabled) printf '未启用外部数据库模式（MOGO_USE_EXTERNAL_DB 不是 1），无需检查。\n' ;;
+    en:external_db_disabled) printf 'External database mode is not enabled (MOGO_USE_EXTERNAL_DB is not 1); nothing to check.\n' ;;
     zh:unknown) printf '未知命令：%s\n\n' "$1" ;;
     en:unknown) printf 'Unknown command: %s\n\n' "$1" ;;
     *) printf '%s' "${key}" ;;

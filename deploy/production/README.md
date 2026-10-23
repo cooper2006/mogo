@@ -119,7 +119,7 @@ MOGO_USE_EXTERNAL_DB=1
 
 起栈前 `./mogo up` 还会跑一次体检（`scripts/check_external_db.sh`）：连接信息缺失或
 仍指向栈内服务名会直接报错拦下（避免整栈起来才发现连不上），并顺手探测外部
-MongoDB 的版本（低于 7.0 会提醒需逐级升级）。
+MongoDB 的版本（低于 7.0 会提醒需逐级升级）。不启动栈单独体检用 `./mogo check`。
 
 几点注意：
 
