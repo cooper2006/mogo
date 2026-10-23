@@ -346,7 +346,7 @@ fetch_one() {
         sed -i 's|http://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g' \"\$f\"
       done
 
-      apt-get -o Acquire::Retries=5 update >/dev/null 2>&1
+      apt-get update 2>&1 || true
 
       # Seed the archive cache from the persistent cache so apt skips .deb files
       # it already fetched on a previous run instead of re-downloading them.
