@@ -141,6 +141,10 @@ mogo_msg() {
     en:panweidb_image_missing) printf 'Error: MOGO_DATA_BACKEND=panweidb enables the PanWeiDB backend, but image %s is not present locally.\n' "$1" ;;
     zh:panweidb_image_missing_hint) printf '该镜像不发布到 registry（openEuler/arm64，仅离线交付）。请先载入：docker load -i base-images/images/arm64/panweidb_3.2.0.tar；或把 MOGO_DATA_BACKEND 改回 mongo。\n' ;;
     en:panweidb_image_missing_hint) printf 'This image is not published to a registry (openEuler/arm64, offline delivery only). Load it first: docker load -i base-images/images/arm64/panweidb_3.2.0.tar ; or set MOGO_DATA_BACKEND back to mongo.\n' ;;
+    zh:external_db_checking) printf 'MOGO_USE_EXTERNAL_DB=1：体检外部数据库连接信息\n' ;;
+    en:external_db_checking) printf 'MOGO_USE_EXTERNAL_DB=1: checking external database connection settings\n' ;;
+    zh:external_db_check_failed) printf '错误：外部数据库连接信息有硬伤（上方明细）。请先修 .env 再 ./mogo up；或把 MOGO_USE_EXTERNAL_DB 改回 0 用栈内数据库。\n' ;;
+    en:external_db_check_failed) printf 'Error: external database connection settings are broken (see details above). Fix .env before ./mogo up, or set MOGO_USE_EXTERNAL_DB back to 0 to use the stack databases.\n' ;;
     zh:unknown) printf '未知命令：%s\n\n' "$1" ;;
     en:unknown) printf 'Unknown command: %s\n\n' "$1" ;;
     *) printf '%s' "${key}" ;;

@@ -425,6 +425,27 @@ mogo_ensure_panweidb_image() {
   return 1
 }
 
+# External-database mode has no stack-internal mongo/redis/panweidb to fall back
+# on: a leftover stack-internal hostname in .env only surfaces as a crash-loop
+# after the whole stack is up. Validate the connection info (and probe the
+# external MongoDB version) before starting anything expensive.
+mogo_check_external_db() {
+  if [[ "${MOGO_USE_EXTERNAL_DB:-$(dotenv_value MOGO_USE_EXTERNAL_DB)}" != "1" ]]; then
+    return 0
+  fi
+  mogo_msg external_db_checking
+  # 探测容器要挂应用连外部库的那张网（backend 是 internal，出不去）
+  local net rc
+  net="$(mogo_compose config 2>/dev/null | awk '/^networks:/{n=1} n&&/^  public:/{p=1} p&&/name:/{print $2; exit}')"
+  "${ROOT_DIR}/scripts/check_external_db.sh" "${ROOT_DIR}" "${net:-mogo_public}"
+  rc=$?
+  if [[ ${rc} -ne 0 ]]; then
+    mogo_msg external_db_check_failed >&2
+    return 1
+  fi
+  return 0
+}
+
 command_up() {
   print_logo
   require_docker
@@ -435,6 +456,9 @@ command_up() {
   # Same idea for the optional PanWeiDB backend: the profile is turned on by
   # MOGO_DATA_BACKEND, so verify the image it needs before starting the stack.
   mogo_ensure_panweidb_image || return 1
+  # Same idea for external-database mode: no internal container to fall back on,
+  # so validate the .env connection info before starting the stack.
+  mogo_check_external_db || return 1
   if mogo_has_build_flag "$@"; then
     # Same rule as `./mogo build`: default the tag to the release tag so a bare
     # `./mogo up --build` never falls back to `latest`. An explicit
