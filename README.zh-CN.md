@@ -87,7 +87,7 @@ specs/                    # 31 个特性规格，每个含完整规格链路
 - **17 个补齐特性**（001/002/007–021）——原始补强清单加上平台化与地址空间两个新增范围。**17 份 `tasks.md`（354 项）已全部勾选完成**，实现与测试同步落地。
 - **5 个质量加固特性**（022–026）——从 2026-10-11 QualityForge 全量 QA 审计中拆出，共 357 项任务，按 022 → 026 分波交付（详见下文[质量加固：022–026](#质量加固022026)）。
 - **4 个既有回溯特性**（003–006）——重述上游项目已有能力。它们最初未建 `tasks.md`，2026-10-11 补齐了 141 项任务。
-- **1 个数据后端迁移**（027）——数据层从 MongoDB 迁到 PanWeiDB（openGauss 内核），兼容层先行、开关式回滚，既有调用点零改写。
+- **1 个数据后端迁移**（027）——数据层从 MongoDB 迁到 PanWeiDB（openGauss 内核）：兼容门面（R1）+ 聚合管道编译与 bulk_write 接线（R2）+ 44 表关系扁平化（R3）全量落地，开关式回滚、既有调用点零改写；默认仍为 MongoDB，经 `MOGO_DATA_BACKEND=panweidb` 可选开启。
 - **4 个 user-web / 数据体验特性**（028–031）——028 把每条消息内联的执行过程提升为会话级「对话 / 轨迹」双 tab；029 把 user-web 变成 SSO 接收方，外部门户已登录用户免二次登录进入工作台（2026-10-15）；030 为本体域新增数据范围权限（P1，2026-10-16）；031 新增模型供应商发现与多协议接入（Anthropic / Gemini / Ollama，P1，2026-10-18）（详见下文[数据后端与 user-web 体验：027–031](#数据后端与-user-web-体验027031)）。
 
 接口契约分布在两处：顶层 [`contracts/`](contracts/) 下 6 份 T998 契约（`orchestration`、`self-evolution`、`session-versioning-contract`、`harness-config`、`a2a-gateway`、`memory-context-contract`），加上 `specs/` 内 5 个按特性划分的 `contracts/` 目录（[`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md)、[`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md)、[`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md)、[`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md)、[`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)）。
@@ -164,7 +164,7 @@ specs/                    # 31 个特性规格，每个含完整规格链路
 
 | # | 能力 | 交付内容 | 规格 |
 | :-: | --- | --- | :-: |
-| 17 | **数据后端迁移：MongoDB → PanWeiDB** | 数据层迁到 PanWeiDB（openGauss 内核），兼容层先行 + 开关式回滚，既有调用点零改写 | [027](specs/027-mongo-to-panweidb-migration/) |
+| 17 | **数据后端迁移：MongoDB → PanWeiDB（可选）** | 以 Motor/PyMongo 兼容门面（R1）+ 聚合管道编译与 bulk_write 接线（R2）+ 44 表关系扁平化（R3）全量落地；默认仍为 MongoDB，经 `MOGO_DATA_BACKEND=panweidb` 可选开启，回滚仅改环境变量、无需改代码 | [027](specs/027-mongo-to-panweidb-migration/) |
 | 18 | **user-web 会话级「对话 / 轨迹」双 tab** | 把每条 assistant 消息内联的可折叠执行过程，提升为会话级「轨迹」tab，与「对话」tab 并列切换。对话与轨迹本是同一批 V3 事件的两种投影，因此切换是纯前端视图层改动、数据层零新增：tab 状态按会话（pane）独立保持、默认「对话」、中英双语文案、`v-show` 切换不中断流式生成——`ChatWindow.vue` 本身零改动 | [028](specs/028-user-web-trajectory-tab/) |
 | 19 | **user-web SSO 接收方** | 外部门户已登录用户免二次登录进入 MOGO 用户工作台：门户后端用 022 服务身份（`X-MOGO-Service-Token`）申领一次性 HMAC 票据（TTL 60s），浏览器经 `state=` 传票（令牌不进 URL），user-web 启动即换票并复用既有 `_create_session()` 建会话。账号按共享主键 `id` 匹配、不 JIT 建号；多租户用户走既有选租户挑战流程；重放与过期票据经常数时间验签 + accept-once 拒绝；换票失败回落登录弹窗，不静默失败 | [029](specs/029-user-web-sso-receiver/) |
 | 20 | **本体数据权限** | 在本体域新增一层数据范围（data scope）权限，与既有 RBAC 功能权限正交：三张表（`mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit`）+ 通用 `sys_config` 开关。运行时按 `(tenant_id, user_id)` 解析可见本体（fail-closed，60 s 缓存），检索按 `ontology_id` 过滤；管理端 13 条路由 + 1 内部接口 + 清单页与用户授权弹窗。双后端（Mongo + PanWeiDB）均已执行入库 | [030](specs/030-ontology-data-permission/) |

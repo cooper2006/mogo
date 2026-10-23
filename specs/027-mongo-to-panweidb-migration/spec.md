@@ -301,3 +301,15 @@ MOVO 三个后端服务（admin-api / chat-api / document-parser）当前全部�
   不需要 DDL 变更**，这是兼容层能低成本落地的前提。
 - 现有服务的测试基础设施（pytest）可用于新增的纯逻辑单测与守卫测试。
 - 三个服务各自独立部署，因此兼容层代码在服务间存在重复副本，由守卫测试防漂移。
+
+## 收尾补充实现（R4 — compose 一体化 + 真库 bug 修复，2026-10-22）
+
+R1/R2/R3 完成后，027 还补齐了两块落地收尾工作，使 PanWeiDB 从「手工 `docker run` 的独立容器」升级为「compose 一体化生命周期」，并修掉了真实库下的一个查询型 bug。两者均不改变本 spec 的 FR 与 Non-Goals（默认后端仍为 mongo、开关式回滚不变）。
+
+- **PanWeiDB 纳入 compose 一体化管理**（commit `78205d6`，infra 类）：
+  - `docker-compose.yml` 新增 `panweidb` 服务，挂 `panweidb` profile（默认不启动，镜像仅本地 arm64 交付、默认后端仍是 mongo）；数据落命名卷 `panweidb-storage`，同时挂 `public` + `backend` 网络。
+  - 新增 `deploy/panweidb/entrypoint.sh` 作为 PID 1 supervisor：首次解包二进制、`gs_initdb`、写 `pg_hba`/`license`/`version`，`gs_ctl start` + 守活，`SIGTERM` 时 `gs_ctl stop -m fast` 并等 `postmaster.pid` 消失才退出。
+  - 四个应用服务加 `depends_on: panweidb {condition: service_healthy, required: false}`；`PANWEIDB_HOST` 默认改服务名。
+  - `deploy/cli/images.sh`：后端切到 panweidb 时 `mogo_compose` 自动带 `--profile panweidb`。
+  - `mogo` CLI：启动前检查 panweidb 镜像，缺失时提前失败而非让应用卡在连库超时。
+- **修复 dashboard /overview 500**（commit `db5370f`，fix）：PanWeiDB 的 `timestamptz` 经兼容层返回 ISO 字符串而非 datetime，导致 admin-api dashboard 汇总查询在真库下 500；已在读取路径统一序列化口径修复。

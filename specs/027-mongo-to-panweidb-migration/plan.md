@@ -307,3 +307,35 @@ UPDATE t AS tgt SET doc = s2.doc, updated_at = now() FROM s2 WHERE tgt.id = s2.i
 | 7 | 投影在 Python 侧裁剪 | 低 | R3 下推 SQL |
 | 8 | 本地镜像源不可达影响锁定文件生成 | 低 | 已记录补跑命令；哈希与 Python 版本无关已验证 |
 | 9 | `$percentile` 口径差异（Mongo 近似 vs PanWeiDB 精确） | 低 | 代码已有 `try/except` 兜底到 `_duration_percentiles_fallback()`，两条路径均可用 |
+
+## R4 — 收尾补充（compose 一体化 + 真库 bug 修复，2026-10-22）
+
+R1/R2/R3 全部落地后，027 还补齐了两块收尾工作，使 PanWeiDB 从「手工 `docker run` 的独立容器」升级为「compose 一体化生命周期」，并消除真实库下的一个查询型缺陷。两者不改变既有 FR/Non-Goals（默认后端仍为 mongo、开关式回滚不变）。
+
+### R4.1 PanWeiDB 纳入 compose 一体化管理（commit `78205d6`）
+
+**背景**：原先 PanWeiDB 是手工 `docker run` 的独立容器——PID 1 是 `tail -f /dev/null`、数据库不随容器启动（要人肉 `gs_ctl start`）、数据在容器可写层（`docker rm` 即全丢）、容器不在 compose 项目内（`./mogo up/down` 看不到它）。
+
+**改造**：
+
+- `docker-compose.yml` 新增 `panweidb` 服务，挂 `panweidb` profile（默认不启动，镜像只本地 arm64 交付、默认后端仍是 mongo）；数据落命名卷 `panweidb-storage`；同时挂 `public` + `backend`（backend 是 internal 网络，其上发布端口宿主不可达，宿主工具按 `127.0.0.1:5432` 连库）。
+- 新增 `deploy/panweidb/entrypoint.sh` 作为 PID 1 supervisor：首次解包二进制、`gs_initdb`、写 `pg_hba`/`license`/`version`，`gs_ctl start` + 守活，`SIGTERM` 时 `gs_ctl stop -m fast` 并等 `postmaster.pid` 消失才退出。
+- 四个应用服务加 `depends_on: panweidb {condition: service_healthy, required: false}`（指向未启用 profile 的服务会让 compose 直接解析失败）；`PANWEIDB_HOST` 默认改服务名。
+- `deploy/cli/images.sh`：后端切到 panweidb 时 `mogo_compose` 自动带 `--profile panweidb`，一个开关管住两件事。
+- `mogo` CLI：启动前检查 panweidb 镜像，缺失时提前失败而不是让应用卡在连库超时。
+
+**收益**：`MOGO_DATA_BACKEND=panweidb docker compose --profile panweidb up -d` 即可把目标库与三应用一并拉起/停止/回收，数据持久化到命名卷，生命周期与栈一致。
+
+### R4.2 修复 dashboard /overview 500（commit `db5370f`）
+
+PanWeiDB 的 `timestamptz` 经兼容层返回 **ISO 字符串**而非 `datetime`，导致 admin-api dashboard 汇总查询在真实 PanWeiDB 后端下 500；已在读取路径统一序列化口径修复。属于 R3 关系扁平化后真实列读取路径的收尾缺陷修复（FR-002/FR-015 的"字段形状一致"承诺在 dashboard 场景的兑现）。
+
+### R4 涉及的新增/改动文件
+
+```text
+docker-compose.yml                  # 新增 panweidb 服务（panweidb profile）+ 四应用 depends_on
+deploy/panweidb/entrypoint.sh       # 新增：PID 1 supervisor（解包/gs_initdb/gs_ctl start/守活/优雅停）
+deploy/cli/images.sh               # 改造：切 panweidb 时自动带 --profile panweidb
+mogo（CLI）                          # 改造：启动前检查 panweidb 镜像，缺失提前失败
+services/admin-api/app/...          # 修复 timestamptz 读取路径序列化（dashboard 500）
+```
