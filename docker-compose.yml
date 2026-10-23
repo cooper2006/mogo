@@ -198,7 +198,10 @@ services:
         echo "After services become healthy, open http://localhost:$${MOGO_PORT:-3000}/admin/setup"
 
   mongo:
-    image: mongo:6.0.20
+    # 与 panweidb 一样留环境变量覆盖口：升级/回滚只改 .env 或命令行，不改本文件。
+    # 版本不能跳级：MongoDB 只接受「上一代 FCV 或本代 FCV」，6.0 数据必须
+    # 6.0 → 7.0 → 8.0 → 8.3 逐级升（每步先换二进制，再 setFeatureCompatibilityVersion）。
+    image: ${MOGO_MONGO_IMAGE:-mongo:8.3.13}
     restart: unless-stopped
     volumes:
       - mongo-data:/data/db

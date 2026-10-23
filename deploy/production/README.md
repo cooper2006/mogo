@@ -74,7 +74,7 @@ nohup ./prepare-release.sh > /tmp/prepare-release.log 2>&1 &   # 建议后台跑
 | 镜像 | 用途 |
 | --- | --- |
 | `alpine:3.21` | bootstrap（生成密钥后退出，一次性） |
-| `mongo:6.0.20` | 数据库 |
+| `mongo:8.3.13` | 数据库（已有 6.0 数据卷须逐级升级，不可直换，见 `docs/backup-recovery.md`） |
 | `redis:7.4.2-alpine` | 缓存 / 队列 |
 | `semitechnologies/weaviate:1.25.7` | 向量库 |
 | `ghcr.io/mogoai/chat-api:<TAG>` | 用户侧 API |

@@ -165,10 +165,12 @@ openssl enc -d -aes-256-cbc -in "${LATEST}" \
 tar -xzf "${DRILL_DIR}/mogo.tar" -C "${DRILL_DIR}"
 
 # 2. 启动临时 MongoDB 实例
+#    镜像版本必须与被备份数据的数据目录格式一致：本栈已升级到 8.3.13，
+#    8.x 的数据目录用 mongo:6.0 起不来（WiredTiger 只升不降）。
 docker run -d --name mongo-drill \
   -v "${DRILL_DIR}:/data/db" \
   -p 27018:27017 \
-  mongo:6.0
+  mongo:8.3.13
 
 # 3. 等待 MongoDB 就绪
 until docker exec mongo-drill mongosh --quiet --eval "db.adminCommand('ping')" > /dev/null 2>&1; do

@@ -18,7 +18,7 @@
 #   5. 去掉顶层 name:，项目名由 Portainer 的 Stack 名决定（部署时填 mogo）。
 #
 # 前置条件：以下 11 个镜像已通过 Portainer 导入到生产 Docker：
-#   alpine:3.21 / mongo:6.0.20 / redis:7.4.2-alpine / semitechnologies/weaviate:1.25.7
+#   alpine:3.21 / mongo:8.3.13 / redis:7.4.2-alpine / semitechnologies/weaviate:1.25.7
 #   ghcr.io/mogoai/{chat-api,admin-api,document-parser,dsh-runtime-host,user-web,admin-web,gateway}:__MOGO_TAG__
 # 另：document-api 与 document-worker 共用 ghcr.io/mogoai/document-parser:__MOGO_TAG__。
 
@@ -91,7 +91,10 @@ services:
         echo "After services become healthy, open http://localhost:$${MOGO_PORT:-3000}/admin/setup"
 
   mongo:
-    image: mongo:6.0.20
+    # 全新部署直接 8.3.13；已有 6.0 数据卷的生产环境**不能**直接换这个镜像
+    # （8.3 拒绝 FCV 6.0 数据，启动即 exit）：须按 6.0 → 7.0 → 8.0 → 8.3 逐级升，
+    # 每步先换二进制再 setFeatureCompatibilityVersion，见 docs/backup-recovery.md。
+    image: mongo:8.3.13
     pull_policy: never
     restart: unless-stopped
     volumes:
