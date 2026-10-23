@@ -1,0 +1,71 @@
+# 外部数据库覆盖文件：把栈内自带的 mongo / redis / panweidb 排除出拓扑。
+#
+# 什么时候用：生产环境已经有一份外部的 MongoDB / Redis / PanWeiDB，本机只需要
+# 跑 mogo 应用容器，不要再起内部数据库容器。用法（二选一，效果一样）：
+#
+#   MOGO_USE_EXTERNAL_DB=1 ./mogo up          # 推荐，mogo 会自动带上本文件
+#   docker compose -f docker-compose.yml -f docker-compose.external.yml up -d
+#
+# 只靠本文件还不够：应用要能连上外部实例，必须在 .env 里给出连接信息，否则它们
+# 会连默认的 `mongo` / `redis` 服务名并在宿主机上解析失败。要配的变量：
+#
+#   MongoDB  : MOGO_MONGODB_URI / MOGO_MONGODB_DB
+#   Redis    : MOGO_REDIS_URL（admin-api / document-* 用，DB/0）
+#              MOGO_KERNEL_REDIS_URL（chat-api 的 DSH 运行时锁/归属缓存用，独立 DB）
+#   PanWeiDB : PANWEIDB_HOST / PANWEIDB_PORT / PANWEIDB_USER /
+#              PANWEIDB_PASSWORD / PANWEIDB_DB / PANWEIDB_SCHEMA
+#
+# 实现方式：把三个数据库服务挪到一个永远不会被启用的 profile（`never`）里，compose
+# 就不创建它们的容器；应用侧的 depends_on 同时标成 `required: false`，避免 compose
+# 报「depends on undefined service」（base 文件里 panweidb 用的就是这套做法）。
+#
+# 注意：`never` 与 `panweidb` 是两个不同的 profile。外部模式里想用 PanWeiDB 后端
+# 时把 PANWEIDB_HOST 指到外部地址即可，这里已经把内部 panweidb 容器关掉了。
+services:
+  mongo:
+    profiles: [never]
+
+  redis:
+    profiles: [never]
+
+  panweidb:
+    profiles: [never]
+
+  # 应用侧：这些服务实际连的是外部数据库，不需要等栈内数据库 healthy。
+  # `condition` 必须显式写回来——compose 对 depends_on 按服务名合并，只写
+  # required 会把 base 文件里的 condition 覆盖掉。
+  chat-api:
+    depends_on:
+      mongo:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+
+  admin-api:
+    depends_on:
+      mongo:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+
+  document-api:
+    depends_on:
+      mongo:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+
+  document-worker:
+    depends_on:
+      mongo:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false

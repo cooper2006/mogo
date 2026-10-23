@@ -201,6 +201,12 @@ services:
     # 与 panweidb 一样留环境变量覆盖口：升级/回滚只改 .env 或命令行，不改本文件。
     # 版本不能跳级：MongoDB 只接受「上一代 FCV 或本代 FCV」，6.0 数据必须
     # 6.0 → 7.0 → 8.0 → 8.3 逐级升（每步先换二进制，再 setFeatureCompatibilityVersion）。
+    #
+    # 连接信息是 `MOGO_MONGODB_URI` / `MOGO_MONGODB_DB`（见 .env.example），
+    # 默认指向本服务名 `mongo`；要用外部已有的 MongoDB，只需在 .env 里改这两个
+    # 变量，应用会改连外部实例（不需要这个容器）。生产环境再配合
+    # `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml）把栈内 mongo / redis /
+    # panweidb 一起排除出拓扑。
     image: ${MOGO_MONGO_IMAGE:-mongo:8.3.13}
     restart: unless-stopped
     volumes:
@@ -287,7 +293,8 @@ services:
       start_period: 300s
 
   redis:
-    image: redis:7.4.2-alpine
+    # 与 mongo / panweidb 一样留环境变量覆盖口：升级/回滚只改 .env，不改本文件。
+    image: ${MOGO_REDIS_IMAGE:-redis:7.4.2-alpine}
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -458,8 +465,8 @@ services:
       - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     environment:
       OPENAI_API_KEY: ""
-      MONGODB_URI: mongodb://mongo:27017
-      MONGODB_DB: mogo_dev
+      MONGODB_URI: ${MOGO_MONGODB_URI:-mongodb://mongo:27017}
+      MONGODB_DB: ${MOGO_MONGODB_DB:-mogo_dev}
       # 数据后端开关（MongoDB → PanWeiDB 迁移，见
       # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
       # PanWeiDB 现在就在本 compose 网络内（`panweidb` 服务，profile 门控），
@@ -501,7 +508,10 @@ services:
       # 能绕过 LB 直接问每个副本"你持有这个 session 吗"来恢复。
       DSH_RUNTIME_REPLICA_URLS: ${DSH_RUNTIME_REPLICA_URLS:-}
       # Session affinity cache. Needs a Redis URL to leave process memory.
-      DSH_KERNEL_REDIS_URL: ${DSH_KERNEL_REDIS_URL:-redis://redis:6379/1}
+      # 用独立的 Redis DB（默认 DB/1）：它存的是 DSH 运行时锁与归属缓存，与
+      # admin-api / document-* 的业务缓存（DB/0）分开。接外部 Redis 时这里
+      # 单独给 MOGO_KERNEL_REDIS_URL（含 DB 号），别混用 MOGO_REDIS_URL。
+      DSH_KERNEL_REDIS_URL: ${MOGO_KERNEL_REDIS_URL:-redis://redis:6379/1}
       DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS: ${DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS:-7200}
       DSH_TOOL_GATEWAY_URL: http://chat-api:8000/internal/dsh/tools
       DSH_MODEL_GATEWAY_URL: http://chat-api:8000/internal/dsh/model/generate
@@ -558,8 +568,8 @@ services:
       - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     environment:
       ASKAI_ADMIN_APP_ENV: production
-      ASKAI_ADMIN_MONGODB_URI: mongodb://mongo:27017
-      ASKAI_ADMIN_MONGODB_DB: mogo_dev
+      ASKAI_ADMIN_MONGODB_URI: ${MOGO_MONGODB_URI:-mongodb://mongo:27017}
+      ASKAI_ADMIN_MONGODB_DB: ${MOGO_MONGODB_DB:-mogo_dev}
       # 数据后端开关（MongoDB → PanWeiDB 迁移，见
       # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
       # PanWeiDB 现在就在本 compose 网络内（`panweidb` 服务，profile 门控），
@@ -575,7 +585,8 @@ services:
       ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_ENABLED: "false"
       ASKAI_ADMIN_BACKEND_BASE_URL: http://chat-api:8000
       ASKAI_ADMIN_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
-      ASKAI_ADMIN_REDIS_URL: redis://redis:6379/0
+      # Redis 连接信息来自 .env（MOGO_REDIS_URL，默认栈内 redis 服务 DB/0）。
+      ASKAI_ADMIN_REDIS_URL: ${MOGO_REDIS_URL:-redis://redis:6379/0}
       ASKAI_ADMIN_WEAVIATE_ENDPOINT: http://weaviate:8080
       ASKAI_ADMIN_DOCUMENT_PROCESSING_BASE_URL: http://document-api:8200
       ASKAI_ADMIN_ADMIN_API_PUBLIC_BASE_URL: http://admin-api:8100
@@ -628,9 +639,9 @@ services:
     environment: &document-environment
       MOGO_DOC_PROCESSING_APP_ENV: production
       MOGO_DOC_PROCESSING_LOCAL_STORAGE_DIR: /data/knowledge-documents
-      MOGO_DOC_PROCESSING_REDIS_URL: redis://redis:6379/0
-      MOGO_DOC_PROCESSING_MONGODB_URI: mongodb://mongo:27017
-      MOGO_DOC_PROCESSING_MONGODB_DB: mogo_dev
+      MOGO_DOC_PROCESSING_REDIS_URL: ${MOGO_REDIS_URL:-redis://redis:6379/0}
+      MOGO_DOC_PROCESSING_MONGODB_URI: ${MOGO_MONGODB_URI:-mongodb://mongo:27017}
+      MOGO_DOC_PROCESSING_MONGODB_DB: ${MOGO_MONGODB_DB:-mogo_dev}
       # 数据后端开关（MongoDB → PanWeiDB 迁移，见
       # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
       # PanWeiDB 现在就在本 compose 网络内（`panweidb` 服务，profile 门控），

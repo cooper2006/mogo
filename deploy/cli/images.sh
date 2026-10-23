@@ -72,7 +72,13 @@ mogo_compose() {
   if [[ "${MOGO_COMPOSE_BUILD}" == "true" ]]; then
     compose_args+=(-f "${ROOT_DIR}/docker-compose.build.yml")
   fi
-  if mogo_panweidb_enabled; then
+  # 外部数据库模式：把栈内 mongo / redis / panweidb 排除出拓扑，应用只连 .env
+  # 里配的外部实例（MOGO_MONGODB_URI / MOGO_REDIS_URL / PANWEIDB_*）。
+  if [[ "${MOGO_USE_EXTERNAL_DB:-}" == "1" ]]; then
+    compose_args+=(-f "${ROOT_DIR}/docker-compose.external.yml")
+  elif mogo_panweidb_enabled; then
+    # 内部模式才需要把 panweidb 容器带进拓扑；外部模式下 PanWeiDB 也是外部的，
+    # 靠 PANWEIDB_HOST 指过去（override 文件已把内部 panweidb 排除）。
     compose_args+=(--profile panweidb)
   fi
   "${DOCKER_BIN}" compose "${compose_args[@]}" "$@"
