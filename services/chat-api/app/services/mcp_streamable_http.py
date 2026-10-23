@@ -18,7 +18,7 @@ MCP_PROTOCOL_VERSION = "2025-06-18"
 # `FastAPI(version=...)` in app/main.py), so keep the two in sync.
 # It is what a remote MCP server operator sees when diagnosing a MOGO
 # conversation, so do not let it drift.
-MCP_CLIENT_VERSION = "0.2.1"
+MCP_CLIENT_VERSION = "0.2.5"
 _LEGACY_INITIALIZE_HTTP_STATUSES = {400, 404, 405}
 
 

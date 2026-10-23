@@ -6,6 +6,8 @@ image.
 
 ## Unreleased
 
+## v0.2.5 - 2026-10-23
+
 ### Removed
 
 - **彻底下线 movo 过渡回退机制**：`docker-compose.yml` 的卷名前缀回退链
@@ -17,6 +19,27 @@ image.
   统一为 `ghcr.io/mogoai`，`MOVO_*` / `himovo` 字样从用户可见文档、
   NOTICE、LICENSE 与测试断言中清除。`MOGO_` 是唯一权威拼写，`.env` / CI 中
   残留的 `MOVO_*` 键需改名为 `MOGO_*`。
+
+### Added
+
+- **MongoDB 升级到 8.3.13**：按 6.0 → 7.0 → 8.0 → 8.3 逐级过 FCV 门升级（不能
+  一步到位），FCV 停在 `8.0` 便于回退 8.0 二进制；升级前自动做逻辑 + 冷卷双备份，
+  升级后 `mogo_dev` 56 个非空集合与升级前一致。
+- **数据库连接信息全部下沉 `.env`**：新增 `MOGO_MONGODB_URI` / `MOGO_MONGODB_DB` /
+  `MOGO_REDIS_URL`（业务缓存，DB/0）/ `MOGO_KERNEL_REDIS_URL`（DSH 锁与归属缓存，
+  DB/1），默认值仍指向栈内服务名；`MOGO_MONGO_IMAGE` / `MOGO_REDIS_IMAGE` /
+  `MOGO_WEAVIATE_IMAGE` / `MOGO_PANWEIDB_IMAGE` 可覆盖镜像（含 Portainer 离线模板）。
+- **纯外部数据库部署模式**：设 `MOGO_USE_EXTERNAL_DB=1` 时 `./mogo up` 自动加载
+  `docker-compose.external.yml`，把 `mongo` / `redis` / `panweidb` 三个容器排除出
+  拓扑，应用只连 `.env` 里给的外部实例。起栈前会体检连接信息（缺失或仍指向栈内
+  服务名直接拦下）并探测外部 MongoDB 版本（低于 7.0 提醒需逐级升级）；不启动栈
+  单独体检用 `./mogo check`。
+- **离线 bundle 漂移加固**：`scripts/apt_packages_bundle.sh` 现在会刷新离线
+  Packages 索引（原先生成时索引长期滞后，叠加构建期 `apt-get update` 就是
+  `E: Unable to fetch some archives` 的放大器）；chat-api / document-parser 补齐
+  `libexpat1 2.5.0-1+deb12u5` 与 krb5 依赖，dsh-runtime-host 补齐
+  `ca-certificates 20250419~deb12u2`；`apt` / `pip` bundle 下载失败不再被
+  `|| true` 静默吞掉（失败即报错）。
 
 ## v0.2.4 - 2026-10-20
 

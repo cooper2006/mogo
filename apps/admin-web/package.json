@@ -1,7 +1,7 @@
 {
   "name": "mogo-admin-web",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.5",
   "license": "Apache-2.0",
   "type": "module",
   "browserslist": ["last 2 Chrome versions", "last 2 Edge versions", "last 2 Safari versions", "last 2 Firefox versions"],

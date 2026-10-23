@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mogo-chat-api"
-version = "0.2.4"
+version = "0.2.5"
 description = "Backend for the MOGO agent platform"
 authors = ["MOGO Team"]
 license = "Apache-2.0"

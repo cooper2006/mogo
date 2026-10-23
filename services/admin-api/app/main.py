@@ -58,7 +58,7 @@ def create_app() -> FastAPI:
         # Keep in sync with pyproject.toml / CHANGELOG: this is the value
         # published in /openapi.json info.version, i.e. an externally visible
         # contract, not a private cosmetic string.
-        version="0.2.4",
+        version="0.2.5",
         description="Control plane API for MOGO admin backend",
         docs_url=None if is_prod else "/docs",
         redoc_url=None if is_prod else "/redoc",
