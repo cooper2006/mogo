@@ -87,6 +87,48 @@ nohup ./prepare-release.sh > /tmp/prepare-release.log 2>&1 &   # 建议后台跑
 
 全部为 `linux/amd64`，由 arm64 Mac 交叉构建后导出。
 
+## 复用已有的外部数据库（不跑内部 mongo / redis / panweidb）
+
+上面是"自带数据库"的离线路径。如果生产**已经有一套 MongoDB / Redis / PanWeiDB**
+（云托管或运维维护的实例），只需要应用容器，就不必再拉起栈内的数据库容器。
+
+连接信息**只在 `.env` 里配**，仓库根 `docker-compose.yml` 不需要改：
+
+| 变量 | 默认值（栈内） | 谁在用 |
+| --- | --- | --- |
+| `MOGO_MONGODB_URI` | `mongodb://mongo:27017` | chat-api、admin-api、document-api/worker 的 `MONGODB_URI` |
+| `MOGO_MONGODB_DB` | `mogo_dev` | 同上，库名 |
+| `MOGO_REDIS_URL` | `redis://redis:6379/0` | admin-api、document-api/worker 业务缓存 |
+| `MOGO_KERNEL_REDIS_URL` | `redis://redis:6379/1` | chat-api 的 DSH 锁 / session 归属缓存 |
+| `PANWEIDB_HOST` / `PANWEIDB_PORT` / `PANWEIDB_USER` / `PANWEIDB_PASSWORD` / `PANWEIDB_DB` / `PANWEIDB_SCHEMA` | 栈内 `panweidb:5432` | 数据后端是 PanWeiDB 时使用 |
+
+`MOGO_KERNEL_REDIS_URL` 刻意与 `MOGO_REDIS_URL` 分开：前者是 DSH 运行时锁和归属缓存
+（DB/1），后者是应用业务缓存（DB/0）。接同一个外部 Redis 时请给它们独立的 DB，
+混用一个会让 key 互相覆盖。
+
+**让 `./mogo up` 不再拉起栈内数据库**：`.env` 加一行
+
+```bash
+MOGO_USE_EXTERNAL_DB=1
+```
+
+`./mogo` 会自动追加 `docker-compose.external.yml`，把 `mongo` / `redis` / `panweidb`
+三个服务从拓扑里排除（`up --dry-run` 不会拉它们的镜像），应用仍按上面的连接信息连
+外部实例。**只改连接信息、不开这个开关也完全可用**——内部容器会照常跑，应用连的
+是外部库。
+
+几点注意：
+
+- 外部 MongoDB 建议 **8.x**（项目当前镜像为 `mongo:8.3.13`，驱动 `pymongo` 4.18.x）。
+  若外部库仍是 6.0，请按 `docs/backup-recovery.md` 逐级升级：直接换版本起不来
+  （FCV 门禁报 `UPGRADE PROBLEM: Found an invalid featureCompatibilityVersion document`）。
+- 外部模式不会自动清理已存在的 `mogo-mongo-1` / `mogo-redis-1` / `mogo-panweidb-1`
+  容器，需要时手动 `docker compose down`。
+- 数据后端选 PanWeiDB（`.env` 设 `MOGO_DATA_BACKEND=panweidb`）时，把
+  `PANWEIDB_HOST` 指向外部实例即可；外部模式下 `./mogo` 不会再拉起内部 panweidb。
+- 镜像名也可覆盖：`MOGO_MONGO_IMAGE` / `MOGO_REDIS_IMAGE` / `MOGO_WEAVIATE_IMAGE` /
+  `MOGO_PANWEIDB_IMAGE`，方便指到内网镜像仓库里的同名镜像（与离线 tar 导入互补）。
+
 ## 两个必须屏蔽的坑
 
 **1. 仓库根 `.env` 会污染构建产物名。** `.env` 被 compose 自动加载，里面的

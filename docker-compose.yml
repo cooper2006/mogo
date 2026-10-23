@@ -308,7 +308,9 @@ services:
       retries: 20
 
   weaviate:
-    image: semitechnologies/weaviate:1.25.7
+    # 版本可覆盖：本地/自建镜像仓库没有官方 tag 时，用 MOGO_WEAVIATE_IMAGE 指到
+    # 自己的镜像（例如 registry 内网镜像 semitechnologies/weaviate:1.25.7）。
+    image: ${MOGO_WEAVIATE_IMAGE:-semitechnologies/weaviate:1.25.7}
     restart: unless-stopped
     environment:
       QUERY_DEFAULTS_LIMIT: "25"
