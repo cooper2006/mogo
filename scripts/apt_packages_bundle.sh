@@ -346,7 +346,14 @@ fetch_one() {
         sed -i 's|http://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g' \"\$f\"
       done
 
-      apt-get update 2>&1 || true
+      # The bundle index must be current: apt resolves --no-download against it,
+      # so a stale index is exactly what produced the \"Unable to fetch some
+      # archives\" build failures. A transient mirror hiccup is retried, but a
+      # failure here is fatal (set -e) rather than swallowed with || true: a
+      # silent failure leaves an index whose candidate versions have no .deb.
+      apt-get -o Acquire::Retries=5 \
+        -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        update
 
       # Seed the archive cache from the persistent cache so apt skips .deb files
       # it already fetched on a previous run instead of re-downloading them.

@@ -371,13 +371,13 @@ pip_download_into() {
       # A wheel whose build backend needs these still resolves locally, which
       # matters because the cached set is installed offline.
       pip download --progress-bar off -d /wheels \$fl \$target \
-        pip setuptools wheel 2>&1 | tail -2 || true
+        pip setuptools wheel 2>&1 | tail -2
 
       echo '--- [2/4] torch + torchvision (CPU index) ---'
       if [ '${needs_torch}' = 'true' ]; then
         pip download --progress-bar off -d /wheels \$fl \$target --no-deps \
           --index-url '${PYTORCH_CPU_INDEX}' \
-          'torch>=2.2.2,<3.0.0' 'torchvision>=0,<1' 2>&1 | tail -3 || true
+          'torch>=2.2.2,<3.0.0' 'torchvision>=0,<1' 2>&1 | tail -3
         # torch's own metadata deps must be present for the offline install;
         # the CPU index carries them too, so fetch them here rather than
         # relying on the PyPI mirror resolving the same names later.
@@ -385,7 +385,7 @@ pip_download_into() {
           --index-url '${PYTORCH_CPU_INDEX}' \
           --no-deps 'filelock>=3.13.1' 'typing-extensions>=4.10.0' 'sympy>=1.13.3' \
           'networkx>=2.5.1' 'jinja2>=3.1.3' 'fsspec>=0.8.5' \
-          'mpmath>=1.1.0' 'markupsafe>=2.0' 2>&1 | tail -2 || true
+          'mpmath>=1.1.0' 'markupsafe>=2.0' 2>&1 | tail -2
       else
         echo '  (this service does not preinstall torch)'
       fi
@@ -397,7 +397,7 @@ pip_download_into() {
       # the whole resolution atomically and nothing would be cached. The
       # sdist-only pins were stripped into a second file and are fetched below.
       pip download --progress-bar off -d /wheels \$fl \$target \
-        -r /ctx/.pip-wheels-staging/requirements-wheels.txt 2>&1 | tail -3 || true
+        -r /ctx/.pip-wheels-staging/requirements-wheels.txt 2>&1 | tail -3
 
       # sdist-only pins. crcmod falls back to a pure-Python build (its setup.py
       # drops ext_modules when the C extension will not compile), so the
@@ -407,7 +407,7 @@ pip_download_into() {
       if [ -s /ctx/.pip-wheels-staging/requirements-sdist.txt ]; then
         while read -r spec; do
           [ -n \"\$spec\" ] || continue
-          pip download --progress-bar off -d /wheels-sdist --no-deps \"\$spec\" 2>&1 | tail -1 || true
+          pip download --progress-bar off -d /wheels-sdist --no-deps \"\$spec\" 2>&1 | tail -1
         done < /ctx/.pip-wheels-staging/requirements-sdist.txt
       fi
 
@@ -415,7 +415,7 @@ pip_download_into() {
       for extra in ${extras}; do
         [ -f \"/ctx/\$extra\" ] || continue
         pip download --progress-bar off -d /wheels \$fl \$target \
-          -r \"/ctx/\$extra\" 2>&1 | tail -3 || true
+          -r \"/ctx/\$extra\" 2>&1 | tail -3
       done
 
       # Merge the sdist-only artefacts in, then drop any non-CPU torch.
