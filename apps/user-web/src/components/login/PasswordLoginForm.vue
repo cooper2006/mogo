@@ -17,10 +17,10 @@ const username = ref('')
 const password = ref('')
 const errorMessage = ref('')
 const isSubmitting = ref(false)
-const challengeToken = ref('')
-const tenantCandidates = ref<TenantCandidate[]>([])
+const activeChallengeToken = ref('')
+const activeTenantCandidates = ref<TenantCandidate[]>([])
 const selectedTenantId = ref('')
-const pendingSelection = computed(() => Boolean(challengeToken.value) && tenantCandidates.value.length > 0)
+const pendingSelection = computed(() => Boolean(activeChallengeToken.value) && activeTenantCandidates.value.length > 0)
 
 watch(
   () => props.suggestedUsername,
@@ -38,13 +38,13 @@ watch(
     const token = props.challengeToken
     const candidates = props.tenantCandidates
     if (token && (candidates?.length ?? 0) > 0) {
-      challengeToken.value = token
-      tenantCandidates.value = candidates || []
-      selectedTenantId.value = tenantCandidates.value[0]?.tenantId || ''
+      activeChallengeToken.value = token
+      activeTenantCandidates.value = candidates || []
+      selectedTenantId.value = activeTenantCandidates.value[0]?.tenantId || ''
       errorMessage.value = ''
     } else {
-      challengeToken.value = ''
-      tenantCandidates.value = []
+      activeChallengeToken.value = ''
+      activeTenantCandidates.value = []
       selectedTenantId.value = ''
     }
   },
@@ -69,14 +69,14 @@ async function submit() {
 
   isSubmitting.value = true
   const result = pendingSelection.value
-    ? await selectTenantAndLogin(challengeToken.value, selectedTenantId.value)
+    ? await selectTenantAndLogin(activeChallengeToken.value, selectedTenantId.value)
     : await loginWithPassword(normalizedUsername, password.value)
   isSubmitting.value = false
 
   if (result.requiresTenantSelection) {
-    challengeToken.value = result.challengeToken || ''
-    tenantCandidates.value = result.tenantCandidates || []
-    selectedTenantId.value = tenantCandidates.value[0]?.tenantId || ''
+    activeChallengeToken.value = result.challengeToken || ''
+    activeTenantCandidates.value = result.tenantCandidates || []
+    selectedTenantId.value = activeTenantCandidates.value[0]?.tenantId || ''
     errorMessage.value = result.message || t('api.auth.select_org')
     return
   }
@@ -126,7 +126,7 @@ async function submit() {
         class="min-h-[44px] w-full rounded-2xl border border-slate-200 px-4 text-slate-900 outline-none focus:border-slate-400 focus-visible:ring-2 focus-visible:ring-slate-200"
         @change="resetError"
       >
-        <option v-for="tenant in tenantCandidates" :key="tenant.tenantId" :value="tenant.tenantId">
+        <option v-for="tenant in activeTenantCandidates" :key="tenant.tenantId" :value="tenant.tenantId">
           {{ tenant.orgName || tenant.tenantId }}
         </option>
       </select>

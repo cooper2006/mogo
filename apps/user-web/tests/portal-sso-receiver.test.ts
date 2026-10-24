@@ -47,15 +47,25 @@ assert.match(auth, /tenantCandidates: payload\?\.data\?\.candidates/, 'exchange 
 // PasswordLoginForm：从 props 种子"只选组织"状态，挑战清空时复位。
 assert.match(loginForm, /challengeToken\?: string/, 'login form must accept a portal challenge token prop')
 assert.match(loginForm, /tenantCandidates\?: TenantCandidate\[\]/, 'login form must accept portal tenant candidates prop')
-assert.match(loginForm, /challengeToken\.value = token/, 'login form must seed pendingSelection from the portal challenge')
-assert.match(loginForm, /challengeToken\.value = ''/, 'login form must reset pendingSelection when the challenge is cleared')
+assert.match(loginForm, /activeChallengeToken\.value = token/, 'login form must seed pendingSelection from the portal challenge')
+assert.match(loginForm, /activeChallengeToken\.value = ''/, 'login form must reset pendingSelection when the challenge is cleared')
+// 029 SSO：本地 ref 不得与同名 prop 碰撞（vue/no-dupe-keys），否则模板解析到
+// ref 而不是 prop，"只选组织"态会读到陈旧值。QA R11 修 F11。
+assert.doesNotMatch(loginForm, /const challengeToken = ref/, 'local ref must not shadow the challengeToken prop')
 
 // LoginModal 透传挑战给 PasswordLoginForm。
 assert.match(loginModal, /:challenge-token="challengeToken"/, 'LoginModal must forward the challenge token')
 assert.match(loginModal, /:tenant-candidates="tenantCandidates"/, 'LoginModal must forward tenant candidates')
 
 // App.vue 透传给 ProductLoginModal，并在登录成功后/关闭时清挑战。
-assert.match(app, /:challenge-token="portalChallengeToken"/, 'App must pass the portal challenge to the login modal')
+// 注：`:challenge-token="portalChallengeToken"` 的表达式尾部带一个块注释
+// `/* pragma: allowlist secret */`（check-secrets 对 `token="…"` 误报的行级豁免），
+// 所以这里允许标识符与收尾引号之间夹一个块注释。
+assert.match(
+  app,
+  /challenge-token="portalChallengeToken\s*(\/\*[^*]*\*\/)?\s*"/,
+  'App must pass the portal challenge to the login modal',
+)
 assert.match(app, /:tenant-candidates="portalTenantCandidates"/, 'App must pass portal tenant candidates to the login modal')
 assert.match(app, /portalChallengeToken\.value = ''\s*\n\s*portalTenantCandidates\.value = \[\]/, 'App must clear the portal challenge after login success / on close')
 
