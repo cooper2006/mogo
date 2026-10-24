@@ -7,7 +7,7 @@ motor>=3.0.0
 pymongo>=4.5
 python-multipart>=0.0.9
 oss2>=2.18.0
-msgpack==1.2.2  # fix(deps) b21c359: GHSA-6v7p-g79w-8964 (HIGH)，与 chat-api 对齐
+msgpack==1.2.3  # fix(deps) b21c359: GHSA-6v7p-g79w-8964 (HIGH)，与 chat-api 对齐
 httpx>=0.27.0
 redis>=5.0.0
 pytest-asyncio>=0.24.0
