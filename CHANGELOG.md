@@ -25,12 +25,56 @@ image.
   S3 兼容对象存储异地 / IM webhook + 邮件 / SLO 99.9%·P99<3s·LLM 错误率<1% /
   RTO≤30min·RPO≤15min / 单宿主机演练如实声明）；026 性能预算阈值定值（默认可配，
   见其 spec「Clarify 记录」）。四特性规约层阻塞全部解除。
+
+- **AgentOS 整合批次 032–044 落地（13 个特性）**，2026-10-23 立项、2026-10-24 全部落地
+  （spec/plan/tasks 三件套齐备，详见 `specs/INDEX.md`「四（补 6）」）：
+  - **032 评测门禁 eval-gate**：技能发布前强制跑 golden 用例集
+    （`skill_eval_cases` / `skill_eval_policies` / `skill_eval_runs`），未达
+    `EVAL_PASS_RATE_THRESHOLD` / `MIN_EVAL_RUNS` 阻断发布；审计写 `gate_events`，
+    写失败 fail-closed（503）；模型网关走 HMAC 令牌而非静态服务令牌。
+  - **033 Canary 灰度**：按租户比例投放 skill 新版本，`skill_shadow_runs` 影子观测。
+  - **034 工具凭证加密**：工具凭证 KMS 加密存储 + 一键轮换
+    （`scripts/migrate_tool_credentials_encryption.py` / `rotate_tool_credentials_key.py`）。
+  - **035 成本归因三维**：token 用量按 `(tenant_id, project_id, skill_id)` 归因。
+  - **036 信任评级 L1–L4**：`trust_ratings` / `trust_rating_settings` + 降级扫描器
+    （默认 21 天窗口 / 6h 间隔），L1 技能对用户不可见；管理端新增
+    `TrustRatingPage.vue` 与 skills 页 L1–L4 徽标。
+  - **037 统一门户**：资产发布 / 申领 / 审批 / 开通回收全链路
+    （`portal_listings` / `portal_requests` / `portal_settings`），admin-api 与
+    chat-api 双写侧共用字段契约。
+  - **038 出口沙箱 egress**：域名 / 工具 / 路径前缀白名单 + 企业工具调用审计
+    （`egress_allowlist` / `enterprise_tool_audit`）。
+  - **039 可视化编排**：Vue Flow 画布（`OrchestrationCanvasPage.vue`）。
+  - **040 模型档位路由**：`app/llm/complexity.py` + `app/config/model_routing.yaml`，
+    按任务复杂度选档位，`aget_llm_client` 为真实生效路径。
+  - **041 连接器市场**：模板安装计数按 `(tenant_id, template_id)`（`connector_installs`）。
+  - **042 三级配额**：组织 / 项目 / 用户三级（`quota_projects` / `quota_alert_events`）。
+  - **043 会话回放 Stage 1（纯前端）**：执行轨迹时间轴 + 步骤下钻面板；成本字段
+    严格只认有限数值，无数据不渲染。
+  - **044 多 Agent 模式**：010 编排引擎新增 `round_robin` / `debate` 两模式，
+    补 `contracts/orchestration.md` 六模式契约。
+- **租户清除覆盖补齐**：`TENANT_SCOPED_COLLECTIONS` /
+  `TENANT_GOVERNANCE_COLLECTIONS` 收进上述新集合（`skill_eval_cases` /
+  `skill_eval_policies` / `skill_eval_runs` / `connector_installs` /
+  `portal_listings` / `portal_requests` / `portal_settings` / `egress_allowlist` /
+  `enterprise_tool_audit` / `quota_projects` / `quota_alert_events`）。此前 032–044
+  的新集合全部漏在租户清除清单外，删除租户会留下跨集合数据残留（GDPR 硬伤），
+  本轮补全；`test_every_tenant_id_keyed_collection_in_the_tree_is_covered`
+  自动扫描全仓 `*_COLLECTION` 常量防再次漂移。
+
 ### Changed
 
 - **chat-api 未处理异常（500）响应体契约变更（025 FR-11，属预期破坏性收敛）**：
   `{"code": -1, "message": ...}` → 统一 `ErrorResponse` 结构（`code` 为稳定字符串
   `api.internal_error`，`message`/`detail` 兼容键保留）。HTTP 层消费方注意；
   SSE 流内帧 `code: 0/-1` envelope 不受影响。
+
+- **审计写失败不再静默**：037 统一门户双写侧（chat-api `services/portal/requests.py`、
+  admin-api `api/routes/portal_admin.py`）的 `gate_events` 审计写入原本
+  `except Exception: pass`，证据链断口无法被发现，现改为写 warning 日志。
+  admin-api 三个后台扫描器的 shutdown 停止同样补上 warning。
+- **`scripts/check_python_static.py` 静默异常门重新收敛**：修复后 chat-api
+  42 → 41、admin-api 16 → 12，全部回到上限内，未抬高任何上限。
 
 ## v0.2.5 - 2026-10-23
 
