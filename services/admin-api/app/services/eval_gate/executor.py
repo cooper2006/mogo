@@ -75,7 +75,7 @@ def _call_gateway_blocking(
         profile_version=profile_version,
         model_instance_id=model_instance_id,
     )
-    token = issue_model_gateway_token(
+    token = issue_model_gateway_token(  # pragma: allowlist secret
         tenant_id=tenant_id,
         profile_version=resolved_profile,
         model_instance_id=resolved_instance,

@@ -173,16 +173,16 @@ def create_app() -> FastAPI:
     async def on_shutdown() -> None:
         try:
             await _QUALITY_SCANNER.stop()
-        except Exception:  # pragma: no cover - defensive
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("quality scanner stop failed: %s", exc)
         try:
             await _CANARY_ROLLBACK_SCANNER.stop()
-        except Exception:  # pragma: no cover - defensive
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("canary rollback scanner stop failed: %s", exc)
         try:
             await _TRUST_DOWNGRADE_SCANNER.stop()
-        except Exception:  # pragma: no cover - defensive
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("trust downgrade scanner stop failed: %s", exc)
         try:
             from app.core.ttl_purge import ttl_purge_loop
 

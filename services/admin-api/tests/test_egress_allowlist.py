@@ -190,6 +190,14 @@ def test_invalid_entry_shape_is_400(monkeypatch) -> None:
 def test_logs_returns_envelope(monkeypatch) -> None:
     shared = EgressAllowlistStore()
     client = _mount_client(monkeypatch, {"tenant_id": TENANT_ID}, shared)
+    # 全量顺序下前面的测试文件会初始化 app.core.db._db（motor 句柄绑定到
+    # 已关闭的 asyncio.run() 事件循环），此时 get_db() 正常返回、但后续
+    # collection.find() 抛 "Event loop is closed"。本用例只验证信封形状，
+    # 显式 stub 掉 get_db，保持"无 DB -> 空信封"的确定语义。
+    def _no_db():
+        raise RuntimeError("no db in unit test")
+
+    monkeypatch.setattr(egress_routes, "get_db", _no_db)
     # 无 Mongo 时返回空信封，不影响调用方。
     payload = client.get("/api/egress/logs?page=1&page_size=20").json()
     assert payload["page"] == 1

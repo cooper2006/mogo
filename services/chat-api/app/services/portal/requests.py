@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
@@ -32,6 +33,8 @@ from typing import Any, Iterable
 from app.core.db import get_db
 
 from .listings import CATALOG_ASSET_TYPES, find_listing, get_asset_basics, normalize_asset_key
+
+logger = logging.getLogger(__name__)
 
 #: 申领单集合（跨服务共享，chat-api 写 / admin-api 审批写）。
 PORTAL_REQUESTS_COLLECTION = "portal_requests"
@@ -164,8 +167,9 @@ async def _audit(
                 "detail": detail or {},
             }
         )
-    except Exception:  # pragma: no cover - 审计不可用时不阻断主流程
-        pass
+    except Exception as exc:  # pragma: no cover - 审计不可用时不阻断主流程
+        # 审计是治理证据链，静默丢弃等于证据链断口；至少留一条 warning 让缺口可发现。
+        logger.warning("portal audit write failed (%s %s): %s", action, decision, exc)
 
 
 # --- 审批人解析（动态，不缓存）-----------------------------------------------

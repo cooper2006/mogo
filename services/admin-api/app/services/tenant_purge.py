@@ -141,6 +141,13 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     # asset_key); the downgrade-switch document carries a scalar tenant_id too.
     "trust_ratings",
     "trust_rating_settings",
+    # 032 eval-gate: golden cases / policies / run records per
+    # (tenant_id, skill_id); every document carries a scalar ``tenant_id``.
+    "skill_eval_cases",
+    "skill_eval_policies",
+    "skill_eval_runs",
+    # 041 connector market: install counters per (tenant_id, template_id).
+    "connector_installs",
 ]
 
 # Governance-layer collections partitioned by ``tenant_id`` (= tenant_id).
@@ -176,6 +183,20 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
     "skill_product_edit_events",
     # chat-api tool execution receipts (OQ-6 success source); partitioned by tenant_id.
     "enterprise_action_receipts",
+    # 037 unified portal: published listings, pending requests and tenant-level
+    # portal settings — all partitioned by scalar ``tenant_id``.
+    "portal_listings",
+    "portal_requests",
+    "portal_settings",
+    # 038 egress sandbox: allowlist entries (``tenant_id`` may be "" for
+    # platform-wide rules, which the keyed sweep correctly leaves alone) and the
+    # enterprise tool-call audit stream.
+    "egress_allowlist",
+    "enterprise_tool_audit",
+    # 042 three-level quota: per-project buckets and alert events, both
+    # partitioned by tenant_id (see ``quota_counters`` above).
+    "quota_projects",
+    "quota_alert_events",
 ]
 
 # Collections with **no** tenant key of their own, purged by resolving their

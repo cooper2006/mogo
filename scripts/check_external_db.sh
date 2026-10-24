@@ -32,7 +32,8 @@ env_value() {
   printf '%s' "${v}"
 }
 
-# uri_host "mongodb://user:pass@db.example.com:27017/mogo?x=1" -> db.example.com
+# uri_host: 连接串 -> 主机名。依次剥掉 scheme（:// 前）、userinfo（@ 前）、
+# query（? 起）与 path（/ 起）；IPv6 字面量取 [ ... ] 括号内的内容。
 uri_host() {
   local u="${1#*://}"
   u="${u#*@}"

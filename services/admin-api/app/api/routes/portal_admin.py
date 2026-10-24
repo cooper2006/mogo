@@ -29,6 +29,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -39,6 +40,8 @@ from pydantic import BaseModel, Field
 from app.api.deps import get_current_admin_user
 from app.core.db import get_db
 from app.governance.rbac_model import has_permission
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/portal", tags=["portal"])
 
@@ -184,8 +187,9 @@ async def _audit(
                 "detail": detail or {},
             }
         )
-    except Exception:  # pragma: no cover - 审计不可用时不阻断主流程
-        pass
+    except Exception as exc:  # pragma: no cover - 审计不可用时不阻断主流程
+        # 审计是治理证据链，静默丢弃等于证据链断口；至少留一条 warning 让缺口可发现。
+        logger.warning("portal audit write failed (%s %s): %s", action, decision, exc)
 
 
 # --- 授权开通 / 回收（共用契约）---------------------------------------------

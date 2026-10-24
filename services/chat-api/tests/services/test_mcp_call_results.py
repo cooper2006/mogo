@@ -76,7 +76,7 @@ def test_agent_runtime_path_uses_mcp_error_semantics(monkeypatch) -> None:
             "isError": True,
         }
 
-    monkeypatch.setattr(service, "get", fake_get)
+    monkeypatch.setattr(service, "_raw_get", fake_get)
     monkeypatch.setattr(service, "_mcp_jsonrpc", fake_call)
     outcome = asyncio.run(
         service.execute_runtime(
@@ -104,7 +104,7 @@ def test_saved_tool_records_failed_status_for_mcp_business_error(monkeypatch) ->
     async def fake_record(tool_id, main_id, status, message):
         recorded.update(tool_id=tool_id, main_id=main_id, status=status, message=message)
 
-    monkeypatch.setattr(service, "get", fake_get)
+    monkeypatch.setattr(service, "_raw_get", fake_get)
     monkeypatch.setattr(service, "_mcp_jsonrpc", fake_call)
     monkeypatch.setattr(service, "_record_test", fake_record)
     outcome = asyncio.run(service.test("tool-1", {"toolName": "search"}, "tenant-1"))

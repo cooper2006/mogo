@@ -34,6 +34,7 @@ from app.security.tool_credentials import (
 
 MASTER_KEY = b"unit-test-master-key-1234567890"
 ENV_KEY = kms.MASTER_KEY_ENV
+ENV_KEY_DEV = kms.ALLOW_DEV_KEY_ENV
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -102,7 +103,12 @@ def test_encrypt_credentials_no_credential_does_not_touch_kms(monkeypatch: pytes
 
 
 def test_encrypt_credentials_missing_key_raises_kms_config_error(monkeypatch: pytest.MonkeyPatch):
+    # 同时清掉开发回退开关：EnvVarKmsProvider 在 MOGO_ALLOW_INSECURE_DEV_KEY 置真时
+    # 会用内置弱密钥而不是抛 KmsConfigError。tests/test_migrate_tool_credentials.py 与
+    # tests/test_rotate_tool_credentials.py 在模块导入期 os.environ.setdefault 该变量，
+    # 泄漏到整个会话——本用例必须自己把它清掉，否则"缺密钥必须报错"的断言失效。
     monkeypatch.delenv(ENV_KEY, raising=False)
+    monkeypatch.delenv(ENV_KEY_DEV, raising=False)
     reset_tool_credential_kms_cache()
     from app.security.kms import KmsConfigError
 
@@ -213,7 +219,10 @@ def test_normalize_payload_merges_existing_credentials():
 
 
 def test_normalize_payload_missing_key_returns_503(monkeypatch: pytest.MonkeyPatch):
+    # 同 test_encrypt_credentials_missing_key_raises_kms_config_error：必须清掉
+    # 开发回退开关，否则缺密钥时走内置弱密钥而不是返回 503。
     monkeypatch.delenv(ENV_KEY, raising=False)
+    monkeypatch.delenv(ENV_KEY_DEV, raising=False)
     reset_tool_credential_kms_cache()
     payload = {"name": "t", "type": "http", "config": {"authToken": "sk-x"}}
     with pytest.raises(HTTPException) as exc_info:

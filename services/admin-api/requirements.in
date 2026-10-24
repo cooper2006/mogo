@@ -7,7 +7,7 @@ motor>=3.0.0
 pymongo>=4.5
 python-multipart>=0.0.9
 oss2>=2.18.0
-msgpack==1.1.2
+msgpack==1.2.2  # fix(deps) b21c359: GHSA-6v7p-g79w-8964 (HIGH)，与 chat-api 对齐
 httpx>=0.27.0
 redis>=5.0.0
 pytest-asyncio>=0.24.0
@@ -17,3 +17,16 @@ pytest-asyncio>=0.24.0
 #   psycopg-pool     —— 连接池
 psycopg[binary]>=3.2.0
 psycopg-pool>=3.2.0
+
+# ── 023 observability-resilience Phase 1（T006–T008, 2026-10-24）──
+# 决策 OQ-1/OQ-2/OQ-3（Clarify 2026-10-24）：Loki + Tempo + pybreaker。
+# structlog     —— FR-1 结构化 JSON 日志（services/common/observability_base.py）
+# opentelemetry —— FR-7~13 分布式追踪，OTLP -> Collector -> Tempo（OQ-2）
+# prometheus-client —— FR-9~12 黄金信号指标 /metrics（CollectorRegistry 隔离）
+# pybreaker     —— FR-21 依赖熔断（OQ-3：5 次连续失败打开 / 30s 半开试探）
+structlog>=24.1
+opentelemetry-api>=1.25
+opentelemetry-sdk>=1.25
+opentelemetry-exporter-otlp>=1.25
+prometheus-client>=0.20
+pybreaker>=1.2

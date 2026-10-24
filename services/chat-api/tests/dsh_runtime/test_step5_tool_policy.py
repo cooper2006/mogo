@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 
 import app.enterprise_capabilities.tools.service as service_module
+import app.enterprise_capabilities.tools.egress_guard as egress_guard_module
+from app.enterprise_capabilities.tools.egress_guard import EgressDecision
 from app.dsh_runtime.profile.models import RuntimeProfileSnapshot
 from app.dsh_runtime.profile.tools import ToolProfileCompiler, ToolProfileDefinition
 from app.dsh_runtime.tool_gateway import ToolGatewayTokenService
@@ -293,6 +295,21 @@ class FakeExecutor:
             await asyncio.sleep(self.delay)
         return {"success": True, "raw": {"source": kwargs["provider_type"]}}
 
+    async def get(self, external_tool_id: str, tenant_id: str, scope: str = "any"):
+        # 038 出口白名单预检先读工具连接记录；查不到即 fail-closed 拒绝，
+        # 本用例只测策略/审批语义，因此返回一条带出站长地址的连接记录。
+        return {"external_tool_id": external_tool_id, "url": "https://tools.example.com/api"}
+
+
+class AllowAllEgressGuard:
+    """038 出口判定替身：放行所有候选 URL（出口语义由 test_egress_guard.py 覆盖）。"""
+
+    async def decide_urls(self, urls, *, tenant_id="", tool_id="", execution_location="server"):
+        return EgressDecision(allowed=True, domain="tools.example.com", reason="test-double-allow-all")
+
+    async def audit(self, decision, **kwargs):
+        return None
+
 
 def _tool(name: str, *, source: str, approval: bool, timeout_ms: int = 1000) -> ToolProfileDefinition:
     return ToolProfileDefinition(
@@ -331,6 +348,9 @@ def test_policy_approval_idempotency_mcp_scope_timeout_and_cancel(monkeypatch: p
         repo = FakeRepository()
         executor = FakeExecutor()
         monkeypatch.setattr(service_module, "external_tool_service", executor)
+        # 038 出口白名单预检已挂到工具执行热路径；本用例只测策略/审批语义，
+        # 出口判定由 test_egress_guard.py 覆盖，这里放行。
+        monkeypatch.setattr(egress_guard_module, "egress_guard", AllowAllEgressGuard())
         service = EnterpriseToolService(repo, FakeProfileStore(_profile(*tools)))
         claims = _claims(tools)
 
@@ -717,7 +737,13 @@ def test_accepted_content_is_reused_but_rejected_content_can_retry() -> None:
     asyncio.run(run())
 
 
-def test_askai_approval_events_form_one_actionable_lifecycle() -> None:
+def test_askai_approval_events_form_one_actionable_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 038 出口白名单预检已挂到工具解析路径：外部工具（mcp/http）会去查
+    # external_tool 连接文档，查不到即 fail-closed 抛"工具连接不存在"。
+    # 本用例只测审批事件的单生命周期语义，出口判定由 test_egress_guard.py 覆盖，
+    # 这里放行解析（同 test_policy_approval_idempotency_mcp_scope_timeout_and_cancel）。
+    monkeypatch.setattr(service_module, "external_tool_service", FakeExecutor())
+    monkeypatch.setattr(egress_guard_module, "egress_guard", AllowAllEgressGuard())
     class TurnEvents:
         def __init__(self):
             self.rows = []
