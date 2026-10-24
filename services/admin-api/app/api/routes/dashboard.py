@@ -10,10 +10,13 @@ from app.api.deps import get_current_admin_user
 from app.api.dashboard_metrics import (
     DEFAULT_PERIOD_DAYS,
     DEFAULT_FORECAST_PERIODS,
+    attribute_cost,
     build_cost_section,
     build_quality_section,
     build_trend_section,
     bottleneck_top_n,
+    QUOTA_ALERT_COLLECTION,
+    summarize_quota_alerts,
     extract_percentiles,
     forecast_cost,
     percentile_stage,
@@ -662,18 +665,225 @@ async def _daily_costs(db: Any, tenant_id: str, days: int = 7) -> list[float]:
     return [round(per_day[day], 6) for day in ordered_days]
 
 
+UNASSIGNED = "未分配"
+# 035: the attribution dimensions bucket the same 24h window's raw rows in memory;
+# this cap matches the analytics department resolution (50000) and is generous
+# enough for any single-tenant day while avoiding unbounded result sets.
+DIMENSION_ROW_LIMIT = 50000
+
+
+def _normalize_usage_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Shape a raw usage row for ``attribute_cost`` (needs calls/tokens/cost).
+
+    Cost is computed with the same ``_cost`` (MODEL_PRICES) used by the per-model
+    aggregation, so dimension buckets reconcile to the section total (FR-6).
+    """
+    model = str(row.get("model_name") or "")
+    prompt = int(row.get("prompt_tokens") or 0)
+    completion = int(row.get("completion_tokens") or 0)
+    normalized = dict(row)
+    normalized["calls"] = 1
+    normalized["total_tokens"] = int(row.get("total_tokens") or 0) or (prompt + completion)
+    normalized["cost"] = round(_cost(model, prompt, completion), 6)
+    return normalized
+
+
+def _build_attribution(
+    rows: list[dict[str, Any]],
+    *,
+    dimension: str,
+    dimension_of: Any,
+    note: str,
+) -> dict[str, Any]:
+    """Bucket cost by one attribution dimension; honest placeholder when no source.
+
+    ``available`` is True only when at least one row carries a real (non-未分配)
+    value for this dimension. A dimension with no data source at all is reported
+    as ``available: False`` with an explicit reason — never a fabricated zero
+    bucket (008 honesty discipline / 035 FR-009).
+    """
+    if not rows:
+        return {
+            "dimension": dimension,
+            "available": False,
+            "reason": f"近 24h 内无调用记录；{dimension} 维度无数据来源，不伪造数值。",
+            "note": note,
+            "items": [],
+        }
+    items = attribute_cost(rows, dimension=dimension, dimension_of=dimension_of)
+    has_real = any(str(item.get("key") or "") != UNASSIGNED for item in items)
+    return {
+        "dimension": dimension,
+        "available": has_real,
+        "reason": (
+            None
+            if has_real
+            else f"全部调用缺失 {dimension} 维度数据源，归入 未分配 桶，不伪造数值。"
+        ),
+        "note": note,
+        "items": items,
+    }
+
+
+async def _load_org_units(db: Any, org_ids: set[str]) -> dict[str, dict[str, Any]]:
+    oid_map = {oid: to_backend_id(oid) for oid in org_ids if is_valid_backend_id(oid)}
+    if not oid_map:
+        return {}
+    docs = await db[DEPARTMENT_COLLECTION].find({"_id": {"$in": list(oid_map.values())}}).to_list(
+        length=DIMENSION_ROW_LIMIT
+    )
+    return {str(doc.get("_id")): doc for doc in docs}
+
+
+def _resolve_business_line(dept_by_id: dict[str, dict[str, Any]], dept: dict[str, Any]) -> str:
+    """Highest ``is_business_line`` ancestor; fall back to the root-side department.
+
+    ``org_units.path_ids`` is the ancestor chain root -> leaf, so the first unit
+    carrying ``is_business_line`` is the highest business line. With no flag on
+    the chain the highest visible ancestor (the tenant's root-side department) is
+    used; an unresolved chain returns "" (bucketed as 未分配).
+    """
+    chain: list[dict[str, Any]] = []
+    for pid in (dept.get("path_ids") or []):
+        unit = dept_by_id.get(str(pid))
+        if unit:
+            chain.append(unit)
+    chain.append(dept)
+    for unit in chain:
+        if unit.get("is_business_line"):
+            return str(unit.get("name") or unit.get("_id") or "")
+    for unit in chain:
+        parent = unit.get("parent_id")
+        if parent in (None, ""):
+            return str(unit.get("name") or unit.get("_id") or "")
+    return ""
+
+
+async def _resolve_org_attribution(
+    db: Any, tenant_id: str, rows: list[dict[str, Any]]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Resolve user -> department name and user -> business line (035 T020/T021).
+
+    Department comes from ``end_user_org_relations`` (counted only, never guessed);
+    business line walks the department's ``path_ids`` chain. Users with no
+    resolvable department stay unmapped and are bucketed as 未分配 by the caller.
+    """
+    user_ids = sorted(
+        {str(row.get("user_id") or "").strip() for row in rows if str(row.get("user_id") or "").strip()}
+    )
+    department_map: dict[str, str] = {}
+    business_line_map: dict[str, str] = {}
+    if not user_ids:
+        return department_map, business_line_map
+
+    rel_rows = await db[USER_ORG_REL_COLLECTION].find(
+        {"tenant_id": tenant_id, "user_id": {"$in": user_ids}}
+    ).to_list(length=DIMENSION_ROW_LIMIT)
+    rel_by_user: dict[str, str] = {}
+    dept_ids: set[str] = set()
+    for rel in rel_rows:
+        uid = str(rel.get("user_id") or "")
+        oid = str(rel.get("org_id") or "")
+        if not uid or not oid:
+            continue
+        rel_by_user.setdefault(uid, oid)
+        dept_ids.add(oid)
+    if not dept_ids:
+        return department_map, business_line_map
+
+    dept_by_id = await _load_org_units(db, dept_ids)
+    # Pull every resolved department's ancestor chain in one pass so business-line
+    # walking sees the full tree without a query per user.
+    ancestor_ids = (
+        {
+            str(pid).strip()
+            for dept in dept_by_id.values()
+            for pid in (dept.get("path_ids") or [])
+            if str(pid).strip()
+        }
+        - set(dept_by_id.keys())
+    )
+    if ancestor_ids:
+        for oid, unit in (await _load_org_units(db, ancestor_ids)).items():
+            dept_by_id.setdefault(oid, unit)
+
+    for uid, oid in rel_by_user.items():
+        dept = dept_by_id.get(oid)
+        if not dept:
+            continue
+        department_map[uid] = str(dept.get("name") or oid)
+        line = _resolve_business_line(dept_by_id, dept)
+        if line:
+            business_line_map[uid] = line
+    return department_map, business_line_map
+
+
+async def _attribution_dimensions(
+    db: Any, tenant_id: str, raw_rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Six-dimension cost attribution on the 24h window's rows (035 FR-005)."""
+    normalized = [_normalize_usage_row(row) for row in raw_rows]
+    department_map, business_line_map = await _resolve_org_attribution(db, tenant_id, raw_rows)
+
+    department = _build_attribution(
+        normalized,
+        dimension="department",
+        dimension_of=lambda row: department_map.get(str(row.get("user_id") or ""), UNASSIGNED),
+        note="部门经 end_user_org_relations 反查（仅计数，不伪造分摊）；无部门关系的用户归 未分配。",
+    )
+    business_line = _build_attribution(
+        normalized,
+        dimension="business_line",
+        dimension_of=lambda row: business_line_map.get(str(row.get("user_id") or ""), UNASSIGNED),
+        note="业务线沿 org_units.path_ids 取最高 is_business_line 祖先；无标记回落最高可见祖先，无则归 未分配。",
+    )
+    agent = _build_attribution(
+        normalized,
+        dimension="agent",
+        dimension_of=lambda row: str(row.get("agent_id") or row.get("node_id") or "").strip() or UNASSIGNED,
+        note="Agent 维度取调用记录的 agent_id（Agent→Skill→资产链路）；无登记回落原始能力引用 ID。",
+    )
+    space = _build_attribution(
+        normalized,
+        dimension="space",
+        dimension_of=lambda row: str(row.get("workspace_id") or "").strip() or UNASSIGNED,
+        note="空间维度取 workspace_id（与 017/021 同源，缺省回退 project_id）；无 workspace 归 未分配。",
+    )
+    user = _build_attribution(
+        normalized,
+        dimension="user",
+        dimension_of=lambda row: str(row.get("user_id") or "").strip() or UNASSIGNED,
+        note="用户维度取调用记录的 user_id；匿名/系统调用归 未分配。",
+    )
+    enterprise = _build_attribution(
+        normalized,
+        dimension="enterprise",
+        dimension_of=lambda row: str(row.get("tenant_id") or tenant_id).strip() or UNASSIGNED,
+        note="企业维度取查询范围的 tenant_id（008 已固定租户隔离）。",
+    )
+    return {
+        "departmentAttribution": department,
+        "businessLineAttribution": business_line,
+        "agentAttribution": agent,
+        "spaceAttribution": space,
+        "userAttribution": user,
+        "enterpriseAttribution": enterprise,
+    }
+
+
 async def _cost_section(db: Any, tenant_id: str) -> dict[str, Any]:
-    """008 US2 / T010-T012: assemble the cost dimension (FR-2 / FR-6).
+    """008 US2 / 035 US2: six-dimension cost attribution (FR-2 / FR-6 / FR-9).
 
     Previously ``build_cost_section`` / ``forecast_cost`` / ``attribute_cost`` had
     **zero production callers** and ``/overview`` never returned a cost section
     (001 audit, 2026-10-03). This wires the dead code in: per-model cost
-    aggregation + reconciliation self-check + 4-period moving-average forecast.
+    aggregation + reconciliation self-check + 4-period moving-average forecast,
+    plus the 035 attribution dimensions bucketed on the same 24h window.
 
-    Department / agent attribution (FR-2) is deliberately **not fabricated**:
-    ``TokenUsageRecord`` has no ``agent_id`` source and the department link would
-    be guessed — that gap is left to the data-source work (008 report line 175)
-    and is surfaced here as an explicit note, not a fake number.
+    Department / agent / space / business-line attribution is **not fabricated**:
+    a dimension with no data source is surfaced as ``available: False`` with a
+    reason (008 honesty discipline / 035 FR-009), and unresolvable rows fall into
+    a real ``未分配`` bucket rather than a guessed one.
     """
     since = datetime.now(timezone.utc) - timedelta(days=1)
     match = {"tenant_id": tenant_id, "created_at": {"$gte": since}}
@@ -710,11 +920,24 @@ async def _cost_section(db: Any, tenant_id: str) -> dict[str, Any]:
     section["reconciles"] = reconciles(section)
     # Forecast the next period from the trailing daily cost history (OQ-5: 4-period avg).
     section["forecast"] = forecast_cost(await _daily_costs(db, tenant_id, days=DEFAULT_FORECAST_PERIODS + 1))
-    section["departmentAttribution"] = {
-        "available": False,
-        "reason": "agent_id 无数据源（TokenUsageRecord 缺字段）；部门分摊待 008 数据源补齐，不伪造数值。",
-    }
+    # 035: attribution dimensions on the same 24h window's raw rows (memory bucketing,
+    # no extra aggregation pipeline per dimension).
+    raw_rows = await db[TOKEN_USAGE_COLLECTION].find(match).to_list(length=DIMENSION_ROW_LIMIT)
+    section.update(await _attribution_dimensions(db, tenant_id, raw_rows))
     return section
+
+
+async def _quota_anomalies(db: Any, tenant_id: str) -> dict[str, Any]:
+    """042 R-12：读取窗口内 quota 告警事件并聚合成独立分组。"""
+
+    since = window_start(DEFAULT_PERIOD_DAYS)
+    try:
+        rows = await db[QUOTA_ALERT_COLLECTION].find(
+            {"tenant_id": tenant_id, "at": {"$gte": since}}
+        ).to_list(length=2000)
+    except Exception:  # 事件集合缺失或不可读时不放大成整页失败
+        rows = []
+    return summarize_quota_alerts(rows)
 
 
 @router.get("/overview")
@@ -725,6 +948,7 @@ async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict
     metrics, recent_activity = await _usage_metrics(db, tenant_id)
     assets = await _assets(db, tenant_id)
     quality = await _quality_metrics(db, tenant_id)
+    quota_anomalies = await _quota_anomalies(db, tenant_id)
     trend = await _trend_metrics(db, tenant_id, current_cost=float(metrics.get("cost24h") or 0.0))
     usage = await _usage_tab(db, tenant_id)
     cost = await _cost_section(db, tenant_id)
@@ -739,6 +963,8 @@ async def overview(current_user: dict = Depends(get_current_admin_user)) -> dict
         "metrics": metrics,
         "assets": assets,
         "quality": quality,
+        # 042 R-12：quota 告警独立分组，与 quality 并列、不并入 ANOMALY_STATUSES。
+        "quotaAnomalies": quota_anomalies,
         "trend": trend,
         "usage": usage,
         "cost": cost,

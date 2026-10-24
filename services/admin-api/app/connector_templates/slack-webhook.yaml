@@ -1,0 +1,68 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: slack-webhook
+version: 1
+category: im
+name:
+  zh: "Slack Incoming Webhook"
+  en: "Slack Incoming Webhook"
+description:
+  zh: "向 Slack 频道推送文本消息。"
+  en: "Post a text message to a Slack channel."
+auth_type: none
+config_template:
+  method: POST
+  url: "https://hooks.slack.com/services/${workspace}/${channel}/${secret_segment}"
+params:
+  - key: workspace
+    label:
+      zh: "Workspace"
+      en: "Workspace"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "Webhook 路径的 workspace 段"
+      en: "Webhook workspace segment"
+    example: "<your-workspace>"
+  - key: channel
+    label:
+      zh: "Channel"
+      en: "Channel"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "Webhook 路径的 channel 段"
+      en: "Webhook channel segment"
+    example: "<your-channel>"
+  - key: secret_segment
+    label:
+      zh: "Secret"
+      en: "Secret"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "Webhook 路径的 secret 段"
+      en: "Webhook secret segment"
+    example: "<your-slack-secret>"
+  - key: text
+    label:
+      zh: "消息内容"
+      en: "消息内容"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "要发送的文本"
+      en: "Text to send"
+    example: "<hello from MOGO>"
+test_hint:
+  probe:
+    zh: "发送一条测试文本"
+    en: "发送一条测试文本"
+  expected_status: 200

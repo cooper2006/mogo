@@ -19,6 +19,38 @@ from app.services.token_usage_status import REQUEST_STATUS_VALUES, normalize_req
 
 router = APIRouter()
 
+# 007 pricing table, shared by the cost fallback and the drilldown (035 T013).
+# Kept in module scope so list rows and the single-call detail use the same table.
+MODEL_PRICES = {
+    "deepseek-v4-flash": (0.5, 1.5),
+    "gpt-5.2-chat": (35.0, 110.0),
+    "gpt-5.2": (35.0, 110.0),
+    "gpt-5.4": (100.0, 300.0),
+    "qwen3-vl-plus": (10.0, 10.0),
+}
+DEFAULT_PRICE = (10.0, 30.0)
+
+
+def _cost_usd(row: dict[str, Any]) -> float:
+    """Single-row cost in USD, 6 decimals (035 T013).
+
+    Prefers the instrumented ``cost_estimate_usd`` (written by chat-api's 007
+    pricing) and falls back to MODEL_PRICES x token count for historical rows
+    that predate the estimate — the same arithmetic the summary uses, so the
+    drilldown and the total stay on one source.
+    """
+    model_name = str(row.get("model_name") or "").strip()
+    in_price, out_price = MODEL_PRICES.get(model_name, DEFAULT_PRICE)
+    try:
+        estimate = float(row.get("cost_estimate_usd") or 0.0)
+    except (TypeError, ValueError):
+        estimate = 0.0
+    if estimate > 0:
+        return round(estimate, 6)
+    prompt = int(row.get("prompt_tokens") or 0)
+    completion = int(row.get("completion_tokens") or 0)
+    return round((prompt * in_price + completion * out_price) / 1_000_000.0, 6)
+
 
 def _escape_regex(text: str) -> dict[str, str]:
     return {"$regex": re.escape(text), "$options": "i"}
@@ -315,21 +347,13 @@ async def list_token_usage(
                 "totalTokens": int(row.get("total_tokens") or 0),
                 "promptTokens": int(row.get("prompt_tokens") or 0),
                 "completionTokens": int(row.get("completion_tokens") or 0),
+                "costUsd": _cost_usd(row),
                 "createdAt": _format_utc_datetime(created_at),
                 "durationMs": duration_ms,
                 "calls": int(row.get("calls") or 1),
                 "sessionId": str(row.get("session_id") or ""),
             }
         )
-
-    MODEL_PRICES = {
-        "deepseek-v4-flash": (0.5, 1.5),
-        "gpt-5.2-chat": (35.0, 110.0),
-        "gpt-5.2": (35.0, 110.0),
-        "gpt-5.4": (100.0, 300.0),
-        "qwen3-vl-plus": (10.0, 10.0),
-    }
-    DEFAULT_PRICE = (10.0, 30.0)
 
     total_calls = 0
     total_tokens = 0
@@ -346,11 +370,10 @@ async def list_token_usage(
     recent_threshold = now - timedelta(days=1)
 
     for row in filtered_rows:
-        model_name = str(row.get("model_name") or "").strip()
-        in_price, out_price = MODEL_PRICES.get(model_name, DEFAULT_PRICE)
         row_prompt = int(row.get("prompt_tokens") or 0)
         row_comp = int(row.get("completion_tokens") or 0)
-        row_cost = (row_prompt * in_price + row_comp * out_price) / 1000000.0
+        # 035 T013: the summary and each drilldown row share one cost source.
+        row_cost = _cost_usd(row)
         row_total = int(row.get("total_tokens") or 0)
         row_calls = int(row.get("calls") or 1)
 
@@ -456,11 +479,21 @@ async def get_token_usage_detail(
     if str(row.get("tenant_id") or "default") != own_tenant_id:
         raise HTTPException(status_code=403, detail="无权查看该记录")
 
+    # 035 T024/T025: expose the single-call cost and its attribution dimensions so
+    # the drilldown and the 043 trace viewer read the same data source.
     return {
         "requestId": str(row.get("request_id") or ""),
         "prompt": str(row.get("prompt") or ""),
         "requestPayload": row.get("request_payload") or {},
         "responsePayload": row.get("response_payload") or {},
+        "modelName": str(row.get("model_name") or ""),
+        "totalTokens": int(row.get("total_tokens") or 0),
+        "promptTokens": int(row.get("prompt_tokens") or 0),
+        "completionTokens": int(row.get("completion_tokens") or 0),
+        "costUsd": _cost_usd(row),
+        "agentId": str(row.get("agent_id") or row.get("node_id") or ""),
+        "skillId": str(row.get("skill_id") or ""),
+        "workspaceId": str(row.get("workspace_id") or ""),
     }
 
 

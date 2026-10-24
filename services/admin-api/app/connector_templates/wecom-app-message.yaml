@@ -1,0 +1,69 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: wecom-app-message
+version: 1
+category: oa
+name:
+  zh: "企业微信应用消息"
+  en: "WeCom App Message"
+description:
+  zh: "通过企业微信应用向成员发送文本消息。"
+  en: "Send an app text message to WeCom members."
+auth_type: api_key
+credential_key: accessToken
+config_template:
+  method: POST
+  url: "https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${access_token}"
+params:
+  - key: access_token
+    label:
+      zh: "Access Token"
+      en: "Access Token"
+    type: string
+    required: true
+    secret: true
+    in: path
+    description:
+      zh: "企业微信应用 access_token"
+      en: "WeCom app access_token"
+    example: "<your-wecom-access-token>"
+  - key: agent_id
+    label:
+      zh: "AgentId"
+      en: "AgentId"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "应用 AgentId"
+      en: "App agent id"
+    example: "<your-agent-id>"
+  - key: touser
+    label:
+      zh: "接收人"
+      en: "接收人"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "成员账号，多个用 | 分隔"
+      en: "Member account, | separated"
+    example: "<user-account>"
+  - key: text
+    label:
+      zh: "消息内容"
+      en: "消息内容"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "要发送的文本"
+      en: "Text to send"
+    example: "<hello from MOGO>"
+test_hint:
+  probe:
+    zh: "发送一条测试文本"
+    en: "发送一条测试文本"
+  expected_status: 200

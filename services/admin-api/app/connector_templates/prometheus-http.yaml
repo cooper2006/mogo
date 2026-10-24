@@ -1,0 +1,44 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: prometheus-http
+version: 1
+category: devops
+name:
+  zh: "Prometheus HTTP"
+  en: "Prometheus HTTP"
+description:
+  zh: "执行 PromQL 即时查询。"
+  en: "Run an instant PromQL query."
+auth_type: none
+config_template:
+  method: GET
+  url: "https://${host}/api/v1/query?query=${query}"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "Prometheus 域名（不含协议）"
+      en: "Prometheus host without scheme"
+    example: "<your-prometheus-host>"
+  - key: query
+    label:
+      zh: "PromQL"
+      en: "PromQL"
+    type: string
+    required: true
+    secret: false
+    in: query
+    description:
+      zh: "即时查询表达式"
+      en: "Instant query expression"
+    example: "up"
+test_hint:
+  probe:
+    zh: "执行 up 即时查询"
+    en: "执行 up 即时查询"
+  expected_status: 200

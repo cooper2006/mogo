@@ -159,6 +159,24 @@ Agent 调用 HTTP/MCP 工具时，系统在真实工具执行前（009 PreToolUs
 - **与 010（dag-orchestration-engine）**：编排节点内的工具出站同样过本检查（节点执行经工具调用链，009 已声明 010 节点执行是 PreToolUse 触发点之一）；本特性不给 010 增加任何新义务。
 - **与 019（harness-elastic-config）**：薄模式不豁免出站检查——与 009 声明的"fail_closed 底线保留"一致，出站检查属红线检查，不因薄模式跳过。
 
+## 判定口径补充（2026-10-24，/speckit-checklist 回填）
+
+- **R-1 归一化与匹配规则**：`normalize_match_domain()` 转小写、剥离 `*.` 前缀与尾点、IDNA 编码（中文域名转 punycode）；`matches_domain(host, domain)` = 精确相等或 `host.endswith("." + domain)`（后缀匹配覆盖全部子域）。`normalize_path_prefix()` 转小写、去首尾 `/`；`matches_path(path, prefix)` 要求路径为 `/<prefix>` 或 `/<prefix>/...`，**只匹配 `parsed.path`、不含查询串与 fragment**，大小写不敏感（两侧均 lower）。
+- **R-2 三层并集与工具条目过滤**：快照按 `tenant_id` 加载（平台 + 本租户 + 工具条目）；评估时先滤掉 `scope == "tool"` 且 `tool_id` 不等于当前工具的条目，再做域名/路径匹配。命中归因按 scope 优先级 `tool(0) → tenant(1) → platform(2)` 取首个命中条目，用于审计 `matched_scope`/`matched_entry_id`。**工具级条目只对绑定的 `tool_id` 生效**。
+- **R-3 IP 字面量与 SSRF 防护范围**：`is_ip_literal()` 用 `ipaddress.ip_address()` 判定，**IPv4 与 IPv6 全覆盖**（含回环/内网/链路本地/`0.0.0.0`），命中即前置拒绝、不查白名单。**不拦截** `localhost` 之类域名（靠白名单不含它兜底），**不承诺**防御 DNS rebinding（解析发生在白名单判定之后的下游，本特性不做 DNS 二次校验）。
+- **R-4 热更新时效**：进程内快照缓存 `DEFAULT_SNAPSHOT_TTL_SECONDS = 2.0`，即配置保存后**最多 2 秒**生效；`EgressGuard.invalidate(tenant_id)` 可在同进程内立即失效。因此 FR-007 的"下一调用即生效"精确表述为"≤2s（或显式 invalidate 后即时）"，不承诺跨进程实时。
+- **R-5 检查超时口径**：`DEFAULT_EGRESS_TIMEOUT_MS = 5000`，`asyncio.wait_for` 包裹整个评估（含快照加载）；超时 → `reason="egress-check-timeout"`、异常 → `reason="egress-check-error: <Type>"`，**两者均为拒绝**。5s 上限只覆盖白名单评估本身，不含工具真实网络请求耗时。
+- **R-6 `remote_sandbox` 的显式拒绝**：`execution_location == "remote_sandbox"` 时直接返回拒绝（`reason="remote_sandbox-not-implemented (038)"`），即使域名命中白名单也不放行——契约预留但不实现本体，且不因预留而放松默认拒绝。
+- **R-7 审计落点与脱敏**：写 `EGRESS_AUDIT_COLLECTION = "enterprise_tool_audit"`（与 `tool.started`/`tool.succeeded` 同集合），事件 `egress.allowed` / `egress.denied` / `egress.target_url_missing`；URL 只记 `strip_url_secrets()` 结果（**去掉 query/fragment/userinfo**），避免把令牌写进审计。
+- **R-8 CRUD 契约形状**：`GET /api/egress/allowlist`（列表，`{items,total}` 信封）、`GET /api/egress/allowlist/{entry_id}`、`POST`（201）、`PATCH`（部分更新）、`DELETE`（204）、`GET /api/egress/logs`（审计查询）。`PATCH` 只更新传入字段，**`scope`/`tool_id` 变更需重新校验租户归属**。
+- **R-9 多 URL 聚合判定**：`decide_urls(urls, ...)` 对工具的全部出站候选 URL（`resolve_tool_outbound_urls()` 抽取的 `url`/`endpoint` 等）**全部求值，任一拒绝即整体拒绝**；首个拒绝原因作为返回 reason。
+- **R-10 浏览器重定向防逃逸**：入口按 `target_url` 检查（`browser/service.py:46`）；navigate action 落地后以 `artifacts["final_url"]` 复核（`browser/service.py:141-143` + `_navigate.py`），落地域未命中即记该次导航失败并写 `egress.denied`。无 `final_url` 时（如非 navigate 动作）不做二次判定，入口检查已生效。
+- **R-11 与 009 求值点的执行顺序**：HTTP/MCP 工具在 `tools/service.py:583-599` 处——**先做出站判定、再发真实请求**；拒绝时记 `egress.denied` 审计并直接返回失败，不进入 `tool.started` 之后的真实执行阶段。浏览器 Agent 在 `browser_task` 入口判定。
+- **R-12 脚本沙箱不回退的回归范围**：`services/chat-api/app/enterprise_capabilities/data/script_engine/executor.py` 的 `python -I` 子进程隔离、rlimit 限额、`socket.socket = _deny_network` 三项既有测试保持全绿（不在本特性改动范围）；038 的测试只新增 egress 相关用例。
+- **R-13 空白单与业务可用性**：平台/租户白名单均为空时**全部出站拒绝**（fail-closed 的直接后果）；上线初期需由平台管理员先写入必需域名（如模型/检索供应商域名），这是运维前置动作而非需求缺陷。`monitor` 观察模式**不提供**（不设"只审计不拒绝"开关）。
+- **R-14 远程沙箱契约预留的验收判据**：`services/chat-api/app/dsh_runtime/contracts/kernel.py` 的 `remote_sandbox` 枚举值与注释保留；验收 = "枚举存在且无远程沙箱实现代码（无进程/镜像/远程网络模块）"+ `execution_location == "remote_sandbox"` 被显式拒绝（R-6）。
+- **R-15 平台条目的可见性**：平台级条目对租户管理员**可读不可写**（列表可见，维护仅限平台管理员）；租户级/工具级条目按 `tenant_id` 隔离，跨租户不可见。租户与平台之间不越权读写（FR-012）。
+
 ## Non-Goals
 
 - **不实现远程沙箱本体**：`kernel.py:63` 的 `remote_sandbox` 仅保留契约枚举与接口预留；远程执行的进程管理、镜像分发、远程网络管控不在本特性范围（整合方案明示"可作为后续"）。

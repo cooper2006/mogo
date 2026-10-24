@@ -17,6 +17,12 @@ class TokenUsageRecord(BaseModel):
     stage: str = ""
     intent: str = ""
     node_id: str = ""
+    # 035 US1 (T015): cost-attribution dimensions, backfilled by the runtime so
+    # dashboard cost attribution can bucket by agent / space without guessing.
+    # Empty string means "no source in this call" — never fabricate a value.
+    agent_id: str = ""
+    skill_id: str = ""
+    workspace_id: str = ""
     status: str = "completed"
     model_name: str = ""
     model_id: str = ""
@@ -37,6 +43,11 @@ class TokenUsageRecord(BaseModel):
     # 007 FR-7: resilience events (failover_from / failover_to / degradation_step)
     # carried on the same record; None means no resilience event occurred.
     resilience_events: Optional[Dict[str, Any]] = None
+    # 040 (R-10): model tier actually served and the tier the caller declared.
+    # Kept as top-level fields on purpose — ``resilience_events`` is reserved for
+    # the 007 failover trio only. Empty string means "not tiered" / "no declaration".
+    tier: str = ""
+    tier_declared: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 

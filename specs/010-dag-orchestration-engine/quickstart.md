@@ -64,11 +64,15 @@ result = await run_content_plan_dag(dag, semantic=..., structured=..., fallback=
 assert builder_equivalent(legacy_plan, result) is True
 ```
 
-## 5. Four modes + versioning (T021)
+## 5. Six modes + versioning (T021 / 044)
 
-Modes: `sequential` / `supervisor` / `hybrid` / `graph` (VALID_MODES).
-Orchestration definitions are versioned; the latest is active, older
-versions remain browsable (T021: 契约版本递增，旧版可回看).
+Modes: `sequential` / `supervisor` / `hybrid` / `graph` / `round_robin` /
+`debate` (VALID_MODES; 044 extends the four-mode contract).
+The YAML shape of every mode is specified in
+[`contracts/orchestration.md`](contracts/orchestration.md); an undeclared mode
+still defaults to `graph`, but a declared mode outside this list fails closed at
+load time (044 R-11). Orchestration definitions are versioned; the latest is
+active, older versions remain browsable (T021: 契约版本递增，旧版可回看).
 
 ## 6. Concurrency budget (T020 / FR-12)
 

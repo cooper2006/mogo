@@ -156,6 +156,7 @@ from app.api.endpoints import (
     knowledge_sources,
     memory,
     models,
+    orchestrations,
     projects,
     product,
     quota,
@@ -175,6 +176,7 @@ from app.api.endpoints import (
     business_index,
     token_usage,
     ontology_grants,
+    portal,
 )
 from app.scheduled_tasks import scheduled_task_scheduler
 from app.services.dream_cycle import runtime as dream_cycle_runtime
@@ -224,6 +226,10 @@ app.include_router(research.router, prefix="/api")
 app.include_router(business_index.router)
 # 030: 终端用户侧本体授权自查（admin-web 本体页的 user-web 迁移；只读）。
 app.include_router(ontology_grants.router)
+# 037: 统一门户 —— 目录 / 详情 / 自助申领（end_user 会话，租户隔离）。
+app.include_router(portal.router)
+# 039: 可视化编排画布 —— 端用户侧编排草稿保存 / 发布门禁（画布为投影，文档为权威）。
+app.include_router(orchestrations.router)
 # 015: knowledge graph query surface (FR-2 / FR-10 minimal wiring).
 app.include_router(knowledge_graph.router)
 # 019: harness elastic-config CRUD (FR-7 / FR-9 — admin-only writes).

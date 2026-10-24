@@ -193,9 +193,22 @@ class InstrumentedLLMClient(BaseLLMClient):
                 stage=self._stage or method,
                 intent=self._intent,
                 node_id=self._node_id or str(output_spec.get("current_task_node_id") or ""),
+                # 035 FR-002: read the attribution dimensions from the resolved
+                # output_spec (which already merges the request context, see
+                # ``factory.get_llm_client`` / ``_resolved_output_spec``). The
+                # space falls back to ``project_id`` (same rule as project_memory).
+                agent_id=str(output_spec.get("agent_id") or "").strip(),
+                skill_id=str(output_spec.get("skill_id") or "").strip(),
+                workspace_id=str(
+                    output_spec.get("workspace_id") or output_spec.get("project_id") or ""
+                ).strip(),
                 status=status,
                 model_name=str(provider_meta.get("model_name") or self._model_name),
                 model_id=str(provider_meta.get("model_id") or self._model_id),
+                # 040 R-10: tier is resolved in ``factory`` and written back into
+                # the same output_spec this client holds; empty means "not tiered".
+                tier=str(output_spec.get("model_tier") or "").strip(),
+                tier_declared=str(output_spec.get("model_tier_declared") or "").strip(),
                 prompt=extract_prompt(messages),
                 request_title_zh=title_zh,
                 request_title_en=title_en,

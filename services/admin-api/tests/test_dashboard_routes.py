@@ -162,8 +162,8 @@ async def test_cost_section_is_wired_and_reconciles() -> None:
     # _daily_costs uses .find(...) -> a cursor with sort/limit/to_list; emulate a
     # few raw usage rows so the forecast has trailing daily cost to average over.
     usage.raw_rows = [
-        {"created_at": now - timedelta(days=1), "model_name": "gpt-5.2", "prompt_tokens": 1000, "completion_tokens": 500},
-        {"created_at": now - timedelta(hours=2), "model_name": "gpt-5.2", "prompt_tokens": 1000, "completion_tokens": 500},
+        {"created_at": now - timedelta(days=1), "model_name": "gpt-5.2", "prompt_tokens": 1000, "completion_tokens": 500, "agent_id": "research.progressive", "user_id": "user-1001"},
+        {"created_at": now - timedelta(hours=2), "model_name": "gpt-5.2", "prompt_tokens": 1000, "completion_tokens": 500, "agent_id": "research.progressive", "user_id": "user-1001"},
     ]
     orig_aggregate = usage.aggregate
     def _find(query, *args, **kwargs):
@@ -181,7 +181,33 @@ async def test_cost_section_is_wired_and_reconciles() -> None:
     usage.find = _find
     usage.aggregate = orig_aggregate
 
-    db = _FakeDB({"token_usage_logs": usage, "user_org_relations": _FakeCollection()})
+    # 035 T027: attribution dimensions are bucketed on the same raw rows; a
+    # dimension with a data source (agent_id) is surfaced as available, while one
+    # without (no end_user_org_relations) stays an honest placeholder.
+    def _empty_find(query, *args, **kwargs):
+        class _Cur:
+            async def to_list(self, length=None):
+                return []
+
+            def sort(self, *a, **k):
+                return self
+
+            def limit(self, *a, **k):
+                return self
+
+        return _Cur()
+
+    org_units = _FakeCollection()
+    org_units.find = _empty_find
+    org_rels = _FakeCollection()
+    org_rels.find = _empty_find
+
+    db = _FakeDB({
+        "token_usage_logs": usage,
+        "user_org_relations": _FakeCollection(),
+        "end_user_org_relations": org_rels,
+        "org_units": org_units,
+    })
     section = await dashboard._cost_section(db, "m-1")
 
     # FR-6: model costs reconcile to the total within tolerance.
@@ -189,6 +215,11 @@ async def test_cost_section_is_wired_and_reconciles() -> None:
     assert section["totalCost"] == pytest.approx(sum(m["cost"] for m in section["models"]), abs=0.01)
     # FR-2 honesty: department attribution is not fabricated (agent_id has no source).
     assert section["departmentAttribution"]["available"] is False
+    # 035 T027: the agent dimension resolves from the record's agent_id, so it is
+    # available even though the department dimension is not — each dimension is
+    # judged on its own data source.
+    assert section["agentAttribution"]["available"] is True
+    assert [i["key"] for i in section["agentAttribution"]["items"]] == ["research.progressive"]
     # OQ-5: the 4-period moving average is computed from the trailing daily history.
     assert section["forecast"] is not None
 

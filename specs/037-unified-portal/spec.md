@@ -185,6 +185,24 @@
 - **与 036（trust-rating，同步撰写中）**：037 目录详情消费 036 评级展示；036 L1 资产按 FR-013 不进公共目录；两特性互不阻塞（字段可选 + 软裁剪，036 未启用时门户全功能可用）。
 - **与 ADR-7（形态边界）**：门户以 Web 形态交付于 user-web；移动/桌面触达回到 ADR-7 既有结论（013 IM 覆盖为主，不做 H5/App/桌面端新建）。
 
+## 判定口径补充（2026-10-24，/speckit-checklist 回填）
+
+- **R-1 过期是惰性触发，无后台调度器**：`expire_stale_grants(db, *, tenant_id="", now=None)` 在**列表/详情读取路径**被调用，把 `expires_at` 已到的 `granted` 单转 `expired` 并删除对应 `permission_grants` 记录；不引入定时任务（避免新依赖）。因此"到期失效"在**下一次读取时**生效，未读取期间授权仍可用——这是已接受的取舍。
+- **R-2 申领单与授权的过期同源**：`portal_requests.expires_at` 与 `permission_grants.expires_at` 由**同一次开通**写入（`_expires_at(granted_at, ttl_days)`），TTL 取自租户设置 `portal_settings.grant_ttl_days`（缺省 `DEFAULT_GRANT_TTL_DAYS = 0` = 不过期）。惰性过期**同时**改状态与删授权，不会出现"单已 expired 但仍有授权"。
+- **R-3 "owner 不可用"判据**：`resolve_approver()` **动态读、不缓存**——`owner` 解析不到（为空）或等于申请人时跳过 owner，回落 `_appointable_admins()`（`admin_accounts` 中 `tenant_id` 匹配且 `status == "active"`，且 `role_name ∈ ALL_CODES_ROLES = {"平台管理员","超级管理员","full_access_admin"}` 或 `code_satisfies(permission_codes, "portal:approve")` 的记录，按 `username` 稳定排序取首个）。**不做离职标记判断**——只要账号仍 active 就视为可用，离职靠管理员停用账号体现。
+- **R-4 无审批人可回落时 fail-closed 拒单**：`resolve_approver()` 解析不到时返回空串，`issue_request()` **直接拒单**（不挂起、不生成无审批人的申领单）。
+- **R-5 `portal:approve` 授予面**：权限码存于 `admin_accounts.permission_codes`；`ALL_CODES_ROLES` 三个全权限角色名**默认拥有**该能力，其他管理员须显式授予 `portal:approve`。权限码匹配用 `code_satisfies()`（与 001 `has_permission` 同口径：`*` 全通配、`portal:*` 前缀通配、精确匹配）。
+- **R-6 "即时反映"判据**：目录查询**每次直读 MongoDB**（`portal_listings` 的 `_ACTIVE_LISTING_FILTER = {"$or": [{"unpublished_at": None}, {"unpublished_at": {"$exists": False}}]}`），无应用层缓存；**允许**浏览器/网关级短缓存，前端提供手动刷新。判据 = 下架后重新请求即不可见，不要求毫秒级推送。
+- **R-7 效果分摘要字段**：目录/详情从 `skill_quality_metrics` 取摘要，含效果分与样本量（`_effect_summary_from_rows`），无数据时该字段为 `null`（前端显示"—"，不填 0）；不展示置信区间。
+- **R-8 036 就绪判据**：不设显式开关——**能否读到 `trust_ratings` 记录**即为就绪判据：有记录则追加 `rating` 摘要并按 `_is_l1_asset()` 把 L1 资产排除出公共目录；无记录（集合空/不可读）则字段缺席、不做 L1 裁剪。因此 036 上线并产生评级记录后自动生效。
+- **R-9 重复申领与历史单**：幂等仅在"已有 **granted 且未过期** 授权"时返回已开通状态（不建新单）；`rejected` / `revoked` / `expired` 之后**允许再次申领**并生成**新单**，历史单保留可查（`我的申领` 按时间倒序展示）。
+- **R-10 回收后重新申领**：回收（`revoke_asset_use`）即删除授权记录，**不设冷却期**；重新申领走正常审批流（同一审批人规则、仍防自审）。
+- **R-11 授权码与 001 RBAC 的兼容**：开通写 `permission_grants`，`code = asset:use:<asset_key>`（`build_asset_use_code()`）；该 code 是**新增命名空间**，与既有权限码并存，走同一 `code_satisfies()` 匹配（支持 `*` / `asset:*` 通配），不需要在权限码注册表预登记。
+- **R-12 上架/下架操作者判据同源**：admin-api 侧与 chat-api 侧**共用同一 owner 解析口径**（`_asset_owner`：skill/workflow 取 `skills` 的 owner 字段、agent 取能力资产 owner；解析不到时仅管理员可操作），避免"能上架不能审批"。
+- **R-13 效果分读取方式**：目录详情**实时读** `skill_quality_metrics`（跨服务共享集合，chat-api 直读），不取快照、不复制数据；允许最终一致（016 写入后最多一次查询间隔的延迟）。
+- **R-14 审计落点（双集合，按服务归属）**：chat-api 侧门户动作（申领/审批/开通/回收/过期）写 `gate_events`（`layer="portal"`、`tool="portal.<action>"`、`event_id`/`occurred_at`/`detail` 与 001 同构）；admin-api 侧上架/下架写 022 审计链（`record_management_operation`）。**完整链路回溯** = 以 `tenant_id + asset_key + 时间窗` 联合查询两个集合，首期不建统一视图。
+- **R-15 FR-014 "零改动"范围**：指 **chat-api 的 `portal-ticket` / `portal-exchange` 端点链路与换票协议零改动**；user-web 侧允许新增门户页、路由与入口（属 037 自身交付），SSO 换票成功后的落地视图由 037 追加门户入口，不修改 029 的接口契约。
+
 ## Non-Goals
 
 - 不做 H5/App/桌面端门户（ADR-7 已拍板，移动触达以 013 IM 入口覆盖）。

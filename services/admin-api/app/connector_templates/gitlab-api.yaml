@@ -1,0 +1,58 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: gitlab-api
+version: 1
+category: devops
+name:
+  zh: "GitLab API"
+  en: "GitLab API"
+description:
+  zh: "调用 GitLab REST API（项目/合并请求/流水线）。"
+  en: "Call the GitLab REST API (projects/MRs/pipelines)."
+auth_type: api_key
+credential_key: token
+api_key_header: "PRIVATE-TOKEN"
+config_template:
+  method: GET
+  url: "https://${host}/api/v4/${path}"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "GitLab 域名（不含协议）"
+      en: "GitLab host without scheme"
+    example: "<your-gitlab-host>"
+  - key: path
+    label:
+      zh: "接口路径"
+      en: "接口路径"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "目标 REST 路径"
+      en: "Target REST path"
+    example: "<projects>"
+  - key: token
+    label:
+      zh: "访问令牌"
+      en: "访问令牌"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "Personal/Project access token"
+      en: "Personal or project access token"
+    example: "<your-gitlab-token>"
+test_hint:
+  probe:
+    zh: "列出项目（GET /api/v4/projects?per_page=1）"
+    en: "列出项目（GET /api/v4/projects?per_page=1）"
+  expected_status: 200

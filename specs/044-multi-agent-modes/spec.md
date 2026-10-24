@@ -164,6 +164,32 @@
 - **与 011（dream-cycle-self-evolution）**：debate 的收敛相似度判定复用 011 的 Jaccard 思想（纯函数口径，非代码复用）；011 的自进化候选过滤与辩论择优是不同场景，仅思想同源。
 - **与 016/018（市场/资产）**：轮询择优的候选实例指向既有已发布资产（Skill/Agent），经既有市场消费路径解析——本特性不新建资产通道（关系声明）。
 
+## 判定口径补充（2026-10-24，/speckit-checklist 回填）
+
+> 本节消解 `checklists/requirements.md` CHK001–CHK016 的口径缺口，不新增范围。核查基线：`services/chat-api/app/orchestration/`（`graph.py`、`registry.py`、`loader.py`、`engine.py`、`supervisor.py`、`topo.py`、`conditions.py`）、`services/chat-api/app/enterprise_capabilities/evidence/foundation/fair_selection.py`、`services/chat-api/app/enterprise_capabilities/research/competitor_deep_dive.py`、`services/chat-api/app/self_evolution/similarity.py`。**本特性尚未实现**（`VALID_MODES` 仍为四模式），以下为可执行规格。
+
+- **R-1（CHK001 `instances` schema）**：`instances` 为节点级 `list[dict]`，每项允许覆盖键：`model`、`temperature`、`prompt`（与节点 `payload` 同名键的浅覆盖）、`label`（可选，用于 Trace 标识）。**不允许**覆盖 `retry`/`conditions`/`depends_on`（它们属节点级语义，覆盖会造成执行图歧义）；出现禁止键 → 加载期 `OrchestrationLoadError`（fail-closed）。`instances` 为空或缺失 → 视为单候选（退化为普通节点）。
+- **R-2（CHK002 `score` 来源）**：`score` 由候选节点**自身输出**提供，取 `payload.score`（数值，`0.0–1.0`，越界夹取）；来源可以是模型 JSON 输出字段或节点配置的静态分。判定序：① 全部候选有 `score` → `highest_score`；② 部分候选有 `score` → 仅在有分候选间比较，无分候选**不参与择优但保留输出**；③ 全无 `score` → 回退 `first_success` 并在 Trace 记 `fallback_reason="no_score"`。
+- **R-3（CHK003 `majority` 归一化）**：归一化 = `str(output).strip().lower()`，再去除所有空白字符（`re.sub(r"\s+", "", text)`）；不做标点/语义归一（YAGNI）。票数相同（平票）→ 取**最先完成**的候选，Trace 记 `majority_tie`。
+- **R-4（CHK004 debate 上下文键）**：key 格式 `debate:{orchestration_id}:{node_id}:round:{n}:{side}`，`side ∈ {"pro","con"}`；存放于该 debate 节点的**局部共享字典**（不写入全局会话上下文，避免污染其他节点）；每轮开始前双方均可读 `round:{n-1}` 的对侧输出，**不可读**本轮对侧输出（保证交替）。
+- **R-5（CHK005 相似度算法）**：终止条件③使用 `services/chat-api/app/self_evolution/similarity.py` 的 **Jaccard token 相似度**（`jaccard_similarity`，token 化按空白切分并小写），阈值默认 **0.9**、可配 `similarity_threshold`；"连续两轮"= 第 n 轮与第 n-1 轮的**同侧**输出相似度均 ≥ 阈值（pro 与 con 各自判定，均满足才终止）。
+- **R-6（CHK006 取消语义）**：`first_success` 命中后，未完成候选**软取消**——已发出的执行不强制中断（避免中断副作用与计费歧义），但结果**被丢弃**、不进入 Trace 的"采用"分支，仅以 `status="discarded"` 记录；`max_concurrency` 队列中尚未启动的候选直接**不启动**。
+- **R-7（CHK007 无 arbiter 的收敛）**：`arbiter` 为**可选**；未声明时收敛结论 = `{"conclusion": <最后一轮 pro 输出>, "confidence": <相似度或 1.0-相似度？否>}`——口径定为 `confidence = None`（不伪造置信度），Trace 标 `arbiter="absent"`，需要置信度的下游必须自行判空。**若声明了 `arbiter` 则该节点必须存在**（FR-007 fail-closed）。
+- **R-8（CHK008 钳制事件）**：事件名 `debate.rounds_clamped`，字段 `{requested, applied, min:1, max:10}`，写入该 debate 节点的 Trace 事件流（与 `item.*` 同构）。
+- **R-9（CHK009 Trace 结构）**：父节点产出 `item.started`/`item.completed`；候选/轮次的明细放在 **`payload.candidates` / `payload.rounds` 数组**（**不**额外派生 `item.*` 子事件），避免污染 001 审计流的节点计数口径；择优依据放 `payload.selection = {strategy, chosen, fallback_reason}`。
+- **R-10（CHK010 contracts 存在性）**：`specs/010-dag-orchestration-engine/` 下**无 `contracts/` 目录**，010 的契约描述落在 `quickstart.md:69`（`Modes: sequential / supervisor / hybrid / graph (VALID_MODES)`）。本特性的同步动作改为：① 新建 `specs/010-dag-orchestration-engine/contracts/orchestration.md` 记录六模式 YAML 形态；② 更新 `quickstart.md:69` 为六模式。010 目录名以实际 `010-dag-orchestration-engine` 为准（spec 原文 `010-dag-orchestration` 为笔误）。
+- **R-11（CHK011 模式校验时机）**：`VALID_MODES` 校验在**加载期**（`loader.py` 构造 `OrchestrationDefinition` 时）执行；执行期遇到未知 mode → `OrchestrationLoadError` 同口径 fail-closed，不做静默回退 graph（只有**未声明** mode 才回退 `graph`，见 `loader.py:274`）。
+- **R-12（CHK012 fair_selection 复用粒度）**：**只借鉴思想，不调用函数**。`services/chat-api/app/enterprise_capabilities/evidence/foundation/fair_selection.py::round_robin_take(groups, *, limit)` 是"跨源组轮流取项避免早期源垄断容量"，用于证据检索配额，**与候选实例择优（多选一）语义不同**；`round_robin` 模式的候选调度按其自身语义实现（选一的策略执行器），不 import 该模块。
+- **R-13（CHK013 调用点清单）**：现有调用点以实际文件为准——`services/chat-api/app/enterprise_capabilities/research/competitor_deep_dive.py`（经 `run_graph`/`run_hybrid` 调用）、`services/chat-api/app/orchestration/engine.py::run_orchestration`（若有）。实现时以 `grep -rn "run_graph\|run_sequential\|run_hybrid" services/` 为准枚举，迁移后由既有 `tests/orchestration/` 全量回归（当前 91 passed）证明行为不变。
+- **R-14（CHK014 round_robin 失败边界）**：全部候选失败 → 节点整体失败（`failed`，聚合各候选错误到 `payload.errors`）；部分成功 → 按 R-2 择优；`majority` 平票按 R-3 取最先完成；`highest_score` 下有分候选全失败而无分候选成功 → 采用无分候选（`fallback_reason="scored_all_failed"`）。
+- **R-15（CHK015 debate 异常边界）**：任一方失败 → 立即终止 debate，节点 `failed`，已产生轮次写 `payload.rounds` 保留；`arbiter` 执行失败 → 节点 `failed`（fail-closed，**不**回退到最后一方输出）；`max_rounds` 计时以**轮次计数**为准，排队等待不计入轮次。
+- **R-16（CHK016 graph 子节点继承）**：新模式节点作为 graph 子节点时，`retry`/`timeout`/`conditions` **由子节点自身配置决定**（缺省继承父图默认值）；Trace 以该子节点为 `item_id` 产出**一层** `item.*`，其内部候选/轮次明细按 R-9 收在 `payload`，不产 nested item 层级。
+
+- **R-17（round_robin 候选形态，实现期补）**：文档级 `round_robin` 把**每个 graph 节点视为同一逻辑任务的一个候选**（label = 节点 id），按文档 `max_concurrency`（缺省 4）并发，策略取 `header.select`（缺省 `highest_score`）。节点级 `round_robin` 用 `payload.instances` 声明候选，**只允许**覆盖 `model` / `temperature` / `prompt` / `label`；出现 `retry` / `conditions` / `condition` / `depends_on` / `mode` 一律加载期 fail-closed（`RoundRobinError` → `OrchestrationLoadError`）。`instances` 为空或缺失 = 单候选（label 缺省 `default`）。
+- **R-18（debate 角色解析，实现期补）**：文档级 `debate` 按节点 `role`（`pro` / `con` / `arbiter`）解析；header 声明 `arbiter` 时必须存在 `role=arbiter` 节点，否则加载期 fail-closed。节点级 `debate` 从 `payload.pro` / `payload.con` / `payload.arbiter` 取节点 id；指向不存在的节点加载期 fail-closed（FR-007）。双方通过 `context["debate"] = {round, side, opponent_previous}` 读对方**上一轮**输出，`pro`/`con` 键按 `debate:{oid}:{nid}:round:{n}:{side}` 存入局部字典，不污染全局 context（R-4）。
+- **R-19（分发入口，实现期补）**：新增 `dispatch.execute_orchestration(loaded, runner, *, context=None, engine=None, sequential_ids=None, parallel_ids=None, supervisor_id=None)` 为统一分发入口（FR-012）；`graph` / `sequential` 委托 `DagEngine`（传 `engine` 复用 010 调用方的引擎，行为不变）；`supervisor` / `hybrid` 的 grouping 由调用方显式传入（当前无生产调用点，R-13）。`dispatch.wrap_node_runner` 使新模式可作为 graph 子节点。`competitor_deep_dive.py` 已迁移到 `execute_orchestration`（T018），既有 `tests/orchestration/` 全量回归通过。
+- **R-20（返回形状与事件，实现期补）**：文档级 `round_robin` 返回 `(SelectionResult, context)`（写入 `context[{orchestration_id}] = chosen.output`），文档级 `debate` 返回 `DebateResult`；节点级 `wrap_node_runner` 的 round_robin 返回 `chosen.output`（原始 dict，非文本）、debate 返回 `result.as_payload()`。择优依据收在 `payload.selection = {strategy, chosen, fallback_reason}`，明细收在 `payload.candidates` / `payload.rounds`（R-9）。`max_rounds` 越界钳制 1..10 并记 `clamped=True`。
+
 ## Non-Goals
 
 - 不做可视化编排画布（整合方案 §4.8 另立）——本特性只做引擎与 YAML 契约。

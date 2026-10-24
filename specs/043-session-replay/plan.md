@@ -54,7 +54,9 @@
 specs/043-session-replay/
 ├── spec.md              # 特性规约（两阶段边界/FR/SC/关联特性）
 ├── plan.md              # 本文件（含 Stage 2 预研结论）
-└── tasks.md             # 任务清单（Phase 0-3，全部未勾选）
+├── checklists/
+│   └── requirements.md  # 需求质量门禁（16 条 CHK，2026-10-24 代审勾选）
+└── tasks.md             # 任务清单（Phase 0-3，2026-10-24 实现后勾选 20/21）
 ```
 
 ### Source Code (repository root)
@@ -70,8 +72,10 @@ apps/user-web/
     │   └── StepDrilldownPanel.vue         # 【新增】步骤下钻面板（输入/输出/耗时；
     │                                       #  成本行按数据存在性条件渲染——035 降权）
     └── domain/
-        ├── trajectoryRounds.ts            # 【修改】扩展：时间轴锚点派生（轮次 + 时间 + live），
-        │                                   #  保持纯函数可单测（既有 collectTrajectoryRounds 不改签名）
+        ├── trajectoryRounds.ts            # 【修改】扩展：collectTrajectoryAnchors 锚点派生
+        │                                   #  （既有 collectTrajectoryRounds 签名与行为不改）
+        ├── replaySteps.ts                 # 【新增】步骤下钻视图模型：输入/输出抽取、
+        │                                   #  成本判据（readCostUsd 只认有限数值）、耗时投影
         └── runTiming.ts                   # 【复用不改】耗时计算与格式化
 
 # 【复用不改】apps/user-web/src/components/chat/ChatViewTabs.vue（双 tab 组件）
@@ -82,9 +86,32 @@ apps/user-web/
 # 【复用不改】apps/user-web/src/features/execution-v3/domain/protocol.ts（V3 事件流结构，Stage 2 预留纪律）
 # 【复用不改】apps/user-web/src/features/execution-v3/stores/executionStore.ts / messageExecution.ts
 # 【零改动】services/（Stage 1 纯前端）
+# 【新增】apps/user-web/tests/session-replay.test.ts（锚点派生 + 步骤抽取 + 成本判据）
 ```
 
 **Structure Decision**: 完全贴合 028 的分层（组件 / domain 纯函数 / stores）——新增逻辑优先落 `domain/` 纯函数（可单测、无 Vue 依赖），组件只做挂载与焦点编排；不新增 store（焦点态刻意保持局部，避免多 pane 串味并延续 028"不持久化"决策）；时间轴与下钻面板为两个自绘小组件，不引第三方时间线库（依赖最小化）。
+
+## Stage 2 预研结论（T005，2026-10-24）
+
+> Stage 2 =「状态快照序列 + 重演执行」。结论是**不启动**，只保留两条纪律。
+
+**数据缺口（阻断项）**
+1. V3 事件流是**投影**产物（`services/chat-api/app/dsh_runtime/events/projection.py`），只保留可展示的 item 增量；模型的原始 reasoning / 完整工具返回 / 补偿写入前的中间状态均不留存，无法据此重演"当时会怎么决策"。
+2. 执行环境状态未持久化：会话级 `run` 的作用域（工具授权快照、检索到的 chunk 集合、LLM 采样参数）都不在 `execution_events` 里，重演只能复用**当前**环境——那不是回放，是重跑。
+3. 与本特性的 Stage 1 目标（看清发生过什么）无关；Stage 2 的真实需求是"用历史输入回归验证新版本"，那属于 032 评测门禁 + 033 灰度的职责，已有承载。
+
+**可复用锚点（若将来启动）**
+- 002 `session_snapshots`：会话级快照，可作为"轮次边界"的时间锚；但它是对话态快照，不含事件流，需与 `execution_events` 按 `created_at` 对齐。
+- 023 Trace 存储：若将来把 V3 事件与 trace_id 打通，可用 trace 回放模型调用段（不含工具副作用）。
+
+**触发条件（任一成立才重新评估）**
+- 出现"同一会话需按历史输入重跑以复现缺陷"的运维诉求，且有真实案例；
+- 023 trace 已能按 trace_id 还原完整调用链（含工具入参/出参），补上数据缺口 1；
+- 执行环境状态被显式持久化（工具授权快照等），补上缺口 2。
+
+**纪律（Stage 1 期内必须保持）**
+1. `apps/user-web/src/features/execution-v3/domain/protocol.ts` 零 diff（事件结构不破坏）；
+2. 不写任何预留代码/适配层——无触发场景的预留即负债。
 
 ## Complexity Tracking
 

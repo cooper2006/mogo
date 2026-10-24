@@ -38,8 +38,10 @@ from typing import Any, Mapping
 
 import yaml
 
-from .graph import GraphError
+from .debate import clamp_rounds
+from .graph import GraphError, VALID_MODES
 from .registry import OrchestrationDefinition, RegistryError
+from .round_robin import RoundRobinError, parse_instances
 
 
 class OrchestrationLoadError(ValueError):
@@ -120,6 +122,15 @@ _PAYLOAD_KEYS = (
     "output_key",
     "inputs",
     "outputs",
+    # 044 multi-agent modes: declarative payload for round_robin / debate nodes.
+    "instances",
+    "select",
+    "pro",
+    "con",
+    "arbiter",
+    "max_rounds",
+    "convergence_threshold",
+    "similarity_threshold",
 )
 
 
@@ -179,6 +190,14 @@ def _node_to_definition_entry(raw: Mapping[str, Any]) -> dict[str, Any]:
     for key in _PAYLOAD_KEYS:
         if key in raw and raw[key] is not None:
             payload[key] = raw[key]
+    # A node may also nest these declarative keys inside ``payload:`` (the shape
+    # used by the 044 multi-agent modes); the inner spelling wins only when the
+    # top-level one is absent so the two readings stay unambiguous.
+    inner = raw.get("payload")
+    if isinstance(inner, Mapping):
+        for key in _PAYLOAD_KEYS:
+            if key not in payload and key in inner and inner[key] is not None:
+                payload[key] = inner[key]
 
     entry: dict[str, Any] = {"id": node_id, "payload": payload}
 
@@ -238,6 +257,84 @@ def _edges_from_nodes(nodes: list[Mapping[str, Any]]) -> list[dict[str, str]]:
     return edges
 
 
+def _node_mode(raw: Mapping[str, Any]) -> str:
+    return str(raw.get("mode") or "graph")
+
+
+def _validate_044_shapes(
+    mode: str,
+    entries: list[dict[str, Any]],
+    raw_nodes: list[Mapping[str, Any]],
+    header: Mapping[str, Any],
+) -> None:
+    """Load-time, fail-closed shape checks for the 044 modes (FR-007 / R-1 / R-11).
+
+    Runs *before* the definition is built so a bad declaration fails loudly with
+    :class:`OrchestrationLoadError` instead of degrading at runtime.
+    """
+    from .dispatch import ROLE_ARBITER, ROLE_CON, ROLE_PRO
+
+    node_ids = [str(entry.get("id")) for entry in entries]
+    for entry, raw in zip(entries, raw_nodes):
+        payload = entry.get("payload") or {}
+        # A node that *inherits* the document mode is a plain candidate/role node
+        # of that protocol, not a protocol node of its own; only an explicit
+        # ``mode:`` on the node triggers the round_robin/debate shape checks.
+        declared_mode = entry.get("mode")
+        node_mode = declared_mode or mode
+        if declared_mode is None:
+            continue
+
+        if node_mode == "round_robin":
+            try:
+                parse_instances(payload.get("instances"))
+            except RoundRobinError as error:
+                raise OrchestrationLoadError(f"node {entry.get('id')}: {error}") from error
+
+        if node_mode == "debate":
+            pro = str(payload.get("pro") or "").strip()
+            con = str(payload.get("con") or "").strip()
+            arbiter = str(payload.get("arbiter") or "").strip()
+            if not pro or not con:
+                raise OrchestrationLoadError(
+                    f"node {entry.get('id')}: debate requires both 'pro' and 'con' node ids"
+                )
+            for role_id in (pro, con):
+                if role_id not in node_ids:
+                    raise OrchestrationLoadError(
+                        f"node {entry.get('id')}: debate '{role_id}' is not a node of this orchestration"
+                    )
+            if arbiter and arbiter not in node_ids:
+                raise OrchestrationLoadError(
+                    f"node {entry.get('id')}: debate arbiter '{arbiter}' does not exist (fail-closed)"
+                )
+            if payload.get("max_rounds") is not None:
+                try:
+                    clamp_rounds(payload.get("max_rounds"))
+                except Exception as error:  # noqa: BLE001
+                    raise OrchestrationLoadError(
+                        f"node {entry.get('id')}: invalid max_rounds: {error}"
+                    ) from error
+
+    if mode == "debate":
+        roles = {
+            str((raw.get("payload") or {}).get("role") or _node_mode(raw) or "")
+            for raw in raw_nodes
+        }
+        has_pro = any(str((raw.get("payload") or {}).get("role") or "") == ROLE_PRO for raw in raw_nodes)
+        has_con = any(str((raw.get("payload") or {}).get("role") or "") == ROLE_CON for raw in raw_nodes)
+        declared_arbiter = str(header.get("arbiter") or "").strip()
+        has_arbiter = any(str((raw.get("payload") or {}).get("role") or "") == ROLE_ARBITER for raw in raw_nodes)
+        if not has_pro or not has_con:
+            raise OrchestrationLoadError(
+                "debate mode requires nodes tagged role=pro and role=con"
+            )
+        if declared_arbiter and not has_arbiter:
+            raise OrchestrationLoadError(
+                "debate declares an arbiter but no role=arbiter node exists (fail-closed)"
+            )
+
+
 def load_orchestration_document(document: Mapping[str, Any]) -> LoadedOrchestration:
     """Build a :class:`LoadedOrchestration` from a parsed YAML mapping."""
     doc = _require_mapping(document, what="orchestration document")
@@ -272,6 +369,12 @@ def load_orchestration_document(document: Mapping[str, Any]) -> LoadedOrchestrat
             edges.append({"source": source, "target": target})
 
     mode = str(header.get("mode") or "graph")
+    if mode not in VALID_MODES:
+        raise OrchestrationLoadError(
+            f"unsupported orchestration mode: {mode!r} "
+            f"(allowed: {', '.join(VALID_MODES)}; an undeclared mode still defaults to graph)"
+        )
+    _validate_044_shapes(mode, nodes, raw_nodes, header)
     definition = OrchestrationDefinition(
         orchestration_id=orchestration_id,
         mode=mode,

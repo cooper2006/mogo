@@ -169,6 +169,168 @@
 - **与 031（model-provider-discover）**：模板可选带"获取列表"式探测提示（031 discover 思路，如 API 根路径探测），首期不强制、不做路由级依赖。
 - **与 001（gatekeeper-governance）**：连接器调用的门禁与审计不变（`tools.py` `_enforce_gate` + `enterprise_capabilities/tools/service.py` audit + R4 红线），041 不新开治理通道。反向声明：041 新建的连接器实例天然继承 001 既有门禁，无需 001 改动。
 
+## 判定口径补充（2026-10-24，/speckit-checklist 回填）
+
+> 本节答复 `checklists/requirements.md` 的 CHK001–CHK016，为 FR-001…FR-012 / 决策 #1–#7 补可执行口径。**实现现状以 2026-10-24 代码级核查为准**：041 代码全未开工。凡写"**首期未实现**"者为"设计口径已定、待按 tasks.md 落地"；凡写"**已接线**"者为代码中已存在、041 只需复用。
+
+### 实现现状核查（2026-10-24，代码级；041 代码零开工）
+
+| # | 未实现项 | 建议落点 |
+| --- | --- | --- |
+| 1 | 模板种子目录（首批 18 个 YAML） | `services/admin-api/app/connector_templates/*.yaml` |
+| 2 | 种子加载（mtime 热加载 + 损坏跳过 + 占位符校验） | `services/admin-api/app/services/connector_templates.py` |
+| 3 | 市场 API（列表/详情/安装/已安装/计数） | `services/admin-api/app/api/routes/connector_market.py`（prefix `/api/connector-market`） |
+| 4 | 安装记录集合 + 计数聚合 | 集合 `connector_installs`；写入在市场路由，级联删除挂 `tools.py:delete_tool` 之后 |
+| 5 | 018 资产注册接线 | 市场创建成功分支调 `POST /api/capabilities/discover`（带 `service_token`） |
+| 6 | 前端市场页 + 向导 | `apps/admin-web/src/views/connectors/ConnectorMarketPage.vue`，路由挂 `apps/admin-web/src/router/routes.ts`（现仅 `/tools`、`/tools/new`、`/tools/:id/edit` 三条） |
+| 7 | 前端 API 客户端 | `apps/admin-web/src/api/connectorMarket.ts`（仿既有 `apps/admin-web/src/api/tools.ts`） |
+| 8 | i18n 文案键 | `apps/admin-web/src/locales/messages.ts` |
+| 9 | 单测 | `services/admin-api/tests/test_connector_market.py`（当前不存在，本特性零测试） |
+
+**已存在、仅复用（不改语义）**：`services/admin-api/app/api/routes/tools.py`（CRUD/test/test-draft/discover/generate-description/`_enforce_gate`）、`services/chat-api/app/services/external_tools.py`（凭证注入与解密）、`services/admin-api/app/services/capability_assets/`（018 注册/契约/状态机）、`services/admin-api/app/security/tool_credentials.py`（034 加密）。
+
+### R-1 模板目录结构（答 CHK001）
+
+`services/admin-api/app/connector_templates/<template_id>.yaml`，一模板一文件；文件名即 `template_id`（`^[a-z0-9][a-z0-9-]{1,63}$`，如 `feishu-bot-webhook.yaml`）。加载器 `app/services/connector_templates.py` 启动全量加载 + mtime 热加载（与 chat-api `ModelRouter._load_config` 同模式）。`id` 字段 MUST 等于文件名，不重复；重复 `id` 视为损坏（R-4 a 通道）。**首期未实现**（目录不存在）。
+
+### R-2 模板文件字段与 schema 方言（答 CHK001 / CHK002）
+
+必填字段：`id`、`name`、`category`、`version`、`description`、`auth_type`、`param_schema`、`example_params`。
+
+- `category` 枚举：`oa | erp | data | devops | im`（对齐 plan.md:35-41 五类）；非法值 → 跳过加载。
+- `version`：整数，从 `1` 起，单调递增。
+- `description`：中文主文案；可选 `description_en`（plan.md:52 双语约束）。
+- `auth_type` 枚举：`none | bearer | api_key`（对齐 `external_tools` 既有注入能力）。
+- `param_schema`：**与既有 MCP `inputSchema` 同构的扁平节点数组**，节点 `{name, type(String|Number|Boolean|Object|Array), required, location(Query|Path|Header|Body), description, default}`。**`param_schema` 只描述"业务入参"**，连接参数不进 schema（见 R-3 的 `connection` 段）。
+- `example_params`：`{参数名: 占位值}`，键集 MUST ⊆ `param_schema` 中 `required=true` 的 `name` 集；值 MUST 为占位符（如 `<your-token>`）。
+- `test_hint`（可选）：结构化 `{endpoint, expected_status}`（plan.md:43），**仅详情展示，不参与创建链路**、不做路由级依赖（对齐 Edge Case「模板可选带获取列表式探测提示」）。
+
+### R-3 参数 → 既有 payload 的字段映射（答 CHK001）
+
+模板用 `connection` 段提供连接参数，与 `param_schema`（业务入参）分离：
+
+| 模板 `connection` | 映射到 `ToolPayload` |
+| --- | --- |
+| `type: http` | `type="http"`，`config.url`、`config.method`、`config.headers`、`config.timeoutSeconds` |
+| `type: mcp` | `type="mcp"`，`config.endpoint`、`config.inputSchema`（= `param_schema`） |
+| `auth_type`/`auth_token_placeholder`/`api_key_header` | `config.authType` / `config.authToken`（用户填值）/ `config.apiKeyHeader`（缺省 `X-API-Key`） |
+| 用户填的实例名 | `name`（必填；缺省 `模板名`） |
+| `category` | `tags = ["connector", category]` |
+| `description` | `description`（模板描述；可追加实例后缀） |
+
+校验顺序固定：**模板 schema 校验 → 映射为 `ToolPayload` → 走既有 `POST /api/tools`**（服务层 `_normalize_payload` 会自动加密凭证，见 R-9）。任一步失败返回 400 且不落库（对齐 Edge Case「不写半条记录」）。
+
+### R-4 种子加载与告警（答 CHK004）
+
+三级分离，只落进程日志（模板加载是平台事件，不写租户审计集合）：
+
+- **(a) 跳过**：YAML 解析失败 / 缺必填 / `id` 与文件名不符 / `category` 或 `auth_type` 非法 → `logger.warning("connector_template_skipped id=%s reason=%s")`。
+- **(b) 拒绝加载（更严重）**：检出疑似真实凭证（`auth_token`/`api_key`/`headers` 值不在占位符白名单，或匹配 `^(sk-|xox[bap]-|ghp_|AKIA|-----BEGIN)`）→ `logger.error("connector_template_rejected_credential id=%s")`。
+- **(c) 成功**：`logger.info("connector_template_loaded id=%s version=%s")`。
+
+被跳过的模板**不计入列表 `total`**，但列表响应携带 `skipped: [{id, reason, level}]` 供运维排障（a/b 两级用 `level` 区分）。
+
+### R-5 首批清单与验收判据（答 CHK005）
+
+按 plan.md:35-41 交付 **18 个**模板（5 类别各 ≥2）。**SC-005 的"≥10"是最低硬下限、18 是计划值**——测试断言"加载成功数 ≥10 且 5 类别各 ≥2"，18 与 ≥10 不冲突（18 覆盖 ≥10）。"可创建/可测试"用 **mock API** 验收（不依赖外网，第三方真实 API 不进 CI）。
+
+### R-6 上架与 018 资产注册的字段映射（答 CHK007 / CHK012）
+
+**上架 = 两步，第一步不改既有语义**：
+
+1. `POST /api/tools` 创建 —— 既有实现**恒定 `status="disabled"`**（`_normalize_payload` 的 status 被字典字面量后置覆盖），041 不改此行为。
+2. 安装成功后由服务端 `PATCH /api/tools/{tool_id}` `{"status":"active"}`，经 `_validate_final_activation`：`type=mcp` 且 `active` 时要求 `enabled_mcp_tool_names(config)` 非空（`app/api/tool_limits.py:26-32`），失败返回 400 并保持 `disabled`。
+
+测试未通过（`last_test_status != "passed"`）**允许上架**（与手工创建一致，不额外收紧），但市场页标记"未验证"。
+
+**018 字段映射（018 无 `type` 字段，只有 `kind`）**：
+
+| 041 概念 | 018 实际字段 | 取值 |
+| --- | --- | --- |
+| 连接器类型 | `kind` | 工具 `type=http` → `rest`；`type=mcp` → `mcp`（`AUTO_DISCOVERABLE_KINDS={"rest","mcp"}`） |
+| 资产标识 | `asset_id` | `dedupe_key(endpoint, method) = f"{METHOD}:{endpoint.lower()}"` |
+| `type=connector` | **无对应字段** | 语义落 `connector_installs.template_id` + 工具 `tags=["connector"]`；枚举扩展诉求挂 018 侧（与 FR-006"只做关系声明"一致） |
+
+注册路径只有 `POST /api/capabilities/discover`（需 `service_token`、批量 `candidates=[{name, endpoint, method, kind, contract}]`；**无单资产注册路由**，`connector` 会让 `discover_assets` 落入 `needs_manual`）。**首期未实现**（无 connector 相关代码）。
+
+### R-7 测试连接的判定（答 CHK006）
+
+"测试通过" = `POST /api/tools/{tool_id}/test` 满足 **`success is not False` ∧ `status == "passed"` ∧ HTTP 2xx**（等价响应头 `X-MOGO-Operation-Result == "success"`，即 `_operation_succeeded` 口径）。
+
+- 门禁拒绝（`_enforce_gate` 抛 403/409/503）**不写 `last_test_status`**，向导记为 `blocked(reason)`——既不算通过也不算失败。
+- 实例未落库前用 `POST /api/tools/test-draft`（body 内嵌 `{tool: {...}}`，`_tool_timeout_seconds` 读 `body.tool.config`）试连；落库后用 `/{tool_id}/test`。两路径判定口径一致。
+- 超时沿用 `_config_timeout_seconds`：`config.timeoutSeconds` 缺省 35s，clamp `[35,180]`；不静默卡死（对齐 Edge Case「测试连接超时」）。
+
+### R-8 安装记录与安装计数存储（答 CHK003 / CHK008）
+
+新集合 `connector_installs`，一行一次安装：`{_id, tenant_id, template_id, template_version, tool_id, installed_at, installed_by}`。**唯一键 `(tenant_id, template_id, tool_id)`**；同一模板多实例 = 多行（对齐 Edge Case「同名模板重复安装」）。
+
+- **计数 = 行数聚合** `count_documents({tenant_id, template_id})`，**不设冗余计数器字段**（避免并发 `$inc` 丢更新）。
+- 删除连接器时级联 `connector_installs.delete_many({tool_id})`（落点在 `tools.py:delete_tool` 之后调用 `connector_templates.record_uninstall`）。
+- 计数为 0 的模板仍返回（`install_count: 0`）。
+- `template_version` 存**安装记录**而非工具记录（工具记录无此字段，见 R-12）。
+
+**首期未实现**（全仓无 `connector_installs` 引用）。
+
+### R-9 与 034 凭证加密的关系（答 CHK011）
+
+**034 已接线，041 不新增任何加密接线**：
+
+- 写侧：`tools.py:_normalize_payload` → `encrypt_credentials`（识别 `authToken`/`apiKeyHeader`/`headers.*` 等键；`KmsConfigError` → **503 fail-closed**，不落明文兜底）；PATCH/PUT 时 `merge_credential_preserve` 保留响应掩码后未回传的密文凭据。
+- 响应：`_serialize` 经 `redact_credentials` 掩码为 `***`。
+- 读侧：`external_tools.py:784`（HTTP 直连/测试）与 `1010`（runtime/MCP）`decrypt_credentials` 宽容解密（明文/密文双跑兼容，调用不中断）。
+
+因此模板创建的凭证**只要走既有 `POST /api/tools` 即自动加密**。决策 #7 / FR-009 的"034 落地前保持明文、落地后验收"分级**已不适用**：验收改为单一判据——创建后 `external_tools.config` 无明文、`GET /api/tools` 响应掩码（`***`），且不再阻塞。原文保留作历史记录，本条为准。
+
+### R-10 租户/组织隔离判定键（答 CHK013）
+
+市场「已安装」视图与安装计数 MUST 复用 `organization_tool_query(tenant_id)`（`tenant_id` + `$or[{scope:"organization"},{scope 缺失},{scope:""}]`），即**只统计组织级工具，排除 `scope="user"` 个人工具**。模板目录本身平台级共享、不按租户过滤（决策 #3）。所有 `connector_installs` 读写 MUST 带 `tenant_id` 条件，禁止无租户条件的聚合。
+
+### R-11 列表/详情/搜索口径（答 CHK009）
+
+`GET /api/connector-market/templates?category=&q=`：
+
+- `category` 非法值 → **400 `invalid_category`**（不静默返回空列表，避免前端误判）。
+- `q` 空/缺省 = 不过滤；关键词对 `name`/`description`/`description_en`/`tags`/`param_schema[].description` 做 `casefold()` 子串匹配（中文首期不额外分词，朴素匹配）。
+- 排序固定 `category asc, name asc`。
+- 详情 `GET .../templates/{id}`：未知 id → 404；响应 MUST NOT 含 `example_params` 之外的任何疑似凭证，`test_hint` 原样返回。
+
+### R-12 模板来源留痕与版本固化（答 CHK003 / CHK014）
+
+`ToolPayload` 无模板字段，因此**模板来源只落 `connector_installs`（`template_id` + `template_version`）**，工具记录保持零改动（同构硬约束优先于留痕便利）。"固化"判据 = 服务端**不存在任何按 `template_id` 回写已有工具 `config` 的代码路径**；模板 `version` 升级只影响新安装。市场详情对已装实例比对 `connector_installs.template_version < template.version` 时展示"模板已升级（不影响现有实例）"，**首期不做升级动作**，也无实例升级按钮。**首期未实现**。
+
+### R-13 不支持的 `authType` 拒绝时机（答 CHK015）
+
+**加载期处理**：`auth_type ∉ {none, bearer, api_key}` 的模板按 `reason=unsupported_auth_type` 走 R-4 的 (a) 通道跳过 → **不出现在市场列表**（不会列一个必然失败的模板）。创建期再兜一次 `400 unsupported_auth_type`（防 mtime 热加载竞态）。即 Edge Case「模板声明即拒绝创建」= "加载期不暴露 + 创建期兜底"双重实现。
+
+### R-14 向导与门禁审批交互（答 CHK016）
+
+`_enforce_gate` 拒绝按层映射，三种都**不写 `last_test_status`**，向导状态 `blocked(reason)`：
+
+- **403**（身份/RBAC）→ 提示"无权限，联系管理员"，并**禁用上架按钮**。
+- **409**（审批待办）→ 提示"已提交审批，通过后可测试/上架"，**不记为测试失败**，也不允许绕过上架。
+- **503**（依赖不可用，如加密主密钥缺失）→ 提示重试。
+
+### R-15 创建链路的事务与补偿（答 CHK003）
+
+顺序固定：**模板 schema 校验 → `POST /api/tools` 落库 → 写 `connector_installs` → 注册 018 资产 → 尝试上架（PATCH active）**。
+
+第 2 步成功而第 3/4/5 步失败时：**不回滚工具记录**（工具本身可用，与手工创建行为一致），返回 `201` + `warnings: ["install_record_failed" | "asset_register_failed" | "activation_failed"]`，并 `logger.error` 供运维补齐。同一请求重放以 `(tenant_id, template_id, tool_id)` 幂等，不产生重复安装行。**首期未实现**。
+
+### R-16 引用更正（答 CHK010）
+
+本文件三处 `external_tools.py:947-977`（背景事实表、FR-004、US4-3）作为"凭证服务端注入"证据**行号有误**：该区间实为 `_flatten_schema`/`_build_debug_trace`。正确落点为 **`784-802`（HTTP 直连/测试注入）与 `1010-1031`（runtime/MCP 注入，`runtime_headers` 最后应用、不可伪造）**；`enterprise_capabilities/tools/service.py` 的审计引用不变。SC-002 的"同一注入路径"验收以这两段为准。
+
+### 验收证据
+
+2026-10-24 代码级核查（**本回填不含任何代码改动，041 代码零开工**）：`services/chat-api/app/services/external_tools.py`（784-802 / 1010-1031）、`services/admin-api/app/api/routes/tools.py`（`ToolPayload` 207-215、`create_tool` 241-261、`_normalize_payload` 87-140、`/{tool_id}/test` 323-336、`/test-draft` 338-346、`_enforce_gate` 349-400、`_serialize` 67-86）、`services/admin-api/app/services/capability_assets/registry.py`（21/27/34-37/51/119-155）、`services/admin-api/app/services/capability_assets/contract.py`、`services/admin-api/app/api/routes/capability_assets.py`（七条路由）、`services/admin-api/app/services/organization_tools.py:14-16`、`services/admin-api/app/api/tool_limits.py:26-32`、`services/admin-api/app/security/tool_credentials.py`（104/137/189）、`apps/admin-web/src/views/tools/`（仅 `ToolsPage.vue`/`ToolEditPage.vue`）、`apps/admin-web/src/api/`、`apps/admin-web/src/router/routes.ts:96-110`。**无测试**：`services/admin-api/tests/` 无 `test_connector_market.py`，测试项待 tasks.md 落地。
+
+## 判定口径补充（2026-10-24，实现期回填）
+
+- **R-17 URL 占位符分两层**：模板种子用 `${key}`（与 chat-api 运行时 `{key}` 区分）；`render_config` 渲染时把 `query`/`body`/`headers` 类参数替换为具体值，`path` 类参数**保留**为 `{key}` 供调用期传参（chat-api `_ordered_path_keys_from_schema` 依据 `config.inputSchema` 中 `location == "Path"` 决定注入顺序）。
+- **R-18 凭证托管适用面**：仅当 `auth_type ∈ {bearer, api_key}` 且全部 `secret: true` 参数的 `in ∈ {headers, query}` 时 `credentialManaged=true`，值写入 `config.authToken`（034 加密覆盖该键）；对必须以 URL 段传 token 的模板（钉钉 webhook / 钉钉工作通知 / Slack / ClickHouse）种子标 `auth_type: none` + 参数 `secret: false`，渲染保留 `{key}`、**值绝不写入 config**，市场页显式标注「凭证托管暂不支持」（FR-009 诚实降级）。
+- **R-19 018 资产注册为尽力而为**：`_register_capability_asset` 构造 `CapabilityAsset(asset_id=f"connector:{tool_id}", kind="connector")` 并注册，失败仅 `logger.warning`，**不阻断**连接器创建（018 属治理层，连接器可用性优先）。
+- **R-20 存储同构的实现锚点**：市场创建调用 `tools.py::create_tool_record()`（由 `create_tool` 抽出的落库段），保证 `_id`/`tenant_id`/`organization_tool_fields()`/`_normalize_payload()`/`status="disabled"`/`last_test_status="untested"` 与手工创建逐字段一致；`_normalize_payload` 内含 034 的 `encrypt_credentials`，无 KMS 主密钥时按 034 R-4 返回 503（市场页透传该错误，不静默降级为明文）。
 ## Non-Goals
 
 - 不承诺"42 个"数量（整合方案 §6.2：先建市场框架，数量是运营目标）。

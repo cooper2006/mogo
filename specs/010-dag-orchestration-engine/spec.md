@@ -124,3 +124,9 @@
 ### OQ-5 表达式语法错误策略（checklist CHK013 补齐，2026-07-08）
 - **决策**：默认 **fail_closed**——语法错误的条件表达式节点被跳过 + 审计记录，不静默放行；可配置为"报错中断整个编排"。
 - **依据**：与 009 hooks 的 fail_closed 底线一致（constitution 原则 III）；默认跳过比中断对业务更友好，但"跳过"必须留审计，杜绝静默。
+
+### 跨特性关系（044 补记，2026-10-24）
+- **与 044 multi-agent-modes**：`VALID_MODES` 由四模式扩为六模式（新增
+  `round_robin`、`debate`）；四种既有模式的执行路径零改动（044 FR-010，已在
+  `competitor_deep_dive.py` 上验证）。模式形态契约集中到新建的
+  `contracts/orchestration.md`（`quickstart.md` §5 与本文件同步指向）。

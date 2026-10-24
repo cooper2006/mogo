@@ -90,7 +90,7 @@ async def load_orchestration_persisted(
 
 
 def _document_shape(loaded: LoadedOrchestration) -> dict[str, Any]:
-    return {
+    shape: dict[str, Any] = {
         "orchestration": {
             # ``OrchestrationDefinition`` carries ``orchestration_id``; the old
             # ``.id`` raised AttributeError on every registration, so the
@@ -102,6 +102,12 @@ def _document_shape(loaded: LoadedOrchestration) -> dict[str, Any]:
         "nodes": loaded.definition.nodes,
         "edges": loaded.definition.edges,
     }
+    # 特性 039：layout 是画布投影元数据（可丢失），但权威 YAML 若带 layout，
+    # 经集合往返时应透传，避免手工 YAML 进画布后位置信息被静默丢弃（FR-12）。
+    raw_layout = loaded.raw.get("layout") if isinstance(loaded.raw, dict) else None
+    if isinstance(raw_layout, dict):
+        shape["layout"] = raw_layout
+    return shape
 
 
 def _utcnow() -> Any:

@@ -127,3 +127,4 @@
 - **与 017（three-scope-memory）**：002 的会话沉淀（FR-5）**可产记忆**——会话结束时按范围沉淀为 017 的 personal/workspace 记忆。
 - **与 021（unified-context-address）**：002 的会话暴露 `mogo://session/<tenant>/<sessionId>/[L0|L1|L2]` 根（L0=快照摘要/L1=commit 结构/L2=快照）；活跃会话经 021 消费统一上下文，SessionEnd 经 009 hook 触发 017 分层沉淀（021 FR-6/FR-9、017 FR-20）。
 - **与 005（knowledge-rag）边界**：002 的 share 交接的是**会话上下文（工作状态）**，005 分享的是**知识（可检索资产）**，二者不同层（会话 vs 知识），不混淆。
+- **与 043（session-replay）**：043 的 Stage 2 预研把 002 的 `session_snapshots` 视为「轮次边界」的时间锚（会话态快照，不含事件流，需与 `execution_events` 按 `created_at` 对齐）；Stage 1 不消费 002 任何数据（纯前端只读既有 V3 事件流）。若将来启动重演执行，需在 002 侧确认快照是否携带足够的环境状态（工具授权快照等），缺口见 `specs/043-session-replay/plan.md`「Stage 2 预研结论」。

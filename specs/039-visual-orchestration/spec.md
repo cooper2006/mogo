@@ -183,6 +183,25 @@
 - **与 038（egress-sandbox）**：画布不管控出站——节点内工具执行期的出站检查由 038 在工具调用链落地（执行期治理）；画布只负责定义，两特性在"定义期/执行期"分层，无共同改动文件。
 - **与 022（security-hardening）**：画布页面本身遵循 022 既有 Web 安全基线（认证/会话/权限码），不新增例外。
 
+## 判定口径补充（2026-10-24，/speckit-checklist 回填）
+
+- **R-1 画布 JSON schema（唯一转换层）**：见 `apps/user-web/src/components/orchestration/canvasSchema.ts`——`CanvasNodeKind = start | llm | tool | condition | end | parallel | aggregate | roundRobin | debate`（引擎 `type` 的子集 + 044 预留两类）；`SupportedMode = "sequential" | "graph"`；位置为 `{x, y}`。映射规则：**权威文档 = `orchestration` 头 + `nodes`（带 `depends_on`）+ `edges`**；画布专属信息（节点 kind、标签、多智能体 mode）收在**节点 `payload.x_canvas`** 下，引擎对未知 payload 键透传，故往返拓扑零丢失、未知键只读保留。
+- **R-2 `layout` 结构与容错**：仅接受 `{nodeId: {x, y}}`；服务端 `_require_layout()` 逐项清洗——非 dict、非字符串键、坐标非数值或 `NaN` 一律**丢弃该项**（不报错）。全局 viewport（缩放/平移）**不持久化**，每次打开重新适配。`layout` 存于数据库文档的同级字段（不写入引擎 `document` 内部），避免影响 `load_orchestration_document`。
+- **R-3 环检测错误格式（前后端逐字一致）**：后端先 `load_orchestration_document(document)` 做形状/condition 校验，再 `topological_order(definition.to_graph())` 判环；错误串为 `cycle detected: A -> B -> C -> A`（`topo.CycleError` 原样），HTTP **422**，`detail` 前缀 `orchestration document invalid: `（形状错误）或直接为环串。空图（无节点）直接 422 `orchestration document invalid: at least one node is required`。
+- **R-4 草稿与发布版本的存储区分**：两者**同集合** `dag_definitions`，以 `status` 区分——草稿 `status="draft"`、发布为已生效版本；草稿按 `(tenant_id, orchestration_id)` 归属（`_owning_scope`）`_upsert`，**同一编排只保留一份草稿**（覆盖式），草稿亦带 `version`（由 `_next_version` 递增）；发布走 `POST /{id}/publish` 并受 `orchestration:publish` 门禁。旧发布版本保留可回看（010 FR-8）。
+- **R-5 未知 payload 键的展示与回填**：画布编辑器对不在 `CanvasNodeKind` 已知字段内的 payload 键**原样保留在 `payload.x_canvas` 或原位置**，属性面板不暴露、保存时回填；用户删除节点则其 payload 一并删除。因此"未知键只读保留"= UI 不可编辑但序列化时不丢。
+- **R-6 supervisor/hybrid 的呈现边界**：首期仅 `sequential` / `graph` 可编辑；打开 supervisor/hybrid 文档时**可加载查看但编辑受限**，UI 顶部明示"暂不支持该模式的可视化编辑"，不静默降级为 graph。
+- **R-7 校验时机与失败呈现**：**保存前**必校验（`_validate_document`，422 阻断）；前端 `canvasValidation.ts` 提供同规则的前置校验用于连线时即时提示；环路径在画布上高亮涉及的节点与边，错误文案直接展示后端 `detail`（与 R-3 同串）。孤立节点只警示不阻断。
+- **R-8 发布门禁与审批语义**：发布**不进入人工审批队列**，仅做**权限码校验**（`orchestration:publish`，fail-closed）；编排发布的风险等级按 001 矩阵判定为低风险可见性动作（与 037 上架同类处理），因此首期无审批人概念。若后续要求审批，扩展点在 `_assert_can_publish` 之前插入 gatekeeper 挂起。
+- **R-9 权限码定稿**：`orchestration:write`（编辑/保存草稿，按本人归属）与 `orchestration:publish`（发布，预设角色 `admin`/`operator` 默认持有，见 `services/chat-api/app/services/orchestration_permission.py:29-30`）两个码；权限码常量定义在 `orchestration_permission.py`，端点侧 `PUBLISH_PERMISSION = "orchestration:publish"`。
+- **R-10 `store.py` 联合改动的边界**：`_document_shape` 增加 `layout` 透传（顶层字段）属**唯一引擎侧改动**；`engine.py`/`supervisor.py`/`topo.py`/`conditions.py` **零行为变更**。010 spec 无需修订 FR（`raw` 已透传全量文档，`layout` 只是额外顶层键且引擎忽略未知顶层键）。
+- **R-11 版本号字段语义**：版本号写在 `document.orchestration.version`（字符串）与文档顶层 `version`（整数）两处，由 `_next_version(existing)` 在保存/发布时递增；回看入口为 `GET /orchestrations/{id}`（返回当前 doc）与列表 `GET /orchestrations`（每编排一条概览 `{orchestrationId, version, mode, nodeCount, edgeCount}`），历史版本查询首期**不提供专用端点**（与 002 工作流版本化的历史列表接口不同构，属已知差异）。
+- **R-12 loader `raw` 透传约定**：画布保存的 `document` **必须能通过 `load_orchestration_document`**（后端在保存前即调用它校验）；`layout` 不放进去、只作为同级数据库字段，故不会触发 loader 的未知字段拒绝。
+- **R-13 双端校验单一来源**：**后端为准**（`load_orchestration_document` + `topo.topological_order` + `conditions` 校验），前端 `canvasValidation.ts` 是**提示层**（可能滞后）；漂移以保存时的 422 为准并把后端 `detail` 透给用户。前端规则不引入后端没有的硬阻断。
+- **R-14 大图边界**：首期**不设节点/边数量硬上限**（画布用 vue-flow 虚拟化渲染）；超过 200 节点时 UI 提示"建议拆分编排"，不阻断保存。无降级渲染策略（已知取舍，性能问题留待实际使用反馈）。
+- **R-15 并发编辑冲突**：**无乐观锁**——同一编排的草稿为覆盖式 `_upsert`，后写覆盖先写；发布动作同理以最后一次为准。多人协作场景首期不支持冲突检测（YAGNI），冲突提示留待需要时再加。
+- **R-16 删除级联**：删除节点时前端同步删除其关联边；保存到后端时若 `depends_on` 引用了不存在的节点，`load_orchestration_document` 会拒绝（422），条件表达式引用已删节点 ID 亦在 `conditions` 校验阶段被拒。
+
 ## Non-Goals
 
 - 不实现 supervisor/hybrid 模式的画布可视化（二期；首期 UI 明示不支持）。

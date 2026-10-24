@@ -147,6 +147,26 @@
 - **与 007（llm-gateway-resilience）**：评测执行的 LLM 调用**复用 007 韧性**（`services/chat-api/app/llm/resilience/retry.py` 的重试/退避/超时分类），本特性不在 admin-api 重复实现重试；这是整合方案 §4.1 风险条（"评测执行依赖 LLM 调用，需隔离重试与超时"）的落地口径。
 - **与 036（可信评级，规划中）**：036 消费本特性产出的 `skill_eval_runs` 实现"连续 3 周评测不达标自动降级"；**本特性只负责产出评测数据与发布阻断，不实现降级逻辑**——双向边界在此声明，036 立项时须以 `skill_eval_runs` 为数据源。
 
+## 判定口径补充（2026-10-23，`/speckit-checklist` 回填）
+
+以下 13 条补齐 checklist 识别出的需求缺口，作为实现与验收的一等口径（与 FR 同效力）。
+
+- **R-1 分母为 0 的指标口径**：当某指标的适用用例数为 0（全部用例无 `expected_refs` / 无 `expect_refusal` / 无 `expectations`）时，该指标 MUST 记为"不适用"（`null`）并**跳过阈值比较**，不得按 `0.0` 阻断——否则一个全部为拒答用例的测试集会因"引用支撑率 0"被误杀。`skill_eval_runs.metrics` 因此允许 `null` 值。
+- **R-2 拒答话术词表**：判定器 MUST 以显式词表判定拒答，最小必需集合为"无法回答 / 不能回答 / 不便提供 / 不予回答 / 抱歉 / 对不起 / i cannot / i can't / unable to / cannot answer / not enough information / insufficient information"（大小写不敏感，**命中任一即判拒答**）；词表随判定器维护，MUST 有单测锁定。
+- **R-3 expectations 匹配语义**：每个 `expectation` MUST 以子串形式（大小写不敏感）出现在输出中，**AND 语义（全部命中才算任务成功）**；`expectations` 为空的用例不计入任务成功率分母。
+- **R-4 dry-run 产出边界**：dry-run MUST 落 `skill_eval_runs`（`dry_run=true`）供前端回看，MUST NOT 落 `gate_events`；低于阈值时返回 **200 + `passed=false` + 指标/阈值明细**，不返回 4xx（试运行不阻断）。
+- **R-5 策略默认值表**：`min_citation_support=0.6`、`min_refusal_accuracy=0.6`、`min_task_success=0.6`、`min_cases=5`、`max_cases=50`、`timeout_seconds=300`；六项 MUST 均可按租户级（`skill_id` 为空）或 Skill 级配置，Skill 级优先；策略文档 MUST NOT 含 `enabled` 之类关闭开关字段。
+- **R-6 单用例超时与整体超时**：admin-api 侧单用例等待上限默认 60s（含 chat-api 侧 007 重试耗时），整体上限默认 300s；每用例实际超时 MUST 取 `min(60s, 剩余整体预算)`，整体预算耗尽按超时 fail-closed。
+- **R-7 阻断状态码分层**：指标不达标 / 无测试集 / 样本不足 / 用例超上限 MUST 返回 **409**（提示补数据或调阈值）；网关不可用 / 整体超时 MUST 返回 **502**（提示稍后重试）；审计写入失败 MUST 返回 **503**。前端依状态码区分"补数据"与"重试"两类引导。
+- **R-8 expected_refs 匹配粒度**：`expected_refs` 元素 MAY 为 `document_id` 或 `document_id:chunk_id` 复合串（与 `citation_resolver.py` 的 citation id 同形）；匹配 MUST 为"输出文本子串包含"（大小写不敏感），空数组不参与分母。
+- **R-9 审计写入失败 fail-closed**：`gate_events` 写入失败时 MUST 阻断发布（与 001 `audit.py` 落库异常判 DENY 的语义一致），对应 R-7 的 503；不得"审计失败仍放行"。
+- **R-10 gate_events 字段映射**：事件 MUST 复用 001 既有字段 `event_id`/`occurred_at`/`tenant_id`/`decision`/`layer`/`reason`/`detail`，并补 `skill_id`/`skill_version`/`event_type`/`metrics`/`thresholds`；其中 `decision` 取 `"blocked"|"passed"`，与 001 六层链的 `ALLOW/DENY` **不同枚举**——故本特性的 `eval_gate.*` 事件 MUST NOT 参与六层链判定，消费方 MUST 先按 `event_type` 前缀过滤。
+- **R-11 对 036 的消费契约**：036 消费 `skill_eval_runs` 的 `tenant_id`/`skill_id`/`passed`/`metrics`/`created_at` 五个字段；本特性 MUST 保证这五个字段只增不改（新增字段不改变其语义）。
+- **R-12 凭据传递不锁定头名**：FR-004 的 `backend_service_token` 只约束"服务间凭据来源"，具体头名与令牌形态 MUST 以 chat-api 模型网关的实际契约（T002 研究确认的 `Authorization: Bearer` + NDJSON 流）为准，spec 不锁定 HTTP 头名以免与网关演进冲突。
+  - **R-12.1 令牌形态澄清（实现确认）**：chat-api 网关只接受 HMAC 签名令牌（`b64url(payload).b64url(hmac_sha256(sha256(secret)))`，`aud=askai-model-gateway`，900s 有效，见 `services/chat-api/app/dsh_runtime/model_gateway/token.py`），**不接受** `app/security/service_token.py` 的 `v1|<payload>|<mac>` 服务令牌；admin-api 侧由 `eval_gate/gateway_auth.py` 用共享密钥（`ASKAI_ADMIN_DSH_MODEL_GATEWAY_SIGNING_SECRET`，缺省回落到两服务共享的 `ASKAI_ADMIN_JWT_SECRET`）签发，密钥缺失或短于 16 字符时 MUST 显式报错而非发出注定被 401 的令牌。
+  - **R-12.2 请求体字段齐备**：`ModelGatewayRequest` 为 `extra="forbid"`，请求体 MUST 恰好携带 `profileVersion`/`modelInstanceId`/`provider`（恒为 `askai-model-gateway`）/`model`/`messages` 五个字段，且前三个 MUST 与令牌 claims 完全一致（否则 `profile_scope_mismatch`/`model_scope_mismatch`/`provider_scope_mismatch`）；不得发送 `stream` 字段。
+- **R-13 用例上限与并发取舍**：创建期（400）与执行期（409）使用同一 `max_cases`；执行期超限仅作历史数据/降配场景的防御。并发发布同一 Skill MUST 接受"各跑一次评测（双倍 LLM 成本）"这一既定取舍——不引入评测锁（YAGNI），正确性由既有版本唯一约束兜底。
+
 ## Non-Goals
 
 - 不做 LLM-as-judge 语义评判（首期规则判定，确定性优先）。

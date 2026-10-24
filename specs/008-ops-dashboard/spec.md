@@ -129,3 +129,6 @@
 - **决策**：成本预测基于**近 4 期**（N = 4，可配置 `forecast_periods`）。
 - **依据**：4 期足以捕捉周/月趋势且不过长引入陈旧数据；与趋势看板"环比/同比"窗口对齐。
 
+## 跨特性关系补记（2026-10-24，042 交付）
+
+- **与 042（three-level-quota）**：042 在驾驶舱新增独立的 `quotaAnomalies` 分组（数据源 `quota_alert_events`，近 7 天窗口，最多 20 条明细 + 按 scope 汇总），与既有 `ANOMALY_STATUSES`（基于 `token_usage_logs.status`）**并列但不合并**——配额告警不写 usage 行，塞进 `ANOMALY_STATUSES` 只会是假绿。成本归集侧（035）不变：`attribute_cost` 按既有维度聚合，团队/项目层用量由配额服务自身聚合，不复用驾驶舱口径。

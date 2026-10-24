@@ -8,6 +8,8 @@ import uuid
 from typing import Any
 
 from app.core.db import get_db
+# 032-eval-gate: 阻断异常只此一处定义（gate.py），路由层捕获的也是它。
+from app.services.eval_gate.gate import EvalGateBlocked
 
 
 RELEASE_COLLECTION = "organization_skill_releases"
@@ -43,6 +45,16 @@ class OrganizationSkillLifecycle:
         next_version = self._version(version) if version else self._next(current)
         if await db[RELEASE_COLLECTION].find_one({"tenant_id": tenant_id, "skill_id": skill_id, "version": next_version}):
             raise FileExistsError("该版本号已存在")
+        # 032-eval-gate: publish-time hard gate — after the version-uniqueness
+        # check, before the release insert (spec 已定决策 #7).  Fail-closed.
+        from app.services.eval_gate.gate import run_gate as _run_eval_gate
+        await _run_eval_gate(
+            tenant_id=tenant_id,
+            skill_id=skill_id,
+            version=next_version,
+            skill_draft=draft,
+            dry_run=False,
+        )
         stamp = now(); release = {"_id": uuid.uuid4().hex, "tenant_id": tenant_id, "skill_id": skill_id,
             "version": next_version, "digest": digest(draft), "snapshot": draft, "release_notes": notes.strip()[:2000], "created_at": stamp}
         await db[RELEASE_COLLECTION].insert_one(release)

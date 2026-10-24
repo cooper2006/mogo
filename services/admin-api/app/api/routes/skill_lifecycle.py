@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import get_current_admin_user
 from app.api.routes.skills import _serialize
 from app.core.db import get_db
+from app.services.eval_gate.gate import EvalGateBlocked
 from app.services.organization_skill_feedback import organization_skill_feedback_service
 from app.services.skill_lifecycle import OrganizationSkillLifecycle
 
@@ -33,6 +34,11 @@ async def publish_skill(skill_id: str, payload: PublishSkillPayload, current_use
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except EvalGateBlocked as exc:
+        # 032-eval-gate: publish-time eval gate blocked the release.  Returns a
+        # 4xx carrying metric + threshold detail so the front end can highlight
+        # which metric fell short (spec SC-001 / FR-003).
+        raise HTTPException(status_code=exc.status_code, detail=exc.payload) from exc
     return {"skill": _serialize(doc), "release": {"id": release["_id"], "version": release["version"]}}
 
 

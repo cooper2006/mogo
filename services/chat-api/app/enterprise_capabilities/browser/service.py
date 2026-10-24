@@ -22,6 +22,8 @@ from app.enterprise_capabilities.browser.pending_intervention import pending_bro
 from app.enterprise_capabilities.browser.progress import BrowserTimelineProjector
 from app.enterprise_capabilities.browser.session_identity import resolve_browser_session_id
 from app.enterprise_capabilities.browser.artifact_guard import reject_internal_artifact_target
+from app.enterprise_capabilities.browser.engine.action_contracts._navigate import verify_landing_url
+from app.enterprise_capabilities.tools.egress_guard import egress_guard
 
 
 _EXPECTED = {
@@ -38,6 +40,32 @@ async def browser_task(arguments: dict[str, Any], context: CapabilityExecutionCo
     target_name = str(arguments.get("target_name") or "").strip()
     target_url = str(arguments.get("target_url") or "").strip()
     reject_internal_artifact_target(target_url)
+    # 038 出站白名单：浏览器 Agent 入口先判目标 URL，未命中 allowlist 即拒绝执行
+    # （fail-closed），并把判定写入既有审计通道。
+    if target_url:
+        entry_decision = await egress_guard.check(
+            url=target_url, tenant_id=context.tenant_id,
+            execution_location=str(arguments.get("execution_location") or "server"),
+        )
+        await egress_guard.audit(
+            entry_decision,
+            tenant_id=context.tenant_id,
+            user_id=context.user_id,
+            action_id=context.action_id,
+            tool_or_capability=f"browser.{operation}",
+        )
+        if not entry_decision.allowed:
+            raise ValueError(
+                f"出站白名单拒绝访问目标域：{entry_decision.domain or entry_decision.reason}"
+            )
+    else:
+        # 仅有 target_name、无可判 URL：记为"未给出目标 URL"（未经出站检查）。
+        await egress_guard.missing_target(
+            tenant_id=context.tenant_id,
+            user_id=context.user_id,
+            action_id=context.action_id,
+            tool_or_capability=f"browser.{operation}",
+        )
     if agent_registry.get(context.user_id) is None:
         raise ConnectionError("MOGO local browser agent is not connected")
     target = " ".join(item for item in (target_name, target_url) if item)
@@ -109,6 +137,26 @@ async def browser_task(arguments: dict[str, Any], context: CapabilityExecutionCo
     terminal = result_events.latest("subagent_done")
     status = str((terminal.get("content") or {}).get("status") or "") if isinstance(terminal.get("content"), dict) else ""
     final_status = status or ("completed" if artifacts else "failed_terminal")
+    # 038 出站白名单：navigate 的权威风险在*落地* URL——起点可被白名单覆盖，重定向后
+    # 落地域可能已逃逸。因此以 final_url 复核（fail-closed），逃逸即记该次导航失败并审计。
+    if operation == "navigate":
+        landing_url = str((artifacts or {}).get("final_url") or "").strip()
+        if landing_url:
+            landing = await verify_landing_url(
+                landing_url,
+                tenant_id=context.tenant_id,
+                user_id=context.user_id,
+                action_id=context.action_id,
+                tool_or_capability=f"browser.{operation}",
+            )
+            if not landing.allowed:
+                final_status = "failed_terminal"
+                artifacts["landing_verified"] = False
+                artifacts["landing_reason"] = "redirect_escape"
+                artifacts["landing_domain"] = landing.domain
+        else:
+            artifacts["landing_verified"] = False
+            artifacts["landing_reason"] = "landing_url_missing"
     if final_status not in {"suspended_waiting_approval", "intervention_required"}:
         await checkpoint_session.finish("succeeded" if (final_status in {"succeeded", "completed", "done"} or bool(artifacts)) else "failed_terminal")
     return build_browser_tool_result(

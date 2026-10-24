@@ -164,6 +164,23 @@
 - **与 032（eval-gate）**：**发布链路互补**。032 在 `publish()` **前**管质量门禁（评测不达标阻断发布），本特性在 `publish()` **后**管流量管控（灰度/影子/回滚）；同挂 Skill 发布链路但不重叠，可独立交付、独立验收。
 - **与 004（skillhub-lifecycle）**：本特性复用 004 的版本模型（`skill_id` + `version` + `stable_version` = 上一已发布稳定版本，源自 `organization_skill_releases`），不改变 004 的草稿/发布/快照契约。
 
+## 判定口径补充（2026-10-23，/speckit-checklist 回填）
+
+- **R-1 阶梯样本口径**：`min_samples` 判定使用 `Rollout.call_count`（该 rollout 自创建以来的**累计调用数**），不是"进入当前档以来的新增量"；单个档位可用 `LadderStep.min_samples` 覆盖全局默认值。已知取舍：累计口径下低档位会更快达标（历史样本计入当前档），首期接受该简化；若后续需要"逐档观察"语义，改为"当前档新增量 = `call_count` − 进入该档时快照"并同步调整 `ladder_history` 的记录含义。
+- **R-2 影子无独立采样比例**：影子流量 = **未命中 `traffic_ratio` 的全部用户**（`should_shadow` 只在 `shadow_enabled` 为真且 `resolve_assignment` 为假时返回真），不叠加 `shadow_ratio` 采样；011 的 `DEFAULT_SHADOW_RATIO=0.1` 仅作为"影子成本量级"的参考说明，**不参与 033 的影子判定**。租户通过开关承担双跑成本，关闭即零成本。
+- **R-3 超时数值**：影子双跑单次超时默认 **30s**（`DEFAULT_SHADOW_TIMEOUT_SECONDS = 30.0`），超时记 `shadow_timeout>30.0s` 并吞并；读取 admin-api 灰度配置的超时默认 **3s**（`PLAN_FETCH_TIMEOUT_SECONDS = 3.0`），读取失败按"无影子"处理（fail-soft）。
+- **R-4 `traffic_ratio = 0` 分层**：**用户输入**（创建/更新请求）要求 `0 < ratio ≤ 1`，传 0 或负值返回 400 `invalid_traffic_ratio`；**内部状态**允许 `0.0`，仅由回滚产生（`apply_rollback` 将 `traffic_ratio` 置 0），读取路径（`_row_to_rollout` / 查询返回）接受 0 且不报错。`resolve_assignment` 与 `resolve_candidate` 对非 `(0,1]` 一律不命中候选版。
+- **R-5 `skill_shadow_runs` 留存**：首期不设 TTL、不建二级索引（只写 + 按 `skill_id`/`version` 基础聚合）；租户关闭影子后不再新增记录。清理策略与索引优化留待 036/运营侧提出需求，不在本特性范围。
+- **R-6 分流基数与容差**：取模基数 **10000**（`TRAFFIC_BUCKETS = 10000`，两侧常量一致，保证 admin-api 与 chat-api 判定同源）；"比例近似"的验收容差为**相对偏差 ≤ 20%**（例：10% 档在 1 万样本量级的实测命中率落在 8%–12% 判达标），大样本验收按此口径判定。
+- **R-7 `ladder` 与 `traffic_ratio` 优先级**：`ladder` 是**自动推进轨道**，`traffic_ratio` 是**当前生效流量**（查询返回的当前比例一律取 `traffic_ratio`，权威值）；`current_step` 初始取请求传入值（缺省 0，越界按 `[0, len(ladder)-1]` 夹取），此后由推进器维护。请求只给 `traffic_ratio` 不给 `ladder` 时使用默认阶梯 1%→10%→50%→100%（阶梯只影响自动推进，不影响当期流量）。末档 `ratio < 1.0` 的阶梯自动补 `LadderStep(ratio=1.0)`；档位比例非递增时返回 400 `ladder_ratio_not_ascending`。
+- **R-8 回滚后的阶梯状态**：`apply_rollback` 置 `state = rolled_back`、`traffic_ratio = 0.0`；**`ladder_history` 保留**（审计用），`current_step` 不重置。重新开灰度须新建 rollout 记录（不复活已回滚记录）。
+- **R-9 `PROMOTED` 后的影子**：置 `PROMOTED` 时不自动改写 `shadow_enabled`（配置保持租户设置），但 100% 稳定版流量下"未命中候选版"的用户集合为空，影子自然不再触发；查询返回的 `shadow_enabled` 如实反映配置，前端需在 `PROMOTED` 态给出"影子已无实际流量"的提示文案。
+- **R-10 扫描器判定顺序**：同一 5 分钟循环内**先回滚、后推进**（`scan_and_auto_rollback` → `scan_and_advance_ladder`）；推进器对已进入 `rolled_back`/`promoted` 终态的 rollout 直接跳过，因此不会出现"同一轮既回滚又推进"。
+- **R-11 与 011 的同名澄清**：011 的 `shadow_ratio`（自进化侧按比例采样）与 033 的影子（未命中候选版即全量双跑）**同名不同义**，两者不共用代码路径与配置；033 的配置项统一命名为 `shadow_enabled`，不引入 `shadow_ratio`。
+- **R-12 创建前置条件与 `stable_version`**：创建灰度的必填校验只有 `skill_id` 非空与 `version > 0`（缺失返回 400 `skill_id and version required`）；`stable_version` 由**创建方传入**（缺省 0 表示未指定，不阻断创建），本特性不新增 `organization_skill_releases` 查询。与 032 的顺序约束：032 在 `publish()` 前阻断不达标版本，因此**被门禁拒绝的版本不会出现在发布记录中**；运维若传入未发布版本属运营误操作，033 不做二次校验（YAGNI，且避免跨特性耦合）。
+- **R-13 异常率边界一致性**：回滚判定为 `error_rate > 0.20`（严格大于，等于 20% 不回滚），推进判定为 `error_rate <= 0.20` 且样本达标（含等于，可推进）；两者互为补集边界，**不存在"既不回滚也不推进"的空档，也不存在同时触发**。
+- **R-14 `target_tenants` 空值语义**：字段缺省、`null`、空列表 `[]` 三者**等价**，均表示"不按租户过滤"（即全量）；`target_tenants` 非空时先按白名单过滤，再在命中租户内按 `traffic_ratio` 分流（叠加语义，决策表 #2）。
+
 ## Non-Goals
 
 - 不做按用户标签/人群包灰度（首期 `target_tenants` + `traffic_ratio` 两维）。

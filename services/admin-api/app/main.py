@@ -15,12 +15,14 @@ from app.core.product_edition import migrate_bootstrapped_community_organization
 from app.repositories.model_repository import ensure_indexes as ensure_model_indexes
 from app.api.routes.skills import ensure_indexes as ensure_skill_indexes
 from app.api.routes.skill_lifecycle import ensure_indexes as ensure_skill_lifecycle_indexes
+from app.api.routes.portal_admin import ensure_indexes as ensure_portal_indexes
 from app.api.routes.tools import ensure_indexes as ensure_tool_indexes
 from app.api.routes.external_search import ensure_indexes as ensure_external_search_indexes
 from app.api.routes.knowledge_documents import ensure_indexes as ensure_knowledge_document_indexes
 from app.api.routes.knowledge_directories import ensure_indexes as ensure_knowledge_directory_indexes
 from app.api.routes.knowledge_settings import ensure_indexes as ensure_knowledge_settings_indexes
 from app.api.routes.page_collection import ensure_indexes as ensure_page_collection_indexes
+from app.services.eval_gate import ensure_indexes as ensure_eval_gate_indexes
 from app.services.admin_bootstrap import bootstrap_admin_user
 from app.services.directory_bootstrap import bootstrap_directory
 from app.services.platform_bootstrap import bootstrap_platform_admin
@@ -32,12 +34,16 @@ from app.system_audit import SystemAuditMiddleware, SystemAuditRepository
 from app.product.extensions import get_admin_product_extension
 from app.services.skill_market.quality_metrics import SkillQualityScanner
 from app.services.skill_market.canary import CanaryRollbackScanner
+from app.api.routes.trust_ratings import ensure_trust_indexes
+from app.services.trust_rating.downgrade_scanner import TrustRatingDowngradeScanner
 
 
 # 016 periodic effect-score assessment (closed-loop write to skill_adoption).
 _QUALITY_SCANNER = SkillQualityScanner()
 # 016 FR-5 residual: auto-rollback scheduled scan for active canary rollouts.
 _CANARY_ROLLBACK_SCANNER = CanaryRollbackScanner()
+# 036 FR-10/FR-11: periodic trust-rating downgrade scan (032/016 quality signal).
+_TRUST_DOWNGRADE_SCANNER = TrustRatingDowngradeScanner()
 
 
 logger = logging.getLogger(__name__)
@@ -111,6 +117,8 @@ def create_app() -> FastAPI:
         await ensure_model_indexes()
         await ensure_skill_indexes()
         await ensure_skill_lifecycle_indexes()
+        await ensure_eval_gate_indexes()
+        await ensure_trust_indexes()
         await ensure_tool_indexes()
         await repair_role_referenced_personal_tools()
         await ensure_external_search_indexes()
@@ -119,6 +127,7 @@ def create_app() -> FastAPI:
         await ensure_knowledge_document_indexes()
         await ensure_knowledge_directory_indexes()
         await ensure_tenant_indexes()
+        await ensure_portal_indexes()
         await backfill_tenants_from_accounts()
         await bootstrap_platform_admin()
         await cleanup_expired_tombstones()  # T052: reap tombstones older than 1 month
@@ -139,6 +148,12 @@ def create_app() -> FastAPI:
             await _CANARY_ROLLBACK_SCANNER.start()
         except Exception:  # pragma: no cover - defensive
             logger.exception("failed to start canary rollback scanner")
+        # 036 FR-10/FR-11: periodic trust-rating downgrade scan. Best-effort, same
+        # discipline as the 016 scanners above.
+        try:
+            await _TRUST_DOWNGRADE_SCANNER.start()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("failed to start trust downgrade scanner")
         # MongoDB → PanWeiDB 迁移：openGauss 无原生 TTL 索引，用后台循环定期清理
         # 过期文档（对兼容层登记的 expireAfterSeconds 声明）。Best-effort：绝不应
         # 阻断启动；mongo 模式下 start() 为 no-op。
@@ -158,6 +173,10 @@ def create_app() -> FastAPI:
             pass
         try:
             await _CANARY_ROLLBACK_SCANNER.stop()
+        except Exception:  # pragma: no cover - defensive
+            pass
+        try:
+            await _TRUST_DOWNGRADE_SCANNER.stop()
         except Exception:  # pragma: no cover - defensive
             pass
         try:

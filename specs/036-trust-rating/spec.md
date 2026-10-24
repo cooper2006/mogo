@@ -166,6 +166,25 @@ admin-web 的技能/资产列表展示评级徽标（L1–L4 四色），资产�
 - **与 008（ops-dashboard）**：036 提供评级分布聚合供 008 驾驶舱展示；008 不依赖 036 的写入路径（036 不可用时分布区降级隐藏，不阻塞驾驶舱其他区）。
 - **与 006（position-rbac-admin）**：评级管理权限码（`trust:read` / `trust:manage`）注册为 001 权限码模型的 `trust` resource 维度（沿用 001 FR「下游特性注册 resource」扩展点，如 014 `bizdata` / 015 `kg`）。
 
+## 判定口径补充（2026-10-24，/speckit-checklist 回填）
+
+- **R-1 资产键生成**：`asset_type ∈ {skill, agent, workflow}`，`asset_key` 由调用方以**字符串原样**传入（skill/workflow 传 `skill_id`，agent 传运行时 agent 标识即 `agent_id`）；合法性由 `validate_asset(asset_type, asset_key)` 校验（非法抛 `ValueError`）。唯一性由 `(tenant_id, asset_type, asset_key)` 三元组保证（`rating_key()` 生成查询键 + `ensure_indexes` 建唯一索引），同键不会跨类型碰撞。
+- **R-2 "连续不达标"单位 = 日历天**：`compute_streak(below_since, today) = (today - below_since.date()).days + 1`；首次不达标写入 `below_since`，之后每次扫描现算；**任一次达标即 `reset_streak`（清零）**。扫描间隔默认 6 小时（`DEFAULT_SCAN_INTERVAL_SECONDS = 6 * 3600.0`），按日历天计使得同日多次扫描不会重复计数。
+- **R-3 质量达成判据**：**032 优先**——窗口内 `skill_eval_runs` 的 `passed` 通过率 `>= EVAL_PASS_RATE_THRESHOLD = 0.8` 且运行数 `>= MIN_EVAL_RUNS = 20` 视为达标；样本不足返回 `available: False` 并**跳过不达标判定**（不降级）。**016 兜底**——032 数据不足或不存在时用 `_eval_016_signal`（窗口 `QUALITY_FALLBACK_WINDOW_DAYS = 7`，最少 `MIN_QUALITY_SAMPLES = MIN_EFFECT_SAMPLES`）。阈值目前为**模块常量**，租户不可配（后续按需开放）。
+- **R-4 `last_evidence` 结构**：只存**判定摘要**不存完整报告——032 源为 `{source: "032", available, runs, passing_runs, pass_rate, passing}`；016 源为对应分数摘要；手工变更由 `_default_evidence(reason)` 生成 `{source: "manual", reason}`。
+- **R-5 降级通知（首期不实现，登记缺口）**：FR-011 的"owner 通知"首期为 **best-effort 预留**，当前不写入任何通知通道；强制留痕只靠 022 审计（R-13）。notify 失败不阻塞主流程的语义因此天然成立，但"通知已发出"不可依赖。
+- **R-6 "创建者本人"判据（FR-014 部分实现）**：`list_ratings(db, *, visible_to=...)` 已按 FR-014 过滤——`level == "L1"` 的记录仅当 viewer 等于其 `owner_id` 或 `created_by` 时返回，**`visible_to` 为空串时不做过滤**（供内部/管理视角使用）。因此"创建者"取 `owner_id` 优先、`created_by` 兜底，二者满足其一即可见。**未接线部分**：`services/admin-api/app/api/routes/skills.py` 的目录/市场列表与直读路径尚未把 viewer 传入评级过滤，需在三处补齐后 FR-014 才算端到端落地（最小修复面已在 checklist 结论登记）。
+- **R-7 L2 人审标记（FR-015 首期未实现，登记缺口）**：`human_review_required` 当前**全仓库无实现**。落地时建议置于调用响应体顶层 `human_review_required: bool` 并由编排/DAG 执行器读取；本特性不改变"是否加标记"的既有响应结构，属后续增强。
+- **R-8 门禁封顶生效点（重要，防全局降级）**：只在 `services/admin-api/app/governance/layers/approval.py` 的 **fresh path（查 `AUTONOMY_MATRIX` 前）**生效，且**仅当调用方把资产评级解析进 `ctx.annotations["trust_level"]`** 时才封顶；未标注 `trust_level` 的调用完全走 001 原逻辑——**无资产上下文的普通调用不会被 L1 兜底封顶**。解析到"无评级记录"的调用按 `"L1"` 注入（fail-safe）。租户覆盖在解析侧合并后再注入，门禁热点路径不读 DB。
+- **R-9 信号源切换落点**：不是显式开关，而是 `resolve_quality_signal()` 的**自动优先序**（032 有足量数据用 032，否则 016）；因此"切换"无需配置项，也不重算历史评级（新判定从下一次扫描起生效）。若未来需要强制指定源，再新增租户级配置并留审计。
+- **R-10 租户覆盖存储形态**：`CAPS_COLLECTION = "trust_autonomy_caps"`，文档 `{"_id": "<tenant_id>", "caps": {"L1": "L1", ...}}`；`trust_caps_for_tenant()` 以 canonical `TRUST_TO_AUTONOMY_CAP = {"L1": "L1", "L2": "L2", "L3": "L3", "L4": "L5"}` 为底合并覆盖，**非法值（越界/非自主级）直接丢弃**（fail-closed），不静默生效。
+- **R-11 双人复核判据**：`required_approvals_for(effective_autonomy_level, risk_level)`——仅当 `effective_autonomy_level == "L4"` 且 `risk_level >= L4_TWO_APPROVER_MIN_RISK = "R2"` 返回 `2`，其余返回 `1`；001 既有 `require_approval` 调用方不传该参数时默认为 `1`，**旧票据无 `required_approvals` 字段按 1 处理**，单人路径零回归。
+- **R-12 驾驶舱消费形状**：`GET /api/trust-ratings/distribution` 返回 `dict[str, int]`（L1–L4 各自计数，缺失档位补 0），**不复用列表统计**；008 驾驶舱直接消费该端点，不新建第二套统计管道。
+- **R-13 审计映射**：经 `SystemAuditRepository.record_management_operation(record)` 写入 022 审计链，`record` 含 `tenant_id`/`asset_type`/`asset_key`/`before`/`after`/`reason`/`evidence`/`actor`；写入失败只记 warning、不抛（best-effort），与 `registry.py` 的容错写法一致。
+- **R-14 扫描并发与幂等**：**无分布式锁**（与 016 扫描器同构）。幂等性来自状态机：降级动作会把 `below_since` 重置为 `None`、`below_streak_days` 归 0，因此下一轮扫描不会连续降两级；多实例并发最坏情况是**重复写一条审计**，不会重复降级。人工升级与扫描竞态以"后写覆盖"为准（`record_change` 乐观更新），人工升级赢得竞态后 `passing` 判定会重置 streak。
+- **R-15 孤儿记录处理**：`run_downgrade_scan` 对 `validate_asset` 失败的记录**跳过并记 warning**、不中断整轮；但**不校验载体是否存在**（asset_type 合法即会被处理）。**首期没有清理任务**，载体删除后的评级记录保留为孤儿，直到人工清理——"清理任务"是 Edge Cases 的期望，当前未实现，属已知缺口。
+- **R-16 L4 双人复核风险边界**：`risk_level >= "R2"`（即 R2/R3）的 L4 调用需双人；`R4` 恒拒（`risk.py` 红线）**优先于双人复核**，配双人复核也不能放开 R4。
+
 ## Non-Goals
 
 - 不新建第二套评级体系，不替换或修改 001 的 L1–L5 × R0–R4 执行门禁矩阵（本特性是资产维度的映射与绑定）。

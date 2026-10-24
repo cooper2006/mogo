@@ -87,10 +87,28 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: 'Skill配置', hideInMenu: true },
       },
       {
+        path: '/skills/:id/canary',
+        name: 'SkillCanaryConfig',
+        component: () => import('@/views/skills/SkillCanaryConfigPage.vue'),
+        meta: { title: '灰度发布', hideInMenu: true },
+      },
+      {
+        path: '/trust-ratings',
+        name: 'TrustRatings',
+        component: () => import('@/views/trust-ratings/TrustRatingPage.vue'),
+        meta: { title: '资产评级', icon: SystemAuditIcon },
+      },
+      {
         path: '/tools',
         name: 'Tools',
         component: () => import('@/views/tools/ToolsPage.vue'),
         meta: { title: '工具与 MCP', icon: ToolsMcpIcon },
+      },
+      {
+        path: '/connectors',
+        name: 'ConnectorMarket',
+        component: () => import('@/views/connectors/ConnectorMarketPage.vue'),
+        meta: { title: '连接器市场', icon: ToolsMcpIcon },
       },
       {
         path: '/tools/new',
@@ -181,6 +199,20 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '本体授权', icon: OntologyIcon },
       },
       {
+        // 037: 统一门户 —— 资产上架 / 下架（即时生效，下架不撤销存量授权）
+        path: '/portal/listings',
+        name: 'PortalListings',
+        component: () => import('@/views/portal/PortalListingPage.vue'),
+        meta: { title: '门户上架', icon: SkillsManagerIcon },
+      },
+      {
+        // 037: 统一门户 —— 申领审批（批准即写入用户级 asset:use 授权）
+        path: '/portal/approvals',
+        name: 'PortalApprovals',
+        component: () => import('@/views/portal/PortalApprovalPage.vue'),
+        meta: { title: '门户审批', icon: SystemAuditIcon },
+      },
+      {
         path: '/hooks/rules',
         name: 'HookRules',
         component: () => import('@/views/hooks/HookRulesPage.vue'),
@@ -191,6 +223,20 @@ export const appRoutes: RouteRecordRaw[] = [
         name: 'SystemAudit',
         component: () => import('@/views/system-audit/SystemAuditPage.vue'),
         meta: { title: '系统审计', icon: SystemAuditIcon },
+      },
+      {
+        // 038: 出站白名单（platform/tenant/tool 三层并集，默认拒绝）
+        path: '/egress/allowlist',
+        name: 'EgressAllowlist',
+        component: () => import('@/views/egress/EgressAllowlistPage.vue'),
+        meta: { title: '出站访问控制', icon: HookRulesIcon },
+      },
+      {
+        // 038: 出站判定审计（egress.allowed / egress.denied）
+        path: '/egress/logs',
+        name: 'EgressLogs',
+        component: () => import('@/views/egress/EgressLogsPage.vue'),
+        meta: { title: '出站审计日志', icon: SystemAuditIcon },
       },
       {
         path: '/settings',

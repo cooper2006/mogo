@@ -68,6 +68,17 @@
                   <n-tag v-if="row.lifecycle?.authoringMode === 'platform'" size="small" :bordered="false" :type="row.lifecycle.publicationStatus === 'draft' || row.lifecycle.hasUnpublishedChanges ? 'warning' : 'success'">
                     {{ row.lifecycle.publicationStatus === 'draft' ? t('草稿') : row.lifecycle.hasUnpublishedChanges ? t('有未发布修改') : `v${row.lifecycle.publishedVersion}` }}
                   </n-tag>
+                  <n-tag
+                    v-if="skillTrustLevels[row.id]"
+                    size="small"
+                    :bordered="false"
+                    :type="trustTagType(skillTrustLevels[row.id])"
+                    class="skill-trust-tag"
+                    :title="t('资产评级')"
+                    @click.stop="goTrustRating"
+                  >
+                    {{ skillTrustLevels[row.id] }}
+                  </n-tag>
                 </div>
                 <span class="card-time">{{ formatAdminDateTime(row.updatedAt || row.createdAt, t('刚创建')) }}</span>
               </div>
@@ -231,6 +242,7 @@ import { useMessage, type FormInst, type FormRules } from 'naive-ui';
 import { t } from '@/composables/i18n';
 import { formatAdminDateTime, parseAdminDate } from '@/composables/adminTimezone';
 import { createSkill, deleteSkill, fetchSkills, setSkillEnabled, updateSkill, type SkillItem, type SkillPayload, type SkillType } from '@/api/skills';
+import { fetchTrustRatings, type TrustLevel } from '@/api/trustRatings';
 import SkillZipInstaller from './SkillZipInstaller.vue';
 import SkillPackageDetails from './SkillPackageDetails.vue';
 import SkillVersionHistory from './SkillVersionHistory.vue';
@@ -238,6 +250,30 @@ import OrganizationSkillFeedback from './OrganizationSkillFeedback.vue';
 
 const router = useRouter();
 const message = useMessage();
+
+// 036 trust-rating：技能资产评级徽标。评级数据独立拉取（一次列表请求），
+// 不改主技能列表请求；无评级或接口失败时不显示徽标，也不报错。
+const skillTrustLevels = ref<Record<string, TrustLevel>>({});
+
+async function loadTrustLevels() {
+  try {
+    const ratings = await fetchTrustRatings({ assetType: 'skill' });
+    skillTrustLevels.value = Object.fromEntries(ratings.map((item) => [item.asset_key, item.level]));
+  } catch {
+    skillTrustLevels.value = {};
+  }
+}
+
+function trustTagType(level: string): 'default' | 'info' | 'warning' | 'success' {
+  if (level === 'L4') return 'success';
+  if (level === 'L3') return 'warning';
+  if (level === 'L2') return 'info';
+  return 'default';
+}
+
+function goTrustRating() {
+  router.push({ name: 'TrustRatings' });
+}
 
 const loading = ref(false);
 const creating = ref(false);
@@ -520,7 +556,10 @@ async function confirmEnabledChange() {
   return true;
 }
 
-onMounted(loadRows);
+onMounted(() => {
+  loadRows();
+  loadTrustLevels();
+});
 </script>
 
 <style scoped>
@@ -851,6 +890,11 @@ onMounted(loadRows);
   align-items: center;
   padding: 0 12px;
   font-size: 13px;
+}
+
+.skill-trust-tag {
+  cursor: pointer;
+  font-weight: 650;
 }
 
 @media (max-width: 1200px) {

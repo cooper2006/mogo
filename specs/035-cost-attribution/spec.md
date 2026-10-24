@@ -162,6 +162,24 @@ analytics 的 token 用量下钻（`groupBy=user_request|session` 列表与 `GET
 - **与 042（三级配额，规划中/整合方案 §4.11）**：042 的团队/项目级配额消耗计量与本特性**共用同一数据源**（`token_usage_logs` + 归属链路）。本特性只做关系声明——**不在本特性实现配额**（Non-Goals）；反向声明：042 立项时应直接复用本特性的 agent_id/skill_id/workspace_id 埋点与六维聚合，不重复建数据源。
 - **与 017-three-scope-memory / 021-unified-context-address（语义同源）**：空间维度的 `workspace_id` 口径与 017 的 workspace scope、021 的 `mogo://` 地址空间同源（决策表第 2 项），不发明第二套空间标识。
 
+## 判定口径补充（2026-10-23，/speckit-checklist 回填）
+
+- **R-1 业务线标记的维护**：`org_units.is_business_line` 是**可选布尔字段**，由组织管理方按需在文档上置 `true`；首期**不提供**专用维护 API/UI，直接经既有组织单元写入路径维护。存量为空时业务线维度全部走"无标记回落"路径（R-2），不会被伪造。
+- **R-2 业务线回落判据**：沿部门 `path_ids`（root → leaf）从根向后取**第一个** `is_business_line == true` 的祖先；无标记时回落到**最高可见祖先**（`path_ids` 中最靠近根、且本次查询实际加载到的节点）；再无可解析祖先则归 `未分配`。不使用 `len(path_ids)` 硬编码层级判断。
+- **R-3 Agent 归属链路（首期简化，与 FR-004 有偏差）**：首期 Agent 维度的桶键直接取记录的 `agent_id`（为空时回退 `node_id`），**不做 018 能力资产注册表的名称解析**——资产名解析需要跨服务读资产表且要处理改名后的历史一致性，留待 036/018 侧提供映射后增强。`skill_id` 随记录携带，供后续链路还原；文档与 reason 文案如实说明"未登记回落原始能力引用 ID"。
+- **R-4 部门维度用户数口径**：用户数 = 窗口内该部门桶下**去重 `user_id`** 计数；`user_id` 为空的行只计入调用数与成本，不计入用户数；不做跨期去重（每次查询按 24h 窗口现算）。
+- **R-5 `未分配` 桶计入对账**：`未分配` 是**真实桶**，参与该维度的 `items` 合计与 `reconciles` 校验；因为 `attribute_cost` 对所有行分桶（含未分配），各维分桶合计恒等于窗口内 `totalCost`，对账容差沿用 `COST_TOLERANCE`。
+- **R-6 空间维度回退顺序**：`workspace_id` → 缺省回退 `project_id` → 仍为空归 `未分配`。`project_id` 仅作为 workspace 的**下位替代标识**写入同一 `workspace_id` 字段（不新增 project 维度）；空间维度的 reason 文案不区分"来自 workspace 还是 project"，避免前端出现两个口径。
+- **R-7 单条 `costUsd` 的计价时点**：以**写入时埋点值** `cost_estimate_usd` 为准（007 T019 口径）；仅当该字段缺失（历史行）时用查询时的 `MODEL_PRICES` + `DEFAULT_PRICE` 兜底计算。因此价目表事后调整**不影响**已有行金额，历史行兜底值可能与当日重算值存在差异，属预期；文档不做"按现价重算"承诺。
+- **R-8 `available` 判定**：窗口内**无任何调用记录** → `available: False` + reason（"近 24h 内无调用记录"）；有记录但该维度**全部落入 `未分配`** → `available: False` + reason（"全部调用缺失该维度数据源"）；只要有**至少一行**带真实维度值 → `available: True`（reason 为 `None`），部分未分配不影响可用性判定。
+- **R-9 维度键名与返回结构**：六个维度固定为 `departmentAttribution` / `businessLineAttribution` / `agentAttribution` / `spaceAttribution` / `userAttribution` / `enterpriseAttribution`；每项结构 `{dimension, available, reason|null, note, items[]}`，`items[]` 元素 `{key, dimension, calls, tokens, cost}`（按 `cost` 降序，cost 保留 6 位小数）。008 既有 `models` / `reconciles` / `forecast` 字段**原样保留**，新维度为**追加**（响应只增不改）。
+- **R-10 价目同源**：汇总与单条金额共用同一套 `MODEL_PRICES` + `DEFAULT_PRICE`（008）作为兜底源；`cost_estimate_usd` 是 007 写入的快照值。两者单价若漂移，以"快照优先、兜底统一"为口径，`reconciles` 只校验**同一响应内**的分桶合计与总和，不跨快照与实时值对账。
+- **R-11 018 资产表读取侧**：首期**不由 admin-api 读取 018 资产表**（见 R-3），所有维度归集只读 `token_usage_logs` + `end_user_org_relations` + `org_units` 三张集合；因此 dashboard 归集无跨服务调用、无额外延迟。
+- **R-12 与 036 的边界**：035 只提供"成本按维归集"的读接口；036 可信评级若要消费成本，必须复用本特性的 `attribute_cost`/维度结构，**不得自行再写一套归集**（本特性不实现任何降级/评级逻辑）。
+- **R-13 跨租户隔离落点**：所有反查都带 `tenant_id` 过滤——`token_usage_logs` 匹配含 `tenant_id`；`end_user_org_relations` 查询为 `{"tenant_id": ..., "user_id": {"$in": [...]}}`；`org_units` 经关系表解析出的 `org_id` 集合加载（不跨租户扫描）。跨租户请求由既有 008 鉴权层拒绝（403），本特性不新增鉴权分支。
+- **R-14 存量不回填的运营闭环**：存量记录缺 `agent_id`/`workspace_id` 一律归 `未分配`、不回填历史（FR-012）；为区分"没数据"与"埋点坏了"，每个维度返回 `reason`/`note` 文案说明缺什么数据源，运维据此判断补救路径（补埋点后新数据自动进入正确桶）。首期不做一次性回填脚本。
+- **R-15 归集窗口与行数上限**：归集窗口与 008 成本 section 一致为**近 24h**；单次归集最多读取 **50000** 行（`DIMENSION_ROW_LIMIT`，内存分桶，不额外下发聚合管道），超限按窗口内前 50000 行计算，属已知取舍。
+
 ## Non-Goals
 
 - 不实现三级配额（团队/项目级配额属整合方案 §4.11 / 042，只做关系声明与数据源共用预留）。

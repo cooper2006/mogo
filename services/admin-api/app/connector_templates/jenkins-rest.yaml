@@ -1,0 +1,57 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: jenkins-rest
+version: 1
+category: devops
+name:
+  zh: "Jenkins REST"
+  en: "Jenkins REST"
+description:
+  zh: "调用 Jenkins Remote API（任务/构建）。"
+  en: "Call the Jenkins Remote API (jobs/builds)."
+auth_type: api_key
+credential_key: token
+config_template:
+  method: GET
+  url: "https://${host}/${path}/api/json"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "Jenkins 域名（不含协议）"
+      en: "Jenkins host without scheme"
+    example: "<your-jenkins-host>"
+  - key: path
+    label:
+      zh: "任务路径"
+      en: "任务路径"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "任务路径（如 job/demo）"
+      en: "Job path (e.g. job/demo)"
+    example: "<job/demo>"
+  - key: token
+    label:
+      zh: "访问令牌"
+      en: "访问令牌"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "Jenkins API token"
+      en: "Jenkins API token"
+    example: "<your-jenkins-token>"
+test_hint:
+  probe:
+    zh: "读取一个任务的 api/json"
+    en: "读取一个任务的 api/json"
+  expected_status: 200

@@ -28,7 +28,7 @@
 
 **Constraints**: admin-api 不引入新 LLM 客户端、不引入新网络库（urllib 范式）；门禁不可整体关闭（FR-006）；评测记录不存完整 LLM 输出（FR-009）；前端新增文案走 `t()` 中文 key 回退（i18n 缺翻译时回退中文本身）
 
-**Scale/Scope**: 1 个新模块（`eval_gate/`，约 7 个文件）+ 3 个新集合 + 1 处挂卡（`skill_lifecycle.publish()`）+ 1 条新路由（`skill_eval.py`）+ 1 个前端组件增量；预计 FR 12 条、US 3 个
+**Scale/Scope**: 1 个新模块（`eval_gate/`，8 个文件，含网关令牌签发器）+ 3 个新集合 + 1 处挂卡（`skill_lifecycle.publish()`）+ 1 条新路由（`skill_eval.py`）+ 1 个前端组件增量；预计 FR 12 条、US 3 个
 
 ## Constitution Check
 
@@ -61,9 +61,11 @@ services/admin-api/
 │   ├── test_sets.py         # 新增：测试集 CRUD（租户隔离 + 用例上限）
 │   ├── policies.py          # 新增：阈值策略（默认 fail-closed 值 + 租户覆盖）
 │   ├── judges.py            # 新增：三指标规则判定器（确定性）
+│   ├── gateway_auth.py      # 新增：chat-api 模型网关 HMAC 令牌签发 + 请求体组装
 │   ├── executor.py          # 新增：评测执行器（chat-api 网关调用 + 超时隔离）
 │   └── gate.py              # 新增：门禁编排（publish 前判定）+ gate_events 审计
 ├── app/api/routes/skill_eval.py      # 新增：测试集 CRUD + dry-run + 报告查询路由
+├── app/core/config.py                # 复用+改动：网关签名密钥与评测 profile/model 实例配置
 ├── app/services/skill_lifecycle.py   # 复用+改动：publish() 插入门禁调用与 EvalGateBlocked
 ├── app/api/routes/skill_lifecycle.py # 复用+改动：publish 路由 except 分支映射阻断为 4xx
 └── tests/test_eval_gate.py           # 新增：判定器/门禁/fail-closed 单测

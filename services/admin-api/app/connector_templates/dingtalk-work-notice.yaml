@@ -1,0 +1,69 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: dingtalk-work-notice
+version: 1
+category: im
+name:
+  zh: "钉钉工作通知"
+  en: "DingTalk Work Notice"
+description:
+  zh: "通过企业内部应用发送工作通知。"
+  en: "Send a work notice through an internal app."
+auth_type: none
+credential_key: accessToken
+config_template:
+  method: POST
+  url: "https://oapi.dingtalk.com/topapi/message/corpconversation/asyncsend_v2?access_token=${access_token}"
+params:
+  - key: access_token
+    label:
+      zh: "Access Token"
+      en: "Access Token"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "企业内部应用 access_token"
+      en: "Internal app access_token"
+    example: "<your-dingtalk-access-token>"
+  - key: agent_id
+    label:
+      zh: "AgentId"
+      en: "AgentId"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "应用 AgentId"
+      en: "App agent id"
+    example: "<your-agent-id>"
+  - key: userid_list
+    label:
+      zh: "接收人"
+      en: "接收人"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "成员 userId，多个用 , 分隔"
+      en: "Member userIds, comma separated"
+    example: "<user-id>"
+  - key: text
+    label:
+      zh: "消息内容"
+      en: "消息内容"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "要发送的文本"
+      en: "Text to send"
+    example: "<hello from MOGO>"
+test_hint:
+  probe:
+    zh: "发送一条测试工作通知"
+    en: "发送一条测试工作通知"
+  expected_status: 200

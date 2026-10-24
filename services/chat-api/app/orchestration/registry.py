@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .conditions import ConditionError, evaluate_condition
-from .graph import Edge, Graph, GraphError, Node
+from .graph import Edge, Graph, GraphError, Node, VALID_MODES
 
 DEFAULT_DEFINITION_VERSION = 1
 
@@ -66,6 +66,17 @@ class OrchestrationDefinition:
         Raises ``RegistryError`` when a node/edge is invalid or a condition is
         malformed (fail-closed at definition time).
         """
+        if self.mode not in VALID_MODES:
+            raise RegistryError(
+                f"unsupported orchestration mode: {self.mode!r} "
+                f"(allowed: {', '.join(VALID_MODES)})"
+            )
+        for raw in self.nodes:
+            node_mode = str(raw.get("mode") or self.mode)
+            if node_mode not in VALID_MODES:
+                raise RegistryError(
+                    f"unsupported node mode on {raw.get('id')!r}: {node_mode!r}"
+                )
         try:
             self.to_graph()
         except GraphError as error:

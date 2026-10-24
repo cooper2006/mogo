@@ -139,6 +139,27 @@
 - **与 023（observability-resilience）**：后端全链路 Trace 属 023；本特性 Stage 1 只用消息内 `execution_events`（前端投影），不新增后端查询；若 Stage 2 立项，快照数据源将与 023 的 Trace 存储对齐（预留声明）。
 - **与 035（成本归集补维，未来 spec）**：单步成本金额依赖 035 透出到事件流；未落地前降权隐藏（FR-004）；两特性无强耦合，035 落地即自动增强本面板。
 
+## 判定口径补充（2026-10-24，/speckit-checklist 回填）
+
+> 本节消解 `checklists/requirements.md` 中 CHK001–CHK016 暴露的口径缺口，不新增功能范围。核查基线：`apps/user-web/src/features/execution-v3/`（`domain/protocol.ts`、`domain/runTiming.ts`、`domain/trajectoryRounds.ts`、`components/SessionTrajectoryView.vue`、`components/ExecutionViewV3.vue`）与 `apps/user-web/src/App.vue`。**本特性前端尚未实现**，以下为可执行规格。
+
+- **R-1（CHK001 承载组件）**：时间轴与下钻面板在**既有 `SessionTrajectoryView.vue`** 内扩展，不新建顶层视图；`ExecutionViewV3.vue` 继续作为 pane 级容器、不改其 props 契约。轮次聚合**必须复用** `domain/trajectoryRounds.ts::collectTrajectoryRounds`，禁止另写分组逻辑（否则锚点数与既有轨迹条数会不一致）。
+- **R-2（CHK002 知识命中的数据源）**：`domain/protocol.ts` 的 `V3ItemKind` 既有集合为 `commentary | activity | final_answer | tool | subagent | approval | browser_handoff | browser_preview | artifact | evidence | error`；**"知识命中"= `item_kind === 'evidence'` 的 item**，展开内容取该 item 的 `payload`（引用 id/标题/片段）。若某轮无 `evidence` item，该分组显示空态"本轮无知识命中"，**不得**从别处推断。
+- **R-3（CHK003 耗时口径）**：格式化复用 `apps/user-web/src/features/execution-v3/domain/runTiming.ts` 的 `formatRunDuration(durationMs: number | null, locale: 'zh' | 'en'): string`；运行中实时滚动复用的判据为 `TERMINAL_RUN_EVENT_TYPES`（该文件导出）与 `elapsedRunMs(startedAt, endedAt, now)`。**不得**在回放侧新写时长格式化函数。
+- **R-4（CHK004 Stage 2 预留形态）**：Stage 1 仅预留**两个类型级钩子**（无运行时代码）：①`types.ts` 中的 `ReplayFocus { round: number; expandedItemIds: string[] }` 类型导出；②`SessionTrajectoryView.vue` props 中预留可选 `replayFocus?: ReplayFocus`（不传即现状）。Stage 2 的实现细节（快照序列、重演执行）**不进本特性代码**，结论记录在 `plan.md` 的「Stage 2 预研结论」节。
+- **R-5（CHK005 轮次号口径）**：锚点轮次号 = `collectTrajectoryRounds` 返回数组的下标 + 1（**1-based**）；只含工具调用无文本的 assistant 轮**计入**（与既有轨迹一致）；不渲染非 assistant 消息作为锚点（FR-001）。
+- **R-6（CHK006 跳转展示边界）**：跳转后**聚焦展示该轮**（输入/输出/工具调用/知识命中四组完整展开），前序轮次**保留在时间轴可见但折叠**；不做"滚动定位到该轮原文"的隐式行为。用户可通过时间轴再次切换，也可点击"退出聚焦"回到全量滚动态。
+- **R-7（CHK007 成本行降权）**：判定口径 = 该 item 的 `payload` 中**存在** `cost_usd`（或 `costUsd`）数值字段才渲染成本行；渲染时**不透明度 60%**、字号降一级、并加后缀"（参考值）"。字段不存在则**整行不渲染**，**绝不**显示 `0`/`—`/估算值（FR-004 与 008 诚实占位同风）。
+- **R-8（CHK008 实时更新与焦点仲裁）**：新轮次到达时：若用户**未聚焦任何轮**且滚动处于底部 40px 内 → 自动滚动跟随；若用户已聚焦某轮或滚动已离开底部 → **不改变滚动位置**，仅在时间轴末尾追加新锚点并显示"N 个新轮次"提示。展开步骤状态跨新事件**保持不变**。
+- **R-9（CHK009 下钻粒度）**：步骤下钻为**多开**（`Set<item_id>`），默认全部折叠；切换轮次时**清空**展开集合（避免跨轮错位）。`ReplayFocus.expandedItemIds` 即该集合的序列化形态。
+- **R-10（CHK010 路径修正）**：spec 中引用的路径按仓库实际修正——`useChatRuntimeStore.ts` 位于 `apps/user-web/src/composables/useChatRuntimeStore.ts`（不是 `src/stores/`）；`runTiming.ts`/`protocol.ts` 位于 `apps/user-web/src/features/execution-v3/domain/`；`App.vue` 的轨迹 tab `v-show` 现为 `:2713`（对话）与 `:2774`（轨迹），pane 级切换在 `:2704`。实现时以实际文件为准，验收不依赖行号。
+- **R-11（CHK011 零改动边界）**：`ChatWindow.vue` 零改动指**不修改其组件实现与 props**；轨迹 tab 的容器（`v-show` 分支）在 `App.vue` 内，内容由 `SessionTrajectoryView.vue`（经 `ExecutionViewV3.vue`）承载。若实现确需在 `ChatWindow.vue` 内加插槽，须在此处登记为例外并同步 028 spec。
+- **R-12（CHK012 028 回归门禁）**：028 的四项验收以既有测试为准——`apps/user-web/tests/` 下 tab 切换/pane 独立/空态相关用例（实现时用 `grep -l "activeView\|ChatViewTabs" apps/user-web/tests` 定位）必须全绿；"无网络请求"以轨迹 tab 渲染期间不发起 `fetch` 为准（可加断言拦截 `window.fetch`）。
+- **R-13（CHK013 成本数据可得性）**：核查结论——user-web V3 事件流的 `V3ItemKind` 中**无成本类 item**，事件 `payload` 亦无约定的 `cost_usd` 字段（035 的 `costUsd` 只落在 admin-api 的 `analytics.py` 响应）。因此**首期成本行恒不渲染**，R-7 的渲染分支为**前瞻实现**、不构成本特性验收项。
+- **R-14（CHK014 空态）**：无 assistant 消息 → 轨迹 tab 显示既有空态，不渲染时间轴；1 轮时仍渲染时间轴（单锚点）；正在生成中的"不完整轮"**可跳转**（其输出区显示流式内容，耗时按 `elapsedRunMs` 实时计算），但在该轮 `run.completed` 前不提供"下钻历史耗时"。
+- **R-15（CHK015 性能边界）**：首期以 `>= 300 轮` 为性能观察线：时间轴锚点渲染不做虚拟滚动（锚点为轻量文本），但下钻面板**仅渲染当前聚焦轮的 item**；超过 300 轮时在时间轴顶部提示"会话较长，建议聚焦查看"。不引入新的虚拟列表依赖（YAGNI）。
+- **R-16（CHK016 定位失效）**：轮次因 V3 事件重放被替换时，以 `round` 序号重新解析（`collectTrajectoryRounds` 每次渲染重算）；若聚焦轮序超出新长度 → 自动聚焦最后一轮并清空展开集合；若该轮 item 集合变化 → 保留仍存在的 `expandedItemIds`，丢弃消失的（不抛错、不空屏）。
+
 ## Non-Goals
 
 - 不做 Stage 2 真回放（状态快照序列 + 重演执行）——仅预研结论与接口预留；真回放须另立 spec。

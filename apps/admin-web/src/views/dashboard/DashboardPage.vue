@@ -179,6 +179,33 @@
                 </div>
               </div>
             </n-card>
+            <!-- 035 US2: six-dimension cost attribution (Agent / 空间 / 部门 /
+                业务线 / 用户 / 企业). Unavailable dimensions show the backend's
+                honest placeholder reason instead of fabricated numbers. -->
+            <n-card class="panel-card span-12" :bordered="false" size="large">
+              <template #header>{{ t('成本归集维度') }}</template>
+              <div class="attribution-grid">
+                <div v-for="dim in costAttributionDims" :key="dim.key" class="attribution-cell">
+                  <div class="attribution-head">
+                    <span class="attribution-title">{{ dim.label }}</span>
+                    <span class="attribution-badge" :class="dim.available ? 'is-ok' : 'is-na'">
+                      {{ dim.available ? t('已归集') : t('无数据源') }}
+                    </span>
+                  </div>
+                  <div v-if="dim.available && dim.items.length" class="cost-list attribution-list">
+                    <div v-for="item in dim.items" :key="item.key" class="cost-row">
+                      <span class="cost-model" :title="item.key">{{ item.key }}</span>
+                      <span class="cost-share">{{ formatPercent(item.share) }}</span>
+                      <span class="cost-value">¥{{ formatCost(item.cost) }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="empty-state compact">
+                    <div class="empty-title">{{ dim.available ? t('暂无数据') : t('无数据源') }}</div>
+                    <div class="empty-copy">{{ dim.reason }}</div>
+                  </div>
+                </div>
+              </div>
+            </n-card>
           </section>
         </div>
         </n-tab-pane>
@@ -247,6 +274,17 @@
               <div class="empty-copy">{{ t('近 24 小时调用全部成功，或尚未产生调用。') }}</div>
             </div>
           </n-card>
+          <!-- 036 T021: 资产评级分布（FR-16）。接口失败或全为 0 时整块隐藏，
+               绝不展示 0 填充的假分布，也不阻塞其他卡片。 -->
+          <n-card v-if="trustDistributionVisible" class="panel-card" :bordered="false" size="large">
+            <template #header>{{ t('资产评级分布') }}</template>
+            <div class="trust-dist-grid">
+              <div v-for="cell in trustDistributionCells" :key="cell.level" class="trust-dist-cell" :class="`trust-dist-${cell.level.toLowerCase()}`">
+                <span class="trust-dist-level">{{ cell.level }}</span>
+                <strong class="trust-dist-count">{{ cell.count }}</strong>
+              </div>
+            </div>
+          </n-card>
         </div>
         </n-tab-pane>
         <n-tab-pane name="trend" :tab="t('趋势')">
@@ -301,12 +339,29 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { t, useLocale } from '@/composables/i18n';
+import { fetchTrustRatingDistribution, type TrustLevel } from '@/api/trustRatings';
 import { formatAdminShortDateTime } from '@/composables/adminTimezone';
 import { translateDashboardText } from './dashboardText';
 import adminProductUiExtension from '@mogo-admin-product-extension';
 
 type HealthStatus = 'healthy' | 'warning' | 'critical';
 type TodoLevel = 'error' | 'warning' | 'info';
+
+// 035 US2: six-dimension cost attribution. `available` is False when the backend
+// found no data source for that dimension — the UI must surface the honest
+// placeholder rather than fabricate numbers.
+interface CostAttribution {
+  dimension: string;
+  available: boolean;
+  reason: string | null;
+  note?: string;
+  items: Array<{
+    key: string;
+    calls: number;
+    tokens: number;
+    cost: number;
+  }>;
+}
 
 interface DashboardOverview {
   billing: {
@@ -362,6 +417,12 @@ interface DashboardOverview {
   // reconciliation + OQ-5 4-period moving-average forecast). The cost tab must
   // consume this, not the trend bottlenecks (001 audit, 2026-10-03).
   cost?: {
+    departmentAttribution: CostAttribution;
+    businessLineAttribution: CostAttribution;
+    agentAttribution: CostAttribution;
+    spaceAttribution: CostAttribution;
+    userAttribution: CostAttribution;
+    enterpriseAttribution: CostAttribution;
     totalTokens: number;
     promptTokens: number;
     completionTokens: number;
@@ -406,6 +467,28 @@ const ProductDashboardBillingActions = adminProductUiExtension.dashboardBillingA
 const overview = ref<DashboardOverview | null>(null);
 const loading = ref(false);
 const errorText = ref('');
+
+// 036 trust-rating: 资产评级分布（FR-16）。失败/空数据时整块隐藏，不影响其他卡片。
+const TRUST_LEVELS: TrustLevel[] = ['L1', 'L2', 'L3', 'L4'];
+const trustDistribution = ref<Record<TrustLevel, number> | null>(null);
+
+const trustDistributionVisible = computed(() => {
+  const data = trustDistribution.value;
+  if (!data) return false;
+  return TRUST_LEVELS.some((level) => Number(data[level]) > 0);
+});
+
+const trustDistributionCells = computed(() =>
+  TRUST_LEVELS.map((level) => ({ level, count: Number(trustDistribution.value?.[level]) || 0 })),
+);
+
+async function loadTrustDistribution() {
+  try {
+    trustDistribution.value = await fetchTrustRatingDistribution();
+  } catch {
+    trustDistribution.value = null;
+  }
+}
 
 const emptyMetrics = {
   calls24h: 0,
@@ -654,6 +737,47 @@ const costForecast = computed(() => {
   return Math.round(average * 1000000) / 1000000;
 });
 
+// --- 035 US2: six-dimension cost attribution --------------------------------
+// The backend buckets the same 24h window by Agent / 空间 / 部门 / 业务线 /
+// 用户 / 企业; here we just surface each dimension's top buckets and its honest
+// availability state (FR-009: never fabricate a zero bucket).
+const COST_DIM_LABELS: Record<string, string> = {
+  agent: 'Agent',
+  space: '空间',
+  department: '部门',
+  business_line: '业务线',
+  user: '用户',
+  enterprise: '企业',
+};
+const costAttributionDims = computed(() => {
+  const section = costSection.value;
+  if (!section) return [];
+  const sources: Array<[string, CostAttribution | undefined]> = [
+    ['agent', section.agentAttribution],
+    ['space', section.spaceAttribution],
+    ['department', section.departmentAttribution],
+    ['business_line', section.businessLineAttribution],
+    ['user', section.userAttribution],
+    ['enterprise', section.enterpriseAttribution],
+  ];
+  return sources
+    .filter(([, attr]) => attr !== undefined)
+    .map(([key, attr]) => {
+      const items = (attr!.items || []).slice();
+      const total = items.reduce((sum, item) => sum + (item.cost || 0), 0);
+      return {
+        key,
+        label: COST_DIM_LABELS[key] ?? key,
+        available: !!attr!.available,
+        reason: attr!.reason || '',
+        items: items
+          .map((item) => ({ ...item, share: total > 0 ? Math.round((item.cost / total) * 100) : 0 }))
+          .sort((a, b) => b.cost - a.cost)
+          .slice(0, 6),
+      };
+    });
+});
+
 // --- T016 usage tab: time series + dedup + ranking ----------------------------
 const grainOptions = computed(() => [
   { label: t('日'), value: 'day' },
@@ -761,7 +885,10 @@ function formatTime(value: string | null) {
   return formatAdminShortDateTime(value, t('暂无'));
 }
 
-onMounted(loadOverview);
+onMounted(() => {
+  loadOverview();
+  loadTrustDistribution();
+});
 </script>
 
 <style scoped>
@@ -834,6 +961,56 @@ onMounted(loadOverview);
   color: #17366f;
   font-size: 15px;
 }
+/* 035 US2 — six-dimension cost attribution */
+.attribution-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.attribution-cell {
+  background: #f8fafc;
+  border: 1px solid #eef2f9;
+  border-radius: 8px;
+  padding: 12px;
+}
+.attribution-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.attribution-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #17366f;
+}
+.attribution-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.attribution-badge.is-ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+.attribution-badge.is-na {
+  background: #fef3c7;
+  color: #b45309;
+}
+.attribution-list {
+  gap: 4px;
+}
+.attribution-list .cost-row {
+  padding: 4px 0;
+}
+.attribution-list .cost-model {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .series-bars {
   display: flex;
   flex-direction: column;
@@ -887,6 +1064,42 @@ onMounted(loadOverview);
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.trust-dist-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.trust-dist-cell {
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.trust-dist-level {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.trust-dist-count {
+  font-size: 22px;
+}
+.trust-dist-l1 {
+  background: #f1f3f7;
+  color: #5b6472;
+}
+.trust-dist-l2 {
+  background: #e8f1fd;
+  color: #2f6fd6;
+}
+.trust-dist-l3 {
+  background: #fdf1e3;
+  color: #d9821f;
+}
+.trust-dist-l4 {
+  background: #e7f6ec;
+  color: #1f9d57;
 }
 .anomaly-row {
   display: grid;

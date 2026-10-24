@@ -1,0 +1,46 @@
+# 040-model-tier-routing：模型档位路由配置。
+#
+# 结构（见 specs/040-model-tier-routing/spec.md 的 R-1..R-16）：
+#   enabled        总开关；关掉后 resolve() 只走 disabled_fallback（沿用既有语义）
+#   by_node/by_stage/by_intent/task_override  既有静态映射，命中即返回、不再评估档位（R-14）
+#   models/env:*   既有静态兜底链，tier 全部未命中时才落到这里（R-3）
+#   tiering       任务复杂度阈值（R-4），逐键浅合并到 complexity.DEFAULT_TIERING_THRESHOLDS
+#   tiers         档位 -> 031 模型实例 ID（admin_model_instances._id，24 位小写 hex）
+#   tenants       按租户覆盖档位映射；未配置的租户回落 tiers（R-3）
+#
+# 注意：tiers 的值是**模型实例 ID**，不是 model_name。实例 ID 由 031
+# 「模型与能力配置」写入 admin_model_instances，格式为 24 位小写十六进制
+# （MongoDB ObjectId 字符串）；本配置只做形态校验，真伪校验在 client 构造层
+# （R-12）——ID 写错会在运行期回落 mid 并告警 model_config_missing，不会把
+# ObjectId 当成 model_name 发给上游。
+#
+# 缺省留空：未配置的档位视为"未启用分层"，请求继续走 models/env:*/config_fallback，
+# 保证升级到本版本而尚未配置实例 ID 的租户行为不变。
+
+enabled: true
+
+by_node: {}
+by_stage: {}
+by_intent: {}
+
+models:
+  general: ""
+  chat: ""
+  coding: ""
+
+tiering:
+  thresholds:
+    prompt_chars_high: 4000
+    tool_count_high: 8
+    multi_turn_high: 4
+    high_stages:
+      - coding
+    high_intents:
+      - coding
+
+tiers:
+  light: ""
+  mid: ""
+  high: ""
+
+tenants: {}

@@ -11,7 +11,9 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
+from app.security.kms import KmsConfigError
 from app.security.service_token import service_token_headers
+from app.security.tool_credentials import encrypt_credentials, merge_credential_preserve, redact_credentials
 from app.api.deps import get_current_admin_user
 from app.api.time_utils import utc_iso
 from app.api.tool_limits import validate_mcp_activation
@@ -72,7 +74,7 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
         "usageHint": str(doc.get("usage_hint") or ""),
         "tags": [str(item) for item in _safe_list(doc.get("tags")) if str(item).strip()],
         "status": str(doc.get("status") or "disabled"),
-        "config": _safe_dict(doc.get("config")),
+        "config": redact_credentials(_safe_dict(doc.get("config"))),
         "lastTestStatus": str(doc.get("last_test_status") or "untested"),
         "lastTestAt": _time_text(doc.get("last_test_at")),
         "lastTestMessage": str(doc.get("last_test_message") or ""),
@@ -82,7 +84,12 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_payload(payload: dict[str, Any], *, partial: bool = False) -> dict[str, Any]:
+def _normalize_payload(
+    payload: dict[str, Any],
+    *,
+    partial: bool = False,
+    existing_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     patch: dict[str, Any] = {}
     if not partial or "name" in payload:
         name = str(payload.get("name") or "").strip()
@@ -111,7 +118,24 @@ def _normalize_payload(payload: dict[str, Any], *, partial: bool = False) -> dic
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="状态只支持 active 或 disabled")
         patch["status"] = tool_status
     if not partial or "config" in payload:
-        patch["config"] = _safe_dict(payload.get("config"))
+        incoming_config = _safe_dict(payload.get("config"))
+        if existing_config:
+            # FR-006：全量更新 / 携带 config 的 PATCH 时，缺失或为空的凭证键
+            # 从既有密文继承，避免掩码约定导致凭证被打成空。
+            incoming_config = merge_credential_preserve(incoming_config, existing_config)
+        try:
+            patch["config"] = encrypt_credentials(incoming_config)
+        except KmsConfigError as exc:
+            # fail-closed：主密钥缺失/过短时不落明文兜底。
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"工具凭证加密不可用，请先配置主密钥：{exc}",
+            ) from exc
+        except Exception as exc:  # EncryptionError 等
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"工具凭证加密失败：{exc}",
+            ) from exc
     return patch
 
 
@@ -214,16 +238,20 @@ async def list_tools(current_user: dict = Depends(get_current_admin_user)) -> li
     return [_serialize(doc) async for doc in cursor]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-async def create_tool(payload: ToolPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
-    tenant_id = str(current_user.get("tenant_id") or "default")
+async def create_tool_record(*, tenant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Create one external tool row.
+
+    041 FR-004（同构硬约束）：连接器市场「从模板创建」必须复用本函数落库，
+    不允许另建一套工具存储或注入路径。返回的是库内原始文档（未脱敏），
+    调用方自行 `_serialize`。
+    """
     db = get_db()
     now = _now()
     doc = {
         "_id": uuid.uuid4().hex,
         "tenant_id": tenant_id,
         **organization_tool_fields(),
-        **_normalize_payload(payload.model_dump()),
+        **_normalize_payload(payload),
         "status": "disabled",
         "last_test_status": "untested",
         "last_test_at": None,
@@ -233,6 +261,13 @@ async def create_tool(payload: ToolPayload, current_user: dict = Depends(get_cur
         "updated_at": now,
     }
     await db.external_tools.insert_one(doc)
+    return doc
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_tool(payload: ToolPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, Any]:
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    doc = await create_tool_record(tenant_id=tenant_id, payload=payload.model_dump())
     return _serialize(doc)
 
 
@@ -253,7 +288,7 @@ async def update_tool(tool_id: str, payload: ToolPayload, current_user: dict = D
     existing = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    patch = {**_normalize_payload(payload.model_dump()), "updated_at": _now()}
+    patch = {**_normalize_payload(payload.model_dump(), existing_config=_safe_dict(existing.get("config"))), "updated_at": _now()}
     _validate_final_activation(existing, patch)
     result = await db.external_tools.update_one(organization_tool_query(tenant_id, _id=str(tool_id)), {"$set": patch})
     if not result.matched_count:
@@ -269,7 +304,11 @@ async def patch_tool(tool_id: str, payload: ToolPatchPayload, current_user: dict
     existing = await db.external_tools.find_one(organization_tool_query(tenant_id, _id=str(tool_id)))
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工具连接不存在")
-    patch = _normalize_payload(payload.model_dump(exclude_unset=True), partial=True)
+    patch = _normalize_payload(
+        payload.model_dump(exclude_unset=True),
+        partial=True,
+        existing_config=_safe_dict(existing.get("config")),
+    )
     if patch:
         _validate_final_activation(existing, patch)
         patch["updated_at"] = _now()

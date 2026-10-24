@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, capability_assets, dashboard, directory, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, presentation_settings, setup, shortcut_settings, skill_canary, skill_lifecycle, skill_monitoring, skills, system, system_audit, tools, traffic_allocations
+from app.api.routes import analytics, auth, capability_assets, connector_market, dashboard, directory, egress, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, tools, traffic_allocations, trust_ratings
 from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
@@ -32,10 +32,15 @@ api_router.include_router(skill_canary.router, tags=["skill-canary"])
 api_router.include_router(skill_monitoring.router, tags=["skill-monitoring"])
 api_router.include_router(capability_assets.router, prefix="/capabilities", tags=["capability-assets"])
 api_router.include_router(skill_lifecycle.router, prefix="/skills", tags=["skills"])
+api_router.include_router(skill_eval.router, prefix="/skills", tags=["skills"])
 api_router.include_router(tools.router, prefix="/tools", tags=["tools"])
 api_router.include_router(governance.router, tags=["governance"])
+api_router.include_router(trust_ratings.router, tags=["trust-rating"])
+api_router.include_router(portal_admin.router, tags=["portal"])
 api_router.include_router(hooks.router, tags=["hooks"])
+api_router.include_router(egress.router, tags=["egress"])
 api_router.include_router(external_search.router, prefix="/settings/external-search", tags=["external-search"])
 api_router.include_router(page_collection.router, prefix="/settings/page-collection", tags=["page-collection"])
 api_router.include_router(presentation_settings.router, prefix="/settings/presentation", tags=["presentation-settings"])
 api_router.include_router(shortcut_settings.router, prefix="/settings/shortcuts", tags=["shortcut-settings"])
+api_router.include_router(connector_market.router, prefix="/connectors", tags=["connectors"])

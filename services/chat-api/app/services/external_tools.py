@@ -17,6 +17,13 @@ from app.core.db import get_db
 from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
+from app.security.kms import KmsConfigError
+from app.security.tool_credentials import (
+    decrypt_credentials,
+    encrypt_credentials,
+    merge_credential_preserve,
+    redact_credentials,
+)
 from app.services.external_tool_limits import MCP_ENABLED_TOOL_LIMIT, enabled_mcp_tool_names, validate_mcp_activation
 from app.services.mcp_call_result import build_mcp_call_outcome
 from app.services.mcp_streamable_http import StreamableHttpMcpClient
@@ -100,7 +107,7 @@ def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
         "usageHint": str(doc.get("usage_hint") or ""),
         "tags": [str(item) for item in _safe_list(doc.get("tags")) if str(item).strip()],
         "status": str(doc.get("status") or "disabled"),
-        "config": _safe_dict(doc.get("config")),
+        "config": redact_credentials(_safe_dict(doc.get("config"))),
         "lastTestStatus": str(doc.get("last_test_status") or "untested"),
         "lastTestAt": _serialize_time(doc.get("last_test_at")),
         "lastTestMessage": str(doc.get("last_test_message") or ""),
@@ -110,7 +117,13 @@ def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_payload(payload: Dict[str, Any], *, partial: bool = False) -> Dict[str, Any]:
+def _normalize_payload(
+    payload: Dict[str, Any],
+    *,
+    partial: bool = False,
+    existing_config: Dict[str, Any] | None = None,
+    encrypt_config: bool = True,
+) -> Dict[str, Any]:
     patch: Dict[str, Any] = {}
     if not partial or "name" in payload:
         name = str(payload.get("name") or "").strip()
@@ -139,7 +152,19 @@ def _normalize_payload(payload: Dict[str, Any], *, partial: bool = False) -> Dic
             raise ValueError("状态只支持 active 或 disabled")
         patch["status"] = status
     if "config" in payload or not partial:
-        patch["config"] = _safe_dict(payload.get("config"))
+        incoming_config = _safe_dict(payload.get("config"))
+        if existing_config:
+            # FR-006：全量更新 / 携带 config 的 PATCH 时，缺失或为空的凭证键
+            # 从既有密文继承，避免掩码约定导致凭证被打成空。
+            incoming_config = merge_credential_preserve(incoming_config, existing_config)
+        if encrypt_config:
+            try:
+                patch["config"] = encrypt_credentials(incoming_config)
+            except KmsConfigError as exc:
+                # fail-closed：主密钥缺失/过短时不落明文兜底。
+                raise ValueError(f"工具凭证加密不可用，请先配置主密钥：{exc}") from exc
+        else:
+            patch["config"] = incoming_config
     return patch
 
 
@@ -196,15 +221,19 @@ class ExternalToolService:
             visible.append(item)
         return visible
 
-    async def get(
-        self,
-        tool_id: str,
-        tenant_id: str = "default",
-        *,
-        scope: str = "organization",
-        owner_user_id: str = "",
-    ) -> Optional[Dict[str, Any]]:
-        db = get_db()
+    @staticmethod
+    def _execution_tool(raw: Dict[str, Any]) -> Dict[str, Any]:
+        """构造注入用 tool：与 ``_serialize`` 同构，但 config 的凭证已解密为明文。
+
+        注入侧 MUST 使用本方法（或原始 Mongo 文档）——``get()`` 返回的 config
+        凭证已被掩码为 ``***``，无法还原，直接注入会把 ``***`` 发到上游。
+        """
+        tool = _serialize(raw)
+        tool["config"] = decrypt_credentials(_safe_dict(raw.get("config")))
+        return tool
+
+    @staticmethod
+    def _scope_query(tool_id: str, *, scope: str, owner_user_id: str) -> Dict[str, Any]:
         query: Dict[str, Any] = {"_id": str(tool_id)}
         normalized_scope = str(scope or "organization").strip().lower()
         if normalized_scope == "user":
@@ -213,7 +242,34 @@ class ExternalToolService:
             pass
         else:
             query["$or"] = [{"scope": "organization"}, {"scope": {"$exists": False}}, {"scope": ""}]
-        doc = await db.external_tools.find_one(add_tenant_scope(query, tenant_id))
+        return query
+
+    async def _raw_get(
+        self,
+        tool_id: str,
+        tenant_id: str = "default",
+        *,
+        scope: str = "organization",
+        owner_user_id: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        """按原样返回 Mongo 文档（config 仍为密文），供注入/更新路径使用。
+
+        ``get()`` 返回的是 ``_serialize()`` 产物——凭证字段已被掩码为 ``***``，
+        无法还原为明文，因此**执行/更新路径不得使用 ``get()`` 的 config**。
+        """
+        db = get_db()
+        query = add_tenant_scope(self._scope_query(tool_id, scope=scope, owner_user_id=owner_user_id), tenant_id)
+        return await db.external_tools.find_one(query)
+
+    async def get(
+        self,
+        tool_id: str,
+        tenant_id: str = "default",
+        *,
+        scope: str = "organization",
+        owner_user_id: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        doc = await self._raw_get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
         return _serialize(doc) if doc else None
 
     async def create(
@@ -254,25 +310,22 @@ class ExternalToolService:
         owner_user_id: str = "",
     ) -> Optional[Dict[str, Any]]:
         db = get_db()
-        patch = _normalize_payload(payload, partial=True)
-        if not patch:
-            return await self.get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
-        existing = await self.get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
-        if not existing:
+        raw = await self._raw_get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
+        if not raw:
             return None
-        final_state = _merged_tool_state(existing, patch)
+        existing = _serialize(raw)
+        patch = _normalize_payload(payload, partial=True, existing_config=_safe_dict(raw.get("config")))
+        if not patch:
+            return existing
+        final_state = _merged_tool_state(raw, patch)
         validate_mcp_activation(
             tool_type=str(final_state.get("type") or ""),
             status=str(final_state.get("status") or ""),
             config=_safe_dict(final_state.get("config")),
         )
         patch["updated_at"] = _now()
-        query: Dict[str, Any] = {"_id": str(tool_id)}
-        if str(scope or "organization").strip().lower() == "user":
-            query.update({"scope": "user", "owner_user_id": str(owner_user_id or "").strip()})
-        else:
-            query["$or"] = [{"scope": "organization"}, {"scope": {"$exists": False}}, {"scope": ""}]
-        result = await db.external_tools.update_one(add_tenant_scope(query, tenant_id), {"$set": patch})
+        query = add_tenant_scope(self._scope_query(tool_id, scope=scope, owner_user_id=owner_user_id), tenant_id)
+        result = await db.external_tools.update_one(query, {"$set": patch})
         if not result.matched_count:
             return None
         return await self.get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
@@ -303,9 +356,12 @@ class ExternalToolService:
         scope: str = "organization",
         owner_user_id: str = "",
     ) -> Dict[str, Any]:
-        tool = await self.get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
-        if not tool:
+        raw = await self._raw_get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
+        if not raw:
             raise ValueError("工具连接不存在")
+        tool = _serialize(raw)
+        # 注入侧必须用已解密的 config（掩码 `***` 不可还原为明文）。
+        runtime_tool = self._execution_tool(raw)
         logger.info(
             "external_tool_test_received tool_id=%s tenant_id=%s tool_type=%s tool_name=%s config=%s test_input=%s",
             tool_id,
@@ -318,9 +374,9 @@ class ExternalToolService:
         started = time.monotonic()
         try:
             if tool["type"] == "mcp":
-                result = await self._test_mcp(tool, test_input)
+                result = await self._test_mcp(runtime_tool, test_input)
             else:
-                result = await self._test_http(tool, test_input)
+                result = await self._test_http(runtime_tool, test_input)
             logger.info(
                 "external_tool_test_result tool_id=%s success=%s status=%s message=%s debug=%s",
                 tool_id,
@@ -359,7 +415,7 @@ class ExternalToolService:
     async def test_draft(self, payload: Dict[str, Any], test_input: Dict[str, Any], tenant_id: str = "default") -> Dict[str, Any]:
         started = time.monotonic()
         try:
-            normalized = _normalize_payload(payload)
+            normalized = _normalize_payload(payload, encrypt_config=False)
             tool = {
                 "id": "draft",
                 "tenantId": resolve_tenant_id(tenant_id),
@@ -377,7 +433,7 @@ class ExternalToolService:
                 tenant_id,
                 tool.get("type"),
                 tool.get("name"),
-                _short_text(tool.get("config"), 5000),
+                _short_text(redact_credentials(_safe_dict(tool.get("config"))), 5000),
                 _short_text(test_input, 5000),
             )
             if tool["type"] == "mcp":
@@ -414,9 +470,10 @@ class ExternalToolService:
         scope: str = "organization",
         owner_user_id: str = "",
     ) -> Dict[str, Any]:
-        tool = await self.get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
-        if not tool:
+        raw = await self._raw_get(tool_id, tenant_id, scope=scope, owner_user_id=owner_user_id)
+        if not raw:
             raise ValueError("工具连接不存在")
+        tool = self._execution_tool(raw)
         if tool["type"] != "mcp":
             raise ValueError("只有 MCP 服务支持发现 tools")
         result = await self._mcp_jsonrpc(tool, "tools/list", {})
@@ -466,9 +523,10 @@ class ExternalToolService:
         HTTP/MCP resolvers, but this method does not mutate last-test metadata.
         """
         started = time.monotonic()
-        tool = await self.get(external_tool_id, tenant_id, scope="any")
-        if not tool:
+        raw = await self._raw_get(external_tool_id, tenant_id, scope="any")
+        if not raw:
             raise ValueError("工具连接不存在")
+        tool = self._execution_tool(raw)
         if str(tool.get("status") or "active") != "active":
             raise ValueError("工具连接未启用")
         if provider_type and str(tool.get("type") or "") != str(provider_type):
@@ -722,7 +780,8 @@ class ExternalToolService:
         return ""
 
     def _resolve_http_request(self, tool: Dict[str, Any], test_input: Dict[str, Any]) -> Dict[str, Any]:
-        config = _safe_dict(tool.get("config"))
+        # 注入侧统一从 config 解密凭证（宽容解密，兼容明文/密文双跑期）。
+        config = decrypt_credentials(_safe_dict(tool.get("config")))
         url = str(config.get("url") or "").strip()
         if not url:
             raise ValueError("HTTP URL 不能为空")
@@ -946,7 +1005,9 @@ class ExternalToolService:
         params: Dict[str, Any],
         runtime_headers: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
-        config = _safe_dict(tool.get("config"))
+        # 注入侧统一从 config 解密凭证（宽容解密：明文/密文双跑期兼容）；
+        # 解密失败抛 EncryptionError（fail-closed，不出站、不回退明文）。
+        config = decrypt_credentials(_safe_dict(tool.get("config")))
         endpoint = str(config.get("endpoint") or config.get("url") or "").strip()
         if not endpoint:
             raise ValueError("MCP 服务地址不能为空")

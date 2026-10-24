@@ -137,6 +137,7 @@
 - **与 013（multi-im-entry）**：013 的 IM 渠道入口请求是 001 门禁链的**受管入口**，IM 入口请求 100% 过 001 门禁/审计。
 - **与 018（capability-asset-registration）**：018 注册的能力资产调用是 001 门禁链的**受管调用**，资产调用 100% 过 001 门禁/审计。
 - **与 019（harness-elastic-config）**：019 是 001 六层门禁的"**启用哪几层**"开关层，与 001 六层为**同一"层"概念**（001 层4 审批/层5 配额 = 019 可省层）；001 层语义不因 019 开关而改变。
+- **与 042（three-level-quota）**：042 把层 5 配额的解析扩为「团队 / 项目 + 租户 + 用户」三层，**`governance/layers/quota.py` 零改动**（层 5 的调用契约不变，只在 `app/core/quota_policy.py` 的 summary/断言内扩展口径）；余额不足时仍由层 5 拒绝，`QuotaExceededError` 新增 `layer`/`scope_id`/`kind` 归因属性，供层 5 透传至调用方，不改变 001 的允许/拒绝判定语义。
 - **权限码 resource 扩展**：001 权限码模型支持下游特性注册 resource 维度——**014 的 `bizdata`（业务数据）**、**015 的 `kg`（知识图谱）**；权限码格式 `<resource>:<action>[:<target>]` 不变。
 
 ## Clarify 记录（/speckit-clarify，2026-07-08）

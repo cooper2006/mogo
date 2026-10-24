@@ -91,7 +91,7 @@
       > `test_registry_keeps_every_version_browsable`，驱动
       > `OrchestrationDefinition.update()`（版本递增 + 归档）与
       > `OrchestrationRegistry.history()`（旧版可回看）。
-- [x] T022 写 `quickstart.md` + `contracts/orchestration.md`（编排定义 schema + 四模式契约）
+- [x] T022 写 `quickstart.md` + `contracts/orchestration.md`（编排定义 schema + 六模式契约，2026-10-24 由 044 联合补齐）
 
 ---
 
@@ -114,3 +114,7 @@ Phase 1 (骨架/图模型/注册) → Phase 2 (拓扑/条件) → US1 → US2 �
 - 引擎不绑定内容语义；`content/planning` 作迁移验证场景（双轨 + 等价）。
 - 与 007（重试分层）、009（节点钩子触发）、002（版本化对接）的跨特性关系已在 spec 双向声明。
 - 未改 services 源码；本文件仅在 `specs/010-dag-orchestration-engine/` 下。
+
+## 联合更新（044 multi-agent-modes，2026-10-24）
+- `contracts/orchestration.md` 由四模式契约扩为六模式（新增 `round_robin` / `debate`），
+  `quickstart.md` §5 同步改为 "Six modes"，本 tasks 与 spec/plan 已在 044 落地时一并更新。

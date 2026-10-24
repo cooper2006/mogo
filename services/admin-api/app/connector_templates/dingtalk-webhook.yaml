@@ -1,0 +1,45 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: dingtalk-webhook
+version: 1
+category: oa
+name:
+  zh: "钉钉机器人 Webhook"
+  en: "DingTalk Robot Webhook"
+description:
+  zh: "向钉钉群机器人推送纯文本消息。"
+  en: "Push a plain-text message to a DingTalk group robot."
+auth_type: none
+credential_key: accessToken
+config_template:
+  method: POST
+  url: "https://oapi.dingtalk.com/robot/send?access_token=${access_token}"
+params:
+  - key: access_token
+    label:
+      zh: "Access Token"
+      en: "Access Token"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "机器人 Webhook 的 access_token"
+      en: "Robot webhook access_token"
+    example: "<your-dingtalk-access-token>"
+  - key: text
+    label:
+      zh: "消息内容"
+      en: "消息内容"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "要发送的文本"
+      en: "Text to send"
+    example: "<hello from MOGO>"
+test_hint:
+  probe:
+    zh: "发送一条测试文本"
+    en: "发送一条测试文本"
+  expected_status: 200

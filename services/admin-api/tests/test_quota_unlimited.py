@@ -42,6 +42,17 @@ class _MemCol:
             new_doc.update(update.get("$set", {}))
             self.docs.append(new_doc)
 
+    def find(self, flt=None, *args, **kwargs):
+        # 042：三层配额解析会枚举团队成员（``col.find({...}).to_list()``）。
+        # 保持与 Motor 一致——``find`` 是普通函数，返回对象带 awaitable ``to_list``。
+        rows = [dict(doc) for doc in self.docs if _matches(doc, flt or {})]
+
+        class _Cursor:
+            async def to_list(self, length=None):
+                return rows if length is None else rows[:length]
+
+        return _Cursor()
+
     def aggregate(self, pipeline):
         # Only the ``sum_usage`` shape is exercised: match then sum a field.
         # The production call is ``await col.aggregate([...]).to_list(1)``, so

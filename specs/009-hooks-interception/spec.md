@@ -118,3 +118,12 @@
 
 ### OQ-4 规则作用域存储 schema
 - **决策**：`hook_rules{scope ∈ {tool, session, tenant}, rule_type ∈ {deny_tool, require_field, observe}, rule_config, enabled}`，作用域字段决定匹配粒度。
+
+## 出站检查挂载说明（038 补充，文档层，不改本特性 FR）
+
+038（出站白名单）在 009 的 PreToolUse 求值点**同一位置**挂载出站判定，但**不新增 `rule_type`**：
+
+- **顺序**：先出站白名单判定（`EgressGuard.decide_urls`）→ 再进入 009 规则求值 → 最后真实执行。出站判定拒绝时**不进入** `tool.started` 之后的执行阶段，直接返回失败并写 `egress.denied` 审计。
+- **归属**：出站策略属 chat-api `enterprise_capabilities/tools/egress_guard.py`，配置存 `egress_allowlist` 集合（admin-api CRUD）；009 的 `hook_rules` 集合与规则语义**零改动**。
+- **fail-closed 同口径**：009 OQ-2 的"超时/异常一律拒绝"与 038 的默认拒绝一致；两者叠加时任一拒绝即拒绝。
+- **即时生效**：009 FR-4 的"保存后下一调用生效"在 038 侧体现为进程内快照 `ttl = 2.0s` + `invalidate()`（见 038 spec R-4），不引入跨进程广播。

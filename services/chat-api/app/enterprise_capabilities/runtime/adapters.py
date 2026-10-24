@@ -23,7 +23,11 @@ from app.services.runtime_parse_service import runtime_parse_service
 from app.services.rag_service.internal_knowledge_qa_service import internal_knowledge_qa_service
 from app.enterprise_capabilities.research.progressive.provider_router import ProviderRouter
 from app.enterprise_capabilities.research.progressive.agent import ProgressiveResearchAgent
-from app.infrastructure.request_context import reset_request_context, set_request_context
+from app.infrastructure.request_context import (
+    merge_request_context,
+    reset_request_context,
+    set_request_context,
+)
 from app.llm.configured_models import (
     get_default_model_config,
     get_default_model_config_by_capability,
@@ -247,7 +251,9 @@ async def web_collect(arguments: dict[str, Any], context: CapabilityExecutionCon
 
 
 async def external_search(arguments: dict[str, Any], context: CapabilityExecutionContext) -> dict[str, Any]:
-    previous = set_request_context({"tenant_id": context.tenant_id, "user_id": context.user_id})
+    # 035 T017: use merge (not set) so the capability-level attribution dimensions
+    # seeded by ``InternalCapabilityService.execute`` (agent_id / skill_id) survive.
+    previous = merge_request_context({"tenant_id": context.tenant_id, "user_id": context.user_id})
     try:
         candidates, trace = await ProviderRouter().search(
             [str(item) for item in list(arguments.get("queries") or []) if str(item).strip()],
@@ -286,7 +292,8 @@ async def progressive_research(arguments: dict[str, Any], context: CapabilityExe
         for row in projector.project(event):
             await context.publish_progress(row)
 
-    previous_request = set_request_context({
+    # 035 T017: merge keeps agent_id / skill_id from the capability scope.
+    previous_request = merge_request_context({
         "tenant_id": context.tenant_id,
         "user_id": context.user_id,
         "configured_model": model_config,

@@ -29,6 +29,11 @@ from typing import Any, Iterable, Optional
 
 TOKEN_USAGE_COLLECTION = "token_usage_logs"
 APPROVAL_EVENTS_COLLECTION = "approval_events"
+# 042-three-level-quota: quota 告警是独立事件流，**不并入** ANOMALY_STATUSES
+# （后者过滤 token_usage_logs.status，quota 告警不写 usage 行，塞进去只会假绿）。
+QUOTA_ALERT_COLLECTION = "quota_alert_events"
+QUOTA_ALERT_KINDS = ("exceeded", "approaching", "layer_unreadable")
+QUOTA_ALERT_ITEM_LIMIT = 20
 
 # Anomaly = failed + timeout (merged, per FR-4 clarify).
 ANOMALY_STATUSES = ("failed", "timeout", "error")
@@ -337,3 +342,53 @@ def forecast_cost(
     if not window:
         return None
     return round(sum(window) / len(window), 6)
+
+
+def summarize_quota_alerts(
+    rows: Iterable[dict[str, Any]],
+    *,
+    limit: int = QUOTA_ALERT_ITEM_LIMIT,
+    window_days: int = DEFAULT_PERIOD_DAYS,
+) -> dict[str, Any]:
+    """042 R-12: 驾驶舱独立的 quota 告警分组。
+
+    与 ``ANOMALY_STATUSES`` 统计**并列展示、互不覆盖**：kinds 只统计
+    ``QUOTA_ALERT_KINDS`` 三类，``available``/``reason`` 沿用 035 的"无数据不填零"
+    口径（没有事件就明说不存在，而不是渲染 0）。
+    """
+
+    counts: dict[str, int] = {kind: 0 for kind in QUOTA_ALERT_KINDS}
+    by_scope: dict[str, dict[str, int]] = {}
+    collected: list[dict[str, Any]] = []
+    for row in rows:
+        collected.append(dict(row))
+        kind = str(row.get("kind") or "").strip()
+        scope_type = str(row.get("scope_type") or "").strip() or "unknown"
+        if kind in counts:
+            counts[kind] += 1
+        bucket = by_scope.setdefault(scope_type, {item: 0 for item in QUOTA_ALERT_KINDS})
+        if kind in bucket:
+            bucket[kind] += 1
+    total = sum(counts.values())
+    collected.sort(key=lambda item: str(item.get("at") or ""), reverse=True)
+    items = [
+        {
+            "tenantId": str(row.get("tenant_id") or ""),
+            "scopeType": str(row.get("scope_type") or ""),
+            "scopeId": str(row.get("scope_id") or ""),
+            "layerName": str(row.get("layer_name") or ""),
+            "kind": str(row.get("kind") or ""),
+            "ratio": float(row.get("ratio") or 0.0),
+            "at": row.get("at").isoformat() if hasattr(row.get("at"), "isoformat") else "",
+        }
+        for row in collected[: max(1, int(limit))]
+    ]
+    return {
+        "available": total > 0,
+        "reason": None if total > 0 else "窗口内无配额告警事件",
+        "total": total,
+        "kinds": counts,
+        "byScope": by_scope,
+        "items": items,
+        "windowDays": int(window_days),
+    }

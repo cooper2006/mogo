@@ -1,0 +1,69 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: elasticsearch-http
+version: 1
+category: data
+name:
+  zh: "Elasticsearch HTTP"
+  en: "Elasticsearch HTTP"
+description:
+  zh: "调用 Elasticsearch 搜索接口。"
+  en: "Call the Elasticsearch search API."
+auth_type: api_key
+credential_key: apiKey
+config_template:
+  method: POST
+  url: "https://${host}/${index}/_search"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "ES 域名（不含协议）"
+      en: "ES host without scheme"
+    example: "<your-es-host>"
+  - key: index
+    label:
+      zh: "索引名"
+      en: "索引名"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "目标索引"
+      en: "Target index"
+    example: "<your-index>"
+  - key: query
+    label:
+      zh: "查询 DSL"
+      en: "查询 DSL"
+    type: string
+    required: true
+    secret: false
+    in: body
+    description:
+      zh: "查询 DSL（JSON 字符串）"
+      en: "Query DSL as a JSON string"
+    example: "{\"query\":{\"match_all\":{}},\"size\":1}"
+  - key: token
+    label:
+      zh: "接口凭证"
+      en: "接口凭证"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "ES API Key"
+      en: "ES API key"
+    example: "<your-es-api-key>"
+test_hint:
+  probe:
+    zh: "执行 match_all 取 1 条"
+    en: "执行 match_all 取 1 条"
+  expected_status: 200

@@ -1,0 +1,57 @@
+# 连接器模板种子（041-connector-market）。凭证一律占位符 <...>，加载时校验。
+id: kingdee-cloud
+version: 1
+category: erp
+name:
+  zh: "金蝶云星空 REST"
+  en: "Kingdee Cloud Galaxy REST"
+description:
+  zh: "调用金蝶云星空 WebAPI（单据/基础资料）。"
+  en: "Call Kingdee Cloud Galaxy WebAPI (bill/basedata)."
+auth_type: api_key
+credential_key: token
+config_template:
+  method: POST
+  url: "https://${host}/k3cloud/Kingdee.BOS.WebApi.ServicesStub.DynamicFormService.${service}.common.kdsvc"
+params:
+  - key: host
+    label:
+      zh: "服务地址"
+      en: "服务地址"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "星空访问域名（不含协议）"
+      en: "Galaxy host without scheme"
+    example: "<your-k3cloud-host>"
+  - key: service
+    label:
+      zh: "服务名"
+      en: "服务名"
+    type: string
+    required: true
+    secret: false
+    in: path
+    description:
+      zh: "WebAPI 服务名（如 ExecuteBillQuery）"
+      en: "WebAPI service name"
+    example: "<ExecuteBillQuery>"
+  - key: token
+    label:
+      zh: "接口凭证"
+      en: "接口凭证"
+    type: string
+    required: true
+    secret: true
+    in: headers
+    description:
+      zh: "第三方系统登录凭证"
+      en: "Third-party login credential"
+    example: "<your-k3cloud-token>"
+test_hint:
+  probe:
+    zh: "调用 ExecuteBillQuery 只读查询"
+    en: "调用 ExecuteBillQuery 只读查询"
+  expected_status: 200

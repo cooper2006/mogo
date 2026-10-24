@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     model_test_insecure_skip_verify: bool = False
     backend_base_url: str = "http://127.0.0.1:8000"
     backend_service_token: str = ""
+    # 032-eval-gate: chat-api 模型网关用签名令牌（HMAC，见
+    # chat-api/app/dsh_runtime/model_gateway/token.py），不是 backend_service_token
+    # 那套 v1|... 服务令牌（spec R-12）。
+    dsh_model_gateway_signing_secret: str = ""
+    eval_gate_profile_version: str = "eval-gate"
+    eval_gate_model_instance_id: str = ""
     public_base_url: str = ""
     redis_url: str = "redis://127.0.0.1:6379/0"
     weaviate_endpoint: str = "http://127.0.0.1:8080"

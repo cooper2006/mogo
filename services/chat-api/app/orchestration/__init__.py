@@ -12,6 +12,18 @@ unit-testable without the DSH runtime or a database.
 from __future__ import annotations
 
 from .conditions import ConditionError, evaluate_condition
+from .debate import DebateError, DebateResult
+from .dispatch import execute_orchestration, wrap_node_runner
+from .loader import LoadedOrchestration, OrchestrationLoadError, load_orchestration_document
+from .round_robin import (
+    CandidateOutcome,
+    CandidateSpec,
+    RoundRobinError,
+    SelectionResult,
+    parse_instances,
+    run_round_robin,
+    select_candidate,
+)
 from .engine import (
     DEFAULT_MAX_CONCURRENCY,
     DagEngine,
@@ -19,7 +31,7 @@ from .engine import (
     NodeOutcome,
     NodeState,
 )
-from .graph import Edge, Graph, GraphError, Node
+from .graph import VALID_MODES, Edge, Graph, GraphError, Node
 from .registry import (
     OrchestrationDefinition,
     OrchestrationRegistry,
@@ -29,6 +41,7 @@ from .supervisor import Supervisor, SupervisorResult, run_hybrid
 from .topo import CycleError, topological_order
 
 __all__ = [
+    "VALID_MODES",
     "Node",
     "Edge",
     "Graph",
@@ -48,4 +61,18 @@ __all__ = [
     "OrchestrationDefinition",
     "OrchestrationRegistry",
     "RegistryError",
+    "OrchestrationLoadError",
+    "LoadedOrchestration",
+    "load_orchestration_document",
+    "execute_orchestration",
+    "wrap_node_runner",
+    "run_round_robin",
+    "parse_instances",
+    "select_candidate",
+    "SelectionResult",
+    "CandidateOutcome",
+    "CandidateSpec",
+    "RoundRobinError",
+    "DebateResult",
+    "DebateError",
 ]

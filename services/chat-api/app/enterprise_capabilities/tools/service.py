@@ -498,6 +498,9 @@ class EnterpriseToolService:
         tool = next((item for item in profile.tools if item.name == tool_name), None)
         if tool is None or not set(tool.required_scopes).issubset(claims.scopes):
             raise ToolPolicyDenied("required tool scope is missing")
+        # 038 出站白名单：与 PreToolUse 同处真实工具调用点（L489-494），外部 HTTP /
+        # MCP 工具一律先过 outbound allowlist（fail-closed），未命中即拒绝并审计。
+        await self._enforce_tool_egress(tool=tool, arguments=dict(arguments or {}), claims=claims)
         if self._employee_policy is not None:
             current_policy = await self._employee_policy.resolve(claims.tenant_id, claims.user_id)
             allowed = (
@@ -560,6 +563,49 @@ class EnterpriseToolService:
                 },
             )
             raise ToolPolicyDenied(f"钩子规则拒绝工具调用：{gate.denied_reason}")
+
+    async def _enforce_tool_egress(
+        self,
+        *,
+        tool: ToolProfileDefinition,
+        arguments: dict[str, Any],
+        claims: ToolGatewayClaims,
+    ) -> None:
+        """038: outbound allowlist enforcement for external HTTP / MCP tools.
+
+        Internal capabilities have no external egress and are skipped. External
+        tools resolve their outbound URL(s) (``url`` / ``endpoint`` /
+        ``gatewayUrl``) and every candidate must match the three-layer allowlist
+        (tool > tenant > platform); otherwise the call is rejected here — before
+        ``execute_runtime`` issues a single HTTP request — and the outcome is
+        audited into the existing tool audit channel.
+        """
+        from .egress_guard import egress_guard, resolve_tool_outbound_urls
+
+        if tool.source_type == "internal":
+            return
+        document = await external_tool_service.get(
+            tool.external_tool_id or "", claims.tenant_id, scope="any"
+        )
+        if document is None:
+            # Fail-closed: an unresolvable tool connection has no allowlisted
+            # target, so it is not permitted to run.
+            raise ToolPolicyDenied("工具连接不存在")
+        tool_id = tool.external_tool_id or ""
+        urls = resolve_tool_outbound_urls(document, arguments)
+        decision = await egress_guard.decide_urls(
+            urls, tenant_id=claims.tenant_id, tool_id=tool_id
+        )
+        await egress_guard.audit(
+            decision,
+            tenant_id=claims.tenant_id,
+            user_id=claims.user_id,
+            action_id="egress-allowed" if decision.allowed else "egress-denied",
+            tool_or_capability=f"tool.{tool.name}",
+        )
+        if not decision.allowed:
+            detail = decision.domain or decision.reason
+            raise ToolPolicyDenied(f"出站白名单拒绝访问目标域：{detail}")
 
     @staticmethod
     def _approval_outcome(status: str) -> str:

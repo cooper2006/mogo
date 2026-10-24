@@ -70,6 +70,8 @@ class ApprovalRegistry:
         autonomy_level: str = "",
         reason: str = "",
         ttl_minutes: int = APPROVAL_TTL_MINUTES,
+        required_approvals: int = 1,
+        trust_level: str = "",
     ) -> str:
         token = uuid.uuid4().hex
         document = {
@@ -82,6 +84,12 @@ class ApprovalRegistry:
             "reason": reason,
             "token_hash": _token_hash(token),
             "status": "pending",
+            # 036 FR-9: an L4 write at risk >= R2 needs two distinct approvers.
+            # The default stays 1 so the historical single-approver path (001)
+            # is byte-for-byte unchanged.
+            "required_approvals": max(1, int(required_approvals)),
+            "trust_level": str(trust_level or ""),
+            "approvals": [],
             "created_at": _utcnow(),
             "expires_at": _utcnow() + timedelta(minutes=ttl_minutes),
             "resolved_at": None,
@@ -90,12 +98,17 @@ class ApprovalRegistry:
         return token
 
     async def decide(self, *, action_id: str, token: str, approved: bool, actor: str = "") -> bool:
-        """**Approver** decision: pending -> approved / denied (one-shot).
+        """**Approver** decision: pending -> approved / denied.
 
         Separate from :meth:`consume` on purpose: the original code let the caller
         approve *its own* suspended call simply by re-entering with the token, which
         means no human approval ever happened (001 audit, 2026-10-03). A human
         approver now moves the ticket, and the requester only consumes it.
+
+        036 FR-9: a ticket issued with ``required_approvals > 1`` needs that many
+        *distinct* approvers. Every approval is appended to ``approvals[]`` and the
+        ticket turns ``approved`` only once the count is met; a single approver
+        may never vote twice. Denial stays single-shot (any approver closes it).
         """
         collection = self._collection()
         document = await collection.find_one(
@@ -108,13 +121,26 @@ class ApprovalRegistry:
                 {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": _utcnow()}}
             )
             return False
+        actor_id = str(actor or "")
+        approvals = list(document.get("approvals") or [])
+        if approved:
+            if any(item.get("decided_by") == actor_id for item in approvals):
+                return False  # this approver already voted
+            approvals = approvals + [{"decided_by": actor_id, "decided_at": _utcnow()}]
+            required = max(1, int(document.get("required_approvals") or 1))
+            status = "approved" if len(approvals) >= required else "pending"
+            resolved_at = _utcnow() if status == "approved" else None
+        else:
+            status = "denied"
+            resolved_at = _utcnow()
         result = await collection.update_one(
             {"_id": document["_id"], "status": "pending"},
             {
                 "$set": {
-                    "status": "approved" if approved else "denied",
-                    "resolved_at": _utcnow(),
-                    "decided_by": str(actor or ""),
+                    "status": status,
+                    "resolved_at": resolved_at,
+                    "decided_by": actor_id,
+                    "approvals": approvals,
                 }
             },
         )
@@ -231,6 +257,20 @@ class ApprovalLayer:
 
         risk = ctx.risk_level or "R0"
         level = ctx.autonomy_level or "L1"
+        # 036 FR-8: cap the autonomy level by the asset's trust rating
+        # (effective_level = min(autonomy_level, cap(trust_level))). Applied only
+        # when the caller resolves a rating into ``ctx.annotations["trust_level"]``
+        # — an unannotated call keeps the historical 001 matrix untouched, so 036
+        # never silently changes existing traffic. A caller that resolves and finds
+        # no rating passes "L1" (无评级按 L1).
+        trust_level = ctx.annotations.get("trust_level")
+        if trust_level is not None:
+            # Canonical caps (fail-closed). A tenant override is applied by the
+            # resolver before it annotates ``trust_level`` — the gate itself stays
+            # free of a per-call DB read on the hot path.
+            from app.services.trust_rating.ratings import apply_trust_cap
+
+            level = apply_trust_cap(level, str(trust_level))
         decision = await matrix_decision(level=level, risk=risk)
         if decision == "allow":
             return GateVerdict(decision=GateDecision.ALLOW, layer=self.name, reason=f"matrix {level}x{risk}=allow")
@@ -245,6 +285,9 @@ class ApprovalLayer:
         # require_approval: suspend with a one-time ticket (409 at the boundary).
         registry = self._get_registry()
         action_id = ctx.session_id or f"gate-{uuid.uuid4().hex[:12]}"
+        # 036 FR-9: L4 + risk >= R2 requires two distinct approvers.
+        from app.services.trust_rating.ratings import required_approvals_for
+
         token = await registry.issue(
             action_id=action_id,
             tenant_id=ctx.tenant_id,
@@ -253,6 +296,8 @@ class ApprovalLayer:
             risk_level=risk,
             autonomy_level=level,
             reason=f"matrix {level}x{risk}=require_approval",
+            required_approvals=required_approvals_for(level, risk),
+            trust_level=str(trust_level or ""),
         )
         ctx.annotations["approval"] = {"action_id": action_id, "result": "pending", "token": token}
         return GateVerdict(

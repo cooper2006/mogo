@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Protocol, Sequence
 
+from app.orchestration.dispatch import execute_orchestration
 from app.orchestration.engine import DagEngine, ExecutionResult, NodeOutcome
 from app.orchestration.graph import Node
 from app.orchestration.loader import LoadedOrchestration, load_orchestration_file
@@ -391,7 +392,9 @@ class DeepDiveOrchestrator:
             self._refresh_completed_children(ctx)
             return output
 
-        result = await engine.run_graph(graph, runner, context=context)
+        result = await execute_orchestration(
+            self.orchestration, runner, context=context, engine=engine
+        )
         self._refresh_completed_children(result.context)
         self._apply_skip_reasons(result, graph)
         self._propagate_failures(result)

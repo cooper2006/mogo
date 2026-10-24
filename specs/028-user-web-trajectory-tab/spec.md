@@ -112,3 +112,11 @@
 - **不持久化**：tab 偏好为 pane 内存态，不写 localStorage、不同步服务端。
 - **不改后端**：本特性纯前端，`services/` 下零改动。
 - **不影响池化/部署**：不涉及 compose、nginx、镜像。
+
+## 跨特性关系（后续补记）
+
+- **043-session-replay（会话回放，2026-10-24）**：在本特性的轨迹 tab 之上叠加 Stage 1 回放能力——跨轮时间轴（`collectTrajectoryAnchors` 复用本特性 `collectTrajectoryRounds`，不改其签名与行为）、单轮聚焦、步骤下钻（输入/输出/耗时，成本行按数据存在性条件渲染）。
+  - 本特性的 `SessionTrajectoryView.vue` 由 043 扩展（新增时间轴与焦点折叠），**默认无焦点时渲染行为与本特性完全一致**（逐轮堆叠全展开）。
+  - 本特性 SC-003「ChatWindow 零改动」在 043 中继续成立；`domain/protocol.ts` 同样零 diff。
+  - 本特性 Assumptions 中"跨轮次聚合时间线是阶段 2、后续单独迭代"由 043 承接并落地为 Stage 1（轻量时间轴），非重演执行。
+

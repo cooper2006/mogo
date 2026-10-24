@@ -22,6 +22,11 @@ from app.services.skill_market.adoption_client import (
 )
 from app.services.skill_package_proxy import install_organization_skill_zip
 from app.services.skill_lifecycle import OrganizationSkillLifecycle, RELEASE_COLLECTION
+from app.services.trust_rating.skill_visibility import (
+    L1SkillNotVisible,
+    assert_skill_visible,
+    hidden_l1_skill_ids,
+)
 from app.services.workflow_validation import validate_workflow_config
 
 router = APIRouter()
@@ -252,6 +257,13 @@ async def list_skills(current_user: dict = Depends(get_current_admin_user)) -> l
     # T014-3 / T015-2: read the 011-shared ``marked_low_quality`` bit back so a
     # flagged skill is down-ranked (still visible, sorted last) in the market.
     marked = await fetch_marked_skill_keys(db, tenant_id=tenant_id)
+    # 036 FR-014: an L1 skill is owner-only; hide it from unrelated callers in the
+    # catalogue/market listing (non-invasive filter, list semantics unchanged).
+    hidden = await hidden_l1_skill_ids(
+        db, tenant_id=tenant_id, viewer_id=str(current_user.get("_id") or current_user.get("id") or "")
+    )
+    if hidden:
+        skills = [row for row in skills if str(row.get("id") or "") not in hidden]
     return apply_low_quality_ranking(skills, marked=marked)
 
 
@@ -475,6 +487,17 @@ async def get_skill(skill_id: str, current_user: dict = Depends(get_current_admi
     db = get_db()
     doc = await db.skills.find_one({"_id": str(skill_id), "tenant_id": tenant_id})
     if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
+    # 036 FR-014: direct reads of an L1 skill are restricted to its owner; surface the
+    # same 404 as "not found" so we never disclose that the asset exists.
+    try:
+        await assert_skill_visible(
+            db,
+            tenant_id=tenant_id,
+            viewer_id=str(current_user.get("_id") or current_user.get("id") or ""),
+            skill_key=str(skill_id),
+        )
+    except L1SkillNotVisible:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="技能不存在")
     return _serialize(doc)
 

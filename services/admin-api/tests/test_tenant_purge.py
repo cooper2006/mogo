@@ -387,6 +387,13 @@ def test_every_tenant_id_keyed_collection_in_the_tree_is_covered() -> None:
         # 016 collector high-water mark: one global doc (_id="skill_activity"),
         # carries no tenant key at all — nothing tenant-specific to purge.
         "skill_quality_collector_state",
+        # 036 downgrade scanner: one global doc (_id="downgrade"), same shape
+        # as the 016 collector state — no tenant key, nothing to purge.
+        "trust_rating_scan_state",
+        # 036 rating->autonomy cap overrides: keyed by _id=tenant_id with no
+        # scalar tenant_id field, so the keyed sweep cannot match it. A future
+        # writer must stamp tenant_id; tracked by this exemption.
+        "trust_autonomy_caps",
         # Orchestration DAG registry (005/012): keyed by orchestration_id only,
         # a platform-wide development source of truth, not tenant-partitioned.
         "dag_definitions",

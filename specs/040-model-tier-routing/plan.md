@@ -67,7 +67,8 @@
 specs/040-model-tier-routing/
 ├── spec.md              # 特性规约（FR/SC/决策表）
 ├── plan.md              # 本文件
-└── tasks.md             # 任务清单（全新特性，全部未勾选）
+├── checklists/requirements.md  # 需求质量门禁（/speckit-checklist 产物，15 条已勾选）
+└── tasks.md             # 任务清单（2026-10-24 实现后勾选 18/20）
 ```
 
 ### Source Code (repository root)
@@ -77,12 +78,16 @@ services/chat-api/
 ├── app/llm/complexity.py               # 【新增】复杂度评估纯函数（特征提取 + 规则阈值，无 IO）
 ├── app/llm/model_router.py             # 【复用/修改】resolve() 插入 tier 一级（by_intent 之后、env 之前），
 │                                       #   保持既有优先级链兼容；新增 tier 映射解析与 source=tier:<tier>
-├── app/llm/factory.py                  # 【复用/修改】model_routed log_trace 事件增 tier 与特征摘要
-├── app/llm/resilience/events.py        # 【复用】附加字段模式（as_log_fields）——tier 字段追加到此模式，不改 007 语义
-├── app/llm/resilience/metering.py      # 【复用】按维度聚合（008 消费档位统计的既有库函数）
+├── app/llm/factory.py                  # 【复用/修改】档位写回 + model_routed 埋点；新增异步入口 aget_llm_client()
+│                                       #   （tier 真实生效路径，见 spec R-17/R-18）
+├── app/llm/configured_models.py        # 【复用】get_llm_client_by_model_id（031 实例解析，已含 007 韧性与计量）
+├── app/token_usage/models.py           # 【复用/修改】TokenUsageRecord 新增顶层 tier / tier_declared（spec R-10）
+├── app/llm/instrumented_client.py      # 【复用/修改】写记录时从 output_spec 取 model_tier / model_tier_declared
+├── app/context_engine/compactor.py     # 【复用/修改】compact_messages() 迁移到 aget_llm_client()（首个异步生效点）
+├── app/llm/resilience/metering.py      # 【复用】按维度聚合（008 消费档位统计的既有库函数；首期白名单不扩 tier）
 ├── app/config/model_routing.yaml       # 【新增】静态映射段（by_node/by_stage/by_intent/models/fallback_model/enabled）
 │                                       #   + 档位映射段（tiers/tenants 覆盖）+ tiering 阈值段，注释默认值
-└── tests/llm/test_model_tier_routing.py  # 【新增】评估函数边界 + 档位映射 + 回退告警 + 优先级链回归
+└── tests/llm/test_model_tier_routing.py  # 【新增】评估函数边界 + 档位映射 + 回退告警 + 优先级链回归（19 用例）
 ```
 
 **Structure Decision**: 完全复用 chat-api 既有 `llm/` 布局与配置目录约定（`resilience.yaml` 先例），不新增子项目、不新增依赖、不做 admin-web 页面（首期配置走 yaml，与 007 同形态）。档位映射引用 031 已配置模型，不重复建设模型管理。

@@ -23,6 +23,7 @@
             <n-button secondary :loading="loading" @click="reload">{{ t('刷新') }}</n-button>
             <n-button secondary @click="openSettings">{{ t('设置企业额度') }}</n-button>
             <n-button secondary @click="openLogs">{{ t('分配记录') }}</n-button>
+            <n-button secondary @click="openScopes">{{ t('团队 / 项目额度') }}</n-button>
           </n-space>
         </div>
       </div>
@@ -78,6 +79,17 @@
         <n-grid-item>
           <n-form-item :label="t('成员重置周期')">
             <n-select v-model:value="defaultForm.period" :options="periodOptions" />
+          </n-form-item>
+        </n-grid-item>
+        <n-grid-item>
+          <n-form-item :label="t('额度告警阈值（剩余占比，%）')">
+            <n-input-number
+              v-model:value="alertThresholdPercent"
+              :min="1"
+              :max="100"
+              :show-button="false"
+              class="wide-input"
+            />
           </n-form-item>
         </n-grid-item>
       </n-grid>
@@ -161,6 +173,111 @@
       </div>
     </n-drawer-content>
   </n-drawer>
+
+  <n-modal v-model:show="scopeVisible" preset="card" :title="t('团队 / 项目额度')" style="width: 860px">
+    <n-tabs v-model:value="scopeTab" type="line">
+      <n-tab-pane name="team" :tab="t('团队额度')">
+        <n-form label-placement="top" class="settings-form">
+          <n-grid :cols="3" :x-gap="12" :y-gap="10" responsive="screen">
+            <n-grid-item>
+              <n-form-item :label="t('选择部门')">
+                <n-select v-model:value="teamForm.orgUnitId" :options="departmentOptions" filterable :placeholder="t('请选择部门')" />
+              </n-form-item>
+            </n-grid-item>
+            <n-grid-item>
+              <n-form-item :label="t('周期额度')">
+                <n-input-number v-model:value="teamForm.quotaTokens" :min="0" :show-button="false" style="width: 100%" />
+              </n-form-item>
+            </n-grid-item>
+            <n-grid-item>
+              <n-form-item :label="t('重置周期')">
+                <n-select v-model:value="teamForm.period" :options="periodOptions" />
+              </n-form-item>
+            </n-grid-item>
+          </n-grid>
+          <n-space justify="end">
+            <n-button type="primary" :loading="savingScope" @click="saveTeamPolicy">{{ t('保存团队额度') }}</n-button>
+          </n-space>
+        </n-form>
+        <n-empty v-if="!teamPolicies.length" :description="t('暂无团队额度')" />
+        <div v-else class="scope-list">
+          <div v-for="item in teamPolicies" :key="item.scopeId" class="scope-row">
+            <div class="scope-main">
+              <strong>{{ item.name || item.scopeId }}</strong>
+              <span class="scope-meta">{{ formatQuota(item.quotaTokens) }} · {{ periodLabel(item.period) }} · {{ item.status === 'active' ? t('启用') : t('禁用') }}</span>
+            </div>
+            <n-space :size="8">
+              <n-button size="small" secondary @click="editTeamPolicy(item)">{{ t('编辑') }}</n-button>
+              <n-button size="small" secondary type="error" @click="removeTeamPolicy(item.scopeId)">{{ t('清除') }}</n-button>
+            </n-space>
+          </div>
+        </div>
+      </n-tab-pane>
+
+      <n-tab-pane name="project" :tab="t('项目额度')">
+        <n-form label-placement="top" class="settings-form">
+          <n-grid :cols="2" :x-gap="12" :y-gap="10" responsive="screen">
+            <n-grid-item>
+              <n-form-item :label="t('项目名称')">
+                <n-input v-model:value="projectForm.name" :placeholder="t('例如：专项攻坚')" />
+              </n-form-item>
+            </n-grid-item>
+            <n-grid-item>
+              <n-form-item :label="t('成员（可多选）')">
+                <n-select
+                  v-model:value="projectForm.memberUserIds"
+                  multiple
+                  filterable
+                  :options="memberOptions"
+                  :placeholder="t('选择项目成员')"
+                />
+              </n-form-item>
+            </n-grid-item>
+          </n-grid>
+          <n-space justify="end">
+            <n-button type="primary" :loading="savingScope" @click="createProject">{{ t('新建项目') }}</n-button>
+          </n-space>
+        </n-form>
+
+        <n-form label-placement="top" class="settings-form">
+          <n-grid :cols="3" :x-gap="12" :y-gap="10" responsive="screen">
+            <n-grid-item>
+              <n-form-item :label="t('目标项目')">
+                <n-select v-model:value="projectPolicy.projectId" :options="projectOptions" filterable :placeholder="t('请选择项目')" />
+              </n-form-item>
+            </n-grid-item>
+            <n-grid-item>
+              <n-form-item :label="t('周期额度')">
+                <n-input-number v-model:value="projectPolicy.quotaTokens" :min="0" :show-button="false" style="width: 100%" />
+              </n-form-item>
+            </n-grid-item>
+            <n-grid-item>
+              <n-form-item :label="t('重置周期')">
+                <n-select v-model:value="projectPolicy.period" :options="periodOptions" />
+              </n-form-item>
+            </n-grid-item>
+          </n-grid>
+          <n-space justify="end">
+            <n-button type="primary" :loading="savingScope" @click="saveProjectPolicy">{{ t('保存项目额度') }}</n-button>
+          </n-space>
+        </n-form>
+
+        <n-empty v-if="!projects.length" :description="t('暂无项目分组')" />
+        <div v-else class="scope-list">
+          <div v-for="item in projects" :key="item.id" class="scope-row">
+            <div class="scope-main">
+              <strong>{{ item.name }}</strong>
+              <span class="scope-meta">{{ t('{count} 位成员', { count: item.memberCount }) }} · {{ projectPolicyText(item) }}</span>
+            </div>
+            <n-space :size="8">
+              <n-button size="small" secondary @click="editProject(item)">{{ t('编辑') }}</n-button>
+              <n-button size="small" secondary type="error" @click="removeProject(item.id)">{{ t('删除') }}</n-button>
+            </n-space>
+          </div>
+        </div>
+      </n-tab-pane>
+    </n-tabs>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -170,18 +287,29 @@ import { NButton, NPagination, NProgress, NSpace, NSpin, NTimeline, NTimelineIte
 import { t } from '@/composables/i18n';
 import { formatAdminShortDateTime } from '@/composables/adminTimezone';
 import {
+  createQuotaProject,
+  deleteQuotaProject,
+  deleteTeamQuotaPolicy,
   fetchAllocationLogs,
+  fetchQuotaProjects,
+  fetchTeamQuotaPolicies,
   fetchTrafficAllocationOverview,
   fetchUserAllocations,
   updateDefaultQuotaPolicy,
   updateOrgQuotaPolicy,
+  updateProjectQuotaPolicy,
+  updateQuotaProject,
+  updateTeamQuotaPolicy,
   updateUserQuotaPolicy,
   type AllocationLogItem,
   type QuotaPeriod,
+  type QuotaProject,
   type QuotaStatus,
+  type ScopedQuotaPolicy,
   type TrafficAllocationOverview,
   type UserAllocationItem,
 } from '@/api/traffic-allocations';
+import { fetchDepartmentTree, type DepartmentNode } from '@/api/directory';
 
 const message = useMessage();
 const route = useRoute();
@@ -200,6 +328,13 @@ const logsPage = ref(1);
 const logsPageSize = 20;
 const logsTotal = ref(0);
 const currentUser = ref<UserAllocationItem | null>(null);
+// 042 三层配额：团队（部门树）/ 项目分组
+const scopeVisible = ref(false);
+const scopeTab = ref<'team' | 'project'>('team');
+const savingScope = ref(false);
+const teamPolicies = ref<ScopedQuotaPolicy[]>([]);
+const projects = ref<QuotaProject[]>([]);
+const departments = ref<DepartmentNode[]>([]);
 
 const filters = reactive({ keyword: '' });
 const orgForm = reactive({
@@ -208,9 +343,36 @@ const orgForm = reactive({
   period: 'monthly' as QuotaPeriod,
   timezone: 'Asia/Shanghai',
   status: 'active' as QuotaStatus,
+  alertThresholdRatio: 0.2,
 });
+// 告警阈值以百分比呈现（后端存 0~1 小数）
+const alertThresholdPercent = ref(20);
 const defaultForm = reactive({ quotaTokens: 0, unlimited: false, period: 'monthly' as QuotaPeriod, status: 'active' as QuotaStatus });
 const userForm = reactive({ quotaTokens: 0, unlimited: false, period: 'monthly' as QuotaPeriod, reason: '' });
+const teamForm = reactive({ orgUnitId: '', quotaTokens: 0, period: 'monthly' as QuotaPeriod });
+const projectForm = reactive({ name: '', note: '', memberUserIds: [] as string[] });
+const projectPolicy = reactive({ projectId: '', quotaTokens: 0, period: 'monthly' as QuotaPeriod });
+
+function flattenDepartments(nodes: DepartmentNode[], out: DepartmentNode[] = []): DepartmentNode[] {
+  for (const node of nodes) {
+    out.push(node);
+    if (node.children?.length) flattenDepartments(node.children, out);
+  }
+  return out;
+}
+
+const departmentOptions = computed(() =>
+  flattenDepartments(departments.value).map(node => ({ label: node.name, value: node.id })),
+);
+const projectOptions = computed(() => projects.value.map(item => ({ label: item.name, value: item.id })));
+const memberOptions = computed(() =>
+  users.value.map(item => ({ label: item.name || item.loginName || item.userId, value: item.userId })),
+);
+
+function projectPolicyText(project: QuotaProject) {
+  if (!project.quotaTokens) return t('未设置额度');
+  return `${formatQuota(project.quotaTokens)} · ${periodLabel(project.period || 'monthly')}`;
+}
 
 // T038 / 决策 12：``unlimited`` 为真时额度不做限制，前端不得对额度做算术运算。
 function formatQuota(value: number, unlimited?: boolean) {
@@ -391,6 +553,8 @@ function syncForms() {
   if (!overview.value) return;
   Object.assign(orgForm, overview.value.orgPolicy);
   Object.assign(defaultForm, overview.value.defaultPolicy);
+  orgForm.alertThresholdRatio = overview.value.alertThresholdRatio ?? 0.2;
+  alertThresholdPercent.value = Math.round(orgForm.alertThresholdRatio * 100);
 }
 
 async function reload() {
@@ -416,6 +580,134 @@ function consumeOpenQuotaQuery() {
   router.replace({ path: route.path, query: nextQuery });
 }
 
+async function loadScopes() {
+  const [departmentsTree, teamResult, projectResult] = await Promise.all([
+    fetchDepartmentTree(),
+    fetchTeamQuotaPolicies(),
+    fetchQuotaProjects(),
+  ]);
+  departments.value = departmentsTree;
+  teamPolicies.value = teamResult.items;
+  projects.value = projectResult.items;
+}
+
+async function openScopes() {
+  scopeVisible.value = true;
+  try {
+    await loadScopes();
+  } catch (error) {
+    message.error((error as Error).message || t('加载团队 / 项目额度失败'));
+  }
+}
+
+function editTeamPolicy(item: ScopedQuotaPolicy) {
+  teamForm.orgUnitId = item.scopeId;
+  teamForm.quotaTokens = item.quotaTokens;
+  teamForm.period = item.period;
+}
+
+async function saveTeamPolicy() {
+  if (!teamForm.orgUnitId) {
+    message.warning(t('请选择部门'));
+    return;
+  }
+  savingScope.value = true;
+  try {
+    await updateTeamQuotaPolicy(teamForm.orgUnitId, {
+      quotaTokens: Number(teamForm.quotaTokens || 0),
+      period: teamForm.period,
+      status: 'active',
+    });
+    message.success(t('保存成功'));
+    await loadScopes();
+  } catch (error) {
+    message.error((error as Error).message || t('保存失败'));
+  } finally {
+    savingScope.value = false;
+  }
+}
+
+async function removeTeamPolicy(orgUnitId: string) {
+  savingScope.value = true;
+  try {
+    await deleteTeamQuotaPolicy(orgUnitId);
+    message.success(t('已清除该团队额度'));
+    await loadScopes();
+  } catch (error) {
+    message.error((error as Error).message || t('清除失败'));
+  } finally {
+    savingScope.value = false;
+  }
+}
+
+async function createProject() {
+  if (!projectForm.name.trim()) {
+    message.warning(t('请填写项目名称'));
+    return;
+  }
+  savingScope.value = true;
+  try {
+    const created = await createQuotaProject({
+      name: projectForm.name.trim(),
+      note: projectForm.note,
+      memberUserIds: projectForm.memberUserIds,
+    });
+    message.success(t('项目已创建'));
+    projectForm.name = '';
+    projectForm.note = '';
+    projectForm.memberUserIds = [];
+    projectPolicy.projectId = created.id;
+    await loadScopes();
+  } catch (error) {
+    message.error((error as Error).message || t('创建失败'));
+  } finally {
+    savingScope.value = false;
+  }
+}
+
+function editProject(item: QuotaProject) {
+  projectPolicy.projectId = item.id;
+  projectPolicy.quotaTokens = Number(item.quotaTokens || 0);
+  projectPolicy.period = item.period || 'monthly';
+  projectForm.name = item.name;
+  projectForm.note = item.note;
+  projectForm.memberUserIds = [...item.memberUserIds];
+}
+
+async function saveProjectPolicy() {
+  if (!projectPolicy.projectId) {
+    message.warning(t('请选择项目'));
+    return;
+  }
+  savingScope.value = true;
+  try {
+    await updateProjectQuotaPolicy(projectPolicy.projectId, {
+      quotaTokens: Number(projectPolicy.quotaTokens || 0),
+      period: projectPolicy.period,
+      status: 'active',
+    });
+    message.success(t('保存成功'));
+    await loadScopes();
+  } catch (error) {
+    message.error((error as Error).message || t('保存失败'));
+  } finally {
+    savingScope.value = false;
+  }
+}
+
+async function removeProject(projectId: string) {
+  savingScope.value = true;
+  try {
+    await deleteQuotaProject(projectId);
+    message.success(t('项目已删除'));
+    await loadScopes();
+  } catch (error) {
+    message.error((error as Error).message || t('删除失败'));
+  } finally {
+    savingScope.value = false;
+  }
+}
+
 async function savePolicies() {
   if (isQuotaBlank(orgForm.totalTokens)) {
     message.warning(t('请填写企业本周期总额度'));
@@ -431,7 +723,9 @@ async function savePolicies() {
   }
   savingPolicy.value = true;
   try {
-    await updateOrgQuotaPolicy(orgForm);
+    // 百分比 → 小数；后端约束 (0,1]
+    orgForm.alertThresholdRatio = Math.min(1, Math.max(0.01, alertThresholdPercent.value / 100));
+    await updateOrgQuotaPolicy({ ...orgForm, alertThresholdRatio: orgForm.alertThresholdRatio });
     await updateDefaultQuotaPolicy(defaultForm);
     message.success(t('保存成功'));
     settingsVisible.value = false;
@@ -629,6 +923,36 @@ onMounted(async () => {
 
 .table-spin,
 .table-spin :deep(.n-spin-content),
+.scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.scope-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #eef1f6;
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.scope-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scope-meta {
+  color: #8b95a7;
+  font-size: 12px;
+}
+
 .allocation-table {
   height: 100%;
 }

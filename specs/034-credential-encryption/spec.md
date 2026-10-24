@@ -178,6 +178,25 @@ chat-api 执行 HTTP/MCP 工具调用时，从 config 解密出凭证并以服�
 - **与 018-capability-asset-registration（关联）**：018 的能力资产引用工具时，经同一 `external_tools` 存取路径解析工具定义。本特性加密/掩码后，资产侧看到的是解密后的可用凭证（服务端）而非明文，资产引用链路无需改动；反向声明：若 018 后续在资产文档中镜像工具 config，必须同样掩码，不得把明文带入资产存储。
 - **与后续连接器市场（整合方案 §4.10，未立项）**：预置连接器目录的"凭证托管"以本特性的加密存储为前提；本特性交付后该缺口只剩目录本身。
 
+## 判定口径补充（2026-10-23，/speckit-checklist 回填）
+
+- **R-1 `authType` 与加密触发**：凭证识别**只看键名清单**，与 `authType` 无关——`authType=none` 但 config 中仍带凭证键时同样加密。所谓"authType=none 不加密"的准确语义是**无待加密凭证键时不触发 KMS**（`encrypt_credentials` 在待加密集合为空时提前返回，因此无主密钥环境下保存 `authType=none` 工具不会失败）。tasks T018 的表述按此更正。
+- **R-2 清除凭证（首期不支持）**：留空、回传掩码串 `***`、字段缺省三种情形一律按"未重新填写"处理，从既有 config 继承原密文；因此**首期无法通过编辑接口删除已存凭证**，只能删除整个工具重配。这是有意的取舍（避免前端漏传导致凭证被打成空而引发线上调用失败）；后续如需支持，应新增显式 `clearCredentials: true` 语义而非复用空值。
+- **R-3 追加键名的环境变量契约**：变量名 `MOGO_TOOL_CREDENTIAL_KEYS`，逗号分隔，按**大小写敏感精确匹配**（不做小写归一）；追加键与默认清单并集生效。识别范围仅限 config **顶层键**与 **`config.headers`（dict）内同名键**，不支持更深层嵌套；`headers` 非 dict 时不参与识别。
+- **R-4 主密钥缺失的可用性边界**：服务**可以启动**；KMS 在首次需要加密/解密时惰性构造，主密钥缺失或过短时抛出 `KmsConfigError`，表现为**保存工具返回可读配置错误**（fail-closed，绝不落明文兜底）。读取侧 `decrypt_optional` 对非密文原样返回，因此双跑期（历史明文 + 新密文）共存无碍。
+- **R-5 迁移脚本范围与报告**：扫描范围 = `external_tools` **全租户全 scope**（`{"config": {"$type": "object"}}`，不做 tenant/scope 过滤）；三模式互斥 `--dry-run` / `--apply` / `--verify`；报告字段 `{collection, scanned, pending, updated, errors[]}`，`errors` 项为 `{_id, error}` 或 `{_id, fields[]}`；`--dry-run` 额外给前 5 条样例（`_id` + 字段路径），零写入。
+- **R-6 掩码串 `***` 的冲突**：`***` 被协议占用为"未重填"标记，因此**无法把字面值 `***` 存为凭证**（概率极低且无实际用途）；错误信息与文档不得建议用户输入 `***`。
+- **R-7 `config.headers` 结构**：固定为 `dict[str, str]`（`{"header-name": "value"}`），加密只替换命中清单的值、**结构不变**；注入侧按 dict 取值，前后端契约不变。
+- **R-8 迁移期写入窗口**：脚本头部要求"先 `mongodump` 备份、评审后执行"；执行顺序为 **备份 → 停写旧版本（或灰度摘除旧实例）→ `--apply` 迁移 → `--verify` 复核 → 新版本上线**。旧版本服务在迁移后继续写入会重新产生明文，故不允许"边迁移边写"。
+- **R-9 轮换的新旧密钥共存**：旧密钥经 `MOGO_KMS_MASTER_KEY_OLD`（可选）提供，新密钥仍取标准 `MOGO_KMS_MASTER_KEY`；脚本用新密钥 `reencrypt` 逐行重写并做解密抽验 + 指纹前后对比（不含密钥本身）。未设置旧密钥时脚本退化为"重加密演练"（同密钥重加密，验证链路可用）。生产轮换按"备份 → 设 OLD=旧 + 新 → `--apply` → `--verify` → 撤销 OLD"执行。
+- **R-10 FR-012 更正（同源副本，非跨服务复用）**：admin-api 与 chat-api 是**独立容器，无法跨服务 import**。实际落地为**逐字节同源的副本**：两份 `app/security/tool_credentials.py`（252 行完全一致，文件头注明"修改任一份须两边同步"）；022 的 `encryption.py`/`kms.py` 在 chat-api 亦为同源副本。FR-012 的"零复制"口径据此更正为"零**新建实现**，接受同源副本 + 同步义务"，避免需求描述与部署现实冲突。
+- **R-11 `purpose` 兼容**：只认 `external_tool_credential`（同时作 AAD）；若历史上曾以其他 purpose 加密同表凭证，解密会认证失败并按 FR-007 fail-closed（工具不可用直到重新保存凭证）。该情形不在本特性迁移范围内（迁移只处理明文行）。
+- **R-12 掩码覆盖面**：`redact_credentials` 统一用于 admin-api `tools.py::_serialize`（列表/详情/创建/更新出口）与 chat-api `external_tools.py::_serialize`（同四类出口）；错误响应不携带 config，故无明文风险。
+- **R-13 日志脱敏口径**：测试路径日志改为记录 `redact_credentials(config)`（键名 + `***`），**不得记录任何密文片段（含 `v1` 前缀）**；其余出口按同一函数处理，禁止直接 `%s` 打印 config。
+- **R-14 写入原子性**：加密在内存中完整构造新 config 后才一次性写回（`patch["config"] = encrypt_credentials(...)`）；任一凭证键加密抛错则整单失败、不落库，不存在"部分键已加密"的中间态。
+- **R-15 迁移幂等与退出码**：`--apply` 遇到失败行记录 `errors` 且**不写回**（保持原状），进程以**非零退出码**结束；`--verify` 检出剩余明文同样非零退出。SC-005 的"第二次运行迁移数 0、失败数 0"以**首次执行全部成功**为前提；若首次有失败行，修复根因后重跑会重试该行（脚本幂等，已加密行跳过）。
+- **R-16 密文格式更正**：022 实现的真实格式是**单段 base64url**，内容为 `"v1" + nonce(12) + AES-GCM(ciphertext||tag(16))`，而非 Key Entities 里"`v1|nonce|ciphertext||tag` 分段可读"的描述；`is_encrypted_blob` 通过"b64 解码后以 `v1` 开头且长度大于前缀"判定。以 022 实现为权威，Key Entities 的描述按此理解。
+
 ## Non-Goals
 
 - 不新建加密模块、不引入新加密依赖（`cryptography` 库 022 已在用）——只做接线。

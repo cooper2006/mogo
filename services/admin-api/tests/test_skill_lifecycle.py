@@ -35,10 +35,33 @@ class Database:
     def __getitem__(self, name): return getattr(self, name)
 
 
+def _pass_eval_gate(monkeypatch):
+    """032-eval-gate: this test covers draft/publish semantics, not the gate.
+
+    ``publish()`` now runs the eval gate first, so stub it out here instead of
+    seeding a full golden test set (the gate itself is covered by
+    ``tests/test_eval_gate.py``).
+    """
+    from app.services.eval_gate import gate as gate_module
+
+    async def _run_gate(**kwargs):
+        return {
+            "runId": "stub-run",
+            "dryRun": bool(kwargs.get("dry_run")),
+            "passed": True,
+            "metrics": {},
+            "thresholds": {},
+            "failedMetrics": [],
+        }
+
+    monkeypatch.setattr(gate_module, "run_gate", _run_gate)
+
+
 def test_enterprise_draft_does_not_replace_runtime_until_publish(monkeypatch):
     db = Database()
     db.skills.rows["skill"] = {"_id": "skill", "tenant_id": "tenant", "name": "Published", "type": "workflow", "enabled": True}
     monkeypatch.setattr(lifecycle_module, "get_db", lambda: db)
+    _pass_eval_gate(monkeypatch)
     lifecycle = OrganizationSkillLifecycle()
 
     asyncio.run(lifecycle.save(tenant_id="tenant", skill_id="skill", draft={"name": "Draft", "type": "workflow", "config": {}}))
