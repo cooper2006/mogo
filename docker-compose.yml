@@ -458,6 +458,7 @@ services:
     # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid).
     #   mode=1777 is required: Docker's tmpfs default is 0755, which the
     #   non-root container user cannot write to.
+    user: "10001:10001"
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
@@ -561,6 +562,7 @@ services:
     # - read_only: the image filesystem cannot be modified at runtime, so a
     #   compromise can't drop a backdoor or overwrite a binary
     # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    user: "10001:10001"
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
@@ -631,6 +633,7 @@ services:
     # - read_only: the image filesystem cannot be modified at runtime, so a
     #   compromise can't drop a backdoor or overwrite a binary
     # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    user: "10001:10001"
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
@@ -699,6 +702,7 @@ services:
     # - read_only: the image filesystem cannot be modified at runtime, so a
     #   compromise can't drop a backdoor or overwrite a binary
     # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    user: "10001:10001"
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
@@ -738,6 +742,7 @@ services:
     # - read_only: the image filesystem cannot be modified at runtime, so a
     #   compromise can't drop a backdoor or overwrite a binary
     # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    user: "10001:10001"
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
@@ -774,6 +779,7 @@ services:
     # - read_only: the image filesystem cannot be modified at runtime, so a
     #   compromise can't drop a backdoor or overwrite a binary
     # - tmpfs /tmp: the only scratch space the process gets (rw, no setuid)
+    user: "10001:10001"
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
@@ -807,6 +813,7 @@ services:
     restart: unless-stopped
     # 022 US3 (T027): gateway 是 nginx，同样加固。它还要做 TLS 终结并绑定低
     # 端口，所以保留唯一必要的一项 capability。
+    user: "10001:10001"
     security_opt:
       - "no-new-privileges:true"
     cap_drop:

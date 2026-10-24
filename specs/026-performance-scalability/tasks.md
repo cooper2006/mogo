@@ -16,11 +16,11 @@
 
 **Goal**: 搭建性能相关模块骨架，作为各故事共用的基础设施载体。
 
-- [ ] T001 创建 `services/chat-api/app/cache/__init__.py` + `services/chat-api/app/cache/manager.py`（缓存管理器占位：`get/set/delete/lock` 接口，复用既有 Redis 客户端）
-- [ ] T002 创建 `services/chat-api/app/infrastructure/observability/perf_baseline.py`（基线采集占位：P50/P95/P99 延迟 + 吞吐 RPS/TPS）
-- [ ] T003 创建 `services/chat-api/app/infrastructure/observability/perf_budget.py`（性能预算检查占位：读 `performance.yaml`，对比基线）
-- [ ] T004 [P] 创建 `services/chat-api/app/api/middleware/perf.py`（性能中间件占位：请求延迟埋点 → kpi_store）
-- [ ] T005 [P] 创建 `benchmarks/` 目录结构 + `benchmarks/locust/` + `benchmarks/k6/` + `benchmarks/perf_baselines/baselines.yaml`（空占位）
+- [x] T001 创建 `services/chat-api/app/cache/__init__.py` + `services/chat-api/app/cache/manager.py`（缓存管理器占位：`get/set/delete/lock` 接口，复用既有 Redis 客户端）
+- [x] T002 创建 `services/chat-api/app/infrastructure/observability/perf_baseline.py`（基线采集占位：P50/P95/P99 延迟 + 吞吐 RPS/TPS）
+- [x] T003 创建 `services/chat-api/app/infrastructure/observability/perf_budget.py`（性能预算检查占位：读 `performance.yaml`，对比基线）
+- [x] T004 [P] 创建 `services/chat-api/app/api/middleware/perf.py`（性能中间件占位：请求延迟埋点 → kpi_store）
+- [x] T005 [P] 创建 `benchmarks/` 目录结构 + `benchmarks/locust/` + `benchmarks/k6/` + `benchmarks/perf_baselines/baselines.yaml`（空占位）
 
 ---
 

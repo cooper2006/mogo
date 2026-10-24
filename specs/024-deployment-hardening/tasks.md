@@ -25,31 +25,31 @@
 
 ### 非 root 化（QF-818 fail 修复）
 
-- [ ] T001 [P] `services/chat-api/Dockerfile`：创建 `appuser`（`adduser --disabled-password --uid 10001`），末尾追加 `USER appuser`
-- [ ] T002 [P] `services/admin-api/Dockerfile`：同上（UID 10002，避免与 chat-api 冲突）
-- [ ] T003 [P] `services/document-parser/Dockerfile`：同上（UID 10003）
-- [ ] T004 [P] `deploy/docker/gateway.Dockerfile`：`nginx` 进程以非 root 运行（保留 master 需要 bind 80 的特权说明，或改为 8080 + 反向代理）
-- [ ] T005 [P] `apps/admin-web/Dockerfile` 与 `apps/user-web/Dockerfile`：nginx 非 root 化（静态文件目录只读挂载）
-- [ ] T006 [P] `base-images/apt/{chat-api,document-parser,dsh-runtime-host}`：同步非 root 所需依赖（`ca-certificates`、无 apt 源残留）
-- [ ] T007 [P] 每个需要写命名卷的服务增加一次性 `init` 容器 `chown`（复用 `bootstrap` 服务模式，见 `docker-compose.yml` 第 54–59 行），解决 root-owned 卷写入问题
-- [ ] T008 `base-images` 离线导出链路（`scripts/export_base_images.sh`、`apt_packages_bundle.sh`）验证非 root 镜像在离线环境仍可构建
+- [x] T001 [P] `services/chat-api/Dockerfile`：创建 `appuser`（`adduser --disabled-password --uid 10001`），末尾追加 `USER appuser`
+- [x] T002 [P] `services/admin-api/Dockerfile`：同上（UID 10002，避免与 chat-api 冲突）
+- [x] T003 [P] `services/document-parser/Dockerfile`：同上（UID 10003）
+- [x] T004 [P] `deploy/docker/gateway.Dockerfile`：`nginx` 进程以非 root 运行（保留 master 需要 bind 80 的特权说明，或改为 8080 + 反向代理）
+- [x] T005 [P] `apps/admin-web/Dockerfile` 与 `apps/user-web/Dockerfile`：nginx 非 root 化（静态文件目录只读挂载）
+- [x] T006 [P] `base-images/apt/{chat-api,document-parser,dsh-runtime-host}`：同步非 root 所需依赖（`ca-certificates`、无 apt 源残留）
+- [x] T007 [P] 每个需要写命名卷的服务增加一次性 `init` 容器 `chown`（复用 `bootstrap` 服务模式，见 `docker-compose.yml` 第 54–59 行），解决 root-owned 卷写入问题
+- [x] T008 `base-images` 离线导出链路（`scripts/export_base_images.sh`、`apt_packages_bundle.sh`）验证非 root 镜像在离线环境仍可构建
 
 ### 只读文件系统与内核能力
 
-- [ ] T009 [P] `docker-compose.yml`：为 `chat-api` / `admin-api` / `document-api` / `document-worker` 添加 `read_only: true`，为各自日志与临时目录显式挂载 `tmpfs`（限定 `size`）
-- [ ] T010 [P] `docker-compose.yml`：为 `user-web` / `admin-web` / `gateway` 添加 `read_only: true`
+- [x] T009 [P] `docker-compose.yml`：为 `chat-api` / `admin-api` / `document-api` / `document-worker` 添加 `read_only: true`，为各自日志与临时目录显式挂载 `tmpfs`（限定 `size`）
+- [x] T010 [P] `docker-compose.yml`：为 `user-web` / `admin-web` / `gateway` 添加 `read_only: true`
 - [ ] T011 [P] `docker-compose.yml`：为 `mongo` / `redis` / `weaviate` 添加 `read_only: true` + 对应数据目录的 `tmpfs` 或命名卷例外（**注意**：这三个服务写卷路径固定，需逐一确认，不得为省事放开根文件系统）
-- [ ] T012 [P] `docker-compose.yml`：全部业务容器添加 `cap_drop: ["ALL"]`，按需最小 `cap_add`（如 `chown` / `setgid` / `net_bind_service`）
-- [ ] T013 [P] `docker-compose.yml`：全部容器添加 `no-new-privileges: true`
-- [ ] T014 [P] `docker-compose.yml`：为业务容器添加 `user:` 字段与 Dockerfile `USER` 对齐（双保险）
-- [ ] T015 `scripts/check_compose_image_modes.sh` 扩展：新增安全基线参数校验（`read_only` / `cap_drop` / `no-new-privileges` 四项必现）
+- [x] T012 [P] `docker-compose.yml`：全部业务容器添加 `cap_drop: ["ALL"]`，按需最小 `cap_add`（如 `chown` / `setgid` / `net_bind_service`）
+- [x] T013 [P] `docker-compose.yml`：全部容器添加 `no-new-privileges: true`
+- [x] T014 [P] `docker-compose.yml`：为业务容器添加 `user:` 字段与 Dockerfile `USER` 对齐（双保险）
+- [x] T015 `scripts/check_compose_image_modes.sh` 扩展：新增安全基线参数校验（`read_only` / `cap_drop` / `no-new-privileges` 四项必现）
 
 ### 镜像基线与运行层清理
 
-- [ ] T016 [P] 新建 `deploy/cli/baseline-check.sh`：非 root + 只读 + 能力 + 体积基线四项扫描，输出 PASS/FAIL 明细
-- [ ] T017 [P] 新建 `deploy/config/image-baseline.yml`：记录各镜像的分层数与总体积基线（QF-819 blocked → 建基线）
-- [ ] T018 [P] `baseline-check.sh` 增加"运行层不含构建工具与测试文件"检查（检查 `gcc` / `g++` / `pip` 缓存 / `*.test.py` 是否存在）
-- [ ] T019 `mogo` 新增 `baseline` 子命令，调用 `baseline-check.sh`，接入 `--lang` 国际化
+- [x] T016 [P] 新建 `deploy/cli/baseline-check.sh`：非 root + 只读 + 能力 + 体积基线四项扫描，输出 PASS/FAIL 明细
+- [x] T017 [P] 新建 `deploy/config/image-baseline.yml`：记录各镜像的分层数与总体积基线（QF-819 blocked → 建基线）
+- [x] T018 [P] `baseline-check.sh` 增加"运行层不含构建工具与测试文件"检查（检查 `gcc` / `g++` / `pip` 缓存 / `*.test.py` 是否存在）
+- [x] T019 `mogo` 新增 `baseline` 子命令，调用 `baseline-check.sh`，接入 `--lang` 国际化
 
 ---
 

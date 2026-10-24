@@ -182,4 +182,58 @@ assert_image() {
     "MOGO_EXPORTED_IMAGE_PREFIX override"
 )
 
+# --- Security baseline (024 T015) ---
+# Every business container must run non-root with a read-only root filesystem,
+# all capabilities dropped and no-new-privileges — the four invariants behind
+# the QF-818 fix. Validated directly from docker-compose.yml so the check does
+# not depend on a running docker daemon or override files.
+security_baseline_services=(
+  chat-api
+  admin-api
+  document-api
+  document-worker
+  user-web
+  admin-web
+  gateway
+)
+python3 - "${ROOT_DIR}/docker-compose.yml" "${security_baseline_services[@]}" <<'PY'
+import sys
+import yaml
+
+path = sys.argv[1]
+services = sys.argv[2:]
+with open(path) as f:
+    dc = yaml.safe_load(f)
+
+fail = 0
+for name in services:
+    svc = dc.get("services", {}).get(name)
+    if svc is None:
+        print(f"FAIL: {name} not found in compose", file=sys.stderr)
+        fail = 1
+        continue
+    user = svc.get("user")
+    read_only = svc.get("read_only")
+    cap_drop = svc.get("cap_drop") or []
+    nnp = any(
+        str(x).startswith("no-new-privileges:true")
+        for x in (svc.get("security_opt") or [])
+    )
+    errors = []
+    if not user or user in ("0", "0:0", "root"):
+        errors.append("user is missing or root")
+    if read_only is not True:
+        errors.append("read_only is not true")
+    if "ALL" not in cap_drop:
+        errors.append("cap_drop does not drop ALL")
+    if not nnp:
+        errors.append("no-new-privileges not enabled")
+    if errors:
+        print(f"FAIL: {name}: " + "; ".join(errors), file=sys.stderr)
+        fail = 1
+    else:
+        print(f"OK: {name}: user={user} read_only=true cap_drop=ALL no-new-privileges=true")
+sys.exit(1 if fail else 0)
+PY
+
 printf 'Compose image modes are valid.\n'

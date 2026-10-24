@@ -23,6 +23,7 @@ mogo_usage() {
     printf '  ./mogo restore <目录> --yes           校验并恢复 MOGO 数据卷\n'
     printf '  ./mogo status                         查看服务状态\n'
     printf '  ./mogo check                          体检外部数据库连接信息\n'
+    printf '  ./mogo baseline [--json]                扫描部署安全基线（非root/只读/能力/体积）\n'
     printf '  ./mogo logs [服务名]                  查看日志\n'
     printf '  ./mogo restart                        重启服务\n'
     printf '  ./mogo down                           停止服务（保留数据卷）\n'
@@ -36,6 +37,7 @@ mogo_usage() {
     printf '  ./mogo restore <directory> --yes       Verify and restore MOGO volumes\n'
     printf '  ./mogo status                          Show service status\n'
     printf '  ./mogo check                           Check external database settings\n'
+    printf '  ./mogo baseline [--json]                Scan deployment security baseline (non-root/read-only/caps/size)\n'
     printf '  ./mogo logs [service]                  Show logs\n'
     printf '  ./mogo restart                         Restart services\n'
     printf '  ./mogo down                            Stop services and preserve volumes\n'
@@ -151,6 +153,8 @@ mogo_msg() {
     en:external_db_disabled) printf 'External database mode is not enabled (MOGO_USE_EXTERNAL_DB is not 1); nothing to check.\n' ;;
     zh:unknown) printf '未知命令：%s\n\n' "$1" ;;
     en:unknown) printf 'Unknown command: %s\n\n' "$1" ;;
+     zh:baseline_script_missing) printf '错误：未找到基线扫揇脚本 deploy/cli/baseline-check.sh，请确认仓库完整．\n' ;;
+     en:baseline_script_missing) printf 'Error: baseline scan script deploy/cli/baseline-check.sh not found; verify the repository is complete.\n' ;;
     *) printf '%s' "${key}" ;;
   esac
 }

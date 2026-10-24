@@ -1,0 +1,3 @@
+# 026 T005 — 性能基线占位。
+# Phase 2（US1）采集后填充实际 P50/P95/P99 延迟 + RPS/TPS 吞吐基线。
+# 格式与 deploy/config/image-baseline.yml 一致，按服务分组。

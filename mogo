@@ -725,6 +725,15 @@ command_check() {
   mogo_check_external_db
 }
 
+command_baseline() {
+  local baseline_script="${ROOT_DIR}/deploy/cli/baseline-check.sh"
+  if [[ ! -x "${baseline_script}" ]]; then
+    mogo_msg baseline_script_missing >&2
+    exit 2
+  fi
+  bash "${baseline_script}" "$@"
+}
+
 command="${1:-up}"
 if [[ $# -gt 0 ]]; then
   shift
@@ -766,6 +775,9 @@ case "${command}" in
     ;;
   check)
     command_check
+    ;;
+  baseline)
+    command_baseline "$@"
     ;;
   logs)
     require_docker

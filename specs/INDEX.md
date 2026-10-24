@@ -79,9 +79,9 @@
 |---|---|---|---|---|---|---|---|
 | 022 | security-hardening（安全加固） | 96 个 P0/P1 缺陷：认证/MFA/令牌/授权/输入/数据/供应链 7 域 | P0 | ✅ | ✅ | ✅ | ✅（58/58） |
 | 023 | observability-resilience（可观测性与韧性） | 74 个 P0/P1 缺陷：日志/追踪/指标/告警/容错/恢复 6 域 | P1 | ✅ | ✅ | ✅ | 🔨 **13/126**（Phase 1 基座已落地：T001–T005 公共基座 services/common/ 三模块 + 三服务 vendored 副本 + 字节一致性 CI 门禁；T006–T008 三服务 6 依赖钉扎；T009–T013 可观测性栈（--profile observability 门控，默认部署形态不变）+ deploy/ 全量配置。OQ-1~OQ-8 已于 2026-10-24 消解——可直接继续 Phase 2+） |
-| 024 | deployment-hardening（部署与发布） | 42 个 P0/P1 缺陷：部署安全/制品/灰度/回滚/灾备 5 域 | P1 | ✅ | ✅ | ✅ | ⏸ 0/119（**未开工**；决策已全部登记于 spec Assumptions，无 open OQ，可直接开工） |
+| 024 | deployment-hardening（部署与发布） | 42 个 P0/P1 缺陷：部署安全/制品/灰度/回滚/灾备 5 域 | P1 | ✅ | ✅ | ✅ | 🔨 **18/119**（**Phase 1 已落地**：T001–T010 既有能力核实 + T012 脚本门禁扩展 + T014 compose user: 字段 + T015 安全基线校验 + T016–T018 基线工具链 + T019 mogo baseline 子命令；T011 需 docker run 实证，余 US2–US4 未开工） |
 | 025 | api-contract-hardening（API 契约与语义） | 50 个 P0/P1 缺陷：语义/错误/契约/演进 4 域 | P1 | ✅ | ✅ | ✅ | 🔨 7/52（**Phase 1 已落地**：T001–T007 错误结构统一 + trace_id + CI 唯一性门禁，三服务全量测试通过，2026-10-24；余 US1–US4 未开工） |
-| 026 | performance-scalability（性能与扩展性） | 51 个 P0/P1 缺陷：基线/DB/缓存/前端/扩展性 5 域 | P1 | ✅ | ✅ | ✅ | ⏸ 0/57（**未开工**；US1 需先建性能基线，预算阈值已随 2026-10-24 Clarify 定值） |
+| 026 | performance-scalability（性能与扩展性） | 51 个 P0/P1 缺陷：基线/DB/缓存/前端/扩展性 5 域 | P1 | ✅ | ✅ | ✅ | 🔨 **5/57**（**Phase 1 已落地**：T001–T005 模块骨架——cache/manager.py、perf_baseline.py、perf_budget.py、api/middleware/perf.py、benchmarks/ 目录结构；US1 性能基线未开工） |
 
 > 背景：QualityForge standard 深度全量 QA 审计（964 项，pass 298 / blocked 442 / fail 162 / na 59 / verified 3）发现的 P0/P1 代码级缺陷与基础设施缺口。283 个缺陷需建能力（022-026 覆盖），其余 341 个为流程/测试/文档缺口（不需 spec，直接修复）。详见 `.qualityforge/QUALITYFORGE-REPORT.md`。
 >
