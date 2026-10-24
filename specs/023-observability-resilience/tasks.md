@@ -4,8 +4,18 @@
 
 **Prerequisites**: plan.md (required), spec.md (required)
 
-**Clarify Decisions (governing tasks, 2026-10-11 待定)**:
-- 待 OQ-1 至 OQ-8 通过 `/speckit-clarify` 消解后更新本文件（默认参数、库选型、SLO/RTO 目标值）
+**Clarify Decisions (governing tasks, 2026-10-24 消解)**:
+- OQ-1 日志后端 = **Loki**（配 Grafana，OTel Collector 收日志）。
+- OQ-2 追踪后端 = **Tempo**（OTLP 接入，Collector 路由）；T009/T011/T012 中 "Jaeger（或 Tempo）" 一律取 **Tempo**。
+- OQ-3 熔断库 = **pybreaker**（T006~T008 依赖清单不变）。
+- OQ-4 备份存储 = **本地磁盘主存 + S3 兼容对象存储异地**（复用 admin-api 既有 `oss2`；未配置远程桶时降级本地-only 并在 /ready 显式可见）。
+- OQ-5 告警渠道 = **IM webhook（钉钉/飞书/企业微信，复用 013）+ 邮件**；电话/语音为 Non-Goal；P0 文案必带面板 + Runbook 链接（T013）。
+- OQ-6 SLO = **可用性 99.9% / P99 < 3s / LLM 错误率 < 1%**；burn rate 窗口 1h/6h + 6h/3d 两组。
+- OQ-7 RTO/RPO = **RTO ≤ 30min / RPO ≤ 15min**（MongoDB 数据面口径；Redis 可丢如实声明）。
+- OQ-8 跨 AZ = **单宿主机模拟 + 备份重建**；FR-29/T096 起的灾备任务验收文案如实标注"非真实跨 AZ"。
+- 默认参数：熔断连续失败 5 次打开 / 30s 半开试探 1 请求；超时层级 30s→10s→5s；重试 1.5s 基数 / 30s 上限 / ±10% 抖动 / 最多 3 次（与 007 一致）；备份每小时增量 + 每日全量；本地保留 30 天 / 异地 90 天。
+
+> 本文件此前标注「待 OQ-1 至 OQ-8 通过 `/speckit-clarify` 消解后更新」。**2026-10-24 八个 OQ 已全部消解**（决策依据见 spec.md「Clarify 记录」），规约层阻塞解除，可按 Phase 1 → 8 顺序开工。
 
 **Checklist Gate**: `checklists/requirements.md` 未勾选项构成 `/speckit-implement` 拦截门禁；本任务文件仅规划，不修改 checklist 标记。
 
@@ -252,7 +262,7 @@ Phase 8 (Polish)
 
 ## Notes
 
-- 本 tasks.md 为 `/speckit-tasks` 产出，含 023 的 clarify 决策（待 OQ-1 至 OQ-8 消解后更新）
+- 本 tasks.md 为 `/speckit-tasks` 产出；OQ-1 至 OQ-8 已于 2026-10-24 消解（决策见文件头 Clarify Decisions 与 spec.md「Clarify 记录」），阻塞解除
 - 实现需先通过 `checklists/requirements.md` 门禁
 - 未改 services 源码；本文件仅在 `specs/023-observability-resilience/` 下
 - QualityForge 缺陷验证：每个 US 完成后需关闭对应子域的 blocked 项（对照 Success Criteria）

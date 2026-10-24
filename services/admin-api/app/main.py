@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import logging
@@ -9,7 +8,9 @@ from typing import Any
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.core.error_handler import register_error_handlers
 from app.middleware.cors import build_cors_middleware_kwargs
+from app.middleware.trace_id import TraceIdMiddleware
 from app.core.db import close_backend, init_backend
 from app.core.product_edition import migrate_bootstrapped_community_organization
 from app.repositories.model_repository import ensure_indexes as ensure_model_indexes
@@ -79,6 +80,9 @@ def create_app() -> FastAPI:
         **build_cors_middleware_kwargs(settings.cors_origins),
     )
     app.add_middleware(SystemAuditMiddleware)
+    # 025 Phase 1（T004）：trace_id 注入中间件——最后 add 即最外层，
+    # 保证任何异常处理器 / 业务代码都能从 request.state.trace_id 取到值。
+    app.add_middleware(TraceIdMiddleware)
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, Any]:
@@ -188,18 +192,11 @@ def create_app() -> FastAPI:
         await close_backend()
 
     # QF-447/449: Global exception handler - no stack traces in production
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request, exc):
-        logger.exception("Unhandled exception: %s", exc)
-        if is_prod:
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Internal server error"},
-            )
-        return JSONResponse(
-            status_code=500,
-            content={"detail": str(exc)},
-        )
+    # 025 Phase 1（T003）：统一异常处理器接管 422（RequestValidationError）与 500
+    # （未处理 Exception），响应体为 RFC 9457 扩展的 ErrorResponse 结构
+    # （code/message/trace_id/field/path，并保留 detail 兼容键）。路由内显式
+    # HTTPException 的形状不变——那属于 T011 状态码语义整改的范围。
+    register_error_handlers(app, is_prod=is_prod)
 
     app.include_router(api_router, prefix="/api")
     for extension_router in get_admin_product_extension().routers:

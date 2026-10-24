@@ -172,7 +172,7 @@ MongoDB 自动备份（定时 mongodump，加密存储）+ 恢复演练（每季
 - 技术实现（structlog 配置、OpenTelemetry SDK、Prometheus client、Alertmanager 配置、熔断器实现）由 [plan.md](./plan.md) 承载
 - 启用步骤与验证命令由 [quickstart.md](./quickstart.md) 承载
 - 任务拆解（含文件路径）由 [tasks.md](./tasks.md) 承载
-- 默认参数（熔断阈值、超时层级、备份频率、RTO/RPO 目标）需 `/speckit-clarify` 定值
+- 默认参数（熔断阈值 5 次连续失败 / 半开 30s、超时层级 30s→10s→5s、重试基数 1.5s/上限 30s/±10%/3 次、备份频率每小时增量+每日全量、RTO ≤ 30min / RPO ≤ 15min）已定值（见 Clarify 记录 OQ-3/OQ-7，2026-10-24）
 
 ### 跨特性关系（双向声明，2026-10-11）
 
@@ -182,13 +182,15 @@ MongoDB 自动备份（定时 mongodump，加密存储）+ 恢复演练（每季
 - **与 010（dag-orchestration）**: 010 的节点级重试包裹本特性的依赖级重试；追踪链路贯穿 010 DAG 节点与下游调用
 - **与 002/003/004/005/006**（其他业务特性）: 本特性提供基础设施，业务特性无需感知；只需在入口注入 trace_id 即可（由中间件自动处理）
 
-## Clarify 记录（/speckit-clarify，2026-10-11 待定）
+## Clarify 记录（/speckit-clarify，OQ-1~OQ-8 已于 2026-10-24 消解）
 
-- OQ-1（待定）: 日志后端选型（Loki vs ELK vs 仅 stdout + 平台采集）
-- OQ-2（待定）: 追踪后端选型（Jaeger vs Tempo vs Zipkin）
-- OQ-3（待定）: 熔断库选型（`pybreaker` vs `tenacity` 内置 vs 手写）
-- OQ-4（待定）: 备份存储后端（S3 兼容对象存储 vs NFS vs 本地磁盘）
-- OQ-5（待定）: 告警升级渠道（电话/语音 vs 强制 IM 弹窗）
-- OQ-6（待定）: SLO 目标值（可用性 99.9% vs 99.95%、延迟 P99 < 3s vs < 5s）
-- OQ-7（待定）: RTO/RPO 目标值（30min/15min vs 1h/30min）
-- OQ-8（待定）: 跨 AZ 实现方式（多 Compose 实例 + LB vs 云厂商托管 vs 单宿主机模拟）
+> 2026-10-24 由需求方逐条确认（QA R11 后续消解轮）。决策与依据如下；impact 行指受影响的 FR/tasks。
+
+- **OQ-1 日志后端选型 — 决策：Loki（轻量自托管）**。理由：单机 Compose 内自托管、无云依赖可离线复现；LogQL 与 Grafana 同屏排障；ELK 资源开销不必要；纯 stdout 无法支撑 FR-20 逐层下钻的日志侧。**影响**：FR-1/FR-4、T009/T012。
+- **OQ-2 追踪后端选型 — 决策：Tempo（配 OTel Collector）**。理由：与 Grafana/Loki 同栈、资源占用低于 Jaeger all-in-one，Grafana 内 trace↔logs 互跳；Zipkin 数据模型过旧。**影响**：FR-7~FR-13、T009/T011。
+- **OQ-3 熔断库选型 — 决策：`pybreaker`**。理由：状态机语义（fail 计数→open、恢复窗口→half-open 单请求试探）与 FR-21 默认值（5 次/30s）逐字对应，代码量最小。**影响**：T004/T006~T008 依赖清单。
+- **OQ-4 备份存储后端 — 决策：本地磁盘主存 + S3 兼容对象存储异地（复用 admin-api 既有 `oss2`，默认阿里云 OSS endpoint，驱动接口按 S3 兼容抽象）**。备份桶经配置项指定；未配置时降级为本地-only，降级状态必须在 /ready 与 health 中显式可见（不允许静默）。理由：仓库已有 oss2 依赖；FR-27「30 天本地 + 90 天异地」要求两种介质。**影响**：FR-26/FR-27。
+- **OQ-5 告警升级渠道 — 决策：IM webhook（钉钉/飞书/企业微信，复用 013 多 IM 入口）+ 邮件双渠道；电话/语音列为 Non-Goal**。理由：013 已具备三家 IM 通道；Alertmanager webhook_configs 原生支持；P0 告警文案必须携带 Grafana 面板链接 + Runbook 链接（FR-18 排障入口）。**影响**：FR-16~FR-19、T013。
+- **OQ-6 SLO 目标值 — 决策：可用性 99.9%、请求延迟 P99 < 3s、LLM 调用错误率 < 1%**（采纳 spec 建议值，与 FR-14 一致）。burn rate 告警窗口首期取 1h/6h 快速档与 6h/3d 慢档两组。**如实登记**：99.9% 即每月错误预算约 43min；首期部署为单机 Compose 无热备（见 OQ-8），该目标为「承诺 + 度量」口径，由 FR-15 错误预算耗尽告警暴露差距，不假装已具备热备达成能力。**影响**：FR-14/FR-15。
+- **OQ-7 RTO/RPO 目标值 — 决策：RTO ≤ 30min、RPO ≤ 15min**（采纳 spec 建议值，与 FR-31 一致）。口径：两者均指 **MongoDB 数据面**（副本集 oplog 重建 + 备份恢复路径），2026-10-23 实测逻辑 dump 恢复耗时 ~2min、冷 tar ~8min，30min 目标有余量；应用层冷启动（compose up + 镜像在位）不计入 RTO 但须单独登记实测值。Redis 数据可丢，RPO 按 Redis 自身持久化配置如实声明（继承 024 Assumptions）。每季度演练实测并记录（FR-28/FR-31）。**影响**：FR-28~FR-31。
+- **OQ-8 跨 AZ 实现方式 — 决策：单宿主机模拟 + 备份重建（如实声明）**。理由：部署形态为单机 Compose（024 Assumptions 已定、不引入 K8s/云托管），「跨可用区」在单宿主机上无法真实度量；首期以「compose 多副本 + 外部 LB 配置模板 + 单宿主机故障注入演练」验证恢复路径存在，FR-29 验收文案明示「单宿主机演练，非真实跨 AZ」。真实跨 AZ 留待云托管形态（后续特性）。**影响**：FR-29、SC 相应项。

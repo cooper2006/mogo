@@ -34,7 +34,7 @@
 - [ ] T007 实现 `perf_baseline.py` 吞吐采集：按并发级别（1/10/50/100）记录 RPS（对话）/ TPS（文档解析），落库
 - [ ] T008 实现 `execution_trace.py` 外部依赖耗时拆分：每次请求拆分 DB / Redis / LLM / 外部 API 耗时占比，汇总到基线（FR-3）
 - [ ] T009 [P] 实现 `perf_budget.py` 预算检查：读 `benchmarks/perf_baselines/baselines.yaml`，检查 P95 ≤ 阈值、包体积 ≤ 预算，输出通过/失败
-- [ ] T010 [P] 定义 `benchmarks/perf_baselines/baselines.yaml`：关键端点显式预算（对话 P95 ≤ 2s、文档解析 ≤ 5s、鉴权 ≤ 500ms、admin-web ≤ 500KB、user-web ≤ 300KB、缓存命中率 ≥ 80%、并发上限 1000 rps/实例）——阈值需 `/speckit-clarify` 确认
+- [ ] T010 [P] 定义 `benchmarks/perf_baselines/baselines.yaml`：关键端点显式预算（对话 P95 ≤ 2s、文档解析 ≤ 5s、鉴权 ≤ 500ms、admin-web ≤ 500KB、user-web ≤ 300KB、缓存命中率 ≥ 80%、并发上限 1000 rps/实例）——阈值已定值（2026-10-24 Clarify 记录）
 - [ ] T011 实现 `perf_budget.py` 回归判定：新构建基线 vs 历史基线，P95 超阈值（如 +20%）标记为回归，CI 中告警（FR-5）
 - [ ] T012 实现 `api/middleware/perf.py` 性能中间件：请求级延迟埋点 → `kpi_store.incr` → span 记录，接入 chat-api / admin-api / document-parser（FR-1/FR-2）
 - [ ] T013 [P] 扩展 `kpi_store.py`：新增延迟分位数计数器（P50/P95/P99），支持按端点维度聚合（FR-1）
@@ -164,7 +164,7 @@ T018（索引）→ T019（执行计划分析）
 - 缓存复用既有 Redis 客户端模式（参考 `session_affinity.py` / `runtime_lock.py`），不引入新中间件
 - 前端分包不改变业务逻辑，仅路由级懒加载 + 资源优化
 - 压测脚本使用 locust（Python 生态一致），k6 作为补充
-- 所有阈值（P95/包体积/命中率/并发上限/慢查询阈值）需 `/speckit-clarify` 定值
+- 所有阈值（P95/包体积/命中率/并发上限/慢查询阈值）已于 2026-10-24 `/speckit-clarify` 定值（见 spec.md「Clarify 记录」预算表；全部可配置覆盖）
 
 ## Notes
 

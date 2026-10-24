@@ -243,6 +243,12 @@ jobs:
         working-directory: services/chat-api
         run: python scripts/check_production_wiring.py
 
+      # 025 FR-29 (T007)：错误码跨服务唯一性 + 状态映射一致性 + 字典登记完整性。
+      # 跨服务视角，只跑一次即可；纯 stdlib，无需安装依赖。
+      - name: API error-code uniqueness (025 T007)
+        if: matrix.service == 'admin-api'
+        run: python3 tools/api_check/error_codes_uniqueness.py
+
       - name: Create venv and install
         working-directory: services/${{ matrix.service }}
         run: |

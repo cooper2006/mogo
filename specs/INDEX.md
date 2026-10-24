@@ -77,13 +77,15 @@
 
 | 编号 | 特性 | 说明 | 优先级 | spec | plan | quickstart | tasks |
 |---|---|---|---|---|---|---|---|
-| 022 | security-hardening（安全加固） | 96 个 P0/P1 缺陷：认证/MFA/令牌/授权/输入/数据/供应链 7 域 | P0 | ✅ | ✅ | ✅ | ✅ |
-| 023 | observability-resilience（可观测性与韧性） | 74 个 P0/P1 缺陷：日志/追踪/指标/告警/容错/恢复 6 域 | P1 | ✅ | ✅ | ✅ | ✅ |
-| 024 | deployment-hardening（部署与发布） | 42 个 P0/P1 缺陷：部署安全/制品/灰度/回滚/灾备 5 域 | P1 | ✅ | ✅ | ✅ | ✅ |
-| 025 | api-contract-hardening（API 契约与语义） | 50 个 P0/P1 缺陷：语义/错误/契约/演进 4 域 | P1 | ✅ | ✅ | ✅ | ✅ |
-| 026 | performance-scalability（性能与扩展性） | 51 个 P0/P1 缺陷：基线/DB/缓存/前端/扩展性 5 域 | P1 | ✅ | ✅ | ✅ | ✅ |
+| 022 | security-hardening（安全加固） | 96 个 P0/P1 缺陷：认证/MFA/令牌/授权/输入/数据/供应链 7 域 | P0 | ✅ | ✅ | ✅ | ✅（58/58） |
+| 023 | observability-resilience（可观测性与韧性） | 74 个 P0/P1 缺陷：日志/追踪/指标/告警/容错/恢复 6 域 | P1 | ✅ | ✅ | ✅ | ⏸ 0/126（**未开工**；OQ-1~OQ-8 已于 2026-10-24 消解——Loki/Tempo/pybreaker/本地+S3/IM+邮件/99.9%·P99<3s/RTO30·RPO15/单宿主机演练——可直接开工） |
+| 024 | deployment-hardening（部署与发布） | 42 个 P0/P1 缺陷：部署安全/制品/灰度/回滚/灾备 5 域 | P1 | ✅ | ✅ | ✅ | ⏸ 0/119（**未开工**；决策已全部登记于 spec Assumptions，无 open OQ，可直接开工） |
+| 025 | api-contract-hardening（API 契约与语义） | 50 个 P0/P1 缺陷：语义/错误/契约/演进 4 域 | P1 | ✅ | ✅ | ✅ | 🔨 7/52（**Phase 1 已落地**：T001–T007 错误结构统一 + trace_id + CI 唯一性门禁，三服务全量测试通过，2026-10-24；余 US1–US4 未开工） |
+| 026 | performance-scalability（性能与扩展性） | 51 个 P0/P1 缺陷：基线/DB/缓存/前端/扩展性 5 域 | P1 | ✅ | ✅ | ✅ | ⏸ 0/57（**未开工**；US1 需先建性能基线，预算阈值已随 2026-10-24 Clarify 定值） |
 
 > 背景：QualityForge standard 深度全量 QA 审计（964 项，pass 298 / blocked 442 / fail 162 / na 59 / verified 3）发现的 P0/P1 代码级缺陷与基础设施缺口。283 个缺陷需建能力（022-026 覆盖），其余 341 个为流程/测试/文档缺口（不需 spec，直接修复）。详见 `.qualityforge/QUALITYFORGE-REPORT.md`。
+>
+> **⚠️ 落地口径更正（2026-10-24 QA R11）**：022–026 的 **checklist（需求质量门禁）100% 勾选**与 **tasks（实现任务）落地** 是两件事，不能混用。实际状态：022 已完整落地（58/58）；**023 / 024 / 025 / 026 四个特性当时代码未开工（tasks 勾选 0/126、0/119、0/52、0/57，合计 0/354）**。因此「所有特性全流程已就绪」的宣称对这 4 个特性**不成立**，本轮发布范围不含它们；其覆盖的 QualityForge 缺陷仍以「已立项、未实现」登记。阻塞原因须逐特性区分，不可一概写作「待 OQ-1~OQ-8」：023 原有 8 个 open OQ（日志/追踪后端、熔断库、备份存储、告警渠道、SLO、RTO/RPO、跨 AZ 方式），**已于 2026-10-24 全部消解**（决策见其 spec「Clarify 记录」与 tasks「Clarify Decisions」：Loki / Tempo / pybreaker / 本地磁盘+S3 兼容异地 / IM webhook+邮件 / 99.9%·P99<3s·LLM错误率<1% / RTO≤30min·RPO≤15min / 单宿主机演练如实声明）；025 的 OQ-1~OQ-5 早于 2026-10-11 消解完毕；024 无 open OQ（全部决策登记于 spec「Assumptions」节，checklist CHK017 已核对）；026 的预算阈值已于 2026-10-24 定值（spec「Clarify 记录」预算表）。**四者规约层阻塞全部解除，剩余缺口纯属实现排期**——按 tasks.md Phase 1 起可直接开工。
 
 ## 四（补）、未独立拆分的后续范围
 
@@ -209,7 +211,7 @@
   > （生产调用方 / 消费方 / 真实数据源 / 端到端可证伪）重检 20 个特性，结果为
   > **`landed` 0 · `partial` 10 · `hollow` 9**（高危缺口 ≥60 条）。详见
   > [`LANDING_AUDIT_2026-10-03.md`](./LANDING_AUDIT_2026-10-03.md)。**本文其余"✅/已实现"表述仅指文档层面完成度，不代表功能落地。**
-- clarify（OQ 消解）：**001/002/007–020 + 022 共 17 份已消解**（003–006 既有回溯未做 clarify；021 未单列 clarify 节，其决策随 017 优化轮一并确定）。消解记录位置：001/002/007–011 在 spec 的 "Clarify 记录" 节；012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节；020 与 022 在 tasks.md 的 "Clarify Decisions" 节（19 项 / 5 项）。关键消解：
+- clarify（OQ 消解）：**001/002/007–020 + 022 + 023 + 025 + 026 共 20 份已消解**（003–006 既有回溯未做 clarify；021 未单列 clarify 节，其决策随 017 优化轮一并确定；024 无 open OQ，决策登记于 spec「Assumptions」节视同消解；025 的 OQ-1~OQ-5 早于 2026-10-11 消解但未计入，本行一并补记）。消解记录位置：001/002/007–011 在 spec 的 "Clarify 记录" 节；012–019 在 plan 的 "Open Questions（已 clarify 消解）" 节；020 与 022 在 tasks.md 的 "Clarify Decisions" 节（19 项 / 5 项）。关键消解：
   - 001：审批复用 `approval_runtime`（poll，5min 超时）；配额用 MongoDB（不引入 Redis）；PII 全局默认 + 租户可覆盖
   - 007：tenacity 既有依赖；退避 1.5s/30s/±10%/3 次；事件落 token_usage_logs
   - 008：人工介入率=审批挂起数；P50/P95 取 token_usage_logs.duration_ms；瓶颈 top-N；DashboardPage 加标签页
@@ -219,6 +221,8 @@
   - 011：Jaccard ≥0.7 + 样本 ≥5 建 MR；14 天低采纳淘汰；与 016 共用标记位
   - 012–019：各自口径/阈值/依赖顺序已定（019 薄模式保留身份/RBAC/脱敏/审计/红线，可省审批/配额）
   - 022（2026-10-12）：OQ-1 MFA 通知通道未接入时降级为审计事件；OQ-2 首期 KMS 用环境变量 + 集成接口预留、Vault 可选；OQ-3 TLS 终结在反向代理层、应用层经 `SECURE_PROXY_SSL_HEADER` 感知；OQ-4 服务间首期内网隔离 + 独立凭证、mTLS 可选；OQ-5 CORS 白名单由环境变量配置且默认空
+  - 023（2026-10-24）：OQ-1 日志后端 Loki；OQ-2 追踪后端 Tempo（OTel Collector）；OQ-3 熔断库 pybreaker；OQ-4 备份 = 本地磁盘主存 + S3 兼容对象存储异地（复用 oss2，未配桶降级本地-only 且 /ready 可见）；OQ-5 告警渠道 = IM webhook（复用 013）+ 邮件，电话/语音 Non-Goal；OQ-6 SLO = 99.9% / P99<3s / LLM 错误率<1%；OQ-7 RTO≤30min / RPO≤15min（MongoDB 数据面口径）；OQ-8 跨 AZ = 单宿主机演练 + 备份重建（验收文案如实标注非真实跨 AZ）
+  - 026（2026-10-24）：性能预算阈值全部定值（对话 P95≤2s / 解析≤5s / 鉴权≤500ms / 包体积 500KB·300KB gzip / LCP≤2.5s / 命中率≥80% / 慢查询 100ms / maxTimeMS 5s / 连接池 100·10·30s·≤80% / 1000rps·队列 1000 / DB 熔断错误率>50% / P95 回归 +20% 判线）——默认可配，见 spec「Clarify 记录」预算表
 
 ## 五（补）、checklist 暴露的缺陷修正记录（✅ 已修，2026-07-08）
 

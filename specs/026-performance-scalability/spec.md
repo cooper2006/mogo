@@ -158,7 +158,7 @@
 - 实施顺序：US1（基线）→ US2（DB）→ US3（缓存）→ US4（前端）→ US5（扩展性），**US1 是其他故事的前置条件**
 - 与 001（gatekeeper）联动：本特性基线建立后，QualityForge 的 51 个 P0/P1 `blocked` 项可逐步解除
 - 与 007（llm-gateway）联动：本特性的"外部依赖耗时占比"包含 LLM 耗时，与 007 韧性事件可交叉归因
-- 性能预算阈值（P95 / 包体积 / 命中率 / 并发上限）需 `/speckit-clarify` 定值
+- 性能预算阈值（P95 / 包体积 / 命中率 / 并发上限）已定值（见「Clarify 记录」，2026-10-24）
 
 ### 跨特性关系（双向声明，2026-10-11）
 
@@ -167,3 +167,26 @@
 - **与 008（ops-dashboard）**：026 的基线数据、压测结果、容量模型、命中率指标供 008 驾驶舱消费，008 提供可视化归因。
 - **与 020（platform-multi-tenancy）**：020 的多租户隔离与 026 的连接池/限流配置正交——020 管"谁"能访问，026 管"多快"能访问。
 - **与 025（api-contract-hardening）**：025 管 API 契约稳定性，026 管 API 性能稳定性——两个"稳定性"维度互补。
+
+## Clarify 记录（/speckit-clarify，2026-10-24 消解）
+
+> 本特性无编号 OQ，唯一待定项是「性能预算阈值需定值」（spec Further Details / tasks T010/Notes）。2026-10-24 按下表定值；全部阈值经配置层可覆盖（`performance.yaml` / `baselines.yaml`），定值是**默认预算**，不是硬编码。
+
+| 预算项 | 默认值 | 口径 |
+|---|---|---|
+| 对话端点 P95 | ≤ 2s（chat-api，非 LLM 生成段；LLM 流式首 token 另计） | 服务端处理时延，不含网络与客户端渲染 |
+| 文档解析 P95 | ≤ 5s（≤20 页 PDF，worker 侧端到端） | document-parser 任务提交→结果可读 |
+| 鉴权端点 P95 | ≤ 500ms | admin-api `/api/auth/*` |
+| admin-web 首屏包体积 | ≤ 500KB gzip | 构建产物 entrypoint 口径 |
+| user-web 首屏包体积 | ≤ 300KB gzip | 同上 |
+| 前端 LCP | ≤ 2.5s（内网基线环境） | Lighthouse，staging 实测 |
+| 缓存命中率 | ≥ 80%（会话/热点查询域） | Redis info + 业务埋点，滚动 24h |
+| 慢查询阈值 | ≥ 100ms 记录并告警（可配） | MongoDB `slow_query_log` |
+| 查询超时 | `maxTimeMS` 默认 5000ms（可配） | 所有业务查询 |
+| 连接池 | maxPool 100 / minPool 10 / maxIdle 30s / 泄漏告警 90s / 峰值利用率目标 ≤ 80% | 与 023 FR-24 资源池隔离共用配置 |
+| 并发上限 | 1000 rps/实例（令牌桶，FR-28）；队列深度 1000，超出 429 | 单实例口径，容量模型据此外推 |
+| 熔断（DB 依赖） | 错误率 > 50%（滚动 30s 窗口）打开，半开试探同 023 OQ-3 口径 | 与 023 FR-21 参数一致，pybreaker 共用 `services/common/dependency_guard.py` |
+| P95 回归判定 | 新基线 vs 历史基线劣化 > 20% 判回归，CI 告警（非阻断，首期观察档） | T011 |
+
+- 与 023 关系：本表熔断/超时/重试参数与 023 Clarify（2026-10-24）对齐，不重复定义；023 定"依赖守护框架"，026 定"性能预算数值"。
+- tasks T010「阈值需 /speckit-clarify 确认」标注自本记录起解除；`baselines.yaml` 按上表落默认值。

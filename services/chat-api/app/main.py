@@ -1,6 +1,5 @@
 from app.infrastructure.observability.config import log_print
 from fastapi import FastAPI, HTTPException
-from starlette.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
@@ -10,6 +9,7 @@ import time
 import uuid
 
 from app.core.db import close_backend, get_db, init_backend
+from app.core.error_handler import register_error_handlers
 from app.middleware.cors import build_cors_middleware_kwargs
 from app.core.config import get_settings
 from app.infrastructure.observability.config import configure_logging
@@ -72,18 +72,21 @@ if _IS_PROD and bool(getattr(settings, "DEBUG", False)):
     settings.DEBUG = False
 
 
-@app.exception_handler(Exception)
-async def _global_exception_handler(request, exc: Exception):  # type: ignore[override]
-    logger.exception("Unhandled exception: %s", exc)
-    if _IS_PROD:
-        return JSONResponse(
-            status_code=500,
-            content={"code": -1, "message": "Internal server error"},
-        )
-    return JSONResponse(
-        status_code=500,
-        content={"code": -1, "message": str(exc)},
-    )
+# 025 Phase 1（T005）：统一异常处理器接管 422/500，响应体为 RFC 9457 扩展的
+# ErrorResponse 结构（code/message/trace_id/field/path + detail 兼容键）。
+# 路由内显式 HTTPException 形状不变（T011 状态码语义整改波次处理）。
+register_error_handlers(app, is_prod=_IS_PROD)
+
+@app.middleware("http")
+async def trace_id_middleware(request, call_next):
+    # 025 T005：trace_id 解析 + 响应头回写（放在 http 中间件层，早于业务处理，
+    # 使异常处理器与日志上下文都能取到同一值）。
+    from app.middleware.trace_id import resolve_trace_id
+
+    trace_id = resolve_trace_id(request)
+    response = await call_next(request)
+    response.headers["X-Trace-ID"] = trace_id
+    return response
 
 @app.middleware("http")
 async def request_logging_middleware(request, call_next):

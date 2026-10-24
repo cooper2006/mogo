@@ -6,6 +6,32 @@ image.
 
 ## Unreleased
 
+### Added
+
+- **025 API 契约加固 Phase 1 落地（2026-10-24，T001–T007）**：三服务统一错误契约——
+  各新增 `app/core/errors.py`（稳定字符串错误码枚举 + `ErrorResponse`，RFC 9457 扩展
+  `type`/`title`/`status`/`instance`，兼容键 `detail`/`message` 并存）、
+  `app/core/error_handler.py`（接管 422/500；路由级 `HTTPException` 形状不变，留待
+  T011 逐路由整改）、`app/middleware/trace_id.py`（`X-Trace-ID` 沿用/生成 + 响应头
+  回写，chat-api 侧打通 observability `request_context`）、`app/core/errors_codes.md`
+  （code/http_status/trigger/remedy 四字段字典）；新增
+  `tools/api_check/error_codes_uniqueness.py` 跨服务错误码唯一性 + 状态漂移 +
+  字典登记完整性检查，接入 `.github/workflows/quality-gate.yml`（backend-quality）。
+  验证：admin-api 新增 `tests/test_error_contract_phase1.py` 14 项，admin-api /
+  chat-api / document-parser 三服务全量 pytest 通过，`check_python_static.py` 门禁通过。
+- **023–026 治理口径修正与 clarify 消解（2026-10-24 QA R11 后续）**：README（中/英）
+  撤回 022–026「按波交付已实施」宣称；`specs/INDEX.md` 表行逐特性区分阻塞原因。
+  023 的 OQ-1~OQ-8 经需求方确认全部消解（Loki / Tempo / pybreaker / 本地磁盘 +
+  S3 兼容对象存储异地 / IM webhook + 邮件 / SLO 99.9%·P99<3s·LLM 错误率<1% /
+  RTO≤30min·RPO≤15min / 单宿主机演练如实声明）；026 性能预算阈值定值（默认可配，
+  见其 spec「Clarify 记录」）。四特性规约层阻塞全部解除。
+### Changed
+
+- **chat-api 未处理异常（500）响应体契约变更（025 FR-11，属预期破坏性收敛）**：
+  `{"code": -1, "message": ...}` → 统一 `ErrorResponse` 结构（`code` 为稳定字符串
+  `api.internal_error`，`message`/`detail` 兼容键保留）。HTTP 层消费方注意；
+  SSE 流内帧 `code: 0/-1` envelope 不受影响。
+
 ## v0.2.5 - 2026-10-23
 
 ### Removed

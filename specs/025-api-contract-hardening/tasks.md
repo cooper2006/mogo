@@ -27,13 +27,13 @@
 
 **Goal**: 建立错误码注册表、统一 `ErrorResponse` 结构、`trace_id` 中间件——US1/US2/US3 的共同载体。
 
-- [ ] T001 [P] 创建 `services/admin-api/app/core/errors.py`：错误码注册表（Python Enum + 字典）+ `ErrorResponse` Pydantic 模型（RFC 9457 扩展），定义 `code`/`message`/`detail`/`trace_id`/`field`/`path`/`docs_url` 字段
-- [ ] T002 [P] 创建 `services/admin-api/app/core/errors_codes.md`：错误码字典（每服务独立，含 `code`/`http_status`/`trigger`/`remedy` 四字段）
-- [ ] T003 创建 `services/admin-api/app/core/error_handler.py`：统一异常处理器（`HTTPException` + `RequestValidationError` + `Exception` → `ErrorResponse`），注册到 FastAPI app
-- [ ] T004 [P] 创建 `services/admin-api/app/middleware/trace_id.py`：`trace_id` 注入中间件（从 `X-Trace-ID` 头或生成 UUID，写入响应 `ErrorResponse.trace_id` + 日志上下文）
-- [ ] T005 [P] 同步 T001-T004 到 `services/chat-api/app/core/`（`errors.py` + `errors_codes.md` + `error_handler.py` + `middleware/trace_id.py`）
-- [ ] T006 [P] 同步 T001-T004 到 `services/document-parser/app/core/`（`errors.py` + `errors_codes.md` + `error_handler.py` + `middleware/trace_id.py`）
-- [ ] T007 跨服务错误码重名检查脚本：`tools/api_check/error_codes_uniqueness.py`，CI 执行（FR-29）
+- [x] T001 [P] 创建 `services/admin-api/app/core/errors.py`：错误码注册表（Python Enum + 字典）+ `ErrorResponse` Pydantic 模型（RFC 9457 扩展），定义 `code`/`message`/`detail`/`trace_id`/`field`/`path`/`docs_url` 字段
+- [x] T002 [P] 创建 `services/admin-api/app/core/errors_codes.md`：错误码字典（每服务独立，含 `code`/`http_status`/`trigger`/`remedy` 四字段）
+- [x] T003 创建 `services/admin-api/app/core/error_handler.py`：统一异常处理器（`HTTPException` + `RequestValidationError` + `Exception` → `ErrorResponse`），注册到 FastAPI app
+- [x] T004 [P] 创建 `services/admin-api/app/middleware/trace_id.py`：`trace_id` 注入中间件（从 `X-Trace-ID` 头或生成 UUID，写入响应 `ErrorResponse.trace_id` + 日志上下文）
+- [x] T005 [P] 同步 T001-T004 到 `services/chat-api/app/core/`（`errors.py` + `errors_codes.md` + `error_handler.py` + `middleware/trace_id.py`）
+- [x] T006 [P] 同步 T001-T004 到 `services/document-parser/app/core/`（`errors.py` + `errors_codes.md` + `error_handler.py` + `middleware/trace_id.py`）
+- [x] T007 跨服务错误码重名检查脚本：`tools/api_check/error_codes_uniqueness.py`，CI 执行（FR-29）
 
 **关键依赖**: T001-T004 被 US1/US2/US3 全部复用；T005/T006 是 T001-T004 的跨服务同步。
 
@@ -169,6 +169,6 @@ Phase 5 → Phase 6 (CI 接入 & Polish)
 - 本 tasks.md 为 `/speckit-tasks` 产出，含 025 的 clarify 决策（RFC 9457 错误结构、幂等键作用域、批量 200+partial、URL+Header 双轨版本、限流阈值）。
 - **api-semantics 和 api-errors 两域有实际 fail 项**，修复必须以实测为准（不能只补文档）。
 - 实现需先通过 `checklists/requirements.md` 门禁；CHK 检查项需与 spec.md FR 双向对齐。
-- 未改 services 源码；本文件仅在 `specs/025-api-contract-hardening/` 下。
+- **实现进展（2026-10-24）**：Phase 1 T001–T007 已落地——三服务各自新增 `app/core/errors.py`（错误码注册表 + `ErrorResponse` + `build_error_payload`）、`app/core/error_handler.py`（接管 422/500；路由级 `HTTPException` 形状不动，属 T011 范围）、`app/middleware/trace_id.py`（`X-Trace-ID` 沿用/生成 + 响应头回写）、`app/core/errors_codes.md`（四字段字典）；`tools/api_check/error_codes_uniqueness.py` 已接入 `.github/workflows/quality-gate.yml`（backend-quality，admin-api 单次执行）。兼容口径：错误体并存 `detail`（字符串，前端既有消费）/`message`（chat-api envelope）/RFC 9457 键（type/title/status/instance），结构化 detail 移至 `error_detail`；chat-api 旧数值 code 按 FR-11 废弃为字符串稳定码，SSE 流内帧不受影响。验证：admin-api 全量 pytest 通过（含新增 `tests/test_error_contract_phase1.py` 14 项）、chat-api 全量通过、document-parser 全量通过、check_python_static 三服务门禁通过、uniqueness 脚本 OK。
 - 跨服务错误码重名检查（T007）需在三个服务都完成后执行。
 - 契约测试（T033-T039）需三个服务的 OpenAPI 生成（T040）后才能完整执行。
