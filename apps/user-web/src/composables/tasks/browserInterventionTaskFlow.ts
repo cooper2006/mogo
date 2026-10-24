@@ -76,17 +76,27 @@ export async function resumeBrowserInterventionTaskUntilSettled(input: {
       onMessageId: input.onMessageId,
     })
     input.setActiveHandle(resumed)
-    const abortResume = () => resumed.abort()
-    if (input.signal.aborted) abortResume()
-    else input.signal.addEventListener('abort', abortResume, { once: true })
-    try {
-      await resumed.done
-    } catch (error) {
-      if (!accepted) input.setRunning(false)
-      throw error
-    } finally {
-      input.signal.removeEventListener('abort', abortResume)
-    }
+    await waitForResumeStream(resumed, input.signal, () => accepted, input.setRunning)
+  }
+}
+
+/** 等待续跑流结束：父 signal 中止时同步中止子流；子流失败且尚未被接受时复位 running 标记。 */
+async function waitForResumeStream(
+  resumed: ChatStreamHandle,
+  parent: AbortSignal,
+  isAccepted: () => boolean,
+  setRunning: (running: boolean) => void,
+): Promise<void> {
+  const abortResume = () => resumed.abort()
+  if (parent.aborted) abortResume()
+  else parent.addEventListener('abort', abortResume, { once: true })
+  try {
+    await resumed.done
+  } catch (error) {
+    if (!isAccepted()) setRunning(false)
+    throw error
+  } finally {
+    parent.removeEventListener('abort', abortResume)
   }
 }
 

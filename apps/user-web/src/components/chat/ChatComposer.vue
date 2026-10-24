@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatModelOption } from '../../api/models'
-import { fetchSelectableSkills, type SelectableSkillItem } from '../../api/skills'
+import { fetchSelectableSkills, type SelectableSkillItem, type SelectableSkillPage } from '../../api/skills'
 import { t, useLocale } from '../../composables/i18n'
 import type { ChatDocumentKind, PendingDocument } from './types'
 import { NModal } from 'naive-ui'
@@ -266,20 +266,50 @@ function normalizeSlashKeyword(value: string, cursor = value.length) {
   return rawKeyword.trim()
 }
 
-async function loadSelectableSkills(reset = false) {
-  if (!props.userId) return
+/** 是否允许继续拉取技能列表；reset 时先清空游标与"还有更多"标记再放行。 */
+function canLoadMoreSkills(reset: boolean): boolean {
   if (reset) {
     skillPickerCursor.value = ''
     skillPickerHasMore.value = false
-  } else if (!skillPickerHasMore.value || skillPickerLoadingMore.value) {
-    return
+    return true
   }
-  const requestId = ++skillPickerRequestSeq
+  return skillPickerHasMore.value && !skillPickerLoadingMore.value
+}
+
+function markSkillPickerLoading(reset: boolean): void {
+  if (reset) skillPickerLoading.value = true
+  else skillPickerLoadingMore.value = true
+}
+
+function clearSkillPickerLoading(): void {
+  skillPickerLoading.value = false
+  skillPickerLoadingMore.value = false
+}
+
+/** 合并一页技能结果并校正键盘高亮位置：reset 从头开始，翻页则追加到末尾。 */
+function applySkillPage(page: SelectableSkillPage, reset: boolean): void {
+  skillPickerItems.value = reset ? page.items : [...skillPickerItems.value, ...page.items]
+  skillPickerCursor.value = page.nextCursor
+  skillPickerHasMore.value = page.hasMore
   if (reset) {
-    skillPickerLoading.value = true
-  } else {
-    skillPickerLoadingMore.value = true
+    activeSkillIndex.value = page.items.length > 0 ? 0 : -1
+  } else if (activeSkillIndex.value >= skillPickerItems.value.length) {
+    activeSkillIndex.value = skillPickerItems.value.length > 0 ? skillPickerItems.value.length - 1 : -1
   }
+}
+
+/** 拉取失败时的状态回收：reset 清空已加载项，翻页则只收起"还有更多"标记。 */
+function applySkillPageError(reset: boolean): void {
+  if (reset) skillPickerItems.value = []
+  skillPickerHasMore.value = false
+  if (reset) activeSkillIndex.value = -1
+}
+
+async function loadSelectableSkills(reset = false) {
+  if (!props.userId) return
+  if (!canLoadMoreSkills(reset)) return
+  const requestId = ++skillPickerRequestSeq
+  markSkillPickerLoading(reset)
   try {
     const page = await fetchSelectableSkills({
       userId: props.userId,
@@ -289,25 +319,11 @@ async function loadSelectableSkills(reset = false) {
       cursor: reset ? '' : skillPickerCursor.value,
       limit: 20,
     })
-    if (requestId !== skillPickerRequestSeq) return
-    skillPickerItems.value = reset ? page.items : [...skillPickerItems.value, ...page.items]
-    skillPickerCursor.value = page.nextCursor
-    skillPickerHasMore.value = page.hasMore
-    if (reset) {
-      activeSkillIndex.value = page.items.length > 0 ? 0 : -1
-    } else if (activeSkillIndex.value >= skillPickerItems.value.length) {
-      activeSkillIndex.value = skillPickerItems.value.length > 0 ? skillPickerItems.value.length - 1 : -1
-    }
+    if (requestId === skillPickerRequestSeq) applySkillPage(page, reset)
   } catch {
-    if (requestId !== skillPickerRequestSeq) return
-    if (reset) skillPickerItems.value = []
-    skillPickerHasMore.value = false
-    if (reset) activeSkillIndex.value = -1
+    if (requestId === skillPickerRequestSeq) applySkillPageError(reset)
   } finally {
-    if (requestId === skillPickerRequestSeq) {
-      skillPickerLoading.value = false
-      skillPickerLoadingMore.value = false
-    }
+    if (requestId === skillPickerRequestSeq) clearSkillPickerLoading()
   }
 }
 

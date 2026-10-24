@@ -1313,31 +1313,57 @@ function serializeWorkflowSteps() {
   }));
 }
 
+/** 取第一个真值转成字符串，都取不到时返回空串 */
+function pickFirstNonEmpty(...values: any[]): string {
+  for (const value of values) {
+    if (value) return String(value);
+  }
+  return '';
+}
+
+/** 若入参不是数组，则返回给定的兜底数组 */
+function asArrayWithFallback<T>(value: unknown, fallback: T[]): T[] {
+  return Array.isArray(value) ? (value as T[]) : fallback;
+}
+
+/** 若数组为空则返回兜底 */
+function withNonEmptyFallback<T>(items: T[], fallback: T[]): T[] {
+  return items.length ? items : fallback;
+}
+
+/** 从原始对象里挑出 businessConfig / business_config */
+function pickBusinessConfigObject(value: any): Record<string, any> {
+  if (value.businessConfig && typeof value.businessConfig === 'object') return value.businessConfig;
+  if (value.business_config && typeof value.business_config === 'object') return value.business_config;
+  return {};
+}
+
+/** 仅对 script_plugin 且未提供处理要求时，注入兜底处理要求 */
+function applyScriptPluginInstruction(type: WorkflowNodeType, config: Record<string, any>, rawText: string): Record<string, any> {
+  if (type !== 'script_plugin' || config.processingInstruction) return config;
+  return { ...config, processingInstruction: rawText };
+}
+
 function normalizeWorkflowNode(value: any, index = 0): WorkflowStep | null {
   if (typeof value === 'string') {
     const text = value.trim();
+    if (!text) return null;
     const type = inferWorkflowNodeTypeFromText(text);
-    return text ? createWorkflowNode(type, { id: createId(), text, title: workflowTypeMeta(type).defaultTitle }) : null;
+    return createWorkflowNode(type, { id: createId(), text, title: workflowTypeMeta(type).defaultTitle });
   }
   if (!value || typeof value !== 'object') return null;
-  const rawText = String(value.description || value.text || value.instruction || '').trim();
+  const rawText = pickFirstNonEmpty(value.description, value.text, value.instruction).trim();
   const type = workflowNodeTypes.value.some((item) => item.type === value.type)
     ? value.type as WorkflowNodeType
-    : inferWorkflowNodeTypeFromText(`${value.title || value.name || ''} ${rawText}`);
-  const config = value.businessConfig && typeof value.businessConfig === 'object'
-    ? value.businessConfig
-    : value.business_config && typeof value.business_config === 'object'
-      ? value.business_config
-      : {};
+    : inferWorkflowNodeTypeFromText(`${pickFirstNonEmpty(value.title, value.name)} ${rawText}`);
+  const config = pickBusinessConfigObject(value);
   return createWorkflowNode(type, {
     id: String(value.id || createId()),
-    title: String(value.title || value.name || '').trim(),
+    title: pickFirstNonEmpty(value.title, value.name).trim(),
     text: rawText,
-    businessConfig: type === 'script_plugin' && !config.processingInstruction
-      ? { ...config, processingInstruction: rawText }
-      : config,
-    boundWritingSkillId: String(value.boundWritingSkillId || value.bound_writing_skill_id || '').trim(),
-    outputAlias: String(value.outputAlias || value.output_alias || config.outputAlias || config.output_alias || '').trim(),
+    businessConfig: applyScriptPluginInstruction(type, config, rawText),
+    boundWritingSkillId: pickFirstNonEmpty(value.boundWritingSkillId, value.bound_writing_skill_id).trim(),
+    outputAlias: pickFirstNonEmpty(value.outputAlias, value.output_alias, config.outputAlias, config.output_alias).trim(),
   });
 }
 
@@ -1441,17 +1467,17 @@ function normalizeStoredCheck(value: any): WorkflowTestResult | null {
   if (!result || typeof result !== 'object') return null;
   const logic = result.logic && typeof result.logic === 'object' ? result.logic : {};
   return {
-    testedAt: String(result.testedAt || value?.checkedAt || ''),
+    testedAt: pickFirstNonEmpty(result.testedAt, value?.checkedAt),
     pass: Boolean(result.pass),
     logic: {
-      label: String(logic.label || t('需要澄清')),
+      label: pickFirstNonEmpty(logic.label, t('需要澄清')),
       level: logic.level === 'success' ? 'success' : 'warning',
-      summary: String(logic.summary || t('未保存明确的逻辑说明。')),
+      summary: pickFirstNonEmpty(logic.summary, t('未保存明确的逻辑说明。')),
     },
-    coverage: Array.isArray(result.coverage) ? result.coverage : [],
-    readiness: Array.isArray(result.readiness) ? result.readiness : [],
-    suggestions: Array.isArray(result.suggestions) ? result.suggestions : [],
-    conclusion: String(result.conclusion || t('未保存明确结论。')),
+    coverage: asArrayWithFallback<CoverageItem>(result.coverage, []),
+    readiness: asArrayWithFallback<ReadinessItem>(result.readiness, []),
+    suggestions: asArrayWithFallback<string>(result.suggestions, []),
+    conclusion: pickFirstNonEmpty(result.conclusion, t('未保存明确结论。')),
   };
 }
 
@@ -1507,13 +1533,14 @@ function parseMultilineItems(value: unknown): string[] {
 function normalizeSectionNode(value: any): SectionNode | null {
   if (typeof value === 'string') {
     const title = value.trim();
-    return title ? createSectionNode({ title }) : null;
+    if (!title) return null;
+    return createSectionNode({ title });
   }
   if (!value || typeof value !== 'object') return null;
-  const title = String(value.title || value.name || value.heading || '').trim();
+  const title = pickFirstNonEmpty(value.title, value.name, value.heading).trim();
   if (!title) return null;
-  const mustInclude = parseMultilineItems(value.must_include || value.mustInclude || value.required_elements || value.requiredElements);
-  const avoid = parseMultilineItems(value.avoid || value.must_avoid || value.mustAvoid || value.forbidden_elements || value.forbiddenElements);
+  const mustInclude = parseMultilineItems(pickFirstNonEmpty(value.must_include, value.mustInclude, value.required_elements, value.requiredElements));
+  const avoid = parseMultilineItems(pickFirstNonEmpty(value.avoid, value.must_avoid, value.mustAvoid, value.forbidden_elements, value.forbiddenElements));
   const children = Array.isArray(value.children)
     ? value.children.map((item: any) => normalizeSectionNode(item)).filter(Boolean) as SectionNode[]
     : [];
@@ -1521,7 +1548,7 @@ function normalizeSectionNode(value: any): SectionNode | null {
     title,
     mustIncludeText: mustInclude.join('\n'),
     avoidText: avoid.join('\n'),
-    notes: String(value.notes || value.description || '').trim(),
+    notes: pickFirstNonEmpty(value.notes, value.description).trim(),
     children,
   });
 }
@@ -1678,6 +1705,31 @@ function isSameStepSnapshot(left: unknown, right: string[]): boolean {
   return normalized.length === right.length && normalized.every((item, index) => item === right[index]);
 }
 
+/** 将水化后的步骤应用到 UI 状态，并根据快照匹配是否恢复上次的检查结果 */
+function applyHydratedWorkflow(hydrated: WorkflowStep[], source: SkillItem) {
+  beginRestoreWorkflow();
+  workflowAiUndoStack.value = [];
+  workflowSteps.value = hydrated;
+  activeStepId.value = workflowSteps.value[0]?.id || '';
+  const lastCheck = source.config?.lastWorkflowCheck || source.config?.lastFrontendTest;
+  testResult.value = isSameStepSnapshot(lastCheck?.stepsSnapshot, currentStepSnapshot())
+    ? normalizeStoredCheck(lastCheck)
+    : null;
+  stepGenerationError.value = '';
+}
+
+/** 水化 workflowSteps 兼容旧格式：把 text 归一到 description 后再交给 normalizeWorkflowNode */
+function hydrateFromLegacyWorkflowSteps(rawSteps: any[]): WorkflowStep[] {
+  return rawSteps
+    .map((item: any, index: number) => normalizeWorkflowNode(
+      typeof item === 'object'
+        ? { ...item, description: item?.text || item?.description || '' }
+        : String(item || ''),
+      index,
+    ))
+    .filter(Boolean) as WorkflowStep[];
+}
+
 function hydrateWorkflow(source: SkillItem): boolean {
   const rawNodes = source.config?.workflowNodes;
   if (Array.isArray(rawNodes) && rawNodes.length) {
@@ -1685,38 +1737,15 @@ function hydrateWorkflow(source: SkillItem): boolean {
       .map((item: any, index: number) => normalizeWorkflowNode(item, index))
       .filter(Boolean) as WorkflowStep[];
     if (hydrated.length) {
-      beginRestoreWorkflow();
-      workflowAiUndoStack.value = [];
-      workflowSteps.value = hydrated;
-      activeStepId.value = workflowSteps.value[0]?.id || '';
-      const lastCheck = source.config?.lastWorkflowCheck || source.config?.lastFrontendTest;
-      testResult.value = isSameStepSnapshot(lastCheck?.stepsSnapshot, currentStepSnapshot())
-        ? normalizeStoredCheck(lastCheck)
-        : null;
-      stepGenerationError.value = '';
+      applyHydratedWorkflow(hydrated, source);
       return true;
     }
   }
   const rawSteps = source.config?.workflowSteps;
   if (Array.isArray(rawSteps) && rawSteps.length) {
-    const hydrated = rawSteps
-      .map((item: any, index: number) => normalizeWorkflowNode(
-        typeof item === 'object'
-          ? { ...item, description: item?.text || item?.description || '' }
-          : String(item || ''),
-        index,
-      ))
-      .filter(Boolean) as WorkflowStep[];
+    const hydrated = hydrateFromLegacyWorkflowSteps(rawSteps);
     if (hydrated.length) {
-      beginRestoreWorkflow();
-      workflowAiUndoStack.value = [];
-      workflowSteps.value = hydrated;
-      activeStepId.value = workflowSteps.value[0]?.id || '';
-      const lastCheck = source.config?.lastWorkflowCheck || source.config?.lastFrontendTest;
-      testResult.value = isSameStepSnapshot(lastCheck?.stepsSnapshot, currentStepSnapshot())
-        ? normalizeStoredCheck(lastCheck)
-        : null;
-      stepGenerationError.value = '';
+      applyHydratedWorkflow(hydrated, source);
       return true;
     }
   }
@@ -1925,6 +1954,20 @@ async function optimizeSteps() {
   }
 }
 
+/** 基于 AI 返回的第一个节点构建"补充业务节点" */
+function buildSupplementStep(supplemented: WorkflowStep[], fallbackText: string): WorkflowStep {
+  const first = supplemented[0];
+  return {
+    id: createId(),
+    type: first?.type || 'generate_content',
+    title: pickFirstNonEmpty(first?.title, '补充业务节点'),
+    text: pickFirstNonEmpty(first?.text, fallbackText),
+    businessConfig: first?.businessConfig || {},
+    boundWritingSkillId: pickFirstNonEmpty(first?.boundWritingSkillId, ''),
+    outputAlias: pickFirstNonEmpty(first?.outputAlias, ''),
+  };
+}
+
 async function supplementStepWithAi() {
   if (!skill.value) return;
   const supplement = newStepText.value.trim();
@@ -1942,19 +1985,12 @@ async function supplementStepWithAi() {
     });
     const supplemented = mapGeneratedNodes(result.nodes || []);
     if (!supplemented.length) {
-      stepGenerationError.value = result.message || t('未返回可用的补充结果');
-      message.warning(stepGenerationError.value);
+      const detail = pickFirstNonEmpty(result.message, t('未返回可用的补充结果'));
+      stepGenerationError.value = detail;
+      message.warning(detail);
       return;
     }
-    const nextStep: WorkflowStep = {
-      id: createId(),
-      type: supplemented[0]?.type || 'generate_content',
-      title: supplemented[0]?.title || '补充业务节点',
-      text: supplemented[0]?.text || supplement,
-      businessConfig: supplemented[0]?.businessConfig || {},
-      boundWritingSkillId: supplemented[0]?.boundWritingSkillId || '',
-      outputAlias: supplemented[0]?.outputAlias || '',
-    };
+    const nextStep = buildSupplementStep(supplemented, supplement);
     pushWorkflowAiUndo(t('AI 优化添加'));
     workflowSteps.value = [...workflowSteps.value, nextStep];
     activeStepId.value = nextStep.id;
@@ -1962,16 +1998,37 @@ async function supplementStepWithAi() {
     testResult.value = null;
     message.success(t('已补充并加入新的业务步骤'));
   } catch (error: any) {
-    stepGenerationError.value = error?.response?.data?.detail || error?.message || t('补充业务步骤失败，请稍后重试');
-    message.error(stepGenerationError.value);
+    const detail = pickFirstNonEmpty(error?.response?.data?.detail, error?.message, t('补充业务步骤失败，请稍后重试'));
+    stepGenerationError.value = detail;
+    message.error(detail);
   } finally {
     supplementingStep.value = false;
   }
 }
 
+/** 组装 polishWorkflowNode 请求体 */
+function buildPolishPayload(step: WorkflowStep) {
+  return {
+    name: skill.value!.name,
+    description: skill.value!.description,
+    scenario: skill.value!.scenario,
+    node: {
+      id: step.id,
+      type: step.type,
+      title: step.title,
+      description: step.text,
+      businessConfig: step.businessConfig || {},
+      boundWritingSkillId: pickFirstNonEmpty(step.boundWritingSkillId, ''),
+      outputAlias: pickFirstNonEmpty(step.outputAlias, ''),
+    },
+    existingNodes: serializeWorkflowNodes(),
+    nodeCatalog: serializeWorkflowNodeCatalog(),
+  };
+}
+
 async function polishStepRequirement(step: WorkflowStep) {
   if (!skill.value) return;
-  const currentText = String(step.text || '').trim();
+  const currentText = pickFirstNonEmpty(step.text).trim();
   if (!currentText) {
     message.warning(t('请先填写节点要求'));
     return;
@@ -1979,26 +2036,12 @@ async function polishStepRequirement(step: WorkflowStep) {
   polishingStepId.value = step.id;
   stepGenerationError.value = '';
   try {
-    const result = await polishWorkflowNode({
-      name: skill.value.name,
-      description: skill.value.description,
-      scenario: skill.value.scenario,
-      node: {
-        id: step.id,
-        type: step.type,
-        title: step.title,
-        description: step.text,
-        businessConfig: step.businessConfig || {},
-        boundWritingSkillId: step.boundWritingSkillId || '',
-        outputAlias: step.outputAlias || '',
-      },
-      existingNodes: serializeWorkflowNodes(),
-      nodeCatalog: serializeWorkflowNodeCatalog(),
-    });
-    const polished = String(result.text || '').trim();
+    const result = await polishWorkflowNode(buildPolishPayload(step));
+    const polished = pickFirstNonEmpty(result.text).trim();
     if (!polished) {
-      stepGenerationError.value = result.message || t('未返回可用的润色结果');
-      message.warning(stepGenerationError.value);
+      const detail = pickFirstNonEmpty(result.message, t('未返回可用的润色结果'));
+      stepGenerationError.value = detail;
+      message.warning(detail);
       return;
     }
     if (polished === currentText) {
@@ -2011,11 +2054,33 @@ async function polishStepRequirement(step: WorkflowStep) {
     testResult.value = null;
     message.success(t('已润色节点要求'));
   } catch (error: any) {
-    stepGenerationError.value = error?.response?.data?.detail || error?.message || t('润色节点要求失败，请稍后重试');
-    message.error(stepGenerationError.value);
+    const detail = pickFirstNonEmpty(error?.response?.data?.detail, error?.message, t('润色节点要求失败，请稍后重试'));
+    stepGenerationError.value = detail;
+    message.error(detail);
   } finally {
     polishingStepId.value = '';
   }
+}
+
+/** 将后端返回的原始检查结果归一化成 WorkflowTestResult */
+function buildWorkflowTestResult(result: any): WorkflowTestResult {
+  const logic = result.logic && typeof result.logic === 'object' ? result.logic : {};
+  return {
+    testedAt: formatAdminDateTime(new Date().toISOString(), ''),
+    pass: Boolean(result.pass),
+    logic: {
+      label: pickFirstNonEmpty(logic.label, t('需要澄清')),
+      level: logic.level === 'success' ? 'success' : 'warning',
+      summary: pickFirstNonEmpty(logic.summary, t('后端未返回明确的逻辑说明。')),
+    },
+    coverage: asArrayWithFallback<CoverageItem>(result.coverage, []),
+    readiness: asArrayWithFallback<ReadinessItem>(result.readiness, []),
+    suggestions: withNonEmptyFallback(
+      asArrayWithFallback<string>(result.suggestions, []),
+      [t('后端未返回具体建议，请检查步骤是否覆盖目标、输入、判断、异常和输出。')],
+    ),
+    conclusion: pickFirstNonEmpty(result.conclusion, t('本次检查未返回明确结论。')),
+  };
 }
 
 async function runWorkflowTest() {
@@ -2034,26 +2099,12 @@ async function runWorkflowTest() {
       steps,
       nodes: serializeWorkflowNodes(),
     });
-    const checkedAt = formatAdminDateTime(new Date().toISOString(), '');
-    const nextResult: WorkflowTestResult = {
-      testedAt: checkedAt,
-      pass: Boolean(result.pass),
-      logic: {
-        label: result.logic?.label || t('需要澄清'),
-        level: result.logic?.level === 'success' ? 'success' : 'warning',
-        summary: result.logic?.summary || t('后端未返回明确的逻辑说明。'),
-      },
-      coverage: Array.isArray(result.coverage) ? result.coverage : [],
-      readiness: Array.isArray(result.readiness) ? result.readiness : [],
-      suggestions: Array.isArray(result.suggestions) && result.suggestions.length
-        ? result.suggestions
-        : [t('后端未返回具体建议，请检查步骤是否覆盖目标、输入、判断、异常和输出。')],
-      conclusion: result.conclusion || t('本次检查未返回明确结论。'),
-    };
+    const nextResult = buildWorkflowTestResult(result);
     testResult.value = nextResult;
     await persistWorkflowCheck(nextResult);
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || t('检查业务逻辑失败，请稍后重试'));
+    const detail = pickFirstNonEmpty(error?.response?.data?.detail, error?.message, t('检查业务逻辑失败，请稍后重试'));
+    message.error(detail);
   } finally {
     testing.value = false;
   }
@@ -2149,56 +2200,98 @@ function scriptPluginContextNodes(): WorkflowNodeDraft[] {
   });
 }
 
+/** 汇总脚本节点的 errors/warnings 供修复接口使用 */
+function collectScriptPluginIssues(step: WorkflowStep): any[] {
+  const current = scriptCheckResults.value[step.id];
+  return [
+    ...asArrayWithFallback<any>(current?.errors, []),
+    ...asArrayWithFallback<any>(current?.warnings, []),
+  ];
+}
+
+/** 组装 AI 生成脚本的请求体 */
+function buildScriptPluginGeneratePayload(step: WorkflowStep, instruction: string) {
+  return {
+    processingInstruction: instruction,
+    nodeTitle: step.title,
+    nodeDescription: '',
+    skillName: '',
+    skillDescription: '',
+    scenario: '',
+    selectedInputSource: pickFirstNonEmpty(step.businessConfig?.selectedInputSource, 'all'),
+    selectedInputTypes: asArrayWithFallback<string>(step.businessConfig?.selectedInputTypes, []),
+    workflowNodes: scriptPluginContextNodes(),
+  };
+}
+
+/** 组装 AI 修复脚本的请求体 */
+function buildScriptPluginFixPayload(step: WorkflowStep, code: string) {
+  return {
+    code,
+    nodeTitle: step.title,
+    nodeDescription: pickFirstNonEmpty(step.businessConfig?.processingInstruction),
+    issues: collectScriptPluginIssues(step),
+  };
+}
+
+/** 决定是否需要弹窗确认覆盖现有脚本 */
+function shouldProceedWithRegenerate(existingCode: string, options: { confirmOverwrite?: boolean }): boolean {
+  if (!existingCode) return true;
+  if (!options.confirmOverwrite) return true;
+  return window.confirm(t('重新生成会覆盖当前高级代码，是否继续？'));
+}
+
+/** 将生成/修复返回的检查结果同步到 scriptCheckResults 与步骤上 */
+function applyScriptPluginCheck(step: WorkflowStep, check?: ScriptPluginCheckResult) {
+  if (check) {
+    scriptCheckResults.value = {
+      ...scriptCheckResults.value,
+      [step.id]: { ...check, signature: scriptPluginSignature(step) },
+    };
+    persistScriptPluginCheck(step, check);
+    return;
+  }
+  invalidateScriptPluginCheck(step.id);
+  persistScriptPluginCheck(step);
+}
+
+/** 处理 AI 生成脚本的返回结果：写回代码、同步检查结果、按静默选项弹提示 */
+function applyGeneratedScriptPluginResult(step: WorkflowStep, result: any, options: { silent?: boolean }): boolean {
+  if (!result.code?.trim()) {
+    message.error(t('AI 未返回可用代码'));
+    return false;
+  }
+  step.businessConfig.pluginCode = result.code;
+  step.businessConfig.generatedInstructionSignature = scriptPluginInstructionSignature(step);
+  applyScriptPluginCheck(step, result.check as (ScriptPluginCheckResult | undefined));
+  const firstNote = asArrayWithFallback<string>(result.notes, [])[0];
+  if (result.check?.pass) {
+    if (!options.silent) message.success(pickFirstNonEmpty(firstNote, t('已生成代码并通过规则检测')));
+    return true;
+  }
+  if (!options.silent) {
+    message.warning(pickFirstNonEmpty(result.check?.errors?.[0]?.message, firstNote, t('已生成代码，请根据检测结果修复后保存')));
+  }
+  return true;
+}
+
 async function generateScriptPluginStep(step: WorkflowStep, options: { confirmOverwrite?: boolean; silent?: boolean } = {}): Promise<boolean> {
   if (!skill.value) return false;
-  const instruction = String(step.businessConfig?.processingInstruction || '').trim();
+  const instruction = pickFirstNonEmpty(step.businessConfig?.processingInstruction).trim();
   if (!instruction) {
     if (!options.silent) message.warning(t('请先填写处理要求'));
     return false;
   }
-  const existingCode = String(step.businessConfig?.pluginCode || '').trim();
-  if (existingCode && options.confirmOverwrite && !window.confirm(t('重新生成会覆盖当前高级代码，是否继续？'))) {
-    return false;
-  }
+  const existingCode = pickFirstNonEmpty(step.businessConfig?.pluginCode).trim();
+  if (!shouldProceedWithRegenerate(existingCode, options)) return false;
   generatingScriptStepId.value = step.id;
   try {
-    const result = await generateScriptPlugin({
-      processingInstruction: instruction,
-      nodeTitle: step.title,
-      nodeDescription: '',
-      skillName: '',
-      skillDescription: '',
-      scenario: '',
-      selectedInputSource: String(step.businessConfig?.selectedInputSource || 'all'),
-      selectedInputTypes: Array.isArray(step.businessConfig?.selectedInputTypes) ? step.businessConfig.selectedInputTypes : [],
-      workflowNodes: scriptPluginContextNodes(),
-    });
-    if (!result.code?.trim()) {
-      message.error(t('AI 未返回可用代码'));
-      return false;
-    }
-    step.businessConfig.pluginCode = result.code;
-    step.businessConfig.generatedInstructionSignature = scriptPluginInstructionSignature(step);
-    const check = result.check as (ScriptPluginCheckResult | undefined);
-    if (check) {
-      scriptCheckResults.value = {
-        ...scriptCheckResults.value,
-        [step.id]: { ...check, signature: scriptPluginSignature(step) },
-      };
-      persistScriptPluginCheck(step, check);
-    } else {
-      invalidateScriptPluginCheck(step.id);
-      persistScriptPluginCheck(step);
-    }
-    const firstNote = (result.notes || [])[0];
-    if (check?.pass) {
-      if (!options.silent) message.success(firstNote || t('已生成代码并通过规则检测'));
-      return true;
-    }
-    if (!options.silent) message.warning(check?.errors?.[0]?.message || firstNote || t('已生成代码，请根据检测结果修复后保存'));
-    return true;
+    const result = await generateScriptPlugin(buildScriptPluginGeneratePayload(step, instruction));
+    return applyGeneratedScriptPluginResult(step, result, options);
   } catch (error: any) {
-    if (!options.silent) message.error(error?.response?.data?.detail || error?.message || t('AI 生成代码失败'));
+    if (!options.silent) {
+      message.error(pickFirstNonEmpty(error?.response?.data?.detail, error?.message, t('AI 生成代码失败')));
+    }
     return false;
   } finally {
     generatingScriptStepId.value = '';
@@ -2206,7 +2299,7 @@ async function generateScriptPluginStep(step: WorkflowStep, options: { confirmOv
 }
 
 async function checkScriptPluginStep(step: WorkflowStep): Promise<boolean> {
-  const code = String(step.businessConfig?.pluginCode || '').trim();
+  const code = pickFirstNonEmpty(step.businessConfig?.pluginCode).trim();
   if (!code) {
     message.warning(t('请先填写脚本代码'));
     return false;
@@ -2216,7 +2309,7 @@ async function checkScriptPluginStep(step: WorkflowStep): Promise<boolean> {
     const result = await checkScriptPlugin({
       code,
       nodeTitle: step.title,
-      nodeDescription: String(step.businessConfig?.processingInstruction || ''),
+      nodeDescription: pickFirstNonEmpty(step.businessConfig?.processingInstruction),
     });
     scriptCheckResults.value = {
       ...scriptCheckResults.value,
@@ -2225,12 +2318,12 @@ async function checkScriptPluginStep(step: WorkflowStep): Promise<boolean> {
     persistScriptPluginCheck(step, result);
     if (result.pass) {
       step.businessConfig.generatedInstructionSignature = scriptPluginInstructionSignature(step);
-      message.success(result.llm?.summary || t('脚本代码检测通过'));
+      message.success(pickFirstNonEmpty(result.llm?.summary, t('脚本代码检测通过')));
       return true;
     }
     return false;
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || t('检测脚本代码失败'));
+    message.error(pickFirstNonEmpty(error?.response?.data?.detail, error?.message, t('检测脚本代码失败')));
     return false;
   } finally {
     checkingScriptStepId.value = '';
@@ -2238,47 +2331,27 @@ async function checkScriptPluginStep(step: WorkflowStep): Promise<boolean> {
 }
 
 async function fixScriptPluginStep(step: WorkflowStep): Promise<boolean> {
-  const code = String(step.businessConfig?.pluginCode || '').trim();
+  const code = pickFirstNonEmpty(step.businessConfig?.pluginCode).trim();
   if (!code) {
     message.warning(t('请先填写脚本代码'));
     return false;
   }
   fixingScriptStepId.value = step.id;
   try {
-    const current = scriptCheckResults.value[step.id];
-    const issues = [
-      ...((current?.errors || []) as any[]),
-      ...((current?.warnings || []) as any[]),
-    ];
-    const result = await fixScriptPlugin({
-      code,
-      nodeTitle: step.title,
-      nodeDescription: String(step.businessConfig?.processingInstruction || ''),
-      issues,
-    });
+    const result = await fixScriptPlugin(buildScriptPluginFixPayload(step, code));
     if (!result.code?.trim()) {
       message.error(t('AI 未返回可用代码'));
       return false;
     }
     step.businessConfig.pluginCode = result.code;
-    const check = result.check as (ScriptPluginCheckResult | undefined);
-    if (check) {
-      scriptCheckResults.value = {
-        ...scriptCheckResults.value,
-        [step.id]: { ...check, signature: scriptPluginSignature(step) },
-      };
-      persistScriptPluginCheck(step, check);
-    } else {
-      invalidateScriptPluginCheck(step.id);
-      persistScriptPluginCheck(step);
-    }
-    if (check?.pass) {
+    applyScriptPluginCheck(step, result.check as (ScriptPluginCheckResult | undefined));
+    if (result.check?.pass) {
       step.businessConfig.generatedInstructionSignature = scriptPluginInstructionSignature(step);
     }
-    message.success((result.notes || [])[0] || t('已完成 AI 修复，请再次确认代码'));
-    return Boolean(check?.pass);
+    message.success(pickFirstNonEmpty(asArrayWithFallback<string>(result.notes, [])[0], t('已完成 AI 修复，请再次确认代码')));
+    return Boolean(result.check?.pass);
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || t('AI 修复代码失败'));
+    message.error(pickFirstNonEmpty(error?.response?.data?.detail, error?.message, t('AI 修复代码失败')));
     return false;
   } finally {
     fixingScriptStepId.value = '';

@@ -194,20 +194,33 @@ export function collapseRepeatedToolCalls(items: ExecutionItemV3[]): ExecutionTi
   return output
 }
 
+/** 是否为文件读写类动作。 */
+function isFileEditingAction(action: ToolCapabilityKey): boolean {
+  return action === 'execution.v3.activity.read_files' || action === 'execution.v3.activity.edit_files'
+}
+
+/** 按候选键顺序取参数中的文件位置。 */
+function filePathArgumentValue(args: Record<string, unknown>): unknown {
+  return args.file_path ?? args.path ?? args.filename ?? args.file ?? args.files
+    ?? args.document ?? args.documents ?? args.image ?? args.images ?? args.artifact ?? args.artifacts
+}
+
+/** 代码检索动作的参数摘要。 */
+function searchCodeSummary(args: Record<string, unknown>): string {
+  const pattern = compactValue(args.pattern)
+  const location = friendlyFileValue(args.path)
+  return [pattern, location && location !== '.' ? location : ''].filter(Boolean).join(' · ')
+}
+
 export function toolCallSummary(item: ExecutionItemV3): string {
   const args = normalizedArguments(item)
   if (!args) return ''
   const action = toolActionLabelKey(item)
-  const fileValue = args.file_path ?? args.path ?? args.filename ?? args.file ?? args.files
-    ?? args.document ?? args.documents ?? args.image ?? args.images ?? args.artifact ?? args.artifacts
-  if ((action === 'execution.v3.activity.read_files' || action === 'execution.v3.activity.edit_files') && fileValue) {
-    return friendlyFileValue(fileValue)
+  if (isFileEditingAction(action)) {
+    const fileValue = filePathArgumentValue(args)
+    if (fileValue) return friendlyFileValue(fileValue)
   }
-  if (action === 'execution.v3.activity.search_code') {
-    const pattern = compactValue(args.pattern)
-    const location = friendlyFileValue(args.path)
-    return [pattern, location && location !== '.' ? location : ''].filter(Boolean).join(' · ')
-  }
+  if (action === 'execution.v3.activity.search_code') return searchCodeSummary(args)
   if (action === 'execution.v3.activity.run_commands') return compactValue(args.description).slice(0, DETAIL_LIMIT)
   if (action === 'execution.v3.activity.update_plan') return ''
   const description = compactValue(args.description)

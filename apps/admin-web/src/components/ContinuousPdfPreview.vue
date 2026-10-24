@@ -142,7 +142,7 @@ function setCanvasRef(page: number, element: any) {
 async function renderPage(pageNumber: number) {
   const canvas = canvases.get(pageNumber);
   if (!pdfDocument || !canvas || !viewportRef.value) return;
-  try { renderTasks.get(pageNumber)?.cancel?.(); } catch {}
+  try { renderTasks.get(pageNumber)?.cancel?.(); } catch { /* 尽力取消旧渲染任务，失败忽略 */ }
   const page = await pdfDocument.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
   const fit = Math.min(1, Math.max(.5, (viewportRef.value.clientWidth - 56) / base.width));
@@ -208,14 +208,14 @@ function readError(error: any) {
 }
 
 async function destroyDocument() {
-  for (const task of renderTasks.values()) { try { task?.cancel?.(); } catch {} }
+  for (const task of renderTasks.values()) { try { task?.cancel?.(); } catch { /* 尽力取消，失败忽略 */ } }
   renderTasks.clear();
   const task = loadingTask;
   const document = pdfDocument;
   loadingTask = null;
   pdfDocument = null;
-  try { await task?.destroy?.(); } catch {}
-  try { await document?.destroy?.(); } catch {}
+  try { await task?.destroy?.(); } catch { /* 尽力销毁加载任务，失败忽略 */ }
+  try { await document?.destroy?.(); } catch { /* 尽力销毁文档，失败忽略 */ }
 }
 
 watch(() => [props.url, props.httpHeaders?.Authorization], () => void loadDocument());

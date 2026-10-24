@@ -73,6 +73,55 @@ export type AgentPolicySnapshot = {
   version?: string
 }
 
+/** 未类型化的 API 业务载荷（后端字段按需读取）。 */
+type ApiPayload = {
+  data?: {
+    requiresTenantSelection?: boolean
+    challengeToken?: string
+    candidates?: TenantCandidate[]
+    token?: string
+    profile?: UserProfile
+  }
+  message?: string
+}
+
+/** 未类型化的 axios 异常（仅取 message 字段）。 */
+type ApiError = { response?: { data?: { message?: string } }; message?: string }
+
+
+/** 从 axios 异常中提取用户可读消息；保持原有回退顺序。 */
+function errorMessageOf(error: ApiError, fallback: string): string {
+  return error?.response?.data?.message || error?.message || fallback
+}
+
+/** 从业务载荷中提取失败消息；payload.message 缺失时回退到默认文案。 */
+function failureMessage(payload: ApiPayload, fallback: string): string {
+  return payload?.message || fallback
+}
+
+/** 多租户挑战分支：命中 requiresTenantSelection 时返回选租户结果，否则返回 null。 */
+function tenantSelectionResult(payload: ApiPayload): AuthResult | null {
+  const data = payload?.data
+  if (data && data.requiresTenantSelection) {
+    return {
+      ok: false,
+      requiresTenantSelection: true,
+      challengeToken: data.challengeToken,
+      tenantCandidates: data.candidates || [],
+      message: failureMessage(payload, t('api.auth.select_org')),
+    }
+  }
+  return null
+}
+
+/** 取 token/profile；缺 token 时返回缺省消息分支。 */
+function tokenResult(payload: ApiPayload): AuthResult {
+  const data = payload?.data
+  const token = data?.token
+  const profile = data?.profile
+  if (!token) return { ok: false, message: t('api.auth.missing_token') }
+  return { ok: true, token, profile }
+}
 
 export async function loginWithPassword(
   username: string,
@@ -82,24 +131,14 @@ export async function loginWithPassword(
   try {
     const response = await client.post('/auth/login', { username, password, tenantId })
     const payload = response.data
-    if (payload?.data?.requiresTenantSelection) {
-      return {
-        ok: false,
-        requiresTenantSelection: true,
-        challengeToken: payload?.data?.challengeToken,
-        tenantCandidates: payload?.data?.candidates || [],
-        message: payload?.message || t('api.auth.select_org'),
-      }
-    }
+    const selection = tenantSelectionResult(payload)
+    if (selection) return selection
     if (!isOk(payload)) {
-      return { ok: false, message: payload?.message || t('api.auth.login_failed') }
+      return { ok: false, message: failureMessage(payload, t('api.auth.login_failed')) }
     }
-    const token = payload?.data?.token
-    const profile = payload?.data?.profile
-    if (!token) return { ok: false, message: t('api.auth.missing_token') }
-    return { ok: true, token, profile }
+    return tokenResult(payload)
   } catch (error: any) {
-    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.login_failed') }
+    return { ok: false, message: errorMessageOf(error, t('api.auth.login_failed')) }
   }
 }
 
@@ -108,14 +147,11 @@ export async function selectTenantAndLogin(challengeToken: string, tenantId: str
     const response = await client.post('/auth/login/select-tenant', { challengeToken, tenantId })
     const payload = response.data
     if (!isOk(payload)) {
-      return { ok: false, message: payload?.message || t('api.auth.login_failed') }
+      return { ok: false, message: failureMessage(payload, t('api.auth.login_failed')) }
     }
-    const token = payload?.data?.token
-    const profile = payload?.data?.profile
-    if (!token) return { ok: false, message: t('api.auth.missing_token') }
-    return { ok: true, token, profile }
+    return tokenResult(payload)
   } catch (error: any) {
-    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.login_failed') }
+    return { ok: false, message: errorMessageOf(error, t('api.auth.login_failed')) }
   }
 }
 
@@ -130,24 +166,14 @@ export async function exchangePortalTicket(portalToken: string): Promise<AuthRes
   try {
     const response = await client.post('/auth/portal-exchange', { portal_token: portalToken })
     const payload = response.data
-    if (payload?.data?.requiresTenantSelection) {
-      return {
-        ok: false,
-        requiresTenantSelection: true,
-        challengeToken: payload?.data?.challengeToken,
-        tenantCandidates: payload?.data?.candidates || [],
-        message: payload?.message || t('api.auth.select_org'),
-      }
-    }
+    const selection = tenantSelectionResult(payload)
+    if (selection) return selection
     if (!isOk(payload)) {
-      return { ok: false, message: payload?.message || t('api.auth.login_failed') }
+      return { ok: false, message: failureMessage(payload, t('api.auth.login_failed')) }
     }
-    const token = payload?.data?.token
-    const profile = payload?.data?.profile
-    if (!token) return { ok: false, message: t('api.auth.missing_token') }
-    return { ok: true, token, profile }
+    return tokenResult(payload)
   } catch (error: any) {
-    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.login_failed') }
+    return { ok: false, message: errorMessageOf(error, t('api.auth.login_failed')) }
   }
 }
 
@@ -203,14 +229,11 @@ export async function register(
     const response = await client.post('/auth/register', { tenantId, email, password, nickname, departmentId })
     const payload = response.data
     if (!isOk(payload)) {
-      return { ok: false, message: payload?.message || t('api.auth.register_failed') }
+      return { ok: false, message: failureMessage(payload, t('api.auth.register_failed')) }
     }
-    const token = payload?.data?.token
-    const profile = payload?.data?.profile
-    if (!token) return { ok: false, message: t('api.auth.missing_token') }
-    return { ok: true, token, profile }
+    return tokenResult(payload)
   } catch (error: any) {
-    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.register_failed') }
+    return { ok: false, message: errorMessageOf(error, t('api.auth.register_failed')) }
   }
 }
 
@@ -227,14 +250,32 @@ export async function switchTenant(token: string, tenantId: string): Promise<Aut
     )
     const payload = response.data
     if (!isOk(payload)) {
-      return { ok: false, message: payload?.message || t('api.auth.switch_org_failed') }
+      return { ok: false, message: failureMessage(payload, t('api.auth.switch_org_failed')) }
     }
-    const nextToken = payload?.data?.token
-    const profile = payload?.data?.profile
-    if (!nextToken) return { ok: false, message: t('api.auth.missing_token') }
-    return { ok: true, token: nextToken, profile }
+    return tokenResult(payload)
   } catch (error: any) {
-    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.switch_org_failed') }
+    return { ok: false, message: errorMessageOf(error, t('api.auth.switch_org_failed')) }
+  }
+}
+
+/** 归一化 /auth/me 返回体：逐字段兜底默认值，字段顺序与既有实现一致。 */
+function normalizeProfile(data: Partial<UserProfile>): UserProfile {
+  return {
+    userId: data.userId,
+    name: data.name || '',
+    username: data.username || '',
+    phone: data.phone || '',
+    email: data.email || '',
+    avatar: data.avatar || '',
+    tenantId: data.tenantId || 'default',
+    orgName: data.orgName || '',
+    spaceType: data.spaceType === 'personal' ? 'personal' : 'enterprise',
+    canAccessAdmin: data.canAccessAdmin === true,
+    edition: data.edition === 'community' ? 'community' : 'cloud',
+    billingEnabled: data.billingEnabled !== false,
+    memberLimit: typeof data.memberLimit === 'number' ? data.memberLimit : null,
+    availableTenants: Array.isArray(data.availableTenants) ? data.availableTenants : [],
+    agentPolicy: data.agentPolicy,
   }
 }
 
@@ -250,31 +291,11 @@ export async function fetchUserProfile(token: string): Promise<{ ok: boolean; da
     await refreshTenantSnapshot(token).catch(() => undefined)
     const payload = response.data
     if (!isOk(payload)) {
-      return { ok: false, message: payload?.message || t('api.auth.get_user_info_failed') }
+      return { ok: false, message: failureMessage(payload, t('api.auth.get_user_info_failed')) }
     }
-    const data = payload?.data || {}
-    return {
-      ok: true,
-      data: {
-        userId: data.userId,
-        name: data.name || '',
-        username: data.username || '',
-        phone: data.phone || '',
-        email: data.email || '',
-        avatar: data.avatar || '',
-        tenantId: data.tenantId || 'default',
-        orgName: data.orgName || '',
-        spaceType: data.spaceType === 'personal' ? 'personal' : 'enterprise',
-        canAccessAdmin: data.canAccessAdmin === true,
-        edition: data.edition === 'community' ? 'community' : 'cloud',
-        billingEnabled: data.billingEnabled !== false,
-        memberLimit: typeof data.memberLimit === 'number' ? data.memberLimit : null,
-        availableTenants: Array.isArray(data.availableTenants) ? data.availableTenants : [],
-        agentPolicy: data.agentPolicy,
-      },
-    }
+    return { ok: true, data: normalizeProfile(payload.data || {}) }
   } catch (error: any) {
-    return { ok: false, message: error?.response?.data?.message || error?.message || t('api.auth.get_user_info_failed') }
+    return { ok: false, message: errorMessageOf(error, t('api.auth.get_user_info_failed')) }
   }
 }
 

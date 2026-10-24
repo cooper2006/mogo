@@ -1,5 +1,5 @@
 import type { EffectiveShortcuts, ShortcutEntry, ShortcutGroup, ShortcutPreferences } from '../../api/shortcuts'
-import { promptGuideCategories, promptGuideIcons, type PromptGuideCategory } from './promptGuideConfig'
+import { promptGuideCategories, promptGuideIcons, type PromptGuideCategory, type PromptGuideItem } from './promptGuideConfig'
 
 const iconFallback = promptGuideIcons.document
 const categoryMeta = new Map(promptGuideCategories.map(category => [category.key, category]))
@@ -41,40 +41,64 @@ export function resolveShortcutGuideCategories(entries: ShortcutEntry[], configu
   const configuredGroupMeta = new Map(configuredGroups.map(group => [group.key, group]))
   for (const entry of entries) {
     if (entry.hidden || entry.enabled === false) continue
-    const base = categoryMeta.get(entry.categoryKey)
-    const configuredGroup = configuredGroupMeta.get(entry.categoryKey)
-    let group = groups.get(entry.categoryKey)
+    const key = entry.categoryKey
+    let group = groups.get(key)
     if (!group) {
-      group = {
-        key: entry.categoryKey,
-        label: configuredGroup?.label || entry.categoryLabel,
-        icon: safeSvg(entry.categoryIconSvg) || safeSvg(configuredGroup?.iconSvg) || promptGuideIcons[entry.categoryIconKey as keyof typeof promptGuideIcons] || (configuredGroup?.iconKey ? promptGuideIcons[configuredGroup.iconKey as keyof typeof promptGuideIcons] : '') || base?.icon || promptGuideIcons.grid,
-        tone: base?.tone || 'guide-tone-content',
-        requiresConfig: base?.requiresConfig,
-        configTarget: base?.configTarget,
-        configTitle: base?.configTitle,
-        configDescription: base?.configDescription,
-        items: [],
-      }
-      groups.set(entry.categoryKey, group)
+      group = buildGroupShell(entry, configuredGroupMeta.get(key), categoryMeta.get(key))
+      groups.set(key, group)
     }
-    const item = {
-      label: entry.label,
-      prompt: entry.prompt || resourcePrompt(entry),
-    icon: safeSvg(entry.iconSvg) || promptGuideIcons[entry.iconKey as keyof typeof promptGuideIcons] || iconFallback,
-      available: true,
-      categoryKey: entry.categoryKey,
-      shortcutType: entry.type,
-      resourceId: entry.resourceId,
-    }
-    group.items.push(item)
+    group.items.push(buildShortcutItem(entry))
   }
-  const orderedKeys = [
-    ...(configured ? configuredGroups.map(group => group.key) : promptGuideCategories.map(group => group.key)),
-    ...groups.keys(),
-  ].filter((key, index, all) => all.indexOf(key) === index)
-  const orderedGroups = orderedKeys.map(key => groups.get(key)).filter((group): group is PromptGuideCategory => !!group)
+  const orderedGroups = orderedGroupKeys(configured, configuredGroups, groups)
+    .map(key => groups.get(key))
+    .filter((group): group is PromptGuideCategory => !!group)
   return orderedGroups.filter(group => group.items.length)
+}
+
+/** 分组顺序：已配置的分组按配置顺序在前，未配置的按出现顺序补齐，并去重。 */
+function orderedGroupKeys(configured: boolean, configuredGroups: ShortcutGroup[], groups: Map<string, PromptGuideCategory>): string[] {
+  const keys = configured
+    ? configuredGroups.map(group => group.key)
+    : promptGuideCategories.map(group => group.key)
+  return [...keys, ...groups.keys()].filter((key, index, all) => all.indexOf(key) === index)
+}
+
+/** 构造分组外壳：标签与图标取已配置值优先，其次回退到内置分类元数据。 */
+function buildGroupShell(entry: ShortcutEntry, configuredGroup: ShortcutGroup | undefined, base: PromptGuideCategory | undefined): PromptGuideCategory {
+  return {
+    key: entry.categoryKey,
+    label: configuredGroup?.label || entry.categoryLabel,
+    icon: resolveGroupIcon(entry, configuredGroup, base),
+    tone: base?.tone || 'guide-tone-content',
+    requiresConfig: base?.requiresConfig,
+    configTarget: base?.configTarget,
+    configTitle: base?.configTitle,
+    configDescription: base?.configDescription,
+    items: [],
+  }
+}
+
+/** 解析分组图标：配置内联 SVG → 配置图标键 → 内置分类图标 → 网格占位。 */
+function resolveGroupIcon(entry: ShortcutEntry, configuredGroup: ShortcutGroup | undefined, base: PromptGuideCategory | undefined): string {
+  return safeSvg(entry.categoryIconSvg)
+    || safeSvg(configuredGroup?.iconSvg)
+    || promptGuideIcons[entry.categoryIconKey as keyof typeof promptGuideIcons]
+    || (configuredGroup?.iconKey ? promptGuideIcons[configuredGroup.iconKey as keyof typeof promptGuideIcons] : '')
+    || base?.icon
+    || promptGuideIcons.grid
+}
+
+/** 构造分组内单个条目：提示词缺失时回退到资源派生文案。 */
+function buildShortcutItem(entry: ShortcutEntry): PromptGuideItem {
+  return {
+    label: entry.label,
+    prompt: entry.prompt || resourcePrompt(entry),
+    icon: safeSvg(entry.iconSvg) || promptGuideIcons[entry.iconKey as keyof typeof promptGuideIcons] || iconFallback,
+    available: true,
+    categoryKey: entry.categoryKey,
+    shortcutType: entry.type,
+    resourceId: entry.resourceId,
+  }
 }
 
 function safeSvg(value?: string): string {

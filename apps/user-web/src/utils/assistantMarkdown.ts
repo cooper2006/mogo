@@ -12,23 +12,56 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#039;')
 }
 
+// 统计正则匹配次数（无匹配时返回 0）。
+function countMatches(content: string, re: RegExp): number {
+  return content.match(re)?.length || 0
+}
+
+// Markdown 结构性信号：标题、列表、分隔线、hr 标签。
+function countMarkdownSignals(content: string): number {
+  return countMatches(content, /^#{1,6}\s+/gm)
+    + countMatches(content, /^\s*[-*]\s+/gm)
+    + countMatches(content, /^\s*[–—]\s+/gm)
+    + countMatches(content, /^\s*\d+\.\s+/gm)
+    + countMatches(content, /^\s*---+\s*$/gm)
+    + countMatches(content, /<hr\b[^>]*>/gi)
+}
+
+// 段落信号：句末标点与空行。
+function countParagraphSignals(content: string): number {
+  return countMatches(content, /[。！？.!?]\s*(?:\n|$)/g) + countMatches(content, /\n\s*\n/g)
+}
+
+// 代码信号：语言关键字、符号与 HTML 标签。
+function countCodeSignals(content: string): number {
+  return countMatches(content, /\b(function|class|const|let|var|def|import|return|if|else|for|while|try|catch)\b/g)
+    + countMatches(content, /[{};=]/g)
+    + countMatches(content, /<\s*(script|style|div|span|table|tr|td|th)\b/gi)
+}
+
+// 密集 Markdown 正文：结构信号足、段落信号存在、代码信号有限。
+function isDenseMarkdownProse(markdownSignals: number, paragraphSignals: number, codeSignals: number): boolean {
+  return markdownSignals >= 2 && paragraphSignals >= 1 && codeSignals <= 12
+}
+
+// 稀疏 Markdown 正文：结构信号多、代码信号有限。
+function isSparseMarkdownProse(markdownSignals: number, codeSignals: number): boolean {
+  return markdownSignals >= 3 && codeSignals <= 16
+}
+
+// 显式声明为纯文本语言时的正文判定。
+function isDeclaredTextProse(language: string, markdownSignals: number, codeSignals: number): boolean {
+  return ['', 'text', 'plaintext', 'markdown', 'md'].includes(language) && markdownSignals >= 1 && codeSignals <= 20
+}
+
 /** Detect if code block content is actually prose/markdown rather than code. */
 function isProseContent(content: string, language: string): boolean {
-  const markdownSignals =
-    (content.match(/^#{1,6}\s+/gm)?.length || 0)
-    + (content.match(/^\s*[-*]\s+/gm)?.length || 0)
-    + (content.match(/^\s*[–—]\s+/gm)?.length || 0)
-    + (content.match(/^\s*\d+\.\s+/gm)?.length || 0)
-    + (content.match(/^\s*---+\s*$/gm)?.length || 0)
-    + (content.match(/<hr\b[^>]*>/gi)?.length || 0)
-  const paragraphSignals = (content.match(/[。！？.!?]\s*(?:\n|$)/g)?.length || 0) + (content.match(/\n\s*\n/g)?.length || 0)
-  const codeSignals =
-    (content.match(/\b(function|class|const|let|var|def|import|return|if|else|for|while|try|catch)\b/g)?.length || 0)
-    + (content.match(/[{};=]/g)?.length || 0)
-    + (content.match(/<\s*(script|style|div|span|table|tr|td|th)\b/gi)?.length || 0)
-  return (markdownSignals >= 2 && paragraphSignals >= 1 && codeSignals <= 12)
-    || (markdownSignals >= 3 && codeSignals <= 16)
-    || (['', 'text', 'plaintext', 'markdown', 'md'].includes(language) && markdownSignals >= 1 && codeSignals <= 20)
+  const markdownSignals = countMarkdownSignals(content)
+  const paragraphSignals = countParagraphSignals(content)
+  const codeSignals = countCodeSignals(content)
+  return isDenseMarkdownProse(markdownSignals, paragraphSignals, codeSignals)
+    || isSparseMarkdownProse(markdownSignals, codeSignals)
+    || isDeclaredTextProse(language, markdownSignals, codeSignals)
 }
 
 /** Render a fenced code block, detecting prose vs code. */

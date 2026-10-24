@@ -270,34 +270,58 @@ function remove(entry: ShortcutEntry) {
   plan.value.entries = plan.value.entries.filter(item => item.id !== entry.id)
 }
 
-function saveEntry() {
-  if (!plan.value || !draft.value.label.trim() || (draft.value.type === 'skill' && !draft.value.resourceId) || (draft.value.type !== 'skill' && !draft.value.prompt.trim())) return
-  if (editingEntryId.value) {
-    const entry = plan.value.entries.find(item => item.id === editingEntryId.value)
-    if (entry) {
-      if (entry.categoryKey !== draft.value.groupKey && plan.value.entries.filter(item => item.categoryKey === draft.value.groupKey).length >= 6) {
-        message.warning(t('每个分组最多 6 个入口'))
-        return
-      }
-      entry.label = draft.value.label.trim()
-      entry.type = draft.value.type
-      entry.resourceId = draft.value.resourceId
-      entry.prompt = draft.value.prompt.trim() || `请使用 Skill「${entry.label}」完成以下任务：`
-      moveEntryToGroup(entry, draft.value.groupKey)
-    }
-    editingEntryId.value = null
-    editorVisible.value = false
+/** 校验草稿必填项：名称，以及 Skill 资源或 Prompt 文本。 */
+function isDraftValid(): boolean {
+  if (!draft.value.label.trim()) return false
+  if (draft.value.type === 'skill' && !draft.value.resourceId) return false
+  if (draft.value.type !== 'skill' && !draft.value.prompt.trim()) return false
+  return true
+}
+
+/** 统计指定分组当前的入口数量。 */
+function countEntriesInGroup(planDoc: ShortcutPlan, groupKey: string): number {
+  return planDoc.entries.filter(entry => entry.categoryKey === groupKey).length
+}
+
+/** 判断把入口移入目标分组后是否超过每个分组的数量上限。 */
+function entryGroupOverLimit(planDoc: ShortcutPlan, entry: ShortcutEntry, groupKey: string): boolean {
+  if (entry.categoryKey === groupKey) return false
+  return countEntriesInGroup(planDoc, groupKey) >= 6
+}
+
+/** 把草稿写入入口：prompt 留空时回退为 Skill 提示语。 */
+function applyDraftToEntry(entry: ShortcutEntry | undefined) {
+  if (!entry) return
+  entry.label = draft.value.label.trim()
+  entry.type = draft.value.type
+  entry.resourceId = draft.value.resourceId
+  entry.prompt = draft.value.prompt.trim() || `请使用 Skill「${entry.label}」完成以下任务：`
+  moveEntryToGroup(entry, draft.value.groupKey)
+}
+
+/** 编辑已有入口：更新字段并按需移动分组，最后关闭编辑器。 */
+function saveExistingEntry(planDoc: ShortcutPlan) {
+  const target = planDoc.entries.find(item => item.id === editingEntryId.value)
+  if (target && entryGroupOverLimit(planDoc, target, draft.value.groupKey)) {
+    message.warning(t('每个分组最多 6 个入口'))
     return
   }
-  const group = plan.value.groups.find(item => item.key === draft.value.groupKey) || plan.value.groups[0]
+  applyDraftToEntry(target)
+  editingEntryId.value = null
+  editorVisible.value = false
+}
+
+/** 新增入口：校验分组容量后写入并重置草稿。 */
+function createNewEntry(planDoc: ShortcutPlan) {
+  const group = planDoc.groups.find(item => item.key === draft.value.groupKey) || planDoc.groups[0]
   if (!group) return
-  if (plan.value.entries.filter(entry => entry.categoryKey === group.key).length >= 6) {
+  if (countEntriesInGroup(planDoc, group.key) >= 6) {
     message.warning(t('每个分组最多 6 个入口'))
     editorVisible.value = false
     return
   }
   const id = `custom.${Date.now()}`
-  plan.value.entries.push({
+  planDoc.entries.push({
     id,
     type: draft.value.type,
     categoryKey: group.key,
@@ -311,8 +335,18 @@ function saveEntry() {
     enabled: true,
     locked: false,
   })
-  draft.value = { type: 'prompt', label: '', prompt: '', groupKey: plan.value.groups[0]?.key || '', resourceId: '' }
+  draft.value = { type: 'prompt', label: '', prompt: '', groupKey: planDoc.groups[0]?.key || '', resourceId: '' }
   editorVisible.value = false
+}
+
+function saveEntry() {
+  const planDoc = plan.value
+  if (!planDoc || !isDraftValid()) return
+  if (editingEntryId.value) {
+    saveExistingEntry(planDoc)
+    return
+  }
+  createNewEntry(planDoc)
 }
 
 function openPromptEditor(groupKey?: string) {

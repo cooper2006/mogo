@@ -617,42 +617,60 @@ function openEdit(row: ModelInstanceItem) {
   editorVisible.value = true;
 }
 
-async function saveModel() {
+/** 解析图片扩展参数 JSON：必须是对象，非法时返回 null。 */
+function readExtraParamsJson(): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(String(form.value.imageSettings.extraParamsJson || '{}').trim() || '{}');
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** 校验模型表单：返回需要提示的错误文案，通过时返回 null。 */
+function validateModelForm(): string | null {
   if (!form.value.providerId || !form.value.displayName.trim() || !form.value.modelName.trim()) {
-    message.warning(t('请补齐供应商、显示名称和模型 ID'));
-    return;
+    return t('请补齐供应商、显示名称和模型 ID');
   }
   if (isAzureProvider.value && !form.value.apiVersion.trim()) {
-    message.warning(t('Azure OpenAI 需要填写 API Version'));
-    return;
+    return t('Azure OpenAI 需要填写 API Version');
   }
   if (hasImageCapability.value && form.value.runtimeKind === 'custom_images') {
-    try {
-      const parsed = JSON.parse(String(form.value.imageSettings.extraParamsJson || '{}').trim() || '{}');
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error();
-    } catch {
-      message.warning(t('请输入有效的 JSON 对象'));
-      return;
-    }
+    return readExtraParamsJson() ? null : t('请输入有效的 JSON 对象');
+  }
+  return null;
+}
+
+/** 组装模型实例保存载荷：能力相关字段按是否启用图片能力取值。 */
+function buildModelPayload(): ModelInstancePayload {
+  return {
+    providerId: form.value.providerId,
+    orgId: form.value.orgId,
+    displayName: form.value.displayName.trim(),
+    modelName: form.value.modelName.trim(),
+    baseUrl: form.value.baseUrl.trim(),
+    apiVersion: form.value.apiVersion.trim(),
+    apiKey: form.value.apiKey.trim(),
+    capabilities: form.value.capabilities.length ? form.value.capabilities : ['chat'],
+    runtimeKind: hasImageCapability.value ? form.value.runtimeKind || recommendedImageRuntime(currentProvider.value) : '',
+    imageSettings: hasImageCapability.value ? { ...form.value.imageSettings } : {},
+    maxContextTokens: 0,
+    status: form.value.status,
+    isDefault: false,
+  };
+}
+
+async function saveModel() {
+  const problem = validateModelForm();
+  if (problem) {
+    message.warning(problem);
+    return;
   }
   saving.value = true;
   try {
     const isCreatingFirstModel = editorMode.value === 'create' && instances.value.length === 0;
-    const payload: ModelInstancePayload = {
-      providerId: form.value.providerId,
-      orgId: form.value.orgId,
-      displayName: form.value.displayName.trim(),
-      modelName: form.value.modelName.trim(),
-      baseUrl: form.value.baseUrl.trim(),
-      apiVersion: form.value.apiVersion.trim(),
-      apiKey: form.value.apiKey.trim(),
-      capabilities: form.value.capabilities.length ? form.value.capabilities : ['chat'],
-      runtimeKind: hasImageCapability.value ? form.value.runtimeKind || recommendedImageRuntime(currentProvider.value) : '',
-      imageSettings: hasImageCapability.value ? { ...form.value.imageSettings } : {},
-      maxContextTokens: 0,
-      status: form.value.status,
-      isDefault: false,
-    };
+    const payload = buildModelPayload();
     const saved = editorMode.value === 'create'
       ? await createModelInstance(payload)
       : await updateModelInstance(form.value.id, payload);

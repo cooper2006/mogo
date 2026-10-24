@@ -68,16 +68,25 @@ const highlightTargets = computed(() => {
 })
 const tableHighlightTargets = computed(() => highlightTargets.value.map(buildTableTarget).filter((item): item is TableTarget => Boolean(item)))
 
-function previewKindForDocument(doc: KnowledgeSourceDocument | null): 'pdf' | 'markdown' | 'text' | 'html' | 'image' | 'unsupported' {
+type PreviewKind = 'pdf' | 'markdown' | 'text' | 'html' | 'image' | 'unsupported'
+
+// 预览类型判定表：顺序即优先级
+const PREVIEW_KIND_MATCHERS: {
+  kind: Exclude<PreviewKind, 'unsupported'>
+  matches: (mime: string, ext: string) => boolean
+}[] = [
+  { kind: 'pdf', matches: (mime, ext) => mime.includes('pdf') || ext === 'pdf' || ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext) },
+  { kind: 'markdown', matches: (mime, ext) => mime.includes('markdown') || ['md', 'markdown'].includes(ext) },
+  { kind: 'html', matches: (mime, ext) => mime.includes('html') || ['html', 'htm'].includes(ext) },
+  { kind: 'text', matches: (mime, ext) => mime.startsWith('text/') || ['txt', 'csv', 'json', 'tsv', 'log'].includes(ext) },
+  { kind: 'image', matches: (mime, ext) => mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext) },
+]
+
+function previewKindForDocument(doc: KnowledgeSourceDocument | null): PreviewKind {
   if (!doc) return 'unsupported'
   const mime = String(doc.previewMimeType || doc.mimeType || '').toLowerCase()
   const ext = String(doc.fileExt || '').toLowerCase()
-  if (mime.includes('pdf') || ext === 'pdf' || ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'pdf'
-  if (mime.includes('markdown') || ['md', 'markdown'].includes(ext)) return 'markdown'
-  if (mime.includes('html') || ['html', 'htm'].includes(ext)) return 'html'
-  if (mime.startsWith('text/') || ['txt', 'csv', 'json', 'tsv', 'log'].includes(ext)) return 'text'
-  if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return 'image'
-  return 'unsupported'
+  return PREVIEW_KIND_MATCHERS.find((item) => item.matches(mime, ext))?.kind || 'unsupported'
 }
 
 function sourceLocatorTitle(source: EvidenceSourceItem): string {
@@ -144,10 +153,9 @@ function selectSource(index: number) {
   activeIndex.value = index
 }
 
-async function loadActiveSource() {
-  const source = activeSource.value
-  if (!props.open || !source?.document_id || !source?.chunk_id) return
-  const currentLoadSeq = ++loadSeq
+// 是否可以加载当前激活的来源
+// 加载前的预览状态重置
+function resetPreviewState(): void {
   loading.value = true
   errorText.value = ''
   documentMeta.value = null
@@ -157,6 +165,61 @@ async function loadActiveSource() {
   locatedPageNo.value = null
   revokeImageObjectUrl()
   clearPdfLayer()
+}
+
+async function loadPreviewContent(
+  documentId: string,
+  doc: KnowledgeSourceDocument,
+  token: string | null,
+  currentLoadSeq: number,
+): Promise<void> {
+  const kind = previewKindForDocument(doc)
+  if (kind === 'unsupported') return
+  try {
+    const blob = await fetchKnowledgeSourcePreview(documentId, token)
+    if (currentLoadSeq !== loadSeq) return
+    await renderPreviewBlob(blob, kind)
+  } catch {
+    previewUnavailable.value = true
+  }
+}
+
+async function renderPreviewBlob(blob: Blob, kind: PreviewKind): Promise<void> {
+  if (kind === 'pdf') {
+    await renderPdf(blob)
+    return
+  }
+  if (kind === 'image') {
+    imageObjectUrl.value = URL.createObjectURL(blob)
+    return
+  }
+  if (kind === 'markdown' || kind === 'text' || kind === 'html') {
+    nativeContent.value = await blob.text()
+    await nextTick()
+  }
+}
+
+// 预览加载失败时的错误文案与状态回滚
+function handlePreviewLoadError(error: unknown): void {
+  errorText.value = previewLoadErrorMessage(error)
+  documentMeta.value = null
+  chunk.value = null
+  nativeContent.value = ''
+  previewUnavailable.value = false
+  locatedPageNo.value = null
+  revokeImageObjectUrl()
+}
+
+function previewLoadErrorMessage(error: unknown): string {
+  const message = (error as { message?: unknown } | null)?.message
+  return String(message || error || t('evidence.load_failed'))
+}
+
+async function loadActiveSource() {
+  const source = activeSource.value
+  if (!props.open || !source?.document_id || !source?.chunk_id) return
+  const currentLoadSeq = ++loadSeq
+  resetPreviewState()
   try {
     const token = localStorage.getItem('auth_token')
     const [doc, currentChunk] = await Promise.all([
@@ -168,32 +231,10 @@ async function loadActiveSource() {
     chunk.value = currentChunk
     loading.value = false
     await nextTick()
-    const kind = previewKindForDocument(doc)
-    if (kind !== 'unsupported') {
-      try {
-        const blob = await fetchKnowledgeSourcePreview(source.document_id, token)
-        if (currentLoadSeq !== loadSeq) return
-        if (kind === 'pdf') {
-          await renderPdf(blob)
-        } else if (kind === 'image') {
-          imageObjectUrl.value = URL.createObjectURL(blob)
-        } else if (kind === 'markdown' || kind === 'text' || kind === 'html') {
-          nativeContent.value = await blob.text()
-          await nextTick()
-        }
-      } catch {
-        previewUnavailable.value = true
-      }
-    }
+    await loadPreviewContent(source.document_id, doc, token, currentLoadSeq)
   } catch (error: any) {
     if (currentLoadSeq !== loadSeq) return
-    errorText.value = String(error?.message || error || t('evidence.load_failed'))
-    documentMeta.value = null
-    chunk.value = null
-    nativeContent.value = ''
-    previewUnavailable.value = false
-    locatedPageNo.value = null
-    revokeImageObjectUrl()
+    handlePreviewLoadError(error)
   } finally {
     if (currentLoadSeq === loadSeq) {
       loading.value = false
@@ -344,25 +385,35 @@ function containsCjk(value: string): boolean {
   return /[\u3400-\u9fff]/.test(value)
 }
 
-function isMatchedTextLine(normalized: string, target: string, tableMode = false): boolean {
-  if (!normalized || !target) return false
-  if (tableMode) {
-    const minTokenLength = containsCjk(normalized) ? 3 : 3
-    if (normalized.length >= minTokenLength && target.includes(normalized)) return true
-    if (target.length >= minTokenLength && normalized.includes(target)) return true
-    const tableMatch = longestCommonSubstring(normalized, target, containsCjk(normalized + target) ? 6 : 4)
-    if (tableMatch.length > 0) {
-      const baseLength = Math.min(normalized.length, target.length)
-      const minRatio = containsCjk(normalized + target) ? 0.42 : 0.5
-      return baseLength > 0 && tableMatch.length / baseLength >= minRatio
-    }
-  }
+// 表格模式下的行匹配判定；无匹配证据时返回 null 交由默认判定
+function isTableModeTextLineMatch(normalized: string, target: string): boolean | null {
+  const minTokenLength = containsCjk(normalized) ? 3 : 3
+  if (normalized.length >= minTokenLength && target.includes(normalized)) return true
+  if (target.length >= minTokenLength && normalized.includes(target)) return true
+  const tableMatch = longestCommonSubstring(normalized, target, containsCjk(normalized + target) ? 6 : 4)
+  if (tableMatch.length <= 0) return null
+  const baseLength = Math.min(normalized.length, target.length)
+  const minRatio = containsCjk(normalized + target) ? 0.42 : 0.5
+  return baseLength > 0 && tableMatch.length / baseLength >= minRatio
+}
+
+// 默认模式下的行匹配判定
+function isDefaultTextLineMatch(normalized: string, target: string): boolean {
   const minLength = containsCjk(normalized) ? 4 : 8
   if (normalized.length < minLength) return false
   if (target.includes(normalized)) return true
   const match = longestCommonSubstring(normalized, target)
   const minMatchLength = containsCjk(normalized) ? 4 : 10
   return match.length >= minMatchLength && match.length / normalized.length >= 0.58
+}
+
+function isMatchedTextLine(normalized: string, target: string, tableMode = false): boolean {
+  if (!normalized || !target) return false
+  if (tableMode) {
+    const tableMatch = isTableModeTextLineMatch(normalized, target)
+    if (tableMatch !== null) return tableMatch
+  }
+  return isDefaultTextLineMatch(normalized, target)
 }
 
 function isMatchedTextLineAny(normalized: string, targets: string[], tableMode: boolean): boolean {
@@ -493,30 +544,73 @@ function normalizePageNo(value: unknown): number | null {
   return Number.isFinite(page) && page > 0 ? page : null
 }
 
+// 原始 bbox 中的起点坐标
+function bboxStartValue(raw: any, primary: string, alias: string, axis: string): number {
+  return Number(raw[primary] ?? raw[alias] ?? raw[axis])
+}
+
+// 原始 bbox 中的尺寸值，缺失时回退为 NaN
+function bboxAxisSize(raw: any, primary: string, alias: string): number {
+  return Number(raw[primary] ?? raw[alias])
+}
+
+// 由起点与尺寸推导对侧坐标
+function bboxOppositeCoordinate(base: number, size: number): number {
+  return Number.isFinite(base) ? base + size : NaN
+}
+
+// 原始 bbox 中的对侧坐标
+function bboxEndValue(raw: any, primary: string, alias: string, base: number, sizePrimary: string, sizeAlias: string): number {
+  return Number(raw[primary] ?? raw[alias] ?? bboxOppositeCoordinate(base, bboxAxisSize(raw, sizePrimary, sizeAlias)))
+}
+
+// 归一化后的 bbox 是否可用于绘制
+function isUsableSourceBBox(left: number, top: number, right: number, bottom: number): boolean {
+  if (![left, top, right, bottom].every(Number.isFinite)) return false
+  return right > left && bottom !== top
+}
+
+function normalizeSourceBBoxOrigin(raw: any): string {
+  return String(raw.coordOrigin || raw.coord_origin || 'TOPLEFT').toUpperCase()
+}
+
+function bboxPageNo(raw: any): number | string | null {
+  return raw.pageNo ?? raw.page_no ?? null
+}
+
 function normalizeSourceBBox(raw: any): SourceBBox | null {
   if (!raw || typeof raw !== 'object') return null
-  const left = Number(raw.l ?? raw.left ?? raw.x)
-  const top = Number(raw.t ?? raw.top ?? raw.y)
-  const right = Number(raw.r ?? raw.right ?? (Number.isFinite(left) ? left + Number(raw.w ?? raw.width) : NaN))
-  const bottom = Number(raw.b ?? raw.bottom ?? (Number.isFinite(top) ? top + Number(raw.h ?? raw.height) : NaN))
-  if (![left, top, right, bottom].every(Number.isFinite)) return null
-  if (right <= left || bottom === top) return null
+  const left = bboxStartValue(raw, 'l', 'left', 'x')
+  const top = bboxStartValue(raw, 't', 'top', 'y')
+  const right = bboxEndValue(raw, 'r', 'right', left, 'w', 'width')
+  const bottom = bboxEndValue(raw, 'b', 'bottom', top, 'h', 'height')
+  if (!isUsableSourceBBox(left, top, right, bottom)) return null
   return {
     l: left,
     t: top,
     r: right,
     b: bottom,
-    coordOrigin: String(raw.coordOrigin || raw.coord_origin || 'TOPLEFT').toUpperCase(),
-    pageNo: raw.pageNo ?? raw.page_no ?? null,
+    coordOrigin: normalizeSourceBBoxOrigin(raw),
+    pageNo: bboxPageNo(raw),
   }
 }
 
-function drawBBoxHighlight(pageWrapper: HTMLElement, highlightLayer: HTMLElement, viewport: any, bbox: SourceBBox): boolean {
-  const scale = Number(viewport?.scale || 1)
-  const pageWidth = Number(viewport?.width || 0) / scale
-  const pageHeight = Number(viewport?.height || 0) / scale
-  if (!pageWidth || !pageHeight) return false
+interface BBoxHighlightRect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
 
+interface BBoxHighlightGeometry {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+// bbox 折算成页面坐标系下的矩形
+function bboxHighlightGeometry(bbox: SourceBBox, pageWidth: number, pageHeight: number): BBoxHighlightGeometry {
   const isNormalized = Math.max(Math.abs(bbox.l), Math.abs(bbox.t), Math.abs(bbox.r), Math.abs(bbox.b)) <= 1.5
   const coordinateSize = sourceCoordinateSizeForBBox(bbox, pageWidth, pageHeight)
   const widthFactor = isNormalized ? pageWidth : coordinateSize ? pageWidth / coordinateSize.width : 1
@@ -529,18 +623,43 @@ function drawBBoxHighlight(pageWrapper: HTMLElement, highlightLayer: HTMLElement
   const top = origin.includes('BOTTOM')
     ? (pageHeight - Math.max(topValue, bottomValue))
     : Math.min(topValue, bottomValue)
-  const width = Math.max(6, (right - left) * scale)
-  const height = Math.max(6, Math.abs(bottomValue - topValue) * scale)
-  if (!Number.isFinite(left) || !Number.isFinite(top) || width <= 0 || height <= 0) return false
+  return { left, top, width: right - left, height: Math.abs(bottomValue - topValue) }
+}
 
+// 页面坐标系矩形折算成像素矩形
+function bboxHighlightRect(geometry: BBoxHighlightGeometry, scale: number): BBoxHighlightRect {
+  return {
+    left: geometry.left * scale,
+    top: geometry.top * scale,
+    width: Math.max(6, geometry.width * scale),
+    height: Math.max(6, geometry.height * scale),
+  }
+}
+
+// 像素矩形是否可以绘制
+function isDrawableHighlightRect(rect: BBoxHighlightRect): boolean {
+  return Number.isFinite(rect.left) && Number.isFinite(rect.top) && rect.width > 0 && rect.height > 0
+}
+
+function drawHighlightRect(pageWrapper: HTMLElement, highlightLayer: HTMLElement, rect: BBoxHighlightRect): void {
   const node = document.createElement('div')
   node.className = 'source-highlight'
-  node.style.left = `${left * scale}px`
-  node.style.top = `${top * scale}px`
-  node.style.width = `${width}px`
-  node.style.height = `${height}px`
+  node.style.left = `${rect.left}px`
+  node.style.top = `${rect.top}px`
+  node.style.width = `${rect.width}px`
+  node.style.height = `${rect.height}px`
   highlightLayer.appendChild(node)
   pageWrapper.classList.add('has-source-highlight')
+}
+
+function drawBBoxHighlight(pageWrapper: HTMLElement, highlightLayer: HTMLElement, viewport: any, bbox: SourceBBox): boolean {
+  const scale = Number(viewport?.scale || 1)
+  const pageWidth = Number(viewport?.width || 0) / scale
+  const pageHeight = Number(viewport?.height || 0) / scale
+  if (!pageWidth || !pageHeight) return false
+  const rect = bboxHighlightRect(bboxHighlightGeometry(bbox, pageWidth, pageHeight), scale)
+  if (!isDrawableHighlightRect(rect)) return false
+  drawHighlightRect(pageWrapper, highlightLayer, rect)
   return true
 }
 
@@ -549,30 +668,63 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function sourceCoordinateSizeForBBox(bbox: SourceBBox, pageWidth: number, pageHeight: number): { width: number; height: number } | null {
-  const maxX = Math.max(Math.abs(bbox.l), Math.abs(bbox.r))
-  const maxY = Math.max(Math.abs(bbox.t), Math.abs(bbox.b))
-  if (maxX <= pageWidth * 4 && maxY <= pageHeight * 4) return null
+type CoordinateSize = { width: number; height: number }
 
-  const anchor = sourceAnchors().find((item) => item && typeof item === 'object' && (
+// bbox 是否已在渲染页的坐标范围内，无需额外换算基准
+function isWithinPageScale(maxX: number, maxY: number, pageWidth: number, pageHeight: number): boolean {
+  return maxX <= pageWidth * 4 && maxY <= pageHeight * 4
+}
+
+// 从锚点中查找带页面尺寸的条目
+function findCoordinateSizeAnchor(): Record<string, any> | undefined {
+  return sourceAnchors().find((item) => item && typeof item === 'object' && (
     item.pageWidth || item.page_width || item.width || item.pageHeight || item.page_height || item.height
   ))
-  const anchorWidth = Number(anchor?.pageWidth ?? anchor?.page_width ?? anchor?.width)
-  const anchorHeight = Number(anchor?.pageHeight ?? anchor?.page_height ?? anchor?.height)
-  if (Number.isFinite(anchorWidth) && anchorWidth > 0 && Number.isFinite(anchorHeight) && anchorHeight > 0) {
+}
+
+// 锚点上的页面宽度
+function anchorCoordinateWidth(anchor: Record<string, any> | undefined): number {
+  return Number(anchor?.pageWidth ?? anchor?.page_width ?? anchor?.width)
+}
+
+// 锚点上的页面高度
+function anchorCoordinateHeight(anchor: Record<string, any> | undefined): number {
+  return Number(anchor?.pageHeight ?? anchor?.page_height ?? anchor?.height)
+}
+
+function isValidCoordinateDimension(width: number, height: number): boolean {
+  return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+}
+
+function coordinateSizeFromAnchor(anchor: Record<string, any> | undefined): CoordinateSize | null {
+  const anchorWidth = anchorCoordinateWidth(anchor)
+  const anchorHeight = anchorCoordinateHeight(anchor)
+  if (isValidCoordinateDimension(anchorWidth, anchorHeight)) {
     return { width: anchorWidth, height: anchorHeight }
   }
+  return null
+}
 
-  // Office/PPT extraction commonly reports slide bboxes in EMU units.
-  // A widescreen slide is 12192000 x 6858000 EMU; a 4:3 slide is
-  // 9144000 x 6858000 EMU. Scale those into the rendered PDF page.
-  if (maxX > 100000 || maxY > 100000) {
-    const width = maxX <= OFFICE_EMU_STANDARD_WIDTH * 1.08
-      ? OFFICE_EMU_STANDARD_WIDTH
-      : OFFICE_EMU_WIDESCREEN_WIDTH
-    const height = Math.max(OFFICE_EMU_SLIDE_HEIGHT, maxY)
-    return { width, height }
-  }
+// Office/PPT extraction commonly reports slide bboxes in EMU units.
+// A widescreen slide is 12192000 x 6858000 EMU; a 4:3 slide is
+// 9144000 x 6858000 EMU. Scale those into the rendered PDF page.
+function officeEmuCoordinateSize(maxX: number, maxY: number): CoordinateSize {
+  const width = maxX <= OFFICE_EMU_STANDARD_WIDTH * 1.08
+    ? OFFICE_EMU_STANDARD_WIDTH
+    : OFFICE_EMU_WIDESCREEN_WIDTH
+  const height = Math.max(OFFICE_EMU_SLIDE_HEIGHT, maxY)
+  return { width, height }
+}
+
+function sourceCoordinateSizeForBBox(bbox: SourceBBox, pageWidth: number, pageHeight: number): CoordinateSize | null {
+  const maxX = Math.max(Math.abs(bbox.l), Math.abs(bbox.r))
+  const maxY = Math.max(Math.abs(bbox.t), Math.abs(bbox.b))
+  if (isWithinPageScale(maxX, maxY, pageWidth, pageHeight)) return null
+
+  const anchorSize = coordinateSizeFromAnchor(findCoordinateSizeAnchor())
+  if (anchorSize) return anchorSize
+
+  if (maxX > 100000 || maxY > 100000) return officeEmuCoordinateSize(maxX, maxY)
   return null
 }
 
@@ -647,41 +799,74 @@ function tableTargetTokens(normalized: string): string[] {
   return Array.from(tokens).filter((token) => token.length >= 2)
 }
 
-function tableTargetMatchScore(lineText: string, target: TableTarget): { score: number; strongHit: boolean; weakHit: boolean; tokenHits: number } {
-  let score = 0
-  let strongHit = false
-  let weakHit = false
-  let tokenHits = 0
+interface TableTargetScorePart {
+  score: number
+  strongHit: boolean
+  weakHit: boolean
+}
 
-  if (lineText.includes(target.normalized)) {
-    score += target.weight * 4
-    if (target.strong) strongHit = true
-    else weakHit = true
-  } else if (target.normalized.includes(lineText) && lineText.length >= 8) {
-    score += target.weight * 1.5
-    if (target.strong) strongHit = true
-  }
+interface TableTargetTokenScore {
+  score: number
+  tokenHits: number
+}
 
+// 整行包含目标关键词的命中
+function tableTargetDirectHit(lineText: string, target: TableTarget): TableTargetScorePart {
+  if (!lineText.includes(target.normalized)) return { score: 0, strongHit: false, weakHit: false }
+  return { score: target.weight * 4, strongHit: target.strong, weakHit: !target.strong }
+}
+
+// 目标关键词包含整行的命中
+function tableTargetReverseHit(lineText: string, target: TableTarget): TableTargetScorePart {
+  if (lineText.length < 8) return { score: 0, strongHit: false, weakHit: false }
+  if (!target.normalized.includes(lineText)) return { score: 0, strongHit: false, weakHit: false }
+  return { score: target.weight * 1.5, strongHit: target.strong, weakHit: false }
+}
+
+// 直接包含关系命中的得分（两种包含方向互斥）
+function tableTargetContainmentScore(lineText: string, target: TableTarget): TableTargetScorePart {
+  const direct = tableTargetDirectHit(lineText, target)
+  if (direct.score > 0) return direct
+  return tableTargetReverseHit(lineText, target)
+}
+
+// 最长公共子串命中的得分
+function tableTargetLcsScore(lineText: string, target: TableTarget): TableTargetScorePart {
   const minLcsLength = target.normalized.length <= 4 ? 2 : containsCjk(target.normalized + lineText) ? 4 : 5
   const match = longestCommonSubstring(lineText, target.normalized, minLcsLength)
-  if (match.length > 0) {
-    const ratio = match.length / Math.max(target.normalized.length, 1)
-    if (ratio >= 0.72 || (target.strong && match.length >= 8)) {
-      score += target.weight * 2.5 * Math.min(1, ratio)
-      if (target.strong) strongHit = true
-      else weakHit = true
-    } else if (ratio >= 0.45 && target.strong) {
-      score += target.weight * ratio
-    }
+  if (match.length <= 0) return { score: 0, strongHit: false, weakHit: false }
+  const ratio = match.length / Math.max(target.normalized.length, 1)
+  if (ratio >= 0.72 || (target.strong && match.length >= 8)) {
+    return { score: target.weight * 2.5 * Math.min(1, ratio), strongHit: target.strong, weakHit: !target.strong }
   }
+  if (ratio >= 0.45 && target.strong) {
+    return { score: target.weight * ratio, strongHit: false, weakHit: false }
+  }
+  return { score: 0, strongHit: false, weakHit: false }
+}
 
+// token 命中的得分
+function tableTargetTokenScore(lineText: string, target: TableTarget): TableTargetTokenScore {
+  let score = 0
+  let tokenHits = 0
   for (const token of target.tokens) {
     if (!lineText.includes(token)) continue
     tokenHits += 1
     score += token.length <= 3 ? 0.6 : 1
   }
+  return { score, tokenHits }
+}
 
-  return { score, strongHit, weakHit, tokenHits }
+function tableTargetMatchScore(lineText: string, target: TableTarget): { score: number; strongHit: boolean; weakHit: boolean; tokenHits: number } {
+  const containment = tableTargetContainmentScore(lineText, target)
+  const lcs = tableTargetLcsScore(lineText, target)
+  const tokenScore = tableTargetTokenScore(lineText, target)
+  return {
+    score: containment.score + lcs.score + tokenScore.score,
+    strongHit: containment.strongHit || lcs.strongHit,
+    weakHit: containment.weakHit || lcs.weakHit,
+    tokenHits: tokenScore.tokenHits,
+  }
 }
 
 function scoreTableLine(line: TextLineBox, targets: TableTarget[]): Omit<TableLineCandidate, 'pageWrapper' | 'line' | 'tableLines'> {
@@ -854,6 +1039,192 @@ function scrollToTargetPage() {
   target.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+interface HighlightSetup {
+  tableHighlightMode: boolean
+  targetTexts: string[]
+}
+
+interface PdfRenderContext {
+  seq: number
+  pdf: any
+  scale: number
+  firstPage: any
+  wrappers: Map<number, HTMLElement>
+  renderedPages: Set<number>
+  tableCandidates: TableLineCandidate[]
+  highlightMatches: HighlightMatch[]
+  tableHighlightMode: boolean
+  tableTargets: TableTarget[]
+  targetTexts: string[]
+  explicitPageNo: number | null
+  selectedHighlightPage: number
+}
+
+// 本次 PDF 渲染任务是否仍然有效
+function isCurrentPdfRender(seq: number): boolean {
+  return seq === renderSeq
+}
+
+// 读取当前命中的高亮来源配置
+function buildHighlightSetup(): HighlightSetup {
+  const highlightType = String(chunk.value?.contentType || activeSource.value?.content_type || '').toLowerCase()
+  const tableHighlightMode = highlightType === 'table_row' || highlightType.includes('table')
+  const targetTexts = highlightTargets.value.map((target) => normalizeText(target)).filter(Boolean)
+  return { tableHighlightMode, targetTexts }
+}
+
+// 计算 PDF 初始渲染缩放
+function createPdfInitialScale(availableWidth: number, baseViewportWidth: number): number {
+  return Math.min(PDF_MAX_INITIAL_SCALE, Math.max(PDF_MIN_SCALE, availableWidth / baseViewportWidth))
+}
+
+// 创建各页占位容器
+function createPdfPageWrappers(host: HTMLElement, pdf: any, viewport: any): Map<number, HTMLElement> {
+  const wrappers = new Map<number, HTMLElement>()
+  const fragment = document.createDocumentFragment()
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const wrapper = document.createElement('article')
+    wrapper.className = 'pdf-source-page pdf-source-page-pending'
+    wrapper.dataset.pageNumber = String(pageNumber)
+    wrapper.style.width = `${viewport.width}px`
+    wrapper.style.height = `${viewport.height}px`
+    fragment.appendChild(wrapper)
+    wrappers.set(pageNumber, wrapper)
+  }
+  host.innerHTML = ''
+  host.appendChild(fragment)
+  return wrappers
+}
+
+// 判断指定页是否需要做高亮检测
+function shouldCheckPageForHighlight(ctx: PdfRenderContext, pageNumber: number): boolean {
+  if (ctx.selectedHighlightPage) return pageNumber === ctx.selectedHighlightPage
+  if (ctx.tableHighlightMode) return true
+  if (ctx.explicitPageNo) {
+    return pageNumber >= Math.max(1, ctx.explicitPageNo - 2) && pageNumber <= Math.min(ctx.pdf.numPages, ctx.explicitPageNo + 2)
+  }
+  if (!ctx.highlightMatches.length) return true
+  const firstMatchPage = ctx.highlightMatches[0]?.pageNumber || 0
+  return pageNumber <= Math.min(ctx.pdf.numPages, firstMatchPage + 2)
+}
+
+// 采集文本行与 bbox 高亮命中
+async function collectTextHighlightMatch(
+  ctx: PdfRenderContext,
+  page: any,
+  wrapper: HTMLElement,
+  viewport: any,
+  pageNumber: number,
+): Promise<HighlightMatch | null> {
+  let highlighted = 0
+  let highlightKind: HighlightMatch['kind'] = 'text'
+  if (ctx.targetTexts.length > 0) {
+    const textContent = await page.getTextContent()
+    highlighted = highlightTextItems(wrapper, viewport, textContent, ctx.targetTexts, false)
+  }
+  if (highlighted === 0) {
+    highlighted = highlightSourceBboxes(wrapper, viewport, pageNumber, false)
+    highlightKind = 'bbox'
+  }
+  if (highlighted <= 0) return null
+  return { pageNumber, kind: highlightKind, count: highlighted }
+}
+
+// 在单页上写入高亮命中
+async function applyPageHighlight(ctx: PdfRenderContext, page: any, wrapper: HTMLElement, viewport: any, pageNumber: number): Promise<void> {
+  if (ctx.tableHighlightMode) {
+    const textContent = await page.getTextContent()
+    ctx.tableCandidates.push(...collectTableRowCandidates(wrapper, viewport, textContent, ctx.tableTargets))
+    return
+  }
+  const match = await collectTextHighlightMatch(ctx, page, wrapper, viewport, pageNumber)
+  if (match) ctx.highlightMatches.push(match)
+}
+
+// 渲染单页 PDF 并写入高亮
+async function renderSinglePage(ctx: PdfRenderContext, pageNumber: number, allowHighlight: boolean): Promise<void> {
+  if (!isCurrentPdfRender(ctx.seq)) return
+  if (ctx.renderedPages.has(pageNumber)) return
+  const wrapper = ctx.wrappers.get(pageNumber)
+  if (!wrapper) return
+  ctx.renderedPages.add(pageNumber)
+  const page = pageNumber === 1 ? ctx.firstPage : await ctx.pdf.getPage(pageNumber)
+  const viewport = page.getViewport({ scale: ctx.scale })
+  wrapper.classList.remove('pdf-source-page-pending')
+  wrapper.innerHTML = ''
+  wrapper.style.width = `${viewport.width}px`
+  wrapper.style.height = `${viewport.height}px`
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  const outputScale = window.devicePixelRatio || 1
+  canvas.width = Math.floor(viewport.width * outputScale)
+  canvas.height = Math.floor(viewport.height * outputScale)
+  canvas.style.width = `${Math.floor(viewport.width)}px`
+  canvas.style.height = `${Math.floor(viewport.height)}px`
+  wrapper.appendChild(canvas)
+  if (context) {
+    await page.render({
+      canvas,
+      canvasContext: context,
+      viewport,
+      transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined,
+    }).promise
+  }
+  if (allowHighlight && shouldCheckPageForHighlight(ctx, pageNumber)) {
+    await applyPageHighlight(ctx, page, wrapper, viewport, pageNumber)
+  }
+}
+
+// 按命中结果选定高亮页并清理多余高亮
+function settleSelectedHighlightPage(host: HTMLElement, ctx: PdfRenderContext): void {
+  if (ctx.tableHighlightMode) {
+    const candidate = bestTableCandidate(ctx.tableCandidates)
+    if (candidate) {
+      drawTableCandidate(candidate)
+      ctx.selectedHighlightPage = Number(candidate.pageWrapper.dataset.pageNumber || 0) || 0
+    }
+    return
+  }
+  const selectedHighlight = selectBestHighlightMatch(ctx.highlightMatches, ctx.explicitPageNo)
+  if (selectedHighlight) {
+    ctx.selectedHighlightPage = selectedHighlight.pageNumber
+    removeSourceHighlightsExcept(host, selectedHighlight.pageNumber)
+  }
+}
+
+// 后台渲染阶段按需更新高亮定位
+async function applyRemainingHighlightSelection(host: HTMLElement, ctx: PdfRenderContext): Promise<void> {
+  if (ctx.tableHighlightMode) {
+    const candidate = bestTableCandidate(ctx.tableCandidates)
+    if (!candidate) return
+    ctx.selectedHighlightPage = Number(candidate.pageWrapper.dataset.pageNumber || 0) || 0
+    locatedPageNo.value = ctx.selectedHighlightPage || null
+    removeSourceHighlightsExcept(host, ctx.selectedHighlightPage)
+    scrollToTargetPage()
+    return
+  }
+  const selectedHighlight = selectBestHighlightMatch(ctx.highlightMatches, ctx.explicitPageNo)
+  if (!selectedHighlight) return
+  ctx.selectedHighlightPage = selectedHighlight.pageNumber
+  locatedPageNo.value = selectedHighlight.pageNumber
+  removeSourceHighlightsExcept(host, selectedHighlight.pageNumber)
+  scrollToTargetPage()
+}
+
+// 后台继续渲染其余页
+function renderRemainingPages(host: HTMLElement, ctx: PdfRenderContext, remainingPages: number[]): void {
+  void (async () => {
+    for (const pageNumber of remainingPages) {
+      if (!isCurrentPdfRender(ctx.seq)) return
+      await nextAnimationFrame()
+      await renderSinglePage(ctx, pageNumber, !ctx.selectedHighlightPage)
+      if (!ctx.selectedHighlightPage) {
+        await applyRemainingHighlightSelection(host, ctx)
+      }
+    }
+  })()
+}
+
 async function renderPdf(blob: Blob) {
   const host = pdfLayerRef.value
   if (!host) return
@@ -861,9 +1232,7 @@ async function renderPdf(blob: Blob) {
   pdfRendering.value = true
   host.innerHTML = ''
   destroyPdfDocument()
-  const highlightType = String(chunk.value?.contentType || activeSource.value?.content_type || '').toLowerCase()
-  const tableHighlightMode = highlightType === 'table_row' || highlightType.includes('table')
-  const targetTexts = highlightTargets.value.map((target) => normalizeText(target)).filter(Boolean)
+  const highlight = buildHighlightSetup()
   try {
     const pdfjs = pdfjsLib = await loadPdfjs()
     const buffer = await blob.arrayBuffer()
@@ -878,89 +1247,25 @@ async function renderPdf(blob: Blob) {
     const firstPage = await pdf.getPage(1)
     const baseViewport = firstPage.getViewport({ scale: 1 })
     const availableWidth = Math.max(160, host.clientWidth - PDF_SOURCE_HORIZONTAL_PADDING)
-    const pdfScale = Math.min(
-      PDF_MAX_INITIAL_SCALE,
-      Math.max(PDF_MIN_SCALE, availableWidth / baseViewport.width),
-    )
+    const pdfScale = createPdfInitialScale(availableWidth, baseViewport.width)
     const estimatedViewport = firstPage.getViewport({ scale: pdfScale })
-    const wrappers = new Map<number, HTMLElement>()
-    const fragment = document.createDocumentFragment()
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      const wrapper = document.createElement('article')
-      wrapper.className = 'pdf-source-page pdf-source-page-pending'
-      wrapper.dataset.pageNumber = String(pageNumber)
-      wrapper.style.width = `${estimatedViewport.width}px`
-      wrapper.style.height = `${estimatedViewport.height}px`
-      fragment.appendChild(wrapper)
-      wrappers.set(pageNumber, wrapper)
-    }
-    host.innerHTML = ''
-    host.appendChild(fragment)
+    const wrappers = createPdfPageWrappers(host, pdf, estimatedViewport)
     await nextTick()
 
-    const tableCandidates: TableLineCandidate[] = []
-    const highlightMatches: HighlightMatch[] = []
-    const tableTargets = tableHighlightTargets.value
-    let selectedHighlightPage = 0
-    const renderedPages = new Set<number>()
-    const shouldCheckPageForHighlight = (pageNumber: number) => {
-      if (selectedHighlightPage) return pageNumber === selectedHighlightPage
-      if (tableHighlightMode) return true
-      if (explicitPageNo) {
-        return pageNumber >= Math.max(1, explicitPageNo - 2) && pageNumber <= Math.min(pdf.numPages, explicitPageNo + 2)
-      }
-      if (!highlightMatches.length) return true
-      const firstMatchPage = highlightMatches[0]?.pageNumber || 0
-      return pageNumber <= Math.min(pdf.numPages, firstMatchPage + 2)
-    }
-    const renderPage = async (pageNumber: number, allowHighlight: boolean): Promise<void> => {
-      if (currentSeq !== renderSeq) return
-      if (renderedPages.has(pageNumber)) return
-      const wrapper = wrappers.get(pageNumber)
-      if (!wrapper) return
-      renderedPages.add(pageNumber)
-      const page = pageNumber === 1 ? firstPage : await pdf.getPage(pageNumber)
-      const viewport = page.getViewport({ scale: pdfScale })
-      wrapper.classList.remove('pdf-source-page-pending')
-      wrapper.innerHTML = ''
-      wrapper.style.width = `${viewport.width}px`
-      wrapper.style.height = `${viewport.height}px`
-      const canvas = document.createElement('canvas')
-      const context = canvas.getContext('2d')
-      const outputScale = window.devicePixelRatio || 1
-      canvas.width = Math.floor(viewport.width * outputScale)
-      canvas.height = Math.floor(viewport.height * outputScale)
-      canvas.style.width = `${Math.floor(viewport.width)}px`
-      canvas.style.height = `${Math.floor(viewport.height)}px`
-      wrapper.appendChild(canvas)
-      if (context) {
-        await page.render({
-          canvas,
-          canvasContext: context,
-          viewport,
-          transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined,
-        }).promise
-      }
-      if (allowHighlight && shouldCheckPageForHighlight(pageNumber)) {
-        if (tableHighlightMode) {
-          const textContent = await page.getTextContent()
-          tableCandidates.push(...collectTableRowCandidates(wrapper, viewport, textContent, tableTargets))
-        } else {
-          let highlighted = 0
-          let highlightKind: HighlightMatch['kind'] = 'text'
-          if (targetTexts.length > 0) {
-            const textContent = await page.getTextContent()
-            highlighted = highlightTextItems(wrapper, viewport, textContent, targetTexts, false)
-          }
-          if (highlighted === 0) {
-            highlighted = highlightSourceBboxes(wrapper, viewport, pageNumber, false)
-            highlightKind = 'bbox'
-          }
-          if (highlighted > 0) {
-            highlightMatches.push({ pageNumber, kind: highlightKind, count: highlighted })
-          }
-        }
-      }
+    const ctx: PdfRenderContext = {
+      seq: currentSeq,
+      pdf,
+      scale: pdfScale,
+      firstPage,
+      wrappers,
+      renderedPages: new Set<number>(),
+      tableCandidates: [],
+      highlightMatches: [],
+      tableHighlightMode: highlight.tableHighlightMode,
+      tableTargets: tableHighlightTargets.value,
+      targetTexts: highlight.targetTexts,
+      explicitPageNo,
+      selectedHighlightPage: 0,
     }
 
     const order = createPageRenderOrder(pdf.numPages, explicitPageNo)
@@ -968,23 +1273,11 @@ async function renderPdf(blob: Blob) {
     const priorityPages = order.slice(0, priorityCount)
     const remainingPages = order.slice(priorityCount)
     for (const pageNumber of priorityPages) {
-      await renderPage(pageNumber, true)
+      await renderSinglePage(ctx, pageNumber, true)
     }
 
-    if (tableHighlightMode) {
-      const candidate = bestTableCandidate(tableCandidates)
-      if (candidate) {
-        drawTableCandidate(candidate)
-        selectedHighlightPage = Number(candidate.pageWrapper.dataset.pageNumber || 0) || 0
-      }
-    } else {
-      const selectedHighlight = selectBestHighlightMatch(highlightMatches, explicitPageNo)
-      if (selectedHighlight) {
-        selectedHighlightPage = selectedHighlight.pageNumber
-        removeSourceHighlightsExcept(host, selectedHighlight.pageNumber)
-      }
-    }
-    locatedPageNo.value = selectedHighlightPage || null
+    settleSelectedHighlightPage(host, ctx)
+    locatedPageNo.value = ctx.selectedHighlightPage || null
     await nextTick()
     scrollToTargetPage()
     window.requestAnimationFrame(() => {
@@ -992,32 +1285,7 @@ async function renderPdf(blob: Blob) {
     })
     pdfRendering.value = false
 
-    void (async () => {
-      for (const pageNumber of remainingPages) {
-        if (currentSeq !== renderSeq) return
-        await nextAnimationFrame()
-        await renderPage(pageNumber, !selectedHighlightPage)
-        if (!selectedHighlightPage) {
-          if (tableHighlightMode) {
-            const candidate = bestTableCandidate(tableCandidates)
-            if (candidate) {
-              selectedHighlightPage = Number(candidate.pageWrapper.dataset.pageNumber || 0) || 0
-              locatedPageNo.value = selectedHighlightPage || null
-              removeSourceHighlightsExcept(host, selectedHighlightPage)
-              scrollToTargetPage()
-            }
-          } else {
-            const selectedHighlight = selectBestHighlightMatch(highlightMatches, explicitPageNo)
-            if (selectedHighlight) {
-              selectedHighlightPage = selectedHighlight.pageNumber
-              locatedPageNo.value = selectedHighlight.pageNumber
-              removeSourceHighlightsExcept(host, selectedHighlight.pageNumber)
-              scrollToTargetPage()
-            }
-          }
-        }
-      }
-    })()
+    renderRemainingPages(host, ctx, remainingPages)
   } catch (error: any) {
     errorText.value = String(error?.message || error || t('evidence.load_failed'))
   } finally {

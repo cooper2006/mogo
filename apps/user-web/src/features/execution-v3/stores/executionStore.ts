@@ -18,13 +18,79 @@ function statusFor(type: ExecutionEventV3['type']): V3ItemStatus {
   return 'running'
 }
 
+// 运行终态事件对应的项目收尾状态
+function statusForTerminalRun(type: ExecutionEventV3['type']): V3ItemStatus {
+  if (type === 'run.completed') return 'completed'
+  if (type === 'run.cancelled') return 'cancelled'
+  return 'abandoned'
+}
+
+// 浏览器交付事件显式清场时绕过修订号去重
+function clearsBrowserIntervention(existing: ExecutionItemV3 | undefined, event: ExecutionEventV3): boolean {
+  return Boolean(
+    existing
+    && event.item_kind === 'browser_handoff'
+    && event.type === 'item.completed'
+    && event.payload?.cleared,
+  )
+}
+
+// 合并既有 payload 与本次载荷，增量文本按段追加
+function buildItemPayload(existing: ExecutionItemV3 | undefined, event: ExecutionEventV3): Record<string, any> {
+  const payload = { ...(existing?.payload || {}), ...(event.payload || {}) }
+  if (event.type === 'item.delta') payload.text = String(existing?.payload?.text || '') + String(event.payload?.text || '')
+  return payload
+}
+
+// 组装项目行，终态行不因后续 running 事件回退
+function buildExecutionItem(
+  event: ExecutionEventV3,
+  itemId: string,
+  itemKind: ExecutionItemV3['kind'],
+  existing: ExecutionItemV3 | undefined,
+  clearsIntervention: boolean,
+  payload: Record<string, any>,
+): ExecutionItemV3 {
+  const nextStatus = statusFor(event.type)
+  const terminalExisting = existing && ['completed', 'failed', 'cancelled', 'abandoned'].includes(existing.status)
+  return {
+    id: itemId,
+    kind: itemKind,
+    parentId: event.parent_item_id || existing?.parentId,
+    revision: clearsIntervention ? existing!.revision + 1 : event.revision,
+    startedAt: existing?.startedAt || event.ts,
+    updatedAt: event.ts,
+    status: terminalExisting && nextStatus === 'running' ? existing.status : nextStatus,
+    payload,
+  }
+}
+
 export function createExecutionStoreV3() {
   const state = reactive<ExecutionStateV3>(freshState())
 
   function applyEvent(event: ExecutionEventV3) {
-    if (!isExecutionEventV3(event) || state.seenEventIds.has(event.event_id)) return
+    if (!acceptEvent(event)) return
+    applyRunLifecycle(event)
+    finalizeRunningItems(event)
+    const item = upsertItem(event)
+    if (!item) return
+    applyItemSideEffects(item, event, item.payload)
+  }
+
+  function reset() {
+    Object.assign(state, freshState())
+  }
+
+  // 去重并记录原始事件，返回是否接受
+  function acceptEvent(event: ExecutionEventV3): boolean {
+    if (!isExecutionEventV3(event) || state.seenEventIds.has(event.event_id)) return false
     state.seenEventIds.add(event.event_id)
     state.rawEvents.push(event)
+    return true
+  }
+
+  // 记录运行级状态与计时
+  function applyRunLifecycle(event: ExecutionEventV3): void {
     if (event.type === 'run.started') {
       state.runStatus = 'running'
       if (state.runStartedAt === null) state.runStartedAt = event.ts
@@ -35,82 +101,79 @@ export function createExecutionStoreV3() {
     if (event.type === 'run.cancelled') state.runStatus = 'cancelled'
     if (event.type === 'run.blocked') state.runStatus = 'blocked'
     if (TERMINAL_RUN_EVENT_TYPES.has(event.type)) state.runEndedAt = event.ts
-    if (['run.completed', 'run.failed', 'run.cancelled'].includes(event.type)) {
-      for (const id of state.order) {
-        const item = state.items[id]
-        if (item.status !== 'running') continue
-        item.status = event.type === 'run.completed'
-          ? 'completed'
-          : event.type === 'run.cancelled' ? 'cancelled' : 'abandoned'
-      }
-    }
-    if (!event.item_id || !event.item_kind) return
+  }
 
-    const existing = state.items[event.item_id]
-    const clearsIntervention = Boolean(
-      existing
-      && event.item_kind === 'browser_handoff'
-      && event.type === 'item.completed'
-      && event.payload?.cleared,
-    )
-    if (existing && event.revision <= existing.revision && !clearsIntervention) return
-    const payload = { ...(existing?.payload || {}), ...(event.payload || {}) }
-    if (event.type === 'item.delta') {
-      payload.text = String(existing?.payload?.text || '') + String(event.payload?.text || '')
+  // 运行终止时收尾仍在运行的项目
+  function finalizeRunningItems(event: ExecutionEventV3): void {
+    if (!['run.completed', 'run.failed', 'run.cancelled'].includes(event.type)) return
+    for (const id of state.order) {
+      const item = state.items[id]
+      if (item.status !== 'running') continue
+      item.status = statusForTerminalRun(event.type)
     }
-    const nextStatus = statusFor(event.type)
-    const terminalExisting = existing && ['completed', 'failed', 'cancelled', 'abandoned'].includes(existing.status)
-    const item: ExecutionItemV3 = {
-      id: event.item_id,
-      kind: event.item_kind,
-      parentId: event.parent_item_id || existing?.parentId,
-      revision: clearsIntervention ? existing!.revision + 1 : event.revision,
-      startedAt: existing?.startedAt || event.ts,
-      updatedAt: event.ts,
-      status: terminalExisting && nextStatus === 'running' ? existing.status : nextStatus,
-      payload,
-    }
+  }
+
+  // 写入或更新项目行，被抑制的事件返回 null
+  function upsertItem(event: ExecutionEventV3): ExecutionItemV3 | null {
+    const itemId = event.item_id
+    const itemKind = event.item_kind
+    if (!itemId || !itemKind) return null
+    const existing = state.items[itemId]
+    const clearsIntervention = clearsBrowserIntervention(existing, event)
+    if (existing && event.revision <= existing.revision && !clearsIntervention) return null
+    const payload = buildItemPayload(existing, event)
+    const item = buildExecutionItem(event, itemId, itemKind, existing, clearsIntervention, payload)
     state.items[item.id] = item
     if (!existing) state.order.push(item.id)
+    return item
+  }
 
+  // 项目落地后的派生副作用（产物、证据、干预、错误）
+  function applyItemSideEffects(item: ExecutionItemV3, event: ExecutionEventV3, payload: Record<string, any>): void {
     if (item.kind === 'final_answer' && event.type === 'item.completed') state.finalAnswerComplete = true
     if (item.kind === 'browser_handoff') {
       state.intervention = event.type === 'item.completed' ? null : payload
     }
-    if (item.kind === 'error' && event.type === 'item.failed') {
-      state.errors.push(String(payload.message || 'unknown error'))
+    if (item.kind === 'error' && event.type === 'item.failed') state.errors.push(String(payload.message || 'unknown error'))
+    if (item.kind === 'artifact' && event.type === 'item.completed') addArtifactFromPayload(item, payload)
+    if (item.kind === 'evidence' && event.type === 'item.completed') addEvidenceBundleFromPayload(item, payload)
+    if (item.kind === 'tool' && event.type === 'item.completed') applyToolCompletionSideEffects(item, payload)
+  }
+
+  function addArtifactFromPayload(item: ExecutionItemV3, payload: Record<string, any>): void {
+    const artifact: ArtifactItem = { id: item.id, ts: item.updatedAt, kind: String(payload.kind || 'document'), ...payload }
+    if (!isDuplicateArtifact(artifact)) state.artifacts.push(artifact)
+  }
+
+  function addEvidenceBundleFromPayload(item: ExecutionItemV3, payload: Record<string, any>): void {
+    const bundle = { id: item.id, ts: item.updatedAt, ...payload } as EvidenceBundleItem
+    if (!state.evidenceBundles.some((value) => value.id === bundle.id)) state.evidenceBundles.push(bundle)
+  }
+
+  function applyToolCompletionSideEffects(item: ExecutionItemV3, payload: Record<string, any>): void {
+    const browserIntervention = payload.browser_intervention as Record<string, any> | undefined
+    if (browserIntervention?.suspension_id) state.intervention = browserIntervention
+    const evidence = payload.evidence_bundle as EvidenceBundleItem | undefined
+    if (evidence && !state.evidenceBundles.some((value) => value.id === evidence.id)) {
+      const { ts: _existingTs, ...evidenceRest } = evidence
+      state.evidenceBundles.push({ ts: item.updatedAt, ...evidenceRest })
     }
-    if (item.kind === 'artifact' && event.type === 'item.completed') {
-      const artifact: ArtifactItem = { id: item.id, ts: item.updatedAt, kind: String(payload.kind || 'document'), ...payload }
-      if (!state.artifacts.some((a) => a.id === artifact.id || (artifact.object_path && a.object_path === artifact.object_path))) {
-        state.artifacts.push(artifact)
-      }
+    const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : []
+    artifacts.forEach((value: Record<string, any>, index: number) => addArtifactFromToolPayload(item, value, index))
+  }
+
+  function addArtifactFromToolPayload(item: ExecutionItemV3, value: Record<string, any>, index: number): void {
+    const artifact: ArtifactItem = {
+      id: String(value.id || value.object_path || `${item.id}:${index}`),
+      ts: item.updatedAt,
+      kind: String(value.kind || value.type || 'document'),
+      ...value,
     }
-    if (item.kind === 'evidence' && event.type === 'item.completed') {
-      const bundle = { id: item.id, ts: item.updatedAt, ...payload } as EvidenceBundleItem
-      if (!state.evidenceBundles.some((value) => value.id === bundle.id)) state.evidenceBundles.push(bundle)
-    }
-    if (item.kind === 'tool' && event.type === 'item.completed') {
-      const browserIntervention = payload.browser_intervention as Record<string, any> | undefined
-      if (browserIntervention?.suspension_id) state.intervention = browserIntervention
-      const evidence = payload.evidence_bundle as EvidenceBundleItem | undefined
-      if (evidence && !state.evidenceBundles.some((value) => value.id === evidence.id)) {
-        const { ts: _existingTs, ...evidenceRest } = evidence
-        state.evidenceBundles.push({ ts: item.updatedAt, ...evidenceRest })
-      }
-      const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : []
-      artifacts.forEach((value: Record<string, any>, index: number) => {
-        const artifact: ArtifactItem = {
-          id: String(value.id || value.object_path || `${item.id}:${index}`),
-          ts: item.updatedAt,
-          kind: String(value.kind || value.type || 'document'),
-          ...value,
-        }
-        if (!state.artifacts.some((existing) => existing.id === artifact.id || (artifact.object_path && existing.object_path === artifact.object_path))) {
-          state.artifacts.push(artifact)
-        }
-      })
-    }
+    if (!isDuplicateArtifact(artifact)) state.artifacts.push(artifact)
+  }
+
+  function isDuplicateArtifact(artifact: ArtifactItem): boolean {
+    return state.artifacts.some((existing) => existing.id === artifact.id || (artifact.object_path && existing.object_path === artifact.object_path))
   }
 
   function loadHistory(events: any[] | undefined) {
@@ -134,8 +197,6 @@ export function createExecutionStoreV3() {
       if (latest && !['item.completed', 'item.failed'].includes(latest.type)) item.status = 'running'
     }
   }
-
-  function reset() { Object.assign(state, freshState()) }
 
   const visibleItems = computed(() => state.order
     .map((id) => state.items[id])

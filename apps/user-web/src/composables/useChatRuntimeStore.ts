@@ -8,6 +8,7 @@ import { resumeBrowserInterventionTaskUntilSettled } from './tasks/browserInterv
 import {
   browserInterventionTransition,
   normalizeBrowserIntervention,
+  type BrowserInterventionTransition,
 } from './browser/browserInterventionProjection'
 import type { ExecutionStoreV3 } from '../features/execution-v3/stores/executionStore'
 import type { DshTaskChangeSet } from '../platform/types'
@@ -256,26 +257,39 @@ function setPaneRunning(pane: ChatRuntimePane, running: boolean) {
   if (!running) pruneInactivePanes()
 }
 
+/** 目标字段为空时，用另一个 pane 的同名字段填充（保留 keeper 已有运行态）。 */
+function copyPaneFieldIfAbsent<K extends 'activeStream' | 'abortController' | 'activeAssistantMessageId' | 'activeIntervention' | 'authResumeController'>(
+  keeper: ChatRuntimePane,
+  removed: ChatRuntimePane,
+  field: K,
+): void {
+  if (!keeper[field] && removed[field]) keeper[field] = removed[field]
+}
+
+/** 同会话两个 pane 合并：保留仍在运行的那一个，迁移运行态并从列表移除被丢弃者。 */
+function mergeDuplicatePane(pane: ChatRuntimePane, duplicate: ChatRuntimePane, sessionId: string, callbacks: RuntimeCallbacks): void {
+  const keepRunningPane = pane.running || !duplicate.running
+  const keeper = keepRunningPane ? pane : duplicate
+  const removed = keepRunningPane ? duplicate : pane
+  keeper.sessionId = sessionId
+  keeper.modelInstanceId = pane.modelInstanceId || keeper.modelInstanceId || duplicate.modelInstanceId
+  keeper.lastActivatedAt = Math.max(keeper.lastActivatedAt, removed.lastActivatedAt)
+  if (!keeper.messages.length && removed.messages.length) keeper.messages = removed.messages
+  copyPaneFieldIfAbsent(keeper, removed, 'activeStream')
+  copyPaneFieldIfAbsent(keeper, removed, 'abortController')
+  copyPaneFieldIfAbsent(keeper, removed, 'activeAssistantMessageId')
+  copyPaneFieldIfAbsent(keeper, removed, 'activeIntervention')
+  copyPaneFieldIfAbsent(keeper, removed, 'authResumeController')
+  if (state.activeKey === removed.key) state.activeKey = keeper.key
+  state.panes = state.panes.filter((item) => item !== removed)
+  callbacks.onSessionResolved?.(sessionId)
+}
+
 function resolvePaneSession(pane: ChatRuntimePane, sessionId: string, callbacks: RuntimeCallbacks = {}) {
   if (!sessionId) return
   const duplicate = state.panes.find((item) => item !== pane && item.sessionId === sessionId)
   if (duplicate) {
-    const keepRunningPane = pane.running || !duplicate.running
-    const keeper = keepRunningPane ? pane : duplicate
-    const removed = keepRunningPane ? duplicate : pane
-    keeper.sessionId = sessionId
-    if (pane.modelInstanceId) keeper.modelInstanceId = pane.modelInstanceId
-    else if (!keeper.modelInstanceId) keeper.modelInstanceId = duplicate.modelInstanceId
-    keeper.lastActivatedAt = Math.max(keeper.lastActivatedAt, removed.lastActivatedAt)
-    if (!keeper.messages.length && removed.messages.length) keeper.messages = removed.messages
-    if (!keeper.activeStream && removed.activeStream) keeper.activeStream = removed.activeStream
-    if (!keeper.abortController && removed.abortController) keeper.abortController = removed.abortController
-    if (!keeper.activeAssistantMessageId && removed.activeAssistantMessageId) keeper.activeAssistantMessageId = removed.activeAssistantMessageId
-    if (!keeper.activeIntervention && removed.activeIntervention) keeper.activeIntervention = removed.activeIntervention
-    if (!keeper.authResumeController && removed.authResumeController) keeper.authResumeController = removed.authResumeController
-    if (state.activeKey === removed.key) state.activeKey = keeper.key
-    state.panes = state.panes.filter((item) => item !== removed)
-    callbacks.onSessionResolved?.(sessionId)
+    mergeDuplicatePane(pane, duplicate, sessionId, callbacks)
     return
   }
   pane.sessionId = sessionId
@@ -316,113 +330,242 @@ function resetPanePreview(pane: ChatRuntimePane) {
   pane.activeIntervention = null
 }
 
-async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCallbacks = {}) {
-  const pane = findPaneByKey(key)
-  if (!pane) return
-  pane.authResumeController?.abort()
-  pane.authResumeController = null
-  if (pane.running) {
-    await stopGeneration(key)
-    return
-  }
+/** 判断输入是否包含可发送内容（文本、图片、附件或已选技能）。 */
+function hasSendContent(input: SendInput, text: string): boolean {
+  return Boolean(text || input.images.length > 0 || input.documents.length > 0 || input.selectedSkillId)
+}
 
-  const text = input.text.trim()
-  const hasImages = input.images.length > 0
-  const hasDocuments = input.documents.length > 0
-  const hasSelectedSkill = !!input.selectedSkillId
-  if (!text && !hasImages && !hasDocuments && !hasSelectedSkill) return
-  if (!input.authToken || !input.userId || !input.tenantId || input.tenantId === 'default') {
-    callbacks.onLoginRequired?.()
-    return
-  }
+/** 具备发送所需基础身份（令牌、用户与非 default 空间）的发送输入。 */
+type SendInputReady = SendInput & { authToken: string; userId: string; tenantId: string }
 
-  pane.operationId += 1
-  const operationId = pane.operationId
-  setPaneRunning(pane, true)
-  pane.activeAuthToken = input.authToken
-  let uploadedImages: UploadedImage[]
-  let uploadedDocuments: RuntimeDocumentInfo[]
+/** 判断当前输入是否具备发送所需的基础身份。 */
+function hasSendIdentity(input: SendInput): input is SendInputReady {
+  const hasBase = input.authToken && input.userId && input.tenantId
+  return Boolean(hasBase) && input.tenantId !== 'default'
+}
+
+/** 额度或附件链路失败时写入错误消息并复位 running 状态。 */
+function pushSendFailure(pane: ChatRuntimePane, input: SendInput, uploadErr: unknown): void {
+  pane.messages.push({
+    _id: nextMessageId(),
+    role: 'assistant',
+    content: `[Error: ${input.locale === 'zh' ? '附件上传失败' : 'Failed to upload attachments'}: ${uploadErr}]`,
+  })
+  setPaneRunning(pane, false)
+  pane.activeAuthToken = null
+}
+
+/** 校验可用额度；不足时写入提示消息并复位 running，返回是否可继续发送。 */
+async function checkSendQuota(pane: ChatRuntimePane, operationId: number, input: SendInputReady): Promise<boolean> {
+  const quota = await fetchOrgBilling(input.authToken).catch((uploadErr) => {
+    pushSendFailure(pane, input, uploadErr)
+    return null
+  })
+  if (!quota || pane.operationId !== operationId) return false
+  const remaining = Number(quota.data?.remainingPoints ?? 0)
+  const unlimited = quota.data?.unlimited === true
+  if (quota.ok && (unlimited || remaining > 0)) return true
+  const isEnterprise = quota.data?.spaceType === 'enterprise'
+  pane.messages.push({
+    _id: nextMessageId(),
+    role: 'assistant',
+    content: isEnterprise
+      ? '当前企业分派额度已用尽，请联系企业管理员调整额度。'
+      : '个人赠送额度已用尽，请升级或切换到有可用额度的空间。',
+  })
+  setPaneRunning(pane, false)
+  return false
+}
+
+type PreparedAttachments = { images: UploadedImage[]; documents: RuntimeDocumentInfo[] }
+
+/** 上传本轮附件；失败时写入错误消息并复位 running，返回 null 表示不可继续。 */
+async function prepareSendAttachments(
+  pane: ChatRuntimePane,
+  operationId: number,
+  input: SendInputReady,
+): Promise<PreparedAttachments | null> {
   try {
-    const quota = await fetchOrgBilling(input.authToken)
-    if (pane.operationId !== operationId) return
-    const remaining = Number(quota.data?.remainingPoints ?? 0)
-    const unlimited = quota.data?.unlimited === true
-    if (!quota.ok || (!unlimited && remaining <= 0)) {
-      const isEnterprise = quota.data?.spaceType === 'enterprise'
-      pane.messages.push({
-        _id: nextMessageId(),
-        role: 'assistant',
-        content: isEnterprise
-          ? '当前企业分派额度已用尽，请联系企业管理员调整额度。'
-          : '个人赠送额度已用尽，请升级或切换到有可用额度的空间。',
-      })
-      setPaneRunning(pane, false)
-      return
-    }
-
-    uploadedImages = await uploadImages(input.userId, input.images, input.authToken)
-    if (pane.operationId !== operationId) return
-    uploadedDocuments = await uploadDocuments(input.userId, input.documents, input.authToken)
+    const uploadedImages = await uploadImages(input.userId, input.images, input.authToken)
+    if (pane.operationId !== operationId) return null
+    const uploadedDocuments = await uploadDocuments(input.userId, input.documents, input.authToken)
+    return { images: uploadedImages, documents: uploadedDocuments }
   } catch (uploadErr) {
-    pane.messages.push({
-      _id: nextMessageId(),
-      role: 'assistant',
-      content: `[Error: ${input.locale === 'zh' ? '附件上传失败' : 'Failed to upload attachments'}: ${uploadErr}]`,
-    })
-    setPaneRunning(pane, false)
-    pane.activeAuthToken = null
-    return
+    pushSendFailure(pane, input, uploadErr)
+    return null
   }
-  if (pane.operationId !== operationId) return
+}
 
-  const userMessage: RuntimeMessage = {
+function buildUserMessage(text: string, images: UploadedImage[], documents: RuntimeDocumentInfo[]): RuntimeMessage {
+  return {
     _id: nextMessageId(),
     role: 'user',
     content: text,
-    images: uploadedImages as RuntimeImageInfo[],
-    documents: uploadedDocuments,
+    images: images as RuntimeImageInfo[],
+    documents,
     created_at: new Date().toISOString(),
   }
-  pane.messages.push(userMessage)
+}
 
-  const assistantMsg: RuntimeMessage = {
-    _id: nextMessageId(),
-    role: 'assistant',
-    content: '',
-  }
+/** 追加空的 assistant 占位消息并复位执行态，返回该消息。 */
+function appendAssistantMessage(pane: ChatRuntimePane): RuntimeMessage {
+  const assistantMsg: RuntimeMessage = { _id: nextMessageId(), role: 'assistant', content: '' }
   pane.messages.push(assistantMsg)
   pane.activeAssistantMessageId = assistantMsg._id || null
   ensureExecV3(assistantMsg).reset()
   resetPanePreview(pane)
+  return assistantMsg
+}
 
+type ApiChatMessage = {
+  role: RuntimeMessage['role']
+  content: string
+  images: RuntimeImageInfo[]
+  documents: RuntimeDocumentInfo[]
+}
+
+function toApiChatMessage(m: RuntimeMessage): ApiChatMessage {
+  return { role: m.role, content: m.content, images: m.images || [], documents: m.documents || [] }
+}
+
+/** 组装发给后端的聊天补全请求体。 */
+function buildChatStreamRequest(pane: ChatRuntimePane, input: SendInput) {
+  return {
+    modelId: input.modelId || undefined,
+    knowledgeQaEnabled: input.knowledgeQaEnabled,
+    timezone: input.timezone,
+    messages: pane.messages.slice(0, -1).map(toApiChatMessage),
+    output_spec: {
+      user_id: input.userId || undefined,
+      tenant_id: input.tenantId || undefined,
+      task_id: pane.sessionId || undefined,
+      selected_skill_id: input.selectedSkillId || undefined,
+      manual_skill_selected: Boolean(input.selectedSkillId) || undefined,
+    },
+  }
+}
+
+/** 流首帧带回会话 id 时，同步 model 绑定并解析 pane 归属。 */
+function handleStreamSessionId(pane: ChatRuntimePane, input: SendInput, assistantMsg: RuntimeMessage, sid: string, callbacks: RuntimeCallbacks): void {
+  if (input.modelId) pane.modelInstanceId = input.modelId
+  assistantMsg._backendSid = sid
+  resolvePaneSession(pane, sid, callbacks)
+}
+
+/** 后端流的游标与终止态，供同一轮内的恢复逻辑共享。 */
+type BackendStreamState = { cursor: number; terminalReceived: boolean }
+
+function findRuntimeMessage(pane: ChatRuntimePane, messageId: string | undefined): RuntimeMessage | undefined {
+  return pane.messages.find((item) => item._id === messageId)
+}
+
+/** 应用 V3 事件，返回 store 是否真的接受了它。 */
+function applyRuntimeV3Event(store: ExecutionStoreV3, ev: ExecutionEventV3): boolean {
+  const before = store.state.rawEvents.length
+  store.applyEvent(ev)
+  return store.state.rawEvents.length > before
+}
+
+function isTerminalRunEvent(ev: ExecutionEventV3): boolean {
+  return ev.type === 'run.completed' || ev.type === 'run.failed' || ev.type === 'run.cancelled'
+}
+
+/** 记录后端流的终止事件，供 EOF 后判定是否需要主动恢复。 */
+function markBackendTerminal(state: BackendStreamState, ev: ExecutionEventV3, fromBackend: boolean): void {
+  if (fromBackend && isTerminalRunEvent(ev)) state.terminalReceived = true
+}
+
+/** 按事件流序列号推进后端游标。 */
+function advanceBackendCursor(state: BackendStreamState, ev: ExecutionEventV3): void {
+  const sequence = Number(ev.stream_seq_end || ev.stream_seq || 0)
+  state.cursor = sequence > 0 ? Math.max(state.cursor, sequence) : state.cursor + 1
+}
+
+/** 按浏览器接管迁移结果更新 pane 当前干预。 */
+function applyInterventionTransition(pane: ChatRuntimePane, transition: BrowserInterventionTransition): void {
+  if (transition.kind === 'cleared') pane.activeIntervention = null
+  if (transition.kind === 'activated') pane.activeIntervention = transition.intervention
+}
+
+/** 后端流失败且无法恢复时，向本地 assistant 消息写入错误事件。 */
+async function recordLocalStreamError(
+  assistantMsg: RuntimeMessage,
+  ctrl: AbortController,
+  input: SendInput,
+  error: unknown,
+  recovered: boolean,
+): Promise<void> {
+  if (recovered || ctrl.signal.aborted) return
+  const detail = error as { message?: string } | null
+  const errText = String(detail?.message || error || (input.locale === 'zh' ? '请求失败' : 'Request failed'))
+  const localErrorId = 'err_' + Math.random().toString(36).slice(2)
+  ensureExecV3(assistantMsg).applyEvent({
+    v: 3,
+    event_id: localErrorId,
+    id: localErrorId,
+    ts: Date.now(),
+    type: 'item.failed',
+    item_kind: 'error',
+    item_id: 'local_error',
+    revision: 1,
+    payload: { message: errText },
+  } as ExecutionEventV3)
+}
+
+/** 复位本轮流的运行态标记（调用前需确认操作未被后续操作取代）。 */
+function cleanupStreamState(pane: ChatRuntimePane): void {
+  pane.activeStream = null
+  pane.abortController = null
+  pane.activeAssistantMessageId = null
+  const authCtrl = pane.authResumeController as AbortController | null
+  if (authCtrl && authCtrl.signal.aborted) pane.authResumeController = null
+  setPaneRunning(pane, false)
+}
+
+/** 将 execV3 的产物、事件与证据包写回 assistant 消息。 */
+function finalizeAssistantArtifacts(assistantMsg: RuntimeMessage): void {
+  const artifacts = assistantMsg._execV3?.state.artifacts || []
+  const docs: RuntimeDocumentInfo[] = artifacts.map((a) => ({
+    type: a.kind as RuntimeDocumentInfo['type'],
+    url: a.url || '',
+    signed_url: a.signed_url,
+    object_path: a.object_path,
+    filename: a.filename,
+    title: a.title,
+    content_type: a.content_type,
+    size: a.size,
+    bundle: a.bundle,
+  }))
+  if (docs.length) assistantMsg.documents = docs
+  assistantMsg.execution_events = assistantMsg._execV3?.state.rawEvents || undefined
+  assistantMsg.evidence_bundles = assistantMsg._execV3?.state.evidenceBundles || undefined
+}
+
+type ChatTurnContext = {
+  pane: ChatRuntimePane
+  input: SendInput
+  callbacks: RuntimeCallbacks
+  assistantMsg: RuntimeMessage
+  operationId: number
+}
+
+/** 执行一次完整的后端聊天流：发起、事件回流、断线恢复与浏览器接管续跑。 */
+async function executeChatStreamTurn(ctx: ChatTurnContext): Promise<void> {
+  const { pane, input, callbacks, assistantMsg, operationId } = ctx
   const ctrl = new AbortController()
   pane.abortController = ctrl
+  const backendStream: BackendStreamState = { cursor: 0, terminalReceived: false }
   let activeHandle: ChatStreamHandle | null = null
-  let backendEventCursor = 0
-  let backendTerminalReceived = false
 
   const applyAssistantEvent = (ev: ExecutionEventV3, options: { fromBackend?: boolean } = {}) => {
-    const msg = pane.messages.find((item) => item._id === assistantMsg._id)
+    const msg = findRuntimeMessage(pane, assistantMsg._id)
     if (!msg || !isExecutionEventV3(ev)) return
-    const store = ensureExecV3(msg)
-    const before = store.state.rawEvents.length
-    store.applyEvent(ev)
-    if (
-      options.fromBackend &&
-      (ev.type === 'run.completed' || ev.type === 'run.failed' || ev.type === 'run.cancelled')
-    ) {
-      backendTerminalReceived = true
-    }
-    const accepted = store.state.rawEvents.length > before
-    if (accepted && options.fromBackend) {
-      const sequence = Number(ev.stream_seq_end || ev.stream_seq || 0)
-      backendEventCursor = sequence > 0 ? Math.max(backendEventCursor, sequence) : backendEventCursor + 1
-    }
+    const accepted = applyRuntimeV3Event(ensureExecV3(msg), ev)
+    markBackendTerminal(backendStream, ev, Boolean(options.fromBackend))
     if (!accepted) return
+    if (options.fromBackend) advanceBackendCursor(backendStream, ev)
     applyAssistantContentEvent(msg, ev)
-    const transition = browserInterventionTransition(ev)
-    if (transition.kind === 'cleared') pane.activeIntervention = null
-    if (transition.kind === 'activated') pane.activeIntervention = transition.intervention
+    applyInterventionTransition(pane, browserInterventionTransition(ev))
   }
 
   const recoverDisconnectedStream = async (showRecoveryEvent = true): Promise<boolean> => {
@@ -443,13 +586,13 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
         },
       })
     }
-    let after = backendEventCursor
+    let after = backendStream.cursor
     while (!ctrl.signal.aborted) {
       try {
         const recovered = await fetchChatMessageEvents(messageId, after, { authToken: input.authToken })
         for (const ev of recovered.events) applyAssistantEvent(ev, { fromBackend: true })
         after = recovered.next_cursor
-        backendEventCursor = recovered.next_cursor
+        backendStream.cursor = recovered.next_cursor
         if (!recovered.live && recovered.status !== 'live') return true
       } catch {
         // The recovery endpoint can be unavailable during the same network outage.
@@ -461,44 +604,19 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
 
   try {
     const handle = startChatStream(
-      {
-        modelId: input.modelId || undefined,
-        knowledgeQaEnabled: input.knowledgeQaEnabled,
-        timezone: input.timezone,
-        messages: pane.messages.slice(0, -1).map((m) => ({
-          role: m.role,
-          content: m.content,
-          images: m.images || [],
-          documents: m.documents || [],
-        })),
-        output_spec: {
-          user_id: input.userId || undefined,
-          tenant_id: input.tenantId || undefined,
-          task_id: pane.sessionId || undefined,
-          selected_skill_id: input.selectedSkillId || undefined,
-          manual_skill_selected: Boolean(input.selectedSkillId) || undefined,
-        },
-      },
-      (ev) => {
-        applyAssistantEvent(ev, { fromBackend: true })
-      },
+      buildChatStreamRequest(pane, input),
+      (ev) => applyAssistantEvent(ev, { fromBackend: true }),
       {
         authToken: input.authToken,
-        onSessionId: (sid) => {
-          if (input.modelId) pane.modelInstanceId = input.modelId
-          assistantMsg._backendSid = sid
-          resolvePaneSession(pane, sid, callbacks)
-        },
-        onMessageId: (mid) => {
-          assistantMsg.message_id = mid
-        },
+        onSessionId: (sid) => handleStreamSessionId(pane, input, assistantMsg, sid, callbacks),
+        onMessageId: (mid) => { assistantMsg.message_id = mid },
       },
     )
     activeHandle = handle
     pane.activeStream = handle
     ctrl.signal.addEventListener('abort', () => handle.abort())
     await handle.done
-    if (!ctrl.signal.aborted && !backendTerminalReceived) {
+    if (!ctrl.signal.aborted && !backendStream.terminalReceived) {
       // A proxy may close a streaming response cleanly. Verify the backend run
       // reached a terminal state instead of treating EOF as task completion.
       await recoverDisconnectedStream(true)
@@ -512,12 +630,7 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
         locale: input.locale,
         signal: ctrl.signal,
         getIntervention: () => pane.activeIntervention,
-        getMessages: () => pane.messages.slice(0, -1).map((m) => ({
-          role: m.role,
-          content: m.content,
-          images: m.images || [],
-          documents: m.documents || [],
-        })),
+        getMessages: () => pane.messages.slice(0, -1).map(toApiChatMessage),
         setWaitController: (controller) => { pane.authResumeController = controller },
         setRunning: (running) => setPaneRunning(pane, running),
         setActiveHandle: (resumed) => {
@@ -527,8 +640,8 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
         clearIntervention: () => { pane.activeIntervention = null },
         onEvent: (ev) => applyAssistantEvent(ev, { fromBackend: true }),
         onMessageId: (mid) => {
-          backendEventCursor = 0
-          backendTerminalReceived = false
+          backendStream.cursor = 0
+          backendStream.terminalReceived = false
           assistantMsg.message_id = mid
         },
       })
@@ -536,21 +649,7 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
   } catch (error: any) {
     if (error?.name !== 'AbortError') {
       const recovered = await recoverDisconnectedStream().catch(() => false)
-      if (!recovered && !ctrl.signal.aborted) {
-        const errText = String(error?.message || error || (input.locale === 'zh' ? '请求失败' : 'Request failed'))
-        const localErrorId = 'err_' + Math.random().toString(36).slice(2)
-        ensureExecV3(assistantMsg).applyEvent({
-          v: 3,
-          event_id: localErrorId,
-          id: localErrorId,
-          ts: Date.now(),
-          type: 'item.failed',
-          item_kind: 'error',
-          item_id: 'local_error',
-          revision: 1,
-          payload: { message: errText },
-        } as ExecutionEventV3)
-      }
+      await recordLocalStreamError(assistantMsg, ctrl, input, error, recovered)
     }
   } finally {
     // Returning here intentionally overrides any error/value from the try block
@@ -560,32 +659,43 @@ async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCall
     // Transport completion owns the running flag. Clear it before any optional
     // refresh callback so a slow or failed sidebar/billing request can never
     // leave the composer stuck in its loading state.
-    pane.activeStream = null
-    pane.abortController = null
-    pane.activeAssistantMessageId = null
-    const authCtrl = pane.authResumeController as AbortController | null
-    if (authCtrl && authCtrl.signal.aborted) pane.authResumeController = null
-    setPaneRunning(pane, false)
-
-    const artifacts = assistantMsg._execV3?.state.artifacts || []
-    const docs: RuntimeDocumentInfo[] = artifacts.map((a) => ({
-      type: a.kind as RuntimeDocumentInfo['type'],
-      url: a.url || '',
-      signed_url: a.signed_url,
-      object_path: a.object_path,
-      filename: a.filename,
-      title: a.title,
-      content_type: a.content_type,
-      size: a.size,
-      bundle: a.bundle,
-    }))
-    if (docs.length) assistantMsg.documents = docs
-    assistantMsg.execution_events = assistantMsg._execV3?.state.rawEvents || undefined
-    assistantMsg.evidence_bundles = assistantMsg._execV3?.state.evidenceBundles || undefined
-
-    const resolvedSessionId = assistantMsg._backendSid || pane.sessionId
-    await refreshAfterRun(callbacks, resolvedSessionId)
+    cleanupStreamState(pane)
+    finalizeAssistantArtifacts(assistantMsg)
+    await refreshAfterRun(callbacks, assistantMsg._backendSid || pane.sessionId)
   }
+}
+
+async function sendMessage(key: string, input: SendInput, callbacks: RuntimeCallbacks = {}) {
+  const pane = findPaneByKey(key)
+  if (!pane) return
+  pane.authResumeController?.abort()
+  pane.authResumeController = null
+  if (pane.running) {
+    await stopGeneration(key)
+    return
+  }
+
+  const text = input.text.trim()
+  if (!hasSendContent(input, text)) return
+  if (!hasSendIdentity(input)) {
+    callbacks.onLoginRequired?.()
+    return
+  }
+
+  pane.operationId += 1
+  const operationId = pane.operationId
+  setPaneRunning(pane, true)
+  pane.activeAuthToken = input.authToken
+
+  if (!(await checkSendQuota(pane, operationId, input))) return
+
+  const prepared = await prepareSendAttachments(pane, operationId, input)
+  if (!prepared) return
+  if (pane.operationId !== operationId) return
+
+  pane.messages.push(buildUserMessage(text, prepared.images, prepared.documents))
+  const assistantMsg = appendAssistantMessage(pane)
+  await executeChatStreamTurn({ pane, input, callbacks, assistantMsg, operationId })
 }
 
 async function stopGeneration(key: string) {

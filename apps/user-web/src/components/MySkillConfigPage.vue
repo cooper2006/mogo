@@ -1365,32 +1365,50 @@ function serializeWorkflowSteps() {
   }));
 }
 
-function normalizeWorkflowNode(value: any, index = 0): WorkflowStep | null {
-  if (typeof value === 'string') {
-    const text = value.trim();
-    const type = inferWorkflowNodeTypeFromText(text);
-    return text ? createWorkflowNode(type, { id: createId(), text, title: workflowTypeMeta(type).defaultTitle }) : null;
-  }
-  if (!value || typeof value !== 'object') return null;
+function normalizeWorkflowNodeFromText(value: any): WorkflowStep | null {
+  const text = value.trim();
+  const type = inferWorkflowNodeTypeFromText(text);
+  return text ? createWorkflowNode(type, { id: createId(), text, title: workflowTypeMeta(type).defaultTitle }) : null;
+}
+
+function resolveNodeConfig(value: any): any {
+  if (value.businessConfig && typeof value.businessConfig === 'object') return value.businessConfig;
+  if (value.business_config && typeof value.business_config === 'object') return value.business_config;
+  return {};
+}
+
+function resolveNodeType(value: any, rawText: string): WorkflowNodeType {
+  if (workflowNodeTypes.some((item) => item.type === value.type)) return value.type as WorkflowNodeType;
+  return inferWorkflowNodeTypeFromText(`${value.title || value.name || ''} ${rawText}`);
+}
+
+function resolveNodeOutputAlias(value: any, config: any): string {
+  return String(value.outputAlias || value.output_alias || config.outputAlias || config.output_alias || '').trim();
+}
+
+function resolveNodeBusinessConfig(type: WorkflowNodeType, config: any, rawText: string): any {
+  if (type !== 'script_plugin' || config.processingInstruction) return config;
+  return { ...config, processingInstruction: rawText };
+}
+
+function normalizeWorkflowNodeObject(value: any): WorkflowStep {
   const rawText = String(value.description || value.text || value.instruction || '').trim();
-  const type = workflowNodeTypes.some((item) => item.type === value.type)
-    ? value.type as WorkflowNodeType
-    : inferWorkflowNodeTypeFromText(`${value.title || value.name || ''} ${rawText}`);
-  const config = value.businessConfig && typeof value.businessConfig === 'object'
-    ? value.businessConfig
-    : value.business_config && typeof value.business_config === 'object'
-      ? value.business_config
-      : {};
+  const type = resolveNodeType(value, rawText);
+  const config = resolveNodeConfig(value);
   return createWorkflowNode(type, {
     id: String(value.id || createId()),
     title: String(value.title || value.name || '').trim(),
     text: rawText,
-    businessConfig: type === 'script_plugin' && !config.processingInstruction
-      ? { ...config, processingInstruction: rawText }
-      : config,
+    businessConfig: resolveNodeBusinessConfig(type, config, rawText),
     boundWritingSkillId: String(value.boundWritingSkillId || value.bound_writing_skill_id || '').trim(),
-    outputAlias: String(value.outputAlias || value.output_alias || config.outputAlias || config.output_alias || '').trim(),
+    outputAlias: resolveNodeOutputAlias(value, config),
   });
+}
+
+function normalizeWorkflowNode(value: any, index = 0): WorkflowStep | null {
+  if (typeof value === 'string') return normalizeWorkflowNodeFromText(value);
+  if (!value || typeof value !== 'object') return null;
+  return normalizeWorkflowNodeObject(value);
 }
 
 function inferWorkflowNodeTypeFromText(text: string): WorkflowNodeType {
@@ -1456,10 +1474,26 @@ function currentStepSnapshot(): string[] {
   return workflowSteps.value.map((item) => item.text.trim()).filter(Boolean);
 }
 
+function extractStoredCheckResult(value: any): any {
+  return value?.result || value;
+}
+
+function extractCheckLogic(result: any): any {
+  return result.logic && typeof result.logic === 'object' ? result.logic : {};
+}
+
+function normalizeCheckArrays(result: any) {
+  return {
+    coverage: Array.isArray(result.coverage) ? result.coverage : [],
+    readiness: Array.isArray(result.readiness) ? result.readiness : [],
+    suggestions: Array.isArray(result.suggestions) ? result.suggestions : [],
+  };
+}
+
 function normalizeStoredCheck(value: any): WorkflowTestResult | null {
-  const result = value?.result || value;
+  const result = extractStoredCheckResult(value);
   if (!result || typeof result !== 'object') return null;
-  const logic = result.logic && typeof result.logic === 'object' ? result.logic : {};
+  const logic = extractCheckLogic(result);
   return {
     testedAt: String(result.testedAt || value?.checkedAt || ''),
     pass: Boolean(result.pass),
@@ -1468,9 +1502,7 @@ function normalizeStoredCheck(value: any): WorkflowTestResult | null {
       level: logic.level === 'success' ? 'success' : 'warning',
       summary: String(logic.summary || t('workflow.check_prompt_hint')),
     },
-    coverage: Array.isArray(result.coverage) ? result.coverage : [],
-    readiness: Array.isArray(result.readiness) ? result.readiness : [],
-    suggestions: Array.isArray(result.suggestions) ? result.suggestions : [],
+    ...normalizeCheckArrays(result),
     conclusion: String(result.conclusion || t('workflow.not_checked')),
   };
 }
@@ -1524,26 +1556,47 @@ function parseMultilineItems(value: unknown): string[] {
   return out;
 }
 
+function resolveSectionTitle(value: any): string {
+  return String(value.title || value.name || value.heading || '').trim();
+}
+
+function resolveSectionMustInclude(value: any): string[] {
+  return parseMultilineItems(value.must_include || value.mustInclude || value.required_elements || value.requiredElements);
+}
+
+function resolveSectionAvoid(value: any): string[] {
+  return parseMultilineItems(value.avoid || value.must_avoid || value.mustAvoid || value.forbidden_elements || value.forbiddenElements);
+}
+
+function resolveSectionChildren(value: any): SectionNode[] {
+  return Array.isArray(value.children)
+    ? value.children.map((item: any) => normalizeSectionNode(item)).filter(Boolean) as SectionNode[]
+    : [];
+}
+
+function resolveSectionNotes(value: any): string {
+  return String(value.notes || value.description || '').trim();
+}
+
+function normalizeSectionNodeObject(value: any): SectionNode | null {
+  const title = resolveSectionTitle(value);
+  if (!title) return null;
+  return createSectionNode({
+    title,
+    mustIncludeText: resolveSectionMustInclude(value).join('\n'),
+    avoidText: resolveSectionAvoid(value).join('\n'),
+    notes: resolveSectionNotes(value),
+    children: resolveSectionChildren(value),
+  });
+}
+
 function normalizeSectionNode(value: any): SectionNode | null {
   if (typeof value === 'string') {
     const title = value.trim();
     return title ? createSectionNode({ title }) : null;
   }
   if (!value || typeof value !== 'object') return null;
-  const title = String(value.title || value.name || value.heading || '').trim();
-  if (!title) return null;
-  const mustInclude = parseMultilineItems(value.must_include || value.mustInclude || value.required_elements || value.requiredElements);
-  const avoid = parseMultilineItems(value.avoid || value.must_avoid || value.mustAvoid || value.forbidden_elements || value.forbiddenElements);
-  const children = Array.isArray(value.children)
-    ? value.children.map((item: any) => normalizeSectionNode(item)).filter(Boolean) as SectionNode[]
-    : [];
-  return createSectionNode({
-    title,
-    mustIncludeText: mustInclude.join('\n'),
-    avoidText: avoid.join('\n'),
-    notes: String(value.notes || value.description || '').trim(),
-    children,
-  });
+  return normalizeSectionNodeObject(value);
 }
 
 function hydrateSectionStructure(value: unknown, fallbackSections: unknown = []): SectionNode[] {
@@ -1698,6 +1751,36 @@ function isSameStepSnapshot(left: unknown, right: string[]): boolean {
   return normalized.length === right.length && normalized.every((item, index) => item === right[index]);
 }
 
+function applyHydratedWorkflow(hydrated: WorkflowStep[], source: SkillItem): void {
+  beginRestoreWorkflow();
+  workflowSteps.value = hydrated;
+  activeStepId.value = workflowSteps.value[0]?.id || '';
+  const lastCheck = source.config?.lastWorkflowCheck || source.config?.lastFrontendTest;
+  testResult.value = isSameStepSnapshot(lastCheck?.stepsSnapshot, currentStepSnapshot())
+    ? normalizeStoredCheck(lastCheck)
+    : null;
+  stepGenerationError.value = '';
+}
+
+function resetWorkflowToEmpty(): void {
+  beginRestoreWorkflow();
+  workflowSteps.value = [];
+  activeStepId.value = workflowSteps.value[0]?.id || '';
+  testResult.value = null;
+  stepGenerationError.value = '';
+}
+
+function normalizeWorkflowStepsItems(rawSteps: any[]): WorkflowStep[] {
+  return rawSteps
+    .map((item: any, index: number) => normalizeWorkflowNode(
+      typeof item === 'object'
+        ? { ...item, description: item?.text || item?.description || '' }
+        : String(item || ''),
+      index,
+    ))
+    .filter(Boolean) as WorkflowStep[];
+}
+
 function hydrateWorkflow(source: SkillItem): boolean {
   const rawNodes = source.config?.workflowNodes;
   if (Array.isArray(rawNodes) && rawNodes.length) {
@@ -1705,44 +1788,19 @@ function hydrateWorkflow(source: SkillItem): boolean {
       .map((item: any, index: number) => normalizeWorkflowNode(item, index))
       .filter(Boolean) as WorkflowStep[];
     if (hydrated.length) {
-      beginRestoreWorkflow();
-      workflowSteps.value = hydrated;
-      activeStepId.value = workflowSteps.value[0]?.id || '';
-      const lastCheck = source.config?.lastWorkflowCheck || source.config?.lastFrontendTest;
-      testResult.value = isSameStepSnapshot(lastCheck?.stepsSnapshot, currentStepSnapshot())
-        ? normalizeStoredCheck(lastCheck)
-        : null;
-      stepGenerationError.value = '';
+      applyHydratedWorkflow(hydrated, source);
       return true;
     }
   }
   const rawSteps = source.config?.workflowSteps;
   if (Array.isArray(rawSteps) && rawSteps.length) {
-    const hydrated = rawSteps
-      .map((item: any, index: number) => normalizeWorkflowNode(
-        typeof item === 'object'
-          ? { ...item, description: item?.text || item?.description || '' }
-          : String(item || ''),
-        index,
-      ))
-      .filter(Boolean) as WorkflowStep[];
+    const hydrated = normalizeWorkflowStepsItems(rawSteps);
     if (hydrated.length) {
-      beginRestoreWorkflow();
-      workflowSteps.value = hydrated;
-      activeStepId.value = workflowSteps.value[0]?.id || '';
-      const lastCheck = source.config?.lastWorkflowCheck || source.config?.lastFrontendTest;
-      testResult.value = isSameStepSnapshot(lastCheck?.stepsSnapshot, currentStepSnapshot())
-        ? normalizeStoredCheck(lastCheck)
-        : null;
-      stepGenerationError.value = '';
+      applyHydratedWorkflow(hydrated, source);
       return true;
     }
   }
-  beginRestoreWorkflow();
-  workflowSteps.value = [];
-  activeStepId.value = workflowSteps.value[0]?.id || '';
-  testResult.value = null;
-  stepGenerationError.value = '';
+  resetWorkflowToEmpty();
   return false;
 }
 
@@ -1870,6 +1928,26 @@ async function persistWorkflowCheck(result: WorkflowTestResult) {
   }
 }
 
+function reportRegenerateError(error: any): void {
+  workflowSteps.value = [];
+  activeStepId.value = workflowSteps.value[0]?.id || '';
+  testResult.value = null;
+  stepGenerationError.value = error?.response?.data?.detail || error?.message || t('workflow.step_generated_failed');
+  message.error(stepGenerationError.value);
+}
+
+function applyGeneratedSteps(generated: WorkflowStep[], result: any): void {
+  workflowSteps.value = generated;
+  activeStepId.value = workflowSteps.value[0]?.id || '';
+  testResult.value = null;
+  stepGenerationError.value = generated.length ? '' : (result.message || t('workflow.step_generated_empty'));
+  if (generated.length) {
+    message.success(t('workflow.step_generated'));
+  } else {
+    message.warning(result.message || t('workflow.step_generated_empty_hint'));
+  }
+}
+
 async function regenerateSteps() {
   if (!skill.value) return;
   generatingSteps.value = true;
@@ -1884,22 +1962,9 @@ async function regenerateSteps() {
       maxNodes: 12,
       mode: 'generate',
     });
-    const generated = mapGeneratedNodes(result.nodes || []);
-    workflowSteps.value = generated;
-    activeStepId.value = workflowSteps.value[0]?.id || '';
-    testResult.value = null;
-    stepGenerationError.value = generated.length ? '' : (result.message || t('workflow.step_generated_empty'));
-    if (generated.length) {
-      message.success(t('workflow.step_generated'));
-    } else {
-      message.warning(result.message || t('workflow.step_generated_empty_hint'));
-    }
+    applyGeneratedSteps(mapGeneratedNodes(result.nodes || []), result);
   } catch (error: any) {
-    workflowSteps.value = [];
-    activeStepId.value = workflowSteps.value[0]?.id || '';
-    testResult.value = null;
-    stepGenerationError.value = error?.response?.data?.detail || error?.message || t('workflow.step_generated_failed');
-    message.error(stepGenerationError.value);
+    reportRegenerateError(error);
   } finally {
     generatingSteps.value = false;
   }
@@ -1942,6 +2007,23 @@ async function optimizeSteps() {
   }
 }
 
+function reportSupplementError(error: any): void {
+  stepGenerationError.value = error?.response?.data?.detail || error?.message || t('workflow.supplement_failed');
+  message.error(stepGenerationError.value);
+}
+
+function buildNextStepFromSupplement(supplemented: WorkflowStep[], supplement: string): WorkflowStep {
+  return {
+    id: createId(),
+    type: supplemented[0]?.type || 'generate_content',
+    title: supplemented[0]?.title || '补充业务节点',
+    text: supplemented[0]?.text || supplement,
+    businessConfig: supplemented[0]?.businessConfig || {},
+    boundWritingSkillId: supplemented[0]?.boundWritingSkillId || '',
+    outputAlias: supplemented[0]?.outputAlias || '',
+  };
+}
+
 async function supplementStepWithAi() {
   if (!skill.value) return;
   const supplement = newStepText.value.trim();
@@ -1963,26 +2045,40 @@ async function supplementStepWithAi() {
       message.warning(stepGenerationError.value);
       return;
     }
-    const nextStep: WorkflowStep = {
-      id: createId(),
-      type: supplemented[0]?.type || 'generate_content',
-      title: supplemented[0]?.title || '补充业务节点',
-      text: supplemented[0]?.text || supplement,
-      businessConfig: supplemented[0]?.businessConfig || {},
-      boundWritingSkillId: supplemented[0]?.boundWritingSkillId || '',
-      outputAlias: supplemented[0]?.outputAlias || '',
-    };
+    const nextStep = buildNextStepFromSupplement(supplemented, supplement);
     workflowSteps.value = [...workflowSteps.value, nextStep];
     activeStepId.value = nextStep.id;
     newStepText.value = '';
     testResult.value = null;
     message.success(t('workflow.supplement_added'));
   } catch (error: any) {
-    stepGenerationError.value = error?.response?.data?.detail || error?.message || t('workflow.supplement_failed');
-    message.error(stepGenerationError.value);
+    reportSupplementError(error);
   } finally {
     supplementingStep.value = false;
   }
+}
+
+function extractTestError(error: any): string {
+  return error?.response?.data?.detail || error?.message || t('workflow.test_failed');
+}
+
+function buildWorkflowTestResult(result: any): WorkflowTestResult {
+  const logic = result.logic && typeof result.logic === 'object' ? result.logic : {};
+  return {
+    testedAt: formatAppDateTime(new Date().toISOString(), ''),
+    pass: Boolean(result.pass),
+    logic: {
+      label: logic.label || '需要澄清',
+      level: logic.level === 'success' ? 'success' : 'warning',
+      summary: logic.summary || '后端未返回明确的逻辑说明。',
+    },
+    coverage: Array.isArray(result.coverage) ? result.coverage : [],
+    readiness: Array.isArray(result.readiness) ? result.readiness : [],
+    suggestions: Array.isArray(result.suggestions) && result.suggestions.length
+      ? result.suggestions
+      : ['后端未返回具体建议，请检查步骤是否覆盖目标、输入、判断、异常和输出。'],
+    conclusion: result.conclusion || '本次检查未返回明确结论。',
+  };
 }
 
 async function runWorkflowTest() {
@@ -2001,26 +2097,11 @@ async function runWorkflowTest() {
       steps,
       nodes: serializeWorkflowNodes(),
     });
-    const checkedAt = formatAppDateTime(new Date().toISOString(), '');
-    const nextResult: WorkflowTestResult = {
-      testedAt: checkedAt,
-      pass: Boolean(result.pass),
-      logic: {
-        label: result.logic?.label || '需要澄清',
-        level: result.logic?.level === 'success' ? 'success' : 'warning',
-        summary: result.logic?.summary || '后端未返回明确的逻辑说明。',
-      },
-      coverage: Array.isArray(result.coverage) ? result.coverage : [],
-      readiness: Array.isArray(result.readiness) ? result.readiness : [],
-      suggestions: Array.isArray(result.suggestions) && result.suggestions.length
-        ? result.suggestions
-        : ['后端未返回具体建议，请检查步骤是否覆盖目标、输入、判断、异常和输出。'],
-      conclusion: result.conclusion || '本次检查未返回明确结论。',
-    };
+    const nextResult = buildWorkflowTestResult(result);
     testResult.value = nextResult;
     await persistWorkflowCheck(nextResult);
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || t('workflow.test_failed'));
+    message.error(extractTestError(error));
   } finally {
     testing.value = false;
   }
@@ -2116,30 +2197,63 @@ function scriptPluginContextNodes(): WorkflowNodeDraft[] {
   });
 }
 
+function readPluginInstruction(step: WorkflowStep): string {
+  return String(step.businessConfig?.processingInstruction || '').trim();
+}
+
+function readPluginCode(step: WorkflowStep): string {
+  return String(step.businessConfig?.pluginCode || '').trim();
+}
+
+function scriptInputSource(step: WorkflowStep): string {
+  return String(step.businessConfig?.selectedInputSource || 'all');
+}
+
+function scriptInputTypes(step: WorkflowStep): string[] {
+  return Array.isArray(step.businessConfig?.selectedInputTypes) ? step.businessConfig.selectedInputTypes : [];
+}
+
+function buildGenerateScriptPayload(step: WorkflowStep) {
+  return {
+    processingInstruction: readPluginInstruction(step),
+    nodeTitle: step.title,
+    nodeDescription: '',
+    skillName: '',
+    skillDescription: '',
+    scenario: '',
+    selectedInputSource: scriptInputSource(step),
+    selectedInputTypes: scriptInputTypes(step),
+    workflowNodes: scriptPluginContextNodes(),
+  };
+}
+
+function shouldConfirmOverwrite(existingCode: string, options: { confirmOverwrite?: boolean }): boolean {
+  return Boolean(existingCode && options.confirmOverwrite && !window.confirm(t('重新生成会覆盖当前高级代码，是否继续？')));
+}
+
+function successMessage(silent: boolean | undefined, firstNote: string | undefined): void {
+  if (!silent) message.success(firstNote || t('已生成代码并通过规则检测'));
+}
+
+function warningMessage(silent: boolean | undefined, check: ScriptPluginCheckResult | undefined, firstNote: string | undefined): void {
+  if (!silent) message.warning(check?.errors?.[0]?.message || firstNote || t('已生成代码，请根据检测结果修复后保存'));
+}
+
+function reportGenerateError(silent: boolean | undefined, error: any): void {
+  if (!silent) message.error(error?.response?.data?.detail || error?.message || t('AI 生成代码失败'));
+}
+
 async function generateScriptPluginStep(step: WorkflowStep, options: { confirmOverwrite?: boolean; silent?: boolean } = {}): Promise<boolean> {
   if (!skill.value) return false;
-  const instruction = String(step.businessConfig?.processingInstruction || '').trim();
+  const instruction = readPluginInstruction(step);
   if (!instruction) {
     if (!options.silent) message.warning(t('请先填写处理要求'));
     return false;
   }
-  const existingCode = String(step.businessConfig?.pluginCode || '').trim();
-  if (existingCode && options.confirmOverwrite && !window.confirm(t('重新生成会覆盖当前高级代码，是否继续？'))) {
-    return false;
-  }
+  if (shouldConfirmOverwrite(readPluginCode(step), options)) return false;
   generatingScriptStepId.value = step.id;
   try {
-    const result = await generateScriptPlugin({
-      processingInstruction: instruction,
-      nodeTitle: step.title,
-      nodeDescription: '',
-      skillName: '',
-      skillDescription: '',
-      scenario: '',
-      selectedInputSource: String(step.businessConfig?.selectedInputSource || 'all'),
-      selectedInputTypes: Array.isArray(step.businessConfig?.selectedInputTypes) ? step.businessConfig.selectedInputTypes : [],
-      workflowNodes: scriptPluginContextNodes(),
-    });
+    const result = await generateScriptPlugin(buildGenerateScriptPayload(step));
     if (!result.code?.trim()) {
       message.error(t('AI 未返回可用代码'));
       return false;
@@ -2147,33 +2261,28 @@ async function generateScriptPluginStep(step: WorkflowStep, options: { confirmOv
     step.businessConfig.pluginCode = result.code;
     step.businessConfig.generatedInstructionSignature = scriptPluginInstructionSignature(step);
     const check = result.check as (ScriptPluginCheckResult | undefined);
-    if (check) {
-      scriptCheckResults.value = {
-        ...scriptCheckResults.value,
-        [step.id]: { ...check, signature: scriptPluginSignature(step) },
-      };
-      persistScriptPluginCheck(step, check);
-    } else {
-      invalidateScriptPluginCheck(step.id);
-      persistScriptPluginCheck(step);
-    }
+    handleGeneratedCheck(step, check);
     const firstNote = (result.notes || [])[0];
     if (check?.pass) {
-      if (!options.silent) message.success(firstNote || t('已生成代码并通过规则检测'));
+      successMessage(options.silent, firstNote);
       return true;
     }
-    if (!options.silent) message.warning(check?.errors?.[0]?.message || firstNote || t('已生成代码，请根据检测结果修复后保存'));
+    warningMessage(options.silent, check, firstNote);
     return true;
   } catch (error: any) {
-    if (!options.silent) message.error(error?.response?.data?.detail || error?.message || t('AI 生成代码失败'));
+    reportGenerateError(options.silent, error);
     return false;
   } finally {
     generatingScriptStepId.value = '';
   }
 }
 
+function extractCheckError(error: any): string {
+  return error?.response?.data?.detail || error?.message || t('检测脚本代码失败');
+}
+
 async function checkScriptPluginStep(step: WorkflowStep): Promise<boolean> {
-  const code = String(step.businessConfig?.pluginCode || '').trim();
+  const code = readPluginCode(step);
   if (!code) {
     message.warning(t('请先填写脚本代码'));
     return false;
@@ -2183,13 +2292,9 @@ async function checkScriptPluginStep(step: WorkflowStep): Promise<boolean> {
     const result = await checkScriptPlugin({
       code,
       nodeTitle: step.title,
-      nodeDescription: String(step.businessConfig?.processingInstruction || ''),
+      nodeDescription: readPluginInstruction(step),
     });
-    scriptCheckResults.value = {
-      ...scriptCheckResults.value,
-      [step.id]: { ...result, signature: scriptPluginSignature(step) },
-    };
-    persistScriptPluginCheck(step, result);
+    applyCheckResult(step, result);
     if (result.pass) {
       step.businessConfig.generatedInstructionSignature = scriptPluginInstructionSignature(step);
       message.success(result.llm?.summary || t('脚本代码检测通过'));
@@ -2197,31 +2302,55 @@ async function checkScriptPluginStep(step: WorkflowStep): Promise<boolean> {
     }
     return false;
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || t('检测脚本代码失败'));
+    message.error(extractCheckError(error));
     return false;
   } finally {
     checkingScriptStepId.value = '';
   }
 }
 
+function extractFixError(error: any): string {
+  return error?.response?.data?.detail || error?.message || t('AI 修复代码失败');
+}
+
+function collectScriptIssues(step: WorkflowStep) {
+  const current = scriptCheckResults.value[step.id];
+  return [
+    ...((current?.errors || []) as any[]),
+    ...((current?.warnings || []) as any[]),
+  ];
+}
+
+function applyCheckResult(step: WorkflowStep, check: ScriptPluginCheckResult) {
+  scriptCheckResults.value = {
+    ...scriptCheckResults.value,
+    [step.id]: { ...check, signature: scriptPluginSignature(step) },
+  };
+  persistScriptPluginCheck(step, check);
+}
+
+function handleGeneratedCheck(step: WorkflowStep, check: ScriptPluginCheckResult | undefined) {
+  if (check) {
+    applyCheckResult(step, check);
+  } else {
+    invalidateScriptPluginCheck(step.id);
+    persistScriptPluginCheck(step);
+  }
+}
+
 async function fixScriptPluginStep(step: WorkflowStep): Promise<boolean> {
-  const code = String(step.businessConfig?.pluginCode || '').trim();
+  const code = readPluginCode(step);
   if (!code) {
     message.warning(t('请先填写脚本代码'));
     return false;
   }
   fixingScriptStepId.value = step.id;
   try {
-    const current = scriptCheckResults.value[step.id];
-    const issues = [
-      ...((current?.errors || []) as any[]),
-      ...((current?.warnings || []) as any[]),
-    ];
     const result = await fixScriptPlugin({
       code,
       nodeTitle: step.title,
-      nodeDescription: String(step.businessConfig?.processingInstruction || ''),
-      issues,
+      nodeDescription: readPluginInstruction(step),
+      issues: collectScriptIssues(step),
     });
     if (!result.code?.trim()) {
       message.error(t('AI 未返回可用代码'));
@@ -2229,23 +2358,14 @@ async function fixScriptPluginStep(step: WorkflowStep): Promise<boolean> {
     }
     step.businessConfig.pluginCode = result.code;
     const check = result.check as (ScriptPluginCheckResult | undefined);
-    if (check) {
-      scriptCheckResults.value = {
-        ...scriptCheckResults.value,
-        [step.id]: { ...check, signature: scriptPluginSignature(step) },
-      };
-      persistScriptPluginCheck(step, check);
-    } else {
-      invalidateScriptPluginCheck(step.id);
-      persistScriptPluginCheck(step);
-    }
+    handleGeneratedCheck(step, check);
     if (check?.pass) {
       step.businessConfig.generatedInstructionSignature = scriptPluginInstructionSignature(step);
     }
     message.success((result.notes || [])[0] || t('已完成 AI 修复，请再次确认代码'));
     return Boolean(check?.pass);
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || error?.message || t('AI 修复代码失败'));
+    message.error(extractFixError(error));
     return false;
   } finally {
     fixingScriptStepId.value = '';

@@ -77,35 +77,65 @@ const modalTitle = computed(() => {
   return t('回收已开通授权');
 });
 
+/** 从异常中取出响应状态码与错误详情。 */
+function readErrorResponse(error: unknown): { status?: number; detail?: string } {
+  const response = (error as { response?: unknown }).response;
+  if (!response || typeof response !== 'object') return {};
+  const body = response as { status?: number; data?: { detail?: string } };
+  return { status: body.status, detail: body.data?.detail };
+}
+
+/** 审批失败提示：区分自审拦截、权限不足与其他错误。 */
+function reportApprovalError(error: unknown) {
+  const { status, detail } = readErrorResponse(error);
+  if (status === 403 && detail === 'self_approval_forbidden') {
+    message.error(t('不能审批自己提交的申领（防自审）'));
+    return;
+  }
+  if (status === 403) {
+    message.error(t('缺少权限：需要 portal:approve'));
+    return;
+  }
+  message.error(detail || t('操作失败'));
+}
+
+/** 按决策结果提示：未变更、已开通、已拒绝。 */
+function reportDecisionResult(result: { changed: boolean; status: string }) {
+  if (!result.changed) {
+    message.warning(t('该申领单已被处理，未重复执行'));
+    return;
+  }
+  if (result.status === 'granted') {
+    message.success(t('已批准并开通 asset:use 授权'));
+    return;
+  }
+  if (result.status === 'rejected') message.success(t('已拒绝申领'));
+}
+
+/** 执行批准 / 拒绝 / 回收决策并按结果提示。 */
+async function applyApprovalDecision(row: PortalApprovalItem) {
+  if (modalMode.value === 'revoke') {
+    await revokePortalGrant(row.request_id, reason.value.trim());
+    message.success(t('已回收，授权即时失效'));
+    return;
+  }
+  const result = await decidePortalApproval(row.request_id, {
+    approved: modalMode.value === 'approve',
+    reason: reason.value.trim(),
+  });
+  reportDecisionResult(result);
+}
+
 async function submit() {
   const row = target.value;
   if (!row) return;
   submitting.value = true;
   try {
-    if (modalMode.value === 'revoke') {
-      await revokePortalGrant(row.request_id, reason.value.trim());
-      message.success(t('已回收，授权即时失效'));
-    } else {
-      const result = await decidePortalApproval(row.request_id, {
-        approved: modalMode.value === 'approve',
-        reason: reason.value.trim(),
-      });
-      if (!result.changed) {
-        message.warning(t('该申领单已被处理，未重复执行'));
-      } else if (result.status === 'granted') {
-        message.success(t('已批准并开通 asset:use 授权'));
-      } else if (result.status === 'rejected') {
-        message.success(t('已拒绝申领'));
-      }
-    }
+    await applyApprovalDecision(row);
     modalVisible.value = false;
     await load();
-  } catch (e: any) {
-    const status = e?.response?.status;
-    const detail = e?.response?.data?.detail;
-    if (status === 403 && detail === 'self_approval_forbidden') message.error(t('不能审批自己提交的申领（防自审）'));
-    else if (status === 403) message.error(t('缺少权限：需要 portal:approve'));
-    else message.error(detail || t('操作失败'));
+  } catch (error) {
+    reportApprovalError(error);
   } finally {
     submitting.value = false;
   }

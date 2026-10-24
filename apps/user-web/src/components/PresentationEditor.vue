@@ -290,48 +290,12 @@ function renderBlockContainer(
   left: number, top: number, width: number, height: number,
 ): boolean {
   if (!fc) return false
+  if (!hasVisibleContainerStyle(style)) return false
   const bgVal = style.background || style.background_color || ''
   const hasBg = bgVal && !isTransparent(bgVal)
-
-  // Check for any border (full border, or single-side like border_left)
-  const borderColor = style.border_color || ''
-  const borderLeft = style.border_left || ''
-  const borderRight = style.border_right || ''
-  const borderTop = style.border_top || ''
-  const borderBottom = style.border_bottom || ''
-  const hasBorder = (borderColor && !isTransparent(borderColor))
-    || borderLeft || borderRight || borderTop || borderBottom
-  const hasBoxShadow = style.box_shadow && style.box_shadow !== 'none'
-
-  if (!hasBg && !hasBorder && !hasBoxShadow) return false
-
   const { stroke, strokeWidth } = resolveStroke(style)
   const opacity = style.opacity != null ? parseFloat(style.opacity) : 1.0
-
-  // Parse box_shadow to Fabric Shadow
-  let shadow: fabric.Shadow | undefined
-  if (hasBoxShadow) {
-    const sv = style.box_shadow as string
-    // Preset names
-    const presets: Record<string, string> = {
-      soft: '0 8px 24px rgba(15,23,42,0.10)',
-      subtle: '0 4px 14px rgba(15,23,42,0.08)',
-      medium: '0 10px 28px rgba(15,23,42,0.14)',
-      strong: '0 16px 40px rgba(15,23,42,0.18)',
-    }
-    const resolved = presets[sv.toLowerCase()] || sv
-    // Parse "offsetX offsetY blur color"
-    const sm = resolved.match(/(-?\d+)(?:px)?\s+(-?\d+)(?:px)?\s+(\d+)(?:px)?\s+(rgba?\([^)]+\)|#[0-9a-fA-F]{3,8})/)
-    if (sm) {
-      shadow = new fabric.Shadow({
-        offsetX: parseInt(sm[1]),
-        offsetY: parseInt(sm[2]),
-        blur: parseInt(sm[3]),
-        color: sm[4],
-      })
-    }
-  }
-
+  const shadow = hasBoxShadowStyle(style) ? parseBoxShadowStyle(style.box_shadow) : undefined
   const rect = new fabric.Rect({
     left, top, width, height,
     fill: hasBg ? resolveBackground(bgVal, width, height) : '#ffffff',
@@ -344,7 +308,6 @@ function renderBlockContainer(
   })
   ;(rect as any)._blockId = blockId + '_container'
   ;(rect as any)._blockType = 'container'
-
   fc.add(rect)
   drawSideBorders(style, left, top, width, height)
   return true
@@ -384,6 +347,8 @@ function addBlockToCanvas(
   parentRect: { x: number; y: number; w: number; h: number },
 ) {
   if (!fc) return
+  // 模块级 fc 可空；收窄成 const 供下方嵌套箭头回调引用（let 的收窄不进闭包）。
+  const canvas = fc
   const type = (block.type || 'text_box').toLowerCase()
   const { bx, by, bw, bh, left, top, width, height } = resolveBlockGeometry(block, parentRect)
   const style = canonicalPresentationStyle(block.style, type)
@@ -449,288 +414,18 @@ function addBlockToCanvas(
     fc.add(tb)
   }
 
-  if (type === 'rectangle' || type === 'group') {
-    // Parse box-shadow for this shape
-    let shapeShadow: fabric.Shadow | undefined
-    const bsVal = style.box_shadow
-    if (bsVal && bsVal !== 'none') {
-      const presets: Record<string, string> = {
-        soft: '0 8px 24px rgba(15,23,42,0.10)', subtle: '0 4px 14px rgba(15,23,42,0.08)',
-        medium: '0 10px 28px rgba(15,23,42,0.14)', strong: '0 16px 40px rgba(15,23,42,0.18)',
-      }
-      const resolved = presets[(bsVal + '').toLowerCase()] || bsVal
-      const sm = (resolved + '').match(/(-?\d+)(?:px)?\s+(-?\d+)(?:px)?\s+(\d+)(?:px)?\s+(rgba?\([^)]+\)|#[0-9a-fA-F]{3,8})/)
-      if (sm) shapeShadow = new fabric.Shadow({ offsetX: +sm[1], offsetY: +sm[2], blur: +sm[3], color: sm[4] })
-    }
-    const rect = new fabric.Rect({
-      left, top, width, height,
-      fill: resolveBackground(bgVal, width, height),
-      stroke, strokeWidth,
-      rx: parseFloat(style.border_radius) || 0,
-      ry: parseFloat(style.border_radius) || 0,
-      shadow: shapeShadow || null,
-      opacity,
-      selectable: true,
-    })
-    ;(rect as any)._blockId = block.id
-    ;(rect as any)._blockType = type
-    fc.add(rect)
-    drawSideBorders(style, left, top, width, height)
-
-    const childRect = { x: bx, y: by, w: bw, h: bh }
-    for (const child of (block.children || [])) {
-      addBlockToCanvas(child, childRect)
-    }
-
-  } else if (type === 'circle') {
-    const r = Math.min(width, height) / 2
-    const circle = new fabric.Circle({
-      left, top, radius: r,
-      fill: resolveBackground(bgVal, r * 2, r * 2),
-      stroke, strokeWidth,
-      opacity,
-      selectable: true,
-    })
-    ;(circle as any)._blockId = block.id
-    ;(circle as any)._blockType = type
-    fc.add(circle)
-    addTextObject(block.content || '', left, top, r * 2, r * 2, {
-      ...style,
-      text_align: style.text_align || 'center',
-      vertical_align: style.vertical_align || 'middle',
-    }, false)
-
-  } else if (type === 'text_box') {
-    // Render container (background, border, shadow) — same as HTML renderer
-    renderBlockContainer(block.id, style, left, top, width, height)
-
-    addTextObject(block.content || '', left, top, width, height, style)
-
-  } else if (type === 'line') {
-    const coordSpace = (block.coordinate_space || 'page').toLowerCase()
-    const endpointX = block.x2 ?? block.x ?? 0
-    const endpointY = block.y2 ?? block.y ?? 0
-    const x1 = bx * CANVAS_W
-    const y1 = by * CANVAS_H
-    const x2 = (coordSpace === 'parent' ? parentRect.x + endpointX * parentRect.w : endpointX) * CANVAS_W
-    const y2 = (coordSpace === 'parent' ? parentRect.y + endpointY * parentRect.h : endpointY) * CANVAS_H
-    const lineColor = style.color || style.background || '#000000'
-    const lineWeight = parseFloat(style.line_weight) || 2
-
-    const line = new fabric.Line([x1, y1, x2, y2], {
-      stroke: isTransparent(lineColor) ? '#000' : lineColor,
-      strokeWidth: lineWeight,
-      opacity,
-      selectable: true,
-    })
-    ;(line as any)._blockId = block.id
-    ;(line as any)._blockType = type
-    fc.add(line)
-
-  } else if (type === 'icon') {
-    renderBlockContainer(block.id, style, left, top, width, height)
-
-    let iconName = (block.icon || block.content || 'sparkles').trim()
-    iconName = iconName.replace(/^(tabler:|icon[-:])/i, '').trim() || 'sparkles'
-    const iconColor = style.color || props.blueprint?.theme?.accent_color || '#3b82f6'
-    const colorHex = iconColor.replace('#', '')
-    const canvas = fc
-    // Match HTML renderer: icon SVG sits inside block's (left,top,width,height)
-    // with width="100%" height="100%" and preserveAspectRatio="xMidYMid meet".
-    // We create an offscreen canvas at exactly (width×height) pixels (×2 for DPI),
-    // draw the SVG centered (uniform scale, like preserveAspectRatio meet),
-    // and place the FabricImage at exactly (left, top) with scale to match.
-    const ocW = Math.max(Math.round(width), 8) * 2
-    const ocH = Math.max(Math.round(height), 8) * 2
-    const svgUrl = `/askai-api/api/icons/${encodeURIComponent(iconName)}.svg?color=${colorHex}`
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      if (!canvas) return
-      const oc = document.createElement('canvas')
-      oc.width = ocW
-      oc.height = ocH
-      const ctx = oc.getContext('2d')!
-      ctx.clearRect(0, 0, ocW, ocH)
-      // Manually implement preserveAspectRatio="xMidYMid meet":
-      // uniform scale square icon into ocW×ocH, centered
-      const iconSize = Math.min(ocW, ocH)
-      const dx = (ocW - iconSize) / 2
-      const dy = (ocH - iconSize) / 2
-      ctx.drawImage(img, dx, dy, iconSize, iconSize)
-      // Place at exact block position, scale back to block pixel size
-      const fabricImg = new fabric.FabricImage(oc, {
-        left,
-        top,
-        scaleX: width / ocW,
-        scaleY: height / ocH,
-        selectable: true,
-        objectCaching: false,
-      })
-      ;(fabricImg as any)._blockId = block.id
-      ;(fabricImg as any)._blockType = type
-      canvas.add(fabricImg)
-      canvas.renderAll()
-    }
-    img.onerror = () => addIconFallback(canvas!, block.id, type, left, top, width, height, iconName, iconColor)
-    img.src = svgUrl
-
-  } else if (type === 'chart') {
-    renderBlockContainer(block.id, style, left, top, width, height)
-    const chartType = block.chart_type || ''
-    const chartData = block.chart_data || {}
-    const chartTitle = chartData.title || block.content || t('ppt.chart_placeholder')
-    const canvas = fc
-    const pxW = Math.round(Math.max(width, 160))
-    const pxH = Math.round(Math.max(height, 120))
-
-    // Build theme from blueprint
-    const theme = props.blueprint?.theme || {}
-    const chartTheme = {
-      accent_color: theme.accent_color || '#2563eb',
-      title_color: theme.title_color || '#0f172a',
-      body_color: theme.body_color || '#334155',
-      muted_color: theme.muted_color || '#64748b',
-      surface_background: theme.surface_background || '#ffffff',
-      page_background: theme.page_background || '#ffffff',
-    }
-
-    if (chartType) {
-      fetch('/askai-api/api/documents/render-chart-svg', {
-        method: 'POST',
-        headers: authenticatedJsonHeaders(),
-        body: JSON.stringify({
-          chart_type: chartType,
-          chart_data: chartData,
-          width: pxW,
-          height: pxH,
-          theme: chartTheme,
-        }),
-      })
-        .then(r => r.ok ? r.text() : Promise.reject('chart render failed'))
-        .then(svgStr => {
-          if (!canvas) return
-          const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr)
-          return fabric.FabricImage.fromURL(dataUrl).then((img: any) => {
-            if (!canvas) return
-            const imgW = img.width || pxW
-            const imgH = img.height || pxH
-            img.set({
-              left, top,
-              scaleX: width / imgW,
-              scaleY: height / imgH,
-              selectable: true,
-            })
-            ;(img as any)._blockId = block.id
-            ;(img as any)._blockType = type
-            canvas.add(img)
-            canvas.renderAll()
-          })
-        })
-        .catch(() => {
-          // Fallback placeholder
-          addChartPlaceholder(canvas!, block.id, type, left, top, width, height, chartTitle)
-        })
-    } else {
-      addChartPlaceholder(canvas!, block.id, type, left, top, width, height, chartTitle)
-    }
-
-  } else if (type === 'image') {
-    renderBlockContainer(block.id, style, left, top, width, height)
-    const src = String(block.content || '').trim()
-    const isRealUrl = src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')
-    if (isRealUrl) {
-      // Insert a synchronous placeholder NOW so the image occupies its correct
-      // z-order slot. When the real image finishes loading, we swap it into the
-      // same array index — otherwise async onload would push it to the top of
-      // the canvas stack and cover later-added text/scrim blocks above it.
-      const canvasRef = fc!
-      const slot = new fabric.Rect({
-        left, top, width, height,
-        fill: '#e8ecf0',
-        stroke: '#b0b8c4',
-        strokeWidth: 1,
-        strokeDashArray: [4, 4],
-        rx: 8, ry: 8,
-        selectable: false,
-        evented: false,
-      })
-      ;(slot as any)._blockId = block.id + '_image_slot'
-      ;(slot as any)._blockType = 'container'
-      ;(slot as any)._isGuide = true
-      canvasRef.add(slot)
-
-      const nativeImg = new Image()
-      const radiusPx = (() => {
-        const r = parseFloat(String(style.border_radius ?? style.borderRadius ?? '')) || 12
-        return Math.max(0, Math.min(r, Math.min(width, height) / 2))
-      })()
-      nativeImg.onload = () => {
-        if (!canvasRef) return
-        const iw = nativeImg.naturalWidth || nativeImg.width || 1
-        const ih = nativeImg.naturalHeight || nativeImg.height || 1
-        // Device-pixel-ratio upscale so rounded edges don't look chunky.
-        const dpr = 2
-        const ocW = Math.max(Math.round(width), 8) * dpr
-        const ocH = Math.max(Math.round(height), 8) * dpr
-        const oc = document.createElement('canvas')
-        oc.width = ocW
-        oc.height = ocH
-        const ctx = oc.getContext('2d')!
-        // Rounded rect clip
-        const r = radiusPx * dpr
-        ctx.beginPath()
-        ctx.moveTo(r, 0)
-        ctx.lineTo(ocW - r, 0)
-        ctx.quadraticCurveTo(ocW, 0, ocW, r)
-        ctx.lineTo(ocW, ocH - r)
-        ctx.quadraticCurveTo(ocW, ocH, ocW - r, ocH)
-        ctx.lineTo(r, ocH)
-        ctx.quadraticCurveTo(0, ocH, 0, ocH - r)
-        ctx.lineTo(0, r)
-        ctx.quadraticCurveTo(0, 0, r, 0)
-        ctx.closePath()
-        ctx.clip()
-        // object-fit: cover — scale so short side fills, crop overflow
-        const scale = Math.max(ocW / iw, ocH / ih)
-        const drawW = iw * scale
-        const drawH = ih * scale
-        const dx = (ocW - drawW) / 2
-        const dy = (ocH - drawH) / 2
-        ctx.drawImage(nativeImg, dx, dy, drawW, drawH)
-        const fabricImg = new fabric.FabricImage(oc, {
-          left, top,
-          scaleX: width / ocW,
-          scaleY: height / ocH,
-          selectable: true,
-          objectCaching: false,
-        })
-        ;(fabricImg as any)._blockId = block.id
-        ;(fabricImg as any)._blockType = type
-        // Slot the image at the z-position the placeholder reserved for it.
-        const objs = canvasRef.getObjects()
-        const slotIndex = objs.indexOf(slot as any)
-        canvasRef.remove(slot)
-        canvasRef.add(fabricImg)
-        if (slotIndex >= 0 && typeof (canvasRef as any).moveObjectTo === 'function') {
-          ;(canvasRef as any).moveObjectTo(fabricImg, slotIndex)
-        } else if (slotIndex >= 0 && typeof (fabricImg as any).moveTo === 'function') {
-          ;(fabricImg as any).moveTo(slotIndex)
-        }
-        canvasRef.renderAll()
-      }
-      nativeImg.onerror = () => {
-        // Swap the subtle slot placeholder for the labelled-prompt placeholder.
-        if (canvasRef) canvasRef.remove(slot)
-        addImagePlaceholder(fc!, block, type, left, top, width, height)
-      }
-      nativeImg.src = src
-    } else {
-      addImagePlaceholder(fc!, block, type, left, top, width, height)
-    }
+  const handlers: Record<string, () => void> = {
+    rectangle: () => addRectangleToCanvas(canvas, block, style, left, top, width, height, stroke, strokeWidth, opacity, bgVal, bx, by, bw, bh, type),
+    circle: () => addCircleToCanvas(canvas, block, style, left, top, width, height, stroke, strokeWidth, opacity, bgVal, type, addTextObject),
+    text_box: () => addTextBoxToCanvas(canvas, block, style, left, top, width, height, addTextObject),
+    line: () => addLineToCanvas(canvas, block, style, left, top, width, height, opacity, bx, by, type, parentRect),
+    icon: () => addIconToCanvas(canvas, block, style, left, top, width, height, type),
+    chart: () => addChartToCanvas(canvas, block, style, left, top, width, height, type),
+    image: () => addImageToCanvas(canvas, block, style, left, top, width, height, type),
   }
+  const h = handlers[type]
+  if (h) h()
 }
-
 // ---------------------------------------------------------------------------
 // Fabric → Blueprint (save back)
 // ---------------------------------------------------------------------------
@@ -751,246 +446,38 @@ function canvasToBlueprint(): any {
   const page = bp.pages[currentPageIndex.value]
   if (!page) return bp
 
-  // Serialize a Fabric fill (string or Gradient) back to CSS for blueprint
-  function serializeFill(fill: any): string {
-    if (!fill) return 'transparent'
-    if (typeof fill === 'string') return fill
-    // Fabric Gradient object → CSS linear-gradient
-    if (fill.type === 'linear' && fill.colorStops?.length >= 2) {
-      const coords = fill.coords || {}
-      const dx = (coords.x2 ?? 1) - (coords.x1 ?? 0)
-      const dy = (coords.y2 ?? 0) - (coords.y1 ?? 0)
-      const angle = Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360)
-      const stops = fill.colorStops
-        .map((s: any) => `${s.color} ${Math.round(s.offset * 100)}%`)
-        .join(', ')
-      return `linear-gradient(${angle}deg, ${stops})`
-    }
-    return 'transparent'
-  }
-
+  const { blockMap, flatMap } = buildFlatBlockMap(page.blocks)
   const objects = fc.getObjects()
   const canvasBlockIds = new Set<string>()
-
-  // Only map TOP-LEVEL blocks — children inside groups are preserved as-is
-  // from blueprint. Canvas objects for children (created by addBlockToCanvas
-  // recursion) should not write back to nested children blocks.
-  const blockMap = new Map<string, any>()
-  for (const b of page.blocks) {
-    if (b.id) blockMap.set(b.id, b)
-  }
-
-  // Build a flat id → { block, parentRect } map, where parentRect is the
-  // normalized (0-1) rectangle of the block's parent container. This lets us
-  // convert absolute fabric pixel coordinates back to parent-relative
-  // normalized coordinates when saving children of a group/rectangle.
-  type FlatEntry = { block: any; parentRect: { x: number; y: number; w: number; h: number }; parentBlock: any | null }
-  const flatMap = new Map<string, FlatEntry>()
-  const childIds = new Set<string>()
-  function collectBlocksRecursive(
-    blocks: any[],
-    parentBlock: any | null,
-    parentRect: { x: number; y: number; w: number; h: number },
-  ) {
-    for (const b of blocks) {
-      if (!b || !b.id) continue
-      if (parentBlock !== null) childIds.add(b.id)
-      flatMap.set(b.id, { block: b, parentRect, parentBlock })
-      if (b.children?.length) {
-        // Resolve this block's own normalized rect to use as parentRect for its children.
-        const geom = resolveBlockGeometry(b, parentRect)
-        const selfRect = { x: geom.bx, y: geom.by, w: geom.bw, h: geom.bh }
-        collectBlocksRecursive(b.children, b, selfRect)
-      }
-    }
-  }
-  collectBlocksRecursive(page.blocks, null, { x: 0, y: 0, w: 1, h: 1 })
-
-  // Helpers: write normalized coordinates back to a block, respecting its
-  // coordinate_space (children use parent-relative coordinates).
-  function writeBlockXY(block: any, entry: FlatEntry, absPxLeft: number, absPxTop: number) {
-    const space = (block.coordinate_space || (entry.parentBlock ? 'parent' : 'page')).toLowerCase()
-    const nx = absPxLeft / CANVAS_W
-    const ny = absPxTop / CANVAS_H
-    if (space === 'parent' && entry.parentRect.w > 0 && entry.parentRect.h > 0) {
-      block.x = (nx - entry.parentRect.x) / entry.parentRect.w
-      block.y = (ny - entry.parentRect.y) / entry.parentRect.h
-    } else {
-      block.x = nx
-      block.y = ny
-    }
-  }
-  function writeBlockSize(block: any, entry: FlatEntry, absPxW: number, absPxH: number) {
-    const space = (block.coordinate_space || (entry.parentBlock ? 'parent' : 'page')).toLowerCase()
-    const nw = absPxW / CANVAS_W
-    const nh = absPxH / CANVAS_H
-    if (space === 'parent' && entry.parentRect.w > 0 && entry.parentRect.h > 0) {
-      block.w = nw / entry.parentRect.w
-      block.h = nh / entry.parentRect.h
-    } else {
-      block.w = nw
-      block.h = nh
-    }
-  }
 
   for (const obj of objects) {
     if ((obj as any)._isGuide) continue
     const blockId = (obj as any)._blockId as string
     const blockType = (obj as any)._blockType as string
-    // Skip helper objects
     if (!blockId || blockType === 'text_bg' || blockType === 'container') continue
     if (blockType === 'icon') { canvasBlockIds.add(blockId); continue }
     canvasBlockIds.add(blockId)
 
-    // Prefer the flat map (covers both top-level and nested children); fall
-    // back to the top-level blockMap for edge cases.
     const entry = flatMap.get(blockId)
     const block = entry?.block || blockMap.get(blockId)
     if (block) {
       if (blockType === 'line') {
-        const line = obj as fabric.Line
-        const endpoints = linePageEndpoints(line)
-        if (entry) {
-          writeBlockXY(block, entry, endpoints.start.x, endpoints.start.y)
-          const endX = endpoints.end.x / CANVAS_W
-          const endY = endpoints.end.y / CANVAS_H
-          const space = (block.coordinate_space || (entry.parentBlock ? 'parent' : 'page')).toLowerCase()
-          if (space === 'parent' && entry.parentRect.w > 0 && entry.parentRect.h > 0) {
-            block.x2 = (endX - entry.parentRect.x) / entry.parentRect.w
-            block.y2 = (endY - entry.parentRect.y) / entry.parentRect.h
-          } else {
-            block.x2 = endX
-            block.y2 = endY
-          }
-        } else {
-          block.x = endpoints.start.x / CANVAS_W
-          block.y = endpoints.start.y / CANVAS_H
-          block.x2 = endpoints.end.x / CANVAS_W
-          block.y2 = endpoints.end.y / CANVAS_H
-        }
+        writeLineEndpoints(block, entry, obj as fabric.Line)
       } else if (blockType === 'text_box' && obj instanceof fabric.Textbox) {
-        const layoutBox = (obj as any)._layoutBox
-        const scaleX = obj.scaleX || 1
-        const boxLeft = layoutBox
-          ? layoutBox.left + (Number(obj.left || 0) - layoutBox.textLeft)
-          : Number(obj.left || 0)
-        const boxTop = layoutBox
-          ? layoutBox.top + (Number(obj.top || 0) - layoutBox.textTop)
-          : Number(obj.top || 0)
-        const boxWidth = layoutBox
-          ? Math.max(1, layoutBox.width + ((Number(obj.width || 0) * scaleX) - layoutBox.textWidth))
-          : Number(obj.width || 0) * scaleX
-        if (entry) {
-          writeBlockXY(block, entry, boxLeft, boxTop)
-          writeBlockSize(block, entry, boxWidth, layoutBox?.height || Number(obj.height || 0))
-        } else {
-          block.x = boxLeft / CANVAS_W
-          block.y = boxTop / CANVAS_H
-          block.w = boxWidth / CANVAS_W
-        }
-        // Textbox height: only save if user scaled, otherwise keep blueprint value
-        const sy = obj.scaleY || 1
-        if (Math.abs(sy - 1) > 0.001) {
-          const absH = (obj as any).height * sy
-          if (entry) {
-            block.h = entry.parentRect.h > 0
-              ? (absH / CANVAS_H) / entry.parentRect.h
-              : absH / CANVAS_H
-          } else {
-            block.h = absH / CANVAS_H
-          }
-        }
-        block.content = obj.text || ''
-        if (!block.style) block.style = {}
-        block.style.font_size = obj.fontSize
-        block.style.font_weight = obj.fontWeight === 'bold' ? 'bold' : undefined
-        block.style.color = obj.fill as string
-        block.style.text_align = obj.textAlign
-        if (obj.opacity != null && obj.opacity < 1) {
-          block.style.opacity = obj.opacity
-        }
+        writeTextBoxGeometry(block, entry, obj)
+        saveTextBoxStyle(block, obj)
       } else {
-        if (entry) {
-          writeBlockXY(block, entry, obj.left || 0, obj.top || 0)
-        } else {
-          block.x = (obj.left || 0) / CANVAS_W
-          block.y = (obj.top || 0) / CANVAS_H
-        }
-        const sx = obj.scaleX || 1
-        const sy = obj.scaleY || 1
-        if (Math.abs(sx - 1) > 0.001 || Math.abs(sy - 1) > 0.001) {
-          const absW = (obj as any).width * sx
-          const absH = (obj as any).height * sy
-          if (entry) {
-            writeBlockSize(block, entry, absW, absH)
-          } else {
-            block.w = absW / CANVAS_W
-            block.h = absH / CANVAS_H
-          }
-        }
-        // Save shape visual properties
-        if (!block.style) block.style = {}
-        block.style.background = serializeFill((obj as any).fill)
-        const stroke = (obj as any).stroke
-        if (stroke && stroke !== 'transparent') {
-          block.style.border_color = stroke
-        }
-        if (obj.opacity != null && obj.opacity < 1) {
-          block.style.opacity = obj.opacity
-        }
-        if ((obj as any).rx) {
-          block.style.border_radius = (obj as any).rx
-        }
+        writeGenericGeometry(block, entry, obj)
+        saveShapeStyle(block, obj)
       }
     } else {
-      // New element added by user
-      const newBlock: any = {
-        id: blockId,
-        type: blockType || 'text_box',
-        coordinate_space: 'page',
-        x: (obj.left || 0) / CANVAS_W,
-        y: (obj.top || 0) / CANVAS_H,
-        w: ((obj as any).width * (obj.scaleX || 1)) / CANVAS_W,
-        h: ((obj as any).height * (obj.scaleY || 1)) / CANVAS_H,
-        style: {},
-        content: '',
-        z_index: 5,
-      }
-      if (blockType === 'text_box' && obj instanceof fabric.Textbox) {
-        newBlock.content = obj.text || ''
-        newBlock.style.font_size = obj.fontSize
-        newBlock.style.font_weight = obj.fontWeight === 'bold' ? 'bold' : undefined
-        newBlock.style.color = obj.fill as string
-        newBlock.style.text_align = obj.textAlign
-        if (obj.opacity != null && obj.opacity < 1) {
-          newBlock.style.opacity = obj.opacity
-        }
-      }
-      if (blockType === 'rectangle' || blockType === 'circle' || blockType === 'group') {
-        newBlock.style.background = serializeFill((obj as any).fill)
-        if ((obj as any).stroke && (obj as any).stroke !== 'transparent') {
-          newBlock.style.border_color = (obj as any).stroke
-        }
-        if (obj.opacity != null && obj.opacity < 1) {
-          newBlock.style.opacity = obj.opacity
-        }
-        newBlock.style.border_radius = (obj as any).rx || 0
-      }
+      const newBlock = makeNewElementBlock(blockId, blockType, obj)
+      saveNewElementStyle(newBlock, blockType, obj)
       page.blocks.push(newBlock)
     }
   }
 
-  // Remove deleted top-level blocks — keep blocks that:
-  // - have a canvas object (canvasBlockIds)
-  // - have children (group containers)
-  // - are parents of known children
-  page.blocks = page.blocks.filter((b: any) => {
-    return canvasBlockIds.has(b.id) || b.children?.length
-  })
-
-  // Never modify children arrays — they stay as blueprint authored them
-
-  // Persist to working copy so page switches preserve edits
+  page.blocks = filterActiveCanvasBlocks(page.blocks, canvasBlockIds)
   workingBlueprint.value = bp
   return bp
 }
@@ -1087,34 +574,10 @@ function syncToolbarFromSelection() {
   selectedObj.value = obj || null
   selectedIsText.value = obj instanceof fabric.Textbox
   selectedIsShape.value = !!(obj && !selectedIsText.value && !(obj as any)._isGuide)
-
   if (obj instanceof fabric.Textbox) {
-    toolFontSize.value = obj.fontSize || 18
-    toolColor.value = (obj.fill as string) || '#222222'
-    toolBold.value = obj.fontWeight === 'bold'
-    toolAlign.value = obj.textAlign || 'left'
-  }
-  if (selectedIsShape.value && obj) {
-    const fill = (obj as any).fill
-    if (fill && typeof fill === 'object' && fill.type === 'linear') {
-      // It's a gradient
-      toolFillMode.value = 'gradient'
-      const stops = fill.colorStops || []
-      toolGradientFrom.value = stops[0]?.color || '#3b82f6'
-      toolGradientTo.value = stops[stops.length - 1]?.color || '#8b5cf6'
-      // Rough angle extraction from coords
-      const coords = fill.coords || {}
-      const dx = (coords.x2 ?? 1) - (coords.x1 ?? 0)
-      const dy = (coords.y2 ?? 0) - (coords.y1 ?? 0)
-      toolGradientAngle.value = Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360)
-    } else {
-      toolFillMode.value = 'solid'
-      toolFillColor.value = (typeof fill === 'string' && fill !== 'transparent') ? fill : '#ffffff'
-    }
-    const stroke = (obj as any).stroke
-    toolStrokeColor.value = (typeof stroke === 'string' && stroke !== 'transparent') ? stroke : '#000000'
-    toolOpacity.value = Math.round((obj.opacity ?? 1) * 100)
-    toolCornerRadius.value = (obj as any).rx || 0
+    syncToolbarText(obj)
+  } else if (selectedIsShape.value && obj) {
+    syncToolbarShape(obj)
   }
 }
 
@@ -1348,40 +811,25 @@ function onKeyDown(e: KeyboardEvent) {
   const isCtrlOrCmd = e.ctrlKey || e.metaKey
   const step = e.shiftKey ? 10 : 1
 
-  // Undo: Ctrl+Z / Cmd+Z
-  if (isCtrlOrCmd && e.key === 'z' && !e.shiftKey) {
+  if (isUndoShortcut(isCtrlOrCmd, e.key, e.shiftKey)) {
     e.preventDefault()
-    undo()
+    handleUndo()
     return
   }
-  // Redo: Ctrl+Shift+Z / Cmd+Shift+Z or Ctrl+Y
-  if ((isCtrlOrCmd && e.key === 'z' && e.shiftKey) || (isCtrlOrCmd && e.key === 'y')) {
+  if (isRedoShortcut(isCtrlOrCmd, e.key, e.shiftKey)) {
     e.preventDefault()
-    redo()
+    handleRedo()
     return
   }
-
-  // Delete
-  if (e.key === 'Delete' || e.key === 'Backspace') {
-    e.preventDefault()
-    saveUndoState()
-    deleteSelected()
+  if (isDeleteKey(e.key)) {
+    handleDelete(e)
     return
   }
-
-  // Arrow keys: move selected object
   if (!active) return
-  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+  if (isArrowKey(e.key)) {
     e.preventDefault()
     saveUndoState()
-    switch (e.key) {
-      case 'ArrowLeft':  active.set('left', (active.left || 0) - step); break
-      case 'ArrowRight': active.set('left', (active.left || 0) + step); break
-      case 'ArrowUp':    active.set('top', (active.top || 0) - step); break
-      case 'ArrowDown':  active.set('top', (active.top || 0) + step); break
-    }
-    active.setCoords()
-    fc.renderAll()
+    handleArrowMove(active, e.key, step)
   }
 }
 
@@ -1421,274 +869,22 @@ function onObjectMoving(e: any) {
 
   clearGuides()
 
-  const tl = target.left || 0
-  const tt = target.top || 0
-  const tw = (target.width || 0) * (target.scaleX || 1)
-  const th = (target.height || 0) * (target.scaleY || 1)
-  const tCx = tl + tw / 2
-  const tCy = tt + th / 2
-  const tRight = tl + tw
-  const tBottom = tt + th
+  const r = computeTargetRect(target)
+  const c = snapToCanvasCenter(target, r.tw, r.th, r.cx, r.cy)
+  const others = collectAlignmentPeers(fc, target)
 
-  // Canvas center guides
-  const cCx = CANVAS_W / 2
-  const cCy = CANVAS_H / 2
-
-  let snappedX = false
-  let snappedY = false
-
-  // Snap to canvas center horizontal
-  if (Math.abs(tCx - cCx) < SNAP_THRESHOLD) {
-    target.set('left', cCx - tw / 2)
-    addGuideLine(cCx, 0, cCx, CANVAS_H)
-    snappedX = true
-  }
-  // Snap to canvas center vertical
-  if (Math.abs(tCy - cCy) < SNAP_THRESHOLD) {
-    target.set('top', cCy - th / 2)
-    addGuideLine(0, cCy, CANVAS_W, cCy)
-    snappedY = true
-  }
-
-  // Collect edges/centers of other objects for alignment and spacing.
-  // Only include selectable, meaningful shapes — skip guides, text-bg helpers,
-  // non-selectable decorations, full-page backgrounds, and small child labels.
-  const canvasArea = CANVAS_W * CANVAS_H
-  const targetType = (target as any)._blockType || ''
-  const others: { left: number; top: number; right: number; bottom: number; cx: number; cy: number }[] = []
-  for (const obj of fc.getObjects()) {
-    if (obj === target) continue
-    if ((obj as any)._isGuide) continue
-    if ((obj as any)._blockType === 'text_bg') continue
-    if (!obj.selectable) continue
-    const ol = obj.left || 0
-    const ot = obj.top || 0
-    const ow = (obj.width || 0) * (obj.scaleX || 1)
-    const oh = (obj.height || 0) * (obj.scaleY || 1)
-    if (ow < 1 || oh < 1) continue
-    // Skip full-page background rectangles
-    if (ow * oh >= canvasArea * 0.8) continue
-    others.push({ left: ol, top: ot, right: ol + ow, bottom: ot + oh, cx: ol + ow / 2, cy: ot + oh / 2 })
-  }
-
-  // For spacing detection, use only selectable objects that aren't tiny
-  // (at least 20px in both dimensions) — avoids icons/labels interfering.
-  const spacingPeers = others.filter(o => {
-    const ow = o.right - o.left
-    const oh = o.bottom - o.top
-    return ow >= 20 && oh >= 20
-  })
-
-  const updatedLeft = target.left || 0
-  const updatedTop = target.top || 0
-  const updatedCx = updatedLeft + tw / 2
-  const updatedCy = updatedTop + th / 2
-  const updatedRight = updatedLeft + tw
-  const updatedBottom = updatedTop + th
-
+  const up = computeUpdatedRect(target, r.tw, r.th)
   for (const o of others) {
-    if (!snappedX) {
-      // Left ↔ Left
-      if (Math.abs(updatedLeft - o.left) < SNAP_THRESHOLD) {
-        target.set('left', o.left)
-        addGuideLine(o.left, 0, o.left, CANVAS_H)
-        snappedX = true
-      }
-      // Right ↔ Right
-      else if (Math.abs(updatedRight - o.right) < SNAP_THRESHOLD) {
-        target.set('left', o.right - tw)
-        addGuideLine(o.right, 0, o.right, CANVAS_H)
-        snappedX = true
-      }
-      // Left ↔ Right
-      else if (Math.abs(updatedLeft - o.right) < SNAP_THRESHOLD) {
-        target.set('left', o.right)
-        addGuideLine(o.right, 0, o.right, CANVAS_H)
-        snappedX = true
-      }
-      // Right ↔ Left
-      else if (Math.abs(updatedRight - o.left) < SNAP_THRESHOLD) {
-        target.set('left', o.left - tw)
-        addGuideLine(o.left, 0, o.left, CANVAS_H)
-        snappedX = true
-      }
-      // Center ↔ Center X
-      else if (Math.abs(updatedCx - o.cx) < SNAP_THRESHOLD) {
-        target.set('left', o.cx - tw / 2)
-        addGuideLine(o.cx, 0, o.cx, CANVAS_H)
-        snappedX = true
-      }
-    }
-
-    if (!snappedY) {
-      // Top ↔ Top
-      if (Math.abs(updatedTop - o.top) < SNAP_THRESHOLD) {
-        target.set('top', o.top)
-        addGuideLine(0, o.top, CANVAS_W, o.top)
-        snappedY = true
-      }
-      // Bottom ↔ Bottom
-      else if (Math.abs(updatedBottom - o.bottom) < SNAP_THRESHOLD) {
-        target.set('top', o.bottom - th)
-        addGuideLine(0, o.bottom, CANVAS_W, o.bottom)
-        snappedY = true
-      }
-      // Top ↔ Bottom
-      else if (Math.abs(updatedTop - o.bottom) < SNAP_THRESHOLD) {
-        target.set('top', o.bottom)
-        addGuideLine(0, o.bottom, CANVAS_W, o.bottom)
-        snappedY = true
-      }
-      // Bottom ↔ Top
-      else if (Math.abs(updatedBottom - o.top) < SNAP_THRESHOLD) {
-        target.set('top', o.top - th)
-        addGuideLine(0, o.top, CANVAS_W, o.top)
-        snappedY = true
-      }
-      // Center ↔ Center Y
-      else if (Math.abs(updatedCy - o.cy) < SNAP_THRESHOLD) {
-        target.set('top', o.cy - th / 2)
-        addGuideLine(0, o.cy, CANVAS_W, o.cy)
-        snappedY = true
-      }
-    }
-
-    if (snappedX && snappedY) break
+    if (!c.snappedX) c.snappedX = trySnapX(target, o, up.ul, up.right, up.cx, r.tw)
+    if (!c.snappedY) c.snappedY = trySnapY(target, o, up.ut, up.bottom, up.cy, r.th)
+    if (c.snappedX && c.snappedY) break
   }
 
-  // --- Equal spacing guides (runs independently from edge snapping) ---
-  const curLeft = target.left || 0
-  const curTop = target.top || 0
-  const curRight = curLeft + tw
-  const curBottom = curTop + th
-  let spacingSnappedX = false
-  let spacingSnappedY = false
+  const cur = computeCurrentRect(target)
+  const { toLeft, toRight } = findSpacingPeersX(others, others, cur.cx, cur.top, cur.bottom)
+  const { above, below } = findSpacingPeersY(others, others, cur.left, cur.right)
 
-  const curCx = curLeft + tw / 2
-  const curCy = curTop + th / 2
-  const yOverlap = (o: typeof others[0]) => o.bottom > curTop + 5 && o.top < curBottom - 5
-  const toLeft = spacingPeers.filter(o => o.cx < curCx && yOverlap(o)).sort((a, b) => b.right - a.right)
-  const toRight = spacingPeers.filter(o => o.cx > curCx && yOverlap(o)).sort((a, b) => a.left - b.left)
-
-  // Between two neighbors: snap to equal gap
-  if (toLeft.length > 0 && toRight.length > 0 && !spacingSnappedX) {
-    const nearL = toLeft[0]
-    const nearR = toRight[0]
-    const gapL = curLeft - nearL.right
-    const gapR = nearR.left - curRight
-    if (gapL > 2 && gapR > 2 && Math.abs(gapL - gapR) < SNAP_THRESHOLD) {
-      const avgGap = (nearL.right + nearR.left - tw) / 2
-      target.set('left', avgGap)
-      spacingSnappedX = true
-      const markY = Math.max(nearL.top, curTop, nearR.top) +
-        Math.min(nearL.bottom - nearL.top, th, nearR.bottom - nearR.top) / 2
-      const snapLeft = avgGap
-      const snapRight = avgGap + tw
-      addGuideLine(nearL.right, markY, snapLeft, markY)
-      addGuideLine(nearL.right, markY - 6, nearL.right, markY + 6)
-      addGuideLine(snapLeft, markY - 6, snapLeft, markY + 6)
-      addGuideLine(snapRight, markY, nearR.left, markY)
-      addGuideLine(snapRight, markY - 6, snapRight, markY + 6)
-      addGuideLine(nearR.left, markY - 6, nearR.left, markY + 6)
-    }
-  }
-
-  // End-position: match the gap between two left neighbors
-  if (toLeft.length >= 2 && !spacingSnappedX) {
-    const a = toLeft[1]
-    const b = toLeft[0]
-    const existingGap = b.left - a.right
-    const myGap = curLeft - b.right
-    if (existingGap > 2 && Math.abs(myGap - existingGap) < SNAP_THRESHOLD) {
-      target.set('left', b.right + existingGap)
-      spacingSnappedX = true
-      const markY = Math.max(a.top, b.top, curTop) + Math.min(a.bottom - a.top, b.bottom - b.top, th) / 2
-      addGuideLine(a.right, markY, b.left, markY)
-      addGuideLine(a.right, markY - 6, a.right, markY + 6)
-      addGuideLine(b.left, markY - 6, b.left, markY + 6)
-      addGuideLine(b.right, markY, b.right + existingGap, markY)
-      addGuideLine(b.right, markY - 6, b.right, markY + 6)
-      addGuideLine(b.right + existingGap, markY - 6, b.right + existingGap, markY + 6)
-    }
-  }
-  // Start-position: match the gap between two right neighbors
-  if (toRight.length >= 2 && !spacingSnappedX) {
-    const a = toRight[0]
-    const b = toRight[1]
-    const existingGap = b.left - a.right
-    const myGap = a.left - curRight
-    if (existingGap > 2 && Math.abs(myGap - existingGap) < SNAP_THRESHOLD) {
-      target.set('left', a.left - existingGap - tw)
-      const markY = Math.max(a.top, b.top, curTop) + Math.min(a.bottom - a.top, b.bottom - b.top, th) / 2
-      addGuideLine(a.right, markY, b.left, markY)
-      addGuideLine(a.right, markY - 6, a.right, markY + 6)
-      addGuideLine(b.left, markY - 6, b.left, markY + 6)
-      const snapRight = a.left - existingGap
-      addGuideLine(snapRight, markY, a.left, markY)
-      addGuideLine(snapRight, markY - 6, snapRight, markY + 6)
-      addGuideLine(a.left, markY - 6, a.left, markY + 6)
-    }
-  }
-
-  // Vertical equal spacing
-  const xOverlap = (o: typeof others[0]) => o.right > curLeft + 5 && o.left < curRight - 5
-  const above = spacingPeers.filter(o => o.cy < curTop && xOverlap(o)).sort((a, b) => b.bottom - a.bottom)
-  const below = spacingPeers.filter(o => o.cy > curBottom && xOverlap(o)).sort((a, b) => a.top - b.top)
-
-  if (above.length > 0 && below.length > 0 && !spacingSnappedY) {
-    const nearA = above[0]
-    const nearB = below[0]
-    const gapA = curTop - nearA.bottom
-    const gapB = nearB.top - curBottom
-    if (gapA > 2 && gapB > 2 && Math.abs(gapA - gapB) < SNAP_THRESHOLD) {
-      const avgTop = (nearA.bottom + nearB.top - th) / 2
-      target.set('top', avgTop)
-      spacingSnappedY = true
-      const markX = Math.max(nearA.left, curLeft, nearB.left) +
-        Math.min(nearA.right - nearA.left, tw, nearB.right - nearB.left) / 2
-      const snapTop = avgTop
-      const snapBottom = avgTop + th
-      addGuideLine(markX, nearA.bottom, markX, snapTop)
-      addGuideLine(markX - 6, nearA.bottom, markX + 6, nearA.bottom)
-      addGuideLine(markX - 6, snapTop, markX + 6, snapTop)
-      addGuideLine(markX, snapBottom, markX, nearB.top)
-      addGuideLine(markX - 6, snapBottom, markX + 6, snapBottom)
-      addGuideLine(markX - 6, nearB.top, markX + 6, nearB.top)
-    }
-  }
-
-  if (above.length >= 2 && !spacingSnappedY) {
-    const a = above[1]; const b = above[0]
-    const existingGap = b.top - a.bottom
-    const myGap = curTop - b.bottom
-    if (existingGap > 2 && Math.abs(myGap - existingGap) < SNAP_THRESHOLD) {
-      target.set('top', b.bottom + existingGap)
-      spacingSnappedY = true
-      const markX = Math.max(a.left, b.left, curLeft) + Math.min(a.right - a.left, b.right - b.left, tw) / 2
-      addGuideLine(markX, a.bottom, markX, b.top)
-      addGuideLine(markX - 6, a.bottom, markX + 6, a.bottom)
-      addGuideLine(markX - 6, b.top, markX + 6, b.top)
-      addGuideLine(markX, b.bottom, markX, b.bottom + existingGap)
-      addGuideLine(markX - 6, b.bottom, markX + 6, b.bottom)
-      addGuideLine(markX - 6, b.bottom + existingGap, markX + 6, b.bottom + existingGap)
-    }
-  }
-  if (below.length >= 2 && !spacingSnappedY) {
-    const a = below[0]; const b = below[1]
-    const existingGap = b.top - a.bottom
-    const myGap = a.top - curBottom
-    if (existingGap > 2 && Math.abs(myGap - existingGap) < SNAP_THRESHOLD) {
-      target.set('top', a.top - existingGap - th)
-      const markX = Math.max(a.left, b.left, curLeft) + Math.min(a.right - a.left, b.right - b.left, tw) / 2
-      addGuideLine(markX, a.bottom, markX, b.top)
-      addGuideLine(markX - 6, a.bottom, markX + 6, a.bottom)
-      addGuideLine(markX - 6, b.top, markX + 6, b.top)
-      const snapBottom = a.top - existingGap
-      addGuideLine(markX, snapBottom, markX, a.top)
-      addGuideLine(markX - 6, snapBottom, markX + 6, snapBottom)
-      addGuideLine(markX - 6, a.top, markX + 6, a.top)
-    }
-  }
+  applySpacingSnaps(target, r, cur, toLeft, toRight, above, below)
 
   target.setCoords()
   fc.renderAll()
@@ -1733,21 +929,8 @@ function renderFsPage(idx: number) {
   if (!fsCanvasEl.value) return
   if (fsFc) { fsFc.dispose(); fsFc = null }
 
-  const vw = window.innerWidth
-  const vh = window.innerHeight
-  const scale = Math.min(vw / CANVAS_W, vh / CANVAS_H)
-  const dpr = window.devicePixelRatio || 1
+  fsFc = setupFsCanvasCanvas(fsCanvasEl.value)
 
-  fsFc = new fabric.StaticCanvas(fsCanvasEl.value, {
-    width: CANVAS_W,
-    height: CANVAS_H,
-    enableRetinaScaling: false,
-  })
-  fsFc.setDimensions({ width: Math.floor(CANVAS_W * scale), height: Math.floor(CANVAS_H * scale) }, { cssOnly: true } as any)
-  fsFc.setDimensions({ width: Math.floor(CANVAS_W * scale * dpr), height: Math.floor(CANVAS_H * scale * dpr) }, { backstoreOnly: true } as any)
-  fsFc.setZoom(scale * dpr)
-
-  // Re-render the page onto the static canvas
   const bp = getWorkingBlueprint()
   const page = bp.pages?.[idx]
   if (!page) return
@@ -1755,17 +938,15 @@ function renderFsPage(idx: number) {
   const pageBg = page.style?.background || page.style?.background_color || bp.theme?.page_background || '#ffffff'
   const bgParsed = parseLinearGradient(pageBg)
   if (bgParsed) {
-    const bgRect = new fabric.Rect({
+    fsFc.add(new fabric.Rect({
       left: 0, top: 0, width: CANVAS_W, height: CANVAS_H,
       fill: makeFabricGradient(pageBg, CANVAS_W, CANVAS_H),
       selectable: false, evented: false,
-    })
-    fsFc.add(bgRect)
+    }))
   } else {
     fsFc.backgroundColor = isTransparent(pageBg) ? '#ffffff' : pageBg
   }
 
-  // Temporarily swap fc so addBlockToCanvas works on the fullscreen canvas
   const origFc = fc
   fc = fsFc as any
   const blocks = [...(page.blocks || [])].sort((a: any, b: any) => (a.z_index || 0) - (b.z_index || 0))
@@ -1930,6 +1111,993 @@ onBeforeUnmount(() => {
     fc = null
   }
 })
+
+// ---------------------------------------------------------------------------
+// Helpers — 抽出的辅助函数，用于降低主函数圈复杂度
+// ---------------------------------------------------------------------------
+
+const boxShadowPresets: Record<string, string> = {
+  soft: '0 8px 24px rgba(15,23,42,0.10)',
+  subtle: '0 4px 14px rgba(15,23,42,0.08)',
+  medium: '0 10px 28px rgba(15,23,42,0.14)',
+  strong: '0 16px 40px rgba(15,23,42,0.18)',
+}
+
+// 判断容器是否有可见的样式（背景 / 边框 / 阴影）
+function hasVisibleContainerStyle(style: any): boolean {
+  const bg = style.background || style.background_color || ''
+  const hasBg = bg && !isTransparent(bg)
+  const hasBorder = hasVisibleBorder(style)
+  const hasShadow = hasBoxShadowStyle(style)
+  return !!(hasBg || hasBorder || hasShadow)
+}
+
+// 解析边框颜色字符串
+function resolveBorderColor(style: any): string {
+  return style.border_color || style.border || ''
+}
+
+// 判断是否有可见边框
+function hasVisibleBorder(style: any): boolean {
+  const color = resolveBorderColor(style)
+  if (color && !isTransparent(color)) return true
+  return !!style.border_left || !!style.border_right || !!style.border_top || !!style.border_bottom
+}
+
+// 判断是否有 box-shadow 样式
+function hasBoxShadowStyle(style: any): boolean {
+  const v = style.box_shadow
+  return !!v && v !== 'none'
+}
+
+// 将 box-shadow CSS 字符串解析为 Fabric Shadow 对象
+function parseBoxShadowStyle(val: any): fabric.Shadow | undefined {
+  const raw = String(val || '')
+  const resolved = boxShadowPresets[raw.toLowerCase()] || raw
+  const m = resolved.match(/(-?\d+)(?:px)?\s+(-?\d+)(?:px)?\s+(\d+)(?:px)?\s+(rgba?\([^)]+\)|#[0-9a-fA-F]{3,8})/)
+  if (!m) return undefined
+  return new fabric.Shadow({
+    offsetX: parseInt(m[1]),
+    offsetY: parseInt(m[2]),
+    blur: parseInt(m[3]),
+    color: m[4],
+  })
+}
+
+// 将 Fabric fill 序列化回 CSS 字符串
+function serializeFabricFill(fill: any): string {
+  if (!fill) return 'transparent'
+  if (typeof fill === 'string') return fill
+  if (fill.type !== 'linear' || !fill.colorStops || fill.colorStops.length < 2) return 'transparent'
+  const coords = fill.coords || {}
+  const dx = (coords.x2 ?? 1) - (coords.x1 ?? 0)
+  const dy = (coords.y2 ?? 0) - (coords.y1 ?? 0)
+  const angle = Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360)
+  const stops = fill.colorStops
+    .map((s: any) => `${s.color} ${Math.round(s.offset * 100)}%`)
+    .join(', ')
+  return `linear-gradient(${angle}deg, ${stops})`
+}
+
+// 构建扁平的 block id → { block, parentRect, parentBlock } 映射
+function buildFlatBlockMap(pageBlocks: any[]) {
+  const blockMap = new Map<string, any>()
+  const flatMap = new Map<string, { block: any; parentRect: { x: number; y: number; w: number; h: number }; parentBlock: any | null }>()
+  const childIds = new Set<string>()
+  for (const b of pageBlocks) {
+    if (b.id) blockMap.set(b.id, b)
+  }
+  function collect(blocks: any[], parentBlock: any | null, parentRect: { x: number; y: number; w: number; h: number }) {
+    for (const b of blocks) {
+      if (!b || !b.id) continue
+      if (parentBlock !== null) childIds.add(b.id)
+      flatMap.set(b.id, { block: b, parentRect, parentBlock })
+      if (b.children?.length) {
+        const geom = resolveBlockGeometry(b, parentRect)
+        collect(b.children, b, { x: geom.bx, y: geom.by, w: geom.bw, h: geom.bh })
+      }
+    }
+  }
+  collect(pageBlocks, null, { x: 0, y: 0, w: 1, h: 1 })
+  return { blockMap, flatMap, childIds }
+}
+
+// 获取 block 的坐标空间
+function getCoordinateSpace(block: any, entry?: any): string {
+  return (block.coordinate_space || (entry && entry.parentBlock ? 'parent' : 'page')).toLowerCase()
+}
+
+// 将像素坐标写回 block（归一化到 0-1）
+function writeBlockXY(block: any, entry: any, absPxLeft: number, absPxTop: number) {
+  const space = getCoordinateSpace(block, entry)
+  const nx = absPxLeft / CANVAS_W
+  const ny = absPxTop / CANVAS_H
+  if (space === 'parent' && entry.parentRect.w > 0 && entry.parentRect.h > 0) {
+    block.x = (nx - entry.parentRect.x) / entry.parentRect.w
+    block.y = (ny - entry.parentRect.y) / entry.parentRect.h
+  } else {
+    block.x = nx
+    block.y = ny
+  }
+}
+
+// 将像素尺寸写回 block（归一化到 0-1）
+function writeBlockSize(block: any, entry: any, absPxW: number, absPxH: number) {
+  const space = getCoordinateSpace(block, entry)
+  const nw = absPxW / CANVAS_W
+  const nh = absPxH / CANVAS_H
+  if (space === 'parent' && entry.parentRect.w > 0 && entry.parentRect.h > 0) {
+    block.w = nw / entry.parentRect.w
+    block.h = nh / entry.parentRect.h
+  } else {
+    block.w = nw
+    block.h = nh
+  }
+}
+
+// 处理已有 block 的写回（line / text_box / 其他）
+function writeExistingBlock(block: any, entry: any | undefined, blockType: string, obj: any) {
+  if (blockType === 'line') return writeLineEndpoints(block, entry, obj)
+  if (blockType === 'text_box' && obj instanceof fabric.Textbox) {
+    writeTextBoxGeometry(block, entry, obj)
+    saveTextBoxStyle(block, obj)
+    return
+  }
+  writeGenericGeometry(block, entry, obj)
+  saveShapeStyle(block, obj)
+}
+
+// 写入 line 端点
+function writeLineEndpoints(block: any, entry: any | undefined, line: fabric.Line) {
+  const endpoints = linePageEndpoints(line)
+  if (!entry) {
+    block.x = endpoints.start.x / CANVAS_W
+    block.y = endpoints.start.y / CANVAS_H
+    block.x2 = endpoints.end.x / CANVAS_W
+    block.y2 = endpoints.end.y / CANVAS_H
+    return
+  }
+  writeBlockXY(block, entry, endpoints.start.x, endpoints.start.y)
+  const endX = endpoints.end.x / CANVAS_W
+  const endY = endpoints.end.y / CANVAS_H
+  const space = getCoordinateSpace(block, entry)
+  if (space === 'parent' && entry.parentRect.w > 0 && entry.parentRect.h > 0) {
+    block.x2 = (endX - entry.parentRect.x) / entry.parentRect.w
+    block.y2 = (endY - entry.parentRect.y) / entry.parentRect.h
+  } else {
+    block.x2 = endX
+    block.y2 = endY
+  }
+}
+
+// 写入 text_box 几何
+function writeTextBoxGeometry(block: any, entry: any | undefined, obj: fabric.Textbox) {
+  const layoutBox = (obj as any)._layoutBox
+  const scaleX = obj.scaleX || 1
+  const { boxLeft, boxTop, boxWidth } = computeTextBoxLayout(layoutBox, obj, scaleX)
+  if (entry) {
+    writeBlockXY(block, entry, boxLeft, boxTop)
+    writeBlockSize(block, entry, boxWidth, layoutBox?.height || Number(obj.height || 0))
+  } else {
+    block.x = boxLeft / CANVAS_W
+    block.y = boxTop / CANVAS_H
+    block.w = boxWidth / CANVAS_W
+  }
+  saveTextBoxHeight(block, entry, obj)
+}
+
+// 计算 text_box 的布局坐标
+function computeTextBoxLayout(layoutBox: any, obj: fabric.Textbox, scaleX: number) {
+  const boxLeft = layoutBox
+    ? layoutBox.left + (Number(obj.left || 0) - layoutBox.textLeft)
+    : Number(obj.left || 0)
+  const boxTop = layoutBox
+    ? layoutBox.top + (Number(obj.top || 0) - layoutBox.textTop)
+    : Number(obj.top || 0)
+  const boxWidth = layoutBox
+    ? Math.max(1, layoutBox.width + ((Number(obj.width || 0) * scaleX) - layoutBox.textWidth))
+    : Number(obj.width || 0) * scaleX
+  return { boxLeft, boxTop, boxWidth }
+}
+
+// 保存 text_box 高度（仅在用户缩放时写入）
+function saveTextBoxHeight(block: any, entry: any | undefined, obj: fabric.Textbox) {
+  const sy = obj.scaleY || 1
+  if (Math.abs(sy - 1) > 0.001) {
+    const absH = (obj as any).height * sy
+    if (entry) {
+      block.h = entry.parentRect.h > 0 ? (absH / CANVAS_H) / entry.parentRect.h : absH / CANVAS_H
+    } else {
+      block.h = absH / CANVAS_H
+    }
+  }
+}
+
+// 保存 text_box 样式
+function saveTextBoxStyle(block: any, obj: fabric.Textbox) {
+  block.content = obj.text || ''
+  if (!block.style) block.style = {}
+  block.style.font_size = obj.fontSize
+  block.style.font_weight = obj.fontWeight === 'bold' ? 'bold' : undefined
+  block.style.color = obj.fill as string
+  block.style.text_align = obj.textAlign
+  if (obj.opacity != null && obj.opacity < 1) block.style.opacity = obj.opacity
+}
+
+// 写入通用几何（非 line / text_box）
+function writeGenericGeometry(block: any, entry: any | undefined, obj: any) {
+  if (entry) {
+    writeBlockXY(block, entry, obj.left || 0, obj.top || 0)
+  } else {
+    block.x = (obj.left || 0) / CANVAS_W
+    block.y = (obj.top || 0) / CANVAS_H
+  }
+  const sx = obj.scaleX || 1
+  const sy = obj.scaleY || 1
+  if (Math.abs(sx - 1) > 0.001 || Math.abs(sy - 1) > 0.001) {
+    const absW = (obj as any).width * sx
+    const absH = (obj as any).height * sy
+    if (entry) writeBlockSize(block, entry, absW, absH)
+    else { block.w = absW / CANVAS_W; block.h = absH / CANVAS_H }
+  }
+}
+
+// 保存 shape 样式
+function saveShapeStyle(block: any, obj: any) {
+  if (!block.style) block.style = {}
+  block.style.background = serializeFabricFill((obj as any).fill)
+  const stroke = (obj as any).stroke
+  if (stroke && stroke !== 'transparent') block.style.border_color = stroke
+  if (obj.opacity != null && obj.opacity < 1) block.style.opacity = obj.opacity
+  if ((obj as any).rx) block.style.border_radius = (obj as any).rx
+}
+
+// 判断是否为 shape 类型
+function isShapeType(t: string): boolean {
+  return t === 'rectangle' || t === 'circle' || t === 'group'
+}
+
+// 创建新元素 block
+function makeNewElementBlock(blockId: string, blockType: string, obj: any): any {
+  return {
+    id: blockId,
+    type: blockType || 'text_box',
+    coordinate_space: 'page',
+    x: (obj.left || 0) / CANVAS_W,
+    y: (obj.top || 0) / CANVAS_H,
+    w: ((obj as any).width * (obj.scaleX || 1)) / CANVAS_W,
+    h: ((obj as any).height * (obj.scaleY || 1)) / CANVAS_H,
+    style: {},
+    content: '',
+    z_index: 5,
+  }
+}
+
+// 保存新元素样式
+function saveNewElementStyle(block: any, blockType: string, obj: any) {
+  if (blockType === 'text_box' && obj instanceof fabric.Textbox) {
+    block.content = obj.text || ''
+    block.style.font_size = obj.fontSize
+    block.style.font_weight = obj.fontWeight === 'bold' ? 'bold' : undefined
+    block.style.color = obj.fill as string
+    block.style.text_align = obj.textAlign
+    if (obj.opacity != null && obj.opacity < 1) block.style.opacity = obj.opacity
+    return
+  }
+  if (!isShapeType(blockType)) return
+  block.style.background = serializeFabricFill((obj as any).fill)
+  if ((obj as any).stroke && (obj as any).stroke !== 'transparent') block.style.border_color = (obj as any).stroke
+  if (obj.opacity != null && obj.opacity < 1) block.style.opacity = obj.opacity
+  block.style.border_radius = (obj as any).rx || 0
+}
+
+// 过滤掉已删除的顶层 block
+function filterActiveCanvasBlocks(blocks: any[], canvasBlockIds: Set<string>): any[] {
+  return blocks.filter((b: any) => canvasBlockIds.has(b.id) || b.children?.length)
+}
+
+// 同步文本工具栏
+function syncToolbarText(obj: fabric.Textbox) {
+  toolFontSize.value = obj.fontSize || 18
+  toolColor.value = (obj.fill as string) || '#222222'
+  toolBold.value = obj.fontWeight === 'bold'
+  toolAlign.value = obj.textAlign || 'left'
+}
+
+// 同步图形工具栏
+function syncToolbarShape(obj: any) {
+  const fill = (obj as any).fill
+  if (isLinearGradient(fill)) {
+    syncToolbarGradientFill(fill)
+  } else {
+    syncToolbarSolidFill(fill)
+  }
+  syncToolbarStrokeProperties(obj)
+}
+
+// 判断 fill 是否为线性渐变
+function isLinearGradient(fill: any): boolean {
+  return !!fill && typeof fill === 'object' && fill.type === 'linear'
+}
+
+// 同步渐变填充属性到工具栏
+function syncToolbarGradientFill(fill: any) {
+  toolFillMode.value = 'gradient'
+  const stops = fill.colorStops || []
+  toolGradientFrom.value = stops[0]?.color || '#3b82f6'
+  toolGradientTo.value = stops[stops.length - 1]?.color || '#8b5cf6'
+  const coords = fill.coords || {}
+  const dx = (coords.x2 ?? 1) - (coords.x1 ?? 0)
+  const dy = (coords.y2 ?? 0) - (coords.y1 ?? 0)
+  toolGradientAngle.value = Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360)
+}
+
+// 同步纯色填充属性到工具栏
+function syncToolbarSolidFill(fill: any) {
+  toolFillMode.value = 'solid'
+  toolFillColor.value = (typeof fill === 'string' && fill !== 'transparent') ? fill : '#ffffff'
+}
+
+// 同步描边/透明度/圆角属性到工具栏
+function syncToolbarStrokeProperties(obj: any) {
+  const stroke = (obj as any).stroke
+  toolStrokeColor.value = (typeof stroke === 'string' && stroke !== 'transparent') ? stroke : '#000000'
+  toolOpacity.value = Math.round((obj.opacity ?? 1) * 100)
+  toolCornerRadius.value = (obj as any).rx || 0
+}
+
+// 判断是否为 Undo 快捷键
+function isUndoShortcut(ctrlCmd: boolean, key: string, shift: boolean): boolean {
+  return ctrlCmd && key === 'z' && !shift
+}
+
+// 判断是否为 Redo 快捷键
+function isRedoShortcut(ctrlCmd: boolean, key: string, shift: boolean): boolean {
+  return (ctrlCmd && key === 'z' && shift) || (ctrlCmd && key === 'y')
+}
+
+// 判断是否为 Delete 键
+function isDeleteKey(key: string): boolean {
+  return key === 'Delete' || key === 'Backspace'
+}
+
+// 判断是否为方向键
+function isArrowKey(key: string): boolean {
+  return key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown'
+}
+
+// 执行 Undo
+function handleUndo(): void { undo() }
+
+// 执行 Redo
+function handleRedo(): void { redo() }
+
+// 执行 Delete
+function handleDelete(_e: KeyboardEvent): void {
+  _e.preventDefault()
+  saveUndoState()
+  deleteSelected()
+}
+
+// 使用方向键移动选中对象
+function handleArrowMove(active: fabric.FabricObject, key: string, step: number) {
+  if (key === 'ArrowLeft') active.set('left', (active.left || 0) - step)
+  else if (key === 'ArrowRight') active.set('left', (active.left || 0) + step)
+  else if (key === 'ArrowUp') active.set('top', (active.top || 0) - step)
+  else if (key === 'ArrowDown') active.set('top', (active.top || 0) + step)
+  active.setCoords()
+  fc?.renderAll()
+}
+
+// 计算目标对象的矩形
+function computeTargetRect(target: fabric.FabricObject) {
+  const tl = target.left || 0
+  const tt = target.top || 0
+  const tw = (target.width || 0) * (target.scaleX || 1)
+  const th = (target.height || 0) * (target.scaleY || 1)
+  return {
+    tl, tt, tw, th,
+    cx: tl + tw / 2,
+    cy: tt + th / 2,
+    right: tl + tw,
+    bottom: tt + th,
+  }
+}
+
+// 计算更新后的矩形
+function computeUpdatedRect(target: fabric.FabricObject, tw: number, th: number) {
+  const ul = target.left || 0
+  const ut = target.top || 0
+  return {
+    ul, ut, tw, th,
+    cx: ul + tw / 2,
+    cy: ut + th / 2,
+    right: ul + tw,
+    bottom: ut + th,
+  }
+}
+
+// 吸附到画布中心
+function snapToCanvasCenter(target: fabric.FabricObject, tw: number, th: number, tCx: number, tCy: number) {
+  const cCx = CANVAS_W / 2
+  const cCy = CANVAS_H / 2
+  let snappedX = false
+  let snappedY = false
+  if (Math.abs(tCx - cCx) < SNAP_THRESHOLD) {
+    target.set('left', cCx - tw / 2)
+    addGuideLine(cCx, 0, cCx, CANVAS_H)
+    snappedX = true
+  }
+  if (Math.abs(tCy - cCy) < SNAP_THRESHOLD) {
+    target.set('top', cCy - th / 2)
+    addGuideLine(0, cCy, CANVAS_W, cCy)
+    snappedY = true
+  }
+  return { snappedX, snappedY }
+}
+
+// 收集对齐/间距对齐的同层对象
+function collectAlignmentPeers(fc: fabric.Canvas, target: fabric.FabricObject) {
+  const canvasArea = CANVAS_W * CANVAS_H
+  const others: { left: number; top: number; right: number; bottom: number; cx: number; cy: number }[] = []
+  for (const obj of fc.getObjects()) {
+    if (obj === target) continue
+    if ((obj as any)._isGuide) continue
+    if ((obj as any)._blockType === 'text_bg') continue
+    if (!obj.selectable) continue
+    const ol = obj.left || 0
+    const ot = obj.top || 0
+    const ow = (obj.width || 0) * (obj.scaleX || 1)
+    const oh = (obj.height || 0) * (obj.scaleY || 1)
+    if (ow < 1 || oh < 1) continue
+    if (ow * oh >= canvasArea * 0.8) continue
+    others.push({ left: ol, top: ot, right: ol + ow, bottom: ot + oh, cx: ol + ow / 2, cy: ot + oh / 2 })
+  }
+  return others
+}
+
+// 水平方向边吸附
+function trySnapX(target: fabric.FabricObject, o: any, updatedLeft: number, updatedRight: number, updatedCx: number, tw: number): boolean {
+  if (Math.abs(updatedLeft - o.left) < SNAP_THRESHOLD) {
+    target.set('left', o.left)
+    addGuideLine(o.left, 0, o.left, CANVAS_H)
+    return true
+  }
+  if (Math.abs(updatedRight - o.right) < SNAP_THRESHOLD) {
+    target.set('left', o.right - tw)
+    addGuideLine(o.right, 0, o.right, CANVAS_H)
+    return true
+  }
+  if (Math.abs(updatedLeft - o.right) < SNAP_THRESHOLD) {
+    target.set('left', o.right)
+    addGuideLine(o.right, 0, o.right, CANVAS_H)
+    return true
+  }
+  if (Math.abs(updatedRight - o.left) < SNAP_THRESHOLD) {
+    target.set('left', o.left - tw)
+    addGuideLine(o.left, 0, o.left, CANVAS_H)
+    return true
+  }
+  if (Math.abs(updatedCx - o.cx) < SNAP_THRESHOLD) {
+    target.set('left', o.cx - tw / 2)
+    addGuideLine(o.cx, 0, o.cx, CANVAS_H)
+    return true
+  }
+  return false
+}
+
+// 垂直方向边吸附
+function trySnapY(target: fabric.FabricObject, o: any, updatedTop: number, updatedBottom: number, updatedCy: number, th: number): boolean {
+  if (Math.abs(updatedTop - o.top) < SNAP_THRESHOLD) {
+    target.set('top', o.top)
+    addGuideLine(0, o.top, CANVAS_W, o.top)
+    return true
+  }
+  if (Math.abs(updatedBottom - o.bottom) < SNAP_THRESHOLD) {
+    target.set('top', o.bottom - th)
+    addGuideLine(0, o.bottom, CANVAS_W, o.bottom)
+    return true
+  }
+  if (Math.abs(updatedTop - o.bottom) < SNAP_THRESHOLD) {
+    target.set('top', o.bottom)
+    addGuideLine(0, o.bottom, CANVAS_W, o.bottom)
+    return true
+  }
+  if (Math.abs(updatedBottom - o.top) < SNAP_THRESHOLD) {
+    target.set('top', o.top - th)
+    addGuideLine(0, o.top, CANVAS_W, o.top)
+    return true
+  }
+  if (Math.abs(updatedCy - o.cy) < SNAP_THRESHOLD) {
+    target.set('top', o.cy - th / 2)
+    addGuideLine(0, o.cy, CANVAS_W, o.cy)
+    return true
+  }
+  return false
+}
+
+// 获取水平间距候选对（左右各一）
+function findSpacingPeersX(others: any[], spacingPeers: any[], curCx: number, curTop: number, curBottom: number) {
+  const yOverlap = (o: any) => o.bottom > curTop + 5 && o.top < curBottom - 5
+  const toLeft = spacingPeers.filter((o: any) => o.cx < curCx && yOverlap(o)).sort((a: any, b: any) => b.right - a.right)
+  const toRight = spacingPeers.filter((o: any) => o.cx > curCx && yOverlap(o)).sort((a: any, b: any) => a.left - b.left)
+  return { toLeft, toRight }
+}
+
+// 获取垂直间距候选对（上下各一）
+function findSpacingPeersY(others: any[], spacingPeers: any[], curLeft: number, curRight: number) {
+  const xOverlap = (o: any) => o.right > curLeft + 5 && o.left < curRight - 5
+  const above = spacingPeers.filter((o: any) => o.cy < curLeft && xOverlap(o)).sort((a: any, b: any) => b.bottom - a.bottom)
+  const below = spacingPeers.filter((o: any) => o.cy > curRight && xOverlap(o)).sort((a: any, b: any) => a.top - b.top)
+  return { above, below }
+}
+
+// 水平等距吸附（两侧邻居）
+function tryApplySpacingXBetween(
+  target: fabric.FabricObject, tw: number, th: number,
+  nearL: any, nearR: any, curLeft: number, curRight: number, curTop: number,
+): boolean {
+  const gapL = curLeft - nearL.right
+  const gapR = nearR.left - curRight
+  if (gapL <= 2 || gapR <= 2 || Math.abs(gapL - gapR) >= SNAP_THRESHOLD) return false
+  const avgGap = (nearL.right + nearR.left - tw) / 2
+  target.set('left', avgGap)
+  const markY = Math.max(nearL.top, curTop, nearR.top) +
+    Math.min(nearL.bottom - nearL.top, th, nearR.bottom - nearR.top) / 2
+  const snapLeft = avgGap
+  const snapRight = avgGap + tw
+  addGuideLine(nearL.right, markY, snapLeft, markY)
+  addGuideLine(nearL.right, markY - 6, nearL.right, markY + 6)
+  addGuideLine(snapLeft, markY - 6, snapLeft, markY + 6)
+  addGuideLine(snapRight, markY, nearR.left, markY)
+  addGuideLine(snapRight, markY - 6, snapRight, markY + 6)
+  addGuideLine(nearR.left, markY - 6, nearR.left, markY + 6)
+  return true
+}
+
+// 水平等距吸附（左侧两个邻居 — 末尾位置）
+function tryApplySpacingXEndLeft(
+  target: fabric.FabricObject, tw: number, th: number,
+  a: any, b: any, curLeft: number, curTop: number,
+): boolean {
+  const existingGap = b.left - a.right
+  const myGap = curLeft - b.right
+  if (existingGap <= 2 || Math.abs(myGap - existingGap) >= SNAP_THRESHOLD) return false
+  target.set('left', b.right + existingGap)
+  const markY = Math.max(a.top, b.top, curTop) + Math.min(a.bottom - a.top, b.bottom - b.top, th) / 2
+  addGuideLine(a.right, markY, b.left, markY)
+  addGuideLine(a.right, markY - 6, a.right, markY + 6)
+  addGuideLine(b.left, markY - 6, b.left, markY + 6)
+  addGuideLine(b.right, markY, b.right + existingGap, markY)
+  addGuideLine(b.right, markY - 6, b.right, markY + 6)
+  addGuideLine(b.right + existingGap, markY - 6, b.right + existingGap, markY + 6)
+  return true
+}
+
+// 水平等距吸附（右侧两个邻居 — 起始位置）
+function tryApplySpacingXStartRight(
+  target: fabric.FabricObject, tw: number, th: number,
+  a: any, b: any, curRight: number, curTop: number,
+): boolean {
+  const existingGap = b.left - a.right
+  const myGap = a.left - curRight
+  if (existingGap <= 2 || Math.abs(myGap - existingGap) >= SNAP_THRESHOLD) return false
+  target.set('left', a.left - existingGap - tw)
+  const markY = Math.max(a.top, b.top, curTop) + Math.min(a.bottom - a.top, b.bottom - b.top, th) / 2
+  addGuideLine(a.right, markY, b.left, markY)
+  addGuideLine(a.right, markY - 6, a.right, markY + 6)
+  addGuideLine(b.left, markY - 6, b.left, markY + 6)
+  const snapRight = a.left - existingGap
+  addGuideLine(snapRight, markY, a.left, markY)
+  addGuideLine(snapRight, markY - 6, snapRight, markY + 6)
+  addGuideLine(a.left, markY - 6, a.left, markY + 6)
+  return true
+}
+
+// 垂直等距吸附（两侧邻居）
+function tryApplySpacingYBetween(
+  target: fabric.FabricObject, tw: number, th: number,
+  nearA: any, nearB: any, curTop: number, curBottom: number, curLeft: number,
+): boolean {
+  const gapA = curTop - nearA.bottom
+  const gapB = nearB.top - curBottom
+  if (gapA <= 2 || gapB <= 2 || Math.abs(gapA - gapB) >= SNAP_THRESHOLD) return false
+  const avgTop = (nearA.bottom + nearB.top - th) / 2
+  target.set('top', avgTop)
+  const markX = Math.max(nearA.left, curLeft, nearB.left) +
+    Math.min(nearA.right - nearA.left, tw, nearB.right - nearB.left) / 2
+  const snapTop = avgTop
+  const snapBottom = avgTop + th
+  addGuideLine(markX, nearA.bottom, markX, snapTop)
+  addGuideLine(markX - 6, nearA.bottom, markX + 6, nearA.bottom)
+  addGuideLine(markX - 6, snapTop, markX + 6, snapTop)
+  addGuideLine(markX, snapBottom, markX, nearB.top)
+  addGuideLine(markX - 6, snapBottom, markX + 6, snapBottom)
+  addGuideLine(markX - 6, nearB.top, markX + 6, nearB.top)
+  return true
+}
+
+// 垂直等距吸附（上方两个邻居 — 末尾位置）
+function tryApplySpacingYEndAbove(
+  target: fabric.FabricObject, tw: number, th: number,
+  a: any, b: any, curTop: number, curLeft: number,
+): boolean {
+  const existingGap = b.top - a.bottom
+  const myGap = curTop - b.bottom
+  if (existingGap <= 2 || Math.abs(myGap - existingGap) >= SNAP_THRESHOLD) return false
+  target.set('top', b.bottom + existingGap)
+  const markX = Math.max(a.left, b.left, curLeft) + Math.min(a.right - a.left, b.right - b.left, tw) / 2
+  addGuideLine(markX, a.bottom, markX, b.top)
+  addGuideLine(markX - 6, a.bottom, markX + 6, a.bottom)
+  addGuideLine(markX - 6, b.top, markX + 6, b.top)
+  addGuideLine(markX, b.bottom, markX, b.bottom + existingGap)
+  addGuideLine(markX - 6, b.bottom, markX + 6, b.bottom)
+  addGuideLine(markX - 6, b.bottom + existingGap, markX + 6, b.bottom + existingGap)
+  return true
+}
+
+// 垂直等距吸附（下方两个邻居 — 起始位置）
+function tryApplySpacingYStartBelow(
+  target: fabric.FabricObject, tw: number, th: number,
+  a: any, b: any, curBottom: number, curLeft: number,
+): boolean {
+  const existingGap = b.top - a.bottom
+  const myGap = a.top - curBottom
+  if (existingGap <= 2 || Math.abs(myGap - existingGap) >= SNAP_THRESHOLD) return false
+  target.set('top', a.top - existingGap - th)
+  const markX = Math.max(a.left, b.left, curLeft) + Math.min(a.right - a.left, b.right - b.left, tw) / 2
+  addGuideLine(markX, a.bottom, markX, b.top)
+  addGuideLine(markX - 6, a.bottom, markX + 6, a.bottom)
+  addGuideLine(markX - 6, b.top, markX + 6, b.top)
+  const snapBottom = a.top - existingGap
+  addGuideLine(markX, snapBottom, markX, a.top)
+  addGuideLine(markX - 6, snapBottom, markX + 6, snapBottom)
+  addGuideLine(markX - 6, a.top, markX + 6, a.top)
+  return true
+}
+
+// 全屏页渲染：设置 StaticCanvas 尺寸
+function setupFsCanvasCanvas(el: HTMLCanvasElement): fabric.StaticCanvas {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const scale = Math.min(vw / CANVAS_W, vh / CANVAS_H)
+  const dpr = window.devicePixelRatio || 1
+  const canvas = new fabric.StaticCanvas(el, {
+    width: CANVAS_W,
+    height: CANVAS_H,
+    enableRetinaScaling: false,
+  })
+  canvas.setDimensions({ width: Math.floor(CANVAS_W * scale), height: Math.floor(CANVAS_H * scale) }, { cssOnly: true } as any)
+  canvas.setDimensions({ width: Math.floor(CANVAS_W * scale * dpr), height: Math.floor(CANVAS_H * scale * dpr) }, { backstoreOnly: true } as any)
+  canvas.setZoom(scale * dpr)
+  return canvas
+}
+
+// 计算当前矩形（用于间距计算）
+function computeCurrentRect(target: fabric.FabricObject) {
+  const cl = target.left || 0
+  const ct = target.top || 0
+  const tw = (target.width || 0) * (target.scaleX || 1)
+  const th = (target.height || 0) * (target.scaleY || 1)
+  return {
+    left: cl, top: ct, right: cl + tw, bottom: ct + th,
+    cx: cl + tw / 2, cy: ct + th / 2,
+    tw, th,
+  }
+}
+
+// 将 rectangle/group 类型渲染到画布
+function addRectangleToCanvas(
+  fc: fabric.Canvas, block: any, style: any,
+  left: number, top: number, width: number, height: number,
+  stroke: string, strokeWidth: number, opacity: number,
+  bgVal: string, bx: number, by: number, bw: number, bh: number, type: string,
+) {
+  const shapeShadow = hasBoxShadowStyle(style) ? parseBoxShadowStyle(style.box_shadow) : undefined
+  const rect = new fabric.Rect({
+    left, top, width, height,
+    fill: resolveBackground(bgVal, width, height),
+    stroke, strokeWidth,
+    rx: parseFloat(style.border_radius) || 0,
+    ry: parseFloat(style.border_radius) || 0,
+    shadow: shapeShadow || null,
+    opacity,
+    selectable: true,
+  })
+  ;(rect as any)._blockId = block.id
+  ;(rect as any)._blockType = type
+  fc.add(rect)
+  drawSideBorders(style, left, top, width, height)
+  const childRect = { x: bx, y: by, w: bw, h: bh }
+  for (const child of (block.children || [])) {
+    addBlockToCanvas(child, childRect)
+  }
+}
+
+// 将 circle 类型渲染到画布
+function addCircleToCanvas(
+  fc: fabric.Canvas, block: any, style: any,
+  left: number, top: number, width: number, height: number,
+  stroke: string, strokeWidth: number, opacity: number,
+  bgVal: string, type: string,
+  addTextObject: (content: string, boxLeft: number, boxTop: number, boxWidth: number, boxHeight: number, textStyle: any, attachBlockIdentity: boolean) => void,
+) {
+  const r = Math.min(width, height) / 2
+  const circle = new fabric.Circle({
+    left, top, radius: r,
+    fill: resolveBackground(bgVal, r * 2, r * 2),
+    stroke, strokeWidth,
+    opacity,
+    selectable: true,
+  })
+  ;(circle as any)._blockId = block.id
+  ;(circle as any)._blockType = type
+  fc.add(circle)
+  addTextObject(block.content || '', left, top, r * 2, r * 2, {
+    ...style,
+    text_align: style.text_align || 'center',
+    vertical_align: style.vertical_align || 'middle',
+  }, false)
+}
+
+// 将 text_box 类型渲染到画布
+function addTextBoxToCanvas(
+  fc: fabric.Canvas, block: any, style: any,
+  left: number, top: number, width: number, height: number,
+  addTextObject: (content: string, boxLeft: number, boxTop: number, boxWidth: number, boxHeight: number, textStyle: any, attachBlockIdentity: boolean) => void,
+) {
+  renderBlockContainer(block.id, style, left, top, width, height)
+  addTextObject(block.content || '', left, top, width, height, style, true)
+}
+
+// 将 line 类型渲染到画布
+function addLineToCanvas(
+  fc: fabric.Canvas, block: any, style: any,
+  left: number, top: number, width: number, height: number,
+  opacity: number, bx: number, by: number, type: string,
+  parentRect: { x: number; y: number; w: number; h: number },
+) {
+  const coordSpace = (block.coordinate_space || 'page').toLowerCase()
+  const endpointX = block.x2 ?? block.x ?? 0
+  const endpointY = block.y2 ?? block.y ?? 0
+  const x1 = bx * CANVAS_W
+  const y1 = by * CANVAS_H
+  const x2 = (coordSpace === 'parent' ? parentRect.x + endpointX * parentRect.w : endpointX) * CANVAS_W
+  const y2 = (coordSpace === 'parent' ? parentRect.y + endpointY * parentRect.h : endpointY) * CANVAS_H
+  const lineColor = style.color || style.background || '#000000'
+  const lineWeight = parseFloat(style.line_weight) || 2
+  const line = new fabric.Line([x1, y1, x2, y2], {
+    stroke: isTransparent(lineColor) ? '#000' : lineColor,
+    strokeWidth: lineWeight,
+    opacity,
+    selectable: true,
+  })
+  ;(line as any)._blockId = block.id
+  ;(line as any)._blockType = type
+  fc.add(line)
+}
+
+// 将 icon 类型渲染到画布
+function addIconToCanvas(
+  fc: fabric.Canvas, block: any, style: any,
+  left: number, top: number, width: number, height: number, type: string,
+) {
+  renderBlockContainer(block.id, style, left, top, width, height)
+  let iconName = (block.icon || block.content || 'sparkles').trim()
+  iconName = iconName.replace(/^(tabler:|icon[-:])/i, '').trim() || 'sparkles'
+  const iconColor = style.color || props.blueprint?.theme?.accent_color || '#3b82f6'
+  const colorHex = iconColor.replace('#', '')
+  const canvas = fc
+  const ocW = Math.max(Math.round(width), 8) * 2
+  const ocH = Math.max(Math.round(height), 8) * 2
+  const svgUrl = `/askai-api/api/icons/${encodeURIComponent(iconName)}.svg?color=${colorHex}`
+  const img = new Image()
+  img.crossOrigin = 'anonymous'
+  img.onload = () => {
+    if (!canvas) return
+    const oc = document.createElement('canvas')
+    oc.width = ocW
+    oc.height = ocH
+    const ctx = oc.getContext('2d')!
+    ctx.clearRect(0, 0, ocW, ocH)
+    const iconSize = Math.min(ocW, ocH)
+    const dx = (ocW - iconSize) / 2
+    const dy = (ocH - iconSize) / 2
+    ctx.drawImage(img, dx, dy, iconSize, iconSize)
+    const fabricImg = new fabric.FabricImage(oc, {
+      left,
+      top,
+      scaleX: width / ocW,
+      scaleY: height / ocH,
+      selectable: true,
+      objectCaching: false,
+    })
+    ;(fabricImg as any)._blockId = block.id
+    ;(fabricImg as any)._blockType = type
+    canvas.add(fabricImg)
+    canvas.renderAll()
+  }
+  img.onerror = () => addIconFallback(canvas!, block.id, type, left, top, width, height, iconName, iconColor)
+  img.src = svgUrl
+}
+
+// 将 chart 类型渲染到画布
+function addChartToCanvas(
+  fc: fabric.Canvas, block: any, style: any,
+  left: number, top: number, width: number, height: number, type: string,
+) {
+  renderBlockContainer(block.id, style, left, top, width, height)
+  const chartType = block.chart_type || ''
+  const chartData = block.chart_data || {}
+  const chartTitle = chartData.title || block.content || t('ppt.chart_placeholder')
+  const canvas = fc
+  const pxW = Math.round(Math.max(width, 160))
+  const pxH = Math.round(Math.max(height, 120))
+  const theme = props.blueprint?.theme || {}
+  const chartTheme = {
+    accent_color: theme.accent_color || '#2563eb',
+    title_color: theme.title_color || '#0f172a',
+    body_color: theme.body_color || '#334155',
+    muted_color: theme.muted_color || '#64748b',
+    surface_background: theme.surface_background || '#ffffff',
+    page_background: theme.page_background || '#ffffff',
+  }
+  if (chartType) {
+    fetch('/askai-api/api/documents/render-chart-svg', {
+      method: 'POST',
+      headers: authenticatedJsonHeaders(),
+      body: JSON.stringify({
+        chart_type: chartType,
+        chart_data: chartData,
+        width: pxW,
+        height: pxH,
+        theme: chartTheme,
+      }),
+    })
+      .then(r => r.ok ? r.text() : Promise.reject('chart render failed'))
+      .then(svgStr => {
+        if (!canvas) return
+        const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr)
+        return fabric.FabricImage.fromURL(dataUrl).then((img: any) => {
+          if (!canvas) return
+          const imgW = img.width || pxW
+          const imgH = img.height || pxH
+          img.set({
+            left, top,
+            scaleX: width / imgW,
+            scaleY: height / imgH,
+            selectable: true,
+          })
+          ;(img as any)._blockId = block.id
+          ;(img as any)._blockType = type
+          canvas.add(img)
+          canvas.renderAll()
+        })
+      })
+      .catch(() => {
+        addChartPlaceholder(canvas!, block.id, type, left, top, width, height, chartTitle)
+      })
+  } else {
+    addChartPlaceholder(canvas!, block.id, type, left, top, width, height, chartTitle)
+  }
+}
+
+// 将 image 类型渲染到画布
+function addImageToCanvas(
+  fc: fabric.Canvas, block: any, style: any,
+  left: number, top: number, width: number, height: number, type: string,
+) {
+  renderBlockContainer(block.id, style, left, top, width, height)
+  const src = String(block.content || '').trim()
+  const isRealUrl = src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')
+  if (isRealUrl) {
+    const canvasRef = fc!
+    const slot = new fabric.Rect({
+      left, top, width, height,
+      fill: '#e8ecf0',
+      stroke: '#b0b8c4',
+      strokeWidth: 1,
+      strokeDashArray: [4, 4],
+      rx: 8, ry: 8,
+      selectable: false,
+      evented: false,
+    })
+    ;(slot as any)._blockId = block.id + '_image_slot'
+    ;(slot as any)._blockType = 'container'
+    ;(slot as any)._isGuide = true
+    canvasRef.add(slot)
+    const nativeImg = new Image()
+    const radiusPx = (() => {
+      const r = parseFloat(String(style.border_radius ?? style.borderRadius ?? '')) || 12
+      return Math.max(0, Math.min(r, Math.min(width, height) / 2))
+    })()
+    nativeImg.onload = () => {
+      if (!canvasRef) return
+      const iw = nativeImg.naturalWidth || nativeImg.width || 1
+      const ih = nativeImg.naturalHeight || nativeImg.height || 1
+      const dpr = 2
+      const ocW = Math.max(Math.round(width), 8) * dpr
+      const ocH = Math.max(Math.round(height), 8) * dpr
+      const oc = document.createElement('canvas')
+      oc.width = ocW
+      oc.height = ocH
+      const ctx = oc.getContext('2d')!
+      const r = radiusPx * dpr
+      ctx.beginPath()
+      ctx.moveTo(r, 0)
+      ctx.lineTo(ocW - r, 0)
+      ctx.quadraticCurveTo(ocW, 0, ocW, r)
+      ctx.lineTo(ocW, ocH - r)
+      ctx.quadraticCurveTo(ocW, ocH, ocW - r, ocH)
+      ctx.lineTo(r, ocH)
+      ctx.quadraticCurveTo(0, ocH, 0, ocH - r)
+      ctx.lineTo(0, r)
+      ctx.quadraticCurveTo(0, 0, r, 0)
+      ctx.closePath()
+      ctx.clip()
+      const scale = Math.max(ocW / iw, ocH / ih)
+      const drawW = iw * scale
+      const drawH = ih * scale
+      const dx = (ocW - drawW) / 2
+      const dy = (ocH - drawH) / 2
+      ctx.drawImage(nativeImg, dx, dy, drawW, drawH)
+      const fabricImg = new fabric.FabricImage(oc, {
+        left, top,
+        scaleX: width / ocW,
+        scaleY: height / ocH,
+        selectable: true,
+        objectCaching: false,
+      })
+      ;(fabricImg as any)._blockId = block.id
+      ;(fabricImg as any)._blockType = type
+      const objs = canvasRef.getObjects()
+      const slotIndex = objs.indexOf(slot as any)
+      canvasRef.remove(slot)
+      canvasRef.add(fabricImg)
+      if (slotIndex >= 0 && typeof (canvasRef as any).moveObjectTo === 'function') {
+        ;(canvasRef as any).moveObjectTo(fabricImg, slotIndex)
+      } else if (slotIndex >= 0 && typeof (fabricImg as any).moveTo === 'function') {
+        ;(fabricImg as any).moveTo(slotIndex)
+      }
+      canvasRef.renderAll()
+    }
+    nativeImg.onerror = () => {
+      if (canvasRef) canvasRef.remove(slot)
+      addImagePlaceholder(fc!, block, type, left, top, width, height)
+    }
+    nativeImg.src = src
+  } else {
+    addImagePlaceholder(fc!, block, type, left, top, width, height)
+  }
+}
+
+
+// 应用间距吸附逻辑
+function applySpacingSnaps(
+  target: fabric.FabricObject, r: any, cur: any,
+  toLeft: any[], toRight: any[], above: any[], below: any[],
+) {
+  let spacingSnappedX = false
+  let spacingSnappedY = false
+  if (toLeft.length > 0 && toRight.length > 0) {
+    spacingSnappedX = tryApplySpacingXBetween(target, r.tw, r.th, toLeft[0], toRight[0], cur.left, cur.right, cur.top)
+  }
+  if (!spacingSnappedX && toLeft.length >= 2) {
+    spacingSnappedX = tryApplySpacingXEndLeft(target, r.tw, r.th, toLeft[1], toLeft[0], cur.left, cur.top)
+  }
+  if (!spacingSnappedX && toRight.length >= 2) {
+    tryApplySpacingXStartRight(target, r.tw, r.th, toRight[0], toRight[1], cur.right, cur.top)
+  }
+  if (above.length > 0 && below.length > 0) {
+    spacingSnappedY = tryApplySpacingYBetween(target, r.tw, r.th, above[0], below[0], cur.top, cur.bottom, cur.left)
+  }
+  if (!spacingSnappedY && above.length >= 2) {
+    spacingSnappedY = tryApplySpacingYEndAbove(target, r.tw, r.th, above[1], above[0], cur.top, cur.left)
+  }
+  if (!spacingSnappedY && below.length >= 2) {
+    tryApplySpacingYStartBelow(target, r.tw, r.th, below[0], below[1], cur.bottom, cur.left)
+  }
+}
 </script>
 
 <template>

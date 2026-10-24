@@ -181,7 +181,7 @@ async function realReport(subject: string, selected?: ChapterKey[]): Promise<Res
     }
     const text = await resp.text()
     const assistant = extractAssistantContent(text)
-    let data: any = null
+    let data: any
     try { data = JSON.parse(assistant) } catch { data = null }
     const now = new Date().toISOString()
     if (!data || !Array.isArray(data.chapters)) {
@@ -230,23 +230,48 @@ function researchPrompt(subject: string, selected?: ChapterKey[]): string {
 要求：章节顺序固定为市场情报→产品功能对比→财务估值→社媒舆情；每章 2–3 个 section，每个 section 有 heading 与 body；语言用中文；所有字段都要填写，不要留空。`
 }
 
+// NDJSON 事件的结构（仅保留 extractAssistantContent 用到的字段）。
+type NdjsonEvent = {
+    choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>
+    message?: { content?: string }
+    content?: string
+    text?: string
+    delta?: { content?: string }
+}
+
+// 解析单行 NDJSON；空行与非法 JSON 返回 undefined。
+function parseNdjsonEvent(line: string): NdjsonEvent | undefined {
+    const s = line.trim()
+    if (!s) return undefined
+    try {
+        const ev = JSON.parse(s)
+        if (!ev || typeof ev !== 'object') return undefined
+        return ev
+    } catch { /* ignore non-JSON lines */ }
+}
+
+// 取 choices 形态的内容字段（delta 或 message）。
+function pickChoicesContent(ev: NdjsonEvent): string | undefined {
+    return ev.choices?.[0]?.delta?.content ?? ev.choices?.[0]?.message?.content
+}
+
+// 取扁平形态的内容字段。
+function pickFlatContent(ev: NdjsonEvent): string | undefined {
+    return ev.message?.content ?? ev.content ?? ev.text ?? ev.delta?.content
+}
+
+// 按优先级取单条事件的正文内容。
+function pickEventContent(ev: NdjsonEvent): string | undefined {
+    return pickChoicesContent(ev) ?? pickFlatContent(ev)
+}
+
 function extractAssistantContent(ndjson: string): string {
     const parts: string[] = []
     for (const line of ndjson.split('\n')) {
-        const s = line.trim()
-        if (!s) continue
-        try {
-            const ev = JSON.parse(s)
-            if (!ev || typeof ev !== 'object') continue
-            const content =
-                ev.choices?.[0]?.delta?.content ??
-                ev.choices?.[0]?.message?.content ??
-                ev.message?.content ??
-                ev.content ??
-                ev.text ??
-                ev.delta?.content
-            if (typeof content === 'string') parts.push(content)
-        } catch { /* ignore non-JSON lines */ }
+        const ev = parseNdjsonEvent(line)
+        if (!ev) continue
+        const content = pickEventContent(ev)
+        if (typeof content === 'string') parts.push(content)
     }
     return parts.join('')
 }

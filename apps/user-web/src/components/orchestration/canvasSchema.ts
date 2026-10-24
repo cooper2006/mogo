@@ -250,6 +250,74 @@ export function canvasToEngineDocument(canvas: CanvasDocument): EngineDocument {
   return document;
 }
 
+type EngineHeader = EngineDocument['orchestration'];
+
+/** 从 payload 中安全取字符串字段（非字符串或缺失返回 undefined）。 */
+function stringField(payload: Record<string, unknown>, key: string): string | undefined {
+  return typeof payload[key] === 'string' ? (payload[key] as string) : undefined;
+}
+
+/** 从 payload 中安全取数字字段（非数字或缺失返回 undefined）。 */
+function numberField(payload: Record<string, unknown>, key: string): number | undefined {
+  return typeof payload[key] === 'number' ? (payload[key] as number) : undefined;
+}
+
+/** 单个引擎节点 → 画布节点：x_canvas 投影优先，缺失时按 type 推断 kind、按 id 取标签。 */
+function mapEngineNode(node: EngineNode): CanvasNode {
+  const payload = (node.payload || {}) as Record<string, unknown>;
+  const canvas = payload['x_canvas'] as Partial<CanvasNodeData> & { kind?: CanvasNodeKind } | undefined;
+  const kind = canvas?.kind ?? kindForEngineType(String(node.type || 'llm'));
+  return {
+    id: String(node.id),
+    kind,
+    position: { x: 0, y: 0 },
+    data: {
+      label: canvas?.label ?? String(node.id),
+      skill: stringField(payload, 'skill'),
+      tool: stringField(payload, 'tool'),
+      tools: Array.isArray(payload['tools']) ? (payload['tools'] as string[]) : undefined,
+      timeout: numberField(payload, 'timeout'),
+      description: stringField(payload, 'description'),
+      outputKey: stringField(payload, 'output_key'),
+      conditionExpr: (node.skip_condition as { expr?: string } | undefined)?.expr ?? (payload['condition_expr'] as string | undefined),
+      falseBranchReason: (node.skip_condition as { reason?: string } | undefined)?.reason,
+      multiAgentMode: canvas?.multiAgentMode ?? (kind === 'roundRobin' ? 'round_robin' : kind === 'debate' ? 'debate' : undefined),
+    },
+  };
+}
+
+/** 单个引擎边 → 画布边（id 带下标避免同源同宿点重复）。 */
+function mapEngineEdge(edge: { source: string; target: string }, index: number): CanvasEdge {
+  return {
+    id: `e_${edge.source}_${edge.target}_${index}`,
+    source: String(edge.source),
+    target: String(edge.target),
+  };
+}
+
+/** 解析 orchestration 头部：mode 仅识别 sequential，其余归为 graph；可选字段按需附加。 */
+function resolveOrchestrationHeader(header: EngineHeader): CanvasDocument['orchestration'] {
+  const result: CanvasDocument['orchestration'] = {
+    id: String(header.id || ''),
+    version: String(header.version || '1'),
+    mode: (header.mode === 'sequential' ? 'sequential' : 'graph') as SupportedMode,
+  };
+  if (typeof header.max_concurrency === 'number') result.maxConcurrency = header.max_concurrency;
+  if (typeof header.timeout === 'number') result.timeout = header.timeout;
+  if (header.retry && typeof header.retry === 'object') result.retry = header.retry as CanvasDocument['orchestration']['retry'];
+  return result;
+}
+
+/** 恢复节点位置：显式 layout 优先，否则按入度做分层自动布局（位置可丢失）。 */
+function applyLayout(nodes: CanvasNode[], edges: CanvasEdge[], layout: EngineDocument['layout']): void {
+  const positions = (layout || {}) as Record<string, CanvasPosition>;
+  const layered = autoLayout(nodes, edges);
+  nodes.forEach((node) => {
+    const explicit = positions[node.id];
+    node.position = explicit && typeof explicit.x === 'number' ? { x: explicit.x, y: explicit.y } : layered[node.id] ?? { x: 0, y: 0 };
+  });
+}
+
 /**
  * 引擎权威文档 → 画布。
  *
@@ -259,64 +327,16 @@ export function canvasToEngineDocument(canvas: CanvasDocument): EngineDocument {
  * * 未知顶层键（data_contract/audit）与本函数无关，不修改、不删除。
  */
 export function engineDocumentToCanvas(document: EngineDocument): CanvasDocument {
-  const nodes: CanvasNode[] = [];
-  for (const node of document.nodes || []) {
-    const payload = (node.payload || {}) as Record<string, unknown>;
-    const canvas = payload['x_canvas'] as Partial<CanvasNodeData> & { kind?: CanvasNodeKind } | undefined;
-    const kind = canvas?.kind ?? kindForEngineType(String(node.type || 'llm'));
-    const label = canvas?.label ?? String(node.id);
-    const multiAgentMode = canvas?.multiAgentMode ?? (kind === 'roundRobin' ? 'round_robin' : kind === 'debate' ? 'debate' : undefined);
-    const conditionExpr = (node.skip_condition as { expr?: string } | undefined)?.expr ?? (payload['condition_expr'] as string | undefined);
+  const nodes: CanvasNode[] = (document.nodes || []).map(mapEngineNode);
+  const edges: CanvasEdge[] = (document.edges || []).map((edge, index) => mapEngineEdge(edge, index));
 
-    nodes.push({
-      id: String(node.id),
-      kind,
-      position: { x: 0, y: 0 },
-      data: {
-        label,
-        skill: typeof payload['skill'] === 'string' ? payload['skill'] : undefined,
-        tool: typeof payload['tool'] === 'string' ? payload['tool'] : undefined,
-        tools: Array.isArray(payload['tools']) ? (payload['tools'] as string[]) : undefined,
-        timeout: typeof payload['timeout'] === 'number' ? payload['timeout'] : undefined,
-        description: typeof payload['description'] === 'string' ? payload['description'] : undefined,
-        outputKey: typeof payload['output_key'] === 'string' ? payload['output_key'] : undefined,
-        conditionExpr,
-        falseBranchReason: (node.skip_condition as { reason?: string } | undefined)?.reason,
-        multiAgentMode,
-      },
-    });
-  }
-
-  const edges: CanvasEdge[] = (document.edges || []).map((edge, index) => ({
-    id: `e_${edge.source}_${edge.target}_${index}`,
-    source: String(edge.source),
-    target: String(edge.target),
-  }));
-
-  const header = document.orchestration || {};
   const canvasDoc: CanvasDocument = {
-    orchestration: {
-      id: String(header.id || ''),
-      version: String(header.version || '1'),
-      mode: (header.mode === 'sequential' ? 'sequential' : 'graph') as SupportedMode,
-    },
+    orchestration: resolveOrchestrationHeader(document.orchestration || {}),
     nodes,
     edges,
     layout: {},
   };
-  if (typeof header.max_concurrency === 'number') canvasDoc.orchestration.maxConcurrency = header.max_concurrency;
-  if (typeof header.timeout === 'number') canvasDoc.orchestration.timeout = header.timeout;
-  if (header.retry && typeof header.retry === 'object') canvasDoc.orchestration.retry = header.retry as CanvasDocument['orchestration']['retry'];
-
-  // 位置恢复：显式 layout 优先，否则按入度做分层自动布局（位置可丢失）。
-  const layout = document.layout || {};
-  const positions = layout as Record<string, CanvasPosition>;
-  const layered = autoLayout(nodes, edges);
-  nodes.forEach((node) => {
-    const explicit = positions[node.id];
-    node.position = explicit && typeof explicit.x === 'number' ? { x: explicit.x, y: explicit.y } : layered[node.id] ?? { x: 0, y: 0 };
-  });
-
+  applyLayout(nodes, edges, document.layout);
   return canvasDoc;
 }
 

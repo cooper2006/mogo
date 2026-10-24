@@ -26,6 +26,73 @@ export interface ChatStreamHandle {
   abort: () => void
 }
 
+function buildChatStreamHeaders(opts: { authToken?: string | null }): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (opts.authToken) headers.Authorization = `Bearer ${opts.authToken}`
+  return headers
+}
+
+/** 从失败响应体中提取人类可读的错误文案；解析失败时回退到状态码文案。 */
+async function readChatStreamError(resp: Response): Promise<string> {
+  const fallback = `Request failed: ${resp.status}`
+  try {
+    if (String(resp.headers.get('content-type') || '').includes('application/json')) {
+      const payload = await resp.json()
+      const detail = payload?.detail
+      if (typeof detail === 'string' && detail.trim()) return detail.trim()
+      if (detail?.message) return String(detail.message)
+      if (payload?.message) return String(payload.message)
+      return fallback
+    }
+    return (await resp.text()).trim() || fallback
+  } catch {
+    // Ignore parse failures and keep the status-based fallback.
+    return fallback
+  }
+}
+
+function captureStreamHeaders(resp: Response, handle: ChatStreamHandle, opts: {
+  onSessionId?: (sid: string) => void
+  onMessageId?: (mid: string) => void
+}): void {
+  const sid = resp.headers.get('X-Session-Id')
+  if (sid) {
+    handle.sessionId = sid
+    opts.onSessionId?.(sid)
+  }
+  const mid = resp.headers.get('X-Message-Id')
+  if (mid) {
+    handle.messageId = mid
+    opts.onMessageId?.(mid)
+  }
+}
+
+/** 按行读取 NDJSON 响应体并逐条派发事件，尾部残行同样按完整事件处理。 */
+async function pumpChatStreamBody(body: NonNullable<Response['body']>, onEvent: (ev: ExecutionEventV3) => void): Promise<void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      const s = line.trim()
+      if (!s) continue
+      try {
+        onEvent(JSON.parse(s) as ExecutionEventV3)
+      } catch {
+        console.warn('[chat-stream] bad line', s)
+      }
+    }
+  }
+  if (buffer.trim()) {
+    try { onEvent(JSON.parse(buffer.trim()) as ExecutionEventV3) } catch { /* ignore */ }
+  }
+}
+
 export function startChatStream(
   body: ChatStreamRequest,
   onEvent: (ev: ExecutionEventV3) => void,
@@ -47,73 +114,18 @@ export function startChatStream(
 
   handle.done = (async () => {
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (opts.authToken) headers.Authorization = `Bearer ${opts.authToken}`
       const resp = await fetch('/askai-api/api/chat/completions', {
         method: 'POST',
-        headers,
+        headers: buildChatStreamHeaders(opts),
         body: JSON.stringify(body),
         signal: ctrl.signal,
       })
       notifyAuthExpiredFromResponse(resp, Boolean(opts.authToken))
-      if (!resp.ok) {
-        let errorMessage = `Request failed: ${resp.status}`
-        try {
-          const contentType = resp.headers.get('content-type') || ''
-          if (contentType.includes('application/json')) {
-            const payload = await resp.json()
-            const detail = payload?.detail
-            if (typeof detail === 'string' && detail.trim()) {
-              errorMessage = detail.trim()
-            } else if (detail?.message) {
-              errorMessage = String(detail.message)
-            } else if (payload?.message) {
-              errorMessage = String(payload.message)
-            }
-          } else {
-            const text = (await resp.text()).trim()
-            if (text) errorMessage = text
-          }
-        } catch {
-          // Ignore parse failures and keep the status-based fallback.
-        }
-        throw new Error(errorMessage)
-      }
-      const sid = resp.headers.get('X-Session-Id')
-      if (sid) {
-        handle.sessionId = sid
-        opts.onSessionId?.(sid)
-      }
-      const mid = resp.headers.get('X-Message-Id')
-      if (mid) {
-        handle.messageId = mid
-        opts.onMessageId?.(mid)
-      }
+      if (!resp.ok) throw new Error(await readChatStreamError(resp))
+      captureStreamHeaders(resp, handle, opts)
       readiness.settle()
       if (!resp.body) throw new Error('No response body')
-
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-        for (const line of lines) {
-          const s = line.trim()
-          if (!s) continue
-          try {
-            onEvent(JSON.parse(s) as ExecutionEventV3)
-          } catch (e) {
-            console.warn('[chat-stream] bad line', s)
-          }
-        }
-      }
-      if (buffer.trim()) {
-        try { onEvent(JSON.parse(buffer.trim()) as ExecutionEventV3) } catch { /* ignore */ }
-      }
+      await pumpChatStreamBody(resp.body, onEvent)
     } finally {
       readiness.settle()
     }

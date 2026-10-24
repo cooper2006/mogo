@@ -6,16 +6,31 @@ export interface ChangeStatusPresentation {
   tone: ChangeTone
 }
 
+/** 按语言挑选文案：元组顺序为 [英文, 中文]。 */
+function pick(english: boolean, texts: [string, string]): string {
+  return english ? texts[0] : texts[1]
+}
+
+/** Git 状态码匹配规则；顺序敏感——先判未跟踪与冲突，再判删除/重命名/新增/修改。 */
+const STATUS_RULES: Array<{ match: (code: string) => boolean; label: string; tone: ChangeTone; text: [string, string] }> = [
+  { match: (c) => c === '??', label: 'U', tone: 'added', text: ['Untracked file', '尚未被 Git 跟踪的新文件'] },
+  { match: (c) => c.includes('U') || c === 'AA' || c === 'DD', label: 'C', tone: 'conflict', text: ['Merge conflict', '存在尚未解决的合并冲突'] },
+  { match: (c) => c.includes('D'), label: 'D', tone: 'deleted', text: ['Deleted file', '已删除的文件'] },
+  { match: (c) => c.includes('R'), label: 'R', tone: 'renamed', text: ['Renamed file', '已重命名的文件'] },
+  { match: (c) => c.includes('A'), label: 'A', tone: 'added', text: ['Added file', '已添加到 Git 的新文件'] },
+  { match: (c) => c.includes('M'), label: 'M', tone: 'modified', text: ['Modified file', '内容已修改的文件'] },
+]
+
 export function changeStatusPresentation(status: string, locale: 'zh' | 'en' = 'zh'): ChangeStatusPresentation {
-  const code = status.trim().toUpperCase()
   const english = locale === 'en'
-  if (code === '??') return { label: 'U', description: english ? 'Untracked file' : '尚未被 Git 跟踪的新文件', tone: 'added' }
-  if (code.includes('U') || code === 'AA' || code === 'DD') return { label: 'C', description: english ? 'Merge conflict' : '存在尚未解决的合并冲突', tone: 'conflict' }
-  if (code.includes('D')) return { label: 'D', description: english ? 'Deleted file' : '已删除的文件', tone: 'deleted' }
-  if (code.includes('R')) return { label: 'R', description: english ? 'Renamed file' : '已重命名的文件', tone: 'renamed' }
-  if (code.includes('A')) return { label: 'A', description: english ? 'Added file' : '已添加到 Git 的新文件', tone: 'added' }
-  if (code.includes('M')) return { label: 'M', description: english ? 'Modified file' : '内容已修改的文件', tone: 'modified' }
-  return { label: code || (english ? 'Changed' : '变更'), description: english ? 'Changed file' : '发生变更的文件', tone: 'neutral' }
+  const code = status.trim().toUpperCase()
+  const rule = STATUS_RULES.find((r) => r.match(code))
+  if (rule) return { label: rule.label, description: pick(english, rule.text), tone: rule.tone }
+  return {
+    label: code || pick(english, ['Changed', '变更']),
+    description: pick(english, ['Changed file', '发生变更的文件']),
+    tone: 'neutral',
+  }
 }
 
 export type FileTone = 'typescript' | 'javascript' | 'python' | 'vue' | 'json' | 'web' | 'style' | 'markdown' | 'config' | 'shell' | 'database' | 'native' | 'generic'

@@ -115,12 +115,23 @@ function onCancel() {
 
 onUnmounted(() => { stream.value?.close(); if (recording.value && props.userId) void stopRecording(props.userId, 'default', recordingId.value) })
 
+/** 录制事件的展示名：优先 target.name，其次 text、aria_label。 */
+function targetDisplayName(target: RecordingEvent['target']): string {
+  return target?.name || target?.text || target?.aria_label || ''
+}
+
+/** 各录制事件类型的文案渲染器；未登记的事件类型直接回显其 type。 */
+const EVENT_LABEL_RENDERERS: Partial<Record<RecordingEvent['type'], (ev: RecordingEvent, name: string) => string>> = {
+  click: (_ev, name) => (name ? t('recording.event.click', { name }) : t('recording.event.click_fallback')),
+  fill: (ev, name) =>
+    t('recording.event.fill', { val: (ev.value || '').slice(0, 30), name: name || t('recording.event.fill_fallback') }),
+  select: (_ev, name) => t('recording.event.select', { name: name || t('recording.event.select_fallback') }),
+  navigate: (ev) => t('recording.event.navigate', { url: ev.url || '' }),
+}
+
 function eventLabel(ev: RecordingEvent): string {
-  const n = ev.target?.name || ev.target?.text || ev.target?.aria_label || ''
-  if (ev.type === 'click') return n ? t('recording.event.click', { name: n }) : t('recording.event.click_fallback')
-  if (ev.type === 'fill') return t('recording.event.fill', { val: (ev.value || '').slice(0, 30), name: n || t('recording.event.fill_fallback') })
-  if (ev.type === 'select') return t('recording.event.select', { name: n || t('recording.event.select_fallback') })
-  if (ev.type === 'navigate') return t('recording.event.navigate', { url: ev.url || '' })
+  const render = EVENT_LABEL_RENDERERS[ev.type]
+  if (render) return render(ev, targetDisplayName(ev.target))
   return ev.type
 }
 </script>

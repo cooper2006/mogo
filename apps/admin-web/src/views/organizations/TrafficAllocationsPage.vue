@@ -434,42 +434,67 @@ function userContactText(row: UserAllocationItem) {
   return parts.length ? parts.join(' / ') : '-';
 }
 
-const metricCards = computed(() => {
-  const org = overview.value?.orgPolicy;
-  const def = overview.value?.defaultPolicy;
-  return [
-    {
-      key: 'pool',
-      label: t('企业总额度'),
-      value: org?.unlimited ? t('不限额') : formatTokens(org?.totalTokens || 0),
-      note: org?.unlimited
-        ? t('企业本周期额度不限额')
-        : `${periodLabel(org?.period || 'monthly')} · ${t('下次重置')} ${formatDateTime(org?.resetAt)}`,
-      icon: '<svg viewBox="0 0 24 24"><path d="M4 19h16M6 17V9m6 8V5m6 12v-6" /></svg>',
-    },
-    {
-      key: 'used',
-      label: t('本周期已用'),
-      value: formatTokens(org?.usedTokens || 0),
-      note: org?.unlimited ? t('不限额度') : `${t('剩余')} ${formatTokens(org?.remainingTokens || 0)} Token`,
-      icon: '<svg viewBox="0 0 24 24"><path d="M12 3v18M6 8h9a3 3 0 0 1 0 6H9" /></svg>',
-    },
-    {
-      key: 'default',
-      label: t('默认成员额度'),
-      value: def?.unlimited ? t('不限额') : formatTokens(def?.quotaTokens || 0),
-      note: `${periodLabel(def?.period || 'monthly')} · ${def?.status === 'active' ? t('启用') : t('禁用')}`,
-      icon: '<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87" /></svg>',
-    },
-    {
-      key: 'policy',
-      label: t('自定义额度用户'),
-      value: String(overview.value?.assignedPolicyCount || 0),
-      note: `${t('已分配专属额度')} ${formatTokens(overview.value?.assignedTokens || 0)} Token`,
-      icon: '<svg viewBox="0 0 24 24"><path d="m9 12 2 2 4-5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>',
-    },
-  ];
-});
+/** 指标卡片结构：模板按 key / label / value / note / icon 渲染。 */
+interface MetricCard {
+  key: string;
+  label: string;
+  value: string;
+  note: string;
+  icon: string;
+}
+
+/** 企业总额度卡片：不限额时展示不限额文案。 */
+function buildPoolMetricCard(org?: TrafficAllocationOverview['orgPolicy']): MetricCard {
+  return {
+    key: 'pool',
+    label: t('企业总额度'),
+    value: org?.unlimited ? t('不限额') : formatTokens(org?.totalTokens || 0),
+    note: org?.unlimited
+      ? t('企业本周期额度不限额')
+      : `${periodLabel(org?.period || 'monthly')} · ${t('下次重置')} ${formatDateTime(org?.resetAt)}`,
+    icon: '<svg viewBox="0 0 24 24"><path d="M4 19h16M6 17V9m6 8V5m6 12v-6" /></svg>',
+  };
+}
+
+/** 本周期已用卡片。 */
+function buildUsedMetricCard(org?: TrafficAllocationOverview['orgPolicy']): MetricCard {
+  return {
+    key: 'used',
+    label: t('本周期已用'),
+    value: formatTokens(org?.usedTokens || 0),
+    note: org?.unlimited ? t('不限额度') : `${t('剩余')} ${formatTokens(org?.remainingTokens || 0)} Token`,
+    icon: '<svg viewBox="0 0 24 24"><path d="M12 3v18M6 8h9a3 3 0 0 1 0 6H9" /></svg>',
+  };
+}
+
+/** 默认成员额度卡片。 */
+function buildDefaultMetricCard(def?: TrafficAllocationOverview['defaultPolicy']): MetricCard {
+  return {
+    key: 'default',
+    label: t('默认成员额度'),
+    value: def?.unlimited ? t('不限额') : formatTokens(def?.quotaTokens || 0),
+    note: `${periodLabel(def?.period || 'monthly')} · ${def?.status === 'active' ? t('启用') : t('禁用')}`,
+    icon: '<svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87" /></svg>',
+  };
+}
+
+/** 自定义额度用户卡片。 */
+function buildAssignedMetricCard(overviewDoc?: TrafficAllocationOverview | null): MetricCard {
+  return {
+    key: 'policy',
+    label: t('自定义额度用户'),
+    value: String(overviewDoc?.assignedPolicyCount || 0),
+    note: `${t('已分配专属额度')} ${formatTokens(overviewDoc?.assignedTokens || 0)} Token`,
+    icon: '<svg viewBox="0 0 24 24"><path d="m9 12 2 2 4-5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>',
+  };
+}
+
+const metricCards = computed(() => [
+  buildPoolMetricCard(overview.value?.orgPolicy),
+  buildUsedMetricCard(overview.value?.orgPolicy),
+  buildDefaultMetricCard(overview.value?.defaultPolicy),
+  buildAssignedMetricCard(overview.value),
+]);
 
 const columns: DataTableColumns<UserAllocationItem> = [
   {

@@ -137,6 +137,34 @@ export function streamRecording(
   return { close: () => ctrl.abort() }
 }
 
+// 各事件类型的 instruction 文案构建器。
+const STEP_INSTRUCTION_BUILDERS: Record<string, (ev: RecordingEvent, name: string) => string> = {
+  click: (_ev, name) => (name ? `点击 ${name}` : '点击目标控件'),
+  fill: (ev, name) => {
+    const val = ev.value || ''
+    const preview = val.length <= 40 ? val : val.slice(0, 40) + '…'
+    return val ? `在 ${name || '输入框'} 输入 ${preview}` : `聚焦 ${name || '输入框'}`
+  },
+  navigate: (ev) => `打开 ${ev.url || '页面'}`,
+  select: (_ev, name) => (name ? `选择 ${name}` : '选择下拉项'),
+}
+
+// 构建单个事件的 instruction 文案；未知类型返回空串。
+function buildStepInstruction(ev: RecordingEvent, name: string): string {
+  const build = STEP_INSTRUCTION_BUILDERS[ev.type]
+  return build ? build(ev, name) : ''
+}
+
+// 从 target 对象提取 locator 字段。
+function buildStepLocators(targetObj: RecordingTarget): Locator {
+  const loc: Locator = {}
+  for (const k of ['role', 'name', 'aria_label', 'icon_class', 'text', 'ancestor_role', 'ancestor_contains_text'] as const) {
+    const v = (targetObj as any)[k]
+    if (v) (loc as any)[k] = v
+  }
+  return loc
+}
+
 // Convert recording events into draft steps client-side. Mirrors the
 // Python ``trajectory_distiller.distill_trajectory`` so the preview
 // shown in the panel matches what the backend will persist.
@@ -149,27 +177,8 @@ export function eventsToSteps(
     if (!['click', 'fill', 'navigate', 'select'].includes(ev.type)) continue
     const targetObj = ev.target || {}
     const name = targetObj.name || targetObj.text || targetObj.aria_label || ''
-    let instruction = ''
-    if (ev.type === 'click') {
-      instruction = name ? `点击 ${name}` : '点击目标控件'
-    } else if (ev.type === 'fill') {
-      const val = ev.value || ''
-      const preview = val.length <= 40 ? val : val.slice(0, 40) + '…'
-      instruction = val
-        ? `在 ${name || '输入框'} 输入 ${preview}`
-        : `聚焦 ${name || '输入框'}`
-    } else if (ev.type === 'navigate') {
-      instruction = `打开 ${ev.url || '页面'}`
-    } else if (ev.type === 'select') {
-      instruction = name ? `选择 ${name}` : '选择下拉项'
-    }
-
-    const loc: Locator = {}
-    for (const k of ['role', 'name', 'aria_label', 'icon_class', 'text', 'ancestor_role', 'ancestor_contains_text'] as const) {
-      const v = (targetObj as any)[k]
-      if (v) (loc as any)[k] = v
-    }
-    const step: CompositeStep = { kind: 'browser', instruction }
+    const loc = buildStepLocators(targetObj)
+    const step: CompositeStep = { kind: 'browser', instruction: buildStepInstruction(ev, name) }
     if (site_profile_id) step.site_profile_id = site_profile_id
     if (Object.keys(loc).length) step.locators = { primary: loc }
     out.push(step)

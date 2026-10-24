@@ -58,23 +58,35 @@ const groups = computed(() => {
   return roots.map(root => ({ root, replies: thread.items.filter(item => item.id !== root.id && item.rootId === root.id).slice().reverse() }))
 })
 
-async function load(append = false, silent = false) {
-  if (loading.value || loadingMore.value) return
+// 进入加载态：已有请求在跑时返回 false，调用方据此提前 return
+function beginLoading(append: boolean, silent: boolean) {
+  if (loading.value || loadingMore.value) return false
   if (append) loadingMore.value = true
   else if (!silent) loading.value = true
+  return true
+}
+function resolveCursor(append: boolean) { return append ? thread.nextCursor : '' }
+function clearedUnreadOf(append: boolean, data: any) { return !append && (visibleUnreadCount.value > 0 || Boolean(data.focus)) }
+function applyLoadedThread(append: boolean, data: any) {
+  thread.items = append ? [...thread.items, ...data.items] : data.items
+  thread.commentCount = Number(data.commentCount ?? data.items.length); thread.likes = data.likes; thread.likedByMe = data.likedByMe; thread.hasMore = data.hasMore; thread.nextCursor = data.nextCursor
+}
+function shouldFocusNewActivity(append: boolean, data: any) {
+  return !append && !!data.focus && !highlightedCommentId.value && !highlightedCommentLikeId.value && !highlightLike.value
+}
+function settleLoading(silent: boolean) { if (!silent) loading.value = false; loadingMore.value = false }
+function reportLoadFailure(silent: boolean) { if (!silent) message.error(t('skills.feedback.load_failed')) }
+async function load(append = false, silent = false) {
+  if (!beginLoading(append, silent)) return
   try {
-    const data = await fetchFeedback(props.resourceType, props.resourceId, append ? thread.nextCursor : '')
-    const clearedUnread = !append && (visibleUnreadCount.value > 0 || Boolean(data.focus))
-    thread.items = append ? [...thread.items, ...data.items] : data.items
-    thread.commentCount = Number(data.commentCount ?? data.items.length); thread.likes = data.likes; thread.likedByMe = data.likedByMe; thread.hasMore = data.hasMore; thread.nextCursor = data.nextCursor
-    if (!append && data.focus && !highlightedCommentId.value && !highlightedCommentLikeId.value && !highlightLike.value) focusNewActivity(data.focus)
+    const data = await fetchFeedback(props.resourceType, props.resourceId, resolveCursor(append))
+    const clearedUnread = clearedUnreadOf(append, data)
+    applyLoadedThread(append, data)
+    if (shouldFocusNewActivity(append, data)) focusNewActivity(data.focus!)
     visibleUnreadCount.value = 0
     if (clearedUnread) emit('read')
-  } catch { if (!silent) message.error(t('skills.feedback.load_failed')) }
-  finally {
-    if (!silent) loading.value = false
-    loadingMore.value = false
-  }
+  } catch { reportLoadFailure(silent) }
+  finally { settleLoading(silent) }
 }
 function focusNewActivity(focus: NonNullable<FeedbackThread['focus']>) {
   const commentLike = focus.kind === 'like' && Boolean(focus.commentId)

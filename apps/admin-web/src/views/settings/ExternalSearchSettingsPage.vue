@@ -1124,45 +1124,80 @@ async function saveKnowledgeParse() {
   }
 }
 
+/** 组装连接测试请求体（取自当前表单输入）。 */
+function buildSearchTestPayload() {
+  return {
+    query: testQuery.value,
+    apiKey: form.apiKey,
+    endpoint: form.endpoint,
+    baseUrl: form.baseUrl,
+    model: form.model,
+  };
+}
+
+/** 把接口返回值归一化为统一结果结构（字段缺失时补默认值）。 */
+function normalizeSearchTestResult(result: ExternalSearchTestResult | null | undefined): ExternalSearchTestResult {
+  if (!result) {
+    return {
+      ok: false,
+      provider: selectedProvider.value,
+      resultCount: 0,
+      sampleResults: [],
+      message: t('测试完成，但未返回可展示结果'),
+    };
+  }
+  const samples = Array.isArray(result.sampleResults) ? result.sampleResults : [];
+  const message = String(result.message || (result.ok ? t('连接成功') : t('测试完成，但未返回可展示结果')));
+  return {
+    ok: Boolean(result.ok),
+    provider: result.provider || selectedProvider.value,
+    resultCount: Number(result.resultCount || 0),
+    sampleResults: samples,
+    message,
+  };
+}
+
+/** 测试完成后提示结果（成功用 success，失败用 error）。 */
+function announceTestResult(result: ExternalSearchTestResult) {
+  if (result.ok) {
+    message.success(t('连接测试通过'));
+    return;
+  }
+  message.error(result.message || t('连接测试失败'));
+}
+
+/** 按测试结果更新所选 provider 的健康状态与最后错误信息。 */
+function recordProviderTestHealth(result: ExternalSearchTestResult) {
+  const index = providers.value.findIndex((item) => item.provider === selectedProvider.value);
+  if (index < 0) return;
+  providers.value[index] = {
+    ...providers.value[index],
+    healthStatus: result.ok ? 'healthy' : 'failed',
+    lastError: result.ok ? '' : result.message,
+  };
+}
+
+/** 从异常对象中提取可读错误文案（axios 错误优先取后端 detail）。 */
+function readSearchTestError(error: unknown): string {
+  const rawDetail = axios.isAxiosError(error)
+    ? error.response?.data?.detail || error.response?.data?.message || error.message
+    : error instanceof Error
+      ? error.message
+      : String(error);
+  return String(rawDetail || t('连接测试失败'));
+}
+
 async function runTest() {
   testing.value = true;
   testResult.value = null;
   try {
-    const result = await testExternalSearchProvider(selectedProvider.value, {
-      query: testQuery.value,
-      apiKey: form.apiKey,
-      endpoint: form.endpoint,
-      baseUrl: form.baseUrl,
-      model: form.model,
-    });
-    const normalizedResult: ExternalSearchTestResult = {
-      ok: Boolean(result?.ok),
-      provider: result?.provider || selectedProvider.value,
-      resultCount: Number(result?.resultCount || 0),
-      sampleResults: Array.isArray(result?.sampleResults) ? result.sampleResults : [],
-      message: String(result?.message || (result?.ok ? t('连接成功') : t('测试完成，但未返回可展示结果'))),
-    };
+    const result = await testExternalSearchProvider(selectedProvider.value, buildSearchTestPayload());
+    const normalizedResult = normalizeSearchTestResult(result);
     testResult.value = normalizedResult;
-    if (normalizedResult.ok) {
-      message.success(t('连接测试通过'));
-    } else {
-      message.error(normalizedResult.message || t('连接测试失败'));
-    }
-    const index = providers.value.findIndex((item) => item.provider === selectedProvider.value);
-    if (index >= 0) {
-      providers.value[index] = {
-        ...providers.value[index],
-        healthStatus: normalizedResult.ok ? 'healthy' : 'failed',
-        lastError: normalizedResult.ok ? '' : normalizedResult.message,
-      };
-    }
+    announceTestResult(normalizedResult);
+    recordProviderTestHealth(normalizedResult);
   } catch (error) {
-    const detail = axios.isAxiosError(error)
-      ? error.response?.data?.detail || error.response?.data?.message || error.message
-      : error instanceof Error
-        ? error.message
-        : String(error);
-    const errorMessage = String(detail || t('连接测试失败'));
+    const errorMessage = readSearchTestError(error);
     testResult.value = {
       ok: false,
       provider: selectedProvider.value,

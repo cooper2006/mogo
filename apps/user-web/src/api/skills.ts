@@ -293,6 +293,51 @@ export async function createSkill(userId: string, tenantId: string, payload: Ski
   return dataOf<SkillItem>(res)
 }
 
+// legacy skill 载荷（generate / update 两条路径共用）。
+type LegacySkillPayload = {
+  user_id?: string
+  userId?: string
+  tenant_id?: string
+  tenantId?: string
+  skill_type?: string
+  type?: string
+  name?: string
+  description?: string
+  summary?: string
+  scenario?: string
+  notes?: string
+  config?: Record<string, unknown>
+  input_profile?: Record<string, unknown>
+  contract_json?: Record<string, unknown>
+  skill_markdown?: string
+  is_active?: boolean
+  enabled?: boolean
+}
+
+// 归一化 legacy skill 载荷的配置对象：先铺原 config，再逐字段兜底。
+function normalizeLegacyConfig(legacy: LegacySkillPayload): Record<string, unknown> {
+  return {
+    ...(legacy.config || {}),
+    inputProfile: legacy.input_profile || legacy.config?.inputProfile || {},
+    contractJson: legacy.contract_json || legacy.config?.contractJson || {},
+    skillMarkdown: legacy.skill_markdown || legacy.config?.skillMarkdown || '',
+  }
+}
+
+// 将 legacy skill 载荷归一化为服务端期望的 body。
+function buildLegacySkillBody(legacy: LegacySkillPayload): SkillPayload {
+  const skillType = String(legacy.skill_type || legacy.type || 'style')
+  const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
+  return {
+    name: String(legacy.name || ''),
+    description: String(legacy.description || legacy.summary || ''),
+    scenario: String(legacy.scenario || legacy.notes || ''),
+    type,
+    config: normalizeLegacyConfig(legacy),
+    enabled: legacy.is_active !== false && legacy.enabled !== false,
+  }
+}
+
 export async function updateSkill(id: string, userIdOrPayload: string | any, tenantId = 'default', payload?: SkillPayload): Promise<SkillItem> {
   let userId = String(userIdOrPayload || '')
   let body = payload
@@ -301,21 +346,7 @@ export async function updateSkill(id: string, userIdOrPayload: string | any, ten
     const legacy = userIdOrPayload || {}
     userId = String(legacy.user_id || legacy.userId || '')
     resolvedTenantId = String(legacy.tenant_id || legacy.tenantId || 'default')
-    const skillType = String(legacy.skill_type || legacy.type || 'style')
-    const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
-    body = {
-      name: String(legacy.name || ''),
-      description: String(legacy.description || legacy.summary || ''),
-      scenario: String(legacy.scenario || legacy.notes || ''),
-      type,
-      config: {
-        ...(legacy.config || {}),
-        inputProfile: legacy.input_profile || legacy.config?.inputProfile || {},
-        contractJson: legacy.contract_json || legacy.config?.contractJson || {},
-        skillMarkdown: legacy.skill_markdown || legacy.config?.skillMarkdown || '',
-      },
-      enabled: legacy.is_active !== false && legacy.enabled !== false,
-    }
+    body = buildLegacySkillBody(legacy)
   }
   const res = await api.put(`/skills/${id}`, body, { params: params(userId, resolvedTenantId), timeout: 90000 })
   return dataOf<SkillItem>(res)
@@ -480,21 +511,38 @@ export async function analyzeTemplate(file: File): Promise<TemplateAnalysis> {
   return dataOf<TemplateAnalysis>(res)
 }
 
-export async function generateSkill(payload: any) {
-  const userId = String(payload?.user_id || payload?.userId || '')
-  const tenantId = String(payload?.tenant_id || payload?.tenantId || 'default')
-  const skillType = String(payload?.skill_type || payload?.type || 'style')
-  const type: SkillType = skillType === 'composite_task' || skillType === 'workflow' ? 'workflow' : 'writing_style'
-  return createSkill(userId, tenantId, {
+// 解析 generate 载荷的 type 字段：composite_task / workflow 归为 workflow，其余按写作风格。
+function resolveSkillType(payload: LegacySkillPayload): SkillType {
+  const rawType = String(payload?.skill_type || payload?.type || 'style')
+  return rawType === 'composite_task' || rawType === 'workflow' ? 'workflow' : 'writing_style'
+}
+
+// 组装 generate 路径的配置对象。
+function buildGenerateConfig(payload: LegacySkillPayload): Record<string, unknown> {
+  return {
+    inputProfile: payload?.input_profile || {},
+    contractJson: payload?.contract_json || {},
+    skillMarkdown: payload?.skill_markdown || '',
+  }
+}
+
+// 组装 generate 路径的标量字段（不含 config / enabled，以保持字段顺序）。
+function buildGenerateHead(payload: LegacySkillPayload): Pick<SkillPayload, 'name' | 'description' | 'scenario' | 'type'> {
+  return {
     name: String(payload?.name || ''),
     description: String(payload?.description || payload?.summary || ''),
     scenario: String(payload?.scenario || payload?.notes || ''),
-    type,
-    config: {
-      inputProfile: payload?.input_profile || {},
-      contractJson: payload?.contract_json || {},
-      skillMarkdown: payload?.skill_markdown || '',
-    },
+    type: resolveSkillType(payload),
+  }
+}
+
+export async function generateSkill(payload: any) {
+  const userId = String(payload?.user_id || payload?.userId || '')
+  const tenantId = String(payload?.tenant_id || payload?.tenantId || 'default')
+  const head = buildGenerateHead(payload)
+  return createSkill(userId, tenantId, {
+    ...head,
+    config: buildGenerateConfig(payload),
     enabled: payload?.is_active === true,
   })
 }

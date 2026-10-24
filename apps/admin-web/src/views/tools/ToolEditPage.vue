@@ -856,24 +856,38 @@ function splitFieldTokens(value: string) {
     .filter(Boolean);
 }
 
+/** 字段语义推断的关键词规则表：命中任一关键词即返回对应含义文案。 */
+interface FieldMeaningRule {
+  tokens: string[];
+  label: string;
+}
+
+const FIELD_MEANING_RULES: FieldMeaningRule[] = [
+  { tokens: ['name'], label: t('字段含义名称') },
+  { tokens: ['title'], label: t('字段含义标题') },
+  { tokens: ['status', 'state'], label: t('字段含义状态') },
+  { tokens: ['type', 'category'], label: t('字段含义类型') },
+  { tokens: ['count', 'total', 'num', 'quantity'], label: t('字段含义数量') },
+  { tokens: ['amount', 'price', 'cost', 'fee'], label: t('字段含义金额') },
+  { tokens: ['date', 'time', 'created', 'updated'], label: t('字段含义时间') },
+  { tokens: ['url', 'link', 'uri'], label: t('字段含义链接') },
+  { tokens: ['desc', 'description', 'summary'], label: t('字段含义描述') },
+  { tokens: ['content', 'text'], label: t('字段含义正文') },
+  { tokens: ['message', 'msg'], label: t('字段含义消息') },
+  { tokens: ['code'], label: t('字段含义编码') },
+  { tokens: ['score', 'rate', 'ratio'], label: t('字段含义分值') },
+];
+
 function commonFieldMeaning(name: string, path: string) {
   const tokens = splitFieldTokens(`${path}_${name}`);
   const tokenSet = new Set(tokens);
   const joined = tokens.join('_');
+  // 主键类字段优先按 id / *_id 识别，再逐条走关键词表。
   if (tokenSet.has('id') || joined.endsWith('_id')) return t('字段含义标识');
-  if (tokenSet.has('name')) return t('字段含义名称');
-  if (tokenSet.has('title')) return t('字段含义标题');
-  if (tokenSet.has('status') || tokenSet.has('state')) return t('字段含义状态');
-  if (tokenSet.has('type') || tokenSet.has('category')) return t('字段含义类型');
-  if (tokenSet.has('count') || tokenSet.has('total') || tokenSet.has('num') || tokenSet.has('quantity')) return t('字段含义数量');
-  if (tokenSet.has('amount') || tokenSet.has('price') || tokenSet.has('cost') || tokenSet.has('fee')) return t('字段含义金额');
-  if (tokenSet.has('date') || tokenSet.has('time') || tokenSet.has('created') || tokenSet.has('updated')) return t('字段含义时间');
-  if (tokenSet.has('url') || tokenSet.has('link') || tokenSet.has('uri')) return t('字段含义链接');
-  if (tokenSet.has('desc') || tokenSet.has('description') || tokenSet.has('summary')) return t('字段含义描述');
-  if (tokenSet.has('content') || tokenSet.has('text')) return t('字段含义正文');
-  if (tokenSet.has('message') || tokenSet.has('msg')) return t('字段含义消息');
-  if (tokenSet.has('code')) return t('字段含义编码');
-  if (tokenSet.has('score') || tokenSet.has('rate') || tokenSet.has('ratio')) return t('字段含义分值');
+  for (const token of tokens) {
+    const rule = FIELD_MEANING_RULES.find((item) => item.tokens.includes(token));
+    if (rule) return rule.label;
+  }
   return '';
 }
 
@@ -1019,25 +1033,28 @@ function extractTestResponseBody(): unknown {
   return undefined;
 }
 
+/** 把数组/对象/标量三类响应值转换成 schema 节点列表。 */
+function resolveSelectedNodes(selected: unknown, resultPath: string): SchemaNode[] {
+  if (Array.isArray(selected)) {
+    const sample = sampleArrayItem(selected);
+    if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
+      return inferNodesFromRecord(sample as Record<string, unknown>, resultPath ? `${resultPath}[]` : '');
+    }
+    return [inferNodeFromValue('items', selected, resultPath || 'items')];
+  }
+  if (selected && typeof selected === 'object') {
+    return inferNodesFromRecord(selected as Record<string, unknown>, resultPath);
+  }
+  return [inferNodeFromValue('value', selected, resultPath || 'value')];
+}
+
 function schemaFromTestResponse(): SchemaNode[] {
   const raw = extractTestResponseBody();
   if (raw === undefined || raw === null) return [];
   const resultPath = String(form.config.resultPath || '').trim();
   const selected = resultPath ? resolvePath(raw, resultPath) : raw;
   if (selected === undefined || selected === null) return [];
-  let nodes: SchemaNode[];
-  if (Array.isArray(selected)) {
-    const sample = sampleArrayItem(selected);
-    if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
-      nodes = inferNodesFromRecord(sample as Record<string, unknown>, resultPath ? `${resultPath}[]` : '');
-    } else {
-      nodes = [inferNodeFromValue('items', selected, resultPath || 'items')];
-    }
-  } else if (selected && typeof selected === 'object') {
-    nodes = inferNodesFromRecord(selected as Record<string, unknown>, resultPath);
-  } else {
-    nodes = [inferNodeFromValue('value', selected, resultPath || 'value')];
-  }
+  const nodes = resolveSelectedNodes(selected, resultPath);
   return resultPath ? wrapNodesWithResultPath(nodes, selected, resultPath) : nodes;
 }
 
@@ -1404,6 +1421,53 @@ function buildHttpTestInput() {
   return { query, body, headers, path };
 }
 
+/** 构造调试输入：MCP 工具解析 arguments JSON，HTTP 工具按节点位置分桶。 */
+function buildDebugInput() {
+  if (form.type === 'mcp') {
+    return {
+      toolName: debugMcpToolName.value,
+      arguments: JSON.parse(debugMcpArguments.value || '{}'),
+    };
+  }
+  return buildHttpTestInput();
+}
+
+/** 读取超时秒数（缺失时回退默认 15 秒）。 */
+function timeoutSecondsOf(value: unknown) {
+  return Number(value || 15);
+}
+
+/** 从异常对象中取出可读的错误文案（后端 detail 优先，其次异常 message）。 */
+function readErrorDetail(error: unknown): string {
+  if (!error || typeof error !== 'object') return '';
+  const record = error as { response?: { data?: { detail?: unknown } }; message?: unknown };
+  const detail = record.response && record.response.data && record.response.data.detail;
+  const message = typeof record.message === 'string' ? record.message : '';
+  return String(detail || message || '').trim();
+}
+
+/** 判断异常是否为请求超时（axios ECONNABORTED 或文案命中超时关键词）。 */
+function isTimeoutError(error: unknown, rawMessage: string): boolean {
+  if (error && typeof error === 'object' && (error as { code?: unknown }).code === 'ECONNABORTED') return true;
+  return /timeout|timed out|超时/i.test(rawMessage);
+}
+
+/** 组装测试失败结果：超时与一般失败使用不同错误码与文案。 */
+function buildFailureResult(error: unknown, startedAt: number) {
+  const timeout = isTimeoutError(error, readErrorDetail(error));
+  const errorMessage = timeout
+    ? t('请求超时', { seconds: timeoutSecondsOf(form.config.timeoutSeconds) })
+    : (readErrorDetail(error) || t('测试失败'));
+  return {
+    success: false,
+    status: 'failed',
+    errorCode: timeout ? 'timeout' : 'request_failed',
+    message: errorMessage,
+    responseSummary: errorMessage,
+    durationMs: Math.round(performance.now() - startedAt),
+  };
+}
+
 async function runDebug() {
   if (!toolId.value) {
     message.warning(t('请先保存工具，再执行测试。'));
@@ -1412,33 +1476,16 @@ async function runDebug() {
   testing.value = true;
   const startedAt = performance.now();
   try {
-    const input = form.type === 'mcp'
-      ? {
-        toolName: debugMcpToolName.value,
-        arguments: JSON.parse(debugMcpArguments.value || '{}'),
-      }
-      : buildHttpTestInput();
+    const input = buildDebugInput();
     lastRequest.value = input;
     const payload = buildPayload();
     await updateTool(toolId.value, payload);
-    testResult.value = await testTool(toolId.value, input, Number(payload.config.timeoutSeconds || 15));
+    testResult.value = await testTool(toolId.value, input, timeoutSecondsOf(payload.config.timeoutSeconds));
     lastTestConfigSignature.value = JSON.stringify(payload);
-  } catch (error: any) {
-    const configuredTimeout = Number(form.config.timeoutSeconds || 15);
-    const rawMessage = String(error?.response?.data?.detail || error?.message || '').trim();
-    const isTimeout = error?.code === 'ECONNABORTED' || /timeout|timed out|超时/i.test(rawMessage);
-    const errorMessage = isTimeout
-      ? t('请求超时', { seconds: configuredTimeout })
-      : (rawMessage || t('测试失败'));
-    testResult.value = {
-      success: false,
-      status: 'failed',
-      errorCode: isTimeout ? 'timeout' : 'request_failed',
-      message: errorMessage,
-      responseSummary: errorMessage,
-      durationMs: Math.round(performance.now() - startedAt),
-    };
-    message.error(errorMessage);
+  } catch (error) {
+    const failure = buildFailureResult(error, startedAt);
+    testResult.value = failure;
+    message.error(failure.message);
   } finally {
     testing.value = false;
   }

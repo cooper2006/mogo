@@ -798,24 +798,36 @@ function uid() {
   return `schema_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`
 }
 
-function normalizeSchemaNode(value: any, mode: 'input' | 'output'): SchemaNode | null {
-  if (!value || typeof value !== 'object') return null
+const SCHEMA_TYPES: string[] = ['String', 'Integer', 'Number', 'Boolean', 'Object', 'Array', 'ArrayObject']
+function resolveSchemaType(value: any): SchemaType {
   const rawType = String(value.type || 'String')
-  const type = ['String', 'Integer', 'Number', 'Boolean', 'Object', 'Array', 'ArrayObject'].includes(rawType)
-    ? rawType as SchemaType
-    : 'String'
-  const children = Array.isArray(value.children)
+  return SCHEMA_TYPES.includes(rawType) ? rawType as SchemaType : 'String'
+}
+function resolveSchemaLocation(value: any, mode: 'input' | 'output'): ParamLocation | undefined {
+  return mode === 'input' ? String(value.location || 'Query') as ParamLocation : undefined
+}
+function resolveSchemaRequired(value: any, mode: 'input' | 'output'): boolean {
+  return mode === 'input' ? Boolean(value.required ?? value.require ?? true) : false
+}
+function resolveSchemaResponseMode(value: any, mode: 'input' | 'output'): ResponseMode | undefined {
+  return mode === 'output' ? String(value.responseMode || value.response_mode || 'summarized') as ResponseMode : undefined
+}
+function resolveSchemaChildren(value: any, mode: 'input' | 'output'): SchemaNode[] {
+  return Array.isArray(value.children)
     ? value.children.map((item: any) => normalizeSchemaNode(item, mode)).filter(Boolean) as SchemaNode[]
     : []
+}
+function normalizeSchemaNode(value: any, mode: 'input' | 'output'): SchemaNode | null {
+  if (!value || typeof value !== 'object') return null
   return {
     id: String(value.id || uid()),
     name: String(value.name || ''),
     description: String(value.description || value.desc || ''),
-    type,
-    location: mode === 'input' ? String(value.location || 'Query') as ParamLocation : undefined,
-    required: mode === 'input' ? Boolean(value.required ?? value.require ?? true) : false,
-    responseMode: mode === 'output' ? String(value.responseMode || value.response_mode || 'summarized') as ResponseMode : undefined,
-    children,
+    type: resolveSchemaType(value),
+    location: resolveSchemaLocation(value, mode),
+    required: resolveSchemaRequired(value, mode),
+    responseMode: resolveSchemaResponseMode(value, mode),
+    children: resolveSchemaChildren(value, mode),
   }
 }
 
@@ -1034,24 +1046,30 @@ function splitFieldTokens(value: string) {
     .filter(Boolean)
 }
 
+// 字段名到含义的分组规则：按顺序匹配，命中任一关键词即返回对应含义
+const FIELD_MEANING_GROUPS: Array<{ keys: string[]; meaning: string }> = [
+  { keys: ['name'], meaning: '通常表示名称' },
+  { keys: ['title'], meaning: '通常表示标题' },
+  { keys: ['status', 'state'], meaning: '通常表示状态' },
+  { keys: ['type', 'category'], meaning: '通常表示类型或分类' },
+  { keys: ['count', 'total', 'num', 'quantity'], meaning: '通常表示数量或统计值' },
+  { keys: ['amount', 'price', 'cost', 'fee'], meaning: '通常表示金额或价格' },
+  { keys: ['date', 'time', 'created', 'updated'], meaning: '通常表示日期或时间' },
+  { keys: ['url', 'link', 'uri'], meaning: '通常表示链接地址' },
+  { keys: ['desc', 'description', 'summary'], meaning: '通常表示描述或摘要' },
+  { keys: ['content', 'text'], meaning: '通常表示正文内容' },
+  { keys: ['message', 'msg'], meaning: '通常表示消息文本' },
+  { keys: ['code'], meaning: '通常表示编码或返回码' },
+  { keys: ['score', 'rate', 'ratio'], meaning: '通常表示分值、比例或评分' },
+]
 function commonFieldMeaning(name: string, path: string) {
   const tokens = splitFieldTokens(`${path}_${name}`)
   const tokenSet = new Set(tokens)
   const joined = tokens.join('_')
   if (tokenSet.has('id') || joined.endsWith('_id')) return '通常表示记录或实体的唯一标识'
-  if (tokenSet.has('name')) return '通常表示名称'
-  if (tokenSet.has('title')) return '通常表示标题'
-  if (tokenSet.has('status') || tokenSet.has('state')) return '通常表示状态'
-  if (tokenSet.has('type') || tokenSet.has('category')) return '通常表示类型或分类'
-  if (tokenSet.has('count') || tokenSet.has('total') || tokenSet.has('num') || tokenSet.has('quantity')) return '通常表示数量或统计值'
-  if (tokenSet.has('amount') || tokenSet.has('price') || tokenSet.has('cost') || tokenSet.has('fee')) return '通常表示金额或价格'
-  if (tokenSet.has('date') || tokenSet.has('time') || tokenSet.has('created') || tokenSet.has('updated')) return '通常表示日期或时间'
-  if (tokenSet.has('url') || tokenSet.has('link') || tokenSet.has('uri')) return '通常表示链接地址'
-  if (tokenSet.has('desc') || tokenSet.has('description') || tokenSet.has('summary')) return '通常表示描述或摘要'
-  if (tokenSet.has('content') || tokenSet.has('text')) return '通常表示正文内容'
-  if (tokenSet.has('message') || tokenSet.has('msg')) return '通常表示消息文本'
-  if (tokenSet.has('code')) return '通常表示编码或返回码'
-  if (tokenSet.has('score') || tokenSet.has('rate') || tokenSet.has('ratio')) return '通常表示分值、比例或评分'
+  for (const group of FIELD_MEANING_GROUPS) {
+    if (group.keys.some(key => tokenSet.has(key))) return group.meaning
+  }
   return ''
 }
 
@@ -1173,25 +1191,28 @@ function extractTestResponseBody(): unknown {
   return undefined
 }
 
+function inferSchemaFromArray(selected: unknown, resultPath: string): SchemaNode[] {
+  const sample = sampleArrayItem(selected as unknown[])
+  if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
+    return inferNodesFromRecord(sample as Record<string, unknown>, resultPath ? `${resultPath}[]` : '')
+  }
+  return [inferNodeFromValue('items', selected, resultPath || 'items')]
+}
+function inferSchemaFromRecordOrScalar(selected: unknown, resultPath: string): SchemaNode[] {
+  if (selected && typeof selected === 'object') {
+    return inferNodesFromRecord(selected as Record<string, unknown>, resultPath)
+  }
+  return [inferNodeFromValue('value', selected, resultPath || 'value')]
+}
 function schemaFromTestResponse(): SchemaNode[] {
   const raw = extractTestResponseBody()
   if (raw === undefined || raw === null) return []
   const resultPath = String(form.value.config.resultPath || '').trim()
   const selected = resultPath ? resolvePath(raw, resultPath) : raw
   if (selected === undefined || selected === null) return []
-  let nodes: SchemaNode[]
-  if (Array.isArray(selected)) {
-    const sample = sampleArrayItem(selected)
-    if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
-      nodes = inferNodesFromRecord(sample as Record<string, unknown>, resultPath ? `${resultPath}[]` : '')
-    } else {
-      nodes = [inferNodeFromValue('items', selected, resultPath || 'items')]
-    }
-  } else if (selected && typeof selected === 'object') {
-    nodes = inferNodesFromRecord(selected as Record<string, unknown>, resultPath)
-  } else {
-    nodes = [inferNodeFromValue('value', selected, resultPath || 'value')]
-  }
+  const nodes = Array.isArray(selected)
+    ? inferSchemaFromArray(selected, resultPath)
+    : inferSchemaFromRecordOrScalar(selected, resultPath)
   return resultPath ? wrapNodesWithResultPath(nodes, selected, resultPath) : nodes
 }
 
@@ -1389,43 +1410,59 @@ async function discoverTools() {
   }
 }
 
+function buildMcpTestInput() {
+  return {
+    toolName: debugMcpToolName.value,
+    arguments: parseJson(debugMcpArguments.value, {}),
+  }
+}
+function buildTestInput() {
+  return form.value.type === 'mcp' ? buildMcpTestInput() : buildHttpTestInput()
+}
+async function invokeToolTest(input: Record<string, any>, userId: string) {
+  return editingId.value
+    ? await testTool(editingId.value, userId, props.tenantId, input)
+    : await testDraftTool(userId, props.tenantId, buildPayload(), input)
+}
+function extractErrorDetail(error: any) {
+  return error?.response?.data?.detail || error?.message || ''
+}
+function isTimeoutError(error: any, rawMessage: string) {
+  return error?.code === 'ECONNABORTED' || /timeout|timed out|超时/i.test(rawMessage)
+}
+function resolveTestErrorMessage(isTimeout: boolean, rawMessage: string, configuredTimeout: number) {
+  if (isTimeout) return t('请求超时：超过 {seconds} 秒未收到响应', { seconds: configuredTimeout })
+  return rawMessage || t('测试失败')
+}
+function applyFailedTestResult(message: string, isTimeout: boolean, startedAt: number) {
+  testResultOk.value = false
+  testResult.value = {
+    success: false,
+    status: 'failed',
+    errorCode: isTimeout ? 'timeout' : 'request_failed',
+    message,
+    responseSummary: message,
+    durationMs: Math.round(performance.now() - startedAt),
+  }
+  testResultText.value = JSON.stringify(testResult.value, null, 2)
+}
 async function runTest() {
   if (!props.userId) return
   testing.value = true
   const startedAt = performance.now()
   try {
-    const input = form.value.type === 'mcp'
-      ? {
-        toolName: debugMcpToolName.value,
-        arguments: parseJson(debugMcpArguments.value, {}),
-      }
-      : buildHttpTestInput()
+    const input = buildTestInput()
     lastRequest.value = input
-    const payload = buildPayload()
-    const result = editingId.value
-      ? await testTool(editingId.value, props.userId, props.tenantId, input)
-      : await testDraftTool(props.userId, props.tenantId, payload, input)
+    const result = await invokeToolTest(input, props.userId!)
     testResult.value = result
     testResultOk.value = result.success !== false && result.status !== 'failed'
     testResultText.value = JSON.stringify(result, null, 2)
     await loadRows()
   } catch (error: any) {
     const configuredTimeout = Number(form.value.config.timeoutSeconds || 15)
-    const rawMessage = String(error?.response?.data?.detail || error?.message || '').trim()
-    const isTimeout = error?.code === 'ECONNABORTED' || /timeout|timed out|超时/i.test(rawMessage)
-    const errorMessage = isTimeout
-      ? t('请求超时：超过 {seconds} 秒未收到响应', { seconds: configuredTimeout })
-      : (rawMessage || t('测试失败'))
-    testResultOk.value = false
-    testResult.value = {
-      success: false,
-      status: 'failed',
-      errorCode: isTimeout ? 'timeout' : 'request_failed',
-      message: errorMessage,
-      responseSummary: errorMessage,
-      durationMs: Math.round(performance.now() - startedAt),
-    }
-    testResultText.value = JSON.stringify(testResult.value, null, 2)
+    const rawMessage = String(extractErrorDetail(error)).trim()
+    const isTimeout = isTimeoutError(error, rawMessage)
+    applyFailedTestResult(resolveTestErrorMessage(isTimeout, rawMessage, configuredTimeout), isTimeout, startedAt)
   } finally {
     testing.value = false
   }

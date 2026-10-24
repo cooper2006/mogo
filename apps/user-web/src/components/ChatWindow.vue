@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref, nextTick, onMounted, onUpdated, onBeforeUnmount, watch } from 'vue'
-import { renderDocument, renderPresentationPptx, signDocument, fetchBlueprintJson } from '../api/documents'
+import { renderDocument, renderPresentationPptx, signDocument, fetchBlueprintJson, type RenderDocumentResponse } from '../api/documents'
 import BrowserWorkspace from './browser/BrowserWorkspace.vue'
 import LocalBrowserInterventionPrompt from './execution/LocalBrowserInterventionPrompt.vue'
 import ToolApprovalPrompt from './execution/ToolApprovalPrompt.vue'
@@ -446,38 +446,53 @@ function schedulePromptGuideClose() {
   }, 220)
 }
 
+/** 提示尚未完成配置的能力项。 */
+function showPromptGuideConfigNotice(item: PromptGuideItem) {
+  promptGuideNotice.value = {
+    title: item.configTitle || t('需要先配置'),
+    description: item.configDescription || t('配置完成后才能使用这个能力。'),
+    target: item.configTarget || 'tools',
+  }
+}
+
+/** 提示技能能力当前不可用。 */
+function showPromptGuideUnavailableNotice() {
+  promptGuideNotice.value = {
+    title: t('shortcuts.skill_unavailable'),
+    description: t('shortcuts.skill_unavailable_hint'),
+    target: 'skills',
+  }
+}
+
+/** 尝试选中技能能力；无 resourceId 或调用失败时返回 false。 */
+async function selectPromptGuideSkill(item: PromptGuideItem): Promise<boolean> {
+  try {
+    return Boolean(item.resourceId && (await composerRef.value?.selectShortcutSkill(item.resourceId, item.label)))
+  } catch {
+    return false
+  }
+}
+
+/** 判断是否需要为该项开启知识问答能力。 */
+function shouldEnableKnowledgeQa(item: PromptGuideItem): boolean {
+  return item.categoryKey === 'internal' || activePromptGuideCategory.value?.key === 'internal'
+}
+
 async function usePromptGuideItem(item: PromptGuideItem) {
   if (!item.available) {
-    promptGuideNotice.value = {
-      title: item.configTitle || t('需要先配置'),
-      description: item.configDescription || t('配置完成后才能使用这个能力。'),
-      target: item.configTarget || 'tools',
-    }
+    showPromptGuideConfigNotice(item)
     return
   }
   if (!item.prompt) return
   promptGuideNotice.value = null
   if (item.shortcutType === 'skill') {
-    try {
-      const selected = item.resourceId && await composerRef.value?.selectShortcutSkill(item.resourceId, item.label)
-      if (!selected) {
-        promptGuideNotice.value = {
-          title: t('shortcuts.skill_unavailable'),
-          description: t('shortcuts.skill_unavailable_hint'),
-          target: 'skills',
-        }
-        return
-      }
-    } catch {
-      promptGuideNotice.value = {
-        title: t('shortcuts.skill_unavailable'),
-        description: t('shortcuts.skill_unavailable_hint'),
-        target: 'skills',
-      }
+    const selected = await selectPromptGuideSkill(item)
+    if (!selected) {
+      showPromptGuideUnavailableNotice()
       return
     }
   }
-  if (item.categoryKey === 'internal' || activePromptGuideCategory.value?.key === 'internal') {
+  if (shouldEnableKnowledgeQa(item)) {
     composerRef.value?.enableKnowledgeQa()
   }
   await composerRef.value?.setTextAndFocus(t(item.prompt))
@@ -794,16 +809,67 @@ watch(
   }
 )
 
+/** 打开 HTML 文档预览。 */
+async function openHtmlDocumentPreview(doc: DocumentInfo): Promise<void> {
+  const targetUrl = await resolveDocumentOpenUrl(doc)
+  if (!targetUrl) return
+  await openPreviewResource(targetUrl)
+}
+
+/** 拉取 markdown 原文；失败或空响应返回空字符串。 */
+async function fetchMarkdownDocumentContent(objectPath: string): Promise<string> {
+  try {
+    if (debugEnabled) {
+      console.log('[doc-editor] fetching markdown', objectPath)
+    }
+    const resp = await fetch('/askai-api/api/documents/fetch', {
+      method: 'POST',
+      headers: authenticatedJsonHeaders(),
+      body: JSON.stringify({
+        user_id: props.userId || 'anonymous',
+        object_path: objectPath,
+      }),
+    })
+    if (debugEnabled) {
+      console.log('[doc-editor] fetch status', resp.status)
+    }
+    if (!resp.ok) return ''
+    const text = await resp.text()
+    if (debugEnabled) {
+      console.log('[doc-editor] markdown length', text.length)
+    }
+    return text
+  } catch {
+    // ignore and fallback to message content
+    return ''
+  }
+}
+
+/** 刷新 markdown 内容里的文档链接；失败时保留原文。 */
+async function refreshDocumentEditorUrls(content: string): Promise<string> {
+  try {
+    const renewResp = await fetch('/askai-api/api/documents/refresh-markdown-urls', {
+      method: 'POST',
+      headers: authenticatedJsonHeaders(),
+      body: JSON.stringify({
+        user_id: props.userId || 'anonymous',
+        content,
+      }),
+    })
+    if (renewResp.ok) return await renewResp.text()
+  } catch {
+    // ignore and keep original content
+  }
+  return content
+}
+
 async function openDocumentEditor(doc: DocumentInfo, msg: Message, _renderIndex: number) {
   if (doc.type === 'presentation_preview_bundle') {
     await openPresentationEditor(doc, msg)
     return
   }
   if (doc.type === 'html') {
-    const targetUrl = await resolveDocumentOpenUrl(doc)
-    if (targetUrl) {
-      await openPreviewResource(targetUrl)
-    }
+    await openHtmlDocumentPreview(doc)
     return
   }
   const msgIndex = messages.value.findIndex((m) => m._id === msg._id && m.role === msg.role)
@@ -814,50 +880,14 @@ async function openDocumentEditor(doc: DocumentInfo, msg: Message, _renderIndex:
     ? doc
     : findMarkdownDocument(msg)
   if (mdDoc?.object_path) {
-    try {
-      if (debugEnabled) {
-        console.log('[doc-editor] fetching markdown', mdDoc.object_path)
-      }
-      const resp = await fetch('/askai-api/api/documents/fetch', {
-        method: 'POST',
-        headers: authenticatedJsonHeaders(),
-        body: JSON.stringify({
-          user_id: props.userId || 'anonymous',
-          object_path: mdDoc.object_path,
-        }),
-      })
-      if (debugEnabled) {
-        console.log('[doc-editor] fetch status', resp.status)
-      }
-      if (resp.ok) {
-        documentEditorContent.value = await resp.text()
-        if (debugEnabled) {
-          console.log('[doc-editor] markdown length', documentEditorContent.value.length)
-        }
-      }
-    } catch {
-      // ignore and fallback to message content
-    }
+    const markdown = await fetchMarkdownDocumentContent(mdDoc.object_path)
+    if (markdown) documentEditorContent.value = markdown
   }
   if (!documentEditorContent.value) {
     documentEditorContent.value = msg.content || ''
   }
   if (documentEditorContent.value) {
-    try {
-      const renewResp = await fetch('/askai-api/api/documents/refresh-markdown-urls', {
-        method: 'POST',
-        headers: authenticatedJsonHeaders(),
-        body: JSON.stringify({
-          user_id: props.userId || 'anonymous',
-          content: documentEditorContent.value,
-        }),
-      })
-      if (renewResp.ok) {
-        documentEditorContent.value = await renewResp.text()
-      }
-    } catch {
-      // ignore and keep original content
-    }
+    documentEditorContent.value = await refreshDocumentEditorUrls(documentEditorContent.value)
   }
   documentEditorMessageIndex.value = msgIndex
   documentEditorOpen.value = true
@@ -1025,6 +1055,65 @@ async function confirmPresentationPreview(doc: DocumentInfo, msg: Message) {
   }
 }
 
+/** 依据渲染结果生成下一个文档对象。 */
+function buildRegeneratedDocument(doc: DocumentInfo, result: RenderDocumentResponse): DocumentInfo {
+  return {
+    ...doc,
+    ...result,
+    id: result.object_path || result.url || doc.id,
+    type: normalizeDocumentType(result.type || doc.type),
+    signed_url: result.url || '',
+    url: result.url || '',
+  } as DocumentInfo
+}
+
+/** 同步渲染 markdown 副本，保证列表里同时有 md 与目标格式文档。 */
+async function renderMarkdownCopy(doc: DocumentInfo, previousMarkdown: DocumentInfo | null, content: string): Promise<DocumentInfo | null> {
+  const markdownResult = await renderDocument({
+    user_id: props.userId || 'anonymous',
+    content,
+    format: 'md',
+    filename: `${doc.title || doc.filename || 'document'}.md`,
+    title: doc.title,
+  })
+  if (!markdownResult?.object_path) throw new Error('markdown render failed')
+  return {
+    ...(previousMarkdown || {}),
+    ...markdownResult,
+    id: markdownResult.object_path || markdownResult.url || previousMarkdown?.id,
+    type: 'md',
+    signed_url: markdownResult.url || '',
+    url: markdownResult.url || '',
+  } as DocumentInfo
+}
+
+/** 重新渲染当前文档，并同步回写 markdown 副本。 */
+async function applyRegeneratedDocument(doc: DocumentInfo, content: string): Promise<void> {
+  const previousDocument = { ...doc }
+  const editorIndex = documentEditorMessageIndex.value
+  if (editorIndex === null) return
+  const msg = messages.value[editorIndex]
+  if (!msg) return
+  const renderFormat = toRenderableDocumentFormat(doc.type)
+  if (!renderFormat) return
+  const previousMarkdown = doc.type !== 'md' ? findMarkdownDocument(msg) : null
+  const result = await renderDocument({
+    user_id: props.userId || 'anonymous',
+    content,
+    format: renderFormat,
+    filename: doc.filename,
+    title: doc.title,
+  })
+  if (!result) return
+  const nextMarkdown = doc.type === 'md' ? null : await renderMarkdownCopy(doc, previousMarkdown, content)
+  const nextDocument = buildRegeneratedDocument(doc, result)
+  upsertDocumentEverywhere(msg, previousDocument, nextDocument)
+  activeDocument.value = nextDocument
+  if (nextMarkdown) {
+    upsertDocumentEverywhere(msg, previousMarkdown, nextMarkdown)
+  }
+}
+
 async function regenerateDocument() {
   if (!activeDocument.value) return
   if (documentEditorMessageIndex.value === null) return
@@ -1032,53 +1121,7 @@ async function regenerateDocument() {
   if (!content) return
   documentEditorLoading.value = true
   try {
-    const previousDocument = { ...activeDocument.value }
-    const msg = messages.value[documentEditorMessageIndex.value]
-    if (!msg) return
-    const renderFormat = toRenderableDocumentFormat(activeDocument.value.type)
-    if (!renderFormat) return
-    const previousMarkdown = activeDocument.value.type !== 'md' ? findMarkdownDocument(msg) : null
-    const result = await renderDocument({
-      user_id: props.userId || 'anonymous',
-      content,
-      format: renderFormat,
-      filename: activeDocument.value.filename,
-      title: activeDocument.value.title,
-    })
-    if (result) {
-      let nextMarkdown: DocumentInfo | null = null
-      if (activeDocument.value.type !== 'md') {
-        const markdownResult = await renderDocument({
-          user_id: props.userId || 'anonymous',
-          content,
-          format: 'md',
-          filename: `${activeDocument.value.title || activeDocument.value.filename || 'document'}.md`,
-          title: activeDocument.value.title,
-        })
-        if (!markdownResult?.object_path) throw new Error('markdown render failed')
-        nextMarkdown = {
-          ...(previousMarkdown || {}),
-          ...markdownResult,
-          id: markdownResult.object_path || markdownResult.url || previousMarkdown?.id,
-          type: 'md',
-          signed_url: markdownResult.url || '',
-          url: markdownResult.url || '',
-        } as DocumentInfo
-      }
-      const nextDocument = {
-        ...activeDocument.value,
-        ...result,
-        id: result.object_path || result.url || activeDocument.value.id,
-        type: normalizeDocumentType(result.type || activeDocument.value.type),
-        signed_url: result.url || '',
-        url: result.url || '',
-      } as DocumentInfo
-      upsertDocumentEverywhere(msg, previousDocument, nextDocument)
-      activeDocument.value = nextDocument
-      if (nextMarkdown) {
-        upsertDocumentEverywhere(msg, previousMarkdown, nextMarkdown)
-      }
-    }
+    await applyRegeneratedDocument(activeDocument.value, content)
   } finally {
     documentEditorLoading.value = false
   }
@@ -1095,79 +1138,94 @@ function setMsgRef(el: any, msgId: string) {
 }
 
 // Scroll handling
+/** 取当前钉住的 assistant 消息，未设置或已移除时返回 null。 */
+function findStickyAssistantMessage(): Message | null {
+  const id = stickyAssistantMsgId.value
+  if (!id) return null
+  return displayMessages.value.find((m) => m._id === id) ?? null
+}
+
+/** 判断消息是否还有可见内容（正文 / 文档 / 进度）。 */
+function hasRenderableMessageContent(msg: Message | null): boolean {
+  if (!msg) return false
+  return Boolean(
+    msg.content && msg.content.trim().length > 0 ||
+    msg.documents && msg.documents.length > 0 ||
+    msg.progress && msg.progress.length > 0
+  )
+}
+
+/** LOCKED 状态下按 assistant 真实内容计算箭头显隐。 */
+function updateLockedScrollButton(container: HTMLElement, msg: Message | null): boolean {
+  if (!hasRenderableMessageContent(msg)) return false
+  const id = stickyAssistantMsgId.value
+  if (!id) return false
+  const stickyAssistantEl = msgElements.value[id]
+  if (!stickyAssistantEl) return false
+  const containerRect = container.getBoundingClientRect()
+  const contentProbe =
+    (stickyAssistantEl.querySelector('.assistant-content') as HTMLElement | null)
+    || (stickyAssistantEl.firstElementChild as HTMLElement | null)
+    || stickyAssistantEl
+  const probeRect = contentProbe.getBoundingClientRect()
+  return probeRect.bottom > (containerRect.bottom + 16)
+}
+
+/** 普通状态下按剩余滚动量计算箭头显隐。 */
+function updateNormalScrollButton(container: HTMLElement, remainingScroll: number): boolean {
+  showScrollButton.value = remainingScroll > 16
+  const lastMsgId = displayMessages.value[displayMessages.value.length - 1]?._id
+  const lastMsg = lastMsgId ? msgElements.value[lastMsgId] : null
+  if (!lastMsg || remainingScroll > 1) return showScrollButton.value
+  const rect = lastMsg.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
+  const isLastMsgVisible = rect.top < containerRect.bottom && rect.bottom > containerRect.top
+  showScrollButton.value = !isLastMsgVisible
+  return showScrollButton.value
+}
+
+/** 延迟检查用户是否手动滚动，以解除 sticky 锁定。 */
+function scheduleScrollUnlockCheck() {
+  if (scrollTimeout) clearTimeout(scrollTimeout)
+  scrollTimeout = setTimeout(() => {
+    // Sticky state may have changed while timer was waiting.
+    if (stickyState.value !== 'LOCKED') return
+    // If within lock period, ignore this scroll event
+    if (Date.now() < scrollLockUntil.value) {
+      stickyLog('Scroll ignored due to lock')
+      return
+    }
+    // Only user-driven scroll should unlock sticky mode.
+    if (Date.now() > userScrollIntentUntil.value) {
+      stickyLog('Scroll ignored (no user intent)')
+      return
+    }
+
+    stickyLog('Detected manual scroll, unlock to MANUAL_SCROLL')
+    stickyState.value = 'MANUAL_SCROLL'
+  }, 100)
+}
+
 function handleScroll() {
   if (!messagesContainer.value) return
   if (isProgrammaticScroll.value) return
   const container = messagesContainer.value
   const remainingScroll = container.scrollHeight - (container.scrollTop + container.clientHeight)
-  
-  const stickyAssistantMsg =
-    stickyAssistantMsgId.value
-      ? displayMessages.value.find((m) => m._id === stickyAssistantMsgId.value)
-      : null
-  const stickyAssistantHasRenderableContent = !!(
-    stickyAssistantMsg &&
-    (
-      (stickyAssistantMsg.content && stickyAssistantMsg.content.trim().length > 0) ||
-      (stickyAssistantMsg.documents && stickyAssistantMsg.documents.length > 0) ||
-      (stickyAssistantMsg.progress && stickyAssistantMsg.progress.length > 0)
-    )
-  )
-  
+
+  const stickyAssistantMsg = findStickyAssistantMessage()
+
   if (stickyState.value === 'LOCKED') {
     // In LOCKED mode, arrow visibility must be based ONLY on current assistant real content,
     // not on scrollHeight (which includes min-height shell).
-    if (!stickyAssistantHasRenderableContent) {
-      showScrollButton.value = false
-    } else if (stickyAssistantMsgId.value) {
-      const stickyAssistantEl = msgElements.value[stickyAssistantMsgId.value]
-      if (stickyAssistantEl) {
-        const containerRect = container.getBoundingClientRect()
-        const contentProbe =
-          (stickyAssistantEl.querySelector('.assistant-content') as HTMLElement | null)
-          || (stickyAssistantEl.firstElementChild as HTMLElement | null)
-          || stickyAssistantEl
-        const probeRect = contentProbe.getBoundingClientRect()
-        showScrollButton.value = probeRect.bottom > (containerRect.bottom + 16)
-      } else {
-        showScrollButton.value = false
-      }
-    } else {
-      showScrollButton.value = false
-    }
+    showScrollButton.value = updateLockedScrollButton(container, stickyAssistantMsg)
   } else {
     // Normal mode.
-    showScrollButton.value = remainingScroll > 16
-    const lastMsgId = displayMessages.value[displayMessages.value.length - 1]?._id
-    const lastMsg = lastMsgId ? msgElements.value[lastMsgId] : null
-    if (lastMsg && remainingScroll <= 1) {
-      const rect = lastMsg.getBoundingClientRect()
-      const containerRect = container.getBoundingClientRect()
-      const isLastMsgVisible = rect.top < containerRect.bottom && rect.bottom > containerRect.top
-      showScrollButton.value = !isLastMsgVisible
-    }
+    updateNormalScrollButton(container, remainingScroll)
   }
-  
+
   // Detect user manual scrolling in LOCKED state
   if (stickyState.value === 'LOCKED') {
-    if (scrollTimeout) clearTimeout(scrollTimeout)
-    scrollTimeout = setTimeout(() => {
-      // Sticky state may have changed while timer was waiting.
-      if (stickyState.value !== 'LOCKED') return
-      // If within lock period, ignore this scroll event
-      if (Date.now() < scrollLockUntil.value) {
-        stickyLog('Scroll ignored due to lock')
-        return
-      }
-      // Only user-driven scroll should unlock sticky mode.
-      if (Date.now() > userScrollIntentUntil.value) {
-        stickyLog('Scroll ignored (no user intent)')
-        return
-      }
-      
-      stickyLog('Detected manual scroll, unlock to MANUAL_SCROLL')
-      stickyState.value = 'MANUAL_SCROLL'
-    }, 100)
+    scheduleScrollUnlockCheck()
   }
 }
 
@@ -1480,6 +1538,392 @@ async function renderMermaidBlocks() {
     }
   }
 }
+/** 图表数据载体（解析结果结构松散，按 any 处理以避免隐式 any）。 */
+type ChartPayload = ReturnType<typeof JSON.parse>
+
+/** Chart.js 运行时对象（UMD 全局加载结果）。 */
+type ChartRuntime = Awaited<ReturnType<typeof ensureScript>>
+
+/** 归一化后的图表系列数据。 */
+interface ChartSeriesBundle {
+  labels: unknown[]
+  datasets: unknown[]
+  type?: string
+  renderAsTable?: boolean
+  tableRows?: Array<[string, string]>
+}
+
+type ChartSeriesBuilder = (type: string, payload: ChartPayload, dataObj: ChartPayload) => ChartSeriesBundle | null
+
+/** 读取 canvas 上的图表数据：优先 JSON，失败时回退文本解析。 */
+function parseCanvasChartPayload(raw: string): { payload: ChartPayload | null; error: unknown } {
+  try {
+    const decoded = decodeURIComponent(raw)
+    try {
+      return { payload: JSON.parse(decoded), error: null }
+    } catch {
+      // Handle potentially escaped double quotes in malformed JSON
+      const cleaned = decoded.replace(/\\"/g, '"')
+      return { payload: JSON.parse(cleaned), error: null }
+    }
+  } catch (e) {
+    const decoded = decodeURIComponent(raw)
+    return { payload: parseChartPayload(decoded), error: e }
+  }
+}
+
+/** Chart.js 原生 / 半原生格式：data.labels + data.datasets。 */
+function buildNativeChartSeries(type: string, payload: ChartPayload, dataObj: ChartPayload): ChartSeriesBundle | null {
+  if (!dataObj || !dataObj.labels || !dataObj.datasets) return null
+  return {
+    labels: dataObj.labels,
+    datasets: dataObj.datasets.map((ds: any) => ({
+      ...ds,
+      borderWidth: ds.borderWidth || 2,
+      fill: ds.fill !== undefined ? ds.fill : (type === 'bar'),
+    })),
+  }
+}
+
+/** 收集 sankey 节点名：优先 nodes 字段，否则从 links 推导。 */
+function collectSankeyAllNodeNames(payload: ChartPayload): string[] {
+  const nodes = payload.data.nodes
+  const nodeNames = Array.isArray(nodes)
+    ? nodes.map((n: any) => (n && n.name ? String(n.name) : String(n)))
+    : []
+  if (nodeNames.length) return nodeNames
+  const links = payload.data.links || []
+  const derivedNames = new Set<string>()
+  for (const link of links) {
+    if (link.source !== undefined && link.source !== null) derivedNames.add(String(link.source))
+    if (link.target !== undefined && link.target !== null) derivedNames.add(String(link.target))
+  }
+  return Array.from(derivedNames)
+}
+
+/** 构建 sankey 的 datasets 配置。 */
+function buildSankeyDatasets(payload: ChartPayload, allNames: string[]): unknown[] {
+  const links = payload.data.links || []
+  const nameSet = new Set(allNames)
+  return [{
+    label: payload.title || 'Sankey',
+    data: links
+      .map((link: any) => ({
+        from: String(link.source),
+        to: String(link.target),
+        flow: link.value ?? link.flow ?? 0
+      }))
+      .filter((link: any) => nameSet.has(link.from) && nameSet.has(link.to)),
+    colorMode: 'gradient',
+    colorFrom: '#7aa6ff',
+    colorTo: '#7ecf9a',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)'
+  }]
+}
+
+/** Sankey 格式：data.links / data.nodes。 */
+function buildSankeyChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle | null {
+  if (type !== 'sankey' || !payload.data || !payload.data.links) return null
+  const allNames = collectSankeyAllNodeNames(payload)
+  return { labels: allNames, datasets: buildSankeyDatasets(payload, allNames) }
+}
+
+/** 数组行 + xField/yField 格式。 */
+function buildXYFieldChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle | null {
+  if (!payload.data || !Array.isArray(payload.data) || !payload.xField || !payload.yField) return null
+  const rows = payload.data
+  const yFields = Array.isArray(payload.yField) ? payload.yField : [payload.yField]
+  return {
+    labels: rows.map((r: any) => r[payload.xField]),
+    datasets: yFields.map((field: string, idx: number) => {
+      return {
+        label: field,
+        data: rows.map((r: any) => r[field] ?? 0),
+        borderWidth: 2,
+        fill: type === 'bar',
+      }
+    }),
+  }
+}
+
+/** 简单格式：{data: {labels, values}}。 */
+function buildValuesChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle | null {
+  if (!payload.data || !payload.data.labels || !payload.data.values) return null
+  return {
+    labels: payload.data.labels,
+    datasets: [{
+      label: payload.title || 'Series 1',
+      data: payload.data.values,
+      borderWidth: 2,
+      fill: type === 'bar',
+    }],
+  }
+}
+
+/** 饼图格式：{data: {values: [{category, value}]}}。 */
+function buildPieValuesChartSeries(payload: ChartPayload): ChartSeriesBundle | null {
+  if (!payload.data || !payload.data.values || !Array.isArray(payload.data.values) || payload.type !== 'pie') return null
+  return {
+    type: 'pie',
+    labels: payload.data.values.map((v: any) => v.category),
+    datasets: [{
+      label: payload.title || 'Series 1',
+      data: payload.data.values.map((v: any) => v.value),
+      borderWidth: 1,
+    }],
+  }
+}
+
+/** 数组行（无 xField）柱状图：非数值时降级为表格。 */
+function buildBarRowsChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle | null {
+  if (!payload.data || !Array.isArray(payload.data) || type !== 'bar' || payload.xField) return null
+  const rows = payload.data
+  const keys = rows.length ? Object.keys(rows[0]) : []
+  const labelKey = keys[0]
+  const valueKey = keys[1]
+  const values = rows.map((r: any) => r[valueKey])
+  if (!values.every((v: any) => typeof v === 'number' && !Number.isNaN(v))) {
+    return {
+      renderAsTable: true,
+      tableRows: rows.map((r: any) => [String(r[labelKey] ?? ''), String(r[valueKey] ?? '')]),
+      labels: [],
+      datasets: [],
+    }
+  }
+  return {
+    labels: rows.map((r: any) => r[labelKey]),
+    datasets: [{
+      label: payload.title || valueKey || 'Series 1',
+      data: values,
+      borderWidth: 2,
+      fill: true,
+    }],
+  }
+}
+
+/** ECharts 风格格式：xAxis + series。 */
+function buildEChartsChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle | null {
+  if (!payload.series || !payload.xAxis) return null
+  return {
+    labels: payload.xAxis.data || payload.xAxis,
+    datasets: (payload.series || []).map((s: any, idx: number) => ({
+      label: s.name || `Series ${idx + 1}`,
+      data: s.data || [],
+      borderWidth: 2,
+      fill: type === 'bar',
+    })),
+  }
+}
+
+/** 散点图（data.datasets 形式）。 */
+function buildScatterDatasetsChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle | null {
+  if (type !== 'scatter' || !payload.data || !payload.data.datasets) return null
+  return {
+    labels: [],
+    datasets: payload.data.datasets.map((ds: any) => ({
+      ...ds,
+      borderWidth: ds.borderWidth || 2,
+    })),
+  }
+}
+
+/** 按 seriesField 将散点分组；无分组字段时返回单个数据集。 */
+function groupScatterPointsBySeries(dataPoints: ChartPayload[], seriesField: ChartPayload, payload: ChartPayload): unknown[] {
+  if (!seriesField) {
+    return [{
+      label: payload.title || 'Data',
+      data: dataPoints.map((item: any) => ({
+        x: item[payload.xField],
+        y: item[payload.yField]
+      })),
+      borderWidth: 2,
+    }]
+  }
+  const grouped = new Map<string, any[]>()
+  for (const item of dataPoints) {
+    const seriesName = item[seriesField]
+    if (!grouped.has(seriesName)) {
+      grouped.set(seriesName, [])
+    }
+    grouped.get(seriesName)!.push({
+      x: item[payload.xField],
+      y: item[payload.yField]
+    })
+  }
+  return Array.from(grouped.entries()).map(([name, data]) => ({
+    label: name,
+    data: data,
+    borderWidth: 2,
+  }))
+}
+
+/** 散点图（xField/yField 形式）。 */
+function buildScatterXYChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle | null {
+  if (type !== 'scatter' || !payload.data || !payload.xField || !payload.yField) return null
+  return {
+    labels: [],
+    datasets: groupScatterPointsBySeries(payload.data, payload.seriesField, payload),
+  }
+}
+
+/** 简化格式（支持 labels / xAxis / x，或 series，或 {x, y}）。 */
+function buildSimpleChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle {
+  const labels = payload.labels || payload.xAxis || payload.x || []
+  const series = payload.series || []
+  if (series.length === 0 && payload.y) {
+    return {
+      labels,
+      datasets: [{
+        label: payload.yLabel || payload.title || 'Data',
+        data: payload.y,
+        borderWidth: 2,
+        fill: type === 'bar',
+      }],
+    }
+  }
+  return {
+    labels,
+    datasets: series.map((s: any, idx: number) => ({
+      label: s.name || `Series ${idx + 1}`,
+      data: s.data || [],
+      borderWidth: 2,
+      fill: type === 'bar',
+    })),
+  }
+}
+
+const CHART_SERIES_BUILDERS: ChartSeriesBuilder[] = [
+  buildNativeChartSeries,
+  buildSankeyChartSeries,
+  buildXYFieldChartSeries,
+  buildValuesChartSeries,
+  buildPieValuesChartSeries,
+  buildBarRowsChartSeries,
+  buildEChartsChartSeries,
+  buildScatterDatasetsChartSeries,
+  buildScatterXYChartSeries,
+]
+
+/** 按格式优先级逐个尝试构建系列数据，全部不匹配时走简化格式。 */
+function buildChartSeries(type: string, payload: ChartPayload): ChartSeriesBundle {
+  const dataObj = payload.data || payload
+  for (const builder of CHART_SERIES_BUILDERS) {
+    const built = builder(type, payload, dataObj)
+    if (built) return built
+  }
+  return buildSimpleChartSeries(type, payload)
+}
+
+/** 解析图表 options，并按需为 sankey 补齐 parsing / plugins 配置。 */
+function resolveChartOptions(payload: ChartPayload, type: string): Record<string, ChartPayload> {
+  const chartOptions: Record<string, ChartPayload> = payload.options || { responsive: true, maintainAspectRatio: false }
+  if (type !== 'sankey') return chartOptions
+  chartOptions.parsing = { from: 'from', to: 'to', flow: 'flow' }
+  chartOptions.plugins = chartOptions.plugins || {}
+  chartOptions.plugins.legend = { display: false }
+  chartOptions.plugins.tooltip = { enabled: true }
+  return chartOptions
+}
+
+/** 数值不可用时的降级表格渲染。 */
+function renderChartAsTable(canvas: HTMLCanvasElement, payload: ChartPayload, tableRows: Array<[string, string]>): void {
+  const container = canvas.parentElement
+  if (!container) return
+  const header1 = payload.xField || (locale.value === 'zh' ? '项' : 'Item')
+  const header2 = payload.yField || (locale.value === 'zh' ? '内容' : 'Content')
+  const rowsHtml = tableRows
+    .map(([a, b]) => `<tr><td class="border border-gray-300 px-3 py-2">${a}</td><td class="border border-gray-300 px-3 py-2">${b}</td></tr>`)
+    .join('')
+  container.innerHTML = `
+    <table class="w-full text-sm border border-gray-300 border-collapse">
+      <thead>
+        <tr>
+          <th class="border border-gray-300 px-3 py-2 text-left">${header1}</th>
+          <th class="border border-gray-300 px-3 py-2 text-left">${header2}</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  `
+}
+
+/** 解析图表类型：仅支持五种内置类型，其余回退 line。 */
+function resolveChartType(type: string): string {
+  return type === 'bar' || type === 'line' || type === 'pie' || type === 'scatter' || type === 'sankey'
+    ? type
+    : 'line'
+}
+
+/** 创建 Chart.js 实例。 */
+function createChartInstance(Chart: ChartRuntime, canvas: HTMLCanvasElement, type: string, labels: unknown[], datasets: unknown[], options: Record<string, ChartPayload>): void {
+  new (Chart as any)(canvas, {
+    type: resolveChartType(type),
+    data: { labels, datasets },
+    options,
+  })
+}
+
+/** 加载并注册 sankey 控制器（UMD 包可能不会自动注册）。 */
+async function registerSankeyPlugin(Chart: ChartRuntime): Promise<void> {
+  await ensureScript('https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.13.0/dist/chartjs-chart-sankey.min.js', 'chartjsChartSankey')
+  const candidates = [
+    (Chart as any),
+    (window as any),
+    (window as any).ChartSankey,
+    (window as any).chartjsChartSankey,
+    (window as any).ChartSankey?.default,
+    (window as any).chartjsChartSankey?.default,
+  ].filter(Boolean)
+  let SankeyController: any
+  let Flow: any
+  for (const mod of candidates) {
+    if (!SankeyController && (mod as any).SankeyController) {
+      SankeyController = (mod as any).SankeyController
+    }
+    if (!Flow && (mod as any).Flow) {
+      Flow = (mod as any).Flow
+    }
+  }
+  if (!SankeyController || !Flow || !(Chart as any).register) {
+    console.warn('[Chart] Sankey controller not found after loading plugin')
+    return
+  }
+  try {
+    ;(Chart as any).register(SankeyController, Flow)
+  } catch (e) {
+    console.warn('[Chart] Failed to register sankey controller:', e)
+  }
+}
+
+/** 渲染单个 canvas 图表；已渲染的 canvas 直接跳过。 */
+async function renderSingleChartCanvas(canvas: HTMLCanvasElement, Chart: ChartRuntime): Promise<void> {
+  if (canvas.dataset.rendered === 'true') return
+  const raw = canvas.dataset.chart || ''
+  const parsed = parseCanvasChartPayload(raw)
+  if (!parsed.payload) {
+    if (parsed.error) console.error('[Chart] Failed to parse chart data:', parsed.error)
+    return
+  }
+  const payload = parsed.payload
+  let type = (payload.type || 'line').toLowerCase()
+  if (type === 'column') type = 'bar'
+  if (type === 'sankey') await registerSankeyPlugin(Chart)
+  const series = buildChartSeries(type, payload)
+  if (series.type) type = series.type
+  const chartOptions = resolveChartOptions(payload, type)
+  try {
+    if (series.renderAsTable) {
+      renderChartAsTable(canvas, payload, series.tableRows || [])
+      canvas.dataset.rendered = 'true'
+      return
+    }
+    createChartInstance(Chart, canvas, type, series.labels, series.datasets, chartOptions)
+    canvas.dataset.rendered = 'true'
+  } catch (e) {
+    console.error('[Chart] Failed to render chart:', e)
+  }
+}
 
 async function renderChartBlocks() {
   const canvases = Array.from(document.querySelectorAll('canvas.chart-block')) as HTMLCanvasElement[]
@@ -1490,298 +1934,29 @@ async function renderChartBlocks() {
     return
   }
   for (const canvas of canvases) {
-    if (canvas.dataset.rendered === 'true') continue
-    const raw = canvas.dataset.chart || ''
-    let payload: any
-    try {
-      const decoded = decodeURIComponent(raw)
-      try {
-        payload = JSON.parse(decoded)
-      } catch {
-        // Handle potentially escaped double quotes in malformed JSON
-        const cleaned = decoded.replace(/\\"/g, '"')
-        payload = JSON.parse(cleaned)
-      }
-    } catch (e) {
-      const decoded = decodeURIComponent(raw)
-      payload = parseChartPayload(decoded)
-      if (!payload) {
-        console.error('[Chart] Failed to parse chart data:', e)
-        continue
-      }
-    }
-    
-    // Support multiple formats:
-    // 1. Simplified: {type, labels/xAxis, series: [{name, data}]}
-    // 2. Chart.js native: {type, data: {labels, datasets}, options}
-    let type = (payload.type || 'line').toLowerCase()
-    if (type === 'column') type = 'bar'
-    if (type === 'sankey') {
-      await ensureScript('https://cdn.jsdelivr.net/npm/chartjs-chart-sankey@0.13.0/dist/chartjs-chart-sankey.min.js', 'chartjsChartSankey')
-      // Ensure sankey controller is registered with Chart.js (UMD bundles may not auto-register)
-      const candidates = [
-        (Chart as any),
-        (window as any),
-        (window as any).ChartSankey,
-        (window as any).chartjsChartSankey,
-        (window as any).ChartSankey?.default,
-        (window as any).chartjsChartSankey?.default,
-      ].filter(Boolean)
-      let SankeyController: any
-      let Flow: any
-      for (const mod of candidates) {
-        if (!SankeyController && (mod as any).SankeyController) {
-          SankeyController = (mod as any).SankeyController
-        }
-        if (!Flow && (mod as any).Flow) {
-          Flow = (mod as any).Flow
-        }
-      }
-      if (SankeyController && Flow && (Chart as any).register) {
-        try {
-          ;(Chart as any).register(SankeyController, Flow)
-        } catch (e) {
-          console.warn('[Chart] Failed to register sankey controller:', e)
-        }
-      } else {
-        console.warn('[Chart] Sankey controller not found after loading plugin')
-      }
-    }
-    
-    let labels: any[]
-    let datasets: any[]
-    let renderAsTable = false
-    let tableRows: Array<[string, string]> = []
-    
-    const dataObj = payload.data || payload
-    if (dataObj && dataObj.labels && dataObj.datasets) {
-      // Chart.js native or semi-native format
-      labels = dataObj.labels
-      datasets = dataObj.datasets.map((ds: any) => ({
-        ...ds,
-        borderWidth: ds.borderWidth || 2,
-        fill: ds.fill !== undefined ? ds.fill : (type === 'bar'),
-      }))
-    } else if (type === 'sankey' && payload.data && payload.data.links) {
-      const links = payload.data.links || []
-      const nodeNames = Array.isArray(payload.data.nodes)
-        ? payload.data.nodes.map((n: any) => (n && n.name ? String(n.name) : String(n)))
-        : []
-      const derivedNames = new Set<string>()
-      for (const link of links) {
-        if (link.source !== undefined && link.source !== null) derivedNames.add(String(link.source))
-        if (link.target !== undefined && link.target !== null) derivedNames.add(String(link.target))
-      }
-      const allNames = nodeNames.length ? nodeNames : Array.from(derivedNames)
-      const nameSet = new Set(allNames)
-      labels = allNames
-      datasets = [{
-        label: payload.title || 'Sankey',
-        data: links
-          .map((link: any) => ({
-            from: String(link.source),
-            to: String(link.target),
-            flow: link.value ?? link.flow ?? 0
-          }))
-          .filter((link: any) => nameSet.has(link.from) && nameSet.has(link.to)),
-        colorMode: 'gradient',
-        colorFrom: '#7aa6ff',
-        colorTo: '#7ecf9a',
-        borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.08)'
-      }]
-    } else if (payload.data && Array.isArray(payload.data) && payload.xField && payload.yField) {
-      // Array of objects with xField + multiple yField
-      const rows = payload.data
-      const yFields = Array.isArray(payload.yField) ? payload.yField : [payload.yField]
-      labels = rows.map((r: any) => r[payload.xField])
-      datasets = yFields.map((field: string, idx: number) => ({
-        label: field,
-        data: rows.map((r: any) => r[field] ?? 0),
-        borderWidth: 2,
-        fill: type === 'bar',
-      }))
-    } else if (payload.data && payload.data.labels && payload.data.values) {
-      // Simple format: {data:{labels, values}}
-      labels = payload.data.labels
-      datasets = [{
-        label: payload.title || 'Series 1',
-        data: payload.data.values,
-        borderWidth: 2,
-        fill: type === 'bar',
-      }]
-    } else if (payload.data && payload.data.values && Array.isArray(payload.data.values) && payload.type === 'pie') {
-      // Pie format: {data:{values:[{category, value}]}}
-      labels = payload.data.values.map((v: any) => v.category)
-      datasets = [{
-        label: payload.title || 'Series 1',
-        data: payload.data.values.map((v: any) => v.value),
-        borderWidth: 1,
-      }]
-      type = 'pie'
-    } else if (payload.data && Array.isArray(payload.data) && type === 'bar' && !payload.xField) {
-      // Array rows without explicit xField -> use first key as label, second as value
-      const rows = payload.data
-      const keys = rows.length ? Object.keys(rows[0]) : []
-      const labelKey = keys[0]
-      const valueKey = keys[1]
-      const values = rows.map((r: any) => r[valueKey])
-      const numeric = values.every((v: any) => typeof v === 'number' && !Number.isNaN(v))
-      if (!numeric) {
-        renderAsTable = true
-        tableRows = rows.map((r: any) => [String(r[labelKey] ?? ''), String(r[valueKey] ?? '')])
-        labels = []
-        datasets = []
-      } else {
-        labels = rows.map((r: any) => r[labelKey])
-        datasets = [{
-          label: payload.title || valueKey || 'Series 1',
-          data: values,
-          borderWidth: 2,
-          fill: true,
-        }]
-      }
-    } else if (payload.series && payload.xAxis) {
-      // ECharts-like format
-      labels = payload.xAxis.data || payload.xAxis
-      datasets = (payload.series || []).map((s: any, idx: number) => ({
-        label: s.name || `Series ${idx + 1}`,
-        data: s.data || [],
-        borderWidth: 2,
-        fill: type === 'bar',
-      }))
-    } else if (type === 'scatter' && payload.data && payload.data.datasets) {
-      labels = []
-      datasets = payload.data.datasets.map((ds: any) => ({
-        ...ds,
-        borderWidth: ds.borderWidth || 2,
-      }))
-    } else if (type === 'scatter' && payload.data && payload.xField && payload.yField) {
-      // Scatter chart with xField/yField format
-      labels = []
-      const dataPoints = payload.data
-      const seriesField = payload.seriesField
-      
-      if (seriesField) {
-        // Group by series field
-        const grouped = new Map<string, any[]>()
-        for (const item of dataPoints) {
-          const seriesName = item[seriesField]
-          if (!grouped.has(seriesName)) {
-            grouped.set(seriesName, [])
-          }
-          grouped.get(seriesName)!.push({
-            x: item[payload.xField],
-            y: item[payload.yField]
-          })
-        }
-        
-        datasets = Array.from(grouped.entries()).map(([name, data]) => ({
-          label: name,
-          data: data,
-          borderWidth: 2,
-        }))
-      } else {
-        // Single series
-        datasets = [{
-          label: payload.title || 'Data',
-          data: dataPoints.map((item: any) => ({
-            x: item[payload.xField],
-            y: item[payload.yField]
-          })),
-          borderWidth: 2,
-        }]
-      }
-    } else {
-      // Simplified format (support labels, xAxis, or x)
-      labels = payload.labels || payload.xAxis || payload.x || []
-      const series = payload.series || []
-      
-      if (series.length === 0 && payload.y) {
-        // Fallback for {x, y} format
-        datasets = [{
-          label: payload.yLabel || payload.title || 'Data',
-          data: payload.y,
-          borderWidth: 2,
-          fill: type === 'bar',
-        }]
-      } else {
-        datasets = series.map((s: any, idx: number) => ({
-          label: s.name || `Series ${idx + 1}`,
-          data: s.data || [],
-          borderWidth: 2,
-          fill: type === 'bar',
-        }))
-      }
-    }
-    
-    const chartOptions = payload.options || { responsive: true, maintainAspectRatio: false }
-    if (type === 'sankey') {
-      chartOptions.parsing = { from: 'from', to: 'to', flow: 'flow' }
-      chartOptions.plugins = chartOptions.plugins || {}
-      chartOptions.plugins.legend = { display: false }
-      chartOptions.plugins.tooltip = { enabled: true }
-    }
-    
-    try {
-      if (renderAsTable) {
-        const container = canvas.parentElement
-        if (container) {
-          const header1 = payload.xField || (locale.value === 'zh' ? '项' : 'Item')
-          const header2 = payload.yField || (locale.value === 'zh' ? '内容' : 'Content')
-          const rowsHtml = tableRows
-            .map(([a, b]) => `<tr><td class="border border-gray-300 px-3 py-2">${a}</td><td class="border border-gray-300 px-3 py-2">${b}</td></tr>`)
-            .join('')
-          container.innerHTML = `
-            <table class="w-full text-sm border border-gray-300 border-collapse">
-              <thead>
-                <tr>
-                  <th class="border border-gray-300 px-3 py-2 text-left">${header1}</th>
-                  <th class="border border-gray-300 px-3 py-2 text-left">${header2}</th>
-                </tr>
-              </thead>
-              <tbody>${rowsHtml}</tbody>
-            </table>
-          `
-        }
-        canvas.dataset.rendered = 'true'
-        continue
-      }
-      const resolvedType = type === 'bar' || type === 'line' || type === 'pie' || type === 'scatter' || type === 'sankey'
-        ? type
-        : 'line'
-      new (Chart as any)(canvas, {
-        type: resolvedType,
-        data: { labels, datasets },
-        options: chartOptions,
-      })
-      canvas.dataset.rendered = 'true'
-    } catch (e) {
-      console.error('[Chart] Failed to render chart:', e)
-    }
+    await renderSingleChartCanvas(canvas, Chart)
   }
 }
 
-function parseChartPayload(raw: string): any | null {
-  const text = String(raw || '').trim()
-  if (!text) return null
-  try {
-    return JSON.parse(text)
-  } catch {
-    // fallthrough
-  }
+/** 读取文本图表头部的 type / title。 */
+function readChartTextHeader(text: string): { type: string; title: string } {
   const typeMatch = text.match(/^type:\s*([^\n]+)$/m)
   const titleMatch = text.match(/^title:\s*([^\n]+)$/m)
-  const baseType = typeMatch ? typeMatch[1].trim() : 'line'
-  const baseTitle = titleMatch ? titleMatch[1].trim() : 'Chart'
+  return {
+    type: typeMatch ? typeMatch[1].trim() : 'line',
+    title: titleMatch ? titleMatch[1].trim() : 'Chart',
+  }
+}
 
+/** 解析 labels+values 或 x+y 形式的文本图表。 */
+function parseChartTextPairs(text: string, header: { type: string; title: string }): ChartPayload | null {
   const labelsMatch = text.match(/^labels:\s*(\[[^\]]*\])$/m)
   const valuesMatch = text.match(/^values:\s*(\[[^\]]*\])$/m)
   if (labelsMatch && valuesMatch) {
     try {
       return {
-        type: baseType,
-        title: baseTitle,
+        type: header.type,
+        title: header.title,
         labels: JSON.parse(labelsMatch[1]),
         series: [{ name: 'Series', data: JSON.parse(valuesMatch[1]) }],
       }
@@ -1789,14 +1964,13 @@ function parseChartPayload(raw: string): any | null {
       // continue
     }
   }
-
   const xMatch = text.match(/^x:\s*(\[[^\]]*\])$/m)
   const yMatch = text.match(/^y:\s*(\[[^\]]*\])$/m)
   if (xMatch && yMatch) {
     try {
       return {
-        type: baseType,
-        title: baseTitle,
+        type: header.type,
+        title: header.title,
         labels: JSON.parse(xMatch[1]),
         series: [{ name: 'Series', data: JSON.parse(yMatch[1]) }],
       }
@@ -1804,61 +1978,70 @@ function parseChartPayload(raw: string): any | null {
       // continue
     }
   }
+  return null
+}
 
+/** 解析多数据集文本图表（labels + 多个 -label / -data 块）。 */
+function parseChartTextDatasets(text: string, header: { type: string; title: string }): ChartPayload | null {
   const dataLabelsMatch = text.match(/labels:\s*(\[[^\]]*\])/)
   const datasetMatches = Array.from(text.matchAll(/-\s*label:\s*([^\n]+)\s*(?:\n|\r\n)\s*data:\s*(\[[^\]]*\])/g))
-  if (dataLabelsMatch && datasetMatches.length) {
+  if (!dataLabelsMatch || !datasetMatches.length) return null
+  try {
+    const labels = JSON.parse(dataLabelsMatch[1])
+    const series = datasetMatches.map((m) => ({
+      name: m[1].trim(),
+      data: JSON.parse(m[2]),
+    }))
+    return { type: header.type, title: header.title, labels, series }
+  } catch {
+    // continue
+    return null
+  }
+}
+
+/** 解析饼图文本图表（多个 -label / -value 块）。 */
+function parseChartTextPie(text: string, header: { type: string; title: string }): ChartPayload | null {
+  const pieMatches = Array.from(text.matchAll(/-\s*label:\s*([^\n]+)\s*(?:\n|\r\n)\s*value:\s*([0-9.]+)/g))
+  if (!pieMatches.length) return null
+  const labels = pieMatches.map((m) => m[1].trim())
+  const data = pieMatches.map((m) => Number(m[2]))
+  return { type: header.type, title: header.title, labels, series: [{ name: 'Series', data }] }
+}
+
+/** 解析标量值（数组、数字、带引号字符串）。 */
+function parseChartScalar(val: string): ChartPayload {
+  const v = val.trim()
+  if (!v) return ''
+  if (v.startsWith('[') && v.endsWith(']')) {
     try {
-      const labels = JSON.parse(dataLabelsMatch[1])
-      const series = datasetMatches.map((m) => ({
-        name: m[1].trim(),
-        data: JSON.parse(m[2]),
-      }))
-      return { type: baseType, title: baseTitle, labels, series }
+      return JSON.parse(v)
     } catch {
-      // continue
+      return v
     }
   }
-
-  const pieMatches = Array.from(text.matchAll(/-\s*label:\s*([^\n]+)\s*(?:\n|\r\n)\s*value:\s*([0-9.]+)/g))
-  if (pieMatches.length) {
-    const labels = pieMatches.map((m) => m[1].trim())
-    const data = pieMatches.map((m) => Number(m[2]))
-    return { type: baseType, title: baseTitle, labels, series: [{ name: 'Series', data }] }
+  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v)
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    return v.slice(1, -1)
   }
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  return v
+}
+
+/** 逐行收集文本图表的键值结构。 */
+function collectChartScalarMap(lines: string[]): ChartPayload {
   const obj: any = {}
   let currentKey: string | null = null
-
-  const parseScalar = (val: string): any => {
-    const v = val.trim()
-    if (!v) return ''
-    if (v.startsWith('[') && v.endsWith(']')) {
-      try {
-        return JSON.parse(v)
-      } catch {
-        return v
-      }
-    }
-    if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v)
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-      return v.slice(1, -1)
-    }
-    return v
-  }
-
   for (const line of lines) {
     if (line.startsWith('- ') && currentKey) {
       const item = line.slice(2)
       const parts = item.split(':')
       if (parts.length >= 2) {
         const key = parts[0].trim()
-        const val = parseScalar(parts.slice(1).join(':'))
+        const val = parseChartScalar(parts.slice(1).join(':'))
         obj[currentKey] = obj[currentKey] || []
         obj[currentKey].push({ label: key, value: val })
       } else {
         obj[currentKey] = obj[currentKey] || []
-        obj[currentKey].push(parseScalar(item))
+        obj[currentKey].push(parseChartScalar(item))
       }
       continue
     }
@@ -1872,30 +2055,58 @@ function parseChartPayload(raw: string): any | null {
       continue
     }
     currentKey = key
-    obj[key] = parseScalar(val)
+    obj[key] = parseChartScalar(val)
   }
+  return obj
+}
 
-  const payload: any = { type: obj.type || 'line', title: obj.title || 'Chart' }
+/** 从键值结构中解析 labels / series，无法解析时返回 null。 */
+function resolveChartTextSeries(obj: ChartPayload): { labels: ChartPayload; series: ChartPayload } | null {
   if (Array.isArray(obj.labels) && (Array.isArray(obj.values) || Array.isArray(obj.y))) {
-    payload.labels = obj.labels
-    payload.series = [
-      { name: obj.seriesName || 'Series', data: Array.isArray(obj.values) ? obj.values : obj.y },
-    ]
-    return payload
+    return {
+      labels: obj.labels,
+      series: [{ name: obj.seriesName || 'Series', data: Array.isArray(obj.values) ? obj.values : obj.y }],
+    }
   }
   if (Array.isArray(obj.x) && Array.isArray(obj.y)) {
-    payload.labels = obj.x
-    payload.series = [{ name: obj.seriesName || 'Series', data: obj.y }]
-    return payload
+    return { labels: obj.x, series: [{ name: obj.seriesName || 'Series', data: obj.y }] }
   }
   if (Array.isArray(obj.values) && obj.values.length && typeof obj.values[0] === 'object') {
     const labels = obj.values.map((v: any) => v.label)
     const data = obj.values.map((v: any) => v.value)
-    payload.labels = labels
-    payload.series = [{ name: obj.seriesName || 'Series', data }]
-    return payload
+    return { labels, series: [{ name: obj.seriesName || 'Series', data }] }
   }
   return null
+}
+
+/** 解析 key: value 形式的文本图表主体。 */
+function parseChartTextObject(text: string): ChartPayload | null {
+  const obj = collectChartScalarMap(text.split('\n').map((l) => l.trim()).filter(Boolean))
+  const series = resolveChartTextSeries(obj)
+  if (!series) return null
+  return {
+    type: obj.type || 'line',
+    title: obj.title || 'Chart',
+    labels: series.labels,
+    series: series.series,
+  }
+}
+
+function parseChartPayload(raw: string): any | null {
+  const text = String(raw || '').trim()
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    // fallthrough
+  }
+  const header = readChartTextHeader(text)
+  return (
+    parseChartTextPairs(text, header) ||
+    parseChartTextDatasets(text, header) ||
+    parseChartTextPie(text, header) ||
+    parseChartTextObject(text)
+  )
 }
 
 function normalizeUserContent(content: string): string {

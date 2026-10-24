@@ -105,112 +105,122 @@ function renderInlineMarkdown(value: string): string {
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
 }
 
+/** 判断当前行是否为 markdown 表格表头（本行含管道符且下一行是分隔行）。 */
+function isTableStart(lines: string[], index: number): boolean {
+  return index + 1 < lines.length && (lines[index] || '').includes('|') && isMarkdownTableSeparator(lines[index + 1] || '')
+}
+
+/** 解析 ``` 围栏代码块；返回消费后的行号。 */
+function consumeCodeBlock(lines: string[], index: number, start: number, targets: string[], output: PreviewBlock[]): number {
+  const lang = String(lines[index]).trim().slice(3).trim()
+  const codeLines: string[] = []
+  index += 1
+  while (index < lines.length && !String(lines[index]).trim().startsWith('```')) {
+    codeLines.push(lines[index] || '')
+    index += 1
+  }
+  if (index < lines.length) index += 1
+  const text = codeLines.join('\n')
+  output.push({
+    key: `code-${start}`,
+    type: 'markdown',
+    html: `<pre><code${lang ? ` data-lang="${escapeHtml(lang)}"` : ''}>${escapeHtml(text)}</code></pre>`,
+    text,
+    highlighted: isTargetMatch(text, targets),
+  })
+  return index
+}
+
+/** 渲染表格 HTML：命中目标的行加高亮类。 */
+function tableWrapHtml(header: string[], rows: string[][], targets: string[]): string {
+  const rowHtml = rows.map((row) => {
+    const cls = isTargetMatch(row.join(' '), targets) ? ' class="native-preview-row-highlight"' : ''
+    return `<tr${cls}>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join('')}</tr>`
+  }).join('')
+  return `<div class="native-table-wrap"><table><thead><tr>${header.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join('')}</tr></thead><tbody>${rowHtml}</tbody></table></div>`
+}
+
+/** 解析 markdown 表格：表头 + 分隔行 + 若干数据行；返回消费后的行号。 */
+function consumeTableBlock(lines: string[], index: number, start: number, targets: string[], output: PreviewBlock[]): number {
+  const header = splitTableCells(lines[index] || '')
+  index += 2
+  const rows: string[][] = []
+  while (index < lines.length && String(lines[index]).includes('|') && String(lines[index]).trim()) {
+    rows.push(splitTableCells(lines[index] || ''))
+    index += 1
+  }
+  const text = [header.join(' '), ...rows.map((row) => row.join(' '))].join('\n')
+  output.push({
+    key: `table-${start}`,
+    type: 'markdown',
+    html: tableWrapHtml(header, rows, targets),
+    text,
+    highlighted: isTargetMatch(text, targets),
+  })
+  return index
+}
+
+/** 构造 ATX 标题块。 */
+function headingBlock(index: number, level: number, text: string, targets: string[]): PreviewBlock {
+  return {
+    key: `heading-${index}`,
+    type: 'markdown',
+    html: `<h${level}>${renderInlineMarkdown(text)}</h${level}>`,
+    text,
+    highlighted: isTargetMatch(text, targets),
+  }
+}
+
+/** 解析无序列表（- * + 前缀）；返回消费后的行号。 */
+function consumeListBlock(lines: string[], index: number, start: number, targets: string[], output: PreviewBlock[]): number {
+  const items: string[] = []
+  while (index < lines.length && /^[-*+]\s+/.test(String(lines[index]).trim())) {
+    items.push(String(lines[index]).trim().replace(/^[-*+]\s+/, ''))
+    index += 1
+  }
+  const text = items.join('\n')
+  output.push({
+    key: `list-${start}`,
+    type: 'markdown',
+    html: `<ul>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</ul>`,
+    text,
+    highlighted: isTargetMatch(text, targets),
+  })
+  return index
+}
+
+/** 解析段落：连续非空行合并，遇到代码围栏或表格表头即停止；返回消费后的行号。 */
+function consumeParagraphBlock(lines: string[], index: number, start: number, targets: string[], output: PreviewBlock[]): number {
+  const paragraph: string[] = []
+  while (index < lines.length && String(lines[index]).trim() && !String(lines[index]).trim().startsWith('```')) {
+    if (isTableStart(lines, index)) break
+    paragraph.push(String(lines[index]).trim())
+    index += 1
+  }
+  const text = paragraph.join(' ')
+  output.push({
+    key: `p-${start}`,
+    type: 'markdown',
+    html: `<p>${renderInlineMarkdown(text)}</p>`,
+    text,
+    highlighted: isTargetMatch(text, targets),
+  })
+  return index
+}
+
 function markdownBlocks(content: string, targets: string[]): PreviewBlock[] {
   const lines = String(content || '').split(/\r?\n/)
   const output: PreviewBlock[] = []
   let index = 0
   while (index < lines.length) {
-    const line = lines[index] || ''
-    const trimmed = line.trim()
-    if (!trimmed) {
-      index += 1
-      continue
-    }
-
-    if (trimmed.startsWith('```')) {
-      const start = index
-      const lang = trimmed.slice(3).trim()
-      const codeLines: string[] = []
-      index += 1
-      while (index < lines.length && !String(lines[index]).trim().startsWith('```')) {
-        codeLines.push(lines[index] || '')
-        index += 1
-      }
-      if (index < lines.length) index += 1
-      const text = codeLines.join('\n')
-      output.push({
-        key: `code-${start}`,
-        type: 'markdown',
-        html: `<pre><code${lang ? ` data-lang="${escapeHtml(lang)}"` : ''}>${escapeHtml(text)}</code></pre>`,
-        text,
-        highlighted: isTargetMatch(text, targets),
-      })
-      continue
-    }
-
-    if (index + 1 < lines.length && line.includes('|') && isMarkdownTableSeparator(lines[index + 1] || '')) {
-      const start = index
-      const header = splitTableCells(line)
-      index += 2
-      const rows: string[][] = []
-      while (index < lines.length && String(lines[index]).includes('|') && String(lines[index]).trim()) {
-        rows.push(splitTableCells(lines[index] || ''))
-        index += 1
-      }
-      const rowHtml = rows.map((row) => {
-        const text = row.join(' ')
-        const cls = isTargetMatch(text, targets) ? ' class="native-preview-row-highlight"' : ''
-        return `<tr${cls}>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join('')}</tr>`
-      }).join('')
-      const text = [header.join(' '), ...rows.map((row) => row.join(' '))].join('\n')
-      output.push({
-        key: `table-${start}`,
-        type: 'markdown',
-        html: `<div class="native-table-wrap"><table><thead><tr>${header.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join('')}</tr></thead><tbody>${rowHtml}</tbody></table></div>`,
-        text,
-        highlighted: isTargetMatch(text, targets),
-      })
-      continue
-    }
-
+    const trimmed = (lines[index] || '').trim()
+    if (!trimmed) { index += 1; continue }
+    if (trimmed.startsWith('```')) { index = consumeCodeBlock(lines, index, index, targets, output); continue }
+    if (isTableStart(lines, index)) { index = consumeTableBlock(lines, index, index, targets, output); continue }
     const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed)
-    if (heading) {
-      const level = Math.min(6, heading[1].length)
-      const text = heading[2]
-      output.push({
-        key: `heading-${index}`,
-        type: 'markdown',
-        html: `<h${level}>${renderInlineMarkdown(text)}</h${level}>`,
-        text,
-        highlighted: isTargetMatch(text, targets),
-      })
-      index += 1
-      continue
-    }
-
-    if (/^[-*+]\s+/.test(trimmed)) {
-      const start = index
-      const items: string[] = []
-      while (index < lines.length && /^[-*+]\s+/.test(String(lines[index]).trim())) {
-        items.push(String(lines[index]).trim().replace(/^[-*+]\s+/, ''))
-        index += 1
-      }
-      const text = items.join('\n')
-      output.push({
-        key: `list-${start}`,
-        type: 'markdown',
-        html: `<ul>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</ul>`,
-        text,
-        highlighted: isTargetMatch(text, targets),
-      })
-      continue
-    }
-
-    const start = index
-    const paragraph: string[] = []
-    while (index < lines.length && String(lines[index]).trim() && !String(lines[index]).trim().startsWith('```')) {
-      if (index + 1 < lines.length && String(lines[index]).includes('|') && isMarkdownTableSeparator(lines[index + 1] || '')) break
-      paragraph.push(String(lines[index]).trim())
-      index += 1
-    }
-    const text = paragraph.join(' ')
-    output.push({
-      key: `p-${start}`,
-      type: 'markdown',
-      html: `<p>${renderInlineMarkdown(text)}</p>`,
-      text,
-      highlighted: isTargetMatch(text, targets),
-    })
+    if (heading) { output.push(headingBlock(index, Math.min(6, heading[1].length), heading[2], targets)); index += 1; continue }
+    if (/^[-*+]\s+/.test(trimmed)) { index = consumeListBlock(lines, index, index, targets, output); continue }
+    index = consumeParagraphBlock(lines, index, index, targets, output)
   }
   return output
 }
@@ -224,6 +234,9 @@ function sanitizeHtmlDocument(content: string): string {
     for (const attr of Array.from(node.attributes)) {
       const name = attr.name.toLowerCase()
       const value = attr.value.trim().toLowerCase()
+      // 这里是在「剥离 javascript: URL」的消毒逻辑本身，不是使用它；
+      // no-script-url 对消毒器里的模式串是误报（QA R11）。
+      // eslint-disable-next-line no-script-url
       if (name.startsWith('on') || value.startsWith('javascript:')) {
         node.removeAttribute(attr.name)
       }

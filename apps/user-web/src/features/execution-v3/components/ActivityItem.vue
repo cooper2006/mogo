@@ -23,33 +23,39 @@ const stateText = computed(() => {
   const key = activityStateMessageKey(props.item.status, outcome.value, props.item.payload)
   return key ? t(key) : ''
 })
-const text = computed(() => {
-  const payload = props.item.payload || {}
-  if (props.item.kind === 'activity') {
-    if (category.value === 'skill') {
-      const automatic = payload.selection_mode === 'automatic'
-      const organization = payload.source_scope === 'organization'
-      const key = automatic
-        ? (organization ? 'execution.v3.skill_auto_selected_organization' : 'execution.v3.skill_auto_selected_personal')
-        : (organization ? 'execution.v3.skill_selected_organization' : 'execution.v3.skill_selected_personal')
-      return t(key, { name: String(payload.skill_name || '') })
-    }
-    return String(payload.label || '')
-  }
-  if (props.item.kind === 'tool') {
-    return t(toolActionLabelKey(props.item))
-  }
-  if (props.item.kind === 'subagent') return String(payload.goal || payload.summary || '')
-  if (props.item.kind === 'approval') {
-    if (['dsh', 'dsh-local', 'askai-approval'].includes(String(payload.source || ''))) {
-      const name = String(payload.display_name || '').trim()
-      return name ? t('approval.timeline_pending', { name }) : t('ui.permission_required')
-    }
+// 技能类活动的文案：按选择方式与来源范围组合出四个 i18n key
+function skillActivityText(payload: Record<string, unknown>): string {
+  const automatic = payload.selection_mode === 'automatic'
+  const organization = payload.source_scope === 'organization'
+  const key = automatic
+    ? (organization ? 'execution.v3.skill_auto_selected_organization' : 'execution.v3.skill_auto_selected_personal')
+    : (organization ? 'execution.v3.skill_selected_organization' : 'execution.v3.skill_selected_personal')
+  return t(key, { name: String(payload.skill_name || '') })
+}
+
+// 授权类活动的文案：内置审批源展示名称，其余展示拒绝原因
+function approvalActivityText(payload: Record<string, unknown>): string {
+  if (!['dsh', 'dsh-local', 'askai-approval'].includes(String(payload.source || ''))) {
     return String(payload.reason || t('ui.permission_required'))
   }
-  if (props.item.kind === 'browser_handoff') return String(payload.reason || t('execution.v3.browser_handoff'))
-  if (props.item.kind === 'error') return String(payload.message || t('ui.failed'))
+  const name = String(payload.display_name || '').trim()
+  return name ? t('approval.timeline_pending', { name }) : t('ui.permission_required')
+}
+
+// 其余活动类型的简短文案
+function simpleActivityText(kind: ExecutionItemV3['kind'], payload: Record<string, unknown>): string {
+  if (kind === 'subagent') return String(payload.goal || payload.summary || '')
+  if (kind === 'browser_handoff') return String(payload.reason || t('execution.v3.browser_handoff'))
+  if (kind === 'error') return String(payload.message || t('ui.failed'))
   return ''
+}
+
+const text = computed(() => {
+  const payload = props.item.payload || {}
+  if (props.item.kind === 'activity') return category.value === 'skill' ? skillActivityText(payload) : String(payload.label || '')
+  if (props.item.kind === 'tool') return t(toolActionLabelKey(props.item))
+  if (props.item.kind === 'approval') return approvalActivityText(payload)
+  return simpleActivityText(props.item.kind, payload)
 })
 const detail = computed(() => props.item.kind === 'tool' ? toolCallSummary(props.item) : '')
 </script>

@@ -97,8 +97,34 @@ const defaultOptions: TokenStatsFilterOptions = {
   statuses: [],
 };
 
-export async function fetchTokenStats(query: TokenStatsQuery = {}): Promise<TokenStatsPage> {
-  const params = {
+/** /api/analytics/token-usage 的查询参数：空字符串表示不过滤该维度。 */
+interface TokenStatsParams {
+  q: string;
+  departmentId: string;
+  modelName: string;
+  stage: string;
+  status: string;
+  offset: number;
+  limit: number;
+  groupBy: string;
+  sessionId: string;
+  userRequestId: string;
+}
+
+/** 服务端 token 用量响应：字段均可缺省，由本地补齐默认值。 */
+interface TokenStatsResponsePayload {
+  summary?: Partial<TokenStatsSummary>;
+  items?: TokenStatsItem[];
+  offset?: number;
+  limit?: number;
+  total?: number;
+  hasMore?: boolean;
+  filterOptions?: Partial<TokenStatsFilterOptions>;
+}
+
+/** 组装 token 用量查询参数：缺省项回退为不过滤 / 默认分页与分组口径。 */
+function buildTokenStatsParams(query: TokenStatsQuery): TokenStatsParams {
+  return {
     q: query.q || '',
     departmentId: query.departmentId || '',
     modelName: query.modelName || '',
@@ -110,23 +136,36 @@ export async function fetchTokenStats(query: TokenStatsQuery = {}): Promise<Toke
     sessionId: query.sessionId || '',
     userRequestId: query.userRequestId || '',
   };
+}
 
-  const { data } = await apiClient.get('/api/analytics/token-usage', { params });
+/** 读取数值字段：空值回退为默认值。 */
+function readNumber(value: unknown, fallback: number): number {
+  return Number(value || fallback);
+}
+
+/** 归一化 token 用量响应：补齐默认汇总与筛选选项，并保证字段类型。 */
+function normalizeTokenStatsResponse(data: TokenStatsResponsePayload, params: TokenStatsParams): TokenStatsPage {
   return {
     summary: {
       ...defaultSummary,
       ...(data?.summary || {}),
     },
     items: Array.isArray(data?.items) ? data.items : [],
-    offset: Number(data?.offset || params.offset || 0),
-    limit: Number(data?.limit || params.limit || 20),
-    total: Number(data?.total || 0),
+    offset: readNumber(data?.offset, readNumber(params.offset, 0)),
+    limit: readNumber(data?.limit, readNumber(params.limit, 20)),
+    total: readNumber(data?.total, 0),
     hasMore: Boolean(data?.hasMore),
     filterOptions: {
       ...defaultOptions,
       ...(data?.filterOptions || {}),
     },
   };
+}
+
+export async function fetchTokenStats(query: TokenStatsQuery = {}): Promise<TokenStatsPage> {
+  const params = buildTokenStatsParams(query);
+  const { data } = await apiClient.get('/api/analytics/token-usage', { params });
+  return normalizeTokenStatsResponse(data, params);
 }
 
 export interface TokenStatsDetail {

@@ -349,22 +349,31 @@ const activeCodeState = computed(() => codeRuntime.stateFor(activeChatKey.value)
 const activeChatHasMessages = computed(() => (
   visibleChatPanes.value.find((pane) => pane.key === activeChatKey.value)?.messages.length || 0
 ) > 0)
-const desktopWindowTitle = computed(() => {
-  if (currentView.value === 'chat') {
+/** 固定文案的视图标题（无会话/技能/语言等动态参数）。 */
+const desktopWindowStaticTitles: Record<string, () => string> = {
+  tools: () => t('app.sidebar.tools'),
+  knowledge: () => t('knowledge.sidebar'),
+  'ontology-grants': () => t('ontology_grant.title'),
+  orchestration: () => t('orchestration.title'),
+  'token-usage': () => t('app.account.usage'),
+}
+
+/** 动态标题的视图：会话名 / 技能名 / 按语言切换的本地化文案。 */
+function desktopWindowTitleForView(view: string): string {
+  if (view === 'chat') {
     const current = sessions.value.find((session) => session.id === currentSessionId.value)
     return current ? displaySessionTitle(current) : t('app.sidebar.new_chat')
   }
-  if (currentView.value === 'tools') return t('app.sidebar.tools')
-  if (currentView.value === 'knowledge') return t('knowledge.sidebar')
-  if (currentView.value === 'ontology-grants') return t('ontology_grant.title')
-  if (currentView.value === 'orchestration') return t('orchestration.title')
-  if (currentView.value === 'portal') return locale.value === 'zh' ? '资产门户' : 'Asset portal'
-  if (currentView.value === 'scheduled-tasks') return locale.value === 'zh' ? '定时任务' : 'Scheduled tasks'
-  if (currentView.value === 'token-usage') return t('app.account.usage')
-  if (currentView.value === 'skill-config' || currentView.value === 'composite-editor') {
-    return selectedSkill.value?.name || t('app.sidebar.marketplace')
-  }
+  if (view === 'portal') return locale.value === 'zh' ? '资产门户' : 'Asset portal'
+  if (view === 'scheduled-tasks') return locale.value === 'zh' ? '定时任务' : 'Scheduled tasks'
+  if (view === 'skill-config' || view === 'composite-editor') return selectedSkill.value?.name || t('app.sidebar.marketplace')
   return t('app.sidebar.marketplace')
+}
+
+const desktopWindowTitle = computed(() => {
+  const staticTitle = desktopWindowStaticTitles[currentView.value]
+  if (staticTitle) return staticTitle()
+  return desktopWindowTitleForView(currentView.value)
 })
 function addProjectToActiveConversation(): void {
   if (canUseCode.value && currentView.value === 'chat') openProjectCreate(activeChatKey.value)
@@ -1471,24 +1480,46 @@ function displayAvatarText() {
   return normalizedPhone() ? (locale.value === 'zh' ? '用' : 'U') : displayName().slice(0, 1)
 }
 
+/** 语言感知的二选一文案。 */
+function localizedLabel(zh: string, en: string): string {
+  return locale.value === 'zh' ? zh : en
+}
+
+/** 付费档位 → 本地化标题。 */
+const accountTierLabels: Record<string, () => string> = {
+  plus: () => localizedLabel('Plus 个人版', 'Plus Personal'),
+  pro: () => localizedLabel('专业团队版', 'Pro Team'),
+  enterprise: () => localizedLabel('企业定制版', 'Enterprise Custom'),
+}
+
+/** 社区版判断：用户档案或账单任一标记为 community 即为社区版。 */
+function isCommunityEdition(): boolean {
+  return userProfile.value?.edition === 'community' || billingSummary.value?.edition === 'community'
+}
+
+/** 企业空间账号标题：按是否具备管理权限区分管理员/成员。 */
+function enterpriseTierLabel(): string {
+  return userProfile.value?.canAccessAdmin
+    ? t('ui.enterprise_admin')
+    : t('ui.enterprise_member')
+}
+
+/** 账单档位优先，缺失时回退到用户档案档位。 */
+function accountTier(): string | undefined {
+  return billingSummary.value?.tier || userProfile.value?.tier
+}
+
 const accountTierLabel = computed(() => {
   // The community edition intentionally carries no tier label: it is the default
   // self-hosted deployment, and rendering "Community Edition" here showed up as
   // noise in both the profile card and the account switcher. Real entitlements
   // (enterprise, plus, pro) still render below.
-  if (userProfile.value?.edition === 'community' || billingSummary.value?.edition === 'community') {
-    return ''
-  }
-  if (isEnterpriseSpace.value) {
-    return userProfile.value?.canAccessAdmin
-      ? t('ui.enterprise_admin')
-      : t('ui.enterprise_member')
-  }
-  const tier = billingSummary.value?.tier || userProfile.value?.tier
-  if (tier === 'plus') return locale.value === 'zh' ? 'Plus 个人版' : 'Plus Personal'
-  if (tier === 'pro') return locale.value === 'zh' ? '专业团队版' : 'Pro Team'
-  if (tier === 'enterprise') return locale.value === 'zh' ? '企业定制版' : 'Enterprise Custom'
-  return locale.value === 'zh' ? '免费版' : 'Free'
+  if (isCommunityEdition()) return ''
+  if (isEnterpriseSpace.value) return enterpriseTierLabel()
+  const tier = accountTier()
+  const tierLabel = tier ? accountTierLabels[tier] : undefined
+  if (tierLabel) return tierLabel()
+  return localizedLabel('免费版', 'Free')
 })
 
 const quotaTotal = computed(() => Number(billingSummary.value?.totalPoints || 0))
@@ -1533,13 +1564,51 @@ function isEnterpriseTenant(tenant: Pick<TenantCandidate, 'spaceType' | 'orgName
   return String(tenant.orgName || '').trim() !== '个人空间'
 }
 
+/** 是否允许为该租户打开管理台：需在租户列表内、具备管理权限且属于企业空间。 */
+function canOpenAdmin(target: TenantCandidate | undefined): boolean {
+  if (target && !canAccessAdmin(target)) return false
+  if (target && !isEnterpriseTenant(target)) return false
+  if (!target && userProfile.value?.canAccessAdmin !== true) return false
+  return Boolean(target) || isEnterpriseSpace.value
+}
+
+/** 管理台鉴权失败时的统一提示。 */
+function reportAdminAuthFailure(message?: string): void {
+  window.alert(message || t('api.auth.auth_failed'))
+}
+
+/** 嵌入式浏览器模式：切回会话、激活内置浏览器标签后再打开管理台地址。 */
+async function openAdminInEmbeddedBrowser(adminUrl: string): Promise<void> {
+  if (activeChatKey.value) navigateTo('chat')
+  else startLocalSession()
+  revealDesktopTool('browser')
+  const browserSessionId = currentSessionId.value || activeChatKey.value
+  if (browserSessionId) {
+    await selectEmbeddedBrowserSession(browserSessionId)
+    await activateEmbeddedBrowserSession(browserSessionId)
+  }
+  await nextTick()
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+  await openResource(adminUrl, 'internal')
+}
+
+/** window.open 返回的窗口句柄类型（避免直接引用 DOM 全局 Window，eslint 未声明该类型）。 */
+type AdminWindowHandle = NonNullable<ReturnType<typeof window.open>> | null
+
+/** 新窗口模式：同源窗口把 SSO 令牌写进 history.state，不经过 URL。 */
+function deliverAdminSsoToken(adminUrl: string, ssoToken: string, adminWindow: AdminWindowHandle): void {
+  if (adminWindow) {
+    adminWindow.history.replaceState({ ssoToken }, '')
+    adminWindow.location.href = adminUrl
+    return
+  }
+  window.open(adminUrl, '_blank', ssoWindowState(ssoToken))
+}
+
 async function openAdminConsole(tenantId = getTenantId()) {
   if (!authToken.value || adminSsoStarting.value) return
   const target = availableTenants.value.find((tenant) => tenant.tenantId === tenantId)
-  if (target && !canAccessAdmin(target)) return
-  if (target && !isEnterpriseTenant(target)) return
-  if (!target && userProfile.value?.canAccessAdmin !== true) return
-  if (!target && !isEnterpriseSpace.value) return
+  if (!canOpenAdmin(target)) return
 
   const adminWindow = capabilities.embeddedBrowser ? null : window.open('', '_blank')
   adminSsoStarting.value = true
@@ -1552,35 +1621,20 @@ async function openAdminConsole(tenantId = getTenantId()) {
     const result = await getAdminSSOToken(token)
     if (!result.ok || !result.ssoToken) {
       adminWindow?.close()
-      window.alert(result.message || t('api.auth.auth_failed'))
+      reportAdminAuthFailure(result.message)
       return
     }
     // 022 FR-14（T030）：令牌不进 URL；改由 window.open 的 state 参数传递。
     const adminUrl = buildAdminSsoUrl()
-    const ssoFeatures = ssoWindowState(result.ssoToken)
     if (capabilities.embeddedBrowser) {
-      if (activeChatKey.value) navigateTo('chat')
-      else startLocalSession()
-      revealDesktopTool('browser')
-      const browserSessionId = currentSessionId.value || activeChatKey.value
-      if (browserSessionId) {
-        await selectEmbeddedBrowserSession(browserSessionId)
-        await activateEmbeddedBrowserSession(browserSessionId)
-      }
-      await nextTick()
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
-      await openResource(adminUrl, 'internal')
-    } else if (adminWindow) {
-      // 同源窗口直接写入 history.state，不经过 URL。
-      adminWindow.history.replaceState({ ssoToken: result.ssoToken }, '')
-      adminWindow.location.href = adminUrl
+      await openAdminInEmbeddedBrowser(adminUrl)
     } else {
-      window.open(adminUrl, '_blank', ssoFeatures)
+      deliverAdminSsoToken(adminUrl, result.ssoToken, adminWindow)
     }
     closeUserMenu()
   } catch (error: any) {
     adminWindow?.close()
-    window.alert(error?.message || t('api.auth.auth_failed'))
+    reportAdminAuthFailure(error?.message)
   } finally {
     adminSsoStarting.value = false
   }
@@ -1910,31 +1964,64 @@ function handleDesktopServerConnected() {
   window.location.reload()
 }
 
+/** 消费门户 SSO 票据：票据经 history.state 传入，立即清除避免残留/刷新复用。 */
+async function consumePortalSsoTicket(): Promise<void> {
+  if (typeof window === 'undefined') return
+  const portalToken = (window.history.state && (window.history.state as { portalToken?: string }).portalToken) || ''
+  if (!portalToken) return
+  window.history.replaceState({}, '')
+  await handlePortalEntry(portalToken)
+}
+
+/** 读取服务端设置；失败时回退到中文与浏览器时区。 */
+async function loadServerSettings(): Promise<{ serverConfigured: boolean; settings: Awaited<ReturnType<typeof getSettings>> | null }> {
+  let serverConfigured = !capabilities.isDesktop
+  let settings = null
+  try {
+    settings = await getSettings()
+    serverConfigured = settings.server_configured
+    applyLanguage(settings.language)
+    timezoneValue.value = setAppTimezone(settings.timezone || getBrowserTimezone())
+  } catch {
+    applyLanguage('zh')
+    timezoneValue.value = setAppTimezone(getBrowserTimezone())
+  }
+  return { serverConfigured, settings }
+}
+
+/** 按当前登录态决定启动动作：无令牌开登录框，有令牌则拉起本地会话并刷新用户档案。 */
+function bootstrapAuth(): void {
+  if (!authToken.value) {
+    loginOpen.value = true
+    startLocalSession({ shouldNavigate: currentView.value === 'chat' })
+    return
+  }
+  if (!userProfile.value) {
+    startLocalSession({ shouldNavigate: currentView.value === 'chat' })
+    sessionsLoading.value = true
+    refreshUserProfile(authToken.value).catch(() => { sessionsLoading.value = false })
+    return
+  }
+  startLocalSession({ shouldNavigate: currentView.value === 'chat' })
+  refreshUserProfile(authToken.value, false, true).catch(() => { loadSessions(true).catch(() => {}) })
+}
+
+/** 桌面端启动自愈：本地已有会话时同步 Electron 设置与 sidecar（Web 端为空操作）。 */
+function syncDesktopAgentOnBoot(): void {
+  if (authToken.value && userProfile.value?.userId !== undefined) {
+    void syncDesktopAgentIdentity(authToken.value, userProfile.value.userId)
+  }
+}
+
 onMounted(async () => {
   window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
   applyThemeMode()
   systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
   systemThemeMedia.addEventListener('change', handleSystemThemeChange)
-  // 029：门户 SSO 票据优先消费（免二次登录）。票据经 history.state 传入，立即清除避免残留/刷新复用。
-  if (typeof window !== 'undefined') {
-    const portalToken = (window.history.state && (window.history.state as { portalToken?: string }).portalToken) || ''
-    if (portalToken) {
-      window.history.replaceState({}, '')
-      await handlePortalEntry(portalToken)
-    }
-  }
+  // 029：门户 SSO 票据优先消费（免二次登录）。
+  await consumePortalSsoTicket()
   currentView.value = resolveViewFromPath(window.location.pathname)
-  let serverConfigured = !capabilities.isDesktop
-  let storedSettings = null
-  try {
-    storedSettings = await getSettings()
-    serverConfigured = storedSettings.server_configured
-    applyLanguage(storedSettings.language)
-    timezoneValue.value = setAppTimezone(storedSettings.timezone || getBrowserTimezone())
-  } catch {
-    applyLanguage('zh')
-    timezoneValue.value = setAppTimezone(getBrowserTimezone())
-  }
+  const { serverConfigured, settings: storedSettings } = await loadServerSettings()
   if (capabilities.isDesktop && !serverConfigured) {
     desktopServerState.value = 'required'
     return
@@ -1946,26 +2033,8 @@ onMounted(async () => {
     : localStorage.getItem(authTokenKey) || ''
   loadSavedUsers()
   loadUserProfile()
-  if (authToken.value && !userProfile.value) {
-    startLocalSession({ shouldNavigate: currentView.value === 'chat' })
-    sessionsLoading.value = true
-    refreshUserProfile(authToken.value).catch(() => {
-      sessionsLoading.value = false
-    })
-  } else if (authToken.value && userProfile.value) {
-    startLocalSession({ shouldNavigate: currentView.value === 'chat' })
-    refreshUserProfile(authToken.value, false, true).catch(() => {
-      loadSessions(true).catch(() => {})
-    })
-  } else if (!authToken.value) {
-    loginOpen.value = true
-    startLocalSession({ shouldNavigate: currentView.value === 'chat' })
-  }
-  // Self-heal the desktop agent on boot: if we have a stored session,
-  // make sure the Electron settings + sidecar reflect it (no-op on web).
-  if (authToken.value && userProfile.value?.userId !== undefined) {
-    void syncDesktopAgentIdentity(authToken.value, userProfile.value.userId)
-  }
+  bootstrapAuth()
+  syncDesktopAgentOnBoot()
   document.addEventListener('click', handleDocumentClick)
   window.addEventListener('popstate', handlePopState)
   sessionRefreshTimer = setInterval(() => { void refreshSessionSummaries() }, 5000)

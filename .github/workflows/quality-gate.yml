@@ -274,8 +274,16 @@ jobs:
         run: |
           ${{ matrix.venv }}/bin/pip install -q pyflakes
           out=$(${{ matrix.venv }}/bin/python -m pyflakes app || true)
-          if echo "$out" | grep -q "undefined name"; then
-            echo "$out" | grep "undefined name"
+          # pyflakes 有两种措辞都含 "undefined name"，只有第 1 种是缺陷：
+          #   1) 真 F821：`<file>:<line>:<col>: 'foo' is undefined name`（阻断）
+          #   2) 抑制提示：`'from x import *' used; unable to detect undefined names`
+          # 第 2 种只表示"这里有通配导入，本模块无法全量解析"，不是缺名缺陷，
+          # 但它的措辞含 "undefined name" 子串，直接 grep 会误判为阻断失败
+          #（QA R11 在 admin-api services/trust_rating/__init__.py 复现）。
+          bad=$(echo "$out" | grep "undefined name" \
+            | grep -v "unable to detect undefined names" || true)
+          if [ -n "$bad" ]; then
+            echo "$bad"
             echo "::error::pyflakes found undefined name(s)"
             exit 1
           fi

@@ -337,6 +337,11 @@ interface DisplayChunkItem extends KnowledgeDocumentChunkItem {
   rowCount: number;
 }
 
+/** 需要走 PDF 预览链路的 Office 源文件扩展名。 */
+const OFFICE_EXTENSIONS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+/** 文档预览仍在进行中的状态集合。 */
+const CONVERTING_STATUSES = ['pending', 'queued', 'running'];
+
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
@@ -428,16 +433,38 @@ const targetSourceText = computed(() => {
   }
   return targetPageNo.value ? t('已定位到第 {page} 页', { page: targetPageNo.value }) : t('已定位到引用分段');
 });
-const previewKind = computed(() => {
+type PreviewKind = 'pdf' | 'markdown' | 'html' | 'image' | 'text' | 'unsupported';
+
+/** 判断某类预览类型是否匹配当前 MIME 类型与文件扩展名。 */
+function matchesPreviewKind(kind: PreviewKind, mime: string, ext: string): boolean {
+  if (kind === 'pdf') {
+    return mime.includes('pdf') || ext === 'pdf' || OFFICE_EXTENSIONS.includes(ext);
+  }
+  if (kind === 'markdown') {
+    return mime.includes('markdown') || ['md', 'markdown'].includes(ext);
+  }
+  if (kind === 'html') {
+    return mime.includes('html') || ['html', 'htm'].includes(ext);
+  }
+  if (kind === 'image') {
+    return mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext);
+  }
+  if (kind === 'text') {
+    return mime.startsWith('text/') || ['txt', 'csv', 'json', 'tsv', 'log'].includes(ext);
+  }
+  return false;
+}
+
+const previewKind = computed<PreviewKind>(() => {
   const mime = document.value?.mimeType || '';
   const previewMime = document.value?.previewMimeType || '';
   const ext = (document.value?.fileExt || '').toLowerCase();
   const effectiveMime = String(previewMime || mime).toLowerCase();
-  if (effectiveMime.includes('pdf') || ext === 'pdf' || ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'pdf';
-  if (effectiveMime.includes('markdown') || ['md', 'markdown'].includes(ext)) return 'markdown';
-  if (effectiveMime.includes('html') || ['html', 'htm'].includes(ext)) return 'html';
-  if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return 'image';
-  if (effectiveMime.startsWith('text/') || ['txt', 'csv', 'json', 'tsv', 'log'].includes(ext)) return 'text';
+  if (matchesPreviewKind('pdf', effectiveMime, ext)) return 'pdf';
+  if (matchesPreviewKind('markdown', effectiveMime, ext)) return 'markdown';
+  if (matchesPreviewKind('html', effectiveMime, ext)) return 'html';
+  if (matchesPreviewKind('image', mime, ext)) return 'image';
+  if (matchesPreviewKind('text', effectiveMime, ext)) return 'text';
   return 'unsupported';
 });
 
@@ -684,44 +711,63 @@ function startPolling() {
   }, 5000);
 }
 
+/** 判断文档预览状态是否仍在进行中（用于决定是否轮询）。 */
+function isConvertingStatus(status?: string): boolean {
+  return CONVERTING_STATUSES.includes(status ?? '');
+}
+
+/** 处理 PDF 预览的转换状态：进行中则启动轮询并返回 true，失败则抛出错误。 */
+function handlePdfPreviewState(): boolean {
+  const status = document.value?.previewStatus;
+  const convertedOfficeFile = OFFICE_EXTENSIONS.includes(String(document.value?.fileExt || '').toLowerCase());
+  if (convertedOfficeFile && isConvertingStatus(status)) {
+    isConverting.value = true;
+    startPolling();
+    return true;
+  }
+  if (convertedOfficeFile && status === 'failed') {
+    throw new Error(document.value?.previewError || t('预览文件生成失败'));
+  }
+  return false;
+}
+
+/** 拉取非 PDF 文档的二进制预览内容，并按预览类型读取文本正文。 */
+async function loadPreviewBlob(): Promise<void> {
+  const response = await apiClient.get<Blob>(`/api/knowledge/documents/${documentId.value}/preview`, {
+    responseType: 'blob',
+    timeout: 120000,
+  });
+  const blob = response.data;
+  objectUrl.value = URL.createObjectURL(blob);
+  if (previewKind.value === 'text' || previewKind.value === 'markdown' || previewKind.value === 'html') {
+    textContent.value = await blob.text();
+  } else {
+    textContent.value = '';
+  }
+}
+
+/** 409 冲突且文档仍在转换中时返回 true，表示应转入轮询而不是抛错。 */
+function handlePreviewConflict(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 409) return false;
+  return isConvertingStatus(document.value?.previewStatus);
+}
+
 async function loadBlob() {
   isConverting.value = false;
   try {
     revokeObjectUrl();
     if (previewKind.value === 'pdf') {
-      const status = document.value?.previewStatus;
-      const convertedOfficeFile = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
-        .includes(String(document.value?.fileExt || '').toLowerCase());
-      if (convertedOfficeFile && ['pending', 'queued', 'running'].includes(String(status))) {
-        isConverting.value = true;
-        startPolling();
-        return;
-      }
-      if (convertedOfficeFile && status === 'failed') {
-        throw new Error(document.value?.previewError || t('预览文件生成失败'));
-      }
+      const converting = handlePdfPreviewState();
+      if (converting) return;
       objectUrl.value = knowledgeDocumentPreviewUrl(documentId.value);
       return;
     }
-    const response = await apiClient.get<Blob>(`/api/knowledge/documents/${documentId.value}/preview`, {
-      responseType: 'blob',
-      timeout: 120000,
-    });
-    const blob = response.data;
-    objectUrl.value = URL.createObjectURL(blob);
-    if (previewKind.value === 'text' || previewKind.value === 'markdown' || previewKind.value === 'html') {
-      textContent.value = await blob.text();
-    } else {
-      textContent.value = '';
-    }
+    await loadPreviewBlob();
   } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 409) {
-      const status = document.value?.previewStatus;
-      if (status === 'pending' || status === 'queued' || status === 'running') {
-        isConverting.value = true;
-        startPolling();
-        return;
-      }
+    if (handlePreviewConflict(error)) {
+      isConverting.value = true;
+      startPolling();
+      return;
     }
     throw error;
   }

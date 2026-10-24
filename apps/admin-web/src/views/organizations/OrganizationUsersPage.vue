@@ -1150,50 +1150,69 @@ async function openEditUser(row: DirectoryUserItem) {
   userEditorVisible.value = true;
 }
 
+/** 校验用户表单的身份项：姓名、主部门、主要岗位角色。 */
+function validateUserIdentity(): string | null {
+  if (!userForm.value.name.trim()) return t('请填写姓名');
+  if (!userForm.value.primaryDepartmentId) return t('请选择主部门');
+  if (!userForm.value.primaryRoleId) return t('请选择主要岗位角色');
+  return null;
+}
+
+/** 校验用户表单的联系与凭据项：手机号、邮箱、登录名、密码长度。 */
+function validateUserContact(): string | null {
+  if (!userForm.value.mobile.trim()) return t('请填写手机号');
+  if (!userForm.value.email.trim()) return t('请填写邮箱');
+  if (!isValidPhone(userForm.value.mobile.trim())) return t('手机号格式不正确');
+  if (!isValidEmail(userForm.value.email.trim())) return t('邮箱格式不正确');
+  if (userForm.value.source === 'local' && !userForm.value.loginName.trim()) return t('请填写登录名');
+  if (userForm.value.source === 'local' && userEditorMode.value === 'create' && userForm.value.credentialPassword.length < 10) {
+    return t('初始密码至少 10 位');
+  }
+  if (userForm.value.credentialPassword && userForm.value.credentialPassword.length < 10) return t('密码至少 10 位');
+  return null;
+}
+
+/** 组装用户表单的基础字段：主部门缺省时部门列表回退为主部门。 */
+function buildUserBaseFields() {
+  return {
+    name: userForm.value.name.trim(),
+    mobile: userForm.value.mobile.trim(),
+    email: userForm.value.email.trim(),
+    status: userForm.value.status,
+    source: userForm.value.source,
+    sourceUserId: userForm.value.sourceUserId.trim(),
+    loginName: userForm.value.loginName.trim(),
+    primaryDepartmentId: userForm.value.primaryDepartmentId,
+    departmentIds: userForm.value.departmentIds.length ? userForm.value.departmentIds : [userForm.value.primaryDepartmentId],
+    primaryRoleId: userForm.value.primaryRoleId,
+    roleIds: userForm.value.roleIds,
+  };
+}
+
+/** 落库用户：按模式创建或更新，并在需要时补写自定义字段。 */
+async function persistUser(customFieldPayload: Record<string, unknown>) {
+  let savedUserId = userForm.value.id;
+  if (userEditorMode.value === 'create') {
+    const result = await createUser({ ...buildUserBaseFields(), initialPassword: userForm.value.credentialPassword });
+    savedUserId = String(result.id || '');
+  } else {
+    await updateUser(userForm.value.id, { ...buildUserBaseFields(), resetPassword: userForm.value.credentialPassword });
+  }
+  if (savedUserId && activeUserFields.value.length) {
+    await updateUserCustomFields(savedUserId, customFieldPayload);
+  }
+}
+
 async function saveUser() {
-  if (!userForm.value.name.trim()) {
-    message.warning(t('请填写姓名'));
-    return;
-  }
-  if (!userForm.value.primaryDepartmentId) {
-    message.warning(t('请选择主部门'));
-    return;
-  }
-  if (!userForm.value.primaryRoleId) {
-    message.warning(t('请选择主要岗位角色'));
+  const identityProblem = validateUserIdentity();
+  if (identityProblem) {
+    message.warning(identityProblem);
     return;
   }
   syncPrimaryRole(userForm.value.primaryRoleId);
-  if (!userForm.value.mobile.trim()) {
-    message.warning(t('请填写手机号'));
-    return;
-  }
-  if (!userForm.value.email.trim()) {
-    message.warning(t('请填写邮箱'));
-    return;
-  }
-  if (!isValidPhone(userForm.value.mobile.trim())) {
-    message.warning(t('手机号格式不正确'));
-    return;
-  }
-  if (!isValidEmail(userForm.value.email.trim())) {
-    message.warning(t('邮箱格式不正确'));
-    return;
-  }
-  if (userForm.value.source === 'local' && !userForm.value.loginName.trim()) {
-    message.warning(t('请填写登录名'));
-    return;
-  }
-  if (
-    userForm.value.source === 'local'
-    && userEditorMode.value === 'create'
-    && userForm.value.credentialPassword.length < 10
-  ) {
-    message.warning(t('初始密码至少 10 位'));
-    return;
-  }
-  if (userForm.value.credentialPassword && userForm.value.credentialPassword.length < 10) {
-    message.warning(t('密码至少 10 位'));
+  const contactProblem = validateUserContact();
+  if (contactProblem) {
+    message.warning(contactProblem);
     return;
   }
   const customFieldPayload = buildCustomFieldPayload();
@@ -1202,42 +1221,7 @@ async function saveUser() {
   }
   saving.value = true;
   try {
-    let savedUserId = userForm.value.id;
-    if (userEditorMode.value === 'create') {
-      const result = await createUser({
-        name: userForm.value.name.trim(),
-        mobile: userForm.value.mobile.trim(),
-        email: userForm.value.email.trim(),
-        status: userForm.value.status,
-        source: userForm.value.source,
-        sourceUserId: userForm.value.sourceUserId.trim(),
-        loginName: userForm.value.loginName.trim(),
-        primaryDepartmentId: userForm.value.primaryDepartmentId,
-        departmentIds: userForm.value.departmentIds.length ? userForm.value.departmentIds : [userForm.value.primaryDepartmentId],
-        initialPassword: userForm.value.credentialPassword,
-        primaryRoleId: userForm.value.primaryRoleId,
-        roleIds: userForm.value.roleIds,
-      });
-      savedUserId = String(result.id || '');
-    } else {
-      await updateUser(userForm.value.id, {
-        name: userForm.value.name.trim(),
-        mobile: userForm.value.mobile.trim(),
-        email: userForm.value.email.trim(),
-        status: userForm.value.status,
-        source: userForm.value.source,
-        sourceUserId: userForm.value.sourceUserId.trim(),
-        loginName: userForm.value.loginName.trim(),
-        primaryDepartmentId: userForm.value.primaryDepartmentId,
-        departmentIds: userForm.value.departmentIds.length ? userForm.value.departmentIds : [userForm.value.primaryDepartmentId],
-        resetPassword: userForm.value.credentialPassword,
-        primaryRoleId: userForm.value.primaryRoleId,
-        roleIds: userForm.value.roleIds,
-      });
-    }
-    if (savedUserId && activeUserFields.value.length) {
-      await updateUserCustomFields(savedUserId, customFieldPayload);
-    }
+    await persistUser(customFieldPayload);
     message.success(userEditorMode.value === 'create' ? t('用户已创建') : t('用户已更新'));
     userEditorVisible.value = false;
     await loadUsers();

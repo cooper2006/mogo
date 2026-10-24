@@ -58,18 +58,19 @@ export type TokenUsagePage = {
   has_more: boolean
 }
 
-export async function listTokenUsage(
-  userId: string,
-  options: {
-    tenantId?: string
-    limit?: number
-    offset?: number
-    q?: string
-    stage?: string
-    status?: string
-    token?: string
-  } = {}
-): Promise<TokenUsagePage> {
+// 列表查询参数（与函数签名中的内联类型结构一致）。
+type TokenUsageListOptions = {
+  tenantId?: string
+  limit?: number
+  offset?: number
+  q?: string
+  stage?: string
+  status?: string
+  token?: string
+}
+
+// 组装列表接口的查询串。
+function buildTokenUsageQuery(userId: string, options: TokenUsageListOptions): URLSearchParams {
   const query = new URLSearchParams({
     userId,
     limit: String(options.limit ?? 12),
@@ -79,30 +80,52 @@ export async function listTokenUsage(
   if (options.q) query.set('q', options.q)
   if (options.stage) query.set('stage', options.stage)
   if (options.status) query.set('status', options.status)
-  const response = await client.get(`/askai-api/api/token-usage?${query.toString()}`, {
-    headers: {
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-    },
-  })
-  const data = response.data?.data || {}
+  return query
+}
+
+// 组装请求头（可选 Bearer token）。
+function tokenUsageHeaders(options: TokenUsageListOptions): Record<string, string> {
+  return options.token ? { Authorization: `Bearer ${options.token}` } : {}
+}
+
+// 归一化汇总数据（summary 缺失时按空对象处理）。
+function normalizeUsageSummary(summary?: Partial<TokenUsageSummary>): TokenUsageSummary {
+  const s = summary || {}
   return {
-    summary: {
-      total_calls: Number(data.summary?.total_calls || 0),
-      internal_calls: Number(data.summary?.internal_calls || 0),
-      total_tokens: Number(data.summary?.total_tokens || 0),
-      prompt_tokens: Number(data.summary?.prompt_tokens || 0),
-      completion_tokens: Number(data.summary?.completion_tokens || 0),
-      avg_tokens: Number(data.summary?.avg_tokens || 0),
-      last_called_at: data.summary?.last_called_at || null,
-      last_24h_calls: Number(data.summary?.last_24h_calls || 0),
-      last_24h_internal_calls: Number(data.summary?.last_24h_internal_calls || 0),
-      last_24h_tokens: Number(data.summary?.last_24h_tokens || 0),
-      top_models: Array.isArray(data.summary?.top_models) ? data.summary.top_models : [],
-    },
-    items: Array.isArray(data.items) ? data.items : [],
-    offset: Number(data.offset || 0),
-    limit: Number(data.limit || options.limit || 12),
-    total: Number(data.total || 0),
-    has_more: Boolean(data.has_more),
+    total_calls: Number(s.total_calls || 0),
+    internal_calls: Number(s.internal_calls || 0),
+    total_tokens: Number(s.total_tokens || 0),
+    prompt_tokens: Number(s.prompt_tokens || 0),
+    completion_tokens: Number(s.completion_tokens || 0),
+    avg_tokens: Number(s.avg_tokens || 0),
+    last_called_at: s.last_called_at || null,
+    last_24h_calls: Number(s.last_24h_calls || 0),
+    last_24h_internal_calls: Number(s.last_24h_internal_calls || 0),
+    last_24h_tokens: Number(s.last_24h_tokens || 0),
+    top_models: Array.isArray(s.top_models) ? s.top_models : [],
   }
+}
+
+// 归一化分页数据（limit 的三重回退保持 || 语义）。
+function normalizeUsagePage(data?: Partial<TokenUsagePage>, options: TokenUsageListOptions = {}): TokenUsagePage {
+  const body = data || {}
+  return {
+    summary: normalizeUsageSummary(body.summary),
+    items: Array.isArray(body.items) ? body.items : [],
+    offset: Number(body.offset || 0),
+    limit: Number(body.limit || options.limit || 12),
+    total: Number(body.total || 0),
+    has_more: Boolean(body.has_more),
+  }
+}
+
+export async function listTokenUsage(
+  userId: string,
+  options: TokenUsageListOptions = {}
+): Promise<TokenUsagePage> {
+  const query = buildTokenUsageQuery(userId, options)
+  const response = await client.get(`/askai-api/api/token-usage?${query.toString()}`, {
+    headers: tokenUsageHeaders(options),
+  })
+  return normalizeUsagePage(response.data?.data, options)
 }

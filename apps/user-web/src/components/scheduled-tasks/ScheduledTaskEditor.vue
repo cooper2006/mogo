@@ -50,20 +50,61 @@ const canSave = computed(() => Boolean(
   (form.scheduleKind !== 'weekly' || form.weekdays.length),
 ))
 
+/** 任务名称：任务名优先，其次截断初始提示词到 30 字，最后回退默认标题。 */
+function resolveFormName(job: ScheduledJob | null): string {
+  if (job?.name) return job.name
+  return props.initialPrompt ? props.initialPrompt.trim().slice(0, 30) : t('新的定时任务')
+}
+
+/** 任务提示词：任务提示词 → 初始提示词 → 空串。 */
+function resolveFormPrompt(job: ScheduledJob | null): string {
+  return job?.prompt || props.initialPrompt || ''
+}
+
+/** 执行时区：任务时区 → 页面时区 → 默认时区。 */
+function resolveFormTimezone(job: ScheduledJob | null): string {
+  return job?.timezone || props.timezone || 'Asia/Shanghai'
+}
+
+/** 首次执行时间：任务时间解析失败时回退到时区默认时间。 */
+function resolveFormRunAt(job: ScheduledJob | null, timezone: string): number {
+  return (job?.run_at ? instantToPickerValue(job.run_at, timezone) : null) ?? defaultPickerValue(timezone)
+}
+
+/** 执行星期：任务星期优先，缺失时按首次执行时间所在星期兜底（周日 0 转 6）。 */
+function resolveFormWeekdays(job: ScheduledJob | null, runAt: number): number[] {
+  if (job?.weekdays?.length) return [...job.weekdays]
+  const day = new Date(runAt).getDay()
+  return [day === 0 ? 6 : day - 1]
+}
+
+/** 结果写入方式：任务设置优先，其次按是否指定初始会话决定。 */
+function resolveFormSessionMode(job: ScheduledJob | null): string {
+  return job?.session_mode || (props.initialSessionId ? 'fixed' : 'new_per_run')
+}
+
+/** 目标会话：任务会话优先，其次初始会话。 */
+function resolveFormSessionId(job: ScheduledJob | null): string | null {
+  return job?.session_id || props.initialSessionId || null
+}
+
+/** 新会话标题模板：任务模板优先，缺失时用默认模板。 */
+function resolveFormTitleTemplate(job: ScheduledJob | null): string {
+  return job?.session_title_template || '{name} · {date}'
+}
+
 watch(() => props.open, (open) => {
   if (!open) return
-  const job = props.job
-  form.name = job?.name || (props.initialPrompt ? props.initialPrompt.trim().slice(0, 30) : t('新的定时任务'))
-  form.prompt = job?.prompt || props.initialPrompt || ''
+  const job = props.job ?? null
+  form.name = resolveFormName(job)
+  form.prompt = resolveFormPrompt(job)
   form.scheduleKind = job?.schedule_kind || 'daily'
-  form.timezone = job?.timezone || props.timezone || 'Asia/Shanghai'
-  const parsedRunAt = job?.run_at ? instantToPickerValue(job.run_at, form.timezone) : null
-  form.runAt = parsedRunAt ?? defaultPickerValue(form.timezone)
-  const defaultDay = new Date(form.runAt).getDay()
-  form.weekdays = job?.weekdays?.length ? [...job.weekdays] : [defaultDay === 0 ? 6 : defaultDay - 1]
-  form.sessionMode = job?.session_mode || (props.initialSessionId ? 'fixed' : 'new_per_run')
-  form.sessionId = job?.session_id || props.initialSessionId || null
-  form.sessionTitleTemplate = job?.session_title_template || '{name} · {date}'
+  form.timezone = resolveFormTimezone(job)
+  form.runAt = resolveFormRunAt(job, form.timezone)
+  form.weekdays = resolveFormWeekdays(job, form.runAt)
+  form.sessionMode = resolveFormSessionMode(job)
+  form.sessionId = resolveFormSessionId(job)
+  form.sessionTitleTemplate = resolveFormTitleTemplate(job)
   form.enabled = job?.enabled ?? true
 }, { immediate: true })
 
