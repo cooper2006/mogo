@@ -2,6 +2,7 @@ import { uncoveredMessages } from './uncoveredMessages'
 import { knowledgeMessages } from './knowledgeMessages'
 import { shortcutMessages } from './shortcutMessages'
 import { ontologyGrantMessages } from './ontologyGrantMessages'
+import { orchestrationMessages } from './orchestrationMessages'
 
 export type Locale = 'zh' | 'en'
 export type MessageValue = string | Record<Locale, string>
@@ -11,6 +12,7 @@ export const messages = {
   ...knowledgeMessages,
   ...shortcutMessages,
   ...ontologyGrantMessages,
+  ...orchestrationMessages,
   // Existing execution / generic labels
   'phase.thinking': { zh: '思考中', en: 'Thinking' },
   'phase.searching': { zh: '搜索中', en: 'Searching' },
@@ -495,6 +497,23 @@ export const messages = {
   'chat.view.trajectory': { zh: '轨迹', en: 'Trajectory' },
   'chat.view.trajectory_empty': { zh: '本次会话暂无处理过程', en: 'No process steps in this session yet' },
   'chat.view.trajectory_round': { zh: '第 {index} 轮', en: 'Round {index}' },
+  // Session replay (043): timeline, focus and step drill-down.
+  'chat.view.replay_timeline': { zh: '时间轴', en: 'Timeline' },
+  'chat.view.replay_go_latest': { zh: '最新', en: 'Latest' },
+  'chat.view.replay_go_earliest': { zh: '最早', en: 'Earliest' },
+  'chat.view.replay_exit_focus': { zh: '退出聚焦', en: 'Exit focus' },
+  'chat.view.replay_focus_round': { zh: '聚焦本轮', en: 'Focus this round' },
+  'chat.view.replay_collapsed': { zh: '第 {index} 轮已折叠，点击时间轴查看', en: 'Round {index} collapsed — pick it on the timeline' },
+  'chat.view.replay_running': { zh: '运行中', en: 'Running' },
+  'chat.view.replay_steps': { zh: '步骤（{count}）', en: 'Steps ({count})' },
+  'chat.view.replay_duration': { zh: '耗时', en: 'Duration' },
+  'chat.view.replay_cost': { zh: '成本', en: 'Cost' },
+  'chat.view.replay_cost_reference': { zh: '（参考值）', en: '(estimated)' },
+  'chat.view.replay_input': { zh: '输入', en: 'Input' },
+  'chat.view.replay_output': { zh: '输出', en: 'Output' },
+  'chat.view.replay_empty_field': { zh: '（无）', en: '(none)' },
+  'chat.view.replay_long_session': { zh: '会话较长（{count} 轮），建议聚焦查看', en: 'Long session ({count} rounds) — focus a round to inspect it' },
+  'chat.view.replay_new_rounds': { zh: '{count} 个新轮次', en: '{count} new rounds' },
 
   // UI additional
   'ui.theme.light': { zh: '浅色', en: 'Light' },

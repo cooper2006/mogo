@@ -55,6 +55,10 @@ const ToolsPage = defineAsyncComponent(() => import('./components/MyToolsPage.vu
 const KnowledgePage = defineAsyncComponent(() => import('./components/MyKnowledgePage.vue'))
 // 030: 终端用户侧本体授权自查（admin-web 本体页的 user-web 迁移；只读展示）。
 const MyOntologyPage = defineAsyncComponent(() => import('./components/MyOntologyPage.vue'))
+// 039: 可视化编排画布 —— 节点-连线图编辑 DAG 工作流（画布为投影、文档为权威）。
+const OrchestrationCanvasPage = defineAsyncComponent(() => import('./components/orchestration/OrchestrationCanvasPage.vue'))
+// 037: 统一门户 —— 目录浏览 + 自助申领（管理侧上架 / 审批在 admin-web）。
+const PortalCatalogPage = defineAsyncComponent(() => import('./components/portal/PortalCatalog.vue'))
 const SkillConfigPage = defineAsyncComponent(() => import('./components/MySkillConfigPage.vue'))
 const CompositeSkillEditor = defineAsyncComponent(() => import('./components/CompositeSkillEditor.vue'))
 const ScheduledTaskPage = defineAsyncComponent(() => import('./components/scheduled-tasks/ScheduledTaskPage.vue'))
@@ -128,7 +132,7 @@ const pendingDeleteSession = ref<SessionSummary | SessionSearchResult | null>(nu
 const editingSessionId = ref<string | null>(null)
 const editingSessionTitle = ref('')
 const renamingSessionId = ref<string | null>(null)
-const currentView = ref<'chat' | 'skills' | 'tools' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants'>('chat')
+const currentView = ref<'chat' | 'skills' | 'tools' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'portal'>('chat')
 const scheduledTaskInitialPrompt = ref('')
 const scheduledTaskInitialSessionId = ref<string | null>(null)
 const scheduledTaskCreateRequestKey = ref(0)
@@ -353,6 +357,8 @@ const desktopWindowTitle = computed(() => {
   if (currentView.value === 'tools') return t('app.sidebar.tools')
   if (currentView.value === 'knowledge') return t('knowledge.sidebar')
   if (currentView.value === 'ontology-grants') return t('ontology_grant.title')
+  if (currentView.value === 'orchestration') return t('orchestration.title')
+  if (currentView.value === 'portal') return locale.value === 'zh' ? '资产门户' : 'Asset portal'
   if (currentView.value === 'scheduled-tasks') return locale.value === 'zh' ? '定时任务' : 'Scheduled tasks'
   if (currentView.value === 'token-usage') return t('app.account.usage')
   if (currentView.value === 'skill-config' || currentView.value === 'composite-editor') {
@@ -931,6 +937,8 @@ function resolveViewFromPath(pathname: string) {
   if (path === '/knowledge') return 'knowledge'
   if (path === '/scheduled-tasks') return 'scheduled-tasks'
   if (path === '/ontology-grants') return 'ontology-grants'
+  if (path === '/orchestration') return 'orchestration'
+  if (path === '/portal') return 'portal'
   return 'chat'
 }
 
@@ -940,6 +948,8 @@ function routePathForView(view: typeof currentView.value) {
   if (view === 'knowledge') return '/knowledge'
   if (view === 'scheduled-tasks') return '/scheduled-tasks'
   if (view === 'ontology-grants') return '/ontology-grants'
+  if (view === 'orchestration') return '/orchestration'
+  if (view === 'portal') return '/portal'
   if (view === 'skills' || view === 'skill-config' || view === 'composite-editor') return '/skills'
   return '/'
 }
@@ -1074,6 +1084,22 @@ function openOntologyGrantsPage() {
 }
 
 function closeOntologyGrantsPage() {
+  navigateTo('chat')
+}
+
+function openOrchestrationPage() {
+  navigateTo('orchestration')
+}
+
+function closeOrchestrationPage() {
+  navigateTo('chat')
+}
+
+function openPortalPage() {
+  navigateTo('portal')
+}
+
+function closePortalPage() {
   navigateTo('chat')
 }
 
@@ -2257,6 +2283,28 @@ onBeforeUnmount(() => {
           </span>
           <span>{{ t('ontology_grant.sidebar') }}</span>
         </button>
+        <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'orchestration' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openOrchestrationPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><path d="M9 6h6M6 9v6h9M18 9v6"/></svg>
+          </span>
+          <span>{{ t('orchestration.sidebar') }}</span>
+        </button>
+        <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'portal' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openPortalPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9h18l-1.5 11.5a1 1 0 0 1-1 .9H5.5a1 1 0 0 1-1-.9L3 9Z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg>
+          </span>
+          <span>{{ locale === 'zh' ? '资产门户' : 'Asset portal' }}</span>
+        </button>
       </div>
 
       <!-- User Profile (Bottom) -->
@@ -2511,6 +2559,12 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="currentView === 'ontology-grants'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
           <MyOntologyPage @back="closeOntologyGrantsPage" />
+        </div>
+        <div v-else-if="currentView === 'orchestration'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <OrchestrationCanvasPage :userId="getUserId() ?? undefined" :tenantId="getTenantId() ?? undefined" @back="closeOrchestrationPage" />
+        </div>
+        <div v-else-if="currentView === 'portal'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <PortalCatalogPage @back="closePortalPage" />
         </div>
         <template v-else>
           <div class="flex-1 relative overflow-hidden min-h-0">

@@ -41,3 +41,29 @@ export function collectTrajectoryRounds<TMessage extends TrajectorySourceMessage
   }
   return rounds
 }
+
+/**
+ * 043 (replay): one timeline anchor per assistant round.
+ *
+ * Pure projection of the same rounds `collectTrajectoryRounds` already picks, so
+ * the anchor count can never drift from the trajectory rows (spec R-1/R-5).
+ * `variant` carries the run status the component reads off the execution store.
+ */
+export type TrajectoryAnchor<TMessage extends TrajectorySourceMessage = TrajectorySourceMessage> = {
+  key: string
+  /** 1-based round index (assistant turns only, same rule as the rows). */
+  index: number
+  createdAt?: string
+  message: TMessage
+}
+
+export function collectTrajectoryAnchors<
+  TMessage extends TrajectorySourceMessage & { created_at?: string },
+>(messages: readonly TMessage[] | undefined): TrajectoryAnchor<TMessage>[] {
+  return collectTrajectoryRounds(messages).map((round) => ({
+    key: round.key,
+    index: round.index,
+    createdAt: round.message.created_at,
+    message: round.message,
+  }))
+}
