@@ -880,12 +880,169 @@ services:
       timeout: 5s
       retries: 20
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # 023 observability-resilience (Phase 1, T009–T013)
+  #
+  # 可观测性栈：Prometheus / Grafana / Alertmanager / OTel Collector /
+  # Tempo / Loki。整段由 `observability` profile 门控（沿用 pool/panweidb
+  # 的 profile 先例），默认部署形态不变：`docker compose up` 不带
+  # `--profile observability` 时这 6 个服务不会启动，022 锁定的既有
+  # 13 服务默认部署假设（024 Assumptions）不被触动。
+  #
+  # 启用：`docker compose --profile observability up -d`
+  #
+  # 网络：backend 是 internal: true（纯容器内通信），所以
+  #   - grafana 挂 public + backend（浏览器要访问它；backend 内读
+  #     prometheus/tempo/loki 数据源）；
+  #   - 其余 5 个只挂 backend（抓取目标 chat-api/admin-api/
+  #     document-api 都在 backend 内，无需暴露到宿主）。
+  #
+  # 端口：仅 grafana 暴露宿主端口，默认绑回环 127.0.0.1（同
+  # MOGO_PANWEIDB_BIND 的安全惯例；局域网访问显式设
+  # MOGO_GRAFANA_BIND=0.0.0.0）。3000 已被 gateway 占用，grafana 默认 3001。
+  #
+  # 镜像：默认官方 tag + ${MOGO_*_IMAGE} 覆盖口（仓库惯例）。
+  #
+  # OQ 决策（2026-10-24 Clarify）：OQ-1 日志=Loki；OQ-2 追踪=Tempo
+  # （OTLP -> Collector -> Tempo）；OQ-5 告警=Alertmanager -> IM webhook
+  # 通知（接收端配置见 deploy/alertmanager/）。
+  prometheus:
+    image: ${MOGO_PROMETHEUS_IMAGE:-prom/prometheus:v2.53.4}
+    pull_policy: ${MOGO_PULL_POLICY:-missing}
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${MOGO_PROMETHEUS_RETENTION:-15d}"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  grafana:
+    image: ${MOGO_GRAFANA_IMAGE:-grafana/grafana:11.2.0}
+    pull_policy: ${MOGO_PULL_POLICY:-missing}
+    restart: unless-stopped
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${MOGO_GRAFANA_ADMIN_USER:-admin}
+      # 生产部署必须通过 .env 覆盖 MOGO_GRAFANA_ADMIN_PASSWORD；默认 admin/admin
+      # 仅限本地调试（README 023 节有注明）。
+      GF_SECURITY_ADMIN_PASSWORD: ${MOGO_GRAFANA_ADMIN_PASSWORD:-admin}
+      # 023 T012：数据源（Prometheus/Loki/Tempo）走文件 provisioning，
+      # 不依赖首次进 UI 手建。
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${MOGO_GRAFANA_BIND:-127.0.0.1}:${MOGO_GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - public
+      - backend
+
+  alertmanager:
+    image: ${MOGO_ALERTMANAGER_IMAGE:-prom/alertmanager:v0.27.0}
+    pull_policy: ${MOGO_PULL_POLICY:-missing}
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9093/-/healthy >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  otel-collector:
+    image: ${MOGO_OTEL_COLLECTOR_IMAGE:-otel/opentelemetry-collector-contrib:0.109.0}
+    pull_policy: ${MOGO_PULL_POLICY:-missing}
+    restart: unless-stopped
+    profiles: ["observability"]
+    environment:
+      # 业务服务把 OTLP 推到这里；采样率等由 023 T039 的
+      # OTEL_SAMPLER_PROBABILITY 在应用侧控制，这里不做二次采样。
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=mogo
+    volumes:
+      - ./deploy/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+    networks:
+      - backend
+
+  tempo:
+    image: ${MOGO_TEMPO_IMAGE:-grafana/tempo:2.6.1}
+    pull_policy: ${MOGO_PULL_POLICY:-missing}
+    restart: unless-stopped
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./deploy/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/lib/tempo
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3200/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  loki:
+    image: ${MOGO_LOKI_IMAGE:-grafana/loki:3.2.1}
+    pull_policy: ${MOGO_PULL_POLICY:-missing}
+    restart: unless-stopped
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./deploy/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
 networks:
   public:
   backend:
     internal: true
 
 volumes:
+  # 023 observability 栈（profile: observability）持久化卷，与既有卷同
+  # MOGO_VOLUME_PREFIX 前缀约定。
+  prometheus-data:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_prometheus-data
+  grafana-data:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_grafana-data
+  alertmanager-data:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_alertmanager-data
+  tempo-data:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_tempo-data
+  loki-data:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_loki-data
+
   # Community installations use their own physical volumes. Override the
   # prefix for an isolated validation run without touching another install.
   deployment-secrets:

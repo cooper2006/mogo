@@ -29,19 +29,19 @@
 
 **Goal**: 建立三个服务共享的可观测性公共模块（`services/common/`），作为后续 US1-6 的共同载体。
 
-- [ ] T001 创建 `services/common/observability_base.py`：定义三个服务共享的结构化日志基类（structlog 配置、字段约定、trace_id 上下文变量）
-- [ ] T002 创建 `services/common/observability_base.py` 中的追踪基类：OpenTelemetry SDK 初始化（TracerProvider、Sampler、OTLP Exporter）
-- [ ] T003 创建 `services/common/observability_base.py` 中的指标基类：Prometheus client 初始化（CollectorRegistry、HTTP adapter）
-- [ ] T004 创建 `services/common/dependency_guard.py`：依赖包装基类（熔断器接口、超时接口、重试接口、连接池管理接口）
-- [ ] T005 创建 `services/common/slo.py`：SLO 定义数据结构（SLOSpec、ErrorBudget、BurnRate）+ 错误预算计算函数
-- [ ] T006 修改 `services/admin-api/requirements.in` 与 `requirements.txt`：新增 `structlog`、`opentelemetry-api`、`opentelemetry-sdk`、`opentelemetry-exporter-otlp`、`prometheus-client`、`pybreaker` 依赖
-- [ ] T007 [P] 修改 `services/chat-api/requirements.in` 与 `requirements.txt`：同步 T006 的依赖
-- [ ] T008 [P] 修改 `services/document-parser/requirements.in` 与 `requirements.txt`：同步 T006 的依赖
-- [ ] T009 更新 `docker-compose.yml`：新增 Prometheus / Grafana / Alertmanager / OpenTelemetry Collector / Jaeger（或 Tempo）/ Loki 服务定义
-- [ ] T010 创建 `deploy/prometheus/prometheus.yml`：抓取配置（三个服务 + 自身 + 业务指标）
-- [ ] T011 创建 `deploy/otel-collector/config.yaml`：Collector 配置（接收 OTLP、路由到 Jaeger/Tempo）
-- [ ] T012 创建 `deploy/grafana/provisioning/datasources/`：Grafana 数据源配置（Prometheus、Loki、Jaeger）
-- [ ] T013 创建 `deploy/alertmanager/alertmanager.yml`：告警路由/分组/静默/抑制配置（含 IM webhook 通知）
+- [x] T001 创建 `services/common/observability_base.py`：定义三个服务共享的结构化日志基类（structlog 配置、字段约定、trace_id 上下文变量）
+- [x] T002 创建 `services/common/observability_base.py` 中的追踪基类：OpenTelemetry SDK 初始化（TracerProvider、Sampler、OTLP Exporter）
+- [x] T003 创建 `services/common/observability_base.py` 中的指标基类：Prometheus client 初始化（CollectorRegistry、HTTP adapter）
+- [x] T004 创建 `services/common/dependency_guard.py`：依赖包装基类（熔断器接口、超时接口、重试接口、连接池管理接口）
+- [x] T005 创建 `services/common/slo.py`：SLO 定义数据结构（SLOSpec、ErrorBudget、BurnRate）+ 错误预算计算函数
+- [x] T006 修改 `services/admin-api/requirements.in` 与 `requirements.txt`：新增 `structlog`、`opentelemetry-api`、`opentelemetry-sdk`、`opentelemetry-exporter-otlp`、`prometheus-client`、`pybreaker` 依赖
+- [x] T007 [P] 修改 `services/chat-api/requirements.in` 与 `requirements.txt`：同步 T006 的依赖
+- [x] T008 [P] 修改 `services/document-parser/requirements.in` 与 `requirements.txt`：同步 T006 的依赖
+- [x] T009 更新 `docker-compose.yml`：新增 Prometheus / Grafana / Alertmanager / OpenTelemetry Collector / Jaeger（或 Tempo）/ Loki 服务定义
+- [x] T010 创建 `deploy/prometheus/prometheus.yml`：抓取配置（三个服务 + 自身 + 业务指标）
+- [x] T011 创建 `deploy/otel-collector/config.yaml`：Collector 配置（接收 OTLP、路由到 Jaeger/Tempo）
+- [x] T012 创建 `deploy/grafana/provisioning/datasources/`：Grafana 数据源配置（Prometheus、Loki、Jaeger）
+- [x] T013 创建 `deploy/alertmanager/alertmanager.yml`：告警路由/分组/静默/抑制配置（含 IM webhook 通知）
 
 ---
 

@@ -1,0 +1,77 @@
+# 023 observability-resilience (T010)
+# Prometheus 抓取配置：三个业务服务 + 可观测性栈自身。
+#
+# 启用：`docker compose --profile observability up -d prometheus`
+#
+# 抓取目标均在本 compose 的 backend 网络（服务名解析）：
+#   - chat-api      :8000/metrics   （023 T048 落地后生效）
+#   - admin-api     :8100/metrics   （023 T047 落地后生效）
+#   - document-api  :8200/metrics   （023 T049 落地后生效）
+# /metrics 端点由 services/common/observability_base.py 的 init_metrics()
+# 注册（Phase 4 T045）。在此之前抓取会 404，属预期——目标 up 但 scrape
+# 失败，不影响栈自身健康。
+#
+# Alerting：告警规则（023 T063–T065）与 SLO recording rules（T053）
+# 在 deploy/prometheus/rules/ 下，由下面 rule_files 统一挂载。
+#
+# Alertmanager 同 backend 网络，默认 9093 端口。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    stack: mogo
+
+rule_files:
+  # T053（SLO recording rules）/ T063–T065（告警规则）落地后放在这里；
+  # 目录不存在或为空时 prometheus 会启动失败，所以先给占位文件。
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    stack:
+      - static_configs:
+          - targets:
+              - alertmanager:9093
+
+scrape_configs:
+  # ── 业务服务 ─────────────────────────────────────────────────────────
+  - job_name: chat-api
+    static_configs:
+      - targets: ["chat-api:8000"]
+        labels:
+          service: chat-api
+
+  - job_name: admin-api
+    static_configs:
+      - targets: ["admin-api:8100"]
+        labels:
+          service: admin-api
+
+  - job_name: document-api
+    static_configs:
+      - targets: ["document-api:8200"]
+        labels:
+          service: document-api
+
+  # ── 可观测性栈自身（self-monitoring）────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+        labels:
+          service: otel-collector
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]

@@ -1,0 +1,3 @@
+# 023 Phase 1 占位：SLO recording rules（T053）与告警规则（T063–T065）
+# 在 Phase 4/5 落地时替换为真实 rule set（prometheus 要求 rules/ 非空）。
+groups: []

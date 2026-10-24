@@ -8,6 +8,13 @@ image.
 
 ### Added
 
+- **023 可观测性与韧性 Phase 1 基座落地（2026-10-24，T001–T013）**：
+  - 公共基座 `services/common/` 三模块：`observability_base.py`（structlog 结构化日志 / OpenTelemetry 追踪 / Prometheus 指标 / contextvars trace_id 上下文 / status_class 工具）、`dependency_guard.py`（pybreaker 熔断 5 连失败·30s 半开 / TimeoutHierarchy 30s→10s→5s / 重试 1.5s 基数·30s 上限·±10% 抖动·3 次 / PoolRegistry + PoolSpec 连接池隔离）、`slo.py`（SLOSpec / ErrorBudget / BurnRate 双窗口 1h/6h + 6h/3d / DEFAULT_SLOS 99.9%·P99<3s·LLM 错误率<1%）；三服务 vendored 副本（`services/{admin-api,chat-api,document-parser}/app/common/`）+ `scripts/check_common_sync.py` 字节一致性 CI 门禁（3 模块 × 3 服务）。
+  - 依赖钉扎：`admin-api` / `chat-api` / `document-parser` 三个 `requirements.in` 各追加 `structlog>=24.1` / `opentelemetry-{api,sdk,exporter-otlp}>=1.25` / `prometheus-client>=0.20` / `pybreaker>=1.2`，锁文件（`--generate-hashes`）纯增量新增，零版本漂移（msgpack 历史漂移 1.2.2→1.1.2 已按 `requirements.in` 钉扎修正）。
+  - 可观测性栈：`docker-compose.yml` 追加 6 服务（`prometheus` / `grafana` / `alertmanager` / `otel-collector` / `tempo` / `loki`），由 `--profile observability` 门控（沿用 pool/panweidb profile 先例，默认部署形态不变）；`grafana` 挂 public + backend（宿主 3001，回环 127.0.0.1 默认绑定）；其余 5 服务挂 backend（internal 网络，仅容器内可达）；持久化卷 5 个（`prometheus-data` / `grafana-data` / `alertmanager-data` / `tempo-data` / `loki-data`，MOGO_VOLUME_PREFIX 前缀）。
+  - 部署配置：`deploy/prometheus/prometheus.yml`（3 业务服务 + 栈自身抓取）、`deploy/otel-collector/config.yaml`（OTLP gRPC 4317 / HTTP 4318 接收，路由到 Tempo + Loki）、`deploy/grafana/provisioning/datasources/datasources.yml`（Prometheus/Loki/Tempo 三数据源）、`deploy/alertmanager/alertmanager.yml`（P0/P1/P2 分级 + IM webhook + 邮件兜底 + 静默/抑制规则）、`deploy/tempo/tempo.yaml`、`deploy/loki/loki.yaml`。
+  - 验证：`docker compose config --quiet` 通过；三服务全量回归绿；`check_common_sync.py` 3 模块 × 3 服务字节一致。
+
 - **025 API 契约加固 Phase 1 落地（2026-10-24，T001–T007）**：三服务统一错误契约——
   各新增 `app/core/errors.py`（稳定字符串错误码枚举 + `ErrorResponse`，RFC 9457 扩展
   `type`/`title`/`status`/`instance`，兼容键 `detail`/`message` 并存）、
