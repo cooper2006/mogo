@@ -118,7 +118,7 @@ RUN chmod -R a+rX /app \
     # @deepseek-ai/dsh-web-frontend 的构建产物；它只在 pnpm 虚拟仓库里，
     # 不在顶层 node_modules，按目录名（带版本后缀）直接探测，避免依赖
     # 作用域解析路径变化。
-    && node -e "const fs=require('fs'),path=require('path');const store=path.join(process.cwd(),'node_modules','.pnpm');const d=path.join(store,'@deepseek-ai+dsh-web-frontend@0.2.1-rc.2','node_modules','@deepseek-ai','dsh-web-frontend');if(!fs.existsSync(path.join(d,'dist','index.html')))throw new Error('dsh-web-frontend dist/index.html not found under '+d);console.log('DSH web frontend dist verified at '+d);const dshBin=path.join(store,'.bin','dsh');if(!fs.existsSync(path.join(process.cwd(),'node_modules','.bin','dsh')))throw new Error('dsh CLI binary not linked in node_modules/.bin');console.log('dsh CLI verified in node_modules/.bin');"
+    && node -e "const fs=require('fs'),path=require('path');const store=path.join(process.cwd(),'node_modules','.pnpm');const d=path.join(store,'@deepseek-ai+dsh-web-frontend@0.2.1-rc.3','node_modules','@deepseek-ai','dsh-web-frontend');if(!fs.existsSync(path.join(d,'dist','index.html')))throw new Error('dsh-web-frontend dist/index.html not found under '+d);console.log('DSH web frontend dist verified at '+d);const dshBin=path.join(store,'.bin','dsh');if(!fs.existsSync(path.join(process.cwd(),'node_modules','.bin','dsh')))throw new Error('dsh CLI binary not linked in node_modules/.bin');console.log('dsh CLI verified in node_modules/.bin');"
 
 # 022 US3 (T027): container hardening, same shape as the other app images.
 #

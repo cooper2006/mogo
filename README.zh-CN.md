@@ -471,7 +471,7 @@ MOGO 将 DeepSeek Harness（DSH）Agent 内核**钉版到确切的 release train
 
 | 项 | 值 |
 | --- | --- |
-| DSH release train | `0.2.1-rc.2` |
+| DSH release train | `0.2.1-rc.3` |
 | 钉版依赖 | `services/chat-api/dsh/runtime-host/package.json` 中的 40 个 `@deepseek-ai/dsh*` 包 |
 | Node 运行时 | `^22.19.0 \|\| >=24.0.0` |
 | Host 协议 | `askai.dsh-host.v1` |

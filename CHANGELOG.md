@@ -166,8 +166,8 @@ image.
 ### Changed
 
 - TLS 开关抽取到 `.env`，默认关闭（b3bf111）。
-- dsh-runtime-host 升级 dsh 至 `0.2.1-rc.2`（dsh-invariants 按 peer 例外保留
-  `0.2.0-rc.2`，SBOM 295:1 单列车）。
+- dsh-runtime-host 升级 dsh 至 `0.2.1-rc.3`（dsh-invariants 按 peer 例外保留
+  `0.2.0-rc.2`，SBOM 单列车）。
 
 ## v0.2.2 - 2026-10-16
 

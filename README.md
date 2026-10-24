@@ -508,7 +508,7 @@ MOGO pins the DeepSeek Harness (DSH) Agent kernel to an exact release train rath
 
 | Item | Value |
 | --- | --- |
-| DSH release train | `0.2.1-rc.2` |
+| DSH release train | `0.2.1-rc.3` |
 | Pinned packages | 40 `@deepseek-ai/dsh*` packages in `services/chat-api/dsh/runtime-host/package.json` |
 | Node runtime | `^22.19.0 \|\| >=24.0.0` |
 | Host protocol | `askai.dsh-host.v1` |

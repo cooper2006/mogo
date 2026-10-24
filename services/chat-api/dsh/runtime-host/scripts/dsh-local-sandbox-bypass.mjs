@@ -31,7 +31,7 @@ while (root !== dirname(root)) {
 }
 const pnpmDir = join(root, "node_modules", ".pnpm");
 
-const versionPrefix = "@deepseek-ai+dsh-sandbox-local@0.2.1-rc.2";
+const versionPrefix = "@deepseek-ai+dsh-sandbox-local@0.2.1-rc.3";
 const cand = readdirSync(pnpmDir).find(
   (d) => d === versionPrefix || d.startsWith(versionPrefix + "_")
 );

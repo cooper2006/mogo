@@ -1,12 +1,12 @@
 # MOGO DSH dependency lock policy (format 1)
-# Updated for the admitted DSH 0.2.1-rc.2 train on 2026-10-17 (dsh-invariants 保留 0.2.0-rc.2，见下).
+# Updated for the admitted DSH 0.2.1-rc.3 train on 2026-10-24 (dsh-invariants 保留 0.2.0-rc.2，见下).
 # This file records approved direct artifacts; pnpm-lock.yaml and the SBOM pin
 # the resolved graph, and the release gate rejects a mixed DSH release train.
 
 [upstream]
 repository = "https://github.com/deepseek-ai/deepseek-harness"
 reviewed_commit = "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d"
-reviewed_commit_root_version = "0.2.1-rc.2"
+reviewed_commit_root_version = "0.2.1-rc.3"
 default_branch = "master"
 deploy_from_branch = false
 allow_floating_versions = false
@@ -15,10 +15,10 @@ allow_floating_versions = false
 # installable release train, so source-to-package provenance remains explicitly
 # unverified until DeepSeek publishes that mapping.
 [release_train]
-version = "0.2.1-rc.2"
+version = "0.2.1-rc.3"
 source_mapping = "unverified-by-upstream"
-policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.2.1-rc.2"
-# 例外：@deepseek-ai/dsh-invariants 未发布 0.2.1-rc.2（npm 上顶版即 0.2.0-rc.2），
+policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.2.1-rc.3"
+# 例外：@deepseek-ai/dsh-invariants 未发布 0.2.1-rc.3（npm 上顶版即 0.2.0-rc.2），
 # 作为 peer 依赖由消费方(@deepseek-ai/dsh-better-sidebar@0.26.1 / dshmarket)以 ^0.2.0-rc.2
 # 声明，0.2.0-rc.2 已满足范围，故保留 0.2.0-rc.2，混用列车已获用户授权。
 # 机器可读白名单：release gate 只认这一行，格式为 "<包名>@<版本>"，逐字匹配。
@@ -29,49 +29,42 @@ allowed_mixed_exceptions = ["@deepseek-ai/dsh-invariants@0.2.0-rc.2"]
 
 [[artifact]]
 name = "@deepseek-ai/dsh"
-version = "0.2.1-rc.2"
+version = "0.2.1-rc.3"
 registry = "https://registry.npmjs.org"
-tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.1-rc.2.tgz"
-integrity = "sha512-tvY+yhfKRifthbqPe/OK0AYxM5ZkvqfYq/jMYgJcEUxiRRL1Vwra3Ti5TB6AXgSWQdiPHYh/Vp6SJa9yHwMNuw=="
-shasum = "a502d1551aabc881020e3cb7961c38901565731a"
+tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.1-rc.3.tgz"
+integrity = "sha512-H+E9HLnHf7fJqzen84Z9Bq8ggb5xbrcbyhZjXTJLE9NabHr3zteGvTRvdvGkxPl4ov80is4WLglFmSo+/olJjg=="
+shasum = "ccc527065b9f736ea299a1f78150a21143d961aa"
 
-# 0.2.1-rc.2 train：cordis 直接依赖解析到 4.0.4；cordis-plugin-loader /
-# cordis-plugin-include / cordis-plugin-timer 解析到 0.2.0 依赖图中实际钉死
-# 版本（见 pnpm-lock.yaml）。cordis-plugin-hmr 在 0.2.0 图中已不再被引用。
+# 0.2.1-rc.3 train：cordis 直接依赖解析到 4.0.5；cordis-plugin-loader /
+# cordis-plugin-include / cordis-plugin-timer 解析到 0.2.1 依赖图中实际钉死
+# 版本（见 pnpm-lock.yaml）。cordis-plugin-hmr 在 0.2.1 图中已不再被引用。
 [[artifact]]
 name = "@deepseek-ai/cordis"
-version = "4.0.4"
+version = "4.0.5"
 registry = "https://registry.npmjs.org"
-integrity = "PENDING_CI_RECOLLECT"
-shasum = "PENDING_CI_RECOLLECT"
+integrity = "sha512-Sktq5axy0owk9PdnivBRNOJjHEVEibCt0+TDDZcv0+UH2KS1M910fX4kn5y45YFsrpZIi1mJf/1s5VzywMUnyg=="
+shasum = "153f5ddce73bfbe4cb7769bc0e261cc72398801d"
 
 [[artifact]]
 name = "@deepseek-ai/cordis-plugin-loader"
-version = "1.0.5"
+version = "1.0.6"
 registry = "https://registry.npmjs.org"
-integrity = "PENDING_CI_RECOLLECT"
-shasum = "PENDING_CI_RECOLLECT"
+integrity = "sha512-fr011A782oEjkJXCY4pePt2qaPpkGvem7Rmst6Rhwgg6icgwI4eN9QBRb6S/q9XOYGVQUdvL0wXUWyNxO8WipA=="
+shasum = "5a792664409e4306952ab29c641e0b275c29aa3d"
 
 [[artifact]]
 name = "@deepseek-ai/cordis-plugin-include"
-version = "1.0.9"
+version = "1.0.10"
 registry = "https://registry.npmjs.org"
-integrity = "PENDING_CI_RECOLLECT"
-shasum = "PENDING_CI_RECOLLECT"
-
-[[artifact]]
-name = "@deepseek-ai/cordis-plugin-hmr"
-version = "1.0.17"
-registry = "https://registry.npmjs.org"
-integrity = "PENDING_CI_RECOLLECT"
-shasum = "PENDING_CI_RECOLLECT"
+integrity = "sha512-Rdo6Uqf9WfDbfN3dsYkYj/EW+SGuWCSfthz1PoOtZYUr6qrRpqD7ND4Gj3nUYj8XhSGIo8E3xpsck6J5nM5BYQ=="
+shasum = "7fe72a33b8e20e5cf716f375856c9d70a2b10d09"
 
 [[artifact]]
 name = "@deepseek-ai/cordis-plugin-timer"
-version = "1.1.6"
+version = "1.1.7"
 registry = "https://registry.npmjs.org"
-integrity = "PENDING_CI_RECOLLECT"
-shasum = "PENDING_CI_RECOLLECT"
+integrity = "sha512-i83gGA1WfL1kA7RMWvLLDw5KhKar3cdvGyl7E9ByrsFv3gb64XDf5b5sFxj+cgv9ZGaYc1YwGWAjwgS2f3OGNw=="
+shasum = "21fc679eba2d8fdde5285f6a5a0b2dfb03d39934"
 
 [license_evidence]
 license = "MIT"

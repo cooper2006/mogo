@@ -1,5 +1,5 @@
 export const ASKAI_DSH_HOST_PROTOCOL_VERSION = 'askai.dsh-host.v1'
-export const ASKAI_DSH_KERNEL_VERSION = '0.2.1-rc.2'
+export const ASKAI_DSH_KERNEL_VERSION = '0.2.1-rc.3'
 export const ASKAI_DSH_READY_EVENT = 'askai-dsh-runtime-ready'
 
 export const HOST_STATES = Object.freeze({
