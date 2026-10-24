@@ -36,4 +36,3 @@
 
 ## 远端仓库边界
 - 只推送到 `cooper2006/mogo`（`mogo` remote）。该仓库由 `cooper2006/mogong` 改名而来，旧地址会重定向到新地址。
-- `origin`（cooper2006/mogo）push 已锁定为 `no-push`，任何对 origin 的写操作必须显式征得用户同意并临时解锁。
