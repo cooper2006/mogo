@@ -118,6 +118,9 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "skill_distributions",
     "skill_packages",
     "skill_releases",
+    # 033: shadow-run observations carry a scalar ``tenant_id`` (written by the
+    # chat-api shadow point), so the keyed sweep reaches them on tenant purge.
+    "skill_shadow_runs",
     "skill_share_deliveries",
     "skill_shares",
     "skill_update_notifications",
@@ -134,6 +137,10 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "user_token_allocation_logs",
     # 020 FR-032: cross-replica purge progress (tenant_id + task_id keyed).
     "tenant_purge_progress",
+    # 036 trust-rating (L1-L4): tenant-partitioned by (tenant_id, asset_type,
+    # asset_key); the downgrade-switch document carries a scalar tenant_id too.
+    "trust_ratings",
+    "trust_rating_settings",
 ]
 
 # Governance-layer collections partitioned by ``tenant_id`` (= tenant_id).

@@ -85,3 +85,45 @@ Skill 持续低效果分 / 高异常 → 自动标记低质量，进市场降权
 ## Further Details
 - 技术实现（监控聚合、效果分模型、灰度调度）由 plan.md 承载
 - 口径与阈值需 clarify
+
+## 033 扩展回填（2026-10-23）
+
+本特性 FR-4 明示"首期按租户，**按比例/按用户为后续扩展**"。该扩展由特性
+**033-canary-rollout**（比例灰度 + 影子发布）落地，本文件据此回填契约口径：
+**016 的既有灰度/回滚语义不变**（按租户 `target_tenants`、20% 阈值、20 样本
+门槛、5 分钟扫描、手动 `POST /{skill_id}/rollback`），仅**增加维度**。
+
+### 新增字段（`skill_rollouts` 扩展，存量行读取默认值）
+
+- `traffic_ratio`（float，0 < ratio ≤ 1）：按 `(tenant_id, user_id)` 确定性
+  哈希取模分流比例；`target_tenants` 与 `traffic_ratio` 可叠加（租户子集内
+  按比例分流），两者皆空 = 100% 全量。
+- `ladder`（`LadderStep[]`：`ratio` / `min_samples?` / `entered_at` /
+  `promoted_at?`）：阶梯档位，默认 1% → 10% → 50% → 100%。
+- `current_step` / `ladder_history`：当前档位与逐档推进历史（可查）。
+- `shadow_enabled`（bool）：影子模式开关（默认关闭）。
+
+### 新增端点（`services/admin-api/app/api/routes/skill_canary.py`）
+
+- `POST /api/skills/canary`：创建扩展接受 `traffic_ratio` / `ladder` /
+  `shadow_enabled`（其余字段语义不变）。
+- `GET /api/skills/canary/{skill_id}`：查询额外返回当前档位、推进历史与
+  影子统计。
+- `POST /api/skills/canary/{skill_id}/advance`：手动推进阶梯（条件同自动
+  推进：当前档样本 ≥ `min_samples` 且异常率 ≤ `threshold`）。
+- `POST /api/skills/canary/{skill_id}/shadow`：开 / 关影子模式。
+- `POST /api/skills/canary/{skill_id}/rollback`：**原样保留**；回滚后
+  `traffic_ratio` 归零、状态 `rolled_back`、`stable_version` 指向上一已发布
+  稳定版本（016 FR-13 口径）。
+
+### 新增集合
+
+- `skill_shadow_runs`（影子双跑观察记录，只写 + 基础聚合；`tenant_id` 标量
+  键，已纳入 `tenant_purge.TENANT_SCOPED_COLLECTIONS`）。
+
+### 语义不变项（033 不改变）
+
+- 自动回滚口径（异常率 > 20% 且样本 ≥ 20 → `rolled_back`）与
+  `evaluate_canary` / `apply_rollback` 阈值体系不变。
+- 阶梯推进到 100% 且稳定后置 `RolloutState.PROMOTED`（既有枚举值）。
+- 影子执行**不计入** `call_count` / `error_count`，影子失败不触发回滚。
