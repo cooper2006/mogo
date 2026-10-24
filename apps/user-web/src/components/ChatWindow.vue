@@ -1538,6 +1538,7 @@ async function renderMermaidBlocks() {
     }
   }
 }
+
 /** 图表数据载体（解析结果结构松散，按 any 处理以避免隐式 any）。 */
 type ChartPayload = ReturnType<typeof JSON.parse>
 
