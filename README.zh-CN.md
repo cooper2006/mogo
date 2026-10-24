@@ -62,7 +62,7 @@
   scripts/bash/           #   create-new-feature、setup-plan 等脚本
   workflows/speckit/      #   工作流注册表
 
-specs/                    # 31 个特性规格，每个含完整规格链路
+specs/                    # 44 个特性规格（001–044），每个含完整规格链路
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -77,22 +77,24 @@ specs/                    # 31 个特性规格，每个含完整规格链路
   029-user-web-sso-receiver/
   030-ontology-data-permission/
   031-model-provider-discover/
+  032-eval-gate/ … 044-multi-agent-modes/   # AgentOS 整合批次（032–044，13 项全新特性，2026-10-23 新增）
   INDEX.md                # 规格索引
 ```
 
-31 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分），每份均配有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 5 个（001、007、008、009、020）另附 `contracts/` 目录。
+44 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分），每份均配有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 5 个（001、007、008、009、020）另附 `contracts/` 目录。
 
-它们分为六组：
+它们分为七组：
 
 - **17 个补齐特性**（001/002/007–021）——原始补强清单加上平台化与地址空间两个新增范围。**17 份 `tasks.md`（354 项）已全部勾选完成**，实现与测试同步落地。
-- **5 个质量加固特性**（022–026）——从 2026-10-11 QualityForge 全量 QA 审计中拆出，共 357 项任务，按 022 → 026 分波交付（详见下文[质量加固：022–026](#质量加固022026)）。
+- **5 个质量加固特性**（022–026）——从 2026-10-11 QualityForge 全量 QA 审计中拆出，共 412 项任务。**落地状态按 QA R11（2026-10-24）如实登记：仅 022 安全加固已完整落地（58/58 勾选）**；023–026 规约四件套齐备但**代码未开工**（`0/126`、`0/119`、`0/52`、`0/57`，合计 0/354），原规约层阻塞已解除：023 的 OQ-1~OQ-8 已于 2026-10-24 经 `/speckit-clarify` 全部消解（Loki / Tempo / pybreaker / 本地磁盘+S3 兼容异地 / IM webhook+邮件 / SLO 99.9%·P99<3s / RTO≤30min·RPO≤15min / 单宿主机演练如实声明）（详见下文[质量加固：022–026](#质量加固022026)）。
 - **4 个既有回溯特性**（003–006）——重述上游项目已有能力。它们最初未建 `tasks.md`，2026-10-11 补齐了 141 项任务。
 - **1 个数据后端迁移**（027）——数据层从 MongoDB 迁到 PanWeiDB（openGauss 内核）：兼容门面（R1）+ 聚合管道编译与 bulk_write 接线（R2）+ 44 表关系扁平化（R3）全量落地，开关式回滚、既有调用点零改写；默认仍为 MongoDB，经 `MOGO_DATA_BACKEND=panweidb` 可选开启。
 - **4 个 user-web / 数据体验特性**（028–031）——028 把每条消息内联的执行过程提升为会话级「对话 / 轨迹」双 tab；029 把 user-web 变成 SSO 接收方，外部门户已登录用户免二次登录进入工作台（2026-10-15）；030 为本体域新增数据范围权限（P1，2026-10-16）；031 新增模型供应商发现与多协议接入（Anthropic / Gemini / Ollama，P1，2026-10-18）（详见下文[数据后端与 user-web 体验：027–031](#数据后端与-user-web-体验027031)）。
+- **13 个 AgentOS 整合特性**（032–044）——2026-10-23 企业级 Agent OS 产品落地批次：13 项全新特性（评估门禁、灰度发布、凭证加密、成本归因、信任评级、统一门户、出口沙箱、可视化编排、模型分级路由、连接器市场、三级配额、会话回放、多智能体模式）；每一项都含 spec/plan/tasks/checklist，代码于 2026-10-24 落地（详见下文[AgentOS 整合批次：032–044](#agentos-整合批次032044)）。
 
 接口契约分布在两处：顶层 [`contracts/`](contracts/) 下 6 份 T998 契约（`orchestration`、`self-evolution`、`session-versioning-contract`、`harness-config`、`a2a-gateway`、`memory-context-contract`），加上 `specs/` 内 5 个按特性划分的 `contracts/` 目录（[`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md)、[`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md)、[`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md)、[`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md)、[`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)）。
 
-[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 31 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）、质量加固（022–026）、数据后端迁移（027）与 user-web / 本体权限 / 模型发现体验（028–031）六组，并记录每条阈值的 clarify 决策依据。
+[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 44 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）、质量加固（022–026）、数据后端迁移（027）、user-web / 本体权限 / 模型发现体验（028–031）与 AgentOS 整合批次（032–044）七组，并记录每条阈值的 clarify 决策依据。
 
 这样做的收益是：每一条企业能力都有对应的需求来源、验收标准与测试证据，界面触点与规格的映射关系记录在 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md)。
 
@@ -148,7 +150,7 @@ specs/                    # 31 个特性规格，每个含完整规格链路
 
 #### 质量加固：022–026
 
-2026-10-11 的 QualityForge 全量 QA 审计（964 项）暴露出 283 个 P0/P1 缺陷，它们需要新建能力才能修复，而不是打补丁，于是按风险域拆成 5 个特性。每个都走完整的 spec → plan → tasks → checklist 链路（共 357 项任务），按 022 → 026 分波交付：
+2026-10-11 的 QualityForge 全量 QA 审计（964 项）暴露出 283 个 P0/P1 缺陷，它们需要新建能力才能修复，而不是打补丁，于是按风险域拆成 5 个特性。每个都走完整的 spec → plan → tasks → checklist 链路（共 412 项任务）。**落地状态并不一致：022 已完整落地（58/58）；023–026 规约齐备但代码未开工（tasks 勾选 0/354），023 原受 OQ-1~OQ-8 clarify 门禁约束，已于 2026-10-24 消解：**
 
 | # | 能力 | 交付内容 | 规格 |
 | :-: | --- | --- | :-: |
@@ -169,6 +171,28 @@ specs/                    # 31 个特性规格，每个含完整规格链路
 | 19 | **user-web SSO 接收方** | 外部门户已登录用户免二次登录进入 MOGO 用户工作台：门户后端用 022 服务身份（`X-MOGO-Service-Token`）申领一次性 HMAC 票据（TTL 60s），浏览器经 `state=` 传票（令牌不进 URL），user-web 启动即换票并复用既有 `_create_session()` 建会话。账号按共享主键 `id` 匹配、不 JIT 建号；多租户用户走既有选租户挑战流程；重放与过期票据经常数时间验签 + accept-once 拒绝；换票失败回落登录弹窗，不静默失败 | [029](specs/029-user-web-sso-receiver/) |
 | 20 | **本体数据权限** | 在本体域新增一层数据范围（data scope）权限，与既有 RBAC 功能权限正交：三张表（`mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit`）+ 通用 `sys_config` 开关。运行时按 `(tenant_id, user_id)` 解析可见本体（fail-closed，60 s 缓存），检索按 `ontology_id` 过滤；管理端 13 条路由 + 1 内部接口 + 清单页与用户授权弹窗。双后端（Mongo + PanWeiDB）均已执行入库 | [030](specs/030-ontology-data-permission/) |
 | 21 | **模型供应商发现与多协议接入** | admin-web 「新增模型配置」免手填模型 ID：后端 `POST /api/models/discover` 用已配置 baseUrl+apiKey 直连 provider 真实 API 拉回模型清单，前端「获取列表」弹窗点选回填；discover 由 OpenAI/Azure 扩展到 Anthropic Claude / Google Gemini / Ollama（本地）三类协议（种子 + 前端类型 + 连接测试分发）；首次配置向导 `SetupModelFields` 为三类补专属字段提示 | [031](specs/031-model-provider-discover/) |
+
+### AgentOS 整合批次：032–044
+
+13 个特性填补了 MOGO 与*企业级 Agent OS* 产品落地规划（2026-10-15）及其代码级评估（`docs/MOGO-AgentOS整合方案.md`）之间的差距。每一项都是全新特性——spec/plan/tasks 在实现前就已写好（与 027/030/031 的事后回溯不同）——且全部 13 项均于 2026-10-24 落地。依据 ADR-7，移动端由 013 多 IM 入口覆盖（无独立移动端或桌面端客户端）：
+
+| # | 能力 | 交付内容 | 规格 |
+| :-: | --- | --- | :-: |
+| 22 | **评估门禁（Eval gate）** | 金标准测试集 + 发布时评估，硬 pass/fail 阈值（幻觉重构为引用支持率 / 拒答正确性 / 任务成功率）；表现不佳的 Agent 在 `publish()` 处被拒 | [032](specs/032-eval-gate/) |
+| 23 | **灰度发布（Canary rollout）** | 百分比灰度 1%→10%→50%→100% + 影子双跑（非污染）+ 回滚——把 016 的租户级灰度扩展到比例步进 | [033](specs/033-canary-rollout/) |
+| 24 | **凭证加密（Credential encryption）** | 把 022 的 AES-GCM / KMS 路径（已建、从未调用）接入工具凭证存储——写时加密 / 读时解密 / 响应脱敏——外加明文迁移；Agent 侧服务端注入不变 | [034](specs/034-credential-encryption/) |
+| 25 | **成本归因（Cost attribution）** | 新增部门 / Agent / 空间 / 业务线维度（在 `TokenUsageRecord` 上 4 个新 `agent_id` 埋点），六维汇总与单调用下钻（含单调用成本）——替代 008 的占位 | [035](specs/035-cost-attribution/) |
+| 26 | **信任评级（Trust rating）** | 资产信任分级 L1–L4（实验 → 关键，双审）绑定权限；映射到 001 的 L1–L5 × R0–R4 矩阵（封顶自主度）；连续 3 周低于阈值自动降级 | [036](specs/036-trust-rating/) |
+| 27 | **统一门户（Unified portal）** | user-web 应用门户：目录 → 自助认领 → 001 审批 → 即用；Web 表单（ADR-7），经 029 SSO 与 IM 分发 | [037](specs/037-unified-portal/) |
+| 28 | **出口沙箱（Egress sandbox）** | 出站域名白名单（默认拒绝 + 审计 + 热加载）用于 HTTP 工具 / 浏览器 Agent；脚本沙箱的网络拒绝语义提升为统一出口控制；远端沙箱保留为契约预留 | [038](specs/038-egress-sandbox/) |
+| 29 | **可视化编排画布（Visual orchestration canvas）** | 010 引擎的前端画布（vue-flow）：画布 ↔ YAML 双向往返（YAML 为权威），复用既有节点 / 工具选择器 | [039](specs/039-visual-orchestration/) |
+| 30 | **模型分级路由（Model-tier routing）** | 按任务复杂度（规则）在轻量 / 主力 / 旗舰三档间路由；回填缺失的 `model_routing.yaml`；与 007 分工（路由选最省，降级选兜底） | [040](specs/040-model-tier-routing/) |
+| 31 | **连接器市场（Connector market）** | 预置连接器模板（首批 10–20 个，数量不承诺）含「从模板创建」向导；升级而非并列既有企业工具连接；凭证托管依赖 034 | [041](specs/041-connector-market/) |
+| 32 | **三级配额（Three-level quota）** | 配额从租户 + 用户扩展到团队/项目 + 租户 + 用户（团队复用部门树，项目为新分组）；三级取最小值；001 的门禁层零改动获得三级语义 | [042](specs/042-three-level-quota/) |
+| 33 | **会话回放（Session replay）** | 把 028 的轨迹从只读展示提升为跳转回放：第 1 阶段（纯前端投影——时间线 + 跳转 + 下钻，零后端改动）为 MVP；第 2 阶段（真回放）仅预研 | [043](specs/043-session-replay/) |
+| 34 | **多智能体模式（Multi-agent modes）** | 010 引擎新增 `round_robin`（三种可选选择策略）与 `debate`（轮次上限 + 三种收敛条件）；既有四种模式不变 | [044](specs/044-multi-agent-modes/) |
+
+Wave 1（治理闭环）= 032 + 033 + 034；Wave 2（运营与产品完备性）= 035 + 036 + 037 + 038；Wave 3（生态体验）= 039–044，按资源情况取舍。
 
 ## 主线三：智能体多实例运行改造
 
@@ -504,7 +528,7 @@ PUBLIC_BASE_URL=https://mogo.example.com
 
 | 路径 | 组件 |
 | --- | --- |
-| `specs/` | spec-kit SDD 规格资产（31 个特性 + `INDEX.md`） |
+| `specs/` | spec-kit SDD 规格资产（44 个特性 + `INDEX.md`） |
 | `contracts/` | 6 份 T998 接口契约（编排、自进化、会话版本化、Harness 配置、A2A 网关、memory-context） |
 | `.specify/` | spec-kit 工作流、模板与项目宪法 |
 | `apps/user-web/` | Vue 3 用户工作台 |

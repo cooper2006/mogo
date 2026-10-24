@@ -79,7 +79,7 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 31 feature specifications, each with a complete chain
+specs/                    # 44 feature specifications (001–044), each with a complete chain
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -94,22 +94,24 @@ specs/                    # 31 feature specifications, each with a complete chai
   029-user-web-sso-receiver/
   030-ontology-data-permission/
   031-model-provider-discover/
+  032-eval-gate/ … 044-multi-agent-modes/   # AgentOS integration batch (032–044, 13 new features, 2026-10-23)
   INDEX.md                # specification index
 ```
 
-Each of the 31 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Six of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
+Each of the 44 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Six of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
 
-They fall into six groups:
+They fall into seven groups:
 
 - **17 gap-closing features** (001/002/007–021) — the original backlog plus the platform and context-address scope. **All 17 `tasks.md` files (354 items) are checked off**, with implementation and tests landed together.
-- **5 quality-hardening features** (022–026) — split out of the 2026-10-11 QualityForge full-repository QA audit; 357 tasks, implemented and tested in waves (see [Quality hardening: 022–026](#quality-hardening-022026) below).
+- **5 quality-hardening features** (022–026) — split out of the 2026-10-11 QualityForge full-repository QA audit (412 tasks in total). **Status per QA R11 (2026-10-24): only 022 security-hardening is implemented (58/58 checked).** 023–026 carry complete spec/plan/tasks/checklist documents but **implementation has not started** (`0/126`, `0/119`, `0/52`, `0/57` — 0/354 in total). The former spec-level blocker — 023's eight open questions (OQ-1~OQ-8) — was resolved via `/speckit-clarify` on 2026-10-24 (Loki / Tempo / pybreaker / local disk + S3-compatible offsite / IM webhook + email / SLO 99.9%·P99<3s / RTO≤30min·RPO≤15min / single-host drill, declared honestly), so (see [Quality hardening: 022–026](#quality-hardening-022026) below).
 - **4 retrospective features** (003–006) — re-document capabilities the upstream project already had. They originally shipped without `tasks.md`; it was backfilled on 2026-10-11 (141 items).
 - **1 data-backend migration** (027) — an opt-in MongoDB → PanWeiDB (openGauss kernel) migration whose compatibility layer (R1: a Motor/PyMongo-compatible facade), aggregation-pipeline compiler + bulk_write wiring (R2) and 44-table relational flattening (R3) have all landed. The default backend is still **MongoDB**; PanWeiDB is enabled opt-in via `MOGO_DATA_BACKEND=panweidb`, and rollback is a single environment variable — no code change.
 - **4 data-backend and user-web experience features** (028–031) — both user-web experience features (028–029) landed on 2026-10-15: 028 promotes the per-message execution process to a session-level Chat/Trajectory dual tab, and 029 turns user-web into an SSO receiver so an external portal's logged-in users enter the workspace without a second login; 030 adds per-ontology data-scoped permission (P1, 2026-10-16); 031 adds model-provider discover with multi-protocol support including Anthropic / Gemini / Ollama (P1, 2026-10-18) (see [Data backend and user-web experience: 027–031](#data-backend-and-user-web-experience-027031) below).
+- **13 AgentOS integration features** (032–044) — the 2026-10-23 enterprise Agent OS product-landing batch: 13 brand-new features (eval gate, canary rollout, credential encryption, cost attribution, trust rating, unified portal, egress sandbox, visual orchestration, model-tier routing, connector market, three-level quota, session replay, multi-agent modes); each carries spec/plan/tasks/checklist and the code landed on 2026-10-24 (see [AgentOS integration batch: 032–044](#agentos-integration-batch-032044) below).
 
 Interface contracts live in two places: the 6 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`, `memory-context-contract`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
 
-[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 31 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027) and the user-web / data-permission / model-discover experience set (028–031), and records the clarify decisions behind each threshold.
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 44 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027), the user-web / data-permission / model-discover experience set (028–031) and the AgentOS integration batch (032–044), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -165,7 +167,7 @@ Together the nine backlog items point at the same target: stringing **session �
 
 #### Quality hardening: 022–026
 
-The 2026-10-11 QualityForge full-repository QA audit (964 items) surfaced 283 P0/P1 defects that needed new capability rather than a point fix, so they were split into five features — one per risk domain. Each runs the full spec → plan → tasks → checklist chain (357 tasks in total) and is delivered in waves, 022 → 026:
+The 2026-10-11 QualityForge full-repository QA audit (964 items) surfaced 283 P0/P1 defects that needed new capability rather than a point fix, so they were split into five features — one per risk domain. Each runs the full spec → plan → tasks → checklist chain (412 tasks in total). **Landing status is not uniform: 022 is fully implemented (58/58); 023–026 are spec-complete but not yet implemented (0/354 tasks checked), and 023's OQ-1~OQ-8 gate was cleared by the 2026-10-24 clarify round:**
 
 | # | Capability | What it delivers | Spec |
 | :-: | --- | --- | :-: |
@@ -186,6 +188,28 @@ Four specs landed after the hardening waves — one data-backend migration, two 
 | 19 | **user-web SSO receiver** | Users already logged into an external portal enter the MOGO user workspace without a second login. Four decisions are fixed: accounts match on the shared primary key `id` (not email/login_name), no JIT provisioning, multi-tenant users go through the existing tenant-selection challenge, and tickets cross domains via `state=`/POST (no shared cookie). The portal backend mints a one-time HMAC ticket through the 022 service identity (`POST /api/auth/portal-ticket`, 60 s TTL); user-web exchanges it on startup (`POST /api/auth/portal-exchange`) and reuses the existing `_create_session()`. Replay and expired tickets are rejected by constant-time `hmac.compare_digest` with accept-once, the signing key is the independent `PORTAL_SSO_SECRET` and is rotatable, and any failure falls back to the login dialog instead of a dead page | [029](specs/029-user-web-sso-receiver/) |
 | 20 | **ontology data permission** | A data-scope permission layer over the existing ontology domain, orthogonal to RBAC: `mesc_ontology_grant` / `mesc_ontology_class_detail` / `mesc_ontology_perm_audit` plus a general `sys_config` toggle. Runtime resolves visible ontologies per `(tenant_id, user_id)` with fail-closed semantics and 60 s cache; retrieval filters by `ontology_id`. Admin side ships 13 routes plus 1 internal endpoint, a full-list view and a per-user grant dialog. Dual-backend (Mongo + PanWeiDB) both populated; unimplemented rows flagged in tasks | [030](specs/030-ontology-data-permission/) |
 | 21 | **model provider discover & multi-protocol** | admin-web 「新增模型配置」免手填模型 ID: backend `POST /api/models/discover` calls the configured provider's real API to pull the model list; frontend 「获取列表」 popup pre-fills the form. Discovered protocols expanded from OpenAI/Azure to Anthropic Claude, Google Gemini and Ollama (local); three new protocol seeds plus dedicated `SetupModelFields` hints per type; five-value `provider_type` system贯穿 seed/setup/connection-test/frontend | [031](specs/031-model-provider-discover/) |
+
+### AgentOS integration batch: 032–044
+
+Thirteen features close the gap between MOGO and the *Enterprise Agent OS* product-landing plan (2026-10-15) and its code-level assessment (`docs/MOGO-AgentOS整合方案.md`). Each is a brand-new feature — spec/plan/tasks were written before implementation (unlike 027/030/031, which were retrospective) — and all 13 landed on 2026-10-24. Per ADR-7, the mobile surface is covered by the 013 multi-IM entry (no separate mobile or desktop client):
+
+| # | Capability | What it delivers | Spec |
+| :-: | --- | --- | :-: |
+| 22 | **Eval gate** | A golden test set plus a publish-time evaluation with hard pass/fail thresholds (hallucination reframed as citation-support rate / refusal-correctness / task-success); an under-performing Agent is refused at `publish()` | [032](specs/032-eval-gate/) |
+| 23 | **Canary rollout** | Percentage ramp 1%→10%→50%→100% with shadow dual-run (non-polluting) plus rollback — extends 016's per-tenant canary to ratio stepping | [033](specs/033-canary-rollout/) |
+| 24 | **Credential encryption** | Wires 022's AES-GCM / KMS path (built, never called) into tool-credential storage — encrypt on write / decrypt on read / mask in response — plus a plaintext migration; Agent-side server injection is unchanged | [034](specs/034-credential-encryption/) |
+| 25 | **Cost attribution** | Adds department / Agent / space / business-line dimensions (four new `agent_id` instrumentation points on `TokenUsageRecord`), six-dimension roll-up and per-call drill-down with single-call cost — replacing 008's placeholder | [035](specs/035-cost-attribution/) |
+| 26 | **Trust rating** | Asset trust tiers L1–L4 (experiment → critical, dual review) bound to permissions; maps onto 001's L1–L5 × R0–R4 matrix (caps autonomy); auto-downgrades after 3 weeks below threshold | [036](specs/036-trust-rating/) |
+| 27 | **Unified portal** | user-web app portal: catalog → self-service claim → 001 approval → ready-to-use; Web form (ADR-7), distributed via 029 SSO and IM | [037](specs/037-unified-portal/) |
+| 28 | **Egress sandbox** | Outbound domain allow-list (default-deny + audit + hot reload) for HTTP tools / browser Agent; the script sandbox's network-deny semantics promoted to unified egress control; remote sandbox kept as a contract reservation | [038](specs/038-egress-sandbox/) |
+| 29 | **Visual orchestration canvas** | The 010 engine's front-end canvas (vue-flow): canvas ↔ YAML two-way round-trip (YAML is authoritative), reusing the existing node / tool selectors | [039](specs/039-visual-orchestration/) |
+| 30 | **Model-tier routing** | Routes by task complexity (rule-based) across light / main / flagship tiers; backfills the missing `model_routing.yaml`; divides work with 007 (routing picks the cheapest fit, degradation picks the fallback) | [040](specs/040-model-tier-routing/) |
+| 31 | **Connector market** | Pre-set connector templates (first 10–20, count not promised) with a "create from template" wizard; upgrades rather than parallels the existing enterprise-tool connections; credential hosting depends on 034 | [041](specs/041-connector-market/) |
+| 32 | **Three-level quota** | Quota extended from tenant + user to team/project + tenant + user (teams reuse the department tree, projects are new groups); three levels take the minimum; 001's gate layer gains three-level semantics with zero changes | [042](specs/042-three-level-quota/) |
+| 33 | **Session replay** | 028's trajectory promoted from read-only display to jump-to replay: Stage 1 (front-end-only projection — timeline + jump + drill-down, zero backend change) is the MVP; Stage 2 (true replay) is pre-research only | [043](specs/043-session-replay/) |
+| 34 | **Multi-agent modes** | 010 engine gains `round_robin` (three configurable selection strategies) and `debate` (round cap + three convergence conditions); the existing four modes are unchanged | [044](specs/044-multi-agent-modes/) |
+
+Wave 1 (governance closed loop) = 032 + 033 + 034; Wave 2 (operations & product completeness) = 035 + 036 + 037 + 038; Wave 3 (ecosystem experience) = 039–044, picked by resource availability.
 
 ## Line three: multi-instance Agent runtime
 
@@ -552,7 +576,7 @@ See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (31 features, plus `INDEX.md`) |
+| `specs/` | spec-kit SDD specification assets (44 features, plus `INDEX.md`) |
 | `contracts/` | the 6 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway, memory-context) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |
