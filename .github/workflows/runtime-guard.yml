@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # 仓库唯一权威的前端锁文件是 pnpm-lock.yaml（package-lock.json 已于
       # ccd94a6 / QF-012 归档废弃）。npm ci 会因缺 lock 直接失败，统一改走 pnpm。
       - uses: pnpm/action-setup@v6
@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -79,7 +79,7 @@ jobs:
       MOGO_IMAGE_REGISTRY: ghcr.io/example
       MOGO_VERSION: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
