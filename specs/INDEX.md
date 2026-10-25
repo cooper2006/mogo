@@ -78,7 +78,7 @@
 | 编号 | 特性 | 说明 | 优先级 | spec | plan | quickstart | tasks |
 |---|---|---|---|---|---|---|---|
 | 022 | security-hardening（安全加固） | 96 个 P0/P1 缺陷：认证/MFA/令牌/授权/输入/数据/供应链 7 域 | P0 | ✅ | ✅ | ✅ | ✅（58/58） |
-| 023 | observability-resilience（可观测性与韧性） | 74 个 P0/P1 缺陷：日志/追踪/指标/告警/容错/恢复 6 域 | P1 | ✅ | ✅ | ✅ | 🔨 **30/126**（Phase 1 全部 13 项 + Phase 2 T014–T030 三服务 structlog 接线 + /health /ready /admin/log-level 端点 + 启动自检 + 20 项测试全绿。OQ-1~OQ-8 已于 2026-10-24 消解） |
+| 023 | observability-resilience（可观测性与韧性） | 74 个 P0/P1 缺陷：日志/追踪/指标/告警/容错/恢复 6 域 | P1 | ✅ | ✅ | ✅ | 🔨 **37/126**（Phase 1 T001–T013 + Phase 2 T014–T030 + Phase 3 T031–T044：三服务 structlog 接线、/health /ready /admin/log-level 端点、启动自检、OTel 追踪、LLM span、Celery trace_id、24 项测试全绿。OQ-1~OQ-8 已于 2026-10-24 消解） |
 | 024 | deployment-hardening（部署与发布） | 42 个 P0/P1 缺陷：部署安全/制品/灰度/回滚/灾备 5 域 | P1 | ✅ | ✅ | ✅ | 🔨 **18/119**（**Phase 1 已落地**：T001–T010 既有能力核实 + T012 脚本门禁扩展 + T014 compose user: 字段 + T015 安全基线校验 + T016–T018 基线工具链 + T019 mogo baseline 子命令；T011 需 docker run 实证，余 US2–US4 未开工） |
 | 025 | api-contract-hardening（API 契约与语义） | 50 个 P0/P1 缺陷：语义/错误/契约/演进 4 域 | P1 | ✅ | ✅ | ✅ | 🔨 7/52（**Phase 1 已落地**：T001–T007 错误结构统一 + trace_id + CI 唯一性门禁，三服务全量测试通过，2026-10-24；余 US1–US4 未开工） |
 | 026 | performance-scalability（性能与扩展性） | 51 个 P0/P1 缺陷：基线/DB/缓存/前端/扩展性 5 域 | P1 | ✅ | ✅ | ✅ | 🔨 **5/57**（**Phase 1 已落地**：T001–T005 模块骨架——cache/manager.py、perf_baseline.py、perf_budget.py、api/middleware/perf.py、benchmarks/ 目录结构；US1 性能基线未开工） |

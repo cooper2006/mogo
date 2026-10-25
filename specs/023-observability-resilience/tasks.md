@@ -81,14 +81,14 @@
 - [ ] T034 修改 `services/chat-api/app/main.py`：初始化 OTel SDK，注册 FastAPI + HTTPX Instrumentor
 - [ ] T035 修改 `services/document-parser/app/main.py`：初始化 OTel SDK，注册 FastAPI + HTTPX Instrumentor
 - [ ] T036 修改 `services/common/observability_base.py::logging`：日志中自动注入 trace_id/span_id（从 OTel context 获取）
-- [ ] T037 修改 `services/chat-api/app/llm/resilience/failover.py` 与 `retry.py`：LLM 调用 span（复用 007 既有代码，新增 span 包装）
-- [ ] T038 修改 `services/chat-api/app/` 异步任务入口（Celery/RQ worker）：通过任务参数传递 trace_id，保留父 span 上下文（FR-10）
-- [ ] T039 采样率配置：`services/common/observability_base.py::init_tracing()` 支持 `OTEL_SAMPLER_PROBABILITY` 环境变量（默认 0.1）
-- [ ] T040 端到端追踪测试：`services/chat-api/tests/observability/test_tracing.py` — 模拟一次完整请求（admin-api → chat-api → document-parser），验证 trace_id 传播
-- [ ] T041 日志-追踪互跳测试：验证日志含 trace_id，可通过 trace_id 查询到对应 span
-- [ ] T042 异步任务追踪测试：验证异步任务（后台 worker）的 trace_id 与触发请求一致
-- [ ] T043 traceparent 注入测试：验证下游 HTTP 调用自动注入 W3C traceparent header
-- [ ] T044 更新 QualityForge 缺陷（追踪子域）：关闭对应 blocked 项
+- [x] T03[7-9] 修改 `services/chat-api/app/llm/resilience/failover.py` 与 `retry.py`：LLM 调用 span（复用 007 既有代码，新增 span 包装）
+- [x] T03[7-9] 修改 `services/chat-api/app/` 异步任务入口（Celery/RQ worker）：通过任务参数传递 trace_id，保留父 span 上下文（FR-10）
+- [x] T03[7-9] 采样率配置：`services/common/observability_base.py::init_tracing()` 支持 `OTEL_SAMPLER_PROBABILITY` 环境变量（默认 0.1）
+- [x] T04[0-4] 端到端追踪测试：`services/chat-api/tests/observability/test_tracing.py` — 模拟一次完整请求（admin-api → chat-api → document-parser），验证 trace_id 传播
+- [x] T04[0-4] 日志-追踪互跳测试：验证日志含 trace_id，可通过 trace_id 查询到对应 span
+- [x] T04[0-4] 异步任务追踪测试：验证异步任务（后台 worker）的 trace_id 与触发请求一致
+- [x] T04[0-4] traceparent 注入测试：验证下游 HTTP 调用自动注入 W3C traceparent header
+- [x] T04[0-4] 更新 QualityForge 缺陷（追踪子域）：关闭对应 blocked 项
 
 ---
 
