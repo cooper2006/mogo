@@ -30,14 +30,22 @@
 
 **独立测试**: 关键端点 P95/P99 基线落库；吞吐按并发级别可查；外部依赖耗时占比可拆分；性能预算 CI 检查生效。
 
-- [ ] T006 实现 `perf_baseline.py` 延迟采集：基于 `spans.py` 的 span 数据聚合 P50/P95/P99（按端点 + 方法分类），落库 `perf_baselines` collection
-- [ ] T007 实现 `perf_baseline.py` 吞吐采集：按并发级别（1/10/50/100）记录 RPS（对话）/ TPS（文档解析），落库
-- [ ] T008 实现 `execution_trace.py` 外部依赖耗时拆分：每次请求拆分 DB / Redis / LLM / 外部 API 耗时占比，汇总到基线（FR-3）
-- [ ] T009 [P] 实现 `perf_budget.py` 预算检查：读 `benchmarks/perf_baselines/baselines.yaml`，检查 P95 ≤ 阈值、包体积 ≤ 预算，输出通过/失败
-- [ ] T010 [P] 定义 `benchmarks/perf_baselines/baselines.yaml`：关键端点显式预算（对话 P95 ≤ 2s、文档解析 ≤ 5s、鉴权 ≤ 500ms、admin-web ≤ 500KB、user-web ≤ 300KB、缓存命中率 ≥ 80%、并发上限 1000 rps/实例）——阈值已定值（2026-10-24 Clarify 记录）
-- [ ] T011 实现 `perf_budget.py` 回归判定：新构建基线 vs 历史基线，P95 超阈值（如 +20%）标记为回归，CI 中告警（FR-5）
-- [ ] T012 实现 `api/middleware/perf.py` 性能中间件：请求级延迟埋点 → `kpi_store.incr` → span 记录，接入 chat-api / admin-api / document-parser（FR-1/FR-2）
-- [ ] T013 [P] 扩展 `kpi_store.py`：新增延迟分位数计数器（P50/P95/P99），支持按端点维度聚合（FR-1）
+- [x] T006 实现 `perf_baseline.py` 延迟采集：基于 `spans.py` 的 span 数据聚合 P50/P95/P99（按端点 + 方法分类），落库 `perf_baselines` collection
+  - 证据：`spans.py` 新增完成 span 滚动缓冲（`emit_completed_span` / `drain_completed_spans` / `recent_completed_spans`，`log_span._finish` 记录 `{span_id,name,parent_span_id,duration_ms,error,finished_at}`）；`perf_baseline.PerfBaselineCollector.collect(spans)` 按 `name` 分组算 P50/P95/P99 + sample_count，`persist()` 内存 `records`（可注入 `on_persist` 落 Mongo `perf_baselines`），`query(endpoint)` 查询。测试 `tests/observability/test_perf_baseline.py::TestPerfBaselineCollect/TestSpanBuffer`（分位数分组、持久化覆盖、log_span 完成入缓冲）。验证：`pytest tests/observability` 全绿。
+- [x] T007 实现 `perf_baseline.py` 吞吐采集：按并发级别（1/10/50/100）记录 RPS（对话）/ TPS（文档解析），落库
+  - 证据：`PerfBaselineCollector.collect` 用 `finished_at` 落在 `window_seconds`(60s) 窗口内的 span 计 RPS/TPS（同一 rate，因单请求单事务），写入 `PerfBaselineRecord.rps/tps`；并发分档在 `kpi_store` / `perf_kpi.RequestKPIStore.throughput()` 的 `rps_by_concurrency`（1/10/50/100），`enter_request/leave_request` 记录瞬时并发进 `_inflight_history` 滚动窗口。测试 `TestPerfBaselineCollect::test_collect_groups_by_name`、`TestRequestKPIStore::test_inflight_gauge_and_concurrency_buckets`。
+- [x] T008 实现 `execution_trace.py` 外部依赖耗时拆分：每次请求拆分 DB / Redis / LLM / 外部 API 耗时占比，汇总到基线（FR-3）
+  - 证据：`execution_trace.py` 新增 `infer_span_kind(name)`（DB/Redis/LLM/外部 HTTP/文件系统/其他，正则 + 显式 `kind` attr 优先）、`dependency_breakdown(spans, request_duration_ms=)` 返回 `PerfBreakdown`（`items: [{kind,total_ms,count,p95_ms,share}]` 按耗时降序，分母=所有 span 耗时之和，`unknown_spans` 点名未分类）。`perf_breakdown.py` 保留为薄 re-export。测试 `TestDependencyBreakdown`（kind 推断、占比 0.7/0.2/0.1、显式 kind 优先、unknown）。
+- [x] T009 [P] 实现 `perf_budget.py` 预算检查：读 `benchmarks/perf_baselines/baselines.yaml`，检查 P95 ≤ 阈值、包体积 ≤ 预算，输出通过/失败
+  - 证据：`PerfBudgetChecker.load_thresholds(config_path)` 用 PyYAML 解析（缺文件抛 `FileNotFoundError`），按 `service_name` 装配 latency/throughput 阈值；`check(baseline)` 逐端点比 `p95_ms` 与 `max_value`，超限 `breached=True` 并返回列表；`check_frontend_bundle(actual_kb)` 对照 `frontend.*.bundle_gzip_max_kb`；`alert(threshold)` 用 structlog `logger.error("perf_budget_breached", extra=...)`。测试 `test_perf_budget.py::TestLoadThresholds/TestCheck/TestCheckFrontendBundle`。
+- [x] T010 [P] 定义 `benchmarks/perf_baselines/baselines.yaml`：关键端点显式预算（对话 P95 ≤ 2s、文档解析 ≤ 5s、鉴权 ≤ 500ms、admin-web ≤ 500KB、user-web ≤ 300KB、缓存命中率 ≥ 80%、并发上限 1000 rps/实例）——阈值已定值（2026-10-24 Clarify 记录）
+  - 证据：`baselines.yaml` 按服务分组写 Clarify 定值：chat-api `/chat/completions` `/chat` p95 2000ms、document-parser `/jobs/document-parse` `/documents/parse-markdown` 5000ms、admin-api `/auth/login` `/auth/me` `/auth/logout` `/auth/mfa/verify` 500ms；frontend admin-web 500KB / user-web 300KB / lcp 2.5s；cache hit_rate_min 0.8；database slow_query_ms 100 / max_time_ms 5000 / pool 100/10/30s/90s/0.8；concurrency queue_depth_max 1000；circuit_breaker error_rate_max 0.5 / rolling 30s；regression p95_regression_ratio 1.2。测试 `TestBaselinesYamlOnDisk::test_parses_and_matches_clarify` 校验文件可被 loader 读入且关键阈值正确。
+- [x] T011 实现 `perf_budget.py` 回归判定：新构建基线 vs 历史基线，P95 超阈值（如 +20%）标记为回归，CI 中告警（FR-5）
+  - 证据：`check_regression(new_baseline, historical_baseline, ratio=None)`，ratio 默认取 `regression.p95_regression_ratio`(=1.2)；逐端点算 `new_p95/hist_p95`，超过 ratio 返回 `PerfBudgetThreshold(metric="p95_regression", max_value=ratio, current_value=actual_ratio)`；hist_p95 ≤ 0 或历史缺端点跳过。测试 `TestCheckRegression`（+30% 判回归、+10% 不判、hist=0 跳过）。
+- [x] T012 实现 `api/middleware/perf.py` 性能中间件：请求级延迟埋点 → `kpi_store.incr` → span 记录，接入 chat-api / admin-api / document-parser（FR-1/FR-2）
+  - 证据：新建 `services/common/perf_kpi.py`（权威源）+ 三服务 `app/common/perf_kpi.py` 字节一致 vendored 副本（`md5 -q` 四份同 `1a88eb1fd58c96cfaad424eb18e84462`）。`PerfMiddleware(store=...)` 从请求进到响应计时（`time.perf_counter`），`finally` 兜底保证异常也计延迟；`default_endpoint` 去 `/api/v1` 前缀；store 失败吞异常不阻断请求。chat-api 用既有 `runtime_kpi_store`（RuntimeKPIStore），admin-api/document-parser 用 `RequestKPIStore()`；`app/api/middleware/perf.py` 保留为 re-export 兼容路径。挂载验证：admin-api `create_app()` 后 `app.user_middleware` 含 `PerfMiddleware`（最外层）；chat-api TestClient 打 `/health`+`/api/v1/auth/me` 后 `perf_summary()` 出现 `{"/health|GET": {count:1,p95:2.3}, "/auth/me|GET": {count:1,p95:1.3}}`。测试 `test_perf_kpi.py::TestPerfMiddleware/TestPerfMiddlewareIsolatesFailure`。
+- [x] T013 [P] 扩展 `kpi_store.py`：新增延迟分位数计数器（P50/P95/P99），支持按端点维度聚合（FR-1）
+  - 证据：`RuntimeKPIStore` 新增 `enter_request/leave_request(endpoint,method,latency_ms,status=)`（60s 滚动窗口 / 10s 分桶 / 单桶上限 5000 样本 / 过期桶 `_prune_buckets` 裁剪）、`latency_percentiles(endpoint,method)→{p50,p95,p99,p999,count}`（排序后按秩取，空返回全 0）、`throughput()→{rps_total,tps_total,per_endpoint,rps_by_concurrency}`、`perf_summary()→{inflight,request_count_total,endpoints,endpoint_percentiles,throughput}`；既有 agent 运行时计数器与 `_recompute` 保持不变。测试 `TestRequestKPIStore`（分位数已知值 10 样本 P50=50/P95=100/P99=100、窗口过期裁剪、并发分档键、summary 形状）。
 
 ---
 
