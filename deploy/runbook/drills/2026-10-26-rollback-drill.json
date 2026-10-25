@@ -1,0 +1,105 @@
+{
+  "drill": "T049 真实回滚演练（隔离/独立 compose project）",
+  "timestamp": "2026-10-26T05:26:00+0800",
+  "version": "e6289d9",
+  "promote": {
+    "weight": 10,
+    "started_at": "2026-10-25T21:20:07Z"
+  },
+  "fault": {
+    "method": "docker stop mogo-chat-api-canary-1",
+    "injected_at": "2026-10-25T21:21:40Z"
+  },
+  "baseline": {
+    "url": "http://chat-api-canary:8000/ready",
+    "requests": 6,
+    "error_rate": 0.0,
+    "p95_latency_ms": 31.51,
+    "5xx_rate": 0.0,
+    "timeout_rate": 0.0,
+    "availability": 1.0,
+    "window_s": 18.0,
+    "status_codes": {
+      "200": 6
+    }
+  },
+  "fault_metrics": {
+    "url": "http://chat-api-canary:8000/ready",
+    "requests": 5,
+    "error_rate": 1.0,
+    "p95_latency_ms": 5.41,
+    "5xx_rate": 1.0,
+    "timeout_rate": 1.0,
+    "availability": 0.0,
+    "window_s": 12.0,
+    "status_codes": {
+      "503": 5
+    }
+  },
+  "auto_rollback": {
+    "exit": 0,
+    "wall_seconds": 3.57,
+    "canary_reported_seconds": 3.2,
+    "t1_target_seconds_max": 300,
+    "triggered_conditions": [
+      "error_rate_delta",
+      "p95_latency_delta",
+      "availability"
+    ],
+    "not_triggered_due_to_bug": [
+      "http_5xx_rate",
+      "timeout_rate"
+    ]
+  },
+  "post_rollback": {
+    "url": "http://chat-api:8000/ready",
+    "requests": 6,
+    "error_rate": 0.0,
+    "p95_latency_ms": 26.97,
+    "5xx_rate": 0.0,
+    "timeout_rate": 0.0,
+    "availability": 1.0,
+    "window_s": 18.0,
+    "status_codes": {
+      "200": 6
+    }
+  },
+  "verify_rollback_baseline": {
+    "baseline_file": "/tmp/mogo-drill-2026-10-26/work/baseline_metrics.json",
+    "post_file": "/tmp/mogo-drill-2026-10-26/work/post_metrics.json",
+    "tolerance_pct": 20.0,
+    "ok": true,
+    "metrics": {
+      "error_rate": {
+        "baseline": 0.0,
+        "post": 0.0,
+        "delta_pct": 0.0,
+        "ok": true
+      },
+      "p95_latency_ms": {
+        "baseline": 31.51,
+        "post": 26.97,
+        "delta_pct": 14.4081,
+        "ok": true
+      },
+      "5xx_rate": {
+        "baseline": 0.0,
+        "post": 0.0,
+        "delta_pct": 0.0,
+        "ok": true
+      },
+      "timeout_rate": {
+        "baseline": 0.0,
+        "post": 0.0,
+        "delta_pct": 0.0,
+        "ok": true
+      },
+      "availability": {
+        "baseline": 1.0,
+        "post": 1.0,
+        "delta_pct": 0.0,
+        "ok": true
+      }
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "drill": "T073 真实恢复演练（隔离环境）",
+  "timestamp": "2026-10-26T05:13:42+0800",
+  "BACKUP_S": 2.387,
+  "ENCRYPT_S": 0.198,
+  "DECRYPT_S": 0.158,
+  "RESTORE_S": 8.206,
+  "COUNT_COMPARE_S": 1.095,
+  "BUSINESS_VERIFY_S": 1.7,
+  "RTO_TOTAL_S": 11.16,
+  "RPO_S": 0.198,
+  "count_compare": {
+    "source_total_docs": 34539,
+    "restored_total_docs": 34539,
+    "source_collections_compared": 148,
+    "restored_collections_compared": 148,
+    "mismatched_collections": [],
+    "total_collections_compared": 148,
+    "excluded_probe_collections": [
+      "drill_probe"
+    ],
+    "verdict": "PASS 恢复库与源库逐集合文档数完全一致（FR-037 数据层校验）"
+  },
+  "business_verify": {
+    "base_url": "http://127.0.0.1:28080",
+    "checked_at": "2026-10-25T21:13:42Z",
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "verdict": "PASS 恢复后业务校验全部通过（FR-037）",
+    "results": [
+      {
+        "name": "gateway_health",
+        "path": "/health",
+        "method": "GET",
+        "status": 200,
+        "expect_status": 200,
+        "checks": {
+          "status": true
+        },
+        "ok": true
+      },
+      {
+        "name": "api_health",
+        "path": "/api/health",
+        "method": "GET",
+        "status": 200,
+        "expect_status": 200,
+        "checks": {
+          "status": true
+        },
+        "ok": true
+      },
+      {
+        "name": "chat_smoke",
+        "path": "/api/chat",
+        "method": "POST",
+        "status": 200,
+        "expect_status": 200,
+        "checks": {
+          "status": true
+        },
+        "ok": true
+      },
+      {
+        "name": "documents_list",
+        "path": "/api/documents",
+        "method": "GET",
+        "status": 200,
+        "expect_status": 200,
+        "checks": {
+          "status": true
+        },
+        "ok": true
+      },
+      {
+        "name": "knowledge_search",
+        "path": "/api/knowledge-base/search",
+        "method": "GET",
+        "status": 200,
+        "expect_status": 200,
+        "checks": {
+          "status": true
+        },
+        "ok": true
+      },
+      {
+        "name": "admin_status",
+        "path": "/api/admin/system/status",
+        "method": "GET",
+        "status": 200,
+        "expect_status": 200,
+        "checks": {
+          "status": true
+        },
+        "ok": true
+      }
+    ]
+  },
+  "compare_rc": 0,
+  "verify_rc": 0
+}
