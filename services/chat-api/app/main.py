@@ -37,6 +37,12 @@ _ensure_utf8_stdio()
 settings = get_settings()
 configure_logging(settings)
 init_chat_logging()
+
+# 023 T034: 初始化 OpenTelemetry 追踪（OTLP → Tempo）
+from app.common.observability_base import init_tracing, instrument_fastapi, instrument_httpx
+init_tracing("mogo-chat-api")
+instrument_httpx()
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -58,6 +64,9 @@ app.add_middleware(
     CORSMiddleware,
     **build_cors_middleware_kwargs(origins),
 )
+
+# 023 T034: FastAPI 自动插桩（HTTP server span）
+instrument_fastapi(app)
 
 # 022 FR-18（T042）：生产环境禁止回显异常详情与堆栈。
 # 完整异常仍记录到服务端日志（logger.exception），客户端只拿到通用错误码。

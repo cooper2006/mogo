@@ -230,6 +230,51 @@ def traced(task: Callable, *, span_name: str | None = None) -> Callable:
     return functools.wraps(task)(wrapper)
 
 
+# ───────────────── T032 FastAPI/HTTPX Instrumentor 集成 ─────────────────
+
+_instrumentor_holder: dict[str, Any] = {}
+
+
+def instrument_fastapi(app: Any) -> bool:
+    """T032 — FastAPI 自动插桩（HTTP server span）。
+
+    幂等：重复调用同一 app 只 instrument 一次。
+    失败不阻断启动（可观测性自身不得成为故障源，FR-13）。
+    """
+    if id(app) in _instrumentor_holder:
+        return False
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        FastAPIInstrumentor.instrument_app(app)
+        _instrumentor_holder[id(app)] = True
+        return True
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "FastAPIInstrumentor init failed; app runs without tracing"
+        )
+        return False
+
+
+def instrument_httpx() -> bool:
+    """T032 — HTTPX 自动插桩（HTTP client span，下游调用追踪）。
+
+    幂等：重复调用只 instrument 一次。
+    失败不阻断启动。
+    """
+    if "httpx" in _instrumentor_holder:
+        return False
+    try:
+        from opentelemetry.instrumentation.httpx import HTTPXInstrumentor
+        HTTPXInstrumentor().instrument()
+        _instrumentor_holder["httpx"] = True
+        return True
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "HTTPXInstrumentor init failed; downstream calls without tracing"
+        )
+        return False
+
+
 # ─────────────────────────── T003 指标基类 ───────────────────────────
 
 _registry_holder: dict[str, Any] = {}

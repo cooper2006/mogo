@@ -56,6 +56,11 @@ def create_app() -> FastAPI:
     # 023 T014: 初始化结构化日志（structlog JSON）
     init_admin_logging()
 
+    # 023 T033: 初始化 OpenTelemetry 追踪（OTLP → Tempo）
+    from app.common.observability_base import init_tracing, instrument_fastapi, instrument_httpx
+    init_tracing("mogo-admin-api")
+    instrument_httpx()
+
     # QF-447/448: Disable docs endpoints in production
     # 022 FR-18（T042）：生产环境判定覆盖 prod/release 别名。
     is_prod = str(settings.app_env).strip().lower() in {"production", "prod", "release"}
@@ -88,6 +93,9 @@ def create_app() -> FastAPI:
     # 025 Phase 1（T004）：trace_id 注入中间件——最后 add 即最外层，
     # 保证任何异常处理器 / 业务代码都能从 request.state.trace_id 取到值。
     app.add_middleware(TraceIdMiddleware)
+
+    # 023 T033: FastAPI 自动插桩（HTTP server span）
+    instrument_fastapi(app)
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, Any]:

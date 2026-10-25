@@ -28,12 +28,19 @@ def create_app() -> FastAPI:
     )
     # 023 T021：接入 structlog 结构化日志
     init_doc_parser_logging()
+    # 023 T035: 初始化 OpenTelemetry 追踪（OTLP → Tempo）
+    from app.common.observability_base import init_tracing, instrument_fastapi, instrument_httpx
+    init_tracing("mogo-document-parser")
+    instrument_httpx()
     # 025 Phase 1（T006）：trace_id 中间件 + 统一异常处理器（422/500）。
     app.add_middleware(TraceIdMiddleware)
     register_error_handlers(app, is_prod=is_prod)
     app.include_router(api_router, prefix="/api")
     # 023 T021：observability health_router（/ready 依赖可达性检查）
     app.include_router(health_router)
+
+    # 023 T035: FastAPI 自动插桩（HTTP server span）
+    instrument_fastapi(app)
 
     @app.on_event("startup")
     def startup() -> None:
