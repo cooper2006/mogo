@@ -91,8 +91,10 @@
 - [ ] T029 热点数据接入缓存：会话（session）/ 配置（config）/ 权限（permission）/ token 四类热点数据接入 `cache/manager.py`（FR-13）
 - [x] T030 [P] 缓存命中率监控：命中率指标落库，< 80% 告警，供 008 驾驶舱消费（FR-18）
   - 证据: 实现：权威源 `services/common/cache_metrics.py` 的 `CacheMetricsReporter`（`collect()` 快照 + `report()` 落库到 kpi_store 的 `cache_hit_rate`/`cache_stats` + 命中率 < 0.8 告警，interval 30s 防高频），vendored 三服务 `app/cache/metrics.py`；验证：`TestCacheMetricsReporter` 5 用例通过，冒烟 `hit_rate 0.5 -> breached=True`
-- [ ] T031 [P] 缓存容量与淘汰策略：Redis `maxmemory-policy` = `allkeys-lru`，容量上限可配（FR-20）
-- [ ] T032 缓存集成测试：穿透/击穿/雪崩三场景验证 + 命中率统计（Acceptance Scenarios）
+- [x] T031 [P] 缓存容量与淘汰策略：Redis `maxmemory-policy` = `allkeys-lru`，容量上限可配（FR-20）
+  - 证据: 工具：`tools/perf/cache_capacity_check.py`（校验 Redis `maxmemory-policy=allkeys-lru` 与 `maxmemory`，期望值经 `REDIS_MAXMEMORY_POLICY`/`REDIS_MAXMEMORY` 可配，默认 256mb，`_to_bytes`/`_memory_ok` 支持 b/kb/mb/gb，阈值 ±10%；无 Redis 时报告 degraded 不阻断）；CacheManager 已有 `memory_max_entries` 限制进程内降级缓存条数；验证：`TestCacheCapacity` 7 用例通过（正确/错策略/0 容量/容量偏小均正确判定），实际连接 Redis 未验证（本地未启动 Redis，报告 degraded 退出码 2）
+- [x] T032 缓存集成测试：穿透/击穿/雪崩三场景验证 + 命中率统计（Acceptance Scenarios）
+  - 证据: 集成测试：`tools/tests/test_cache_scenarios.py`（20 用例）覆盖穿透（布隆拦截未登记 key、空值缓存 60s 生效、热键命中）/击穿（singleflight 单请求重建、锁释放后可重获）/雪崩（TTL 抖动 200 次均在 90-110、50 键 TTL 不全相同）/命中率（10 次命中 + 1 miss ≥ 0.9、memoize 命中 0.8）/端到端（三防护叠加）；验证：`pytest tools/tests/test_cache_scenarios.py` 20 passed，`pytest tools/tests` 83 passed
 
 ---
 
