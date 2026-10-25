@@ -226,7 +226,10 @@
   - **审计结果（三份契约，契约按消费方实际读取的服务端字段名登记）**：admin-api 143/397 = 36.0%、chat-api 144/687 = 21.0%、document-parser 18/46 = 39.1% 字段为 snake_case；共 **103 个 interaction** 含 camelCase 字段，全部登记入白名单。覆盖率低反映**服务端 wire 格式仍以 camelCase 为主**（各契约 gaps 已登记），FR-23 目标是 snake_case，服务端迁移后逐项从白名单移除。
   - **契约侧联动**：三份契约 `gaps` 各新增 T038 条目（admin-api 新增 G7「FR-23 序列化一致性：snake_case 覆盖率偏低」），指向白名单文件与迁移方向。
   - **踩坑**：契约 gaps 有两种写法——admin-api 用 `- id: Gx` mapping、chat-api/document-parser 用 `- 纯文本`；往 gaps 追加条目必须沿用所在文件的缩进与结构（曾因缩进 0 插入 admin-api 导致 `expected <block end>, but found '-'`，已回滚重插；插入后须 `yaml.safe_load` 校验，非法则 `git checkout` 回滚）。
-- [ ] T039 契约验证环境隔离（FR-24, US3-10）：契约测试使用独立测试容器/fixture，不依赖共享可变环境
+- [x] T039 契约验证环境隔离（FR-24, US3-10）：契约测试使用独立测试容器/fixture，不依赖共享可变环境
+  - **证据**: `services/admin-api/tests/contract/conftest.py`（autouse `isolated_env` fixture：清除连接类环境变量前缀 `CONNECTION_ENV_PREFIXES`（MONGODB_/REDIS_/PANWEIDB_/WEAVIATE_/ASKAI_ADMIN_/MOGO_DOC_PROCESSING_/MOGO_DATA_/MOGO_KMS_/OSS_/OTEL_/KAFKA_/RABBITMQ_/NATS_/DATABASE_/DB_/POSTGRES_/MYSQL_/ADMIN_BACKEND_/GATE_/HTTP(S)_PROXY/NO_PROXY/ALL_PROXY），`monkeypatch.chdir(tmp_path)` 把 cwd 切到临时目录，测试结束自动恢复）；`services/admin-api/tests/contract/test_contract_isolation.py`（6 用例）。
+  - **隔离性断言**：①契约测试源码（`tests/contract/*.py`）不得 import 网络 / 数据库客户端（`requests`/`httpx`/`sqlalchemy`/`asyncpg`/`psycopg`/`redis`/`motor`/`pymongo`/`clickhouse`/`kafka`/`openai`/`boto3`/`weaviate`/`elasticsearch`）；②代码行不得引用真实服务地址（`LIVE_URL_RE` 识别 `scheme://host.tld[/path]` 形态，注释与文档字符串允许示例）；③清空连接类环境变量后 `create_app().openapi()` 仍能生成（openapi 3.x + paths 非空），即**不连库、不发真实请求**；④openapi 调用不得在工作区根新增 `*.db`/`*.sqlite*`/`*.log` 共享状态文件；⑤`isolated_env` 生效后 `Path.cwd() == tmp_path != REPO`。
+  - **结果**：`pytest services/admin-api/tests/contract/` **12 passed**（T035 的 6 个提供方契约测试在 autouse 隔离 fixture 下仍全绿，证明原有契约测试本就无共享环境依赖）。
 
 ---
 
