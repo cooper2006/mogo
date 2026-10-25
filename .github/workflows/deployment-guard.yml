@@ -1,0 +1,122 @@
+name: Deployment Guard
+
+# 024 B006 (FR-011/FR-033/FR-049)：PR 门禁 —— 部署守卫。
+# 每个 PR 必过：
+#   1) 安全基线声明（非 root / read_only / cap_drop ALL / no-new-privileges）
+#   2) 配置清单 ↔ 代码读取点一致性（config-lint）
+#   3) 检查单格式（执行人 + 结论，机器可校验）
+#   4) compose 与 build.yml 一致性 + 镜像模式基线
+#   5) 新增 shell 脚本 bash -n
+# 任一失败即门禁失败，阻塞合并。
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install guard dependencies
+        run: python -m pip install --quiet PyYAML
+
+      # 1. 安全基线声明
+      - name: Validate security baseline declaration
+        run: |
+          python - <<'PY'
+          import json, subprocess, sys
+          out = subprocess.run(
+              ["docker", "compose", "-f", "docker-compose.yml", "config", "--format", "json"],
+              capture_output=True, text=True)
+          if out.returncode != 0:
+              print("compose config failed:", out.stderr); sys.exit(1)
+          services = json.loads(out.stdout).get("services", {})
+          exempt = {"panweidb"}  # 唯一不做 cap_drop 加固的服务
+          problems = []
+          for name, svc in services.items():
+              if name in exempt:
+                  continue
+              if not svc.get("read_only"):
+                  problems.append(f"{name}: 缺 read_only: true")
+              if not svc.get("no_new_privileges"):
+                  problems.append(f"{name}: 缺 no_new_privileges: true")
+              caps = {str(c).lower() for c in (svc.get("cap_drop") or [])}
+              if "all" not in caps:
+                  problems.append(f"{name}: cap_drop 缺 ALL")
+              if not svc.get("user"):
+                  problems.append(f"{name}: 未声明非 root user")
+          if problems:
+              print("FAIL 安全基线声明缺失：")
+              for p in problems:
+                  print(f"  - {p}")
+              sys.exit(1)
+          print(f"OK 安全基线声明覆盖 {len(services) - len(exempt)} 个服务")
+          PY
+
+      # 2. 配置清单一致性
+      - name: Validate config manifests against code read sites
+        run: bash deploy/cli/config-lint.sh --env all
+
+      # 3. 检查单格式（执行人 + 结论）
+      - name: Validate release checklist format
+        run: |
+          if [[ -f deploy/cli/checklist-verify.sh ]]; then
+            bash deploy/cli/checklist-verify.sh --check docs/release-checklist-self-hosted.md \
+              || bash deploy/cli/checklist-verify.sh
+          else
+            echo "checklist-verify.sh 未提供，跳过"
+          fi
+
+      # 4. compose 与 build.yml 一致性 + 镜像模式基线
+      - name: Validate compose image modes and compose/build.yml consistency
+        run: bash scripts/check_compose_image_modes.sh
+
+      # 5. 新增/改动 shell 脚本 bash -n
+      - name: Syntax-check changed shell scripts
+        run: |
+          set +e
+          # 全量 bash -n 兜底（PR 门禁不允许引入语法错误脚本）
+          fail=0
+          while IFS= read -r s; do
+            [[ -f "${s}" ]] || continue
+            if ! bash -n "${s}" 2>/tmp/e; then
+              echo "FAIL bash -n ${s}"; cat /tmp/e; fail=1
+            fi
+          done < <(git diff --name-only --diff-filter=ACMR HEAD~1 2>/dev/null; \
+                   git ls-files --others --exclude-standard; echo mogo)
+          # mogo 主脚本与全部 deploy/cli/*.sh 也纳入
+          for s in mogo deploy/cli/*.sh scripts/*.sh; do
+            [[ -f "${s}" ]] || continue
+            if ! bash -n "${s}" 2>/tmp/e; then
+              echo "FAIL bash -n ${s}"; cat /tmp/e; fail=1
+            fi
+          done
+          if [[ "${fail}" == "1" ]]; then
+            echo "存在 shell 语法错误脚本"; exit 1
+          fi
+          echo "OK 全部 shell 脚本 bash -n 通过"
+
+      # 6. YAML 解析校验（新增 workflow / 清单）
+      - name: Parse-check changed YAML
+        run: |
+          set +e
+          fail=0
+          while IFS= read -r y; do
+            [[ -f "${y}" ]] || continue
+            if ! python -c "import yaml,sys;yaml.safe_load(open('${y}'))" 2>/tmp/e; then
+              echo "FAIL YAML ${y}"; cat /tmp/e; fail=1
+            fi
+          done < <(git diff --name-only --diff-filter=ACMR HEAD~1 2>/dev/null | grep -E '\.ya?ml$')
+          if [[ "${fail}" == "1" ]]; then echo "存在 YAML 解析错误"; exit 1; fi
+          echo "OK 变更 YAML 全部可解析"

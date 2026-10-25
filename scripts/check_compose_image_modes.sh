@@ -236,4 +236,57 @@ for name in services:
 sys.exit(1 if fail else 0)
 PY
 
+# --- Compose vs build.yml consistency (024 B003) ---
+# docker-compose.yml and docker-compose.build.yml must describe the same set of
+# buildable business services: every service build.yml knows must exist in
+# compose, and every buildable business service in compose must exist in
+# build.yml. External/infra services (databases, caches, ha clones, canary
+# variants, init containers) are exempt by design.
+business_services=(
+  chat-api
+  admin-api
+  document-api
+  document-worker
+  user-web
+  admin-web
+  gateway
+  dsh-runtime-host
+)
+python3 - "${ROOT_DIR}/docker-compose.yml" "${ROOT_DIR}/docker-compose.build.yml" \
+  "${business_services[@]}" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1]) as f:
+    compose_services = set((yaml.safe_load(f) or {}).get("services", {}).keys())
+with open(sys.argv[2]) as f:
+    build_services = set((yaml.safe_load(f) or {}).get("services", {}).keys())
+business = set(sys.argv[3:])
+
+fail = 0
+# 1) Every build.yml service must exist in compose.
+for s in sorted(build_services):
+    if s not in compose_services:
+        print(f"FAIL: {s} is in docker-compose.build.yml but missing from docker-compose.yml",
+              file=sys.stderr)
+        fail = 1
+# 2) Every buildable business service in compose must exist in build.yml.
+for s in sorted(business):
+    if s in compose_services and s not in build_services:
+        print(f"FAIL: {s} is a buildable business service in docker-compose.yml but "
+              f"missing from docker-compose.build.yml", file=sys.stderr)
+        fail = 1
+# 3) build.yml must not define services outside compose at all (no orphans).
+orphans = build_services - compose_services
+if orphans:
+    print(f"FAIL: build.yml defines services absent from compose: {sorted(orphans)}",
+          file=sys.stderr)
+    fail = 1
+
+if fail:
+    sys.exit(1)
+print(f"OK: compose/build.yml consistency: {len(build_services)} build services all present")
+sys.exit(0)
+PY
+
 printf 'Compose image modes are valid.\n'
