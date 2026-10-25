@@ -189,11 +189,22 @@
 **Goal**: 契约由消费方定义 + 两侧验证 + CI diff 阻断 + 兼容性检查自动化。
 **独立测试**: 契约测试 CI 执行；不兼容改动阻断；新增可选字段不破坏；弃用字段观察期。
 
-- [ ] T030 [P] 创建 `specs/025-api-contract-hardening/contracts/admin-api.yaml`：admin-api 契约文件（Pact 风格 YAML，含路径/方法/请求/响应/错误码/状态码）
-- [ ] T031 [P] 创建 `specs/025-api-contract-hardening/contracts/chat-api.yaml`：chat-api 契约文件
-- [ ] T032 [P] 创建 `specs/025-api-contract-hardening/contracts/document-parser.yaml`：document-parser 契约文件（重点提供方，含 003 的批量解析接口契约）
-- [ ] T033 创建 `tools/contract/validate.py`：契约验证脚本（FR-16 ~ FR-24）；消费方定义契约，两侧验证（提供方测试 + 消费方测试）；覆盖实际依赖字段/状态码/错误码
-- [ ] T034 创建 `tools/contract/diff.py`：兼容性 diff 脚本（FR-20, US3-5）；OpenAPI/契约 diff，不兼容变更红
+- [x] T030 [P] 创建 `specs/025-api-contract-hardening/contracts/admin-api.yaml`：admin-api 契约文件（Pact 风格 YAML，含路径/方法/请求/响应/错误码/状态码）
+  - **证据**: `contracts/admin-api.yaml`（46 interactions，POST 15/GET 23/PUT 2/PATCH 1/DELETE 5；覆盖 `apps/admin-web/src` 25 个文件；error_codes 全部命中 `ApiErrorCode` 注册表，实际用 8 个；gaps 6 条 G1~G6）。consumers 仅 `admin-web` —— 经调研 **user-web 不消费任何 admin-api 端点**（走 `/askai-api`/legacy）。
+  - 验收: `python3 tools/contract/validate.py --service admin-api` → `admin-api: contract OK — 46 interactions`。
+- [x] T031 [P] 创建 `specs/025-api-contract-hardening/contracts/chat-api.yaml`：chat-api 契约文件
+  - **证据**: `contracts/chat-api.yaml`（63 interactions，POST 29/GET 28/PUT 2/PATCH 2/DELETE 2；覆盖 `apps/user-web/src` 18 个文件；SSE `/chat/messages/{id}/events` 与 NDJSON `/chat/completions` 流式端点均已收录；gaps 6 项）。consumers 仅 `user-web`（admin-web 走自身 admin-api 网关，非直接消费方）。
+  - 验收: `python3 tools/contract/validate.py --service chat-api` → `chat-api: contract OK — 63 interactions`。
+- [x] T032 [P] 创建 `specs/025-api-contract-hardening/contracts/document-parser.yaml`：document-parser 契约文件（重点提供方，含 003 的批量解析接口契约）
+  - **证据**: `contracts/document-parser.yaml`（9 interactions；consumers `admin-api`/`chat-api`/`deployment` 探针；gaps 6 项）。
+  - **重大发现（high）**: 003 声明的 `POST /documents/parsing/batch` 批量解析接口在 document-parser **无任何路由/模型/消费方**，与 025 spec.md:206 矛盾 —— 已记录 gap `batch-parse-endpoint-missing`，action 为新增路由或在 003 spec.md 补定义（本阶段未改服务端）。
+  - **活 bug（high）**: `knowledge_documents.py:635` 与 `tenant_purge.py:513` 仍 POST 旧别名 `/vectors/documents/delete`，而 025 T010 已改为 308 重定向；Python `urllib` 不跟随 308 → 删除向量调用实际失败（RuntimeError）。已记录 gap `vector-delete-consumer-still-on-deprecated-alias`。
+  - 验收: `python3 tools/contract/validate.py --service document-parser` → `document-parser: contract OK — 9 interactions`。
+- [x] T033 创建 `tools/contract/validate.py`：契约验证脚本（FR-16 ~ FR-24）；消费方定义契约，两侧验证（提供方测试 + 消费方测试）；覆盖实际依赖字段/状态码/错误码
+  - **证据**: `tools/contract/validate.py`（结构校验 + `api.*` 错误码注册表一致性；供 T035/T036 import 复用）；`tools/contract/test_contract_validate.py`（41 用例）。
+  - 三份真实契约全部通过校验；顺带修 validate.py 一处 bug（非 int 状态码时 `status >= 400` 抛 TypeError）。
+- [x] T034 创建 `tools/contract/diff.py`：兼容性 diff 脚本（FR-20, US3-5）；OpenAPI/契约 diff，不兼容变更红
+  - **证据**: `tools/contract/diff.py`（字段级 diff，破坏性/兼容判定；FR-21 新增可选字段容忍；FR-22 deprecated 观察期 2 minor 后允许移除）；`tools/contract/test_contract_diff.py`（19 用例）。
 - [ ] T035 契约测试用例：`services/admin-api/tests/contract/test_admin_api.py`（提供方侧验证）
 - [ ] T036 契约测试用例：`services/admin-web/tests/contract/test_admin_api.py`（消费方侧验证，如 admin-web 有测试目录）
 - [ ] T037 弃用字段观察期检查：`tools/contract/deprecation_check.py`（FR-22, US3-7, US3-8）；扫描契约文件 `deprecated: true` 标记，检查观察期（2 个 minor 版本）后才允许移除
