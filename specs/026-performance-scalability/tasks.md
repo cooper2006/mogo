@@ -86,9 +86,11 @@
   - 证据: （FR-16）；实现：`cache_protection.py` 的 `MutexGuard`（`SET NX EX` 互斥锁 `set_if_absent`，参考 `runtime_lock` 模式；`singleflight` 单请求重建，其余轮询等待，超时兜底），vendored 三份；验证：`TestMutexGuard` 4 用例通过
 - [x] T027 实现 `cache/protection.py` 缓存雪崩防护：TTL 抖动（±10% 随机）（FR-17）
   - 证据: （FR-17）；实现：`cache_protection.py` 的 `AvalancheGuard`（`jittered_ttl` ±10% 随机，复用 `TTLPolicy`），vendored 三份；验证：`TestAvalancheGuard` 2 用例通过（30 次抖动均在 90-110 区间）
-- [ ] T028 [P] 实现 `cache/memoize.py` 记忆化装饰器 `@cache_result`：对纯函数调用自动缓存结果（FR-19）
+- [x] T028 [P] 实现 `cache/memoize.py` 记忆化装饰器 `@cache_result`：对纯函数调用自动缓存结果（FR-19）
+  - 证据: 实现：权威源 `services/common/cache_memoize.py` 的 `@cache_result` 装饰器（`_make_key` 用 qualname+args+kwargs 生成稳定 SHA1 key，支持显式 cache_key/ttl/tags，None 与生成器不缓存），vendored 三服务 `app/cache/memoize.py`；验证：`pytest tools/tests/test_cache_protection.py::TestMemoize` 6 用例通过（命中跳过重算、参数区分、事件失效后重算）
 - [ ] T029 热点数据接入缓存：会话（session）/ 配置（config）/ 权限（permission）/ token 四类热点数据接入 `cache/manager.py`（FR-13）
-- [ ] T030 [P] 缓存命中率监控：命中率指标落库，< 80% 告警，供 008 驾驶舱消费（FR-18）
+- [x] T030 [P] 缓存命中率监控：命中率指标落库，< 80% 告警，供 008 驾驶舱消费（FR-18）
+  - 证据: 实现：权威源 `services/common/cache_metrics.py` 的 `CacheMetricsReporter`（`collect()` 快照 + `report()` 落库到 kpi_store 的 `cache_hit_rate`/`cache_stats` + 命中率 < 0.8 告警，interval 30s 防高频），vendored 三服务 `app/cache/metrics.py`；验证：`TestCacheMetricsReporter` 5 用例通过，冒烟 `hit_rate 0.5 -> breached=True`
 - [ ] T031 [P] 缓存容量与淘汰策略：Redis `maxmemory-policy` = `allkeys-lru`，容量上限可配（FR-20）
 - [ ] T032 缓存集成测试：穿透/击穿/雪崩三场景验证 + 命中率统计（Acceptance Scenarios）
 

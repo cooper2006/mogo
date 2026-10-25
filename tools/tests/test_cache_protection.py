@@ -309,3 +309,171 @@ class TestAvalancheGuard:
         used = guard.set_with_jitter("k", "v", base_ttl=100.0)
         assert 90.0 <= used <= 110.0
         assert mgr.get("k") == "v"
+
+
+class TestMemoize:
+    """T028 @cache_result 记忆化装饰器。"""
+
+    def test_caches_result(self) -> None:
+        from cache_memoize import cache_result
+
+        mgr = CacheManager()
+        calls = []
+
+        @cache_result(mgr, ttl=60.0)
+        def expensive(n):
+            calls.append(n)
+            return n * 2
+
+        assert expensive(5) == 10
+        assert expensive(5) == 10
+        assert calls == [5]  # 第二次命中缓存，跳过重算
+
+    def test_distinct_args_distinct_cache(self) -> None:
+        from cache_memoize import cache_result
+
+        mgr = CacheManager()
+        calls = []
+
+        @cache_result(mgr)
+        def add(a, b):
+            calls.append((a, b))
+            return a + b
+
+        assert add(1, 2) == 3
+        assert add(2, 3) == 5
+        assert calls == [(1, 2), (2, 3)]
+
+    def test_kwargs_key(self) -> None:
+        from cache_memoize import cache_result
+
+        mgr = CacheManager()
+        calls = []
+
+        @cache_result(mgr)
+        def greet(name, *, salutation="Hi"):
+            calls.append((name, salutation))
+            return f"{salutation}, {name}"
+
+        assert greet("Ann", salutation="Hello") == "Hello, Ann"
+        assert greet("Ann", salutation="Hello") == "Hello, Ann"
+        assert calls == [("Ann", "Hello")]
+
+    def test_none_result_not_cached(self) -> None:
+        from cache_memoize import cache_result
+
+        mgr = CacheManager()
+        calls = []
+
+        @cache_result(mgr)
+        def maybe():
+            calls.append(1)
+            return None
+
+        assert maybe() is None
+        assert maybe() is None
+        assert calls == [1, 1]  # None 不缓存，每次都重算
+
+    def test_explicit_cache_key(self) -> None:
+        from cache_memoize import cache_result
+
+        mgr = CacheManager()
+        calls = []
+
+        @cache_result(mgr)
+        def load(query):
+            calls.append(query)
+            return {"q": query}
+
+        assert load("a", cache_key="fixed") == {"q": "a"}
+        assert load("b", cache_key="fixed") == {"q": "a"}  # 命中同一 key
+        assert calls == ["a"]
+
+    def test_tags_applied(self) -> None:
+        from cache_memoize import cache_result
+
+        mgr = CacheManager()
+        calls = []
+
+        @cache_result(mgr, tags=["config"])
+        def load_cfg():
+            calls.append(1)
+            return {"v": 1}
+
+        assert load_cfg() == {"v": 1}
+        assert load_cfg() == {"v": 1}
+        assert calls == [1]
+        # 事件驱动失效后重新计算
+        mgr.forget_tag("config")
+        assert load_cfg() == {"v": 1}
+        assert calls == [1, 1]
+
+
+class TestCacheMetricsReporter:
+    """T030 命中率监控。"""
+
+    def test_collect_shape(self) -> None:
+        from cache_metrics import CacheMetricsReporter
+
+        mgr = CacheManager(namespace="ns")
+        reporter = CacheMetricsReporter(mgr)
+        snap = reporter.collect()
+        assert snap["namespace"] == "ns"
+        assert "hit_rate" in snap and "breached" in snap
+        assert snap["hit_rate_min"] == 0.8
+
+    def test_breach_when_below_threshold(self) -> None:
+        from cache_metrics import CacheMetricsReporter
+
+        mgr = CacheManager()
+        mgr.set("k", "v")
+        mgr.get("k")
+        mgr.get("missing")  # 命中率 0.5
+        reporter = CacheMetricsReporter(mgr, hit_rate_min=0.8)
+        snap = reporter.collect()
+        assert snap["breached"] is True
+
+    def test_ok_when_above_threshold(self) -> None:
+        from cache_metrics import CacheMetricsReporter
+
+        mgr = CacheManager()
+        mgr.set("k", "v")
+        mgr.get("k")
+        mgr.get("k")  # 命中率 1.0
+        reporter = CacheMetricsReporter(mgr)
+        assert reporter.collect()["breached"] is False
+
+    def test_should_report_respects_interval(self) -> None:
+        from cache_metrics import CacheMetricsReporter
+
+        mgr = CacheManager()
+        reporter = CacheMetricsReporter(mgr, interval_seconds=30.0)
+        assert reporter.should_report(now=100.0) is True
+        reporter._last_report = 100.0
+        assert reporter.should_report(now=101.0) is False
+        assert reporter.should_report(now=131.0) is True
+
+    def test_report_writes_to_kpi_store(self) -> None:
+        from cache_metrics import (
+            KPI_CACHE_HIT_RATE_KEY,
+            KPI_CACHE_STATS_KEY,
+            CacheMetricsReporter,
+        )
+
+        class FakeKPIStore:
+            def __init__(self) -> None:
+                self.values = {}
+
+            def set_value(self, key, value):
+                self.values[key] = value
+                return None
+
+        mgr = CacheManager()
+        store = FakeKPIStore()
+        reporter = CacheMetricsReporter(mgr, kpi_store=store)
+        import asyncio
+
+        snap = asyncio.run(reporter.report(now=0.0))
+        assert snap["collected_at"]
+        assert KPI_CACHE_HIT_RATE_KEY in store.values
+        assert KPI_CACHE_STATS_KEY in store.values
