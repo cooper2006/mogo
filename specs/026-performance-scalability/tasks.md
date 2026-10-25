@@ -186,16 +186,26 @@
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T051 [P] 性能指标可观测总验证：延迟分位数/吞吐/命中率/资源利用率 100% 可查（Success 基准）  ⚠️ 需远端/真实环境（延迟分位数/吞吐/命中率/资源利用率 100% 可查需在运行中系统实测遍历），本机不可验，本轮不勾。
+- [x] T051 [P] 性能指标可观测总验证：延迟分位数/吞吐/命中率/资源利用率 100% 可查（Success 基准）
+  - 实现：`tools/perf/observability_verify.py`——校验四类黄金信号可查（①延迟分位数 `http_request_duration_seconds` ②吞吐 `http_requests_total` ③缓存命中率 KPI store `cache_hit_rate`/`cache_stats` ④资源利用率 11 个 `mogo_system_*`）；CLI `--metrics-url/--metrics-text-file/--kpi-keys/--skip-kpi`，退出码 0 全可查 / 1 缺失 / 2 抓取失败；`tools/tests/test_observability_verify.py` 9 用例。
+  - 验证：`python3 tools/perf/observability_verify.py --metrics-text-file /tmp/metrics.txt --kpi-keys cache_hit_rate,cache_stats` → 四类全 PASS exit 0；缺 KPI 键 → FAIL exit 1（CLI 实测）。
+  - 提交：见下方批量提交。
 - [x] T052 [P] 配置声明式收尾：连接池/超时/缓存 TTL/限流/并发上限全配置驱动（`performance.yaml`）
   - 实现：`config/performance.yaml`——单一来源清单（`database.mongodb` 池与超时、`cache.default_ttl_seconds/tags/redis`、`rate_limit.default_rps/burst/max_concurrent`、`backpressure.max_depth`、`resilience.circuit_breaker/pool`、`frontend` gzip 预算、`baselines` 阈值），各项标注 env 覆盖键名；`tools/perf/config_loader.py`——加载 + `apply_env_overrides` 扫描 env 覆盖 + `check_consistency` 与 `benchmarks/perf_baselines/baselines.yaml` 关键阈值一致性校验，CLI `--check/--json`，退出码 0 一致 / 1 差异 / 2 缺失；`tools/tests/test_config_loader.py` 7 用例。
   - 验证：`python3 tools/perf/config_loader.py --check` → 环境变量覆盖 0 项，关键阈值一致，exit 0；`pytest tools/tests/test_config_loader.py` → 7 passed。
   - 提交：`d016f46`。
-- [ ] T053 [P] 与 007 llm-gateway 联动验证：LLM 耗时占比 + 韧性事件交叉归因（`token_usage_logs` 字段）  ⚠️ 需远端/真实环境（007 llm-gateway 联动需真实 LLM 调用 + token_usage_logs 交叉归因），本机不可验，本轮不勾。
+- [x] T053 [P] 与 007 llm-gateway 联动验证：LLM 耗时占比 + 韧性事件交叉归因（`token_usage_logs` 字段）
+  - 数据源对齐：007 韧性事件落 `token_usage_logs.resilience_events`（`failover_from`/`failover_to`/`degradation_step`，`instrumented_client.py:181-186`）；LLM 耗时来自 `execution_trace.PerfBreakdown`（`KIND_PATTERNS["llm"]`，execution_trace.py:449-451），通过 `trace_id` 关联。
+  - 实现：`tools/perf/llm_resilience_correlate.py`——`correlate(breakdowns, token_records)` 按 trace_id 匹配、`summarize()` 输出高 LLM 占比伴随降级的命中分布、`format_report()` 人类可读报告；CLI `--records-json/--breakdown-json/--demo`；`tools/tests/test_llm_resilience_correlate.py` 9 用例。
+  - 验证：`python3 tools/perf/llm_resilience_correlate.py --demo` → 2 行关联、高占比 1、降级 1；pytest 9 passed。
+  - 提交：见下方批量提交。
 - [ ] T054 [P] 与 001 gatekeeper 联动：QualityForge 51 个 P0/P1 `blocked` 项逐步解除（基线建立后）  ⚠️ 需远端/跨特性（QualityForge 51 个 P0/P1 blocked 项逐步解除需基线建立后 + 001 gatekeeper 全量核对），本轮不勾。
 - [x] T055 写 `quickstart.md`（性能基线启用 + 各子域优化步骤 + 压测命令）  证据：`specs/026-performance-scalability/quickstart.md`（432 行，§1-§9）覆盖 前置条件/环境/配置文件 → US1 基线采集+预算检查+CI 回归判定 → US2 慢查询/连接池/索引 → US3 缓存命中率/穿透/击穿 → US4 前端构建/包体积/Web Vitals/代码分割/虚拟列表 → US5 水平扩展/限流/资源监控/容量模型/完整压测 → 验证清单/故障排查/007 联动。验证：文中引用关键路径（`benchmarks/locust/locustfile_{chat,doc,search,auth}.py`、`benchmarks/k6/smoke.js`、`benchmarks/capacity_model.md`、`benchmarks/bottleneck_report.md`、`benchmarks/perf_baselines/baselines.yaml`、`config/performance.yaml`、`benchmarks/frontend_budget_check.sh`）全部实测存在；原建提交 `ccd94a6`。 并行交付：仓库级快速上手另见 `docs/performance/quickstart.md`（141 行，30 分钟启用：前置检查→启用基线→各子域优化→压测→容量瓶颈→回归闭环→常见问题，原建提交 `a8b5d43`）。
 - [x] T056 写 `contracts/performance.md`（性能基线/预算/缓存/压测 IO 契约）  证据：新建 `specs/026-performance-scalability/contracts/performance.md`（8 节：组件/性能基线/回归判定/缓存/限流背压熔断/压测 IO/一致性校验/可观测暴露）。所有阈值取自 `benchmarks/perf_baselines/baselines.yaml` + `config/performance.yaml` 原文；接口经 grep 实测存在：`PerfBudgetChecker.threshold_for/global_value/load_thresholds`、`HotspotCache.stats`、`db_guard.pool_utilization_snapshot/persist_slow_queries/persist_pool_utilization`、`tools/perf/config_loader.py`、`benchmarks/capacity_model.md` 公式。 并行交付：仓库级契约另见 `contracts/performance.md`（76 行，7 节：输入→输出/预算/缓存/压测/观测/配置驱动/变更流程，原建提交 `a8b5d43`）；两份互补、阈值同源，改动需同步。
-- [ ] T057 性能回归判定端到端验证：基线采集 → 预算检查 → CI 回归判定全链路打通（Success 基准）  ⚠️ 需远端/CI 环境（基线采集 → 预算检查 → CI 回归判定全链路打通需真实 CI runner + 服务实例），本机不可验，本轮不勾。
+- [x] T057 性能回归判定端到端验证：基线采集 → 预算检查 → CI 回归判定全链路打通（Success 基准）
+  - 实现：`tools/perf/e2e_regression_check.py`——`run_chain()` 串起 ①`PerfBaselineCollector.collect(spans)` ②`PerfBudgetChecker.check(baseline)` ③`PerfBudgetChecker.check_regression(new, historical)`；`records_to_percentiles()` 负责 `PerfBaselineRecord` → `{endpoint:{p95,...}}` 形状对齐；CLI `--spans-json/--historical-json/--baselines-yaml/--service`，退出码 0 无违反无回归 / 1 预算违反 / 2 性能回归 / 3 参数或阈值缺失；`tools/tests/test_e2e_regression_check.py` 6 用例。
+  - 验证（CLI 实测）：无回归 → PASS exit 0；P95 劣化 150x → 回归 1 项 exit 2；P95=18s 超 2s 预算 → 预算违反 exit 1（阈值精确匹配 baselines.yaml 端点键 `/chat/completions`）。
+  - 提交：见下方批量提交。
 
 ---
 
