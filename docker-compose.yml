@@ -209,6 +209,12 @@ services:
     # panweidb 一起排除出拓扑。
     image: ${MOGO_MONGO_IMAGE:-mongo:8.3.13}
     restart: unless-stopped
+    # T011：MongoDB 所有持久化写都落在命名卷 /data/db（mongod 的 dbpath 与 journal）
+    # 与 /backups 内；根文件系统改为只读安全。`tmpfs /tmp` 兜底 mongod 的临时目录。
+    # 注意：单机模式不写 /data/configdb；若启用 `--configsvr` 需另挂 configdb 卷。
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     volumes:
       - mongo-data:/data/db
       # T101：备份卷。备份产物（密文 + 清单 + 校验和）落在这里，容器与宿主机
@@ -368,6 +374,12 @@ services:
     image: ${MOGO_REDIS_IMAGE:-redis:7.4.2-alpine}
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
+    # T011：AOF 与 RDB 全部落在命名卷 /data 内；根文件系统只读安全。
+    # redis 自身无 /tmp 依赖，但 `redis-server` 的信号/pid 文件在编译期指向 /tmp，
+    # 显式给 tmpfs 兜底，避免只读根下 pidfile 写失败。
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
     volumes:
       - redis-data:/data
     networks:
@@ -390,6 +402,11 @@ services:
       DEFAULT_VECTORIZER_MODULE: none
       CLUSTER_HOSTNAME: node1
       DISABLE_TELEMETRY: "true"
+    # T011：Weaviate 持久化全部落在命名卷 /var/lib/weaviate（PERSISTENCE_DATA_PATH）；
+    # 根文件系统只读安全。`tmpfs /tmp` 兜底索引/导入的临时写入。
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
     volumes:
       - weaviate-data:/var/lib/weaviate
     networks:

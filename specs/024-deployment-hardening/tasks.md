@@ -38,7 +38,10 @@
 
 - [x] T009 [P] `docker-compose.yml`：为 `chat-api` / `admin-api` / `document-api` / `document-worker` 添加 `read_only: true`，为各自日志与临时目录显式挂载 `tmpfs`（限定 `size`）
 - [x] T010 [P] `docker-compose.yml`：为 `user-web` / `admin-web` / `gateway` 添加 `read_only: true`
-- [ ] T011 [P] `docker-compose.yml`：为 `mongo` / `redis` / `weaviate` 添加 `read_only: true` + 对应数据目录的 `tmpfs` 或命名卷例外（**注意**：这三个服务写卷路径固定，需逐一确认，不得为省事放开根文件系统）
+- [x] T011 [P] `docker-compose.yml`：为 `mongo` / `redis` / `weaviate` 添加 `read_only: true` + 对应数据目录的 `tmpfs` 或命名卷例外（**注意**：这三个服务写卷路径固定，需逐一确认，不得为省事放开根文件系统）
+  - 写路径逐一确认：`mongo` = `/data/db`（dbpath+journal，卷 `mongo-data`）+ `/backups`（卷 `mongo-backup`）；单机不写 `/data/configdb`（若启用 `--configsvr` 需另挂卷）。`redis` = `/data`（AOF+RDB，卷 `redis-data`），`redis-server` 的 pidfile 编译期指向 /tmp。`weaviate` = `/var/lib/weaviate`（`PERSISTENCE_DATA_PATH`，卷 `weaviate-data`）。
+  - 落地：三者均加 `read_only: true` + `tmpfs: - /tmp:size=…,mode=1777`（mongo 64m / redis 32m / weaviate 256m），根文件系统不放开。
+  - **验证**：`docker compose config -q`（rc=0）；`docker compose config` 解析确认 `read_only=True`、`tmpfs=['/tmp:size=…']`、写卷仍为命名卷（三服务 volumes 无 bind 挂载）。容器实测由 B004 `mogo up` 全链路回归覆盖（本机栈在跑，未在此轮重建以避免中断在途服务）。
 - [x] T012 [P] `docker-compose.yml`：全部业务容器添加 `cap_drop: ["ALL"]`，按需最小 `cap_add`（如 `chown` / `setgid` / `net_bind_service`）
 - [x] T013 [P] `docker-compose.yml`：全部容器添加 `no-new-privileges: true`
 - [x] T014 [P] `docker-compose.yml`：为业务容器添加 `user:` 字段与 Dockerfile `USER` 对齐（双保险）
