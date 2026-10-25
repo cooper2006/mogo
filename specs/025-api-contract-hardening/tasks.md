@@ -61,7 +61,12 @@
   - 兼容别名：旧路径以 `include_in_schema=False, deprecated=True` 注册，308 重定向到新路径（`request.url_for("delete_document_vectors")`），仍 `Depends(verify_service_token)`。
   - 行为测试 `services/document-parser/tests/test_compat_alias_redirect_010.py`（2 用例）：旧路径 308 + Location 指向新路径 / OpenAPI 只暴露新路径、隐藏旧路径。
   - 回归：`python3 -m pytest`（document-parser）**24 passed**；`tools/api_check/path_naming.py` 默认 `OK`（0 违规）。
-- [ ] T011 [P] 状态码语义修复（QF-204, QF-207）：扫描 `services/*/app/api/routes/` 所有路由，把"200 包裹错误"改为语义正确状态码（4xx/5xx）；成功路径返回 200/201/204；重定向 301/302；缓存 304
+- [x] T011 [P] 状态码语义修复（QF-204, QF-207）：扫描 `services/*/app/api/routes/` 所有路由，把"200 包裹错误"改为语义正确状态码（4xx/5xx）；成功路径返回 200/201/204；重定向 301/302；缓存 304
+  - **证据（2026-10-25）**：新增 `tools/api_check/status_code_semantics.py`（只读扫描，AST 扫 44 文件 / 273 路由）。识别 3 类「200 包裹错误」：`raise HTTPException(status_code=<2xx|3xx>)`、`return {"success": False}` 或 `{"code": 非 0}`（默认 200）、`JSONResponse(status_code=200, content={"success": False|code 非 0})`。
+  - **整改 3 处**（全部在 `services/admin-api/app/api/routes/models.py`）：`test_model_instance()`（模型连接测试失败）与 `test_image_model_instance()` 的两条失败分支，原 `return {"success": False, ...}`（HTTP 200）改为 `return JSONResponse(status_code=502, content={...})`——语义为「上游模型后端不可用/失败」，响应体保持不变以免破坏前端契约。
+  - 行为测试 `services/admin-api/tests/test_status_code_semantics_t011.py`（6 用例）：3 类违规模式均被检出 / 合规用法（404 raise、201 包裹 code:0、success:True、code:0、兼容别名）不误报 / 真实仓库当前 0 违规且禁止静默通过。整改后 `status-code-semantics OK`。
+  - CI：quality-gate.yml 新增 `API status-code semantics (025 T011)` job（`admin-api` 矩阵，纯 stdlib）。
+  - **保守口径（如实声明）**：扫描器**只判错误语义**，对「成功路径应返回 200/201/204」「重定向 301/302」「缓存 304」这类规范不做静态强制——创建类端点是否该返回 201、重定向/缓存语义需人工 review，静态扫描无法可靠判定，不纳入自动门禁。
 - [ ] T012 未知字段策略统一（QF-210）：全局 Pydantic 配置 `model_config = ConfigDict(extra='ignore')`（默认）；严格 schema 显式声明 `extra='forbid'`；扫描 `services/*/app/schemas/` 所有 schema 文件确保一致
 - [ ] T013 [P] 创建 `services/admin-api/app/middleware/payload_limit.py`：载荷大小/深度/数组长度限制中间件（FR-5, QF-211）；超限返回 413/422
 - [ ] T014 创建 `services/admin-api/app/config/payload_limits.yaml`：载荷限制配置（大小 10MB/深度 16/数组 10000，可配）

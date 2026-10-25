@@ -258,6 +258,13 @@ jobs:
         if: matrix.service == 'admin-api'
         run: python3 tools/api_check/path_naming.py
 
+      # 025 FR-2 (T011)：状态码语义——错误路径不得用 200/3xx，业务错误不得以默认
+      # 200 返回。跨服务视角只跑一次；纯 stdlib。保守口径：只识别静态可确定的
+      # 字面量（code 非 0 / success: False / HTTPException status_code），不误报变量。
+      - name: API status-code semantics (025 T011)
+        if: matrix.service == 'admin-api'
+        run: python3 tools/api_check/status_code_semantics.py
+
       - name: Create venv and install
         working-directory: services/${{ matrix.service }}
         run: |

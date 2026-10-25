@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 from starlette.responses import StreamingResponse
@@ -416,7 +417,7 @@ async def test_model_instance(
             break
     if error_text:
         await update_instance_health(instance_id, tenant_id, "failed", error_text)
-        return {"success": False, "status": "failed", "message": error_text}
+        return JSONResponse(status_code=502, content={"success": False, "status": "failed", "message": error_text})
     return {
         "success": True,
         "status": "healthy",
@@ -446,11 +447,11 @@ async def test_image_model_instance(
     except Exception as exc:
         message = str(exc)
         await update_instance_health(instance_id, tenant_id, "failed", message)
-        return {"success": False, "status": "failed", "message": message}
+        return JSONResponse(status_code=502, content={"success": False, "status": "failed", "message": message})
     if not bool(result.get("success")):
         message = str(result.get("message") or "图片模型连接测试失败")
         await update_instance_health(instance_id, tenant_id, "failed", message)
-        return {"success": False, "status": "failed", "message": message}
+        return JSONResponse(status_code=502, content={"success": False, "status": "failed", "message": message})
     await update_instance_health(instance_id, tenant_id, "healthy", "")
     return {
         "success": True,
