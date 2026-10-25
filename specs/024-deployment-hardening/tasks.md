@@ -187,14 +187,14 @@
 **Goal**: 建立书面预案与演练闭环（QF-844~847 blocked）。
 **独立测试**: DR 预案含 RTO/RPO 目标；演练记录含实测值并覆盖两类场景；问题有整改闭环。
 
-- [ ] T082 [P] 新建 `deploy/runbook/dr-plan.md`：场景清单、决策人、切换与恢复步骤、通信方式、外部联系人、责任人、RTO/RPO 目标、版本号与更新日期（FR-042）
-- [ ] T083 [P] 新建 `deploy/runbook/rollback-runbook.md`：回滚 runbook（人工回滚步骤 + 自动回滚触发说明）
-- [ ] T084 [P] 新建 `deploy/runbook/drills/` 目录与演练记录模板 `<YYYY-MM-DD>-<scenario>.md`：含日期、场景、RTO 实测、RPO 实测、发现问题、整改闭环状态（FR-043 / 045）
+- [x] T082 [P] 新建 `deploy/runbook/dr-plan.md`：场景清单、决策人、切换与恢复步骤、通信方式、外部联系人、责任人、RTO/RPO 目标、版本号与更新日期（FR-042） 证据：新建 `deploy/runbook/dr-plan.md`——§1 场景清单 S1-S6（应用崩溃/DB 宕机/数据丢失/主机不可用/区域不可用/配置回滚）+ §2 决策链表（SRE 值班/SRE 负责人/平台负责人/研发负责人 + 决策时限 P0<=10min P1<=30min）+ §3 切换恢复步骤摘要（指向 failover-runbook/rollback-runbook）+ §4 通信方式 + §5 外部联系人 + §6 责任人 + §7 RTO/RPO 目标（见 T089）+ §8 DR 演练计划（见 T088）+ §9 版本 v1 2026-10-26（FR-042/043/045）。
+- [x] T083 [P] 新建 `deploy/runbook/rollback-runbook.md`：回滚 runbook（人工回滚步骤 + 自动回滚触发说明） 证据：新建 `deploy/runbook/rollback-runbook.md`——§1 何时回滚（触发 P0 条件/基线越界/未完成 Contract）+ §2 人工回滚步骤（先判 Contract 阶段→down.py→`./mogo canary rollback --reason X --yes`→`scripts/verify_rollback_baseline.py` 基线校验→`verify_restore_business.py` 业务校验→记录）+ §3 自动回滚触发说明（auto-rollback.sh 每 60s 评估 5 条条件表 + 冷却 10min + 最多 2 次/窗口 + `./mogo notify` 通知）+ §4 权限与决策（自动回滚仅作用于 canary 不作用于 stable）+ §5 记录审计字段表。
+- [x] T084 [P] 新建 `deploy/runbook/drills/` 目录与演练记录模板 `<YYYY-MM-DD>-<scenario>.md`：含日期、场景、RTO 实测、RPO 实测、发现问题、整改闭环状态（FR-043 / 045） 证据：新建 `deploy/runbook/drills/` 目录与 `deploy/runbook/drills/TEMPLATE.md` 演练记录模板，含基础信息（日期/场景编号/执行人/决策人/环境/结论）+ 演练步骤实测表（构造故障/触发告警/备份恢复或新主机重建/一致性校验/业务校验/记录 RTO-RPO）+ RTO/RPO 实测表（达标判定）+ 发现问题整改闭环表 + 附件（事故单/告警截图/校验报告）（FR-043/045）。
 - [ ] T085 DR 演练一（数据丢失场景，**真实环境**）：损坏/丢失数据 → 从备份恢复 → 记录 RPO 实测（FR-044 / 043）
 - [ ] T086 DR 演练二（区域不可用场景，**真实环境**）：主机不可用 → 新主机重建 → 记录 RTO 实测（FR-044 / 043）
-- [ ] T087 [P] 演练问题整改闭环：`deploy/runbook/drills/` 每条问题必须有责任人 + 修复 + 验证三栏，未完成不得关闭演练记录（FR-045）
-- [ ] T088 [P] DR 演练计划：至少每季度一次的周期约定，写入 `dr-plan.md`
-- [ ] T089 [P] RTO / RPO 目标固化：演练实测值达标后写入 `dr-plan.md` 作为正式承诺值（区分"无副本集时 = 备份恢复时长"与"有副本集时 = 故障转移时间"两个数字）（FR-043）
+- [x] T087 [P] 演练问题整改闭环：`deploy/runbook/drills/` 每条问题必须有责任人 + 修复 + 验证三栏，未完成不得关闭演练记录（FR-045） 证据：`deploy/runbook/drills/TEMPLATE.md` 的「发现问题与整改闭环」表格固定 6 列（#/问题描述/严重度/责任人/修复措施/验证方式与结果/关闭状态），每条问题 MUST 填责任人+修复+验证三栏；模板明确「未填「验证」视为未关闭」「未关闭问题不得关闭演练记录」，并在未关闭问题汇总栏要求列出未关闭条目（FR-045）。
+- [x] T088 [P] DR 演练计划：至少每季度一次的周期约定，写入 `dr-plan.md` 证据：`deploy/runbook/dr-plan.md` §8「DR 演练计划」——至少每季度一次（Q1-Q4 末月），轮流覆盖 S3 数据丢失与 S4/S5 主机或区域不可用；记录要求（drills/<日期>-<场景>.md）；未闭环不得关闭；架构变更后 30 天内补演练（FR-045）。
+- [x] T089 [P] RTO / RPO 目标固化：演练实测值达标后写入 `dr-plan.md` 作为正式承诺值（区分"无副本集时 = 备份恢复时长"与"有副本集时 = 故障转移时间"两个数字）（FR-043） 证据：`deploy/runbook/dr-plan.md` §7「RTO / RPO 目标」明确区分两个数字——「无副本集（默认单机 mongo）」RTO = 备份恢复时长（`./mogo restore` 实测），RPO = 最近一次成功备份时刻；「有副本集（`mongo-ha`，T074）」RTO = 副本集故障转移时间，RPO = 0；并声明目标值 MUST 以真实演练实测为准（T089），未演练前不对外承诺；无副本集 RPO 不做承诺（同 T075 声明）。S1/S6 给设计承诺（<=5min/<=10min，RPO=0）（FR-043）。
 
 ---
 
