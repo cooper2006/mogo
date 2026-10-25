@@ -181,13 +181,34 @@
 - [x] T073 创建 `deploy/grafana/provisioning/dashboards/troubleshooting.json`：排障看板（服务概览 → 依赖健康 → 单个慢请求 span 下钻）
   · uid `mogo-troubleshooting`，4 个顶部 stat + 四层下钻面板（服务概览→依赖健康→热点路由→Trace）；
     `trace_id` textbox 变量 + Tempo/Loki 双入口链接，链接指向 `docs/runbooks/README.md`。
-- [ ] T074 告警分级测试：模拟 SLO 违约 → 验证 P0 告警触发并触达 IM + 邮件
-  · **阻塞**：需要真实 Alertmanager 实例接收通知并核对 IM/邮件触达。本机 `docker compose` 可用，
-    但拉取 `prom/alertmanager:v0.27.0` 失败（registry-1.docker.io 返回 Bad Gateway，2026-10-25 实测），
-    本地也无该镜像。静态侧已由 T076 覆盖（路由分级/抑制规则结构校验），端到端触达待有镜像的环境补测。
-- [ ] T075 静默/抑制测试：维护窗口内告警不触发；同一根因去重
-  · **阻塞**：同 T074，需运行中的 Alertmanager 才能验证 `amtool silence` 与 inhibit 实际行为。
-    静态侧已校验 3 条 inhibit_rules 结构合法且按 `service`/`component` 匹配。
+- [x] T074 告警分级测试：模拟 SLO 违约 → 验证 P0 告警触发并触达 IM + 邮件
+  · **阻塞解除**：镜像站 `docker.m.daocloud.io/prom/alertmanager:v0.27.0` 拉取成功（Docker Hub 直连仍 Bad Gateway）。
+  · 新建 `deploy/tests/test_observability_alerting_e2e.py`（6 用例全绿，`AM_E2E=1` 时启用，CI 无 docker 自动 skip）。
+  · **阻塞解除后挖出真实缺陷（FR-18 排障入口会静默丢失）**：真实 Alertmanager v0.27 加载配置时
+    `failed to parse templates: template: mogo.tmpl:5: function "default" not defined` —— Go text/template
+    的 Alertmanager 函数集**不含 Sprig `default`**，`mogo.tmpl` 里 7 处 `| default "..."` 导致模板整体解析失败，
+    通知虽仍能发出，但 Runbook/Grafana/Trace 三入口不渲染。静态测试抓不到（只校验 YAML 结构）。
+    **已修**：7 处全部改为 `{{ if <idx> }}<idx>{{ else }}X{{ end }}` / `{{- if not $v }}{{ $v = "X" }}{{- end -}}` 形式。
+  · **实测**：POST `MogoAvailabilityBurnRateFast`（P0，SLO 违约）→ group_wait(10s) 后触达
+    `http://127.0.0.1:9999/im/p0` webhook，载荷 `receiver=p0-im-and-mail`、`status=firing`、
+    `labels.severity=P0`、`annotations` 含 `runbook_url`/`dashboard_url`/`trace_url` 三入口；
+    同时 SMTP 收到邮件，正文含 `high_error_rate.md`（Runbook 链接），主题含 `[P0]`。**满足
+    FR-17 分级触达 + FR-18 三入口 + 验收「SLO 违约 5 分钟内 P0 触达 IM+邮件」。**
+  · **测试坑（写死，避免复测踩）**：①`docker restart` 不清 alert 状态——`--storage.path=/alertmanager`
+    是持久卷，restart 后旧告警仍 firing，同指纹新告警被当「已有告警更新」，通知组不重发
+    （实测 P0 45s 不投递）；必须 `docker rm -f` + `docker run` 重建，重建后 10s 内投递。
+    ②`DELETE /api/v2/alerts` 在 v0.27 返回 405，无批量清理 API。③mac 非 root 不能绑 SMTP 25
+    （`PermissionError: [Errno 13]`），本机测试用 `AM_SMTP_PORT=2525` + 临时把 `smtp_smarthost`
+    改 2525（`AM_ALERTMANAGER_CONF` 指向该临时配置，不提交）。④`http.server` 仅 `shutdown()` 不
+    `server_close()` 会残留端口占用，下一用例 bind 失败。
+- [x] T075 静默/抑制测试：维护窗口内告警不触发；同一根因去重
+  · **实测**：
+    - **静默（维护窗口）**：POST silence `service="chat-api"` → POST `MogoLatencyP99High`(P1) →
+      group_wait(30s) 后 `/im/p1` 与 SMTP **均无投递**；删除 silence 并重建容器后，同一条 P1 恢复投递
+      （证明是 silence 生效而非告警失效）。
+    - **抑制（同根因去重）**：同时 POST `MogoAvailabilityBurnRateFast`(P0) + `MogoLatencyP99High`(P1)，
+      同 `service=chat-api`、`component=api` → P0 正常投递 `/im/p0`，P1 在 group_wait(30s) 窗口后
+      **未投递** —— `inhibit_rules[0]`（`source severity="P0"` → `target severity=~"P1|P2"`，`equal: [service, component]`）生效。
 - [x] T076 通知模板测试：验证告警通知含 Runbook 链接 + Grafana 面板链接 + Trace 查询链接
   · 新建 `deploy/tests/test_observability_alerting_config.py`（18 项全绿）：校验 10 条规则都有
     `runbook_url` + `dashboard_url`、runbook 链接指向仓库内真实文件（防死链）、模板定义了
