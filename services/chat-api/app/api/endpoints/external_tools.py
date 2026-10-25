@@ -28,7 +28,10 @@ class ToolDraftTestPayload(BaseModel):
 
 
 class ToolDescriptionGeneratePayload(BaseModel):
-    name: str = Field(default="", min_length=1, max_length=120)
+    # T041：原 default="" 与 min_length=1 冲突，OpenAPI 生成 default '' 违反 minLength=1
+    # （openapi-spec-validator 报 INVALID）。消费方（user-web `generateToolDescription`）
+    # 类型里 name 本就是必填，改为 required 与消费方一致（FR-18）。
+    name: str = Field(min_length=1, max_length=120)
     type: str = Field(default="http")
     existingDescription: str = Field(default="")
 

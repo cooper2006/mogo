@@ -46159,9 +46159,15 @@
       "RegisterRequest": {
         "properties": {
           "tenantId": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Tenantid"
           },
           "email": {
@@ -46191,7 +46197,6 @@
         },
         "type": "object",
         "required": [
-          "tenantId",
           "tenantId",
           "email",
           "password"
@@ -46864,16 +46869,21 @@
             "title": "Challengetoken"
           },
           "tenantId": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Tenantid"
           }
         },
         "type": "object",
         "required": [
           "challengeToken",
-          "tenantId",
           "tenantId"
         ],
         "title": "SelectTenantRequest"
@@ -47728,15 +47738,20 @@
       "SwitchTenantRequest": {
         "properties": {
           "tenantId": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Tenantid"
           }
         },
         "type": "object",
         "required": [
-          "tenantId",
           "tenantId"
         ],
         "title": "SwitchTenantRequest"
@@ -47794,8 +47809,7 @@
             "type": "string",
             "maxLength": 120,
             "minLength": 1,
-            "title": "Name",
-            "default": ""
+            "title": "Name"
           },
           "type": {
             "type": "string",
@@ -47809,6 +47823,9 @@
           }
         },
         "type": "object",
+        "required": [
+          "name"
+        ],
         "title": "ToolDescriptionGeneratePayload"
       },
       "ToolDraftTestPayload": {

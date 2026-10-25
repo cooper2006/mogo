@@ -1,0 +1,13 @@
+# T041 spectral lint 规则集（FR-26, QF-255）。
+# 供 CI 使用：`spectral lint <service>-openapi.json --ruleset .spectral-ruleset.yaml`
+# 本地 validate.py 检测到 spectral CLI 时自动使用；未安装时回退到内置 `_builtin_lint`。
+# 严重级与内置 lint 保持一致：错误响应描述 / operationId 唯一为阻断，tags 为提示。
+extends: spectral:oas
+rules:
+  # 关键操作元数据（阻断）
+  operation-operationId: error
+  operation-operationId-unique: error
+  # 错误响应必须描述（阻断）
+  response-error-description: error
+  # 每个 operation 至少一个 tag（提示，不阻断——缺失不影响契约）
+  operation-tags: warn

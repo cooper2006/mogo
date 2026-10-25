@@ -104,7 +104,11 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    tenantId: str = Field(min_length=1, max_length=64, alias="tenantId")
+    # T041：tenantId 与 tenant_id 的 alias 同为 "tenantId"，OpenAPI 的 required 会出现重复
+    # 元素（uniqueItems 违规，openapi-spec-validator 报 INVALID）。本字段仅作兼容读取保留，
+    # 因 alias 冲突实际永远为 None（JSON "tenantId" 已映射到 tenant_id），故设为 Optional 使
+    # 其不再进入 required；必填校验仍由 tenant_id（required str）把关。
+    tenantId: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
     email: str = Field(min_length=3, max_length=320)
     # 022 FR-1（T009）：最小长度 12（原 8），与 password_policy 的 FR-1 基线一致。
     password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=128)
@@ -121,7 +125,11 @@ class RegisterRequest(BaseModel):
 class SelectTenantRequest(BaseModel):
     challengeToken: str = Field(min_length=8, max_length=256)
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    tenantId: str = Field(min_length=1, max_length=64, alias="tenantId")
+    # T041：tenantId 与 tenant_id 的 alias 同为 "tenantId"，OpenAPI 的 required 会出现重复
+    # 元素（uniqueItems 违规，openapi-spec-validator 报 INVALID）。本字段仅作兼容读取保留，
+    # 因 alias 冲突实际永远为 None（JSON "tenantId" 已映射到 tenant_id），故设为 Optional 使
+    # 其不再进入 required；必填校验仍由 tenant_id（required str）把关。
+    tenantId: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
 
     model_config = {"populate_by_name": True}
 
@@ -163,7 +171,11 @@ class PortalExchangeRequest(BaseModel):
 
 class SwitchTenantRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=64, alias="tenantId")
-    tenantId: str = Field(min_length=1, max_length=64, alias="tenantId")
+    # T041：tenantId 与 tenant_id 的 alias 同为 "tenantId"，OpenAPI 的 required 会出现重复
+    # 元素（uniqueItems 违规，openapi-spec-validator 报 INVALID）。本字段仅作兼容读取保留，
+    # 因 alias 冲突实际永远为 None（JSON "tenantId" 已映射到 tenant_id），故设为 Optional 使
+    # 其不再进入 required；必填校验仍由 tenant_id（required str）把关。
+    tenantId: Optional[str] = Field(default=None, max_length=64, alias="tenantId")
 
     model_config = {"populate_by_name": True}
 

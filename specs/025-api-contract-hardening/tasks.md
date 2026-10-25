@@ -243,7 +243,14 @@
   - **artifact 输出目录**：`specs/025-api-contract-hardening/openapi/{service}-openapi.json`（默认，可 `--out` 覆盖）。
   - **结果**：三服务 OpenAPI 3.1 生成成功——admin-api 212 paths、chat-api（模块级 `app`）、document-parser 10 paths（stub celery 后正常）。
   - **用法**：`python3 tools/openapi/generate.py --all` 生成；`--all --check` 与已提交 artifact 比对（不一致 rc=1，供 CI 阻断）。
-- [ ] T041 [P] 创建 `tools/openapi/validate.py`：OpenAPI 校验脚本（FR-26, QF-255）；执行 `openapi-spec-validator` + `spectral lint`，失败阻断 PR
+- [x] T041 [P] 创建 `tools/openapi/validate.py`：OpenAPI 校验脚本（FR-26, QF-255）；执行 `openapi-spec-validator` + `spectral lint`，失败阻断 PR
+  - **证据**: `tools/openapi/validate.py`（`check_service`：①`openapi-spec-validator` 结构校验（OpenAPI 3.1 合法性，含 schema 内部一致性如 uniqueItems/minLength）②`_builtin_lint` 内置规则兜底 ③`spectral` CLI 检测——已安装则执行、未安装则提示并回退内置 lint（`--skip-spectral` 显式跳过）；`_builtin_lint(spec) -> (阻断项, 提示项)`：L1 info.title/version【阻断】、L2 paths 非空【阻断】、L3 operationId 唯一【阻断】、L4 operation tags【**提示不阻断**】、L5 4xx/5xx 响应带 description【阻断】、L6 响应有 content 或 description【阻断】；`_is_error_status`；`main` `--service`/`--all`/`--dir`/`--skip-spectral`）；`specs/025-api-contract-hardening/openapi/.spectral-ruleset.yaml`（`extends: spectral:oas`，`operation-operationId(-unique)`/`response-error-description` 为 error，`operation-tags` 为 warn，与内置 lint 严重级一致）；`tools/openapi/test_contract_openapi_validate.py`（18 用例）。`tools/openapi/` 合计 26 用例全绿。
+  - **真实 bug 修复（chat-api，openapi-spec-validator 报 INVALID）**：
+    1. `RegisterRequest` / `SelectTenantRequest` / `SwitchTenantRequest`（`services/chat-api/app/api/endpoints/auth.py`）同时声明 `tenant_id: Field(alias="tenantId")` 与 `tenantId: Field(alias="tenantId")` → OpenAPI `required` 出现重复 `tenantId`（uniqueItems 违规）。修法：`tenantId` 改为 `Optional[str] = Field(default=None, max_length=64, alias="tenantId")`，使其不再进入 required；该字段因 alias 冲突实际永远为 None（JSON `tenantId` 已映射到 `tenant_id`），必填校验仍由 `tenant_id` 把关。曾尝试 `exclude=True`，但 Pydantic v2 的 `exclude` 不影响 JSON schema 生成，无效。
+    2. `ToolDescriptionGeneratePayload.name: Field(default="", min_length=1, max_length=120)`（`external_tools.py:31`）default 空串违反 minLength=1 → 改为 `Field(min_length=1, max_length=120)`（required）。消费方 `apps/user-web/src/api/tools.ts` 的 `generateToolDescription` 类型里 `name` 本就是必填，改 required 与消费方一致（FR-18）。
+  - **待补项（提示，不阻断）**：chat-api 有 168 条 operation 无 `tags`（L4 提示），属文档元数据缺失，不影响契约；建议后续为路由补 tags（未在本任务修复以控制改动面）。
+  - **依赖**：本地 `pip install openapi-spec-validator`（0.9.0）已安装并用于校验；spectral CLI（`@stoplight/spectral-cli`）未安装，CI 环境需安装后自动启用（未安装时脚本回退内置 lint 并打印提示）。
+  - **用法**：`python3 tools/openapi/validate.py --all`；`--all --skip-spectral` 跳过 spectral 检测。
 - [ ] T042 [P] 创建 `docs/api-versioning.md`：版本方案文档（FR-27, FR-28, QF-264, QF-267）；URL 路径 `/v1/` + `API-Version` 响应头双轨；版本升级幅度规则
 - [ ] T043 [P] 创建 `docs/error-codes.md`：错误码字典文档（FR-30, QF-269）；跨服务汇总所有错误码，含 `code`/`http_status`/`trigger`/`remedy` 四字段
 - [ ] T044 创建 `API-Version` 中间件：`services/admin-api/app/middleware/api_version.py`（FR-27, QF-264）；注入 `API-Version` 响应头
