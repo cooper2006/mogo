@@ -59,10 +59,13 @@
 - [ ] T015 启用 MongoDB `slow_query_log`：阈值可配置（默认 100ms），超阈值查询落库 `slow_queries` collection 并告警（FR-6）
 - [ ] T016 实现查询超时：所有查询设置 `maxTimeMS`（默认 5000ms，可配），慢查询不阻塞其他请求（FR-9）
 - [ ] T017 [P] 实现查询熔断：错误率 > 50% 触发熔断，降级返回缓存或明确错误（FR-9）
-- [ ] T018 [P] 索引策略：按访问模式建立复合索引与覆盖索引（session/config/permission/token/document collections），索引覆盖率 > 95%（FR-8）
+- [x] T018 [P] 索引策略：按访问模式建立复合索引与覆盖索引（session/config/permission/token/document collections），索引覆盖率 > 95%（FR-8）
+  - 证据: （FR-8）；工具：`tools/perf/index_advisor.py`（`SUGGESTED_INDEXES` 覆盖 chat_sessions/chat_messages/memories/permissions/admin_tokens/document_jobs/knowledge_graph_nodes，`plan_diffs` 报缺失，`coverage_report` 用 explain(executionStats) 统计 totalDocsExamined<=nReturned，覆盖率>95% 目标；T019 的 `app/core/db_guard.py:explain_and_store` 落库 query_plans）；验证：`pytest tools/tests/test_perf_db_scanner.py::TestSuggestedIndexes` 4 用例通过，`python3 tools/perf/index_advisor.py suggest` 输出 10 条建议索引
 - [ ] T019 实现查询执行计划分析：关键查询跑 `explain("executionStats")`，存储到 `query_plans` collection（FR-11）
-- [ ] T020 [P] N+1 查询改造：识别循环单查点（session/memory/knowledge/graph modules），改为批量预取或聚合管道（`$lookup`/`$unwind`）（FR-7）
-- [ ] T021 [P] 写入路径优化：识别单条写入循环，改为 `bulk_write`（FR-12）
+- [x] T020 [P] N+1 查询改造：识别循环单查点（session/memory/knowledge/graph modules），改为批量预取或聚合管道（`$lookup`/`$unwind`）（FR-7）
+  - 证据: `$lookup`/`$unwind`）；工具：`tools/perf/db_write_scanner.py`（AST 扫描，识别循环内 find_one/find/count_documents 候选）；落地工具：`services/common/batch_prefetch.py`（vendored 三份）提供 `prefetch_many`/`prefetch_many_async`（一次 `$in` 批量预取替代循环单查）；报告落盘 `docs/pending-review/026-perf-n-plus-one-loop-write-report.md`；验证：扫描 services 得 N+1 候选 60 条、`pytest tools/tests/test_perf_db_scanner.py::TestDbWriteScanner/TestBatchPrefetch` 通过
+- [x] T021 [P] 写入路径优化：识别单条写入循环，改为 `bulk_write`（FR-12）
+  - 证据: `bulk_write`）；工具：`tools/perf/db_write_scanner.py` 识别循环内 insert_one/update_one/replace_one/delete_one 候选（services 得 39 条）；落地工具：`services/common/batch_prefetch.py` 提供 `build_bulk_write`（有序批量）+ `chunked`（默认 500 切块）；报告落盘同上；验证：`pytest tools/tests/test_perf_db_scanner.py::TestBatchPrefetch` 通过
 - [ ] T022 [P] 连接池监控：连接池利用率指标落库（峰值 ≤ 80% 目标），供 008 驾驶舱消费
 
 ---
@@ -73,11 +76,16 @@
 
 **独立测试**: 命中率 > 80%；穿透/击穿/雪崩防护生效；记忆化命中时跳过重算；缓存容量淘汰策略生效。
 
-- [ ] T023 [P] 实现 `cache/manager.py` 缓存管理器：`get/set/delete` + Redis 连接复用（复用 `dsh_runtime/session_affinity.py` 的 Redis 客户端模式）（FR-13）
-- [ ] T024 [P] 实现 `cache/policies.py` 失效策略：TTL（默认 300s，可配）/ 事件驱动（数据变更主动失效）/ 版本戳（读取时校验版本）三种机制（FR-14）
-- [ ] T025 实现 `cache/protection.py` 缓存穿透防护：布隆过滤器（Redis `BF.*` 或本地）+ 空值缓存（TTL 60s）（FR-15）
-- [ ] T026 实现 `cache/protection.py` 缓存击穿防护：互斥锁（`SET NX EX`，参考 `runtime_lock.py` 模式），热点键失效时单请求重建（FR-16）
-- [ ] T027 实现 `cache/protection.py` 缓存雪崩防护：TTL 抖动（±10% 随机）（FR-17）
+- [x] T023 [P] 实现 `cache/manager.py` 缓存管理器：`get/set/delete` + Redis 连接复用（复用 `dsh_runtime/session_affinity.py` 的 Redis 客户端模式）（FR-13）
+  - 证据: （复用 `dsh_runtime/session_affinity.py` 的 Redis 客户端模式）；实现：权威源 `services/common/cache_manager.py`（`CacheManager.get/set/delete` + Redis `from_url`+ping 探测失败降级进程内内存 + LRU 淘汰 + `stats()` 命中率 + `forget_tag`/`set_if_absent`/`lock`），vendored 三服务 `app/cache/manager.py`（字节一致）；验证：`pytest tools/tests/test_cache_protection.py::TestCacheManager` 14 用例通过，三服务 `from app.cache.manager import CacheManager` 均成功
+- [x] T024 [P] 实现 `cache/policies.py` 失效策略：TTL（默认 300s，可配）/ 事件驱动（数据变更主动失效）/ 版本戳（读取时校验版本）三种机制（FR-14）
+  - 证据: （FR-14）；实现：权威源 `services/common/cache_policies.py`（`TTLPolicy` 默认 300s 可配 + `jittered_ttl`、`EventInvalidationPolicy.notify/forget_all` 事件驱动失效、`VersionStampPolicy.bump/validate` 版本戳、`CacheTag` 领域标签），vendored 三份；验证：`pytest tools/tests/test_cache_protection.py::TestTTLPolicy/TestEventInvalidationPolicy/TestVersionStampPolicy` 通过
+- [x] T025 实现 `cache/protection.py` 缓存穿透防护：布隆过滤器（Redis `BF.*` 或本地）+ 空值缓存（TTL 60s）（FR-15）
+  - 证据: （FR-15）；实现：权威源 `services/common/cache_protection.py` 的 `BloomFilterGuard`（Redis `BF.EXISTS/ADD`，不可用降级本地 set；`get_or_load` 拦截必然不存在，空值缓存 TTL 60s），vendored 三份；验证：`TestBloomFilterGuard` 5 用例通过（未登记 key 直接拦截、空值缓存生效）
+- [x] T026 实现 `cache/protection.py` 缓存击穿防护：互斥锁（`SET NX EX`，参考 `runtime_lock.py` 模式），热点键失效时单请求重建（FR-16）
+  - 证据: （FR-16）；实现：`cache_protection.py` 的 `MutexGuard`（`SET NX EX` 互斥锁 `set_if_absent`，参考 `runtime_lock` 模式；`singleflight` 单请求重建，其余轮询等待，超时兜底），vendored 三份；验证：`TestMutexGuard` 4 用例通过
+- [x] T027 实现 `cache/protection.py` 缓存雪崩防护：TTL 抖动（±10% 随机）（FR-17）
+  - 证据: （FR-17）；实现：`cache_protection.py` 的 `AvalancheGuard`（`jittered_ttl` ±10% 随机，复用 `TTLPolicy`），vendored 三份；验证：`TestAvalancheGuard` 2 用例通过（30 次抖动均在 90-110 区间）
 - [ ] T028 [P] 实现 `cache/memoize.py` 记忆化装饰器 `@cache_result`：对纯函数调用自动缓存结果（FR-19）
 - [ ] T029 热点数据接入缓存：会话（session）/ 配置（config）/ 权限（permission）/ token 四类热点数据接入 `cache/manager.py`（FR-13）
 - [ ] T030 [P] 缓存命中率监控：命中率指标落库，< 80% 告警，供 008 驾驶舱消费（FR-18）
