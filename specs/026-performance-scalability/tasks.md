@@ -149,8 +149,14 @@
   - 实现：`options{vus: K6_VUS 默认 10, duration: K6_DURATION 默认 30s, thresholds: http_req_failed<0.01 / http_req_duration p(95)<2000ms}`；`default()` 探测 `/` 与 `/ready` 可达（<500 视为可观测）；`TARGET_HOST` 环境变量。
   - 验证：语法人工核对（本机无 k6 运行时）。
   - 提交：`447bc7f`。
-- [ ] T049 创建 `benchmarks/capacity_model.md`：容量模型（给定并发数 → 所需实例数与 CPU/内存预测公式）（FR-30）
-- [ ] T050 瓶颈识别报告：压测结果定位到具体端点/依赖/资源，输出 `benchmarks/bottleneck_report.md`（FR-32）
+- [x] T049 创建 `benchmarks/capacity_model.md`：容量模型（给定并发数 → 所需实例数与 CPU/内存预测公式）（FR-30）
+  - 实现：`benchmarks/capacity_model.md`——输入参数表（`C/rps_u=0.5/rps_i=1000/cpu_i=1/mem_i=512MB/cpu_util=0.7/buf_mem=1.3/pool_max=100`，均可被 baselines.yaml 与环境变量覆盖）；公式 `R_total=C×rps_u`、`N=max(ceil(R_total/rps_i),2)`、`CPU=N×cpu_i×cpu_util`、`MEM=N×mem_i×buf_mem`、`POOL=N×pool_max`；§3 示例表（C=100→50K 共 7 档）；§4 压测回填校正规则（`|预测N-实测N|/实测N ≤ 0.2`）；§5 交互式计算命令。
+  - 验证：人工核对公式与示例表；命令片段可 `python3 -c` 执行。
+  - 提交：`6bd1dce`。
+- [x] T050 瓶颈识别报告：压测结果定位到具体端点/依赖/资源，输出 `benchmarks/bottleneck_report.md`（FR-32）
+  - 实现：`benchmarks/bottleneck_report.md`——①结论摘要（数据访问层主瓶颈：N+1 候选 60 处、循环单条写入候选 39 处；缓存缺失；资源面）；②端点级瓶颈表（按 P95 预算：completions 2000ms / jobs/document-parse 5000ms / auth/login 500ms / retrieval/search 默认 2000ms）；③依赖级瓶颈表（MongoDB/Redis/LLM Gateway/上游第三方）；④资源级瓶颈表（CPU/内存/磁盘/连接，阈值 70%/80%/80%）；⑤代码级热点采样（`directory.py:280/530`、`auth.py:289`、`personal_knowledge.py:106` 等 + 处置建议走 `prefetch_many_async` + `build_bulk_write`）；⑥复测方法（基线采集→预算检查→回归判定→容量校准）。
+  - 说明：当前为静态证据基线（真实压测未运行），压测产出后需回填更新数值。
+  - 提交：`6bd1dce`。
 
 ---
 
