@@ -69,7 +69,10 @@
   - **保守口径（如实声明）**：扫描器**只判错误语义**，对「成功路径应返回 200/201/204」「重定向 301/302」「缓存 304」这类规范不做静态强制——创建类端点是否该返回 201、重定向/缓存语义需人工 review，静态扫描无法可靠判定，不纳入自动门禁。
 - [ ] T012 未知字段策略统一（QF-210）：全局 Pydantic 配置 `model_config = ConfigDict(extra='ignore')`（默认）；严格 schema 显式声明 `extra='forbid'`；扫描 `services/*/app/schemas/` 所有 schema 文件确保一致
 - [ ] T013 [P] 创建 `services/admin-api/app/middleware/payload_limit.py`：载荷大小/深度/数组长度限制中间件（FR-5, QF-211）；超限返回 413/422
-- [ ] T014 创建 `services/admin-api/app/config/payload_limits.yaml`：载荷限制配置（大小 10MB/深度 16/数组 10000，可配）
+- [x] T014 创建 `services/admin-api/app/config/payload_limits.yaml`：载荷限制配置（大小 10MB/深度 16/数组 10000，可配）
+  - **证据（2026-10-25）**：新增 `services/admin-api/app/config/payload_limits.yaml`（+`__init__.py`），默认值 `max_bytes: 10485760`(10 MiB, 413) / `max_depth: 16`(422) / `max_array_length: 10000`(422) / `max_string_length: 1048576`(1 MiB, 422)；`overrides` 按路径前缀放宽 `/internal`、`/internal/personal-knowledge` 到 `max_bytes: 20971520`。
+  - 配套加载器 `app/config/payload_limits.py::load_payload_limits()`：`PayloadLimits`（frozen dataclass）解析 yaml；`for_path()` 按**最长前缀**叠加路由级覆盖；环境变量 `MOGO_PAYLOAD_LIMITS_<KEY>` 逐项覆盖；yaml 缺失或损坏时回退内置默认值并 `logger.warning`（保证中间件仍能启动）。
+  - 行为测试 `services/admin-api/tests/test_payload_limits_t014.py`（10 用例全绿）：yaml 默认值 / 最长前缀覆盖命中 / 未命中路径不变 / 环境变量覆盖（有效值覆盖、空值忽略、非法值忽略）/ yaml 缺失与损坏回退默认。
 - [ ] T015 [P] 创建 `services/admin-api/app/core/idempotency.py`：幂等键中间件（FR-7, QF-218, QF-219, QF-220）；支持 `Idempotency-Key` 头；Redis 缓存 `idempotency:{tenant}:{route}:{key}` → 响应体，TTL 24h；冲突返回 409
 - [ ] T016 [P] 创建 `services/admin-api/app/core/etag.py`：ETag/If-Match 条件请求中间件（FR-8, QF-221, QF-222, QF-223, QF-224）；PUT 支持 ETag；冲突返回 412；读改写走原子事务
 - [x] T017 [P] 创建 `services/admin-api/app/api/pagination.py`：统一分页 schema + cursor 翻页助手（FR-6, QF-213, QF-216）；分页响应含 `total`/`page`/`page_size`/`has_next`/`next_cursor`（5 字段，snake_case）
