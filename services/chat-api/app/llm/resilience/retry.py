@@ -12,6 +12,7 @@ All values are configurable (FR-3 / FR-8).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional, TypeVar
 
@@ -24,6 +25,27 @@ from tenacity import (
 )
 
 from .errors import NonRetryableLLMError, RetryableLLMError, classify_error
+
+
+@contextlib.contextmanager
+def _llm_span(name: str, **attributes: object):
+    """Create an OTel span around an LLM call (023 T037).
+
+    Uses lazy import so OTel is optional — if not installed or not initialized,
+    this is a no-op passthrough.
+    """
+    try:
+        from opentelemetry import trace
+        span = trace.get_tracer(__name__).start_span(name)
+        for key, value in attributes.items():
+            try:
+                span.set_attribute(key, str(value))
+            except Exception:
+                pass
+        yield
+        span.end()
+    except ImportError:
+        yield
 
 T = TypeVar("T")
 
@@ -77,7 +99,11 @@ async def retry_with_backoff(
         with attempt:
             attempt_counter["n"] += 1
             try:
-                return await operation()
+                with _llm_span(
+                    "llm.chat",
+                    attempt=attempt_counter["n"],
+                ):
+                    return await operation()
             except asyncio.CancelledError:
                 # FR-12: operator cancel is not a provider failure. Re-raise
                 # immediately so tenacity does not schedule a retry/failover —

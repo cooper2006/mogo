@@ -162,9 +162,8 @@ def init_tracing(
     """OpenTelemetry TracerProvider 初始化（FR-7/FR-8，决策 OQ-2：Tempo via OTLP）。
 
     返回是否真正装配了 exporter。端点解析顺序：显式参数 →
-    `MOGO_OTEL_EXPORTER_ENDPOINT` 环境变量；两者皆空 → 本地 provider（无外连，
-    返回 False）。采样率：显式 → `MOGO_OTEL_SAMPLE_RATIO` → 默认 1.0（首期流量小，
-    parent-based 全采；高流量时下调）。
+    `OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量；两者皆空 → 本地 provider（无外连，
+    返回 False）。采样率：显式 → `OTEL_SAMPLER_PROBABILITY` → 默认 0.1。
     """
     global _tracing_initialized
     if _tracing_initialized:
@@ -176,13 +175,13 @@ def init_tracing(
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
-    endpoint = otlp_endpoint or os.environ.get("MOGO_OTEL_EXPORTER_ENDPOINT", "")
+    endpoint = otlp_endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
     if sampler_ratio is None:
-        raw = os.environ.get("MOGO_OTEL_SAMPLE_RATIO", "1.0")
+        raw = os.environ.get("OTEL_SAMPLER_PROBABILITY", "0.1")
         try:
             sampler_ratio = max(0.0, min(1.0, float(raw)))
         except ValueError:
-            sampler_ratio = 1.0
+            sampler_ratio = 0.1
 
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(

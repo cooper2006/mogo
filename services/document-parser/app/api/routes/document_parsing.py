@@ -12,6 +12,8 @@ from app.repositories.job_repository import create_job, mark_job_failed
 from app.services.markdown_parse_service import parse_markdown_sync
 from app.tasks.document_parsing import document_parse_task
 
+from app.common.observability_base import trace_id_var
+
 router = APIRouter()
 
 
@@ -26,6 +28,7 @@ async def create_document_parse_job(
     try:
         document_parse_task.apply_async(
             args=[job_id, job_payload],
+            kwargs={"_trace_id": trace_id_var.get()},
             task_id=job_id,
             queue=settings.celery_queue,
         )

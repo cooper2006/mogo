@@ -27,7 +27,7 @@ from .errors import (
     classify_error,
 )
 from .events import failover_fields
-from .retry import RetryPolicy, retry_with_backoff
+from .retry import RetryPolicy, retry_with_backoff, _llm_span
 
 
 @dataclass
@@ -98,11 +98,16 @@ class ResilientLLMClient(BaseLLMClient):
                 attempt_no["n"] = attempt
 
             try:
-                result = await retry_with_backoff(
-                    lambda c=client: operation_factory(c),
-                    policy=entry.retry_policy,
-                    on_retry=_on_retry,
-                )
+                with _llm_span(
+                    "llm.failover",
+                    provider=entry.name,
+                    attempt_index=index + 1,
+                ):
+                    result = await retry_with_backoff(
+                        lambda c=client: operation_factory(c),
+                        policy=entry.retry_policy,
+                        on_retry=_on_retry,
+                    )
             except NonRetryableLLMError:
                 # Auth failures must not fail over — surface immediately.
                 raise

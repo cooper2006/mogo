@@ -10,6 +10,8 @@ from app.domain.jobs import PreviewConvertJobRequest, PreviewConvertJobResponse
 from app.repositories.job_repository import create_job, get_job, mark_job_failed
 from app.tasks.preview_conversion import preview_convert_task
 
+from app.common.observability_base import trace_id_var
+
 router = APIRouter()
 
 
@@ -24,6 +26,7 @@ async def create_preview_convert_job(
     try:
         preview_convert_task.apply_async(
             args=[job_id, job_payload],
+            kwargs={"_trace_id": trace_id_var.get()},
             task_id=job_id,
             queue=settings.celery_queue,
         )
