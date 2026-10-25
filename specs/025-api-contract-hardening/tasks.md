@@ -99,7 +99,13 @@
   - **FastAPI 实测**（TestClient）：`cursor` 参数可正确解析为 page；`page=2&page_size=5` 返回 `has_next: True`；`page=0` 触发 422（`ge=1` 生效）。
   - 说明：`PageParams` 用 `Annotated[int, Query(ge=1)] = 1` 写法——既让 FastAPI 识别为 query 参数，又让直接实例化有正确默认值（`Query()` 位置参数会覆盖后面的默认值）。
 - [ ] T018 整改 `services/admin-api/app/api/routes/knowledge_documents.py` 等分页路由：使用 T017 统一分页 schema；基于 cursor 的稳定翻页
-- [ ] T019 [P] 创建 `services/admin-api/app/middleware/content_negotiation.py`：内容协商中间件（FR-9, QF-225, QF-227）；不支持 Accept 返回 406 + `Vary: Accept`；`Accept-Encoding` 按声明生效
+- [x] T019 [P] 创建 `services/admin-api/app/middleware/content_negotiation.py`：内容协商中间件（FR-9, QF-225, QF-227）；不支持 Accept 返回 406 + `Vary: Accept`；`Accept-Encoding` 按声明生效
+  - **证据（2026-10-25）**：新增 `services/admin-api/app/middleware/content_negotiation.py`（纯 ASGI 中间件）。
+  - Accept 判定：白名单 `application/json`（另接受 `application/*+json`、`application/*`、`*/*` 通配）；无 Accept 头视为接受任意类型；`Accept` 段按 q 值解析、q<=0 剔除。全部不满足 → **406** + `Vary: Accept` + `Content-Type: application/json` 的 `{"detail": ...}`。
+  - `Accept-Encoding` 按声明生效：仅客户端声明 `gzip` 时，对 JSON 响应做 gzip 压缩并加 `Content-Encoding: gzip` + `Vary: Accept-Encoding`；未声明不压缩（避免向不能解压的客户端发送 gzip）。非 JSON 响应（SSE、二进制）一律透传不缓冲。
+  - 实现要点：响应阶段用 `_BufferedSend` 缓冲 JSON body 于响应结束时统一 gzip；`_add_vary()` 合并已有 `Vary` 令牌不重复。
+  - 行为测试 `services/admin-api/tests/test_content_negotiation_t019.py`（11 用例全绿）：无 Accept / `application/json` / `*/*` / `application/vnd.api+json` / 多类型带 q / 不支持 `text/html` 406 / `application/json;q=0` 406；声明 gzip 时 `Content-Encoding: gzip`+`Vary: Accept-Encoding`+解压后 body 正确；底层 ASGI 断言原始 body 以 `\x1f\x8b` 开头；未声明不压缩；非 JSON 不压缩。
+  - 说明：本轮**未把中间件挂载到 admin-api app**（避免影响现有测试与 032 既有失败项），留待 T048 统一装配。
 - [ ] T020 US1 集成测试：`services/admin-api/tests/api/test_semantics.py`（路径命名、状态码、幂等、并发、分页、内容协商 6 组 Acceptance）
 
 ---
