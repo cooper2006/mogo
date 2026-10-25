@@ -145,7 +145,7 @@
 
 **独立测试**: 服务水平扩展验证通过（+1 实例 → 吞吐 ≈ 线性）；限流/熔断/背压生效；资源监控指标可查；容量模型可预测；压测覆盖关键场景；瓶颈报告输出。
 
-- [ ] T041 水平扩展验证：chat-api 无状态化确认（会话亲和已用 Redis），Docker Compose 新增实例后吞吐线性增长压测（FR-27）
+- [ ] T041 水平扩展验证：chat-api 无状态化确认（会话亲和已用 Redis），Docker Compose 新增实例后吞吐线性增长压测（FR-27）  ⚠️ 需远端/真实环境（Docker Compose 增实例 + 吞吐线性增长压测），本机不可验，本轮不勾。
 - [x] T042 实现限流：令牌桶算法（默认 1000 rps/实例，可配），请求超限时返回 429 + `Retry-After`（FR-28）
   - 实现：`services/common/perf_guards.py::RateLimitMiddleware`（vendored 三服务 `app/middleware/perf_guards.py`，md5 `524904db...` 一致），令牌桶复用 vendored `dependency_guard.RateLimiter`（默认 `DEFAULT_RATE_LIMIT_RPS=1000.0`/`DEFAULT_BURST=2000`/`DEFAULT_MAX_CONCURRENT=500`，可配 `rps/burst/max_concurrent`）；默认 key 维度：`x-tenant-id` 头 → `tenant:{id}`，否则客户端 IP；超限响应 429 + `Retry-After`（ceil 秒）+ `X-RateLimit-Limit` + RFC 9457 problem+json 体。
   - 验证：`cd services/chat-api && pytest tests/middleware/test_perf_guards.py` → 7 passed（under_limit_ok / exceed_rate_returns_429_with_retry_after / concurrency_rejection / qps_rejection）。
@@ -187,7 +187,10 @@
 ## Phase 7: Polish & Cross-Cutting Concerns
 
 - [ ] T051 [P] 性能指标可观测总验证：延迟分位数/吞吐/命中率/资源利用率 100% 可查（Success 基准）
-- [ ] T052 [P] 配置声明式收尾：连接池/超时/缓存 TTL/限流/并发上限全配置驱动（`performance.yaml`）
+- [x] T052 [P] 配置声明式收尾：连接池/超时/缓存 TTL/限流/并发上限全配置驱动（`performance.yaml`）
+  - 实现：`config/performance.yaml`——单一来源清单（`database.mongodb` 池与超时、`cache.default_ttl_seconds/tags/redis`、`rate_limit.default_rps/burst/max_concurrent`、`backpressure.max_depth`、`resilience.circuit_breaker/pool`、`frontend` gzip 预算、`baselines` 阈值），各项标注 env 覆盖键名；`tools/perf/config_loader.py`——加载 + `apply_env_overrides` 扫描 env 覆盖 + `check_consistency` 与 `benchmarks/perf_baselines/baselines.yaml` 关键阈值一致性校验，CLI `--check/--json`，退出码 0 一致 / 1 差异 / 2 缺失；`tools/tests/test_config_loader.py` 7 用例。
+  - 验证：`python3 tools/perf/config_loader.py --check` → 环境变量覆盖 0 项，关键阈值一致，exit 0；`pytest tools/tests/test_config_loader.py` → 7 passed。
+  - 提交：`d016f46`。
 - [ ] T053 [P] 与 007 llm-gateway 联动验证：LLM 耗时占比 + 韧性事件交叉归因（`token_usage_logs` 字段）
 - [ ] T054 [P] 与 001 gatekeeper 联动：QualityForge 51 个 P0/P1 `blocked` 项逐步解除（基线建立后）
 - [ ] T055 写 `quickstart.md`（性能基线启用 + 各子域优化步骤 + 压测命令）

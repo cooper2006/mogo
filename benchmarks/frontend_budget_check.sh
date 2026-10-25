@@ -56,7 +56,7 @@ check_budget() {
   local actual
   actual=$(gzip_size_kb "$dir")
   if [[ "$actual" -eq 0 ]]; then
-    echo "❌ [$label] 构建产物缺失：$dir（请先执行 vite build）"
+    echo "❌ [$label] 构建产物缺失：${dir}（请先执行 vite build）"
     fail=1
     return
   fi
