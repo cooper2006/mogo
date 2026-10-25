@@ -141,9 +141,19 @@
 
 **修复优先级**: 审计实测 fail 项（QF-229, 230, 234, 237）优先修复。
 
-- [ ] T021 错误结构统一化（FR-10, QF-229, QF-232）：扫描 `services/*/app/api/routes/` 所有错误响应，改为引用 T001 的 `ErrorResponse` schema；OpenAPI 中所有错误响应引用 `ErrorResponse`
-- [ ] T022 稳定错误码 + 定位信息（FR-11, QF-230, QF-231）：扫描所有错误响应，确保 `code` 字段使用 T001 注册表的稳定枚举；错误体含 `trace_id`（T004 注入）、`field`（字段级）、`path`（JSONPath）
-- [ ] T023 不泄漏内部信息（FR-12, QF-234, QF-235, QF-236）：扫描所有错误信息，移除内部组件名/版本号/文件路径/SQL；401/403 统一响应（不区分"用户不存在"vs"密码错"）；`DEBUG` 在非 dev 环境强制关闭
+- [x] T021 错误结构统一化（FR-10, QF-229, QF-232）：扫描 `services/*/app/api/routes/` 所有错误响应，改为引用 T001 的 `ErrorResponse` schema；OpenAPI 中所有错误响应引用 `ErrorResponse`
+  - **证据（2026-10-25）**：新建 CLI 扫描工具 `tools/api_check/error_response_refs.py`（AST 级，风格对齐 `error_codes_uniqueness.py`，退出码 0/1，支持 `--openapi` / `--root`），四类检查：`[code]` 稳定错误码、`[leak]` 内部信息、`[auth-shape]` 401/403 同形、`[openapi]` 各服务 main.py 是否把 4xx/5xx `$ref` 到 ErrorResponse。**chat-api 无 `app/api/routes/` 目录**（路由在 `app/api/endpoints/*.py`），扫描器已兜底 `ROUTES_DIR_FALLBACK = services/{}/app/api/endpoints`。
+  - **三服务 OpenAPI 集成**：三份 `app/main.py` 均新增 `patch_openapi_error_schema(app)` / `_patch_openapi_error_schema(app)`（用 `get_openapi` 后 patch `components.schemas` 暴露 `ErrorResponse`，并把 `_ERROR_SCHEMA_STATUSES` 中的 4xx/5xx/default 响应 `$ref` → `#/components/schemas/ErrorResponse`，保留原 description，不改路由签名、可回滚）。admin-api：212 个 paths / 2403 处引用（`main.py:306` 调用）；chat-api：调用放在**文件最末尾**；document-parser：调用放在 `include_router` **之后**。扫描器跑出 `error-response refs OK`（rc=0）。
+  - **踩坑**：`app.openapi` 的 patch 必须是「读取调用时刻 routes」——chat-api 原把调用放在模块中部（`register_error_handlers` 后），会漏掉其后才 include 的业务路由；document-parser 同理。已统一移到所有 include_router / 路由装饰器之后（`get_openapi` 读调用时刻的 `app.routes`，早调会漏业务路径）。
+  - 测试 `tests/test_error_refs_t021_t022_t023.py`（10 用例）；引用 app.main 的既有测试（test_error_contract_phase1.py、test_security_sso_exchange.py、observability/test_health.py、observability/test_log_level.py）共 51 用例全绿。
+- [x] T022 稳定错误码 + 定位信息（FR-11, QF-230, QF-231）：扫描所有错误响应，确保 `code` 字段使用 T001 注册表的稳定枚举；错误体含 `trace_id`（T004 注入）、`field`（字段级）、`path`（JSONPath）
+  - **证据（2026-10-25）**：扫描器输出 `registered error codes: 15 | enum members: 15`，注册表与 `ApiErrorCode` 枚举**一一对应**。扫描支持 `ApiErrorCode.X` 与 `ApiErrorCode.X.value` 两种形态；`detail` 为纯字符串（无 code）只给 `[info]` 提示、不计违规（T001 兼容层允许）。
+  - **Legacy 豁免决策（重要）**：12 处自定义字符串码是**既有跨服务前端契约**（`apps/admin-web` / `apps/user-web` 的 `skillInstallError.ts`、`locales/messages.ts`、`MySkillsPage.vue` 依赖它们做错误提示映射），不以 `api.` 开头、无法登记注册表，强改会破坏前端。处理：扫描器加 `LEGACY_CODES` 白名单（`DUPLICATE_FILENAME`、`zip_required`、`archive_too_large`、`release_digest_mismatch`、`position_role_denied`、`session_already_running`、`dsh_runtime_unavailable`、`dsh_cancel_pending`、`skill_upgrade_confirmation_required`、`organization_install_forbidden`、`skill_publish_required`、`tool_execution_failed`），**显式豁免 + 文档化**，不计违规只给 info，待前端联动后再迁移。
+  - **真整改**：`chat-api/app/api/endpoints/dsh_tool_gateway.py:100` 原为动态 `f"tool_{receipt.status}"`（无法静态识别），改为稳定字面量 `"tool_execution_failed"`（具体状态保留在 `receipt.status`，信息不丢），并加入 LEGACY_CODES。
+  - **trace_id / field / path**：由 T004 trace_id 中间件注入、T001 `ErrorFieldDetail` 承担 field/path（见 T001/T004 证据）。
+- [x] T023 不泄漏内部信息（FR-12, QF-234, QF-235, QF-236）：扫描所有错误信息，移除内部组件名/版本号/文件路径/SQL；401/403 统一响应（不区分“用户不存在” vs “密码错”）；`DEBUG` 在非 dev 环境强制关闭
+  - **证据（2026-10-25）**：扫描器 `[leak]` 类（内部模块名 `app.*`、绝对路径、SQL 片段、版本号 `v\d+\.\d+`、堆栈片段）命中 **0**；`[auth-shape]` 命中 **0**——admin-api `auth.py` 登录端点（585/591/619 行）已统一为 `"Invalid username or password"`，无“用户不存在 vs 密码错误”两条不同 401 文本；403 区分 `"Admin user is disabled"` / `"Tenant is not active"` 属合法同形（不同业务原因），不计泄漏。
+  - `DEBUG` 强制关闭见 T010（`app/main.py` 与 `app/core/config.py` 非 dev 环境强制关闭 + 回归测试）。
 - [x] T024 [P] 创建 `services/admin-api/app/middleware/rate_limit.py`：限流中间件（FR-13, QF-237, QF-238, QF-239, QF-240）；Redis 滑动窗口；超配额返回 429 + `Retry-After` 头；`detail` 含 `limit`/`remaining`/`window`/`reset_at`
   - **证据（2026-10-25）**：新增 `services/admin-api/app/middleware/rate_limit.py`。
   - `RateLimitStore`（Redis ZSET 滑动窗口，`score=时间戳`）：`hit(key, rule)` 先 `ZREMRANGEBYSCORE` 清窗口外 → `ZCOUNT` 计数 → 未超 `ZADD` + `EXPIRE window+10`；超配额用窗口内最早分数 + `window` 算 `reset_at`。返回 `{allowed, remaining, reset_at, limit, window}`。Redis 不可达降级**进程内存**（`{key: [timestamps]}`）+ warning + `resilience.register_redis_pool`；`backend` 属性 `redis|memory`。

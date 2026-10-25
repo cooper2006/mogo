@@ -52,6 +52,66 @@ _TRUST_DOWNGRADE_SCANNER = TrustRatingDowngradeScanner()
 logger = get_admin_logger(__name__)
 
 
+# 025 T021（FR-10）：把统一 `ErrorResponse` schema 暴露到 OpenAPI，并让所有 4xx/5xx
+# 通用错误响应 `$ref` 到它。只 patch 生成的 OpenAPI dict（复用 app.routes 里的既有路由
+# 元数据），不改任何路由函数签名 —— 可回滚、对运行时行为零影响，也不逐路由手写 responses。
+_ERROR_SCHEMA_STATUSES = ("400", "401", "403", "404", "409", "413", "422", "500")
+
+
+def patch_openapi_error_schema(app: FastAPI) -> None:
+    """让 /openapi.json 暴露 `ErrorResponse` schema 并引用到通用错误响应。"""
+
+    from fastapi.openapi.utils import get_openapi
+
+    from app.core.errors import ErrorResponse as ErrorResponseModel
+
+    def _openapi() -> dict[str, Any]:
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+        components = schema.setdefault("components", {}).setdefault("schemas", {})
+        # ErrorResponse 可能引用 ErrorFieldDetail：把 $defs 铺平到 components.schemas
+        # （ref_template 使内部 $ref 直接指向 #/components/schemas/<Model>）。
+        error_schema = ErrorResponseModel.model_json_schema(
+            ref_template="#/components/schemas/{model}"
+        )
+        for name, value in (error_schema.pop("$defs", {}) or {}).items():
+            components.setdefault(name, value)
+        components.setdefault("ErrorResponse", error_schema)
+
+        error_content = {
+            "description": "统一错误响应（RFC 9457 + code/trace_id/field/path）",
+            "content": {
+                "application/problem+json": {
+                    "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                },
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                },
+            },
+        }
+        for path_item in schema.get("paths", {}).values():
+            for method in path_item.values():
+                if not isinstance(method, dict):
+                    continue
+                responses = method.setdefault("responses", {})
+                for status in _ERROR_SCHEMA_STATUSES:
+                    existing = responses.get(status)
+                    if isinstance(existing, dict):
+                        # 保留既有 description，只替换 body schema
+                        existing["content"] = error_content["content"]
+                    else:
+                        responses[status] = dict(error_content)
+                if "default" not in responses:
+                    responses["default"] = dict(error_content)
+        return schema
+
+    app.openapi = _openapi
+
+
 def create_app() -> FastAPI:
     # 023 T014: 初始化结构化日志（structlog JSON）
     init_admin_logging()
@@ -242,6 +302,9 @@ def create_app() -> FastAPI:
     # （code/message/trace_id/field/path，并保留 detail 兼容键）。路由内显式
     # HTTPException 的形状不变——那属于 T011 状态码语义整改的范围。
     register_error_handlers(app, is_prod=is_prod)
+    # 025 T021（FR-10）：OpenAPI 暴露 ErrorResponse schema，且通用 4xx/5xx 响应引用到它。
+    # 放在 register_error_handlers 之后调用即可；仅 patch OpenAPI dict，不改路由行为。
+    patch_openapi_error_schema(app)
 
     app.include_router(api_router, prefix="/api")
     for extension_router in get_admin_product_extension().routers:

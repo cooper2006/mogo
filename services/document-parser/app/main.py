@@ -42,6 +42,9 @@ def create_app() -> FastAPI:
     app.include_router(api_router, prefix="/api")
     # 023 T021：observability health_router（/ready 依赖可达性检查）
     app.include_router(health_router)
+    # 025 T021（FR-10）：OpenAPI 暴露统一 ErrorResponse 并对 4xx/5xx $ref（对齐 admin-api）。
+    # 必须在 include_router 之后调用（get_openapi 读调用时的 app.routes）。
+    _patch_openapi_error_schema(app)
 
     # 023 T035: FastAPI 自动插桩（HTTP server span）
     instrument_fastapi(app)
@@ -58,6 +61,62 @@ def create_app() -> FastAPI:
         close_db()
 
     return app
+
+
+# 025 T021（FR-10）：让 /openapi.json 暴露 `ErrorResponse` schema 并引用到通用错误响应。
+# 只 patch 生成的 OpenAPI dict，不改任何路由函数签名（对齐 admin-api/app/main.py）。
+_ERROR_SCHEMA_STATUSES = ("400", "401", "403", "404", "413", "422", "500")
+
+
+def _patch_openapi_error_schema(application: FastAPI) -> None:
+    """让 /openapi.json 暴露 `ErrorResponse` schema 并引用到通用错误响应。"""
+
+    from fastapi.openapi.utils import get_openapi
+
+    from app.core.errors import ErrorResponse as ErrorResponseModel
+
+    def _openapi() -> dict:
+        schema = get_openapi(
+            title=application.title,
+            version=application.version,
+            description=application.description,
+            routes=application.routes,
+        )
+        components = schema.setdefault("components", {}).setdefault("schemas", {})
+        error_schema = ErrorResponseModel.model_json_schema(
+            ref_template="#/components/schemas/{model}"
+        )
+        for name, value in (error_schema.pop("$defs", {}) or {}).items():
+            components.setdefault(name, value)
+        components.setdefault("ErrorResponse", error_schema)
+
+        error_content = {
+            "description": "统一错误响应（RFC 9457 + code/trace_id/field/path）",
+            "content": {
+                "application/problem+json": {
+                    "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                },
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                },
+            },
+        }
+        for path_item in schema.get("paths", {}).values():
+            for method in path_item.values():
+                if not isinstance(method, dict):
+                    continue
+                responses = method.setdefault("responses", {})
+                for status in _ERROR_SCHEMA_STATUSES:
+                    existing = responses.get(status)
+                    if isinstance(existing, dict):
+                        existing["content"] = error_content["content"]
+                    else:
+                        responses[status] = dict(error_content)
+                if "default" not in responses:
+                    responses["default"] = dict(error_content)
+        return schema
+
+    application.openapi = _openapi
 
 
 app = create_app()

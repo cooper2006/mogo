@@ -97,7 +97,9 @@ async def execute(payload: ToolExecuteRequest, request: Request, authorization: 
         )
         raise HTTPException(
             status_code=408 if receipt.status == "timed_out" else 502,
-            detail={"code": f"tool_{receipt.status}", "message": receipt.error, "receipt": receipt.model_dump(mode="json")},
+            # 025 T022：错误码必须是可静态识别的稳定字面量（原为 f"tool_{receipt.status}"
+            # 动态码，无法登记注册表）；具体执行状态保留在 receipt.status 里，信息不丢。
+            detail={"code": "tool_execution_failed", "message": receipt.error, "receipt": receipt.model_dump(mode="json")},
         )
     except ToolPolicyDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc

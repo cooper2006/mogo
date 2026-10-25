@@ -103,6 +103,67 @@ if _IS_PROD and bool(getattr(settings, "DEBUG", False)):
 # 路由内显式 HTTPException 形状不变（T011 状态码语义整改波次处理）。
 register_error_handlers(app, is_prod=_IS_PROD)
 
+
+# 025 T021（FR-10）：把统一 `ErrorResponse` schema 暴露到 OpenAPI，并让所有 4xx/5xx
+# 通用错误响应 `$ref` 到它（对齐 admin-api/app/main.py 的实现）。只 patch 生成的
+# OpenAPI dict，不改任何路由函数签名 —— 可回滚、对运行时行为零影响。
+_ERROR_SCHEMA_STATUSES = ("400", "401", "403", "404", "408", "409", "413", "422", "500")
+
+
+def _patch_openapi_error_schema(application: FastAPI) -> None:
+    """让 /openapi.json 暴露 `ErrorResponse` schema 并引用到通用错误响应。"""
+
+    from fastapi.openapi.utils import get_openapi
+
+    from app.core.errors import ErrorResponse as ErrorResponseModel
+
+    def _openapi() -> dict:
+        schema = get_openapi(
+            title=application.title,
+            version=application.version,
+            description=application.description,
+            routes=application.routes,
+        )
+        components = schema.setdefault("components", {}).setdefault("schemas", {})
+        error_schema = ErrorResponseModel.model_json_schema(
+            ref_template="#/components/schemas/{model}"
+        )
+        for name, value in (error_schema.pop("$defs", {}) or {}).items():
+            components.setdefault(name, value)
+        components.setdefault("ErrorResponse", error_schema)
+
+        error_content = {
+            "description": "统一错误响应（RFC 9457 + code/trace_id/field/path）",
+            "content": {
+                "application/problem+json": {
+                    "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                },
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/ErrorResponse"},
+                },
+            },
+        }
+        for path_item in schema.get("paths", {}).values():
+            for method in path_item.values():
+                if not isinstance(method, dict):
+                    continue
+                responses = method.setdefault("responses", {})
+                for status in _ERROR_SCHEMA_STATUSES:
+                    existing = responses.get(status)
+                    if isinstance(existing, dict):
+                        existing["content"] = error_content["content"]
+                    else:
+                        responses[status] = dict(error_content)
+                if "default" not in responses:
+                    responses["default"] = dict(error_content)
+        return schema
+
+    application.openapi = _openapi
+
+
+# 实际调用放在文件最末尾（所有 include_router / 路由装饰器之后）：
+# get_openapi 读取调用时刻的 app.routes，早调会漏掉业务路径。见文件末尾。
+
 @app.middleware("http")
 async def trace_id_middleware(request, call_next):
     # 025 T005：trace_id 解析 + 响应头回写（放在 http 中间件层，早于业务处理，
@@ -568,3 +629,8 @@ async def readiness_check():
 @app.get("/")
 async def root():
     return {"message": "Welcome to MOGO Agent Platform API"}
+
+
+# 025 T021：OpenAPI 暴露统一 ErrorResponse —— 放在文件最末尾，确保所有
+# include_router / 路由装饰器已注册（get_openapi 读调用时刻的 app.routes）。
+_patch_openapi_error_schema(app)
