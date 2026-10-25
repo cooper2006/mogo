@@ -39,9 +39,14 @@ configure_logging(settings)
 init_chat_logging()
 
 # 023 T034: 初始化 OpenTelemetry 追踪（OTLP → Tempo）
-from app.common.observability_base import init_tracing, instrument_fastapi, instrument_httpx
+from app.common.observability_base import init_tracing, instrument_fastapi, instrument_httpx, init_metrics, get_registry, metrics_asgi_app
 init_tracing("mogo-chat-api")
 instrument_httpx()
+
+# 023 T048: Prometheus metrics 初始化
+chat_metrics = init_metrics("mogo-chat-api")
+from app.observability.metrics import register_chat_metrics
+register_chat_metrics(get_registry("mogo-chat-api"))
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +72,9 @@ app.add_middleware(
 
 # 023 T034: FastAPI 自动插桩（HTTP server span）
 instrument_fastapi(app)
+
+# 023 T048: Prometheus /metrics 端点
+app.mount("/metrics", metrics_asgi_app("mogo-chat-api"), name="metrics")
 
 # 022 FR-18（T042）：生产环境禁止回显异常详情与堆栈。
 # 完整异常仍记录到服务端日志（logger.exception），客户端只拿到通用错误码。

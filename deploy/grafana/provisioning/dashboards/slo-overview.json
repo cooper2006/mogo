@@ -1,0 +1,93 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mogo", "slo"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "MOGO SLO Overview",
+  "uid": "mogo-slo-overview",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Availability Error Rate",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "mogo:slo:availability:error_rate", "refId": "A", "legendFormat": "error rate"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Availability Target",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {"expr": "mogo:slo:availability:target", "refId": "A", "legendFormat": "target"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "LLM Error Rate",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "mogo:slo:llm:error_rate", "refId": "A", "legendFormat": "error rate"}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "LLM Target",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {"expr": "mogo:slo:llm:target", "refId": "A", "legendFormat": "target"}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "P99 Latency (s)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"expr": "mogo:slo:latency:p99_seconds", "refId": "A", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Latency Target (s)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"expr": "mogo:slo:latency:target_seconds", "refId": "A", "legendFormat": "target"}
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Error Budget Burn Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "mogo:slo:availability:burn_rate", "refId": "A", "legendFormat": "burn rate"}
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Budget Remaining Ratio",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "mogo:slo:availability:budget_remaining_ratio", "refId": "A", "legendFormat": "remaining"}
+      ]
+    }
+  ]
+}

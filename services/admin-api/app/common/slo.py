@@ -78,9 +78,14 @@ class ErrorBudget:
     def budget_total(self) -> float:
         return self.total_events * self.spec.budget_ratio
 
+    def _epsilon(self) -> float:
+        """浮点比较容差：`1.0 - 0.999` 并非精确 0.001，预算边界须容差判定。"""
+        return 1e-9 * max(1.0, abs(self.budget_total))
+
     @property
     def budget_remaining(self) -> float:
-        return max(0.0, self.budget_total - self.bad_events)
+        remaining = self.budget_total - self.bad_events
+        return 0.0 if remaining <= self._epsilon() else remaining
 
     @property
     def budget_consumed_ratio(self) -> float:
@@ -90,7 +95,7 @@ class ErrorBudget:
 
     @property
     def exhausted(self) -> bool:
-        return self.bad_events >= self.budget_total
+        return self.budget_total - self.bad_events <= self._epsilon()
 
     @property
     def observed_ratio(self) -> float | None:

@@ -57,9 +57,13 @@ def create_app() -> FastAPI:
     init_admin_logging()
 
     # 023 T033: 初始化 OpenTelemetry 追踪（OTLP → Tempo）
-    from app.common.observability_base import init_tracing, instrument_fastapi, instrument_httpx
+    from app.common.observability_base import init_tracing, instrument_fastapi, instrument_httpx, init_metrics, get_registry, metrics_asgi_app
     init_tracing("mogo-admin-api")
     instrument_httpx()
+    # 023 T045: Prometheus metrics 初始化 + /metrics 端点
+    admin_metrics = init_metrics("mogo-admin-api")
+    from app.observability.metrics import register_admin_metrics
+    register_admin_metrics(get_registry("mogo-admin-api"))
 
     # QF-447/448: Disable docs endpoints in production
     # 022 FR-18（T042）：生产环境判定覆盖 prod/release 别名。
@@ -251,6 +255,9 @@ def create_app() -> FastAPI:
         )
         return app
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    # 023 T045: Prometheus /metrics 端点
+    from app.common.observability_base import metrics_asgi_app
+    app.mount("/metrics", metrics_asgi_app("mogo-admin-api"), name="metrics")
     return app
 
 

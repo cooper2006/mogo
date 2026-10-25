@@ -328,6 +328,17 @@ def init_metrics(service_name: str) -> Any:
     return metrics
 
 
+def get_registry(service_name: str) -> Any:
+    """取回 `init_metrics(service_name)` 建立的 CollectorRegistry。
+
+    服务层 `observability/metrics.py` 的业务指标注册需要 registry 对象
+    （`init_metrics` 返回的是指标字典，不含 registry），故经此函数获取。
+    """
+    if service_name not in _registry_holder:
+        raise RuntimeError(f"init_metrics({service_name!r}) must run before get_registry")
+    return _registry_holder[service_name]
+
+
 def metrics_asgi_app(service_name: str) -> Any:
     """`/metrics` ASGI 子应用（FR-11 暴露）。未 init_metrics 时抛错提示接线顺序。"""
     from prometheus_client import make_asgi_app

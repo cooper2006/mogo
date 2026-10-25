@@ -97,22 +97,26 @@
 **Goal**: 黄金四信号 + 业务指标 + 维度基数受控 + SLO 定义 + 错误预算。
 **独立测试**: /metrics 可查询四信号；业务指标按维度聚合；高基数 label 受控；SLO 数值可查；错误预算消耗可查。
 
-- [ ] T045 创建 `services/common/observability_base.py::init_metrics()`：Prometheus client 初始化 + `/metrics` 端点注册
-- [ ] T046 创建 `services/common/observability_base.py::gold_signals.py`（或子模块）：定义黄金四信号指标（请求延迟 histogram、流量 counter、错误率 counter、饱和度 gauge）
-- [ ] T047 修改 `services/admin-api/app/observability/metrics.py`：注册 admin-api 专属业务指标（会话创建数、消息发送数等）
-- [ ] T048 修改 `services/chat-api/app/observability/metrics.py`：注册 chat-api 专属业务指标（LLM 调用数、token 用量等）
-- [ ] T049 修改 `services/document-parser/app/observability/metrics.py`：注册 document-parser 专属业务指标（文档解析数、解析耗时等）
-- [ ] T050 指标维度基数受控：实现高基数 label 哈希化（user_id/session_id/path 参数 → 枚举桶或哈希），单指标 label 组合 ≤ 10000
-- [ ] T051 创建 `services/common/slo.py::SLODefinition`：SLO 定义（可用性 99.9%、延迟 P99 < 3s、LLM 错误率 < 1%）
-- [ ] T052 创建 `services/common/slo.py::ErrorBudgetCalculator`：错误预算计算（burn rate、remaining budget、time to exhaust）
-- [ ] T053 修改 `deploy/prometheus/prometheus.yml`：新增 recording rule（SLO 指标、错误预算消耗速度）
-- [ ] T054 创建 `deploy/grafana/provisioning/dashesds/slo-overview.json`：SLO 概览面板（可用性、延迟、错误率、错误预算）
-- [ ] T055 创建 `deploy/grafana/provisioning/dashboards/gold-signals.json`：黄金四信号面板（按服务分组）
-- [ ] T056 创建 `deploy/grafana/provisioning/dashboards/business-metrics.json`：业务指标面板（会话/消息/LLM/token/文档解析）
-- [ ] T057 指标查询测试：`services/chat-api/tests/observability/test_metrics.py` — 验证 /metrics 端点可查询黄金四信号
-- [ ] T058 维度基数测试：验证高基数 label 受控（单指标 label 组合 ≤ 10000）
-- [ ] T059 SLO 计算测试：验证错误预算数值可查、消耗速度计算正确
-- [ ] T060 更新 QualityForge 缺陷（指标子域）：关闭对应 blocked 项
+- [x] T045 创建 `services/common/observability_base.py::init_metrics()`：Prometheus client 初始化（CollectorRegistry + `get_registry()` 取回）+ `/metrics` 端点注册（`metrics_asgi_app()`）
+- [x] T046 创建 `services/common/gold_signals.py`（子模块）：定义黄金四信号指标工厂 `create_business_metrics()`（请求延迟 histogram、流量 counter、错误率 counter、饱和度 gauge）
+- [x] T047 修改 `services/admin-api/app/observability/metrics.py`：注册 admin-api 专属业务指标（会话创建数、消息发送数、注册数、请求延迟、活跃会话）
+- [x] T048 修改 `services/chat-api/app/observability/metrics.py`：注册 chat-api 专属业务指标（LLM 调用数、token 用量、消息数、活跃会话、LLM 延迟）
+- [x] T049 修改 `services/document-parser/app/observability/metrics.py`：注册 document-parser 专属业务指标（解析数、解析耗时、预览转换数、错误数、活跃解析）
+- [x] T050 指标维度基数受控：`services/common/high_cardinality.py` 实现 `hash_to_bucket()`（50 桶）、`sanitize_label()`（去非法字符/截断 64）、`get_path_template()`（数字段 → `{id}`），单指标 label 组合 ≤ 10000
+- [x] T051 创建 `services/common/slo.py` SLO 定义：`SLOSpec` + `SLOKind` + `SLORegistry`（可用性 99.9%、延迟 P99 < 3s、LLM 错误率 < 1%）
+- [x] T052 创建 `services/common/slo.py` 错误预算计算：`ErrorBudget`（burn rate / remaining budget / exhausted，含浮点边界容差）+ `compute_error_budget()` / `compute_burn_rate()`
+- [x] T053 修改 `deploy/prometheus/prometheus.yml`：新增 recording rule（`deploy/prometheus/rules/slo_recording.yml`，SLO 指标、错误预算消耗速度）
+- [x] T054 创建 `deploy/grafana/provisioning/dashboards/slo-overview.json`：SLO 概览面板（可用性、延迟、错误率、错误预算）
+- [x] T055 创建 `deploy/grafana/provisioning/dashboards/gold-signals.json`：黄金四信号面板（按服务分组）
+- [x] T056 创建 `deploy/grafana/provisioning/dashboards/business-metrics.json`：业务指标面板（会话/消息/LLM/token/文档解析）
+- [x] T057 指标查询测试：`services/chat-api/tests/observability/test_metrics.py` — 验证 /metrics 端点可查询黄金四信号
+- [x] T058 维度基数测试：`services/chat-api/tests/observability/test_common_metrics.py` — 验证高基数 label 受控（5000 输入 ≤ 50 桶；path 模板化；label 清洗）
+- [x] T059 SLO 计算测试：`services/chat-api/tests/observability/test_slo.py` — 验证错误预算数值可查、消耗速度计算正确（含 bad == budget_total 边界）
+- [ ] T060 更新 QualityForge 缺陷（指标子域）：关闭对应 blocked 项 —— **阻塞**：`/Users/cooper/mogo/.qualityforge/` 被 `.gitignore:393` 忽略且工作区不存在（`git log --all -- .qualityforge/` 无历史）；仓库内无 QF 缺陷清单可关闭。指标子域实现与测试状态已记入当日 session-log，待 QF 报告回填后勾选
+
+> **Phase 4 命名差异（待确认）**：tasks.md 原写的 T051 `SLODefinition` / T052 `ErrorBudgetCalculator` 与实现 `SLOSpec` / `ErrorBudget` 命名不完全一致，语义已覆盖（三类 SLO + burn rate / remaining / exhausted）。是否重命名对齐以保持 spec 与代码同步，留待用户确认。
+
+> **Phase 4 验证基线（2026-10-25）**：`services/chat-api` 可观测性测试 18 项全绿；`services/admin-api` 可观测性测试 25 项全绿；`scripts/check_common_sync.py` 5 模块 × 3 服务一致；`deploy` 下 recording rule / 3 个 dashboard JSON / `prometheus.yml` / `datasources.yml` 均通过 YAML/JSON 解析。
 
 ---
 

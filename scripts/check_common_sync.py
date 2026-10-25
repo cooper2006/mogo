@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """023 — vendored 共享模块字节一致性校验（CI 门禁，纯 stdlib）。
 
-权威源 `services/common/{observability_base,dependency_guard,slo}.py` 必须与三服务
-副本 `services/<svc>/app/common/<name>.py` 逐字节一致。漂移即失败——防止"只改副本"
+权威源 `services/common/{observability_base,dependency_guard,slo,gold_signals,high_cardinality}.py`
+必须与三服务副本 `services/<svc>/app/common/<name>.py` 逐字节一致。漂移即失败——防止"只改副本"
 或"只改权威源忘了同步"（镜像按服务目录构建，运行时用的是副本）。
 
 退出码：0 一致；1 漂移（列明细）。
@@ -17,7 +17,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 COMMON = REPO / "services" / "common"
 SERVICES = ("admin-api", "chat-api", "document-parser")
-MODULES = ("observability_base.py", "dependency_guard.py", "slo.py")
+MODULES = (
+    "observability_base.py",
+    "dependency_guard.py",
+    "slo.py",
+    "gold_signals.py",
+    "high_cardinality.py",
+)
 
 
 def _sha(p: Path) -> str:
