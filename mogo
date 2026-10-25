@@ -37,6 +37,10 @@ source "${ROOT_DIR}/deploy/cli/backup.sh"
 source "${ROOT_DIR}/deploy/cli/backup-schedule.sh"
 # shellcheck source=deploy/cli/failover.sh
 source "${ROOT_DIR}/deploy/cli/failover.sh"
+# shellcheck source=deploy/cli/cert-check.sh
+source "${ROOT_DIR}/deploy/cli/cert-check.sh"
+# shellcheck source=deploy/cli/watermark-check.sh
+source "${ROOT_DIR}/deploy/cli/watermark-check.sh"
 
 print_logo() {
   printf '\n'
@@ -934,6 +938,45 @@ case "${command}" in
     ;;
   drift)
     command_drift "$@"
+    ;;
+  cert)
+    # 024 T095：证书到期检查 / 外部拨测（委托 deploy/cli/cert-check.sh）
+    case "${1:-}" in
+      list)
+        shift
+        mogo_cert_list "$@"
+        ;;
+      check)
+        shift
+        mogo_cert_check "$@"
+        ;;
+      renew)
+        # 024 T095：触发 certbot 容器续期（profiles: ["acme"]，见 deploy/docker/certbot/README.md）
+        require_docker
+        docker compose --profile acme up certbot
+        ;;
+      *)
+        printf '用法: ./mogo cert list|check|renew [--port 443] [--write-probe-status] [--resolver 1.1.1.1] [--json]\n' >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  monitor)
+    # 024 T103/T104 (FR-049)：容量水位检查 / 阈值定义查看
+    #   ./mogo monitor check        运行容量水位检查（委托 watermark-check.sh）
+    #   ./mogo monitor watermarks   列出水位定义与容量换算文档
+    case "${1:-}" in
+      watermarks)
+        mogo_watermark_list
+        ;;
+      check)
+        shift
+        mogo_watermark_check "$@"
+        ;;
+      *)
+        mogo_watermark_check "$@"
+        ;;
+    esac
     ;;
   deploy)
     require_docker

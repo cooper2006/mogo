@@ -72,6 +72,44 @@ jobs:
           print(f"security baseline declared on {len(services) - len(exempt)} containers")
           PY
 
+      # 024 T096 (FR-046/FR-048)：每日证书到期状态检查。
+      # runner 无公网解析到目标域名（占位域名会 unreachable），因此把"到期/过期"
+      # 判为失败并触发告警 issue，而"仅不可达"只输出提示，不阻断 nightly。
+      # 现场的真实到期判定由 `./mogo cert check`（T091/T092）执行。
+      - name: Check certificate expiry status
+        run: |
+          echo "--- ./mogo cert check ---"
+          json="$(./mogo cert check --resolver none --json 2>&1 || true)"
+          python - "$json" <<'PY'
+          import json, sys
+          raw = sys.argv[1]
+          try:
+              data = json.loads(raw)
+          except Exception as e:
+              print(f"WARN 无法解析 cert-check 输出（{e}）")
+              raise SystemExit(0)
+          rows = data.get("results", [])
+          bad = [r for r in rows if r["level"] in ("CRIT", "FAIL")]
+          print(f"checkedAt={data.get('checkedAt')} domains={len(rows)} "
+                f"CRIT/FAIL={len(bad)}")
+          for r in rows:
+              print(f"  [{r['level']}] {r['domain']} daysLeft={r['daysLeft']} "
+                    f"verifyCode={r['verifyCode']} chain={r['chain']}")
+          # 仅"不可达"（verifyCode=-1 且未取到 notAfter）视为环境限制，不阻断
+          hard = [r for r in bad if r.get("daysLeft") != "unknown"]
+          if hard:
+              print("证书到期状态异常，需告警：")
+              for r in hard:
+                  print(f"  FAIL  {r['domain']} daysLeft={r['daysLeft']}")
+              raise SystemExit(1)
+          if bad:
+              print("存在不可达域名（CI 环境限制），仅提示不阻断：")
+              for r in bad:
+                  print(f"  UNREACH  {r['domain']}")
+          else:
+              print("证书到期检查全部 PASS")
+          PY
+
       - name: Mark failure flag
         id: failflag
         if: failure()

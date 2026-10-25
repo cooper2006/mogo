@@ -291,6 +291,32 @@ services:
     networks:
       - backend
 
+  # 024 T093 (FR-046/FR-048)：Certbot 容器（可选 ACME 自动续期）。
+  # 仅挂 `acme` profile；需要公网域名 + CA 授权（HTTP-01 或 DNS-01）。
+  # 没有公网域名 / 没有授权时**不要**启用本容器，改走 deploy/tls/README.md 的
+  # 手工更换流程（T094）。镜像从镜像站 docker.m.daocloud.io 构建/拉取，
+  # 避免 Docker Hub 直连 Bad Gateway。见 deploy/docker/certbot/README.md。
+  certbot:
+    profiles: ["acme"]
+    build:
+      context: ./deploy/docker/certbot
+    image: mogo-certbot:${MOGO_VERSION:-latest}
+    restart: "no"
+    environment:
+      CERTBOT_DOMAINS: ${CERTBOT_DOMAINS:-}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-}
+      CERTBOT_WEBROOT: ${CERTBOT_WEBROOT:-/var/www/certbot}
+      CERTBOT_RENEW_ONLY: ${CERTBOT_RENEW_ONLY:-0}
+      CERTBOT_EXTRA: ${CERTBOT_EXTRA:-}
+    volumes:
+      - ./deploy/tls:/etc/nginx/certs:rw
+      - certbot-webroot:/var/www/certbot
+      - certbot-etc:/etc/letsencrypt
+    ports:
+      - "80:80"   # HTTP-01 用；80 被网关占用时改用 DNS-01 并注释掉此行
+    networks:
+      - backend
+
   # PanWeiDB 3.2.0（openGauss 内核）——MongoDB → PanWeiDB 迁移的目标库。
   #
   # 与 mongo / redis / weaviate 不同，这个服务默认**不启动**：它挂在 `panweidb`
@@ -1259,6 +1285,10 @@ volumes:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_knowledge-storage
   admin-static:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_admin-static
+  certbot-webroot:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_certbot-webroot
+  certbot-etc:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_certbot-etc
 
 # T102：备份口令。compose 只声明引用关系，**值不在本文件里**。
 #

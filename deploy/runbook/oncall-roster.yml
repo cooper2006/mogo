@@ -1,0 +1,67 @@
+# 024 T097 (FR-050)：值班与联系人台账 (On-call roster)。
+#
+# 告警升级链（FR-050 / T099）：
+#   值班人 (oncall) → 备份人 (backup) → 平台负责人 (platform lead) → 应急决策人 (incident commander)
+#
+# 联系方式 MUST 为可拨通的实际号码/IM 地址（占位 `<...>` 表示未填写，会被
+# `deploy/cli/oncall-check.sh`（T098）判定为 FAIL）。
+#
+# 每次变更 MUST：
+#   1. 更新本文件生效时间 (effectiveFrom)
+#   2. 更新 deploy/runbook/handoff-template.md 的交班记录
+#   3. 在真实演练 / 事故中实际拨测一次（deploy/runbook/drills/TEMPLATE.md §T101）
+
+version: 1
+
+roles:
+  - role: oncall
+    name: "值班人（占位）"
+    contact: "<填写实际值班人联系方式>"
+    contactMethod: "IM/电话"
+    effectiveFrom: "2026-10-26"
+    responsibility: "首响：响应告警，定位与临时处置，必要时升级"
+    active: false
+
+  - role: backup
+    name: "备份人（占位）"
+    contact: "<填写备份人联系方式>"
+    contactMethod: "IM/电话"
+    effectiveFrom: "2026-10-26"
+    responsibility: "值班人不可达 / 超时未响应时接管首响"
+    active: false
+
+  - role: platform-lead
+    name: "平台负责人（占位）"
+    contact: "<填写平台负责人联系方式>"
+    contactMethod: "电话/邮件"
+    effectiveFrom: "2026-10-26"
+    responsibility: "判断影响范围，决定是否启动应急预案 / 回滚 / 切换"
+    active: false
+
+  - role: incident-commander
+    name: "应急决策人（占位）"
+    contact: "<填写应急决策人联系方式>"
+    contactMethod: "电话"
+    effectiveFrom: "2026-10-26"
+    responsibility: "在 P1/P2 事故中做最终决策（切换 / 恢复 / 公告）"
+    active: false
+
+  - role: security
+    name: "安全联系人（占位）"
+    contact: "<填写安全联系人联系方式>"
+    contactMethod: "IM"
+    effectiveFrom: "2026-10-26"
+    responsibility: "安全事件协同；证书 / 密钥管理联系人"
+    active: false
+
+# 联系可达性要求（T098 / T101）
+reachability:
+  responseTimeoutMinutes: 15     # 值班人 15 分钟未响应视为不可达
+  escalateAfterMinutes: 15       # 超时即升级到备份人
+  probeDuringDrill: true         # 每次演练 MUST 实测一次联系方式
+
+# 值班排班（占位：真实部署时按团队实际填写）
+schedule:
+  timezone: Asia/Shanghai
+  rotationDays: 7                # 每 7 天轮换
+  note: "值班表变更记录见 deploy/runbook/handoff-template.md（T100）"

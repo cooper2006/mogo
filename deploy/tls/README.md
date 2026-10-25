@@ -134,3 +134,70 @@ MOGO_TLS_CERTS_DIR=/etc/letsencrypt/live/example.com
 | 证书是自签名的，浏览器提示不安全 | 预期；或把 `deploy/tls/fullchain.pem` 导入系统信任库 |
 
 回归守卫见 `deploy/tests/test_tls_gateway_config.py`。
+
+## Expiry alerting & manual replacement（到期告警与手工更换，024 T094 / FR-046/FR-048）
+
+### 到期告警
+
+所有证书 MUST 登记在 `deploy/certs/inventory.yml`（域名、责任人、用途、到期时间、续期方式、拨测状态），
+由 `deploy/cli/cert-check.sh`（经 `./mogo cert check`）做三件事：
+
+1. **到期检查**：读取 `notAfter`，剩余 ≤ 30 天告警（WARN），≤ 7 天升级 CRIT；
+2. **证书链校验**：`openssl s_client -verify_return_error`，验证码非 0 判 FAIL；
+3. **外部拨测**（不依赖本机 `/etc/hosts`）：`dig @1.1.1.1 <domain> +tcp +short A` 解析真实外部 IP，
+   再对该 IP 建立 TLS 连接校验，结论回写 `inventory.yml` 的 `probeStatus` / `probeCheckedAt`。
+
+每日由 `.github/workflows/nightly-drift.yml` 的证书检查步骤自动跑一次，失败即告警。
+
+> 证书本身不会自动续期——`cert-check.sh` 只负责「发现要到期」；**更换必须由人执行**。
+
+### 手工更换流程
+
+适用于客户自有证书 / 非 ACME 证书（`renewMethod: manual`）。任何证书都先做权限归一化
+（见上文「Files required」），否则容器内 uid 10001 读不到私钥会 crash-loop。
+
+```bash
+# 1. 备份当前证书（避免换到一半出问题无法回退）
+cp -a deploy/tls deploy/tls.bak.$(date +%Y%m%d%H%M%S)
+
+# 2. 放入新证书对（来源：CA 签发文件或 certbot 等）
+install -m 0644 new-fullchain.pem deploy/tls/fullchain.pem
+install -m 0644 new-privkey.pem   deploy/tls/privkey.pem
+chmod 0644 deploy/tls/fullchain.pem deploy/tls/privkey.pem   # 必需！
+
+# 3. 校验新证书：私钥与证书匹配 + 不早于今日 + 有效期内
+openssl pkey  -in deploy/tls/privkey.pem   -pubout > /tmp/mogo-pub.pem
+openssl x509  -in deploy/tls/fullchain.pem -pubkey -noout  > /tmp/mogo-cert.pub
+diff /tmp/mogo-pub.pem /tmp/mogo-cert.pub || echo "⚠️ 私钥与证书不匹配，请勿上线"
+openssl x509 -in deploy/tls/fullchain.pem -noout -dates
+
+# 4. 重建 gateway 容器让新证书挂载生效（不要裸 docker compose up gateway）
+export MOGO_GATEWAY_IMAGE="$(docker inspect mogo-gateway-1 --format '{{.Config.Image}}')"
+docker compose -f docker-compose.yml up -d --no-deps gateway
+
+# 5. 验证
+curl -k https://localhost/healthz                       # 200
+openssl s_client -connect localhost:443 -servername localhost </dev/null 2>/dev/null \
+  | openssl x509 -noout -dates -subject                 # notAfter 已是新证书
+./mogo cert check --write-probe-status                   # 全部 PASS 且回写 probeStatus
+
+# 6. 更新清单到期时间与续期方式
+#    手工编辑 deploy/certs/inventory.yml 对应条目的 expiry / renewMethod，
+#    然后 `./mogo cert check --write-probe-status` 重跑。
+
+# 7. 清理备份（保留最近 N 份；确认新证书稳定运行 ≥ 24h 后再删）
+```
+
+### ACME / Certbot（可选）
+
+内置 `deploy/docker/certbot` 容器（`profiles: ["acme"]`），适合有公网域名 + HTTP-01 或 DNS-01 授权的场景。
+用法见 `deploy/docker/certbot/README.md`。**没有公网域名 / 没有 CA 授权时不要用它**，走上面的手工更换流程。
+
+### 常见坑
+
+| 现象 | 原因 / 修复 |
+|------|-------------|
+| 换证书后网关 crash-loop | 私钥模式仍是 0600 → `chmod 0644`，或 `sudo chown 10001:10001`（见上文） |
+| `openssl s_client` 报 `verify error:num=19:self-signed certificate` | 自签名证书预期；正式证书应改为可信 CA 签发 |
+| `./mogo cert check` 全部 FAIL | `dig @1.1.1.1` 解析不到 A 记录（无外网 DNS）→ 加 `--resolver none` 改走本机解析 |
+| 到期前 7 天还没换 | 走升级流程：`deploy/runbook/alert-escalation.md`（T099） |
