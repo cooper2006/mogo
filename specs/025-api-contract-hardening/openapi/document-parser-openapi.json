@@ -6,14 +6,14 @@
     "version": "0.2.5"
   },
   "paths": {
-    "/api/health": {
+    "/api/v1/health": {
       "get": {
         "tags": [
           "health"
         ],
         "summary": "Health",
         "description": "存活 + 数据后端快照。",
-        "operationId": "health_api_health_get",
+        "operationId": "health_api_v1_health_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -22,7 +22,7 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Health Api Health Get"
+                  "title": "Response Health Api V1 Health Get"
                 }
               }
             }
@@ -150,13 +150,13 @@
         }
       }
     },
-    "/api/ready": {
+    "/api/v1/ready": {
       "get": {
         "tags": [
           "health"
         ],
         "summary": "Ready",
-        "operationId": "ready_api_ready_get",
+        "operationId": "ready_api_v1_ready_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -165,7 +165,7 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Ready Api Ready Get"
+                  "title": "Response Ready Api V1 Ready Get"
                 }
               }
             }
@@ -293,13 +293,13 @@
         }
       }
     },
-    "/api/jobs/preview-convert": {
+    "/api/v1/jobs/preview-convert": {
       "post": {
         "tags": [
           "preview-conversion"
         ],
         "summary": "Create Preview Convert Job",
-        "operationId": "create_preview_convert_job_api_jobs_preview_convert_post",
+        "operationId": "create_preview_convert_job_api_v1_jobs_preview_convert_post",
         "parameters": [
           {
             "name": "authorization",
@@ -462,13 +462,13 @@
         }
       }
     },
-    "/api/jobs/{job_id}": {
+    "/api/v1/jobs/{job_id}": {
       "get": {
         "tags": [
           "preview-conversion"
         ],
         "summary": "Get Processing Job",
-        "operationId": "get_processing_job_api_jobs__job_id__get",
+        "operationId": "get_processing_job_api_v1_jobs__job_id__get",
         "parameters": [
           {
             "name": "job_id",
@@ -504,7 +504,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Processing Job Api Jobs  Job Id  Get"
+                  "title": "Response Get Processing Job Api V1 Jobs  Job Id  Get"
                 }
               }
             }
@@ -632,13 +632,13 @@
         }
       }
     },
-    "/api/jobs/document-parse": {
+    "/api/v1/jobs/document-parse": {
       "post": {
         "tags": [
           "document-parsing"
         ],
         "summary": "Create Document Parse Job",
-        "operationId": "create_document_parse_job_api_jobs_document_parse_post",
+        "operationId": "create_document_parse_job_api_v1_jobs_document_parse_post",
         "parameters": [
           {
             "name": "authorization",
@@ -801,13 +801,13 @@
         }
       }
     },
-    "/api/documents/parse-markdown": {
+    "/api/v1/documents/parse-markdown": {
       "post": {
         "tags": [
           "document-parsing"
         ],
         "summary": "Parse Document Markdown",
-        "operationId": "parse_document_markdown_api_documents_parse_markdown_post",
+        "operationId": "parse_document_markdown_api_v1_documents_parse_markdown_post",
         "parameters": [
           {
             "name": "authorization",
@@ -970,13 +970,13 @@
         }
       }
     },
-    "/api/jobs/document-index": {
+    "/api/v1/jobs/document-index": {
       "post": {
         "tags": [
           "document-indexing"
         ],
         "summary": "Create Document Index Job",
-        "operationId": "create_document_index_job_api_jobs_document_index_post",
+        "operationId": "create_document_index_job_api_v1_jobs_document_index_post",
         "parameters": [
           {
             "name": "authorization",
@@ -1139,13 +1139,13 @@
         }
       }
     },
-    "/api/retrieval/search": {
+    "/api/v1/retrieval/search": {
       "post": {
         "tags": [
           "retrieval"
         ],
         "summary": "Search Retrieval",
-        "operationId": "search_retrieval_api_retrieval_search_post",
+        "operationId": "search_retrieval_api_v1_retrieval_search_post",
         "parameters": [
           {
             "name": "authorization",
@@ -1182,7 +1182,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Search Retrieval Api Retrieval Search Post"
+                  "title": "Response Search Retrieval Api V1 Retrieval Search Post"
                 }
               }
             }
@@ -1310,13 +1310,13 @@
         }
       }
     },
-    "/api/vectors/documents/deletion": {
+    "/api/v1/vectors/documents/deletion": {
       "post": {
         "tags": [
           "vector-maintenance"
         ],
         "summary": "Delete Document Vectors",
-        "operationId": "delete_document_vectors_api_vectors_documents_deletion_post",
+        "operationId": "delete_document_vectors_api_v1_vectors_documents_deletion_post",
         "parameters": [
           {
             "name": "authorization",
@@ -1362,7 +1362,7 @@
                       }
                     ]
                   },
-                  "title": "Response Delete Document Vectors Api Vectors Documents Deletion Post"
+                  "title": "Response Delete Document Vectors Api V1 Vectors Documents Deletion Post"
                 }
               }
             }

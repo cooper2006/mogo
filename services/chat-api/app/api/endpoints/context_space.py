@@ -34,7 +34,7 @@ from app.context_space.visibility import (
     ContextVisibilityError,
 )
 
-router = APIRouter(prefix="/api/context", tags=["context"])
+router = APIRouter(prefix="/api/v1/context", tags=["context"])
 
 
 class ResolveRequest(BaseModel):

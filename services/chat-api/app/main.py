@@ -75,6 +75,10 @@ app.add_middleware(
 
 # 023 T087: 限流 + 背压中间件（租户级速率/并发 + 在途量上限 → 429）
 app.add_middleware(ResilienceMiddleware, **middleware_kwargs())
+from app.middleware.legacy_api_redirect import LegacyApiRedirectMiddleware
+# 025 T045（FR-27）：旧 /api/* 永久重定向到 /api/v1/*（GET/HEAD 用 301，其他 308）。
+# 最后 add 即最外层，拦截未匹配的旧路径。
+app.add_middleware(LegacyApiRedirectMiddleware)
 
 # 023 T034: FastAPI 自动插桩（HTTP server span）
 instrument_fastapi(app)
@@ -273,35 +277,35 @@ from app.services.dream_cycle import runtime as dream_cycle_runtime
 from app.governance.suspensions import suspension_service
 from app.browser import ws_endpoint as browser_ws_endpoint
 
-app.include_router(dsh_chat.router, prefix="/api")
-app.include_router(dsh_session_versioning.router, prefix="/api")
-app.include_router(auth.router, prefix="/api")
-app.include_router(debug.router, prefix="/api")
-app.include_router(documents.router, prefix="/api")
-app.include_router(knowledge_sources.router, prefix="/api")
-app.include_router(external_tools.router, prefix="/api")
-app.include_router(models.router, prefix="/api")
-app.include_router(projects.router, prefix="/api")
-app.include_router(product.router, prefix="/api")
-app.include_router(sessions.router, prefix="/api")
-app.include_router(tasks.router, prefix="/api")
-app.include_router(skills.router, prefix="/api")
-app.include_router(skill_package_install.router, prefix="/api")
-app.include_router(skill_lifecycle.router, prefix="/api")
-app.include_router(skill_updates.router, prefix="/api")
-app.include_router(skill_share_direct.router, prefix="/api")
-app.include_router(skill_shares.router, prefix="/api")
-app.include_router(resource_feedback.router, prefix="/api")
-app.include_router(personal_knowledge.router, prefix="/api")
-app.include_router(site_profiles.router, prefix="/api")
-app.include_router(token_usage.router, prefix="/api")
-app.include_router(quota.router, prefix="/api")
-app.include_router(scheduled_tasks.router, prefix="/api")
-app.include_router(shortcuts.router, prefix="/api")
-app.include_router(browser_ws_endpoint.router, prefix="/api")
+app.include_router(dsh_chat.router, prefix="/api/v1")
+app.include_router(dsh_session_versioning.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(debug.router, prefix="/api/v1")
+app.include_router(documents.router, prefix="/api/v1")
+app.include_router(knowledge_sources.router, prefix="/api/v1")
+app.include_router(external_tools.router, prefix="/api/v1")
+app.include_router(models.router, prefix="/api/v1")
+app.include_router(projects.router, prefix="/api/v1")
+app.include_router(product.router, prefix="/api/v1")
+app.include_router(sessions.router, prefix="/api/v1")
+app.include_router(tasks.router, prefix="/api/v1")
+app.include_router(skills.router, prefix="/api/v1")
+app.include_router(skill_package_install.router, prefix="/api/v1")
+app.include_router(skill_lifecycle.router, prefix="/api/v1")
+app.include_router(skill_updates.router, prefix="/api/v1")
+app.include_router(skill_share_direct.router, prefix="/api/v1")
+app.include_router(skill_shares.router, prefix="/api/v1")
+app.include_router(resource_feedback.router, prefix="/api/v1")
+app.include_router(personal_knowledge.router, prefix="/api/v1")
+app.include_router(site_profiles.router, prefix="/api/v1")
+app.include_router(token_usage.router, prefix="/api/v1")
+app.include_router(quota.router, prefix="/api/v1")
+app.include_router(scheduled_tasks.router, prefix="/api/v1")
+app.include_router(shortcuts.router, prefix="/api/v1")
+app.include_router(browser_ws_endpoint.router, prefix="/api/v1")
 app.include_router(dsh_model_gateway.router)
 app.include_router(dsh_tool_gateway.internal_router)
-app.include_router(dsh_tool_gateway.public_router, prefix="/api")
+app.include_router(dsh_tool_gateway.public_router, prefix="/api/v1")
 # 012 / 013: minimal production wiring for A2A agent card lookup and IM webhook.
 app.include_router(a2a.router)
 app.include_router(im_gateway.router)
@@ -311,7 +315,7 @@ app.include_router(memory.router)
 # router + four tenant adapters (without this the whole layer was test-only).
 app.include_router(context_space.router)
 # 010: research DAG orchestration (competitor deep-dive) — production entry.
-app.include_router(research.router, prefix="/api")
+app.include_router(research.router, prefix="/api/v1")
 # 014: business semantic index — search / index / align production surface.
 app.include_router(business_index.router)
 # 030: 终端用户侧本体授权自查（admin-web 本体页的 user-web 迁移；只读）。
@@ -329,7 +333,7 @@ from app.product.extensions import get_product_extension
 
 product_extension = get_product_extension()
 for extension_router in product_extension.routers:
-    app.include_router(extension_router, prefix="/api")
+    app.include_router(extension_router, prefix="/api/v1")
 
 if settings.ENABLE_DEMO_ENDPOINTS:
     from app.api.endpoints import (
@@ -339,10 +343,10 @@ if settings.ENABLE_DEMO_ENDPOINTS:
         mock_store_diagnosis,
     )
 
-    app.include_router(mock_manufacturing.router, prefix="/api")
-    app.include_router(mock_sales_review.router, prefix="/api")
-    app.include_router(mock_store_audit.router, prefix="/api")
-    app.include_router(mock_store_diagnosis.router, prefix="/api")
+    app.include_router(mock_manufacturing.router, prefix="/api/v1")
+    app.include_router(mock_sales_review.router, prefix="/api/v1")
+    app.include_router(mock_store_audit.router, prefix="/api/v1")
+    app.include_router(mock_store_diagnosis.router, prefix="/api/v1")
     # 023 T018：observability health_router（/ready 依赖可达性检查）
     app.include_router(health_router)
 

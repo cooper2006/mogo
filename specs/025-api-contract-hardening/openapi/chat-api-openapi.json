@@ -6,13 +6,13 @@
     "version": "0.2.5"
   },
   "paths": {
-    "/api/chat/completions": {
+    "/api/v1/chat/completions": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Chat Completions",
-        "operationId": "chat_completions_api_chat_completions_post",
+        "operationId": "chat_completions_api_v1_chat_completions_post",
         "parameters": [
           {
             "name": "authorization",
@@ -203,13 +203,13 @@
         }
       }
     },
-    "/api/chat": {
+    "/api/v1/chat": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Chat Entry",
-        "operationId": "chat_entry_api_chat_post",
+        "operationId": "chat_entry_api_v1_chat_post",
         "parameters": [
           {
             "name": "authorization",
@@ -400,14 +400,14 @@
         }
       }
     },
-    "/api/desktop/dsh/runtime-profile": {
+    "/api/v1/desktop/dsh/runtime-profile": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Runtime Profile",
         "description": "Issue an authenticated, short-lived Runtime Profile for Electron main only.",
-        "operationId": "desktop_runtime_profile_api_desktop_dsh_runtime_profile_post",
+        "operationId": "desktop_runtime_profile_api_v1_desktop_dsh_runtime_profile_post",
         "parameters": [
           {
             "name": "authorization",
@@ -600,13 +600,13 @@
         }
       }
     },
-    "/api/desktop/dsh/capability-check": {
+    "/api/v1/desktop/dsh/capability-check": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Code Capability Check",
-        "operationId": "desktop_code_capability_check_api_desktop_dsh_capability_check_post",
+        "operationId": "desktop_code_capability_check_api_v1_desktop_dsh_capability_check_post",
         "parameters": [
           {
             "name": "authorization",
@@ -789,13 +789,13 @@
         }
       }
     },
-    "/api/desktop/dsh/sessions/commit": {
+    "/api/v1/desktop/dsh/sessions/commit": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Session Commit",
-        "operationId": "desktop_session_commit_api_desktop_dsh_sessions_commit_post",
+        "operationId": "desktop_session_commit_api_v1_desktop_dsh_sessions_commit_post",
         "parameters": [
           {
             "name": "authorization",
@@ -988,13 +988,13 @@
         }
       }
     },
-    "/api/desktop/dsh/sessions/{kernel_session_id}/git-state": {
+    "/api/v1/desktop/dsh/sessions/{kernel_session_id}/git-state": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Git State",
-        "operationId": "desktop_git_state_api_desktop_dsh_sessions__kernel_session_id__git_state_post",
+        "operationId": "desktop_git_state_api_v1_desktop_dsh_sessions__kernel_session_id__git_state_post",
         "parameters": [
           {
             "name": "kernel_session_id",
@@ -1196,13 +1196,13 @@
         }
       }
     },
-    "/api/desktop/dsh/sessions/{kernel_session_id}/turns/start": {
+    "/api/v1/desktop/dsh/sessions/{kernel_session_id}/turns/start": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Turn Start",
-        "operationId": "desktop_turn_start_api_desktop_dsh_sessions__kernel_session_id__turns_start_post",
+        "operationId": "desktop_turn_start_api_v1_desktop_dsh_sessions__kernel_session_id__turns_start_post",
         "parameters": [
           {
             "name": "kernel_session_id",
@@ -1404,13 +1404,13 @@
         }
       }
     },
-    "/api/desktop/dsh/conversations/{conversation_id}/binding": {
+    "/api/v1/desktop/dsh/conversations/{conversation_id}/binding": {
       "get": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Conversation Binding",
-        "operationId": "desktop_conversation_binding_api_desktop_dsh_conversations__conversation_id__binding_get",
+        "operationId": "desktop_conversation_binding_api_v1_desktop_dsh_conversations__conversation_id__binding_get",
         "parameters": [
           {
             "name": "conversation_id",
@@ -1611,13 +1611,13 @@
         }
       }
     },
-    "/api/desktop/dsh/conversations/{conversation_id}/runtime": {
+    "/api/v1/desktop/dsh/conversations/{conversation_id}/runtime": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Conversation Runtime Rebind",
-        "operationId": "desktop_conversation_runtime_rebind_api_desktop_dsh_conversations__conversation_id__runtime_post",
+        "operationId": "desktop_conversation_runtime_rebind_api_v1_desktop_dsh_conversations__conversation_id__runtime_post",
         "parameters": [
           {
             "name": "conversation_id",
@@ -1819,13 +1819,13 @@
         }
       }
     },
-    "/api/desktop/dsh/sessions/{kernel_session_id}/turns/events": {
+    "/api/v1/desktop/dsh/sessions/{kernel_session_id}/turns/events": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Turn Events",
-        "operationId": "desktop_turn_events_api_desktop_dsh_sessions__kernel_session_id__turns_events_post",
+        "operationId": "desktop_turn_events_api_v1_desktop_dsh_sessions__kernel_session_id__turns_events_post",
         "parameters": [
           {
             "name": "kernel_session_id",
@@ -2027,13 +2027,13 @@
         }
       }
     },
-    "/api/desktop/dsh/sessions/{kernel_session_id}/turns/cancel": {
+    "/api/v1/desktop/dsh/sessions/{kernel_session_id}/turns/cancel": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Desktop Turn Cancel",
-        "operationId": "desktop_turn_cancel_api_desktop_dsh_sessions__kernel_session_id__turns_cancel_post",
+        "operationId": "desktop_turn_cancel_api_v1_desktop_dsh_sessions__kernel_session_id__turns_cancel_post",
         "parameters": [
           {
             "name": "kernel_session_id",
@@ -2235,13 +2235,13 @@
         }
       }
     },
-    "/api/chat/messages/{message_id}/events": {
+    "/api/v1/chat/messages/{message_id}/events": {
       "get": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Chat Message Events",
-        "operationId": "chat_message_events_api_chat_messages__message_id__events_get",
+        "operationId": "chat_message_events_api_v1_chat_messages__message_id__events_get",
         "parameters": [
           {
             "name": "message_id",
@@ -2459,13 +2459,13 @@
         }
       }
     },
-    "/api/chat/cancel": {
+    "/api/v1/chat/cancel": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Chat Cancel",
-        "operationId": "chat_cancel_api_chat_cancel_post",
+        "operationId": "chat_cancel_api_v1_chat_cancel_post",
         "parameters": [
           {
             "name": "authorization",
@@ -2658,13 +2658,13 @@
         }
       }
     },
-    "/api/chat/upload-image": {
+    "/api/v1/chat/upload-image": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Upload Chat Image",
-        "operationId": "upload_chat_image_api_chat_upload_image_post",
+        "operationId": "upload_chat_image_api_v1_chat_upload_image_post",
         "parameters": [
           {
             "name": "authorization",
@@ -2688,7 +2688,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_chat_image_api_chat_upload_image_post"
+                "$ref": "#/components/schemas/Body_upload_chat_image_api_v1_chat_upload_image_post"
               }
             }
           }
@@ -2857,13 +2857,13 @@
         }
       }
     },
-    "/api/chat/upload-document": {
+    "/api/v1/chat/upload-document": {
       "post": {
         "tags": [
           "dsh-chat"
         ],
         "summary": "Upload Chat Document",
-        "operationId": "upload_chat_document_api_chat_upload_document_post",
+        "operationId": "upload_chat_document_api_v1_chat_upload_document_post",
         "parameters": [
           {
             "name": "authorization",
@@ -2887,7 +2887,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_chat_document_api_chat_upload_document_post"
+                "$ref": "#/components/schemas/Body_upload_chat_document_api_v1_chat_upload_document_post"
               }
             }
           }
@@ -3056,10 +3056,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/commit": {
+    "/api/v1/sessions/{session_id}/commit": {
       "post": {
         "summary": "Commit Session",
-        "operationId": "commit_session_api_sessions__session_id__commit_post",
+        "operationId": "commit_session_api_v1_sessions__session_id__commit_post",
         "parameters": [
           {
             "name": "session_id",
@@ -3259,10 +3259,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/versions": {
+    "/api/v1/sessions/{session_id}/versions": {
       "get": {
         "summary": "List Session Versions",
-        "operationId": "list_session_versions_api_sessions__session_id__versions_get",
+        "operationId": "list_session_versions_api_v1_sessions__session_id__versions_get",
         "parameters": [
           {
             "name": "session_id",
@@ -3452,10 +3452,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/versions/{snapshot_id}": {
+    "/api/v1/sessions/{session_id}/versions/{snapshot_id}": {
       "get": {
         "summary": "Get Session Version",
-        "operationId": "get_session_version_api_sessions__session_id__versions__snapshot_id__get",
+        "operationId": "get_session_version_api_v1_sessions__session_id__versions__snapshot_id__get",
         "parameters": [
           {
             "name": "session_id",
@@ -3654,10 +3654,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/resume": {
+    "/api/v1/sessions/{session_id}/resume": {
       "post": {
         "summary": "Resume Session",
-        "operationId": "resume_session_api_sessions__session_id__resume_post",
+        "operationId": "resume_session_api_v1_sessions__session_id__resume_post",
         "parameters": [
           {
             "name": "session_id",
@@ -3859,10 +3859,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/share": {
+    "/api/v1/sessions/{session_id}/share": {
       "post": {
         "summary": "Share Session",
-        "operationId": "share_session_api_sessions__session_id__share_post",
+        "operationId": "share_session_api_v1_sessions__session_id__share_post",
         "parameters": [
           {
             "name": "session_id",
@@ -4062,10 +4062,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/share/redeem": {
+    "/api/v1/sessions/{session_id}/share/redeem": {
       "post": {
         "summary": "Redeem Share",
-        "operationId": "redeem_share_api_sessions__session_id__share_redeem_post",
+        "operationId": "redeem_share_api_v1_sessions__session_id__share_redeem_post",
         "parameters": [
           {
             "name": "session_id",
@@ -4265,10 +4265,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/share/{share_id}/revoke": {
+    "/api/v1/sessions/{session_id}/share/{share_id}/revoke": {
       "post": {
         "summary": "Revoke Share",
-        "operationId": "revoke_share_api_sessions__session_id__share__share_id__revoke_post",
+        "operationId": "revoke_share_api_v1_sessions__session_id__share__share_id__revoke_post",
         "parameters": [
           {
             "name": "session_id",
@@ -4467,11 +4467,11 @@
         }
       }
     },
-    "/api/sessions/{session_id}/secrets/{token_id}": {
+    "/api/v1/sessions/{session_id}/secrets/{token_id}": {
       "get": {
         "summary": "Dereference Secret",
         "description": "FR-8: restore a secret from a reversible placeholder.\n\nOnly the session owner or a full-access administrator may dereference; each\ndereference is recorded on the 001 audit stream (FR-11). The original value\nlives in ``session_secret_refs`` (never inlined into the snapshot).",
-        "operationId": "dereference_secret_api_sessions__session_id__secrets__token_id__get",
+        "operationId": "dereference_secret_api_v1_sessions__session_id__secrets__token_id__get",
         "parameters": [
           {
             "name": "session_id",
@@ -4670,10 +4670,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/co-presence": {
+    "/api/v1/sessions/{session_id}/co-presence": {
       "post": {
         "summary": "Upsert Co Presence",
-        "operationId": "upsert_co_presence_api_sessions__session_id__co_presence_post",
+        "operationId": "upsert_co_presence_api_v1_sessions__session_id__co_presence_post",
         "parameters": [
           {
             "name": "session_id",
@@ -4874,7 +4874,7 @@
       },
       "get": {
         "summary": "Get Co Presence",
-        "operationId": "get_co_presence_api_sessions__session_id__co_presence_get",
+        "operationId": "get_co_presence_api_v1_sessions__session_id__co_presence_get",
         "parameters": [
           {
             "name": "session_id",
@@ -5064,10 +5064,10 @@
         }
       }
     },
-    "/api/auth/login": {
+    "/api/v1/auth/login": {
       "post": {
         "summary": "Login",
-        "operationId": "login_api_auth_login_post",
+        "operationId": "login_api_v1_auth_login_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5242,11 +5242,11 @@
         }
       }
     },
-    "/api/auth/registerable-tenants": {
+    "/api/v1/auth/registerable-tenants": {
       "get": {
         "summary": "Registerable Tenants",
         "description": "List the enterprise tenants a self-service registrant may join.\n\nOnly ``active`` tenants (FR-024 registry) that resolve to the ``enterprise``\nspace type are returned; personal spaces are excluded so registrants can\nonly join an organization, never open their own personal tenant.",
-        "operationId": "registerable_tenants_api_auth_registerable_tenants_get",
+        "operationId": "registerable_tenants_api_v1_auth_registerable_tenants_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5411,11 +5411,11 @@
         }
       }
     },
-    "/api/auth/registerable-departments": {
+    "/api/v1/auth/registerable-departments": {
       "get": {
         "summary": "Registerable Departments",
         "description": "List the departments a registrant may join under the tenant id.\n\nReuses the org_units collection (the same data the admin user manager\nedits). Only ``active`` departments of that tenant are returned so the\nregistration dropdown stays aligned with the admin side.",
-        "operationId": "registerable_departments_api_auth_registerable_departments_get",
+        "operationId": "registerable_departments_api_v1_auth_registerable_departments_get",
         "parameters": [
           {
             "name": "tenantId",
@@ -5592,11 +5592,11 @@
         }
       }
     },
-    "/api/auth/register": {
+    "/api/v1/auth/register": {
       "post": {
         "summary": "Register",
         "description": "Self-service registration: create an end-user under an enterprise tenant.\n\nMode A (MVP): the account is created ``active`` and signed in immediately,\nreusing the same end_users schema and session flow as /auth/login. No\npersonal tenant is created and admin-api employee provisioning is untouched.",
-        "operationId": "register_api_auth_register_post",
+        "operationId": "register_api_v1_auth_register_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5771,10 +5771,10 @@
         }
       }
     },
-    "/api/auth/login/select-tenant": {
+    "/api/v1/auth/login/select-tenant": {
       "post": {
         "summary": "Select Tenant Login",
-        "operationId": "select_tenant_login_api_auth_login_select_tenant_post",
+        "operationId": "select_tenant_login_api_v1_auth_login_select_tenant_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5949,10 +5949,10 @@
         }
       }
     },
-    "/api/auth/switch-tenant": {
+    "/api/v1/auth/switch-tenant": {
       "post": {
         "summary": "Switch Tenant",
-        "operationId": "switch_tenant_api_auth_switch_tenant_post",
+        "operationId": "switch_tenant_api_v1_auth_switch_tenant_post",
         "parameters": [
           {
             "name": "authorization",
@@ -6145,11 +6145,11 @@
         }
       }
     },
-    "/api/auth/me": {
+    "/api/v1/auth/me": {
       "get": {
         "summary": "Me",
         "description": "读取当前登录用户资料。\n\n022 FR-15（T032 / QF-637）：GET 必须无副作用。原先这里会顺手刷新\n``session.available_tenants``（惰性初始化），属于缓存写语义但字面上违反\n『GET 不修改任何状态』—— 重复 GET 会推进 ``updated_at``，代理/CDN 缓存\n与浏览器重放都可能产生非预期的数据变更。写入动作拆到\n:func:`refresh_tenant_snapshot`（``POST /auth/me/refresh-tenants``）。",
-        "operationId": "me_api_auth_me_get",
+        "operationId": "me_api_v1_auth_me_get",
         "parameters": [
           {
             "name": "authorization",
@@ -6332,11 +6332,11 @@
         }
       }
     },
-    "/api/auth/me/refresh-tenants": {
+    "/api/v1/auth/me/refresh-tenants": {
       "post": {
         "summary": "Refresh Tenant Snapshot",
         "description": "显式刷新当前会话的租户快照（022 FR-15 / T032）。\n\n从 ``GET /auth/me`` 拆出的写操作：重新计算 ``available_tenants`` 并写回\n会话文档。用 POST 显式声明\"这次调用有副作用\"，前端在需要刷新租户列表时\n主动调用，而不是每次读资料都附带写。",
-        "operationId": "refresh_tenant_snapshot_api_auth_me_refresh_tenants_post",
+        "operationId": "refresh_tenant_snapshot_api_v1_auth_me_refresh_tenants_post",
         "parameters": [
           {
             "name": "authorization",
@@ -6519,10 +6519,10 @@
         }
       }
     },
-    "/api/auth/profile": {
+    "/api/v1/auth/profile": {
       "patch": {
         "summary": "Update Profile",
-        "operationId": "update_profile_api_auth_profile_patch",
+        "operationId": "update_profile_api_v1_auth_profile_patch",
         "parameters": [
           {
             "name": "authorization",
@@ -6715,10 +6715,10 @@
         }
       }
     },
-    "/api/auth/profile/avatar": {
+    "/api/v1/auth/profile/avatar": {
       "post": {
         "summary": "Upload Profile Avatar",
-        "operationId": "upload_profile_avatar_api_auth_profile_avatar_post",
+        "operationId": "upload_profile_avatar_api_v1_auth_profile_avatar_post",
         "parameters": [
           {
             "name": "authorization",
@@ -6742,7 +6742,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_profile_avatar_api_auth_profile_avatar_post"
+                "$ref": "#/components/schemas/Body_upload_profile_avatar_api_v1_auth_profile_avatar_post"
               }
             }
           }
@@ -6911,10 +6911,10 @@
         }
       }
     },
-    "/api/auth/logout": {
+    "/api/v1/auth/logout": {
       "post": {
         "summary": "Logout",
-        "operationId": "logout_api_auth_logout_post",
+        "operationId": "logout_api_v1_auth_logout_post",
         "parameters": [
           {
             "name": "authorization",
@@ -7097,10 +7097,10 @@
         }
       }
     },
-    "/api/organizations/me": {
+    "/api/v1/organizations/me": {
       "get": {
         "summary": "Get Org Details",
-        "operationId": "get_org_details_api_organizations_me_get",
+        "operationId": "get_org_details_api_v1_organizations_me_get",
         "parameters": [
           {
             "name": "authorization",
@@ -7283,11 +7283,11 @@
         }
       }
     },
-    "/api/auth/portal-ticket": {
+    "/api/v1/auth/portal-ticket": {
       "post": {
         "summary": "Portal Ticket",
         "description": "门户 SSO 第一步：以服务身份为某 MOGO 终端用户签发一次性登录票据。\n\n门户（持牌外部服务）调用本端点，chat-api 校验服务身份后，按共享主键\n``end_users._id`` 解析用户并签发一次性票据（TTL 60s，``PORTAL_SSO_SECRET`` 签名）。\n票据**绝不下落 URL**，由门户经前端 ``window.history.state`` 带进 user-web。\n匹配失败即拒绝（无 JIT）；单租户票据携带 ``tenant_id``，多租户只携带身份。",
-        "operationId": "portal_ticket_api_auth_portal_ticket_post",
+        "operationId": "portal_ticket_api_v1_auth_portal_ticket_post",
         "parameters": [
           {
             "name": "X-MOGO-Service-Token",
@@ -7474,11 +7474,11 @@
         }
       }
     },
-    "/api/auth/portal-exchange": {
+    "/api/v1/auth/portal-exchange": {
       "post": {
         "summary": "Portal Exchange",
         "description": "门户 SSO 第二步：前端携一次性票据 POST 换票建会话。\n\n验签（fail-closed）→ 按 ``session_id`` accept-once（第二次 401）→ 解析用户 →\n单租户直建会话（复用 :func:`_create_session`）/ 多租户返回选租户挑战 / 跨租户拒绝。\n单租户返回 ``{token, profile, expiresAt}`` 与登录接口同构，前端\n:func:`handleLoginSuccess` 无需改动即可消费。",
-        "operationId": "portal_exchange_api_auth_portal_exchange_post",
+        "operationId": "portal_exchange_api_v1_auth_portal_exchange_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7653,11 +7653,11 @@
         }
       }
     },
-    "/api/auth/admin-sso": {
+    "/api/v1/auth/admin-sso": {
       "post": {
         "summary": "Admin Sso",
         "description": "单点登录（SSO）：为已登录的用户加密生成用于管理后台的 access token，\n并在 admin_sessions 中插入以允许后台免密登录。",
-        "operationId": "admin_sso_api_auth_admin_sso_post",
+        "operationId": "admin_sso_api_v1_auth_admin_sso_post",
         "parameters": [
           {
             "name": "authorization",
@@ -7840,10 +7840,10 @@
         }
       }
     },
-    "/api/debug/llm-config": {
+    "/api/v1/debug/llm-config": {
       "get": {
         "summary": "Llm Config",
-        "operationId": "llm_config_api_debug_llm_config_get",
+        "operationId": "llm_config_api_v1_debug_llm_config_get",
         "parameters": [
           {
             "name": "authorization",
@@ -8026,10 +8026,10 @@
         }
       }
     },
-    "/api/debug/runtime-kpi": {
+    "/api/v1/debug/runtime-kpi": {
       "get": {
         "summary": "Runtime Kpi",
-        "operationId": "runtime_kpi_api_debug_runtime_kpi_get",
+        "operationId": "runtime_kpi_api_v1_debug_runtime_kpi_get",
         "parameters": [
           {
             "name": "authorization",
@@ -8212,10 +8212,10 @@
         }
       }
     },
-    "/api/debug/env-metrics": {
+    "/api/v1/debug/env-metrics": {
       "get": {
         "summary": "Env Metrics",
-        "operationId": "env_metrics_api_debug_env_metrics_get",
+        "operationId": "env_metrics_api_v1_debug_env_metrics_get",
         "parameters": [
           {
             "name": "authorization",
@@ -8398,10 +8398,10 @@
         }
       }
     },
-    "/api/documents/render": {
+    "/api/v1/documents/render": {
       "post": {
         "summary": "Render Document",
-        "operationId": "render_document_api_documents_render_post",
+        "operationId": "render_document_api_v1_documents_render_post",
         "parameters": [
           {
             "name": "authorization",
@@ -8594,10 +8594,10 @@
         }
       }
     },
-    "/api/documents/sign": {
+    "/api/v1/documents/sign": {
       "post": {
         "summary": "Sign Document",
-        "operationId": "sign_document_api_documents_sign_post",
+        "operationId": "sign_document_api_v1_documents_sign_post",
         "parameters": [
           {
             "name": "authorization",
@@ -8790,11 +8790,11 @@
         }
       }
     },
-    "/api/documents/save-blueprint": {
+    "/api/v1/documents/save-blueprint": {
       "post": {
         "summary": "Save Blueprint",
         "description": "Save an edited blueprint back to the configured storage backend.",
-        "operationId": "save_blueprint_api_documents_save_blueprint_post",
+        "operationId": "save_blueprint_api_v1_documents_save_blueprint_post",
         "parameters": [
           {
             "name": "authorization",
@@ -8987,10 +8987,10 @@
         }
       }
     },
-    "/api/documents/render-presentation-pptx": {
+    "/api/v1/documents/render-presentation-pptx": {
       "post": {
         "summary": "Render Presentation Pptx",
-        "operationId": "render_presentation_pptx_api_documents_render_presentation_pptx_post",
+        "operationId": "render_presentation_pptx_api_v1_documents_render_presentation_pptx_post",
         "parameters": [
           {
             "name": "authorization",
@@ -9183,11 +9183,11 @@
         }
       }
     },
-    "/api/icons/{icon_name}.svg": {
+    "/api/v1/icons/{icon_name}.svg": {
       "get": {
         "summary": "Get Icon Svg",
         "description": "Serve a Tabler icon SVG by name, pre-processed for Fabric.js compatibility.\n\nTabler icons put fill/stroke on the <svg> root, but Fabric.js SVG parser\ndoesn't inherit parent attributes onto child elements. This endpoint injects\nfill/stroke directly onto each <path>, <circle>, <line>, <polyline>, <rect>\nso Fabric renders them correctly as stroked vector shapes.",
-        "operationId": "get_icon_svg_api_icons__icon_name__svg_get",
+        "operationId": "get_icon_svg_api_v1_icons__icon_name__svg_get",
         "parameters": [
           {
             "name": "icon_name",
@@ -9387,11 +9387,11 @@
         }
       }
     },
-    "/api/documents/render-chart-svg": {
+    "/api/v1/documents/render-chart-svg": {
       "post": {
         "summary": "Render Chart Svg Endpoint",
         "description": "Render a chart as SVG for the presentation editor.",
-        "operationId": "render_chart_svg_endpoint_api_documents_render_chart_svg_post",
+        "operationId": "render_chart_svg_endpoint_api_v1_documents_render_chart_svg_post",
         "parameters": [
           {
             "name": "authorization",
@@ -9582,10 +9582,10 @@
         }
       }
     },
-    "/api/documents/refresh-markdown-urls": {
+    "/api/v1/documents/refresh-markdown-urls": {
       "post": {
         "summary": "Refresh Markdown Urls",
-        "operationId": "refresh_markdown_urls_api_documents_refresh_markdown_urls_post",
+        "operationId": "refresh_markdown_urls_api_v1_documents_refresh_markdown_urls_post",
         "parameters": [
           {
             "name": "authorization",
@@ -9776,10 +9776,10 @@
         }
       }
     },
-    "/api/documents/fetch": {
+    "/api/v1/documents/fetch": {
       "post": {
         "summary": "Fetch Document",
-        "operationId": "fetch_document_api_documents_fetch_post",
+        "operationId": "fetch_document_api_v1_documents_fetch_post",
         "parameters": [
           {
             "name": "authorization",
@@ -9970,10 +9970,10 @@
         }
       }
     },
-    "/api/files/{object_path}": {
+    "/api/v1/files/{object_path}": {
       "get": {
         "summary": "Get Stored File",
-        "operationId": "get_stored_file_api_files__object_path__get",
+        "operationId": "get_stored_file_api_v1_files__object_path__get",
         "parameters": [
           {
             "name": "object_path",
@@ -10167,10 +10167,10 @@
         }
       }
     },
-    "/api/knowledge/sources/documents/{document_id}": {
+    "/api/v1/knowledge/sources/documents/{document_id}": {
       "get": {
         "summary": "Get Knowledge Source Document",
-        "operationId": "get_knowledge_source_document_api_knowledge_sources_documents__document_id__get",
+        "operationId": "get_knowledge_source_document_api_v1_knowledge_sources_documents__document_id__get",
         "parameters": [
           {
             "name": "document_id",
@@ -10206,7 +10206,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Knowledge Source Document Api Knowledge Sources Documents  Document Id  Get"
+                  "title": "Response Get Knowledge Source Document Api V1 Knowledge Sources Documents  Document Id  Get"
                 }
               }
             }
@@ -10364,10 +10364,10 @@
         }
       }
     },
-    "/api/knowledge/sources/documents/{document_id}/chunks/{chunk_id}": {
+    "/api/v1/knowledge/sources/documents/{document_id}/chunks/{chunk_id}": {
       "get": {
         "summary": "Get Knowledge Source Chunk",
-        "operationId": "get_knowledge_source_chunk_api_knowledge_sources_documents__document_id__chunks__chunk_id__get",
+        "operationId": "get_knowledge_source_chunk_api_v1_knowledge_sources_documents__document_id__chunks__chunk_id__get",
         "parameters": [
           {
             "name": "document_id",
@@ -10412,7 +10412,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Knowledge Source Chunk Api Knowledge Sources Documents  Document Id  Chunks  Chunk Id  Get"
+                  "title": "Response Get Knowledge Source Chunk Api V1 Knowledge Sources Documents  Document Id  Chunks  Chunk Id  Get"
                 }
               }
             }
@@ -10570,10 +10570,10 @@
         }
       }
     },
-    "/api/knowledge/sources/documents/{document_id}/preview": {
+    "/api/v1/knowledge/sources/documents/{document_id}/preview": {
       "get": {
         "summary": "Get Knowledge Source Preview",
-        "operationId": "get_knowledge_source_preview_api_knowledge_sources_documents__document_id__preview_get",
+        "operationId": "get_knowledge_source_preview_api_v1_knowledge_sources_documents__document_id__preview_get",
         "parameters": [
           {
             "name": "document_id",
@@ -10763,10 +10763,10 @@
         }
       }
     },
-    "/api/external-tools/my": {
+    "/api/v1/external-tools/my": {
       "get": {
         "summary": "List User External Tools",
-        "operationId": "list_user_external_tools_api_external_tools_my_get",
+        "operationId": "list_user_external_tools_api_v1_external_tools_my_get",
         "parameters": [
           {
             "name": "userId",
@@ -10980,7 +10980,7 @@
       },
       "post": {
         "summary": "Create User External Tool",
-        "operationId": "create_user_external_tool_api_external_tools_my_post",
+        "operationId": "create_user_external_tool_api_v1_external_tools_my_post",
         "parameters": [
           {
             "name": "userId",
@@ -11203,10 +11203,10 @@
         }
       }
     },
-    "/api/external-tools/my/{tool_id}": {
+    "/api/v1/external-tools/my/{tool_id}": {
       "get": {
         "summary": "Get User External Tool",
-        "operationId": "get_user_external_tool_api_external_tools_my__tool_id__get",
+        "operationId": "get_user_external_tool_api_v1_external_tools_my__tool_id__get",
         "parameters": [
           {
             "name": "tool_id",
@@ -11429,7 +11429,7 @@
       },
       "put": {
         "summary": "Update User External Tool",
-        "operationId": "update_user_external_tool_api_external_tools_my__tool_id__put",
+        "operationId": "update_user_external_tool_api_v1_external_tools_my__tool_id__put",
         "parameters": [
           {
             "name": "tool_id",
@@ -11662,7 +11662,7 @@
       },
       "patch": {
         "summary": "Patch User External Tool",
-        "operationId": "patch_user_external_tool_api_external_tools_my__tool_id__patch",
+        "operationId": "patch_user_external_tool_api_v1_external_tools_my__tool_id__patch",
         "parameters": [
           {
             "name": "tool_id",
@@ -11897,7 +11897,7 @@
       },
       "delete": {
         "summary": "Delete User External Tool",
-        "operationId": "delete_user_external_tool_api_external_tools_my__tool_id__delete",
+        "operationId": "delete_user_external_tool_api_v1_external_tools_my__tool_id__delete",
         "parameters": [
           {
             "name": "tool_id",
@@ -12119,10 +12119,10 @@
         }
       }
     },
-    "/api/external-tools/registry": {
+    "/api/v1/external-tools/registry": {
       "get": {
         "summary": "List External Tool Registry",
-        "operationId": "list_external_tool_registry_api_external_tools_registry_get",
+        "operationId": "list_external_tool_registry_api_v1_external_tools_registry_get",
         "parameters": [
           {
             "name": "tenantId",
@@ -12325,10 +12325,10 @@
         }
       }
     },
-    "/api/external-tools/{tool_id}/test": {
+    "/api/v1/external-tools/{tool_id}/test": {
       "post": {
         "summary": "Test External Tool",
-        "operationId": "test_external_tool_api_external_tools__tool_id__test_post",
+        "operationId": "test_external_tool_api_v1_external_tools__tool_id__test_post",
         "parameters": [
           {
             "name": "tool_id",
@@ -12550,10 +12550,10 @@
         }
       }
     },
-    "/api/external-tools/my/{tool_id}/test": {
+    "/api/v1/external-tools/my/{tool_id}/test": {
       "post": {
         "summary": "Test User External Tool",
-        "operationId": "test_user_external_tool_api_external_tools_my__tool_id__test_post",
+        "operationId": "test_user_external_tool_api_v1_external_tools_my__tool_id__test_post",
         "parameters": [
           {
             "name": "tool_id",
@@ -12785,10 +12785,10 @@
         }
       }
     },
-    "/api/external-tools/test-draft": {
+    "/api/v1/external-tools/test-draft": {
       "post": {
         "summary": "Test Draft External Tool",
-        "operationId": "test_draft_external_tool_api_external_tools_test_draft_post",
+        "operationId": "test_draft_external_tool_api_v1_external_tools_test_draft_post",
         "parameters": [
           {
             "name": "tenantId",
@@ -13001,10 +13001,10 @@
         }
       }
     },
-    "/api/external-tools/{tool_id}/discover": {
+    "/api/v1/external-tools/{tool_id}/discover": {
       "post": {
         "summary": "Discover Mcp Tools",
-        "operationId": "discover_mcp_tools_api_external_tools__tool_id__discover_post",
+        "operationId": "discover_mcp_tools_api_v1_external_tools__tool_id__discover_post",
         "parameters": [
           {
             "name": "tool_id",
@@ -13216,10 +13216,10 @@
         }
       }
     },
-    "/api/external-tools/my/{tool_id}/discover": {
+    "/api/v1/external-tools/my/{tool_id}/discover": {
       "post": {
         "summary": "Discover User Mcp Tools",
-        "operationId": "discover_user_mcp_tools_api_external_tools_my__tool_id__discover_post",
+        "operationId": "discover_user_mcp_tools_api_v1_external_tools_my__tool_id__discover_post",
         "parameters": [
           {
             "name": "tool_id",
@@ -13441,10 +13441,10 @@
         }
       }
     },
-    "/api/external-tools/generate-description": {
+    "/api/v1/external-tools/generate-description": {
       "post": {
         "summary": "Generate External Tool Description",
-        "operationId": "generate_external_tool_description_api_external_tools_generate_description_post",
+        "operationId": "generate_external_tool_description_api_v1_external_tools_generate_description_post",
         "parameters": [
           {
             "name": "tenantId",
@@ -13657,10 +13657,10 @@
         }
       }
     },
-    "/api/models/available": {
+    "/api/v1/models/available": {
       "get": {
         "summary": "Available Models",
-        "operationId": "available_models_api_models_available_get",
+        "operationId": "available_models_api_v1_models_available_get",
         "parameters": [
           {
             "name": "tenant_id",
@@ -13717,7 +13717,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Available Models Api Models Available Get"
+                  "title": "Response Available Models Api V1 Models Available Get"
                 }
               }
             }
@@ -13875,10 +13875,10 @@
         }
       }
     },
-    "/api/models/images/available": {
+    "/api/v1/models/images/available": {
       "get": {
         "summary": "Available Image Models",
-        "operationId": "available_image_models_api_models_images_available_get",
+        "operationId": "available_image_models_api_v1_models_images_available_get",
         "parameters": [
           {
             "name": "tenant_id",
@@ -13925,7 +13925,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Available Image Models Api Models Images Available Get"
+                  "title": "Response Available Image Models Api V1 Models Images Available Get"
                 }
               }
             }
@@ -14083,10 +14083,10 @@
         }
       }
     },
-    "/api/models/{model_id}/test/stream": {
+    "/api/v1/models/{model_id}/test/stream": {
       "post": {
         "summary": "Stream Model Test",
-        "operationId": "stream_model_test_api_models__model_id__test_stream_post",
+        "operationId": "stream_model_test_api_v1_models__model_id__test_stream_post",
         "parameters": [
           {
             "name": "model_id",
@@ -14303,10 +14303,10 @@
         }
       }
     },
-    "/api/models/{model_id}/test": {
+    "/api/v1/models/{model_id}/test": {
       "post": {
         "summary": "Model Test",
-        "operationId": "model_test_api_models__model_id__test_post",
+        "operationId": "model_test_api_v1_models__model_id__test_post",
         "parameters": [
           {
             "name": "model_id",
@@ -14369,7 +14369,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Model Test Api Models  Model Id  Test Post"
+                  "title": "Response Model Test Api V1 Models  Model Id  Test Post"
                 }
               }
             }
@@ -14527,10 +14527,10 @@
         }
       }
     },
-    "/api/models/{model_id}/test-image": {
+    "/api/v1/models/{model_id}/test-image": {
       "post": {
         "summary": "Image Model Test",
-        "operationId": "image_model_test_api_models__model_id__test_image_post",
+        "operationId": "image_model_test_api_v1_models__model_id__test_image_post",
         "parameters": [
           {
             "name": "model_id",
@@ -14593,7 +14593,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Image Model Test Api Models  Model Id  Test Image Post"
+                  "title": "Response Image Model Test Api V1 Models  Model Id  Test Image Post"
                 }
               }
             }
@@ -14751,13 +14751,13 @@
         }
       }
     },
-    "/api/projects": {
+    "/api/v1/projects": {
       "post": {
         "tags": [
           "projects"
         ],
         "summary": "Create Desktop Project",
-        "operationId": "create_desktop_project_api_projects_post",
+        "operationId": "create_desktop_project_api_v1_projects_post",
         "parameters": [
           {
             "name": "authorization",
@@ -14954,7 +14954,7 @@
           "projects"
         ],
         "summary": "List Desktop Projects",
-        "operationId": "list_desktop_projects_api_projects_get",
+        "operationId": "list_desktop_projects_api_v1_projects_get",
         "parameters": [
           {
             "name": "authorization",
@@ -15137,13 +15137,13 @@
         }
       }
     },
-    "/api/product/capabilities": {
+    "/api/v1/product/capabilities": {
       "get": {
         "tags": [
           "product"
         ],
         "summary": "Product Capabilities",
-        "operationId": "product_capabilities_api_product_capabilities_get",
+        "operationId": "product_capabilities_api_v1_product_capabilities_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -15152,7 +15152,7 @@
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Product Capabilities Api Product Capabilities Get"
+                  "title": "Response Product Capabilities Api V1 Product Capabilities Get"
                 }
               }
             }
@@ -15310,10 +15310,10 @@
         }
       }
     },
-    "/api/sessions": {
+    "/api/v1/sessions": {
       "post": {
         "summary": "Create Session",
-        "operationId": "create_session_api_sessions_post",
+        "operationId": "create_session_api_v1_sessions_post",
         "parameters": [
           {
             "name": "authorization",
@@ -15507,7 +15507,7 @@
       },
       "get": {
         "summary": "List Sessions",
-        "operationId": "list_sessions_api_sessions_get",
+        "operationId": "list_sessions_api_v1_sessions_get",
         "parameters": [
           {
             "name": "userId",
@@ -15742,10 +15742,10 @@
         }
       }
     },
-    "/api/sessions/search": {
+    "/api/v1/sessions/search": {
       "get": {
         "summary": "Search Sessions",
-        "operationId": "search_sessions_api_sessions_search_get",
+        "operationId": "search_sessions_api_v1_sessions_search_get",
         "parameters": [
           {
             "name": "userId",
@@ -15980,10 +15980,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}": {
+    "/api/v1/sessions/{session_id}": {
       "get": {
         "summary": "Get Session",
-        "operationId": "get_session_api_sessions__session_id__get",
+        "operationId": "get_session_api_v1_sessions__session_id__get",
         "parameters": [
           {
             "name": "session_id",
@@ -16205,7 +16205,7 @@
       },
       "patch": {
         "summary": "Update Session",
-        "operationId": "update_session_api_sessions__session_id__patch",
+        "operationId": "update_session_api_v1_sessions__session_id__patch",
         "parameters": [
           {
             "name": "session_id",
@@ -16408,7 +16408,7 @@
       },
       "delete": {
         "summary": "Delete Session",
-        "operationId": "delete_session_api_sessions__session_id__delete",
+        "operationId": "delete_session_api_v1_sessions__session_id__delete",
         "parameters": [
           {
             "name": "session_id",
@@ -16619,11 +16619,11 @@
         }
       }
     },
-    "/api/sessions/{session_id}/read": {
+    "/api/v1/sessions/{session_id}/read": {
       "post": {
         "summary": "Mark Scheduled Read",
         "description": "显式标记会话的计划任务消息为已读（022 FR-15 / T032）。\n\n从 ``GET /sessions/{id}`` 拆出的写操作：把 ``scheduled_unread`` 置为 False。\n用 POST 显式声明副作用，前端在用户真正打开会话后再调用。",
-        "operationId": "mark_scheduled_read_api_sessions__session_id__read_post",
+        "operationId": "mark_scheduled_read_api_v1_sessions__session_id__read_post",
         "parameters": [
           {
             "name": "session_id",
@@ -16834,11 +16834,11 @@
         }
       }
     },
-    "/api/sessions/{session_id}/end": {
+    "/api/v1/sessions/{session_id}/end": {
       "post": {
         "summary": "End Session",
         "description": "End a 002 session → emits the 009 ``SessionEnd`` event (FR-1 / FR-12).\n\nThis is the normal end-of-session seam. It is what drives the 017 tiered\nmemory sedimentation; ``delete_session`` is for removal, not for ending.\n\nIdempotent — ending an already-ended session is a no-op that returns the\ncurrent state without re-triggering sedimentation.",
-        "operationId": "end_session_api_sessions__session_id__end_post",
+        "operationId": "end_session_api_v1_sessions__session_id__end_post",
         "parameters": [
           {
             "name": "session_id",
@@ -17065,10 +17065,10 @@
         }
       }
     },
-    "/api/sessions/{session_id}/messages": {
+    "/api/v1/sessions/{session_id}/messages": {
       "post": {
         "summary": "Append Messages",
-        "operationId": "append_messages_api_sessions__session_id__messages_post",
+        "operationId": "append_messages_api_v1_sessions__session_id__messages_post",
         "parameters": [
           {
             "name": "session_id",
@@ -17270,10 +17270,10 @@
         }
       }
     },
-    "/api/tasks/browser-auth/status": {
+    "/api/v1/tasks/browser-auth/status": {
       "get": {
         "summary": "Browser Auth Status",
-        "operationId": "browser_auth_status_api_tasks_browser_auth_status_get",
+        "operationId": "browser_auth_status_api_v1_tasks_browser_auth_status_get",
         "parameters": [
           {
             "name": "user_id",
@@ -17472,10 +17472,10 @@
         }
       }
     },
-    "/api/tasks/browser-auth/manual-ready": {
+    "/api/v1/tasks/browser-auth/manual-ready": {
       "post": {
         "summary": "Browser Auth Manual Ready",
-        "operationId": "browser_auth_manual_ready_api_tasks_browser_auth_manual_ready_post",
+        "operationId": "browser_auth_manual_ready_api_v1_tasks_browser_auth_manual_ready_post",
         "parameters": [
           {
             "name": "authorization",
@@ -17666,10 +17666,10 @@
         }
       }
     },
-    "/api/tasks/{run_id}/suspensions/active": {
+    "/api/v1/tasks/{run_id}/suspensions/active": {
       "get": {
         "summary": "Active Task Suspension",
-        "operationId": "active_task_suspension_api_tasks__run_id__suspensions_active_get",
+        "operationId": "active_task_suspension_api_v1_tasks__run_id__suspensions_active_get",
         "parameters": [
           {
             "name": "run_id",
@@ -17859,10 +17859,10 @@
         }
       }
     },
-    "/api/tasks/suspensions/{suspension_id}/manual-ready": {
+    "/api/v1/tasks/suspensions/{suspension_id}/manual-ready": {
       "post": {
         "summary": "Mark Task Suspension Manual Ready",
-        "operationId": "mark_task_suspension_manual_ready_api_tasks_suspensions__suspension_id__manual_ready_post",
+        "operationId": "mark_task_suspension_manual_ready_api_v1_tasks_suspensions__suspension_id__manual_ready_post",
         "parameters": [
           {
             "name": "suspension_id",
@@ -18062,10 +18062,10 @@
         }
       }
     },
-    "/api/tasks/{run_id}/resume": {
+    "/api/v1/tasks/{run_id}/resume": {
       "post": {
         "summary": "Resume Task",
-        "operationId": "resume_task_api_tasks__run_id__resume_post",
+        "operationId": "resume_task_api_v1_tasks__run_id__resume_post",
         "parameters": [
           {
             "name": "run_id",
@@ -18265,10 +18265,10 @@
         }
       }
     },
-    "/api/skills/upload": {
+    "/api/v1/skills/upload": {
       "post": {
         "summary": "Upload Skill Source",
-        "operationId": "upload_skill_source_api_skills_upload_post",
+        "operationId": "upload_skill_source_api_v1_skills_upload_post",
         "parameters": [
           {
             "name": "authorization",
@@ -18302,7 +18302,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_skill_source_api_skills_upload_post"
+                "$ref": "#/components/schemas/Body_upload_skill_source_api_v1_skills_upload_post"
               }
             }
           }
@@ -18471,10 +18471,10 @@
         }
       }
     },
-    "/api/skills/analyze_template": {
+    "/api/v1/skills/analyze_template": {
       "post": {
         "summary": "Analyze Template",
-        "operationId": "analyze_template_api_skills_analyze_template_post",
+        "operationId": "analyze_template_api_v1_skills_analyze_template_post",
         "parameters": [
           {
             "name": "authorization",
@@ -18508,7 +18508,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_analyze_template_api_skills_analyze_template_post"
+                "$ref": "#/components/schemas/Body_analyze_template_api_v1_skills_analyze_template_post"
               }
             }
           }
@@ -18677,10 +18677,10 @@
         }
       }
     },
-    "/api/skills/generate": {
+    "/api/v1/skills/generate": {
       "post": {
         "summary": "Generate Skill",
-        "operationId": "generate_skill_api_skills_generate_post",
+        "operationId": "generate_skill_api_v1_skills_generate_post",
         "parameters": [
           {
             "name": "authorization",
@@ -18883,11 +18883,11 @@
         }
       }
     },
-    "/api/skills/from_recording": {
+    "/api/v1/skills/from_recording": {
       "post": {
         "summary": "Skill From Recording",
         "description": "Persist a recorded browser trajectory as a composite_task skill.\n\nThe agent's recorder emits semantic events while the user walks\nthrough the real flow; this endpoint converts them into the same\nCompositeStep YAML shape the manual editor produces, so downstream\nconsumers (parser, runtime, UI) stay on a single code path.",
-        "operationId": "skill_from_recording_api_skills_from_recording_post",
+        "operationId": "skill_from_recording_api_v1_skills_from_recording_post",
         "parameters": [
           {
             "name": "authorization",
@@ -19090,10 +19090,10 @@
         }
       }
     },
-    "/api/skills/enrich_draft": {
+    "/api/v1/skills/enrich_draft": {
       "post": {
         "summary": "Enrich Skill Draft",
-        "operationId": "enrich_skill_draft_api_skills_enrich_draft_post",
+        "operationId": "enrich_skill_draft_api_v1_skills_enrich_draft_post",
         "parameters": [
           {
             "name": "authorization",
@@ -19296,10 +19296,10 @@
         }
       }
     },
-    "/api/skills/enrich-writing-style": {
+    "/api/v1/skills/enrich-writing-style": {
       "post": {
         "summary": "Enrich Writing Style",
-        "operationId": "enrich_writing_style_api_skills_enrich_writing_style_post",
+        "operationId": "enrich_writing_style_api_v1_skills_enrich_writing_style_post",
         "parameters": [
           {
             "name": "userId",
@@ -19523,10 +19523,10 @@
         }
       }
     },
-    "/api/skills/generate-workflow-steps": {
+    "/api/v1/skills/generate-workflow-steps": {
       "post": {
         "summary": "Generate Workflow Steps",
-        "operationId": "generate_workflow_steps_api_skills_generate_workflow_steps_post",
+        "operationId": "generate_workflow_steps_api_v1_skills_generate_workflow_steps_post",
         "parameters": [
           {
             "name": "authorization",
@@ -19729,10 +19729,10 @@
         }
       }
     },
-    "/api/skills/generate-workflow-nodes": {
+    "/api/v1/skills/generate-workflow-nodes": {
       "post": {
         "summary": "Generate Workflow Nodes",
-        "operationId": "generate_workflow_nodes_api_skills_generate_workflow_nodes_post",
+        "operationId": "generate_workflow_nodes_api_v1_skills_generate_workflow_nodes_post",
         "parameters": [
           {
             "name": "authorization",
@@ -19935,10 +19935,10 @@
         }
       }
     },
-    "/api/skills/polish-workflow-node": {
+    "/api/v1/skills/polish-workflow-node": {
       "post": {
         "summary": "Polish Workflow Node",
-        "operationId": "polish_workflow_node_api_skills_polish_workflow_node_post",
+        "operationId": "polish_workflow_node_api_v1_skills_polish_workflow_node_post",
         "parameters": [
           {
             "name": "authorization",
@@ -20141,10 +20141,10 @@
         }
       }
     },
-    "/api/skills/check-workflow-logic": {
+    "/api/v1/skills/check-workflow-logic": {
       "post": {
         "summary": "Check Workflow Logic",
-        "operationId": "check_workflow_logic_api_skills_check_workflow_logic_post",
+        "operationId": "check_workflow_logic_api_v1_skills_check_workflow_logic_post",
         "parameters": [
           {
             "name": "authorization",
@@ -20347,10 +20347,10 @@
         }
       }
     },
-    "/api/skills/check-workflow-nodes": {
+    "/api/v1/skills/check-workflow-nodes": {
       "post": {
         "summary": "Check Workflow Nodes",
-        "operationId": "check_workflow_nodes_api_skills_check_workflow_nodes_post",
+        "operationId": "check_workflow_nodes_api_v1_skills_check_workflow_nodes_post",
         "parameters": [
           {
             "name": "authorization",
@@ -20553,10 +20553,10 @@
         }
       }
     },
-    "/api/skills/check-script-plugin": {
+    "/api/v1/skills/check-script-plugin": {
       "post": {
         "summary": "Check Script Plugin",
-        "operationId": "check_script_plugin_api_skills_check_script_plugin_post",
+        "operationId": "check_script_plugin_api_v1_skills_check_script_plugin_post",
         "parameters": [
           {
             "name": "authorization",
@@ -20759,10 +20759,10 @@
         }
       }
     },
-    "/api/skills/fix-script-plugin": {
+    "/api/v1/skills/fix-script-plugin": {
       "post": {
         "summary": "Fix Script Plugin",
-        "operationId": "fix_script_plugin_api_skills_fix_script_plugin_post",
+        "operationId": "fix_script_plugin_api_v1_skills_fix_script_plugin_post",
         "parameters": [
           {
             "name": "authorization",
@@ -20965,10 +20965,10 @@
         }
       }
     },
-    "/api/skills/generate-script-plugin": {
+    "/api/v1/skills/generate-script-plugin": {
       "post": {
         "summary": "Generate Script Plugin",
-        "operationId": "generate_script_plugin_api_skills_generate_script_plugin_post",
+        "operationId": "generate_script_plugin_api_v1_skills_generate_script_plugin_post",
         "parameters": [
           {
             "name": "authorization",
@@ -21171,10 +21171,10 @@
         }
       }
     },
-    "/api/skills": {
+    "/api/v1/skills": {
       "get": {
         "summary": "List Skills",
-        "operationId": "list_skills_api_skills_get",
+        "operationId": "list_skills_api_v1_skills_get",
         "parameters": [
           {
             "name": "userId",
@@ -21387,7 +21387,7 @@
       },
       "post": {
         "summary": "Create Admin Shape Skill",
-        "operationId": "create_admin_shape_skill_api_skills_post",
+        "operationId": "create_admin_shape_skill_api_v1_skills_post",
         "parameters": [
           {
             "name": "userId",
@@ -21609,10 +21609,10 @@
         }
       }
     },
-    "/api/skills/selectable": {
+    "/api/v1/skills/selectable": {
       "get": {
         "summary": "List Selectable Skills",
-        "operationId": "list_selectable_skills_api_skills_selectable_get",
+        "operationId": "list_selectable_skills_api_v1_skills_selectable_get",
         "parameters": [
           {
             "name": "userId",
@@ -21872,10 +21872,10 @@
         }
       }
     },
-    "/api/skills/{skill_id}": {
+    "/api/v1/skills/{skill_id}": {
       "get": {
         "summary": "Get Skill",
-        "operationId": "get_skill_api_skills__skill_id__get",
+        "operationId": "get_skill_api_v1_skills__skill_id__get",
         "parameters": [
           {
             "name": "skill_id",
@@ -22097,7 +22097,7 @@
       },
       "put": {
         "summary": "Update Skill",
-        "operationId": "update_skill_api_skills__skill_id__put",
+        "operationId": "update_skill_api_v1_skills__skill_id__put",
         "parameters": [
           {
             "name": "skill_id",
@@ -22329,7 +22329,7 @@
       },
       "delete": {
         "summary": "Delete Skill",
-        "operationId": "delete_skill_api_skills__skill_id__delete",
+        "operationId": "delete_skill_api_v1_skills__skill_id__delete",
         "parameters": [
           {
             "name": "skill_id",
@@ -22550,10 +22550,10 @@
         }
       }
     },
-    "/api/skills/{skill_id}/enabled": {
+    "/api/v1/skills/{skill_id}/enabled": {
       "patch": {
         "summary": "Set Skill Enabled",
-        "operationId": "set_skill_enabled_api_skills__skill_id__enabled_patch",
+        "operationId": "set_skill_enabled_api_v1_skills__skill_id__enabled_patch",
         "parameters": [
           {
             "name": "skill_id",
@@ -22784,10 +22784,10 @@
         }
       }
     },
-    "/api/skills/install-zip": {
+    "/api/v1/skills/install-zip": {
       "post": {
         "summary": "Install Personal Skill Zip",
-        "operationId": "install_personal_skill_zip_api_skills_install_zip_post",
+        "operationId": "install_personal_skill_zip_api_v1_skills_install_zip_post",
         "parameters": [
           {
             "name": "authorization",
@@ -22811,7 +22811,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_install_personal_skill_zip_api_skills_install_zip_post"
+                "$ref": "#/components/schemas/Body_install_personal_skill_zip_api_v1_skills_install_zip_post"
               }
             }
           }
@@ -22824,7 +22824,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Install Personal Skill Zip Api Skills Install Zip Post"
+                  "title": "Response Install Personal Skill Zip Api V1 Skills Install Zip Post"
                 }
               }
             }
@@ -22982,10 +22982,10 @@
         }
       }
     },
-    "/api/organization-skills/install-zip": {
+    "/api/v1/organization-skills/install-zip": {
       "post": {
         "summary": "Install Organization Skill Zip",
-        "operationId": "install_organization_skill_zip_api_organization_skills_install_zip_post",
+        "operationId": "install_organization_skill_zip_api_v1_organization_skills_install_zip_post",
         "parameters": [
           {
             "name": "authorization",
@@ -23019,7 +23019,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_install_organization_skill_zip_api_organization_skills_install_zip_post"
+                "$ref": "#/components/schemas/Body_install_organization_skill_zip_api_v1_organization_skills_install_zip_post"
               }
             }
           }
@@ -23032,7 +23032,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Install Organization Skill Zip Api Organization Skills Install Zip Post"
+                  "title": "Response Install Organization Skill Zip Api V1 Organization Skills Install Zip Post"
                 }
               }
             }
@@ -23190,10 +23190,10 @@
         }
       }
     },
-    "/api/skills/{skill_id}/publish": {
+    "/api/v1/skills/{skill_id}/publish": {
       "post": {
         "summary": "Publish Skill",
-        "operationId": "publish_skill_api_skills__skill_id__publish_post",
+        "operationId": "publish_skill_api_v1_skills__skill_id__publish_post",
         "parameters": [
           {
             "name": "skill_id",
@@ -23239,7 +23239,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Publish Skill Api Skills  Skill Id  Publish Post"
+                  "title": "Response Publish Skill Api V1 Skills  Skill Id  Publish Post"
                 }
               }
             }
@@ -23397,10 +23397,10 @@
         }
       }
     },
-    "/api/skills/{skill_id}/releases": {
+    "/api/v1/skills/{skill_id}/releases": {
       "get": {
         "summary": "List Skill Releases",
-        "operationId": "list_skill_releases_api_skills__skill_id__releases_get",
+        "operationId": "list_skill_releases_api_v1_skills__skill_id__releases_get",
         "parameters": [
           {
             "name": "skill_id",
@@ -23448,7 +23448,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Skill Releases Api Skills  Skill Id  Releases Get"
+                  "title": "Response List Skill Releases Api V1 Skills  Skill Id  Releases Get"
                 }
               }
             }
@@ -23606,10 +23606,10 @@
         }
       }
     },
-    "/api/skill-updates": {
+    "/api/v1/skill-updates": {
       "get": {
         "summary": "List Skill Updates",
-        "operationId": "list_skill_updates_api_skill_updates_get",
+        "operationId": "list_skill_updates_api_v1_skill_updates_get",
         "parameters": [
           {
             "name": "limit",
@@ -23648,7 +23648,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Skill Updates Api Skill Updates Get"
+                  "title": "Response List Skill Updates Api V1 Skill Updates Get"
                 }
               }
             }
@@ -23806,10 +23806,10 @@
         }
       }
     },
-    "/api/skill-updates/{notification_id}/install": {
+    "/api/v1/skill-updates/{notification_id}/install": {
       "post": {
         "summary": "Install Skill Update",
-        "operationId": "install_skill_update_api_skill_updates__notification_id__install_post",
+        "operationId": "install_skill_update_api_v1_skill_updates__notification_id__install_post",
         "parameters": [
           {
             "name": "notification_id",
@@ -23855,7 +23855,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Install Skill Update Api Skill Updates  Notification Id  Install Post"
+                  "title": "Response Install Skill Update Api V1 Skill Updates  Notification Id  Install Post"
                 }
               }
             }
@@ -24013,10 +24013,10 @@
         }
       }
     },
-    "/api/skill-share-directory": {
+    "/api/v1/skill-share-directory": {
       "get": {
         "summary": "Search Share Members",
-        "operationId": "search_share_members_api_skill_share_directory_get",
+        "operationId": "search_share_members_api_v1_skill_share_directory_get",
         "parameters": [
           {
             "name": "keyword",
@@ -24077,7 +24077,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Search Share Members Api Skill Share Directory Get"
+                  "title": "Response Search Share Members Api V1 Skill Share Directory Get"
                 }
               }
             }
@@ -24235,10 +24235,10 @@
         }
       }
     },
-    "/api/skills/{skill_id}/share-with-users": {
+    "/api/v1/skills/{skill_id}/share-with-users": {
       "post": {
         "summary": "Share Skill With Users",
-        "operationId": "share_skill_with_users_api_skills__skill_id__share_with_users_post",
+        "operationId": "share_skill_with_users_api_v1_skills__skill_id__share_with_users_post",
         "parameters": [
           {
             "name": "skill_id",
@@ -24284,7 +24284,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Share Skill With Users Api Skills  Skill Id  Share With Users Post"
+                  "title": "Response Share Skill With Users Api V1 Skills  Skill Id  Share With Users Post"
                 }
               }
             }
@@ -24442,10 +24442,10 @@
         }
       }
     },
-    "/api/skill-share-inbox": {
+    "/api/v1/skill-share-inbox": {
       "get": {
         "summary": "List Skill Share Inbox",
-        "operationId": "list_skill_share_inbox_api_skill_share_inbox_get",
+        "operationId": "list_skill_share_inbox_api_v1_skill_share_inbox_get",
         "parameters": [
           {
             "name": "cursor",
@@ -24495,7 +24495,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Skill Share Inbox Api Skill Share Inbox Get"
+                  "title": "Response List Skill Share Inbox Api V1 Skill Share Inbox Get"
                 }
               }
             }
@@ -24653,10 +24653,10 @@
         }
       }
     },
-    "/api/skill-share-inbox/count": {
+    "/api/v1/skill-share-inbox/count": {
       "get": {
         "summary": "Count Skill Share Inbox",
-        "operationId": "count_skill_share_inbox_api_skill_share_inbox_count_get",
+        "operationId": "count_skill_share_inbox_api_v1_skill_share_inbox_count_get",
         "parameters": [
           {
             "name": "authorization",
@@ -24683,7 +24683,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Count Skill Share Inbox Api Skill Share Inbox Count Get"
+                  "title": "Response Count Skill Share Inbox Api V1 Skill Share Inbox Count Get"
                 }
               }
             }
@@ -24841,10 +24841,10 @@
         }
       }
     },
-    "/api/skill-share-inbox/{delivery_id}/accept": {
+    "/api/v1/skill-share-inbox/{delivery_id}/accept": {
       "post": {
         "summary": "Accept Shared Skill",
-        "operationId": "accept_shared_skill_api_skill_share_inbox__delivery_id__accept_post",
+        "operationId": "accept_shared_skill_api_v1_skill_share_inbox__delivery_id__accept_post",
         "parameters": [
           {
             "name": "delivery_id",
@@ -24890,7 +24890,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Accept Shared Skill Api Skill Share Inbox  Delivery Id  Accept Post"
+                  "title": "Response Accept Shared Skill Api V1 Skill Share Inbox  Delivery Id  Accept Post"
                 }
               }
             }
@@ -25048,10 +25048,10 @@
         }
       }
     },
-    "/api/skill-share-inbox/{delivery_id}/decline": {
+    "/api/v1/skill-share-inbox/{delivery_id}/decline": {
       "post": {
         "summary": "Decline Shared Skill",
-        "operationId": "decline_shared_skill_api_skill_share_inbox__delivery_id__decline_post",
+        "operationId": "decline_shared_skill_api_v1_skill_share_inbox__delivery_id__decline_post",
         "parameters": [
           {
             "name": "delivery_id",
@@ -25087,7 +25087,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Decline Shared Skill Api Skill Share Inbox  Delivery Id  Decline Post"
+                  "title": "Response Decline Shared Skill Api V1 Skill Share Inbox  Delivery Id  Decline Post"
                 }
               }
             }
@@ -25245,10 +25245,10 @@
         }
       }
     },
-    "/api/skills/{skill_id}/shares": {
+    "/api/v1/skills/{skill_id}/shares": {
       "post": {
         "summary": "Create Skill Share",
-        "operationId": "create_skill_share_api_skills__skill_id__shares_post",
+        "operationId": "create_skill_share_api_v1_skills__skill_id__shares_post",
         "parameters": [
           {
             "name": "skill_id",
@@ -25294,7 +25294,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Create Skill Share Api Skills  Skill Id  Shares Post"
+                  "title": "Response Create Skill Share Api V1 Skills  Skill Id  Shares Post"
                 }
               }
             }
@@ -25452,10 +25452,10 @@
         }
       }
     },
-    "/api/skill-shares/{token}": {
+    "/api/v1/skill-shares/{token}": {
       "get": {
         "summary": "Preview Skill Share",
-        "operationId": "preview_skill_share_api_skill_shares__token__get",
+        "operationId": "preview_skill_share_api_v1_skill_shares__token__get",
         "parameters": [
           {
             "name": "token",
@@ -25491,7 +25491,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Preview Skill Share Api Skill Shares  Token  Get"
+                  "title": "Response Preview Skill Share Api V1 Skill Shares  Token  Get"
                 }
               }
             }
@@ -25649,10 +25649,10 @@
         }
       }
     },
-    "/api/skill-shares/{token}/install": {
+    "/api/v1/skill-shares/{token}/install": {
       "post": {
         "summary": "Install Skill Share",
-        "operationId": "install_skill_share_api_skill_shares__token__install_post",
+        "operationId": "install_skill_share_api_v1_skill_shares__token__install_post",
         "parameters": [
           {
             "name": "token",
@@ -25698,7 +25698,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Install Skill Share Api Skill Shares  Token  Install Post"
+                  "title": "Response Install Skill Share Api V1 Skill Shares  Token  Install Post"
                 }
               }
             }
@@ -25856,10 +25856,10 @@
         }
       }
     },
-    "/api/skills/{skill_id}/shares/{share_id}": {
+    "/api/v1/skills/{skill_id}/shares/{share_id}": {
       "delete": {
         "summary": "Revoke Skill Share",
-        "operationId": "revoke_skill_share_api_skills__skill_id__shares__share_id__delete",
+        "operationId": "revoke_skill_share_api_v1_skills__skill_id__shares__share_id__delete",
         "parameters": [
           {
             "name": "skill_id",
@@ -25904,7 +25904,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Revoke Skill Share Api Skills  Skill Id  Shares  Share Id  Delete"
+                  "title": "Response Revoke Skill Share Api V1 Skills  Skill Id  Shares  Share Id  Delete"
                 }
               }
             }
@@ -26062,10 +26062,10 @@
         }
       }
     },
-    "/api/resource-feedback/{resource_type}/{resource_id}": {
+    "/api/v1/resource-feedback/{resource_type}/{resource_id}": {
       "get": {
         "summary": "List Feedback",
-        "operationId": "list_feedback_api_resource_feedback__resource_type___resource_id__get",
+        "operationId": "list_feedback_api_v1_resource_feedback__resource_type___resource_id__get",
         "parameters": [
           {
             "name": "resource_type",
@@ -26315,10 +26315,10 @@
         }
       }
     },
-    "/api/resource-feedback/{resource_type}/{resource_id}/comments": {
+    "/api/v1/resource-feedback/{resource_type}/{resource_id}/comments": {
       "post": {
         "summary": "Add Comment",
-        "operationId": "add_comment_api_resource_feedback__resource_type___resource_id__comments_post",
+        "operationId": "add_comment_api_v1_resource_feedback__resource_type___resource_id__comments_post",
         "parameters": [
           {
             "name": "resource_type",
@@ -26527,10 +26527,10 @@
         }
       }
     },
-    "/api/resource-feedback/comments/{comment_id}": {
+    "/api/v1/resource-feedback/comments/{comment_id}": {
       "delete": {
         "summary": "Delete Comment",
-        "operationId": "delete_comment_api_resource_feedback_comments__comment_id__delete",
+        "operationId": "delete_comment_api_v1_resource_feedback_comments__comment_id__delete",
         "parameters": [
           {
             "name": "comment_id",
@@ -26720,10 +26720,10 @@
         }
       }
     },
-    "/api/resource-feedback/comments/{comment_id}/like": {
+    "/api/v1/resource-feedback/comments/{comment_id}/like": {
       "post": {
         "summary": "Toggle Comment Like",
-        "operationId": "toggle_comment_like_api_resource_feedback_comments__comment_id__like_post",
+        "operationId": "toggle_comment_like_api_v1_resource_feedback_comments__comment_id__like_post",
         "parameters": [
           {
             "name": "comment_id",
@@ -26913,10 +26913,10 @@
         }
       }
     },
-    "/api/resource-feedback/{resource_type}/{resource_id}/like": {
+    "/api/v1/resource-feedback/{resource_type}/{resource_id}/like": {
       "post": {
         "summary": "Toggle Like",
-        "operationId": "toggle_like_api_resource_feedback__resource_type___resource_id__like_post",
+        "operationId": "toggle_like_api_v1_resource_feedback__resource_type___resource_id__like_post",
         "parameters": [
           {
             "name": "resource_type",
@@ -27115,10 +27115,10 @@
         }
       }
     },
-    "/api/resource-feedback-notifications": {
+    "/api/v1/resource-feedback-notifications": {
       "get": {
         "summary": "List Feedback Notifications",
-        "operationId": "list_feedback_notifications_api_resource_feedback_notifications_get",
+        "operationId": "list_feedback_notifications_api_v1_resource_feedback_notifications_get",
         "parameters": [
           {
             "name": "limit",
@@ -27311,10 +27311,10 @@
         }
       }
     },
-    "/api/personal-knowledge/directories": {
+    "/api/v1/personal-knowledge/directories": {
       "get": {
         "summary": "List Directories",
-        "operationId": "list_directories_api_personal_knowledge_directories_get",
+        "operationId": "list_directories_api_v1_personal_knowledge_directories_get",
         "parameters": [
           {
             "name": "authorization",
@@ -27496,7 +27496,7 @@
       },
       "post": {
         "summary": "Create Directory",
-        "operationId": "create_directory_api_personal_knowledge_directories_post",
+        "operationId": "create_directory_api_v1_personal_knowledge_directories_post",
         "parameters": [
           {
             "name": "authorization",
@@ -27687,10 +27687,10 @@
         }
       }
     },
-    "/api/personal-knowledge/directories/{directory_id}": {
+    "/api/v1/personal-knowledge/directories/{directory_id}": {
       "patch": {
         "summary": "Update Directory",
-        "operationId": "update_directory_api_personal_knowledge_directories__directory_id__patch",
+        "operationId": "update_directory_api_v1_personal_knowledge_directories__directory_id__patch",
         "parameters": [
           {
             "name": "directory_id",
@@ -27891,7 +27891,7 @@
       },
       "delete": {
         "summary": "Delete Directory",
-        "operationId": "delete_directory_api_personal_knowledge_directories__directory_id__delete",
+        "operationId": "delete_directory_api_v1_personal_knowledge_directories__directory_id__delete",
         "parameters": [
           {
             "name": "directory_id",
@@ -28081,10 +28081,10 @@
         }
       }
     },
-    "/api/personal-knowledge": {
+    "/api/v1/personal-knowledge": {
       "get": {
         "summary": "List Resources",
-        "operationId": "list_resources_api_personal_knowledge_get",
+        "operationId": "list_resources_api_v1_personal_knowledge_get",
         "parameters": [
           {
             "name": "view",
@@ -28320,7 +28320,7 @@
       },
       "post": {
         "summary": "Upload Resources",
-        "operationId": "upload_resources_api_personal_knowledge_post",
+        "operationId": "upload_resources_api_v1_personal_knowledge_post",
         "parameters": [
           {
             "name": "authorization",
@@ -28344,7 +28344,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_resources_api_personal_knowledge_post"
+                "$ref": "#/components/schemas/Body_upload_resources_api_v1_personal_knowledge_post"
               }
             }
           }
@@ -28511,10 +28511,10 @@
         }
       }
     },
-    "/api/personal-knowledge/{resource_id}": {
+    "/api/v1/personal-knowledge/{resource_id}": {
       "get": {
         "summary": "Get Resource",
-        "operationId": "get_resource_api_personal_knowledge__resource_id__get",
+        "operationId": "get_resource_api_v1_personal_knowledge__resource_id__get",
         "parameters": [
           {
             "name": "resource_id",
@@ -28705,7 +28705,7 @@
       },
       "patch": {
         "summary": "Update Resource",
-        "operationId": "update_resource_api_personal_knowledge__resource_id__patch",
+        "operationId": "update_resource_api_v1_personal_knowledge__resource_id__patch",
         "parameters": [
           {
             "name": "resource_id",
@@ -28906,7 +28906,7 @@
       },
       "delete": {
         "summary": "Delete Resource",
-        "operationId": "delete_resource_api_personal_knowledge__resource_id__delete",
+        "operationId": "delete_resource_api_v1_personal_knowledge__resource_id__delete",
         "parameters": [
           {
             "name": "resource_id",
@@ -29096,11 +29096,11 @@
         }
       }
     },
-    "/api/personal-knowledge/{resource_id}/ack": {
+    "/api/v1/personal-knowledge/{resource_id}/ack": {
       "post": {
         "summary": "Acknowledge Resource",
         "description": "显式确认已查看共享资源（022 FR-15 / T032）。\n\n从 ``GET /personal-knowledge/{id}`` 拆出的写操作：把 ``grant.seen_at``\n置为当前时间。用 POST 显式声明副作用，避免 GET 重放写入数据。",
-        "operationId": "acknowledge_resource_api_personal_knowledge__resource_id__ack_post",
+        "operationId": "acknowledge_resource_api_v1_personal_knowledge__resource_id__ack_post",
         "parameters": [
           {
             "name": "resource_id",
@@ -29290,10 +29290,10 @@
         }
       }
     },
-    "/api/personal-knowledge/{resource_id}/shared-record": {
+    "/api/v1/personal-knowledge/{resource_id}/shared-record": {
       "delete": {
         "summary": "Dismiss Deleted Shared Record",
-        "operationId": "dismiss_deleted_shared_record_api_personal_knowledge__resource_id__shared_record_delete",
+        "operationId": "dismiss_deleted_shared_record_api_v1_personal_knowledge__resource_id__shared_record_delete",
         "parameters": [
           {
             "name": "resource_id",
@@ -29483,10 +29483,10 @@
         }
       }
     },
-    "/api/personal-knowledge/{resource_id}/ask": {
+    "/api/v1/personal-knowledge/{resource_id}/ask": {
       "post": {
         "summary": "Ask Resource",
-        "operationId": "ask_resource_api_personal_knowledge__resource_id__ask_post",
+        "operationId": "ask_resource_api_v1_personal_knowledge__resource_id__ask_post",
         "parameters": [
           {
             "name": "resource_id",
@@ -29686,10 +29686,10 @@
         }
       }
     },
-    "/api/personal-knowledge/{resource_id}/relearn": {
+    "/api/v1/personal-knowledge/{resource_id}/relearn": {
       "post": {
         "summary": "Relearn",
-        "operationId": "relearn_api_personal_knowledge__resource_id__relearn_post",
+        "operationId": "relearn_api_v1_personal_knowledge__resource_id__relearn_post",
         "parameters": [
           {
             "name": "resource_id",
@@ -29879,10 +29879,10 @@
         }
       }
     },
-    "/api/personal-knowledge/{resource_id}/replace": {
+    "/api/v1/personal-knowledge/{resource_id}/replace": {
       "post": {
         "summary": "Replace Resource",
-        "operationId": "replace_resource_api_personal_knowledge__resource_id__replace_post",
+        "operationId": "replace_resource_api_v1_personal_knowledge__resource_id__replace_post",
         "parameters": [
           {
             "name": "resource_id",
@@ -29915,7 +29915,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_replace_resource_api_personal_knowledge__resource_id__replace_post"
+                "$ref": "#/components/schemas/Body_replace_resource_api_v1_personal_knowledge__resource_id__replace_post"
               }
             }
           }
@@ -30082,10 +30082,10 @@
         }
       }
     },
-    "/api/personal-knowledge/{resource_id}/grants": {
+    "/api/v1/personal-knowledge/{resource_id}/grants": {
       "get": {
         "summary": "List Grants",
-        "operationId": "list_grants_api_personal_knowledge__resource_id__grants_get",
+        "operationId": "list_grants_api_v1_personal_knowledge__resource_id__grants_get",
         "parameters": [
           {
             "name": "resource_id",
@@ -30276,7 +30276,7 @@
       },
       "post": {
         "summary": "Share Resource",
-        "operationId": "share_resource_api_personal_knowledge__resource_id__grants_post",
+        "operationId": "share_resource_api_v1_personal_knowledge__resource_id__grants_post",
         "parameters": [
           {
             "name": "resource_id",
@@ -30476,10 +30476,10 @@
         }
       }
     },
-    "/api/personal-knowledge/{resource_id}/grants/{recipient_user_id}": {
+    "/api/v1/personal-knowledge/{resource_id}/grants/{recipient_user_id}": {
       "delete": {
         "summary": "Revoke Resource",
-        "operationId": "revoke_resource_api_personal_knowledge__resource_id__grants__recipient_user_id__delete",
+        "operationId": "revoke_resource_api_v1_personal_knowledge__resource_id__grants__recipient_user_id__delete",
         "parameters": [
           {
             "name": "resource_id",
@@ -30689,7 +30689,7 @@
       },
       "patch": {
         "summary": "Update Grant",
-        "operationId": "update_grant_api_personal_knowledge__resource_id__grants__recipient_user_id__patch",
+        "operationId": "update_grant_api_v1_personal_knowledge__resource_id__grants__recipient_user_id__patch",
         "parameters": [
           {
             "name": "resource_id",
@@ -30898,10 +30898,10 @@
         }
       }
     },
-    "/api/personal-knowledge-counts": {
+    "/api/v1/personal-knowledge-counts": {
       "get": {
         "summary": "Counts",
-        "operationId": "counts_api_personal_knowledge_counts_get",
+        "operationId": "counts_api_v1_personal_knowledge_counts_get",
         "parameters": [
           {
             "name": "authorization",
@@ -31082,10 +31082,10 @@
         }
       }
     },
-    "/api/site-profiles": {
+    "/api/v1/site-profiles": {
       "get": {
         "summary": "List Site Profiles",
-        "operationId": "list_site_profiles_api_site_profiles_get",
+        "operationId": "list_site_profiles_api_v1_site_profiles_get",
         "parameters": [
           {
             "name": "userId",
@@ -31288,7 +31288,7 @@
       },
       "post": {
         "summary": "Create Site Profile",
-        "operationId": "create_site_profile_api_site_profiles_post",
+        "operationId": "create_site_profile_api_v1_site_profiles_post",
         "parameters": [
           {
             "name": "authorization",
@@ -31481,10 +31481,10 @@
         }
       }
     },
-    "/api/site-profiles/{profile_id}": {
+    "/api/v1/site-profiles/{profile_id}": {
       "get": {
         "summary": "Get Site Profile",
-        "operationId": "get_site_profile_api_site_profiles__profile_id__get",
+        "operationId": "get_site_profile_api_v1_site_profiles__profile_id__get",
         "parameters": [
           {
             "name": "profile_id",
@@ -31696,7 +31696,7 @@
       },
       "put": {
         "summary": "Update Site Profile",
-        "operationId": "update_site_profile_api_site_profiles__profile_id__put",
+        "operationId": "update_site_profile_api_v1_site_profiles__profile_id__put",
         "parameters": [
           {
             "name": "profile_id",
@@ -31899,7 +31899,7 @@
       },
       "delete": {
         "summary": "Delete Site Profile",
-        "operationId": "delete_site_profile_api_site_profiles__profile_id__delete",
+        "operationId": "delete_site_profile_api_v1_site_profiles__profile_id__delete",
         "parameters": [
           {
             "name": "profile_id",
@@ -32110,10 +32110,10 @@
         }
       }
     },
-    "/api/token-usage": {
+    "/api/v1/token-usage": {
       "get": {
         "summary": "List Token Usage",
-        "operationId": "list_token_usage_api_token_usage_get",
+        "operationId": "list_token_usage_api_v1_token_usage_get",
         "parameters": [
           {
             "name": "userId",
@@ -32375,10 +32375,10 @@
         }
       }
     },
-    "/api/quota/me": {
+    "/api/v1/quota/me": {
       "get": {
         "summary": "Get My Quota",
-        "operationId": "get_my_quota_api_quota_me_get",
+        "operationId": "get_my_quota_api_v1_quota_me_get",
         "parameters": [
           {
             "name": "authorization",
@@ -32561,13 +32561,13 @@
         }
       }
     },
-    "/api/scheduled-jobs": {
+    "/api/v1/scheduled-jobs": {
       "get": {
         "tags": [
           "scheduled-jobs"
         ],
         "summary": "List Scheduled Jobs",
-        "operationId": "list_scheduled_jobs_api_scheduled_jobs_get",
+        "operationId": "list_scheduled_jobs_api_v1_scheduled_jobs_get",
         "parameters": [
           {
             "name": "authorization",
@@ -32754,7 +32754,7 @@
           "scheduled-jobs"
         ],
         "summary": "Create Scheduled Job",
-        "operationId": "create_scheduled_job_api_scheduled_jobs_post",
+        "operationId": "create_scheduled_job_api_v1_scheduled_jobs_post",
         "parameters": [
           {
             "name": "authorization",
@@ -32947,13 +32947,13 @@
         }
       }
     },
-    "/api/scheduled-jobs/{job_id}": {
+    "/api/v1/scheduled-jobs/{job_id}": {
       "patch": {
         "tags": [
           "scheduled-jobs"
         ],
         "summary": "Update Scheduled Job",
-        "operationId": "update_scheduled_job_api_scheduled_jobs__job_id__patch",
+        "operationId": "update_scheduled_job_api_v1_scheduled_jobs__job_id__patch",
         "parameters": [
           {
             "name": "job_id",
@@ -33159,7 +33159,7 @@
           "scheduled-jobs"
         ],
         "summary": "Delete Scheduled Job",
-        "operationId": "delete_scheduled_job_api_scheduled_jobs__job_id__delete",
+        "operationId": "delete_scheduled_job_api_v1_scheduled_jobs__job_id__delete",
         "parameters": [
           {
             "name": "job_id",
@@ -33351,13 +33351,13 @@
         }
       }
     },
-    "/api/scheduled-jobs/{job_id}/run-now": {
+    "/api/v1/scheduled-jobs/{job_id}/run-now": {
       "post": {
         "tags": [
           "scheduled-jobs"
         ],
         "summary": "Run Scheduled Job Now",
-        "operationId": "run_scheduled_job_now_api_scheduled_jobs__job_id__run_now_post",
+        "operationId": "run_scheduled_job_now_api_v1_scheduled_jobs__job_id__run_now_post",
         "parameters": [
           {
             "name": "job_id",
@@ -33549,13 +33549,13 @@
         }
       }
     },
-    "/api/scheduled-jobs/{job_id}/runs": {
+    "/api/v1/scheduled-jobs/{job_id}/runs": {
       "get": {
         "tags": [
           "scheduled-jobs"
         ],
         "summary": "List Scheduled Job Runs",
-        "operationId": "list_scheduled_job_runs_api_scheduled_jobs__job_id__runs_get",
+        "operationId": "list_scheduled_job_runs_api_v1_scheduled_jobs__job_id__runs_get",
         "parameters": [
           {
             "name": "job_id",
@@ -33759,10 +33759,10 @@
         }
       }
     },
-    "/api/shortcuts": {
+    "/api/v1/shortcuts": {
       "get": {
         "summary": "Get Shortcuts",
-        "operationId": "get_shortcuts_api_shortcuts_get",
+        "operationId": "get_shortcuts_api_v1_shortcuts_get",
         "parameters": [
           {
             "name": "authorization",
@@ -33943,10 +33943,10 @@
         }
       }
     },
-    "/api/shortcuts/preferences": {
+    "/api/v1/shortcuts/preferences": {
       "put": {
         "summary": "Save Shortcut Preferences",
-        "operationId": "save_shortcut_preferences_api_shortcuts_preferences_put",
+        "operationId": "save_shortcut_preferences_api_v1_shortcuts_preferences_put",
         "parameters": [
           {
             "name": "authorization",
@@ -34137,10 +34137,10 @@
         }
       }
     },
-    "/api/browser/show": {
+    "/api/v1/browser/show": {
       "post": {
         "summary": "Browser Show",
-        "operationId": "browser_show_api_browser_show_post",
+        "operationId": "browser_show_api_v1_browser_show_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -34315,10 +34315,10 @@
         }
       }
     },
-    "/api/browser/hide": {
+    "/api/v1/browser/hide": {
       "post": {
         "summary": "Browser Hide",
-        "operationId": "browser_hide_api_browser_hide_post",
+        "operationId": "browser_hide_api_v1_browser_hide_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -34493,10 +34493,10 @@
         }
       }
     },
-    "/api/browser/recording/start": {
+    "/api/v1/browser/recording/start": {
       "post": {
         "summary": "Recording Start",
-        "operationId": "recording_start_api_browser_recording_start_post",
+        "operationId": "recording_start_api_v1_browser_recording_start_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -34669,10 +34669,10 @@
         }
       }
     },
-    "/api/browser/recording/stop": {
+    "/api/v1/browser/recording/stop": {
       "post": {
         "summary": "Recording Stop",
-        "operationId": "recording_stop_api_browser_recording_stop_post",
+        "operationId": "recording_stop_api_v1_browser_recording_stop_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -34847,10 +34847,10 @@
         }
       }
     },
-    "/api/browser/recording/analyze": {
+    "/api/v1/browser/recording/analyze": {
       "post": {
         "summary": "Recording Analyze",
-        "operationId": "recording_analyze_api_browser_recording_analyze_post",
+        "operationId": "recording_analyze_api_v1_browser_recording_analyze_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -35023,10 +35023,10 @@
         }
       }
     },
-    "/api/browser/recording/cache": {
+    "/api/v1/browser/recording/cache": {
       "post": {
         "summary": "Recording Cache",
-        "operationId": "recording_cache_api_browser_recording_cache_post",
+        "operationId": "recording_cache_api_v1_browser_recording_cache_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -35199,11 +35199,11 @@
         }
       }
     },
-    "/api/browser/recording/stream": {
+    "/api/v1/browser/recording/stream": {
       "get": {
         "summary": "Recording Stream",
         "description": "SSE endpoint that streams recording_event payloads as NDJSON lines.",
-        "operationId": "recording_stream_api_browser_recording_stream_get",
+        "operationId": "recording_stream_api_v1_browser_recording_stream_get",
         "parameters": [
           {
             "name": "user_id",
@@ -35950,13 +35950,13 @@
         }
       }
     },
-    "/api/dsh/tool-approvals": {
+    "/api/v1/dsh/tool-approvals": {
       "get": {
         "tags": [
           "dsh-tool-approvals"
         ],
         "summary": "Pending Approvals",
-        "operationId": "pending_approvals_api_dsh_tool_approvals_get",
+        "operationId": "pending_approvals_api_v1_dsh_tool_approvals_get",
         "parameters": [
           {
             "name": "conversation_id",
@@ -36153,13 +36153,13 @@
         }
       }
     },
-    "/api/dsh/tool-approvals/{action_id}/decision": {
+    "/api/v1/dsh/tool-approvals/{action_id}/decision": {
       "post": {
         "tags": [
           "dsh-tool-approvals"
         ],
         "summary": "Decide Approval",
-        "operationId": "decide_approval_api_dsh_tool_approvals__action_id__decision_post",
+        "operationId": "decide_approval_api_v1_dsh_tool_approvals__action_id__decision_post",
         "parameters": [
           {
             "name": "action_id",
@@ -37184,14 +37184,14 @@
         }
       }
     },
-    "/api/memories": {
+    "/api/v1/memories": {
       "post": {
         "tags": [
           "memory"
         ],
         "summary": "Create Memory",
         "description": "Create a memory (FR-5). Scope defaults to ``personal``; promotion to\n``org`` requires a ``full_access_admin`` role (FR-4).",
-        "operationId": "create_memory_api_memories_post",
+        "operationId": "create_memory_api_v1_memories_post",
         "parameters": [
           {
             "name": "authorization",
@@ -37224,7 +37224,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Create Memory Api Memories Post"
+                  "title": "Response Create Memory Api V1 Memories Post"
                 }
               }
             }
@@ -37387,7 +37387,7 @@
         ],
         "summary": "List Memories",
         "description": "List memories visible to the current viewer (FR-2).",
-        "operationId": "list_memories_api_memories_get",
+        "operationId": "list_memories_api_v1_memories_get",
         "parameters": [
           {
             "name": "scope",
@@ -37418,7 +37418,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Memories Api Memories Get"
+                  "title": "Response List Memories Api V1 Memories Get"
                 }
               }
             }
@@ -37576,14 +37576,14 @@
         }
       }
     },
-    "/api/memories/{memory_id}": {
+    "/api/v1/memories/{memory_id}": {
       "delete": {
         "tags": [
           "memory"
         ],
         "summary": "Delete Memory",
         "description": "Delete the caller's own memory (FR-5 ownership check).",
-        "operationId": "delete_memory_api_memories__memory_id__delete",
+        "operationId": "delete_memory_api_v1_memories__memory_id__delete",
         "parameters": [
           {
             "name": "memory_id",
@@ -37613,7 +37613,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Delete Memory Api Memories  Memory Id  Delete"
+                  "title": "Response Delete Memory Api V1 Memories  Memory Id  Delete"
                 }
               }
             }
@@ -37771,14 +37771,14 @@
         }
       }
     },
-    "/api/memories/{memory_id}/promote": {
+    "/api/v1/memories/{memory_id}/promote": {
       "patch": {
         "tags": [
           "memory"
         ],
         "summary": "Promote Memory",
         "description": "Promote a personal/workspace memory to org scope (FR-4, 017 残项修复).\n\nRequires a ``full_access_admin`` role. The promotion is audited via the\n001 audit stream (``memory.promoted``).",
-        "operationId": "promote_memory_api_memories__memory_id__promote_patch",
+        "operationId": "promote_memory_api_v1_memories__memory_id__promote_patch",
         "parameters": [
           {
             "name": "memory_id",
@@ -37808,7 +37808,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Promote Memory Api Memories  Memory Id  Promote Patch"
+                  "title": "Response Promote Memory Api V1 Memories  Memory Id  Promote Patch"
                 }
               }
             }
@@ -37966,14 +37966,14 @@
         }
       }
     },
-    "/api/context/resolve": {
+    "/api/v1/context/resolve": {
       "post": {
         "tags": [
           "context"
         ],
         "summary": "Resolve Context",
         "description": "Resolve ``mogo://`` addresses into tiered content + a unified trace.\n\nDelegates viewer resolution to the existing auth helper, then hands off to\n:func:`app.context_space.router.resolve_memory`, which routes to the owning\ntenant adapter and enforces backend-specific visibility.",
-        "operationId": "resolve_context_api_context_resolve_post",
+        "operationId": "resolve_context_api_v1_context_resolve_post",
         "parameters": [
           {
             "name": "authorization",
@@ -38160,14 +38160,14 @@
         }
       }
     },
-    "/api/context/trace/{trace_id}": {
+    "/api/v1/context/trace/{trace_id}": {
       "get": {
         "tags": [
           "context"
         ],
         "summary": "Get Context Trace",
         "description": "Read back a unified retrieval trace by id (017 FR-17 replay).",
-        "operationId": "get_context_trace_api_context_trace__trace_id__get",
+        "operationId": "get_context_trace_api_v1_context_trace__trace_id__get",
         "parameters": [
           {
             "name": "trace_id",
@@ -38353,10 +38353,10 @@
         }
       }
     },
-    "/api/research/competitor-deep-dive": {
+    "/api/v1/research/competitor-deep-dive": {
       "post": {
         "summary": "Run Competitor Deep Dive",
-        "operationId": "run_competitor_deep_dive_api_research_competitor_deep_dive_post",
+        "operationId": "run_competitor_deep_dive_api_v1_research_competitor_deep_dive_post",
         "parameters": [
           {
             "name": "authorization",
@@ -38393,7 +38393,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Run Competitor Deep Dive Api Research Competitor Deep Dive Post"
+                  "title": "Response Run Competitor Deep Dive Api V1 Research Competitor Deep Dive Post"
                 }
               }
             }
@@ -38551,10 +38551,10 @@
         }
       }
     },
-    "/api/business-index/search": {
+    "/api/v1/business-index/search": {
       "post": {
         "summary": "Search",
-        "operationId": "search_api_business_index_search_post",
+        "operationId": "search_api_v1_business_index_search_post",
         "parameters": [
           {
             "name": "authorization",
@@ -38591,7 +38591,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Search Api Business Index Search Post"
+                  "title": "Response Search Api V1 Business Index Search Post"
                 }
               }
             }
@@ -38749,10 +38749,10 @@
         }
       }
     },
-    "/api/business-index/index": {
+    "/api/v1/business-index/index": {
       "post": {
         "summary": "Index Entity",
-        "operationId": "index_entity_api_business_index_index_post",
+        "operationId": "index_entity_api_v1_business_index_index_post",
         "parameters": [
           {
             "name": "authorization",
@@ -38789,7 +38789,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Index Entity Api Business Index Index Post"
+                  "title": "Response Index Entity Api V1 Business Index Index Post"
                 }
               }
             }
@@ -38947,10 +38947,10 @@
         }
       }
     },
-    "/api/business-index/align": {
+    "/api/v1/business-index/align": {
       "post": {
         "summary": "Align",
-        "operationId": "align_api_business_index_align_post",
+        "operationId": "align_api_v1_business_index_align_post",
         "parameters": [
           {
             "name": "authorization",
@@ -38987,7 +38987,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Align Api Business Index Align Post"
+                  "title": "Response Align Api V1 Business Index Align Post"
                 }
               }
             }
@@ -39145,11 +39145,11 @@
         }
       }
     },
-    "/api/ontology-grants/mine": {
+    "/api/v1/ontology-grants/mine": {
       "get": {
         "summary": "List My Ontology Grants",
         "description": "当前登录用户可见的本体授权（tenant 兜底 + 用户自身）。\n\n查询失败时返回空清单与 ``degraded=true``：本页只做自我告知，不阻断用户其它操作，\n与运行时解析的 fail-closed（判权路径，``visible_ontology_ids``）语义不同。",
-        "operationId": "list_my_ontology_grants_api_ontology_grants_mine_get",
+        "operationId": "list_my_ontology_grants_api_v1_ontology_grants_mine_get",
         "parameters": [
           {
             "name": "authorization",
@@ -39176,7 +39176,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List My Ontology Grants Api Ontology Grants Mine Get"
+                  "title": "Response List My Ontology Grants Api V1 Ontology Grants Mine Get"
                 }
               }
             }
@@ -39334,11 +39334,11 @@
         }
       }
     },
-    "/api/portal/catalog": {
+    "/api/v1/portal/catalog": {
       "get": {
         "summary": "Get Catalog",
         "description": "目录列表：本租户已上架且 active 的资产。",
-        "operationId": "get_catalog_api_portal_catalog_get",
+        "operationId": "get_catalog_api_v1_portal_catalog_get",
         "parameters": [
           {
             "name": "category",
@@ -39408,7 +39408,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Catalog Api Portal Catalog Get"
+                  "title": "Response Get Catalog Api V1 Portal Catalog Get"
                 }
               }
             }
@@ -39566,11 +39566,11 @@
         }
       }
     },
-    "/api/portal/catalog/categories": {
+    "/api/v1/portal/catalog/categories": {
       "get": {
         "summary": "Get Catalog Categories",
         "description": "目录分类（来自已上架标记）。",
-        "operationId": "get_catalog_categories_api_portal_catalog_categories_get",
+        "operationId": "get_catalog_categories_api_v1_portal_catalog_categories_get",
         "parameters": [
           {
             "name": "authorization",
@@ -39597,7 +39597,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Catalog Categories Api Portal Catalog Categories Get"
+                  "title": "Response Get Catalog Categories Api V1 Portal Catalog Categories Get"
                 }
               }
             }
@@ -39755,11 +39755,11 @@
         }
       }
     },
-    "/api/portal/catalog/{asset_type}/{asset_key}": {
+    "/api/v1/portal/catalog/{asset_type}/{asset_key}": {
       "get": {
         "summary": "Get Catalog Detail",
         "description": "资产详情 + 我的申领状态（未上架 / 不 active 一律 404，不泄露存在性）。",
-        "operationId": "get_catalog_detail_api_portal_catalog__asset_type___asset_key__get",
+        "operationId": "get_catalog_detail_api_v1_portal_catalog__asset_type___asset_key__get",
         "parameters": [
           {
             "name": "asset_type",
@@ -39804,7 +39804,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Catalog Detail Api Portal Catalog  Asset Type   Asset Key  Get"
+                  "title": "Response Get Catalog Detail Api V1 Portal Catalog  Asset Type   Asset Key  Get"
                 }
               }
             }
@@ -39962,11 +39962,11 @@
         }
       }
     },
-    "/api/portal/requests/mine": {
+    "/api/v1/portal/requests/mine": {
       "get": {
         "summary": "Get My Requests",
         "description": "我的申领单（读取时惰性过期，返回带终态标注）。",
-        "operationId": "get_my_requests_api_portal_requests_mine_get",
+        "operationId": "get_my_requests_api_v1_portal_requests_mine_get",
         "parameters": [
           {
             "name": "status",
@@ -40026,7 +40026,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get My Requests Api Portal Requests Mine Get"
+                  "title": "Response Get My Requests Api V1 Portal Requests Mine Get"
                 }
               }
             }
@@ -40184,11 +40184,11 @@
         }
       }
     },
-    "/api/portal/requests": {
+    "/api/v1/portal/requests": {
       "post": {
         "summary": "Create Request",
         "description": "提交申领（幂等：已开通返回 ``already_granted``，待审返回 ``pending``）。",
-        "operationId": "create_request_api_portal_requests_post",
+        "operationId": "create_request_api_v1_portal_requests_post",
         "parameters": [
           {
             "name": "authorization",
@@ -40226,7 +40226,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Create Request Api Portal Requests Post"
+                  "title": "Response Create Request Api V1 Portal Requests Post"
                 }
               }
             }
@@ -40384,11 +40384,11 @@
         }
       }
     },
-    "/api/portal/requests/{request_id}/revoke": {
+    "/api/v1/portal/requests/{request_id}/revoke": {
       "post": {
         "summary": "Revoke My Request",
         "description": "回收：申请人可放弃自己的开通，资产 owner 可回收他人的开通（FR-014）。",
-        "operationId": "revoke_my_request_api_portal_requests__request_id__revoke_post",
+        "operationId": "revoke_my_request_api_v1_portal_requests__request_id__revoke_post",
         "parameters": [
           {
             "name": "request_id",
@@ -40435,7 +40435,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Revoke My Request Api Portal Requests  Request Id  Revoke Post"
+                  "title": "Response Revoke My Request Api V1 Portal Requests  Request Id  Revoke Post"
                 }
               }
             }
@@ -40593,11 +40593,11 @@
         }
       }
     },
-    "/api/orchestrations": {
+    "/api/v1/orchestrations": {
       "get": {
         "summary": "List Orchestrations",
         "description": "当前用户可见的编排清单（仅自身 + 租户作用域，FR-010 版本化入口）。",
-        "operationId": "list_orchestrations_api_orchestrations_get",
+        "operationId": "list_orchestrations_api_v1_orchestrations_get",
         "parameters": [
           {
             "name": "authorization",
@@ -40780,11 +40780,11 @@
         }
       }
     },
-    "/api/orchestrations/{orchestration_id}": {
+    "/api/v1/orchestrations/{orchestration_id}": {
       "get": {
         "summary": "Get Orchestration",
         "description": "读取单个编排（文档 + 投影布局 + 版本历史）。",
-        "operationId": "get_orchestration_api_orchestrations__orchestration_id__get",
+        "operationId": "get_orchestration_api_v1_orchestrations__orchestration_id__get",
         "parameters": [
           {
             "name": "orchestration_id",
@@ -40976,11 +40976,11 @@
         }
       }
     },
-    "/api/orchestrations/{orchestration_id}/drafts": {
+    "/api/v1/orchestrations/{orchestration_id}/drafts": {
       "post": {
         "summary": "Save Orchestration Draft",
         "description": "保存草稿：校验通过后落库（``status=draft``）。编排权 = 本人。",
-        "operationId": "save_orchestration_draft_api_orchestrations__orchestration_id__drafts_post",
+        "operationId": "save_orchestration_draft_api_v1_orchestrations__orchestration_id__drafts_post",
         "parameters": [
           {
             "name": "orchestration_id",
@@ -41182,11 +41182,11 @@
         }
       }
     },
-    "/api/orchestrations/{orchestration_id}/publish": {
+    "/api/v1/orchestrations/{orchestration_id}/publish": {
       "post": {
         "summary": "Publish Orchestration",
         "description": "发布：同口径校验 + 001 发布权门禁，通过后 bump 版本并标记 ``published``。",
-        "operationId": "publish_orchestration_api_orchestrations__orchestration_id__publish_post",
+        "operationId": "publish_orchestration_api_v1_orchestrations__orchestration_id__publish_post",
         "parameters": [
           {
             "name": "orchestration_id",
@@ -41388,14 +41388,14 @@
         }
       }
     },
-    "/api/kg/nodes/{node_id}": {
+    "/api/v1/kg/nodes/{node_id}": {
       "get": {
         "tags": [
           "knowledge-graph"
         ],
         "summary": "Get Node",
         "description": "Return a single KG node (FR-2 / FR-10 minimal query surface).",
-        "operationId": "get_node_api_kg_nodes__node_id__get",
+        "operationId": "get_node_api_v1_kg_nodes__node_id__get",
         "parameters": [
           {
             "name": "node_id",
@@ -41425,7 +41425,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Node Api Kg Nodes  Node Id  Get"
+                  "title": "Response Get Node Api V1 Kg Nodes  Node Id  Get"
                 }
               }
             }
@@ -41583,14 +41583,14 @@
         }
       }
     },
-    "/api/kg/nodes/{node_id}/neighbours": {
+    "/api/v1/kg/nodes/{node_id}/neighbours": {
       "get": {
         "tags": [
           "knowledge-graph"
         ],
         "summary": "Get Neighbours",
         "description": "Return outgoing neighbours of a node, optionally filtered by relation type.",
-        "operationId": "get_neighbours_api_kg_nodes__node_id__neighbours_get",
+        "operationId": "get_neighbours_api_v1_kg_nodes__node_id__neighbours_get",
         "parameters": [
           {
             "name": "node_id",
@@ -41636,7 +41636,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Neighbours Api Kg Nodes  Node Id  Neighbours Get"
+                  "title": "Response Get Neighbours Api V1 Kg Nodes  Node Id  Neighbours Get"
                 }
               }
             }
@@ -41794,14 +41794,14 @@
         }
       }
     },
-    "/api/kg/extract": {
+    "/api/v1/kg/extract": {
       "post": {
         "tags": [
           "knowledge-graph"
         ],
         "summary": "Extract Kg",
         "description": "Extract typed entities/relations into the tenant's KG (015 FR-1).\n\nThe body is a structured record (dict) or a free-text string (``text`` field).\nExtraction is rule-based (no LLM); low-confidence results below the floor\nare rejected. Returns the written counts and the extracted shapes.",
-        "operationId": "extract_kg_api_kg_extract_post",
+        "operationId": "extract_kg_api_v1_kg_extract_post",
         "parameters": [
           {
             "name": "authorization",
@@ -41834,7 +41834,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Extract Kg Api Kg Extract Post"
+                  "title": "Response Extract Kg Api V1 Kg Extract Post"
                 }
               }
             }
@@ -41992,14 +41992,14 @@
         }
       }
     },
-    "/api/kg/nodes": {
+    "/api/v1/kg/nodes": {
       "post": {
         "tags": [
           "knowledge-graph"
         ],
         "summary": "Upsert Node",
         "description": "Create / merge a KG node, optionally carrying a 014 ``source_ref``\npointer (FR-13: reference by pointer, never copy the entity data).",
-        "operationId": "upsert_node_api_kg_nodes_post",
+        "operationId": "upsert_node_api_v1_kg_nodes_post",
         "parameters": [
           {
             "name": "authorization",
@@ -42032,7 +42032,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Upsert Node Api Kg Nodes Post"
+                  "title": "Response Upsert Node Api V1 Kg Nodes Post"
                 }
               }
             }
@@ -42190,14 +42190,14 @@
         }
       }
     },
-    "/api/kg/nodes/{node_id}/resolve": {
+    "/api/v1/kg/nodes/{node_id}/resolve": {
       "get": {
         "tags": [
           "knowledge-graph"
         ],
         "summary": "Resolve Source Ref",
         "description": "Follow the node's ``source_ref`` pointer into the 014 business index\n(FR-13). Returns the referenced record without copying it; ``resolved``\nis False when the pointer is empty or the target does not exist.",
-        "operationId": "resolve_source_ref_api_kg_nodes__node_id__resolve_get",
+        "operationId": "resolve_source_ref_api_v1_kg_nodes__node_id__resolve_get",
         "parameters": [
           {
             "name": "node_id",
@@ -42227,7 +42227,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Resolve Source Ref Api Kg Nodes  Node Id  Resolve Get"
+                  "title": "Response Resolve Source Ref Api V1 Kg Nodes  Node Id  Resolve Get"
                 }
               }
             }
@@ -42385,14 +42385,14 @@
         }
       }
     },
-    "/api/kg/check-constraints": {
+    "/api/v1/kg/check-constraints": {
       "post": {
         "tags": [
           "knowledge-graph"
         ],
         "summary": "Check Constraints",
         "description": "Run the FR-8 constraint checks over the tenant's KG (015 残项修复).\n\nThe request body carries the constraint bundle as plain data:\n``mutual_exclusions`` (attribute + conflicting_values), ``cardinality``\n(relation + max_per_node) and ``transitive_relations``. Conflicts are\nreturned, affected nodes are marked conflicted (FR-14), and the audit\nevent flows to the 001 governance stream (kg.audited).",
-        "operationId": "check_constraints_api_kg_check_constraints_post",
+        "operationId": "check_constraints_api_v1_kg_check_constraints_post",
         "parameters": [
           {
             "name": "authorization",
@@ -42425,7 +42425,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Check Constraints Api Kg Check Constraints Post"
+                  "title": "Response Check Constraints Api V1 Kg Check Constraints Post"
                 }
               }
             }
@@ -42583,14 +42583,14 @@
         }
       }
     },
-    "/api/harness-profiles": {
+    "/api/v1/harness-profiles": {
       "get": {
         "tags": [
           "harness-config"
         ],
         "summary": "List Profiles",
         "description": "List harness profiles visible to the caller (read-only; any authenticated user).",
-        "operationId": "list_profiles_api_harness_profiles_get",
+        "operationId": "list_profiles_api_v1_harness_profiles_get",
         "parameters": [
           {
             "name": "scope",
@@ -42631,7 +42631,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response List Profiles Api Harness Profiles Get"
+                  "title": "Response List Profiles Api V1 Harness Profiles Get"
                 }
               }
             }
@@ -42789,14 +42789,14 @@
         }
       }
     },
-    "/api/harness-profiles/{scope}/{key}": {
+    "/api/v1/harness-profiles/{scope}/{key}": {
       "get": {
         "tags": [
           "harness-config"
         ],
         "summary": "Get Profile",
         "description": "Fetch a single harness profile by (scope, key).",
-        "operationId": "get_profile_api_harness_profiles__scope___key__get",
+        "operationId": "get_profile_api_v1_harness_profiles__scope___key__get",
         "parameters": [
           {
             "name": "scope",
@@ -42835,7 +42835,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Get Profile Api Harness Profiles  Scope   Key  Get"
+                  "title": "Response Get Profile Api V1 Harness Profiles  Scope   Key  Get"
                 }
               }
             }
@@ -42998,7 +42998,7 @@
         ],
         "summary": "Upsert Profile",
         "description": "Create or update a harness profile (FR-7 upsert; FR-9 admin-only).\n\nThe ``mode`` field must be either ``thick`` or ``thin``. When a new profile\nis written the FR-8 floor check is enforced server-side (``assert_floor_intact``\nrejects any config that would drop a required layer).",
-        "operationId": "upsert_profile_api_harness_profiles__scope___key__put",
+        "operationId": "upsert_profile_api_v1_harness_profiles__scope___key__put",
         "parameters": [
           {
             "name": "scope",
@@ -43049,7 +43049,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Upsert Profile Api Harness Profiles  Scope   Key  Put"
+                  "title": "Response Upsert Profile Api V1 Harness Profiles  Scope   Key  Put"
                 }
               }
             }
@@ -43212,7 +43212,7 @@
         ],
         "summary": "Delete Profile",
         "description": "Delete a harness profile (FR-7; FR-9 admin-only).",
-        "operationId": "delete_profile_api_harness_profiles__scope___key__delete",
+        "operationId": "delete_profile_api_v1_harness_profiles__scope___key__delete",
         "parameters": [
           {
             "name": "scope",
@@ -43251,7 +43251,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true,
-                  "title": "Response Delete Profile Api Harness Profiles  Scope   Key  Delete"
+                  "title": "Response Delete Profile Api V1 Harness Profiles  Scope   Key  Delete"
                 }
               }
             }
@@ -44180,7 +44180,7 @@
         "type": "object",
         "title": "Attachment"
       },
-      "Body_analyze_template_api_skills_analyze_template_post": {
+      "Body_analyze_template_api_v1_skills_analyze_template_post": {
         "properties": {
           "file": {
             "type": "string",
@@ -44192,28 +44192,9 @@
         "required": [
           "file"
         ],
-        "title": "Body_analyze_template_api_skills_analyze_template_post"
+        "title": "Body_analyze_template_api_v1_skills_analyze_template_post"
       },
-      "Body_install_organization_skill_zip_api_organization_skills_install_zip_post": {
-        "properties": {
-          "file": {
-            "type": "string",
-            "contentMediaType": "application/octet-stream",
-            "title": "File"
-          },
-          "confirmReplace": {
-            "type": "boolean",
-            "title": "Confirmreplace",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "file"
-        ],
-        "title": "Body_install_organization_skill_zip_api_organization_skills_install_zip_post"
-      },
-      "Body_install_personal_skill_zip_api_skills_install_zip_post": {
+      "Body_install_organization_skill_zip_api_v1_organization_skills_install_zip_post": {
         "properties": {
           "file": {
             "type": "string",
@@ -44230,9 +44211,28 @@
         "required": [
           "file"
         ],
-        "title": "Body_install_personal_skill_zip_api_skills_install_zip_post"
+        "title": "Body_install_organization_skill_zip_api_v1_organization_skills_install_zip_post"
       },
-      "Body_replace_resource_api_personal_knowledge__resource_id__replace_post": {
+      "Body_install_personal_skill_zip_api_v1_skills_install_zip_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "confirmReplace": {
+            "type": "boolean",
+            "title": "Confirmreplace",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_install_personal_skill_zip_api_v1_skills_install_zip_post"
+      },
+      "Body_replace_resource_api_v1_personal_knowledge__resource_id__replace_post": {
         "properties": {
           "file": {
             "type": "string",
@@ -44244,9 +44244,9 @@
         "required": [
           "file"
         ],
-        "title": "Body_replace_resource_api_personal_knowledge__resource_id__replace_post"
+        "title": "Body_replace_resource_api_v1_personal_knowledge__resource_id__replace_post"
       },
-      "Body_upload_chat_document_api_chat_upload_document_post": {
+      "Body_upload_chat_document_api_v1_chat_upload_document_post": {
         "properties": {
           "user_id": {
             "type": "string",
@@ -44263,9 +44263,9 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_chat_document_api_chat_upload_document_post"
+        "title": "Body_upload_chat_document_api_v1_chat_upload_document_post"
       },
-      "Body_upload_chat_image_api_chat_upload_image_post": {
+      "Body_upload_chat_image_api_v1_chat_upload_image_post": {
         "properties": {
           "user_id": {
             "type": "string",
@@ -44282,9 +44282,9 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_chat_image_api_chat_upload_image_post"
+        "title": "Body_upload_chat_image_api_v1_chat_upload_image_post"
       },
-      "Body_upload_profile_avatar_api_auth_profile_avatar_post": {
+      "Body_upload_profile_avatar_api_v1_auth_profile_avatar_post": {
         "properties": {
           "file": {
             "type": "string",
@@ -44296,9 +44296,9 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_profile_avatar_api_auth_profile_avatar_post"
+        "title": "Body_upload_profile_avatar_api_v1_auth_profile_avatar_post"
       },
-      "Body_upload_resources_api_personal_knowledge_post": {
+      "Body_upload_resources_api_v1_personal_knowledge_post": {
         "properties": {
           "files": {
             "items": {
@@ -44323,9 +44323,9 @@
         "required": [
           "files"
         ],
-        "title": "Body_upload_resources_api_personal_knowledge_post"
+        "title": "Body_upload_resources_api_v1_personal_knowledge_post"
       },
-      "Body_upload_skill_source_api_skills_upload_post": {
+      "Body_upload_skill_source_api_v1_skills_upload_post": {
         "properties": {
           "user_id": {
             "type": "string",
@@ -44342,7 +44342,7 @@
           "user_id",
           "file"
         ],
-        "title": "Body_upload_skill_source_api_skills_upload_post"
+        "title": "Body_upload_skill_source_api_v1_skills_upload_post"
       },
       "BrowserAuthManualResumeRequest": {
         "properties": {

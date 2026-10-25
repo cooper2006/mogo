@@ -7,7 +7,7 @@ consumers:
   - deployment           # docker-compose / admin-api setup 健康探针（仅检查 HTTP 状态码）
   - admin-web            # 间接消费：经 admin-api BFF /api/knowledge/documents/* 触发（无直连 URL）
   - user-web             # 间接消费：经 chat-api BFF /askai-api/api/documents/* 触发（无直连 URL）
-base_path: /api
+base_path: /api/v1  # 025 T045（FR-27）：主版本路径；旧 /api 由 LegacyApiRedirectMiddleware 301/308 重定向
 interactions:
   - id: create_document_parse_job
     method: POST

@@ -12,6 +12,7 @@ from app.core.error_handler import register_error_handlers
 from app.middleware.cors import build_cors_middleware_kwargs
 from app.middleware.trace_id import TraceIdMiddleware
 from app.middleware.api_version import ApiVersionMiddleware
+from app.middleware.legacy_api_redirect import LegacyApiRedirectMiddleware
 from app.core.db import close_backend, init_backend
 from app.core.product_edition import migrate_bootstrapped_community_organization
 from app.repositories.model_repository import ensure_indexes as ensure_model_indexes
@@ -168,6 +169,9 @@ def create_app() -> FastAPI:
     # 025 T044（FR-27）：API-Version 响应头注入——最后 add 即最外层，
     # 保证所有经过中间件链的响应都带 API-Version（客户端可据此感知契约版本演进）。
     app.add_middleware(ApiVersionMiddleware)
+    # 025 T045（FR-27）：旧 /api/* 永久重定向到 /api/v1/*（GET/HEAD 用 301，其他方法用 308
+    # 保留方法与请求体，避免写操作被转成 GET 丢失）。最后 add 即最外层，拦截未匹配的旧路径。
+    app.add_middleware(LegacyApiRedirectMiddleware)
 
     # 023 T033: FastAPI 自动插桩（HTTP server span）
     instrument_fastapi(app)
@@ -310,9 +314,9 @@ def create_app() -> FastAPI:
     # 放在 register_error_handlers 之后调用即可；仅 patch OpenAPI dict，不改路由行为。
     patch_openapi_error_schema(app)
 
-    app.include_router(api_router, prefix="/api")
+    app.include_router(api_router, prefix="/api/v1")  # 025 T045（FR-27）：主版本路径 /api/v1
     for extension_router in get_admin_product_extension().routers:
-        app.include_router(extension_router, prefix="/api")
+        app.include_router(extension_router, prefix="/api/v1")  # 025 T045（FR-27）：extension 路由同挂 /v1
     static_dir = Path(settings.admin_static_dir).expanduser().resolve()
     # 022 US3 (T027)：read_only 容器 + 未配置静态卷时 mkdir 会失败。静态文件
     # 挂载属于可选能力，不能因为它阻断整个 API 启动 —— 降级为告警并跳过挂载。

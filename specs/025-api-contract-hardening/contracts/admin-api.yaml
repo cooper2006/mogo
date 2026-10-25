@@ -3,7 +3,7 @@ version: "1.0.0"
 provider: admin-api
 consumers:
   - admin-web
-base_path: /api
+base_path: /api/v1  # 025 T045（FR-27）：主版本路径；旧 /api 由 LegacyApiRedirectMiddleware 301/308 重定向
 interactions:
   # ════════════════════════════════════════════════════════════════════════
   # 认证（auth）

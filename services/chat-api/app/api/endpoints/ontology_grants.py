@@ -26,7 +26,7 @@ from app.core.db import get_db, is_panweidb_backend
 from app.core.config import get_settings
 from app.services import ontology_permission as ontology_permission_runtime
 
-router = APIRouter(prefix="/api/ontology-grants", dependencies=[Depends(require_end_user_principal)])
+router = APIRouter(prefix="/api/v1/ontology-grants", dependencies=[Depends(require_end_user_principal)])
 
 #: 授权表（与运行时解析、admin-api 侧同表）。
 GRANT_TABLE = ontology_permission_runtime.GRANT_COLLECTION

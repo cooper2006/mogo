@@ -27,7 +27,7 @@ from app.services.portal import CATALOG_ASSET_TYPES
 from app.services.portal import listings as portal_listings
 from app.services.portal import requests as portal_requests
 
-router = APIRouter(prefix="/api/portal", dependencies=[Depends(require_end_user_principal)])
+router = APIRouter(prefix="/api/v1/portal", dependencies=[Depends(require_end_user_principal)])
 
 #: 领域错误 → HTTP 状态码（fail-closed：未知错误一律 400）。
 _ERROR_STATUS: dict[str, int] = {

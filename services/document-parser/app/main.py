@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.db import close_db
 from app.core.error_handler import register_error_handlers
 from app.middleware.trace_id import TraceIdMiddleware
+from app.middleware.legacy_api_redirect import LegacyApiRedirectMiddleware
 from app.observability.logging import init_doc_parser_logging
 from app.observability.health import router as health_router
 from app.repositories.job_repository import ensure_job_indexes
@@ -39,12 +40,14 @@ def create_app() -> FastAPI:
     # 025 Phase 1（T006）：trace_id 中间件 + 统一异常处理器（422/500）。
     app.add_middleware(TraceIdMiddleware)
     register_error_handlers(app, is_prod=is_prod)
-    app.include_router(api_router, prefix="/api")
+    app.include_router(api_router, prefix="/api/v1")
     # 023 T021：observability health_router（/ready 依赖可达性检查）
     app.include_router(health_router)
     # 025 T021（FR-10）：OpenAPI 暴露统一 ErrorResponse 并对 4xx/5xx $ref（对齐 admin-api）。
     # 必须在 include_router 之后调用（get_openapi 读调用时的 app.routes）。
     _patch_openapi_error_schema(app)
+    # 025 T045（FR-27）：旧 /api/* 永久重定向到 /api/v1/*（GET/HEAD 301，其他 308）。
+    app.add_middleware(LegacyApiRedirectMiddleware)
 
     # 023 T035: FastAPI 自动插桩（HTTP server span）
     instrument_fastapi(app)

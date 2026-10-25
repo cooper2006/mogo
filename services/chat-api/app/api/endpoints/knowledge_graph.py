@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 
-router = APIRouter(prefix="/api/kg", tags=["knowledge-graph"])
+router = APIRouter(prefix="/api/v1/kg", tags=["knowledge-graph"])
 
 
 @router.get("/nodes/{node_id}")

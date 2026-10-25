@@ -26,7 +26,7 @@ from app.business_index.alignment import align_entities, join_cross_system
 from app.business_index.entities import BizEntity, ENTITY_TYPES
 from app.services.business_semantic_index import BusinessSemanticIndex, EntityRecord
 
-router = APIRouter(prefix="/api/business-index", dependencies=[Depends(require_end_user_principal)])
+router = APIRouter(prefix="/api/v1/business-index", dependencies=[Depends(require_end_user_principal)])
 
 
 class SearchRequest(BaseModel):

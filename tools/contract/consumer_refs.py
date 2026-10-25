@@ -80,6 +80,18 @@ def normalize_url(text: str) -> str:
     return "/" + text.strip("/")
 
 
+VERSION_SEGMENT_RE = re.compile(r"/v\d+")
+
+
+def _version_agnostic(path: str) -> str:
+    """去掉路径首段主版本（/v1、/v2 …），做版本无关比对。
+
+    025 T045 把主版本迁到 `/api/v1/...`，而消费方源码 base url 仍为 `/api`，
+    若不归一化，契约 path `/api/v1/auth/login` 将匹配不到消费方 `/api/auth/login`。
+    """
+    return VERSION_SEGMENT_RE.sub("", path, count=1)
+
+
 def iter_source_files(root: Path) -> list[Path]:
     """列出源码根下所有前端/相关源码文件。"""
     if not root.exists():
@@ -169,15 +181,16 @@ def check_contract_consumers(
     for item in contract.get("interactions") or []:
         if not isinstance(item, dict):
             continue
-        full = normalize_url(f"{base}{item['path']}")
-        bare = normalize_url(item["path"])
+        full = _version_agnostic(normalize_url(f"{base}{item['path']}"))
+        bare = _version_agnostic(normalize_url(item["path"]))
         # 命中判定：相等 / 前缀更深（如 /api/knowledge/documents/{id} 命中 /api/knowledge/documents）/
         # 消费方可能带额外前缀（nginx /askai-api 或 f"{base_url}" 拼接），因此允许契约 path
         # 作为消费方 URL 的**路径后缀**命中。
-        hit = full in urls or any(u == full or u.endswith(full) for u in urls)
-        hit = hit or any(u.startswith(full) for u in urls)
+        urls_v = {_version_agnostic(u) for u in urls}
+        hit = full in urls_v or any(u == full or u.endswith(full) for u in urls_v)
+        hit = hit or any(u.startswith(full) for u in urls_v)
         if not hit and len(bare) >= 5:
-            hit = bare in urls or any(u == bare or u.endswith(bare) for u in urls)
+            hit = bare in urls_v or any(u == bare or u.endswith(bare) for u in urls_v)
         if not hit:
             line = (
                 f"{item.get('id', '?')}: 契约 path {item['path']} 在消费方源码"

@@ -16,7 +16,7 @@ from app.memory.scope import MemoryScope, ORG_PROMOTION_ROLES
 from app.memory.store import MemoryStore, MemoryTooLargeError
 from app.memory.tiering import NoopSummarizer, tier_content
 
-router = APIRouter(prefix="/api/memories", tags=["memory"])
+router = APIRouter(prefix="/api/v1/memories", tags=["memory"])
 
 
 @router.post("")

@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Header, HTTPException
 from app.core.db import get_db
 from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
-router = APIRouter(prefix="/api/harness-profiles", tags=["harness-config"])
+router = APIRouter(prefix="/api/v1/harness-profiles", tags=["harness-config"])
 
 _COLLECTION = "harness_profiles"
 _AUDIT_EVENT = "harness_profile.changed"

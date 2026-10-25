@@ -36,7 +36,7 @@ from app.services.orchestration_permission import can_publish_orchestration
 #: 发布权权限码（001 权限码模型 ``<resource>:<action>[:<target>]``）。
 PUBLISH_PERMISSION = "orchestration:publish"
 
-router = APIRouter(prefix="/api/orchestrations", dependencies=[Depends(require_end_user_principal)])
+router = APIRouter(prefix="/api/v1/orchestrations", dependencies=[Depends(require_end_user_principal)])
 
 
 class ApiResponse(BaseModel):

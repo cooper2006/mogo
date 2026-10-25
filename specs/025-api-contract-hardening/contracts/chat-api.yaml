@@ -3,7 +3,7 @@ version: 1.0.0
 provider: chat-api
 consumers:
 - user-web
-base_path: /api
+base_path: /api/v1  # 025 T045（FR-27）：主版本路径；旧 /api 由 LegacyApiRedirectMiddleware 301/308 重定向
 notes: "chat-api 契约（T031 / FR-16 / FR-17）。\n- 消费方：apps/user-web（Vue 3 + TS）。经 grep 与逐文件核对，\n  apps/admin-web 的全部 `/api/...` 调用走其自身 apiClient\n  （`apps/admin-web/src/api/client.ts:5` baseURL `/admin-api`，指向\
   \ admin-api 服务），\n  `apps/admin-web/src/api/skills.ts:187` 的 `/api/skills/{id}/publish` 亦由\n  admin-api 代理转发，因此 **admin-web 不是 chat-api 的直接消费方**，未列入 consumers。\n- 消费方实际 baseURL 为 `/askai-api/api`（`apps/user-web/src/api/*.ts`\
   \ 多处\n  `createApiClient({ baseURL: '/askai-api/api' })`），经反向代理映射到 chat-api 的 `/api`\n  前缀；契约中所有 `path` 均不含 `/api`。\n- 字段命名：FR-23 期望 snake_case，但 chat-api 现有 `_admin_shape_skill` /\n  `_create_session`\
