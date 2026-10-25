@@ -144,9 +144,17 @@
 - [ ] T021 错误结构统一化（FR-10, QF-229, QF-232）：扫描 `services/*/app/api/routes/` 所有错误响应，改为引用 T001 的 `ErrorResponse` schema；OpenAPI 中所有错误响应引用 `ErrorResponse`
 - [ ] T022 稳定错误码 + 定位信息（FR-11, QF-230, QF-231）：扫描所有错误响应，确保 `code` 字段使用 T001 注册表的稳定枚举；错误体含 `trace_id`（T004 注入）、`field`（字段级）、`path`（JSONPath）
 - [ ] T023 不泄漏内部信息（FR-12, QF-234, QF-235, QF-236）：扫描所有错误信息，移除内部组件名/版本号/文件路径/SQL；401/403 统一响应（不区分"用户不存在"vs"密码错"）；`DEBUG` 在非 dev 环境强制关闭
-- [ ] T024 [P] 创建 `services/admin-api/app/middleware/rate_limit.py`：限流中间件（FR-13, QF-237, QF-238, QF-239, QF-240）；Redis 滑动窗口；超配额返回 429 + `Retry-After` 头；`detail` 含 `limit`/`remaining`/`window`/`reset_at`
-- [ ] T025 [P] 创建 `services/admin-api/app/config/rate_limit.yaml`：限流维度与阈值配置（IP:100/min、tenant:1000/min、user:100/min、endpoint:500/min）
-- [ ] T026 创建 `docs/rate-limiting.md`：限流维度与阈值文档（FR-13, QF-240）
+- [x] T024 [P] 创建 `services/admin-api/app/middleware/rate_limit.py`：限流中间件（FR-13, QF-237, QF-238, QF-239, QF-240）；Redis 滑动窗口；超配额返回 429 + `Retry-After` 头；`detail` 含 `limit`/`remaining`/`window`/`reset_at`
+  - **证据（2026-10-25）**：新增 `services/admin-api/app/middleware/rate_limit.py`。
+  - `RateLimitStore`（Redis ZSET 滑动窗口，`score=时间戳`）：`hit(key, rule)` 先 `ZREMRANGEBYSCORE` 清窗口外 → `ZCOUNT` 计数 → 未超 `ZADD` + `EXPIRE window+10`；超配额用窗口内最早分数 + `window` 算 `reset_at`。返回 `{allowed, remaining, reset_at, limit, window}`。Redis 不可达降级**进程内存**（`{key: [timestamps]}`）+ warning + `resilience.register_redis_pool`；`backend` 属性 `redis|memory`。
+  - `RateLimitMiddleware`（纯 ASGI）：维度 `ip/tenant/user/endpoint`（可用 `dimensions=` 选子集），标识从 `scope["client"][0]`（IP）、`scope["state"]["tenant_id"]`、`state["user_id"]`、`scope["path"]` 取；`config.rule_for(dimension, path)` 支持路径前缀覆盖。任一维度超配额 → **429** + `Retry-After`（=ceil(reset_at-now)，≥1）+ `X-RateLimit-Limit`/`X-RateLimit-Remaining`；body `detail` = `{code:"RATE_LIMITED", message, limit, remaining, window, reset_at(ISO8601 UTC), dimension}`。store 异常（熔断打开）→ 按「不限流」降级放行。**未挂载**到 admin-api app，留待 T048。
+  - 行为测试 `tests/test_rate_limit_t024_t025.py`（20 用例全绿）：yaml 默认值/最长前缀覆盖/未知维度/yaml 缺失与损坏回退/env 覆盖/config 路径存在/dimensions_sorted/store 结构与滑动窗口恢复（window=1 sleep 1.1 恢复）/429 契约与响应头/IP·tenant·endpoint 维度隔离/override 生效/空配置放行/维度子集。测试原则：只用进程内存 store，不连真实 Redis；用纯 ASGI 手动驱动（自定义 scope/client/state），不用 TestClient（便于指定 IP 与租户）。
+- [x] T025 [P] 创建 `services/admin-api/app/config/rate_limit.yaml`：限流维度与阈值配置（IP:100/min、tenant:1000/min、user:100/min、endpoint:500/min）
+  - **证据（2026-10-25）**：新增 `app/config/rate_limit.yaml` + 加载器 `app/config/rate_limit.py`。
+  - yaml 结构：`dimensions.{ip,tenant,user,endpoint}.{limit,window}`（100/1000/100/500 次每 60 秒）+ `overrides`（`/internal`、`/internal/personal-knowledge` 的 `endpoint` 放宽到 2000/min）。
+  - `RateLimitRule(limit, window)`（frozen）+ `validate()`（非正数回退 1/60）；`RateLimitConfig.dimensions` + `overrides` + `rule_for(dimension, path)`（最长前缀优先）+ `dimensions_sorted()`；`load_rate_limit_config(config_path=None)`：yaml 基线 → env `MOGO_RATE_LIMIT_<DIM>_LIMIT`/`_WINDOW` 覆盖 → yaml 缺失/损坏回退内置默认 + warning。仿 `payload_limits.py` 风格。
+- [x] T026 创建 `docs/rate-limiting.md`：限流维度与阈值文档（FR-13, QF-240）
+  - **证据（2026-10-25）**：新增 `docs/rate-limiting.md`——维度与阈值表（ip 100/min、tenant 1000/min、user 100/min、endpoint 500/min）、路径前缀放宽、配置优先级（yaml→env→内置默认）、Redis 滑动窗口算法与降级、429 响应契约（Retry-After + X-RateLimit-* + detail 六字段）、与登录限流 `app/core/rate_limiter.py` 的区别、测试位置。与实现一致（QF-240）。
 - [ ] T027 批量语义（FR-14, QF-245, QF-247, QF-248）：扫描 `services/admin-api/app/api/routes/knowledge_documents.py` 等批量接口，响应含逐项结果数组 + 整体 `status` + `partial` 字段；批量大小上限 100，超限返回 422
 - [ ] T028 降级空值语义（FR-15, QF-252）：扫描所有降级场景，返回 `null` + `degraded: true` 元信息，不返回误导性空数组/空对象
 - [ ] T029 [P] 错误处理集成测试：`services/admin-api/tests/api/test_errors.py`（错误结构、错误码、不泄漏、限流、批量、降级 6 组 Acceptance）

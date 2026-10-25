@@ -1,0 +1,34 @@
+# 025 FR-13 (T025)：限流维度与阈值配置。
+#
+# 每个维度一个滑动窗口规则（limit 次 / window 秒）。中间件对命中任一维度
+# 的超配额请求返回 429 + Retry-After。
+#   ip       单 IP 每分钟请求数
+#   tenant   单租户每分钟请求数
+#   user     单用户每分钟请求数
+#   endpoint 单端点路径每分钟请求数
+# overrides 按路径前缀放宽（最长前缀优先），命中则替换该维度的规则。
+# 环境变量 MOGO_RATE_LIMIT_<DIM>_LIMIT / _WINDOW 可逐项覆盖（如 MOGO_RATE_LIMIT_IP_LIMIT）。
+
+dimensions:
+  ip:
+    limit: 100
+    window: 60
+  tenant:
+    limit: 1000
+    window: 60
+  user:
+    limit: 100
+    window: 60
+  endpoint:
+    limit: 500
+    window: 60
+
+overrides:
+  /internal:
+    endpoint:
+      limit: 2000
+      window: 60
+  /internal/personal-knowledge:
+    endpoint:
+      limit: 2000
+      window: 60
