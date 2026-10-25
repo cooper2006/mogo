@@ -16,14 +16,14 @@
 
 {{- define "mogo.email.subject" -}}
 {{- $sev := "P2" }}{{ if index .CommonLabels "severity" }}{{ $sev = index .CommonLabels "severity" }}{{ end -}}
-{{- $name := index .CommonLabels "alertname" | default "MogoAlert" -}}
-{{- $svc := index .CommonLabels "service" | default "mogo" -}}
+{{- $name := index .CommonLabels "alertname" -}}{{- if not $name }}{{ $name = "MogoAlert" }}{{- end -}}
+{{- $svc := index .CommonLabels "service" -}}{{- if not $svc }}{{ $svc = "mogo" }}{{- end -}}
 [{{ $sev }}] {{ $svc }} · {{ $name }} ({{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ len .Alerts.Firing }}{{ end }})
 {{- end -}}
 
 {{- define "mogo.title" -}}
 {{- $sev := "P2" }}{{ if index .CommonLabels "severity" }}{{ $sev = index .CommonLabels "severity" }}{{ end -}}
-[{{ $sev }}] {{ index .CommonLabels "alertname" | default "MogoAlert" }} @ {{ index .CommonLabels "service" | default "mogo" }}
+[{{ $sev }}] {{ if index .CommonLabels "alertname" }}index .CommonLabels "alertname"{{ else }}MogoAlert{{ end }} @ {{ if index .CommonLabels "service" }}index .CommonLabels "service"{{ else }}mogo{{ end }}
 {{- end -}}
 
 {{- define "mogo.severity_hint" -}}
@@ -56,8 +56,8 @@ Trace   : {{ if $tr }}{{ $tr }}{{ else }}（未配置）http://localhost:3001/ex
 {{ if .Alerts.Resolved }}恢复时间: {{ (index .Alerts.Resolved 0).EndsAt.Format "2006-01-02 15:04:05 MST" }}{{ end }}
 
 {{ range .Alerts -}}
-摘要: {{ index .Annotations "summary" | default "(无摘要)" }}
-详情: {{ index .Annotations "description" | default "(无详情)" }}
+摘要: {{ if index .Annotations "summary" }}index .Annotations "summary"{{ else }}(无摘要){{ end }}
+详情: {{ if index .Annotations "description" }}index .Annotations "description"{{ else }}(无详情){{ end }}
 {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
 
 {{ end -}}
@@ -76,8 +76,8 @@ Trace   : {{ if $tr }}{{ $tr }}{{ else }}（未配置）http://localhost:3001/ex
 <p>状态: {{ .Status | toUpper }}<br/>
 开始时间: {{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 MST" }}</p>
 {{ range .Alerts -}}
-<p><strong>摘要:</strong> {{ index .Annotations "summary" | default "(无摘要)" }}<br/>
-<strong>详情:</strong> {{ index .Annotations "description" | default "(无详情)" }}</p>
+<p><strong>摘要:</strong> {{ if index .Annotations "summary" }}index .Annotations "summary"{{ else }}(无摘要){{ end }}<br/>
+<strong>详情:</strong> {{ if index .Annotations "description" }}index .Annotations "description"{{ else }}(无详情){{ end }}</p>
 {{ end -}}
 <h3>排障入口</h3>
 <pre>{{ template "mogo.links" . }}</pre>
