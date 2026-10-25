@@ -33,6 +33,18 @@
 - [x] CHK017 幂等键冲突（409，FR-7）与并发条件冲突（412，FR-8）在超时重试场景下的区分语义是否明确（FR-7/FR-8）？
 - [x] CHK018 翻页稳定在插入/删除/更新三类数据变动下的 cursor 边界是否明确，且"基于 cursor 的稳定翻页"是否足够约束验收（FR-6/QF-213）？
 
+## US3/US4 演进需求（2026-10-25 追加，随实现闭环回填）
+
+> CHK019–CHK025 是对 CHK008/CHK009 的**落地细化**：把契约测试、OpenAPI 自动生成、版本化与错误码字典从"已定义"推进到"已具备可执行的验收命令与门禁"，构成 `/speckit-implement` 的最终拦截面。
+
+- [x] CHK019 契约是否已实际生成三份（`contracts/admin-api.yaml` 46 interactions / `chat-api.yaml` 63 / `document-parser.yaml` 10），且每条含 `id`/`method`/`path`/`consumers[]`/`responses`/`error_codes`/`notes`，并通过 `tools/contract/validate.py --all`（FR-16）？
+- [x] CHK020 消费方侧证据是否可自动核验（`tools/contract/consumer_refs.py --all` 扫描 `.ts`/`.vue` 源码，版本无关匹配契约 path；无调用证据且契约未标注零消费方的项必须报 error）（FR-16/FR-17）？
+- [x] CHK021 提供方侧是否用 OpenAPI 结构级测试验证每条契约 interaction 存在、状态码/字段/错误码注册表与提供方一致（`services/admin-api/tests/contract/test_admin_api.py`，FR-17/FR-18/FR-29），并已修复 3 处 `/api/api/*` 双重前缀与 `items↔data` 字段断裂？
+- [x] CHK022 OpenAPI 是否由代码自动生成（`tools/openapi/generate.py --all --check`，CI diff 阻断），且三份 artifact 均通过 `openapi-spec-validator` + 内置 lint（FR-25/FR-26）；chat-api 已修复 `required` 重复 `tenantId` 与 default 空串违反 `minLength`？
+- [x] CHK023 版本方案是否具备可执行三要素——URL 主版本（三服务迁 `/api/v1`，T045）、响应头小版本（`ApiVersionMiddleware` 写 `API-Version: 1.0.0`，T044）、旧路径兼容（`LegacyApiRedirectMiddleware`：GET/HEAD 301、其他方法 308 保留方法，避免写操作被转成 GET 丢失），口径落在 `docs/api-versioning.md`（FR-27/FR-28）？
+- [x] CHK024 错误码字典是否已跨服务汇总为唯一权威（`docs/error-codes.md`，通用 15 码 `api.*` + 业务码登记表），并具备**映射稳定性门禁**（`tools/api_check/error_code_mapping.py`：与基线快照比对，`changed_status_semantics` 变更须 major 升级；跨服务唯一由 `tools/api_check/error_codes_uniqueness.py` 保证）（FR-30/FR-31/QF-270）？
+- [x] CHK025 CI 是否已装配 `api-contract-hardening` job，串起 path_naming → error_codes_uniqueness → error_code_mapping → contract validate → contract diff → openapi generate+validate → deprecation_check → consumer_refs 全链路（T048，`quality-gate.yml`）？
+
 ## Notes
 
 - 本清单为需求质量门禁；CHK 检查项与 spec.md FR 双向对齐，构成 `/speckit-implement` 拦截。

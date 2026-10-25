@@ -281,8 +281,10 @@
   - `tools/contract/diff.py`（兼容性 diff，FR-20）
   - `tools/openapi/generate.py` + `tools/openapi/validate.py`（OpenAPI 生成 + 校验，FR-25, FR-26）
   - `tools/contract/deprecation_check.py`（弃用字段观察期，FR-22）
-- [ ] T049 [P] 创建 `specs/025-api-contract-hardening/checklists/requirements.md`：需求质量门禁（CHK 检查项，`/speckit-implement` 拦截）
-- [ ] T050 写 `quickstart.md`（本特性的启用 + 验证步骤）
+- [x] T049 [P] 创建 `specs/025-api-contract-hardening/checklists/requirements.md`：需求质量门禁（CHK 检查项，`/speckit-implement` 拦截）
+  - **证据**: `checklists/requirements.md`（已在 US1/US2 建立 CHK001–CHK018 并全部勾选，覆盖完整性/一致性/边界与歧义）。本轮追加 **CHK019–CHK025**「US3/US4 演进需求（随实现闭环回填）」，把 CHK008/CHK009 从"已定义"推进到"已具备可执行验收命令与门禁"：CHK019 三份契约实际生成并通过 `validate.py --all`（46/63/10 interactions）；CHK020 消费方源码证据自动核验（`consumer_refs.py --all`，版本无关匹配）；CHK021 提供方 OpenAPI 结构级测试（`services/admin-api/tests/contract/test_admin_api.py`）+ 已修复 3 处 `/api/api/*` 双重前缀与 `items↔data` 字段断裂；CHK022 OpenAPI 自动生成 + `--check` CI diff + 校验（含 chat-api `required` 重复 `tenantId` 与 default 空串两处修复）；CHK023 版本方案三要素（URL `/api/v1`、`API-Version` 响应头、旧路径 GET/HEAD 301 + 其他方法 308 重定向，口径 `docs/api-versioning.md`）；CHK024 错误码字典唯一权威（`docs/error-codes.md`）+ 映射稳定性门禁（`error_code_mapping.py`，`changed_status_semantics` 须 major 升级）；CHK025 CI `api-contract-hardening` job 全链路装配。Notes 明确「`[x]` 代表需求质量达标，不代表实现完成；实现状态以 tasks.md 与 QualityForge 审计回写为准」。
+- [x] T050 写 `quickstart.md`（本特性的启用 + 验证步骤）
+  - **证据**: `quickstart.md` 更新三处以对齐 US3/US4 最终产出：①§5.1 改为实际命令（`tools/openapi/generate.py --all` / `--service X`，artifact 输出 `specs/025-api-contract-hardening/openapi/*-openapi.json`；`validate.py --all --skip-spectral` 处理本地未装 spectral），并记录 T041 两处 schema 修复；②§5.2 扩写版本方案四要素——URL 主版本（T045 三服务迁 `/api/v1`，chat-api 33 处 include_router prefix + 8 个内部 router prefix）、旧路径重定向（`LegacyApiRedirectMiddleware` GET/HEAD 301、其他 308 保留方法）、`ApiVersionMiddleware` 写 `API-Version: 1.0.0`（T044）、口径文档 `docs/api-versioning.md` 与 `docs/error-codes.md`；③§6 验证清单追加第 19–24 行（契约结构校验、消费方证据、错误码映射稳定性、OpenAPI 与实测一致性、OpenAPI 与契约 CI diff、旧路径重定向 TestClient 301/308/200）；§9 CI 段更新为 `api-contract-hardening` job 的完整 8 步命令序列。
 - [x] T051 [P] 错误码字典跨服务汇总：`docs/error-codes.md`（FR-30，T043 的详细版，含三个服务所有错误码）
   - **证据**: `docs/error-codes.md`（唯一权威字典，按服务分节跨服务汇总）。要点：
     1. **命名空间**：`api.<domain>.<error>`（FR-11）；**服务前缀不写进 code**（避免与 022 既有码冲突），所属服务写在 `service` 列。

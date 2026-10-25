@@ -132,22 +132,25 @@ python tools/contract/diff.py \
 ### 5.1 OpenAPI 生成与校验
 
 ```bash
-# 生成 OpenAPI
-python tools/openapi/generate.py \
-  --services services/admin-api,~chat-api,~document-parser \
-  --output build/openapi/
+# 生成 OpenAPI 3.1（三个服务；T040 用 subprocess 隔离 import，避免三服务共用顶层包名 app 互相污染）
+python tools/openapi/generate.py --all
+# 单服务：python tools/openapi/generate.py --service admin-api
+# artifact 输出：specs/025-api-contract-hardening/openapi/{admin-api,chat-api,document-parser}-openapi.json
 
-# 校验 OpenAPI
-python tools/openapi/validate.py \
-  --openapi build/openapi/admin-api.json \
-  --ruleset .spectral.yaml
+# 校验 OpenAPI（openapi-spec-validator + 内置 lint + 可选 spectral）
+python tools/openapi/validate.py --all
+# --skip-spectral：本地未装 spectral CLI 时跳过（内置 lint 仍执行）
 ```
 
-期望：校验通过返回退出码 0；失败阻断 CI。
+期望：生成/校验均返回退出码 0；失败阻断 CI。T041 已据此修复 chat-api 两处 schema 缺陷（`required` 重复 `tenantId` 违反 uniqueItems；`ToolDescriptionGeneratePayload.name` 的 default 空串违反 `minLength`）。
 
-### 5.2 版本方案
+### 5.2 版本方案（T042/T044/T045 落地）
 
-启用 `API-Version` 中间件，所有路由迁移到 `/v1/` 前缀（旧路径 301 重定向）。
+- **主版本走 URL**：三服务路由统一迁移到 `/api/v1/...`（T045；admin-api / document-parser 改 `include_router(..., prefix="/api/v1")`，chat-api 33 处 `include_router` prefix + 8 个内部 router 硬编码的 `/api/...` prefix 一并迁移）。
+- **旧路径永久重定向**：新中间件 `services/*/app/middleware/legacy_api_redirect.py` 的 `LegacyApiRedirectMiddleware` 把旧 `/api/*` 重定向到 `/api/v1/*`（保留 query）。**`GET`/`HEAD` → 301**；**`POST`/`PUT`/`PATCH`/`DELETE` → 308**（301 对非 GET 语义未定义，多数客户端会转成 GET 重发导致写操作丢失，308 保留方法与请求体）。验证：`TestClient` 下 `GET /api/auth/me` → 301 `/api/v1/auth/me`，`POST /api/auth/login` → 308。
+- **小版本走响应头**：`services/admin-api/app/middleware/api_version.py` 的 `ApiVersionMiddleware` 在响应上写 `API-Version: 1.0.0`（契约主副本 `contracts/admin-api.yaml` 顶层 `version`）；`X-API-Version` 请求不拒绝。
+- **口径文档**：`docs/api-versioning.md`（双轨模型、幅度规则复用 `tools/contract/diff.py` 的 `BREAKING_TYPES`/`COMPAT_TYPES`、废弃观察期对齐 FR-22 `bump_minor(version, minors=2)`、升级 7 步流程）。
+- **错误码字典**：`docs/error-codes.md`（唯一权威字典，FR-30/FR-31）——通用 15 码 `api.*` + 业务码登记，含 `code`/`http_status`/`trigger`/`remedy` 四字段；`code` 值一经发布不可变更，映射变更属 `changed_status_semantics`（破坏性，须 major 升级）。
 
 ---
 
@@ -173,6 +176,12 @@ python tools/openapi/validate.py \
 | 16 | OpenAPI 校验 | `python tools/openapi/validate.py` | 校验通过 |
 | 17 | 错误码重名 | `python tools/api_check/error_codes_uniqueness.py` | 无跨服务重名 |
 | 18 | 弃用字段观察期 | `python tools/contract/deprecation_check.py` | 无超期未移除字段 |
+| 19 | 契约结构校验（三服务） | `python tools/contract/validate.py --all` | admin-api 46 / chat-api 63 / document-parser 10 interactions 全部合规 |
+| 20 | 消费方源码证据 | `python tools/contract/consumer_refs.py --all` | 每条 interaction 在消费方源码有调用证据；仅契约已标注零消费方项 warn |
+| 21 | 错误码映射稳定性 | `python tools/api_check/error_code_mapping.py` | 与基线快照一致；映射变更提示需 major 升级（FR-31） |
+| 22 | OpenAPI 与实测一致性 | `python tools/openapi/probe.py --all` | 探针端点的路径/响应字段与 OpenAPI 一致 |
+| 23 | OpenAPI 与契约一致（CI diff） | `python tools/openapi/generate.py --check` | 契约改动后 artifact 未重新生成即失败 |
+| 24 | 旧路径重定向 | TestClient（`follow_redirects=False`） | `GET /api/x`→301、`POST /api/x`→308、`/health`→200 |
 
 ---
 
@@ -214,7 +223,7 @@ python tools/contract/diff.py \
 
 ## 9. CI 接入（quality-gate.yml）
 
-确认 `.github/workflows/quality-gate.yml` 包含 `api-contract-hardening` job，执行：
+确认 `.github/workflows/quality-gate.yml` 包含 `api-contract-hardening` job（T048），依次执行：
 
 ```yaml
 - name: Path Naming Check
@@ -223,17 +232,28 @@ python tools/contract/diff.py \
 - name: Error Codes Uniqueness
   run: python tools/api_check/error_codes_uniqueness.py --services services/admin-api,~chat-api,~document-parser
 
+- name: Error Code Mapping Stability
+  run: python tools/api_check/error_code_mapping.py --all
+
 - name: Contract Validation
-  run: python tools/contract/validate.py --contract-dir specs/025-api-contract-hardening/contracts/ --side provider
+  run: python tools/contract/validate.py --all
 
 - name: Compatibility Diff
-  run: python tools/contract/diff.py --base specs/025-api-contract-hardening/contracts/ --head build/openapi/ --fail-on-breaking
+  run: python tools/contract/diff.py --contract-dir specs/025-api-contract-hardening/contracts/ --base HEAD~1
 
-- name: OpenAPI Validation
-  run: python tools/openapi/validate.py --openapi build/openapi/admin-api.json
+- name: OpenAPI Generate + Validate
+  run: |
+    python tools/openapi/generate.py --all --check
+    python tools/openapi/validate.py --all
+
+- name: Deprecation Check
+  run: python tools/contract/deprecation_check.py --all
+
+- name: Consumer Evidence
+  run: python tools/contract/consumer_refs.py --all
 ```
 
-期望：所有 job 通过（退出码 0）；任一失败阻断 PR。
+期望：所有 step 通过（退出码 0）；任一失败阻断 PR。
 
 ---
 
