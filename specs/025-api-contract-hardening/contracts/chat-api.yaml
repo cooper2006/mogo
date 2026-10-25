@@ -3290,3 +3290,7 @@ gaps:
   前缀指向 admin-api，本契约不覆盖；admin-api 契约需自行收编。
 - portal/requests 端点服务端定义 status_code=201（portal.py:162），消费方仅按 2xx 处理，未区分 201/200，契约统一写 200（消费方视角）。
 - chat/completions 的响应 content_type 实为 application/x-ndjson（逐行 JSON 事件），而非 SSE text/event-stream；chat/messages/{id}/events 才是标准 SSE。契约如实标注。
+- T036 无消费方端点登记：list_skill_updates / list_skill_share_inbox / fetch_personal_knowledge /
+  list_site_profiles / list_scheduled_jobs 在 apps/user-web 源码中无直接调用 URL（管理端经
+  admin-api BFF 或尚未接线），consumer_refs 工具以 NO_CONSUMER_ALLOWLIST 白名单豁免 path 证据
+  （不阻断）；删除前需确认已接线或已从契约移除。
