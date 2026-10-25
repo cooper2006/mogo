@@ -27,7 +27,9 @@ from app.services.skill_market.skill_monitoring import (
     skill_usage_monitor,
 )
 
-router = APIRouter(prefix="/api/skills/monitor", tags=["skill-monitoring"])
+# 025 T035：prefix 曾误写 "/api/skills/monitor"，叠加 api_router 的 "/api" 前缀后
+# 实际路由为 "/api/api/skills/monitor/*"，与前端调用不符。改为 "/skills/monitor"。
+router = APIRouter(prefix="/skills/monitor", tags=["skill-monitoring"])
 
 
 def _require_service(token: str) -> None:

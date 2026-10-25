@@ -1664,8 +1664,8 @@ async function reload(options: { silent?: boolean } = {}) {
       }),
     ]);
     stats.value = statsResult;
-    documents.value = listResult.items;
-    const visibleIds = new Set(listResult.items.map((item) => item.id));
+    documents.value = listResult.data;
+    const visibleIds = new Set(listResult.data.map((item) => item.id));
     selectedDocumentKeys.value = selectedDocumentKeys.value.filter((id) => visibleIds.has(String(id)));
     pagination.total = listResult.total;
   } catch (error) {

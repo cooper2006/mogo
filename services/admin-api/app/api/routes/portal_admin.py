@@ -43,7 +43,9 @@ from app.governance.rbac_model import has_permission
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/portal", tags=["portal"])
+# 025 T035：prefix 曾误写 "/api/portal"，叠加 api_router 的 "/api" 前缀后实际路由为
+# "/api/api/portal/*"，与前端调用（/api/portal/*）不符会 404。改为 "/portal"。
+router = APIRouter(prefix="/portal", tags=["portal"])
 
 PORTAL_LISTINGS_COLLECTION = "portal_listings"
 PORTAL_REQUESTS_COLLECTION = "portal_requests"

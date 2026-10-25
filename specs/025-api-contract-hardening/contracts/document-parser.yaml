@@ -5,6 +5,8 @@ consumers:
   - admin-api            # 内部 HTTP 调用（urllib）：提交解析/预览/索引任务、删除向量
   - chat-api             # 内部 HTTP 调用（httpx）：同步 parse-markdown、retrieval/search
   - deployment           # docker-compose / admin-api setup 健康探针（仅检查 HTTP 状态码）
+  - admin-web            # 间接消费：经 admin-api BFF /api/knowledge/documents/* 触发（无直连 URL）
+  - user-web             # 间接消费：经 chat-api BFF /askai-api/api/documents/* 触发（无直连 URL）
 base_path: /api
 interactions:
   - id: create_document_parse_job
@@ -236,6 +238,61 @@ interactions:
       （"内部知识检索失败"），不区分 503 与 401/403。
       items[].distance 与 items[].rerankScore 可为 null（chat-api schema 中 Optional[float]），
       metadata 字段 chat-api 用默认 {} 容忍缺失（未在本契约列出，消费方不强制读取）。
+  - id: batch_document_parse
+    method: POST
+    path: /documents/parsing/batch
+    summary: >-
+      批量解析（003 里程碑接口，FR-14 覆盖对象）。当前提供方未实现、无消费方调用，
+      本条目按 025 spec.md:206 声明的接口形状立约，仅作契约锚点，见下方 gaps.batch-parse-endpoint-missing。
+    request_body:
+      documents:
+        type: array
+        item: object
+      documents[].documentId:
+        type: str
+      documents[].source:
+        type: object
+        required: false
+    request_headers:
+      Authorization: "Bearer <document_processing_service_token>"
+    responses:
+      - status: 200
+        content_type: application/json
+        fields:
+          status:
+            type: str
+          results:
+            type: array
+            item: object
+          results[].documentId:
+            type: str
+          results[].ok:
+            type: bool
+          results[].jobId:
+            type: str
+            required: false
+          results[].error:
+            type: object
+            required: false
+          partial:
+            type: bool
+            required: false
+        error_codes: []
+        notes: >-
+          FR-14 批量语义（逐项结果数组 + 整体 status + partial 标记）的覆盖锚点。
+          ⚠️ 本端点当前零实现、零消费方：services/document-parser/app/api/routes/ 五个业务路由
+          全量通读无 batch 端点；apps/admin-web/src 的批量上传/批量删除
+          （views/knowledge/KnowledgeDocumentsPage.vue:211 / :1244）走的是 admin-api
+          validate_batch_size（services/admin-api/app/api/routes/knowledge_documents.py:55-100），
+          并非 document-parser 契约。字段按 025 spec.md:73 的 FR-14 规则推定，非消费方实际读取。
+      - status: 422
+        error_codes: [api.validation_error]
+        notes: FR-14 规定超限（>N=100）返回 422，字段级 detail 由 admin-api validate_batch_size
+          定义（code/message/field/path/limit/count）。
+    notes: >-
+      003 spec.md / plan.md / checklists 均无 batch 定义，与 025 spec.md:206 的声明冲突。
+      本条目立约以暴露差异（FR-14 语义未收敛到 document-parser），
+      不作为消费方可调用的端点；待 003 侧补定义与实现后再回填字段与状态码。
   - id: delete_document_vectors
     method: POST
     path: /vectors/documents/deletion
@@ -292,9 +349,9 @@ interactions:
       实际仍调用本旧路径的两个消费方：
       services/admin-api/app/api/routes/knowledge_documents.py:_request_document_vector_delete（line 635）
       与 services/admin-api/app/services/tenant_purge.py（line 513）。
-      二者均使用 urllib.request，Python urllib 的 HTTPRedirectHandler 不处理 308 →
-      会抛 HTTPError，走 consumer 的 URLError 分支 → RuntimeError。
-      即当前删除向量调用实际不可达，需迁移到 /vectors/documents/deletion（见 gaps）。
+      二者均使用 urllib.request；Python 3.11+ 的 HTTPRedirectHandler 已支持 308
+      （http_error_308 → 保留 POST 重发），故调用实际可达并落到 /vectors/documents/deletion，
+      迁移必要性见下方 gaps.vector-delete-consumer-still-on-deprecated-alias。
   - id: service_health
     method: GET
     path: /health
@@ -303,13 +360,23 @@ interactions:
     responses:
       - status: 200
         content_type: application/json
-        fields: []
+        fields:
+          status:
+            type: str
+            required: false
+          service:
+            type: str
+            required: false
         error_codes: []
-        notes: docker-compose 探针仅调用 urlopen().read()，只依赖 HTTP 状态码，不读取 body 字段
+        notes: >-
+          docker-compose 探针仅调用 urlopen().read()，只依赖 HTTP 状态码，不读取 body 字段；
+          服务端 /health 返回 {"status":"ok", "service":"mogo-document-processing-service", ...}
+          （services/document-parser/app/api/routes/health.py），消费方零读取故字段均 required=false；
+          为满足 US3 验收"每个 200 响应 fields 非空"，按实际返回形状登记 status/service。
     notes: |
-      消费方为部署编排层：docker-compose.yml:763 document-api healthcheck
+      消费方为部署编排层：deploy/docker-compose.yml:763 document-api healthcheck
       （urlopen('http://127.0.0.1:8200/api/health', timeout=3)）。status_only=true，
-      消费方不读任何响应体字段（故 fields 为空）。
+      消费方不读任何响应体字段。
   - id: service_ready
     method: GET
     path: /ready
@@ -318,9 +385,20 @@ interactions:
     responses:
       - status: 200
         content_type: application/json
-        fields: []
+        fields:
+          status:
+            type: str
+            required: false
+          service:
+            type: str
+            required: false
+          checks:
+            type: object
+            required: false
         error_codes: []
-        notes: 消费方仅断言 response.status < 400；见 services/admin-api/app/api/routes/setup.py:_probe_http
+        notes: 消费方仅断言 response.status < 400；见 services/admin-api/app/api/routes/setup.py:_probe_http。
+          服务端 /ready 返回 {"status":"ok"|"degraded", "service", "checks":{panweidb/redis/weaviate/worker/docling：bool}}
+          （services/document-parser/app/api/routes/health.py），消费方零读取故字段标 `required：false`。
       - status: 503
         error_codes: [api.service_unavailable]
     notes: |
@@ -351,26 +429,30 @@ gaps:
   - id: vector-delete-consumer-still-on-deprecated-alias
     severity: high
     description: >-
-      admin-api 的向量删除调用仍指向 025 T010 已改为 308 重定向的旧别名 /vectors/documents/delete，
-      且 Python urllib 不跟随 308，导致删除向量实际调用失败；新路径 /vectors/documents/deletion 无消费方。
+      admin-api 的向量删除调用仍指向 025 T010 已标为 deprecated 的旧别名 /vectors/documents/delete，
+      未迁移到新路径 /vectors/documents/deletion；新路径目前无消费方直接命中。
     evidence: >-
       services/admin-api/app/api/routes/knowledge_documents.py:635（_request_document_vector_delete，
       f"{base_url}/api/vectors/documents/delete"）；services/admin-api/app/services/tenant_purge.py:513
-      （f"{base_url}/vectors/documents/delete"）。urllib.request 的 HTTPRedirectHandler 仅处理
-      301/302/303/307，不含 308 → 消费方走 except URLError → RuntimeError("document processing service unavailable")。
+      （f"{base_url}/vectors/documents/delete"）。
+    note: >-
+      兼容别名现返回 308 永久重定向；Python 3.11+ 的 urllib HTTPRedirectHandler 已支持 308
+      （http_error_308 保留 POST 重发），故调用实际仍可达新路径，但消费方依赖隐式重定向，
+      与 025 FR-22 弃用策略/契约立约路径不一致。
     action: >-
       把 _request_document_vector_delete 与 tenant_purge 的路径改为 /api/vectors/documents/deletion，
-      或让提供方对该别名返回 200 兼容。契约已按新路径立约（delete_document_vectors），
-      并把旧路径标 deprecated，供 T010 迁移与 deprecation_check.py（FR-22）扫描。
+      使消费方显式命中契约路径；旧别名保留观察期（FR-22，默认 2 minor）后移除。
+      契约已按新路径立约（delete_document_vectors），并把旧路径标 deprecated，
+      供 T010 迁移与 deprecation_check.py（FR-22）扫描。
   - id: tenant-purge-missing-api-prefix
     severity: medium
     description: >-
-      tenant_purge.py 的向量删除 URL 缺少 /api 前缀，与文档其余调用方不一致。
+      tenant_purge.py 的向量删除 URL 缺少 /api 前缀，与文档其余调用方不一致，实际 404。
     evidence: >-
       services/admin-api/app/services/tenant_purge.py:513 使用 f"{base_url}/vectors/documents/delete"；
       admin-api settings.document_processing_base_url 默认 "http://127.0.0.1:8200"（app/core/config.py:85，
       不含 /api），故实际请求打到 /vectors/documents/delete（无 /api），404。
-      对比 knowledge_documents.py 全部调用都带 /api 前缀。
+      对比 knowledge_documents.py 全部调用都带 /api 前缀（:495/:558/:602/:635）。
     action: 改为 f"{base_url}/api/vectors/documents/delete"（并随上一条一起迁到 /deletion）。
   - id: get-job-status-has-no-consumer
     severity: medium

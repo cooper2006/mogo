@@ -53,7 +53,8 @@ export interface KnowledgeDocumentItem {
 }
 
 export interface KnowledgeDocumentListResponse {
-  items: KnowledgeDocumentItem[];
+  /** 服务端统一分页契约（PageResponse）字段名为 data；旧字段名 items 已废弃（025 T035） */
+  data: KnowledgeDocumentItem[];
   total: number;
   page: number;
   pageSize: number;
@@ -87,7 +88,8 @@ export interface KnowledgeDocumentChunkItem {
 }
 
 export interface KnowledgeDocumentChunkListResponse {
-  items: KnowledgeDocumentChunkItem[];
+  /** 服务端统一分页契约字段名为 data；旧字段名 items 已废弃（025 T035） */
+  data: KnowledgeDocumentChunkItem[];
   total: number;
   page: number;
   pageSize: number;

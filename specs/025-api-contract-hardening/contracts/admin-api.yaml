@@ -914,20 +914,20 @@ interactions:
       - status: 200
         content_type: application/json
         fields:
-          items: {type: array, item: object}
-          items[].id: {type: str}
-          items[].name: {type: str}
-          items[].originalFilename: {type: str}
-          items[].fileExt: {type: str}
-          items[].fileSize: {type: int}
-          items[].storageType: {type: str}
-          items[].status: {type: str}
-          items[].parseStatus: {type: str}
-          items[].chunkCount: {type: int, required: false}
-          items[].indexStatus: {type: str, required: false}
-          items[].previewStatus: {type: str, required: false}
-          items[].createdAt: {type: str}
-          items[].updatedAt: {type: str}
+          data: {type: array, item: object}
+          data[].id: {type: str}
+          data[].name: {type: str}
+          data[].originalFilename: {type: str}
+          data[].fileExt: {type: str}
+          data[].fileSize: {type: int}
+          data[].storageType: {type: str}
+          data[].status: {type: str}
+          data[].parseStatus: {type: str}
+          data[].chunkCount: {type: int, required: false}
+          data[].indexStatus: {type: str, required: false}
+          data[].previewStatus: {type: str, required: false}
+          data[].createdAt: {type: str}
+          data[].updatedAt: {type: str}
           total: {type: int}
           page: {type: int}
           pageSize: {type: int}
@@ -1161,7 +1161,8 @@ interactions:
     request_headers:
       Authorization: "Bearer <token>"
     responses:
-      - status: 201
+      # 服务端路由未设 status_code=201，实际返回 200；消费方仅按 2xx 处理（FR-23 对齐实现）
+      - status: 200
         content_type: application/json
         fields:
           tenant_id: {type: str}

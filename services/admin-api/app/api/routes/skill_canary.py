@@ -64,8 +64,10 @@ async def _authorize(
     raise HTTPException(status_code=401, detail="invalid_service_token")
 
 
+# 025 T035：prefix 曾误写 "/api/skills/canary"，叠加 api_router 的 "/api" 前缀后
+# 实际路由为 "/api/api/skills/canary/*"，与前端调用不符。改为 "/skills/canary"。
 router = APIRouter(
-    prefix="/api/skills/canary",
+    prefix="/skills/canary",
     tags=["skill-canary"],
     dependencies=[Depends(_authorize)],
 )

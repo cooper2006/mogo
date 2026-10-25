@@ -598,7 +598,7 @@ async function loadChunks() {
       keyword: chunkKeyword.value.trim(),
       chunkStage,
     });
-    const items = result.items;
+    const items = result.data;
     if (targetChunk.value && !items.some((item) => item.chunkId === targetChunk.value?.chunkId)) {
       chunks.value = [targetChunk.value, ...items];
     } else {

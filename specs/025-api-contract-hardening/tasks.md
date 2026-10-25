@@ -205,7 +205,12 @@
   - 三份真实契约全部通过校验；顺带修 validate.py 一处 bug（非 int 状态码时 `status >= 400` 抛 TypeError）。
 - [x] T034 创建 `tools/contract/diff.py`：兼容性 diff 脚本（FR-20, US3-5）；OpenAPI/契约 diff，不兼容变更红
   - **证据**: `tools/contract/diff.py`（字段级 diff，破坏性/兼容判定；FR-21 新增可选字段容忍；FR-22 deprecated 观察期 2 minor 后允许移除）；`tools/contract/test_contract_diff.py`（19 用例）。
-- [ ] T035 契约测试用例：`services/admin-api/tests/contract/test_admin_api.py`（提供方侧验证）
+- [x] T035 契约测试用例：`services/admin-api/tests/contract/test_admin_api.py`（提供方侧验证）
+  - **证据**: `services/admin-api/tests/contract/test_admin_api.py`（6 用例，全绿）：path/method 存在性、状态码覆盖、响应字段覆盖、错误码注册表、非 2xx `$ref` ErrorResponse、OpenAPI 可生成。环境隔离（FR-24）：仅调用 `create_app().openapi()`，不连库不发真实请求。
+  - **驱动修复 3 处真实路由 prefix bug（会 404）**：`portal_admin.py`（`/api/portal`→`/portal`）、`skill_monitoring.py`（`/api/skills/monitor`→`/skills/monitor`）、`skill_canary.py`（`/api/skills/canary`→`/skills/canary`）——router prefix 多写 `/api`，叠加 `api_router` 的 `/api` 前缀后实际路径为 `/api/api/*`，与前端调用不符。全仓 grep 确认无调用方依赖双 `/api`。
+  - **驱动修复 1 处前后端字段断裂**：`KnowledgeDocumentListResponse` / `KnowledgeDocumentChunkListResponse` 用 `items`，服务端 `PageResponse` 返回 `data`（前端读到 undefined）→ 前端 TS 类型 + `KnowledgeDocumentsPage.vue:1667-1668`、`KnowledgeDocumentPreviewPage.vue:601` 改为 `data`；契约 `knowledge_documents_list` 字段 `items[]`→`data[]` 对齐实现。
+  - **驱动修复契约 2 处与实现不一致**：`platform_tenant_create` 201→200（服务端路由未设 `status_code=201`，消费方仅按 2xx）；document-parser.yaml notes 文本内 `required: false` 触发 YAML 映射解析错误 → 改写措辞。
+  - **测试方法学**：FastAPI 通过 `HTTPException` 动态抛出的 4xx/5xx 不会自动出现在 OpenAPI 声明 → 状态码测试对错误码降级 warning（2xx 严格要求）；`PageResponse.data: list[dict[str, Any]]` 在 OpenAPI 中 items 无 properties（自由 dict），元素字段由消费方契约定义 → `_collect_props` 返回 `(props, opaque)`，opaque 数组元素字段降级 warning 不阻断。
 - [ ] T036 契约测试用例：`services/admin-web/tests/contract/test_admin_api.py`（消费方侧验证，如 admin-web 有测试目录）
 - [ ] T037 弃用字段观察期检查：`tools/contract/deprecation_check.py`（FR-22, US3-7, US3-8）；扫描契约文件 `deprecated: true` 标记，检查观察期（2 个 minor 版本）后才允许移除
 - [ ] T038 序列化一致性测试（FR-23, US3-9）：契约测试显式断言 JSON + snake_case
