@@ -3294,3 +3294,6 @@ gaps:
   list_site_profiles / list_scheduled_jobs 在 apps/user-web 源码中无直接调用 URL（管理端经
   admin-api BFF 或尚未接线），consumer_refs 工具以 NO_CONSUMER_ALLOWLIST 白名单豁免 path 证据
   （不阻断）；删除前需确认已接线或已从契约移除。
+  - T038 FR-23 snake_case 覆盖率偏低：契约字段以 camelCase 为主（见本文件 gaps 既有条目），
+    明细登记在 contracts/_camel_case_known.yaml（serialization_check.py --seed 生成，三份契约
+    共 103 个 interaction 含 camelCase 字段）；服务端迁移到 snake_case 后逐项从白名单移除。

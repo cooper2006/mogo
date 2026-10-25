@@ -1592,3 +1592,10 @@ gaps:
       400/404/422/5xx/ECONNABORTED，全仓未见对 429 或 api.rate_limited 的
       消费分支。因此 admin-api 契约未登记 429 响应（FR-17 只覆盖消费方
       实际分支）；服务端 429 将落到通用错误提示，属待补项。
+  - id: G7
+    title: FR-23 序列化一致性：snake_case 覆盖率偏低
+    detail: >-
+      serialization_check.py 审计：143/397 = 36.0% 字段为 snake_case，其余为服务端 wire 格式
+      camelCase（如 updatedAt/displayName/tenantId），契约按消费方实际读取登记。明细见
+      contracts/_camel_case_known.yaml（--seed 生成，需人工审阅）；服务端迁移到 snake_case 后
+      逐项从白名单移除。

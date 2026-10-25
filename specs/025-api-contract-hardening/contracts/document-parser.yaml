@@ -497,3 +497,6 @@ gaps:
       services/document-parser/app/domain/jobs.py（camelCase 字段）、app/services/retrieval_service.py:45-51
       （query/retrievalMode/topN/items/total）、app/services/vector_store.py:118-138（camelCase properties）。
       chat-api 侧 services/chat-api/app/knowledge/retrieval/schemas.py 与之逐字段吻合。
+  - T038 FR-23 snake_case 覆盖率偏低：契约字段以 camelCase 为主（见本文件 gaps 既有条目），
+    明细登记在 contracts/_camel_case_known.yaml（serialization_check.py --seed 生成，三份契约
+    共 103 个 interaction 含 camelCase 字段）；服务端迁移到 snake_case 后逐项从白名单移除。

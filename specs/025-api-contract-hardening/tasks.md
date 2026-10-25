@@ -220,7 +220,12 @@
   - **证据**: `tools/contract/deprecation_check.py`（`parse_version`/`bump_minor`（minor 进位进位到 major）/`walk_interaction_fields`（含嵌套与 `item.fields`）/`collect_deprecated`（interaction 级 + 字段级）/`check_contract`/`main`，支持 `--all`/`--service`/`--contract`/`--minors`）；`tools/contract/test_contract_deprecation.py`（28 用例）。
   - **检查规则**：①`deprecated` 项必须声明 `deprecated_since`（否则 error，rc 1）；②`deprecated_since` 不能晚于当前版本；③观察期默认 2 minor（FR-22），当前 < since+2minor → 「观察中（不可移除）」不阻断；已过 → 「已过观察期（可移除）」warn。当前版本取契约顶层 `version`（FR-16 契约持主副本）。
   - **真实扫描**：三份契约仅 document-parser 的 `delete_document_vectors_legacy`（`POST /vectors/documents/delete`）标 deprecated（since 1.0.0），当前契约 1.0.0 → 仍在观察期，最早 1.2.0 可移除，与 gaps 中「旧别名已被 T010 改 308 但消费方仍调用」一致。
-- [ ] T038 序列化一致性测试（FR-23, US3-9）：契约测试显式断言 JSON + snake_case
+- [x] T038 序列化一致性测试（FR-23, US3-9）：契约测试显式断言 JSON + snake_case
+  - **证据**: `tools/contract/serialization_check.py`（`is_snake`（`^[a-z][a-z0-9_]*$` + 拒绝 `__`/首尾下划线）/`iter_response_fields`（枚举响应字段，含嵌套 `fields`）/`collect_camel`/`check_contract`（camelCase 未登记 → error，strict 默认；登记 → info）/`load_known`/`seed`（依据当前契约重新生成白名单）/`main` 支持 `--all`/`--service`/`--seed`/`--strict`/`--no-strict`）；`tools/contract/test_contract_serialization.py`（13 用例）。`tools/contract/` 合计 **123 用例全绿**。
+  - **FR-23 白名单**：`specs/025-api-contract-hardening/contracts/_camel_case_known.yaml` —— `--seed` 依据当前契约生成（`{service: {interaction_id: [字段名]}}`），属「显式登记而非静默豁免」，需人工审阅后提交；未登记在表的 camelCase 字段会被视为未登记偏差（error）。
+  - **审计结果（三份契约，契约按消费方实际读取的服务端字段名登记）**：admin-api 143/397 = 36.0%、chat-api 144/687 = 21.0%、document-parser 18/46 = 39.1% 字段为 snake_case；共 **103 个 interaction** 含 camelCase 字段，全部登记入白名单。覆盖率低反映**服务端 wire 格式仍以 camelCase 为主**（各契约 gaps 已登记），FR-23 目标是 snake_case，服务端迁移后逐项从白名单移除。
+  - **契约侧联动**：三份契约 `gaps` 各新增 T038 条目（admin-api 新增 G7「FR-23 序列化一致性：snake_case 覆盖率偏低」），指向白名单文件与迁移方向。
+  - **踩坑**：契约 gaps 有两种写法——admin-api 用 `- id: Gx` mapping、chat-api/document-parser 用 `- 纯文本`；往 gaps 追加条目必须沿用所在文件的缩进与结构（曾因缩进 0 插入 admin-api 导致 `expected <block end>, but found '-'`，已回滚重插；插入后须 `yaml.safe_load` 校验，非法则 `git checkout` 回滚）。
 - [ ] T039 契约验证环境隔离（FR-24, US3-10）：契约测试使用独立测试容器/fixture，不依赖共享可变环境
 
 ---
