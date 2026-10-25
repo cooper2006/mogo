@@ -211,6 +211,12 @@ services:
     restart: unless-stopped
     volumes:
       - mongo-data:/data/db
+      # T101：备份卷。备份产物（密文 + 清单 + 校验和）落在这里，容器与宿主机
+      # 都能看到；不随 `docker compose down` 消失。这个卷必须放在**加密盘**上
+      # （云厂商加密 EBS / LUKS 挂载点 / dm-crypt），理由与做法见
+      # docs/runbooks/disaster-recovery.md「备份卷加密」一节：AES-256 只保护
+      # 备份内容，卷泄漏仍会暴露文件名、集合规模与备份时序。
+      - mongo-backup:/backups
     networks:
       - backend
     healthcheck:
@@ -246,6 +252,71 @@ services:
   # sysctl 写权限与直接 shm 操作，镜像上游文档即要求 --privileged（原容器也是这么
   # 跑的）。这使它成为本文件里**唯一**不做 cap_drop/read_only 加固的服务；它只挂在
   # backend + 宿主机回环端口上，不对外暴露。见 docs/mongo-to-panweidb-migration-plan.md。
+  # T101/T102：备份执行器。
+  #
+  # 为什么不把 cron 塞进 mongo 容器：mongo 官方镜像没有 cron，且数据库容器
+  # 重启/kill 时不能连带把备份进程拦腰截断——备份要和库同一个生命周期之外
+  # 独立起落。这里直接复用 mongo 镜像（自带 mongodump/mongorestore/mongosh，
+  # 版本与库一致，避免 mongodump 版本高于 server 时的兼容问题）。
+  #
+  # 默认不启动（profile: backup）：只在真正需要自动备份的部署里开。
+  #     docker compose --profile backup up -d mongo-backup
+  #
+  # 口令**不进镜像、不进 compose 文件、不进 .env**：走 docker secret 或宿主机
+  # 文件，由 `MOGO_BACKUP_PASSPHRASE_FILE` 指过去（T102）。两者都没有时备份
+  # 脚本会直接失败，而不是回退到内置口令——见 scripts/backup/lib.sh 的
+  # `mogo_backup_passphrase_source`。
+  mongo-backup:
+    image: ${MOGO_MONGO_IMAGE:-mongo:8.3.13}
+    restart: unless-stopped
+    profiles: ["backup"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/opt/mogo/scripts/backup/container_run.sh"]
+    environment:
+      MOGO_MONGODB_URI: ${MOGO_BACKUP_MONGODB_URI:-mongodb://mongo:27017/?replicaSet=rs0}
+      MOGO_MONGODB_DB: ${MOGO_MONGODB_DB:-mogo}
+      MOGO_BACKUP_DIR: /backups
+      # secret 的默认挂载点；宿主机文件方案可在 .env 里覆盖成 /etc/mogo/backup.pass。
+      MOGO_BACKUP_PASSPHRASE_FILE: ${MOGO_BACKUP_PASSPHRASE_FILE:-/run/secrets/mongo_backup_passphrase}
+      # 异地：目录（共享存储/rsync 目标）或 rclone remote，二选一或都不配。
+      MOGO_BACKUP_OFFSITE_DIR: ${MOGO_BACKUP_OFFSITE_DIR:-/backups/offsite}
+      MOGO_BACKUP_OFFSITE_RCLONE_REMOTE: ${MOGO_BACKUP_OFFSITE_RCLONE_REMOTE:-}
+      MOGO_BACKUP_KEEP_MIN: ${MOGO_BACKUP_KEEP_MIN:-2}
+      MOGO_BACKUP_LOCAL_DAYS: ${MOGO_BACKUP_LOCAL_DAYS:-30}
+      MOGO_BACKUP_OFFSITE_DAYS: ${MOGO_BACKUP_OFFSITE_DAYS:-90}
+      # 演练预算只用于评估，不拦截执行（见 docs/observability/rto-rpo.md）。
+      MOGO_RTO_BUDGET_SECONDS: ${MOGO_RTO_BUDGET_SECONDS:-1800}
+      MOGO_RPO_BUDGET_SECONDS: ${MOGO_RPO_BUDGET_SECONDS:-900}
+      TZ: UTC
+    volumes:
+      - mongo-backup:/backups
+      # 脚本只读挂进容器；镜像里不带备份逻辑，改脚本不用重建镜像。
+      - ./scripts:/opt/mogo/scripts:ro
+    secrets:
+      - mongo_backup_passphrase
+    networks:
+      - backend
+    healthcheck:
+      # 备份器没有监听端口，健康 = 上次成功运行在预期窗口内。
+      # container_run.sh 每次成功都会刷新 /backups/.last-success。
+      test:
+        [
+          "CMD-SHELL",
+          "test -f /backups/.last-success && test $(( $(date +%s) - $(cat /backups/.last-success) )) -lt 7200",
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    # 备份不能和库抢 IO：给一个软上限，避免全量 dump 期间把 chat-api 拖垮。
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
   panweidb:
     image: ${MOGO_PANWEIDB_IMAGE:-panweidb:3.2.0}
     # 本地镜像（离线交付从 base-images load 进来），不要让 compose 去 registry 找。
@@ -1065,6 +1136,11 @@ volumes:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_deployment-secrets
   mongo-data:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_mongo-data
+  # T101：备份卷。**必须落在加密盘上**（云加密 EBS / LUKS / dm-crypt），
+  # compose 无法替宿主加密；做法与校验方式见
+  # docs/runbooks/disaster-recovery.md「备份卷加密」。
+  mongo-backup:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_mongo-backup
   # PanWeiDB 的 soft/ + data/ 都在这里（旧部署把两者放在容器可写层，`docker rm`
   # 即全丢；这是把它们纳入卷的那次修复）。
   panweidb-storage:
@@ -1093,3 +1169,16 @@ volumes:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_knowledge-storage
   admin-static:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_admin-static
+
+# T102：备份口令。compose 只声明引用关系，**值不在本文件里**。
+#
+#   * 生产（Swarm）：`docker secret create mongo_backup_passphrase <文件>`
+#     然后删掉下面的 file: 行——Swarm 用外部 secret。
+#   * 单机 compose：把口令写进宿主机文件（0600、属主 root），再用
+#     `MOGO_BACKUP_PASSPHRASE_HOST_FILE` 指过去；默认值故意指向一个
+#     **不会被误创建**的路径，缺文件时备份容器起不来——宁可备份停摆并
+#     告警，也不要静默降级成无口令备份。
+secrets:
+  mongo_backup_passphrase:
+    file: ${MOGO_BACKUP_PASSPHRASE_HOST_FILE:-./secrets/mongo_backup_passphrase}
+

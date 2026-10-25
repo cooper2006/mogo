@@ -1,0 +1,175 @@
+# 生产跨 AZ 部署覆盖文件（023 Phase 7 / T103–T106）
+#
+# 与根 `docker-compose.yml` 叠加使用：
+#
+#     docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml \
+#       --profile prod up -d
+#
+# 本文件**不**自动加载：Compose 只按 profile 自动加载同目录的
+# `docker-compose.<profile>.yml`，把它放在 `deploy/` 下正是为了避免
+# 单机安装时被意外合并。
+#
+# ── 它解决什么 ────────────────────────────────────────────────────────
+#
+# 生产要求关键服务「一主一备跨 AZ，单 AZ 故障后自动切换，RTO ≤ 30 分钟」。
+# 单机 compose 表达不了跨节点放置，所以本文件面向 **Docker Swarm**（`docker
+# stack deploy` 或 `docker compose --profile prod up` 均可，`deploy:` 段在
+# Swarm 下生效、单机模式下被忽略）。
+#
+# 两个节点必须位于**不同 AZ**，并由云厂商的节点组/反亲和保证。Compose 只能
+# 表达「每个节点最多一个副本」，把副本摔到不同节点这件事由节点标签和
+# 云厂商可用区约束共同保证——具体做法见 docs/runbooks/disaster-recovery.md
+# 「跨 AZ 拓扑」一节。
+#
+# ── 各任务对应关系 ────────────────────────────────────────────────────
+#
+#   T103 跨 AZ 部署        → x-prod-placement / 各节点的 az 标签约束
+#   T104 关键服务一主一备  → chat-api、admin-api、document-api、gateway 的
+#                            replicas: 2 + max_replicas_per_node: 1
+#   T105 Liveness/Readiness→ deploy/probes/{liveness,readiness}.sh，
+#                            readiness 走 healthcheck（决定是否接流量），
+#                            liveness 走 restart_policy（决定是否重启）
+#   T106 restart policy    → x-prod-restart（任何退出都重启，无限次）
+#
+# ── 为什么 readiness 和 liveness 分两处 ─────────────────────────────
+#
+# Compose/Swarm 一个服务只有**一条** healthcheck，没法像 k8s 那样
+# 同时声明两路探针。这里的落点是：
+#
+#   * readiness = healthcheck 跑 `deploy/probes/readiness.sh`：失败 →
+#     任务标 unhealthy → Swarm 不把流量路由过去（配合 gateway/LB 摘除）。
+#   * liveness = `restart_policy.condition: any` + 应用进程自身退出：进程卡死
+#     表现为 healthcheck 连续失败，Swarm 会按 `update_config` 重建任务；
+#     进程崩溃表现为退出，restart_policy 直接拉起。
+#
+# 关键纪律：依赖检查（Mongo/Redis）只在 readiness 里，**绝不**放进 liveness。
+# 否则一次数据库抖动会连锁重启所有副本，把可恢复的抖动放大成真宕机。
+
+name: mogo
+
+x-prod-placement: &prod-placement
+  replicas: 2
+  # 一主一备必须落在不同节点；节点分属不同 AZ 由云厂商节点组保证。
+  # 这是 Compose 能表达的极限——它没有反亲和（anti-affinity）语法。
+  placement:
+    max_replicas_per_node: 1
+  # T106：任何方式退出都重启，永不放弃。备份/迁移任务才需要 max_attempts。
+  restart_policy:
+    condition: any
+    delay: 5s
+    max_attempts: 0
+    window: 120s
+  # 滚动更新先起新副本再停旧的：切换期间始终有实例接流量。
+  # 失败自动回滚，避免一次坏镜像把两个 AZ 都换成不可用版本。
+  update_config:
+    order: start-first
+    parallelism: 1
+    delay: 10s
+    failure_action: rollback
+    monitor: 30s
+  rollback_config:
+    order: start-first
+    parallelism: 1
+    delay: 10s
+    monitor: 30s
+
+x-prod-healthcheck: &prod-healthcheck
+  interval: 10s
+  timeout: 5s
+  # 3 次连续失败才判死（30s），避免一次 GC 停顿就把健康实例摘掉。
+  retries: 3
+  # 冷启动允许 60s：镜像大、依赖多，太短的 start_period 会造成
+  # 「还没起来就被判死 → 重启 → 又没起来」的崩溃循环。
+  start_period: 60s
+
+services:
+  # ── 入口：两层负载均衡 ────────────────────────────────────────────────
+  #
+  # 第一层是云 LB / Keepalived VIP（宿主机侧，见 deploy/keepalived/README.md），
+  # 指向两个节点的 gateway；第二层是 Swarm 内部的 gateway 副本。
+  # gateway 自己也有 readiness，坏掉的副本不会被 VIP 后端选中。
+  gateway:
+    deploy:
+      <<: *prod-placement
+    healthcheck:
+      <<: *prod-healthcheck
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+
+  # ── 关键服务：一主一备跨 AZ（T104）────────────────────────────────────
+  chat-api:
+    deploy:
+      <<: *prod-placement
+    healthcheck:
+      <<: *prod-healthcheck
+      # readiness：依赖不可用就不接流量（不重启）。
+      test: ["CMD", "bash", "/opt/mogo/deploy/probes/readiness.sh", "http://127.0.0.1:8000"]
+    volumes:
+      # 探针脚本只读挂进容器；改探针不用重建镜像。
+      - ./deploy/probes:/opt/mogo/deploy/probes:ro
+    environment:
+      # 跨 AZ 后实例间不能靠进程内缓存判断归属，强制走 Redis。
+      MOGO_REQUIRE_SHARED_STATE: "1"
+
+  admin-api:
+    deploy:
+      <<: *prod-placement
+    healthcheck:
+      <<: *prod-healthcheck
+      test: ["CMD", "bash", "/opt/mogo/deploy/probes/readiness.sh", "http://127.0.0.1:8100"]
+    volumes:
+      - ./deploy/probes:/opt/mogo/deploy/probes:ro
+
+  document-api:
+    deploy:
+      <<: *prod-placement
+    healthcheck:
+      <<: *prod-healthcheck
+      test: ["CMD", "bash", "/opt/mogo/deploy/probes/readiness.sh", "http://127.0.0.1:8200"]
+    volumes:
+      - ./deploy/probes:/opt/mogo/deploy/probes:ro
+
+  # ── 有状态服务：单副本 + 明确不跨节点漂移 ───────────────────────────
+  #
+  # MongoDB 的跨 AZ 高可用靠**副本集**，不是靠多起容器——两个单机 mongod
+  # 各有各的数据目录，起两个只会产生两个互不同步的库，比一个更危险。
+  # 副本集部署见 docs/runbooks/disaster-recovery.md「MongoDB 跨 AZ」。
+  mongo:
+    deploy:
+      replicas: 1
+      placement:
+        max_replicas_per_node: 1
+        # 钉在有本地 SSD 的节点上；数据卷不可跨节点漂移。
+        constraints:
+          - node.labels.mogo.data == "true"
+      restart_policy:
+        condition: any
+        delay: 10s
+        max_attempts: 0
+        window: 300s
+
+  redis:
+    deploy:
+      replicas: 1
+      placement:
+        max_replicas_per_node: 1
+        constraints:
+          - node.labels.mogo.data == "true"
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 0
+        window: 120s
+
+  # 备份器必须是**单实例**：两个备份器同时跑全量会互相覆盖同一份文件名，
+  # 也会把磁盘 IO 翻倍。它只在数据节点上跑（备份卷在那里）。
+  mongo-backup:
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.mogo.data == "true"
+      restart_policy:
+        condition: any
+        delay: 30s
+        max_attempts: 0
+        window: 600s
