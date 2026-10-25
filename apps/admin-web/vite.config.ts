@@ -15,9 +15,17 @@ export default defineConfig(({ command }) => ({
   build: {
     // Disable sourcemap in production to prevent source code leakage (QF-009).
     sourcemap: false,
+    // 026 T035: 生产构建优化 —— 显式报告 gzip 体积、CSS 代码分割、静态资源内联阈值、
+    // 模块预加载 polyfill、带 hash 的 chunk 文件名（便于 CDN 长缓存）。
+    // 实际 gzip/brotli 传输压缩由 nginx/CDN 层完成（见 deploy/nginx/static-assets-cdn.conf）。
+    reportCompressedSize: true,
+    cssCodeSplit: true,
+    assetsInlineLimit: 4096,
+    modulePreload: { polyfill: true },
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
+        chunkFileNames: 'assets/[name]-[hash].js',
         manualChunks: {
           'vendor-vue': ['vue', 'vue-router', 'pinia'],
           'vendor-ui': ['naive-ui'],
