@@ -294,7 +294,12 @@
     5. **响应体结构**（§5，FR-10/FR-29）：`application/problem+json`（RFC 9457 扩展），字段 `code`/`message`/`http_status`/`trace_id`/`fields[]`/`detail`/`error_detail`/`docs_url`；RFC 9457 映射（`type`←`docs_url`，`title`←`code`，`status`←`http_status`，`instance`←`docs_url`）；**兼容层**：`detail` 与 `message` 同时保留（FastAPI 既有消费方读 `data.detail`，chat-api envelope 消费方读 `message`，US2 收敛前不移除）。
     6. **待补**：业务错误码集中化到 `ApiErrorCode` 待后续 US；`api.partial_failure`（200）与错误码命名冲突已按 FR-14 明确。
   - **修正过程**：初版误把 `password_change_not_required`（auth.py:263 的**函数名**，非错误码）列为业务码，已删除；`skill_share_token_required` / `metadata_mismatch` / `requested_slide_count_mismatch` 均经业务异常（`SkillPackageError`/`SkillShareError`）抛出，其 `http_status` 如实标为「由 handler 决定」而非臆测。
-- [ ] T052 [P] QualityForge 审计回写：50 个 QF 项状态从 `fail`/`pending` 转为 `pass`/`na`（有理由），回写到 `.qualityforge/audit.json`
+- [x] T052 [P] QualityForge 审计回写：50 个 QF 项状态从 `fail`/`pending` 转为 `pass`/`na`（有理由），回写到 `.qualityforge/audit.json`
+  - **证据**: `.qualityforge/QUALITYFORGE-REPORT.md` 更新三处——①§1 台账 025 行进度 `7/52 🔨` → `46/52 🔨`，台账状态改为「US1–US4 主体已落地（语义/错误/契约/OpenAPI/版本化）」，并指向 §4；②§3 待补项 025 行从「大部分未解除」改为「主体已解除（仅 US4 的 T046/T047 装配进行中，对应 QF-270/QF-254 暂挂 pending）」；③新增 **§4「025 子域状态回写表」**。
+  - **50 项口径**（在 §4 中声明）：40 条 QF 编号已落入 `spec.md` 锚点（US1 17 项 + US2 15 项 + US4 8 项）逐条回写；US3 契约域 10 条原件未编号，按子域聚合回写（对齐 §2 023 的处理口径）。状态定义：`pass`＝对应任务已勾选且工具/测试可核验；`na`＝首期 Non-Goals 明确不适用；`pending`＝装配任务未完成。
+  - **汇总**：50 项 = **47 pass / 1 na / 2 pending**。`na` 为 **QF-227 压缩协商**（首期 Non-Goals 未引入 gzip 内容编码协商，Accept 406 已由 QF-225 覆盖）。`pending` 为 **QF-254**（OpenAPI 与实测一致性，T047）与 **QF-270**（错误码-状态码映射稳定，T046），均为 CI 装配进行中。US1 语义 17 项（16 pass + 1 na）、US2 错误 15 项全 pass、US3 契约 10 项全 pass、US4 演进 8 项（6 pass + 2 pending）。
+  - **关键可核验交付物**（逐行写入 §4 的"可核验交付物"列）：`tools/api_check/path_naming.py`、`tools/contract/validate.py --all`、`tools/contract/diff.py`、`tools/contract/deprecation_check.py`、`tools/contract/consumer_refs.py --all`、`services/admin-api/tests/contract/test_admin_api.py`、`tools/openapi/generate.py --all --check`、`tools/openapi/validate.py --all`、`docs/api-versioning.md`、`docs/error-codes.md`、`LegacyApiRedirectMiddleware`（301/308）、`ApiVersionMiddleware`（`API-Version` 头）、`tools/api_check/error_codes_uniqueness.py`。
+  - **与任务措辞的差异（登记）**：任务原文要求"回写到 `.qualityforge/audit.json`"，但 `.qualityforge/README.md` 明确决策 **`audit.json`（约 1.1MB 审计原始数据）不入库**，只维护台账 `QUALITYFORGE-REPORT.md`。按 README 入库边界，改为回写到本报告的 §4 子域回写表，并在 §4.5 末尾与 §变更记录 登记该差异（「报告内容与 spec 冲突时以 spec 为准并在此登记差异，不要反向修改 spec」）。
 
 ---
 
