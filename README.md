@@ -254,6 +254,9 @@ This required a new YAML orchestration loader, so orchestration definitions can 
 
 ## Start in 5 minutes
 
+> 想先把**可观测性与韧性栈**跑起来，用中文分步说明 → [quickstart.md](quickstart.md)
+> （起监控 profile、启用三个服务、跑 T116/T117/T118 三剧本、退出码语义）。
+
 With Git and Docker Desktop (or Docker Engine with Docker Compose v2) installed:
 
 ```bash

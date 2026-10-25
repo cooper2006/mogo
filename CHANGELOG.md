@@ -8,6 +8,33 @@ image.
 
 ### Added
 
+- **023 可观测性与韧性 Phase 8 端到端验证落地（2026-10-25，T116–T118）**：
+  - 三个**剧本脚本**，把「配置在就算齐了」升级为「真跑一遍」，全部遵循
+    `0 通过 / 1 断言失败 / 2 环境不具备` 的退出码约定（`2` 不算通过，CI 应标 skipped）：
+    - `scripts/verify_e2e_observability.sh`（T116 全链路）：注入 `traceparent` 发起一次
+      真实请求 → 用该 trace_id 反查 Loki 日志 / Tempo trace / Prometheus
+      `mogo_http_requests_total` / `mogo:slo:availability:error_rate` / mogo 告警规则组（≥10 条）。
+    - `scripts/drill/inject_dependency_fault.sh`（T117 韧性）：真停/起 compose 数据服务 →
+      探针转红 → 5 次请求断言全 5xx 且 ≤1s 快速失败 →
+      `mogo_circuit_breaker_state{dependency,state="open"}=1` → Alertmanager `Mogo*` 告警 →
+      `uid=mogo-troubleshooting` 看板可读 → 恢复后断言 `state="closed"`；docker 调用带超时保护。
+    - `scripts/drill/full_recovery_drill.sh`（T118 恢复）：调**生产同款**
+      `backup_mongo.sh --mode full` → 取最新归档 → `drill_recovery.sh` 恢复演练 + 抽样比对
+      → 报告记录 RTO/RPO → `--api-url` 就绪探针验证服务切换；演练库与源库同名直接拒绝；
+      备份失败则跳过阶段 2（不在坏归档上继续）。
+  - 三个**行为测试**证明剧本的断言真的会失败（防止剧本退化成「永远返回 0」的装饰）：
+    `scripts/test_verify_e2e_observability.sh`（假后端 4 场景 + 无环境）、
+    `scripts/test_inject_dependency_fault.sh`（9 场景，含 no-alert / stuck-ready / no-circuit 反例）、
+    `scripts/test_full_recovery_drill.sh`（6 场景，含 `FAKE_DUMP_FAIL` / `FAKE_RESTORE_TRUNCATE` 反例）。
+  - 测试替身：`scripts/testlib/fake_observability_backends.py`（5 个假可观测性后端）、
+    `scripts/testlib/fake_docker.py` + `scripts/testlib/fake_fault_env.py`（假 compose +
+    假故障环境，共享状态文件复现「停容器 → 探针转红 → 熔断 → 告警」因果链）。
+  - 文档：`docs/observability/architecture.md` 补 §9 端到端验证与故障注入链路、
+    `slo-definition.md` / `monitoring-dashboard.md` 补剧本化验证、新建
+    `quickstart.md`（起栈、三剧本、退出码语义、常见失败对照），README 增加指引链接。
+  - **如实声明**：本机 docker daemon 无响应，真实 compose 链路的实测未跑；
+    剧本在真实环境会以 `2` 退出并提示缺哪个后端，CI/可用环境跑一遍即可（这一步不算完成）。
+
 - **023 可观测性与韧性 Phase 1 基座落地（2026-10-24，T001–T013）**：
   - 公共基座 `services/common/` 三模块：`observability_base.py`（structlog 结构化日志 / OpenTelemetry 追踪 / Prometheus 指标 / contextvars trace_id 上下文 / status_class 工具）、`dependency_guard.py`（pybreaker 熔断 5 连失败·30s 半开 / TimeoutHierarchy 30s→10s→5s / 重试 1.5s 基数·30s 上限·±10% 抖动·3 次 / PoolRegistry + PoolSpec 连接池隔离）、`slo.py`（SLOSpec / ErrorBudget / BurnRate 双窗口 1h/6h + 6h/3d / DEFAULT_SLOS 99.9%·P99<3s·LLM 错误率<1%）；三服务 vendored 副本（`services/{admin-api,chat-api,document-parser}/app/common/`）+ `scripts/check_common_sync.py` 字节一致性 CI 门禁（3 模块 × 3 服务）。
   - 依赖钉扎：`admin-api` / `chat-api` / `document-parser` 三个 `requirements.in` 各追加 `structlog>=24.1` / `opentelemetry-{api,sdk,exporter-otlp}>=1.25` / `prometheus-client>=0.20` / `pybreaker>=1.2`，锁文件（`--generate-hashes`）纯增量新增，零版本漂移（msgpack 历史漂移 1.2.2→1.1.2 已按 `requirements.in` 钉扎修正）。
