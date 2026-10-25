@@ -226,31 +226,41 @@ python tools/contract/diff.py \
 确认 `.github/workflows/quality-gate.yml` 包含 `api-contract-hardening` job（T048），依次执行：
 
 ```yaml
-- name: Path Naming Check
-  run: python tools/api_check/path_naming.py --services services/admin-api,~chat-api,~document-parser
+- name: API path naming (FR-1)
+  run: python3 tools/api_check/path_naming.py
 
-- name: Error Codes Uniqueness
-  run: python tools/api_check/error_codes_uniqueness.py --services services/admin-api,~chat-api,~document-parser
+- name: API error-code uniqueness (FR-29)
+  run: python3 tools/api_check/error_codes_uniqueness.py
 
-- name: Error Code Mapping Stability
-  run: python tools/api_check/error_code_mapping.py --all
+- name: Error-code mapping stability (FR-31, T046)
+  # 与 specs/025-api-contract-hardening/baseline/error-code-mapping.json 比对
+  # 某 code 的 http_status 变更或移除 → changed_status_semantics（须 major 升级）
+  run: python3 tools/api_check/error_code_mapping.py
 
-- name: Contract Validation
-  run: python tools/contract/validate.py --all
+- name: Contract validation (FR-16 ~ FR-24)
+  run: python3 tools/contract/validate.py
 
-- name: Compatibility Diff
-  run: python tools/contract/diff.py --contract-dir specs/025-api-contract-hardening/contracts/ --base HEAD~1
-
-- name: OpenAPI Generate + Validate
+- name: Contract compatibility diff (FR-20)
   run: |
-    python tools/openapi/generate.py --all --check
-    python tools/openapi/validate.py --all
+    for svc in admin-api chat-api document-parser; do
+      rel="specs/025-api-contract-hardening/contracts/$svc.yaml"
+      if git show "HEAD~1:$rel" > "/tmp/old-$svc.yaml" 2>/dev/null; then
+        python3 tools/contract/diff.py --old "/tmp/old-$svc.yaml" --new "$rel"
+      fi
+    done
 
-- name: Deprecation Check
-  run: python tools/contract/deprecation_check.py --all
+- name: OpenAPI generate --check + validate (FR-25, FR-26)
+  run: |
+    for svc in admin-api chat-api document-parser; do
+      "$svc-venv/bin/python" tools/openapi/generate.py --service "$svc" --check
+    done
+    python3 tools/openapi/validate.py --all
 
-- name: Consumer Evidence
-  run: python tools/contract/consumer_refs.py --all
+- name: Deprecation observation window (FR-22)
+  run: python3 tools/contract/deprecation_check.py --all
+
+- name: Consumer evidence (FR-16, FR-17)
+  run: python3 tools/contract/consumer_refs.py --all
 ```
 
 期望：所有 step 通过（退出码 0）；任一失败阻断 PR。

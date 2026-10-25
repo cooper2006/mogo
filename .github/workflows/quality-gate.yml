@@ -486,3 +486,78 @@ jobs:
               && python -m pip install --quiet pytest pytest-timeout \
               && cd /app \
               && python -m pytest tests/test_docling_pipeline.py -v --tb=short --timeout=120 -p no:cacheprovider"
+  # 025 API 契约硬化门禁（T048）。把 FR-1 / FR-16~FR-24 / FR-25-26 / FR-29 /
+  # FR-31 的机器校验串成一条独立 job：路径命名 → 错误码跨服务唯一性 → 错误码
+  # ↔ HTTP 状态码映射稳定性 → 契约结构校验 → 契约兼容性 diff → OpenAPI 生成
+  # (--check) + 校验 → 弃用观察期 → 消费方源码证据。
+  #
+  # 依赖说明：
+  #   - 契约工具（validate/diff/deprecation_check/consumer_refs）需要 PyYAML；
+  #     OpenAPI 校验需要 openapi-spec-validator。均装在宿主 python3 上。
+  #   - `generate.py` 通过 subprocess 隔离 import 各服务的 `app.main`（三服务都用
+  #     顶层包名 `app`，串行 import 会互相污染），因此需要三份 venv + requirements
+  #     （依赖 hash 校验与 backend-quality 一致）。仅 document-parser 需要 celery
+  #     stub，由 generate.py 注入，不启动 worker。
+  #   - `diff.py` 取 HEAD~1 的契约文件作基线，故 checkout 拉取深度 2。
+  api-contract-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install tool dependencies (PyYAML + OpenAPI validator)
+        run: python3 -m pip install --quiet PyYAML openapi-spec-validator
+
+      - name: Create service venvs (OpenAPI generation imports app.main)
+        run: |
+          for svc in admin-api chat-api document-parser; do
+            echo "== create venv for $svc"
+            python3 -m venv "$svc-venv"
+            "$svc-venv/bin/pip" install --require-hashes -r "services/$svc/requirements.txt"
+          done
+
+      - name: API path naming (FR-1)
+        run: python3 tools/api_check/path_naming.py
+
+      - name: API error-code uniqueness (FR-29)
+        run: python3 tools/api_check/error_codes_uniqueness.py
+
+      - name: Error-code mapping stability (FR-31, T046)
+        # 与基线快照 specs/025-api-contract-hardening/baseline/error-code-mapping.json
+        # 比对：某 code 的 http_status 变更或移除 → changed_status_semantics（须 major 升级）
+        run: python3 tools/api_check/error_code_mapping.py
+
+      - name: Contract validation (FR-16 ~ FR-24)
+        run: python3 tools/contract/validate.py
+
+      - name: Contract compatibility diff (FR-20)
+        run: |
+          for svc in admin-api chat-api document-parser; do
+            rel="specs/025-api-contract-hardening/contracts/$svc.yaml"
+            if git show "HEAD~1:$rel" > "/tmp/old-$svc.yaml" 2>/dev/null; then
+              echo "== diff $svc"
+              python3 tools/contract/diff.py --old "/tmp/old-$svc.yaml" --new "$rel"
+            else
+              echo "== $svc: 无上一版契约（首次运行），跳过 diff"
+            fi
+          done
+
+      - name: OpenAPI generate --check + validate (FR-25, FR-26)
+        run: |
+          for svc in admin-api chat-api document-parser; do
+            echo "== generate $svc"
+            "$svc-venv/bin/python" tools/openapi/generate.py --service "$svc" --check
+          done
+          python3 tools/openapi/validate.py --all
+
+      - name: Deprecation observation window (FR-22)
+        run: python3 tools/contract/deprecation_check.py --all
+
+      - name: Consumer evidence (FR-16, FR-17)
+        run: python3 tools/contract/consumer_refs.py --all

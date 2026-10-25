@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-10-25T18:07:16Z",
+  "schema_version": 1,
+  "services": {
+    "admin-api": {
+      "api.bad_request": 400,
+      "api.conflict": 409,
+      "api.forbidden": 403,
+      "api.internal_error": 500,
+      "api.method_not_allowed": 405,
+      "api.not_acceptable": 406,
+      "api.not_found": 404,
+      "api.partial_failure": 200,
+      "api.payload_too_large": 413,
+      "api.precondition_failed": 412,
+      "api.rate_limited": 429,
+      "api.service_unavailable": 503,
+      "api.unauthorized": 401,
+      "api.unsupported_media_type": 415,
+      "api.validation_error": 422
+    },
+    "chat-api": {
+      "api.bad_request": 400,
+      "api.conflict": 409,
+      "api.forbidden": 403,
+      "api.internal_error": 500,
+      "api.method_not_allowed": 405,
+      "api.not_acceptable": 406,
+      "api.not_found": 404,
+      "api.partial_failure": 200,
+      "api.payload_too_large": 413,
+      "api.precondition_failed": 412,
+      "api.rate_limited": 429,
+      "api.service_unavailable": 503,
+      "api.unauthorized": 401,
+      "api.unsupported_media_type": 415,
+      "api.validation_error": 422
+    },
+    "document-parser": {
+      "api.bad_request": 400,
+      "api.conflict": 409,
+      "api.forbidden": 403,
+      "api.internal_error": 500,
+      "api.method_not_allowed": 405,
+      "api.not_acceptable": 406,
+      "api.not_found": 404,
+      "api.partial_failure": 200,
+      "api.payload_too_large": 413,
+      "api.precondition_failed": 412,
+      "api.rate_limited": 429,
+      "api.service_unavailable": 503,
+      "api.unauthorized": 401,
+      "api.unsupported_media_type": 415,
+      "api.validation_error": 422
+    }
+  }
+}

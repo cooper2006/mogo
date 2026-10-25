@@ -267,20 +267,34 @@
   - **验证**：admin-api `TestClient` `follow_redirects=False` → `GET /api/auth/me` **301** → `/api/v1/auth/me`；`POST /api/auth/login` **308** → `/api/v1/auth/login`；`GET /health` **200**（非 `/api` 前缀不受影响）。document-parser 的 TestClient 因本地未装 `celery` 无法完整 import（`app.tasks.base` → `celery.Task` `ModuleNotFoundError`，T040 的 celery stub 仅 OpenAPI 生成路径使用），其 prefix/中间件改动已由 OpenAPI 生成（9 条 v1 路径）间接验证。
   - **排除范围**：`/askai-api/api/files`（chat-api `FILE_PUBLIC_PATH_PREFIX`，文件公开 URL 前缀，非 API 路由）与 `/health` `/metrics` `/openapi.json` 等非 `/api` 前缀路由不迁移；chat-api 不带 prefix 的 `include_router`（`dsh_model_gateway`、`a2a`、`memory`（已改内部 prefix）、`research`、`portal`（已改内部 prefix）等，其路由路径已通过内部 prefix 或路径字面量迁移）经 OpenAPI 复查无 legacy `/api` 残留。
   - **回归**：`pytest tools/contract/ tools/openapi/` 149 passed；`consumer_refs.py --all` exit=0 且 0 error（仅契约已标注零消费方的 warn）。
-- [ ] T046 错误码映射稳定性检查（FR-31, QF-270）：CI 检查错误码与 HTTP 状态码映射变更，需版本升级
+- [x] T046 错误码映射稳定性检查（FR-31, QF-270）：CI 检查错误码与 HTTP 状态码映射变更，需版本升级
+  - **证据**: `tools/api_check/error_code_mapping.py`（CLI AST/正则扫描，退出码 0/1）。要点：
+    1. **基线快照** `specs/025-api-contract-hardening/baseline/error-code-mapping.json`（首次运行自动生成，45 映射 = 15 通用码 × 3 服务；`--update-baseline` 在有意变更并完成 major 升级后重建基线）。
+    2. **映射漂移检测**：基线里存在的 code，其 `http_status` 变更或从实现中**移除** → 判为 `changed_status_semantics`（`tools/contract/diff.py` 的 BREAKING_TYPES），须 major 版本升级（rc=1）；新增 code 只打 `[compat]` info，不阻断。
+    3. **字典一致性**：`docs/error-codes.md` §2 通用码表（唯一权威字典 FR-30）与三服务 `app/core/errors.py` 的 `ApiErrorCode` 枚举 + `DEFAULT_HTTP_STATUS` 逐码比对，报 `doc-drift`（状态码不一致）/`doc-orphan`（字典有实现无）/`undocumented`（实现有字典无）/`[drift]`（跨服务状态不一致）。
+    4. **权威口径**：以 `ApiErrorCode` 枚举为权威集合过滤映射，`DEFAULT_HTTP_STATUS` 里残留的孤儿条目不算可用映射；`errors.py` 缺失时不 crash，按空映射处理（配合 doc-orphan 报错）。
+    5. **CLI**：`--baseline` / `--dict` / `--services` / `--update-baseline`。
+    6. **命令与结果**：`python3 tools/api_check/error_code_mapping.py` → `error-code mapping OK — no status-semantics drift`（rc=0）；`tools/api_check/test_error_code_mapping.py` **13 用例全绿**（首次生成基线、无漂移通过、状态码变更检测、码移除检测、新增码 compat、--update-baseline 重建、doc-drift/doc-orphan/undocumented、跨服务 drift、未知服务 SystemExit、errors.py 缺失容忍、parse_docs_dict/parse_errors_py 单元）。
 - [ ] T047 OpenAPI 与实测一致性检查（FR-25, QF-254）：CI 中执行探针验证 OpenAPI 定义中的路径/参数/响应与实测一致
 
 ---
 
 ## Phase 6: CI 接入 & Polish
 
-- [ ] T048 [P] 更新 `.github/workflows/quality-gate.yml`：新增 job `api-contract-hardening`，执行：
+- [x] T048 [P] 更新 `.github/workflows/quality-gate.yml`：新增 job `api-contract-hardening`，执行：
   - `tools/api_check/path_naming.py`（路径命名检查，FR-1）
   - `tools/api_check/error_codes_uniqueness.py`（错误码重名检查，FR-29）
+  - `tools/api_check/error_code_mapping.py`（错误码↔HTTP 状态码映射稳定性，FR-31，T046 新增）
   - `tools/contract/validate.py`（契约测试，FR-16 ~ FR-24）
   - `tools/contract/diff.py`（兼容性 diff，FR-20）
   - `tools/openapi/generate.py` + `tools/openapi/validate.py`（OpenAPI 生成 + 校验，FR-25, FR-26）
   - `tools/contract/deprecation_check.py`（弃用字段观察期，FR-22）
+  - `tools/contract/consumer_refs.py --all`（消费方源码证据，FR-16/FR-17）
+  - **证据**: `.github/workflows/quality-gate.yml` 新增 job `api-contract-hardening`（ubuntu-latest，30 分钟超时，12 步）。要点：
+    1. **依赖与现有 job 保持一致**：`actions/checkout@v4`（`fetch-depth: 2`，diff 需取 HEAD~1 契约）+ `actions/setup-python@v5`（3.13）；宿主 python3 装 `PyYAML openapi-spec-validator`（契约/OpenAPI 校验工具依赖）；再为三服务各建 venv 并以 `--require-hashes -r requirements.txt` 安装（OpenAPI 生成经 subprocess 隔离 import `app.main`，与 backend-quality 安装口径一致）。
+    2. **8 个检查步骤**：path_naming → error_codes_uniqueness → error_code_mapping → contract validate（不传 `--service` 即全三服务）→ 三服务 `diff.py --old <git show HEAD~1> --new <当前>`（无上一版则跳过）→ `generate.py --service X --check`（在各自 venv python 下跑，避免 `app` 包名互相污染）+ `validate.py --all`（spectral 未装自动回退内置 lint）→ `deprecation_check.py --all` → `consumer_refs.py --all`。
+    3. **本地逐步骤验证全过（rc=0）**：`path-naming OK`、`error-codes uniqueness OK — 0 service-specific codes, 15 common codes`、`error-code mapping OK — no status-semantics drift`、`admin-api: contract OK — 46 interactions / chat-api: 63 / document-parser: 10`、三服务 `contract diff: 0 change(s), 0 breaking`、`artifact 与当前实现一致` × 3、`openapi-spec-validator 通过` × 3、`deprecation check OK` × 3、`consumer-refs check OK` × 3。
+    4. **quickstart.md §9** 同步更新为实际 CLI 参数（原草案用了不存在的 `--services`/`--contract-dir`/`error_code_mapping.py --all`/`diff.py --base HEAD~1`）。
 - [x] T049 [P] 创建 `specs/025-api-contract-hardening/checklists/requirements.md`：需求质量门禁（CHK 检查项，`/speckit-implement` 拦截）
   - **证据**: `checklists/requirements.md`（已在 US1/US2 建立 CHK001–CHK018 并全部勾选，覆盖完整性/一致性/边界与歧义）。本轮追加 **CHK019–CHK025**「US3/US4 演进需求（随实现闭环回填）」，把 CHK008/CHK009 从"已定义"推进到"已具备可执行验收命令与门禁"：CHK019 三份契约实际生成并通过 `validate.py --all`（46/63/10 interactions）；CHK020 消费方源码证据自动核验（`consumer_refs.py --all`，版本无关匹配）；CHK021 提供方 OpenAPI 结构级测试（`services/admin-api/tests/contract/test_admin_api.py`）+ 已修复 3 处 `/api/api/*` 双重前缀与 `items↔data` 字段断裂；CHK022 OpenAPI 自动生成 + `--check` CI diff + 校验（含 chat-api `required` 重复 `tenantId` 与 default 空串两处修复）；CHK023 版本方案三要素（URL `/api/v1`、`API-Version` 响应头、旧路径 GET/HEAD 301 + 其他方法 308 重定向，口径 `docs/api-versioning.md`）；CHK024 错误码字典唯一权威（`docs/error-codes.md`）+ 映射稳定性门禁（`error_code_mapping.py`，`changed_status_semantics` 须 major 升级）；CHK025 CI `api-contract-hardening` job 全链路装配。Notes 明确「`[x]` 代表需求质量达标，不代表实现完成；实现状态以 tasks.md 与 QualityForge 审计回写为准」。
 - [x] T050 写 `quickstart.md`（本特性的启用 + 验证步骤）
