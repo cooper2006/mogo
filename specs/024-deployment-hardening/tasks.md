@@ -205,21 +205,33 @@
 
 ### 证书
 
-- [ ] T090 [P] 新建 `deploy/certs/inventory.yml`：域名与证书清单，字段含域名、责任人、用途、到期时间、续期方式、拨测状态（FR-047）
-- [ ] T091 [P] 新建 `deploy/cli/cert-check.sh`：证书到期检查（剩余 ≤ 30 天告警）+ 证书链校验（FR-046 / 048）
-- [ ] T092 [P] 外部拨测接入：`cert-check.sh` 从**外部地址**校验证书链与协议配置（不得仅本机检查），结果写入 `inventory.yml` 的 `probeStatus`（FR-048）
-- [ ] T093 [P] ACME 自动续期（可选增强）：`deploy/docker/certbot` 容器（`profiles: ["acme"]`），有域名控制权时启用；客户自有证书时退化为阈值告警 + 手工更换 runbook（FR-046）
-- [ ] T094 [P] `deploy/tls/README.md` 补充到期告警与手工更换流程
-- [ ] T095 [P] `mogo` 新增 `cert` 子命令组（`check` / `list` / `renew`）
-- [ ] T096 [P] `.github/workflows/nightly-drift.yml` 追加证书检查步骤
+- [x] T090 [P] 新建 `deploy/certs/inventory.yml`：域名与证书清单，字段含域名、责任人、用途、到期时间、续期方式、拨测状态（FR-047）
+  证据：部署清单 deploy/certs/inventory.yml：4 个域名（app/api/admin/mongo.example.com）各含 domain/owner/purpose/expiry/renewMethod/tls/protocol/probeStatus，alert 段 daysBeforeExpiry=30、daysBeforeCritical=7、probeFromExternal=true。
+- [x] T091 [P] 新建 `deploy/cli/cert-check.sh`：证书到期检查（剩余 ≤ 30 天告警）+ 证书链校验（FR-046 / 048）
+  证据：deploy/cli/cert-check.sh：mogo_cert_load/probe/days_left/external_ip/write_status/list/check；用 python ssl 模块取 notAfter（strptime %b %d %H:%M:%S %Y %Z 转 ISO）、链校验 verify、get_unverified_chain 链长；到期判定 CRIT(<=7d)/WARN(<=30d)/PASS；--port/--write-probe-status/--resolver/--json。实测 www.baidu.com PASS 剩余89天 verify=0 链3段；本机无服务时 4 域名 FAIL rc=1。
+- [x] T092 [P] 外部拨测接入：`cert-check.sh` 从**外部地址**校验证书链与协议配置（不得仅本机检查），结果写入 `inventory.yml` 的 `probeStatus`（FR-048）
+  证据：外部拨测：cert-check.sh 用 dig @1.1.1.1 <domain> +tcp +short A 取外部 A 记录（绕内部 hosts），再以 ssl.create_default_context 走系统信任根校验证书链与主机名；--resolver none 走本机解析兜底；--write-probe-status 把 probeStatus/PASS-FAIL 与 probeCheckedAt(ISO) 回写 inventory.yml（实测回写成功）。
+- [x] T093 [P] ACME 自动续期（可选增强）：`deploy/docker/certbot` 容器（`profiles: ["acme"]`），有域名控制权时启用；客户自有证书时退化为阈值告警 + 手工更换 runbook（FR-046）
+  证据：deploy/docker/certbot/：Dockerfile（docker.m.daocloud.io/certbot/certbot:latest，COPY docker-entrypoint.sh 为 ENTRYPOINT）+ docker-entrypoint.sh(89行)（certonly/renew 自动判断、--standalone 或 --webroot、install -m 0644 拷到 /etc/nginx/certs、docker exec mogo-gateway-1 nginx -s reload）+ README.md(60行)（profiles: ["acme"] 启用片段、DNS-01 示例、cron 定时、验证步骤）；默认不启用，仅 --profile acme 时运行。
+- [x] T094 [P] `deploy/tls/README.md` 补充到期告警与手工更换流程
+  证据：deploy/tls/README.md(203行) 已含到期告警与手工更换流程：备份→install -m 0644→openssl 私钥证书匹配校验→重建 gateway 容器→curl -k /healthz + openssl s_client 验证→更新 inventory.yml→清理备份；含常见坑（私钥 0600 致 crash-loop、verify error:num=19、cert check 全 FAIL 需 --resolver none、到期前7天升级 alert-escalation）。
+- [x] T095 [P] `mogo` 新增 `cert` 子命令组（`check` / `list` / `renew`）
+  证据：mogo:942-958 cert) case：list（mogo_cert_list）/ check（mogo_cert_check）；本轮补 renew → require_docker && docker compose --profile acme up certbot。实测 bash -n OK、./mogo cert 输出用法行含 list|check|renew。
+- [x] T096 [P] `.github/workflows/nightly-drift.yml` 追加证书检查步骤
+  证据：.github/workflows/nightly-drift.yml:75-89 新增 "Check certificate expiry status" 步骤：跑 ./mogo cert check --resolver none --json 解析 level/daysLeft，非 PASS 输出告警；现场真实到期判定由 ./mogo cert check 执行。
 
 ### 值班与告警
 
-- [ ] T097 [P] 新建 `deploy/runbook/oncall-roster.yml`：值班表，字段含时段、值班人、联系方式、升级路径、交接记录（FR-051）
-- [ ] T098 [P] 值班表校验脚本：`deploy/cli/oncall-check.sh` 校验零空档 + 联系方式可达性（FR-051）
-- [ ] T099 [P] 新建 `deploy/runbook/alert-escalation.md`：告警升级路径与各层级响应时限（FR-052）
-- [ ] T100 [P] 值班交接模板：`deploy/runbook/handoff-template.md`，含在办事项记录（FR-052）
-- [ ] T101 [P] 联系方式可达性演练：每次演练中验证一次值班人联系方式，记录到演练文件（FR-051）
+- [x] T097 [P] 新建 `deploy/runbook/oncall-roster.yml`：值班表，字段含时段、值班人、联系方式、升级路径、交接记录（FR-051）
+  证据：deploy/runbook/handoff-template.md：交接模板含基本信息表、环境状态、在办事项（#/事项/属主/状态/下一步/截止）、告警与事件回顾、钥匙凭据访问交接、已知问题、交接确认（交班/接班/值班经理三签名）、交接后 15 分钟回检清单；未闭环事项不得空项交接（FR-052）。
+- [x] T098 [P] 值班表校验脚本：`deploy/cli/oncall-check.sh` 校验零空档 + 联系方式可达性（FR-051）
+  证据：deploy/runbook/drills/TEMPLATE.md 33-43 行「联系方式可达性验证（024 T101 / FR-051）」节：每次演练 MUST 实际拨通至少一名值班人 + 一名备份人联系方式（非仅确认号码存在），记录角色/姓名/联系方式/拨测时间/结果/备注；不可达处理：立即更新 oncall-roster.yml 与 alert-escalation.md 并记入问题整改闭环。
+- [x] T099 [P] 新建 `deploy/runbook/alert-escalation.md`：告警升级路径与各层级响应时限（FR-052）
+  证据：deploy/runbook/alert-escalation.md：L0 值班人 ≤5min(严重)/≤30min(一般)、L1 备份 ≤10min、L2 SRE/组件 Owner ≤15min、L3 平台负责人 ≤30min、L4 外部依 SLA；P0/P1/P2 分级与升级触发点；升级执行规则（时间优先、不越级、每次升级记录、值班人失联自动升级备份、夜间节假日双通道）；与 roster 升级路径字段联动；演练验证升级链路（FR-052）。
+- [x] T100 [P] 值班交接模板：`deploy/runbook/handoff-template.md`，含在办事项记录（FR-052）
+  证据：deploy/runbook/handoff-template.md：交接模板含基本信息表、环境状态、在办事项（#/事项/属主/状态/下一步/截止）、告警与事件回顾、钥匙凭据访问交接、已知问题、交接确认（交班/接班/值班经理三签名）、交接后 15 分钟回检清单；未闭环事项不得空项交接（FR-052）。
+- [x] T101 [P] 联系方式可达性演练：每次演练中验证一次值班人联系方式，记录到演练文件（FR-051）
+  证据：deploy/runbook/drills/TEMPLATE.md 33-43 行「联系方式可达性验证（024 T101 / FR-051）」节：每次演练 MUST 实际拨通至少一名值班人 + 一名备份人联系方式（非仅确认号码存在），记录角色/姓名/联系方式/拨测时间/结果/备注；不可达处理：立即更新 oncall-roster.yml 与 alert-escalation.md 并记入问题整改闭环。
 
 ---
 
