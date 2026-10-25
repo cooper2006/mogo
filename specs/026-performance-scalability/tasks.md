@@ -55,18 +55,18 @@
 
 **独立测试**: 慢查询 < 阈值且告警；索引覆盖率 > 95%；连接池配置合理；N+1 改造完成；查询超时生效。
 
-- [ ] T014 扩展 `core/db.py` 连接池配置：`maxPoolSize`（默认 100）/ `minPoolSize`（默认 10）/ `maxIdleTimeMS`（默认 30000）/ 连接泄漏检测（> 90s 告警）（FR-10）
-- [ ] T015 启用 MongoDB `slow_query_log`：阈值可配置（默认 100ms），超阈值查询落库 `slow_queries` collection 并告警（FR-6）
-- [ ] T016 实现查询超时：所有查询设置 `maxTimeMS`（默认 5000ms，可配），慢查询不阻塞其他请求（FR-9）
-- [ ] T017 [P] 实现查询熔断：错误率 > 50% 触发熔断，降级返回缓存或明确错误（FR-9）
+- [x] T014 扩展 `core/db.py` 连接池配置：`maxPoolSize`（默认 100）/ `minPoolSize`（默认 10）/ `maxIdleTimeMS`（默认 30000）/ 连接泄漏检测（> 90s 告警）（FR-10）  证据：`services/chat-api/app/core/db_guard.py::pool_kwargs`（maxPoolSize=100/minPoolSize=10/maxIdleTimeMS=30000，`MONGODB_MAX_POOL_SIZE/MIN_POOL_SIZE/MAX_IDLE_MS` 可覆盖）+ `PoolLeakTracker`（借出/归还，>90s 未归还 `logger.warning("db_connection_leak")`）；`db.py:init_db()` 挂载 `**pool_kwargs(settings)`。验证 `pytest services/chat-api/tests/core/test_db_guard.py` → 26 passed。
+- [x] T015 启用 MongoDB `slow_query_log`：阈值可配置（默认 100ms），超阈值查询落库 `slow_queries` collection 并告警（FR-6）  证据：`db_guard.SlowQueryRegistry`（threshold_ms 默认 100 可配，超阈值 `logger.warning("db_slow_query")` 并登记）+ `persist_slow_queries()` 批量落 `slow_queries`（drain 防重）；`GuardedCollection` 在查询耗时统计处自动调用。验证同上 26 passed。
+- [x] T016 实现查询超时：所有查询设置 `maxTimeMS`（默认 5000ms，可配），慢查询不阻塞其他请求（FR-9）  证据：`db_guard.GuardedCollection` 的 `find/find_one/aggregate/count_documents` 默认注入 `max_time_ms=DEFAULT_MAX_TIME_MS=5000`（可经 env 覆盖），超时由 Mongo 服务端 `MaxTimeMSExpired` 触发、不阻塞其他请求。验证同上 26 passed。
+- [x] T017 [P] 实现查询熔断：错误率 > 50% 触发熔断，降级返回缓存或明确错误（FR-9）  证据：`db_guard.ErrorRateWindow`（滚动 30s，错误率 >0.5 `tripped()`）+ `guarded_query(breaker, name, coro_fn, fallback=)` 熔断打开即快速失败或降级返回缓存/明确 `RuntimeError("database circuit open")`；与 023 `core.resilience.mongo_breaker`（pybreaker 计数式）互补。验证同上 26 passed。
 - [x] T018 [P] 索引策略：按访问模式建立复合索引与覆盖索引（session/config/permission/token/document collections），索引覆盖率 > 95%（FR-8）
   - 证据: （FR-8）；工具：`tools/perf/index_advisor.py`（`SUGGESTED_INDEXES` 覆盖 chat_sessions/chat_messages/memories/permissions/admin_tokens/document_jobs/knowledge_graph_nodes，`plan_diffs` 报缺失，`coverage_report` 用 explain(executionStats) 统计 totalDocsExamined<=nReturned，覆盖率>95% 目标；T019 的 `app/core/db_guard.py:explain_and_store` 落库 query_plans）；验证：`pytest tools/tests/test_perf_db_scanner.py::TestSuggestedIndexes` 4 用例通过，`python3 tools/perf/index_advisor.py suggest` 输出 10 条建议索引
-- [ ] T019 实现查询执行计划分析：关键查询跑 `explain("executionStats")`，存储到 `query_plans` collection（FR-11）
+- [x] T019 实现查询执行计划分析：关键查询跑 `explain("executionStats")`，存储到 `query_plans` collection（FR-11）  证据：`db_guard.explain_and_store(db, collection, query_filter, projection=, limit=)` 跑 `explain("executionStats")`，摘要（nReturned/totalDocsExamined/totalKeysExamined/executionSuccess/executionTimeMillis）落 `query_plans`，存储失败仅 `logger.warning` 不阻断。验证同上 26 passed。
 - [x] T020 [P] N+1 查询改造：识别循环单查点（session/memory/knowledge/graph modules），改为批量预取或聚合管道（`$lookup`/`$unwind`）（FR-7）
   - 证据: `$lookup`/`$unwind`）；工具：`tools/perf/db_write_scanner.py`（AST 扫描，识别循环内 find_one/find/count_documents 候选）；落地工具：`services/common/batch_prefetch.py`（vendored 三份）提供 `prefetch_many`/`prefetch_many_async`（一次 `$in` 批量预取替代循环单查）；报告落盘 `docs/pending-review/026-perf-n-plus-one-loop-write-report.md`；验证：扫描 services 得 N+1 候选 60 条、`pytest tools/tests/test_perf_db_scanner.py::TestDbWriteScanner/TestBatchPrefetch` 通过
 - [x] T021 [P] 写入路径优化：识别单条写入循环，改为 `bulk_write`（FR-12）
   - 证据: `bulk_write`）；工具：`tools/perf/db_write_scanner.py` 识别循环内 insert_one/update_one/replace_one/delete_one 候选（services 得 39 条）；落地工具：`services/common/batch_prefetch.py` 提供 `build_bulk_write`（有序批量）+ `chunked`（默认 500 切块）；报告落盘同上；验证：`pytest tools/tests/test_perf_db_scanner.py::TestBatchPrefetch` 通过
-- [ ] T022 [P] 连接池监控：连接池利用率指标落库（峰值 ≤ 80% 目标），供 008 驾驶舱消费
+- [x] T022 [P] 连接池监控：连接池利用率指标落库（峰值 ≤ 80% 目标），供 008 驾驶舱消费  证据：`db_guard.pool_utilization_snapshot()` 读 `app.core.resilience` 池登记（MONGO/REDIS），输出 utilization + `peak_utilization_max=0.8` + `breached`；`persist_pool_utilization()` 落 `pool_metrics`（008 驾驶舱消费）。验证同上 26 passed。
 
 ---
 

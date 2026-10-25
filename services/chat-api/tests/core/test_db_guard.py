@@ -14,6 +14,8 @@ from app.core.db_guard import (
     SlowQueryRegistry,
     explain_and_store,
     guarded_query,
+    persist_pool_utilization,
+    persist_slow_queries,
     pool_kwargs,
     pool_utilization_snapshot,
 )
@@ -294,3 +296,50 @@ class TestPoolUtilizationSnapshot:
                 assert "utilization" in info
                 assert info["peak_utilization_max"] == 0.8
                 assert "breached" in info
+
+
+class FakeColl:
+    """最小 collection stub：记录 insert_many / insert_one 调用。"""
+
+    def __init__(self) -> None:
+        self.many: list = []
+        self.one: list = []
+
+    async def insert_many(self, recs: list) -> int:
+        self.many.extend(recs)
+        return len(recs)
+
+    async def insert_one(self, rec: dict) -> None:
+        self.one.append(rec)
+
+
+class FakeDB:
+    def __init__(self) -> None:
+        self.cols: dict = {}
+
+    def __getitem__(self, name: str) -> FakeColl:
+        return self.cols.setdefault(name, FakeColl())
+
+
+class TestPersist:
+    async def test_persist_slow_queries(self) -> None:
+        reg = SlowQueryRegistry()
+        assert reg.record("find", "chat_messages", 150) is True
+        assert reg.record("find_one", "memories", 10) is False  # 低于阈值不登记
+        db = FakeDB()
+        n = await persist_slow_queries(db, reg)
+        assert n == 1
+        row = db.cols["slow_queries"].many[0]
+        assert row["command"] == "find" and row["namespace"] == "chat_messages"
+        assert row["duration_ms"] == 150 and row["threshold_ms"] == 100
+        assert reg.drain() == []  # 已 drain，重复调用不再落
+        assert await persist_slow_queries(db, reg) == 0
+
+    async def test_persist_pool_utilization(self) -> None:
+        db = FakeDB()
+        snap = {"mongo": {"registered": False}, "redis": {"registered": False}}
+        out = await persist_pool_utilization(db, snapshot=snap)
+        assert out is snap
+        row = db.cols["pool_metrics"].one[0]
+        assert row["snapshot"] == snap
+        assert "at" in row

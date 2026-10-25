@@ -327,3 +327,28 @@ def pool_utilization_snapshot() -> Dict[str, Any]:
             "breached": (utilization or 0.0) > 0.8,
         }
     return out
+
+
+# ───────────────────────── T015/T022 落库闭环 ─────────────────────────
+async def persist_slow_queries(db: Any, registry: SlowQueryRegistry, collection: str = "slow_queries") -> int:
+    """把登记的慢查询批量落库 `slow_queries`（T015 FR-6）。
+
+    返回落库条数；registry 已 drain，重复调用不会重复落库。
+    """
+    records = registry.drain()
+    if not records:
+        return 0
+    await db[collection].insert_many(records)
+    return len(records)
+
+
+async def persist_pool_utilization(
+    db: Any, snapshot: Optional[Dict[str, Any]] = None, collection: str = "pool_metrics"
+) -> Dict[str, Any]:
+    """连接池利用率快照落库 `pool_metrics`（T022 FR-10），供 008 驾驶舱消费。
+
+    返回落库的快照（峰值利用率 > 0.8 时 `breached=True`）。
+    """
+    snap = snapshot if snapshot is not None else pool_utilization_snapshot()
+    await db[collection].insert_one({"snapshot": snap, "at": time.time()})
+    return snap
