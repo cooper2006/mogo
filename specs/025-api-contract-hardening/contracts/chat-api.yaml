@@ -1,0 +1,3292 @@
+name: chat-api
+version: 1.0.0
+provider: chat-api
+consumers:
+- user-web
+base_path: /api
+notes: "chat-api 契约（T031 / FR-16 / FR-17）。\n- 消费方：apps/user-web（Vue 3 + TS）。经 grep 与逐文件核对，\n  apps/admin-web 的全部 `/api/...` 调用走其自身 apiClient\n  （`apps/admin-web/src/api/client.ts:5` baseURL `/admin-api`，指向\
+  \ admin-api 服务），\n  `apps/admin-web/src/api/skills.ts:187` 的 `/api/skills/{id}/publish` 亦由\n  admin-api 代理转发，因此 **admin-web 不是 chat-api 的直接消费方**，未列入 consumers。\n- 消费方实际 baseURL 为 `/askai-api/api`（`apps/user-web/src/api/*.ts`\
+  \ 多处\n  `createApiClient({ baseURL: '/askai-api/api' })`），经反向代理映射到 chat-api 的 `/api`\n  前缀；契约中所有 `path` 均不含 `/api`。\n- 字段命名：FR-23 期望 snake_case，但 chat-api 现有 `_admin_shape_skill` /\n  `_create_session`\
+  \ 等返回 camelCase（`createdAt`、`tenantId`、`userId` 等），\n  且消费方 TS 类型按 camelCase 读取；契约按**实际消费**写 camelCase，差异记入 `gaps`。\n- 错误体：`app/core/errors.py` 的 `ErrorResponse` 同时携带 `detail`（字符串）\n  与 `message`；消费方\
+  \ auth / skills / tools / personal-knowledge 等模块\n  `errorMessageOf`/`failureMessage` 只读 `response.data.message` / `payload.message`，\n  因此非 2xx 响应列出 `message` 字段。稳定码一律使用注册表的 `api.*` 码。\n"
+interactions:
+- id: auth_login
+  method: POST
+  path: /auth/login
+  summary: 用户名密码登录（多租户时返回选租户挑战）
+  request_body:
+    username:
+      type: str
+      required: true
+    password:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Content-Type: application/json
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      message:
+        type: str
+      data:
+        type: object
+      data.requiresTenantSelection:
+        type: bool
+        required: false
+      data.challengeToken:
+        type: str
+        required: false
+      data.candidates:
+        type: array
+        item: object
+        required: false
+      data.candidates[].tenantId:
+        type: str
+      data.candidates[].orgName:
+        type: str
+      data.candidates[].userId:
+        type: str
+      data.candidates[].displayName:
+        type: str
+      data.candidates[].username:
+        type: str
+      data.token:
+        type: str
+        required: false
+      data.profile:
+        type: object
+        required: false
+      data.profile.userId:
+        type: str
+      data.profile.name:
+        type: str
+      data.profile.tenantId:
+        type: str
+      data.profile.orgName:
+        type: str
+      data.profile.spaceType:
+        type: str
+      data.profile.canAccessAdmin:
+        type: bool
+      data.profile.edition:
+        type: str
+      data.profile.billingEnabled:
+        type: bool
+      data.profile.memberLimit:
+        type: int
+        required: false
+      data.profile.availableTenants:
+        type: array
+        item: object
+        required: false
+      data.profile.agentPolicy:
+        type: object
+        required: false
+    error_codes: []
+    notes: 消费方 apps/user-web/src/api/auth.ts loginWithPassword → tokenResult / tenantSelectionResult / normalizeProfile（读 token、profile、requiresTenantSelection、challengeToken、candidates）；isOk 判断 code===0
+      || success===true。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: 多租户登录走 /auth/login/select-tenant（auth_login_select_tenant）；单租户直接返回 token+profile。
+- id: auth_login_select_tenant
+  method: POST
+  path: /auth/login/select-tenant
+  summary: 用挑战令牌完成选租户登录
+  request_body:
+    challengeToken:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: true
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      message:
+        type: str
+      data.token:
+        type: str
+      data.profile:
+        type: object
+      data.profile.userId:
+        type: str
+      data.profile.name:
+        type: str
+      data.profile.tenantId:
+        type: str
+      data.profile.spaceType:
+        type: str
+      data.profile.canAccessAdmin:
+        type: bool
+      data.profile.edition:
+        type: str
+      data.profile.billingEnabled:
+        type: bool
+      data.profile.availableTenants:
+        type: array
+        item: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts selectTenantAndLogin（失败读 payload.message，成功取 data.token / data.profile）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: 登录挑战 5 分钟有效（chat-api endpoints/auth.py _create_login_challenge）。
+- id: auth_me
+  method: GET
+  path: /auth/me
+  summary: 读取当前登录用户资料
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      message:
+        type: str
+      data:
+        type: object
+      data.userId:
+        type: str
+      data.name:
+        type: str
+      data.username:
+        type: str
+      data.phone:
+        type: str
+      data.email:
+        type: str
+      data.avatar:
+        type: str
+      data.tenantId:
+        type: str
+      data.orgName:
+        type: str
+      data.spaceType:
+        type: str
+      data.canAccessAdmin:
+        type: bool
+      data.edition:
+        type: str
+      data.billingEnabled:
+        type: bool
+      data.memberLimit:
+        type: int
+        required: false
+      data.availableTenants:
+        type: array
+        item: object
+        required: false
+      data.agentPolicy:
+        type: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts fetchUserProfile → normalizeProfile 逐字段兜底；GET 只读（022 FR-15/T032），租户快照走 auth_me_refresh_tenants。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: chat-api endpoints/auth.py me()；profile 用 _profile_with_policy 组装。
+- id: auth_me_refresh_tenants
+  method: POST
+  path: /auth/me/refresh-tenants
+  summary: 显式刷新当前会话的租户快照（GET 只读拆分）
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data.availableTenants:
+        type: array
+        item: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts refreshTenantSnapshot（在 fetchUserProfile 之后 fire-and-forget 调用，读取 response.data.data 作为租户快照）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: 022 FR-15（T032）从 GET /auth/me 拆出的写端点。
+- id: auth_logout
+  method: POST
+  path: /auth/logout
+  summary: 注销当前会话
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data.success:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts logoutWithToken（catch 忽略错误，只认 2xx）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: 注销置 token_id 会话 status=revoked。
+- id: auth_registerable_tenants
+  method: GET
+  path: /auth/registerable-tenants
+  summary: 注册前可注册组织列表
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data.tenants:
+        type: array
+        item: object
+      data.tenants[].tenantId:
+        type: str
+      data.tenants[].orgName:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts listRegisterableTenants（读 data.tenants）。
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: auth_registerable_departments
+  method: GET
+  path: /auth/registerable-departments
+  summary: 注册前可注册部门列表
+  query:
+    tenantId:
+      type: str
+      required: true
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data.departments:
+        type: array
+        item: object
+      data.departments[].id:
+        type: str
+      data.departments[].name:
+        type: str
+      data.departments[].parentId:
+        type: str
+      data.departments[].code:
+        type: str
+      data.departments[].depth:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts listRegisterableDepartments（读 data.departments）。
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: auth_register
+  method: POST
+  path: /auth/register
+  summary: 自助注册（可选部门）
+  request_body:
+    tenantId:
+      type: str
+      required: true
+    email:
+      type: str
+      required: true
+    password:
+      type: str
+      required: true
+    nickname:
+      type: str
+      required: false
+    departmentId:
+      type: str
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      message:
+        type: str
+      data.token:
+        type: str
+      data.profile:
+        type: object
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts register → tokenResult（读 data.token / data.profile；失败读 payload.message）。
+  - status: 409
+    error_codes:
+    - api.conflict
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: auth_switch_tenant
+  method: POST
+  path: /auth/switch-tenant
+  summary: 切换到另一可用组织
+  request_body:
+    tenantId:
+      type: str
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data.token:
+        type: str
+      data.profile:
+        type: object
+      data.profile.userId:
+        type: str
+      data.profile.tenantId:
+        type: str
+      data.profile.spaceType:
+        type: str
+      data.profile.canAccessAdmin:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts switchTenant → tokenResult（读 data.token / data.profile）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 403
+    error_codes:
+    - api.forbidden
+    content_type: application/json
+  notes: ''
+- id: auth_profile_avatar
+  method: POST
+  path: /auth/profile/avatar
+  summary: 上传用户头像
+  request_headers:
+    Authorization: Bearer <token>
+    Content-Type: multipart/form-data
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts uploadUserAvatar（FormData file；成功读 data，失败读 message）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 413
+    error_codes:
+    - api.payload_too_large
+    content_type: application/json
+  notes: ''
+- id: auth_portal_exchange
+  method: POST
+  path: /auth/portal-exchange
+  summary: 门户 SSO 一次性票据换会话（029）
+  request_body:
+    portal_token:
+      type: str
+      required: true
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data.token:
+        type: str
+        required: false
+      data.profile:
+        type: object
+        required: false
+      data.requiresTenantSelection:
+        type: bool
+        required: false
+      data.challengeToken:
+        type: str
+        required: false
+      data.candidates:
+        type: array
+        item: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts exchangePortalTicket（多租户返回 requiresTenantSelection + challengeToken + candidates，单租户返回 token + profile）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: 票据窗口 60 秒（chat-api endpoints/auth.py ADMIN_SSO_TOKEN_TTL_SECONDS）。
+- id: list_sessions
+  method: GET
+  path: /sessions
+  summary: 列出当前用户会话（分页/不分页两种消费方式）
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+    paged:
+      type: str
+      required: false
+    limit:
+      type: int
+      required: false
+    offset:
+      type: int
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: array
+        item: object
+      data[].id:
+        type: str
+      data[].user_id:
+        type: str
+      data[].title:
+        type: str
+      data[].created_at:
+        type: str
+      data[].updated_at:
+        type: str
+      data[].last_message_at:
+        type: str
+        required: false
+      data[].last_message_preview:
+        type: str
+        required: false
+      data[].message_count:
+        type: int
+      data[].active_run:
+        type: object
+        required: false
+      data[].active_run.run_id:
+        type: str
+      data[].active_run.message_id:
+        type: str
+      data[].active_run.source:
+        type: str
+      data[].active_run.status:
+        type: str
+      data[].scheduled_unread:
+        type: bool
+        required: false
+      data[].pending_approval_count:
+        type: int
+        required: false
+      data[].last_scheduled_run:
+        type: object
+        required: false
+      data[].execution_location:
+        type: str
+        required: false
+      data[].runtime_preset_id:
+        type: str
+        required: false
+      data[].model_instance_id:
+        type: str
+        required: false
+      data[].code_project:
+        type: object
+        required: false
+      items:
+        type: array
+        item: object
+        required: false
+      offset:
+        type: int
+        required: false
+      limit:
+        type: int
+        required: false
+      has_more:
+        type: bool
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/sessions.ts listSessions（读 data 数组）与 listSessionsPaged（paged=true 时读 data.items / data.offset / data.limit / data.has_more）；SessionSummary 类型同文件。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: chat-api endpoints/sessions.py list_sessions；paged=false 返回数组，paged=true 返回 {items, offset, limit, has_more}。
+- id: search_sessions
+  method: GET
+  path: /sessions/search
+  summary: 按关键字搜索会话（标题/预览/消息）
+  query:
+    userId:
+      type: str
+      required: true
+    q:
+      type: str
+      required: true
+    limit:
+      type: int
+      required: false
+    offset:
+      type: int
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      items:
+        type: array
+        item: object
+      items[].id:
+        type: str
+      items[].title:
+        type: str
+      items[].match_type:
+        type: str
+      items[].snippets:
+        type: array
+        item: str
+      items[].matched_message_count:
+        type: int
+      offset:
+        type: int
+      limit:
+        type: int
+      has_more:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/sessions.ts searchSessions（读 items / offset / limit / has_more；SessionSearchResult 含 match_type、snippets、matched_message_count）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: create_session
+  method: POST
+  path: /sessions
+  summary: 新建会话
+  request_body:
+    user_id:
+      type: str
+      required: true
+    tenant_id:
+      type: str
+      required: false
+    title:
+      type: str
+      required: true
+    messages:
+      type: array
+      item: object
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.title:
+        type: str
+      data.created_at:
+        type: str
+      data.updated_at:
+        type: str
+      data.message_count:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/api/sessions.ts createSession（返回 SessionSummary；读 data.id 用于后续导航）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: get_session
+  method: GET
+  path: /sessions/{session_id}
+  summary: 会话详情（含消息列表，用于回放）
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.title:
+        type: str
+      data.created_at:
+        type: str
+      data.updated_at:
+        type: str
+      data.message_count:
+        type: int
+      data.messages:
+        type: array
+        item: object
+      data.messages[].role:
+        type: str
+      data.messages[].content:
+        type: str
+      data.messages[].plan:
+        type: object
+        required: false
+      data.messages[].progress:
+        type: array
+        item: object
+        required: false
+      data.messages[].documents:
+        type: array
+        item: object
+        required: false
+      data.messages[].images:
+        type: array
+        item: object
+        required: false
+      data.messages[].message_id:
+        type: str
+        required: false
+      data.messages[].execution_events:
+        type: array
+        item: object
+        required: false
+      data.messages[].trigger_source:
+        type: str
+        required: false
+      data.messages[].scheduled_job_id:
+        type: str
+        required: false
+      data.messages[].scheduled_run_id:
+        type: str
+        required: false
+      data.messages[].created_at:
+        type: str
+        required: false
+    error_codes: []
+    notes: 'apps/user-web/src/api/sessions.ts getSession（返回 SessionDetail = SessionSummary & {messages: ChatMessage[]}）；GET 只读，已读标记走 mark_session_read（022 FR-15/T032）。'
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: chat-api endpoints/sessions.py get_session；404 detail='Session not found'。
+- id: mark_session_read
+  method: POST
+  path: /sessions/{session_id}/read
+  summary: 把会话标记为已读（清除 scheduled_unread）
+  query:
+    userId:
+      type: str
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/sessions.ts markSessionRead（在 getSession 之后 fire-and-forget，读 response.data.data）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: 022 FR-15（T032）把已读副作用从 GET 拆出。
+- id: patch_session
+  method: PATCH
+  path: /sessions/{session_id}
+  summary: 修改会话标题
+  request_body:
+    user_id:
+      type: str
+      required: true
+    tenant_id:
+      type: str
+      required: false
+    title:
+      type: str
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.title:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/sessions.ts updateSessionTitle（返回 SessionSummary，读 data.title 用于列表回显）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: delete_session
+  method: DELETE
+  path: /sessions/{session_id}
+  summary: 删除会话
+  query:
+    userId:
+      type: str
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data.id:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/sessions.ts deleteSession（读 data.id 从列表移除）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: DELETE 幂等（FR-7）。
+- id: append_session_messages
+  method: POST
+  path: /sessions/{session_id}/messages
+  summary: 向会话追加消息
+  request_body:
+    user_id:
+      type: str
+      required: true
+    tenant_id:
+      type: str
+      required: false
+    messages:
+      type: array
+      item: object
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.message_count:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/api/sessions.ts appendMessages（返回 SessionSummary）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: chat_completions_stream
+  method: POST
+  path: /chat/completions
+  summary: 聊天补全（NDJSON 事件流；V3 执行事件）
+  request_body:
+    messages:
+      type: array
+      item: object
+      required: true
+    modelId:
+      type: str
+      required: false
+    output_spec:
+      type: object
+      required: false
+    knowledgeQaEnabled:
+      type: bool
+      required: false
+    knowledgeBaseIds:
+      type: array
+      item: str
+      required: false
+    timezone:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+    Content-Type: application/json
+  response_headers:
+    X-Session-Id:
+      type: str
+      required: false
+    X-Message-Id:
+      type: str
+      required: false
+  responses:
+  - status: 200
+    content_type: application/x-ndjson
+    fields:
+      v:
+        type: int
+      event_id:
+        type: str
+      id:
+        type: str
+      ts:
+        type: int
+      type:
+        type: str
+      item_kind:
+        type: str
+        required: false
+      item_id:
+        type: str
+        required: false
+      parent_item_id:
+        type: str
+        required: false
+      revision:
+        type: int
+      stream_seq:
+        type: int
+        required: false
+      stream_seq_end:
+        type: int
+        required: false
+      payload:
+        type: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/composables/useChatStream.ts pumpChatStreamBody 逐行 JSON.parse 后 onEvent(ev as ExecutionEventV3)；apps/user-web/src/features/execution-v3/domain/protocol.ts ExecutionEventV3 /
+      V3EventType / V3ItemKind 定义；启动时读 X-Session-Id / X-Message-Id 响应头（captureStreamHeaders）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: 非 2xx 时消费方 readChatStreamError 读 content-type 为 json 的 detail（字符串）/ detail.message / message，否则回退状态码文案。
+- id: chat_cancel
+  method: POST
+  path: /chat/cancel
+  summary: 取消进行中的聊天（流式）
+  request_body:
+    session_id:
+      type: str
+      required: true
+  request_headers:
+    Content-Type: application/json
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/composables/useChatStream.ts cancelChat：!resp.ok 返回 false，resp.json() 后读 payload?.code === 0。
+  notes: ''
+- id: chat_message_events
+  method: GET
+  path: /chat/messages/{message_id}/events
+  summary: 轮询补齐某轮消息的执行事件（断线重连）
+  query:
+    after_cursor:
+      type: int
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.events:
+        type: array
+        item: object
+      data.next_index:
+        type: int
+      data.next_cursor:
+        type: int
+      data.status:
+        type: str
+      data.live:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/composables/useChatStream.ts fetchChatMessageEvents（读 data.events / next_index / next_cursor / status / live，用于断线回放）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: chat-api endpoints/dsh_chat.py chat_message_events。
+- id: chat_upload_image
+  method: POST
+  path: /chat/upload-image
+  summary: 上传聊天图片
+  request_body:
+    user_id:
+      type: str
+      required: true
+    file:
+      type: binary
+      required: true
+  request_headers:
+    Content-Type: multipart/form-data
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.object_path:
+        type: str
+        required: false
+      data.url:
+        type: str
+        required: false
+      data.signed_url:
+        type: str
+        required: false
+      data.filename:
+        type: str
+        required: false
+      data.content_type:
+        type: str
+        required: false
+      data.size:
+        type: int
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/chat.ts uploadChatImage → UploadedImage（读 object_path/url/signed_url/filename/content_type/size）。
+  - status: 413
+    error_codes:
+    - api.payload_too_large
+    content_type: application/json
+  notes: ''
+- id: chat_upload_document
+  method: POST
+  path: /chat/upload-document
+  summary: 上传聊天文档
+  request_body:
+    user_id:
+      type: str
+      required: true
+    file:
+      type: binary
+      required: true
+  request_headers:
+    Content-Type: multipart/form-data
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.object_path:
+        type: str
+        required: false
+      data.url:
+        type: str
+        required: false
+      data.signed_url:
+        type: str
+        required: false
+      data.filename:
+        type: str
+        required: false
+      data.content_type:
+        type: str
+        required: false
+      data.size:
+        type: int
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/chat.ts uploadChatDocument → UploadedDocument（同 UploadedImage 字段）。
+  - status: 413
+    error_codes:
+    - api.payload_too_large
+    content_type: application/json
+  notes: ''
+- id: list_chat_models
+  method: GET
+  path: /models/available
+  summary: 列出可用聊天模型
+  query:
+    tenant_id:
+      type: str
+      required: false
+    capability:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: array
+        item: object
+      data[].id:
+        type: str
+      data[].displayName:
+        type: str
+      data[].modelName:
+        type: str
+      data[].providerName:
+        type: str
+      data[].providerType:
+        type: str
+      data[].runtimeKind:
+        type: str
+        required: false
+      data[].capabilities:
+        type: array
+        item: str
+        required: false
+      data[].isDefault:
+        type: bool
+      data[].healthStatus:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/models.ts fetchChatModels（ChatModelOption 类型同文件；兼容顶层数组响应）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: chat-api endpoints/models.py available_models；响应 `{code, data}`。
+- id: list_image_models
+  method: GET
+  path: /models/images/available
+  summary: 列出可用图像模型
+  query:
+    tenant_id:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: array
+        item: object
+      data[].id:
+        type: str
+      data[].displayName:
+        type: str
+      data[].modelName:
+        type: str
+      data[].providerName:
+        type: str
+      data[].providerType:
+        type: str
+      data[].capabilities:
+        type: array
+        item: str
+        required: false
+      data[].isDefault:
+        type: bool
+      data[].healthStatus:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/models.ts fetchImageModels（同 ChatModelOption 读取）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: list_skills
+  method: GET
+  path: /skills
+  summary: 列出用户技能
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: array
+        item: object
+      data[].id:
+        type: str
+      data[].tenantId:
+        type: str
+      data[].name:
+        type: str
+      data[].description:
+        type: str
+      data[].scenario:
+        type: str
+      data[].type:
+        type: str
+      data[].config:
+        type: object
+      data[].enabled:
+        type: bool
+      data[].createdAt:
+        type: str
+      data[].updatedAt:
+        type: str
+      data[].packageSource:
+        type: object
+        required: false
+      data[].distributionId:
+        type: str
+        required: false
+      data[].feedback:
+        type: object
+        required: false
+      data[].locallyModified:
+        type: bool
+        required: false
+      data[].lifecycle:
+        type: object
+        required: false
+      data[].package:
+        type: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts fetchSkills/listSkills（SkillItem 类型同文件）；chat-api endpoints/skills.py _admin_shape_skill 返回 camelCase。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: get_skill
+  method: GET
+  path: /skills/{skill_id}
+  summary: 技能详情
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.name:
+        type: str
+      data.description:
+        type: str
+      data.scenario:
+        type: str
+      data.type:
+        type: str
+      data.config:
+        type: object
+      data.enabled:
+        type: bool
+      data.createdAt:
+        type: str
+      data.updatedAt:
+        type: str
+      data.packageSource:
+        type: object
+        required: false
+      data.lifecycle:
+        type: object
+        required: false
+      data.package:
+        type: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts fetchSkill（返回 SkillItem）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: create_skill
+  method: POST
+  path: /skills
+  summary: 新建技能
+  request_body:
+    name:
+      type: str
+      required: true
+    description:
+      type: str
+      required: true
+    scenario:
+      type: str
+      required: true
+    type:
+      type: str
+      required: true
+    config:
+      type: object
+      required: true
+    enabled:
+      type: bool
+      required: true
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.name:
+        type: str
+      data.type:
+        type: str
+      data.enabled:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts createSkill（SkillPayload → SkillItem，含 generateSkill 兜底路径 buildGenerateHead/buildGenerateConfig）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 409
+    error_codes:
+    - api.conflict
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: update_skill
+  method: PUT
+  path: /skills/{skill_id}
+  summary: 更新技能
+  request_body:
+    name:
+      type: str
+      required: true
+    description:
+      type: str
+      required: true
+    scenario:
+      type: str
+      required: true
+    type:
+      type: str
+      required: true
+    config:
+      type: object
+      required: true
+    enabled:
+      type: bool
+      required: true
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.name:
+        type: str
+      data.type:
+        type: str
+      data.enabled:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts updateSkill（含 legacy 载荷归一化 buildLegacySkillBody）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: PUT 幂等（FR-7）。
+- id: delete_skill
+  method: DELETE
+  path: /skills/{skill_id}
+  summary: 删除技能
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data.id:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts deleteSkill（读 data.id）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: DELETE 幂等（FR-7）。
+- id: set_skill_enabled
+  method: PATCH
+  path: /skills/{skill_id}/enabled
+  summary: 启用/停用技能
+  request_body:
+    enabled:
+      type: bool
+      required: true
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.enabled:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts setSkillEnabled（返回 SkillItem）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: list_selectable_skills
+  method: GET
+  path: /skills/selectable
+  summary: 列出可选技能（用户 + 组织，游标分页）
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+    scope:
+      type: str
+      required: false
+    keyword:
+      type: str
+      required: false
+    cursor:
+      type: str
+      required: false
+    limit:
+      type: int
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.items:
+        type: array
+        item: object
+      data.items[].id:
+        type: str
+      data.items[].tenantId:
+        type: str
+      data.items[].name:
+        type: str
+      data.items[].description:
+        type: str
+      data.items[].scenario:
+        type: str
+      data.items[].type:
+        type: str
+      data.items[].sourceScope:
+        type: str
+      data.items[].enabled:
+        type: bool
+      data.items[].updatedAt:
+        type: str
+        required: false
+      data.nextCursor:
+        type: str
+      data.hasMore:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts fetchSelectableSkills（SelectableSkillPage 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: 游标分页（FR-6）。
+- id: install_skill_zip
+  method: POST
+  path: /skills/install-zip
+  summary: ZIP 包安装个人技能（004/005 生命周期）
+  request_body:
+    file:
+      type: binary
+      required: true
+    confirmReplace:
+      type: bool
+      required: false
+  request_headers:
+    Content-Type: multipart/form-data
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.name:
+        type: str
+      data.slug:
+        type: str
+      data.description:
+        type: str
+      data.version:
+        type: str
+      data.type:
+        type: str
+      data.enabled:
+        type: bool
+      data.duplicate:
+        type: bool
+      data.updated:
+        type: bool
+      data.fileCount:
+        type: int
+      data.digest:
+        type: str
+      data.warnings:
+        type: array
+        item: object
+        required: false
+      data.childCount:
+        type: int
+        required: false
+      data.children:
+        type: array
+        item: object
+        required: false
+      data.compatibility:
+        type: object
+        required: false
+      data.compatibility.status:
+        type: str
+      data.compatibility.declaredTools:
+        type: array
+        item: str
+      data.compatibility.referencedTools:
+        type: array
+        item: str
+      data.compatibility.warnings:
+        type: array
+        item: object
+        required: false
+      data.upgrade:
+        type: object
+        required: false
+      data.upgrade.action:
+        type: str
+      data.upgrade.currentVersion:
+        type: str
+        required: false
+      data.upgrade.incomingVersion:
+        type: str
+        required: false
+      data.upgrade.currentName:
+        type: str
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts installPersonalSkillZip（SkillInstallResult 类型同文件，读 compatibility/upgrade 判断冲突与升级）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 409
+    error_codes:
+    - api.conflict
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  - status: 413
+    error_codes:
+    - api.payload_too_large
+    content_type: application/json
+  notes: gap：chat-api endpoints/skill_package_install.py:55 在需要确认替换时抛出 HTTP 409，但 detail 里用的是业务子码 'skill_upgrade_confirmation_required'（非 app/core/errors.py 的 api.* 码）；契约按稳定 api.conflict 归类。
+- id: publish_skill
+  method: POST
+  path: /skills/{skill_id}/publish
+  summary: 发布技能（003/034 生命周期）
+  request_body:
+    version:
+      type: str
+      required: true
+    releaseNotes:
+      type: str
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.skill:
+        type: object
+      data.skill.id:
+        type: str
+      data.skill.name:
+        type: str
+      data.release:
+        type: object
+      data.release.id:
+        type: str
+      data.release.version:
+        type: str
+      data.release.digest:
+        type: str
+      data.release.releaseNotes:
+        type: str
+      data.release.createdAt:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts publishSkill（读 data.skill / data.release）；admin-web 同款调用经 admin-api 代理，不在本契约覆盖范围。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 403
+    error_codes:
+    - api.forbidden
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: gap：chat-api endpoints/skill_lifecycle.py:26 的 403 分支实际使用 `EvalGateBlocked`/权限码门禁的 detail 文案，未映射到 api.forbidden 稳定码，前端 skillPublish 对话框按 detail.reason 展示。
+- id: list_skill_releases
+  method: GET
+  path: /skills/{skill_id}/releases
+  summary: 技能版本历史
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.items:
+        type: array
+        item: object
+      data.items[].id:
+        type: str
+      data.items[].version:
+        type: str
+      data.items[].digest:
+        type: str
+      data.items[].releaseNotes:
+        type: str
+      data.items[].createdAt:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts fetchSkillReleases（dataOf<{items:any[]}> → items）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: check_workflow_nodes
+  method: POST
+  path: /skills/check-workflow-nodes
+  summary: 校验工作流节点（039 可视化编排 AI 辅助）
+  request_body:
+    name:
+      type: str
+      required: true
+    description:
+      type: str
+      required: false
+    scenario:
+      type: str
+      required: false
+    nodes:
+      type: array
+      item: object
+      required: true
+    steps:
+      type: array
+      item: str
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.pass:
+        type: bool
+      data.logic:
+        type: object
+        required: false
+      data.logic.label:
+        type: str
+      data.logic.level:
+        type: str
+      data.logic.summary:
+        type: str
+      data.coverage:
+        type: array
+        item: object
+        required: false
+      data.readiness:
+        type: array
+        item: object
+        required: false
+      data.suggestions:
+        type: array
+        item: str
+        required: false
+      data.conclusion:
+        type: str
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts checkWorkflowNodes（WorkflowCheckResult 类型同文件）。
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: check_script_plugin
+  method: POST
+  path: /skills/check-script-plugin
+  summary: 校验工作流脚本插件
+  request_body:
+    code:
+      type: str
+      required: true
+    nodeTitle:
+      type: str
+      required: false
+    nodeDescription:
+      type: str
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.pass:
+        type: bool
+      data.rulePass:
+        type: bool
+      data.errors:
+        type: array
+        item: object
+      data.warnings:
+        type: array
+        item: object
+      data.llm:
+        type: object
+        required: false
+      data.source:
+        type: str
+        required: false
+      data.message:
+        type: str
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/skills.ts checkScriptPlugin（ScriptPluginCheckResult 类型同文件）。
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: list_skill_updates
+  method: GET
+  path: /skill-updates
+  summary: 可安装的技能更新通知
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.items:
+        type: array
+        item: object
+      data.items[].id:
+        type: str
+      data.items[].skillId:
+        type: str
+      data.items[].name:
+        type: str
+      data.items[].currentVersion:
+        type: str
+      data.items[].newVersion:
+        type: str
+      data.items[].releaseNotes:
+        type: str
+      data.items[].changes:
+        type: array
+        item: str
+      data.items[].createdAt:
+        type: str
+      data.items[].localModified:
+        type: bool
+      data.pendingCount:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/api/skillSharing.ts fetchSkillUpdates（SkillUpdateNotice 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: install_skill_update
+  method: POST
+  path: /skill-updates/{notification_id}/install
+  summary: 安装技能更新（可确认替换）
+  request_body:
+    confirmReplace:
+      type: bool
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.name:
+        type: str
+      data.type:
+        type: str
+      data.version:
+        type: str
+      data.duplicate:
+        type: bool
+      data.enabled:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/skillSharing.ts installSkillUpdate（SharedSkillInstallResult 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 409
+    error_codes:
+    - api.conflict
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: create_skill_share
+  method: POST
+  path: /skills/{skill_id}/shares
+  summary: 创建技能分享链接
+  request_body:
+    expiresInDays:
+      type: int
+      required: true
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.shareId:
+        type: str
+      data.token:
+        type: str
+      data.name:
+        type: str
+      data.description:
+        type: str
+      data.type:
+        type: str
+      data.version:
+        type: str
+      data.fileCount:
+        type: int
+      data.childCount:
+        type: int
+      data.expiresAt:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/skillSharing.ts createSkillShare（SkillShareCreated 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: list_skill_share_inbox
+  method: GET
+  path: /skill-share-inbox
+  summary: 我收到的技能分享
+  query:
+    cursor:
+      type: str
+      required: false
+    limit:
+      type: int
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.items:
+        type: array
+        item: object
+      data.items[].deliveryId:
+        type: str
+      data.items[].shareId:
+        type: str
+      data.items[].name:
+        type: str
+      data.items[].description:
+        type: str
+      data.items[].type:
+        type: str
+      data.items[].version:
+        type: str
+      data.items[].fileCount:
+        type: int
+      data.items[].expiresAt:
+        type: str
+      data.items[].alreadyInstalled:
+        type: bool
+      data.items[].hasConflict:
+        type: bool
+      data.items[].existingSkillId:
+        type: str
+      data.items[].sender:
+        type: object
+      data.items[].sender.displayName:
+        type: str
+      data.items[].sender.username:
+        type: str
+      data.items[].sender.email:
+        type: str
+      data.items[].sharedAt:
+        type: str
+      data.nextCursor:
+        type: str
+      data.hasMore:
+        type: bool
+      data.pendingCount:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/api/skillSharing.ts fetchReceivedSkillShares（ReceivedSkillSharePage 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: accept_skill_share
+  method: POST
+  path: /skill-share-inbox/{delivery_id}/accept
+  summary: 接受收到的技能分享
+  request_body:
+    replaceExisting:
+      type: bool
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.name:
+        type: str
+      data.type:
+        type: str
+      data.version:
+        type: str
+      data.duplicate:
+        type: bool
+      data.enabled:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/skillSharing.ts acceptReceivedSkillShare（SharedSkillInstallResult 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 409
+    error_codes:
+    - api.conflict
+    content_type: application/json
+  notes: ''
+- id: preview_skill_share
+  method: GET
+  path: /skill-shares/{token}
+  summary: 预览分享链接指向的技能
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.shareId:
+        type: str
+      data.name:
+        type: str
+      data.description:
+        type: str
+      data.type:
+        type: str
+      data.version:
+        type: str
+      data.fileCount:
+        type: int
+      data.childCount:
+        type: int
+      data.expiresAt:
+        type: str
+      data.alreadyInstalled:
+        type: bool
+      data.hasConflict:
+        type: bool
+      data.existingSkillId:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/skillSharing.ts previewSkillShare（SkillSharePreview 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: install_shared_skill
+  method: POST
+  path: /skill-shares/{token}/install
+  summary: 安装分享链接技能
+  request_body:
+    replaceExisting:
+      type: bool
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.name:
+        type: str
+      data.type:
+        type: str
+      data.version:
+        type: str
+      data.duplicate:
+        type: bool
+      data.enabled:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/skillSharing.ts installSharedSkill（SharedSkillInstallResult 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 409
+    error_codes:
+    - api.conflict
+    content_type: application/json
+  notes: ''
+- id: list_my_tools
+  method: GET
+  path: /external-tools/my
+  summary: 我的外部工具列表
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: array
+        item: object
+      data[].id:
+        type: str
+      data[].tenantId:
+        type: str
+      data[].scope:
+        type: str
+        required: false
+      data[].ownerUserId:
+        type: str
+        required: false
+      data[].name:
+        type: str
+      data[].type:
+        type: str
+      data[].description:
+        type: str
+      data[].usageHint:
+        type: str
+      data[].tags:
+        type: array
+        item: str
+      data[].status:
+        type: str
+      data[].config:
+        type: object
+      data[].lastTestStatus:
+        type: str
+      data[].lastTestAt:
+        type: str
+      data[].lastTestMessage:
+        type: str
+      data[].discoveredTools:
+        type: array
+        item: object
+        required: false
+      data[].createdAt:
+        type: str
+      data[].updatedAt:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/tools.ts fetchTools（ExternalToolItem 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: create_tool
+  method: POST
+  path: /external-tools/my
+  summary: 创建外部工具（HTTP/MCP）
+  request_body:
+    name:
+      type: str
+      required: true
+    type:
+      type: str
+      required: true
+    description:
+      type: str
+      required: true
+    usageHint:
+      type: str
+      required: true
+    tags:
+      type: array
+      item: str
+      required: true
+    status:
+      type: str
+      required: true
+    config:
+      type: object
+      required: true
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.id:
+        type: str
+      data.name:
+        type: str
+      data.type:
+        type: str
+      data.status:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/tools.ts createTool（ToolPayload → ExternalToolItem）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: test_tool
+  method: POST
+  path: /external-tools/my/{tool_id}/test
+  summary: 测试外部工具连通性
+  request_body:
+    input:
+      type: object
+      required: true
+  query:
+    userId:
+      type: str
+      required: true
+    tenantId:
+      type: str
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+    error_codes: []
+    notes: apps/user-web/src/api/tools.ts testTool（data 为 Record<string,any>，前端按通用字典读取）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: get_ontology_grants_mine
+  method: GET
+  path: /ontology-grants/mine
+  summary: 我的本体授权范围（030 迁移，只读）
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.tenantId:
+        type: str
+      data.userId:
+        type: str
+      data.ontologies:
+        type: array
+        item: object
+      data.ontologies[].ontologyId:
+        type: str
+      data.ontologies[].accessMode:
+        type: str
+      data.ontologies[].priority:
+        type: int
+      data.ontologies[].subjectType:
+        type: str
+      data.ontologies[].remark:
+        type: str
+      data.ontologies[].updatedAt:
+        type: str
+        required: false
+      data.ontologies[].visible:
+        type: bool
+      data.count:
+        type: int
+      data.visibleCount:
+        type: int
+      data.disabledCount:
+        type: int
+      data.degraded:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/ontologyGrants.ts fetchMyOntologyGrants（MyOntologyScope 类型同文件）。
+  notes: ''
+- id: fetch_personal_knowledge
+  method: GET
+  path: /personal-knowledge
+  summary: 我的/共享给我的知识条目（分页）
+  query:
+    view:
+      type: str
+      required: true
+    directoryId:
+      type: str
+      required: false
+    keyword:
+      type: str
+      required: false
+    page:
+      type: int
+      required: false
+    pageSize:
+      type: int
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.items:
+        type: array
+        item: object
+      data.items[].id:
+        type: str
+      data.items[].ownerUserId:
+        type: str
+      data.items[].directoryId:
+        type: str
+      data.items[].name:
+        type: str
+      data.items[].description:
+        type: str
+      data.items[].tags:
+        type: array
+        item: str
+      data.items[].status:
+        type: str
+      data.items[].error:
+        type: str
+      data.items[].activeDocumentId:
+        type: str
+      data.items[].canReshare:
+        type: bool
+      data.items[].accessStatus:
+        type: str
+      data.items[].grantedByUserId:
+        type: str
+      data.items[].owner:
+        type: object
+        required: false
+      data.items[].owner.displayName:
+        type: str
+        required: false
+      data.items[].grantedBy:
+        type: object
+        required: false
+      data.items[].seen:
+        type: bool
+      data.items[].sharedAt:
+        type: str
+      data.items[].createdAt:
+        type: str
+      data.items[].updatedAt:
+        type: str
+      data.items[].deleted:
+        type: bool
+        required: false
+      data.items[].isOwner:
+        type: bool
+        required: false
+      data.items[].canShare:
+        type: bool
+        required: false
+      data.items[].feedback:
+        type: object
+        required: false
+      data.items[].share:
+        type: object
+        required: false
+      data.total:
+        type: int
+      data.page:
+        type: int
+      data.pageSize:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/api/personalKnowledge.ts fetchPersonalKnowledge（PersonalKnowledge 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: list_portal_catalog
+  method: GET
+  path: /portal/catalog
+  summary: 统一门户目录（037，终端用户侧）
+  query:
+    category:
+      type: str
+      required: false
+    keyword:
+      type: str
+      required: false
+    page:
+      type: int
+      required: false
+    page_size:
+      type: int
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      items:
+        type: array
+        item: object
+      items[].asset_type:
+        type: str
+      items[].asset_key:
+        type: str
+      items[].name:
+        type: str
+      items[].description:
+        type: str
+      items[].category:
+        type: str
+      items[].owner:
+        type: str
+      items[].owner_role:
+        type: str
+      items[].tags:
+        type: array
+        item: str
+      items[].state:
+        type: str
+      items[].is_low_quality:
+        type: bool
+      items[].effect:
+        type: object
+        required: false
+      items[].effect.effect_score:
+        type: float
+        required: false
+      items[].effect.samples:
+        type: int
+        required: false
+      items[].effect.avg_latency_ms:
+        type: int
+        required: false
+      items[].rating:
+        type: object
+        required: false
+      items[].rating.level:
+        type: str
+      items[].rating.score:
+        type: float
+        required: false
+      items[].kind:
+        type: str
+      items[].endpoint:
+        type: str
+        required: false
+      items[].published_at:
+        type: str
+        required: false
+      total:
+        type: int
+      page:
+        type: int
+      page_size:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/api/portal.ts fetchPortalCatalog（PortalCatalogPage 类型同文件；响应直接是分页体，不是 {code,data} 包裹）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: gap：portal 目录/请求类端点（endpoints/portal.py）直接返回 `{items,total,page,page_size}` 等裸分页体，不走统一 ApiResponse envelope，也与 errors.py 的错误结构不一致。
+- id: list_my_portal_requests
+  method: GET
+  path: /portal/requests/mine
+  summary: 我的资产申领单
+  query:
+    status:
+      type: str
+      required: false
+    page:
+      type: int
+      required: false
+    page_size:
+      type: int
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      items:
+        type: array
+        item: object
+      items[].request_id:
+        type: str
+      items[].asset_type:
+        type: str
+      items[].asset_key:
+        type: str
+      items[].reason:
+        type: str
+      items[].status:
+        type: str
+      items[].approver_id:
+        type: str
+      items[].applied_at:
+        type: str
+        required: false
+      items[].decided_at:
+        type: str
+        required: false
+      items[].decided_reason:
+        type: str
+      items[].granted_at:
+        type: str
+        required: false
+      items[].expires_at:
+        type: str
+        required: false
+      items[].revoked_at:
+        type: str
+        required: false
+      items[].is_terminal:
+        type: bool
+        required: false
+      items[].asset_name:
+        type: str
+        required: false
+      items[].is_expired:
+        type: bool
+        required: false
+      total:
+        type: int
+      page:
+        type: int
+      page_size:
+        type: int
+    error_codes: []
+    notes: apps/user-web/src/api/portal.ts fetchMyPortalRequests（PortalMyRequestsPage 类型同文件；状态 → 中文标签走 PORTAL_STATUS_LABELS）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: apply_portal_asset
+  method: POST
+  path: /portal/requests
+  summary: 申领门户资产（037）
+  request_body:
+    asset_type:
+      type: str
+      required: true
+    asset_key:
+      type: str
+      required: true
+    reason:
+      type: str
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      status:
+        type: str
+      created:
+        type: bool
+      request:
+        type: object
+        required: false
+      request.request_id:
+        type: str
+      request.status:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/portal.ts applyPortalAsset（PortalRequestResult 类型同文件；status ∈ created/pending/already_granted）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 409
+    error_codes:
+    - api.conflict
+    content_type: application/json
+  notes: chat-api endpoints/portal.py:162 定义 status_code=201；消费方只按 2xx 成功处理，未分支 201/200，按消费方视角统一写 200。
+- id: fetch_effective_shortcuts
+  method: GET
+  path: /shortcuts
+  summary: 当前生效的快捷键配置（提示词/技能）
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.entries:
+        type: array
+        item: object
+      data.entries[].id:
+        type: str
+      data.entries[].type:
+        type: str
+      data.entries[].categoryKey:
+        type: str
+      data.entries[].categoryLabel:
+        type: str
+      data.entries[].label:
+        type: str
+      data.entries[].iconKey:
+        type: str
+      data.entries[].iconSvg:
+        type: str
+        required: false
+      data.entries[].prompt:
+        type: str
+      data.entries[].resourceId:
+        type: str
+      data.entries[].enabled:
+        type: bool
+        required: false
+      data.entries[].locked:
+        type: bool
+        required: false
+      data.entries[].hidden:
+        type: bool
+        required: false
+      data.entries[].favorite:
+        type: bool
+        required: false
+      data.entries[].personal:
+        type: bool
+        required: false
+      data.groups:
+        type: array
+        item: object
+      data.groups[].key:
+        type: str
+      data.groups[].label:
+        type: str
+      data.defaultOrder:
+        type: array
+        item: str
+        required: false
+      data.configured:
+        type: bool
+      data.schemeKey:
+        type: str
+        required: false
+      data.preferences:
+        type: object
+    error_codes: []
+    notes: apps/user-web/src/api/shortcuts.ts fetchEffectiveShortcuts（EffectiveShortcuts / ShortcutEntry / ShortcutGroup 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: save_shortcut_preferences
+  method: PUT
+  path: /shortcuts/preferences
+  summary: 保存快捷键分组与条目偏好
+  request_body:
+    groupOrders:
+      type: object
+      required: true
+    personalGroup:
+      type: object
+      required: false
+    personalEntries:
+      type: array
+      item: object
+      required: true
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.entries:
+        type: array
+        item: object
+      data.groups:
+        type: array
+        item: object
+      data.configured:
+        type: bool
+      data.preferences:
+        type: object
+    error_codes: []
+    notes: apps/user-web/src/api/shortcuts.ts saveShortcutPreferences（返回 EffectiveShortcuts）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: PUT 幂等（FR-7）。
+- id: list_site_profiles
+  method: GET
+  path: /site-profiles
+  summary: 站点档案列表
+  query:
+    userId:
+      type: str
+      required: true
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: array
+        item: object
+      data[].id:
+        type: str
+      data[].owner_user_id:
+        type: str
+      data[].name:
+        type: str
+      data[].domain:
+        type: str
+      data[].entry_url:
+        type: str
+      data[].auth_method:
+        type: str
+      data[].hints:
+        type: str
+      data[].visibility:
+        type: str
+      data[].created_at:
+        type: str
+        required: false
+      data[].updated_at:
+        type: str
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/siteProfiles.ts listSiteProfiles（SiteProfile 类型同文件，snake_case 字段）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: get_quota_me
+  method: GET
+  path: /quota/me
+  summary: 我的配额信息
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+    error_codes: []
+    notes: apps/user-web/src/api/auth.ts fetchOrgBilling（读 data 为通用字典，成功返回 ok:true）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 429
+    error_codes:
+    - api.rate_limited
+    content_type: application/json
+  notes: ''
+- id: list_token_usage
+  method: GET
+  path: /token-usage
+  summary: 我的 Token 用量（snake_case 分页）
+  query:
+    userId:
+      type: str
+      required: true
+    limit:
+      type: int
+      required: false
+    offset:
+      type: int
+      required: false
+    tenantId:
+      type: str
+      required: false
+    q:
+      type: str
+      required: false
+    stage:
+      type: str
+      required: false
+    status:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.summary:
+        type: object
+      data.summary.total_calls:
+        type: int
+      data.summary.internal_calls:
+        type: int
+      data.summary.total_tokens:
+        type: int
+      data.summary.prompt_tokens:
+        type: int
+      data.summary.completion_tokens:
+        type: int
+      data.summary.avg_tokens:
+        type: int
+      data.summary.last_called_at:
+        type: str
+        required: false
+      data.summary.last_24h_calls:
+        type: int
+      data.summary.last_24h_internal_calls:
+        type: int
+      data.summary.last_24h_tokens:
+        type: int
+      data.summary.top_models:
+        type: array
+        item: object
+        required: false
+      data.summary.top_models[].model_name:
+        type: str
+      data.summary.top_models[].calls:
+        type: int
+      data.summary.top_models[].tokens:
+        type: int
+      data.items:
+        type: array
+        item: object
+      data.items[].request_id:
+        type: str
+      data.items[].tenant_id:
+        type: str
+      data.items[].user_id:
+        type: str
+      data.items[].session_id:
+        type: str
+      data.items[].trace_id:
+        type: str
+      data.items[].stage:
+        type: str
+      data.items[].intent:
+        type: str
+      data.items[].node_id:
+        type: str
+      data.items[].status:
+        type: str
+      data.items[].model_name:
+        type: str
+      data.items[].model_id:
+        type: str
+      data.items[].prompt:
+        type: str
+      data.items[].request_title_zh:
+        type: str
+      data.items[].request_title_en:
+        type: str
+      data.items[].start_time:
+        type: int
+      data.items[].end_time:
+        type: int
+      data.items[].total_tokens:
+        type: int
+      data.items[].prompt_tokens:
+        type: int
+      data.items[].completion_tokens:
+        type: int
+      data.items[].push_status:
+        type: str
+      data.items[].push_error:
+        type: str
+      data.offset:
+        type: int
+      data.limit:
+        type: int
+      data.total:
+        type: int
+      data.has_more:
+        type: bool
+    error_codes: []
+    notes: apps/user-web/src/api/tokenUsage.ts listTokenUsage（TokenUsagePage / normalizeUsageSummary / normalizeUsagePage）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+- id: list_resource_feedback
+  method: GET
+  path: /resource-feedback/{resource_type}/{resource_id}
+  summary: 资源反馈线程（技能/知识）
+  query:
+    cursor:
+      type: str
+      required: false
+    limit:
+      type: int
+      required: false
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.items:
+        type: array
+        item: object
+      data.items[].id:
+        type: str
+      data.items[].content:
+        type: str
+      data.items[].parentId:
+        type: str
+      data.items[].rootId:
+        type: str
+      data.items[].replyTo:
+        type: object
+        required: false
+      data.items[].author:
+        type: object
+      data.items[].author.userId:
+        type: str
+      data.items[].author.displayName:
+        type: str
+      data.items[].likes:
+        type: int
+      data.items[].likedByMe:
+        type: bool
+      data.items[].mine:
+        type: bool
+      data.items[].createdAt:
+        type: str
+      data.commentCount:
+        type: int
+      data.likes:
+        type: int
+      data.likedByMe:
+        type: bool
+      data.hasMore:
+        type: bool
+      data.nextCursor:
+        type: str
+      data.focus:
+        type: object
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/resourceFeedback.ts fetchFeedback（FeedbackThread / FeedbackComment 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 404
+    error_codes:
+    - api.not_found
+    content_type: application/json
+  notes: ''
+- id: list_orchestrations
+  method: GET
+  path: /orchestrations
+  summary: 可视化编排清单（039，prefix /api/orchestrations）
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: array
+        item: object
+      data[].orchestrationId:
+        type: str
+      data[].version:
+        type: int
+      data[].status:
+        type: str
+      data[].mode:
+        type: str
+        required: false
+      data[].updatedAt:
+        type: str
+        required: false
+      data[].detail:
+        type: object
+        required: false
+      data[].detail.nodeCount:
+        type: int
+        required: false
+      data[].detail.edgeCount:
+        type: int
+        required: false
+    error_codes: []
+    notes: apps/user-web/src/api/orchestration.ts listOrchestrations（OrchestrationOverview 类型同文件）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 403
+    error_codes:
+    - api.forbidden
+    content_type: application/json
+  notes: chat-api endpoints/orchestrations.py 前缀 /api/orchestrations；403 来自 001 权限码门禁 orchestration:publish 等。
+- id: save_orchestration_draft
+  method: POST
+  path: /orchestrations/{orchestration_id}/drafts
+  summary: 保存可视化编排草稿（039）
+  request_body:
+    document:
+      type: object
+      required: true
+    layout:
+      type: object
+      required: true
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.orchestrationId:
+        type: str
+      data.version:
+        type: int
+      data.status:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/orchestration.ts saveOrchestrationDraft（SaveDraftResult 类型同文件）；失败读 err.response.data.detail / .message（errorMessage 函数）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 403
+    error_codes:
+    - api.forbidden
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: publish_orchestration
+  method: POST
+  path: /orchestrations/{orchestration_id}/publish
+  summary: 发布可视化编排（001 权限码门禁）
+  request_body:
+    document:
+      type: object
+      required: true
+    layout:
+      type: object
+      required: true
+    releaseNotes:
+      type: str
+      required: false
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: object
+      data.orchestrationId:
+        type: str
+      data.version:
+        type: int
+      data.status:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/orchestration.ts publishOrchestration（SaveDraftResult）；403 时展示 detail/reason。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  - status: 403
+    error_codes:
+    - api.forbidden
+    content_type: application/json
+  - status: 422
+    error_codes:
+    - api.validation_error
+    content_type: application/json
+  notes: ''
+- id: list_scheduled_jobs
+  method: GET
+  path: /scheduled-jobs
+  summary: 定时任务列表
+  request_headers:
+    Authorization: Bearer <token>
+  responses:
+  - status: 200
+    content_type: application/json
+    fields:
+      code:
+        type: int
+      data:
+        type: array
+        item: object
+      data[].id:
+        type: str
+    error_codes: []
+    notes: apps/user-web/src/api/scheduledTasks.ts listScheduledJobs（读 data 数组）。
+  - status: 401
+    error_codes:
+    - api.unauthorized
+    content_type: application/json
+  notes: ''
+gaps:
+- FR-23 序列化一致：chat-api 大量端点返回 camelCase（skills `_admin_shape_skill`、auth `_create_session`、models `ChatModelOption` 等），与消费方 TS 类型一致但违反 FR-23 snake_case 预期。契约按消费方实际读取写 camelCase，未强制服务端改命名（本任务不改服务端代码）。
+- error_codes 收敛：chat-api endpoints 里仍有 HTTPException(detail=...) 直抛（如 skill_package_install.py:55 的 'skill_upgrade_confirmation_required'、skill_lifecycle.py:26 的 EvalGateBlocked/reason、sessions.py 的 'Session
+  not found'），未走 app/core/errors.py 的 ApiErrorCode 稳定码。契约在相应 interaction 的 notes/gaps 已标注，未把非 api.* 子码写进 error_codes。
+- envelope 不一致：portal.py 的 catalog/requests 与 models.py 的 /models/available 走裸分页/裸数组或 {code,data}，未统一 ApiResponse；消费方按实际响应读取，契约按实际写。
+- admin-web 不是 chat-api 直接消费方：apps/admin-web/src/api/skills.ts 的 `/api/skills/{id}/publish`、apps/admin-web/src/api/models.ts 的 `/api/models/instances/{id}/test/stream` 均走 admin-api 网关转发，消费方代码里的 `/api/...`
+  前缀指向 admin-api，本契约不覆盖；admin-api 契约需自行收编。
+- portal/requests 端点服务端定义 status_code=201（portal.py:162），消费方仅按 2xx 处理，未区分 201/200，契约统一写 200（消费方视角）。
+- chat/completions 的响应 content_type 实为 application/x-ndjson（逐行 JSON 事件），而非 SSE text/event-stream；chat/messages/{id}/events 才是标准 SSE。契约如实标注。

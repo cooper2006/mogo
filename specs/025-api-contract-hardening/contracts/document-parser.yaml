@@ -1,0 +1,417 @@
+name: document-parser
+version: "1.0.0"
+provider: document-parser
+consumers:
+  - admin-api            # 内部 HTTP 调用（urllib）：提交解析/预览/索引任务、删除向量
+  - chat-api             # 内部 HTTP 调用（httpx）：同步 parse-markdown、retrieval/search
+  - deployment           # docker-compose / admin-api setup 健康探针（仅检查 HTTP 状态码）
+base_path: /api
+interactions:
+  - id: create_document_parse_job
+    method: POST
+    path: /jobs/document-parse
+    summary: 创建文档解析任务（异步，Celery）
+    request_body:
+      documentId: {type: str, required: true}
+      tenantId: {type: str, required: false}
+      source:
+        storageType: {type: str, required: true}
+        storageBucket: {type: str, required: false}
+        storageKey: {type: str, required: true}
+        filename: {type: str, required: false}
+        mimeType: {type: str, required: false}
+      artifacts:
+        storageType: {type: str, required: false}
+        storageBucket: {type: str, required: false}
+        storagePrefix: {type: str, required: true}
+      callback:
+        url: {type: str, required: true}
+        token: {type: str, required: true}
+      minChunkSize: {type: int, required: false}
+      chunkSize: {type: int, required: false}
+      chunkOverlap: {type: int, required: false}
+    request_headers:
+      Authorization: "Bearer <document_processing_service_token>"
+    responses:
+      - status: 202
+        content_type: application/json
+        fields:
+          jobId: {type: str}
+          status: {type: str}
+        error_codes: []
+        notes: admin-api 仅读取 jobId（不读 status）；见 services/admin-api/app/api/routes/knowledge_documents.py:_request_document_parse
+      - status: 401
+        error_codes: [api.unauthorized]
+      - status: 403
+        error_codes: [api.forbidden]
+      - status: 422
+        error_codes: [api.validation_error]
+      - status: 503
+        error_codes: [api.service_unavailable]
+    notes: |
+      异步任务端点，长耗时解析走 Celery。请求体字段由
+      services/admin-api/app/api/routes/knowledge_documents.py:_request_document_parse 发送，
+      chunk 参数来自 admin-api settings.knowledge_min_chunk_size / knowledge_chunk_size / knowledge_chunk_overlap。
+      503 由路由在 Celery apply_async 抛错时返回（detail="任务队列不可用"），
+      消费方将 urllib HTTPError/URLError 统一映射为 RuntimeError("document processing service unavailable")，
+      因此 401/403/422/503 在消费方侧都走同一 catch 分支（不区分处理）。
+  - id: parse_document_markdown
+    method: POST
+    path: /documents/parse-markdown
+    summary: 同步解析为 Markdown（chat-api PDF 远程解析主路径）
+    request_body:
+      source:
+        storageType: {type: str, required: true}
+        storageBucket: {type: str, required: false}
+        storageKey: {type: str, required: true}
+        filename: {type: str, required: false}
+        mimeType: {type: str, required: false}
+      sourceUrl: {type: str, required: false}
+      minChunkSize: {type: int, required: false}
+      chunkSize: {type: int, required: false}
+      chunkOverlap: {type: int, required: false}
+    request_headers:
+      Authorization: "Bearer <DOCUMENT_PROCESSING_SERVICE_TOKEN>"
+    responses:
+      - status: 200
+        content_type: application/json
+        fields:
+          markdown: {type: str}
+          raw: {type: object}
+          rawChunks: {type: array, item: object}
+          ragChunks: {type: array, item: object}
+          parser: {type: str}
+          markdownChars: {type: int}
+        error_codes: []
+        notes: chat-api 逐个读取上述字段；raw 作为 structured_content、markdownChars/rawChunks/ragChunks 进 parse_quality；见 services/chat-api/app/services/document_processing_parse_client.py:parse_markdown
+      - status: 401
+        error_codes: [api.unauthorized]
+      - status: 403
+        error_codes: [api.forbidden]
+      - status: 404
+        error_codes: [api.not_found]
+      - status: 422
+        error_codes: [api.validation_error]
+    notes: |
+      chat-api 的主路径（PDF 优先走远程，失败再本地回退）。
+      请求体由 services/chat-api/app/services/document_processing_parse_client.py:parse_markdown
+      （_source_from_document / _source_url_from_document）组装，仅 storage_type=="local" 时带 sourceUrl。
+      404 对应路由 FileNotFoundError → "source document not found"，422 对应路由兜底 Exception → str(exc)；
+      chat-api 对 status>=400 统一走 "document_processing_http_{status}" 分支，不区分 404/422。
+  - id: create_preview_convert_job
+    method: POST
+    path: /jobs/preview-convert
+    summary: 创建 Office 文档预览转换任务（异步，输出 PDF）
+    request_body:
+      documentId: {type: str, required: true}
+      tenantId: {type: str, required: false}
+      source:
+        storageType: {type: str, required: true}
+        storageBucket: {type: str, required: false}
+        storageKey: {type: str, required: true}
+        filename: {type: str, required: false}
+        mimeType: {type: str, required: false}
+      target:
+        storageType: {type: str, required: false}
+        storageBucket: {type: str, required: false}
+        storageKey: {type: str, required: true}
+        filename: {type: str, required: false}
+        mimeType: {type: str, required: false}
+      callback:
+        url: {type: str, required: true}
+        token: {type: str, required: true}
+    request_headers:
+      Authorization: "Bearer <document_processing_service_token>"
+    responses:
+      - status: 202
+        content_type: application/json
+        fields:
+          jobId: {type: str}
+          status: {type: str}
+        error_codes: []
+        notes: admin-api 仅读取 jobId（不读 status）；见 services/admin-api/app/api/routes/knowledge_documents.py:_request_preview_conversion
+      - status: 401
+        error_codes: [api.unauthorized]
+      - status: 403
+        error_codes: [api.forbidden]
+      - status: 422
+        error_codes: [api.validation_error]
+      - status: 503
+        error_codes: [api.service_unavailable]
+    notes: |
+      预览转换是 003 特性「Office → PDF」的唯一异步入口，仅对 doc/docx/xls/xlsx/ppt/pptx 触发
+      （services/admin-api/app/api/routes/knowledge_documents.py:_needs_preview_conversion）。
+      target.storageKey 由消费方拼为 "<source_key>.preview.pdf"，回调走
+      admin-api 的 /api/knowledge/documents/{id}/preview-callback。
+  - id: create_document_index_job
+    method: POST
+    path: /jobs/document-index
+    summary: 创建向量索引任务（异步，写入 Weaviate）
+    request_body:
+      documentId: {type: str, required: true}
+      tenantId: {type: str, required: false}
+      knowledgeBaseId: {type: str, required: false}
+      chunkStage: {type: str, required: false}
+      config: {type: object, required: false}
+      callback:
+        url: {type: str, required: true}
+        token: {type: str, required: true}
+    request_headers:
+      Authorization: "Bearer <document_processing_service_token>"
+    responses:
+      - status: 202
+        content_type: application/json
+        fields:
+          jobId: {type: str}
+          status: {type: str}
+        error_codes: []
+        notes: admin-api 仅读取 jobId（不读 status）；见 services/admin-api/app/api/routes/knowledge_documents.py:_request_document_index
+      - status: 401
+        error_codes: [api.unauthorized]
+      - status: 403
+        error_codes: [api.forbidden]
+      - status: 422
+        error_codes: [api.validation_error]
+      - status: 503
+        error_codes: [api.service_unavailable]
+    notes: |
+      消费方固定发送 chunkStage="rag"，config 来自租户知识库设置快照
+      （services/admin-api/app/api/routes/knowledge_documents.py:_knowledge_settings_snapshot），
+      回调走 admin-api 的 /api/knowledge/documents/{id}/index-callback。
+  - id: search_retrieval
+    method: POST
+    path: /retrieval/search
+    summary: 向量/混合检索（chat-api 内部知识 QA）
+    request_body:
+      query: {type: str, required: true}
+      tenantId: {type: str, required: false}
+      userId: {type: str, required: false}
+      knowledgeBaseId: {type: str, required: false}
+      topN: {type: int, required: false}
+      candidateTopK: {type: int, required: false}
+      retrievalMode: {type: str, required: false}
+      filters: {type: object, required: false}
+      rerank: {type: bool, required: false}
+    request_headers:
+      Authorization: "Bearer <document_processing_service_token>"
+    responses:
+      - status: 200
+        content_type: application/json
+        fields:
+          query: {type: str}
+          retrievalMode: {type: str}
+          topN: {type: int}
+          items: {type: array, item: object}
+          items[].documentId: {type: str}
+          items[].chunkId: {type: str}
+          items[].chunkStage: {type: str}
+          items[].text: {type: str}
+          items[].contextualText: {type: str}
+          items[].titlePath: {type: array, item: str}
+          items[].pageNo: {type: int}
+          items[].contentType: {type: str}
+          items[].sourceChunkIds: {type: array, item: str}
+          items[].ordinal: {type: int}
+          items[].score: {type: float}
+          items[].distance: {type: float}
+          items[].rerankScore: {type: float}
+          total: {type: int}
+        error_codes: []
+        notes: |
+          chat-api 经 pydantic RetrievalSearchResult/RetrievalChunkItem 校验后逐个读取上述字段，
+          排序键为 item.rerankScore ?? item.score；见 services/chat-api/app/knowledge/retrieval/retrieval_client.py:search
+          与 services/chat-api/app/knowledge/retrieval/schemas.py:RetrievalChunkItem，
+          最终消费方为 services/chat-api/app/knowledge/agents/knowledge_qa_agent.py:KnowledgeQAAgent.retrieve_chunks。
+      - status: 401
+        error_codes: [api.unauthorized]
+      - status: 403
+        error_codes: [api.forbidden]
+      - status: 422
+        error_codes: [api.validation_error]
+      - status: 503
+        error_codes: [api.service_unavailable]
+    notes: |
+      路由对 EmbeddingProviderError / VectorStoreError 均返回 503（detail=str(exc)）。
+      chat-api 对任意非 2xx 走 resp.raise_for_status() → 抛 KnowledgeRetrievalError
+      （"内部知识检索失败"），不区分 503 与 401/403。
+      items[].distance 与 items[].rerankScore 可为 null（chat-api schema 中 Optional[float]），
+      metadata 字段 chat-api 用默认 {} 容忍缺失（未在本契约列出，消费方不强制读取）。
+  - id: delete_document_vectors
+    method: POST
+    path: /vectors/documents/deletion
+    summary: 删除文档向量（025 T010 资源化改名后的新路径）
+    request_body:
+      documentId: {type: str, required: true}
+      tenantId: {type: str, required: false}
+      config: {type: object, required: false}
+    request_headers:
+      Authorization: "Bearer <document_processing_service_token>"
+    responses:
+      - status: 200
+        content_type: application/json
+        fields:
+          documentId: {type: str}
+          deleted: {type: int}
+          vectorStoreType: {type: str}
+          collectionName: {type: str}
+        error_codes: []
+        notes: |
+          admin-api 删除文档时读取 deleted / vectorStoreType / collectionName 并回写
+          vector_deleted_count / vector_store_type / vector_collection_name；见
+          services/admin-api/app/api/routes/knowledge_documents.py:_request_document_vector_delete 的调用处
+          （删除接口内 vector_result.get("deleted"|"vectorStoreType"|"collectionName")）。
+          ⚠️ 当前消费方实际 POST 的是旧别名路径（见 delete_document_vectors_legacy），尚未迁移到本路径。
+      - status: 401
+        error_codes: [api.unauthorized]
+      - status: 403
+        error_codes: [api.forbidden]
+      - status: 422
+        error_codes: [api.validation_error]
+    notes: |
+      025 T010 已将动词化旧路径改为资源化新路径。本交互按消费方实际读取的响应形状立约，
+      但无消费方当前命中本路径，迁移状态见下方 gaps。
+  - id: delete_document_vectors_legacy
+    method: POST
+    path: /vectors/documents/delete
+    summary: 旧路径别名（已被 025 T010 改为 308 永久重定向）
+    deprecated: true
+    deprecated_since: "1.0.0"
+    request_body:
+      documentId: {type: str, required: false}
+      tenantId: {type: str, required: false}
+    request_headers:
+      Authorization: "Bearer <document_processing_service_token>"
+    responses:
+      - status: 308
+        content_type: text/plain
+        fields: []
+        error_codes: []
+        notes: 仅测试断言使用 location 头指向 /vectors/documents/deletion；见 services/document-parser/tests/test_compat_alias_redirect_010.py
+    notes: |
+      兼容别名，保留 POST 方法（308 而非 301，避免客户端改为 GET）。
+      实际仍调用本旧路径的两个消费方：
+      services/admin-api/app/api/routes/knowledge_documents.py:_request_document_vector_delete（line 635）
+      与 services/admin-api/app/services/tenant_purge.py（line 513）。
+      二者均使用 urllib.request，Python urllib 的 HTTPRedirectHandler 不处理 308 →
+      会抛 HTTPError，走 consumer 的 URLError 分支 → RuntimeError。
+      即当前删除向量调用实际不可达，需迁移到 /vectors/documents/deletion（见 gaps）。
+  - id: service_health
+    method: GET
+    path: /health
+    summary: 存活检查（docker-compose 健康探针）
+    status_only: true
+    responses:
+      - status: 200
+        content_type: application/json
+        fields: []
+        error_codes: []
+        notes: docker-compose 探针仅调用 urlopen().read()，只依赖 HTTP 状态码，不读取 body 字段
+    notes: |
+      消费方为部署编排层：docker-compose.yml:763 document-api healthcheck
+      （urlopen('http://127.0.0.1:8200/api/health', timeout=3)）。status_only=true，
+      消费方不读任何响应体字段（故 fields 为空）。
+  - id: service_ready
+    method: GET
+    path: /ready
+    summary: 就绪检查（admin-api setup 部署状态页）
+    status_only: true
+    responses:
+      - status: 200
+        content_type: application/json
+        fields: []
+        error_codes: []
+        notes: 消费方仅断言 response.status < 400；见 services/admin-api/app/api/routes/setup.py:_probe_http
+      - status: 503
+        error_codes: [api.service_unavailable]
+    notes: |
+      任一后端依赖（panweidb/mongo、redis、weaviate、worker、docling）不可用时返回 503。
+      消费方：services/admin-api/app/api/routes/setup.py:_deployment_services（document_ready 探测
+      "document-processing" → admin-web 的 SetupDeploymentStatus.vue 显示"文档处理与 Worker"）。
+      status_only=true：消费方仅依据 HTTP 状态码判断 ok/not ok，不读取 checks 字段。
+gaps:
+  - id: batch-parse-endpoint-missing
+    severity: high
+    description: >-
+      003 特性遗留的批量解析接口在本仓库中不存在，FR-14 批量语义（逐项结果数组 + 整体 status +
+      partial 标记）在 document-parser 无任何落地，亦无消费方调用。
+    evidence: >-
+      services/document-parser/app/api/routes/ 五个业务路由（document_parsing.py / document_indexing.py /
+      preview_conversion.py / retrieval.py / vector_maintenance.py）全量通读，无任何 batch 端点；
+      services/document-parser/app/domain/jobs.py 只有 ParseDocumentJobRequest/ParseMarkdownRequest/
+      PreviewConvertJobRequest/IndexDocumentJobRequest 等单文档模型，无批量模型。
+      全仓 services/ 目录 grep "batchParse|batch_parse|parsing/batch|batch-convert" 零命中。
+      specs/003-document-ingestion-delivery/spec.md、checklists、plan.md、quickstart.md 均无 batch 定义。
+    conflict: >-
+      025 spec.md:206 声明"003 的批量解析接口（POST /documents/parsing/batch）是 FR-14 批量语义的覆盖对象"，
+      与 003 全部文档无 batch 定义、document-parser 无对应路由的事实矛盾——跨 spec 的声明与实现不一致。
+    action: >-
+      如需覆盖 FR-14，需在 document-parser 新增 POST /api/documents/parsing/batch（含 size 上限 100、
+      超限 422、全成功 200 / 全失败 4xx-5xx / 部分失败 200+partial=true），并在 003 spec.md 补 batch 接口定义。
+      在本契约（T032）阶段未新增，仅记录现状。
+  - id: vector-delete-consumer-still-on-deprecated-alias
+    severity: high
+    description: >-
+      admin-api 的向量删除调用仍指向 025 T010 已改为 308 重定向的旧别名 /vectors/documents/delete，
+      且 Python urllib 不跟随 308，导致删除向量实际调用失败；新路径 /vectors/documents/deletion 无消费方。
+    evidence: >-
+      services/admin-api/app/api/routes/knowledge_documents.py:635（_request_document_vector_delete，
+      f"{base_url}/api/vectors/documents/delete"）；services/admin-api/app/services/tenant_purge.py:513
+      （f"{base_url}/vectors/documents/delete"）。urllib.request 的 HTTPRedirectHandler 仅处理
+      301/302/303/307，不含 308 → 消费方走 except URLError → RuntimeError("document processing service unavailable")。
+    action: >-
+      把 _request_document_vector_delete 与 tenant_purge 的路径改为 /api/vectors/documents/deletion，
+      或让提供方对该别名返回 200 兼容。契约已按新路径立约（delete_document_vectors），
+      并把旧路径标 deprecated，供 T010 迁移与 deprecation_check.py（FR-22）扫描。
+  - id: tenant-purge-missing-api-prefix
+    severity: medium
+    description: >-
+      tenant_purge.py 的向量删除 URL 缺少 /api 前缀，与文档其余调用方不一致。
+    evidence: >-
+      services/admin-api/app/services/tenant_purge.py:513 使用 f"{base_url}/vectors/documents/delete"；
+      admin-api settings.document_processing_base_url 默认 "http://127.0.0.1:8200"（app/core/config.py:85，
+      不含 /api），故实际请求打到 /vectors/documents/delete（无 /api），404。
+      对比 knowledge_documents.py 全部调用都带 /api 前缀。
+    action: 改为 f"{base_url}/api/vectors/documents/delete"（并随上一条一起迁到 /deletion）。
+  - id: get-job-status-has-no-consumer
+    severity: medium
+    description: >-
+      提供方提供 GET /jobs/{job_id}（preview_conversion.py:39，返回 job dict），但消费方无人调用，
+      索引/解析/预览状态改由提供方回调 admin-api（parse-callback / index-callback / preview-callback）回传，
+      故未纳入本契约（FR-17）。
+    evidence: >-
+      services/document-parser/app/api/routes/preview_conversion.py:39 get_processing_job；
+      admin-api 仅存 job_id（parse_job_id/index_job_id/preview_job_id）并依赖回调更新本地状态，
+      见 services/admin-api/app/api/routes/knowledge_documents.py:294/307/316 与 510-513；
+      chat-api 无任何 /jobs/ 读取。
+    action: 若消费方需要同步查询任务状态，应新增轮询并补契约；当前保持不立约。
+  - id: frontend-does-not-call-document-parser-directly
+    severity: info
+    description: >-
+      前端（admin-web / user-web）不直连 document-parser，上传/预览/检索均经 admin-api BFF
+      /api/knowledge/documents/* 中转，故前端消费方证据归属 admin-api.yaml（T030），
+      本契约的 HTTP 消费方为 admin-api、chat-api 与部署层探针。
+    evidence: >-
+      apps/admin-web/src/api/knowledge-documents.ts（全为 /api/knowledge/documents/*）；
+      apps/admin-web/src/views/knowledge/KnowledgeDocumentPreviewPage.vue（预览/内容走 admin-api BFF）；
+      apps/ 内 grep "jobs/document-parse|preview-convert|document-index|parse-markdown|retrieval/search|vectors/documents"
+      零命中（排除 node_modules）。
+  - id: chat-api-legacy-doc-parser-url-config
+    severity: low
+    description: >-
+      chat-api 的 DocumentParserService._endpoint（DOC_PARSER_API_URL，默认空）为旧版任意解析端点，
+      响应体兼容 original_parsed_content.pageChunkData[].page_number/page_content/page_tables[].table_markdown
+      （services/chat-api/app/services/document_parser.py:1141-1170、1281），与当前任何 document-parser 路由不对应。
+    evidence: >-
+      services/chat-api/app/core/config.py:57 DOC_PARSER_API_URL: str = ""；默认关闭时走本地回退，
+      因此该历史遗留配置不影响主链路（主链路为 parse_markdown / retrieval/search）。
+    action: 属历史遗留配置，未纳入契约；建议后续清理或显式指向 /api/documents/parse-markdown。
+  - id: json-wire-format-camelcase
+    severity: info
+    description: >-
+      FR-23 序列化一致性：document-parser 的 wire 格式全为 camelCase
+      （jobId / markdownChars / retrievalMode / documentId / storageKey / rerankScore），
+      与消费方 chat-api pydantic schema、admin-api 直读字段一致，未发现 snake_case 冲突。
+    evidence: >-
+      services/document-parser/app/domain/jobs.py（camelCase 字段）、app/services/retrieval_service.py:45-51
+      （query/retrievalMode/topN/items/total）、app/services/vector_store.py:118-138（camelCase properties）。
+      chat-api 侧 services/chat-api/app/knowledge/retrieval/schemas.py 与之逐字段吻合。
