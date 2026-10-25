@@ -114,7 +114,9 @@ def check_structure(data: dict, service: str, registries: dict[str, set[str]] | 
                 continue
             status = resp.get("status")
             if not isinstance(status, int) or not 100 <= status <= 599:
+                # 状态码非法时后续比较（status >= 400）无意义，跳过该响应
                 errors.append(f"{rprefix}: status 必须是合法 HTTP 状态码，实际 {status!r}")
+                continue
             # 非 2xx 应声明 error_codes（FR-17 覆盖消费方实际分支的错误码）
             codes = resp.get("error_codes") or []
             if not isinstance(codes, list):

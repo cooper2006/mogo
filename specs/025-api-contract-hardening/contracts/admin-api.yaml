@@ -35,39 +35,13 @@ interactions:
         error_codes: []
         notes: >-
           来源 apps/admin-web/src/api/auth.ts login() / LoginResponse、
-          TenantSelectionResponse；apps/admin-web/src/stores/auth.ts useAuthStore.login()
-          读取 token / profile 并持久化到 localStorage。
+          TenantSelectionResponse；apps/admin-web/src/stores/auth.ts
+          useAuthStore.login() 读取 token / profile 并持久化到 localStorage。
       - status: 401
         error_codes: [api.unauthorized]
       - status: 422
         error_codes: [api.validation_error]
     notes: 管理员登录；用户名/密码错误→401，缺参→422
-
-  - id: auth_select_tenant
-    method: POST
-    path: /auth/login/select-tenant
-    summary: 多租户候选选择后登录
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          token: {type: str}
-          profile.name: {type: str}
-          profile.roleName: {type: str}
-          profile.orgName: {type: str}
-          profile.tenantId: {type: str, required: false}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/auth.ts selectTenantLogin()；登录页多租户
-          候选选择后调用，返回与 login 相同的 token/profile 结构。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 422
-        error_codes: [api.validation_error]
-    notes: 租户选择（租户账号同名时触发）
 
   - id: auth_sso_exchange
     method: POST
@@ -127,76 +101,6 @@ interactions:
         error_codes: [api.forbidden]
     notes: 当前管理员信息；token 失效→401，权限受限→403
 
-  - id: auth_me_update
-    method: PATCH
-    path: /auth/me
-    summary: 更新当前管理员档案
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          name: {type: str}
-          roleName: {type: str}
-          orgName: {type: str}
-          username: {type: str, required: false}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/auth.ts updateCurrentProfile()，返回
-          AdminProfile & { username } 供个人中心回填。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 422
-        error_codes: [api.validation_error]
-    notes: 个人资料编辑
-
-  - id: auth_me_password
-    method: POST
-    path: /auth/me/password
-    summary: 修改当前管理员密码
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          success: {type: bool}
-        error_codes: []
-        notes: 来源 apps/admin-web/src/api/auth.ts changeCurrentPassword()。
-      - status: 400
-        error_codes: [api.bad_request]
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 422
-        error_codes: [api.validation_error]
-    notes: 修改密码；原密码错误→400
-
-  - id: auth_logout
-    method: POST
-    path: /auth/logout
-    summary: 登出
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          success: {type: bool}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/auth.ts logout()；apps/admin-web/src/stores/auth.ts
-          logout() 忽略远端失败并清空本地状态。
-      - status: 401
-        error_codes: [api.unauthorized]
-    notes: 登出（失败不阻断本地清理）
-
-  # ════════════════════════════════════════════════════════════════════════
-  # Skills（列表分页 / 详情 / CRUD）
-  # ════════════════════════════════════════════════════════════════════════
   - id: skills_list
     method: GET
     path: /skills
@@ -381,7 +285,6 @@ interactions:
       - status: 409
         error_codes: [api.conflict]
     notes: 启用前需已发布（draft 未发布→409）
-
   - id: skills_publish
     method: POST
     path: /skills/{skill_id}/publish
@@ -411,34 +314,6 @@ interactions:
       - status: 422
         error_codes: [api.validation_error]
     notes: 发布（生成 release 版本）
-
-  - id: skills_releases
-    method: GET
-    path: /skills/{skill_id}/releases
-    summary: Skill 版本历史（004 FR-3）
-    query:
-      limit: {type: int, required: false}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          items: {type: array, item: object}
-          items[].id: {type: str}
-          items[].version: {type: str}
-          items[].digest: {type: str}
-          items[].releaseNotes: {type: str}
-          items[].createdAt: {type: str}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/skills.ts fetchSkillReleases()，解包
-          data.items 供 SkillPublishDialog.vue 版本回看。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-    notes: 版本历史（无前端消费者前由 004 补齐，见 skills.ts 注释）
 
   # ════════════════════════════════════════════════════════════════════════
   # Tools（外部工具 CRUD）
@@ -538,34 +413,6 @@ interactions:
       - status: 422
         error_codes: [api.validation_error]
     notes: 新建工具
-
-  - id: tools_update
-    method: PUT
-    path: /tools/{tool_id}
-    summary: 更新外部工具
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          id: {type: str}
-          name: {type: str}
-          status: {type: str}
-          config: {type: object}
-          updatedAt: {type: str}
-        error_codes: []
-        notes: 来源 apps/admin-web/src/api/tools.ts updateTool()。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-      - status: 422
-        error_codes: [api.validation_error]
-    notes: 编辑工具
 
   - id: tools_test
     method: POST
@@ -904,31 +751,6 @@ interactions:
         error_codes: [api.not_found]
     notes: 删除用户（返回体消费方未断言）
 
-  - id: directory_user_disable
-    method: POST
-    path: /directory/users/{user_id}/disable
-    summary: 停用用户
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          id: {type: str, required: false}
-          success: {type: bool, required: false}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/directory.ts disableUser()；OrganizationUsersPage.vue
-          status==='disabled' 行内切换（行 1310 附近）。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-    notes: 停用（返回体未断言，见 G2）
-
   - id: directory_invites
     method: POST
     path: /directory/invites
@@ -956,101 +778,6 @@ interactions:
       - status: 422
         error_codes: [api.validation_error]
     notes: 邀请链接（注册 / 设密码）
-
-  - id: directory_user_fields
-    method: GET
-    path: /directory/user-fields
-    summary: 用户自定义字段定义
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          id: {type: str}
-          fieldKey: {type: str}
-          label: {type: str}
-          fieldType: {type: str}
-          required: {type: bool}
-          options: {type: array, item: str}
-          enabled: {type: bool}
-          sort: {type: int}
-          updatedAt: {type: str}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/directory.ts fetchUserFieldDefs()
-          （UserFieldDef）；OrganizationUsersPage.vue 自定义字段面板。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-    notes: 用户自定义字段定义
-
-  - id: directory_audit_logs
-    method: GET
-    path: /directory/audit-logs
-    summary: 目录审计日志（分页）
-    query:
-      page: {type: int, required: false}
-      pageSize: {type: int, required: false}
-      keyword: {type: str, required: false}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          page: {type: int}
-          pageSize: {type: int}
-          total: {type: int}
-          items: {type: array, item: object}
-          items[].id: {type: str}
-          items[].operator: {type: str}
-          items[].action: {type: str}
-          items[].targetType: {type: str}
-          items[].targetId: {type: str}
-          items[].payload: {type: object, required: false}
-          items[].createdAt: {type: str}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/directory.ts fetchAuditLogs()，读取
-          page/pageSize/total/items；OrganizationUsersPage.vue 审计面板分页。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-    notes: 分页审计日志
-
-  # ════════════════════════════════════════════════════════════════════════
-  # Organizations（账号组 / 账号 CRUD）
-  # ════════════════════════════════════════════════════════════════════════
-  - id: organizations_account_groups
-    method: GET
-    path: /organizations/account-groups
-    summary: 账号组列表
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          id: {type: str}
-          name: {type: str}
-          code: {type: str}
-          description: {type: str}
-          accountCount: {type: int}
-          updatedAt: {type: str}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/organizations.ts fetchAccountGroups()
-          （AccountGroupItem）；OrganizationAccountsPage.vue 分组下拉与列表。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-    notes: 账号组列表
 
   - id: organizations_accounts
     method: GET
@@ -1112,35 +839,6 @@ interactions:
       - status: 422
         error_codes: [api.validation_error]
     notes: 新增账号
-
-  - id: organizations_account_update
-    method: PUT
-    path: /organizations/accounts/{account_id}
-    summary: 更新账号
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          id: {type: str}
-          username: {type: str}
-          displayName: {type: str}
-          status: {type: str}
-        error_codes: []
-        notes: 来源 apps/admin-web/src/api/organizations.ts updateAccount()。
-      - status: 400
-        error_codes: [api.bad_request]
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-      - status: 422
-        error_codes: [api.validation_error]
-    notes: 编辑账号（OrganizationAccountsPage.vue 行 395 起分支 400/422）
 
   - id: organizations_account_delete
     method: DELETE
@@ -1278,58 +976,6 @@ interactions:
         error_codes: [api.validation_error]
     notes: 上传（重名 409 走 detail.code==='DUPLICATE_FILENAME'，见 G3）
 
-  - id: knowledge_documents_delete
-    method: DELETE
-    path: /knowledge/documents/{document_id}
-    summary: 删除知识文档
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          success: {type: bool}
-        error_codes: []
-        notes: 来源 apps/admin-web/src/api/knowledge-documents.ts
-          deleteKnowledgeDocument()。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-    notes: 删除文档（软删除，可恢复）
-
-  - id: knowledge_documents_retry_parse
-    method: POST
-    path: /knowledge/documents/{document_id}/retry-parse
-    summary: 重试文档解析
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          id: {type: str}
-          status: {type: str}
-          parseStatus: {type: str}
-          updatedAt: {type: str}
-        error_codes: []
-        notes: 来源 apps/admin-web/src/api/knowledge-documents.ts
-          retryKnowledgeDocumentParse()（返回文档对象）。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-    notes: 解析失败重试
-
-  # ════════════════════════════════════════════════════════════════════════
-  # Analytics（token 用量）
-  # ════════════════════════════════════════════════════════════════════════
   - id: analytics_token_usage
     method: GET
     path: /analytics/token-usage
@@ -1393,36 +1039,6 @@ interactions:
         error_codes: [api.forbidden]
     notes: token 用量（消费方本地归一化，字段可缺省）
 
-  - id: analytics_token_usage_detail
-    method: GET
-    path: /analytics/token-usage/{request_id}
-    summary: 单次调用详情
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          requestId: {type: str}
-          prompt: {type: str}
-          requestPayload: {type: object}
-          responsePayload: {type: object}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/token-stats.ts fetchTokenStatsDetail()
-          （TokenStatsDetail）；AnalyticsPage.vue 详情抽屉展示 prompt / payload。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-    notes: 单次调用详情
-
-  # ════════════════════════════════════════════════════════════════════════
-  # Traffic Allocations（配额）
-  # ════════════════════════════════════════════════════════════════════════
   - id: traffic_allocations_overview
     method: GET
     path: /traffic-allocations/overview
@@ -1496,42 +1112,6 @@ interactions:
       - status: 403
         error_codes: [api.forbidden]
     notes: 用户配额列表
-
-  - id: traffic_allocations_logs
-    method: GET
-    path: /traffic-allocations/logs
-    summary: 配额变更日志（分页）
-    query:
-      page: {type: int, required: false}
-      pageSize: {type: int, required: false}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          page: {type: int}
-          pageSize: {type: int}
-          total: {type: int}
-          items: {type: array, item: object}
-          items[].id: {type: str}
-          items[].userName: {type: str}
-          items[].action: {type: str}
-          items[].beforeQuotaTokens: {type: int}
-          items[].afterQuotaTokens: {type: int}
-          items[].deltaTokens: {type: int}
-          items[].reason: {type: str}
-          items[].operator: {type: str}
-          items[].createdAt: {type: str}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/traffic-allocations.ts fetchAllocationLogs()
-          （AllocationLogPage）；TrafficAllocationsPage.vue 变更历史页。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-    notes: 配额变更日志（分页）
 
   # ════════════════════════════════════════════════════════════════════════
   # Platform（平台租户管理）
@@ -1637,39 +1217,6 @@ interactions:
         error_codes: [api.forbidden]
     notes: 上架列表（统一门户 037）
 
-  - id: portal_approvals_decide
-    method: POST
-    path: /portal/approvals/{request_id}/decide
-    summary: 审批门户申领（批准 / 拒绝）
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          status: {type: str}
-          changed: {type: bool}
-          request: {type: object}
-          request.request_id: {type: str, required: false}
-          request.status: {type: str, required: false}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/portal.ts decidePortalApproval()；
-          PortalApprovalPage.vue 批准/拒绝后读取返回 status 刷新行。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-      - status: 409
-        error_codes: [api.conflict]
-    notes: 审批门户申领（已处理→409 冲突）
-
-  # ════════════════════════════════════════════════════════════════════════
-  # Setup（首次初始化）
-  # ════════════════════════════════════════════════════════════════════════
   - id: setup_status
     method: GET
     path: /setup/status
@@ -1709,39 +1256,6 @@ interactions:
   # ════════════════════════════════════════════════════════════════════════
   # Skill 评估（032 eval-gate）
   # ════════════════════════════════════════════════════════════════════════
-  - id: skill_eval_cases
-    method: GET
-    path: /skills/{skill_id}/eval/cases
-    summary: 评估用例列表
-    query:
-      agent_tag: {type: str, required: false}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          items: {type: array, item: object}
-          items[].id: {type: str}
-          items[].agentTag: {type: str}
-          items[].input: {type: str}
-          items[].expectations: {type: array, item: str}
-          items[].expectedRefs: {type: array, item: str}
-          items[].expectRefusal: {type: bool}
-          items[].createdAt: {type: str}
-          items[].updatedAt: {type: str}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/skillEval.ts listEvalCases()（EvalCase）；
-          SkillPublishDialog.vue 用例管理列表。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-    notes: 评估用例列表
-
   - id: skill_eval_dry_run
     method: POST
     path: /skills/{skill_id}/eval/dry-run
@@ -1812,37 +1326,6 @@ interactions:
         error_codes: [api.not_found]
     notes: 最近评估报告（无历史→404，消费方按 null 处理）
 
-  - id: skill_eval_policy
-    method: GET
-    path: /skills/{skill_id}/eval/policy
-    summary: 评估门禁策略
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          tenantId: {type: str}
-          skillId: {type: str}
-          minCitationSupport: {type: float}
-          minRefusalAccuracy: {type: float}
-          minTaskSuccess: {type: float}
-          minCases: {type: int}
-          timeoutSeconds: {type: int}
-          enabled: {type: bool}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/skillEval.ts fetchEvalPolicy()（EvalPolicy）；
-          SkillPublishDialog.vue 门禁阈值配置。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-    notes: 评估门禁策略
-
   # ════════════════════════════════════════════════════════════════════════
   # Canary（灰度）
   # ════════════════════════════════════════════════════════════════════════
@@ -1882,49 +1365,6 @@ interactions:
         error_codes: [api.validation_error]
     notes: 创建灰度（信封 {code, data}，见 G5）
 
-  - id: skill_canary_get
-    method: GET
-    path: /skills/canary/{skill_id}
-    summary: 查询灰度状态
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          code: {type: int}
-          data.skill_id: {type: str}
-          data.state: {type: str}
-          data.error_rate: {type: float}
-          data.should_rollback: {type: bool}
-          data.reason: {type: str}
-          data.traffic_ratio: {type: float}
-          data.current_step: {type: int}
-          data.ladder: {type: array, item: object}
-          data.ladder[].ratio: {type: float}
-          data.ladder[].entered_at: {type: str, required: false}
-          data.shadow_enabled: {type: bool}
-          data.shadow_stats: {type: object, required: false}
-          data.shadow_stats.total: {type: int, required: false}
-          data.shadow_stats.ok: {type: int, required: false}
-          data.shadow_stats.success_rate: {type: float, required: false}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/skillCanary.ts fetchCanaryRollout()，解包
-          data.data；SkillCanaryConfigPage.vue 状态面板读取 current_step /
-          traffic_ratio / shadow_stats.success_rate。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-    notes: 灰度状态查询
-
-  # ════════════════════════════════════════════════════════════════════════
-  # Trust Ratings（036 资产评级）
-  # ════════════════════════════════════════════════════════════════════════
   - id: trust_ratings_list
     method: GET
     path: /trust-ratings
@@ -1986,41 +1426,6 @@ interactions:
         error_codes: [api.forbidden]
     notes: 评级分布（008 驾驶舱）
 
-  - id: trust_rating_change
-    method: POST
-    path: /trust-ratings/{asset_type}/{asset_key}/changes
-    summary: 手动调整评级
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          code: {type: int}
-          data.tenant_id: {type: str}
-          data.asset_type: {type: str}
-          data.asset_key: {type: str}
-          data.level: {type: str}
-          data.previous_level: {type: str}
-          data.reason: {type: str}
-          data.updated_at: {type: str}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/trustRatings.ts changeTrustRating() 解包
-          data.data；TrustRatingPage.vue 调整评级弹窗。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 404
-        error_codes: [api.not_found]
-      - status: 409
-        error_codes: [api.conflict]
-      - status: 422
-        error_codes: [api.validation_error]
-    notes: 人工调整评级（L2 人审）
-
   # ════════════════════════════════════════════════════════════════════════
   # Connector Market（041 连接器市场）
   # ════════════════════════════════════════════════════════════════════════
@@ -2060,40 +1465,6 @@ interactions:
         error_codes: [api.forbidden]
     notes: 模板目录
 
-  - id: connector_installs
-    method: GET
-    path: /connectors/installs
-    summary: 已安装连接器列表
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 200
-        content_type: application/json
-        fields:
-          items: {type: array, item: object}
-          items[].toolId: {type: str}
-          items[].name: {type: str}
-          items[].status: {type: str}
-          items[].lastTestStatus: {type: str}
-          items[].templateId: {type: str}
-          items[].templateVersion: {type: int}
-          items[].source: {type: str}
-          items[].installedAt: {type: str}
-          total: {type: int}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/connectorMarket.ts fetchConnectorInstalls()
-          （ConnectorInstallDto）；ConnectorMarketPage.vue 已安装列表。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-    notes: 已安装连接器
-
-  # ════════════════════════════════════════════════════════════════════════
-  # Egress（038 出站白名单 + 审计）
-  # ════════════════════════════════════════════════════════════════════════
   - id: egress_allowlist
     method: GET
     path: /egress/allowlist
@@ -2128,34 +1499,6 @@ interactions:
       - status: 403
         error_codes: [api.forbidden]
     notes: 白名单列表
-
-  - id: egress_allowlist_create
-    method: POST
-    path: /egress/allowlist
-    summary: 新增白名单条目
-    query: {}
-    request_headers:
-      Authorization: "Bearer <token>"
-    responses:
-      - status: 201
-        content_type: application/json
-        fields:
-          entry_id: {type: str}
-          match_domain: {type: str}
-          scope: {type: str}
-          enabled: {type: bool}
-          updated_at: {type: str}
-        error_codes: []
-        notes: >-
-          来源 apps/admin-web/src/api/egress.ts createEgressRule()
-          （EgressRuleCreatePayload）；EgressAllowlistPage.vue 新增表单。
-      - status: 401
-        error_codes: [api.unauthorized]
-      - status: 403
-        error_codes: [api.forbidden]
-      - status: 422
-        error_codes: [api.validation_error]
-    notes: 新增白名单
 
   - id: egress_logs
     method: GET
