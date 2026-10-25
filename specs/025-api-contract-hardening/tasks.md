@@ -212,7 +212,10 @@
   - **驱动修复契约 2 处与实现不一致**：`platform_tenant_create` 201→200（服务端路由未设 `status_code=201`，消费方仅按 2xx）；document-parser.yaml notes 文本内 `required: false` 触发 YAML 映射解析错误 → 改写措辞。
   - **测试方法学**：FastAPI 通过 `HTTPException` 动态抛出的 4xx/5xx 不会自动出现在 OpenAPI 声明 → 状态码测试对错误码降级 warning（2xx 严格要求）；`PageResponse.data: list[dict[str, Any]]` 在 OpenAPI 中 items 无 properties（自由 dict），元素字段由消费方契约定义 → `_collect_props` 返回 `(props, opaque)`，opaque 数组元素字段降级 warning 不阻断。
 - [ ] T036 契约测试用例：`services/admin-web/tests/contract/test_admin_api.py`（消费方侧验证，如 admin-web 有测试目录）
-- [ ] T037 弃用字段观察期检查：`tools/contract/deprecation_check.py`（FR-22, US3-7, US3-8）；扫描契约文件 `deprecated: true` 标记，检查观察期（2 个 minor 版本）后才允许移除
+- [x] T037 弃用字段观察期检查：`tools/contract/deprecation_check.py`（FR-22, US3-7, US3-8）；扫描契约文件 `deprecated: true` 标记，检查观察期（2 个 minor 版本）后才允许移除
+  - **证据**: `tools/contract/deprecation_check.py`（`parse_version`/`bump_minor`（minor 进位进位到 major）/`walk_interaction_fields`（含嵌套与 `item.fields`）/`collect_deprecated`（interaction 级 + 字段级）/`check_contract`/`main`，支持 `--all`/`--service`/`--contract`/`--minors`）；`tools/contract/test_contract_deprecation.py`（28 用例）。
+  - **检查规则**：①`deprecated` 项必须声明 `deprecated_since`（否则 error，rc 1）；②`deprecated_since` 不能晚于当前版本；③观察期默认 2 minor（FR-22），当前 < since+2minor → 「观察中（不可移除）」不阻断；已过 → 「已过观察期（可移除）」warn。当前版本取契约顶层 `version`（FR-16 契约持主副本）。
+  - **真实扫描**：三份契约仅 document-parser 的 `delete_document_vectors_legacy`（`POST /vectors/documents/delete`）标 deprecated（since 1.0.0），当前契约 1.0.0 → 仍在观察期，最早 1.2.0 可移除，与 gaps 中「旧别名已被 T010 改 308 但消费方仍调用」一致。
 - [ ] T038 序列化一致性测试（FR-23, US3-9）：契约测试显式断言 JSON + snake_case
 - [ ] T039 契约验证环境隔离（FR-24, US3-10）：契约测试使用独立测试容器/fixture，不依赖共享可变环境
 
