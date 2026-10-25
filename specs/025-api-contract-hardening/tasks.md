@@ -125,7 +125,12 @@
   - 实现要点：响应阶段用 `_BufferedSend` 缓冲 JSON body 于响应结束时统一 gzip；`_add_vary()` 合并已有 `Vary` 令牌不重复。
   - 行为测试 `services/admin-api/tests/test_content_negotiation_t019.py`（11 用例全绿）：无 Accept / `application/json` / `*/*` / `application/vnd.api+json` / 多类型带 q / 不支持 `text/html` 406 / `application/json;q=0` 406；声明 gzip 时 `Content-Encoding: gzip`+`Vary: Accept-Encoding`+解压后 body 正确；底层 ASGI 断言原始 body 以 `\x1f\x8b` 开头；未声明不压缩；非 JSON 不压缩。
   - 说明：本轮**未把中间件挂载到 admin-api app**（避免影响现有测试与 032 既有失败项），留待 T048 统一装配。
-- [ ] T020 US1 集成测试：`services/admin-api/tests/api/test_semantics.py`（路径命名、状态码、幂等、并发、分页、内容协商 6 组 Acceptance）
+- [x] T020 US1 集成测试：`services/admin-api/tests/api/test_semantics.py`（路径命名、状态码、幂等、并发、分页、内容协商 6 组 Acceptance）
+  - **证据（2026-10-25）**：新增 `services/admin-api/tests/api/test_semantics.py`（新建 `tests/api/` 目录），15 用例全绿；**原则：不连真实 Mongo/Redis**，用内存替身 + FastAPI TestClient 走真实 ASGI 链路。
+  - 组装方式：`_build_app()` 把 `IdempotencyMiddleware(store=IdempotencyStore())` + `ContentNegotiationMiddleware(supported_types=("application/json",), enable_gzip=True)` 挂到同一 FastAPI 应用；下游副作用用 `hits` 计数。分页组单独 `_items_app()`（`params: PageParams = Depends()`），数据为内存 25 条。
+  - 六组 Acceptance：①**路径命名** 子进程跑真实 `tools/api_check/path_naming.py --root <repo>` 断言 `returncode==0` 且含 `path-naming OK`；另断言 `/openapi.json` 所有路径无 `get/list/create/update/delete` 动词段。②**状态码** 成功路径 201、业务失败 400 且响应体含 `detail`（不被 200 包裹）。③**幂等** 同 key 重放返回相同 body + `idempotency-replayed: true` 且下游仅 1 次；不同 key 各自执行。④**并发** 8 线程并发同 key，全部 201 且下游仅 1 次（依赖单飞锁）。⑤**分页** `PageResponse` 恰为 6 键 snake_case、cursor 稳定翻页、末页 `has_next=False` 且 `next_cursor is None`、`page_size=0` → 422。⑥**内容协商** `Accept: text/html` → 406 + `Vary: Accept`；`Accept: application/json` / `*/*` → 201；`Accept-Encoding: gzip` → `Content-Encoding: gzip` + `Vary: Accept-Encoding`。
+  - **T015 增强（并发正确性）**：`IdempotencyMiddleware` 新增**进程内单飞锁**（`_lock_for(route_key)`，`threading.Lock` + 双重检查缓存），并发重复请求只在第一个进入时执行下游，其余在锁内读到已写缓存后直接重放——修复「8 并发 hits=7」的副作用重复问题；`tests/test_idempotency_t015.py` 仍 13 用例全绿。docstring 注明多实例部署仍需 Redis 分布式锁，此为单进程兜底。
+  - 说明：US1 全部 6 项 Acceptance 就位；本文件是 US1 收口证据。
 
 ---
 

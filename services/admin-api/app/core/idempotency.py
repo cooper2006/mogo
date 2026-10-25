@@ -21,6 +21,7 @@ import base64
 import hashlib
 import json
 import logging
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -187,6 +188,19 @@ class IdempotencyMiddleware:
         self.app = app
         self.store = store if store is not None else get_default_store()
         self._methods = {m.upper() for m in methods}
+        # 进程内单飞锁：并发重复请求只在第一个进入时执行下游，
+        # 其余在锁内读到已写入的缓存后直接重放（避免副作用重复）。
+        # 多实例部署仍需 Redis 分布式锁，此处为单进程正确性兜底。
+        self._locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _lock_for(self, route_key: str) -> threading.Lock:
+        with self._locks_guard:
+            lock = self._locks.get(route_key)
+            if lock is None:
+                lock = threading.Lock()
+                self._locks[route_key] = lock
+            return lock
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope["type"] != "http":
@@ -222,58 +236,59 @@ class IdempotencyMiddleware:
         async def cached_receive() -> dict[str, Any]:
             return {"type": "http.request", "body": payload, "more_body": False}
 
-        try:
-            record = self.store.get(route_key)
-        except Exception:  # Redis 不可达/熔断打开：按「不幂等」降级，放行下游
-            logger.warning("IdempotencyMiddleware: store unavailable, degrading to pass-through")
-            await self.app(scope, cached_receive, send)
-            return
-        if record is not None:
-            if record.get("fingerprint") != fingerprint:
-                await _respond(send, 409, "Idempotency-Key 已被使用，但请求内容不同（冲突）")
+        with self._lock_for(route_key):
+            try:
+                record = self.store.get(route_key)
+            except Exception:  # Redis 不可达/熔断打开：按「不幂等」降级，放行下游
+                logger.warning("IdempotencyMiddleware: store unavailable, degrading to pass-through")
+                await self.app(scope, cached_receive, send)
                 return
-            # 直接返回缓存的响应，不重放副作用。
-            replay_headers = [(k, v) for k, v in (record.get("headers") or []) if k not in _NON_REPLAYABLE_HEADERS]
-            replay_headers.append((b"idempotency-replayed", b"true"))
-            body_out = base64.b64decode(record.get("body_base64") or "")
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": int(record.get("status") or 200),
-                    "headers": replay_headers,
-                }
-            )
-            await send({"type": "http.response.body", "body": body_out})
-            return
+            if record is not None:
+                if record.get("fingerprint") != fingerprint:
+                    await _respond(send, 409, "Idempotency-Key 已被使用，但请求内容不同（冲突）")
+                    return
+                # 直接返回缓存的响应，不重放副作用。
+                replay_headers = [(k, v) for k, v in (record.get("headers") or []) if k not in _NON_REPLAYABLE_HEADERS]
+                replay_headers.append((b"idempotency-replayed", b"true"))
+                body_out = base64.b64decode(record.get("body_base64") or "")
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": int(record.get("status") or 200),
+                        "headers": replay_headers,
+                    }
+                )
+                await send({"type": "http.response.body", "body": body_out})
+                return
 
-        captured: dict[str, Any] = {}
+            captured: dict[str, Any] = {}
 
-        async def buffering_send(message: dict[str, Any]) -> None:
-            if message["type"] == "http.response.start":
-                captured["status"] = message["status"]
-                captured["headers"] = list(message.get("headers") or [])
-                await send(message)
-            elif message["type"] == "http.response.body":
-                captured.setdefault("chunks", bytearray()).extend(message.get("body", b""))
-                await send(message)
+            async def buffering_send(message: dict[str, Any]) -> None:
+                if message["type"] == "http.response.start":
+                    captured["status"] = message["status"]
+                    captured["headers"] = list(message.get("headers") or [])
+                    await send(message)
+                elif message["type"] == "http.response.body":
+                    captured.setdefault("chunks", bytearray()).extend(message.get("body", b""))
+                    await send(message)
 
-        await self.app(scope, cached_receive, buffering_send)
+            await self.app(scope, cached_receive, buffering_send)
 
-        status = captured.get("status") or 200
-        chunks = captured.get("chunks") or bytearray()
-        captured_headers = captured.get("headers") or []
-        try:
-            self.store.put(
-                route_key,
-                {
-                    "fingerprint": fingerprint,
-                    "status": status,
-                    "headers": captured_headers,
-                    "body_base64": base64.b64encode(bytes(chunks)).decode("ascii"),
-                },
-            )
-        except Exception:
-            logger.warning("IdempotencyMiddleware: failed to cache response (non-fatal)")
+            status = captured.get("status") or 200
+            chunks = captured.get("chunks") or bytearray()
+            captured_headers = captured.get("headers") or []
+            try:
+                self.store.put(
+                    route_key,
+                    {
+                        "fingerprint": fingerprint,
+                        "status": status,
+                        "headers": captured_headers,
+                        "body_base64": base64.b64encode(bytes(chunks)).decode("ascii"),
+                    },
+                )
+            except Exception:
+                logger.warning("IdempotencyMiddleware: failed to cache response (non-fatal)")
 
 
 async def _respond(send: Any, status_code: int, detail: str) -> None:
