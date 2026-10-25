@@ -744,6 +744,15 @@ command_config() {
   bash "${lint_script}" "$@"
 }
 
+command_canary() {
+  local canary_script="${ROOT_DIR}/deploy/cli/canary.sh"
+  if [[ ! -f "${canary_script}" ]]; then
+    mogo_msg canary_script_missing >&2
+    exit 2
+  fi
+  bash "${canary_script}" "$@"
+}
+
 command_drift() {
   require_docker
   local drift_script="${ROOT_DIR}/deploy/cli/drift-check.sh"
@@ -862,6 +871,10 @@ case "${command}" in
     else
       command_config "$@"
     fi
+    ;;
+  canary)
+    require_docker
+    command_canary "$@"
     ;;
   drift)
     command_drift "$@"

@@ -534,7 +534,7 @@ services:
       retries: 10
       start_period: 10s
 
-  chat-api:
+  chat-api: &chat-api-def
     image: ${MOGO_CHAT_API_IMAGE:-ghcr.io/mogoai/chat-api:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
@@ -640,7 +640,7 @@ services:
       <<: *python-healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()"]
 
-  admin-api:
+  admin-api: &admin-api-def
     image: ${MOGO_ADMIN_API_IMAGE:-ghcr.io/mogoai/admin-api:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
@@ -710,7 +710,7 @@ services:
       <<: *python-healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3).read()"]
 
-  document-api:
+  document-api: &document-api-def
     image: ${MOGO_DOCUMENT_API_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
@@ -952,6 +952,8 @@ services:
       # ./deploy/docker/nginx.conf，或写进 .env 让后续 up 都生效。
       # TLS 侧配置含：HTTP→HTTPS 301（/healthz 豁免）、TLSv1.2/1.3、HSTS、安全响应头。
       - ${MOGO_NGINX_CONF:-./deploy/nginx/nginx.conf}:/etc/nginx/conf.d/default.conf:ro
+      # 024 T039 (FR-020)：灰度分流片段（map + split_clients），canary.sh 按档位覆写
+      - ${MOGO_CANARY_NGINX_CONF:-./deploy/canary/nginx-canary.conf}:/etc/nginx/conf.d/mogo-canary.conf:ro
       # TLS certificates — create deploy/tls/ with fullchain.pem and privkey.pem
       - ${MOGO_TLS_CERTS_DIR:-./deploy/tls}:/etc/nginx/certs:ro
     depends_on:
@@ -1128,11 +1130,23 @@ services:
       timeout: 5s
       retries: 20
 
-networks:
-  public:
-  backend:
-    internal: true
+  # ── 024 T042 (FR-020)：灰度通道副本 ─────────────────────────────────
+  # 默认不启动（profiles: canary）；`mogo canary start` 通过 --profile canary
+  # 拉起这些副本。镜像默认走候选 tag（candidate-<sha>），与稳定版并存。
+  chat-api-canary:
+    <<: *chat-api-def
+    image: ${MOGO_CHAT_API_CANARY_IMAGE:-ghcr.io/mogoai/chat-api:${MOGO_CANARY_VERSION:-candidate}}
+    profiles: ["canary"]
 
+  admin-api-canary:
+    <<: *admin-api-def
+    image: ${MOGO_ADMIN_API_CANARY_IMAGE:-ghcr.io/mogoai/admin-api:${MOGO_CANARY_VERSION:-candidate}}
+    profiles: ["canary"]
+
+  document-api-canary:
+    <<: *document-api-def
+    image: ${MOGO_DOCUMENT_API_CANARY_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_CANARY_VERSION:-candidate}}
+    profiles: ["canary"]
 volumes:
   # 023 observability 栈（profile: observability）持久化卷，与既有卷同
   # MOGO_VOLUME_PREFIX 前缀约定。
@@ -1198,4 +1212,7 @@ volumes:
 secrets:
   mongo_backup_passphrase:
     file: ${MOGO_BACKUP_PASSPHRASE_HOST_FILE:-./secrets/mongo_backup_passphrase}
-
+networks:
+  public:
+  backend:
+    internal: true

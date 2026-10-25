@@ -1,0 +1,56 @@
+# 024 T044 (FR-022)：自动回滚条件
+# 观察窗口结束时评估：任一 condition 命中（window_minutes 内平均值超阈值）
+# 即触发自动回滚（deploy/cli/auto-rollback.sh → canary.sh rollback），无需人工介入。
+# 指标口径复用 007 llm-gateway-resilience：错误率 / p95 延迟 / 5xx 率 / 超时率。
+# baseline 是灰度前稳定版本在同样窗口的实测值，由 T045 canary-metrics.sh 采集。
+
+version: 1
+rollback_conditions:
+  # ── 全局触发条件（任一命中即回滚）───────────────────────────────────
+  conditions:
+    - id: error_rate_delta
+      metric: error_rate          # 错误率 = 非 2xx/3xx 响应 / 总请求
+      op: "gt_baseline_plus_2pct" # 超过基线 2 个百分点
+      window_minutes: 5
+      severity: P0
+    - id: p95_latency_delta
+      metric: p95_latency_ms
+      op: "gt_baseline_plus_20pct" # 超过基线 20%
+      window_minutes: 5
+      severity: P0
+    - id: http_5xx_rate
+      metric: 5xx_rate
+      op: "gt_0_01"                # > 1%
+      window_minutes: 5
+      severity: P1
+    - id: timeout_rate
+      metric: timeout_rate         # 超时率（上游超时 / 总请求）
+      op: "gt_0_02"                # > 2%
+      window_minutes: 5
+      severity: P1
+    - id: availability
+      metric: availability
+      op: "lt_0_99"                # < 99%
+      window_minutes: 5
+      severity: P0
+
+  # ── 作用域 ──────────────────────────────────────────────────────────
+  # 仅对 canary 副本的流量统计（nginx 侧注入 label canary=1）
+  scope:
+    label_selector: 'service in ("chat-api","admin-api","document-api"), canary="1"'
+    prometheus_url: "${MOGO_PROMETHEUS_URL:-http://prometheus:9090}"
+
+  # ── 触发后动作 ──────────────────────────────────────────────────────
+  on_trigger:
+    action: "deploy/cli/canary.sh rollback --reason <condition.id>"
+    cooldown_minutes: 10          # 两次自动回滚之间最小间隔
+    max_rollbacks_per_window: 2   # 单个观察窗口最多自动回滚次数，超限告警人工介入
+    record_template: "deploy/runbook/rollbacks/<date>-<version>.md"
+
+  # ── 指标采集（复用 007 口径，PromQL 片段）───────────────────────────
+  queries:
+    error_rate: 'sum(rate(http_requests_total{canary="1",code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{canary="1"}[5m])),1)'
+    p95_latency_ms: 'histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{canary="1"}[5m])) by (le)) * 1000'
+    5xx_rate: 'sum(rate(http_requests_total{canary="1",code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{canary="1"}[5m])),1)'
+    timeout_rate: 'sum(rate(http_requests_total{canary="1",code="504"}[5m])) / clamp_min(sum(rate(http_requests_total{canary="1"}[5m])),1)'
+    availability: '1 - sum(rate(http_requests_total{canary="1",code=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{canary="1"}[5m])),1)'
