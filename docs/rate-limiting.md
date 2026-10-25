@@ -58,7 +58,7 @@ Content-Type: application/json; charset=utf-8
 ```json
 {
   "detail": {
-    "code": "RATE_LIMITED",
+    "code": "api.rate_limited",
     "message": "请求频率超限，请稍后重试",
     "limit": 100,
     "remaining": 0,
@@ -71,7 +71,7 @@ Content-Type: application/json; charset=utf-8
 
 | 字段 | 含义 |
 | --- | --- |
-| `code` | 稳定错误码（T001 注册表风格）`RATE_LIMITED` |
+| `code` | 稳定错误码（T001 注册表）`api.rate_limited` |
 | `limit` | 当前维度的窗口配额 |
 | `remaining` | 配额余额（超配额时为 0） |
 | `window` | 窗口秒数 |

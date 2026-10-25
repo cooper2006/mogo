@@ -191,7 +191,7 @@ class TestMiddleware:
         mw = _middleware(config=config)
         asyncio.run(_run(mw, _make_scope()))
         detail = _body(asyncio.run(_run(mw, _make_scope())))["detail"]
-        assert detail["code"] == "RATE_LIMITED"
+        assert detail["code"] == "api.rate_limited"  # T001 注册表码
         assert set(detail) == {"code", "message", "limit", "remaining", "window", "reset_at", "dimension"}
         assert detail["limit"] == 1
         assert detail["remaining"] == 0

@@ -19,10 +19,13 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.config.rate_limit import RateLimitConfig, RateLimitRule, load_rate_limit_config
+from app.core.errors import ApiErrorCode
 
 logger = logging.getLogger(__name__)
 
-_RATE_LIMIT_CODE = "RATE_LIMITED"
+# 限流错误码必须来自 T001 注册表（ApiErrorCode.RATE_LIMITED = "api.rate_limited"），
+# 不自定义字符串码，保证跨服务唯一且被 error_codes_uniqueness 校验覆盖。
+_RATE_LIMIT_CODE = ApiErrorCode.RATE_LIMITED.value
 
 
 # ── 计数存储：Redis ZSET 滑动窗口（内存后备） ────────────────────────────────
