@@ -249,6 +249,15 @@ jobs:
         if: matrix.service == 'admin-api'
         run: python3 tools/api_check/error_codes_uniqueness.py
 
+      # 025 FR-1 (T008/T009/T010)：路由路径命名检查——动词段
+      # (get/list/create/update/delete/do) 一律禁止。脚本 AST 扫描三服务
+      # app/api/routes/，跨服务视角只跑一次即可；纯 stdlib，无需安装依赖。
+      # include_in_schema=False / deprecated=True 的兼容别名默认跳过
+      # (T009/T010 保留的旧路径)，--strict 下才会点名。
+      - name: API path-naming (025 T008)
+        if: matrix.service == 'admin-api'
+        run: python3 tools/api_check/path_naming.py
+
       - name: Create venv and install
         working-directory: services/${{ matrix.service }}
         run: |

@@ -50,7 +50,7 @@
   - **证据（2026-10-25）**：脚本用 AST 解析三服务 `app/api/routes/`，拼接本地 `APIRouter(prefix=...)` 与装饰器路径，按 `/` 分段；段命中规则 `段 == verb` 或 `段以 verb 开头且紧跟大写/下划线/数字`（camelCase `getUsers` / snake `do_parse` / 数字 `list0`），路径变量（`{id}`）与 `_` 开头内部段跳过；`--strict` 额外捕获 add/remove/fetch/set/save/destroy；`--json` / `--verbose`。退出码 0/1。
   - 行为测试 `services/admin-api/tests/test_api_path_naming_t008.py`：15 用例全绿（资源化路径通过 / 内部段与路径变量跳过 / 8 种动词段失败并点名 / prefix 段失败 / strict 模式额外捕获 / JSON 输出含 segment 与文件 / 真实仓库不得静默通过）。
   - **实测**：扫描到 273 条路由，检出 2 处真实动词段违规（诚实报告，exit 1）：`POST /{resource_id}/delete`（`services/admin-api/app/api/routes/personal_knowledge_internal.py`）与 `POST /vectors/documents/delete`（`services/document-parser/app/api/routes/vector_maintenance.py`）。
-  - 接入 CI 的时机：**暂不接入**（接入会让 CI 一直红），待 T009/T010 整改完这 2 处后再在 quality-gate.yml 追加 run（T048 统一落地）。
+  - **已接入 CI**（2026-10-25，T009/T010 整改完成后）：`.github/workflows/quality-gate.yml` 在 T007 的 `API error-code uniqueness` job 之后新增 `API path-naming (025 T008)` job（`matrix.service == 'admin-api'`，跨服务视角只跑一次，纯 stdlib）。整改后默认 `path-naming OK`，CI 不再红；`--strict` 仍会点名兼容别名，供定期抽查。
 - [x] T009 整改 `services/admin-api/app/api/routes/` 下动词段路径（实测 fail QF-202）：如 `/getUsers` → `/users`、`/listDocuments` → `/documents`；保留向后兼容别名（旧路径返回 301 重定向到新路径）
   - **证据（2026-10-25）**：本仓库 admin-api 实测违规 1 处——`POST /{resource_id}/delete`（`app/api/routes/personal_knowledge_internal.py`）整改为 `POST /{resource_id}/deletion`（`deletion` 为名词段，不再命中动词）。
   - 兼容别名：旧路径以 `include_in_schema=False, deprecated=True` 注册为重定向别名。**状态码用 308 而非 301**——POST 的 301 会被部分客户端改成 GET，必须保留方法；用 `request.url_for()` 生成新路径。别名端点仍校验 `X-MOGO-Service-Token`（`_require_service`），不绕过鉴权。
