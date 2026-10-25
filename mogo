@@ -754,6 +754,25 @@ command_drift() {
   bash "${drift_script}" "$@"
 }
 
+# 024 T034 (FR-012/FR-016)：部署预审 dry-run 与制品一致性校验。
+command_deploy_dry_run() {
+  local script="${ROOT_DIR}/deploy/cli/deploy-dry-run.sh"
+  if [[ ! -f "${script}" ]]; then
+    mogo_msg deploy_dryrun_script_missing >&2
+    exit 2
+  fi
+  bash "${script}" "$@"
+}
+
+command_verify() {
+  local script="${ROOT_DIR}/deploy/cli/verify-artifact.sh"
+  if [[ ! -f "${script}" ]]; then
+    mogo_msg verify_script_missing >&2
+    exit 2
+  fi
+  bash "${script}" "$@"
+}
+
 # 024 T024 (FR-009)：deploy/config/ 按 git commit 回滚，并触发 mogo up -d 重建。
 command_config_rollback() {
   if [[ $# -lt 1 ]]; then
@@ -846,6 +865,23 @@ case "${command}" in
     ;;
   drift)
     command_drift "$@"
+    ;;
+  deploy)
+    require_docker
+    # ./mogo deploy --dry-run：预审计划 diff（--dry-run 即本命令默认语义）
+    dry_args=()
+    for argument in "$@"; do
+      [[ "${argument}" == "--dry-run" ]] && continue
+      dry_args+=("${argument}")
+    done
+    if [[ "${#dry_args[@]}" -gt 0 ]]; then
+      command_deploy_dry_run "${dry_args[@]}"
+    else
+      command_deploy_dry_run
+    fi
+    ;;
+  verify)
+    command_verify "$@"
     ;;
   logs)
     require_docker

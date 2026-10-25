@@ -80,11 +80,11 @@
 
 - [ ] T029 [P] `.github/workflows/container-release.yml`：制品镜像写入 label（`org.mogo.version` / `org.mogo.git.sha` / `org.mogo.built.at`），校验三项齐全（FR-013）
 - [ ] T030 [P] `.github/workflows/container-release.yml`：追加 digest 完整性校验步骤，产出 `SHA256SUMS` 并签名（FR-019）
-- [ ] T031 [P] 新建 `deploy/cli/verify-artifact.sh`：在部署前比对线上容器 digest 与流水线发布记录，不一致告警（FR-012）
+- [x] T031 [P] 新建 `deploy/cli/verify-artifact.sh`：在部署前比对线上容器 digest 与流水线发布记录，不一致告警（FR-012）  证据：`deploy/cli/verify-artifact.sh` 按优先级取发布记录 `deploy/releases/latest.json`（images 段）或回退 compose 声明作为预期产物，比对运行容器实际镜像（docker inspect 的 Config.Image），按 digest 段比对（`ref.split('@')[1]`）。实测 `--service mongo` 比对 1 服务（依据 compose-declaration）→ `OK — 运行镜像与预期产物一致` rc=0。
 - [ ] T032 [P] `.github/workflows/container-promote.yml`：晋级记录写入发布记录（晋级动作、执行者、时间），`scripts/release/promote_container_release.sh` 同步输出（FR-018）
-- [ ] T033 [P] 新建 `deploy/cli/deploy-dry-run.sh`：产出计划 diff（新增/删除/变更的服务、镜像 digest、配置项），供预审；实际执行与计划不一致时告警（FR-016）
-- [ ] T034 [P] `mogo` 新增 `deploy --dry-run` 与 `verify` 子命令
-- [ ] T035 [P] 各环境部署一致性校验：脚本比对 dev/staging/prod 的镜像 digest 是否同一制品，差异仅限配置层（FR-014）
+- [x] T033 [P] 新建 `deploy/cli/deploy-dry-run.sh`：产出计划 diff（新增/删除/变更的服务、镜像 digest、配置项），供预审；实际执行与计划不一致时告警（FR-016）  证据：`deploy/cli/deploy-dry-run.sh` 比较两个 git ref 的 docker-compose.yml（`git show <ref>:docker-compose.yml` + `docker compose -f <tmp> config --format json` 解析），产出新增/删除/变更服务、image、env、volumes、ports、depends_on、read_only/tmpfs/cap_drop/no_new_privileges/user。破坏性变更（删除服务、镜像变更）exit 1 供预审把关。实测 588fe92→7df8ef9 正确检出 mongo/redis/weaviate 三服务 `read_only: False→True` + `tmpfs: []→['/tmp:size=NNm,mode=1777']`；HEAD^→HEAD 无变更 rc=0。支持 `--from/--to/--json`。
+- [x] T034 [P] `mogo` 新增 `deploy --dry-run` 与 `verify` 子命令  证据：`mogo` 新增 `deploy` 与 `verify` 子命令——`./mogo deploy --dry-run` 调 deploy-dry-run.sh（剥离 `--dry-run` 参数），`./mogo verify` 调 verify-artifact.sh。i18n 新增 deploy_dryrun_script_missing/verify_script_missing 双语 key，usage 增两行。实测 `./mogo deploy --dry-run` rc=0、`./mogo verify --service mongo` OK。踩坑：bash 3.2 + set -u 下空数组 `${dry_args[@]}` unbound，需判 `#dry_args[@]` 长度后再展开。
+- [x] T035 [P] 各环境部署一致性校验：脚本比对 dev/staging/prod 的镜像 digest 是否同一制品，差异仅限配置层（FR-014）  证据：`deploy/cli/env-parity.sh` 校验 deploy/docker-compose.prod.yml 对根 docker-compose.yml 的覆盖 MUST NOT 修改 image/build（违反 FR-014 同一制品即 FAIL），并输出每个服务被覆盖的配置层字段（白名单 CONFIG_ONLY_KEYS：environment/replicas/deploy/ports/volumes/networks/resources/depends_on/restart/healthcheck/logging/labels/read_only/tmpfs/cap_drop/no_new_privileges/user 等）。实测 prod 覆盖 7 服务（gateway/chat-api/admin-api/document-api/mongo/redis/mongo-backup）→ `OK — 各环境使用同一制品，差异仅存在于配置层`，配置层覆盖仅 deploy/healthcheck/environment/volumes。
 - [ ] T036 [P] 发布说明补"一键安装验证"章节：`mogo --lang zh-CN up` + 最小可用性验证命令清单，覆盖 QF-024 blocked
 - [ ] T037 [P] 缺失配置启动失败加固：`services/*/app/core/config.py` 在启动期统一校验必填键，失败时日志输出键名 + 期望取值范围（FR-015，现有行为已通过，仅需统一错误格式）
 

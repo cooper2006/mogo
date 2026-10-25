@@ -27,6 +27,8 @@ mogo_usage() {
     printf '  ./mogo config [--env all|dev|staging|prod]  校验配置清单键与代码读取点一致性\n'
     printf '  ./mogo config rollback <ref> --yes     按 git commit 回滚配置清单并重建服务\n'
     printf '  ./mogo drift [--service 名]            比对 compose 声明与容器实际运行态漂移\n'
+    printf '  ./mogo deploy --dry-run               预审部署计划 diff（新增/删除/变更服务与镜像）\n'
+    printf '  ./mogo verify                          校验运行镜像与流水线发布记录一致\n'
     printf '  ./mogo logs [服务名]                  查看日志\n'
     printf '  ./mogo restart                        重启服务\n'
     printf '  ./mogo down                           停止服务（保留数据卷）\n'
@@ -44,6 +46,8 @@ mogo_usage() {
     printf '  ./mogo config [--env all|dev|staging|prod]  Lint config manifests against code read sites\n'
     printf '  ./mogo config rollback <ref> --yes      Roll back config manifests to a commit and rebuild\n'
     printf '  ./mogo drift [--service name]           Compare compose declaration against running state\n'
+    printf '  ./mogo deploy --dry-run                Preview deployment plan diff for review\n'
+    printf '  ./mogo verify                           Verify running images match release record\n'
     printf '  ./mogo logs [service]                  Show logs\n'
     printf '  ./mogo restart                         Restart services\n'
     printf '  ./mogo down                            Stop services and preserve volumes\n'
@@ -174,6 +178,10 @@ mogo_msg() {
      zh:rollback_lint_failed) printf '错误：回滚后的配置清单未通过 config-lint，已中止。\n' ;;
      en:rollback_lint_failed) printf 'Error: rolled-back config manifest failed config-lint; aborted.\n' ;;
      zh:rollback_done) printf '已把 deploy/config/ 从 %s 回滚到 %s，开始重建服务。\n' "$1" "$2" ;;
+     zh:deploy_dryrun_script_missing) printf '错误：未找到部署预审脚本 deploy/cli/deploy-dry-run.sh。\n' ;;
+     en:deploy_dryrun_script_missing) printf 'Error: deploy dry-run script deploy/cli/deploy-dry-run.sh not found.\n' ;;
+     zh:verify_script_missing) printf '错误：未找到制品校验脚本 deploy/cli/verify-artifact.sh。\n' ;;
+     en:verify_script_missing) printf 'Error: artifact verification script deploy/cli/verify-artifact.sh not found.\n' ;;
      en:rollback_done) printf 'Rolled deploy/config/ back from %s to %s; rebuilding services.\n' "$1" "$2" ;;
     *) printf '%s' "${key}" ;;
   esac
