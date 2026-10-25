@@ -389,8 +389,12 @@ services/*/.pip-wheels-staging/
 *.bak-before-*
 
 # QualityForge 本地 QA 审计产物（测试项数据、报告、注入脚本）
-# 这些是本机审计运行生成的中间产物（audit.json 约 1.1MB），不入库。
-.qualityforge/
+# 大体积中间产物（audit.json 约 1.1MB、report.json、注入脚本）不入库；
+# 缺陷台账与目录说明入库——022–026 的验收回写需要它可追踪（2026-10-25 决策，见
+# .qualityforge/README.md）。注意：整目录排除时 negation 不生效，故用 `.qualityforge/*`。
+.qualityforge/*
+!.qualityforge/README.md
+!.qualityforge/QUALITYFORGE-REPORT.md
 
 # 误操作产生的 shell 重定向垃圾文件（pip install 未加引号的 ">" 被 shell 解析）
 services/document-parser/=*
