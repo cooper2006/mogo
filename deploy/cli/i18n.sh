@@ -24,6 +24,9 @@ mogo_usage() {
     printf '  ./mogo status                         查看服务状态\n'
     printf '  ./mogo check                          体检外部数据库连接信息\n'
     printf '  ./mogo baseline [--json]                扫描部署安全基线（非root/只读/能力/体积）\n'
+    printf '  ./mogo config [--env all|dev|staging|prod]  校验配置清单键与代码读取点一致性\n'
+    printf '  ./mogo config rollback <ref> --yes     按 git commit 回滚配置清单并重建服务\n'
+    printf '  ./mogo drift [--service 名]            比对 compose 声明与容器实际运行态漂移\n'
     printf '  ./mogo logs [服务名]                  查看日志\n'
     printf '  ./mogo restart                        重启服务\n'
     printf '  ./mogo down                           停止服务（保留数据卷）\n'
@@ -38,6 +41,9 @@ mogo_usage() {
     printf '  ./mogo status                          Show service status\n'
     printf '  ./mogo check                           Check external database settings\n'
     printf '  ./mogo baseline [--json]                Scan deployment security baseline (non-root/read-only/caps/size)\n'
+    printf '  ./mogo config [--env all|dev|staging|prod]  Lint config manifests against code read sites\n'
+    printf '  ./mogo config rollback <ref> --yes      Roll back config manifests to a commit and rebuild\n'
+    printf '  ./mogo drift [--service name]           Compare compose declaration against running state\n'
     printf '  ./mogo logs [service]                  Show logs\n'
     printf '  ./mogo restart                         Restart services\n'
     printf '  ./mogo down                            Stop services and preserve volumes\n'
@@ -155,6 +161,20 @@ mogo_msg() {
     en:unknown) printf 'Unknown command: %s\n\n' "$1" ;;
      zh:baseline_script_missing) printf '错误：未找到基线扫揇脚本 deploy/cli/baseline-check.sh，请确认仓库完整．\n' ;;
      en:baseline_script_missing) printf 'Error: baseline scan script deploy/cli/baseline-check.sh not found; verify the repository is complete.\n' ;;
+     zh:config_script_missing) printf '错误：未找到配置清单校验脚本 deploy/cli/config-lint.sh，请确认仓库完整。\n' ;;
+     en:config_script_missing) printf 'Error: config-lint script deploy/cli/config-lint.sh not found; verify the repository is complete.\n' ;;
+     zh:drift_script_missing) printf '错误：未找到漂移比对脚本 deploy/cli/drift-check.sh，请确认仓库完整。\n' ;;
+     en:drift_script_missing) printf 'Error: drift-check script deploy/cli/drift-check.sh not found; verify the repository is complete.\n' ;;
+     zh:usage_config_rollback) printf '用法：./mogo config rollback <git-ref> --yes\n' ;;
+     en:usage_config_rollback) printf 'Usage: ./mogo config rollback <git-ref> --yes\n' ;;
+     zh:bad_ref) printf '错误：git 引用不存在：%s。请用 git log --oneline -- deploy/config 查看可用 commit。\n' "$1" ;;
+     en:bad_ref) printf 'Error: git ref not found: %s. Use git log --oneline -- deploy/config to list commits.\n' "$1" ;;
+     zh:rollback_dirty) printf '错误：deploy/config/ 有未提交改动。请先提交或带 --yes 强制覆盖。\n' ;;
+     en:rollback_dirty) printf 'Error: deploy/config/ has uncommitted changes. Commit first, or pass --yes to overwrite.\n' ;;
+     zh:rollback_lint_failed) printf '错误：回滚后的配置清单未通过 config-lint，已中止。\n' ;;
+     en:rollback_lint_failed) printf 'Error: rolled-back config manifest failed config-lint; aborted.\n' ;;
+     zh:rollback_done) printf '已把 deploy/config/ 从 %s 回滚到 %s，开始重建服务。\n' "$1" "$2" ;;
+     en:rollback_done) printf 'Rolled deploy/config/ back from %s to %s; rebuilding services.\n' "$1" "$2" ;;
     *) printf '%s' "${key}" ;;
   esac
 }

@@ -1,0 +1,82 @@
+name: IaC Gate
+
+# 024 T028 (FR-006，QF-822/QF-823 blocked)：基础设施即代码门禁。
+# 当 PR 触碰 docker-compose*.yml / deploy/** / infra/** / .github/workflows/** 时，
+# 要求 PR 描述中包含「计划输出 vs 实际变更」对照表（pull_request_template.md 的
+# IaC change log 段），否则阻断。同时本地可跑的 IaC 校验在 CI 复跑。
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  iac-change-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect IaC changes in this PR
+        id: iac
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed=$(gh api \
+            "repos/${REPO}/compare/${base}...${head}" \
+            --jq '.files[].filename' 2>/dev/null || echo "")
+          echo "changed:"
+          echo "${changed}"
+          # 命中即视为 IaC 变更
+          iac_hits=$(echo "${changed}" | grep -E '^(docker-compose[^/]*\.yml|deploy/|infra/|\.github/workflows/)' || true)
+          count=$(echo "${iac_hits}" | grep -c . || true)
+          echo "iac_files=${count}" >> "$GITHUB_OUTPUT"
+          echo "${iac_hits}" > /tmp/iac_files.txt
+          if [[ "${count}" -gt 0 ]]; then
+            echo "IAC=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "IAC=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require plan-vs-actual declaration on IaC PRs
+        if: steps.iac.outputs.IAC == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          body="${{ github.event.pull_request.body }}"
+          # pull_request body 可能为空字符串；用 API 取更稳妥
+          if [[ -z "${body}" ]]; then
+            body=$(gh api \
+              "repos/${REPO}/pulls/${{ github.event.pull_request.number }}" \
+              --jq '.body' 2>/dev/null || echo "")
+          fi
+          declare -A keywords=( [plan]="计划输出" [actual]="实际变更" [table]="Planned output" )
+          missing=""
+          for k in plan actual table; do
+            if [[ "${body}" != *"${keywords[$k]}"* ]]; then
+              missing="${missing} ${keywords[$k]}"
+            fi
+          done
+          if [[ -n "${missing}" ]]; then
+            echo "IaC 门禁失败：PR 描述缺少「计划输出 vs 实际变更」对照标记:${missing}"
+            echo "请在 pull_request_template.md 的 'IaC change log' 段补全对照表。"
+            exit 1
+          fi
+          echo "IaC gate: PR 已声明计划输出 vs 实际变更对照。"
+
+      - name: Re-run IaC checks on IaC PRs
+        if: steps.iac.outputs.IAC == 'yes'
+        run: |
+          # 静态可跑的部分：config-lint + compose 声明合法性
+          bash deploy/cli/config-lint.sh --env all 2>/dev/null || {
+            echo "config-lint 失败"; exit 1; }
+          docker compose -f docker-compose.yml config --quiet

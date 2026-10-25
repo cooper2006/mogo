@@ -1,0 +1,109 @@
+name: Nightly Drift & Config
+
+# 024 T026 (FR-011/FR-010)：每日检测配置清单与 compose 声明，失败时创建告警 issue。
+# 运行态 drift-check（比对 docker inspect）需要宿主机有运行中的 mogo 容器，
+# 只能在自托管 runner 或现场执行；本 workflow 覆盖仓库侧可静态验证的部分：
+#   - config-lint：deploy/config/{dev,staging,prod}.yml 键 ↔ 代码读取点一致性
+#   - compose 声明合法性：docker compose config -q
+#   - 安全基线声明：所有容器声明 read_only / cap_drop ALL / no-new-privileges / 非 root
+
+on:
+  schedule:
+    # 每日 04:17 UTC（约 12:17 北京时间），避开高流量时段
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      failed: ${{ steps.failflag.outputs.failed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install drift dependencies
+        run: python -m pip install --quiet PyYAML
+
+      - name: Validate config manifests against code read sites
+        run: bash deploy/cli/config-lint.sh --env all
+
+      - name: Validate compose declaration
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate security baseline is declared on every container
+        run: |
+          python - <<'PY'
+          import json, subprocess, sys
+          out = subprocess.run(
+              ["docker", "compose", "-f", "docker-compose.yml", "config", "--format", "json"],
+              capture_output=True, text=True)
+          if out.returncode != 0:
+              print("compose config failed:", out.stderr); sys.exit(1)
+          services = json.loads(out.stdout).get("services", {})
+          # 白名单：显式豁免的服务（如 panweidb 需 cap 访问数据文件）
+          exempt = {"panweidb"}
+          problems = []
+          for name, svc in services.items():
+              if name in exempt:
+                  continue
+              if not svc.get("read_only"):
+                  problems.append(f"{name}: 缺 read_only: true")
+              caps = {str(c).lower() for c in (svc.get("cap_drop") or [])}
+              if "all" not in caps and caps:
+                  problems.append(f"{name}: cap_drop 缺 ALL -> {sorted(caps)}")
+              if not svc.get("no_new_privileges"):
+                  problems.append(f"{name}: 缺 no_new_privileges: true")
+              if not svc.get("user"):
+                  problems.append(f"{name}: 未声明 user（应以非 root 运行）")
+          if problems:
+              print("security baseline declaration problems:")
+              for p in problems:
+                  print(f"  FAIL  {p}")
+              sys.exit(1)
+          print(f"security baseline declared on {len(services) - len(exempt)} containers")
+          PY
+
+      - name: Mark failure flag
+        id: failflag
+        if: failure()
+        run: echo "failed=true" >> "$GITHUB_OUTPUT"
+
+  notify:
+    needs: drift
+    if: needs.drift.outputs.failed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open or update drift alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="每日漂移/配置检测失败，见流水线：${RUN_URL} 请在本机用 ./mogo drift、./mogo config 复现并修复。"
+
+          existing=$(gh issue list \
+            --repo "${REPO}" \
+            --search "repo:${REPO} is:open in:title \"[drift] nightly\"" \
+            --json number --jq '.[0].number' 2>/dev/null || true)
+          if [[ -n "${existing}" ]]; then
+            gh issue comment --repo "${REPO}" "${existing}" --body "${body}" || true
+            gh issue close --repo "${REPO}" "${existing}" 2>/dev/null || true
+          fi
+          gh issue create --repo "${REPO}" \
+            --title "[drift] nightly config/compose drift detected" \
+            --body "${body}" \
+            --label "bug" 2>/dev/null || true

@@ -734,6 +734,63 @@ command_baseline() {
   bash "${baseline_script}" "$@"
 }
 
+# 024 T027 (FR-013)：把配置治理/漂移检查暴露为 mogo 子命令，统一入口。
+command_config() {
+  local lint_script="${ROOT_DIR}/deploy/cli/config-lint.sh"
+  if [[ ! -f "${lint_script}" ]]; then
+    mogo_msg config_script_missing >&2
+    exit 2
+  fi
+  bash "${lint_script}" "$@"
+}
+
+command_drift() {
+  require_docker
+  local drift_script="${ROOT_DIR}/deploy/cli/drift-check.sh"
+  if [[ ! -f "${drift_script}" ]]; then
+    mogo_msg drift_script_missing >&2
+    exit 2
+  fi
+  bash "${drift_script}" "$@"
+}
+
+# 024 T024 (FR-009)：deploy/config/ 按 git commit 回滚，并触发 mogo up -d 重建。
+command_config_rollback() {
+  if [[ $# -lt 1 ]]; then
+    mogo_msg usage_config_rollback >&2
+    exit 2
+  fi
+  local ref="$1"
+  shift
+  confirmed=false
+  for argument in "$@"; do
+    [[ "${argument}" == "--yes" ]] && confirmed=true
+  done
+  if ! git rev-parse --verify --quiet "${ref}^{commit}" >/dev/null 2>&1; then
+    mogo_msg bad_ref "${ref}" >&2
+    exit 2
+  fi
+  local dirty prev
+  dirty="$(git status --porcelain -- deploy/config 2>/dev/null || true)"
+  if [[ -n "${dirty}" && "${confirmed}" != "true" ]]; then
+    mogo_msg rollback_dirty >&2
+    exit 2
+  fi
+  prev="$(git rev-parse --short HEAD)"
+  git checkout "${ref}" -- deploy/config/
+  if ! bash "${ROOT_DIR}/deploy/cli/config-lint.sh" --env all >/dev/null 2>&1; then
+    mogo_msg rollback_lint_failed >&2
+    exit 1
+  fi
+  require_docker
+  deployment_urls
+  mogo_configure_images false
+  mogo_msg rollback_done "${prev}" "${ref}"
+  mogo_compose up -d --pull never
+  wait_until_ready
+  show_ready_message
+}
+
 command="${1:-up}"
 if [[ $# -gt 0 ]]; then
   shift
@@ -778,6 +835,17 @@ case "${command}" in
     ;;
   baseline)
     command_baseline "$@"
+    ;;
+  config)
+    if [[ "${1:-}" == "rollback" ]]; then
+      shift
+      command_config_rollback "$@"
+    else
+      command_config "$@"
+    fi
+    ;;
+  drift)
+    command_drift "$@"
     ;;
   logs)
     require_docker
