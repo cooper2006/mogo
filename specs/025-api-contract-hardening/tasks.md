@@ -238,7 +238,11 @@
 **Goal**: OpenAPI 自动生成 + 校验 + CI 阻断；版本方案全局一致；错误码集中管理。
 **独立测试**: OpenAPI CI 生成并 diff；校验失败阻断；版本方案文档化；错误码字典含触发条件与处理建议。
 
-- [ ] T040 [P] 创建 `tools/openapi/generate.py`：OpenAPI 生成脚本（FR-25, QF-253）；三个服务的 OpenAPI 3.1 由 FastAPI 自动生成；输出 `openapi.json` 到 CI artifact
+- [x] T040 [P] 创建 `tools/openapi/generate.py`：OpenAPI 生成脚本（FR-25, QF-253）；三个服务的 OpenAPI 3.1 由 FastAPI 自动生成；输出 `openapi.json` 到 CI artifact
+  - **证据**: `tools/openapi/generate.py`（`SERVICES`/`_install_celery_stub`（document-parser 的 celery 是 worker-only 依赖，schema 生成不启动 worker，注入轻量 stub：`Celery`（构造 + `conf.update` + `control.inspect(...).ping()`）/`Task`/`shared_task`/`task`）/`_build_openapi`（`try: create_app().openapi()` 兼容工厂模式；`except ImportError: app.openapi()` 兼容 chat-api 的模块级 `app`）/`_run_service`（**子进程隔离**——三个服务共用顶层包名 `app`，必须各自独立进程 import，避免模块互相污染）/`_diff_check`（重新生成到临时目录再与 artifact 比对，FR-25 CI diff）/`_rel`/`main` 支持 `--service`/`--all`/`--out`/`--check`）；`tools/openapi/test_contract_openapi_generate.py`（8 用例）。
+  - **artifact 输出目录**：`specs/025-api-contract-hardening/openapi/{service}-openapi.json`（默认，可 `--out` 覆盖）。
+  - **结果**：三服务 OpenAPI 3.1 生成成功——admin-api 212 paths、chat-api（模块级 `app`）、document-parser 10 paths（stub celery 后正常）。
+  - **用法**：`python3 tools/openapi/generate.py --all` 生成；`--all --check` 与已提交 artifact 比对（不一致 rc=1，供 CI 阻断）。
 - [ ] T041 [P] 创建 `tools/openapi/validate.py`：OpenAPI 校验脚本（FR-26, QF-255）；执行 `openapi-spec-validator` + `spectral lint`，失败阻断 PR
 - [ ] T042 [P] 创建 `docs/api-versioning.md`：版本方案文档（FR-27, FR-28, QF-264, QF-267）；URL 路径 `/v1/` + `API-Version` 响应头双轨；版本升级幅度规则
 - [ ] T043 [P] 创建 `docs/error-codes.md`：错误码字典文档（FR-30, QF-269）；跨服务汇总所有错误码，含 `code`/`http_status`/`trigger`/`remedy` 四字段
