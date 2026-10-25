@@ -186,16 +186,16 @@
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T051 [P] 性能指标可观测总验证：延迟分位数/吞吐/命中率/资源利用率 100% 可查（Success 基准）
+- [ ] T051 [P] 性能指标可观测总验证：延迟分位数/吞吐/命中率/资源利用率 100% 可查（Success 基准）  ⚠️ 需远端/真实环境（延迟分位数/吞吐/命中率/资源利用率 100% 可查需在运行中系统实测遍历），本机不可验，本轮不勾。
 - [x] T052 [P] 配置声明式收尾：连接池/超时/缓存 TTL/限流/并发上限全配置驱动（`performance.yaml`）
   - 实现：`config/performance.yaml`——单一来源清单（`database.mongodb` 池与超时、`cache.default_ttl_seconds/tags/redis`、`rate_limit.default_rps/burst/max_concurrent`、`backpressure.max_depth`、`resilience.circuit_breaker/pool`、`frontend` gzip 预算、`baselines` 阈值），各项标注 env 覆盖键名；`tools/perf/config_loader.py`——加载 + `apply_env_overrides` 扫描 env 覆盖 + `check_consistency` 与 `benchmarks/perf_baselines/baselines.yaml` 关键阈值一致性校验，CLI `--check/--json`，退出码 0 一致 / 1 差异 / 2 缺失；`tools/tests/test_config_loader.py` 7 用例。
   - 验证：`python3 tools/perf/config_loader.py --check` → 环境变量覆盖 0 项，关键阈值一致，exit 0；`pytest tools/tests/test_config_loader.py` → 7 passed。
   - 提交：`d016f46`。
-- [ ] T053 [P] 与 007 llm-gateway 联动验证：LLM 耗时占比 + 韧性事件交叉归因（`token_usage_logs` 字段）
-- [ ] T054 [P] 与 001 gatekeeper 联动：QualityForge 51 个 P0/P1 `blocked` 项逐步解除（基线建立后）
-- [ ] T055 写 `quickstart.md`（性能基线启用 + 各子域优化步骤 + 压测命令）
-- [ ] T056 写 `contracts/performance.md`（性能基线/预算/缓存/压测 IO 契约）
-- [ ] T057 性能回归判定端到端验证：基线采集 → 预算检查 → CI 回归判定全链路打通（Success 基准）
+- [ ] T053 [P] 与 007 llm-gateway 联动验证：LLM 耗时占比 + 韧性事件交叉归因（`token_usage_logs` 字段）  ⚠️ 需远端/真实环境（007 llm-gateway 联动需真实 LLM 调用 + token_usage_logs 交叉归因），本机不可验，本轮不勾。
+- [ ] T054 [P] 与 001 gatekeeper 联动：QualityForge 51 个 P0/P1 `blocked` 项逐步解除（基线建立后）  ⚠️ 需远端/跨特性（QualityForge 51 个 P0/P1 blocked 项逐步解除需基线建立后 + 001 gatekeeper 全量核对），本轮不勾。
+- [x] T055 写 `quickstart.md`（性能基线启用 + 各子域优化步骤 + 压测命令）  证据：`specs/026-performance-scalability/quickstart.md`（432 行，§1-§9）覆盖 前置条件/环境/配置文件 → US1 基线采集+预算检查+CI 回归判定 → US2 慢查询/连接池/索引 → US3 缓存命中率/穿透/击穿 → US4 前端构建/包体积/Web Vitals/代码分割/虚拟列表 → US5 水平扩展/限流/资源监控/容量模型/完整压测 → 验证清单/故障排查/007 联动。验证：文中引用关键路径（`benchmarks/locust/locustfile_{chat,doc,search,auth}.py`、`benchmarks/k6/smoke.js`、`benchmarks/capacity_model.md`、`benchmarks/bottleneck_report.md`、`benchmarks/perf_baselines/baselines.yaml`、`config/performance.yaml`、`benchmarks/frontend_budget_check.sh`）全部实测存在；原建提交 `ccd94a6`。
+- [x] T056 写 `contracts/performance.md`（性能基线/预算/缓存/压测 IO 契约）  证据：新建 `specs/026-performance-scalability/contracts/performance.md`（8 节：组件/性能基线/回归判定/缓存/限流背压熔断/压测 IO/一致性校验/可观测暴露）。所有阈值取自 `benchmarks/perf_baselines/baselines.yaml` + `config/performance.yaml` 原文；接口经 grep 实测存在：`PerfBudgetChecker.threshold_for/global_value/load_thresholds`、`HotspotCache.stats`、`db_guard.pool_utilization_snapshot/persist_slow_queries/persist_pool_utilization`、`tools/perf/config_loader.py`、`benchmarks/capacity_model.md` 公式。
+- [ ] T057 性能回归判定端到端验证：基线采集 → 预算检查 → CI 回归判定全链路打通（Success 基准）  ⚠️ 需远端/CI 环境（基线采集 → 预算检查 → CI 回归判定全链路打通需真实 CI runner + 服务实例），本机不可验，本轮不勾。
 
 ---
 
