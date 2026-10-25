@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """023 — vendored 共享模块字节一致性校验（CI 门禁，纯 stdlib）。
 
-权威源 `services/common/{observability_base,dependency_guard,slo,gold_signals,high_cardinality}.py`
+权威源 `services/common/{observability_base,dependency_guard,slo,gold_signals,high_cardinality,resilience_middleware}.py`
 必须与三服务副本 `services/<svc>/app/common/<name>.py` 逐字节一致。漂移即失败——防止"只改副本"
 或"只改权威源忘了同步"（镜像按服务目录构建，运行时用的是副本）。
 
@@ -23,6 +23,7 @@ MODULES = (
     "slo.py",
     "gold_signals.py",
     "high_cardinality.py",
+    "resilience_middleware.py",
 )
 
 

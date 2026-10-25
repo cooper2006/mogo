@@ -41,3 +41,10 @@ def register_admin_metrics(registry: Any) -> dict[str, Any]:
         ),
     }
     return metrics
+
+
+def circuit_breaker_metrics(registry: Any, service_name: str = "mogo-admin-api") -> dict[str, Any]:
+    """023 T088 — 熔断器状态/失败次数 + 限流/背压拒绝计数（FR-21 / FR-25）。"""
+    from app.common.observability_base import register_resilience_metrics
+
+    return register_resilience_metrics(registry, service_name)

@@ -45,8 +45,11 @@ instrument_httpx()
 
 # 023 T048: Prometheus metrics 初始化
 chat_metrics = init_metrics("mogo-chat-api")
-from app.observability.metrics import register_chat_metrics
+from app.observability.metrics import circuit_breaker_metrics, register_chat_metrics
 register_chat_metrics(get_registry("mogo-chat-api"))
+# 023 T088: 熔断器/限流/背压指标
+from app.middleware.resilience import ResilienceMiddleware, bind_metrics, middleware_kwargs
+bind_metrics(circuit_breaker_metrics(get_registry("mogo-chat-api"), "mogo-chat-api"))
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +72,9 @@ app.add_middleware(
     CORSMiddleware,
     **build_cors_middleware_kwargs(origins),
 )
+
+# 023 T087: 限流 + 背压中间件（租户级速率/并发 + 在途量上限 → 429）
+app.add_middleware(ResilienceMiddleware, **middleware_kwargs())
 
 # 023 T034: FastAPI 自动插桩（HTTP server span）
 instrument_fastapi(app)

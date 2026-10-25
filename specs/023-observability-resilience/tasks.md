@@ -114,7 +114,7 @@
 - [x] T059 SLO 计算测试：`services/chat-api/tests/observability/test_slo.py` — 验证错误预算数值可查、消耗速度计算正确（含 bad == budget_total 边界）
 - [x] T060 更新 QualityForge 缺陷（指标子域）：关闭对应 blocked 项 —— **已解阻塞并关闭**。2026-10-25 起 `.qualityforge/` 改为「报告入库、大体积中间产物忽略」（见 `.qualityforge/README.md` 与提交 `0e38d8d`），指标子域状态回写至 `.qualityforge/QUALITYFORGE-REPORT.md` §2「指标」行：黄金四信号 + 三服务业务指标 + 高基数桶化 + SLO/错误预算 + recording rules + 3 面板均已落地，chat-api 18 项 / admin-api 25 项 observability 测试全绿 → 记为 **已关闭**。注：023 的 74 个缺陷原件编号未入库，故按子域聚合回写而非逐条编号回写
 
-> **Phase 4 命名差异（待确认）**：tasks.md 原写的 T051 `SLODefinition` / T052 `ErrorBudgetCalculator` 与实现 `SLOSpec` / `ErrorBudget` 命名不完全一致，语义已覆盖（三类 SLO + burn rate / remaining / exhausted）。是否重命名对齐以保持 spec 与代码同步，留待用户确认。
+> **Phase 4 命名口径（已定，2026-10-25）**：T051/T052 原文写 `SLODefinition` / `ErrorBudgetCalculator`，实现为 `SLOSpec` / `SLORegistry` / `ErrorBudget`。经用户裁决，**spec 对齐代码**：保留实现命名，spec 侧以本条为准确认，不再把两者当作不同实体。语义对照——`SLODefinition` ≡ `SLOSpec`（含 `SLOKind` + 目标值）、`ErrorBudgetCalculator` ≡ `ErrorBudget` + `compute_error_budget()` / `compute_burn_rate()`（含 `remaining` / `burn rate` / `exhausted`）。`spec.md` / `plan.md` / `checklists/` 中原无这两个旧名，无需改动。
 
 > **Phase 4 验证基线（2026-10-25）**：`services/chat-api` 可观测性测试 18 项全绿；`services/admin-api` 可观测性测试 25 项全绿；`scripts/check_common_sync.py` 5 模块 × 3 服务一致；`deploy` 下 recording rule / 3 个 dashboard JSON / `prometheus.yml` / `datasources.yml` 均通过 YAML/JSON 解析。
 
@@ -204,22 +204,22 @@
 **Goal**: 熔断器 + 超时层级 + 重试退避 + 资源池隔离 + 背压限流。
 **独立测试**: 连续失败触发熔断；超时资源释放；重试退避抖动；独立连接池；队列深度超限 429。
 
-- [ ] T078 创建 `services/common/dependency_guard.py::CircuitBreaker`：熔断器实现（半开策略、连续失败阈值、试探间隔）
-- [ ] T079 创建 `services/common/dependency_guard.py::TimeoutGuard`：超时层级递减配置（入口 30s > 下游 10s > 单次操作 5s）
-- [ ] T080 修改 `services/chat-api/app/llm/resilience/retry.py`（007 既有）：确保退避参数（1.5s/30s/±10%/3 次）与本特性 FR-23 对齐
-- [ ] T081 创建 `services/common/dependency_guard.py::ConnectionPool`：资源池隔离（关键依赖独立池）
+- [x] T078 创建 `services/common/dependency_guard.py::CircuitBreaker`：熔断器实现（半开策略、连续失败阈值、试探间隔） —— **已实现 `CircuitBreaker` 封装：`make_breaker`/`call_with_breaker`/`call_with_breaker_async`/`CircuitOpenError`，半开策略 + 连续失败阈值 + 试探间隔，`exclude` 让业务异常不计入熔断**
+- [x] T079 创建 `services/common/dependency_guard.py::TimeoutGuard`：超时层级递减配置（入口 30s > 下游 10s > 单次操作 5s） —— **已实现 `TimeoutHierarchy`（入口 30s > 下游 10s > 单次 5s）+ `TimeoutHierarchyError` 拒绝倒挂配置 + `from_env` 覆盖**
+- [x] T080 修改 `services/chat-api/app/llm/resilience/retry.py`（007 既有）：确保退避参数（1.5s/30s/±10%/3 次）与本特性 FR-23 对齐 —— **已核对无需修改：`retry.py` 预算 1.5s/30s/±10%/3 次与 007 一致；`classify_error` 已把 429/5xx/超时归为可重试、401/403 快速失败，`CancelledError` 不重试**
+- [x] T081 创建 `services/common/dependency_guard.py::ConnectionPool`：资源池隔离（关键依赖独立池） —— **已实现 `PoolSpec`/`PoolRegistry`/`default_pool_registry`：按 dependency 独立登记、重复注册即报错、`shared_handle_count()` 检测共享句柄违规**
 - [ ] T082 修改 `services/chat-api/app/llm/providers/`（各 provider）：用 ConnectionPool 包装（独立池）
 - [ ] T083 修改 `services/chat-api/app/` 与 `services/admin-api/app/` MongoDB 客户端：用 CircuitBreaker + TimeoutGuard + ConnectionPool 包装
 - [ ] T084 修改 `services/chat-api/app/` 与 `services/admin-api/app/` Redis 客户端：用 CircuitBreaker + TimeoutGuard + ConnectionPool 包装
-- [ ] T085 创建 `services/common/dependency_guard.py::RateLimiter`：限流实现（租户级 QPS、并发连接数限制）
-- [ ] T086 创建 `services/common/dependency_guard.py::BackpressureGuard`：背压实现（队列深度上限 1000，超出返回 429）
-- [ ] T087 修改 `services/chat-api/app/main.py` 与 `services/admin-api/app/main.py`：注册 RateLimiter + BackpressureGuard 中间件
-- [ ] T088 创建 `services/chat-api/app/observability/metrics.py::circuit_breaker_metrics`：熔断器状态指标（打开/半开/关闭状态、失败次数）
-- [ ] T089 熔断器测试：`services/chat-api/tests/resilience/test_circuit_breaker.py` — 连续失败 5 次触发熔断，半开试探成功关闭/失败重新打开
-- [ ] T090 [P] 超时测试：验证超时层级递减（入口 30s > 下游 10s > 单次 5s），超时后资源释放
-- [ ] T091 [P] 重试测试：验证指数退避 + 抖动，可重试错误（429/5xx/超时）重试，不可重试（401/403）不重试
-- [ ] T092 [P] 资源池隔离测试：验证关键依赖独立连接池，不共享
-- [ ] T093 [P] 背压测试：队列深度超限返回 429，不崩溃
+- [x] T085 创建 `services/common/dependency_guard.py::RateLimiter`：限流实现（租户级 QPS、并发连接数限制） —— **已实现 `RateLimiter`：租户级令牌桶（QPS + burst）+ 并发上限，时钟可注入（`clock`），返回 `RateLimitDecision(reason=qps|concurrency)`**
+- [x] T086 创建 `services/common/dependency_guard.py::BackpressureGuard`：背压实现（队列深度上限 1000，超出返回 429） —— **已实现 `BackpressureGuard`（默认上限 1000，`BACKPRESSURE_QUEUE_DEPTH_DEFAULT`）：`try_enter()` 非阻塞判定、`enter()` 抛 `BackpressureError(retry_after_seconds=1.0)`、`leave()` 释放**
+- [x] T087 修改 `services/chat-api/app/main.py` 与 `services/admin-api/app/main.py`：注册 RateLimiter + BackpressureGuard 中间件 —— **已注册：新建 `services/common/resilience_middleware.py`（纯 ASGI，不用 BaseHTTPMiddleware 以免每请求多开 task 抬高 p95），两服务 `app/middleware/resilience.py` 提供阈值与钩子，`main.py` 中 `app.add_middleware(...)`；探针路径 `/health /ready /metrics` 豁免；拒绝时 429 + `Retry-After`**
+- [x] T088 创建 `services/chat-api/app/observability/metrics.py::circuit_breaker_metrics`：熔断器状态指标（打开/半开/关闭状态、失败次数） —— **已实现：`observability_base.register_resilience_metrics()` 输出 `mogo_circuit_breaker_state{dependency,state}`（每状态一条 gauge，避免可变量作为标签值导致时序永不归零）、`mogo_circuit_breaker_failure_count`、`mogo_rate_limit_rejections_total{reason}`、`mogo_backpressure_rejections_total`；两服务 `metrics.py` 的 `circuit_breaker_metrics()` 接入 `main.py`**
+- [x] T089 熔断器测试：`services/chat-api/tests/resilience/test_circuit_breaker.py` — 连续失败 5 次触发熔断，半开试探成功关闭/失败重新打开 —— **已完成：`tests/resilience/test_circuit_breaker.py`（7 项）——连续失败触发熔断、打开态快速失败且底层依赖零调用、半开成功关闭、半开失败重开、excluded 异常不计入、每依赖独立 breaker**
+- [x] T090 [P] 超时测试：验证超时层级递减（入口 30s > 下游 10s > 单次 5s），超时后资源释放 —— **已完成：`tests/resilience/test_timeout.py`（7 项）——默认层级递减、3 种倒挂被拒、env 覆盖、超时后资源释放**
+- [x] T091 [P] 重试测试：验证指数退避 + 抖动，可重试错误（429/5xx/超时）重试，不可重试（401/403）不重试 —— **已完成：`tests/resilience/test_retry.py`（10 项）——退避指数增长与上限、抖动 ±10%、非法 attempt、可重试/不可重试状态码、成功即停、耗尽后抛最后错误**
+- [x] T092 [P] 资源池隔离测试：验证关键依赖独立连接池，不共享 —— **已完成：`tests/resilience/test_pool_isolation.py`（7 项）——按依赖独立池、重复注册报错、共享句柄检测、利用率采集与探针失败降级、单池耗尽不影响其他依赖**
+- [x] T093 [P] 背压测试：队列深度超限返回 429，不崩溃 —— **已完成：`tests/resilience/test_backpressure.py`（15 项）——guard 拒绝与异常、限流桶与租户独立、并发上限、中间件 429/Retry-After/探针豁免/拒绝钩子/租户头取键**
 - [ ] T094 更新 QualityForge 缺陷（容错子域）：关闭对应 blocked 项
 
 ---

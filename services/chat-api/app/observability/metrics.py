@@ -43,3 +43,14 @@ def register_chat_metrics(registry: Any) -> dict[str, Any]:
         ),
     }
     return metrics
+
+
+def circuit_breaker_metrics(registry: Any, service_name: str = "mogo-chat-api") -> dict[str, Any]:
+    """023 T088 — 熔断器状态/失败次数 + 限流/背压拒绝计数（FR-21 / FR-25）。
+
+    实现委托给 vendored 共享模块（``app.common.observability_base``），
+    避免三服务各写一份同构指标定义造成口径漂移。
+    """
+    from app.common.observability_base import register_resilience_metrics
+
+    return register_resilience_metrics(registry, service_name)

@@ -243,3 +243,227 @@ class PoolRegistry:
 
 
 default_pool_registry = PoolRegistry()
+
+
+# ─────────────────────── FR-21 熔断状态导出（T088 供指标采集）───────────────────────
+
+CIRCUIT_STATE_CLOSED = "closed"
+CIRCUIT_STATE_OPEN = "open"
+CIRCUIT_STATE_HALF_OPEN = "half_open"
+CIRCUIT_STATE_LABELS = (CIRCUIT_STATE_CLOSED, CIRCUIT_STATE_OPEN, CIRCUIT_STATE_HALF_OPEN)
+
+
+def breaker_state(breaker: pybreaker.CircuitBreaker) -> str:
+    """把 pybreaker 的内部状态映射成稳定标签（指标与告警按它断言）。
+
+    不做映射而直接 `str(breaker.state)` 会把 `<pybreaker.CircuitOpenState object
+    at 0x..>` 写进指标标签，标签基数随进程变化，指标直接不可用。
+    """
+    state = getattr(breaker, "state", None)
+    name = type(state).__name__ if state is not None else ""
+    if name == "CircuitOpenState":
+        return CIRCUIT_STATE_OPEN
+    if name == "CircuitHalfOpenState":
+        return CIRCUIT_STATE_HALF_OPEN
+    return CIRCUIT_STATE_CLOSED
+
+
+def breaker_failure_count(breaker: pybreaker.CircuitBreaker) -> int:
+    """连续失败计数（关闭态下用于观察「离熔断还有多远」）。"""
+    # pybreaker 1.4.x 暴露 `fail_counter`；1.0/1.1 用 `_failure_count`。
+    count = getattr(breaker, "fail_counter", None)
+    if count is None:
+        count = getattr(breaker, "_failure_count", 0)
+    return int(count or 0)
+
+
+class BreakerRegistry:
+    """进程内熔断器登记表：每依赖一个 breaker，供指标采集与测试注入。"""
+
+    def __init__(self) -> None:
+        self._breakers: dict[str, pybreaker.CircuitBreaker] = {}
+
+    def get_or_create(
+        self,
+        dependency: str,
+        *,
+        fail_max: int = BREAKER_FAIL_MAX_DEFAULT,
+        reset_timeout: float = BREAKER_RESET_TIMEOUT_DEFAULT,
+        success_threshold: int = BREAKER_SUCCESS_THRESHOLD_DEFAULT,
+        exclude: Iterable[Any] | None = None,
+    ) -> pybreaker.CircuitBreaker:
+        if dependency not in self._breakers:
+            self._breakers[dependency] = make_breaker(
+                dependency,
+                fail_max=fail_max,
+                reset_timeout=reset_timeout,
+                success_threshold=success_threshold,
+                exclude=exclude,
+            )
+        return self._breakers[dependency]
+
+    def get(self, dependency: str) -> pybreaker.CircuitBreaker | None:
+        return self._breakers.get(dependency)
+
+    def names(self) -> list[str]:
+        return sorted(self._breakers)
+
+    def items(self) -> list[tuple[str, pybreaker.CircuitBreaker]]:
+        return sorted(self._breakers.items())
+
+    def reset(self) -> None:
+        """仅测试使用：清空登记表（避免用例之间共享熔断状态）。"""
+        self._breakers.clear()
+
+
+default_breaker_registry = BreakerRegistry()
+
+
+# ─────────────────────── FR-25 限流（T085）───────────────────────
+
+
+@dataclass(frozen=True)
+class RateLimitDecision:
+    allowed: bool
+    reason: str = ""
+    retry_after_seconds: float = 0.0
+    limit: float = 0.0
+
+
+class RateLimiter:
+    """租户级令牌桶 + 并发连接上限（进程内实现）。
+
+    为什么是进程内：部署形态是单机 Compose（024 Assumptions 已定），多副本时
+    每副本各自计数即「总量 = 副本数 × 单副本限额」，这是需要如实说明的口径，
+    而不是假装有跨副本精确限流。跨副本精确限流依赖 Redis 计数，属后续特性。
+    """
+
+    def __init__(
+        self,
+        *,
+        qps: float = 20.0,
+        burst: int | None = None,
+        max_concurrent: int = 100,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if qps <= 0:
+            raise ValueError("qps must be > 0")
+        self.qps = float(qps)
+        self.burst = int(burst if burst is not None else max(1, int(qps)))
+        self.max_concurrent = int(max_concurrent)
+        self._clock = clock
+        self._tokens: dict[str, float] = {}
+        self._updated: dict[str, float] = {}
+        self._inflight: dict[str, int] = {}
+
+    def _refill(self, key: str) -> float:
+        now = self._clock()
+        last = self._updated.get(key, now)
+        tokens = self._tokens.get(key, float(self.burst))
+        tokens = min(float(self.burst), tokens + (now - last) * self.qps)
+        self._tokens[key] = tokens
+        self._updated[key] = now
+        return tokens
+
+    def acquire(self, key: str) -> RateLimitDecision:
+        """取一个令牌并占用一个并发槽；被拒时不改变任何计数。"""
+        if self._inflight.get(key, 0) >= self.max_concurrent:
+            return RateLimitDecision(
+                allowed=False,
+                reason="concurrency",
+                retry_after_seconds=0.0,
+                limit=float(self.max_concurrent),
+            )
+
+        tokens = self._refill(key)
+        if tokens < 1.0:
+            deficit = 1.0 - tokens
+            return RateLimitDecision(
+                allowed=False,
+                reason="qps",
+                retry_after_seconds=max(0.0, deficit / self.qps),
+                limit=self.qps,
+            )
+
+        self._tokens[key] = tokens - 1.0
+        self._inflight[key] = self._inflight.get(key, 0) + 1
+        return RateLimitDecision(allowed=True, limit=self.qps)
+
+    def release(self, key: str) -> None:
+        current = self._inflight.get(key, 0)
+        if current <= 1:
+            self._inflight.pop(key, None)
+        else:
+            self._inflight[key] = current - 1
+
+    def inflight(self, key: str) -> int:
+        return self._inflight.get(key, 0)
+
+    def forget(self, key: str) -> None:
+        self._tokens.pop(key, None)
+        self._updated.pop(key, None)
+        self._inflight.pop(key, None)
+
+
+# ─────────────────────── FR-25 背压（T086）───────────────────────
+
+BACKPRESSURE_QUEUE_DEPTH_DEFAULT = 1000
+
+
+class BackpressureError(RuntimeError):
+    """在途请求数超过队列深度上限 —— 快速拒绝（429），不要排进无界队列。"""
+
+    retry_after_seconds = 1.0
+
+    def __init__(self, name: str, depth: int, limit: int) -> None:
+        super().__init__(f"backpressure limit reached for {name}: {depth}/{limit}")
+        self.name = name
+        self.depth = depth
+        self.limit = limit
+
+
+class BackpressureGuard:
+    """在途请求计数守卫：深度达到上限即拒绝新请求（有界队列思想）。
+
+    与限流的区别：限流按**速率**（同一租户每秒多少次），背压按**在途量**
+    （整体积压多少）。只做限流不做背压时，上游持续超量仍会把队列堆到 OOM。
+    """
+
+    def __init__(
+        self,
+        name: str = "default",
+        *,
+        max_depth: int = BACKPRESSURE_QUEUE_DEPTH_DEFAULT,
+    ) -> None:
+        if max_depth <= 0:
+            raise ValueError("max_depth must be > 0")
+        self.name = name
+        self.max_depth = int(max_depth)
+        self._depth = 0
+
+    @property
+    def depth(self) -> int:
+        return self._depth
+
+    def enter(self) -> None:
+        if self._depth >= self.max_depth:
+            raise BackpressureError(self.name, self._depth, self.max_depth)
+        self._depth += 1
+
+    def try_enter(self) -> bool:
+        """非异常式入口（ASGI 中间件用）：成功返回 True 并占位，超限返回 False。
+
+        中间件里用返回值判断比 try/except 更清晰，也避免中间件需要导入本模块的
+        异常类型（vendored 副本不互相 import，保持零耦合）。
+        """
+        if self._depth >= self.max_depth:
+            return False
+        self._depth += 1
+        return True
+
+    def leave(self) -> None:
+        if self._depth > 0:
+            self._depth -= 1
+
+    def reset(self) -> None:
+        self._depth = 0

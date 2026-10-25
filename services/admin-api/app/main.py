@@ -64,6 +64,10 @@ def create_app() -> FastAPI:
     admin_metrics = init_metrics("mogo-admin-api")
     from app.observability.metrics import register_admin_metrics
     register_admin_metrics(get_registry("mogo-admin-api"))
+    # 023 T088: 熔断器/限流/背压指标 + 中间件拒绝计数钩子
+    from app.middleware.resilience import bind_metrics
+    from app.observability.metrics import circuit_breaker_metrics
+    bind_metrics(circuit_breaker_metrics(get_registry("mogo-admin-api"), "mogo-admin-api"))
 
     # QF-447/448: Disable docs endpoints in production
     # 022 FR-18（T042）：生产环境判定覆盖 prod/release 别名。
@@ -93,6 +97,9 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         **build_cors_middleware_kwargs(settings.cors_origins),
     )
+    # 023 T087: 限流 + 背压中间件（租户级速率/并发 + 在途量上限 → 429）
+    from app.middleware.resilience import ResilienceMiddleware, middleware_kwargs
+    app.add_middleware(ResilienceMiddleware, **middleware_kwargs())
     app.add_middleware(SystemAuditMiddleware)
     # 025 Phase 1（T004）：trace_id 注入中间件——最后 add 即最外层，
     # 保证任何异常处理器 / 业务代码都能从 request.state.trace_id 取到值。

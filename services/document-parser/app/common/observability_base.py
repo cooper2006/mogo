@@ -451,3 +451,76 @@ def startup_selfcheck(
 def get_selfcheck_results(service_name: str) -> dict[str, Any]:
     """获取指定服务的启动自检结果（/ready 端点读取用）。"""
     return _selfcheck_results.get(service_name, {})
+
+
+# ─────────────────── FR-21 熔断/限流指标（T088）───────────────────
+
+BREAKER_STATE_LABELS: tuple[str, ...] = ("closed", "open", "half_open")
+
+
+def register_resilience_metrics(registry: Any, service_name: str) -> dict[str, Any]:
+    """注册熔断器与限流/背压指标。
+
+    * ``mogo_circuit_breaker_state{dependency,state}``：每依赖每状态一条，
+      当前状态置 1、其余置 0。用「每状态一条 gauge」而不是「一条 gauge 带会
+      变化的 state 标签」，因为 Prometheus 不能删除时序，标签变化会留下
+      永不归零的旧序列（查询时 sum by 会出现两个 1）。
+    * ``mogo_circuit_breaker_failure_count{dependency}``：连续失败计数，
+      观察「离熔断还有多远」。
+    * ``mogo_rate_limit_rejections_total{reason}`` / ``mogo_backpressure_rejections_total``：
+      中间件拒绝计数（T087 的 on_reject 钩子）。
+    """
+    from prometheus_client import Counter, Gauge
+
+    metrics: dict[str, Any] = {
+        "circuit_breaker_state": Gauge(
+            "mogo_circuit_breaker_state",
+            "Circuit breaker state (1 = current)",
+            ["dependency", "state"],
+            registry=registry,
+        ),
+        "circuit_breaker_failure_count": Gauge(
+            "mogo_circuit_breaker_failure_count",
+            "Consecutive failures counted by the breaker",
+            ["dependency"],
+            registry=registry,
+        ),
+        "rate_limit_rejections_total": Counter(
+            "mogo_rate_limit_rejections_total",
+            "Requests rejected by the rate limiter",
+            ["reason"],
+            registry=registry,
+        ),
+        "backpressure_rejections_total": Counter(
+            "mogo_backpressure_rejections_total",
+            "Requests rejected because in-flight depth exceeded the limit",
+            [],
+            registry=registry,
+        ),
+    }
+    metrics["service_name"] = service_name
+
+    def sync_breakers(items: Any) -> None:
+        """把 ``[(dependency, breaker), ...]`` 的当前状态刷进指标。"""
+        for dependency, breaker in items:
+            state = getattr(breaker, "state", None)
+            state_name = type(state).__name__ if state is not None else ""
+            if state_name == "CircuitOpenState":
+                current = "open"
+            elif state_name == "CircuitHalfOpenState":
+                current = "half_open"
+            else:
+                current = "closed"
+            for label in BREAKER_STATE_LABELS:
+                metrics["circuit_breaker_state"].labels(
+                    dependency=dependency, state=label
+                ).set(1.0 if label == current else 0.0)
+            count = getattr(breaker, "fail_counter", None)
+            if count is None:
+                count = getattr(breaker, "_failure_count", 0)
+            metrics["circuit_breaker_failure_count"].labels(
+                dependency=dependency
+            ).set(float(count or 0))
+
+    metrics["sync_breakers"] = sync_breakers
+    return metrics
