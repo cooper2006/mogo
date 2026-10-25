@@ -63,7 +63,13 @@ class ErrorFieldDetail(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """统一错误响应结构（FR-10），映射 RFC 9457（OQ-1 决策）。"""
+    """统一错误响应结构（FR-10），映射 RFC 9457（OQ-1 决策）。
+
+    RFC 9457 键（type/title/status/instance/error_detail）与 MOGO 兼容键
+    （code/message/http_status/trace_id/detail/fields/...）**并存**，以兼容
+    `/browser/recording/stream` 等旧消费方依赖的 RFC 7807 语义。这些字段全部
+    可选，OpenAPI 暴露它们后探针（025 T047）才能确认「实测字段 ⊆ 声明字段」。
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -76,6 +82,14 @@ class ErrorResponse(BaseModel):
     field: str | None = None
     path: str | None = None
     docs_url: str | None = None
+    # RFC 9457 / RFC 7807 兼容键（由 build_error_payload 填充）
+    type: str | None = Field(default=None, description="RFC 9457 problem type（未指定时 about:blank）")
+    title: str | None = None
+    status: int | None = None
+    instance: str | None = None
+    error_detail: dict[str, Any] | None = Field(
+        default=None, description="RFC 7807 语义的 detail 别名（与 MOGO detail 并存）"
+    )
 
 
 def build_error_payload(

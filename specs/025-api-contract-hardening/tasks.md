@@ -281,9 +281,12 @@
     - `[admin-api] skipped` — 12 端点**无一致性问题**；`GET /ready` 实测 503（依赖不可用）跳过；多数业务端点实测 401（认证拦截，字段/参数跳过，不影响路径可达性结论）。
     - `[chat-api] problem` — **4 处真实不一致**（见下）。
     - `[document-parser] skipped` — 本地缺 `celery`，probe 子进程复用 `generate._install_celery_stub()` 注入 stub 后 import 成功；实测 3 端点均 503（worker/DB 依赖不可用）跳过，**跳过不阻断**（rc=0 口径）。
-  - **发现的真实不一致（chat-api，4 处，均已写入证据待修复）**：
-    1. `GET /api/v1/browser/recording/stream` 422 响应体为 `{error_detail,status,title,type}`（RFC 7807 problem 结构），但 OpenAPI 422 声明的是 `#/components/schemas/ErrorResponse`（属性 `code/message/http_status/trace_id/detail/fields`）——**chat-api 的 422 handler 未走 T001 统一 `ErrorResponse` 结构**（属 T021/T022 收尾项，T047 只负责发现）。
-    2. `GET /api/v1/debug/env-metrics`、`/debug/llm-config`、`/debug/runtime-kpi` OpenAPI 已声明但实测 404——`debug.py` 用 `require_debug_mode` 依赖在**非 DEBUG 环境抛 404 故意隐藏**，但 OpenAPI 仍声明了这些路径 → 契约与实测不一致；建议非 DEBUG 环境从 OpenAPI 隐藏（`include_router` 按 DEBUG 条件），或探针侧显式声明豁免。
+  - **发现的真实不一致（chat-api，均已闭环解决）**：
+    1. `GET /api/v1/browser/recording/stream` 422 响应体为 `{error_detail,status,title,type}`（RFC 7807 problem 结构），但 OpenAPI 422 声明的是 `#/components/schemas/ErrorResponse`（属性 `code/message/http_status/trace_id/detail/fields`）。
+       - **闭环修复**：实测该 422 响应体**同时**含 MOGO 兼容键（`code/detail/field/fields/http_status/message/path/trace_id`）与 RFC 9457 键（`error_detail/status/title/type/instance`）——`build_error_payload`（`services/chat-api/app/core/errors.py:81`）刻意双写以兼容旧消费方依赖的 RFC 7807 语义。根因是 chat-api `ErrorResponse` 模型只声明 MOGO 键、漏声明 RFC 9457 键。**修法：在 `ErrorResponse` 增加 5 个可选字段** `type`/`title`/`status`/`instance`/`error_detail`（均 `default=None`，属 FR-21「新增可选字段不破坏旧消费方」），使 OpenAPI schema 覆盖实测字段；不动 `build_error_payload`、不改 handler、不影响既有响应体。重生成 chat-api OpenAPI 后 `probe.py --service chat-api` → `skipped`。
+    2. `GET /api/v1/debug/env-metrics`、`/debug/llm-config`、`/debug/runtime-kpi` OpenAPI 已声明但实测 404——`debug.py` 用 `require_debug_mode` 依赖在**非 DEBUG 环境抛 404 故意隐藏**，但 OpenAPI 仍声明了这些路径。
+       - **闭环处理（探针侧豁免）**：`debug.py` 的 router 用 `dependencies=[Depends(require_debug_mode), Depends(require_end_user_principal)]`，而 `require_debug_mode()` 在 `get_settings().DEBUG` 为 False 时 `raise HTTPException(404)`；本地默认 DEBUG=False → 实测 404 是**预期行为，非契约漂移**。探针新增 `BUSINESS_404_PREFIXES = ("/api/v1/debug/",)` + `BUSINESS_404_HINT`，命中则记 `note` 不判 `problem`（FastAPI 0.141 的 `_IncludedRouter` 无法静态枚举 `app.routes`，故不依赖 mounted 集，改走前缀白名单）。
+  - **最终探针结果**：`probe.py --all` 三服务均 `skipped` 且 **rc=0**（admin-api 15 / chat-api 15 / document-parser 3 端点），QF-254 达成。
   - **实现要点**：①三服务共用顶层包名 `app`，**必须各自独立子进程 import**（`--all` 走 subprocess，复用 `generate.py` 的隔离方式）；②**不能静态枚举 `app.routes` 判路径**——admin-api / chat-api 顶层 routes 是 FastAPI `_IncludedRouter`（延迟挂载），`app.openapi()` 也不改写 `app.routes`，静态收集会误报「未挂载」→ 一律以**实测**为准；③chat-api 会劫持 `sys.stdout`（structlog），`print` 不可靠 → 子进程结果写**临时文件**回读；④`TestClient` 不用 `with`（不触发 lifespan，避免 DB 依赖）；⑤因 DB 不可用导致的 5xx、认证拦截的 401/403 **跳过而非判不一致**。
   - **测试**：`tools/openapi/test_contract_openapi_probe.py` **16 用例全绿**——artifact 加载、字段名递归收集（`$ref`/`allOf`/`oneOf`/opaque/未知 schema）、必填 query 参数提取、document-parser 跳过逻辑（断言 rc=0 且非 error）、CLI rc、JSON 报告结构。
 

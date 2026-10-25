@@ -29,7 +29,7 @@
 | 022 security-hardening | 96（QF-521–706 区间） | 认证 / MFA / 令牌 / 授权 / 输入 / 数据 / 供应链 | 521,524,525,526,527,530,532,533,535,558,561,562,575,634,635,637,640,645,649,650,651,652,654,655,656,659,660,662,664,665,666,667,674,675,676,679,681,682,692,695,698,702,703,704,705,706,707,710,712,714 | 58/58 ✅ | **已实现**（含 QF-106/707/710/712/714 等跨特性引用） |
 | 023 observability-resilience | 74 | 日志 / 追踪 / 指标 / 告警 / 容错 / 恢复 / 韧性测试 | 仓库内**未落盘编号区间**（原件缺失） | 123/126 🔨 | **已实现**（可观测 / 容错 / 恢复 / 韧性测试 4 子域关闭；T074/T075 待真实 Alertmanager 环境复测） |
 | 024 deployment-hardening | 42（1 fail QF-818 + 41 blocked） | 部署安全 / 制品 / 灰度 / 回滚 / 灾备 | 811,815,816,817,818,819,822,823,824,825,827,828,831,833,834,835,836,837,840,844,848,854,856,857,858（另含发布流程相邻项 021,024） | 18/119 🔨 | **Phase 1 已落地**，US2–US4 未开工；QF-818 尚未复测 |
-| 025 api-contract-hardening | 50 | 语义 / 错误 / 契约 / 演进 | 202,203,204,207,210,211,213,216,218,219,220,221,222,223,224,225,227,229,230,231,232,234,235,236,237,238,239,240,245,247,248,252,253,254,255,264,267,268,269,270 | 46/52 🔨 | **US1–US4 主体已落地**（语义/错误/契约/OpenAPI/版本化），见 §4 025 子域状态回写表；T046/T047 装配进行中 |
+| 025 api-contract-hardening | 50 | 语义 / 错误 / 契约 / 演进 | 202,203,204,207,210,211,213,216,218,219,220,221,222,223,224,225,227,229,230,231,232,234,235,236,237,238,239,240,245,247,248,252,253,254,255,264,267,268,269,270 | 52/52 ✅ | **US1–US4 全部落地**（语义/错误/契约/OpenAPI/版本化/CI 装配），见 §4 025 子域状态回写表（50 项 = 49 pass + 1 na） |
 | 026 performance-scalability | 51 | 性能 / 扩展性 / 效率 | 仓库内**未落盘编号区间**（原件缺失） | 5/57 🔨 | **Phase 1 骨架已建**，基线与优化未开工 |
 
 > **统计口径不一致（如实登记）**：`specs/INDEX.md` 称 283 项需建能力，
@@ -74,7 +74,7 @@
 | 023 容错子域 | 023 | 已关闭 | Phase 6（T078–T094）全部完成，81 项韧性测试全绿 |
 | 023 恢复子域 | 023 | 已关闭（带保留项） | Phase 7（T095–T115）全部完成；**RTO/RPO 无真实演练值**（开发机无 mongodump/mongosh/Swarm），`drill_az_failover.sh` 在非 Swarm 环境返回 2 而非假通过，故 T113 记录为「未演练」 |
 | 023 韧性测试子域 | 023 | 已关闭（带保留项） | Phase 8（T116–T126）剧本与行为测试完成，三剧本 22 个行为场景全绿；**保留项**：真实 docker compose / Tempo / Loki / Prometheus / Alertmanager 链路实测未跑（本机 docker daemon 无响应），脚本在真实环境会以 `2` 退出而非假通过，此步骤留给 CI 或可用环境 |
-| 025 的 50 项 | 025 | 主体已解除 | US1–US4 主体已落地（46/52），仅 US4 的 T046/T047 两项 CI 装配仍在进行，对应 QF-270 / QF-254 暂挂 pending（见 §4） |
+| 025 的 50 项 | 025 | 全部解除 | US1–US4 全部落地（52/52），见 §4（50 项 = 49 pass + 1 na）；QF-227 压缩协商为首期 Non-Goals |
 | 026 的 51 项 | 026 | 全部仍 blocked | 需性能基线（US1）建立后方可解除 |
 
 ---
@@ -147,13 +147,13 @@
 | QF | 描述 | 可核验交付物 | 状态 |
 |---|---|---|---|
 | QF-253 | 接口定义可从源码自动生成 | `tools/openapi/generate.py --all --check` + 三份 OpenAPI 3.1 artifact | ✅ pass |
-| QF-254 | 定义中的路径/参数/响应与实测一致 | `tools/openapi/probe.py`（探针 TestClient 只读端点） | 🔨 pending（T047 装配中） |
+| QF-254 | 定义中的路径/参数/响应与实测一致 | `tools/openapi/probe.py`（TestClient 探针只读端点，三类比对；跳过 5xx/401/403）+ `probe.py --all` 三服务 skipped、**rc=0** | ✅ pass |
 | QF-255 | 定义校验在 CI 执行且失败阻断 | `tools/openapi/validate.py --all` + `--check` | ✅ pass |
 | QF-264 | 版本方案全局一致且有文档 | `docs/api-versioning.md` + `API-Version` 头（T044）+ `/api/v1`（T045） | ✅ pass |
 | QF-267 | 版本升级幅度与变更性质匹配 | `diff.py` 幅度规则 + `deprecation_check.py` | ✅ pass |
 | QF-268 | 错误码集中定义且全局唯一 | `app/core/errors.py` + `tools/api_check/error_codes_uniqueness.py` | ✅ pass |
 | QF-269 | 字典含触发条件与处理建议 | `docs/error-codes.md`（code/http_status/trigger/remedy 四字段） | ✅ pass |
-| QF-270 | 错误码与 HTTP 状态码映射稳定 | `tools/api_check/error_code_mapping.py`（基线快照比对，`changed_status_semantics` 须 major 升级） | 🔨 pending（T046 装配中） |
+| QF-270 | 错误码与 HTTP 状态码映射稳定 | `tools/api_check/error_code_mapping.py`（基线快照 `baseline/error-code-mapping.json` 比对，`changed_status_semantics` 须 major 升级，首跑 rc=0） | ✅ pass |
 
 ### 4.5 汇总
 
@@ -162,8 +162,10 @@
 | US1 语义 | 17 | 16 | 1（QF-227 压缩协商） | 0 |
 | US2 错误 | 15 | 15 | 0 | 0 |
 | US3 契约 | 10 | 10 | 0 | 0 |
-| US4 演进 | 8 | 6 | 0 | 2（QF-254、QF-270） |
-| **合计** | **50** | **47** | **1** | **2** |
+| US4 演进 | 8 | 8 | 0 | 0 |
+| **合计** | **50** | **49** | **1** | **0** |
+
+> **025 全部 52 项任务已勾选完毕**（`specs/025-api-contract-hardening/tasks.md`），50 个 QF 项 = 49 pass + 1 na（QF-227 压缩协商为首期 Non-Goals），0 pending。T046/T047 装配完成后 QF-270/QF-254 已由 pending 转 pass。
 
 > 说明：`audit.json` / `report.json` 属审计原始数据，按 `README.md` 决策**不入库**；本表即 025 的台账级回写落点。T052 原措辞要求"回写到 `.qualityforge/audit.json`"，与 README 的入库边界冲突，按 README 决策改为回写至本文件 §4，并在 `specs/025-api-contract-hardening/tasks.md` T052 证据中登记该差异。
 
@@ -178,3 +180,4 @@
 | 2026-10-25 | 023 恢复子域关闭（T095–T115）；§1 023 进度校正为 113/126；§2 拆出「恢复」行并如实标注 RTO/RPO 未实测；§3 拆为「恢复子域 已关闭（带保留项）」与「韧性测试子域 未关闭」 | `specs/023-observability-resilience/tasks.md` 勾选 + `scripts/test_*.sh` 五个脚本测试 + `deploy/tests/` 275 项 + `docs/observability/rto-rpo.md` §5 |
 | 2026-10-25 | 023 韧性测试子域关闭（T116–T124 完成，T125 全量回归，T126 本轮 QF 核对）；§1 023 进度校正为 123/126；§2「韧性测试」行从「未开工」改为「✅ 已关闭（带保留项）」并写入三剧本交付物与 22 个行为场景证据；§3 同步更新，并如实标注真实 compose 链路实测未跑 | `specs/023-observability-resilience/tasks.md` 勾选 + `scripts/verify_e2e_observability.sh` / `scripts/drill/inject_dependency_fault.sh` / `scripts/drill/full_recovery_drill.sh` 及其三套行为测试 + 三服务全量 pytest（chat-api 2909 / document-parser 22 / admin-api 1258，后者 1 项 032 既有失败）+ `quickstart.md` |
 | 2026-10-26 | 025 台账更新：§1 进度 7/52 → 46/52；§3 从「大部分未解除」改为「主体已解除」；新增 §4「025 子域状态回写表」（50 项 = 40 条已编号逐条 + US3 契约域 10 条未编号聚合，47 pass / 1 na（QF-227 压缩协商，Non-Goals）/ 2 pending（QF-254、QF-270 待 T047/T046 装配））；T052 原措辞"回写 `audit.json`"按 README 入库边界改为回写本文件 §4 | `specs/025-api-contract-hardening/tasks.md` 勾选（46/52）+ `spec.md` QF 锚点 + 仓库内契约/OpenAPI 工具与测试实跑 |
+| 2026-10-26 | 025 闭环：§1 进度 46/52 → 52/52，台账状态改「US1–US4 全部落地」；§3 改「全部解除」；§4 QF-254/QF-270 由 pending 转 pass，汇总 50 项 = 49 pass + 1 na、0 pending。同时修复 chat-api `ErrorResponse` 缺 RFC 9457 键（type/title/status/instance/error_detail），使 422 实测字段 ⊆ OpenAPI 声明，探针 `--all` rc=0 | `specs/025-api-contract-hardening/tasks.md` 勾选（52/52）+ `tools/openapi/probe.py --all` 三服务 skipped/rc=0 + `services/chat-api/app/core/errors.py` |
