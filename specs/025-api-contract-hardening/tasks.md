@@ -275,7 +275,18 @@
     4. **权威口径**：以 `ApiErrorCode` 枚举为权威集合过滤映射，`DEFAULT_HTTP_STATUS` 里残留的孤儿条目不算可用映射；`errors.py` 缺失时不 crash，按空映射处理（配合 doc-orphan 报错）。
     5. **CLI**：`--baseline` / `--dict` / `--services` / `--update-baseline`。
     6. **命令与结果**：`python3 tools/api_check/error_code_mapping.py` → `error-code mapping OK — no status-semantics drift`（rc=0）；`tools/api_check/test_error_code_mapping.py` **13 用例全绿**（首次生成基线、无漂移通过、状态码变更检测、码移除检测、新增码 compat、--update-baseline 重建、doc-drift/doc-orphan/undocumented、跨服务 drift、未知服务 SystemExit、errors.py 缺失容忍、parse_docs_dict/parse_errors_py 单元）。
-- [ ] T047 OpenAPI 与实测一致性检查（FR-25, QF-254）：CI 中执行探针验证 OpenAPI 定义中的路径/参数/响应与实测一致
+- [x] T047 OpenAPI 与实测一致性检查（FR-25, QF-254）：CI 中执行探针验证 OpenAPI 定义中的路径/参数/响应与实测一致
+  - **证据（2026-10-26）**：新建 `tools/openapi/probe.py`（FR-25, QF-254），用 FastAPI `TestClient` 实测**只读、无副作用**端点，做三类比对：①路径可达性（实测 404 → 不一致）；②参数生效性（OpenAPI 声明 `required: true` 的 query 参数，实测**不带**应 422）；③响应字段名（实测 JSON 顶层字段名集合 vs 响应 schema 属性名集合，递归处理 `$ref`/`allOf`/`oneOf`/`properties`，数组元素自由 dict 视为 opaque 跳过）。
+  - **实测命令与结果**：`python3 tools/openapi/probe.py --all --limit 12 --json`（rc=1）。三服务各探 12/12/3 端点：
+    - `[admin-api] skipped` — 12 端点**无一致性问题**；`GET /ready` 实测 503（依赖不可用）跳过；多数业务端点实测 401（认证拦截，字段/参数跳过，不影响路径可达性结论）。
+    - `[chat-api] problem` — **4 处真实不一致**（见下）。
+    - `[document-parser] skipped` — 本地缺 `celery`，probe 子进程复用 `generate._install_celery_stub()` 注入 stub 后 import 成功；实测 3 端点均 503（worker/DB 依赖不可用）跳过，**跳过不阻断**（rc=0 口径）。
+  - **发现的真实不一致（chat-api，4 处，均已写入证据待修复）**：
+    1. `GET /api/v1/browser/recording/stream` 422 响应体为 `{error_detail,status,title,type}`（RFC 7807 problem 结构），但 OpenAPI 422 声明的是 `#/components/schemas/ErrorResponse`（属性 `code/message/http_status/trace_id/detail/fields`）——**chat-api 的 422 handler 未走 T001 统一 `ErrorResponse` 结构**（属 T021/T022 收尾项，T047 只负责发现）。
+    2. `GET /api/v1/debug/env-metrics`、`/debug/llm-config`、`/debug/runtime-kpi` OpenAPI 已声明但实测 404——`debug.py` 用 `require_debug_mode` 依赖在**非 DEBUG 环境抛 404 故意隐藏**，但 OpenAPI 仍声明了这些路径 → 契约与实测不一致；建议非 DEBUG 环境从 OpenAPI 隐藏（`include_router` 按 DEBUG 条件），或探针侧显式声明豁免。
+  - **实现要点**：①三服务共用顶层包名 `app`，**必须各自独立子进程 import**（`--all` 走 subprocess，复用 `generate.py` 的隔离方式）；②**不能静态枚举 `app.routes` 判路径**——admin-api / chat-api 顶层 routes 是 FastAPI `_IncludedRouter`（延迟挂载），`app.openapi()` 也不改写 `app.routes`，静态收集会误报「未挂载」→ 一律以**实测**为准；③chat-api 会劫持 `sys.stdout`（structlog），`print` 不可靠 → 子进程结果写**临时文件**回读；④`TestClient` 不用 `with`（不触发 lifespan，避免 DB 依赖）；⑤因 DB 不可用导致的 5xx、认证拦截的 401/403 **跳过而非判不一致**。
+  - **测试**：`tools/openapi/test_contract_openapi_probe.py` **16 用例全绿**——artifact 加载、字段名递归收集（`$ref`/`allOf`/`oneOf`/opaque/未知 schema）、必填 query 参数提取、document-parser 跳过逻辑（断言 rc=0 且非 error）、CLI rc、JSON 报告结构。
+
 
 ---
 
