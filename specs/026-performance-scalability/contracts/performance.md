@@ -6,6 +6,10 @@
 
 阈值权威源：`benchmarks/perf_baselines/baselines.yaml`（T010）；声明清单：`config/performance.yaml`（T052）。两者由 `tools/perf/config_loader.py` 做一致性校验（CI 门禁）。
 
+**关联文档**：本文件为 026 特性级契约（含完整阈值表与压测 IO 表格）；仓库级契约另见 `contracts/performance.md`（输入→输出/预算/缓存/压测/观测/配置驱动/变更流程）。两者主题互补、阈值同源，改动需同步。
+
+**快速上手**：特性级步骤见 `specs/026-performance-scalability/quickstart.md`（逐 US 验证）；仓库级 30 分钟启用见 `docs/performance/quickstart.md`（前置检查→启用基线→子域优化→压测→容量瓶颈→回归闭环）。
+
 ---
 
 ## 1. 组件
