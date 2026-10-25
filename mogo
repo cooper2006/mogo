@@ -33,6 +33,10 @@ source "${ROOT_DIR}/deploy/cli/pull.sh"
 source "${ROOT_DIR}/deploy/cli/base-images.sh"
 # shellcheck source=deploy/cli/backup.sh
 source "${ROOT_DIR}/deploy/cli/backup.sh"
+# shellcheck source=deploy/cli/backup-schedule.sh
+source "${ROOT_DIR}/deploy/cli/backup-schedule.sh"
+# shellcheck source=deploy/cli/failover.sh
+source "${ROOT_DIR}/deploy/cli/failover.sh"
 
 print_logo() {
   printf '\n'
@@ -847,12 +851,64 @@ case "${command}" in
       exit 2
     fi
     restore_confirmed=false
+    restore_verify=false
     for argument in "${@:2}"; do
       [[ "${argument}" == "--yes" ]] && restore_confirmed=true
+      [[ "${argument}" == "--verify" ]] && restore_verify=true
     done
     deployment_urls
     mogo_configure_images false
-    mogo_restore "$1" "${restore_confirmed}"
+    mogo_restore "$1" "${restore_confirmed}" "${restore_verify}"
+    ;;
+  backup-schedule)
+    case "${1:-}" in
+      install|cron)
+        mogo_backup_schedule_install_cron
+        ;;
+      systemd)
+        mogo_backup_schedule_install_systemd
+        ;;
+      uninstall)
+        mogo_backup_schedule_uninstall
+        ;;
+      status)
+        mogo_backup_schedule_status
+        ;;
+      prune)
+        mogo_backup_schedule_prune
+        ;;
+      *)
+        printf '用法: ./mogo backup-schedule install|systemd|uninstall|status|prune\n' >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  failover)
+    case "${1:-}" in
+      prepare)
+        shift
+        mogo_failover_prepare "$@"
+        ;;
+      execute)
+        shift
+        mogo_failover_execute "$@"
+        ;;
+      verify)
+        shift
+        mogo_failover_verify "$@"
+        ;;
+      back)
+        shift
+        mogo_failover_back "$@"
+        ;;
+      status)
+        mogo_failover_status
+        ;;
+      *)
+        printf '用法: ./mogo failover prepare|execute|verify|back|status\n' >&2
+        exit 2
+        ;;
+    esac
     ;;
   status)
     require_docker

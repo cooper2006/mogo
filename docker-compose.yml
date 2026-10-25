@@ -232,6 +232,65 @@ services:
       retries: 20
       start_period: 20s
 
+  # ── 024 T074 (FR-039)：MongoDB 副本集（HA）选项 ──────────────────────────
+  # 默认**关闭**：挂在 `ha` profile 上，只有 `docker compose --profile ha up -d`
+  # 才进拓扑。启用后 `mongo-ha` 与 `mongo-ha-init` 替代单机 `mongo` 提供数据层，
+  # 二者与单机 mongo **共用 `mongo-data` 卷**（同一份 dbpath，不可同时运行）。
+  #
+  # 启用步骤（详见 deploy/runbook/failover-runbook.md）：
+  #   1. 生成副本集认证 keyfile：
+  #        mkdir -p secrets && openssl rand -base64 756 | tr -d '\n' > secrets/mongo_keyfile
+  #        chmod 600 secrets/mongo_keyfile
+  #   2. docker compose --profile ha up -d mongo-ha mongo-ha-init
+  #   3. 验证：mongosh --eval "rs.status().ok"  == 1
+  #
+  # 关键点：`--keyFile` 必须启用内网认证（否则 rs.add 被拒）；keyfile 内容
+  # **不提交仓库**，缺失时服务起不来（宁可失败，不静默降级为无认证副本集）。
+  mongo-ha:
+    image: ${MOGO_MONGO_IMAGE:-mongo:8.3.13}
+    restart: unless-stopped
+    profiles: ["ha"]
+    command:
+      - mongod
+      - --replSet
+      - rs0
+      - --keyFile
+      - /run/secrets/mongo_keyfile
+      - --bind_ip_all
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - mongo-data:/data/db
+      - mongo-backup:/backups
+    secrets:
+      - mongo_keyfile
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({replSetGetStatus:1}).myState==1 || db.adminCommand({replSetGetStatus:1}).myState==2"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # 初始化容器：以单节点副本集启动（rs.initiate），后续按 failover-runbook
+  # 用 rs.add 扩到多节点。容器一次性任务，成功后退出。
+  mongo-ha-init:
+    image: ${MOGO_MONGO_IMAGE:-mongo:8.3.13}
+    profiles: ["ha"]
+    depends_on:
+      mongo-ha:
+        condition: service_healthy
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        until mongosh --quiet --eval "db.adminCommand('ping').ok" >/dev/null 2>&1; do sleep 2; done
+        mongosh --quiet --eval "try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo-ha:27017'}]}).ok }"
+    networks:
+      - backend
+
   # PanWeiDB 3.2.0（openGauss 内核）——MongoDB → PanWeiDB 迁移的目标库。
   #
   # 与 mongo / redis / weaviate 不同，这个服务默认**不启动**：它挂在 `panweidb`
@@ -1212,6 +1271,12 @@ volumes:
 secrets:
   mongo_backup_passphrase:
     file: ${MOGO_BACKUP_PASSPHRASE_HOST_FILE:-./secrets/mongo_backup_passphrase}
+  # 024 T074 (FR-039)：副本集内部认证 keyfile。**不提交仓库**，由部署者创建：
+  #   mkdir -p secrets && openssl rand -base64 756 | tr -d '\n' > secrets/mongo_keyfile
+  #   chmod 600 secrets/mongo_keyfile
+  # 仅当启用 `ha` profile（docker compose --profile ha up -d）时才被引用。
+  mongo_keyfile:
+    file: ${MOGO_MONGO_KEYFILE_HOST_FILE:-./secrets/mongo_keyfile}
 networks:
   public:
   backend:
