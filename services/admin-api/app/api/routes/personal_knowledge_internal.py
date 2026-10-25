@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import RedirectResponse
 from app.security.service_token import ServiceTokenHeader
 from pydantic import BaseModel
 
@@ -72,7 +73,7 @@ async def relearn_personal_document(resource_id: str, payload: ActionPayload, se
     return {"code": 0, "message": "success", "data": {**result, "previewRetryError": preview_error}}
 
 
-@router.post("/{resource_id}/delete")
+@router.post("/{resource_id}/deletion")
 async def delete_personal_document(resource_id: str, payload: ActionPayload, service_token: ServiceTokenHeader):
     _require_service(service_token)
     resource = await get_db().knowledge_resources.find_one({
@@ -85,3 +86,17 @@ async def delete_personal_document(resource_id: str, payload: ActionPayload, ser
     for document_id in dict.fromkeys(document_ids):
         await delete_document(document_id, current_user=_actor(payload.tenantId, payload.ownerUserId))
     return {"code": 0, "message": "success", "data": {"id": resource_id}}
+
+
+@router.post("/{resource_id}/delete", include_in_schema=False, deprecated=True)
+async def delete_personal_document_legacy(resource_id: str, request: Request, service_token: ServiceTokenHeader):
+    """向后兼容别名：旧路径 `POST /{resource_id}/delete`（025 T009）。
+
+    用 308 而非 301：POST 301 会被部分客户端改成 GET，这里必须保留方法。
+    客户端会按 308 重发 POST + body + X-MOGO-Service-Token。
+    """
+    _require_service(service_token)
+    return RedirectResponse(
+        request.url_for("delete_personal_document", resource_id=resource_id),
+        status_code=308,
+    )

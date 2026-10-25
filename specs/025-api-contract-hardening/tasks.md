@@ -51,8 +51,16 @@
   - 行为测试 `services/admin-api/tests/test_api_path_naming_t008.py`：15 用例全绿（资源化路径通过 / 内部段与路径变量跳过 / 8 种动词段失败并点名 / prefix 段失败 / strict 模式额外捕获 / JSON 输出含 segment 与文件 / 真实仓库不得静默通过）。
   - **实测**：扫描到 273 条路由，检出 2 处真实动词段违规（诚实报告，exit 1）：`POST /{resource_id}/delete`（`services/admin-api/app/api/routes/personal_knowledge_internal.py`）与 `POST /vectors/documents/delete`（`services/document-parser/app/api/routes/vector_maintenance.py`）。
   - 接入 CI 的时机：**暂不接入**（接入会让 CI 一直红），待 T009/T010 整改完这 2 处后再在 quality-gate.yml 追加 run（T048 统一落地）。
-- [ ] T009 整改 `services/admin-api/app/api/routes/` 下动词段路径（实测 fail QF-202）：如 `/getUsers` → `/users`、`/listDocuments` → `/documents`；保留向后兼容别名（旧路径返回 301 重定向到新路径）
-- [ ] T010 整改 `services/document-parser/app/api/routes/` 下动词段路径（QF-202）：如 `/parseDocument` → `/document-parsing`
+- [x] T009 整改 `services/admin-api/app/api/routes/` 下动词段路径（实测 fail QF-202）：如 `/getUsers` → `/users`、`/listDocuments` → `/documents`；保留向后兼容别名（旧路径返回 301 重定向到新路径）
+  - **证据（2026-10-25）**：本仓库 admin-api 实测违规 1 处——`POST /{resource_id}/delete`（`app/api/routes/personal_knowledge_internal.py`）整改为 `POST /{resource_id}/deletion`（`deletion` 为名词段，不再命中动词）。
+  - 兼容别名：旧路径以 `include_in_schema=False, deprecated=True` 注册为重定向别名。**状态码用 308 而非 301**——POST 的 301 会被部分客户端改成 GET，必须保留方法；用 `request.url_for()` 生成新路径。别名端点仍校验 `X-MOGO-Service-Token`（`_require_service`），不绕过鉴权。
+  - 行为测试 `services/admin-api/tests/test_compat_alias_redirect_009.py`（3 用例）：旧路径返回 308 且 `Location` 指向新路径 / 旧路径仍要求有效服务凭证（错 token → 401）/ 新路径出现在 OpenAPI schema 而旧路径被隐藏。
+  - 脚本同步升级：`path_naming.py` 把 `include_in_schema=False, deprecated=True` 的装饰器视为兼容别名，默认跳过；`--strict` 下仍如实报告（本次整改后默认 `path-naming OK`，`--strict` 仍点名这 2 处别名）。新增 2 个用例。
+- [x] T010 整改 `services/document-parser/app/api/routes/` 下动词段路径（QF-202）：如 `/parseDocument` → `/document-parsing`
+  - **证据（2026-10-25）**：document-parser 实测违规 1 处——`POST /vectors/documents/delete`（`app/api/routes/vector_maintenance.py`）整改为 `POST /vectors/documents/deletion`（名词段）。
+  - 兼容别名：旧路径以 `include_in_schema=False, deprecated=True` 注册，308 重定向到新路径（`request.url_for("delete_document_vectors")`），仍 `Depends(verify_service_token)`。
+  - 行为测试 `services/document-parser/tests/test_compat_alias_redirect_010.py`（2 用例）：旧路径 308 + Location 指向新路径 / OpenAPI 只暴露新路径、隐藏旧路径。
+  - 回归：`python3 -m pytest`（document-parser）**24 passed**；`tools/api_check/path_naming.py` 默认 `OK`（0 违规）。
 - [ ] T011 [P] 状态码语义修复（QF-204, QF-207）：扫描 `services/*/app/api/routes/` 所有路由，把"200 包裹错误"改为语义正确状态码（4xx/5xx）；成功路径返回 200/201/204；重定向 301/302；缓存 304
 - [ ] T012 未知字段策略统一（QF-210）：全局 Pydantic 配置 `model_config = ConfigDict(extra='ignore')`（默认）；严格 schema 显式声明 `extra='forbid'`；扫描 `services/*/app/schemas/` 所有 schema 文件确保一致
 - [ ] T013 [P] 创建 `services/admin-api/app/middleware/payload_limit.py`：载荷大小/深度/数组长度限制中间件（FR-5, QF-211）；超限返回 413/422

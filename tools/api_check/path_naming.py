@@ -99,6 +99,31 @@ def _method_of(decorator: ast.AST) -> str | None:
     return f"{method.upper()} {arg0.value}"
 
 
+def _is_false(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value is False
+
+
+def _is_true(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value is True
+
+
+def _is_compat_alias(decorator: ast.AST) -> bool:
+    """`include_in_schema=False` 或 `deprecated=True` 的装饰器视为向后兼容别名。
+
+    T009/T010 把违规动词段改名后，旧路径会以 ``include_in_schema=False`` 注册为
+    重定向别名（不入公开 API 文档），默认不参与命名检查；``--strict`` 下仍检查，
+    这样整改后仓库默认 0 违规，又不至于在严格模式下漏掉真问题。
+    """
+    if not isinstance(decorator, ast.Call):
+        return False
+    for kw in decorator.keywords:
+        if kw.arg == "include_in_schema" and _is_false(kw.value):
+            return True
+        if kw.arg == "deprecated" and _is_true(kw.value):
+            return True
+    return False
+
+
 def _join(prefix: str, path: str) -> str:
     if not prefix:
         return path
@@ -136,7 +161,7 @@ def _hit(seg: str, verbs: tuple[str, ...]) -> str | None:
     return None
 
 
-def scan(root: Path, verbs: tuple[str, ...], verbose: bool) -> list[dict]:
+def scan(root: Path, verbs: tuple[str, ...], verbose: bool, strict: bool = False) -> list[dict]:
     problems: list[dict] = []
     seen_paths: list[dict] = []
 
@@ -155,13 +180,18 @@ def scan(root: Path, verbs: tuple[str, ...], verbose: bool) -> list[dict]:
                     continue
                 route = _join(prefix, info.split(" ", 1)[1])
                 full = info.split(" ", 1)[0] + " " + route
+                alias = _is_compat_alias(dec)
                 seen_paths.append(
                     {
                         "service": service,
                         "file": str(path.relative_to(root)),
                         "route": full,
+                        "alias": alias,
                     }
                 )
+                if alias and not strict:
+                    # 兼容别名（旧路径重定向）不入公开 schema，默认跳过
+                    continue
                 for seg in _segments(route):
                     verb = _hit(seg, verbs)
                     if verb:
@@ -177,7 +207,10 @@ def scan(root: Path, verbs: tuple[str, ...], verbose: bool) -> list[dict]:
 
     if verbose:
         for item in seen_paths:
-            print(f"[route] {item['service']:15s} {item['route']}")
+            if item.get("alias"):
+                print(f"[alias] {item['service']:15s} {item['route']}  （兼容别名，默认跳过）")
+            else:
+                print(f"[route] {item['service']:15s} {item['route']}")
     return problems
 
 
@@ -192,7 +225,7 @@ def main() -> int:
     root = Path(args.root).resolve()
     verbs = DEFAULT_VERBS + (STRICT_VERBS if args.strict else ())
 
-    problems = scan(root, verbs, args.verbose)
+    problems = scan(root, verbs, args.verbose, strict=args.strict)
 
     if args.json:
         print(json.dumps({"problems": problems}, ensure_ascii=False, indent=2))

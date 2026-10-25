@@ -191,3 +191,33 @@ class TestRealRepo:
         if result.returncode == 1:
             assert "path-naming FAILED" in result.stdout + result.stderr
             assert "[verb]" in result.stdout
+
+class TestCompatAlias:
+    """T009/T010 兼容别名：`include_in_schema=False, deprecated=True` 的旧路径默认跳过。
+
+    整改后旧路径（动词段）以兼容别名保留，默认不应让脚本报红；
+    但 `--strict` 下仍要如实报告，避免严格模式漏掉真问题。
+    """
+
+    ALIAS_SOURCE = """
+from fastapi import APIRouter
+router = APIRouter()
+
+@router.post("/{resource_id}/deletion")
+def delete_resource(resource_id: str): ...
+
+@router.post("/{resource_id}/delete", include_in_schema=False, deprecated=True)
+def delete_resource_legacy(resource_id: str): ...
+"""
+
+    def test_alias_skipped_by_default(self, tmp_path: Path) -> None:
+        _make_route(tmp_path, self.ALIAS_SOURCE)
+        result = _run_tmp(tmp_path)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "FAILED" not in result.stdout + result.stderr
+
+    def test_alias_reported_under_strict(self, tmp_path: Path) -> None:
+        _make_route(tmp_path, self.ALIAS_SOURCE)
+        result = _run_tmp(tmp_path, "--strict")
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "delete" in result.stdout + result.stderr
