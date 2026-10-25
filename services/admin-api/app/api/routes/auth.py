@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from app.api.deps import get_authenticated_admin
 from app.api.time_utils import utc_iso
@@ -66,6 +66,7 @@ class SelectTenantRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=64)
     email: str = Field(default="", max_length=128)
     phone: str = Field(default="", max_length=32)

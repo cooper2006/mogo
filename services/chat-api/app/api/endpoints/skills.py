@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, ConfigDict
 
 from app.api.time_utils import utc_iso
 from app.services.skill_assets.trajectory_distiller import distill_trajectory, refine_steps
@@ -83,6 +83,7 @@ class SkillGenerateRequest(BaseModel):
 
 
 class SkillUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     user_id: str = Field(..., description="User ID from login")
     tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     name: Optional[str] = Field(None, description="Skill name")

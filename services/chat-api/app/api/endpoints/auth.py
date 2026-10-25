@@ -15,7 +15,7 @@ from app.core.ids import is_valid_backend_id, to_backend_id
 
 from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
 from app.security.service_token import ServiceTokenHeader
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from app.core.config import get_settings
 from app.core.db import get_db
@@ -173,6 +173,7 @@ class SwitchTenantRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str = Field(..., min_length=1, max_length=64)
 
 

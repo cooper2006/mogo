@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, ConfigDict
 
 from app.services.site_profiles import site_profile_service
 from app.api.principal import ApiPrincipal, require_end_user_principal
@@ -18,6 +18,7 @@ class ApiResponse(BaseModel):
 
 
 class SiteProfileCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     user_id: str = Field(..., description="Owner user id")
     tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     name: str = Field(..., max_length=160)
@@ -29,6 +30,7 @@ class SiteProfileCreateRequest(BaseModel):
 
 
 class SiteProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     user_id: str = Field(..., description="Owner user id")
     tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     name: Optional[str] = Field(None, max_length=160)

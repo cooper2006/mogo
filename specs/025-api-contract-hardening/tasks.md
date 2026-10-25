@@ -67,7 +67,17 @@
   - 行为测试 `services/admin-api/tests/test_status_code_semantics_t011.py`（6 用例）：3 类违规模式均被检出 / 合规用法（404 raise、201 包裹 code:0、success:True、code:0、兼容别名）不误报 / 真实仓库当前 0 违规且禁止静默通过。整改后 `status-code-semantics OK`。
   - CI：quality-gate.yml 新增 `API status-code semantics (025 T011)` job（`admin-api` 矩阵，纯 stdlib）。
   - **保守口径（如实声明）**：扫描器**只判错误语义**，对「成功路径应返回 200/201/204」「重定向 301/302」「缓存 304」这类规范不做静态强制——创建类端点是否该返回 201、重定向/缓存语义需人工 review，静态扫描无法可靠判定，不纳入自动门禁。
-- [ ] T012 未知字段策略统一（QF-210）：全局 Pydantic 配置 `model_config = ConfigDict(extra='ignore')`（默认）；严格 schema 显式声明 `extra='forbid'`；扫描 `services/*/app/schemas/` 所有 schema 文件确保一致
+- [x] T012 未知字段策略统一（QF-210）：全局 Pydantic 配置 `model_config = ConfigDict(extra='ignore')`（默认）；严格 schema 显式声明 `extra='forbid'`；扫描 `services/*/app/schemas/` 所有 schema 文件确保一致
+  - **证据（2026-10-25）**：
+  - 提供默认/严格两个基类：`services/common/pydantic_base.py`（模板）+ 三服务副本 `services/{admin-api,chat-api,document-parser}/app/common/pydantic_base.py`。`MogoModel` = `ConfigDict(extra="ignore")`（默认契约，前向兼容）；`MogoStrictModel` = `ConfigDict(extra="forbid")`（严格契约）。
+  - 新增扫描器 `tools/api_check/schema_extra_policy.py`（AST，纯 stdlib）：扫描 `services/{admin-api,chat-api,document-parser}/app/**/*.py` 所有定义 pydantic `BaseModel` 子类的文件（仓库无 `app/schemas/` 目录，schema 分散在各 endpoints/models，故按全 app 扫描）。
+    - **硬失败**：显式 `extra='allow'`（v2 `model_config = ConfigDict(extra="allow")` 与 v1 `class Config: extra = "allow"` 两种写法）——会静默吞掉未知字段，破坏契约。
+    - 合规：`forbid` / `ignore` / 未显式声明（pydantic 默认 `ignore`）。
+    - `--strict`：命名含 `Strict`/`CreateRequest`/`UpdateRequest`/`Command` 的模型必须显式 `extra='forbid'`。
+    - CLI：`--strict`、`--root <path>`（供测试注入 fixture 仓库）。退出码 0 通过 / 1 违规。
+  - **整改 6 处严格命名请求 schema 为 `extra='forbid'`**：admin-api `routes/auth.py::ProfileUpdateRequest`；chat-api `endpoints/auth.py::ProfileUpdateRequest`、`endpoints/site_profiles.py::{SiteProfileCreateRequest, SiteProfileUpdateRequest}`、`endpoints/skill_updates.py::InstallUpdateRequest`、`endpoints/skills.py::SkillUpdateRequest`。
+  - 行为测试 `services/admin-api/tests/test_schema_extra_policy_t012.py`（7 用例全绿）：v2 `allow` / v1 `class Config allow` 均被点名 / `forbid`+`ignore` 合规不误报 / 非 BaseModel 类不误报 / 严格命名默认通过而 `--strict` 失败 / 真实仓库默认 0 违规 / 失败必须带 `FAILED` 明细（禁止静默通过）。
+  - 回归：admin-api 全量 exit 0（仍仅 3 个既有失败，无新增）；chat-api `tests/api`+`tests/core` 全绿；`--strict` 整改后 0 违规。
 - [x] T013 [P] 创建 `services/admin-api/app/middleware/payload_limit.py`：载荷大小/深度/数组长度限制中间件（FR-5, QF-211）；超限返回 413/422
   - **证据（2026-10-25）**：新增 `services/admin-api/app/middleware/payload_limit.py`（纯 ASGI 中间件，不用 `BaseHTTPMiddleware`）。
   - 限制：请求体 > `max_bytes` → **413**；JSON 嵌套深度 > `max_depth`、数组元素数 > `max_array_length`、字符串长度 > `max_string_length` → **422**；路径级 `overrides` 生效（`for_path()` 最长前缀）。

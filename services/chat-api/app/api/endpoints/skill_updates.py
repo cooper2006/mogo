@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from app.api.principal import ApiPrincipal, require_end_user_principal
 from app.services.skill_sharing.distribution import SkillDistributionService
@@ -12,6 +12,7 @@ router = APIRouter(dependencies=[Depends(require_end_user_principal)])
 service = SkillDistributionService()
 
 class InstallUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     confirm_replace: bool = Field(default=False, alias="confirmReplace")
 
 
