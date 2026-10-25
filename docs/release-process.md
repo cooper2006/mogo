@@ -62,3 +62,50 @@ never move or overwrite an existing public release tag.
 5. **Dependabot 节奏**：见 `.github/dependabot.yml`，默认 weekly；冻结期期间
    将 `open-pull-requests-limit` 临时设为 0。
 
+## 一键安装验证 (FR-017, QF-024)
+
+每次发布在干净机器上必须跑通下面的一键安装 + 最小可用性验证，结果记录在
+release checklist 的"一键安装验证"行，未通过不得标记 Stable。
+
+### 一键安装
+
+```bash
+# 1. 克隆并进入仓库
+git clone <release-tag-url> mogo && cd mogo
+
+# 2. 一次性安装（中文提示）
+./mogo --lang zh-CN up
+```
+
+安装完成后按输出中的初始化地址打开用户端，完成首次管理员初始化。
+
+### 最小可用性验证命令清单
+
+```bash
+# 3. 栈健康：三个数据服务应 Up (healthy)
+./mogo status
+
+# 4. 基线扫描：非 root / 只读 / 能力 / 体积四项无 FAIL
+./mogo baseline
+
+# 5. 配置清单 ↔ 代码读取点一致
+./mogo config --env all
+
+# 6. 运行态与 compose 声明无漂移
+./mogo drift
+
+# 7. 运行镜像与发布记录一致
+./mogo verify
+
+# 8. 预审部署计划 diff（应显示"无破坏性变更"）
+./mogo deploy --dry-run
+```
+
+若第 6/7 项失败：镜像/容器不是本次发布产物，回退到上一致版本再跑。
+
+### 判定标准
+
+- `./mogo status` 中 `mongo` / `redis` / `weaviate` 均为 `Up (healthy)`；
+- `./mogo baseline` 无 FAIL 项；
+- `./mogo config` / `./mogo drift` / `./mogo verify` 均退出码 0；
+- `./mogo deploy --dry-run` 无破坏性变更提示。
