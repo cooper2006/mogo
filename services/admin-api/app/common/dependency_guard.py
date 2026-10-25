@@ -71,13 +71,55 @@ def call_with_breaker(
         raise CircuitOpenError(breaker.name or "unknown") from exc
 
 
+def _async_ready_state(
+    breaker: pybreaker.CircuitBreaker,
+) -> pybreaker.CircuitBreakerState:
+    """为异步调用准备熔断状态：OPEN 且冷却已过则推进到 HALF_OPEN。
+
+    pybreaker 1.4 只在 `CircuitOpenState.before_call()` 里做这个推进，而那条路径
+    会同步 `call()` 一个协程函数（对 async 无意义），所以这里自己走一遍。
+    """
+    from datetime import datetime, timedelta, timezone
+
+    state = breaker.state
+    if type(state).__name__ != "CircuitOpenState":
+        return state
+    opened_at = getattr(breaker._state_storage, "opened_at", None)
+    if opened_at and datetime.now(timezone.utc) >= opened_at + timedelta(
+        seconds=breaker.reset_timeout
+    ):
+        breaker.half_open()
+        return breaker.state
+    raise CircuitOpenError(breaker.name or "unknown")
+
+
 async def call_with_breaker_async(
     breaker: pybreaker.CircuitBreaker, func: Callable[..., Any], *args: Any, **kwargs: Any
 ) -> Any:
+    """异步熔断调用。
+
+    为什么不用 `breaker.call_async()`：pybreaker 1.4.1 的实现依赖 tornado
+    （`@gen.coroutine`），而本仓库不装 tornado，直接调用会 `NameError: gen`；
+    这里改用它的状态机原语（`state._handle_success()` / `_handle_error()`）自己
+    驱动，语义与同步 `call()` 一致（失败计数、半开试探、打开后快速失败）。
+    """
     try:
-        return await breaker.call_async(func, *args, **kwargs)
+        _async_ready_state(breaker)
+    except CircuitOpenError:
+        raise
     except pybreaker.CircuitBreakerError as exc:
         raise CircuitOpenError(breaker.name or "unknown") from exc
+
+    try:
+        result = await func(*args, **kwargs)
+    except BaseException as exc:  # noqa: BLE001 — 需要计数后才向上抛
+        try:
+            breaker.state._handle_error(exc)
+        except pybreaker.CircuitBreakerError as cb_exc:
+            raise CircuitOpenError(breaker.name or "unknown") from cb_exc
+        raise
+    breaker.state._handle_success()
+    return result
 
 
 # ─────────────────────────── FR-22 超时层级 ───────────────────────────

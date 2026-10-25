@@ -61,6 +61,10 @@ class RateLimiter:
                 )
                 # Verify connectivity.
                 self._redis.ping()
+                # 023 T084：登记 redis-py 连接池句柄（上限从驱动读）。
+                from app.core import resilience
+
+                resilience.register_redis_pool(self._redis)
                 logger.info("RateLimiter connected to Redis")
             except Exception:
                 logger.warning(
@@ -84,7 +88,13 @@ class RateLimiter:
         window_start = now - self._window
 
         if self._redis:
-            count = self._redis.zcount(self._full_key(key), window_start, now)
+            from app.core import resilience
+
+            # 023 T084：熔断器保护；打开时抛 CircuitOpenError，由调用方按
+            # 「不限流」降级（与 Redis 不可达时的语义一致）。
+            count = resilience.redis_call(
+                self._redis.zcount, self._full_key(key), window_start, now
+            )
             return int(count) < self._max
 
         # In-memory fallback.
@@ -111,7 +121,9 @@ class RateLimiter:
     def record_success(self, key: str) -> None:
         """Clear the rate-limit state after a successful login."""
         if self._redis:
-            self._redis.delete(self._full_key(key))
+            from app.core import resilience
+
+            resilience.redis_call(self._redis.delete, self._full_key(key))
             return
 
         self._fallback.pop(key, None)

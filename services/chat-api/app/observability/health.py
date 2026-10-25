@@ -17,15 +17,32 @@ router = APIRouter(tags=["system"])
 
 
 async def _check_mongodb() -> dict[str, Any]:
+    """023 T083：ping 走熔断器 + 5s 操作预算（FR-21/FR-22）。
+
+    `reason` 区分「熔断打开」「超时」「其它错误」，便于排障时判断是依赖挂了
+    还是我们主动快速失败。
+    """
+    from app.core import resilience
     from app.core.db import get_db
 
     payload: dict[str, Any] = {"backend": "mongo"}
     try:
-        client = get_db()
-        await client.admin.command("ping")
-        payload["reachable"] = True
-    except Exception:
+        database = get_db()
+    except Exception as exc:
         payload["reachable"] = False
+        payload["reason"] = resilience.PROBE_ERROR
+        payload["error"] = type(exc).__name__
+        return payload
+    if database is None:
+        payload["reachable"] = False
+        payload["reason"] = "not_initialized"
+        return payload
+
+    result = await resilience.probe_mongo(database)
+    payload["reachable"] = result["ok"]
+    payload["reason"] = result["reason"]
+    if result.get("error"):
+        payload["error"] = result["error"]
     return payload
 
 
@@ -35,11 +52,16 @@ async def _check_redis() -> dict[str, Any]:
         from app.dsh_runtime.runtime_lock import get_runtime_lock
 
         lock = get_runtime_lock()
-        if lock is not None and lock._redis is not None:
-            lock._redis.ping()
-            payload["redis"] = "ok"
-        else:
+        client = getattr(lock, "_redis", None)
+        if client is None:
             payload["redis"] = "not_configured"
+            return payload
+        from app.core import resilience
+
+        resilience.register_redis_pool(client)
+        result = resilience.probe_redis(client)
+        payload["redis"] = "ok" if result["ok"] else "unreachable"
+        payload["redis_reason"] = result["reason"]
     except Exception:
         payload["redis"] = "unreachable"
     return payload

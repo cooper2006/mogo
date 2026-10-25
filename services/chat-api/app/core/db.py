@@ -59,6 +59,12 @@ def init_db() -> None:
     )
     _db = _client[settings.MONGODB_DB]
 
+    # 023 T083 / FR-24：把真实 Mongo 池句柄与驱动上限登记进 PoolRegistry，
+    # 供健康检查与隔离断言读取（上限从驱动读，不写死）。
+    from app.core import resilience
+
+    resilience.register_mongo_pool(_client)
+
 
 async def init_backend() -> None:
     """按 ``MOGO_DATA_BACKEND`` 初始化数据后端（启动路径统一入口）。"""
@@ -76,6 +82,9 @@ def close_db() -> None:
     global _client, _db
     if _client is not None:
         _client.close()
+        from app.core import resilience
+
+        resilience.release_pool(resilience.MONGO_DEPENDENCY)
     _client = None
     _db = None
 

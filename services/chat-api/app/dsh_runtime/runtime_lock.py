@@ -72,6 +72,10 @@ class RuntimeLock:
                     decode_responses=True,
                 )
                 self._redis.ping()
+                # 023 T084：登记 redis-py 的连接池句柄（真实上限从驱动读）。
+                from app.core import resilience
+
+                resilience.register_redis_pool(self._redis)
                 logger.info(
                     "runtime creation lock connected to Redis",
                     extra={"event": "dsh.runtime_lock.redis_ready"},
@@ -102,8 +106,13 @@ class RuntimeLock:
         if self._redis is None or not isolation_key:
             return None
         token = uuid.uuid4().hex
+        from app.core import resilience
+
         try:
-            acquired = self._redis.set(
+            # 023 T084：经熔断器执行；Redis 连续失败后这里会快速失败，
+            # 由下面的 except 分支退化为「无协调创建」（pre-M2 行为）。
+            acquired = resilience.redis_call(
+                self._redis.set,
                 self._key(isolation_key),
                 token,
                 nx=True,
@@ -129,8 +138,12 @@ class RuntimeLock:
         """
         if self._redis is None or not token:
             return
+        from app.core import resilience
+
         try:
-            self._redis.eval(_RELEASE_SCRIPT, 1, self._key(isolation_key), token)
+            resilience.redis_call(
+                self._redis.eval, _RELEASE_SCRIPT, 1, self._key(isolation_key), token
+            )
         except Exception:
             logger.warning(
                 "runtime creation lock release failed; the lock will expire "

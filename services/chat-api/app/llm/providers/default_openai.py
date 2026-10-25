@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.llm.types import Message, Role, LLMResponse
 from app.llm.base import BaseLLMClient
+from app.llm.providers.pools import PROVIDER_DEFAULT_OPENAI, provider_http_client
 from app.infrastructure.observability.config import log_print
 from app.llm.structured_fallback import (
     build_structured_fallback_messages,
@@ -14,6 +15,9 @@ from app.llm.structured_fallback import (
 
 
 class DefaultOpenAIClient(BaseLLMClient):
+    #: FR-24 / T082：本通道独占的连接池 key（子类可覆盖，如 QwenClient）。
+    POOL_PROVIDER = PROVIDER_DEFAULT_OPENAI
+
     def __init__(
         self,
         api_key: str,
@@ -27,6 +31,8 @@ class DefaultOpenAIClient(BaseLLMClient):
         self.streaming = streaming
         self.structured_output_mode = str(structured_output_mode or "native").strip().lower()
         self._last_invocation_meta: Dict[str, Any] | None = None
+        provider = self.POOL_PROVIDER
+        kwargs.setdefault("http_client", provider_http_client(provider))
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,

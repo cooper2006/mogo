@@ -33,30 +33,41 @@ async def _check_panweidb() -> dict[str, Any]:
 
 
 async def _check_mongodb() -> dict[str, Any]:
-    from app.core import db
+    """023 T083：ping 走熔断器 + 5s 操作预算（FR-21/FR-22）。"""
+    from app.core import db, resilience
 
     payload: dict[str, Any] = {"backend": "mongo"}
     try:
         client = db.get_admin_db()
-        # motor 的 ping 需要 admin 库
-        await client.admin.command("ping")
-        payload["reachable"] = True
-    except Exception:
+    except Exception as exc:
         payload["reachable"] = False
+        payload["reason"] = resilience.PROBE_ERROR
+        payload["error"] = type(exc).__name__
+        return payload
+
+    result = await resilience.probe_mongo(client)
+    payload["reachable"] = result["ok"]
+    payload["reason"] = result["reason"]
+    if result.get("error"):
+        payload["error"] = result["error"]
     return payload
 
 
 async def _check_redis() -> dict[str, Any]:
     payload: dict[str, Any] = {"redis": "skipped"}
     try:
+        from app.core import resilience
         from app.core.rate_limiter import get_default_limiter
 
         limiter = get_default_limiter()
-        if limiter.backend == "redis" and limiter._redis is not None:
-            limiter._redis.ping()
-            payload["redis"] = "ok"
-        else:
+        client = getattr(limiter, "_redis", None)
+        if limiter.backend != "redis" or client is None:
             payload["redis"] = "not_configured"
+            return payload
+        resilience.register_redis_pool(client)
+        result = resilience.probe_redis(client)
+        payload["redis"] = "ok" if result["ok"] else "unreachable"
+        payload["redis_reason"] = result["reason"]
     except Exception:
         payload["redis"] = "unreachable"
     return payload

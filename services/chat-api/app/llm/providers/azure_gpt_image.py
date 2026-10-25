@@ -11,6 +11,8 @@ from typing import Any, Callable, Dict
 
 import httpx
 
+from app.llm.providers.pools import PROVIDER_AZURE_GPT_IMAGE, register_provider_pool
+
 LogHook = Callable[[str, Dict[str, Any]], None]
 
 
@@ -55,6 +57,18 @@ class AzureGptImageClient:
 
     def __init__(self, config: AzureGptImageConfig) -> None:
         self._config = config
+        # FR-24 / T082：图像通道每次调用新建 httpx.Client（自带独立 Limits），
+        # 天然不会与文本 provider 抢连接；这里登记声明上限，让隔离在
+        # PoolRegistry 里可观测、可断言，pool 句柄留空（无跨请求持久池）。
+        register_provider_pool(
+            PROVIDER_AZURE_GPT_IMAGE,
+            None,
+            max_connections=max(1, int(config.max_connections or 1)),
+            metadata={
+                "transport": "per-call httpx.Client",
+                "keepalive_connections": config.keepalive_connections,
+            },
+        )
 
     async def generate_image_async(
         self,

@@ -7,6 +7,7 @@ from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel
 
 from app.llm.base import BaseLLMClient
+from app.llm.providers.pools import PROVIDER_AZURE_OPENAI, provider_http_client
 from app.llm.types import LLMResponse, Message, Role
 from app.infrastructure.observability.config import log_print
 
@@ -27,6 +28,8 @@ class AzureOpenAIClient(BaseLLMClient):
         self.streaming = streaming
         self._last_invocation_meta: Dict[str, Any] | None = None
         kwargs.setdefault("timeout", 90.0)
+        # FR-24 / T082：azure-openai 走自己的连接池，与其他 provider 不共享配额。
+        kwargs.setdefault("http_client", provider_http_client(PROVIDER_AZURE_OPENAI))
         self.client = AsyncAzureOpenAI(
             api_key=api_key,
             azure_endpoint=azure_endpoint,
