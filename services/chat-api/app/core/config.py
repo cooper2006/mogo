@@ -3,10 +3,63 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
 
+_FEATURE_FLAG_RESOLVER = None
+
+
+def _feature_flag_entrypoint():
+    """024 T054 (FR-027)：定位并加载共享 feature flag 模块。
+
+    优先常规 import（PYTHONPATH 含 services/），失败则从本文件逐级向上搜索
+    `common/feature_flags.py`；全程不抛异常，失败时回退 env-only。
+    """
+    try:
+        import common.feature_flags as _cff  # type: ignore[import-not-found]
+
+        return _cff.resolve_flag
+    except Exception:
+        pass
+    try:
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        probe = Path(__file__).resolve()
+        for ancestor in [probe, *probe.parents]:
+            candidate = ancestor / "common" / "feature_flags.py"
+            if candidate.is_file():
+                spec = importlib.util.spec_from_file_location(
+                    "mogo_feature_flags", str(candidate)
+                )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules["mogo_feature_flags"] = module
+                spec.loader.exec_module(module)  # type: ignore[union-attr]
+                return module.resolve_flag
+    except Exception:
+        pass
+    return None
+
+
+def _feature_flag_value(name: str, default: bool = False) -> bool:
+    global _FEATURE_FLAG_RESOLVER
+    if _FEATURE_FLAG_RESOLVER is None:
+        _FEATURE_FLAG_RESOLVER = _feature_flag_entrypoint()
+    if _FEATURE_FLAG_RESOLVER is not None:
+        return bool(_FEATURE_FLAG_RESOLVER(name, default))
+    raw = os.environ.get("MOGO_FLAG_" + name.upper().replace("-", "_"))
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "MOGO"
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
+
+    # 024 T054 (FR-027)：统一 feature flag 读取入口（默认值来自 deploy/flags/flags.yml）
+    def feature_flag(self, name: str, default: bool = False) -> bool:
+        """读取特性开关当前值（布尔语义；未登记时返回 default）。"""
+        return bool(_feature_flag_value(name, default))
     
     # OpenAI
     # Model credentials are configured after the self-hosted control plane is

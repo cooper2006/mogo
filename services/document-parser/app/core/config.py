@@ -16,11 +16,61 @@ ANCIENT_ENV_PREFIX = "ASKAI_DOC_PROCESSING_"
 # 旧前缀按优先级排列；运行时只接受这些前缀下的键作为 MOGO_ 的回退。
 LEGACY_ENV_PREFIXES = (ANCIENT_ENV_PREFIX,)
 
+_FEATURE_FLAG_RESOLVER = None
+
+
+def _feature_flag_entrypoint():
+    """024 T054 (FR-027)：定位并加载共享 feature flag 模块。
+
+    优先常规 import（PYTHONPATH 含 services/），失败则从本文件逐级向上搜索
+    `common/feature_flags.py`；全程不抛异常，失败时回退 env-only。
+    """
+    try:
+        import common.feature_flags as _cff  # type: ignore[import-not-found]
+
+        return _cff.resolve_flag
+    except Exception:
+        pass
+    try:
+        import importlib.util
+        import sys
+
+        probe = Path(__file__).resolve()
+        for ancestor in [probe, *probe.parents]:
+            candidate = ancestor / "common" / "feature_flags.py"
+            if candidate.is_file():
+                spec = importlib.util.spec_from_file_location(
+                    "mogo_feature_flags", str(candidate)
+                )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules["mogo_feature_flags"] = module
+                spec.loader.exec_module(module)  # type: ignore[union-attr]
+                return module.resolve_flag
+    except Exception:
+        pass
+    return None
+
+
+def _feature_flag_value(name: str, default: bool = False) -> bool:
+    global _FEATURE_FLAG_RESOLVER
+    if _FEATURE_FLAG_RESOLVER is None:
+        _FEATURE_FLAG_RESOLVER = _feature_flag_entrypoint()
+    if _FEATURE_FLAG_RESOLVER is not None:
+        return bool(_FEATURE_FLAG_RESOLVER(name, default))
+    raw = os.environ.get("MOGO_FLAG_" + name.upper().replace("-", "_"))
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 
 class Settings(BaseSettings):
     app_env: str = "development"
     service_token: str = ""
     callback_token: str = ""
+    # 024 T054 (FR-027)：统一 feature flag 读取入口（默认值来自 deploy/flags/flags.yml）
+    def feature_flag(self, name: str, default: bool = False) -> bool:
+        """读取特性开关当前值（布尔语义；未登记时返回 default）。"""
+        return bool(_feature_flag_value(name, default))
     # 022 US3 (T027)：必须是绝对路径。旧默认是相对路径
     # (../admin-api/data/knowledge-documents)，在容器里既不存在也不可写；
     # compose 已把 knowledge-storage 卷挂到 /data/knowledge-documents。

@@ -11,6 +11,53 @@ logger = logging.getLogger(__name__)
 # 022 FR-11（T015）：access token 生命周期上限 1h（超出即启动告警，不阻断启动）
 MAX_ACCESS_TOKEN_TTL_SECONDS = 3600
 
+_FEATURE_FLAG_RESOLVER = None
+
+
+def _feature_flag_entrypoint():
+    """定位并加载共享 feature flag 模块（services/common/feature_flags.py）。
+
+    优先走常规 import（PYTHONPATH 已含 services/），失败则从本文件逐级向上搜索
+    `common/feature_flags.py`，覆盖容器 /app/<svc> 与本地两种布局。全程不抛
+    异常：加载失败时 `_feature_flag_value` 回退到「环境变量 + 显式 default」。
+    """
+    try:
+        import common.feature_flags as _cff  # type: ignore[import-not-found]
+
+        return _cff.resolve_flag
+    except Exception:
+        pass
+    try:
+        import importlib.util
+        import sys
+
+        probe = Path(__file__).resolve()
+        for ancestor in [probe, *probe.parents]:
+            candidate = ancestor / "common" / "feature_flags.py"
+            if candidate.is_file():
+                spec = importlib.util.spec_from_file_location(
+                    "mogo_feature_flags", str(candidate)
+                )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules["mogo_feature_flags"] = module
+                spec.loader.exec_module(module)  # type: ignore[union-attr]
+                return module.resolve_flag
+    except Exception:
+        pass
+    return None
+
+
+def _feature_flag_value(name: str, default: bool = False) -> bool:
+    global _FEATURE_FLAG_RESOLVER
+    if _FEATURE_FLAG_RESOLVER is None:
+        _FEATURE_FLAG_RESOLVER = _feature_flag_entrypoint()
+    if _FEATURE_FLAG_RESOLVER is not None:
+        return bool(_FEATURE_FLAG_RESOLVER(name, default))
+    raw = os.environ.get("MOGO_FLAG_" + name.upper().replace("-", "_"))
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 
 class Settings(BaseSettings):
     app_env: str = "development"
@@ -40,6 +87,11 @@ class Settings(BaseSettings):
     panweidb_password: str = ""
     panweidb_db: str = ""
     panweidb_schema: str = ""
+    # 024 T054 (FR-027)：统一 feature flag 读取入口。默认值来自
+    # deploy/flags/flags.yml，运行时可用 MOGO_FLAG_<NAME_UPPER> 环境变量覆盖。
+    def feature_flag(self, name: str, default: bool = False) -> bool:
+        """读取特性开关当前值（布尔语义；未登记时返回 default）。"""
+        return bool(_feature_flag_value(name, default))
     # 022 FR-17（T044）在 PG 侧的对应物：审计与业务**分离**。
     # MongoDB 用独立 database，PanWeiDB 用独立 schema。留空 = 与业务同 schema
     # （仅用于本地开发；生产应显式配置，否则审计链与业务共享备份/权限边界）。
