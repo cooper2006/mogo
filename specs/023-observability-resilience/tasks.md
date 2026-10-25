@@ -125,22 +125,76 @@
 **Goal**: 告警基于症状 + 分级 + 静默抑制 + 通知含排障入口 + Runbook + 排障看板。
 **独立测试**: SLO 违约触发 P0；告警分级生效；静默/抑制生效；通知含链接；Runbook 覆盖 5+ 场景；看板可下钻。
 
-- [ ] T061 修改 `deploy/alertmanager/alertmanager.yml`：配置告警分级路由（P0/P1/P2）、静默窗口、抑制规则
-- [ ] T062 创建 `deploy/alertmanager/receivers.yml`（或扩展 alertmanager.yml）：IM webhook（钉钉/飞书/企业微信）+ 邮件配置
-- [ ] T063 创建 `deploy/prometheus/alert-rules.yml`（或扩展 prometheus.yml）：SLO 违约告警规则（错误预算消耗速度超阈值）
-- [ ] T064 创建 `deploy/prometheus/alert-rules.yml`：关键路径错误率告警、服务 /ready 失败告警
-- [ ] T065 创建 `deploy/prometheus/alert-rules.yml`：资源阈值告警降级为 P2（CPU/内存/磁盘）
-- [ ] T066 告警通知模板：`deploy/alertmanager/templates/` — 通知模板含 Runbook 链接、Grafana 面板链接、Trace 查询链接
-- [ ] T067 创建 `docs/runbooks/README.md`：排障手册索引
-- [ ] T068 创建 `docs/runbooks/mongodb_unreachable.md`：MongoDB 不可达 Runbook（症状/影响/根因/恢复步骤/复盘模板）
-- [ ] T069 [P] 创建 `docs/runbooks/llm_timeout.md`：LLM provider 超时 Runbook
-- [ ] T070 [P] 创建 `docs/runbooks/redis_stall.md`：Redis 抖动 Runbook
-- [ ] T071 [P] 创建 `docs/runbooks/queue_backlog.md`：队列积压 Runbook
-- [ ] T072 [P] 创建 `docs/runbooks/certificate_expired.md`：证书过期 Runbook
-- [ ] T073 创建 `deploy/grafana/provisioning/dashboards/troubleshooting.json`：排障看板（服务概览 → 依赖健康 → 单个慢请求 span 下钻）
+- [x] T061 修改 `deploy/alertmanager/alertmanager.yml`：配置告警分级路由（P0/P1/P2）、静默窗口、抑制规则
+  · 路由树 P0/P1/P2 三分支，P2 落 `p2-log-only`（不发通知、仅 Alertmanager UI 记录）；
+    静默不写进配置文件（顶层 `silences` 是未知字段，会让 Alertmanager 启动即失败），
+    改由 `amtool silence add`/API 在维护窗口创建，规范写在 `docs/runbooks/README.md` §4；
+    抑制规则 3 条（P0 压同服务 P1/P2、NotReady 压同服务派生、ScrapeDown 压燃烧率）。
+- [x] T062 创建 `deploy/alertmanager/receivers.yml`（或扩展 alertmanager.yml）：IM webhook（钉钉/飞书/企业微信）+ 邮件配置
+  · 未新建 receivers.yml，直接在 alertmanager.yml 内定义 3 个 receiver
+    （`p0-im-and-mail` / `p1-im-and-mail` / `p2-log-only`），IM 以 webhook 指向 013
+    的多 IM 网关（钉钉/飞书/企业微信共用一个端点，按 `url` 区分）+ `email_configs` 双渠道；
+    P0 的 `repeat_interval: 30m`、`group_wait: 10s`，P1 为 2h/30s。
+- [x] T063 创建 `deploy/prometheus/alert-rules.yml`（或扩展 prometheus.yml）：SLO 违约告警规则（错误预算消耗速度超阈值）
+  · 新建 `deploy/prometheus/rules/alert-rules.yml`（**必须放进 `rules/`**：`rule_files` 只匹配
+    `/etc/prometheus/rules/*.yml`，写到 `deploy/prometheus/` 根目录会被静默忽略），group `mogo_slo_alerts`：
+    `MogoAvailabilityBurnRateFast`（5m+1h 双窗 > 14.4x → P0）、`…Medium`（6h > 6x → P1）、
+    `…Slow`（3d > 1x → P1）、`MogoLatencyP99High`（P99 > 3s 持续 10m → P1）、
+    `MogoLlmErrorRateHigh`（> 1% → P1）。
+  · **未采用**计划中的 `MogoAvailabilityBudgetExhausted`：它需要 `[30d]` 窗口，而 Prometheus
+    保留期是 15d（`MOGO_PROMETHEUS_RETENTION`），规则永远不会触发——写在仓库里等于假装有覆盖。
+    预算透支改由 `mogo:slo:availability:budget_remaining_ratio` 面板暴露。
+- [x] T064 创建 `deploy/prometheus/alert-rules.yml`：关键路径错误率告警、服务 /ready 失败告警
+  · group `mogo_service_health_alerts`：`MogoServiceScrapeDown`（`up == 0` 持续 2m → P0）、
+    `MogoServiceNotReady`（`probe_success == 0` 持续 2m → P0）、
+    `MogoCriticalPathErrorRateSpike`（>1% 且 >3× 自身 1h 基线 → P1）。
+  · 两条 P0 都用 `label_replace` 从 `job`/`instance` 补出 `service` 维度：`up` 与
+    `probe_success` 原生不带 service，缺了它按服务静默/抑制会全部失效。
+  · `MogoServiceNotReady` 依赖 blackbox-exporter（compose 未部署，同 T065 的资源规则），
+    文件头如实登记为「定义就绪」，不做假通过。
+- [x] T065 创建 `deploy/prometheus/alert-rules.yml`：资源阈值告警降级为 P2（CPU/内存/磁盘）
+  · group `mogo_resource_alerts`：`MogoHostCpuHigh`（>85% 15m）、`MogoHostMemoryHigh`（>90% 15m）、
+    `MogoHostDiskLow`（<15% 10m），均 `severity: P2` + `service: host`（主机级告警不属于任何应用服务，
+    显式给 service 才能被静默）。
+  · **依赖缺口**：三条规则读 `node_*`，而 compose 未部署 node-exporter，故当前不会触发；
+    文件头与 `docs/runbooks/README.md` §5 均如实声明「定义就绪」。
+- [x] T066 告警通知模板：`deploy/alertmanager/templates/` — 通知模板含 Runbook 链接、Grafana 面板链接、Trace 查询链接
+  · 新建 `deploy/alertmanager/templates/mogo.tmpl`，定义 `mogo.title` / `mogo.severity_hint`
+    （P0「≤5min 内响应」等分级提示）/ `mogo.links`（三个排障入口，缺 `trace_url` 时给兜底说明）
+    / `mogo.text` / `mogo.html` / `mogo.email.subject`。
+  · compose 补挂载 `./deploy/alertmanager/templates:/etc/alertmanager/templates:ro`：
+    只写 `templates:` 而不挂载，容器内目录为空、模板静默不生效。
+- [x] T067 创建 `docs/runbooks/README.md`：排障手册索引
+  · 含：告警→Runbook 映射表（10 条规则全覆盖）、8 个场景清单、P0/P1/P2 响应时限、
+    三个排障入口说明、静默/抑制操作规程、Runbook 五节写作规范。
+- [x] T068 创建 `docs/runbooks/mongodb_unreachable.md`：MongoDB 不可达 Runbook（症状/影响/根因/恢复步骤/复盘模板）
+  · 五节齐全 + 6 类根因（容器未起/磁盘满/OOM/连接池/网络隔离/选主失败）+ 明确禁止 `down -v`。
+- [x] T069 [P] 创建 `docs/runbooks/llm_timeout.md`：LLM provider 超时 Runbook
+  · 含 FR-22 三层超时（30s/10s/5s）与 FR-23 「401/403 必须立即失败、不重试不 failover」的判别。
+- [x] T070 [P] 创建 `docs/runbooks/redis_stall.md`：Redis 抖动 Runbook
+  · 用 `--latency-history` / `slowlog` / `INFO memory` 区分「网络慢」与「Redis 自己卡住」；禁止 `KEYS *`。
+- [x] T071 [P] 创建 `docs/runbooks/queue_backlog.md`：队列积压 Runbook
+  · 区分 worker 挂 / 单任务卡死 / 产能不足 / 重试放大；含 `processing` 卡死状态的数据修复路径。
+- [x] T072 [P] 创建 `docs/runbooks/certificate_expired.md`：证书过期 Runbook
+  · **如实登记监控盲区**：证书到期不会让 `/ready` 失败、也不会让 `up` 变 0，当前无专属告警规则；
+    文档给出 `openssl -checkend` 人工/脚本前置检查，并把「到期天数指标 + P0 规则」列为改进项。
+- [x] T073 创建 `deploy/grafana/provisioning/dashboards/troubleshooting.json`：排障看板（服务概览 → 依赖健康 → 单个慢请求 span 下钻）
+  · uid `mogo-troubleshooting`，4 个顶部 stat + 四层下钻面板（服务概览→依赖健康→热点路由→Trace）；
+    `trace_id` textbox 变量 + Tempo/Loki 双入口链接，链接指向 `docs/runbooks/README.md`。
 - [ ] T074 告警分级测试：模拟 SLO 违约 → 验证 P0 告警触发并触达 IM + 邮件
+  · **阻塞**：需要真实 Alertmanager 实例接收通知并核对 IM/邮件触达。本机 `docker compose` 可用，
+    但拉取 `prom/alertmanager:v0.27.0` 失败（registry-1.docker.io 返回 Bad Gateway，2026-10-25 实测），
+    本地也无该镜像。静态侧已由 T076 覆盖（路由分级/抑制规则结构校验），端到端触达待有镜像的环境补测。
 - [ ] T075 静默/抑制测试：维护窗口内告警不触发；同一根因去重
-- [ ] T076 通知模板测试：验证告警通知含 Runbook 链接 + Grafana 面板链接 + Trace 查询链接
+  · **阻塞**：同 T074，需运行中的 Alertmanager 才能验证 `amtool silence` 与 inhibit 实际行为。
+    静态侧已校验 3 条 inhibit_rules 结构合法且按 `service`/`component` 匹配。
+- [x] T076 通知模板测试：验证告警通知含 Runbook 链接 + Grafana 面板链接 + Trace 查询链接
+  · 新建 `deploy/tests/test_observability_alerting_config.py`（18 项全绿）：校验 10 条规则都有
+    `runbook_url` + `dashboard_url`、runbook 链接指向仓库内真实文件（防死链）、模板定义了
+    `mogo.links` 等入口、Alertmanager 顶层/receiver 无未知字段（否则启动即失败）、
+    `rule_files` 的容器路径在 compose 里确有挂载（否则规则静默失效）。
+  · 如实说明：PromQL 只做了括号配平与比较运算符的结构自检；权威校验需
+    `promtool check rules`，本机无法拉取 prom/prometheus 镜像。
 - [ ] T077 更新 QualityForge 缺陷（告警子域）：关闭对应 blocked 项
 
 ---

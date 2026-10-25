@@ -130,7 +130,7 @@ curl -s http://localhost:9090/api/v1/query --data-urlencode 'query=error_budget_
 
 **启用步骤**:
 1. 配置 Alertmanager（`deploy/alertmanager/alertmanager.yml`）
-2. 配置告警规则（`deploy/prometheus/alert-rules.yml`）
+2. 配置告警规则（`deploy/prometheus/rules/alert-rules.yml`）
 3. 配置通知模板（含 Runbook 链接、Grafana 面板链接、Trace 查询链接）
 4. 创建 Runbook 文档（`docs/runbooks/`）
 

@@ -1,0 +1,85 @@
+{{- /*
+  023 observability-resilience — T066（Phase 5，US4）
+  Alertmanager 通知模板：给 P0/P1 告警文案注入 FR-18 要求的三个排障入口
+  —— Runbook 链接、相关 Grafana 面板链接、Trace 查询链接。
+
+  使用方式：alertmanager.yml 的 `templates:` 挂载本文件，route 目标
+  receiver 的 email html/text 用 {{ template "mogo.html/text" . }}。
+  邮件 Subject 由 alertmanager.yml 的 email_configs.headers 引用
+  "mogo.email.subject"。
+
+  约定：告警规则的 annotations 里必须有 runbook_url / dashboard_url，
+  P0/P1 症状类告警还必须有 trace_url（资源类 P2 允许省略，模板给兜底）。
+  三类链接缺失时模板不会崩，会渲染成「（未配置）」并给出兜底入口——
+  排障入口不能在告警里静默消失。
+*/ -}}
+
+{{- define "mogo.email.subject" -}}
+{{- $sev := "P2" }}{{ if index .CommonLabels "severity" }}{{ $sev = index .CommonLabels "severity" }}{{ end -}}
+{{- $name := index .CommonLabels "alertname" | default "MogoAlert" -}}
+{{- $svc := index .CommonLabels "service" | default "mogo" -}}
+[{{ $sev }}] {{ $svc }} · {{ $name }} ({{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ len .Alerts.Firing }}{{ end }})
+{{- end -}}
+
+{{- define "mogo.title" -}}
+{{- $sev := "P2" }}{{ if index .CommonLabels "severity" }}{{ $sev = index .CommonLabels "severity" }}{{ end -}}
+[{{ $sev }}] {{ index .CommonLabels "alertname" | default "MogoAlert" }} @ {{ index .CommonLabels "service" | default "mogo" }}
+{{- end -}}
+
+{{- define "mogo.severity_hint" -}}
+{{- $sev := "P2" }}{{ if index .CommonLabels "severity" }}{{ $sev = index .CommonLabels "severity" }}{{ end -}}
+{{- if eq $sev "P0" -}}
+P0 · 立即处理，值班响应 ≤ 5min（IM + 邮件并发强制触达）
+{{- else if eq $sev "P1" -}}
+P1 · 尽快处理，值班响应 ≤ 15min（IM + 邮件）
+{{- else -}}
+P2 · 仅记录，响应 ≤ 4h（不发通知，可在 Alertmanager UI 查看）
+{{- end -}}
+{{- end -}}
+
+{{/* FR-18：三类排障入口 —— 缺任何一个都显式暴露，不静默吞掉 */}}
+{{- define "mogo.links" -}}
+{{- $rb := index .CommonAnnotations "runbook_url" -}}
+{{- $gr := index .CommonAnnotations "dashboard_url" -}}
+{{- $tr := index .CommonAnnotations "trace_url" -}}
+Runbook : {{ if $rb }}{{ $rb }}{{ else }}（未配置）docs/runbooks/README.md{{ end }}
+Grafana : {{ if $gr }}{{ $gr }}{{ else }}（未配置）http://localhost:3001/d/mogo-troubleshooting{{ end }}
+Trace   : {{ if $tr }}{{ $tr }}{{ else }}（未配置）http://localhost:3001/explore 选择 Tempo 数据源后按 trace_id 过滤{{ end }}
+{{- end -}}
+
+{{- define "mogo.text" -}}
+{{ template "mogo.title" . }}
+
+{{ template "mogo.severity_hint" . }}
+状态: {{ .Status | toUpper }}
+开始时间: {{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 MST" }}
+{{ if .Alerts.Resolved }}恢复时间: {{ (index .Alerts.Resolved 0).EndsAt.Format "2006-01-02 15:04:05 MST" }}{{ end }}
+
+{{ range .Alerts -}}
+摘要: {{ index .Annotations "summary" | default "(无摘要)" }}
+详情: {{ index .Annotations "description" | default "(无详情)" }}
+{{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+
+{{ end -}}
+── 排障入口 ──────────────────────────────────
+{{ template "mogo.links" . }}
+──────────────────────────────────────────────
+
+处置完成后请按 Runbook 末尾的「事后复盘模板」补齐复盘记录。
+静默（计划维护）或抑制（同一根因去重）生效期间不会重复打扰；
+如确认误报，请调整 deploy/prometheus/alert-rules.yml 的阈值而不是长期静默。
+{{- end -}}
+
+{{- define "mogo.html" -}}
+<h2>{{ template "mogo.title" . }}</h2>
+<p><strong>{{ template "mogo.severity_hint" . }}</strong></p>
+<p>状态: {{ .Status | toUpper }}<br/>
+开始时间: {{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 MST" }}</p>
+{{ range .Alerts -}}
+<p><strong>摘要:</strong> {{ index .Annotations "summary" | default "(无摘要)" }}<br/>
+<strong>详情:</strong> {{ index .Annotations "description" | default "(无详情)" }}</p>
+{{ end -}}
+<h3>排障入口</h3>
+<pre>{{ template "mogo.links" . }}</pre>
+<p>处置完成后请按 Runbook 末尾的「事后复盘模板」补齐复盘记录。</p>
+{{- end -}}

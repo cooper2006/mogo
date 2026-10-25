@@ -1,0 +1,141 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "服务健康 (up)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "up{job=~\".*-api|document-parser|document-worker\"}", "refId": "A", "legendFormat": "{{job}}"}
+      ]
+    },
+    {
+      "id": 2,
+      "title": "请求速率 (req/s)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(mogo_http_requests_total[5m]))", "refId": "A", "legendFormat": "total"}
+      ]
+    },
+    {
+      "id": 3,
+      "title": "5xx 错误率",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(mogo_http_requests_total{status_class=\"5xx\"}[5m])) / clamp_min(sum(rate(mogo_http_requests_total[5m])), 0.0001)",
+          "refId": "A",
+          "legendFormat": "5xx ratio"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "P99 延迟 (s)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le)(rate(mogo_http_request_duration_seconds_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "第 1 层：服务概览 — 请求速率 / 错误速率（按服务）",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"expr": "sum by (service)(rate(mogo_http_requests_total[1m]))", "refId": "A", "legendFormat": "{{service}} 请求"},
+        {"expr": "sum by (service)(rate(mogo_http_errors_total[1m]))", "refId": "B", "legendFormat": "{{service}} 错误"}
+      ]
+    },
+    {
+      "id": 6,
+      "title": "第 1 层：服务概览 — P99 / P50 延迟（按服务）",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"expr": "histogram_quantile(0.99, sum by (le, service)(rate(mogo_http_request_duration_seconds_bucket[1m])))", "refId": "A", "legendFormat": "{{service}} p99"},
+        {"expr": "histogram_quantile(0.50, sum by (le, service)(rate(mogo_http_request_duration_seconds_bucket[1m])))", "refId": "B", "legendFormat": "{{service}} p50"}
+      ]
+    },
+    {
+      "id": 7,
+      "title": "第 2 层：依赖健康 — inflight 并发与慢请求占比",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {"expr": "sum by (service)(mogo_http_inflight_requests)", "refId": "A", "legendFormat": "{{service}} inflight"},
+        {
+          "expr": "sum(rate(mogo_http_request_duration_seconds_bucket{le=\"+Inf\"}[5m])) - sum(rate(mogo_http_request_duration_seconds_bucket{le=\"1.0\"}[5m]))",
+          "refId": "B",
+          "legendFormat": "耗时 > 1s 的请求/秒"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "第 2 层：依赖健康 — LLM provider 错误率与 P95 耗时",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {"expr": "sum by (provider)(rate(mogo_chat_llm_calls_total{status=\"error\"}[5m])) / clamp_min(sum by (provider)(rate(mogo_chat_llm_calls_total[5m])), 0.0001)", "refId": "A", "legendFormat": "{{provider}} 错误率"},
+        {"expr": "histogram_quantile(0.95, sum by (le, provider)(rate(mogo_chat_llm_request_duration_seconds_bucket[5m])))", "refId": "B", "legendFormat": "{{provider}} p95"}
+      ]
+    },
+    {
+      "id": 9,
+      "title": "第 3 层：热点路由 — 按 path_template 的错误与 P99",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "targets": [
+        {"expr": "topk(5, sum by (path_template)(rate(mogo_http_errors_total[5m])))", "refId": "A", "legendFormat": "{{path_template}} 错误/秒"},
+        {"expr": "topk(5, histogram_quantile(0.99, sum by (le, path_template)(rate(mogo_http_request_duration_seconds_bucket[5m]))))", "refId": "B", "legendFormat": "{{path_template}} p99"}
+      ]
+    },
+    {
+      "id": 10,
+      "title": "第 4 层：Trace 下钻（填入 trace_id 后点链接）",
+      "type": "text",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "options": {
+        "mode": "markdown",
+        "content": "### 单请求定位\n\n1. 从错误日志 / 响应头拿到 `trace_id`（未开启 tracing 时为空）。\n2. 在顶部变量 `trace_id` 填入后，点下面的链接直达 Tempo：\n\n   [在 Grafana Explore 中查看该 trace](http://localhost:3001/explore?left=%7B%22datasource%22:%22mogo-tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceId%22,%22query%22:%22${trace_id}%22%7D%5D%7D)\n\n3. 用同一 `trace_id` 反查日志（Loki）：\n\n   `{service=\"chat-api\"} | json | trace_id=\"${trace_id}\"`\n\n> 排障顺序遵守「先分层再下钻」：服务概览（面板 5/6）→ 依赖健康（7/8）→ 热点路由（9）→ 单条 trace（本面板）。\n> 对应处置步骤见 [docs/runbooks/README.md](../../../docs/runbooks/README.md)。"
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mogo", "troubleshooting"],
+  "templating": {
+    "list": [
+      {
+        "current": {"selected": false, "text": "", "value": ""},
+        "hide": 0,
+        "label": "trace_id",
+        "name": "trace_id",
+        "options": [],
+        "query": "",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "MOGO Troubleshooting",
+  "uid": "mogo-troubleshooting",
+  "version": 1
+}

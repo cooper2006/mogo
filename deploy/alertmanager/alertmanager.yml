@@ -1,73 +1,137 @@
-# 023 observability-resilience (T013)
-# Alertmanager 路由 / 分级 / 静默 / 抑制 + IM webhook 通知。
+# 023 observability-resilience — T061 / T062（Phase 5，US4 告警与排障）
+#
+# Alertmanager 路由 / 分级 / 抑制 + IM webhook 与邮件双渠道。
 #
 # OQ-5 决策（2026-10-24）：告警渠道 = IM webhook（钉钉/飞书/企业微信，
-# 复用 013 特性既有渠道实现）+ 邮件；电话/语音为 Non-Goal；P0 文案
-# 必须携带 Grafana 面板链接 + Runbook 链接（T066 的模板负责）。
+# 复用 013 特性既有渠道实现）+ 邮件；电话/语音为 Non-Goal。
+# FR-17 原文「P0 需电话/语音升级或强制弹窗」——因 OQ-5 把电话/语音列为
+# Non-Goal，P0 的「强制」以**双渠道并发 + 10s 内首发 + 30min 高频重复**
+# 落地（IM 与邮件同时投递，不等确认）。
 #
-# 启用：`docker compose --profile observability up -d alertmanager`
-# prometheus 的 alerting.alertmanagers.stack 指向 alertmanager:9093。
+# FR-18：P0/P1 通知必须携带 Runbook 链接 + Grafana 面板链接 + Trace 查询
+# 链接 —— 由 templates/mogo.tmpl 渲染，本文件只负责把模板挂进去。
 #
-# ── 通知渠道占位 ─────────────────────────────────────────────────────
-# IM webhook URL 不写死在仓库：通过 compose 环境变量注入到
-# receiver 的 webhook config 里（compose 的 configmap 方式）。
-# 本地调试可以跑通（没有真实 webhook URL 时 IM 通知会静默失败，
-# 不影响栈自身健康）。生产启用渠道：
-#   1. 把 deploy/alertmanager/webhook-*.yml 的 URL 指向 013 既有渠道
-#      （钉钉/飞书/企业微信的机器人 webhook 端点）；
-#   2. 在 alertmanager 的 route 里加 receiver；
-#   3. 邮箱通知：SMTP 配置放在 deploy/alertmanager/smtp.env（gitignore），
-#      通过 env 注入 alertmanager 镜像的 --web.external-url。
+# ── 校验与启用 ───────────────────────────────────────────────────────
+#   amtool check-config deploy/alertmanager/alertmanager.yml   # 若本机有 amtool
+#   docker compose --profile observability up -d alertmanager
+#
+# ── 真实渠道注入（不在仓库里写死凭据）────────────────────────────────
+# 下面的 receiver URL 全部是本地占位地址（127.0.0.1:9999），不会真的把告警
+# 发出去，也不影响栈自身健康。生产启用步骤：
+#   1. 把 p0-im-and-mail / p1-im-and-mail 的 webhook url 换成 013 既有渠道的
+#      机器人 webhook 端点（钉钉/飞书/企业微信）；
+#   2. SMTP：global.smtp_smarthost / smtp_from 换成真实值，口令走
+#      `smtp_auth_password_file`（文件挂进容器，不落仓库）；
+#   3. 渠道凭据统一从部署环境的 secret 注入，禁止提交到仓库
+#      （scripts/check-secrets.sh 会拦截）。
+#
+# 上一版（T013）存在的两处**非法字段**已在本轮修正：
+#   - receivers[].webhook_url_template：Alertmanager 无此字段
+#   - 顶层 silences：静默是运行时 API 对象，不是配置字段
+# 两者都会让 `alertmanager --config.file=...` 以 unknown field 启动失败。
+
 global:
   resolve_timeout: 5m
-  # 023 T066 通知模板（Grafana/Runbook/Trace 链接注入）暂以默认
-  # 模板渲染；T066 落地后把 templates/ 目录挂进容器并追加：
-  #   templates:
-  #     - /etc/alertmanager/templates/*.tmpl
+  # 邮件渠道（占位；生产替换为真实 SMTP）
+  smtp_smarthost: "127.0.0.1:25"
+  smtp_from: "alerts@mogo.local"
+  smtp_require_tls: false
 
+# FR-18：通知模板（Runbook / Grafana / Trace 三类排障入口）
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+# ── 路由：按 severity 分级（FR-17）─────────────────────────────────────
+#   P0 → IM + 邮件并发，10s 首发，30min 重复（强制触达）
+#   P1 → IM + 邮件，30s 首发，2h 重复（值班响应 ≤ 15min）
+#   P2 → 仅记录（Alertmanager UI/API 可见，不发通知；响应 ≤ 4h）
 route:
-  receiver: default
-  group_by: ["alertname", "service"]
+  # 未命中任何子路由的告警落到 P2（仅记录），避免默认路径把噪音推给值班
+  receiver: p2-log-only
+  group_by: ["alertname", "service", "severity"]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
-  # 静默（maintenance window）—— 示例见 silences: 段；运行时可用
-  # `curl -X POST http://localhost:9093/api/v1/silences` 创建。
   routes:
-    # P0（SLO 违约 / /ready 失败）：立即通知 + 分级重复
-    - matchers: ['severity="P0"']
-      receiver: p0-im-webhook
+    - matchers:
+        - 'severity="P0"'
+      receiver: p0-im-and-mail
+      group_wait: 10s
+      group_interval: 1m
       repeat_interval: 30m
-    # P1（关键路径错误率 / 资源告警降级之外）
-    - matchers: ['severity="P1"']
-      receiver: p1-im-webhook
-    # P2（资源阈值 CPU/内存/磁盘）默认继承最外层 receiver，
-    # 不再重复升级 IM 告警，只走 default（debug/邮件兜底）。
-  # 抑制：P0 服务不可用时，抑制该服务的 P1/P2 告警（避免同一根因刷屏）
-  inhibit_rules:
-    - source_matchers: ['severity="P0"']
-      target_matchers: ['severity="P1"']
-      equal: ["alertname", "service"]
-    - source_matchers: ['severity="P0"']
-      target_matchers: ['severity="P2"']
-      equal: ["service"]
+      continue: false
 
+    - matchers:
+        - 'severity="P1"'
+      receiver: p1-im-and-mail
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 2h
+      continue: false
+
+    - matchers:
+        - 'severity="P2"'
+      receiver: p2-log-only
+      group_wait: 1m
+      group_interval: 30m
+      repeat_interval: 24h
+      continue: false
+
+# ── 抑制：同一根因去重（FR-17「抑制」）─────────────────────────────────
+# 静默（维护窗口）是运行时对象，用 amtool / API 创建，不写在这里：
+#   amtool silence add --alertmanager.url=http://localhost:9093 \
+#     --duration=2h --comment="计划维护" 'service="chat-api"'
+#   curl -X POST http://localhost:9093/api/v2/silences -d @silence.json
+# 维护窗口模板见 docs/runbooks/README.md「静默与抑制」节。
+inhibit_rules:
+  # P0 服务不可用/P0 SLO 违约时，抑制同服务的 P1/P2，避免同一根因刷屏
+  - source_matchers:
+      - 'severity="P0"'
+    target_matchers:
+      - 'severity=~"P1|P2"'
+    equal: ["service", "component"]
+
+  # /ready 失败是「服务根本不可用」的根因，抑制该服务的其余症状告警
+  - source_matchers:
+      - 'alertname="MogoServiceNotReady"'
+    target_matchers:
+      - 'severity=~"P1|P2"'
+    equal: ["service"]
+
+  # 抓取中断（进程级不可用）时，抑制同服务的燃烧率/延迟等派生症状告警
+  - source_matchers:
+      - 'alertname="MogoServiceScrapeDown"'
+    target_matchers:
+      - 'alertname=~"MogoAvailabilityBurnRate.*|MogoLatencyP99High"'
+    equal: ["service"]
+
+# ── 接收端（T062）─────────────────────────────────────────────────────
 receivers:
-  # 默认兜底：生产启用 013 渠道后这里换成真实 webhook/邮件
-  # 渠道；默认不写真实 URL，避免误发。
-  - name: default
+  # P0：IM + 邮件并发（OQ-5 双渠道）
+  - name: p0-im-and-mail
     webhook_configs:
-      - url: "http://localhost:9999/alerts"  # 占位（无效地址，本地调试用）
+      - url: "http://127.0.0.1:9999/im/p0"
+        send_resolved: true
+        max_alerts: 0
+    email_configs:
+      - to: "oncall-p0@mogo.local"
+        send_resolved: true
+        headers:
+          Subject: '[P0] {{ template "mogo.email.subject" . }}'
+          X-Mogo-Severity: P0
 
-  # P0 IM webhook（钉钉/飞书/企业微信端点）
-  - name: p0-im-webhook
+  # P1：IM + 邮件
+  - name: p1-im-and-mail
     webhook_configs:
-      - url: "http://localhost:9999/p0"      # 占位；启用 013 渠道后换成真实 webhook
-    webhook_url_template: ""
+      - url: "http://127.0.0.1:9999/im/p1"
+        send_resolved: true
+        max_alerts: 0
+    email_configs:
+      - to: "oncall@mogo.local"
+        send_resolved: true
+        headers:
+          Subject: '[P1] {{ template "mogo.email.subject" . }}'
+          X-Mogo-Severity: P1
 
-  # P1 IM webhook
-  - name: p1-im-webhook
-    webhook_configs:
-      - url: "http://localhost:9999/p1"      # 占位；启用 013 渠道后换成真实 webhook
-
-silences: []
+  # P2：仅记录 —— 无任何 notifier，告警仍可在 Alertmanager UI/API 查询
+  - name: p2-log-only

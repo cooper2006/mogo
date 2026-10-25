@@ -1,3 +1,11 @@
-# 023 Phase 1 占位：SLO recording rules（T053）与告警规则（T063–T065）
-# 在 Phase 4/5 落地时替换为真实 rule set（prometheus 要求 rules/ 非空）。
+# 023 Phase 1 预留的「rules 目录非空」守卫。
+#
+# prometheus 要求 rule_files 至少匹配到一个文件，否则启动失败；Phase 1 时
+# 真实规则尚未落地，因此用本文件占位。现在真实规则已就位：
+#
+#   - slo_recording.yml    SLO recording rules（T053）
+#   - alert-rules.yml      SLO / 症状 / 资源告警规则（T063–T065）
+#
+# 本文件保留为无副作用的空 groups（不产生任何 recording rule 或告警）。
+# 请勿在此基础上添加规则——新规则写进上面两个文件，便于按域定位。
 groups: []

@@ -925,6 +925,11 @@ services:
       - "--web.enable-lifecycle"
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # 023 T053/T063–T065：SLO recording rules + 告警规则。
+      # prometheus.yml 的 rule_files 指向 /etc/prometheus/rules/*.yml，
+      # 早期版本漏了这个挂载 → 规则目录在容器内不存在、规则从未被加载
+      # （栈看起来健康，但既没有 SLO 记录也没有任何告警）。
+      - ./deploy/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     networks:
       - backend
@@ -969,6 +974,10 @@ services:
       - "--storage.path=/alertmanager"
     volumes:
       - ./deploy/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      # 023 T066：通知模板（Runbook / Grafana / Trace 三个排障入口）。
+      # alertmanager.yml 的 templates: 指向 /etc/alertmanager/templates/*.tmpl，
+      # 早期版本漏了这个挂载 → 模板目录在容器内不存在，通知渲染会失败。
+      - ./deploy/alertmanager/templates:/etc/alertmanager/templates:ro
       - alertmanager-data:/alertmanager
     networks:
       - backend
