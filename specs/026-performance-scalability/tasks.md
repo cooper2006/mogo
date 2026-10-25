@@ -88,7 +88,7 @@
   - 证据: （FR-17）；实现：`cache_protection.py` 的 `AvalancheGuard`（`jittered_ttl` ±10% 随机，复用 `TTLPolicy`），vendored 三份；验证：`TestAvalancheGuard` 2 用例通过（30 次抖动均在 90-110 区间）
 - [x] T028 [P] 实现 `cache/memoize.py` 记忆化装饰器 `@cache_result`：对纯函数调用自动缓存结果（FR-19）
   - 证据: 实现：权威源 `services/common/cache_memoize.py` 的 `@cache_result` 装饰器（`_make_key` 用 qualname+args+kwargs 生成稳定 SHA1 key，支持显式 cache_key/ttl/tags，None 与生成器不缓存），vendored 三服务 `app/cache/memoize.py`；验证：`pytest tools/tests/test_cache_protection.py::TestMemoize` 6 用例通过（命中跳过重算、参数区分、事件失效后重算）
-- [ ] T029 热点数据接入缓存：会话（session）/ 配置（config）/ 权限（permission）/ token 四类热点数据接入 `cache/manager.py`（FR-13）
+- [x] T029 热点数据接入缓存：会话（session）/ 配置（config）/ 权限（permission）/ token 四类热点数据接入 `cache/manager.py`（FR-13）  证据：权威源 `services/common/cache_hotspots.py` 的 `HotspotCache` 门面（session/config/permission/token 四类，`hotspot:{kind}:{ident}` 稳定 key + `hotspot:{kind}` 事件失效 tag）；`put` 走 `TTLPolicy.jittered_ttl` ±10% 抖动（T027 雪崩防护）、`delete(kind)` 走 `forget_tag` 整类失效（T024）、`invalidate_all` 一键失效四类、`stats()` 透出命中率（T030 消费）；复用 `build_manager_from_settings`，vendored 三服务 `app/cache/hotspots.py` 字节一致（SHA256 四份同）。验证：`pytest services/chat-api/tests/cache/test_hotspot_cache.py` → 16 passed。
 - [x] T030 [P] 缓存命中率监控：命中率指标落库，< 80% 告警，供 008 驾驶舱消费（FR-18）
   - 证据: 实现：权威源 `services/common/cache_metrics.py` 的 `CacheMetricsReporter`（`collect()` 快照 + `report()` 落库到 kpi_store 的 `cache_hit_rate`/`cache_stats` + 命中率 < 0.8 告警，interval 30s 防高频），vendored 三服务 `app/cache/metrics.py`；验证：`TestCacheMetricsReporter` 5 用例通过，冒烟 `hit_rate 0.5 -> breached=True`
 - [x] T031 [P] 缓存容量与淘汰策略：Redis `maxmemory-policy` = `allkeys-lru`，容量上限可配（FR-20）
