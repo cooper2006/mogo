@@ -68,7 +68,12 @@
   - CI：quality-gate.yml 新增 `API status-code semantics (025 T011)` job（`admin-api` 矩阵，纯 stdlib）。
   - **保守口径（如实声明）**：扫描器**只判错误语义**，对「成功路径应返回 200/201/204」「重定向 301/302」「缓存 304」这类规范不做静态强制——创建类端点是否该返回 201、重定向/缓存语义需人工 review，静态扫描无法可靠判定，不纳入自动门禁。
 - [ ] T012 未知字段策略统一（QF-210）：全局 Pydantic 配置 `model_config = ConfigDict(extra='ignore')`（默认）；严格 schema 显式声明 `extra='forbid'`；扫描 `services/*/app/schemas/` 所有 schema 文件确保一致
-- [ ] T013 [P] 创建 `services/admin-api/app/middleware/payload_limit.py`：载荷大小/深度/数组长度限制中间件（FR-5, QF-211）；超限返回 413/422
+- [x] T013 [P] 创建 `services/admin-api/app/middleware/payload_limit.py`：载荷大小/深度/数组长度限制中间件（FR-5, QF-211）；超限返回 413/422
+  - **证据（2026-10-25）**：新增 `services/admin-api/app/middleware/payload_limit.py`（纯 ASGI 中间件，不用 `BaseHTTPMiddleware`）。
+  - 限制：请求体 > `max_bytes` → **413**；JSON 嵌套深度 > `max_depth`、数组元素数 > `max_array_length`、字符串长度 > `max_string_length` → **422**；路径级 `overrides` 生效（`for_path()` 最长前缀）。
+  - **关键实现**：先读完受限 body 再以缓存流转发下游（`cached_receive`），否则下游拿到已消费的空流读不到 body。仅 `Content-Type` 含 `application/json` 时做结构校验；body 不是合法 JSON 时不在此处报错，交下游返回 400。
+  - 行为测试 `services/admin-api/tests/test_payload_limit_t013.py`（9 用例全绿）：超 `max_bytes` 413 / 非 JSON 超字节仍 413 / 深度超限 422 / 数组超限 422 / 字符串超限 422 / 合法 JSON 放行且下游读到完整 body / 非 JSON 放行 / GET 无 body 放行 / `/internal` 前缀 override 放宽到 500 字节生效。
+  - **说明**：本轮**未把中间件挂载到 admin-api app**（避免影响现有测试与 032 既有失败项）；T048 统一装配时接入。
 - [x] T014 创建 `services/admin-api/app/config/payload_limits.yaml`：载荷限制配置（大小 10MB/深度 16/数组 10000，可配）
   - **证据（2026-10-25）**：新增 `services/admin-api/app/config/payload_limits.yaml`（+`__init__.py`），默认值 `max_bytes: 10485760`(10 MiB, 413) / `max_depth: 16`(422) / `max_array_length: 10000`(422) / `max_string_length: 1048576`(1 MiB, 422)；`overrides` 按路径前缀放宽 `/internal`、`/internal/personal-knowledge` 到 `max_bytes: 20971520`。
   - 配套加载器 `app/config/payload_limits.py::load_payload_limits()`：`PayloadLimits`（frozen dataclass）解析 yaml；`for_path()` 按**最长前缀**叠加路由级覆盖；环境变量 `MOGO_PAYLOAD_LIMITS_<KEY>` 逐项覆盖；yaml 缺失或损坏时回退内置默认值并 `logger.warning`（保证中间件仍能启动）。
