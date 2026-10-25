@@ -14,6 +14,8 @@ from app.middleware.cors import build_cors_middleware_kwargs
 from app.core.config import get_settings
 from app.infrastructure.observability.config import configure_logging
 from app.infrastructure.observability.spans import log_span
+from app.observability.logging import init_chat_logging
+from app.observability.health import router as health_router
 from app.infrastructure.request_context import merge_request_context, reset_request_context
 from app.infrastructure.runtime_services import action_receipt_store, token_usage_dispatcher
 from pymongo.errors import OperationFailure
@@ -34,6 +36,7 @@ _ensure_utf8_stdio()
 
 settings = get_settings()
 configure_logging(settings)
+init_chat_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -256,6 +259,8 @@ if settings.ENABLE_DEMO_ENDPOINTS:
     app.include_router(mock_sales_review.router, prefix="/api")
     app.include_router(mock_store_audit.router, prefix="/api")
     app.include_router(mock_store_diagnosis.router, prefix="/api")
+    # 023 T018：observability health_router（/ready 依赖可达性检查）
+    app.include_router(health_router)
 
 async def _ensure_end_user_login_name_index(db) -> None:
     desired_key = {"tenant_id": 1, "login_name": 1}

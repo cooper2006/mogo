@@ -296,3 +296,103 @@ def metrics_asgi_app(service_name: str) -> Any:
 def status_class(status_code: int) -> str:
     """label 白名单收敛：具体状态码 → 类别（FR-12）。"""
     return f"{status_code // 100}xx"
+
+
+# ─────────────────────────── T024 启动自检 ───────────────────────────
+
+_selfcheck_results: dict[str, dict[str, Any]] = {}
+
+
+def _check_mongo(uri: str, timeout: float = 2.0) -> dict[str, Any]:
+    """MongoDB ping 自检。"""
+    try:
+        from pymongo import MongoClient
+        client = MongoClient(uri, serverSelectionTimeoutMS=int(timeout * 1000))
+        client.admin.command("ping")
+        client.close()
+        return {"ok": True, "detail": "ping ok"}
+    except Exception as exc:
+        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+
+
+def _check_redis(url: str, timeout: float = 2.0) -> dict[str, Any]:
+    """Redis ping 自检。"""
+    try:
+        import redis as _redis_mod
+        client = _redis_mod.Redis.from_url(
+            url, socket_timeout=timeout, socket_connect_timeout=timeout
+        )
+        client.ping()
+        client.close()
+        return {"ok": True, "detail": "ping ok"}
+    except Exception as exc:
+        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+
+
+def _check_llm_provider(base_url: str, timeout: float = 2.0) -> dict[str, Any]:
+    """LLM provider 连通性自检（HTTP GET /models 或根路径）。"""
+    try:
+        import urllib.request
+        req = urllib.request.Request(base_url.rstrip("/") + "/v1/models", method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return {"ok": resp.status < 400, "detail": f"HTTP {resp.status}"}
+    except Exception as exc:
+        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+
+
+def _check_config_files(paths: list[str]) -> dict[str, Any]:
+    """配置文件完整性自检（存在 + 可读）。"""
+    results = {}
+    for p in paths:
+        try:
+            with open(p, "r") as f:
+                f.read(1)
+            results[p] = {"ok": True, "detail": "readable"}
+        except Exception as exc:
+            results[p] = {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+    all_ok = all(v["ok"] for v in results.values())
+    return {"ok": all_ok, "detail": results}
+
+
+def startup_selfcheck(
+    *,
+    mongo_uri: str | None = None,
+    redis_url: str | None = None,
+    llm_base_url: str | None = None,
+    config_paths: list[str] | None = None,
+    service_name: str = "unknown",
+) -> dict[str, Any]:
+    """T024 启动自检：依赖可达性 + 配置文件完整性。
+
+    设计约束（FR-5 / T024）：
+    - **自检失败不退出**：失败结果写入 `_selfcheck_results`，由 /ready 端点读取返回 503。
+    - 幂等：重复调用只覆盖结果，不累积。
+    - 零依赖：mongo/redis/llm 检查均懒加载 import，未配置时跳过。
+    """
+    global _selfcheck_results
+
+    results: dict[str, Any] = {"service": service_name, "checks": {}}
+
+    if mongo_uri:
+        results["checks"]["mongodb"] = _check_mongo(mongo_uri)
+    if redis_url:
+        results["checks"]["redis"] = _check_redis(redis_url)
+    if llm_base_url:
+        results["checks"]["llm_provider"] = _check_llm_provider(llm_base_url)
+    if config_paths:
+        results["checks"]["config_files"] = _check_config_files(config_paths)
+
+    all_ok = all(
+        v.get("ok", False)
+        for v in results["checks"].values()
+        if isinstance(v, dict) and "ok" in v
+    )
+    results["ok"] = all_ok
+
+    _selfcheck_results[service_name] = results
+    return results
+
+
+def get_selfcheck_results(service_name: str) -> dict[str, Any]:
+    """获取指定服务的启动自检结果（/ready 端点读取用）。"""
+    return _selfcheck_results.get(service_name, {})

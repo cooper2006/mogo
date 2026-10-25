@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -37,6 +37,8 @@ from app.services.skill_market.quality_metrics import SkillQualityScanner
 from app.services.skill_market.canary import CanaryRollbackScanner
 from app.api.routes.trust_ratings import ensure_trust_indexes
 from app.services.trust_rating.downgrade_scanner import TrustRatingDowngradeScanner
+from app.observability.logging import init_admin_logging, get_admin_logger
+from app.observability.health import router as health_router
 
 
 # 016 periodic effect-score assessment (closed-loop write to skill_adoption).
@@ -47,10 +49,13 @@ _CANARY_ROLLBACK_SCANNER = CanaryRollbackScanner()
 _TRUST_DOWNGRADE_SCANNER = TrustRatingDowngradeScanner()
 
 
-logger = logging.getLogger(__name__)
+logger = get_admin_logger(__name__)
 
 
 def create_app() -> FastAPI:
+    # 023 T014: 初始化结构化日志（structlog JSON）
+    init_admin_logging()
+
     # QF-447/448: Disable docs endpoints in production
     # 022 FR-18（T042）：生产环境判定覆盖 prod/release 别名。
     is_prod = str(settings.app_env).strip().lower() in {"production", "prod", "release"}
@@ -99,6 +104,27 @@ def create_app() -> FastAPI:
         except Exception:  # pragma: no cover - 健康检查自身绝不应抛错
             logger.warning("采集数据后端健康信息失败", exc_info=True)
         return payload
+
+    # 023 T016: /ready 就绪检查端点（依赖不可达返回 503）
+    app.include_router(health_router)
+
+    @app.post("/admin/log-level", tags=["system"])
+    async def set_log_level(body: dict = Body(...)) -> dict[str, Any]:
+        """023 T017 / FR-2：运行时切换日志级别。
+
+        仅允许 DEBUG/INFO/WARNING/ERROR/CRITICAL；
+        非法值返回 400，不修改当前级别。
+        """
+        level = str(body.get("level", "")).upper()
+        valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if level not in valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"invalid log level '{level}'; must be one of {sorted(valid)}",
+            )
+        import logging as _logging
+        _logging.getLogger().setLevel(level)
+        return {"level": level, "service": "mogo-admin-api"}
 
     @app.on_event("startup")
     async def on_startup() -> None:

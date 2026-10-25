@@ -50,23 +50,23 @@
 **Goal**: 三个服务输出 JSON 结构化日志，日志级别运行时可调，错误日志含完整上下文，/health 与 /ready 端点，启动自检。
 **独立测试**: 日志 JSON 字段稳定；LOG_LEVEL 切换生效；ERROR 含堆栈+请求+用户+租户；/ready 检查依赖；启动自检失败返回 503。
 
-- [ ] T014 修改 `services/admin-api/app/main.py`：接入 structlog（替换或包裹既有 logging），注册 `/health` 与 `/ready` 端点
-- [ ] T015 创建 `services/admin-api/app/observability/logging.py`：admin-api 专属日志配置（含 tenant_id/user_id 上下文绑定）
-- [ ] T016 创建 `services/admin-api/app/observability/health.py`：admin-api 健康检查端点（/health + /ready + 启动自检）
-- [ ] T017 修改 `services/admin-api/app/main.py`：实现 `/admin/log-level` 运行时切换端点（FR-2）
-- [ ] T018 修改 `services/chat-api/app/main.py`：接入 structlog，注册 `/health` 与 `/ready` 端点
-- [ ] T019 创建 `services/chat-api/app/observability/logging.py`：chat-api 专属日志配置
-- [ ] T020 创建 `services/chat-api/app/observability/health.py`：chat-api 健康检查端点
-- [ ] T021 修改 `services/document-parser/app/main.py`：接入 structlog，注册 `/health` 与 `/ready` 端点
-- [ ] T022 创建 `services/document-parser/app/observability/logging.py`：document-parser 专属日志配置
-- [ ] T023 创建 `services/document-parser/app/observability/health.py`：document-parser 健康检查端点
-- [ ] T024 创建启动自检模块 `services/common/observability_base.py::startup_selfcheck()`：MongoDB ping、Redis ping、LLM provider 连通性、配置文件完整性
-- [ ] T025 日志字段稳定性测试：`services/admin-api/tests/observability/test_logging.py` — 验证 JSON 字段稳定（ts/level/service/message/trace_id/span_id/tenant_id/user_id）
-- [ ] T026 [P] 日志级别切换测试：`services/admin-api/tests/observability/test_log_level.py` — 验证 `/admin/log-level` 端点切换生效
-- [ ] T027 [P] /ready 端点测试：`services/admin-api/tests/observability/test_health.py` — 验证依赖不可达时返回 503
-- [ ] T028 启动自检测试：`services/admin-api/tests/observability/test_startup_selfcheck.py` — 验证自检失败不退出但 /ready 返回 503
-- [ ] T029 ERROR 日志上下文测试：验证堆栈、请求路径、用户标识、租户标识、下游耗时完整
-- [ ] T030 更新 QualityForge 缺陷（可观测性子域）：关闭对应 blocked 项（验证方式：curl /health、/ready、检查日志 JSON 格式）
+- [x] T014 修改 `services/admin-api/app/main.py`：接入 structlog（替换或包裹既有 logging），注册 `/health` 与 `/ready` 端点
+- [x] T015 创建 `services/admin-api/app/observability/logging.py`：admin-api 专属日志配置（含 tenant_id/user_id 上下文绑定）
+- [x] T016 创建 `services/admin-api/app/observability/health.py`：admin-api 健康检查端点（/health + /ready + 启动自检）
+- [x] T017 修改 `services/admin-api/app/main.py`：实现 `/admin/log-level` 运行时切换端点（FR-2）
+- [x] T018 修改 `services/chat-api/app/main.py`：接入 structlog，注册 `/health` 与 `/ready` 端点
+- [x] T019 创建 `services/chat-api/app/observability/logging.py`：chat-api 专属日志配置
+- [x] T020 创建 `services/chat-api/app/observability/health.py`：chat-api 健康检查端点
+- [x] T021 修改 `services/document-parser/app/main.py`：接入 structlog，注册 `/health` 与 `/ready` 端点
+- [x] T022 创建 `services/document-parser/app/observability/logging.py`：document-parser 专属日志配置
+- [x] T023 创建 `services/document-parser/app/observability/health.py`：document-parser 健康检查端点
+- [x] T024 创建启动自检模块 `services/common/observability_base.py::startup_selfcheck()`：MongoDB ping、Redis ping、LLM provider 连通性、配置文件完整性
+- [x] T025 日志字段稳定性测试：`services/admin-api/tests/observability/test_logging.py` — 验证 JSON 字段稳定（ts/level/service/message/trace_id/span_id/tenant_id/user_id）
+- [x] T026 [P] 日志级别切换测试：`services/admin-api/tests/observability/test_log_level.py` — 验证 `/admin/log-level` 端点切换生效
+- [x] T027 [P] /ready 端点测试：`services/admin-api/tests/observability/test_health.py` — 验证依赖不可达时返回 503
+- [x] T028 启动自检测试：`services/admin-api/tests/observability/test_startup_selfcheck.py` — 验证自检失败不退出但 /ready 返回 503
+- [x] T029 ERROR 日志上下文测试：验证堆栈、请求路径、用户标识、租户标识、下游耗时完整
+- [x] T030 更新 QualityForge 缺陷（可观测性子域）：关闭对应 blocked 项（验证方式：curl /health、/ready、检查日志 JSON 格式）
 
 ---
 
