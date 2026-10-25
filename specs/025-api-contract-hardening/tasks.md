@@ -157,7 +157,11 @@
   - **证据（2026-10-25）**：新增 `docs/rate-limiting.md`——维度与阈值表（ip 100/min、tenant 1000/min、user 100/min、endpoint 500/min）、路径前缀放宽、配置优先级（yaml→env→内置默认）、Redis 滑动窗口算法与降级、429 响应契约（Retry-After + X-RateLimit-* + detail 六字段）、与登录限流 `app/core/rate_limiter.py` 的区别、测试位置。与实现一致（QF-240）。
 - [ ] T027 批量语义（FR-14, QF-245, QF-247, QF-248）：扫描 `services/admin-api/app/api/routes/knowledge_documents.py` 等批量接口，响应含逐项结果数组 + 整体 `status` + `partial` 字段；批量大小上限 100，超限返回 422
 - [ ] T028 降级空值语义（FR-15, QF-252）：扫描所有降级场景，返回 `null` + `degraded: true` 元信息，不返回误导性空数组/空对象
-- [ ] T029 [P] 错误处理集成测试：`services/admin-api/tests/api/test_errors.py`（错误结构、错误码、不泄漏、限流、批量、降级 6 组 Acceptance）
+- [x] T029 [P] 错误处理集成测试：`services/admin-api/tests/api/test_errors.py`（错误结构、错误码、不泄漏、限流、批量、降级 6 组 Acceptance）
+  - **证据（2026-10-25）**：新增 `services/admin-api/tests/api/test_errors.py`，12 用例全绿，六组 Acceptance 齐全；原则：不连真实 Mongo/Redis，合成小 app + TestClient 走真实 ASGI。
+  - 六组覆盖：①**错误结构** 未处理异常 500 / 校验失败 422 都用 RFC 9457 扩展的 `ErrorResponse` 结构（code/message/http_status/trace_id）。②**稳定错误码** 响应 `code` 属于 `ApiErrorCode` 注册表枚举（`KNOWN_CODES`）。③**不泄漏** `is_prod=True` 时 500 的 `message == "Internal server error"`，不含 RuntimeError/mongo/27017/secret/Traceback/路径；dev 模式保留异常信息供调试；`trace_id` 回写响应头。④**限流** 超配额 429 + `Retry-After` + `detail` 含 code/message/limit/remaining/window/reset_at/dimension。⑤**批量** 合成 `/batch`：100 条放行 200（`status=ok`、`partial=False`、`results`、`total`），101 条 422（detail 含 `code`/`limit`/`count`/`field`/`path`）。⑥**降级空值** 合成 `/data`：降级时 `data: null` + `degraded: true` + `reason`，非空数组。
+  - 说明：批量/降级两组基于**合成演示 app**（契约语义验收）；真实路由整改由 T027/T028 单独验收并跟进。
+  - 踩坑：TestClient 默认 `raise_server_exceptions=True`，测未处理异常 500 会直接抛——需 `TestClient(app, raise_server_exceptions=False)`。
 
 ---
 
