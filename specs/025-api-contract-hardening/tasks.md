@@ -98,7 +98,13 @@
   - 行为测试 `services/admin-api/tests/test_pagination_t017.py`（13 用例全绿）：编解码往返 / 非法游标 / 越界拒绝 / `has_next` 与 `next_cursor` 的边界（中间页、末页、部分页、空集、恰好取满耗尽）/ 响应 JSON 字段名恰为 5 个 snake_case 分页字段 / `PageParams` 游标优先与默认值。
   - **FastAPI 实测**（TestClient）：`cursor` 参数可正确解析为 page；`page=2&page_size=5` 返回 `has_next: True`；`page=0` 触发 422（`ge=1` 生效）。
   - 说明：`PageParams` 用 `Annotated[int, Query(ge=1)] = 1` 写法——既让 FastAPI 识别为 query 参数，又让直接实例化有正确默认值（`Query()` 位置参数会覆盖后面的默认值）。
-- [ ] T018 整改 `services/admin-api/app/api/routes/knowledge_documents.py` 等分页路由：使用 T017 统一分页 schema；基于 cursor 的稳定翻页
+- [x] T018 整改 `services/admin-api/app/api/routes/knowledge_documents.py` 等分页路由：使用 T017 统一分页 schema；基于 cursor 的稳定翻页
+  - **证据（2026-10-25）**：整改 `knowledge_documents.py` 两个分页端点。
+  - `GET /knowledge/documents`（list_documents）：入参由 `page/pageSize` Query 改为 `params: PageParams = Depends()`；响应由 `{items,total,page,pageSize}` 改为 `PageResponse[dict].build(items,total,page,page_size)`（`data/total/page/page_size/has_next/next_cursor`，snake_case）；游标优先 `params.resolved_page()`，非法游标回退 `page`。
+  - `GET /knowledge/documents/{document_id}/chunks`（list_document_chunks）：同上改造（`_id` 排序 `[("ordinal",1),("_id",1)]` 保留）。
+  - 行为测试 `services/admin-api/tests/test_knowledge_documents_pagination_t018.py`（7 用例全绿）：内存假 Mongo（`_FakeCursor/_FakeCollection/_FakeDB`）+ monkeypatch 路由模块 `get_db` + 最小 FastAPI app 只挂本 router；覆盖统一 schema 字段集（恰 5 个分页字段+data，无 camelCase）、末页无 next_cursor、游标优先于 page、非法游标回退、`page_size=0` → 422、chunks 端点两例。
+  - **踩坑**：本路由函数体内是**直接调用 `get_db()`**（非 `Depends(get_db)`），`dependency_overrides` 无效 → 必须 `monkeypatch.setattr(knowledge_documents, "get_db", ...)`；`_find_document_or_404` 里 `await get_db()[COLLECTION].find_one(...)` 要求 fake `find_one` 是 **async** 方法。
+  - **如实声明**：本轮**只整改了 knowledge_documents.py 两个核心端点**；其余分页路由仍用各自 `pageSize` Query 参数与自定响应体（`egress.py:183`、`system_audit.py:29`、`platform/tenants.py:93`、`directory.py:1191`、`traffic_allocations.py:389`），统一到 T017 属后续批次。
 - [x] T019 [P] 创建 `services/admin-api/app/middleware/content_negotiation.py`：内容协商中间件（FR-9, QF-225, QF-227）；不支持 Accept 返回 406 + `Vary: Accept`；`Accept-Encoding` 按声明生效
   - **证据（2026-10-25）**：新增 `services/admin-api/app/middleware/content_negotiation.py`（纯 ASGI 中间件）。
   - Accept 判定：白名单 `application/json`（另接受 `application/*+json`、`application/*`、`*/*` 通配）；无 Accept 头视为接受任意类型；`Accept` 段按 q 值解析、q<=0 剔除。全部不满足 → **406** + `Vary: Accept` + `Content-Type: application/json` 的 `{"detail": ...}`。

@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
 from app.api.deps import get_current_admin_user
+from app.api.pagination import PageParams, PageResponse
 from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
@@ -643,8 +644,7 @@ async def get_document_stats(current_user: dict = Depends(get_current_admin_user
 
 @router.get("")
 async def list_documents(
-    page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=12, ge=1, le=100),
+    params: PageParams = Depends(),
     keyword: str = "",
     fileType: str = "",
     statusValue: str = "",
@@ -655,8 +655,10 @@ async def list_documents(
     sortOrder: str = "descend",
     includeDeleted: bool = False,
     current_user: dict = Depends(get_current_admin_user),
-) -> dict[str, Any]:
+) -> PageResponse[dict[str, Any]]:
     tenant_id = str(current_user.get("tenant_id") or "default")
+    page = params.resolved_page()
+    page_size = params.page_size
     db = get_db()
     query = _build_query(
         tenant_id=tenant_id,
@@ -689,12 +691,12 @@ async def list_documents(
         db[COLLECTION]
         .find(query)
         .sort(_sort_spec(sortField, sortOrder))
-        .skip((page - 1) * pageSize)
-        .limit(pageSize)
+        .skip((page - 1) * page_size)
+        .limit(page_size)
     )
     name_cache: dict[tuple[str, str], str] = {}
     items = [await _serialize_with_account_names(doc, name_cache) async for doc in cursor]
-    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
+    return PageResponse[dict[str, Any]].build(items, total, page, page_size)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -1068,14 +1070,15 @@ async def retry_document_preview(document_id: str, current_user: dict = Depends(
 @router.get("/{document_id}/chunks")
 async def list_document_chunks(
     document_id: str,
-    page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=20, ge=1, le=100),
+    params: PageParams = Depends(),
     keyword: str = "",
     contentType: str = "",
     chunkStage: str = Query(default="rag", pattern=r"^(raw|rag|all)$"),
     current_user: dict = Depends(get_current_admin_user),
-) -> dict[str, Any]:
+) -> PageResponse[dict[str, Any]]:
     tenant_id = str(current_user.get("tenant_id") or "default")
+    page = params.resolved_page()
+    page_size = params.page_size
     await _find_document_or_404(document_id, tenant_id)
     filters: list[dict[str, Any]] = [{"tenant_id": tenant_id, "document_id": document_id}]
     if chunkStage == "rag":
@@ -1102,11 +1105,11 @@ async def list_document_chunks(
         db[CHUNK_COLLECTION]
         .find(query)
         .sort([("ordinal", 1), ("_id", 1)])
-        .skip((page - 1) * pageSize)
-        .limit(pageSize)
+        .skip((page - 1) * page_size)
+        .limit(page_size)
     )
     items = [_serialize_chunk(chunk) async for chunk in cursor]
-    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
+    return PageResponse[dict[str, Any]].build(items, total, page, page_size)
 
 
 @router.get("/{document_id}/chunks/{chunk_id}")
