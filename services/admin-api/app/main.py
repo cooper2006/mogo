@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.error_handler import register_error_handlers
 from app.middleware.cors import build_cors_middleware_kwargs
 from app.middleware.trace_id import TraceIdMiddleware
+from app.middleware.api_version import ApiVersionMiddleware
 from app.core.db import close_backend, init_backend
 from app.core.product_edition import migrate_bootstrapped_community_organization
 from app.repositories.model_repository import ensure_indexes as ensure_model_indexes
@@ -164,6 +165,9 @@ def create_app() -> FastAPI:
     # 025 Phase 1（T004）：trace_id 注入中间件——最后 add 即最外层，
     # 保证任何异常处理器 / 业务代码都能从 request.state.trace_id 取到值。
     app.add_middleware(TraceIdMiddleware)
+    # 025 T044（FR-27）：API-Version 响应头注入——最后 add 即最外层，
+    # 保证所有经过中间件链的响应都带 API-Version（客户端可据此感知契约版本演进）。
+    app.add_middleware(ApiVersionMiddleware)
 
     # 023 T033: FastAPI 自动插桩（HTTP server span）
     instrument_fastapi(app)

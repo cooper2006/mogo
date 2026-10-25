@@ -256,7 +256,11 @@
   - **现状核对**：三服务目前均**无 `/v1` 前缀**（grep `prefix="/v1"` 零命中），`API-Version` 响应头尚无实现——两者分别由 T045 / T044 落地；文档已如实登记「迁移中/未实现」而非伪称已完成。
 - [x] T043 [P] 创建 `docs/error-codes.md`：错误码字典文档（FR-30, QF-269）；跨服务汇总所有错误码，含 `code`/`http_status`/`trigger`/`remedy` 四字段
   - **证据**: 与 T051 合并为同一份 `docs/error-codes.md`（详见 T051 条目），含通用 15 码字典表（三服务共享）+ 业务错误码登记表 + 响应体结构 + 稳定性与变更流程。
-- [ ] T044 创建 `API-Version` 中间件：`services/admin-api/app/middleware/api_version.py`（FR-27, QF-264）；注入 `API-Version` 响应头
+- [x] T044 创建 `API-Version` 中间件：`services/admin-api/app/middleware/api_version.py`（FR-27, QF-264）；注入 `API-Version` 响应头
+  - **证据**: `services/admin-api/app/middleware/api_version.py`（`API_VERSION_HEADER = "API-Version"` / `REQUEST_VERSION_HEADER = "X-API-Version"` / `API_VERSION = "1.0.0"`；`ApiVersionMiddleware(BaseHTTPMiddleware)`：`dispatch` 在 `call_next` 后写 `response.headers["API-Version"] = API_VERSION`；docstring 明确「版本号唯一主副本是 `contracts/admin-api.yaml` 顶层 `version`，改动须同步本常量，且与 `pyproject.toml` 发布版本是两套独立版本号」）；`services/admin-api/app/main.py` 在 `TraceIdMiddleware` 之后 `app.add_middleware(ApiVersionMiddleware)`（最后 add 即最外层，保证所有经过中间件链的响应都带 `API-Version`）。
+  - **行为对齐** `docs/api-versioning.md` §2.2：请求带 `X-API-Version` **不拒绝**（避免脆性），只回报实际契约版本。
+  - **验证**：FastAPI `TestClient` 挂中间件 GET `/health`（带 `X-API-Version: 9.9.9`）→ `200` + `API-Version: 1.0.0`（请求未被拒绝）。
+  - **注**：500 响应由 `ServerErrorMiddleware`（最外层）产出、不经过 `BaseHTTPMiddleware`（同 `TraceIdMiddleware` 已知限制），`API-Version` 头对 500 不保证存在——如需覆盖可另在异常处理器补头，本轮不扩展。
 - [ ] T045 路由迁移到 `/v1/` 前缀（FR-27, QF-264）：扫描 `services/*/app/api/routes/`，添加 `/v1` 路由前缀；旧路径保留向后兼容（301 重定向）
 - [ ] T046 错误码映射稳定性检查（FR-31, QF-270）：CI 检查错误码与 HTTP 状态码映射变更，需版本升级
 - [ ] T047 OpenAPI 与实测一致性检查（FR-25, QF-254）：CI 中执行探针验证 OpenAPI 定义中的路径/参数/响应与实测一致
