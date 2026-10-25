@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_admin_user
+from app.api.routes.knowledge_documents import validate_batch_size
 from app.core.db import get_db
 from app.position_roles.constants import AGENT_CAPABILITY_KEYS, MIGRATION_COLLECTION, POSITION_ROLE_COLLECTION, USER_OVERRIDE_COLLECTION, USER_ROLE_COLLECTION
 from app.position_roles.service import PositionRoleService
@@ -168,6 +169,8 @@ async def assign_user_roles(user_id: str, payload: UserRoleAssignmentPayload, cu
 async def bulk_assign_roles(payload: BulkRoleAssignmentPayload, current_user: dict = Depends(get_current_admin_user)) -> dict[str, int]:
     service = PositionRoleService()
     tenant_id = _tenant_id(current_user)
+    # 025 T027 / FR-14：批量分配上限 100，超限 422（结构化 detail），不静默截断。
+    validate_batch_size(payload.userIds, field="userIds", path="/position-roles/assignments/bulk")
     await service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
     # 006 FR-6: 批量分配改为原子 bulk_write，失败时整体回滚而非部分写。
     assignments = [

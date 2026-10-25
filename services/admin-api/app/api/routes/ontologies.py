@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_admin_user
+from app.api.routes.knowledge_documents import validate_batch_size
 from app.ontology_permission.constants import (
     ACCESS_MODES,
     DEFAULT_PRIORITY,
@@ -178,6 +179,10 @@ async def grant_user_permissions(
     """批量授予（纯用户级 → 批量接口很实际，设计 §5.5）。"""
     if payload.accessMode not in ACCESS_MODES:
         raise HTTPException(status_code=422, detail="invalid_access_mode")
+    # 025 T027 / FR-14：批量上限 100，超限 422（结构化 detail），不静默截断。
+    validate_batch_size(
+        payload.ontologyIds, field="ontologyIds", path="/ontologies/users/{user_id}/permissions"
+    )
     service = OntologyPermissionService()
     result = await service.batch_grant(
         tenant_id=_tenant_id(current_user),
@@ -239,6 +244,12 @@ async def grant_subject_permissions(
     _validate_subject_type(subject_type)
     if payload.accessMode not in ACCESS_MODES:
         raise HTTPException(status_code=422, detail="invalid_access_mode")
+    # 025 T027 / FR-14：批量上限 100，超限 422（结构化 detail），不静默截断。
+    validate_batch_size(
+        payload.ontologyIds,
+        field="ontologyIds",
+        path="/ontologies/subjects/{subject_type}/{subject_id}/permissions",
+    )
     service = OntologyPermissionService()
     result = await service.batch_grant(
         tenant_id=_tenant_id(current_user),

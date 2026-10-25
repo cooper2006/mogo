@@ -8,7 +8,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 from urllib.parse import quote
 import urllib.error
 import urllib.request
@@ -24,6 +24,7 @@ from app.api.pagination import PageParams, PageResponse
 from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.errors import ApiErrorCode
 from app.core.security import constant_time_equals
 from app.api.routes.knowledge_settings import get_effective_knowledge_settings, get_effective_parse_settings
 from app.repositories.org_user_repository import find_account_by_username
@@ -50,6 +51,41 @@ FILE_TYPE_GROUPS = {
     "markdown": ["md", "markdown"],
     "image": ["png", "jpg", "jpeg", "webp"],
 }
+
+# 025 T027 / FR-14：批量接口的请求条数上限。超过此值返回 422，绝不静默截断。
+BATCH_LIMIT = 100
+
+
+def validate_batch_size(
+    items: Sequence[Any],
+    *,
+    field: str = "items",
+    path: str = "/knowledge/documents",
+    limit: int = BATCH_LIMIT,
+) -> int:
+    """批量接口入口的统一大小校验（025 T027 / FR-14）。
+
+    - ``count > limit`` 时抛 422，``detail`` 为**结构化 dict**（非裸字符串），
+      携带 ``code`` / ``message`` / ``field`` / ``path`` / ``limit`` / ``count``，
+      与 ``app.core.errors`` 的稳定码与 RFC 9457 扩展口径一致；
+    - 空列表（``count == 0``）不在此处拦截，交由各端点的既有业务校验决定，
+      这里只负责"超限"这一条硬约束；
+    - 返回实际条数，便于调用方复用，不改动成功路径的响应结构。
+    """
+    count = len(items)
+    if count > limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": ApiErrorCode.VALIDATION_ERROR.value,
+                "message": f"批量请求数量超过上限：{count} > {limit}",
+                "field": field,
+                "path": path,
+                "limit": limit,
+                "count": count,
+            },
+        )
+    return count
 
 
 class DocumentUpdatePayload(BaseModel):

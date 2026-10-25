@@ -187,12 +187,29 @@ async def list_egress_logs(
 ) -> dict[str, Any]:
     """Read-only view of the runtime egress audit trail for this tenant."""
     tenant_id = str(current_user.get("tenant_id") or "default")
+    # 025 FR-15 (T028)：DB 未就绪是**降级**而非「没有日志」。保留 `items: []`
+    # 以兼容既有前端表格渲染，同时显式标记 `degraded: true` + `reason`，
+    # 让消费方识别这是降级空值（而非误导性空数组）。
     try:
         db = get_db()
-    except Exception:  # noqa: BLE001 — DB 未就绪时返回空视图，不影响调用方
-        return {"items": [], "total": 0, "page": page, "page_size": page_size}
+    except Exception:  # noqa: BLE001 — DB 未就绪时返回降级空视图，不影响调用方
+        return {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "degraded": True,
+            "reason": "db_unavailable",
+        }
     if db is None:
-        return {"items": [], "total": 0, "page": page, "page_size": page_size}
+        return {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "degraded": True,
+            "reason": "db_unavailable",
+        }
     collection = db[EGRESS_AUDIT_COLLECTION]
     query: dict[str, Any] = {
         "tenant_id": tenant_id,
