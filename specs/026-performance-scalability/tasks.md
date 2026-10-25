@@ -129,11 +129,26 @@
   - 实现：`services/common/perf_guards.py::BackpressureMiddleware`（同 vendored 路径），复用 `dependency_guard.BackpressureGuard`（默认 `DEFAULT_MAX_DEPTH=1000`，可配），`try_enter()` 失败即返回 503 + `Retry-After: 1` + `X-Backpressure-Depth` + problem+json 体；`finally leave()` 保证计数释放。
   - 验证：同上测试文件 → 7 passed（under_depth_ok / queue_full_returns_503）。
   - 提交：`35dccae`。
-- [ ] T044 [P] 实现 `infrastructure/observability/prometheus.py`：Prometheus exporter（`/metrics` 端点），暴露 CPU/内存/IO/磁盘指标（FR-29）
-- [ ] T045 [P] 创建 `benchmarks/locust/locustfile_chat.py`：对话场景压测（locust，1/10/50/100 并发级别）（FR-31）
-- [ ] T046 [P] 创建 `benchmarks/locust/locustfile_doc.py`：文档解析场景压测（FR-31）
-- [ ] T047 [P] 创建 `benchmarks/locust/locustfile_search.py` + `locustfile_auth.py`：搜索/鉴权场景压测（FR-31）
-- [ ] T048 [P] 创建 `benchmarks/k6/smoke.js`：k6 冒烟测试（补充 locust）（FR-31）
+- [x] T044 [P] 实现 `infrastructure/observability/prometheus.py`：Prometheus exporter（`/metrics` 端点），暴露 CPU/内存/IO/磁盘指标（FR-29）
+  - 实现：`services/chat-api/app/infrastructure/observability/prometheus.py`——`SystemMetricsCollector` 纯 `/proc` 读取（CPU 两次采样求差 / meminfo / diskstats / loadavg / statvfs 磁盘使用率，无 psutil 依赖，`proc_root` 可注入测试）；`register_system_metrics(registry)` 注册 11 个 `mogo_system_*` Gauge（cpu_usage_percent / memory_used_bytes / memory_available_bytes / disk_read_bytes_total / disk_write_bytes_total / disk_read_iops_total / disk_write_iops_total / disk_usage_percent{device} / loadavg_1m/5m/15m）；`metrics_exporter(service_name)` 返回 `/metrics` ASGI 子应用。`main.py` 启动时把系统指标注册到既有 registry（挂载点 `app.mount("/metrics", metrics_asgi_app(...))` 不变，`observability_base` 未改）。
+  - 验证：`pytest tests/observability/test_prometheus_system.py` → 8 passed（CPU delta / meminfo / diskstats 聚合 / loadavg / 缺失 /proc 兜底 / 便捷入口 / Gauge 注册）；`TestClient.get("/metrics")` → 200，响应含 11 个 `mogo_system_*` 指标。
+  - 提交：`b77b67b`。
+- [x] T045 [P] 创建 `benchmarks/locust/locustfile_chat.py`：对话场景压测（locust，1/10/50/100 并发级别）（FR-31）
+  - 实现：`ChatUser`（`HttpUser`）——`chat_short`（10 权重，`POST /api/v1/chat/completions`）+ `chat_long_context`（2 权重）；host 取 `TARGET_HOST` 默认 `http://localhost:8000`；429/503 按 FR-28 计入成功；`CONCURRENCY_LEVELS=(1,10,50,100)`；文件头注释给出并发级别命令。
+  - 验证：`python3 -m py_compile benchmarks/locust/locustfile_chat.py` 通过。
+  - 提交：`447bc7f`。
+- [x] T046 [P] 创建 `benchmarks/locust/locustfile_doc.py`：文档解析场景压测（FR-31）
+  - 实现：`DocumentUser`——`submit_and_poll`：`POST /api/v1/jobs/document-parse`（期望 202）+ 轮询 `/api/v1/jobs/{id}`；host 默认 `http://localhost:8001`；`CONCURRENCY_LEVELS=(1,10,50,100)`。
+  - 验证：`python3 -m py_compile` 通过。
+  - 提交：`447bc7f`。
+- [x] T047 [P] 创建 `benchmarks/locust/locustfile_search.py` + `locustfile_auth.py`：搜索/鉴权场景压测（FR-31）
+  - 实现：`SearchUser`——`vector_search`（7 权重，`POST /api/v1/retrieval/search`）+ `memory_list`（3 权重，`GET /api/v1/memories`）；`AuthUser`——`login`（5 权重，`POST /api/v1/auth/login`）+ `me`（2 权重，`GET /api/v1/auth/me`），凭据走 `TARGET_ADMIN_USER/TARGET_ADMIN_PASSWORD` 环境变量不落库；401/403 属鉴权正常分支计入成功；均含 `CONCURRENCY_LEVELS=(1,10,50,100)`。
+  - 验证：`python3 -m py_compile` 通过。
+  - 提交：`447bc7f`。
+- [x] T048 [P] 创建 `benchmarks/k6/smoke.js`：k6 冒烟测试（补充 locust）（FR-31）
+  - 实现：`options{vus: K6_VUS 默认 10, duration: K6_DURATION 默认 30s, thresholds: http_req_failed<0.01 / http_req_duration p(95)<2000ms}`；`default()` 探测 `/` 与 `/ready` 可达（<500 视为可观测）；`TARGET_HOST` 环境变量。
+  - 验证：语法人工核对（本机无 k6 运行时）。
+  - 提交：`447bc7f`。
 - [ ] T049 创建 `benchmarks/capacity_model.md`：容量模型（给定并发数 → 所需实例数与 CPU/内存预测公式）（FR-30）
 - [ ] T050 瓶颈识别报告：压测结果定位到具体端点/依赖/资源，输出 `benchmarks/bottleneck_report.md`（FR-32）
 
