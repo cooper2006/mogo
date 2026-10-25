@@ -246,7 +246,7 @@
 - [ ] B007 中英双语核对（constitution IV）：新增文档与 CLI 输出
 - [ ] B008 [P] 更新 `specs/INDEX.md`：登记 024 特性与 spec / plan / tasks / quickstart 完成状态
 - [ ] B009 [P] 写入 obsidian vault 当日 session-log（按 AGENTS.md 约定；`docs/WORK_LOG.md` 自 2026-10-17 停更）
-- [ ] B010 **QualityForge 复测**：重跑 `.qualityforge` 审计，确认 QF-818 由 `fail` → `pass`，41 项 `blocked` 中已建立基础设施的转为 `pass`，剩余 `blocked` 项如实标注为"未建立"
+- [ ] B010 **QualityForge 复测**：重跑 `.qualityforge` 审计，确认 QF-818 由 `fail` → `pass`，41 项 `blocked` 中已建立基础设施的转为 `pass`，剩余 `blocked` 项如实标注为"未建立" —— **阻塞已变更（2026-10-25）**：报告落点已解阻塞（`.qualityforge/` 缺陷台账入库，见 `.qualityforge/QUALITYFORGE-REPORT.md` §3「QF-818 待复测」），但**复测本身仍需 QualityForge 工具运行**（本机无 `qualityforge` CLI、无 audit.json 原件），故保持未勾选；台账已如实登记"未重跑前不得标 pass"
 - [ ] B011 提交范围核对：`git status` 逐文件确认，仅 `git add <具体路径>`，不用 `git add -A`
 
 ---

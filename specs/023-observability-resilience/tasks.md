@@ -112,7 +112,7 @@
 - [x] T057 指标查询测试：`services/chat-api/tests/observability/test_metrics.py` — 验证 /metrics 端点可查询黄金四信号
 - [x] T058 维度基数测试：`services/chat-api/tests/observability/test_common_metrics.py` — 验证高基数 label 受控（5000 输入 ≤ 50 桶；path 模板化；label 清洗）
 - [x] T059 SLO 计算测试：`services/chat-api/tests/observability/test_slo.py` — 验证错误预算数值可查、消耗速度计算正确（含 bad == budget_total 边界）
-- [ ] T060 更新 QualityForge 缺陷（指标子域）：关闭对应 blocked 项 —— **阻塞**：`/Users/cooper/mogo/.qualityforge/` 被 `.gitignore:393` 忽略且工作区不存在（`git log --all -- .qualityforge/` 无历史）；仓库内无 QF 缺陷清单可关闭。指标子域实现与测试状态已记入当日 session-log，待 QF 报告回填后勾选
+- [x] T060 更新 QualityForge 缺陷（指标子域）：关闭对应 blocked 项 —— **已解阻塞并关闭**。2026-10-25 起 `.qualityforge/` 改为「报告入库、大体积中间产物忽略」（见 `.qualityforge/README.md` 与提交 `0e38d8d`），指标子域状态回写至 `.qualityforge/QUALITYFORGE-REPORT.md` §2「指标」行：黄金四信号 + 三服务业务指标 + 高基数桶化 + SLO/错误预算 + recording rules + 3 面板均已落地，chat-api 18 项 / admin-api 25 项 observability 测试全绿 → 记为 **已关闭**。注：023 的 74 个缺陷原件编号未入库，故按子域聚合回写而非逐条编号回写
 
 > **Phase 4 命名差异（待确认）**：tasks.md 原写的 T051 `SLODefinition` / T052 `ErrorBudgetCalculator` 与实现 `SLOSpec` / `ErrorBudget` 命名不完全一致，语义已覆盖（三类 SLO + burn rate / remaining / exhausted）。是否重命名对齐以保持 spec 与代码同步，留待用户确认。
 
@@ -195,7 +195,7 @@
     `rule_files` 的容器路径在 compose 里确有挂载（否则规则静默失效）。
   · 如实说明：PromQL 只做了括号配平与比较运算符的结构自检；权威校验需
     `promtool check rules`，本机无法拉取 prom/prometheus 镜像。
-- [ ] T077 更新 QualityForge 缺陷（告警子域）：关闭对应 blocked 项
+- [x] T077 更新 QualityForge 缺陷（告警子域）：关闭对应 blocked 项 —— **已关闭**。告警子域状态回写至 `.qualityforge/QUALITYFORGE-REPORT.md` §2「告警」行：分级路由（P0/P1/P2）+ IM/邮件双渠道 + 3 条抑制规则 + 10 条告警规则 + 通知模板三入口 + 8 个排障 Runbook + 排障看板，18 项告警配置静态校验测试全绿 → 记为 **已关闭**（T074/T075 的实证依赖真实 Alertmanager 环境，单独标注，不影响子域关闭）
 
 ---
 
