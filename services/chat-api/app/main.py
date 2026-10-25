@@ -89,6 +89,11 @@ app.add_middleware(PerfMiddleware, store=runtime_kpi_store)
 # 023 T034: FastAPI 自动插桩（HTTP server span）
 instrument_fastapi(app)
 
+# 026 T044: 系统资源指标（CPU/内存/IO/磁盘）注册到既有 /metrics registry
+from app.infrastructure.observability.prometheus import register_system_metrics
+
+register_system_metrics(get_registry("mogo-chat-api"))
+
 # 023 T048: Prometheus /metrics 端点
 app.mount("/metrics", metrics_asgi_app("mogo-chat-api"), name="metrics")
 
