@@ -79,3 +79,16 @@ for index in "${!image_names[@]}"; do
 done
 
 echo "Published all MOGO container tags for ${GITHUB_REF_NAME}."
+
+# ── 024 T032 (FR-018)：晋级记录写入发布记录 ─────────────────────────────
+# 每次把候选提升为版本 tag 的动作都落到 deploy/releases/，供审计回溯。
+echo "Writing promotion record to deploy/releases/..."
+python3 scripts/release/record_promotion.py \
+  --action promote \
+  --source-sha "${GITHUB_SHA}" \
+  --source-tag "candidate-${GITHUB_SHA}" \
+  --suffixes "$(printf '%s' "${image_suffixes[*]}")" \
+  --target-tag "${GITHUB_REF_NAME}" \
+  --actor "${GITHUB_ACTOR:-unknown}"
+echo "Done. Promotion of ${GITHUB_REF_NAME} recorded."
+

@@ -166,6 +166,11 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            # 024 T029 (FR-013)：制品可追溯三键。版本取 tag（如 v1.4.0），
+            # git.sha 取触发 commit，built.at 取 workflow 启动时间（ISO 8601）。
+            org.mogo.version=${{ github.ref_name }}
+            org.mogo.git.sha=${{ github.sha }}
+            org.mogo.built.at=${{ github.run_started_at }}
       - uses: docker/build-push-action@v6
         id: build
         with:
@@ -190,6 +195,29 @@ jobs:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+      # ── 024 T029 (FR-013) ──────────────────────────────────────────
+      # 校验制品三项 label 齐全，缺任一项视为构建失败，防止发布无版本/无 commit/无时间
+      # 信息的镜像。imagetools inspect 会读 manifest 的 config blob 取 ImageLabels。
+      - name: Verify MOGO artifact labels
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          labels_json="$(docker buildx imagetools inspect "${IMAGE_REF}" --format '{{json .ImageLabels}}' 2>/dev/null || echo '{}')"
+          echo "labels: ${labels_json}"
+          version="$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('org.mogo.version',''))" "${labels_json}")"
+          git_sha="$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('org.mogo.git.sha',''))" "${labels_json}")"
+          built_at="$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('org.mogo.built.at',''))" "${labels_json}")"
+          missing=()
+          [[ -z "${version}" ]] && missing+=("org.mogo.version")
+          [[ -z "${git_sha}" ]] && missing+=("org.mogo.git.sha")
+          [[ -z "${built_at}" ]] && missing+=("org.mogo.built.at")
+          if [[ "${#missing[@]}" -gt 0 ]]; then
+            echo "::error::${GITHUB_REPOSITORY} ${IMAGE_REF} 缺制品 label: ${missing[*]}（FR-013 要求 org.mogo.version/git.sha/built.at 齐全）"
+            exit 1
+          fi
+          echo "OK: ${IMAGE_REF} labels version=${version} git.sha=${git_sha:0:12} built.at=${built_at}"
+
       - name: Scan candidate image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
@@ -246,7 +274,8 @@ jobs:
     # 同一个 token 的两次调用。
     environment: production
     permissions:
-      contents: read
+      # 024 T032：promote 需把 deploy/releases/ 的晋级记录提交回仓库
+      contents: write
       packages: write
       id-token: write
     runs-on: ubuntu-latest
@@ -265,3 +294,61 @@ jobs:
           CHANGED_IMAGES_JSON: ${{ needs.plan-release.outputs.changed }}
           BASE_REF: ${{ needs.plan-release.outputs.base_ref }}
         run: bash scripts/release/promote_container_release.sh
+      - name: Commit promotion record (024 T032 / FR-018)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "mogo-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if [[ -n "$(git status --porcelain deploy/releases/)" ]]; then
+            git add deploy/releases/
+            git commit -m "024 (FR-018): 记录晋级动作 ${GITHUB_REF_NAME}（actor=${GITHUB_ACTOR}）"
+            git push origin "${GITHUB_REF_NAME}" 2>/dev/null || git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "No promotion record changes."
+          fi
+  # ── 024 T030 (FR-019) ──────────────────────────────────────────────
+  # 发布完整性：汇总所有镜像 manifest digest 生成 SHA256SUMS，用 cosign
+  # keyless（GitHub OIDC）签名，随 GitHub Release 一并发布。下载方可据此
+  # 校验镜像 digest 未被篡改、且确实来自本次 tag。
+  publish-integrity:
+    needs: promote-release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build SHA256SUMS from release manifest digests
+        env:
+          ALL_IMAGES_JSON: ${{ needs.plan-release.outputs.images }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          python scripts/release/build_sha256sums.py build --file SHA256SUMS
+          cat SHA256SUMS
+      - name: Sign SHA256SUMS (cosign keyless)
+        uses: sigstore/cosign-installer@v3
+      - name: Sign blob
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign-blob --yes --bundle SHA256SUMS.bundle SHA256SUMS
+          test -s SHA256SUMS.bundle
+      - name: Verify signature
+        run: |
+          cosign verify-blob --bundle SHA256SUMS.bundle --certificate-identity-regexp ".*"             --certificate-oidc-issuer-regexp ".*" SHA256SUMS
+      - name: Upload to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          gh release view "${REF_NAME}" --repo "${{ github.repository }}" --json uploadUrl >/dev/null
+          gh release upload "${REF_NAME}" SHA256SUMS SHA256SUMS.bundle --repo "${{ github.repository }}" --clobber

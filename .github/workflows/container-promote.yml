@@ -13,7 +13,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -68,3 +69,17 @@ jobs:
             docker buildx imagetools create --tag "$target" "$source"
             docker buildx imagetools inspect "$target"
           done
+
+          # 024 T032 (FR-018)：晋级记录写入发布记录
+          git config user.name "mogo-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          python3 scripts/release/record_promotion.py \
+            --action promote \
+            --source-sha "${SOURCE_SHA,,}" \
+            --source-tag "${candidate_tag}" \
+            --suffixes "${IMAGE_SUFFIXES}" \
+            --target-tag latest \
+            --actor "${GITHUB_ACTOR:-unknown}"
+          git add deploy/releases/
+          git commit -m "024 (FR-018): 记录晋级动作 latest（actor=${GITHUB_ACTOR}）" || echo "无记录变更"
+          git push origin HEAD:${GITHUB_REF_NAME}
