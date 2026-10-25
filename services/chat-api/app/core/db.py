@@ -51,11 +51,15 @@ def init_db() -> None:
     server_selection_timeout_ms = int(os.getenv("MONGODB_SERVER_SELECTION_TIMEOUT_MS", "5000"))
     connect_timeout_ms = int(os.getenv("MONGODB_CONNECT_TIMEOUT_MS", "5000"))
     socket_timeout_ms = int(os.getenv("MONGODB_SOCKET_TIMEOUT_MS", "10000"))
+    # 026 T014 (FR-10)：连接池参数（maxPoolSize/minPoolSize/maxIdleTimeMS）
+    from app.core.db_guard import pool_kwargs
+
     _client = AsyncIOMotorClient(
         settings.MONGODB_URI,
         serverSelectionTimeoutMS=server_selection_timeout_ms,
         connectTimeoutMS=connect_timeout_ms,
         socketTimeoutMS=socket_timeout_ms,
+        **pool_kwargs(settings),
     )
     _db = _client[settings.MONGODB_DB]
 
