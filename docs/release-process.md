@@ -109,3 +109,41 @@ git clone <release-tag-url> mogo && cd mogo
 - `./mogo baseline` 无 FAIL 项；
 - `./mogo config` / `./mogo drift` / `./mogo verify` 均退出码 0；
 - `./mogo deploy --dry-run` 无破坏性变更提示。
+
+## 自托管企业部署路径 (024 T063 / FR-032, FR-033)
+
+企业客户自托管部署走**独立发布检查单**，比社区路径额外校验配置差异与依赖差异：
+
+- **检查单**：`docs/release-checklist-self-hosted.md`（18 项 C01-C18）。
+- **校验脚本**：`deploy/cli/checklist-verify.sh` —— 每项必须有 `执行人` 与 `结论`
+  （`通过` / `不适用`+理由），**空值视为未通过**，任一项缺失则阻塞发布（exit 1）。
+
+### 配置差异（各环境）
+
+- 三环境配置清单 `deploy/config/{dev,staging,prod}.yml` 必须先通过
+  `deploy/cli/config-lint.sh --env all`（210 条，codeRef 精确到 `services/<svc>/app/core/config.py:<行号>`）。
+- 目标环境必填键非空：`deploy/cli/startup-config-check.sh --env <dev|staging|prod>`。
+- prod 敏感键 `source` 必须为 `deployment-secrets` 或 `vault`，无硬编码。
+- 配置回滚：`./mogo config rollback <ref>`（先 lint 通过再 `mogo_compose up -d --pull never`）。
+
+### 依赖差异（镜像 digest、运行时版本）
+
+- 镜像与发布记录比对：`deploy/cli/verify-artifact.sh`（依据 `deploy/releases/latest.json`）。
+- 镜像标签 `org.mogo.version` / `org.mogo.git.sha` / `org.mogo.built.at` 必须齐全，
+  `SHA256SUMS` 已签名（cosign verify-blob）。
+- 运行时版本（Python / Node / MongoDB / Redis / Weaviate / Nginx）在检查单 C07 记录实际版本号。
+- 运行态与声明态一致：`deploy/cli/drift-check.sh`（read_only / cap_drop / 挂载 / 镜像）。
+
+### 灰度与回滚
+
+- 灰度档位推进：`./mogo canary start|promote|rollback|status`（`deploy/canary/canary-plan.yml`）。
+- 自动回滚：`deploy/cli/auto-rollback.sh`（依据 `deploy/canary/rollback-conditions.yml`）。
+- 回滚后基线校验：`scripts/verify_rollback_baseline.py`。
+
+### 发布门禁（检查单 C08-C10）
+
+- 迁移先于代码：`deploy/cli/migration-gate.sh`（FR-029）。
+- 破坏性变更迁移说明：`docs/migration-notes/<名称>.md`（FR-030）。
+- 在线迁移不阻塞：`scripts/migrations/probe_throughput.py`（FR-031）。
+
+自托管企业发布必须逐条填写并跑 `deploy/cli/checklist-verify.sh`，全部 OK 才可 `./mogo up`。

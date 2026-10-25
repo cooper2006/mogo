@@ -1,0 +1,53 @@
+# 024 T052 (FR-027)：特性开关登记台账。
+#
+# 每个特性开关 MUST 登记四项：owner / defaultValue / expiry / cleanupPlan，另加 codeRefs。
+# flag-check.sh 会校验四项齐全；expiry 早于今天（UTC）会输出清理告警。
+# 新增/修改开关请同步更新本文件并跑 `deploy/cli/flag-check.sh`。
+
+version: 1
+flags:
+  - name: canary_routing_enabled
+    owner: platform-oncall
+    defaultValue: true
+    expiry: 2027-01-31
+    cleanupPlan: "灰度通道稳定运行 90 天后，把分流逻辑固化进 nginx.conf 主线，移除 deploy/canary/nginx-canary.conf 的动态覆写（git rm），并归档 rollback-conditions.yml 到 deploy/runbook/rollbacks/"
+    codeRefs:
+      - "deploy/canary/nginx-canary.conf"
+      - "deploy/cli/canary.sh"
+      - "deploy/cli/auto-rollback.sh"
+
+  - name: panweidb_data_backend
+    owner: data-platform
+    defaultValue: false
+    expiry: 2027-06-30
+    cleanupPlan: "PanWeiDB 迁移全部流量切到 openGauss 内核后，移除 admin-api 的 panweidb_host/port/user/password/db 配置与 DATA_BACKEND=panweidb 分支（git rm），并把默认后端改为 panweidb"
+    codeRefs:
+      - "services/admin-api/app/core/config.py:31-38"
+      - "docker-compose.yml"
+
+  - name: mogo_tls
+    owner: platform-oncall
+    defaultValue: false
+    expiry: 2099-12-31
+    cleanupPlan: "TLS 是长期能力，无清理计划；本行 expiry 仅作为台账字段必填占位（flag-check 不告警的远期日期）"
+    codeRefs:
+      - "mogo:154"
+      - "mogo:248-251"
+      - "deploy/docker/nginx-https.conf"
+
+  - name: audit_db_enabled
+    owner: security
+    defaultValue: true
+    expiry: 2027-03-31
+    cleanupPlan: "审计库长期保留，无清理计划；expiry 到期前由 security 复核是否需要保留策略调整"
+    codeRefs:
+      - "services/admin-api/app/core/config.py"
+
+  - name: canary_auto_rollback
+    owner: platform-oncall
+    defaultValue: true
+    expiry: 2027-01-31
+    cleanupPlan: "与 canary_routing_enabled 一起清理；自动回滚逻辑固化到发布检查单（deploy/cli/checklist-verify.sh）后移除 auto-rollback.sh"
+    codeRefs:
+      - "deploy/cli/auto-rollback.sh"
+      - "deploy/canary/rollback-conditions.yml"

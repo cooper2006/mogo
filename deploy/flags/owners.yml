@@ -1,0 +1,23 @@
+# 024 T055 (FR-028)：特性开关属主登记与存活性。
+# flag-check.sh 据此校验属主是否在职（departed / 未登记 → 阻塞发布）。
+# 属主转移流程见 deploy/runbook/flag-owner-transfer.md。
+
+version: 1
+owners:
+  - id: platform-oncall
+    alias: platform-oncall
+    status: active
+  - id: data-platform
+    alias: data-platform
+    status: active
+  - id: security
+    alias: security-team
+    status: active
+
+transfers:
+  # 追加格式：{from, to, date, reason, pr}
+  - from: ""
+    to: ""
+    date: ""
+    reason: ""
+    pr: ""

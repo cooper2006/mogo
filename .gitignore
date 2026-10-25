@@ -435,3 +435,6 @@ deploy/tls/privkey.pem
 
 # 本地构建上下文备份（真实 bundle 不入库，见 .gitignore 中各 bundle 的占位符约定）
 .local-bundles/
+
+# 024 灰度通道运行时状态（canary.sh 生成，不入库）
+deploy/canary/.canary-state.json
