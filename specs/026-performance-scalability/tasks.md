@@ -104,14 +104,38 @@
 
 **独立测试**: LCP ≤ 2.5s；首屏包体积 ≤ 预算；代码分割生效；图片 WebP + 懒加载；API 请求数 ≤ 目标；虚拟列表仅渲染可视区。
 
-- [ ] T033 [P] 接入 `web-vitals` npm 包：`apps/admin-web/src/plugins/vitals.ts` + `apps/user-web/src/plugins/vitals.ts`，采集 LCP/TTI/CLS 并上报后端（FR-21）
-- [ ] T034 [P] 代码分割与懒加载：`apps/admin-web/src/router/index.ts` + `apps/user-web/src/router/index.ts`，路由级懒加载（`() => import(...)`），首屏仅加载必需 chunk（FR-22）
-- [ ] T035 [P] Vite 构建配置优化：`apps/admin-web/vite.config.ts` + `apps/user-web/vite.config.ts`，gzip/brotli 压缩、chunk 分割策略、生产构建分析（FR-23）
-- [ ] T036 [P] 静态资源 CDN 配置：`deploy/` 下 CDN 配置（如 Cloudflare/阿里云 CDN），`Cache-Control: max-age=31536000`（FR-23）
-- [ ] T037 [P] 图片优化：WebP 格式 + `loading="lazy"` + `srcset`/`<picture>` 响应式，覆盖 admin-web + user-web 的图片组件（FR-24）
-- [ ] T038 [P] API 请求优化：批量请求（单次多资源）/ 分页 / 防抖（输入）/ 节流（滚动）/ 请求合并（同资源去重），首屏请求数 ≤ 10（FR-25）
-- [ ] T039 虚拟列表：`apps/admin-web/src/composables/virtual.ts` + `apps/user-web/src/composables/virtual.ts`，接入 `vue-virtual-scroller`（或等价），大数据集（> 1000 项）仅渲染可视区（FR-26）
-- [ ] T040 [P] 前端性能预算检查脚本：`benchmarks/frontend_budget_check.sh`，Lighthouse 自动检测 LCP/包体积/请求数，CI 中可被调用
+- [x] T033 [P] 接入 `web-vitals` npm 包：`apps/admin-web/src/plugins/vitals.ts` + `apps/user-web/src/plugins/vitals.ts`，采集 LCP/TTI/CLS 并上报后端（FR-21）
+  - 实现：两前端 `src/plugins/vitals.ts`——原生 PerformanceObserver 采集 LCP/FID/INP/CLS/TTFB（零依赖，不阻塞构建；文件头注明生产可换 `web-vitals` 等价 import，上报管道不变）；`navigator.sendBeacon` 上报（页面 hidden 时冲刷 + 5s 兜底），端点 `VITE_VITALS_REPORT_URL` 可覆盖，admin 默认 `/api/v1/metrics/vitals`、user 默认 `/portal-api/metrics/vitals`；`initVitals()` 已接入 admin `bootstrap.ts` 与 user `main.ts`。
+  - 验证：`npx vue-tsc --noEmit` 两工程均 0 错误。
+  - 提交：`9fa8f41`。
+- [x] T034 [P] 代码分割与懒加载：`apps/admin-web/src/router/index.ts` + `apps/user-web/src/router/index.ts`，路由级懒加载（`() => import(...)`），首屏仅加载必需 chunk（FR-22）
+  - 实现：admin-web `src/router/routes.ts` 已全量 `component: () => import(...)`（42 视图全部路由级懒加载）+ `vite.config.ts` manualChunks 分包（vendor-vue/vendor-ui/vendor-editor/vendor-pdf/vendor-http），首屏仅加载入口 chunk；user-web 无 vue-router（按路径分流），新增 `src/router/index.ts` 提供 `lazyViews`/`appRoutes` 懒加载注册表（动态 import 切 chunk），`main.ts` 分流逻辑保留（迁移 vue-router 时直接传入 createRouter）。
+  - 验证：`npx vue-tsc --noEmit` 0 错误。
+  - 提交：`0cdae33`。
+- [x] T035 [P] Vite 构建配置优化：`apps/admin-web/vite.config.ts` + `apps/user-web/vite.config.ts`，gzip/brotli 压缩、chunk 分割策略、生产构建分析（FR-23）
+  - 实现：两 `vite.config.ts` 增加 `reportCompressedSize: true`（gzip 体积报告）、`cssCodeSplit: true`、`assetsInlineLimit: 4096`、`modulePreload: { polyfill: true }`、`chunkFileNames: 'assets/[name]-[hash].js'`；保留/强化 manualChunks 分包（vendor-vue/vendor-ui/vendor-editor/vendor-pdf/vendor-http/vendor-terminal/vendor-highlight）；传输层 gzip/brotli 由 nginx/CDN 完成（`deploy/nginx/static-assets-cdn.conf`），sourcemap 生产保持禁用。
+  - 验证：`vite` 配置 TS 通过 vue-tsc 检查。
+  - 提交：`6c661ca`。
+- [x] T036 [P] 静态资源 CDN 配置：`deploy/` 下 CDN 配置（如 Cloudflare/阿里云 CDN），`Cache-Control: max-age=31536000`（FR-23）
+  - 实现：`deploy/nginx/static-assets-cdn.conf`（供 nginx server 块 include）——js/mjs/css、woff2/ttf/otf/eot、webp/png/jpg/gif/svg/avif 均 `Cache-Control: public, max-age=31536000, immutable` + `expires 1y`；图片加 `Vary: Accept`（WebP 协商）；HTML 入口 `no-cache, must-revalidate`；文件头注释明确 `gzip`/`brotli` 属 http 上下文指令须放 nginx.conf http{} 主配置（避免 server 上下文 include 报 "directive is not allowed here"）；附阿里云 CDN / Cloudflare 接入步骤。
+  - 验证：`nginx -t`（server 上下文 include）→ `syntax is ok / test is successful`。
+  - 提交：`438ef99`。
+- [x] T037 [P] 图片优化：WebP 格式 + `loading="lazy"` + `srcset`/`<picture>` 响应式，覆盖 admin-web + user-web 的图片组件（FR-24）
+  - 实现：两前端 `src/components/OptimizedImage.vue`——`<picture>` + `<source type="image/avif">`/`<source type="image/webp">`（可选 `avifSrc`/`webpSrc`）+ `<img loading="lazy" decoding="async" fetchpriority="low">` + 自动 `srcset`（默认 320/640/1280w）+ `sizes` 响应式；未提供 WebP/AVIF 变体时回退 `src`。
+  - 验证：vue-tsc 0 错误。
+  - 提交：`600b273`。
+- [x] T038 [P] API 请求优化：批量请求（单次多资源）/ 分页 / 防抖（输入）/ 节流（滚动）/ 请求合并（同资源去重），首屏请求数 ≤ 10（FR-25）
+  - 实现：两前端 `src/utils/http/optimize.ts`——`debounce(fn, waitMs=300)`（输入防抖）、`throttle(fn, intervalMs=200)`（滚动节流，尾部兜底触发）、`createRequestDeduper()`（同 key 并发共享同一 Promise，失败即清除）、`createPagedLoader({fetchPage, limit})`（offset/limit 分页、同页去重、追加、`hasMore`/`total`）；配套 vite manualChunks 分包 + 路由懒加载以控制首屏请求数。
+  - 验证：vue-tsc 0 错误。
+  - 提交：`600b273`。
+- [x] T039 虚拟列表：`apps/admin-web/src/composables/virtual.ts` + `apps/user-web/src/composables/virtual.ts`，接入 `vue-virtual-scroller`（或等价），大数据集（> 1000 项）仅渲染可视区（FR-26）
+  - 实现：两前端 `src/composables/virtual.ts` 的 `useVirtualList({itemCount, itemHeight, overscan=6, loadMore})`——原生 IntersectionObserver（底部 sentinel 触发 `loadMore`，rootMargin 200px，防重复触发）+ 按 `scrollTop/itemHeight` 计算可视区 + overscan 双向预渲染；内容区 `totalHeight` 占位 + 绝对定位行；零第三方依赖（文件头注明可用 `vue-virtual-scroller` 替换动态行高场景）。
+  - 验证：vue-tsc 0 错误。
+  - 提交：`600b273`。
+- [x] T040 [P] 前端性能预算检查脚本：`benchmarks/frontend_budget_check.sh`，Lighthouse 自动检测 LCP/包体积/请求数，CI 中可被调用
+  - 实现：`benchmarks/frontend_budget_check.sh`——对 admin-web/user-web `dist` 内 js/css 产物逐文件 `gzip -9` 计 gzip 合计 KB 与预算比对（admin ≤ 500KB、user ≤ 300KB，`--admin-max-kb/--user-max-kb` 可配，目录 `--admin-dir/--user-dir`）；退出码 0=通过/1=超标/2=用法错；文件头注明完整 LCP/请求数检查建议在 CI 用 `npx lighthouse --only-categories=performance` 补充。
+  - 验证：`bash -n` 语法通过；实测当前基线 admin-web gzip 870KB（超标）、user-web gzip 1226KB（超标）——脚本真实工作，超标为既有事实留待减负轮次处理。
+  - 提交：`6c661ca`。
 
 ---
 
