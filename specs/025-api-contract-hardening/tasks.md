@@ -72,7 +72,14 @@
 - [ ] T014 创建 `services/admin-api/app/config/payload_limits.yaml`：载荷限制配置（大小 10MB/深度 16/数组 10000，可配）
 - [ ] T015 [P] 创建 `services/admin-api/app/core/idempotency.py`：幂等键中间件（FR-7, QF-218, QF-219, QF-220）；支持 `Idempotency-Key` 头；Redis 缓存 `idempotency:{tenant}:{route}:{key}` → 响应体，TTL 24h；冲突返回 409
 - [ ] T016 [P] 创建 `services/admin-api/app/core/etag.py`：ETag/If-Match 条件请求中间件（FR-8, QF-221, QF-222, QF-223, QF-224）；PUT 支持 ETag；冲突返回 412；读改写走原子事务
-- [ ] T017 [P] 创建 `services/admin-api/app/api/pagination.py`：统一分页 schema + cursor 翻页助手（FR-6, QF-213, QF-216）；分页响应含 `total`/`page`/`page_size`/`has_next`/`next_cursor`（5 字段，snake_case）
+- [x] T017 [P] 创建 `services/admin-api/app/api/pagination.py`：统一分页 schema + cursor 翻页助手（FR-6, QF-213, QF-216）；分页响应含 `total`/`page`/`page_size`/`has_next`/`next_cursor`（5 字段，snake_case）
+  - **证据（2026-10-25）**：新增 `services/admin-api/app/api/pagination.py`。
+  - `PageParams`（query 参数，`Depends()` 注入）：`page`(ge=1) / `page_size`(ge=1, le=200) / `cursor`；`resolved_page()` 优先使用游标，非法游标回退到 `page`。
+  - `PageResponse[T]`（泛型，snake_case）：`data` / `total` / `page` / `page_size` / `has_next` / `next_cursor`；`build()` 依 `page * page_size < total` 且本页取满判 `has_next`，仅在有下一页时给出 `next_cursor`。
+  - cursor：base64url 编码 `page|page_size`，不含 `/`，可安全放进 query/路径；`decode_cursor()` 对非法游标（空串、错误字符、越界 page/page_size）安全返回 None。
+  - 行为测试 `services/admin-api/tests/test_pagination_t017.py`（13 用例全绿）：编解码往返 / 非法游标 / 越界拒绝 / `has_next` 与 `next_cursor` 的边界（中间页、末页、部分页、空集、恰好取满耗尽）/ 响应 JSON 字段名恰为 5 个 snake_case 分页字段 / `PageParams` 游标优先与默认值。
+  - **FastAPI 实测**（TestClient）：`cursor` 参数可正确解析为 page；`page=2&page_size=5` 返回 `has_next: True`；`page=0` 触发 422（`ge=1` 生效）。
+  - 说明：`PageParams` 用 `Annotated[int, Query(ge=1)] = 1` 写法——既让 FastAPI 识别为 query 参数，又让直接实例化有正确默认值（`Query()` 位置参数会覆盖后面的默认值）。
 - [ ] T018 整改 `services/admin-api/app/api/routes/knowledge_documents.py` 等分页路由：使用 T017 统一分页 schema；基于 cursor 的稳定翻页
 - [ ] T019 [P] 创建 `services/admin-api/app/middleware/content_negotiation.py`：内容协商中间件（FR-9, QF-225, QF-227）；不支持 Accept 返回 406 + `Vary: Accept`；`Accept-Encoding` 按声明生效
 - [ ] T020 US1 集成测试：`services/admin-api/tests/api/test_semantics.py`（路径命名、状态码、幂等、并发、分页、内容协商 6 组 Acceptance）
