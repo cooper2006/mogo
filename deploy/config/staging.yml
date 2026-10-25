@@ -1,0 +1,584 @@
+version: 1
+environment: staging
+strictness: 预发环境，required 项缺失阻断；校验链与生产一致
+settings_schema:
+  fields:
+  - key
+  - env
+  - purpose
+  - required
+  - source
+  - default
+  - allowed
+  - codeRef
+  codeRef_format: services/<svc>/app/core/config.py:<行号>
+services:
+  admin-api:
+    env_prefix: ASKAI_ADMIN_
+    settings:
+    - key: DEBUG
+      env: ASKAI_ADMIN_DEBUG
+      purpose: 调试开关，生产必须 false
+      required: true
+      source: 环境变量
+      default: 'false'
+      allowed: bool，生产固定 false
+      codeRef: services/admin-api/app/core/config.py:19
+    - key: MONGODB_URI
+      env: ASKAI_ADMIN_MONGODB_URI
+      purpose: 业务 MongoDB 连接串
+      required: true
+      source: 环境变量/外部DB
+      default: mongodb://mongo:27017
+      allowed: 含认证信息的 URI
+      codeRef: services/admin-api/app/core/config.py:21
+    - key: MONGODB_DB
+      env: ASKAI_ADMIN_MONGODB_DB
+      purpose: 业务库名
+      required: true
+      source: 环境变量
+      default: mogo_dev
+      allowed: 生产建议 mogo
+      codeRef: services/admin-api/app/core/config.py:22
+    - key: AUDIT_DB
+      env: ASKAI_ADMIN_AUDIT_DB
+      purpose: 审计库（022 FR-17 与业务库分离）
+      required: true
+      source: 环境变量
+      default: 空=复用业务库
+      allowed: 生产必须独立库
+      codeRef: services/admin-api/app/core/config.py:26
+    - key: AUDIT_RETENTION_DAYS
+      env: ASKAI_ADMIN_AUDIT_RETENTION_DAYS
+      purpose: 审计保留期（合规取证基线）
+      required: false
+      source: 环境变量
+      default: '180'
+      allowed: 下限 180，负数禁用 TTL
+      codeRef: services/admin-api/app/core/config.py:29
+    - key: JWT_SECRET
+      env: ASKAI_ADMIN_JWT_SECRET
+      purpose: 访问令牌签名密钥
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: ≥32 字符，生产禁默认值
+      codeRef: services/admin-api/app/core/config.py:51
+    - key: ACCESS_TOKEN_TTL_SECONDS
+      env: ASKAI_ADMIN_ACCESS_TOKEN_TTL_SECONDS
+      purpose: access token TTL（022 FR-11 上限 1h）
+      required: false
+      source: 环境变量
+      default: '3600'
+      allowed: ≤3600
+      codeRef: services/admin-api/app/core/config.py:53
+    - key: CORS_ORIGINS
+      env: ASKAI_ADMIN_CORS_ORIGINS
+      purpose: 允许的跨域来源
+      required: false
+      source: 环境变量
+      default: http://localhost:3100
+      allowed: 逗号分隔，生产禁 *
+      codeRef: services/admin-api/app/core/config.py:20
+    - key: DATA_BACKEND
+      env: ASKAI_ADMIN_DATA_BACKEND
+      purpose: 数据后端开关（mongo|panweidb）
+      required: false
+      source: 环境变量
+      default: 空=mongo
+      allowed: mongo|panweidb
+      codeRef: services/admin-api/app/core/config.py:35
+    - key: PANWEIDB_HOST
+      env: ASKAI_ADMIN_PANWEIDB_HOST
+      purpose: PanWeiDB 主机
+      required: false
+      source: 环境变量
+      default: 127.0.0.1
+      allowed: DATA_BACKEND=panweidb 时必填
+      codeRef: services/admin-api/app/core/config.py:37
+    - key: PANWEIDB_PORT
+      env: ASKAI_ADMIN_PANWEIDB_PORT
+      purpose: PanWeiDB 端口
+      required: false
+      source: 环境变量
+      default: '0'
+      allowed: DATA_BACKEND=panweidb 时必填
+      codeRef: services/admin-api/app/core/config.py:38
+    - key: PANWEIDB_USER
+      env: ASKAI_ADMIN_PANWEIDB_USER
+      purpose: PanWeiDB 用户
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: DATA_BACKEND=panweidb 时必填
+      codeRef: services/admin-api/app/core/config.py:39
+    - key: PANWEIDB_PASSWORD
+      env: ASKAI_ADMIN_PANWEIDB_PASSWORD
+      purpose: PanWeiDB 密码
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: DATA_BACKEND=panweidb 时必填
+      codeRef: services/admin-api/app/core/config.py:40
+    - key: PANWEIDB_DB
+      env: ASKAI_ADMIN_PANWEIDB_DB
+      purpose: PanWeiDB 库名
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: DATA_BACKEND=panweidb 时必填
+      codeRef: services/admin-api/app/core/config.py:41
+    - key: PANWEIDB_SCHEMA
+      env: ASKAI_ADMIN_PANWEIDB_SCHEMA
+      purpose: PanWeiDB schema
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: DATA_BACKEND=panweidb 时必填
+      codeRef: services/admin-api/app/core/config.py:42
+    - key: PANWEIDB_SSLMODE
+      env: ASKAI_ADMIN_PANWEIDB_SSLMODE
+      purpose: PanWeiDB SSL 模式
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: verify-full 生产建议
+      codeRef: services/admin-api/app/core/config.py:47
+    - key: REDIS_URL
+      env: ASKAI_ADMIN_REDIS_URL
+      purpose: Redis 连接 URL
+      required: true
+      source: 环境变量
+      default: redis://127.0.0.1:6379/0
+      allowed: 生产指向栈内 redis
+      codeRef: services/admin-api/app/core/config.py:74
+    - key: WEAVIATE_ENDPOINT
+      env: ASKAI_ADMIN_WEAVIATE_ENDPOINT
+      purpose: Weaviate 端点
+      required: true
+      source: 环境变量
+      default: http://127.0.0.1:8080
+      allowed: 生产指向栈内 weaviate
+      codeRef: services/admin-api/app/core/config.py:75
+    - key: KNOWLEDGE_STORAGE_TYPE
+      env: ASKAI_ADMIN_KNOWLEDGE_STORAGE_TYPE
+      purpose: 知识存储类型
+      required: false
+      source: 环境变量
+      default: local
+      allowed: local|oss
+      codeRef: services/admin-api/app/core/config.py:76
+    - key: KNOWLEDGE_LOCAL_STORAGE_DIR
+      env: ASKAI_ADMIN_KNOWLEDGE_LOCAL_STORAGE_DIR
+      purpose: 本地知识目录
+      required: true
+      source: 环境变量
+      default: data/knowledge-documents
+      allowed: 必须绝对路径（read_only 容器）
+      codeRef: services/admin-api/app/core/config.py:77
+    - key: ADMIN_STATIC_DIR
+      env: ASKAI_ADMIN_ADMIN_STATIC_DIR
+      purpose: 管理端静态文件目录
+      required: true
+      source: 环境变量
+      default: /data/admin-static
+      allowed: 必须绝对路径
+      codeRef: services/admin-api/app/core/config.py:91
+    - key: BACKEND_SERVICE_TOKEN
+      env: ASKAI_ADMIN_BACKEND_SERVICE_TOKEN
+      purpose: 服务间令牌（chat-api→admin）
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: ≥32 字符
+      codeRef: services/admin-api/app/core/config.py:66
+    - key: DSH_MODEL_GATEWAY_SIGNING_SECRET
+      env: ASKAI_ADMIN_DSH_MODEL_GATEWAY_SIGNING_SECRET
+      purpose: 模型网关 HMAC 签名密钥（032）
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: ≥32 字符
+      codeRef: services/admin-api/app/core/config.py:70
+    - key: DOCUMENT_PROCESSING_SERVICE_TOKEN
+      env: ASKAI_ADMIN_DOCUMENT_PROCESSING_SERVICE_TOKEN
+      purpose: 文档处理服务令牌
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: ≥32 字符
+      codeRef: services/admin-api/app/core/config.py:86
+    - key: DOCUMENT_PROCESSING_CALLBACK_TOKEN
+      env: ASKAI_ADMIN_DOCUMENT_PROCESSING_CALLBACK_TOKEN
+      purpose: 文档处理回调令牌
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: ≥32 字符
+      codeRef: services/admin-api/app/core/config.py:87
+    - key: USER_PORTAL_BASE_URL
+      env: ASKAI_ADMIN_USER_PORTAL_BASE_URL
+      purpose: 用户端门户地址
+      required: true
+      source: 环境变量
+      default: http://localhost:3100
+      allowed: 生产为对外域名
+      codeRef: services/admin-api/app/core/config.py:61
+    - key: TENANT_BOOTSTRAP_ADMIN_ENABLED
+      env: ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_ENABLED
+      purpose: 租户引导管理员开关
+      required: false
+      source: 环境变量
+      default: 'false'
+      allowed: 生产建议 true 且改默认口令
+      codeRef: services/admin-api/app/core/config.py:54
+    - key: TENANT_BOOTSTRAP_ADMIN_USERNAME
+      env: ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_USERNAME
+      purpose: 引导管理员用户名
+      required: false
+      source: 环境变量
+      default: admin
+      allowed: 生产不得用 admin
+      codeRef: services/admin-api/app/core/config.py:55
+    - key: TENANT_BOOTSTRAP_ADMIN_PASSWORD
+      env: ASKAI_ADMIN_TENANT_BOOTSTRAP_ADMIN_PASSWORD
+      purpose: 引导管理员初始口令
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: 启用时必填且非弱口令
+      codeRef: services/admin-api/app/core/config.py:56
+    - key: MODEL_TEST_CA_BUNDLE
+      env: ASKAI_ADMIN_MODEL_TEST_CA_BUNDLE
+      purpose: 模型测试 CA 证书包
+      required: false
+      source: 文件挂载
+      default: 空
+      allowed: PEM
+      codeRef: services/admin-api/app/core/config.py:63
+    - key: MODEL_TEST_INSECURE_SKIP_VERIFY
+      env: ASKAI_ADMIN_MODEL_TEST_INSECURE_SKIP_VERIFY
+      purpose: 跳过模型测试 TLS 校验
+      required: false
+      source: 环境变量
+      default: 'false'
+      allowed: 生产禁 true
+      codeRef: services/admin-api/app/core/config.py:64
+    - key: EVAL_GATE_PROFILE_VERSION
+      env: ASKAI_ADMIN_EVAL_GATE_PROFILE_VERSION
+      purpose: 评估门禁 profile 版本（032）
+      required: false
+      source: 环境变量
+      default: eval-gate
+      allowed: 与 chat-api 一致
+      codeRef: services/admin-api/app/core/config.py:71
+  chat-api:
+    env_prefix: ''
+    settings:
+    - key: OPENAI_API_KEY
+      env: OPENAI_API_KEY
+      purpose: OpenAI API 密钥
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: 生产必填
+      codeRef: services/chat-api/app/core/config.py:14
+    - key: OPENAI_BASE_URL
+      env: OPENAI_BASE_URL
+      purpose: OpenAI 兼容端点
+      required: false
+      source: 环境变量
+      default: https://api.openai.com/v1
+      allowed: https URL
+      codeRef: services/chat-api/app/core/config.py:15
+    - key: OPENAI_MODEL
+      env: OPENAI_MODEL
+      purpose: 默认模型
+      required: false
+      source: 环境变量
+      default: gpt-3.5-turbo
+      allowed: 模型名
+      codeRef: services/chat-api/app/core/config.py:16
+    - key: USE_AZURE
+      env: USE_AZURE
+      purpose: 启用 Azure OpenAI
+      required: false
+      source: 环境变量
+      default: 'false'
+      allowed: bool
+      codeRef: services/chat-api/app/core/config.py:22
+    - key: AZURE_OPENAI_ENDPOINT
+      env: AZURE_OPENAI_ENDPOINT
+      purpose: Azure OpenAI 端点
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: USE_AZURE=true 时必填
+      codeRef: services/chat-api/app/core/config.py:23
+    - key: AZURE_OPENAI_API_VERSION
+      env: AZURE_OPENAI_API_VERSION
+      purpose: Azure API 版本
+      required: false
+      source: 环境变量
+      default: '2023-05-15'
+      allowed: 合法版本号
+      codeRef: services/chat-api/app/core/config.py:24
+    - key: AZURE_DEPLOYMENT_NAME
+      env: AZURE_DEPLOYMENT_NAME
+      purpose: Azure 部署名
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: USE_AZURE=true 时必填
+      codeRef: services/chat-api/app/core/config.py:25
+    - key: USE_QWEN
+      env: USE_QWEN
+      purpose: 启用通义千问
+      required: false
+      source: 环境变量
+      default: 'false'
+      allowed: bool
+      codeRef: services/chat-api/app/core/config.py:33
+    - key: QWEN_API_KEY
+      env: QWEN_API_KEY
+      purpose: 通义千问 API 密钥
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: USE_QWEN=true 时必填
+      codeRef: services/chat-api/app/core/config.py:34
+    - key: QWEN_BASE_URL
+      env: QWEN_BASE_URL
+      purpose: 通义千问兼容端点
+      required: false
+      source: 环境变量
+      default: https://dashscope.aliyuncs.com/compatible-mode/v1
+      allowed: https URL
+      codeRef: services/chat-api/app/core/config.py:35
+    - key: USE_MULTIMODAL
+      env: USE_MULTIMODAL
+      purpose: 启用多模态
+      required: false
+      source: 环境变量
+      default: 'true'
+      allowed: bool
+      codeRef: services/chat-api/app/core/config.py:39
+    - key: MONGODB_URI
+      env: MONGODB_URI
+      purpose: 业务 MongoDB 连接串
+      required: true
+      source: 环境变量
+      default: 空
+      allowed: 含认证信息
+      codeRef: services/chat-api/app/core/config.py:85
+    - key: MONGODB_DB
+      env: MONGODB_DB
+      purpose: 业务库名
+      required: true
+      source: 环境变量
+      default: mogo_dev
+      allowed: 与 admin-api 一致
+      codeRef: services/chat-api/app/core/config.py:86
+  document-parser:
+    env_prefix: MOGO_DOC_PROCESSING_
+    settings:
+    - key: SERVICE_TOKEN
+      env: MOGO_DOC_PROCESSING_SERVICE_TOKEN
+      purpose: 对外服务令牌
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: ≥32 字符
+      codeRef: services/document-parser/app/core/config.py:22
+    - key: CALLBACK_TOKEN
+      env: MOGO_DOC_PROCESSING_CALLBACK_TOKEN
+      purpose: 回调令牌
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: ≥32 字符
+      codeRef: services/document-parser/app/core/config.py:23
+    - key: OSS_ENDPOINT
+      env: MOGO_DOC_PROCESSING_OSS_ENDPOINT
+      purpose: 对象存储端点
+      required: false
+      source: 环境变量
+      default: https://oss-cn-beijing.aliyuncs.com
+      allowed: https URL
+      codeRef: services/document-parser/app/core/config.py:29
+    - key: OSS_BUCKET
+      env: MOGO_DOC_PROCESSING_OSS_BUCKET
+      purpose: 对象存储桶
+      required: false
+      source: 环境变量
+      default: askagentic
+      allowed: 桶名
+      codeRef: services/document-parser/app/core/config.py:30
+    - key: OSS_ACCESS_KEY_ID
+      env: MOGO_DOC_PROCESSING_OSS_ACCESS_KEY_ID
+      purpose: 对象存储 AccessKey
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: 使用 OSS 时必填
+      codeRef: services/document-parser/app/core/config.py:31
+    - key: OSS_ACCESS_KEY_SECRET
+      env: MOGO_DOC_PROCESSING_OSS_ACCESS_KEY_SECRET
+      purpose: 对象存储 Secret
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: 使用 OSS 时必填
+      codeRef: services/document-parser/app/core/config.py:32
+    - key: LIBREOFFICE_BIN
+      env: MOGO_DOC_PROCESSING_LIBREOFFICE_BIN
+      purpose: LibreOffice 可执行路径
+      required: true
+      source: 镜像内
+      default: /usr/bin/soffice
+      allowed: 文件路径
+      codeRef: services/document-parser/app/core/config.py:33
+    - key: REDIS_URL
+      env: MOGO_DOC_PROCESSING_REDIS_URL
+      purpose: Redis 连接 URL
+      required: true
+      source: 环境变量
+      default: redis://127.0.0.1:6379/0
+      allowed: 生产指向栈内 redis
+      codeRef: services/document-parser/app/core/config.py:36
+    - key: MONGODB_URI
+      env: MOGO_DOC_PROCESSING_MONGODB_URI
+      purpose: MongoDB 连接串
+      required: true
+      source: 环境变量
+      default: 空
+      allowed: 含认证信息
+      codeRef: services/document-parser/app/core/config.py:38
+    - key: MONGODB_DB
+      env: MOGO_DOC_PROCESSING_MONGODB_DB
+      purpose: 库名
+      required: true
+      source: 环境变量
+      default: 空
+      allowed: 与 admin-api 一致
+      codeRef: services/document-parser/app/core/config.py:39
+    - key: DATA_BACKEND
+      env: MOGO_DOC_PROCESSING_DATA_BACKEND
+      purpose: 数据后端开关
+      required: false
+      source: 环境变量
+      default: 空=mongo
+      allowed: mongo|panweidb
+      codeRef: services/document-parser/app/core/config.py:44
+    - key: PANWEIDB_HOST
+      env: MOGO_DOC_PROCESSING_PANWEIDB_HOST
+      purpose: PanWeiDB 主机
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: panweidb 时必填
+      codeRef: services/document-parser/app/core/config.py:45
+    - key: PANWEIDB_PORT
+      env: MOGO_DOC_PROCESSING_PANWEIDB_PORT
+      purpose: PanWeiDB 端口
+      required: false
+      source: 环境变量
+      default: '0'
+      allowed: panweidb 时必填
+      codeRef: services/document-parser/app/core/config.py:46
+    - key: PANWEIDB_USER
+      env: MOGO_DOC_PROCESSING_PANWEIDB_USER
+      purpose: PanWeiDB 用户
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: panweidb 时必填
+      codeRef: services/document-parser/app/core/config.py:47
+    - key: PANWEIDB_PASSWORD
+      env: MOGO_DOC_PROCESSING_PANWEIDB_PASSWORD
+      purpose: PanWeiDB 密码
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: panweidb 时必填
+      codeRef: services/document-parser/app/core/config.py:48
+    - key: PANWEIDB_DB
+      env: MOGO_DOC_PROCESSING_PANWEIDB_DB
+      purpose: PanWeiDB 库
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: panweidb 时必填
+      codeRef: services/document-parser/app/core/config.py:49
+    - key: PANWEIDB_SCHEMA
+      env: MOGO_DOC_PROCESSING_PANWEIDB_SCHEMA
+      purpose: PanWeiDB schema
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: panweidb 时必填
+      codeRef: services/document-parser/app/core/config.py:50
+    - key: PANWEIDB_SSLMODE
+      env: MOGO_DOC_PROCESSING_PANWEIDB_SSLMODE
+      purpose: PanWeiDB SSL 模式
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: verify-full 生产建议
+      codeRef: services/document-parser/app/core/config.py:51
+    - key: WEAVIATE_ENDPOINT
+      env: MOGO_DOC_PROCESSING_WEAVIATE_ENDPOINT
+      purpose: Weaviate 端点
+      required: true
+      source: 环境变量
+      default: http://127.0.0.1:8080
+      allowed: 生产指向栈内 weaviate
+      codeRef: services/document-parser/app/core/config.py:60
+    - key: WEAVIATE_API_KEY
+      env: MOGO_DOC_PROCESSING_WEAVIATE_API_KEY
+      purpose: Weaviate API 密钥
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: 启用认证时必填
+      codeRef: services/document-parser/app/core/config.py:61
+    - key: WEAVIATE_COLLECTION_NAME
+      env: MOGO_DOC_PROCESSING_WEAVIATE_COLLECTION_NAME
+      purpose: 知识向量集合名
+      required: false
+      source: 环境变量
+      default: AskAIKnowledgeChunks
+      allowed: 集合名
+      codeRef: services/document-parser/app/core/config.py:62
+    - key: AZURE_EMBEDDING_ENDPOINT
+      env: MOGO_DOC_PROCESSING_AZURE_EMBEDDING_ENDPOINT
+      purpose: Azure 向量端点
+      required: false
+      source: 环境变量
+      default: 空
+      allowed: 启用 Azure embedding 时必填
+      codeRef: services/document-parser/app/core/config.py:56
+    - key: AZURE_EMBEDDING_API_KEY
+      env: MOGO_DOC_PROCESSING_AZURE_EMBEDDING_API_KEY
+      purpose: Azure 向量 API 密钥
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: 启用时必填
+      codeRef: services/document-parser/app/core/config.py:59
+    - key: DASHSCOPE_API_KEY
+      env: MOGO_DOC_PROCESSING_DASHSCOPE_API_KEY
+      purpose: 通义 DashScope 密钥
+      required: false
+      source: deployment-secrets
+      default: 空
+      allowed: 启用 DashScope 时必填
+      codeRef: services/document-parser/app/core/config.py:64
+    - key: ADMIN_JWT_SECRET
+      env: MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET
+      purpose: 校验 admin-api JWT 的密钥
+      required: true
+      source: deployment-secrets
+      default: 空
+      allowed: 与 admin-api JWT_SECRET 一致
+      codeRef: services/document-parser/app/core/config.py:65

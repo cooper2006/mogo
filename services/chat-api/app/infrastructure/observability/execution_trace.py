@@ -1,9 +1,11 @@
 from __future__ import annotations
 from app.infrastructure.observability.config import log_print
 
+import re
 import uuid
 import logging
-from typing import Any, Dict
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 logger = logging.getLogger(__name__)
@@ -426,3 +428,115 @@ def _truncate(value: Any, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)] + "..."
+
+
+# ── 026 T008 — 外部依赖耗时拆分（FR-3）───────────────────────────────────────────
+#
+# 回答「时间花在哪」：每次请求把已完成 span 按依赖类型（DB / Redis / LLM /
+# 外部 HTTP / 文件系统 / 其他）聚合耗时占比，汇总到性能基线。
+# span 名带显式 `kind` attr 时优先；否则按关键词推断。
+
+# kind 检测正则（database 优先，避免 `http.query` 被误判为 external_http）
+KIND_PATTERNS: Dict[str, List[re.Pattern]] = {
+    "database": [
+        re.compile(r"\b(mongo|mongodb|motor|panweidb)\b", re.I),
+        re.compile(r"\b(db|query|aggregate|find_|insert_|update_|delete_)\b", re.I),
+        re.compile(r"\bmongo\.(find|insert|update|delete|aggregate)", re.I),
+    ],
+    "cache": [
+        re.compile(r"\b(redis|redis_client|cache|cache_)\b", re.I),
+    ],
+    "llm": [
+        re.compile(r"\b(llm|completion|inference|generation|chat_completion|model_call)\b", re.I),
+        re.compile(r"chat\.completions?", re.I),
+    ],
+    "external_http": [
+        re.compile(r"\b(httpx|http\.(get|post|put|delete)|api_call|call_|webhook|external)\b", re.I),
+        re.compile(r"\b(outbound|upstream|remote)\b", re.I),
+    ],
+    "filesystem": [
+        re.compile(r"\b(s3|oss|fs|file|upload|download|blob|storage)\b", re.I),
+    ],
+}
+KIND_ORDER = ("database", "cache", "llm", "external_http", "filesystem")
+
+
+def infer_span_kind(name: str) -> str:
+    """按 span.name 推断依赖类型；未知归入 ``other``。"""
+    name = str(name or "")
+    if not name:
+        return "other"
+    for kind in KIND_ORDER:
+        for pattern in KIND_PATTERNS.get(kind, []):
+            if pattern.search(name):
+                return kind
+    return "other"
+
+
+@dataclass
+class PerfBreakdownItem:
+    """单个依赖类型的耗时统计。"""
+    kind: str
+    total_ms: float = 0.0
+    count: int = 0
+    p95_ms: float = 0.0
+    share: float = 0.0  # 占总耗时占比 [0,1]
+
+
+@dataclass
+class PerfBreakdown:
+    """一次请求（或一批 span）的耗时拆分结果。"""
+    total_ms: float = 0.0
+    request_duration_ms: Optional[float] = None
+    items: List[PerfBreakdownItem] = field(default_factory=list)
+    unknown_spans: List[str] = field(default_factory=list)  # 未分类 span 名
+
+
+def _percentile(sorted_values: List[float], q: float) -> float:
+    if not sorted_values:
+        return 0.0
+    n = len(sorted_values)
+    idx = int(round(q * (n - 1)))
+    return float(sorted_values[min(max(idx, 0), n - 1)])
+
+
+def dependency_breakdown(
+    spans: List[Dict[str, Any]],
+    *,
+    request_duration_ms: Optional[float] = None,
+) -> PerfBreakdown:
+    """计算外部依赖耗时占比。
+
+    ``spans``：已完成 span 记录（``{name, duration_ms, kind?}``）。
+    分母 = 所有 span 耗时之和（含未分类），保证 share 之和 ≈ 1。
+    """
+    buckets: Dict[str, List[float]] = {}
+    unknown: List[str] = []
+    for span in spans or []:
+        name = str(span.get("name") or "")
+        dur = float(span.get("duration_ms", 0.0))
+        explicit_kind = span.get("kind")
+        kind = str(explicit_kind) if explicit_kind else infer_span_kind(name)
+        if kind == "other":
+            unknown.append(name)
+        buckets.setdefault(kind, []).append(dur)
+    total = sum(sum(v) for v in buckets.values())
+    items: List[PerfBreakdownItem] = []
+    for kind, durs in buckets.items():
+        ordered = sorted(durs)
+        items.append(
+            PerfBreakdownItem(
+                kind=kind,
+                total_ms=sum(durs),
+                count=len(ordered),
+                p95_ms=_percentile(ordered, 0.95),
+                share=(sum(durs) / total) if total > 0 else 0.0,
+            )
+        )
+    items.sort(key=lambda i: i.total_ms, reverse=True)
+    return PerfBreakdown(
+        total_ms=total,
+        request_duration_ms=request_duration_ms,
+        items=items,
+        unknown_spans=sorted(set(unknown)),
+    )

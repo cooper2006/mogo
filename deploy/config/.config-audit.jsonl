@@ -1,0 +1,1 @@
+{"module": "deploy.config", "action": "change", "operator": "cooper", "occurred_at": "2026-10-25T19:02:31Z", "commit": "7df8ef9", "reason": "T023 审计接入验证", "affected_services": ["admin-api", "chat-api"], "rollback_ref": null, "rollback_plan": "git log --oneline -- deploy/config; git checkout <ref> -- deploy/config/; ./mogo up -d", "lint_result": "pass"}

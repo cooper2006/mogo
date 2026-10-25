@@ -1,24 +1,15 @@
-"""026 T004 — 性能埋点中间件骨架。
+"""026 T004/T012 — 性能埋点中间件。
 
-占位模块，Phase 2（US1）填充实现。
-目标：请求延迟埋点 → `RuntimeKPIStore`，与 025 追踪中间件并存。
+真实实现位于 `app.common.perf_kpi.PerfMiddleware`（vendored 副本，权威源
+`services/common/perf_kpi.py`）。本模块保留原路径导出，兼容 Phase 1 已引用的调用方。
 """
 from __future__ import annotations
 
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
-from starlette.responses import Response
+from app.common.perf_kpi import (  # noqa: F401  (re-export)
+    PerfMiddleware,
+    PerfMonitoringMiddleware,
+    RequestKPIStore,
+    default_endpoint,
+)
 
-
-class PerfMiddleware(BaseHTTPMiddleware):
-    """性能埋点中间件占位。
-
-    Phase 2 实现时：
-    - 记录请求开始/结束时间，计算延迟
-    - 按端点聚合延迟分位数，写入 `RuntimeKPIStore`
-    - 与 025 trace_id 中间件并存（独立埋点，不替换）
-    """
-
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """占位：直接放行，不记录性能数据。"""
-        return await call_next(request)
+__all__ = ["PerfMiddleware", "PerfMonitoringMiddleware", "RequestKPIStore", "default_endpoint"]

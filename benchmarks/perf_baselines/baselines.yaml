@@ -1,3 +1,80 @@
-# 026 T005 — 性能基线占位。
-# Phase 2（US1）采集后填充实际 P50/P95/P99 延迟 + RPS/TPS 吞吐基线。
-# 格式与 deploy/config/image-baseline.yml 一致，按服务分组。
+# 026 T010 — 性能基线（对齐 spec.md Clarify 定值，2026-10-24 需求方确认）
+#
+# 口径说明：
+#   * 所有值都是"目标上限"（超限即违反性能预算），不是实测值。
+#   * 延迟单位 ms；吞吐单位 rps/实例；体积单位 KB（gzip 后）。
+#   * P95 延迟上限为服务端处理延迟（不含网络 RTT、不含 LLM 生成段）。
+#   * T011 回归判定：P95 相对上一滚动窗口劣化 > 20% 判回归（CI 告警不阻断）。
+#
+# 读取方：`services/*/app/infrastructure/observability/perf_budget.py`
+# （`PerfBudgetChecker.load_thresholds`）。结构以本文件为准，改动需同步 loader。
+
+version: "026-t010"
+clarify_date: "2026-10-24"
+
+services:
+  chat-api:
+    latency:
+      # 对话主链路（POST /chat/completions、POST /chat）：非 LLM 生成段 P95 ≤ 2s
+      "/chat/completions": {p95_max_ms: 2000}
+      "/chat": {p95_max_ms: 2000}
+      "/chat/cancel": {p95_max_ms: 1000}
+    throughput:
+      # 并发上限 1000 rps/实例（令牌桶），队列深度 1000 超出返回 429
+      max_rps_per_instance: 1000
+    defaults:
+      # 服务级兜底：未显式列出的端点用此阈值
+      p95_max_ms: 2000
+
+  document-parser:
+    latency:
+      # 文档解析：≤ 20 页 PDF worker 端到端 P95 ≤ 5s
+      "/jobs/document-parse": {p95_max_ms: 5000}
+      "/documents/parse-markdown": {p95_max_ms: 5000}
+    throughput:
+      max_rps_per_instance: 500
+    defaults:
+      p95_max_ms: 5000
+
+  admin-api:
+    latency:
+      # 鉴权：P95 ≤ 500ms（登录/刷新/登出/mfa）
+      "/auth/login": {p95_max_ms: 500}
+      "/auth/login/select-tenant": {p95_max_ms: 500}
+      "/auth/me": {p95_max_ms: 500}
+      "/auth/logout": {p95_max_ms: 500}
+      "/auth/mfa/verify": {p95_max_ms: 500}
+    throughput:
+      max_rps_per_instance: 500
+    defaults:
+      p95_max_ms: 1000
+
+frontend:
+  admin-web:
+    bundle_gzip_max_kb: 500     # 首屏 JS 体积 ≤ 500KB gzip
+  user-web:
+    bundle_gzip_max_kb: 300     # 首屏 JS 体积 ≤ 300KB gzip
+  lcp_max_s: 2.5                # 内网基线 LCP ≤ 2.5s
+
+cache:
+  hit_rate_min: 0.8             # 缓存命中率 ≥ 80%
+
+database:
+  slow_query_ms: 100            # 慢查询阈值 ≥ 100ms
+  max_time_ms: 5000             # 查询 maxTimeMS 默认 5000ms
+  pool:
+    max_pool_size: 100
+    min_pool_size: 10
+    max_idle_seconds: 30
+    leak_warning_seconds: 90
+    peak_utilization_max: 0.8   # 连接池峰值利用率 ≤ 80%
+
+concurrency:
+  queue_depth_max: 1000         # 超出 429
+
+circuit_breaker:
+  error_rate_max: 0.5           # 错误率 > 50%
+  rolling_window_seconds: 30    # 滚动窗口
+
+regression:
+  p95_regression_ratio: 1.2     # 劣化 > 20% 判回归（CI 告警不阻断）

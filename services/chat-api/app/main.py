@@ -80,6 +80,12 @@ from app.middleware.legacy_api_redirect import LegacyApiRedirectMiddleware
 # 最后 add 即最外层，拦截未匹配的旧路径。
 app.add_middleware(LegacyApiRedirectMiddleware)
 
+# 026 T012: 性能埋点中间件（延迟分位数 / 并发 / 吞吐 → 复用 runtime_kpi_store）
+from app.common.perf_kpi import PerfMiddleware
+from app.infrastructure.runtime_services import runtime_kpi_store
+
+app.add_middleware(PerfMiddleware, store=runtime_kpi_store)
+
 # 023 T034: FastAPI 自动插桩（HTTP server span）
 instrument_fastapi(app)
 

@@ -6,6 +6,7 @@ import contextlib
 import logging
 import time
 import uuid
+from collections import deque
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, Optional
@@ -26,6 +27,28 @@ class SpanState:
 
 
 _span_stack: ContextVar[list[SpanState]] = ContextVar("span_stack", default=[])
+
+# 026 T006/T008 — 已完成 span 的滚动缓冲区（供 perf_baseline / perf_breakdown 聚合）
+_completed_spans: deque = deque(maxlen=10000)
+
+
+def emit_completed_span(record: Dict[str, Any]) -> None:
+    """记录一个已完成 span（线程安全：CPython list 尾部 append 原子）。"""
+    _completed_spans.append(record)
+
+
+def drain_completed_spans() -> list[Dict[str, Any]]:
+    """取出并清空全部已完成 span（供周期聚合任务调用）。"""
+    out = list(_completed_spans)
+    _completed_spans.clear()
+    return out
+
+
+def recent_completed_spans(limit: int = 1000) -> list[Dict[str, Any]]:
+    """查看最近完成的 span（不清空）。"""
+    if limit <= 0:
+        return []
+    return list(_completed_spans)[-limit:]
 
 
 def current_span_snapshot() -> Dict[str, Any]:
@@ -87,6 +110,19 @@ class log_span:
         if self.state is None:
             return
         duration_ms = int((time.monotonic() - self.state.started_at) * 1000)
+        # 026 T006/T008: 记录已完成 span 供性能基线聚合（不影响既有日志行为）
+        emit_completed_span(
+            {
+                "span_id": self.state.span_id,
+                "name": self.state.name,
+                "parent_span_id": self.state.parent_span_id,
+                "duration_ms": duration_ms,
+                "error": exc is not None,
+                "error_type": type(exc).__name__ if exc is not None else None,
+                "finished_at": time.time(),
+                **self.attrs,
+            }
+        )
         extra = {"span": self.name, "duration_ms": duration_ms, **self.attrs}
         try:
             if exc is not None:

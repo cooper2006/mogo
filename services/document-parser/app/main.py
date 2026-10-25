@@ -49,6 +49,10 @@ def create_app() -> FastAPI:
     # 025 T045（FR-27）：旧 /api/* 永久重定向到 /api/v1/*（GET/HEAD 301，其他 308）。
     app.add_middleware(LegacyApiRedirectMiddleware)
 
+    # 026 T012: 性能埋点中间件（延迟分位数 / 并发 / 吞吐 → 进程内 RequestKPIStore）
+    from app.common.perf_kpi import PerfMiddleware, RequestKPIStore
+    app.add_middleware(PerfMiddleware, store=RequestKPIStore())
+
     # 023 T035: FastAPI 自动插桩（HTTP server span）
     instrument_fastapi(app)
 

@@ -173,6 +173,10 @@ def create_app() -> FastAPI:
     # 保留方法与请求体，避免写操作被转成 GET 丢失）。最后 add 即最外层，拦截未匹配的旧路径。
     app.add_middleware(LegacyApiRedirectMiddleware)
 
+    # 026 T012: 性能埋点中间件（延迟分位数 / 并发 / 吞吐 → 进程内 RequestKPIStore）
+    from app.common.perf_kpi import PerfMiddleware, RequestKPIStore
+    app.add_middleware(PerfMiddleware, store=RequestKPIStore())
+
     # 023 T033: FastAPI 自动插桩（HTTP server span）
     instrument_fastapi(app)
 
