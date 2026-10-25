@@ -88,7 +88,14 @@
   - **证据（2026-10-25）**：新增 `services/admin-api/app/config/payload_limits.yaml`（+`__init__.py`），默认值 `max_bytes: 10485760`(10 MiB, 413) / `max_depth: 16`(422) / `max_array_length: 10000`(422) / `max_string_length: 1048576`(1 MiB, 422)；`overrides` 按路径前缀放宽 `/internal`、`/internal/personal-knowledge` 到 `max_bytes: 20971520`。
   - 配套加载器 `app/config/payload_limits.py::load_payload_limits()`：`PayloadLimits`（frozen dataclass）解析 yaml；`for_path()` 按**最长前缀**叠加路由级覆盖；环境变量 `MOGO_PAYLOAD_LIMITS_<KEY>` 逐项覆盖；yaml 缺失或损坏时回退内置默认值并 `logger.warning`（保证中间件仍能启动）。
   - 行为测试 `services/admin-api/tests/test_payload_limits_t014.py`（10 用例全绿）：yaml 默认值 / 最长前缀覆盖命中 / 未命中路径不变 / 环境变量覆盖（有效值覆盖、空值忽略、非法值忽略）/ yaml 缺失与损坏回退默认。
-- [ ] T015 [P] 创建 `services/admin-api/app/core/idempotency.py`：幂等键中间件（FR-7, QF-218, QF-219, QF-220）；支持 `Idempotency-Key` 头；Redis 缓存 `idempotency:{tenant}:{route}:{key}` → 响应体，TTL 24h；冲突返回 409
+- [x] T015 [P] 创建 `services/admin-api/app/core/idempotency.py`：幂等键中间件（FR-7, QF-218, QF-219, QF-220）；支持 `Idempotency-Key` 头；Redis 缓存 `idempotency:{tenant}:{route}:{key}` → 响应体，TTL 24h；冲突返回 409
+  - **证据（2026-10-25）**：新增 `services/admin-api/app/core/idempotency.py`（纯 ASGI 中间件，风格同 T013/T019）。
+  - `IdempotencyStore`：Redis 主用（`redis_call` 走熔断器），进程内存后备；`get/put/delete`；记录 `{fingerprint,status,headers,body_base64,stored_at}`，key = `idempotency:{tenant}:{method} {path}:{key}`，TTL 24h（`DEFAULT_TTL`）。
+  - `IdempotencyMiddleware`：读 `Idempotency-Key` 头，只对 POST/PUT/PATCH 生效；先读完 body 用 `fingerprint_for(method,path,body)`（sha256）算指纹；命中缓存且指纹一致 → 直接返回缓存响应体（追加 `Idempotency-Replayed: true`，剔除 `content-length/transfer-encoding/content-encoding`），**不重放副作用**；指纹不一致 → **409 Conflict**；未命中 → 透传下游并缓冲响应写入缓存。
+  - Redis 不可达/熔断打开 → 按「不幂等」降级透传下游（不误伤业务）；不同路由是幂等 key 的一部分，各自独立永不互冲突。
+  - `tenant_of(scope)` 从 `scope["state"]` 取 `tenant_id`，中间件层未注入时回退 `anon`。
+  - 行为测试 `services/admin-api/tests/test_idempotency_t015.py`（13 用例全绿，内存 store + FastAPI TestClient）：首次透传 / 重放返回缓存且下游仅调用 1 次 / `Idempotency-Replayed` 头 / 同 key 不同 body → 409 / 不同路由独立 / 无 key、空白 key、GET 透传 / TTL 过期后重放 / store 读写删往返 / backend=memory / 指纹稳定与区分。
+  - **说明**：本轮**未挂载**到 admin-api app（避免影响现有测试与 032 既有失败项），留待 T048 统一装配。
 - [ ] T016 [P] 创建 `services/admin-api/app/core/etag.py`：ETag/If-Match 条件请求中间件（FR-8, QF-221, QF-222, QF-223, QF-224）；PUT 支持 ETag；冲突返回 412；读改写走原子事务
 - [x] T017 [P] 创建 `services/admin-api/app/api/pagination.py`：统一分页 schema + cursor 翻页助手（FR-6, QF-213, QF-216）；分页响应含 `total`/`page`/`page_size`/`has_next`/`next_cursor`（5 字段，snake_case）
   - **证据（2026-10-25）**：新增 `services/admin-api/app/api/pagination.py`。
