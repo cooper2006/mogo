@@ -96,7 +96,13 @@
   - `tenant_of(scope)` 从 `scope["state"]` 取 `tenant_id`，中间件层未注入时回退 `anon`。
   - 行为测试 `services/admin-api/tests/test_idempotency_t015.py`（13 用例全绿，内存 store + FastAPI TestClient）：首次透传 / 重放返回缓存且下游仅调用 1 次 / `Idempotency-Replayed` 头 / 同 key 不同 body → 409 / 不同路由独立 / 无 key、空白 key、GET 透传 / TTL 过期后重放 / store 读写删往返 / backend=memory / 指纹稳定与区分。
   - **说明**：本轮**未挂载**到 admin-api app（避免影响现有测试与 032 既有失败项），留待 T048 统一装配。
-- [ ] T016 [P] 创建 `services/admin-api/app/core/etag.py`：ETag/If-Match 条件请求中间件（FR-8, QF-221, QF-222, QF-223, QF-224）；PUT 支持 ETag；冲突返回 412；读改写走原子事务
+- [x] T016 [P] 创建 `services/admin-api/app/core/etag.py`：ETag/If-Match 条件请求中间件（FR-8, QF-221, QF-222, QF-223, QF-224）；PUT 支持 ETag；冲突返回 412；读改写走原子事务
+  - **证据（2026-10-25）**：新增 `services/admin-api/app/core/etag.py`（纯 ASGI 中间件 + 工具函数，风格同 T013/T015/T019）。
+  - 工具函数（路由层写库前用，保证读-改-写原子）：`compute_etag(data)`（bytes/str/对象规范化 JSON 后 sha256，键序无关）、`format_etag(opaque)`（`"<hex>"`）、`parse_etag`（强/弱 `W/"..."`，`*` 与非法值返回 None）、`parse_many`（逗号分隔）、`matches(header, current_etag)`（支持 `*`、弱比较忽略 `W/`，空头 False）、`none_match_hits`（GET/HEAD 命中 → 304）。
+  - `ETagMiddleware`：请求阶段解析 `If-Match`/`If-None-Match` 写入 `scope["state"]`（`if_match`/`if_none_match`/`etag_middleware_active`）；`require_match=True` 时非 GET/HEAD 且缺 `If-Match` → **428** Precondition Required；响应阶段下游未带 `ETag` 头时为 `application/json` 响应按响应体生成强 `ETag` 头（`state["response_etag"]`），非 JSON/空 body 不加、下游已带不覆盖。
+  - **412/304 判定位置**：路由层在写库**前**用 `matches()` 比对（当前 ETag 来自资源当前版本），不匹配返回 412；写入用**条件更新**（filter 带 version/etag，`matched_count==1` 才提交）以在并发下不丢更新——这是「读-改-写原子事务」的实际落点，中间件只承担协议层解析与响应补头。
+  - 行为测试 `services/admin-api/tests/test_etag_t016.py`（20 用例全绿）：compute_etag 稳定与区分（含 dict 键序无关）/ format / parse（强/弱/`*`/非法）/ matches（匹配、弱比较、`*`、空头）/ none_match_hits / 中间件 JSON 响应自动带 ETag 且稳定 / 非 JSON 不加 / require_match PUT 缺头 428、GET 豁免、带 If-Match 放行 / 条件头解析进 state。
+  - **说明**：本轮**未挂载**到 admin-api app，留待 T048 统一装配。
 - [x] T017 [P] 创建 `services/admin-api/app/api/pagination.py`：统一分页 schema + cursor 翻页助手（FR-6, QF-213, QF-216）；分页响应含 `total`/`page`/`page_size`/`has_next`/`next_cursor`（5 字段，snake_case）
   - **证据（2026-10-25）**：新增 `services/admin-api/app/api/pagination.py`。
   - `PageParams`（query 参数，`Depends()` 注入）：`page`(ge=1) / `page_size`(ge=1, le=200) / `cursor`；`resolved_page()` 优先使用游标，非法游标回退到 `page`。
