@@ -254,7 +254,8 @@
 - [x] T042 [P] 创建 `docs/api-versioning.md`：版本方案文档（FR-27, FR-28, QF-264, QF-267）；URL 路径 `/v1/` + `API-Version` 响应头双轨；版本升级幅度规则
   - **证据**: `docs/api-versioning.md`。要点：①**双轨模型**——主版本走 URL 前缀 `/v1/`（破坏性边界，旧路径保留 301 重定向），小版本走响应头 `API-Version`（向后兼容演进，实现见 T044 `services/admin-api/app/middleware/api_version.py`）+ 可选请求头 `X-API-Version` 协商（服务端不拒绝、只回报实际契约版本）；②**幅度规则（FR-28）**——复用 `tools/contract/diff.py` 的 `COMPAT_TYPES`（`added_interaction`/`new_optional_field`/`new_success_status`/`removed_interaction_deprecated` 等 → minor）与 `BREAKING_TYPES`（`changed_method`/`changed_path`/`changed_field_type`/`field_turned_required`/`new_required_field`/`changed_status_semantics` → major），patch 仅限文档/描述类修订；③**废弃观察期**——对齐 FR-22/`deprecation_check.py`：`deprecated` + `deprecated_since` 后至少观察 2 minor 方可移除（`bump_minor(version, minors=2)`），已知实例 `document-parser` 的 `delete_document_vectors_legacy`（since 1.0.0，最早 1.2.0 可移除）；④**升级流程 7 步**：改契约 → `diff.py` 分类 → `deprecation_check.py` → 契约 `version` bump → 改实现 → `generate.py --check` + `validate.py --all` → CI 阻断（T048）；⑤**迁移到 `/v1/`**——目标 `services/*/app/api/routes/` 业务路由挂 `/v1`，旧路径 301 兜底，例外：`/askai-api` legacy 与跨服务回调 URL 暂不迁移；⑥**当前版本清单**：三契约均 `1.0.0`，`admin-api`/`chat-api` pyproject `0.2.5`，`document-parser` pyproject **未设置 version 字段**（待补）；⑦明确「契约版本（对外 API 语义）」与「pyproject 服务发布版本（内部制品）」是**两套独立版本号**，不混用。
   - **现状核对**：三服务目前均**无 `/v1` 前缀**（grep `prefix="/v1"` 零命中），`API-Version` 响应头尚无实现——两者分别由 T045 / T044 落地；文档已如实登记「迁移中/未实现」而非伪称已完成。
-- [ ] T043 [P] 创建 `docs/error-codes.md`：错误码字典文档（FR-30, QF-269）；跨服务汇总所有错误码，含 `code`/`http_status`/`trigger`/`remedy` 四字段
+- [x] T043 [P] 创建 `docs/error-codes.md`：错误码字典文档（FR-30, QF-269）；跨服务汇总所有错误码，含 `code`/`http_status`/`trigger`/`remedy` 四字段
+  - **证据**: 与 T051 合并为同一份 `docs/error-codes.md`（详见 T051 条目），含通用 15 码字典表（三服务共享）+ 业务错误码登记表 + 响应体结构 + 稳定性与变更流程。
 - [ ] T044 创建 `API-Version` 中间件：`services/admin-api/app/middleware/api_version.py`（FR-27, QF-264）；注入 `API-Version` 响应头
 - [ ] T045 路由迁移到 `/v1/` 前缀（FR-27, QF-264）：扫描 `services/*/app/api/routes/`，添加 `/v1` 路由前缀；旧路径保留向后兼容（301 重定向）
 - [ ] T046 错误码映射稳定性检查（FR-31, QF-270）：CI 检查错误码与 HTTP 状态码映射变更，需版本升级
@@ -273,7 +274,15 @@
   - `tools/contract/deprecation_check.py`（弃用字段观察期，FR-22）
 - [ ] T049 [P] 创建 `specs/025-api-contract-hardening/checklists/requirements.md`：需求质量门禁（CHK 检查项，`/speckit-implement` 拦截）
 - [ ] T050 写 `quickstart.md`（本特性的启用 + 验证步骤）
-- [ ] T051 [P] 错误码字典跨服务汇总：`docs/error-codes.md`（FR-30，T043 的详细版，含三个服务所有错误码）
+- [x] T051 [P] 错误码字典跨服务汇总：`docs/error-codes.md`（FR-30，T043 的详细版，含三个服务所有错误码）
+  - **证据**: `docs/error-codes.md`（唯一权威字典，按服务分节跨服务汇总）。要点：
+    1. **命名空间**：`api.<domain>.<error>`（FR-11）；**服务前缀不写进 code**（避免与 022 既有码冲突），所属服务写在 `service` 列。
+    2. **通用 15 码字典表**（§2，三服务 `app/core/errors.py` 的 `ApiErrorCode` + `DEFAULT_HTTP_STATUS` 完全一致）：`api.internal_error`/`not_found`/`method_not_allowed`/`validation_error`/`bad_request`/`unauthorized`/`forbidden`/`conflict`/`rate_limited`/`payload_too_large`/`unsupported_media_type`/`not_acceptable`/`precondition_failed`/`service_unavailable`/`partial_failure`，每行含 `code`/`http_status`/`trigger`（触发条件，如「401 不泄漏资源存在性 FR-12」「429 超配额 FR-13」「413 载荷超限 FR-5」「412 ETag/If-Match 不匹配 FR-8」「406 内容协商 FR-9」「200+partial=true FR-14」）/`remedy`（处理建议，如「携带 trace_id 反馈」「尊重 Retry-After 头」）。
+    3. **业务错误码登记表**（§3，非 `api.*` 前缀，尚未纳入统一枚举）：`DUPLICATE_FILENAME`（admin-api 409，`knowledge_documents.py:777`）、`skill_upgrade_confirmation_required`（chat-api 409，`skill_package_install.py:49,95`）、`metadata_mismatch`（chat-api 400，`validator.py:216`，`_meta.json` slug 与 `SKILL.md` name 不一致）、`version_metadata_mismatch`（提示不阻断，`validator.py:222`）、`skill_share_token_required`（chat-api，状态由 handler 决定，`skill_sharing/service.py:269`）、`requested_slide_count_mismatch`（chat-api 400，`presentation/service.py:177`）——每行含 `code`/`service`/`http_status`/`trigger`/`remedy`/`来源（文件:行）`，并注明「经业务异常抛出、最终状态码由 handler 决定，如路由显式改映射以路由为准并回写本表」。
+    4. **稳定性与变更流程**（§4，FR-31）：`code` 值一经发布不可变更含义；映射变更属 `changed_status_semantics`（破坏性），必须 major 版本升级（对齐 `docs/api-versioning.md`）；新增码需同步登记本字典 + 契约 `error_codes` 注册表 + `validate.py` 校验；CI 用 `tools/api_check/error_codes_uniqueness.py` 保证跨服务唯一（T046 装配）。
+    5. **响应体结构**（§5，FR-10/FR-29）：`application/problem+json`（RFC 9457 扩展），字段 `code`/`message`/`http_status`/`trace_id`/`fields[]`/`detail`/`error_detail`/`docs_url`；RFC 9457 映射（`type`←`docs_url`，`title`←`code`，`status`←`http_status`，`instance`←`docs_url`）；**兼容层**：`detail` 与 `message` 同时保留（FastAPI 既有消费方读 `data.detail`，chat-api envelope 消费方读 `message`，US2 收敛前不移除）。
+    6. **待补**：业务错误码集中化到 `ApiErrorCode` 待后续 US；`api.partial_failure`（200）与错误码命名冲突已按 FR-14 明确。
+  - **修正过程**：初版误把 `password_change_not_required`（auth.py:263 的**函数名**，非错误码）列为业务码，已删除；`skill_share_token_required` / `metadata_mismatch` / `requested_slide_count_mismatch` 均经业务异常（`SkillPackageError`/`SkillShareError`）抛出，其 `http_status` 如实标为「由 handler 决定」而非臆测。
 - [ ] T052 [P] QualityForge 审计回写：50 个 QF 项状态从 `fail`/`pending` 转为 `pass`/`na`（有理由），回写到 `.qualityforge/audit.json`
 
 ---
