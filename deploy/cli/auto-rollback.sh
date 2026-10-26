@@ -73,11 +73,23 @@ def hit(op, value):
         return False
     if op.startswith("gt_baseline_plus_"):
         pct = float(op.split("_")[-1].replace("pct", "")) / 100.0
-        return value > pct          # 需要 baseline 场景：这里以"超过绝对 pct 增量"为近似
+        # 正确语义是「超过基线 N%」（延迟类）或「超过基线 N 个百分点」（比例类），
+        # 两者都依赖 T045 采集并持久化的 baseline 值；当前尚无 baseline 持久化机制，
+        # 此处只做保守兜底，杜绝「毫秒值与绝对 pct 比较导致恒真」的误触发：
+        #  - 比例类（0~1，error_rate 等）：沿用「超过绝对 pct」近似，基线为 0 时语义正确；
+        #  - 延迟类（值 > 1，PromQL 已 *1000 转毫秒）：不与绝对 pct 比较，保守不触发并告警。
+        if value > 1.0:
+            sys.stderr.write(
+                f"[warn] hit(): metric value={value} 疑为延迟量级（毫秒/秒），无 baseline 无法判定 {op}，"
+                f"保守不触发；正确修法=接入 baseline 后改为 value > baseline*(1+pct)\n"
+            )
+            return False
+        return value > pct
     if op.startswith("gt_0_"):
-        return value > float(op.split("_")[-1])
+        # op 形如 gt_0_01 / gt_0_05 / gt_0_5：末段是 0.XX 的小数部分（01→0.01、99→0.99、5→0.5）
+        return value > float("0." + op.split("_")[-1])
     if op.startswith("lt_0_"):
-        return value < float(op.split("_")[-1])
+        return value < float("0." + op.split("_")[-1])
     return False
 
 out = []
