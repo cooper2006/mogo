@@ -16,6 +16,8 @@ services:
         INSTALL_SYSTEM_DEPS_AT_BUILD: "true"
         INSTALL_PLAYWRIGHT_AT_BUILD: "true"
         PLAYWRIGHT_WITH_DEPS: "true"
+        APT_OFFLINE_INSTALL: ${APT_OFFLINE_INSTALL:-true}
+        PIP_OFFLINE_INSTALL: ${PIP_OFFLINE_INSTALL:-true}
         MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-}
 
   admin-api:
@@ -24,6 +26,7 @@ services:
       context: ./services/admin-api
       dockerfile: Dockerfile
       args:
+        PIP_OFFLINE_INSTALL: ${PIP_OFFLINE_INSTALL:-true}
         MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-}
 
   # document-api and document-worker are the same image running different
@@ -40,6 +43,8 @@ services:
         INSTALL_SYSTEM_DEPS_AT_BUILD: "true"
         INSTALL_PYTHON_DEPS_AT_BUILD: "true"
         INSTALL_DOCLING_MODELS_AT_BUILD: "true"
+        APT_OFFLINE_INSTALL: ${APT_OFFLINE_INSTALL:-true}
+        PIP_OFFLINE_INSTALL: ${PIP_OFFLINE_INSTALL:-true}
         PYTORCH_ACCELERATOR: cpu
         # PyTorch CPU wheels come from a domestic mirror by default; the CPU
         # build is not on PyPI, so this index cannot follow the PyPI mirror.
