@@ -41,10 +41,14 @@ RUN if [ -n "${MOGO_APT_MIRROR}" ]; then \
 # the index to map names to versions.
 #
 # Same contract as the docling / playwright / pip bundles: git ships a <1KB
-# empty-tar placeholder (tracked via git add -f) so COPY never fails, and
-# `save` overwrites it in place. The RUN sizes it to decide offline vs network.
-COPY apt-packages-bundle.tar.gz /tmp/apt-packages-bundle.tar.gz
-
+# empty-tar placeholder (tracked via git add -f) so the mount always resolves,
+# and `save` overwrites it in place. The RUN sizes it to decide offline vs
+# network.
+#
+# Mounted rather than COPYed: a COPY layer keeps the whole tar in the image
+# permanently, since removing it later only adds a whiteout. The mount is
+# read-only, exists only for this RUN, and BuildKit still folds the file's
+# digest into the cache key, so an unchanged bundle hits cache as before.
 ARG APT_OFFLINE_INSTALL=true
 ARG INSTALL_SYSTEM_DEPS_AT_BUILD=false
 # Declared here as well as in the later playwright stage: this RUN block reads
@@ -52,10 +56,10 @@ ARG INSTALL_SYSTEM_DEPS_AT_BUILD=false
 # declaration in this stage `set -u` aborts the build with
 # "INSTALL_PLAYWRIGHT_AT_BUILD: parameter not set".
 ARG INSTALL_PLAYWRIGHT_AT_BUILD=false
-RUN set -eux; \
+RUN --mount=type=bind,source=apt-packages-bundle.tar.gz,target=/tmp/apt-packages-bundle.tar.gz \
+    set -eux; \
     if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" != "true" ]; then \
         echo "Skip apt system dependencies in build stage (INSTALL_SYSTEM_DEPS_AT_BUILD=false)"; \
-        rm -f /tmp/apt-packages-bundle.tar.gz; \
         exit 0; \
     fi; \
     unset XZ_DEFAULTS XZ_OPT; \
@@ -65,7 +69,7 @@ RUN set -eux; \
     if [ "${APT_OFFLINE_INSTALL}" = "true" ] \
         && [ "$(du -sb /tmp/apt-packages-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
         mkdir -p /tmp/apt-offline \
-        && tar -xzf /tmp/apt-packages-bundle.tar.gz -C /tmp/apt-offline \
+        && { tar -xzf /tmp/apt-packages-bundle.tar.gz -C /tmp/apt-offline "./${apt_arch}" 2>/dev/null || true; } \
         && if [ -d "/tmp/apt-offline/${apt_arch}" ]; then \
                offline=true; \
                echo "Installing apt packages offline for ${apt_arch} ($(find /tmp/apt-offline/${apt_arch} -name '*.deb' | wc -l) deb files)"; \
@@ -79,7 +83,6 @@ RUN set -eux; \
     else \
         echo "Skip offline apt bundle (placeholder or APT_OFFLINE_INSTALL=false); using the network."; \
     fi; \
-    rm -f /tmp/apt-packages-bundle.tar.gz; \
     if [ "${offline}" = "true" ]; then \
         apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update >/dev/null 2>&1 || true; \
     else \
@@ -143,19 +146,20 @@ COPY requirements.txt /tmp/requirements.txt
 # The mirror serves PyPI at 13-18 MB/s, so this is not about bandwidth but about
 # repetition: without a cache every rebuild re-downloads the whole 114-package
 # closure. Measured on this image: 502s. Same contract as the other bundles
-# (git ships a <1KB empty-tar placeholder so COPY never fails; `save` overwrites
-# it in place) — the RUN sizes it to decide offline vs network.
-COPY pip-wheels-bundle.tar.gz /tmp/pip-wheels-bundle.tar.gz
-
+# (git ships a <1KB empty-tar placeholder so the mount always resolves; `save`
+# overwrites it in place) — the RUN sizes it to decide offline vs network.
+#
+# Mounted rather than COPYed so the ~300MB tar does not stay in a layer.
 ARG TARGETARCH
 ARG PIP_OFFLINE_INSTALL=true
-RUN set -eux; \
+RUN --mount=type=bind,source=pip-wheels-bundle.tar.gz,target=/tmp/pip-wheels-bundle.tar.gz \
+    set -eux; \
     wheel_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
     offline=false; \
     if [ "${PIP_OFFLINE_INSTALL}" = "true" ] \
         && [ "$(du -sb /tmp/pip-wheels-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
         mkdir -p /tmp/pip-wheels \
-        && tar -xzf /tmp/pip-wheels-bundle.tar.gz -C /tmp/pip-wheels \
+        && { tar -xzf /tmp/pip-wheels-bundle.tar.gz -C /tmp/pip-wheels "./${wheel_arch}" 2>/dev/null || true; } \
         && if [ -d "/tmp/pip-wheels/${wheel_arch}" ]; then \
                offline=true; \
                echo "Installing pip wheels offline for ${wheel_arch} ($(find /tmp/pip-wheels/${wheel_arch} -name '*.whl' | wc -l) wheels)"; \
@@ -165,7 +169,6 @@ RUN set -eux; \
     else \
         echo "Skip offline wheel bundle (placeholder or PIP_OFFLINE_INSTALL=false); using the network."; \
     fi; \
-    rm -f /tmp/pip-wheels-bundle.tar.gz; \
     offline_args=""; \
     if [ "${offline}" = "true" ]; then \
         offline_args="--no-index --find-links=/tmp/pip-wheels/${wheel_arch}"; \
@@ -182,7 +185,8 @@ RUN set -eux; \
 #   1. offline bundle (playwright-browsers-bundle.tar.gz in the build context,
 #      produced by scripts/playwright_browsers_bundle.sh save) — no network,
 #      deterministic bytes, and the layer stays cached while the bundle is
-#      unchanged. Tracked in git as a <1KB placeholder, so this COPY never fails.
+#      unchanged. Tracked in git as a <1KB placeholder, so this mount always
+#      resolves.
 #   2. online download from PLAYWRIGHT_DOWNLOAD_HOST (npmmirror).
 #   3. skip entirely (INSTALL_PLAYWRIGHT_AT_BUILD=false).
 #
@@ -193,16 +197,15 @@ RUN set -eux; \
 # what makes browser provisioning reproducible.
 ARG INSTALL_PLAYWRIGHT_AT_BUILD=false
 ARG PLAYWRIGHT_WITH_DEPS=false
-COPY playwright-browsers-bundle.tar.gz /tmp/playwright-browsers-bundle.tar.gz
-RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" != "true" ]; then \
+RUN --mount=type=bind,source=playwright-browsers-bundle.tar.gz,target=/tmp/playwright-browsers-bundle.tar.gz \
+    if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" != "true" ]; then \
         echo "Skip playwright browser install in build stage (INSTALL_PLAYWRIGHT_AT_BUILD=false)"; \
     else \
         bundle_bytes="$(du -sb /tmp/playwright-browsers-bundle.tar.gz | cut -f1)"; \
         if [ "${bundle_bytes}" -gt 1024 ]; then \
             echo "Installing playwright browsers from offline bundle (${bundle_bytes} bytes)"; \
             mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" \
-            && tar -xzf /tmp/playwright-browsers-bundle.tar.gz -C "${PLAYWRIGHT_BROWSERS_PATH}" \
-            && rm -f /tmp/playwright-browsers-bundle.tar.gz; \
+            && tar -xzf /tmp/playwright-browsers-bundle.tar.gz -C "${PLAYWRIGHT_BROWSERS_PATH}"; \
         else \
             echo "No offline browser bundle; downloading from ${PLAYWRIGHT_DOWNLOAD_HOST}"; \
             if [ "${PLAYWRIGHT_WITH_DEPS}" = "true" ]; then \
@@ -228,7 +231,6 @@ RUN if [ "${INSTALL_PLAYWRIGHT_AT_BUILD}" != "true" ]; then \
                 || echo "WARNING: playwright install-deps failed (apt mirror unreachable); continuing with browsers only"; \
             fi; \
         fi; \
-        rm -f /tmp/playwright-browsers-bundle.tar.gz; \
         ls -d "${PLAYWRIGHT_BROWSERS_PATH}"/chromium*-* >/dev/null 2>&1 \
             || { echo "ERROR: no chromium directory under ${PLAYWRIGHT_BROWSERS_PATH} after provisioning"; exit 1; }; \
         echo "chromium provisioned: $(ls -d "${PLAYWRIGHT_BROWSERS_PATH}"/chromium*-* | tr '\n' ' ')"; \

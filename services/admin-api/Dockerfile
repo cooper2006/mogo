@@ -26,21 +26,25 @@ WORKDIR /app
 
 COPY requirements.txt /tmp/requirements.txt
 
-# Offline pip wheel bundle (see scripts/pip_wheels_bundle.sh): same contract as
-# the other bundles — git ships a <1KB empty-tar placeholder so COPY never
-# fails, and `save` overwrites it in place. The RUN sizes it to decide whether
-# to install from it (--no-index) or fall back to the network.
-COPY pip-wheels-bundle.tar.gz /tmp/pip-wheels-bundle.tar.gz
-
+# Offline pip wheel bundle (see scripts/pip_wheels_bundle.sh): git ships a <1KB
+# empty-tar placeholder so the mount always resolves, and `save` overwrites it
+# in place. The RUN sizes it to decide whether to install from it (--no-index)
+# or fall back to the network.
+#
+# Mounted instead of COPYed: a COPY layer keeps the whole ~70MB tar in the image
+# permanently, since deleting it later only adds a whiteout. The mount is
+# read-only, lives only for this RUN, and BuildKit still folds the file's digest
+# into the cache key -- so an unchanged bundle hits cache just like COPY did.
 ARG TARGETARCH
 ARG PIP_OFFLINE_INSTALL=true
-RUN set -eux; \
+RUN --mount=type=bind,source=pip-wheels-bundle.tar.gz,target=/tmp/pip-wheels-bundle.tar.gz \
+    set -eux; \
     wheel_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
     offline=false; \
     if [ "${PIP_OFFLINE_INSTALL}" = "true" ] \
         && [ "$(du -sb /tmp/pip-wheels-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
         mkdir -p /tmp/pip-wheels \
-        && tar -xzf /tmp/pip-wheels-bundle.tar.gz -C /tmp/pip-wheels \
+        && { tar -xzf /tmp/pip-wheels-bundle.tar.gz -C /tmp/pip-wheels "./${wheel_arch}" 2>/dev/null || true; } \
         && if [ -d "/tmp/pip-wheels/${wheel_arch}" ]; then \
                offline=true; \
                echo "Installing pip wheels offline for ${wheel_arch} ($(find /tmp/pip-wheels/${wheel_arch} -name '*.whl' | wc -l) wheels)"; \
@@ -50,7 +54,6 @@ RUN set -eux; \
     else \
         echo "Skip offline wheel bundle (placeholder or PIP_OFFLINE_INSTALL=false); using the network."; \
     fi; \
-    rm -f /tmp/pip-wheels-bundle.tar.gz; \
     offline_args=""; \
     if [ "${offline}" = "true" ]; then \
         offline_args="--no-index --find-links=/tmp/pip-wheels/${wheel_arch}"; \

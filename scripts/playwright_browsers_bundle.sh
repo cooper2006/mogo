@@ -33,6 +33,9 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+# shellcheck source=scripts/bundle_pack_lib.sh
+source "${ROOT_DIR}/scripts/bundle_pack_lib.sh"
+
 CONTEXT_DIR="services/chat-api"
 BUNDLE_NAME="playwright-browsers-bundle.tar.gz"
 BUNDLE_PATH="${CONTEXT_DIR}/${BUNDLE_NAME}"
@@ -309,7 +312,21 @@ cmd_pack() {
   printf 'Packing %s -> %s ...\n' "${BROWSERS_DIR}" "${BUNDLE_PATH}"
   # Bundle root = contents of /ms-playwright so the Dockerfile can extract
   # directly into PLAYWRIGHT_BROWSERS_PATH.
-  tar -czf "${BUNDLE_PATH}" -C "${BROWSERS_DIR}" .
+  #
+  # Pack from a throwaway copy: bundle_pack rewrites mtimes to make the archive
+  # reproducible, and stamping the durable base-images/playwright cache with
+  # that fixed date would be a side effect the cache never asked for. `cp -c`
+  # clones on APFS (near-instant, no data copied); plain cp is the fallback.
+  local staging
+  staging="$(mktemp -d)"
+  trap 'rm -rf "${staging:-}"' EXIT
+  cp -cR "${BROWSERS_DIR}/." "${staging}/" 2>/dev/null \
+    || cp -R "${BROWSERS_DIR}/." "${staging}/"
+
+  local rc=0
+  bundle_pack "${BUNDLE_PATH}" "${staging}" || rc=$?
+  rm -rf "${staging}"
+  [[ "${rc}" -le 1 ]] || die "Packing ${BUNDLE_PATH} failed."
 
   local out_size entries
   out_size="$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')"

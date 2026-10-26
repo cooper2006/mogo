@@ -46,6 +46,9 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+# shellcheck source=scripts/bundle_pack_lib.sh
+source "${ROOT_DIR}/scripts/bundle_pack_lib.sh"
+
 BUNDLE_NAME="pip-wheels-bundle.tar.gz"
 CACHE_DIR="base-images/pip-wheels"
 
@@ -57,9 +60,24 @@ SERVICE_LIST="${SERVICE_LIST:-document-parser chat-api admin-api}"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 
+# Absolute path to this script, used to re-enter it as `fetch-one` from the
+# parallel fetch path (xargs cannot call a shell function).
+SELF="${ROOT_DIR}/scripts/$(basename "${BASH_SOURCE[0]}")"
+
+# How many (service, arch) downloads run at once. Each one is a docker run
+# against a PyPI mirror plus a short host-side probe; 3 keeps the link busy
+# without starving any single download. Set to 1 for the old serial behaviour.
+MAX_PARALLEL="${MAX_PARALLEL:-3}"
+
 # Platform labels pip must consider for each arch. manylinux tags are cumulative
 # and pip does not infer older ones from a newer tag, so all of them are listed;
 # omitting manylinux2014_x86_64 silently drops most amd64 wheels (verified).
+#
+# Both architectures are built by default. They never mix: the cache keeps one
+# directory per (service, arch) under base-images/pip-wheels/, and the bundle
+# stores them as separate top-level <arch>/ trees, which is what the Dockerfile
+# picks from at build time via TARGETARCH. Narrow it with ARCH_LIST=arm64 when
+# only the local architecture is wanted.
 ARCH_LIST="${ARCH_LIST:-arm64 amd64}"
 
 # --- per-service configuration -------------------------------------------
@@ -140,6 +158,7 @@ Environment:
   DOCKER_BIN        Docker binary to use (default: docker)
   SERVICE_LIST      Services to process
   ARCH_LIST         Architectures to fetch (default: "arm64 amd64")
+  MAX_PARALLEL      (service, arch) downloads to run at once (default: 3, 1 = serial)
   PYPI_INDEX        PyPI mirror (default: Tsinghua)
   PYTORCH_CPU_INDEX PyTorch CPU wheel index (default: SJTU)
 
@@ -316,7 +335,13 @@ pip_download_into() {
 
   # Derived requirement split, staged next to the real files so the container
   # sees them under /ctx.
-  local staging="${ctx}/.pip-wheels-staging"
+  #
+  # Per-arch, not per-service: `fetch` runs one combination per (service, arch)
+  # in parallel, and a shared staging dir would have two processes truncating
+  # and rewriting the same two files while the other's container reads them
+  # through the :ro mount -- a half-written requirements-wheels.txt makes pip
+  # resolve an empty list and the run dies with "No wheels downloaded".
+  local staging="${ctx}/.pip-wheels-staging-${arch}"
   mkdir -p "${staging}"
   printf 'Deriving requirement split:\n'
   split_requirements "${staging}" "${ctx}/${REQUIREMENTS_MAIN}"
@@ -397,18 +422,18 @@ pip_download_into() {
       # the whole resolution atomically and nothing would be cached. The
       # sdist-only pins were stripped into a second file and are fetched below.
       pip download --progress-bar off -d /wheels \$fl \$target \
-        -r /ctx/.pip-wheels-staging/requirements-wheels.txt 2>&1 | tail -3
+        -r /ctx/.pip-wheels-staging-${arch}/requirements-wheels.txt 2>&1 | tail -3
 
       # sdist-only pins. crcmod falls back to a pure-Python build (its setup.py
       # drops ext_modules when the C extension will not compile), so the
       # resulting install is py3-none-any and architecture independent — safe to
       # share between amd64 and arm64.
       mkdir -p /wheels-sdist
-      if [ -s /ctx/.pip-wheels-staging/requirements-sdist.txt ]; then
+      if [ -s /ctx/.pip-wheels-staging-${arch}/requirements-sdist.txt ]; then
         while read -r spec; do
           [ -n \"\$spec\" ] || continue
           pip download --progress-bar off -d /wheels-sdist --no-deps \"\$spec\" 2>&1 | tail -1
-        done < /ctx/.pip-wheels-staging/requirements-sdist.txt
+        done < /ctx/.pip-wheels-staging-${arch}/requirements-sdist.txt
       fi
 
       echo '--- [4/4] extra requirement files ---'
@@ -443,6 +468,50 @@ pip_download_into() {
     [[ "${cpu_torch}" -ge 1 ]] \
       || die "No CPU torch wheel for ${service}/${arch} in ${dest}. Check PYTORCH_CPU_INDEX=${PYTORCH_CPU_INDEX}."
   fi
+
+  # The staged requirement split exists only to feed this container. Leaving it
+  # behind litters every service context with a dot-dir that `git status` hides
+  # but `docker build` still has to hash.
+  rm -rf "${staging}"
+}
+
+# One (service, arch) pair per line, in a stable order.
+fetch_combinations() {
+  local service arch
+  for service in "$@"; do
+    for arch in ${ARCH_LIST}; do
+      printf '%s %s\n' "${service}" "${arch}"
+    done
+  done
+}
+
+# Count what landed in a cache dir and report it. Shared by the serial and
+# parallel paths so both print the same summary line.
+report_fetch_result() {
+  local service="$1" arch="$2" dest="$3"
+  local n size
+  n="$(count_artifacts "${dest}")"
+  size="$(du -sk "${dest}" | cut -f1)"
+  [[ "${n}" -gt 0 ]] || die "No wheels downloaded for ${service}/${arch}."
+  printf '  %s/%s: %s artifacts, %s\n' \
+    "${service}" "${arch}" "${n}" "$(human_size "$((size * 1024))")"
+}
+
+# One (service, arch) wheel download. Called directly on the serial path and
+# re-entered as the `fetch-one` subcommand from the parallel path.
+fetch_one() {
+  local service="$1" arch="$2"
+  local dest="${CACHE_DIR}/${service}/${arch}"
+  printf 'Fetching wheels for %s/linux/%s into %s ...\n' "${service}" "${arch}" "${dest}"
+  # Incremental cache: keep already-downloaded wheels so a re-run only fetches
+  # what actually changed (e.g. a bumped pin). pip reuses a local wheel that
+  # satisfies the requirement via --find-links, so wheels are never
+  # re-downloaded. A stale wheel of the same name is harmless: the offline
+  # install pins exact versions (and --require-hashes), so an unreferenced wheel
+  # is simply ignored, not installed.
+  mkdir -p "${dest}"
+  pip_download_into "${service}" "${arch}" "${dest}"
+  report_fetch_result "${service}" "${arch}" "${dest}"
 }
 
 cmd_fetch() {
@@ -451,36 +520,75 @@ cmd_fetch() {
 
   require_docker
 
+  # Validate every input up front: a missing requirements file should fail in
+  # the first second, not after several parallel downloads have already run.
+  local service ctx main extra
   for service in "${services[@]}"; do
-    local ctx main
     ctx="$(context_dir_for "${service}")"
     main="${ctx}/${REQUIREMENTS_MAIN}"
     [[ -f "${main}" ]] || die "Missing ${main}"
     for extra in $(extra_requirements_for "${service}"); do
       [[ -f "${ctx}/${extra}" ]] || die "Missing ${ctx}/${extra}"
     done
-
-    for arch in ${ARCH_LIST}; do
-      platform_flags "${arch}" >/dev/null   # validate early
-      local dest="${CACHE_DIR}/${service}/${arch}"
-      printf 'Fetching wheels for %s/linux/%s into %s ...\n' "${service}" "${arch}" "${dest}"
-      # Incremental cache: keep already-downloaded wheels so a re-run only
-      # fetches what actually changed (e.g. a bumped pin). pip reuses a local
-      # wheel that satisfies the requirement via --find-links, so wheels are
-      # never re-downloaded. A stale wheel of the same name is harmless: the
-      # offline install pins exact versions (and --require-hashes), so an
-      # unreferenced wheel is simply ignored, not installed.
-      mkdir -p "${dest}"
-      pip_download_into "${service}" "${arch}" "${dest}"
-
-      local n size
-      n="$(count_artifacts "${dest}")"
-      size="$(du -sk "${dest}" | cut -f1)"
-      [[ "${n}" -gt 0 ]] || die "No wheels downloaded for ${service}/${arch}."
-      printf '  %s/%s: %s artifacts, %s\n' \
-        "${service}" "${arch}" "${n}" "$(human_size "$((size * 1024))")"
-    done
   done
+  local arch
+  for arch in ${ARCH_LIST}; do
+    platform_flags "${arch}" >/dev/null   # validate early
+  done
+
+  local -a combos=()
+  local combo
+  while IFS= read -r combo; do
+    combos+=("${combo}")
+  done < <(fetch_combinations "${services[@]}")
+
+  # Serial path: one combination, or MAX_PARALLEL=1. Keeps the old behaviour
+  # available for debugging and for links too slow to share.
+  if [[ "${#combos[@]}" -le 1 || "${MAX_PARALLEL}" -le 1 ]]; then
+    for combo in "${combos[@]}"; do
+      read -r service arch <<< "${combo}"
+      fetch_one "${service}" "${arch}"
+    done
+  else
+    # Parallel path. Each combination re-executes this script as `fetch-one`
+    # in its own process: the work is a docker run plus a host-side pip probe,
+    # so there is no shared state to protect beyond the per-arch staging dir
+    # (see pip_download_into). Logs go to files because six interleaved pip
+    # progress bars are unreadable; they are replayed in a stable order after.
+    local logdir="${CACHE_DIR}/.fetch-logs"
+    rm -rf "${logdir}"
+    mkdir -p "${logdir}"
+
+    printf 'Fetching %s combinations, up to %s at a time ...\n' \
+      "${#combos[@]}" "${MAX_PARALLEL}"
+    printf '  logs: %s\n' "${logdir}"
+
+    local rc=0
+    printf '%s\n' "${combos[@]}" \
+      | MOGO_FETCH_LOGDIR="${logdir}" MOGO_FETCH_SELF="${SELF}" \
+        xargs -P "${MAX_PARALLEL}" -n 2 \
+        bash -c 'bash "${MOGO_FETCH_SELF}" fetch-one "$1" "$2" > "${MOGO_FETCH_LOGDIR}/$1-$2.log" 2>&1' _ \
+      || rc=$?
+
+    if [[ "${rc}" -ne 0 ]]; then
+      printf '\n--- failing combination(s) ---\n'
+      local log
+      for combo in "${combos[@]}"; do
+        read -r service arch <<< "${combo}"
+        log="${logdir}/${service}-${arch}.log"
+        if [[ -f "${log}" ]] && grep -qE '(^Error|ERROR:|error:|failed)' "${log}" 2>/dev/null; then
+          printf '\n== %s/%s ==\n' "${service}" "${arch}"
+          tail -15 "${log}"
+        fi
+      done
+      die "fetch failed (exit ${rc}); full logs: ${logdir}"
+    fi
+
+    for combo in "${combos[@]}"; do
+      read -r service arch <<< "${combo}"
+      grep -h 'artifacts' "${logdir}/${service}-${arch}.log" 2>/dev/null | tail -1
+    done
+  fi
 
   write_manifest
   printf '\nRun `%s pack` to refresh the build-context bundles.\n' "$0"
@@ -512,12 +620,72 @@ write_manifest() {
         printf '  %s=%s artifacts, %s\n' "${arch}" "${n}" "$(human_size "$((size * 1024))")"
         # Record the torch cpu build so a stale cache is detectable when the
         # Dockerfile's torch constraint moves.
+        #
+        # Written as an `if`, not `[[ ... ]] && printf`: only document-parser
+        # has a torch wheel, so for chat-api/admin-api this is the last command
+        # in the redirected block and a bare `&&` would leave the block's exit
+        # status at 1 -- under `set -e` that aborted `fetch` *after* every wheel
+        # had downloaded successfully, with no error message.
         local tv
         tv="$(find "${d}" -name 'torch-*+cpu-*.whl' -exec basename {} \; 2>/dev/null | head -1 || true)"
-        [[ -n "${tv}" ]] && printf '  %s_torch=%s\n' "${arch}" "${tv}"
+        if [[ -n "${tv}" ]]; then
+          printf '  %s_torch=%s\n' "${arch}" "${tv}"
+        fi
       done
     done
   } > "${CACHE_DIR}/manifest.txt"
+}
+
+# --- cache freshness -------------------------------------------------------
+#
+# A reproducible bundle can still be an unusable one. The Dockerfiles install
+# with `--no-index --find-links=<bundle>`, so a wheel that is missing from the
+# bundle is a hard build failure -- there is no network fallback once the bundle
+# is detected as real. That happens whenever a requirements.txt moves after the
+# last `fetch`, which is easy to miss because nothing in the build says so until
+# it dies minutes in. `write_manifest` records each requirements file's sha256
+# at fetch time; these helpers compare that against the working tree.
+
+# Recorded requirements hash for a service. Empty when the manifest is missing
+# or predates the service.
+manifest_req_sha() {
+  local service="$1" req="${2:-${REQUIREMENTS_MAIN}}"
+  local key="${req%.txt}_sha256"
+  [[ -f "${CACHE_DIR}/manifest.txt" ]] || return 0
+  awk -v svc="${service}" -v key="${key}" '
+    /^\[.*\]$/ { in_svc = ($0 == "[" svc "]"); next }
+    in_svc && index($0, key "=") { sub(/^[^=]*=/, ""); print; exit }
+  ' "${CACHE_DIR}/manifest.txt"
+}
+
+# 0 = cache matches requirements, 1 = requirements moved after fetch (build will
+# fail), 2 = cannot tell (no recorded hash).
+cache_freshness() {
+  local service="$1"
+  local recorded current
+  recorded="$(manifest_req_sha "${service}")"
+  [[ -n "${recorded}" ]] || return 2
+  current="$(shasum -a 256 "$(context_dir_for "${service}")/${REQUIREMENTS_MAIN}" 2>/dev/null | cut -d' ' -f1)"
+  [[ -n "${current}" ]] || return 2
+  [[ "${recorded}" == "${current}" ]] && return 0
+  return 1
+}
+
+# Print a stale-cache warning for each named service that needs one.
+warn_if_stale() {
+  local stale=0 service fresh
+  for service in "$@"; do
+    fresh=0
+    cache_freshness "${service}" || fresh=$?
+    if [[ "${fresh}" -eq 1 ]]; then
+      stale=1
+      printf '  WARNING: %s/%s changed after the wheel cache was built.\n' \
+        "${service}" "${REQUIREMENTS_MAIN}"
+      printf '           An offline build will fail at --no-index. Run: %s fetch %s\n' \
+        "$0" "${service}"
+    fi
+  done
+  return "${stale}"
 }
 
 cmd_pack() {
@@ -555,16 +723,24 @@ cmd_pack() {
     fi
 
     printf '  %s: packing %s artifacts -> %s\n' "${service}" "${total}" "${bundle}"
-    tar -czf "${bundle}" -C "${staged}" .
+    local rc=0
+    bundle_pack "${bundle}" "${staged}" || rc=$?
     rm -rf "${staged}"
+    [[ "${rc}" -le 1 ]] || die "Packing ${bundle} failed."
 
     local out_size
     out_size="$(wc -c < "${bundle}" | tr -d ' ')"
-    printf '    %s\n' "$(human_size "${out_size}")"
+    if [[ "${rc}" -eq 0 ]]; then
+      printf '    %s (repacked)\n' "$(human_size "${out_size}")"
+    else
+      printf '    %s (unchanged; COPY layer stays cached)\n' "$(human_size "${out_size}")"
+    fi
     found=1
   done
 
   [[ "${found}" -eq 1 ]] || die "Nothing packed. Run fetch first."
+  printf '\n'
+  warn_if_stale "${services[@]}" || true
   printf '\nRebuild to use them:\n'
   printf '  docker compose -f docker-compose.yml -f docker-compose.build.yml build document-api chat-api admin-api\n'
   printf 'The COPY layer re-executes only when a bundle changes; same bundle = cached.\n'
@@ -614,6 +790,16 @@ cmd_list() {
       fi
     else
       printf '  [missing]     %-18s %s - run pack (no placeholder in git: COPY will fail until this exists)\n' "${service}" "${bundle}"
+    fi
+
+    local fresh=0
+    cache_freshness "${service}" || fresh=$?
+    if [[ "${fresh}" -eq 1 ]]; then
+      printf '  [stale]       %-18s %s is newer than this cache - offline build fails; run: %s fetch %s\n' \
+        "${service}" "${REQUIREMENTS_MAIN}" "$0" "${service}"
+    elif [[ "${fresh}" -eq 2 ]]; then
+      printf '  [unchecked]   %-18s no recorded %s hash (run fetch to record one)\n' \
+        "${service}" "${REQUIREMENTS_MAIN}"
     fi
   done
 }
@@ -678,6 +864,12 @@ fi
 case "${command}" in
   fetch)
     cmd_fetch "$@"
+    ;;
+  fetch-one)
+    # Internal: a single (service, arch) combination. The parallel path above
+    # re-enters this script through xargs, which cannot call a shell function.
+    # Deliberately absent from `usage`.
+    fetch_one "${1:-}" "${2:-}"
     ;;
   pack)
     cmd_pack "$@"

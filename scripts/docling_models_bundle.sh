@@ -49,6 +49,9 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+# shellcheck source=scripts/bundle_pack_lib.sh
+source "${ROOT_DIR}/scripts/bundle_pack_lib.sh"
+
 CONTEXT_DIR="services/document-parser"
 BUNDLE_NAME="docling-models-bundle.tar.gz"
 BUNDLE_PATH="${CONTEXT_DIR}/${BUNDLE_NAME}"
@@ -341,8 +344,10 @@ cmd_pack() {
   # Bundle root = contents of /opt/docling/models so the Dockerfile can extract
   # directly into DOCLING_ARTIFACTS_PATH.
   cp -R "${MODELS_DIR}/." "${staging}/"
-  tar -czf "${BUNDLE_PATH}" -C "${staging}" .
+  local rc=0
+  bundle_pack "${BUNDLE_PATH}" "${staging}" || rc=$?
   rm -rf "${staging}"
+  [[ "${rc}" -le 1 ]] || die "Packing ${BUNDLE_PATH} failed."
 
   set_manifest_key "packed_inventory" "${cur_inv}"
 

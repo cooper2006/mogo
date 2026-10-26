@@ -46,12 +46,16 @@ WORKDIR /app
 # dependency set on every rebuild is pure waste. The bundle carries the .deb
 # files plus the apt index, because --no-download still needs the index to map
 # names to versions. Same contract as the other bundles: git ships a <1KB
-# empty-tar placeholder so COPY never fails.
-COPY apt-packages-bundle.tar.gz /tmp/apt-packages-bundle.tar.gz
-
+# empty-tar placeholder so the mount always resolves.
+#
+# Mounted rather than COPYed: a COPY layer would keep the whole tar in the image
+# permanently, since removing it later only adds a whiteout. The mount is
+# read-only, exists only for this RUN, and BuildKit still folds the file's
+# digest into the cache key.
 ARG TARGETARCH
 ARG APT_OFFLINE_INSTALL=true
-RUN set -eux; \
+RUN --mount=type=bind,source=apt-packages-bundle.tar.gz,target=/tmp/apt-packages-bundle.tar.gz \
+    set -eux; \
     unset XZ_DEFAULTS XZ_OPT; \
     rm -f /etc/apt/apt.conf.d/docker-clean; \
     apt_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
@@ -59,7 +63,7 @@ RUN set -eux; \
     if [ "${APT_OFFLINE_INSTALL}" = "true" ] \
         && [ "$(du -sb /tmp/apt-packages-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
         mkdir -p /tmp/apt-offline \
-        && tar -xzf /tmp/apt-packages-bundle.tar.gz -C /tmp/apt-offline \
+        && { tar -xzf /tmp/apt-packages-bundle.tar.gz -C /tmp/apt-offline "./${apt_arch}" 2>/dev/null || true; } \
         && if [ -d "/tmp/apt-offline/${apt_arch}" ]; then \
                offline=true; \
                echo "Installing apt packages offline for ${apt_arch} ($(find /tmp/apt-offline/${apt_arch} -name '*.deb' | wc -l) deb files)"; \
@@ -73,7 +77,6 @@ RUN set -eux; \
     else \
         echo "Skip offline apt bundle (placeholder or APT_OFFLINE_INSTALL=false); using the network."; \
     fi; \
-    rm -f /tmp/apt-packages-bundle.tar.gz; \
     if [ -n "${MOGO_APT_MIRROR}" ]; then \
         for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
             if [ -f "${source_file}" ]; then \

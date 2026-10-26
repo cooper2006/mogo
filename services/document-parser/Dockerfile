@@ -62,16 +62,21 @@ RUN if [ -n "${MOGO_APT_MIRROR}" ]; then \
 # .deb files, and editing sources.list breaking index identity).
 #
 # Same contract as the other bundles: git ships a <1KB empty-tar placeholder
-# (tracked) so COPY never fails, and `save` overwrites it in place. This RUN
-# sizes it to decide: real bundle -> install from it offline; placeholder -> net.
-COPY apt-packages-bundle.tar.gz /tmp/apt-packages-bundle.tar.gz
-
+# (tracked) so the mount always resolves, and `save` overwrites it in place.
+# This RUN sizes it to decide: real bundle -> install from it offline;
+# placeholder -> net.
+#
+# Mounted rather than COPYed: a COPY layer would keep the whole 500MB tar in the
+# image forever, because deleting it in a later layer only adds a whiteout. The
+# bind mount is read-only and exists only for this RUN, so the bytes never reach
+# a layer. BuildKit still folds the file's digest into the cache key, so an
+# unchanged bundle still hits cache exactly like COPY did.
 ARG APT_OFFLINE_INSTALL=true
 ARG INSTALL_SYSTEM_DEPS_AT_BUILD=true
-RUN set -eux; \
+RUN --mount=type=bind,source=apt-packages-bundle.tar.gz,target=/tmp/apt-packages-bundle.tar.gz \
+    set -eux; \
     if [ "${INSTALL_SYSTEM_DEPS_AT_BUILD}" != "true" ]; then \
         echo "Skip apt system dependencies in build stage (INSTALL_SYSTEM_DEPS_AT_BUILD=false)"; \
-        rm -f /tmp/apt-packages-bundle.tar.gz; \
         exit 0; \
     fi; \
     unset XZ_DEFAULTS XZ_OPT; \
@@ -81,7 +86,7 @@ RUN set -eux; \
     if [ "${APT_OFFLINE_INSTALL}" = "true" ] \
         && [ "$(du -sb /tmp/apt-packages-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
         mkdir -p /tmp/apt-offline \
-        && tar -xzf /tmp/apt-packages-bundle.tar.gz -C /tmp/apt-offline \
+        && { tar -xzf /tmp/apt-packages-bundle.tar.gz -C /tmp/apt-offline "./${apt_arch}" 2>/dev/null || true; } \
         && if [ -d "/tmp/apt-offline/${apt_arch}" ]; then \
                offline=true; \
                echo "Installing apt packages offline for ${apt_arch} ($(find /tmp/apt-offline/${apt_arch} -name '*.deb' | wc -l) deb files)"; \
@@ -95,7 +100,6 @@ RUN set -eux; \
     else \
         echo "Skip offline apt bundle (placeholder or APT_OFFLINE_INSTALL=false); using the network."; \
     fi; \
-    rm -f /tmp/apt-packages-bundle.tar.gz; \
     if [ "${offline}" = "true" ]; then \
         apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update >/dev/null 2>&1 || true; \
         apt-get install -y --no-install-recommends --no-download \
@@ -147,25 +151,27 @@ COPY requirements-docling.txt /tmp/requirements-docling.txt
 # them. Measured cold cost was ~65s for the torch leg alone even on a fast home
 # link, and nothing is shared between an amd64 and an arm64 host.
 #
-# buildkit resolves COPY at parse time, so that file must exist in the
-# context: git ships a <1KB empty-tar placeholder (tracked), and `save`
-# overwrites it in place with the real bundle. The RUN below sizes it to
-# decide: real bundle -> install from it offline; placeholder -> network.
-COPY pip-wheels-bundle.tar.gz /tmp/pip-wheels-bundle.tar.gz
-
+# The file must exist in the context (git ships a <1KB empty-tar placeholder,
+# `save` overwrites it in place). The RUN below sizes it to decide: real bundle
+# -> install from it offline; placeholder -> network.
+#
+# Mounted, not COPYed: see the apt bundle above. This one is ~850MB, so keeping
+# it out of a layer is most of the image's dead weight.
+#
 # Target architecture for the wheel directory. BuildKit sets TARGETARCH (amd64
 # / arm64); the ARG default keeps a plain `docker build` (no buildx) working,
 # where TARGETARCH is empty and the builder is the host.
 ARG TARGETARCH
 ARG PIP_OFFLINE_INSTALL=true
 ARG PYTORCH_CPU_FIND_LINKS=
-RUN if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
+RUN --mount=type=bind,source=pip-wheels-bundle.tar.gz,target=/tmp/pip-wheels-bundle.tar.gz \
+    if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
         wheel_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
         offline=false; \
         if [ "${PIP_OFFLINE_INSTALL}" = "true" ] \
             && [ "$(du -sb /tmp/pip-wheels-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
             mkdir -p /tmp/pip-wheels \
-            && tar -xzf /tmp/pip-wheels-bundle.tar.gz -C /tmp/pip-wheels \
+            && { tar -xzf /tmp/pip-wheels-bundle.tar.gz -C /tmp/pip-wheels "./${wheel_arch}" 2>/dev/null || true; } \
             && if [ -d "/tmp/pip-wheels/${wheel_arch}" ]; then \
                    offline=true; \
                    echo "Installing pip wheels offline for ${wheel_arch} ($(find /tmp/pip-wheels/${wheel_arch} -name '*.whl' | wc -l) wheels)"; \
@@ -175,7 +181,6 @@ RUN if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
         else \
             echo "Skip offline wheel bundle (placeholder or PIP_OFFLINE_INSTALL=false); using the network."; \
         fi; \
-        rm -f /tmp/pip-wheels-bundle.tar.gz; \
         offline_args=""; \
         if [ "${offline}" = "true" ]; then \
             offline_args="--no-index --find-links=/tmp/pip-wheels/${wheel_arch}"; \
@@ -208,7 +213,6 @@ RUN if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
         && rm -rf /tmp/pip-wheels; \
     else \
         echo "Skip Python dependencies in build stage (INSTALL_PYTHON_DEPS_AT_BUILD=false)"; \
-        rm -f /tmp/pip-wheels-bundle.tar.gz; \
     fi \
     && python -c "from docling.document_converter import DocumentConverter; print('docling ok')" \
     && python -c "import torch; print(f'torch {torch.__version__}, cuda_available={torch.cuda.is_available()}, cuda={torch.version.cuda}')"
@@ -221,22 +225,21 @@ ARG MOGO_HF_TIMEOUT=120
 # Offline model bundle: `docling-models-bundle.tar.gz` in the build context
 # (services/document-parser/), a tar.gz laid out exactly as /opt/docling/models
 # would be. Generated by `scripts/docling_models_bundle.sh save`.
-# buildkit resolves COPY at parse time, so that file must exist in the
-# context: git ships a <1KB empty-tar placeholder (tracked), and `save`
-# overwrites it in place with the real ~485MB bundle for offline builds.
-# The RUN below sizes it to decide: real bundle -> extract offline (skips the
-# slow ~265s HuggingFace fetch); placeholder -> fall back to online download.
-COPY docling-models-bundle.tar.gz /tmp/docling-models-bundle.tar.gz
-RUN if [ "${INSTALL_DOCLING_MODELS_AT_BUILD}" = "true" ]; then \
+# The file must exist in the context (git ships a <1KB empty-tar placeholder,
+# `save` overwrites it in place with the real ~485MB bundle). The RUN below
+# sizes it to decide: real bundle -> extract offline (skips the slow ~265s
+# HuggingFace fetch); placeholder -> fall back to online download.
+#
+# Mounted, not COPYed, so the 485MB tar does not become a permanent layer.
+RUN --mount=type=bind,source=docling-models-bundle.tar.gz,target=/tmp/docling-models-bundle.tar.gz \
+    if [ "${INSTALL_DOCLING_MODELS_AT_BUILD}" = "true" ]; then \
         if [ "$(du -sb /tmp/docling-models-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
             echo "Installing Docling models from offline bundle" \
             && mkdir -p "${DOCLING_ARTIFACTS_PATH}" \
             && tar -xzf /tmp/docling-models-bundle.tar.gz -C "${DOCLING_ARTIFACTS_PATH}" \
-            && rm -f /tmp/docling-models-bundle.tar.gz \
             && HF_HUB_OFFLINE=1 python /tmp/document-parser-scripts/verify_docling_runtime.py; \
         else \
             echo "Skip offline bundle (placeholder); downloading Docling models from HuggingFace."; \
-            rm -f /tmp/docling-models-bundle.tar.gz; \
             if [ -n "${MOGO_HF_ENDPOINT}" ]; then export HF_ENDPOINT="${MOGO_HF_ENDPOINT}"; fi; \
             HF_HUB_DISABLE_XET=1 HF_HUB_ETAG_TIMEOUT="${MOGO_HF_TIMEOUT}" HF_HUB_DOWNLOAD_TIMEOUT="${MOGO_HF_TIMEOUT}" \
                 python /tmp/document-parser-scripts/download_docling_models.py \
@@ -244,7 +247,6 @@ RUN if [ "${INSTALL_DOCLING_MODELS_AT_BUILD}" = "true" ]; then \
         fi; \
     else \
         echo "Skip Docling model download and verification (INSTALL_DOCLING_MODELS_AT_BUILD=false)"; \
-        rm -f /tmp/docling-models-bundle.tar.gz; \
     fi
 
 # Security refresh is opt-in. A non-empty value (CI passes its run id) applies

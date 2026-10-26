@@ -62,9 +62,21 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+# shellcheck source=scripts/bundle_pack_lib.sh
+source "${ROOT_DIR}/scripts/bundle_pack_lib.sh"
+
 CACHE_DIR="base-images/apt"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+
+# Absolute path to this script, used to re-enter it as `fetch-one` from the
+# parallel fetch path (xargs cannot call a shell function).
+SELF="${ROOT_DIR}/scripts/$(basename "${BASH_SOURCE[0]}")"
+
+# How many (service, arch) fetches run at once. A cross-arch fetch runs the
+# foreign-arch base image under emulation, so raising this past 3 mostly trades
+# CPU contention for throughput. Set to 1 for the old serial behaviour.
+MAX_PARALLEL="${MAX_PARALLEL:-3}"
 
 # Services whose apt layer is cached. Kept in sync with the Dockerfiles that
 # declare INSTALL_SYSTEM_DEPS_AT_BUILD (plus dsh-runtime-host, which installs
@@ -106,6 +118,11 @@ SUITE="${SUITE:-bookworm}"
 MOGO_APT_MIRROR="${MOGO_APT_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian}"
 MOGO_APT_SECURITY_MIRROR="${MOGO_APT_SECURITY_MIRROR:-http://mirrors.tuna.tsinghua.edu.cn/debian-security}"
 
+# Both architectures are built by default. They never mix: the cache keeps one
+# directory per (service, arch) under base-images/apt/, and the bundle stores
+# them as separate top-level <arch>/ trees, which is what the Dockerfile picks
+# from at build time via TARGETARCH. Narrow it with ARCH_LIST=arm64 when only
+# the local architecture is wanted.
 ARCH_LIST="${ARCH_LIST:-arm64 amd64}"
 
 usage() {
@@ -329,78 +346,94 @@ fetch_one() {
     fi
   fi
 
-  "${DOCKER_BIN}" run --rm \
+  # The container script is passed on stdin through a quoted heredoc instead of
+  # as a `bash -c "..."` argument. Reason: it contains ~15 double quotes (sed
+  # expressions, [ -f "$deb" ], echo "ERROR: ..."), and inside a double-quoted
+  # argument every one has to be escaped as \" -- miss one and the argument ends
+  # early, at which point the remaining lines execute on the *host*. That is
+  # exactly how `apt-get ... update` ended up running on macOS ("update: command
+  # not found") while the container carried on with a truncated script.
+  # A quoted heredoc ('EOS') is literal: no host-side expansion, no escaping, and
+  # no way to terminate it early. Host values arrive as -e environment variables.
+  local pkg_list
+  pkg_list="$(printf '%s ' "${packages[@]}")"
+
+  "${DOCKER_BIN}" run --rm -i \
     --platform "linux/${arch}" \
     -v "${ROOT_DIR}/${dest}:/out" \
     -e DEBIAN_FRONTEND=noninteractive \
-    "${run_image}" bash -c "
-      set -euo pipefail
+    -e APT_MIRROR="${MOGO_APT_MIRROR}" \
+    -e APT_SECURITY_MIRROR="${MOGO_APT_SECURITY_MIRROR}" \
+    -e DEB_ARCH_EXPECTED="${darch}" \
+    -e PACKAGES="${pkg_list}" \
+    -e OUT_UID="${host_uid}" \
+    -e OUT_GID="${host_gid}" \
+    "${run_image}" bash -s <<'EOS'
+set -euo pipefail
 
-      # The cached .deb files are deleted after every apt operation by this
-      # hook, so it must go before anything is fetched.
-      rm -f /etc/apt/apt.conf.d/docker-clean
+# The cached .deb files are deleted after every apt operation by this hook, so
+# it must go before anything is fetched.
+rm -f /etc/apt/apt.conf.d/docker-clean
 
-      for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do
-        [ -f \"\$f\" ] || continue
-        sed -i 's|http://deb.debian.org/debian|${MOGO_APT_MIRROR}|g; s|https://deb.debian.org/debian|${MOGO_APT_MIRROR}|g' \"\$f\"
-        sed -i 's|http://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${MOGO_APT_SECURITY_MIRROR}|g' \"\$f\"
-      done
+for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do
+  [ -f "$f" ] || continue
+  sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g; s|https://deb.debian.org/debian|${APT_MIRROR}|g" "$f"
+  sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" "$f"
+done
 
-      # The bundle index must be current: apt resolves --no-download against it,
-      # so a stale index is exactly what produced the \"Unable to fetch some
-      # archives\" build failures. A transient mirror hiccup is retried, but a
-      # failure here is fatal (set -e) rather than swallowed with || true: a
-      # silent failure leaves an index whose candidate versions have no .deb.
-      apt-get -o Acquire::Retries=5 \
-        -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-        update
+# The bundle index must be current: apt resolves --no-download against it, so a
+# stale index is exactly what produced the "Unable to fetch some archives" build
+# failures. A transient mirror hiccup is retried, but a failure here is fatal
+# (set -e) rather than swallowed with || true: a silent failure leaves an index
+# whose candidate versions have no .deb.
+apt-get -o Acquire::Retries=5 \
+  -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+  update
 
-      # Seed the archive cache from the persistent cache so apt skips .deb files
-      # it already fetched on a previous run instead of re-downloading them.
-      # This is the apt analogue of pip's --find-links: a package whose .deb is
-      # already present (same name = same version+arch) is not fetched again;
-      # only packages that are new, bumped, or missing are pulled from the
-      # mirror. The seed runs after `update` so the index is current, and before
-      # the install so apt sees the cached files when it decides what to fetch.
-      cp -f /out/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+# Seed the archive cache from the persistent cache so apt skips .deb files it
+# already fetched on a previous run instead of re-downloading them. This is the
+# apt analogue of pip's --find-links: a package whose .deb is already present
+# (same name = same version+arch) is not fetched again; only packages that are
+# new, bumped, or missing are pulled from the mirror. The seed runs after
+# `update` so the index is current, and before the install so apt sees the
+# cached files when it decides what to fetch.
+cp -f /out/*.deb /var/cache/apt/archives/ 2>/dev/null || true
 
-      # --reinstall matters: the base image already ships some of these
-      # (ca-certificates, fonts-dejavu-core via fontconfig), and plain
-      # --download-only skips anything already installed, so those .deb files
-      # would never reach the cache. The offline install then fails with
-      # "Unable to fetch some archives" because apt resolves the dependency
-      # against the cached index but finds no matching file. Fetching with
-      # --reinstall keeps the bundle self-sufficient.
-      apt-get install -y --no-install-recommends --download-only --reinstall \
-        $(printf '%s ' "${packages[@]}")
+# --reinstall matters: the base image already ships some of these
+# (ca-certificates, fonts-dejavu-core via fontconfig), and plain --download-only
+# skips anything already installed, so those .deb files would never reach the
+# cache. The offline install then fails with "Unable to fetch some archives"
+# because apt resolves the dependency against the cached index but finds no
+# matching file. Fetching with --reinstall keeps the bundle self-sufficient.
+# shellcheck disable=SC2086  # word splitting is intended: PACKAGES is a list
+apt-get install -y --no-install-recommends --download-only --reinstall ${PACKAGES}
 
-      # Guard: every .deb must match the requested architecture. The container is
-      # the target architecture, so this should always hold; it is checked
-      # because a stray foreign-arch file would be cached, shipped and installed
-      # into the wrong image with no error until something fails at runtime.
-      deb_arch_expected="$(debian_arch "${arch}")"
-      for deb in /var/cache/apt/archives/*.deb; do
-        [ -f \"\$deb\" ] || continue
-        deb_arch=\"\$(dpkg-deb -f \"\$deb\" Architecture 2>/dev/null || echo unknown)\"
-        case \"\$deb_arch\" in
-          all|\${deb_arch_expected}) ;;
-          *)
-            echo \"ERROR: \$(basename \$deb) is \${deb_arch}, expected \${deb_arch_expected}\" >&2
-            exit 3
-            ;;
-        esac
-      done
+# Guard: every .deb must match the requested architecture. The container is the
+# target architecture, so this should always hold; it is checked because a stray
+# foreign-arch file would be cached, shipped and installed into the wrong image
+# with no error until something fails at runtime.
+for deb in /var/cache/apt/archives/*.deb; do
+  [ -f "$deb" ] || continue
+  deb_arch="$(dpkg-deb -f "$deb" Architecture 2>/dev/null || echo unknown)"
+  case "$deb_arch" in
+    all|"${DEB_ARCH_EXPECTED}") ;;
+    *)
+      echo "ERROR: $(basename "$deb") is ${deb_arch}, expected ${DEB_ARCH_EXPECTED}" >&2
+      exit 3
+      ;;
+  esac
+done
 
-      # Copy the .deb files and the package index. --no-download needs the
-      # index to map names to versions; without it apt reports
-      # \"Unable to locate package\" even though the .deb is right there.
-      cp -f /var/cache/apt/archives/*.deb /out/ 2>/dev/null || true
-      mkdir -p /out/Packages
-      cp -f /var/lib/apt/lists/*Packages* /out/Packages/ 2>/dev/null || true
-      cp -f /var/lib/apt/lists/*InRelease /out/Packages/ 2>/dev/null || true
+# Copy the .deb files and the package index. --no-download needs the index to
+# map names to versions; without it apt reports "Unable to locate package" even
+# though the .deb is right there.
+cp -f /var/cache/apt/archives/*.deb /out/ 2>/dev/null || true
+mkdir -p /out/Packages
+cp -f /var/lib/apt/lists/*Packages* /out/Packages/ 2>/dev/null || true
+cp -f /var/lib/apt/lists/*InRelease /out/Packages/ 2>/dev/null || true
 
-      chown -R ${host_uid}:${host_gid} /out
-    "
+chown -R "${OUT_UID}:${OUT_GID}" /out
+EOS
 
   local n
   n="$(find "${dest}" -maxdepth 1 -name '*.deb' | wc -l | tr -d ' ')"
@@ -429,16 +462,74 @@ fetch_one() {
   printf '    %s .deb, %s\n' "${n}" "$(human_size "$((size * 1024))")"
 }
 
+# One (service, arch) pair per line, in a stable order.
+fetch_combinations() {
+  local service arch
+  for service in "$@"; do
+    for arch in ${ARCH_LIST}; do
+      printf '%s %s\n' "${service}" "${arch}"
+    done
+  done
+}
+
 cmd_fetch() {
   local services=("$@")
   [[ "${#services[@]}" -eq 0 ]] && read -r -a services <<< "${SERVICE_LIST}"
 
   require_docker
-  for service in "${services[@]}"; do
-    for arch in ${ARCH_LIST}; do
+
+  local -a combos=()
+  local combo service arch
+  while IFS= read -r combo; do
+    combos+=("${combo}")
+  done < <(fetch_combinations "${services[@]}")
+
+  # Serial path: one combination, or MAX_PARALLEL=1.
+  if [[ "${#combos[@]}" -le 1 || "${MAX_PARALLEL}" -le 1 ]]; then
+    for combo in "${combos[@]}"; do
+      read -r service arch <<< "${combo}"
       fetch_one "${service}" "${arch}"
     done
-  done
+  else
+    # Each combination re-enters this script as `fetch-one` in its own process.
+    # The per-service/per-arch cache dirs are independent, so the only shared
+    # resource is docker itself (concurrent pulls of the same foreign-arch base
+    # image serialise inside the daemon).
+    local logdir="${CACHE_DIR}/.fetch-logs"
+    rm -rf "${logdir}"
+    mkdir -p "${logdir}"
+
+    printf 'Fetching %s combinations, up to %s at a time ...\n' \
+      "${#combos[@]}" "${MAX_PARALLEL}"
+    printf '  logs: %s\n' "${logdir}"
+
+    local rc=0
+    printf '%s\n' "${combos[@]}" \
+      | MOGO_FETCH_LOGDIR="${logdir}" MOGO_FETCH_SELF="${SELF}" \
+        xargs -P "${MAX_PARALLEL}" -n 2 \
+        bash -c 'bash "${MOGO_FETCH_SELF}" fetch-one "$1" "$2" > "${MOGO_FETCH_LOGDIR}/$1-$2.log" 2>&1' _ \
+      || rc=$?
+
+    if [[ "${rc}" -ne 0 ]]; then
+      printf '\n--- failing combination(s) ---\n'
+      local log
+      for combo in "${combos[@]}"; do
+        read -r service arch <<< "${combo}"
+        log="${logdir}/${service}-${arch}.log"
+        if [[ -f "${log}" ]] && grep -qE '(^Error|ERROR:|error:|E: )' "${log}" 2>/dev/null; then
+          printf '\n== %s/%s ==\n' "${service}" "${arch}"
+          tail -15 "${log}"
+        fi
+      done
+      die "fetch failed (exit ${rc}); full logs: ${logdir}"
+    fi
+
+    for combo in "${combos[@]}"; do
+      read -r service arch <<< "${combo}"
+      grep -h '\.deb,' "${logdir}/${service}-${arch}.log" 2>/dev/null | tail -1
+    done
+  fi
+
   printf '\nRun `%s pack` to refresh the build-context bundles.\n' "$0"
 }
 
@@ -476,12 +567,18 @@ cmd_pack() {
     fi
 
     printf '  %s: packing %s .deb -> %s\n' "${service}" "${total}" "${bundle}"
-    tar -czf "${bundle}" -C "${staged}" .
+    local rc=0
+    bundle_pack "${bundle}" "${staged}" || rc=$?
     rm -rf "${staged}"
+    [[ "${rc}" -le 1 ]] || die "Packing ${bundle} failed."
 
     local out_size
     out_size="$(wc -c < "${bundle}" | tr -d ' ')"
-    printf '    %s\n' "$(human_size "${out_size}")"
+    if [[ "${rc}" -eq 0 ]]; then
+      printf '    %s (repacked)\n' "$(human_size "${out_size}")"
+    else
+      printf '    %s (unchanged; COPY layer stays cached)\n' "$(human_size "${out_size}")"
+    fi
     found=1
   done
 
@@ -671,6 +768,12 @@ fi
 case "${command}" in
   fetch)
     cmd_fetch "$@"
+    ;;
+  fetch-one)
+    # Internal: a single (service, arch) fetch. The parallel path above
+    # re-enters this script through xargs, which cannot call a shell function.
+    # Deliberately absent from `usage`.
+    fetch_one "${1:-}" "${2:-}"
     ;;
   pack)
     cmd_pack "$@"
