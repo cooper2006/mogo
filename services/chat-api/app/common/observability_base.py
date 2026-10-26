@@ -49,8 +49,35 @@ LOG_FIELD_ORDER = (
 )
 
 
+def _otel_span_context() -> dict[str, str]:
+    """从 OpenTelemetry 当前 span 取 trace_id/span_id（无 span 时返回空字典）。
+
+    T036 的验收口径是「日志中自动注入 trace_id/span_id（从 OTel context 获取）」，
+    而 ContextVar 只是中间件显式传递用的旁路。没有这一层兜底时，任何**没经过
+    自建中间件**的代码路径（后台任务、脚本、instrument_fastapi 自动生成的
+    server span）打出的日志都不带 trace_id——按 trace_id 查日志会漏掉它们。
+    """
+    try:
+        from opentelemetry import trace
+
+        span_context = trace.get_current_span().get_span_context()
+        if span_context is None or not getattr(span_context, "is_valid", False):
+            return {}
+        return {
+            "trace_id": format(span_context.trace_id, "032x"),
+            "span_id": format(span_context.span_id, "016x"),
+        }
+    except Exception:  # pragma: no cover - 可观测性自身不得抛错（FR-13 反向应用）
+        return {}
+
+
 def current_trace_context() -> dict[str, str]:
-    """当前上下文中的追踪字段（仅非空值），供日志绑定与响应体共用。"""
+    """当前上下文中的追踪字段（仅非空值），供日志绑定与响应体共用。
+
+    优先级：ContextVar（中间件显式设定，可能是外部传入的 traceparent）→
+    OTel 当前 span → 缺失。前者优先是为了保留上游传来的 trace_id 值，
+    后者兜底是为了让「有 span 但没人写 ContextVar」的路径依然可追踪。
+    """
     out: dict[str, str] = {}
     for key, var in (
         ("trace_id", trace_id_var),
@@ -61,6 +88,8 @@ def current_trace_context() -> dict[str, str]:
         value = var.get()
         if value:
             out[key] = value
+    for key, value in _otel_span_context().items():
+        out.setdefault(key, value)
     return out
 
 
