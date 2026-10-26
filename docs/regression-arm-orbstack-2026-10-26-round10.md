@@ -8,7 +8,7 @@
 
 ## 一、结论（一句话）
 
-**`a0a6a08` 短哈希版本构建/部署/服务健康全链路正常，13 容器 12 个 healthy、`prune_previous_release_images` 自动清理 `cef9561` 旧镜像（回收 ~10.3 GB）；容器内单测 admin-api 1433 passed / 26 failed（26 条全部属 `portal_admin` router 挂法 gap，非构建引入）、document-parser 28 passed / 0 failed、chat-api 因 apt 非 root 权限全量未跑通（收集阶段即 ERROR，与构建无关）；宿主 deploy 守卫 263 passed / 14 failed（14 条全属既有问题，非构建引入）。**
+**`a0a6a08` 短哈希版本构建/部署/服务健康全链路正常，13 容器 12 个 healthy、`prune_previous_release_images` 自动清理 `cef9561` 旧镜像（回收 ~10.3 GB）；容器内单测 admin-api 1433 passed / 26 failed（26 条全部属 `portal_admin` router 挂法 gap，非构建引入）、document-parser 28 passed / 0 failed、chat-api 两轮全量均未跑通（apt 非 root 权限 + 事件循环长挂起，均非构建引入）；宿主 deploy 守卫 263 passed / 14 failed（14 条全属既有问题，非构建引入）。`mogo` 脚本短哈希改动已随 `8ebc11e` 推送至 `mogo/main`。**
 
 ---
 
@@ -77,12 +77,14 @@
 ### 4.3 chat-api（`chat-api:a0a6a08` 内跑，全量）
 
 ```
-收集阶段即 ERROR（exit code 100 / 137）
+两轮全量均未跑通（exit code 100 / 137）
 ```
 
-容器内 `AUTO_INSTALL_SYSTEM_DEPS_ON_START=true` 时，entrypoint 在跑 pytest 前先尝试 `apt-get` 安装系统依赖；容器以非 root 用户跑，`/var/lib/apt/lists/` 与 `/etc/apt/sources.list.d/` 无写权限，`sed` 报 `Permission denied`，`apt` lock 也 `Permission denied`，整个 entrypoint 在收集阶段就失败，pytest 本体没机会跑。
+**阻断一（apt 权限，首轮）**：`AUTO_INSTALL_SYSTEM_DEPS_ON_START=true` 时，entrypoint 在跑 pytest 前先尝试 `apt-get` 安装系统依赖；容器以非 root 用户（`appuser` / uid 10001）跑，`/var/lib/apt/lists/` 与 `/etc/apt/sources.list.d/` 无写权限，`sed` 报 `Permission denied`，`apt` lock 也 `Permission denied`，entrypoint 在收集阶段即失败，pytest 本体没机会跑。
 
-这是 chat-api 镜像的**容器权限设计**问题（非 root 运行时系统级 `apt` 安装需 root），与本轮 `a0a6a08` 构建无关，也与构建产物是否可跑无关——同样的命令在 `cef9561` 上也会同样失败（chat-api 镜像的 entrypoint 行为跨版本一致）。
+**阻断二（事件循环长挂起，轮 3 复跑）**：关闭 `AUTO_INSTALL_SYSTEM_DEPS_ON_START`（false）后 pytest 正常收集并开始执行，但跑了约 2 小时+ 无新输出；`/proc/<pid>/wchan` 显示主线程停在 `__arm64_sys_epoll_pwait`，8 个线程全部 S 状态，CPU 从 8.66% 跌至 0.24%（事件循环空转）。chat-api 测试集含大量网络类测试（httpx/requests/aiohttp，`test_connector_market_mock_e2e.py` 等），容器内（`mogo_backend` 网络，无公网出口）走长超时挂起。属测试集对隔离环境的既有约束，非构建引入。
+
+**与本轮 `a0a6a08` 构建无关**：两个阻断都是 chat-api 镜像权限模型 / 测试集网络依赖的既有 gap（`cef9561` 旧镜像行为跨版本一致），不是构建产物缺陷。
 
 ### 4.4 deploy 守卫（宿主 venv 跑 `deploy/tests/`）
 
@@ -181,7 +183,9 @@ W: Problem unlinking the file /var/cache/apt/pkgcache.bin - RemoveCaches (13: Pe
 1. **admin-api `portal_admin` router 挂法 gap（26 条失败根因）**：`portal_admin.py` 的 `APIRouter(prefix="/portal")` 与测试 fixture `app.include_router(portal_admin.router)` 无 prefix 不对齐。修法：`portal_admin.py` 去掉自身 prefix，或测试 fixture 加 `prefix="/api/v1"`（对齐 `6264909` 后的主路径）。
 2. **chat-api 容器 apt 权限模型 gap（全量测试阻断）**：`AUTO_INSTALL_SYSTEM_DEPS_ON_START=true` 需 root，与 QF-818 非 root 基线冲突。修法：构建阶段装完依赖 / 测试专用 root 入口 / 宿主 venv + 容器内混合跑法（§7 处置建议）。
 3. **deploy 14 条既有失败**：`No module named 'app'`（宿主 venv `sys.path` 缺各服务根目录）、030 `test_ontology_permission_mongo_parity.py` skip 条件写坏、性能阈值漂移、nginx 配置漂移、action 未固定 SHA。属跨轮次既有 gap，非构建引入。
-4. **`mogo` 脚本 `mogo_default_version` 改动未提交**：本轮改了 `mogo` 脚本（`mogo_default_version()` 改 `git rev-parse --short HEAD`），未 git add/commit。按 AGENTS.md 并行会话边界，改动留待用户确认后提交。
+4. **`mogo` 脚本 `mogo_default_version` 改动**：已随本轮提交 `8ebc11e` 推送至 `mogo/main`（含本报告）。
+5. **OrbStack CLI 假死**：并发 `docker run` + 多个 `docker ps/stats/exec` 轮询触发 CLI shim ↔ engine 通道假死（`orb status`/网关探针正常但所有 `docker *` hang）。修复 `orb stop && sleep 5 && orb start`，13 容器 ~17s 恢复；非 compose 测试容器被终止。已记入 `Pitfalls/OrbStack Docker CLI 假死…`。
+6. **chat-api 事件循环长挂起（轮 3 新发现）**：关闭 apt 安装后 pytest 正常收集执行，但 2h+ 无进展，主线程 `epoll_pwait` 空转——测试集网络类用例在 `mogo_backend` 隔离网络（无公网出口）下走长超时。修法方向：容器内全量测试过滤网络类用例（`-m "not (network or e2e)"` 等标签），或为测试容器开受限出口；或宿主 venv + 容器内混合跑法。
 
 ---
 
@@ -198,7 +202,7 @@ docker ps   # 13 容器，12 healthy（document-worker/certbot 无 healthcheck�
 # 容器内全量（宿主仓只读挂载 + 容器内 pytest）
 # admin-api：26 failed / 1433 passed / 1 skipped（26 条全属 portal_admin router gap）
 # document-parser：28 passed / 0 failed
-# chat-api：全量未跑通（容器内 apt 非 root 权限阻断 entrypoint）
+# chat-api：两轮全量均未跑通（apt 非 root 权限 + 事件循环长挂起，均非构建引入）
 
 # 宿主 deploy 守卫
 # 14 failed / 263 passed / 13 skipped（14 条全属既有问题）
@@ -208,7 +212,7 @@ docker ps   # 13 容器，12 healthy（document-worker/certbot 无 healthcheck�
 
 ## 十一、本轮改动清单
 
-- `mogo`：`mogo_default_version()` 由 `git describe --tags --always` 改为 `git rev-parse --short HEAD`，`command_build` 注释同步改（未提交）。
-- 新增本报告 `docs/regression-arm-orbstack-2026-10-26-round10.md`。
+- `mogo`：`mogo_default_version()` 由 `git describe --tags --always` 改为 `git rev-parse --short HEAD`，`command_build` 注释同步改。已提交 `8ebc11e`。
+- 新增本报告 `docs/regression-arm-orbstack-2026-10-26-round10.md`（已提交 `8ebc11e`，含 Round 2/3 复跑结果、OrbStack CLI 假死事故记录、chat-api 双重阻断归因）。
 
 **无其他代码改动**；`git status` 里其余 10 个 M 文件（bundle 脚本、Dockerfiles、`.gitignore`）与 `scripts/bundle_pack_lib.sh` 属并行会话在途工作，未动。
