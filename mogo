@@ -227,17 +227,12 @@ show_ready_message() {
 
 # Default build tag when `MOGO_VERSION` is not set in the environment.
 #
-# The tag comes from the **git tag**, not the commit hash: a release build should
-# be named after the release it ships (`chat-api:v0.2.1`), so the images on disk
-# line up with the GHCR tags and with what `./mogo up` later pulls. A short hash
-# is opaque -- it says which commit, but not which release.
-#
-# `git describe --tags --always` degrades honestly:
-#   * HEAD on a tag            -> `v0.2.1`
-#   * HEAD past the newest tag -> `v0.2.1-3-gd153d2d` (distance + commit), so a
-#     build that is *not* exactly the release does not pretend to be;
-#   * no tags at all           -> abbreviated commit (`--always`), i.e. the old
-#     behaviour, so a fresh clone still builds.
+# The tag is the **abbreviated commit hash** of HEAD (`a0a6a08`): a local build
+# is named after exactly the commit it ships, so the images on disk map 1:1 to
+# a git revision and every rebuild retags all services to a fresh, unambiguous
+# tag. A short hash says which commit, which is all a local build can claim;
+# `git describe` release tags would instead name a build after the last release
+# it sits *past* (`v0.2.5-133-ga0a6a08`), which is not the commit being shipped.
 #
 # `--dirty` is deliberately NOT used: this workspace routinely carries
 # uncommitted work from parallel sessions, which would pin every local build to
@@ -246,8 +241,8 @@ show_ready_message() {
 # An explicit `MOGO_VERSION` in the environment still wins -- that is how the
 # release pipeline pins a version and how a developer builds an arbitrary ref.
 mogo_default_version() {
-  git -C "${ROOT_DIR}" describe --tags --always 2>/dev/null \
-    || git -C "${ROOT_DIR}" rev-parse --short HEAD
+  git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null \
+    || printf 'latest'
 }
 
 # Does the gateway terminate TLS?
@@ -687,9 +682,9 @@ prune_previous_release_images() {
 command_build() {
   print_logo
   require_docker
-  # Default the image tag to the git **tag** so a bare `./mogo build` never
-  # falls back to `latest` (which is untraceable and defeats rollback
-  # comparison). An explicit `MOGO_VERSION` in the environment still wins.
+  # Default the image tag to the current commit's short hash so a bare
+  # `./mogo build` is traceable to exactly the revision it ships (an explicit
+  # `MOGO_VERSION` in the environment still wins).
   export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
   mogo_configure_images true
   mogo_msg building
