@@ -171,7 +171,7 @@ jobs:
             org.mogo.version=${{ github.ref_name }}
             org.mogo.git.sha=${{ github.sha }}
             org.mogo.built.at=${{ github.run_started_at }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         id: build
         with:
           context: ${{ matrix.context }}
@@ -231,7 +231,7 @@ jobs:
       # Build the same image a second time and compare digests.
       # Deterministic builds produce identical layers (modulo timestamps).
       - name: Verify build reproducibility (second build)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         id: build2
         with:
           context: ${{ matrix.context }}
