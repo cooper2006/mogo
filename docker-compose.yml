@@ -745,8 +745,12 @@ services:
       - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     environment:
       ASKAI_ADMIN_APP_ENV: production
-      ASKAI_ADMIN_MONGODB_URI: ${MOGO_MONGODB_URI:-mongodb://mongo:27017}
-      ASKAI_ADMIN_MONGODB_DB: ${MOGO_MONGODB_DB:-mogo_dev}
+      # 与 chat-api / document-parser 复用同一组 mongo 连接别名（MONGODB_URI/DB），
+      # 不再给 admin-api 单独的 ASKAI_ADMIN_ 前缀：admin-api 的 effective_mongodb_uri/db
+      # 已显式回退到 MONGODB_URI/DB（services/admin-api/app/core/config.py），
+      # 值统一来自 .env 的 MOGO_MONGODB_URI/DB。
+      MONGODB_URI: ${MOGO_MONGODB_URI:-mongodb://mongo:27017}
+      MONGODB_DB: ${MOGO_MONGODB_DB:-mogo_dev}
       # 数据后端开关（MongoDB → PanWeiDB 迁移，见
       # docs/mongo-to-panweidb-migration-plan.md）。默认 mongo，行为不变。
       # PanWeiDB 现在就在本 compose 网络内（`panweidb` 服务，profile 门控），
