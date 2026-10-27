@@ -182,7 +182,10 @@ set_manifest_key() {
   if [[ -f "${MANIFEST}" ]] && grep -q "^${key}=" "${MANIFEST}"; then
     sed "s|^${key}=.*|${key}=${value}|" "${MANIFEST}" > "${tmp}"
   else
-    { cat "${MANIFEST}" 2>/dev/null; printf '%s=%s\n' "${key}" "${value}"; } > "${tmp}"
+    # `|| true` matters: on a cache that has no manifest yet, cat exits 1 and
+    # `set -e` would abort before the key is ever written -- the append case
+    # this branch exists for.
+    { cat "${MANIFEST}" 2>/dev/null || true; printf '%s=%s\n' "${key}" "${value}"; } > "${tmp}"
   fi
   mv "${tmp}" "${MANIFEST}"
 }
@@ -339,17 +342,28 @@ cmd_pack() {
 
   printf 'Packing %s -> %s ...\n' "${MODELS_DIR}" "${BUNDLE_PATH}"
   local staging
-  staging="$(mktemp -d)"
-  trap 'rm -rf "${staging:-}"' EXIT
+  staging="$(bundle_stage_dir)" || die "Cannot create a staging directory."
+  trap 'rm -rf "${staging:-}" 2>/dev/null || true' EXIT
   # Bundle root = contents of /opt/docling/models so the Dockerfile can extract
-  # directly into DOCLING_ARTIFACTS_PATH.
-  cp -R "${MODELS_DIR}/." "${staging}/"
+  # directly into DOCLING_ARTIFACTS_PATH. Cloning keeps the 1GB tree a metadata
+  # operation on APFS; bundle_pack short-circuits on the fingerprint anyway.
+  bundle_clone "${MODELS_DIR}" "${staging}"
   local rc=0
-  bundle_pack "${BUNDLE_PATH}" "${staging}" || rc=$?
+  bundle_pack "${BUNDLE_PATH}" "${staging}" "$(bundle_fingerprint "${MODELS_DIR}")" || rc=$?
   rm -rf "${staging}"
   [[ "${rc}" -le 1 ]] || die "Packing ${BUNDLE_PATH} failed."
 
   set_manifest_key "packed_inventory" "${cur_inv}"
+
+  # rc=1 means the archive on disk is already the product of this cache, so
+  # nothing was written. Say so instead of "written" -- and skip the tar -tzf
+  # entry count, which is the expensive half of this branch.
+  if [[ "${rc}" -eq 1 ]]; then
+    printf '\nBundle unchanged: %s (%s); nothing to rebuild.\n' \
+      "${BUNDLE_PATH}" "$(human_size "$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')")"
+    printf 'The COPY layer stays cached.\n'
+    return 0
+  fi
 
   local out_size entries
   out_size="$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')"

@@ -539,9 +539,23 @@ cmd_pack() {
 
   local found=0
   for service in "${services[@]}"; do
-    local staged bundle
-    staged="$(mktemp -d)"
+    local staged bundle fp
     bundle="$(bundle_path_for "${service}")"
+
+    # Fingerprint the whole per-service cache (every arch) plus the arch list,
+    # so switching ARCH_LIST cannot reuse a bundle packed for another set.
+    # Tested *before* staging so an untouched cache costs one stat pass.
+    fp="$(bundle_fingerprint "${CACHE_DIR}/${service}") arch=${ARCH_LIST}"
+
+    if bundle_fp_hit "${bundle}" "${fp}"; then
+      printf '  %s: unchanged -> %s\n' "${service}" "${bundle}"
+      printf '    %s (cache fingerprint matches; COPY layer stays cached)\n' \
+        "$(human_size "$(wc -c < "${bundle}" | tr -d ' ')")"
+      found=1
+      continue
+    fi
+
+    staged="$(bundle_stage_dir)" || die "Cannot create a staging directory."
 
     local total=0
     for arch in ${ARCH_LIST}; do
@@ -550,26 +564,25 @@ cmd_pack() {
       local n
       n="$(find "${d}" -maxdepth 1 -name '*.deb' | wc -l | tr -d ' ')"
       [[ "${n}" -gt 0 ]] || continue
-      mkdir -p "${staged}/${arch}"
-      # .deb files plus the apt index the offline install needs.
-      cp "${d}"/*.deb "${staged}/${arch}/" 2>/dev/null || true
+      # .deb files plus the apt index the offline install needs. Cloning keeps
+      # this a metadata operation on APFS instead of a multi-hundred-MB copy.
+      bundle_clone_files "${staged}/${arch}" "${d}"/*.deb 2>/dev/null || true
       if [[ -d "${d}/Packages" ]]; then
-        mkdir -p "${staged}/${arch}/Packages"
-        cp "${d}/Packages/"* "${staged}/${arch}/Packages/" 2>/dev/null || true
+        bundle_clone_files "${staged}/${arch}/Packages" "${d}/Packages/"* 2>/dev/null || true
       fi
       total=$((total + n))
     done
 
     if [[ "${total}" -eq 0 ]]; then
-      rm -rf "${staged}"
+      rm -rf "${staged}" 2>/dev/null || true
       printf '  %s: no cached packages, skipped\n' "${service}"
       continue
     fi
 
     printf '  %s: packing %s .deb -> %s\n' "${service}" "${total}" "${bundle}"
     local rc=0
-    bundle_pack "${bundle}" "${staged}" || rc=$?
-    rm -rf "${staged}"
+    bundle_pack "${bundle}" "${staged}" "${fp}" || rc=$?
+    rm -rf "${staged}" 2>/dev/null || true
     [[ "${rc}" -le 1 ]] || die "Packing ${bundle} failed."
 
     local out_size

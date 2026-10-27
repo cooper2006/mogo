@@ -315,18 +315,27 @@ cmd_pack() {
   #
   # Pack from a throwaway copy: bundle_pack rewrites mtimes to make the archive
   # reproducible, and stamping the durable base-images/playwright cache with
-  # that fixed date would be a side effect the cache never asked for. `cp -c`
-  # clones on APFS (near-instant, no data copied); plain cp is the fallback.
+  # that fixed date would be a side effect the cache never asked for. The copy
+  # is a same-volume APFS clone (bundle_clone), i.e. metadata only -- staging
+  # under $TMPDIR would land on another volume and copy every byte.
   local staging
-  staging="$(mktemp -d)"
-  trap 'rm -rf "${staging:-}"' EXIT
-  cp -cR "${BROWSERS_DIR}/." "${staging}/" 2>/dev/null \
-    || cp -R "${BROWSERS_DIR}/." "${staging}/"
+  staging="$(bundle_stage_dir)" || die "Cannot create a staging directory."
+  trap 'rm -rf "${staging:-}" 2>/dev/null || true' EXIT
+  bundle_clone "${BROWSERS_DIR}" "${staging}"
 
   local rc=0
-  bundle_pack "${BUNDLE_PATH}" "${staging}" || rc=$?
-  rm -rf "${staging}"
+  bundle_pack "${BUNDLE_PATH}" "${staging}" "$(bundle_fingerprint "${BROWSERS_DIR}")" || rc=$?
+  rm -rf "${staging}" 2>/dev/null || true
   [[ "${rc}" -le 1 ]] || die "Packing ${BUNDLE_PATH} failed."
+
+  # rc=1: the archive already matches this cache, nothing was written. Say that
+  # instead of "written", and skip the tar -tzf entry count it would need.
+  if [[ "${rc}" -eq 1 ]]; then
+    printf '\nBundle unchanged: %s (%s); nothing to rebuild.\n' \
+      "${BUNDLE_PATH}" "$(human_size "$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')")"
+    printf 'The COPY layer stays cached.\n'
+    return 0
+  fi
 
   local out_size entries
   out_size="$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')"
