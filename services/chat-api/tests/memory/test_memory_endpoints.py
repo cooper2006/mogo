@@ -268,7 +268,10 @@ async def test_create_memory_allows_org_scope_for_admin(monkeypatch):
         }
 
     monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _admin_resolve)
-    monkeypatch.setattr("app.api.endpoints.memory.MemoryStore", lambda: store)
+    # 017 注：create_memory 内 `from app.memory.store import MemoryStore` 是**函数内**导入，
+    # patch endpoint 模块名（`app.api.endpoints.memory.MemoryStore`）无效——必须 patch
+    # 源模块 `app.memory.store.MemoryStore`（函数导入时从源模块取类）。
+    monkeypatch.setattr("app.memory.store.MemoryStore", lambda: store)
 
     result = await create_memory(
         payload={"content": "org wide", "scope": "org"},

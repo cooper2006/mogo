@@ -302,8 +302,18 @@ class TestRealAdminOpenApi:
         assert _count_error_response_refs(schema) > 0, "4xx/5xx 响应应引用 ErrorResponse"
 
     def test_openapi_json_via_testclient(self) -> None:
+        from app.core.config import settings  # noqa: E402
         from app.main import app  # noqa: E402
 
+        # 生产环境（app_env=production/prod/release）main.py 显式关闭 docs/redoc/openapi
+        # (openapi_url=None)；测试目标是 schema 内容（含 ErrorResponse 引用），
+        # 与 app_env 无关。app_env=production 时直接调 app.openapi() 验证，不走 /openapi.json。
+        is_prod = str(settings.app_env).strip().lower() in {"production", "prod", "release"}
+        if is_prod:
+            schema = app.openapi()
+            assert "ErrorResponse" in schema["components"]["schemas"]
+            assert _count_error_response_refs(schema) > 0
+            return
         client = TestClient(app)
         response = client.get("/openapi.json")
         assert response.status_code == 200

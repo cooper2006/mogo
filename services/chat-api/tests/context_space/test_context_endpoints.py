@@ -1,4 +1,4 @@
-"""Tests for the 021 production entry point (`/api/context/*`).
+"""Tests for the 021 production entry point (`/api/v1/context/*`).
 
 QA finding: ``app.context_space.router`` had **zero** production imports — the
 whole 021 layer (router + four tenant adapters + delegated visibility + trace)
@@ -35,33 +35,33 @@ def client(monkeypatch):
 
 
 def test_resolve_rejects_empty_request(client):
-    r = client.post("/api/context/resolve", json={})
+    r = client.post("/api/v1/context/resolve", json={})
     assert r.status_code == 400
     assert "uri" in r.json()["detail"]
 
 
 def test_resolve_rejects_oversized_batch(client):
-    r = client.post("/api/context/resolve", json={"uris": [f"mogo://memory/x/{i}" for i in range(60)]})
+    r = client.post("/api/v1/context/resolve", json={"uris": [f"mogo://memory/x/{i}" for i in range(60)]})
     assert r.status_code == 400
     assert "50" in r.json()["detail"]
 
 
 def test_resolve_unknown_root_is_client_error(client):
     """An unknown root is a malformed address → 400, not a 500."""
-    r = client.post("/api/context/resolve", json={"uri": "mogo://nope/x"})
+    r = client.post("/api/v1/context/resolve", json={"uri": "mogo://nope/x"})
     assert r.status_code == 400
     assert "unknown context root" in r.json()["detail"]
 
 
 def test_resolve_non_mogo_uri_is_client_error(client):
-    r = client.post("/api/context/resolve", json={"uri": "http://example.com"})
+    r = client.post("/api/v1/context/resolve", json={"uri": "http://example.com"})
     assert r.status_code == 400
 
 
 def test_resolve_missing_address_reports_per_item(client):
     """A missing address must fail only that item, not the whole batch."""
     r = client.post(
-        "/api/context/resolve",
+        "/api/v1/context/resolve",
         json={"uris": ["mogo://memory/personal/u1/does-not-exist/L0"]},
     )
     assert r.status_code == 200
@@ -81,7 +81,7 @@ def test_resolve_missing_address_reports_per_item(client):
 def test_resolve_tenant_mismatch_reports_visibility_denied(client):
     """Cross-tenant address → per-item visibility_denied (no data leak)."""
     r = client.post(
-        "/api/context/resolve",
+        "/api/v1/context/resolve",
         json={"uri": "mogo://resource/doc/OTHER-TENANT/doc-1/c1/L0"},
     )
     assert r.status_code == 200
@@ -109,11 +109,11 @@ def test_trace_readback_roundtrip(client, monkeypatch):
 
     monkeypatch.setattr("app.api.endpoints.context_space.resolve_memory", _fake_resolve_memory)
 
-    r = client.post("/api/context/resolve", json={"uri": "mogo://memory/personal/u1/m-1/L0"})
+    r = client.post("/api/v1/context/resolve", json={"uri": "mogo://memory/personal/u1/m-1/L0"})
     assert r.status_code == 200
     assert r.json()["data"]["resolved_count"] == 1
 
-    r2 = client.get("/api/context/trace/trace-abc")
+    r2 = client.get("/api/v1/context/trace/trace-abc")
     assert r2.status_code == 200
     assert r2.json()["data"]["trace"]["trace_id"] == "trace-abc"
 
@@ -122,7 +122,7 @@ def test_trace_readback_roundtrip(client, monkeypatch):
 
 def test_trace_missing_returns_404(client):
     context_space._TRACE_RING.clear()
-    r = client.get("/api/context/trace/does-not-exist")
+    r = client.get("/api/v1/context/trace/does-not-exist")
     assert r.status_code == 404
 
 
@@ -145,14 +145,14 @@ def test_trace_readback_is_tenant_scoped(client, monkeypatch):
     context_space._remember_trace({"trace_id": "trace-t1", "candidates": []}, "t1")
 
     # The default client authenticates as tenant t1 → allowed.
-    assert client.get("/api/context/trace/trace-t1").status_code == 200
+    assert client.get("/api/v1/context/trace/trace-t1").status_code == 200
 
     async def _other_tenant(authorization: str):
         return {"user_id": "u9", "tenant_id": "t2", "role": "", "is_workspace_member": False, "org_id": ""}
 
     monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _other_tenant)
     # 404 (not 403) so the trace's existence is not disclosed.
-    assert client.get("/api/context/trace/trace-t1").status_code == 404
+    assert client.get("/api/v1/context/trace/trace-t1").status_code == 404
     context_space._TRACE_RING.clear()
 
 

@@ -36,6 +36,6 @@ async def test_align_groups_and_missing_systems():
 
 def test_router_registered():
     paths = {r.path for r in router.routes}
-    assert "/api/business-index/search" in paths
-    assert "/api/business-index/index" in paths
-    assert "/api/business-index/align" in paths
+    assert "/api/v1/business-index/search" in paths
+    assert "/api/v1/business-index/index" in paths
+    assert "/api/v1/business-index/align" in paths

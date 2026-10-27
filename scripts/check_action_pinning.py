@@ -87,6 +87,7 @@ PINNING_EXCEPTIONS: dict[str, str] = {
     "docker/setup-qemu-action@v4": "待解析 v4 → commit SHA；多架构产物",
     "docker/metadata-action@v5": "待解析 v5 → commit SHA；tag/label 归属",
     "actions/attest-build-provenance@v4": "待解析 v4 → commit SHA；证明签发",
+    "sigstore/cosign-installer@v3": "待解析 v3 → commit SHA；keyless 签名工具安装",
 }
 
 

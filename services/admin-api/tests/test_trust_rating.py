@@ -452,13 +452,17 @@ def test_insufficient_signal_is_lenient():
     assert result["rating"]["level"] == "L2"
 
 
-def test_scanner_walks_ratings_and_records_state():
+def test_scanner_walks_ratings_and_records_state(monkeypatch):
     db = MemoryDb()
     run(ensure_rating(db, tenant_id="t1", asset_type="skill", asset_key="s1", created_by="sys"))
     db.rows(RATINGS_COLLECTION)[0].update(
         {"level": "L2", "below_since": (TODAY - timedelta(days=DEFAULT_DOWNGRADE_WINDOW_DAYS - 1)).isoformat()}
     )
     _seed_032(db, "t1", "s1", passing=False, count=25)
+    # scanner 内部 `recompute_rating(as_of=None)` 用真实 today；
+    # 将 ratings 模块的 `_utc_today` 冻结到测试锚点 TODAY，保证 seed 数据在 21 天窗口内。
+    from app.services.trust_rating import ratings as _ratings
+    monkeypatch.setattr(_ratings, "_utc_today", lambda: TODAY)
     run(run_downgrade_scan(db, tenant_id="t1"))
     assert run(get_rating(db, tenant_id="t1", asset_type="skill", asset_key="s1"))["level"] == "L1"
     state = db.rows(SCAN_STATE_COLLECTION)[0]

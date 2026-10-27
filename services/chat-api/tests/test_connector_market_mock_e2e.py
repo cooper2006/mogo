@@ -17,13 +17,20 @@ import http.server
 import threading
 from typing import Any
 from urllib.parse import urlparse
+from pathlib import Path
 
 import pytest
 import yaml
 
 from app.services.external_tools import ExternalToolService
 
-ADMIN_TEMPLATE = "/Users/cooper/mogo/services/admin-api/app/connector_templates/gitlab-api.yaml"
+# 模板路径按宿主/容器双环境解析：宿主仓库根在 /Users/cooper/mogo（或本机 worktree），
+# 容器内仓库挂 /mogo（-v <host>/mogo:/mogo:ro）。优先取当前仓库根（本测试文件所在目录
+# 的上 2 级 = services/chat-api 的父目录 services/ → 再上 1 级 = 仓库根）。
+_ADMIN_TEMPLATE = (
+    Path(__file__).resolve().parents[2] / "admin-api" / "app" / "connector_templates" / "gitlab-api.yaml"
+)
+ADMIN_TEMPLATE = str(_ADMIN_TEMPLATE)
 
 
 class _MockHandler(http.server.BaseHTTPRequestHandler):

@@ -289,28 +289,29 @@ def test_drilldown_no_day_buckets() -> None:
 
 
 def test_monitoring_router_is_registered() -> None:
-    """The two FR-1/FR-2 routes exist on the API router (wired into main)."""
+    """The two FR-1/FR-2 routes exist on the API router (wired into main).
+
+    直接查 api_router 的 ``.routes``（每个 include 一条 Mount 子树），不靠整体
+    收集路径：025 T035 之后 router 挂在 ``/skills/monitor``（api_router 的
+    "/api/v1" 前缀由 main.py 叠加，独立于本测试），而 FastAPI 0.142+ 会把
+    include_router 包成 `_IncludedRouter`（`.path` 为 None，原始子 router
+    在 `.original_router`），整体收集路径的前缀不可靠。
+    改查 `skill_monitoring.router.routes`（生产路由原始 path，prefix 自带）。
+    """
+    from app.api.routes import skill_monitoring
     from app.api.router import api_router
 
-    def _collect(router) -> set[str]:
-        # Newer FastAPI versions wrap each include_router() call in an
-        # `_IncludedRouter`, which has neither `.path` nor `.routes` — the real
-        # sub-router is on `.original_router`. Walk both shapes.
-        found: set[str] = set()
-        for route in getattr(router, "routes", []):
-            path = getattr(route, "path", None)
-            if path is not None:
-                found.add(path)
-            nested = getattr(route, "original_router", None)
-            if nested is None and hasattr(route, "routes"):
-                nested = route
-            if nested is not None:
-                found |= _collect(nested)
-        return found
+    # ① 确认 skill_monitoring.router 已被 include 进 api_router
+    included = [
+        r for r in api_router.routes
+        if getattr(r, "original_router", None) is skill_monitoring.router
+    ]
+    assert included, "skill_monitoring.router must be included in api_router"
 
-    paths = _collect(api_router)
-    assert "/api/skills/monitor/usage" in paths
-    assert "/api/skills/monitor/anomaly/{day}" in paths
+    # ② 确认 router 自身挂上了两条 FR-1/FR-2 路由（prefix /skills/monitor 自带）
+    paths = {getattr(route, "path", None) for route in skill_monitoring.router.routes}
+    assert "/skills/monitor/usage" in paths
+    assert "/skills/monitor/anomaly/{day}" in paths
 
 
 def test_monitor_route_rejects_invalid_token() -> None:

@@ -167,7 +167,7 @@ class TestMineEndpoint:
 
         monkeypatch.setattr(og, "_fetch_subject_grant_rows", _rows)
         principal = SimpleNamespace(tenant_id="t1", user_id="u1", kind="end_user")
-        resp = self._client(principal).get("/api/ontology-grants/mine")
+        resp = self._client(principal).get("/api/v1/ontology-grants/mine")
         assert resp.status_code == 200
         body = resp.json()
         assert body["count"] == 1
@@ -181,7 +181,7 @@ class TestMineEndpoint:
 
         monkeypatch.setattr(og, "_fetch_subject_grant_rows", _boom)
         principal = SimpleNamespace(tenant_id="t1", user_id="u1", kind="end_user")
-        resp = self._client(principal).get("/api/ontology-grants/mine")
+        resp = self._client(principal).get("/api/v1/ontology-grants/mine")
         assert resp.status_code == 200
         body = resp.json()
         assert body["ontologies"] == []
@@ -190,6 +190,6 @@ class TestMineEndpoint:
 
     def test_mine_empty_scope_short_circuits(self):
         principal = SimpleNamespace(tenant_id="", user_id="", kind="end_user")
-        resp = self._client(principal).get("/api/ontology-grants/mine")
+        resp = self._client(principal).get("/api/v1/ontology-grants/mine")
         assert resp.status_code == 200
         assert resp.json()["count"] == 0

@@ -161,7 +161,7 @@ def api(monkeypatch):
     db = FakeDB()
     monkeypatch.setattr(portal_admin, "get_db", lambda: db)
     app = FastAPI()
-    app.include_router(portal_admin.router)
+    app.include_router(portal_admin.router, prefix="/api")  # 025 T035：独立挂 router 需补 "/api" 前缀，使路由落在 /api/portal/*
     holder = {"user": _user(OWNER, role="平台管理员")}
     app.dependency_overrides[get_current_admin_user] = lambda: holder["user"]
     client = TestClient(app)

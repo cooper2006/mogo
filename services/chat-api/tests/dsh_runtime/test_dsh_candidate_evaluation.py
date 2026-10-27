@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from scripts.dsh_upgrade import checks as upgrade_checks
 from scripts.dsh_upgrade.diffing import capability_delta, dependency_delta, public_api_delta
 from scripts.dsh_upgrade.checks import verify_declared_release_train, verify_installed_release_train
@@ -46,6 +48,15 @@ def test_candidate_workspace_pins_only_dsh_train(tmp_path: Path) -> None:
     assert host.exists()
 
 
+def _git_available() -> bool:
+    try:
+        subprocess.run(["git", "--version"], capture_output=True, check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
+
+@pytest.mark.skipif(not _git_available(), reason="git not available in container (non-root, apt blocked)")
 def test_released_workspace_materializes_an_immutable_git_ref(tmp_path: Path) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()

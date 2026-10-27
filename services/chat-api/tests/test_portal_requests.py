@@ -593,18 +593,18 @@ def test_api_catalog_and_detail(api):
     client, db = api
     _seed(db, asset_type="skill", asset_key="skill-1")
 
-    listing = client.get("/api/portal/catalog")
+    listing = client.get("/api/v1/portal/catalog")
     assert listing.status_code == 200
     assert [i["asset_key"] for i in listing.json()["items"]] == ["skill-1"]
 
-    detail = client.get("/api/portal/catalog/skill/skill-1")
+    detail = client.get("/api/v1/portal/catalog/skill/skill-1")
     assert detail.status_code == 200
     body = detail.json()
     assert body["item"]["name"] == "周报生成"
     assert body["granted"] is False
     assert body["my_request"] is None
 
-    missing = client.get("/api/portal/catalog/skill/nope")
+    missing = client.get("/api/v1/portal/catalog/skill/nope")
     assert missing.status_code == 404
     assert missing.json()["detail"] == "asset_not_found"
 
@@ -613,7 +613,7 @@ def test_api_create_request_then_mine(api):
     client, db = api
     _seed(db)
     created = client.post(
-        "/api/portal/requests",
+        "/api/v1/portal/requests",
         json={"asset_type": "skill", "asset_key": "skill-1", "reason": "需要生成周报"},
     )
     assert created.status_code == 201
@@ -621,11 +621,11 @@ def test_api_create_request_then_mine(api):
     assert body["status"] == "applied"
     assert body["request"]["approver_id"] == OWNER
 
-    again = client.post("/api/portal/requests", json={"asset_type": "skill", "asset_key": "skill-1"})
+    again = client.post("/api/v1/portal/requests", json={"asset_type": "skill", "asset_key": "skill-1"})
     assert again.status_code == 201
     assert again.json()["status"] == "pending"
 
-    mine = client.get("/api/portal/requests/mine")
+    mine = client.get("/api/v1/portal/requests/mine")
     assert mine.status_code == 200
     assert mine.json()["total"] == 1
     assert mine.json()["items"][0]["status"] == "applied"
@@ -634,7 +634,7 @@ def test_api_create_request_then_mine(api):
 def test_api_create_request_approver_unresolved_returns_409(api):
     client, db = api
     _seed(db, owner=REQUESTER)  # 无 owner 之外的审批人
-    response = client.post("/api/portal/requests", json={"asset_type": "skill", "asset_key": "skill-1"})
+    response = client.post("/api/v1/portal/requests", json={"asset_type": "skill", "asset_key": "skill-1"})
     assert response.status_code == 409
     assert response.json()["detail"] == "approver_unresolved"
 
@@ -642,16 +642,16 @@ def test_api_create_request_approver_unresolved_returns_409(api):
 def test_api_revoke_requires_requester_or_owner(api, monkeypatch):
     client, db = api
     _seed(db)
-    created = client.post("/api/portal/requests", json={"asset_type": "skill", "asset_key": "skill-1"})
+    created = client.post("/api/v1/portal/requests", json={"asset_type": "skill", "asset_key": "skill-1"})
     request_id = created.json()["request"]["request_id"]
     # 单还没开通 → 回收无授权，但请求存在；申请人本人允许
-    ok = client.post(f"/api/portal/requests/{request_id}/revoke", json={"reason": "不需要了"})
+    ok = client.post(f"/api/v1/portal/requests/{request_id}/revoke", json={"reason": "不需要了"})
     assert ok.status_code == 200
 
     # 换成无关用户 → 403
     outsider = ApiPrincipal(kind="end_user", tenant_id=TENANT, user_id="someone-else")
     client.app.dependency_overrides[require_end_user_principal] = lambda: outsider
-    forbidden = client.post(f"/api/portal/requests/{request_id}/revoke", json={})
+    forbidden = client.post(f"/api/v1/portal/requests/{request_id}/revoke", json={})
     assert forbidden.status_code == 403
 
 

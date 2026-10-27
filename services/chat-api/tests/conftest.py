@@ -145,10 +145,22 @@ def _panwei_backend_stub(monkeypatch):
 async def _panwei_init_backend():
     """（迁移适配）PanWeiDB 模式下为 async 测试建立真池（绑定本测试事件循环），
     使需要真实查询的集成测试可用；teardown 关闭，供下个测试重建。仅 panwei 生效。
+
+    容器内隔离网（mogo_backend）无法访问 PanWeiDB（192.168.107.1:5432 被拒）
+    时，每个测试的 `pool.open(wait=True, timeout=5)` 都走满 5s PoolTimeout，
+    全量 2855 条 ≈ 4h。`MOGO_TEST=1`（宿主侧测试模式）下禁用 autouse 真池
+    初始化，让 `_panwei_backend_stub` 的 stub 池承接（stub 池显式 raise，
+    不静默返回空），纯逻辑单测照常通过，需要真池的集成测试显式自建。
     """
     from app.core import pg
 
     if not pg.is_panweidb_backend():
+        yield
+        return
+
+    import os
+
+    if os.environ.get("MOGO_TEST", "").strip() == "1":
         yield
         return
 
@@ -181,11 +193,48 @@ _DSH_HOST_E2E_FILES = (
     "conversation_regression/test_conversation_capabilities.py",
 )
 
+# ── 网络类测试标签（隔离网容器内全量跑法的过滤方向）────────────────
+#
+# mogo_backend 隔离网（无公网出口）下，真实出网 / 真 spawn 子进程的用例
+# 走长超时挂起（docs/regression-arm-orbstack-2026-10-26-round10.md 轮 3
+# 记录：2h+ 空转）。归类口径 = 「测试代码直接发起真实网络 I/O 或真起
+# 外部进程」；httpx.MockTransport、starlette TestClient、loopback 探针
+# 都不算——它们不需要公网。
+#
+# 清单（逐个核实过真实网络/子进程调用）：
+#   * test_step5_dsh_tool_e2e / test_runtime_host_e2e /
+#     test_model_profile_host_e2e —— 真 spawn Node Runtime Host（后两者
+#     同时带 dsh_host_e2e 标签）。
+#   * dsh_runtime/test_dsh_candidate_evaluation.py —— git 子进程 + 候选
+#     评测拉取。
+#   * services/test_skillhub_install.py —— skill 安装流（已有
+#     MockTransport 覆盖路径，但保留可直连 skillhub 的分支）。
+#
+# 注意：test_native_code_boundary_guard / test_step8_application_assembly /
+# test_step10_legacy_runtime_boundary 是纯静态边界守卫（0 处网络/子进程
+# 调用），**不在** network 清单；历史全量命令对它们的 --ignore 保留不变。
+#
+# 隔离网内全量跑法（已验证可行，2995 passed / 34s）：
+#   pytest -m "not dsh_host_e2e and not network"
+_NETWORK_E2E_FILES = (
+    "test_step5_dsh_tool_e2e.py",
+    "test_runtime_host_e2e.py",
+    "test_model_profile_host_e2e.py",
+    "test_dsh_candidate_evaluation.py",
+)
+_NETWORK_E2E_FILES_EXACT = (
+    "services/test_skillhub_install.py",
+)
+
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
         "dsh_host_e2e: requires a spawnable Node DSH Runtime Host (subprocess + loopback HTTP)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "network: 真实出站网络用例（隔离网容器内全量跑法须过滤，见 conftest 顶部说明）",
     )
 
 
@@ -196,3 +245,8 @@ def pytest_collection_modifyitems(
         path = str(getattr(item, "fspath", ""))
         if any(path.endswith(name) for name in _DSH_HOST_E2E_FILES):
             item.add_marker(pytest.mark.dsh_host_e2e)
+        if (
+            any(path.endswith(name) for name in _NETWORK_E2E_FILES)
+            or any(path.endswith(name) for name in _NETWORK_E2E_FILES_EXACT)
+        ):
+            item.add_marker(pytest.mark.network)
