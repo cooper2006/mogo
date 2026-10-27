@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 # ── 集合 / 表名 ─────────────────────────────────────────────────────────────
 GRANT_TABLE = "mesc_ontology_grant"
 DETAIL_TABLE = "mesc_ontology_class_detail"
@@ -53,6 +55,29 @@ DEFAULT_SYS_CONFIG: dict[str, object] = {
 }
 
 
+def enabled_flag(value: Any) -> bool:
+    """把 DB 读出的 ``enabled`` 归一化成 ``bool``。
+
+    ``enabled`` 在两种后端上的物理形态不同，但语义一致：
+
+    * mongo    → ``bool``（``$jsonSchema`` 里是 ``bsonType: "bool"``）；
+    * PanWeiDB → ``SMALLINT`` 的 ``1`` / ``0``（A / B 两种兼容格式都用 smallint，
+      见 ``deploy/pg/ontology_permission.sql`` 与目标库 ``public`` 的对齐）。
+
+    因此判权与展示**不得**再用 ``row.get("enabled") is False`` —— 那只能识别 mongo 的
+    ``False``，会把 PanWeiDB 的 ``0`` 当成「启用」而放行。``None``（字段缺失 / 历史脏数据）
+    一律按「启用」处理，与 ``repository.upsert_*`` 的写入归一化同一语义。
+    """
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    try:
+        return int(value) != 0
+    except (TypeError, ValueError):
+        return bool(value)
+
+
 def grant_key(tenant_id: str, subject_type: str, subject_id: str, ontology_uri: str) -> str:
     """mongo ``_id``：等价于 PG 的复合主键（确定性拼接，支持 upsert）。"""
     return "|".join([str(tenant_id), str(subject_type), str(subject_id), str(ontology_uri)])
@@ -82,5 +107,6 @@ __all__ = [
     "SYS_CONFIG_TABLE",
     "SUBJECT_TYPES",
     "detail_key",
+    "enabled_flag",
     "grant_key",
 ]

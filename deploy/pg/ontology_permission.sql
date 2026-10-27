@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS "mogo_dev"."mesc_ontology_grant" (
     ontology_uri TEXT        NOT NULL,          -- doc_blob['ontology-map'].ontology 原文
     access_mode  TEXT        NOT NULL CHECK (access_mode IN ('none','read','write')),
     priority     INT         NOT NULL DEFAULT 100,   -- 同层冲突时数字大的胜出
-    enabled      BOOLEAN     NOT NULL DEFAULT true,
+    enabled      SMALLINT    NOT NULL DEFAULT 1,     -- 0/1；A/B 兼容格式通用（对齐目标 public 的 smallint）
     remark       TEXT,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),  -- 与仓库其他表一致，设计稿未列但建议保留
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS "mogo_dev"."mesc_ontology_class_detail" (
     column_list   JSONB       NOT NULL DEFAULT '[]'::jsonb,  -- column_mode='selected' 时的列名数组
     row_condition JSONB,                        -- 行过滤条件树；NULL = 不过滤
     priority      INT         NOT NULL DEFAULT 100,
-    enabled       BOOLEAN     NOT NULL DEFAULT true,
+    enabled       SMALLINT    NOT NULL DEFAULT 1,    -- 0/1；A/B 兼容格式通用（对齐目标 public 的 smallint）
     remark        TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -105,7 +105,7 @@ CREATE INDEX IF NOT EXISTS "mesc_ontology_class_detail_onto_idx"
 
 -- ── 权限变更审计（配置变更走这里，运行时判定仍落 gate_events，不双写）─────────
 CREATE TABLE IF NOT EXISTS "mogo_dev"."mesc_ontology_perm_audit" (
-    id           BIGSERIAL   PRIMARY KEY,
+    id           BIGSERIAL   PRIMARY KEY,   -- A 格式：不支持 AUTO_INCREMENT，用序列等价实现
     ts           TIMESTAMPTZ NOT NULL DEFAULT now(),
     tenant_id    TEXT,
     actor        TEXT,
@@ -119,6 +119,35 @@ CREATE INDEX IF NOT EXISTS "mesc_ontology_perm_audit_ts_idx"
     ON "mogo_dev"."mesc_ontology_perm_audit" (ts DESC);
 CREATE INDEX IF NOT EXISTS "mesc_ontology_perm_audit_target_idx"
     ON "mogo_dev"."mesc_ontology_perm_audit" (target_key, ts DESC);
+
+-- ============================================================================
+-- 增量迁移：``enabled`` 布尔 → SMALLINT(1/0)
+-- ----------------------------------------------------------------------------
+-- 背景：目标库（B 格式，``public`` schema）里 ``mesc_ontology_grant`` /
+-- ``mesc_ontology_class_detail`` 的 ``enabled`` 是 ``SMALLINT DEFAULT 1``；本库
+-- （A 格式，``mogo_dev`` schema）此前是 ``BOOLEAN DEFAULT true``。两者语义同为
+-- 「启用/禁用」，但物理类型不一致，跨库对齐后判权热路径不再依赖布尔字面量。
+--
+-- 本段可重复执行（幂等）：`CASE WHEN enabled THEN 1 ELSE 0 END` 对 bool 与
+-- SMALLINT 两种输入都成立；``SET DEFAULT 1`` 重复执行无副作用。
+-- ============================================================================
+ALTER TABLE "mogo_dev"."mesc_ontology_grant"
+    ALTER COLUMN enabled TYPE SMALLINT
+    USING (CASE WHEN enabled THEN 1 ELSE 0 END);
+ALTER TABLE "mogo_dev"."mesc_ontology_grant"
+    ALTER COLUMN enabled SET DEFAULT 1;
+
+ALTER TABLE "mogo_dev"."mesc_ontology_class_detail"
+    ALTER COLUMN enabled TYPE SMALLINT
+    USING (CASE WHEN enabled THEN 1 ELSE 0 END);
+ALTER TABLE "mogo_dev"."mesc_ontology_class_detail"
+    ALTER COLUMN enabled SET DEFAULT 1;
+
+-- 审计表自增 id：A 格式（openGauss/PG 兼容）**不支持** ``AUTO_INCREMENT``
+-- （实测 ``ERROR: auto_increment is supported only in B-format database``），
+-- 故保留 ``BIGSERIAL``（底层即 ``nextval('mogo_dev.mesc_ontology_perm_audit_id_seq')``）。
+-- B 格式目标库用 ``AUTO_INCREMENT`` 只是同一「自增主键」语义的另一种语法；
+-- 后端 ``INSERT`` 从不写 ``id`` 列（见 ``repository.py::write_audit``），故两侧行为等价。
 
 -- ============================================================================
 -- 示例数据（评审用，原稿见 docs/ontology-permission-ddl.sql:104-247）

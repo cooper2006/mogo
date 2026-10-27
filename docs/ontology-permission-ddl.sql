@@ -34,7 +34,7 @@ CREATE TABLE mesc_ontology_grant (
     ontology_uri text        NOT NULL,          -- doc_blob['ontology-map'].ontology 原文
     access_mode  text        NOT NULL CHECK (access_mode IN ('none','read','write')),
     priority     int         NOT NULL DEFAULT 100,   -- 同层冲突时数字大的胜出
-    enabled      boolean     NOT NULL DEFAULT true,
+    enabled      smallint    NOT NULL DEFAULT 1,     -- 0/1；A/B 兼容格式通用（对齐目标 public）
     remark       text,
     updated_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, subject_type, subject_id, ontology_uri)
@@ -57,7 +57,7 @@ CREATE TABLE mesc_ontology_class_detail (
     column_list   jsonb       NOT NULL DEFAULT '[]'::jsonb,  -- column_mode='selected' 时的列名数组
     row_condition jsonb,                        -- 行过滤条件树（含括号组与 ${user.*} 等主体变量）；NULL = 不过滤
     priority      int         NOT NULL DEFAULT 100,
-    enabled       boolean     NOT NULL DEFAULT true,
+    enabled       smallint    NOT NULL DEFAULT 1,    -- 0/1；A/B 兼容格式通用（对齐目标 public）
     remark        text,
     updated_at    timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, subject_type, subject_id, ontology_uri, class_name)
@@ -107,7 +107,7 @@ INSERT INTO mesc_ontology_grant
     (tenant_id, subject_type, subject_id, ontology_uri, access_mode, priority, enabled, remark)
 VALUES
     ('bonc-46057246211f3550f337c6f9', 'tenant', 'bonc-46057246211f3550f337c6f9',
-     'https://ecs.cmcc.local/ontology/customer-portrait#', 'read', 10, true,
+     'https://ecs.cmcc.local/ontology/customer-portrait#', 'read', 10, 1,
      '租户级兜底，优先级低于下面的组织/用户规则')
 ON CONFLICT (tenant_id, subject_type, subject_id, ontology_uri) DO UPDATE
    SET access_mode = EXCLUDED.access_mode,
@@ -121,7 +121,7 @@ INSERT INTO mesc_ontology_grant
     (tenant_id, subject_type, subject_id, ontology_uri, access_mode, priority, enabled, remark)
 VALUES
     ('bonc-46057246211f3550f337c6f9', 'org', '6acc8d65eafe3226ca19b058',
-     'https://ecs.cmcc.local/ontology/customer-portrait#', 'read', 100, true,
+     'https://ecs.cmcc.local/ontology/customer-portrait#', 'read', 100, 1,
      '业务只看不写')
 ON CONFLICT (tenant_id, subject_type, subject_id, ontology_uri) DO UPDATE
    SET access_mode = EXCLUDED.access_mode,
@@ -142,7 +142,7 @@ VALUES
      'inherit', 'selected',
      '["user_id","id","brand_id","city_name","prov_id","prov_name","statis_ym","user_area_belo_id"]'::jsonb,
      '{"kind":"group","op":"AND","children":[{"kind":"cond","field":"prov_name","op":"in","src":"lit","value":["上海","江苏"]}]}'::jsonb,
-     100, true,
+     100, 1,
      '只看上海/江苏，且不含 msisdn_sensid / sm4_cipher_msisdn 等号码类字段')
 ON CONFLICT (tenant_id, subject_type, subject_id, ontology_uri, class_name) DO UPDATE
    SET access_mode   = EXCLUDED.access_mode,
@@ -163,7 +163,7 @@ INSERT INTO mesc_ontology_class_detail
 VALUES
     ('bonc-46057246211f3550f337c6f9', 'user', '6accabae5a68ad8cef4d28bf',
      'https://ecs.cmcc.local/ontology/customer-portrait#', 'MarketingTouch',
-     'none', 'all', '[]'::jsonb, NULL, 100, true,
+     'none', 'all', '[]'::jsonb, NULL, 100, 1,
      '营销触达字段不开放 —— 显式 none，压过上面的本体只读')
 ON CONFLICT (tenant_id, subject_type, subject_id, ontology_uri, class_name) DO UPDATE
    SET access_mode   = EXCLUDED.access_mode,
@@ -186,7 +186,7 @@ VALUES
      'https://ecs.cmcc.local/ontology/customer-portrait#', 'ContactSession',
      'inherit', 'selected',
      '["session_id","id","user_id","call_begin_tm","call_type_code","contat_chnl_name"]'::jsonb,
-     NULL, 100, true,
+     NULL, 100, 1,
      '通话号码类字段（calling_phone / called_phone / acpt_phone 及各自 *_sensid）一律排除')
 ON CONFLICT (tenant_id, subject_type, subject_id, ontology_uri, class_name) DO UPDATE
    SET access_mode   = EXCLUDED.access_mode,
@@ -213,7 +213,7 @@ VALUES
      'https://ecs.cmcc.local/ontology/customer-portrait#', 'ComplaintRecord',
      'inherit', 'all', '[]'::jsonb,
      '{"kind":"cond","field":"user_id","op":"=","src":"var","value":"${user.id}"}'::jsonb,
-     100, false,
+     100, 0,
      '草稿：等「端用户 → 业务列」映射建起来再启用')
 ON CONFLICT (tenant_id, subject_type, subject_id, ontology_uri, class_name) DO UPDATE
    SET access_mode   = EXCLUDED.access_mode,

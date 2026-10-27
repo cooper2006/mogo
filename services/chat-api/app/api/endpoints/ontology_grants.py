@@ -89,7 +89,8 @@ def _merge_subject_grants(
 
     - 命中主体：``tenant`` 兜底 + 该用户自身（不含 org/role，见模块 docstring）。
     - 同一本体取 ``priority`` 最大者；同优先级取更严格的 ``access_mode``。
-    - ``enabled is False`` 的行视为不存在，只计入 ``disabled`` 计数（供前端提示）。
+    - ``enabled`` 为假的行视为不存在，只计入 ``disabled`` 计数（供前端提示）。
+      （mongo 是 bool、PanWeiDB 是 SMALLINT 1/0，统一经 ``enabled_flag`` 归一化。）
     """
     subject_keys = {("tenant", str(tenant_id)), ("user", str(user_id))}
     best: dict[str, dict[str, Any]] = {}
@@ -101,7 +102,7 @@ def _merge_subject_grants(
         uri = str(row.get("ontology_uri") or "")
         if not uri:
             continue
-        if row.get("enabled") is False:
+        if not ontology_permission_runtime.enabled_flag(row.get("enabled")):
             disabled += 1
             continue
         mode = str(row.get("access_mode") or "")

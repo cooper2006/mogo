@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 import pytest
 from fastapi import HTTPException
 
+from app.ontology_permission.constants import enabled_flag
 from app.ontology_permission.repository import OntologyPermissionRepository
 from app.ontology_permission.service import (
     OntologyPermissionService,
@@ -71,6 +72,73 @@ def test_resolve_keeps_read_and_write_only() -> None:
 def test_resolve_skips_rows_without_ontology_uri() -> None:
     rows = [{"subject_type": "user", "subject_id": "u1", "access_mode": "read"}]
     assert resolve_visible_ontologies([("user", "u1")], rows) == frozenset()
+
+
+def test_resolve_disabled_smallint_zero_from_panweidb() -> None:
+    """PanWeiDB 的 ``enabled`` 是 SMALLINT 1/0；``0`` 必须与 mongo 的 ``False`` 同判。
+
+    回归：旧实现用 ``row.get("enabled") is False``，只能识别 mongo 的 ``False``，
+    会把 PanWeiDB 的 ``0`` 当成「启用」而放行已禁用的授权行。
+    """
+    rows = [
+        {"subject_type": "user", "subject_id": "u1", "ontology_uri": "a", "access_mode": "read", "enabled": 0},
+        {"subject_type": "user", "subject_id": "u1", "ontology_uri": "b", "access_mode": "read", "enabled": 1},
+        {"subject_type": "user", "subject_id": "u1", "ontology_uri": "c", "access_mode": "read"},
+    ]
+    assert resolve_visible_ontologies([("user", "u1")], rows) == frozenset({"b", "c"})
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, True), (True, True), (False, False), (1, True), (0, False), ("1", True), ("0", False)],
+)
+def test_enabled_flag_normalizes_both_backend_forms(value: Any, expected: bool) -> None:
+    """``enabled_flag`` 必须同时吃 mongo 的 bool 与 PanWeiDB 的 SMALLINT 1/0。"""
+    assert enabled_flag(value) is expected
+
+
+def test_merge_user_grants_counts_smallint_zero_as_disabled() -> None:
+    """``_merge_user_grants`` 的 ``disabled`` 计数要包含 PanWeiDB 的 ``0``。"""
+    rows = [
+        {"subject_type": "user", "subject_id": "u1", "ontology_uri": "a", "access_mode": "read", "priority": 100, "enabled": 0},
+        {"subject_type": "user", "subject_id": "u1", "ontology_uri": "b", "access_mode": "read", "priority": 100, "enabled": 1},
+    ]
+    grants, disabled = OntologyPermissionService._merge_user_grants("u1", rows)
+    assert [item["ontologyId"] for item in grants] == ["b"]
+    assert disabled == 1
+
+
+def test_serialize_grant_normalizes_smallint_enabled() -> None:
+    svc = OntologyPermissionService(repository=FakeRepository())
+    row = {
+        "tenant_id": "t1",
+        "subject_type": "user",
+        "subject_id": "u1",
+        "ontology_uri": "m",
+        "access_mode": "read",
+        "priority": 100,
+    }
+    assert svc._serialize_grant(row)["enabled"] is True
+    assert svc._serialize_grant({**row, "enabled": 1})["enabled"] is True
+    assert svc._serialize_grant({**row, "enabled": 0})["enabled"] is False
+    assert svc._serialize_grant({**row, "enabled": None})["enabled"] is True
+
+
+def test_serialize_detail_normalizes_smallint_enabled() -> None:
+    svc = OntologyPermissionService(repository=FakeRepository())
+    row = {
+        "tenant_id": "t1",
+        "subject_type": "user",
+        "subject_id": "u1",
+        "ontology_uri": "m",
+        "class_name": "Material",
+        "access_mode": "inherit",
+        "column_mode": "all",
+        "column_list": [],
+        "priority": 100,
+        "enabled": 0,
+    }
+    assert svc._serialize_detail(row)["enabled"] is False
 
 
 # ---------------------------------------------------------------------------

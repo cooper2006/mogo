@@ -26,6 +26,7 @@ from .constants import (
     DETAIL_ACCESS_MODES,
     SYS_CONFIG_KEY,
     detail_key,
+    enabled_flag,
     grant_key,
 )
 from .repository import OntologyPermissionRepository, utcnow
@@ -46,7 +47,8 @@ def resolve_visible_ontologies(
 ) -> frozenset[str]:
     """按 priority 合并授权行，返回可见的本体标识集合（fail-closed）。
 
-    - 仅保留命中主体集合、且 ``enabled != False`` 的行。
+    - 仅保留命中主体集合、且 ``enabled`` 为真的行（``enabled`` 在 mongo 是 bool、
+      在 PanWeiDB 是 SMALLINT 1/0，统一经 ``enabled_flag`` 归一化）。
     - 同一 ``ontology_uri`` 取 ``priority`` 最大者；同优先级取更严格的 ``access_mode``。
     - 最终仅保留 ``access_mode ∈ {read, write}`` 的本体。
     """
@@ -56,7 +58,7 @@ def resolve_visible_ontologies(
         key = (str(row.get("subject_type") or ""), str(row.get("subject_id") or ""))
         if key not in subject_keys:
             continue
-        if row.get("enabled") is False:
+        if not enabled_flag(row.get("enabled")):
             continue
         uri = str(row.get("ontology_uri") or "")
         if not uri:
@@ -249,14 +251,14 @@ class OntologyPermissionService:
     def _merge_user_grants(
         subject_id: str, rows: Iterable[Mapping[str, Any]]
     ) -> tuple[list[dict[str, Any]], int]:
-        """把某用户的授权行合并成「每本体一条」（``enabled is False`` 视为不存在）。"""
+        """把某用户的授权行合并成「每本体一条」（``enabled`` 为假视为不存在）。"""
         best: dict[str, dict[str, Any]] = {}
         disabled = 0
         for row in rows:
             uri = str(row.get("ontology_uri") or "")
             if not uri:
                 continue
-            if row.get("enabled") is False:
+            if not enabled_flag(row.get("enabled")):
                 disabled += 1
                 continue
             mode = str(row.get("access_mode") or "")
@@ -388,7 +390,7 @@ class OntologyPermissionService:
             "accessMode": str(row.get("access_mode") or ""),
             "priority": int(row.get("priority") or 100),
             # 与 repository.upsert_* 同一语义：None 一律按「启用」（DB 值缺失/历史脏数据）。
-            "enabled": True if row.get("enabled") is None else bool(row.get("enabled")),
+            "enabled": enabled_flag(row.get("enabled")),
             "remark": str(row.get("remark") or ""),
             "updatedAt": _iso(row.get("updated_at")),
         }
@@ -413,7 +415,7 @@ class OntologyPermissionService:
             "rowCondition": row.get("row_condition"),
             "priority": int(row.get("priority") or 100),
             # 与 repository.upsert_* 同一语义：None 一律按「启用」（DB 值缺失/历史脏数据）。
-            "enabled": True if row.get("enabled") is None else bool(row.get("enabled")),
+            "enabled": enabled_flag(row.get("enabled")),
             "remark": str(row.get("remark") or ""),
             "updatedAt": _iso(row.get("updated_at")),
         }

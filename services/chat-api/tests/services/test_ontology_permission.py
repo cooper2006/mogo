@@ -96,6 +96,30 @@ def test_resolve_ignores_disabled_and_blank_uri():
     assert op.resolve_visible_ontologies(subjects, rows) == frozenset()
 
 
+def test_resolve_disabled_smallint_zero_from_panweidb():
+    """PanWeiDB 的 ``enabled`` 是 SMALLINT 1/0；``0`` 必须与 mongo 的 ``False`` 同判。
+
+    回归：旧实现用 ``row.get("enabled") is False``，只能识别 mongo 的 ``False``，
+    会把 PanWeiDB 的 ``0`` 当成「启用」而放行已禁用的授权行。
+    """
+    subjects = _subjects()
+    rows = [
+        {"subject_type": "user", "subject_id": "u1", "ontology_uri": "a", "access_mode": "read", "priority": 100, "enabled": 0},
+        {"subject_type": "user", "subject_id": "u1", "ontology_uri": "b", "access_mode": "read", "priority": 100, "enabled": 1},
+        {"subject_type": "user", "subject_id": "u1", "ontology_uri": "c", "access_mode": "read", "priority": 100},
+    ]
+    assert op.resolve_visible_ontologies(subjects, rows) == frozenset({"b", "c"})
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, True), (True, True), (False, False), (1, True), (0, False), ("1", True), ("0", False)],
+)
+def test_enabled_flag_normalizes_both_backend_forms(value, expected):
+    """``enabled_flag`` 必须同时吃 mongo 的 bool 与 PanWeiDB 的 SMALLINT 1/0。"""
+    assert op.enabled_flag(value) is expected
+
+
 def test_resolve_tie_prefers_more_restrictive():
     subjects = _subjects()
     rows = [

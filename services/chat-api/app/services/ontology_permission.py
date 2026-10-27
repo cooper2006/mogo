@@ -57,6 +57,30 @@ VISIBLE_ACCESS_MODES = frozenset({"read", "write"})
 _MODE_RANK = {"none": 0, "read": 1, "write": 2}
 
 
+def enabled_flag(value: Any) -> bool:
+    """把 DB 读出的 ``enabled`` 归一化成 ``bool``。
+
+    ``enabled`` 在两种后端上的物理形态不同，但语义一致：
+
+    * mongo    → ``bool``（``$jsonSchema`` 里是 ``bsonType: "bool"``）；
+    * PanWeiDB → ``SMALLINT`` 的 ``1`` / ``0``（A / B 两种兼容格式都用 smallint，
+      见 ``deploy/pg/ontology_permission.sql`` 与目标库 ``public`` 的对齐）。
+
+    因此判权**不得**再用 ``row.get("enabled") is False`` —— 那只能识别 mongo 的
+    ``False``，会把 PanWeiDB 的 ``0`` 当成「启用」而放行。``None``（字段缺失 / 历史脏数据）
+    一律按「启用」处理。与 admin-api 侧
+    ``app/ontology_permission/constants.py::enabled_flag`` 同源（两服务独立部署，无法互 import）。
+    """
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    try:
+        return int(value) != 0
+    except (TypeError, ValueError):
+        return bool(value)
+
+
 @dataclass(frozen=True)
 class SubjectSet:
     """一个用户展开后的主体集合（对应 mesc_* 的 subject_type/subject_id）。"""
@@ -85,7 +109,8 @@ def resolve_visible_ontologies(
 ) -> frozenset[str]:
     """按 priority 合并授权行，返回可见的本体标识集合。
 
-    - 仅保留命中该用户主体集合、且 ``enabled != False`` 的行。
+    - 仅保留命中该用户主体集合、且 ``enabled`` 为真的行（mongo 是 bool、PanWeiDB 是
+      SMALLINT 1/0，统一经 ``enabled_flag`` 归一化）。
     - 同一 ``ontology_uri`` 取 ``priority`` 最大者；同优先级取更严格的 ``access_mode``。
     - 最终仅保留 ``access_mode ∈ {read, write}`` 的本体。
     """
@@ -95,7 +120,7 @@ def resolve_visible_ontologies(
         key = (str(row.get("subject_type") or ""), str(row.get("subject_id") or ""))
         if key not in subject_keys:
             continue
-        if row.get("enabled") is False:
+        if not enabled_flag(row.get("enabled")):
             continue
         uri = str(row.get("ontology_uri") or "")
         if not uri:
@@ -193,7 +218,7 @@ class NativeGrantStore:
             return []
         query = {
             "tenant_id": subjects.tenant_id,
-            "enabled": {"$ne": False},
+            "enabled": {"$nin": [False, 0]},
             "$or": pairs,
         }
         return [doc async for doc in db[GRANT_COLLECTION].find(query)]
@@ -215,7 +240,7 @@ class NativeGrantStore:
         sql = (
             "SELECT subject_type, subject_id, ontology_uri, access_mode, priority "
             f'FROM "{schema}"."{GRANT_COLLECTION}" '
-            f"WHERE tenant_id = %s AND enabled = true AND ({where})"
+            f"WHERE tenant_id = %s AND enabled = 1 AND ({where})"
         )
         async with pool.connection() as conn:
             async with conn.cursor() as cur:

@@ -37,6 +37,7 @@ from .constants import (
     SYS_CONFIG_KEY,
     SYS_CONFIG_TABLE,
     detail_key,
+    enabled_flag,
     grant_key,
 )
 
@@ -151,7 +152,7 @@ class OntologyPermissionRepository:
         if ontology_uri:
             query["ontology_uri"] = str(ontology_uri)
         if enabled_only:
-            query["enabled"] = {"$ne": False}
+            query["enabled"] = {"$nin": [False, 0]}
         cursor = self._db()[GRANT_TABLE].find(query).sort(
             [("subject_type", 1), ("subject_id", 1), ("ontology_uri", 1)]
         )
@@ -175,12 +176,12 @@ class OntologyPermissionRepository:
                 "SELECT tenant_id, subject_type, subject_id, ontology_uri, access_mode, "
                 "priority, enabled, remark, created_at, updated_at "
                 f"FROM {_tbl(GRANT_TABLE)} "
-                f"WHERE tenant_id = %s AND enabled = true AND ({where})"
+                f"WHERE tenant_id = %s AND enabled = 1 AND ({where})"
             )
             return await self._fetch(sql, params)
         query = {
             "tenant_id": str(tenant_id),
-            "enabled": {"$ne": False},
+            "enabled": {"$nin": [False, 0]},
             "$or": [{"subject_type": st, "subject_id": sid} for st, sid in pairs],
         }
         cursor = self._db()[GRANT_TABLE].find(query)
@@ -196,10 +197,14 @@ class OntologyPermissionRepository:
         payload["priority"] = int(payload.get("priority") or 100)
         # ⚠ 不能用 `payload.get("enabled", True)`：上游 dict **含** "enabled" 键且值为 None 时
         # （调用方省略该字段的常见形态），.get 返回 None 而非 True，bool(None)=False 会把
-        # 授权静默写成「已禁用」，随后被 enabled = true / {$ne: False} 全部滤掉 ——
+        # 授权静默写成「已禁用」，随后被 enabled = 1 / {$nin: [False, 0]} 全部滤掉 ——
         # mongo 后端等价冒烟正是这样抓到本 bug 的。None 一律按「启用」处理。
         raw_enabled = row.get("enabled")
-        payload["enabled"] = True if raw_enabled is None else bool(raw_enabled)
+        enabled = enabled_flag(raw_enabled)
+        # PG 侧 ``enabled`` 是 SMALLINT（A/B 兼容格式统一），不能直接绑 Python bool
+        # （psycopg 会按 boolean 适配，导致 "column enabled is of type smallint but
+        # expression is of type boolean"）；mongo 侧仍是 bool（$jsonSchema bsonType）。
+        payload["enabled"] = int(enabled) if self._pg() else enabled
         if payload.get("remark") is None:
             payload["remark"] = None
 
@@ -290,7 +295,7 @@ class OntologyPermissionRepository:
             clauses.append("ontology_uri = %s")
             params.append(str(ontology_uri))
         if enabled_only:
-            clauses.append("enabled = true")
+            clauses.append("enabled = 1")
         sql = (
             "SELECT tenant_id, subject_type, subject_id, ontology_uri, access_mode, "
             "priority, enabled, remark, created_at, updated_at "
@@ -351,7 +356,11 @@ class OntologyPermissionRepository:
         payload["priority"] = int(payload.get("priority") or 100)
         # 同 upsert_grant：None 一律按「启用」，避免省略该字段时被静默禁用。
         raw_enabled = row.get("enabled")
-        payload["enabled"] = True if raw_enabled is None else bool(raw_enabled)
+        enabled = enabled_flag(raw_enabled)
+        # PG 侧 ``enabled`` 是 SMALLINT（A/B 兼容格式统一），不能直接绑 Python bool
+        # （psycopg 会按 boolean 适配，导致 "column enabled is of type smallint but
+        # expression is of type boolean"）；mongo 侧仍是 bool（$jsonSchema bsonType）。
+        payload["enabled"] = int(enabled) if self._pg() else enabled
 
         if self._pg():
             key_cols = ("tenant_id", "subject_type", "subject_id", "ontology_uri", "class_name")
