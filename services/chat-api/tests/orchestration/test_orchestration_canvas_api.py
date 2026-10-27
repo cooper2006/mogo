@@ -9,6 +9,8 @@ Covers the two seams introduced by 039:
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -16,6 +18,8 @@ from fastapi import HTTPException
 from app.api.endpoints import orchestrations
 from app.api.principal import ApiPrincipal
 from app.orchestration import store
+from app.orchestration.engine import DagEngine
+from app.orchestration.loader import load_orchestration_document
 
 
 # --- store: layout passthrough -----------------------------------------------
@@ -320,5 +324,149 @@ def test_corrupt_layout_is_dropped(monkeypatch) -> None:
         )
         result = await orchestrations.get_orchestration("demo", principal=PRINCIPAL)
         assert result.data["layout"] == {}
+
+    asyncio.run(scenario())
+
+
+# --- T030：画布 → 保存 → 010 引擎真实执行 → 发布 → 版本回看（进程内 E2E） -----
+#
+# 这条覆盖 T030 的实质链路（缺的只有"真 Mongo"，集合行为由 _Database 等价模拟）：
+# 前端 canvasToEngineDocument 产出的文档原样提交 → 落库 → 用同一个 loader 装载 →
+# DagEngine 真实跑一遍 → 发布 → 旧版进 history。
+
+def _canvas_document(orchestration_id: str = "canvas-e2e") -> dict:
+    """模拟 `canvasToEngineDocument` 的产出（payload + x_canvas + depends_on + edges）。"""
+
+    return {
+        "orchestration": {"id": orchestration_id, "version": "1", "mode": "graph"},
+        "nodes": [
+            {
+                "id": "research",
+                "type": "llm",
+                "payload": {
+                    "skill": "researcher",
+                    "output_key": "research_result",
+                    "x_canvas": {"kind": "llm", "label": "研究"},
+                },
+            },
+            {
+                "id": "write",
+                "type": "llm",
+                "depends_on": ["research"],
+                "payload": {
+                    "skill": "writer",
+                    "output_key": "draft",
+                    "x_canvas": {"kind": "llm", "label": "写作"},
+                },
+            },
+        ],
+        "edges": [{"source": "research", "target": "write"}],
+        "layout": {"research": {"x": 40, "y": 60}, "write": {"x": 280, "y": 60}},
+    }
+
+
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "canvas_document.json"
+
+
+def test_real_serializer_fixture_loads_and_runs() -> None:
+    """前端 TS 序列化器的**真实产出**必须能被 010 loader 装载并执行。
+
+    `fixtures/canvas_document.json` 由 `apps/user-web` 的 `canvasToEngineDocument`
+    生成（不是手写近似），前端单测会断言该文件与当前序列化结果一致，两边一起漂移即报错。
+    """
+
+    fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+    loaded = load_orchestration_document(fixture)
+
+    order: list[str] = []
+
+    async def runner(node, context):
+        order.append(node.id)
+        if node.id == "write":
+            return f"drafted from {context.get('research')}"
+        return "findings"
+
+    result = asyncio.run(DagEngine().run_graph(loaded.definition.to_graph(), runner))
+    assert result.succeeded
+    assert order == ["research", "write"]
+    assert result.context["write"] == "drafted from findings"
+    # 引擎只取 _PAYLOAD_KEYS（skill/tools/...），画布投影键 x_canvas 被丢弃——
+    # 这是对的：投影只服务画布渲染，画布读的是**落库的文档**而不是 loader 的产物。
+    assert loaded.definition.nodes[0]["payload"]["skill"] == "researcher"
+    assert "x_canvas" not in loaded.definition.nodes[0]["payload"]
+    assert fixture["nodes"][0]["payload"]["x_canvas"]["label"] == "研究"
+
+
+def test_canvas_document_runs_on_the_real_engine(monkeypatch) -> None:
+    database = _Database()
+    monkeypatch.setattr(orchestrations, "get_db", lambda: database)
+
+    async def scenario() -> None:
+        await orchestrations.save_orchestration_draft(
+            "canvas-e2e",
+            orchestrations.OrchestrationDocumentPayload(
+                document=_canvas_document(), layout={"research": {"x": 40, "y": 60}}
+            ),
+            principal=PRINCIPAL,
+        )
+
+        # 落库的必须是引擎文档：节点带 skill / depends_on，画布投影信息在 payload.x_canvas。
+        stored = database.dag_definitions.documents[0]["document"]
+        assert stored["nodes"][0]["payload"]["skill"] == "researcher"
+        assert stored["nodes"][1]["depends_on"] == ["research"]
+
+        loaded = load_orchestration_document(stored)
+        order: list[str] = []
+
+        async def runner(node, context):
+            order.append(node.id)
+            if node.id == "write":
+                return f"drafted from {context.get('research')}"
+            return "findings"
+
+        result = await DagEngine().run_graph(loaded.definition.to_graph(), runner)
+
+        assert result.succeeded
+        assert order == ["research", "write"], "依赖顺序必须由 depends_on 决定"
+        assert result.context["write"] == "drafted from findings", "下游必须读到上游产出"
+
+    asyncio.run(scenario())
+
+
+def test_canvas_publish_bumps_version_and_keeps_history(monkeypatch) -> None:
+    database = _Database()
+    monkeypatch.setattr(orchestrations, "get_db", lambda: database)
+
+    async def allowed(_tenant: str, _user: str) -> bool:
+        return True
+
+    monkeypatch.setattr(orchestrations, "can_publish_orchestration", allowed)
+
+    async def scenario() -> None:
+        await orchestrations.save_orchestration_draft(
+            "canvas-e2e",
+            orchestrations.OrchestrationDocumentPayload(document=_canvas_document()),
+            principal=PRINCIPAL,
+        )
+        stored = database.dag_definitions.documents[0]["document"]
+
+        published = await orchestrations.publish_orchestration(
+            "canvas-e2e",
+            orchestrations.PublishPayload(
+                document=stored, layout=stored.get("layout"), release_notes="first release"
+            ),
+            principal=PRINCIPAL,
+        )
+        assert published.data["version"] == 2
+        assert published.data["status"] == "published"
+
+        detail = await orchestrations.get_orchestration("canvas-e2e", principal=PRINCIPAL)
+        assert detail.data["status"] == "published"
+        assert detail.data["version"] == 2
+        assert detail.data["history"][0]["version"] == 1, "上一版必须可回看"
+        assert detail.data["history"][0]["document"]["nodes"][0]["id"] == "research"
+
+        # 发布后仍是同一份引擎文档：再装载一次不应报错（fail-closed 校验不因发布而放宽）。
+        load_orchestration_document(detail.data["document"])
 
     asyncio.run(scenario())

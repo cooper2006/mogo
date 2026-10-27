@@ -32,6 +32,19 @@ export type SupportedMode = 'sequential' | 'graph';
 /** 044 多智能体模式（画布节点，引擎逻辑不在本特性实现范围）。 */
 export type MultiAgentMode = 'round_robin' | 'debate';
 
+/**
+ * round_robin 的候选实例声明（044 `instances:`）。
+ *
+ * 画布首期不提供实例编辑 UI，但必须**原样往返**：手写 YAML 的 instances 在画布打开后
+ * 不能丢，否则保存一次就把多候选配置抹成单候选（FR-009 未知字段只读保留）。
+ */
+export interface CanvasInstance {
+  label?: string;
+  model?: string;
+  temperature?: number;
+  prompt?: string;
+}
+
 /** 画布节点上的位置（投影元数据）。 */
 export interface CanvasPosition {
   x: number;
@@ -51,8 +64,14 @@ export interface CanvasNodeData {
   conditionExpr?: string;
   /** 条件不成立分支的说明（对应引擎 skip_condition.reason）。 */
   falseBranchReason?: string;
-  /** 044 多智能体模式（roundRobin / debate 节点）。 */
+  /** 044 多智能体模式（roundRobin / debate 节点，或 llm 节点显式声明）。 */
   multiAgentMode?: MultiAgentMode;
+  /** round_robin 候选实例（首期只做往返保留，无编辑 UI）。 */
+  instances?: CanvasInstance[];
+  /** debate：正方 / 反方 / 裁决节点 id（引用本编排内的节点）。 */
+  pro?: string;
+  con?: string;
+  arbiter?: string;
   /** 节点级超时（秒）。 */
   timeout?: number;
   description?: string;
@@ -89,6 +108,11 @@ export interface CanvasDocument {
   edges: CanvasEdge[];
   /** 投影元数据（可丢失）。 */
   layout: Record<string, CanvasPosition>;
+  /**
+   * 画布不认识的顶层键（如 `data_contract` / `audit` / `failure_propagation`）原样保留，
+   * 保存时透传回引擎文档（FR-009：未知字段只读保留，不透写丢失）。
+   */
+  raw?: Record<string, unknown>;
 }
 
 /** 010 引擎权威文档节点。 */
@@ -172,9 +196,33 @@ export function createCanvasNode(kind: CanvasNodeKind, id: string, position: Can
   return { id, kind, position, data };
 }
 
+/** 画布节点声明了哪个多智能体模式（kind 优先，其次 llm 节点上的显式选择）。 */
+export function declaredMultiAgentMode(node: CanvasNode): MultiAgentMode | undefined {
+  if (node.kind === 'roundRobin') return 'round_robin';
+  if (node.kind === 'debate') return 'debate';
+  return node.data.multiAgentMode;
+}
+
+/**
+ * 044 协议参数（instances / pro / con / arbiter）。
+ *
+ * `mode` 本身不在这里——它必须落在**节点顶层**（loader 只从 `raw["mode"]` 读），
+ * 放进 payload 会被 `_PAYLOAD_KEYS` 过滤掉，画布声明因此静默失效。
+ */
+function protocolPayload(node: CanvasNode): Record<string, unknown> {
+  const mode = declaredMultiAgentMode(node);
+  const payload: Record<string, unknown> = {};
+  if (mode === 'round_robin' && node.data.instances?.length) payload['instances'] = node.data.instances;
+  if (mode !== 'debate') return payload;
+  if (node.data.pro) payload['pro'] = node.data.pro;
+  if (node.data.con) payload['con'] = node.data.con;
+  if (node.data.arbiter) payload['arbiter'] = node.data.arbiter;
+  return payload;
+}
+
 /** 序列化单个画布节点的业务属性到引擎 payload（不含 x_canvas 回程信息）。 */
 function enginePayload(node: CanvasNode): Record<string, unknown> {
-  const { data, kind } = node;
+  const { data } = node;
   const payload: Record<string, unknown> = {};
   if (data.skill) payload['skill'] = data.skill;
   if (data.tool) payload['tool'] = data.tool;
@@ -182,14 +230,41 @@ function enginePayload(node: CanvasNode): Record<string, unknown> {
   if (data.timeout !== undefined) payload['timeout'] = data.timeout;
   if (data.description) payload['description'] = data.description;
   if (data.outputKey) payload['output_key'] = data.outputKey;
-  if (kind === 'condition' && data.conditionExpr) {
+  if (node.kind === 'condition' && data.conditionExpr) {
     // 自然语言面：引擎侧装载时会用 not 包装成 condition（loader 行为，不在此透出极性）。
     payload['condition_expr'] = data.conditionExpr;
   }
-  if (kind === 'roundRobin' || kind === 'debate') {
-    payload['mode'] = data.multiAgentMode ?? (kind === 'roundRobin' ? 'round_robin' : 'debate');
-  }
-  return payload;
+  return { ...payload, ...protocolPayload(node) };
+}
+
+/** 引擎条件文法（与 010 `loader._EXPR_PATTERN` 同口径：`<var> <op> <literal>`）。 */
+export const CONDITION_EXPR_PATTERN = /^\s*([A-Za-z_][A-Za-z0-9_.]*)\s*(==|!=|>=|<=|>|<)\s*(.+?)\s*$/;
+
+/** 条件表达式能否被引擎 loader 解析（`compile_expr` 只接受受限文法）。 */
+export function isSupportedConditionExpr(expr: string): boolean {
+  return CONDITION_EXPR_PATTERN.test(String(expr || ''));
+}
+
+const NEGATED_OPERATOR: Record<string, string> = {
+  '==': '!=',
+  '!=': '==',
+  '>=': '<',
+  '<=': '>',
+  '>': '<=',
+  '<': '>=',
+};
+
+/**
+ * 取反条件表达式。
+ *
+ * 引擎文法不支持 `!(...)` 这类嵌套，因此取反只能靠**翻转比较运算符**表达
+ * （`x == true` → `x != true`）。文法外表达式保留 `!(...)` 原样，交由校验与后端
+ * loader 明确报错，不静默生成非法文档。
+ */
+export function negateConditionExpr(expr: string): string {
+  const matched = CONDITION_EXPR_PATTERN.exec(String(expr || ''));
+  if (!matched) return `!(${expr})`;
+  return `${matched[1]} ${NEGATED_OPERATOR[matched[2]]} ${matched[3]}`;
 }
 
 /**
@@ -201,7 +276,6 @@ function enginePayload(node: CanvasNode): Record<string, unknown> {
  * * 条件节点：第一个出边是"成立分支"，其余出边目标节点补 `skip_condition`（expr 取反 + 说明）。
  */
 export function canvasToEngineDocument(canvas: CanvasDocument): EngineDocument {
-  const byId = new Map(canvas.nodes.map((node) => [node.id, node]));
   const engineNodes: EngineNode[] = canvas.nodes.map((node) => {
     const incoming = canvas.edges.filter((edge) => edge.target === node.id).map((edge) => edge.source);
     const engineNode: EngineNode = {
@@ -210,16 +284,23 @@ export function canvasToEngineDocument(canvas: CanvasDocument): EngineDocument {
       depends_on: incoming.length ? incoming : undefined,
       payload: {
         ...enginePayload(node),
-        x_canvas: { kind: node.kind, label: node.data.label, multiAgentMode: node.data.multiAgentMode },
+        x_canvas: { kind: node.kind, label: node.data.label, multiAgentMode: declaredMultiAgentMode(node) },
       },
     };
+    // 044：协议声明必须落在**节点顶层**——010 loader 只从 `raw["mode"]` 读，
+    // 放进 payload 会被 `_PAYLOAD_KEYS` 过滤掉（画布声明因此静默失效）。
+    const mode = declaredMultiAgentMode(node);
+    if (mode) engineNode['mode'] = mode;
     if (node.data.conditionExpr) engineNode['skip_condition'] = { expr: node.data.conditionExpr, reason: node.data.falseBranchReason };
     return engineNode;
   });
 
   const edges = canvas.edges.map((edge) => ({ source: edge.source, target: edge.target }));
 
-  const document: EngineDocument = {
+  const document = {
+    // FR-009：画布不认识的顶层键（data_contract / audit / failure_propagation…）原样透传，
+    // 放在最前面使下面的契约字段永远覆盖它们。
+    ...(canvas.raw || {}),
     orchestration: {
       id: canvas.orchestration.id,
       version: canvas.orchestration.version || '1',
@@ -227,7 +308,7 @@ export function canvasToEngineDocument(canvas: CanvasDocument): EngineDocument {
     },
     nodes: engineNodes,
     edges,
-  };
+  } as EngineDocument;
   if (canvas.orchestration.maxConcurrency !== undefined) document.orchestration['max_concurrency'] = canvas.orchestration.maxConcurrency;
   if (canvas.orchestration.timeout !== undefined) document.orchestration['timeout'] = canvas.orchestration.timeout;
   if (canvas.orchestration.retry) document.orchestration['retry'] = canvas.orchestration.retry;
@@ -241,7 +322,8 @@ export function canvasToEngineDocument(canvas: CanvasDocument): EngineDocument {
       const target = engineNodes.find((item) => item.id === edge.target);
       if (!target) continue;
       target['skip_condition'] = {
-        expr: `!(${node.data.conditionExpr})`,
+        // 引擎文法不接受 `!(...)`，取反用翻转运算符表达（语义等价，可被 compile_expr 解析）。
+        expr: negateConditionExpr(node.data.conditionExpr),
         reason: node.data.falseBranchReason || 'condition not satisfied',
       };
     }
@@ -262,6 +344,54 @@ function numberField(payload: Record<string, unknown>, key: string): number | un
   return typeof payload[key] === 'number' ? (payload[key] as number) : undefined;
 }
 
+/** 取默认多智能体模式（仅 roundRobin / debate 节点有值）。 */
+function multiAgentModeFor(kind: CanvasNodeKind): MultiAgentMode | undefined {
+  if (kind === 'roundRobin') return 'round_robin';
+  if (kind === 'debate') return 'debate';
+  return undefined;
+}
+
+/** 引擎节点顶层 `mode`（044 协议声明）→ 画布多智能体模式。 */
+function declaredModeFromEngine(node: EngineNode): MultiAgentMode | undefined {
+  const mode = node['mode'];
+  return mode === 'round_robin' || mode === 'debate' ? mode : undefined;
+}
+
+/**
+ * 引擎节点 → 画布节点业务数据。
+ *
+ * 手写 YAML 把描述性字段写在节点顶层（loader 才把它们收进 payload），
+ * 因此这里 payload 优先、节点顶层兜底，保证"手工 YAML 打开不丢信息"（US2）。
+ */
+function nodeDataFrom(
+  payload: Record<string, unknown>,
+  node: EngineNode,
+  kind: CanvasNodeKind,
+  canvas: (Partial<CanvasNodeData> & { kind?: CanvasNodeKind }) | undefined,
+): CanvasNodeData {
+  const pickString = (key: string) => stringField(payload, key) ?? stringField(node, key);
+  const pickNumber = (key: string) => numberField(payload, key) ?? numberField(node, key);
+  const rawTools = Array.isArray(payload['tools']) ? payload['tools'] : node['tools'];
+  const rawInstances = Array.isArray(payload['instances']) ? payload['instances'] : node['instances'];
+  const skip = node.skip_condition as { expr?: string; reason?: string } | undefined;
+  return {
+    label: canvas?.label ?? String(node.id),
+    skill: pickString('skill'),
+    tool: pickString('tool'),
+    tools: Array.isArray(rawTools) ? (rawTools as string[]) : undefined,
+    timeout: pickNumber('timeout'),
+    description: pickString('description'),
+    outputKey: pickString('output_key'),
+    conditionExpr: skip?.expr ?? (payload['condition_expr'] as string | undefined),
+    falseBranchReason: skip?.reason,
+    multiAgentMode: canvas?.multiAgentMode ?? declaredModeFromEngine(node) ?? multiAgentModeFor(kind),
+    instances: Array.isArray(rawInstances) ? (rawInstances as CanvasInstance[]) : undefined,
+    pro: pickString('pro'),
+    con: pickString('con'),
+    arbiter: pickString('arbiter'),
+  };
+}
+
 /** 单个引擎节点 → 画布节点：x_canvas 投影优先，缺失时按 type 推断 kind、按 id 取标签。 */
 function mapEngineNode(node: EngineNode): CanvasNode {
   const payload = (node.payload || {}) as Record<string, unknown>;
@@ -271,19 +401,27 @@ function mapEngineNode(node: EngineNode): CanvasNode {
     id: String(node.id),
     kind,
     position: { x: 0, y: 0 },
-    data: {
-      label: canvas?.label ?? String(node.id),
-      skill: stringField(payload, 'skill'),
-      tool: stringField(payload, 'tool'),
-      tools: Array.isArray(payload['tools']) ? (payload['tools'] as string[]) : undefined,
-      timeout: numberField(payload, 'timeout'),
-      description: stringField(payload, 'description'),
-      outputKey: stringField(payload, 'output_key'),
-      conditionExpr: (node.skip_condition as { expr?: string } | undefined)?.expr ?? (payload['condition_expr'] as string | undefined),
-      falseBranchReason: (node.skip_condition as { reason?: string } | undefined)?.reason,
-      multiAgentMode: canvas?.multiAgentMode ?? (kind === 'roundRobin' ? 'round_robin' : kind === 'debate' ? 'debate' : undefined),
-    },
+    data: nodeDataFrom(payload, node, kind, canvas),
   };
+}
+
+/**
+ * 手写 YAML 通常只给 `depends_on` 不给 `edges`（010 loader 两者都接受）。
+ * 画布需要显式的边才能渲染，因此缺失 `edges` 时按 `depends_on` 反推（source = 依赖方，target = 当前节点）。
+ */
+export function deriveEdgesFromDependsOn(nodes: EngineNode[]): Array<{ source: string; target: string }> {
+  const edges: Array<{ source: string; target: string }> = [];
+  const seen = new Set<string>();
+  nodes.forEach((node) => {
+    const dependsOn = Array.isArray(node.depends_on) ? node.depends_on : [];
+    dependsOn.forEach((dep) => {
+      const key = `${String(dep)}->${String(node.id)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      edges.push({ source: String(dep), target: String(node.id) });
+    });
+  });
+  return edges;
 }
 
 /** 单个引擎边 → 画布边（id 带下标避免同源同宿点重复）。 */
@@ -322,13 +460,20 @@ function applyLayout(nodes: CanvasNode[], edges: CanvasEdge[], layout: EngineDoc
  * 引擎权威文档 → 画布。
  *
  * * 双向不丢信息（FR-007）：画布 kind/标签从 `payload.x_canvas` 恢复；
- *   无 x_canvas 的手工 YAML 节点按 type 映射 kind，标签取 id。
- * * 位置可丢（FR-012）：顶层 `layout` 缺失时给默认自动布局。
- * * 未知顶层键（data_contract/audit）与本函数无关，不修改、不删除。
+ *   无 x_canvas 的手工 YAML 节点按 type 映射 kind，描述性字段（skill/tools/
+ *   timeout/description/output_key）payload 优先、节点顶层兜底。
+ * * 缺 `edges` 时按 `depends_on` 反推边（手写 YAML 常态）。
+ * * 位置可丢（FR-012）：顶层 `layout` 缺失或损坏时给默认自动布局。
+ * * 未知顶层键（data_contract/audit 等）收进 `raw`，保存时原样透传（FR-009）。
  */
 export function engineDocumentToCanvas(document: EngineDocument): CanvasDocument {
-  const nodes: CanvasNode[] = (document.nodes || []).map(mapEngineNode);
-  const edges: CanvasEdge[] = (document.edges || []).map((edge, index) => mapEngineEdge(edge, index));
+  const engineNodes = document.nodes || [];
+  const nodes: CanvasNode[] = engineNodes.map(mapEngineNode);
+  const rawEdges =
+    Array.isArray(document.edges) && document.edges.length
+      ? document.edges
+      : deriveEdgesFromDependsOn(engineNodes);
+  const edges: CanvasEdge[] = rawEdges.map((edge, index) => mapEngineEdge(edge, index));
 
   const canvasDoc: CanvasDocument = {
     orchestration: resolveOrchestrationHeader(document.orchestration || {}),
@@ -337,7 +482,21 @@ export function engineDocumentToCanvas(document: EngineDocument): CanvasDocument
     layout: {},
   };
   applyLayout(nodes, edges, document.layout);
+  const raw = unknownTopLevelKeys(document);
+  if (Object.keys(raw).length) canvasDoc.raw = raw;
   return canvasDoc;
+}
+
+/** 画布不认识的顶层键（FR-009 原样保留）：除引擎契约字段外一律透传。 */
+const KNOWN_TOP_LEVEL_KEYS = new Set(['orchestration', 'nodes', 'edges', 'layout']);
+
+function unknownTopLevelKeys(document: EngineDocument): Record<string, unknown> {
+  const raw: Record<string, unknown> = {};
+  Object.entries(document as Record<string, unknown>).forEach(([key, value]) => {
+    if (KNOWN_TOP_LEVEL_KEYS.has(key)) return;
+    raw[key] = value;
+  });
+  return raw;
 }
 
 /** 极简分层自动布局（layered by longest-path depth）。投影元数据，非权威。 */

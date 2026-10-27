@@ -73,10 +73,15 @@
 - admin-web 新文案用中文 key，`t()` 缺翻译时回退中文本身，无需改 locale 文件（沿用 031 口径）。
 - 远程沙箱本体不实现：`remote_sandbox` 仅契约枚举 + `EgressGuard` 接口预留分支；任何"先做一版远程执行"的提议都超出本 spec，应回到整合方案重新立项。
 
-## 验收状态（2026-10-24 交接复核）
+## 验收状态（2026-10-27 复核）
 
-- **已完成并勾选（28 项）**：T001–T021、T026–T031、T033、T034。证据：`services/admin-api/tests/test_egress_allowlist.py` 15 passed、`services/chat-api/tests/test_egress_guard.py` 28 passed（域名后缀/子域/路径前缀命中、大小写/尾点/IDN 归一、IP 字面量拒绝、remote_sandbox 拒绝、超时与异常 fail-closed、多 URL 聚合、审计脱敏、CRUD 信封/PATCH/204、租户隔离）；脚本沙箱回归 `pytest -k "script_engine or sandbox"` 2 passed（网络默认拒绝等既有测试不回退）；T034 已在 `specs/009-hooks-interception/spec.md` 追加「出站检查挂载说明（038 补充）」一节（文档层，不改 009 FR）。
-- **未勾选（6 项，前端未实现 + E2E）**：
-  - **T022/T023/T024/T025**：`apps/admin-web/src/api/egress.ts`、`apps/admin-web/src/views/egress/EgressAllowlistPage.vue`、`router/routes.ts` 菜单注册、`ToolEditPage.vue` 工具级条目入口**均不存在**（本机 grep 无命中），前端交付未开始。
+- **已完成并勾选（33 项）**：T001–T031、T033、T034。证据：`services/admin-api/tests/test_egress_allowlist.py` 15 passed、`services/chat-api/tests/test_egress_guard.py` 28 passed（域名后缀/子域/路径前缀命中、大小写/尾点/IDN 归一、IP 字面量拒绝、remote_sandbox 拒绝、超时与异常 fail-closed、多 URL 聚合、审计脱敏、CRUD 信封/PATCH/204、租户隔离）；脚本沙箱回归 `pytest -k "script_engine or sandbox"` 2 passed（网络默认拒绝等既有测试不回退）；T034 已在 `specs/009-hooks-interception/spec.md` 追加「出站检查挂载说明（038 补充）」一节（文档层，不改 009 FR）。
+- **前端（T022–T025）已交付**（2026-10-24 首批 + 2026-10-27 补 T025）：
+  - T022 `apps/admin-web/src/api/egress.ts`（六函数 + 类型，snake_case 直传）。
+  - T023 `apps/admin-web/src/views/egress/EgressAllowlistPage.vue`（NDataTable + NModal+NForm + NPopconfirm；失败错误态、空态文案；后端未暴露 scheme 故页面无协议字段）+ `EgressLogsPage.vue`。
+  - T024 `apps/admin-web/src/router/routes.ts` 注册 `/egress/allowlist`(EgressAllowlist) 与 `/egress/logs`(EgressLogs)；菜单由 `useMenuOptions` 依 `meta.title` 自动派生，无需额外改菜单文件。
+  - T025 `apps/admin-web/src/views/tools/ToolEditPage.vue`「请求配置 / 连接配置」步骤内新增「工具级出站例外」区：编辑既有工具时按 `scope=tool` + 当前 `tool_id` 拉取条目、可新增/删除；新建态提示"保存工具后即可配置"。`ToolEditPage.vue` 经 `@vue/compiler-sfc` 3.4.38 编译通过（`node scripts/check_sfc.mjs`）。
+  > 更正：本文件早前版本的验收段曾写「T022–T025 均不存在、前端交付未开始」，与同文件 T022–T024 的交付记录及实际代码不符，属过时结论，已按代码实况重写。
+- **未勾选（1 项）**：
   - **T032**：E2E（admin-web 配白名单 → 不重启 → 调用命中放行/未命中拒绝 → 审计检索）需真实 Mongo + chat-api + admin-web 联调；本机 docker 未运行，单测已覆盖等价判定分支。
 - **备注**：T014（平台默认白名单种子）在实现中通过 `egress_store` 的读取逻辑体现（平台层条目为空时全拒），未随代码提供"种子条目"常量——上线前需由平台管理员写入必需域名（见 spec R-13），该运维前置动作已在 R-13 显式说明。

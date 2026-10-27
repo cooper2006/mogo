@@ -150,6 +150,51 @@
                   </div>
                   <n-empty v-if="headerRows.length === 0" :description="t('无固定 Header')" size="small" />
                 </div>
+
+                <!-- 038 T025：工具级出站例外（三层白名单的 tool 层最小入口） -->
+                <div class="section-head">
+                  <div>
+                    <div class="section-title">{{ t('出站访问控制（工具级例外）') }}</div>
+                    <div class="section-muted">{{ t('仅本工具可访问的域名，与平台/租户白名单取并集；未命中任何一层的请求会被拒绝。') }}</div>
+                  </div>
+                </div>
+                <template v-if="toolId">
+                  <div class="compact-table">
+                    <div class="compact-row compact-head egress-grid">
+                      <span>{{ t('域名') }}</span>
+                      <span>{{ t('路径前缀') }}</span>
+                      <span>{{ t('备注') }}</span>
+                      <span></span>
+                    </div>
+                    <div v-for="rule in toolEgressRules" :key="rule.entry_id" class="compact-row egress-grid">
+                      <span class="egress-text">{{ rule.match_domain }}</span>
+                      <span class="egress-text">{{ rule.path_prefix || '—' }}</span>
+                      <span class="egress-text">{{ rule.note || '—' }}</span>
+                      <n-button
+                        quaternary
+                        type="error"
+                        :loading="removingEgressId === rule.entry_id"
+                        @click="removeToolEgressRule(rule.entry_id)"
+                      >
+                        <template #icon><ToolIcon name="trash" /></template>
+                        {{ t('删除') }}
+                      </n-button>
+                    </div>
+                    <div class="compact-row egress-grid">
+                      <n-input v-model:value="egressForm.matchDomain" placeholder="api.example.com" />
+                      <n-input v-model:value="egressForm.pathPrefix" placeholder="/v1" />
+                      <n-input v-model:value="egressForm.note" :placeholder="t('可选')" />
+                      <n-button type="primary" secondary :loading="savingEgress" @click="addToolEgressRule">
+                        <template #icon><ToolIcon name="add" /></template>
+                        {{ t('添加例外') }}
+                      </n-button>
+                    </div>
+                    <n-empty v-if="toolEgressRules.length === 0" :description="t('暂无工具级例外')" size="small" />
+                  </div>
+                </template>
+                <n-alert v-else type="info" :bordered="false">
+                  {{ t('保存工具后即可配置工具级出站例外。') }}
+                </n-alert>
               </section>
 
               <section v-if="activeKey === 'input'" class="step-panel flex-panel">
@@ -418,6 +463,12 @@ import {
   type ToolPayload,
   type ToolType,
 } from '@/api/tools';
+import {
+  createEgressRule,
+  deleteEgressRule,
+  fetchEgressAllowlist,
+  type EgressRule,
+} from '@/api/egress';
 import { mcpActivationError, nextMcpToolSelection, toolStatusConfirmText } from '@/utils/toolActivation';
 
 type SchemaType = 'String' | 'Integer' | 'Number' | 'Boolean' | 'Object' | 'Array' | 'ArrayObject';
@@ -590,6 +641,12 @@ const testing = ref(false);
 const generatingDescription = ref(false);
 const activeStep = ref(1);
 const toolId = ref('');
+
+// 038 T025：工具级出站例外（scope=tool，绑当前 tool_id）
+const toolEgressRules = ref<EgressRule[]>([]);
+const savingEgress = ref(false);
+const removingEgressId = ref('');
+const egressForm = reactive({ matchDomain: '', pathPrefix: '', note: '' });
 
 const headerRows = ref<HeaderRow[]>([]);
 const inputSchema = ref<SchemaNode[]>([]);
@@ -1555,6 +1612,63 @@ function applyLoadedTool(tool: ExternalToolItem) {
     : [];
 }
 
+async function loadToolEgressRules() {
+  if (!toolId.value) {
+    toolEgressRules.value = [];
+    return;
+  }
+  try {
+    // 列表端点只支持按 scope 过滤，工具维度在前端按 tool_id 再筛一层。
+    const page = await fetchEgressAllowlist({ scope: 'tool' });
+    toolEgressRules.value = page.items.filter((rule) => rule.tool_id === toolId.value);
+  } catch {
+    // 白名单读取失败不阻塞工具编辑：置空并保持页面其它能力可用。
+    toolEgressRules.value = [];
+  }
+}
+
+async function addToolEgressRule() {
+  const matchDomain = egressForm.matchDomain.trim();
+  if (!matchDomain) {
+    message.warning(t('请填写域名'));
+    return;
+  }
+  if (!toolId.value) return;
+  savingEgress.value = true;
+  try {
+    await createEgressRule({
+      scope: 'tool',
+      tool_id: toolId.value,
+      match_domain: matchDomain,
+      path_prefix: egressForm.pathPrefix.trim(),
+      note: egressForm.note.trim(),
+      enabled: true,
+    });
+    egressForm.matchDomain = '';
+    egressForm.pathPrefix = '';
+    egressForm.note = '';
+    message.success(t('已添加工具级例外'));
+    await loadToolEgressRules();
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || t('添加出站例外失败'));
+  } finally {
+    savingEgress.value = false;
+  }
+}
+
+async function removeToolEgressRule(entryId: string) {
+  removingEgressId.value = entryId;
+  try {
+    await deleteEgressRule(entryId);
+    message.success(t('已删除'));
+    await loadToolEgressRules();
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || t('删除出站例外失败'));
+  } finally {
+    removingEgressId.value = '';
+  }
+}
+
 async function loadTool() {
   const id = String(route.params.id || '');
   if (!id) {
@@ -1566,6 +1680,7 @@ async function loadTool() {
   try {
     const tool = await fetchTool(id);
     applyLoadedTool(tool);
+    await loadToolEgressRules();
   } catch (error: any) {
     message.error(error?.response?.data?.detail || t('加载工具配置失败'));
   } finally {
@@ -1820,6 +1935,19 @@ watch(
 
 .header-grid {
   grid-template-columns: minmax(180px, 1fr) minmax(260px, 2fr) 90px;
+}
+
+/* 038 T025：工具级出站例外表（域名 / 路径前缀 / 备注 / 操作） */
+.egress-grid {
+  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(140px, 1.2fr) 100px;
+}
+
+.egress-text {
+  color: #334155;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 :deep(.input-grid) {

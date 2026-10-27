@@ -1,0 +1,52 @@
+{
+  "orchestration": {
+    "id": "canvas-e2e",
+    "version": "1",
+    "mode": "graph"
+  },
+  "nodes": [
+    {
+      "id": "research",
+      "type": "llm",
+      "payload": {
+        "skill": "researcher",
+        "output_key": "research_result",
+        "x_canvas": {
+          "kind": "llm",
+          "label": "研究"
+        }
+      }
+    },
+    {
+      "id": "write",
+      "type": "llm",
+      "depends_on": [
+        "research"
+      ],
+      "payload": {
+        "skill": "writer",
+        "output_key": "draft",
+        "x_canvas": {
+          "kind": "llm",
+          "label": "写作"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "research",
+      "target": "write"
+    }
+  ],
+  "layout": {
+    "research": {
+      "x": 0,
+      "y": 0
+    },
+    "write": {
+      "x": 200,
+      "y": 0
+    }
+  }
+}

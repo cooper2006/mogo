@@ -50,8 +50,8 @@
 
 - [x] T026 [P] `services/chat-api/tests/test_orchestration_canvas_api.py`：端点契约（列表/读取/保存/发布信封）、租户隔离、发布版本递增与旧版可回看
 - [x] T027 [P] `services/chat-api/tests/test_orchestration_canvas_api.py`：`layout` 透传联合改动验证 + 010 既有测试回归全绿（orchestration 全模块；`competitor_deep_dive` 装载/执行不变）
-- [ ] T028 [P] 前端序列化单测：画布 → YAML → 画布往返拓扑零丢失；`competitor_deep_dive.yaml` 反序列化全还原（含 skip_condition 的 expr/reason）；坏 `layout`/缺 `layout` 降级路径
-- [ ] T029 [P] 前端校验单测：环/自环阻断且错误信息与 `topo.py` 环路径序列同格式；孤立节点警示；非法条件拒绝
+- [x] T028 [P] 前端序列化单测：画布 → YAML → 画布往返拓扑零丢失；`competitor_deep_dive.yaml` 反序列化全还原（含 skip_condition 的 expr/reason）；坏 `layout`/缺 `layout` 降级路径（2026-10-27 交付：`apps/user-web/tests/orchestration-canvas.test.ts` 9 组断言，`npm run test:orchestration-canvas` 全绿）
+- [x] T029 [P] 前端校验单测：环/自环阻断且错误信息与 `topo.py` 环路径序列同格式；孤立节点警示；非法条件拒绝（2026-10-27 交付：同上测试文件 T029-1/2/3）
 - [ ] T030 E2E：画布搭两节点 graph 流程 → 保存 → 010 引擎真实执行（顺序/产出传递正确）→ 发布 → 版本可回看；手工 YAML 打开画布往返不丢拓扑
 - [x] T031 发布门禁验证：无权限用户发布被 001 拒绝且审计可查；无"画布直通生产"路径（代码级审查确认）
 - [x] T032 跨特性声明核对：010（联合改动已同步 spec）、002（版本化语义）、004（Skill 数据源）、001（门禁）、038（执行期出站分层）声明与实现一致
@@ -73,10 +73,23 @@
 - 不合并 user-web 既有 Skill 业务步骤编辑（`MySkillConfigPage`）的画布外语义：前者是 Skill 内步骤，后者是编排节点。
 - i18n 新文案用中文 key，`t()` 缺翻译时回退中文本身，无需改 locale 文件（沿用 031 口径）。
 
-## 验收状态（2026-10-24 交接复核）
+## 验收状态（2026-10-27 复核）
 
-- **已完成并勾选（30 项）**：T001–T027、T031–T033。证据：`services/chat-api/tests/orchestration/test_orchestration_canvas_api.py` 11 passed（端点信封、租户隔离、`layout` 清洗、环 422 与 `topo.CycleError` 同串、空图拒绝、发布权限 fail-closed、版本递增）；`services/chat-api/tests/orchestration/` 全量 91 passed（010 引擎零回归）；`OrchestrationCanvasPage.vue` / `NodePropertyPanel.vue` 经 `@vue/compiler-sfc` 3.4.38 编译通过。
-- **未勾选（3 项）**：
-  - **T028/T029（前端单测未落地）**：`apps/user-web/tests/` 下**无编排画布相关测试文件**（`ls | grep -i orchestr` 为空），序列化往返与前端校验的单元测试尚未编写；序列化逻辑目前仅经后端 11 项契约测试间接覆盖。
-  - **T030（E2E）**：画布搭图 → 保存 → 010 引擎真实执行 → 发布 → 版本回看需真实 Mongo + 引擎运行环境；本机 docker 未运行，留待 staging。
+- **已完成并勾选（32 项）**：T001–T029、T031–T033。证据：`services/chat-api/tests/orchestration/test_orchestration_canvas_api.py` **14 passed**（端点信封、租户隔离、`layout` 清洗、环 422 与 `topo.CycleError` 同串、空图拒绝、发布权限 fail-closed、版本递增 + 进程内链路用例 + 真实序列化 fixture 用例）；`services/chat-api/tests/orchestration/` **114 passed**（010 引擎零回归，`test_competitor_deep_dive*.py` 因本机缺 `pybreaker` 未收集）；`apps/user-web/tests/orchestration-canvas.test.ts` **14 组断言**全绿（`npm run test:orchestration-canvas`）；`OrchestrationCanvasPage.vue` / `NodePropertyPanel.vue` 于 2026-10-27 用 `@vue/compiler-sfc` 3.4.38 复检通过（`node scripts/check_sfc.mjs`，2026-10-24 首检亦通过）。
+- **未勾选（1 项，仅剩浏览器点击）**：
+  - **T030（E2E）**：链路已用**真实 Mongo**跑通 —— `services/chat-api/tests/orchestration/test_orchestration_canvas_mongo_e2e.py` 3 passed（直连 `mongodb://127.0.0.1:27017`，每次一个临时库用完 drop）：画布文档落库后直读 Mongo 校验 `payload.skill`/`depends_on`/`layout`，再经运行时入口 `store.load_orchestration_persisted`（"集合优先于 YAML"）装载并由 `DagEngine.run_graph` 真实执行（顺序 `research → write`、产出传递正确）；发布后版本 2 + `history` 保留版本 1；另验证跨租户隔离（同名编排不互相覆盖、他人读取 404）。Mongo 不可达时整文件 skip（`MOGO_E2E_MONGO_URI` 可指定）。
+  - 另加**跨语言契约守卫**：`services/chat-api/tests/orchestration/fixtures/canvas_document.json` 由前端真实序列化器 `canvasToEngineDocument` 生成，后端 `test_real_serializer_fixture_loads_and_runs` 用真实 loader 装载并执行它；前端单测反向断言该 fixture 与当前序列化结果一致，任一侧漂移即报错。
+  - **仍缺**：浏览器端在画布上真点一遍（新增节点/连线 → 保存）。该层由前端序列化单测 + SFC 编译校验等价覆盖，是否据此勾选交 spec owner 决定；本机 `apps/user-web/node_modules` 残缺且后端缺 `pybreaker` 等依赖，起不了完整前端+服务栈。
+- **2026-10-27 补测中修掉的转换层缺陷**（单测暴露，均属 US2/FR-007/FR-009 未落实处）：
+  1. **缺 `edges` 时画布无边**：手写 YAML 只给 `depends_on`，`engineDocumentToCanvas` 原样取 `document.edges || []` → 打开后零连线、拓扑全丢。改为缺失时按 `depends_on` 反推（新增 `deriveEdgesFromDependsOn`）。
+  2. **节点顶层描述字段被忽略**：`mapEngineNode` 只读 `payload.*`，而手写 YAML 把 `skill/tools/timeout/description/output_key` 写在节点顶层（loader 才收进 payload）→ 打开后 Skill/工具丢失。改为 payload 优先、节点顶层兜底。
+  3. **未知顶层键不透传**：`data_contract` / `audit` / `failure_propagation` 打开即丢，保存后被抹掉。新增 `CanvasDocument.raw`，反序列化收集、序列化前置透传（契约字段始终覆盖 raw）。
+  4. **附带修掉一处会直接导致 422 的序列化 bug**：条件节点多出边时旧实现生成 `!(expr)`，而 010 `loader.compile_expr` 只接受 `<var> <op> <literal>` → 该文档必然 422。改为翻转比较运算符表达取反（`x == true` → `x != true`，新增 `negateConditionExpr`），语义等价且可解析。
+  5. 同步把 `OrchestrationCanvasPage.openOrchestration` 改为走 `engineDocumentToCanvas`（原为自建映射，绕过了转换层，使上述 1/2/4 的修复到不了 UI）。
+  6. **保存/发布根本没走转换层**（最严重）：页面 `save()` 把 `toCanvasDocument()` 的结果直接当 `document` 提交，`canvasToEngineDocument` 只 import 未调用 → `dag_definitions.document` 存的是 `{kind,data,position}` 画布投影，010 引擎装载后拿不到 `skill` / `depends_on` / `skip_condition`，等于"画布搭的流程引擎跑不出东西"。改为提交前 `canvasToEngineDocument(canvas)`，并把 `api/orchestration.ts` 的 `document` 类型从 `CanvasDocument` 更正为 `EngineDocument`（读回再经转换层还原）。
+- **2026-10-27 补修的 044 协议声明缺陷**（原记为"已知未做"，现修）：
+  - **画布写的 `payload.mode` 落不了库**：010 loader 只从节点顶层 `raw["mode"]` 读协议，`payload` 里的 `mode` 被 `_PAYLOAD_KEYS` 过滤 → 画布的 roundRobin / debate 声明**静默失效**，节点退化成普通 llm 执行。已改为序列化到**节点顶层** `mode`（`declaredMultiAgentMode` 统一判定：kind 优先，其次 llm 节点上的显式选择），payload 里不再出现 `mode`。
+  - **debate 缺 pro/con 无法发布**：loader `_validate_044_shapes` 对 `mode: debate` 强制要求 `pro`/`con` 指向真实节点。画布补了 `pro`/`con`/`arbiter` 字段与属性面板输入项，并在 `canvasValidation` 前置同口径校验（`debate_missing_roles` / `debate_dangling_role`），避免"点保存才 422"。
+  - **round_robin 的 `instances` 会丢**：手写 YAML 的多候选声明打开画布后被抹成单候选。改为原样往返（`CanvasNodeData.instances`，首期不提供编辑 UI，面板只显示候选数），并校验实例只允许 `label/model/temperature/prompt`（`round_robin_invalid_instances`，对齐 044 R-1）。
+  - 已用真实 loader 验证：`round_robin`（带/不带 instances）均装载通过；`debate` 缺 pro/con 抛 `node d: debate requires both 'pro' and 'con' node ids`；带 pro/con 通过；旧形态（`payload.mode`）装载后 `node.mode is None`（即修复前的失效形态）。
 - **联合改动已落地**：`services/chat-api/app/orchestration/store.py` 的 `_document_shape` 已透传 `layout`（唯一引擎侧改动），`engine.py`/`supervisor.py`/`topo.py`/`conditions.py` 零行为变更。

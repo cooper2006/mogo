@@ -1,5 +1,5 @@
 import { createApiClient } from './client'
-import type { CanvasDocument } from '../components/orchestration/canvasSchema'
+import type { EngineDocument } from '../components/orchestration/canvasSchema'
 
 /**
  * 可视化编排画布 —— 端用户侧读写 API（特性 039）。
@@ -34,7 +34,11 @@ export interface OrchestrationDetail {
   orchestrationId: string
   version: number
   status: OrchestrationStatus
-  document: CanvasDocument
+  /**
+   * 后端保存的是**引擎权威文档**（010 `dag_definitions.document`），
+   * 不是画布投影；读回后经 `engineDocumentToCanvas` 还原为画布。
+   */
+  document: EngineDocument
   layout: Record<string, { x: number; y: number }>
   history: Array<{ version: number; status: OrchestrationStatus; updatedAt?: string; releaseNotes?: string }>
   updatedAt?: string | null
@@ -59,12 +63,12 @@ export async function fetchOrchestration(orchestrationId: string): Promise<Orche
 /** 保存草稿（编排权 = 本人；校验与 010 引擎同口径）。 */
 export async function saveOrchestrationDraft(
   orchestrationId: string,
-  canvas: CanvasDocument,
+  document: EngineDocument,
   layout: Record<string, { x: number; y: number }> = {},
 ): Promise<SaveDraftResult> {
   return dataOf<SaveDraftResult>(
     await api.post(`/orchestrations/${encodeURIComponent(orchestrationId)}/drafts`, {
-      document: canvas,
+      document,
       layout,
     }),
   )
@@ -73,13 +77,13 @@ export async function saveOrchestrationDraft(
 /** 发布（001 权限码 `orchestration:publish` 门禁，未持有返回 403）。 */
 export async function publishOrchestration(
   orchestrationId: string,
-  canvas: CanvasDocument,
+  document: EngineDocument,
   layout: Record<string, { x: number; y: number }> = {},
   releaseNotes = '',
 ): Promise<SaveDraftResult> {
   return dataOf<SaveDraftResult>(
     await api.post(`/orchestrations/${encodeURIComponent(orchestrationId)}/publish`, {
-      document: canvas,
+      document,
       layout,
       releaseNotes,
     }),

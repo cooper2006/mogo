@@ -55,6 +55,8 @@ const props = defineProps<{
 const nodes = ref<CanvasFlowNode[]>([])
 const edges = ref<CanvasFlowEdge[]>([])
 const selectedNodeId = ref<string | null>(null)
+/** 画布不认识的顶层键（data_contract / audit 等），保存时原样透传（FR-009）。 */
+const rawDocument = ref<Record<string, unknown> | undefined>(undefined)
 const issues = ref<ReturnType<typeof validateCanvas>>([])
 const busy = ref(false)
 const loading = ref(true)
@@ -126,6 +128,7 @@ function toCanvasDocument(): import('./canvasSchema').CanvasDocument {
     nodes: canvasNodes,
     edges: canvasEdges,
     layout: Object.fromEntries(canvasNodes.map((node) => [node.id, node.position])),
+    raw: rawDocument.value,
   }
 }
 
@@ -234,10 +237,14 @@ async function openOrchestration(id: string) {
   pageError.value = ''
   try {
     const detail = await fetchOrchestration(id)
+    // 统一走转换层：手写 YAML 只给 depends_on 时补出边、缺 layout 时自动布局、
+    // 未知顶层键存 raw 以便保存时透传（FR-007/FR-009/FR-012）。
+    const canvasDoc = engineDocumentToCanvas(detail.document)
     orchestrationId.value = detail.orchestrationId
-    mode.value = detail.document.orchestration.mode === 'sequential' ? 'sequential' : 'graph'
-    nodes.value = detail.document.nodes.map(toVueNode)
-    edges.value = detail.document.edges.map((edge, index) => toVueEdge(edge.source, edge.target, index))
+    mode.value = canvasDoc.orchestration.mode
+    rawDocument.value = canvasDoc.raw
+    nodes.value = canvasDoc.nodes.map(toVueNode)
+    edges.value = canvasDoc.edges.map((edge, index) => toVueEdge(edge.source, edge.target, index))
     published.value = detail.status === 'published'
     refreshIssues()
   } catch (err) {
@@ -257,9 +264,12 @@ async function save(publish: boolean) {
   notice.value = ''
   try {
     const canvas = toCanvasDocument()
+    // 落库的必须是引擎权威文档（画布只是投影）：否则 `dag_definitions.document`
+    // 里存的是 kind/data/position 形状，010 引擎装载后拿不到 skill/依赖/条件。
+    const document = canvasToEngineDocument(canvas)
     const result = publish
-      ? await publishOrchestration(orchestrationId.value, canvas, canvas.layout, releaseNotes.value)
-      : await saveOrchestrationDraft(orchestrationId.value, canvas, canvas.layout)
+      ? await publishOrchestration(orchestrationId.value, document, canvas.layout, releaseNotes.value)
+      : await saveOrchestrationDraft(orchestrationId.value, document, canvas.layout)
     notice.value = publish
       ? t('orchestration.published', { version: result.version })
       : t('orchestration.saved', { version: result.version })

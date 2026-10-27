@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import type { PropType } from 'vue'
 import { NInput, NInputNumber, NSelect, NDivider, NTag, NAlert } from 'naive-ui'
 import { t } from '../../composables/i18n'
-import type { CanvasNode, MultiAgentMode } from './canvasSchema'
+import { declaredMultiAgentMode, type CanvasNode, type MultiAgentMode } from './canvasSchema'
 
 /**
  * 节点属性面板（特性 039 FR-009）：编辑被选中节点的参数。
@@ -35,7 +35,16 @@ const KNOWN_FIELDS = new Set([
   'falseBranchReason',
   'mode',
   'multiAgentMode',
+  'instances',
+  'pro',
+  'con',
+  'arbiter',
 ])
+
+/** 当前节点声明的 044 协议（kind 优先，其次 llm 节点上的显式选择）。 */
+const declaredMode = computed<MultiAgentMode | undefined>(() =>
+  props.node ? declaredMultiAgentMode(props.node) : undefined,
+)
 
 const unknownKeys = computed(() => {
   if (!props.node) return []
@@ -74,8 +83,8 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
       />
     </div>
 
-    <!-- LLM 节点：Skill 选择 + 044 多智能体模式 -->
-    <template v-if="node.kind === 'llm'">
+    <!-- LLM / 044 协议节点：Skill 选择（roundRobin、debate 也要基底 Skill） -->
+    <template v-if="node.kind === 'llm' || node.kind === 'roundRobin' || node.kind === 'debate'">
       <div class="field">
         <span class="label">{{ t('orchestration.prop.skill') }}</span>
         <n-select
@@ -87,7 +96,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
           @update:value="(v: string | null) => apply({ skill: v || undefined })"
         />
       </div>
-      <div class="field">
+      <div v-if="node.kind === 'llm'" class="field">
         <span class="label">{{ t('orchestration.prop.multi_agent_mode') }}</span>
         <n-select
           :value="node.data.multiAgentMode || ''"
@@ -99,6 +108,47 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
         />
       </div>
     </template>
+
+    <!-- 044 debate：正反方与裁决节点（引擎装载期 fail-closed，缺一不可） -->
+    <template v-if="declaredMode === 'debate'">
+      <div class="field">
+        <span class="label">{{ t('orchestration.prop.debate_pro') }}</span>
+        <n-input
+          :value="node.data.pro"
+          size="small"
+          placeholder="node_id"
+          @update:value="(v: string) => apply({ pro: v || undefined })"
+        />
+      </div>
+      <div class="field">
+        <span class="label">{{ t('orchestration.prop.debate_con') }}</span>
+        <n-input
+          :value="node.data.con"
+          size="small"
+          placeholder="node_id"
+          @update:value="(v: string) => apply({ con: v || undefined })"
+        />
+      </div>
+      <div class="field">
+        <span class="label">{{ t('orchestration.prop.debate_arbiter') }}</span>
+        <n-input
+          :value="node.data.arbiter"
+          size="small"
+          placeholder="node_id"
+          @update:value="(v: string) => apply({ arbiter: v || undefined })"
+        />
+      </div>
+    </template>
+
+    <!-- 044 round_robin：候选实例首期只读保留（来自手工 YAML，画布暂不提供编辑） -->
+    <n-alert
+      v-if="declaredMode === 'round_robin' && node.data.instances?.length"
+      type="info"
+      :bordered="false"
+      size="small"
+    >
+      {{ t('orchestration.prop.round_robin_instances', { count: node.data.instances.length }) }}
+    </n-alert>
 
     <!-- 工具节点：工具选择 -->
     <div v-if="node.kind === 'tool'" class="field">

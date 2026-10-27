@@ -57,6 +57,13 @@ export const orchestrationMessages = {
   'orchestration.prop.multi_agent_mode': { zh: '多智能体模式', en: 'Multi-Agent Mode' },
   'orchestration.prop.round_robin': { zh: '轮询（round_robin）', en: 'Round Robin' },
   'orchestration.prop.debate': { zh: '辩论（debate）', en: 'Debate' },
+  'orchestration.prop.debate_pro': { zh: '正方节点（pro）', en: 'Pro node' },
+  'orchestration.prop.debate_con': { zh: '反方节点（con）', en: 'Con node' },
+  'orchestration.prop.debate_arbiter': { zh: '裁决节点（可选）', en: 'Arbiter node (optional)' },
+  'orchestration.prop.round_robin_instances': {
+    zh: '该节点声明了 {count} 个候选实例（来自手工 YAML，画布暂不提供编辑，保存时原样保留）。',
+    en: 'This node declares {count} candidate instances (from hand-written YAML; preserved as-is on save).',
+  },
   'orchestration.prop.unknown_payload': {
     zh: '该节点来自手工 YAML，含无法识别的属性；编辑时保留原值。',
     en: 'This node came from hand-written YAML and carries properties the canvas does not understand; they are preserved on save.',

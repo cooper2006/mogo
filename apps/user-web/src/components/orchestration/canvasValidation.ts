@@ -8,7 +8,8 @@
  * 首期仅支持 ``sequential`` 与 ``graph``（supervisor/hybrid 在 UI 明示暂不支持）。
  */
 
-import type { CanvasDocument, CanvasEdge, CanvasNode } from './canvasSchema';
+import type { CanvasDocument, CanvasEdge, CanvasInstance, CanvasNode } from './canvasSchema';
+import { declaredMultiAgentMode, isSupportedConditionExpr } from './canvasSchema';
 
 export type Severity = 'error' | 'warning';
 
@@ -172,14 +173,83 @@ export function validateCanvas(canvas: CanvasDocument): ValidationIssue[] {
     );
   }
 
-  // 条件节点必须有表达式
+  // 条件节点必须有表达式，且表达式必须能被引擎文法解析（loader.compile_expr 同口径）
   canvas.nodes.forEach((node) => {
-    if (node.kind === 'condition' && !node.data.conditionExpr) {
+    if (node.kind !== 'condition') return;
+    const expr = String(node.data.conditionExpr || '').trim();
+    if (!expr) {
       issues.push(issue('warning', 'condition_missing_expr', '条件节点未填写条件表达式', [node.id], []));
+      return;
+    }
+    if (!isSupportedConditionExpr(expr)) {
+      issues.push(
+        issue(
+          'error',
+          'condition_invalid_expr',
+          `条件表达式无法被引擎解析：${expr}（需形如 "变量 比较符 字面量"，如 competitor_is_private == true）`,
+          [node.id],
+          [],
+        ),
+      );
+    }
+  });
+
+  // 044 多智能体协议：与 loader `_validate_044_shapes` 同口径（fail-closed）
+  const nodeIds = new Set(canvas.nodes.map((node) => node.id));
+  canvas.nodes.forEach((node) => {
+    const mode = declaredMultiAgentMode(node);
+    if (mode === 'debate') {
+      const pro = String(node.data.pro || '').trim();
+      const con = String(node.data.con || '').trim();
+      const arbiter = String(node.data.arbiter || '').trim();
+      if (!pro || !con) {
+        issues.push(
+          issue('error', 'debate_missing_roles', '辩论节点必须指定正方（pro）与反方（con）节点', [node.id], []),
+        );
+        return;
+      }
+      const dangling = [pro, con, arbiter].filter((id) => id && !nodeIds.has(id));
+      if (dangling.length) {
+        issues.push(
+          issue(
+            'error',
+            'debate_dangling_role',
+            `辩论节点引用了不存在的节点：${dangling.join('、')}`,
+            [node.id],
+            [],
+          ),
+        );
+      }
+    }
+    if (mode === 'round_robin' && node.data.instances !== undefined) {
+      if (!Array.isArray(node.data.instances)) {
+        issues.push(issue('error', 'round_robin_invalid_instances', 'instances 必须是候选列表', [node.id], []));
+        return;
+      }
+      const bad = node.data.instances.findIndex((item: CanvasInstance) => !isAllowedInstance(item));
+      if (bad >= 0) {
+        issues.push(
+          issue(
+            'error',
+            'round_robin_invalid_instances',
+            `instances[${bad}] 只允许 label / model / temperature / prompt`,
+            [node.id],
+            [],
+          ),
+        );
+      }
     }
   });
 
   return issues;
+}
+
+/** 044 R-1：候选实例只允许浅覆盖这四个键（retry / condition / depends_on / mode 属节点语义）。 */
+const ALLOWED_INSTANCE_KEYS = ['label', 'model', 'temperature', 'prompt'];
+
+function isAllowedInstance(item: unknown): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  return Object.keys(item as Record<string, unknown>).every((key) => ALLOWED_INSTANCE_KEYS.includes(key));
 }
 
 function issue(
