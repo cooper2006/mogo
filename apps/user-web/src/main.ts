@@ -13,8 +13,13 @@ const startsDark = storedThemeMode === 'dark'
 document.documentElement.classList.toggle('theme-dark', startsDark)
 document.documentElement.style.colorScheme = startsDark ? 'dark' : 'light'
 
-// 026 T033: 采集 LCP/FID/CLS/TTFB 并上报（FR-21）。端点可用 VITE_VITALS_REPORT_URL 覆盖。
-initVitals({ reportUrl: (import.meta.env.VITE_VITALS_REPORT_URL as string | undefined) || '/portal-api/metrics/vitals' })
+// 026 T033: 采集 LCP/FID/CLS/TTFB（FR-21）。
+// 上报端点必须显式配置 VITE_VITALS_REPORT_URL：后端目前没有 /metrics/vitals 接收端点
+// （T033 只落地了采集侧），而生产 nginx 也没有 /portal-api/ 反代，硬编码默认值只会
+// 让每个页面刷一条 `POST /portal-api/metrics/vitals 405`（落到 user-web 静态站）。
+// 补齐接收端点后配一个环境变量即可开启，无需再改代码。
+const vitalsReportUrl = (import.meta.env.VITE_VITALS_REPORT_URL as string | undefined)?.trim()
+if (vitalsReportUrl) initVitals({ reportUrl: vitalsReportUrl })
 
 if (isResearch) {
     void import('./research/ResearchPage.vue').then((m) => createApp(m.default).mount('#app'))

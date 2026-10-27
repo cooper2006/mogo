@@ -1384,6 +1384,13 @@ async function refreshUserProfile(token: string, createDefaultSession = false, p
   }
   if (preserveSessionOnFailure) {
     sessionsLoading.value = false
+    if (result.status === 401) {
+      // 401 已由 installAuthExpiryInterceptor 处理：缓存会话被清、登录框已弹。
+      // 这里若继续「保留缓存会话」并 loadSessions，只会拿空 token 再打一串 401
+      // （skill-share-inbox/count、personal-knowledge-counts 就是这么刷出来的）。
+      console.warn('[auth] fetchUserProfile unauthorized; session already cleared, skip retry')
+      return
+    }
     console.warn('[auth] fetchUserProfile failed; keeping cached session and retrying later')
     await loadSessions(true).catch(() => {})
     return

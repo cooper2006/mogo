@@ -1,12 +1,11 @@
-import axios from 'axios'
 import { t } from '../composables/i18n'
-import { installAuthExpiryInterceptor } from './authExpiry'
+import { createApiClient } from './client'
 
-const client = axios.create({
+// 走统一的 createApiClient：请求拦截器注入 Bearer、响应拦截器统一处理 401 会话失效。
+const client = createApiClient({
   baseURL: '/askai-api/api',
   timeout: 15000,
 })
-installAuthExpiryInterceptor(client)
 
 function isOk(payload: any): boolean {
   return payload?.code === 0 || payload?.success === true
@@ -85,8 +84,8 @@ type ApiPayload = {
   message?: string
 }
 
-/** 未类型化的 axios 异常（仅取 message 字段）。 */
-type ApiError = { response?: { data?: { message?: string } }; message?: string }
+/** 未类型化的 axios 异常（仅取 message / HTTP 状态）。 */
+type ApiError = { response?: { status?: number; data?: { message?: string } }; message?: string }
 
 
 /** 从 axios 异常中提取用户可读消息；保持原有回退顺序。 */
@@ -279,7 +278,7 @@ function normalizeProfile(data: Partial<UserProfile>): UserProfile {
   }
 }
 
-export async function fetchUserProfile(token: string): Promise<{ ok: boolean; data?: UserProfile; message?: string }> {
+export async function fetchUserProfile(token: string): Promise<{ ok: boolean; data?: UserProfile; message?: string; status?: number }> {
   try {
     const response = await client.get('/auth/me', {
       headers: {
@@ -295,7 +294,13 @@ export async function fetchUserProfile(token: string): Promise<{ ok: boolean; da
     }
     return { ok: true, data: normalizeProfile(payload.data || {}) }
   } catch (error: any) {
-    return { ok: false, message: errorMessageOf(error, t('api.auth.get_user_info_failed')) }
+    // status 用于区分「会话真的失效」（401，拦截器已清会话并弹登录框）与
+    // 「网络抖动 / 5xx」（可保留缓存会话稍后重试），调用方据此决定后续动作。
+    return {
+      ok: false,
+      message: errorMessageOf(error, t('api.auth.get_user_info_failed')),
+      status: error?.response?.status,
+    }
   }
 }
 

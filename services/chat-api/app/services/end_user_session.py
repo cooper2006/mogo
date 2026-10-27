@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from app.core.ids import is_valid_backend_id, to_backend_id
 from bson import ObjectId
@@ -104,8 +105,33 @@ async def resolve_session_user(authorization: str | None) -> dict:
     # who have never been assigned to a department.
     org_id = str(user_doc.get("primary_org_id") or "")
 
+    # 022 FR-11：滑动续期。``expires_at`` 原本只在登录时写一次（TTL 默认 1h），
+    # 持续活跃的用户到点也会被强制重登 —— 与「空闲 30min / 绝对 24h」的口径不符。
+    # 这里在每个通过校验的请求上把有效期往后推，但封顶在登录时刻起的绝对上限，
+    # 避免续期把 24h 绝对窗口无限延长。token 本身只承载 ``token_id``，续期无需换发。
+    renewed_expires_at: datetime | None = None
+    if expires_at is not None:
+        ttl_seconds = max(300, int(get_settings().END_USER_AUTH_TOKEN_TTL_SECONDS))
+        renewed_expires_at = now + timedelta(seconds=ttl_seconds)
+        created_at = session_doc.get("created_at")
+        if isinstance(created_at, str):
+            created_at = datetime.fromisoformat(created_at)
+        if isinstance(created_at, datetime):
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            absolute_deadline = created_at + timedelta(seconds=SESSION_ABSOLUTE_TIMEOUT_SECONDS)
+            if renewed_expires_at > absolute_deadline:
+                renewed_expires_at = absolute_deadline
+        # 已过期（含被判过期但未写回）时不续期，交给上面的 401 分支处理。
+        if renewed_expires_at <= expires_at:
+            renewed_expires_at = None
+
+    update_fields: dict[str, Any] = {"last_seen_at": now, "updated_at": now}
+    if renewed_expires_at is not None:
+        update_fields["expires_at"] = renewed_expires_at
+        session_doc["expires_at"] = renewed_expires_at
     await db[USER_SESSION_COLLECTION].update_one(
         {"_id": session_doc["_id"]},
-        {"$set": {"last_seen_at": now, "updated_at": now}},
+        {"$set": update_fields},
     )
     return {"session": session_doc, "user": user_doc, "tenant_id": tenant_id, "org_id": org_id}
