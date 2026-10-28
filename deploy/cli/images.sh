@@ -67,6 +67,33 @@ mogo_panweidb_enabled() {
   [[ -n "${existing}" ]]
 }
 
+# 把 profile 并进 COMPOSE_PROFILES 并导出。
+#
+# 这是 profile 的唯一投递通道，理由见 mogo_compose：compose 命令行上的
+# `--profile` 会**覆盖** COMPOSE_PROFILES 而不是与之取并集。
+mogo_enable_compose_profile() {
+  local want="${1:-}"
+  [[ -n "${want}" ]] || return 0
+  # `mogo` 里 env-profiles.sh 在 images.sh 之后才 source；只 source 了 images.sh
+  # 的脚本（scripts/check_compose_image_modes.sh）走下面的兜底实现。
+  if declare -F mogo_profile_add_compose_profile >/dev/null 2>&1; then
+    mogo_profile_add_compose_profile "${want}"
+    return 0
+  fi
+  local existing="${COMPOSE_PROFILES:-}"
+  case ",${existing}," in
+    *",${want},"*)
+      export COMPOSE_PROFILES="${existing}"
+      return 0
+      ;;
+  esac
+  if [[ -n "${existing}" ]]; then
+    export COMPOSE_PROFILES="${existing},${want}"
+  else
+    export COMPOSE_PROFILES="${want}"
+  fi
+}
+
 mogo_compose() {
   local compose_args=(-f "${ROOT_DIR}/docker-compose.yml")
   if [[ "${MOGO_COMPOSE_BUILD}" == "true" ]]; then
@@ -79,7 +106,12 @@ mogo_compose() {
   elif mogo_panweidb_enabled; then
     # 内部模式才需要把 panweidb 容器带进拓扑；外部模式下 PanWeiDB 也是外部的，
     # 靠 PANWEIDB_HOST 指过去（override 文件已把内部 panweidb 排除）。
-    compose_args+=(--profile panweidb)
+    #
+    # 只走 COMPOSE_PROFILES，不要写成 `--profile panweidb`：实测 docker compose
+    # 5.5.0 里命令行 --profile 会覆盖（而非并集）COMPOSE_PROFILES，一旦带上它，
+    # env-profiles.sh 导出的 dev/test/prod 全部失效 —— `./mogo down` 会漏掉
+    # mongo 等别的环境的数据库容器，并把所属网络报成 "Resource is still in use"。
+    mogo_enable_compose_profile panweidb
   fi
   "${DOCKER_BIN}" compose "${compose_args[@]}" "$@"
 }

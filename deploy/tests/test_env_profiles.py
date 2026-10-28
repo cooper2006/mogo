@@ -31,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 CLI = REPO_ROOT / "mogo"
 PROFILES_SH = REPO_ROOT / "deploy" / "cli" / "env-profiles.sh"
+IMAGES_SH = REPO_ROOT / "deploy" / "cli" / "images.sh"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 DOC = REPO_ROOT / "docs" / "environments.md"
 
@@ -178,6 +179,48 @@ def test_cli_down_covers_all_environments() -> None:
         "down 要把三个环境 profile 一起并进 COMPOSE_PROFILES，否则切环境后"
         "上一个环境起的数据库容器会留下来"
     )
+
+
+def test_panweidb_profile_is_delivered_through_compose_profiles() -> None:
+    """images.sh 不能用命令行 `--profile` 投递 profile。
+
+    实测 docker compose 5.5.0：命令行 `--profile` **覆盖** COMPOSE_PROFILES，
+    而不是与它取并集。`mogo_compose` 一旦带着 `--profile panweidb`，
+    env-profiles.sh 导出的 dev/test/prod 就全部失效，`./mogo down` 于是漏掉
+    mongo 等别的环境的数据库容器，并把所属网络报成 "Resource is still in use"。
+    """
+    text = IMAGES_SH.read_text(encoding="utf-8")
+    assert "compose_args+=(--profile" not in text, (
+        "deploy/cli/images.sh 不应把 --profile 交给 docker compose 命令行，"
+        "应改成 mogo_enable_compose_profile（并入 COMPOSE_PROFILES）"
+    )
+    assert "mogo_enable_compose_profile panweidb" in text
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="需要 bash 才能验证 profile 并集行为")
+def test_compose_profile_union_keeps_other_environments(tmp_path: Path) -> None:
+    stub = tmp_path / "docker"
+    args_file = tmp_path / "args.txt"
+    stub.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$FAKE_ARGS_FILE"\n', encoding="utf-8")
+    stub.chmod(0o755)
+    script = f"""
+set -u
+ROOT_DIR={REPO_ROOT}
+DOCKER_BIN={stub}
+export FAKE_ARGS_FILE={args_file}
+source {IMAGES_SH}
+export COMPOSE_PROFILES=dev,test,prod
+export MOGO_DATA_BACKEND=panweidb
+mogo_compose down
+printf 'PROFILES=%s\\n' "${{COMPOSE_PROFILES}}"
+"""
+    result = subprocess.run(
+        [shutil.which("bash"), "-c", script], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr
+    assert "PROFILES=dev,test,prod,panweidb" in result.stdout, result.stdout
+    invoked = args_file.read_text(encoding="utf-8")
+    assert "--profile" not in invoked, f"命令行不应出现 --profile：{invoked}"
 
 
 def test_profile_module_exports_expected_mapping() -> None:

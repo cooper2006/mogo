@@ -175,6 +175,25 @@ chat-api / admin-api / document-api / document-worker / mongo-backup 对 `mongo`
 | `MOGO_USE_EXTERNAL_DB=1` | 仍有效，语义是「三个数据库容器都不在栈内」；推断为 `prod` |
 | `deploy/production/` x86 模板 | 不变：显式 `platform: linux/amd64` + 外部 panweidb，与 `--profile prod` 语义一致 |
 
+### 6.1 profile 只有一个投递通道：`COMPOSE_PROFILES`
+
+compose 命令行上的 `--profile` **覆盖** `COMPOSE_PROFILES`，而不是与之取并集（docker
+compose 5.5.0 实测）：
+
+```bash
+# A：只靠环境变量 → mongo 被正常删除
+COMPOSE_PROFILES=dev,test,prod docker compose -p probe -f docker-compose.yml down
+# B：环境变量 + 命令行 --profile panweidb → mongo 留在原地，网络报 Resource is still in use
+COMPOSE_PROFILES=dev,test,prod docker compose -p probe -f docker-compose.yml --profile panweidb down
+# C：两个都走命令行 → mongo 被正常删除
+docker compose -p probe -f docker-compose.yml --profile dev --profile panweidb down
+```
+
+因此 `deploy/cli/images.sh` 里原本的 `compose_args+=(--profile panweidb)` 会让
+env-profiles.sh 导出的 `dev/test/prod` 全部失效，`./mogo down` 便漏掉切环境前那个
+环境的数据库容器。现在统一走 `mogo_enable_compose_profile panweidb`（并入
+`COMPOSE_PROFILES`），B 那种混合投递不再出现。
+
 ## 7. 验证
 
 ```bash
