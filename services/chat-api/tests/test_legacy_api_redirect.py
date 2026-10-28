@@ -69,3 +69,14 @@ def test_unsafe_or_malformed_prefix_is_ignored(bad_prefix: str) -> None:
 def test_v1_path_is_never_redirected() -> None:
     res = _client().get("/api/v1/setup/status")
     assert res.status_code == 200
+
+
+@pytest.mark.parametrize("method,expected_status", [("get", 301), ("post", 308)])
+def test_redirect_must_not_be_cached_by_browser(method: str, expected_status: int) -> None:
+    """301 是永久重定向，发错一次浏览器会长期记住（2026-10-27 事故）。
+
+    迁移期目标路径还可能变，必须 no-store，让每次旧路径请求都回到服务端判定。
+    """
+    res = getattr(_client(), method)("/api/setup/status")
+    assert res.status_code == expected_status
+    assert res.headers["cache-control"] == "no-store"

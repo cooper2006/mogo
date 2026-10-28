@@ -60,4 +60,11 @@ class LegacyApiRedirectMiddleware(BaseHTTPMiddleware):
         if request.url.query:
             target += "?" + request.url.query
         status_code = 301 if request.method in ("GET", "HEAD") else 308
-        return RedirectResponse(url=target, status_code=status_code)
+        # 迁移期路径还可能变，不能让浏览器把某一次的 301 长期记住 ——
+        # 301 是永久重定向，一旦发错（例如漏了反代前缀），改好服务端也不会
+        # 自动纠正，用户只能清缓存。no-store 让每次旧路径请求都回到服务端判定。
+        return RedirectResponse(
+            url=target,
+            status_code=status_code,
+            headers={"Cache-Control": "no-store"},
+        )
