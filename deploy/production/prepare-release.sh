@@ -10,6 +10,10 @@
 #                      这也是默认且推荐的用法，保证 tag 与代码提交一一对应。
 #   --skip-build       不重建应用镜像，复用本地已有镜像
 #   --skip-pack        不重新打包 tar，复用已有 tar（只渲染清单 / 校验 / 出文档）
+#   --external-db      外部数据库模式：停用 mongo / panweidb 容器，使用外部 PanWeiDB
+#                      （PANWEIDB_* 指定）+ 栈内 redis 容器。清单改用
+#                      docker-compose.portainer-external-panweidb.yml.tpl，部署单改用
+#                      render_external_deploy_doc.py。amd64 镜像、离线导入路径不变。
 #   --out DIR          输出目录，默认 <仓库根>/prod-images-<TAG>
 #   --mirror HOST      基础镜像走的镜像站，默认 docker.m.daocloud.io
 #                      （也可用环境变量 MOGO_BASE_IMAGE_MIRROR 指定）
@@ -17,6 +21,12 @@
 #
 # 环境变量：
 #   MOGO_ALLOW_ONLINE_BUILD=1   允许在构建 bundle 仍是占位符时继续（会回退联网，慢）
+#
+# 外部 PanWeiDB 模式（--external-db）所需的连接信息，可在命令行前导出覆盖：
+#   PANWEIDB_HOST=172.17.5.145  PANWEIDB_PORT=17700  PANWEIDB_USER=boncuser
+#   PANWEIDB_PASSWORD=1qaz!QAZ   PANWEIDB_DB=mogo     PANWEIDB_SCHEMA=public
+# 注意：PANWEIDB_PASSWORD 含 `!`，脚本**不做 shlex 引号处理**地原样注入清单，
+# 避免 history 展开 / 引号破坏（详见 docs/Pitfalls 中对应的踩坑记录）。
 #
 # 两段逻辑的分工（改动时请保持）：
 #
@@ -69,9 +79,19 @@ IMAGE_PATHS="services/ apps/ deploy/docker/ docker-compose.yml docker-compose.bu
 TAG_ARG=""
 SKIP_BUILD=0
 SKIP_PACK=0
+EXTERNAL_DB=0
 OUT_DIR=""
 MIRROR="${MOGO_BASE_IMAGE_MIRROR:-}"
 PY="${MOGO_PYTHON:-python3}"
+
+# 外部 PanWeiDB 连接信息默认值（--external-db 模式使用）。
+# 这些值会被**原样**（不加引号）注入渲染后的清单，因此含 `!` 的口令也不会被破坏。
+PANWEIDB_HOST="${PANWEIDB_HOST:-172.17.5.145}"
+PANWEIDB_PORT="${PANWEIDB_PORT:-17700}"
+PANWEIDB_USER="${PANWEIDB_USER:-boncuser}"
+PANWEIDB_PASSWORD="${PANWEIDB_PASSWORD:-1qaz!QAZ}"
+PANWEIDB_DB="${PANWEIDB_DB:-mogo}"
+PANWEIDB_SCHEMA="${PANWEIDB_SCHEMA:-public}"
 
 say()  { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
@@ -85,6 +105,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
     --skip-pack)  SKIP_PACK=1;  shift ;;
+    --external-db) EXTERNAL_DB=1; shift ;;
     --out)    [ $# -ge 2 ] || die "--out 需要一个目录参数"; OUT_DIR="$2"; shift 2 ;;
     --mirror) [ $# -ge 2 ] || die "--mirror 需要一个主机名"; MIRROR="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -179,6 +200,13 @@ say "4/9 从 compose 推导镜像清单"
 ALL_IMAGES=$(cd "$ROOT_DIR" && docker compose -f docker-compose.yml config --images | sort -u)
 [ -n "$ALL_IMAGES" ] || die "compose 没解析出任何镜像"
 
+# 外部数据库模式：不部署内部 mongo / panweidb 容器，所以从镜像清单里剔除 mongo
+# 基础镜像（panweidb 本来就是 profile 门控、不在 docker-compose.yml 的默认镜像里）。
+if [ "$EXTERNAL_DB" = "1" ]; then
+  ALL_IMAGES=$(printf '%s\n' "$ALL_IMAGES" | grep -v '^mongo:' || true)
+  info "外部数据库模式：已从镜像清单剔除 mongo（使用外部 PanWeiDB + 栈内 redis）"
+fi
+
 APP_IMAGES=""
 BASE_IMAGES=""
 while IFS= read -r img; do
@@ -265,25 +293,31 @@ check_build_bundles() {
   local pw_bundle="services/chat-api/playwright-browsers-bundle.tar.gz"
   if [ -f "$pw_bundle" ] && [ "$(wc -c < "$pw_bundle" | tr -d ' ')" -gt 1024 ]; then
     local pw_arch
+    # 注意：bundle 按 `./<arch>/chromium-*/chrome-linux/{chrome,headless_shell}`
+    # 布局同时容纳 arm64 与 amd64。Dockerfile 抽取时只解 `./${TARGETARCH}` 子树，
+    # 所以这里**必须指定看 amd64 子树**，不能取 tar 里第一个同名成员（arm64 排在前面会误判）。
     pw_arch=$("$PY" - "$pw_bundle" <<'PY'
-import struct, sys, tarfile
-want = ('chrome-linux/headless_shell', 'chrome-linux/chrome')
+import re, struct, sys, tarfile
+# bundle 布局：./<arch>/chromium-*/chrome-linux/{chrome,headless_shell}
+# 只认 amd64 子树（arch 与 chrome-linux 之间还隔着 chromium-*/ 目录）。
+pat = re.compile(r'^\./amd64/.*chrome-linux/(chrome|headless_shell)$')
 with tarfile.open(sys.argv[1]) as tf:
     for member in tf.getmembers():
-        if member.isfile() and member.name.endswith(want):
-            head = tf.extractfile(member).read(20)
-            machine = struct.unpack('<H', head[18:20])[0]
-            print({0x3e: 'amd64', 0xb7: 'arm64'}.get(machine, 'unknown'))
-            break
+        if not member.isfile() or not pat.match(member.name):
+            continue
+        head = tf.extractfile(member).read(20)
+        machine = struct.unpack('<H', head[18:20])[0]
+        print({0x3e: 'amd64', 0xb7: 'arm64'}.get(machine, 'unknown'))
+        break
     else:
         print('missing')
 PY
 )
     if [ "$pw_arch" != "amd64" ]; then
-      die "Playwright bundle 的 chromium 是 ${pw_arch}，但生产镜像是 amd64（构建期会失败）。
+      die "Playwright bundle 的 amd64 子树 chromium 是 ${pw_arch}，但生产镜像是 amd64（构建期会失败）。
       重新生成：ARCH=amd64 scripts/playwright_browsers_bundle.sh fetch"
     fi
-    info "OK  Playwright bundle 架构：amd64"
+    info "OK  Playwright bundle 架构：amd64（amd64 子树已就绪）"
   fi
 }
 
@@ -402,11 +436,46 @@ fi
 # ------------------------------------------------- 9. 渲染清单 / 校验 / 出部署单
 say "9/9 渲染清单、校验、出部署单"
 
-TPL="$SELF_DIR/docker-compose.portainer.yml.tpl"
-[ -f "$TPL" ] || die "找不到清单模板 $TPL"
-TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-# 渲染：删掉模板专用注释行（#!TEMPLATE-ONLY 前缀）、替换版本占位符、注入来源信息
-"$PY" -c '
+if [ "$EXTERNAL_DB" = "1" ]; then
+  TPL="$SELF_DIR/docker-compose.portainer-external-panweidb.yml.tpl"
+  COMPOSE_OUT="$OUT_DIR/docker-compose.portainer.yml"
+  DEPLOY_DOC="$SELF_DIR/render_external_deploy_doc.py"
+  [ -f "$TPL" ] || die "找不到外部数据库清单模板 $TPL"
+  TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+  # 渲染：删模板专用行 → 替换版本占位符 → 注入外部 PanWeIDB 连接信息（原样，不加引号）
+  # → 注入来源信息。PANWEIDB_PASSWORD 含 `!`，这里**不**用 shlex 引用，避免 history 展开。
+  "$PY" - "$TPL" "$COMPOSE_OUT" "$TAG" "${GIT_FULL:0:12}" "$GIT_BRANCH" "$TIMESTAMP" \
+    "$PANWEIDB_HOST" "$PANWEIDB_PORT" "$PANWEIDB_USER" "$PANWEIDB_PASSWORD" "$PANWEIDB_DB" "$PANWEIDB_SCHEMA" <<'PY'
+import pathlib, sys
+src, dst, tag, commit, branch, ts, h, p, u, pw, db, sc = sys.argv[1:13]
+lines = [l for l in pathlib.Path(src).read_text().splitlines()
+         if not l.startswith("#!TEMPLATE-ONLY")]
+prov = (f"# 由 deploy/production/prepare-release.sh --external-db 渲染："
+        f"tag={tag}, commit={commit}, 分支 {branch}, {ts}；"
+        f"外部 PanWeiDB={h}:{p}/{db}/{sc}")
+out = []
+for i, l in enumerate(lines):
+    l = l.replace("__MOGO_TAG__", tag)
+    l = l.replace("__PANWEIDB_HOST__", h)
+    l = l.replace("__PANWEIDB_PORT__", p)
+    l = l.replace("__PANWEIDB_USER__", u)
+    l = l.replace("__PANWEIDB_PASSWORD__", pw)
+    l = l.replace("__PANWEIDB_DB__", db)
+    l = l.replace("__PANWEIDB_SCHEMA__", sc)
+    out.append(l)
+    if i == 0:
+        out += ["#", prov]
+pathlib.Path(dst).write_text("\n".join(out) + "\n")
+PY
+  info "已渲染外部数据库版 docker-compose.portainer.yml（外部 PanWeiDB + 栈内 redis）"
+else
+  TPL="$SELF_DIR/docker-compose.portainer.yml.tpl"
+  COMPOSE_OUT="$OUT_DIR/docker-compose.portainer.yml"
+  DEPLOY_DOC="$SELF_DIR/render_deploy_doc.py"
+  [ -f "$TPL" ] || die "找不到清单模板 $TPL"
+  TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+  # 渲染：删掉模板专用注释行（#!TEMPLATE-ONLY 前缀）、替换版本占位符、注入来源信息
+  "$PY" -c '
 import pathlib, sys
 src, dst, tag, prov = sys.argv[1:5]
 lines = [l for l in pathlib.Path(src).read_text().splitlines()
@@ -417,18 +486,19 @@ for i, l in enumerate(lines):
     if i == 0:
         out += ["#", prov]
 pathlib.Path(dst).write_text("\n".join(out) + "\n")
-' "$TPL" "$OUT_DIR/docker-compose.portainer.yml" "$TAG" \
-  "# 由 deploy/production/prepare-release.sh 渲染：tag=$TAG, commit=${GIT_FULL:0:12}, 分支 $GIT_BRANCH, $TIMESTAMP"
-info "已渲染 docker-compose.portainer.yml"
+' "$TPL" "$COMPOSE_OUT" "$TAG" \
+    "# 由 deploy/production/prepare-release.sh 渲染：tag=$TAG, commit=${GIT_FULL:0:12}, 分支 $GIT_BRANCH, $TIMESTAMP"
+  info "已渲染 docker-compose.portainer.yml"
+fi
 
 # 渲染结果不该再出现占位符或模板专用行
-if grep -q '__MOGO_TAG__\|#!TEMPLATE-ONLY' "$OUT_DIR/docker-compose.portainer.yml"; then
+if grep -q '__MOGO_TAG__\|__PANWEIDB_\|#!TEMPLATE-ONLY' "$COMPOSE_OUT"; then
   die "渲染后的清单里还残留占位符或模板专用行，请检查模板"
 fi
 info "已确认无残留占位符"
 
 # 渲染出来的清单必须能过 compose 语法校验
-if ( cd "$ROOT_DIR" && docker compose -f "$OUT_DIR/docker-compose.portainer.yml" config >/dev/null 2>&1 ); then
+if ( cd "$ROOT_DIR" && docker compose -f "$COMPOSE_OUT" config >/dev/null 2>&1 ); then
   info "渲染后的清单 compose 语法校验通过"
 else
   die "渲染后的清单没通过 compose 语法校验，请检查模板"
@@ -445,11 +515,14 @@ for spec in $BIG_SPECS; do
   printf '%s|%s\n' "$file" "$APP_PREFIX/$svc:$TAG" >> "$PLAN_FILE"
 done
 
-"$PY" - "$OUT_DIR" "$TAG" "$PLAN_FILE" "$GIT_FULL" "$GIT_BRANCH" "$GIT_SUBJECT" <<'PY'
+"$PY" - "$OUT_DIR" "$TAG" "$PLAN_FILE" "$GIT_FULL" "$GIT_BRANCH" "$GIT_SUBJECT" "$EXTERNAL_DB" \
+  "$PANWEIDB_HOST" "$PANWEIDB_PORT" "$PANWEIDB_USER" "$PANWEIDB_DB" "$PANWEIDB_SCHEMA" <<'PY'
 import datetime, json, pathlib, sys
 
 out, tag, plan_file = pathlib.Path(sys.argv[1]), sys.argv[2], pathlib.Path(sys.argv[3])
 commit, branch, subject = sys.argv[4], sys.argv[5], sys.argv[6]
+external_db = sys.argv[7] == "1"
+pw_host, pw_port, pw_user, pw_db, pw_schema = sys.argv[8:13]
 
 packages = []
 for line in plan_file.read_text().splitlines():
@@ -466,14 +539,26 @@ plan = {
     "commit_subject": subject,
     "created": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     "compose_file": "docker-compose.portainer.yml",
+    "external_db": external_db,
     "packages": packages,
 }
+if external_db:
+    # render_external_deploy_doc.py 用这些字段写部署单；缺省时会退回硬编码的
+    # 172.17.5.145:17700，于是运维照部署单核对会看到与清单不同的地址。
+    # 口令刻意不写入：bundle.json 会随发布物分发，清单里已有一份明文即可。
+    plan.update({
+        "panweidb_host": pw_host,
+        "panweidb_port": pw_port,
+        "panweidb_user": pw_user,
+        "panweidb_db": pw_db,
+        "panweidb_schema": pw_schema,
+    })
 (out / "bundle.json").write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n")
 print(f"  已写入 {out / 'bundle.json'}（{len(packages)} 个包，tag={tag}，commit={commit[:12]}）")
 PY
 
 "$PY" "$SELF_DIR/verify_bundle.py" "$OUT_DIR" || die "镜像包校验未通过，见上面的失败项"
-"$PY" "$SELF_DIR/render_deploy_doc.py" "$OUT_DIR"
+"$PY" "$DEPLOY_DOC" "$OUT_DIR"
 
 # --------------------------------------------------------------------- 汇总
 say "完成"
