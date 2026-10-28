@@ -23,13 +23,13 @@ export interface KnowledgeDirectoryMovePayload {
 }
 
 export async function fetchDirectoryTree() {
-  const { data } = await apiClient.get<KnowledgeDirectoryNode[]>('/api/knowledge/directories/tree');
+  const { data } = await apiClient.get<KnowledgeDirectoryNode[]>('/api/v1/knowledge/directories/tree');
   return data;
 }
 
 export async function createDirectory(payload: KnowledgeDirectoryCreatePayload) {
   const { data } = await apiClient.post<{ id: string; name: string; parentId: string | null }>(
-    '/api/knowledge/directories',
+    '/api/v1/knowledge/directories',
     payload
   );
   return data;
@@ -37,7 +37,7 @@ export async function createDirectory(payload: KnowledgeDirectoryCreatePayload) 
 
 export async function updateDirectory(id: string, payload: KnowledgeDirectoryUpdatePayload) {
   const { data } = await apiClient.put<{ id: string; name: string; parentId: string | null }>(
-    `/api/knowledge/directories/${id}`,
+    `/api/v1/knowledge/directories/${id}`,
     payload
   );
   return data;
@@ -45,7 +45,7 @@ export async function updateDirectory(id: string, payload: KnowledgeDirectoryUpd
 
 export async function moveDirectory(id: string, payload: KnowledgeDirectoryMovePayload) {
   const { data } = await apiClient.post<{ success: boolean }>(
-    `/api/knowledge/directories/${id}/move`,
+    `/api/v1/knowledge/directories/${id}/move`,
     payload
   );
   return data;
@@ -53,7 +53,7 @@ export async function moveDirectory(id: string, payload: KnowledgeDirectoryMoveP
 
 export async function deleteDirectory(id: string) {
   const { data } = await apiClient.delete<{ success: boolean }>(
-    `/api/knowledge/directories/${id}`
+    `/api/v1/knowledge/directories/${id}`
   );
   return data;
 }

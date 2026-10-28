@@ -12,7 +12,7 @@
  * - 列表查询参数为 `scope` / `enabled`（列表本身已按当前管理员 tenant_id 过滤）。
  *
  * 路径拼装：apiClient baseURL `/admin-api` + gateway 剥掉 `/admin-api`，
- * 故 admin-api 侧实际收到 `/api/hooks/...`（api_router 以 `/api` 挂载 + 路由前缀 `/hooks`）。
+ * 故 admin-api 侧实际收到 `/api/v1/hooks/...`（api_router 以 `/api/v1` 挂载 + 路由前缀 `/hooks`）。
  */
 import { apiClient } from './client';
 
@@ -49,13 +49,13 @@ export interface HookRuleUpdatePayload {
 
 /** 列出全部钩子规则（后端无记录时返回空列表）。 */
 export async function fetchHookRules(params?: { scope?: string; enabled?: boolean }): Promise<HookRule[]> {
-  const { data } = await apiClient.get<HookRuleListResult>('/api/hooks/rules', { params });
+  const { data } = await apiClient.get<HookRuleListResult>('/api/v1/hooks/rules', { params });
   return data?.items ?? [];
 }
 
 /** 创建一条规则。 */
 export async function createHookRule(payload: HookRuleCreatePayload): Promise<HookRule> {
-  const { data } = await apiClient.post<HookRule>('/api/hooks/rules', payload);
+  const { data } = await apiClient.post<HookRule>('/api/v1/hooks/rules', payload);
   return data!;
 }
 
@@ -64,12 +64,12 @@ export async function updateHookRule(
   ruleId: string,
   patch: HookRuleUpdatePayload,
 ): Promise<HookRule> {
-  const { data } = await apiClient.patch<HookRule>(`/api/hooks/rules/${ruleId}`, patch);
+  const { data } = await apiClient.patch<HookRule>(`/api/v1/hooks/rules/${ruleId}`, patch);
   return data!;
 }
 
 /** 删除一条规则；成功返回被删的 rule_id（后端为 204，无响应体）。 */
 export async function deleteHookRule(ruleId: string): Promise<string> {
-  await apiClient.delete(`/api/hooks/rules/${ruleId}`);
+  await apiClient.delete(`/api/v1/hooks/rules/${ruleId}`);
   return ruleId;
 }

@@ -164,7 +164,7 @@ function normalizeTokenStatsResponse(data: TokenStatsResponsePayload, params: To
 
 export async function fetchTokenStats(query: TokenStatsQuery = {}): Promise<TokenStatsPage> {
   const params = buildTokenStatsParams(query);
-  const { data } = await apiClient.get('/api/analytics/token-usage', { params });
+  const { data } = await apiClient.get('/api/v1/analytics/token-usage', { params });
   return normalizeTokenStatsResponse(data, params);
 }
 
@@ -176,7 +176,7 @@ export interface TokenStatsDetail {
 }
 
 export async function fetchTokenStatsDetail(requestId: string): Promise<TokenStatsDetail> {
-  const { data } = await apiClient.get(`/api/analytics/token-usage/${requestId}`);
+  const { data } = await apiClient.get(`/api/v1/analytics/token-usage/${requestId}`);
   return data;
 }
 
@@ -202,6 +202,6 @@ export async function fetchSessionChatHistory(requestId: string, sessionId?: str
     sessionId: sessionId || '',
     userRequestId: userRequestId || '',
   };
-  const { data } = await apiClient.get(`/api/analytics/token-usage/${requestId}/chat-history`, { params });
+  const { data } = await apiClient.get(`/api/v1/analytics/token-usage/${requestId}/chat-history`, { params });
   return data;
 }

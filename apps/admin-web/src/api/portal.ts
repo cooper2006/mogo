@@ -42,7 +42,7 @@ export interface PortalApprovalItem {
 }
 
 export async function fetchPortalListings(params: { publishedOnly?: boolean } = {}): Promise<PortalListing[]> {
-  const { data } = await apiClient.get<{ items: PortalListing[] }>('/api/portal/listings', {
+  const { data } = await apiClient.get<{ items: PortalListing[] }>('/api/v1/portal/listings', {
     params: { published_only: params.publishedOnly ?? true },
   });
   return data?.items ?? [];
@@ -53,7 +53,7 @@ export async function publishPortalListing(payload: {
   assetKey: string;
   category?: string;
 }): Promise<{ published: boolean; listing: PortalListing }> {
-  const { data } = await apiClient.post('/api/portal/listings', {
+  const { data } = await apiClient.post('/api/v1/portal/listings', {
     asset_type: payload.assetType,
     asset_key: payload.assetKey,
     category: payload.category ?? '',
@@ -62,12 +62,12 @@ export async function publishPortalListing(payload: {
 }
 
 export async function unpublishPortalListing(assetType: PortalAssetType, assetKey: string): Promise<{ unpublished: boolean }> {
-  const { data } = await apiClient.delete(`/api/portal/listings/${encodeURIComponent(assetType)}/${encodeURIComponent(assetKey)}`);
+  const { data } = await apiClient.delete(`/api/v1/portal/listings/${encodeURIComponent(assetType)}/${encodeURIComponent(assetKey)}`);
   return data;
 }
 
 export async function fetchPortalApprovals(params: { status?: PortalRequestStatus | 'all' } = {}): Promise<PortalApprovalItem[]> {
-  const { data } = await apiClient.get<{ items: PortalApprovalItem[] }>('/api/portal/approvals', {
+  const { data } = await apiClient.get<{ items: PortalApprovalItem[] }>('/api/v1/portal/approvals', {
     params: { status: params.status ?? 'applied' },
   });
   return data?.items ?? [];
@@ -77,7 +77,7 @@ export async function decidePortalApproval(
   requestId: string,
   payload: { approved: boolean; reason?: string },
 ): Promise<{ status: PortalRequestStatus; changed: boolean; request: PortalApprovalItem | null }> {
-  const { data } = await apiClient.post(`/api/portal/approvals/${encodeURIComponent(requestId)}/decide`, {
+  const { data } = await apiClient.post(`/api/v1/portal/approvals/${encodeURIComponent(requestId)}/decide`, {
     approved: payload.approved,
     reason: payload.reason ?? '',
   });
@@ -86,7 +86,7 @@ export async function decidePortalApproval(
 
 export async function revokePortalGrant(requestId: string, reason = ''): Promise<{ revoked: boolean; grant_removed: boolean }> {
   const { data } = await apiClient.post(
-    `/api/portal/requests/${encodeURIComponent(requestId)}/revoke`,
+    `/api/v1/portal/requests/${encodeURIComponent(requestId)}/revoke`,
     { reason },
   );
   return data;

@@ -29,12 +29,12 @@ export interface TenantSelectionResponse {
 }
 
 export async function login(payload: LoginPayload) {
-  const { data } = await apiClient.post<LoginResponse | TenantSelectionResponse>('/api/auth/login', payload);
+  const { data } = await apiClient.post<LoginResponse | TenantSelectionResponse>('/api/v1/auth/login', payload);
   return data;
 }
 
 export async function selectTenantLogin(payload: { challengeToken: string; tenantId: string }) {
-  const { data } = await apiClient.post<LoginResponse>('/api/auth/login/select-tenant', payload);
+  const { data } = await apiClient.post<LoginResponse>('/api/v1/auth/login/select-tenant', payload);
   return data;
 }
 
@@ -54,7 +54,7 @@ export async function exchangeSsoToken(ssoToken: string) {
     code: number;
     message?: string;
     data: SsoExchangeResponse;
-  }>('/api/auth/sso/exchange', { sso_token: ssoToken });
+  }>('/api/v1/auth/sso/exchange', { sso_token: ssoToken });
   if (data.code !== 0 || !data.data?.accessToken) {
     throw new Error(data.message || 'SSO 换票失败');
   }
@@ -62,30 +62,30 @@ export async function exchangeSsoToken(ssoToken: string) {
 }
 
 export async function fetchCurrentProfile() {
-  const { data } = await apiClient.get<AdminProfile & { username: string }>('/api/auth/me');
+  const { data } = await apiClient.get<AdminProfile & { username: string }>('/api/v1/auth/me');
   return data;
 }
 
 export async function updateCurrentProfile(payload: { name: string; email: string; phone: string }) {
-  const { data } = await apiClient.patch<AdminProfile & { username: string }>('/api/auth/me', payload);
+  const { data } = await apiClient.patch<AdminProfile & { username: string }>('/api/v1/auth/me', payload);
   return data;
 }
 
 export async function changeCurrentPassword(payload: { currentPassword: string; newPassword: string }) {
-  const { data } = await apiClient.post<{ success: boolean }>('/api/auth/me/password', payload);
+  const { data } = await apiClient.post<{ success: boolean }>('/api/v1/auth/me/password', payload);
   return data;
 }
 
 export async function uploadCurrentAvatar(file: File) {
   const formData = new FormData();
   formData.append('file', file);
-  const { data } = await apiClient.post<AdminProfile & { username: string }>('/api/auth/me/avatar', formData, {
+  const { data } = await apiClient.post<AdminProfile & { username: string }>('/api/v1/auth/me/avatar', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
 }
 
 export async function logout() {
-  const { data } = await apiClient.post<{ success: boolean }>('/api/auth/logout');
+  const { data } = await apiClient.post<{ success: boolean }>('/api/v1/auth/logout');
   return data;
 }

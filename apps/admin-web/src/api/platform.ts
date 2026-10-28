@@ -113,17 +113,17 @@ export async function fetchTenants(query: TenantListQuery = {}) {
   if (query.pageSize) params.pageSize = query.pageSize;
   if (query.keyword) params.keyword = query.keyword;
   if (query.status) params.status = query.status;
-  const { data } = await apiClient.get<TenantListPage>('/api/platform/tenants', { params });
+  const { data } = await apiClient.get<TenantListPage>('/api/v1/platform/tenants', { params });
   return data;
 }
 
 export async function fetchTenant(tenantId: string) {
-  const { data } = await apiClient.get<PlatformTenant>(`/api/platform/tenants/${encodeURIComponent(tenantId)}`);
+  const { data } = await apiClient.get<PlatformTenant>(`/api/v1/platform/tenants/${encodeURIComponent(tenantId)}`);
   return data;
 }
 
 export async function createTenant(payload: TenantCreatePayload) {
-  const { data } = await apiClient.post<TenantCreateResult>('/api/platform/tenants', payload, {
+  const { data } = await apiClient.post<TenantCreateResult>('/api/v1/platform/tenants', payload, {
     timeout: 120000,
   });
   return data;
@@ -131,7 +131,7 @@ export async function createTenant(payload: TenantCreatePayload) {
 
 export async function updateTenant(tenantId: string, payload: TenantUpdatePayload) {
   const { data } = await apiClient.patch<PlatformTenant>(
-    `/api/platform/tenants/${encodeURIComponent(tenantId)}`,
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}`,
     payload,
   );
   return data;
@@ -139,7 +139,7 @@ export async function updateTenant(tenantId: string, payload: TenantUpdatePayloa
 
 export async function resetTenantAdminPassword(tenantId: string, newPassword: string) {
   const { data } = await apiClient.post<{ success: boolean }>(
-    `/api/platform/tenants/${encodeURIComponent(tenantId)}/admin/reset-password`,
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/admin/reset-password`,
     { newPassword },
   );
   return data;
@@ -147,7 +147,7 @@ export async function resetTenantAdminPassword(tenantId: string, newPassword: st
 
 export async function archiveTenant(tenantId: string, reason: string) {
   const { data } = await apiClient.delete<{ status: string; archivedAt: string }>(
-    `/api/platform/tenants/${encodeURIComponent(tenantId)}`,
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}`,
     { data: { reason } },
   );
   return data;
@@ -155,14 +155,14 @@ export async function archiveTenant(tenantId: string, reason: string) {
 
 export async function restoreTenant(tenantId: string) {
   const { data } = await apiClient.post<PlatformTenant>(
-    `/api/platform/tenants/${encodeURIComponent(tenantId)}/restore`,
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/restore`,
   );
   return data;
 }
 
 export async function purgeTenant(tenantId: string, confirmName: string) {
   const { data } = await apiClient.post<PurgeStartResult>(
-    `/api/platform/tenants/${encodeURIComponent(tenantId)}/purge`,
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/purge`,
     { confirmName },
   );
   return data;
@@ -170,18 +170,18 @@ export async function purgeTenant(tenantId: string, confirmName: string) {
 
 export async function fetchPurgeStatus(tenantId: string) {
   const { data } = await apiClient.get<PurgeProgress>(
-    `/api/platform/tenants/${encodeURIComponent(tenantId)}/purge-status`,
+    `/api/v1/platform/tenants/${encodeURIComponent(tenantId)}/purge-status`,
   );
   return data;
 }
 
 export async function fetchPlatformProfile() {
-  const { data } = await apiClient.get<PlatformProfile>('/api/platform/me');
+  const { data } = await apiClient.get<PlatformProfile>('/api/v1/platform/me');
   return data;
 }
 
 export async function fetchSystemHealth() {
-  const { data } = await apiClient.get<SystemHealthService[]>('/api/platform/system/health', {
+  const { data } = await apiClient.get<SystemHealthService[]>('/api/v1/platform/system/health', {
     timeout: 60000,
   });
   return data;

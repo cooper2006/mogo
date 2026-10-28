@@ -16,11 +16,11 @@ export interface PresentationSettingsPayload {
 }
 
 export async function fetchPresentationSettings() {
-  const { data } = await apiClient.get<PresentationSettings>('/api/settings/presentation');
+  const { data } = await apiClient.get<PresentationSettings>('/api/v1/settings/presentation');
   return data;
 }
 
 export async function savePresentationSettings(payload: PresentationSettingsPayload) {
-  const { data } = await apiClient.put<PresentationSettings>('/api/settings/presentation', payload);
+  const { data } = await apiClient.put<PresentationSettings>('/api/v1/settings/presentation', payload);
   return data;
 }

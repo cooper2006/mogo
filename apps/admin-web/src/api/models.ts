@@ -89,38 +89,38 @@ export interface ModelInstancePayload {
 }
 
 export async function fetchModelProviders() {
-  const { data } = await apiClient.get<ModelProviderItem[]>('/api/models/providers');
+  const { data } = await apiClient.get<ModelProviderItem[]>('/api/v1/models/providers');
   return data;
 }
 
 export async function fetchModelInstances() {
-  const { data } = await apiClient.get<ModelInstanceItem[]>('/api/models/instances');
+  const { data } = await apiClient.get<ModelInstanceItem[]>('/api/v1/models/instances');
   return data;
 }
 
 export async function createModelInstance(payload: ModelInstancePayload) {
-  const { data } = await apiClient.post<ModelInstanceItem>('/api/models/instances', payload);
+  const { data } = await apiClient.post<ModelInstanceItem>('/api/v1/models/instances', payload);
   return data;
 }
 
 export async function updateModelInstance(id: string, payload: ModelInstancePayload) {
-  const { data } = await apiClient.put<ModelInstanceItem>(`/api/models/instances/${id}`, payload);
+  const { data } = await apiClient.put<ModelInstanceItem>(`/api/v1/models/instances/${id}`, payload);
   return data;
 }
 
 export async function deleteModelInstance(id: string) {
-  const { data } = await apiClient.delete<{ success: boolean }>(`/api/models/instances/${id}`);
+  const { data } = await apiClient.delete<{ success: boolean }>(`/api/v1/models/instances/${id}`);
   return data;
 }
 
 export async function setDefaultModelInstance(id: string) {
-  const { data } = await apiClient.post<{ success: boolean }>(`/api/models/instances/${id}/default`);
+  const { data } = await apiClient.post<{ success: boolean }>(`/api/v1/models/instances/${id}/default`);
   return data;
 }
 
 export async function testModelInstance(id: string) {
   const { data } = await apiClient.post<{ success: boolean; status: string; message: string }>(
-    `/api/models/instances/${id}/test`,
+    `/api/v1/models/instances/${id}/test`,
   );
   return data;
 }
@@ -133,7 +133,7 @@ export async function testImageModelInstance(id: string, prompt: string) {
     imageUrl?: string;
     providerType?: string;
     runtimeKind?: string;
-  }>(`/api/models/instances/${id}/test-image`, { prompt }, { timeout: IMAGE_MODEL_TEST_TIMEOUT_MS });
+  }>(`/api/v1/models/instances/${id}/test-image`, { prompt }, { timeout: IMAGE_MODEL_TEST_TIMEOUT_MS });
   return data;
 }
 
@@ -205,6 +205,6 @@ export async function discoverProviderModels(payload: {
   // 编辑已保存配置且未重填 Key 时带上实例 ID，后端复用已存密钥解密，免去每次重输
   instanceId?: string;
 }): Promise<DiscoveredModel[]> {
-  const { data } = await apiClient.post<{ models: DiscoveredModel[] }>('/api/models/discover', payload);
+  const { data } = await apiClient.post<{ models: DiscoveredModel[] }>('/api/v1/models/discover', payload);
   return data?.models ?? [];
 }

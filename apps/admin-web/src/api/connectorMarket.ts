@@ -70,7 +70,7 @@ export async function fetchConnectorCatalog(params?: {
   category?: string;
   keyword?: string;
 }): Promise<ConnectorCatalogDto> {
-  const { data } = await apiClient.get<ConnectorCatalogDto>('/api/connectors/templates', {
+  const { data } = await apiClient.get<ConnectorCatalogDto>('/api/v1/connectors/templates', {
     params: { category: params?.category || '', keyword: params?.keyword || '' },
   });
   return data;
@@ -78,7 +78,7 @@ export async function fetchConnectorCatalog(params?: {
 
 export async function fetchConnectorTemplate(templateId: string): Promise<ConnectorTemplateDto> {
   const { data } = await apiClient.get<ConnectorTemplateDto>(
-    `/api/connectors/templates/${encodeURIComponent(templateId)}`,
+    `/api/v1/connectors/templates/${encodeURIComponent(templateId)}`,
   );
   return data;
 }
@@ -88,7 +88,7 @@ export async function installConnectorTemplate(
   payload: ConnectorInstallPayload,
 ): Promise<{ tool: Record<string, any>; templateId: string; credentialManaged: boolean }> {
   const { data } = await apiClient.post(
-    `/api/connectors/templates/${encodeURIComponent(templateId)}/install`,
+    `/api/v1/connectors/templates/${encodeURIComponent(templateId)}/install`,
     payload,
   );
   return data;
@@ -99,7 +99,7 @@ export async function fetchConnectorInstalls(): Promise<{
   total: number;
 }> {
   const { data } = await apiClient.get<{ items: ConnectorInstallDto[]; total: number }>(
-    '/api/connectors/installs',
+    '/api/v1/connectors/installs',
   );
   return data;
 }
@@ -109,7 +109,7 @@ export async function fetchConnectorInstallCounts(): Promise<{
   total: number;
 }> {
   const { data } = await apiClient.get<{ counts: Record<string, number>; total: number }>(
-    '/api/connectors/installs/counts',
+    '/api/v1/connectors/installs/counts',
   );
   return data;
 }

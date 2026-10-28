@@ -43,57 +43,57 @@ export type CapabilityOverride = {
 
 export type CapabilityOverrideDraft = Omit<CapabilityOverride, 'id' | 'status' | 'createdBy' | 'createdAt'>;
 export async function listPositionRoles(): Promise<PositionRole[]> {
-  return (await apiClient.get('/api/position-roles')).data;
+  return (await apiClient.get('/api/v1/position-roles')).data;
 }
 
 export async function roleResourceCatalog(): Promise<{ tools: RoleResource[]; skills: RoleResource[] }> {
-  return (await apiClient.get('/api/position-roles/catalog/resources')).data;
+  return (await apiClient.get('/api/v1/position-roles/catalog/resources')).data;
 }
 
 export async function createPositionRole(payload: PositionRoleDraft): Promise<PositionRole> {
-  return (await apiClient.post('/api/position-roles', payload)).data;
+  return (await apiClient.post('/api/v1/position-roles', payload)).data;
 }
 
 export async function updatePositionRole(id: string, payload: PositionRoleDraft): Promise<PositionRole> {
-  return (await apiClient.put(`/api/position-roles/${id}`, payload)).data;
+  return (await apiClient.put(`/api/v1/position-roles/${id}`, payload)).data;
 }
 
 export async function copyPositionRole(id: string, name: string): Promise<PositionRole> {
-  return (await apiClient.post(`/api/position-roles/${id}/copy`, { name })).data;
+  return (await apiClient.post(`/api/v1/position-roles/${id}/copy`, { name })).data;
 }
 
 export async function setPositionRoleEnabled(id: string, enabled: boolean): Promise<void> {
-  await apiClient.patch(`/api/position-roles/${id}/status`, { enabled });
+  await apiClient.patch(`/api/v1/position-roles/${id}/status`, { enabled });
 }
 
 export async function deletePositionRole(id: string): Promise<void> {
-  await apiClient.delete(`/api/position-roles/${id}`);
+  await apiClient.delete(`/api/v1/position-roles/${id}`);
 }
 
 export async function pendingRoleAssignments(): Promise<{ count: number; migrationStatus: 'pending' | 'complete'; users: Array<{ id: string; name: string; loginName: string }> }> {
-  return (await apiClient.get('/api/position-roles/assignments/pending')).data;
+  return (await apiClient.get('/api/v1/position-roles/assignments/pending')).data;
 }
 
 export async function completeRoleMigration(): Promise<void> {
-  await apiClient.post('/api/position-roles/assignments/migration/complete');
+  await apiClient.post('/api/v1/position-roles/assignments/migration/complete');
 }
 
 export async function assignUserRoles(userId: string, primaryRoleId: string, roleIds: string[]): Promise<void> {
-  await apiClient.put(`/api/position-roles/assignments/users/${userId}`, { primaryRoleId, roleIds });
+  await apiClient.put(`/api/v1/position-roles/assignments/users/${userId}`, { primaryRoleId, roleIds });
 }
 
 export async function bulkAssignUserRoles(userIds: string[], primaryRoleId: string, roleIds: string[]): Promise<void> {
-  await apiClient.post('/api/position-roles/assignments/bulk', { userIds, primaryRoleId, roleIds });
+  await apiClient.post('/api/v1/position-roles/assignments/bulk', { userIds, primaryRoleId, roleIds });
 }
 
 export async function listCapabilityOverrides(userId: string): Promise<CapabilityOverride[]> {
-  return (await apiClient.get(`/api/position-roles/assignments/users/${userId}/overrides`)).data;
+  return (await apiClient.get(`/api/v1/position-roles/assignments/users/${userId}/overrides`)).data;
 }
 
 export async function createCapabilityOverride(userId: string, payload: CapabilityOverrideDraft): Promise<{ id: string }> {
-  return (await apiClient.post(`/api/position-roles/assignments/users/${userId}/overrides`, payload)).data;
+  return (await apiClient.post(`/api/v1/position-roles/assignments/users/${userId}/overrides`, payload)).data;
 }
 
 export async function revokeCapabilityOverride(id: string): Promise<void> {
-  await apiClient.delete(`/api/position-roles/assignments/overrides/${id}`);
+  await apiClient.delete(`/api/v1/position-roles/assignments/overrides/${id}`);
 }

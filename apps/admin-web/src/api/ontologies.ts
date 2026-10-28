@@ -95,7 +95,7 @@ export type OntologySyncResult = {
 
 /** 当前账号可见的本体清单（登录即可）。 */
 export async function fetchMyOntologies(): Promise<MyOntologyScope> {
-  return (await apiClient.get('/api/ontologies/mine')).data;
+  return (await apiClient.get('/api/v1/ontologies/mine')).data;
 }
 
 /**
@@ -106,46 +106,46 @@ export async function fetchMyOntologies(): Promise<MyOntologyScope> {
  * 不等于「看不到任何本体」。
  */
 export async function fetchUserOntologyGrantSummaries(): Promise<UserOntologyGrantSummary[]> {
-  return (await apiClient.get('/api/ontologies/users/grants')).data;
+  return (await apiClient.get('/api/v1/ontologies/users/grants')).data;
 }
 
 /** 全量本体清单（授权时勾选）。 */
 export async function fetchOntologyCatalog(): Promise<OntologyCatalogItem[]> {
-  return (await apiClient.get('/api/ontologies')).data;
+  return (await apiClient.get('/api/v1/ontologies')).data;
 }
 
 /** 同步只读副本（业务系统未接入时按 MOGO 侧索引聚合）。 */
 export async function syncOntologies(): Promise<OntologySyncResult> {
-  return (await apiClient.post('/api/ontologies/sync', { ontologies: [] })).data;
+  return (await apiClient.post('/api/v1/ontologies/sync', { ontologies: [] })).data;
 }
 
 export async function fetchOntologyPermissionConfig(): Promise<OntologyPermissionConfig> {
-  return (await apiClient.get('/api/ontologies/config')).data;
+  return (await apiClient.get('/api/v1/ontologies/config')).data;
 }
 
 export async function updateOntologyPermissionConfig(payload: {
   enforce: boolean;
   defaultMode?: 'allow' | 'deny';
 }): Promise<OntologyPermissionConfig> {
-  return (await apiClient.put('/api/ontologies/config', payload)).data;
+  return (await apiClient.put('/api/v1/ontologies/config', payload)).data;
 }
 
 export async function fetchUserOntologyPermissions(userId: string): Promise<SubjectPermissionBundle> {
-  return (await apiClient.get(`/api/ontologies/users/${userId}/permissions`)).data;
+  return (await apiClient.get(`/api/v1/ontologies/users/${userId}/permissions`)).data;
 }
 
 export async function grantUserOntologyPermissions(
   userId: string,
   payload: GrantPayload,
 ): Promise<{ granted: number; ontologyIds: string[] }> {
-  return (await apiClient.post(`/api/ontologies/users/${userId}/permissions`, payload)).data;
+  return (await apiClient.post(`/api/v1/ontologies/users/${userId}/permissions`, payload)).data;
 }
 
 export async function revokeUserOntologyPermission(
   userId: string,
   ontologyId: string,
 ): Promise<{ deleted: number; detailsDeleted: number }> {
-  return (await apiClient.delete(`/api/ontologies/users/${userId}/permissions/${encodeURIComponent(ontologyId)}`)).data;
+  return (await apiClient.delete(`/api/v1/ontologies/users/${userId}/permissions/${encodeURIComponent(ontologyId)}`)).data;
 }
 
 /** 四态主体（tenant / org / role / user）通用读写，供后续扩展使用。 */
@@ -153,7 +153,7 @@ export async function fetchSubjectOntologyPermissions(
   subjectType: string,
   subjectId: string,
 ): Promise<SubjectPermissionBundle> {
-  return (await apiClient.get(`/api/ontologies/subjects/${subjectType}/${subjectId}/permissions`)).data;
+  return (await apiClient.get(`/api/v1/ontologies/subjects/${subjectType}/${subjectId}/permissions`)).data;
 }
 
 export async function grantSubjectOntologyPermissions(
@@ -161,7 +161,7 @@ export async function grantSubjectOntologyPermissions(
   subjectId: string,
   payload: GrantPayload,
 ): Promise<{ granted: number; ontologyIds: string[] }> {
-  return (await apiClient.post(`/api/ontologies/subjects/${subjectType}/${subjectId}/permissions`, payload)).data;
+  return (await apiClient.post(`/api/v1/ontologies/subjects/${subjectType}/${subjectId}/permissions`, payload)).data;
 }
 
 export async function revokeSubjectOntologyPermission(
@@ -171,7 +171,7 @@ export async function revokeSubjectOntologyPermission(
 ): Promise<{ deleted: number; detailsDeleted: number }> {
   return (
     await apiClient.delete(
-      `/api/ontologies/subjects/${subjectType}/${subjectId}/permissions/${encodeURIComponent(ontologyId)}`,
+      `/api/v1/ontologies/subjects/${subjectType}/${subjectId}/permissions/${encodeURIComponent(ontologyId)}`,
     )
   ).data;
 }

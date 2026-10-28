@@ -78,37 +78,37 @@ export interface SetupSearchPayload {
 }
 
 export async function fetchSetupStatus() {
-  const { data } = await apiClient.get<SetupStatus>('/api/setup/status');
+  const { data } = await apiClient.get<SetupStatus>('/api/v1/setup/status');
   return data;
 }
 
 export async function createPlatformAdmin(payload: SetupPlatformAdminPayload) {
-  const { data } = await apiClient.post<SetupPlatformAdminResult>('/api/setup/platform-admin', payload, {
+  const { data } = await apiClient.post<SetupPlatformAdminResult>('/api/v1/setup/platform-admin', payload, {
     timeout: 60000,
   });
   return data;
 }
 
 export async function fetchSetupModelProviders() {
-  const { data } = await apiClient.get<SetupModelProvider[]>('/api/setup/model-providers');
+  const { data } = await apiClient.get<SetupModelProvider[]>('/api/v1/setup/model-providers');
   return data;
 }
 
 export async function testSetupModel(payload: SetupModelPayload) {
-  const { data } = await apiClient.post<{ success: boolean; message: string }>('/api/setup/model/test', payload, {
+  const { data } = await apiClient.post<{ success: boolean; message: string }>('/api/v1/setup/model/test', payload, {
     timeout: 150000,
   });
   return data;
 }
 
 export async function fetchSetupSearchProviders() {
-  const { data } = await apiClient.get<SetupSearchProvider[]>('/api/setup/search-providers');
+  const { data } = await apiClient.get<SetupSearchProvider[]>('/api/v1/setup/search-providers');
   return data;
 }
 
 export async function testSetupSearch(payload: SetupSearchPayload) {
   const { data } = await apiClient.post<{ success: boolean; message: string; resultCount: number }>(
-    '/api/setup/search/test',
+    '/api/v1/setup/search/test',
     payload,
     { timeout: 60000 },
   );

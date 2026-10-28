@@ -733,7 +733,7 @@ function handlePdfPreviewState(): boolean {
 
 /** 拉取非 PDF 文档的二进制预览内容，并按预览类型读取文本正文。 */
 async function loadPreviewBlob(): Promise<void> {
-  const response = await apiClient.get<Blob>(`/api/knowledge/documents/${documentId.value}/preview`, {
+  const response = await apiClient.get<Blob>(`/api/v1/knowledge/documents/${documentId.value}/preview`, {
     responseType: 'blob',
     timeout: 120000,
   });
@@ -823,7 +823,7 @@ async function downloadFile() {
   }
   downloading.value = true;
   try {
-    const response = await apiClient.get<Blob>(`/api/knowledge/documents/${document.value.id}/content`, {
+    const response = await apiClient.get<Blob>(`/api/v1/knowledge/documents/${document.value.id}/content`, {
       responseType: 'blob',
       timeout: 180000,
     });

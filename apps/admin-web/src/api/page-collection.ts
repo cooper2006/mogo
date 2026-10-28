@@ -15,11 +15,11 @@ export interface PageCollectionPayload {
 }
 
 export async function fetchPageCollectionSettings() {
-  const { data } = await apiClient.get<PageCollectionSettings>('/api/settings/page-collection');
+  const { data } = await apiClient.get<PageCollectionSettings>('/api/v1/settings/page-collection');
   return data;
 }
 
 export async function savePageCollectionSettings(payload: PageCollectionPayload) {
-  const { data } = await apiClient.put<PageCollectionSettings>('/api/settings/page-collection', payload);
+  const { data } = await apiClient.put<PageCollectionSettings>('/api/v1/settings/page-collection', payload);
   return data;
 }

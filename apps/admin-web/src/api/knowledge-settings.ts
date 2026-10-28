@@ -86,23 +86,23 @@ export interface KnowledgeSettings {
 }
 
 export async function fetchKnowledgeParseSettings() {
-  const { data } = await apiClient.get<KnowledgeParseSettings>('/api/settings/knowledge/parse');
+  const { data } = await apiClient.get<KnowledgeParseSettings>('/api/v1/settings/knowledge/parse');
   return data;
 }
 
 export async function saveKnowledgeParseSettings(payload: KnowledgeParseSettingsPayload) {
-  const { data } = await apiClient.put<KnowledgeParseSettings>('/api/settings/knowledge/parse', payload);
+  const { data } = await apiClient.put<KnowledgeParseSettings>('/api/v1/settings/knowledge/parse', payload);
   return data;
 }
 
 export async function fetchKnowledgeSettings() {
-  const { data } = await apiClient.get<KnowledgeSettings>('/api/settings/knowledge');
+  const { data } = await apiClient.get<KnowledgeSettings>('/api/v1/settings/knowledge');
   return data;
 }
 
 export async function saveKnowledgeSettings(payload: KnowledgeSettings) {
   const { updatedAt, ...body } = payload;
   void updatedAt;
-  const { data } = await apiClient.put<KnowledgeSettings>('/api/settings/knowledge', body);
+  const { data } = await apiClient.put<KnowledgeSettings>('/api/v1/settings/knowledge', body);
   return data;
 }

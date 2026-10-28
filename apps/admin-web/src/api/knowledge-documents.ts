@@ -127,24 +127,24 @@ export interface KnowledgeDocumentUpdatePayload {
 }
 
 export async function fetchKnowledgeDocumentStats() {
-  const { data } = await apiClient.get<KnowledgeDocumentStats>('/api/knowledge/documents/stats');
+  const { data } = await apiClient.get<KnowledgeDocumentStats>('/api/v1/knowledge/documents/stats');
   return data;
 }
 
 export async function fetchKnowledgeDocuments(query: KnowledgeDocumentQuery) {
-  const { data } = await apiClient.get<KnowledgeDocumentListResponse>('/api/knowledge/documents', {
+  const { data } = await apiClient.get<KnowledgeDocumentListResponse>('/api/v1/knowledge/documents', {
     params: query,
   });
   return data;
 }
 
 export async function fetchKnowledgeDocument(id: string) {
-  const { data } = await apiClient.get<KnowledgeDocumentItem>(`/api/knowledge/documents/${id}`);
+  const { data } = await apiClient.get<KnowledgeDocumentItem>(`/api/v1/knowledge/documents/${id}`);
   return data;
 }
 
 export async function fetchKnowledgeDocumentChunks(id: string, query: KnowledgeDocumentChunkQuery) {
-  const { data } = await apiClient.get<KnowledgeDocumentChunkListResponse>(`/api/knowledge/documents/${id}/chunks`, {
+  const { data } = await apiClient.get<KnowledgeDocumentChunkListResponse>(`/api/v1/knowledge/documents/${id}/chunks`, {
     params: query,
   });
   return data;
@@ -152,14 +152,14 @@ export async function fetchKnowledgeDocumentChunks(id: string, query: KnowledgeD
 
 export async function fetchKnowledgeDocumentChunk(id: string, chunkId: string, chunkStage: 'raw' | 'rag' | 'all' = 'rag') {
   const { data } = await apiClient.get<KnowledgeDocumentChunkItem>(
-    `/api/knowledge/documents/${id}/chunks/${encodeURIComponent(chunkId)}`,
+    `/api/v1/knowledge/documents/${id}/chunks/${encodeURIComponent(chunkId)}`,
     { params: { chunkStage } },
   );
   return data;
 }
 
 export async function uploadKnowledgeDocument(formData: FormData, onUploadProgress?: (progress: number) => void) {
-  const { data } = await apiClient.post<KnowledgeDocumentItem>('/api/knowledge/documents', formData, {
+  const { data } = await apiClient.post<KnowledgeDocumentItem>('/api/v1/knowledge/documents', formData, {
     timeout: 120000,
     headers: { 'Content-Type': 'multipart/form-data' },
     onUploadProgress: (event) => {
@@ -173,17 +173,17 @@ export async function uploadKnowledgeDocument(formData: FormData, onUploadProgre
 }
 
 export async function updateKnowledgeDocument(id: string, payload: KnowledgeDocumentUpdatePayload) {
-  const { data } = await apiClient.put<KnowledgeDocumentItem>(`/api/knowledge/documents/${id}`, payload);
+  const { data } = await apiClient.put<KnowledgeDocumentItem>(`/api/v1/knowledge/documents/${id}`, payload);
   return data;
 }
 
 export async function deleteKnowledgeDocument(id: string) {
-  const { data } = await apiClient.delete<{ success: boolean }>(`/api/knowledge/documents/${id}`);
+  const { data } = await apiClient.delete<{ success: boolean }>(`/api/v1/knowledge/documents/${id}`);
   return data;
 }
 
 export async function retryKnowledgeDocumentParse(id: string) {
-  const { data } = await apiClient.post<KnowledgeDocumentItem>(`/api/knowledge/documents/${id}/retry-parse`);
+  const { data } = await apiClient.post<KnowledgeDocumentItem>(`/api/v1/knowledge/documents/${id}/retry-parse`);
   return data;
 }
 

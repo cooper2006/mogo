@@ -154,37 +154,37 @@ function dataOf<T>(payload: any): T {
 }
 
 export async function fetchSkills(): Promise<SkillItem[]> {
-  const { data } = await apiClient.get<SkillItem[]>('/api/skills');
+  const { data } = await apiClient.get<SkillItem[]>('/api/v1/skills');
   return data;
 }
 
 export async function fetchSkill(id: string): Promise<SkillItem> {
-  const { data } = await apiClient.get<SkillItem>(`/api/skills/${id}`);
+  const { data } = await apiClient.get<SkillItem>(`/api/v1/skills/${id}`);
   return data;
 }
 
 export async function createSkill(payload: SkillPayload): Promise<SkillItem> {
-  const { data } = await apiClient.post<SkillItem>('/api/skills', payload, { timeout: 90000 });
+  const { data } = await apiClient.post<SkillItem>('/api/v1/skills', payload, { timeout: 90000 });
   return data;
 }
 
 export async function updateSkill(id: string, payload: SkillPayload): Promise<SkillItem> {
-  const { data } = await apiClient.put<SkillItem>(`/api/skills/${id}`, payload, { timeout: 90000 });
+  const { data } = await apiClient.put<SkillItem>(`/api/v1/skills/${id}`, payload, { timeout: 90000 });
   return data;
 }
 
 export async function deleteSkill(id: string): Promise<{ id: string }> {
-  const { data } = await apiClient.delete<{ id: string }>(`/api/skills/${id}`);
+  const { data } = await apiClient.delete<{ id: string }>(`/api/v1/skills/${id}`);
   return data;
 }
 
 export async function setSkillEnabled(id: string, enabled: boolean): Promise<SkillItem> {
-  const { data } = await apiClient.patch<SkillItem>(`/api/skills/${id}/enabled`, { enabled });
+  const { data } = await apiClient.patch<SkillItem>(`/api/v1/skills/${id}/enabled`, { enabled });
   return data;
 }
 
 export async function publishSkill(id: string, version = '', releaseNotes = ''): Promise<{ skill: SkillItem; release: { id: string; version: string } }> {
-  const { data } = await apiClient.post(`/api/skills/${id}/publish`, { version, releaseNotes });
+  const { data } = await apiClient.post(`/api/v1/skills/${id}/publish`, { version, releaseNotes });
   return data;
 }
 
@@ -200,7 +200,7 @@ export interface SkillRelease {
  *  GET /skills/{id}/releases endpoint had **zero** front-end consumers before
  *  this — version look-back was untraceable in the admin UI. */
 export async function fetchSkillReleases(id: string, limit = 20): Promise<SkillRelease[]> {
-  const { data } = await apiClient.get<{ items: SkillRelease[] }>(`/api/skills/${id}/releases`, { params: { limit } });
+  const { data } = await apiClient.get<{ items: SkillRelease[] }>(`/api/v1/skills/${id}/releases`, { params: { limit } });
   return data.items ?? [];
 }
 
@@ -210,7 +210,7 @@ export interface SkillFeedbackSummary {
 }
 
 export async function fetchSkillFeedback(id: string): Promise<SkillFeedbackSummary> {
-  const { data } = await apiClient.get<SkillFeedbackSummary>(`/api/skills/${id}/feedback`);
+  const { data } = await apiClient.get<SkillFeedbackSummary>(`/api/v1/skills/${id}/feedback`);
   return data;
 }
 
@@ -218,7 +218,7 @@ export async function installSkillZip(file: File, confirmReplace = false): Promi
   const form = new FormData();
   form.append('file', file);
   form.append('confirmReplace', String(confirmReplace));
-  const { data } = await apiClient.post<SkillInstallResult>('/api/skills/install-zip', form, {
+  const { data } = await apiClient.post<SkillInstallResult>('/api/v1/skills/install-zip', form, {
     headers: { 'Content-Type': 'multipart/form-data' }, timeout: 90000,
   });
   return dataOf<SkillInstallResult>(data);
@@ -235,7 +235,7 @@ export async function generateWorkflowSteps(payload: {
   nodeCatalog?: Array<{ type: WorkflowNodeType; name: string; usageDescription: string; usageExample: string }>;
 }): Promise<{ steps: WorkflowStepDraft[]; source?: string; message?: string }> {
   const { data } = await apiClient.post<{ steps: WorkflowStepDraft[]; source?: string; message?: string }>(
-    '/api/skills/generate-workflow-steps',
+    '/api/v1/skills/generate-workflow-steps',
     payload,
     { timeout: 60000 },
   );
@@ -253,7 +253,7 @@ export async function generateWorkflowNodes(payload: {
   nodeCatalog?: Array<{ type: WorkflowNodeType; name: string; usageDescription: string; usageExample: string }>;
 }): Promise<{ nodes: WorkflowNodeDraft[]; source?: string; message?: string }> {
   const { data } = await apiClient.post<{ nodes: WorkflowNodeDraft[]; source?: string; message?: string }>(
-    '/api/skills/generate-workflow-nodes',
+    '/api/v1/skills/generate-workflow-nodes',
     payload,
     { timeout: 60000 },
   );
@@ -269,7 +269,7 @@ export async function polishWorkflowNode(payload: {
   nodeCatalog?: Array<{ type: WorkflowNodeType; name: string; usageDescription: string; usageExample: string }>;
 }): Promise<{ text: string; source?: string; message?: string }> {
   const { data } = await apiClient.post<{ text: string; source?: string; message?: string }>(
-    '/api/skills/polish-workflow-node',
+    '/api/v1/skills/polish-workflow-node',
     payload,
     { timeout: 60000 },
   );
@@ -284,7 +284,7 @@ export async function checkWorkflowLogic(payload: {
   nodes?: WorkflowNodeDraft[];
 }): Promise<WorkflowCheckResult> {
   const { data } = await apiClient.post<WorkflowCheckResult>(
-    '/api/skills/check-workflow-logic',
+    '/api/v1/skills/check-workflow-logic',
     payload,
     { timeout: 60000 },
   );
@@ -299,7 +299,7 @@ export async function checkWorkflowNodes(payload: {
   steps?: string[];
 }): Promise<WorkflowCheckResult> {
   const { data } = await apiClient.post<WorkflowCheckResult>(
-    '/api/skills/check-workflow-nodes',
+    '/api/v1/skills/check-workflow-nodes',
     payload,
     { timeout: 60000 },
   );
@@ -312,7 +312,7 @@ export async function checkScriptPlugin(payload: {
   nodeDescription?: string;
 }): Promise<ScriptPluginCheckResult> {
   const { data } = await apiClient.post<ScriptPluginCheckResult>(
-    '/api/skills/check-script-plugin',
+    '/api/v1/skills/check-script-plugin',
     payload,
     { timeout: 60000 },
   );
@@ -334,7 +334,7 @@ export async function fixScriptPlugin(payload: {
     notes: string[];
     check?: ScriptPluginCheckResult;
   }>(
-    '/api/skills/fix-script-plugin',
+    '/api/v1/skills/fix-script-plugin',
     payload,
     { timeout: 90000 },
   );
@@ -369,7 +369,7 @@ export async function generateScriptPlugin(payload: {
     notes: string[];
     check?: ScriptPluginCheckResult;
   }>(
-    '/api/skills/generate-script-plugin',
+    '/api/v1/skills/generate-script-plugin',
     payload,
     { timeout: 90000 },
   );
@@ -399,7 +399,7 @@ export async function enrichWritingStyleDraft(payload: {
     contractJson: Record<string, any>;
     skillMarkdown: string;
   }>(
-    '/api/skills/enrich-writing-style',
+    '/api/v1/skills/enrich-writing-style',
     payload,
     { timeout: 60000 },
   );

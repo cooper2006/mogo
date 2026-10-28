@@ -33,32 +33,32 @@ export interface ToolPayload {
 }
 
 export async function fetchTools(): Promise<ExternalToolItem[]> {
-  const { data } = await apiClient.get<ExternalToolItem[]>('/api/tools');
+  const { data } = await apiClient.get<ExternalToolItem[]>('/api/v1/tools');
   return data;
 }
 
 export async function fetchTool(id: string): Promise<ExternalToolItem> {
-  const { data } = await apiClient.get<ExternalToolItem>(`/api/tools/${id}`);
+  const { data } = await apiClient.get<ExternalToolItem>(`/api/v1/tools/${id}`);
   return data;
 }
 
 export async function createTool(payload: ToolPayload): Promise<ExternalToolItem> {
-  const { data } = await apiClient.post<ExternalToolItem>('/api/tools', payload);
+  const { data } = await apiClient.post<ExternalToolItem>('/api/v1/tools', payload);
   return data;
 }
 
 export async function updateTool(id: string, payload: ToolPayload): Promise<ExternalToolItem> {
-  const { data } = await apiClient.put<ExternalToolItem>(`/api/tools/${id}`, payload);
+  const { data } = await apiClient.put<ExternalToolItem>(`/api/v1/tools/${id}`, payload);
   return data;
 }
 
 export async function patchTool(id: string, payload: Partial<ToolPayload>): Promise<ExternalToolItem> {
-  const { data } = await apiClient.patch<ExternalToolItem>(`/api/tools/${id}`, payload);
+  const { data } = await apiClient.patch<ExternalToolItem>(`/api/v1/tools/${id}`, payload);
   return data;
 }
 
 export async function deleteTool(id: string): Promise<{ id: string }> {
-  const { data } = await apiClient.delete<{ id: string }>(`/api/tools/${id}`);
+  const { data } = await apiClient.delete<{ id: string }>(`/api/v1/tools/${id}`);
   return data;
 }
 
@@ -71,7 +71,7 @@ function toolTestTimeoutMs(payload?: ToolPayload): number {
 export async function testTool(id: string, input: Record<string, any>, timeoutSeconds?: number): Promise<Record<string, any>> {
   const timeout = Number(timeoutSeconds || 15);
   const { data } = await apiClient.post<Record<string, any>>(
-    `/api/tools/${id}/test`,
+    `/api/v1/tools/${id}/test`,
     { input },
     { timeout: Math.max(10000, Math.ceil(((Number.isFinite(timeout) && timeout > 0 ? timeout : 15) + 10) * 1000)) },
   );
@@ -79,12 +79,12 @@ export async function testTool(id: string, input: Record<string, any>, timeoutSe
 }
 
 export async function testDraftTool(payload: ToolPayload, input: Record<string, any>): Promise<Record<string, any>> {
-  const { data } = await apiClient.post<Record<string, any>>('/api/tools/test-draft', { tool: payload, input }, { timeout: toolTestTimeoutMs(payload) });
+  const { data } = await apiClient.post<Record<string, any>>('/api/v1/tools/test-draft', { tool: payload, input }, { timeout: toolTestTimeoutMs(payload) });
   return data;
 }
 
 export async function discoverMcpTools(id: string): Promise<{ success: boolean; message: string; tools: ExternalToolItem['discoveredTools'] }> {
-  const { data } = await apiClient.post<{ success: boolean; message: string; tools: ExternalToolItem['discoveredTools'] }>(`/api/tools/${id}/discover`);
+  const { data } = await apiClient.post<{ success: boolean; message: string; tools: ExternalToolItem['discoveredTools'] }>(`/api/v1/tools/${id}/discover`);
   return data;
 }
 
@@ -93,6 +93,6 @@ export async function generateToolDescription(payload: {
   type: ToolType;
   existingDescription?: string;
 }): Promise<{ description: string }> {
-  const { data } = await apiClient.post<{ description: string }>('/api/tools/generate-description', payload);
+  const { data } = await apiClient.post<{ description: string }>('/api/v1/tools/generate-description', payload);
   return data;
 }

@@ -839,7 +839,7 @@ async function loadOverview() {
   loading.value = true;
   errorText.value = '';
   try {
-    const { data } = await apiClient.get<DashboardOverview>('/api/dashboard/overview');
+    const { data } = await apiClient.get<DashboardOverview>('/api/v1/dashboard/overview');
     overview.value = data;
   } catch (err: any) {
     errorText.value = err?.response?.data?.detail || err?.message || t('工作台数据加载失败');

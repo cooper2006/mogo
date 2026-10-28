@@ -51,7 +51,7 @@ export interface CanaryCreatePayload {
 /** 创建 / upsert 一个 canary rollout（016 FR-4 + 033 比例/阶梯/影子维度）。 */
 export async function createCanaryRollout(payload: CanaryCreatePayload): Promise<CanaryEvaluateDto> {
   const { data } = await apiClient.post<{ code: number; data: CanaryEvaluateDto }>(
-    '/api/skills/canary',
+    '/api/v1/skills/canary',
     payload,
     { timeout: 15000 },
   );
@@ -61,7 +61,7 @@ export async function createCanaryRollout(payload: CanaryCreatePayload): Promise
 /** 查询 rollout 状态：当前档位、推进历史与影子统计（FR-012）。 */
 export async function fetchCanaryRollout(skillId: string): Promise<CanaryEvaluateDto> {
   const { data } = await apiClient.get<{ code: number; data: CanaryEvaluateDto }>(
-    `/api/skills/canary/${skillId}`,
+    `/api/v1/skills/canary/${skillId}`,
     { timeout: 15000 },
   );
   return data.data;
@@ -78,7 +78,7 @@ export async function advanceCanary(skillId: string): Promise<{
   const { data } = await apiClient.post<{
     code: number;
     data: { advanced: boolean; promoted: boolean; current_step: number; traffic_ratio: number; reason: string };
-  }>(`/api/skills/canary/${skillId}/advance`, {}, { timeout: 15000 });
+  }>(`/api/v1/skills/canary/${skillId}/advance`, {}, { timeout: 15000 });
   return data.data;
 }
 
@@ -88,7 +88,7 @@ export async function toggleCanaryShadow(
   enabled: boolean,
 ): Promise<{ shadow_enabled: boolean }> {
   const { data } = await apiClient.post<{ code: number; data: { shadow_enabled: boolean } }>(
-    `/api/skills/canary/${skillId}/shadow`,
+    `/api/v1/skills/canary/${skillId}/shadow`,
     { enabled },
     { timeout: 15000 },
   );
@@ -105,6 +105,6 @@ export async function rollbackCanary(skillId: string): Promise<{
   const { data } = await apiClient.post<{
     code: number;
     data: { skillId: string; fromVersion: number; toVersion: number; errorRate: number };
-  }>(`/api/skills/canary/${skillId}/rollback`, {}, { timeout: 15000 });
+  }>(`/api/v1/skills/canary/${skillId}/rollback`, {}, { timeout: 15000 });
   return data.data;
 }

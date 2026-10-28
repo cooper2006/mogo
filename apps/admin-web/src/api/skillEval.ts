@@ -65,24 +65,24 @@ export interface EvalCaseResultView {
 // ---------------------------------------------------------------------------
 
 export async function listEvalCases(skillId: string, agentTag?: string): Promise<EvalCase[]> {
-  const { data } = await apiClient.get<{ items: EvalCase[] }>(`/api/skills/${skillId}/eval/cases`, {
+  const { data } = await apiClient.get<{ items: EvalCase[] }>(`/api/v1/skills/${skillId}/eval/cases`, {
     params: agentTag ? { agent_tag: agentTag } : undefined,
   });
   return data.items ?? [];
 }
 
 export async function createEvalCase(skillId: string, payload: EvalCasePayload): Promise<EvalCase> {
-  const { data } = await apiClient.post<EvalCase>(`/api/skills/${skillId}/eval/cases`, payload);
+  const { data } = await apiClient.post<EvalCase>(`/api/v1/skills/${skillId}/eval/cases`, payload);
   return data;
 }
 
 export async function updateEvalCase(skillId: string, caseId: string, payload: EvalCasePayload): Promise<EvalCase> {
-  const { data } = await apiClient.put<EvalCase>(`/api/skills/${skillId}/eval/cases/${caseId}`, payload);
+  const { data } = await apiClient.put<EvalCase>(`/api/v1/skills/${skillId}/eval/cases/${caseId}`, payload);
   return data;
 }
 
 export async function deleteEvalCase(skillId: string, caseId: string): Promise<{ deleted: boolean }> {
-  const { data } = await apiClient.delete<{ deleted: boolean }>(`/api/skills/${skillId}/eval/cases/${caseId}`);
+  const { data } = await apiClient.delete<{ deleted: boolean }>(`/api/v1/skills/${skillId}/eval/cases/${caseId}`);
   return data;
 }
 
@@ -91,13 +91,13 @@ export async function deleteEvalCase(skillId: string, caseId: string): Promise<{
 // ---------------------------------------------------------------------------
 
 export async function dryRunEval(skillId: string, model?: string): Promise<EvalReport> {
-  const { data } = await apiClient.post<EvalReport>(`/api/skills/${skillId}/eval/dry-run`, { model }, { timeout: 300000 });
+  const { data } = await apiClient.post<EvalReport>(`/api/v1/skills/${skillId}/eval/dry-run`, { model }, { timeout: 300000 });
   return data;
 }
 
 export async function fetchLatestEvalReport(skillId: string): Promise<EvalReport | null> {
   try {
-    const { data } = await apiClient.get<EvalReport>(`/api/skills/${skillId}/eval/reports/latest`);
+    const { data } = await apiClient.get<EvalReport>(`/api/v1/skills/${skillId}/eval/reports/latest`);
     return data;
   } catch (e: any) {
     if (e?.response?.status === 404) return null;
@@ -106,7 +106,7 @@ export async function fetchLatestEvalReport(skillId: string): Promise<EvalReport
 }
 
 export async function fetchEvalReports(skillId: string, limit = 5): Promise<EvalReport[]> {
-  const { data } = await apiClient.get<{ items: EvalReport[] }>(`/api/skills/${skillId}/eval/reports`, { params: { limit } });
+  const { data } = await apiClient.get<{ items: EvalReport[] }>(`/api/v1/skills/${skillId}/eval/reports`, { params: { limit } });
   return data.items ?? [];
 }
 
@@ -115,11 +115,11 @@ export async function fetchEvalReports(skillId: string, limit = 5): Promise<Eval
 // ---------------------------------------------------------------------------
 
 export async function fetchEvalPolicy(skillId: string): Promise<EvalPolicy> {
-  const { data } = await apiClient.get<EvalPolicy>(`/api/skills/${skillId}/eval/policy`);
+  const { data } = await apiClient.get<EvalPolicy>(`/api/v1/skills/${skillId}/eval/policy`);
   return data;
 }
 
 export async function updateEvalPolicy(skillId: string, payload: Partial<EvalPolicy>): Promise<EvalPolicy> {
-  const { data } = await apiClient.put<EvalPolicy>(`/api/skills/${skillId}/eval/policy`, payload);
+  const { data } = await apiClient.put<EvalPolicy>(`/api/v1/skills/${skillId}/eval/policy`, payload);
   return data;
 }

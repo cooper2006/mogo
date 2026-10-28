@@ -1,7 +1,7 @@
 import { apiClient } from './client';
 
 // 036 trust-rating (L1–L4 资产评级) admin client. 与 traffic-allocations.ts
-// 同一 apiClient 约定；后端 `/api/trust-ratings` 端点统一返回
+// 同一 apiClient 约定；后端 `/api/v1/trust-ratings` 端点统一返回
 // `{code, message, data}` 信封，因此这里解包 `data.data`。
 
 export type TrustLevel = 'L1' | 'L2' | 'L3' | 'L4';
@@ -60,7 +60,7 @@ interface ApiEnvelope<T> {
 
 /** `GET /api/trust-ratings`（FR-14：后端默认按当前账号可见性过滤 L1）。 */
 export async function fetchTrustRatings(params: { assetType?: TrustAssetType } = {}): Promise<TrustRating[]> {
-  const { data } = await apiClient.get<ApiEnvelope<{ items: TrustRating[] }>>('/api/trust-ratings', {
+  const { data } = await apiClient.get<ApiEnvelope<{ items: TrustRating[] }>>('/api/v1/trust-ratings', {
     params: { asset_type: params.assetType },
   });
   return data.data.items;
@@ -68,13 +68,13 @@ export async function fetchTrustRatings(params: { assetType?: TrustAssetType } =
 
 /** `GET /api/trust-ratings/distribution`（FR-16，008 驾驶舱消费）。 */
 export async function fetchTrustRatingDistribution(): Promise<TrustDistribution> {
-  const { data } = await apiClient.get<ApiEnvelope<TrustDistribution>>('/api/trust-ratings/distribution');
+  const { data } = await apiClient.get<ApiEnvelope<TrustDistribution>>('/api/v1/trust-ratings/distribution');
   return data.data;
 }
 
 /** `GET /api/trust-ratings/settings`。 */
 export async function fetchTrustRatingSettings(): Promise<TrustRatingSettings> {
-  const { data } = await apiClient.get<ApiEnvelope<TrustRatingSettings>>('/api/trust-ratings/settings');
+  const { data } = await apiClient.get<ApiEnvelope<TrustRatingSettings>>('/api/v1/trust-ratings/settings');
   return data.data;
 }
 
@@ -83,7 +83,7 @@ export async function updateTrustRatingSettings(payload: {
   enabled?: boolean;
   windowDays?: number;
 }): Promise<TrustRatingSettings> {
-  const { data } = await apiClient.put<ApiEnvelope<TrustRatingSettings>>('/api/trust-ratings/settings', {
+  const { data } = await apiClient.put<ApiEnvelope<TrustRatingSettings>>('/api/v1/trust-ratings/settings', {
     enabled: payload.enabled,
     window_days: payload.windowDays,
   });
@@ -93,7 +93,7 @@ export async function updateTrustRatingSettings(payload: {
 /** `GET /api/trust-ratings/{asset_type}/{asset_key}`。 */
 export async function fetchTrustRating(assetType: TrustAssetType, assetKey: string): Promise<TrustRating> {
   const { data } = await apiClient.get<ApiEnvelope<TrustRating>>(
-    `/api/trust-ratings/${assetType}/${encodeURIComponent(assetKey)}`,
+    `/api/v1/trust-ratings/${assetType}/${encodeURIComponent(assetKey)}`,
   );
   return data.data;
 }
@@ -105,7 +105,7 @@ export async function changeTrustRating(
   payload: TrustRatingChangePayload,
 ): Promise<TrustRating> {
   const { data } = await apiClient.post<ApiEnvelope<TrustRating>>(
-    `/api/trust-ratings/${assetType}/${encodeURIComponent(assetKey)}/changes`,
+    `/api/v1/trust-ratings/${assetType}/${encodeURIComponent(assetKey)}/changes`,
     {
       target_level: payload.targetLevel,
       reason: payload.reason,
@@ -122,7 +122,7 @@ export async function recomputeTrustRating(
   assetKey: string,
 ): Promise<TrustRatingRecomputeResult> {
   const { data } = await apiClient.post<ApiEnvelope<TrustRatingRecomputeResult>>(
-    `/api/trust-ratings/${assetType}/${encodeURIComponent(assetKey)}/recompute`,
+    `/api/v1/trust-ratings/${assetType}/${encodeURIComponent(assetKey)}/recompute`,
   );
   return data.data;
 }

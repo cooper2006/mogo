@@ -31,7 +31,7 @@ export type SystemAuditPage = {
 };
 
 export async function fetchSystemAuditOverview(): Promise<SystemAuditOverview> {
-  return (await apiClient.get('/api/system-audit/overview')).data;
+  return (await apiClient.get('/api/v1/system-audit/overview')).data;
 }
 
 export async function fetchSystemAuditLogs(params: {
@@ -42,5 +42,5 @@ export async function fetchSystemAuditLogs(params: {
   result?: '' | AuditResult;
   module?: string;
 }): Promise<SystemAuditPage> {
-  return (await apiClient.get('/api/system-audit/logs', { params })).data;
+  return (await apiClient.get('/api/v1/system-audit/logs', { params })).data;
 }

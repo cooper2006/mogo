@@ -93,7 +93,7 @@ export interface AllocationLogPage {
 }
 
 export async function fetchTrafficAllocationOverview() {
-  const { data } = await apiClient.get<TrafficAllocationOverview>('/api/traffic-allocations/overview');
+  const { data } = await apiClient.get<TrafficAllocationOverview>('/api/v1/traffic-allocations/overview');
   return data;
 }
 
@@ -105,7 +105,7 @@ export async function updateOrgQuotaPolicy(payload: {
   status: QuotaStatus;
   alertThresholdRatio?: number;
 }) {
-  const { data } = await apiClient.put<{ success: boolean }>('/api/traffic-allocations/org-policy', payload);
+  const { data } = await apiClient.put<{ success: boolean }>('/api/v1/traffic-allocations/org-policy', payload);
   return data;
 }
 
@@ -115,12 +115,12 @@ export async function updateDefaultQuotaPolicy(payload: {
   period: QuotaPeriod;
   status: QuotaStatus;
 }) {
-  const { data } = await apiClient.put<{ success: boolean }>('/api/traffic-allocations/default-policy', payload);
+  const { data } = await apiClient.put<{ success: boolean }>('/api/v1/traffic-allocations/default-policy', payload);
   return data;
 }
 
 export async function fetchUserAllocations(params: { keyword?: string; statusFilter?: string }) {
-  const { data } = await apiClient.get<UserAllocationItem[]>('/api/traffic-allocations/users', { params });
+  const { data } = await apiClient.get<UserAllocationItem[]>('/api/v1/traffic-allocations/users', { params });
   return data;
 }
 
@@ -131,12 +131,12 @@ export async function updateUserQuotaPolicy(userId: string, payload: {
   period: QuotaPeriod;
   reason: string;
 }) {
-  const { data } = await apiClient.put<{ success: boolean }>(`/api/traffic-allocations/users/${userId}/policy`, payload);
+  const { data } = await apiClient.put<{ success: boolean }>(`/api/v1/traffic-allocations/users/${userId}/policy`, payload);
   return data;
 }
 
 export async function fetchAllocationLogs(params: { page?: number; pageSize?: number } = {}) {
-  const { data } = await apiClient.get<AllocationLogPage>('/api/traffic-allocations/logs', { params });
+  const { data } = await apiClient.get<AllocationLogPage>('/api/v1/traffic-allocations/logs', { params });
   return data;
 }
 
@@ -146,7 +146,7 @@ export async function fetchAllocationLogs(params: { page?: number; pageSize?: nu
 
 export async function fetchTeamQuotaPolicies() {
   const { data } = await apiClient.get<{ items: ScopedQuotaPolicy[]; total: number }>(
-    '/api/traffic-allocations/teams',
+    '/api/v1/traffic-allocations/teams',
   );
   return data;
 }
@@ -157,7 +157,7 @@ export async function updateTeamQuotaPolicy(orgUnitId: string, payload: {
   status: QuotaStatus;
 }) {
   const { data } = await apiClient.put<ScopedQuotaPolicy>(
-    `/api/traffic-allocations/teams/${orgUnitId}/policy`,
+    `/api/v1/traffic-allocations/teams/${orgUnitId}/policy`,
     payload,
   );
   return data;
@@ -165,14 +165,14 @@ export async function updateTeamQuotaPolicy(orgUnitId: string, payload: {
 
 export async function deleteTeamQuotaPolicy(orgUnitId: string) {
   const { data } = await apiClient.delete<{ success: boolean }>(
-    `/api/traffic-allocations/teams/${orgUnitId}/policy`,
+    `/api/v1/traffic-allocations/teams/${orgUnitId}/policy`,
   );
   return data;
 }
 
 export async function fetchQuotaProjects() {
   const { data } = await apiClient.get<{ items: QuotaProject[]; total: number }>(
-    '/api/traffic-allocations/projects',
+    '/api/v1/traffic-allocations/projects',
   );
   return data;
 }
@@ -183,7 +183,7 @@ export async function createQuotaProject(payload: {
   memberUserIds?: string[];
   status?: 'active' | 'disabled';
 }) {
-  const { data } = await apiClient.post<QuotaProject>('/api/traffic-allocations/projects', payload);
+  const { data } = await apiClient.post<QuotaProject>('/api/v1/traffic-allocations/projects', payload);
   return data;
 }
 
@@ -194,7 +194,7 @@ export async function updateQuotaProject(projectId: string, payload: {
   status?: 'active' | 'disabled';
 }) {
   const { data } = await apiClient.put<QuotaProject>(
-    `/api/traffic-allocations/projects/${projectId}`,
+    `/api/v1/traffic-allocations/projects/${projectId}`,
     payload,
   );
   return data;
@@ -202,7 +202,7 @@ export async function updateQuotaProject(projectId: string, payload: {
 
 export async function deleteQuotaProject(projectId: string) {
   const { data } = await apiClient.delete<{ success: boolean }>(
-    `/api/traffic-allocations/projects/${projectId}`,
+    `/api/v1/traffic-allocations/projects/${projectId}`,
   );
   return data;
 }
@@ -213,7 +213,7 @@ export async function updateProjectQuotaPolicy(projectId: string, payload: {
   status: QuotaStatus;
 }) {
   const { data } = await apiClient.put<ScopedQuotaPolicy>(
-    `/api/traffic-allocations/projects/${projectId}/policy`,
+    `/api/v1/traffic-allocations/projects/${projectId}/policy`,
     payload,
   );
   return data;
@@ -221,7 +221,7 @@ export async function updateProjectQuotaPolicy(projectId: string, payload: {
 
 export async function deleteProjectQuotaPolicy(projectId: string) {
   const { data } = await apiClient.delete<{ success: boolean }>(
-    `/api/traffic-allocations/projects/${projectId}/policy`,
+    `/api/v1/traffic-allocations/projects/${projectId}/policy`,
   );
   return data;
 }

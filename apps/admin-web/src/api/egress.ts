@@ -76,32 +76,32 @@ export interface EgressLogPage {
 }
 
 export async function fetchEgressAllowlist(params: { scope?: EgressScope | ''; enabled?: boolean } = {}) {
-  const { data } = await apiClient.get<EgressAllowlistPage>('/api/egress/allowlist', { params });
+  const { data } = await apiClient.get<EgressAllowlistPage>('/api/v1/egress/allowlist', { params });
   return data;
 }
 
 export async function fetchEgressRule(entryId: string) {
-  const { data } = await apiClient.get<EgressRule>(`/api/egress/allowlist/${entryId}`);
+  const { data } = await apiClient.get<EgressRule>(`/api/v1/egress/allowlist/${entryId}`);
   return data;
 }
 
 export async function createEgressRule(payload: EgressRuleCreatePayload) {
-  const { data } = await apiClient.post<EgressRule>('/api/egress/allowlist', payload);
+  const { data } = await apiClient.post<EgressRule>('/api/v1/egress/allowlist', payload);
   return data;
 }
 
 export async function updateEgressRule(entryId: string, payload: EgressRuleUpdatePayload) {
-  const { data } = await apiClient.patch<EgressRule>(`/api/egress/allowlist/${entryId}`, payload);
+  const { data } = await apiClient.patch<EgressRule>(`/api/v1/egress/allowlist/${entryId}`, payload);
   return data;
 }
 
 export async function deleteEgressRule(entryId: string) {
-  await apiClient.delete(`/api/egress/allowlist/${entryId}`);
+  await apiClient.delete(`/api/v1/egress/allowlist/${entryId}`);
 }
 
 export async function fetchEgressLogs(
   params: { page?: number; page_size?: number; event?: string; domain?: string } = {},
 ) {
-  const { data } = await apiClient.get<EgressLogPage>('/api/egress/logs', { params });
+  const { data } = await apiClient.get<EgressLogPage>('/api/v1/egress/logs', { params });
   return data;
 }
