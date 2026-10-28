@@ -74,7 +74,7 @@ const previewState = ref<Record<string, 'running' | 'done' | 'error'>>({})
 const previewing = ref(false)
 const paletteOpen = ref(true)
 
-const { project, addNodes } = useVueFlow()
+const { project } = useVueFlow()
 
 // ------------------------------------------------------------------ helpers
 function toVueNode(canvas: CanvasNode): Node {
@@ -161,7 +161,11 @@ const palette: Array<{ kind: CanvasNodeKind; label: string }> = [
 function addNode(kind: CanvasNodeKind, position?: { x: number; y: number }) {
   const id = generateNodeId(kind, new Set(nodes.value.map((node) => node.id)))
   const canvas = createCanvasNode(kind, id, position ?? { x: 0, y: 0 })
-  addNodes(toVueNode(canvas))
+  // 直接写 v-model 源（nodes ref），vue-flow 内部 watcher 会同步进 store 渲染；
+  // 若改用 useVueFlow().addNodes()，store→ref 的回写在 vue-flow v1 走的是异步
+  // watcher（useWatchProps），紧随其后的 refreshIssues() 会读到空数组，
+  // 报出 empty_graph（"画布为空"）假错误且不会自愈。
+  nodes.value.push(toVueNode(canvas))
   selectedNodeId.value = id
   refreshIssues()
 }

@@ -492,7 +492,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set(['orchestration', 'nodes', 'edges', 'layout
 
 function unknownTopLevelKeys(document: EngineDocument): Record<string, unknown> {
   const raw: Record<string, unknown> = {};
-  Object.entries(document as Record<string, unknown>).forEach(([key, value]) => {
+  Object.entries(document as unknown as Record<string, unknown>).forEach(([key, value]) => {
     if (KNOWN_TOP_LEVEL_KEYS.has(key)) return;
     raw[key] = value;
   });
