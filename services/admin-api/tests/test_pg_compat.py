@@ -297,6 +297,25 @@ def test_aggregation_match_group_sum_one():
     assert params == ['"t1"', '["t1"]']
 
 
+def test_aggregation_count_stage_avoids_bare_having():
+    """``$count`` 不能生成「无 GROUP BY 的 HAVING」。
+
+    openGauss（PG 9.2 内核）不认这种写法，会把它当 WHERE 处理并报
+    ``aggregates not allowed in WHERE clause``（2026-10-28 实测：
+    ``SELECT count(*) FROM t HAVING count(*) > 0`` 直接失败）。
+    线上表现是 ``GET /api/v1/analytics/token-usage?groupBy=user_request`` 500。
+    """
+    sql, params = _compile_pipeline([
+        {"$match": {}},
+        {"$group": {"_id": "$request_id"}},
+        {"$count": "count"},
+    ])
+    assert "HAVING" not in sql.upper()
+    assert "WHERE c > 0" in sql
+    # 空 $match 不产生参数
+    assert params == []
+
+
 def test_aggregation_group_uses_two_step_cte():
     """$group 必须拆成两步：先聚合出普通列，再组装文档。
 
@@ -337,8 +356,8 @@ def test_aggregation_group_key_expression_built_once():
 
 def test_aggregation_count_stage():
     sql, _ = _compile_pipeline([{"$group": {"_id": "$u"}}, {"$count": "count"}])
-    assert "'{count}'" in sql           # 不能出现 '{{count}}'
-    assert "HAVING count(*) > 0" in sql  # 输入为空时 Mongo 返回空结果集
+    assert "'{count}'" in sql            # 不能出现 '{{count}}'
+    assert "WHERE c > 0" in sql          # 输入为空时 Mongo 返回空结果集
 
 
 def test_aggregation_numeric_accumulators_are_wrapped_as_jsonb():

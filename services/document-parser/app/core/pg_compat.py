@@ -1141,12 +1141,19 @@ class _AggregationCompiler:
         self._emit(f"SELECT id, doc FROM {self._from()} ORDER BY {self._order_sql()} OFFSET {int(spec)}")
 
     def _stage_count(self, spec: Any) -> None:
-        """``$count: "field"`` → 单个 ``{field: N}``。输入为空时 Mongo 返回空结果集。"""
+        """``$count: "field"`` → 单个 ``{field: N}``。输入为空时 Mongo 返回空结果集。
+
+        **不能用「无 GROUP BY 的 HAVING」**：openGauss（PG 9.2 内核）不认这种写法，
+        会把它当 WHERE 处理并报 ``aggregates not allowed in WHERE clause``
+        （2026-10-28 实测：``SELECT count(*) FROM t HAVING count(*) > 0`` 直接失败）。
+        改为先在内层聚合出普通列，外层用 WHERE 过滤 0 —— 与 Mongo「空输入返回
+        空结果集」的语义一致。
+        """
         path = path_literal(str(spec))
         self._emit(
             f"SELECT '' AS id, "
-            f"jsonb_set('{{}}'::jsonb, '{path}', to_jsonb(count(*)), true) AS doc "
-            f"FROM {self._from()} HAVING count(*) > 0"
+            f"jsonb_set('{{}}'::jsonb, '{path}', to_jsonb(c), true) AS doc "
+            f"FROM (SELECT count(*) AS c FROM {self._from()}) t WHERE c > 0"
         )
 
     def _stage_group(self, spec: Any) -> None:
