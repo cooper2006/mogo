@@ -62,6 +62,7 @@ app = FastAPI(
     version="0.2.5"
 )
 _receipt_gc_task: asyncio.Task | None = None
+_memory_decay_task: asyncio.Task | None = None
 
 origins = settings.allowed_origins_list()
 
@@ -396,7 +397,10 @@ async def _ensure_end_user_login_name_index(db) -> None:
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    global _receipt_gc_task
+    # Both background tasks are assigned below and cancelled in shutdown_event;
+    # without the module-level binding those assignments would create locals and
+    # shutdown would see None (or, before the declaration existed, NameError).
+    global _receipt_gc_task, _memory_decay_task
     await init_backend()
     db = get_db()
     # Keep session history list query fast: find by user_id and sort by updated_at desc.
