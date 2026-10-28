@@ -355,8 +355,20 @@ fetch_one() {
   # not found") while the container carried on with a truncated script.
   # A quoted heredoc ('EOS') is literal: no host-side expansion, no escaping, and
   # no way to terminate it early. Host values arrive as -e environment variables.
+  # fontconfig declares an OR dependency (fonts-dejavu-core | fonts-liberation |
+  # ...). `--reinstall --download-only` only re-fetches already-installed
+  # packages, so if the slim base image ships none of the OR options,
+  # fonts-dejavu-core is never pulled into the bundle and the offline install
+  # breaks on fontconfig ("Unable to fetch some archives"). Force it in whenever
+  # fontconfig is in the request list so the OR chain is closed offline.
+  local extra_pkgs="" has_fontconfig=0 p
+  for p in "${packages[@]}"; do
+    [ "$p" = "fontconfig" ] && has_fontconfig=1
+  done
+  [ "$has_fontconfig" = 1 ] && extra_pkgs="fonts-dejavu-core"
+
   local pkg_list
-  pkg_list="$(printf '%s ' "${packages[@]}")"
+  pkg_list="$(printf '%s ' "${packages[@]}")${extra_pkgs:+ ${extra_pkgs}}"
 
   "${DOCKER_BIN}" run --rm -i \
     --platform "linux/${arch}" \
@@ -381,11 +393,12 @@ for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do
   sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|https://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|http://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g; s|https://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" "$f"
 done
 
-# The bundle index must be current: apt resolves --no-download against it, so a
-# stale index is exactly what produced the "Unable to fetch some archives" build
-# failures. A transient mirror hiccup is retried, but a failure here is fatal
-# (set -e) rather than swallowed with || true: a silent failure leaves an index
-# whose candidate versions have no .deb.
+# `update` here (fetch side, online) downloads the package index from the
+# mirror. The offline target must NOT run `apt-get update` — it has no network
+# and the cached Packages below is the only index it ever sees. A failure to
+# fetch the index here is fatal (set -e, not || true): it would leave the bundle
+# with no index, and the offline install would then report "Unable to locate
+# package" for everything.
 apt-get -o Acquire::Retries=5 \
   -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
   update
@@ -427,6 +440,15 @@ done
 # Copy the .deb files and the package index. --no-download needs the index to
 # map names to versions; without it apt reports "Unable to locate package" even
 # though the .deb is right there.
+#
+# The index is copied verbatim from the fetch mirror (including the .lz4
+# compression apt itself produced during `apt-get update`): the offline target
+# is the same Debian bookworm base image, so its apt reads the same index
+# format. The URI host baked into the file names is the fetch mirror's host,
+# and the target's sources are rewritten to that same MOGO_APT_MIRROR before
+# the offline install, so the names match and apt accepts the cached index.
+# Renaming the host to deb.debian.org here would *break* recognition once the
+# Dockerfile has rewritten its sources to the mirror.
 cp -f /var/cache/apt/archives/*.deb /out/ 2>/dev/null || true
 mkdir -p /out/Packages
 cp -f /var/lib/apt/lists/*Packages* /out/Packages/ 2>/dev/null || true

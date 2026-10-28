@@ -87,12 +87,12 @@ RUN --mount=type=bind,source=apt-packages-bundle.tar.gz,target=/tmp/apt-packages
             fi; \
         done; \
     fi; \
-    if [ "${offline}" = "true" ]; then \
-        apt-get update >/dev/null 2>&1 || true; \
-    else \
+    if [ "${offline}" != "true" ]; then \
         apt-get update; \
     fi; \
-    if [ -n "${MOGO_SECURITY_REFRESH}" ] && [ "${MOGO_SECURITY_REFRESH}" != "false" ]; then \
+    if [ "${offline}" = "true" ]; then \
+        echo "Skip apt upgrade in offline mode (no network to fetch security patches)"; \
+    elif [ -n "${MOGO_SECURITY_REFRESH}" ] && [ "${MOGO_SECURITY_REFRESH}" != "false" ]; then \
         apt-get upgrade -y; \
     else \
         echo "Skip apt upgrade (set MOGO_SECURITY_REFRESH to apply security patches)"; \

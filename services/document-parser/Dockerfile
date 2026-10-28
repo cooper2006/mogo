@@ -101,7 +101,6 @@ RUN --mount=type=bind,source=apt-packages-bundle.tar.gz,target=/tmp/apt-packages
         echo "Skip offline apt bundle (placeholder or APT_OFFLINE_INSTALL=false); using the network."; \
     fi; \
     if [ "${offline}" = "true" ]; then \
-        apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update >/dev/null 2>&1 || true; \
         apt-get install -y --no-install-recommends --no-download \
             ca-certificates \
             curl \
