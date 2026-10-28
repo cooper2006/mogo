@@ -16,7 +16,12 @@ mogo_detect_locale() {
 mogo_usage() {
   if [[ "${MOGO_LOCALE}" == "zh" ]]; then
     printf '用法：\n'
-    printf '  ./mogo [--lang zh-CN|en] up [--build]  启动 MOGO 并输出初始化地址\n'
+    printf '  ./mogo [--lang zh-CN|en] [--profile dev|test|prod] up [--build]  启动 MOGO 并输出初始化地址\n'
+    printf '      --profile dev   开发环境：arm64 + 栈内 mongo 容器\n'
+    printf '      --profile test  测试环境：arm64 + 栈内 panweidb 容器\n'
+    printf '      --profile prod  生产环境：amd64 + 外部 panweidb（.env 里的 PANWEIDB_HOST）\n'
+    printf '      不指定 --profile 时按 .env 推断：MOGO_USE_EXTERNAL_DB=1 -> prod，MOGO_DATA_BACKEND=panweidb -> test，否则 dev\n'
+    printf '      目标架构：dev/test=linux/arm64、prod=linux/amd64；宿主架构与之不符时必须显式给 MOGO_PLATFORM\n'
     printf '  ./mogo build                          从源码构建 MOGO 镜像\n'
     printf '  ./mogo update                         拉取当前版本镜像并更新服务\n'
     printf '  ./mogo backup [目录]                  停机一致性备份全部 MOGO 数据卷\n'
@@ -40,7 +45,12 @@ mogo_usage() {
     printf '  ./mogo down -v                        停止服务并删除全部 MOGO 数据\n'
   else
     printf 'Usage:\n'
-    printf '  ./mogo [--lang zh-CN|en] up [--build]  Start MOGO and print the setup URL\n'
+    printf '  ./mogo [--lang zh-CN|en] [--profile dev|test|prod] up [--build]  Start MOGO and print the setup URL\n'
+    printf '      --profile dev   Development: arm64 + in-stack mongo container\n'
+    printf '      --profile test  Test: arm64 + in-stack panweidb container\n'
+    printf '      --profile prod  Production: amd64 + external panweidb (PANWEIDB_HOST in .env)\n'
+    printf '      Without --profile it is inferred from .env: MOGO_USE_EXTERNAL_DB=1 -> prod, MOGO_DATA_BACKEND=panweidb -> test, else dev\n'
+    printf '      Target architecture: dev/test=linux/arm64, prod=linux/amd64; set MOGO_PLATFORM when the host differs\n'
     printf '  ./mogo build                           Build MOGO images from source\n'
     printf '  ./mogo update                          Pull current images and update services\n'
     printf '  ./mogo backup [directory]              Back up all MOGO volumes while stopped\n'
@@ -171,6 +181,22 @@ mogo_msg() {
     en:external_db_check_failed) printf 'Error: external database connection settings are broken (see details above). Fix .env before ./mogo up, or set MOGO_USE_EXTERNAL_DB back to 0 to use the stack databases.\n' ;;
     zh:external_db_disabled) printf '未启用外部数据库模式（MOGO_USE_EXTERNAL_DB 不是 1），无需检查。\n' ;;
     en:external_db_disabled) printf 'External database mode is not enabled (MOGO_USE_EXTERNAL_DB is not 1); nothing to check.\n' ;;
+    zh:profile_selected) printf '环境 profile：%s（数据库：%s）\n' "$1" "$2" ;;
+    en:profile_selected) printf 'Environment profile: %s (database: %s)\n' "$1" "$2" ;;
+    zh:profile_invalid) printf '错误：未知环境 profile「%s」。可选：%s。\n' "$1" "$2" ;;
+    en:profile_invalid) printf 'Error: unknown environment profile "%s". Choose one of: %s.\n' "$1" "$2" ;;
+    zh:profile_dev_backend_conflict) printf '错误：dev profile 固定使用栈内 mongo，但 MOGO_DATA_BACKEND=panweidb。请改用 ./mogo --profile test up，或把 MOGO_DATA_BACKEND 改回 mongo。\n' ;;
+    en:profile_dev_backend_conflict) printf 'Error: the dev profile always uses the in-stack mongo, but MOGO_DATA_BACKEND=panweidb. Use ./mogo --profile test up, or set MOGO_DATA_BACKEND=mongo.\n' ;;
+    zh:profile_dev_external_conflict) printf '错误：dev profile 需要栈内 mongo，与 MOGO_USE_EXTERNAL_DB=1（外部数据库模式）冲突。请改用 ./mogo --profile prod up，或去掉 .env 里的 MOGO_USE_EXTERNAL_DB。\n' ;;
+    en:profile_dev_external_conflict) printf 'Error: the dev profile needs the in-stack mongo and conflicts with MOGO_USE_EXTERNAL_DB=1. Use ./mogo --profile prod up, or drop MOGO_USE_EXTERNAL_DB from .env.\n' ;;
+    zh:profile_test_external_conflict) printf '错误：test profile 需要栈内 panweidb 容器，与 MOGO_USE_EXTERNAL_DB=1（外部数据库模式）冲突。请改用 ./mogo --profile prod up，或去掉 .env 里的 MOGO_USE_EXTERNAL_DB。\n' ;;
+    en:profile_test_external_conflict) printf 'Error: the test profile needs the in-stack panweidb container and conflicts with MOGO_USE_EXTERNAL_DB=1. Use ./mogo --profile prod up, or drop MOGO_USE_EXTERNAL_DB from .env.\n' ;;
+    zh:profile_prod_panweidb_missing) printf '错误：prod profile 要求外部 PanWeiDB，但 .env 里没有 PANWEIDB_HOST。请填入外部实例地址后再启动。\n' ;;
+    en:profile_prod_panweidb_missing) printf 'Error: the prod profile requires an external PanWeiDB, but .env has no PANWEIDB_HOST. Set the external address first.\n' ;;
+    zh:profile_prod_panweidb_internal) printf '错误：prod profile 需要外部 PanWeiDB，而 PANWEIDB_HOST=%s 仍是栈内服务名（prod 不启动该容器）。请改成外部实例地址。\n' "$1" ;;
+    en:profile_prod_panweidb_internal) printf 'Error: the prod profile requires an external PanWeiDB, but PANWEIDB_HOST=%s is still a stack-internal service name (prod starts no such container). Point it at the external instance.\n' "$1" ;;
+    zh:profile_arch_unspecified) printf '错误：%s profile 的目标架构是 %s，当前宿主机是 %s。请先明确指定架构再启动：交付用 MOGO_PLATFORM=%s，在本机演练用 MOGO_PLATFORM=%s。\n' "$1" "$2" "$3" "$2" "$3" ;;
+    en:profile_arch_unspecified) printf 'Error: the %s profile targets %s but this host is %s. Specify the architecture before starting: MOGO_PLATFORM=%s to deliver, MOGO_PLATFORM=%s to rehearse on this host.\n' "$1" "$2" "$3" "$2" "$3" ;;
     zh:unknown) printf '未知命令：%s\n\n' "$1" ;;
     en:unknown) printf 'Unknown command: %s\n\n' "$1" ;;
      zh:baseline_script_missing) printf '错误：未找到基线扫揇脚本 deploy/cli/baseline-check.sh，请确认仓库完整．\n' ;;

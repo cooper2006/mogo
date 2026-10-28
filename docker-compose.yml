@@ -27,6 +27,10 @@ x-python-healthcheck: &python-healthcheck
 # single-host service must stay profile-free to remain the default.
 x-dsh-runtime-host-template: &dsh-runtime-host-template
   image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/dsh-runtime-host:${MOGO_VERSION:-latest}}
+  # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
+  # linux/arm64，prod 为 linux/amd64。变量为空时该键整行消失，compose 回到
+  # 宿主原生架构，所以不走 CLI 直接 `docker compose up` 也不会被钉死。
+  platform: ${MOGO_PLATFORM:-}
   pull_policy: ${MOGO_PULL_POLICY:-missing}
   restart: unless-stopped
   # R1: on SIGTERM the host first drains (waits up to 30s for in-flight
@@ -198,6 +202,12 @@ services:
         echo "After services become healthy, open http://localhost:$${MOGO_PORT:-3000}/admin/setup"
 
   mongo:
+    # 栈内 mongo 只属于 dev 环境：`--profile dev` 才会启动它。test/prod 用
+    # panweidb（见下方 panweidb 的 profiles），因此应用服务对 mongo 的
+    # depends_on 写了 `required: false`，未启用时 compose 不会报
+    # "depends on undefined service"。
+    profiles:
+      - dev
     # 与 panweidb 一样留环境变量覆盖口：升级/回滚只改 .env 或命令行，不改本文件。
     # 版本不能跳级：MongoDB 只接受「上一代 FCV 或本代 FCV」，6.0 数据必须
     # 6.0 → 7.0 → 8.0 → 8.3 逐级升（每步先换二进制，再 setFeatureCompatibilityVersion）。
@@ -362,8 +372,11 @@ services:
     restart: unless-stopped
     profiles: ["backup"]
     depends_on:
+      # mongo 只在 dev 环境启动（profiles: [dev]），`required: false` 让
+      # test/prod 下 compose 跳过这个依赖而不报"undefined service"。
       mongo:
         condition: service_healthy
+        required: false
     entrypoint: ["/bin/bash", "/opt/mogo/scripts/backup/container_run.sh"]
     environment:
       MOGO_MONGODB_URI: ${MOGO_BACKUP_MONGODB_URI:-mongodb://mongo:27017/?replicaSet=rs0}
@@ -414,6 +427,10 @@ services:
     pull_policy: never
     profiles:
       - panweidb
+      # test 环境（arm64 + 本地 panweidb 容器）同时带这个 profile。
+      # 保留原来的 `panweidb` 名字是为了兼容既有 `--profile panweidb` 用法
+      # 与 deploy/cli/images.sh 里的自动附加逻辑。
+      - test
     restart: unless-stopped
     # gs_ctl stop -m fast 会等在途事务收敛；给足窗口，别让 docker 用 KILL 打断，
     # 否则卷里留下 crash recovery 状态，下次启动要回放 WAL。
@@ -621,6 +638,7 @@ services:
 
   chat-api: &chat-api-def
     image: ${MOGO_CHAT_API_IMAGE:-ghcr.io/mogoai/chat-api:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -698,8 +716,11 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
+      # mongo 只在 dev 环境启动（profiles: [dev]），`required: false` 让
+      # test/prod 下 compose 跳过这个依赖而不报"undefined service"。
       mongo:
         condition: service_healthy
+        required: false
       # PanWeiDB 走 profile（默认不启动），`required: false` 让 compose 在它未启用时
       # 跳过这个依赖；启用（`--profile panweidb`）时应用会等它 healthy 再起。
       # 注意：不能省 `required: false` —— compose 对「depends_on 指向未启用 profile 的
@@ -727,6 +748,7 @@ services:
 
   admin-api: &admin-api-def
     image: ${MOGO_ADMIN_API_IMAGE:-ghcr.io/mogoai/admin-api:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -783,8 +805,11 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
+      # mongo 只在 dev 环境启动（profiles: [dev]），`required: false` 让
+      # test/prod 下 compose 跳过这个依赖而不报"undefined service"。
       mongo:
         condition: service_healthy
+        required: false
       panweidb:
         condition: service_healthy
         required: false
@@ -801,6 +826,7 @@ services:
 
   document-api: &document-api-def
     image: ${MOGO_DOCUMENT_API_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["api"]
@@ -850,13 +876,20 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
+      # mongo 只在 dev 环境启动（profiles: [dev]），`required: false` 让
+      # test/prod 下 compose 跳过这个依赖而不报"undefined service"。
       mongo:
         condition: service_healthy
+        required: false
       panweidb:
         condition: service_healthy
         required: false
+      # redis 无 profile（三个环境都在栈内），但保留 `required: false`
+      # 让 `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml 把 redis 设为
+      # profiles: [never]）时依赖不阻塞解析。
       redis:
         condition: service_healthy
+        required: false
       weaviate:
         condition: service_healthy
     extra_hosts:
@@ -870,6 +903,7 @@ services:
 
   document-worker:
     image: ${MOGO_DOCUMENT_WORKER_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["worker"]
@@ -894,13 +928,20 @@ services:
     depends_on:
       bootstrap:
         condition: service_completed_successfully
+      # mongo 只在 dev 环境启动（profiles: [dev]），`required: false` 让
+      # test/prod 下 compose 跳过这个依赖而不报"undefined service"。
       mongo:
         condition: service_healthy
+        required: false
       panweidb:
         condition: service_healthy
         required: false
+      # redis 无 profile（三个环境都在栈内），但保留 `required: false`
+      # 让 `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml 把 redis 设为
+      # profiles: [never]）时依赖不阻塞解析。
       redis:
         condition: service_healthy
+        required: false
       weaviate:
         condition: service_healthy
     extra_hosts:
@@ -911,6 +952,7 @@ services:
 
   user-web:
     image: ${MOGO_USER_WEB_IMAGE:-ghcr.io/mogoai/user-web:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -948,6 +990,7 @@ services:
 
   admin-web:
     image: ${MOGO_ADMIN_WEB_IMAGE:-ghcr.io/mogoai/admin-web:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -986,6 +1029,7 @@ services:
 
   gateway:
     image: ${MOGO_GATEWAY_IMAGE:-ghcr.io/mogoai/gateway:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): gateway 是 nginx，同样加固。它还要做 TLS 终结并绑定低

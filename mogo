@@ -20,6 +20,35 @@ case "${1:-}" in
     ;;
 esac
 
+# 环境 profile（dev / test / prod）允许出现在任意位置：
+#   ./mogo --profile dev up      ./mogo up --profile dev
+# 这里先把它从参数序列里摘出来，其余参数原样保留给下面的命令分发。
+if [[ $# -gt 0 ]]; then
+  profile_args=()
+  while [[ $# -gt 0 ]]; do
+    case "${1}" in
+      --profile)
+        if [[ -z "${2:-}" ]]; then
+          printf 'Error: --profile requires one of dev, test, prod.\n' >&2
+          exit 2
+        fi
+        MOGO_PROFILE="${2}"
+        shift 2
+        ;;
+      --profile=*)
+        MOGO_PROFILE="${1#*=}"
+        shift
+        ;;
+      *)
+        profile_args+=("${1}")
+        shift
+        ;;
+    esac
+  done
+  set -- ${profile_args[@]+"${profile_args[@]}"}
+fi
+export MOGO_PROFILE="${MOGO_PROFILE:-}"
+
 # shellcheck source=deploy/cli/i18n.sh
 source "${ROOT_DIR}/deploy/cli/i18n.sh"
 mogo_detect_locale
@@ -27,6 +56,8 @@ mogo_detect_locale
 source "${ROOT_DIR}/deploy/cli/dsh-version.sh"
 # shellcheck source=deploy/cli/images.sh
 source "${ROOT_DIR}/deploy/cli/images.sh"
+# shellcheck source=deploy/cli/env-profiles.sh
+source "${ROOT_DIR}/deploy/cli/env-profiles.sh"
 # shellcheck source=deploy/cli/pull.sh
 source "${ROOT_DIR}/deploy/cli/pull.sh"
 # shellcheck source=deploy/cli/base-images.sh
@@ -827,6 +858,29 @@ if [[ $# -gt 0 ]]; then
   shift
 fi
 
+# 环境 profile：把 dev/test/prod 归一化成 compose profile 组合并按需导出
+# MOGO_DATA_BACKEND / MOGO_PLATFORM / COMPOSE_PROFILES。参数冲突（例如
+# --profile dev 撞上 MOGO_DATA_BACKEND=panweidb）直接中止，不要带着半截
+# 配置去启动容器。不碰 compose 的命令（help 等）只导出、不打印。
+profile_announce=false
+case "${command}" in
+  up|build|update|restart|down|stop|status|logs|ps|verify|drift|canary|deploy|baseline|backup|restore|check|failover|monitor)
+    profile_announce=true
+    ;;
+esac
+# 只有真正创建 / 拉取容器的命令才要求"架构先写明"（mogo_apply_profile 的第二个
+# 参数）。否则架构与宿主不符时连 `./mogo down`、`./mogo status` 都会被挡住——
+# 而收拾现场、看状态恰恰是用户最需要它们能跑的时候。
+profile_pin_platform=false
+case "${command}" in
+  up|build|update|restart|deploy|canary|failover|restore)
+    profile_pin_platform=true
+    ;;
+esac
+if [[ "${profile_announce}" == "true" ]]; then
+  mogo_apply_profile true "${profile_pin_platform}" || exit $?
+fi
+
 case "${command}" in
   up)
     command_up "$@"
@@ -1005,6 +1059,9 @@ case "${command}" in
     ;;
   down)
     require_docker
+    # 只带当前 profile 时，compose 会漏掉别的环境起的数据库容器；down 之前
+    # 把 dev / test / prod 三个 profile 一起并进来，保证一次收拾干净。
+    mogo_profile_cover_all_environments
     remove_volumes=false
     confirmed=false
     compose_down_args=()

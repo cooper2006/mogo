@@ -345,6 +345,8 @@ The default Docker Compose deployment starts the gateway, two Web applications, 
 
 PanWeiDB (the optional MongoDB → PanWeiDB migration target) is managed by the same Compose file behind the `panweidb` profile: setting `MOGO_DATA_BACKEND=panweidb` in `.env` brings the database container into the topology, so a single `./mogo up` starts the whole stack including the database. Its data lives in the `panweidb-storage` volume, and the container starts and stops the database itself (no manual `gs_ctl`). See [docs/panweidb-compose-integration.md](docs/panweidb-compose-integration.md).
 
+Environments are selected with Compose profiles: `./mogo --profile dev up` (arm64 + in-stack MongoDB), `./mogo --profile test up` (arm64 + in-stack PanWeiDB) and `./mogo --profile prod up` (amd64 + external PanWeiDB, redis/weaviate still in-stack). Without `--profile` the environment is inferred from `.env`, so existing deployments keep their current behaviour. See [docs/environments.md](docs/environments.md).
+
 ## Deployment and operations
 
 ### Requirements and platform notes

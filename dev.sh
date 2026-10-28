@@ -17,6 +17,47 @@ ASKAI_REDIS_URL="${ASKAI_REDIS_URL:-redis://127.0.0.1:6379/0}"
 BACKEND_PYTHON_BIN=""
 DOC_PROCESSING_PYTHON_BIN=""
 
+# 环境 profile：与 ./mogo 共用同一套归一化与校验（deploy/cli/env-profiles.sh），
+# 允许 `./dev.sh --profile dev`、`./dev.sh --profile=test`，或 MOGO_PROFILE=dev。
+# dev.sh 起的都是宿主原生进程（uvicorn / vite / celery），没有容器平台可钉，
+# 所以调用时把 pin_platform 关掉——否则 arm64 开发机跑 --profile prod 会被
+# "请先指定架构"拦下，而这里根本不存在架构问题。
+export MOGO_PROFILE="${MOGO_PROFILE:-}"
+if [[ $# -gt 0 ]]; then
+    profile_args=()
+    while [[ $# -gt 0 ]]; do
+        case "${1}" in
+            --profile)
+                if [[ -z "${2:-}" ]]; then
+                    printf 'Error: --profile requires one of dev, test, prod.\n' >&2
+                    exit 2
+                fi
+                MOGO_PROFILE="${2}"
+                shift 2
+                ;;
+            --profile=*)
+                MOGO_PROFILE="${1#*=}"
+                shift
+                ;;
+            *)
+                profile_args+=("${1}")
+                shift
+                ;;
+        esac
+    done
+    set -- ${profile_args[@]+"${profile_args[@]}"}
+fi
+
+# shellcheck source=deploy/cli/i18n.sh
+source "$ROOT_DIR/deploy/cli/i18n.sh"
+mogo_detect_locale
+# shellcheck source=deploy/cli/env-profiles.sh
+source "$ROOT_DIR/deploy/cli/env-profiles.sh"
+
+# 归一化 + 冲突校验（dev 必须 mongo 后端、test/prod 不能开外部库模式等）。
+# 失败就停在这里，不去动端口和 venv。
+mogo_apply_profile true false || exit $?
+
 # One credential must be shared by admin-api and chat-api in local source mode.
 # shellcheck source=scripts/dev/internal_service_auth.sh
 source "$ROOT_DIR/scripts/dev/internal_service_auth.sh"
@@ -102,6 +143,22 @@ ensure_document_processing_venv() {
     cd "$ROOT_DIR"
 }
 
+# 宿主进程连的是 .env 里配的数据库；dev/test profile 预期那个库由栈内容器提供。
+# 没起就在这儿提示一句，不自动 docker compose up（不动用户现成的栈）。
+ensure_profile_database() {
+    local service_name=""
+    case "${MOGO_PROFILE}" in
+        dev) service_name="mongo" ;;
+        test) service_name="panweidb" ;;
+        *) return 0 ;;
+    esac
+    command -v docker >/dev/null 2>&1 || return 0
+    if ! docker ps --format '{{.Label "com.docker.compose.service"}}' 2>/dev/null | grep -qx "${service_name}"; then
+        echo "Hint: the ${MOGO_PROFILE} profile expects the local ${service_name} container."
+        echo "      Start it with: docker compose --profile ${MOGO_PROFILE} up -d ${service_name}"
+    fi
+}
+
 start_runtime_backend() {
     echo "Starting Backend on :$BACKEND_PORT ..."
     cd "$CHAT_API_DIR"
@@ -157,6 +214,7 @@ cleanup_ports
 ensure_backend_venv
 ensure_document_processing_venv
 ensure_redis
+ensure_profile_database
 echo "Using Backend Python: $BACKEND_PYTHON_BIN"
 echo "Using Doc Processing Python: $DOC_PROCESSING_PYTHON_BIN"
 
