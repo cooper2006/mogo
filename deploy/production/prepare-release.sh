@@ -81,7 +81,7 @@ SKIP_BUILD=0
 SKIP_PACK=0
 EXTERNAL_DB=0
 OUT_DIR=""
-MIRROR="${MOGO_BASE_IMAGE_MIRROR:-}"
+MIRROR="${MOGO_BASE_IMAGE_MIRROR:-docker.m.daocloud.io}"
 PY="${MOGO_PYTHON:-python3}"
 
 # 外部 PanWeiDB 连接信息默认值（--external-db 模式使用）。
@@ -350,17 +350,20 @@ else
   STAGE_CTX=$(mktemp -d "${TMPDIR:-/tmp}/mogo-prepare-stage.XXXXXX")
   info "staging 构建上下文：${STAGE_CTX}（保留，便于排查；只有几 KB）"
 
-  # 镜像站前缀解析：Docker Hub 单段名补 library/；自带 registry 的引用原样透传
+  # 镜像站前缀解析：Docker Hub 单段名补 library/；自带 registry 的引用原样透传。
+  # MIRROR 为空时回退到 docker.io（不补前缀），避免产出 "/library/xxx" 这类
+  # 以斜杠开头的非法 reference（buildx 会在 FROM 解析阶段直接报 invalid reference format）。
   mirror_ref() {
     ref="$1"
+    m="${MIRROR:-docker.io}"
     case "$ref" in
       */*) : ;;
-      *) printf '%s/library/%s' "$MIRROR" "$ref"; return ;;
+      *) printf '%s/library/%s' "$m" "$ref"; return ;;
     esac
     host="${ref%%/*}"
     case "$host" in
       *.*|*:*) printf '%s' "$ref" ;;
-      *) printf '%s/%s' "$MIRROR" "$ref" ;;
+      *) printf '%s/%s' "$m" "$ref" ;;
     esac
   }
 
