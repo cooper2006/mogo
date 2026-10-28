@@ -35,7 +35,7 @@ COPY . .
 # already passed.
 RUN pnpm run build
 
-FROM nginx:1.31.5-alpine3.24-slim
+FROM nginx:1.31.8-alpine3.24-slim
 
 # Opt-in: only apply Alpine security patches when MOGO_SECURITY_REFRESH is set
 # (CI passes its run id). Skipping keeps this layer cacheable locally.
