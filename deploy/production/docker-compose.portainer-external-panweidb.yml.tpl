@@ -111,6 +111,8 @@ services:
           echo "ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=$$admin_backend_service_token"
         } >> "$$temp_file"
         mv "$$temp_file" "$$secret_file"
+        # runtime.env 会被 node 用户容器只读挂载，需要 world-readable
+        chmod 644 "$$secret_file"
         echo "MOGO deployment secrets are ready."
         echo "After services become healthy, open http://localhost:$${MOGO_PORT:-3000}/admin/setup"
 
@@ -389,6 +391,7 @@ services:
     platform: linux/amd64
     pull_policy: never
     restart: unless-stopped
+    user: root
     ports:
       - "3000:80"
     environment:
