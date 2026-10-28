@@ -195,6 +195,7 @@ RUN --mount=type=bind,source=pip-wheels-bundle.tar.gz,target=/tmp/pip-wheels-bun
 # whole browser step down with it. So deps are installed on their own and a
 # failure there is a warning, not a build failure — the bundle path above is
 # what makes browser provisioning reproducible.
+ARG TARGETARCH
 ARG INSTALL_PLAYWRIGHT_AT_BUILD=false
 ARG PLAYWRIGHT_WITH_DEPS=false
 RUN --mount=type=bind,source=playwright-browsers-bundle.tar.gz,target=/tmp/playwright-browsers-bundle.tar.gz \
@@ -202,12 +203,30 @@ RUN --mount=type=bind,source=playwright-browsers-bundle.tar.gz,target=/tmp/playw
         echo "Skip playwright browser install in build stage (INSTALL_PLAYWRIGHT_AT_BUILD=false)"; \
     else \
         bundle_bytes="$(du -sb /tmp/playwright-browsers-bundle.tar.gz | cut -f1)"; \
+        pw_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+        mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}"; \
+        # The bundle holds one top-level <arch>/ tree per architecture (same
+        # contract as the pip and apt bundles), so only this build's tree is
+        # extracted. Extraction goes through a scratch dir instead of
+        # `--strip-components`: stripping the <arch>/ prefix is the one tar
+        # option whose behaviour differs between tar implementations, and a
+        # silent no-op would leave the browsers at /ms-playwright/<arch>/ --
+        # where playwright never looks. Scratch dir is created and removed in
+        # this same RUN, so it leaves no layer behind. A bundle without this
+        # arch is not an error: the network path below covers it.
         if [ "${bundle_bytes}" -gt 1024 ]; then \
-            echo "Installing playwright browsers from offline bundle (${bundle_bytes} bytes)"; \
-            mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" \
-            && tar -xzf /tmp/playwright-browsers-bundle.tar.gz -C "${PLAYWRIGHT_BROWSERS_PATH}"; \
+            echo "Installing playwright browsers for ${pw_arch} from the offline bundle (${bundle_bytes} bytes)"; \
+            pw_tmp="$(mktemp -d)"; \
+            tar -xzf /tmp/playwright-browsers-bundle.tar.gz -C "${pw_tmp}" "./${pw_arch}" 2>/dev/null || true; \
+            if [ -d "${pw_tmp}/${pw_arch}" ]; then \
+                cp -R "${pw_tmp}/${pw_arch}/." "${PLAYWRIGHT_BROWSERS_PATH}/"; \
+            fi; \
+            rm -rf "${pw_tmp}"; \
+        fi; \
+        if ls -d "${PLAYWRIGHT_BROWSERS_PATH}"/chromium*-* >/dev/null 2>&1; then \
+            echo "Browsers installed from the offline bundle"; \
         else \
-            echo "No offline browser bundle; downloading from ${PLAYWRIGHT_DOWNLOAD_HOST}"; \
+            echo "Bundle has no ${pw_arch}/ tree (or no bundle); downloading from ${PLAYWRIGHT_DOWNLOAD_HOST}"; \
             if [ "${PLAYWRIGHT_WITH_DEPS}" = "true" ]; then \
                 PLAYWRIGHT_SKIP_BROWSER_GC=1 playwright install chromium \
                 && (playwright install-deps chromium \

@@ -46,13 +46,25 @@ MANIFEST="${CACHE_DIR}/manifest.txt"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 IMAGE="${IMAGE:-chat-api:latest}"
 
-# Architecture the bundle is for. Chromium is a compiled binary, so an arm64
-# bundle in an amd64 image fails to launch with ENOENT — and the files still
-# look executable, so only a launch check catches it. The cache therefore
-# records the architecture, and `save`/`fetch` verify it.
+# Chromium is a compiled binary, so an arm64 build in an amd64 image fails to
+# exec with ENOENT while still looking executable. The cache is therefore kept
+# per architecture, exactly like pip wheels and .deb files:
+#
+#   base-images/playwright/browsers/<arch>/chromium-.../
+#
+# and the bundle mirrors that layout (`<arch>/...` at the top level), which is
+# the tree the Dockerfile picks from via TARGETARCH. Keeping both arches side by
+# side is the point: the old single-directory cache evicted arm64 whenever an
+# amd64 fetch ran, so a machine that builds both could never hold both.
 ARCH="${ARCH:-}"
+ARCH_LIST="${ARCH_LIST:-arm64 amd64}"
 PLAYWRIGHT_VERSION="${PLAYWRIGHT_VERSION:-}"
 PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST:-https://cdn.npmmirror.com/binaries/playwright}"
+
+# Cache slot for one architecture.
+browsers_dir_for() {
+  printf '%s/%s' "${BROWSERS_DIR}" "$1"
+}
 
 # Architecture of the chromium binary in a directory tree, by reading the ELF
 # header. `file` is not guaranteed present in the images, so the machine field
@@ -74,16 +86,43 @@ print({0x3e: 'amd64', 0xb7: 'arm64'}.get(machine, f'unknown-{machine:#x}'))
 PY
 }
 
-# Architecture of the cached browsers, or empty when the cache is absent.
-cached_arch() {
-  local bin
-  for bin in "${BROWSERS_DIR}"/chromium*-*/chrome-linux/headless_shell \
-             "${BROWSERS_DIR}"/chromium*-*/chrome-linux/chrome; do
+# Architecture of the chromium binary in a directory tree, or empty when there
+# is none. Takes the directory explicitly because each arch now has its own
+# cache slot.
+dir_arch() {
+  local dir="$1" bin
+  for bin in "${dir}"/chromium*-*/chrome-linux/headless_shell \
+             "${dir}"/chromium*-*/chrome-linux/chrome; do
     [[ -f "${bin}" ]] || continue
     elf_arch "${bin}"
     return
   done
   printf ''
+}
+
+# Browser directory names present in a cache slot, comma-joined.
+browsers_in() {
+  find "$1" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null \
+    | sort | paste -sd ',' -
+}
+
+# Rewrite the manifest from whatever is on disk, so it always describes every
+# architecture that is actually cached rather than just the last one fetched.
+write_manifest() {
+  local version="${1:-}"
+  [[ -n "${version}" ]] || version="$(sed -n 's/^playwright_version=//p' "${MANIFEST}" 2>/dev/null | head -1)"
+  mkdir -p "${CACHE_DIR}"
+  {
+    printf '# mogo playwright browser cache\n'
+    printf '# generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'playwright_version=%s\n' "${version}"
+    local arch dir
+    for arch in ${ARCH_LIST}; do
+      dir="$(browsers_dir_for "${arch}")"
+      [[ -d "${dir}" ]] || continue
+      printf 'arch_%s=%s\n' "${arch}" "$(browsers_in "${dir}")"
+    done
+  } > "${MANIFEST}"
 }
 
 usage() {
@@ -93,7 +132,8 @@ Usage:
                                                           architecture (arm64|amd64)
   scripts/playwright_browsers_bundle.sh save [image]     Cache browsers from an image and
                                                           write the bundle into the build context
-  scripts/playwright_browsers_bundle.sh pack             Re-pack the bundle from base-images/playwright
+  scripts/playwright_browsers_bundle.sh pack             Re-pack the bundle from
+                                                          base-images/playwright/browsers
   scripts/playwright_browsers_bundle.sh list             Show cache + bundle status
   scripts/playwright_browsers_bundle.sh verify [image]   Check /ms-playwright inside an image,
                                                           including that chromium launches
@@ -102,13 +142,19 @@ Environment:
   DOCKER_BIN        Docker binary to use (default: docker)
   IMAGE             Image for save/verify (default: chat-api:latest)
   ARCH              Architecture for fetch/save (default: host architecture)
+  ARCH_LIST         Architectures to pack, side by side (default: arm64 amd64)
   PLAYWRIGHT_VERSION  Version for fetch (default: read from chat-api requirements.txt)
   PLAYWRIGHT_DOWNLOAD_HOST  Browser CDN (default: npmmirror)
 
+The cache is per architecture (base-images/playwright/browsers/<arch>/), and the
+bundle carries them as top-level <arch>/ trees, so a single bundle serves both
+amd64 and arm64 builds; the Dockerfile extracts the one TARGETARCH names.
+Fetching one architecture never evicts the other.
+
 `save` defaults to chat-api:latest, which must already contain /ms-playwright
 (build it once with INSTALL_PLAYWRIGHT_AT_BUILD=true). It copies the browser
-tree into base-images/playwright/, records the playwright version, and packs
-the bundle into the build context so later builds skip the download.
+tree into the arch slot matching the binaries it finds, and packs the bundle
+into the build context so later builds skip the download.
 USAGE
 }
 
@@ -174,27 +220,26 @@ cmd_save() {
   tar -xzf "${tmp_dir}/browsers.tgz" -C "${tmp_dir}"
   [[ -d "${tmp_dir}/ms-playwright" ]] || die "ms-playwright/ tree not found after extraction."
 
-  rm -rf "${BROWSERS_DIR}"
-  mkdir -p "${BROWSERS_DIR}"
-  # Cache root = contents of /ms-playwright, so pack/extract round-trips
-  # straight into PLAYWRIGHT_BROWSERS_PATH.
-  cp -R "${tmp_dir}/ms-playwright/." "${BROWSERS_DIR}/"
-
-  local browser_dirs
-  browser_dirs="$(find "${BROWSERS_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | paste -sd ',' -)"
+  # The arch comes from the chromium binary itself, not from the host: an amd64
+  # image can be inspected from an arm64 laptop, and writing it into the wrong
+  # slot would poison that slot for real amd64 builds.
+  local src="${tmp_dir}/ms-playwright"
   local bin_arch
-  bin_arch="$(cached_arch)"
+  bin_arch="$(dir_arch "${src}")"
   [[ -n "${bin_arch}" ]] \
-    || die "No chromium binary found under ${BROWSERS_DIR}; refusing to record an unusable cache."
-  {
-    printf '# mogo playwright browser cache\n'
-    printf '# generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    printf '# source image: %s\n' "${image}"
-    printf 'playwright_version=%s\n' "${version}"
-    printf 'arch=%s\n' "${bin_arch}"
-    printf 'browsers=%s\n' "${browser_dirs}"
-  } > "${MANIFEST}"
-  printf 'Wrote %s (arch=%s)\n' "${MANIFEST}" "${bin_arch}"
+    || die "No chromium binary found in ${image}; refusing to record an unusable cache."
+
+  local dest
+  dest="$(browsers_dir_for "${bin_arch}")"
+  rm -rf "${dest}"
+  mkdir -p "${dest}"
+  # Cache root = contents of /ms-playwright, so pack/extract round-trips
+  # straight into PLAYWRIGHT_BROWSERS_PATH. Only this arch's slot is replaced;
+  # the other architecture's cache is left untouched.
+  cp -R "${src}/." "${dest}/"
+
+  write_manifest "${version}"
+  printf 'Cached %s browsers into %s\n' "${bin_arch}" "${dest}"
 
   cmd_pack
 }
@@ -224,25 +269,27 @@ cmd_fetch() {
 
   printf 'Downloading playwright %s browsers for linux/%s ...\n' "${version}" "${arch}"
 
-  # Incremental cache: reuse browsers already under BROWSERS_DIR so a re-run
+  # Incremental cache: reuse browsers already in this arch's slot so a re-run
   # (e.g. after a version bump or a partial download) only fetches what
   # changed, instead of wiping ~900MB and re-downloading everything.
-  # A cache built for a *different* arch cannot be reused (the revision dirs
-  # share names), so clear it only in that conflicting case.
+  # A cache built for a *different* arch cannot live in this slot (the revision
+  # dirs share names), so clear it -- but only this slot, never the other arch.
+  local dest
+  dest="$(browsers_dir_for "${arch}")"
   local cached
-  cached="$(cached_arch)"
+  cached="$(dir_arch "${dest}")"
   if [[ -n "${cached}" && "${cached}" != "${arch}" ]]; then
-    printf '  cache holds %s binaries; clearing for linux/%s ...\n' "${cached}" "${arch}"
-    rm -rf "${BROWSERS_DIR}"
+    printf '  %s holds %s binaries; clearing for linux/%s ...\n' "${dest}" "${cached}" "${arch}"
+    rm -rf "${dest}"
   fi
-  mkdir -p "${BROWSERS_DIR}"
+  mkdir -p "${dest}"
 
   # The download runs in a container of the target architecture so the CDN
   # serves the matching build; the host architecture is irrelevant. The
   # existing cache is mounted as PLAYWRIGHT_BROWSERS_PATH, so `playwright
   # install` skips already-present browsers and downloads only the missing ones.
   "${DOCKER_BIN}" run --rm --platform "linux/${arch}" \
-    -v "${ROOT_DIR}/${BROWSERS_DIR}:/out" \
+    -v "${ROOT_DIR}/${dest}:/out" \
     -e PLAYWRIGHT_BROWSERS_PATH=/out \
     -e PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST}" \
     "python:3.13-slim-bookworm" bash -c "
@@ -258,33 +305,20 @@ cmd_fetch() {
   # original guard (a literal glob inside [[ ]]) could never match and would
   # always report "No chromium binary". Use a loop, which does expand globs.
   local found=0
-  for b in "${BROWSERS_DIR}"/chromium_headless_shell-*/chrome-linux/headless_shell \
-           "${BROWSERS_DIR}"/chromium-*/chrome-linux/chrome; do
+  for b in "${dest}"/chromium_headless_shell-*/chrome-linux/headless_shell \
+           "${dest}"/chromium-*/chrome-linux/chrome; do
     [[ -x "${b}" ]] && { found=1; break; }
   done
   [[ "${found}" -eq 1 ]] \
     || die "No chromium binary was downloaded for ${arch}."
 
   local got_arch
-  for candidate in "${BROWSERS_DIR}"/chromium*-*/chrome-linux/headless_shell; do
-    [[ -f "${candidate}" ]] || continue
-    got_arch="$(elf_arch "${candidate}")"
-    break
-  done
+  got_arch="$(dir_arch "${dest}")"
   [[ "${got_arch}" == "${arch}" ]] \
     || die "Downloaded browsers are ${got_arch:-unknown}, expected ${arch}."
 
-  local browser_dirs
-  browser_dirs="$(find "${BROWSERS_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | paste -sd ',' -)"
-  {
-    printf '# mogo playwright browser cache\n'
-    printf '# generated: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    printf '# source: %s (playwright %s)\n' "${PLAYWRIGHT_DOWNLOAD_HOST}" "${version}"
-    printf 'playwright_version=%s\n' "${version}"
-    printf 'arch=%s\n' "${arch}"
-    printf 'browsers=%s\n' "${browser_dirs}"
-  } > "${MANIFEST}"
-  printf 'Wrote %s (arch=%s)\n' "${MANIFEST}" "${arch}"
+  write_manifest "${version}"
+  printf 'Cached %s browsers into %s\n' "${arch}" "${dest}"
 
   cmd_pack
 }
@@ -303,16 +337,39 @@ requirements_playwright_version() {
 
 cmd_pack() {
   [[ -d "${BROWSERS_DIR}" ]] \
-    || die "No cached browsers at ${BROWSERS_DIR}. Run save first."
+    || die "No cached browsers at ${BROWSERS_DIR}. Run fetch or save first."
 
-  local count
-  count="$(find "${BROWSERS_DIR}" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
-  [[ "${count}" -gt 0 ]] || die "${BROWSERS_DIR} is empty."
+  # One bundle carries every architecture as a top-level <arch>/ tree, mirroring
+  # the pip and apt bundles; the Dockerfile extracts only the one TARGETARCH
+  # names. Missing arches are simply absent -- a single-arch bundle still works,
+  # the image falls back to the network for the other one.
+  local arch dir n total=0
+  local packed_archs=()
+  for arch in ${ARCH_LIST}; do
+    dir="$(browsers_dir_for "${arch}")"
+    [[ -d "${dir}" ]] || continue
+    n="$(find "${dir}" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+    [[ "${n}" -gt 0 ]] || continue
+    packed_archs+=("${arch}")
+    total=$((total + n))
+  done
+  [[ "${#packed_archs[@]}" -gt 0 ]] \
+    || die "No cached browsers under ${BROWSERS_DIR}. Run fetch or save first."
 
-  printf 'Packing %s -> %s ...\n' "${BROWSERS_DIR}" "${BUNDLE_PATH}"
-  # Bundle root = contents of /ms-playwright so the Dockerfile can extract
-  # directly into PLAYWRIGHT_BROWSERS_PATH.
-  #
+  printf 'Packing %s (%s) -> %s ...\n' \
+    "${BROWSERS_DIR}" "${packed_archs[*]}" "${BUNDLE_PATH}"
+
+  # The fingerprint covers every arch slot plus the arch list, so dropping an
+  # architecture (or changing ARCH_LIST) invalidates a previously packed bundle.
+  local fp
+  fp="$(bundle_fingerprint "${BROWSERS_DIR}") arch=${ARCH_LIST}"
+  if bundle_fp_hit "${BUNDLE_PATH}" "${fp}"; then
+    printf '\nBundle unchanged: %s (%s); nothing to rebuild.\n' \
+      "${BUNDLE_PATH}" "$(human_size "$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')")"
+    printf 'The COPY layer stays cached.\n'
+    return 0
+  fi
+
   # Pack from a throwaway copy: bundle_pack rewrites mtimes to make the archive
   # reproducible, and stamping the durable base-images/playwright cache with
   # that fixed date would be a side effect the cache never asked for. The copy
@@ -321,10 +378,12 @@ cmd_pack() {
   local staging
   staging="$(bundle_stage_dir)" || die "Cannot create a staging directory."
   trap 'rm -rf "${staging:-}" 2>/dev/null || true' EXIT
-  bundle_clone "${BROWSERS_DIR}" "${staging}"
+  for arch in "${packed_archs[@]}"; do
+    bundle_clone "$(browsers_dir_for "${arch}")" "${staging}/${arch}"
+  done
 
   local rc=0
-  bundle_pack "${BUNDLE_PATH}" "${staging}" "$(bundle_fingerprint "${BROWSERS_DIR}")" || rc=$?
+  bundle_pack "${BUNDLE_PATH}" "${staging}" "${fp}" || rc=$?
   rm -rf "${staging}" 2>/dev/null || true
   [[ "${rc}" -le 1 ]] || die "Packing ${BUNDLE_PATH} failed."
 
@@ -340,8 +399,8 @@ cmd_pack() {
   local out_size entries
   out_size="$(wc -c < "${BUNDLE_PATH}" | tr -d ' ')"
   entries="$(tar -tzf "${BUNDLE_PATH}" | grep -c -v '/$' || true)"
-  printf '\nBundle written: %s (%s, %s files)\n' \
-    "${BUNDLE_PATH}" "$(human_size "${out_size}")" "${entries}"
+  printf '\nBundle written: %s (%s, %s files; arches: %s)\n' \
+    "${BUNDLE_PATH}" "$(human_size "${out_size}")" "${entries}" "${packed_archs[*]}"
   printf 'Rebuild the image to use it:\n'
   printf '  docker compose -f docker-compose.yml -f docker-compose.build.yml build chat-api\n'
   printf 'The COPY layer re-executes only when this tar.gz changes; same bundle = cached.\n'
@@ -350,16 +409,24 @@ cmd_pack() {
 cmd_list() {
   printf 'Playwright browser cache:\n\n'
 
-  if [[ -d "${BROWSERS_DIR}" ]]; then
-    local size
-    size="$(du -sk "${BROWSERS_DIR}" | cut -f1)"
-    printf '  [cache]     %s  (%s)\n' "${BROWSERS_DIR}" "$(human_size "$((size * 1024))")"
-    find "${BROWSERS_DIR}" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | sed 's/^/                /'
-  else
-    printf '  [missing]   %s  - run save first\n' "${BROWSERS_DIR}"
-  fi
+  local any=0 arch dir
+  for arch in ${ARCH_LIST}; do
+    dir="$(browsers_dir_for "${arch}")"
+    if [[ -d "${dir}" ]] && [[ -n "$(browsers_in "${dir}")" ]]; then
+      any=1
+      local size
+      size="$(du -sk "${dir}" | cut -f1)"
+      printf '  [cache]     %-6s %s  (%s)\n' "${arch}" "${dir}" "$(human_size "$((size * 1024))")"
+      printf '                       %s\n' "$(browsers_in "${dir}")"
+    else
+      printf '  [missing]   %-6s %s  - run: %s fetch %s\n' \
+        "${arch}" "${dir}" "$0" "${arch}"
+    fi
+  done
+  [[ "${any}" -eq 1 ]] || printf '\n  (no architecture cached yet)\n'
 
   if [[ -f "${MANIFEST}" ]]; then
+    printf '\n'
     sed 's/^/                /' "${MANIFEST}"
   fi
 
