@@ -602,7 +602,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  padding: 12px;
 }
 
 .metric-card,
