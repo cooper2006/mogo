@@ -1,0 +1,225 @@
+/* =============================================================================
+ * MOGO Design Tokens — admin-web
+ * -----------------------------------------------------------------------------
+ * 唯一权威：docs/design-system.md
+ * 与 apps/user-web/src/styles/tokens.css 保持同源（两个 SPA 各自独立构建，
+ * 故以「同源文件 + 相同变量名」而非 npm 包方式共享）。
+ *
+ * 使用规则（强制）：
+ *   1. 页面 / 组件样式只允许引用语义层 token（--mg-*），不得直接写十六进制色值。
+ *   2. 深色主题不需要在组件里写 html.dark 覆盖块，只需在语义层重定义一次。
+ *   3. 新增 token 必须同时补齐 light / dark 两套取值，否则视为不完整。
+ *
+ * 分层：
+ *   L1 palette  —— 原始色阶，仅供本文件内部使用
+ *   L2 semantic —— 语义色，页面唯一可用层
+ *   L3 component—— 组件级组合值（圆角 / 阴影 / 尺寸）
+ * ========================================================================== */
+
+:root {
+  /* ---------- L1 palette（勿在业务代码中直接引用） ---------- */
+  --mg-palette-blue-50: #eef3ff;
+  --mg-palette-blue-100: #dbe6ff;
+  --mg-palette-blue-200: #c0d2ff;
+  --mg-palette-blue-500: #366aff;
+  --mg-palette-blue-600: #2757e6;
+  --mg-palette-blue-700: #2248b8;
+  --mg-palette-slate-0: #ffffff;
+  --mg-palette-slate-25: #fafbfe;
+  --mg-palette-slate-50: #f5f7fc;
+  --mg-palette-slate-100: #eef2f9;
+  --mg-palette-slate-200: #e3e9f4;
+  --mg-palette-slate-300: #cfd9ea;
+  --mg-palette-slate-500: #8a94a8;
+  --mg-palette-slate-600: #6b7688;
+  --mg-palette-slate-700: #4a5773;
+  --mg-palette-slate-900: #101c3d;
+  --mg-palette-navy-900: #0e1420;
+  --mg-palette-navy-800: #161e2e;
+  --mg-palette-navy-700: #1b2436;
+  --mg-palette-navy-600: #263044;
+  --mg-palette-navy-500: #35415a;
+
+  /* ---------- L2 semantic：表面 ---------- */
+  --mg-bg-app: var(--mg-palette-slate-50);
+  --mg-bg-surface: var(--mg-palette-slate-0);
+  --mg-bg-surface-hover: var(--mg-palette-slate-25);
+  --mg-bg-subtle: var(--mg-palette-slate-100);
+  --mg-bg-inset: #edf1f8;
+  --mg-bg-overlay: rgba(16, 28, 61, 0.42);
+  --mg-bg-inverse: var(--mg-palette-slate-900);
+
+  /* ---------- L2 semantic：文本（三级层次） ---------- */
+  --mg-text-1: var(--mg-palette-slate-900); /* 标题 / 主内容 */
+  --mg-text-2: var(--mg-palette-slate-700); /* 正文 / 次要信息 */
+  --mg-text-3: var(--mg-palette-slate-500); /* 说明 / 占位 / 时间戳 */
+  --mg-text-disabled: #b3bccb;
+  --mg-text-on-brand: #ffffff;
+  --mg-text-link: var(--mg-palette-blue-700);
+
+  /* ---------- L2 semantic：边框与分隔 ---------- */
+  --mg-border: var(--mg-palette-slate-200);
+  --mg-border-strong: var(--mg-palette-slate-300);
+  --mg-border-subtle: #edf1f8;
+  --mg-divider: #edf1f8;
+
+  /* ---------- L2 semantic：品牌 ---------- */
+  --mg-brand: var(--mg-palette-blue-500);
+  --mg-brand-hover: #5580ff;
+  --mg-brand-pressed: var(--mg-palette-blue-600);
+  --mg-brand-soft: var(--mg-palette-blue-50);
+  --mg-brand-soft-hover: #e4ecff;
+  --mg-brand-soft-border: var(--mg-palette-blue-100);
+  --mg-brand-text: var(--mg-palette-blue-700);
+
+  /* ---------- L2 semantic：状态（text / bg / border 三元组） ---------- */
+  --mg-success-text: #127a44;
+  --mg-success-bg: #eafaf1;
+  --mg-success-border: #c7efdb;
+  --mg-warning-text: #a35a06;
+  --mg-warning-bg: #fff7e8;
+  --mg-warning-border: #fbe0b8;
+  --mg-danger-text: #c0293f;
+  --mg-danger-bg: #fff0f3;
+  --mg-danger-border: #ffd3dd;
+  --mg-info-text: var(--mg-palette-blue-700);
+  --mg-info-bg: var(--mg-palette-blue-50);
+  --mg-info-border: var(--mg-palette-blue-100);
+  --mg-neutral-text: var(--mg-palette-slate-600);
+  --mg-neutral-bg: #f2f5fa;
+  --mg-neutral-border: #e1e7f1;
+
+  /* ---------- L2 semantic：资产评级 L1–L4（L4 为最高级） ---------- */
+  --mg-level-l1-bg: #f1f3f7;
+  --mg-level-l1-text: #5b6472;
+  --mg-level-l2-bg: #e8f1fd;
+  --mg-level-l2-text: #2f6fd6;
+  --mg-level-l3-bg: #fdf1e3;
+  --mg-level-l3-text: #b87413;
+  --mg-level-l4-bg: #e7f6ec;
+  --mg-level-l4-text: #1a8a4c;
+
+  /* ---------- L3 component：阴影 ---------- */
+  --mg-shadow-xs: 0 1px 2px rgba(16, 38, 84, 0.05);
+  --mg-shadow-sm: 0 2px 8px rgba(16, 38, 84, 0.06);
+  --mg-shadow-md: 0 6px 20px rgba(16, 38, 84, 0.07);
+  --mg-shadow-lg: 0 16px 40px rgba(16, 38, 84, 0.1);
+  --mg-shadow-card: var(--mg-shadow-md);
+
+  /* ---------- L3 component：圆角 ---------- */
+  --mg-radius-xs: 4px;
+  --mg-radius-sm: 6px;
+  --mg-radius-md: 10px;
+  --mg-radius-lg: 14px;
+  --mg-radius-xl: 18px;
+  --mg-radius-pill: 999px;
+
+  /* ---------- L3 component：间距（4px 基准） ---------- */
+  --mg-space-1: 4px;
+  --mg-space-2: 8px;
+  --mg-space-3: 12px;
+  --mg-space-4: 16px;
+  --mg-space-5: 20px;
+  --mg-space-6: 24px;
+  --mg-space-8: 32px;
+  --mg-space-10: 40px;
+
+  /* ---------- L3 component：字体 ---------- */
+  --mg-font-sans: "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mg-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --mg-font-size-xs: 12px;
+  --mg-font-size-sm: 13px;
+  --mg-font-size-base: 14px;
+  --mg-font-size-lg: 16px;
+  --mg-font-size-xl: 20px;
+  --mg-font-size-2xl: 26px;
+  --mg-font-size-3xl: 30px;
+  --mg-line-tight: 1.25;
+  --mg-line-normal: 1.5;
+  --mg-line-relaxed: 1.7;
+  --mg-weight-regular: 400;
+  --mg-weight-medium: 500;
+  --mg-weight-semibold: 600;
+  --mg-weight-bold: 700;
+
+  /* ---------- L3 component：动效 ---------- */
+  --mg-transition-fast: 0.15s ease;
+  --mg-transition-base: 0.2s ease;
+
+  /* ---------- L3 component：布局骨架 ---------- */
+  --mg-page-max-width: 1440px;
+  --mg-page-padding-x: 24px;
+  --mg-page-padding-y: 20px;
+  --mg-header-height: 62px;
+  --mg-z-header: 10;
+  --mg-z-overlay: 100;
+}
+
+/* =============================================================================
+ * 深色主题
+ * 同时命中 admin-web 的 html.dark 与 user-web 的 html.theme-dark，
+ * 便于两个 SPA 共用同一套 token 语义。
+ * ========================================================================== */
+html.dark,
+html.theme-dark {
+  --mg-bg-app: var(--mg-palette-navy-900);
+  --mg-bg-surface: var(--mg-palette-navy-800);
+  --mg-bg-surface-hover: var(--mg-palette-navy-700);
+  --mg-bg-subtle: #1a2231;
+  --mg-bg-inset: #111926;
+  --mg-bg-overlay: rgba(4, 8, 16, 0.62);
+  --mg-bg-inverse: #f5f7fc;
+
+  --mg-text-1: #e8edf7;
+  --mg-text-2: #b3bed2;
+  --mg-text-3: #7c879b;
+  --mg-text-disabled: #56617a;
+  --mg-text-on-brand: #0b1020;
+  --mg-text-link: #a8c2ff;
+
+  --mg-border: var(--mg-palette-navy-600);
+  --mg-border-strong: var(--mg-palette-navy-500);
+  --mg-border-subtle: #1f2839;
+  --mg-divider: #1f2839;
+
+  --mg-brand: #6b93ff;
+  --mg-brand-hover: #8aabff;
+  --mg-brand-pressed: #4f7bf5;
+  --mg-brand-soft: rgba(107, 147, 255, 0.16);
+  --mg-brand-soft-hover: rgba(107, 147, 255, 0.24);
+  --mg-brand-soft-border: rgba(107, 147, 255, 0.32);
+  --mg-brand-text: #a8c2ff;
+
+  --mg-success-text: #6ee7a8;
+  --mg-success-bg: rgba(74, 222, 128, 0.14);
+  --mg-success-border: rgba(74, 222, 128, 0.3);
+  --mg-warning-text: #fbbf24;
+  --mg-warning-bg: rgba(251, 191, 36, 0.14);
+  --mg-warning-border: rgba(251, 191, 36, 0.3);
+  --mg-danger-text: #fca5a5;
+  --mg-danger-bg: rgba(248, 113, 113, 0.14);
+  --mg-danger-border: rgba(248, 113, 113, 0.3);
+  --mg-info-text: #a8c2ff;
+  --mg-info-bg: rgba(107, 147, 255, 0.14);
+  --mg-info-border: rgba(107, 147, 255, 0.3);
+  --mg-neutral-text: #b3bed2;
+  --mg-neutral-bg: rgba(148, 163, 184, 0.14);
+  --mg-neutral-border: rgba(148, 163, 184, 0.26);
+
+  --mg-level-l1-bg: rgba(148, 163, 184, 0.14);
+  --mg-level-l1-text: #b3bed2;
+  --mg-level-l2-bg: rgba(107, 147, 255, 0.16);
+  --mg-level-l2-text: #a8c2ff;
+  --mg-level-l3-bg: rgba(251, 191, 36, 0.14);
+  --mg-level-l3-text: #fbbf24;
+  --mg-level-l4-bg: rgba(74, 222, 128, 0.14);
+  --mg-level-l4-text: #6ee7a8;
+
+  --mg-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --mg-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.42);
+  --mg-shadow-md: 0 6px 20px rgba(0, 0, 0, 0.46);
+  --mg-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --mg-shadow-card: none;
+
+  color-scheme: dark;
+}

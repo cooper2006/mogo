@@ -8,39 +8,39 @@
           <div class="detail-head">
             <div>
               <h3>{{ detail.item.name }}</h3>
-              <p class="muted">{{ detail.item.description || '暂无描述' }}</p>
+              <p class="mg-text-3 detail-desc">{{ detail.item.description || t('portal.no_description') }}</p>
             </div>
             <n-tag :type="detail.granted ? 'success' : 'default'" :bordered="false">
-              {{ detail.granted ? '已开通' : '未开通' }}
+              {{ detail.granted ? t('portal.granted') : t('portal.not_granted') }}
             </n-tag>
           </div>
 
           <n-space :size="8" wrap>
             <n-tag size="small" :bordered="false">{{ assetTypeLabel }}</n-tag>
-            <n-tag size="small" :bordered="false">{{ detail.item.category || '未分类' }}</n-tag>
+            <n-tag size="small" :bordered="false">{{ detail.item.category === 'uncategorized' ? t('portal.category.uncategorized') : detail.item.category }}</n-tag>
             <n-tag v-if="detail.item.rating" size="small" type="info" :bordered="false">
-              信任评级 {{ detail.item.rating.level }}
+              {{ t('portal.rating', { level: detail.item.rating.level }) }}
             </n-tag>
-            <n-tag v-if="detail.item.is_low_quality" size="small" type="warning" :bordered="false">低质量提示</n-tag>
+            <n-tag v-if="detail.item.is_low_quality" size="small" type="warning" :bordered="false">{{ t('portal.low_quality') }}</n-tag>
             <n-tag v-for="tag in detail.item.tags" :key="tag" size="small" :bordered="false">{{ tag }}</n-tag>
           </n-space>
 
           <n-descriptions :column="2" size="small" bordered>
-            <n-descriptions-item label="负责人">{{ detail.item.owner || '--' }}</n-descriptions-item>
-            <n-descriptions-item label="角色">{{ detail.item.owner_role || '--' }}</n-descriptions-item>
-            <n-descriptions-item label="效果分">
-              {{ effectScoreText }}
+            <n-descriptions-item :label="t('portal.d.desc_owner')">{{ detail.item.owner || t('portal.d.missing') }}</n-descriptions-item>
+            <n-descriptions-item :label="t('portal.d.desc_role')">{{ detail.item.owner_role || t('portal.d.missing') }}</n-descriptions-item>
+            <n-descriptions-item :label="t('portal.d.effect_score')">
+              {{ effectScoreText || t('portal.d.missing') }}
             </n-descriptions-item>
-            <n-descriptions-item label="样本数">{{ detail.item.effect?.samples ?? '--' }}</n-descriptions-item>
-            <n-descriptions-item label="标识">{{ detail.item.asset_key }}</n-descriptions-item>
-            <n-descriptions-item label="状态">{{ detail.item.state || '--' }}</n-descriptions-item>
+            <n-descriptions-item :label="t('portal.d.samples')">{{ detail.item.effect?.samples ?? t('portal.d.missing') }}</n-descriptions-item>
+            <n-descriptions-item :label="t('portal.d.asset_key')">{{ detail.item.asset_key }}</n-descriptions-item>
+            <n-descriptions-item :label="t('portal.d.state')">{{ detail.item.state || t('portal.d.missing') }}</n-descriptions-item>
           </n-descriptions>
 
           <n-alert v-if="myRequest" type="info" :bordered="false">
             <n-space align="center" :size="8">
-              <span>我的申领：{{ portalStatusLabel(myRequest.status) }}</span>
-              <span v-if="myRequest.decided_reason" class="muted">（{{ myRequest.decided_reason }}）</span>
-              <span v-if="myRequest.expires_at" class="muted">到期时间 {{ formatTime(myRequest.expires_at) }}</span>
+              <span>{{ t('portal.my_request', { status: t(`portal.status.${myRequest.status}`) }) }}</span>
+              <span v-if="myRequest.decided_reason" class="mg-text-3">（{{ myRequest.decided_reason }}）</span>
+              <span v-if="myRequest.expires_at" class="mg-text-3">{{ t('portal.expires', { time: formatTime(myRequest.expires_at) }) }}</span>
             </n-space>
           </n-alert>
 
@@ -53,11 +53,11 @@
             :autosize="{ minRows: 2, maxRows: 4 }"
             maxlength="200"
             show-count
-            placeholder="说明用途，便于审批人判断（可选）"
+            :placeholder="t('portal.apply_reason_placeholder')"
           />
 
           <n-space justify="end">
-            <n-button quaternary @click="emit('close')">关闭</n-button>
+            <n-button quaternary @click="emit('close')">{{ t('portal.close') }}</n-button>
             <n-button
               v-if="canRevoke"
               type="warning"
@@ -65,10 +65,10 @@
               :loading="submitting"
               @click="onRevoke"
             >
-              放弃使用
+              {{ t('portal.revoke') }}
             </n-button>
             <n-button v-if="canApply" type="primary" :loading="submitting" @click="onApply">
-              申领使用
+              {{ t('portal.apply') }}
             </n-button>
           </n-space>
         </n-space>
@@ -80,10 +80,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { NAlert, NButton, NDescriptions, NDescriptionsItem, NInput, NSpace, NSpin, NTag, useMessage } from 'naive-ui'
+import { useI18n } from '@/composables/i18n'
+import { formatAppDateTime } from '@/composables/appTimezone'
 import {
   applyPortalAsset,
   fetchPortalAssetDetail,
-  portalStatusLabel,
   revokeMyPortalRequest,
   type PortalAssetDetail,
   type PortalAssetType,
@@ -93,6 +94,7 @@ import {
 const props = defineProps<{ assetType: PortalAssetType; assetKey: string }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
 
+const { t } = useI18n()
 const message = useMessage()
 const loading = ref(false)
 const submitting = ref(false)
@@ -103,10 +105,12 @@ const resultHint = ref('')
 const resultHintType = ref<'success' | 'info' | 'warning'>('info')
 
 const myRequest = computed(() => detail.value?.my_request || null)
-const assetTypeLabel = computed(() => (props.assetType === 'skill' ? '技能' : '能力资产'))
+const assetTypeLabel = computed(() =>
+  props.assetType === 'skill' ? t('portal.type.skill') : t('portal.type.capability'),
+)
 const effectScoreText = computed(() => {
   const score = detail.value?.item.effect?.effect_score
-  return typeof score === 'number' ? score.toFixed(2) : '--'
+  return typeof score === 'number' ? score.toFixed(2) : t('portal.d.missing')
 })
 
 /** 已开通 / 待审 / 已拒绝 → 不可重复申领。 */
@@ -119,7 +123,7 @@ const canApply = computed(() => {
 
 const canRevoke = computed(() => detail.value?.granted === true)
 
-const formatTime = (value?: string | null) => (value ? new Date(value).toLocaleString() : '--')
+const formatTime = (value?: string | null) => (value ? formatAppDateTime(value) : t('portal.d.missing'))
 
 async function load() {
   loading.value = true
@@ -130,8 +134,8 @@ async function load() {
     const status = err?.response?.status
     error.value =
       status === 404
-        ? '该资产未上架或已下线，无法申领。'
-        : err?.response?.data?.detail || '加载资产详情失败，请稍后重试。'
+        ? t('portal.not_published')
+        : err?.response?.data?.detail || t('portal.load_detail_failed')
   } finally {
     loading.value = false
   }
@@ -149,13 +153,13 @@ async function onApply() {
     })
     if (result.status === 'already_granted') {
       resultHintType.value = 'success'
-      resultHint.value = '你已开通该资产，无需重复申领。'
+      resultHint.value = t('portal.hint.already_granted')
     } else if (result.status === 'pending') {
       resultHintType.value = 'info'
-      resultHint.value = '已提交过申领，正在等待审批。'
+      resultHint.value = t('portal.hint.pending')
     } else {
       resultHintType.value = 'success'
-      resultHint.value = '申领已提交，审批通过后自动开通。'
+      resultHint.value = t('portal.hint.submitted')
     }
     reason.value = ''
     await load()
@@ -164,12 +168,12 @@ async function onApply() {
     const status = err?.response?.status
     if (status === 409) {
       resultHintType.value = 'warning'
-      resultHint.value = '暂时无法确定审批人，请联系管理员。'
+      resultHint.value = t('portal.hint.no_approver')
     } else if (status === 404) {
       resultHintType.value = 'warning'
-      resultHint.value = '该资产已下线，申领失败。'
+      resultHint.value = t('portal.hint.offline')
     } else {
-      message.error(err?.response?.data?.detail || '申领失败，请稍后重试。')
+      message.error(err?.response?.data?.detail || t('portal.apply_failed'))
     }
   } finally {
     submitting.value = false
@@ -181,12 +185,12 @@ async function onRevoke() {
   if (!requestId) return
   submitting.value = true
   try {
-    await revokeMyPortalRequest(requestId, '用户主动放弃')
-    message.success('已放弃该资产的使用权限。')
+    await revokeMyPortalRequest(requestId, t('portal.request.revoke_reason'))
+    message.success(t('portal.revoke_done'))
     await load()
     emit('changed')
   } catch (err: any) {
-    message.error(err?.response?.data?.detail || '操作失败，请稍后重试。')
+    message.error(err?.response?.data?.detail || t('portal.operation_failed'))
   } finally {
     submitting.value = false
   }
@@ -199,18 +203,25 @@ onMounted(load)
 .portal-detail {
   min-height: 120px;
 }
+
 .detail-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--mg-space-3);
 }
+
 .detail-head h3 {
-  margin: 0 0 4px;
-  font-size: 16px;
+  margin: 0 0 var(--mg-space-1);
+  font-size: var(--mg-font-size-lg);
+  font-weight: var(--mg-weight-semibold);
+  color: var(--mg-text-1);
 }
-.detail-head p {
+
+.detail-head p,
+.detail-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--mg-font-size-sm);
+  line-height: var(--mg-line-relaxed);
 }
 </style>

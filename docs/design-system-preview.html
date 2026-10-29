@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MOGO 设计规范 · 令牌与组件预览</title>
+<link rel="stylesheet" href="../apps/admin-web/src/styles/tokens.css" />
+<link rel="stylesheet" href="../apps/admin-web/src/styles/base.css" />
+<style>
+  body { padding: 0; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 64px; }
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 12px 24px;
+    background: color-mix(in srgb, var(--mg-bg-surface) 82%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--mg-border);
+  }
+  .topbar h1 { margin: 0; font-size: 16px; font-weight: 700; color: var(--mg-text-1); }
+  .topbar .sub { font-size: 12px; color: var(--mg-text-3); }
+  .theme-switch { display: inline-flex; gap: 6px; }
+  .theme-switch button {
+    height: 30px; padding: 0 12px; cursor: pointer;
+    border: 1px solid var(--mg-border); border-radius: var(--mg-radius-pill);
+    background: var(--mg-bg-surface); color: var(--mg-text-2);
+    font-size: 12px; font-family: inherit;
+  }
+  .theme-switch button[aria-pressed="true"] {
+    border-color: var(--mg-brand); background: var(--mg-brand-soft); color: var(--mg-brand-text); font-weight: 600;
+  }
+  section { margin-top: 32px; }
+  section > h2 {
+    margin: 0 0 4px; font-size: 15px; font-weight: 700; color: var(--mg-text-1);
+    display: flex; align-items: center; gap: 8px;
+  }
+  section > h2::before {
+    content: ''; width: 3px; height: 14px; border-radius: 2px; background: var(--mg-brand);
+  }
+  section > .hint { margin: 0 0 14px 11px; font-size: 12px; color: var(--mg-text-3); }
+  .grid { display: grid; gap: 12px; }
+  .cols-4 { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .cols-3 { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .swatch { border: 1px solid var(--mg-border); border-radius: var(--mg-radius-md); overflow: hidden; background: var(--mg-bg-surface); }
+  .swatch .chip { height: 46px; }
+  .swatch .meta { padding: 8px 10px; }
+  .swatch .name { font-size: 12px; font-weight: 600; color: var(--mg-text-1); font-family: var(--mg-font-mono); }
+  .swatch .val { font-size: 11px; color: var(--mg-text-3); margin-top: 2px; }
+  .panel { border: 1px solid var(--mg-border); border-radius: var(--mg-radius-lg); background: var(--mg-bg-surface); padding: 16px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+  .type-row { display: flex; align-items: baseline; gap: 14px; padding: 6px 0; border-bottom: 1px dashed var(--mg-divider); }
+  .type-row:last-child { border-bottom: 0; }
+  .type-row .tag { width: 92px; font-size: 11px; color: var(--mg-text-3); font-family: var(--mg-font-mono); }
+  .radius-demo { height: 54px; background: var(--mg-brand-soft); border: 1px solid var(--mg-brand-soft-border); }
+  .shadow-demo { height: 54px; background: var(--mg-bg-surface); border: 1px solid var(--mg-border); border-radius: var(--mg-radius-md); }
+  table.demo { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.demo th {
+    text-align: left; padding: 8px 10px; background: var(--mg-bg-subtle); color: var(--mg-text-2);
+    font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--mg-border);
+  }
+  table.demo td { padding: 9px 10px; border-bottom: 1px solid var(--mg-divider); color: var(--mg-text-1); }
+  table.demo tr:hover td { background: var(--mg-bg-surface-hover); }
+  .btn {
+    height: 32px; padding: 0 14px; border-radius: var(--mg-radius-sm); cursor: pointer;
+    font-size: 13px; font-family: inherit; border: 1px solid transparent;
+  }
+  .btn-primary { background: var(--mg-brand); color: var(--mg-text-on-brand); font-weight: 600; }
+  .btn-ghost { background: var(--mg-brand-soft); border-color: var(--mg-brand-soft-border); color: var(--mg-brand-text); font-weight: 600; }
+  .btn-plain { background: var(--mg-bg-surface); border-color: var(--mg-border); color: var(--mg-text-2); }
+  .note {
+    margin-top: 12px; padding: 10px 12px; border-radius: var(--mg-radius-md);
+    background: var(--mg-info-bg); border: 1px solid var(--mg-info-border);
+    color: var(--mg-info-text); font-size: 12px; line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1>MOGO 设计规范 · 令牌与组件预览</h1>
+    <div class="sub">同一份 tokens.css 驱动浅色 / 深色，页面不再单独写深色覆盖</div>
+  </div>
+  <div class="theme-switch" role="group" aria-label="主题切换">
+    <button type="button" data-mode="light" aria-pressed="true">浅色</button>
+    <button type="button" data-mode="dark" aria-pressed="false">深色</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <section>
+    <h2>品牌色</h2>
+    <p class="hint">品牌色在深色主题下会提亮（#366AFF → #6B93FF），保证在深底上的对比度。</p>
+    <div class="grid cols-4">
+      <div class="swatch"><div class="chip" style="background: var(--mg-brand)"></div><div class="meta"><div class="name">--mg-brand</div><div class="val">主操作 / 选中态</div></div></div>
+      <div class="swatch"><div class="chip" style="background: var(--mg-brand-hover)"></div><div class="meta"><div class="name">--mg-brand-hover</div><div class="val">悬停</div></div></div>
+      <div class="swatch"><div class="chip" style="background: var(--mg-brand-pressed)"></div><div class="meta"><div class="name">--mg-brand-pressed</div><div class="val">按下</div></div></div>
+      <div class="swatch"><div class="chip" style="background: var(--mg-brand-soft)"></div><div class="meta"><div class="name">--mg-brand-soft</div><div class="val">浅底 / 选中背景</div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>表面与文本</h2>
+    <p class="hint">文本只有三级层次：主文本 / 次要文本 / 说明与占位。禁止页面自造灰色。</p>
+    <div class="grid cols-4">
+      <div class="swatch"><div class="chip" style="background: var(--mg-bg-app)"></div><div class="meta"><div class="name">--mg-bg-app</div><div class="val">页面底色</div></div></div>
+      <div class="swatch"><div class="chip" style="background: var(--mg-bg-surface); box-shadow: inset 0 0 0 1px var(--mg-border)"></div><div class="meta"><div class="name">--mg-bg-surface</div><div class="val">卡片 / 弹层</div></div></div>
+      <div class="swatch"><div class="chip" style="background: var(--mg-bg-subtle)"></div><div class="meta"><div class="name">--mg-bg-subtle</div><div class="val">表头 / 分区</div></div></div>
+      <div class="swatch"><div class="chip" style="background: var(--mg-bg-inset)"></div><div class="meta"><div class="name">--mg-bg-inset</div><div class="val">内嵌只读块</div></div></div>
+    </div>
+    <div class="grid cols-3" style="margin-top: 12px">
+      <div class="panel"><div style="color: var(--mg-text-1); font-size: 15px; font-weight: 600">主文本 · --mg-text-1</div><div style="color: var(--mg-text-2); font-size: 13px; margin-top: 6px">次要文本 · --mg-text-2，用于正文与表格内容</div><div style="color: var(--mg-text-3); font-size: 12px; margin-top: 6px">说明文本 · --mg-text-3，用于时间戳、占位、辅助说明</div></div>
+      <div class="panel"><div style="color: var(--mg-text-1); font-size: 13px">分隔线与边框</div><div style="height: 1px; background: var(--mg-border); margin: 10px 0"></div><div style="height: 1px; background: var(--mg-divider); margin: 10px 0"></div><div style="height: 1px; background: var(--mg-border-strong)"></div></div>
+      <div class="panel stack"><span class="mg-badge">中性 · default</span><span class="mg-badge mg-badge--info">信息 · info</span><span class="mg-badge mg-badge--success">成功 · success</span><span class="mg-badge mg-badge--warning">警告 · warning</span><span class="mg-badge mg-badge--danger">失败 · danger</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>字体阶梯</h2>
+    <p class="hint">字号 12 / 13 / 14 / 16 / 20 / 26 / 30；行高 1.25 / 1.5 / 1.7。</p>
+    <div class="panel">
+      <div class="type-row"><span class="tag">--3xl · 30px</span><span style="font-size: var(--mg-font-size-3xl); font-weight: 700; color: var(--mg-text-1)">资产中心总览</span></div>
+      <div class="type-row"><span class="tag">--2xl · 26px</span><span style="font-size: var(--mg-font-size-2xl); font-weight: 700; color: var(--mg-text-1)">指标数值 1,284</span></div>
+      <div class="type-row"><span class="tag">--xl · 20px</span><span style="font-size: var(--mg-font-size-xl); font-weight: 600; color: var(--mg-text-1)">页面标题 · 资产评级</span></div>
+      <div class="type-row"><span class="tag">--lg · 16px</span><span style="font-size: var(--mg-font-size-lg); color: var(--mg-text-1)">卡片标题 / 顶栏标题</span></div>
+      <div class="type-row"><span class="tag">--base · 14px</span><span style="font-size: var(--mg-font-size-base); color: var(--mg-text-2)">正文与表格默认字号，行高 1.5</span></div>
+      <div class="type-row"><span class="tag">--sm · 13px</span><span style="font-size: var(--mg-font-size-sm); color: var(--mg-text-2)">页面描述 / 表单标签</span></div>
+      <div class="type-row"><span class="tag">--xs · 12px</span><span style="font-size: var(--mg-font-size-xs); color: var(--mg-text-3)">说明文字 / 时间戳 / 辅助信息</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>圆角与阴影</h2>
+    <p class="hint">圆角阶梯 4 / 6 / 10 / 14 / 18 / 999。深色主题下卡片阴影收敛为无阴影 + 边框，避免发灰。</p>
+    <div class="grid cols-4">
+      <div><div class="radius-demo" style="border-radius: var(--mg-radius-xs)"></div><div class="val" style="font-size: 11px; color: var(--mg-text-3); margin-top: 6px">--mg-radius-xs · 4</div></div>
+      <div><div class="radius-demo" style="border-radius: var(--mg-radius-sm)"></div><div class="val" style="font-size: 11px; color: var(--mg-text-3); margin-top: 6px">--mg-radius-sm · 6</div></div>
+      <div><div class="radius-demo" style="border-radius: var(--mg-radius-md)"></div><div class="val" style="font-size: 11px; color: var(--mg-text-3); margin-top: 6px">--mg-radius-md · 10</div></div>
+      <div><div class="radius-demo" style="border-radius: var(--mg-radius-lg)"></div><div class="val" style="font-size: 11px; color: var(--mg-text-3); margin-top: 6px">--mg-radius-lg · 14</div></div>
+    </div>
+    <div class="grid cols-3" style="margin-top: 12px">
+      <div class="shadow-demo" style="box-shadow: var(--mg-shadow-sm)"></div>
+      <div class="shadow-demo" style="box-shadow: var(--mg-shadow-md)"></div>
+      <div class="shadow-demo" style="box-shadow: var(--mg-shadow-lg)"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>按钮与标签</h2>
+    <div class="panel">
+      <div class="row">
+        <button class="btn btn-primary" type="button">主要操作</button>
+        <button class="btn btn-ghost" type="button">次要操作</button>
+        <button class="btn btn-plain" type="button">普通按钮</button>
+        <span class="mg-badge mg-badge--success">已上架</span>
+        <span class="mg-badge mg-badge--warning">已停用</span>
+        <span class="mg-badge mg-badge--info">待审批</span>
+        <span class="mg-badge">未上架</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>资产评级分布（L1–L4）</h2>
+    <p class="hint">L4 为最高级。四色只在语义层定义一次，浅深主题各一套取值。</p>
+    <div class="mg-level-grid">
+      <div class="mg-level-cell mg-level-cell--l1"><div class="mg-level-cell__level">L1</div><div class="mg-level-cell__count">128</div><div class="mg-level-cell__label">基础</div></div>
+      <div class="mg-level-cell mg-level-cell--l2"><div class="mg-level-cell__level">L2</div><div class="mg-level-cell__count">64</div><div class="mg-level-cell__label">可信</div></div>
+      <div class="mg-level-cell mg-level-cell--l3"><div class="mg-level-cell__level">L3</div><div class="mg-level-cell__count">21</div><div class="mg-level-cell__label">优良</div></div>
+      <div class="mg-level-cell mg-level-cell--l4"><div class="mg-level-cell__level">L4</div><div class="mg-level-cell__count">7</div><div class="mg-level-cell__label">卓越</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>表格与页面骨架</h2>
+    <p class="hint">表头走 --mg-bg-subtle，行 hover 走 --mg-bg-surface-hover，分隔线走 --mg-divider。</p>
+    <div class="panel" style="padding: 0; overflow: hidden">
+      <table class="demo">
+        <thead>
+          <tr><th>资产</th><th style="width: 110px">类型</th><th style="width: 100px">评级</th><th style="width: 110px">状态</th><th style="width: 150px">上架时间</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><div style="font-weight: 600">合同审查助手</div><div class="mg-caption">skill:contract-review</div></td><td>技能</td><td><span class="mg-badge mg-badge--info">L3</span></td><td><span class="mg-badge mg-badge--success">已上架</span></td><td class="mg-caption">2026-10-28 14:02</td></tr>
+          <tr><td><div style="font-weight: 600">知识库检索</div><div class="mg-caption">capability:kb-search</div></td><td>能力资产</td><td><span class="mg-badge mg-badge--warning">L2</span></td><td><span class="mg-badge">未上架</span></td><td class="mg-caption">—</td></tr>
+          <tr><td><div style="font-weight: 600">代码评审流程</div><div class="mg-caption">skill:code-review</div></td><td>技能</td><td><span class="mg-badge mg-badge--success">L4</span></td><td><span class="mg-badge mg-badge--success">已上架</span></td><td class="mg-caption">2026-10-27 09:41</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      页面骨架固定为：<strong>.mg-page</strong>（容器）→ <strong>PageIntro</strong>（标题 / 描述 / 操作区）→ 卡片或表格。
+      表格页需要撑满高度时用 <strong>.mg-page--flush</strong>。页面内不得再自写 h1/h2 标题块。
+    </div>
+  </section>
+
+</div>
+
+<script>
+  var root = document.documentElement;
+  var buttons = document.querySelectorAll('.theme-switch button');
+
+  function apply(mode) {
+    // 预览页同时兼容 admin-web 的 .dark 与 user-web 的 .theme-dark 约定
+    root.classList.toggle('dark', mode === 'dark');
+    root.classList.toggle('theme-dark', mode === 'dark');
+    root.style.colorScheme = mode === 'dark' ? 'dark' : 'light';
+    buttons.forEach(function (btn) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.mode === mode));
+    });
+  }
+
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () { apply(btn.dataset.mode); });
+  });
+
+  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  apply(prefersDark ? 'dark' : 'light');
+</script>
+</body>
+</html>

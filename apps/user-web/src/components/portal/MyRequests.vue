@@ -7,13 +7,13 @@
           :options="statusOptions"
           size="small"
           style="width: 160px"
-          placeholder="全部状态"
+          :placeholder="t('portal.request.all_status')"
           clearable
           @update:value="load"
         />
-        <span class="muted">{{ total }} 条申领记录</span>
+        <span class="mg-caption">{{ t('portal.request.count', { count: total }) }}</span>
       </n-space>
-      <n-button quaternary size="small" :loading="loading" @click="load">刷新</n-button>
+      <n-button quaternary size="small" :loading="loading" @click="load">{{ t('ui.refresh') }}</n-button>
     </header>
 
     <n-alert v-if="error" type="error" :bordered="false">{{ error }}</n-alert>
@@ -27,7 +27,7 @@
         size="small"
         :pagination="false"
       />
-      <n-empty v-else-if="!loading && !error" description="还没有申领记录，去目录里挑一个资产吧" />
+      <n-empty v-else-if="!loading && !error" :description="t('portal.request.empty')" />
     </n-spin>
   </div>
 </template>
@@ -35,9 +35,10 @@
 <script setup lang="ts">
 import { h, onMounted, ref } from 'vue'
 import { NAlert, NButton, NDataTable, NEmpty, NSelect, NSpace, NSpin, NTag, useDialog, useMessage, type DataTableColumns } from 'naive-ui'
+import { useI18n } from '@/composables/i18n'
+import { formatAppDateTime } from '@/composables/appTimezone'
 import {
   fetchMyPortalRequests,
-  portalStatusLabel,
   revokeMyPortalRequest,
   type PortalAssetType,
   type PortalMyRequest,
@@ -46,6 +47,7 @@ import {
 
 const emit = defineEmits<{ open: [assetType: PortalAssetType, assetKey: string]; changed: [] }>()
 
+const { t } = useI18n()
 const message = useMessage()
 const dialog = useDialog()
 const loading = ref(false)
@@ -55,7 +57,7 @@ const total = ref(0)
 const statusFilter = ref<PortalRequestStatus | null>(null)
 
 const statusOptions = (['applied', 'granted', 'rejected', 'revoked', 'expired'] as PortalRequestStatus[]).map(value => ({
-  label: portalStatusLabel(value),
+  label: t(`portal.status.${value}`),
   value,
 }))
 
@@ -67,22 +69,22 @@ const statusTagType = (status: string) => {
   return 'default'
 }
 
-const formatTime = (value?: string | null) => (value ? new Date(value).toLocaleString() : '--')
+const formatTime = (value?: string | null) => (value ? formatAppDateTime(value) : t('portal.d.missing'))
 
 function revoke(row: PortalMyRequest) {
   dialog.warning({
-    title: '放弃使用',
-    content: `确认放弃「${row.asset_name || row.asset_key}」的使用权限？放弃后需要重新申领。`,
-    positiveText: '确认放弃',
-    negativeText: '取消',
+    title: t('portal.revoke'),
+    content: t('portal.request.confirm_revoke', { name: row.asset_name || row.asset_key }),
+    positiveText: t('portal.request.revoke_confirm'),
+    negativeText: t('ui.cancel'),
     onPositiveClick: async () => {
       try {
-        await revokeMyPortalRequest(row.request_id, '用户主动放弃')
-        message.success('已放弃使用权限。')
+        await revokeMyPortalRequest(row.request_id, t('portal.request.revoke_reason'))
+        message.success(t('portal.request.revoke_success'))
         await load()
         emit('changed')
       } catch (err: any) {
-        message.error(err?.response?.data?.detail || '操作失败，请稍后重试。')
+        message.error(err?.response?.data?.detail || t('portal.operation_failed'))
       }
     },
   })
@@ -90,7 +92,7 @@ function revoke(row: PortalMyRequest) {
 
 const columns: DataTableColumns<PortalMyRequest> = [
   {
-    title: '资产',
+    title: t('portal.request.column.asset'),
     key: 'asset_name',
     render: row =>
       h(
@@ -100,23 +102,23 @@ const columns: DataTableColumns<PortalMyRequest> = [
       ),
   },
   {
-    title: '状态',
+    title: t('portal.request.column.status'),
     key: 'status',
     width: 130,
     render: row =>
-      h(NTag, { type: statusTagType(row.status), size: 'small', bordered: false }, { default: () => portalStatusLabel(row.status) }),
+      h(NTag, { type: statusTagType(row.status), size: 'small', bordered: false }, { default: () => t(`portal.status.${row.status}`) }),
   },
-  { title: '申请时间', key: 'applied_at', width: 180, render: row => formatTime(row.applied_at) },
-  { title: '开通时间', key: 'granted_at', width: 180, render: row => formatTime(row.granted_at) },
-  { title: '到期时间', key: 'expires_at', width: 180, render: row => formatTime(row.expires_at) },
-  { title: '备注', key: 'reason', render: row => row.decided_reason || row.reason || '--' },
+  { title: t('portal.request.column.applied'), key: 'applied_at', width: 180, render: row => formatTime(row.applied_at) },
+  { title: t('portal.request.column.granted'), key: 'granted_at', width: 180, render: row => formatTime(row.granted_at) },
+  { title: t('portal.request.column.expires'), key: 'expires_at', width: 180, render: row => formatTime(row.expires_at) },
+  { title: t('portal.request.column.reason'), key: 'reason', render: row => row.decided_reason || row.reason || t('portal.d.missing') },
   {
-    title: '操作',
+    title: t('portal.request.column.actions'),
     key: 'actions',
     width: 100,
     render: row =>
       row.status === 'granted'
-        ? h(NButton, { size: 'tiny', quaternary: true, type: 'warning', onClick: () => revoke(row) }, { default: () => '放弃' })
+        ? h(NButton, { size: 'tiny', quaternary: true, type: 'warning', onClick: () => revoke(row) }, { default: () => t('portal.request.revoke_confirm') })
         : null,
   },
 ]
@@ -129,7 +131,7 @@ async function load() {
     items.value = page.items
     total.value = page.total
   } catch (err: any) {
-    error.value = err?.response?.data?.detail || '加载我的申领失败，请稍后重试。'
+    error.value = err?.response?.data?.detail || t('portal.request.load_failed')
   } finally {
     loading.value = false
   }
@@ -143,7 +145,7 @@ onMounted(load)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--mg-space-3);
+  margin-bottom: var(--mg-space-3);
 }
 </style>

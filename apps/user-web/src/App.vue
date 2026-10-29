@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect } from 'naive-ui'
+import { naiveThemeOverrides } from './theme/naive'
 import TokenInput from './components/TokenInput.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import ShortcutPreferencesPanel from './components/settings/ShortcutPreferencesPanel.vue'
@@ -626,39 +627,7 @@ const skillTypeOptions = computed(() => [
   { label: locale.value === 'zh' ? '执行' : 'Execution', value: 'execution' },
   { label: locale.value === 'zh' ? '渲染' : 'Renderer', value: 'renderer' },
 ])
-const naiveThemeOverrides = {
-  common: {
-    primaryColor: '#2563eb',
-    primaryColorHover: '#1d4ed8',
-    primaryColorPressed: '#1e40af',
-    primaryColorSuppl: '#2563eb',
-    infoColor: '#2563eb',
-    infoColorHover: '#1d4ed8',
-    infoColorPressed: '#1e40af',
-    borderRadius: '12px',
-  },
-  Input: {
-    caretColor: '#2563eb',
-    borderHover: '#93c5fd',
-    borderFocus: '#2563eb',
-    boxShadowFocus: '0 0 0 2px rgba(37, 99, 235, 0.15)',
-  },
-  Select: {
-    peers: {
-      InternalSelection: {
-        borderHover: '#93c5fd',
-        borderFocus: '#2563eb',
-        boxShadowFocus: '0 0 0 2px rgba(37, 99, 235, 0.15)',
-      },
-    },
-  },
-  Switch: {
-    railColorActive: '#2563eb',
-    railColorActiveHover: '#1d4ed8',
-    buttonColor: '#ffffff',
-    boxShadowFocus: '0 0 0 2px rgba(37, 99, 235, 0.18)',
-  },
-}
+// naive-ui 主题外观统一由 src/theme/naive.ts 提供（引用 CSS 变量，深浅主题自动跟随）
 
 function loadSavedUsers() {
   const raw = localStorage.getItem(authUsersKey)

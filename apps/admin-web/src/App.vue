@@ -2,7 +2,7 @@
   <a href="#main-content" class="skip-link">跳转到主内容</a>
   <n-config-provider
     :theme="themeInstance"
-    :theme-overrides="themeOverrides"
+    :theme-overrides="naiveThemeOverrides"
     :locale="naiveLocale"
     :date-locale="naiveDateLocale"
   >
@@ -21,10 +21,12 @@ import { computed, watch } from 'vue';
 import { zhCN, dateZhCN, enUS, dateEnUS, darkTheme } from 'naive-ui';
 import { useLocale } from '@/composables/i18n';
 import { useTheme } from '@/composables/theme';
+import { naiveThemeOverrides } from '@/theme/naive';
 
 const { locale } = useLocale();
 const { activeTheme } = useTheme();
 
+// 组件外观由 theme/naive.ts 的 CSS 变量引用驱动，深浅主题只需切换 base theme。
 const themeInstance = computed(() => {
   return activeTheme.value === 'dark' ? darkTheme : null;
 });
@@ -44,33 +46,4 @@ watch(
   },
   { immediate: true },
 );
-
-const themeOverrides = {
-  common: {
-    primaryColor: '#366AFF',
-    primaryColorHover: '#5a84ff',
-    primaryColorPressed: '#2757e6',
-    borderRadius: '14px',
-  },
-  Card: {
-    borderRadius: '18px',
-  },
-};
 </script>
-
-<style scoped>
-.skip-link {
-  position: absolute;
-  top: -40px;
-  left: 0;
-  z-index: 1000;
-  padding: 8px 16px;
-  background: #366AFF;
-  color: white;
-  text-decoration: none;
-  transition: top 0.2s;
-}
-.skip-link:focus {
-  top: 0;
-}
-</style>

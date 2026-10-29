@@ -2,104 +2,118 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================================
+ * user-web 全局样式
+ * -----------------------------------------------------------------------------
+ * 1. 前两段为 tailwind 指令，不可移动。
+ * 2. 「遗留兼容层」：历史代码大量使用 tailwind 颜色类（bg-white / text-gray-600 …），
+ *    这里把它们在深色主题下映射到设计令牌。**新增代码不要依赖本层**，
+ *    请直接使用 src/styles/base.css 的语义类（.mg-*）或 var(--mg-*)。
+ *    规范见 docs/design-system.md。
+ * ========================================================================== */
+
 html,
 body,
 #app {
-  background: #ffffff;
+  background: var(--mg-bg-app);
 }
 
 html.theme-dark,
 html.theme-dark body,
 html.theme-dark #app {
-  background: #111827;
+  background: var(--mg-bg-app);
 }
 
+/* ---------- 遗留兼容层：表面 ---------- */
 html.theme-dark .app-shell,
 html.theme-dark .app-main,
 html.theme-dark .bg-white {
-  background-color: #111827 !important;
+  background-color: var(--mg-bg-surface) !important;
 }
 
 html.theme-dark .app-shell > aside,
 html.theme-dark .bg-\[\#f8fafc\] {
-  background-color: #0b1220 !important;
+  background-color: var(--mg-bg-inset) !important;
 }
 
 html.theme-dark .bg-white\/50,
 html.theme-dark .bg-white\/95 {
-  background-color: rgba(17, 24, 39, 0.92) !important;
+  background-color: color-mix(in srgb, var(--mg-bg-surface) 92%, transparent) !important;
 }
 
 html.theme-dark .bg-gray-50,
 html.theme-dark .bg-slate-50 {
-  background-color: #182131 !important;
+  background-color: var(--mg-bg-subtle) !important;
 }
 
 html.theme-dark .bg-gray-100,
 html.theme-dark .bg-slate-100,
 html.theme-dark .bg-gray-200,
 html.theme-dark .bg-slate-200 {
-  background-color: #253044 !important;
+  background-color: var(--mg-bg-inset) !important;
 }
 
 html.theme-dark .bg-blue-50,
 html.theme-dark .bg-blue-100 {
-  background-color: rgba(37, 99, 235, 0.18) !important;
+  background-color: var(--mg-brand-soft) !important;
 }
 
+/* ---------- 遗留兼容层：文本 ---------- */
 html.theme-dark .text-gray-900,
 html.theme-dark .text-slate-900,
 html.theme-dark .text-gray-800,
 html.theme-dark .text-slate-800 {
-  color: #f1f5f9 !important;
+  color: var(--mg-text-1) !important;
 }
 
 html.theme-dark .text-gray-700,
 html.theme-dark .text-slate-700,
 html.theme-dark .text-gray-600,
 html.theme-dark .text-slate-600 {
-  color: #cbd5e1 !important;
+  color: var(--mg-text-2) !important;
 }
 
 html.theme-dark .text-gray-500,
 html.theme-dark .text-slate-500,
 html.theme-dark .text-gray-400,
 html.theme-dark .text-slate-400 {
-  color: #94a3b8 !important;
+  color: var(--mg-text-3) !important;
 }
 
 html.theme-dark .text-blue-700,
 html.theme-dark .text-blue-600,
 html.theme-dark .text-blue-500 {
-  color: #60a5fa !important;
+  color: var(--mg-text-link) !important;
 }
 
+/* ---------- 遗留兼容层：边框 ---------- */
 html.theme-dark .border-gray-100,
 html.theme-dark .border-gray-200,
 html.theme-dark .border-gray-300,
 html.theme-dark .border-slate-100,
 html.theme-dark .border-slate-200,
 html.theme-dark .border-slate-300 {
-  border-color: #334155 !important;
+  border-color: var(--mg-border) !important;
 }
 
+/* ---------- 遗留兼容层：prose ---------- */
 html.theme-dark .prose {
-  --tw-prose-body: #cbd5e1;
-  --tw-prose-headings: #f1f5f9;
-  --tw-prose-lead: #94a3b8;
-  --tw-prose-links: #60a5fa;
-  --tw-prose-bold: #f8fafc;
-  --tw-prose-counters: #94a3b8;
-  --tw-prose-bullets: #64748b;
-  --tw-prose-hr: #334155;
-  --tw-prose-quotes: #e2e8f0;
-  --tw-prose-quote-borders: #475569;
-  --tw-prose-captions: #94a3b8;
-  --tw-prose-code: #f8fafc;
-  --tw-prose-pre-code: #e2e8f0;
-  --tw-prose-pre-bg: #0f172a;
-  --tw-prose-th-borders: #475569;
-  --tw-prose-td-borders: #334155;
+  --tw-prose-body: var(--mg-text-2);
+  --tw-prose-headings: var(--mg-text-1);
+  --tw-prose-lead: var(--mg-text-3);
+  --tw-prose-links: var(--mg-text-link);
+  --tw-prose-bold: var(--mg-text-1);
+  --tw-prose-counters: var(--mg-text-3);
+  --tw-prose-bullets: var(--mg-text-3);
+  --tw-prose-hr: var(--mg-border);
+  --tw-prose-quotes: var(--mg-text-2);
+  --tw-prose-quote-borders: var(--mg-border-strong);
+  --tw-prose-captions: var(--mg-text-3);
+  --tw-prose-code: var(--mg-text-1);
+  --tw-prose-pre-code: var(--mg-text-2);
+  --tw-prose-pre-bg: var(--mg-bg-inset);
+  --tw-prose-th-borders: var(--mg-border-strong);
+  --tw-prose-td-borders: var(--mg-border);
 }
 
 html.theme-dark input,

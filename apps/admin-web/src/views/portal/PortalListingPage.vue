@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { t } from '@/composables/i18n';
 import { computed, h, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   NAlert,
   NButton,
@@ -27,6 +28,7 @@ import {
 
 const message = useMessage();
 const dialog = useDialog();
+const route = useRoute();
 
 const loading = ref(false);
 const errorMsg = ref('');
@@ -46,6 +48,16 @@ const assetTypeOptions = [
 ];
 
 const publishedCount = computed(() => rows.value.filter((row) => row.published).length);
+
+// 045 互链：资产中心带入 asset_type/asset_key 时聚焦到该资产
+const filteredRows = computed(() => {
+  const qType = route.query.asset_type as string | undefined;
+  const qKey = route.query.asset_key as string | undefined;
+  if (qType && qKey) {
+    return rows.value.filter((row) => row.asset_type === qType && row.asset_key === qKey);
+  }
+  return rows.value;
+});
 
 async function load() {
   loading.value = true;
@@ -110,7 +122,7 @@ const columns = computed<DataTableColumns<PortalListing>>(() => [
   {
     title: t('资产'),
     key: 'asset_key',
-    render: (row) => h('div', [h('strong', row.name || row.asset_key), h('div', { class: 'text-xs text-gray-400' }, row.asset_key)]),
+    render: (row) => h('div', [h('strong', row.name || row.asset_key), h('div', { class: 'mg-caption' }, row.asset_key)]),
   },
   {
     title: t('类型'),
@@ -163,7 +175,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="p-4 space-y-4">
+  <div class="mg-page">
     <PageIntro
       :title="t('门户上架')"
       :description="t('把本租户的技能 / 能力资产上架到用户侧资产门户，员工可自助申领。上架即时生效，下架不撤销存量授权。')"
@@ -178,7 +190,7 @@ onMounted(load);
         <NInput v-model:value="form.category" :placeholder="t('分类（可选，缺省 uncategorized）')" style="width: 220px" />
         <NButton type="primary" :loading="publishing" @click="submitPublish">{{ t('上架') }}</NButton>
       </NSpace>
-      <p class="mt-2 text-xs text-gray-400">
+      <p class="mg-caption form-hint">
         {{ t('仅资产 owner 或持 portal:manage 权限的管理员可上架；资产必须处于可用状态。') }}
       </p>
     </NCard>
@@ -188,7 +200,7 @@ onMounted(load);
         <NSpace align="center" justify="space-between">
           <span>{{ t('已上架资产') }}</span>
           <NSpace align="center" :size="8">
-            <span class="text-xs text-gray-400">{{ t('共') }} {{ publishedCount }} {{ t('个已上架') }}</span>
+            <span class="mg-caption">{{ t('共') }} {{ publishedCount }} {{ t('个已上架') }}</span>
             <NSwitch v-model:value="showUnpublished" size="small" @update:value="load">
               <template #checked>{{ t('含已下架') }}</template>
               <template #unchecked>{{ t('仅已上架') }}</template>
@@ -198,8 +210,14 @@ onMounted(load);
         </NSpace>
       </template>
 
-      <NDataTable v-if="rows.length" :columns="columns" :data="rows" :loading="loading" :bordered="false" size="small" :pagination="{ pageSize: 20 }" />
-      <NEmpty v-else :description="t('还没有上架的资产')" />
+      <NDataTable v-if="filteredRows.length" :columns="columns" :data="filteredRows" :loading="loading" :bordered="false" size="small" :pagination="{ pageSize: 20 }" />
+      <NEmpty v-else :description="rows.length ? t('该资产未上架') : t('还没有上架的资产')" />
     </NCard>
   </div>
 </template>
+
+<style scoped>
+.form-hint {
+  margin: var(--mg-space-2) 0 0;
+}
+</style>

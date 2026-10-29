@@ -2,6 +2,9 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { initVitals } from './plugins/vitals'
 import './style.css'
+// 设计规范系统：令牌层 → 语义类层（顺序不可调整，需在 tailwind 之后覆盖）
+import './styles/tokens.css'
+import './styles/base.css'
 
 // /research 子路由（竞品深度调研，产品经理拍板的接入形态）：无 vue-router，按路径分流；
 // nginx try_files 对 /research 回 index.html，由这里挂载对应页面。

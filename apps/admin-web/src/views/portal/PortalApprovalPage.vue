@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { t } from '@/composables/i18n';
-import { computed, h, onMounted, ref, type VNodeChild } from 'vue';
+import { computed, h, onMounted, ref, watch, type VNodeChild } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   NAlert,
   NButton,
@@ -28,6 +29,7 @@ import {
 } from '@/api/portal';
 
 const message = useMessage();
+const route = useRoute();
 
 const tab = ref<'applied' | 'all'>('applied');
 const loading = ref(false);
@@ -51,6 +53,30 @@ const statusOptions = [
 const filterStatus = ref<PortalRequestStatus | 'all'>('all');
 
 const pendingCount = computed(() => rows.value.filter((row) => row.status === 'applied').length);
+
+// 045 互链：资产中心带入 asset_type/asset_key 时切换到 all 标签并聚焦到该资产
+const filteredRows = computed(() => {
+  const qType = route.query.asset_type as string | undefined;
+  const qKey = route.query.asset_key as string | undefined;
+  if (qType && qKey) {
+    return rows.value.filter((row) => row.asset_type === qType && row.asset_key === qKey);
+  }
+  return rows.value;
+});
+
+watch(
+  () => route.query,
+  (query) => {
+    if (query.asset_type && query.asset_key) {
+      if (tab.value !== 'all') {
+        tab.value = 'all';
+      } else {
+        load();
+      }
+    }
+  },
+  { immediate: true },
+);
 
 async function load() {
   loading.value = true;
@@ -153,7 +179,7 @@ const columns: DataTableColumns<PortalApprovalItem> = [
   {
     title: t('资产'),
     key: 'asset_name',
-    render: (row) => h('div', [h('strong', row.asset_name || row.asset_key), h('div', { class: 'text-xs text-gray-400' }, row.asset_key)]),
+    render: (row) => h('div', [h('strong', row.asset_name || row.asset_key), h('div', { class: 'mg-caption' }, row.asset_key)]),
   },
   { title: t('申请人'), key: 'requester_id', width: 140 },
   {
@@ -187,7 +213,7 @@ const columns: DataTableColumns<PortalApprovalItem> = [
       } else if (row.status === 'granted') {
         actions.push(h(NButton, { size: 'tiny', type: 'warning', quaternary: true, onClick: () => openModal(row, 'revoke') }, { default: () => t('回收') }));
       } else if (row.status === 'applied') {
-        actions.push(h('span', { class: 'text-xs text-gray-400' }, t('不可审批（本人或权限不足）')));
+        actions.push(h('span', { class: 'mg-caption' }, t('不可审批（本人或权限不足）')));
       }
       return h(NSpace, { size: 4 }, { default: () => actions });
     },
@@ -198,7 +224,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="p-4 space-y-4">
+  <div class="mg-page">
     <PageIntro
       :title="t('门户审批')"
       :description="t('审批员工的门户申领：批准即写入用户级 asset:use 授权并即时生效；拒绝 / 回收均留审计。不能审批自己提交的申领单。')"
@@ -211,7 +237,7 @@ onMounted(load);
         <NSpace align="center" justify="space-between">
           <span>{{ t('审批队列') }}</span>
           <NSpace align="center" :size="8">
-            <span class="text-xs text-gray-400">{{ t('待审批') }} {{ pendingCount }}</span>
+            <span class="mg-caption">{{ t('待审批') }} {{ pendingCount }}</span>
             <NSelect v-if="tab === 'all'" v-model:value="filterStatus" :options="statusOptions" size="small" style="width: 150px" @update:value="load" />
             <NButton size="small" quaternary :loading="loading" @click="load">{{ t('刷新') }}</NButton>
           </NSpace>
@@ -223,13 +249,13 @@ onMounted(load);
         <NTabPane name="all" :tab="t('全部申领单')" />
       </NTabs>
 
-      <NDataTable v-if="rows.length" :columns="columns" :data="rows" :loading="loading" :bordered="false" size="small" :pagination="{ pageSize: 20 }" />
-      <NEmpty v-else :description="tab === 'applied' ? t('没有待审批的申领') : t('没有申领记录')" />
+      <NDataTable v-if="filteredRows.length" :columns="columns" :data="filteredRows" :loading="loading" :bordered="false" size="small" :pagination="{ pageSize: 20 }" />
+      <NEmpty v-else :description="rows.length ? t('该资产无申领记录') : (tab === 'applied' ? t('没有待审批的申领') : t('没有申领记录'))" />
     </NCard>
 
     <NModal v-model:show="modalVisible" preset="card" :title="modalTitle" style="width: 480px">
       <NSpace vertical :size="12">
-        <div v-if="target" class="text-sm text-gray-600">
+        <div v-if="target" class="mg-text-2 target-line">
           {{ target.asset_name || target.asset_key }} · {{ target.requester_id }}
         </div>
         <NInput
@@ -248,3 +274,9 @@ onMounted(load);
     </NModal>
   </div>
 </template>
+
+<style scoped>
+.target-line {
+  font-size: var(--mg-font-size-sm);
+}
+</style>

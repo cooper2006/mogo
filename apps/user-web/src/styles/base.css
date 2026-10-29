@@ -1,0 +1,300 @@
+/* =============================================================================
+ * MOGO Base Layer — user-web
+ * -----------------------------------------------------------------------------
+ * 与 admin-web 的 base.css 同源（保留各自项目特有的布局差异）。
+ * 所有取值来自 tokens.css 的语义 token，禁止硬编码色值。
+ * 规范文档：docs/design-system.md
+ * ========================================================================== */
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--mg-bg-app);
+  color: var(--mg-text-1);
+  font-family: var(--mg-font-sans);
+  font-size: var(--mg-font-size-base);
+  line-height: var(--mg-line-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:focus-visible {
+  outline: 2px solid var(--mg-brand);
+  outline-offset: 2px;
+  border-radius: var(--mg-radius-xs);
+}
+
+/* -----------------------------------------------------------------------------
+ * 页面骨架
+ * -------------------------------------------------------------------------- */
+.mg-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mg-space-4);
+  min-width: 0;
+  width: 100%;
+  padding: var(--mg-space-4);
+  background: var(--mg-bg-app);
+  color: var(--mg-text-1);
+}
+
+.mg-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mg-space-3);
+  flex-wrap: wrap;
+}
+
+.mg-page-head__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mg-space-1);
+  min-width: 0;
+}
+
+.mg-page-title {
+  margin: 0;
+  font-size: var(--mg-font-size-xl);
+  font-weight: var(--mg-weight-semibold);
+  line-height: var(--mg-line-tight);
+  color: var(--mg-text-1);
+}
+
+.mg-page-desc {
+  margin: 0;
+  font-size: var(--mg-font-size-sm);
+  line-height: var(--mg-line-relaxed);
+  color: var(--mg-text-3);
+  max-width: 72ch;
+}
+
+.mg-page-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mg-space-2);
+  flex-wrap: wrap;
+}
+
+/* -----------------------------------------------------------------------------
+ * 卡片
+ * -------------------------------------------------------------------------- */
+.mg-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--mg-border);
+  border-radius: var(--mg-radius-lg);
+  background: var(--mg-bg-surface);
+  box-shadow: var(--mg-shadow-card);
+}
+
+.mg-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mg-space-3);
+  flex-wrap: wrap;
+  padding: var(--mg-space-3) var(--mg-space-4);
+  border-bottom: 1px solid var(--mg-divider);
+}
+
+.mg-card__title {
+  font-size: var(--mg-font-size-base);
+  font-weight: var(--mg-weight-semibold);
+  color: var(--mg-text-1);
+}
+
+.mg-card__body {
+  padding: var(--mg-space-4);
+}
+
+.mg-card__body--tight {
+  padding: var(--mg-space-3);
+}
+
+/* -----------------------------------------------------------------------------
+ * 工具栏
+ * -------------------------------------------------------------------------- */
+.mg-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mg-space-3);
+  flex-wrap: wrap;
+}
+
+.mg-toolbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mg-space-2);
+  flex-wrap: wrap;
+}
+
+/* -----------------------------------------------------------------------------
+ * 指标 / 评级
+ * -------------------------------------------------------------------------- */
+.mg-stat-grid,
+.mg-level-grid {
+  display: grid;
+  gap: var(--mg-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.mg-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mg-space-1);
+  padding: var(--mg-space-3) var(--mg-space-4);
+  border: 1px solid var(--mg-border);
+  border-radius: var(--mg-radius-md);
+  background: var(--mg-bg-surface);
+}
+
+.mg-stat__label {
+  font-size: var(--mg-font-size-xs);
+  color: var(--mg-text-3);
+}
+
+.mg-stat__value {
+  font-size: var(--mg-font-size-2xl);
+  font-weight: var(--mg-weight-bold);
+  line-height: var(--mg-line-tight);
+  color: var(--mg-text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.mg-stat__foot {
+  font-size: var(--mg-font-size-xs);
+  color: var(--mg-text-3);
+}
+
+.mg-level-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--mg-space-3) var(--mg-space-4);
+  border-radius: var(--mg-radius-md);
+  background: var(--mg-level-l1-bg);
+  color: var(--mg-level-l1-text);
+}
+
+.mg-level-cell--l1 { background: var(--mg-level-l1-bg); color: var(--mg-level-l1-text); }
+.mg-level-cell--l2 { background: var(--mg-level-l2-bg); color: var(--mg-level-l2-text); }
+.mg-level-cell--l3 { background: var(--mg-level-l3-bg); color: var(--mg-level-l3-text); }
+.mg-level-cell--l4 { background: var(--mg-level-l4-bg); color: var(--mg-level-l4-text); }
+
+.mg-level-cell__level {
+  font-size: var(--mg-font-size-xs);
+  font-weight: var(--mg-weight-semibold);
+  letter-spacing: 0.06em;
+}
+
+.mg-level-cell__count {
+  font-size: var(--mg-font-size-2xl);
+  font-weight: var(--mg-weight-bold);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.mg-level-cell__label {
+  font-size: var(--mg-font-size-xs);
+  opacity: 0.78;
+}
+
+/* -----------------------------------------------------------------------------
+ * 文本层级
+ * -------------------------------------------------------------------------- */
+.mg-text-1 { color: var(--mg-text-1); }
+.mg-text-2 { color: var(--mg-text-2); }
+.mg-text-3 { color: var(--mg-text-3); }
+
+.mg-caption {
+  font-size: var(--mg-font-size-xs);
+  line-height: var(--mg-line-normal);
+  color: var(--mg-text-3);
+}
+
+.mg-mono {
+  font-family: var(--mg-font-mono);
+  font-size: var(--mg-font-size-sm);
+  word-break: break-all;
+  color: var(--mg-text-1);
+}
+
+/* -----------------------------------------------------------------------------
+ * 语义徽章
+ * -------------------------------------------------------------------------- */
+.mg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--mg-neutral-border);
+  border-radius: var(--mg-radius-pill);
+  background: var(--mg-neutral-bg);
+  color: var(--mg-neutral-text);
+  font-size: var(--mg-font-size-xs);
+  font-weight: var(--mg-weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mg-badge--success { border-color: var(--mg-success-border); background: var(--mg-success-bg); color: var(--mg-success-text); }
+.mg-badge--warning { border-color: var(--mg-warning-border); background: var(--mg-warning-bg); color: var(--mg-warning-text); }
+.mg-badge--danger { border-color: var(--mg-danger-border); background: var(--mg-danger-bg); color: var(--mg-danger-text); }
+.mg-badge--info { border-color: var(--mg-info-border); background: var(--mg-info-bg); color: var(--mg-info-text); }
+
+/* -----------------------------------------------------------------------------
+ * naive-ui token 对齐（外观由 theme/naive.ts 驱动，此处补结构性缺口）
+ * -------------------------------------------------------------------------- */
+.n-card {
+  --n-color: var(--mg-bg-surface);
+  --n-color-modal: var(--mg-bg-surface);
+  --n-color-popover: var(--mg-bg-surface);
+  --n-border-color: var(--mg-border);
+  --n-text-color: var(--mg-text-1);
+  --n-title-text-color: var(--mg-text-1);
+}
+
+.n-data-table .n-data-table-th {
+  background: var(--mg-bg-subtle);
+  color: var(--mg-text-2);
+  font-weight: var(--mg-weight-semibold);
+}
+
+.n-data-table .n-data-table-td {
+  color: var(--mg-text-1);
+}
+
+.n-data-table .n-data-table-tr:hover .n-data-table-td {
+  background: var(--mg-bg-surface-hover);
+}
+
+.n-empty__description {
+  color: var(--mg-text-3);
+}
+
+/* 主题切换时的整体过渡（避免闪白 / 闪黑） */
+html,
+body,
+.mg-page,
+.mg-card {
+  transition: background-color var(--mg-transition-base), color var(--mg-transition-base),
+    border-color var(--mg-transition-base);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

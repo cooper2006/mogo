@@ -154,65 +154,67 @@ onMounted(loadAll);
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div class="mg-page">
     <PageIntro title="资产中心" description="统一查看技能与能力资产的上架、评级与申领状态。" />
 
     <NAffix :offset-distance="80">
-      <div class="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
-        <div class="flex flex-wrap items-center gap-4">
-          <div>
-            <div class="text-xs text-gray-500">资产类型</div>
-            <NSelect
-              v-model:value="assetCategory"
-              :options="[{ label: '全部', value: 'all' }, ...categoryOptions]"
-              style="width: 160px"
-            />
-          </div>
-          <div class="text-sm text-gray-600">
-            技能 <span class="font-medium">{{ categorySummary.skill }}</span>
-            · MCP <span class="font-medium">{{ categorySummary.mcp }}</span>
-            · 工具 <span class="font-medium">{{ categorySummary.tool }}</span>
-            · 连接器 <span class="font-medium">{{ categorySummary.connector }}</span>
-          </div>
-          <NButton size="small" :loading="loading" @click="loadAll">刷新</NButton>
+      <div class="filter-bar">
+        <div class="filter-field">
+          <div class="mg-caption">资产类型</div>
+          <NSelect
+            v-model:value="assetCategory"
+            :options="[{ label: '全部', value: 'all' }, ...categoryOptions]"
+            style="width: 160px"
+          />
         </div>
+        <div class="summary-line mg-text-2">
+          技能 <strong>{{ categorySummary.skill }}</strong>
+          · MCP <strong>{{ categorySummary.mcp }}</strong>
+          · 工具 <strong>{{ categorySummary.tool }}</strong>
+          · 连接器 <strong>{{ categorySummary.connector }}</strong>
+        </div>
+        <NButton size="small" :loading="loading" @click="loadAll">刷新</NButton>
       </div>
     </NAffix>
 
-    <div v-if="loading" class="py-16 text-center text-gray-500">加载中…</div>
+    <div v-if="loading" class="state-block mg-text-3">加载中…</div>
 
-    <div v-else-if="error" class="rounded-lg border border-red-200 bg-red-50 px-4 py-8 text-center text-red-700">
-      {{ error }}
-      <div class="mt-2 text-xs">
+    <div v-else-if="error" class="state-block state-block--error">
+      <div>{{ error }}</div>
+      <div class="state-retry">
         <NButton size="tiny" @click="loadAll">重试</NButton>
       </div>
     </div>
 
-    <NEmpty v-else-if="filteredRows.length === 0" description="暂无资产，请调整筛选或先在各管理页上架资产。" class="py-16" />
+    <NEmpty
+      v-else-if="filteredRows.length === 0"
+      description="暂无资产，请调整筛选或先在各管理页上架资产。"
+      class="state-block"
+    />
 
-    <div v-else class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+    <div v-else class="asset-grid">
       <NCard v-for="row in filteredRows" :key="row.key" size="small" hoverable class="asset-card">
-        <div class="flex items-start justify-between gap-4">
-          <div class="min-w-0">
-            <div class="font-medium text-gray-900 truncate">{{ row.name }}</div>
-            <div class="mt-1 flex items-center gap-2 text-xs text-gray-500">
+        <div class="asset-row">
+          <div class="asset-main">
+            <div class="asset-name">{{ row.name }}</div>
+            <div class="asset-meta mg-caption">
               <span>{{ row.assetType === 'skill' ? '技能' : '能力资产' }}</span>
-              <span>·</span>
+              <span aria-hidden="true">·</span>
               <span>{{ row.category }}</span>
-              <span>·</span>
+              <span aria-hidden="true">·</span>
               <span>已授权 {{ row.grantCount }} 次</span>
             </div>
-            <div v-if="row.recentGrant" class="mt-1 text-xs text-gray-400 truncate">
+            <div v-if="row.recentGrant" class="asset-grant mg-caption">
               最近申领：{{ row.recentGrant.asset_name }} · {{ row.recentGrant.granted_at || row.recentGrant.decided_at }}
             </div>
           </div>
-          <div class="flex flex-wrap items-center gap-1.5">
+          <div class="asset-tags">
             <NTag v-if="row.listed" type="success" size="small">已上架</NTag>
             <NTag v-else type="default" size="small">未上架</NTag>
             <NTag v-if="row.level" size="small" :bordered="false">评级 {{ row.level }}</NTag>
           </div>
         </div>
-        <div class="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3">
+        <div class="asset-actions">
           <NButton size="tiny" quaternary @click="goTrustRating(row)">评级</NButton>
           <NButton size="tiny" quaternary @click="goPortalListing(row)">上架</NButton>
           <NButton size="tiny" quaternary @click="goPortalApproval(row)">申领</NButton>
@@ -223,10 +225,115 @@ onMounted(loadAll);
 </template>
 
 <style scoped>
-.asset-card {
-  transition: box-shadow 0.15s ease;
+/* 颜色与间距全部来自设计令牌（styles/tokens.css），深色主题自动跟随。 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--mg-space-4);
+  flex-wrap: wrap;
+  padding: var(--mg-space-3) var(--mg-space-4);
+  border: 1px solid var(--mg-border);
+  border-radius: var(--mg-radius-lg);
+  background: var(--mg-bg-surface);
+  box-shadow: var(--mg-shadow-sm);
 }
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mg-space-1);
+}
+
+.summary-line {
+  font-size: var(--mg-font-size-sm);
+}
+
+.summary-line strong {
+  color: var(--mg-text-1);
+  font-weight: var(--mg-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.state-block {
+  padding: var(--mg-space-8) var(--mg-space-4);
+  text-align: center;
+}
+
+.state-block--error {
+  border: 1px solid var(--mg-danger-border);
+  border-radius: var(--mg-radius-lg);
+  background: var(--mg-danger-bg);
+  color: var(--mg-danger-text);
+}
+
+.state-retry {
+  margin-top: var(--mg-space-2);
+}
+
+.asset-grid {
+  display: grid;
+  gap: var(--mg-space-3);
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+}
+
+.asset-card {
+  transition: box-shadow var(--mg-transition-fast), border-color var(--mg-transition-fast);
+}
+
 .asset-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: var(--mg-brand-soft-border);
+  box-shadow: var(--mg-shadow-md);
+}
+
+.asset-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mg-space-4);
+}
+
+.asset-main {
+  min-width: 0;
+}
+
+.asset-name {
+  font-size: var(--mg-font-size-base);
+  font-weight: var(--mg-weight-medium);
+  color: var(--mg-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mg-space-1);
+  margin-top: var(--mg-space-1);
+  flex-wrap: wrap;
+}
+
+.asset-grant {
+  margin-top: var(--mg-space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.asset-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--mg-space-2);
+  margin-top: var(--mg-space-3);
+  padding-top: var(--mg-space-3);
+  border-top: 1px solid var(--mg-divider);
 }
 </style>

@@ -1,22 +1,23 @@
 <template>
-  <div class="page-stack trust-page">
-    <div class="trust-head">
-      <div class="trust-head-title">
-        <h2>{{ t('资产评级') }}</h2>
-        <span class="trust-head-sub">{{ t('L1–L4 资产评级与变更管理') }}</span>
-      </div>
-      <n-space :size="10">
+  <div class="mg-page--flush">
+    <PageIntro :title="t('资产评级')" :description="t('L1–L4 资产评级与变更管理')">
+      <template #actions>
         <n-button secondary :loading="loading" @click="loadAll">{{ t('刷新') }}</n-button>
         <n-button secondary @click="openSettings">{{ t('降级设置') }}</n-button>
-      </n-space>
-    </div>
+      </template>
+    </PageIntro>
 
     <n-card class="shell-card" :bordered="false" size="small">
-      <div class="dist-row">
-        <div v-for="item in distributionCards" :key="item.level" class="dist-cell" :class="`dist-cell-${item.level.toLowerCase()}`">
-          <div class="dist-level">{{ item.level }}</div>
-          <div class="dist-count">{{ item.count }}</div>
-          <div class="dist-label">{{ item.label }}</div>
+      <div class="mg-level-grid">
+        <div
+          v-for="item in distributionCards"
+          :key="item.level"
+          class="mg-level-cell"
+          :class="`mg-level-cell--${item.level.toLowerCase()}`"
+        >
+          <div class="mg-level-cell__level">{{ item.level }}</div>
+          <div class="mg-level-cell__count">{{ item.count }}</div>
+          <div class="mg-level-cell__label">{{ item.label }}</div>
         </div>
       </div>
     </n-card>
@@ -129,9 +130,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue';
+import { computed, h, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useMessage, NButton, NSpace, NTag, type DataTableColumns, type FormInst, type FormRules } from 'naive-ui';
 import { t } from '@/composables/i18n';
+import PageIntro from '@/components/PageIntro.vue';
 import { formatAdminDateTime } from '@/composables/adminTimezone';
 import { fetchSkills, type SkillItem } from '@/api/skills';
 import {
@@ -148,6 +151,7 @@ import {
 } from '@/api/trustRatings';
 
 const message = useMessage();
+const route = useRoute();
 
 const loading = ref(false);
 const rows = ref<TrustRating[]>([]);
@@ -218,9 +222,17 @@ function levelLabel(level: string): string {
 }
 
 const filteredRows = computed(() => {
-  const keyword = filters.value.level;
-  if (!keyword) return rows.value;
-  return rows.value.filter((row) => row.level === keyword);
+  let result = rows.value;
+  if (filters.value.level) {
+    result = result.filter((row) => row.level === filters.value.level);
+  }
+  // 045 互链：资产中心带入 asset_type/asset_key 时聚焦到该资产
+  const qType = route.query.asset_type as string | undefined;
+  const qKey = route.query.asset_key as string | undefined;
+  if (qType && qKey) {
+    result = result.filter((row) => row.asset_type === qType && row.asset_key === qKey);
+  }
+  return result;
 });
 
 const columns: DataTableColumns<TrustRating> = [
@@ -291,6 +303,13 @@ async function loadSkillNames() {
 
 async function loadList() {
   try {
+    // 045 互链：仅对合法 TrustAssetType 设置 API 过滤；capability_asset 等取全部后客户端过滤
+    const qType = route.query.asset_type as string | undefined;
+    if (qType && ['skill', 'agent', 'workflow'].includes(qType)) {
+      filters.value.assetType = qType as TrustAssetType;
+    } else {
+      filters.value.assetType = null;
+    }
     rows.value = await fetchTrustRatings({ assetType: filters.value.assetType ?? undefined });
   } catch (err: any) {
     message.error(err?.response?.data?.detail || t('加载评级失败'));
@@ -321,6 +340,16 @@ async function loadAll() {
     loading.value = false;
   }
 }
+
+// 045 互链：路由 query 变化时重载评级列表（资产中心切换资产）
+watch(
+  () => route.query,
+  () => {
+    if (route.query.asset_type || route.query.asset_key) {
+      loadList();
+    }
+  },
+);
 
 // --- change modal ----------------------------------------------------------
 
@@ -449,164 +478,116 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.trust-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: 100%;
-  min-height: 0;
-}
-.trust-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.trust-head-title h2 {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 650;
-  color: #0f172a;
-}
-.trust-head-sub {
-  color: #8b97a8;
-  font-size: 13px;
-}
-.shell-card {
-  flex-shrink: 0;
-}
+/* 页面骨架由 .mg-page--flush + .mg-level-grid 提供（见 styles/base.css），
+   此处只保留本页特有的布局，颜色一律引用设计令牌。 */
 .list-card {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
+
 .list-filter-row {
   display: flex;
   align-items: center;
-  margin-bottom: 14px;
+  margin-bottom: var(--mg-space-3);
 }
+
 .filter-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
 }
+
 .filter-left {
   flex-wrap: wrap;
 }
+
 .table-shell {
   flex: 1;
   min-height: 0;
 }
+
 .table-spin {
   height: 100%;
 }
+
 .trust-table {
   height: 100%;
 }
+
 .key-cell {
-  color: #0f172a;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
+  color: var(--mg-text-1);
+  font-family: var(--mg-font-mono);
+  font-size: var(--mg-font-size-sm);
   word-break: break-all;
 }
-.dist-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-.dist-cell {
-  border-radius: 8px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.dist-level {
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-}
-.dist-count {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-.dist-label {
-  font-size: 12px;
-  opacity: 0.75;
-}
-.dist-cell-l1 {
-  background: #f1f3f7;
-  color: #5b6472;
-}
-.dist-cell-l2 {
-  background: #e8f1fd;
-  color: #2f6fd6;
-}
-.dist-cell-l3 {
-  background: #fdf1e3;
-  color: #d9821f;
-}
-.dist-cell-l4 {
-  background: #e7f6ec;
-  color: #1f9d57;
-}
+
 .change-meta {
-  background: #f8fafc;
-  border-radius: 8px;
-  padding: 12px 14px;
-  margin-bottom: 16px;
+  background: var(--mg-bg-subtle);
+  border-radius: var(--mg-radius-md);
+  padding: var(--mg-space-3) var(--mg-space-4);
+  margin-bottom: var(--mg-space-4);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--mg-space-2);
 }
+
 .change-meta-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: #475569;
+  gap: var(--mg-space-3);
+  font-size: var(--mg-font-size-base);
+  color: var(--mg-text-2);
 }
+
 .change-meta-row > span:first-child {
   width: 70px;
-  color: #8b97a8;
+  color: var(--mg-text-3);
 }
+
 .change-meta-row strong {
-  color: #0f172a;
+  color: var(--mg-text-1);
   word-break: break-all;
 }
+
 .change-hint {
-  color: #8b97a8;
-  font-size: 13px;
+  color: var(--mg-text-3);
+  font-size: var(--mg-font-size-sm);
 }
+
 .change-history {
-  margin-top: 16px;
-  border-top: 1px solid #eef1f5;
-  padding-top: 12px;
+  margin-top: var(--mg-space-4);
+  border-top: 1px solid var(--mg-divider);
+  padding-top: var(--mg-space-3);
 }
+
 .change-history-title {
-  font-size: 13px;
-  font-weight: 650;
-  color: #8b97a8;
-  margin-bottom: 8px;
+  font-size: var(--mg-font-size-sm);
+  font-weight: var(--mg-weight-semibold);
+  color: var(--mg-text-3);
+  margin-bottom: var(--mg-space-2);
 }
+
 .change-history-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 13px;
-  color: #475569;
+  gap: var(--mg-space-3);
+  font-size: var(--mg-font-size-sm);
+  color: var(--mg-text-2);
   line-height: 26px;
 }
+
 .change-history-row > span:first-child {
   width: 90px;
-  color: #8b97a8;
+  color: var(--mg-text-3);
 }
+
 .settings-hint {
-  margin-top: 12px;
-  color: #8b97a8;
-  font-size: 13px;
+  margin-top: var(--mg-space-3);
+  color: var(--mg-text-3);
+  font-size: var(--mg-font-size-sm);
   line-height: 20px;
 }
 </style>
