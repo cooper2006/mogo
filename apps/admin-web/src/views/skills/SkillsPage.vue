@@ -729,7 +729,7 @@ onMounted(() => {
 .list-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .skill-grid {
