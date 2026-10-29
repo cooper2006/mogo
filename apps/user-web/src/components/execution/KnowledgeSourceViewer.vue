@@ -1473,9 +1473,9 @@ onBeforeUnmount(() => {
 .pdf-source-layer :deep(.pdf-source-page) {
   position: relative;
   flex: 0 0 auto;
-  border: 1px solid #d9e2ef;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
   overflow: hidden;
 }

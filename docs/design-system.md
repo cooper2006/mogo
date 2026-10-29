@@ -254,17 +254,24 @@ node scripts/check_design_tokens.mjs --json    # 机器可读
 
 ### 9.2 待迁移（按优先级）
 
-巡检当前基线：**error 63 / warn 18**，其中 **admin-web 已归零**，剩余全部在 user-web：
+**巡检已全站清零：error 0 / warn 0。**
 
-1. `components/MySkillConfigPage.vue`（221 处，全站最多）
-2. `components/MyToolsPage.vue`（59）、`components/MySkillsPage.vue`（43）
-3. `components/PresentationEditor.vue`（69）、`components/scheduled-tasks/ScheduledTaskPage.vue`（28）
-4. `components/code/*`（9 个组件，已有 `theme-dark` 覆盖但覆盖不全）
-5. `components/desktop/*`（窗口外壳、更新提示）
-6. `components/browser/*`、`components/ChatWindow.vue`
-7. `research/ResearchPage.vue`、`components/orchestration/OrchestrationCanvasPage.vue`
+第三批（user-web 深色收口）已完成：83 个文件、约 700 处硬编码色值改为令牌，同时扩展了 Tailwind 颜色类兼容层（85 种 / 843 处 100% 覆盖）。
 
-迁移方式固定为三步：**替换色值为令牌 → 删除 `html.dark` / `.theme-dark` 覆盖块 → 跑巡检确认该文件不再命中 R2/R3**。
+| 范围 | 说明 |
+| --- | --- |
+| 技能与工具 | `MySkillConfigPage`（221 处，全站最多）、`MyToolsPage`、`MySkillsPage`、`SkillConfigPage`、`SkillsPage`、`components/skills/*`（11 个） |
+| 代码工作区 | `components/code/*`（含 UnifiedDiffView / WorkspaceChanges / GitCommitDialog 等 18 个） |
+| 浏览器与桌面 | `components/browser/*`（6 个）、`components/desktop/*` |
+| 知识库 | `components/knowledge/*`（9 个） |
+| 执行与编排 | `features/execution-v3/*`（5 个）、`components/orchestration/*`、`components/execution/*` |
+| 其他 | `ChatWindow`、`PresentationEditor`、`ScheduledTaskPage`、`ShortcutPreferencesPanel`、`ResearchPage`、`App.vue` |
+
+**Tailwind 颜色类兼容层**（`apps/user-web/src/style.css`）：user-web 的颜色主要来自 Tailwind 类（843 处），逐个改 template 风险高，因此在深色主题下把 `text-*/bg-*/border-*/ring-*/divide-*` 的 85 种颜色类统一映射到令牌。分组规则：
+
+- 浅底 `50/100/200` → `--mg-bg-subtle` / `--mg-bg-inset` / `--mg-border`
+- 深字 `800/900/950` → `--mg-text-1`，`600/700` → `--mg-text-2`，`300/400/500` → `--mg-text-3`
+- 语义色（blue/red/amber/green/indigo…）→ 对应状态令牌
 
 ### 9.3 刻意保留的例外
 
@@ -275,6 +282,12 @@ node scripts/check_design_tokens.mjs --json    # 机器可读
 ```
 
 巡检遇到该注释会跳过整个文件。**不要用它来掩盖普通的硬编码色值。**
+
+### 9.4 已知限制
+
+1. **user-web 保留了 `:global(html.theme-dark)` 覆盖块**。这些块内部的值已令牌化，与基础规则重复，属于冗余但无害的双保险。保留原因：`components/code/*`、`components/browser/*` 等大量使用**单行压缩 CSS**，一次性删除覆盖的风险高于收益。后续若重排这些文件，可同步删除。
+2. **压缩 CSS 的批量替换需注意**：单行压缩样式里最后一条声明常无分号结尾，按 `prop: value;` 匹配会漏掉它。转换脚本必须允许声明末尾无分号，否则会出现「覆盖被删、基础规则没令牌化」的回归。
+3. **代码高亮色板、图表系列色、8 位带 alpha 的 hex 不参与令牌化**。这些是独立的配色系统（语法高亮需要区分 10+ 种 token 颜色），强行映射到语义令牌会丢失区分度，保持原值。
 
 ## 10. 相关文件
 

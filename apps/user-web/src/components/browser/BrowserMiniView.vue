@@ -124,25 +124,25 @@ onBeforeUnmount(stopPolling)
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, .52);
   border-radius: 14px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 18px 44px rgba(15, 23, 42, .2), 0 3px 10px rgba(15, 23, 42, .1);
 }
-.browser-mini__header { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 4px 4px 14px; border-bottom: 1px solid #e2e8f0; }
+.browser-mini__header { display: flex; min-height: 52px; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 4px 4px 14px; border-bottom: 1px solid var(--mg-border); }
 .browser-mini__identity { display: flex; min-width: 0; align-items: center; gap: 9px; }
 .browser-mini__status { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
 .browser-mini__status.loading { animation: browser-mini-pulse 1.3s ease-in-out infinite; }
 .browser-mini__heading { min-width: 0; line-height: 1.2; }
 .browser-mini__heading strong, .browser-mini__heading span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.browser-mini__heading strong { max-width: 205px; color: #0f172a; font-size: 13px; font-weight: 650; }
-.browser-mini__heading span { margin-top: 3px; color: #64748b; font-size: 11px; }
+.browser-mini__heading strong { max-width: 205px; color: var(--mg-text-1); font-size: 13px; font-weight: 650; }
+.browser-mini__heading span { margin-top: 3px; color: var(--mg-text-3); font-size: 11px; }
 .browser-mini__actions { display: flex; flex: none; }
-.browser-mini__actions button { display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 9px; color: #64748b; background: transparent; cursor: pointer; }
-.browser-mini__actions button:hover { color: #0f172a; background: #f1f5f9; }
+.browser-mini__actions button { display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 9px; color: var(--mg-text-3); background: transparent; cursor: pointer; }
+.browser-mini__actions button:hover { color: var(--mg-text-1); background: var(--mg-bg-subtle); }
 .browser-mini__actions button:focus-visible, .browser-mini__stage:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
 .browser-mini__actions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.browser-mini__stage { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; padding: 0; overflow: hidden; border: 0; background: #0f172a; cursor: zoom-in; }
+.browser-mini__stage { position: relative; display: block; width: 100%; aspect-ratio: 16 / 10; padding: 0; overflow: hidden; border: 0; background: var(--mg-bg-app); cursor: zoom-in; }
 .browser-mini__stage img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; user-select: none; }
-.browser-mini__placeholder { display: flex; height: 100%; align-items: center; justify-content: center; gap: 8px; color: #cbd5e1; font-size: 12px; }
+.browser-mini__placeholder { display: flex; height: 100%; align-items: center; justify-content: center; gap: 8px; color: var(--mg-text-2); font-size: 12px; }
 .browser-mini__placeholder svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .browser-mini__hint { position: absolute; right: 9px; bottom: 9px; padding: 4px 7px; border-radius: 6px; color: #fff; background: rgba(15, 23, 42, .72); font-size: 10px; opacity: 0; transition: opacity .16s ease; }
 .browser-mini__stage:hover .browser-mini__hint, .browser-mini__stage:focus-visible .browser-mini__hint { opacity: 1; }

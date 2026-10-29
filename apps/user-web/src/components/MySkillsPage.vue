@@ -606,7 +606,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  background: #f6f8fc;
+  background: var(--mg-bg-subtle);
   padding: 12px;
 }
 
@@ -617,8 +617,8 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 
 .shell-card {
   border-radius: 14px;
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }
 
@@ -648,8 +648,8 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 }
 
 .metric-card {
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
 }
 
@@ -686,33 +686,33 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 }
 
 .metric-icon-total {
-  color: #2d63ff;
-  background: #eaf0ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
 }
 
 .metric-icon-writing {
-  color: #0f9964;
-  background: #e8f8ef;
+  color: var(--mg-success-text);
+  background: var(--mg-success-bg);
 }
 
 .metric-icon-workflow {
-  color: #d9860a;
-  background: #fff2df;
+  color: var(--mg-warning-text);
+  background: var(--mg-warning-bg);
 }
 
 .metric-icon-config {
-  color: #7456e0;
-  background: #f0ebff;
+  color: var(--mg-accent-violet-text);
+  background: var(--mg-accent-violet-bg);
 }
 
 .metric-label {
-  color: #606f8a;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.3;
 }
 
 .metric-value {
-  color: #0f1f45;
+  color: var(--mg-text-1);
   font-size: 24px;
   font-weight: 600;
   line-height: 1.1;
@@ -720,7 +720,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 
 .metric-note {
   margin-top: 6px;
-  color: #708099;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
@@ -746,7 +746,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 .list-filter-row {
   padding: 0 44px 12px;
   margin: 0 -44px 12px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .list-body {
@@ -766,7 +766,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   padding: 14px;
   border: 1px solid rgba(28, 45, 82, 0.08);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow:
     0 8px 18px rgba(15, 31, 69, 0.06),
     0 1px 2px rgba(15, 31, 69, 0.04);
@@ -805,18 +805,18 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 }
 
 .card-time {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .card-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
 }
 
 .card-desc {
-  color: #5f6f85;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.55;
   display: -webkit-box;
@@ -844,12 +844,12 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   gap: 8px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #f6f9ff;
-  border: 1px solid #e3ebfb;
+  background: var(--mg-brand-soft);
+  border: 1px solid var(--mg-border);
 }
 
 .card-switch-label {
-  color: #4a5d7c;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1;
 }
@@ -869,7 +869,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   min-width: 30px;
   padding: 0 7px;
   border-radius: 999px;
-  color: #667085;
+  color: var(--mg-text-2);
 }
 
 .feedback-btn :deep(svg) {
@@ -883,15 +883,15 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 }
 
 .feedback-btn-unread {
-  color: #2459e8;
-  background: #edf3ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
 }
 
 .feedback-count { margin-left: 4px; font-size: 11px; font-weight: 700; }
-.feedback-unread-dot { position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border: 1px solid #fff; border-radius: 50%; background: #e5484d; }
+.feedback-unread-dot { position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border: 1px solid #fff; border-radius: 50%; background: var(--mg-danger-text); }
 
 .delete-btn:hover {
-  color: #d03050;
+  color: var(--mg-danger-text);
 }
 
 .skill-card-disabled {
@@ -907,7 +907,7 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 
 .empty-shell {
   min-height: 320px;
-  border: 1px dashed #d8e2f2;
+  border: 1px dashed var(--mg-border);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -927,9 +927,9 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
   width: 54px;
   height: 36px;
   border-radius: 10px;
-  border: 1px solid #d8e2f2;
-  background: #fff;
-  color: #2d63ff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
+  color: var(--mg-brand);
   display: grid;
   place-items: center;
   font-size: 11px;
@@ -939,24 +939,24 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 
 .empty-visual span:nth-child(2) {
   transform: translateY(-4px);
-  border-color: #cbd8ef;
-  color: #7456e0;
+  border-color: var(--mg-border);
+  color: var(--mg-accent-violet-text);
 }
 
 .empty-title {
-  color: #1a2744;
+  color: var(--mg-text-1);
   font-size: 15px;
   font-weight: 700;
 }
 
 .empty-desc {
-  color: #6c7c94;
+  color: var(--mg-text-3);
   font-size: 13px;
   margin-bottom: 4px;
 }
 
 .edit-type-value {
-  color: #738096;
+  color: var(--mg-text-3);
   font-size: 13px;
 }
 

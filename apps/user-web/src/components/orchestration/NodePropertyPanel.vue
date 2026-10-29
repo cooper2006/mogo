@@ -238,7 +238,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
   gap: 12px;
 }
 .orchestration-panel__empty {
-  color: var(--text-3, #909399);
+  color: var(--text-3, var(--mg-text-3));
   font-size: 13px;
 }
 .row {
@@ -253,7 +253,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
 }
 .label {
   font-size: 12px;
-  color: var(--text-2, #606266);
+  color: var(--text-2, var(--mg-text-3));
 }
 .unknown-keys {
   margin: 6px 0 0;
@@ -264,7 +264,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
   align-self: flex-start;
   margin-top: 4px;
   padding: 4px 10px;
-  border: 1px solid var(--border-color, #dcdfe6);
+  border: 1px solid var(--border-color, var(--mg-brand-soft-border));
   border-radius: 4px;
   background: transparent;
   cursor: pointer;

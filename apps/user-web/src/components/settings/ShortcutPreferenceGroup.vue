@@ -41,12 +41,12 @@ function groupIcon(group: ShortcutGroup): string {
 </template>
 
 <style scoped>
-.group-card{overflow:hidden;border:1px solid #dfe7f4;border-radius:14px;background:#fff}.group-card.locked{background:#fbfcff}
-header{display:flex;align-items:center;gap:10px;min-height:50px;padding:10px 14px;background:#f7f9ff;border-bottom:1px solid #e8edf7}
-header strong{flex:1;color:#26344a}.count,.lock-label{font-size:12px;color:#71809b}.lock-label{border-radius:20px;background:#e9eef9;padding:3px 9px}
+.group-card{overflow:hidden;border: 1px solid #dfe7f4;border-radius: 14px;background:#fff}.group-card.locked{background:#fbfcff}
+header{display:flex;align-items:center;gap:10px;min-height:50px;padding:10px 14px;background: #f7f9ff;border-bottom:1px solid #e8edf7}
+header strong{flex:1;color:#26344a}.count,.lock-label{font-size:12px;color:#71809b}.lock-label{border-radius: 20px;background: #e9eef9;padding:3px 9px}
 .group-icon,.entry-icon{display:flex;width:24px;height:24px;align-items:center;justify-content:center;color:#3769d4}.group-icon :deep(svg),.entry-icon :deep(svg){width:18px;height:18px}
 .entry-row{display:flex;align-items:center;gap:8px;min-height:52px;padding:8px 14px;border-bottom:1px solid #edf1f7}.entry-row:last-child{border-bottom:0}
 .entry-name{display:grid;flex:1;min-width:0}.entry-name strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#29364b}.entry-name small{font-size:11px;color:#91a0b5}
 .group-card :deep(button),.group-card :deep(.n-button),.group-card :deep(.n-button__content){cursor:pointer!important}.group-card :deep(button:disabled),.group-card :deep(.n-button--disabled),.group-card :deep(.n-button--disabled .n-button__content){cursor:not-allowed!important}
-.group-card :deep(.shortcut-action-button){border-radius:6px;cursor:pointer!important}.group-card :deep(.shortcut-action-button:hover){background:#eef4ff;color:#2563eb}.group-card :deep(.shortcut-action-button.n-button--error-type:hover){background:#fff1f2;color:#dc2626}.shortcut-icon-button{display:inline-flex;width:28px;min-width:28px;height:28px;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;color:#334155;background:transparent;font:inherit;line-height:1;cursor:pointer}.shortcut-icon-button:hover{background:#eef4ff;color:#2563eb}.shortcut-icon-button:disabled{cursor:not-allowed;opacity:.35}
+.group-card :deep(.shortcut-action-button){border-radius: 6px;cursor:pointer!important}.group-card :deep(.shortcut-action-button:hover){background: var(--mg-brand-soft);color:#2563eb}.group-card :deep(.shortcut-action-button.n-button--error-type:hover){background: var(--mg-danger-bg);color:#dc2626}.shortcut-icon-button{display:inline-flex;width:28px;min-width:28px;height:28px;align-items:center;justify-content:center;padding:0;border: 0;border-radius: 6px;color: var(--mg-text-1);background: transparent;font:inherit;line-height:1;cursor:pointer}.shortcut-icon-button:hover{background: var(--mg-brand-soft);color:#2563eb}.shortcut-icon-button:disabled{cursor:not-allowed;opacity:.35}
 </style>

@@ -49,7 +49,7 @@ function focusAddress(event: FocusEvent) {
 
 <style scoped>
 .address-form { min-width: 0; width: 100%; }
-.address-input { box-sizing: border-box; width: 100%; height: 32px; border: 1px solid transparent; border-radius: 7px; outline: none; background: #f1f5f9; padding: 0 11px; color: #334155; font-size: 12px; letter-spacing: 0; }
-.address-input:hover { background: #eaf0f6; }
-.address-input:focus { border-color: #93c5fd; background: white; box-shadow: 0 0 0 1px #bfdbfe; }
+.address-input { box-sizing: border-box; width: 100%; height: 32px; border: 1px solid transparent; border-radius: 7px; outline: none; background: var(--mg-bg-subtle); padding: 0 11px; color: var(--mg-text-1); font-size: 12px; letter-spacing: 0; }
+.address-input:hover { background: var(--mg-bg-subtle); }
+.address-input:focus { border-color: var(--mg-brand-soft-border); background: white; box-shadow: 0 0 0 1px #bfdbfe; }
 </style>

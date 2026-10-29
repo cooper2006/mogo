@@ -40,5 +40,5 @@ defineExpose({ load })
 </script>
 
 <style scoped>
-.updates{display:grid;gap:10px;margin-bottom:16px;padding:14px;border:1px solid #fde4b2;border-radius:12px;background:#fffaf0}.updates header,.updates article{display:flex;align-items:center;justify-content:space-between;gap:12px}.updates header{justify-content:flex-start}.updates article{padding:12px;border-radius:9px;background:#fff}.updates p,.updates small{display:block;margin:3px 0 0;color:#78859a}.updates small{max-width:680px;white-space:pre-wrap}.updates .warning{color:#b54708}
+.updates{display:grid;gap:10px;margin-bottom:16px;padding:14px;border: 1px solid var(--mg-warning-border);border-radius: 12px;background:#fffaf0}.updates header,.updates article{display:flex;align-items:center;justify-content:space-between;gap:12px}.updates header{justify-content:flex-start}.updates article{padding:12px;border-radius: 9px;background:#fff}.updates p,.updates small{display:block;margin:3px 0 0;color:#78859a}.updates small{max-width:680px;white-space:pre-wrap}.updates .warning{color:#b54708}
 </style>

@@ -9,5 +9,5 @@ defineProps<{ item: ExecutionItemV3 }>()
 </template>
 
 <style scoped>
-.commentary-copy { margin:5px 0 8px; color:#27364a; font-size:14px; line-height:1.72; white-space:pre-wrap; overflow-wrap:anywhere; }
+.commentary-copy { margin:5px 0 8px; color: var(--mg-text-1); font-size:14px; line-height:1.72; white-space:pre-wrap; overflow-wrap:anywhere; }
 </style>

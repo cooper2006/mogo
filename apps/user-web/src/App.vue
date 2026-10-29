@@ -3147,7 +3147,7 @@ onBeforeUnmount(() => {
   left: 0;
   z-index: 1000;
   padding: 8px 16px;
-  background: #366AFF;
+  background: var(--mg-brand);
   color: white;
   text-decoration: none;
   transition: top 0.2s;
@@ -3171,9 +3171,9 @@ onBeforeUnmount(() => {
   grid-template-columns: 168px minmax(0, 1fr);
   min-height: 420px;
   overflow: hidden;
-  border: 1px solid #e8edf5;
+  border: 1px solid var(--mg-border);
   border-radius: 16px;
-  background: #fbfcfe;
+  background: var(--mg-bg-surface);
 }
 
 .personalization-nav {
@@ -3181,8 +3181,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 4px;
   padding: 14px 10px;
-  border-right: 1px solid #e8edf5;
-  background: #f6f8fc;
+  border-right: 1px solid var(--mg-border);
+  background: var(--mg-bg-subtle);
 }
 
 .personalization-nav-item {
@@ -3193,7 +3193,7 @@ onBeforeUnmount(() => {
   padding: 0 12px;
   border: 0;
   border-radius: 9px;
-  color: #64748b;
+  color: var(--mg-text-3);
   background: transparent;
   font-size: 13px;
   text-align: left;
@@ -3202,13 +3202,13 @@ onBeforeUnmount(() => {
 }
 
 .personalization-nav-item:hover {
-  color: #2563eb;
-  background: #eef4ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
 }
 
 .personalization-nav-item.active {
-  color: #2563eb;
-  background: #e8f0ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
   font-weight: 600;
 }
 
@@ -3225,7 +3225,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   padding: 20px;
   overflow-y: auto;
-  background: #fff;
+  background: var(--mg-bg-surface);
 }
 
 @media (max-width: 640px) {
@@ -3237,7 +3237,7 @@ onBeforeUnmount(() => {
   .personalization-nav {
     flex-direction: row;
     border-right: 0;
-    border-bottom: 1px solid #e8edf5;
+    border-bottom: 1px solid var(--mg-border);
   }
 
   .personalization-nav-item {

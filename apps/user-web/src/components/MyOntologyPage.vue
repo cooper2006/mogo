@@ -163,7 +163,7 @@ onMounted(load)
   font-size: 12px;
 }
 .muted {
-  color: #667085;
+  color: var(--mg-text-2);
 }
 .footnote {
   margin: 0;

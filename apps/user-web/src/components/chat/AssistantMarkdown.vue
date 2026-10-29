@@ -46,7 +46,7 @@ function openFileByKeyboard(event: KeyboardEvent) {
   --assistant-code-divider: #e2e8f0;
   --assistant-code-label: #64748b;
   --assistant-code-text: #334155;
-  color: #111827;
+  color: var(--mg-text-1);
   line-height: 1.75rem;
   overflow-wrap: anywhere;
 }
@@ -74,22 +74,22 @@ function openFileByKeyboard(event: KeyboardEvent) {
 }
 
 .assistant-markdown :deep(.assistant-inline-code) {
-  border: 1px solid #dfe4eb;
+  border: 1px solid var(--mg-border);
   border-radius: 5px;
-  background: #f4f6f8;
+  background: var(--mg-bg-subtle);
   padding: .08em .38em;
-  color: #475569;
+  color: var(--mg-text-2);
   font: .92em/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   overflow-wrap: anywhere;
 }
 .assistant-markdown :deep(.assistant-file-reference) {
-  border-color: #cfe0f7;
-  background: #f1f7ff;
-  color: #2563a9;
+  border-color: var(--mg-brand-soft-border);
+  background: var(--mg-brand-soft);
+  color: var(--mg-brand-text);
   cursor: pointer;
   transition: background-color .18s ease, border-color .18s ease, color .18s ease;
 }
-.assistant-markdown :deep(.assistant-file-reference:hover) { border-color:#9fc2ef; background:#e8f2ff; color:#164f91; }
+.assistant-markdown :deep(.assistant-file-reference:hover) { border-color: var(--mg-brand-soft-border); background: var(--mg-brand-soft); color: var(--mg-brand-text); }
 .assistant-markdown :deep(.assistant-file-reference:focus-visible) { outline:2px solid #3b82f6; outline-offset:2px; }
 
 :global(html.theme-dark) .assistant-markdown {
@@ -100,9 +100,9 @@ function openFileByKeyboard(event: KeyboardEvent) {
   --assistant-code-label: #94a3b8;
   --assistant-code-text: #e2e8f0;
 }
-:global(html.theme-dark) .assistant-markdown :deep(.assistant-inline-code) { border-color:#334155; background:#172033; color:#cbd5e1; }
-:global(html.theme-dark) .assistant-markdown :deep(.assistant-file-reference) { border-color:#294c78; background:#102542; color:#8ec5ff; }
-:global(html.theme-dark) .assistant-markdown :deep(.assistant-file-reference:hover) { border-color:#3b6fa8; background:#143052; color:#bfdbfe; }
+:global(html.theme-dark) .assistant-markdown :deep(.assistant-inline-code) { border-color: var(--mg-brand-soft-border); background: var(--mg-bg-app); color: var(--mg-text-2); }
+:global(html.theme-dark) .assistant-markdown :deep(.assistant-file-reference) { border-color: var(--mg-brand-soft-border); background: var(--mg-bg-app); color: var(--mg-brand-text); }
+:global(html.theme-dark) .assistant-markdown :deep(.assistant-file-reference:hover) { border-color: #3b6fa8; background: #143052; color: var(--mg-brand-text); }
 
 .assistant-markdown-compact {
   font-size: 14px;

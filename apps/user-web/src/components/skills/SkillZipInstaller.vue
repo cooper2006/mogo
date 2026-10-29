@@ -120,9 +120,9 @@ defineExpose({ select });
 </script>
 
 <style scoped>
-.zip-dropzone { min-height: 180px; border: 2px dashed #cbd8ee; border-radius: 12px; background: #f8fbff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; cursor: pointer; color: #52627d; }
-.zip-dropzone.dragging { border-color: #2d63ff; background: #edf3ff; }
-.zip-dropzone strong { color: #17233d; font-size: 16px; }
+.zip-dropzone { min-height: 180px; border: 2px dashed var(--mg-border); border-radius: 12px; background: var(--mg-bg-surface); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; cursor: pointer; color: var(--mg-text-2); }
+.zip-dropzone.dragging { border-color: var(--mg-brand); background: var(--mg-brand-soft); }
+.zip-dropzone strong { color: var(--mg-text-1); font-size: 16px; }
 .zip-dropzone span { font-size: 12px; }
 .install-result { margin-top: 16px; }
 .expert-children { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }

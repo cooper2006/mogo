@@ -35,5 +35,5 @@ const panel = useDesktopToolPanelSize()
 </template>
 
 <style scoped>
-.project-panel{position:relative;display:flex;min-width:520px;max-width:82vw;height:100%;flex:none;flex-direction:column;border-left:1px solid #dbe3ee;background:#fbfcfe;box-shadow:-8px 0 24px #0f172a0a}.resize-handle{position:absolute;z-index:5;top:0;bottom:0;left:-4px;width:8px;border:0;background:transparent;cursor:col-resize}.resize-handle:hover{background:#3b82f633}.panel-body{min-height:0;flex:1}@media(max-width:900px){.project-panel{position:absolute;z-index:55;inset:0 0 0 auto;min-width:0;width:min(100%,720px)!important;max-width:100%;box-shadow:-12px 0 32px #0f172a26}}
+.project-panel{position:relative;display:flex;min-width:520px;max-width:82vw;height:100%;flex:none;flex-direction:column;border-left: 1px solid var(--mg-border);background: var(--mg-bg-surface);box-shadow:-8px 0 24px #0f172a0a}.resize-handle{position:absolute;z-index:5;top:0;bottom:0;left:-4px;width:8px;border: 0;background: transparent;cursor:col-resize}.resize-handle:hover{background:#3b82f633}.panel-body{min-height:0;flex:1}@media(max-width:900px){.project-panel{position:absolute;z-index:55;inset:0 0 0 auto;min-width:0;width:min(100%,720px)!important;max-width:100%;box-shadow:-12px 0 32px #0f172a26}}
 </style>

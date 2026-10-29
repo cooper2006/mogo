@@ -291,7 +291,7 @@ onMounted(() => {
 .native-preview {
   min-height: 100%;
   padding: 24px;
-  color: #0f172a;
+  color: var(--mg-text-1);
   line-height: 1.75;
 }
 
@@ -340,8 +340,8 @@ onMounted(() => {
 .native-preview :deep(pre) {
   overflow: auto;
   border-radius: 8px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--mg-bg-app);
+  color: var(--mg-text-1);
   padding: 12px;
 }
 
@@ -353,19 +353,19 @@ onMounted(() => {
   width: max-content;
   min-width: min(100%, 720px);
   border-collapse: collapse;
-  background: #fff;
+  background: var(--mg-bg-surface);
 }
 
 .native-preview :deep(th),
 .native-preview :deep(td) {
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--mg-border);
   padding: 8px 10px;
   text-align: left;
   vertical-align: top;
 }
 
 .native-preview :deep(th) {
-  background: #f8fafc;
+  background: var(--mg-bg-subtle);
   font-weight: 700;
 }
 

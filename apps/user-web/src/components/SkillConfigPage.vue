@@ -525,11 +525,11 @@ function saveConfig() {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #e2e8f0;
+  background: var(--mg-bg-inset);
   border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #cbd5e1;
+  background: var(--mg-border-strong);
 }
 
 textarea {

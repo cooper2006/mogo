@@ -76,5 +76,5 @@ onBeforeUnmount(clearPreview)
 </script>
 
 <style scoped>
-.preview-pane{height:100%;min-height:0;overflow:hidden;border:1px solid #e5e9f1;border-radius:10px;background:#f7f9fc}.preview-pane :deep(.n-spin-container),.preview-pane :deep(.n-spin-content){height:100%}.preview-pane iframe{width:100%;height:100%;border:0;background:#fff}.image-wrap{display:grid;height:100%;place-items:center;overflow:auto;padding:18px}.image-wrap img{max-width:100%;max-height:100%;object-fit:contain}.preview-message{display:flex;height:100%;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+.preview-pane{height:100%;min-height:0;overflow:hidden;border: 1px solid var(--mg-border);border-radius: 10px;background:#f7f9fc}.preview-pane :deep(.n-spin-container),.preview-pane :deep(.n-spin-content){height:100%}.preview-pane iframe{width:100%;height:100%;border: 0;background:#fff}.image-wrap{display:grid;height:100%;place-items:center;overflow:auto;padding:18px}.image-wrap img{max-width:100%;max-height:100%;object-fit:contain}.preview-message{display:flex;height:100%;align-items:center;justify-content:center;flex-direction:column;gap:14px}
 </style>

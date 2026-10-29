@@ -2669,10 +2669,10 @@ function formatErrorMessage(raw: string): string {
   align-items: center;
   gap: 7px;
   border-radius: 999px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--mg-border);
   background: rgba(255, 255, 255, 0.92);
   padding: 0 12px;
-  color: #475569;
+  color: var(--mg-text-2);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -2682,9 +2682,9 @@ function formatErrorMessage(raw: string): string {
 .prompt-guide-tab:hover,
 .prompt-guide-tab:focus-visible,
 .prompt-guide-tab.is-active {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--mg-info-border);
+  background: var(--mg-info-bg);
+  color: var(--mg-brand);
   box-shadow: 0 10px 26px rgba(37, 99, 235, 0.12);
   outline: none;
 }
@@ -2721,7 +2721,7 @@ function formatErrorMessage(raw: string): string {
   height: 14px;
   width: 34px;
   transform: translateX(-50%);
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--mg-info-border);
   border-bottom: 0;
   border-radius: 18px 18px 0 0;
   background: rgba(255, 255, 255, 0.96);
@@ -2734,7 +2734,7 @@ function formatErrorMessage(raw: string): string {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px 12px;
   overflow: hidden;
-  border: 1px solid #dbe5f1;
+  border: 1px solid var(--mg-border);
   border-radius: 22px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.98) 100%);
@@ -2771,10 +2771,10 @@ function formatErrorMessage(raw: string): string {
   justify-content: center;
   gap: 7px;
   border-radius: 999px;
-  border: 1px solid #dbe5f1;
+  border: 1px solid var(--mg-border);
   background: rgba(255, 255, 255, 0.82);
   padding: 0 12px;
-  color: #1f2937;
+  color: var(--mg-text-1);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -2782,20 +2782,20 @@ function formatErrorMessage(raw: string): string {
 }
 .prompt-guide-item:hover,
 .prompt-guide-item:focus-visible {
-  border-color: #bfdbfe;
-  background: #ffffff;
-  color: #1d4ed8;
+  border-color: var(--mg-info-border);
+  background: var(--mg-bg-surface-hover);
+  color: var(--mg-brand);
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.10);
   outline: none;
 }
 .prompt-guide-item.is-locked {
-  color: #64748b;
+  color: var(--mg-text-3);
   background: rgba(248, 250, 252, 0.92);
 }
 .prompt-guide-item.is-locked:hover,
 .prompt-guide-item.is-locked:focus-visible {
-  border-color: #cbd5e1;
-  color: #334155;
+  border-color: var(--mg-brand-soft-border);
+  color: var(--mg-text-1);
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
 }
 .prompt-guide-item-icon :deep(svg) {
@@ -2814,9 +2814,9 @@ function formatErrorMessage(raw: string): string {
   align-items: center;
   gap: 3px;
   border-radius: 999px;
-  background: #f1f5f9;
+  background: var(--mg-bg-subtle);
   padding: 2px 6px;
-  color: #64748b;
+  color: var(--mg-text-3);
   font-size: 11px;
   font-weight: 700;
 }
@@ -2831,10 +2831,10 @@ function formatErrorMessage(raw: string): string {
   align-items: center;
   gap: 10px;
   border-radius: 14px;
-  border: 1px solid #dbeafe;
-  background: #f8fbff;
+  border: 1px solid var(--mg-info-border);
+  background: var(--mg-bg-surface);
   padding: 10px 12px;
-  color: #334155;
+  color: var(--mg-text-1);
   box-shadow: 0 10px 26px rgba(37, 99, 235, 0.08);
 }
 .prompt-guide-notice-icon {
@@ -2844,8 +2844,8 @@ function formatErrorMessage(raw: string): string {
   height: 30px;
   width: 30px;
   border-radius: 10px;
-  background: #eff6ff;
-  color: #2563eb;
+  background: var(--mg-info-bg);
+  color: var(--mg-brand);
 }
 .prompt-guide-notice-icon :deep(svg) {
   display: block;
@@ -2853,13 +2853,13 @@ function formatErrorMessage(raw: string): string {
   height: 17px;
 }
 .prompt-guide-notice-title {
-  color: #0f172a;
+  color: var(--mg-text-1);
   font-size: 13px;
   font-weight: 700;
 }
 .prompt-guide-notice-desc {
   margin-top: 2px;
-  color: #64748b;
+  color: var(--mg-text-3);
   font-size: 12px;
   line-height: 1.4;
 }
@@ -2867,7 +2867,7 @@ function formatErrorMessage(raw: string): string {
   flex: 0 0 auto;
   min-height: 34px;
   border-radius: 999px;
-  background: #2563eb;
+  background: var(--mg-brand);
   padding: 0 12px;
   color: #fff;
   font-size: 12px;
@@ -2877,7 +2877,7 @@ function formatErrorMessage(raw: string): string {
 }
 .prompt-guide-config-btn:hover,
 .prompt-guide-config-btn:focus-visible {
-  background: #1d4ed8;
+  background: var(--mg-brand);
   box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
   outline: none;
 }

@@ -180,13 +180,13 @@ onBeforeUnmount(() => {
           <h4 style="margin: 0 0 8px">{{ t('版本历史') }}</h4>
           <NEmpty v-if="!versionsLoading && versions.length === 0" :description="t('暂无版本快照')" style="padding: 12px 0" />
           <div v-else style="max-height: 200px; overflow-y: auto">
-            <div v-for="v in versions" :key="v.snapshotId" style="padding: 6px 0; border-bottom: 1px solid #f0f0f0">
+            <div v-for="v in versions" :key="v.snapshotId" style="padding: 6px 0; border-bottom: 1px solid var(--mg-divider)">
               <div style="display: flex; gap: 8px; align-items: center">
                 <NTag size="small" type="info">{{ v.trigger }}</NTag>
-                <span style="font-size: 12px; color: #666">seq={{ v.seq }}</span>
+                <span style="font-size: 12px; color: var(--mg-text-2)">seq={{ v.seq }}</span>
               </div>
-              <div style="font-size: 13px; margin-top: 4px; color: #333">{{ v.summary || '—' }}</div>
-              <div v-if="v.createdAt" style="font-size: 11px; color: #999; margin-top: 2px">
+              <div style="font-size: 13px; margin-top: 4px; color: var(--mg-text-1)">{{ v.summary || '—' }}</div>
+              <div v-if="v.createdAt" style="font-size: 11px; color: var(--mg-text-3); margin-top: 2px">
                 {{ new Date(v.createdAt).toLocaleString() }}
               </div>
             </div>
@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
 
         <section>
           <h4 style="margin: 0 0 8px">{{ t('在线成员') }}</h4>
-          <div v-if="online.length === 0" style="color: #999; font-size: 13px">{{ t('暂无在线成员') }}</div>
+          <div v-if="online.length === 0" style="color: var(--mg-text-3); font-size: 13px">{{ t('暂无在线成员') }}</div>
           <div v-else style="display: flex; flex-wrap: wrap; gap: 6px">
             <NTag v-for="m in online" :key="m.userId" size="small" type="success">{{ memberLabel(m) }}</NTag>
           </div>
@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
     <div style="padding: 16px">
       <h4 style="margin: 0 0 8px">{{ t('分享链接') }}</h4>
       <NInput :value="shareView?.share_id ?? ''" readonly style="width: 100%; margin-bottom: 8px" />
-      <div style="font-size: 12px; color: #999">
+      <div style="font-size: 12px; color: var(--mg-text-3)">
         {{ t('该链接将在 5 分钟内有效，仅可一次性兑换。') }}
       </div>
       <NSpace style="margin-top: 12px" justify="end">

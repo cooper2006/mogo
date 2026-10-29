@@ -412,16 +412,16 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
-  background: #f6f8fc;
+  background: var(--mg-bg-subtle);
   padding: 12px;
 }
 
 .tasks-header {
   width: 100%;
   padding: 14px 18px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
   display: flex;
   align-items: center;
@@ -431,7 +431,7 @@ watch(
 
 .tasks-header h1 {
   margin: 0;
-  color: #101c3d;
+  color: var(--mg-text-1);
   font-size: 20px;
   line-height: 1.2;
   font-weight: 800;
@@ -445,8 +445,8 @@ watch(
 
 .shell-card {
   border-radius: 14px;
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }
 
@@ -486,7 +486,7 @@ watch(
 .list-filter-row {
   padding: 0 44px 12px;
   margin: 0 -44px 12px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .list-body {
@@ -506,7 +506,7 @@ watch(
   padding: 16px;
   border: 1px solid rgba(28, 45, 82, 0.08);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow:
     0 8px 18px rgba(15, 31, 69, 0.06),
     0 1px 2px rgba(15, 31, 69, 0.04);
@@ -543,12 +543,12 @@ watch(
 }
 
 .card-time {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .card-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
   white-space: nowrap;
@@ -557,7 +557,7 @@ watch(
 }
 
 .card-desc {
-  color: #5f6f85;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.55;
   display: -webkit-box;
@@ -571,21 +571,21 @@ watch(
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #708099;
+  color: var(--mg-text-2);
   flex-wrap: wrap;
   margin-top: 2px;
 }
 
 .meta-item {
-  color: #65748c;
+  color: var(--mg-text-2);
 }
 
 .meta-divider {
-  color: #cbd5e1;
+  color: var(--mg-text-2);
 }
 
 .session-link {
-  color: #2d63ff;
+  color: var(--mg-brand);
   font-weight: 500;
   cursor: pointer;
   background: none;
@@ -618,12 +618,12 @@ watch(
   gap: 8px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #f6f9ff;
-  border: 1px solid #e3ebfb;
+  background: var(--mg-brand-soft);
+  border: 1px solid var(--mg-border);
 }
 
 .card-switch-label {
-  color: #4a5d7c;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1;
 }
@@ -639,7 +639,7 @@ watch(
 }
 
 .delete-btn:hover {
-  color: #d03050;
+  color: var(--mg-danger-text);
 }
 
 .task-card-disabled {
@@ -655,7 +655,7 @@ watch(
 
 .empty-shell {
   min-height: 320px;
-  border: 1px dashed #d8e2f2;
+  border: 1px dashed var(--mg-border);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -676,7 +676,7 @@ watch(
   width: 54px;
   height: 28px;
   border-radius: 6px;
-  background: #eef4ff;
+  background: var(--mg-brand-soft);
   color: #3b82f6;
   font-size: 11px;
   font-weight: 700;
@@ -687,13 +687,13 @@ watch(
 }
 
 .empty-title {
-  color: #1e293b;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 700;
 }
 
 .empty-desc {
-  color: #64748b;
+  color: var(--mg-text-3);
   font-size: 13px;
   max-width: 400px;
 }

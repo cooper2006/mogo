@@ -129,47 +129,47 @@ async function regenerate() {
 .rp-form { display: flex; gap: 12px; }
 .rp-input {
     flex: 1; max-width: 480px; padding: 10px 14px; font-size: 15px;
-    border: 1px solid var(--line-3, #d0d3d6); border-radius: 8px;
-    background: var(--bg-2, #fff); color: inherit; outline: none;
+    border: 1px solid var(--line-3, var(--mg-brand-soft-border)); border-radius: 8px;
+    background: var(--bg-2, var(--mg-bg-surface)); color: inherit; outline: none;
 }
-.rp-input:focus { border-color: var(--brand-6, #3370ff); }
+.rp-input:focus { border-color: var(--brand-6, var(--mg-brand)); }
 .rp-btn {
     padding: 10px 24px; font-size: 15px; font-weight: 600; color: #fff;
-    background: var(--brand-6, #3370ff); border: none; border-radius: 8px; cursor: pointer;
+    background: var(--brand-6, var(--mg-brand)); border: none; border-radius: 8px; cursor: pointer;
 }
 .rp-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .rp-btn-secondary {
-    padding: 10px 24px; font-size: 15px; font-weight: 600; color: #3370ff;
-    background: transparent; border: 1px solid var(--line-3, #d0d3d6); border-radius: 8px; cursor: pointer;
+    padding: 10px 24px; font-size: 15px; font-weight: 600; color: var(--mg-brand);
+    background: transparent; border: 1px solid var(--line-3, var(--mg-brand-soft-border)); border-radius: 8px; cursor: pointer;
     margin-left: 8px;
 }
 .rp-btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
 .rp-error { color: #d83931; font-size: 13px; margin-top: 8px; }
 .rp-mock-badge {
     display: inline-block; margin-top: 8px; padding: 2px 10px; font-size: 12px;
-    background: #fff7e8; color: #ad6800; border: 1px solid #ffd591; border-radius: 999px;
+    background: var(--mg-warning-bg); color: #ad6800; border: 1px solid #ffd591; border-radius: 999px;
 }
 .rp-judgment {
     margin-top: 28px; padding: 20px 24px; border-radius: 12px;
-    background: var(--bg-4, #f2f3f5); border-left: 4px solid var(--brand-6, #3370ff);
+    background: var(--bg-4, var(--mg-bg-subtle)); border-left: 4px solid var(--brand-6, var(--mg-brand));
 }
 .rp-judgment-title { margin: 0 0 8px; font-size: 18px; font-weight: 700; }
 .rp-judgment-verdict { margin: 0 0 12px; font-size: 15px; line-height: 1.7; }
-.rp-judgment-points { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.9; color: var(--text-2, #4e5969); }
+.rp-judgment-points { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.9; color: var(--text-2, var(--mg-text-2)); }
 .rp-chapters {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 24px;
 }
 @media (max-width: 1100px) { .rp-chapters { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .rp-chapters { grid-template-columns: 1fr; } }
 .rp-chapter {
-    padding: 16px; border: 1px solid var(--line-3, #d0d3d6); border-radius: 12px;
-    background: var(--bg-2, #fff); display: flex; flex-direction: column;
+    padding: 16px; border: 1px solid var(--line-3, var(--mg-brand-soft-border)); border-radius: 12px;
+    background: var(--bg-2, var(--mg-bg-surface)); display: flex; flex-direction: column;
 }
-.rp-chapter-title { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--brand-6, #3370ff); }
+.rp-chapter-title { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--brand-6, var(--mg-brand)); }
 .rp-section { margin-bottom: 12px; }
 .rp-section-heading { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
-.rp-section-body { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-2, #4e5969); }
-.rp-sources { margin-top: auto; padding-top: 10px; border-top: 1px dashed var(--line-3, #d0d3d6); font-size: 11px; color: var(--text-3, #8f959e); }
-.rp-meta { margin-top: 24px; font-size: 12px; color: var(--text-3, #8f959e); }
-.rp-empty { margin-top: 48px; text-align: center; color: var(--text-3, #8f959e); font-size: 14px; }
+.rp-section-body { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-2, var(--mg-text-2)); }
+.rp-sources { margin-top: auto; padding-top: 10px; border-top: 1px dashed var(--line-3, var(--mg-brand-soft-border)); font-size: 11px; color: var(--text-3, var(--mg-text-3)); }
+.rp-meta { margin-top: 24px; font-size: 12px; color: var(--text-3, var(--mg-text-3)); }
+.rp-empty { margin-top: 48px; text-align: center; color: var(--text-3, var(--mg-text-3)); font-size: 14px; }
 </style>

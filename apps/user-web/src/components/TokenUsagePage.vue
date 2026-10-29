@@ -354,16 +354,16 @@ onMounted(() => {
   gap: 16px;
   overflow: hidden;
   padding-top: 12px;
-  background: #f6f8fc;
+  background: var(--mg-bg-subtle);
 }
 
 .usage-header {
   width: calc(100% - 24px);
   margin: 0 12px;
   padding: 14px 18px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
   display: flex;
   align-items: center;
@@ -373,7 +373,7 @@ onMounted(() => {
 
 .usage-header h1 {
   margin: 0;
-  color: #101c3d;
+  color: var(--mg-text-1);
   font-size: 20px;
   line-height: 1.2;
   font-weight: 800;
@@ -381,7 +381,7 @@ onMounted(() => {
 
 .usage-header p {
   margin: 4px 0 0;
-  color: #65748c;
+  color: var(--mg-text-2);
   font-size: 13px;
 }
 
@@ -393,7 +393,7 @@ onMounted(() => {
 }
 
 .usage-updated {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -407,7 +407,7 @@ onMounted(() => {
 }
 
 .usage-list-card {
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }

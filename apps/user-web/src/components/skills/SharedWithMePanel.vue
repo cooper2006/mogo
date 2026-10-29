@@ -154,14 +154,14 @@ watch(() => props.scopeKey, () => {
 
 <style scoped>
 .inbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.inbox-card { min-height: 230px; padding: 17px; display: flex; flex-direction: column; gap: 11px; border: 1px solid #e4e9f2; border-radius: 12px; background: #fff; box-shadow: 0 6px 18px rgba(23, 43, 82, 0.055); }
+.inbox-card { min-height: 230px; padding: 17px; display: flex; flex-direction: column; gap: 11px; border: 1px solid #e4e9f2; border-radius: 12px; background: var(--mg-bg-surface); box-shadow: 0 6px 18px rgba(23, 43, 82, 0.055); }
 .inbox-head { display: flex; align-items: center; gap: 10px; }
-.sender-avatar { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 34px; border-radius: 50%; color: #2459e8; background: #e8efff; font-size: 13px; font-weight: 800; }
+.sender-avatar { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 34px; border-radius: 50%; color: var(--mg-brand); background: var(--mg-brand-soft); font-size: 13px; font-weight: 800; }
 .sender-copy { min-width: 0; flex: 1; display: grid; gap: 2px; }
-.sender-copy strong { overflow: hidden; color: #344054; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.sender-copy span { color: #98a2b3; font-size: 11px; }
-.skill-name { color: #17233d; font-size: 17px; font-weight: 800; }
-.skill-description { color: #667085; font-size: 13px; line-height: 1.55; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.sender-copy strong { overflow: hidden; color: var(--mg-text-1); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.sender-copy span { color: var(--mg-text-3); font-size: 11px; }
+.skill-name { color: var(--mg-text-1); font-size: 17px; font-weight: 800; }
+.skill-description { color: var(--mg-text-2); font-size: 13px; line-height: 1.55; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .skill-meta { display: flex; gap: 14px; color: #8490a3; font-size: 12px; }
 .compact-alert { font-size: 12px; }
 .inbox-actions { margin-top: auto; display: flex; justify-content: flex-end; align-items: center; gap: 14px; }

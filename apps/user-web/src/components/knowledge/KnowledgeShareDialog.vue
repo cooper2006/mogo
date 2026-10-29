@@ -21,4 +21,4 @@ function search(value:string){ if(timer)clearTimeout(timer);timer=setTimeout(asy
 async function submit(){if(!props.knowledge)return;sending.value=true;try{await sharePersonalKnowledge(props.knowledge.id,selected.value.map(userId=>({userId,canReshare:canReshare.value})));message.success(t('knowledge.share_success'));emit('update:show',false);emit('shared')}catch(error:any){message.error(error?.response?.data?.detail||t('knowledge.share_failed'))}finally{sending.value=false}}
 watch(()=>props.show,value=>{if(value){selected.value=[];canReshare.value=false;search('')}})
 </script>
-<style scoped>.permission{margin-top:18px}.hint{margin:8px 0;color:#7a8699;font-size:12px}</style>
+<style scoped>.permission{margin-top:18px}.hint{margin:8px 0;color: var(--mg-text-3);font-size:12px}</style>
