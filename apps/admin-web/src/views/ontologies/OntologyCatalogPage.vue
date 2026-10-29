@@ -215,7 +215,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.ontology-page { min-height: 100%; }
+.ontology-page { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 .ontology-content { display: grid; gap: 16px; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .table-card { overflow: hidden; border: 1px solid var(--mg-border); border-radius: 10px; }
