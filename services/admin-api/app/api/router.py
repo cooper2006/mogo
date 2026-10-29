@@ -31,6 +31,7 @@ api_router.include_router(skills.router, prefix="/skills", tags=["skills"])
 api_router.include_router(skill_canary.router, tags=["skill-canary"])
 api_router.include_router(skill_monitoring.router, tags=["skill-monitoring"])
 api_router.include_router(capability_assets.router, prefix="/capabilities", tags=["capability-assets"])
+api_router.include_router(capability_assets.admin_router, tags=["capability-assets-admin"])  # 045 FR-1：/api/v1/capabilities/list
 api_router.include_router(skill_lifecycle.router, prefix="/skills", tags=["skills"])
 api_router.include_router(skill_eval.router, prefix="/skills", tags=["skills"])
 api_router.include_router(tools.router, prefix="/tools", tags=["tools"])

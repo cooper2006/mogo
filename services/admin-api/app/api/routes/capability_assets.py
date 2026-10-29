@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.api.deps import get_current_admin_user
+from app.core.db import get_db
 from app.security.service_token import ServiceTokenHeader
 
 from app.services.capability_assets.registry import (
     ASSET_STATES,
+    COLLECTION,
     AssetError,
     PersistedCapabilityRegistry,
 )
@@ -182,4 +185,50 @@ async def set_asset_a2a_exposed(
     return {"code": 0, "message": "ok", "data": asset.as_dict()}
 
 
-__all__ = ["router"]
+# --- 045 资产中心：admin 只读列表接口（FR-1）--------------------------------
+# 区别既有 service-token 端点：用 admin JWT 鉴权，返回 capability_assets
+# 集合文档，支持 kind / state 过滤。复用 018 集合，不新增写路径。
+admin_router = APIRouter(prefix="/capabilities", tags=["capability-assets-admin"])
+
+
+@admin_router.get("/list")
+async def list_capabilities_admin(
+    kind: Optional[str] = None,
+    state: Optional[str] = None,
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """Admin 只读能力资产列表（045 FR-1）。
+
+    * 鉴权：admin JWT（``get_current_admin_user``），不依赖 ``backend_service_token``；
+    * 数据：直接读 018 ``capability_assets`` 集合，返回完整文档（含 ``kind`` /
+      ``last_seen_at`` / ``updated_at``），支持 ``kind`` / ``state`` 过滤；
+    * 不过滤 ``tenant_id``（018 集合共享，方案 §2 已注明限制）。
+    """
+    db = get_db()
+    query: dict[str, Any] = {}
+    if kind:
+        query["kind"] = kind
+    if state:
+        query["state"] = state
+    projection = {
+        "_id": 0,
+        "asset_id": 1,
+        "name": 1,
+        "kind": 1,
+        "state": 1,
+        "contract": 1,
+        "version": 1,
+        "owner_role": 1,
+        "endpoint": 1,
+        "method": 1,
+        "a2a_exposed": 1,
+        "last_seen_at": 1,
+        "updated_at": 1,
+    }
+    rows = await db[COLLECTION].find(query, projection).sort("asset_id", 1).to_list(
+        length=None
+    )
+    return {"code": 0, "message": "ok", "data": {"items": rows, "total": len(rows)}}
+
+
+__all__ = ["router", "admin_router"]

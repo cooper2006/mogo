@@ -199,6 +199,13 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '本体授权', icon: OntologyIcon },
       },
       {
+        // 045: 资产中心 —— 统一资产视图（技能 + 能力资产），五块数据前端 join
+        path: '/assets',
+        name: 'Assets',
+        component: () => import('@/views/AssetsPage.vue'),
+        meta: { title: '资产中心', icon: SkillsManagerIcon },
+      },
+      {
         // 037: 统一门户 —— 资产上架 / 下架（即时生效，下架不撤销存量授权）
         path: '/portal/listings',
         name: 'PortalListings',
