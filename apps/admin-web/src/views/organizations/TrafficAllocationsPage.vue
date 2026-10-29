@@ -15,17 +15,15 @@
 
     <n-card class="list-card shell-card" :bordered="false" size="large">
       <div class="list-filter-row">
-        <div class="filter-toolbar">
           <n-space align="center" :size="10" class="filter-left">
             <n-input v-model:value="filters.keyword" :placeholder="t('搜索姓名 / 手机号 / 邮箱')" clearable class="keyword-input" />
           </n-space>
-          <n-space :size="10" class="filter-right">
+        <n-space :size="10" class="filter-right">
             <n-button secondary :loading="loading" @click="reload">{{ t('刷新') }}</n-button>
             <n-button secondary @click="openSettings">{{ t('设置企业额度') }}</n-button>
             <n-button secondary @click="openLogs">{{ t('分配记录') }}</n-button>
             <n-button secondary @click="openScopes">{{ t('团队 / 项目额度') }}</n-button>
-          </n-space>
-        </div>
+        </n-space>
       </div>
 
       <div class="table-shell">
@@ -934,6 +932,9 @@ onMounted(async () => {
 }
 
 .list-filter-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   padding: 16px 0 12px;
   border-bottom: 1px solid var(--mg-border);
   margin-bottom: 12px;
@@ -979,12 +980,6 @@ onMounted(async () => {
 
 .allocation-table {
   height: 100%;
-}
-
-.filter-toolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .keyword-input {
@@ -1085,7 +1080,7 @@ onMounted(async () => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .filter-toolbar {
+  .list-filter-row {
     flex-direction: column;
     align-items: stretch;
   }

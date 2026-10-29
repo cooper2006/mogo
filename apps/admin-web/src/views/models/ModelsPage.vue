@@ -32,7 +32,6 @@
 
       <div class="list-filter-row">
 
-        <div class="filter-toolbar">
           <n-space align="center" :size="10" class="filter-left">
             <n-input v-model:value="filters.keyword" :placeholder="t('搜索名称 / 模型 ID / Base URL')" clearable class="keyword-input" />
             <n-select
@@ -50,7 +49,7 @@
               style="width: 120px"
             />
           </n-space>
-          <n-space :size="10" class="filter-right">
+        <n-space :size="10" class="filter-right">
             <n-button secondary @click="reload">
               <template #icon>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -71,8 +70,7 @@
               </template>
               {{ t('新增模型') }}
             </n-button>
-          </n-space>
-        </div>
+        </n-space>
       </div>
 
       <div class="list-body">
@@ -967,13 +965,6 @@ onMounted(reload);
   font-size: 12px;
 }
 
-.filter-toolbar {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-}
-
 .filter-left {
   flex-wrap: wrap;
 }
@@ -997,6 +988,10 @@ onMounted(reload);
 }
 
 .list-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   padding: 0 44px 12px;
   margin: 0 -44px 12px;
   border-bottom: 1px solid var(--mg-border);

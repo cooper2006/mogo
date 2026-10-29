@@ -69,7 +69,6 @@
 
     <n-card class="list-card shell-card" :bordered="false" size="large">
       <div class="list-filter-row">
-        <div class="filter-toolbar">
           <n-space align="center" :size="10" class="filter-left">
             <n-input v-model:value="filters.keyword" clearable :placeholder="t('搜索名称、描述或 URL')" class="keyword-input" />
             <n-select v-model:value="filters.type" clearable :options="typeOptions" :placeholder="t('类型')" style="width: 140px" />
@@ -82,12 +81,11 @@
               style="width: 140px"
             />
           </n-space>
-          <n-space :size="10" class="filter-right">
+        <n-space :size="10" class="filter-right">
             <n-button secondary @click="loadRows">{{ t('刷新') }}</n-button>
             <n-button @click="goCreate('mcp')">{{ t('新增 MCP 服务') }}</n-button>
             <n-button type="primary" strong @click="goCreate('http')">{{ t('新增 HTTP 工具') }}</n-button>
-          </n-space>
-        </div>
+        </n-space>
       </div>
 
       <div class="list-body">
@@ -459,13 +457,6 @@ onMounted(loadRows);
   font-size: 12px;
 }
 
-.filter-toolbar {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-}
-
 .filter-left {
   flex-wrap: wrap;
 }
@@ -483,6 +474,10 @@ onMounted(loadRows);
 }
 
 .list-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   padding: 0 44px 12px;
   margin: 0 -44px 12px;
   border-bottom: 1px solid var(--mg-border);
@@ -665,7 +660,7 @@ onMounted(loadRows);
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .filter-toolbar {
+  .list-filter-row {
     flex-direction: column;
     align-items: stretch;
   }

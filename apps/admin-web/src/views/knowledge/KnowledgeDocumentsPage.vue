@@ -93,7 +93,6 @@
         <!-- 右侧列表 -->
         <section class="list-panel">
           <div class="list-filter-row">
-            <div class="filter-toolbar">
               <div class="filter-left">
                 <n-input-group class="document-search-group">
                   <n-select
@@ -151,7 +150,6 @@
                   {{ t('上传文档') }}
                 </n-button>
               </div>
-            </div>
           </div>
 
           <div class="list-body">
@@ -1872,16 +1870,6 @@ watch(documents, syncProcessingPoll, { deep: true });
   transform: translateY(0);
 }
 
-.filter-toolbar {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  width: max-content;
-  min-width: 100%;
-  flex-wrap: nowrap;
-}
-
 .filter-left,
 .filter-right {
   display: flex;
@@ -1926,6 +1914,13 @@ watch(documents, syncProcessingPoll, { deep: true });
 }
 
 .list-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: max-content;
+  min-width: 100%;
+  flex-wrap: nowrap;
   padding: 0 0 10px;
   margin: 0 0 12px;
   border-bottom: 1px solid var(--mg-border);
