@@ -949,6 +949,19 @@ services:
     networks:
       - public
       - backend
+    # worker 没有 HTTP 端口，探活的判据是「celery 进程还在、control 通道能应答」：
+    # `inspect ping -d celery@$HOSTNAME` 走 broker 的控制队列，节点不在时会以
+    # 非 0 退出（实测 69），因此既不会假阳也不会假阴。同一个 *python-healthcheck
+    # 只提供间隔/超时/重试/起始窗口，`test` 必须自己写。
+    healthcheck:
+      <<: *python-healthcheck
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.workers.celery_app:celery_app inspect ping -d celery@$$HOSTNAME --timeout 5 >/dev/null",
+        ]
+      # worker 起得来不代表已连上 broker 并注册好队列，给足 60s 起始窗口。
+      start_period: 60s
 
   user-web:
     image: ${MOGO_USER_WEB_IMAGE:-ghcr.io/mogoai/user-web:${MOGO_VERSION:-latest}}
