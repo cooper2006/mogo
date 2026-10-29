@@ -164,8 +164,6 @@
                   :pagination="false"
                   :row-key="rowKey"
                   :checked-row-keys="selectedDocumentKeys"
-                  :scroll-x="documentTableScrollX"
-                  :scrollbar-props="tableScrollbarProps"
                   @update:checked-row-keys="handleCheckedRowKeys"
                   flex-height
                   class="documents-table"
@@ -566,8 +564,6 @@ const batchDeleteButtonText = computed(() =>
 );
 
 const selectedBatchDeleteTitle = computed(() => `${t('已选择')} ${selectedDocumentKeys.value.length} ${t('个文档')}`);
-const documentTableScrollX = 1078;
-const tableScrollbarProps = { trigger: 'none' as const };
 
 const metricCards = computed(() => [
   {
