@@ -1,5 +1,5 @@
 <template>
-  <div class="tools-page">
+  <div class="mg-page tools-page">
     <template v-if="!editorVisible">
       <div class="metrics-row">
         <n-card v-for="item in metricCards" :key="item.key" class="metric-card" :bordered="false" size="small">
@@ -115,7 +115,7 @@
             <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
             {{ t('返回') }}
           </n-button>
-          <h1>{{ editingId ? t('编辑 Tool') : t('新增 Tool') }}</h1>
+          <h1 class="mg-page-title">{{ editingId ? t('编辑 Tool') : t('新增 Tool') }}</h1>
         </div>
         <n-space>
           <n-button type="primary" :loading="saving" @click="saveTool">
@@ -1541,11 +1541,6 @@ watch(() => [props.userId, props.tenantId], () => {
 .tools-page {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: var(--mg-bg-subtle);
-  padding: 12px;
 }
 
 .tools-header {
@@ -1564,7 +1559,6 @@ watch(() => [props.userId, props.tenantId], () => {
 .tools-header h1 {
   margin: 0;
   color: var(--mg-text-1);
-  font-size: 20px;
   line-height: 1.2;
   font-weight: 800;
 }

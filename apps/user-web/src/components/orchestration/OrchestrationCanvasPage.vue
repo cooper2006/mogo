@@ -382,14 +382,16 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="orchestration-page">
-    <header class="orchestration-header">
-      <div class="orchestration-header__left">
-        <n-button quaternary size="small" @click="emit('back')">{{ t('orchestration.back') }}</n-button>
-        <h1>{{ t('orchestration.title') }}</h1>
-        <p class="subtitle">{{ t('orchestration.subtitle') }}</p>
+  <div class="mg-page orchestration-page">
+    <header class="mg-page-head">
+      <div class="mg-page-head__text">
+        <div class="orchestration-title-row">
+          <n-button quaternary size="small" @click="emit('back')">{{ t('orchestration.back') }}</n-button>
+          <h1 class="mg-page-title">{{ t('orchestration.title') }}</h1>
+        </div>
+        <p class="mg-page-desc">{{ t('orchestration.subtitle') }}</p>
       </div>
-      <div class="orchestration-header__right">
+      <div class="mg-page-actions">
         <n-select
           :value="orchestrationId"
           :options="orchestrations.map((item) => ({ label: `${item.orchestrationId} (v${item.version})`, value: item.orchestrationId }))"
@@ -486,7 +488,7 @@ onMounted(async () => {
                 </n-tag>
               </div>
             </template>
-            <Background pattern-color="#e5e7eb" :gap="24" />
+            <Background pattern-color="var(--mg-border)" :gap="24" />
             <Controls />
             <MiniMap pannable zoomable />
           </VueFlow>
@@ -517,142 +519,224 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 页面骨架（内边距 / 间距 / 底色）由 .mg-page 提供，此处只处理画布页特有布局。
+   颜色一律引用设计令牌，深浅主题自动跟随。规范见 docs/design-system.md。 */
 .orchestration-page {
-  display: flex;
-  flex-direction: column;
   height: 100%;
-  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
 }
-.orchestration-header {
+
+.orchestration-title-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: var(--mg-space-2);
+  min-width: 0;
 }
-.orchestration-header__left h1 {
-  margin: 0;
-  font-size: 18px;
-}
-.orchestration-header__left .subtitle {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--text-3, var(--mg-text-3));
-}
-.orchestration-header__right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+
 .validation-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--mg-space-3);
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--mg-font-size-xs);
+  color: var(--mg-text-2);
 }
+
 .validation-bar__item .error {
-  color: var(--error-color, #e88080);
+  color: var(--mg-danger-text);
 }
+
 .validation-bar__item .warning {
-  color: #e6a23c;
+  color: var(--mg-warning-text);
 }
+
 .orchestration-layout {
   flex: 1;
   display: grid;
-  grid-template-columns: 170px 1fr 300px;
-  gap: 10px;
+  grid-template-columns: 180px minmax(0, 1fr) 320px;
+  gap: var(--mg-space-3);
   min-height: 0;
 }
+
+/* 三块面板共用同一套表面规范，与 .mg-card 视觉一致 */
+.palette,
+.canvas-host,
+.side-panel {
+  border: 1px solid var(--mg-border);
+  border-radius: var(--mg-radius-lg);
+  background: var(--mg-bg-surface);
+}
+
 .palette {
-  border: 1px solid var(--border-color, var(--mg-brand-soft-border));
-  border-radius: 6px;
-  padding: 8px;
+  padding: var(--mg-space-3);
   overflow: auto;
-  background: var(--bg-2, var(--mg-bg-surface));
 }
+
+.canvas-host {
+  overflow: hidden;
+}
+
 .palette__header {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--mg-font-size-sm);
+  font-weight: var(--mg-weight-semibold);
+  color: var(--mg-text-1);
   cursor: pointer;
-  margin-bottom: 8px;
+  margin-bottom: var(--mg-space-2);
 }
+
 .palette__list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
+
 .palette__item {
   padding: 6px 8px;
-  border: 1px dashed var(--border-color, var(--mg-brand-soft-border));
-  border-radius: 4px;
-  font-size: 13px;
+  border: 1px dashed var(--mg-border-strong);
+  border-radius: var(--mg-radius-sm);
+  font-size: var(--mg-font-size-sm);
+  color: var(--mg-text-2);
   cursor: grab;
   text-align: center;
+  transition:
+    border-color var(--mg-transition-fast),
+    background-color var(--mg-transition-fast),
+    color var(--mg-transition-fast);
 }
+
 .palette__item:hover {
-  border-color: var(--mg-brand-soft-border);
-  color: #2080f0;
+  border-color: var(--mg-brand);
+  background: var(--mg-brand-soft);
+  color: var(--mg-brand-text);
 }
+
 .palette__hint {
-  margin-top: 10px;
-  font-size: 11px;
-  color: var(--text-3, var(--mg-text-3));
+  margin-top: var(--mg-space-3);
+  font-size: var(--mg-font-size-xs);
+  line-height: var(--mg-line-relaxed);
+  color: var(--mg-text-3);
 }
-.canvas-host {
-  border: 1px solid var(--border-color, var(--mg-brand-soft-border));
-  border-radius: 6px;
-  overflow: hidden;
-}
+
 .canvas-flow {
   width: 100%;
   height: 100%;
   min-height: 480px;
 }
+
+/* 画布网格：pattern-color 传 var() 会落到 SVG 属性，这里再加一层 CSS 兜底，
+   确保深色主题下网格线不会仍是浅灰。 */
+.canvas-host :deep(.vue-flow__background pattern circle),
+.canvas-host :deep(.vue-flow__background pattern path) {
+  fill: var(--mg-border);
+  stroke: var(--mg-border);
+}
+
 .flow-node {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
-  border: 1px solid #c0c4cc;
-  border-radius: 6px;
+  padding: var(--mg-space-2) 10px;
+  border: 1px solid var(--mg-border);
+  border-left-width: 4px;
+  border-radius: var(--mg-radius-md);
   background: var(--mg-bg-surface);
-  min-width: 90px;
-  font-size: 12px;
+  color: var(--mg-text-1);
+  min-width: 96px;
+  font-size: var(--mg-font-size-xs);
+  box-shadow: var(--mg-shadow-xs);
 }
+
 .flow-node--selected {
-  border-color: var(--mg-brand-soft-border);
-  box-shadow: 0 0 0 2px rgba(32, 128, 240, 0.15);
+  border-color: var(--mg-brand);
+  box-shadow: 0 0 0 2px var(--mg-brand-soft);
 }
-.flow-node--start { border-left: 4px solid #18a058; }
-.flow-node--llm, .flow-node--roundRobin, .flow-node--debate { border-left: 4px solid var(--mg-brand-soft-border); }
-.flow-node--tool { border-left: 4px solid #f0a020; }
-.flow-node--condition { border-left: 4px solid #e88080; }
-.flow-node--end { border-left: 4px solid #7b7b7b; }
-.flow-node--parallel, .flow-node--aggregate { border-left: 4px solid #9a6ee6; }
+
+/* 节点类型用状态语义色，与全站标签配色保持一致 */
+.flow-node--start {
+  border-left-color: var(--mg-success-text);
+}
+
+.flow-node--end {
+  border-left-color: var(--mg-text-3);
+}
+
+.flow-node--llm,
+.flow-node--roundRobin,
+.flow-node--debate {
+  border-left-color: var(--mg-brand);
+}
+
+.flow-node--tool {
+  border-left-color: var(--mg-warning-text);
+}
+
+.flow-node--condition {
+  border-left-color: var(--mg-danger-text);
+}
+
+.flow-node--parallel,
+.flow-node--aggregate {
+  border-left-color: var(--mg-accent-violet-text);
+}
+
+.flow-node__label {
+  font-weight: var(--mg-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .flow-node__expr {
-  font-size: 11px;
-  color: var(--text-3, var(--mg-text-3));
+  font-size: var(--mg-font-size-xs);
+  color: var(--mg-text-3);
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .side-panel {
-  border: 1px solid var(--border-color, var(--mg-brand-soft-border));
-  border-radius: 6px;
-  padding: 8px 12px;
+  padding: var(--mg-space-3);
   overflow: auto;
-  background: var(--bg-2, var(--mg-bg-surface));
 }
+
 .side-panel__actions {
-  margin-bottom: 4px;
+  margin-bottom: var(--mg-space-1);
 }
+
 .side-panel__release .label {
   display: block;
-  font-size: 12px;
-  color: var(--text-2, var(--mg-text-3));
-  margin-bottom: 4px;
+  font-size: var(--mg-font-size-xs);
+  color: var(--mg-text-3);
+  margin-bottom: var(--mg-space-1);
+}
+
+/* 窄屏降级：三列 → 两列 → 单列，避免画布被挤压到不可用 */
+@media (max-width: 1280px) {
+  .orchestration-layout {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+
+  .side-panel {
+    grid-column: 1 / -1;
+    max-height: 300px;
+  }
+}
+
+@media (max-width: 900px) {
+  .orchestration-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(360px, 1fr) auto;
+  }
+
+  .palette,
+  .side-panel {
+    max-height: 200px;
+  }
+
+  .canvas-flow {
+    min-height: 360px;
+  }
 }
 </style>

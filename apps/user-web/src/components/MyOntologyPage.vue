@@ -1,9 +1,9 @@
 <template>
-  <div class="page-stack ontology-page">
+  <div class="mg-page ontology-page">
     <header class="page-head">
       <div class="head-text">
-        <h1>{{ t('ontology_grant.title') }}</h1>
-        <p class="muted">{{ t('ontology_grant.subtitle') }}</p>
+        <h1 class="mg-page-title">{{ t('ontology_grant.title') }}</h1>
+        <p class="mg-page-desc">{{ t('ontology_grant.subtitle') }}</p>
       </div>
       <n-button quaternary :loading="loading" @click="load">
         <template #icon>
@@ -141,9 +141,8 @@ onMounted(load)
 <style scoped>
 .ontology-page {
   display: grid;
-  gap: 14px;
+  gap: var(--mg-space-4);
   align-content: start;
-  padding: 20px;
   height: 100%;
   overflow: auto;
 }
@@ -155,7 +154,6 @@ onMounted(load)
 }
 .head-text h1 {
   margin: 0;
-  font-size: 18px;
   font-weight: 600;
 }
 .head-text p {

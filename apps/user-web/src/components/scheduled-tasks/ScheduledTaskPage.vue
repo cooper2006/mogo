@@ -188,7 +188,7 @@ watch(
 </script>
 
 <template>
-  <div class="page-stack tasks-page">
+  <div class="mg-page tasks-page">
     <!-- 头部区域，风格与 MyToolsPage / MySkillsPage 一致 -->
     <header class="tasks-header">
       <div class="tasks-header-left">
@@ -196,7 +196,7 @@ watch(
           <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
           {{ t('返回对话') }}
         </n-button>
-        <h1>{{ t('定时任务') }}</h1>
+        <h1 class="mg-page-title">{{ t('定时任务') }}</h1>
       </div>
     </header>
 
@@ -409,11 +409,6 @@ watch(
 .tasks-page {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: var(--mg-bg-subtle);
-  padding: 12px;
 }
 
 .tasks-header {
@@ -432,7 +427,6 @@ watch(
 .tasks-header h1 {
   margin: 0;
   color: var(--mg-text-1);
-  font-size: 20px;
   line-height: 1.2;
   font-weight: 800;
 }

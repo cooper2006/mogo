@@ -1,5 +1,5 @@
 <template>
-  <div class="page-stack skills-page" @dragover.prevent @drop.prevent="handlePageDrop">
+  <div class="mg-page skills-page" @dragover.prevent @drop.prevent="handlePageDrop">
     <div class="metrics-row">
       <n-card v-for="item in metricCards" :key="item.key" class="metric-card" :bordered="false" size="small">
         <div class="metric-main">
@@ -603,11 +603,6 @@ watch(() => props.pendingFeedbackCount, (next, previous) => {
 .skills-page {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  background: var(--mg-bg-subtle);
-  padding: 12px;
 }
 
 :global(.skill-details-modal),

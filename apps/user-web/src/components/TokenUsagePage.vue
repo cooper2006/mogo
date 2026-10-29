@@ -169,10 +169,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="usage-page">
+  <div class="mg-page usage-page">
     <header class="usage-header">
       <div class="min-w-0">
-        <h1>{{ t('usage.title') }}</h1>
+        <h1 class="mg-page-title">{{ t('usage.title') }}</h1>
         <p>{{ t('usage.header_desc') }}</p>
       </div>
       <div class="usage-header-actions">
@@ -349,12 +349,7 @@ onMounted(() => {
 .usage-page {
   height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   overflow: hidden;
-  padding-top: 12px;
-  background: var(--mg-bg-subtle);
 }
 
 .usage-header {
@@ -374,7 +369,6 @@ onMounted(() => {
 .usage-header h1 {
   margin: 0;
   color: var(--mg-text-1);
-  font-size: 20px;
   line-height: 1.2;
   font-weight: 800;
 }

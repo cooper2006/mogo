@@ -50,6 +50,17 @@ body {
   flex-wrap: wrap;
 }
 
+/**
+ * 主视图容器（App.vue 里 currentView 切换的一级页面）。
+ * 与 .mg-page 组合使用：<div class="mg-page app-view-page">。
+ * 页面自己不再写 padding / 背景色 / 纵向间距。
+ */
+.app-view-page {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .mg-page-head__text {
   display: flex;
   flex-direction: column;
