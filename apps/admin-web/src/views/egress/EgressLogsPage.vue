@@ -2,6 +2,7 @@
 import { computed, h, onMounted, reactive, ref } from 'vue';
 import { NButton, NCard, NDataTable, NInput, NSelect, NSpace, NTag, type DataTableColumns } from 'naive-ui';
 import PageIntro from '@/components/PageIntro.vue';
+import { formatAdminDateTime } from '@/composables/adminTimezone';
 import { fetchEgressLogs, type EgressLogEntry } from '@/api/egress';
 
 const loading = ref(false);
@@ -46,13 +47,6 @@ function search() {
   void load();
 }
 
-function formatTime(value: string) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
 function urlOf(row: EgressLogEntry) {
   return row.details?.url_safe || row.details?.domain || '—';
 }
@@ -81,7 +75,7 @@ const columns = computed<DataTableColumns<EgressLogEntry>>(() => [
     title: '时间',
     key: 'occurred_at',
     width: 175,
-    render: (row) => formatTime(row.occurred_at),
+    render: (row) => formatAdminDateTime(row.occurred_at, '-'),
   },
   {
     title: '租户',

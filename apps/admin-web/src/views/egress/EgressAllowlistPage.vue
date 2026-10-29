@@ -16,6 +16,7 @@ import {
   type DataTableColumns,
 } from 'naive-ui';
 import PageIntro from '@/components/PageIntro.vue';
+import { formatAdminDateTime } from '@/composables/adminTimezone';
 import {
   createEgressRule,
   deleteEgressRule,
@@ -205,7 +206,7 @@ const columns = computed<DataTableColumns<EgressRule>>(() => [
     title: '更新时间',
     key: 'updated_at',
     width: 170,
-    render: (row) => row.updated_at,
+    render: (row) => formatAdminDateTime(row.updated_at, '-'),
   },
   {
     title: '操作',
