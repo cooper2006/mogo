@@ -89,6 +89,14 @@
   --mg-neutral-bg: #f2f5fa;
   --mg-neutral-border: #e1e7f1;
 
+  /* ---------- L2 semantic：装饰色（非状态语义，用于类型 / 来源等标签） ---------- */
+  --mg-accent-violet-text: #6d4fd8;
+  --mg-accent-violet-bg: #f0ebff;
+  --mg-accent-violet-border: #ddd2ff;
+  --mg-accent-teal-text: #0f766e;
+  --mg-accent-teal-bg: #e6f7f5;
+  --mg-accent-teal-border: #c3ebe6;
+
   /* ---------- L2 semantic：资产评级 L1–L4（L4 为最高级） ---------- */
   --mg-level-l1-bg: #f1f3f7;
   --mg-level-l1-text: #5b6472;
@@ -205,6 +213,13 @@ html.theme-dark {
   --mg-neutral-text: #b3bed2;
   --mg-neutral-bg: rgba(148, 163, 184, 0.14);
   --mg-neutral-border: rgba(148, 163, 184, 0.26);
+
+  --mg-accent-violet-text: #c4b0ff;
+  --mg-accent-violet-bg: rgba(139, 92, 246, 0.16);
+  --mg-accent-violet-border: rgba(139, 92, 246, 0.32);
+  --mg-accent-teal-text: #5eead4;
+  --mg-accent-teal-bg: rgba(45, 212, 191, 0.14);
+  --mg-accent-teal-border: rgba(45, 212, 191, 0.3);
 
   --mg-level-l1-bg: rgba(148, 163, 184, 0.14);
   --mg-level-l1-text: #b3bed2;

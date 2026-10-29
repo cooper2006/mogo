@@ -74,6 +74,7 @@ async function handleLogin() {
 </script>
 
 <style scoped>
+/* design-token-ignore: 品牌深蓝渐变是刻意保留的登录页视觉，不随主题变化 */
 .login-page {
   min-height: 100vh;
   display: grid;

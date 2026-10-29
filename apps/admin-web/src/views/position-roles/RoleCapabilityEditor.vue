@@ -79,14 +79,14 @@ function setCapability(key: AgentCapabilityKey, enabled: boolean) {
 
 <style scoped>
 .capability-editor { display: grid; gap: 4px; }
-h3 { margin: 0 0 6px; color: #172033; font-size: 15px; }
-.section-help { margin: 0 0 14px; color: #667085; font-size: 13px; }
+h3 { margin: 0 0 6px; color: var(--mg-text-1); font-size: 15px; }
+.section-help { margin: 0 0 14px; color: var(--mg-text-2); font-size: 13px; }
 .capability-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.capability-card { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #e4e7ec; border-radius: 10px; background: #fff; padding: 14px; text-align: left; cursor: pointer; transition: border-color .2s, background-color .2s; }
-.capability-card:hover { border-color: #9bbcff; }
-.capability-card.active { border-color: #7aa2ff; background: #f6f9ff; }
+.capability-card { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid var(--mg-border); border-radius: 10px; background: var(--mg-bg-surface); padding: 14px; text-align: left; cursor: pointer; transition: border-color .2s, background-color .2s; }
+.capability-card:hover { border-color: var(--mg-brand-soft-border); }
+.capability-card.active { border-color: var(--mg-brand-soft-border); background: var(--mg-brand-soft); }
 .capability-card__copy { display: grid; gap: 5px; }
-.capability-card small { color: #667085; line-height: 1.45; }
+.capability-card small { color: var(--mg-text-2); line-height: 1.45; }
 section :deep(.n-select) { margin-top: 12px; }
 @media (max-width: 760px) { .capability-grid { grid-template-columns: 1fr; } }
 </style>

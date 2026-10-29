@@ -80,9 +80,9 @@ function serviceLabel(service: SetupServiceStatus) {
 .deployment-status {
   margin-bottom: 22px;
   overflow: hidden;
-  border: 1px solid #dfe7f5;
+  border: 1px solid var(--mg-border);
   border-radius: 14px;
-  background: #f8faff;
+  background: var(--mg-bg-surface);
 }
 
 .status-summary {
@@ -100,15 +100,15 @@ function serviceLabel(service: SetupServiceStatus) {
   flex: 0 0 36px;
   place-items: center;
   border-radius: 10px;
-  background: #fff3d6;
-  color: #b46b08;
+  background: var(--mg-warning-bg);
+  color: var(--mg-warning-text);
 }
 
-.summary-icon.ready { background: #e6f7f0; color: #168461; }
+.summary-icon.ready { background: var(--mg-accent-teal-bg); color: var(--mg-success-text); }
 .summary-icon svg, .refresh-button svg { width: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
 .summary-copy { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.summary-copy strong { color: #17233d; font-size: 14px; }
-.summary-copy span { color: #66748f; font-size: 12px; }
+.summary-copy strong { color: var(--mg-text-1); font-size: 14px; }
+.summary-copy span { color: var(--mg-text-2); font-size: 12px; }
 
 .details-button {
   display: inline-flex;
@@ -117,7 +117,7 @@ function serviceLabel(service: SetupServiceStatus) {
   gap: 5px;
   border: 0;
   background: transparent;
-  color: #315fc8;
+  color: var(--mg-brand);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
@@ -127,9 +127,9 @@ function serviceLabel(service: SetupServiceStatus) {
 .details-button:focus-visible { border-radius: 8px; outline: 3px solid rgba(53, 104, 232, .25); outline-offset: 2px; }
 .details-button svg { width: 16px; fill: none; stroke: currentColor; stroke-width: 2; transition: transform .2s ease; }
 .details-button svg.expanded { transform: rotate(180deg); }
-.status-details { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 4px 14px 14px 62px; border-top: 1px solid #e7edf7; }
+.status-details { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 4px 14px 14px 62px; border-top: 1px solid var(--mg-border); }
 .service-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 22px; padding-top: 12px; }
-.service-row { display: flex; min-width: 0; align-items: center; gap: 8px; color: #34425e; font-size: 13px; }
+.service-row { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--mg-text-1); font-size: 13px; }
 .status-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #f2a32b; }
 .status-dot.ready { background: #27b386; }
 .service-state { margin-left: auto; color: #748097; font-size: 12px; }

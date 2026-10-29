@@ -218,9 +218,9 @@ onMounted(load);
 .ontology-page { min-height: 100%; }
 .ontology-content { display: grid; gap: 16px; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-.table-card { overflow: hidden; border: 1px solid #edf0f5; border-radius: 10px; }
+.table-card { overflow: hidden; border: 1px solid var(--mg-border); border-radius: 10px; }
 .tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.muted { color: #667085; font-weight: 400; }
+.muted { color: var(--mg-text-2); font-weight: 400; }
 .hint { margin: 12px 0 0; font-size: 12px; }
 @media (max-width: 860px) {
   .page-head { align-items: flex-start; flex-direction: column; }

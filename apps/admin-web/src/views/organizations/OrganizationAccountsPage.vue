@@ -622,7 +622,7 @@ onMounted(async () => {
 
 .pager-row {
   margin-top: 12px;
-  border-top: 1px solid #eceff5;
+  border-top: 1px solid var(--mg-border);
   padding-top: 10px;
   display: flex;
   align-items: center;
@@ -632,7 +632,7 @@ onMounted(async () => {
 
 .pager-total {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--mg-text-2);
 }
 
 :deep(.action-row) {
@@ -653,10 +653,10 @@ onMounted(async () => {
 }
 
 :deep(.action-link) {
-  border: 1px solid #d8e2ff;
+  border: 1px solid var(--mg-brand-soft-border);
   border-radius: 6px;
-  background: #f4f7ff;
-  color: #366aff;
+  background: var(--mg-brand-soft);
+  color: var(--mg-brand);
   cursor: pointer;
   padding: 2px 10px;
   font-size: 12px;
@@ -668,19 +668,19 @@ onMounted(async () => {
 }
 
 :deep(.action-link:hover) {
-  background: #eaf0ff;
-  border-color: #b9caff;
+  background: var(--mg-brand-soft);
+  border-color: var(--mg-brand-soft-border);
 }
 
 :deep(.action-link.danger) {
-  border-color: #ffd5de;
-  background: #fff6f8;
-  color: #d03050;
+  border-color: var(--mg-danger-border);
+  background: var(--mg-danger-bg);
+  color: var(--mg-danger-text);
 }
 
 :deep(.action-link.danger:hover) {
-  background: #ffeef2;
-  border-color: #ffb8c7;
+  background: var(--mg-danger-bg);
+  border-color: var(--mg-danger-border);
 }
 
 :deep(.builtin-tag) {
@@ -689,17 +689,17 @@ onMounted(async () => {
   height: 24px;
   padding: 0 10px;
   border-radius: 12px;
-  background: #f2f3f5;
-  color: #767c82;
+  background: var(--mg-bg-subtle);
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .status-on {
-  color: #18a058;
+  color: var(--mg-success-text);
 }
 
 .status-off {
-  color: #767c82;
+  color: var(--mg-text-3);
 }
 
 :deep(.n-button svg) {

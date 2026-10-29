@@ -208,11 +208,15 @@ node scripts/check_design_tokens.mjs --json    # 机器可读
 | R4 | warn | 页面自写标题块 |
 | R5 | error | `var(--mg-*)` 引用了未定义的令牌（拼错会静默失效，必须拦） |
 
+文件内含 `/* design-token-ignore: 原因 */` 时整文件跳过（仅用于品牌渐变等刻意保留的视觉，见 §9.3）。
+
 前端改动提交前先跑一遍，`error` 项不得新增。
 
 ## 9. 改造现状与迁移清单
 
-### 9.1 已统一（本批次）
+### 9.1 已统一
+
+**第一批（设计规范落地）**
 
 | 页面 | 处理 |
 | --- | --- |
@@ -226,19 +230,51 @@ node scripts/check_design_tokens.mjs --json    # 机器可读
 | 应用外壳 `layouts/BasicLayout.vue` | 删除 12 段重复的 `html.dark` 覆盖，全部走令牌；顶栏新增主题切换入口 |
 | 页面头部 `components/PageIntro.vue` | 升级为规范头部（支持 `#actions` 插槽），11 个页面自动受益 |
 
+**第二批（admin-web 深色主题全量收口）**
+
+按 §9.2 清单逐页替换，共 57 个文件、约 500 处硬编码色值改为令牌：
+
+| 范围 | 页面 / 组件 |
+| --- | --- |
+| 仪表盘与分析 | `dashboard/DashboardPage.vue`、`analytics/AnalyticsPage.vue` |
+| 知识库 | `knowledge/KnowledgeDocumentsPage.vue`、`knowledge/KnowledgeDocumentPreviewPage.vue` |
+| 模型 | `models/ModelsPage.vue`、`models/ImageModelRuntimeFields.vue` |
+| 技能 | `skills/SkillsPage.vue`、`skills/SkillConfigPage.vue`（216 处，全站最多）、`skills/SkillCanaryConfigPage.vue`、`skills/SkillPackageDetails.vue`、`skills/SkillPublishDialog.vue`、`skills/SkillVersionHistory.vue`、`skills/SkillZipInstaller.vue`、`skills/OrganizationSkillFeedback.vue` |
+| 首装流程 | `components/setup/*`（8 个步骤组件） |
+| 工具 | `tools/ToolsPage.vue`、`tools/ToolEditPage.vue` |
+| 组织与权限 | `organizations/*`、`position-roles/*`、`ontologies/*` |
+| 平台与审计 | `platform/TenantsPage.vue`、`platform/SystemHealthPage.vue`、`system-audit/*` |
+| 设置与个人 | `settings/ExternalSearchSettingsPage.vue`、`profile/ProfilePage.vue`、`components/settings/*` |
+| 通用组件 | `TokenInput`、`ContinuousPdfPreview`、`NativeDocumentPreview`、`FileIcon`、`PythonCodeEditor`、`SearchProviderGuide`、`EmployeeCredentialsFields`、`TenantCreateForm` |
+| 登录 / 邀请 | `auth/LoginPage.vue`、`auth/InviteAcceptPage.vue`（品牌渐变刻意保留，见下方豁免说明） |
+
+同时清掉 **35 条冗余 `html.dark` 覆盖块**（`ExternalSearchSettingsPage` 21 条、`ProfilePage` 9 条、`KnowledgeDocumentPreviewPage` 2 条、`PresentationSettingsPanel` 2 条、`ImageModelRuntimeFields` 1 条），这些块在令牌化后已与基础规则重复。
+
+新增装饰色令牌 `--mg-accent-violet-*` / `--mg-accent-teal-*`：紫色、青色标签在 4 个页面重复出现，集中到令牌层后深色下自动提亮，不再各页硬编码。
+
 ### 9.2 待迁移（按优先级）
 
-巡检当前基线：**error 112 / warn 23**（改造前 error 113）。优先处理 error 中「高曝光 + 深色下明显破相」的页面：
+巡检当前基线：**error 63 / warn 18**，其中 **admin-web 已归零**，剩余全部在 user-web：
 
-1. `views/dashboard/DashboardPage.vue`（87 处硬编码色）、`views/analytics/AnalyticsPage.vue`（53 处）
-2. `views/knowledge/KnowledgeDocumentsPage.vue`（90 处）、`views/models/ModelsPage.vue`（42 处）
-3. `views/skills/SkillConfigPage.vue`（216 处，两个 app 中最多）
-4. `components/setup/*`（首装流程 8 个组件，共约 100 处）
-5. `components/settings/ShortcutSettingsPanel.vue`（27 处）
-6. 登录 / 邀请页（`views/auth/*`，深色下目前基本不可用）
-7. `views/tools/*`、`views/organizations/*`（各 15–40 处）
+1. `components/MySkillConfigPage.vue`（221 处，全站最多）
+2. `components/MyToolsPage.vue`（59）、`components/MySkillsPage.vue`（43）
+3. `components/PresentationEditor.vue`（69）、`components/scheduled-tasks/ScheduledTaskPage.vue`（28）
+4. `components/code/*`（9 个组件，已有 `theme-dark` 覆盖但覆盖不全）
+5. `components/desktop/*`（窗口外壳、更新提示）
+6. `components/browser/*`、`components/ChatWindow.vue`
+7. `research/ResearchPage.vue`、`components/orchestration/OrchestrationCanvasPage.vue`
 
-迁移方式固定为三步：**替换色值为令牌 → 删除 `html.dark` 覆盖块 → 跑巡检确认该文件不再命中 R2/R3**。
+迁移方式固定为三步：**替换色值为令牌 → 删除 `html.dark` / `.theme-dark` 覆盖块 → 跑巡检确认该文件不再命中 R2/R3**。
+
+### 9.3 刻意保留的例外
+
+品牌渐变（登录页深蓝渐变、邀请页品牌蓝渐变）**不随主题变化**，这是产品视觉决策。这类文件在 `<style>` 顶部加豁免注释：
+
+```css
+/* design-token-ignore: 品牌渐变是刻意保留的视觉，不随主题变化 */
+```
+
+巡检遇到该注释会跳过整个文件。**不要用它来掩盖普通的硬编码色值。**
 
 ## 10. 相关文件
 

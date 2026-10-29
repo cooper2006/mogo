@@ -1549,7 +1549,7 @@ onMounted(async () => {
 }
 
 .dept-panel {
-  border: 1px solid #eceff5;
+  border: 1px solid var(--mg-border);
   border-radius: 10px;
   padding: 10px;
   display: flex;
@@ -1606,10 +1606,10 @@ onMounted(async () => {
 :deep(.dept-node-action) {
   width: 18px;
   height: 18px;
-  border: 1px solid #d9dce4;
+  border: 1px solid var(--mg-border);
   border-radius: 4px;
-  background: #fff;
-  color: #51607a;
+  background: var(--mg-bg-surface);
+  color: var(--mg-text-2);
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
@@ -1617,8 +1617,8 @@ onMounted(async () => {
 }
 
 :deep(.dept-node-action:hover) {
-  border-color: #9fb5ff;
-  color: #366aff;
+  border-color: var(--mg-brand-soft-border);
+  color: var(--mg-brand);
 }
 
 .list-panel {
@@ -1682,7 +1682,7 @@ onMounted(async () => {
 
 .pager-row {
   margin-top: 10px;
-  border-top: 1px solid #eceff5;
+  border-top: 1px solid var(--mg-border);
   padding-top: 10px;
   display: flex;
   align-items: center;
@@ -1692,11 +1692,11 @@ onMounted(async () => {
 
 .pager-total {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--mg-text-2);
 }
 
 .source-tag {
-  color: #366aff;
+  color: var(--mg-brand);
 }
 
 .masked-field {
@@ -1715,7 +1715,7 @@ onMounted(async () => {
 }
 
 .masked-field-placeholder {
-  color: #6b7280;
+  color: var(--mg-text-2);
   letter-spacing: 1px;
   font-weight: 700;
 }
@@ -1730,7 +1730,7 @@ onMounted(async () => {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--mg-text-2);
   cursor: pointer;
   padding: 0;
   transition: background-color 0.18s ease, color 0.18s ease;
@@ -1739,7 +1739,7 @@ onMounted(async () => {
 .masked-field-toggle:hover,
 .masked-field-toggle:focus-visible {
   background: rgba(54, 106, 255, 0.1);
-  color: #366aff;
+  color: var(--mg-brand);
   outline: none;
 }
 
@@ -1758,11 +1758,11 @@ onMounted(async () => {
 }
 
 .status-on {
-  color: #18a058;
+  color: var(--mg-success-text);
 }
 
 .status-off {
-  color: #767c82;
+  color: var(--mg-text-3);
 }
 
 :deep(.role-tags) {

@@ -350,7 +350,7 @@ onMounted(async () => {
 }
 .desc {
   margin: 8px 0;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -361,7 +361,7 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .count {
-  color: #94a3b8;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 .inline-hint {
@@ -373,7 +373,7 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 .param-feedback {
-  color: #94a3b8;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 .modal-footer {

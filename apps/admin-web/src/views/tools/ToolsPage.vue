@@ -334,8 +334,8 @@ onMounted(loadRows);
 
 .shell-card {
   border-radius: 14px;
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }
 
@@ -344,13 +344,13 @@ onMounted(loadRows);
 }
 
 .hero-breadcrumb {
-  color: #8692aa;
+  color: var(--mg-text-3);
   font-size: 13px;
 }
 
 .hero-title {
   margin-top: 8px;
-  color: #111b3a;
+  color: var(--mg-text-1);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -358,7 +358,7 @@ onMounted(loadRows);
 
 .hero-subtitle {
   margin-top: 8px;
-  color: #5f6f85;
+  color: var(--mg-text-2);
   font-size: 15px;
 }
 
@@ -389,8 +389,8 @@ onMounted(loadRows);
 }
 
 .metric-card {
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
 }
 
@@ -422,33 +422,33 @@ onMounted(loadRows);
 }
 
 .metric-icon-total {
-  color: #2d63ff;
-  background: #eaf0ff;
+  color: var(--mg-brand);
+  background: var(--mg-brand-soft);
 }
 
 .metric-icon-enabled {
-  color: #0f9964;
-  background: #e8f8ef;
+  color: var(--mg-success-text);
+  background: var(--mg-success-bg);
 }
 
 .metric-icon-mcp {
-  color: #7456e0;
-  background: #f0ebff;
+  color: var(--mg-accent-violet-text);
+  background: var(--mg-accent-violet-bg);
 }
 
 .metric-icon-pass {
-  color: #d9860a;
-  background: #fff2df;
+  color: var(--mg-warning-text);
+  background: var(--mg-warning-bg);
 }
 
 .metric-label {
-  color: #606f8a;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.3;
 }
 
 .metric-value {
-  color: #0f1f45;
+  color: var(--mg-text-1);
   font-size: 24px;
   font-weight: 600;
   line-height: 1.1;
@@ -456,7 +456,7 @@ onMounted(loadRows);
 
 .metric-note {
   margin-top: 6px;
-  color: #708099;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
@@ -486,7 +486,7 @@ onMounted(loadRows);
 .list-filter-row {
   padding: 0 44px 12px;
   margin: 0 -44px 12px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .list-body {
@@ -506,7 +506,7 @@ onMounted(loadRows);
   padding: 14px;
   border: 1px solid rgba(28, 45, 82, 0.08);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   box-shadow:
     0 8px 18px rgba(15, 31, 69, 0.06),
     0 1px 2px rgba(15, 31, 69, 0.04);
@@ -539,13 +539,13 @@ onMounted(loadRows);
 }
 
 .card-title {
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 16px;
   font-weight: 800;
 }
 
 .card-desc {
-  color: #5f6f85;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.55;
   display: -webkit-box;
@@ -556,12 +556,12 @@ onMounted(loadRows);
 
 .card-footnote,
 .no-tag {
-  color: #7a8797;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
 .status-switch-label {
-  color: #5f6f85;
+  color: var(--mg-text-2);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -574,7 +574,7 @@ onMounted(loadRows);
 }
 
 .tool-tag {
-  background: #f1f5f9;
+  background: var(--mg-bg-subtle);
 }
 
 .card-footrow {
@@ -608,7 +608,7 @@ onMounted(loadRows);
 
 .empty-shell {
   min-height: 320px;
-  border: 1px dashed #d8e2f2;
+  border: 1px dashed var(--mg-border);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -628,9 +628,9 @@ onMounted(loadRows);
   width: 54px;
   height: 36px;
   border-radius: 10px;
-  border: 1px solid #d8e2f2;
-  background: #fff;
-  color: #2d63ff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
+  color: var(--mg-brand);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -638,14 +638,14 @@ onMounted(loadRows);
 }
 
 .empty-title {
-  color: #101c3d;
+  color: var(--mg-text-1);
   font-size: 24px;
   line-height: 1.2;
   font-weight: 800;
 }
 
 .empty-desc {
-  color: #65748c;
+  color: var(--mg-text-2);
   font-size: 14px;
 }
 

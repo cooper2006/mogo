@@ -143,6 +143,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* design-token-ignore: 首装引导页的品牌渐变是刻意保留的视觉，不随主题变化 */
 .setup-page {
   min-height: 100vh;
   padding: 36px 20px 56px;

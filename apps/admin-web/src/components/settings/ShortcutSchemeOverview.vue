@@ -44,10 +44,10 @@ onMounted(async () => {
 <style scoped>
 .shortcut-overview { display: grid; gap: 16px; }
 .settings-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.settings-title { color: #182236; font-size: 20px; font-weight: 700; }
-.settings-subtitle { margin-top: 6px; color: #7b8799; font-size: 13px; }
-.default-scheme-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px; border: 1px solid #e5eaf2; border-radius: 14px; background: #fff; }
+.settings-title { color: var(--mg-text-1); font-size: 20px; font-weight: 700; }
+.settings-subtitle { margin-top: 6px; color: var(--mg-text-3); font-size: 13px; }
+.default-scheme-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px; border: 1px solid var(--mg-border); border-radius: 14px; background: var(--mg-bg-surface); }
 .default-scheme-card div { display: grid; gap: 5px; min-width: 0; }
-.default-scheme-card strong { color: #26344a; font-size: 15px; }
-.default-scheme-card span { color: #8a96a8; font-size: 12px; }
+.default-scheme-card strong { color: var(--mg-text-1); font-size: 15px; }
+.default-scheme-card span { color: var(--mg-text-3); font-size: 12px; }
 </style>

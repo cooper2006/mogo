@@ -359,14 +359,8 @@ onMounted(() => {
   padding: 22px 24px;
   border: 1px solid rgba(87, 112, 160, 0.14);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.78);
+  background: color-mix(in srgb, var(--mg-bg-surface) 78%, transparent);
   box-shadow: 0 10px 30px rgba(28, 53, 94, 0.08);
-}
-
-html.dark .profile-summary {
-  border-color: rgba(148, 163, 184, 0.16);
-  background: rgba(17, 24, 39, 0.76);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
 }
 
 .summary-main {
@@ -387,7 +381,7 @@ html.dark .profile-summary {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #366aff;
+  color: var(--mg-brand);
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
@@ -411,7 +405,7 @@ html.dark .profile-summary {
   height: 78px;
   overflow: hidden;
   border-radius: 50%;
-  background: #366aff;
+  background: var(--mg-brand);
   color: #fff;
   font-size: 28px;
   font-weight: 700;
@@ -430,24 +424,16 @@ html.dark .profile-summary {
 }
 
 .summary-kicker {
-  color: #5f736d;
+  color: var(--mg-text-2);
   font-size: 13px;
   font-weight: 600;
 }
 
-html.dark .summary-kicker {
-  color: #9ca3af;
-}
-
 .summary-main h1 {
   margin: 4px 0 8px;
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 24px;
   line-height: 1.25;
-}
-
-html.dark .summary-main h1 {
-  color: #f8fafc;
 }
 
 .summary-meta {
@@ -455,12 +441,8 @@ html.dark .summary-main h1 {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  color: #627086;
+  color: var(--mg-text-2);
   font-size: 13px;
-}
-
-html.dark .summary-meta {
-  color: #cbd5e1;
 }
 
 .profile-grid {
@@ -472,11 +454,6 @@ html.dark .summary-meta {
 .profile-card {
   border-radius: 12px;
   box-shadow: 0 10px 28px rgba(30, 57, 100, 0.08);
-}
-
-html.dark .profile-card {
-  background: rgba(17, 24, 39, 0.78);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
 
 .card-header,
@@ -501,35 +478,22 @@ html.dark .profile-card {
   background: rgba(54, 106, 255, 0.06);
 }
 
-html.dark .readonly-item {
-  background: rgba(96, 165, 250, 0.1);
-}
-
 .readonly-item span,
 .security-note span {
   display: block;
-  color: #637083;
+  color: var(--mg-text-2);
   font-size: 12px;
-}
-
-html.dark .readonly-item span,
-html.dark .security-note span {
-  color: #94a3b8;
 }
 
 .readonly-item strong {
   display: block;
   overflow: hidden;
   margin-top: 4px;
-  color: #17233d;
+  color: var(--mg-text-1);
   font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-html.dark .readonly-item strong {
-  color: #f8fafc;
 }
 
 .security-note {
@@ -542,11 +506,7 @@ html.dark .readonly-item strong {
 .security-note strong {
   display: block;
   margin-bottom: 4px;
-  color: #135e46;
-}
-
-html.dark .security-note strong {
-  color: #86efac;
+  color: var(--mg-success-text);
 }
 
 .form-actions {

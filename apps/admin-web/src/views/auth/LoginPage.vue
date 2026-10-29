@@ -196,17 +196,17 @@ async function resetTenantSelection() {
   gap: 14px;
   width: 100%;
   padding: 14px 16px;
-  border: 1px solid #dbe5f5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mg-bg-surface);
   cursor: pointer;
   text-align: left;
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .tenant-option:hover:not(:disabled) {
-  border-color: #9db8f8;
-  background: #f8fbff;
+  border-color: var(--mg-brand-soft-border);
+  background: var(--mg-bg-surface-hover);
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.08);
 }
 
@@ -225,25 +225,25 @@ async function resetTenantSelection() {
 }
 
 .tenant-copy strong {
-  color: #12234b;
+  color: var(--mg-text-1);
   font-size: 15px;
   font-weight: 800;
 }
 
 .tenant-copy small {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 13px;
 }
 
 .tenant-arrow {
-  color: #94a3b8;
+  color: var(--mg-text-3);
   font-size: 22px;
 }
 
 .tenant-empty {
   padding: 24px 0;
-  color: #64748b;
+  color: var(--mg-text-2);
   text-align: center;
 }
 

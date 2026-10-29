@@ -115,25 +115,25 @@ const icons: Record<SetupOptionalModelForm['capability'], string> = {
 <style scoped>
 .step-content { display: grid; gap: 16px; }
 .step-heading { margin-bottom: 2px; }
-.step-kicker { color: #3568e8; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.step-heading h2 { margin: 6px 0; color: #10204a; font-size: 24px; }
-.step-heading p { margin: 0; color: #64748b; line-height: 1.6; }
+.step-kicker { color: var(--mg-brand); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.step-heading h2 { margin: 6px 0; color: var(--mg-text-1); font-size: 24px; }
+.step-heading p { margin: 0; color: var(--mg-text-2); line-height: 1.6; }
 .model-cards { display: grid; gap: 12px; }
-.model-card { overflow: hidden; border: 1px solid #e0e7f1; border-radius: 14px; background: #fafcff; transition: border-color .2s ease, box-shadow .2s ease; }
+.model-card { overflow: hidden; border: 1px solid var(--mg-border); border-radius: 14px; background: var(--mg-bg-surface); transition: border-color .2s ease, box-shadow .2s ease; }
 .model-card.enabled { border-color: #a9c0f7; box-shadow: 0 8px 24px rgba(53, 104, 232, .08); }
 .model-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 14px; padding: 16px; }
-.model-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: #eaf0ff; color: #315fc8; }
+.model-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--mg-brand-soft); color: var(--mg-brand); }
 .model-icon :deep(svg) { width: 22px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
-.model-icon-embedding { background: #e8f7f2; color: #168461; }
+.model-icon-embedding { background: #e8f7f2; color: var(--mg-success-text); }
 .model-icon-rerank { background: #fff4df; color: #b66a00; }
 .model-icon-image { background: #f4ecff; color: #7b43c7; }
 .model-copy { min-width: 0; }
 .model-title-row { display: flex; align-items: center; gap: 8px; }
-.model-title-row h3 { margin: 0; color: #17233d; font-size: 15px; }
+.model-title-row h3 { margin: 0; color: var(--mg-text-1); font-size: 15px; }
 .model-copy p { margin: 5px 0 3px; color: #53617b; font-size: 13px; line-height: 1.55; }
 .model-impact { color: #7b879c; font-size: 12px; line-height: 1.5; }
-.model-recommendation { display: block; margin-top: 4px; color: #3568e8; font-size: 12px; line-height: 1.5; }
-.model-form { padding: 18px 16px 2px; border-top: 1px solid #e6ecf5; background: #fff; }
+.model-recommendation { display: block; margin-top: 4px; color: var(--mg-brand); font-size: 12px; line-height: 1.5; }
+.model-form { padding: 18px 16px 2px; border-top: 1px solid #e6ecf5; background: var(--mg-bg-surface); }
 .actions { display: grid; grid-template-columns: auto minmax(220px, 1fr); gap: 10px; margin-top: 2px; }
 @media (max-width: 600px) { .model-summary { grid-template-columns: auto minmax(0, 1fr); } .model-summary :deep(.n-switch) { grid-column: 2; } .actions { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .model-card { transition: none; } }

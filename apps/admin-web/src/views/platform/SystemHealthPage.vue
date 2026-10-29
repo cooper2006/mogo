@@ -88,7 +88,7 @@ onMounted(loadHealth);
 
 .page-head p {
   margin: 0;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 13px;
 }
 
@@ -98,20 +98,20 @@ onMounted(loadHealth);
 }
 
 .service-copy strong {
-  color: #10204a;
+  color: var(--mg-text-1);
   font-size: 14px;
 }
 
 .service-copy small {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .empty-state {
   padding: 48px 0;
-  color: #64748b;
+  color: var(--mg-text-2);
   text-align: center;
 }
 </style>

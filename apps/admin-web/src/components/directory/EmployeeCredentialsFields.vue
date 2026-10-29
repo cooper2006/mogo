@@ -58,9 +58,9 @@ const passwordPlaceholder = computed(() => (props.mode === 'create' ? t('至少 
 .credentials-section {
   margin: 4px 0 18px;
   padding: 16px 16px 2px;
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--mg-border);
   border-radius: 12px;
-  background: #f8fafc;
+  background: var(--mg-bg-subtle);
 }
 
 .credentials-heading {
@@ -73,14 +73,14 @@ const passwordPlaceholder = computed(() => (props.mode === 'create' ? t('至少 
 
 .credentials-heading h3 {
   margin: 0;
-  color: #172033;
+  color: var(--mg-text-1);
   font-size: 15px;
   line-height: 22px;
 }
 
 .credentials-heading p {
   margin: 3px 0 0;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 18px;
 }

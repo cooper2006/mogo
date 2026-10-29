@@ -62,10 +62,10 @@ defineExpose({ loadReleases });
 </script>
 
 <style scoped>
-.version-history { margin-top: 20px; border-top: 1px solid #e4eaf4; padding-top: 16px; }
-.version-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-weight: 600; color: #17233d; }
+.version-history { margin-top: 20px; border-top: 1px solid var(--mg-border); padding-top: 16px; }
+.version-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-weight: 600; color: var(--mg-text-1); }
 .timeline-body { display: flex; flex-direction: column; gap: 6px; }
-.digest { font-size: 12px; color: #52627d; }
+.digest { font-size: 12px; color: var(--mg-text-2); }
 .digest code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
-.notes { font-size: 13px; color: #17233d; white-space: pre-wrap; margin-top: 2px; }
+.notes { font-size: 13px; color: var(--mg-text-1); white-space: pre-wrap; margin-top: 2px; }
 </style>

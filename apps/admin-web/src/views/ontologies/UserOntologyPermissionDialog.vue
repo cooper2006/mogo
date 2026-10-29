@@ -181,9 +181,9 @@ watch(() => props.show, visible => {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--mg-border);
   border-radius: 10px;
 }
 .grant-row div { display: grid; gap: 4px; }
-.grant-row small { color: #667085; }
+.grant-row small { color: var(--mg-text-2); }
 </style>

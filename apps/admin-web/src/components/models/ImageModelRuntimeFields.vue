@@ -225,15 +225,15 @@ function imageSettingsJson() {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 14px;
   padding: 14px 14px 4px;
-  border: 1px solid #e6ebf5;
+  border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: #f8faff;
+  background: var(--mg-bg-surface);
 }
 
 .runtime-help {
   grid-column: 1 / -1;
   margin: -2px 0 10px;
-  color: #667085;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -251,7 +251,7 @@ function imageSettingsJson() {
 }
 
 .advanced-title span:last-child {
-  color: #98a2b3;
+  color: var(--mg-text-3);
   font-size: 12px;
   font-weight: 400;
 }
@@ -276,11 +276,6 @@ function imageSettingsJson() {
 
 .json-editor :deep(.n-input) {
   flex: 1;
-}
-
-:global(html.dark) .image-runtime-fields {
-  border-color: #263044;
-  background: #151c2b;
 }
 
 @media (max-width: 700px) {

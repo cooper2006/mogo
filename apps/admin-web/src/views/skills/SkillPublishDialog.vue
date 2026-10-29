@@ -32,7 +32,7 @@ async function dryRun(){if(!props.skill)return;dryBusy.value=true;try{const r=aw
 async function submit(){if(!props.skill)return;busy.value=true;try{const out=await publishSkill(props.skill.id,version.value,notes.value);emit('published',out.skill);emit('update:show',false);message.success(t('Skill 已发布'))}catch(e:any){message.error(e?.response?.data?.detail?.reason||e?.response?.data?.detail||t('发布失败'))}finally{busy.value=false}}
 </script>
 <style scoped>
-.eval-metrics{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#666}
-.eval-dry{margin-left:auto;color:#999}
-.eval-blocked{margin-top:6px;font-size:12px;color:#c00}
+.eval-metrics{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--mg-text-2)}
+.eval-dry{margin-left:auto;color:var(--mg-text-3)}
+.eval-blocked{margin-top:6px;font-size:12px;color:var(--mg-danger-text)}
 </style>

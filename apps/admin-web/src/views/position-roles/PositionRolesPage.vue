@@ -123,9 +123,9 @@ onMounted(load);
 .position-role-card { min-width: 0; border-radius: 8px; }
 .position-role-content { display: grid; gap: 16px; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-.role-table-card { overflow: hidden; border: 1px solid #edf0f5; border-radius: 10px; }
+.role-table-card { overflow: hidden; border: 1px solid var(--mg-border); border-radius: 10px; }
 .role-name { display: grid; grid-template-columns: max-content max-content; align-items: center; gap: 4px 8px; }
-.role-name small { grid-column: 1 / -1; color: #667085; font-weight: 400; }
-.drawer-footer { min-width: 670px; display: flex; align-items: center; justify-content: space-between; color: #667085; }
+.role-name small { grid-column: 1 / -1; color: var(--mg-text-2); font-weight: 400; }
+.drawer-footer { min-width: 670px; display: flex; align-items: center; justify-content: space-between; color: var(--mg-text-2); }
 @media (max-width: 860px) { .page-head { align-items: flex-start; flex-direction: column; } }
 </style>

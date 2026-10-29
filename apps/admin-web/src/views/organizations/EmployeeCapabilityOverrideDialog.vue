@@ -135,7 +135,7 @@ watch(() => props.show, (visible) => { if (visible) void load(); });
 <style scoped>
 .override-form { margin-top: 18px; }
 .override-list { display: grid; gap: 8px; }
-.override-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; }
+.override-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--mg-border); border-radius: 10px; }
 .override-row div { display: grid; gap: 4px; }
-.override-row small { color: #667085; }
+.override-row small { color: var(--mg-text-2); }
 </style>

@@ -1053,8 +1053,8 @@ watch(
 
 .shell-card {
   border-radius: 14px;
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   box-shadow: 0 6px 20px rgba(16, 38, 84, 0.05);
 }
 
@@ -1076,7 +1076,7 @@ watch(
 .list-filter-row {
   padding: 0 20px 14px;
   margin: 0 -20px 14px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--mg-border);
 }
 
 .filter-toolbar {
@@ -1133,34 +1133,34 @@ watch(
 }
 
 .table-total {
-  color: #66757c;
+  color: var(--mg-text-2);
   font-size: 13px;
 }
 
 .user-name {
-  color: #1f2b4d;
+  color: var(--mg-text-1);
   font-weight: 600;
 }
 
 .user-dept {
   margin-top: 2px;
-  color: #6d7d86;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
 .token-total {
-  color: #1f2b4d;
+  color: var(--mg-text-1);
   font-weight: 700;
 }
 
 .token-breakdown {
   margin-top: 2px;
-  color: #6d7d86;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
 .request-title {
-  color: #1f2b4d;
+  color: var(--mg-text-1);
   font-weight: 600;
   white-space: normal;
   word-break: break-all;
@@ -1168,7 +1168,7 @@ watch(
 
 .request-preview {
   margin-top: 2px;
-  color: #6d7d86;
+  color: var(--mg-text-2);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -1252,7 +1252,7 @@ watch(
   flex: 0 0 auto;
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px solid #eceff5;
+  border-top: 1px solid var(--mg-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1280,24 +1280,24 @@ watch(
 
 .message-bubble {
   max-width: 100%;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--mg-border);
   padding: 14px 16px;
-  background-color: #fff;
+  background-color: var(--mg-bg-surface);
   border-radius: 0 !important; /* 直角要求 */
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .bubble-user {
-  background-color: #f0f7ff;
-  border-color: #bfdbfe;
-  color: #1e3a8a;
+  background-color: var(--mg-info-bg);
+  border-color: var(--mg-info-border);
+  color: var(--mg-text-1);
   border-left: 4px solid #3b82f6; /* 加强边缘区分 */
 }
 
 .bubble-assistant {
-  background-color: #fff;
-  border-color: #e2e8f0;
-  color: #334155;
+  background-color: var(--mg-bg-surface);
+  border-color: var(--mg-border);
+  color: var(--mg-text-1);
   border-left: 4px solid #10b981;
 }
 
@@ -1307,7 +1307,7 @@ watch(
   align-items: center;
   margin-bottom: 10px;
   font-size: 12px;
-  border-bottom: 1px dashed #e2e8f0;
+  border-bottom: 1px dashed var(--mg-border);
   padding-bottom: 6px;
 }
 
@@ -1316,15 +1316,15 @@ watch(
 }
 
 .bubble-user .role-badge {
-  color: #2563eb;
+  color: var(--mg-brand);
 }
 
 .bubble-assistant .role-badge {
-  color: #059669;
+  color: var(--mg-success-text);
 }
 
 .msg-time {
-  color: #94a3b8;
+  color: var(--mg-text-3);
 }
 
 .user-text-content {
@@ -1336,8 +1336,8 @@ watch(
 
 .assistant-timeline-box {
   margin-bottom: 16px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
+  background: var(--mg-bg-subtle);
+  border: 1px solid var(--mg-border);
   padding: 12px;
   font-size: 13px;
   border-radius: 0 !important; /* 直角要求 */
@@ -1345,7 +1345,7 @@ watch(
 
 .timeline-title {
   font-weight: 600;
-  color: #475569;
+  color: var(--mg-text-2);
   margin-bottom: 8px;
 }
 
@@ -1362,12 +1362,12 @@ watch(
 }
 
 .markdown-body :deep(th), .markdown-body :deep(td) {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--mg-brand-soft-border);
   padding: 8px 12px;
 }
 
 .markdown-body :deep(th) {
-  background-color: #f1f5f9;
+  background-color: var(--mg-bg-subtle);
 }
 
 .assistant-documents-box {
@@ -1381,8 +1381,8 @@ watch(
   display: flex;
   align-items: center;
   gap: 12px;
-  border: 1px solid #bfdbfe;
-  background-color: #f0f9ff;
+  border: 1px solid var(--mg-info-border);
+  background-color: var(--mg-info-bg);
   padding: 10px 14px;
   border-radius: 0 !important; /* 直角要求 */
 }
@@ -1393,8 +1393,8 @@ watch(
   justify-content: center;
   width: 40px;
   height: 40px;
-  background-color: #fff;
-  border: 1px solid #e2e8f0;
+  background-color: var(--mg-bg-surface);
+  border: 1px solid var(--mg-border);
 }
 
 .svg-doc-icon {
@@ -1408,19 +1408,19 @@ watch(
 }
 
 .word-color {
-  color: #2563eb;
+  color: var(--mg-brand);
 }
 
 .ppt-color {
-  color: #ea580c;
+  color: var(--mg-warning-text);
 }
 
 .pdf-color {
-  color: #dc2626;
+  color: var(--mg-danger-text);
 }
 
 .default-doc-color {
-  color: #64748b;
+  color: var(--mg-text-2);
 }
 
 .doc-info-box {
@@ -1431,7 +1431,7 @@ watch(
 .doc-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--mg-text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1439,7 +1439,7 @@ watch(
 
 .doc-meta {
   font-size: 11px;
-  color: #64748b;
+  color: var(--mg-text-2);
   margin-top: 2px;
 }
 
@@ -1452,7 +1452,7 @@ watch(
   align-items: center;
   justify-content: center;
   min-height: 200px;
-  color: #94a3b8;
+  color: var(--mg-text-3);
   font-size: 14px;
 }
 

@@ -189,7 +189,7 @@ defineExpose({
 
 .field-hint {
   margin: -6px 0 12px;
-  color: #7b879f;
+  color: var(--mg-text-3);
   font-size: 12px;
   line-height: 1.6;
 }

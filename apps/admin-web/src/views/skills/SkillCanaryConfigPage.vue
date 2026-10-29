@@ -260,6 +260,6 @@ onMounted(load);
 .ladder-editor { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .ladder-editor::after { content: '%'; }
 .state-actions { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
-.state-action-label { color: #888; }
-.timeline-body { color: #666; font-size: 13px; }
+.state-action-label { color: var(--mg-text-3); }
+.timeline-body { color: var(--mg-text-2); font-size: 13px; }
 </style>

@@ -152,6 +152,9 @@ for (const app of APPS) {
     const relFile = path.relative(absRoot, absFile);
     const text = fs.readFileSync(absFile, 'utf-8');
 
+    // 显式豁免：文件内出现 design-token-ignore 注释则跳过（用于品牌渐变等刻意保留的视觉）
+    if (text.includes('design-token-ignore')) continue;
+
     // ---- R1: 未安装 Tailwind 的 app 出现 Tailwind 工具类 ----
     if (!app.tailwind) {
       const templateMatch = text.match(TEMPLATE_RE);

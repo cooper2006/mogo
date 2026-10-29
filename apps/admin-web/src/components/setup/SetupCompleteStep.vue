@@ -41,11 +41,11 @@ defineEmits<{ login: []; createTenant: [] }>();
 <style scoped>
 .complete-content { display: grid; gap: 20px; }
 .next-steps { display: grid; gap: 12px; }
-.next-step { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; }
-.next-step-index { display: grid; width: 26px; height: 26px; flex: 0 0 26px; place-items: center; border-radius: 50%; background: #3568e8; color: #fff; font-size: 13px; font-weight: 700; }
+.next-step { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--mg-border); border-radius: 12px; background: var(--mg-bg-subtle); }
+.next-step-index { display: grid; width: 26px; height: 26px; flex: 0 0 26px; place-items: center; border-radius: 50%; background: var(--mg-brand); color: #fff; font-size: 13px; font-weight: 700; }
 .next-step-copy { display: grid; gap: 3px; }
-.next-step-copy strong { color: #10204a; font-size: 14px; }
-.next-step-copy span { color: #64748b; font-size: 13px; line-height: 1.6; }
+.next-step-copy strong { color: var(--mg-text-1); font-size: 14px; }
+.next-step-copy span { color: var(--mg-text-2); font-size: 13px; line-height: 1.6; }
 .complete-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 600px) { .complete-actions { grid-template-columns: 1fr; } }
 </style>

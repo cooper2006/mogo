@@ -202,7 +202,7 @@ onMounted(async () => {
 }
 
 .invite-hero {
-  border: 1px solid #dbe5ff;
+  border: 1px solid var(--mg-brand-soft-border);
   border-radius: 18px;
   background: linear-gradient(145deg, #366aff 0%, #5d86ff 100%);
   color: #fff;
@@ -253,14 +253,14 @@ onMounted(async () => {
   margin-bottom: 8px;
   font-size: 18px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--mg-text-1);
 }
 
 .error-line {
   margin: 8px 0 12px;
   border-radius: 10px;
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--mg-danger-bg);
+  color: var(--mg-danger-text);
   padding: 8px 10px;
   font-size: 13px;
 }
@@ -275,7 +275,7 @@ onMounted(async () => {
   margin-top: 10px;
   text-align: center;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--mg-text-2);
 }
 
 .invite-brand-footer {
@@ -287,7 +287,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #7a8599;
+  color: var(--mg-text-3);
   font-size: 12px;
   user-select: none;
 }

@@ -644,7 +644,7 @@ onMounted(loadTenants);
 
 .page-head p {
   margin: 0;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 13px;
 }
 
@@ -666,12 +666,12 @@ onMounted(loadTenants);
 
 .tenant-name {
   font-weight: 700;
-  color: #10204a;
+  color: var(--mg-text-1);
 }
 
 .tenant-id {
   margin-top: 3px;
-  color: #8594ad;
+  color: var(--mg-text-3);
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -689,9 +689,9 @@ onMounted(loadTenants);
   width: 56px;
   height: 56px;
   place-items: center;
-  border: 1px dashed #b9c8e4;
+  border: 1px dashed var(--mg-brand-soft-border);
   border-radius: 50%;
-  color: #3568e8;
+  color: var(--mg-brand);
   font-size: 26px;
   font-weight: 300;
 }
@@ -704,7 +704,7 @@ onMounted(loadTenants);
 .empty-state p {
   max-width: 420px;
   margin: 0 0 8px;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -717,7 +717,7 @@ onMounted(loadTenants);
 
 .modal-hint {
   margin: 0 0 14px;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 13px;
   line-height: 1.6;
 }

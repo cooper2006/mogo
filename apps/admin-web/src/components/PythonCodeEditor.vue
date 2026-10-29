@@ -136,6 +136,6 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: #0f172a;
+  background: var(--mg-bg-app);
 }
 </style>

@@ -27,12 +27,12 @@ const guide = computed(() => isSearchProviderId(props.provider) ? searchProvider
 </script>
 
 <style scoped>
-.provider-guide { padding: 14px 16px; border: 1px solid #dbe6f7; border-radius: 13px; background: #f8fbff; color: #475569; }
+.provider-guide { padding: 14px 16px; border: 1px solid #dbe6f7; border-radius: 13px; background: var(--mg-bg-surface); color: var(--mg-text-2); }
 .guide-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .guide-heading div { display: grid; gap: 3px; }
-.guide-heading strong { color: #1e293b; font-size: 13px; }
+.guide-heading strong { color: var(--mg-text-1); font-size: 13px; }
 .guide-heading span { font-size: 12px; }
-.guide-heading a { display: inline-flex; min-height: 44px; align-items: center; gap: 5px; color: #2457d6; font-size: 13px; font-weight: 600; text-decoration: none; }
+.guide-heading a { display: inline-flex; min-height: 44px; align-items: center; gap: 5px; color: var(--mg-brand); font-size: 13px; font-weight: 600; text-decoration: none; }
 .guide-heading a:hover { text-decoration: underline; }
 .guide-heading a:focus-visible { border-radius: 5px; outline: 3px solid rgba(37, 87, 214, .22); outline-offset: 2px; }
 .guide-heading svg { width: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }

@@ -851,8 +851,8 @@ onMounted(async () => {
 }
 
 .metric-card {
-  border: 1px solid #e6ebf5;
-  background: #fff;
+  border: 1px solid var(--mg-border);
+  background: var(--mg-bg-surface);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(29, 54, 110, 0.04);
 }
@@ -870,8 +870,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--mg-brand);
+  background: var(--mg-info-bg);
 }
 
 .metric-icon :deep(svg),
@@ -887,13 +887,13 @@ onMounted(async () => {
 
 .metric-label,
 .metric-note {
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
 .metric-value {
   margin-top: 4px;
-  color: #0f172a;
+  color: var(--mg-text-1);
   font-size: 24px;
   font-weight: 700;
 }
@@ -920,14 +920,14 @@ onMounted(async () => {
 
 .period-hint {
   margin-top: 2px;
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 12px;
   line-height: 1.6;
 }
 
 .period-hint span {
   display: block;
-  color: #334155;
+  color: var(--mg-text-1);
 }
 
 .wide-input {
@@ -936,7 +936,7 @@ onMounted(async () => {
 
 .list-filter-row {
   padding: 16px 0 12px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--mg-border);
   margin-bottom: 12px;
 }
 
@@ -961,9 +961,9 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid #eef1f6;
+  border: 1px solid var(--mg-border);
   border-radius: 10px;
-  background: #fbfcfe;
+  background: var(--mg-bg-surface);
 }
 
 .scope-main {
@@ -974,7 +974,7 @@ onMounted(async () => {
 }
 
 .scope-meta {
-  color: #8b95a7;
+  color: var(--mg-text-3);
   font-size: 12px;
 }
 
@@ -1007,7 +1007,7 @@ onMounted(async () => {
 }
 
 .user-main-line strong {
-  color: #0f172a;
+  color: var(--mg-text-1);
   font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1016,7 +1016,7 @@ onMounted(async () => {
 
 .login-name {
   flex: 0 0 auto;
-  color: #a3adbd;
+  color: var(--mg-text-3);
   font-size: 14px;
 }
 
@@ -1028,7 +1028,7 @@ onMounted(async () => {
 }
 
 .user-contact-item {
-  color: #8b97a8;
+  color: var(--mg-text-3);
   font-size: 14px;
   line-height: 20px;
   word-break: break-all;
@@ -1038,8 +1038,8 @@ onMounted(async () => {
   width: fit-content;
   max-width: 100%;
   border-radius: 4px;
-  background: #f6f8fb;
-  color: #8b97a8;
+  background: var(--mg-bg-subtle);
+  color: var(--mg-text-3);
   font-size: 14px;
   line-height: 22px;
   padding: 0 6px;
@@ -1049,7 +1049,7 @@ onMounted(async () => {
 }
 
 .usage-cell span {
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
@@ -1066,7 +1066,7 @@ onMounted(async () => {
 }
 
 .user-inline span {
-  color: #64748b;
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
@@ -1076,8 +1076,8 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 12px;
   padding-top: 14px;
-  border-top: 1px solid #edf1f7;
-  color: #64748b;
+  border-top: 1px solid var(--mg-border);
+  color: var(--mg-text-2);
   font-size: 12px;
 }
 
