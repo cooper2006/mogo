@@ -1,6 +1,6 @@
 # 资产中心串联方案（A+B）
 
-> 状态：设计文档，未落地代码。供评审。
+> 状态：实施中（基础链路 + 资产中心互链已落，§5 方案 B 剩余项待后续批次）。
 > 关联 spec：018 capability-asset-registration / 036 trust-rating / 037 unified-portal。
 
 ## 0. 一句话
@@ -132,3 +132,27 @@ capability_assets     (L1–L4 质量)        (暴露登记)              (申�
 - 不动 RBAC / 037 / 038 后端状态机。
 - 本期不纳入模型 / 会话 / 记忆（会话记忆是运行时态，归外）。
 - **不纳入本体**：本体属数据授权域（`ontology_grants`，`read/write/none`+优先级），与能力资产的 `permission_grants.asset:use:<key>` 是两套授权模型。资产中心只加"数据授权 → 本体授权"只读跳转出口，不 join 进资产卡片，保持两条授权线解耦。
+
+## 10. 实施进度
+
+### 已完成（2026-10-29）
+- [x] 登录页跳转：`AuthLoginPage` 登录后回跳来源页（replace 去历史残留）
+- [x] `/api/portal` 走 admin-web base URL：去尾斜杠防重定向丢 JWT
+- [x] SDK 统一响应格式：`portal.ts` 直接返回后端 JSON，类型对齐
+- [x] 资产中心互链：`AssetsPage` → `/trust-ratings`、`/portal/listings`、`/portal/approvals` 带 `asset_type`/`asset_key` query；`PortalListingPage`、`PortalApprovalPage` 读 query 客户端过滤聚焦；`TrustRatingPage` 已有互链逻辑（useRoute + filteredRows + watch）
+
+### 待落地（§5 方案 B 剩余项）
+- [ ] `PortalListingPage`：手填 `asset_key` → 4 类已登记资产下拉选，不可用禁上架
+- [ ] `TrustRatingPage`：加"上架"列 + "管理"按钮（跳技能配置 / 资产中心）
+- [ ] `SkillsPage`：卡片加"上架状态"小标
+- [ ] `PortalApprovalPage`：审批详情显示该资产评级 + owner
+- [ ] user `PortalDetail`：补"在资产门户查看管理状态"只读锚点
+- [ ] `PortalUsagePage` / `PortalPortalPage`：当前代码库不存在，需确认是否在后续批次创建
+
+### 验收（§8）
+- [x] 资产中心页能列出技能 + MCP/工具/连接器四类资产
+- [ ] 门户上架页可下拉选资产（当前仍手填 asset_key）
+- [ ] 评级页"管理"按钮能跳（当前无此列）
+- [ ] 审批详情显示资产评级 + owner（待验证）
+- [ ] 全链路无 404/409（待端到端验证）
+- [ ] 审批流呈现：grantCount / 最近单 / 到期时间（待验证）
