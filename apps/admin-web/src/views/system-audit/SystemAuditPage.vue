@@ -103,7 +103,7 @@ onMounted(load);
               <n-button @click="applyFilters">{{ t('查询') }}</n-button>
             </n-space>
           </div>
-          <n-data-table :columns="columns" :data="rows" :loading="loading" :bordered="false" :pagination="false" :scroll-x="1120" />
+          <n-data-table :columns="columns" :data="rows" :loading="loading" :bordered="false" :pagination="false" />
           <div class="pager-row"><span>{{ t('共 {count} 条', { count: total }) }}</span><n-pagination v-model:page="page" :page-size="pageSize" :item-count="total" /></div>
         </div>
       </div>
@@ -113,7 +113,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.audit-page { min-height: 100%; }
+.audit-page { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 .audit-card { min-width: 0; border-radius: 8px; }
 .audit-content { display: grid; gap: 18px; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
