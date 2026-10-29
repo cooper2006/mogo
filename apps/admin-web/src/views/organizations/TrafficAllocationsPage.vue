@@ -935,9 +935,9 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 0 12px;
+  padding: 16px 32px 16px;
   border-bottom: 1px solid var(--mg-border);
-  margin-bottom: 12px;
+  margin: 0 -32px 16px;
 }
 
 .table-shell {

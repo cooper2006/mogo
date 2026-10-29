@@ -1922,7 +1922,7 @@ watch(documents, syncProcessingPoll, { deep: true });
   min-width: 100%;
   flex-wrap: nowrap;
   padding: 0 0 10px;
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   border-bottom: 1px solid var(--mg-border);
   overflow-x: auto;
   overflow-y: hidden;
