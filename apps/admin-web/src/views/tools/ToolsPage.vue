@@ -492,7 +492,7 @@ onMounted(loadRows);
 .list-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .tool-grid {
