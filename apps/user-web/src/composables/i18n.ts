@@ -34,6 +34,17 @@ export function useLocale() {
   }
 }
 
+/**
+ * 组合式封装：`const { t, locale, setLocale } = useI18n()`。
+ * 045 资产中心门户页按这种写法使用；`t` 仍是下面的模块级函数，`locale` 为只读 computed。
+ */
+export function useI18n() {
+  return {
+    t,
+    ...useLocale(),
+  }
+}
+
 export function setLocale(locale: Locale | string) {
   _locale.value = normalizeLocale(locale)
 }

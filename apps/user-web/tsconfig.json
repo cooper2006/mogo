@@ -15,6 +15,7 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
+      "@/*": ["src/*"],
       "@mogo-product-extension": ["src/product/community.ts"],
       "@mogo-user-web/*": ["src/*"]
     }

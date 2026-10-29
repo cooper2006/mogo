@@ -10,6 +10,8 @@ export default defineConfig({
     plugins: [vue()],
     resolve: {
         alias: {
+            // 与 admin-web 对齐：`@/xxx` 指向 src，供组件内绝对路径引用（045 资产中心门户页使用）。
+            '@': fileURLToPath(new URL('./src', import.meta.url)),
             '@mogo-product-extension': configuredProductExtension || communityProductExtension,
             '@mogo-user-web': fileURLToPath(new URL('./src', import.meta.url)),
             'vue': fileURLToPath(new URL('./node_modules/vue', import.meta.url)),
