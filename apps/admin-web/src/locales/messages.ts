@@ -1451,6 +1451,10 @@ export const messages = {
   '创建启用了联网能力的应用 Bot': { 'zh-CN': '创建启用了联网能力的应用 Bot', 'en-US': 'Create an application Bot with web access enabled' },
   '将 API Key 与 bot- 开头的应用 ID 填入 MOGO': { 'zh-CN': '将 API Key 与 bot- 开头的应用 ID 填入 MOGO', 'en-US': 'Enter the API Key and the bot- application ID in MOGO' },
   '仅有 API Key 不够，还需要填写已启用联网能力的 Bot Model。': { 'zh-CN': '仅有 API Key 不够，还需要填写已启用联网能力的 Bot Model。', 'en-US': 'An API Key alone is not enough; enter a web-enabled Bot Model as well.' },
+  // === 045 资产中心（一级菜单 + 二级子页）===
+  '资产中心': { 'zh-CN': '资产中心', 'en-US': 'Asset Center' },
+  '资产上架': { 'zh-CN': '资产上架', 'en-US': 'Asset Publishing' },
+  '资产审批': { 'zh-CN': '资产审批', 'en-US': 'Asset Approval' },
   // === 036 trust-rating（资产评级 L1–L4）===
   '资产评级': { 'zh-CN': '资产评级', 'en-US': 'Asset Rating' },
   'L1–L4 资产评级与变更管理': { 'zh-CN': 'L1–L4 资产评级与变更管理', 'en-US': 'L1–L4 asset ratings and change management' },

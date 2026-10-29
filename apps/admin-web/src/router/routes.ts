@@ -92,11 +92,11 @@ export const appRoutes: RouteRecordRaw[] = [
         component: () => import('@/views/skills/SkillCanaryConfigPage.vue'),
         meta: { title: '灰度发布', hideInMenu: true },
       },
+      // 045: 资产评级已并入「资产中心」的二级菜单，旧路径保留重定向（书签兼容）
       {
         path: '/trust-ratings',
-        name: 'TrustRatings',
-        component: () => import('@/views/trust-ratings/TrustRatingPage.vue'),
-        meta: { title: '资产评级', icon: SystemAuditIcon },
+        redirect: '/assets/ratings',
+        meta: { hideInMenu: true },
       },
       {
         path: '/tools',
@@ -199,25 +199,51 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '本体授权', icon: OntologyIcon },
       },
       {
-        // 045: 资产中心 —— 统一资产视图（技能 + 能力资产），五块数据前端 join
+        // 045: 资产中心 —— 资产相关页面的统一入口（一级菜单 + 二级子页）
+        // 父路由不设 component，二级页面直接渲染到 BasicLayout 的 router-view；
+        // path '' 的子路由是「资产中心」自身的概览页。
         path: '/assets',
-        name: 'Assets',
-        component: () => import('@/views/AssetsPage.vue'),
         meta: { title: '资产中心', icon: SkillsManagerIcon },
+        children: [
+          {
+            path: '',
+            name: 'Assets',
+            component: () => import('@/views/AssetsPage.vue'),
+            meta: { title: '资产中心', hideInMenu: true },
+          },
+          {
+            // 036: L1–L4 评级与变更管理
+            path: 'ratings',
+            name: 'AssetRatings',
+            component: () => import('@/views/trust-ratings/TrustRatingPage.vue'),
+            meta: { title: '资产评级' },
+          },
+          {
+            // 037: 上架 / 下架（即时生效，下架不撤销存量授权）
+            path: 'listings',
+            name: 'AssetListings',
+            component: () => import('@/views/portal/PortalListingPage.vue'),
+            meta: { title: '资产上架' },
+          },
+          {
+            // 037: 申领审批（批准即写入用户级 asset:use 授权）
+            path: 'approvals',
+            name: 'AssetApprovals',
+            component: () => import('@/views/portal/PortalApprovalPage.vue'),
+            meta: { title: '资产审批' },
+          },
+        ],
       },
+      // 037: 门户上架 / 审批已并入「资产中心」二级菜单，旧路径保留重定向（书签兼容）
       {
-        // 037: 统一门户 —— 资产上架 / 下架（即时生效，下架不撤销存量授权）
         path: '/portal/listings',
-        name: 'PortalListings',
-        component: () => import('@/views/portal/PortalListingPage.vue'),
-        meta: { title: '门户上架', icon: SkillsManagerIcon },
+        redirect: '/assets/listings',
+        meta: { hideInMenu: true },
       },
       {
-        // 037: 统一门户 —— 申领审批（批准即写入用户级 asset:use 授权）
         path: '/portal/approvals',
-        name: 'PortalApprovals',
-        component: () => import('@/views/portal/PortalApprovalPage.vue'),
-        meta: { title: '门户审批', icon: SystemAuditIcon },
+        redirect: '/assets/approvals',
+        meta: { hideInMenu: true },
       },
       {
         path: '/hooks/rules',

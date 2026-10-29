@@ -35,7 +35,31 @@ function renderMenuIcon(icon: unknown) {
   return null;
 }
 
-function buildOptions(isPlatformAdmin: boolean) {
+/** 拼接父子路由路径（child 可能是相对路径或空）。 */
+function joinPath(parent: string, child: string): string {
+  if (!child) return parent;
+  if (child.startsWith('/')) return child;
+  return `${parent.replace(/\/$/, '')}/${child}`;
+}
+
+/** 取某条路由下需要出现在菜单里的子项（有 title 且未隐藏）。 */
+function menuChildren(route: RouteRecordRaw): RouteRecordRaw[] {
+  return ((route.children ?? []) as RouteRecordRaw[]).filter(
+    (child) => Boolean(child.meta?.title) && !child.meta?.hideInMenu && child.path !== '',
+  );
+}
+
+/** 所有「分组型」一级菜单的 key（用于自动展开）。 */
+function groupKeys(): string[] {
+  const root = appRoutes.find((route) => route.path === '/');
+  const keys = ((root?.children ?? []) as RouteRecordRaw[])
+    .filter((route) => menuChildren(route).length > 0)
+    .map((route) => route.path as string);
+  // 组织与用户是硬编码分组（由 menuGroup 标记合并而成），不在路由层级里
+  return [...keys, '/organizations-group'];
+}
+
+function buildOptions(isPlatformAdmin: boolean, navigate: (path: string) => void) {
   const root = appRoutes.find((route) => route.path === '/');
   const children = (root?.children ?? []) as RouteRecordRaw[];
   const visibleRoutes = children.filter((route: RouteRecordRaw) => {
@@ -82,6 +106,32 @@ function buildOptions(isPlatformAdmin: boolean) {
       }
       continue;
     }
+    const subRoutes = menuChildren(route);
+    if (subRoutes.length) {
+      options.push({
+        key: routePath,
+        // 一级项本身也是页面：点文字直接跳转，点箭头才展开二级（阻止冒泡避免只展开）
+        label: () =>
+          h(
+            'span',
+            {
+              class: 'menu-group-label',
+              onClick: (event: MouseEvent) => {
+                event.stopPropagation();
+                navigate(routePath);
+              },
+            },
+            t(route.meta?.title as string),
+          ),
+        icon: () => renderMenuIcon(route.meta?.icon),
+        children: subRoutes.map((child) => ({
+          key: joinPath(routePath, child.path as string),
+          label: t(child.meta?.title as string),
+        })),
+      });
+      continue;
+    }
+
     options.push({
       key: routePath,
       label: t(route.meta?.title as string),
@@ -101,16 +151,20 @@ export function useMenuOptions() {
   const menuOptions = computed(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- explicit dependency on locale reactive state
     locale.value; // Explicitly depend on locale reactive state
-    return buildOptions(authStore.isPlatformAdmin);
+    return buildOptions(authStore.isPlatformAdmin, (path: string) => router.push(path));
   });
 
-  const expandedKeys = ref<string[]>(route.path.startsWith('/organizations') ? ['/organizations-group'] : []);
+  const expandedKeys = ref<string[]>(
+    groupKeys().filter((key) => route.path === key || route.path.startsWith(`${key}/`)),
+  );
 
   watch(
     () => route.path,
     (path) => {
-      if (path.startsWith('/organizations') && !expandedKeys.value.includes('/organizations-group')) {
-        expandedKeys.value = [...expandedKeys.value, '/organizations-group'];
+      for (const key of groupKeys()) {
+        if ((path === key || path.startsWith(`${key}/`)) && !expandedKeys.value.includes(key)) {
+          expandedKeys.value = [...expandedKeys.value, key];
+        }
       }
     },
   );

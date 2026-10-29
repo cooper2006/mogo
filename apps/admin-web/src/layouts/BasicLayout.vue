@@ -398,6 +398,11 @@ async function handleSelect(key: string) {
   font-size: 14px;
 }
 
+/* 分组型一级菜单（如「资产中心」）：点文字跳转到自身页面，点箭头展开二级 */
+:deep(.menu-group-label) {
+  cursor: pointer;
+}
+
 :deep(.menu-symbol) {
   display: inline-flex;
   align-items: center;

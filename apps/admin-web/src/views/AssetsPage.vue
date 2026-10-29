@@ -141,13 +141,13 @@ const categorySummary = computed(() => {
 });
 
 function goTrustRating(row: AssetRow) {
-  router.push({ path: '/trust-ratings', query: { asset_type: row.assetType, asset_key: row.assetKey } });
+  router.push({ path: '/assets/ratings', query: { asset_type: row.assetType, asset_key: row.assetKey } });
 }
 function goPortalListing(row: AssetRow) {
-  router.push({ path: '/portal/listings', query: { asset_type: row.assetType, asset_key: row.assetKey } });
+  router.push({ path: '/assets/listings', query: { asset_type: row.assetType, asset_key: row.assetKey } });
 }
 function goPortalApproval(row: AssetRow) {
-  router.push({ path: '/portal/approvals', query: { asset_type: row.assetType, asset_key: row.assetKey } });
+  router.push({ path: '/assets/approvals', query: { asset_type: row.assetType, asset_key: row.assetKey } });
 }
 
 onMounted(loadAll);
