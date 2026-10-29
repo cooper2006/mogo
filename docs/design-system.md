@@ -23,7 +23,7 @@ apps/admin-web/src/
   styles/tokens.css      设计令牌：浅 / 深两套语义变量（唯一色值来源）
   styles/base.css        组件层：页面骨架、卡片、工具栏、文本层级、语义徽章
   styles.css             入口：@import tokens + base，仅保留 app-shell
-  theme/naive.ts         naive-ui 主题桥接：overrides 全部引用 var(--mg-*)
+  theme/naive.ts         naive-ui 主题桥接：运行时读取令牌 → 实际色值（见 §4.4）
   components/PageIntro.vue  页面头部（标题 / 描述 / 标签 / 操作区）
 
 apps/user-web/src/
@@ -105,7 +105,7 @@ apps/user-web/src/
 
 ```
 用户切换 → <html> 加/去 class → tokens.css 的语义变量重定义 → 所有 var(--mg-*) 自动跟随
-                                ↘ naive-ui 的 themeOverrides 本身引用 var(--mg-*)，无需重建对象
+                                ↘ naive-ui 的 overrides 必须重建（见下方 4.4）
 ```
 
 - admin-web 使用 `html.dark`（同时写 `data-theme`）
@@ -113,6 +113,35 @@ apps/user-web/src/
 - `tokens.css` 的深色段同时命中 `html.dark, html.theme-dark`，两个 app 共用一套取值
 
 **关键约定：组件里不需要写 `html.dark` 覆盖块。** 如果发现某处深色不对，说明它绕过了令牌，应改令牌而不是加覆盖。
+
+### 4.4 naive-ui 的 overrides 必须是实际色值（重要）
+
+**不能**把 `themeOverrides` 的值写成 `var(--mg-*)`。naive-ui 内部用 `seemly` 在 JS 里解析颜色做运算（计算 hover 色、透明叠加），遇到 CSS 变量会直接抛：
+
+```
+[seemly/rgba]: Invalid color value var(--mg-brand).
+```
+
+正确做法（`theme/naive.ts`）：
+
+1. `createNaiveThemeOverrides()` 在**运行时**用 `getComputedStyle` 读令牌，返回实际色值
+2. `readToken()` 必须**递归展开 `var()` 别名**——语义层是 `--mg-brand: var(--mg-palette-blue-500)` 这种间接引用，而 `getComputedStyle` 对自定义属性返回**未解析的字面值**，不会像普通属性那样自动替换
+3. 主题切换时**重建 overrides 对象**（`composables/theme.ts` / `App.vue` 的 `applyThemeMode`），且必须在 `<html>` 的 class 切换**之后**读，否则拿到旧主题的值
+4. `theme/naive.ts` 里保留一份浅色 `FALLBACK` 表：ESM 的 import 提升可能让主题模块早于 `styles.css` 执行，此时读不到令牌，先用兜底值，下一帧再校准
+
+```ts
+// theme/naive.ts 的核心逻辑
+export function readToken(name: string, depth = 0): string {
+  if (typeof document === 'undefined' || depth > 6) return FALLBACK[name] ?? '#000000';
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!value) return FALLBACK[name] ?? '#000000';
+  const alias = /^var\(\s*(--mg-[\w-]+)\s*\)$/.exec(value);   // ← 必须递归
+  if (alias) return readToken(alias[1], depth + 1);
+  return value;
+}
+```
+
+自定义 CSS（`base.css`、组件 scoped 样式）不受此限制，可以正常用 `var(--mg-*)`。
 
 ## 5. 页面骨架
 

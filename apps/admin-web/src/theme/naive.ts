@@ -1,9 +1,12 @@
 /**
  * naive-ui 主题桥接层（admin-web）
  *
- * 设计原则：themeOverrides 里**只引用 CSS 变量**（var(--mg-*)），不写死色值。
- * 这样浅色 / 深色切换时无需重建 overrides 对象，naive 组件与自定义样式共用同一套 token，
- * 从根上避免「深色下某些组件还是浅色」的不一致。
+ * ⚠️ 关键约束：themeOverrides 的颜色值**必须是实际色值**，不能是 `var(--mg-*)`。
+ * naive-ui 内部用 seemly 在 JS 里解析颜色做运算（计算 hover 色、透明叠加等），
+ * 遇到 CSS 变量会抛 `[seemly/rgba]: Invalid color value`。
+ *
+ * 因此这里在**运行时**从 :root 读取令牌的 computed 值：
+ *   令牌仍是唯一来源 → 主题切换时重建 overrides 对象（见 composables/theme.ts）
  *
  * 规范文档：docs/design-system.md
  */
@@ -11,254 +14,336 @@ import type { GlobalThemeOverrides } from 'naive-ui';
 
 const fontFamily = '"SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
 
-export const naiveThemeOverrides: GlobalThemeOverrides = {
-  common: {
-    fontFamily,
-    fontSize: '14px',
-    fontSizeMini: '12px',
-    fontSizeTiny: '12px',
-    fontSizeSmall: '13px',
-    fontSizeMedium: '14px',
-    fontSizeLarge: '15px',
-    fontSizeHuge: '16px',
+/**
+ * 浅色主题下的兜底值。仅在以下情况使用：
+ *   - SSR / 非浏览器环境
+ *   - 令牌尚未注入（理论上不会发生：styles.css 先于 JS 执行）
+ * 取值必须与 tokens.css 的浅色段一致。
+ */
+const FALLBACK: Record<string, string> = {
+  '--mg-brand': '#366aff',
+  '--mg-brand-hover': '#5580ff',
+  '--mg-brand-pressed': '#2757e6',
+  '--mg-brand-soft': '#eef3ff',
+  '--mg-brand-soft-hover': '#e4ecff',
+  '--mg-brand-soft-border': '#dbe6ff',
+  '--mg-brand-text': '#2248b8',
 
-    // 品牌
-    primaryColor: 'var(--mg-brand)',
-    primaryColorHover: 'var(--mg-brand-hover)',
-    primaryColorPressed: 'var(--mg-brand-pressed)',
-    primaryColorSuppl: 'var(--mg-brand-hover)',
-    infoColor: 'var(--mg-info-text)',
-    infoColorHover: 'var(--mg-brand-hover)',
-    infoColorPressed: 'var(--mg-brand-pressed)',
-    infoColorSuppl: 'var(--mg-brand-hover)',
-    successColor: 'var(--mg-success-text)',
-    successColorHover: 'var(--mg-success-text)',
-    successColorPressed: 'var(--mg-success-text)',
-    successColorSuppl: 'var(--mg-success-text)',
-    warningColor: 'var(--mg-warning-text)',
-    warningColorHover: 'var(--mg-warning-text)',
-    warningColorPressed: 'var(--mg-warning-text)',
-    warningColorSuppl: 'var(--mg-warning-text)',
-    errorColor: 'var(--mg-danger-text)',
-    errorColorHover: 'var(--mg-danger-text)',
-    errorColorPressed: 'var(--mg-danger-text)',
-    errorColorSuppl: 'var(--mg-danger-text)',
+  '--mg-text-1': '#101c3d',
+  '--mg-text-2': '#4a5773',
+  '--mg-text-3': '#8a94a8',
+  '--mg-text-disabled': '#b3bccb',
+  '--mg-text-link': '#2248b8',
+  '--mg-text-on-brand': '#ffffff',
 
-    // 文本三级层次
-    textColorBase: 'var(--mg-text-1)',
-    textColor1: 'var(--mg-text-1)',
-    textColor2: 'var(--mg-text-2)',
-    textColor3: 'var(--mg-text-3)',
-    textColorDisabled: 'var(--mg-text-disabled)',
-    placeholderColor: 'var(--mg-text-3)',
-    placeholderColorDisabled: 'var(--mg-text-disabled)',
-    iconColor: 'var(--mg-text-3)',
-    iconColorHover: 'var(--mg-brand)',
-    iconColorPressed: 'var(--mg-brand-pressed)',
-    iconColorDisabled: 'var(--mg-text-disabled)',
+  '--mg-bg-app': '#f5f7fc',
+  '--mg-bg-surface': '#ffffff',
+  '--mg-bg-surface-hover': '#fafbfe',
+  '--mg-bg-subtle': '#eef2f9',
+  '--mg-bg-inset': '#edf1f8',
+  '--mg-bg-inverse': '#101c3d',
 
-    // 表面
-    bodyColor: 'var(--mg-bg-app)',
-    cardColor: 'var(--mg-bg-surface)',
-    modalColor: 'var(--mg-bg-surface)',
-    popoverColor: 'var(--mg-bg-surface)',
-    tableColor: 'var(--mg-bg-surface)',
-    tableHeaderColor: 'var(--mg-bg-subtle)',
-    inputColor: 'var(--mg-bg-surface)',
-    inputColorDisabled: 'var(--mg-bg-subtle)',
-    actionColor: 'var(--mg-bg-subtle)',
-    tagColor: 'var(--mg-neutral-bg)',
-    hoverColor: 'var(--mg-bg-surface-hover)',
-    invertedColor: 'var(--mg-bg-inverse)',
+  '--mg-border': '#e3e9f4',
+  '--mg-border-strong': '#cfd9ea',
+  '--mg-border-subtle': '#edf1f8',
+  '--mg-divider': '#edf1f8',
 
-    // 边框
-    borderColor: 'var(--mg-border)',
-    dividerColor: 'var(--mg-divider)',
-    closeIconColor: 'var(--mg-text-3)',
-    closeIconColorHover: 'var(--mg-text-1)',
-    clearColor: 'var(--mg-text-3)',
-    clearColorHover: 'var(--mg-text-2)',
+  '--mg-success-text': '#127a44',
+  '--mg-warning-text': '#a35a06',
+  '--mg-danger-text': '#c0293f',
+  '--mg-info-text': '#2248b8',
 
-    // 形状
-    borderRadius: '10px',
-    borderRadiusSmall: '8px',
+  '--mg-neutral-bg': '#f2f5fa',
+  '--mg-neutral-text': '#6b7688',
 
-    // 阴影
-    boxShadow1: 'var(--mg-shadow-sm)',
-    boxShadow2: 'var(--mg-shadow-md)',
-    boxShadow3: 'var(--mg-shadow-lg)',
-  },
+  '--mg-shadow-sm': '0 2px 8px rgba(16, 38, 84, 0.06)',
+  '--mg-shadow-md': '0 6px 20px rgba(16, 38, 84, 0.07)',
+  '--mg-shadow-lg': '0 16px 40px rgba(16, 38, 84, 0.1)',
+  '--mg-shadow-card': '0 6px 20px rgba(16, 38, 84, 0.07)',
+};
 
-  Card: {
-    borderRadius: '14px',
-    color: 'var(--mg-bg-surface)',
-    borderColor: 'var(--mg-border)',
-    titleTextColor: 'var(--mg-text-1)',
-    textColor: 'var(--mg-text-2)',
-    colorEmbedded: 'var(--mg-bg-subtle)',
-    boxShadow: 'var(--mg-shadow-card)',
-  },
+/**
+ * 读取令牌的运行时值（跟随当前 html class 对应的主题）。
+ *
+ * 注意：语义层是用 `--mg-brand: var(--mg-palette-blue-500)` 这种间接引用定义的，
+ * 而 getComputedStyle 对自定义属性返回的是**未解析的字面值**（`var(--mg-palette-blue-500)`），
+ * 不会像普通属性那样递归替换。所以这里必须自己递归展开，否则传给 naive 的仍是 var()，
+ * seemly 会抛 `[seemly/rgba]: Invalid color value`。
+ */
+export function readToken(name: string, depth = 0): string {
+  if (typeof document === 'undefined' || depth > 6) return FALLBACK[name] ?? '#000000';
 
-  DataTable: {
-    thColor: 'var(--mg-bg-subtle)',
-    thColorHover: 'var(--mg-bg-inset)',
-    thTextColor: 'var(--mg-text-2)',
-    thFontWeight: '600',
-    tdColor: 'var(--mg-bg-surface)',
-    tdColorHover: 'var(--mg-bg-surface-hover)',
-    tdColorStriped: 'var(--mg-bg-surface-hover)',
-    tdTextColor: 'var(--mg-text-1)',
-    borderColor: 'var(--mg-border-subtle)',
-    borderRadius: '10px',
-  },
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!value) return FALLBACK[name] ?? '#000000';
 
-  Layout: {
-    color: 'var(--mg-bg-app)',
-    siderColor: 'var(--mg-bg-surface)',
-    headerColor: 'var(--mg-bg-surface)',
-    siderBorderColor: 'var(--mg-border)',
-    headerBorderColor: 'var(--mg-border)',
-    footerColor: 'var(--mg-bg-surface)',
-  },
+  // 纯 var() 引用：递归展开到实际值
+  const alias = /^var\(\s*(--mg-[\w-]+)\s*\)$/.exec(value);
+  if (alias) return readToken(alias[1], depth + 1);
 
-  Menu: {
-    itemTextColor: 'var(--mg-text-2)',
-    itemTextColorHover: 'var(--mg-text-1)',
-    itemTextColorActive: 'var(--mg-brand-text)',
-    itemTextColorActiveHover: 'var(--mg-brand-text)',
-    itemTextColorChildActive: 'var(--mg-brand-text)',
-    itemIconColor: 'var(--mg-text-3)',
-    itemIconColorHover: 'var(--mg-text-1)',
-    itemIconColorActive: 'var(--mg-brand)',
-    itemIconColorActiveHover: 'var(--mg-brand)',
-    itemIconColorChildActive: 'var(--mg-brand)',
-    itemColorHover: 'var(--mg-brand-soft)',
-    itemColorActive: 'var(--mg-brand-soft)',
-    itemColorActiveHover: 'var(--mg-brand-soft-hover)',
-    itemColorActiveCollapsed: 'var(--mg-brand-soft)',
-    itemBorderRadius: '10px',
-  },
+  // 混在其它值里的 var()（如 `1px solid var(--x)`）：逐个替换
+  if (value.includes('var(')) {
+    return value.replace(/var\(\s*(--mg-[\w-]+)\s*\)/g, (_, inner) => readToken(inner, depth + 1));
+  }
 
-  Tag: {
-    borderRadius: '999px',
-    colorBordered: 'var(--mg-bg-surface)',
-    textColor: 'var(--mg-text-2)',
-  },
+  return value;
+}
 
-  Button: {
-    borderRadiusTiny: '6px',
-    borderRadiusSmall: '8px',
-    borderRadiusMedium: '10px',
-    borderRadiusLarge: '12px',
-    textColor: 'var(--mg-text-2)',
-    textColorHover: 'var(--mg-brand-text)',
-    textColorPressed: 'var(--mg-brand-pressed)',
-    textColorFocus: 'var(--mg-brand-text)',
-    border: '1px solid var(--mg-border)',
-    borderHover: '1px solid var(--mg-brand)',
-    borderPressed: '1px solid var(--mg-brand-pressed)',
-    borderFocus: '1px solid var(--mg-brand)',
-  },
+/**
+ * 构建当前主题下的 naive overrides。
+ * 必须在 <html> 的主题 class 切换**之后**调用，才能读到新主题的令牌值。
+ */
+export function createNaiveThemeOverrides(): GlobalThemeOverrides {
+  const c = readToken;
 
-  Input: {
-    borderRadius: '8px',
-    color: 'var(--mg-bg-surface)',
-    colorFocus: 'var(--mg-bg-surface)',
-    border: '1px solid var(--mg-border)',
-    borderHover: '1px solid var(--mg-border-strong)',
-    borderFocus: '1px solid var(--mg-brand)',
-    boxShadowFocus: '0 0 0 2px var(--mg-brand-soft)',
-    textColor: 'var(--mg-text-1)',
-    placeholderColor: 'var(--mg-text-3)',
-  },
+  return {
+    common: {
+      fontFamily,
+      fontSize: '14px',
+      fontSizeMini: '12px',
+      fontSizeTiny: '12px',
+      fontSizeSmall: '13px',
+      fontSizeMedium: '14px',
+      fontSizeLarge: '15px',
+      fontSizeHuge: '16px',
 
-  Select: {
-    peers: {
-      InternalSelection: {
-        borderRadius: '8px',
-        color: 'var(--mg-bg-surface)',
-        colorActive: 'var(--mg-bg-surface)',
-        border: '1px solid var(--mg-border)',
-        borderHover: '1px solid var(--mg-border-strong)',
-        borderActive: '1px solid var(--mg-brand)',
-        borderFocus: '1px solid var(--mg-brand)',
-        boxShadowActive: '0 0 0 2px var(--mg-brand-soft)',
-        boxShadowFocus: '0 0 0 2px var(--mg-brand-soft)',
-        textColor: 'var(--mg-text-1)',
-        placeholderColor: 'var(--mg-text-3)',
-      },
-      InternalSelectMenu: {
-        borderRadius: '10px',
-        color: 'var(--mg-bg-surface)',
-        optionTextColor: 'var(--mg-text-1)',
-        optionTextColorActive: 'var(--mg-brand-text)',
-        optionColorPending: 'var(--mg-bg-surface-hover)',
-        optionColorActive: 'var(--mg-brand-soft)',
+      // 品牌
+      primaryColor: c('--mg-brand'),
+      primaryColorHover: c('--mg-brand-hover'),
+      primaryColorPressed: c('--mg-brand-pressed'),
+      primaryColorSuppl: c('--mg-brand-hover'),
+      infoColor: c('--mg-info-text'),
+      infoColorHover: c('--mg-brand-hover'),
+      infoColorPressed: c('--mg-brand-pressed'),
+      infoColorSuppl: c('--mg-brand-hover'),
+      successColor: c('--mg-success-text'),
+      successColorHover: c('--mg-success-text'),
+      successColorPressed: c('--mg-success-text'),
+      successColorSuppl: c('--mg-success-text'),
+      warningColor: c('--mg-warning-text'),
+      warningColorHover: c('--mg-warning-text'),
+      warningColorPressed: c('--mg-warning-text'),
+      warningColorSuppl: c('--mg-warning-text'),
+      errorColor: c('--mg-danger-text'),
+      errorColorHover: c('--mg-danger-text'),
+      errorColorPressed: c('--mg-danger-text'),
+      errorColorSuppl: c('--mg-danger-text'),
+
+      // 文本三级层次
+      textColorBase: c('--mg-text-1'),
+      textColor1: c('--mg-text-1'),
+      textColor2: c('--mg-text-2'),
+      textColor3: c('--mg-text-3'),
+      textColorDisabled: c('--mg-text-disabled'),
+      placeholderColor: c('--mg-text-3'),
+      placeholderColorDisabled: c('--mg-text-disabled'),
+      iconColor: c('--mg-text-3'),
+      iconColorHover: c('--mg-brand'),
+      iconColorPressed: c('--mg-brand-pressed'),
+      iconColorDisabled: c('--mg-text-disabled'),
+
+      // 表面
+      bodyColor: c('--mg-bg-app'),
+      cardColor: c('--mg-bg-surface'),
+      modalColor: c('--mg-bg-surface'),
+      popoverColor: c('--mg-bg-surface'),
+      tableColor: c('--mg-bg-surface'),
+      tableHeaderColor: c('--mg-bg-subtle'),
+      inputColor: c('--mg-bg-surface'),
+      inputColorDisabled: c('--mg-bg-subtle'),
+      actionColor: c('--mg-bg-subtle'),
+      tagColor: c('--mg-neutral-bg'),
+      hoverColor: c('--mg-bg-surface-hover'),
+      invertedColor: c('--mg-bg-inverse'),
+
+      // 边框
+      borderColor: c('--mg-border'),
+      dividerColor: c('--mg-divider'),
+      closeIconColor: c('--mg-text-3'),
+      closeIconColorHover: c('--mg-text-1'),
+      clearColor: c('--mg-text-3'),
+      clearColorHover: c('--mg-text-2'),
+
+      // 形状
+      borderRadius: '10px',
+      borderRadiusSmall: '8px',
+
+      // 阴影
+      boxShadow1: c('--mg-shadow-sm'),
+      boxShadow2: c('--mg-shadow-md'),
+      boxShadow3: c('--mg-shadow-lg'),
+    },
+
+    Card: {
+      borderRadius: '14px',
+      color: c('--mg-bg-surface'),
+      borderColor: c('--mg-border'),
+      titleTextColor: c('--mg-text-1'),
+      textColor: c('--mg-text-2'),
+      colorEmbedded: c('--mg-bg-subtle'),
+      boxShadow: c('--mg-shadow-card'),
+    },
+
+    DataTable: {
+      thColor: c('--mg-bg-subtle'),
+      thColorHover: c('--mg-bg-inset'),
+      thTextColor: c('--mg-text-2'),
+      thFontWeight: '600',
+      tdColor: c('--mg-bg-surface'),
+      tdColorHover: c('--mg-bg-surface-hover'),
+      tdColorStriped: c('--mg-bg-surface-hover'),
+      tdTextColor: c('--mg-text-1'),
+      borderColor: c('--mg-border-subtle'),
+      borderRadius: '10px',
+    },
+
+    Layout: {
+      color: c('--mg-bg-app'),
+      siderColor: c('--mg-bg-surface'),
+      headerColor: c('--mg-bg-surface'),
+      siderBorderColor: c('--mg-border'),
+      headerBorderColor: c('--mg-border'),
+      footerColor: c('--mg-bg-surface'),
+    },
+
+    Menu: {
+      itemTextColor: c('--mg-text-2'),
+      itemTextColorHover: c('--mg-text-1'),
+      itemTextColorActive: c('--mg-brand-text'),
+      itemTextColorActiveHover: c('--mg-brand-text'),
+      itemTextColorChildActive: c('--mg-brand-text'),
+      itemIconColor: c('--mg-text-3'),
+      itemIconColorHover: c('--mg-text-1'),
+      itemIconColorActive: c('--mg-brand'),
+      itemIconColorActiveHover: c('--mg-brand'),
+      itemIconColorChildActive: c('--mg-brand'),
+      itemColorHover: c('--mg-brand-soft'),
+      itemColorActive: c('--mg-brand-soft'),
+      itemColorActiveHover: c('--mg-brand-soft-hover'),
+      itemColorActiveCollapsed: c('--mg-brand-soft'),
+      itemBorderRadius: '10px',
+    },
+
+    Tag: {
+      borderRadius: '999px',
+      colorBordered: c('--mg-bg-surface'),
+      textColor: c('--mg-text-2'),
+    },
+
+    Button: {
+      borderRadiusTiny: '6px',
+      borderRadiusSmall: '8px',
+      borderRadiusMedium: '10px',
+      borderRadiusLarge: '12px',
+      textColor: c('--mg-text-2'),
+      textColorHover: c('--mg-brand-text'),
+      textColorPressed: c('--mg-brand-pressed'),
+      textColorFocus: c('--mg-brand-text'),
+      border: `1px solid ${c('--mg-border')}`,
+      borderHover: `1px solid ${c('--mg-brand')}`,
+      borderPressed: `1px solid ${c('--mg-brand-pressed')}`,
+      borderFocus: `1px solid ${c('--mg-brand')}`,
+    },
+
+    Input: {
+      borderRadius: '8px',
+      color: c('--mg-bg-surface'),
+      colorFocus: c('--mg-bg-surface'),
+      border: `1px solid ${c('--mg-border')}`,
+      borderHover: `1px solid ${c('--mg-border-strong')}`,
+      borderFocus: `1px solid ${c('--mg-brand')}`,
+      boxShadowFocus: `0 0 0 2px ${c('--mg-brand-soft')}`,
+      textColor: c('--mg-text-1'),
+      placeholderColor: c('--mg-text-3'),
+    },
+
+    Select: {
+      peers: {
+        InternalSelection: {
+          borderRadius: '8px',
+          color: c('--mg-bg-surface'),
+          colorActive: c('--mg-bg-surface'),
+          border: `1px solid ${c('--mg-border')}`,
+          borderHover: `1px solid ${c('--mg-border-strong')}`,
+          borderActive: `1px solid ${c('--mg-brand')}`,
+          borderFocus: `1px solid ${c('--mg-brand')}`,
+          boxShadowActive: `0 0 0 2px ${c('--mg-brand-soft')}`,
+          boxShadowFocus: `0 0 0 2px ${c('--mg-brand-soft')}`,
+          textColor: c('--mg-text-1'),
+          placeholderColor: c('--mg-text-3'),
+        },
+        InternalSelectMenu: {
+          borderRadius: '10px',
+          color: c('--mg-bg-surface'),
+          optionTextColor: c('--mg-text-1'),
+          optionTextColorActive: c('--mg-brand-text'),
+          optionColorPending: c('--mg-bg-surface-hover'),
+          optionColorActive: c('--mg-brand-soft'),
+        },
       },
     },
-  },
 
-  Tabs: {
-    tabTextColorLine: 'var(--mg-text-2)',
-    tabTextColorActiveLine: 'var(--mg-brand-text)',
-    tabTextColorHoverLine: 'var(--mg-brand-text)',
-    barColor: 'var(--mg-brand)',
-    tabBorderColor: 'var(--mg-border)',
-    tabColorSegment: 'var(--mg-bg-subtle)',
-    tabTextColorSegment: 'var(--mg-text-2)',
-    tabTextColorActiveSegment: 'var(--mg-text-1)',
-    tabColorSegmentActive: 'var(--mg-bg-surface)',
-  },
+    Tabs: {
+      tabTextColorLine: c('--mg-text-2'),
+      tabTextColorActiveLine: c('--mg-brand-text'),
+      tabTextColorHoverLine: c('--mg-brand-text'),
+      barColor: c('--mg-brand'),
+      tabBorderColor: c('--mg-border'),
+      tabColorSegment: c('--mg-bg-subtle'),
+      tabTextColorSegment: c('--mg-text-2'),
+      tabTextColorActiveSegment: c('--mg-text-1'),
+      tabColorSegmentActive: c('--mg-bg-surface'),
+    },
 
-  Modal: {
-    color: 'var(--mg-bg-surface)',
-    borderRadius: '14px',
-  },
+    Modal: {
+      color: c('--mg-bg-surface'),
+      borderRadius: '14px',
+    },
 
-  Alert: {
-    borderRadius: '10px',
-    titleTextColor: 'var(--mg-text-1)',
-    contentTextColor: 'var(--mg-text-2)',
-    iconColor: 'var(--mg-brand)',
-  },
+    Alert: {
+      borderRadius: '10px',
+      titleTextColor: c('--mg-text-1'),
+      contentTextColor: c('--mg-text-2'),
+      iconColor: c('--mg-brand'),
+    },
 
-  Descriptions: {
-    thColor: 'var(--mg-bg-subtle)',
-    tdColor: 'var(--mg-bg-surface)',
-    thTextColor: 'var(--mg-text-2)',
-    tdTextColor: 'var(--mg-text-1)',
-    borderColor: 'var(--mg-border)',
-  },
+    Descriptions: {
+      thColor: c('--mg-bg-subtle'),
+      tdColor: c('--mg-bg-surface'),
+      thTextColor: c('--mg-text-2'),
+      tdTextColor: c('--mg-text-1'),
+      borderColor: c('--mg-border'),
+    },
 
-  Empty: {
-    iconColor: 'var(--mg-text-3)',
-    textColor: 'var(--mg-text-3)',
-  },
+    Empty: {
+      iconColor: c('--mg-text-3'),
+      textColor: c('--mg-text-3'),
+    },
 
-  Dropdown: {
-    color: 'var(--mg-bg-surface)',
-    optionTextColor: 'var(--mg-text-1)',
-    optionTextColorHover: 'var(--mg-text-1)',
-    optionTextColorActive: 'var(--mg-brand-text)',
-    optionColorHover: 'var(--mg-brand-soft)',
-    borderRadius: '10px',
-  },
+    Dropdown: {
+      color: c('--mg-bg-surface'),
+      optionTextColor: c('--mg-text-1'),
+      optionTextColorHover: c('--mg-text-1'),
+      optionTextColorActive: c('--mg-brand-text'),
+      optionColorHover: c('--mg-brand-soft'),
+      borderRadius: '10px',
+    },
 
-  PageHeader: {
-    titleTextColor: 'var(--mg-text-1)',
-    subtitleTextColor: 'var(--mg-text-3)',
-    backColorHover: 'var(--mg-brand-soft)',
-  },
+    PageHeader: {
+      titleTextColor: c('--mg-text-1'),
+      subtitleTextColor: c('--mg-text-3'),
+      backColorHover: c('--mg-brand-soft'),
+    },
 
-  Form: {
-    labelTextColor: 'var(--mg-text-2)',
-    feedbackTextColorError: 'var(--mg-danger-text)',
-  },
+    Form: {
+      labelTextColor: c('--mg-text-2'),
+      feedbackTextColorError: c('--mg-danger-text'),
+    },
 
-  Pagination: {
-    itemTextColor: 'var(--mg-text-2)',
-    itemTextColorActive: 'var(--mg-brand-text)',
-    itemColorActive: 'var(--mg-brand-soft)',
-    itemColorHover: 'var(--mg-bg-surface-hover)',
-  },
-};
+    Pagination: {
+      itemTextColor: c('--mg-text-2'),
+      itemTextColorActive: c('--mg-brand-text'),
+      itemColorActive: c('--mg-brand-soft'),
+      itemColorHover: c('--mg-bg-surface-hover'),
+    },
+  };
+}

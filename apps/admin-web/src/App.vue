@@ -2,7 +2,7 @@
   <a href="#main-content" class="skip-link">跳转到主内容</a>
   <n-config-provider
     :theme="themeInstance"
-    :theme-overrides="naiveThemeOverrides"
+    :theme-overrides="naiveOverrides"
     :locale="naiveLocale"
     :date-locale="naiveDateLocale"
   >
@@ -21,10 +21,9 @@ import { computed, watch } from 'vue';
 import { zhCN, dateZhCN, enUS, dateEnUS, darkTheme } from 'naive-ui';
 import { useLocale } from '@/composables/i18n';
 import { useTheme } from '@/composables/theme';
-import { naiveThemeOverrides } from '@/theme/naive';
 
 const { locale } = useLocale();
-const { activeTheme } = useTheme();
+const { activeTheme, naiveOverrides } = useTheme();
 
 // 组件外观由 theme/naive.ts 的 CSS 变量引用驱动，深浅主题只需切换 base theme。
 const themeInstance = computed(() => {

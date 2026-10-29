@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect } from 'naive-ui'
-import { naiveThemeOverrides } from './theme/naive'
+import { createNaiveThemeOverrides } from './theme/naive'
 import TokenInput from './components/TokenInput.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import ShortcutPreferencesPanel from './components/settings/ShortcutPreferencesPanel.vue'
@@ -786,11 +786,19 @@ function closePersonalization() {
   personalizationOpen.value = false
 }
 
+/**
+ * naive-ui 的 themeOverrides 必须是实际色值（seemly 无法解析 CSS 变量），
+ * 所以在主题 class 切换后重建一次；令牌仍是唯一颜色来源。
+ */
+const naiveThemeOverrides = ref(createNaiveThemeOverrides())
+
 function applyThemeMode() {
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
   isDarkTheme.value = themeMode.value === 'dark' || (themeMode.value === 'system' && systemDark)
   document.documentElement.classList.toggle('theme-dark', isDarkTheme.value)
   document.documentElement.style.colorScheme = isDarkTheme.value ? 'dark' : 'light'
+  // 必须在 class 切换之后读令牌，否则拿到的是旧主题的值
+  naiveThemeOverrides.value = createNaiveThemeOverrides()
 }
 
 function selectThemeMode(mode: ThemeMode) {
