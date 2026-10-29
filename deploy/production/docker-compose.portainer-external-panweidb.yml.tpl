@@ -112,6 +112,8 @@ services:
         } >> "$$temp_file"
         mv "$$temp_file" "$$secret_file"
         # runtime.env 会被 node 用户容器只读挂载，需要 world-readable
+        # 目录也要 world-executable，否则 node 用户无法穿越目录读取文件
+        chmod 755 /run/askai-secrets
         chmod 644 "$$secret_file"
         echo "MOGO deployment secrets are ready."
         echo "After services become healthy, open http://localhost:$${MOGO_PORT:-3000}/admin/setup"

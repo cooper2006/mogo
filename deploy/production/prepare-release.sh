@@ -326,7 +326,7 @@ if [ "$SKIP_BUILD" = "1" ]; then
 else
   check_build_bundles
   info "开始构建（离线 bundle 命中时约 9 分钟）；下面实时输出构建日志"
-  ( cd "$ROOT_DIR" && docker compose -f docker-compose.yml -f docker-compose.build.yml build )
+  ( cd "$ROOT_DIR" && docker compose -f docker-compose.yml -f docker-compose.build.yml build --no-cache )
 fi
 
 # ------------------------------------------------------------ 6. 校验应用镜像
