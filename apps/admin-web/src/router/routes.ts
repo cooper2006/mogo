@@ -252,24 +252,49 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '钩子规则', icon: HookRulesIcon },
       },
       {
-        path: '/system-audit',
-        name: 'SystemAudit',
-        component: () => import('@/views/system-audit/SystemAuditPage.vue'),
+        // 045: 系统审计 —— 审计相关页面统一入口（一级菜单 + 二级子页）
+        // 父路由不设 component，二级页面直接渲染到 BasicLayout 的 router-view；
+        // path '' 的子路由是「系统审计」自身的概览页。
+        path: '/audit',
         meta: { title: '系统审计', icon: SystemAuditIcon },
+        children: [
+          {
+            path: '',
+            name: 'SystemAudit',
+            component: () => import('@/views/system-audit/SystemAuditPage.vue'),
+            meta: { title: '系统审计', hideInMenu: true },
+          },
+          {
+            // 038: 出站白名单（platform/tenant/tool 三层并集，默认拒绝）
+            path: 'egress-allowlist',
+            name: 'EgressAllowlist',
+            component: () => import('@/views/egress/EgressAllowlistPage.vue'),
+            meta: { title: '出站访问控制' },
+          },
+          {
+            // 038: 出站判定审计（egress.allowed / egress.denied）
+            path: 'egress-logs',
+            name: 'EgressLogs',
+            component: () => import('@/views/egress/EgressLogsPage.vue'),
+            meta: { title: '出站审计日志' },
+          },
+        ],
+      },
+      // 旧路径保留重定向（书签兼容）
+      {
+        path: '/system-audit',
+        redirect: '/audit',
+        meta: { hideInMenu: true },
       },
       {
-        // 038: 出站白名单（platform/tenant/tool 三层并集，默认拒绝）
         path: '/egress/allowlist',
-        name: 'EgressAllowlist',
-        component: () => import('@/views/egress/EgressAllowlistPage.vue'),
-        meta: { title: '出站访问控制', icon: HookRulesIcon },
+        redirect: '/audit/egress-allowlist',
+        meta: { hideInMenu: true },
       },
       {
-        // 038: 出站判定审计（egress.allowed / egress.denied）
         path: '/egress/logs',
-        name: 'EgressLogs',
-        component: () => import('@/views/egress/EgressLogsPage.vue'),
-        meta: { title: '出站审计日志', icon: SystemAuditIcon },
+        redirect: '/audit/egress-logs',
+        meta: { hideInMenu: true },
       },
       {
         path: '/settings',
