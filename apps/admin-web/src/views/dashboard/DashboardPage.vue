@@ -894,7 +894,6 @@ onMounted(() => {
 <style scoped>
 .dashboard-page {
   height: 100%;
-  overflow-y: auto;
   padding: 18px;
   background: var(--mg-bg-app);
 }
