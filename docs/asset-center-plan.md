@@ -142,17 +142,18 @@ capability_assets     (L1–L4 质量)        (暴露登记)              (申�
 - [x] 资产中心互链：`AssetsPage` → `/trust-ratings`、`/portal/listings`、`/portal/approvals` 带 `asset_type`/`asset_key` query；`PortalListingPage`、`PortalApprovalPage` 读 query 客户端过滤聚焦；`TrustRatingPage` 已有互链逻辑（useRoute + filteredRows + watch）
 
 ### 待落地（§5 方案 B 剩余项）
-- [ ] `PortalListingPage`：手填 `asset_key` → 4 类已登记资产下拉选，不可用禁上架
-- [ ] `TrustRatingPage`：加"上架"列 + "管理"按钮（跳技能配置 / 资产中心）
-- [ ] `SkillsPage`：卡片加"上架状态"小标
-- [ ] `PortalApprovalPage`：审批详情显示该资产评级 + owner
-- [ ] user `PortalDetail`：补"在资产门户查看管理状态"只读锚点
+
+- [x] `PortalListingPage`：手填 `asset_key` → 4 类已登记资产下拉选，不可用禁上架（2026-10-29 落地，新增 `useAssetCatalog` 共享数据源）
+- [x] `TrustRatingPage`：加"上架"列 + "管理"按钮（跳技能配置 / 资产中心）
+- [x] `SkillsPage`：卡片加"上架状态"小标（评级徽标保留）
+- [x] `PortalApprovalPage`：审批详情显示该资产评级 + owner
+- [x] user `PortalDetail`：补"在资产门户查看管理状态"只读锚点（评级徽标 + 上架状态 + 跳 `/assets?asset=<type>:<key>`）
 - [ ] `PortalUsagePage` / `PortalPortalPage`：当前代码库不存在，需确认是否在后续批次创建
 
 ### 验收（§8）
 - [x] 资产中心页能列出技能 + MCP/工具/连接器四类资产
-- [ ] 门户上架页可下拉选资产（当前仍手填 asset_key）
-- [ ] 评级页"管理"按钮能跳（当前无此列）
-- [ ] 审批详情显示资产评级 + owner（待验证）
-- [ ] 全链路无 404/409（待端到端验证）
-- [ ] 审批流呈现：grantCount / 最近单 / 到期时间（待验证）
+- [x] 门户上架页可下拉选资产（非手填 key），选中后显示评级 + 启用状态，停用资产禁用上架
+- [x] 评级页"管理"按钮能跳到对应技能的配置页或资产中心对应卡片
+- [x] 审批详情显示资产评级 + owner
+- [ ] 全链路无 404/409（静态契约已对齐；待起服务做端到端联调）
+- [x] 审批流呈现：资产中心卡片 grantCount / 最近单 / 到期时间；审批页 applied 态按资产聚合卡片并可回跳资产中心
