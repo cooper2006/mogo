@@ -106,7 +106,9 @@ def test_admin_web_exchanges_token_via_post() -> None:
     assert src.exists()
     text = src.read_text(encoding="utf-8")
     assert "post<", "缺少 POST 调用" in text or "post<" in text
-    assert "/api/auth/sso/exchange" in text
+    # 2026-10-27 b6055c89 将 214 处旧路径统一迁到 /api/v1（消除每次请求的 301
+    # 往返）；SSO 换票路径随之变为 /api/v1/auth/sso/exchange，本断言同步当前路径。
+    assert "/api/v1/auth/sso/exchange" in text
     assert "sso_token: ssoToken" in text, "请求体必须携带 sso_token 字段"
 
 

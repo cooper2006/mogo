@@ -35,6 +35,10 @@ ALLOWLIST_PATHS=(
   "docs/"
   "specs/"
   ".github/workflows/"
+  # 生产部署模板：`.tpl` 里的 `__PANWEIDB_PASSWORD__` 等占位符由
+  # prepare-release.sh 渲染时注入真实值（str.replace），模板本身不含凭据；
+  # 与 docs/ 下的文档示例同类，属「占位符而非真实密钥」。
+  "deploy/production/docker-compose.portainer-external-panweidb.yml.tpl"
   # 开发/测试辅助脚本：内含伪造的本地凭据（与 tests/ 同类）
   "scripts/dev/"
   # 机器生成的依赖锁定文件：内容是 sha512 integrity 哈希（不是密钥），

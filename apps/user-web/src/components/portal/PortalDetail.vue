@@ -255,7 +255,7 @@ onMounted(load)
 }
 
 .manage-anchor {
-  color: var(--mg-primary);
+  color: var(--mg-brand);
   text-decoration: none;
 }
 

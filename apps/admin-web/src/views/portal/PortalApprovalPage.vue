@@ -398,7 +398,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 4px 0;
-  border-top: 1px dashed var(--mg-border-color, #efeff5);
+  border-top: 1px dashed var(--mg-border);
 }
 
 .applied-requester {

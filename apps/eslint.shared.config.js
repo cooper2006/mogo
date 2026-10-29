@@ -133,6 +133,13 @@ export function buildSharedConfig({ js, tseslint, prettier }) {
           EventTarget: 'readonly',
           ResizeObserver: 'readonly',
           IntersectionObserver: 'readonly',
+          // QA R12：vitals.ts（PerformanceObserver / PerformanceEntry /
+          // PerformanceNavigationTiming）与 theme/naive.ts（getComputedStyle）
+          // 引用这些标准浏览器全局，R11 内联清单漏补导致 8 个 no-undef。
+          PerformanceObserver: 'readonly',
+          PerformanceEntry: 'readonly',
+          PerformanceNavigationTiming: 'readonly',
+          getComputedStyle: 'readonly',
           MutationObserver: 'readonly',
           WeakRef: 'readonly',
           FinalizationRegistry: 'readonly',

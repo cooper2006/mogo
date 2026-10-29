@@ -59,12 +59,18 @@ REQUIRED_ROOT_FILES = (
     "SUPPORT.md",
     "CODE_OF_CONDUCT.md",
 )
-# 8 base volumes + 3 per-replica DSH runtime volumes (dsh-runtime-data-1/2/3),
-# added by commit fddc97a "M1 storage isolation per replica", + panweidb-storage
-# (the PanWeiDB soft/ + data/ volume, brought into compose so the database stops
-# living in a container's writable layer). Bump this constant whenever
-# docker-compose.yml gains or drops a physical volume.
-EXPECTED_MOGO_VOLUMES = 12
+# 物理卷计数（按引入批次登记，防止随 compose 演进悄悄漂移）：
+#   1. 8 个基线卷：prometheus-data / grafana-data / alertmanager-data / tempo-data /
+#      loki-data / deployment-secrets / mongo-data / mongo-backup
+#   2. 1 个 panweidb-storage（PanWeiDB soft/ + data/ 卷，023 批次 bring into compose）
+#   3. 3 个 per-replica DSH runtime 卷（dsh-runtime-data-1/2/3，commit fddc97a）
+#   4. 3 个品牌归一卷（askai-storage / knowledge-storage / admin-static，commit
+#      c968dfaa 移除 MOVO_ 回退层时接入）
+#   5. 2 个 certbot 卷（certbot-webroot / certbot-etc，024 T090 证书值班）
+#   6. 1 个 redis-data + 1 个 weaviate-data（基础中间件数据卷）
+#   7. 1 个 dsh-runtime-data（单节点默认拓扑基线卷）
+# 合计 20。Bump 此常量并在此登记来源，每当 docker-compose.yml 增减物理卷时同步。
+EXPECTED_MOGO_VOLUMES = 20
 # A physical volume name is ``<prefix>_<suffix>``, where the prefix is spelled
 # ``${MOGO_VOLUME_PREFIX:-mogo}`` — the transitional fallback chain that also
 # honoured a legacy prefix default has been retired, so ``MOGO_`` is the only

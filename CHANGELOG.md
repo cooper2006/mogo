@@ -8,6 +8,19 @@ image.
 
 ### Added
 
+- **045 资产中心枢纽落地（2026-10-29，SPEC 045 方案 A+B）**：
+  - 资产中心页 `/assets`：技能/能力资产（MCP/工具/连接器）统一坐标
+    `(asset_type, asset_key)` 互链，前端 join 技能/评级/上架/申领数据成一张表；
+    后端补只读接口 `GET /api/v1/capabilities/list`（`test_capability_assets_admin.py` 5 passed）。
+  - 资产卡片四徽标下钻：评级 → `/trust-ratings?asset=…`（未评级禁用）、
+    上架/下架 → `/portal/listings?asset=…` 预填、最近申领 → `/portal/approvals` 定位、
+    最近使用统计与 `grantCount`（与 `permission_grants` 同源）。
+  - 五块互链：技能页评级徽标定位评级行；评级页资产列加类型徽标/上架标志/最近申领统计；
+    门户上架页资产下拉选（skill → `GET /api/v1/skills`，mcp/tool/connector → `GET /api/v1/capabilities/list?kind=…`）。
+  - 门户审批页 `applied` 态按 `asset_key` 聚合为资产视角卡片，可下钻回资产中心。
+  - 治理：`specs/045-asset-center/` 三件套 + checklist 19/19，tasks 15/15 勾选，
+    `specs/INDEX.md` 表已补 045 行与统计节。
+
 - **023 可观测性与韧性 Phase 8 端到端验证落地（2026-10-25，T116–T118）**：
   - 三个**剧本脚本**，把「配置在就算齐了」升级为「真跑一遍」，全部遵循
     `0 通过 / 1 断言失败 / 2 环境不具备` 的退出码约定（`2` 不算通过，CI 应标 skipped）：

@@ -40,9 +40,15 @@ assert.ok(okGuardIdx !== -1 && okGuardIdx < writeTokenIdx, 'token must only be w
 
 // api/auth.ts：换票调用——票据放请求体（POST body），绝不放 URL；识别多租户挑战并映射 candidates。
 assert.match(auth, /client\.post\('\/auth\/portal-exchange', \{ portal_token: portalToken \}\)/, 'exchangePortalTicket must POST the ticket in the body (never the URL)')
-assert.match(auth, /payload\?\.data\?\.requiresTenantSelection/, 'exchange must detect the multi-tenant challenge')
-assert.match(auth, /challengeToken: payload\?\.data\?\.challengeToken/, 'exchange must surface the challenge token')
-assert.match(auth, /tenantCandidates: payload\?\.data\?\.candidates/, 'exchange must map backend candidates to tenantCandidates')
+// 2026-10-24 QA R12（0f1d7273）将 requiresTenantSelection 判定抽为
+// tenantSelectionResult(payload) 函数（data && data.requiresTenantSelection），
+// 断言同步为函数级语义，避免依赖内联字面量。
+assert.match(auth, /function tenantSelectionResult\(/, 'exchange must extract the multi-tenant challenge into a function')
+assert.match(auth, /data\s*&&\s*data\.requiresTenantSelection/, 'tenantSelectionResult must detect the multi-tenant challenge')
+// 同 R12 重构口径：tenantSelectionResult 用局部 const data = payload?.data，
+// 后续字段访问走 data.*（而非重复 payload?.data?.），断言同步。
+assert.match(auth, /challengeToken: data\.challengeToken/, 'exchange must surface the challenge token')
+assert.match(auth, /tenantCandidates: data\.candidates \|\| \[\]/, 'exchange must map backend candidates to tenantCandidates')
 
 // PasswordLoginForm：从 props 种子"只选组织"状态，挑战清空时复位。
 assert.match(loginForm, /challengeToken\?: string/, 'login form must accept a portal challenge token prop')

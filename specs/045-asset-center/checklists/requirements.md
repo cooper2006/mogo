@@ -9,8 +9,8 @@
 - [x] FR 编号连续（FR-1 ~ FR-15），覆盖方案 §3 FR-1 ~ FR-13 并扩展。
 - [x] Key Entities 列出五域数据模型与字段。
 - [x] Edge Cases 覆盖：capability_asset 无评级 / 未上架 / 0 申领 / 未发布技能 / 非 active 能力。
-- [ ] tasks.md 覆盖全部 FR（实施时逐项勾）。
-- [ ] 后端接口有单测覆盖（实施时勾）。
+- [x] tasks.md 覆盖全部 FR（实施时逐项勾）。
+- [x] 后端接口有单测覆盖（实施时勾）。
 
 ## 清晰度（Clarity）
 
