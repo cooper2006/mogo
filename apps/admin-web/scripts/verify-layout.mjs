@@ -127,12 +127,15 @@ async function waitPort(port, timeoutMs = 60000) {
 }
 
 /* ---------- 3. 页面与测量 ---------- */
+// metricsCheck: 该页筛选栏横线是否应横跨全宽并与统计卡行对齐。
+//   知识文档为「左目录面板 + 右内容区」结构，横线在右面板内，仅与其内容区对齐，
+//   不与全宽统计卡行对照（否则误报左差 -264px）。
 const PAGES = [
-  { name: 'Skill管理', path: '/skills', card: '.list-card', content: '.list-body', table: '.skill-grid' },
-  { name: '工具与MCP', path: '/tools', card: '.list-card', content: '.list-body', table: '.n-data-table' },
-  { name: '模型中心', path: '/models', card: '.list-card', content: '.list-body', table: '.n-data-table' },
-  { name: '知识文档', path: '/knowledge/documents', card: null, content: '.list-body', table: '.n-data-table' },
-  { name: '流量分配', path: '/organizations/traffic', card: '.list-card', content: '.table-shell', table: '.n-data-table' },
+  { name: 'Skill管理', path: '/skills', card: '.list-card', content: '.list-body', table: '.skill-grid', metricsCheck: true },
+  { name: '工具与MCP', path: '/tools', card: '.list-card', content: '.list-body', table: '.n-data-table', metricsCheck: true },
+  { name: '模型中心', path: '/models', card: '.list-card', content: '.list-body', table: '.n-data-table', metricsCheck: true },
+  { name: '知识文档', path: '/knowledge/documents', card: null, content: '.list-body', table: '.n-data-table', metricsCheck: false },
+  { name: '流量分配', path: '/organizations/traffic', card: '.list-card', content: '.table-shell', table: '.n-data-table', metricsCheck: true },
 ];
 
 async function measure(page, cfg) {
@@ -143,7 +146,13 @@ async function measure(page, cfg) {
       const r = el.getBoundingClientRect();
       return { x: r.x, y: r.y, w: r.width, h: r.height };
     };
-    return { filter: box('.list-filter-row'), card: cfg.card ? box(cfg.card) : null, content: box(cfg.content), table: box(cfg.table) };
+    return {
+      filter: box('.list-filter-row'),
+      card: cfg.card ? box(cfg.card) : null,
+      content: box(cfg.content),
+      table: box(cfg.table),
+      metrics: box('.metrics-row'), // 统计卡行：横线应与它左右对齐
+    };
   }, cfg);
   const f = data.filter;
   if (!f) return { ok: false, note: '未找到 .list-filter-row' };
@@ -154,6 +163,11 @@ async function measure(page, cfg) {
     out.overRight = Math.round(((f.x + f.w) - (ref.x + ref.w)) * 10) / 10;
     out.横线 = `${Math.round(f.x)}~${Math.round(f.x + f.w)}`;
     out.参照 = `${Math.round(ref.x)}~${Math.round(ref.x + ref.w)}`;
+  }
+  // 统计卡行对齐：横线左右 vs 统计卡行左右
+  if (data.metrics) {
+    out.左差统计卡 = Math.round((data.metrics.x - f.x) * 10) / 10;
+    out.右差统计卡 = Math.round(((f.x + f.w) - (data.metrics.x + data.metrics.w)) * 10) / 10;
   }
   if (data.content) { out.间距 = Math.round((data.content.y - (f.y + f.h)) * 10) / 10; out.内容左差 = Math.round((data.content.x - f.x) * 10) / 10; }
   return out;
@@ -217,6 +231,10 @@ async function main() {
       const alignOk = m.overLeft >= -1 && m.overRight >= -1;
       console.log(`    ${alignOk ? '✓ 对齐' : '✗ 需检查'}${m.间距 >= 16 ? ' ✓ 间距足够' : ' ⚠ 间距偏小'}`);
       console.log(`    ${Math.abs(m.内容左差) <= 1 ? '✓' : 'ℹ'} 内容左差 ${m.内容左差}px${Math.abs(m.内容左差) <= 1 ? '' : '（筛选栏负外边距拉出到卡片边缘，符合预期）'}`);
+      if (m.左差统计卡 !== undefined) {
+        const mOk = cfg.metricsCheck !== false && Math.abs(m.左差统计卡) <= 1 && Math.abs(m.右差统计卡) <= 1;
+        console.log(`    ${cfg.metricsCheck === false ? '—' : mOk ? '✓' : '✗'} 横线 vs 统计卡行: 左差 ${m.左差统计卡}px 右差 ${m.右差统计卡}px${cfg.metricsCheck === false ? '（该页为左右分栏结构，横线在右面板内，仅与内容区对齐）' : mOk ? '' : '（列表卡应全宽对齐统计卡）'}`);
+      }
       if (respLog.length) console.log('    ⚠ 4xx/5xx/pageerror: ' + respLog.slice(0, 8).join(' | '));
     } catch (e) {
       console.log(`  ${cfg.name}: ✗ ${e.message.slice(0, 80)}`);

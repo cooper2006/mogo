@@ -1722,12 +1722,12 @@ watch(documents, syncProcessingPoll, { deep: true });
 }
 
 .list-workspace {
-  width: calc(100% - 24px);
-  margin: -16px 12px 0;
+  width: 100%;
+  margin: 0 0 0;
   flex: 1;
   min-height: 0;
   min-width: 0;
-  max-width: calc(100% - 24px);
+  max-width: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;

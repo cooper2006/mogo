@@ -875,8 +875,8 @@ onMounted(reload);
 }
 
 .list-card {
-  width: calc(100% - 24px);
-  margin: -16px 12px 0;
+  width: 100%;
+  margin: 0 0 0;
   flex: 1;
   min-height: 0;
   overflow: hidden;
