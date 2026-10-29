@@ -621,7 +621,7 @@ onMounted(loadTenants);
 
 <style scoped>
 .tenant-page {
-  padding: 20px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
 }
 
 .tenant-card {

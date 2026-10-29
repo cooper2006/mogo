@@ -1223,7 +1223,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   gap: 20px;
-  padding: 12px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
   height: 100%;
   box-sizing: border-box;
   background: var(--mg-bg-subtle);

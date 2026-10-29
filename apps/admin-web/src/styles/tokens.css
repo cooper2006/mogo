@@ -156,8 +156,8 @@
 
   /* ---------- L3 component：布局骨架 ---------- */
   --mg-page-max-width: 1440px;
-  --mg-page-padding-x: 24px;
-  --mg-page-padding-y: 20px;
+  --mg-page-padding-x: 12px;
+  --mg-page-padding-y: 12px;
   --mg-header-height: 62px;
   --mg-z-header: 10;
   --mg-z-overlay: 100;

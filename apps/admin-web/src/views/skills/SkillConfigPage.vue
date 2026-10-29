@@ -2663,7 +2663,7 @@ onUnmounted(() => {
 <style scoped>
 .skill-config-page {
   height: 100%;
-  padding: 0;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
   color: var(--mg-text-1);
   overflow: hidden;
 }

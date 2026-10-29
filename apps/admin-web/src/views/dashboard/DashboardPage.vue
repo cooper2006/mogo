@@ -894,7 +894,7 @@ onMounted(() => {
 <style scoped>
 .dashboard-page {
   height: 100%;
-  padding: 18px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
   background: var(--mg-bg-app);
 }
 

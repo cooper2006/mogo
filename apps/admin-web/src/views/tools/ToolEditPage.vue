@@ -1704,7 +1704,7 @@ watch(
   flex-direction: column;
   width: 100%;
   height: 100%;
-  padding: 12px 12px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
   box-sizing: border-box;
   overflow: hidden;
 }

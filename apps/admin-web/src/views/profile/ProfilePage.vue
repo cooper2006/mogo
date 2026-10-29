@@ -351,7 +351,7 @@ onMounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
 }
 
 .profile-summary {

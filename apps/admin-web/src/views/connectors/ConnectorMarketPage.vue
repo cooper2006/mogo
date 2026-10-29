@@ -310,7 +310,7 @@ onMounted(async () => {
 
 <style scoped>
 .connector-market {
-  padding: 16px 20px 32px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
 }
 .page-header {
   display: flex;

@@ -250,7 +250,7 @@ onMounted(load);
 </script>
 
 <style scoped>
-.canary-config { display: flex; flex-direction: column; gap: 16px; }
+.canary-config { display: flex; flex-direction: column; gap: 16px; padding: var(--mg-page-padding-y) var(--mg-page-padding-x); }
 .page-header { display: flex; align-items: center; justify-content: space-between; }
 .page-header h1 { font-size: 18px; margin: 0; }
 .header-actions { display: flex; gap: 8px; }

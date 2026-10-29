@@ -65,7 +65,7 @@ onMounted(loadHealth);
 
 <style scoped>
 .health-page {
-  padding: 20px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
 }
 
 .health-card {

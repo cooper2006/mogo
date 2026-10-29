@@ -65,7 +65,7 @@ const typeLabel = computed(() => {
 </script>
 
 <style scoped>
-.skill-details { display: flex; flex-direction: column; gap: 16px; }
+.skill-details { display: flex; flex-direction: column; gap: 16px; padding: var(--mg-page-padding-y) var(--mg-page-padding-x); }
 .summary-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--mg-border); border-radius: 12px; background: var(--mg-bg-surface); }
 .summary-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 14px; color: var(--mg-text-1); }
 .summary-row p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; color: var(--mg-text-2); }

@@ -902,7 +902,7 @@ watch(documentId, (next, previous) => {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 12px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
 }
 
 .preview-toolbar {

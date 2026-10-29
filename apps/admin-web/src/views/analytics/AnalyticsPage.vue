@@ -965,7 +965,7 @@ watch(
   min-width: 0;
   gap: 6px;
   overflow: hidden;
-  padding: 12px;
+  padding: var(--mg-page-padding-y) var(--mg-page-padding-x);
 }
 
 .metrics-row {
