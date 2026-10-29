@@ -715,8 +715,8 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 0 44px 12px;
-  margin: 0 -44px 12px;
+  padding: 0 32px 16px;
+  margin: 0 -32px 16px;
   border-bottom: 1px solid var(--mg-border);
 }
 
