@@ -75,9 +75,18 @@
                     :type="trustTagType(skillTrustLevels[row.id])"
                     class="skill-trust-tag"
                     :title="t('资产评级')"
-                    @click.stop="goTrustRating"
+                    @click.stop="goTrustRating(row.id)"
                   >
                     {{ skillTrustLevels[row.id] }}
+                  </n-tag>
+                  <n-tag
+                    size="small"
+                    :bordered="false"
+                    :type="skillListedMap[row.id] ? 'success' : 'default'"
+                    class="skill-trust-tag"
+                    :title="t('资产上架')"
+                  >
+                    {{ skillListedMap[row.id] ? t('已上架') : t('未上架') }}
                   </n-tag>
                 </div>
                 <span class="card-time">{{ formatAdminDateTime(row.updatedAt || row.createdAt, t('刚创建')) }}</span>
@@ -242,7 +251,8 @@ import { useMessage, type FormInst, type FormRules } from 'naive-ui';
 import { t } from '@/composables/i18n';
 import { formatAdminDateTime, parseAdminDate } from '@/composables/adminTimezone';
 import { createSkill, deleteSkill, fetchSkills, setSkillEnabled, updateSkill, type SkillItem, type SkillPayload, type SkillType } from '@/api/skills';
-import { fetchTrustRatings, type TrustLevel } from '@/api/trustRatings';
+import { type TrustLevel } from '@/api/trustRatings';
+import { useAssetCatalog } from '@/composables/useAssetCatalog';
 import SkillZipInstaller from './SkillZipInstaller.vue';
 import SkillPackageDetails from './SkillPackageDetails.vue';
 import SkillVersionHistory from './SkillVersionHistory.vue';
@@ -251,18 +261,27 @@ import OrganizationSkillFeedback from './OrganizationSkillFeedback.vue';
 const router = useRouter();
 const message = useMessage();
 
-// 036 trust-rating：技能资产评级徽标。评级数据独立拉取（一次列表请求），
-// 不改主技能列表请求；无评级或接口失败时不显示徽标，也不报错。
-const skillTrustLevels = ref<Record<string, TrustLevel>>({});
+// 036 trust-rating + 045 门户上架：技能评级与上架状态取自资产中心共享数据源
+// （§4 同一 join），不单独再发评级 / 上架请求；无数据或接口失败时不显示徽标，也不报错。
+const catalog = useAssetCatalog();
 
-async function loadTrustLevels() {
-  try {
-    const ratings = await fetchTrustRatings({ assetType: 'skill' });
-    skillTrustLevels.value = Object.fromEntries(ratings.map((item) => [item.asset_key, item.level]));
-  } catch {
-    skillTrustLevels.value = {};
-  }
-}
+/** 技能 id → 信任评级。 */
+const skillTrustLevels = computed(() => {
+  const map: Record<string, TrustLevel> = {};
+  catalog.ratings.value.forEach((r) => {
+    if (r.asset_type === 'skill') map[r.asset_key] = r.level;
+  });
+  return map;
+});
+
+/** 技能 id → 门户上架状态（与资产中心 / AssetsPage 同源）。 */
+const skillListedMap = computed(() => {
+  const map: Record<string, boolean> = {};
+  catalog.assets.value.forEach((a) => {
+    if (a.assetType === 'skill') map[a.assetKey] = a.listed;
+  });
+  return map;
+});
 
 function trustTagType(level: string): 'default' | 'info' | 'warning' | 'success' {
   if (level === 'L4') return 'success';
@@ -271,8 +290,9 @@ function trustTagType(level: string): 'default' | 'info' | 'warning' | 'success'
   return 'default';
 }
 
-function goTrustRating() {
-  router.push({ name: 'TrustRatings' });
+function goTrustRating(skillId: string) {
+  // 045 FR-9：评级徽标跳评级页并定位到该技能行（评级页自动打开变更弹层）。
+  router.push({ path: '/assets/ratings', query: { asset: `skill:${skillId}` } });
 }
 
 const loading = ref(false);
@@ -558,7 +578,7 @@ async function confirmEnabledChange() {
 
 onMounted(() => {
   loadRows();
-  loadTrustLevels();
+  catalog.load();
 });
 </script>
 

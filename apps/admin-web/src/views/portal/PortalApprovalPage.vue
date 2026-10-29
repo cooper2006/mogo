@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { t } from '@/composables/i18n';
 import { computed, h, onMounted, ref, watch, type VNodeChild } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   NAlert,
   NButton,
@@ -27,9 +27,14 @@ import {
   type PortalApprovalItem,
   type PortalRequestStatus,
 } from '@/api/portal';
+import { useAssetCatalog } from '@/composables/useAssetCatalog';
 
 const message = useMessage();
 const route = useRoute();
+const router = useRouter();
+
+// 045 资产中心共享数据源（§4 同一 join）：审批详情直接带出该资产的评级与 owner。
+const catalog = useAssetCatalog();
 
 const tab = ref<'applied' | 'all'>('applied');
 const loading = ref(false);
@@ -63,6 +68,45 @@ const filteredRows = computed(() => {
   }
   return rows.value;
 });
+
+/** 045 FR-12：applied 态按 `asset_type:asset_key` 聚合为资产卡片。 */
+interface AppliedGroup {
+  type: string;
+  key: string;
+  name: string;
+  items: PortalApprovalItem[];
+}
+
+const appliedGroups = computed<AppliedGroup[]>(() => {
+  const map = new Map<string, AppliedGroup>();
+  for (const row of filteredRows.value) {
+    const groupKey = `${row.asset_type}:${row.asset_key}`;
+    const group = map.get(groupKey) ?? {
+      type: row.asset_type,
+      key: row.asset_key,
+      name: row.asset_name || row.asset_key,
+      items: [],
+    };
+    group.items.push(row);
+    map.set(groupKey, group);
+  }
+  return [...map.values()];
+});
+
+/** 卡片对应的资产中心视图（评级 / 上架）。 */
+function groupAsset(group: AppliedGroup) {
+  return catalog.byKey.value.get(`${group.type}:${group.key}`);
+}
+
+/** 卡片点击跳资产中心对应资产。 */
+function goAsset(group: AppliedGroup) {
+  router.push({ path: '/assets', query: { asset_type: group.type, asset_key: group.key } });
+}
+
+/** 045 FR-12：回跳资产中心总览。 */
+function goAssetCenterPage() {
+  router.push('/assets');
+}
 
 watch(
   () => route.query,
@@ -101,6 +145,13 @@ const modalTitle = computed(() => {
   if (modalMode.value === 'approve') return t('批准申领并开通');
   if (modalMode.value === 'reject') return t('拒绝申领');
   return t('回收已开通授权');
+});
+
+/** 决策弹层目标资产：从共享数据源取评级 + owner。 */
+const modalAsset = computed(() => {
+  const current = target.value;
+  if (!current) return null;
+  return catalog.byKey.value.get(`${current.asset_type}:${current.asset_key}`) ?? null;
 });
 
 /** 从异常中取出响应状态码与错误详情。 */
@@ -220,15 +271,22 @@ const columns: DataTableColumns<PortalApprovalItem> = [
   },
 ];
 
-onMounted(load);
+onMounted(() => {
+  load();
+  catalog.load();
+});
 </script>
 
 <template>
   <div class="mg-page">
     <PageIntro
-      :title="t('门户审批')"
+      :title="t('资产审批')"
       :description="t('审批员工的门户申领：批准即写入用户级 asset:use 授权并即时生效；拒绝 / 回收均留审计。不能审批自己提交的申领单。')"
-    />
+    >
+      <template #actions>
+        <NButton size="small" quaternary @click="goAssetCenterPage">{{ t('资产中心') }}</NButton>
+      </template>
+    </PageIntro>
 
     <NAlert v-if="errorMsg" type="error" :bordered="false">{{ errorMsg }}</NAlert>
 
@@ -249,14 +307,50 @@ onMounted(load);
         <NTabPane name="all" :tab="t('全部申领单')" />
       </NTabs>
 
-      <NDataTable v-if="filteredRows.length" :columns="columns" :data="filteredRows" :loading="loading" :bordered="false" size="small" :pagination="{ pageSize: 20 }" />
-      <NEmpty v-else :description="rows.length ? t('该资产无申领记录') : (tab === 'applied' ? t('没有待审批的申领') : t('没有申领记录'))" />
+      <div v-if="tab === 'applied'" class="applied-grid">
+        <NCard
+          v-for="group in appliedGroups"
+          :key="`${group.type}:${group.key}`"
+          size="small"
+          :bordered="false"
+          class="applied-card"
+          @click="goAsset(group)"
+        >
+          <div class="applied-head">
+            <strong>{{ group.name }}</strong>
+            <NTag size="small" :bordered="false">{{ group.type === 'skill' ? t('技能') : t('能力资产') }}</NTag>
+            <NTag v-if="groupAsset(group)" size="small" :bordered="false">
+              {{ groupAsset(group)?.level || t('未评级') }}
+            </NTag>
+            <NTag v-if="groupAsset(group)" size="small" :bordered="false" :type="groupAsset(group)?.listed ? 'success' : 'default'">
+              {{ groupAsset(group)?.listed ? t('已上架') : t('未上架') }}
+            </NTag>
+            <span class="mg-caption">{{ t('申请数') }} {{ group.items.length }}</span>
+          </div>
+          <div v-for="item in group.items" :key="item.request_id" class="applied-row" @click.stop>
+            <span class="applied-requester">{{ item.requester_id }}</span>
+            <NTag size="tiny" :bordered="false" :type="statusTagType(item.status)">{{ portalStatusLabel(item.status) }}</NTag>
+            <NSpace v-if="item.status === 'applied' && item.can_decide" :size="4">
+              <NButton size="tiny" type="primary" quaternary @click.stop="openModal(item, 'approve')">{{ t('批准') }}</NButton>
+              <NButton size="tiny" type="error" quaternary @click.stop="openModal(item, 'reject')">{{ t('拒绝') }}</NButton>
+            </NSpace>
+            <span v-else-if="item.status === 'applied'" class="mg-caption">{{ t('不可审批') }}</span>
+          </div>
+        </NCard>
+        <NEmpty v-if="!appliedGroups.length" :description="rows.length ? t('该资产无申领记录') : t('没有待审批的申领')" />
+      </div>
+      <NDataTable v-else-if="filteredRows.length" :columns="columns" :data="filteredRows" :loading="loading" :bordered="false" size="small" :pagination="{ pageSize: 20 }" />
+      <NEmpty v-else :description="rows.length ? t('该资产无申领记录') : t('没有申领记录')" />
     </NCard>
 
     <NModal v-model:show="modalVisible" preset="card" :title="modalTitle" style="width: 480px">
       <NSpace vertical :size="12">
         <div v-if="target" class="mg-text-2 target-line">
           {{ target.asset_name || target.asset_key }} · {{ target.requester_id }}
+        </div>
+        <div v-if="modalAsset" class="mg-text-3 target-line">
+          {{ t('评级') }}：{{ modalAsset.level || t('未评级') }} · {{ t('owner') }}：{{ modalAsset.owner || t('未指定') }} ·
+          {{ t('上架状态') }}：{{ modalAsset.listed ? t('已上架') : t('未上架') }}
         </div>
         <NInput
           v-model:value="reason"
@@ -277,6 +371,42 @@ onMounted(load);
 
 <style scoped>
 .target-line {
+  font-size: var(--mg-font-size-sm);
+}
+
+.applied-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.applied-card {
+  cursor: pointer;
+}
+
+.applied-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.applied-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--mg-border-color, #efeff5);
+}
+
+.applied-requester {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--mg-font-size-sm);
 }
 </style>

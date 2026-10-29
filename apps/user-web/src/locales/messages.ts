@@ -611,6 +611,11 @@ export const messages = {
   'portal.status.granted': { zh: '已开通', en: 'Granted' },
   'portal.status.revoked': { zh: '已回收', en: 'Revoked' },
   'portal.status.expired': { zh: '已到期', en: 'Expired' },
+  'portal.d.manage_status': { zh: '管理状态', en: 'Management status' },
+  'portal.d.listed': { zh: '上架状态', en: 'Listing' },
+  'portal.d.listed_yes': { zh: '已上架', en: 'Listed' },
+  'portal.d.listed_no': { zh: '未上架', en: 'Not listed' },
+  'portal.d.manage_anchor': { zh: '在资产门户查看管理状态', en: 'View management status in the asset portal' },
 
   // API auth & recording
   'api.auth.select_org': { zh: '请选择组织', en: 'Please select an organization' },

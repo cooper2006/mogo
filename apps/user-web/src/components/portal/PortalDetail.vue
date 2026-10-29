@@ -36,6 +36,20 @@
             <n-descriptions-item :label="t('portal.d.state')">{{ detail.item.state || t('portal.d.missing') }}</n-descriptions-item>
           </n-descriptions>
 
+          <n-alert type="default" :bordered="false" class="manage-status">
+            <div class="mg-text-3 mg-caption">{{ t('portal.d.manage_status') }}</div>
+            <div class="mg-text-2 mg-caption manage-line">
+              <n-tag v-if="detail.item.rating" size="small" type="info" :bordered="false">
+                {{ t('portal.rating', { level: detail.item.rating.level }) }}
+              </n-tag>
+              {{ t('portal.d.listed') }}：{{ detail.item.published_at ? t('portal.d.listed_yes') : t('portal.d.listed_no') }} ·
+              {{ t('portal.d.desc_owner') }}：{{ detail.item.owner || t('portal.d.missing') }}
+            </div>
+            <a class="mg-text-2 manage-anchor" :href="adminAssetUrl" target="_blank" rel="noopener noreferrer">
+              {{ t('portal.d.manage_anchor') }}
+            </a>
+          </n-alert>
+
           <n-alert v-if="myRequest" type="info" :bordered="false">
             <n-space align="center" :size="8">
               <span>{{ t('portal.my_request', { status: t(`portal.status.${myRequest.status}`) }) }}</span>
@@ -82,6 +96,7 @@ import { computed, onMounted, ref } from 'vue'
 import { NAlert, NButton, NDescriptions, NDescriptionsItem, NInput, NSpace, NSpin, NTag, useMessage } from 'naive-ui'
 import { useI18n } from '@/composables/i18n'
 import { formatAppDateTime } from '@/composables/appTimezone'
+import { buildAdminSsoUrl } from '@/utils/adminUrl'
 import {
   applyPortalAsset,
   fetchPortalAssetDetail,
@@ -111,6 +126,12 @@ const assetTypeLabel = computed(() =>
 const effectScoreText = computed(() => {
   const score = detail.value?.item.effect?.effect_score
   return typeof score === 'number' ? score.toFixed(2) : t('portal.d.missing')
+})
+
+/** 045 FR-13：只读"管理状态"锚点，跳 admin 资产中心对应资产卡片（`/assets?asset=<type>:<key>`）。 */
+const adminAssetUrl = computed(() => {
+  const base = buildAdminSsoUrl().replace(/\/+$/, '')
+  return `${base}/assets?asset=${encodeURIComponent(`${props.assetType}:${props.assetKey}`)}`
 })
 
 /** 已开通 / 待审 / 已拒绝 → 不可重复申领。 */
@@ -223,5 +244,22 @@ onMounted(load)
   margin: 0;
   font-size: var(--mg-font-size-sm);
   line-height: var(--mg-line-relaxed);
+}
+
+.manage-status {
+  padding: var(--mg-space-2) var(--mg-space-3);
+}
+
+.manage-line {
+  margin: var(--mg-space-1) 0;
+}
+
+.manage-anchor {
+  color: var(--mg-primary);
+  text-decoration: none;
+}
+
+.manage-anchor:hover {
+  text-decoration: underline;
 }
 </style>

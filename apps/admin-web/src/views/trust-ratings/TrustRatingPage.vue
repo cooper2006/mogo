@@ -131,12 +131,13 @@
 
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useMessage, NButton, NSpace, NTag, type DataTableColumns, type FormInst, type FormRules } from 'naive-ui';
+import { useAssetCatalog } from '@/composables/useAssetCatalog';
+import { fetchPortalApprovals, type PortalApprovalItem } from '@/api/portal';
 import { t } from '@/composables/i18n';
 import PageIntro from '@/components/PageIntro.vue';
 import { formatAdminDateTime } from '@/composables/adminTimezone';
-import { fetchSkills, type SkillItem } from '@/api/skills';
 import {
   changeTrustRating,
   fetchTrustRatingDistribution,
@@ -152,12 +153,38 @@ import {
 
 const message = useMessage();
 const route = useRoute();
+const router = useRouter();
+
+// 045 资产中心共享数据源（§4 同一 join）：评级列表与门户上架共用一份资产视图。
+const catalog = useAssetCatalog();
 
 const loading = ref(false);
 const rows = ref<TrustRating[]>([]);
 const distribution = ref<Record<TrustLevel, number> | null>(null);
 const settings = ref<TrustRatingSettings | null>(null);
-const skillNames = ref<Record<string, string>>({});
+const approvalRows = ref<PortalApprovalItem[]>([]);
+
+/** 045 FR-10：按 `asset_type:asset_key` 聚合最近申领（申请数 + 最近申请时间）。 */
+const approvalStats = computed(() => {
+  const map = new Map<string, { count: number; recent: string | null }>();
+  for (const item of approvalRows.value) {
+    const key = `${item.asset_type}:${item.asset_key}`;
+    const cur = map.get(key) ?? { count: 0, recent: null };
+    cur.count += 1;
+    if (item.applied_at && (!cur.recent || item.applied_at > cur.recent)) {
+      cur.recent = item.applied_at;
+    }
+    map.set(key, cur);
+  }
+  return map;
+});
+
+/** 技能名称：取自共享数据源，避免单独再发一次 /skills。 */
+const skillNames = computed(() => {
+  const map: Record<string, string> = {};
+  catalog.skills.value.forEach((item) => { map[item.id] = item.name; });
+  return map;
+});
 
 const filters = ref<{ assetType: TrustAssetType | null; level: TrustLevel | null }>({
   assetType: null,
@@ -201,6 +228,13 @@ function assetTypeText(type: TrustAssetType): string {
   return t('工作流');
 }
 
+/** 045 FR-10：资产类型徽标配色。 */
+function assetTypeTagType(type: TrustAssetType): 'info' | 'success' | 'warning' {
+  if (type === 'skill') return 'info';
+  if (type === 'agent') return 'success';
+  return 'warning';
+}
+
 function assetDisplayName(row: TrustRating): string {
   const name = row.asset_type === 'skill' ? skillNames.value[row.asset_key] : '';
   return name ? `${name}（${row.asset_key}）` : row.asset_key;
@@ -221,16 +255,33 @@ function levelLabel(level: string): string {
   return t('初始');
 }
 
+/** 045 FR-9：`?asset=<type>:<key>` 单参数（如 `skill:<id>`）拆成类型 + key。 */
+function parseAssetParam(raw: unknown): { type?: string; key?: string } {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== 'string' || !value) return {};
+  const idx = value.indexOf(':');
+  if (idx <= 0 || idx === value.length - 1) return {};
+  return { type: value.slice(0, idx), key: value.slice(idx + 1) };
+}
+
+/** 045 互链：从 query 取定位坐标，兼容 `asset` 与 `asset_type`/`asset_key` 两种写法。 */
+function queryAssetFocus(): { type?: string; key?: string } {
+  const single = parseAssetParam(route.query.asset);
+  return {
+    type: (route.query.asset_type as string | undefined) ?? single.type,
+    key: (route.query.asset_key as string | undefined) ?? single.key,
+  };
+}
+
 const filteredRows = computed(() => {
   let result = rows.value;
   if (filters.value.level) {
     result = result.filter((row) => row.level === filters.value.level);
   }
-  // 045 互链：资产中心带入 asset_type/asset_key 时聚焦到该资产
-  const qType = route.query.asset_type as string | undefined;
-  const qKey = route.query.asset_key as string | undefined;
-  if (qType && qKey) {
-    result = result.filter((row) => row.asset_type === qType && row.asset_key === qKey);
+  // 045 互链：聚焦到 query 指定的资产
+  const focus = queryAssetFocus();
+  if (focus.type && focus.key) {
+    result = result.filter((row) => row.asset_type === focus.type && row.asset_key === focus.key);
   }
   return result;
 });
@@ -240,7 +291,12 @@ const columns: DataTableColumns<TrustRating> = [
     title: t('资产类型'),
     key: 'asset_type',
     width: 110,
-    render: (row) => assetTypeText(row.asset_type),
+    render: (row) =>
+      h(
+        NTag,
+        { size: 'small', bordered: false, type: assetTypeTagType(row.asset_type) },
+        { default: () => assetTypeText(row.asset_type) },
+      ),
   },
   {
     title: t('资产 Key'),
@@ -257,6 +313,35 @@ const columns: DataTableColumns<TrustRating> = [
     key: 'level',
     width: 90,
     render: (row) => h(NTag, { size: 'small', bordered: false, type: levelTagType(row.level) }, { default: () => row.level }),
+  },
+  {
+    title: t('上架'),
+    key: 'listed',
+    width: 100,
+    render: (row) => {
+      // 门户上架仅覆盖 skill / capability_asset；agent / workflow 无门户入口。
+      if (row.asset_type !== 'skill') return h('span', { class: 'mg-caption' }, '—');
+      const listed = catalog.byKey.value.get(`skill:${row.asset_key}`)?.listed ?? false;
+      return h(
+        NTag,
+        { size: 'small', bordered: false, type: listed ? 'success' : 'default' },
+        { default: () => (listed ? t('已上架') : t('未上架')) },
+      );
+    },
+  },
+  {
+    title: t('最近申领'),
+    key: 'approval',
+    width: 180,
+    render: (row) => {
+      // 045 FR-10：最近申领统计（申请数 + 最近申请时间），无申领显示 —。
+      const stat = approvalStats.value.get(`${row.asset_type}:${row.asset_key}`);
+      if (!stat) return h('span', { class: 'mg-caption' }, '—');
+      return h('div', { class: 'approval-stat' }, [
+        h('span', {}, `${stat.count} ${t('次')}`),
+        stat.recent ? h('span', { class: 'mg-caption' }, ` · ${formatAdminDateTime(stat.recent, '—')}`) : null,
+      ]);
+    },
   },
   {
     title: t('变更原因'),
@@ -279,11 +364,12 @@ const columns: DataTableColumns<TrustRating> = [
   {
     title: t('操作'),
     key: 'actions',
-    width: 170,
+    width: 240,
     render(row) {
       return h(NSpace, { size: 8 }, () => [
         h(NButton, { size: 'small', tertiary: true, onClick: () => openChange(row) }, () => t('变更')),
         h(NButton, { size: 'small', tertiary: true, loading: recomputingIds.value.has(`${row.asset_type}:${row.asset_key}`), onClick: () => recomputeRow(row) }, () => t('重新计算')),
+        h(NButton, { size: 'small', tertiary: true, onClick: () => manageAsset(row) }, () => t('管理')),
       ]);
     },
   },
@@ -291,20 +377,19 @@ const columns: DataTableColumns<TrustRating> = [
 
 const pagination = { pageSize: 12 };
 
-async function loadSkillNames() {
-  try {
-    const list: SkillItem[] = await fetchSkills();
-    skillNames.value = Object.fromEntries(list.map((item) => [item.id, item.name]));
-  } catch {
-    // 名称解析失败时列表仅显示 asset_key，不阻塞评级展示。
-    skillNames.value = {};
+/** 「管理」入口：技能跳技能配置页，其余跳资产中心。 */
+function manageAsset(row: TrustRating): void {
+  if (row.asset_type === 'skill') {
+    router.push({ path: `/skills/${encodeURIComponent(row.asset_key)}/config` });
+    return;
   }
+  router.push({ path: '/assets', query: { asset_type: row.asset_type, asset_key: row.asset_key } });
 }
 
 async function loadList() {
   try {
     // 045 互链：仅对合法 TrustAssetType 设置 API 过滤；capability_asset 等取全部后客户端过滤
-    const qType = route.query.asset_type as string | undefined;
+    const qType = queryAssetFocus().type;
     if (qType && ['skill', 'agent', 'workflow'].includes(qType)) {
       filters.value.assetType = qType as TrustAssetType;
     } else {
@@ -332,21 +417,42 @@ async function loadSettings() {
   }
 }
 
-async function loadAll() {
-  loading.value = true;
+/** 045 FR-10：拉全部门户申领，供评级页「最近申领」统计列使用。 */
+async function loadApprovals() {
   try {
-    await Promise.all([loadList(), loadDistribution(), loadSettings()]);
-  } finally {
-    loading.value = false;
+    approvalRows.value = await fetchPortalApprovals({ status: 'all' });
+  } catch {
+    approvalRows.value = [];
   }
 }
 
-// 045 互链：路由 query 变化时重载评级列表（资产中心切换资产）
+async function loadAll() {
+  loading.value = true;
+  try {
+    await Promise.all([loadList(), loadDistribution(), loadSettings(), loadApprovals()]);
+  } finally {
+    loading.value = false;
+  }
+  // 045 FR-9：从技能页带 `?asset=skill:<id>` 进来时，定位后直接打开变更弹层。
+  focusAssetFromQuery();
+}
+
+/** 045 FR-9：query 指向的资产若存在，自动打开变更弹层。 */
+function focusAssetFromQuery(): void {
+  const focus = queryAssetFocus();
+  if (!focus.type || !focus.key) return;
+  if (changeVisible.value) return;
+  const row = rows.value.find((item) => item.asset_type === focus.type && item.asset_key === focus.key);
+  if (row) openChange(row);
+}
+
+// 045 互链：路由 query 变化时重载评级列表（资产中心 / 技能页切换资产）
 watch(
   () => route.query,
   () => {
-    if (route.query.asset_type || route.query.asset_key) {
-      loadList();
+    const focus = queryAssetFocus();
+    if (focus.type || focus.key) {
+      loadList().then(() => focusAssetFromQuery());
     }
   },
 );
@@ -473,7 +579,7 @@ async function saveSettings() {
 
 onMounted(() => {
   loadAll();
-  loadSkillNames();
+  catalog.load();
 });
 </script>
 
