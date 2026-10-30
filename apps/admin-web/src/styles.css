@@ -39,3 +39,36 @@ body,
 .page-stack > * {
   min-width: 0;
 }
+
+/* =============================================================================
+ * 滚动条兜底（全局）
+ * -----------------------------------------------------------------------------
+ * 说明：列表容器 .list-body（Models/Tools/Skills）设了 overflow-y:auto 需要常显
+ * 滚动条。但 Vue SFC scoped 样式会**丢弃** ::-webkit-scrollbar 伪元素规则
+ * （编译后不保留），导致 macOS Chrome 走系统 overlay 滚动条、静止时隐藏。
+ * 只有全局 ::-webkit-scrollbar 定制才能强制 Chrome 从 overlay 切到 classic 常显，
+ * 故在此定义。仅影响可滚动（overflow 非 visible/hidden）的 .list-body，
+ * 其余页面的 .list-body（不滚动）不受影响。
+ * ========================================================================== */
+.list-body {
+  scrollbar-width: thin;
+  scrollbar-color: #b3c1d8 transparent;
+}
+
+.list-body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.list-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.list-body::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: #b3c1d8;
+}
+
+.list-body::-webkit-scrollbar-thumb:hover {
+  background: #9fb0cd;
+}

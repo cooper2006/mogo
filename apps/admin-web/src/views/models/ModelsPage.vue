@@ -1070,6 +1070,7 @@ onMounted(reload);
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .model-grid {
