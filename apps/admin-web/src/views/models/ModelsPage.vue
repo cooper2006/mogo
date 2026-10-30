@@ -269,9 +269,15 @@
           v-for="row in discoveredModels"
           :key="row.id"
           class="model-picker-item"
+          :class="{ 'is-selected': pickedModelIds.includes(row.id) }"
           type="button"
-          @click="pickModel(row)"
+          @click="togglePickModel(row.id)"
         >
+          <span class="mp-check" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
           <span class="mp-id">{{ row.id }}</span>
           <span v-if="row.ownedBy" class="mp-owner">{{ row.ownedBy }}</span>
         </button>
@@ -283,7 +289,11 @@
     </n-spin>
     <template #footer>
       <n-space justify="end">
+        <span class="mp-footer-hint">{{ pickedModelIds.length ? t('已选 {n} 个', { n: pickedModelIds.length }) : '' }}</span>
         <n-button @click="modelPickerVisible = false">{{ t('取消') }}</n-button>
+        <n-button type="primary" :loading="bulkSaving" :disabled="!pickedModelIds.length" @click="confirmPickModels">
+          {{ t('确定') }}
+        </n-button>
       </n-space>
     </template>
   </n-modal>
@@ -346,6 +356,9 @@ const testImageUrl = ref('');
 const discoverLoading = ref(false);
 const discoveredModels = ref<DiscoveredModel[]>([]);
 const modelPickerVisible = ref(false);
+/** 「选择模型」弹窗内勾选的模型 ID（支持多选） */
+const pickedModelIds = ref<string[]>([]);
+const bulkSaving = ref(false);
 
 const filters = ref({
   keyword: '',
@@ -504,6 +517,7 @@ async function openModelPicker() {
   }
   discoverLoading.value = true;
   modelPickerVisible.value = true;
+  pickedModelIds.value = [];
   try {
     discoveredModels.value = await discoverProviderModels({
       providerType: currentProvider.value.providerType,
@@ -522,10 +536,64 @@ async function openModelPicker() {
   }
 }
 
-function pickModel(row: DiscoveredModel) {
-  form.value.modelName = row.id;
-  modelPickerVisible.value = false;
-  message.success(t('已选择模型：{name}', { name: row.id }));
+/** 弹窗内切换单个模型的勾选状态（多选） */
+function togglePickModel(id: string) {
+  const idx = pickedModelIds.value.indexOf(id);
+  if (idx >= 0) {
+    pickedModelIds.value.splice(idx, 1);
+  } else {
+    pickedModelIds.value.push(id);
+  }
+}
+
+/** 弹窗「确定」：单选填入表单；多选基于当前配置批量创建实例。 */
+async function confirmPickModels() {
+  const picked = pickedModelIds.value;
+  if (!picked.length) {
+    message.warning(t('请先选择模型'));
+    return;
+  }
+  // 单选：保留原行为，把模型 ID 填入输入框
+  if (picked.length === 1) {
+    form.value.modelName = picked[0];
+    modelPickerVisible.value = false;
+    message.success(t('已选择模型：{name}', { name: picked[0] }));
+    return;
+  }
+  if (!form.value.providerId) {
+    message.warning(t('请先选择供应商'));
+    return;
+  }
+  const baseDisplay = form.value.displayName.trim();
+  bulkSaving.value = true;
+  try {
+    let created = 0;
+    const failures: string[] = [];
+    for (const modelId of picked) {
+      const payload = buildModelPayload();
+      payload.modelName = modelId;
+      // displayName 加模型名后缀以区分同批创建的多个实例
+      payload.displayName = baseDisplay ? `${baseDisplay} · ${modelId}` : modelId;
+      try {
+        await createModelInstance(payload);
+        created += 1;
+      } catch (error) {
+        failures.push(`${modelId}: ${readError(error, '')}`);
+      }
+    }
+    await reload();
+    if (created === picked.length) {
+      message.success(t('已批量创建 {n} 个模型', { n: created }));
+    } else if (created > 0) {
+      message.warning(t('批量创建完成：成功 {ok} 个，失败 {fail} 个', { ok: created, fail: failures.length }));
+    } else {
+      message.error(t('批量创建失败：{msg}', { msg: failures[0] || '未知错误' }));
+    }
+  } finally {
+    bulkSaving.value = false;
+    modelPickerVisible.value = false;
+    pickedModelIds.value = [];
+  }
 }
 
 function recommendedImageRuntime(provider?: ModelProviderItem): ImageRuntimeKind {
@@ -1220,10 +1288,11 @@ onMounted(reload);
 }
 
 .model-picker-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 12px;
+  padding: 10px 34px 10px 12px;
   border: 1px solid rgba(28, 45, 82, 0.12);
   border-radius: 8px;
   background: var(--mg-bg-surface);
@@ -1240,6 +1309,45 @@ onMounted(reload);
   border-color: rgba(54, 106, 255, 0.4);
   box-shadow: 0 6px 18px rgba(33, 58, 126, 0.08);
   background: var(--mg-bg-surface-hover);
+}
+
+.model-picker-item.is-selected {
+  border-color: #366aff;
+  box-shadow: 0 0 0 1px #366aff inset, 0 6px 18px rgba(54, 106, 255, 0.14);
+  background: rgba(54, 106, 255, 0.06);
+}
+
+.model-picker-item.is-selected .mp-check {
+  opacity: 1;
+}
+
+.mp-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #366aff;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.mp-check svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.mp-footer-hint {
+  align-self: center;
+  color: var(--mg-text-3);
+  font-size: 12px;
+  min-width: 0;
 }
 
 .mp-id {
