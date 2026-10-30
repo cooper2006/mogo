@@ -1,14 +1,20 @@
-# Implementation Plan: 三级配额（团队/项目级）（042-three-level-quota）
+# Implementation Plan: 三级配额（部门/项目级）（042-three-level-quota）
 
 **Branch**: `042-three-level-quota` | **Date**: 2026-10-23 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `/specs/042-three-level-quota/spec.md`
 
-**Note**: **全新特性**（整合方案 §4.11 立项，代码尚未开工）——本计划先于实现，与 031 的"代码先行回溯补规格"不同；tasks.md 全部任务未勾选。
+**Note**: **已实现特性**（整合方案 §4.11 立项；2026-10-30 复核：`tasks.md` 勾选 23/24，仅 T023 前端校验 + 手工联调未勾选）。**实现到位但入口不可发现**——FR-003 项目口径待按 ADR-8 调整、FR-008 入口藏在弹窗二级 tab 且深链指向错误、FR-011 驾驶舱展示前端缺失。逐条核对见 `specs/035-cost-attribution/review-2026-10-30-dimension-source-audit.md` §5/§6。
+
+> **2026-10-30 口径修订**（与 `spec.md` 顶部修订块同步，改动仅限文档）：
+> 1. **「团队」全文改称「部门」**——本文档已替换；**机器标识符保留 `team`**（`scope_type="team"`、`teamRemainingPoints`、`setup_team`、`/traffic-allocations/teams/...` 等），不要全局替换。对照表见 `spec.md` 顶部。
+> 2. **「项目」按 ADR-8 收敛为「工作目录」**（`project_id` = 会话 `workspace_id`，web 会话 `"default"`）——下文的 `quota_projects` 独立分组集合、成员内嵌数组、`services/admin-api/app/services/quota_projects.py` 等**均已作废**，项目层 `scope_id` 直接取 `project_id`，不再新建实体。
+> 3. **配置入口**：部门额度留在流量分配页；项目额度进独立菜单「项目管理」（不再塞同一页的 tab）。
+> 4. **「企业额度」改称「租户额度」**（`scope_type='org'` = 租户层）。
 
 ## Summary
 
-把 020 配额体系从"租户 + 用户"两级扩展为"团队/项目 + 租户 + 用户"三级：`quota_policy` 的 `scope_type` 增加 `team|project`，三层策略同时生效时扣减取各层最小、单层超限即拒（fail-closed），未配置层延续 decision 12 的 unlimited 默认不参与取小。团队层复用部门树 `org_units` + `end_user_org_relations`（零新建实体）；项目层新建轻量分组集合 `quota_projects`（与桌面 Code `projects` 端点语义隔离）。管理端在既有流量分配页（`TrafficAllocationsPage.vue`）旁扩展团队/项目配置入口；超限/接近阈值（默认 20%）告警复用 008 异常枚举口径（`ANOMALY_STATUSES`）与审计落点，不新建推送通道。001 配额门禁层零改动，其消费点自动获得三层语义。
+把 020 配额体系从"租户 + 用户"两级扩展为"部门/项目 + 租户 + 用户"三级：`quota_policy` 的 `scope_type` 增加 `team|project`，三层策略同时生效时扣减取各层最小、单层超限即拒（fail-closed），未配置层延续 decision 12 的 unlimited 默认不参与取小。部门层复用部门树 `org_units` + `end_user_org_relations`（零新建实体）；项目层新建轻量分组集合 `quota_projects`（与桌面 Code `projects` 端点语义隔离）。管理端在既有流量分配页（`TrafficAllocationsPage.vue`）旁扩展部门/项目配置入口；超限/接近阈值（默认 20%）告警复用 008 异常枚举口径（`ANOMALY_STATUSES`）与审计落点，不新建推送通道。001 配额门禁层零改动，其消费点自动获得三层语义。
 
 ## Technical Context
 
@@ -24,7 +30,7 @@
 
 **Project Type**: web-service（双后端服务）+ web-app（admin-web 管理前端）
 
-**Performance Goals**: `get_quota_summary` 位于每次对话入口的同步路径（`api/endpoints/dsh_chat.py:172/279`、`llm/configured_models.py:396-400`、`scheduled_tasks/runner.py:39`）；三层扩展 MUST 保持 **O(1) 次额外查询**：团队/项目策略按 `(tenant_id, scope_type, scope_id)` 点查（复用 `scope_id` 索引形态），成员反查一次聚合，不引入全表扫描或 N+1
+**Performance Goals**: `get_quota_summary` 位于每次对话入口的同步路径（`api/endpoints/dsh_chat.py:172/279`、`llm/configured_models.py:396-400`、`scheduled_tasks/runner.py:39`）；三层扩展 MUST 保持 **O(1) 次额外查询**：部门/项目策略按 `(tenant_id, scope_type, scope_id)` 点查（复用 `scope_id` 索引形态），成员反查一次聚合，不引入全表扫描或 N+1
 
 **Constraints**: 001 门禁层（`governance/layers/quota.py`）零改动；decision 12 unlimited 默认与 020 FR-035~038 口径不回退；`user_quota_policies` 集合名不改、不做存量数据迁移；admin-web 新文案走 `t()` 中文 key 回退保持中英双语；两份 `quota_policy.py`（chat-api / admin-api）行为保持同步
 
@@ -65,15 +71,15 @@ services/admin-api/
 ├── app/services/quota_projects.py      # 【新增】项目分组 CRUD + 成员维护（轻量服务，
 │                                        #  集合 quota_projects；docstring 声明与桌面 Code
 │                                        #  projects 端点的语义隔离）
-├── app/api/routes/traffic_allocations.py  # 【修改】团队/项目策略配置端点（与既有
+├── app/api/routes/traffic_allocations.py  # 【修改】部门/项目策略配置端点（与既有
 │                                          #  update_org_quota_policy / user policy 端点同级），
 │                                          #  复用既有鉴权依赖与日志写入模式
 └── app/api/dashboard_metrics.py        # 【修改】ANOMALY_STATUSES 增加 quota 类状态口径
                                           #  （超限/接近阈值的驾驶舱异常统计入口）
 
 apps/admin-web/
-├── src/api/traffic-allocations.ts      # 【修改】团队/项目配置 API 客户端（既有文件扩展）
-└── src/views/organizations/TrafficAllocationsPage.vue  # 【修改】团队额度（部门树选择）
+├── src/api/traffic-allocations.ts      # 【修改】部门/项目配置 API 客户端（既有文件扩展）
+└── src/views/organizations/TrafficAllocationsPage.vue  # 【修改】部门额度（部门树选择）
                                           #  + 项目分组 CRUD 配置区，与既有 org/user 同级
 
 # 【复用不改】services/admin-api/app/governance/layers/quota.py（001 配额门禁层，零改动）
@@ -82,7 +88,7 @@ apps/admin-web/
 # 【复用不改】集合 org_units / end_user_org_relations / user_quota_overrides
 ```
 
-**Structure Decision**: 复用既有 monorepo 布局与"流量分配页作为配额配置单一入口"的现状（`/organizations/traffic?open=quota` 已被 ModelsPage.vue 引用为配额配置导航目标），不新增页面与路由；团队层借道部门树（020 已建）、项目层以最小新集合补齐"跨部门横向分组"这一部门树表达不了的形状；三层语义收口在 `get_quota_summary` 单函数，001/008 两个消费方零改动接入。
+**Structure Decision**: 复用既有 monorepo 布局与"流量分配页作为配额配置单一入口"的现状（`/organizations/traffic?open=quota` 已被 ModelsPage.vue 引用为配额配置导航目标），不新增页面与路由；部门层借道部门树（020 已建）、项目层以最小新集合补齐"跨部门横向分组"这一部门树表达不了的形状；三层语义收口在 `get_quota_summary` 单函数，001/008 两个消费方零改动接入。
 
 ## Complexity Tracking
 

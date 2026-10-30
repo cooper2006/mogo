@@ -8,7 +8,7 @@
 
 ## Summary
 
-给 008 驾驶舱成本维补齐四个归集维度（部门/Agent/空间/业务线），兑付整合方案「六维归集」（企业/空间/应用/模型/业务线/用户）。三条主线：① **补数据源**——`TokenUsageRecord` 新增 `agent_id`/`skill_id`/`workspace_id`，埋点在 `instrumented_client.py::_submit_record` 从 `output_spec`（含请求上下文合并）读取，与既有 `tenant_id`/`user_id` 同机制；② **接库函数**——`dashboard_metrics.attribute_cost`（部门/业务线/空间归集）与等价于 `metering.aggregate_usage` 的 agent 维聚合接入 `dashboard.py::_cost_section()`，替换 `available=False` 诚实占位；③ **透出单条成本**——analytics 下钻列表/详情新增 `costUsd`（`cost_estimate_usd` 优先、`MODEL_PRICES` 兜底）。无数据源维度延续 008 诚实占位纪律（`available: False` + reason，不填零）。
+给 008 驾驶舱成本维补齐三个归集维度（部门/Agent/项目），落地为**五段归集**（租户/用户/部门/Agent/项目；模型分组沿用 008 既有 `build_cost_section`）。三条主线：① **补数据源**——`TokenUsageRecord` 新增 `agent_id`/`skill_id`/`project_id`，埋点在 `instrumented_client.py::_submit_record` 从 `output_spec`（含请求上下文合并）读取，与既有 `tenant_id`/`user_id` 同机制；② **接库函数**——`dashboard_metrics.attribute_cost`（部门/项目归集）与等价于 `metering.aggregate_usage` 的 agent 维聚合接入 `dashboard.py::_cost_section()`，替换 `available=False` 诚实占位；③ **透出单条成本**——analytics 下钻列表/详情新增 `costUsd`（`cost_estimate_usd` 优先、`MODEL_PRICES` 兜底）。无数据源维度延续 008 诚实占位纪律（`available: False` + reason，不填零）。**2026-10-30 变更**：业务线维度取消（字段无写入方、回落实现产出单桶假数据）、「空间」更名为「项目」、「企业」更名为「租户」。
 
 ## Technical Context
 
@@ -16,9 +16,9 @@
 
 **Primary Dependencies**: 复用既有——`app.token_usage.models.TokenUsageRecord`、`app.llm.instrumented_client`、`app.infrastructure.request_context`（`get_request_context`）、`app.api.dashboard_metrics`（`attribute_cost`/`reconciles`/`COST_TOLERANCE`）、`app.llm.resilience.metering.aggregate_usage`（口径参照）、`app.repositories.directory_repository`（`org_units`/`end_user_org_relations` 集合常量）；**不引入新依赖**。
 
-**Storage**: MongoDB 集合 `token_usage_logs`（新增三个字段，无新集合、无索引变更刚需——`agent_id`/`workspace_id` 分组聚合走既有 24h 窗口扫描；如需索引随 Phase 2 实测补）；`org_units`/`end_user_org_relations` 只读反查。字段新增为向后兼容变更（默认空串），存量行按 `未分配` 兜底。
+**Storage**: MongoDB 集合 `token_usage_logs`（新增三个字段，无新集合、无索引变更刚需——`agent_id`/`project_id` 分组聚合走既有 24h 窗口扫描；如需索引随 Phase 2 实测补）；`org_units`/`end_user_org_relations` 只读反查。字段新增为向后兼容变更（默认空串），存量行按 `未分配` 兜底。
 
-**Testing**: pytest——chat-api `instrumented_client` 埋点测试（fake 内层 client + output_spec/请求上下文）；admin-api `tests/test_dashboard_routes.py`（`_cost_section` 六维 + 空维度不伪造 + reconciles）、`tests/test_dashboard_metrics.py`（`attribute_cost` 既有用例保持）、`tests/test_dashboard_selfcheck.py`；analytics 下钻 `costUsd` 用例（埋点值/兜底值/403）。
+**Testing**: pytest——chat-api `instrumented_client` 埋点测试（fake 内层 client + output_spec/请求上下文）；admin-api `tests/test_dashboard_routes.py`（`_cost_section` 五段 + 空维度不伪造 + reconciles）、`tests/test_dashboard_metrics.py`（`attribute_cost` 既有用例保持）、`tests/test_dashboard_selfcheck.py`；analytics 下钻 `costUsd` 用例（埋点值/兜底值/403）。
 
 **Target Platform**: Docker Compose（chat-api + admin-api + MongoDB/PanWeiDB）；`_as_utc` 已处理 PanWeiDB 时间戳 ISO 串形态（`dashboard.py:53-60`），新字段聚合不涉及时间解析新形态。
 
@@ -34,16 +34,16 @@
 - 全部新查询按租户隔离（008 FR-7）。
 - 不实现配额（042 关系只声明）；不回填历史 agent_id。
 
-**Scale/Scope**: 1 个模型文件（+3 字段）+ 1 个埋点文件（记录构造处 + 运行时上下文 merge 点）+ 1 个 dashboard 文件（`_cost_section` 六维化）+ 1 个 analytics 文件（下钻透出）+ 018 资产反查一个小工具函数；约 3 个测试文件新增/扩展。零新集合、零新依赖、零既有契约破坏。
+**Scale/Scope**: 1 个模型文件（+3 字段）+ 1 个埋点文件（记录构造处 + 运行时上下文 merge 点）+ 1 个 dashboard 文件（`_cost_section` 五段化）+ 1 个 analytics 文件（下钻透出）+ 018 资产反查一个小工具函数；约 3 个测试文件新增/扩展。零新集合、零新依赖、零既有契约破坏（唯一例外：删除 `businessLineAttribution` 段，需同步前端）。
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- **I. Specification-First**: ✅ spec/plan/tasks 三件套先行；五项已定决策（埋点位置/空间口径/业务线口径/计价口径/占位规则）在 Phase 0 前拍板，任务按 FR 收敛。
+- **I. Specification-First**: ✅ spec/plan/tasks 三件套先行；已定决策（埋点位置/项目口径/计价口径/占位规则）在 Phase 0 前拍板，任务按 FR 收敛。业务线口径一项已于 2026-10-30 取消（见 spec 变更记录）。
 - **II. Enterprise Production Readiness**: ✅ 补的是"已写好零调用方"的库函数与"缺字段"的数据源，失败路径明确（空维度显式标注、查询按租户隔离、对账自检保持绿）；聚合走既有 24h 窗口与预取范式，无新增性能风险面。
 - **III. Security and Data Protection**: ✅ 成本数据按租户隔离（403 不越权，FR-011）；新增字段不含敏感内容（ID 类标识）；下钻详情沿用既有脱敏/权限裁剪口径（008 FR-10 的 PII 脱敏展示不因新字段回退）。
-- **IV. Cross-Platform and i18n**: ✅ 无新增用户可见文案刚需（维度段结构字段与 `reason` 为运营向说明，中文口径随 008 既有 i18n 机制）；`workspace_id` 口径与 017/021 既有空间语义同源，不发明平行概念。
+- **IV. Cross-Platform and i18n**: ✅ 无新增用户可见文案刚需（维度段结构字段与 `reason` 为运营向说明，中文口径随 008 既有 i18n 机制）；项目口径以 `Decisions/ADR-8-统一项目概念-项目即工作目录.md` 为唯一依据（~~原"与 017/021 空间语义同源"作废~~：017 的 workspace scope 空转、021 的 `mogo://` 是上下文地址，均不能作为归集语义依据）。
 - **V. Observability and Simplicity**: ✅ 不新增架构复杂度：三个字段 + 一处记录构造读取 + 一处聚合改造 + 一处下钻透出；库函数是既有 pure 函数的接线（YAGNI——不建新聚合框架、不做实时流、不实现配额）。
 
 ## Project Structure
@@ -61,19 +61,19 @@ specs/035-cost-attribution/
 
 ```text
 services/chat-api/
-├── app/token_usage/models.py           # 【改动】TokenUsageRecord 新增 agent_id / skill_id / workspace_id（默认空串）
-├── app/llm/instrumented_client.py      # 【改动】_submit_record 记录构造处读 output_spec.agent_id/skill_id/workspace_id（回退 project_id）
+├── app/token_usage/models.py           # 【改动】TokenUsageRecord 新增 agent_id / skill_id / project_id（默认空串）
+├── app/llm/instrumented_client.py      # 【改动】_submit_record 记录构造处读 output_spec.agent_id/skill_id/project_id
 ├── app/llm/factory.py                  # 【复用】get_llm_client 的 output_spec 合并（L72-76）已含请求上下文——零改动，仅确认键流通
 ├── app/infrastructure/request_context.py  # 【复用】get_request_context 机制——零改动
 ├── app/enterprise_capabilities/runtime/adapters.py  # 【改动，按需】Agent 执行处 merge agent_id/skill_id 到请求上下文（T005 勘察后定点）
 └── tests/llm/test_instrumented_client_agent_dims.py  # 【新增】埋点三场景（传入/不传/DAG 多节点归并）
 
 services/admin-api/
-├── app/api/routes/dashboard.py         # 【改动】_cost_section 六维化：接 attribute_cost（部门/业务线/空间）+ agent 维聚合；诚实占位按维度 available/reason
+├── app/api/routes/dashboard.py         # 【改动】_cost_section 五段化：接 attribute_cost（部门/项目）+ agent 维聚合；删除 businessLine 段；诚实占位按维度 available/reason
 ├── app/api/dashboard_metrics.py        # 【复用】attribute_cost / reconciles / COST_TOLERANCE——零改动（pure 函数契约不变）
 ├── app/api/routes/analytics.py         # 【改动】token-usage 列表行 + 详情透出 costUsd（埋点优先/定价兜底），详情补 modelName 等既有字段
 ├── app/api/dashboard_usage.py          # 【复用】cost_estimate_usd 汇总口径参照（L55）——零改动
-└── tests/test_dashboard_routes.py      # 【改动】_cost_section 六维 + 空维度不伪造 + reconciles 用例（更新 149-193 既有断言场景）
+└── tests/test_dashboard_routes.py      # 【改动】_cost_section 五段 + 空维度不伪造 + reconciles 用例（更新 149-193 既有断言场景）
 
 docs/MOGO-AgentOS整合方案.md             # 【不在本特性更新】§4.4 的对照结论随本特性落地由仓库维护流程处理
 specs/INDEX.md                          # 【不在本特性更新】按任务约束保持原状

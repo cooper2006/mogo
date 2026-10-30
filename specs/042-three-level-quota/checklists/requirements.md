@@ -1,7 +1,7 @@
 # Requirements Quality Checklist: 042 three-level-quota
 
-**Purpose**: 校验 042（三级配额：团队/项目级）spec.md 的需求质量——完整性、清晰度、一致性、边界与歧义。这是"需求的单元测试"，**不校验实现是否正确**（本特性代码尚未开工，见 spec.md L13）。
-**Created**: 2026-10-24
+**Purpose**: 校验 042（三级配额：部门/项目级）spec.md 的需求质量——完整性、清晰度、一致性、边界与歧义。这是"需求的单元测试"，**不校验实现是否正确**（本特性**已实现 23/24 任务，但入口不可发现**，见 spec.md 顶部「性质说明」与 `specs/035-cost-attribution/review-2026-10-30-dimension-source-audit.md` §5）。
+**Created**: 2026-10-24（2026-10-30 口径修订：全文「团队」改称「部门」，机器标识符仍保留 `team`，见 `spec.md` 顶部对照表）
 **Feature**: [spec.md](../spec.md) | [plan.md](../plan.md)
 
 **Review Ownership**: 审阅人专属的需求质量评审工件。仅当审阅人确认某条需求质量准则达标时才标 `[x]`。
@@ -10,9 +10,9 @@
 
 ## 完整性（Completeness）
 
-- [x] CHK001 团队层的成员命中口径是否定义（FR-002 说"`end_user_org_relations` 直接成员口径、不做子树自动聚合"；但 **一个用户可能有多条部门关系**（`is_primary` 只标主部门，见 `services/admin-api/app/api/routes/traffic_allocations.py:73-79` 只取 `is_primary`）——**是全部命中（多部门 = 多个团队策略）还是仅主部门**、`is_primary` 是否参与判定，未写；而 FR-007 又已假定"命中多个团队策略"。两处口径需对齐）
+- [x] CHK001 部门层的成员命中口径是否定义（FR-002 说"`end_user_org_relations` 直接成员口径、不做子树自动聚合"；但 **一个用户可能有多条部门关系**（`is_primary` 只标主部门，见 `services/admin-api/app/api/routes/traffic_allocations.py:73-79` 只取 `is_primary`）——**是全部命中（多部门 = 多个部门策略）还是仅主部门**、`is_primary` 是否参与判定，未写；而 FR-007 又已假定"命中多个部门策略"。两处口径需对齐）
 - [x] CHK002 项目分组被删除/停用后其策略的孤儿处置是否定义（Edge Cases 只覆盖"部门节点被删除"（spec.md L121），**未覆盖 `quota_projects` 文档删除**；`user_quota_policies` 中 `scope_type=project, scope_id=<已删项目>` 的策略是失效、清理还是阻断，未写）
-- [x] CHK003 用量聚合的查询形状与规模上界是否定义（Assumptions L166 说"团队/项目层用量 = 当前成员周期用量之和"；**N 个成员是一次 `$in` 聚合还是 N 次 `sum_usage`**（现 `services/chat-api/app/core/quota_policy.py:122-134` 只支持单 `user_id`）、成员数上界、以及"已离开成员的历史用量是否计入"未写——直接决定 `get_quota_summary` 的 P95 延迟）
+- [x] CHK003 用量聚合的查询形状与规模上界是否定义（Assumptions L166 说"部门/项目层用量 = 当前成员周期用量之和"；**N 个成员是一次 `$in` 聚合还是 N 次 `sum_usage`**（现 `services/chat-api/app/core/quota_policy.py:122-134` 只支持单 `user_id`）、成员数上界、以及"已离开成员的历史用量是否计入"未写——直接决定 `get_quota_summary` 的 P95 延迟）
 - [x] CHK004 告警事件的落库位置与去重键是否定义（FR-010 要求"同租户同层同周期 MUST 去重"，但**未指定集合名、未指定唯一键**（`tenant_id+scope_type+scope_id+kind+period_start`？）；Key Entities 的 `QuotaAlertEvent`（L151）只给了字段名，没说存哪）
 
 ## 清晰度（Clarity）
@@ -26,15 +26,15 @@
 ## 一致性（Consistency）
 
 - [x] CHK010 两份 `quota_policy.py` 副本的同步判据是否定义（Assumptions L170 要求"行为同步修改"；**如何验证同步**未给判据——实测两文件已不同长度（chat-api 12431B / admin-api 11152B），T002 只说"逐函数 diff"，缺可执行等价判据）
-- [x] CHK011 `points_unlimited` 短路与三层取小的优先级是否明确（US3 AC4（L80）说 unlimited 时"不计算三层"；但租户被标 unlimited 而团队层已配额度时，**团队层是继续生效还是被整体短路**——这与本特性定位"最严层决定放行"直接冲突，未写）
+- [x] CHK011 `points_unlimited` 短路与三层取小的优先级是否明确（US3 AC4（L80）说 unlimited 时"不计算三层"；但租户被标 unlimited 而部门层已配额度时，**部门层是继续生效还是被整体短路**——这与本特性定位"最严层决定放行"直接冲突，未写）
 - [x] CHK012 新层查询异常的口径与 001 门禁既有一致性是否声明（Edge Cases L124 说"该层按 unlimited 跳过"，与 `governance/layers/quota.py:46-49` fail-open 同源；但**三层同时异常时是否也放行**、异常是否需计数/告警（否则静默不限额不可观测）未写）
 - [x] CHK013 与 008 `ANOMALY_STATUSES` 的扩展方式是否闭合（FR-010 说"`ANOMALY_STATUSES` 扩展"；但该元组（`services/admin-api/app/api/dashboard_metrics.py:34`）是**对 `token_usage_logs.status` 的过滤器**，塞入 `quota_exceeded` 值不会有任何行匹配——SC-004"口径可统计"会假绿；**扩展方式是改元组、还是新增事件源/新字段**未定义）
 
 ## 边界（Boundary）
 
 - [x] CHK014 并发扣减的原子性是否定义（US1/US3 假定限额是强约束，但现状是**先 `assert_quota_available` 只读判定、后异步写 `token_usage_logs`**（`services/chat-api/app/llm/instrumented_client.py:215-244`），无条件更新；**是否用 Mongo `findOneAndUpdate` 做原子预扣/条件 `$inc`**、TTL 与回滚口径未写——这是"取最小 + fail-closed"能否成立的前提）
-- [x] CHK015 周期重置与跨层窗口不一致的判据是否定义（Edge Cases L122 说"各层按各自 `period_window` 计量"；但 `resetAt` 现状只取 user 层 window end（`quota_policy.py:277`）——**四层窗口不同时对外只暴露一个 `resetAt` 语义为何**、团队层跨日界重置而用户层跨月界时的展示口径未写）
-- [x] CHK016 与既有 `traffic_allocations` 页面的契约边界是否定义（FR-008 要求在同一页扩展；但 `get_traffic_allocation_overview`（`services/admin-api/app/api/routes/traffic_allocations.py:82-135`）返回体是固定字段，**团队/项目额度是扩展同一端点还是新端点**、`assignedTokens` / `assignedPolicyCount`（现只统计 `scope_type="user"`）是否要把团队/项目已分配额度计入，未写）
+- [x] CHK015 周期重置与跨层窗口不一致的判据是否定义（Edge Cases L122 说"各层按各自 `period_window` 计量"；但 `resetAt` 现状只取 user 层 window end（`quota_policy.py:277`）——**四层窗口不同时对外只暴露一个 `resetAt` 语义为何**、部门层跨日界重置而用户层跨月界时的展示口径未写）
+- [x] CHK016 与既有 `traffic_allocations` 页面的契约边界是否定义（FR-008 要求在同一页扩展；但 `get_traffic_allocation_overview`（`services/admin-api/app/api/routes/traffic_allocations.py:82-135`）返回体是固定字段，**部门/项目额度是扩展同一端点还是新端点**、`assignedTokens` / `assignedPolicyCount`（现只统计 `scope_type="user"`）是否要把部门/项目已分配额度计入，未写）
 
 ## Notes
 
@@ -46,7 +46,7 @@
 
 16 条全部达标，均经 `spec.md` 新增的「判定口径补充（R-1~R-14）」消解：
 
-- CHK001（团队成员命中口径）→ R-3：`end_user_org_relations` **全部生效行**（不限 `is_primary`），多部门 = 多策略按 FR-007 层内取最严；`is_primary` 仅用于管理端展示。
+- CHK001（部门成员命中口径）→ R-3：`end_user_org_relations` **全部生效行**（不限 `is_primary`），多部门 = 多策略按 FR-007 层内取最严；`is_primary` 仅用于管理端展示。
 - CHK002（项目删除孤儿策略）→ R-4：策略随项目 `status="deleted"` 即时失效（等同未配置），不物理删策略行，写审计。
 - CHK003（用量聚合形状）→ R-5：单次 `$in` 聚合、成员上限 5000、按当前成员 ID 集合聚合（不追历史归属，与 Assumptions L166 一致）。
 - CHK004（告警落库与去重键）→ R-11：独立集合 `quota_alert_events`，唯一键 `(tenant_id, scope_type, scope_id, kind, period_start)`。
@@ -56,11 +56,11 @@
 - CHK008（disabled 语义冲突）→ R-7：team/project 层 `status != "active"` **视同未配置**（不等同 org/user 的"未启用即拒"），差异已显式声明；spec Edge Cases 末条的草稿文字已定为规则。
 - CHK009（超限错误契约）→ R-8：`QuotaExceededError` 增 `layer`/`scope_id`/`kind` 结构化字段，**HTTP 状态码不改**（chat-api 402 / 001 门禁 429），文案增层名。
 - CHK010（双副本同步判据）→ R-9：以"逐函数体归一化 diff 为空"为判据，`tests/test_quota_three_level.py` + 两份副本各跑同一 fixture 断言序列化相等。
-- CHK011（unlimited 与三层优先级）→ R-6：`points_unlimited` 短路**压过**全部三层（零回归优先），团队/项目层在 unlimited 租户下不生效，显式写入口径。
+- CHK011（unlimited 与三层优先级）→ R-6：`points_unlimited` 短路**压过**全部三层（零回归优先），部门/项目层在 unlimited 租户下不生效，显式写入口径。
 - CHK012（新层查询异常）→ R-7：单层异常按 unlimited 跳过并计数，三层全异常仍放行（与 001 fail-open 同源），异常计入 R-11 的告警事件（`kind="layer_unreadable"`）以保证可观测。
 - CHK013（008 枚举扩展方式）→ R-12：**不改** `ANOMALY_STATUSES` 元组（它对 `token_usage_logs.status` 过滤，塞 quota 值永不命中），新增 `QUOTA_ALERT_KINDS` 与驾驶舱独立 quota 异常计数口径。
 - CHK014（并发原子性）→ R-13：首期**不做**原子预扣（与既有 org/user 同口径），声明 TOCTOU 窗口与阈值；给出 `find_one_and_update` 条件更新的后续落点。
 - CHK015（周期重置）→ R-14：`resetAt` 保持取 user 层 window end（零回归），分层明细各带 `resetAt`，另给 `limitingResetAt`。
-- CHK016（traffic_allocations 契约）→ R-14：扩展同一 `/overview` 端点（新增字段，既有字段不动）+ 新增团队/项目专用端点；`assignedTokens` 只保留 user 口径，团队/项目另开 `teamAssignedTokens`/`projectAssignedTokens`。
+- CHK016（traffic_allocations 契约）→ R-14：扩展同一 `/overview` 端点（新增字段，既有字段不动）+ 新增部门/项目专用端点；`assignedTokens` 只保留 user 口径，部门/项目另开 `teamAssignedTokens`/`projectAssignedTokens`。
 
-**验收证据**：本特性**代码尚未开工**（`grep -rn "scope_type" --include=*.py services/ | grep -E "team|project"` 零命中；`grep -rn "quota_projects" --include=*.py services/` 零命中；`grep -c "^- \[x\]" specs/042-three-level-quota/tasks.md` = 0 / 24 任务）。实现现状核查点：`services/chat-api/app/core/quota_policy.py`（双层取小 L266、`scope_type` 仅 user/all L137-149、unlimited 短路 L183-197/L248-265）、`services/admin-api/app/core/quota_policy.py`（同名副本）、`services/admin-api/app/api/routes/traffic_allocations.py`（org/default/user 三条策略端点 L138/L178/L280）、`services/admin-api/app/api/dashboard_metrics.py:34`（`ANOMALY_STATUSES = ("failed","timeout","error")`）、`services/admin-api/app/governance/layers/quota.py:31-54`（001 消费点，fail-open）、`services/chat-api/app/llm/instrumented_client.py:215-244`（用量写入，非原子）。每条待实现项在 spec 回填中均标"首期未实现 + 建议落点"，无编造。
+**验收证据（2026-10-30 复核更新）**：本特性**已实现 23/24 任务**——`grep -rn "scope_type" --include=*.py services/ | grep -E "team|project"` 已命中 `TEAM_SCOPE` / `PROJECT_SCOPE`（`services/chat-api/app/core/quota_policy.py:28-29`）；`services/admin-api/app/services/quota_projects.py` 存在；`grep -c "^- \[x\]" specs/042-three-level-quota/tasks.md` = **23 / 24**（仅 T023 前端校验 + 手工联调未勾选）。**但入口不可发现**：`TrafficAllocationsPage.vue` 的入口是筛选栏按钮 → 弹窗 → 二级 tab（三次点击），`?open=quota` 深链打开的是租户额度而非部门/项目额度，且 `quotaAnomalies` 在 admin-web 全仓零引用（驾驶舱看不到配额告警）。实现现状核查点：`services/chat-api/app/core/quota_policy.py`（`TEAM_SCOPE`/`PROJECT_SCOPE` L28-29、`_team_scope_ids` L206、`_layer_denial_message` L500）、`services/admin-api/app/core/quota_policy.py`（同名副本）、`services/admin-api/app/api/routes/traffic_allocations.py`（org/default/user 三条策略端点 L138/L178/L280 + `/teams`、`/projects` 端点）、`services/admin-api/app/api/dashboard_metrics.py:34`（`ANOMALY_STATUSES = ("failed","timeout","error")` 未含 quota，quota 走独立 `QUOTA_ALERT_KINDS`）、`services/admin-api/app/governance/layers/quota.py:31-54`（001 消费点，fail-open，零改动）、`services/chat-api/app/llm/instrumented_client.py:215-244`（用量写入，非原子）。

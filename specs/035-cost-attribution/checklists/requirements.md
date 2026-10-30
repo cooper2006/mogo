@@ -1,7 +1,7 @@
 # Requirements Quality Checklist: 035 cost-attribution
 
-**Purpose**: 校验 035（成本归集补维：部门/Agent/空间/业务线 + 单条成本透出）spec.md 的需求质量——完整性、清晰度、一致性、边界与歧义。这是"需求的单元测试"，**不校验实现是否正确**。
-**Created**: 2026-10-23
+**Purpose**: 校验 035（成本归集补维：部门/Agent/项目 + 单条成本透出）spec.md 的需求质量——完整性、清晰度、一致性、边界与歧义。这是"需求的单元测试"，**不校验实现是否正确**。
+**Created**: 2026-10-23（2026-10-30 修订：业务线维度取消、「空间」更名为「项目」、「企业」更名为「租户」）
 **Feature**: [spec.md](../spec.md) | [plan.md](../plan.md)
 
 **Review Ownership**: 审阅人专属的需求质量评审工件。仅当审阅人确认某条需求质量准则达标时才标 `[x]`。
@@ -10,8 +10,8 @@
 
 ## 完整性（Completeness）
 
-- [x] CHK001 业务线标记的来源与维护入口是否定义（决策表 #3 用 `org_units.is_business_line=true`，但**未说明该字段由谁维护、如何设置、存量组织树是否需要迁移**；没有管理入口则业务线维度永远只有"无标记回落"一条路径）
-- [x] CHK002 "根下第一层部门"的判据是否定义（决策表 #3 的回落规则；组织树可能多根、可能有虚拟根、`path_ids` 长度口径未定——按 `len(path_ids) == 2`、`parent_id is None` 还是"最高可见祖先"会得出不同桶）
+- [x] CHK001 ~~业务线标记的来源与维护入口是否定义~~ **（2026-10-30 结案：维度取消）**（决策表 #3 用 `org_units.is_business_line=true`，但**未说明该字段由谁维护、如何设置、存量组织树是否需要迁移**；没有管理入口则业务线维度永远只有"无标记回落"一条路径）—— 核实结论：该字段**根本没有任何写入路径**（`column_map.py` 列映射、`directory.py` payload、`ensure_root_department` 都没有），问题不是"入口没定义"而是"数据源不存在"，故业务线维度取消。
+- [x] CHK002 ~~"根下第一层部门"的判据是否定义~~ **（2026-10-30 结案：随维度取消）**（决策表 #3 的回落规则；组织树可能多根、可能有虚拟根、`path_ids` 长度口径未定——按 `len(path_ids) == 2`、`parent_id is None` 还是"最高可见祖先"会得出不同桶）—— 核实结论：实现取"最高可见祖先"（遍历链找 `parent_id in (None, "")`），**必然命中根节点**，导致恒为单桶「企业总部」且 `available=True`，属假数据，比诚实占位更有害。
 - [x] CHK003 Agent 归属链路（018 资产注册表）的匹配键与失败口径是否定义（FR-004 只说"经 018 能力资产注册表解析资产名、解析不到回落原始 ID"，**按 `agent_id` 还是 `skill_id` 匹配、资产表读哪张 collection、两边都没有时回落到哪个字段**未写）
 - [x] CHK004 部门维度"用户数"的口径是否定义（FR-006 写"调用数/用户数/成本按部门分桶"，**用户数是去重 `user_id` 吗、空 `user_id` 是否算一个、跨期去重还是窗口内去重**未定义）
 - [x] CHK005 `未分配` 桶是否计入 `reconciles` 对账是否声明（FR-010 要求"各维分桶合计与 `totalCost` 一致"；若 `未分配` 不计入则对账必然失败，若计入则需明确它参与合计）
@@ -44,15 +44,17 @@
 
 15 条全部达标。0 条原生达标，15 条经 `spec.md` 新增的「判定口径补充（R-1~R-15）」消解：
 
-- CHK001（业务线标记维护）→ R-1：可选字段、经组织单元写入路径维护，首期无专用 API。
-- CHK002（根下第一层判据）→ R-2：取 `path_ids` 中最高 `is_business_line` 祖先，无标记回落"最高可见祖先"，不用层级硬编码。
+> **2026-10-30 追加结案（不影响上述达标判定，但改变 2 条的结论）**：CHK001/CHK002 从"口径已定义"改判为"**维度取消**"——这两条当时被 R-1/R-2 的文案消解，但代码核实发现 R-1 声称的写入路径不存在、R-2 的回落实现必然产出单桶假数据。同时 CHK006/CHK009 的口径按 ADR-8 更新（`workspace_id` → `project_id`、六段 → 五段）。详见 `../review-2026-10-30-dimension-source-audit.md` §4。
+
+- CHK001（业务线标记维护）→ ~~R-1：可选字段、经组织单元写入路径维护，首期无专用 API。~~ **2026-10-30 结案：业务线维度取消**——该字段无任何写入路径，R-1 的"经既有写入路径维护"与代码不符；不引入该字段，也不再有回落口径。
+- CHK002（根下第一层判据）→ ~~R-2：取 `path_ids` 中最高 `is_business_line` 祖先，无标记回落"最高可见祖先"，不用层级硬编码。~~ **2026-10-30 结案：随维度取消**——"最高可见祖先"实现必然返回根节点，产出单桶假数据；需要业务线视角时用部门树的某个子树即可。
 - CHK003（018 匹配键与失败口径）→ R-3：首期**不做资产解析**（与 FR-004 的偏差已显式登记），桶键取 `agent_id`、回退 `node_id`、再回落 `未分配`。
 - CHK004（用户数口径）→ R-4：窗口内去重 `user_id`；空 `user_id` 只计调用与成本。
 - CHK005（`未分配` 是否计入对账）→ R-5：计入，`reconciles` 恒绿。
-- CHK006（workspace/project 回退）→ R-6：`workspace_id` → `project_id` → `未分配`，统一写入 `workspace_id` 字段。
+- CHK006（workspace/project 回退）→ R-6（2026-10-30 修订）：记录只有 `project_id` 一个字段——code 会话取会话绑定的 `workspace_id` 值、web 会话取 `"default"`、埋点前历史行归 `未分配`；迁移期读侧兼容 `project_id or workspace_id or "default"`，写入只写 `project_id`。
 - CHK007（单条计价时点）→ R-7：以写入时快照 `cost_estimate_usd` 为准，历史行才兜底计算。
 - CHK008（`available` 判定）→ R-8：无记录 / 全为未分配 → False；至少一行真实值 → True。
-- CHK009（维度键名与结构）→ R-9：六个 `*Attribution` 字段 + `{dimension, available, reason, note, items[]}`，008 字段只增不改。
+- CHK009（维度键名与结构）→ R-9（2026-10-30 修订）：**五个** `*Attribution` 字段（`department` / `agent` / `project` / `user` / `tenant`）+ `{dimension, available, reason, note, items[]}`，008 字段只增不改；`businessLineAttribution` 删除、`spaceAttribution` 更名 `projectAttribution`、`enterpriseAttribution` 更名 `tenantAttribution`。
 - CHK010（与 008 结构兼容）→ R-9：追加式扩展，`models`/`reconciles`/`forecast` 原样保留。
 - CHK011（价目同源）→ R-10：快照优先、兜底统一 `MODEL_PRICES`；`reconciles` 只校验同一响应内。
 - CHK012（018 读取侧）→ R-11：首期不读资产表，归集只依赖三张集合。
