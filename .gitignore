@@ -442,3 +442,7 @@ deploy/canary/.canary-state.json
 
 # 024 故障切换状态机（failover.sh 生成，不入库）
 deploy/.failover-state.json
+
+# 本地临时目录（不入库）
+.dsh-tmp/
+amd64/
