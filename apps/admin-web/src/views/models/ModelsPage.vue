@@ -1068,7 +1068,8 @@ onMounted(reload);
 .list-body {
   flex: 1;
   min-height: 0;
-  overflow: visible;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .model-grid {
