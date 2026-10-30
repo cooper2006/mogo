@@ -51,7 +51,9 @@ router = APIRouter(prefix="/trust-ratings", tags=["trust-rating"])
 # --- FR-4 RBAC (fail-closed) -------------------------------------------------
 
 #: Platform-wide roles expand to every permission code (001 "*").
-_ALL_CODES_ROLES = frozenset({"平台管理员", "超级管理员", "full_access_admin"})
+#: Note that `platform_bootstrap.py` writes `role_name` = "平台超级管理员" (not the
+#: 022 setup wizard's default `displayName` "平台管理员"); both must be covered.
+_ALL_CODES_ROLES = frozenset({"平台管理员", "平台超级管理员", "超级管理员", "full_access_admin"})
 
 #: Read is the baseline for every authenticated admin account.
 _BASELINE_CODES = frozenset({TRUST_READ})

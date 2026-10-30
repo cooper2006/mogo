@@ -215,6 +215,23 @@ def test_publish_platform_admin_can_publish_any_asset(api):
     assert len(db["portal_listings"].docs) == 1
 
 
+def test_platform_super_admin_role_name_is_covered_by_rbac_whitelist():
+    """022 平台超级管理员的 `role_name` 是"平台超级管理员"，不是"平台管理员"。
+
+    后者是设置向导里 `displayName` 的默认值，从未写入 `role_name`；RBAC
+    白名单漏掉它会让平台超级管理员在门户上架 / 评级管理上被降级为只读。
+    """
+    from app.api.routes import portal_admin, trust_ratings
+    from app.services.platform_bootstrap import PLATFORM_ADMIN_ROLE_NAME
+
+    for module in (portal_admin, trust_ratings):
+        assert PLATFORM_ADMIN_ROLE_NAME in module._ALL_CODES_ROLES, (
+            f"{module.__name__}._ALL_CODES_ROLES must include the actual "
+            f"platform super-admin role_name ({PLATFORM_ADMIN_ROLE_NAME!r}), "
+            f"not only the setup wizard's default display name"
+        )
+
+
 def test_publish_unknown_asset_404_and_inactive_409(api):
     client, db = api
     client.holder["user"] = _user("platform", role="平台管理员")

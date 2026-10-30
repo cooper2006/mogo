@@ -70,7 +70,9 @@ PORTAL_MANAGE = "portal:manage"
 PORTAL_APPROVE = "portal:approve"
 
 #: 平台级角色 → 全量权限码（与 001 ``full_access_admin`` 同口径）。
-_ALL_CODES_ROLES = frozenset({"平台管理员", "超级管理员", "full_access_admin"})
+#: 注意 ``platform_bootstrap.py`` 写入的 ``role_name`` 是"平台超级管理员"（而非
+#: 022 设置向导里 ``displayName`` 的默认值"平台管理员"），两者必须同时覆盖。
+_ALL_CODES_ROLES = frozenset({"平台管理员", "平台超级管理员", "超级管理员", "full_access_admin"})
 
 #: 所有已认证管理员都有的只读基线。
 _BASELINE_CODES = frozenset({PORTAL_READ})

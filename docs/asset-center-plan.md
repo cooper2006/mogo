@@ -155,5 +155,5 @@ capability_assets     (L1–L4 质量)        (暴露登记)              (申�
 - [x] 门户上架页可下拉选资产（非手填 key），选中后显示评级 + 启用状态，停用资产禁用上架
 - [x] 评级页"管理"按钮能跳到对应技能的配置页或资产中心对应卡片
 - [x] 审批详情显示资产评级 + owner
-- [ ] 全链路无 404/409（静态契约已对齐；待起服务做端到端联调）
+- [x] 全链路无 404/409（端到端联调已跑通：`GET /capabilities/list`、`GET /trust-ratings`、`POST /portal/listings`、`DELETE /portal/listings/{type}/{key}` 均 200/201；admin JWT 走网关 `/admin-api/`）
 - [x] 审批流呈现：资产中心卡片 grantCount / 最近单 / 到期时间；审批页 applied 态按资产聚合卡片并可回跳资产中心

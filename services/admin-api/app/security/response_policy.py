@@ -56,8 +56,11 @@ L3_FIELDS: frozenset[str] = frozenset({
 })
 
 # 角色 → 最高可见字段集
+# 注："平台超级管理员"是 `platform_bootstrap.py` 写入的实际 `role_name`（与
+# 022 设置向导 `displayName` 默认值"平台管理员"不同），两者都映射到 L3。
 _ROLE_FIELD_LEVEL: dict[str, frozenset[str]] = {
     "平台管理员": L3_FIELDS,
+    "平台超级管理员": L3_FIELDS,
     "platform_admin": L3_FIELDS,
     "租户管理员": L2_FIELDS,
     "组织管理员": L2_FIELDS,
