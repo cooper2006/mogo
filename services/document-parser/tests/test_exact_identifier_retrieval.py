@@ -20,7 +20,7 @@ class _Collection:
         self.query = query
         return _Cursor([
             row for row in self.rows
-            if row["main_id"] == query["main_id"]
+            if row["tenant_id"] == query["tenant_id"]
             and row["chunk_stage"] == query["chunk_stage"]
             and ("knowledge_base_id" not in query or row["knowledge_base_id"] == query["knowledge_base_id"])
             and any(value in row["search_identifiers"] for value in query["search_identifiers"]["$in"])
@@ -34,13 +34,13 @@ class _Db:
 
 def test_exact_store_code_row_is_recovered_and_permission_filtered(monkeypatch):
     rows = [
-        {"main_id": "tenant", "knowledge_base_id": "kb", "document_id": "allowed", "chunk_id": "row-1", "chunk_stage": "rag", "search_identifiers": ["GR0010213"], "contextual_text": "门店编号：GR0010213；一月收入：17017.7619047619", "text": "门店编号：GR0010213；一月收入：17017.7619047619"},
-        {"main_id": "tenant", "knowledge_base_id": "kb", "document_id": "forbidden", "chunk_id": "row-2", "chunk_stage": "rag", "search_identifiers": ["GR0010213"], "contextual_text": "门店编号：GR0010213；机密", "text": "机密"},
+        {"tenant_id": "tenant", "knowledge_base_id": "kb", "document_id": "allowed", "chunk_id": "row-1", "chunk_stage": "rag", "search_identifiers": ["GR0010213"], "contextual_text": "门店编号：GR0010213；一月收入：17017.7619047619", "text": "门店编号：GR0010213；一月收入：17017.7619047619"},
+        {"tenant_id": "tenant", "knowledge_base_id": "kb", "document_id": "forbidden", "chunk_id": "row-2", "chunk_stage": "rag", "search_identifiers": ["GR0010213"], "contextual_text": "门店编号：GR0010213；机密", "text": "机密"},
     ]
     db = _Db(rows)
     monkeypatch.setattr(retrieval, "get_db", lambda: db)
     monkeypatch.setattr(retrieval.knowledge_retrieval_access_policy, "filter_candidates", lambda items, **_: [item for item in items if item["documentId"] == "allowed"])
-    result = retrieval.exact_identifier_candidates("GR0010213 一到三月收入？", main_id="tenant", user_id="user", knowledge_base_id="kb")
+    result = retrieval.exact_identifier_candidates("GR0010213 一到三月收入？", tenant_id="tenant", user_id="user", knowledge_base_id="kb")
     assert [item["chunkId"] for item in result] == ["row-1"]
     assert result[0]["score"] == 1.0
     assert db.knowledge_document_chunks.query["knowledge_base_id"] == "kb"
@@ -85,14 +85,14 @@ def test_exact_identifier_row_joins_semantic_results_without_excluding_them(monk
 
 def test_denied_rows_do_not_crowd_out_later_authorized_exact_row(monkeypatch):
     rows = [
-        {"main_id": "tenant", "knowledge_base_id": "kb", "document_id": "denied", "chunk_id": str(index),
+        {"tenant_id": "tenant", "knowledge_base_id": "kb", "document_id": "denied", "chunk_id": str(index),
          "chunk_stage": "rag", "search_identifiers": ["PX2024001"], "text": "denied"}
         for index in range(55)
-    ] + [{"main_id": "tenant", "knowledge_base_id": "kb", "document_id": "allowed", "chunk_id": "answer",
+    ] + [{"tenant_id": "tenant", "knowledge_base_id": "kb", "document_id": "allowed", "chunk_id": "answer",
           "chunk_stage": "rag", "search_identifiers": ["PX2024001"], "text": "matching clause"}]
     monkeypatch.setattr(retrieval, "get_db", lambda: _Db(rows))
     monkeypatch.setattr(retrieval.knowledge_retrieval_access_policy, "filter_candidates", lambda items, **_: [
         item for item in items if item["documentId"] == "allowed"
     ])
-    result = retrieval.exact_identifier_candidates("PX2024001", main_id="tenant", user_id="user", knowledge_base_id="kb", limit=1)
+    result = retrieval.exact_identifier_candidates("PX2024001", tenant_id="tenant", user_id="user", knowledge_base_id="kb", limit=1)
     assert [item["chunkId"] for item in result] == ["answer"]

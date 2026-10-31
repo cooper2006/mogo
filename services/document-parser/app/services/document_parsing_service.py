@@ -685,8 +685,6 @@ def _is_noise_chunk(text: str) -> bool:
     compact = re.sub(r"\s+", "", text or "")
     if not compact:
         return True
-    if len(compact) <= 3:
-        return True
     return bool(re.fullmatch(r"[_\-—=~·.。…、|/\\]+", compact))
 
 
