@@ -378,10 +378,15 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 > 首次尝试直接三方合并时，因上述版本分叉已回滚全部 P1b 工作区改动。**随后按方案 A 重做并完成**，结果见 §9.7。
 
-### P2｜document-parser + DeepSeek Search（分支 `feat/port-movo-rag`）
-- [ ] document-parser：25 个新增模块直接搬；16 个共享文件逐个 `git diff` 后挑选
-- [ ] DeepSeek：先 diff `search_provider_config.py` / `research/`，再叠加 `deepseek_provider`/`provider_router`/`external_search_provider` 与前端
-- [ ] 验证：本地 pytest 覆盖
+### P2｜document-parser + DeepSeek Search（分支 `feat/port-movo-sandbox`）— 已执行（document-parser 部分）
+- [x] document-parser：25 个新增模块（24 个排除 AGENTS.md）直接搬；36 个共享文件逐个 `git diff` 后挑选，**采纳 13 个**，保留本地 23 个（himovo 多为旧品牌/旧概念回退，本地主开发线已领先）
+- [x] 41 个 himovo 删除的本地独有基础设施（cache/common/core/observability/middleware）**全部保留本地**，不采纳删除
+- [x] 关键体系适配：himovo `main_id`/`bson.ObjectId` → 本地 `tenant_id`/`to_backend_id`（本地已全面迁移 tenant 体系）
+- [x] 5 个双方都改文件三方合并（`git merge-file`）：vector_store/reranker_provider/preview_conversion 自动成功，main.py（2 处）/model_center_runtime（1 处）手工解
+- [x] 验证：37 文件 `ast.parse` 0 失败；`app.*` 导入符号 0 缺失；冲突标记 0；品牌词仅保留本地的说明性注释
+- [ ] DeepSeek Search：待做（先 diff `search_provider_config.py` / `research/`，再叠加 `deepseek_provider`/`provider_router`/`external_search_provider` 与前端）
+
+**P2 document-parser 执行结果（2026-10-31）**：移植 himovo 的 OCR/检索/错误本地化能力，共 37 个文件（24 新增 + 13 修改）。新增 `pdf_ocr_policy`（PDF 全页 OCR 策略）、`pdf_text_recovery`（无文本层 PDF 恢复）、`office_image_ocr`（Office 内嵌图片 OCR）、`spreadsheet_ingest`（表格归一化）、`chunk_identifiers`（业务标识符提取）、`exact_identifier_retrieval`（精确标识符检索）、`retrieval_selection`（候选融合/最终选择）、`retrieval_trace`（检索链路追踪）、`error_locale`（HTTP 错误本地化）、`request_body_limit`（请求体限制中间件）等；接线进 `document_parsing_service` / `rag_chunk_optimizer` / `retrieval_service` / `main.py` / `vector_store` / `model_center_runtime` / `reranker_provider` / `libreoffice`。本机无 venv，运行时验证留给 CI/Docker。
 
 ### P3｜session-sharing / desktop（分支 `feat/port-movo-sharing`，先最小子集）
 - [ ] 先做接口对齐 + 最小可用（share token + 只读共享 + 基础 SSE），不要全量

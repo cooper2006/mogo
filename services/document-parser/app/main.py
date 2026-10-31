@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.error_locale import localize_detail
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.db import close_db
@@ -10,6 +13,7 @@ from app.middleware.trace_id import TraceIdMiddleware
 from app.middleware.legacy_api_redirect import LegacyApiRedirectMiddleware
 from app.observability.logging import init_doc_parser_logging
 from app.observability.health import router as health_router
+from app.core.request_body_limit import RequestBodyLimitMiddleware
 from app.repositories.job_repository import ensure_job_indexes
 
 
@@ -58,6 +62,15 @@ def create_app() -> FastAPI:
 
     # 023 T049: Prometheus /metrics 端点
     app.mount("/metrics", metrics_asgi_app("mogo-document-parser"), name="metrics")
+    app.add_middleware(RequestBodyLimitMiddleware)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def localized_http_error(request: Request, exc: StarletteHTTPException):
+        detail = localize_detail(exc.detail, exc.status_code, request.headers.get("accept-language"))
+        if detail == exc.detail:
+            return await http_exception_handler(request, exc)
+        translated = StarletteHTTPException(status_code=exc.status_code, detail=detail, headers=exc.headers)
+        return await http_exception_handler(request, translated)
 
     @app.on_event("startup")
     def startup() -> None:
