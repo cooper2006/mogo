@@ -1,0 +1,16 @@
+FROM python:3.10-slim-bookworm
+
+ARG MOGO_PIP_INDEX_URL=
+WORKDIR /app
+COPY requirements.txt .
+RUN if [ -n "${MOGO_PIP_INDEX_URL}" ]; then \
+      python -m pip install --no-cache-dir --index-url "${MOGO_PIP_INDEX_URL}" -r requirements.txt; \
+    else \
+      python -m pip install --no-cache-dir -r requirements.txt; \
+    fi
+COPY app ./app
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8300"]
