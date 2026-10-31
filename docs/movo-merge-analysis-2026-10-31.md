@@ -286,7 +286,7 @@ himovo 相对 fork 点的真实增量（应移植的部分）按块拆解：
 - **himovo 新增**：
   - 后端：`services/admin-api/app/services/external_search_provider.py`、`services/chat-api/app/dsh_runtime/profile/search_availability.py`、`app/enterprise_capabilities/research/progressive/{deepseek_provider,provider_router,evidence,summary_messages}.py`、`dsh/runtime-host/src/web-search-availability.mjs`。
   - 前端：`ExternalSearchSettingsPage.vue`、`SetupSearchStep.vue`、`SearchProviderGuide.vue`、`providerGuides.ts`、`locales/modules/deepseekSearch.ts`、`SessionSearchOverlay.vue`、`useSessionSearch.ts`。
-- **结论**：属"在本地已有搜索骨架上叠加 DeepSeek provider + progressive research + 前端引导"，**不是从零引入**。必须先 diff `search_provider_config.py` 与本地 `research/` 现有实现，避免覆盖本地已有 provider。**已执行**（2026-11-01，提交 `e94b9347`，见 §11 P2 执行结果）：采纳 himovo 的多配置选择/组织禁用 guard/deepseek provider 接线，保留本地 `claw_search`、中文文案、`_reject_unencodable` 校验与 6 个 provider。
+- **结论**：属"在本地已有搜索骨架上叠加 DeepSeek provider + progressive research + 前端引导"，**不是从零引入**。必须先 diff `search_provider_config.py` 与本地 `research/` 现有实现，避免覆盖本地已有 provider。**已执行**（2026-10-31，提交 `e94b9347`，见 §11 P2 执行结果）：采纳 himovo 的多配置选择/组织禁用 guard/deepseek provider 接线，保留本地 `claw_search`、中文文案、`_reject_unencodable` 校验与 6 个 provider。
 
 ---
 
@@ -384,9 +384,9 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - [x] 关键体系适配：himovo `main_id`/`bson.ObjectId` → 本地 `tenant_id`/`to_backend_id`（本地已全面迁移 tenant 体系）
 - [x] 5 个双方都改文件三方合并（`git merge-file`）：vector_store/reranker_provider/preview_conversion 自动成功，main.py（2 处）/model_center_runtime（1 处）手工解
 - [x] 验证：37 文件 `ast.parse` 0 失败；`app.*` 导入符号 0 缺失；冲突标记 0；品牌词仅保留本地的说明性注释
-- [x] DeepSeek Search：已执行（2026-11-01，见下方结果）——diff `search_provider_config.py` / `research/` 后叠加 `deepseek_provider`/`provider_router`/`external_search_provider` 与前端
+- [x] DeepSeek Search：已执行（2026-10-31，见下方结果）——diff `search_provider_config.py` / `research/` 后叠加 `deepseek_provider`/`provider_router`/`external_search_provider` 与前端
 
-**P2 DeepSeek Search 执行结果（2026-11-01，提交 `e94b9347`）**：在本地已有搜索骨架上叠加 himovo 的 DeepSeek Search，共 11 个文件（3 新增 + 8 修改）。
+**P2 DeepSeek Search 执行结果（2026-10-31，提交 `e94b9347`）**：在本地已有搜索骨架上叠加 himovo 的 DeepSeek Search，共 11 个文件（3 新增 + 8 修改）。
 - **chat-api 新增**：`deepseek_provider.py`（DeepSeek Search JSON API，`DEFAULT_ENDPOINT=https://api.deepseek.com/v1/tools/search`，`rerank_score→score`、`summary→snippet` 规范化）、`summary_messages.py`（`research_summary` 中英文完成摘要，空 language 走英文——himovo 语义）。
 - **chat-api 修改**：`search_provider_config.py` 采纳 himovo 多配置选择逻辑（`PROVIDER_PRIORITIES` + `find` 全量 enabled + `usable` 密钥过滤 + `min(is_default/priority/provider)` 排序 + 组织禁用 guard + `has_saved_external_search_config`），本地化 `main_id→tenant_id`，保留 `claw_search`（priority 60）；`provider_router.py` 接线 `DeepSeekProvider` 分支（最前）+ env-fallback guard（`configured or has_saved_external_search_config(tenant_id)` 时提前返回，禁用后不静默用 host key），保留本地 6 provider + `ClawSearchProvider`；`agent.py` `_summary` 加 `language` 参数委托 `research_summary`（默认 `"zh"` 兼容本地）。
 - **admin-api 修改**：`external_search_provider.py` 加 `deepseek`（PROVIDERS priority 5 + `test_provider` 分支 POST JSON），保留本地 `claw_search`/`_reject_unencodable`/中文提示/`MOGO` 默认查询词；`setup.py` 的 `SetupExternalSearchRequest.provider` 正则白名单加 `deepseek`（himovo 漏加，本地补齐）。
@@ -401,7 +401,7 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - [ ] 先做接口对齐 + 最小可用（share token + 只读共享 + 基础 SSE），不要全量
 - [ ] desktop UI 需先确认本地 user-web 结构与 himovo 的 `components/desktop/*` 接口是否兼容
 
-**P3 探查结论（2026-11-01）**：himovo session-sharing / desktop 是**大规模**改动——相对共同祖先 `b30fa607` 共 **75 文件 +17763/-4197**，含 `sessions.py`（±336）、`session_live.py`（998 新增，SSE）、`session_access.py`、`session_identity_projection.py`、`session_sharing/{__init__,links,service,snapshot}.py`、`migrations/session_sharing.py`、`desktop_agent_executor.py`（-4123 大幅简化）及 20+ 个测试（`test_session_live` 2245、`test_session_sharing_capabilities` 1172、`test_get_session_shared` 815 等）。**不能整块覆盖，需逐文件 diff 挑选 + 大量 `main_id→tenant_id` 适配**（himovo 全用 `main_id`，本地已迁移 `tenant_id`）。
+**P3 探查结论（2026-10-31）**：himovo session-sharing / desktop 是**大规模**改动——相对共同祖先 `b30fa607` 共 **75 文件 +17763/-4197**，含 `sessions.py`（±336）、`session_live.py`（998 新增，SSE）、`session_access.py`、`session_identity_projection.py`、`session_sharing/{__init__,links,service,snapshot}.py`、`migrations/session_sharing.py`、`desktop_agent_executor.py`（-4123 大幅简化）及 20+ 个测试（`test_session_live` 2245、`test_session_sharing_capabilities` 1172、`test_get_session_shared` 815 等）。**不能整块覆盖，需逐文件 diff 挑选 + 大量 `main_id→tenant_id` 适配**（himovo 全用 `main_id`，本地已迁移 `tenant_id`）。
 
 **最小子集边界（share token + 只读共享，不含完整 SSE/desktop）**：
 - **可直搬（纯逻辑，无 db 依赖）**：`session_sharing/service.py`（`create_token`/`hash_token`/`issue_share`/`revoke_share`/`is_active`/`build_link`）、`links.py`（`portal_link`，依赖 `USER_PORTAL_BASE_URL`）、`snapshot.py`（`snapshot_messages`/`snapshot_active`）、`__init__.py`。
@@ -413,7 +413,7 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 **建议实施顺序**：① 建独立分支 `feat/port-movo-sharing`（自 main）；② 后端最小子集（session_sharing 纯逻辑 + participants_repository + session_access + session_identity_projection，适配 tenant_id）；③ sessions.py share 端点 + 迁移；④ 前端 SessionShareDialog/SnapshotViewer 增量；⑤ SSE/desktop 完整属二期。**先与用户确认最小子集边界再动工**（独立分支 + 大规模，避免半途返工）。
 
-**P3 后端最小子集执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `f273f7b8`）**：用户选定「后端最小子集」边界后，从 **main**（`c9d185dd`，不含 P0-P2）创建独立分支 `feat/port-movo-sharing`，实施**只读共享骨干**共 8 文件 +554：
+**P3 后端最小子集执行结果（2026-10-31，分支 `feat/port-movo-sharing`，提交 `f273f7b8`）**：用户选定「后端最小子集」边界后，从 **main**（`c9d185dd`，不含 P0-P2）创建独立分支 `feat/port-movo-sharing`，实施**只读共享骨干**共 8 文件 +554：
 - `session_sharing/{service,links,snapshot,__init__}.py`：token 铸造/哈希/签发/撤销/验证、门户链接（`USER_PORTAL_BASE_URL`）、只读快照冻结（`snapshot_messages`/`snapshot_active`）——纯逻辑无 db 依赖，himovo 原样搬入。
 - `dsh_runtime/conversation/participants_repository.py`：`SessionParticipantsRepository`（`session_participants` + `unique_conversation_participant` 唯一索引 + `participant_memberships_by_user`），`main_id`→`tenant_id` 字段适配。
 - `dsh_runtime/session_access.py`：`SessionReadAuthorizer`（owner-or-participant 谓词、`SessionReadUnauthenticatedError`/`SessionReadDeniedError` 类型化拒绝、跨租户探测与非成员不可区分、share token 从不授予访问），`main_id`→`tenant_id`。
@@ -422,7 +422,7 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - **验证**：8 文件 `py_compile` 0 失败；`session_sharing` service/snapshot 纯逻辑断言通过（`.venv-p2` 无 chat-api 依赖，逻辑经 importlib 直载）；`main_id`/`add_main_scope` 残留 0；品牌词 0。完整 pytest（session_access/identity_projection 需 bson/mongodb 环境）留给 CI。
 - **留 P3 二期**：`sessions.py` share 路由（±336 三方合并）、`migrations/session_sharing.py`、`session_live.py`（998 SSE）、前端 `SessionShareDialog`/`SessionSnapshotViewer`/`DesktopSessionShareAction` 增量。
 
-**P3 二期执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `ba1a07f5`）**：让只读共享可实际调用，共 5 文件 +397/-9：
+**P3 二期执行结果（2026-10-31，分支 `feat/port-movo-sharing`，提交 `ba1a07f5`）**：让只读共享可实际调用，共 5 文件 +397/-9：
 - `session_shares.py`（新增）：会话分享 API 面——`POST /sessions/{id}/share`（owner 校验 + 服务端执行位置 + 当前绑定，返回 token/url/expires_at）、`POST /session-shares/{token}/join`（token 哈希校验，410 过期/撤销）、`DELETE /sessions/{id}/share`、`GET /sessions/{id}/participants`（身份投影）、`DELETE /sessions/{id}/participants/me`、`DELETE /sessions/{id}/participants/{user_id}`；`ApiPrincipal.main_id`→`tenant_id`、`add_main_scope`→`add_tenant_scope` 适配。
 - `sessions.py`：`list_sessions` 加 `scope=shared`（`shared_scope` 分支：`SessionParticipantsRepository.list_for_user` 分批 + `_serialize_shared_sessions`：`participant_count`/`shared_unread`/`next_message_seq`+legacy `max_seq` 回退）；`_serialize_session` 加 `access`/`participant_count` 参数（默认 owner/0 兼容）。
 - `main.py`：注册 `session_shares.router`（`/api/v1`）。
@@ -430,7 +430,7 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - **验证**：5 文件 `py_compile` 0 失败；`main_id`/`add_main_scope` 残留 0；import 依赖全部存在（`ApiPrincipal.tenant_id`/`KernelBindingRepository.current`/`SessionParticipantsRepository`/`resolve_author_projections`/`portal_link`）；品牌词 0。
 - **留 P3 三期**：前端 `SessionShareDialog`/`SessionSnapshotConversation`/`SessionSnapshotViewer`/`DesktopSessionShareAction` 增量（himovo 独有组件，需逐个 diff 挑选适配本地中文内联/`--mg-*` 体系）；`session_live.py`（998 SSE）属后续。
 
-**P3 三期前端适配评估（2026-11-01，分支 `feat/port-movo-sandbox`）**——已核实 himovo user-web 前端 session-share 全链路与本地架构差异，结论：**不是低风险搬运，是需接口对齐的适配工程，且应拆两半**。
+**P3 三期前端适配评估（2026-10-31，分支 `feat/port-movo-sandbox`）**——已核实 himovo user-web 前端 session-share 全链路与本地架构差异，结论：**不是低风险搬运，是需接口对齐的适配工程，且应拆两半**。
 
 **后端就绪度**：
 - share/join/participants 端点 + `scope=shared` 会话列表（P3 二期 `ba1a07f5`）✅ 已就绪，`_serialize_session` 返回 `access`/`participant_count`，`_serialize_shared_sessions` 返回 `shared_unread`/`next_message_seq`（legacy `max_seq` 回退）。
@@ -459,9 +459,9 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - **P3 三期-a（server 共享闭环，推荐先做）**：`api/sessionSharing.ts` + `SessionShareDialog.vue` + `useSessionShareLanding.ts` + `api/sessions.ts` 补 scope/access 类型 + `App.vue` 内联「共享会话」分区 + `DesktopWindowChrome.vue` 分享按钮（server 分支）。
 - **P3 三期-b（snapshot/desktop）**：待后端 snapshot 端点移植后，再搬 `api/sessionSnapshots.ts` + `SessionSnapshotConversation/Viewer.vue` + `DesktopSessionShareAction.vue` 的 desktop 分支（快照 + 代码会话）。
 
-**用户决策（2026-11-01）：mogo 不做桌面端、不接入桌面端** → 去掉 `DesktopSessionShareAction.vue`（整个，desktop 窗口 chrome 专用），并连 snapshot 链路一并放弃（`SessionSnapshotConversation/Viewer.vue` + `api/sessionSnapshots.ts` + 后端 snapshot 端点 `snapshot-share`/`session-snapshots/*`，均为桌面端/代码会话只读快照专属）。**P3 三期-b 整体取消**。
+**用户决策（2026-10-31）：mogo 不做桌面端、不接入桌面端** → 去掉 `DesktopSessionShareAction.vue`（整个，desktop 窗口 chrome 专用），并连 snapshot 链路一并放弃（`SessionSnapshotConversation/Viewer.vue` + `api/sessionSnapshots.ts` + 后端 snapshot 端点 `snapshot-share`/`session-snapshots/*`，均为桌面端/代码会话只读快照专属）。**P3 三期-b 整体取消**。
 
-**P3 三期-a 执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `61aeab5c`）**：server 共享闭环前端，7 文件：
+**P3 三期-a 执行结果（2026-10-31，分支 `feat/port-movo-sharing`，提交 `61aeab5c`）**：server 共享闭环前端，7 文件：
 - `api/sessionSharing.ts`（新增）：share/join/participants 6 方法（`createSessionShare`/`revokeSessionShare`/`joinSessionShare`/`listSessionParticipants`/`leaveSession`/`removeParticipant`），himovo 原样；`baseURL /askai-api/api` + `installAuthExpiryInterceptor` 与本地约定一致；`SessionShareErrorCode` 从服务端错误码数组派生。
 - `composables/useSessionShareLanding.ts`（新增）：URL `session-share` token 捕获 + 登录后 `joinPendingSharedSession`（401 保留链接待重试）。
 - `components/session/SessionShareDialog.vue`（新增）：share 弹窗——owner 生成/复制/撤销链接（7/30/90 天）、成员列表、owner 移除成员、participant 退出；`left`/`removed`/`revoked` emit 交宿主刷新。
@@ -474,7 +474,7 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 **验证**：`check_sfc` 3/3（App.vue/SessionShareDialog/ChatViewTabs）通过；`esbuild` 3 个 ts 语法通过；`vue-tsc --noEmit` 全量 **0 错误**；品牌词仅剩说明性注释「源自 himovo」（messages.ts）。
 
-**P3 SSE 实时流执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `44f8bef5`）**：移植 himovo `session_live.py`，让共享会话**实时接收消息**（用户请求「继续做SSE」），5 文件 +1150/-1：
+**P3 SSE 实时流执行结果（2026-10-31，分支 `feat/port-movo-sharing`，提交 `44f8bef5`）**：移植 himovo `session_live.py`，让共享会话**实时接收消息**（用户请求「继续做SSE」），5 文件 +1150/-1：
 - `dsh_runtime/session_live.py`（新增，998 行）：`SessionLiveService` 纯轮询持久状态流——每 poll 经 `SessionReadAuthorizer` 授权 + `revision_digest` 两次读防 torn poll；`classify_request`（Last-Event-ID/after 参数选 COLD/RESUME）；opaque cursor codec（base64url + 固定 6 字段）；`member_fingerprint`；LF-only frame 渲染；`public_execution_event` 12-key 白名单 sanitizer。**无 broadcaster/Redis/Mongo collection，纯轮询持久状态**。
 - `api/endpoints/session_live.py`（新增，140 行）：`GET /sessions/{session_id}/live` 端点——`SessionReadAuthorizer.authorize_read` → 401/404 类型化拒绝 → `live_events()` 生成器（1s poll + 心跳 + `access_revoked_frame` 终止）→ `StreamingResponse`（`text/event-stream` + `X-Accel-Buffering: no`）。
 - `core/config.py`：加 `SESSION_LIVE_HEARTBEAT_SECONDS = 15.0`。
@@ -485,7 +485,7 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 **SSE 验证**：`py_compile` 5 文件 0 失败；纯逻辑单测（预注入假 `app.*` 模块 + importlib 直载绕过 `app/__init__`）**19 断言全过**（classify 4、cursor 3、digest 3、fingerprint 2、frame 5、sanitize 3）；残留检查 `main_id` 零残留（himovo 仅说明注释）。**完整 pytest 需 mongo 环境**（`SessionReadAuthorizer`/`ConversationRepository`/`KernelEventRepository` 依赖 db），留 CI/Docker。
 
-**P3 SSE 前端接线执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `85979de6`）**：共享会话 SSE 的消费侧，让共享参与者（`access='shared'`）打开会话后**实时收到 owner 产生的新消息/执行事件**（用户请求「SSE 前端接线」），5 文件 +591/-4：
+**P3 SSE 前端接线执行结果（2026-10-31，分支 `feat/port-movo-sharing`，提交 `85979de6`）**：共享会话 SSE 的消费侧，让共享参与者（`access='shared'`）打开会话后**实时收到 owner 产生的新消息/执行事件**（用户请求「SSE 前端接线」），5 文件 +591/-4：
 - `composables/useSessionLiveStream.ts`（新增，himovo 原样 434 行）：原生 fetch + 手写 LF-only SSE 解析；Last-Event-ID 同流续传 / `?after=` 权威重载；control 帧（thread.changed/members.changed）结束当前流；`session.access.revoked` 终止；5xx 指数退避重连（1/2/4/8/15s + jitter），401/403/404/410 不重试。依赖本地已有 `protocol.ts`（`isExecutionEventV3`）+ `api/authExpiry`（`notifyAuthExpiredFromResponse`）。
 - `features/execution-v3/domain/protocol.ts`：`item_kind`/`item_id` 改 `| null`（后端 `public_execution_event` 返回 null，类型对齐）。
 - `composables/useChatRuntimeStore.ts`：**不搬 himovo 的 pane-live 骨架/T5-T9 投影**，本地最小叠加——`ChatRuntimePane.sessionLiveHandle` + `RuntimeCallbacks.onSharedAccessLost` + `selectSession`（`access='shared'` 且已登录 → `startSharedSessionLive`）；`onExecution` 按 `message_id` 匹配 assistant 行 `ensureExecV3.applyEvent`（幂等）+ `applyAssistantContentEvent` 增量渲染；`onThreadChanged` 权威刷新（重新 getSession 合并，保留 `_execV3`/`_id` 防闪烁丢行）后以 **COLD_ATTACH** 重新开流（自包含发当前 turn 全量，**无需后端 live_cursor**）；`onMembersChanged`/`onTurnStarted`/`onTurnCompleted` 权威刷新 + `refreshAfterRun`；`onAccessLost` 回调宿主。
@@ -494,7 +494,7 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 **SSE 前端验证**：`check_sfc` App.vue 1/1；`esbuild` 4 ts 语法通过；`vue-tsc --noEmit` 全量 **0 错误**。
 
-**分支合入 main（2026-11-01）**：`feat/port-movo-sandbox`（P0-P2 + 分析文档，15 提交）与 `feat/port-movo-sharing`（P3 全套：后端最小子集 + 二期 + 三期-a + SSE 后端/前端，5 提交）**均已 `--no-ff` 合并入 `main`**（`642eba14`、`ac1e4301`）。两分支相对 base `c9d185dd` 的改动文件**零重叠**（sandbox 179 vs sharing 26），合并**无冲突**；合并后 main 抽查：chat-api 8 文件 `py_compile` 0 失败 + 前端 `check_sfc` 3/3 通过。
+**分支合入 main（2026-10-31）**：`feat/port-movo-sandbox`（P0-P2 + 分析文档，15 提交）与 `feat/port-movo-sharing`（P3 全套：后端最小子集 + 二期 + 三期-a + SSE 后端/前端，5 提交）**均已 `--no-ff` 合并入 `main`**（`642eba14`、`ac1e4301`）。两分支相对 base `c9d185dd` 的改动文件**零重叠**（sandbox 179 vs sharing 26），合并**无冲突**；合并后 main 抽查：chat-api 8 文件 `py_compile` 0 失败 + 前端 `check_sfc` 3/3 通过。
 
 ---
 
