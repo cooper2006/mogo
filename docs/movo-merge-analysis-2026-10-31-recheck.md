@@ -18,7 +18,7 @@
 1. **himovo/main 无新提交**：仍停留在 `305bd927`。本次比对的对象与上次一致，唯一变量是**本地推进到了 `94273df0`**（已合入 P0-P3 + SSE 联调）。
 2. **「himovo 独有 606 文件」不等于 606 个可合并**。逐域核对后，绝大多数 himovo 独有文件对应的功能**本地已有等价或更成熟的自主实现**（mogo 品牌），或属于**用户已明确取消**的域（三期-b snapshot/desktop），或属于**纯文案/基础设施/主题**（P4 惯例暂缓）。
 3. **真正的剩余合并候选集中在 6~8 个「本地完全没有」的全新功能域**，均为「前后端 + 依赖 + 测试」的整域移植，工作量大，需评估依赖后才能动手。
-4. **连看似纯增量的 `305bd927`（企业成员策略）在 admin-api 侧也非零冲突**：本地已有 FR-022 的 `resolve_member_limit`（平台覆盖成员上限），himovo 走 `member_limit_resolver` 扩展点——两套实现方向不同，合入需**取舍**而非机械 diff。
+4. **`305bd927`（企业成员策略 + 部署错误）已决定不合并**：其后端成员上限走 `member_limit_resolver` 扩展点，与本地已有 FR-022 的 `resolve_member_limit`（平台覆盖成员上限）**方向互斥**——本地实现保留，himovo 版本不引入。
 
 ---
 
@@ -75,7 +75,7 @@ scripts                6      services/document-parser  1
 | 12 | 知识库文档页样式/辅助 | 7 | 本地已有 `KnowledgeDocumentsPage.vue` | **已覆盖**，不合并 |
 | 13 | skill / tool 编辑器样式 | 17 | 本地已有对应页面 | **已覆盖**，不合并 |
 | 14 | app shell 重构（user-web App*/useApp*） | ~40 | 本地已有不同 app shell | **已覆盖**，不合并 |
-| 15 | 企业成员策略 + 部署错误（305bd927） | 8（含 4 个 M 状态后端） | **本地已有不同实现**（FR-022） | **候选**，需取舍 |
+| 15 | 企业成员策略 + 部署错误（305bd927） | 8（含 4 个 M 状态后端） | **本地已有不同实现**（FR-022） | **不合并**（用户已决定） |
 | 16 | DSH 插件管理（plugin_management） | 40 | 本地 dsh_runtime **无 plugin_management** | **候选**（全新域） |
 | 17 | 主题准入（topic_admission / topic_matcher） | 17 | 本地 governance **无 topic_admission** | **候选**（全新域） |
 | 18 | 模型组（model_groups / ModelGroup*） | 21 | 本地 admin-api **无 model_group** | **候选**（全新域） |
@@ -92,20 +92,10 @@ scripts                6      services/document-parser  1
 
 > 以下为**本地完全没有**（或仅部分具备）的功能域。每一项都是「前后端 + 依赖 + 测试」的整域移植。**均未执行**。
 
-### 5.1 企业成员策略 + 部署错误（305bd927，8 文件）— 高优先级但需取舍
+### 5.1 企业成员策略 + 部署错误（305bd927，8 文件）— 已决定不合并
 
-| 文件 | 本地状态 | 说明 |
-|---|---|---|
-| `services/admin-api/app/core/product_edition.py` | **M（冲突方向）** | 本地有 FR-022 `resolve_member_limit` + `tenants.member_limit` 平台覆盖；himovo 走 `member_limit_resolver` 扩展点。**两套实现互斥** |
-| `services/admin-api/app/product/extensions.py` | M | himovo 增加 `member_limit_resolver` 等 4 字段；本地无 |
-| `services/chat-api/app/core/product_edition.py` | M | 同上，本地无 resolver |
-| `services/chat-api/app/product/extensions.py` | M | himovo 增加 4 字段；**品牌差异**：himovo `movo.community` / `MOVO_PRODUCT_EXTENSION_MODULE`，本地 `mogo.community` / `MOGO_...` |
-| `apps/admin-web/src/api/deploymentError.ts` | **A（纯新增 7 行）** | 部署过期错误消息透传 —— **低风险可合入** |
-| `apps/admin-web/src/locales/additionalMessages.ts` | A（新增 164 行文案） | 补文案 key —— 需 merge 进本地文案体系，勿覆盖 |
-| `apps/admin-web/src/views/auth/LoginPage.vue` | M | 小改（deploymentError 接入） |
-| `apps/admin-web/src/views/dashboard/DashboardPage.vue` | M | 小改 |
-
-**判断**：前端 `deploymentError.ts` 可低风险独立合入；后端「成员上限」**必须取舍**——要么保留本地 FR-022 平台覆盖语义，要么改走 himovo resolver 扩展点，**不能两者叠加**（会双重计算上限）。建议若合入：保留本地 `resolve_member_limit` 作为兜底，把 himovo 的 resolver 作为**可插拔扩展**接入（而非替换）。
+- **himovo 侧**（305bd927，8 文件）：admin-api `core/product_edition.py` + `product/extensions.py`、chat-api `core/product_edition.py` + `product/extensions.py`（后端成员上限扩展点）；admin-web `api/deploymentError.ts`（纯新增 7 行）+ `locales/additionalMessages.ts`（164 行文案）+ `views/auth/LoginPage.vue` + `views/dashboard/DashboardPage.vue`（部署错误接入）。
+- **本地状态**：后端 `product_edition.py` 本地已有 **FR-022 `resolve_member_limit` + `tenants.member_limit` 平台覆盖**（与 himovo 的 `member_limit_resolver` 扩展点**方向互斥**，两者叠加会双重计算上限）；前端 `deploymentError.ts` 为纯新增。→ **用户已明确决定不合并**，整域（含前端部署错误接入）从候选清单移除。
 
 ### 5.2 DSH 插件管理（plugin_management，全新域，~40 文件）
 
@@ -118,14 +108,14 @@ scripts                6      services/document-parser  1
 
 - **himovo 侧**：`chat-api app/governance/topic_admission.py`、`app/utils/topic_matcher.py`；admin-api `topic_admission/{__init__,models,rules,service}.py`（4）+ `api/routes/topic_admission.py`；admin-web `components/settings/Topic{AdmissionModePicker,AdmissionPanel,RuleDialog,RuleEditor,RuleList}.vue`（5）+ `useTopicRuleAudiences.ts` + `api/topic-admission.ts` + `locales/modules/taskAdmission.ts`。
 - **本地状态**：`governance/` 已有（approval_runtime/audit/position_policy/suspensions），但**无 topic_admission**；无 `topic_matcher`。→ 真增量。
-- **依赖缺口**：`topic_matcher` 为全新工具，`ProductExtension.topic_rule_audience_policy` 字段（见 5.1）是配套扩展点 → **与 5.1 后端耦合**。
+- **依赖缺口**：`topic_matcher` 为全新工具；`ProductExtension.topic_rule_audience_policy` 扩展点字段（5.1 已决定不合并，不会随之引入）→ 若合入 5.3 需**自行补该扩展点字段**。
 - **风险**：中等。
 
 ### 5.4 模型组（model_groups，全新域，~21 文件）
 
 - **himovo 侧**：`chat-api app/llm/model_group_config.py`；admin-api `api/routes/model_groups.py` + `repositories/{model_group_repository,model_identity_index}.py` + `services/{model_pricing,model_knowledge_connectivity,model_test_tls}.py`；admin-web `components/models/{ModelAccessExtensionPanel,ModelGroupCard,ModelGroupEditor,ModelGroupMemberRow,ModelGroupTestPane,ModelPricingFields}.vue`（6）+ `composables/{useModelAccessExtension,useVisionCapabilitySuggestion}.ts` + `locales/modules/modelAccess.ts` + `components/models/{modelApiError,modelTestKind}.ts`。
 - **本地状态**：admin-api 无 model_group；`llm/` 已有 configured_models/model_router（不同体系）。→ 真增量。
-- **依赖缺口**：`ProductExtension.model_access_policy` 字段（见 5.1）配套。
+- **依赖缺口**：`ProductExtension.model_access_policy` 扩展点字段（5.1 已决定不合并，不会随之引入）→ 若合入 5.4 需**自行补该扩展点字段**。
 - **风险**：中等。
 
 ### 5.5 docx 审阅（docx_review，全新域，~12 文件）
@@ -170,7 +160,7 @@ scripts                6      services/document-parser  1
   - 理由：本地这些域已用 mogo 品牌**自主实现且更成熟**（如 `browser/engine` 本地 ~70 文件 vs himovo 10 个 `browser_run_*`；`evidence/foundation` 本地 ~12 文件 vs himovo 1 个 `source_labels.py`）。合入 himovo 版本会造成**两套代码 + 命名冲突 + 行为分歧**。
 - **用户已取消（不合并）**：三期-b desktop 域（user-web `components/desktop/`、`composables/desktop/`、`platform/windowsPlatform.ts`、`styles/windows-dark/*`、`Desktop*`/`WindowsTitleBar` 组件）、session snapshot 用户态前端（`SessionSnapshot*`、`sessionSnapshots.ts`、`session_snapshots.py`、`desktop_question_answers.py`）。
 - **暂缓（P4 惯例 / 基础设施）**：暗色主题（admin-web `theme/*`、`dark-*.css`、`naive-overrides.ts`、`workflow-colors.ts` + user-web `naiveThemeOverrides.ts`）、i18n 文案 `locales/*.ts`（52 文件，纯文案，key 体系不同，不随代码合入）、qa/playwright（10）、CI 镜像源/发布/校验脚本（`qa/*`、`.github/*`、`deploy/docker/infra-mirror/*`、`scripts/{publish_cn_multiarch,check_*}.sh/py`）。
-- **品牌冲突（不适用）**：根目录 `movo`（himovo 的 CLI 启动脚本）——本地已有 `mogo` CLI；品牌字符串 `movo.community`/`MOVO_PRODUCT_EXTENSION_MODULE`——合入 5.1 时必须改写回 `mogo.*`/`MOGO_*`。
+- **品牌冲突（不适用）**：根目录 `movo`（himovo 的 CLI 启动脚本）——本地已有 `mogo` CLI；品牌字符串 `movo.community`/`MOVO_PRODUCT_EXTENSION_MODULE`——仅在合入 5.1 时需改写回 `mogo.*`/`MOGO_*`（5.1 现已决定不合并，当前不再涉及）。
 
 ---
 
@@ -179,7 +169,7 @@ scripts                6      services/document-parser  1
 | 缺口 | 涉及候选 | 本地现状 |
 |---|---|---|
 | `dsh_runtime/plugin_management` 需接入现有 profile/gateway | 5.2 | 本地 profile 有 bundle/catalog 体系，需确认调用点 |
-| `ProductExtension` 的 `member_limit_resolver` / `model_access_policy` / `resource_access_policy` / `topic_rule_audience_policy` 4 字段 | 5.1 / 5.3 / 5.4 | 本地 ProductExtension **无这 4 字段**（需先补字段才能挂 5.3/5.4 策略） |
+| `ProductExtension` 的 `member_limit_resolver` / `model_access_policy` / `resource_access_policy` / `topic_rule_audience_policy` 4 字段 | ~~5.1~~（不合并）/ 5.3 / 5.4 | 本地 ProductExtension **无这 4 字段**；5.1 已决定不合并故不会引入，若合入 5.3/5.4 需**自行补对应扩展点字段** |
 | `topic_matcher` 工具 | 5.3 | 本地无（全新） |
 | python-docx 依赖 | 5.5 | 需确认是否在 requirements |
 | 沙箱镜像构建链接入 `Dockerfile.sandbox-script` | 5.2 | 需确认现有沙箱镜像如何挂脚本 |
@@ -190,7 +180,7 @@ scripts                6      services/document-parser  1
 
 1. **himovo 无新提交**，本次没有「增量」可吃；本地已远超 himovo（1443 本地独有文件）。
 2. **剩余候选均为整域移植**（前后端 + 依赖 + 测试），非零成本；且大部分「看似独有」的功能本地已自主实现，**合并会制造双实现冲突**。
-3. 若后续要动，**只建议从低风险小项开始**：`5.9 sandbox 审计端点`、`5.1 前端 deploymentError.ts`（纯新增）、`5.10 sequence 修复（先演练）`。其余 5.2~5.7 建议**先开独立分支逐域评估**，勿整批合入（5.8 企业邀请已决定不合并）。
+3. 若后续要动，**只建议从低风险小项开始**：`5.9 sandbox 审计端点`、`5.10 sequence 修复（先演练）`。其余 5.2~5.7 建议**先开独立分支逐域评估**，勿整批合入（5.1 企业成员策略 + 5.8 企业邀请已决定不合并）。
 4. 本分析**未修改任何代码、未执行任何 git 操作**（除只读 diff）。
 
 ---
