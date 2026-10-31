@@ -16,6 +16,10 @@ class AdminProductExtension:
     organization_defaults: Mapping[str, object] = field(default_factory=dict)
     routers: Sequence[APIRouter] = field(default_factory=tuple)
     startup: Sequence[Callable[[], Any]] = field(default_factory=tuple)
+    model_created: Sequence[Callable[[str, str], Any]] = field(default_factory=tuple)
+    model_deleted: Sequence[Callable[[str, str], Any]] = field(default_factory=tuple)
+    model_group_created: Sequence[Callable[[str, str], Any]] = field(default_factory=tuple)
+    model_group_deleted: Sequence[Callable[[str, str], Any]] = field(default_factory=tuple)
 
 
 def community_extension() -> AdminProductExtension:

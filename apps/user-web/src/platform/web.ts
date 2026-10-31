@@ -147,3 +147,6 @@ export async function saveBytes(filename: string, bytes: Uint8Array): Promise<Sa
   URL.revokeObjectURL(url)
   return { saved: true }
 }
+
+export async function listDshCodeQuestions(_sessionId: string): Promise<import('./types').DshPendingQuestion[]> { return [] }
+export async function answerDshCodeQuestion(_sessionId: string, _questionId: string, _answers: import('./types').DshQuestionAnswer[]): Promise<{ answered: boolean }> { throw new Error('local Code questions are only available in the desktop app') }

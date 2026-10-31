@@ -11,10 +11,12 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, Query
 from pydantic import AliasChoices, BaseModel, Field, ConfigDict
 
 from app.api.time_utils import utc_iso
+from app.api.workflow_check_messages import workflow_check_fallback
+from app.services.workflow_node_bindings import restore_workflow_bindings
 from app.services.skill_assets.trajectory_distiller import distill_trajectory, refine_steps
 from app.services.skills import user_skill_service
 from app.services.org_skill_adapter import _workflow_markdown, _workflow_nodes, organization_skill_adapter
@@ -668,6 +670,7 @@ _WORKFLOW_NODE_TYPES = {
     "generate_content",
     "translate_rewrite",
     "fill_table",
+    "review_check",
     "export_delivery",
 }
 
@@ -712,6 +715,9 @@ _NODE_TYPE_ALIASES = {
     "翻译": "translate_rewrite",
     "文档翻译": "translate_rewrite",
     "填表制表": "fill_table",
+    "校验复核": "review_check",
+    "审核检查": "review_check",
+    "复核检查": "review_check",
     "导出交付": "export_delivery",
     "导出": "export_delivery",
 }
@@ -813,7 +819,7 @@ def _normalize_bool(value: Any) -> bool:
     return text in {"true", "1", "yes", "y", "是", "已覆盖", "可解析", "通过"}
 
 
-def _normalize_workflow_check_result(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_workflow_check_result(payload: Dict[str, Any], accept_language: str | None = None) -> Dict[str, Any]:
     logic = payload.get("logic") if isinstance(payload.get("logic"), dict) else {}
     coverage = payload.get("coverage") if isinstance(payload.get("coverage"), list) else []
     readiness = payload.get("readiness") if isinstance(payload.get("readiness"), list) else []
@@ -839,14 +845,14 @@ def _normalize_workflow_check_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "pass": _normalize_bool(payload.get("pass")),
         "logic": {
-            "label": str(logic.get("label") or "需要澄清")[:40],
+            "label": str(logic.get("label") or workflow_check_fallback("logic_label", accept_language))[:40],
             "level": "success" if str(logic.get("level") or "").lower() == "success" else "warning",
-            "summary": str(logic.get("summary") or "模型未返回明确的逻辑说明。")[:320],
+            "summary": str(logic.get("summary") or workflow_check_fallback("logic_summary", accept_language))[:320],
         },
         "coverage": normalized_coverage[:8],
         "readiness": normalized_readiness[:8],
         "suggestions": [str(item or "").strip()[:220] for item in suggestions if str(item or "").strip()][:5],
-        "conclusion": str(payload.get("conclusion") or "当前业务逻辑仍需进一步澄清。")[:320],
+        "conclusion": str(payload.get("conclusion") or workflow_check_fallback("conclusion", accept_language))[:320],
     }
 
 
@@ -1357,7 +1363,13 @@ async def _generate_workflow_nodes_with_llm(payload: WorkflowNodesGenerateReques
             Message(role=Role.USER, content=user_prompt),
         ]
     )
-    return _extract_workflow_nodes_from_text(str((resp.content if resp else "") or ""), max_nodes)
+    generated = _extract_workflow_nodes_from_text(str((resp.content if resp else "") or ""), max_nodes)
+    if existing_nodes:
+        # When the LLM rewrites wording, keep stable source/review bindings
+        # (read_material sourceType/knowledgeScope/knowledgeSourceId and
+        # review_check reviewSubjectNodeId/reviewCriteriaNodeId/outputMode).
+        return restore_workflow_bindings(existing_nodes, generated)
+    return generated
 
 
 async def _polish_workflow_node_with_llm(payload: WorkflowNodePolishRequest) -> str:
@@ -1408,7 +1420,7 @@ async def _polish_workflow_node_with_llm(payload: WorkflowNodePolishRequest) -> 
     return text or current_text
 
 
-async def _check_workflow_logic_with_llm(payload: WorkflowLogicCheckRequest) -> Dict[str, Any]:
+async def _check_workflow_logic_with_llm(payload: WorkflowLogicCheckRequest, accept_language: str | None = None) -> Dict[str, Any]:
     name = payload.name.strip()
     description = str(payload.description or "").strip()
     scenario = str(payload.scenario or "").strip()
@@ -1466,7 +1478,7 @@ async def _check_workflow_logic_with_llm(payload: WorkflowLogicCheckRequest) -> 
         ]
     )
     parsed = _extract_json_object(str((resp.content if resp else "") or ""))
-    return _normalize_workflow_check_result(parsed)
+    return _normalize_workflow_check_result(parsed, accept_language)
 
 
 @router.post("/skills/upload", response_model=ApiResponse)
@@ -1817,14 +1829,14 @@ async def polish_workflow_node(payload: WorkflowNodePolishRequest) -> ApiRespons
 
 
 @router.post("/skills/check-workflow-logic", response_model=ApiResponse)
-async def check_workflow_logic(payload: WorkflowLogicCheckRequest) -> ApiResponse:
+async def check_workflow_logic(payload: WorkflowLogicCheckRequest, accept_language: str | None = Header(default=None)) -> ApiResponse:
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Skill name is required")
     source = "llm"
     message = "success"
     try:
-        result = await _check_workflow_logic_with_llm(payload)
+        result = await _check_workflow_logic_with_llm(payload, accept_language)
     except Exception as exc:
         log_print(f"[skills] check_workflow_logic failed: {exc}", flush=True)
         result = {}
@@ -1842,7 +1854,7 @@ async def check_workflow_logic(payload: WorkflowLogicCheckRequest) -> ApiRespons
 
 
 @router.post("/skills/check-workflow-nodes", response_model=ApiResponse)
-async def check_workflow_nodes(payload: WorkflowLogicCheckRequest) -> ApiResponse:
+async def check_workflow_nodes(payload: WorkflowLogicCheckRequest, accept_language: str | None = Header(default=None)) -> ApiResponse:
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Skill name is required")
@@ -1862,7 +1874,7 @@ async def check_workflow_nodes(payload: WorkflowLogicCheckRequest) -> ApiRespons
             "nodes": normalized_nodes,
             "steps": [str(item or "").strip() for item in (payload.steps or node_steps) if str(item or "").strip()],
         })
-        result = await _check_workflow_logic_with_llm(enriched_payload)
+        result = await _check_workflow_logic_with_llm(enriched_payload, accept_language)
     except Exception as exc:
         log_print(f"[skills] check_workflow_nodes failed: {exc}", flush=True)
         result = {}

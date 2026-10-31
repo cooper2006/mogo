@@ -188,6 +188,11 @@ class DshRuntimeApplication:
         self.host_healthy = any(detail["healthy"] for detail in self.host_health_details)
         return self.host_healthy
 
+    def require_transport(self) -> HttpKernelHostTransport:
+        if self._transport is None:
+            raise RuntimeError("DSH Runtime Application is not started")
+        return self._transport
+
     def require_chat(self) -> DshChatService:
         if self.chat is None:
             raise RuntimeError("DSH Runtime Application is not started")

@@ -6,11 +6,12 @@ import json
 from typing import Any
 
 from app.dsh_runtime.profile.tools import ToolProfileDefinition
-from app.enterprise_capabilities.runtime.workflow_mapping import workflow_capability
+from app.enterprise_capabilities.runtime.workflow_mapping import workflow_capability_for_node
 from app.services.org_skill_adapter import _workflow_nodes as normalize_workflow_nodes
 
-from .workflow_contract import validate_external_bindings, validate_node_identity
+from .workflow_contract import resolved_review_config, validate_external_bindings, validate_node_identity, validate_read_material_source
 from .delivery_semantics import intermediate_artifact_nodes
+from .review_protocol import review_check_guidance
 
 
 def workflow_nodes(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -45,7 +46,8 @@ def compile_workflow_body(
     intermediate_nodes = intermediate_artifact_nodes(nodes)
     for index, node in enumerate(nodes, start=1):
         node_type = str(node.get("type") or "").strip()
-        binding = workflow_capability(node_type)
+        validate_read_material_source(node)
+        binding = workflow_capability_for_node(node)
         tool_name = ""
         if binding.runtime_shape == "tool":
             tool = by_capability.get(binding.capability_ref)
@@ -59,7 +61,8 @@ def compile_workflow_body(
                 raise PermissionError("workflow call_tool node requires an authorized HTTP or MCP tool")
             configured = node.get("businessConfig") if isinstance(node.get("businessConfig"), dict) else {}
             wanted = str(
-                configured.get("externalToolId")
+                configured.get("preferredToolId")
+                or configured.get("externalToolId")
                 or configured.get("external_tool_id")
                 or configured.get("toolId")
                 or configured.get("tool_id")
@@ -74,8 +77,34 @@ def compile_workflow_body(
         capability_refs.append(binding.capability_ref)
         instruction = str(node.get("description") or node.get("title") or node_type).strip()
         line = f"{index}. {instruction}\n   - capability_ref: `{binding.capability_ref}`"
+        alias = str(node.get("outputAlias") or node.get("output_alias") or "").strip()
+        if alias:
+            line += f"\n   - 本步骤输出：{alias}"
         if tool_name:
             line += f"\n   - 调用工具：`{tool_name}`"
+        config = node.get("businessConfig") if isinstance(node.get("businessConfig"), dict) else {}
+        if binding.capability_ref == "knowledge.read_document@v1":
+            line += (
+                "\n   - 调用参数："
+                f"`scope={config['knowledgeScope']}`, `source_id={config['knowledgeSourceId']}`。"
+                "使用 `next_cursor` 继续读取直到 `has_more=false`；不要把检索到的片段当作完整文档。"
+            )
+        if node_type == "script_plugin":
+            line += (
+                "\n   - 将配置的 `pluginCode` 原样作为工具的 `code` 执行，不重写。"
+                "沙箱提供当前用户消息为 `inputs['user_text']`；"
+                "不要拼接 Skill 路径或从工具数据重建该文本。"
+            )
+        if node_type == "review_check":
+            config = resolved_review_config(nodes, index - 1)
+            if str(config.get("outputMode") or "report") in {"annotated_docx", "both"}:
+                for ref in ("document.review_source@v1", "document.annotate@v1"):
+                    required_tool = by_capability.get(ref)
+                    if required_tool is None:
+                        raise PermissionError(f"workflow review output requires unavailable capability {ref}")
+                    capability_refs.append(ref)
+            for guidance in review_check_guidance(config):
+                line += f"\n   - {guidance}"
         if index - 1 in intermediate_nodes:
             line += "\n   - 此产物仅供后续步骤使用；调用工具时传入 `delivery_scope=intermediate`，不要作为独立附件交付给用户"
         bound_style_id = str(node.get("boundWritingSkillId") or "").strip()
@@ -86,9 +115,17 @@ def compile_workflow_body(
             if not style_ref:
                 raise PermissionError(f"workflow writing standard is unavailable: {bound_style_id}")
             line += f"\n   - 调用内容生产时传入 `writing_style_ref={style_ref}`"
-        config = node.get("businessConfig") if isinstance(node.get("businessConfig"), dict) else {}
-        if config:
-            line += f"\n   - 业务约束：{json.dumps(config, ensure_ascii=False, sort_keys=True)}"
+        public_config = (
+            {key: value for key, value in config.items() if key != "sourceRole"}
+            if node_type == "read_material" else config
+        )
+        if node_type == "review_check":
+            public_config = {
+                key: value for key, value in config.items()
+                if key not in {"evidenceRequirement", "failurePolicy"}
+            }
+        if public_config:
+            line += f"\n   - 业务约束：{json.dumps(public_config, ensure_ascii=False, sort_keys=True)}"
         rendered.append(line)
     name = str(row.get("name") or "Workflow").strip()
     description = str(row.get("description") or row.get("summary") or "").strip()

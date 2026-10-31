@@ -255,6 +255,10 @@ from app.api.endpoints import (
     documents,
     dsh_model_gateway,
     dsh_tool_gateway,
+    sandbox_audit_internal,
+    dsh_plugins,
+    dsh_plugin_archives,
+    dsh_skill_bundles,
     external_tools,
     harness_profiles,
     im_gateway,
@@ -285,6 +289,7 @@ from app.api.endpoints import (
     token_usage,
     ontology_grants,
     portal,
+    user_questions,
 )
 from app.scheduled_tasks import scheduled_task_scheduler
 from app.services.dream_cycle import runtime as dream_cycle_runtime
@@ -322,6 +327,12 @@ app.include_router(browser_ws_endpoint.router, prefix="/api/v1")
 app.include_router(dsh_model_gateway.router)
 app.include_router(dsh_tool_gateway.internal_router)
 app.include_router(dsh_tool_gateway.public_router, prefix="/api/v1")
+# sandbox 审计内部端点（admin 服务访问，router 自带 /internal/... 前缀）
+app.include_router(sandbox_audit_internal.router)
+# DSH 插件管理（外部：/api/v1/dsh-plugins；内部：/internal/dsh/...）
+app.include_router(dsh_plugins.router, prefix="/api/v1")
+app.include_router(dsh_plugin_archives.router)
+app.include_router(dsh_skill_bundles.router)
 # 012 / 013: minimal production wiring for A2A agent card lookup and IM webhook.
 app.include_router(a2a.router)
 app.include_router(im_gateway.router)
@@ -344,6 +355,8 @@ app.include_router(orchestrations.router)
 app.include_router(knowledge_graph.router)
 # 019: harness elastic-config CRUD (FR-7 / FR-9 — admin-only writes).
 app.include_router(harness_profiles.router)
+# 046: DSH 人类问题桥 —— 待答问题读取与回答回执（end_user 会话，仅运行发起者）。
+app.include_router(user_questions.router, prefix="/api/v1")
 
 from app.product.extensions import get_product_extension
 

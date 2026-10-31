@@ -80,6 +80,15 @@
         </svg>
         <span>{{ t('文档解析') }}</span>
       </button>
+      <button
+        class="settings-nav-item"
+        :class="{ active: activeSection === 'topic-admission' }"
+        type="button"
+        @click="switchSection('topic-admission')"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="nav-icon"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span>{{ t('taskAdmission.title') }}</span>
+      </button>
     </aside>
 
     <main v-if="activeSection === 'general'" class="settings-main">
@@ -337,6 +346,10 @@
           </section>
         </div>
       </n-spin>
+    </main>
+
+    <main v-else-if="activeSection === 'topic-admission'" class="settings-main">
+      <TopicAdmissionPanel />
     </main>
 
     <main v-else-if="activeSection === 'page-collection'" class="settings-main">
@@ -671,6 +684,7 @@ import ModelCapabilitySelect from '@/components/models/ModelCapabilitySelect.vue
 import PresentationSettingsPanel from '@/components/settings/PresentationSettingsPanel.vue';
 import ShortcutSettingsPanel from '@/components/settings/ShortcutSettingsPanel.vue';
 import ShortcutSchemeOverview from '@/components/settings/ShortcutSchemeOverview.vue';
+import TopicAdmissionPanel from '@/components/settings/TopicAdmissionPanel.vue';
 import {
   fetchExternalSearchProviders,
   saveExternalSearchProvider,
@@ -693,7 +707,7 @@ import {
 import adminProductUiExtension from '@mogo-admin-product-extension';
 
 const message = useMessage();
-type SettingsSection = 'general' | 'shortcuts' | 'presentation' | 'external-search' | 'page-collection' | 'knowledge';
+type SettingsSection = 'general' | 'shortcuts' | 'presentation' | 'external-search' | 'page-collection' | 'knowledge' | 'topic-admission';
 type ShortcutView = 'schemes' | 'default';
 
 const route = useRoute();
@@ -705,6 +719,7 @@ const sectionRouteMap: Record<SettingsSection, string> = {
   'external-search': '/settings/external-search',
   'page-collection': '/settings/page-collection',
   knowledge: '/settings/knowledge',
+  'topic-admission': '/settings/topic-admission',
 };
 const activeSection = ref<SettingsSection>('general');
 const hasShortcutSchemes = Boolean(adminProductUiExtension.shortcutSettingsExtension);
@@ -722,6 +737,7 @@ function sectionFromPath(path: string): SettingsSection {
   if (path.includes('/settings/external-search')) return 'external-search';
   if (path.includes('/settings/page-collection')) return 'page-collection';
   if (path.includes('/settings/knowledge')) return 'knowledge';
+  if (path.includes('/settings/topic-admission')) return 'topic-admission';
   return 'general';
 }
 

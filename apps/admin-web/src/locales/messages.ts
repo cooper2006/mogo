@@ -1,4 +1,8 @@
 import { uncoveredMessages } from './uncoveredMessages';
+import { dshPluginMessages } from './modules/dshPlugins';
+import { skillDependencyMessages } from './modules/skillDependencies';
+import { taskAdmissionMessages } from './modules/taskAdmission';
+import { modelGroupMessages } from './modules/modelGroup';
 
 export type Locale = 'zh-CN' | 'en-US';
 export type MessageKey = keyof typeof messages;
@@ -6,6 +10,10 @@ export type LabelMap = Record<Locale, string>;
 
 export const messages = {
   ...uncoveredMessages,
+  ...dshPluginMessages,
+  ...skillDependencyMessages,
+  ...taskAdmissionMessages,
+  ...modelGroupMessages,
   // === 路由与侧边栏菜单 ===
   '工作台': { 'zh-CN': '工作台', 'en-US': 'Dashboard' },
   '组织与用户': { 'zh-CN': '组织与用户', 'en-US': 'Organizations & Users' },

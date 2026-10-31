@@ -152,6 +152,7 @@ export type WorkflowNodeType =
   | 'generate_content'
   | 'translate_rewrite'
   | 'fill_table'
+  | 'review_check'
   | 'export_delivery'
 
 export interface WorkflowNodeDraft {

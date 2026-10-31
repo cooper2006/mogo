@@ -211,6 +211,14 @@
                               @update:text="(value) => step.text = value"
                               @update:business-config="(value) => step.businessConfig = value"
                             />
+                            <ReviewCheckNodeConfig
+                              v-else-if="step.type === 'review_check'"
+                              :business-config="step.businessConfig"
+                              :upstream-outputs="reviewUpstreamOutputs(step)"
+                              :output-alias="step.outputAlias || step.businessConfig.outputAlias || ''"
+                              @update:business-config="(value) => step.businessConfig = value"
+                              @update:output-alias="(value) => { step.outputAlias = value; step.businessConfig.outputAlias = value; }"
+                            />
                             <div v-else-if="step.type !== 'script_plugin'" class="node-description-field">
                               <div class="node-description-label">{{ t('节点要求') }}</div>
                               <n-input
@@ -828,7 +836,9 @@ import generateContentIcon from '../assets/workflow-node-icons/generate-content.
 import translateRewriteIcon from '../assets/workflow-node-icons/translate-rewrite.svg?raw';
 import fillTableIcon from '../assets/workflow-node-icons/fill-table.svg?raw';
 import exportDeliveryIcon from '../assets/workflow-node-icons/export-delivery.svg?raw';
+import reviewCheckIcon from '../assets/workflow-node-icons/review-check.svg?raw';
 import BrowserAutomationNodeConfig from './workflow/BrowserAutomationNodeConfig.vue';
+import ReviewCheckNodeConfig from './workflow/ReviewCheckNodeConfig.vue';
 import { browserAutomationNodeMeta, looksLikeBrowserAutomation } from '../workflow/browserAutomationNode';
 import SkillPublishDialog from './skills/SkillPublishDialog.vue';
 
@@ -1155,6 +1165,19 @@ const workflowNodeTypes: Array<{
     usageDescription: '用于把上游最终内容导出为 Word、PDF、Excel 或 PPT 等交付文件。它处理交付格式和文件命名，不应承担内容分析、改写或统计计算。',
     usageExample: '将上游《华东区域一季度项目复盘》导出为 Word 和 PDF，文件名分别为《华东区域一季度项目复盘.docx》和《华东区域一季度项目复盘.pdf》。',
   },
+  {
+    type: 'review_check',
+    label: '校验复核',
+    shortLabel: '复核',
+    color: '#b45309',
+    bg: '#fff7ed',
+    icon: reviewCheckIcon,
+    defaultTitle: '逐条审查合规',
+    placeholder: '例如：核对每条适用规则，判断对象是否满足要求并给出复核意见、修改建议和审核依据。',
+    defaultConfig: { reviewSubject: '审查对象', reviewCriteria: '审查规则', outputMode: 'report', outputAlias: '复核意见' },
+    usageDescription: '用于对上游对象逐条核对适用规则，输出问题、修改建议和审核依据。可对原始 DOCX 生成批注副本，或输出独立复核报告；不要虚构规则文本或引用位置。',
+    usageExample: '对上游《采购合同》逐条核对“验收与付款”“违约责任”等条款，指出不符合项并给出修改建议和规则依据；输出批注副本或复核报告。',
+  },
 ];
 
 type LocalizedSelectOption = {
@@ -1365,6 +1388,16 @@ function serializeWorkflowSteps() {
   }));
 }
 
+/** review_check 上游节点输出别名（用于选择审查对象/审查依据来源） */
+function reviewUpstreamOutputs(step: WorkflowStep): Array<{ id: string; alias: string }> {
+  const index = workflowSteps.value.findIndex((item) => item.id === step.id);
+  const end = index < 0 ? workflowSteps.value.length : index;
+  return workflowSteps.value
+    .slice(0, end)
+    .map((item) => ({ id: item.id, alias: String(item.outputAlias || item.businessConfig?.outputAlias || '').trim() }))
+    .filter((item) => item.alias);
+}
+
 function normalizeWorkflowNodeFromText(value: any): WorkflowStep | null {
   const text = value.trim();
   const type = inferWorkflowNodeTypeFromText(text);
@@ -1426,6 +1459,7 @@ function inferWorkflowNodeTypeFromText(text: string): WorkflowNodeType {
     { type: 'call_tool', keywords: ['mcp', '工具', '接口', '调用', '查询系统', '业务系统', 'api'] },
     { type: 'translate_rewrite', keywords: ['文档翻译', '翻译', '改写', '润色', '压缩', '扩写', '转写', '多语言'] },
     { type: 'fill_table', keywords: ['填表', '制表', '表格', 'excel', 'sheet', '明细表', '模板'] },
+    { type: 'review_check', keywords: ['复核', '审查', '校验', '审核', '合规', '规则', '条款', '逐条', '批注', '依据'] },
     { type: 'export_delivery', keywords: ['导出', '交付', '下载', '归档', 'word', 'pdf', 'ppt', '文件'] },
     { type: 'generate_content', keywords: ['生成', '撰写', '写作', '成稿', '草稿', '报告', '专报', '复盘稿', '内容'] },
   ];

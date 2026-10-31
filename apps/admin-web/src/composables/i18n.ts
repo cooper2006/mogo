@@ -42,3 +42,15 @@ export function t(key: string, params?: Record<string, string | number>): string
   const template = entry[_locale.value] || entry[DEFAULT_LOCALE] || key;
   return interpolate(template);
 }
+
+const sourceTextKeys = new Map<string, MessageKey>();
+for (const [key, value] of Object.entries(messages)) {
+  const label = (value as LabelMap)['zh-CN'];
+  if (label && !sourceTextKeys.has(label)) sourceTextKeys.set(label, key as MessageKey);
+}
+
+export function translateSourceText(value: string): string {
+  if (!value) return '';
+  const key = sourceTextKeys.get(value);
+  return t(key || value);
+}

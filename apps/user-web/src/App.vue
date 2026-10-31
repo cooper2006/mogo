@@ -56,6 +56,7 @@ const ChatWindow = defineAsyncComponent(() => import('./components/ChatWindow.vu
 const SessionTrajectoryView = defineAsyncComponent(() => import('./features/execution-v3/components/SessionTrajectoryView.vue'))
 const SkillsPage = defineAsyncComponent(() => import('./components/MySkillsPage.vue'))
 const ToolsPage = defineAsyncComponent(() => import('./components/MyToolsPage.vue'))
+const PluginsPage = defineAsyncComponent(() => import('./components/MyPluginsPage.vue'))
 const KnowledgePage = defineAsyncComponent(() => import('./components/MyKnowledgePage.vue'))
 // 030: 终端用户侧本体授权自查（admin-web 本体页的 user-web 迁移；只读展示）。
 const MyOntologyPage = defineAsyncComponent(() => import('./components/MyOntologyPage.vue'))
@@ -141,7 +142,7 @@ const pendingDeleteSession = ref<SessionSummary | SessionSearchResult | null>(nu
 const editingSessionId = ref<string | null>(null)
 const editingSessionTitle = ref('')
 const renamingSessionId = ref<string | null>(null)
-const currentView = ref<'chat' | 'skills' | 'tools' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'portal'>('chat')
+const currentView = ref<'chat' | 'skills' | 'tools' | 'plugins' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'portal'>('chat')
 const scheduledTaskInitialPrompt = ref('')
 const scheduledTaskInitialSessionId = ref<string | null>(null)
 const scheduledTaskCreateRequestKey = ref(0)
@@ -930,6 +931,7 @@ function resolveViewFromPath(pathname: string) {
   if (path === '/usage' || path === '/token-usage') return 'token-usage'
   if (path === '/skills') return 'skills'
   if (path === '/tools') return 'tools'
+  if (path === '/plugins') return 'plugins'
   if (path === '/knowledge') return 'knowledge'
   if (path === '/scheduled-tasks') return 'scheduled-tasks'
   if (path === '/ontology-grants') return 'ontology-grants'
@@ -941,6 +943,7 @@ function resolveViewFromPath(pathname: string) {
 function routePathForView(view: typeof currentView.value) {
   if (view === 'token-usage') return '/usage'
   if (view === 'tools') return '/tools'
+  if (view === 'plugins') return '/plugins'
   if (view === 'knowledge') return '/knowledge'
   if (view === 'scheduled-tasks') return '/scheduled-tasks'
   if (view === 'ontology-grants') return '/ontology-grants'
@@ -1068,6 +1071,10 @@ function closeSkillsPage() {
 
 function openToolsPage() {
   navigateTo('tools')
+}
+
+function openPluginsPage() {
+  navigateTo('plugins')
 }
 
 function openKnowledgePage() {
@@ -2477,6 +2484,19 @@ onBeforeUnmount(() => {
         <button
           v-if="canUseTools"
           class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'plugins' 
+            ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' 
+            : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openPluginsPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20 18c1.1 0 2-.9 2-2s-.9-2-2-2s-2 .9-2 2s.9 2 2 2zM4 18c1.1 0 2-.9 2-2s-.9-2-2-2s-2 .9-2 2s.9 2 2 2zM20 10c1.1 0 2-.9 2-2s-.9-2-2-2s-2 .9-2 2s.9 2 2 2zM4 10c1.1 0 2-.9 2-2s-.9-2-2-2s-2 .9-2 2s.9 2 2 2z"/><path d="M12 5c-.83 0-1.5.67-1.5 1.5S11.17 8 12 8s1.5-.67 1.5-1.5S12.83 5 12 5zm0 5.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5s1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5zm0 5.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5s1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5z"/></svg>
+          </span>
+          <span>{{ t('plugins.sidebar') }}</span>
+        </button>
+        <button
+          v-if="canUseTools"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
           :class="currentView === 'knowledge' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
           @click="openKnowledgePage"
         >
@@ -2725,6 +2745,9 @@ onBeforeUnmount(() => {
             :userId="getUserId()"
             :tenantId="getTenantId()"
           />
+        </div>
+        <div v-else-if="currentView === 'plugins'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <PluginsPage />
         </div>
         <div v-else-if="currentView === 'knowledge'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
           <KnowledgePage

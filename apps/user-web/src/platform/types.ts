@@ -256,3 +256,25 @@ export interface BrowserPreviewFrame {
 }
 
 export interface SaveResult { saved: boolean; path?: string }
+
+export interface DshUserQuestion {
+  id: string
+  question: string
+  detail?: string
+  header?: string
+  options?: Array<{ label: string; description?: string }>
+  multiSelect?: boolean
+}
+
+export interface DshPendingQuestion {
+  id: string
+  sessionId: string
+  questions: DshUserQuestion[]
+  createdAt: number
+}
+
+export interface DshQuestionAnswer {
+  id: string
+  selected: string[]
+  custom?: string
+}

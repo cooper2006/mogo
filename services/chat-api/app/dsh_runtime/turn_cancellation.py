@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from bson import ObjectId
 from collections.abc import Callable
 from typing import Any
 
 from app.dsh_runtime.bindings import KernelBindingRepository
 from app.dsh_runtime.contracts import CancelSessionRequest
 from app.dsh_runtime.conversation import ConversationRepository
+from app.dsh_runtime.conversation.participants_repository import SessionParticipantsRepository
 from app.dsh_runtime.errors import DshRuntimeError
 from app.dsh_runtime.gateway import DshAgentKernelGateway
 from app.dsh_runtime.runtime_coordinator import RuntimeCoordinator
@@ -131,3 +133,88 @@ class TurnCancellationCoordinator:
             message_id=message_id,
         )
         return True
+
+
+class CancelNotAllowedError(PermissionError):
+    """A conversation member who did not initiate the run tried to cancel it.
+
+    Cancel is initiator-only: every other member - including the session owner
+    when they did not initiate that run - is denied, and a run with no recorded
+    initiator (a legacy row) fails closed. Carries a stable ``code`` so the
+    endpoint layer maps it to 403 (the frontend stop-control consumes it).
+    """
+
+    code = "session_cancel_initiator_required"
+
+    def __init__(self, *, conversation_id: str, reason: str) -> None:
+        self.conversation_id = conversation_id
+        self.reason = reason
+        super().__init__(
+            f"only the run's initiator may cancel conversation"
+            f" {conversation_id}: {reason}"
+        )
+
+
+async def member_conversation(
+    db: Any,
+    participants: SessionParticipantsRepository,
+    conversation_id: str,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> dict[str, Any]:
+    """Membership + visibility gate for cancel.
+
+    Membership = the session owner OR an active participant row (owners never
+    hold a participant row). Denials: unknown id / cross-tenant / never-a-member
+    -> LookupError (404 cannot-see at the endpoint); a removed participant row
+    -> CancelNotAllowedError (403, the membership gate denies them even for
+    their own in-flight run).
+    """
+    if not ObjectId.is_valid(conversation_id):
+        raise LookupError("conversation_not_found")
+    session = await db.chat_sessions.find_one(
+        {"_id": ObjectId(conversation_id), "tenant_id": tenant_id}
+    )
+    if session is None:
+        raise LookupError("conversation_not_found")
+    if str(session.get("user_id") or "") == user_id:
+        return session
+    if await participants.is_member(conversation_id, tenant_id=tenant_id, user_id=user_id):
+        return session
+    removed = await participants.list(
+        conversation_id, tenant_id=tenant_id, include_removed=True
+    )
+    if any(str(row.get("user_id") or "") == user_id for row in removed):
+        raise CancelNotAllowedError(
+            conversation_id=conversation_id,
+            reason="the caller is no longer an active member of this conversation",
+        )
+    raise LookupError("conversation_not_found")
+
+
+def assert_run_initiator(
+    conversation: dict[str, Any], *, conversation_id: str, user_id: str
+) -> None:
+    """The initiator-identity check.
+
+    The initiator source is ``active_run.initiator_user_id`` (mark_active_run
+    records the caller). A run with NO recorded initiator (a legacy row) FAILS
+    CLOSED: every member is denied. When nothing is recorded to cancel (no
+    ``active_run`` at all) the check is skipped - the no-op paths keep today's
+    behaviour.
+    """
+    active_run = dict(conversation.get("active_run") or {})
+    if not active_run:
+        return
+    initiator = str(active_run.get("initiator_user_id") or "")
+    if not initiator:
+        raise CancelNotAllowedError(
+            conversation_id=conversation_id,
+            reason="the run has no recorded initiator",
+        )
+    if initiator != user_id:
+        raise CancelNotAllowedError(
+            conversation_id=conversation_id,
+            reason="the caller did not initiate this run",
+        )

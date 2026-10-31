@@ -26,6 +26,10 @@ import type { ArtifactItem, EvidenceBundleItem, EvidenceSourceItem } from '../fe
 import { evidenceSourceStats } from '../features/execution-v3/domain/evidenceSourceGroups'
 import { resolvePermission } from '../composables/useChatStream'
 import { useDshToolApprovals } from '../composables/useDshToolApprovals'
+import { useUserQuestions } from '../composables/useUserQuestions'
+import UserQuestionPanel from './chat/UserQuestionPanel.vue'
+import AnsweredQuestionMessage from './chat/AnsweredQuestionMessage.vue'
+import { expandQuestionAnswers, type QuestionAnswerEntry } from './chat/questionAnswerHistory'
 import { mergeEvidenceBundles } from '../composables/evidenceBundles'
 import { t, useLocale } from '../composables/i18n'
 import { formatAppTime } from '../composables/appTimezone'
@@ -150,6 +154,8 @@ interface Message {
   _execV3?: ExecutionStoreV3
   /** Backend chat session id captured from streaming response header */
   _backendSid?: string
+  /** Question answers attached to the assistant turn (populated by projection) */
+  question_answers?: QuestionAnswerEntry[]
   /** Stable id for this assistant turn; used to bind persisted exec log */
   message_id?: string
   /** Persisted V3 events returned by GET /sessions/{id} for replay. */
@@ -287,11 +293,20 @@ const displayMessages = computed(() => {
       prev.role === 'assistant' &&
       (prev.content?.trim() || '') === content
     ) {
+      // Retain data that can arrive on either the optimistic or server row.
+      if (msg._codeChanges && !prev._codeChanges) {
+        result[result.length - 1] = { ...prev, _codeChanges: msg._codeChanges }
+      }
+      if (msg.question_answers?.length && !prev.question_answers?.length) {
+        result[result.length - 1] = {
+          ...result[result.length - 1], question_answers: msg.question_answers,
+        }
+      }
       continue
     }
     result.push(msg)
   }
-  return result
+  return expandQuestionAnswers(result, questionControl.submitted.value)
 })
 
 const imagePreviewOpen = ref(false)
@@ -637,6 +652,15 @@ const approvalControl = useDshToolApprovals({
 const activeDshApprovals = approvalControl.active
 const approvalBusy = approvalControl.busy
 const approvalErrors = approvalControl.errors
+
+const questionControl = useUserQuestions({
+  active: () => props.active,
+  conversationId: () => props.sessionId,
+  codeSessionId: () => props.codeSession?.kernel_session_id,
+  token: () => props.authToken,
+  running: () => Boolean(props.running || isLoading.value),
+  assistantMessageId: () => [...messages.value].reverse().find(message => message.role === 'assistant')?.message_id,
+})
 
 function artifactToDocumentInfo(a: ArtifactItem): DocumentInfo {
   return {
@@ -2292,7 +2316,8 @@ function formatErrorMessage(raw: string): string {
                   <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                   定时任务自动发送
                 </div>
-                <div class="whitespace-pre-wrap leading-7">{{ normalizeUserContent(msg.content) }}</div>
+                <AnsweredQuestionMessage v-if="msg.question_answer" :entry="msg.question_answer" />
+                <div v-else class="whitespace-pre-wrap leading-7">{{ normalizeUserContent(msg.content) }}</div>
                 <div v-if="msg.images?.length" class="mt-3 flex flex-wrap gap-2">
                 <img
                   v-for="(img, imgIdx) in msg.images"
@@ -2369,6 +2394,16 @@ function formatErrorMessage(raw: string): string {
         <div class="mb-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700" role="alert">
           {{ props.codeError }}
         </div>
+      </div>
+      <div v-if="questionControl.pending.value.length" class="mx-auto w-full max-w-4xl px-4 md:px-6">
+        <UserQuestionPanel
+          v-for="question in questionControl.pending.value"
+          :key="question.id"
+          :item="question"
+          :busy="questionControl.busy.value"
+          :error="questionControl.error.value"
+          @submit="answers => questionControl.answer(question, answers)"
+        />
       </div>
       <div v-if="activeDshApprovals.length" class="mx-auto w-full max-w-4xl px-4 md:px-6">
         <ToolApprovalPrompt

@@ -61,6 +61,7 @@
               </template>
               {{ t('刷新') }}
             </n-button>
+            <n-button secondary @click="openGroupCreate">{{ t('modelGroup.create') }}</n-button>
             <n-button type="primary" strong @click="openCreate">
               <template #icon>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -75,9 +76,19 @@
 
       <div class="list-body">
         <n-spin :show="loading">
-          <div v-if="filteredInstances.length" class="model-grid">
+          <div v-if="filteredInstances.length || filteredGroups.length" class="model-grid">
+            <ModelGroupCard
+              v-for="group in filteredGroups"
+              :key="group.id"
+              :group="group"
+              :models="instances.filter((item) => item.groupId === group.id)"
+              :providers="providers"
+              @edit="openGroupEdit(group)"
+              @add="openGroupEdit(group)"
+              @edit-model="openGroupModelEdit"
+            />
             <button
-              v-for="model in filteredInstances"
+              v-for="model in filteredStandaloneInstances"
               :key="model.id"
               class="model-config-card"
               type="button"
@@ -136,6 +147,17 @@
         </n-spin>
       </div>
     </n-card>
+
+    <ModelGroupEditor
+      v-model:show="groupEditorVisible"
+      :group="editingGroup"
+      :providers="providers"
+      :models="instances"
+      :selected-model-id="selectedGroupModelId"
+      @saved="onGroupSaved"
+      @deleted="reload"
+      @member-changed="reload"
+    />
   </div>
 
   <n-modal v-model:show="editorVisible" preset="card" :title="editorTitle" style="width: 980px">
@@ -314,10 +336,12 @@ import {
   discoverProviderModels,
   fetchModelInstances,
   fetchModelProviders,
+  fetchModelGroups,
   streamModelInstanceTest,
   testImageModelInstance,
   updateModelInstance,
   type DiscoveredModel,
+  type ModelGroupItem,
   type ModelInstanceItem,
   type ModelInstancePayload,
   type ModelProviderItem,
@@ -328,6 +352,8 @@ import {
 import { fetchTrafficAllocationOverview } from '@/api/traffic-allocations';
 import { capabilityLabel } from '@/components/models/capabilityLabels';
 import { providerLabel } from '@/components/models/providerLabels';
+import ModelGroupCard from '@/components/models/ModelGroupCard.vue';
+import ModelGroupEditor from '@/components/models/ModelGroupEditor.vue';
 
 
 interface ModelForm extends ModelInstancePayload {
@@ -345,6 +371,10 @@ const dialog = useDialog();
 const router = useRouter();
 const providers = ref<ModelProviderItem[]>([]);
 const instances = ref<ModelInstanceItem[]>([]);
+const groups = ref<ModelGroupItem[]>([]);
+const groupEditorVisible = ref(false);
+const editingGroup = ref<ModelGroupItem | null>(null);
+const selectedGroupModelId = ref('');
 const editorVisible = ref(false);
 const editorMode = ref<'create' | 'edit'>('create');
 const suppressProviderChange = ref(false);
@@ -485,6 +515,17 @@ const filteredInstances = computed(() => {
     const hitProvider = !filters.value.providerId || row.providerId === filters.value.providerId;
     const hitStatus = !filters.value.status || row.status === filters.value.status;
     return hitKeyword && hitProvider && hitStatus;
+  });
+});
+const filteredStandaloneInstances = computed(() => filteredInstances.value.filter((item) => !item.groupId));
+const filteredGroups = computed(() => {
+  const keyword = filters.value.keyword.trim().toLowerCase();
+  return groups.value.filter((group) => {
+    const children = filteredInstances.value.filter((item) => item.groupId === group.id);
+    const groupMatches = (!keyword || [group.name, group.baseUrl].some((value) => value.toLowerCase().includes(keyword)))
+      && (!filters.value.providerId || group.providerId === filters.value.providerId)
+      && (!filters.value.status || group.status === filters.value.status);
+    return groupMatches || children.length > 0;
   });
 });
 
@@ -644,6 +685,20 @@ function suppressNextProviderChangeTick() {
   void nextTick(() => {
     suppressProviderChange.value = false;
   });
+}
+
+function openGroupCreate() { selectedGroupModelId.value = ''; editingGroup.value = null; groupEditorVisible.value = true; }
+function openGroupEdit(group: ModelGroupItem) { selectedGroupModelId.value = ''; editingGroup.value = group; groupEditorVisible.value = true; }
+function openGroupModelEdit(model: ModelInstanceItem) {
+  const group = groups.value.find((item) => item.id === model.groupId);
+  if (!group) return;
+  selectedGroupModelId.value = model.id;
+  editingGroup.value = group;
+  groupEditorVisible.value = true;
+}
+async function onGroupSaved(group: ModelGroupItem) {
+  editingGroup.value = group;
+  await reload();
 }
 
 function openCreate() {
@@ -862,13 +917,15 @@ function confirmDeleteFromEditor() {
 async function reload() {
   loading.value = true;
   try {
-    const [providerRows, instanceRows, allocationOverview] = await Promise.all([
+    const [providerRows, instanceRows, groupRows, allocationOverview] = await Promise.all([
       fetchModelProviders(),
       fetchModelInstances(),
+      fetchModelGroups(),
       fetchTrafficAllocationOverview().catch(() => null),
     ]);
     providers.value = providerRows;
     instances.value = instanceRows;
+    groups.value = groupRows;
     if (allocationOverview) {
       orgQuota.value = allocationOverview.orgPolicy.totalTokens;
     }

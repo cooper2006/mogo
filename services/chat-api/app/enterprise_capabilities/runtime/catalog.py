@@ -161,6 +161,35 @@ class InternalCapabilityCatalog:
                 }, ("query",)),
             ),
             _definition(
+                capability_ref="document.review_source@v1", tool_name="document_review_source", domain="document",
+                display_name="读取原文位置",
+                description="Read the authenticated original DOCX as numbered paragraph and table-cell text blocks for source-grounded review. Continue with next_offset until has_more is false. This does not regenerate or edit the Word file.",
+                input_schema=_object({
+                    "artifact": artifact,
+                    "offset": {"type": "integer", "minimum": 0},
+                    "max_chars": {"type": "integer", "minimum": 1000, "maximum": 20000},
+                }, ("artifact",)),
+            ),
+            _definition(
+                capability_ref="document.annotate@v1", tool_name="document_annotate", domain="document",
+                display_name="批注原文副本",
+                description="Create a commented copy of an authenticated original DOCX. Each comment must state the concrete issue, an actionable proposed revision, and the applicable rule text; criterion_ref is only an optional rule identifier, never a substitute for its content. Every finding must quote exact source text. Only uniquely verified ranges become comments; unlocated findings are returned separately.",
+                input_schema=_object({
+                    "artifact": artifact,
+                    "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                    "findings": {"type": "array", "minItems": 1, "maxItems": 100, "items": _object({
+                        "source_block_id": {"type": "string", "minLength": 1},
+                        "source_quote": {"type": "string", "minLength": 1},
+                        "criterion_ref": {"type": "string"},
+                        "criterion_text": {"type": "string", "minLength": 1},
+                        "finding": {"type": "string", "minLength": 1},
+                        "suggested_revision": {"type": "string", "minLength": 1},
+                    }, ("source_block_id", "source_quote", "criterion_text", "finding", "suggested_revision"))},
+                    "filename": {"type": "string"},
+                }, ("artifact", "source_sha256", "findings")),
+                timeout_ms=120_000, idempotent=False,
+            ),
+            _definition(
                 capability_ref="document.parse@v1", tool_name="document_parse", domain="document",
                 display_name="读取材料", description="Parse referenced PDF, DOCX, XLSX, PPTX, CSV, Markdown or text documents through MOGO's document service.",
                 input_schema=_object({"artifacts": {"type": "array", "items": artifact, "minItems": 1}, "purpose": {"type": "string"}}, ("artifacts",)),

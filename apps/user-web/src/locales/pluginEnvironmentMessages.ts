@@ -1,0 +1,15 @@
+export const pluginEnvironmentMessages = {
+  'plugins.retryPreparation': { zh: '重试准备', en: 'Retry preparation' },
+  'plugins.environmentPreparing': { zh: '正在安装并检查插件运行环境，完成前不可启用。', en: 'Installing and checking the plugin environment. It cannot be enabled yet.' },
+  'plugins.availability.session_exposed': { zh: '对话工具可用·调用未验证', en: 'Conversation tools available · invocation untested' },
+  'plugins.availability.verified': { zh: '对话工具已调用', en: 'Conversation tool invoked' },
+  'plugins.availability.unsupported': { zh: '无可用对话工具', en: 'No usable conversation tools' },
+  'plugins.uiBadge': { zh: '插件 UI 不显示', en: 'Plugin UI unavailable' },
+  'plugins.uiLimit': { zh: 'MOGO 不显示 DSH 插件自带的页面、皮肤或插件市场界面。安装检查只验证对话工具；即使工具可用，UI 部分也不会显示。', en: 'MOGO does not render DSH plugin pages, themes, or marketplace UI. Installation checks conversation tools only; any plugin UI remains unavailable even if its tools work.' },
+  'plugins.installedUnsupported': { zh: '插件包已安装，但没有可用的对话工具，不能启用；插件 UI 不会在 MOGO 显示。', en: 'Bundle installed, but it has no usable conversation tools and cannot be enabled. Plugin UI will not appear in MOGO.' },
+  'plugins.installedNeedsCheck': { zh: '插件包已安装，但尚未通过 MOGO 对话工具检查，当前不能启用。', en: 'Bundle installed, but MOGO conversation tool checks did not pass. It cannot be enabled yet.' },
+  'plugins.installed': { zh: '插件的对话工具已通过检查；启用后在新会话中生效，插件 UI 不会显示。', en: 'Conversation tools passed checks. Enable them for new conversations; plugin UI will not appear.' },
+  'plugins.reason.no_global_tool_detected': { zh: '包已加载，但没有可供 MOGO 对话使用的工具，当前不能启用。若它是皮肤、插件市场或其他 UI 插件，其界面不会在 MOGO 显示；其他非工具能力需单独适配。', en: 'The bundle loaded, but exposes no tools usable in MOGO conversations and cannot be enabled. Themes, marketplaces, and other plugin UI will not appear in MOGO; other non-tool capabilities need separate integration.' },
+  'plugins.availability.unverified': { zh: '环境待检查', en: 'Environment needs checking' },
+  'plugins.availability.failed': { zh: '环境准备失败', en: 'Environment failed' },
+} as const

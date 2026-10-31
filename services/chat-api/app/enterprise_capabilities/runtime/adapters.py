@@ -7,6 +7,7 @@ from typing import Any
 
 from app.enterprise_capabilities.data import MetricsEngine, run_script
 from app.enterprise_capabilities.artifacts import artifact_export, document_fill, document_transform, table_generate
+from app.enterprise_capabilities.docx_review import document_annotate, document_review_source
 from app.enterprise_capabilities.artifacts.references import require_owned_artifacts
 from app.enterprise_capabilities.artifacts.document_result import public_document_parse_result
 from app.enterprise_capabilities.artifacts.resource_result import (
@@ -348,6 +349,8 @@ def build_default_registry() -> CapabilityHandlerRegistry:
     registry.register("knowledge.search@v1", knowledge_search)
     registry.register("skills.install_skillhub@v1", skillhub_install)
     registry.register("document.parse@v1", document_parse)
+    registry.register("document.review_source@v1", document_review_source)
+    registry.register("document.annotate@v1", document_annotate)
     registry.register("document.extract_resources@v1", document_extract_resources)
     registry.register("document.pdf_retain_pages@v1", pdf_retain_pages)
     registry.register("vision.extract_facts@v1", image_extract_facts)

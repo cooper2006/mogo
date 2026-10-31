@@ -57,8 +57,8 @@ async def select_profiles():
     rows = await db.admin_model_instances.find(
         {"status": "active", "capabilities": "chat"}
     ).sort([("is_default", -1), ("priority", 1)]).to_list(length=200)
-    for tenant_id in dict.fromkeys(str(row.get("main_id") or "") for row in rows):
-        tenant_rows = [row for row in rows if str(row.get("main_id") or "") == tenant_id]
+    for tenant_id in dict.fromkeys(str(row.get("tenant_id") or "") for row in rows):
+        tenant_rows = [row for row in rows if str(row.get("tenant_id") or "") == tenant_id]
         if tenant_id and len(tenant_rows) >= 2:
             compiler = ModelProfileCompiler(MongoModelCatalog())
             try:

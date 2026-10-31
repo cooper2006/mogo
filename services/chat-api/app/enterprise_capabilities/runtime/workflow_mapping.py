@@ -42,3 +42,13 @@ def workflow_capability(node_type: str) -> WorkflowCapabilityBinding:
     if match is None:
         raise LookupError(f"workflow node type is not migrated: {node_type}")
     return match
+
+
+def workflow_capability_for_node(node: dict) -> WorkflowCapabilityBinding:
+    node_type = str(node.get("type") or "").strip()
+    config = node.get("businessConfig") if isinstance(node.get("businessConfig"), dict) else {}
+    if node_type == "read_material" and config.get("sourceType") == "knowledge_document":
+        return WorkflowCapabilityBinding(
+            "read_material", "tool", "knowledge.read_document@v1",
+        )
+    return workflow_capability(node_type)

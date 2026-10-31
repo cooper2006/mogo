@@ -7,6 +7,7 @@ import { TokenStatsIcon } from '@/icons/TokenStatsIcon';
 import { TrafficAllocationIcon } from '@/icons/TrafficAllocationIcon';
 import { UserManagementIcon } from '@/icons/UserManagementIcon';
 import { ToolsMcpIcon } from '@/icons/ToolsMcpIcon';
+import { DshPluginsIcon } from '@/icons/DshPluginsIcon';
 import { SkillsManagerIcon } from '@/icons/SkillsManagerIcon';
 import { SettingsIcon } from '@/icons/SettingsIcon';
 import { PositionRolesIcon } from '@/icons/PositionRolesIcon';
@@ -97,6 +98,12 @@ export const appRoutes: RouteRecordRaw[] = [
         path: '/trust-ratings',
         redirect: '/assets/ratings',
         meta: { hideInMenu: true },
+      },
+      {
+        path: '/dsh-plugins',
+        name: 'DshPlugins',
+        component: () => import('@/views/dsh-plugins/DshPluginsPage.vue'),
+        meta: { title: 'dshPlugins.title', icon: DshPluginsIcon },
       },
       {
         path: '/tools',

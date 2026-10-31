@@ -237,6 +237,79 @@
                                 </n-button>
                               </div>
                             </div>
+                            <div v-if="step.type === 'review_check'" class="review-check-panel" @click.stop>
+                              <div class="review-check-head">
+                                <div class="review-check-title">{{ t('复核校验配置') }}</div>
+                                <div class="review-check-sub">{{ t('选择审查对象与审查依据，并决定复核结果的交付方式。') }}</div>
+                              </div>
+                              <div class="review-check-grid">
+                                <div class="review-check-field">
+                                  <div class="review-check-label">{{ t('审查对象') }}</div>
+                                  <n-select
+                                    :value="String(step.businessConfig.reviewSubjectNodeId || '')"
+                                    size="small"
+                                    clearable
+                                    filterable
+                                    :options="reviewUpstreamOptions(step)"
+                                    :placeholder="t('选择上游步骤输出作为审查对象')"
+                                    @update:value="(val: string | null) => setReviewSource(step, 'reviewSubjectNodeId', 'reviewSubject', val)"
+                                  />
+                                </div>
+                                <div class="review-check-field">
+                                  <div class="review-check-label">{{ t('审查依据') }}</div>
+                                  <n-radio-group
+                                    :value="reviewCriteriaMode(step)"
+                                    size="small"
+                                    @update:value="(val: string) => setReviewCriteriaMode(step, val)"
+                                  >
+                                    <n-radio-button value="upstream">{{ t('上游结果') }}</n-radio-button>
+                                    <n-radio-button value="inline">{{ t('直接输入') }}</n-radio-button>
+                                  </n-radio-group>
+                                  <n-select
+                                    v-if="reviewCriteriaMode(step) === 'upstream'"
+                                    :value="String(step.businessConfig.reviewCriteriaNodeId || '')"
+                                    size="small"
+                                    clearable
+                                    filterable
+                                    :options="reviewUpstreamOptions(step)"
+                                    :placeholder="t('选择规则文档或上游结果')"
+                                    @update:value="(val: string | null) => setReviewSource(step, 'reviewCriteriaNodeId', 'reviewCriteria', val)"
+                                  />
+                                  <n-input
+                                    v-else
+                                    v-model:value="step.businessConfig.reviewCriteria"
+                                    type="textarea"
+                                    size="small"
+                                    :autosize="{ minRows: 2, maxRows: 5 }"
+                                    :placeholder="t('直接输入审查规则，例如：金额超过预算或缺少验收条款应标记。')"
+                                  />
+                                </div>
+                              </div>
+                              <div class="review-check-field review-check-delivery">
+                                <div class="review-check-label">{{ t('复核结果交付') }}</div>
+                                <n-radio-group
+                                  :value="String(step.businessConfig.outputMode || 'report')"
+                                  size="small"
+                                  @update:value="(val: string) => setReviewOutputMode(step, val)"
+                                >
+                                  <n-radio-button value="report">{{ t('独立复核报告') }}</n-radio-button>
+                                  <n-radio-button value="annotated_docx">{{ t('批注原文档') }}</n-radio-button>
+                                  <n-radio-button value="both">{{ t('两者都要') }}</n-radio-button>
+                                </n-radio-group>
+                                <p v-if="String(step.businessConfig.outputMode || 'report') !== 'report'" class="review-check-hint">
+                                  {{ t('仅 DOCX 支持在原文档批注，其他格式请输出独立复核报告。') }}
+                                </p>
+                              </div>
+                              <div class="review-check-field review-check-alias">
+                                <div class="review-check-label">{{ t('复核输出名') }}</div>
+                                <n-input
+                                  :value="step.outputAlias || step.businessConfig?.outputAlias || ''"
+                                  size="small"
+                                  :placeholder="t('后续步骤可用该名称引用复核结果')"
+                                  @update:value="(val: string) => { step.outputAlias = val; step.businessConfig.outputAlias = val; }"
+                                />
+                              </div>
+                            </div>
                             <div v-if="step.type !== 'script_plugin'" class="node-description-field">
                               <div class="node-description-head">
                                 <div class="node-description-label">{{ t('节点要求') }}</div>
@@ -804,6 +877,7 @@ import generateContentIcon from '@/assets/workflow-node-icons/generate-content.s
 import translateRewriteIcon from '@/assets/workflow-node-icons/translate-rewrite.svg';
 import fillTableIcon from '@/assets/workflow-node-icons/fill-table.svg';
 import exportDeliveryIcon from '@/assets/workflow-node-icons/export-delivery.svg';
+import reviewCheckIcon from '@/assets/workflow-node-icons/review-check.svg';
 import SkillPublishDialog from './SkillPublishDialog.vue';
 
 const PythonCodeEditor = defineAsyncComponent(() => import('@/components/PythonCodeEditor.vue'));
@@ -1118,6 +1192,19 @@ const workflowNodeTypes = computed<Array<{
     usageDescription: t('用于把上游最终内容导出为 Word、PDF、Excel 或 PPT 等交付文件。它处理交付格式和文件命名，不应承担内容分析、改写或统计计算。'),
     usageExample: t('将上游《华东区域一季度项目复盘》导出为 Word 和 PDF，文件名分别为《华东区域一季度项目复盘.docx》和《华东区域一季度项目复盘.pdf》。'),
   },
+  {
+    type: 'review_check',
+    label: t('校验复核'),
+    shortLabel: t('复核'),
+    color: '#b45309',
+    bg: '#fff7ed',
+    icon: reviewCheckIcon,
+    defaultTitle: '逐条审查合规',
+    placeholder: t('例如：核对每条适用规则，判断对象是否满足要求并给出复核意见、修改建议和审核依据。'),
+    defaultConfig: { reviewSubject: '审查对象', reviewCriteria: '审查规则', outputMode: 'report', outputAlias: '复核意见' },
+    usageDescription: t('用于对上游对象逐条核对适用规则，输出问题、修改建议和审核依据。可对原始 DOCX 生成批注副本，或输出独立复核报告；不要虚构规则文本或引用位置。'),
+    usageExample: t('对上游《采购合同》逐条核对“验收与付款”“违约责任”等条款，指出不符合项并给出修改建议和规则依据；输出批注副本或复核报告。'),
+  },
 ]);
 
 type LocalizedSelectOption = {
@@ -1313,6 +1400,45 @@ function serializeWorkflowSteps() {
   }));
 }
 
+/** review_check 上游节点输出别名（用于选择审查对象/审查依据来源） */
+function reviewUpstreamNodes(step: WorkflowStep): Array<{ id: string; alias: string }> {
+  const index = workflowSteps.value.findIndex((item) => item.id === step.id);
+  const end = index < 0 ? workflowSteps.value.length : index;
+  return workflowSteps.value
+    .slice(0, end)
+    .map((item) => ({ id: item.id, alias: String(item.outputAlias || item.businessConfig?.outputAlias || '').trim() }))
+    .filter((item) => item.alias);
+}
+
+function reviewUpstreamOptions(step: WorkflowStep): Array<{ label: string; value: string }> {
+  return reviewUpstreamNodes(step).map((item) => ({ label: item.alias, value: item.id }));
+}
+
+function reviewCriteriaMode(step: WorkflowStep): string {
+  const mode = String(step.businessConfig.reviewCriteriaMode || '');
+  if (mode === 'upstream' || mode === 'inline') return mode;
+  const legacy = String(step.businessConfig.reviewCriteria || '');
+  return step.businessConfig.reviewCriteriaNodeId || !legacy
+    || reviewUpstreamNodes(step).some((item) => item.alias === legacy) ? 'upstream' : 'inline';
+}
+
+function setReviewSource(step: WorkflowStep, idKey: string, labelKey: string, value: string | null) {
+  const alias = reviewUpstreamNodes(step).find((item) => item.id === value)?.alias || '';
+  step.businessConfig[idKey] = value || '';
+  step.businessConfig[labelKey] = alias;
+}
+
+function setReviewCriteriaMode(step: WorkflowStep, mode: string) {
+  if (mode === reviewCriteriaMode(step)) return;
+  step.businessConfig.reviewCriteriaMode = mode;
+  step.businessConfig.reviewCriteriaNodeId = '';
+  step.businessConfig.reviewCriteria = '';
+}
+
+function setReviewOutputMode(step: WorkflowStep, mode: string) {
+  step.businessConfig.outputMode = mode;
+}
+
 /** 取第一个真值转成字符串，都取不到时返回空串 */
 function pickFirstNonEmpty(...values: any[]): string {
   for (const value of values) {
@@ -1381,6 +1507,7 @@ function inferWorkflowNodeTypeFromText(text: string): WorkflowNodeType {
     { type: 'call_tool', keywords: ['mcp', '工具', '接口', '调用', '查询系统', '业务系统', 'api'] },
     { type: 'translate_rewrite', keywords: ['文档翻译', '翻译', '改写', '润色', '压缩', '扩写', '转写', '多语言'] },
     { type: 'fill_table', keywords: ['填表', '制表', '表格', 'excel', 'sheet', '明细表', '模板'] },
+    { type: 'review_check', keywords: ['复核', '审查', '校验', '审核', '合规', '规则', '条款', '逐条', '批注', '依据'] },
     { type: 'export_delivery', keywords: ['导出', '交付', '下载', '归档', 'word', 'pdf', 'ppt', '文件'] },
     { type: 'generate_content', keywords: ['生成', '撰写', '写作', '成稿', '草稿', '报告', '专报', '复盘稿', '内容'] },
   ];
@@ -3033,6 +3160,28 @@ onUnmounted(() => {
   color: var(--mg-brand-text);
   font-weight: 700;
 }
+
+.review-check-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #e8d9c2;
+  border-radius: 10px;
+  background: #fffdf8;
+  padding: 12px 14px;
+}
+.review-check-head { display: grid; gap: 2px; }
+.review-check-title { color: #9a5a10; font-size: 13px; font-weight: 700; }
+.review-check-sub { color: #8a7a5f; font-size: 12px; }
+.review-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.review-check-field { display: grid; gap: 6px; min-width: 0; }
+.review-check-label { color: #7c6a4c; font-size: 12px; font-weight: 600; }
+.review-check-delivery { gap: 8px; }
+.review-check-hint { margin: 0; color: #b45309; font-size: 11px; }
+.review-check-alias { max-width: 360px; }
+@media (max-width: 760px) { .review-check-grid { grid-template-columns: 1fr; } }
 
 .script-plugin-panel {
   display: grid;

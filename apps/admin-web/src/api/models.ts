@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth';
 export type ModelStatus = 'active' | 'disabled';
 export type HealthStatus = 'unknown' | 'healthy' | 'failed';
 export type ImageRuntimeKind = 'openai_images' | 'azure_openai_images' | 'dashscope_image' | 'custom_images';
+export interface ModelPricing { currency: 'CNY' | 'USD'; inputPerMillion: number; outputPerMillion: number }
 
 /**
  * 供应商协议类型全集（后端 `provider_type` 枚举）。
@@ -46,6 +47,7 @@ export interface ModelProviderItem {
 
 export interface ModelInstanceItem {
   id: string;
+  groupId?: string;
   tenantId: string;
   providerId: string;
   providerName: string;
@@ -67,11 +69,13 @@ export interface ModelInstanceItem {
   lastError: string;
   isDefault: boolean;
   priority: number;
+  pricing?: ModelPricing | null;
   updatedAt: string;
 }
 
 export interface ModelInstancePayload {
   providerId: string;
+  groupId?: string;
   orgId: string;
   displayName: string;
   modelName: string;
@@ -86,6 +90,7 @@ export interface ModelInstancePayload {
   status: ModelStatus;
   isDefault: boolean;
   priority?: number;
+  pricing?: ModelPricing | null;
 }
 
 export async function fetchModelProviders() {
@@ -125,6 +130,15 @@ export async function testModelInstance(id: string) {
   return data;
 }
 
+export async function testModelVision(id: string): Promise<boolean> {
+  const { data } = await apiClient.post<{ supported: boolean }>(`/api/v1/models/instances/${id}/test-vision`);
+  return data.supported === true;
+}
+
+export async function enableModelVision(id: string): Promise<void> {
+  await apiClient.post(`/api/v1/models/instances/${id}/enable-vision`);
+}
+
 export async function testImageModelInstance(id: string, prompt: string) {
   const { data } = await apiClient.post<{
     success: boolean;
@@ -134,6 +148,17 @@ export async function testImageModelInstance(id: string, prompt: string) {
     providerType?: string;
     runtimeKind?: string;
   }>(`/api/v1/models/instances/${id}/test-image`, { prompt }, { timeout: IMAGE_MODEL_TEST_TIMEOUT_MS });
+  return data;
+}
+
+export async function testKnowledgeModelInstance(id: string, capability: 'embedding' | 'rerank') {
+  const { data } = await apiClient.post<{
+    success: boolean;
+    status: string;
+    message: string;
+    capability: 'embedding' | 'rerank';
+    dimension?: number;
+  }>(`/api/v1/models/instances/${id}/test-knowledge`, { capability });
   return data;
 }
 
@@ -207,4 +232,42 @@ export async function discoverProviderModels(payload: {
 }): Promise<DiscoveredModel[]> {
   const { data } = await apiClient.post<{ models: DiscoveredModel[] }>('/api/v1/models/discover', payload);
   return data?.models ?? [];
+}
+
+export interface ModelGroupItem {
+  id: string;
+  name: string;
+  providerId: string;
+  baseUrl: string;
+  apiVersion: string;
+  apiKeyMasked: string;
+  status: ModelStatus;
+}
+
+export interface ModelGroupPayload {
+  name: string;
+  providerId: string;
+  baseUrl: string;
+  apiVersion: string;
+  apiKey: string;
+  status: ModelStatus;
+}
+
+export async function fetchModelGroups() {
+  const { data } = await apiClient.get<ModelGroupItem[]>('/api/v1/models/groups');
+  return data;
+}
+
+export async function createModelGroup(payload: ModelGroupPayload) {
+  const { data } = await apiClient.post<ModelGroupItem>('/api/v1/models/groups', payload);
+  return data;
+}
+
+export async function updateModelGroup(id: string, payload: ModelGroupPayload) {
+  const { data } = await apiClient.put<ModelGroupItem>(`/api/v1/models/groups/${id}`, payload);
+  return data;
+}
+
+export async function deleteModelGroup(id: string) {
+  await apiClient.delete(`/api/v1/models/groups/${id}`);
 }

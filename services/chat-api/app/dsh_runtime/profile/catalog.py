@@ -9,6 +9,7 @@ from bson import ObjectId
 
 from app.core.db import get_db
 from app.llm.configured_models import INSTANCE_COLLECTION, PROVIDER_COLLECTION
+from app.llm.model_group_config import load_model_group
 
 
 class ModelCatalog(Protocol):
@@ -37,6 +38,12 @@ class MongoModelCatalog:
         source_tenant = str(instance.get("tenant_id") or "")
         if source_tenant != tenant_id:
             raise ValueError("cross-tenant model access is forbidden")
+        try:
+            group = await load_model_group(instance)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        if group is not None and group.get("status") != "active":
+            raise ValueError("model group is disabled")
         provider = await db[PROVIDER_COLLECTION].find_one({"_id": instance.get("provider_id")})
         if provider is None:
             raise ValueError("model provider does not exist")

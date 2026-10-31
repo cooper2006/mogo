@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, capability_assets, connector_market, dashboard, directory, egress, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, tools, traffic_allocations, trust_ratings
+from app.api.routes import analytics, auth, capability_assets, connector_market, dashboard, directory, dsh_plugins, egress, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, tools, topic_admission, traffic_allocations, trust_ratings
 from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
@@ -19,6 +19,8 @@ api_router.include_router(
     tags=["ontology-permission-internal"],
 )
 api_router.include_router(system_audit.router, prefix="/system-audit", tags=["system-audit"])
+api_router.include_router(dsh_plugins.router, prefix="/dsh-plugins", tags=["dsh-plugins"])
+api_router.include_router(topic_admission.router, prefix="/settings/topic-admission", tags=["topic-admission"])
 api_router.include_router(models.router, prefix="/models", tags=["models"])
 api_router.include_router(knowledge_directories.router, prefix="/knowledge/directories", tags=["knowledge-directories"])
 api_router.include_router(knowledge_documents.router, prefix="/knowledge/documents", tags=["knowledge-documents"])

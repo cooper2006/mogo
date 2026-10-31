@@ -18,6 +18,52 @@ def validate_node_identity(nodes: list[dict[str, Any]]) -> None:
         raise ValueError("workflow output aliases must be unique")
 
 
+def validate_read_material_source(node: dict[str, Any]) -> None:
+    if str(node.get("type") or "") != "read_material":
+        return
+    config = node.get("businessConfig") if isinstance(node.get("businessConfig"), dict) else {}
+    source_type = str(config.get("sourceType") or "upload").strip()
+    if source_type not in {"upload", "knowledge_document"}:
+        raise ValueError("read_material sourceType is invalid")
+    if source_type == "knowledge_document":
+        if str(config.get("knowledgeScope") or "") not in {"personal", "organization"}:
+            raise ValueError("read_material knowledgeScope is required")
+        if not str(config.get("knowledgeSourceId") or "").strip():
+            raise ValueError("read_material knowledgeSourceId is required")
+
+
+def resolved_review_config(nodes: list[dict[str, Any]], index: int) -> dict[str, Any]:
+    """Resolve review inputs by stable upstream node ID; retain older text-only Skills."""
+    node = nodes[index]
+    config = node.get("businessConfig") if isinstance(node.get("businessConfig"), dict) else {}
+    resolved = dict(config)
+    if str(config.get("outputMode") or "report") not in {"report", "annotated_docx", "both"}:
+        raise ValueError("review_check outputMode is invalid")
+    mode = str(config.get("reviewCriteriaMode") or "").strip()
+    refs = (("reviewSubjectNodeId", "reviewSubject"), ("reviewCriteriaNodeId", "reviewCriteria"))
+    has_refs = any(str(config.get(id_key) or "").strip() for id_key, _ in refs)
+    if not mode and not has_refs:
+        if not all(str(config.get(label_key) or "").strip() for _, label_key in refs):
+            raise ValueError("review_check requires a subject and criteria")
+        return resolved
+    if mode not in {"", "upstream", "inline"}:
+        raise ValueError("review_check reviewCriteriaMode is invalid")
+    upstream = {str(item.get("id") or ""): item for item in nodes[:index]}
+    selected_refs = refs[:1] if mode == "inline" else refs
+    for id_key, label_key in selected_refs:
+        source_id = str(config.get(id_key) or "").strip()
+        source = upstream.get(source_id)
+        alias = str((source or {}).get("outputAlias") or (source or {}).get("output_alias") or "").strip()
+        if not source_id or not alias:
+            raise ValueError(f"review_check {id_key} must reference an upstream output with an alias")
+        resolved[label_key] = alias
+    if mode == "inline":
+        if not str(config.get("reviewCriteria") or "").strip():
+            raise ValueError("review_check inline criteria must not be empty")
+        resolved.pop("reviewCriteriaNodeId", None)
+    return resolved
+
+
 def validate_external_bindings(node: dict[str, Any], tool: ToolProfileDefinition) -> None:
     config = node.get("businessConfig") if isinstance(node.get("businessConfig"), dict) else {}
     bindings = config.get("tool_arg_bindings") or config.get("toolArgBindings") or []

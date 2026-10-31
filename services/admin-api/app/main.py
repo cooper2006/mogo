@@ -16,6 +16,7 @@ from app.middleware.legacy_api_redirect import LegacyApiRedirectMiddleware
 from app.core.db import close_backend, init_backend
 from app.core.product_edition import migrate_bootstrapped_community_organization
 from app.repositories.model_repository import ensure_indexes as ensure_model_indexes
+from app.repositories.model_group_repository import ensure_indexes as ensure_model_group_indexes
 from app.api.routes.skills import ensure_indexes as ensure_skill_indexes
 from app.api.routes.skill_lifecycle import ensure_indexes as ensure_skill_lifecycle_indexes
 from app.api.routes.portal_admin import ensure_indexes as ensure_portal_indexes
@@ -236,6 +237,7 @@ def create_app() -> FastAPI:
         await bootstrap_directory()
         await SystemAuditRepository().ensure_indexes()
         await ensure_model_indexes()
+        await ensure_model_group_indexes()
         await ensure_skill_indexes()
         await ensure_skill_lifecycle_indexes()
         await ensure_eval_gate_indexes()

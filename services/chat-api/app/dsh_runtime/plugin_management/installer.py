@@ -1,0 +1,218 @@
+"""Use DSH's own manager to validate and install before recording a bundle."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+from uuid import uuid4
+
+from app.core.config import get_settings
+from app.dsh_runtime.transport import HttpKernelHostTransport
+from app.dsh_runtime.errors import DshTransportError
+from app.dsh_runtime.plugin_management.source_policy import is_fixed_npm_source
+from app.dsh_runtime.plugin_management.install_failure import install_error_text, is_missing_registry_dependency
+from app.dsh_runtime.plugin_management.compatibility import classify_conversation_tools
+
+logger = logging.getLogger(__name__)
+NPM_REGISTRY = "https://registry.npmjs.org/"
+
+
+class PluginInstallError(ValueError):
+    pass
+
+
+class DshPluginInstaller:
+    async def inspect_and_install(self, spec: str, *, archive_id: str = "", archive_digest: str = "") -> dict[str, Any]:
+        spec = spec.strip()
+        if not spec or len(spec) > 500 or any(ord(ch) < 32 for ch in spec):
+            raise PluginInstallError("Invalid DSH plugin spec")
+        settings = get_settings()
+        transport = HttpKernelHostTransport(
+            settings.DSH_RUNTIME_HOST_URL,
+            timeout_seconds=300,
+            startup_timeout_seconds=300,
+            access_token=settings.DSH_RUNTIME_HOST_TOKEN,
+        )
+        runtime_ids: list[str] = []
+        try:
+            if archive_id:
+                materialized = await transport.request("POST", "/v1/plugin-archives/materialize", json={
+                    "archiveId": archive_id,
+                    "digest": archive_digest,
+                    "gatewayUrl": settings.DSH_TOOL_GATEWAY_URL.removesuffix("/tools") + "/plugin-archives",
+                    "accessToken": settings.DSH_RUNTIME_HOST_TOKEN,
+                })
+                spec = str(materialized["spec"])
+            runtime = await transport.request("POST", "/v1/runtimes", json={
+                "isolationKey": f"plugin-install-validation:{uuid4()}",
+                "profileVersion": "plugin-install-validation",
+            })
+            runtime_id = str(runtime["runtimeId"])
+            runtime_ids.append(runtime_id)
+            path = f"/v1/runtimes/{runtime_id}/managed-plugins"
+            original_inventory = await transport.request("GET", path)
+            inspected = await transport.request("POST", f"{path}/inspect", json={"spec": spec})
+            install_registry = ""
+            if inspected.get("problem") == "not-found" and is_fixed_npm_source(spec):
+                # A configured mirror can lag behind npm. Retry the exact
+                # version at the canonical registry before declaring it absent.
+                inspected = await transport.request(
+                    "POST", f"{path}/inspect", json={"spec": spec, "registry": NPM_REGISTRY},
+                )
+                if inspected.get("status") == "accepted":
+                    install_registry = NPM_REGISTRY
+                elif inspected.get("problem") == "network":
+                    raise PluginInstallError("plugin_registry_unavailable")
+            package = None
+            if inspected.get("status") == "refused" and inspected.get("problem") == "already-installed":
+                bundles = await transport.request("GET", path)
+                builtin = next(
+                    (item for item in bundles.get("bundles", [])
+                     if item.get("optional") and spec == f"{item.get('name')}@{item.get('version')}"),
+                    None,
+                )
+                if builtin:
+                    activated = await transport.request("POST", f"{path}/enable", json={
+                        "name": builtin["name"], "enabled": True,
+                    })
+                    if activated.get("application") != "failed" and not activated.get("error"):
+                        package = {
+                            "name": str(builtin["name"]),
+                            "version": str(builtin["version"]),
+                            "description": str(builtin.get("description") or ""),
+                            "spec": spec,
+                        }
+            if package is None and inspected.get("status") != "accepted":
+                problem = str(inspected.get("problem") or "not-a-bundle")
+                raise PluginInstallError(
+                    "plugin_package_not_found" if problem == "not-found" and is_fixed_npm_source(spec) else problem
+                )
+            if package is None:
+                installed = await transport.request("POST", f"{path}/install", json={
+                    "spec": spec, **({"registry": install_registry} if install_registry else {}),
+                })
+                if ((installed.get("application") == "failed" or installed.get("error"))
+                        and not install_registry and is_fixed_npm_source(spec)
+                        and is_missing_registry_dependency(installed)):
+                    official = await transport.request(
+                        "POST", f"{path}/inspect", json={"spec": spec, "registry": NPM_REGISTRY},
+                    )
+                    if official.get("status") == "accepted":
+                        install_registry = NPM_REGISTRY
+                        installed = await transport.request("POST", f"{path}/install", json={
+                            "spec": spec, "registry": install_registry,
+                        })
+                if installed.get("application") == "failed" or installed.get("error"):
+                    raise PluginInstallError(install_error_text(installed))
+                name = str(installed.get("bundle") or "")
+                version = str(installed.get("version") or "")
+                if not name or not version:
+                    raise PluginInstallError("DSH plugin installation returned an inconsistent package")
+                bundles = await transport.request("GET", path)
+                installed_bundle = next(
+                    (item for item in bundles.get("bundles", []) if item.get("name") == name), None,
+                )
+                if not installed_bundle or installed_bundle.get("version") != version:
+                    raise PluginInstallError("DSH plugin package was not found after installation")
+                package = {
+                    "name": name,
+                    "version": version,
+                    "description": str(installed_bundle.get("description") or ""),
+                    "spec": f"{name}@{version}" if inspected.get("kind") == "registry" else spec,
+                    "registry": install_registry,
+                }
+            # A DSH install can succeed while the bundle's rows stay pending.
+            # Boot it in its own disposable Runtime before making it selectable.
+            try:
+                validation = await transport.request("POST", "/v1/runtimes", json={
+                    "isolationKey": f"plugin-install-validation:{uuid4()}",
+                    "profileVersion": "plugin-install-validation-active",
+                    "modelProfile": {
+                        "profileVersion": "plugin-install-validation-active",
+                        "modelInstanceId": "plugin-install-validation",
+                        "modelName": "plugin-install-validation",
+                        "gatewayUrl": "http://127.0.0.1/validation-only",
+                        "accessToken": "plugin-install-validation",
+                        "plugins": [{**package, "source_scope": "personal"}],
+                    },
+                })
+            except DshTransportError as exc:
+                package["tool_names"] = []
+                package["availability"] = {
+                    "status": "failed", "reason": str(exc),
+                    "checks": {"package": True, "runtime": False, "session": False, "invocation": False},
+                }
+                if archive_id:
+                    package["spec"] = f"archive:{archive_digest}"
+                    package["archive_id"] = archive_id
+                    package["archive_digest"] = archive_digest
+                return package
+            runtime_ids.append(str(validation["runtimeId"]))
+            activated_inventory = await transport.request(
+                "GET", f"/v1/runtimes/{validation['runtimeId']}/managed-plugins",
+            )
+            base_tools = set(original_inventory.get("globalTools") or [])
+            package["tool_names"] = sorted(
+                name for name in activated_inventory.get("globalTools") or []
+                if name not in base_tools
+            )
+            discovered = package["tool_names"]
+            exposed: set[str] = set()
+            if discovered:
+                try:
+                    # The first Runtime discovers root tools. A new immutable
+                    # Profile must declare them before MOGO's allow-list can
+                    # expose them to the agent in a Session.
+                    session_validation = await transport.request("POST", "/v1/runtimes", json={
+                        "isolationKey": f"plugin-install-validation:{uuid4()}",
+                        "profileVersion": "plugin-install-validation-session",
+                        "modelProfile": {
+                            "profileVersion": "plugin-install-validation-session",
+                            "modelInstanceId": "plugin-install-validation",
+                            "modelName": "plugin-install-validation",
+                            "gatewayUrl": "http://127.0.0.1/validation-only",
+                            "accessToken": "plugin-install-validation",
+                            "plugins": [{**package, "source_scope": "personal"}],
+                        },
+                    })
+                    runtime_ids.append(str(session_validation["runtimeId"]))
+                    session = await transport.request(
+                        "POST", f"/v1/runtimes/{session_validation['runtimeId']}/sessions",
+                        json={"sessionId": f"plugin-validation-{uuid4()}"},
+                    )
+                    exposed = set(session.get("capabilityTools") or [])
+                except DshTransportError as exc:
+                    package["availability"] = {
+                        "status": "failed", "reason": str(exc),
+                        "checks": {"package": True, "runtime": True, "session": False, "invocation": False},
+                        "discovered_tools": discovered,
+                    }
+                    if archive_id:
+                        package["spec"] = f"archive:{archive_digest}"
+                        package["archive_id"] = archive_id
+                        package["archive_digest"] = archive_digest
+                    return package
+            status, reason = classify_conversation_tools(set(discovered), exposed)
+            package["availability"] = {
+                "status": status,
+                "reason": reason,
+                "checks": {"package": True, "runtime": True, "session": status == "session_exposed", "invocation": False},
+                "discovered_tools": discovered,
+                "session_tools": sorted(exposed.intersection(discovered)),
+            }
+            if archive_id:
+                package["spec"] = f"archive:{archive_digest}"
+                package["archive_id"] = archive_id
+                package["archive_digest"] = archive_digest
+            return package
+        except DshTransportError as exc:
+            raise PluginInstallError(str(exc)) from exc
+        finally:
+            try:
+                for runtime_id in reversed(runtime_ids):
+                    try:
+                        await transport.request("DELETE", f"/v1/runtimes/{runtime_id}", params={"purge": "1"})
+                    except Exception as exc:
+                        logger.warning("temporary DSH plugin Runtime cleanup failed: %s", exc)
+            finally:
+                await transport.close()
