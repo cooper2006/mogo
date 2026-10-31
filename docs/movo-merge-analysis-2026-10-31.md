@@ -401,6 +401,18 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - [ ] 先做接口对齐 + 最小可用（share token + 只读共享 + 基础 SSE），不要全量
 - [ ] desktop UI 需先确认本地 user-web 结构与 himovo 的 `components/desktop/*` 接口是否兼容
 
+**P3 探查结论（2026-11-01）**：himovo session-sharing / desktop 是**大规模**改动——相对共同祖先 `b30fa607` 共 **75 文件 +17763/-4197**，含 `sessions.py`（±336）、`session_live.py`（998 新增，SSE）、`session_access.py`、`session_identity_projection.py`、`session_sharing/{__init__,links,service,snapshot}.py`、`migrations/session_sharing.py`、`desktop_agent_executor.py`（-4123 大幅简化）及 20+ 个测试（`test_session_live` 2245、`test_session_sharing_capabilities` 1172、`test_get_session_shared` 815 等）。**不能整块覆盖，需逐文件 diff 挑选 + 大量 `main_id→tenant_id` 适配**（himovo 全用 `main_id`，本地已迁移 `tenant_id`）。
+
+**最小子集边界（share token + 只读共享，不含完整 SSE/desktop）**：
+- **可直搬（纯逻辑，无 db 依赖）**：`session_sharing/service.py`（`create_token`/`hash_token`/`issue_share`/`revoke_share`/`is_active`/`build_link`）、`links.py`（`portal_link`，依赖 `USER_PORTAL_BASE_URL`）、`snapshot.py`（`snapshot_messages`/`snapshot_active`）、`__init__.py`。
+- **需移植基础设施（本地缺失）**：`participants_repository.py`（`SessionParticipantsRepository`，himovo 用 `main_id`→本地 `tenant_id`，collection `session_participants` + 唯一索引）；`tenant.py` 的 `add_main_scope`→本地已有等价 `add_tenant_scope`（`tenant_id`），**不搬 add_main_scope**，直接改用本地 `add_tenant_scope`。
+- **需适配**：`session_access.py`（`SessionReadAuthorizer`：`main_id`→`tenant_id`，`SessionParticipantsRepository` 接入）、`session_identity_projection.py`（`add_main_scope`→`add_tenant_scope`，`public_display_name`/`ObjectStorageClient` 本地已有 ✓）。
+- **端点/迁移（较大）**：`sessions.py` share 路由（±336，需三方合并，本地已有 `sessions.py`）、`migrations/session_sharing.py`、`session_live.py`（998，SSE，建议 P3 二期）。
+- **前端（增量挑选）**：本地已有 desktop 框架（`components/desktop/{DesktopWindowChrome,ServerSetup,ToolTabBar,desktopToolTabs,...}`、`composables/desktop/*`），himovo 独有 `AppDesktopNavigation`/`DesktopPrimaryNavigation`/`DesktopSessionShareAction`/`DesktopSettingsDialog`/`WindowsTitleBar` 与 `session/{SessionShareDialog,SessionSnapshotConversation,SessionSnapshotViewer}`、`SessionHistorySidebar`/`SessionSearchOverlay`——**逐个 diff 挑选**，本地独有 `useSkillShareInboxBadge`/`SessionTrajectoryView`/`sessionOrdering` 保留。
+- **本地依赖确认**：`member_identity.public_display_name` ✓、`oss_uploader.ObjectStorageClient` ✓、`sessions.py` 已存在 ✓；`participants_repository` ❌、`add_main_scope` ❌（用本地 `add_tenant_scope` 替代）。
+
+**建议实施顺序**：① 建独立分支 `feat/port-movo-sharing`（自 main）；② 后端最小子集（session_sharing 纯逻辑 + participants_repository + session_access + session_identity_projection，适配 tenant_id）；③ sessions.py share 端点 + 迁移；④ 前端 SessionShareDialog/SnapshotViewer 增量；⑤ SSE/desktop 完整属二期。**先与用户确认最小子集边界再动工**（独立分支 + 大规模，避免半途返工）。
+
 ---
 
 ## 附录：本次比对所用命令（可复现）
