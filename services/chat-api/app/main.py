@@ -269,6 +269,7 @@ from app.api.endpoints import (
     scheduled_tasks,
     shortcuts,
     sessions,
+    session_shares,
     site_profiles,
     skills,    skill_package_install,
     skill_lifecycle,
@@ -300,6 +301,7 @@ app.include_router(models.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
 app.include_router(product.router, prefix="/api/v1")
 app.include_router(sessions.router, prefix="/api/v1")
+app.include_router(session_shares.router, prefix="/api/v1")
 app.include_router(tasks.router, prefix="/api/v1")
 app.include_router(skills.router, prefix="/api/v1")
 app.include_router(skill_package_install.router, prefix="/api/v1")
