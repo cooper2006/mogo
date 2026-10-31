@@ -10,6 +10,7 @@ from app.llm.factory import get_request_scoped_llm_client
 from app.llm.decision_turn import DecisionTurnSpec, invoke_json_decision
 from app.llm.types import Message, Role
 from app.enterprise_capabilities.research.progressive.json_utils import coerce_json_object, unique_strings
+from app.enterprise_capabilities.research.progressive.summary_messages import research_summary
 from app.enterprise_capabilities.research.progressive.models import (
     EvidenceItem,
     ProgressiveResearchResult,
@@ -367,7 +368,7 @@ class ProgressiveResearchAgent:
             results=[self._evidence_to_result(item) for item in evidence_store.output()],
             rejected_sources=[item.model_dump() for item in rejected[:40]],
             search_trace=trace,
-            summary=self._summary(accepted, trace, budget_exhausted=result_budget_exhausted),
+            summary=self._summary(accepted, trace, budget_exhausted=result_budget_exhausted, language=language),
             error="" if accepted else "no_accepted_evidence",
             evidence_sufficient=evidence_sufficient,
             budget_exhausted=result_budget_exhausted,
@@ -625,10 +626,10 @@ class ProgressiveResearchAgent:
         return bool(done and next_queries and round_index < max_rounds and not budget_exhausted)
 
     @staticmethod
-    def _summary(accepted: list[EvidenceItem], trace: list[dict[str, Any]], *, budget_exhausted: bool = False) -> str:
-        suffix = " 已达到最大研究轮次，仍有未继续执行的候选查询。" if budget_exhausted else ""
-        return (
-            f"渐进式研究完成：采纳 {len(accepted)} 条证据，"
-            f"执行 {len([x for x in trace if x.get('event') != 'no_provider'])} 次 provider 搜索。"
-            f"{suffix}"
+    def _summary(accepted: list[EvidenceItem], trace: list[dict[str, Any]], *, budget_exhausted: bool = False, language: str = "zh") -> str:
+        return research_summary(
+            accepted_count=len(accepted),
+            provider_searches=len([x for x in trace if x.get("event") != "no_provider"]),
+            budget_exhausted=budget_exhausted,
+            language=language,
         )

@@ -1,4 +1,4 @@
-export type SearchProviderId = 'tavily' | 'serper' | 'serpapi' | 'baidu_qianfan' | 'volc_ark' | 'claw_search';
+export type SearchProviderId = 'deepseek' | 'tavily' | 'serper' | 'serpapi' | 'baidu_qianfan' | 'volc_ark' | 'claw_search';
 
 export interface SearchProviderGuide {
   url: string;
@@ -7,6 +7,11 @@ export interface SearchProviderGuide {
 }
 
 export const searchProviderGuides: Record<SearchProviderId, SearchProviderGuide> = {
+  deepseek: {
+    url: 'https://platform.deepseek.com/api_keys',
+    steps: ['注册或登录 DeepSeek 开放平台', '在 API Keys 页面创建 Key', '复制 Key 到 MOGO 并测试连接'],
+    note: 'DeepSeek Search 按成功请求次数计费，请留意用量。',
+  },
   tavily: {
     url: 'https://app.tavily.com/',
     steps: ['注册或登录 Tavily', '在控制台创建 API Key', '复制 Key 到 MOGO 并测试连接'],

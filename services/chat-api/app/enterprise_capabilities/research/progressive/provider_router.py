@@ -11,7 +11,11 @@ from app.llm.factory import get_openai_compatible_client
 from app.llm.types import Message, Role
 from app.enterprise_capabilities.research.progressive.models import SearchCandidate
 from app.infrastructure.request_context import get_request_context
-from app.services.search_provider_config import resolve_default_external_search_provider
+from app.services.search_provider_config import (
+    has_saved_external_search_config,
+    resolve_default_external_search_provider,
+)
+from .deepseek_provider import DeepSeekProvider
 
 
 logger = logging.getLogger(__name__)
@@ -313,7 +317,12 @@ class ProviderRouter:
             logger.warning("progressive_research_provider_config_unavailable error=%s", exc)
 
         provider = str((configured or {}).get("provider") or "").strip()
-        if provider == "tavily" and str((configured or {}).get("api_key") or "").strip():
+        if provider == "deepseek" and str((configured or {}).get("api_key") or "").strip():
+            providers.append(DeepSeekProvider(
+                api_key=str(configured.get("api_key") or "").strip(),
+                endpoint=str(configured.get("endpoint") or "").strip(),
+            ))
+        elif provider == "tavily" and str((configured or {}).get("api_key") or "").strip():
             providers.append(TavilyProvider(api_key=str(configured.get("api_key") or "").strip()))
         elif provider == "serper" and str((configured or {}).get("api_key") or "").strip():
             providers.append(SerperProvider(api_key=str(configured.get("api_key") or "").strip()))
@@ -340,6 +349,12 @@ class ProviderRouter:
                     endpoint=str(configured.get("endpoint") or "").strip(),
                 )
             )
+
+        # Environment keys are legacy fallback for installations without Admin
+        # search settings. A selected provider must never trigger extra billed
+        # searches against other accounts, and disabling it must stay disabled.
+        if configured or await has_saved_external_search_config(tenant_id):
+            return providers
 
         tavily_key = str(getattr(settings, "TAVILY_API_KEY", "") or "").strip()
         if tavily_key and not any(p.name == "tavily" for p in providers):
