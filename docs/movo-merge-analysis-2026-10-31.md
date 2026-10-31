@@ -485,6 +485,17 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 **SSE 验证**：`py_compile` 5 文件 0 失败；纯逻辑单测（预注入假 `app.*` 模块 + importlib 直载绕过 `app/__init__`）**19 断言全过**（classify 4、cursor 3、digest 3、fingerprint 2、frame 5、sanitize 3）；残留检查 `main_id` 零残留（himovo 仅说明注释）。**完整 pytest 需 mongo 环境**（`SessionReadAuthorizer`/`ConversationRepository`/`KernelEventRepository` 依赖 db），留 CI/Docker。
 
+**P3 SSE 前端接线执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `85979de6`）**：共享会话 SSE 的消费侧，让共享参与者（`access='shared'`）打开会话后**实时收到 owner 产生的新消息/执行事件**（用户请求「SSE 前端接线」），5 文件 +591/-4：
+- `composables/useSessionLiveStream.ts`（新增，himovo 原样 434 行）：原生 fetch + 手写 LF-only SSE 解析；Last-Event-ID 同流续传 / `?after=` 权威重载；control 帧（thread.changed/members.changed）结束当前流；`session.access.revoked` 终止；5xx 指数退避重连（1/2/4/8/15s + jitter），401/403/404/410 不重试。依赖本地已有 `protocol.ts`（`isExecutionEventV3`）+ `api/authExpiry`（`notifyAuthExpiredFromResponse`）。
+- `features/execution-v3/domain/protocol.ts`：`item_kind`/`item_id` 改 `| null`（后端 `public_execution_event` 返回 null，类型对齐）。
+- `composables/useChatRuntimeStore.ts`：**不搬 himovo 的 pane-live 骨架/T5-T9 投影**，本地最小叠加——`ChatRuntimePane.sessionLiveHandle` + `RuntimeCallbacks.onSharedAccessLost` + `selectSession`（`access='shared'` 且已登录 → `startSharedSessionLive`）；`onExecution` 按 `message_id` 匹配 assistant 行 `ensureExecV3.applyEvent`（幂等）+ `applyAssistantContentEvent` 增量渲染；`onThreadChanged` 权威刷新（重新 getSession 合并，保留 `_execV3`/`_id` 防闪烁丢行）后以 **COLD_ATTACH** 重新开流（自包含发当前 turn 全量，**无需后端 live_cursor**）；`onMembersChanged`/`onTurnStarted`/`onTurnCompleted` 权威刷新 + `refreshAfterRun`；`onAccessLost` 回调宿主。
+- `locales/messages.ts`：加 `session.share.access_revoked`/`access_left` 双语。
+- `App.vue`：接 `onSharedAccessLost` → `handleSharedAccessLost`（提示 + 关闭当前共享会话 + 刷新共享列表）。
+
+**SSE 前端验证**：`check_sfc` App.vue 1/1；`esbuild` 4 ts 语法通过；`vue-tsc --noEmit` 全量 **0 错误**。
+
+**分支合入 main（2026-11-01）**：`feat/port-movo-sandbox`（P0-P2 + 分析文档，15 提交）与 `feat/port-movo-sharing`（P3 全套：后端最小子集 + 二期 + 三期-a + SSE 后端/前端，5 提交）**均已 `--no-ff` 合并入 `main`**（`642eba14`、`ac1e4301`）。两分支相对 base `c9d185dd` 的改动文件**零重叠**（sandbox 179 vs sharing 26），合并**无冲突**；合并后 main 抽查：chat-api 8 文件 `py_compile` 0 失败 + 前端 `check_sfc` 3/3 通过。
+
 ---
 
 ## 附录：本次比对所用命令（可复现）
