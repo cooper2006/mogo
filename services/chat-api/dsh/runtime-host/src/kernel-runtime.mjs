@@ -5,17 +5,21 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 
 import * as DeterministicModelPlugin from './deterministic-model-plugin.mjs'
 import { AskaiModelGatewayAdapter } from './askai-model-gateway-plugin.mjs'
 import { EventJournal } from './event-journal.mjs'
 import { NativePluginRegistry } from './native-plugin-registry.mjs'
+import { ManagedPluginBridge } from './managed-plugin-bridge.mjs'
 import { AskaiToolBridge } from './askai-tool-bridge-plugin.mjs'
 import { AskaiWebSearchProvider } from './askai-web-search-provider.mjs'
+import { hasConfiguredWebSearch } from './web-search-availability.mjs'
 import { RuntimeTemporalContext } from './runtime-temporal-context.mjs'
 import { RuntimeTurnContext } from './runtime-turn-context.mjs'
 import { OfficialDshHostComposition } from './official-host/composition.mjs'
 import { compatibleSessionEvents } from './official-host/event-compat.mjs'
+import { LiveAssistantStream } from './official-host/live-assistant-stream.mjs'
 import { ASKAI_ENTERPRISE_PRESET_ID } from './official-host/overlay.mjs'
 import { currentPermissionPreset, normalizePersistedPreset } from './official-host/api-compat.mjs'
 import { OfficialSessionComposer, enterpriseToolNames } from './official-host/session-composer.mjs'
@@ -28,6 +32,9 @@ import { capabilityToolContracts, modelToolContracts } from './official-host/too
 import { DshWorkspaceService } from './workspace-service.mjs'
 import { cancelSessionWork } from './session-cancellation.mjs'
 import { DesktopApprovalBroker } from './desktop-approval-broker.mjs'
+import { CodeApprovalReviewer } from './code-approval-reviewer.mjs'
+import { UserQuestionBroker } from './user-question-broker.mjs'
+import { codePermissionPolicy } from './code-permission-policy.mjs'
 import { registerAskaiSkillProvider } from './askai-skill-provider.mjs'
 import { invokeSelectedSkill, resolveSkillTurnContext } from './skill-turn-selection.mjs'
 import { SkillInvocationTracker } from './skill-invocation-tracker.mjs'
@@ -37,7 +44,9 @@ export class KernelRuntime {
   #ctx
   #handles = new Map()
   #journal = new EventJournal()
+  #liveAssistantStream = new LiveAssistantStream(this.#journal)
   #plugins
+  #managedPlugins
   #modelAdapter
   #modelAdapterDispose
   #toolBridge
@@ -49,7 +58,9 @@ export class KernelRuntime {
   #sessionComposer
   #workspaces
   #desktopApprovals
+  #userQuestions
   #skillProviderDispose
+  #skillProvider
   #skillResourceToolDispose
   #skillInvocations
 
@@ -67,15 +78,29 @@ export class KernelRuntime {
     await mkdir(this.storageRoot, { recursive: true })
     this.#composition = new OfficialDshHostComposition({
       storageRoot: this.storageRoot,
-      webSearchProvider: this.modelProfile?.toolProfile === undefined ? undefined : 'askai-enterprise',
+      webSearchProvider: hasConfiguredWebSearch(this.modelProfile) ? 'askai-enterprise' : undefined,
+      plugins: this.modelProfile?.plugins,
     })
     const ctx = await this.#composition.start()
+    if (this.#composition.unavailablePlugins.length > 0) {
+      console.warn('MOGO Runtime omitted incompatible DSH plugins:', this.#composition.unavailablePlugins)
+      this.modelProfile = Object.freeze({
+        ...this.modelProfile,
+        plugins: this.#composition.availablePlugins,
+      })
+    }
     this.#ctx = ctx
+    this.#managedPlugins = new ManagedPluginBridge(ctx)
     this.#temporalContext.install(ctx)
-    this.#turnContext.install(ctx)
+    this.#turnContext.install(ctx, { visionEnabled: this.modelProfile?.visionEnabled === true })
     const skillProviderRegistration = registerAskaiSkillProvider(
-      ctx, this.modelProfile?.skillProfile, { storageRoot: this.storageRoot },
+      ctx, this.modelProfile?.skillProfile, {
+        storageRoot: this.storageRoot,
+        bundleGatewayUrl: this.modelProfile?.bundleGatewayUrl,
+        accessToken: this.modelProfile?.accessToken,
+      },
     )
+    this.#skillProvider = skillProviderRegistration?.provider
     this.#skillProviderDispose = skillProviderRegistration?.dispose
     this.#skillResourceToolDispose = skillProviderRegistration === undefined
       ? undefined
@@ -83,26 +108,28 @@ export class KernelRuntime {
           provider: skillProviderRegistration.provider,
           invocations: this.#skillInvocations,
         })
-    if (this.modelProfile?.toolProfile !== undefined) {
+    if (hasConfiguredWebSearch(this.modelProfile)) {
       this.#webSearchProvider = new AskaiWebSearchProvider(ctx, {
         ...this.modelProfile.toolProfile,
         profileVersion: this.profileVersion,
       })
       this.#webSearchDispose = ctx.web.registerSearchProvider(this.#webSearchProvider)
     }
-    this.#desktopApprovals = new DesktopApprovalBroker(ctx, {
-      excludedTools: enterpriseToolNames(this.modelProfile),
-    })
     if (this.modelProfile === undefined) await ctx.plugin(DeterministicModelPlugin)
     else {
-      this.#modelAdapter = new AskaiModelGatewayAdapter(this.modelProfile)
+      this.#modelAdapter = new AskaiModelGatewayAdapter(this.modelProfile, ctx.get('attachments'))
       this.#modelAdapterDispose = ctx.llm.registerAdapter(['askai-model-gateway'], this.#modelAdapter)
     }
+    this.#desktopApprovals = new DesktopApprovalBroker(ctx, {
+      excludedTools: enterpriseToolNames(this.modelProfile),
+      automaticReviewer: new CodeApprovalReviewer(this.#modelAdapter, this.modelProfile),
+    })
+    this.#userQuestions = new UserQuestionBroker(ctx)
     if (this.modelProfile?.toolProfile !== undefined) {
       this.#toolBridge = new AskaiToolBridge(ctx, {
         ...this.modelProfile.toolProfile,
         profileVersion: this.profileVersion,
-      })
+      }, { skillInvocations: this.#skillInvocations })
     }
     this.#sessionComposer = new OfficialSessionComposer(ctx, {
       agentOptions: this.#agentOptions(),
@@ -110,10 +137,11 @@ export class KernelRuntime {
     })
     this.#workspaces = new DshWorkspaceService(ctx.workspaceRegistry)
 
+    ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+      this.#liveAssistantStream.observeFrame(agent.id, frame)
+    }, { global: true })
     ctx.on('session/event', (session, event) => {
-      for (const compatible of compatibleSessionEvents(event)) {
-        this.#journal.append(session.id, compatible.type, compatible.data, compatible.seq ?? event.seq)
-      }
+      this.#liveAssistantStream.observeSessionEvent(session, event)
       const selection = this.#skillInvocations.observe(session.id, event)
       if (selection !== undefined) this.#journal.append(session.id, 'skill/selected', selection)
     }, { global: true })
@@ -128,7 +156,7 @@ export class KernelRuntime {
 
   async createSession({
     sessionId, cwd, workspaceId, presetId = ASKAI_ENTERPRISE_PRESET_ID,
-    permissionPreset, seed, parentSessionId,
+    permissionPreset, approvalReviewer, approvalPolicy, seed, parentSessionId,
   }) {
     this.#assertStarted()
     if (this.#handles.has(sessionId)) throw new Error(`session already live: ${sessionId}`)
@@ -151,7 +179,12 @@ export class KernelRuntime {
     })
     this.#handles.set(sessionId, handle)
     try {
-      if (permissionPreset !== undefined) this.#ctx.permissionPresets.set(handle.agent.session, permissionPreset)
+      if (presetId === 'code') {
+        const policy = codePermissionPolicy({ permissionPreset, approvalReviewer, approvalPolicy })
+        this.#ctx.permissionPresets.set(handle.agent.session, policy.permissionPreset)
+        setApprovalPolicy(handle.agent.session, policy.approvalPolicy)
+        this.#desktopApprovals.setReviewer(sessionId, policy.approvalReviewer)
+      } else if (permissionPreset !== undefined) this.#ctx.permissionPresets.set(handle.agent.session, permissionPreset)
       if (workspace !== undefined) await this.#workspaces.attachSession(workspace.id, sessionId)
       return await this.describeSession(handle.agent)
     } catch (error) {
@@ -187,21 +220,38 @@ export class KernelRuntime {
     return await this.describeSession(handle.agent)
   }
 
-  send({ sessionId, mode, content, temporalContext, turnContext }) {
+  async send({ sessionId, mode, content, temporalContext, turnContext, permissionPreset, approvalReviewer, approvalPolicy }) {
     const agent = this.#requireAgent(sessionId)
+    if (agent.session?.header?.agentPreset === 'code' && (permissionPreset !== undefined || approvalReviewer !== undefined || approvalPolicy !== undefined)) {
+      const policy = codePermissionPolicy({ permissionPreset, approvalReviewer, approvalPolicy })
+      this.#ctx.permissionPresets.set(agent.session, policy.permissionPreset)
+      this.#ctx.approval.setPolicy(agent, policy.approvalPolicy)
+      this.#desktopApprovals.setReviewer(sessionId, policy.approvalReviewer)
+    }
     if (temporalContext === undefined || temporalContext === null) {
       throw new TypeError('temporalContext is required for every MOGO turn')
     }
     this.#temporalContext.update(sessionId, temporalContext)
     const resolvedTurnContext = resolveSkillTurnContext(this.modelProfile, turnContext)
     this.#turnContext.update(sessionId, resolvedTurnContext.context)
-    this.#skillInvocations.expectManual(sessionId, resolvedTurnContext.skillName)
-    const message = createUserMessage({
-      content: content.map((block, index) => {
-        if (block.type !== 'text') throw new Error(`this Runtime Profile only accepts text content: ${block.type}`)
+    this.#modelAdapter?.setKnowledgeMode(sessionId, resolvedTurnContext.context?.knowledge_qa_enabled === true)
+    const promptParts = content.map((block, index) => {
+      if (block.type === 'text') {
         const text = String(block.data?.text ?? '')
         return { type: 'text', text: index === 0 ? invokeSelectedSkill(resolvedTurnContext.skillName, text) : text }
-      }),
+      }
+      if (block.type === 'image') return {
+        type: 'image', mediaType: String(block.data?.mediaType ?? ''),
+        data: String(block.data?.data ?? ''), name: String(block.data?.name ?? ''),
+      }
+      throw new Error(`this Runtime Profile does not accept ${block.type} content`)
+    })
+    const admitted = promptParts.some(block => block.type === 'image')
+      ? await this.#ctx.get('attachments').admitPromptContent(promptParts)
+      : promptParts
+    this.#skillInvocations.expectManual(sessionId, resolvedTurnContext.skillName)
+    const message = createUserMessage({
+      content: admitted,
       source: { kind: 'user' },
     })
     try {
@@ -229,9 +279,24 @@ export class KernelRuntime {
     return this.#desktopApprovals.decide(sessionId, approvalId, outcome, grantScope)
   }
 
+  pendingQuestions(sessionId) {
+    this.#requireAgent(sessionId)
+    return this.#userQuestions.list(sessionId)
+  }
+
+  answerQuestion(sessionId, questionId, answers) {
+    this.#requireAgent(sessionId)
+    return this.#userQuestions.answer(sessionId, questionId, answers)
+  }
+
   events(sessionId, afterCursor) {
     this.#requireAgent(sessionId)
     return this.#journal.replay(sessionId, afterCursor)
+  }
+
+  headCursor(sessionId) {
+    this.#requireAgent(sessionId)
+    return this.#journal.head(sessionId)
   }
 
   subscribeEvents(sessionId, afterCursor, subscriber) {
@@ -242,6 +307,7 @@ export class KernelRuntime {
   refreshModelCredential(credential) {
     if (this.#modelAdapter === undefined) throw new Error('runtime does not use MOGO Model Gateway')
     this.#modelAdapter.updateCredential(credential)
+    this.#skillProvider?.materializer?.updateCredential(credential.accessToken)
     return { refreshed: true }
   }
 
@@ -324,9 +390,12 @@ export class KernelRuntime {
     this.#handles.delete(sessionId)
     this.#temporalContext.remove(sessionId)
     this.#turnContext.remove(sessionId)
+    this.#modelAdapter?.clearKnowledgeMode(sessionId)
     this.#desktopApprovals.clearSession(sessionId)
+    this.#userQuestions.clearSession(sessionId)
     await handle.agent.whenIdle()
     await handle.dispose()
+    this.#liveAssistantStream.remove(sessionId)
     this.#journal.remove(sessionId)
     return { disposed: true }
   }
@@ -343,6 +412,17 @@ export class KernelRuntime {
     return this.#plugins.unload(specifier)
   }
 
+  async managedPluginList() {
+    return {
+      ...(await this.#managedPlugins.list()),
+      globalTools: this.#ctx.tools.schemas().map(tool => tool.name),
+    }
+  }
+  managedPluginInspect(spec, registry) { return this.#managedPlugins.inspect(spec, registry) }
+  managedPluginInstall(spec, options) { return this.#managedPlugins.install(spec, options) }
+  managedPluginEnable(name, enabled) { return this.#managedPlugins.enable(name, enabled) }
+  managedPluginRemove(name) { return this.#managedPlugins.remove(name) }
+
   pluginInventory() {
     return {
       official: this.#composition.inventory(),
@@ -355,9 +435,11 @@ export class KernelRuntime {
       this.#handles.delete(sessionId)
       handle.agent.cancel({ kind: 'disposed' })
       await handle.dispose()
+      this.#liveAssistantStream.remove(sessionId)
     }
     this.#modelAdapterDispose?.()
     this.#desktopApprovals?.dispose()
+    this.#userQuestions?.dispose()
     this.#toolBridge?.dispose()
     this.#webSearchDispose?.()
     this.#skillResourceToolDispose?.()

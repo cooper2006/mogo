@@ -1,7 +1,13 @@
+function stableModuleName(name) {
+  if (typeof name !== 'string') return name
+  const packages = [...name.matchAll(/[/\\]node_modules[/\\](@deepseek-ai[/\\][^/\\]+)/g)]
+  return packages.length === 0 ? name : packages.at(-1)[1].replace('\\', '/')
+}
+
 function presetEntries(agentPresets = []) {
   return agentPresets.flatMap(preset => preset.rows.map(row => ({
     entryId: `${preset.id}:${row.entryId ?? row.moduleName}`,
-    moduleName: row.moduleName,
+    moduleName: stableModuleName(row.moduleName),
     enabled: row.enabled !== false,
     fiberPhase: row.fiberPhase ?? null,
     presetId: preset.id,

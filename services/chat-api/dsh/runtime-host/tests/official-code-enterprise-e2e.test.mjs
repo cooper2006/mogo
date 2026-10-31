@@ -9,6 +9,7 @@ import { KernelRuntime } from '../src/kernel-runtime.mjs'
 
 const MODEL_TOKEN = 'model-token'
 const TOOL_TOKEN = 'tool-token'
+const PLATFORM_SHELL_TOOL = process.platform === 'win32' ? 'pwsh' : 'bash'
 
 function ndjson(response, events) {
   const body = events.map(event => JSON.stringify(event)).join('\n') + '\n'
@@ -67,11 +68,11 @@ test('one official Code turn searches enterprise data, reads, writes, and tests 
       assert.equal(request.headers.authorization, `Bearer ${MODEL_TOKEN}`)
       modelCalls.push(body)
       const calls = [
-        ['initial', 'bash', { command: "node -e \"const fs=require('fs'); process.exit(fs.existsSync('output.txt') && fs.statSync('output.txt').size > 0 ? 0 : 1)\"", description: 'Reproduce missing output failure' }],
+        ['initial', PLATFORM_SHELL_TOOL, { command: "node -e \"const fs=require('fs'); process.exit(fs.existsSync('output.txt') && fs.statSync('output.txt').size > 0 ? 0 : 1)\"", description: 'Reproduce missing output failure' }],
         ['search', 'askai_mcp_search', { query: 'policy' }],
         ['read', 'read', { file_path: 'input.txt' }],
         ['write', 'write', { file_path: 'output.txt', content: 'workspace fact\nenterprise fact\n' }],
-        ['verify', 'bash', { command: "node -e \"const fs=require('fs'); process.exit(fs.existsSync('output.txt') && fs.statSync('output.txt').size > 0 ? 0 : 1)\"", description: 'Verify generated output' }],
+        ['verify', PLATFORM_SHELL_TOOL, { command: "node -e \"const fs=require('fs'); process.exit(fs.existsSync('output.txt') && fs.statSync('output.txt').size > 0 ? 0 : 1)\"", description: 'Verify generated output' }],
       ]
       const next = calls[modelCalls.length - 1]
       if (next !== undefined) return ndjson(response, [
@@ -101,12 +102,12 @@ test('one official Code turn searches enterprise data, reads, writes, and tests 
   try {
     await runtime.start()
     const session = await runtime.createSession({ sessionId: 'code-e2e', presetId: 'code', cwd: root })
-    for (const name of ['askai_mcp_search', 'read', 'write', 'bash']) assert.ok(session.modelTools.includes(name), name)
+    for (const name of ['askai_mcp_search', 'read', 'write', PLATFORM_SHELL_TOOL]) assert.ok(session.modelTools.includes(name), name)
     assert.equal(session.modelTools.includes('run_code'), false)
     assert.equal(session.permissionPreset, 'workspace-write')
     assert.ok(session.capabilityTools.includes('read'))
     assert.ok(session.capabilityTools.includes('write'))
-    assert.ok(session.capabilityTools.includes('bash'))
+    assert.ok(session.capabilityTools.includes(PLATFORM_SHELL_TOOL))
     assert.ok(session.capabilityTools.includes('skill'))
     runtime.send({
       sessionId: 'code-e2e', mode: 'prompt', content: [{ type: 'text', data: { text: 'Search, edit, and test.' } }],
@@ -122,7 +123,7 @@ test('one official Code turn searches enterprise data, reads, writes, and tests 
     assert.equal(await readFile(join(root, 'output.txt'), 'utf8'), 'workspace fact\nenterprise fact\n')
     assert.equal(enterpriseCalls.length, 1)
     assert.equal(enterpriseCalls[0].toolName, 'askai_mcp_search')
-    assert.ok(modelCalls[0].tools.some(tool => tool.name === 'bash'))
+    assert.ok(modelCalls[0].tools.some(tool => tool.name === PLATFORM_SHELL_TOOL))
     assert.equal(modelCalls[0].tools.some(tool => tool.name === 'run_code'), false)
     assert.equal(modelCalls[0].tools.some(tool => tool.name === 'code_task'), false)
     assert.match(JSON.stringify(modelCalls[0]), /ASKAI_E2E_REPOSITORY_INSTRUCTION/)
@@ -151,7 +152,7 @@ test('Code analysis normalizes broad glob and redundant standing sandbox mode', 
       { type: 'finish', reason: { kind: 'tool-calls' } },
     ])
     if (modelCalls.length === 2) return ndjson(response, [
-      { type: 'tool-call', id: 'same-mode', name: 'bash', arguments: JSON.stringify({
+      { type: 'tool-call', id: 'same-mode', name: PLATFORM_SHELL_TOOL, arguments: JSON.stringify({
         command: 'pwd', description: 'Show current workspace', workdir: root,
         sandbox_permissions: 'workspace-write', justification: 'Inspect the current project.',
       }) },
@@ -184,9 +185,9 @@ test('Code analysis normalizes broad glob and redundant standing sandbox mode', 
     })
     await waitFor(() => modelCalls.length >= 3)
     await waitFor(() => runtime.events('analysis-compat', -1).some(event => event.nativeType === 'turn/end'))
-    const observations = JSON.stringify(modelCalls.slice(1))
+    const observations = JSON.stringify(modelCalls.slice(1)).replace(/\\+/g, '/')
     assert.match(observations, /src\/marker\.txt/)
-    assert.match(observations, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.match(observations, new RegExp(root.replace(/\\/g, '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
     assert.doesNotMatch(observations, /not strictly wider|subprocess seam retained/)
     const events = runtime.events('analysis-compat', -1)
     assert.equal(events.some(event => event.nativeType === 'approval/asked'), false)
@@ -207,7 +208,7 @@ test('cancelling a Code Session terminates its official DSH background jobs', as
     modelCalls.push(body)
     if (modelCalls.length === 1) {
       return ndjson(response, [
-        { type: 'tool-call', id: 'run-background', name: 'bash', arguments: JSON.stringify({
+        { type: 'tool-call', id: 'run-background', name: PLATFORM_SHELL_TOOL, arguments: JSON.stringify({
           description: 'Start cancellable background verification',
           command: "node -e \"setTimeout(() => require('fs').writeFileSync('should-not-exist.txt', 'leaked'), 3000)\"",
           run_in_background: true,
@@ -318,12 +319,12 @@ test('official DSH bounds foreground timeout and large command output', async ()
     if (request.url !== '/model') return response.writeHead(404).end()
     modelCalls.push(body)
     if (modelCalls.length === 1) return ndjson(response, [
-      { type: 'tool-call', id: 'large-output', name: 'bash', arguments: JSON.stringify({
+      { type: 'tool-call', id: 'large-output', name: PLATFORM_SHELL_TOOL, arguments: JSON.stringify({
         command: "node -e \"process.stdout.write('X'.repeat(100000))\"", description: 'Generate bounded command output',
       }) }, { type: 'finish', reason: { kind: 'tool-calls' } },
     ])
     if (modelCalls.length === 2) return ndjson(response, [
-      { type: 'tool-call', id: 'command-timeout', name: 'bash', arguments: JSON.stringify({
+      { type: 'tool-call', id: 'command-timeout', name: PLATFORM_SHELL_TOOL, arguments: JSON.stringify({
         command: "node -e \"setTimeout(() => {}, 1000)\"", description: 'Verify foreground timeout', timeout_ms: 50,
       }) }, { type: 'finish', reason: { kind: 'tool-calls' } },
     ])

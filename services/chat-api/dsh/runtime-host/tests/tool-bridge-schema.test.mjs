@@ -56,6 +56,26 @@ test('native replacement stays available to the gateway but is not registered as
   bridge.dispose()
 })
 
+test('script tool forwards the active Skill name from the Runtime tracker', async () => {
+  let registered
+  let sent
+  const ctx = {
+    tools: { register: spec => { registered = spec; return () => {} } },
+    on: () => () => {},
+  }
+  const bridge = new AskaiToolBridge(ctx, {
+    tools: [{ ...descriptor, name: 'run_script', description: 'script', output_schema: {},
+      timeout_ms: 1000, risk_level: 'read', approval_required: false }],
+    profileVersion: 'profile-a', gatewayUrl: 'http://gateway.test', accessToken: 'test',
+  }, {
+    skillInvocations: { current: sessionId => sessionId === 'session-a' ? 'ppt-master' : '' },
+    requestJson: async (_url, body) => { sent = body; return { ok: true, payload: { result: {} } } },
+  })
+  await registered.execute({}, { agent: { id: 'session-a' }, callId: 'call-a' })
+  assert.equal(sent.currentSkillName, 'ppt-master')
+  bridge.dispose()
+})
+
 test('enterprise tools cannot shadow official DSH Code tool names', () => {
   const tools = ['bash', 'present', 'web_fetch'].map(name => ({ ...descriptor, name }))
   assert.throws(

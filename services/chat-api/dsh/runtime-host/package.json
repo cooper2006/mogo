@@ -56,6 +56,7 @@
     "@deepseek-ai/dsh-tool-workflow": "0.2.1-rc.3",
     "@deepseek-ai/dsh-workflow-ptc": "0.2.1-rc.3",
     "fflate": "0.8.3",
-    "js-yaml": "4.3.2"
+    "js-yaml": "4.3.2",
+    "pnpm": "12.14.0"
   }
 }

@@ -9,7 +9,12 @@ import {
 } from './overlay.mjs'
 import { collectInsertedEntryIds } from './overlay-planner.mjs'
 import { extractOfficialPresetIsolation } from './preset-isolation.mjs'
+import { resolvePresetModules } from './preset-module-resolution.mjs'
 import { readPluginInventory } from './inventory-compat.mjs'
+import { prepareManagedProfile } from './managed-profile.mjs'
+import { reconcileProfilePlugins } from './plugin-reconciler.mjs'
+import { recoverWindowsStaleModuleLock } from './windows-stale-module-lock.mjs'
+import { recoverWindowsEmptyModuleFallbacks } from './windows-empty-module-fallbacks.mjs'
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url))
 const RUNTIME_HOST_ROOT = resolve(MODULE_DIR, '..', '..')
@@ -20,39 +25,66 @@ export class OfficialDshHostComposition {
   #ctx
   #inventory
 
-  constructor({ storageRoot, webSearchProvider }) {
+  constructor({ storageRoot, webSearchProvider, plugins = [] }) {
     this.storageRoot = resolve(storageRoot)
     this.webSearchProvider = webSearchProvider
+    this.plugins = plugins
   }
 
   async start() {
     if (this.#ctx !== undefined) throw new Error('official DSH Host composition is already started')
+    await this.#boot()
+    try {
+      const unavailable = new Map()
+      if (await reconcileProfilePlugins(this.#ctx.get('pluginManager'), this.plugins, {
+        onUnavailable: (plugin, error) => unavailable.set(plugin.name, { name: plugin.name, reason: error.code }),
+      })) {
+        await this.dispose()
+        await this.#boot()
+      }
+      this.unavailablePlugins = [...unavailable.values()]
+      this.availablePlugins = this.plugins.filter(plugin => !unavailable.has(plugin.name))
+      const active = new Map((await this.#ctx.get('pluginManager').listBundles())
+        .map(item => [item.name, item]))
+      for (const plugin of this.availablePlugins) {
+        const item = active.get(plugin.name)
+        if (!item?.enabled || item.version !== plugin.version || item.error) {
+          throw new Error(`DSH plugin ${plugin.name} did not activate in this Runtime Profile`)
+        }
+        for (const row of item.rows ?? []) {
+          const entry = this.#inventory.entries.find(candidate => candidate.entryId === row.entryId)
+          if (!entry || (entry.enabled && entry.fiberPhase !== 'active')) {
+            throw new Error(`DSH plugin ${plugin.name} row ${row.rowId} did not become active (${entry?.fiberPhase ?? 'missing'})`)
+          }
+        }
+      }
+      return this.#ctx
+    } catch (error) {
+      await this.dispose()
+      throw error
+    }
+  }
+
+  async #boot() {
     const installation = await resolveDshInstallation()
     const appBoot = await loadAssociatedAppBoot(installation)
-    // Host 配置 profile（cordis.yml）必须落在“能向上回溯到 node_modules”的目录：
-    // cordis 插件加载器用 `ctx.baseUrl = dirname(配置文件)` 作为 preset 条目裸包名
-    // （@deepseek-ai/dsh-tool-* 等）的解析基址（`bareModuleBaseUrl` 只对 `include`
-    // 配置内置生效，不作用于 preset 插件）。容器里 storageRoot 是独立数据卷
-    // （/data/dsh-runtime），其向上回溯的目录没有 node_modules，会导致所有 preset 行
-    // `never started`（ERR_MODULE_NOT_FOUND）。故把 profile 放到运行时安装根目录
-    // （其 node_modules 含全部 preset 依赖）；会话/工作区持久化仍使用 storageRoot。
-    // 用 storageRoot 唯一 basename 作子目录，保证同进程多实例（测试）互不覆盖。
-    // 该目录由镜像在构建期创建并 chown 给运行用户（见 Dockerfile），避免只读 /app 写入被拒。
+    // Host 配置 profile 必须落在“能向上回溯到 node_modules”的目录（本地修复）：
+    // 容器里 storageRoot 是独立数据卷（/data/dsh-runtime），其向上回溯目录没有
+    // node_modules，会导致 preset 行 never started（ERR_MODULE_NOT_FOUND）。故
+    // 放到运行时安装根目录；会话/工作区持久化仍用 storageRoot。用 storageRoot 的
+    // basename 作子目录，保证同进程多实例（测试）互不覆盖。
     const moduleHome = resolve(RUNTIME_HOST_ROOT, 'host-profile-home', basename(this.storageRoot))
-    const profileDir = resolve(moduleHome, 'profiles', 'askai-host')
-    const profileRoot = resolve(profileDir, 'cordis.yml')
-    await mkdir(profileDir, { recursive: true })
-    await writeFile(profileRoot, await readFile(ROOT_CONFIG, 'utf8'))
+    await mkdir(moduleHome, { recursive: true })
+    await recoverWindowsStaleModuleLock(moduleHome)
+    await recoverWindowsEmptyModuleFallbacks(moduleHome)
     await healModuleFallback(appBoot, installation, moduleHome)
-    const basePatches = appBoot.loadOverlayPatches('askai-dsh-host', installation.basePatchPath)
-    // 0.1.7-rc.2 起 preset 隔离改由 dsh-web-app 的 `agent-preset-registry` roster +
-    // `presets/*.patch.yml` 承载，旧的 `agent-presets` roster 行已移除，
-    // 官方 preset-isolation 块不再适用；此时跳过提取，由 overlay 的 preset roots 生效。
-    // 早期 train（0.1.2–0.1.6）仍走 webAppPatches 提取路径。
-    const webAppPatchPaths = installation.webAppPatchPath
-    const webAppPatches = webAppPatchPaths.map((patchPath) =>
-      appBoot.loadOverlayPatches('askai-dsh-official-preset-isolation', patchPath),
-    ).flat()
+    const initialProfile = await prepareManagedProfile({
+      appBoot, installation, moduleHome, overlays: [],
+    })
+    const basePatches = initialProfile.basePatches
+    const webAppPatches = installation.webAppPatchPath.flatMap(path => appBoot.loadOverlayPatches(
+      'askai-dsh-official-preset-isolation', path,
+    ))
     const presetIsolation = extractOfficialPresetIsolation(webAppPatches)
     // 0.1.7-rc.2 train：preset 条目（standard/ptc/minimal/code/cordis）的
     // `agent-preset` insert 行在 web-app preset patch 里，registry 行在
@@ -65,6 +97,7 @@ export class OfficialDshHostComposition {
       storageRoot: this.storageRoot,
       askaiPresetRoot: ASKAI_PRESET_ROOT,
       shippedPresetRoot: installation.shippedPresetRoot,
+      declarativePresets: presetIsolation.declarative,
       webSearchProvider: this.webSearchProvider,
       occupiedIds: collectInsertedEntryIds(basePatches),
       hostFeatures: {
@@ -76,19 +109,26 @@ export class OfficialDshHostComposition {
       webAppPatches,
       hostRoot: RUNTIME_HOST_ROOT,
     })
+    const overlays = [...resolvePresetModules([...presetIsolation.patches, ...askaiOverlay], installation)]
+    const managedProfile = await prepareManagedProfile({
+      appBoot, installation, moduleHome, overlays,
+    })
+    await writeFile(managedProfile.root, await readFile(ROOT_CONFIG, 'utf8'))
     this.#ctx = await appBoot.boot(
       'askai-dsh-host',
-      profileRoot,
-      [...basePatches, ...presetIsolation.patches, ...askaiOverlay],
+      managedProfile.root,
+      managedProfile.patches,
+      async ctx => {
+        ctx.provide('profileContext', managedProfile.context)
+        await ctx.plugin(appBoot.PluginPackages, { resolution: managedProfile.resolution })
+      },
       undefined,
-      installation.moduleBaseUrl,
     )
     this.installation = installation
     this.presetIsolation = presetIsolation
     const gateway = this.#ctx.get('pluginInventory')
     if (gateway === undefined) throw new Error('official DSH plugin inventory is unavailable')
     this.#inventory = await readPluginInventory(gateway)
-    return this.#ctx
   }
 
   get ctx() {
