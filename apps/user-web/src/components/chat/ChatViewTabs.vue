@@ -34,5 +34,9 @@ const tabs = [
     >
       {{ t(tab.labelKey) }}
     </button>
+    <!-- P3 三期-a：会话级操作区（如分享按钮），由宿主 App.vue 经 slot 注入。 -->
+    <div class="ml-auto flex shrink-0 items-center gap-1">
+      <slot name="actions" />
+    </div>
   </div>
 </template>
