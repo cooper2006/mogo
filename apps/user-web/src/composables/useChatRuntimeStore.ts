@@ -3,6 +3,7 @@ import { fetchOrgBilling } from '../api/auth'
 import { uploadChatDocument, uploadChatImage, type UploadedDocument, type UploadedImage } from '../api/chat'
 import { getSession, type ChatMessage, type SessionDetail } from '../api/sessions'
 import { fetchChatMessageEvents, startChatStream, type ChatStreamHandle } from './useChatStream'
+import { startSessionLiveStream, type SessionLiveAccessRevokedReason, type SessionLiveExecutionEvent, type SessionLiveStreamHandle } from './useSessionLiveStream'
 import { getLocale, t } from './i18n'
 import { resumeBrowserInterventionTaskUntilSettled } from './tasks/browserInterventionTaskFlow'
 import {
@@ -106,6 +107,11 @@ export type ChatRuntimePane = {
    * Kept per-pane so switching sessions never leaks the selected tab.
    */
   activeView: 'chat' | 'trajectory'
+  /**
+   * P3 SSE：共享会话（access='shared'）的实时订阅句柄；owner 或非共享会话为
+   * null。会话关闭/重置时 stop()。
+   */
+  sessionLiveHandle: SessionLiveStreamHandle | null
 }
 
 type SendInput = {
@@ -128,6 +134,9 @@ type RuntimeCallbacks = {
   onSessionUpdated?: (sessionId: string) => void | Promise<void>
   onQuotaRefresh?: () => void | Promise<void>
   onLoginRequired?: () => void
+  /** P3 SSE：共享会话实时流检测到访问被撤销/成员退出（participant_removed /
+   *  participant_left）。宿主应提示并退出该共享会话。 */
+  onSharedAccessLost?: (sessionId: string, reason: SessionLiveAccessRevokedReason) => void
 }
 
 export type ExternalTurnHandle = {
@@ -194,6 +203,7 @@ function createPane(input: { key?: string; sessionId: string | null; messages?: 
     modelInstanceId: '',
     codeProject: null,
     activeView: 'chat',
+    sessionLiveHandle: null,
   }
 }
 
@@ -723,6 +733,7 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
       pane.activeStream?.abort()
       pane.abortController?.abort()
       pane.authResumeController?.abort()
+      pane.sessionLiveHandle?.stop()
     }
     state.panes = []
     state.activeKey = ''
@@ -735,6 +746,118 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     setActivePane(pane)
     pruneInactivePanes()
     return pane
+  }
+
+  // -- P3 SSE：共享会话实时流 ---------------------------------------------
+  // 本地无 himovo 的 pane-live 骨架，也不搬其 T5/T8/T9 投影；这里只在
+  // 「共享参与者（access='shared'）」打开会话时叠加一条 SSE 订阅，把
+  // 收到的 V3 执行事件增量应用到本地已有的 _execV3 行（幂等），控制帧
+  // 触发权威刷新（重新 getSession 合并）后以 COLD_ATTACH 重新开流。
+
+  function mergeSessionMessages(existing: RuntimeMessage[], incoming: ChatMessage[] | undefined): RuntimeMessage[] {
+    if (!incoming?.length) return existing
+    const byMessageId = new Map<string, RuntimeMessage>()
+    for (const row of existing) {
+      if (row.message_id) byMessageId.set(row.message_id, row)
+    }
+    const merged: RuntimeMessage[] = []
+    const incomingIds = new Set<string>()
+    for (const item of incoming) {
+      if (item.message_id) incomingIds.add(item.message_id)
+      const prev = item.message_id ? byMessageId.get(item.message_id) : undefined
+      const msg = ensureMessageId({
+        ...(item as RuntimeMessage),
+        role: item.role === 'user' ? 'user' : 'assistant',
+        content: item.content || '',
+      })
+      if (prev?._id) msg._id = prev._id // 复用 _id 防渲染闪烁
+      if (prev?._execV3) msg._execV3 = prev._execV3 // 保留已应用执行事件
+      if (prev?._provisionalTextByItem) msg._provisionalTextByItem = prev._provisionalTextByItem
+      merged.push(msg)
+    }
+    // 保留本地乐观/未持久化行（无 message_id 或后端暂未提及），避免刷新丢行。
+    const orphans = existing.filter((row) => !row.message_id || !incomingIds.has(row.message_id))
+    return orphans.length ? [...merged, ...orphans] : merged
+  }
+
+  function applyLiveExecution(pane: ChatRuntimePane, event: SessionLiveExecutionEvent): void {
+    const row = pane.messages.find(
+      (m) => m.role === 'assistant' && m.message_id === event.message_id,
+    )
+    if (!row) return
+    const store = ensureExecV3(row)
+    const before = store.state.rawEvents.length
+    store.applyEvent(event.event)
+    if (store.state.rawEvents.length === before) return
+    applyAssistantContentEvent(row, event.event)
+  }
+
+  async function refreshSharedSessionPane(
+    pane: ChatRuntimePane,
+    sessionId: string,
+    userId: string,
+    tenantId: string | undefined,
+    authToken: string | null,
+  ): Promise<void> {
+    try {
+      const detail = await getSession(sessionId, userId, tenantId, authToken)
+      pane.messages = mergeSessionMessages(pane.messages, detail.messages)
+      if (detail.runtime_preset_id) pane.runtimePresetId = detail.runtime_preset_id
+      if (detail.model_instance_id !== undefined && detail.model_instance_id !== null) pane.modelInstanceId = detail.model_instance_id
+      if (detail.code_project !== undefined) pane.codeProject = detail.code_project
+    } catch {
+      // 网络/权限失败：保留现有消息，等待下一次触发。
+    }
+  }
+
+  function reopenSharedSessionLive(
+    pane: ChatRuntimePane,
+    sessionId: string,
+    userId: string,
+    tenantId: string | undefined,
+    authToken: string | null,
+  ): void {
+    pane.sessionLiveHandle?.stop()
+    pane.sessionLiveHandle = null
+    startSharedSessionLive(pane, sessionId, userId, tenantId, authToken)
+  }
+
+  function startSharedSessionLive(
+    pane: ChatRuntimePane,
+    sessionId: string,
+    userId: string,
+    tenantId: string | undefined,
+    authToken: string | null,
+  ): void {
+    pane.sessionLiveHandle?.stop()
+    const handle = startSessionLiveStream({
+      sessionId,
+      paneKey: pane.key,
+      authToken,
+      onExecution: (event) => applyLiveExecution(pane, event),
+      // thread.changed：控制帧，游标有 gap/溢出/非法 → 权威刷新后 COLD_ATTACH 重开。
+      onThreadChanged: () => {
+        void refreshSharedSessionPane(pane, sessionId, userId, tenantId, authToken)
+          .then(() => reopenSharedSessionLive(pane, sessionId, userId, tenantId, authToken))
+      },
+      // members.changed：成员变化 → 权威刷新（列表由宿主 onSessionUpdated 刷新）。
+      onMembersChanged: () => {
+        void refreshSharedSessionPane(pane, sessionId, userId, tenantId, authToken)
+      },
+      onTurnStarted: () => {
+        void refreshSharedSessionPane(pane, sessionId, userId, tenantId, authToken)
+      },
+      onTurnCompleted: () => {
+        void refreshSharedSessionPane(pane, sessionId, userId, tenantId, authToken)
+        void refreshAfterRun(callbacks, sessionId)
+      },
+      // session.access.revoked：终止流，通知宿主提示并退出共享会话。
+      onAccessLost: (_paneKey, reason) => {
+        pane.sessionLiveHandle = null
+        callbacks.onSharedAccessLost?.(sessionId, reason)
+      },
+    })
+    pane.sessionLiveHandle = handle
   }
 
   async function selectSession(sessionId: string, userId: string, tenantId?: string, authToken?: string | null) {
@@ -757,6 +880,11 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
     state.panes = [...state.panes, pane]
     setActivePane(pane)
     pruneInactivePanes()
+    // P3 SSE：共享参与者（access='shared'）打开会话即订阅实时流，owner 由
+    // 本地 POST 流/恢复循环负责，不在此叠加。
+    if (detail.access === 'shared' && authToken) {
+      startSharedSessionLive(pane, detail.id, userId, tenantId, authToken)
+    }
     if (detail.active_run?.message_id && authToken) {
       const assistant = [...pane.messages].reverse().find(
         (item) => item.role === 'assistant' && item.message_id === detail.active_run?.message_id,
@@ -827,8 +955,10 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
   }
 
   function removeSession(sessionId: string) {
-    findPaneBySessionId(sessionId)?.authResumeController?.abort()
-    state.panes = state.panes.filter((pane) => pane.sessionId !== sessionId)
+    const pane = findPaneBySessionId(sessionId)
+    pane?.authResumeController?.abort()
+    pane?.sessionLiveHandle?.stop()
+    state.panes = state.panes.filter((item) => item.sessionId !== sessionId)
     clearUnread(sessionId)
     if (currentSessionId.value === sessionId) {
       startLocalSession()

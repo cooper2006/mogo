@@ -1358,6 +1358,8 @@ export const messages = {
   'session.share.error_inactive': { zh: '分享链接已过期或已撤销', en: 'The share link has expired or been revoked' },
   'session.share.error_token_required': { zh: '分享链接无效', en: 'The share link is invalid' },
   'session.share.error_generic': { zh: '操作失败，请稍后重试', en: 'Request failed. Please try again later.' },
+  'session.share.access_revoked': { zh: '分享者已移除你对该会话的访问权限', en: 'The sharer removed your access to this session' },
+  'session.share.access_left': { zh: '你已退出该共享会话', en: 'You left the shared session' },
   'session.sharedWithMe.title': { zh: '分享给我', en: 'Shared with me' },
   'session.sharedWithMe.unread': { zh: '有新消息', en: 'New messages' },
   'session.sharedWithMe.badge': { zh: '共享', en: 'Shared' },

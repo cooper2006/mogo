@@ -32,6 +32,7 @@ import { buildAdminSsoUrl, ssoWindowState } from './utils/adminUrl'
 import { sortSessionsByRecentActivity } from './utils/sessionOrdering'
 import { formatExactTokenAmount, formatQuotaUsagePercent, formatTokenAmount, quotaUsagePercent } from './utils/tokenNumberFormat'
 import { useChatRuntimeStore, type PendingRuntimeDocument } from './composables/useChatRuntimeStore'
+import type { SessionLiveAccessRevokedReason } from './composables/useSessionLiveStream'
 import { useDshCodeRuntime } from './composables/code/useDshCodeRuntime'
 import { useUserBoundProjects } from './composables/code/userBoundProjects'
 import { boundProjectWorktree } from './composables/code/projectAuthorization'
@@ -338,6 +339,7 @@ const chatRuntime = useChatRuntimeStore({
   },
   onQuotaRefresh: () => loadBillingSummary(),
   onLoginRequired: () => openLogin(),
+  onSharedAccessLost: (sessionId, reason) => handleSharedAccessLost(sessionId, reason),
 })
 const visibleChatPanes = chatRuntime.panes
 const codeRuntime = useDshCodeRuntime(chatRuntime)
@@ -1593,6 +1595,25 @@ function handleSessionShareLeft(): void {
   sessionShareOpen.value = false
   handleSessionShareMutated()
   if (currentSessionId.value) void chatRuntime.removeSession(currentSessionId.value)
+}
+
+/**
+ * P3 SSE：共享会话实时流检测到访问被撤销（被移除 / 自己退出）。提示、关闭
+ * 当前共享会话并刷新共享列表。
+ */
+function handleSharedAccessLost(sessionId: string, reason: SessionLiveAccessRevokedReason): void {
+  const messageApi = useAppMessage()
+  if (messageApi) {
+    messageApi.error(
+      reason === 'participant_removed'
+        ? t('session.share.access_revoked')
+        : t('session.share.access_left'),
+    )
+  }
+  if (currentSessionId.value === sessionId) {
+    void chatRuntime.removeSession(sessionId)
+  }
+  handleSessionShareMutated()
 }
 
 function isEnterpriseTenant(tenant: Pick<TenantCandidate, 'spaceType' | 'orgName'>) {
