@@ -136,6 +136,29 @@ class ConversationRepository:
         )
         return document
 
+    async def list_messages(
+        self,
+        tenant_id: str,
+        conversation_id: str,
+        after_seq: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Tenant-scoped ordered message read for the session live projection.
+
+        P3 session_live：按 ``seq`` 升序返回会话消息，供 ``revision_digest``
+        与帧渲染消费；``after_seq`` 支持增量续读。himovo 用 ``main_id``，
+        本地已迁移 ``tenant_id``。
+        """
+        if not is_valid_backend_id(conversation_id):
+            raise LookupError("conversation_not_found")
+        query: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "session_id": to_backend_id(conversation_id),
+        }
+        if after_seq is not None:
+            query["seq"] = {"$gt": after_seq}
+        cursor = self._messages.find(query, sort=[("seq", 1)])
+        return await cursor.to_list(length=None)
+
     async def update_assistant_projection(
         self,
         *,
