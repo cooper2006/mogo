@@ -494,7 +494,14 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 **SSE 前端验证**：`check_sfc` App.vue 1/1；`esbuild` 4 ts 语法通过；`vue-tsc --noEmit` 全量 **0 错误**。
 
-**分支合入 main（2026-10-31）**：`feat/port-movo-sandbox`（P0-P2 + 分析文档，15 提交）与 `feat/port-movo-sharing`（P3 全套：后端最小子集 + 二期 + 三期-a + SSE 后端/前端，5 提交）**均已 `--no-ff` 合并入 `main`**（`642eba14`、`ac1e4301`）。两分支相对 base `c9d185dd` 的改动文件**零重叠**（sandbox 179 vs sharing 26），合并**无冲突**；合并后 main 抽查：chat-api 8 文件 `py_compile` 0 失败 + 前端 `check_sfc` 3/3 通过。
+**分支合入 main（2026-10-31）**：`feat/port-movo-sandbox`（P0-P2 + 分析文档，15 提交）与 `feat/port-movo-sharing`（P3 全套：后端最小子集 + 二期 + 三期-a + SSE 后端/前端，5 提交）**均已 `--no-ff` 合并入 `main`**（`642eba14`、`ac1e4301`）。两分支相对 base `c9d185dd` 的改动文件**零重叠**（sandbox 179 vs sharing 26），合并**无冲突**；合并后 main 抽查：chat-api 8 文件 `py_compile` 0 失败 + 前端 `check_sfc` 3/3 通过。**已推送 origin/main**。
+
+**P3 SSE 端到端联调（2026-10-31，提交 `441c4a32`）**：在 `chat-api:24cf8e4a` docker 镜像内（挂载最新源码 + `--network host` 连宿主 mongod `127.0.0.1:27017`，独立测试库 `mogo_e2e_live`）用真实 `ConversationRepository`/`SessionParticipantsRepository`/`KernelEventRepository`/`KernelBindingRepository`/`SessionReadAuthorizer` + `SessionLiveService` 驱动，**20 项断言全部成立**：
+- **A** 共享参与者 COLD_ATTACH → `turn.started` + `execution` 帧（实时接收 owner 消息）；`public_execution_event` 12-key sanitize、`payload` 无 `user_id`/`path` 泄漏、帧 LF-only 可解码。
+- **B** `run.completed` → `turn.completed` 帧（status completed）。
+- **C** owner 视角读成功（role=owner）；**D** 非成员 → `SessionReadDeniedError`；**E** 未认证 → `SessionReadUnauthenticatedError`。
+- **F** 无效 cursor（`last_message_seq` 超高）→ `thread.changed`（`cursor_invalid`）control；**G** 成员指纹变化 → `members.changed` control。
+- **联调发现并修复真实缺陷**：`SessionLiveService._read_state` 调 `ConversationRepository.list_messages(...)`，但本地从未定义该方法（py_compile/纯逻辑单测不触达 `_read_state`，缺陷被掩盖）→ 按 himovo 语义补实现（`tenant_id`+`session_id`（`to_backend_id`）+可选 `after_seq`，sort seq 升序）。提交 `441c4a32`，已推送。
 
 ---
 
