@@ -413,6 +413,15 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 **建议实施顺序**：① 建独立分支 `feat/port-movo-sharing`（自 main）；② 后端最小子集（session_sharing 纯逻辑 + participants_repository + session_access + session_identity_projection，适配 tenant_id）；③ sessions.py share 端点 + 迁移；④ 前端 SessionShareDialog/SnapshotViewer 增量；⑤ SSE/desktop 完整属二期。**先与用户确认最小子集边界再动工**（独立分支 + 大规模，避免半途返工）。
 
+**P3 后端最小子集执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `f273f7b8`）**：用户选定「后端最小子集」边界后，从 **main**（`c9d185dd`，不含 P0-P2）创建独立分支 `feat/port-movo-sharing`，实施**只读共享骨干**共 8 文件 +554：
+- `session_sharing/{service,links,snapshot,__init__}.py`：token 铸造/哈希/签发/撤销/验证、门户链接（`USER_PORTAL_BASE_URL`）、只读快照冻结（`snapshot_messages`/`snapshot_active`）——纯逻辑无 db 依赖，himovo 原样搬入。
+- `dsh_runtime/conversation/participants_repository.py`：`SessionParticipantsRepository`（`session_participants` + `unique_conversation_participant` 唯一索引 + `participant_memberships_by_user`），`main_id`→`tenant_id` 字段适配。
+- `dsh_runtime/session_access.py`：`SessionReadAuthorizer`（owner-or-participant 谓词、`SessionReadUnauthenticatedError`/`SessionReadDeniedError` 类型化拒绝、跨租户探测与非成员不可区分、share token 从不授予访问），`main_id`→`tenant_id`。
+- `services/session_identity_projection.py`：作者/头像身份投影（`public_display_name` + `ObjectStorageClient.sign_url` 签名 URL、`ROOT_RELATIVE_AVATAR_RE` 头像语法、`seq`/`legacy_key` 消息身份），`add_main_scope`→`add_tenant_scope`。
+- `core/config.py`：加 `USER_PORTAL_BASE_URL`（himovo config.py:148）。
+- **验证**：8 文件 `py_compile` 0 失败；`session_sharing` service/snapshot 纯逻辑断言通过（`.venv-p2` 无 chat-api 依赖，逻辑经 importlib 直载）；`main_id`/`add_main_scope` 残留 0；品牌词 0。完整 pytest（session_access/identity_projection 需 bson/mongodb 环境）留给 CI。
+- **留 P3 二期**：`sessions.py` share 路由（±336 三方合并）、`migrations/session_sharing.py`、`session_live.py`（998 SSE）、前端 `SessionShareDialog`/`SessionSnapshotViewer`/`DesktopSessionShareAction` 增量。
+
 ---
 
 ## 附录：本次比对所用命令（可复现）
