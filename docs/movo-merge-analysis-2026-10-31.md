@@ -459,6 +459,21 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - **P3 三期-a（server 共享闭环，推荐先做）**：`api/sessionSharing.ts` + `SessionShareDialog.vue` + `useSessionShareLanding.ts` + `api/sessions.ts` 补 scope/access 类型 + `App.vue` 内联「共享会话」分区 + `DesktopWindowChrome.vue` 分享按钮（server 分支）。
 - **P3 三期-b（snapshot/desktop）**：待后端 snapshot 端点移植后，再搬 `api/sessionSnapshots.ts` + `SessionSnapshotConversation/Viewer.vue` + `DesktopSessionShareAction.vue` 的 desktop 分支（快照 + 代码会话）。
 
+**用户决策（2026-11-01）：mogo 不做桌面端、不接入桌面端** → 去掉 `DesktopSessionShareAction.vue`（整个，desktop 窗口 chrome 专用），并连 snapshot 链路一并放弃（`SessionSnapshotConversation/Viewer.vue` + `api/sessionSnapshots.ts` + 后端 snapshot 端点 `snapshot-share`/`session-snapshots/*`，均为桌面端/代码会话只读快照专属）。**P3 三期-b 整体取消**。
+
+**P3 三期-a 执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `61aeab5c`）**：server 共享闭环前端，7 文件：
+- `api/sessionSharing.ts`（新增）：share/join/participants 6 方法（`createSessionShare`/`revokeSessionShare`/`joinSessionShare`/`listSessionParticipants`/`leaveSession`/`removeParticipant`），himovo 原样；`baseURL /askai-api/api` + `installAuthExpiryInterceptor` 与本地约定一致；`SessionShareErrorCode` 从服务端错误码数组派生。
+- `composables/useSessionShareLanding.ts`（新增）：URL `session-share` token 捕获 + 登录后 `joinPendingSharedSession`（401 保留链接待重试）。
+- `components/session/SessionShareDialog.vue`（新增）：share 弹窗——owner 生成/复制/撤销链接（7/30/90 天）、成员列表、owner 移除成员、participant 退出；`left`/`removed`/`revoked` emit 交宿主刷新。
+- `api/sessions.ts`：`SessionSummary` 补 `access?`/`owner_user_id?`/`participant_count?`/`shared_unread?`；`SessionDetail` 补 REQUIRED `access`/`owner_user_id`/`participant_count`（后端 `_serialize_session` 恒输出）；`listSessionsPaged` 加 `scope: 'owner'|'shared'`。
+- `locales/messages.ts`：补 `session.share.*`（35 条）+ `session.sharedWithMe.*`（3 条）双语条目，himovo 原 key（本地 `t('session.share.title')` 双语体系，非中文内联——App.vue 主路径走 messages.ts，与 `skills.share.*` 一致）。
+- `App.vue`：`sharedSessions` 状态 + `loadSharedSessions(scope='shared')` + `useSessionShareLanding` 接入（onMounted 捕获 token、watch isLoggedIn 登录后 join）+ 侧边栏「分享给我」分区 + chat 顶栏分享入口（`canShareSession`：登录 + 当前会话 + `execution_location` server）+ `SessionShareDialog` 渲染（`sessionShareMode` owner/participant）。
+- `components/chat/ChatViewTabs.vue`：加 `#actions` slot（`ml-auto` 右侧操作区），宿主经 slot 注入分享按钮——**最小侵入，不改 tab 布局逻辑**（himovo 的 `ChatSessionHeader` 本地全缺，未整搬）。
+
+**关键适配（vs himovo）**：分享入口放 `ChatViewTabs #actions` slot 而非 himovo `ChatSessionHeader`（本地无此架构件）；`getSession` 用本地 `tenantId` 参数（himovo `mainId`）；`access` 判定用后端 `_serialize_session` 输出；`desktop`/`remote_sandbox` 执行位置不提供分享（`canShareSession` 排除）。
+
+**验证**：`check_sfc` 3/3（App.vue/SessionShareDialog/ChatViewTabs）通过；`esbuild` 3 个 ts 语法通过；`vue-tsc --noEmit` 全量 **0 错误**；品牌词仅剩说明性注释「源自 himovo」（messages.ts）。
+
 ---
 
 ## 附录：本次比对所用命令（可复现）
