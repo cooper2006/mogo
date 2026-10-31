@@ -286,7 +286,7 @@ himovo 相对 fork 点的真实增量（应移植的部分）按块拆解：
 - **himovo 新增**：
   - 后端：`services/admin-api/app/services/external_search_provider.py`、`services/chat-api/app/dsh_runtime/profile/search_availability.py`、`app/enterprise_capabilities/research/progressive/{deepseek_provider,provider_router,evidence,summary_messages}.py`、`dsh/runtime-host/src/web-search-availability.mjs`。
   - 前端：`ExternalSearchSettingsPage.vue`、`SetupSearchStep.vue`、`SearchProviderGuide.vue`、`providerGuides.ts`、`locales/modules/deepseekSearch.ts`、`SessionSearchOverlay.vue`、`useSessionSearch.ts`。
-- **结论**：属"在本地已有搜索骨架上叠加 DeepSeek provider + progressive research + 前端引导"，**不是从零引入**。必须先 diff `search_provider_config.py` 与本地 `research/` 现有实现，避免覆盖本地已有 provider。
+- **结论**：属"在本地已有搜索骨架上叠加 DeepSeek provider + progressive research + 前端引导"，**不是从零引入**。必须先 diff `search_provider_config.py` 与本地 `research/` 现有实现，避免覆盖本地已有 provider。**已执行**（2026-11-01，提交 `e94b9347`，见 §11 P2 执行结果）：采纳 himovo 的多配置选择/组织禁用 guard/deepseek provider 接线，保留本地 `claw_search`、中文文案、`_reject_unencodable` 校验与 6 个 provider。
 
 ---
 
@@ -384,7 +384,16 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - [x] 关键体系适配：himovo `main_id`/`bson.ObjectId` → 本地 `tenant_id`/`to_backend_id`（本地已全面迁移 tenant 体系）
 - [x] 5 个双方都改文件三方合并（`git merge-file`）：vector_store/reranker_provider/preview_conversion 自动成功，main.py（2 处）/model_center_runtime（1 处）手工解
 - [x] 验证：37 文件 `ast.parse` 0 失败；`app.*` 导入符号 0 缺失；冲突标记 0；品牌词仅保留本地的说明性注释
-- [ ] DeepSeek Search：待做（先 diff `search_provider_config.py` / `research/`，再叠加 `deepseek_provider`/`provider_router`/`external_search_provider` 与前端）
+- [x] DeepSeek Search：已执行（2026-11-01，见下方结果）——diff `search_provider_config.py` / `research/` 后叠加 `deepseek_provider`/`provider_router`/`external_search_provider` 与前端
+
+**P2 DeepSeek Search 执行结果（2026-11-01，提交 `e94b9347`）**：在本地已有搜索骨架上叠加 himovo 的 DeepSeek Search，共 11 个文件（3 新增 + 8 修改）。
+- **chat-api 新增**：`deepseek_provider.py`（DeepSeek Search JSON API，`DEFAULT_ENDPOINT=https://api.deepseek.com/v1/tools/search`，`rerank_score→score`、`summary→snippet` 规范化）、`summary_messages.py`（`research_summary` 中英文完成摘要，空 language 走英文——himovo 语义）。
+- **chat-api 修改**：`search_provider_config.py` 采纳 himovo 多配置选择逻辑（`PROVIDER_PRIORITIES` + `find` 全量 enabled + `usable` 密钥过滤 + `min(is_default/priority/provider)` 排序 + 组织禁用 guard + `has_saved_external_search_config`），本地化 `main_id→tenant_id`，保留 `claw_search`（priority 60）；`provider_router.py` 接线 `DeepSeekProvider` 分支（最前）+ env-fallback guard（`configured or has_saved_external_search_config(tenant_id)` 时提前返回，禁用后不静默用 host key），保留本地 6 provider + `ClawSearchProvider`；`agent.py` `_summary` 加 `language` 参数委托 `research_summary`（默认 `"zh"` 兼容本地）。
+- **admin-api 修改**：`external_search_provider.py` 加 `deepseek`（PROVIDERS priority 5 + `test_provider` 分支 POST JSON），保留本地 `claw_search`/`_reject_unencodable`/中文提示/`MOGO` 默认查询词；`setup.py` 的 `SetupExternalSearchRequest.provider` 正则白名单加 `deepseek`（himovo 漏加，本地补齐）。
+- **admin-web 修改**：`providerGuides.ts` `SearchProviderId` 加 `deepseek` + 中文内联条目；`SetupSearchStep.vue`/`ExternalSearchSettingsPage.vue` Endpoint 字段条件加 `deepseek`。不新建 `locales/modules/deepseekSearch.ts`（本地中文内联体系）。
+- **测试**：新增 `test_deepseek_search_provider.py`（himovo 原样 + `main_id→tenant_id`，覆盖 provider JSON 调用/多配置优先级选择/禁用不继承 host key/routing）。
+- **验证**：9 个后端文件 `py_compile` 0 失败；`summary_messages` 5 场景 + `deepseek_provider` 核心逻辑断言通过（`.venv-p2`）；前端 `check_sfc` 2 个 .vue 通过 + `providerGuides.ts` tsc 0 错误；`SUPPORTED_PROVIDERS` 加 deepseek 无副作用（仅 `search_provider_config.py`/新测试引用）。完整 pytest 需 chat-api 全量依赖（requirements.txt 3446 行），留给 CI/Docker（同 P2 document-parser 的 docling 做法）。
+- **未采纳**：himovo `SessionSearchOverlay.vue`/`useSessionSearch.ts` 不引用 deepseek，属 **P3 session-sharing**；himovo `locales/modules/deepseekSearch.ts` 是 i18n key 体系，本地中文内联不采纳。
 
 **P2 document-parser 执行结果（2026-10-31）**：移植 himovo 的 OCR/检索/错误本地化能力，共 37 个文件（24 新增 + 13 修改）。新增 `pdf_ocr_policy`（PDF 全页 OCR 策略）、`pdf_text_recovery`（无文本层 PDF 恢复）、`office_image_ocr`（Office 内嵌图片 OCR）、`spreadsheet_ingest`（表格归一化）、`chunk_identifiers`（业务标识符提取）、`exact_identifier_retrieval`（精确标识符检索）、`retrieval_selection`（候选融合/最终选择）、`retrieval_trace`（检索链路追踪）、`error_locale`（HTTP 错误本地化）、`request_body_limit`（请求体限制中间件）等；接线进 `document_parsing_service` / `rag_chunk_optimizer` / `retrieval_service` / `main.py` / `vector_store` / `model_center_runtime` / `reranker_provider` / `libreoffice`。本机无 venv，运行时验证留给 CI/Docker。
 
