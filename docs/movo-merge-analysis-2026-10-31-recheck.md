@@ -82,7 +82,7 @@ scripts                6      services/document-parser  1
 | 19 | docx 审阅（docx_review / ReviewCheckNode） | 12 | 本地无 docx 审阅（本地有 pdf_editing/delivery） | **候选**（全新域） |
 | 20 | workflow 审阅（workflow_messages / node_bindings） | 26 | 本地无 ReviewCheckNode | **候选**（全新域） |
 | 21 | 用户问题（user_questions / question_answers） | 11 | 本地无 | **候选**（全新域） |
-| 22 | 企业邀请（invite_* / Invite*） | 10 | 本地 organizations 无 invite | **候选**（全新域） |
+| 22 | 企业邀请（invite_* / Invite*） | 10 | 本地 organizations 无 invite | **不合并**（用户已决定） |
 | 23 | sandbox 审计内部端点 | 2 | 本地已有 `execution_isolation/audit_reader.py`，仅缺端点 | **候选**（小、低风险） |
 | 24 | migrations / sequence 修复 | 7 | 本地已有 `migrations/session_sharing.py` | **候选**（高风险，数据迁移） |
 
@@ -146,11 +146,10 @@ scripts                6      services/document-parser  1
 - **本地状态**：无。→ 真增量。
 - **风险**：中等。
 
-### 5.8 企业邀请（invite，全新域，~10 文件）
+### 5.8 企业邀请（invite，全新域，~10 文件）— 已决定不合并
 
 - **himovo 侧**：admin-api `api/routes/{invite_history,invite_members}.py` + `services/{invite_acceptances,invite_links,invite_policy}.py`；admin-web `views/organizations/{InviteHistoryPanel,InviteHistoryRow,InviteMemberDetail}.vue`；user-web `api/invitations.ts` + `components/login/InvitationRegistrationForm.vue`。
-- **本地状态**：admin-web `views/organizations/` 无 invite；admin-api 无 invite 服务。→ 真增量。
-- **风险**：中等（涉及注册/成员流程，需与现有 auth 兼容）。
+- **本地状态**：admin-web `views/organizations/` 无 invite；admin-api 无 invite 服务。→ 虽为本地缺失域，但**用户已明确决定不合并**，故从候选清单移除。
 
 ### 5.9 sandbox 审计内部端点（小，低风险）
 
@@ -191,7 +190,7 @@ scripts                6      services/document-parser  1
 
 1. **himovo 无新提交**，本次没有「增量」可吃；本地已远超 himovo（1443 本地独有文件）。
 2. **剩余候选均为整域移植**（前后端 + 依赖 + 测试），非零成本；且大部分「看似独有」的功能本地已自主实现，**合并会制造双实现冲突**。
-3. 若后续要动，**只建议从低风险小项开始**：`5.9 sandbox 审计端点`、`5.1 前端 deploymentError.ts`（纯新增）、`5.10 sequence 修复（先演练）`。其余 5.2~5.8 建议**先开独立分支逐域评估**，勿整批合入。
+3. 若后续要动，**只建议从低风险小项开始**：`5.9 sandbox 审计端点`、`5.1 前端 deploymentError.ts`（纯新增）、`5.10 sequence 修复（先演练）`。其余 5.2~5.7 建议**先开独立分支逐域评估**，勿整批合入（5.8 企业邀请已决定不合并）。
 4. 本分析**未修改任何代码、未执行任何 git 操作**（除只读 diff）。
 
 ---
