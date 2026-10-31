@@ -474,6 +474,17 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 
 **验证**：`check_sfc` 3/3（App.vue/SessionShareDialog/ChatViewTabs）通过；`esbuild` 3 个 ts 语法通过；`vue-tsc --noEmit` 全量 **0 错误**；品牌词仅剩说明性注释「源自 himovo」（messages.ts）。
 
+**P3 SSE 实时流执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `44f8bef5`）**：移植 himovo `session_live.py`，让共享会话**实时接收消息**（用户请求「继续做SSE」），5 文件 +1150/-1：
+- `dsh_runtime/session_live.py`（新增，998 行）：`SessionLiveService` 纯轮询持久状态流——每 poll 经 `SessionReadAuthorizer` 授权 + `revision_digest` 两次读防 torn poll；`classify_request`（Last-Event-ID/after 参数选 COLD/RESUME）；opaque cursor codec（base64url + 固定 6 字段）；`member_fingerprint`；LF-only frame 渲染；`public_execution_event` 12-key 白名单 sanitizer。**无 broadcaster/Redis/Mongo collection，纯轮询持久状态**。
+- `api/endpoints/session_live.py`（新增，140 行）：`GET /sessions/{session_id}/live` 端点——`SessionReadAuthorizer.authorize_read` → 401/404 类型化拒绝 → `live_events()` 生成器（1s poll + 心跳 + `access_revoked_frame` 终止）→ `StreamingResponse`（`text/event-stream` + `X-Accel-Buffering: no`）。
+- `core/config.py`：加 `SESSION_LIVE_HEARTBEAT_SECONDS = 15.0`。
+- `dsh_runtime/events/repository.py`：`list_for_message` **去掉 `user_id` 过滤**（共享参与者可读 run 作者事件，himovo 语义），`user_id` 保留签名作调用方形状兼容。
+- `main.py`：注册 `session_live.router` 于 `/api/v1`（`session_shares.router` 之后）。
+
+**SSE 关键适配（vs himovo）**：① `_process_claim_reconciler` 用 `getattr(dsh_runtime_application, "claim_recovery", None)` 兜底（本地 `DshRuntimeApplication` 无此属性）；② `_read_state` 查询改用 `tenant_id`（himovo `main_id` 已迁移）；③ `by_message` 保留必填 `user_id`（himovo 已从过滤去掉但签名仍带），传 `lease.user_id`；④ 端点 `principal.main_id` → `principal.tenant_id`（2 处）。
+
+**SSE 验证**：`py_compile` 5 文件 0 失败；纯逻辑单测（预注入假 `app.*` 模块 + importlib 直载绕过 `app/__init__`）**19 断言全过**（classify 4、cursor 3、digest 3、fingerprint 2、frame 5、sanitize 3）；残留检查 `main_id` 零残留（himovo 仅说明注释）。**完整 pytest 需 mongo 环境**（`SessionReadAuthorizer`/`ConversationRepository`/`KernelEventRepository` 依赖 db），留 CI/Docker。
+
 ---
 
 ## 附录：本次比对所用命令（可复现）
