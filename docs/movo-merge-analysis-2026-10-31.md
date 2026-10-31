@@ -430,6 +430,35 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - **验证**：5 文件 `py_compile` 0 失败；`main_id`/`add_main_scope` 残留 0；import 依赖全部存在（`ApiPrincipal.tenant_id`/`KernelBindingRepository.current`/`SessionParticipantsRepository`/`resolve_author_projections`/`portal_link`）；品牌词 0。
 - **留 P3 三期**：前端 `SessionShareDialog`/`SessionSnapshotConversation`/`SessionSnapshotViewer`/`DesktopSessionShareAction` 增量（himovo 独有组件，需逐个 diff 挑选适配本地中文内联/`--mg-*` 体系）；`session_live.py`（998 SSE）属后续。
 
+**P3 三期前端适配评估（2026-11-01，分支 `feat/port-movo-sandbox`）**——已核实 himovo user-web 前端 session-share 全链路与本地架构差异，结论：**不是低风险搬运，是需接口对齐的适配工程，且应拆两半**。
+
+**后端就绪度**：
+- share/join/participants 端点 + `scope=shared` 会话列表（P3 二期 `ba1a07f5`）✅ 已就绪，`_serialize_session` 返回 `access`/`participant_count`，`_serialize_shared_sessions` 返回 `shared_unread`/`next_message_seq`（legacy `max_seq` 回退）。
+- snapshot 端点（`POST /sessions/{id}/snapshot-share`、`GET /session-snapshots/{token}`、`DELETE /session-snapshots/{id}`）❌ **未移植**——前端 snapshot 组件搬了也调不通。
+
+**前端文件分层（himovo user-web）**：
+
+| 类 | 文件 | 行 | 可搬性 / 说明 |
+|---|---|---|---|
+| A 纯API+composable | `api/sessionSharing.ts` | 132 | ✅ 依赖 `api/client`+`api/authExpiry`（本地有 ✓），后端已就绪 |
+| A | `composables/useSessionShareLanding.ts` | 78 | ✅ 依赖注入（`getUserId`/`loadSharedSessions`/`selectSession`/`showError`），纯逻辑 |
+| A | `components/session/SessionShareDialog.vue` | 249 | ✅ 依赖 naive-ui+`appTimezone.formatAppShortDateTime`+`copyTextToClipboard`（本地有 ✓），需补 i18n key |
+| B snapshot 展示 | `SessionSnapshotConversation.vue` | 35 | ⚠️ 依赖 snapshot 类型，后端未就绪 |
+| B | `SessionSnapshotViewer.vue` | 36 | ⚠️ 依赖 `readSessionSnapshot`（后端❌）+ `MOVO`→`MOGO` 品牌词 |
+| C 需接线 | `desktop/DesktopSessionShareAction.vue` | 110 | ⚠️ props `mainId`→`tenantId`；依赖 `getSession` 返回 `access`（本地类型缺）；`DesktopWindowChrome.vue` 三方合并 |
+| C | `SessionHistorySidebar.vue` | 245 | ⚠️ 本地侧边栏在 `App.vue` 内联（`historyItems`/`projectHistoryGroups`/`sessionPin` 全在 App.vue），**建议局部加「共享会话」分区，不整搬** |
+| D 接线基础 | `chat/ChatSessionHeader.vue`、`chat/useMessageAuthors.ts`、`useAppSessionController.ts`、`useAppStartup.ts` | 456 | ❌ 本地全缺；本地等价物 `ChatWindow.vue`/`useAuthoritativeMessages.ts`/`App.vue onMounted`，**不整搬**（himovo 自己的架构件） |
+
+**接口对齐改动点（动工前必须确认）**：
+1. `api/sessions.ts`：`getSession` 第 3 参数本地已是 `tenantId`（himovo 是 `mainId`，本地无需改参数名）；`SessionSummary`/`SessionDetail` **补** `access?`/`participant_count?`/`shared_unread?`/`next_message_seq?`（后端已返回，TS 类型未声明）；`listSessions` **加** `scope?: 'owner'|'shared'`（后端已支持，前端未暴露）。
+2. `DesktopSessionShareAction.vue` props `mainId`→`tenantId`。
+3. i18n 补中文内联 key（`session.share.*`/`session.snapshot.*`/`session.sharedWithMe.*`）——本地 `t('中文key')` 回退中文本身，**不强制改 locale 文件**（同 P2 惯例）。
+4. `SessionSnapshotViewer` 品牌 `MOVO`→`MOGO`。
+
+**建议拆两半（避免半途返工）**：
+- **P3 三期-a（server 共享闭环，推荐先做）**：`api/sessionSharing.ts` + `SessionShareDialog.vue` + `useSessionShareLanding.ts` + `api/sessions.ts` 补 scope/access 类型 + `App.vue` 内联「共享会话」分区 + `DesktopWindowChrome.vue` 分享按钮（server 分支）。
+- **P3 三期-b（snapshot/desktop）**：待后端 snapshot 端点移植后，再搬 `api/sessionSnapshots.ts` + `SessionSnapshotConversation/Viewer.vue` + `DesktopSessionShareAction.vue` 的 desktop 分支（快照 + 代码会话）。
+
 ---
 
 ## 附录：本次比对所用命令（可复现）
