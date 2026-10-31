@@ -32,6 +32,7 @@ import { buildAdminSsoUrl, ssoWindowState } from './utils/adminUrl'
 import { sortSessionsByRecentActivity } from './utils/sessionOrdering'
 import { formatExactTokenAmount, formatQuotaUsagePercent, formatTokenAmount, quotaUsagePercent } from './utils/tokenNumberFormat'
 import { useChatRuntimeStore, type PendingRuntimeDocument } from './composables/useChatRuntimeStore'
+import type { SessionLiveAccessRevokedReason } from './composables/useSessionLiveStream'
 import { useDshCodeRuntime } from './composables/code/useDshCodeRuntime'
 import { useUserBoundProjects } from './composables/code/userBoundProjects'
 import { boundProjectWorktree } from './composables/code/projectAuthorization'
@@ -44,8 +45,10 @@ import { clearDesktopAuthSession, restoreDesktopAuthToken } from './composables/
 import { useNetworkStatus } from './composables/useNetworkStatus'
 import { AppsOutline, SettingsOutline } from '@vicons/ionicons5'
 import ChatViewTabs from './components/chat/ChatViewTabs.vue'
+import SessionShareDialog from './components/session/SessionShareDialog.vue'
 import AppMessageBridge from './components/AppMessageBridge.vue'
 import { useAppMessage } from './composables/appMessage'
+import { useSessionShareLanding } from './composables/useSessionShareLanding'
 
 const ChatWindow = defineAsyncComponent(() => import('./components/ChatWindow.vue'))
 // Session-level trajectory view (028): lazily loaded, only needed when the user
@@ -122,6 +125,11 @@ const sessions = ref<SessionSummary[]>([])
 const sessionsLoading = ref(false)
 const sessionsLoadingMore = ref(false)
 const sessionsHasMore = ref(false)
+// P3 三期-a：分享给我（参与）的会话，独立于 owner 会话列表加载。
+const sharedSessions = ref<SessionSummary[]>([])
+const sharedSessionsLoading = ref(false)
+const sharedSessionsLoadingMore = ref(false)
+const sharedSessionsHasMore = ref(false)
 const sessionSearchOpen = ref(false)
 const sessionSearchQuery = ref('')
 const sessionSearchResults = ref<SessionSearchResult[]>([])
@@ -281,6 +289,7 @@ const savedSidebarHistoryState = (() => {
   try { return JSON.parse(localStorage.getItem(sidebarHistoryStateKey) || '{}') as Record<string, any> } catch { return {} }
 })()
 const normalHistoryExpanded = ref(savedSidebarHistoryState.normal !== false)
+const sharedHistoryExpanded = ref(savedSidebarHistoryState.shared !== false)
 const collapsedProjectHistory = ref<Record<string, boolean>>(savedSidebarHistoryState.projects || {})
 function projectHistoryExpanded(workspaceId: string): boolean { return !collapsedProjectHistory.value[workspaceId] }
 function toggleProjectHistory(workspaceId: string): void { collapsedProjectHistory.value = { ...collapsedProjectHistory.value, [workspaceId]: projectHistoryExpanded(workspaceId) } }
@@ -330,6 +339,7 @@ const chatRuntime = useChatRuntimeStore({
   },
   onQuotaRefresh: () => loadBillingSummary(),
   onLoginRequired: () => openLogin(),
+  onSharedAccessLost: (sessionId, reason) => handleSharedAccessLost(sessionId, reason),
 })
 const visibleChatPanes = chatRuntime.panes
 const codeRuntime = useDshCodeRuntime(chatRuntime)
@@ -1543,6 +1553,69 @@ function getTenantId() {
   return String(userProfile.value?.tenantId || 'default')
 }
 
+// P3 三期-a：landing——从 URL 捕获 session-share token，登录后自动加入共享会话。
+// loadSharedSessions / selectSession 均为提升的 function 声明，此处延迟引用安全。
+const sessionShareLanding = useSessionShareLanding({
+  getUserId,
+  loadSharedSessions: () => loadSharedSessions(true),
+  selectSession: (sessionId) => selectSession(sessionId),
+  showError: (message) => {
+    const messageApi = useAppMessage()
+    if (messageApi) messageApi.error(message)
+  },
+})
+
+// P3 三期-a：会话分享弹窗状态（server 共享闭环的「发起分享」入口）。
+const sessionShareOpen = ref(false)
+const sessionShareMode = ref<'owner' | 'participant'>('owner')
+const sessionShareMembersRevision = ref(0)
+
+/** 当前会话是否可分享：需登录、有当前会话、且执行位置为 server（本地不提供 desktop/远端 sandbox 分享）。 */
+const canShareSession = computed(() => {
+  if (!isLoggedIn.value || !currentSessionId.value) return false
+  const session = sessions.value.find((item) => item.id === currentSessionId.value)
+  const location = session?.execution_location
+  // 无执行位置信息视为 server；desktop/remote_sandbox 不提供分享。
+  return !location || location === 'server'
+})
+
+function openSessionShare(): void {
+  const session = sessions.value.find((item) => item.id === currentSessionId.value)
+  sessionShareMode.value = session?.access === 'shared' ? 'participant' : 'owner'
+  sessionShareOpen.value = true
+}
+
+/** 成员被移除 / 链接被撤销 / 退出共享后：刷新共享列表与成员版本。 */
+function handleSessionShareMutated(): void {
+  sessionShareMembersRevision.value += 1
+  void loadSharedSessions(true)
+}
+
+function handleSessionShareLeft(): void {
+  sessionShareOpen.value = false
+  handleSessionShareMutated()
+  if (currentSessionId.value) void chatRuntime.removeSession(currentSessionId.value)
+}
+
+/**
+ * P3 SSE：共享会话实时流检测到访问被撤销（被移除 / 自己退出）。提示、关闭
+ * 当前共享会话并刷新共享列表。
+ */
+function handleSharedAccessLost(sessionId: string, reason: SessionLiveAccessRevokedReason): void {
+  const messageApi = useAppMessage()
+  if (messageApi) {
+    messageApi.error(
+      reason === 'participant_removed'
+        ? t('session.share.access_revoked')
+        : t('session.share.access_left'),
+    )
+  }
+  if (currentSessionId.value === sessionId) {
+    void chatRuntime.removeSession(sessionId)
+  }
+  handleSessionShareMutated()
+}
+
 function isEnterpriseTenant(tenant: Pick<TenantCandidate, 'spaceType' | 'orgName'>) {
   if (tenant.spaceType) return tenant.spaceType === 'enterprise'
   return String(tenant.orgName || '').trim() !== '个人空间'
@@ -1785,6 +1858,33 @@ async function loadSessions(reset = true) {
   }
 }
 
+// P3 三期-a：加载分享给我（参与）的会话列表；scope=shared 走后端 shared 视图。
+async function loadSharedSessions(reset = true) {
+  const userId = getUserId()
+  if (!userId) return
+  if (reset) {
+    sharedSessionsLoading.value = true
+    sharedSessionsHasMore.value = false
+  } else {
+    sharedSessionsLoadingMore.value = true
+  }
+  try {
+    const page = await listSessionsPaged(userId, getTenantId(), {
+      limit: sessionPageSize,
+      offset: reset ? 0 : sharedSessions.value.length,
+      scope: 'shared',
+    }, authToken.value || null)
+    sharedSessions.value = reset ? page.items : mergeSessionPages(sharedSessions.value, page.items)
+    sharedSessionsHasMore.value = page.has_more
+  } finally {
+    if (reset) {
+      sharedSessionsLoading.value = false
+    } else {
+      sharedSessionsLoadingMore.value = false
+    }
+  }
+}
+
 async function refreshSessionSummaries() {
   const userId = getUserId()
   if (!userId || document.visibilityState === 'hidden') return
@@ -2022,6 +2122,15 @@ onMounted(async () => {
   document.addEventListener('click', handleDocumentClick)
   window.addEventListener('popstate', handlePopState)
   sessionRefreshTimer = setInterval(() => { void refreshSessionSummaries() }, 5000)
+  // P3 三期-a：捕获 URL 中的分享 token；已登录则立即加入共享会话（登录后由 watch 再触发）。
+  sessionShareLanding.captureSessionShareToken()
+  sessionShareLanding.captureSnapshotToken()
+  if (isLoggedIn.value) void sessionShareLanding.joinPendingSharedSession()
+})
+
+// P3 三期-a：onMounted 时未登录、稍后登录成功后再加入共享会话。
+watch(isLoggedIn, (loggedIn) => {
+  if (loggedIn) void sessionShareLanding.joinPendingSharedSession()
 })
 
 onBeforeUnmount(() => {
@@ -2235,6 +2344,58 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
+        <!-- P3 三期-a：分享给我的会话，跟随普通会话之后、项目分区之前。 -->
+        <template v-if="sharedSessions.length">
+          <button
+            type="button"
+            class="group mt-2 flex w-full items-center gap-1 px-2 pb-1 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400"
+            :aria-expanded="sharedHistoryExpanded"
+            @click="sharedHistoryExpanded = !sharedHistoryExpanded"
+          >
+            <span>{{ t('session.sharedWithMe.title') }}</span>
+            <svg class="h-3.5 w-3.5 transition-transform duration-150" :class="sharedHistoryExpanded ? 'rotate-90' : ''" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 3 5 5-5 5"/></svg>
+          </button>
+          <div
+            v-for="session in sharedHistoryExpanded ? sharedSessions : []"
+            :key="session.id"
+            class="group w-full text-left px-2.5 py-1.5 rounded-lg transition-all border border-transparent"
+            :class="session.id === currentSessionId && currentView === 'chat'
+              ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold'
+              : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'"
+            @click="selectSession(session.id)"
+            @keydown.enter.prevent="selectSession(session.id)"
+            @keydown.space.prevent="selectSession(session.id)"
+            role="button"
+            tabindex="0"
+          >
+            <div class="flex min-w-0 items-center gap-2">
+              <div class="min-w-0 flex-1 text-[13px] truncate" :title="displaySessionTitle(session)">
+                {{ compactSessionTitle(session) }}
+              </div>
+              <span
+                class="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600"
+                :aria-label="t('session.sharedWithMe.badge')"
+                :title="t('session.sharedWithMe.badge')"
+              >
+                {{ t('session.sharedWithMe.badge') }}
+              </span>
+              <span
+                v-if="session.shared_unread"
+                class="h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                :aria-label="t('session.sharedWithMe.unread')"
+                :title="t('session.sharedWithMe.unread')"
+              ></span>
+            </div>
+          </div>
+          <button
+            v-if="sharedHistoryExpanded && !sharedSessionsLoading && sharedSessionsHasMore && sharedSessions.length >= sessionPageSize"
+            class="w-full text-left px-2.5 py-1 text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-60 disabled:cursor-not-allowed"
+            :disabled="sharedSessionsLoadingMore"
+            @click="loadSharedSessions(false)"
+          >
+            {{ sharedSessionsLoadingMore ? t('ui.loading') : t('app.sidebar.load_more') }}
+          </button>
+        </template>
         <div v-if="canUseCode && supportsLocalCodeProjects && projectWorkspacesLoading && !projectHistoryGroups.length" class="mt-5 flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></span>
           <span>{{ locale === 'en' ? 'Loading projects' : '正在加载项目' }}</span>
@@ -2761,6 +2922,29 @@ onBeforeUnmount(() => {
             <ChatViewTabs
               :view="pane.activeView"
               @update:view="(view: 'chat' | 'trajectory') => chatRuntime.setPaneView(pane.key, view)"
+            >
+              <template #actions>
+                <button
+                  v-if="pane.key === activeChatKey && canShareSession"
+                  type="button"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600"
+                  :aria-label="t('session.share.action')"
+                  :title="t('session.share.action')"
+                  @click="openSessionShare"
+                >
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m8 6 4-4 4 4M12 2v13"/></svg>
+                </button>
+              </template>
+            </ChatViewTabs>
+            <SessionShareDialog
+              v-if="sessionShareOpen && currentSessionId"
+              v-model:show="sessionShareOpen"
+              :mode="sessionShareMode"
+              :session-id="currentSessionId"
+              :members-revision="sessionShareMembersRevision"
+              @left="handleSessionShareLeft"
+              @removed="handleSessionShareMutated"
+              @revoked="handleSessionShareMutated"
             />
             <div class="relative min-h-0 flex-1">
             <div v-show="pane.activeView !== 'trajectory'" class="h-full w-full">

@@ -189,12 +189,14 @@ class KernelEventRepository:
         user_id: str,
         after_cursor: int = 0,
     ) -> list[dict[str, Any]]:
+        # P3 session_live：事件在写入时归因到 run 作者，但会话内任一成员
+        # 都可读（session-sharing 语义），故过滤不含 user_id；user_id 保留在
+        # 签名里仅作调用方形状兼容（同 himovo 注释）。
         result: list[dict[str, Any]] = []
         cursor = self._projections.find(
             {
                 "message_id": message_id,
                 "tenant_id": tenant_id,
-                "user_id": user_id,
                 "stream_seq": {"$gt": max(0, int(after_cursor))},
             },
             {"_id": 0, "tenant_id": 0, "user_id": 0, "conversation_id": 0, "message_id": 0, "kernel_session_id": 0, "created_at": 0},

@@ -16,6 +16,7 @@ from pydantic import AliasChoices, BaseModel, Field
 from app.core.db import get_db
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.tenant import add_tenant_scope, resolve_tenant_id
+from app.dsh_runtime.conversation.participants_repository import SessionParticipantsRepository
 from app.utils.oss_uploader import AliyunOSSUploader
 from app.llm.factory import get_llm_client
 from app.llm.types import Message, Role
@@ -122,10 +123,13 @@ class ApiResponse(BaseModel):
     data: object | None = None
 
 
-def _serialize_session(doc: dict) -> dict:
+def _serialize_session(doc: dict, *, access: str = "owner", participant_count: int = 0) -> dict:
     return {
         "id": str(doc.get("_id")),
         "user_id": doc.get("user_id"),
+        "access": access,
+        "owner_user_id": doc.get("user_id"),
+        "participant_count": participant_count,
         "tenant_id": resolve_tenant_id(doc.get("tenant_id")),
         "title": doc.get("title"),
         "created_at": doc.get("created_at"),
@@ -173,6 +177,65 @@ def _serialize_session_summary(doc: dict) -> dict:
         "model_instance_id": str(doc.get("model_instance_id") or "") or None,
         "code_project": doc.get("code_project"),
     }
+
+
+async def _serialize_shared_sessions(
+    db: Any,
+    documents: List[Dict[str, Any]],
+    *,
+    tenant_id: str,
+    read_cursors: Dict[str, int],
+) -> List[dict]:
+    # Active non-owner participant rows per session (owners never hold a row),
+    # matching the share response's participant_count convention.
+    by_id = {str(doc.get("_id")): doc for doc in documents if doc.get("_id") is not None}
+    count_by_id: Dict[str, int] = {}
+    if by_id:
+        pipeline = [
+            {"$match": add_tenant_scope(
+                {"conversation_id": {"$in": list(by_id)}, "removed_at": None}, tenant_id
+            )},
+            {"$group": {"_id": "$conversation_id", "count": {"$sum": 1}}},
+        ]
+        async for row in db.session_participants.aggregate(pipeline):
+            count_by_id[str(row.get("_id") or "")] = int(row.get("count") or 0)
+    # Unread reference: the session's max message seq. DSH sessions carry
+    # next_message_seq — every DSH append mints the message's seq AS the new
+    # counter value, so after each append next_message_seq EQUALS the session's
+    # max seq and doubles as the unread reference. Legacy sessions never set
+    # the field: fall back to the messages' max seq (one indexed aggregation
+    # for the legacy subset) so pre-feature sessions still surface unread
+    # state instead of silently reading as clear.
+    max_seq_by_id: Dict[str, int] = {}
+    legacy_ids = [
+        doc_id for doc_id, doc in by_id.items() if doc.get("next_message_seq") is None
+    ]
+    if legacy_ids:
+        pipeline = [
+            {"$match": {
+                "tenant_id": resolve_tenant_id(tenant_id),
+                "session_id": {"$in": [ObjectId(doc_id) for doc_id in legacy_ids]},
+            }},
+            {"$group": {"_id": "$session_id", "max_seq": {"$max": "$seq"}}},
+        ]
+        async for row in db.chat_messages.aggregate(pipeline):
+            max_seq_by_id[str(row.get("_id") or "")] = int(row.get("max_seq") or 0)
+    items: List[dict] = []
+    for doc in documents:
+        doc_id = str(doc.get("_id"))
+        next_seq = doc.get("next_message_seq")
+        max_seq = int(next_seq or 0) if next_seq is not None else max_seq_by_id.get(doc_id, 0)
+        item = _serialize_session(
+            doc,
+            access="shared",
+            participant_count=count_by_id.get(doc_id, 0),
+        )
+        # shared_unread: the viewer's last_read_seq vs the session's max seq.
+        # The owner's scheduled_unread (serialized as-is above) is untouched —
+        # the participant cursor never writes the session doc.
+        item["shared_unread"] = bool(int(read_cursors.get(doc_id) or 0) < max_seq)
+        items.append(item)
+    return items
 
 
 async def _attach_pending_approval_counts(
@@ -540,6 +603,7 @@ async def create_session(
 async def list_sessions(
     user_id: str = Query(..., alias="userId"),
     tenant_id: str = Query("default", alias="tenantId"),
+    scope: str = Query("owner"),
     paged: bool = Query(False),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -549,9 +613,12 @@ async def list_sessions(
     user_id, tenant_id = await _authorized_scope(
         authorization, claimed_user_id=user_id, claimed_tenant_id=tenant_id
     )
+    # Anything other than an exact "shared" resolves to the owner scope (pinned
+    # decision: the endpoint's lenient Query style has no strict validation).
+    shared_scope = str(scope or "").strip() == "shared"
     log_print(
-        "[perf][sessions] list_sessions:start user_id=%s tenant_id=%s paged=%s limit=%s offset=%s"
-        % (str(user_id), resolve_tenant_id(tenant_id), bool(paged), int(limit), int(offset)),
+        "[perf][sessions] list_sessions:start user_id=%s tenant_id=%s scope=%s paged=%s limit=%s offset=%s"
+        % (str(user_id), resolve_tenant_id(tenant_id), scope, bool(paged), int(limit), int(offset)),
         flush=True,
     )
     db = get_db()
@@ -571,10 +638,41 @@ async def list_sessions(
         "scheduled_unread": 1,
         "last_scheduled_run": 1,
     }
-    base_cursor = (
-        db.chat_sessions.find(add_tenant_scope({"user_id": str(user_id)}, tenant_id), projection)
-        .sort([("updated_at", -1), ("_id", -1)])
-    )
+    if shared_scope:
+        participants = SessionParticipantsRepository(db)
+        conversation_ids: List[str] = []
+        read_cursors: Dict[str, int] = {}
+        batch_size = 100
+        batch_offset = 0
+        while True:
+            rows = await participants.list_for_user(
+                resolve_tenant_id(tenant_id), user_id=str(user_id), limit=batch_size, offset=batch_offset
+            )
+            conversation_ids.extend(
+                str(row.get("conversation_id")) for row in rows if row.get("conversation_id")
+            )
+            read_cursors.update(
+                {
+                    str(row.get("conversation_id")): int(row.get("last_read_seq") or 0)
+                    for row in rows
+                    if row.get("conversation_id")
+                }
+            )
+            if len(rows) < batch_size:
+                break
+            batch_offset += batch_size
+        base_cursor = (
+            db.chat_sessions.find(
+                add_tenant_scope({"_id": {"$in": [ObjectId(str(cid)) for cid in conversation_ids]}}, tenant_id),
+                {**projection, "next_message_seq": 1},
+            )
+            .sort([("updated_at", -1), ("_id", -1)])
+        )
+    else:
+        base_cursor = (
+            db.chat_sessions.find(add_tenant_scope({"user_id": str(user_id)}, tenant_id), projection)
+            .sort([("updated_at", -1), ("_id", -1)])
+        )
 
     if not paged:
         documents = []
@@ -586,7 +684,12 @@ async def list_sessions(
         await attach_session_runtime_contexts(
             db, documents, tenant_id=tenant_id, user_id=user_id
         )
-        sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
+        if shared_scope:
+            sessions = await _serialize_shared_sessions(
+                db, documents, tenant_id=tenant_id, read_cursors=read_cursors
+            )
+        else:
+            sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
         duration_ms = int((time.perf_counter() - t0) * 1000)
         log_print(
             "[perf][sessions] list_sessions:done user_id=%s tenant_id=%s paged=false count=%s duration_ms=%s"
@@ -608,7 +711,12 @@ async def list_sessions(
     await attach_session_runtime_contexts(
         db, documents, tenant_id=tenant_id, user_id=user_id
     )
-    sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
+    if shared_scope:
+        sessions = await _serialize_shared_sessions(
+            db, documents, tenant_id=tenant_id, read_cursors=read_cursors
+        )
+    else:
+        sessions = [SessionSummary(**_serialize_session_summary(doc)) for doc in documents]
     duration_ms = int((time.perf_counter() - t0) * 1000)
     log_print(
         "[perf][sessions] list_sessions:done user_id=%s tenant_id=%s paged=true count=%s has_more=%s duration_ms=%s"

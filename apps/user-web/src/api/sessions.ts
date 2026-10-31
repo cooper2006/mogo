@@ -58,10 +58,20 @@ export type SessionSummary = {
   runtime_preset_id?: string
   model_instance_id?: string | null
   code_project?: { workspace_id: string; git_branch: string; worktree: boolean } | null
+  /** P3 三期-a 会话共享：access 是查看者视角的作用域；仅 shared 列表行与 detail 携带，owner 列表（_serialize_session_summary）省略。 */
+  access?: 'owner' | 'shared'
+  owner_user_id?: string
+  participant_count?: number
+  /** 查看者在 shared 行的未读态；owner 行不带此字段。 */
+  shared_unread?: boolean
 }
 
 export type SessionDetail = SessionSummary & {
   messages: ChatMessage[]
+  /** P3 三期-a：后端 SessionDetail 恒经 _serialize_session 输出（_serialize_session_summary 是列表轻量版），故 REQUIRED。 */
+  access: 'owner' | 'shared'
+  owner_user_id: string
+  participant_count: number
 }
 
 export type SessionSearchResult = SessionSummary & {
@@ -125,7 +135,7 @@ export async function listSessions(userId: string, tenantId?: string, authToken?
 export async function listSessionsPaged(
   userId: string,
   tenantId?: string,
-  options: { limit?: number; offset?: number } = {},
+  options: { limit?: number; offset?: number; scope?: 'owner' | 'shared' } = {},
   authToken?: string | null,
 ): Promise<SessionListPage> {
   const limit = options.limit ?? 30
@@ -137,6 +147,8 @@ export async function listSessionsPaged(
     offset: String(offset),
   })
   if (tenantId) query.set('tenantId', tenantId)
+  // P3 三期-a：scope=shared 列出分享给我（参与）的会话；后端 list_sessions 支持。
+  if (options.scope) query.set('scope', options.scope)
   const response = await client.get(`/askai-api/api/sessions?${query.toString()}`, {
     timeout: 15000, headers: authHeaders(authToken),
   })
