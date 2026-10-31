@@ -49,6 +49,7 @@
 - [x] T022 001 门禁层零改动核验：`git diff --stat` 断言 `services/admin-api/app/governance/layers/quota.py` 无 diff；`tests/` 下 001 配额层既有测试（如 `tests/test_governance_us4_us5.py`）全绿
 - [ ] T023 前端校验：`@vue/compiler-sfc` 编译 `TrafficAllocationsPage.vue` 通过；手工联调——配置部门/项目策略 → 成员对话触发限额/恢复 → 驾驶舱异常统计可见 quota 类事件
 - [x] T024 文档接线：在 001/008/020 对应 spec 的"跨特性关系"补记本特性的双向声明（仅文档，不改代码）；本目录 tasks 勾选状态更新（含本条）
+- [ ] T025 **修 `points_unlimited` 默认值缺陷（B0，2026-10-30 决定并入本特性）**：`services/chat-api/app/core/quota_policy.py:352` 的 `if org.get("points_unlimited"):` 补 `, True`，与 `services/admin-api/app/core/quota_policy.py:351` 的 `bool(org.get("points_unlimited", True))` 对齐。**缺陷**：字段缺失时 chat-api 判为 `False`（走限额分支、按成员聚合用量），admin-api 判为 `True`（走 unlimited 短路）——同一租户两边结论相反，管理员看到"不限"而用户被 402 拦。**验收**：无该字段的租户不再被 402 拦、不再白跑成员聚合；补一条回归用例（字段缺失 → 走 unlimited 短路）
 
 ---
 
