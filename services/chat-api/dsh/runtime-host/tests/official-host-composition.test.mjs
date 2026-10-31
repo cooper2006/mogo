@@ -50,13 +50,18 @@ const REQUIRED_HOST_MODULES = new Set([
   '@deepseek-ai/dsh-host-plugin-inventory',
 ])
 
+const PLATFORM_SHELL_TOOL = process.platform === 'win32' ? 'pwsh' : 'bash'
+const PLATFORM_SHELL_MODULE = process.platform === 'win32'
+  ? '@deepseek-ai/dsh-tool-pwsh'
+  : '@deepseek-ai/dsh-tool-bash'
+
 const REQUIRED_CODE_CAPABILITIES = new Set([
   'read',
   'write',
   'edit',
   'glob',
   'grep',
-  'bash',
+  PLATFORM_SHELL_TOOL,
   'job_list',
   'job_output',
   'job_kill',
@@ -269,8 +274,8 @@ test('ordinary and code sessions use isolated official preset capability surface
       await runtime.start()
       const ordinary = await runtime.createSession({ sessionId: 'ordinary' })
       assert.equal(ordinary.presetId, ASKAI_ENTERPRISE_PRESET_ID)
-      assert.deepEqual(ordinary.modelTools, [])
-      assert.deepEqual(ordinary.capabilityTools, [])
+      assert.ok(ordinary.modelTools.includes('ask_user_question'))
+      assert.ok(ordinary.capabilityTools.includes('ask_user_question'))
 
       const code = await runtime.createSession({
         sessionId: 'code',
@@ -279,6 +284,7 @@ test('ordinary and code sessions use isolated official preset capability surface
       })
       assert.equal(code.presetId, DSH_CODE_PRESET_ID)
       const modelTools = new Set(code.modelTools)
+      assert.ok(modelTools.has('ask_user_question'))
       for (const name of REQUIRED_CODE_CAPABILITIES) assert.ok(modelTools.has(name), name)
       assert.equal(modelTools.has('run_code'), false)
       const capabilities = new Set(code.capabilityTools)
@@ -291,13 +297,13 @@ test('ordinary and code sessions use isolated official preset capability surface
       for (const moduleName of [
         '@deepseek-ai/dsh-tool-fs',
         '@deepseek-ai/dsh-tool-fs-search',
-        '@deepseek-ai/dsh-tool-bash',
+        PLATFORM_SHELL_MODULE,
         '@deepseek-ai/dsh-tool-jobs',
         '@deepseek-ai/dsh-skill-filesystem',
         '@deepseek-ai/dsh-agent-tool-presentation',
       ]) assert.ok(mountedModules.has(moduleName), moduleName)
 
-      assert.deepEqual((await runtime.describeLiveSession('ordinary')).capabilityTools, [])
+      assert.ok((await runtime.describeLiveSession('ordinary')).capabilityTools.includes('ask_user_question'))
     } finally {
       await runtime.dispose()
     }
@@ -321,9 +327,9 @@ test('a persisted code session resumes with its original preset and cwd composit
       await second.start()
       const resumed = await second.resumeSession('persisted-code')
       assert.equal(resumed.presetId, DSH_CODE_PRESET_ID)
-      assert.ok(resumed.modelTools.includes('bash'))
+      assert.ok(resumed.modelTools.includes(PLATFORM_SHELL_TOOL))
       assert.equal(resumed.modelTools.includes('run_code'), false)
-      assert.ok(resumed.capabilityTools.includes('bash'))
+      assert.ok(resumed.capabilityTools.includes(PLATFORM_SHELL_TOOL))
       assert.equal(resumed.capabilityTools.includes('code_task'), false)
     } finally {
       await second.dispose()
@@ -337,10 +343,10 @@ test('official Code composition coexists with managed model and enterprise tools
     try {
       await runtime.start()
       const code = await runtime.createSession({ sessionId: 'enterprise-code', presetId: DSH_CODE_PRESET_ID, cwd: root })
-      assert.ok(code.modelTools.includes('bash'))
+      assert.ok(code.modelTools.includes(PLATFORM_SHELL_TOOL))
       assert.equal(code.modelTools.includes('run_code'), false)
       const capabilities = new Set(code.capabilityTools)
-      for (const name of ['askai_mcp_lookup', 'web_search', 'read', 'write', 'bash']) {
+      for (const name of ['askai_mcp_lookup', 'web_search', 'read', 'write', PLATFORM_SHELL_TOOL]) {
         assert.ok(capabilities.has(name), name)
       }
       assert.equal(capabilities.has('code_task'), false)

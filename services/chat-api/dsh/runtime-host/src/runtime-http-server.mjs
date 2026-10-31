@@ -13,12 +13,18 @@ import {
 } from './replica-forward.mjs'
 import { RuntimeManager } from './runtime-manager.mjs'
 import { resolveSessionSeed, sealSeed } from './session-seed.mjs'
+import { IsolatedPluginRuntimePool } from './isolated-plugin-runtime.mjs'
+import { ContainerPluginRuntimePool } from './container-plugin-runtime.mjs'
+import { admitSessionBody } from './session-admission.mjs'
+import { PluginArchiveMaterializer } from './plugin-archive-materializer.mjs'
 
 const DRAIN_WAIT_MS = 30_000
 
 export class RuntimeHttpServer {
   #server
   #manager
+  #isolated
+  #pluginArchives
   #started = false
   #state = HOST_STATES.ready
   #draining = false
@@ -39,7 +45,25 @@ export class RuntimeHttpServer {
     this.#selfUrl = selfUrl || process.env.DSH_RUNTIME_SELF_URL || ''
     this.#peers = parsePeers(peers || process.env.DSH_RUNTIME_PEERS || '', this.#selfUrl)
     this.#manager = new RuntimeManager({ storageRoot })
+    this.#isolated = process.env.MOGO_SANDBOX_MANAGER_URL
+      ? new ContainerPluginRuntimePool({
+          managerUrl: process.env.MOGO_SANDBOX_MANAGER_URL,
+          managerToken: process.env.MOGO_SANDBOX_MANAGER_TOKEN,
+        })
+      : new IsolatedPluginRuntimePool(storageRoot)
+    this.#pluginArchives = new PluginArchiveMaterializer(storageRoot)
     this.#server = createServer((request, response) => {
+      if (request.url?.startsWith('/v1/sandbox-relay/')) {
+        if (typeof this.#isolated.relay !== 'function') {
+          sendJson(response, 404, { error: { code: 'not_found' } })
+          return
+        }
+        this.#isolated.relay(request, response).catch(error => {
+          if (!response.headersSent) sendJson(response, 502, { error: { code: 'relay_failed', message: String(error) } })
+          else response.destroy(error)
+        })
+        return
+      }
       if (!validBearerToken(request.headers.authorization, this.authToken)) {
         response.setHeader('www-authenticate', 'Bearer realm="askai-dsh-runtime"')
         sendJson(response, 401, { error: { code: 'unauthorized', message: 'valid runtime bearer token required' } })
@@ -49,7 +73,8 @@ export class RuntimeHttpServer {
         // A hand-off may have already relayed a response before a later error
         // surfaced; writing again would trip ERR_HTTP_HEADERS_SENT and kill
         // the process. Only answer when nothing has been sent yet.
-        if (response.headersSent || response.writableEnded) return
+        if (response.destroyed || response.writableEnded) return
+        if (response.headersSent) { response.destroy(error); return }
         sendJson(response, 400, {
           error: {
             code: 'kernel_request_failed',
@@ -89,6 +114,7 @@ export class RuntimeHttpServer {
     // force-cancels active sessions; then close connections and dispose.
     await this.#drain()
     const closed = new Promise(resolvePromise => this.#server.close(() => resolvePromise()))
+    await this.#isolated.disposeAll()
     await this.#manager.disposeAll()
     this.#server.closeAllConnections()
     await closed
@@ -223,7 +249,10 @@ export class RuntimeHttpServer {
       // replica mid-turn; the state field is the signal for operators and for
       // chat-api's aggregation to treat the replica as unavailable for new
       // work.
-      return sendJson(response, 200, runtimeHealth(this.#manager.inventory(), this.instanceId, this.#state))
+      return sendJson(response, 200, runtimeHealth(
+        [...this.#manager.inventory(), ...this.#isolated.inventory()],
+        this.instanceId, this.#state,
+      ))
     }
     if (request.method === 'POST' && parts.join('/') === 'drain') {
       await this.#drainNow()
@@ -247,8 +276,17 @@ export class RuntimeHttpServer {
         })
       }
     }
+    if (request.method === 'POST' && parts.join('/') === 'v1/plugin-archives/materialize') {
+      const body = await readJson(request)
+      const spec = await this.#pluginArchives.materialize(body)
+      return sendJson(response, 200, { spec })
+    }
     if (request.method === 'POST' && parts.join('/') === 'v1/runtimes') {
-      const runtime = await this.#manager.create(await readJson(request))
+      const body = await readJson(request)
+      body.modelProfile = await this.#pluginArchives.prepareProfile(body.modelProfile)
+      const runtime = body.modelProfile?.plugins?.length && process.env.MOGO_DSH_PLUGIN_CHILD !== '1'
+        ? await this.#isolated.create(body)
+        : await this.#manager.create(body)
       const health = runtimeHealth([], this.instanceId, this.#state)
       return sendJson(response, 201, {
         runtimeId: runtime.runtimeId,
@@ -262,14 +300,26 @@ export class RuntimeHttpServer {
     }
     if (request.method === 'GET' && parts.join('/') === 'v1/runtimes') {
       const isolationKey = query.get('isolationKey')
-      if (isolationKey === null) return sendJson(response, 200, { runtimes: this.#manager.inventory() })
-      const runtime = this.#manager.findByIsolation(isolationKey)
+      if (isolationKey === null) return sendJson(response, 200, { runtimes: [...this.#manager.inventory(), ...this.#isolated.inventory()] })
+      const runtime = this.#manager.findByIsolation(isolationKey) ?? this.#isolated.findByIsolation(isolationKey)
       return sendJson(response, 200, { runtime: runtime === undefined ? null : this.#manager.describe(runtime) })
     }
     if (parts[0] !== 'v1' || parts[1] !== 'runtimes' || parts[2] === undefined) {
       return sendJson(response, 404, { error: { code: 'not_found', message: 'route not found' } })
     }
     const runtimeId = parts[2]
+    const isolated = this.#isolated.get(runtimeId)
+    if (isolated !== undefined) {
+      if (request.method === 'DELETE' && parts.length === 3) {
+        await this.#isolated.dispose(runtimeId, { purge: query.get('purge') === '1' })
+        return sendJson(response, 200, { disposed: true })
+      }
+      if (request.method === 'POST' && parts[3] === 'sessions' && parts.length === 4) {
+        const body = await admitSessionBody(await readJson(request), this.#seedSource())
+        return sendJson(response, 201, await this.#isolated.createSession(isolated, body))
+      }
+      return await this.#isolated.forward(isolated, request, response)
+    }
     // Runtime-ownership probe used by cross-replica hand-off: answers for the
     // runtime itself (not a session), so a peer can be located before any
     // session exists there. Always 200 so probing never stops early.
@@ -282,7 +332,7 @@ export class RuntimeHttpServer {
       })
     }
     if (request.method === 'DELETE' && parts.length === 3) {
-      await this.#manager.dispose(runtimeId)
+      await this.#manager.dispose(runtimeId, { purge: query.get('purge') === '1' })
       return sendJson(response, 200, { disposed: true })
     }
     // Cross-replica session probes (§12.4) run *before* the runtime is
@@ -340,6 +390,16 @@ export class RuntimeHttpServer {
       runtime = this.#manager.get(runtimeId)
     }
     if (request.method === 'GET' && parts.length === 3) return sendJson(response, 200, this.#manager.describe(runtime))
+    if (process.env.MOGO_DSH_PLUGIN_CHILD === '1' && request.method === 'POST' &&
+        parts[3] === 'seed-export' && parts.length === 4) {
+      const { sessionId } = await readJson(request)
+      return sendJson(response, 200, { seed: await runtime.exportCompletedSeed(sessionId) })
+    }
+    if (process.env.MOGO_DSH_PLUGIN_CHILD === '1' && request.method === 'POST' &&
+        parts[3] === 'trusted-session' && parts.length === 4) {
+      const body = await admitSessionBody(await readJson(request), this.#manager, { trusted: true })
+      return sendJson(response, 201, await runtime.createSession(body))
+    }
     if (parts[3] === 'workspaces') {
       if (request.method === 'GET' && parts.length === 4) {
         return sendJson(response, 200, { workspaces: await runtime.listWorkspaces() })
@@ -378,17 +438,34 @@ export class RuntimeHttpServer {
       if (request.method === 'GET' && parts.length === 5) return sendJson(response, 200, await runtime.describeLiveSession(sessionId))
       if (request.method === 'POST' && parts[5] === 'resume') return sendJson(response, 200, await runtime.resumeSession(sessionId))
       if (request.method === 'POST' && parts[5] === 'send') {
-        return sendJson(response, 202, runtime.send({ sessionId, ...await readJson(request) }))
+        return sendJson(response, 202, await runtime.send({ sessionId, ...await readJson(request) }))
       }
       if (request.method === 'POST' && parts[5] === 'cancel') {
         const body = await readJson(request)
         return sendJson(response, 202, await runtime.cancel(sessionId, body.cause ?? 'cancelled'))
       }
       if (request.method === 'GET' && parts[5] === 'events') {
+        // O(1) attach probe for the chat-api turn runner: after a resume the
+        // journal is rebuilt by resetFromSession (cursors renumbered from 1),
+        // so the durable binding cursor may point inside reimported history.
+        // The runner probes the CURRENT head before send and subscribes after
+        // it, so only the new turn's events flow live.
+        if (query.get('head_only') === '1' || query.get('headOnly') === '1') {
+          return sendJson(response, 200, { head: runtime.headCursor(sessionId) })
+        }
         return sendJson(response, 200, { events: runtime.events(sessionId, Number(query.get('after') ?? -1)) })
       }
       if (request.method === 'GET' && parts[5] === 'approvals' && parts.length === 6) {
         return sendJson(response, 200, { approvals: runtime.pendingApprovals(sessionId) })
+      }
+      if (request.method === 'GET' && parts[5] === 'questions' && parts.length === 6) {
+        return sendJson(response, 200, { questions: runtime.pendingQuestions(sessionId) })
+      }
+      if (request.method === 'POST' && parts[5] === 'questions' && parts[6] !== undefined && parts[7] === 'answer') {
+        const body = await readJson(request)
+        return sendJson(response, 200, runtime.answerQuestion(
+          sessionId, decodeURIComponent(parts[6]), body.answers,
+        ))
       }
       if (request.method === 'POST' && parts[5] === 'approvals' && parts[6] !== undefined && parts[7] === 'decision') {
         const body = await readJson(request)
@@ -428,6 +505,32 @@ export class RuntimeHttpServer {
       if (request.method === 'POST' && parts[4] === 'probe') return sendJson(response, 200, await runtime.probePlugin(body.specifier))
       if (request.method === 'POST' && parts[4] === 'unload') return sendJson(response, 200, await runtime.unloadPlugin(body.specifier))
     }
+    if (parts[3] === 'managed-plugins') {
+      if (request.method === 'GET' && parts.length === 4) {
+        return sendJson(response, 200, await runtime.managedPluginList())
+      }
+      const body = await readJson(request)
+      if (request.method === 'POST' && parts[4] === 'inspect' && parts.length === 5) {
+        return sendJson(response, 200, await runtime.managedPluginInspect(body.spec, body.registry))
+      }
+      if (request.method === 'POST' && parts[4] === 'install' && parts.length === 5) {
+        return sendJson(response, 200, await runtime.managedPluginInstall(body.spec, body))
+      }
+      if (request.method === 'POST' && parts[4] === 'enable' && parts.length === 5) {
+        return sendJson(response, 200, await runtime.managedPluginEnable(body.name, body.enabled))
+      }
+      if (request.method === 'POST' && parts[4] === 'remove' && parts.length === 5) {
+        return sendJson(response, 200, await runtime.managedPluginRemove(body.name))
+      }
+    }
     return sendJson(response, 404, { error: { code: 'not_found', message: 'route not found' } })
+  }
+
+  #seedSource() {
+    return {
+      exportCompletedSeed: async (runtimeId, sessionId) => this.#isolated.get(runtimeId)
+        ? await this.#isolated.exportCompletedSeed(runtimeId, sessionId)
+        : await this.#manager.exportCompletedSeed(runtimeId, sessionId),
+    }
   }
 }

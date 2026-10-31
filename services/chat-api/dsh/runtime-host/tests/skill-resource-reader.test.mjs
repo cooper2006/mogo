@@ -28,11 +28,19 @@ test('rejects traversal, symlink escapes, and binary package resources', async (
   try {
     await mkdir(root)
     await writeFile(join(parent, 'outside.txt'), 'secret')
-    await symlink(join(parent, 'outside.txt'), join(root, 'escape.txt'))
+    let symlinkAvailable = true
+    try {
+      await symlink(join(parent, 'outside.txt'), join(root, 'escape.txt'))
+    } catch (error) {
+      if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code)) throw error
+      symlinkAvailable = false
+    }
     await writeFile(join(root, 'binary.dat'), Buffer.from([0xff, 0xfe, 0xfd]))
     await assert.rejects(readSkillTextResource(root, '../outside.txt'), /escapes the package/)
     await assert.rejects(readSkillTextResource(root, join(parent, 'outside.txt')), /relative path/)
-    await assert.rejects(readSkillTextResource(root, 'escape.txt'), /escapes the package/)
+    if (symlinkAvailable) {
+      await assert.rejects(readSkillTextResource(root, 'escape.txt'), /escapes the package/)
+    }
     await assert.rejects(readSkillTextResource(root, 'binary.dat'), /UTF-8 text/)
   } finally {
     await rm(parent, { recursive: true, force: true })

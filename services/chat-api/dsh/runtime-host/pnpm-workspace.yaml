@@ -3,6 +3,11 @@ allowBuilds:
   '@google/genai': false
   koffi: true
   node-pty: false
+  # pnpm is a runtime dependency of the managed-plugin profile installer
+  # (src/official-host/managed-profile.mjs spawns node .../pnpm/bin/pnpm.mjs).
+  # Its install.js only swaps the JS shims for a native binary; the JS entry
+  # runs fine under `node`, so the lifecycle script stays blocked.
+  pnpm: false
   protobufjs: false
 overrides:
   fast-uri: 3.1.6

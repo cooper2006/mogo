@@ -8,7 +8,7 @@ function call(name, args) {
 }
 
 test('redundant workspace-write is removed from sandboxed Code calls', () => {
-  const result = compatibleModelToolCall(call('bash', {
+  const result = compatibleModelToolCall(call(process.platform === 'win32' ? 'pwsh' : 'bash', {
     command: 'pwd', description: 'Show workspace', sandbox_permissions: 'workspace-write',
     justification: 'Inspect the workspace.',
   }))
@@ -30,16 +30,19 @@ test('external tools cannot lose a same-named business argument', () => {
   assert.deepEqual(compatibleModelToolCall(event), event)
 })
 
-test('maximally broad glob is bounded before reaching the DSH subprocess seam', () => {
-  const result = compatibleModelToolCall(call('glob', {
-    pattern: '*', path: '/workspace',
-  }))
-  assert.equal(result.name, 'bash')
-  assert.deepEqual(JSON.parse(result.arguments), {
-    command: "find . -maxdepth 2 -type f -print | LC_ALL=C sort | head -n 200",
-    description: 'List bounded project files',
-    workdir: '/workspace',
-  })
+test('broad glob is bounded through the platform shell mounted by the Code preset', () => {
+  for (const pattern of ['*', '**']) {
+    const event = call('glob', { pattern, path: '/workspace' })
+    const result = compatibleModelToolCall(event)
+    assert.equal(result.name, process.platform === 'win32' ? 'pwsh' : 'bash')
+    assert.deepEqual(JSON.parse(result.arguments), {
+      command: process.platform === 'win32'
+        ? 'Get-ChildItem -File -Recurse -Depth 1 -Force | Select-Object -First 200 -ExpandProperty FullName'
+        : 'find . -maxdepth 2 -type f -print | LC_ALL=C sort | head -n 200',
+      description: 'List bounded project files',
+      workdir: '/workspace',
+    })
+  }
   const narrow = call('glob', { pattern: 'src/**/*.ts', path: '/workspace' })
   assert.deepEqual(compatibleModelToolCall(narrow), narrow)
 })

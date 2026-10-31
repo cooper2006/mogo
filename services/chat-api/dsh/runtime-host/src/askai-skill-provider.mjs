@@ -1,5 +1,4 @@
 import { SkillBundleMaterializer } from './skill-bundle-materializer.mjs'
-import { readSkillTextResource } from './skill-resource-reader.mjs'
 
 const PROVIDER_NAME = 'askai-enterprise'
 
@@ -7,11 +6,11 @@ export class AskaiSkillProvider {
   #skills
   #byName
 
-  constructor(skillProfile, { storageRoot } = {}) {
+  constructor(skillProfile, { storageRoot, bundleGatewayUrl = '', accessToken = '' } = {}) {
     this.name = PROVIDER_NAME
     this.#skills = Object.freeze([...(skillProfile?.skills ?? [])].map(skill => Object.freeze(structuredClone(skill))))
     this.#byName = new Map(this.#skills.map(skill => [skill.name, skill]))
-    this.materializer = storageRoot === undefined ? undefined : new SkillBundleMaterializer(storageRoot)
+    this.materializer = storageRoot === undefined ? undefined : new SkillBundleMaterializer(storageRoot, { bundleGatewayUrl, accessToken })
   }
 
   async list() {
@@ -39,7 +38,7 @@ export class AskaiSkillProvider {
   async get(candidate) {
     const skill = this.#byName.get(candidate?.locator?.name)
     if (skill === undefined || candidate?.locator?.version !== skill.version) return undefined
-    const hasBundle = Boolean(skill.bundle_archive_base64)
+    const hasBundle = Boolean(skill.bundle_archive_base64 || skill.bundle_archive_id)
     return {
       name: skill.name,
       description: skill.description,
@@ -53,7 +52,7 @@ export class AskaiSkillProvider {
       resourceBase: hasBundle
         ? {
             kind: 'opaque',
-            description: 'Package resources are available through skill_resource_read. Pass a path relative to this Skill package.',
+            description: 'Read text resources with skill_resource_read using package-relative paths. In MOGO run_script code, skill_dir is the absolute package root; copy final files into output_dir for delivery.',
           }
         : { kind: 'opaque', description: `MOGO immutable Skill ${skill.version}` },
       metadata: candidate.metadata,
@@ -62,16 +61,15 @@ export class AskaiSkillProvider {
   }
 
   hasResourceBundles() {
-    return this.#skills.some(skill => Boolean(skill.bundle_archive_base64))
+    return this.#skills.some(skill => Boolean(skill.bundle_archive_base64 || skill.bundle_archive_id))
   }
 
   async readTextResource(skillName, options) {
     const skill = this.#byName.get(skillName)
     if (skill === undefined) throw new Error(`Unknown Skill: ${skillName}`)
-    if (!skill.bundle_archive_base64) throw new Error(`Skill has no package resources: ${skillName}`)
+    if (!skill.bundle_archive_base64 && !skill.bundle_archive_id) throw new Error(`Skill has no package resources: ${skillName}`)
     if (this.materializer === undefined) throw new Error('Skill package storage is unavailable')
-    const root = await this.materializer.materialize(skill)
-    const resource = await readSkillTextResource(root, options.path, options)
+    const resource = await this.materializer.readTextResource(skill, options.path, options)
     return { skill: skill.name, ...resource }
   }
 }

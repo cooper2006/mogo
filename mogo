@@ -51,6 +51,9 @@ export MOGO_PROFILE="${MOGO_PROFILE:-}"
 
 # shellcheck source=deploy/cli/i18n.sh
 source "${ROOT_DIR}/deploy/cli/i18n.sh"
+
+# shellcheck source=deploy/cli/sandbox.sh
+source "${ROOT_DIR}/deploy/cli/sandbox.sh"
 mogo_detect_locale
 # shellcheck source=deploy/cli/dsh-version.sh
 source "${ROOT_DIR}/deploy/cli/dsh-version.sh"

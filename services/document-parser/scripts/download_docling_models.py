@@ -6,6 +6,8 @@ from pathlib import Path
 from docling.models.stages.ocr.rapid_ocr_model import RapidOcrModel
 from docling.utils.model_downloader import download_models
 
+from rapidocr_assets import download_required_english_assets
+
 
 def main() -> None:
     output_dir = Path(os.environ.get("DOCLING_ARTIFACTS_PATH", "/opt/docling/models"))
@@ -24,6 +26,7 @@ def main() -> None:
         local_dir=output_dir / RapidOcrModel._model_repo_folder,
         progress=True,
     )
+    download_required_english_assets(output_dir / RapidOcrModel._model_repo_folder)
 
 
 if __name__ == "__main__":

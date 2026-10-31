@@ -1,4 +1,8 @@
-const SANDBOXED_CODE_TOOLS = new Set(['bash', 'edit', 'write', 'run_code'])
+const SANDBOXED_CODE_TOOLS = new Set(['bash', 'pwsh', 'edit', 'write', 'run_code'])
+const SHELL_TOOL = process.platform === 'win32' ? 'pwsh' : 'bash'
+const BOUNDED_FILE_LIST_COMMAND = process.platform === 'win32'
+  ? 'Get-ChildItem -File -Recurse -Depth 1 -Force | Select-Object -First 200 -ExpandProperty FullName'
+  : 'find . -maxdepth 2 -type f -print | LC_ALL=C sort | head -n 200'
 
 function parseArguments(value) {
   if (typeof value !== 'string') return undefined
@@ -28,17 +32,15 @@ export function compatibleModelToolCall(event) {
     changed = true
   }
 
-  // DSH 0.1.6 glob treats a separator-free "*" as a recursive whole-tree
-  // search. In large repositories its subprocess can exceed the raw-output
-  // seam before the tool applies its advertised result cap. This exact call is
-  // normally a mistaken directory listing, so route it to a bounded, static
-  // shell probe. Narrower glob patterns are untouched.
+  // A bare wildcard is interpreted as a whole-tree search by this DSH train.
+  // Bound the directory-listing probe and use the shell tool actually mounted
+  // by the shipped Code preset (pwsh on Windows, bash elsewhere).
   if (name === 'glob' && (args.pattern === '*' || args.pattern === '**')) {
     return {
       ...event,
-      name: 'bash',
+      name: SHELL_TOOL,
       arguments: JSON.stringify({
-        command: "find . -maxdepth 2 -type f -print | LC_ALL=C sort | head -n 200",
+        command: BOUNDED_FILE_LIST_COMMAND,
         description: 'List bounded project files',
         ...(typeof args.path === 'string' && args.path ? { workdir: args.path } : {}),
       }),

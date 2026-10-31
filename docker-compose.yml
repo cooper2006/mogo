@@ -175,6 +175,14 @@ services:
           echo "DSH_RUNTIME_HOST_TOKEN=$$(random_hex)" >> "$$temp_file"
           mv "$$temp_file" "$$secret_file"
         fi
+        # sandbox（P1 移植）：sandbox-manager 与 chat-api 共享的 Bearer token。
+        # 仅当 sandbox profile 启用时才真正被消费；默认空 URL 下不影响既有路径。
+        if ! grep -q '^MOGO_SANDBOX_MANAGER_TOKEN=' "$$secret_file"; then
+          temp_file="$${secret_file}.tmp"
+          cp "$$secret_file" "$$temp_file"
+          echo "MOGO_SANDBOX_MANAGER_TOKEN=$$(random_hex)" >> "$$temp_file"
+          mv "$$temp_file" "$$secret_file"
+        fi
         admin_backend_service_token="$$(sed -n 's/^ADMIN_BACKEND_SERVICE_TOKEN=//p' "$$secret_file" | head -n 1)"
         if [ -z "$$admin_backend_service_token" ]; then
           admin_backend_service_token="$$(sed -n 's/^ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=//p' "$$secret_file" | head -n 1)"
@@ -709,6 +717,10 @@ services:
       DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS: ${DSH_SESSION_AFFINITY_CACHE_TTL_SECONDS:-7200}
       DSH_TOOL_GATEWAY_URL: http://chat-api:8000/internal/dsh/tools
       DSH_MODEL_GATEWAY_URL: http://chat-api:8000/internal/dsh/model/generate
+      # sandbox（P1 移植）：URL 留空即不启用容器隔离，走既有脚本执行路径；
+      # token 由 bootstrap 写入 runtime.env，经 entrypoint source 注入。
+      MOGO_SANDBOX_MANAGER_URL: ${MOGO_SANDBOX_MANAGER_URL:-}
+      MOGO_SANDBOX_PLUGIN_IDLE_SECONDS: ${MOGO_SANDBOX_PLUGIN_IDLE_SECONDS:-900}
     volumes:
       - deployment-secrets:/run/askai-secrets:ro
       - askai-storage:/app/storage
@@ -746,6 +758,85 @@ services:
       <<: *python-healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()"]
 
+  # ---------------------------------------------------------------------------
+  # sandbox（P1 移植自 himovo/movo）
+  # 容器隔离执行：sandbox-manager 通过 docker.sock 拉起一次性脚本容器与
+  # 插件 Runtime 容器；sandbox-egress 为出口代理；sandbox-script 仅作基础镜像。
+  # 全部由 `profiles: ["sandbox"]` 门控，默认不启动；chat-api 的
+  # MOGO_SANDBOX_MANAGER_URL 留空时走既有执行路径。
+  # ---------------------------------------------------------------------------
+  sandbox-egress:
+    image: ${MOGO_SANDBOX_EGRESS_IMAGE:-ghcr.io/mogoai/sandbox-egress:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
+    profiles: ["sandbox"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      - public
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',3128),2); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  sandbox-script:
+    image: ${MOGO_SANDBOX_SCRIPT_IMAGE:-ghcr.io/mogoai/sandbox-script:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
+    profiles: ["sandbox-image"]
+    entrypoint: ["true"]
+
+  sandbox-manager:
+    image: ${MOGO_SANDBOX_MANAGER_IMAGE:-ghcr.io/mogoai/sandbox-manager:${MOGO_VERSION:-latest}}
+    platform: ${MOGO_PLATFORM:-}
+    profiles: ["sandbox"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=64m
+    environment:
+      MOGO_SANDBOX_WORKSPACE_ROOT: /workspaces
+      MOGO_SANDBOX_WORKSPACE_VOLUME: ${MOGO_VOLUME_PREFIX:-mogo}_sandbox-workspaces
+      MOGO_SANDBOX_SCRIPT_IMAGE: ${MOGO_SANDBOX_SCRIPT_IMAGE:-ghcr.io/mogoai/sandbox-script:${MOGO_VERSION:-latest}}
+      MOGO_SANDBOX_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-mogo}
+      MOGO_SANDBOX_MAX_CONCURRENT: ${MOGO_SANDBOX_MAX_CONCURRENT:-2}
+      MOGO_SANDBOX_MAX_PENDING: ${MOGO_SANDBOX_MAX_PENDING:-8}
+      MOGO_SANDBOX_RUNTIME_IMAGE: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/dsh-runtime-host:${MOGO_VERSION:-latest}}
+      MOGO_SANDBOX_RUNTIME_VOLUME: ${MOGO_VOLUME_PREFIX:-mogo}_dsh-runtime-data
+      MOGO_SANDBOX_RUNTIME_ROOT: /runtime-data
+      MOGO_PIP_INDEX_URL: ${MOGO_PIP_INDEX_URL:-}
+      MOGO_NPM_REGISTRY: ${MOGO_NPM_REGISTRY:-}
+      MOGO_APT_MIRROR: ${MOGO_APT_MIRROR:-}
+      MOGO_DEPENDENCY_MIRROR: ${MOGO_DEPENDENCY_MIRROR:-global}
+      MOGO_SKILL_DEPENDENCY_STEP_TIMEOUT: ${MOGO_SKILL_DEPENDENCY_STEP_TIMEOUT:-480}
+      MOGO_SKILL_DEPENDENCY_BUILD_TIMEOUT: ${MOGO_SKILL_DEPENDENCY_BUILD_TIMEOUT:-1800}
+      MOGO_SKILL_DEPENDENCY_RETRIES: ${MOGO_SKILL_DEPENDENCY_RETRIES:-1}
+    volumes:
+      - deployment-secrets:/run/askai-secrets:ro
+      - sandbox-workspaces:/workspaces
+      - dsh-runtime-data:/runtime-data
+      # DinD：仅 sandbox-manager 持有 docker.sock，用于拉起隔离容器。
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      sandbox-egress:
+        condition: service_healthy
+    networks:
+      - backend
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          set -a; . /run/askai-secrets/runtime.env; set +a;
+          python -c "import os,urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8300/health',headers={'Authorization':'Bearer '+os.environ['MOGO_SANDBOX_MANAGER_TOKEN']}),timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   admin-api: &admin-api-def
     image: ${MOGO_ADMIN_API_IMAGE:-ghcr.io/mogoai/admin-api:${MOGO_VERSION:-latest}}
     platform: ${MOGO_PLATFORM:-}
@@ -767,6 +858,9 @@ services:
       - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     environment:
       ASKAI_ADMIN_APP_ENV: production
+      # sandbox（P1 移植）：管理端读取 sandbox-manager 健康/配置；默认空即不启用。
+      MOGO_SANDBOX_MANAGER_URL: ${MOGO_SANDBOX_MANAGER_URL:-}
+      MOGO_SANDBOX_PLUGIN_IDLE_SECONDS: ${MOGO_SANDBOX_PLUGIN_IDLE_SECONDS:-900}
       # 与 chat-api / document-parser 复用同一组 mongo 连接别名（MONGODB_URI/DB），
       # 不再给 admin-api 单独的 ASKAI_ADMIN_ 前缀：admin-api 的 effective_mongodb_uri/db
       # 已显式回退到 MONGODB_URI/DB（services/admin-api/app/core/config.py），
@@ -1328,6 +1422,9 @@ volumes:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_weaviate-data
   dsh-runtime-data:
     name: ${MOGO_VOLUME_PREFIX:-mogo}_dsh-runtime-data
+  # sandbox（P1 移植）：脚本 / 插件容器的私有工作区卷。
+  sandbox-workspaces:
+    name: ${MOGO_VOLUME_PREFIX:-mogo}_sandbox-workspaces
   # Per-replica storage isolation (§ M1). Each pool replica gets its own
   # volume so kernel state (session JSONL, workspace registry) cannot be
   # written by two replicas at once. Cross-replica recovery of a session

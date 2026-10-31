@@ -164,6 +164,7 @@ export async function buildAskaiHostOverlay({
   storageRoot,
   askaiPresetRoot,
   shippedPresetRoot = askaiPresetRoot,
+  declarativePresets = false,
   webSearchProvider,
   occupiedIds = new Set(),
   hostFeatures = { subagentModelSelection: false },

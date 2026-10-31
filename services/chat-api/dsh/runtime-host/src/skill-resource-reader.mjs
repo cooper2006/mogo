@@ -44,6 +44,14 @@ export async function readSkillTextResource(rootPath, resourcePath, options = {}
   }
 
   const bytes = await readFile(canonical)
+  return pageSkillTextResource(bytes, raw, options)
+}
+
+export function pageSkillTextResource(bytes, resourcePath, options = {}) {
+  const raw = String(resourcePath ?? '')
+  if (bytes.byteLength > MAX_TEXT_BYTES) {
+    throw new Error(`Skill resource exceeds the ${MAX_TEXT_BYTES}-byte text limit: ${raw}`)
+  }
   let text
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)

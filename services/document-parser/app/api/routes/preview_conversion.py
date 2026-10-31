@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from app.api.error_locale import localize_detail
 from app.core.config import settings
 from app.core.security import verify_service_token
 from app.domain.jobs import PreviewConvertJobRequest, PreviewConvertJobResponse
@@ -37,8 +38,13 @@ async def create_preview_convert_job(
 
 
 @router.get("/jobs/{job_id}")
-async def get_processing_job(job_id: str, _: None = Depends(verify_service_token)) -> dict:
+async def get_processing_job(job_id: str, request: Request, _: None = Depends(verify_service_token)) -> dict:
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    error = job.get("error")
+    if isinstance(error, str) and error:
+        localized = localize_detail(error, status.HTTP_503_SERVICE_UNAVAILABLE, request.headers.get("accept-language"))
+        if localized != error:
+            return {**job, "error": localized}
     return job

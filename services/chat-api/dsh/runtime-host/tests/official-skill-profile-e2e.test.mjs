@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -71,7 +71,7 @@ test('ASKAI Runtime Profile mounts its Skills through the official DSH skill too
   try {
     await runtime.start()
     const session = await runtime.createSession({ sessionId: 'step7-session' })
-    assert.deepEqual(session.modelTools, ['skill'])
+    assert.deepEqual(session.modelTools, ['ask_user_question', 'skill'])
     assert.ok(session.capabilityTools.includes('skill'))
   } finally {
     await runtime.dispose()
@@ -160,7 +160,7 @@ test('official DSH reads a resource from an automatically selected Skill package
   try {
     await runtime.start()
     const session = await runtime.createSession({ sessionId: 'step7-resource-session' })
-    assert.deepEqual(session.modelTools, ['skill', 'skill_resource_read'])
+    assert.deepEqual(session.modelTools, ['ask_user_question', 'skill', 'skill_resource_read'])
     runtime.send({
       sessionId: 'step7-resource-session', mode: 'prompt',
       content: [{ type: 'text', data: { text: '佛山大学招生电话是什么？' } }],
@@ -228,6 +228,77 @@ test('manual ASKAI selection becomes an official DSH user Skill invocation', asy
     assert.match(request, /skill-invocation/)
     assert.match(request, /Read assets\/contacts.json before answering/)
     assert.match(JSON.stringify(calls[1]), /0757-123456/)
+  } finally {
+    await runtime.dispose()
+    await new Promise(resolve => server.close(resolve))
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('official DSH automatically selects a referenced Skill with a resource bundle over 20 MiB', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mogo-large-skill-e2e-'))
+  const archive = Buffer.from(zipSync({
+    'large/SKILL.md': strToU8('# Steps\nRead references/info.txt before answering.'),
+    'large/references/info.txt': strToU8('Large Skill resource loaded.'),
+    'large/assets/pad.bin': randomBytes(21 * 1024 * 1024),
+  }, { level: 0 }))
+  assert.ok(archive.length > 20 * 1024 * 1024)
+  const digest = createHash('sha256').update(archive).digest('hex')
+  const calls = []
+  let downloads = 0
+  const server = createServer(async (request, response) => {
+    if (request.method === 'GET' && request.url?.startsWith('/bundles/')) {
+      downloads += 1
+      response.writeHead(200, { 'content-type': 'application/zip' })
+      response.end(archive)
+      return
+    }
+    calls.push(await bodyOf(request))
+    if (calls.length === 1) return ndjson(response, [
+      { type: 'tool-call', id: 'load-large-skill', name: 'skill', arguments: JSON.stringify({ name: 'large-guide' }) },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ])
+    if (calls.length === 2) return ndjson(response, [
+      { type: 'tool-call', id: 'read-large-resource', name: 'skill_resource_read', arguments: JSON.stringify({ path: 'references/info.txt' }) },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ])
+    return ndjson(response, [
+      { type: 'text-delta', text: 'Large Skill completed.' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ])
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = server.address().port
+  const largeProfile = profile(`http://127.0.0.1:${port}/model`)
+  largeProfile.bundleGatewayUrl = `http://127.0.0.1:${port}/bundles`
+  largeProfile.skillProfile.skills[0] = {
+    ...largeProfile.skillProfile.skills[0], name: 'large-guide',
+    content: '# Steps\nRead references/info.txt before answering.',
+    bundle_root: 'large/', bundle_digest: digest, bundle_archive_id: 'a'.repeat(32),
+  }
+  const runtime = new KernelRuntime({
+    runtimeId: 'large-skill', isolationKey: 'tenant:user:large-skill',
+    profileVersion: 'step7-profile', storageRoot: root, modelProfile: largeProfile,
+  })
+  try {
+    await runtime.start()
+    const session = await runtime.createSession({ sessionId: 'large-skill-session' })
+    assert.deepEqual(session.modelTools, ['ask_user_question', 'skill', 'skill_resource_read'])
+    runtime.send({
+      sessionId: 'large-skill-session', mode: 'prompt',
+      content: [{ type: 'text', data: { text: 'Use the large guide.' } }],
+      temporalContext: {
+        captured_at_utc: '2026-08-25T00:00:00Z', user_local_time: '2026-08-25T08:00:00+08:00',
+        user_timezone: 'Asia/Shanghai',
+      },
+    })
+    await waitFor(() => calls.length >= 3, 30_000)
+    await waitFor(() => runtime.events('large-skill-session', -1).some(event => event.nativeType === 'turn/end'), 30_000)
+    assert.equal(downloads, 1)
+    assert.match(JSON.stringify(calls[2]), /Large Skill resource loaded/)
+    assert.ok(runtime.events('large-skill-session', -1).some(event => (
+      event.nativeType === 'skill/selected' && event.data?.selectionMode === 'automatic'
+    )))
   } finally {
     await runtime.dispose()
     await new Promise(resolve => server.close(resolve))

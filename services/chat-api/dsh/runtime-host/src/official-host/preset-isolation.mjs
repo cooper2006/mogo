@@ -10,7 +10,7 @@ const REQUIRED_AGENT_PLANE_ROWS = Object.freeze([
 
 function containsPresetRoster(patch) {
   return Array.isArray(patch?.insert)
-    && patch.insert.some(row => row?.id === 'agent-presets')
+    && patch.insert.some(row => row?.id === 'agent-presets' || row?.id === 'agent-preset-registry')
 }
 
 /**
@@ -44,8 +44,15 @@ export function extractOfficialPresetIsolation(webAppPatches) {
       `DSH Web preset-isolation contract changed; missing rows: ${missing.join(', ') || '(block empty)'}`,
     )
   }
+  const declarative = webAppPatches[rosterIndex].insert.some(row => row?.id === 'agent-preset-registry')
+  const declarations = declarative
+    ? webAppPatches.slice(rosterIndex).filter(patch => Array.isArray(patch?.insert)
+      && patch.insert.some(row => row?.id === 'agent-preset-registry'
+        || (typeof row?.id === 'string' && row.id.startsWith('preset-'))))
+    : []
   return Object.freeze({
-    patches: Object.freeze(patches),
+    patches: Object.freeze([...patches, ...declarations]),
+    declarative,
     disabledIds: Object.freeze([...disabledIds]),
   })
 }

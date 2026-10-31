@@ -18,17 +18,18 @@ function selectedPreset(meta, events) {
 
 export function enterpriseToolNames(modelProfile) {
   const profile = modelProfile?.toolProfile
+  const pluginTools = (modelProfile?.plugins ?? []).flatMap(plugin => plugin.tool_names ?? [])
   const skills = modelProfile?.skillProfile?.skills ?? []
   const skillTools = []
   if (skills.length > 0) skillTools.push('skill')
-  if (skills.some(skill => Boolean(skill.bundle_archive_base64))) skillTools.push(SKILL_RESOURCE_READ_TOOL)
-  if (profile === undefined) return skillTools
+  if (skills.some(skill => Boolean(skill.bundle_archive_base64 || skill.bundle_archive_id))) skillTools.push(SKILL_RESOURCE_READ_TOOL)
+  if (profile === undefined) return [...new Set([...pluginTools, ...skillTools, 'ask_user_question'])].sort()
   const replaced = new Set(profile.nativeReplacements ?? [])
   const names = profile.tools
     .map(tool => tool.name)
     .filter(name => typeof name === 'string' && name && !replaced.has(name))
   if (replaced.has('external_search')) names.push('web_search')
-  names.push(...skillTools)
+  names.push(...skillTools, ...pluginTools, 'ask_user_question')
   return [...new Set(names)].sort()
 }
 

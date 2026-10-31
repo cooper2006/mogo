@@ -9,6 +9,7 @@ from app.services.secret_codec import decrypt_admin_secret
 
 INSTANCE_COLLECTION = "admin_model_instances"
 PROVIDER_COLLECTION = "admin_model_providers"
+GROUP_COLLECTION = "admin_model_groups"
 
 
 class ModelCenterConfigError(RuntimeError):
@@ -31,14 +32,23 @@ def resolve_model_instance(tenant_id: str, instance_id: str, capability: str) ->
     if capability not in capabilities:
         raise ModelCenterConfigError(f"所选模型不具备 {capability} 能力")
     provider = db[PROVIDER_COLLECTION].find_one({"_id": instance.get("provider_id")}) or {}
-    api_key = decrypt_admin_secret(str(instance.get("api_key_encrypted") or ""))  # pragma: allowlist secret
+    connection = instance
+    if instance.get("group_id"):
+        group_id = str(instance["group_id"])
+        if not is_valid_backend_id(group_id):
+            raise ModelCenterConfigError("模型组 ID 无效")
+        group = db[GROUP_COLLECTION].find_one({"_id": to_backend_id(group_id), "tenant_id": tenant_id, "status": "active"})
+        if not group or str(group.get("provider_id")) != str(instance.get("provider_id")):
+            raise ModelCenterConfigError("模型组不可用")
+        connection = group
+    api_key = decrypt_admin_secret(str(connection.get("api_key_encrypted") or ""))
     if not api_key:
         raise ModelCenterConfigError(f"{capability} 模型 API Key 无法解密或为空")
     return {
         "providerType": str(provider.get("provider_type") or "openai_compatible"),
         "providerCode": str(provider.get("code") or ""),
-        "baseUrl": str(instance.get("base_url") or provider.get("default_base_url") or "").rstrip("/"),
-        "apiVersion": str(instance.get("api_version") or ""),
+        "baseUrl": str(connection.get("base_url") or provider.get("default_base_url") or "").rstrip("/"),
+        "apiVersion": str(connection.get("api_version") or ""),
         "apiKey": api_key,
         "modelName": str(instance.get("model_name") or ""),
     }

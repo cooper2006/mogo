@@ -219,6 +219,12 @@ mogo_msg() {
      zh:verify_script_missing) printf '错误：未找到制品校验脚本 deploy/cli/verify-artifact.sh。\n' ;;
      en:verify_script_missing) printf 'Error: artifact verification script deploy/cli/verify-artifact.sh not found.\n' ;;
      en:rollback_done) printf 'Rolled deploy/config/ back from %s to %s; rebuilding services.\n' "$1" "$2" ;;
+     zh:sandbox_config_mismatch) printf '错误：sandbox 模式需要同时设置 COMPOSE_PROFILES=sandbox 和 MOGO_SANDBOX_MANAGER_URL=http://sandbox-manager:8300。\n' ;;
+     en:sandbox_config_mismatch) printf 'Error: sandbox mode requires COMPOSE_PROFILES=sandbox and MOGO_SANDBOX_MANAGER_URL=http://sandbox-manager:8300 together.\n' ;;
+     zh:sandbox_unavailable) printf '错误：sandbox 管理服务未就绪。请执行 ./mogo logs sandbox-manager 查看原因。\n' ;;
+     en:sandbox_unavailable) printf 'Error: sandbox manager is not ready. Run ./mogo logs sandbox-manager for details.\n' ;;
+     zh:sandbox_engine_old) printf '错误：sandbox 需要 Docker Engine 26 或更高版本（当前：%s）。\n' "${1:-unknown}" ;;
+     en:sandbox_engine_old) printf 'Error: sandbox requires Docker Engine 26 or newer (current: %s).\n' "${1:-unknown}" ;;
     *) printf '%s' "${key}" ;;
   esac
 }

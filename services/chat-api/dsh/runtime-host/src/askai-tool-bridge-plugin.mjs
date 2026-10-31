@@ -25,7 +25,7 @@ export class AskaiToolBridge {
   #approvalArguments = new Map()
   #requestJson
 
-  constructor(ctx, config, { requestJson = postGatewayJson } = {}) {
+  constructor(ctx, config, { requestJson = postGatewayJson, skillInvocations } = {}) {
     this.#config = Object.freeze(structuredClone(config))
     this.#requestJson = requestJson
     assertNoDshCodeToolCollisions(this.#config.tools)
@@ -56,6 +56,8 @@ export class AskaiToolBridge {
               toolName: descriptor.name,
               actionId: String(exec.callId),
               idempotencyKey: `${exec.agent?.id ?? 'no-session'}:${String(exec.callId)}`,
+              currentSkillName: descriptor.name === 'run_script'
+                ? skillInvocations?.current(exec.agent?.id) ?? '' : '',
               arguments: args,
             }, exec.signal)
             return payload.result

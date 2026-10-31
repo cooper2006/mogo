@@ -48,7 +48,7 @@
         <n-form-item v-if="model.provider !== 'claw_search'" label="API Key" required>
           <n-input v-model:value="model.apiKey" type="password" show-password-on="click" :disabled="testing" />
         </n-form-item>
-        <n-form-item v-if="model.provider === 'baidu_qianfan' || model.provider === 'claw_search'" label="Endpoint" required>
+        <n-form-item v-if="model.provider === 'baidu_qianfan' || model.provider === 'claw_search' || model.provider === 'deepseek'" label="Endpoint" required>
           <n-input v-model:value="model.endpoint" :disabled="testing" />
         </n-form-item>
         <n-grid v-if="model.provider === 'volc_ark'" :cols="2" :x-gap="14" responsive="screen">

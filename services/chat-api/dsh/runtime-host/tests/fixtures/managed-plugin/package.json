@@ -1,0 +1,9 @@
+{
+  "name": "mogo-dsh-test-bundle",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Plugin installation smoke test",
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "peerDependencies": { "@deepseek-ai/dsh": "^0.2.1-alpha.1" },
+  "main": "./index.js"
+}
