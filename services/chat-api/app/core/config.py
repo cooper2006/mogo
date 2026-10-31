@@ -160,6 +160,8 @@ class Settings(BaseSettings):
     PORTAL_SSO_SECRET: str = ""
     # P3：会话分享链接落地门户的基础地址（如 https://portal.example.com）。空则回退请求 Origin。
     USER_PORTAL_BASE_URL: str = ""
+    # P3：session_live SSE 心跳间隔（秒）。证明流存活（穿透代理不静默死）。
+    SESSION_LIVE_HEARTBEAT_SECONDS: float = 15.0
 
     @field_validator("PORTAL_SSO_SECRET")
     @classmethod
