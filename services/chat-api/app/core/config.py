@@ -158,6 +158,8 @@ class Settings(BaseSettings):
     END_USER_AUTH_SECRET: str = ""
     # 029：门户 SSO 接收方票据签名密钥。留空时复用 END_USER_AUTH_SECRET（见下方校验器）。
     PORTAL_SSO_SECRET: str = ""
+    # P3：会话分享链接落地门户的基础地址（如 https://portal.example.com）。空则回退请求 Origin。
+    USER_PORTAL_BASE_URL: str = ""
 
     @field_validator("PORTAL_SSO_SECRET")
     @classmethod
