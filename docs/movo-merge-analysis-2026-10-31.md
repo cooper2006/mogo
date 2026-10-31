@@ -422,6 +422,14 @@ HTTP 层单独串行对照（`runtime-drain` + `runtime-http-server` + `runtime-
 - **验证**：8 文件 `py_compile` 0 失败；`session_sharing` service/snapshot 纯逻辑断言通过（`.venv-p2` 无 chat-api 依赖，逻辑经 importlib 直载）；`main_id`/`add_main_scope` 残留 0；品牌词 0。完整 pytest（session_access/identity_projection 需 bson/mongodb 环境）留给 CI。
 - **留 P3 二期**：`sessions.py` share 路由（±336 三方合并）、`migrations/session_sharing.py`、`session_live.py`（998 SSE）、前端 `SessionShareDialog`/`SessionSnapshotViewer`/`DesktopSessionShareAction` 增量。
 
+**P3 二期执行结果（2026-11-01，分支 `feat/port-movo-sharing`，提交 `ba1a07f5`）**：让只读共享可实际调用，共 5 文件 +397/-9：
+- `session_shares.py`（新增）：会话分享 API 面——`POST /sessions/{id}/share`（owner 校验 + 服务端执行位置 + 当前绑定，返回 token/url/expires_at）、`POST /session-shares/{token}/join`（token 哈希校验，410 过期/撤销）、`DELETE /sessions/{id}/share`、`GET /sessions/{id}/participants`（身份投影）、`DELETE /sessions/{id}/participants/me`、`DELETE /sessions/{id}/participants/{user_id}`；`ApiPrincipal.main_id`→`tenant_id`、`add_main_scope`→`add_tenant_scope` 适配。
+- `sessions.py`：`list_sessions` 加 `scope=shared`（`shared_scope` 分支：`SessionParticipantsRepository.list_for_user` 分批 + `_serialize_shared_sessions`：`participant_count`/`shared_unread`/`next_message_seq`+legacy `max_seq` 回退）；`_serialize_session` 加 `access`/`participant_count` 参数（默认 owner/0 兼容）。
+- `main.py`：注册 `session_shares.router`（`/api/v1`）。
+- `migrations/session_sharing.py`（新增）：非破坏性索引迁移（`ConversationRepository`+`SessionParticipantsRepository.ensure_indexes`），部署时手动运行（本地无 migrations 框架，作独立文件，不建 `__main__`）。
+- **验证**：5 文件 `py_compile` 0 失败；`main_id`/`add_main_scope` 残留 0；import 依赖全部存在（`ApiPrincipal.tenant_id`/`KernelBindingRepository.current`/`SessionParticipantsRepository`/`resolve_author_projections`/`portal_link`）；品牌词 0。
+- **留 P3 三期**：前端 `SessionShareDialog`/`SessionSnapshotConversation`/`SessionSnapshotViewer`/`DesktopSessionShareAction` 增量（himovo 独有组件，需逐个 diff 挑选适配本地中文内联/`--mg-*` 体系）；`session_live.py`（998 SSE）属后续。
+
 ---
 
 ## 附录：本次比对所用命令（可复现）
