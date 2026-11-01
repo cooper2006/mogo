@@ -295,14 +295,16 @@ const collapsedProjectHistory = ref<Record<string, boolean>>(savedSidebarHistory
 function projectHistoryExpanded(workspaceId: string): boolean { return !collapsedProjectHistory.value[workspaceId] }
 function toggleProjectHistory(workspaceId: string): void { collapsedProjectHistory.value = { ...collapsedProjectHistory.value, [workspaceId]: projectHistoryExpanded(workspaceId) } }
 const historyItems = computed(() => sortSessionsByRecentActivity(
-  sessions.value.filter((session) => !supportsLocalCodeProjects || !session.code_project?.workspace_id),
+  // 046 FR-011: 分组键改 project_id；web 会话（无 code_project）落 "default" 组，不再按 workspace_id 排除。
+  sessions.value.filter((session) => !supportsLocalCodeProjects || (session.project_id || 'default') === 'default'),
 ))
 const projectHistoryGroups = computed(() => {
   if (!canUseCode.value || !supportsLocalCodeProjects) return []
   const sessionsByWorkspace = new Map<string, SessionSummary[]>()
-  sessions.value.filter((session) => session.code_project?.workspace_id).forEach((session) => {
-    const workspaceId = session.code_project!.workspace_id
-    sessionsByWorkspace.set(workspaceId, [...(sessionsByWorkspace.get(workspaceId) || []), session])
+  sessions.value.filter((session) => (session.project_id || 'default') !== 'default').forEach((session) => {
+    // 046 FR-011: 分组键 project_id（后端迁移期兼容 workspace_id）。
+    const projectId = session.project_id || 'default'
+    sessionsByWorkspace.set(projectId, [...(sessionsByWorkspace.get(projectId) || []), session])
   })
   const knownWorkspaces = new Map(projectWorkspaces.value.map((workspace) => [workspace.workspace_id, workspace]))
   for (const workspaceId of sessionsByWorkspace.keys()) {

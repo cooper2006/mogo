@@ -193,14 +193,12 @@ class InstrumentedLLMClient(BaseLLMClient):
                 stage=self._stage or method,
                 intent=self._intent,
                 node_id=self._node_id or str(output_spec.get("current_task_node_id") or ""),
-                # 035 FR-002: read the attribution dimensions from the resolved
-                # output_spec (which already merges the request context, see
-                # ``factory.get_llm_client`` / ``_resolved_output_spec``). The
-                # space falls back to ``project_id`` (same rule as project_memory).
+                # 046 FR-005: workspace_id renamed project_id (primary); the
+                # legacy workspace_id is kept as a migration-period fallback.
                 agent_id=str(output_spec.get("agent_id") or "").strip(),
                 skill_id=str(output_spec.get("skill_id") or "").strip(),
-                workspace_id=str(
-                    output_spec.get("workspace_id") or output_spec.get("project_id") or ""
+                project_id=str(
+                    output_spec.get("project_id") or output_spec.get("workspace_id") or ""
                 ).strip(),
                 status=status,
                 model_name=str(provider_meta.get("model_name") or self._model_name),

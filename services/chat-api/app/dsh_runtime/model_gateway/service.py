@@ -19,6 +19,7 @@ from app.llm.configured_models import (
 )
 from app.llm.types import Message, Role
 
+from .project_id import ProjectIdResolver
 from .token import ModelGatewayClaims
 from .tool_schema import to_openai_chat_tools
 from .tool_visibility import visible_tools
@@ -54,12 +55,20 @@ class ModelGatewayFailure(RuntimeError):
         self.retryable = retryable
 
 
-ClientFactory = Callable[[str, str, ModelGatewayRequest], Awaitable[BaseLLMClient]]
+ClientFactory = Callable[
+    [str, str, ModelGatewayRequest, ModelGatewayClaims], Awaitable[BaseLLMClient]
+]
 
 
 class ModelGatewayService:
-    def __init__(self, client_factory: ClientFactory | None = None) -> None:
+    def __init__(
+        self,
+        client_factory: ClientFactory | None = None,
+        *,
+        project_resolver: ProjectIdResolver | None = None,
+    ) -> None:
         self._client_factory = client_factory or self._configured_client
+        self._project_resolver = project_resolver
 
     async def generate(
         self,
@@ -68,7 +77,9 @@ class ModelGatewayService:
     ) -> ModelGatewayResponse:
         self._validate_scope(request, claims)
         try:
-            client = await self._client_factory(claims.model_instance_id, claims.tenant_id, request)
+            client = await self._client_factory(
+                claims.model_instance_id, claims.tenant_id, request, claims
+            )
             messages = self._messages(request)
             kwargs: dict[str, Any] = {}
             if request.maxTokens:
@@ -107,7 +118,9 @@ class ModelGatewayService:
         """Prepare an authenticated provider stream and expose incremental chunks."""
         self._validate_scope(request, claims)
         try:
-            client = await self._client_factory(claims.model_instance_id, claims.tenant_id, request)
+            client = await self._client_factory(
+                claims.model_instance_id, claims.tenant_id, request, claims
+            )
         except ModelConfigError as exc:
             raise ModelGatewayFailure(
                 "model_configuration_invalid", self._safe_message(exc), retryable=False
@@ -170,26 +183,44 @@ class ModelGatewayService:
 
         return iterator()
 
-    @staticmethod
+    async def _project_id(self, request: ModelGatewayRequest, claims: ModelGatewayClaims) -> str:
+        """FR-006: 网关按 sessionId 反查 project_id；无 resolver 时返回空串（不写键）。"""
+        if self._project_resolver is None or not request.sessionId:
+            return ""
+        return await self._project_resolver.resolve(
+            request.sessionId,
+            tenant_id=claims.tenant_id,
+            user_id=claims.user_id,
+        )
+
     async def _configured_client(
+        self,
         model_instance_id: str,
         tenant_id: str,
         request: ModelGatewayRequest,
+        claims: ModelGatewayClaims,
     ) -> BaseLLMClient:
-        # 007：走 get_llm_client_by_model_id，自动包含 wrap_resilient 与 fallback，
-        # output_spec 不含 user_id 以跳过配额检查（网关层已独立校验）。
+        # 007：走 get_llm_client_by_model_id，自动包含 wrap_resilient 与 fallback；
+        # user_id 经 claims 传入（FR-006），由配额层独立校验而非跳过；
+        # project_id 由 ProjectIdResolver 按 sessionId 反查权威绑定（FR-006），
+        # 绝不采用请求体上报的 workspace id。
+        project_id = await self._project_id(request, claims)
+        output_spec: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "user_id": claims.user_id,
+            "model_instance_id": model_instance_id,
+            "session_id": request.sessionId or "",
+            "profile_version": request.profileVersion,
+        }
+        if project_id:
+            output_spec["project_id"] = project_id
         return await get_llm_client_by_model_id(
             model_instance_id,
             tenant_id=tenant_id,
             streaming=True,
             intent="chat",
             stage="dsh_agent_turn",
-            output_spec={
-                "tenant_id": tenant_id,
-                "model_instance_id": model_instance_id,
-                "session_id": request.sessionId or "",
-                "profile_version": request.profileVersion,
-            },
+            output_spec=output_spec,
         )
 
     @staticmethod

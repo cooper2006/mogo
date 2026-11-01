@@ -10,7 +10,7 @@ from app.llm.configured_models import (
     reset_configured_model_context,
     set_configured_model_context,
 )
-from app.infrastructure.request_context import reset_request_context, set_request_context
+from app.infrastructure.request_context import merge_request_context, reset_request_context
 from app.enterprise_capabilities.content.writer_engine.compose_skill import ToolWriterEngineComposeSkill
 
 from .contracts import normalized_content_arguments
@@ -57,7 +57,7 @@ class ContentProductionService:
         if model_config is None:
             return {"success": False, "message": "content production model is unavailable"}
 
-        previous_request = set_request_context({
+        previous_request = merge_request_context({
             "tenant_id": context.tenant_id,
             "user_id": context.user_id,
             "configured_model": model_config,

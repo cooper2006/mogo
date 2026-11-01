@@ -149,6 +149,9 @@ def _serialize_session(doc: dict, *, access: str = "owner", participant_count: i
         "runtime_preset_id": str(doc.get("runtime_preset_id") or "askai-enterprise"),
         "model_instance_id": str(doc.get("model_instance_id") or "") or None,
         "code_project": doc.get("code_project"),
+        "project_id": str(doc.get("project_id") or "").strip() or str(
+            (doc.get("code_project") or {}).get("workspace_id") or ""
+        ).strip() or "default",
     }
 
 
@@ -176,6 +179,11 @@ def _serialize_session_summary(doc: dict) -> dict:
         "runtime_preset_id": str(doc.get("runtime_preset_id") or "askai-enterprise"),
         "model_instance_id": str(doc.get("model_instance_id") or "") or None,
         "code_project": doc.get("code_project"),
+        # 046 FR-011: 迁移期读侧兼容 —— project_id 优先，回退 code_project.workspace_id，最终落 "default"。
+        # TODO(046-P2-cleanup): 回填完成后移除 workspace_id 回退，仅保留 project_id。
+        "project_id": str(doc.get("project_id") or "").strip() or str(
+            (doc.get("code_project") or {}).get("workspace_id") or ""
+        ).strip() or "default",
     }
 
 

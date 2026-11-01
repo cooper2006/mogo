@@ -165,13 +165,13 @@ def test_model_gateway_enforces_scope_maps_messages_and_usage() -> None:
 async def _test_model_gateway_enforces_scope_maps_messages_and_usage() -> None:
     client = FakeClient()
 
-    async def factory(model_instance_id: str, tenant_id: str, _request: ModelGatewayRequest) -> BaseLLMClient:
+    async def factory(model_instance_id: str, tenant_id: str, _request: ModelGatewayRequest, _claims=None) -> BaseLLMClient:
         assert (model_instance_id, tenant_id) == ("model-a", "tenant-a")
         return client
 
     token_service = ModelGatewayTokenService("step-3-test-signing-secret")
     claims = token_service.verify(
-        token_service.issue(tenant_id="tenant-a", profile_version="profile-a", model_instance_id="model-a")
+        token_service.issue(tenant_id="tenant-a", user_id="user-a", profile_version="profile-a", model_instance_id="model-a")
     )
     request = ModelGatewayRequest(
         profileVersion="profile-a",
@@ -216,12 +216,12 @@ def test_model_gateway_normalizes_provider_failures(
     retryable: bool,
 ) -> None:
     async def run() -> None:
-        async def factory(_model: str, _tenant: str, _request: ModelGatewayRequest) -> BaseLLMClient:
+        async def factory(_model: str, _tenant: str, _request: ModelGatewayRequest, _claims=None) -> BaseLLMClient:
             return FakeClient(failure=provider_error)
 
         tokens = ModelGatewayTokenService("step-3-test-signing-secret")
         claims = tokens.verify(
-            tokens.issue(tenant_id="tenant-a", profile_version="profile-a", model_instance_id="model-a")
+            tokens.issue(tenant_id="tenant-a", user_id="user-a", profile_version="profile-a", model_instance_id="model-a")
         )
         request = ModelGatewayRequest(
             profileVersion="profile-a",

@@ -15,7 +15,7 @@ from app.llm.configured_models import (
     set_configured_model_context,
 )
 from app.llm.configured_image_models import get_image_model_config
-from app.infrastructure.request_context import reset_request_context, set_request_context
+from app.infrastructure.request_context import merge_request_context, reset_request_context
 from app.services.presentation.image_native.pipeline import ImageNativePresentationPipeline
 from app.services.presentation.settings import get_presentation_generation_settings
 from app.services.conversation_evidence_service import (
@@ -83,7 +83,7 @@ class PresentationCreationCapability:
         }
         request_context["vision_model_config"] = vision_model_config
         request_context["image_model_id"] = str(image_model_config.get("id") or "")
-        previous_request = set_request_context(request_context)
+        previous_request = merge_request_context(request_context)
         previous_model = set_configured_model_context(model_config)
         try:
             resolved_context = await self._with_conversation_evidence(args, context)

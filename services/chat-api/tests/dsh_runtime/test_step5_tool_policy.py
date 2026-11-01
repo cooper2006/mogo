@@ -828,7 +828,7 @@ def test_model_gateway_preserves_native_tool_calls_and_results() -> None:
 
         tokens = ModelGatewayTokenService("step-5-model-signing-secret")
         claims = tokens.verify(tokens.issue(
-            tenant_id="tenant-a", profile_version="profile-a", model_instance_id="model-a"
+            tenant_id="tenant-a", user_id="user-a", profile_version="profile-a", model_instance_id="model-a"
         ))
         request = ModelGatewayRequest(
             profileVersion="profile-a", modelInstanceId="model-a", provider="askai-model-gateway",

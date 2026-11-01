@@ -10,7 +10,6 @@ class TokenUsageRecord(BaseModel):
     request_id: str
     user_request_id: str = ""
     tenant_id: str = "default"
-    tenant_id: str = "default"
     user_id: str = ""
     session_id: str = ""
     trace_id: str = ""
@@ -22,7 +21,7 @@ class TokenUsageRecord(BaseModel):
     # Empty string means "no source in this call" — never fabricate a value.
     agent_id: str = ""
     skill_id: str = ""
-    workspace_id: str = ""
+    project_id: str = ""  # 046 FR-005: workspace_id 改名 project_id
     status: str = "completed"
     model_name: str = ""
     model_id: str = ""

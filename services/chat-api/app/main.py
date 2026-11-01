@@ -497,8 +497,10 @@ async def startup_event() -> None:
     await db.external_tools.create_index([("tenant_id", 1), ("status", 1), ("type", 1)])
     await db.external_tools.create_index([("tenant_id", 1), ("scope", 1), ("owner_user_id", 1), ("updated_at", -1)])
     await db.project_memories.create_index([("tenant_id", 1), ("user_id", 1), ("project_id", 1), ("key", 1)])
-    await db.desktop_projects.create_index([("tenant_id", 1), ("user_id", 1), ("workspace_id", 1)], unique=True)
-    await db.desktop_projects.create_index([("tenant_id", 1), ("user_id", 1), ("updated_at", -1)])
+    await db.projects.create_index([("tenant_id", 1), ("user_id", 1), ("workspace_id", 1)], unique=True)
+    await db.projects.create_index([("tenant_id", 1), ("user_id", 1), ("updated_at", -1)])
+    # 046 FR-002: active/archived lifecycle index (D7).
+    await db.projects.create_index([("tenant_id", 1), ("user_id", 1), ("status", 1)])
     await db.token_usage_logs.create_index([("tenant_id", 1), ("user_id", 1), ("created_at", -1)])
     await db.token_usage_logs.create_index([("session_id", 1), ("created_at", -1)])
     await db.token_usage_logs.create_index([("trace_id", 1), ("created_at", -1)])

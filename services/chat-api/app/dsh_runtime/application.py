@@ -13,6 +13,8 @@ from app.dsh_runtime.events import KernelEventRepository
 from app.dsh_runtime.events.turn_channel import TurnEventRegistry
 from app.dsh_runtime.errors import DshRuntimeError
 from app.dsh_runtime.gateway import DshAgentKernelGateway
+from app.dsh_runtime.model_gateway.project_id import ProjectIdResolver
+from app.dsh_runtime.model_gateway.service import ModelGatewayService
 from app.dsh_runtime.model_gateway.token import ModelGatewayTokenService
 from app.dsh_runtime.runtime_lock import RuntimeLock
 from app.dsh_runtime.turn_backpressure import TurnBackpressure
@@ -45,6 +47,7 @@ class DshRuntimeApplication:
         self._transport: HttpKernelHostTransport | None = None
         self.chat: DshChatService | None = None
         self.tools: EnterpriseToolService | None = None
+        self.model_gateway: ModelGatewayService | None = None
         self.desktop_bootstrap: DesktopRuntimeBootstrapService | None = None
         self.desktop_bindings: DesktopCodeBindingService | None = None
         self.host_healthy = False
@@ -123,6 +126,13 @@ class DshRuntimeApplication:
         self.desktop_bindings = DesktopCodeBindingService(
             conversations, bindings, publisher, kernel_version=self.KERNEL_VERSION
         )
+        # FR-006：模型网关按 sessionId 反查权威绑定得到 project_id。
+        self.model_gateway = ModelGatewayService(
+            project_resolver=ProjectIdResolver(
+                bindings,
+                redis_url=settings.DSH_KERNEL_REDIS_URL or None,
+            )
+        )
         self.chat = DshChatService(
             gateway=gateway,
             coordinator=RuntimeCoordinator(
@@ -154,6 +164,7 @@ class DshRuntimeApplication:
             await self._transport.close()
         self.chat = None
         self.tools = None
+        self.model_gateway = None
         self.desktop_bootstrap = None
         self.desktop_bindings = None
         self._transport = None

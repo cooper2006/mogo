@@ -195,6 +195,12 @@ def _add_project(db: _Db, *, project_id: str, tokens: int, members: list[str], u
         [{"_id": project_id, "tenant_id": TENANT, "name": name, "member_user_ids": list(members), "status": project_status}],
     )
     _seed(db, quota_policy.USER_QUOTA_POLICY_COLLECTION, [_policy("project", project_id, tokens, status=status, name=name)])
+    # 046 FR-012: 项目成员从 chat_sessions 反查（不再用 quota_projects.member_user_ids）。
+    _seed(
+        db,
+        quota_policy.CHAT_SESSIONS_COLLECTION,
+        [{"tenant_id": TENANT, "user_id": member, "project_id": project_id} for member in members],
+    )
     for member in members:
         _seed(db, quota_policy.TOKEN_USAGE_COLLECTION, [_usage(member, used)])
 

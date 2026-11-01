@@ -1,7 +1,7 @@
-"""035 US2/US3 (T023/T026/T028/T029): six-dimension cost attribution + cost drill-down.
+"""035 US2/US3 (T023/T026/T028/T029): five-dimension cost attribution + cost drill-down.
 
-The dashboard cost section must bucket cost by department / business line / agent /
-space / user / enterprise, stay honest when a dimension has no data source, and
+The dashboard cost section must bucket cost by department / agent / project /
+user / enterprise, stay honest when a dimension has no data source, and
 reconcile to the per-model total. The analytics endpoints must expose a
 per-call ``costUsd`` that is consistent with the aggregated total.
 """
@@ -104,7 +104,6 @@ def _use_panwei_ids(monkeypatch) -> None:
 
 DEPT_ENG = "507f1f77bcf86cd799439011"
 DEPT_HQ = "507f1f77bcf86cd799439012"
-BLINE = "507f1f77bcf86cd799439013"
 
 
 def _raw_rows(*rows: dict[str, Any]) -> list[dict[str, Any]]:
@@ -155,7 +154,6 @@ def test_cost_section_populates_all_six_dimensions(monkeypatch) -> None:
     orgs = _Coll([
         {"_id": DEPT_ENG, "tenant_id": "tenant-1", "name": "工程部", "path_ids": [DEPT_HQ], "parent_id": DEPT_HQ},
         {"_id": DEPT_HQ, "tenant_id": "tenant-1", "name": "总部", "path_ids": [], "parent_id": None},
-        {"_id": BLINE, "tenant_id": "tenant-1", "name": "云事业部", "path_ids": [], "parent_id": None, "is_business_line": True},
     ])
     rels = _Coll([
         {"tenant_id": "tenant-1", "user_id": "user-1001", "org_id": DEPT_ENG},
@@ -174,21 +172,16 @@ def test_cost_section_populates_all_six_dimensions(monkeypatch) -> None:
     assert "research.progressive" in agent_keys
     assert "doc.synthesis" in agent_keys
 
-    space = section["spaceAttribution"]
-    assert space["available"] is True
-    space_keys = [i["key"] for i in space["items"]]
-    assert "ws-42" in space_keys
-    # empty workspace falls into 未分配 (never fabricated into a real space).
-    assert "未分配" in space_keys
+    project = section["projectAttribution"]
+    assert project["available"] is True
+    project_keys = [i["key"] for i in project["items"]]
+    assert "ws-42" in project_keys
+    # empty workspace falls into 未分配 (never fabricated into a real project).
+    assert "未分配" in project_keys
 
     dept = section["departmentAttribution"]
     assert dept["available"] is True
     assert [i["key"] for i in dept["items"]] == ["工程部"]
-
-    business_line = section["businessLineAttribution"]
-    assert business_line["available"] is True
-    # 工程部's chain has no is_business_line flag -> falls back to the root-side dept.
-    assert [i["key"] for i in business_line["items"]] == ["总部"]
 
     user = section["userAttribution"]
     assert user["available"] is True
@@ -197,22 +190,6 @@ def test_cost_section_populates_all_six_dimensions(monkeypatch) -> None:
     enterprise = section["enterpriseAttribution"]
     assert enterprise["available"] is True
     assert [i["key"] for i in enterprise["items"]] == ["tenant-1"]
-
-
-def test_business_line_uses_highest_is_business_line_ancestor(monkeypatch) -> None:
-    _use_panwei_ids(monkeypatch)
-    usage = _usage_coll(
-        _raw_rows({}),
-        _aggregate_rows({"model": "gpt-5.2", "calls": 1, "prompt_tokens": 100, "completion_tokens": 50}),
-    )
-    orgs = _Coll([
-        {"_id": BLINE, "tenant_id": "tenant-1", "name": "云事业部", "path_ids": [], "parent_id": None, "is_business_line": True},
-        {"_id": DEPT_HQ, "tenant_id": "tenant-1", "name": "总部", "path_ids": [BLINE], "parent_id": None},
-        {"_id": DEPT_ENG, "tenant_id": "tenant-1", "name": "工程部", "path_ids": [BLINE, DEPT_HQ], "parent_id": DEPT_HQ},
-    ])
-    rels = _Coll([{"tenant_id": "tenant-1", "user_id": "user-1001", "org_id": DEPT_ENG}])
-    section = _cost_section(_DB(token_usage_logs=usage, end_user_org_relations=rels, org_units=orgs))
-    assert [i["key"] for i in section["businessLineAttribution"]["items"]] == ["云事业部"]
 
 
 # --------------------------------------------------------------------------
@@ -226,8 +203,8 @@ def test_cost_section_dimension_without_source_is_not_fabricated(monkeypatch) ->
     db = _DB(token_usage_logs=usage, end_user_org_relations=_Coll([]), org_units=_Coll([]))
     section = _cost_section(db)
 
-    # rows exist but carry no agent / space / department source.
-    for key in ("agentAttribution", "spaceAttribution", "departmentAttribution", "businessLineAttribution"):
+    # rows exist but carry no agent / project / department source.
+    for key in ("agentAttribution", "projectAttribution", "departmentAttribution"):
         attr = section[key]
         assert attr["available"] is False, key
         assert isinstance(attr["reason"], str) and attr["reason"], key
@@ -243,9 +220,8 @@ def test_cost_section_empty_tenant_all_dimensions_unavailable(monkeypatch) -> No
     section = _cost_section(db, tenant_id="empty-tenant")
     for key in (
         "departmentAttribution",
-        "businessLineAttribution",
         "agentAttribution",
-        "spaceAttribution",
+        "projectAttribution",
         "userAttribution",
         "enterpriseAttribution",
     ):
@@ -323,7 +299,7 @@ def test_token_usage_detail_exposes_cost_and_dimensions(monkeypatch) -> None:
     assert detail["totalTokens"] == 150
     assert detail["agentId"] == "research.progressive"
     assert detail["skillId"] == "v1"
-    assert detail["workspaceId"] == "ws-42"
+    assert detail["projectId"] == "ws-42"
 
 
 def test_token_usage_detail_enforces_tenant_isolation(monkeypatch) -> None:

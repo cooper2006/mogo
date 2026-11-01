@@ -48,10 +48,11 @@ class _ProjectCollection:
 
 class _Database:
     def __init__(self) -> None:
-        self.desktop_projects = _ProjectCollection()
+        self.projects = _ProjectCollection()
 
 
-def test_desktop_projects_are_bound_to_authenticated_employee(monkeypatch) -> None:
+
+def test_projects_are_bound_to_authenticated_employee(monkeypatch) -> None:
     database = _Database()
 
     async def identity(authorization: str | None):
@@ -74,7 +75,12 @@ def test_desktop_projects_are_bound_to_authenticated_employee(monkeypatch) -> No
 
         alice = await projects.list_desktop_projects(authorization="tenant:alice")
         bob = await projects.list_desktop_projects(authorization="tenant:bob")
-        assert [item["workspace_id"] for item in alice.data] == ["alice-workspace"]
-        assert [item["workspace_id"] for item in bob.data] == ["bob-workspace"]
+        # 046 FR-003: 首次 list 会幂等生成 `_id = "default"` 的默认项目。
+        assert sorted(item["workspace_id"] for item in alice.data) == ["", "alice-workspace"]
+        assert sorted(item["workspace_id"] for item in bob.data) == ["", "bob-workspace"]
+        # 046 FR-001: 隔离性仍然成立——默认项目按 (tenant_id, user_id) 归属。
+        assert {item["_id"] for item in alice.data} == {"default", "alice-workspace"}
+        assert {item["_id"] for item in bob.data} == {"default", "bob-workspace"}
+        assert [item["status"] for item in alice.data] == ["active", "active"]
 
     asyncio.run(scenario())

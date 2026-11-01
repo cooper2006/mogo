@@ -735,46 +735,22 @@ async def _load_org_units(db: Any, org_ids: set[str]) -> dict[str, dict[str, Any
     return {str(doc.get("_id")): doc for doc in docs}
 
 
-def _resolve_business_line(dept_by_id: dict[str, dict[str, Any]], dept: dict[str, Any]) -> str:
-    """Highest ``is_business_line`` ancestor; fall back to the root-side department.
 
-    ``org_units.path_ids`` is the ancestor chain root -> leaf, so the first unit
-    carrying ``is_business_line`` is the highest business line. With no flag on
-    the chain the highest visible ancestor (the tenant's root-side department) is
-    used; an unresolved chain returns "" (bucketed as 未分配).
-    """
-    chain: list[dict[str, Any]] = []
-    for pid in (dept.get("path_ids") or []):
-        unit = dept_by_id.get(str(pid))
-        if unit:
-            chain.append(unit)
-    chain.append(dept)
-    for unit in chain:
-        if unit.get("is_business_line"):
-            return str(unit.get("name") or unit.get("_id") or "")
-    for unit in chain:
-        parent = unit.get("parent_id")
-        if parent in (None, ""):
-            return str(unit.get("name") or unit.get("_id") or "")
-    return ""
-
-
-async def _resolve_org_attribution(
+async def _resolve_department(
     db: Any, tenant_id: str, rows: list[dict[str, Any]]
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Resolve user -> department name and user -> business line (035 T020/T021).
+) -> dict[str, str]:
+    """Resolve user -> department name (035 T020).
 
-    Department comes from ``end_user_org_relations`` (counted only, never guessed);
-    business line walks the department's ``path_ids`` chain. Users with no
-    resolvable department stay unmapped and are bucketed as 未分配 by the caller.
+    Department comes from ``end_user_org_relations``: counted only, never
+    guessed. Users with no resolvable department stay unmapped and are bucketed
+    as 未分配 by the caller.
     """
     user_ids = sorted(
         {str(row.get("user_id") or "").strip() for row in rows if str(row.get("user_id") or "").strip()}
     )
     department_map: dict[str, str] = {}
-    business_line_map: dict[str, str] = {}
     if not user_ids:
-        return department_map, business_line_map
+        return department_map
 
     rel_rows = await db[USER_ORG_REL_COLLECTION].find(
         {"tenant_id": tenant_id, "user_id": {"$in": user_ids}}
@@ -789,41 +765,28 @@ async def _resolve_org_attribution(
         rel_by_user.setdefault(uid, oid)
         dept_ids.add(oid)
     if not dept_ids:
-        return department_map, business_line_map
+        return department_map
 
     dept_by_id = await _load_org_units(db, dept_ids)
-    # Pull every resolved department's ancestor chain in one pass so business-line
-    # walking sees the full tree without a query per user.
-    ancestor_ids = (
-        {
-            str(pid).strip()
-            for dept in dept_by_id.values()
-            for pid in (dept.get("path_ids") or [])
-            if str(pid).strip()
-        }
-        - set(dept_by_id.keys())
-    )
-    if ancestor_ids:
-        for oid, unit in (await _load_org_units(db, ancestor_ids)).items():
-            dept_by_id.setdefault(oid, unit)
-
     for uid, oid in rel_by_user.items():
         dept = dept_by_id.get(oid)
         if not dept:
             continue
         department_map[uid] = str(dept.get("name") or oid)
-        line = _resolve_business_line(dept_by_id, dept)
-        if line:
-            business_line_map[uid] = line
-    return department_map, business_line_map
+    return department_map
 
 
 async def _attribution_dimensions(
     db: Any, tenant_id: str, raw_rows: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Six-dimension cost attribution on the 24h window's rows (035 FR-005)."""
+    """Five-dimension cost attribution on the 24h window's rows (035 FR-005 / 048 FR-001).
+
+    The business-line dimension is removed by 048: it was derived from an
+    optional flag on org units rather than a first-class source, so dropping it
+    leaves the other five dimensions unchanged.
+    """
     normalized = [_normalize_usage_row(row) for row in raw_rows]
-    department_map, business_line_map = await _resolve_org_attribution(db, tenant_id, raw_rows)
+    department_map = await _resolve_department(db, tenant_id, raw_rows)
 
     department = _build_attribution(
         normalized,
@@ -831,23 +794,17 @@ async def _attribution_dimensions(
         dimension_of=lambda row: department_map.get(str(row.get("user_id") or ""), UNASSIGNED),
         note="部门经 end_user_org_relations 反查（仅计数，不伪造分摊）；无部门关系的用户归 未分配。",
     )
-    business_line = _build_attribution(
-        normalized,
-        dimension="business_line",
-        dimension_of=lambda row: business_line_map.get(str(row.get("user_id") or ""), UNASSIGNED),
-        note="业务线沿 org_units.path_ids 取最高 is_business_line 祖先；无标记回落最高可见祖先，无则归 未分配。",
-    )
     agent = _build_attribution(
         normalized,
         dimension="agent",
         dimension_of=lambda row: str(row.get("agent_id") or row.get("node_id") or "").strip() or UNASSIGNED,
         note="Agent 维度取调用记录的 agent_id（Agent→Skill→资产链路）；无登记回落原始能力引用 ID。",
     )
-    space = _build_attribution(
+    project = _build_attribution(
         normalized,
-        dimension="space",
-        dimension_of=lambda row: str(row.get("workspace_id") or "").strip() or UNASSIGNED,
-        note="空间维度取 workspace_id（与 017/021 同源，缺省回退 project_id）；无 workspace 归 未分配。",
+        dimension="project",
+        dimension_of=lambda row: str(row.get("project_id") or row.get("workspace_id") or "").strip() or UNASSIGNED,
+        note="项目维度取 project_id（046 FR-005），迁移期回退 workspace_id；无项目归属归 未分配。",
     )
     user = _build_attribution(
         normalized,
@@ -863,16 +820,15 @@ async def _attribution_dimensions(
     )
     return {
         "departmentAttribution": department,
-        "businessLineAttribution": business_line,
         "agentAttribution": agent,
-        "spaceAttribution": space,
+        "projectAttribution": project,
         "userAttribution": user,
         "enterpriseAttribution": enterprise,
     }
 
 
 async def _cost_section(db: Any, tenant_id: str) -> dict[str, Any]:
-    """008 US2 / 035 US2: six-dimension cost attribution (FR-2 / FR-6 / FR-9).
+    """008 US2 / 035 US2: five-dimension cost attribution (FR-2 / FR-6 / FR-9).
 
     Previously ``build_cost_section`` / ``forecast_cost`` / ``attribute_cost`` had
     **zero production callers** and ``/overview`` never returned a cost section
@@ -880,7 +836,7 @@ async def _cost_section(db: Any, tenant_id: str) -> dict[str, Any]:
     aggregation + reconciliation self-check + 4-period moving-average forecast,
     plus the 035 attribution dimensions bucketed on the same 24h window.
 
-    Department / agent / space / business-line attribution is **not fabricated**:
+    Department / agent / project / user / enterprise attribution is **not fabricated**:
     a dimension with no data source is surfaced as ``available: False`` with a
     reason (008 honesty discipline / 035 FR-009), and unresolvable rows fall into
     a real ``未分配`` bucket rather than a guessed one.

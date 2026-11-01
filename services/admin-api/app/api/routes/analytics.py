@@ -493,7 +493,7 @@ async def get_token_usage_detail(
         "costUsd": _cost_usd(row),
         "agentId": str(row.get("agent_id") or row.get("node_id") or ""),
         "skillId": str(row.get("skill_id") or ""),
-        "workspaceId": str(row.get("workspace_id") or ""),
+        "projectId": str(row.get("project_id") or row.get("workspace_id") or ""),
     }
 
 

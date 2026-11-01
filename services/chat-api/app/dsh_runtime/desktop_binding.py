@@ -71,6 +71,7 @@ class DesktopCodeBindingService:
             tenant_id=tenant_id,
             user_id=user_id,
             title=title.strip()[:120] or "Code task",
+            project_id=identity.source_workspace_id,
         )
         conversation_id = str(conversation["_id"])
         try:

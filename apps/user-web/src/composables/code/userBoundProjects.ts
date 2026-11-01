@@ -1,6 +1,6 @@
 import { ref, type Ref } from 'vue'
 import type { DesktopProject, SessionSummary } from '../../api/sessions'
-import { listDesktopProjects } from '../../api/sessions'
+import { listDesktopProjects, updateDesktopProjectStatus } from '../../api/sessions'
 import { listDshWorkspaces } from '../../platform'
 import type { DshWorkspace } from '../../platform/types'
 import { reconcileUserBoundProjects } from './projectAuthorization'
@@ -60,6 +60,19 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
       workspaces.value = nextWorkspaces
       titles.value = Object.fromEntries(nextWorkspaces.map(workspace => [workspace.workspace_id, workspace.title]))
       loadedIdentity.value = identity
+      // 046 FR-009: 对账后自动归档/恢复——目录不存在 → archived，恢复 → active。
+      const localIds = new Set(localWorkspaces.map(w => w.workspace_id))
+      for (const project of nextBindings) {
+        const isArchived = (project.status || 'active') === 'archived'
+        const dirExists = localIds.has(project.workspace_id)
+        if (!dirExists && !isArchived) {
+          updateDesktopProjectStatus(project.workspace_id, 'archived', token).catch(() => {})
+          project.status = 'archived'
+        } else if (dirExists && isArchived) {
+          updateDesktopProjectStatus(project.workspace_id, 'active', token).catch(() => {})
+          project.status = 'active'
+        }
+      }
     } catch { /* Keep the last same-employee snapshot on a control-plane outage. */ }
     finally {
       if (activeEpoch === refreshEpoch) loading.value = false

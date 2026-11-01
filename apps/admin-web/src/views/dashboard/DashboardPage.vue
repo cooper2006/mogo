@@ -179,8 +179,8 @@
                 </div>
               </div>
             </n-card>
-            <!-- 035 US2: six-dimension cost attribution (Agent / 空间 / 部门 /
-                业务线 / 用户 / 企业). Unavailable dimensions show the backend's
+            <!-- 035 US2: five-dimension cost attribution (Agent / 空间 / 部门 /
+                用户 / 企业). Unavailable dimensions show the backend's
                 honest placeholder reason instead of fabricated numbers. -->
             <n-card class="panel-card span-12" :bordered="false" size="large">
               <template #header>{{ t('成本归集维度') }}</template>
@@ -418,9 +418,8 @@ interface DashboardOverview {
   // consume this, not the trend bottlenecks (001 audit, 2026-10-03).
   cost?: {
     departmentAttribution: CostAttribution;
-    businessLineAttribution: CostAttribution;
     agentAttribution: CostAttribution;
-    spaceAttribution: CostAttribution;
+    projectAttribution: CostAttribution;
     userAttribution: CostAttribution;
     enterpriseAttribution: CostAttribution;
     totalTokens: number;
@@ -737,15 +736,14 @@ const costForecast = computed(() => {
   return Math.round(average * 1000000) / 1000000;
 });
 
-// --- 035 US2: six-dimension cost attribution --------------------------------
-// The backend buckets the same 24h window by Agent / 空间 / 部门 / 业务线 /
-// 用户 / 企业; here we just surface each dimension's top buckets and its honest
-// availability state (FR-009: never fabricate a zero bucket).
+// --- 035 US2: five-dimension cost attribution -------------------------------
+// The backend buckets the same 24h window by Agent / 空间 / 部门 / 用户 / 企业;
+// here we just surface each dimension's top buckets and its honest availability
+// state (FR-009: never fabricate a zero bucket).
 const COST_DIM_LABELS: Record<string, string> = {
   agent: 'Agent',
-  space: '空间',
+  project: '项目',
   department: '部门',
-  business_line: '业务线',
   user: '用户',
   enterprise: '企业',
 };
@@ -754,9 +752,8 @@ const costAttributionDims = computed(() => {
   if (!section) return [];
   const sources: Array<[string, CostAttribution | undefined]> = [
     ['agent', section.agentAttribution],
-    ['space', section.spaceAttribution],
+    ['project', section.projectAttribution],
     ['department', section.departmentAttribution],
-    ['business_line', section.businessLineAttribution],
     ['user', section.userAttribution],
     ['enterprise', section.enterpriseAttribution],
   ];

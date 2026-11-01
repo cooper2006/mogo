@@ -58,6 +58,8 @@ export type SessionSummary = {
   runtime_preset_id?: string
   model_instance_id?: string | null
   code_project?: { workspace_id: string; git_branch: string; worktree: boolean } | null
+  /** 046 FR-011: 项目维度分组键；迁移期由后端兼容 project_id / workspace_id / "default"。 */
+  project_id?: string
   /** P3 三期-a 会话共享：access 是查看者视角的作用域；仅 shared 列表行与 detail 携带，owner 列表（_serialize_session_summary）省略。 */
   access?: 'owner' | 'shared'
   owner_user_id?: string
@@ -106,6 +108,8 @@ export type DesktopProject = {
   workspace_id: string
   title: string
   worktree: boolean
+  /** 046 FR-009: 项目状态；目录不存在 → archived，恢复 → active。 */
+  status?: 'active' | 'archived'
   created_at: string
   updated_at: string
 }
@@ -121,6 +125,15 @@ export async function createDesktopProject(
 export async function listDesktopProjects(authToken?: string | null): Promise<DesktopProject[]> {
   const response = await client.get('/askai-api/api/projects', { headers: authHeaders(authToken) })
   return Array.isArray(response.data?.data) ? response.data.data : []
+}
+
+/** 046 FR-009: 对账时自动归档/恢复项目。 */
+export async function updateDesktopProjectStatus(
+  projectId: string,
+  status: 'active' | 'archived',
+  authToken?: string | null,
+): Promise<void> {
+  await client.patch(`/askai-api/api/projects/${encodeURIComponent(projectId)}`, { status }, { headers: authHeaders(authToken) })
 }
 
 export async function listSessions(userId: string, tenantId?: string, authToken?: string | null): Promise<SessionSummary[]> {

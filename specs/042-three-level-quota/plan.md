@@ -8,7 +8,7 @@
 
 > **2026-10-30 口径修订**（与 `spec.md` 顶部修订块同步，改动仅限文档）：
 > 1. **「团队」全文改称「部门」**——本文档已替换；**机器标识符保留 `team`**（`scope_type="team"`、`teamRemainingPoints`、`setup_team`、`/traffic-allocations/teams/...` 等），不要全局替换。对照表见 `spec.md` 顶部。
-> 2. **「项目」按 ADR-8 收敛为「工作目录」**（`project_id` = 会话 `workspace_id`，web 会话 `"default"`）——下文的 `quota_projects` 独立分组集合、成员内嵌数组、`services/admin-api/app/services/quota_projects.py` 等**均已作废**，项目层 `scope_id` 直接取 `project_id`，不再新建实体。
+> 2. **「项目」按 ADR-8 收敛为「工作目录」**（`project_id` = 会话 `workspace_id`，web 会话 `"default"`）——下文的 `quota_projects` 独立分组集合、成员内嵌数组、`services/admin-api/app/services/quota_projects.py` 等**均已作废**，项目层 `scope_id` 直接取 `project_id`，不再新建实体。**（2026-11-01 046 T030 落地：成员来源从 `quota_projects.member_user_ids` 改为 `chat_sessions.project_id` 聚合；归档项目不参与取小）**
 > 3. **配置入口**：部门额度留在流量分配页；项目额度进独立菜单「项目管理」（不再塞同一页的 tab）。
 > 4. **「企业额度」改称「租户额度」**（`scope_type='org'` = 租户层）。
 

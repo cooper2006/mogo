@@ -70,7 +70,7 @@
 
 ### User Story 2 - 配置项目级额度（自定义分组 + 成员）并生效 (Priority: P1)
 
-> **口径已作废**（2026-10-30，修订 #2）：项目 = 工作目录（`project_id`），没有"新建分组 + 勾选成员"这一步。本 US 保留作历史记录；现行口径为：项目额度按 `project_id` 配置，成员即该项目下产生过会话的用户（按当前归属聚合）。
+> **口径已作废**（2026-10-30，修订 #2）：项目 = 工作目录（`project_id`），没有"新建分组 + 勾选成员"这一步。本 US 保留作历史记录；现行口径为：项目额度按 `project_id` 配置，成员即该项目下产生过会话的用户（从 `chat_sessions.project_id` 聚合，046 T030 落地）。
 
 租户管理员可新建"项目"分组（命名、备注、勾选成员），为分组设置本周期额度；跨部门的成员可加入同一项目，项目额度对该项目全部成员合计生效。项目分组与桌面 Code 的"项目"（工作区绑定）是两回事，管理端入口与命名明确区分。
 
@@ -81,7 +81,7 @@
 **Acceptance Scenarios**:
 
 1. **Given** 管理员在配置区新建项目分组并添加成员，**When** 保存，**Then** 分组落库（新集合，含名称/成员/状态）并可再次编辑增删成员。
-2. **Given** 项目分组已配置额度，**When** 任一成员发起对话，**Then** 项目层剩余 = 项目总额度 − 项目全部成员周期用量之和，并参与三层取小。
+2. **Given** 项目分组已配置额度，**When** 任一成员发起对话，**Then** 项目层剩余 = 项目总额度 − 项目全部成员周期用量之和，并参与三层取小。**（046 T030 收敛：成员 = 该项目 `chat_sessions.project_id` 下有会话的用户，不再从 `quota_projects.member_user_ids` 读取）**
 3. **Given** 项目剩余为 0 而其他层仍有剩余，**When** 成员发起对话，**Then** 被拒且错误信息指明超限层为项目。
 4. **Given** 成员被移出项目分组，**When** 其再发起对话，**Then** 项目层不再对其生效（即时，无需等周期重置）。
 
@@ -186,10 +186,10 @@
 ## Assumptions
 
 - 每个租户已有部门树（020 建租户时建根组织，FR-005），`end_user_org_relations` 是用户-部门关系的现成来源。
-- 部门/项目层用量 = **当前成员**在各自周期窗口内的用量之和；成员中途变动不追溯历史归属（运营口径写入管理端说明文案）。
+- 部门/项目层用量 = **当前成员**在各自周期窗口内的用量之和；成员中途变动不追溯历史归属（运营口径写入管理端说明文案）。**（046 T030 收敛：项目层成员从 `chat_sessions.project_id` 聚合，不再从 `quota_projects.member_user_ids` 读取；归档项目 `status != "active"` 不参与取小）**
 - token 计量继续走 `token_usage_logs`；035（成本归集）落地后与本特性共用同一计量源，但本特性不依赖 035（只需计量、不需要成本金额）。
 - 告警消费方为 008 驾驶舱与审计查询；IM/邮件/ webhook 推送不在范围（008 Non-Goal）。
-- 项目分组成员由租户管理员在管理端手工维护，不与 IM/SSO 组织自动同步（YAGNI，需要时后续）。
+- 项目分组成员由租户管理员在管理端手工维护，不与 IM/SSO 组织自动同步（YAGNI，需要时后续）。**（046 T030 收敛：此条作废——项目成员不再手工维护，改为从 `chat_sessions.project_id` 自动聚合；项目即工作目录，成员 = 有会话的用户）**
 - admin-api 与 chat-api 两份 `quota_policy.py` 保持行为同步修改（现状即为同名副本，本特性不打破该格局）。
 
 ## 跨特性关系（被依赖方视角，双向声明）
@@ -211,11 +211,11 @@
 
 - **R-4 项目实体字段与孤儿策略处置（CHK002）**：~~新集合 `quota_projects`……三处显式区分。~~ **本节整体作废**（修订 #2，ADR-8）：项目不再有独立集合与成员表，`scope_id = project_id`；"孤儿策略"问题随之消失——项目归档后策略行保留即可，解析侧按项目 `status` 判定。以下原文保留仅作历史记录：新集合 `quota_projects`，文档字段严格为 `{tenant_id: str, name: str(≤64), note: str(≤200), member_user_ids: [str], status: "active"|"disabled"|"deleted", created_at, updated_at}`；`name` 在租户内唯一（`(tenant_id, name)` 唯一索引，软删除行不计入唯一性校验可由应用层实现，不建部分索引）。策略仍存 `user_quota_policies`（`scope_type="project"`, `scope_id=str(quota_projects._id)`），**项目文档不内嵌额度字段**，避免双写。**删除/停用处置**：项目 `status="deleted"` 时其策略即时失效（等同未配置、不参与取小）并写一条 `user_token_allocation_logs` 审计；**不物理删除策略行**（保留可回溯），因此存在"孤儿策略"是**预期状态**而非缺陷——解析侧必须先查项目文档、`status != "active"` 即跳过该策略（R-7 同一口径）。与桌面 Code `services/chat-api/app/api/endpoints/projects.py` 的隔离：集合名、API 前缀（`/traffic-allocations/projects`）、docstring 三处显式区分。**（2026-10-24 时点未实现 → 2026-10-30 复核已落地，逐条核对见 035 核查 §5）**。
 
-- **R-5 层用量聚合形状与规模上界（CHK003）**：部门/项目层用量用**单次聚合**完成：`token_usage_logs.aggregate([{$match: {tenant_id, user_id: {$in: member_ids}, created_at: {$gte: start, $lt: end}, status: {$ne: "failed"}}}, {$group: {_id: null, tokens: {$sum: {$ifNull: ["$total_tokens", 0]}}}}])`——即把现 `sum_usage`（`quota_policy.py:122-134`）的 `user_id` 参数从 `str` 泛化为 `list[str]`，不新增 N 次往返。**上界**：单层成员集合截断到 5000（与 `traffic_allocations.py:73` 的 `to_list(length=50000)` 同量级但更保守）；超界时**只聚合前 5000 个成员并记 `warn` 日志**，不报错（避免把配置规模问题变成全量拒绝）。**归属口径**：按**当前**成员 ID 集合聚合，成员离开后其历史用量不再计入该部门/项目——与 Assumptions L166 一致，不追历史归属。**（2026-10-24 时点未实现 → 2026-10-30 复核已落地，逐条核对见 035 核查 §5）**。
+- **R-5 层用量聚合形状与规模上界（CHK003）**：部门层用量用**单次聚合**完成：`token_usage_logs.aggregate([{$match: {tenant_id, user_id: {$in: member_ids}, created_at: {$gte: start, $lt: end}, status: {$ne: "failed"}}}, {$group: {_id: null, tokens: {$sum: {$ifNull: ["$total_tokens", 0]}}}}])`——即把现 `sum_usage`（`quota_policy.py:122-134`）的 `user_id` 参数从 `str` 泛化为 `list[str]`，不新增 N 次往返。**项目层（046 T030 收敛）**：成员从 `chat_sessions` 聚合——`_scope_members` 对 project 分支查 `chat_sessions.distinct("user_id", {"tenant_id": ..., "project_id": scope_id})`，`_project_scope_ids` 查 `chat_sessions.distinct("project_id", {"tenant_id": ..., "user_id": ...})`；不再从 `quota_projects.member_user_ids` 读取。归档项目（`status != "active"`）不参与取小（`_layer_state` 检查 `quota_projects` status）。**上界**：单层成员集合截断到 5000（与 `traffic_allocations.py:73` 的 `to_list(length=50000)` 同量级但更保守）；超界时**只聚合前 5000 个成员并记 `warn` 日志**，不报错。**归属口径**：按**当前**成员 ID 集合聚合，成员离开后其历史用量不再计入该部门/项目——与 Assumptions L166 一致，不追历史归属。**（2026-10-24 时点未实现 → 2026-10-30 复核已落地，逐条核对见 035 核查 §5；2026-11-01 046 T030 成员来源收敛）**。
 
 - **R-6 跨层合并规则、`limitingScope` 与 unlimited 优先级（CHK005/CHK006/CHK011）**：`remainingPoints = max(0, min(各"已配置且 active"层 remaining))`；**无已配置层时**维持现状语义（`org_total <= 0 and user_total <= 0` → unlimited 短路，`quota_policy.py:248-265` 不动）。`limitingScope` 取值域固定为 `{"team", "project", "org", "user"}` 四值枚举，**承载层名、不承载 policy id 或 scope_id**；并列最小值时按 `team → project → org → user` 取第一个（更具体层优先归因），并在分层明细中同时给出全部并列层以便排查。分层明细字段：`teamRemainingPoints` / `projectRemainingPoints` / `teamTotalPoints` / `projectTotalPoints` / `teamUsedPoints` / `projectUsedPoints`，**未配置层该组字段整体不出现**（不写 `null`、不写 `0`、不写 `-1`），前端按 optional 处理；`remainingPoints` / `status` / `resetAt` / `totalPoints` / `usedPoints` / `orgTotalPoints` / `orgUsedPoints` / `orgRemainingPoints` **字段名与语义一律不变**（FR-012 零回归的硬约束）。**unlimited 优先级（显式定稿）**：`org.points_unlimited == True` 的短路**压过全部三层**——部门/项目层在该租户下不生效、不产生告警，理由是 FR-012/SC-003 的零回归优先，且 unlimited 是产品版本级的"不设上限"语义，局部限额会与之矛盾。**（2026-10-24 时点未实现 → 2026-10-30 复核已落地，逐条核对见 035 核查 §5）**。
 
-- **R-7 `status != "active"` 与查询异常口径（CHK008/CHK012）**：team/project 层：策略不存在、`status != "active"`（含 `disabled`）、或所属 `quota_projects` 非 active → **该层视同未配置、不参与取小**（与 FR-006 一致）。**这与 org/user 层"策略未启用即拒"（`quota_policy.py:278` → `:287-288`）是两套语义**，差异已显式声明、不得统一：org/user 是"总闸"，停用即全停；team/project 是"局部包干"，停用只解除局部约束，否则停一个部门策略会连锁阻断该部门全部成员。**查询异常**：单层读失败（DB 抖动/超时）→ 该层按 unlimited 跳过 + 计数 + 落一条 `kind="layer_unreadable"` 告警事件（R-11），不阻断主链路（与 `services/admin-api/app/governance/layers/quota.py:46-49` fail-open 同源）；**三层同时异常仍放行**，但 `layer_unreadable` 事件的 `scope_type` 记 `"*"`、`scope_id` 记 `""`，保证"静默不限额"在驾驶舱可观测（这是新增约束，不是放宽）。**（2026-10-24 时点未实现 → 2026-10-30 复核已落地，逐条核对见 035 核查 §5）**。
+- **R-7 `status != "active"` 与查询异常口径（CHK008/CHK012）**：team/project 层：策略不存在、`status != "active"`（含 `disabled`）、或所属 `quota_projects`（046 后为 `projects` 集合）非 active → **该层视同未配置、不参与取小**（与 FR-006 一致）。**这与 org/user 层"策略未启用即拒"（`quota_policy.py:278` → `:287-288`）是两套语义**，差异已显式声明、不得统一：org/user 是"总闸"，停用即全停；team/project 是"局部包干"，停用只解除局部约束，否则停一个部门策略会连锁阻断该部门全部成员。**查询异常**：单层读失败（DB 抖动/超时）→ 该层按 unlimited 跳过 + 计数 + 落一条 `kind="layer_unreadable"` 告警事件（R-11），不阻断主链路（与 `services/admin-api/app/governance/layers/quota.py:46-49` fail-open 同源）；**三层同时异常仍放行**，但 `layer_unreadable` 事件的 `scope_type` 记 `"*"`、`scope_id` 记 `""`，保证"静默不限额"在驾驶舱可观测（这是新增约束，不是放宽）。**（2026-10-24 时点未实现 → 2026-10-30 复核已落地，逐条核对见 035 核查 §5；2026-11-01 046 T030：`quota_projects` → `projects`，归档项目不参与取小）**。
 
 - **R-8 超限错误码与错误契约（CHK009）**：保留 `QuotaExceededError(ValueError)`（`quota_policy.py:24`）类型不变（三处调用方 `dsh_chat.py:172`、`configured_models.py:399`、`scheduled_tasks/runner.py:39` 均按此捕获），**新增构造参数** `layer: str = ""`、`scope_id: str = ""`、`kind: str = "exceeded"`，并提供 `.layer` / `.scope_id` 属性供调用方结构化取用。**HTTP 状态码不改**：chat-api 走 402（`dsh_chat.py:174` `HTTPException(status_code=402, detail=str(exc))`），admin-api 001 门禁走 429（该层返回 denial reason、由门禁统一映射）——统一状态码会破坏既有前端与 001 契约，属跨特性改动，Not in scope。**文案模板**（按 `limitingScope` 选）：部门「部门额度已用尽（{部门名}），请联系租户管理员调整额度。」、项目「项目额度已用尽（{项目名}），请联系租户管理员调整额度。」、org/user 沿用现有两句原文（`quota_policy.py:294-295`）。`assert_quota_available` 判定改为"逐层检查任一 `remaining <= 0` 即抛"，与 R-6 的取小结果等价但能精确归因。
 

@@ -27,12 +27,13 @@ class ConversationRepository:
             [("tenant_id", 1), ("user_id", 1), ("session_id", 1), ("seq", 1)],
         )
 
-    async def create(self, *, tenant_id: str, user_id: str, title: str) -> dict[str, Any]:
+    async def create(self, *, tenant_id: str, user_id: str, title: str, project_id: str = "default") -> dict[str, Any]:
         now = datetime.now(tz=timezone.utc)
         document = {
             "user_id": user_id,
             "tenant_id": tenant_id,
             "title": (title.strip() or "New Chat")[:160],
+            "project_id": project_id,
             "created_at": now,
             "updated_at": now,
             "last_message_at": None,
