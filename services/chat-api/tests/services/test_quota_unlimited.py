@@ -50,3 +50,14 @@ async def test_unlimited_org_short_circuits_quota_check(patch_db):
     # assert path must not raise (previously raised 402 for new members).
     got = await quota_policy.assert_quota_available("t1", {"_id": "u1", "org_name": "Org"})
     assert got["unlimited"] is True
+
+
+@pytest.mark.asyncio
+async def test_missing_points_unlimited_defaults_to_unlimited(patch_db):
+    """042 T025: org 缺 points_unlimited 字段时应走 unlimited 短路（与 admin-api 对齐）。"""
+    patch_db({"main_id": "t1", "org_name": "Org"})  # no points_unlimited key
+    summary = await quota_policy.get_quota_summary("t1", {"_id": "u1", "org_name": "Org"})
+    assert summary["unlimited"] is True
+    assert summary["status"] == "active"
+    got = await quota_policy.assert_quota_available("t1", {"_id": "u1", "org_name": "Org"})
+    assert got["unlimited"] is True

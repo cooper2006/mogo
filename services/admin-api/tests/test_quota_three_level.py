@@ -290,7 +290,7 @@ async def test_assert_blocks_on_team_layer(db):
     with pytest.raises(quota_policy.QuotaExceededError) as excinfo:
         await quota_policy.assert_quota_available(TENANT, _user())
     assert excinfo.value.layer == "team"
-    assert "团队额度已用尽" in str(excinfo.value)
+    assert "部门额度已用尽" in str(excinfo.value)
     assert "研发部" in str(excinfo.value)
 
 

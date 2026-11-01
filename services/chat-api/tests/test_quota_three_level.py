@@ -144,7 +144,7 @@ def db(monkeypatch) -> _Db:
     _seed(
         fake,
         quota_policy.ORG_COLLECTION,
-        [{"tenant_id": TENANT, "org_name": "组织空间", "space_type": "enterprise", "total_points": 0}],
+        [{"tenant_id": TENANT, "org_name": "组织空间", "space_type": "enterprise", "total_points": 0, "points_unlimited": False}],
     )
     _seed(
         fake,
@@ -192,8 +192,15 @@ def _add_project(db: _Db, *, project_id: str, tokens: int, members: list[str], u
     _seed(
         db,
         quota_policy.QUOTA_PROJECT_COLLECTION,
-        [{"_id": project_id, "tenant_id": TENANT, "name": name, "member_user_ids": list(members), "status": project_status}],
+        [{"_id": project_id, "tenant_id": TENANT, "name": name, "status": project_status}],
     )
+    # 046 FR-012: 成员从 chat_sessions.project_id 聚合（不再用 member_user_ids）。
+    for member in members:
+        _seed(
+            db,
+            quota_policy.CHAT_SESSIONS_COLLECTION,
+            [{"tenant_id": TENANT, "user_id": member, "project_id": project_id}],
+        )
     _seed(db, quota_policy.USER_QUOTA_POLICY_COLLECTION, [_policy("project", project_id, tokens, status=status, name=name)])
     for member in members:
         _seed(db, quota_policy.TOKEN_USAGE_COLLECTION, [_usage(member, used)])
@@ -284,7 +291,7 @@ async def test_assert_blocks_on_team_layer(db):
     with pytest.raises(quota_policy.QuotaExceededError) as excinfo:
         await quota_policy.assert_quota_available(TENANT, _user())
     assert excinfo.value.layer == "team"
-    assert "团队额度已用尽" in str(excinfo.value)
+    assert "部门额度已用尽" in str(excinfo.value)
     assert "研发部" in str(excinfo.value)
 
 

@@ -274,6 +274,28 @@
               <div class="empty-copy">{{ t('近 24 小时调用全部成功，或尚未产生调用。') }}</div>
             </div>
           </n-card>
+          <!-- 047-quota-discoverability T014: 配额异常卡片 -->
+          <n-card class="panel-card" :bordered="false" size="large">
+            <template #header>{{ t('配额异常') }}</template>
+            <template v-if="quotaAnomalies?.available !== false">
+              <div v-if="quotaAnomalyItems.length" class="anomaly-list">
+                <div v-for="(item, idx) in quotaAnomalyItems" :key="idx" class="anomaly-row"
+                     style="cursor:pointer" @click="goQuotaLayer(item.scopeType, item.scopeId)">
+                  <span class="anomaly-id">{{ item.layerName || item.scopeId }}</span>
+                  <n-tag size="small" :bordered="false" type="warning">{{ item.kind }}</n-tag>
+                  <span class="anomaly-preview">{{ (item.ratio * 100).toFixed(0) }}%</span>
+                </div>
+              </div>
+              <div v-else class="empty-state compact">
+                <div class="empty-title">{{ t('无配额异常') }}</div>
+                <div class="empty-copy">{{ t('当前周期内无配额告警事件。') }}</div>
+              </div>
+            </template>
+            <div v-else class="empty-state compact">
+              <div class="empty-title">{{ t('数据不可用') }}</div>
+              <div class="empty-copy">{{ quotaAnomalies?.reason || t('配额异常数据暂不可用。') }}</div>
+            </div>
+          </n-card>
           <!-- 036 T021: 资产评级分布（FR-16）。接口失败或全为 0 时整块隐藏，
                绝不展示 0 填充的假分布，也不阻塞其他卡片。 -->
           <n-card v-if="trustDistributionVisible" class="panel-card" :bordered="false" size="large">
@@ -458,6 +480,19 @@ interface DashboardOverview {
     durationMs: number;
     createdAt: string | null;
   }>;
+  // 047-quota-discoverability T014: 配额异常卡片
+  quotaAnomalies?: {
+    available: boolean;
+    reason?: string;
+    counts?: Record<string, number>;
+    items?: Array<{
+      scopeType: string;
+      scopeId: string;
+      layerName: string;
+      kind: string;
+      ratio: number;
+    }>;
+  };
 }
 
 const router = useRouter();
@@ -700,6 +735,10 @@ const qualityAnomalies = computed(() =>
   recentActivity.value.filter((item) => item.status === 'failed').slice(0, 10),
 );
 
+// 047-quota-discoverability T014/T015: 配额异常卡片
+const quotaAnomalies = computed(() => overview.value?.quotaAnomalies);
+const quotaAnomalyItems = computed(() => quotaAnomalies.value?.items || []);
+
 const qualityTrend = computed(() => trend.value || {
   costMomPct: null as number | null,
   callsMomPct: null as number | null,
@@ -848,6 +887,18 @@ async function loadOverview() {
 
 function go(route: string) {
   router.push(route);
+}
+
+// 047-quota-discoverability T016: 点击配额异常条目跳对应层配置
+function goQuotaLayer(scopeType: string, scopeId: string) {
+  if (scopeType === 'project') {
+    router.push('/projects?open=quota');
+  } else if (scopeType === 'org') {
+    router.push('/organizations/traffic?open=tenant');
+  } else {
+    // team / 其他 → 部门额度
+    router.push('/organizations/traffic?open=tenant');
+  }
 }
 
 function formatNumber(value: number) {

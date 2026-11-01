@@ -500,7 +500,7 @@ def _layer_denial_message(scope_type: str, summary: dict[str, Any]) -> str:
     if scope_type == TEAM_SCOPE:
         name = str(summary.get("teamName") or "").strip()
         suffix = f"（{name}）" if name else ""
-        return f"团队额度已用尽{suffix}，请联系企业管理员调整额度。"
+        return f"部门额度已用尽{suffix}，请联系企业管理员调整额度。"
     if scope_type == PROJECT_SCOPE:
         name = str(summary.get("projectName") or "").strip()
         suffix = f"（{name}）" if name else ""

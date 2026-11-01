@@ -517,7 +517,7 @@ async def _upsert_scoped_policy(
         action=action,
         before_tokens=before,
         after_tokens=int(payload.quotaTokens),
-        reason=("修改团队本周期额度" if scope_type == "team" else "修改项目本周期额度"),
+        reason=("修改部门本周期额度" if scope_type == "team" else "修改项目本周期额度"),
         operator=operator,
     )
     return {
@@ -599,7 +599,7 @@ async def delete_team_quota_policy(
             action="delete_team",
             before_tokens=int(existing.get("quota_tokens") or 0),
             after_tokens=0,
-            reason="删除团队额度",
+            reason="删除部门额度",
             operator=str(current_user.get("username") or ""),
         )
     return {"success": True}
@@ -621,6 +621,48 @@ async def list_quota_projects(current_user: dict[str, Any] = Depends(get_current
         item["quotaTokens"] = int((policy or {}).get("quota_tokens") or 0)
         item["period"] = normalize_period((policy or {}).get("period"))
         item["policyStatus"] = str((policy or {}).get("status") or "")
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/projects-with-usage")
+async def list_projects_with_usage(current_user: dict[str, Any] = Depends(get_current_admin_user)) -> dict[str, Any]:
+    """047-quota-discoverability: 项目列表 + 用量成本合并请求（避免 N+1）。"""
+
+    tenant_id = _tenant_id(current_user)
+    items = await projects_service.list_projects(tenant_id)
+    db = get_db()
+    policies = await db[USER_QUOTA_POLICY_COLLECTION].find(
+        {"tenant_id": tenant_id, "scope_type": "project"}
+    ).to_list(length=projects_service.MAX_MEMBERS)
+    by_scope = {str(policy.get("scope_id") or ""): policy for policy in policies}
+
+    # 聚合 token_usage_logs 的 project_id 维度用量
+    pipeline = [
+        {"$match": {"tenant_id": tenant_id}},
+        {"$group": {
+            "_id": "$project_id",
+            "totalTokens": {"$sum": {"$ifNull": ["$total_tokens", 0]}},
+            "totalCostUsd": {"$sum": {"$ifNull": ["$cost_estimate_usd", 0]}},
+            "requestCount": {"$sum": 1},
+        }},
+    ]
+    usage_cursor = db["token_usage_logs"].aggregate(pipeline)
+    usage_by_project: dict[str, dict[str, Any]] = {}
+    async for row in usage_cursor:
+        pid = str(row.get("_id") or "")
+        usage_by_project[pid] = {
+            "projectId": pid,
+            "totalTokens": row.get("totalTokens", 0),
+            "totalCostUsd": row.get("totalCostUsd", 0),
+            "requestCount": row.get("requestCount", 0),
+        }
+
+    for item in items:
+        policy = by_scope.get(item["id"])
+        item["quotaTokens"] = int((policy or {}).get("quota_tokens") or 0)
+        item["period"] = normalize_period((policy or {}).get("period"))
+        item["policyStatus"] = str((policy or {}).get("status") or "")
+        item["usage"] = usage_by_project.get(item["id"])
     return {"items": items, "total": len(items)}
 
 

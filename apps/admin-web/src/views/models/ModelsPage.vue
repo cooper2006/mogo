@@ -24,7 +24,7 @@
         style="margin-bottom: 16px;"
       >
         {{ t('当前企业本周期总额度为 0，所有模型将无法被调用。请先前往') }}
-        <router-link to="/organizations/traffic?open=quota" class="alert-link" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
+        <router-link to="/organizations/traffic?open=tenant" class="alert-link" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
           {{ t('流量分配') }}
         </router-link>
         {{ t('配置企业总额度与成员额度。') }}
@@ -818,7 +818,7 @@ function showFirstModelTrafficAllocationPrompt() {
     positiveText: t('前往分配流量'),
     negativeText: t('稍后处理'),
     onPositiveClick: () => {
-      void router.push('/organizations/traffic?open=quota');
+      void router.push('/organizations/traffic?open=tenant');
     },
   });
 }

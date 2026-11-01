@@ -246,3 +246,21 @@
 - 不做部门/项目级的用户二次分配（`user_quota_overrides` 仍只作用于 user 层）。
 - 不做跨租户部门/项目共享，不做个人空间的部门/项目层。
 - 不改 `user_quota_policies` 集合名、不做存量数据迁移。
+
+## 实现落点索引（047 T027）
+
+| 层 | 核心文件 | 说明 |
+|---|---|---|
+| admin-api 配额引擎 | `services/admin-api/app/core/quota_policy.py` | `get_quota_summary` / `assert_quota_available` / 三层取小 |
+| chat-api 配额引擎 | `services/chat-api/app/core/quota_policy.py` | 同上（双副本同步） |
+| 项目管理页 | `apps/admin-web/src/views/projects/ProjectsPage.vue` | 047 新建：项目列表/用量/额度 |
+| 流量分配页 | `apps/admin-web/src/views/organizations/TrafficAllocationsPage.vue` | 部门额度弹窗（项目 tab 已移出） |
+| 深链分流 | `TrafficAllocationsPage.vue` `consumeOpenQuotaQuery()` | `open=quota` → `/projects`；`open=tenant` → 租户弹窗 |
+| 驾驶舱配额异常 | `apps/admin-web/src/views/dashboard/DashboardPage.vue` | `quotaAnomalies` 卡片 |
+| 一致性测试 | `services/admin-api/tests/test_quota_consistency.py` | 两侧 key/语义/文案静态比对 |
+
+> **注意**：`93428a82` 提交信息误标为 032-033-034，实际内容为 042 三层配额引擎。
+
+## 项目概念声明（047 T028）
+
+本特性中的「项目」概念以 **046-project-dimension** 为准：`projects` 集合（原 `desktop_projects`），`project_id` 写入 `chat_sessions` / `token_usage_logs`。`quota_projects` 仅为配额策略容器，不作为项目数据源（046 T030 已将成员来源切换为 `chat_sessions.project_id`）。

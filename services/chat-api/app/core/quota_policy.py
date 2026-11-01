@@ -21,6 +21,8 @@ USER_QUOTA_LOG_COLLECTION = "user_token_allocation_logs"
 # 042-three-level-quota: 团队/项目层策略仍存 user_quota_policies（scope_type 区分），
 # 项目分组是新建的轻量实体（与桌面 Code 的 projects 端点语义无关）。
 QUOTA_PROJECT_COLLECTION = "quota_projects"
+# 046 FR-012: 项目成员从 chat_sessions.project_id 聚合（与 admin-api 对齐）。
+CHAT_SESSIONS_COLLECTION = "chat_sessions"
 QUOTA_ALERT_COLLECTION = "quota_alert_events"
 QUOTA_ALERT_KINDS = ("exceeded", "approaching", "layer_unreadable")
 DEFAULT_ALERT_THRESHOLD_RATIO = 0.2
@@ -213,10 +215,21 @@ async def _team_scope_ids(db, tenant_id: str, user_id: str) -> list[str]:
 
 
 async def _project_scope_ids(db, tenant_id: str, user_id: str) -> list[str]:
-    rows = await db[QUOTA_PROJECT_COLLECTION].find(
-        {"tenant_id": tenant_id, "status": "active", "member_user_ids": user_id}
-    ).to_list(length=200)
-    return [str(row.get("_id") or "") for row in rows if row.get("_id")]
+    """046 FR-012: 项目成员 = 该项目下产生过会话的用户（按当前归属聚合）。
+
+    从 chat_sessions 反查该用户有会话的 distinct project_id，
+    不再依赖 quota_projects.member_user_ids 内嵌数组。
+    """
+    rows = await db[CHAT_SESSIONS_COLLECTION].find(
+        {"tenant_id": tenant_id, "user_id": user_id},
+        {"project_id": 1},
+    ).to_list(length=MAX_LAYER_MEMBERS)
+    seen: list[str] = []
+    for row in rows:
+        pid = str(row.get("project_id") or "default").strip() or "default"
+        if pid not in seen:
+            seen.append(pid)
+    return seen
 
 
 async def _scope_members(db, tenant_id: str, scope_type: str, scope_id: str) -> list[str]:
@@ -225,14 +238,24 @@ async def _scope_members(db, tenant_id: str, scope_type: str, scope_id: str) -> 
             {"tenant_id": tenant_id, "org_id": scope_id}
         ).to_list(length=MAX_LAYER_MEMBERS)
         return [str(row.get("user_id") or "") for row in rows if row.get("user_id")]
-    doc = await db[QUOTA_PROJECT_COLLECTION].find_one({"tenant_id": tenant_id, "_id": scope_id})
-    if not doc or str(doc.get("status") or "active") != "active":
-        return []
-    return [str(item) for item in (doc.get("member_user_ids") or [])][:MAX_LAYER_MEMBERS]
+    # 046 FR-012: 项目成员 = 该项目下产生过会话的用户（从 chat_sessions 反查）。
+    rows = await db[CHAT_SESSIONS_COLLECTION].find(
+        {"tenant_id": tenant_id, "project_id": scope_id},
+        {"user_id": 1},
+    ).to_list(length=MAX_LAYER_MEMBERS)
+    seen: list[str] = []
+    for row in rows:
+        uid = str(row.get("user_id") or "")
+        if uid and uid not in seen:
+            seen.append(uid)
+    return seen
 
 
 async def _layer_state(db, tenant_id: str, *, scope_type: str, scope_id: str, tz_name: str) -> dict[str, Any] | None:
-    """单个团队/项目层的当前状态；策略缺失或非 active 视为无该层（R-7）。"""
+    """单个团队/项目层的当前状态；策略缺失或非 active 视为无该层（R-7）。
+
+    046 FR-012: 项目层额外检查 quota_projects 的 status——deleted 项目不参与取小。
+    """
 
     policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(
         {"tenant_id": tenant_id, "scope_type": scope_type, "scope_id": scope_id, "status": "active"},
@@ -240,6 +263,12 @@ async def _layer_state(db, tenant_id: str, *, scope_type: str, scope_id: str, tz
     )
     if not policy:
         return None
+    if scope_type == PROJECT_SCOPE:
+        project_doc = await db[QUOTA_PROJECT_COLLECTION].find_one(
+            {"tenant_id": tenant_id, "_id": scope_id}
+        )
+        if project_doc and str(project_doc.get("status") or "active") == "deleted":
+            return None
     members = await _scope_members(db, tenant_id, scope_type, scope_id)
     period = normalize_period(policy.get("period") or "monthly")
     start, end = period_window(period, tz_name)
@@ -349,7 +378,7 @@ async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, A
     # 020 FR-035/036/037: an org flagged ``points_unlimited`` (set by the admin
     # product-edition policy) has no token ceiling — short-circuit before any
     # usage accounting so new tenant members are never blocked with 402.
-    if org.get("points_unlimited"):
+    if org.get("points_unlimited", True):
         return {
             **product_edition_fields(org),
             "tenantId": tenant_id,
@@ -503,7 +532,7 @@ def _layer_denial_message(scope_type: str, summary: dict[str, Any]) -> str:
     if scope_type == TEAM_SCOPE:
         name = str(summary.get("teamName") or "").strip()
         suffix = f"（{name}）" if name else ""
-        return f"团队额度已用尽{suffix}，请联系企业管理员调整额度。"
+        return f"部门额度已用尽{suffix}，请联系企业管理员调整额度。"
     if scope_type == PROJECT_SCOPE:
         name = str(summary.get("projectName") or "").strip()
         suffix = f"（{name}）" if name else ""

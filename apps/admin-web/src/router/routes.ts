@@ -195,6 +195,12 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '流量分配', icon: TrafficAllocationIcon, menuGroup: 'organizations' },
       },
       {
+        path: '/projects',
+        name: 'Projects',
+        component: () => import('@/views/projects/ProjectsPage.vue'),
+        meta: { title: '项目管理', icon: AccountGroupsIcon, menuGroup: 'organizations' },
+      },
+      {
         path: '/organizations',
         redirect: '/organizations/accounts',
         meta: { hideInMenu: true },

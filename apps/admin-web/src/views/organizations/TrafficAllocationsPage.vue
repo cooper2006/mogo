@@ -22,7 +22,7 @@
             <n-button secondary :loading="loading" @click="reload">{{ t('刷新') }}</n-button>
             <n-button secondary @click="openSettings">{{ t('设置企业额度') }}</n-button>
             <n-button secondary @click="openLogs">{{ t('分配记录') }}</n-button>
-            <n-button secondary @click="openScopes">{{ t('团队 / 项目额度') }}</n-button>
+            <n-button secondary @click="router.push('/projects')">{{ t('项目额度') }}</n-button>
         </n-space>
       </div>
 
@@ -172,9 +172,9 @@
     </n-drawer-content>
   </n-drawer>
 
-  <n-modal v-model:show="scopeVisible" preset="card" :title="t('团队 / 项目额度')" style="width: 860px">
+  <n-modal v-model:show="scopeVisible" preset="card" :title="t('部门额度')" style="width: 860px">
     <n-tabs v-model:value="scopeTab" type="line">
-      <n-tab-pane name="team" :tab="t('团队额度')">
+      <n-tab-pane name="team" :tab="t('部门额度')">
         <n-form label-placement="top" class="settings-form">
           <n-grid :cols="3" :x-gap="12" :y-gap="10" responsive="screen">
             <n-grid-item>
@@ -194,10 +194,10 @@
             </n-grid-item>
           </n-grid>
           <n-space justify="end">
-            <n-button type="primary" :loading="savingScope" @click="saveTeamPolicy">{{ t('保存团队额度') }}</n-button>
+            <n-button type="primary" :loading="savingScope" @click="saveTeamPolicy">{{ t('保存部门额度') }}</n-button>
           </n-space>
         </n-form>
-        <n-empty v-if="!teamPolicies.length" :description="t('暂无团队额度')" />
+        <n-empty v-if="!teamPolicies.length" :description="t('暂无部门额度')" />
         <div v-else class="scope-list">
           <div v-for="item in teamPolicies" :key="item.scopeId" class="scope-row">
             <div class="scope-main">
@@ -212,68 +212,7 @@
         </div>
       </n-tab-pane>
 
-      <n-tab-pane name="project" :tab="t('项目额度')">
-        <n-form label-placement="top" class="settings-form">
-          <n-grid :cols="2" :x-gap="12" :y-gap="10" responsive="screen">
-            <n-grid-item>
-              <n-form-item :label="t('项目名称')">
-                <n-input v-model:value="projectForm.name" :placeholder="t('例如：专项攻坚')" />
-              </n-form-item>
-            </n-grid-item>
-            <n-grid-item>
-              <n-form-item :label="t('成员（可多选）')">
-                <n-select
-                  v-model:value="projectForm.memberUserIds"
-                  multiple
-                  filterable
-                  :options="memberOptions"
-                  :placeholder="t('选择项目成员')"
-                />
-              </n-form-item>
-            </n-grid-item>
-          </n-grid>
-          <n-space justify="end">
-            <n-button type="primary" :loading="savingScope" @click="createProject">{{ t('新建项目') }}</n-button>
-          </n-space>
-        </n-form>
-
-        <n-form label-placement="top" class="settings-form">
-          <n-grid :cols="3" :x-gap="12" :y-gap="10" responsive="screen">
-            <n-grid-item>
-              <n-form-item :label="t('目标项目')">
-                <n-select v-model:value="projectPolicy.projectId" :options="projectOptions" filterable :placeholder="t('请选择项目')" />
-              </n-form-item>
-            </n-grid-item>
-            <n-grid-item>
-              <n-form-item :label="t('周期额度')">
-                <n-input-number v-model:value="projectPolicy.quotaTokens" :min="0" :show-button="false" style="width: 100%" />
-              </n-form-item>
-            </n-grid-item>
-            <n-grid-item>
-              <n-form-item :label="t('重置周期')">
-                <n-select v-model:value="projectPolicy.period" :options="periodOptions" />
-              </n-form-item>
-            </n-grid-item>
-          </n-grid>
-          <n-space justify="end">
-            <n-button type="primary" :loading="savingScope" @click="saveProjectPolicy">{{ t('保存项目额度') }}</n-button>
-          </n-space>
-        </n-form>
-
-        <n-empty v-if="!projects.length" :description="t('暂无项目分组')" />
-        <div v-else class="scope-list">
-          <div v-for="item in projects" :key="item.id" class="scope-row">
-            <div class="scope-main">
-              <strong>{{ item.name }}</strong>
-              <span class="scope-meta">{{ t('{count} 位成员', { count: item.memberCount }) }} · {{ projectPolicyText(item) }}</span>
-            </div>
-            <n-space :size="8">
-              <n-button size="small" secondary @click="editProject(item)">{{ t('编辑') }}</n-button>
-              <n-button size="small" secondary type="error" @click="removeProject(item.id)">{{ t('删除') }}</n-button>
-            </n-space>
-          </div>
-        </div>
-      </n-tab-pane>
+      <!-- 047-quota-discoverability T020: 项目 tab 已移至 /projects 独立页面 -->
     </n-tabs>
   </n-modal>
 </template>
@@ -596,11 +535,19 @@ async function reload() {
 }
 
 function consumeOpenQuotaQuery() {
-  if (route.query.open !== 'quota') return;
-  openSettings();
-  const nextQuery = { ...route.query };
-  delete nextQuery.open;
-  router.replace({ path: route.path, query: nextQuery });
+  if (route.query.open === 'quota') {
+    // 047-quota-discoverability T009: 项目告警 → 项目管理页
+    router.push('/projects?open=quota');
+    return;
+  }
+  if (route.query.open === 'tenant') {
+    // 047-quota-discoverability T010: 租户告警 → 租户额度弹窗
+    openSettings();
+    const nextQuery = { ...route.query };
+    delete nextQuery.open;
+    router.replace({ path: route.path, query: nextQuery });
+    return;
+  }
 }
 
 async function loadScopes() {
@@ -619,7 +566,7 @@ async function openScopes() {
   try {
     await loadScopes();
   } catch (error) {
-    message.error((error as Error).message || t('加载团队 / 项目额度失败'));
+    message.error((error as Error).message || t('加载部门额度失败'));
   }
 }
 
@@ -654,7 +601,7 @@ async function removeTeamPolicy(orgUnitId: string) {
   savingScope.value = true;
   try {
     await deleteTeamQuotaPolicy(orgUnitId);
-    message.success(t('已清除该团队额度'));
+    message.success(t('已清除该部门额度'));
     await loadScopes();
   } catch (error) {
     message.error((error as Error).message || t('清除失败'));
