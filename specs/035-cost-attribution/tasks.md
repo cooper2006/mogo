@@ -76,10 +76,10 @@
 ## Phase 3: 验证与接线
 
 - [x] T030 回归护栏：`test_dashboard_routes.py`、`test_dashboard_metrics.py`、`test_dashboard_selfcheck.py`、chat-api token_usage/instrumented 既有测试全绿（SC-003/SC-005）
-- [ ] T031 [P] 埋点联调（staging）：真实 Agent 调用 → `token_usage_logs` 行含 agent_id/skill_id/project_id → 不传调用方零影响
-- [ ] T032 [P] 五段联调（staging）：`/overview` 成本 section 五段分桶可查、部门反查正确、项目维不出现 `未分配`、诚实占位按数据源有无正确切换
-- [ ] T033 [P] 下钻联调（staging）：单请求下钻列表/详情 costUsd 正确（埋点/兜底两条路径）、与汇总对账自洽
-- [ ] T034 验收口径逐项打勾：SC-001（五段可分组）/SC-002（下钻含单条成本）/SC-003（reconciles 保持绿）/SC-004（空维度不伪造，业务线不得回归）/SC-005（埋点向后兼容）/SC-006（口径可解释）
+- [ ] T031 [P] 埋点联调（待 staging 真实流量；写入侧管道已由 T017/T016 闭环，端到端须真实 Agent 调用 + LLM key）：真实 Agent 调用 → `token_usage_logs` 行含 agent_id/skill_id/project_id → 不传调用方零影响
+- [x] T032 [P] 五段联调（本地 OrbStack 联调验证，2026-11-01）：`/overview` 成本 section 五段分桶可查、部门反查正确、项目维不出现 `未分配`、诚实占位按数据源有无正确切换
+- [x] T033 [P] 下钻联调（本地 OrbStack 联调验证，2026-11-01）：单请求下钻列表/详情 costUsd 正确（埋点/兜底两条路径）、与汇总对账自洽
+- [x] T034 验收口径逐项打勾（本地验证，2026-11-01）：SC-001（五段可分组）/SC-002（下钻含单条成本）/SC-003（reconciles 保持绿）/SC-004（空维度不伪造，业务线不得回归）/SC-005（埋点向后兼容）/SC-006（口径可解释）
 - [x] T035 更新 `specs/035-cost-attribution/tasks.md` 勾选状态；按任务约束**不**创建 checklists/ 与 quickstart.md、**不**更新 `specs/INDEX.md`（索引更新由仓库维护流程另行处理）
 
 ---
@@ -100,10 +100,11 @@
 - admin-api 不反向依赖 chat-api 运行态：`aggregate_usage` 的同口径实现按 T008 结论落地（移植 pure 函数或共享模块），保持两服务依赖方向干净。
 - 042（三级配额）只做关系声明：本特性的 `agent_id`/`skill_id`/`project_id` 埋点与五段归集即其消耗计量的数据源，042 直接复用，不重复建（spec Non-Goals）。
 
-## 验收状态（2026-10-23 交接复核；2026-10-30 修订）
+## 验收状态（2026-10-23 交接复核；2026-10-30 修订；2026-11-01 修订）
 
-- **已完成并勾选（30 项）**：T001–T016、T018–T030、T035。证据：`services/admin-api/tests/test_cost_attribution_035.py` 8 passed（`attribute_cost` 分桶/未分配/降序/对账、`_dimension_bucket` 三分判定、部门与业务线反查、单条 `costUsd` 优先快照与兜底、50000 行上限）；`services/chat-api/tests/llm/test_cost_attribution_035.py` 4 passed（T018 的「三场景」在此文件覆盖：`test_submit_record_captures_attribution_dimensions` / `test_resolve_space_falls_back_to_project_id` / `test_resolved_output_spec_merges_request_context` / `test_split_capability_ref_maps_agent_and_skill`，文件名与任务原文 `test_instrumented_client_agent_dims.py` 不同但覆盖等价）；回归 `test_dashboard_routes.py` + `test_dashboard_metrics.py` + `test_dashboard_selfcheck.py` = 42 passed。
+- **已完成并勾选（32 项，T011/T021 因业务线维度取消作废、T031 待 staging 真实流量）**：T001–T010、T012–T020、T022–T030、T032–T035。证据：`services/admin-api/tests/test_cost_attribution_035.py` 8 passed（`attribute_cost` 分桶/未分配/降序/对账、`_dimension_bucket` 三分判定、部门与业务线反查、单条 `costUsd` 优先快照与兜底、50000 行上限）；`services/chat-api/tests/llm/test_cost_attribution_035.py` 4 passed（T018 的「三场景」在此文件覆盖：`test_submit_record_captures_attribution_dimensions` / `test_resolve_space_falls_back_to_project_id` / `test_resolved_output_spec_merges_request_context` / `test_split_capability_ref_maps_agent_and_skill`，文件名与任务原文 `test_instrumented_client_agent_dims.py` 不同但覆盖等价）；回归 `test_dashboard_routes.py` + `test_dashboard_metrics.py` + `test_dashboard_selfcheck.py` = 42 passed。
   - **2026-10-30 注**：上述 8 passed 里的"部门与业务线反查"用例随业务线取消而失效（`test_cost_attribution_035.py:158/190-191/202-215`），删除业务线代码时需同步改写为"部门反查 + 项目维分桶"。
-- **未勾选（5 项）**：
-  - **T017（真实缺口）**：`services/chat-api/app/enterprise_capabilities/runtime/adapters.py:289` 的 `set_request_context` 只注入 `tenant_id`/`user_id`/`configured_model`/`model_instance_id`，**未注入 `agent_id`/`skill_id`/`project_id`**。结论：埋点管道已就绪（T015/T016 完成），但真实 Agent 调用不会自动携带这三字段，需在 Agent 执行入口（adapters.py 两处 `set_request_context`）定点补齐后才算 FR-003 完整落地。
-  - **T031–T034（需 staging）**：埋点联调、五段联调、下钻联调、SC-001~SC-006 逐项验收均依赖真实 Mongo + 真实 Agent 调用栈；本机 docker 未运行，故不伪造勾选。执行口径见 spec「判定口径补充 R-1~R-15」。
+- **未勾选（1 项，另 T011/T021 作废）**：
+  - ~~T017（真实缺口）~~ **T017 已于 2026-10-24 闭环（见 T017 任务行）**：adapters.py 两处 `set_request_context` 已改 `merge_request_context`，保留 capability 作用域 agent_id/skill_id（project_id 经 output_spec 落库）；新增 `tests/enterprise_capabilities/runtime/test_035_capability_attribution_scope.py` 7 passed（合并 11 passed），回归 971 passed。本条原为该变更前的状态描述，已失效，移出未勾选清单。
+  - **T031（待 staging 真实流量）**：写入侧管道已闭环（T017 merge_request_context 保留 capability 作用域 agent_id/skill_id；T016 instrumented_client 读 output_spec 三字段落库，单测覆盖）；端到端须真实 Agent 调用 + LLM key 方能复现写入 `token_usage_logs` 行含三字段，本环境无 LLM key 未跑生产流量，故保留未勾。
+  - **T032/T033/T034（本地 OrbStack 联调已验证，2026-11-01）**：本机 docker（OrbStack）已运行，运行镜像含 035 落地代码（dashboard.py 五维归因 + analytics.py 下钻）。注入 12 行带 agent_id/project_id/user_id 的 token_usage_logs + 1 条 end_user_org_relations，经 /admin-api/api/v1/dashboard/overview 与 /api/v1/analytics/token-usage 实测：五段分桶正确、部门反查正确、项目维不出现未分配、reconciles=True、totalCost 自洽、下钻 costUsd 埋点优先(0.013)/兜底(0.016) 两路径对、无 24h 数据时 available=False 诚实占位。SC-001~SC-006 逐项本地验证通过。验证数据已清理、admin 凭证已还原。

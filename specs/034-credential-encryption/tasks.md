@@ -110,7 +110,9 @@
 - **仍未覆盖（须 staging/真实环境，保留未勾选）**：① mongodump 备份与**备份回滚**（SC-003）；② 旧密钥失效验证（`MOGO_KMS_MASTER_KEY_OLD` 需真实旧密钥，本地无 staging 轮换记录）；③ SC-002 Agent 侧注入回放；④ SC-004 响应 100% 掩码与 FR-011 日志无明文的全链路 grep（T033）；⑤ 多副本/多实例并发轮换。故 **T033/T034/T035/T036 仍未勾选**，staging 段执行步骤与判定口径见 `docs/credential-key-rotation-drill.md` 与 spec 的「判定口径补充 R-5/R-8/R-9/R-15」。
 - 本演练为 T034/T035 的**本地可执行段**闭环证据；如需真备份回滚演练，须在 staging 上执行 mongodump + `--apply` + `mongorestore` 到临时库再对账。
 
-## 验收状态（2026-10-23 交接复核）
+- **2026-11-01 本地补充验证（mogo_dev 只读巡检）**：本机 docker（OrbStack）已运行，运行镜像含 034 落地代码。对 `mogo_dev` 只读巡检确认 at-rest 加密已生效：`admin_model_instances`（14 行）凭证以 `api_key_encrypted`/`api_key_masked`/`api_secret_encrypted`/`api_secret_masked` 存储，**全表 0 行存在明文 `api_key` 字段**；2 行含真实密文（enc_len 132/112）+ 正确掩码（如 `sk-W****djhO`），其余 12 行为 provider 托管无实例密钥（预期）。`external_tools`（0 行）、`session_secret_refs`（0 行）无明文。据此 **SC-001（DB 无明文）与 SC-004（100% 掩码）在数据存储层本地确认**；SC-002（Agent 注入不回退）、FR-011（日志无明文）、T034/T035 备份回滚与轮换演练仍须 staging 真实 Agent 流量 + 旧密钥轮换记录，保留未勾选。
+
+## 验收状态（2026-10-23 交接复核；2026-11-01 修订）
 
 - **已完成并勾选（33 项）**：T001–T032、T037。证据：`services/admin-api/tests/test_tools_credential_encryption.py` + `test_security_encryption.py` + `test_security_kms.py` 合计 70 passed；`services/chat-api/tests/services/test_external_tools_credential_injection.py` + `test_external_tools_mcp_transport.py` 合计 13 passed；本次补 `tests/test_migrate_tool_credentials.py`（9 passed，T027 五场景）与 `tests/test_rotate_tool_credentials.py`（4 passed，T031 三场景）；迁移脚本补齐 FR-009 非零退出码（`--apply` 有失败行、`--verify` 有剩余明文时 `sys.exit(1)`）。
-- **未勾选（4 项，需 staging/真实环境）**：T033（staging 全链路：SC-001 库内 grep、SC-002 注入、SC-004 掩码、FR-011 日志）、T034（迁移演练对账）、T035（轮换演练含备份回滚）、T036（SC 逐项验收，依赖前两项）。本机 docker 未运行、无 staging 环境与 mongodump 备份，故不伪造勾选；执行步骤与判定口径见 `docs/credential-key-rotation-drill.md` 与 spec 的「判定口径补充 R-5/R-8/R-9/R-15」。
+- **未勾选（4 项，需 staging/真实环境）**：T033（staging 全链路：SC-001 库内 grep、SC-002 注入、SC-004 掩码、FR-011 日志）、T034（迁移演练对账）、T035（轮换演练含备份回滚）、T036（SC 逐项验收，依赖前两项）。2026-11-01 本地只读巡检已确认 SC-001/SC-004 在数据存储层成立（见「本地演练」末条）；SC-002/FR-011 与备份回滚/轮换演练仍须 staging 真实 Agent 流量 + 旧密钥轮换记录，故保留未勾选。执行步骤与判定口径见 `docs/credential-key-rotation-drill.md` 与 spec 的「判定口径补充 R-5/R-8/R-9/R-15」。
