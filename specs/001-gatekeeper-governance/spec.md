@@ -1,0 +1,158 @@
+# Feature Specification: Unified Six-Layer Gatekeeper (Governance & Risk Control)
+
+**Feature Branch**: `001-gatekeeper-governance`
+
+**Created**: 2026-07-08
+
+**Status**: Draft
+
+**Input**: Unified six-layer gatekeeper: identity, RBAC, PII redaction, approval, quota, audit; R0–R4 tool risk tiers and autonomy matrix (L1–L5 × R0–R4, 25 cells)
+
+## User Scenarios & Testing *(mandatory)*
+
+以下用户故事按优先级排列，每个都是可独立交付、可独立测试的垂直切片。
+
+### User Story 1 (P1) — 工具调用必须经过六层串行门禁
+
+管理面或运行时的每一次工具调用（tool invocation）都按固定顺序经过六层门禁链：
+
+1. **身份（Identity）** — 调用主体是谁（租户/用户/岗位角色）
+2. **RBAC** — 主体是否持有目标工具的 `<resource>:<action>[:<target>]` 权限码，无权限则 fail-closed
+3. **脱敏（PII Redaction）** — 请求/响应文本按策略 mask/remove/hash/abstract 处理
+4. **审批（Approval）** — 高自主级别 × 高风险级的组合必须人工审批通过才放行
+5. **配额（Quota）** — 租户/用户/工具三维配额，超限拒绝
+6. **审计（Audit）** — 通过/拒绝事件全部落审计日志，含门禁层号、风险级、自主级别
+
+若任一层拒绝，后续层不再执行（短路），拒绝原因写入审计。
+
+**Acceptance Scenarios:**
+- 无权限用户调用工具 → 第 2 层拒绝，审计记录 RBAC 拒绝
+- 高自主级别 + R3 风险工具 → 第 4 层挂起等待审批，审批通过后才执行
+- 配额耗尽 → 第 5 层拒绝，返回明确的配额错误
+- 六层全部通过 → 工具执行，第 6 层记录成功
+
+### User Story 2 (P1) — R0–R4 风险分级 + L1–L5 自主级别矩阵
+
+- 每个工具在注册时标注风险级 R0（只读无影响）到 R4（红线不可逆）
+- 每个执行上下文有自主级别 L1（全人工）到 L5（全自动）
+- 生成 25 格矩阵：`AUTONOMY_MATRIX[L][R]` → 动作（allow / require_approval / deny）
+- R4 工具在 L5 下仍为 deny（红线不可覆盖，constitution 原则 II）
+
+**Acceptance Scenarios:**
+- L3 × R2 → require_approval
+- L5 × R4 → deny（不可被管理员覆盖为 allow）
+- R0 工具在任何 L 级别 → allow（只读无需审批）
+
+### User Story 3 (P2) — PII 脱敏层
+
+- 请求/响应文本中的 PII（私钥、身份证号、银行卡号、手机号等）按配置策略脱敏
+- 策略四选一：mask / remove / hash / abstract，按 PII 类型分别配置
+- 脱敏结果保留可追溯（哈希可对照原始值做审计，不存明文）
+
+**Acceptance Scenarios:**
+- 含手机号的用户消息 → 默认 mask 策略下展示为 138****0000
+- 私有密钥字段 → 默认 remove 策略下不出现在工具请求体
+- 审计日志中只存脱敏后的值与哈希指纹
+
+### User Story 4 (P2) — 细粒度 RBAC 权限码模型
+
+- 权限码格式：`<resource>:<action>[:<target>]`，如 `knowledge:read`、`admin:role:assign`
+- 三级隔离：租户级 / 组织级 / 用户级
+- 未知权限码 → fail-closed 拒绝
+- 现有"岗位角色"粗粒度权限作为权限码集合的预设组，保持向下兼容
+
+**Acceptance Scenarios:**
+- 持有 `knowledge:read` 的租户用户可读取知识条目
+- 不持有任何权限码调用 `admin:role:assign` → 拒绝
+- 岗位角色"工程师"绑定预设权限码组，权限变更即时生效
+
+### User Story 5 (P3) — 配额三维计量
+
+- 配额维度：租户 / 用户 / 工具，各自独立配置上限
+- 超限时第 5 层拒绝并返回哪个维度超限
+- 配额支持时间窗口（每分钟/每天/每月）
+
+**Acceptance Scenarios:**
+- 租户日配额 1000 次工具调用，第 1001 次 → 拒绝，提示租户配额
+- 某工具单独配额 10 次/小时，触发后仅该工具受限
+
+### Notes / Assumptions
+- 本特性补齐 docs/MOVO企业级智能体功能补强规划.md 中"二、GAP 分析 2.1 治理与风控层"
+- 六层门禁为串行链，任一层可短路
+- R4 红线工具在任何自主级别下均 deny，不可被管理员覆盖
+- 脱敏层作用于请求/响应文本，不改变工具执行语义
+- 权限码模型与现有岗位角色系统共存，岗位角色是权限码的预设组
+- 不实现 LLM 网关韧性（属特性 007）、DAG 编排（属特性 010）
+
+## Functional Requirements
+
+- FR-1: 工具调用必须经过六层串行门禁链（身份→RBAC→脱敏→审批→配额→审计），任一层拒绝则短路并审计；各层拒绝返回码：身份/RBAC/红线 → 403，审批挂起 → 409 + 审批 token，配额超限 → 429
+- FR-2: 工具注册时标注风险级 R0–R4，执行上下文有自主级别 L1–L5
+- FR-3: 生成并维护 25 格 `AUTONOMY_MATRIX[L][R]`，值为 allow/require_approval/deny；矩阵为**完整取值表**（全 25 格有定义，非仅示例）
+- FR-4: R4 工具在 L5 下仍为 deny，**全能力管理员亦不可覆盖红线**
+- FR-5: 权限码模型 `<resource>:<action>[:<target>]`，三级隔离（租户/组织/用户，**上级含下级，用户级未授权时回落组织级再回落租户级**），未知权限码 fail-closed（**拼写错误与未注册码均拒**）
+- FR-6: 现有岗位角色作为权限码预设组（**角色 → 权限码列表映射，可部分覆盖**），向下兼容
+- FR-7: PII 脱敏按类型配置策略（mask/remove/hash/abstract），审计只存脱敏值与哈希指纹；脱敏**作用于工具请求体之前**（remove 后该字段不出现在请求体）
+- FR-8: 配额三维（租户/用户/工具）独立配置，**计数存于 MongoDB（`quota_counters`，原子 findOneAndUpdate，不引入 Redis）**；时间窗口 每分钟/每天/每月，**窗口边界按 UTC 重置，跨窗口新开计数**；超限返回明确维度提示
+- FR-9: 所有门禁通过/拒绝事件落审计日志，含层号、风险级、自主级别、时间戳
+- FR-10: 门禁链可通过声明式配置增删层，无需改代码（扩展点）；**删层后该层短路语义消失，短路链按剩余层重排**
+- FR-11: 审批层（第 4 层）复用既有审批状态机（`EnterpriseApproval` 含 risk_level/scope_label/status，或 admin-api 自建 `gate_approvals` 集合，语义等价即可），**不新建第二张审批表**；恢复机制为 **poll**，挂起默认 **5 分钟超时，超时自动按 fail-closed 拒绝**。实现选择（2026-09-25 拍板）：admin-api 侧使用 `gate_approvals` 自建表（状态机语义与 `EnterpriseApproval` 一致），chat-api 侧复用 `position_role_audit_logs` 与 011 的 `marked_low_quality` 共享位；不新建第二张审批表。
+
+## Non-Goals
+- 不实现 LLM 网关韧性、failover、degradation_chain（属特性 007）
+- 不实现 DAG 通用编排、拓扑排序、环检测（属特性 010）
+- 不实现自进化 / Dream Cycle（属特性 011）
+- 不实现会话级版本化 / 交接 / 协同（属特性 002）
+- 不改变现有 DSH 运行时 Agent 执行语义，仅加治理层
+
+## Success Criteria
+- 工具调用 100% 经过门禁链，审计覆盖率 100%
+- R4 红线工具在 L5 下拒绝率 100%
+- 配额超限 100% 触发第 5 层拒绝
+- PII 字段 100% 按策略脱敏，审计日志 0 明文 PII
+- 权限码模型支持至少 10 个 resource × 3 个 action 的权限码
+
+## Further Details
+- 技术实现由 plan.md 承载
+- 与现有 admin-api system_audit、enterprise_capabilities 模块的集成方式见 plan.md
+
+### 25 格 AUTONOMY_MATRIX 完整取值表（L1–L5 × R0–R4）
+
+行 = 自主级别 L（L1 最低 → L5 最高），列 = 风险级 R（R0 最低 → R4 红线）：
+
+| L \ R | R0 | R1 | R2 | R3 | R4 |
+|---|---|---|---|---|---|
+| **L1** | allow | allow | allow | require_approval | deny |
+| **L2** | allow | allow | allow | require_approval | deny |
+| **L3** | allow | allow | require_approval | require_approval | deny |
+| **L4** | allow | allow | require_approval | require_approval | deny |
+| **L5** | allow | allow | allow | require_approval | deny |
+
+**规则**：R4 任意 L = deny（红线不可覆盖）；R0/R1 任意 L = allow；R2 在 L3/L4 = require_approval，L1/L2/L5 = allow；R3 任意 L = require_approval。
+
+### 跨特性关系（被依赖方视角，2026-07-08 双向声明）
+- **与 006（position-rbac）**：006 的岗位角色是 001 细粒度权限码的"预设组"基础；001 的权限码模型以岗位角色为预设组向下兼容（双向声明，见 006 spec）。
+- **与 009（hooks-interception）**：009 的 PreToolUse 钩子是 001 六层门禁链的**扩展点**（在门禁链之前/之内做声明式拦截）；009 的钩子审计事件复用 **001 的审计落点**（不另建钩子审计集合）。
+- **与 012（a2a-agent-gateway）**：012 的 A2A 调用入口（入站被调 + 出站调外部）是 001 门禁链的**受管入口**，100% 过 001 门禁/审计。
+- **与 013（multi-im-entry）**：013 的 IM 渠道入口请求是 001 门禁链的**受管入口**，IM 入口请求 100% 过 001 门禁/审计。
+- **与 018（capability-asset-registration）**：018 注册的能力资产调用是 001 门禁链的**受管调用**，资产调用 100% 过 001 门禁/审计。
+- **与 019（harness-elastic-config）**：019 是 001 六层门禁的"**启用哪几层**"开关层，与 001 六层为**同一"层"概念**（001 层4 审批/层5 配额 = 019 可省层）；001 层语义不因 019 开关而改变。
+- **与 042（three-level-quota）**：042 把层 5 配额的解析扩为「团队 / 项目 + 租户 + 用户」三层，**`governance/layers/quota.py` 零改动**（层 5 的调用契约不变，只在 `app/core/quota_policy.py` 的 summary/断言内扩展口径）；余额不足时仍由层 5 拒绝，`QuotaExceededError` 新增 `layer`/`scope_id`/`kind` 归因属性，供层 5 透传至调用方，不改变 001 的允许/拒绝判定语义。
+- **权限码 resource 扩展**：001 权限码模型支持下游特性注册 resource 维度——**014 的 `bizdata`（业务数据）**、**015 的 `kg`（知识图谱）**；权限码格式 `<resource>:<action>[:<target>]` 不变。
+
+## Clarify 记录（/speckit-clarify，2026-07-08）
+
+### OQ-1 审批流程（spec 原 OQ-1）
+- **决策**：审批层（第 4 层）**不新建第二张审批表**，复用既有审批状态机。实现选择（2026-09-25 拍板）：admin-api 侧使用 `gate_approvals` 自建表（状态机语义与 `EnterpriseApproval` 等价），chat-api 侧复用 011 共享的 `marked_low_quality` 标记位 + `position_role_audit_logs` 审计流。
+- **恢复机制**：**poll**（前端轮询 `list_pending`/`decide`），非 callback。
+- **超时**：审批挂起默认 5 分钟（与 019 厚度配置的审计/超时底线对齐，可配置），超时自动按 fail-closed 拒绝。
+- **影响**：`gatekeeper.py` 层 4 的审批层可挂在 `ApprovalRuntime`（chat-api）或 `gate_approvals`（admin-api），二者语义一致，**不另起炉灶，不新建第二张审批表**。
+
+### OQ-2 配额存储（spec 原 OQ-2）
+- **决策**：配额计量**用数据库（MongoDB）**，不引入 Redis 计数。理由：自托管形态（mogo 交付）已依赖 MongoDB，引入 Redis 仅做计数会增加运维负担；配额上限低（租户/用户/工具三维，时间窗口计数），MongoDB 计数器（原子 `findOneAndUpdate`）足够。
+- **影响**：`quota.py` 层 5 落 `quota_counters` 集合（按 维度 + 时间窗口 键），不依赖 Redis。
+
+### OQ-3 PII 策略粒度（spec 原 OQ-3）
+- **决策**：PII 策略**默认全局固定**（手机号 mask / 私钥 remove / 身份证 hash / 银行卡 mask / 邮箱 abstract），**租户级可覆盖**（白名单 + 策略改配走 006 RBAC 授权 + 001 审计）。即"全局默认 + 租户可选覆盖"，非纯全局或纯租户。
+- **影响**：`pii.py` 内置默认策略表；租户覆盖经 `pii_policies` 集合 + 授权门禁。
+
