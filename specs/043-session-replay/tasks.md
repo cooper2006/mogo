@@ -88,6 +88,6 @@
 | T020 | `git diff --stat .../domain/protocol.ts` 为空；预研结论已写入 plan.md |
 | T021 | 028/002 spec 跨特性声明见下 |
 
-**未勾：T019（手工验收）** —— 需要真实浏览器会话（≥3 轮历史、生成中跟随、多 pane 焦点隔离、老会话空态）。本机无浏览器自动化环境，留待人工验收。
+**未勾：T019（手工验收）** —— 需要真实浏览器会话（≥3 轮历史、生成中跟随、多 pane 焦点隔离、老会话空态）。2026-11-01 已具备浏览器自动化（tabbit）：确认 user-web 启动、桌面外壳 SFC 渲染正常（新建对话/定时任务/我的技能/我的工具/我的插件/我的知识 + 登录注册入口），即联调点① SFC 编译+启动本地通过；但进入会话回放仍需登录凭证 + 真实历史会话数据，本环境无登录凭证，故手工验收主体仍留待人工/提供凭证后补。
 
 **顺带修复（039 遗留，阻塞 user-web `vue-tsc`）**：`apps/user-web/src/components/orchestration/OrchestrationCanvasPage.vue` 存在 7 处类型错误——模板内 TS 类型断言无法被 volar 解析（`Unterminated template literal`）、`fetchSkills()/fetchTools()` 缺 `(userId, tenantId)` 实参、`publishOrchestration/saveOrchestrationDraft` 传了 `EngineDocument`（应为 `CanvasDocument`）、`n-alert` 的 `type` 未绑定、`@close` 绑定到 import 的 `errorMessage` 函数而非 `pageError` 状态、vue-flow `Node/Edge` 巨型泛型触发 TS2589。已全部修复（引入 `CanvasFlowNode`/`CanvasFlowEdge` 窄结构类型），修复后 `vue-tsc` exit 0。
