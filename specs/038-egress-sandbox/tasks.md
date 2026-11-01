@@ -44,7 +44,7 @@
 - [x] T022 `apps/admin-web/src/api/egress.ts`：白名单 API client（字段 snake_case 直传，对齐后端契约定稿）（2026-10-24 前端交付：`apps/admin-web/src/api/egress.ts`（六个 API 函数 + EgressRule/EgressAllowlistPage/EgressLogPage 等类型），字段 snake_case 直传）
 - [x] T023 `apps/admin-web/src/views/egress/EgressAllowlistPage.vue`：三层白名单配置页（平台/租户/工具分组展示、增删改、enabled 开关、命中说明）；仿 `apps/admin-web/src/views/hooks/HookRulesPage.vue` 交互模式（2026-10-24 前端交付：`apps/admin-web/src/views/egress/EgressAllowlistPage.vue`（NDataTable + NModal+NForm + NPopconfirm；失败显示错误态、空态文案；后端未暴露 scheme 故页面无协议字段））
 - [x] T024 `apps/admin-web/src/router/routes.ts`：注册白名单配置页路由与菜单项（既有 vue-router 模式）（2026-10-24 前端交付：`apps/admin-web/src/router/routes.ts` 注册 `/egress/allowlist`(name EgressAllowlist) 与 `/egress/logs`(name EgressLogs) 两条懒加载路由）
-- [ ] T025 `apps/admin-web/src/views/tools/ToolEditPage.vue`：工具编辑页挂工具级例外条目最小入口（选择/新增绑定到当前工具的条目）
+- [x] T025 `apps/admin-web/src/views/tools/ToolEditPage.vue`：工具编辑页挂工具级例外条目最小入口（选择/新增绑定到当前工具的条目）
 - [x] T026 热更新接线：`EgressGuard` 求值读取最新配置（下一调用即生效，不重启）；与 009 FR-4 即时生效口径对齐
 
 ## Phase 3: 验证与接线
