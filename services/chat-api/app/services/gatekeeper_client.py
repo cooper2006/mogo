@@ -80,7 +80,7 @@ def _issue_for_context(tenant_id: str, user_id: str, *, scopes: tuple[str, ...] 
 
 
 class GatekeeperClient:
-    """HTTP client for ``POST /api/internal/gatekeeper/evaluate``."""
+    """HTTP client for ``POST /api/v1/internal/gatekeeper/evaluate``."""
 
     def __init__(self, base_url: str = "", token: str = "", timeout: float = DEFAULT_TIMEOUT_SECONDS) -> None:
         self._base_url = base_url
@@ -150,7 +150,7 @@ class GatekeeperClient:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.post(
-                    f"{base_url}/api/internal/gatekeeper/evaluate",
+                    f"{base_url}/api/v1/internal/gatekeeper/evaluate",
                     json=payload,
                     headers=service_token_headers(token),
                 )

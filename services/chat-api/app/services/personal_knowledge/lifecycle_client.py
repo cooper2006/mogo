@@ -30,7 +30,7 @@ class KnowledgeLifecycleClient:
         base_url = str(settings.ADMIN_API_BASE_URL or "http://127.0.0.1:8100").rstrip("/")
         async with httpx.AsyncClient(timeout=None) as client:
             response = await client.post(
-                f"{base_url}/api/internal/personal-knowledge/documents",
+                f"{base_url}/api/v1/internal/personal-knowledge/documents",
                 data=data, files=files, headers=headers,
             )
         if response.status_code >= 400:
@@ -43,7 +43,7 @@ class KnowledgeLifecycleClient:
         base_url = str(settings.ADMIN_API_BASE_URL or "http://127.0.0.1:8100").rstrip("/")
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
-                f"{base_url}/api/internal/personal-knowledge/{resource_id}/{action}",
+                f"{base_url}/api/v1/internal/personal-knowledge/{resource_id}/{action}",
                 json={"tenantId": tenant_id, "ownerUserId": owner_user_id},
                 headers=service_token_headers(str(settings.ADMIN_BACKEND_SERVICE_TOKEN or "")),
             )
