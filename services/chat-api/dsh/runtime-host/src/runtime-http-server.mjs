@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import { validBearerToken, assertSecureHost } from './host-auth.mjs'
 import { HOST_STATES, runtimeHealth } from './host-protocol.mjs'
 import { readBody, readJson, routeParts, sendJson } from './http-utils.mjs'
-import { createDirectory, DirectoryBrowseError, listDirectory } from './directory-browser.mjs'
+import { createDirectory, DirectoryBrowseError, ensureWorkspaceRoot, listDirectory } from './directory-browser.mjs'
 import {
   findOwner,
   findOwnerByIsolation,
@@ -89,6 +89,16 @@ export class RuntimeHttpServer {
   async start() {
     if (this.#started) return this.address()
     await this.#manager.probe()
+    // Bring up the browsable workspace root early: a misconfigured
+    // MOGO_WORKSPACE_ROOT (e.g. on the read-only root filesystem) then shows up
+    // in the startup logs instead of only when the first browser request fails.
+    // Non-fatal — the rest of the host must keep serving even if browsing is down.
+    try {
+      const root = await ensureWorkspaceRoot()
+      console.log(`[directory-browser] workspace root ready at ${root}`)
+    } catch (error) {
+      console.warn(`[directory-browser] workspace root unavailable: ${error instanceof Error ? error.message : String(error)}`)
+    }
     await new Promise((resolvePromise, reject) => {
       const onError = error => reject(error)
       this.#server.once('error', onError)

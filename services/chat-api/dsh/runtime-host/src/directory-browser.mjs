@@ -20,8 +20,13 @@
  * 1. Scope. The official backend browses the whole host filesystem, which is
  *    right for a developer tool running on the employee's own machine. Here
  *    the host is a shared server, so listing is confined to an allow-listed
- *    root (`MOGO_WORKSPACE_ROOT`, default `/workspaces`). A path outside that
- *    root is refused exactly like an unreadable directory.
+ *    root (`MOGO_WORKSPACE_ROOT`, default `/data/dsh-runtime/workspaces`).
+ *    A path outside that root is refused exactly like an unreadable directory.
+ *
+ *    The default lives under the `dsh-runtime-data` volume (`/data/dsh-runtime`)
+ *    the host already mounts read-write, because the container root filesystem is
+ *    read-only (`read_only: true` in docker-compose): a root anywhere else could
+ *    never be created on a fresh install, and the browser would fail with ENOENT.
  * 2. No hidden-entry flag. The root is a workspace area rather than a home
  *    directory, so there is no dot-file convention to honour; every child
  *    directory is listed.
@@ -31,8 +36,13 @@ import { mkdir, opendir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve, sep } from 'node:path'
 
-/** Default root for browsable workspaces when the environment says nothing. */
-const DEFAULT_WORKSPACE_ROOT = '/workspaces'
+/** Default root for browsable workspaces when the environment says nothing.
+ *
+ * Lives under `/data/dsh-runtime` — the one writable, persistent volume the
+ * read-only runtime-host container mounts (`dsh-runtime-data`). A root on the
+ * read-only root filesystem could never be created, so the browser would fail
+ * with ENOENT on every fresh install. */
+const DEFAULT_WORKSPACE_ROOT = '/data/dsh-runtime/workspaces'
 
 /** The closed failure vocabulary the DSH directory-picker seam defines. */
 export const DIRECTORY_ERROR_CODES = {
@@ -55,6 +65,36 @@ export class DirectoryBrowseError extends Error {
 export function workspaceRoot() {
   const configured = String(process.env.MOGO_WORKSPACE_ROOT || '').trim()
   return resolve(configured || DEFAULT_WORKSPACE_ROOT)
+}
+
+/** Cache the resolved, verified root so repeated calls do not re-stat the disk. */
+let resolvedRootCache = null
+
+/**
+ * Ensure the browsable root exists as a directory.
+ *
+ * The runtime host mounts a read-only root filesystem, so the root must sit on
+ * the writable `dsh-runtime-data` volume. Creating it on first use means a fresh
+ * deployment works without manual volume pre-seeding. Idempotent: once the root
+ * has been created (or confirmed present) for a given path, the cached value is
+ * returned without touching the disk again.
+ *
+ * @returns {Promise<string>} the resolved, existing root path.
+ * @throws {DirectoryBrowseError} when the root cannot be created.
+ */
+export async function ensureWorkspaceRoot() {
+  const root = workspaceRoot()
+  if (resolvedRootCache === root) return root
+  try {
+    await mkdir(root, { recursive: true })
+  } catch (error) {
+    throw new DirectoryBrowseError(
+      DIRECTORY_ERROR_CODES.unreadable, root,
+      `cannot create workspace root ${root}: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  resolvedRootCache = root
+  return root
 }
 
 /**
@@ -139,6 +179,7 @@ function ancestryCrumbs(target, root) {
  * @returns {Promise<{path: string, home: string, crumbs: Array<{name: string, path: string, hidden: boolean}>, entries: Array<{name: string, path: string, hidden: boolean}>, truncated: boolean}>}
  */
 export async function listDirectory(path) {
+  await ensureWorkspaceRoot()
   const { root, target } = resolveInsideRoot(path)
   let level
   try {
@@ -189,6 +230,7 @@ export async function listDirectory(path) {
  * @returns {Promise<string>} the created directory's absolute path.
  */
 export async function createDirectory(path, name) {
+  await ensureWorkspaceRoot()
   const { target: parent } = resolveInsideRoot(path)
   const segment = String(name ?? '').trim()
   if (segment === '' || segment === '.' || segment === '..' || /[/\\]/.test(segment)) {
