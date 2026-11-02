@@ -76,10 +76,9 @@ export async function browseDirectory(
   authToken?: string | null,
 ): Promise<DirectoryListing> {
   try {
-    const response = await client.post<DirectoryBrowseResponse>(
-      '/askai-api/api/v1/directories/browse',
-      { path: path ?? null },
-      { headers: authHeaders(authToken) },
+    const response = await client.get<DirectoryBrowseResponse>(
+      '/askai-api/api/v1/directories',
+      { params: { path: path ?? null }, headers: authHeaders(authToken) },
     )
     return response.data.data
   } catch (error) {
@@ -106,8 +105,8 @@ export async function createDirectory(
 ): Promise<string> {
   try {
     const response = await client.post<DirectoryCreateResponse>(
-      '/askai-api/api/v1/directories/create',
-      { parentPath, name },
+      '/askai-api/api/v1/directories',
+      { path: parentPath, name },
       { headers: authHeaders(authToken) },
     )
     return response.data.data.path

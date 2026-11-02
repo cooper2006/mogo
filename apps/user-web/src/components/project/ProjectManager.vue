@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { NButton, NInput, NModal, NForm, NFormItem, useMessage } from 'naive-ui'
 import { createDesktopProject, listDesktopProjects, type DesktopProject } from '../../api/sessions'
+import { t } from '../../composables/i18n'
 
 const props = defineProps<{
   authToken?: string | null
@@ -85,14 +86,14 @@ onMounted(() => {
   <!-- 项目列表 -->
   <div class="project-manager">
     <div class="project-header">
-      <span class="project-title">{{ $t('app.project') || '项目' }}</span>
+      <span class="project-title">{{ t('app.project') || '项目' }}</span>
       <NButton 
         v-if="canCreate" 
         size="tiny" 
         type="primary" 
         @click="openCreate"
       >
-        {{ $t('app.create_project') || '新建项目' }}
+        {{ t('app.project.create') || '新建项目' }}
       </NButton>
     </div>
     
@@ -101,7 +102,7 @@ onMounted(() => {
     </div>
     
     <div v-else-if="projects.length === 0" class="project-empty">
-      {{ $t('app.no_projects') || '暂无项目' }}
+      {{ t('app.project.no_projects') || '暂无项目' }}
     </div>
     
     <div v-else class="project-list">
@@ -114,7 +115,7 @@ onMounted(() => {
       >
         <span class="project-icon">📁</span>
         <span class="project-name truncate">{{ project.title }}</span>
-        <span v-if="project.status === 'archived'" class="project-status archived">{{ $t('app.archived') }}</span>
+        <span v-if="project.status === 'archived'" class="project-status archived">{{ t('app.project.archived') }}</span>
       </button>
     </div>
     
@@ -125,15 +126,15 @@ onMounted(() => {
       :mask-closable="!creating"
       :closable="!creating"
       style="width: 420px"
-      :title="$t('app.create_project') || '创建项目'"
+      :title="t('app.project.create') || '创建项目'"
       @update:show="(value) => !value && closeCreate()"
     >
       <div class="create-form">
         <n-form item-layout="vertical">
-          <n-form-item :label="$t('app.project_name') || '项目名称'">
+          <n-form-item :label="t('app.project.name') || '项目名称'">
             <n-input
               v-model:value="projectName"
-              :placeholder="$t('app.project_name_placeholder') || '请输入项目名称'"
+              :placeholder="t('app.project.name_placeholder') || '请输入项目名称'"
               @keyup.enter="commitCreate"
             />
           </n-form-item>
@@ -142,14 +143,14 @@ onMounted(() => {
       </div>
       <template #footer>
         <div class="dialog-actions">
-          <NButton @click="closeCreate">{{ $t('ui.cancel') }}</NButton>
+          <NButton @click="closeCreate">{{ t('ui.cancel') }}</NButton>
           <NButton 
             type="primary" 
             :loading="creating" 
             :disabled="!projectName.trim()"
             @click="commitCreate"
           >
-            {{ $t('app.create') || '创建' }}
+            {{ t('ui.create') || '创建' }}
           </NButton>
         </div>
       </template>

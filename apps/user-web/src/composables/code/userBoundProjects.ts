@@ -42,6 +42,9 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
   function syncArchiveState(nextBindings: DesktopProject[], localWorkspaces: DshWorkspace[], token: string): void {
     const localIds = new Set(localWorkspaces.map(w => w.workspace_id))
     for (const project of nextBindings) {
+      // 默认项目（_id = "default"）没有 workspace_id，且服务端禁止归档（046 Edge Case 3），
+      // 跳过避免对空 id 发 PATCH → 重定向到 collection 根 → 405。
+      if (!project.workspace_id) continue
       const nextStatus = localIds.has(project.workspace_id) ? 'active' : 'archived'
       if ((project.status || 'active') === nextStatus) continue
       updateDesktopProjectStatus(project.workspace_id, nextStatus, token).catch(() => {})
