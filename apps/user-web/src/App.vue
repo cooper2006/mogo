@@ -333,7 +333,7 @@ const DEFAULT_PROJECT_ID = 'default'
 type ProjectGroupMode = 'workspace' | 'tree' | 'list'
 type ProjectSortMode = 'manual' | 'recent'
 type ProjectFilterMode = 'hide_archived' | 'all' | 'archived_only'
-const projectGroupMode = ref<ProjectGroupMode>('workspace')
+const projectGroupMode = ref<ProjectGroupMode>('tree')
 const projectSortMode = ref<ProjectSortMode>('recent')
 const projectFilterMode = ref<ProjectFilterMode>('hide_archived')
 const projectDisplayMenuOpen = ref(false)
@@ -2746,15 +2746,6 @@ onBeforeUnmount(() => {
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></span>
           <span>{{ locale === 'en' ? 'Loading projects' : '正在加载项目' }}</span>
         </div>
-        <button
-          v-if="canUseCode && capabilities.localWorkspacePicker"
-          type="button"
-          class="mt-4 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-500 hover:bg-gray-200/50 hover:text-slate-700"
-          @click="createProject"
-        >
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M12 11v6m-3-3h6"/></svg>
-          <span>{{ locale === 'en' ? 'New project' : '新建项目' }}</span>
-        </button>
         <button
           v-if="!trimmedSessionSearchQuery && !sessionsLoading && sessionsHasMore && historyItems.length >= sessionPageSize"
           class="w-full text-left px-2.5 py-1 text-[11px] text-gray-400 hover:text-gray-600 disabled:opacity-60 disabled:cursor-not-allowed"
