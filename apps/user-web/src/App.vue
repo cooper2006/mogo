@@ -329,6 +329,32 @@ const projectHistoryGroups = computed(() => {
     })
 })
 const DEFAULT_PROJECT_ID = 'default'
+// 工作区展示偏好：分组方式 / 排序方式 / 筛选会话（对应顶部「筛选」按钮菜单）。
+type ProjectGroupMode = 'workspace' | 'tree' | 'list'
+type ProjectSortMode = 'manual' | 'recent'
+type ProjectFilterMode = 'hide_archived' | 'all' | 'archived_only'
+const projectGroupMode = ref<ProjectGroupMode>('workspace')
+const projectSortMode = ref<ProjectSortMode>('recent')
+const projectFilterMode = ref<ProjectFilterMode>('hide_archived')
+const projectDisplayMenuOpen = ref(false)
+
+/** 项目（工作区）是否已归档：归档项目的会话归属「已归档」分区。 */
+function isArchivedGroupStatus(status: string): boolean {
+  return status === 'archived'
+}
+
+/** 按「筛选会话」偏好过滤，并按「排序方式」排序一组会话。 */
+function shapeGroupSessions(sessions: SessionSummary[], groupStatus: string): SessionSummary[] {
+  let list = sessions
+  if (projectFilterMode.value === 'hide_archived') {
+    list = list.filter(() => !isArchivedGroupStatus(groupStatus))
+  } else if (projectFilterMode.value === 'archived_only') {
+    list = list.filter(() => isArchivedGroupStatus(groupStatus))
+  }
+  if (projectSortMode.value === 'recent') list = sortSessionsByRecentActivity(list)
+  return list
+}
+
 // 统一侧边栏：把服务端项目（userBoundProjects.workspaces）与本地会话按
 // project_id 合并为「项目 → 其下会话」的两层结构；未归属项目的会话
 //（project_id 为 'default'）归集到一个虚拟「默认工作区」节点，对应 DSH
@@ -365,12 +391,36 @@ const unifiedProjectGroups = computed(() => {
       status: 'ok', updatedAt: '', sessions: [],
     })
   }
-  for (const group of groups.values()) group.sessions = sortSessionsByRecentActivity(group.sessions)
-  return [...groups.values()].sort((left, right) => {
-    if (left.id === DEFAULT_PROJECT_ID) return 1
-    if (right.id === DEFAULT_PROJECT_ID) return -1
-    return right.updatedAt.localeCompare(left.updatedAt)
-  })
+  return [...groups.values()]
+    .map((group) => ({ ...group, sessions: shapeGroupSessions(group.sessions, group.status) }))
+    // 「按工作区」仅保留有会话的分组（默认工作区始终保留）；「按工作区树」保留全部节点。
+    .filter((group) => projectGroupMode.value !== 'workspace' || group.id === DEFAULT_PROJECT_ID || group.sessions.length > 0)
+    .sort((left, right) => {
+      if (left.id === DEFAULT_PROJECT_ID) return 1
+      if (right.id === DEFAULT_PROJECT_ID) return -1
+      return right.updatedAt.localeCompare(left.updatedAt)
+    })
+})
+
+/** 单列表模式：全部会话平铺（不按项目分组，仅按筛选/排序偏好）。 */
+const flatProjectSessions = computed(() => {
+  if (!canUseCode.value) return []
+  const grouped = sessions.value.reduce<Map<string, SessionSummary[]>>((map, session) => {
+    const pid = session.project_id || DEFAULT_PROJECT_ID
+    map.set(pid, [...(map.get(pid) || []), session])
+    return map
+  }, new Map())
+  const statusOf = (pid: string) => projectWorkspaces.value.find((w) => w.workspace_id === pid)?.status || 'ok'
+  const all = [...grouped.entries()].flatMap(([pid, list]) => shapeGroupSessions(list, statusOf(pid)))
+  return all
+})
+
+/** 模板渲染用的分组：单列表模式折叠为单个虚拟分组（不渲染项目头）。 */
+const renderedProjectGroups = computed(() => {
+  if (projectGroupMode.value === 'list') {
+    return [{ id: '__flat__', title: '', status: 'ok', updatedAt: '', sessions: flatProjectSessions.value }]
+  }
+  return unifiedProjectGroups.value
 })
 
 const chatRuntime = useChatRuntimeStore({
@@ -1198,6 +1248,9 @@ function handleDocumentClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null
   if (!target?.closest('[data-user-menu]')) {
     closeUserMenu()
+  }
+  if (!target?.closest('[data-project-display-menu]')) {
+    projectDisplayMenuOpen.value = false
   }
 }
 
@@ -2441,9 +2494,77 @@ onBeforeUnmount(() => {
         class="group mt-2 flex w-full items-center gap-1 px-5 pb-1 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400"
       >
         <span>{{ locale === 'en' ? 'Workspace' : '工作区' }}</span>
+        <!-- 搜索会话 -->
+        <span
+          class="ml-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded text-gray-400 hover:bg-gray-200/60 hover:text-gray-700"
+          role="button" tabindex="0"
+          :aria-label="locale === 'en' ? 'Search conversations' : '搜索会话'"
+          :title="locale === 'en' ? 'Search conversations' : '搜索会话'"
+          @click.stop="openSessionSearch"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+        </span>
+        <!-- 展示偏好（分组/排序/筛选） -->
+        <span
+          v-if="canUseCode"
+          class="relative flex h-5 w-5 cursor-pointer items-center justify-center rounded text-gray-400 hover:bg-gray-200/60 hover:text-gray-700"
+          role="button" tabindex="0"
+          :aria-label="locale === 'en' ? 'Display options' : '展示选项'"
+          :title="locale === 'en' ? 'Display options' : '展示选项'"
+          @click.stop="projectDisplayMenuOpen = !projectDisplayMenuOpen"
+          @keydown.enter.stop="projectDisplayMenuOpen = !projectDisplayMenuOpen"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/><circle cx="5.5" cy="4.5" r="1.4" fill="#f8fafc"/><circle cx="10.5" cy="8" r="1.4" fill="#f8fafc"/><circle cx="6.5" cy="11.5" r="1.4" fill="#f8fafc"/></svg>
+          <!-- 下拉菜单 -->
+          <div
+            v-if="projectDisplayMenuOpen"
+            data-project-display-menu
+            class="absolute left-0 top-6 z-50 w-[216px] origin-top-left rounded-xl border border-gray-200 bg-white py-1.5 shadow-[0_12px_40px_rgba(15,23,42,0.14)]"
+            @click.stop
+          >
+            <div class="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">{{ locale === 'en' ? 'Grouping' : '分组方式' }}</div>
+            <button
+              v-for="opt in ([{ value: 'workspace', label: '按工作区' }, { value: 'tree', label: '按工作区树' }, { value: 'list', label: '单列表' }] as const)"
+              :key="opt.value"
+              type="button"
+              class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
+              @click="projectGroupMode = opt.value; projectDisplayMenuOpen = false"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5 shrink-0"><path d="M2.5 3.5h3l1 1.5h7v7a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-8.5Z"/></svg>
+              <span class="flex-1">{{ opt.label }}</span>
+              <svg v-if="projectGroupMode === opt.value" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" class="h-3.5 w-3.5 text-gray-800"><path d="m3.5 8.5 3 3 6-7"/></svg>
+            </button>
+            <div class="my-1 border-t border-gray-100"></div>
+            <div class="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">{{ locale === 'en' ? 'Sorting' : '排序方式' }}</div>
+            <button
+              v-for="opt in ([{ value: 'manual', label: '手动排序' }, { value: 'recent', label: '最近更新' }] as const)"
+              :key="opt.value"
+              type="button"
+              class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
+              @click="projectSortMode = opt.value; projectDisplayMenuOpen = false"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5 shrink-0"><path d="m4 6 4-3 4 3M4 10l4 3 4-3"/></svg>
+              <span class="flex-1">{{ opt.label }}</span>
+              <svg v-if="projectSortMode === opt.value" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" class="h-3.5 w-3.5 text-gray-800"><path d="m3.5 8.5 3 3 6-7"/></svg>
+            </button>
+            <div class="my-1 border-t border-gray-100"></div>
+            <div class="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">{{ locale === 'en' ? 'Filter sessions' : '筛选会话' }}</div>
+            <button
+              v-for="opt in ([{ value: 'hide_archived', label: '隐藏已归档' }, { value: 'all', label: '全部对话（显示已归档）' }, { value: 'archived_only', label: '仅显示已归档' }] as const)"
+              :key="opt.value"
+              type="button"
+              class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
+              @click="projectFilterMode = opt.value; projectDisplayMenuOpen = false"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5 shrink-0"><path d="M2 8a6 6 0 0 1 6-6h1M14 8a6 6 0 0 1-6 6H7"/><path d="M9 2h2M9 14h2"/><path d="M9 2v3M9 14v-3"/></svg>
+              <span class="flex-1">{{ opt.label }}</span>
+              <svg v-if="projectFilterMode === opt.value" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true" class="h-3.5 w-3.5 text-gray-800"><path d="m3.5 8.5 3 3 6-7"/></svg>
+            </button>
+          </div>
+        </span>
         <span
           v-if="canUseCode && capabilities.localWorkspacePicker"
-          class="ml-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded text-blue-600 hover:bg-blue-50"
+          class="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-blue-600 hover:bg-blue-50"
           role="button" tabindex="0"
           :aria-label="locale === 'en' ? 'New project' : '新建项目'"
           :title="locale === 'en' ? 'New project' : '新建项目'"
@@ -2459,8 +2580,9 @@ onBeforeUnmount(() => {
         >
           {{ t('app.sidebar.loading_history') }}
         </div>
-        <template v-for="group in unifiedProjectGroups" :key="group.id">
+        <template v-for="group in renderedProjectGroups" :key="group.id">
           <div
+            v-if="group.id !== '__flat__'"
             class="group flex w-full min-w-0 items-center gap-1.5 px-2 py-1 text-left text-xs font-semibold text-slate-500 hover:text-slate-700"
             :title="group.title"
             role="button"
@@ -2494,7 +2616,7 @@ onBeforeUnmount(() => {
             </template>
           </div>
           <div
-            v-for="session in (projectHistoryExpanded(group.id) ? group.sessions : [])"
+            v-for="session in (group.id === '__flat__' || projectHistoryExpanded(group.id) ? group.sessions : [])"
             :key="session.id"
             class="group w-full text-left pl-5 pr-2.5 py-1.5 rounded-lg transition-all border border-transparent"
             :class="session.id === currentSessionId && currentView === 'chat' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'"
