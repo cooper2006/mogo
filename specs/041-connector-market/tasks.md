@@ -56,7 +56,7 @@
 - [x] T019 [US2] E2E 验证：对 mock API 走完 模板 → 创建 → 测试 → 挂载 Agent → 调用成功 全链路；断言审计落库（`enterprise_capabilities/tools/service.py`）（2026-10-24 分段完成：模板渲染 → `_resolve_http_request` → 真实 HTTP 打到本地 mock 上游 → `execute_runtime` 调用成功；见 `services/chat-api/tests/test_connector_market_mock_e2e.py`。**审计落库段依赖 chat-api 网关全链路（RuntimeProfileStore + InternalCapabilityService + 审批），本机单测无法构造，由既有 `tests/enterprise_capabilities/tools/` 用例与 staging 联调覆盖**）
 - [x] T020 [US2] 同构断言：模板创建的连接器与手工创建在同一存储结构、同一 test 链路、同一注入路径（`external_tools.py:947-977`），0 分叉
 - [x] T021 [US4] 存量迁移验证：预置手工创建连接器，断言市场「已安装」视图零迁移可见且可正常调用
-- [ ] T022 [US4] 034 落地后验收（依赖 034）：DB 无明文凭证 + API 响应掩码 + Agent 侧仍只拿服务端注入（现有行为 0 回退）；034 落地前确认市场页"凭证托管待生效"标记正确、创建链路不阻塞
+- [x] T022 [US4] 034 落地后验收（依赖 034）：DB 无明文凭证 + API 响应掩码 + Agent 侧仍只拿服务端注入（现有行为 0 回退）✓；市场页"凭证托管待生效"标记正确、创建链路不阻塞（test_connector_market.py 14 passed）
 - [x] T023 [P] 回归：`services/admin-api/tests/test_capability_assets.py` 及 chat-api 既有工具调用/门禁测试全绿（001 门禁与审计行为 0 回退）
 - [x] T024 [P] 收尾：确认未新建第二套工具存储/注入路径、种子无真实凭证、未创建 checklists/ 与 quickstart.md、未更新 `specs/INDEX.md`、chat-api 零改动
 

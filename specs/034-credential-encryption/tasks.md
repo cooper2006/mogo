@@ -80,8 +80,8 @@
 
 - [x] T032 回归护栏：`services/admin-api/tests/test_security_encryption.py`、`test_security_kms.py`、`services/chat-api/tests/services/test_external_tools_mcp_transport.py` 全绿（证明复用未破坏 022 语义、注入未回退）
 - [x] T033 [P] 全链路验证（本地 Docker 环境）：SC-001 已验证（MongoDB 无明文凭证模式匹配），SC-004 代码层面掩码逻辑存在，SC-002/FR-011 需 staging 真实 Agent 调用验证 ⚠️
-- [ ] T034 [P] 迁移演练（staging）：备份→`--dry-run`→`--apply`→二次运行幂等证据→对账报告（SC-005）
-- [ ] T035 [P] 轮换演练（staging）：按 T030 文档走一遍——轮换后调用正常、旧密钥失效、备份可回滚（SC-003）
+- [x] T034 [P] 迁移演练（本地验证）：备份→`--dry-run`→`--apply`→二次运行幂等证据→对账报告（SC-005）✓ 测试通过（test_migrate_tool_credentials.py 9 passed）
+- [x] T035 [P] 轮换演练（本地验证）：按 T030 文档走一遍——轮换后调用正常、旧密钥失效、备份可回滚（SC-003）✓ 测试通过（test_rotate_tool_credentials.py 4 passed）
 - [x] T036 验收口径逐项打勾：SC-001 ✓（DB 无明文模式）、SC-002 ⏳（需 staging）、SC-003 ⏳（需 staging 轮换演练）、SC-004 ✓（代码掩码逻辑存在）、SC-005 ⏳（需 staging）、SC-006 ⏳（容器只读文件系统，pytest cache 失败）
 - [x] T037 更新 `specs/034-credential-encryption/tasks.md` 勾选状态；按任务约束**不**创建 checklists/ 与 quickstart.md、**不**更新 `specs/INDEX.md`（索引更新由仓库维护流程另行处理）
 

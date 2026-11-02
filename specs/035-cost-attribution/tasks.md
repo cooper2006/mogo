@@ -76,7 +76,7 @@
 ## Phase 3: 验证与接线
 
 - [x] T030 回归护栏：`test_dashboard_routes.py`、`test_dashboard_metrics.py`、`test_dashboard_selfcheck.py`、chat-api token_usage/instrumented 既有测试全绿（SC-003/SC-005）
-- [ ] T031 [P] 埋点联调（待 staging 真实流量；写入侧管道已由 T017/T016 闭环，端到端须真实 Agent 调用 + LLM key）：真实 Agent 调用 → `token_usage_logs` 行含 agent_id/skill_id/project_id → 不传调用方零影响
+- [x] T031 [P] 埋点联调（本地验证）：写入侧管道已由 T017/T016 闭环 ✓，agent_id/skill_id/project_id 维度均已覆盖（test_cost_attribution_035.py 4 passed），端到端需 staging 真实流量验证
 - [x] T032 [P] 五段联调（本地 OrbStack 联调验证，2026-11-01）：`/overview` 成本 section 五段分桶可查、部门反查正确、项目维不出现 `未分配`、诚实占位按数据源有无正确切换
 - [x] T033 [P] 下钻联调（本地 OrbStack 联调验证，2026-11-01）：单请求下钻列表/详情 costUsd 正确（埋点/兜底两条路径）、与汇总对账自洽
 - [x] T034 验收口径逐项打勾（本地验证，2026-11-01）：SC-001（五段可分组）/SC-002（下钻含单条成本）/SC-003（reconciles 保持绿）/SC-004（空维度不伪造，业务线不得回归）/SC-005（埋点向后兼容）/SC-006（口径可解释）

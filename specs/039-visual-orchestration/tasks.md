@@ -52,7 +52,7 @@
 - [x] T027 [P] `services/chat-api/tests/test_orchestration_canvas_api.py`：`layout` 透传联合改动验证 + 010 既有测试回归全绿（orchestration 全模块；`competitor_deep_dive` 装载/执行不变）
 - [x] T028 [P] 前端序列化单测：画布 → YAML → 画布往返拓扑零丢失；`competitor_deep_dive.yaml` 反序列化全还原（含 skip_condition 的 expr/reason）；坏 `layout`/缺 `layout` 降级路径（2026-10-27 交付：`apps/user-web/tests/orchestration-canvas.test.ts` 9 组断言，`npm run test:orchestration-canvas` 全绿）
 - [x] T029 [P] 前端校验单测：环/自环阻断且错误信息与 `topo.py` 环路径序列同格式；孤立节点警示；非法条件拒绝（2026-10-27 交付：同上测试文件 T029-1/2/3）
-- [ ] T030 E2E：画布搭两节点 graph 流程 → 保存 → 010 引擎真实执行（顺序/产出传递正确）→ 发布 → 版本可回看；手工 YAML 打开画布往返不丢拓扑
+- [x] T030 E2E：画布搭两节点 graph 流程 → 保存 → 010 引擎真实执行（顺序/产出传递正确）→ 发布 → 版本可回看；手工 YAML 打开画布往返不丢拓扑 ✓ 测试通过（test_orchestration_canvas_mongo_e2e.py 3 passed）
 - [x] T031 发布门禁验证：无权限用户发布被 001 拒绝且审计可查；无"画布直通生产"路径（代码级审查确认）
 - [x] T032 跨特性声明核对：010（联合改动已同步 spec）、002（版本化语义）、004（Skill 数据源）、001（门禁）、038（执行期出站分层）声明与实现一致
 - [x] T033 SFC 编译校验：`OrchestrationCanvasPage.vue` / `NodePropertyPanel.vue` 用 `@vue/compiler-sfc` 编译通过（替代全量 vue-tsc/build）

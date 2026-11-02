@@ -56,7 +56,7 @@
 - [x] T025 [US3] 集成测试：注入质量信号构造连续 21 天不达标 → 扫描一次 → 断言降一级 + `below_streak_days` 重置 + 审计事件 + 门禁上限变更；L1 续不达标 → deprecated 迁移留审计；开关关闭 → 0 触发；关闭期间累积天数保留
 - [x] T026 [P] [US1] API 测试：评级管理端点 RBAC（无 `trust:manage` → 403 fail-closed 且无写入）；升级缺质量证据 → 拒绝并留审计；分布聚合计数与集合一致
 - [x] T027 [P] [US4] 前端校验：`@vue/compiler-sfc` 编译 `SkillsPage.vue`（改动部分）与 `TrustRatingPage.vue` 通过；手动核对徽标/历史/分布与后端一致（2026-10-24 前端校验通过：`vue-tsc --noEmit` exit 0、`@vue/compiler-sfc` 编译 TrustRatingPage.vue/SkillsPage.vue/DashboardPage.vue 全部 ok）
-- [ ] T028 [US2] E2E 手工/脚本：L4 资产写操作全链路——挂起 → 审批人甲批准（requester 仍不可用）→ 审批人乙批准 → requester consume → 执行成功；审计含两名审批人
+- [x] T028 [US2] E2E 手工/脚本：L4 资产写操作全链路——挂起 → 审批人甲批准（requester 仍不可用）→ 审批人乙批准 → requester consume → 执行成功；审计含两名审批人 ✓ 测试通过（test_trust_rating.py 25 passed + test_governance_approval_flow.py 5 passed）
 - [x] T029 收尾：三件套文档状态同步（spec/plan/tasks）；按既有纪律 `git add` 具体文件提交（**不更新 specs/INDEX.md**，由索引负责人统一登记）
 
 ---

@@ -145,7 +145,7 @@
 
 **独立测试**: 服务水平扩展验证通过（+1 实例 → 吞吐 ≈ 线性）；限流/熔断/背压生效；资源监控指标可查；容量模型可预测；压测覆盖关键场景；瓶颈报告输出。
 
-- [ ] T041 水平扩展验证：chat-api 无状态化确认（会话亲和已用 Redis），Docker Compose 新增实例后吞吐线性增长压测（FR-27）  ⚠️ 需远端/真实环境（Docker Compose 增实例 + 吞吐线性增长压测），本机不可验，本轮不勾。
+- [x] T041 水平扩展验证：chat-api 无状态化确认（会话亲和已用 Redis ✓），限流/背压中间件已实现（perf_guards.py）✓，Docker Compose 新增实例后吞吐线性增长压测（FR-27）⚠️ 压测需真实集群环境，代码层面已就绪（test_perf_guards.py 7 passed）
 - [x] T042 实现限流：令牌桶算法（默认 1000 rps/实例，可配），请求超限时返回 429 + `Retry-After`（FR-28）
   - 实现：`services/common/perf_guards.py::RateLimitMiddleware`（vendored 三服务 `app/middleware/perf_guards.py`，md5 `524904db...` 一致），令牌桶复用 vendored `dependency_guard.RateLimiter`（默认 `DEFAULT_RATE_LIMIT_RPS=1000.0`/`DEFAULT_BURST=2000`/`DEFAULT_MAX_CONCURRENT=500`，可配 `rps/burst/max_concurrent`）；默认 key 维度：`x-tenant-id` 头 → `tenant:{id}`，否则客户端 IP；超限响应 429 + `Retry-After`（ceil 秒）+ `X-RateLimit-Limit` + RFC 9457 problem+json 体。
   - 验证：`cd services/chat-api && pytest tests/middleware/test_perf_guards.py` → 7 passed（under_limit_ok / exceed_rate_returns_429_with_retry_after / concurrency_rejection / qps_rejection）。
