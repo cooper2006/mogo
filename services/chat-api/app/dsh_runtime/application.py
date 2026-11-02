@@ -30,6 +30,7 @@ from app.dsh_runtime.profile.store import MongoRuntimeProfileStore
 from app.dsh_runtime.runtime_coordinator import RuntimeCoordinator
 from app.dsh_runtime.desktop_bootstrap import DesktopRuntimeBootstrapService
 from app.dsh_runtime.desktop_binding import DesktopCodeBindingService
+from app.dsh_runtime.directory_browser import DirectoryBrowserService
 from app.dsh_runtime.transport import HttpKernelHostTransport, configured_runtime_hosts
 from app.enterprise_capabilities.tools import EnterpriseToolRepository, EnterpriseToolService
 from app.enterprise_capabilities.evidence import ExecutionEvidenceRepository
@@ -51,6 +52,7 @@ class DshRuntimeApplication:
         self.model_gateway: ModelGatewayService | None = None
         self.desktop_bootstrap: DesktopRuntimeBootstrapService | None = None
         self.desktop_bindings: DesktopCodeBindingService | None = None
+        self.directory_browser: DirectoryBrowserService | None = None
         # 组织级话题准入闸门：服务端回合与桌面回合都必须在模型调用前经过它。
         self.topic_admission: TopicAdmissionService | None = None
         self.host_healthy = False
@@ -85,6 +87,9 @@ class DshRuntimeApplication:
             kernel_version=self.KERNEL_VERSION,
             profile_resolver=resolver,
         )
+        # 纯 Web 客户端没有本机 OS 目录对话框可用；目录浏览由宿主文件系统
+        # 提供（DSH 的 browse 能力），chat-api 只做透传。
+        self.directory_browser = DirectoryBrowserService(self._transport)
         # L3 backpressure: cap concurrent in-flight turns per chat-api
         # process so LLM load does not scale linearly with replica count.
         gateway.backpressure = TurnBackpressure(settings.DSH_RUNTIME_TURN_MAX_CONCURRENT)
@@ -229,6 +234,11 @@ class DshRuntimeApplication:
         if self.desktop_bindings is None:
             raise RuntimeError("DSH Desktop binding service is not started")
         return self.desktop_bindings
+
+    def require_directory_browser(self) -> DirectoryBrowserService:
+        if self.directory_browser is None:
+            raise RuntimeError("DSH Runtime Application is not started")
+        return self.directory_browser
 
 
 dsh_runtime_application = DshRuntimeApplication()

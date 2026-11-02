@@ -11,6 +11,8 @@ import DesktopWindowChrome from './components/desktop/DesktopWindowChrome.vue'
 import DesktopServerSetup from './components/desktop/DesktopServerSetup.vue'
 import type { DesktopToolLauncherKind } from './components/desktop/desktopToolTabs'
 import CreateProjectDialog from './components/code/CreateProjectDialog.vue'
+import DirectoryBrowser from './components/code/DirectoryBrowser.vue'
+import ProjectManager from './components/project/ProjectManager.vue'
 import { exchangePortalTicket, fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
 import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
 import { activateEmbeddedBrowserSession, capabilities, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, renameDshWorkspace } from './platform'
@@ -359,6 +361,7 @@ const createProjectBusy = ref(false)
 const createProjectWorkspace = ref<DshWorkspace | null>(null)
 const createProjectWorktree = ref(false)
 const createProjectTargetKey = ref<string | null>(null)
+const directoryBrowserOpen = ref(false)
 const activeCodeState = computed(() => codeRuntime.stateFor(activeChatKey.value))
 const activeChatHasMessages = computed(() => (
   visibleChatPanes.value.find((pane) => pane.key === activeChatKey.value)?.messages.length || 0
@@ -405,6 +408,12 @@ function openProjectCreate(targetKey: string | null): void {
   createProjectOpen.value = true
 }
 
+
+// Web 版项目管理：创建项目后刷新列表
+function handleProjectCreated(project: any): void {
+  userBoundProjects.refresh()
+}
+
 function closeProjectCreate(): void {
   createProjectOpen.value = false
   createProjectTargetKey.value = null
@@ -415,10 +424,28 @@ function selectBoundProject(key: string, workspace: DshWorkspace): void {
   codeRuntime.setDraftProject(key, workspace, boundProjectWorktree(userBoundProjects.bindings.value, workspace.workspace_id))
 }
 
-async function chooseProjectFolder(): Promise<void> {
-  const workspace = await selectDshWorkspace()
-  if (!workspace) return
-  createProjectWorkspace.value = workspace
+function chooseProjectFolder(): void {
+  // On web, open the server-side directory browser instead of the native
+  // desktop chooser. The DirectoryBrowser component handles the DSH browse
+  // capability and emits the selected path.
+  directoryBrowserOpen.value = true
+}
+
+function handleDirectorySelect(path: string): void {
+  directoryBrowserOpen.value = false
+  // Build a DshWorkspace from the selected path. The workspace_id is
+  // generated client-side; the backend assigns the real binding on create.
+  const workspaceId = `web-project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'project'
+  createProjectWorkspace.value = {
+    workspace_id: workspaceId,
+    title: name,
+    path,
+    status: 'ok',
+    session_ids: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
 }
 
 function workspaceFolderName(workspace: DshWorkspace): string {
@@ -432,7 +459,9 @@ async function commitProjectCreate(): Promise<void> {
   if (!workspace || !title || createProjectBusy.value) return
   createProjectBusy.value = true
   try {
-    const renamed = workspace.title === title ? workspace : await renameDshWorkspace(workspace.workspace_id, title)
+    // On web there is no desktop workspace to rename; the title is derived
+    // from the selected directory path and the workspace_id is already set.
+    const renamed = workspace
     const binding = await createDesktopProject({
       workspace_id: renamed.workspace_id,
       title: renamed.title,
@@ -2199,6 +2228,15 @@ onBeforeUnmount(() => {
       @create="commitProjectCreate"
       @close="closeProjectCreate"
     />
+    <DirectoryBrowser
+      v-if="canUseCode && capabilities.serverWorkspacePicker"
+      :show="directoryBrowserOpen"
+      :auth-token="authToken"
+      :locale="locale === 'en' ? 'en' : 'zh'"
+      :busy="createProjectBusy"
+      @select="handleDirectorySelect"
+      @close="directoryBrowserOpen = false"
+    />
     <DesktopWindowChrome
       v-if="capabilities.isDesktop"
       :title="desktopWindowTitle"
@@ -2405,6 +2443,18 @@ onBeforeUnmount(() => {
             {{ sharedSessionsLoadingMore ? t('ui.loading') : t('app.sidebar.load_more') }}
           </button>
         </template>
+        <!-- Web 版项目管理（046：不依赖桌面本地工作区，走服务端 projects 集合） -->
+        <section v-if="canUseCode && !supportsLocalCodeProjects" class="mt-5">
+          <div class="group flex items-center justify-between px-2 text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">
+            <span>{{ locale === 'en' ? 'Projects' : '项目' }}</span>
+            <button v-if="canUseCode && capabilities.localWorkspacePicker" type="button" class="flex h-4 w-4 items-center justify-center rounded text-blue-600 opacity-0 transition-opacity hover:bg-blue-50 group-hover:opacity-100" :aria-label="locale === 'en' ? 'Create project' : '创建项目'" :title="locale === 'en' ? 'Create project' : '创建项目'" @click="createProject"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>
+          </div>
+          <ProjectManager
+            :auth-token="authToken"
+            :can-create="true"
+            @project-created="handleProjectCreated"
+          />
+        </section>
         <div v-if="canUseCode && supportsLocalCodeProjects && projectWorkspacesLoading && !projectHistoryGroups.length" class="mt-5 flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></span>
           <span>{{ locale === 'en' ? 'Loading projects' : '正在加载项目' }}</span>
@@ -2435,7 +2485,7 @@ onBeforeUnmount(() => {
             </button>
           </section>
         </section>
-        <button v-else-if="canUseCode && supportsLocalCodeProjects" type="button" class="mt-5 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-500 hover:bg-gray-200/50 hover:text-slate-700" @click="createProject">
+        <button v-else-if="canUseCode && (supportsLocalCodeProjects || capabilities.localWorkspacePicker)" type="button" class="mt-5 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-500 hover:bg-gray-200/50 hover:text-slate-700" @click="createProject">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M12 11v6m-3-3h6"/></svg>
           <span>{{ locale === 'en' ? 'Create project' : '创建项目' }}</span>
         </button>

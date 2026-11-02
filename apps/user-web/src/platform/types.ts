@@ -42,6 +42,8 @@ export interface PlatformCapabilities {
   localDshRuntime: boolean
   /** Native directory selection and DSH Workspace registration are available. */
   localWorkspacePicker: boolean
+  /** Server-side directory browsing (DSH browse capability) is available. */
+  serverWorkspacePicker: boolean
   /** The platform may execute the official DSH code preset. */
   codeExecution: boolean
   /** The platform can render local deterministic Code inspection state. */

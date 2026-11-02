@@ -3,6 +3,7 @@ import { createServer } from 'node:http'
 import { validBearerToken, assertSecureHost } from './host-auth.mjs'
 import { HOST_STATES, runtimeHealth } from './host-protocol.mjs'
 import { readBody, readJson, routeParts, sendJson } from './http-utils.mjs'
+import { createDirectory, DirectoryBrowseError, listDirectory } from './directory-browser.mjs'
 import {
   findOwner,
   findOwnerByIsolation,
@@ -280,6 +281,29 @@ export class RuntimeHttpServer {
       const body = await readJson(request)
       const spec = await this.#pluginArchives.materialize(body)
       return sendJson(response, 200, { spec })
+    }
+    // Directory browsing for the pure-web client: it lists one level of the
+    // browsable workspace root so the browser can drive a directory picker
+    // the way the DSH desktop drives its native OS chooser.
+    if (parts[0] === 'v1' && parts[1] === 'directories') {
+      try {
+        if (request.method === 'GET' && parts.length === 2) {
+          const listing = await listDirectory(query.get('path') || undefined)
+          return sendJson(response, 200, listing)
+        }
+        if (request.method === 'POST' && parts.length === 2) {
+          const body = await readJson(request)
+          const created = await createDirectory(body.path, body.name)
+          return sendJson(response, 201, { path: created })
+        }
+      } catch (error) {
+        if (error instanceof DirectoryBrowseError) {
+          return sendJson(response, 400, {
+            error: { code: error.code, message: error.message, path: error.path },
+          })
+        }
+        throw error
+      }
     }
     if (request.method === 'POST' && parts.join('/') === 'v1/runtimes') {
       const body = await readJson(request)

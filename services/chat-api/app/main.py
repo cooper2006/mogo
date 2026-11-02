@@ -252,6 +252,7 @@ from app.api.endpoints import (
     dsh_chat,
     dsh_session_versioning,
     debug,
+    directories,
     documents,
     dsh_model_gateway,
     dsh_tool_gateway,
@@ -305,6 +306,7 @@ app.include_router(knowledge_sources.router, prefix="/api/v1")
 app.include_router(external_tools.router, prefix="/api/v1")
 app.include_router(models.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
+app.include_router(directories.router, prefix="/api/v1")
 app.include_router(product.router, prefix="/api/v1")
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(session_shares.router, prefix="/api/v1")

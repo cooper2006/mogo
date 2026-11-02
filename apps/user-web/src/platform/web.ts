@@ -30,7 +30,11 @@ export const capabilities: PlatformCapabilities = {
   embeddedBrowser: false,
   managedDownloads: false,
   localDshRuntime: false,
-  localWorkspacePicker: false,
+  // The web client has no native OS directory chooser, but the DSH browse
+  // capability exposes the host's workspace root over HTTP. Directory
+  // picking therefore works on web through the DirectoryBrowser component.
+  localWorkspacePicker: true,
+  serverWorkspacePicker: true,
   codeExecution: false,
   codeInspector: false,
   workspaceFiles: false,
