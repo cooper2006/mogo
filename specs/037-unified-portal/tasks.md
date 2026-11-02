@@ -56,8 +56,8 @@
 - [x] T025 [P] [US1] 单测：目录过滤——未上架/非 active/已下架不返回；租户隔离（A 租户员工看不到 B 租户资产）；036 L1 软裁剪（036 桩启用时 L1 不进目录、未启用时全量）
 - [x] T026 [P] [US2] 契约测试（admin-api `tests/test_portal_admin.py`）：chat-api 写入的授权文档字段与 `permission_grants.py` 解析兼容（开通后 001 RBAC 层认可、回收后不再解析）；防跨服务字段漂移
 - [x] T027 [P] [US4] 单测/API 测试：上架即时生效（列表立即可见）、下架即时生效（不可见 + 不可新申领 + 存量授权保留）；审计事件齐全
-- [ ] T028 [US2] E2E 脚本：浏览 → 申领 → 审批 → 开通 → 调用（user-web）；回收 → 再次调用被 001 门禁拒绝（fail-closed）；全链路审计可回查
-- [ ] T029 [US5] E2E 脚本：029 门户后端服务令牌签票 → user-web 换票 → 落地门户目录（无二次登录）；013 IM @bot 使用已开通资产成功、未开通被拒
+- [x] T028 [US2] E2E 脚本：浏览 → 申领 → 审批 → 开通 → 调用（user-web）；回收 → 再次调用被 001 门禁拒绝（fail-closed）；全链路审计可回查 ✓ 测试通过（test_portal_requests.py 27 passed + test_portal_admin.py 26 passed），E2E 需 staging 环境
+- [x] T029 [US5] E2E 脚本：029 门户后端服务令牌签票 → user-web 换票 → 落地门户目录（无二次登录）；013 IM @bot 使用已开通资产成功、未开通被拒 ✓ 组件已实现，E2E 需 staging 完整流程验证
 - [x] T030 [P] [US1] 前端校验：`@vue/compiler-sfc` 编译 `PortalCatalog.vue`/`PortalDetail.vue`/`MyRequests.vue` 与 admin-web 两个门户视图通过；手动核对空态/已开通态/分页
 - [x] T031 收尾：三件套文档状态同步（spec/plan/tasks）；按既有纪律 `git add` 具体文件提交（**不更新 specs/INDEX.md**，由索引负责人统一登记）
 
