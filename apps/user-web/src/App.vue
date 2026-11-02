@@ -274,6 +274,7 @@ const userBoundProjects = useUserBoundProjects({
   authToken,
   canUseCode,
   localWorkspacePicker: capabilities.localWorkspacePicker,
+  localDshRuntime: capabilities.localDshRuntime,
   identity: () => {
     const userId = userProfile.value?.userId
     return userId === undefined || userId === null
@@ -365,7 +366,9 @@ const unifiedProjectGroups = computed(() => {
   for (const ws of projectWorkspaces.value) {
     groups.set(ws.workspace_id, {
       id: ws.workspace_id,
-      title: workspaceTitles.value[ws.workspace_id] || ws.title,
+      title: ws.workspace_id === DEFAULT_PROJECT_ID
+        ? (locale.value === 'en' ? 'Default Workspace' : '默认工作区')
+        : (workspaceTitles.value[ws.workspace_id] || ws.title),
       status: ws.status,
       updatedAt: ws.updated_at || '',
       sessions: [],

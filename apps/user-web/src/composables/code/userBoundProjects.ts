@@ -9,6 +9,8 @@ interface UserBoundProjectOptions {
   authToken: Ref<string>
   canUseCode: Ref<boolean>
   localWorkspacePicker: boolean
+  /** 桌面端才有「本地目录 ↔ 项目状态」的对账语义；Web 端项目为服务器项目。 */
+  localDshRuntime: boolean
   identity: () => string
   sessions: Ref<SessionSummary[]>
   fallbackTitle: (workspaceId: string) => string
@@ -93,7 +95,9 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
       titles.value = Object.fromEntries(nextWorkspaces.map(workspace => [workspace.workspace_id, workspace.title]))
       loadedIdentity.value = identity
       // 046 FR-009: 对账后自动归档/恢复——目录不存在 → archived，恢复 → active。
-      syncArchiveState(nextBindings, localWorkspaces, token)
+      // 该语义只在桌面端成立（Web 端项目为服务器项目，localWorkspaces 恒为空，
+      // 若据此归档会把所有项目误标 archived → 删除后刷新又出现）。
+      if (options.localDshRuntime) syncArchiveState(nextBindings, localWorkspaces, token)
     } catch { /* Keep the last same-employee snapshot on a control-plane outage. */ }
     finally {
       if (activeEpoch === refreshEpoch) loading.value = false

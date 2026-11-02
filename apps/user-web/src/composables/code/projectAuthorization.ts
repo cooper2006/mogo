@@ -12,7 +12,12 @@ export function reconcileUserBoundProjects(
   const authorized = new Map<string, { title: string; updatedAt: string }>()
 
   for (const project of projects) {
-    authorized.set(project.workspace_id, { title: project.title, updatedAt: project.updated_at })
+    // 软删除（status=archived）的项目不再展示：删除后刷新不应重新出现。
+    if (project.status === 'archived') continue
+    // 后端默认项目（_id="default"）未持久化 workspace_id 字段，归一化为
+    // DEFAULT_PROJECT_ID，与前端虚拟「默认工作区」合并，避免重复节点。
+    const workspaceId = project.workspace_id || 'default'
+    authorized.set(workspaceId, { title: project.title, updatedAt: project.updated_at })
   }
   for (const session of sessions) {
     const workspaceId = session.code_project?.workspace_id
