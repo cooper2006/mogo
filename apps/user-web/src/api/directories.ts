@@ -47,8 +47,9 @@ function authHeaders(authToken?: string | null) {
   return authToken ? { Authorization: `Bearer ${authToken}` } : {}
 }
 
-function handleError(error: any): never {
-  const detail = error?.response?.data?.detail
+function handleError(error: unknown): never {
+  const axiosError = error as Record<string, any> | undefined
+  const detail = axiosError?.response?.data?.detail
   if (detail && typeof detail === 'object') {
     const err: DirectoryError = {
       code: String(detail.code || 'directory-unreadable'),
@@ -57,7 +58,11 @@ function handleError(error: any): never {
     }
     throw err
   }
-  throw new Error(error?.response?.data?.detail || error?.message || 'directory operation failed')
+  throw new Error(
+    (axiosError?.response?.data?.detail as string)
+    || (axiosError?.message as string)
+    || 'directory operation failed',
+  )
 }
 
 /**
@@ -78,7 +83,8 @@ export async function browseDirectory(
     )
     return response.data.data
   } catch (error) {
-    if (error?.response?.status === 403) {
+    const axiosError = error as Record<string, any> | undefined
+    if (axiosError?.response?.status === 403) {
       throw { code: 'forbidden', message: '当前岗位未开通代码生成能力', path: '' } satisfies DirectoryError
     }
     handleError(error)
@@ -106,7 +112,8 @@ export async function createDirectory(
     )
     return response.data.data.path
   } catch (error) {
-    if (error?.response?.status === 403) {
+    const axiosError = error as Record<string, any> | undefined
+    if (axiosError?.response?.status === 403) {
       throw { code: 'forbidden', message: '当前岗位未开通代码生成能力', path: '' } satisfies DirectoryError
     }
     handleError(error)

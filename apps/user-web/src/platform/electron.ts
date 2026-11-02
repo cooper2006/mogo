@@ -90,6 +90,7 @@ export const capabilities: PlatformCapabilities = {
   managedDownloads: true,
   localDshRuntime: true,
   localWorkspacePicker: true,
+  serverWorkspacePicker: true,
   codeExecution: true,
   codeInspector: true,
   workspaceFiles: true,
