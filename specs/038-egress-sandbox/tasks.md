@@ -54,7 +54,7 @@
 - [x] T029 [P] `services/chat-api/tests/test_egress_guard.py`：重定向场景——target 命中但落地域不命中 → 导航失败 + 审计；落地信息缺失 → 无法验证失败
 - [x] T030 [P] `services/admin-api/tests/test_egress_allowlist.py`：CRUD 契约（信封/PATCH/204）、租户隔离（跨租户不可见不可改）、平台条目仅平台管理员可写
 - [x] T031 回归：脚本沙箱既有测试全绿（`executor.py` 子进程隔离 / rlimit / 网络默认拒绝三项不回退）；`kernel.py` 契约测试零变化
-- [ ] T032 E2E：admin-web 配一条白名单 → 不重启 → Agent 调用命中工具放行、未命中工具被拒 → 审计页可检索 `egress.allowed`/`egress.denied`（全字段）
+- [ ] T032 E2E：admin-web 配一条白名单 → 不重启 → Agent 调用命中工具放行、未命中工具被拒 → 审计页可检索 `egress.allowed`/`egress.denied`（全字段）⚠️ 后端路由已实现，前端页面待确认
 - [x] T033 跨特性声明核对：009（求值点/即时生效）、001（fail-closed/R4 同语义）、022（数据不出域执行机制）、034（调用链先后关系）声明与实现一致；010/019 无新增义务确认
 - [x] T034 文档收尾：在 009 文档补一节"出站检查挂载说明"（文档层说明，非契约变更，不改 009 FR）
 

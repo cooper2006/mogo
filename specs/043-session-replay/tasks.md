@@ -41,7 +41,7 @@
 - [x] T016 [P] 单测：锚点派生纯函数（轮数/顺序/稳定 key/live 标记）；下钻面板字段抽取与 `cost` 条件渲染判据
 - [x] T017 [P] 回归：`pnpm test` 全绿（028 既有测试零失败）；`git diff --stat apps/user-web/src/components/ChatWindow.vue` 为空
 - [x] T018 构建：`vue-tsc` + `vite build`（user-web）通过；重点核查新组件无类型回归
-- [ ] T019 手工验收：≥3 轮历史会话跳转/下钻全路径；生成中实时跟随不中断；多 pane 焦点隔离；老会话（无 events）空态；`git diff --stat services/` 为空
+- [ ] T019 手工验收：≥3 轮历史会话跳转/下钻全路径；生成中实时跟随不中断；多 pane 焦点隔离；老会话（无 events）空态；`git diff --stat services/` 为空 ⚠️ 组件已实现（trajectoryRounds.ts/replaySteps.ts），需真实 ≥3 轮会话数据验证
 - [x] T020 Stage 2 边界核验：`git diff --stat apps/user-web/src/features/execution-v3/domain/protocol.ts` 为空（预留纪律成立）；plan.md 预研结论与触发条件评审通过
 - [x] T021 文档接线：在 028/002 对应 spec 的"跨特性关系"补记本特性的双向声明（仅文档，不改代码）；本目录 tasks 勾选状态更新（含本条）
 
