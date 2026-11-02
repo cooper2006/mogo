@@ -14,7 +14,7 @@ import CreateProjectDialog from './components/code/CreateProjectDialog.vue'
 import ProjectManager from './components/project/ProjectManager.vue'
 import { exchangePortalTicket, fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
 import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
-import { activateEmbeddedBrowserSession, capabilities, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, renameDshWorkspace } from './platform'
+import { activateEmbeddedBrowserSession, capabilities, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, isFileSystemAccessSupported, renameDshWorkspace } from './platform'
 import type { DshTaskChangeSet, DshWorkspace, DshWorkspaceSummary } from './platform/types'
 import {
   createDesktopProject,
@@ -360,6 +360,9 @@ const createProjectBusy = ref(false)
 const createProjectWorkspace = ref<DshWorkspace | null>(null)
 const createProjectWorktree = ref(false)
 const createProjectTargetKey = ref<string | null>(null)
+const manualPathOpen = ref(false)
+const manualPath = ref('')
+const manualPathError = ref('')
 const activeCodeState = computed(() => codeRuntime.stateFor(activeChatKey.value))
 const activeChatHasMessages = computed(() => (
   visibleChatPanes.value.find((pane) => pane.key === activeChatKey.value)?.messages.length || 0
@@ -423,20 +426,78 @@ function selectBoundProject(key: string, workspace: DshWorkspace): void {
 }
 
 async function chooseProjectFolder(): Promise<void> {
-  // On web, use the browser-native File System Access API so the user picks a
-  // REAL local directory (matching the desktop "添加工作区" experience) instead
+  if (!capabilities.localWorkspacePicker) return
+  // On the desktop app, the Electron bridge opens the OS-native directory
+  // dialog directly — no browser API and no manual fallback needed.
+  if (capabilities.isDesktop) {
+    createProjectBusy.value = true
+    try {
+      const workspace = await selectDshWorkspace()
+      if (workspace) createProjectWorkspace.value = workspace
+    } catch (err: unknown) {
+      if ((err as { name?: string })?.name !== 'AbortError') {
+        window.alert((err as { message?: string })?.message || '无法选择本地目录')
+      }
+    } finally {
+      createProjectBusy.value = false
+    }
+    return
+  }
+  // On web, prefer the browser-native File System Access API so the user picks
+  // a REAL local directory (matching the desktop "添加工作区" experience) instead
   // of a server-side container path. Requires a Chromium browser + a user
   // gesture, both of which hold here (the button click).
-  if (!capabilities.localWorkspacePicker) return
-  createProjectBusy.value = true
-  try {
-    const workspace = await selectDshWorkspace()
-    if (workspace) createProjectWorkspace.value = workspace
-  } catch (err: unknown) {
-    window.alert((err as { message?: string })?.message || '无法选择本地目录')
-  } finally {
-    createProjectBusy.value = false
+  if (isFileSystemAccessSupported()) {
+    createProjectBusy.value = true
+    try {
+      const workspace = await selectDshWorkspace()
+      if (workspace) createProjectWorkspace.value = workspace
+      return
+    } catch (err: unknown) {
+      // AbortError = user dismissed the OS dialog; otherwise fall back to the
+      // manual path input (e.g. the page was opened from an insecure context).
+      if ((err as { name?: string })?.name === 'AbortError') return
+    } finally {
+      createProjectBusy.value = false
+    }
   }
+  openManualPathPicker()
+}
+
+function buildWorkspaceFromPath(rawPath: string): DshWorkspace {
+  const normalized = rawPath.trim().replace(/[\\/]+$/, '')
+  const name = normalized.split(/[\\/]/).pop() || 'project'
+  const workspaceId = `web-project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const now = new Date().toISOString()
+  return {
+    workspace_id: workspaceId,
+    title: name,
+    path: normalized || name,
+    status: 'ok',
+    session_ids: [],
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+function openManualPathPicker(): void {
+  manualPath.value = ''
+  manualPathError.value = ''
+  manualPathOpen.value = true
+}
+
+function confirmManualPath(): void {
+  const path = manualPath.value.trim()
+  if (!path) {
+    manualPathError.value = locale.value === 'en' ? 'Please enter a directory path' : '请输入目录路径'
+    return
+  }
+  createProjectWorkspace.value = buildWorkspaceFromPath(path)
+  manualPathOpen.value = false
+}
+
+function closeManualPath(): void {
+  manualPathOpen.value = false
 }
 
 function workspaceFolderName(workspace: DshWorkspace): string {
@@ -2219,6 +2280,28 @@ onBeforeUnmount(() => {
       @create="commitProjectCreate"
       @close="closeProjectCreate"
     />
+    <div
+      v-if="manualPathOpen"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]"
+      @click.self="closeManualPath"
+    >
+      <div class="w-[480px] max-w-[92vw] rounded-3xl bg-white shadow-xl border border-gray-200 p-6">
+        <div class="mb-4">
+          <div class="text-base font-semibold text-gray-900">{{ locale === 'en' ? 'Enter local directory path' : '手动输入本地目录路径' }}</div>
+          <div class="text-xs text-gray-500 mt-1">{{ locale === 'en' ? 'Your browser does not support the native folder picker. Enter the full path to the project directory.' : '当前浏览器不支持原生文件夹选择器，请手动输入项目目录的完整路径。' }}</div>
+        </div>
+        <n-input
+          v-model:value="manualPath"
+          :placeholder="locale === 'en' ? '/Users/you/projects/my-app' : '/Users/你/projects/我的项目'"
+          @keyup.enter="confirmManualPath"
+        />
+        <p v-if="manualPathError" class="mt-2 text-xs text-red-500">{{ manualPathError }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <n-button size="small" @click="closeManualPath">{{ locale === 'en' ? 'Cancel' : '取消' }}</n-button>
+          <n-button size="small" type="primary" :disabled="!manualPath.trim()" @click="confirmManualPath">{{ locale === 'en' ? 'Confirm' : '确定' }}</n-button>
+        </div>
+      </div>
+    </div>
     <DesktopWindowChrome
       v-if="capabilities.isDesktop"
       :title="desktopWindowTitle"

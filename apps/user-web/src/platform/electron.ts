@@ -113,6 +113,8 @@ export const installDesktopUpdate = () => api().updates.install()
 export const onDesktopUpdateState = (listener: (state: DesktopUpdateState) => void) => api().updates.onState(listener)
 export const listDshWorkspaces = (modelId?: string) => api().dshWorkspace.list(modelId)
 export const selectDshWorkspace = (modelId?: string) => api().dshWorkspace.select(modelId)
+// Desktop uses its own native OS dialog, never the browser File System Access API.
+export const isFileSystemAccessSupported = () => false
 export const renameDshWorkspace = (workspaceId: string, title: string, modelId?: string) =>
   api().dshWorkspace.rename(workspaceId, title, modelId)
 export const deleteDshWorkspace = (workspaceId: string, modelId?: string) => api().dshWorkspace.delete(workspaceId, modelId)

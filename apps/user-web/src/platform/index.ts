@@ -39,6 +39,7 @@ export const installDesktopUpdate: () => Promise<{ installing: boolean }> = impl
 export const onDesktopUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void = impl.onDesktopUpdateState
 export const listDshWorkspaces: (modelId?: string) => Promise<DshWorkspace[]> = impl.listDshWorkspaces
 export const selectDshWorkspace: (modelId?: string) => Promise<DshWorkspace | null> = impl.selectDshWorkspace
+export const isFileSystemAccessSupported: () => boolean = impl.isFileSystemAccessSupported
 export const renameDshWorkspace: (workspaceId: string, title: string, modelId?: string) => Promise<DshWorkspace> = impl.renameDshWorkspace
 export const deleteDshWorkspace: (workspaceId: string, modelId?: string) => Promise<boolean> = impl.deleteDshWorkspace
 export const listDshWorkspaceBranches: (workspaceId: string, modelId?: string) => Promise<DshGitBranchSnapshot> = impl.listDshWorkspaceBranches

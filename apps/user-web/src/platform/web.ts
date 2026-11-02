@@ -86,10 +86,19 @@ export async function listDshWorkspaces(_modelId?: string): Promise<DshWorkspace
 type DirectoryPickerWindow = typeof globalThis & {
   showDirectoryPicker?: () => Promise<{ name: string }>
 }
+const directoryPickerWindow = () => window as DirectoryPickerWindow
+
+/** True when the browser can open the native OS directory picker (Chromium-only). */
+export function isFileSystemAccessSupported(): boolean {
+  return typeof directoryPickerWindow().showDirectoryPicker === 'function'
+}
+
 export async function selectDshWorkspace(_modelId?: string): Promise<DshWorkspace | null> {
-  const picker = (window as DirectoryPickerWindow).showDirectoryPicker
+  const picker = directoryPickerWindow().showDirectoryPicker
   if (typeof picker !== 'function') {
-    throw new Error('本地目录选择需要支持 File System Access API 的浏览器（Chrome / Edge）')
+    const error = new Error('本地目录选择需要支持 File System Access API 的浏览器（Chrome / Edge）')
+    error.name = 'FileSystemAccessUnsupportedError'
+    throw error
   }
   try {
     const handle = await picker.call(window)

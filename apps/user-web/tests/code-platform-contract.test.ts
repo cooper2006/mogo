@@ -38,10 +38,13 @@ await assert.rejects(web.inspectDshCodeWorkspace('session-a'), /only available i
 await assert.rejects(web.listDshWorkspaceDirectory('session-a'), /only available in the desktop app/)
 await assert.rejects(web.createDshProjectTerminal('session-a'), /only available in the desktop app/)
 // Web now supports local directory selection via the File System Access API.
-// Without a picker (non-Chromium / Node), it rejects with a clear requirement.
+// Without a picker (non-Chromium / Node), the support check is false and
+// selectDshWorkspace rejects with a clear requirement.
+assert.equal(web.isFileSystemAccessSupported(), false)
 await assert.rejects(web.selectDshWorkspace(), /File System Access API/)
 // With a picker available it returns a workspace named after the chosen folder.
 ;(globalThis as any).window.showDirectoryPicker = async () => ({ name: 'demo-folder' })
+assert.equal(web.isFileSystemAccessSupported(), true)
 const picked = await web.selectDshWorkspace()
 assert.equal(picked?.title, 'demo-folder')
 assert.equal(picked?.status, 'ok')
