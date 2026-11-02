@@ -2210,7 +2210,10 @@ async function handlePaneSend(
   },
 ) {
   const codeState = codeRuntime.stateFor(key)
-  if (canUseCode.value && (codeState.workspace || codeState.session)) {
+  // Web 端（codeExecution=false）不支持本地 Code 执行：绑定项目的工作区会话
+  // 走普通聊天，并把项目作为会话归属（project_id），避免静默吞错导致空白。
+  const canRunCode = canUseCode.value && capabilities.codeExecution
+  if (canRunCode && (codeState.workspace || codeState.session)) {
     if (payload.images.length || payload.documents.length) {
       codeState.error = locale.value === 'en'
         ? 'Attach project files inside the selected Workspace before sending a Code task.'
@@ -2229,6 +2232,7 @@ async function handlePaneSend(
   }
   chatRuntime.sendMessage(key, {
     ...payload,
+    projectId: codeState.workspace?.workspace_id,
     authToken: authToken.value || null,
     userId: getUserId(),
     tenantId: getTenantId(),

@@ -229,6 +229,9 @@ async def _start_chat_completions(
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     conversation_id = str(output_spec.get("task_id") or output_spec.get("session_id") or "").strip() or None
+    # 会话归属项目（工作区）：新建会话时写入 session.project_id；未指定保持
+    # 'default'（repository.create 默认值）。桌面端 Code 会话不走此字段。
+    project_id = str(output_spec.get("project_id") or "").strip() or "default"
     # 001 FR-7：001 脱敏层已对 turn 级请求做 PII 脱敏，必须用脱敏后的原文替换明文，
     # 否则脱敏产物无消费方、明文 PII 进入对话后端（2026-10-03 修复）。
     redacted_request = getattr(skill_selection, "redacted_request", None)
@@ -251,6 +254,7 @@ async def _start_chat_completions(
             language_name=str(output_spec.get("language") or output_spec.get("locale") or "") or None,
             selected_writing_skill_id=skill_selection.selected_writing_skill_id,
             selected_skill_id=skill_selection.selected_skill_id,
+            project_id=project_id,
         )
     except TopicAdmissionDenied as exc:
         raise HTTPException(

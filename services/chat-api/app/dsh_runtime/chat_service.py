@@ -118,6 +118,7 @@ class DshChatService:
         language_name: str | None = None,
         selected_writing_skill_id: str | None = None,
         selected_skill_id: str | None = None,
+        project_id: str = "default",
     ) -> PreparedTurn:
         gate = self._topic_admission
         if gate is None:
@@ -221,6 +222,7 @@ class DshChatService:
                 tenant_id=tenant_id,
                 user_id=user_id,
                 title=text[:120],
+                project_id=project_id,
             )
             conversation_id = str(conversation["_id"])
             try:

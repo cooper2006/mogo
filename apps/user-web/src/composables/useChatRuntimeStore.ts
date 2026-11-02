@@ -121,6 +121,8 @@ type SendInput = {
   knowledgeQaEnabled: boolean
   selectedSkillId?: string
   modelId?: string
+  /** 会话归属的项目（工作区）ID；新建会话时由后端写入 session.project_id。 */
+  projectId?: string
   authToken: string | null
   userId: string | null
   tenantId: string | null
@@ -451,6 +453,8 @@ function buildChatStreamRequest(pane: ChatRuntimePane, input: SendInput) {
       task_id: pane.sessionId || undefined,
       selected_skill_id: input.selectedSkillId || undefined,
       manual_skill_selected: Boolean(input.selectedSkillId) || undefined,
+      // 会话归属项目：新建会话时后端写入 session.project_id（默认 'default'）。
+      project_id: input.projectId || undefined,
     },
   }
 }
