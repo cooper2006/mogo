@@ -77,7 +77,39 @@ export async function downloadDesktopUpdate() { return { ...WEB_UPDATE_STATE } }
 export async function installDesktopUpdate() { return { installing: false } }
 export function onDesktopUpdateState(_listener: (state: DesktopUpdateState) => void) { return () => {} }
 export async function listDshWorkspaces(_modelId?: string): Promise<DshWorkspace[]> { return [] }
-export async function selectDshWorkspace(_modelId?: string): Promise<DshWorkspace | null> { throw new Error('local Workspace selection is only available in the desktop app') }
+// Browser-native local directory selection via the File System Access API.
+// Chromium-only (Chrome / Edge). Unlike the server-side `browse` capability,
+// this opens the OS dialog and lets the user pick a REAL local directory on
+// their machine (e.g. a folder under /Users/cooper on macOS). The API only
+// exposes the directory name (not the full path) for privacy, which is enough
+// to name the project — the server-side project keeps its own workspace dir.
+type DirectoryPickerWindow = typeof globalThis & {
+  showDirectoryPicker?: () => Promise<{ name: string }>
+}
+export async function selectDshWorkspace(_modelId?: string): Promise<DshWorkspace | null> {
+  const picker = (window as DirectoryPickerWindow).showDirectoryPicker
+  if (typeof picker !== 'function') {
+    throw new Error('本地目录选择需要支持 File System Access API 的浏览器（Chrome / Edge）')
+  }
+  try {
+    const handle = await picker.call(window)
+    const name = handle.name || 'project'
+    const workspaceId = `web-project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const now = new Date().toISOString()
+    return {
+      workspace_id: workspaceId,
+      title: name,
+      path: name,
+      status: 'ok',
+      session_ids: [],
+      created_at: now,
+      updated_at: now,
+    }
+  } catch (err: unknown) {
+    if (err && (err as { name?: string }).name === 'AbortError') return null // user dismissed the picker
+    throw err
+  }
+}
 export async function renameDshWorkspace(_workspaceId: string, _title: string, _modelId?: string): Promise<DshWorkspace> { throw new Error('local Workspaces are only available in the desktop app') }
 export async function deleteDshWorkspace(_workspaceId: string, _modelId?: string): Promise<boolean> { throw new Error('local Workspaces are only available in the desktop app') }
 export async function listDshWorkspaceBranches(_workspaceId: string, _modelId?: string): Promise<import('./types').DshGitBranchSnapshot> { throw new Error('local Git branches are only available in the desktop app') }

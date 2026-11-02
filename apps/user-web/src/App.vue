@@ -11,7 +11,6 @@ import DesktopWindowChrome from './components/desktop/DesktopWindowChrome.vue'
 import DesktopServerSetup from './components/desktop/DesktopServerSetup.vue'
 import type { DesktopToolLauncherKind } from './components/desktop/desktopToolTabs'
 import CreateProjectDialog from './components/code/CreateProjectDialog.vue'
-import DirectoryBrowser from './components/code/DirectoryBrowser.vue'
 import ProjectManager from './components/project/ProjectManager.vue'
 import { exchangePortalTicket, fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
 import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
@@ -361,7 +360,6 @@ const createProjectBusy = ref(false)
 const createProjectWorkspace = ref<DshWorkspace | null>(null)
 const createProjectWorktree = ref(false)
 const createProjectTargetKey = ref<string | null>(null)
-const directoryBrowserOpen = ref(false)
 const activeCodeState = computed(() => codeRuntime.stateFor(activeChatKey.value))
 const activeChatHasMessages = computed(() => (
   visibleChatPanes.value.find((pane) => pane.key === activeChatKey.value)?.messages.length || 0
@@ -424,27 +422,20 @@ function selectBoundProject(key: string, workspace: DshWorkspace): void {
   codeRuntime.setDraftProject(key, workspace, boundProjectWorktree(userBoundProjects.bindings.value, workspace.workspace_id))
 }
 
-function chooseProjectFolder(): void {
-  // On web, open the server-side directory browser instead of the native
-  // desktop chooser. The DirectoryBrowser component handles the DSH browse
-  // capability and emits the selected path.
-  directoryBrowserOpen.value = true
-}
-
-function handleDirectorySelect(path: string): void {
-  directoryBrowserOpen.value = false
-  // Build a DshWorkspace from the selected path. The workspace_id is
-  // generated client-side; the backend assigns the real binding on create.
-  const workspaceId = `web-project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const name = path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'project'
-  createProjectWorkspace.value = {
-    workspace_id: workspaceId,
-    title: name,
-    path,
-    status: 'ok',
-    session_ids: [],
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+async function chooseProjectFolder(): Promise<void> {
+  // On web, use the browser-native File System Access API so the user picks a
+  // REAL local directory (matching the desktop "添加工作区" experience) instead
+  // of a server-side container path. Requires a Chromium browser + a user
+  // gesture, both of which hold here (the button click).
+  if (!capabilities.localWorkspacePicker) return
+  createProjectBusy.value = true
+  try {
+    const workspace = await selectDshWorkspace()
+    if (workspace) createProjectWorkspace.value = workspace
+  } catch (err: unknown) {
+    window.alert((err as { message?: string })?.message || '无法选择本地目录')
+  } finally {
+    createProjectBusy.value = false
   }
 }
 
@@ -2227,15 +2218,6 @@ onBeforeUnmount(() => {
       @choose-folder="chooseProjectFolder"
       @create="commitProjectCreate"
       @close="closeProjectCreate"
-    />
-    <DirectoryBrowser
-      v-if="canUseCode && capabilities.serverWorkspacePicker"
-      :show="directoryBrowserOpen"
-      :auth-token="authToken"
-      :locale="locale === 'en' ? 'en' : 'zh'"
-      :busy="createProjectBusy"
-      @select="handleDirectorySelect"
-      @close="directoryBrowserOpen = false"
     />
     <DesktopWindowChrome
       v-if="capabilities.isDesktop"
