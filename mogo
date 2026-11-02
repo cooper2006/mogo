@@ -396,8 +396,9 @@ mogo_ensure_tls_certs() {
 # `mogo_pull_images_serially` retries that forever, so a plain `./mogo up` used
 # to hang for minutes before dying.
 #
-# `./mogo up` without `--build` therefore runs strictly on local images: it uses
-# the bare names a source build produces, checks they are present, and names the
+# `./mogo up` without `--build` therefore runs strictly on local images: it
+# resolves the same <registry>/<service>:<tag> references a source build
+# produced (see mogo_configure_images), checks they are present, and names the
 # missing ones instead of pretending a pull will work.
 #
 # Base images (mongo / redis / weaviate / nginx / alpine) are a separate, working
@@ -672,9 +673,10 @@ prune_previous_release_images() {
   before="$(docker_reclaimable_bytes)"
   removed=0
 
-  # Both naming modes are swept: a source build tags bare service names
-  # (chat-api:5aab407) while a registry deployment prefixes them
-  # (ghcr.io/mogoai/chat-api:5aab407). Stale tags of either kind are residue.
+  # Both naming modes are swept: the current scheme prefixes the service name
+  # (ghcr.io/mogoai/chat-api:5aab407), and builds made before the naming was
+  # unified left bare tags behind (chat-api:5aab407). Stale tags of either kind
+  # are residue and should be reclaimed.
   for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
     service="${entry##*:}"
     repos="${repos}${MOGO_EXPORTED_IMAGE_PREFIX:-}${service}"$'\n'

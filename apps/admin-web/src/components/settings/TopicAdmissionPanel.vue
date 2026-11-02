@@ -112,6 +112,28 @@ async function load() {
   finally { loading.value = false }
 }
 
+function pageSlots(params: { q: string; status: string; page: number }) {
+  const combined = !params.q && params.status === 'all'
+  const pageStart = (params.page - 1) * PAGE_SIZE
+  const newOnPage = combined ? newIds.value.slice(pageStart, pageStart + PAGE_SIZE).length : 0
+  return { combined, pageStart, savedSlots: PAGE_SIZE - newOnPage }
+}
+
+async function loadAudienceSummaries(request: number, items: TopicRule[]): Promise<void> {
+  if (!audienceExtension?.loadSummaries) return
+  try {
+    const summaries = await audienceExtension.loadSummaries(items.map(rule => rule.id))
+    if (request !== rulesRequest) return
+    savedAudienceSummaries.value = summaries
+    audienceSummaryLoaded.value = true
+  } catch { if (request === rulesRequest) savedAudienceSummaries.value = {} }
+}
+
+function lastPageFor(total: number, combined: boolean): number {
+  const totalNew = combined ? newIds.value.length : 0
+  return Math.ceil((total + totalNew) / PAGE_SIZE)
+}
+
 async function loadRules(params: { q: string; status: string; page: number }) {
   const request = ++rulesRequest
   currentQuery.value = params.q
@@ -121,32 +143,20 @@ async function loadRules(params: { q: string; status: string; page: number }) {
   serverRules.value = []
   audienceSummaryLoaded.value = false
   try {
-    const combined = !params.q && params.status === 'all'
-    const pageStart = (params.page - 1) * PAGE_SIZE
-    const newOnPage = combined ? newIds.value.slice(pageStart, pageStart + PAGE_SIZE).length : 0
-    const savedSlots = PAGE_SIZE - newOnPage
+    const { combined, pageStart, savedSlots } = pageSlots(params)
     if (!savedSlots) {
-      serverRules.value = []
       serverTotal.value = summary.value.ruleCount
       return
     }
-    const result = await fetchTopicRules({ ...params, pageSize: savedSlots,
-      ...(combined ? { offset: Math.max(0, pageStart - newIds.value.length) } : {}) })
+    const offset = combined ? { offset: Math.max(0, pageStart - newIds.value.length) } : {}
+    const result = await fetchTopicRules({ ...params, pageSize: savedSlots, ...offset })
     if (request !== rulesRequest) return
     serverRules.value = result.items
     serverTotal.value = result.total
-    if (audienceExtension?.loadSummaries) {
-      try {
-        const summaries = await audienceExtension.loadSummaries(result.items.map(rule => rule.id))
-        if (request === rulesRequest) {
-          savedAudienceSummaries.value = summaries
-          audienceSummaryLoaded.value = true
-        }
-      } catch { if (request === rulesRequest) savedAudienceSummaries.value = {} }
-    }
+    await loadAudienceSummaries(request, result.items)
     for (const rule of result.items) originalRules.value[rule.id] = rule
     if (params.page > 1 && !result.items.length && result.total) {
-      await loadRules({ ...params, page: Math.ceil((result.total + (combined ? newIds.value.length : 0)) / PAGE_SIZE) })
+      await loadRules({ ...params, page: lastPageFor(result.total, combined) })
     }
   } catch { if (request === rulesRequest) message.error(t('taskAdmission.loadFailed')) }
   finally { if (request === rulesRequest) loadingRules.value = false }
@@ -336,17 +346,17 @@ onMounted(load)
 <style scoped>
 .topic-page { display: grid; gap: 14px; }
 .topic-header, .topic-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.topic-title { color: #23324b; font-size: 22px; font-weight: 700; }
-.topic-save-actions { display: flex; align-items: center; gap: 10px; }.topic-save-actions small { color: #bd6a19; font-size: 12px; }
-.topic-subtitle, .topic-section-head p { margin: 3px 0 0; color: #7b8799; font-size: 12px; line-height: 1.45; }
+.topic-title { color: var(--mg-text-1); font-size: 22px; font-weight: 700; }
+.topic-save-actions { display: flex; align-items: center; gap: 10px; }.topic-save-actions small { color: var(--mg-warning-text); font-size: 12px; }
+.topic-subtitle, .topic-section-head p { margin: 3px 0 0; color: var(--mg-text-3); font-size: 12px; line-height: 1.45; }
 .topic-controls { gap: 14px; }
-.topic-enable { display: flex; align-items: center; gap: 12px; min-width: 220px; }.topic-enable > div { display: grid; gap: 2px; }.topic-enable strong { color: #344054; font-size: 13px; }.topic-enable small { color: #8b97a8; font-size: 11px; }
+.topic-enable { display: flex; align-items: center; gap: 12px; min-width: 220px; }.topic-enable > div { display: grid; gap: 2px; }.topic-enable strong { color: var(--mg-text-2); font-size: 13px; }.topic-enable small { color: var(--mg-text-3); font-size: 11px; }
 .topic-workspace { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .85fr); gap: 16px; align-items: start; }
 .topic-side { display: grid; gap: 16px; min-width: 0; align-content: start; }
-.topic-pane { display: grid; gap: 14px; min-width: 0; padding: 18px; border: 1px solid #e0e7f0; border-radius: 11px; background: #fff; }
-.topic-section-head h2 { margin: 0; color: #25324a; font-size: 16px; }
+.topic-pane { display: grid; gap: 14px; min-width: 0; padding: 18px; border: 1px solid var(--mg-border); border-radius: 11px; background: var(--mg-bg-surface); }
+.topic-section-head h2 { margin: 0; color: var(--mg-text-1); font-size: 16px; }
 .topic-test :deep(.n-input), .topic-test :deep(.n-alert) { width: 100%; }
-.topic-test-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.topic-test-actions span { color: #8b97a8; font-size: 11px; line-height: 1.4; }
+.topic-test-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.topic-test-actions span { color: var(--mg-text-3); font-size: 11px; line-height: 1.4; }
 @media (max-width: 1100px) { .topic-workspace { grid-template-columns: 1fr; }.topic-side { display: contents; }.topic-controls { order: 0; }.topic-rules-section { order: 1; }.topic-test { order: 2; } }
 @media (max-width: 680px) { .topic-header, .topic-section-head { align-items: flex-start; flex-direction: column; }.topic-pane { padding: 14px; } }
 </style>

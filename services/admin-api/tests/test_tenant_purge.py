@@ -419,8 +419,9 @@ def test_every_tenant_id_keyed_collection_in_the_tree_is_covered() -> None:
     #    this reason). A typo'd name here deletes nothing, silently.
     literal_only = {
         "business_entity_index",
+        # ``chat_sessions`` 已由 quota_policy.CHAT_SESSIONS_COLLECTION 声明为常量，
+        # 由上面的常量扫描覆盖，故不在此逃生名单内。
         "chat_messages",
-        "chat_sessions",
         "desktop_projects",
         "execution_logs",
         "project_memories",

@@ -37,4 +37,4 @@ function submit() {
 }
 </script>
 
-<style scoped>.source-tabs{display:flex;gap:8px;margin-bottom:18px}.file-input{width:100%;padding:8px;border:1px solid #d9e0ec;border-radius:8px}.help{margin:0;color:#8490a2;font-size:13px;line-height:1.6}</style>
+<style scoped>.source-tabs{display:flex;gap:8px;margin-bottom:18px}.file-input{width:100%;padding:8px;border:1px solid var(--mg-border);border-radius:8px}.help{margin:0;color:var(--mg-text-3);font-size:13px;line-height:1.6}</style>

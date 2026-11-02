@@ -13,7 +13,7 @@ class _Transport:
         self.probed = []
         self.disposed = []
 
-    async def request(self, method, path, *, json=None, params=None):
+    async def request(self, method, path, *, json=None, params=None, session_id=None, sticky_key=None):
         if method == "DELETE":
             self.disposed.append(path)
             return {}
@@ -71,7 +71,7 @@ def test_gateway_retries_same_profile_with_only_healthy_plugins():
             super().__init__()
             self.production_attempts = []
 
-        async def request(self, method, path, *, json=None, params=None):
+        async def request(self, method, path, *, json=None, params=None, session_id=None, sticky_key=None):
             if method == "POST" and path == "/v1/runtimes" and not json["isolationKey"].startswith("plugin-runtime-probe:"):
                 names = [item["name"] for item in json["modelProfile"]["plugins"]]
                 self.production_attempts.append(names)
@@ -79,7 +79,7 @@ def test_gateway_retries_same_profile_with_only_healthy_plugins():
                     raise DshTransportError("DSH plugin broken failed to install")
                 return {"runtimeId": "runtime-one", "kernelVersion": "1", "profileVersion": json["profileVersion"],
                         "isolationKey": json["isolationKey"]}
-            return await super().request(method, path, json=json, params=params)
+            return await super().request(method, path, json=json, params=params, session_id=session_id, sticky_key=sticky_key)
 
     async def run():
         transport = Transport()

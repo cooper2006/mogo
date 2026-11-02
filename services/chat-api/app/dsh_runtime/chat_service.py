@@ -56,6 +56,7 @@ class DshChatService:
         turn_events: TurnEventRegistry | None = None,
         execution_evidence: ExecutionEvidenceRepository | None = None,
         authoritative_deliveries: DeliveryStore | None = None,
+        topic_admission: Any | None = None,
     ) -> None:
         self._gateway = gateway
         self._coordinator = coordinator
@@ -65,6 +66,9 @@ class DshChatService:
         self._profiles = profiles
         self._profile_sync = ConversationProfileSynchronizer(profiles, coordinator)
         self._turn_events = turn_events
+        # 话题准入闸门（组织级 allowlist / denylist）。必须在模型调用前强制，
+        # 且必须是显式注入的：缺省即视为装配错误，绝不静默放行。
+        self._topic_admission = topic_admission
         self._turn_runner = DshTurnRunner(
             gateway=gateway,
             conversations=conversations,
@@ -115,6 +119,11 @@ class DshChatService:
         selected_writing_skill_id: str | None = None,
         selected_skill_id: str | None = None,
     ) -> PreparedTurn:
+        gate = self._topic_admission
+        if gate is None:
+            # 装配期漏注入时宁可拒绝也不放行：准入是治理承诺，不是可选装饰。
+            raise RuntimeError("topic admission is not configured")
+        await gate.require(tenant_id=tenant_id, user_id=user_id, text=text)
         temporal_context = build_temporal_context(timezone_name)
         locale = resolve_turn_locale(text, explicit=language_name)
         turn_context = {

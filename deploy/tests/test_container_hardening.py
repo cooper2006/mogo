@@ -424,6 +424,33 @@ def test_report_file_manager_degrades_gracefully() -> None:
     assert "logger.warning" in text
 
 
+def _shell_function_body(text: str, name: str) -> str:
+    start = text.index(f"{name}() {{")
+    end = text.index("\n}\n", start)
+    return text[start:end]
+
+
+def test_chat_api_entrypoint_skips_installs_on_read_only_rootfs() -> None:
+    """`--read-only` 下必须跳过启动期安装，而不是让容器启动失败（T029）。
+
+    apt/playwright 的启动期安装需要写 /etc 与包目录，在只读根文件系统上物理不可能；
+    entrypoint 必须先探测根挂载点是否 ro 再决定，否则硬化参数下容器直接退出。
+    """
+    text = (REPO_ROOT / "services/chat-api/entrypoint.sh").read_text(encoding="utf-8")
+    assert "rootfs_is_read_only" in text
+    # 探测必须真的读 /proc/mounts 的 ro 标志，而不是靠写权限猜测（非 root 也会写失败）。
+    assert "/proc/mounts" in text
+    assert "*,ro,*" in text
+    for name in ("install_system_deps_on_start", "install_playwright_on_start"):
+        body = _shell_function_body(text, name)
+        assert "rootfs_is_read_only" in body, f"{name} 缺少只读根文件系统探测"
+        assert body.index("rootfs_is_read_only") < body.index("AUTO_INSTALL"), (
+            f"{name} 应先探测只读根文件系统，再看 AUTO_INSTALL 开关"
+        )
+        # 运行时安装是显式 opt-in：依赖已在构建阶段装好，且非 root 无法 apt。
+        assert ":-false}" in body, f"{name} 的 AUTO_INSTALL 开关默认值应为 false"
+
+
 # ---------------------------------------------------------------------------
 # 运行时检查：镜像必须真的以非 root 跑起来
 # ---------------------------------------------------------------------------
@@ -441,7 +468,23 @@ def _image_present(image_ref: str) -> bool:
 
 
 def _version_tag() -> str:
-    return os.environ.get("MOGO_VERSION") or "latest"
+    """镜像 tag：显式 ``MOGO_VERSION`` 优先，否则与 ``./mogo build`` 取同一个值。
+
+    ``./mogo build`` 用 ``mogo_default_version``（``git rev-parse --short HEAD``）
+    打 tag，所以这里必须同样解析。退回 ``latest`` 会去验一个更早的镜像 —— 测出来的
+    不是当前源码，而且本地构建完仍然报红，等于白跑。
+    """
+    explicit = os.environ.get("MOGO_VERSION")
+    if explicit:
+        return explicit
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return "latest"
+    return out.stdout.strip() or "latest"
 
 
 @pytest.mark.parametrize("service", sorted(IMAGE_NAMES))

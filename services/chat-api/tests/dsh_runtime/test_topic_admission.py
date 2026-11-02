@@ -108,7 +108,7 @@ def test_desktop_turn_uses_the_same_explicit_gate_before_starting(monkeypatch) -
     async def identity(_authorization):
         return "tenant-a", "user-a", {}
 
-    async def capability(_tenant_id, _user_id, _accept_language):
+    async def capability(_tenant_id, _user_id):
         return None
 
     class Bindings:

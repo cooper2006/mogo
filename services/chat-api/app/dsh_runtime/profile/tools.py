@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.enterprise_capabilities.runtime import InternalCapabilityCatalog
 from app.enterprise_capabilities.runtime.timeouts import MAX_CAPABILITY_EXECUTION_MS
 from app.services.external_tools import external_tool_registry
 from app.governance.position_policy import EmployeePolicyResolver
+
+from .mcp_schema import McpSchemaCompatibilityError, normalize_mcp_schema
+
+_logger = logging.getLogger(__name__)
 
 
 class ToolProfileDefinition(BaseModel):
@@ -165,14 +170,31 @@ class ToolProfileCompiler:
             destructive = annotations.get("destructiveHint") is True
             risk = "dangerous" if destructive else ("read" if read_only else "write")
             approval = bool(config.get("approvalRequired", config.get("approval_required", risk != "read")))
+            # MCP servers publish full JSON Schema plus vendor extensions, while
+            # DSH enforces a deterministic subset. Normalising here (instead of
+            # shipping the raw schema) keeps a single misbehaving child tool from
+            # poisoning the whole profile: only that child is dropped.
+            try:
+                input_schema = normalize_mcp_schema(
+                    discovered.get("inputSchema"), object_root=True, schema_name="inputSchema",
+                )
+                output_schema = normalize_mcp_schema(
+                    discovered.get("outputSchema"), object_root=False, schema_name="outputSchema",
+                )
+            except McpSchemaCompatibilityError as error:
+                _logger.warning(
+                    "mcp_tool_schema_incompatible tool=%s tool_id=%s reason=%s",
+                    native_name, tool_id, error,
+                )
+                continue
             payload = {
                 "source_type": "mcp",
                 "external_tool_id": tool_id,
                 "mcp_tool_name": native_name,
                 "display_name": str(row.get("name") or "MCP")[:512],
                 "description": str(discovered.get("description") or self._description(row))[:4000],
-                "input_schema": self._json_schema(discovered.get("inputSchema"), object_root=True),
-                "output_schema": self._json_schema(discovered.get("outputSchema"), object_root=False),
+                "input_schema": input_schema.schema,
+                "output_schema": output_schema.schema,
                 # MCP outputSchema is a protocol-authored JSON Schema contract.
                 "output_validation": "strict",
                 "risk_level": risk,
@@ -180,11 +202,21 @@ class ToolProfileCompiler:
                 "required_scopes": ("tools:read",) if risk == "read" else ("tools:write",),
                 "timeout_ms": self._timeout_ms(config),
             }
-            result.append(ToolProfileDefinition(
-                name=self._name("mcp", tool_id, native_name),
-                version=self._version(payload),
-                **payload,
-            ))
+            try:
+                definition = ToolProfileDefinition(
+                    name=self._name("mcp", tool_id, native_name),
+                    version=self._version(payload),
+                    **payload,
+                )
+            except ValidationError as error:
+                # A protocol-authored name/description outside the DSH contract
+                # must isolate this child tool only.
+                _logger.warning(
+                    "mcp_tool_profile_invalid tool=%s tool_id=%s reason=%s",
+                    native_name, tool_id, error,
+                )
+                continue
+            result.append(definition)
         return result
 
     @staticmethod

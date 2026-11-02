@@ -30,11 +30,12 @@ class _Coordinator:
         raise AssertionError("server must not restore a desktop Code binding")
 
 
-def test_server_chat_cannot_execute_a_desktop_project_history() -> None:
+def test_server_chat_cannot_execute_a_desktop_project_history(allow_all_topic_admission) -> None:
     coordinator = _Coordinator()
     service = DshChatService(
         gateway=object(), coordinator=coordinator, conversations=_Conversations(),
         bindings=_Bindings(), events=object(), profiles=object(), kernel_version="test",
+        topic_admission=allow_all_topic_admission,
     )
 
     async def run() -> None:

@@ -46,6 +46,9 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "admin_refresh_tokens",
     "admin_recovery_tokens",
     "admin_sessions",
+    # 模型分组：tenant-scoped（model_group_repository.COLLECTION），漏掉会让
+    # 被删租户的分组名/供应商绑定残留，并被新租户的驾驶舱读到。
+    "admin_model_groups",
     "admin_model_instances",
     "admin_presentation_settings",
     # 022 FR-13: separate, tamper-evident audit trail (hash-chained events),
@@ -126,6 +129,9 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "skill_update_notifications",
     "skills",
     "token_usage_logs",
+    # 话题准入策略：tenant-scoped（topic_admission/service.COLLECTION）。策略里
+    # 含租户自定的话题/关键词与受众配置，属租户私有数据，必须随租户清除。
+    "topic_admission_policies",
     "user_field_defs",
     "user_field_values",
     "user_identities",

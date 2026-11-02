@@ -481,12 +481,13 @@ def generate_docx_file(
                 # the source markdown provides a document-level H1. Otherwise
                 # this is normal body content and must not be swallowed into the
                 # skipped cover page.
-                if has_h1_heading and not skip_cover:
-                    if not cover_abstract:
-                        cover_abstract = stripped
-                else:
-                    state = 2
-                    body_lines.append(line)
+                if has_h1_heading and not skip_cover and not cover_abstract:
+                    cover_abstract = stripped
+                # 摘要只是封面上的展示位，源段落必须继续留在正文：否则
+                # 「# 标题 + 若干普通段落」这种没有 H2 的短文档会被整段吞掉，
+                # 导出的 docx 只剩封面。取到摘要后立刻转入正文状态。
+                state = 2
+                body_lines.append(line)
             elif stripped.startswith(("## ", "### ", "#### ")):
                 # Jump straight to body if we missed TOC
                 state = 2

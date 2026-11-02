@@ -192,7 +192,7 @@ def test_new_per_run_schedule_defers_conversation_creation_to_dsh() -> None:
     asyncio.run(run())
 
 
-def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falling_back() -> None:
+def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falling_back(allow_all_topic_admission) -> None:
     async def run() -> None:
         class Conversations:
             async def owned(self, *_args, **_kwargs):
@@ -252,6 +252,7 @@ def test_existing_pre_dsh_conversation_creates_a_kernel_binding_instead_of_falli
             events=SimpleNamespace(),
             profiles=Profiles(),  # type: ignore[arg-type]
             kernel_version="0.1.0-rc.6",
+            topic_admission=allow_all_topic_admission,
         )
 
         async def finish_immediately(**_kwargs):

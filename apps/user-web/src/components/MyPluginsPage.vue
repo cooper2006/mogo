@@ -94,6 +94,6 @@ onMounted(reload)
   flex-direction: column;
   gap: 16px;
   padding: 12px;
-  background: #f6f8fc;
+  background: var(--mg-bg-app);
 }
 </style>

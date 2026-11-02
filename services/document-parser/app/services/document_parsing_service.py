@@ -55,7 +55,12 @@ def run_document_parse(job_id: str, request: ParseDocumentJobRequest) -> None:
                 output.write(chunk)
 
         update_job_progress(job_id, 25)
-        parsed = parse_document(source_path, request.source.filename or request.source.storageKey)
+        parsed = parse_document(
+            source_path,
+            request.source.filename or request.source.storageKey,
+            chunk_size=request.chunkSize,
+            chunk_overlap=request.chunkOverlap,
+        )
         update_job_progress(job_id, 55)
         raw_chunks = parsed.raw_chunks if parsed.raw_chunks is not None else chunk_markdown(parsed.markdown, request.chunkSize, request.chunkOverlap)
         rag_chunks = parsed.rag_chunks if parsed.rag_chunks is not None else build_rag_chunks(
@@ -106,7 +111,13 @@ def run_document_parse(job_id: str, request: ParseDocumentJobRequest) -> None:
     mark_job_succeeded(job_id, result)
 
 
-def parse_document(path: Path, filename: str) -> ParsedDocument:
+def parse_document(
+    path: Path,
+    filename: str,
+    *,
+    chunk_size: int = 1500,
+    chunk_overlap: int = 80,
+) -> ParsedDocument:
     ext = Path(filename).suffix.lower().lstrip(".")
     if ext in LEGACY_OFFICE_EXTENSIONS:
         converted_path = convert_legacy_office_to_modern(path, path.parent)
@@ -118,13 +129,17 @@ def parse_document(path: Path, filename: str) -> ParsedDocument:
     if ext in SPREADSHEET_EXTENSIONS:
         from app.services.spreadsheet_ingest import parse_spreadsheet
 
-        return add_office_image_ocr(parse_spreadsheet(path), path, ext)
+        return add_office_image_ocr(
+            _ensure_raw_chunks(parse_spreadsheet(path), chunk_size, chunk_overlap), path, ext
+        )
 
     try:
         from docling.document_converter import DocumentConverter  # type: ignore
     except ImportError:
         parsed = parse_with_fallback(path, ext)
-        return add_office_image_ocr(parsed, path, ext) if ext in {"docx", "pptx"} else parsed
+        if ext not in {"docx", "pptx"}:
+            return parsed
+        return add_office_image_ocr(_ensure_raw_chunks(parsed, chunk_size, chunk_overlap), path, ext)
     else:
         pdf_ocr_policy = inspect_pdf_ocr_policy(path) if ext == "pdf" else None
         converter = _build_docling_converter(ext, pdf_ocr_policy=pdf_ocr_policy)
@@ -154,7 +169,22 @@ def parse_document(path: Path, filename: str) -> ParsedDocument:
                 logger.warning("PDF pages remain unreadable after recovery: %s", quality["reviewPages"])
             markdown = "\n\n".join([markdown, *[item["text"] for item in raw_chunks if item.get("metadata", {}).get("sourceKind") == "native_text_recovery"]]).strip()
         parsed = ParsedDocument(markdown=markdown, raw=raw, raw_chunks=raw_chunks)
-        return add_office_image_ocr(parsed, path, ext) if ext in {"docx", "pptx"} else parsed
+        if ext not in {"docx", "pptx"}:
+            return parsed
+        return add_office_image_ocr(_ensure_raw_chunks(parsed, chunk_size, chunk_overlap), path, ext)
+
+
+def _ensure_raw_chunks(parsed: ParsedDocument, chunk_size: int, chunk_overlap: int) -> ParsedDocument:
+    """Materialize markdown chunks before OCR chunks are appended.
+
+    ``raw_chunks is None`` is the contract for "the caller still has to chunk the
+    markdown". ``add_office_image_ocr`` appends to that list, so leaving it as
+    ``None`` would make it a list holding *only* the OCR chunks and the body text
+    would never be chunked — the document body silently disappears from search.
+    """
+    if parsed.raw_chunks is None:
+        parsed.raw_chunks = chunk_markdown(parsed.markdown, chunk_size, chunk_overlap)
+    return parsed
 
 
 def _build_docling_converter(ext: str, *, pdf_ocr_policy: PdfOcrPolicy | None = None) -> Any:

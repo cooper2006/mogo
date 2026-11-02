@@ -30,7 +30,6 @@ class DshPluginInstaller:
         transport = HttpKernelHostTransport(
             settings.DSH_RUNTIME_HOST_URL,
             timeout_seconds=300,
-            startup_timeout_seconds=300,
             access_token=settings.DSH_RUNTIME_HOST_TOKEN,
         )
         runtime_ids: list[str] = []

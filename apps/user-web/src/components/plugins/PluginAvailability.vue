@@ -38,4 +38,4 @@ const reason = computed(() => {
 })
 </script>
 
-<style scoped>.availability{display:flex;align-items:center;gap:8px}.diagnosis{font-size:12px;line-height:1.6;color:#4b5972}.diagnosis p{margin:6px 0;overflow-wrap:anywhere;white-space:pre-line}.diagnosis strong{font-size:13px;color:#17233d}.check{display:flex;gap:5px}.next-step{color:#855c15}</style>
+<style scoped>.availability{display:flex;align-items:center;gap:8px}.diagnosis{font-size:12px;line-height:1.6;color:var(--mg-text-2)}.diagnosis p{margin:6px 0;overflow-wrap:anywhere;white-space:pre-line}.diagnosis strong{font-size:13px;color:var(--mg-text-1)}.check{display:flex;gap:5px}.next-step{color:var(--mg-warning-text)}</style>

@@ -120,14 +120,14 @@ watch([query, status], () => {
 <style scoped>
 .rule-browser { display: grid; gap: 10px; min-width: 0; }
 .rule-filters { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; }
-.rule-scroll { box-sizing: border-box; height: min(52vh, 480px); min-height: 100px; margin-top: 6px; overflow-y: scroll; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: #becbdb #f5f7fb; scrollbar-width: thin; padding: 2px 4px 2px 2px; }
-.rule-scroll::-webkit-scrollbar { width: 8px; }.rule-scroll::-webkit-scrollbar-track { background: #f5f7fb; border-radius: 8px; }.rule-scroll::-webkit-scrollbar-thumb { background: #becbdb; border-radius: 8px; }
+.rule-scroll { box-sizing: border-box; height: min(52vh, 480px); min-height: 100px; margin-top: 6px; overflow-y: scroll; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: var(--mg-border-strong) var(--mg-bg-subtle); scrollbar-width: thin; padding: 2px 4px 2px 2px; }
+.rule-scroll::-webkit-scrollbar { width: 8px; }.rule-scroll::-webkit-scrollbar-track { background: var(--mg-bg-subtle); border-radius: 8px; }.rule-scroll::-webkit-scrollbar-thumb { background: var(--mg-border-strong); border-radius: 8px; }
 .rule-shell + .rule-shell { margin-top: 6px; }
-.rule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 49px; padding: 7px 10px; border: 1px solid #e5eaf2; border-radius: 8px; color: #28364e; background: #fff; text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
-.rule-row:hover { border-color: #b8c9ec; background: #f8faff; }
-.rule-main { display: grid; min-width: 0; gap: 3px; }.rule-main strong, .rule-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.rule-main strong { font-size: 13px; font-weight: 600; }.rule-main small { color: #8290a4; font-size: 12px; }
-.rule-main small { display: flex; gap: 8px; }.rule-terms { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.rule-audience { flex: 0 0 auto; color: #61718a; }.rule-audience::before { content: '·'; margin-right: 8px; color: #b3bece; }
-.rule-status { flex: 0 0 auto; color: #258260; font-size: 11px; }.rule-status.muted { color: #98a2b3; }
-.rule-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-height: 28px; color: #8b97a8; font-size: 11px; }.rule-no-results { display: grid; place-items: center; min-height: 82px; border: 1px dashed #dce4ef; border-radius: 8px; color: #8b97a8; font-size: 12px; }
+.rule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 49px; padding: 7px 10px; border: 1px solid var(--mg-border); border-radius: 8px; color: var(--mg-text-1); background: var(--mg-bg-surface); text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+.rule-row:hover { border-color: var(--mg-brand-soft-border); background: var(--mg-bg-surface-hover); }
+.rule-main { display: grid; min-width: 0; gap: 3px; }.rule-main strong, .rule-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.rule-main strong { font-size: 13px; font-weight: 600; }.rule-main small { color: var(--mg-text-3); font-size: 12px; }
+.rule-main small { display: flex; gap: 8px; }.rule-terms { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.rule-audience { flex: 0 0 auto; color: var(--mg-text-3); }.rule-audience::before { content: '·'; margin-right: 8px; color: var(--mg-text-disabled); }
+.rule-status { flex: 0 0 auto; color: var(--mg-success-text); font-size: 11px; }.rule-status.muted { color: var(--mg-text-disabled); }
+.rule-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-height: 28px; color: var(--mg-text-3); font-size: 11px; }.rule-no-results { display: grid; place-items: center; min-height: 82px; border: 1px dashed var(--mg-border); border-radius: 8px; color: var(--mg-text-3); font-size: 12px; }
 @media (max-width: 520px) { .rule-filters { grid-template-columns: 1fr; } }
 </style>

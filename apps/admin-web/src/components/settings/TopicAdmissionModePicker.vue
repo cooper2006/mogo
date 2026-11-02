@@ -21,12 +21,12 @@ const emit = defineEmits<{ (event: 'update:modelValue', value: 'denylist' | 'all
 
 <style scoped>
 .mode-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; }
-.mode-card { --accent: #b65342; --tint: #fff5f2; --ring: #f5d6cf; display: grid; gap: 6px; min-width: 0; min-height: 74px; padding: 10px 12px; border: 1px solid #dfe5ed; border-radius: 9px; background: #fff; color: #344054; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s; }
-.mode-card.allow { --accent: #16845b; --tint: #effaf4; --ring: #caebd9; }
+.mode-card { --accent: var(--mg-danger-text); --tint: var(--mg-danger-bg); --ring: var(--mg-danger-border); display: grid; gap: 6px; min-width: 0; min-height: 74px; padding: 10px 12px; border: 1px solid var(--mg-border); border-radius: 9px; background: var(--mg-bg-surface); color: var(--mg-text-2); text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s; }
+.mode-card.allow { --accent: var(--mg-success-text); --tint: var(--mg-success-bg); --ring: var(--mg-success-border); }
 .mode-card:hover { border-color: var(--accent); }.mode-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .mode-card.selected { border-color: var(--accent); background: var(--tint); box-shadow: 0 0 0 2px var(--ring); }
 .mode-head { display: flex; align-items: center; gap: 7px; min-width: 0; }.mode-head strong { font-size: 13px; white-space: nowrap; }.mode-icon { display: grid; flex: 0 0 20px; place-items: center; width: 20px; height: 20px; border-radius: 5px; background: var(--tint); color: var(--accent); font-size: 15px; font-weight: 700; }
-.mode-state { margin-left: auto; padding: 2px 6px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 600; white-space: nowrap; }
-.mode-card small { color: #667085; font-size: 11px; }
+.mode-state { margin-left: auto; padding: 2px 6px; border-radius: 4px; background: var(--accent); color: var(--mg-text-on-brand); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.mode-card small { color: var(--mg-text-3); font-size: 11px; }
 @media (max-width: 520px) { .mode-picker { grid-template-columns: 1fr; } }
 </style>

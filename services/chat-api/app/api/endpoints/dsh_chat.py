@@ -22,6 +22,7 @@ from app.dsh_runtime.desktop_binding import DesktopSessionIdentity
 from app.dsh_runtime.turn_admission import admit_skill_selection
 from app.governance.position_policy import MongoEmployeePolicyResolver
 from app.governance.audit import record_position_policy_event
+from app.governance.topic_admission import TopicAdmissionDenied
 
 
 router = APIRouter(tags=["dsh-chat"])
@@ -37,6 +38,27 @@ async def _require_code_capability(tenant_id: str, user_id: str) -> None:
             status_code=403,
             detail={"code": "position_role_denied", "message": "当前岗位未开通代码生成能力，本次任务未执行"},
         )
+
+
+async def _require_topic_admission(*, tenant_id: str, user_id: str, text: str) -> None:
+    """Enforce the organization's topic policy before any turn is claimed.
+
+    桌面端与实时语音等旁路入口必须和服务端回合共用同一道闸门，否则组织
+    在管理端配置的 allowlist/denylist 只在一条路径上生效。
+    """
+    gate = dsh_runtime_application.topic_admission
+    if gate is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "topic_admission_not_configured", "message": "话题准入未装配，本次任务未执行"},
+        )
+    try:
+        await gate.require(tenant_id=tenant_id, user_id=user_id, text=text)
+    except TopicAdmissionDenied as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "topic_admission_denied", "message": str(exc)},
+        ) from exc
 
 
 class Attachment(BaseModel):
@@ -230,6 +252,11 @@ async def _start_chat_completions(
             selected_writing_skill_id=skill_selection.selected_writing_skill_id,
             selected_skill_id=skill_selection.selected_skill_id,
         )
+    except TopicAdmissionDenied as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "topic_admission_denied", "message": str(exc)},
+        ) from exc
     except ConversationBusyError as exc:
         raise HTTPException(
             status_code=409,
@@ -369,6 +396,7 @@ async def desktop_turn_start(
 ) -> ApiResponse:
     tenant_id, user_id, _ = await _identity(authorization)
     await _require_code_capability(tenant_id, user_id)
+    await _require_topic_admission(tenant_id=tenant_id, user_id=user_id, text=payload.text)
     try:
         data = await dsh_runtime_application.require_desktop_bindings().start_turn(
             tenant_id=tenant_id, user_id=user_id, device_id=payload.device_id,

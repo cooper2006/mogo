@@ -56,9 +56,9 @@ const title = computed(() => props.isNew
 </template>
 
 <style scoped>
-.rule-dialog-content { max-height: calc(100vh - 170px); overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #becbdb transparent; }
+.rule-dialog-content { max-height: calc(100vh - 170px); overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: var(--mg-border-strong) transparent; }
 .rule-dialog-footer { display: flex; align-items: center; gap: 12px; }
-.rule-dialog-hint { flex: 1; color: #8b97a8; font-size: 12px; text-align: right; }
-.topic-audience-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: #475467; font-size: 13px; }
+.rule-dialog-hint { flex: 1; color: var(--mg-text-3); font-size: 12px; text-align: right; }
+.topic-audience-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--mg-text-2); font-size: 13px; }
 @media (max-width: 620px) { .rule-dialog-footer { flex-wrap: wrap; }.rule-dialog-hint { order: 3; flex-basis: 100%; text-align: left; } }
 </style>

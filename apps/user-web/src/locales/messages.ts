@@ -257,7 +257,7 @@ export const messages = {
   'app.sidebar.tools': { zh: '我的工具', en: 'My Tools' },
   'app.sidebar.plugins': { zh: '我的插件', en: 'My Plugins' },
   'plugins.title': { zh: '我的插件', en: 'My Plugins' },
-  'plugins.sidebar': { zh: '我的 插件', en: 'My Plugins' },
+  'plugins.sidebar': { zh: '我的插件', en: 'My Plugins' },
   'plugins.subtitle': { zh: '管理仅自己使用的 DSH 插件，并查看企业提供的插件。', en: 'Manage your personal DSH plugins and view enterprise plugins.' },
   'plugins.add': { zh: '添加插件', en: 'Add Plugin' },
   'plugins.install': { zh: '安装并检查', en: 'Install and Check' },

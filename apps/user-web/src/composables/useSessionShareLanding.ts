@@ -55,7 +55,7 @@ export function useSessionShareLanding(options: {
   }
 
   async function joinPendingSharedSession(): Promise<void> {
-    const token = pendingSessionShareToken.value
+    const token = pendingSessionShareToken.value // pragma: allowlist secret
     if (!token) return
     const result = await joinSessionShare(token)
     if (result.ok === false) {

@@ -93,7 +93,12 @@
 - admin-api：`python3 -m pytest tests/test_quota_three_level.py tests/test_quota_projects.py -o addopts="" -q` → **13 + 9 passed**
 - T021 等价回归：`tests/test_quota_unlimited.py`（9）、`tests/test_governance_us4_us5.py`（13）全绿；`tests/test_quota_three_level.py::test_zero_scoped_policies_keeps_legacy_shape` 覆盖"零部门/项目策略时输出仅多既有 `unlimited` 字段"。
 - T022 001 零改动：`git diff --stat -- services/admin-api/app/governance/layers/quota.py` **输出为空**；`test_governance_us4_us5.py` 13 passed。
-- T023 前端校验（编译段）已完成：`npx vue-tsc --noEmit` exit 0；`@vue/compiler-sfc` 编译 `TrafficAllocationsPage.vue` 通过（任务行已勾选该编译段）。**手工联调（配置策略 → 触发限额 → 驾驶舱可见 quota 类事件）未做**：需 admin-web 登录凭证 + 真实 Agent 对话触发限额（LLM key），本环境无登录凭证，故联调段仍阻塞。2026-11-01 浏览器（tabbit）确认 admin-web 启动、登录页 SFC 渲染正常（联调点① 启动本地通过）。
+- T023 前端校验（编译段）已完成：`npx vue-tsc --noEmit` exit 0；`@vue/compiler-sfc` 编译 `TrafficAllocationsPage.vue` 通过（任务行已勾选该编译段）。
+- **2026-11-01 浏览器（tabbit）验证进展**：
+  - 平台管理员登录 + 平台控制台渲染通过（联调点① 启动本地通过）；流量分配路由 `organizations/traffic` 为租户作用域，平台控制台侧边栏无该入口，须以租户管理员访问（联调点② 需租户管理员，已确认）。
+  - 以租户管理员（admin / BONC）登录后 `/admin/organizations/traffic` 流量分配页**完整渲染**：概览卡「企业总额度 100.0 亿 / 本周期已用 0 / 默认成员额度 1.0 亿 / 自定义额度用户 1」、「下次重置 12/01 00:00」；7 行终端用户额度表格（与 `GET /traffic-allocations/users` 返回 7 条一致）；搜索框 +「刷新 / 设置企业额度 / 分配记录 / 项目额度」按钮齐备。后端 `overview / users / teams / projects` 接口与 UI 一致——teams、projects 当前无策略故为空，符合初始状态。
+  - 配置入口 UI 可用（「设置企业额度」对话框可唤起，预填值与 overview 一致）。**联调点② 启动 + 配置 UI 已浏览器实证通过**。
+  - **仍阻塞段**：配置策略 → 成员对话触发限额/恢复 → 驾驶舱可见 quota 类事件，须真实端用户对话 + LLM key（与 043 端用户会话打通后一并验证）。
 - 既有环境失败（非本轮引入）：`tests/test_setup_quota.py::SetupQuotaValidationTests::test_zero_total_tokens_is_unlimited` 依赖"无可用数据库"抛出 `RuntimeError`，本机有 `MONGODB_URI` 时真实连库成功、无 URI 时抛 pymongo `ConfigurationError`，两种环境都不满足断言；该文件与 `app/services/setup_quota.py` 本轮零改动。
 
 **实现期口径澄清**

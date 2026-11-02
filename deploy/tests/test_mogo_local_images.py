@@ -7,9 +7,10 @@
 
 现在的约定：
 
-* `./mogo up`（不带 `--build`）**只使用本地镜像**：按源码构建产出的裸名引用，
-  版本同样取自 `git describe --tags --always`（与 `up --build` 一致，这样裸 `up`
-  才能找到刚构建的 `chat-api:v0.2.1`），并校验镜像在位，缺失则点名报错。
+* `./mogo up`（不带 `--build`）**只使用本地镜像**：按源码构建产出的
+  `<registry>/<service>` 引用（与 registry 部署同一套命名），版本同样取自
+  `git describe --tags --always`（与 `up --build` 一致，这样裸 `up` 才能找到刚构建的
+  `ghcr.io/mogoai/chat-api:v0.2.1`），并校验镜像在位，缺失则点名报错。
 * `./mogo update` 已停用并快速失败——它原本就是那条 registry 链路。
 * 基础镜像（mongo / redis / weaviate / nginx / alpine）是另一条可用链路，仍由
   `mogo_prepare_base_images` 处理，`MOGO_BASE_IMAGE_POLICY=local` 可完全离线。
@@ -100,7 +101,7 @@ def test_up_never_builds_pulls_application_images() -> None:
 
 
 def test_up_requires_local_images_and_uses_release_tag() -> None:
-    """非构建分支必须：按 tag 版本解析、用裸名、校验本地镜像。"""
+    """非构建分支必须：按 tag 版本解析、用统一前缀命名、校验本地镜像。"""
     text = _read(_MOGO)
     else_part = _non_build_branch(_command_up_body(text))
 
@@ -109,12 +110,13 @@ def test_up_requires_local_images_and_uses_release_tag() -> None:
     )
     assert "${MOGO_VERSION:-$(mogo_default_version)}" in else_part, (
         "非构建分支的版本没有取自 git tag；裸 ./mogo up 会去找 "
-        "chat-api:latest（不存在）而不是刚构建的 chat-api:v0.2.1"
+        "ghcr.io/mogoai/chat-api:latest（不存在）而不是刚构建的 "
+        "ghcr.io/mogoai/chat-api:v0.2.1"
     )
-    # 源码构建（裸名）与「不构建但用本地镜像」必须走同一个镜像命名，
-    # 否则 compose 引用的是 ghcr.io/mogoai/<svc>，本地裸名镜像对不上。
+    # 源码构建与「不构建但用本地镜像」必须走同一套镜像命名（都带 registry
+    # 前缀），否则 compose 引用的是 ghcr.io/mogoai/<svc>，本地镜像对不上。
     assert "mogo_configure_images true" in else_part, (
-        "非构建分支仍用 registry 前缀命名；本地构建产物是裸名，会失配"
+        "非构建分支与源码构建的镜像命名不一致；本地构建产物会与 compose 引用失配"
     )
 
 

@@ -140,6 +140,10 @@ export function buildSharedConfig({ js, tseslint, prettier }) {
           PerformanceEntry: 'readonly',
           PerformanceNavigationTiming: 'readonly',
           getComputedStyle: 'readonly',
+          // QA R13：port-movo 流式会话 / SSE 代码引用 Web Streams 标准全局
+          // （ReadableStream / ReadableStreamDefaultReader），R12 清单漏补。
+          ReadableStream: 'readonly',
+          ReadableStreamDefaultReader: 'readonly',
           MutationObserver: 'readonly',
           WeakRef: 'readonly',
           FinalizationRegistry: 'readonly',

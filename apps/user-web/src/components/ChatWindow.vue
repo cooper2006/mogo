@@ -270,6 +270,26 @@ interface ImageInfo {
   size?: number
 }
 
+const textOf = (msg: Message): string => msg.content?.trim() || ''
+
+const isGreetingMessage = (msg: Message, greeting: string): boolean =>
+  msg.role === 'assistant' && textOf(msg) === greeting
+
+const isDuplicateAssistant = (prev: Message, msg: Message): boolean => {
+  if (prev.role !== msg.role || msg.role !== 'assistant') return false
+  return textOf(prev) === textOf(msg)
+}
+
+// Retain data that can arrive on either the optimistic or server row.
+const mergeDuplicateRow = (prev: Message, msg: Message): Message => {
+  let merged = prev
+  if (msg._codeChanges && !prev._codeChanges) merged = { ...merged, _codeChanges: msg._codeChanges }
+  if (msg.question_answers?.length && !prev.question_answers?.length) {
+    merged = { ...merged, question_answers: msg.question_answers }
+  }
+  return merged
+}
+
 const defaultGreeting = props.initialMessage || 'Hello! I am your AI Agent. How can I help you today?'
 
 // The runtime store is the sole message owner. Keeping a local copied array
@@ -281,27 +301,13 @@ const displayMessages = computed(() => {
   const greeting = defaultGreeting.trim()
   let hasGreeting = false
   for (const msg of messages.value) {
-    const content = msg.content?.trim() || ''
-    if (msg.role === 'assistant' && content === greeting) {
+    if (isGreetingMessage(msg, greeting)) {
       if (hasGreeting) continue
       hasGreeting = true
     }
     const prev = result[result.length - 1]
-    if (
-      prev &&
-      prev.role === msg.role &&
-      prev.role === 'assistant' &&
-      (prev.content?.trim() || '') === content
-    ) {
-      // Retain data that can arrive on either the optimistic or server row.
-      if (msg._codeChanges && !prev._codeChanges) {
-        result[result.length - 1] = { ...prev, _codeChanges: msg._codeChanges }
-      }
-      if (msg.question_answers?.length && !prev.question_answers?.length) {
-        result[result.length - 1] = {
-          ...result[result.length - 1], question_answers: msg.question_answers,
-        }
-      }
+    if (prev && isDuplicateAssistant(prev, msg)) {
+      result[result.length - 1] = mergeDuplicateRow(prev, msg)
       continue
     }
     result.push(msg)

@@ -38,6 +38,22 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
     titles.value = { ...titles.value, [workspace.workspace_id]: workspace.title }
   }
 
+  /** Local workspace dirs decide archive state: missing → archived, present → active. */
+  function syncArchiveState(nextBindings: DesktopProject[], localWorkspaces: DshWorkspace[], token: string): void {
+    const localIds = new Set(localWorkspaces.map(w => w.workspace_id))
+    for (const project of nextBindings) {
+      const nextStatus = localIds.has(project.workspace_id) ? 'active' : 'archived'
+      if ((project.status || 'active') === nextStatus) continue
+      updateDesktopProjectStatus(project.workspace_id, nextStatus, token).catch(() => {})
+      project.status = nextStatus
+    }
+  }
+
+  async function loadLocalWorkspaces(): Promise<DshWorkspace[]> {
+    try { return await listDshWorkspaces() }
+    catch { return [] } // Server-owned projects remain visible as unavailable on this device.
+  }
+
   async function refresh(): Promise<void> {
     if (!options.canUseCode.value || !options.localWorkspacePicker) return
     const identity = options.identity()
@@ -46,13 +62,14 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
     refreshEpoch += 1
     if (loadedIdentity.value !== identity) clear()
     const activeEpoch = refreshEpoch
+    const isStale = () => activeEpoch !== refreshEpoch
+      || identity !== options.identity()
+      || token !== options.authToken.value
     loading.value = true
     try {
       const nextBindings = await listDesktopProjects(token)
-      let localWorkspaces: DshWorkspace[] = []
-      try { localWorkspaces = await listDshWorkspaces() }
-      catch { /* Server-owned projects remain visible as unavailable on this device. */ }
-      if (activeEpoch !== refreshEpoch || identity !== options.identity() || token !== options.authToken.value) return
+      const localWorkspaces = await loadLocalWorkspaces()
+      if (isStale()) return
       const nextWorkspaces = reconcileUserBoundProjects(
         nextBindings, localWorkspaces, options.sessions.value, options.fallbackTitle,
       )
@@ -61,18 +78,7 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
       titles.value = Object.fromEntries(nextWorkspaces.map(workspace => [workspace.workspace_id, workspace.title]))
       loadedIdentity.value = identity
       // 046 FR-009: 对账后自动归档/恢复——目录不存在 → archived，恢复 → active。
-      const localIds = new Set(localWorkspaces.map(w => w.workspace_id))
-      for (const project of nextBindings) {
-        const isArchived = (project.status || 'active') === 'archived'
-        const dirExists = localIds.has(project.workspace_id)
-        if (!dirExists && !isArchived) {
-          updateDesktopProjectStatus(project.workspace_id, 'archived', token).catch(() => {})
-          project.status = 'archived'
-        } else if (dirExists && isArchived) {
-          updateDesktopProjectStatus(project.workspace_id, 'active', token).catch(() => {})
-          project.status = 'active'
-        }
-      }
+      syncArchiveState(nextBindings, localWorkspaces, token)
     } catch { /* Keep the last same-employee snapshot on a control-plane outage. */ }
     finally {
       if (activeEpoch === refreshEpoch) loading.value = false

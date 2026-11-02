@@ -8,6 +8,17 @@ image.
 
 ### Added
 
+- **046 项目维度统一 / 047 配额可发现性 / 048 业务线维度删除（2026-11-01，SPEC 046–048）**：
+  - 046：三套同名「项目」收敛为一套（`desktop_projects` → `projects`、默认项目 `default`、
+    `chat_sessions.project_id`、网关反查绑定、全量回填、侧边栏与驾驶舱切读、042 项目层
+    `scope_id = project_id`）；T001–T031 全部完成。
+  - 047：042 配额引擎的可发现性整改——新增独立菜单「项目管理」、修 `?open=quota` 深链、
+    驾驶舱补「配额异常」卡片、文案「团队」→「部门」（标识符保留）、跨服务一致性测试 + tz 统一。
+  - 048：删除无写方且必然产出单桶假数据的「业务线」维度——后端 `_resolve_business_line` /
+    `businessLineAttribution`、前端标签/类型、测试断言；成本段 6 段 → 5 段。
+  - 治理：三包 spec/plan/tasks/checklist 四件套齐备，tasks 046 34/34、047 30/30、048 13/13 全勾，
+    `specs/INDEX.md` 已收录。
+
 - **045 资产中心枢纽落地（2026-10-29，SPEC 045 方案 A+B）**：
   - 资产中心页 `/assets`：技能/能力资产（MCP/工具/连接器）统一坐标
     `(asset_type, asset_key)` 互链，前端 join 技能/评级/上架/申领数据成一张表；
@@ -122,6 +133,84 @@ image.
   admin-api 三个后台扫描器的 shutdown 停止同样补上 warning。
 - **`scripts/check_python_static.py` 静默异常门重新收敛**：修复后 chat-api
   42 → 41、admin-api 16 → 12，全部回到上限内，未抬高任何上限。
+
+### Fixed
+
+- **镜像命名统一 + 全量重建（2026-11-02）**：
+  - `./mogo build` 的产物此前是**裸名**（`chat-api:bf5000d1`），而 compose 与
+    `./mogo up` 引用的是 `ghcr.io/mogoai/chat-api`，两套命名对不上——本地构建完的镜像
+    `mogo_require_local_images` 找不到，容器硬化用例也只能去验一个旧 `:latest`。
+    现在源码构建与 registry 部署共用 `<registry>/<service>:<tag>`，registry 取自 `.env`
+    的 `MOGO_IMAGE_REGISTRY`（缺省 `ghcr.io/mogoai`）。
+  - 守卫同步：`scripts/check_compose_image_modes.sh` 的源码构建断言改为前缀形态，
+    并新增「`MOGO_IMAGE_REGISTRY` 覆盖对 build 路径同样生效」一条。
+  - `deploy/tests/test_container_hardening.py` 的镜像 tag 兜底由 `latest` 改为
+    `git rev-parse --short HEAD`（与 `./mogo build` 的 `mogo_default_version` 一致）：
+    否则本地刚构建完仍去验一个更早的 `:latest`，用例报红但源码是对的。
+  - 重建全部 7 个 target（dsh-runtime-host / chat-api / admin-api / document-parser /
+    user-web / admin-web / gateway），tag 与 HEAD 短 hash 一致。
+  - user-web 侧边栏文案 `我的 插件` → `我的插件`（`plugins.sidebar` 的中文值多了一个空格）。
+
+- **R13 全量 QA 审计修复（2026-11-01，`docs/2026-11-01-full-qa-audit-r13.md`）**：
+  - 开源卫生卷数漂移：`check_open_source_hygiene.py` 常量 20 → 23，登记 port-movo
+    新增的 `sandbox-workspaces` 卷（内联前缀出现 3 次）。
+  - 密钥扫描误报：`useSessionShareLanding.ts`、`model_center_runtime.py` 两处
+    「变量赋值/解密调用」按行级 `pragma: allowlist secret` 精确豁免。
+  - 前端 `no-undef`：`apps/eslint.shared.config.js` 补 `ReadableStream` /
+    `ReadableStreamDefaultReader` 两个浏览器全局。
+  - **前端 lint 9 个复杂度 error 全部重构清零**（纯结构拆分、无行为变更）：
+    `useSessionLiveStream`（40/17）、`ChatWindow.displayMessages`（19）、
+    `reviewSourceBinding.bindReviewSources`（19）、`userBoundProjects.refresh`（18）、
+    `useChatRuntimeStore.mergeSessionMessages`（17）、admin-web 的
+    `ModelGroupMemberRow.save`（31）、`ModelGroupEditor.save`（17）、
+    `TopicAdmissionPanel.loadRules`（19）。`eslint src/` 双应用 0 error。
+  - 契约测试：`test:code-platform` 断言按 046 FR-011（分组键 `project_id`）同步；
+    新增 `test:session-live-stream` 覆盖 SSE 解析/游标/control 帧/撤销/不重试语义。
+    契约测试 16/16 通过。
+  - **chat-api entrypoint 与容器硬化对齐**：新增 `rootfs_is_read_only()`（读
+    `/proc/mounts` 根挂载点的 `ro` 标志），`install_system_deps_on_start` /
+    `install_playwright_on_start` 先探测只读再执行；同时把
+    `AUTO_INSTALL_SYSTEM_DEPS_ON_START` / `AUTO_INSTALL_PLAYWRIGHT_ON_START`
+    默认值由 `true` 改为 `false`（依赖已在构建阶段装好，镜像以非 root 运行、
+    apt 需要 root，默认开启必然失败；确需启动期补装请显式传 `=true` 并以 root 运行）。
+    `--read-only` 与裸 `docker run` 均恢复为 exit 0；`deploy/tests` 新增静态回归断言。
+    **注意：需重建 chat-api 镜像后 `test_image_runs_as_non_root[chat-api]` 才转绿。**
+  - **设计令牌清零（G1）**：21 个前端文件共 214 处硬编码色值全部映射到 `--mg-*`
+    语义层（表面/边框/文本三级/品牌/状态/装饰/阴影），深色主题随语义层自动生效，
+    不再需要逐组件写覆盖块。`check_design_tokens.mjs --strict` error 0 / warn 0。
+  - **文档解析正文丢失（G5，真实缺陷）**：office 分支在 OCR 前把 `raw_chunks=None`
+    变成「只含 OCR 块」，导致「交给调用方切块」的兜底被跳过、Markdown 正文整段
+    不进分块结果。新增 `_ensure_raw_chunks()` 先补齐再 OCR，并把 `chunkSize` /
+    `chunkOverlap` 透传到解析层。doc 套件 68 passed。
+  - **插件列表/删除 500（F8）**：`ProductExtension` 数据类从未声明
+    `resource_access_policy`，而 `resource_access.py` 与 `dsh_plugins` 端点都在读它。
+    补字段（`None` = 社区版无人员级 ACL）。
+  - **MCP 工具 schema 未走兼容层（F9）**：`mcp_schema.py` 实现完整但
+    `ToolProfileCompiler._compile_mcp` 从未调用，畸形工具名会让整份 Runtime
+    Profile 编译失败。改为逐 child 工具 `normalize_mcp_schema()` + 校验隔离，
+    坏工具只丢自己（`mcp_tool_schema_incompatible` / `mcp_tool_profile_invalid`）。
+  - **租户清除漏集合（F10）**：`TENANT_SCOPED_COLLECTIONS` 补
+    `admin_model_groups`、`topic_admission_policies`，避免删租户后数据永久残留
+    （后者残留还会让新租户继承旧策略）。
+  - **可选插件失败拖垮 Runtime（F11）**：`profile_without_unavailable_plugins()`
+    未被调用，一个第三方插件装不上等于该租户所有回合起不来。`create_runtime`
+    改为「逐插件探活 → 剔除不可用 → 重试一次」。
+  - **脚本沙箱守卫（F12，SEC-01）**：非容器执行路径的 `open` 钩子装在
+    `exec_module` 之后（模块级 `open()` 直接穿透），且 `io.FileIO` / `os.scandir`
+    完全没拦。守卫整体前移，补 `FileIO` / `scandir` / `listdir`；只读白名单补
+    stdlib/sys.prefix，并在装守卫前预热白名单库（openpyxl 等在 import 期读系统配置）。
+  - **docx 短文档正文丢失（F15）**：`# 标题` 后直接跟普通段落（无 H2）时，状态机
+    把首段当封面摘要后**不再转入正文态**，后续段落全被丢弃，导出 docx 只剩封面。
+  - **话题准入从未强制（F14）**：`TopicAdmissionService` 与 admin 端策略/面板都在，
+    但 chat-api 回合路径从未调用。`DshChatService.prepare_turn()` 第一步改为
+    `gate.require(...)`（未装配即 fail-closed 抛错），`DshRuntimeApplication`
+    注入实例，桌面端回合加同一道闸门（403 `topic_admission_denied`）。
+    **注意：上线后历史遗留的 `mode=allowlist` + 空规则会让该租户所有回合被拒，
+    发布前请抽查 `topic_admission_policies`。**
+  - **测试基建**：chat-api 补 `real_mongo_db` 夹具（未配 `MONGODB_URI` 时跳过，
+    配了则每用例独立库名 + teardown 删库）与 `allow_all_topic_admission` 替身；
+    同步 6 个漂移用例（transport `sticky_key`、skill 包校验器契约、归档摘要载体、
+    准入替身签名）。admin-api **1518 passed**、chat-api **3104 passed**。
 
 ## v0.2.5 - 2026-10-23
 
@@ -643,3 +732,9 @@ image.
 - Add isolated `movo_*` Docker volumes and first-run setup.
 - Add resumable presentation generation.
 - Add source-build and prebuilt-container deployment modes.
+
+- **插件安装失败修复（2026-11-02）**：
+  - admin-api 转发路径缺少 v1 前缀导致 308 重定向 → 修复为 `/api/v1/dsh-plugins`
+  - Docker seccomp 安全配置过滤 Python 进程环境变量 → 新增 `/tmp/mogo-secrets.env` 文件传递机制
+  - chat-api 安装器使用了不支持的 `startup_timeout_seconds` 参数 → 移除该参数
+  - 验证：`dsh-ops@0.4.4` 插件安装成功

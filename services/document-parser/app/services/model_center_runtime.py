@@ -41,7 +41,7 @@ def resolve_model_instance(tenant_id: str, instance_id: str, capability: str) ->
         if not group or str(group.get("provider_id")) != str(instance.get("provider_id")):
             raise ModelCenterConfigError("模型组不可用")
         connection = group
-    api_key = decrypt_admin_secret(str(connection.get("api_key_encrypted") or ""))
+    api_key = decrypt_admin_secret(str(connection.get("api_key_encrypted") or ""))  # pragma: allowlist secret
     if not api_key:
         raise ModelCenterConfigError(f"{capability} 模型 API Key 无法解密或为空")
     return {

@@ -171,6 +171,93 @@ async def _panwei_init_backend():
     await db.close_backend()
 
 
+@pytest.fixture
+def allow_all_topic_admission():
+    """放行一切的话题准入替身。
+
+    回合装配类用例只关心装配本身，不关心准入策略；真实闸门由
+    ``test_topic_admission.py`` 覆盖。``prepare_turn`` 要求显式注入闸门
+    （缺省即视为装配错误），因此这类用例必须传一个替身。
+    """
+
+    class _AllowAll:
+        async def require(self, **_kwargs) -> None:
+            return None
+
+    return _AllowAll()
+
+
+# --- 真实 MongoDB 夹具 -------------------------------------------------------
+#
+# 少数用例（例如话题准入的真实策略读取）必须打到真库才能验证「查询被限定在
+# 当前租户」这类行为。它们曾经引用一个从未定义过的 ``real_mongo_db`` 夹具，
+# 导致整条用例在收集期就报 fixture not found。
+#
+# 本机没配 ``MONGODB_URI`` 时应当**跳过**而不是把纯逻辑套件拖成红色；配置了
+# 就每个用例开一个独立库名，teardown 删库，绝不写开发库。
+
+
+@pytest.fixture
+def real_mongo_db():
+    """返回带 ``db`` / ``run(coro)`` 的真实 MongoDB 句柄（独立测试库）。"""
+    import asyncio
+    from uuid import uuid4
+
+    uri = os.environ.get("MONGODB_URI", "").strip()
+    if not uri:
+        pytest.skip("MONGODB_URI 未配置：跳过需要真实 MongoDB 的用例")
+
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    # motor 客户端在构造时绑定当前事件循环；用例里会多次 ``asyncio.run``，
+    # 若每次各起一个循环，第二次调用就会撞上 "Event loop is closed"。
+    # 因此夹具独占一个循环，所有 run() 都复用它。
+    try:
+        previous_loop = asyncio.get_event_loop_policy().get_event_loop()
+    except RuntimeError:
+        previous_loop = None
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=3000)
+    database = client[f"mogo_test_{uuid4().hex[:12]}"]
+
+    def run(coroutine):
+        return loop.run_until_complete(coroutine)
+
+    async def _ping() -> None:
+        # motor 的 collection 方法返回 Future 而不是 coroutine，必须 await 包一层。
+        await client.admin.command("ping")
+
+    async def _drop() -> None:
+        await client.drop_database(database.name)
+
+    try:
+        run(_ping())
+    except Exception as exc:  # noqa: BLE001 - 不可达即跳过，不伪造通过
+        client.close()
+        loop.close()
+        asyncio.set_event_loop(previous_loop)
+        pytest.skip(f"MongoDB 不可达（{exc}）：跳过需要真实 MongoDB 的用例")
+
+    class _Harness:
+        db = database
+
+        @staticmethod
+        def run(coroutine):
+            return loop.run_until_complete(coroutine)
+
+    try:
+        yield _Harness()
+    finally:
+        try:
+            run(_drop())
+        finally:
+            client.close()
+            loop.close()
+            asyncio.set_event_loop(previous_loop)
+
+
 # --- DSH Runtime Host end-to-end tagging -----------------------------------
 #
 # These tests spawn the real Node Runtime Host (``dsh/runtime-host``) via

@@ -10,9 +10,10 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-# Published images are named <registry>/<service>, for example
-# ghcr.io/mogoai/admin-web. A local source build exports bare service names
-# (admin-web:latest) so local images never collide with the published ones.
+# Published and source-built images share one naming scheme:
+# <registry>/<service>, for example ghcr.io/mogoai/admin-web. A source build
+# resolves the registry from MOGO_IMAGE_REGISTRY (.env) exactly like a registry
+# deployment, so `./mogo build` produces the reference `./mogo up` looks for.
 official_registry="ghcr.io/mogoai"
 image_suffixes=(
   dsh-runtime-host
@@ -47,7 +48,7 @@ for suffix in "${image_suffixes[@]}"; do
   grep -Fxq "${official_registry}/${suffix}:latest" <<<"${prebuilt_images}"
 done
 
-# Source-build path: the CLI exports bare service names.
+# Source-build path: the CLI exports the same <registry>/<service> references.
 source_env="$(
   (
     unset MOGO_IMAGE_REGISTRY MOGO_EXPORTED_IMAGE_PREFIX MOGO_IMAGE_PREFIX MOGO_VERSION
@@ -77,8 +78,11 @@ while IFS= read -r line; do
   [[ "${suffix}" == "document-api" ]] && suffix="document-parser"
   source_images+="${value}"$'\n'
 done <<<"${source_env}"
+# A source build must address the very same references a registry deployment
+# does; a bare name here means the built image is unreachable from compose.
 for suffix in "${image_suffixes[@]}"; do
-  grep -Fxq "${suffix}:latest" <<<"${source_images}"
+  expected="${official_registry}/${suffix}:latest"
+  grep -Fxq "${expected}" <<<"${source_images}"
 done
 
 # No image name may keep the legacy `<prefix>-<service>` form, which the retired
@@ -124,8 +128,9 @@ assert_image() {
 
   unset MOGO_DOCUMENT_API_IMAGE MOGO_DOCUMENT_WORKER_IMAGE
   mogo_configure_images true
-  assert_image "${MOGO_ADMIN_WEB_IMAGE}" "admin-web:latest" "source-build admin-web image"
-  assert_image "${MOGO_DOCUMENT_API_IMAGE}" "document-parser:latest" \
+  assert_image "${MOGO_ADMIN_WEB_IMAGE}" "${official_registry}/admin-web:latest" \
+    "source-build admin-web image"
+  assert_image "${MOGO_DOCUMENT_API_IMAGE}" "${official_registry}/document-parser:latest" \
     "source-build document-parser image"
 )
 
@@ -142,6 +147,12 @@ assert_image() {
   mogo_configure_images false
   assert_image "${MOGO_CHAT_API_IMAGE}" "registry.example.com/team/chat-api:latest" \
     "MOGO_IMAGE_REGISTRY override"
+
+  # 源码构建与 registry 部署共用同一套命名，覆盖必须同样生效：否则
+  # `./mogo build` 产出的镜像会落到别的仓库名下，compose 找不到。
+  mogo_configure_images true
+  assert_image "${MOGO_CHAT_API_IMAGE}" "registry.example.com/team/chat-api:latest" \
+    "MOGO_IMAGE_REGISTRY override in source build"
 )
 
 # The retired MOGO_IMAGE_PREFIX must be ignored: its old "name prefix" meaning

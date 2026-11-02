@@ -33,6 +33,10 @@ class ProductExtension:
     shutdown: Sequence[Callable[[], Any]] = field(default_factory=tuple)
     knowledge_access_policy: Any | None = None
     shortcut_scheme_resolver: Any | None = None
+    # 人员级资源（skill / tool / plugin）可见性策略。社区版没有该 ACL，
+    # 保持 None 即「全部可见」；私有发行版可注入 filter_ids / initialize_plugin /
+    # delete_plugin 三个可选方法（见 app/product/resource_access.py 与 dsh_plugins 端点）。
+    resource_access_policy: Any | None = None
 
     def capability_payload(self) -> dict[str, object]:
         merged = dict(COMMUNITY_FEATURES)

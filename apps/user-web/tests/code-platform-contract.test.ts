@@ -138,7 +138,9 @@ assert.match(appShell, /pane\.stopping \|\| codeRuntime\.stateFor\(pane\.key\)\.
 assert.match(appShell, /projectWorkspacesLoading && !projectHistoryGroups\.length/)
 assert.match(appShell, /useEnterpriseAccessPolicy\(userProfile\)/)
 assert.match(appShell, /const supportsLocalCodeProjects = capabilities\.localDshRuntime && capabilities\.localWorkspacePicker/)
-assert.match(appShell, /!supportsLocalCodeProjects \|\| !session\.code_project\?\.workspace_id/)
+// 046 FR-011: the flat history list keys on project_id, so sessions bound to a
+// project leave the default group instead of being excluded by workspace_id.
+assert.match(appShell, /!supportsLocalCodeProjects \|\| \(session\.project_id \|\| 'default'\) === 'default'/)
 assert.match(appShell, /canUseCode && supportsLocalCodeProjects && projectHistoryGroups\.length/)
 assert.match(appShell, /v-if="canAccessAdmin\(tenant\)"/)
 assert.match(appShell, /:can-access-admin="isEnterpriseSpace && userProfile\?\.canAccessAdmin === true"/)

@@ -22,6 +22,7 @@ from .contracts import (
 from .credential_lease import KeyedAsyncLock
 from .errors import DshNotFoundError, DshProtocolError, DshTransportError
 from .event_mapper import DshEventMapper
+from .profile.plugin_runtime_recovery import profile_without_unavailable_plugins
 from .transport import KernelHostTransport
 from .turn_backpressure import TurnBackpressure
 from .temporal_context import build_temporal_context
@@ -121,17 +122,7 @@ class DshAgentKernelGateway(AgentKernelContract):
             )
             payload["modelProfile"] = model_profile
             model_instance_id = self._optional_text(model_profile, "modelInstanceId")
-        response = await self._transport.request(
-            "POST",
-            "/v1/runtimes",
-            json=payload,
-            # The isolation key travels in the JSON body, which the sticky
-            # router (nginx LB) cannot read. Pass it explicitly so the create
-            # lands on the same replica that later session calls will be routed
-            # to; without it the LB falls back to ``$request_id`` and scatters a
-            # runtime away from its own follow-up requests.
-            sticky_key=request.isolation_key,
-        )
+        response = await self._create_runtime_request(payload, request.isolation_key)
         runtime_id = self._required_text(response, "runtimeId")
         self._runtimes[runtime_id] = _RuntimeBinding(
             tenant_id=request.tenant_id,
@@ -147,6 +138,35 @@ class DshAgentKernelGateway(AgentKernelContract):
             model_instance_id=model_instance_id,
             isolation_key=self._required_text(response, "isolationKey"),
         )
+
+    async def _create_runtime_request(
+        self, payload: dict[str, Any], isolation_key: str,
+    ) -> dict[str, Any]:
+        """Create the runtime, dropping optional plugins that cannot install.
+
+        A third-party DSH plugin that fails to install must not take the whole
+        runtime (and therefore every turn) down with it: probe the plugins one
+        by one, rebuild the profile from the healthy subset and retry once.
+        """
+        try:
+            return await self._transport.request(
+                "POST",
+                "/v1/runtimes",
+                json=payload,
+                # The isolation key travels in the JSON body, which the sticky
+                # router (nginx LB) cannot read. Pass it explicitly so the create
+                # lands on the same replica that later session calls will be
+                # routed to; without it the LB falls back to ``$request_id`` and
+                # scatters a runtime away from its own follow-up requests.
+                sticky_key=isolation_key,
+            )
+        except DshTransportError as error:
+            recovered = await profile_without_unavailable_plugins(
+                self._transport, payload, error,
+            )
+            return await self._transport.request(
+                "POST", "/v1/runtimes", json=recovered, sticky_key=isolation_key,
+            )
 
     async def dispose_runtime(self, runtime_id: str) -> None:
         await self._transport.request(

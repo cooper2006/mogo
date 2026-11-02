@@ -754,27 +754,41 @@ export function useChatRuntimeStore(callbacks: RuntimeCallbacks = {}) {
   // 收到的 V3 执行事件增量应用到本地已有的 _execV3 行（幂等），控制帧
   // 触发权威刷新（重新 getSession 合并）后以 COLD_ATTACH 重新开流。
 
+  /** Carry local-only row state onto the server row so re-renders stay stable. */
+  function carryLocalRowState(msg: RuntimeMessage, prev: RuntimeMessage | undefined): RuntimeMessage {
+    if (!prev) return msg
+    if (prev._id) msg._id = prev._id // 复用 _id 防渲染闪烁
+    if (prev._execV3) msg._execV3 = prev._execV3 // 保留已应用执行事件
+    if (prev._provisionalTextByItem) msg._provisionalTextByItem = prev._provisionalTextByItem
+    return msg
+  }
+
+  function toRuntimeMessage(item: ChatMessage, prev: RuntimeMessage | undefined): RuntimeMessage {
+    const msg = ensureMessageId({
+      ...(item as RuntimeMessage),
+      role: item.role === 'user' ? 'user' : 'assistant',
+      content: item.content || '',
+    })
+    return carryLocalRowState(msg, prev)
+  }
+
+  function indexByMessageId(rows: RuntimeMessage[]): Map<string, RuntimeMessage> {
+    const index = new Map<string, RuntimeMessage>()
+    for (const row of rows) {
+      if (row.message_id) index.set(row.message_id, row)
+    }
+    return index
+  }
+
   function mergeSessionMessages(existing: RuntimeMessage[], incoming: ChatMessage[] | undefined): RuntimeMessage[] {
     if (!incoming?.length) return existing
-    const byMessageId = new Map<string, RuntimeMessage>()
-    for (const row of existing) {
-      if (row.message_id) byMessageId.set(row.message_id, row)
-    }
-    const merged: RuntimeMessage[] = []
+    const byMessageId = indexByMessageId(existing)
     const incomingIds = new Set<string>()
-    for (const item of incoming) {
+    const merged = incoming.map((item) => {
       if (item.message_id) incomingIds.add(item.message_id)
       const prev = item.message_id ? byMessageId.get(item.message_id) : undefined
-      const msg = ensureMessageId({
-        ...(item as RuntimeMessage),
-        role: item.role === 'user' ? 'user' : 'assistant',
-        content: item.content || '',
-      })
-      if (prev?._id) msg._id = prev._id // 复用 _id 防渲染闪烁
-      if (prev?._execV3) msg._execV3 = prev._execV3 // 保留已应用执行事件
-      if (prev?._provisionalTextByItem) msg._provisionalTextByItem = prev._provisionalTextByItem
-      merged.push(msg)
-    }
+      return toRuntimeMessage(item, prev)
+    })
     // 保留本地乐观/未持久化行（无 message_id 或后端暂未提及），避免刷新丢行。
     const orphans = existing.filter((row) => !row.message_id || !incomingIds.has(row.message_id))
     return orphans.length ? [...merged, ...orphans] : merged

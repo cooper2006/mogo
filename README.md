@@ -566,6 +566,11 @@ To build the images without starting the services:
 
 Source builds download Playwright, LibreOffice, Docling and model assets, so they need substantially more time and disk space than the prebuilt-image path.
 
+Both paths name images the same way — `<registry>/<service>:<tag>`, with the
+registry read from `MOGO_IMAGE_REGISTRY` in `.env` (default `ghcr.io/mogoai`).
+A source build therefore produces exactly the reference `./mogo up` looks for,
+and `./mogo up` without `--build` resolves the same tag a build just wrote.
+
 `./mogo build` skips the DSH Runtime Host, whose Compose service is gated behind
 the `single-host` profile. The Runtime Host pool reuses that same image name, so
 build it explicitly when you want it to match your working tree:

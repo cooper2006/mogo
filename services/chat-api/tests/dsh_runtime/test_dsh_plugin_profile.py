@@ -59,19 +59,20 @@ def test_uploaded_plugin_profile_carries_immutable_archive_reference(monkeypatch
     }]))
     plugins = asyncio.run(plugin_module.MongoPluginCatalog().list_enabled("tenant-a", "user-a"))
     assert plugins[0]["archive_id"] == archive_id
-    assert digest in plugin_module.plugin_versions(plugins)[0]
+    # 归档摘要是「不可变引用」的唯一载体：它进 plugin_versions，归档一变版本串就变，
+    # Runtime Profile 随之失效重建。Snapshot 本身只保存版本串（secret-free），
+    # 不持有插件明细——明细由 RuntimeProfileResolver 组装进 host payload。
+    versions = plugin_module.plugin_versions(plugins)
+    assert digest in versions[0]
     snapshot = RuntimeProfileSnapshot(
         profile_version="rp-test", content_hash="0" * 64, tenant_id="tenant-a",
         model_source_tenant_id="tenant-a", model_instance_id="model", provider_id="provider",
         provider_type="openai_compatible", provider_name="provider", model_name="model",
-        display_name="model", capabilities=(), plugins=plugins,
+        display_name="model", capabilities=(), plugin_versions=versions,
     )
-    payload = snapshot.host_payload(
-        gateway_url="http://model", access_token="token",
-        plugin_gateway_url="http://backend/internal/dsh/plugin-archives",
-    )
-    assert payload["pluginGatewayUrl"].endswith("/plugin-archives")
-    assert payload["plugins"][0]["archive_digest"] == digest
+    assert snapshot.plugin_versions == versions
+    payload = snapshot.host_payload(gateway_url="http://model", access_token="token")
+    assert payload["profileVersion"] == "rp-test"
 
 
 def test_denied_enterprise_plugin_cannot_be_restored_by_personal_same_name(monkeypatch):

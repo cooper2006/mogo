@@ -239,79 +239,98 @@ export function startSessionLiveStream(options: SessionLiveStreamOptions): Sessi
 
     const malformed = (raw: string) => { options.onMalformedFrame?.(raw) }
 
-    const dispatch = (): 'continue' | 'control' | 'revoked' => {
+    const acceptFrame = (id: string) => {
+      lastEventId = id
+      sawProgress = true
+    }
+
+    // A handler returns null when the frame is malformed for its event name;
+    // dispatch then reports it through onMalformedFrame.
+    const handleTurnStarted = (id: string | null, payload: Record<string, any>): 'continue' | null => {
+      const fields = pickStrings(payload, ['session_id', 'revision', 'run_id', 'message_id', 'initiator_user_id', 'status'])
+      if (id === null || !fields) return null
+      acceptFrame(id)
+      options.onTurnStarted?.(fields)
+      return 'continue'
+    }
+
+    const handleExecution = (id: string | null, payload: Record<string, any>): 'continue' | null => {
+      const fields = pickStrings(payload, ['session_id', 'message_id', 'event_id'])
+      const streamSeq = payload.stream_seq
+      if (id === null || !fields || typeof streamSeq !== 'number' || !isExecutionEventV3(payload.event)) return null
+      acceptFrame(id)
+      options.onExecution?.({ session_id: fields.session_id, message_id: fields.message_id, event_id: fields.event_id, stream_seq: streamSeq, event: payload.event })
+      return 'continue'
+    }
+
+    const handleTurnCompleted = (id: string | null, payload: Record<string, any>): 'continue' | null => {
+      const fields = pickStrings(payload, ['session_id', 'message_id', 'run_id', 'status', 'revision'])
+      if (id === null || !fields) return null
+      acceptFrame(id)
+      options.onTurnCompleted?.(fields)
+      return 'continue'
+    }
+
+    const handleThreadChanged = (payload: Record<string, any>): 'control' | null => {
+      const fields = pickStrings(payload, ['session_id', 'revision'])
+      const lastSeq = payload.last_message_seq
+      const reason = payload.reason
+      if (!fields || typeof lastSeq !== 'number') return null
+      if (reason !== undefined && !THREAD_CHANGED_REASONS.includes(reason)) return null
+      const event: SessionLiveThreadChangedEvent = { session_id: fields.session_id, revision: fields.revision, last_message_seq: lastSeq }
+      if (reason !== undefined) event.reason = reason
+      options.onThreadChanged?.(event)
+      return 'control'
+    }
+
+    const handleMembersChanged = (payload: Record<string, any>): 'control' | null => {
+      if (!pickStrings(payload, ['session_id', 'revision'])) return null
+      options.onMembersChanged?.(paneKey)
+      return 'control'
+    }
+
+    const handleAccessRevoked = (payload: Record<string, any>): 'revoked' | null => {
+      const fields = pickStrings(payload, ['session_id'])
+      const reason = payload.reason
+      if (!fields || (reason !== 'participant_removed' && reason !== 'participant_left')) return null
+      lastEventId = null
+      sawProgress = false
+      options.onAccessLost?.(paneKey, reason)
+      return 'revoked'
+    }
+
+    type FrameOutcome = 'continue' | 'control' | 'revoked'
+    type FrameHandler = (id: string | null, payload: Record<string, any>) => FrameOutcome | null
+
+    const frameHandlers: Record<string, FrameHandler> = {
+      'turn.started': handleTurnStarted,
+      'execution': handleExecution,
+      'turn.completed': handleTurnCompleted,
+      'thread.changed': (id, payload) => handleThreadChanged(payload),
+      'members.changed': (id, payload) => handleMembersChanged(payload),
+      'session.access.revoked': (id, payload) => handleAccessRevoked(payload),
+    }
+
+    const parsePayload = (data: string): Record<string, any> | null => {
+      if (data === '') return null
+      try {
+        const parsed = JSON.parse(data)
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+      } catch { return null }
+    }
+
+    const dispatch = (): FrameOutcome => {
       const name = eventName
       const id = frameId
       const data = dataLines.join('\n')
       const raw = rawLines.join('\n')
       resetFrame()
       if (name === null && id === null && data === '') return 'continue'
-      let payload: Record<string, any> | null = null
-      if (data !== '') {
-        try {
-          const parsed = JSON.parse(data)
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed
-        } catch { payload = null }
-      }
+      const payload = parsePayload(data)
       if (name === null || payload === null) { malformed(raw); return 'continue' }
-      switch (name) {
-        case 'turn.started': {
-          if (id === null) break
-          const fields = pickStrings(payload, ['session_id', 'revision', 'run_id', 'message_id', 'initiator_user_id', 'status'])
-          if (!fields) break
-          lastEventId = id
-          sawProgress = true
-          options.onTurnStarted?.(fields)
-          return 'continue'
-        }
-        case 'execution': {
-          const fields = pickStrings(payload, ['session_id', 'message_id', 'event_id'])
-          const streamSeq = payload.stream_seq
-          if (id === null || !fields || typeof streamSeq !== 'number' || !isExecutionEventV3(payload.event)) break
-          lastEventId = id
-          sawProgress = true
-          options.onExecution?.({ session_id: fields.session_id, message_id: fields.message_id, event_id: fields.event_id, stream_seq: streamSeq, event: payload.event })
-          return 'continue'
-        }
-        case 'turn.completed': {
-          if (id === null) break
-          const fields = pickStrings(payload, ['session_id', 'message_id', 'run_id', 'status', 'revision'])
-          if (!fields) break
-          lastEventId = id
-          sawProgress = true
-          options.onTurnCompleted?.(fields)
-          return 'continue'
-        }
-        case 'thread.changed': {
-          const fields = pickStrings(payload, ['session_id', 'revision'])
-          const lastSeq = payload.last_message_seq
-          const reason = payload.reason
-          if (!fields || typeof lastSeq !== 'number') break
-          if (reason !== undefined && !THREAD_CHANGED_REASONS.includes(reason)) break
-          const event: SessionLiveThreadChangedEvent = { session_id: fields.session_id, revision: fields.revision, last_message_seq: lastSeq }
-          if (reason !== undefined) event.reason = reason
-          options.onThreadChanged?.(event)
-          return 'control'
-        }
-        case 'members.changed': {
-          if (!pickStrings(payload, ['session_id', 'revision'])) break
-          options.onMembersChanged?.(paneKey)
-          return 'control'
-        }
-        case 'session.access.revoked': {
-          const fields = pickStrings(payload, ['session_id'])
-          const reason = payload.reason
-          if (!fields || (reason !== 'participant_removed' && reason !== 'participant_left')) break
-          lastEventId = null
-          sawProgress = false
-          options.onAccessLost?.(paneKey, reason)
-          return 'revoked'
-        }
-        default:
-          break
-      }
-      malformed(raw)
-      return 'continue'
+      const outcome = frameHandlers[name]?.(id, payload) ?? null
+      if (outcome === null) { malformed(raw); return 'continue' }
+      return outcome
     }
 
     const processLine = (line: string): 'continue' | 'control' | 'revoked' => {
@@ -352,54 +371,55 @@ export function startSessionLiveStream(options: SessionLiveStreamOptions): Sessi
     return outcome
   }
 
+  /** One connect-and-read attempt. 'stop' exits the pump loop for good. */
+  const runStreamAttempt = async (): Promise<'stop' | 'reopen' | 'retry'> => {
+    const ctrl = new AbortController()
+    controller = ctrl
+    let response: Response
+    try {
+      response = await fetchImpl(buildUrl(), { method: 'GET', headers: buildHeaders(), signal: ctrl.signal })
+    } catch {
+      controller = null
+      return stopped ? 'stop' : 'retry'
+    }
+    notifyAuthExpiredFromResponse(response, Boolean(options.authToken))
+    if (!response.ok) {
+      controller = null
+      if (response.status >= RETRYABLE_STATUS_FLOOR) return 'retry'
+      options.onError?.(new SessionLiveHttpError(response.status))
+      settleDone()
+      return 'stop'
+    }
+    if (!response.body) {
+      controller = null
+      return 'retry'
+    }
+    afterCursor = null
+    const outcome = await readFrames(response.body)
+    controller = null
+    if (sawProgress) {
+      failureStreak = 0
+      sawProgress = false
+    }
+    if (outcome === 'revoked') {
+      revoked = true
+      settleDone()
+      return 'stop'
+    }
+    if (outcome === 'control') return 'stop'
+    if (stopped) return 'stop'
+    return reopenRequested ? 'reopen' : 'retry'
+  }
+
   const pump = async () => {
     if (loopActive || stopped || revoked) return
     loopActive = true
     try {
       while (!stopped && !revoked) {
         reopenRequested = false
-        const ctrl = new AbortController()
-        controller = ctrl
-        let response: Response
-        try {
-          response = await fetchImpl(buildUrl(), { method: 'GET', headers: buildHeaders(), signal: ctrl.signal })
-        } catch {
-          controller = null
-          if (stopped) break
-          await waitBeforeRetry()
-          continue
-        }
-        notifyAuthExpiredFromResponse(response, Boolean(options.authToken))
-        if (!response.ok) {
-          controller = null
-          if (response.status >= RETRYABLE_STATUS_FLOOR) {
-            await waitBeforeRetry()
-            continue
-          }
-          options.onError?.(new SessionLiveHttpError(response.status))
-          settleDone()
-          break
-        }
-        if (!response.body) {
-          controller = null
-          await waitBeforeRetry()
-          continue
-        }
-        afterCursor = null
-        const outcome = await readFrames(response.body)
-        controller = null
-        if (sawProgress) {
-          failureStreak = 0
-          sawProgress = false
-        }
-        if (outcome === 'revoked') {
-          revoked = true
-          settleDone()
-          break
-        }
-        if (outcome === 'control') break
-        if (stopped) break
-        if (reopenRequested) continue
+        const outcome = await runStreamAttempt()
+        if (outcome === 'stop') break
+        if (outcome === 'reopen') continue
         await waitBeforeRetry()
       }
     } finally {

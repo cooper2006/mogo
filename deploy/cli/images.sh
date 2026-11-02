@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 
 MOGO_COMPOSE_BUILD=false
-# Published images are named <registry>/<service> (ghcr.io/mogoai/admin-web).
-# A local source build keeps the bare service name (admin-web:latest) so local
-# images never collide with the published ones.
+# Every image -- published or built from source -- is named <registry>/<service>
+# (ghcr.io/mogoai/admin-web). The registry is read from MOGO_IMAGE_REGISTRY in
+# .env, falling back to the official one below. One naming scheme means a local
+# `./mogo build` produces exactly the reference `./mogo up` looks for, the same
+# reference a registry deployment pulls, and the same one the container-hardening
+# tests resolve.
 MOGO_DEFAULT_IMAGE_REGISTRY=ghcr.io/mogoai
 MOGO_IMAGE_SERVICES=(
   MOGO_DSH_RUNTIME_HOST_IMAGE:dsh-runtime-host
@@ -122,8 +125,9 @@ mogo_export_shared_document_image() {
   export MOGO_DOCUMENT_API_IMAGE MOGO_DOCUMENT_WORKER_IMAGE
 }
 
-# Publish one complete image reference per service. The registry is empty for a
-# source build, which is what yields the bare admin-web:latest style names.
+# Publish one complete image reference per service. A source build resolves the
+# registry exactly like a registry deployment does, so both yield the
+# <registry>/<service>:<tag> form (ghcr.io/mogoai/admin-web:bf5000d1).
 mogo_export_service_images() {
   local entry var service
   for entry in "${MOGO_IMAGE_SERVICES[@]}"; do
@@ -166,11 +170,15 @@ mogo_configure_images() {
   export MOGO_VERSION
 
   if [[ "${source_build}" == "true" ]]; then
-    # Local source build: bare service names (admin-web:latest), so they never
-    # collide with the published images.
+    # A source build adds the build file to the compose invocation; the image
+    # *names* stay identical to a registry deployment (same registry, same
+    # <registry>/<service>:<tag> form). Keeping them distinct used to leave a
+    # locally built chat-api:bf5000d1 next to the ghcr.io/mogoai/chat-api that
+    # compose actually references, so the build produced images nothing could
+    # find.
     MOGO_COMPOSE_BUILD=true
-    MOGO_EXPORTED_IMAGE_PREFIX=""
-  elif [[ -n "${configured_registry}" ]]; then
+  fi
+  if [[ -n "${configured_registry}" ]]; then
     MOGO_EXPORTED_IMAGE_PREFIX="${configured_registry%/}/"
   else
     MOGO_EXPORTED_IMAGE_PREFIX="${MOGO_DEFAULT_IMAGE_REGISTRY%/}/"

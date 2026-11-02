@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from app.dsh_runtime.chat_service import DshChatService
 
 
-def test_completed_conversation_turn_uses_the_newly_selected_model_binding() -> None:
+def test_completed_conversation_turn_uses_the_newly_selected_model_binding(allow_all_topic_admission) -> None:
     async def run() -> None:
         current = {
             "binding_id": "binding-a",
@@ -83,6 +83,7 @@ def test_completed_conversation_turn_uses_the_newly_selected_model_binding() -> 
             events=SimpleNamespace(),
             profiles=Profiles(),  # type: ignore[arg-type]
             kernel_version="test",
+            topic_admission=allow_all_topic_admission,
         )
 
         async def finish_immediately(**_kwargs):

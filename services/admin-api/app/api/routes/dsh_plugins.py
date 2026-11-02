@@ -28,7 +28,7 @@ class EnabledRequest(BaseModel):
 
 def _forward(method: str, path: str, tenant_id: str, body: dict | None = None):
     base = str(settings.backend_base_url).rstrip("/")
-    url = f"{base}/api/dsh-plugins/organization{path}?{urllib.parse.urlencode({'tenantId': tenant_id})}"
+    url = f"{base}/api/v1/dsh-plugins/organization{path}?{urllib.parse.urlencode({'tenantId': tenant_id})}"
     headers = {"Accept": "application/json", "X-MOGO-Service-Token": settings.backend_service_token}
     data = None
     if body is not None:
@@ -56,7 +56,7 @@ def _forward_upload(tenant_id: str, filename: str, content: bytes):
         'Content-Type: application/gzip\r\n\r\n'
     ).encode() + content + f'\r\n--{boundary}--\r\n'.encode()
     base = str(settings.backend_base_url).rstrip("/")
-    url = f"{base}/api/dsh-plugins/organization/upload?{urllib.parse.urlencode({'tenantId': tenant_id})}"
+    url = f"{base}/api/v1/dsh-plugins/organization/upload?{urllib.parse.urlencode({'tenantId': tenant_id})}"
     request = urllib.request.Request(url, data=body, method="POST", headers={
         "Accept": "application/json",
         "X-MOGO-Service-Token": settings.backend_service_token,

@@ -37,6 +37,7 @@ from app.enterprise_capabilities.delivery import AuthoritativeDeliveryRepository
 from app.enterprise_capabilities.runtime import InternalCapabilityCatalog, InternalCapabilityService
 from app.enterprise_capabilities.runtime.adapters import build_default_registry
 from app.governance.position_policy import MongoEmployeePolicyResolver
+from app.governance.topic_admission import TopicAdmissionService
 from app.services.presentation.execution import PresentationJobRepository
 
 
@@ -50,6 +51,8 @@ class DshRuntimeApplication:
         self.model_gateway: ModelGatewayService | None = None
         self.desktop_bootstrap: DesktopRuntimeBootstrapService | None = None
         self.desktop_bindings: DesktopCodeBindingService | None = None
+        # 组织级话题准入闸门：服务端回合与桌面回合都必须在模型调用前经过它。
+        self.topic_admission: TopicAdmissionService | None = None
         self.host_healthy = False
         self.host_health_details: list[dict[str, Any]] = []
 
@@ -133,6 +136,7 @@ class DshRuntimeApplication:
                 redis_url=settings.DSH_KERNEL_REDIS_URL or None,
             )
         )
+        self.topic_admission = TopicAdmissionService(db)
         self.chat = DshChatService(
             gateway=gateway,
             coordinator=RuntimeCoordinator(
@@ -155,6 +159,7 @@ class DshRuntimeApplication:
             turn_events=turn_events,
             execution_evidence=execution_evidence,
             authoritative_deliveries=authoritative_deliveries,
+            topic_admission=self.topic_admission,
         )
 
     async def stop(self) -> None:
@@ -167,6 +172,7 @@ class DshRuntimeApplication:
         self.model_gateway = None
         self.desktop_bootstrap = None
         self.desktop_bindings = None
+        self.topic_admission = None
         self._transport = None
         self.host_healthy = False
 

@@ -16,6 +16,7 @@
         "format:check": "prettier --check src/",
         "test:execution-v3": "mkdir -p node_modules/.tmp && esbuild tests/execution-v3-store.test.ts --bundle --platform=node --format=esm --inject:tests/_dom_setup.ts --external:jsdom --outfile=node_modules/.tmp/askai-execution-v3-test.mjs && node node_modules/.tmp/askai-execution-v3-test.mjs",
         "test:session-ordering": "esbuild tests/session-ordering.test.ts --bundle --platform=node --format=esm --outfile=/tmp/askai-session-ordering-test.mjs && node /tmp/askai-session-ordering-test.mjs",
+        "test:session-live-stream": "esbuild tests/session-live-stream.test.ts --bundle --platform=node --format=esm --outfile=/tmp/mogo-session-live-stream-test.mjs && node /tmp/mogo-session-live-stream-test.mjs",
         "test:chat-cancellation": "esbuild tests/chat-cancellation-contract.test.ts --bundle --platform=node --format=esm --outfile=/tmp/mogo-chat-cancellation-test.mjs && node /tmp/mogo-chat-cancellation-test.mjs",
         "test:user-bound-projects": "esbuild tests/user-bound-projects.test.ts --bundle --platform=node --format=esm --outfile=/tmp/askai-user-bound-projects-test.mjs && node /tmp/askai-user-bound-projects-test.mjs",
         "test:new-session-project-context": "esbuild tests/new-session-project-context.test.ts --bundle --platform=node --format=esm --outfile=/tmp/mogo-new-session-project-context-test.mjs && node /tmp/mogo-new-session-project-context-test.mjs",

@@ -69,8 +69,12 @@ REQUIRED_ROOT_FILES = (
 #   5. 2 个 certbot 卷（certbot-webroot / certbot-etc，024 T090 证书值班）
 #   6. 1 个 redis-data + 1 个 weaviate-data（基础中间件数据卷）
 #   7. 1 个 dsh-runtime-data（单节点默认拓扑基线卷）
-# 合计 20。Bump 此常量并在此登记来源，每当 docker-compose.yml 增减物理卷时同步。
-EXPECTED_MOGO_VOLUMES = 20
+#   8. 1 个 sandbox-workspaces（P0-P2 沙箱工作区卷，port-movo 批次接入；在
+#      docker-compose.yml 中以「内联前缀」形式出现 3 次——1 处卷定义 + 2 处
+#      服务挂载，故按前缀出现次数计 +3；distinct 物理卷 21 个）
+# 合计 23（distinct 物理卷 21，按前缀出现次数计 23）。Bump 此常量并在此登记
+# 来源，每当 docker-compose.yml 增减物理卷时同步。
+EXPECTED_MOGO_VOLUMES = 23
 # A physical volume name is ``<prefix>_<suffix>``, where the prefix is spelled
 # ``${MOGO_VOLUME_PREFIX:-mogo}`` — the transitional fallback chain that also
 # honoured a legacy prefix default has been retired, so ``MOGO_`` is the only

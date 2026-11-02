@@ -50,34 +50,46 @@ watch(() => props.model?.capabilities, (capabilities) => {
   }
 });
 
+function imageSettingsAreValid(): boolean {
+  if (!imageModel.value || form.value.runtimeKind !== 'custom_images') return true;
+  try {
+    const parsed = JSON.parse(String(form.value.imageSettings.extraParamsJson || '{}').trim() || '{}');
+    return Boolean(parsed) && !Array.isArray(parsed) && typeof parsed === 'object';
+  } catch { return false; }
+}
+
+function buildPayload(): ModelInstancePayload {
+  const modelName = form.value.modelName.trim();
+  return {
+    providerId: props.group.providerId, groupId: props.group.id, orgId: props.model?.orgId || '',
+    displayName: form.value.displayName.trim() || modelName, modelName,
+    baseUrl: props.group.baseUrl, apiVersion: props.group.apiVersion, apiKey: '',
+    capabilities: [...form.value.capabilities],
+    runtimeKind: imageModel.value ? form.value.runtimeKind : '', imageSettings: imageModel.value ? { ...form.value.imageSettings } : {},
+    maxContextTokens: props.model?.maxContextTokens || 0, status: form.value.status,
+    isDefault: props.model?.isDefault || false, priority: props.model?.priority || 100,
+    pricing: form.value.pricing,
+  };
+}
+
+async function saveAccess(saved: ModelInstanceItem): Promise<boolean> {
+  if (!selectable.value || !extension) return true;
+  try { await extension.save(saved.id, access.value); return true; }
+  catch (error) { message.error(`${t('modelGroup.memberSavedAccessFailed')}: ${modelApiErrorText(error)}`); return false; }
+}
+
 async function save() {
   const warning = selectable.value ? extension?.validate?.(access.value) : null;
   if (warning) { message.warning(t(warning)); return; }
   if (!form.value.modelName.trim() || !form.value.capabilities.length) { message.warning(t('modelGroup.memberRequired')); return; }
-  if (imageModel.value && form.value.runtimeKind === 'custom_images') {
-    try {
-      const parsed = JSON.parse(String(form.value.imageSettings.extraParamsJson || '{}').trim() || '{}');
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error();
-    } catch { message.warning(t('legacy.enter_a_valid_json_object')); return; }
-  }
+  if (!imageSettingsAreValid()) { message.warning(t('legacy.enter_a_valid_json_object')); return; }
   saving.value = true;
   try {
-    const payload: ModelInstancePayload = {
-      providerId: props.group.providerId, groupId: props.group.id, orgId: props.model?.orgId || '',
-      displayName: form.value.displayName.trim() || form.value.modelName.trim(), modelName: form.value.modelName.trim(),
-      baseUrl: props.group.baseUrl, apiVersion: props.group.apiVersion, apiKey: '',
-      capabilities: [...form.value.capabilities],
-      runtimeKind: imageModel.value ? form.value.runtimeKind : '', imageSettings: imageModel.value ? { ...form.value.imageSettings } : {},
-      maxContextTokens: props.model?.maxContextTokens || 0, status: form.value.status,
-      isDefault: props.model?.isDefault || false, priority: props.model?.priority || 100,
-      pricing: form.value.pricing,
-    };
+    const payload = buildPayload();
     const saved = props.model ? await updateModelInstance(props.model.id, payload) : await createModelInstance(payload);
-    if (selectable.value && extension) {
-      try { await extension.save(saved.id, access.value); }
-      catch (error) { message.error(`${t('modelGroup.memberSavedAccessFailed')}: ${modelApiErrorText(error)}`); emit('saved', saved); return; }
-    }
+    const accessSaved = await saveAccess(saved);
     emit('saved', saved);
+    if (!accessSaved) return;
     message.success(t('modelGroup.memberSaved'));
   } catch (error) { message.error(modelApiErrorText(error)); }
   finally { saving.value = false; }
@@ -124,14 +136,14 @@ async function remove() {
 </template>
 
 <style scoped>
-.member-row { border: 1px solid #e3e9f2; border-radius: 9px; background: #fff; }
+.member-row { border: 1px solid var(--mg-border); border-radius: 9px; background: var(--mg-bg-surface); }
 .member-head, .member-actions { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
 .member-toggle { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; border: 0; background: none; text-align: left; cursor: pointer; }
 .member-toggle > span { min-width: 0; }
-.member-icon { flex: none; color: #6384c5; }
+.member-icon { flex: none; color: var(--mg-brand); }
 .member-toggle strong, .member-toggle small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.member-toggle small { color: #728097; }
-.member-fields { padding: 4px 14px 14px; border-top: 1px solid #edf0f5; }
+.member-toggle small { color: var(--mg-text-3); }
+.member-fields { padding: 4px 14px 14px; border-top: 1px solid var(--mg-border-subtle); }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
 .member-actions { justify-content: flex-end; padding: 8px 0 0; }
 @media (max-width: 720px) { .field-grid { grid-template-columns: 1fr; } }

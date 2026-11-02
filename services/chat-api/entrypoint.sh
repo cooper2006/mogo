@@ -8,7 +8,29 @@ load_runtime_secrets() {
     # shellcheck disable=SC1090
     source "${secret_file}"
     set +a
+    
+    # Write critical tokens to a readable temp file for Python processes.
+    # Docker security profiles may filter os.environ and clear /proc/1/environ,
+    # so we write secrets to /tmp where the process has write access.
+    if command -v grep >/dev/null 2>&1; then
+      grep -E "^(ADMIN_BACKEND_SERVICE_TOKEN|ASKAI_ADMIN_BACKEND_SERVICE_TOKEN)=" "${secret_file}" > "/tmp/mogo-secrets.env" 2>/dev/null || true
+      chmod 644 "/tmp/mogo-secrets.env" 2>/dev/null || true
+    fi
   fi
+}
+
+# 系统依赖（fontconfig / wqy 字体 / noto emoji）与 Chromium 已在构建阶段装进镜像
+# （Dockerfile 的 apt bundle 与 `playwright install chromium`），运行时安装属于可选的
+# 覆盖手段：镜像以非 root（appuser/uid 10001）运行，apt 需要 root，默认开启必然失败。
+# 因此默认关闭；确需在启动期补装时显式传 AUTO_INSTALL_*_ON_START=true 并以 root 运行。
+#
+# `--read-only` 容器（022 T029 硬化基线）无法在启动时改写 /etc 或安装系统包。
+# 探测根挂载点是否为 ro：与「权限不足」区分开——前者应跳过，后者仍按
+# REQUIRE_RUNTIME_PREPARE_SUCCESS 的约定硬失败。
+rootfs_is_read_only() {
+  local opts
+  opts="$(awk '$2 == "/" { print $4; exit }' /proc/mounts 2>/dev/null || true)"
+  [[ ",${opts}," == *,ro,* ]]
 }
 
 prepare_apt_mirror() {
@@ -23,7 +45,12 @@ prepare_apt_mirror() {
 }
 
 install_system_deps_on_start() {
-  if [[ "${AUTO_INSTALL_SYSTEM_DEPS_ON_START:-true}" != "true" ]]; then
+  if rootfs_is_read_only; then
+    echo "[entrypoint] Skip system deps install (read-only root filesystem)"
+    return 0
+  fi
+
+  if [[ "${AUTO_INSTALL_SYSTEM_DEPS_ON_START:-false}" != "true" ]]; then
     echo "[entrypoint] Skip system deps install (AUTO_INSTALL_SYSTEM_DEPS_ON_START != true)"
     return 0
   fi
@@ -54,7 +81,12 @@ install_system_deps_on_start() {
 }
 
 install_playwright_on_start() {
-  if [[ "${AUTO_INSTALL_PLAYWRIGHT_ON_START:-true}" != "true" ]]; then
+  if rootfs_is_read_only; then
+    echo "[entrypoint] Skip playwright install (read-only root filesystem)"
+    return 0
+  fi
+
+  if [[ "${AUTO_INSTALL_PLAYWRIGHT_ON_START:-false}" != "true" ]]; then
     echo "[entrypoint] Skip playwright install (AUTO_INSTALL_PLAYWRIGHT_ON_START != true)"
     return 0
   fi
