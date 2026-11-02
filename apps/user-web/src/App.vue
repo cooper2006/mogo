@@ -11,7 +11,6 @@ import DesktopWindowChrome from './components/desktop/DesktopWindowChrome.vue'
 import DesktopServerSetup from './components/desktop/DesktopServerSetup.vue'
 import type { DesktopToolLauncherKind } from './components/desktop/desktopToolTabs'
 import CreateProjectDialog from './components/code/CreateProjectDialog.vue'
-import ProjectManager from './components/project/ProjectManager.vue'
 import { exchangePortalTicket, fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
 import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
 import { activateEmbeddedBrowserSession, capabilities, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, isFileSystemAccessSupported, renameDshWorkspace } from './platform'
@@ -328,6 +327,51 @@ const projectHistoryGroups = computed(() => {
       }
     })
 })
+const DEFAULT_PROJECT_ID = 'default'
+// 统一侧边栏：把服务端项目（userBoundProjects.workspaces）与本地会话按
+// project_id 合并为「项目 → 其下会话」的两层结构；未归属项目的会话
+//（project_id 为 'default'）归集到一个虚拟「默认工作区」节点，对应 DSH
+// 桌面端的默认项目概念。
+const unifiedProjectGroups = computed(() => {
+  if (!canUseCode.value) return []
+  const groups = new Map<string, { id: string; title: string; status: string; updatedAt: string; sessions: SessionSummary[] }>()
+  for (const ws of projectWorkspaces.value) {
+    groups.set(ws.workspace_id, {
+      id: ws.workspace_id,
+      title: workspaceTitles.value[ws.workspace_id] || ws.title,
+      status: ws.status,
+      updatedAt: ws.updated_at || '',
+      sessions: [],
+    })
+  }
+  for (const session of sessions.value) {
+    const pid = session.project_id || DEFAULT_PROJECT_ID
+    let group = groups.get(pid)
+    if (!group) {
+      const title = pid === DEFAULT_PROJECT_ID
+        ? (locale.value === 'en' ? 'Default Workspace' : '默认工作区')
+        : (workspaceTitles.value[pid] || `${locale.value === 'en' ? 'Project' : '项目'} · ${pid.slice(0, 8)}`)
+      group = { id: pid, title, status: 'ok', updatedAt: session.updated_at || '', sessions: [] }
+      groups.set(pid, group)
+    }
+    group.sessions.push(session)
+    if ((session.updated_at || '') > group.updatedAt) group.updatedAt = session.updated_at || ''
+  }
+  if (!groups.has(DEFAULT_PROJECT_ID)) {
+    groups.set(DEFAULT_PROJECT_ID, {
+      id: DEFAULT_PROJECT_ID,
+      title: locale.value === 'en' ? 'Default Workspace' : '默认工作区',
+      status: 'ok', updatedAt: '', sessions: [],
+    })
+  }
+  for (const group of groups.values()) group.sessions = sortSessionsByRecentActivity(group.sessions)
+  return [...groups.values()].sort((left, right) => {
+    if (left.id === DEFAULT_PROJECT_ID) return 1
+    if (right.id === DEFAULT_PROJECT_ID) return -1
+    return right.updatedAt.localeCompare(left.updatedAt)
+  })
+})
+
 const chatRuntime = useChatRuntimeStore({
   onSessionResolved: (sessionId) => {
     if (!sessions.value.some((item) => item.id === sessionId)) {
@@ -409,11 +453,6 @@ function openProjectCreate(targetKey: string | null): void {
   createProjectOpen.value = true
 }
 
-
-// Web 版项目管理：创建项目后刷新列表
-function handleProjectCreated(project: any): void {
-  userBoundProjects.refresh()
-}
 
 function closeProjectCreate(): void {
   createProjectOpen.value = false
@@ -2363,16 +2402,22 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <!-- Scripts Section -->
-      <button
-        type="button"
+      <!-- Workspace Section：项目为顶层分组，会话缩进在项目下 -->
+      <div
         class="group mt-2 flex w-full items-center gap-1 px-5 pb-1 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400"
-        :aria-expanded="normalHistoryExpanded"
-        @click="normalHistoryExpanded = !normalHistoryExpanded"
       >
-        <span>{{ locale === 'en' ? 'Conversations' : '普通对话' }}</span>
-        <svg class="h-3.5 w-3.5 opacity-100 transition-transform duration-150" :class="normalHistoryExpanded ? 'rotate-90' : ''" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 3 5 5-5 5"/></svg>
-      </button>
+        <span>{{ locale === 'en' ? 'Workspace' : '工作区' }}</span>
+        <span
+          v-if="canUseCode && capabilities.localWorkspacePicker"
+          class="ml-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded text-blue-600 hover:bg-blue-50"
+          role="button" tabindex="0"
+          :aria-label="locale === 'en' ? 'New project' : '新建项目'"
+          :title="locale === 'en' ? 'New project' : '新建项目'"
+          @click.stop="createProject"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+        </span>
+      </div>
       <div class="flex-1 overflow-y-auto px-3 space-y-1 custom-scrollbar history-scrollbar">
         <div
           v-if="sessionsLoading"
@@ -2380,82 +2425,93 @@ onBeforeUnmount(() => {
         >
           {{ t('app.sidebar.loading_history') }}
         </div>
-        <div
-          v-for="session in normalHistoryExpanded ? historyItems : []"
-          :key="session.id"
-          class="group w-full text-left px-2.5 py-1.5 rounded-lg transition-all border border-transparent"
-          :class="session.id === currentSessionId && currentView === 'chat' 
-            ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' 
-            : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'"
-          @click="editingSessionId !== session.id && selectSession(session.id)"
-          @keydown.enter.prevent="editingSessionId !== session.id && selectSession(session.id)"
-          @keydown.space.prevent="editingSessionId !== session.id && selectSession(session.id)"
-          role="button"
-          tabindex="0"
-        >
-          <div class="flex min-w-0 items-center gap-2">
-            <n-input
-              v-if="editingSessionId === session.id"
-              v-model:value="editingSessionTitle"
-              size="small"
-              class="min-w-0 flex-1"
-              :data-session-title-input="session.id"
-              :disabled="renamingSessionId === session.id"
-              @click.stop
-              @dblclick.stop
-              @blur="commitSessionTitleEdit(session)"
-              @keydown.enter.prevent="commitSessionTitleEdit(session)"
-              @keydown.esc.prevent="cancelSessionTitleEdit"
-            />
-            <div
-              v-else
-              class="min-w-0 flex-1 text-[13px] truncate"
-              :title="displaySessionTitle(session)"
-              @dblclick.stop="startEditSessionTitle(session)"
-            >
-              {{ compactSessionTitle(session) }}
+        <template v-for="group in unifiedProjectGroups" :key="group.id">
+          <button
+            type="button"
+            class="group flex w-full min-w-0 items-center gap-1.5 px-2 py-1 text-left text-xs font-semibold text-slate-500 hover:text-slate-700"
+            :title="group.title"
+            @click="toggleProjectHistory(group.id)"
+          >
+            <svg v-if="projectHistoryExpanded(group.id)" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg>
+            <svg v-else class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5"/></svg>
+            <span class="truncate">{{ group.title }}</span>
+            <span class="ml-auto text-[10px] font-normal text-slate-400">{{ group.sessions.length }}</span>
+          </button>
+          <div
+            v-for="session in (projectHistoryExpanded(group.id) ? group.sessions : [])"
+            :key="session.id"
+            class="group w-full text-left pl-5 pr-2.5 py-1.5 rounded-lg transition-all border border-transparent"
+            :class="session.id === currentSessionId && currentView === 'chat' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'"
+            @click="editingSessionId !== session.id && selectSession(session.id)"
+            @keydown.enter.prevent="editingSessionId !== session.id && selectSession(session.id)"
+            @keydown.space.prevent="editingSessionId !== session.id && selectSession(session.id)"
+            role="button"
+            tabindex="0"
+          >
+            <div class="flex min-w-0 items-center gap-2">
+              <n-input
+                v-if="editingSessionId === session.id"
+                v-model:value="editingSessionTitle"
+                size="small"
+                class="min-w-0 flex-1"
+                :data-session-title-input="session.id"
+                :disabled="renamingSessionId === session.id"
+                @click.stop
+                @dblclick.stop
+                @blur="commitSessionTitleEdit(session)"
+                @keydown.enter.prevent="commitSessionTitleEdit(session)"
+                @keydown.esc.prevent="cancelSessionTitleEdit"
+              />
+              <div
+                v-else
+                class="min-w-0 flex-1 text-[13px] truncate"
+                :title="displaySessionTitle(session)"
+                @dblclick.stop="startEditSessionTitle(session)"
+              >
+                {{ compactSessionTitle(session) }}
+              </div>
+              <span
+                v-if="sessionNeedsHumanAssistance(session.id)"
+                class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                :aria-label="t('app.sidebar.session_needs_assistance')"
+                :title="t('app.sidebar.session_needs_assistance')"
+              >
+                {{ t('app.sidebar.session_needs_assistance_short') }}
+              </span>
+              <div
+                v-else-if="sessionScheduledIsRunning(session.id)"
+                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600"
+                aria-label="定时任务正在运行"
+                title="定时任务正在运行"
+              >
+                <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              </div>
+              <div
+                v-else-if="sessionIsRunning(session.id)"
+                class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50"
+                :aria-label="t('app.sidebar.session_running')"
+                :title="t('app.sidebar.session_running')"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+              </div>
+              <span
+                v-else-if="sessionIsUnread(session.id)"
+                class="h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                :aria-label="t('app.sidebar.session_unread')"
+                :title="t('app.sidebar.session_unread')"
+              ></span>
+              <button
+                type="button"
+                class="shrink-0 overflow-hidden rounded-md p-0 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-red-500 group-hover:w-6 group-hover:p-1 group-hover:opacity-100"
+                :class="deletingSessionId === session.id ? 'w-6 !p-1 !opacity-100 text-red-500' : 'w-0'"
+                :disabled="deletingSessionId === session.id"
+                @click.stop="handleDeleteSession(session.id)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+              </button>
             </div>
-            <span
-              v-if="sessionNeedsHumanAssistance(session.id)"
-              class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
-              :aria-label="t('app.sidebar.session_needs_assistance')"
-              :title="t('app.sidebar.session_needs_assistance')"
-            >
-              {{ t('app.sidebar.session_needs_assistance_short') }}
-            </span>
-            <div
-              v-else-if="sessionScheduledIsRunning(session.id)"
-              class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600"
-              aria-label="定时任务正在运行"
-              title="定时任务正在运行"
-            >
-              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-            </div>
-            <div
-              v-else-if="sessionIsRunning(session.id)"
-              class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-50"
-              :aria-label="t('app.sidebar.session_running')"
-              :title="t('app.sidebar.session_running')"
-            >
-              <span class="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-            </div>
-            <span
-              v-else-if="sessionIsUnread(session.id)"
-              class="h-2 w-2 shrink-0 rounded-full bg-blue-500"
-              :aria-label="t('app.sidebar.session_unread')"
-              :title="t('app.sidebar.session_unread')"
-            ></span>
-            <button
-              type="button"
-              class="shrink-0 overflow-hidden rounded-md p-0 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-red-500 group-hover:w-6 group-hover:p-1 group-hover:opacity-100"
-              :class="deletingSessionId === session.id ? 'w-6 !p-1 !opacity-100 text-red-500' : 'w-0'"
-              :disabled="deletingSessionId === session.id"
-              @click.stop="handleDeleteSession(session.id)"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-            </button>
           </div>
-        </div>
+        </template>
         <!-- P3 三期-a：分享给我的会话，跟随普通会话之后、项目分区之前。 -->
         <template v-if="sharedSessions.length">
           <button
@@ -2508,51 +2564,18 @@ onBeforeUnmount(() => {
             {{ sharedSessionsLoadingMore ? t('ui.loading') : t('app.sidebar.load_more') }}
           </button>
         </template>
-        <!-- Web 版项目管理（046：不依赖桌面本地工作区，走服务端 projects 集合） -->
-        <section v-if="canUseCode && !supportsLocalCodeProjects" class="mt-5">
-          <div class="group flex items-center justify-between px-2 text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">
-            <span>{{ locale === 'en' ? 'Projects' : '项目' }}</span>
-            <button v-if="canUseCode && capabilities.localWorkspacePicker" type="button" class="flex h-4 w-4 items-center justify-center rounded text-blue-600 opacity-0 transition-opacity hover:bg-blue-50 group-hover:opacity-100" :aria-label="locale === 'en' ? 'Create project' : '创建项目'" :title="locale === 'en' ? 'Create project' : '创建项目'" @click="createProject"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>
-          </div>
-          <ProjectManager
-            :auth-token="authToken"
-            :can-create="true"
-            @project-created="handleProjectCreated"
-          />
-        </section>
-        <div v-if="canUseCode && supportsLocalCodeProjects && projectWorkspacesLoading && !projectHistoryGroups.length" class="mt-5 flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
+        <div v-if="canUseCode && projectWorkspacesLoading && !unifiedProjectGroups.length" class="mt-5 flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></span>
           <span>{{ locale === 'en' ? 'Loading projects' : '正在加载项目' }}</span>
         </div>
-        <section v-else-if="canUseCode && supportsLocalCodeProjects && projectHistoryGroups.length" class="mt-5 space-y-3" aria-label="项目对话">
-          <div class="group flex items-center justify-between px-2 text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">
-            <span>{{ locale === 'en' ? 'Projects' : '项目' }}</span>
-            <button v-if="canUseCode && capabilities.localWorkspacePicker" type="button" class="flex h-4 w-4 items-center justify-center rounded text-blue-600 opacity-0 transition-opacity hover:bg-blue-50 group-hover:opacity-100" :aria-label="locale === 'en' ? 'Create project' : '创建项目'" :title="locale === 'en' ? 'Create project' : '创建项目'" @click="createProject"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>
-          </div>
-          <section v-for="group in projectHistoryGroups" :key="group.workspaceId" class="space-y-0.5">
-            <button type="button" class="group flex w-full min-w-0 items-center gap-1.5 px-2 py-1 text-left text-xs font-semibold text-slate-500" :aria-expanded="projectHistoryExpanded(group.workspaceId)" :title="group.title" @click="toggleProjectHistory(group.workspaceId)">
-              <svg v-if="projectHistoryExpanded(group.workspaceId)" class="h-4 w-4 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg>
-              <svg v-else class="h-4 w-4 shrink-0 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5"/></svg>
-              <span class="truncate">{{ group.title }}</span>
-            </button>
-            <button
-              v-for="session in projectHistoryExpanded(group.workspaceId) ? group.items : []"
-              :key="session.id"
-              type="button"
-              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-all"
-              :class="session.id === currentSessionId && currentView === 'chat' ? 'bg-white font-semibold text-blue-700 shadow-sm ring-1 ring-gray-200' : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'"
-              :title="displaySessionTitle(session)"
-              @click="selectSession(session.id)"
-            >
-              <span class="min-w-0 flex-1 truncate">{{ compactSessionTitle(session) }}</span>
-              <span v-if="sessionIsRunning(session.id)" class="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 animate-pulse"></span>
-              <span v-else-if="sessionIsUnread(session.id)" class="h-2 w-2 shrink-0 rounded-full bg-blue-500"></span>
-            </button>
-          </section>
-        </section>
-        <button v-else-if="canUseCode && (supportsLocalCodeProjects || capabilities.localWorkspacePicker)" type="button" class="mt-5 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-500 hover:bg-gray-200/50 hover:text-slate-700" @click="createProject">
+        <button
+          v-if="canUseCode && capabilities.localWorkspacePicker"
+          type="button"
+          class="mt-4 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-500 hover:bg-gray-200/50 hover:text-slate-700"
+          @click="createProject"
+        >
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M12 11v6m-3-3h6"/></svg>
-          <span>{{ locale === 'en' ? 'Create project' : '创建项目' }}</span>
+          <span>{{ locale === 'en' ? 'New project' : '新建项目' }}</span>
         </button>
         <button
           v-if="!trimmedSessionSearchQuery && !sessionsLoading && sessionsHasMore && historyItems.length >= sessionPageSize"
