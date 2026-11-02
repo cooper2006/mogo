@@ -13,13 +13,14 @@ import type { DesktopToolLauncherKind } from './components/desktop/desktopToolTa
 import CreateProjectDialog from './components/code/CreateProjectDialog.vue'
 import { exchangePortalTicket, fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
 import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
-import { activateEmbeddedBrowserSession, capabilities, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, isFileSystemAccessSupported, renameDshWorkspace } from './platform'
+import { activateEmbeddedBrowserSession, capabilities, deleteDshWorkspace, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, isFileSystemAccessSupported, renameDshWorkspace } from './platform'
 import type { DshTaskChangeSet, DshWorkspace, DshWorkspaceSummary } from './platform/types'
 import {
   createDesktopProject,
   deleteSession,
   listSessionsPaged,
   searchSessions,
+  updateDesktopProjectStatus,
   updateSessionTitle,
   type SessionSearchResult,
   type SessionSummary,
@@ -566,6 +567,39 @@ async function commitProjectCreate(): Promise<void> {
     closeProjectCreate()
     navigateTo('chat')
   } finally { createProjectBusy.value = false }
+}
+
+/** 删除工作区：归档 + 本地移除。默认工作区不可删除。 */
+async function handleDeleteProject(workspaceId: string): Promise<void> {
+  if (!workspaceId || workspaceId === DEFAULT_PROJECT_ID) return
+  const msg = useAppMessage()
+  try {
+    // 桌面端走 dsh workspace 删除，Web 端软删除（归档）
+    if (capabilities.isDesktop) {
+      await deleteDshWorkspace(workspaceId)
+    } else {
+      await updateDesktopProjectStatus(workspaceId, 'archived', authToken.value || null)
+    }
+    // 本地即时移除
+    userBoundProjects.remove(workspaceId)
+    if (msg) msg.success(locale.value === 'en' ? 'Project deleted' : '项目已删除')
+  } catch (err) {
+    console.warn('[handleDeleteProject] failed:', err)
+    if (msg) msg.error(locale.value === 'en' ? 'Failed to delete project' : '删除项目失败')
+  }
+}
+
+/** 为项目新增会话并绑定该项目。 */
+function handleAddSessionToProject(workspaceId: string): void {
+  if (!workspaceId) return
+  // 找到目标 workspace
+  const workspace = projectWorkspaces.value.find(w => w.workspace_id === workspaceId)
+  if (!workspace) return
+  // 创建新会话
+  const pane = chatRuntime.startLocalSession()
+  // 绑定项目
+  codeRuntime.setDraftProject(pane.key, workspace, boundProjectWorktree(userBoundProjects.bindings.value, workspaceId))
+  navigateTo('chat')
 }
 
 function currentProjectIdentity(): string {
@@ -2426,17 +2460,39 @@ onBeforeUnmount(() => {
           {{ t('app.sidebar.loading_history') }}
         </div>
         <template v-for="group in unifiedProjectGroups" :key="group.id">
-          <button
-            type="button"
+          <div
             class="group flex w-full min-w-0 items-center gap-1.5 px-2 py-1 text-left text-xs font-semibold text-slate-500 hover:text-slate-700"
             :title="group.title"
+            role="button"
+            tabindex="0"
             @click="toggleProjectHistory(group.id)"
+            @dblclick.stop="toggleProjectHistory(group.id)"
+            @keydown.enter.stop="toggleProjectHistory(group.id)"
           >
             <svg v-if="projectHistoryExpanded(group.id)" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg>
             <svg v-else class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5"/></svg>
             <span class="truncate">{{ group.title }}</span>
             <span class="ml-auto text-[10px] font-normal text-slate-400">{{ group.sessions.length }}</span>
-          </button>
+            <!-- 右侧操作按钮：非默认工作区才显示 -->
+            <template v-if="group.id !== DEFAULT_PROJECT_ID">
+              <button
+                type="button"
+                class="ml-1 shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-red-500 group-hover:opacity-100"
+                :title="locale === 'en' ? 'Add session' : '增加会话'"
+                @click.stop="handleAddSessionToProject(group.id)"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="h-3.5 w-3.5"><path d="M8 3v10M3 8h10"/></svg>
+              </button>
+              <button
+                type="button"
+                class="shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-red-500 group-hover:opacity-100"
+                :title="locale === 'en' ? 'Delete project' : '删除项目'"
+                @click.stop="handleDeleteProject(group.id)"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="h-3.5 w-3.5"><path d="M3 4h10M6 4V3h4v1M5 4v9h6V4"/></svg>
+              </button>
+            </template>
+          </div>
           <div
             v-for="session in (projectHistoryExpanded(group.id) ? group.sessions : [])"
             :key="session.id"

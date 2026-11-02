@@ -38,6 +38,18 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
     titles.value = { ...titles.value, [workspace.workspace_id]: workspace.title }
   }
 
+  /** 本地即时移除项目（软删除：服务端归档已由调用方 PATCH，此处仅清前端缓存）。 */
+  function remove(workspaceId: string): void {
+    if (!workspaceId) return
+    bindings.value = bindings.value.filter(item => item.workspace_id !== workspaceId)
+    workspaces.value = workspaces.value.filter(item => item.workspace_id !== workspaceId)
+    if (workspaceId in titles.value) {
+      const next = { ...titles.value }
+      delete next[workspaceId]
+      titles.value = next
+    }
+  }
+
   /** Local workspace dirs decide archive state: missing → archived, present → active. */
   function syncArchiveState(nextBindings: DesktopProject[], localWorkspaces: DshWorkspace[], token: string): void {
     const localIds = new Set(localWorkspaces.map(w => w.workspace_id))
@@ -88,5 +100,5 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
     }
   }
 
-  return { bindings, workspaces, titles, loading, identity: options.identity, clear, add, refresh }
+  return { bindings, workspaces, titles, loading, identity: options.identity, clear, add, remove, refresh }
 }
