@@ -97,6 +97,35 @@ async def get_model_config(model_id: str, tenant_id: str) -> dict[str, Any] | No
     return await get_model_config_by_capability(model_id, tenant_id, capability=None)
 
 
+async def _with_inherited_api_key(instance: dict[str, Any], db: Any) -> dict[str, Any]:
+    """子模型实例未配置 api_key_encrypted 时，继承同 provider 有 key 实例的 key。
+
+    管理端为同一 provider（sensenova/agnes 等）添加多个子模型时，子模型实例通常
+    不单独维护密钥，而是与 provider 级账号共享同一把 api_key。若子模型实例缺少
+    api_key_encrypted（且未绑定模型组），回退到同 provider 中 priority 最高的、
+    已配置加密 key 的实例，避免运行时 decrypt_secret("") → 空 api_key → provider
+    网关 401 "Authorization Not Found"（表现为 DSH 任务执行部分后中断）。
+    """
+    if instance.get("api_key_encrypted") or instance.get("group_id"):
+        return instance
+    provider_id = instance.get("provider_id")
+    if not provider_id:
+        return instance
+    sibling = await db[INSTANCE_COLLECTION].find_one(
+        {
+            "provider_id": provider_id,
+            "tenant_id": instance.get("tenant_id"),
+            "api_key_encrypted": {"$exists": True, "$ne": ""},
+        },
+        sort=[("priority", 1), ("updated_at", -1)],
+    )
+    if sibling and sibling.get("api_key_encrypted"):
+        inherited = dict(instance)
+        inherited["api_key_encrypted"] = sibling["api_key_encrypted"]
+        return inherited
+    return instance
+
+
 async def get_model_config_by_capability(
     model_id: str,
     tenant_id: str,
@@ -111,6 +140,7 @@ async def get_model_config_by_capability(
     instance = await db[INSTANCE_COLLECTION].find_one({"_id": oid, "tenant_id": tenant_id})
     if instance is None:
         return None
+    instance = await _with_inherited_api_key(instance, db)
     try:
         group = await load_model_group(instance)
     except ValueError as exc:
@@ -144,6 +174,7 @@ async def get_default_model_config_by_capability(
             continue
         if group is not None and group.get("status") != "active":
             continue
+        instance = await _with_inherited_api_key(instance, db)
         provider = await db[PROVIDER_COLLECTION].find_one({"_id": instance.get("provider_id")})
         return _to_runtime_config(instance, provider or {}, group=group, required_capability=capability)
     return None
@@ -364,6 +395,7 @@ async def get_fallback_runtime_configs(
     for item in instances:
         provider = provider_map.get(str(item.get("provider_id")), {})
         try:
+            item = await _with_inherited_api_key(item, db)
             configs.append(_to_runtime_config(item, provider, required_capability=capability))
         except ModelConfigError:
             continue
