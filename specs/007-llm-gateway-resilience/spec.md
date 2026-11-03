@@ -8,6 +8,13 @@
 
 **Input**: 补齐规划文档清单 2（P0）"LLM 网关韧性"：主→备供应商故障转移 failover、降级链 degradation_chain（主模型失败逐级降档）、指数退避重试、用量/成本计量上报。改动集中在 `llm/model_router.py` + providers 模块，影响面可控。
 
+> **生产接线说明（2026-11-03 更新，`dbaa5261`）**：
+> LANDING_AUDIT（2026-10-03）判定本特性为 `partial`，核心缺口是**指数退避重试（US3 / FR-3）**只在 `get_llm_client_by_model_id` 的连通性测试路由上生效，**真实对话链路（`InstrumentedLLMClient.ainvoke` / `ainvoke_structured`）完全绕过**。
+> 2026-11-03 的 `dbaa5261`（commit 信息：*fix(chat-api): 深度调研 429 限流根治——接入 429 退避重试并支持高配额模型路由*）把 `llm/resilience/retry.py::retry_with_backoff` 真正接入 `InstrumentedLLMClient`，使 429/5xx/超时按指数退避重试、401/403 立即失败，**对全栈 LLM 调用生效**（不只是模型连通性测试路由）。
+> 退避参数与默认值仍由 FR-3 / OQ-2 约束（基数 1.5s / 上限 30s / 抖动 ±10% / 重试 3 次，沿用 `azure_gpt_image` 值）。
+> 降级链（US2 / FR-2）与 failover（US1 / FR-1）在 `get_llm_client_by_model_id` 路径的行为不变。
+> 该接线同时为 040 的高配额模型路由（`OPENAI_MODEL_RESEARCH` 场景，见 040 spec「运维补充」）提供退避兜底。
+
 ## User Scenarios & Testing *(mandatory)*
 
 用户故事按优先级排列，每个独立可交付、可测试。

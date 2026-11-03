@@ -212,4 +212,13 @@
 ## Further Details
 
 - 技术实现（评估特征清单与阈值、yaml 结构、可观测接线）由 plan.md 承载。
+
+## 运维补充：高配额模型别名路由（2026-11-03，`dbaa5261`）
+
+**背景**：AgnesAI 免费层 429 限流是深度调研等重调用场景的高频故障源。`040` 的 tier 路由（`light`/`mid`/`high` 档位）解决"选哪档最划算"，但**同一档内**若该模型配额已耗尽，单纯降级链（沿 `("high","mid","light")` 下移）并不总能解——因为降级后仍可能落入同配额限制的另一模型。`dbaa5261` 引入的运维补充路径：
+
+- **`ProgressiveResearchAgent` 支持高配额模型覆盖**：`research_model` / `research_base_url` / `research_api_key` 三个构造参数。三者同时提供时，agent 改用 `get_openai_compatible_client()` 直连指定高配额模型（凭据/地址取自租户默认模型实例），**绕过 040 tier 路由与 007 降级链**，直接命中配额充足的模型别名。
+- **触发场景**：运维把同一 provider（如 AgnesAI）的更高配额模型别名写入 `OPENAI_MODEL_RESEARCH` 环境变量；agent 启动时检测该变量，若配置齐全则走直连路径，否则回落 `get_request_scoped_llm_client()` 既有 tier + 降级路径。
+- **与 040 的关系**：这是 040 的**运维补充**而非功能扩展——040 的 tier 路由逻辑本身不变，只是为"已知配额限制场景"提供一条人工指定的直连旁路。该旁路不进入 `token_usage_logs` 的 `tier` 字段（直连路径的 `tier` 仍为 `""`，同 R-9 诚实降级语义）。
+- **与 007 的关系**：直连路径仍经过 `InstrumentedLLMClient`（已接入 429 退避重试，`dbaa5261` 同时完成），429 仍会触发退避，只是不再走降级链切换模型。
 - 历史档位表现作为评估输入的二期方案需 007 计量回流数据就绪后另行澄清。

@@ -4,7 +4,7 @@
 
 **Prerequisites**: plan.md (required), spec.md (required)
 
-**性质**: **全新特性，代码尚未开工**——本清单为 spec → plan → tasks 先行流程的产物，所有任务均未开始（`- [ ]`）。
+**性质**: 代码已落地（2026-11-01，T001–T020 全部完成，见下方勾选证据）；2026-11-03 `dbaa5261` 补了 040 的运维补充路径（`ProgressiveResearchAgent` 高配额模型别名直连，见 spec「运维补充」节），本特性 tier 路由逻辑本身不变。
 
 **Tests**: chat-api `tests/llm/test_model_tier_routing.py`（新增）；007 既有 `test_resilience.py` / `test_resilience_metering.py` / `test_resilience_wiring.py` 回归。
 

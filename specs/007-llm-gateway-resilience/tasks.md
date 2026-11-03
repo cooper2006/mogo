@@ -3,6 +3,8 @@
 > ⚠️ **落地审计（2026-10-03）：判定 `partial`** —— 本文件 `[x]` 只代表**任务条目已勾选**，不代表功能落地。
 > 按今天的标准（生产调用方/消费方/真实数据源/端到端可证伪）重检，本特性的结论是：failover/退避仅作用于模型连通性测试路由，真实对话链路绕过；降级链 run_with_degradation 零生产调用；FR-12 取消未实现。
 > 详见 [`specs/LANDING_AUDIT_2026-10-03.md`](../LANDING_AUDIT_2026-10-03.md)。
+>
+> **2026-11-03 更新（`dbaa5261`）**：US3 的指数退避（T015/T016/T017）已接线到 `InstrumentedLLMClient.ainvoke` 与 `ainvoke_structured`，对全栈 LLM 调用生效；429/5xx/超时按退避重试，401/403 立即失败。US1（failover）与 US2（降级链）保持现状（`get_llm_client_by_model_id` 路径已接线，真实对话链路沿用 040 tier 路由 + 退避组合）。
 
 **Input**: Design documents from `/specs/007-llm-gateway-resilience/`
 

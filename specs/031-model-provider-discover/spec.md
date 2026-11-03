@@ -122,3 +122,18 @@ admin-api 的 `POST /api/models/discover` 按 `providerType` 分发给五类协�
 - 假设 provider 列表接口地址与官方一致（anthropic `https://api.anthropic.com`、gemini `https://generativelanguage.googleapis.com`、ollama `http://localhost:11434`），用户可自定义 Base URL 指向代理/网关。
 - 假设后端沿用标准库 `urllib.request` + `asyncio.to_thread`（admin-api 无 httpx 依赖），不引入新网络库。
 - 假设前端 setup 向导与模型管理页共用 `@/components/models/providerLabels` 的 provider 标签映射，保持一致。
+
+## 实现补充（2026-11-03，`1498da65` + `005d4a93`）
+
+### 子模型实例 API key 继承机制
+
+**背景**：管理端为同一 `provider`（sensenova / agnes / lmstudio 等）添加多个子模型时，子模型实例通常**不单独维护 `api_key_encrypted`**，而是与 provider 级账号共享同一把 key。若子模型实例的 `api_key_encrypted` 为空，`decrypt_secret("")` 会返回空串，provider 网关收到空 key 即 401 `"Authorization Not Found"`，表现为 DSH 任务执行到中途突然中断。
+
+**修复机制**（`services/chat-api/app/llm/configured_models.py::` `_with_inherited_api_key`）：
+
+- 触发条件：实例 `api_key_encrypted` 为空 **且** 未绑定 `group_id` 且 `provider_id` 非空。
+- 继承规则：在同 `provider_id` + 同 `tenant_id` + **同 `base_url`**（`005d4a93` 起，修复前只按 `provider_id` 匹配，会把 key 继承到错误服务）的实例中，找 `api_key_encrypted` 非空、`priority` 最低（数字小即优先级高）且 `updated_at` 最新的兄弟实例，取其 `api_key_encrypted` 回填到本实例的 runtime config。
+- 调用点：`get_model_config_by_capability` / `get_default_model_config_by_capability` / `get_fallback_runtime_configs` 三处均调用 `_with_inherited_api_key`，保证无论主路径还是降级链都吃到继承的 key。
+- 不修改 DB：继承只发生在内存态 runtime config 构造时，子模型实例的 DB 记录不变，管理员显式填了 key 后行为不受影响。
+
+**与 007 的衔接**：继承仅解决"哪把 key 去调 provider"，调用失败（429/5xx/超时）仍由 007 的退避/降级链接管；401（key 未继承或继承后仍无效）立即失败，不重试。
