@@ -13,6 +13,13 @@ overrides:
   fast-uri: 3.1.6
   js-yaml: 4.3.2
   sharp: 0.35.4
+  # 统一 cordis 到 4.0.5：dsh rc.5 各包的 peer 是 @deepseek-ai/cordis ~4.0.5，
+  # 而 runtime-host 曾钉死 4.0.4，导致 pnpm 把每个带 cordis peer 的 dsh 包
+  # fork 成多份（dsh-tools 出现 3 份副本）。多份 dsh-tools 各自导出不同的
+  # TOOL_RUNTIME_SCHEDULER Symbol 实例，agent-loop 取到与 ToolRuntime 不同的
+  # 那份，使 ctx.tools[TOOL_RUNTIME_SCHEDULER] 为 undefined，引发 turn 执行
+  # "Cannot read properties of undefined (reading 'prepare')" 并中断会话。
+  '@deepseek-ai/cordis': 4.0.5
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh@0.2.1-rc.3'
   - '@deepseek-ai/dsh-acp@0.2.1-rc.3'
