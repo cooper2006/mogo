@@ -287,6 +287,10 @@ class Settings(BaseSettings):
     A2A_OUTBOUND_AGENTS: str = ""
     MAX_UPLOAD_SKILL_SOURCE_BYTES: int = 200 * 1024 * 1024
     MAX_UPLOAD_TEMPLATE_BYTES: int = 200 * 1024 * 1024
+    # Document upload (chat attach: pdf/doc/docx/ppt/pptx/xlsx/xlsm/csv/tsv).
+    # Was referenced by dsh_chat.upload_chat_document but missing here, which
+    # made POST /api/v1/chat/upload-document fail with 500 (AttributeError).
+    MAX_UPLOAD_DOCUMENT_BYTES: int = 200 * 1024 * 1024
 
     # 017 memory density tiers (FR-13 / FR-16). How long a generated L0/L1
     # summary stays fresh before a lazy re-generation (OQ-6, aligned with the
