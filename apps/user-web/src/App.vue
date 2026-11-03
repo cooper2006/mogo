@@ -807,11 +807,6 @@ watch(currentSessionId, (sessionId) => {
 const sessionSearchDisplayItems = computed(() =>
   trimmedSessionSearchQuery.value ? sessionSearchResults.value : sessions.value
 )
-const sidebarItems = computed(() => [
-  { icon: 'plus', label: t('app.sidebar.new_chat') },
-  { icon: 'clock', label: locale.value === 'zh' ? '定时任务' : 'Scheduled tasks' },
-  { icon: 'search', label: t('app.sidebar.search_chats') },
-])
 const publishChannelSuggestions = [
   'wechat_official',
   'xiaohongshu',
@@ -1219,12 +1214,6 @@ function openScheduledTasks(options: { prompt?: string; sessionId?: string | nul
   if (options.create) scheduledTaskCreateRequestKey.value += 1
   navigateTo('scheduled-tasks')
   closeSessionSearch()
-}
-
-function handleSidebarAction(icon: string) {
-  if (icon === 'plus') startLocalSession({ inheritCurrentProject: true })
-  else if (icon === 'clock') openScheduledTasks()
-  else openSessionSearch()
 }
 
 async function handleSwitchTenant(tenantId: string) {
@@ -2502,26 +2491,6 @@ onBeforeUnmount(() => {
         <img src="/mogo-logo.png" alt="" class="h-8 w-10 object-contain" />
         <span class="text-[15px] font-extrabold tracking-[0.14em] text-slate-800">墨攻</span>
       </div>
-      <!-- Top Actions -->
-      <div class="space-y-0.5 px-3 pb-1 pt-3">
-        <button
-          v-for="item in sidebarItems"
-          :key="item.label"
-          class="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all active:scale-95"
-          :class="item.icon === 'search' && sessionSearchOpen
-            ? 'bg-white text-blue-700 shadow-sm border border-gray-200'
-            : 'text-gray-700 hover:bg-gray-200/60'"
-          @click="handleSidebarAction(item.icon)"
-        >
-          <span class="text-gray-500 group-hover:text-gray-900 transition-colors">
-            <svg v-if="item.icon === 'plus'" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-7-7v14"/></svg>
-            <svg v-else-if="item.icon === 'clock'" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-            <svg v-else-if="item.icon === 'search'" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-          </span>
-          <span>{{ item.label }}</span>
-        </button>
-      </div>
-
       <!-- Workspace Section：项目为顶层分组，会话缩进在项目下 -->
       <div
         class="group mt-2 flex w-full items-center gap-1 px-5 pb-1 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400"
@@ -2794,8 +2763,8 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-if="canUseSkills || canUseTools" class="mt-2 px-5 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{{ t('app.sidebar.skills') }}</div>
-      <div v-if="canUseSkills || canUseTools" class="mb-2 space-y-0.5 px-3">
+      <div class="mt-2 px-5 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{{ t('app.sidebar.skills') }}</div>
+      <div class="mb-2 space-y-0.5 px-3">
         <button
           v-if="canUseSkills"
           class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
@@ -2874,6 +2843,16 @@ onBeforeUnmount(() => {
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><path d="M9 6h6M6 9v6h9M18 9v6"/></svg>
           </span>
           <span>{{ t('orchestration.sidebar') }}</span>
+        </button>
+        <button
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'scheduled-tasks' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openScheduledTasks()"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          </span>
+          <span>{{ locale === 'zh' ? '定时任务' : 'Scheduled tasks' }}</span>
         </button>
         <button
           v-if="isLoggedIn"
