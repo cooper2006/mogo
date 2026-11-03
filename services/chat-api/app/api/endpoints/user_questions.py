@@ -36,6 +36,7 @@ class QuestionReply(BaseModel):
 
 async def _owning_binding(
     conversation_id: str, authorization: str | None, *, allow_no_run: bool = False,
+    require_initiator: bool = True,
 ) -> dict[str, Any]:
     resolved = await resolve_session_user(authorization)
     tenant_id = str(resolved["tenant_id"])
@@ -57,12 +58,21 @@ async def _owning_binding(
         if allow_no_run:
             return {}
         raise HTTPException(status_code=404, detail="question_run_not_found")
-    try:
-        assert_run_initiator(conversation, conversation_id=conversation_id, user_id=user_id)
-    except CancelNotAllowedError as exc:
-        raise HTTPException(status_code=403, detail="question_owner_required") from exc
+    # initiator 检查只对「控制/作答」侧（cancel、answer）有意义：取消或提交答案
+    # 必须由该 run 的发起者执行。读取（GET pending questions）是成员可见的读操作，
+    # 不要求调用者是 run 发起者——运行终结窗口内 initiator 字段缺失/不匹配不应让
+    # 成员读到 403（浏览器仍会打印 "Failed to load resource: 403" 噪音）。
+    if require_initiator:
+        try:
+            assert_run_initiator(conversation, conversation_id=conversation_id, user_id=user_id)
+        except CancelNotAllowedError as exc:
+            raise HTTPException(status_code=403, detail="question_owner_required") from exc
     binding = await KernelBindingRepository(db).current(conversation_id, tenant_id=tenant_id, user_id=user_id)
     if binding is None or binding.get("execution_location") != "server":
+        # 读侧宽松：会话成员可见但 kernel 绑定暂不可用（运行终结/迁移窗口），
+        # 语义上同样是「没有可读的待定问题」→ 返回 200 空列表，而非 404。
+        if not require_initiator:
+            return {}
         raise HTTPException(status_code=404, detail="question_session_not_found")
     return {
         **binding, "_tenant_id": tenant_id, "_user_id": user_id,
@@ -82,7 +92,7 @@ async def pending_questions(
     conversation_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    binding = await _owning_binding(conversation_id, authorization, allow_no_run=True)
+    binding = await _owning_binding(conversation_id, authorization, allow_no_run=True, require_initiator=False)
     # 无进行中 run（allow_no_run 命中）：返回空待定问题列表，而非 404。
     if not binding:
         return {"questions": []}
