@@ -34,7 +34,9 @@ class QuestionReply(BaseModel):
     answers: list[QuestionAnswer] = Field(min_length=1)
 
 
-async def _owning_binding(conversation_id: str, authorization: str | None) -> dict[str, Any]:
+async def _owning_binding(
+    conversation_id: str, authorization: str | None, *, allow_no_run: bool = False,
+) -> dict[str, Any]:
     resolved = await resolve_session_user(authorization)
     tenant_id = str(resolved["tenant_id"])
     user_id = str(resolved["user"]["_id"])
@@ -49,6 +51,11 @@ async def _owning_binding(conversation_id: str, authorization: str | None) -> di
     except CancelNotAllowedError as exc:
         raise HTTPException(status_code=403, detail="question_owner_required") from exc
     if not conversation.get("active_run"):
+        # 无进行中 run：读取侧语义上是「没有待定问题」，返回空列表（200）而非 404，
+        # 避免前端轮询（useUserQuestions 每 8 秒重试）持续刷出 404 控制台噪音。
+        # 作答（answer）侧仍保持 404：没有 run 时提交答案本就是无效操作。
+        if allow_no_run:
+            return {}
         raise HTTPException(status_code=404, detail="question_run_not_found")
     try:
         assert_run_initiator(conversation, conversation_id=conversation_id, user_id=user_id)
@@ -75,7 +82,10 @@ async def pending_questions(
     conversation_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    binding = await _owning_binding(conversation_id, authorization)
+    binding = await _owning_binding(conversation_id, authorization, allow_no_run=True)
+    # 无进行中 run（allow_no_run 命中）：返回空待定问题列表，而非 404。
+    if not binding:
+        return {"questions": []}
     try:
         return await dsh_runtime_application.require_transport().request("GET", _question_path(binding))
     except DshRuntimeError as exc:
