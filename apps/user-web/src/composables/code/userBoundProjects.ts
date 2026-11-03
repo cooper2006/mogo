@@ -52,6 +52,15 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
     }
   }
 
+  /** 本地即时更新项目标题（重命名；服务端已由调用方 PATCH / rename 完成）。 */
+  function rename(workspaceId: string, title: string): void {
+    if (!workspaceId || !title) return
+    workspaces.value = workspaces.value.map(item =>
+      item.workspace_id === workspaceId ? { ...item, title } : item,
+    )
+    titles.value = { ...titles.value, [workspaceId]: title }
+  }
+
   /** Local workspace dirs decide archive state: missing → archived, present → active. */
   function syncArchiveState(nextBindings: DesktopProject[], localWorkspaces: DshWorkspace[], token: string): void {
     const localIds = new Set(localWorkspaces.map(w => w.workspace_id))
@@ -104,5 +113,5 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
     }
   }
 
-  return { bindings, workspaces, titles, loading, identity: options.identity, clear, add, remove, refresh }
+  return { bindings, workspaces, titles, loading, identity: options.identity, clear, add, remove, rename, refresh }
 }

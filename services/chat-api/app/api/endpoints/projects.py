@@ -16,6 +16,7 @@ A default project (``_id = "default"``) is provisioned on first list access
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header
 from pydantic import BaseModel, Field
@@ -43,8 +44,13 @@ class ApiResponse(BaseModel):
 
 
 class ProjectPatch(BaseModel):
-    """只允许变更 `status`（046 FR-009 / Edge Case 3：默认项目不可归档）。"""
-    status: str = Field(..., description="active | archived")
+    """允许变更 `status`（active | archived）与 `title`（重命名，侧边栏扩展项）。
+
+    046 Edge Case 3：默认项目（``_id = "default"``）不可归档、不可删除；重命名默认
+    项目亦拒绝，避免用户把「默认工作区」改名后失去兜底语义。
+    """
+    status: Optional[str] = Field(None, description="active | archived")
+    title: Optional[str] = Field(None, min_length=1, max_length=200, description="项目标题（重命名）")
 
 
 def _serialize_project(doc: dict) -> dict:
@@ -135,15 +141,23 @@ async def patch_project(
     payload: ProjectPatch,
     authorization: str | None = Header(default=None),
 ):
-    """只接受 `status` 变更；`_id = "default"` 返回 400（046 Edge Case 3）。"""
+    """接受 `status` 与 `title` 变更；`_id = "default"` 返回 400（046 Edge Case 3）。"""
     tenant_id, user_id = await _identity(authorization)
     if project_id == DEFAULT_PROJECT_ID:
         return ApiResponse(code=400, message="默认项目不可归档或删除")
     now = datetime.now(tz=timezone.utc)
     scope = {"tenant_id": tenant_id, "user_id": user_id, "_id": project_id}
-    outcome = await get_db().projects.update_one(
-        scope, {"$set": {"status": payload.status, "updated_at": now}}
-    )
+    set_value: Dict[str, Any] = {"updated_at": now}
+    if payload.status is not None:
+        set_value["status"] = payload.status
+    if payload.title is not None:
+        title = str(payload.title).strip()
+        if not title:
+            return ApiResponse(code=400, message="项目标题不能为空")
+        set_value["title"] = title[:200]
+    if set(set_value) == {"updated_at"}:
+        return ApiResponse(code=400, message="无可更新字段")
+    outcome = await get_db().projects.update_one(scope, {"$set": set_value})
     if outcome.matched_count == 0:
         return ApiResponse(code=404, message="项目不存在")
     project = await get_db().projects.find_one(scope)

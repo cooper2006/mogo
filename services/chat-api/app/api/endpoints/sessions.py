@@ -117,6 +117,21 @@ class SessionUpdate(BaseModel):
     title: str = Field(..., min_length=1, max_length=160, description="Session title")
 
 
+class SessionFlagUpdate(BaseModel):
+    """侧边栏扩展项：置顶 / 归档 的开关载荷。"""
+    user_id: str = Field(..., description="User ID from login")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
+    pinned: Optional[bool] = Field(None, description="置顶开关（pin 端点使用）")
+    archived: Optional[bool] = Field(None, description="归档开关（archive 端点使用）")
+
+
+class SessionFork(BaseModel):
+    """分叉会话：以源会话的消息为副本创建一个新会话。"""
+    user_id: str = Field(..., description="User ID from login")
+    tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
+    title: Optional[str] = Field(None, min_length=1, max_length=160, description="新会话标题（缺省为「原标题 - 副本」）")
+
+
 class ApiResponse(BaseModel):
     code: int = 0
     message: str | None = None
@@ -152,6 +167,8 @@ def _serialize_session(doc: dict, *, access: str = "owner", participant_count: i
         "project_id": str(doc.get("project_id") or "").strip() or str(
             (doc.get("code_project") or {}).get("workspace_id") or ""
         ).strip() or "default",
+        "pinned_at": doc.get("pinned_at"),
+        "archived": bool(doc.get("archived")),
     }
 
 
@@ -184,6 +201,9 @@ def _serialize_session_summary(doc: dict) -> dict:
         "project_id": str(doc.get("project_id") or "").strip() or str(
             (doc.get("code_project") or {}).get("workspace_id") or ""
         ).strip() or "default",
+        # 侧边栏扩展项：置顶（pinned_at）与归档（archived）状态随行返回，前端据此排序/过滤。
+        "pinned_at": doc.get("pinned_at"),
+        "archived": bool(doc.get("archived")),
     }
 
 
@@ -653,6 +673,9 @@ async def list_sessions(
         "model_instance_id": 1,
         "code_project": 1,
         "project_id": 1,
+        # 侧边栏扩展项：置顶 / 归档状态随行返回。
+        "pinned_at": 1,
+        "archived": 1,
     }
     if shared_scope:
         participants = SessionParticipantsRepository(db)
@@ -796,6 +819,9 @@ async def search_sessions(
         "model_instance_id": 1,
         "code_project": 1,
         "project_id": 1,
+        # 侧边栏扩展项：置顶 / 归档状态随行返回。
+        "pinned_at": 1,
+        "archived": 1,
     }
 
     candidates: Dict[str, Dict[str, Any]] = {}
@@ -1125,6 +1151,131 @@ async def update_session(
     if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
     return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
+
+
+@router.patch("/sessions/{session_id}/pin", response_model=ApiResponse)
+async def pin_session(
+    session_id: str,
+    payload: SessionFlagUpdate,
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """置顶 / 取消置顶会话（侧边栏扩展项）。"""
+    db = get_db()
+    try:
+        oid = to_backend_id(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
+    )
+    now = datetime.now(tz=timezone.utc)
+    set_value: Dict[str, Any] = {"pinned_at": now if payload.pinned else None, "updated_at": now}
+    result = await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id),
+        {"$set": set_value},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id))
+    if not session_doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
+
+
+@router.patch("/sessions/{session_id}/archive", response_model=ApiResponse)
+async def archive_session(
+    session_id: str,
+    payload: SessionFlagUpdate,
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """归档 / 取消归档会话（侧边栏扩展项）。"""
+    db = get_db()
+    try:
+        oid = to_backend_id(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
+    )
+    now = datetime.now(tz=timezone.utc)
+    set_value: Dict[str, Any] = {
+        "archived": bool(payload.archived),
+        "archived_at": now if payload.archived else None,
+        "updated_at": now,
+    }
+    result = await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id),
+        {"$set": set_value},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_doc = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id))
+    if not session_doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return ApiResponse(code=0, message="success", data=SessionSummary(**_serialize_session_summary(session_doc)).model_dump())
+
+
+@router.post("/sessions/{session_id}/fork", response_model=ApiResponse)
+async def fork_session(
+    session_id: str,
+    payload: SessionFork,
+    authorization: str | None = Header(default=None),
+) -> ApiResponse:
+    """分叉会话：复制源会话及其消息为一份新会话（侧边栏扩展项）。
+
+    会话时间线是硬线性约束（resume 永不 fork），因此「分叉」落地为「以源会话的
+    消息副本新建一条独立会话」，而不是在同一会话内产生分支。
+    """
+    db = get_db()
+    try:
+        oid = to_backend_id(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+    user_id, tenant_id = await _authorized_scope(
+        authorization, claimed_user_id=str(payload.user_id), claimed_tenant_id=payload.tenant_id
+    )
+    source = await db.chat_sessions.find_one(add_tenant_scope({"_id": oid, "user_id": user_id}, tenant_id))
+    if not source:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = await db.chat_messages.find(
+        add_tenant_scope({"session_id": oid, "user_id": user_id}, tenant_id)
+    ).sort("seq", 1).to_list(length=100000)
+
+    def _to_inbound(m: Any) -> Dict[str, Any]:
+        return {
+            "role": str(m.get("role") or "user"),
+            "content": m.get("content") if m.get("content") is not None else "",
+            "documents": m.get("documents"),
+            "images": m.get("images"),
+            "plan": m.get("plan"),
+            "progress": m.get("progress"),
+        }
+
+    inbound = [_to_inbound(m) for m in messages]
+    new_title = str(payload.title or "").strip() or f"{str(source.get('title') or 'New Chat')} - 副本"
+    # 继承源会话的项目归属，分叉仍在同一工作区下。
+    project_id = str(source.get("project_id") or "").strip() or str(
+        (source.get("code_project") or {}).get("workspace_id") or ""
+    ).strip() or "default"
+    new_doc = await session_persistence_service.create_session(
+        user_id=user_id,
+        tenant_id=tenant_id,
+        title=new_title[:160],
+        messages=inbound,
+    )
+    # 继承 code_project / project_id 归属（create_session 不接收，落库后回填）。
+    patch: Dict[str, Any] = {"project_id": project_id}
+    if source.get("code_project"):
+        patch["code_project"] = source.get("code_project")
+    await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": new_doc["_id"], "user_id": user_id}, tenant_id),
+        {"$set": patch},
+    )
+    new_doc["project_id"] = project_id
+    if source.get("code_project"):
+        new_doc["code_project"] = source.get("code_project")
+    return ApiResponse(code=0, message="success", data=_serialize_session(new_doc))
 
 
 @router.post("/sessions/{session_id}/end", response_model=ApiResponse)

@@ -16,11 +16,15 @@ import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
 import { activateEmbeddedBrowserSession, capabilities, deleteDshWorkspace, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, isFileSystemAccessSupported, renameDshWorkspace } from './platform'
 import type { DshTaskChangeSet, DshWorkspace, DshWorkspaceSummary } from './platform/types'
 import {
+  archiveSession,
   createDesktopProject,
   deleteSession,
+  forkSession,
   listSessionsPaged,
+  pinSession,
   searchSessions,
   updateDesktopProjectStatus,
+  updateDesktopProjectTitle,
   updateSessionTitle,
   type SessionSearchResult,
   type SessionSummary,
@@ -31,6 +35,7 @@ import { registerProductMessages, setLocale as setAppLocale, t, useLocale, type 
 import { getBrowserTimezone, setAppTimezone } from './composables/appTimezone'
 import { buildAdminSsoUrl, ssoWindowState } from './utils/adminUrl'
 import { sortSessionsByRecentActivity } from './utils/sessionOrdering'
+import { copyTextToClipboard } from './utils/copyTextToClipboard'
 import { formatExactTokenAmount, formatQuotaUsagePercent, formatTokenAmount, quotaUsagePercent } from './utils/tokenNumberFormat'
 import { useChatRuntimeStore, type PendingRuntimeDocument } from './composables/useChatRuntimeStore'
 import type { SessionLiveAccessRevokedReason } from './composables/useSessionLiveStream'
@@ -143,6 +148,13 @@ const pendingDeleteSession = ref<SessionSummary | SessionSearchResult | null>(nu
 const editingSessionId = ref<string | null>(null)
 const editingSessionTitle = ref('')
 const renamingSessionId = ref<string | null>(null)
+// 侧边栏扩展项：会话 / 项目行「…」上下文菜单当前打开的会话/项目 id。
+const sessionMenuOpenFor = ref<string | null>(null)
+const projectMenuOpenFor = ref<string | null>(null)
+// 项目行内联重命名状态。
+const editingProjectId = ref<string | null>(null)
+const editingProjectTitle = ref('')
+const renamingProjectId = ref<string | null>(null)
 const currentView = ref<'chat' | 'skills' | 'tools' | 'plugins' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'portal'>('chat')
 const scheduledTaskInitialPrompt = ref('')
 const scheduledTaskInitialSessionId = ref<string | null>(null)
@@ -358,8 +370,15 @@ function shapeGroupSessions(sessions: SessionSummary[], groupStatus: string): Se
   } else if (projectFilterMode.value === 'archived_only') {
     list = list.filter(() => isArchivedGroupStatus(groupStatus))
   }
-  if (projectSortMode.value === 'recent') list = sortSessionsByRecentActivity(list)
-  return list
+  // 侧边栏扩展项：归档会话从列表隐藏（取消归档需经后端恢复，后续可加「已归档」视图）。
+  list = list.filter((session) => !Boolean(session.archived))
+  // 侧边栏扩展项：置顶会话排到组内最前，其次按最近活动。
+  const pinned = list.filter((session) => Boolean(session.pinned_at))
+  const rest = list.filter((session) => !Boolean(session.pinned_at))
+  if (projectSortMode.value === 'recent') {
+    return [...sortSessionsByRecentActivity(pinned), ...sortSessionsByRecentActivity(rest)]
+  }
+  return [...pinned, ...rest]
 }
 
 // 统一侧边栏：把服务端项目（userBoundProjects.workspaces）与本地会话按
@@ -645,6 +664,56 @@ async function handleDeleteProject(workspaceId: string): Promise<void> {
   } catch (err) {
     console.warn('[handleDeleteProject] failed:', err)
     if (msg) msg.error(locale.value === 'en' ? 'Failed to delete project' : '删除项目失败')
+  }
+}
+
+// ── 侧边栏扩展项：项目行「…」上下文菜单 ───────────────────────────────────────
+function toggleProjectMenu(workspaceId: string): void {
+  projectMenuOpenFor.value = projectMenuOpenFor.value === workspaceId ? null : workspaceId
+  sessionMenuOpenFor.value = null
+}
+
+function startEditProjectTitle(workspaceId: string, title: string): void {
+  if (!workspaceId || workspaceId === DEFAULT_PROJECT_ID) return
+  editingProjectId.value = workspaceId
+  editingProjectTitle.value = title
+  projectMenuOpenFor.value = null
+  nextTick(() => {
+    const root = document.querySelector(`[data-project-title-input="${CSS.escape(workspaceId)}"]`) as HTMLElement | null
+    const input = root?.querySelector('input') as HTMLInputElement | null
+    input?.focus()
+    input?.select()
+  })
+}
+
+function cancelProjectTitleEdit(): void {
+  editingProjectId.value = null
+  editingProjectTitle.value = ''
+}
+
+async function commitProjectTitleEdit(workspaceId: string): Promise<void> {
+  if (!workspaceId || workspaceId === DEFAULT_PROJECT_ID || renamingProjectId.value === workspaceId) return
+  const title = editingProjectTitle.value.trim()
+  const current = userBoundProjects.titles.value[workspaceId] || ''
+  if (!title || title === current) {
+    cancelProjectTitleEdit()
+    return
+  }
+  renamingProjectId.value = workspaceId
+  try {
+    if (capabilities.isDesktop) {
+      await renameDshWorkspace(workspaceId, title)
+    } else {
+      await updateDesktopProjectTitle(workspaceId, title, authToken.value || null)
+    }
+    userBoundProjects.rename(workspaceId, title)
+    cancelProjectTitleEdit()
+  } catch (err) {
+    console.warn('[projects] rename failed:', err)
+    const msg = useAppMessage()
+    if (msg) msg.error(locale.value === 'en' ? 'Failed to rename project' : '重命名项目失败')
+  } finally {
+    renamingProjectId.value = null
   }
 }
 
@@ -1269,6 +1338,10 @@ function handleDocumentClick(event: MouseEvent) {
   }
   if (!target?.closest('[data-project-display-menu]')) {
     projectDisplayMenuOpen.value = false
+  }
+  // 侧边栏扩展项：点击会话/项目「…」菜单以外区域时收起。
+  if (!target?.closest('[data-session-menu]') && !target?.closest('[data-project-menu]')) {
+    closeContextMenus()
   }
 }
 
@@ -2027,6 +2100,90 @@ async function commitSessionTitleEdit(session: SessionSummary | SessionSearchRes
   }
 }
 
+// ── 侧边栏扩展项：会话行「…」上下文菜单 ───────────────────────────────────────
+function toggleSessionMenu(sessionId: string): void {
+  sessionMenuOpenFor.value = sessionMenuOpenFor.value === sessionId ? null : sessionId
+  projectMenuOpenFor.value = null
+}
+
+function closeContextMenus(): void {
+  sessionMenuOpenFor.value = null
+  projectMenuOpenFor.value = null
+}
+
+function findSessionById(sessionId: string): SessionSummary | SessionSearchResult | null {
+  return (
+    sessions.value.find((item) => item.id === sessionId) ||
+    sessionSearchResults.value.find((item) => item.id === sessionId) ||
+    sharedSessions.value.find((item) => item.id === sessionId) ||
+    null
+  )
+}
+
+/** 用后端返回的最新摘要就地更新所有列表（避免整列表刷新闪烁）。 */
+function applySessionSummary(updated: SessionSummary): void {
+  const replace = (list: SessionSummary[]) =>
+    list.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))
+  sessions.value = replace(sessions.value)
+  sessionSearchResults.value = sessionSearchResults.value.map((item) =>
+    item.id === updated.id ? { ...item, ...updated } : item,
+  )
+  sharedSessions.value = replace(sharedSessions.value)
+}
+
+async function handlePinSession(session: SessionSummary | SessionSearchResult): Promise<void> {
+  const userId = getUserId()
+  const id = session.id
+  if (!userId) return
+  const willPin = !Boolean((session as SessionSummary).pinned_at)
+  closeContextMenus()
+  try {
+    const updated = await pinSession(id, userId, getTenantId(), willPin, authToken.value || null)
+    applySessionSummary(updated)
+  } catch (error) {
+    console.warn('[sessions] pin failed:', error)
+  }
+}
+
+async function handleForkSession(session: SessionSummary | SessionSearchResult): Promise<void> {
+  const userId = getUserId()
+  if (!userId) return
+  closeContextMenus()
+  try {
+    const fork = await forkSession(session.id, userId, getTenantId(), undefined, authToken.value || null)
+    // 新会话插入列表顶部并切换过去，用户可直接继续。
+    sessions.value = [fork, ...sessions.value.filter((item) => item.id !== fork.id)]
+    void refreshWorkspaceTitles()
+    navigateTo('chat')
+    selectSession(fork.id)
+  } catch (error) {
+    console.warn('[sessions] fork failed:', error)
+  }
+}
+
+async function handleArchiveSession(session: SessionSummary | SessionSearchResult): Promise<void> {
+  const userId = getUserId()
+  const id = session.id
+  if (!userId) return
+  const willArchive = !Boolean((session as SessionSummary).archived)
+  closeContextMenus()
+  try {
+    const updated = await archiveSession(id, userId, getTenantId(), willArchive, authToken.value || null)
+    applySessionSummary(updated)
+  } catch (error) {
+    console.warn('[sessions] archive failed:', error)
+  }
+}
+
+async function handleCopySessionId(session: SessionSummary | SessionSearchResult): Promise<void> {
+  closeContextMenus()
+  try {
+    await copyTextToClipboard(session.id)
+  } catch (error) {
+    console.warn('[sessions] copy session id failed:', error)
+  }
+}
+
 async function handleDeleteSession(sessionId: string) {
   const userId = getUserId()
   if (!userId || deletingSessionId.value === sessionId) return
@@ -2595,26 +2752,56 @@ onBeforeUnmount(() => {
           >
             <svg v-if="projectHistoryExpanded(group.id)" :class="projectFolderIconClass(group.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg>
             <svg v-else :class="projectFolderIconClass(group.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5"/></svg>
-            <span class="truncate">{{ group.title }}</span>
+            <n-input
+              v-if="editingProjectId === group.id"
+              v-model:value="editingProjectTitle"
+              size="small"
+              class="min-w-0 flex-1"
+              :data-project-title-input="group.id"
+              :disabled="renamingProjectId === group.id"
+              @click.stop
+              @dblclick.stop
+              @blur="commitProjectTitleEdit(group.id)"
+              @keydown.enter.prevent="commitProjectTitleEdit(group.id)"
+              @keydown.esc.prevent="cancelProjectTitleEdit"
+            />
+            <span v-else class="truncate" @dblclick.stop="startEditProjectTitle(group.id, group.title)">{{ group.title }}</span>
             <span class="ml-auto text-[10px] font-normal text-slate-400">{{ group.sessions.length }}</span>
-            <!-- 右侧操作按钮：非默认工作区才显示 -->
+            <!-- 右侧操作：默认工作区不可重命名/删除；非默认显示「+ 新增会话」与「…」上下文菜单 -->
             <template v-if="group.id !== DEFAULT_PROJECT_ID">
               <button
                 type="button"
-                class="ml-1 shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-red-500 group-hover:opacity-100"
+                class="ml-1 shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-blue-600 group-hover:opacity-100"
                 :title="locale === 'en' ? 'Add session' : '增加会话'"
                 @click.stop="handleAddSessionToProject(group.id)"
               >
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="h-3.5 w-3.5"><path d="M8 3v10M3 8h10"/></svg>
               </button>
-              <button
-                type="button"
-                class="shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-red-500 group-hover:opacity-100"
-                :title="locale === 'en' ? 'Delete project' : '删除项目'"
-                @click.stop="handleDeleteProject(group.id)"
-              >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="h-3.5 w-3.5"><path d="M3 4h10M6 4V3h4v1M5 4v9h6V4"/></svg>
-              </button>
+              <div class="relative shrink-0">
+                <button
+                  type="button"
+                  class="rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-gray-700 group-hover:opacity-100"
+                  :title="locale === 'en' ? 'Project actions' : '项目操作'"
+                  @click.stop="toggleProjectMenu(group.id)"
+                >
+                  <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" class="h-3.5 w-3.5"><circle cx="3" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="13" cy="8" r="1.3"/></svg>
+                </button>
+                <div
+                  v-if="projectMenuOpenFor === group.id"
+                  class="absolute right-0 top-5 z-50 w-[180px] origin-top-right rounded-xl border border-gray-200 bg-white py-1 shadow-[0_12px_40px_rgba(15,23,42,0.14)]"
+                  data-project-menu
+                  @click.stop
+                >
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="startEditProjectTitle(group.id, group.title)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M11.5 2.5 13.5 4.5 6 12l-2.5.5L4 10z"/></svg>
+                    <span>{{ locale === 'en' ? 'Rename' : '重命名' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-red-600 hover:bg-red-50" @click="handleDeleteProject(group.id)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M3 4h10M6 4V3h4v1M5 4v9h6V4"/></svg>
+                    <span>{{ locale === 'en' ? 'Delete Workspace' : '删除工作区' }}</span>
+                  </button>
+                </div>
+              </div>
             </template>
           </div>
           <div
@@ -2685,6 +2872,43 @@ onBeforeUnmount(() => {
                 :aria-label="t('app.sidebar.session_unread')"
                 :title="t('app.sidebar.session_unread')"
               ></span>
+              <div class="relative shrink-0">
+                <button
+                  type="button"
+                  class="shrink-0 rounded p-0 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-gray-700 group-hover:p-1 group-hover:opacity-100"
+                  :title="locale === 'en' ? 'Session actions' : '会话操作'"
+                  @click.stop="toggleSessionMenu(session.id)"
+                >
+                  <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" class="h-3.5 w-3.5"><circle cx="3" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="13" cy="8" r="1.3"/></svg>
+                </button>
+                <div
+                  v-if="sessionMenuOpenFor === session.id"
+                  class="absolute right-0 top-5 z-50 w-[200px] origin-top-right rounded-xl border border-gray-200 bg-white py-1 shadow-[0_12px_40px_rgba(15,23,42,0.14)]"
+                  data-session-menu
+                  @click.stop
+                >
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="handlePinSession(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="m9 1 5 5-1.8.5-1.5 3.2-.8-.8-3 3-1-1 3-3-.8-.8 3.2-1.5z"/><path d="M4 9l2.5 2.5"/></svg>
+                    <span>{{ locale === 'en' ? 'Pin session' : '置顶会话' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="startEditSessionTitle(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M11.5 2.5 13.5 4.5 6 12l-2.5.5L4 10z"/></svg>
+                    <span>{{ locale === 'en' ? 'Rename' : '重命名' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="handleForkSession(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M3 3v4a2 2 0 0 0 2 2h6"/><path d="m8 6 3 3-3 3"/><path d="M13 13V9"/></svg>
+                    <span>{{ locale === 'en' ? 'Fork session' : '分叉会话' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="handleArchiveSession(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M2.5 6h11M3.5 6v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V6"/><path d="M6 6V4.5h4V6M6 9h4"/></svg>
+                    <span>{{ session.archived ? (locale === 'en' ? 'Unarchive session' : '取消归档') : (locale === 'en' ? 'Archive session' : '归档会话') }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="handleCopySessionId(session)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3.5 10.5h-1v-6a1 1 0 0 1 1-1h6v1"/></svg>
+                    <span>{{ locale === 'en' ? 'Copy Session ID' : '复制 Session ID' }}</span>
+                  </button>
+                </div>
+              </div>
               <button
                 type="button"
                 class="shrink-0 overflow-hidden rounded-md p-0 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-red-500 group-hover:w-6 group-hover:p-1 group-hover:opacity-100"
@@ -2761,12 +2985,10 @@ onBeforeUnmount(() => {
         >
           {{ sessionsLoadingMore ? t('ui.loading') : t('app.sidebar.load_more') }}
         </button>
-      </div>
-
-      <div class="mt-2 px-5 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{{ t('app.sidebar.skills') }}</div>
-      <div class="mb-2 space-y-0.5 px-3">
-        <button
-          v-if="canUseSkills"
+        <div class="mt-4 border-t border-gray-200/70 px-2 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">{{ t('app.sidebar.skills') }}</div>
+        <div class="mb-2 space-y-0.5">
+          <button
+            v-if="canUseSkills"
           class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
           :class="currentView === 'skills' 
             ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' 
@@ -2865,6 +3087,7 @@ onBeforeUnmount(() => {
           </span>
           <span>{{ locale === 'zh' ? '资产门户' : 'Asset portal' }}</span>
         </button>
+        </div>
       </div>
 
       <!-- User Profile (Bottom) -->

@@ -60,6 +60,10 @@ export type SessionSummary = {
   code_project?: { workspace_id: string; git_branch: string; worktree: boolean } | null
   /** 046 FR-011: 项目维度分组键；迁移期由后端兼容 project_id / workspace_id / "default"。 */
   project_id?: string
+  /** 侧边栏扩展项：置顶时间戳（null/缺省 = 未置顶）。 */
+  pinned_at?: string | null
+  /** 侧边栏扩展项：是否已归档。 */
+  archived?: boolean
   /** P3 三期-a 会话共享：access 是查看者视角的作用域；仅 shared 列表行与 detail 携带，owner 列表（_serialize_session_summary）省略。 */
   access?: 'owner' | 'shared'
   owner_user_id?: string
@@ -134,6 +138,68 @@ export async function updateDesktopProjectStatus(
   authToken?: string | null,
 ): Promise<void> {
   await client.patch(`/askai-api/api/projects/${encodeURIComponent(projectId)}`, { status }, { headers: authHeaders(authToken) })
+}
+
+/** 侧边栏扩展项：重命名项目标题（Web 端经 PATCH /projects/{id}）。 */
+export async function updateDesktopProjectTitle(
+  projectId: string,
+  title: string,
+  authToken?: string | null,
+): Promise<DesktopProject> {
+  const response = await client.patch(
+    `/askai-api/api/projects/${encodeURIComponent(projectId)}`,
+    { title },
+    { headers: authHeaders(authToken) },
+  )
+  return response.data?.data
+}
+
+/** 侧边栏扩展项：置顶 / 取消置顶会话。 */
+export async function pinSession(
+  sessionId: string,
+  userId: string,
+  tenantId: string | undefined,
+  pinned: boolean,
+  authToken?: string | null,
+): Promise<SessionSummary> {
+  const response = await client.patch(`/askai-api/api/sessions/${sessionId}/pin`, {
+    user_id: userId,
+    tenant_id: tenantId,
+    pinned,
+  }, { headers: authHeaders(authToken) })
+  return response.data?.data
+}
+
+/** 侧边栏扩展项：归档 / 取消归档会话。 */
+export async function archiveSession(
+  sessionId: string,
+  userId: string,
+  tenantId: string | undefined,
+  archived: boolean,
+  authToken?: string | null,
+): Promise<SessionSummary> {
+  const response = await client.patch(`/askai-api/api/sessions/${sessionId}/archive`, {
+    user_id: userId,
+    tenant_id: tenantId,
+    archived,
+  }, { headers: authHeaders(authToken) })
+  return response.data?.data
+}
+
+/** 侧边栏扩展项：分叉会话（以源会话消息副本新建独立会话）。 */
+export async function forkSession(
+  sessionId: string,
+  userId: string,
+  tenantId: string | undefined,
+  title: string | undefined,
+  authToken?: string | null,
+): Promise<SessionSummary> {
+  const response = await client.post(`/askai-api/api/sessions/${sessionId}/fork`, {
+    user_id: userId,
+    tenant_id: tenantId,
+    title,
+  }, { headers: authHeaders(authToken) })
+  return response.data?.data
 }
 
 export async function listSessions(userId: string, tenantId?: string, authToken?: string | null): Promise<SessionSummary[]> {
