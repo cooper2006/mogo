@@ -48,6 +48,10 @@ const attachmentMenuRef = ref<HTMLElement | null>(null)
 const knowledgeQaEnabled = ref(false)
 const modelDropdownOpen = ref(false)
 const modelSelectorRef = ref<HTMLElement | null>(null)
+// 模型下拉面板：Teleport 到 body 最外层渲染，避免被 ChatWindow 的 overflow-hidden 裁剪；
+// 位置用 fixed 基于触发按钮 rect 计算，列表过长时启用滚动条。
+const modelDropdownPanelRef = ref<HTMLElement | null>(null)
+const modelDropdownPanelStyle = ref<Record<string, string>>({})
 const skillPickerOpen = ref(false)
 const skillPickerLoading = ref(false)
 const skillPickerLoadingMore = ref(false)
@@ -210,6 +214,24 @@ function onDocumentSelected(event: Event) {
 function toggleModelDropdown() {
   if (props.running) return
   modelDropdownOpen.value = !modelDropdownOpen.value
+  if (modelDropdownOpen.value) {
+    nextTick(() => positionModelDropdownPanel())
+  }
+}
+
+function positionModelDropdownPanel() {
+  const anchor = modelSelectorRef.value
+  if (!anchor) return
+  const rect = anchor.getBoundingClientRect()
+  const gap = 10
+  // 向上弹出（composer 位于窗口底部），右缘与触发按钮对齐。
+  const bottom = Math.max(8, window.innerHeight - rect.top + gap)
+  const right = Math.max(8, window.innerWidth - rect.right)
+  modelDropdownPanelStyle.value = { bottom: `${bottom}px`, right: `${right}px` }
+}
+
+function onWindowReposition() {
+  if (modelDropdownOpen.value) positionModelDropdownPanel()
 }
 
 function selectChatModel(modelId: string) {
@@ -225,7 +247,13 @@ function onGlobalPointerDown(event: Event) {
     closeAttachmentMenu()
   }
   const modelRoot = modelSelectorRef.value
-  if (modelDropdownOpen.value && modelRoot && !modelRoot.contains(target)) {
+  const modelPanel = modelDropdownPanelRef.value
+  if (
+    modelDropdownOpen.value &&
+    modelRoot &&
+    !modelRoot.contains(target) &&
+    !(modelPanel && modelPanel.contains(target))
+  ) {
     modelDropdownOpen.value = false
   }
   const pickerRoot = skillPickerRef.value
@@ -526,10 +554,14 @@ defineExpose({
 
 onMounted(() => {
   document.addEventListener('pointerdown', onGlobalPointerDown)
+  window.addEventListener('resize', onWindowReposition)
+  window.addEventListener('scroll', onWindowReposition, true)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onGlobalPointerDown)
+  window.removeEventListener('resize', onWindowReposition)
+  window.removeEventListener('scroll', onWindowReposition, true)
   if (skillPickerSearchTimer) clearTimeout(skillPickerSearchTimer)
   for (const item of pendingImages.value) {
     revokePendingImage(item.previewUrl)
@@ -836,30 +868,36 @@ watch(() => props.allowSkills, (allowed) => {
               <path d="M6 12l4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </button>
-          <div
-            v-if="modelDropdownOpen"
-            class="absolute bottom-9 right-0 z-40 w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-900/10"
-          >
-            <button v-if="chatModels.length === 0" type="button" class="flex w-full items-center gap-3 px-3 py-2.5 text-left" @click="selectChatModel('')">
-              <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-slate-800">{{ modelSelectorLabel }}</span></span>
-            </button>
-            <button
-              v-for="model in chatModels"
-              :key="model.id"
-              type="button"
-              class="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
-              :class="model.id === selectedModelId ? 'bg-blue-50/80' : ''"
-              @click="selectChatModel(model.id)"
+          <Teleport to="body">
+            <div
+              v-if="modelDropdownOpen"
+              ref="modelDropdownPanelRef"
+              class="fixed z-[100] w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10"
+              :style="modelDropdownPanelStyle"
             >
-              <span class="min-w-0 flex-1">
-                <span class="flex min-w-0 items-center gap-2">
-                  <span class="truncate text-sm font-medium text-slate-900">{{ model.displayName || model.modelName }}</span>
-                </span>
-                <span class="block truncate text-xs text-slate-500">{{ model.providerName }} · {{ model.modelName }}</span>
-              </span>
-              <svg v-if="model.id === selectedModelId" class="h-4 w-4 shrink-0 text-blue-600" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 10.5l3 3L15 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-            </button>
-          </div>
+              <div class="max-h-[min(60vh,420px)] overflow-y-auto py-1.5">
+                <button v-if="chatModels.length === 0" type="button" class="flex w-full items-center gap-3 px-3 py-2.5 text-left" @click="selectChatModel('')">
+                  <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-slate-800">{{ modelSelectorLabel }}</span></span>
+                </button>
+                <button
+                  v-for="model in chatModels"
+                  :key="model.id"
+                  type="button"
+                  class="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
+                  :class="model.id === selectedModelId ? 'bg-blue-50/80' : ''"
+                  @click="selectChatModel(model.id)"
+                >
+                  <span class="min-w-0 flex-1">
+                    <span class="flex min-w-0 items-center gap-2">
+                      <span class="truncate text-sm font-medium text-slate-900">{{ model.displayName || model.modelName }}</span>
+                    </span>
+                    <span class="block truncate text-xs text-slate-500">{{ model.providerName }} · {{ model.modelName }}</span>
+                  </span>
+                  <svg v-if="model.id === selectedModelId" class="h-4 w-4 shrink-0 text-blue-600" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 10.5l3 3L15 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </button>
+              </div>
+            </div>
+          </Teleport>
         </div>
         <ComposerActionButton
           :running="running"
