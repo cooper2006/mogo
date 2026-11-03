@@ -527,7 +527,7 @@ export const messages = {
   'skill_config.cap.allow_network': { zh: '允许网络访问', en: 'Allow network access' },
   'skill_config.cap.allow_network_desc': { zh: '允许技能请求外部网络资源。', en: 'Allow the skill to request external network resources.' },
   'skill_config.cap.allow_file_write': { zh: '允许写文件', en: 'Allow file writes' },
-  'skill_config.cap.allow_file_write_desc': { zh: '允许技能写入本地文件或工作区文件。', en: 'Allow the skill to write local or workspace files.' },
+  'skill_config.cap.allow_file_write_desc': { zh: '允许技能写入本地文件或项目文件。', en: 'Allow the skill to write local or project files.' },
 
   // Presentation editor
   'ppt.pages': { zh: '页面', en: 'Pages' },

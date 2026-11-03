@@ -136,7 +136,7 @@ watch(() => props.show, (visible) => {
     :mask-closable="!busy && !creating"
     :closable="!busy && !creating"
     style="width: 90vw; max-width: 1100px; height: 80vh"
-    :title="locale === 'en' ? 'Select workspace directory' : '选择工作区目录'"
+    :title="locale === 'en' ? 'Select project directory' : '选择项目目录'"
     @update:show="(value) => !value && emit('close')"
   >
     <div class="directory-browser">

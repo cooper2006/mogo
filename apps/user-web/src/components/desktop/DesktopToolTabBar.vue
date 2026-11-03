@@ -41,7 +41,7 @@ function navigate(event: KeyboardEvent, index: number): void {
 
 <template>
   <header class="tool-tab-bar">
-    <div class="tool-tab-scroll" role="tablist" :aria-label="locale === 'en' ? 'Workspace tools' : '工作区工具'">
+    <div class="tool-tab-scroll" role="tablist" :aria-label="locale === 'en' ? 'Project tools' : '项目工具'">
       <div v-for="(tab, index) in tabs" :key="tab.id" class="tool-tab" :class="{ active: active === tab.id }" @auxclick.middle.prevent="emit('close', tab.id)">
         <button type="button" role="tab" class="tool-tab-select" :aria-selected="active === tab.id" :tabindex="active === tab.id ? 0 : -1" @click="emit('select', tab.id)" @keydown="navigate($event, index)">
           <GlobeOutline v-if="tab.kind === 'browser'" />

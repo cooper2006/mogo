@@ -179,8 +179,8 @@
                 </div>
               </div>
             </n-card>
-            <!-- 035 US2: five-dimension cost attribution (Agent / 空间 / 部门 /
-                用户 / 企业). Unavailable dimensions show the backend's
+            <!-- 035 US2: cost attribution dimensions (空间 / 部门 / 用户 / 企业).
+                 Unavailable dimensions show the backend's
                 honest placeholder reason instead of fabricated numbers. -->
             <n-card class="panel-card span-12" :bordered="false" size="large">
               <template #header>{{ t('成本归集维度') }}</template>
@@ -776,11 +776,10 @@ const costForecast = computed(() => {
 });
 
 // --- 035 US2: five-dimension cost attribution -------------------------------
-// The backend buckets the same 24h window by Agent / 空间 / 部门 / 用户 / 企业;
+// The backend buckets the same 24h window by 空间 / 部门 / 用户 / 企业;
 // here we just surface each dimension's top buckets and its honest availability
 // state (FR-009: never fabricate a zero bucket).
 const COST_DIM_LABELS: Record<string, string> = {
-  agent: 'Agent',
   project: '项目',
   department: '部门',
   user: '用户',
@@ -790,7 +789,6 @@ const costAttributionDims = computed(() => {
   const section = costSection.value;
   if (!section) return [];
   const sources: Array<[string, CostAttribution | undefined]> = [
-    ['agent', section.agentAttribution],
     ['project', section.projectAttribution],
     ['department', section.departmentAttribution],
     ['user', section.userAttribution],

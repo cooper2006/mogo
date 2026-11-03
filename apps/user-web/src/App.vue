@@ -308,7 +308,7 @@ const sharedHistoryExpanded = ref(savedSidebarHistoryState.shared !== false)
 const collapsedProjectHistory = ref<Record<string, boolean>>(savedSidebarHistoryState.projects || {})
 function projectHistoryExpanded(workspaceId: string): boolean { return !collapsedProjectHistory.value[workspaceId] }
 function toggleProjectHistory(workspaceId: string): void { collapsedProjectHistory.value = { ...collapsedProjectHistory.value, [workspaceId]: projectHistoryExpanded(workspaceId) } }
-/** 项目文件夹图标颜色：真实项目为蓝色（对应 DSH 参考），默认工作区为灰色。 */
+/** 项目文件夹图标颜色：真实项目为蓝色（对应 DSH 参考），默认项目为灰色。 */
 function projectFolderIconClass(workspaceId: string): string {
   return workspaceId === DEFAULT_PROJECT_ID
     ? 'h-4 w-4 shrink-0 text-gray-400'
@@ -348,7 +348,7 @@ const projectHistoryGroups = computed(() => {
     })
 })
 const DEFAULT_PROJECT_ID = 'default'
-// 工作区展示偏好：分组方式 / 排序方式 / 筛选会话（对应顶部「筛选」按钮菜单）。
+// 项目展示偏好：分组方式 / 排序方式 / 筛选会话（对应顶部「筛选」按钮菜单）。
 type ProjectGroupMode = 'workspace' | 'tree' | 'list'
 type ProjectSortMode = 'manual' | 'recent'
 type ProjectFilterMode = 'hide_archived' | 'all' | 'archived_only'
@@ -357,7 +357,7 @@ const projectSortMode = ref<ProjectSortMode>('recent')
 const projectFilterMode = ref<ProjectFilterMode>('hide_archived')
 const projectDisplayMenuOpen = ref(false)
 
-/** 项目（工作区）是否已归档：归档项目的会话归属「已归档」分区。 */
+/** 项目是否已归档：归档项目的会话归属「已归档」分区。 */
 function isArchivedGroupStatus(status: string): boolean {
   return status === 'archived'
 }
@@ -383,7 +383,7 @@ function shapeGroupSessions(sessions: SessionSummary[], groupStatus: string): Se
 
 // 统一侧边栏：把服务端项目（userBoundProjects.workspaces）与本地会话按
 // project_id 合并为「项目 → 其下会话」的两层结构；未归属项目的会话
-//（project_id 为 'default'）归集到一个虚拟「默认工作区」节点，对应 DSH
+//（project_id 为 'default'）归集到一个虚拟「默认项目」节点，对应 DSH
 // 桌面端的默认项目概念。
 const unifiedProjectGroups = computed(() => {
   if (!canUseCode.value) return []
@@ -392,7 +392,7 @@ const unifiedProjectGroups = computed(() => {
     groups.set(ws.workspace_id, {
       id: ws.workspace_id,
       title: ws.workspace_id === DEFAULT_PROJECT_ID
-        ? (locale.value === 'en' ? 'Default Workspace' : '默认工作区')
+        ? (locale.value === 'en' ? 'Default Project' : '默认项目')
         : (workspaceTitles.value[ws.workspace_id] || ws.title),
       status: ws.status,
       updatedAt: ws.updated_at || '',
@@ -404,7 +404,7 @@ const unifiedProjectGroups = computed(() => {
     let group = groups.get(pid)
     if (!group) {
       const title = pid === DEFAULT_PROJECT_ID
-        ? (locale.value === 'en' ? 'Default Workspace' : '默认工作区')
+        ? (locale.value === 'en' ? 'Default Project' : '默认项目')
         : (workspaceTitles.value[pid] || `${locale.value === 'en' ? 'Project' : '项目'} · ${pid.slice(0, 8)}`)
       group = { id: pid, title, status: 'ok', updatedAt: session.updated_at || '', sessions: [] }
       groups.set(pid, group)
@@ -415,13 +415,13 @@ const unifiedProjectGroups = computed(() => {
   if (!groups.has(DEFAULT_PROJECT_ID)) {
     groups.set(DEFAULT_PROJECT_ID, {
       id: DEFAULT_PROJECT_ID,
-      title: locale.value === 'en' ? 'Default Workspace' : '默认工作区',
+      title: locale.value === 'en' ? 'Default Project' : '默认项目',
       status: 'ok', updatedAt: '', sessions: [],
     })
   }
   return [...groups.values()]
     .map((group) => ({ ...group, sessions: shapeGroupSessions(group.sessions, group.status) }))
-    // 「按工作区」仅保留有会话的分组（默认工作区始终保留）；「按工作区树」保留全部节点。
+    // 「按项目」仅保留有会话的分组（默认项目始终保留）；「按项目树」保留全部节点。
     .filter((group) => projectGroupMode.value !== 'workspace' || group.id === DEFAULT_PROJECT_ID || group.sessions.length > 0)
     .sort((left, right) => {
       if (left.id === DEFAULT_PROJECT_ID) return 1
@@ -562,7 +562,7 @@ async function chooseProjectFolder(): Promise<void> {
     return
   }
   // On web, prefer the browser-native File System Access API so the user picks
-  // a REAL local directory (matching the desktop "添加工作区" experience) instead
+  // a REAL local directory (matching the desktop "添加项目" experience) instead
   // of a server-side container path. Requires a Chromium browser + a user
   // gesture, both of which hold here (the button click).
   if (isFileSystemAccessSupported()) {
@@ -647,7 +647,7 @@ async function commitProjectCreate(): Promise<void> {
   } finally { createProjectBusy.value = false }
 }
 
-/** 删除工作区：归档 + 本地移除。默认工作区不可删除。 */
+/** 删除项目：归档 + 本地移除。默认项目不可删除。 */
 async function handleDeleteProject(workspaceId: string): Promise<void> {
   if (!workspaceId || workspaceId === DEFAULT_PROJECT_ID) return
   const msg = useAppMessage()
@@ -2382,7 +2382,7 @@ async function handlePaneSend(
   },
 ) {
   const codeState = codeRuntime.stateFor(key)
-  // Web 端（codeExecution=false）不支持本地 Code 执行：绑定项目的工作区会话
+  // Web 端（codeExecution=false）不支持本地 Code 执行：绑定到项目的会话
   // 走普通聊天，并把项目作为会话归属（project_id），避免静默吞错导致空白。
   const canRunCode = canUseCode.value && capabilities.codeExecution
   if (canRunCode && (codeState.workspace || codeState.session)) {
@@ -2652,7 +2652,7 @@ onBeforeUnmount(() => {
       <div
         class="group mt-2 flex w-full items-center gap-1 px-5 pb-1 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400"
       >
-        <span>{{ locale === 'en' ? 'Workspace' : '工作区' }}</span>
+        <span>{{ locale === 'en' ? 'Project' : '项目' }}</span>
         <!-- 搜索会话 -->
         <span
           class="ml-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded text-gray-400 hover:bg-gray-200/60 hover:text-gray-700"
@@ -2683,7 +2683,7 @@ onBeforeUnmount(() => {
           >
             <div class="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.08em] text-gray-400">{{ locale === 'en' ? 'Grouping' : '分组方式' }}</div>
             <button
-              v-for="opt in ([{ value: 'workspace', label: '按工作区' }, { value: 'tree', label: '按工作区树' }, { value: 'list', label: '单列表' }] as const)"
+              v-for="opt in ([{ value: 'workspace', label: '按项目' }, { value: 'tree', label: '按项目树' }, { value: 'list', label: '单列表' }] as const)"
               :key="opt.value"
               type="button"
               class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100"
@@ -2767,7 +2767,7 @@ onBeforeUnmount(() => {
             />
             <span v-else class="truncate" @dblclick.stop="startEditProjectTitle(group.id, group.title)">{{ group.title }}</span>
             <span class="ml-auto text-[10px] font-normal text-slate-400">{{ group.sessions.length }}</span>
-            <!-- 右侧操作：默认工作区不可重命名/删除；非默认显示「+ 新增会话」与「…」上下文菜单 -->
+            <!-- 右侧操作：默认项目不可重命名/删除；非默认显示「+ 新增会话」与「…」上下文菜单 -->
             <template v-if="group.id !== DEFAULT_PROJECT_ID">
               <button
                 type="button"
@@ -2798,7 +2798,7 @@ onBeforeUnmount(() => {
                   </button>
                   <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-red-600 hover:bg-red-50" @click="handleDeleteProject(group.id)">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M3 4h10M6 4V3h4v1M5 4v9h6V4"/></svg>
-                    <span>{{ locale === 'en' ? 'Delete Workspace' : '删除工作区' }}</span>
+                    <span>{{ locale === 'en' ? 'Delete Project' : '删除项目' }}</span>
                   </button>
                 </div>
               </div>

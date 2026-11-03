@@ -121,7 +121,7 @@ type SendInput = {
   knowledgeQaEnabled: boolean
   selectedSkillId?: string
   modelId?: string
-  /** 会话归属的项目（工作区）ID；新建会话时由后端写入 session.project_id。 */
+  /** 会话归属的项目 ID；新建会话时由后端写入 session.project_id。 */
   projectId?: string
   authToken: string | null
   userId: string | null
