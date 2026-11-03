@@ -79,7 +79,7 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 44 feature specifications (001–044), each with a complete chain
+specs/                    # 48 feature specifications (001–048), each with a complete chain
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -95,10 +95,14 @@ specs/                    # 44 feature specifications (001–044), each with a c
   030-ontology-data-permission/
   031-model-provider-discover/
   032-eval-gate/ … 044-multi-agent-modes/   # AgentOS integration batch (032–044, 13 new features, 2026-10-23)
+  045-asset-center/                          # 2026-10-29 asset hub (spec/plan/tasks/checklist, 15/15)
+  046-project-dimension/                     # 035/042 dimension convergence batch (046–048, 2026-10-31)
+  047-quota-discoverability/
+  048-business-line-removal/
   INDEX.md                # specification index
 ```
 
-Each of the 44 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Six of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
+Each of the 48 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Six of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
 
 They fall into seven groups:
 
@@ -108,10 +112,12 @@ They fall into seven groups:
 - **1 data-backend migration** (027) — an opt-in MongoDB → PanWeiDB (openGauss kernel) migration whose compatibility layer (R1: a Motor/PyMongo-compatible facade), aggregation-pipeline compiler + bulk_write wiring (R2) and 44-table relational flattening (R3) have all landed. The default backend is still **MongoDB**; PanWeiDB is enabled opt-in via `MOGO_DATA_BACKEND=panweidb`, and rollback is a single environment variable — no code change.
 - **4 data-backend and user-web experience features** (028–031) — both user-web experience features (028–029) landed on 2026-10-15: 028 promotes the per-message execution process to a session-level Chat/Trajectory dual tab, and 029 turns user-web into an SSO receiver so an external portal's logged-in users enter the workspace without a second login; 030 adds per-ontology data-scoped permission (P1, 2026-10-16); 031 adds model-provider discover with multi-protocol support including Anthropic / Gemini / Ollama (P1, 2026-10-18) (see [Data backend and user-web experience: 027–031](#data-backend-and-user-web-experience-027031) below).
 - **13 AgentOS integration features** (032–044) — the 2026-10-23 enterprise Agent OS product-landing batch: 13 brand-new features (eval gate, canary rollout, credential encryption, cost attribution, trust rating, unified portal, egress sandbox, visual orchestration, model-tier routing, connector market, three-level quota, session replay, multi-agent modes); each carries spec/plan/tasks/checklist and the code landed on 2026-10-24 (see [AgentOS integration batch: 032–044](#agentos-integration-batch-032044) below).
+- **1 asset-center hub** (045) — added 2026-10-29: a unified `(asset_type, asset_key)` coordinate over Skills / capability assets (MCP / tools / connectors) with a catalog page, four status badges (rating / listed / claimed / in-use) and drill-down, wired into portal listing and the approval view; 15/15 tasks landed with `test_capability_assets_admin.py` 5 passed (see [Asset center: 045](#asset-center-045) below).
+- **3 dimension-convergence features** (046–048) — the 2026-10-31 "035/042 口径收敛" batch, code landed 2026-11-01: 046 unifies the three same-named "project" concepts into one (project = working directory, `desktop_projects` → `projects`), 047 makes 042's three-level quota discoverable (dedicated 项目管理 menu + `?open=quota` deep link + 配额异常 dashboard card), 048 removes the business-line dimension (no write-side producer, guaranteed single-bucket fake data); all four carry spec/plan/tasks/checklist, 046 34/35 · 047 30/31 · 048 13/13 (see [Dimension-convergence batch: 046–048](#dimension-convergence-batch-046048) below).
 
 Interface contracts live in two places: the 6 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`, `memory-context-contract`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
 
-[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 44 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027), the user-web / data-permission / model-discover experience set (028–031) and the AgentOS integration batch (032–044), and records the clarify decisions behind each threshold.
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 48 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027), the user-web / data-permission / model-discover experience set (028–031), the AgentOS integration batch (032–044), the asset-center hub (045) and the dimension-convergence batch (046–048), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -210,6 +216,22 @@ Thirteen features close the gap between MOGO and the *Enterprise Agent OS* produ
 | 34 | **Multi-agent modes** | 010 engine gains `round_robin` (three configurable selection strategies) and `debate` (round cap + three convergence conditions); the existing four modes are unchanged | [044](specs/044-multi-agent-modes/) |
 
 Wave 1 (governance closed loop) = 032 + 033 + 034; Wave 2 (operations & product completeness) = 035 + 036 + 037 + 038; Wave 3 (ecosystem experience) = 039–044, picked by resource availability.
+
+### Asset center: 045
+
+| # | Capability | What it delivers | Spec |
+| :-: | --- | --- | :-: |
+| 35 | **Asset center hub** | A unified `(asset_type, asset_key)` coordinate joining Skills / capability assets (MCP / tools / connectors) into one catalog page (`GET /api/v1/capabilities/list`): four status badges (rating / listed / claimed / in-use) with drill-down, wired into the portal listing picker and the approval view. 2026-10-29, tasks 15/15, `test_capability_assets_admin.py` 5 passed | [045](specs/045-asset-center/) |
+
+### Dimension-convergence batch: 046–048
+
+Three features close the gap left by 035 (cost attribution) and 042 (three-level quota): the "project" concept had no real data and 042's quota entry was unreachable. All three landed on 2026-11-01 (retrospective spec: code first, spec backfilled, same treatment as 027/030/031):
+
+| # | Capability | What it delivers | Spec |
+| :-: | --- | --- | :-: |
+| 36 | **Project dimension unified** | Collapses the three same-named "project" concepts (user-web working directory / chat-api `desktop_projects` / 042 `quota_projects`) into one — project = working directory: `desktop_projects` → `projects` collection, a default `"default"` project, `chat_sessions.project_id`, gateway binding back-reference, full backfill, sidebar + dashboard read-switch and 042 project-layer `scope_id = project_id`. Tasks 34/35 (one manual browser acceptance left) | [046](specs/046-project-dimension/) |
+| 37 | **Quota discoverability** | Makes 042's implemented three-level quota actually findable: a dedicated 项目管理 menu, a fixed `?open=quota` deep link, a "配额异常" dashboard card, "团队" → "部门" copy (identifier kept) and cross-service consistency tests + tz unification. Tasks 30/31 | [047](specs/047-quota-discoverability/) |
+| 38 | **Business-line removal** | Deletes the business-line dimension (no write-side producer, guaranteed single-bucket fake data): backend `_resolve_business_line` + `businessLineAttribution`, front-end labels/types, test assertions; the cost section goes from 6 segments to 5. Tasks 13/13 | [048](specs/048-business-line-removal/) |
 
 ## Line three: multi-instance Agent runtime
 
@@ -586,7 +608,7 @@ See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (44 features, plus `INDEX.md`) |
+| `specs/` | spec-kit SDD specification assets (48 features, plus `INDEX.md`) |
 | `contracts/` | the 6 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway, memory-context) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |

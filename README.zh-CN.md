@@ -62,7 +62,7 @@
   scripts/bash/           #   create-new-feature、setup-plan 等脚本
   workflows/speckit/      #   工作流注册表
 
-specs/                    # 44 个特性规格（001–044），每个含完整规格链路
+specs/                    # 48 个特性规格（001–048），每个含完整规格链路
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -78,10 +78,14 @@ specs/                    # 44 个特性规格（001–044），每个含完整�
   030-ontology-data-permission/
   031-model-provider-discover/
   032-eval-gate/ … 044-multi-agent-modes/   # AgentOS 整合批次（032–044，13 项全新特性，2026-10-23 新增）
+  045-asset-center/                          # 2026-10-29 资产中心（spec/plan/tasks/checklist，15/15）
+  046-project-dimension/                     # 035/042 口径收敛批次（046–048，2026-10-31）
+  047-quota-discoverability/
+  048-business-line-removal/
   INDEX.md                # 规格索引
 ```
 
-44 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分），每份均配有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 5 个（001、007、008、009、020）另附 `contracts/` 目录。
+48 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分），每份均配有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 5 个（001、007、008、009、020）另附 `contracts/` 目录。
 
 它们分为七组：
 
@@ -91,10 +95,12 @@ specs/                    # 44 个特性规格（001–044），每个含完整�
 - **1 个数据后端迁移**（027）——数据层从 MongoDB 迁到 PanWeiDB（openGauss 内核）：兼容门面（R1）+ 聚合管道编译与 bulk_write 接线（R2）+ 44 表关系扁平化（R3）全量落地，开关式回滚、既有调用点零改写；默认仍为 MongoDB，经 `MOGO_DATA_BACKEND=panweidb` 可选开启。
 - **4 个 user-web / 数据体验特性**（028–031）——028 把每条消息内联的执行过程提升为会话级「对话 / 轨迹」双 tab；029 把 user-web 变成 SSO 接收方，外部门户已登录用户免二次登录进入工作台（2026-10-15）；030 为本体域新增数据范围权限（P1，2026-10-16）；031 新增模型供应商发现与多协议接入（Anthropic / Gemini / Ollama，P1，2026-10-18）（详见下文[数据后端与 user-web 体验：027–031](#数据后端与-user-web-体验027031)）。
 - **13 个 AgentOS 整合特性**（032–044）——2026-10-23 企业级 Agent OS 产品落地批次：13 项全新特性（评估门禁、灰度发布、凭证加密、成本归因、信任评级、统一门户、出口沙箱、可视化编排、模型分级路由、连接器市场、三级配额、会话回放、多智能体模式）；每一项都含 spec/plan/tasks/checklist，代码于 2026-10-24 落地（详见下文[AgentOS 整合批次：032–044](#agentos-整合批次032044)）。
+- **1 个资产中心枢纽**（045）——2026-10-29 新增：用统一坐标 `(asset_type, asset_key)` 把 Skill / 能力资产（MCP / 工具 / 连接器）收拢进一个资产中心页（`GET /api/v1/capabilities/list`），四徽标（评级 / 上架 / 申领 / 在用）可下钻，接入门户上架下拉与审批页资产视角；tasks 15/15、`test_capability_assets_admin.py` 5 passed（详见下文[资产中心：045](#资产中心045)）。
+- **3 个口径收敛特性**（046–048）——2026-10-31「035/042 口径收敛」批次，代码 2026-11-01 落地：046 把三套同名"项目"概念收敛为一套（项目 = 工作目录，`desktop_projects` → `projects`），047 让 042 三级配额真正找得到（独立「项目管理」菜单 + `?open=quota` 深链 + 驾驶舱「配额异常」卡片），048 删除业务线维度（无写方、必产单桶假数据）；四件套齐备，046 34/35 · 047 30/31 · 048 13/13（详见下文[口径收敛批次：046–048](#口径收敛批次046048)）。
 
 接口契约分布在两处：顶层 [`contracts/`](contracts/) 下 6 份 T998 契约（`orchestration`、`self-evolution`、`session-versioning-contract`、`harness-config`、`a2a-gateway`、`memory-context-contract`），加上 `specs/` 内 5 个按特性划分的 `contracts/` 目录（[`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md)、[`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md)、[`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md)、[`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md)、[`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)）。
 
-[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 44 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）、质量加固（022–026）、数据后端迁移（027）、user-web / 本体权限 / 模型发现体验（028–031）与 AgentOS 整合批次（032–044）七组，并记录每条阈值的 clarify 决策依据。
+[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 48 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）、质量加固（022–026）、数据后端迁移（027）、user-web / 本体权限 / 模型发现体验（028–031）、AgentOS 整合批次（032–044）、资产中心枢纽（045）与口径收敛批次（046–048），并记录每条阈值的 clarify 决策依据。
 
 这样做的收益是：每一条企业能力都有对应的需求来源、验收标准与测试证据，界面触点与规格的映射关系记录在 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md)。
 
@@ -193,6 +199,22 @@ specs/                    # 44 个特性规格（001–044），每个含完整�
 | 34 | **多智能体模式（Multi-agent modes）** | 010 引擎新增 `round_robin`（三种可选选择策略）与 `debate`（轮次上限 + 三种收敛条件）；既有四种模式不变 | [044](specs/044-multi-agent-modes/) |
 
 Wave 1（治理闭环）= 032 + 033 + 034；Wave 2（运营与产品完备性）= 035 + 036 + 037 + 038；Wave 3（生态体验）= 039–044，按资源情况取舍。
+
+### 资产中心：045
+
+| # | 能力 | 交付内容 | 规格 |
+| :-: | --- | --- | :-: |
+| 35 | **资产中心枢纽** | 用统一坐标 `(asset_type, asset_key)` 把 Skill / 能力资产（MCP / 工具 / 连接器）收拢进一个资产中心页（`GET /api/v1/capabilities/list`）：四徽标（评级 / 上架 / 申领 / 在用）可下钻，接入门户上架下拉与审批页资产视角。2026-10-29，tasks 15/15，`test_capability_assets_admin.py` 5 passed | [045](specs/045-asset-center/) |
+
+### 口径收敛批次：046–048
+
+三个特性补齐 035（成本归因）与 042（三级配额）留下的缺口："项目"概念没有真实数据、042 的配额入口找不到。三项均于 2026-11-01 落地（回溯补规格：代码先行、规格补齐，与 027/030/031 同类处理）：
+
+| # | 能力 | 交付内容 | 规格 |
+| :-: | --- | --- | :-: |
+| 36 | **项目维度统一** | 把三套同名"项目"概念（user-web 工作目录 / chat-api `desktop_projects` / 042 `quota_projects`）收敛为一套——项目 = 工作目录：`desktop_projects` → `projects` 集合、默认项目 `"default"`、`chat_sessions.project_id`、网关反查绑定、全量回填、侧边栏与驾驶舱切读、042 项目层 `scope_id = project_id`。tasks 34/35（余 1 项手工浏览器验收） | [046](specs/046-project-dimension/) |
+| 37 | **配额可发现性** | 让 042 已实现的三级配额真正找得到：新增独立「项目管理」菜单、修 `?open=quota` 深链、驾驶舱补「配额异常」卡片、文案「团队」→「部门」（标识符保留）、跨服务一致性测试 + tz 统一。tasks 30/31 | [047](specs/047-quota-discoverability/) |
+| 38 | **业务线维度删除** | 删除无写方、必产单桶假数据的「业务线」维度：后端 `_resolve_business_line` + `businessLineAttribution`、前端标签/类型、测试断言；成本段 6 段 → 5 段。tasks 13/13 | [048](specs/048-business-line-removal/) |
 
 ## 主线三：智能体多实例运行改造
 
@@ -528,7 +550,7 @@ PUBLIC_BASE_URL=https://mogo.example.com
 
 | 路径 | 组件 |
 | --- | --- |
-| `specs/` | spec-kit SDD 规格资产（44 个特性 + `INDEX.md`） |
+| `specs/` | spec-kit SDD 规格资产（48 个特性 + `INDEX.md`） |
 | `contracts/` | 6 份 T998 接口契约（编排、自进化、会话版本化、Harness 配置、A2A 网关、memory-context） |
 | `.specify/` | spec-kit 工作流、模板与项目宪法 |
 | `apps/user-web/` | Vue 3 用户工作台 |

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mogo-admin-api"
-version = "0.2.5"
+version = "0.2.6"
 description = "Control plane API for the MOGO admin system"
 authors = ["MOGO Team"]
 license = "Apache-2.0"
