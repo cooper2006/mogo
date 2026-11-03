@@ -6,7 +6,7 @@
 
 **Tests**: 后端 pytest（chat-api / admin-api 既有测试树）+ 迁移脚本幂等测试；前端用 `node scripts/check_sfc.mjs` 单文件编译校验（不做全量 `vite build`，本机 >10min）。
 
-**Organization**: 按 035 §8 的三阶段（P0 数据模型 → P1 回填 → P2 切读）分 Phase，每阶段内按用户故事组织；T001 起连续编号，全部 `- [ ]`。
+**Organization**: 按 035 §8 的三阶段（P0 数据模型 → P1 回填 → P2 切读）分 Phase，每阶段内按用户故事组织；T001 起连续编号，全部已勾选（代码已落地，2026-11-01 完成 T001–T034；`30b9755b` 补前端用户可见文案统一，2026-11-03）。
 
 ## Phase 1: Setup
 
