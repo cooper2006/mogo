@@ -27,6 +27,12 @@ export function useUserQuestions(options: Options) {
     const codeId = options.codeSessionId()
     const conversationId = options.conversationId()
     const token = options.token()
+    // 非运行态会话没有「待定问题」：跳过请求，避免对已完成/空闲会话持续轮询
+    // questions 端点（运行窗口内会 403/404，无 run 时也属无效请求），消除控制台噪音。
+    if (!options.running()) {
+      if (currentEpoch === epoch) pending.value = []
+      return
+    }
     if (!codeId && (!conversationId || !token)) {
       pending.value = []
       return
