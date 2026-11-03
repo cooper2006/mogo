@@ -645,6 +645,14 @@ async def list_sessions(
         "active_run": 1,
         "scheduled_unread": 1,
         "last_scheduled_run": 1,
+        # 046 FR-011: 项目维度分组键与会话工作区绑定必须随行返回；遗漏会令
+        # _serialize_session_summary 的 project_id 回退链落到 "default"，
+        # 导致「增加会话到项目」的新会话在侧边栏被误归到默认工作区。
+        "execution_location": 1,
+        "runtime_preset_id": 1,
+        "model_instance_id": 1,
+        "code_project": 1,
+        "project_id": 1,
     }
     if shared_scope:
         participants = SessionParticipantsRepository(db)
@@ -780,6 +788,14 @@ async def search_sessions(
         "active_run": 1,
         "scheduled_unread": 1,
         "last_scheduled_run": 1,
+        # 046 FR-011: 项目维度分组键与会话工作区绑定必须随行返回；遗漏会令
+        # _serialize_session_summary 的 project_id 回退链落到 "default"，
+        # 导致「增加会话到项目」的新会话在侧边栏被误归到默认工作区。
+        "execution_location": 1,
+        "runtime_preset_id": 1,
+        "model_instance_id": 1,
+        "code_project": 1,
+        "project_id": 1,
     }
 
     candidates: Dict[str, Dict[str, Any]] = {}
