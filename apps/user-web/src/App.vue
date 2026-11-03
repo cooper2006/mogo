@@ -296,6 +296,12 @@ const sharedHistoryExpanded = ref(savedSidebarHistoryState.shared !== false)
 const collapsedProjectHistory = ref<Record<string, boolean>>(savedSidebarHistoryState.projects || {})
 function projectHistoryExpanded(workspaceId: string): boolean { return !collapsedProjectHistory.value[workspaceId] }
 function toggleProjectHistory(workspaceId: string): void { collapsedProjectHistory.value = { ...collapsedProjectHistory.value, [workspaceId]: projectHistoryExpanded(workspaceId) } }
+/** 项目文件夹图标颜色：真实项目为蓝色（对应 DSH 参考），默认工作区为灰色。 */
+function projectFolderIconClass(workspaceId: string): string {
+  return workspaceId === DEFAULT_PROJECT_ID
+    ? 'h-4 w-4 shrink-0 text-gray-400'
+    : 'h-4 w-4 shrink-0 text-blue-600'
+}
 const historyItems = computed(() => sortSessionsByRecentActivity(
   // 046 FR-011: 分组键改 project_id；web 会话（无 code_project）落 "default" 组，不再按 workspace_id 排除。
   sessions.value.filter((session) => !supportsLocalCodeProjects || (session.project_id || 'default') === 'default'),
@@ -653,6 +659,26 @@ function handleAddSessionToProject(workspaceId: string): void {
   // 绑定项目
   codeRuntime.setDraftProject(pane.key, workspace, boundProjectWorktree(userBoundProjects.bindings.value, workspaceId))
   navigateTo('chat')
+}
+
+/** 会话最近活动时间：优先最后消息时间，回退更新时间。 */
+function sessionLastActiveAt(session: SessionSummary): string {
+  return session.last_message_at || session.updated_at || session.created_at || ''
+}
+
+/** 相对时间显示（对应 DSH 参考「21小时」样式）：刚刚 / N 分钟前 / N 小时前 / N 天前 / 月日。 */
+function formatRelativeTime(iso?: string | null): string {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ''
+  const diffMinutes = Math.floor((Date.now() - then) / 60000)
+  if (diffMinutes < 1) return '刚刚'
+  if (diffMinutes < 60) return `${diffMinutes} 分钟前`
+  const hours = Math.floor(diffMinutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days} 天前`
+  return new Date(iso).toLocaleDateString(locale.value === 'en' ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric' })
 }
 
 function currentProjectIdentity(): string {
@@ -2598,8 +2624,8 @@ onBeforeUnmount(() => {
             @dblclick.stop="toggleProjectHistory(group.id)"
             @keydown.enter.stop="toggleProjectHistory(group.id)"
           >
-            <svg v-if="projectHistoryExpanded(group.id)" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg>
-            <svg v-else class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5"/></svg>
+            <svg v-if="projectHistoryExpanded(group.id)" :class="projectFolderIconClass(group.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg>
+            <svg v-else :class="projectFolderIconClass(group.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="group.id === DEFAULT_PROJECT_ID ? 1.5 : 1.8" aria-hidden="true"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5"/></svg>
             <span class="truncate">{{ group.title }}</span>
             <span class="ml-auto text-[10px] font-normal text-slate-400">{{ group.sessions.length }}</span>
             <!-- 右侧操作按钮：非默认工作区才显示 -->
@@ -2655,6 +2681,11 @@ onBeforeUnmount(() => {
               >
                 {{ compactSessionTitle(session) }}
               </div>
+              <span
+                v-if="editingSessionId !== session.id"
+                class="shrink-0 text-[10px] text-gray-400"
+                :title="sessionLastActiveAt(session)"
+              >{{ formatRelativeTime(sessionLastActiveAt(session)) }}</span>
               <span
                 v-if="sessionNeedsHumanAssistance(session.id)"
                 class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
