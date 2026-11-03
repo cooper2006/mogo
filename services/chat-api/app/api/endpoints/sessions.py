@@ -93,6 +93,14 @@ class SessionSummary(BaseModel):
     runtime_preset_id: str = "askai-enterprise"
     model_instance_id: Optional[str] = None
     code_project: Optional[dict] = None
+    # 046 FR-011: 项目维度分组键。必须在 SessionSummary 上显式声明，否则
+    # list_sessions/search_sessions 的 `SessionSummary(**_serialize_session_summary(doc))`
+    # 会因模型缺字段把 project_id 剥离，前端收不到归属 → 会话被误归「默认工作区」。
+    project_id: str = "default"
+    # 侧边栏扩展项：置顶时间戳（null/缺省 = 未置顶）。
+    pinned_at: Optional[datetime] = None
+    # 侧边栏扩展项：是否已归档。
+    archived: bool = False
 
 
 class SessionDetail(SessionSummary):
