@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.core.config import get_settings
 from app.core.tenant import resolve_tenant_id
 from app.llm.base import BaseLLMClient
+from app.llm.resilience.retry import retry_with_backoff
 from app.llm.types import LLMResponse, Message
 from app.infrastructure.observability.execution_trace import ensure_trace_id
 from app.infrastructure.observability.spans import log_span
@@ -55,7 +56,10 @@ class InstrumentedLLMClient(BaseLLMClient):
         error_text = ""
         try:
             async with log_span("llm.request", stage=self._stage or "ainvoke", model=self._model_name, method="ainvoke", slow_ms=get_settings().LLM_SLOW_MS if hasattr(get_settings(), "LLM_SLOW_MS") else None):
-                response = await self._inner.ainvoke(messages, **kwargs)
+                response = await retry_with_backoff(
+                    lambda: self._inner.ainvoke(messages, **kwargs),
+                    on_retry=self._on_retry,
+                )
             return response
         except Exception as exc:
             status = "failed"
@@ -118,7 +122,10 @@ class InstrumentedLLMClient(BaseLLMClient):
         error_text = ""
         try:
             async with log_span("llm.request", stage=self._stage or "ainvoke_structured", model=self._model_name, method="ainvoke_structured", schema=getattr(schema, "__name__", "")):
-                data = await self._inner.ainvoke_structured(messages, schema, **kwargs)
+                data = await retry_with_backoff(
+                    lambda: self._inner.ainvoke_structured(messages, schema, **kwargs),
+                    on_retry=self._on_retry,
+                )
             return data
         except Exception as exc:
             status = "failed"
@@ -137,6 +144,19 @@ class InstrumentedLLMClient(BaseLLMClient):
                 structured_output=data.model_dump() if data is not None and hasattr(data, "model_dump") else None,
                 output_spec=call_output_spec,
             )
+
+    def _on_retry(self, attempt: int, error: BaseException) -> None:
+        logger.warning(
+            "llm request retried after transient failure",
+            extra={
+                "event": "llm.retry",
+                "stage": self._stage or "unknown",
+                "intent": self._intent,
+                "model": self._model_name,
+                "attempt": attempt,
+                "error": str(error)[:240],
+            },
+        )
 
     def consume_invocation_record(self) -> Dict[str, Any] | None:
         return self._inner.consume_invocation_record()

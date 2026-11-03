@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     OPENAI_MODEL_GENERAL: str = "gpt-5.2"
     OPENAI_MODEL_CHAT: str = "gpt-5.2-chat"
     OPENAI_MODEL_CODING: str = "gpt-5.3-codex"
+    # 深度调研工具（progressive_research）专用模型别名。默认为空 = 沿用租户默认
+    # 模型实例；配置为更高配额的模型别名后，调研 LLM 调用将走同一 provider 的该
+    # 模型，以规避免费层（如 AgnesAI free tier）的 429 限流（fix：生产会话中断）。
+    OPENAI_MODEL_RESEARCH: str = ""
 
     # Azure OpenAI
     USE_AZURE: bool = False

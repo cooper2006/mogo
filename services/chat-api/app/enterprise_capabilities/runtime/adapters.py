@@ -24,6 +24,7 @@ from app.services.runtime_parse_service import runtime_parse_service
 from app.services.rag_service.internal_knowledge_qa_service import internal_knowledge_qa_service
 from app.enterprise_capabilities.research.progressive.provider_router import ProviderRouter
 from app.enterprise_capabilities.research.progressive.agent import ProgressiveResearchAgent
+from app.core.config import get_settings
 from app.infrastructure.request_context import (
     merge_request_context,
     reset_request_context,
@@ -302,6 +303,7 @@ async def progressive_research(arguments: dict[str, Any], context: CapabilityExe
     })
     previous_model = set_configured_model_context(model_config)
     try:
+        research_model = get_settings().OPENAI_MODEL_RESEARCH
         agent = ProgressiveResearchAgent(
             max_rounds=int(arguments.get("max_rounds") or 3),
             max_results_per_query=int(arguments.get("max_results_per_query") or 8),
@@ -313,6 +315,9 @@ async def progressive_research(arguments: dict[str, Any], context: CapabilityExe
             audit_sink=emit_feature_event,
             tenant_id=context.tenant_id,
             actor=context.user_id,
+            research_model=research_model or None,
+            research_base_url=model_config.get("base_url") if research_model else None,
+            research_api_key=model_config.get("api_key") if research_model else None,
         )
         result = await agent.run(
             query=str(arguments.get("query") or "").strip(),

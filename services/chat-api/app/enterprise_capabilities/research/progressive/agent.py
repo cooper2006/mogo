@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from app.llm.factory import get_request_scoped_llm_client
+from app.llm.factory import get_openai_compatible_client, get_request_scoped_llm_client
 from app.llm.decision_turn import DecisionTurnSpec, invoke_json_decision
 from app.llm.types import Message, Role
 from app.enterprise_capabilities.research.progressive.json_utils import coerce_json_object, unique_strings
@@ -42,9 +42,12 @@ class ProgressiveResearchAgent:
         provider_router: ProviderRouter | None = None,
         llm: Any | None = None,
         max_rounds: int = 3,
-        max_queries_per_round: int = 4,
-        max_results_per_query: int = 8,
+        max_queries_per_round: int = 3,
+        max_results_per_query: int = 6,
         max_evidence: int = 16,
+        research_model: str | None = None,
+        research_base_url: str | None = None,
+        research_api_key: str | None = None,
         freshness_days: int = 30,
         progress_callback: Any | None = None,
         research_focus_builder: Any | None = None,
@@ -55,11 +58,25 @@ class ProgressiveResearchAgent:
         actor: str = "",
     ) -> None:
         self.provider_router = provider_router or ProviderRouter()
-        self.llm = llm or get_request_scoped_llm_client(
-            streaming=False,
-            intent="task",
-            stage="progressive_research",
-        )
+        if llm is not None:
+            self.llm = llm
+        elif research_model and research_base_url and research_api_key:
+            # 高配额模型覆盖：在同一 provider（如 AgnesAI）上使用更高配额的模型
+            # 别名，规避免费层 429 限流。凭据/地址取自租户默认模型实例。
+            self.llm = get_openai_compatible_client(
+                api_key=research_api_key,
+                base_url=research_base_url,
+                model_name=research_model,
+                streaming=False,
+                intent="task",
+                stage="progressive_research",
+            )
+        else:
+            self.llm = get_request_scoped_llm_client(
+                streaming=False,
+                intent="task",
+                stage="progressive_research",
+            )
         self.max_rounds = max(1, min(6, int(max_rounds or 3)))
         self.max_queries_per_round = max(1, min(8, int(max_queries_per_round or 4)))
         self.max_results_per_query = max(1, min(20, int(max_results_per_query or 8)))
