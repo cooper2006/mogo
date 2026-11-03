@@ -36,7 +36,7 @@ const emit = defineEmits<{
         @click="emit('select', item)"
       >
         <span class="folder-mark"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/></svg></span>
-        <span class="choice-copy"><strong>{{ item.title }}</strong><small>{{ item.status === 'ok' ? item.path : (locale === 'en' ? 'Folder unavailable on this device' : '此设备上的目录不可用') }}</small></span>
+        <span class="choice-copy"><strong>{{ item.title }}</strong><small>{{ item.status === 'ok' ? (item.path || (locale === 'en' ? 'Ready to use' : '已添加，可直接使用')) : (locale === 'en' ? 'Folder unavailable on this device' : '此设备上的目录不可用') }}</small></span>
         <svg v-if="item.workspace_id === currentWorkspaceId" class="check" aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 10 4 4 8-8"/></svg>
       </button>
     </div>

@@ -24,10 +24,17 @@ assert.deepEqual(legacyConversation.map(item => item.workspace_id), ['employee-p
 
 const unavailable = reconcileUserBoundProjects([
   { workspace_id: 'remote-binding', title: 'Laptop project', worktree: true, created_at: '1', updated_at: '6' },
-], local, [], id => `Project ${id}`)
+], local, [], id => `Project ${id}`, true) // 桌面端：无本地目录匹配 → 目录不可用
 assert.equal(unavailable[0].status, 'missing-dir')
 assert.equal(unavailable[0].path, '')
 assert.deepEqual(availableUserProjects(unavailable), [])
+
+// Web 端（默认 localDshRuntime=false）：服务器项目无本地目录存在性校验，标记可用。
+const webAvailable = reconcileUserBoundProjects([
+  { workspace_id: 'web-project', title: 'Web project', worktree: false, created_at: '1', updated_at: '7' },
+], [], [], id => `Project ${id}`)
+assert.equal(webAvailable[0].status, 'ok')
+assert.deepEqual(availableUserProjects(webAvailable).map(item => item.workspace_id), ['web-project'])
 
 assert.equal(boundProjectWorktree([
   { workspace_id: 'employee-project', title: 'My project', worktree: true, created_at: '1', updated_at: '3' },

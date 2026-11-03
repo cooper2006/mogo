@@ -88,7 +88,7 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
       const localWorkspaces = await loadLocalWorkspaces()
       if (isStale()) return
       const nextWorkspaces = reconcileUserBoundProjects(
-        nextBindings, localWorkspaces, options.sessions.value, options.fallbackTitle,
+        nextBindings, localWorkspaces, options.sessions.value, options.fallbackTitle, options.localDshRuntime,
       )
       bindings.value = nextBindings
       workspaces.value = nextWorkspaces

@@ -7,6 +7,8 @@ export function reconcileUserBoundProjects(
   localWorkspaces: readonly DshWorkspace[],
   sessions: readonly SessionSummary[],
   fallbackTitle: (workspaceId: string) => string,
+  /** 桌面端才有「本地目录存在性」语义；Web 端项目为服务器项目，始终可用。 */
+  localDshRuntime = false,
 ): DshWorkspace[] {
   const localById = new Map(localWorkspaces.map(workspace => [workspace.workspace_id, workspace]))
   const authorized = new Map<string, { title: string; updatedAt: string }>()
@@ -28,10 +30,12 @@ export function reconcileUserBoundProjects(
   return [...authorized.entries()].map(([workspaceId, binding]) => {
     const local = localById.get(workspaceId)
     if (local) return { ...local, title: binding.title || local.title }
+    // Web 端项目为服务器项目（经浏览器目录选择器添加），无本地目录存在性
+    // 校验，标记为可用；桌面端无本地目录匹配才标记 missing-dir（目录不可用）。
     return {
       workspace_id: workspaceId,
       title: binding.title || fallbackTitle(workspaceId),
-      path: '', status: 'missing-dir' as const, session_ids: [],
+      path: '', status: localDshRuntime ? ('missing-dir' as const) : ('ok' as const), session_ids: [],
       created_at: binding.updatedAt || '', updated_at: binding.updatedAt || '',
     }
   }).sort((left, right) => right.updated_at.localeCompare(left.updated_at))
