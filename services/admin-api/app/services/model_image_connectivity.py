@@ -35,7 +35,9 @@ def _request_image_test(instance_id: str, tenant_id: str, prompt: str) -> dict[s
     base_url = str(settings.backend_base_url or "http://127.0.0.1:8000").rstrip("/")
     path_id = urllib.parse.quote(instance_id, safe="")
     request = urllib.request.Request(
-        f"{base_url}/api/models/{path_id}/test-image",
+        # 025 T045：chat-api 路由主版本已迁到 /api/v1/...，旧 /api/models/... 会被
+        # LegacyApiRedirectMiddleware 以 308 重定向；urllib 默认不跟随 308，故直接命中新路径。
+        f"{base_url}/api/v1/models/{path_id}/test-image",
         data=json.dumps(
             {
                 "tenant_id": tenant_id,
