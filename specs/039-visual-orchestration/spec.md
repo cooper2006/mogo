@@ -8,15 +8,28 @@
 
 **Input**: 整合方案（`docs/MOGO-AgentOS整合方案.md`）§4.8（P2，Wave 3）与 §2.2 界面 3：给 010 DAG 引擎补前端可视化画布——文章"十界面"之一，把"会写代码"的编排门槛降到"会描述业务"。
 
-> **设计来源**：本特性为**全新特性**（代码尚未开工）。设计细节以整合方案 §4.8 为准，本文件在其上补充落地口径；冲突时以本 spec 的 FR 与已定决策表为准。
+> **设计来源**：设计细节以整合方案 §4.8 为准，本文件在其上补充落地口径；冲突时以本 spec 的 FR 与已定决策表为准。**代码已落地（2026-10-29，tasks 33/33）**：见下方「代码核实」节。
 
-> **性质说明**：与 031 的"回溯补规格"本质不同——本特性代码零落地（前端全库无 vue-flow/logicflow 命中、无编排页；010 为纯后端引擎），tasks.md 全部任务未勾选（`- [ ]`）。
+> **性质说明**：**回溯补规格**——代码已于 2026-10-29 落地（tasks 33/33），本 spec 于实现后补齐规约。与 031 同类处理方式。
 
 ## 定位（一句话）
 
 给 010 DAG 引擎（`services/chat-api/app/orchestration/`：`engine.py` 的 `run_graph`/`run_sequential`、`supervisor.py` 的 `run_hybrid`、`loader.py` YAML 装载、`store.py` `dag_definitions` 集合持久化、`topo.py` 拓扑/环检测、`conditions.py` 条件跳过）补一个前端可视化画布——**YAML 为权威定义、画布为投影**，画布 JSON 与 010 YAML 双向互转（不新增第三种定义格式），画布搭建的流程可保存并被 010 引擎真实执行。
 
 ## 背景事实（代码级核实，2026-10-23）
+
+> **2026-11-01 更新**：代码已落地，本节保留原始分析以说明设计来源。
+
+| 项目 | 2026-10-23 判定 | 2026-11-01 实际状态 |
+|---|---|---|
+| 前端无画布库 | vue-flow/logicflow 全库 0 命中 | **已安装 `@vue-flow/core` + background/controls/minimap** |
+| user-web workflow.* 文案 | 非画布 | **`OrchestrationCanvasPage.vue`（742 行）已实现，含 yaml↔canvas 双向转换** |
+| 010 引擎 | 纯后端 | 不变 |
+| 编排页 | 不存在 | **`apps/user-web/src/components/orchestration/` 含 4 个文件：`OrchestrationCanvasPage.vue`、`canvasSchema.ts`、`canvasValidation.ts`、`NodePropertyPanel.vue`** |
+| YAML 双向互转 | 未实现 | **`canvasSchema.ts` 实现 `canvasToEngineDocument()` / `engineDocumentToCanvas()`** |
+| layout 字段 | 未定义 | **YAML 顶层 `layout` 字段已支持，位置丢失不阻塞定义有效性** |
+| 保存 → 引擎执行 | 未验证 | **`saveOrchestrationDraft()` / `publishOrchestration()` 已接线至 `dag_definitions`** |
+
 
 | 事实 | 证据 |
 | --- | --- |

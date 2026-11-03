@@ -38,7 +38,7 @@
 
 **Why this priority**: 目录是整个特性的入口与「找得到」的兑现——没有目录，申领无从发生。它也直接回应「员工不会为了用智能体再登录一个新系统」：门户就在员工已有的 user-web 里。
 
-**Independent Test**: 预置 3 个已上架 active 资产 + 1 个未上架 + 1 个已下架；员工会话调 `GET /askai-api/api/portal/catalog` → 断言仅返回 3 个；切分类/搜关键词/翻页 → 断言过滤与分页正确；029 签发票据换票进入 → 断言落地后门户目录可达。
+**Independent Test**: 预置 3 个已上架 active 资产 + 1 个未上架 + 1 个已下架；员工会话调 `GET /askai-api/api/v1/portal/catalog`（chat-api prefix `/api/v1/portal`；admin-api prefix `/portal`） → 断言仅返回 3 个；切分类/搜关键词/翻页 → 断言过滤与分页正确；029 签发票据换票进入 → 断言落地后门户目录可达。
 
 **Acceptance Scenarios**:
 

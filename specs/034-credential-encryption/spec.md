@@ -10,7 +10,22 @@
 
 > **设计来源**：本规约落地《MOGO × 企业 Agent OS 整合方案》§4.3「凭证存储加密接线」（文章界面 7「连接器市场——凭证托管」的存储侧缺口）。
 >
-> **性质说明**：**这是修复而非新建**——`services/admin-api/app/security/encryption.py`（AES-256-GCM）与 `services/admin-api/app/security/kms.py`（KMSProvider 抽象 + EnvVarKmsProvider）已由 022 实现，但全仓无生产调用方（仅测试引用）；本特性负责把既有能力**接线**到 `external_tools` 的 config 存取路径，不新建加密模块。代码尚未开工，任务清单全部未勾选。
+> **性质说明**：**这是修复而非新建**——`services/admin-api/app/security/encryption.py`（AES-256-GCM）与 `services/admin-api/app/security/kms.py`（KMSProvider 抽象 + EnvVarKmsProvider）已由 022 实现；本特性负责把既有能力**接线**到 `external_tools` 的 config 存取路径，不新建加密模块。**代码已落地（2026-10-26，tasks 37/37）**：`services/chat-api/app/security/tool_credentials.py` + `services/admin-api/app/security/tool_credentials.py` 双向同步（写时 `encrypt_credentials`、读时 `decrypt_credentials`、响应掩码 `***`），`external_tools.py` 写入路径已接线（`patch["config"] = encrypt_credentials(...)`），迁移脚本 `scripts/migrate_tool_credentials_encryption.py` 已实现，演练脚本 `scripts/drill/credential_key_rotation.py` 已实现。
+
+## 代码核实（2026-11-01）
+
+| 规格项 | 声明 | 实际 |
+|---|---|---|
+| 加密模块 | 022 已实现 `encryption.py` + `kms.py` | ✅ 存在，两个服务同源副本 |
+| 凭证字段识别 | 默认清单 `authToken/token/apiKey/secret/password/accessToken/refreshToken` | ✅ `DEFAULT_CREDENTIAL_KEYS` 在 `tool_credentials.py` 中定义 |
+| 写入加密 | `encrypt_credentials()` 仅加密凭证字段 | ✅ `external_tools.py::_normalize_payload` 调用 |
+| 读取解密 | `decrypt_credentials()` 宽容解密，兼容明文/密文双跑 | ✅ `external_tools.py` 读取路径调用 |
+| 响应掩码 | `***` 固定掩码 | ✅ `redact_credentials()` 实现 |
+| 迁移脚本 | `scripts/migrate_tool_credentials_encryption.py` | ✅ 存在，支持 `--dry-run` |
+| 密钥轮换演练 | `scripts/drill/credential_key_rotation.py` | ✅ 存在 |
+| admin-api 同源副本 | 与 chat-api 逐字节一致 | ✅ `services/admin-api/app/security/tool_credentials.py` 已创建 |
+
+**tasks 37/37 全部勾选**，US1–US5 已完整落地。
 
 ## 定位（一句话）
 
