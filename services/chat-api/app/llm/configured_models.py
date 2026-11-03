@@ -111,10 +111,14 @@ async def _with_inherited_api_key(instance: dict[str, Any], db: Any) -> dict[str
     provider_id = instance.get("provider_id")
     if not provider_id:
         return instance
+    # 同一 provider_id 下可能混有多个不同服务（sensenova / agnes / lmstudio），
+    # 它们各自持有不同的 key；按 base_url（同一服务端点）匹配才能继承到正确
+    # 那把 key，而不是同 provider 里 priority 最高的无关服务 key。
     sibling = await db[INSTANCE_COLLECTION].find_one(
         {
             "provider_id": provider_id,
             "tenant_id": instance.get("tenant_id"),
+            "base_url": instance.get("base_url"),
             "api_key_encrypted": {"$exists": True, "$ne": ""},
         },
         sort=[("priority", 1), ("updated_at", -1)],
