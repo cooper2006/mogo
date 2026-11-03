@@ -39,6 +39,10 @@ class ModelGatewayRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
     maxTokens: int | None = Field(default=None, ge=1)
     sessionId: str | None = None
+    # 046+：runtime-host（himovo 移植）在新契约中携带 knowledge QA 开关。
+    # chat-api 侧知识检索语义尚未接线，先接受该字段保证旧/新客户端契约兼容
+    # （extra="forbid" 会拒绝未知字段导致 422）；语义落地后再消费。
+    knowledgeQaEnabled: bool | None = None
 
 
 class ModelGatewayResponse(BaseModel):
