@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.5",
-    "@deepseek-ai/cordis-plugin-group": "1.0.4",
+    "@deepseek-ai/cordis-plugin-group": "1.0.5",
     "@deepseek-ai/cordis-plugin-timer": "1.1.6",
     "@deepseek-ai/dsh": "0.2.1-rc.5",
     "@deepseek-ai/dsh-agent": "0.2.1-rc.5",
