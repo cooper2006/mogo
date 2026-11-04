@@ -118,6 +118,21 @@ extra_requirements_for() {
     *)               printf '' ;;
   esac
 }
+# Test-runner closure beyond the production requirements.txt. document-parser
+# and chat-api build their in-image pytest from this separate file; admin-api
+# uses the Poetry dev-dependency group instead, so it has none.
+extra_test_requirements_for() {
+  case "$1" in
+    document-parser|chat-api) printf 'requirements-test.txt' ;;
+    *)                        printf '' ;;
+  esac
+}
+# Optional test-runner closure. The shipped production image uninstalls pip, so
+# an in-image `python -m pytest` needs a *separate* closure that the Dockerfile
+# test layer (INSTALL_TEST_DEPS_AT_BUILD) installs. It is fetched into the same
+# per-(service, arch) cache as the production wheels so an offline build can
+# `--no-index --find-links` it. Empty for admin-api: its test image is built by
+# a different path (Poetry dev group), not this bundle.
 # Only document-parser preinstalls torch; the others resolve it (not at all) via
 # their own closures.
 needs_torch_for() {
@@ -442,6 +457,43 @@ pip_download_into() {
         pip download --progress-bar off -d /wheels \$fl \$target \
           -r \"/ctx/\$extra\" 2>&1 | tail -3
       done
+
+      # [5/5] test-runner closure (requirements-test.txt). Pure-python packages
+      # (pytest 9.1.1, pytest-asyncio 1.4.0, pluggy, iniconfig, packaging) that
+      # the in-image `python -m pytest` needs but that the production closure
+      # deliberately does not carry. Fetched with --no-deps + --only-binary so
+      # the resolver does not pull the whole production graph; the Dockerfile
+      # test layer (INSTALL_TEST_DEPS_AT_BUILD) installs these offline via the
+      # same --no-index --find-links path. Missing file (admin-api, which uses
+      # the Poetry dev group instead) is a no-op.
+      echo '--- [5/5] test-runner closure (requirements-test.txt, if present) ---'
+      testreq="$(extra_test_requirements_for "${service}")"
+      if [ -n "${testreq}" ] && [ -f "/ctx/${testreq}" ]; then
+        pip download --progress-bar off -d /wheels \$fl --no-deps \
+          --only-binary=:all: \
+          -r \"/ctx/${testreq}\" 2>&1 | tail -4
+      else
+        echo "  (no ${testreq:-test closure} for ${service}; skipping)"
+      fi
+
+      echo '--- [5/5] test-runner closure (requirements-test.txt) ---'
+      # Pure-python test runner (pytest 9.1.1 + pytest-asyncio + pluggy +
+      # iniconfig + packaging). All five ship as py3-none-any wheels, so the
+      # offline install path is identical to the production wheels: this leg
+      # downloads them into the same cache the Dockerfile test layer
+      # (--no-index --find-links) consumes. Fetched online (the test closure is
+      # small and human-maintained, not part of the hash-pinned production
+      # closure, so it does not need the sdist/wheel split the main file does).
+      # Missing requirements-test.txt (e.g. admin-api) is a no-op.
+      # NOTE: ${testreq} is expanded HOST-side before the container runs (see
+      # the assignment below), so the container shell only sees a literal path.
+      if [ -n '${testreq}' ] && [ -f "/ctx/${testreq}" ]; then
+        pip download --progress-bar off -d /wheels \$fl \
+          --only-binary=:all: --no-deps \
+          -r "/ctx/${testreq}" 2>&1 | tail -4
+      else
+        echo "  (no ${testreq:-test closure} for ${service}; skipping)"
+      fi
 
       # Merge the sdist-only artefacts in, then drop any non-CPU torch.
       cp -f /wheels-sdist/* /wheels/ 2>/dev/null || true

@@ -21,7 +21,12 @@
 >
 > **2026-10-31 补充（035/042 口径收敛落地）**：依据 `specs/035-cost-attribution/review-2026-10-30-dimension-source-audit.md`（业务线取消、空间→项目、企业→租户、042 整改批次 A/B/C）新增 **046–048 三个特性**（项目维度统一 / 配额可发现性 / 业务线维度删除），各含 spec + plan + tasks + checklist 四件套。**代码已落地（2026-11-01）**。046 34/34、047 30/30、048 13/13（tasks 全勾，与 CHANGELOG 一致）。详见「四（补 7）」。
 >
-> **2146 + 433 + 22 = 2601 项全绿**（chat-api / admin-api / document-parser，2026-10-05 基线；发布口径测试数以 CI 实跑为准）；specs 目录已达
+> **2026-11-04 三服务全量实测（OrbStack，镜像 `4abce5be`）**：admin-api 1519 passed / 1 skipped、
+> document-parser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（marker 过滤
+> `not dsh_host_e2e and not network`，27 deselected；`MONGODB_URI=mongodb://mongo:27017`）；
+> 三服务共 **4694 passed / 10 skipped / 0 failed**。chat-api 修正 2 个陈旧断言
+> （`test_user_questions_api.py`，endpoint 语义变更未同步测试）后全绿。
+> 上一版 2601 项（2026-10-05 基线）为陈旧计数，以此为准。specs 目录已达
 > **48 个特性**（001–048），其中 **47 份 `tasks.md` 已完整勾选**（001–048 中除 024 外全部 100%）；024 部分勾选 112/119（余 7 项环境类保留，如实留空）。本文件下方的
 > spec/plan/checklist/tasks 计数已同步至该口径。
 > 本文"已实现/✅"表述指**文档 + 代码 + 测试 + 生产接线**四层均已完成。

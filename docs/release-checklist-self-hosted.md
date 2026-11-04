@@ -8,6 +8,8 @@
 格式强制两项字段 —— **执行人** 与 **结论**，机器可校验（`deploy/cli/checklist-verify.sh`）。
 **空值视为未通过**（FR-033）。结论取值：`通过` / `不适用`（不适用必须附理由）。
 
+> **数据后端默认值（027 PanWeiDB 迁移）**：默认数据后端为 **MongoDB**。`MOGO_DATA_BACKEND` 环境变量**未设置时等价于 MongoDB**，行为与迁移前完全一致；PanWeiDB 为**可选后端**，仅当显式设置 `MOGO_DATA_BACKEND=panweidb` 时启用。切换为开关式、可即时回滚、不修改业务代码。发布/部署说明中**切勿**将 PanWeiDB 表述为默认或必选后端。
+
 - [ ] C01 | 三环境配置清单 `deploy/config/{dev,staging,prod}.yml` 均通过 `deploy/cli/config-lint.sh --env all`（210 条，codeRef 指向 `services/<svc>/app/core/config.py:<行号>`） | 执行人: | 结论: | 理由:
 - [ ] C02 | prod 环境敏感键（`_SECRET/_PASSWORD/_KEY/_TOKEN` 后缀或含 `API_KEY/ACCESS_KEY_ID/PRIVATE_KEY`）`source` 均为 `deployment-secrets` 或 `vault`，无硬编码 | 执行人: | 结论: | 理由:
 - [ ] C03 | 各环境 `.env` 与配置清单一致：必填键（`required: true`）在目标环境全部非空（`deploy/cli/startup-config-check.sh --env <env>` rc=0） | 执行人: | 结论: | 理由:

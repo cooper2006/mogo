@@ -6,6 +6,19 @@ image.
 
 ## Unreleased
 
+### QA
+
+- **standard 深度全量 QA 审计（2026-11-04，覆盖 001–048 共 48 特性）**：
+  - 审计产物：`deliverables/QA-AUDIT-STANDARD-2026-11-04.md`（逐条可勾报告）。
+  - 基线结论：48 特性 spec/plan/tasks 文档件套齐备；47/48 `tasks.md` 100% 勾选（024 余 7 项环境类保留，如实留空）；需求门禁清单 47/48（031 已补建）。
+  - 修复文档一致性：INDEX.md 三处数字错误（046/047 计数陈旧、测试总数自相矛盾 2684 vs 2601、特性完成度"45 份"误写）；补建 031 `checklists/requirements.md`。
+  - 已知保留项（不阻塞评审）：024 真实 DR 演练/压测/全链路回归 7 项、026 水平扩展压测 1 项、023 RTO/RPO 真实实测；建议 CI 跑三服务全量 pytest 并对齐测试计数后发布。
+  - **027 PanWeiDB 数据后端口径明确**：默认数据后端为 **MongoDB**（`MOGO_DATA_BACKEND` 未设置 = MongoDB，行为不变）；PanWeiDB 为**可选后端**，仅显式设置 `MOGO_DATA_BACKEND=panweidb` 时启用，开关式回滚、不改业务代码。已在 `docs/release-checklist-self-hosted.md` 与本公告显式说明，避免误述为默认/必选。
+  - **第二轮复核整改（2026-11-04 续）**：① INDEX 第 229 行原称 045 "spec/plan/tasks/quickstart 齐备" 但磁盘缺文件（虚假声明）；2026-11-04 已批量补建 032–048 共 17 份 quickstart.md，该声明随之成真（见 F-6）；② INDEX 第 230 行 2026-10-24 快照中 036/037/038/039/040/041/042/043 的"部分勾选"计数，经 2026-11-04 全量重扫确认均已 100%，已加复核注释闭合；③ 032 checklist 锚点链接经复核为有效链接（目标文件存在，锚点对应 spec.md L150 标题），此前"断链"为扫描器未剥离 `#anchor` 误报，确认非缺陷；④ 更正审计报告对 trust_rating 失败用例"已移除"的误判——该用例 `test_scanner_walks_ratings_and_records_state` 仍存活于 `test_trust_rating.py:455` 且未 skip/xfail，需 CI 实跑确认。
+  - **F-6 闭环（2026-11-04）**：批量生成 032–048 共 17 份 `quickstart.md`（032–044 整合批次 + 045 + 046–048 收口批次），对齐 001–030 既有风格（前置 / 做了什么 / 如何启用 / 如何验证 / 注意事项），引用各特性实测测试文件作为验证入口；现已 48/48 特性 quickstart 齐备。原 INDEX 对 045 的"齐备"声明随之成真。
+  - **三服务全量 pytest 对齐（2026-11-04，OrbStack 隔离网 `mogo_backend`，镜像 `4abce5be`）**：admin-api 1519 passed / 1 skipped、document-parser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（marker 过滤 `not dsh_host_e2e and not network`，27 deselected；`MONGODB_URI=mongodb://mongo:27017`）；**三服务共 4694 passed / 10 skipped / 0 failed**。INDEX 中 2601（2026-10-05 基线）为陈旧计数，以此为准。
+  - **chat-api 陈旧测试修正（2026-11-04）**：`tests/dsh_runtime/test_user_questions_api.py` 中 2 个用例（`test_other_shared_member_cannot_answer` / `test_completed_run_has_no_answerable_question`）仍按旧语义断言 403/404，而 endpoint `user_questions.py` 在 commit `7630ef99`（读侧不再要求 run 发起者）与 `af3794af`（无 run 时 GET 返回 200 空列表）后语义已变更但测试未同步。本轮已按新语义修正：读侧 4 个用例改为断言 `{"questions": []}`，并补 `test_answer_requires_initiator`（POST 侧 403）与 `test_answer_without_run_is_rejected`（POST 侧 404）两条控制/作答侧断言，共 5 passed。
+
 ## v0.2.6 - 2026-11-03
 
 ### Added
