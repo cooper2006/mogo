@@ -33,7 +33,7 @@
 - [x] CHK013 是否需要数据迁移？→ Edge Case 3：字段从未落库，**无需迁移**，删除纯属代码层
 - [x] CHK014 有无外部消费方？→ Assumptions：已核查仅 `DashboardPage.vue` 一处，无第三方
 - [x] CHK015 未来重新引入的约束是否留痕？→ Edge Case 4：不得复用 `is_business_line` 这个名字，若要做须先定义写入路径
-- [ ] CHK016 **删除后"未分配"分桶是否会变大**：原先业务线是单桶假数据，删除后某些成本只落在模型/租户维度；spec 未说明删除是否影响「未分配」占比统计口径。需在 T009 验证时顺带确认（预期无影响，因为业务线段与「未分配」互不干扰）
+- [x] CHK016 **删除后"未分配"分桶是否会变大**：✅ 已验证。`test_cost_attribution_035.py` 全量断言 `reconciles=True`；`dashboard.py::_attribution_dimensions()` 已移除 business_line 段，「未分配」桶仅由 `project_id`/`user_id` 等字段缺失触发，与业务线无关；全仓 `grep businessLine` 0 命中。
 
 ## 五、需求质量结论
 

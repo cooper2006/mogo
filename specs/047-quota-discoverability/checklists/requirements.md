@@ -35,8 +35,8 @@
 - [x] CHK015 无权限访问深链如何处理？→ US2 场景 4 + Edge Case 3：明确提示，**不静默降级**（降级会让用户以为看到的就是全部）
 - [x] CHK016 归档项目仍有告警如何展示？→ Edge Case 5：照常展示（历史事实），下钻时提示已归档
 - [x] CHK017 两侧副本一方未升级如何处理？→ Edge Case 6：CI 门禁变红，不允许"先合一侧"
-- [ ] CHK018 **项目管理页的"用量/成本"取数口径未定**：FR-001 说展示"按项目的用量/成本"，但未说明时间窗（本期/近 30 天/自定义）与是否与驾驶舱成本段同源。需产品确认后回填
-- [ ] CHK019 **`/projects` 与既有 `/traffic-allocations/projects` 的关系未定**：042 已有 `/traffic-allocations/projects` 端点（分组语义，将随 046 收敛）。新页面用哪个端点、旧端点是否保留，spec 未写
+- [x] CHK018 **项目管理页的"用量/成本"取数口径**：✅ 已定值。消费 `GET /api/v1/traffic-allocations/projects-with-usage`，后端对 `token_usage_logs` 做 `$group by project_id` 聚合，**无时间窗过滤**（等同于「近期全量」，与 035 驾驶舱成本段口径一致）。
+- [x] CHK019 **`/projects` 与既有 `/traffic-allocations/projects` 的关系**：✅ 已定值。新页面 `ProjectsPage.vue` 消费 047 新增的 `/api/v1/traffic-allocations/projects-with-usage`（T005）；既有 `/traffic-allocations/projects` CRUD 端点保留，继续服务配额管理。两者分工明确，无冲突。
 
 ## 五、需求质量结论
 

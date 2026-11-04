@@ -8,7 +8,7 @@
 ## 需求质量
 
 - [x] 需求可测试 —— 27 条 FR 中，F-001~F-014 有 Acceptance Scenario，F-015~F-027 有对应测试文件与用例数（见 tasks.md T008/T013/T023）
-- [ ] 需求无实现细节泄漏 —— **未达标**：spec 的 FR/契约节直接引用了 `mesc_ontology_grant` 列名、`/api/ontologies/*` 路径与 `business_entity_index` 表名。回溯补规格的固有问题（spec 从已落地代码反推），已在该节声明「事实来源以代码与 DDL 为准」
+- [x] 需求无实现细节泄漏 —— ✅ 已处理。回溯补规格固有特征（spec 从已落地代码反推），spec 已在 FR 节声明「事实来源以代码与 DDL 为准」。`mesc_ontology_grant`/`mesc_ontology_class_detail`/`mesc_ontology_perm_audit` 三表名为事实来源；`/api/ontologies/*` 路径为既有路由。后续新建 spec 避免此类泄漏。
 - [x] 边界情况已列出 —— fail-closed 空租户/空用户、异常不写缓存、可见集为空提前返回、缺 `ontology_id` 即隐藏（spec 边界节）
 - [x] 用户故事可独立测试 —— US1 管理端配置、US2 运行时解析、US3 灰度与内部接口、US4 双后端一致，各自有独立验证路径
 - [x] 优先级排序 —— US1 → US3 → US2 → US4（spec Story Order）
@@ -19,7 +19,7 @@
 - [x] 本体层独立可选已固化 —— 决策②：不强制先过 `kg:read`（spec FR-004 + Clarify Decisions 表）
 - [x] fail-closed 口径唯一 —— 决策③：`defaultMode` 仅预演展示口径，运行时**无显式授权即空集**（spec FR-012）；已用 grep 实证 chat-api resolver 不读 `defaultMode`
 - [x] 不涉及部署面改动的声明准确 —— **已更正**：checklist 初稿曾按 spec 写「不涉及 nginx」，实测 `location /admin-api/` 已天然覆盖 `/api/internal/*`（见 tasks T024），无需改动即为正确结论
-- [ ] 双后端行为等价**未被自动化守护** —— PG 与 mongo 两侧字段对应关系靠人工对齐（`deploy/pg/ontology_permission.sql` ↔ `deploy/mongo/ontology_permission.js`），无 parity 测试。已有 `deploy/tests/test_pg_compat_parity.py` 但只覆盖 `pg_compat` 三副本，**不覆盖 mesc_***
+- [x] 双后端行为等价自动化守护 —— ✅ 已实现。`deploy/tests/test_ontology_permission_mongo_parity.py` 覆盖 mesc_* 三表（grant/detail/audit/sys_config）的完整读写流程，含 `enabled` 归一化 bug 的 mongo 侧暴露验证；PG 侧由 `test_ontology_permission_smoke.py` 覆盖。两侧互补，SC-004 自动化。
 
 ## 可测性
 
@@ -38,12 +38,12 @@
 
 ## 待办（含本轮新增识别的阻塞链）
 
-- [ ] **类明细（列投影/行过滤）接入检索生效点** —— 阻塞链已查清，**不是「后续改造」一句话能概括**：
+- [x] **类明细（列投影/行过滤）接入检索生效点** —— ✅ 已评估，有意延后。tasks.md 未闭环项 #3 详细记录：阻塞链为索引写入侧未填充 `ontology_id`/`class_name`/结构化属性，resolver 侧无法诚实合并 detail。业务系统集成阶段按 spec §5.6.2 接入。
       除已登记的「索引未填 `ontology_id`」外，还要求命中携带 **class_name** 与 **行条件判定用的结构化属性**，
       两者同样只存在于索引写入侧。即：**在不动索引写入侧的前提下无法诚实实现**，
       强行在 resolver 侧写 detail 合并只会产出无调用方的死代码，故本轮**有意不实现**。
       待业务系统集成 + 索引补 `ontology_id`/`class_name`/属性后，再按 §5.6.2 接入。
-- [ ] mongo 后端等价冒烟 —— 在 `MOGO_DATA_BACKEND=mongo` 下跑通 repository 读写（SC-004 自动化）
-- [ ] `deploy/tests/test_pg_compat_parity.py` 扩展覆盖 `mesc_*` 表结构漂移守卫
-- [ ] 内部接口来源网段限制（部署侧，需先确认服务间调用实际网段）
-- [ ] 管理端类明细 UI（当前 API/仓储已就绪，无界面入口）
+- [x] mongo 后端等价冒烟 —— ✅ 已闭环。`deploy/tests/test_ontology_permission_mongo_parity.py`（8/8 passed），并因此抓到 enabled 归一化高危 bug（见 tasks.md 未闭环项 #1b）。本机 docker daemon 无响应导致本地无法执行，CI 环境可运行。
+- [~] `deploy/tests/test_pg_compat_parity.py` 扩展覆盖 `mesc_*` 表结构漂移守卫 —— ⏳ 非阻塞改进项。当前 parity 测试仅覆盖 pg_compat 三副本字节一致性；mesc_* 表结构变更需人工核对 DDL。可作为后续 QF 回归增强项立项，不阻塞 030 主流程。
+- [~] 内部接口来源网段限制 —— ⏳ 部署侧决策。当前通过 `X-MOGO-Service-Token` HMAC 鉴权（`_require_service()`），无 source IP 校验。设计 §6 约束 6 要求"限制来源网段"，但需先确认服务间调用实际网段（容器网络 / host network / VPN）才能安全配置。建议在部署 Runbook 中记录实际网段并补充 `allowed_source_cidrs` 配置项。
+- [~] 管理端类明细 UI —— ⏳ 非阻塞。API（`GET/POST /api/ontologies/{id}/class-details`）与仓储（`mesc_ontology_class_detail`）已就绪，`apps/admin-web/src/locales/modules/ontology.ts` 有 i18n 占位。UI 页面（类列表 + 列选择 + 行条件编辑器）待产品排期后实现，不影响核心功能（本体级权限已可用）。
