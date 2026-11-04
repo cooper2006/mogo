@@ -75,6 +75,30 @@ function resetError() {
   errorMessage.value = ''
 }
 
+// 与后端 FR-1 口令策略完全对齐（app.security.password_policy）：
+// 长度 ≥ 12，且大写/小写/数字/特殊字符四类中至少三类。
+// 数字仅计 ASCII 0-9（同后端 _is_digit），空白字符不计入任何类别。
+const PASSWORD_MIN_LENGTH = 12
+const PASSWORD_MIN_CLASSES = 3
+
+function passwordClass(ch: string): string | null {
+  if (ch >= 'A' && ch <= 'Z') return 'upper'
+  if (ch >= 'a' && ch <= 'z') return 'lower'
+  if (ch >= '0' && ch <= '9') return 'digit'
+  if (ch && !/\s/.test(ch)) return 'special'
+  return null
+}
+
+function isStrongPassword(pw: string): boolean {
+  if (pw.length < PASSWORD_MIN_LENGTH) return false
+  const classes = new Set<string>()
+  for (const ch of pw) {
+    const cls = passwordClass(ch)
+    if (cls) classes.add(cls)
+  }
+  return classes.size >= PASSWORD_MIN_CLASSES
+}
+
 function validate(): boolean {
   if (!singleTenant.value && !selectedTenantId.value) {
     errorMessage.value = t('login.register_no_tenant')
@@ -90,7 +114,7 @@ function validate(): boolean {
     return false
   }
   const pw = password.value
-  if (pw.length < 8 || !/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) {
+  if (!isStrongPassword(pw)) {
     errorMessage.value = t('login.register_password_weak')
     return false
   }
