@@ -387,13 +387,9 @@ pip_download_into() {
   # host so the container string needs no nested command substitution.
   local extras
   extras="$(extra_requirements_for "${service}")"
-  # Test-runner closure (requirements-test.txt) is expanded on the host too:
-  # the container string sees a literal path (or empty -> leg is a no-op).
-  local testreq
-  testreq="$(extra_test_requirements_for "${service}")"
-  # Test-runner closure (requirements-test.txt), same host-side expansion so the
-  # container shell only sees a literal path. Empty for admin-api (Poetry dev
-  # group instead), in which case the [5/5] leg is a no-op.
+  # Test-runner closure (requirements-test.txt) is expanded on the host so the
+  # container string sees a literal path (or empty -> the [5/5] leg is a no-op).
+  # Empty for admin-api (Poetry dev group instead).
   local testreq
   testreq="$(extra_test_requirements_for "${service}")"
 

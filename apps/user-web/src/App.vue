@@ -2650,7 +2650,7 @@ onBeforeUnmount(() => {
       </div>
       <!-- Workspace Section：项目为顶层分组，会话缩进在项目下 -->
       <div
-        class="group mt-2 flex w-full items-center gap-1 px-5 pb-1 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400"
+        class="group mt-2 flex w-full items-center gap-1 px-5 pb-1 text-left text-sm font-bold text-gray-500"
       >
         <span>{{ locale === 'en' ? 'Project' : '项目' }}</span>
         <!-- 搜索会话 -->
@@ -2985,7 +2985,7 @@ onBeforeUnmount(() => {
         >
           {{ sessionsLoadingMore ? t('ui.loading') : t('app.sidebar.load_more') }}
         </button>
-        <div class="mt-4 border-t border-gray-200/70 px-2 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">{{ t('app.sidebar.skills') }}</div>
+        <div class="mt-4 border-t border-gray-200/70 px-2 pb-1 pt-2 text-sm font-bold text-gray-500">{{ t('app.sidebar.skills') }}</div>
         <div class="mb-2 space-y-0.5">
           <button
             v-if="canUseSkills"
