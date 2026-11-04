@@ -163,6 +163,12 @@ COPY requirements-docling.txt /tmp/requirements-docling.txt
 ARG TARGETARCH
 ARG PIP_OFFLINE_INSTALL=true
 ARG PYTORCH_CPU_FIND_LINKS=
+# Test-runner closure (dev/test only). Installed inside the production leg,
+# *before* its `pip uninstall`, when INSTALL_TEST_DEPS_AT_BUILD=true. The ARGs
+# and the COPY are declared here so the production-leg RUN can reference them.
+COPY requirements-test.txt /tmp/requirements-test.txt
+ARG INSTALL_TEST_DEPS_AT_BUILD=false
+ARG PIP_TEST_INDEX_URL=${MOGO_PYPI_INDEX_URL}
 RUN --mount=type=bind,source=pip-wheels-bundle.tar.gz,target=/tmp/pip-wheels-bundle.tar.gz \
     if [ "${INSTALL_PYTHON_DEPS_AT_BUILD}" = "true" ]; then \
         wheel_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
@@ -207,6 +213,34 @@ RUN --mount=type=bind,source=pip-wheels-bundle.tar.gz,target=/tmp/pip-wheels-bun
         esac \
         && python -m pip install --progress-bar off ${offline_args} --require-hashes -r /tmp/requirements.txt \
         && python -m pip install --progress-bar off ${offline_args} --prefer-binary -r /tmp/requirements-docling.txt \
+        && if [ "${INSTALL_TEST_DEPS_AT_BUILD}" = "true" ]; then \
+               # Optional in-image test runner (dev/test only). Installed here,
+               # *before* the `pip uninstall` below, while pip is still
+               # available: the base image (python:3.13-slim-bookworm) ships
+               # pip + ensurepip, so no self-bootstrap is needed. The runner
+               # closure is pure-python (py3-none-any wheels: pytest,
+               # pytest-asyncio, pluggy, iniconfig, packaging, pygments) and is
+               # fetched into the *same* per-arch pip-wheels-bundle cache as
+               # the production wheels by `scripts/pip_wheels_bundle.sh fetch`;
+               # it is installed offline against that cache (--no-index
+               # --find-links) using the ${offline_args} the production leg
+               # already computed. When the bundle is a placeholder / lacks the
+               # runner, it falls back to the network, matching production.
+               # INSTALL_TEST_DEPS_AT_BUILD defaults to false, so the
+               # production image never carries the runner and stays clean.
+               test_offline_args="${offline_args}"; \
+               if [ -z "${test_offline_args}" ] \
+                  && [ -n "${PIP_TEST_INDEX_URL}" ]; then \
+                     test_offline_args="--index-url ${PIP_TEST_INDEX_URL}"; \
+               fi; \
+               python -m pip install --no-cache-dir --progress-bar off \
+                   ${test_offline_args} -r /tmp/requirements-test.txt \
+                   || python -m pip install --no-cache-dir --progress-bar off \
+                       -r /tmp/requirements-test.txt; \
+               python -c "import pytest, pytest_asyncio; print(f'test runner ok: pytest {pytest.__version__}, pytest-asyncio {pytest_asyncio.__version__}')"; \
+             else \
+               echo "Skip test-runner install (INSTALL_TEST_DEPS_AT_BUILD=false); production image stays clean"; \
+             fi \
         && python -m pip uninstall --yes pip wheel \
         && find /usr/local/lib/python3.13/ensurepip/_bundled -type f -delete \
         && rm -rf /tmp/pip-wheels; \
@@ -215,61 +249,6 @@ RUN --mount=type=bind,source=pip-wheels-bundle.tar.gz,target=/tmp/pip-wheels-bun
     fi \
     && python -c "from docling.document_converter import DocumentConverter; print('docling ok')" \
     && python -c "import torch; print(f'torch {torch.__version__}, cuda_available={torch.cuda.is_available()}, cuda={torch.version.cuda}')"
-
-# ── Optional in-image test runner (dev/test only) ───────────────────────────
-# The production closure above ends by uninstalling the pip/wheel *modules*
-# and deleting the bundled ensurepip installer, so the shipped image cannot
-# `pip install` ad hoc. CI / a test-image rebuild passes
-# INSTALL_TEST_DEPS_AT_BUILD=true to add a small, separate pytest runner
-# closure (requirements-test.txt, COPYed into the context just like
-# requirements.txt).
-#
-# The runner closure is pure-python (py3-none-any wheels: pytest,
-# pytest-asyncio, pluggy, iniconfig, packaging, pygments), so it is fetched
-# into the *same* per-arch pip-wheels-bundle cache as the production wheels by
-# `scripts/pip_wheels_bundle.sh fetch` and installed here offline against that
-# cache (--no-index --find-links) with the exact bundle mechanism the
-# production leg uses. When the bundle is a placeholder / lacks the runner, it
-# falls back to the network, matching production behaviour.
-#
-# Re-enabling pip: the base image (python:3.13-slim-bookworm) ships the
-# ensurepip module; the production leg's `pip uninstall pip wheel` and the
-# ensurepip-installer purge are undone here by re-bootstrapping ensurepip so
-# this one step can install. Default build (INSTALL_TEST_DEPS_AT_BUILD=false)
-# never installs the runner, so the production image stays clean and unchanged.
-COPY requirements-test.txt /tmp/requirements-test.txt
-ARG INSTALL_TEST_DEPS_AT_BUILD=false
-ARG PIP_OFFLINE_INSTALL=true
-ARG PIP_TEST_INDEX_URL=${MOGO_PYPI_INDEX_URL}
-RUN --mount=type=bind,source=pip-wheels-bundle.tar.gz,target=/tmp/pip-wheels-bundle.tar.gz \
-    if [ "${INSTALL_TEST_DEPS_AT_BUILD}" = "true" ]; then \
-        # Re-bootstrap pip for this one step (the production leg removed it).
-        python -m ensurepip --upgrade >/dev/null 2>&1 || \
-            python -m ensurepip --default-pip >/dev/null 2>&1 || \
-            echo "WARNING: ensurepip unavailable; test runner will install from the network"; \
-        wheel_arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
-        test_offline_args=""; \
-        if [ "${PIP_OFFLINE_INSTALL}" = "true" ] \
-            && [ "$(du -sb /tmp/pip-wheels-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
-            mkdir -p /tmp/pip-wheels \
-            && { tar -xzf /tmp/pip-wheels-bundle.tar.gz -C /tmp/pip-wheels "./${wheel_arch}" 2>/dev/null || true; } \
-            && if [ -d "/tmp/pip-wheels/${wheel_arch}" ] \
-               && [ -n "$(find /tmp/pip-wheels/${wheel_arch} -name 'pytest-*' 2>/dev/null | head -1)" ]; then \
-                   test_offline_args="--no-index --find-links=/tmp/pip-wheels/${wheel_arch}"; \
-                   echo "Installing test runner offline for ${wheel_arch}"; \
-               else \
-                   echo "Bundle has no ${wheel_arch}/ test-runner wheel; installing from the network."; \
-               fi; \
-        fi; \
-        test_index_args=""; \
-        [ -n "${PIP_TEST_INDEX_URL}" ] && test_index_args="--index-url ${PIP_TEST_INDEX_URL}"; \
-        python -m pip install --no-cache-dir --progress-bar off ${test_offline_args} ${test_index_args} \
-            -r /tmp/requirements-test.txt \
-            || python -m pip install --no-cache-dir --progress-bar off ${test_index_args} -r /tmp/requirements-test.txt; \
-        python -c "import pytest, pytest_asyncio; print(f'test runner ok: pytest {pytest.__version__}, pytest-asyncio {pytest_asyncio.__version__}')"; \
-    else \
-        echo "Skip test-runner install (INSTALL_TEST_DEPS_AT_BUILD=false); production image stays clean"; \
-    fi
 
 ARG INSTALL_DOCLING_MODELS_AT_BUILD=true
 # Only used when the offline model bundle is absent (placeholder): points the
