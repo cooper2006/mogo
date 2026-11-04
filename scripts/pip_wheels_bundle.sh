@@ -387,6 +387,15 @@ pip_download_into() {
   # host so the container string needs no nested command substitution.
   local extras
   extras="$(extra_requirements_for "${service}")"
+  # Test-runner closure (requirements-test.txt) is expanded on the host too:
+  # the container string sees a literal path (or empty -> leg is a no-op).
+  local testreq
+  testreq="$(extra_test_requirements_for "${service}")"
+  # Test-runner closure (requirements-test.txt), same host-side expansion so the
+  # container shell only sees a literal path. Empty for admin-api (Poetry dev
+  # group instead), in which case the [5/5] leg is a no-op.
+  local testreq
+  testreq="$(extra_test_requirements_for "${service}")"
 
   "${DOCKER_BIN}" run --rm \
     -v "${ROOT_DIR}/${dest}:/wheels" \
@@ -466,33 +475,15 @@ pip_download_into() {
       # test layer (INSTALL_TEST_DEPS_AT_BUILD) installs these offline via the
       # same --no-index --find-links path. Missing file (admin-api, which uses
       # the Poetry dev group instead) is a no-op.
+      # ${testreq} is expanded HOST-side (see the local assignment in
+      # pip_download_into), so the container shell sees a literal path or "".
       echo '--- [5/5] test-runner closure (requirements-test.txt, if present) ---'
-      testreq="$(extra_test_requirements_for "${service}")"
-      if [ -n "${testreq}" ] && [ -f "/ctx/${testreq}" ]; then
+      if [ -n '${testreq}' ] && [ -f \"/ctx/${testreq}\" ]; then
         pip download --progress-bar off -d /wheels \$fl --no-deps \
           --only-binary=:all: \
           -r \"/ctx/${testreq}\" 2>&1 | tail -4
       else
-        echo "  (no ${testreq:-test closure} for ${service}; skipping)"
-      fi
-
-      echo '--- [5/5] test-runner closure (requirements-test.txt) ---'
-      # Pure-python test runner (pytest 9.1.1 + pytest-asyncio + pluggy +
-      # iniconfig + packaging). All five ship as py3-none-any wheels, so the
-      # offline install path is identical to the production wheels: this leg
-      # downloads them into the same cache the Dockerfile test layer
-      # (--no-index --find-links) consumes. Fetched online (the test closure is
-      # small and human-maintained, not part of the hash-pinned production
-      # closure, so it does not need the sdist/wheel split the main file does).
-      # Missing requirements-test.txt (e.g. admin-api) is a no-op.
-      # NOTE: ${testreq} is expanded HOST-side before the container runs (see
-      # the assignment below), so the container shell only sees a literal path.
-      if [ -n '${testreq}' ] && [ -f "/ctx/${testreq}" ]; then
-        pip download --progress-bar off -d /wheels \$fl \
-          --only-binary=:all: --no-deps \
-          -r "/ctx/${testreq}" 2>&1 | tail -4
-      else
-        echo "  (no ${testreq:-test closure} for ${service}; skipping)"
+        echo '  (no test closure for this service; skipping)'
       fi
 
       # Merge the sdist-only artefacts in, then drop any non-CPU torch.
