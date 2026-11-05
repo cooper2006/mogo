@@ -476,13 +476,40 @@ def _column_sync_sql(source: str, key: str, column: str) -> str:
     历史教训：列同步曾写成 ``->>'{key}'``，真库上**列被静默写 NULL**
     （doc 完好、``UPDATE 1`` 照常返回，极具迷惑性），一度被误诊为
     「SET 上下文函数调用返回 NULL」。凡jsonb路径表达式一律 ``#>`` / ``#>>``。
+
+    **TIMESTAMPTZ 必须补回会话时区偏移（2026-11-04 真库实测）**：
+    openGauss 3.2 / PanWeiDB A 模式解析
+    ``'2026-11-04 15:07:20+00:00'::timestamptz`` 时**忽略字符串里的 UTC 偏移**，
+    把墙钟按会话 TimeZone（PRC）解释，返回 ``15:07:20+08:00``——瞬时比真实值
+    少 8 小时。业务写入 doc 的时间统一是 UTC（``datetime.now(tz=timezone.utc)``
+    → ``str`` → ``+00:00`` / ``Z``），列同步却把它当本地墙钟，所以要对带 UTC
+    标记的字符串补上会话时区偏移：``wall_as_local + offset = wall_as_utc``。
+    offset 用 ``extract(timezone from now())`` 动态取得，不硬编码 8 小时，会话
+    时区变化时仍成立。纯日期 / 本地时间字符串（如 ``start_date``、``deleted_at``
+    的非 UTC 值）保持原行为，避免把 ``'2026-01-01'`` 推到当天 08:00。
+    INSERT 路径绑定 Python aware datetime，不受此问题影响。
+
+    UTC 标记判断用 ``right(...)`` 而非 ``LIKE '%+00:00'``：列同步 SQL 与
+    ``%s`` 占位符一起交给 psycopg 执行，裸 ``%`` 会被当作参数占位符解析，
+    带 params 时会报 ``got '%+'``（2026-11-05 部署事故，admin-api 启动失败）。
     """
     if column_type(column) == "JSONB":
         return f"{source} #> '{path_literal(key)}'"
     raw = f"{source} #>> '{path_literal(key)}'"
+    col_type = column_type(column)
+    cast = f"({raw})::{col_type.lower()}"
+    if col_type == "TIMESTAMPTZ":
+        # 不能用 LIKE '%+00:00'：psycopg3 会把 SQL 里的裸 % 解析成参数占位符，
+        # 带 params 执行时直接报 ProgrammingError "got '%+'"。列同步 SQL 总是
+        # 和 %s 占位符一起执行（_execute_returning -> cur.execute(sql, params)），
+        # 2026-11-05 部署时 admin-api 启动期的 update_one 就是这样失败的。
+        # 改用不含 % 的 right() 判断，彻底避开占位符解析。
+        utc_marked = f"right({raw}, 6) = '+00:00' OR right({raw}, 1) = 'Z'"
+        offset = "(extract(timezone from now()) * interval '1 second')"
+        cast = f"(CASE WHEN {utc_marked} THEN {cast} + {offset} ELSE {cast} END)"
     return (
         f"(CASE WHEN ({source} #> '{path_literal(key)}') = 'null'::jsonb "
-        f"THEN NULL ELSE ({raw})::{column_type(column).lower()} END)"
+        f"THEN NULL ELSE {cast} END)"
     )
 
 

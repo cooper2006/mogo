@@ -82,6 +82,17 @@ def test_async_copies_are_byte_identical() -> None:
         )
 
 
+@pytest.mark.parametrize("service", SERVICES)
+def test_timestamptz_sync_compensates_utc_marker(service: str) -> None:
+    """三份副本都必须带 UTC 偏移补偿，缺一份就会在该服务写入时重新写歪 8 小时。"""
+    source = _read(service, "pg_compat.py")
+    assert "extract(timezone from now())" in source
+    # 不得用 LIKE '%+00:00' 生成 SQL：裸 % 会被 psycopg 当成参数占位符
+    # （2026-11-05 部署事故，admin-api 启动失败）；注释/docstring 里提到它无妨。
+    assert 'utc_marked = f"({raw}) LIKE' not in source
+    assert "right({raw}, 6) = '+00:00'" in source
+
+
 def test_sync_copy_matches_async_after_transformation() -> None:
     async_source = _read(ASYNC_SERVICES[0], "pg_compat.py")
     expected = _to_sync(async_source)

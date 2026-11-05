@@ -736,6 +736,44 @@ def test_column_sync_sql_guards_json_null():
     assert "->'" not in synced and "->>'" not in synced
 
 
+def test_column_sync_sql_compensates_utc_offset_for_timestamptz():
+    """PanWeiDB 忽略 ::timestamptz 字符串里的 +00:00（2026-11-04 真库实测）。
+
+    doc 里的 UTC 墙钟被数据库当成本地墙钟，列值会比真实瞬时少一个会话时区
+    偏移（PRC 下正好 8 小时），侧边栏相对时间因此显示「8 小时前」。
+    列同步必须只对带 UTC 标记的字符串补回偏移；纯日期 / 本地时间字符串保持
+    原 cast，避免把 '2026-01-01' 推到当天 08:00。
+    """
+    sql = _column_sync_sql("s1.doc", "deleted_at", "deleted_at")
+    assert "extract(timezone from now()) * interval '1 second'" in sql
+    assert "right(s1.doc #>> '{deleted_at}', 6) = '+00:00'" in sql
+    assert "right(s1.doc #>> '{deleted_at}', 1) = 'Z'" in sql
+    assert "ELSE (s1.doc #>> '{deleted_at}')::timestamptz END" in sql
+    # JSON null 防护仍在，且路径只用 #> / #>>
+    assert "(s1.doc #> '{deleted_at}') = 'null'::jsonb" in sql
+    assert "->'" not in sql and "->>'" not in sql
+    # 其它列类型完全不受影响
+    assert "extract(timezone" not in _column_sync_sql("s1.doc", "title", "title")
+    assert "extract(timezone" not in _column_sync_sql("s1.doc", "sort_order", "sort_order")
+
+
+def test_column_sync_sql_has_no_bare_percent_placeholders():
+    """回归：列同步 SQL 总是和 %s 占位符一起交给 psycopg 执行。
+
+    2026-11-05 部署事故：UTC 标记曾写成 ``LIKE '%+00:00'``，psycopg3 把
+    ``%+`` 当作参数占位符，带 params 执行时抛
+    ``ProgrammingError: got '%+'``，admin-api 启动期 update_one 即失败。
+    除合法占位符 %s/%b/%t 与转义 %% 外，生成表达式里不允许出现裸 %。
+    """
+    import re
+
+    for key in ("deleted_at", "last_message_at", "last_login_at"):
+        sql = _column_sync_sql("s1.doc", key, key)
+        assert re.findall(r"%(?!%|[sbt])", sql) == [], f"{key} 含裸 %: {sql}"
+        assert "right(" in sql
+        assert "extract(timezone from now())" in sql
+
+
 def test_column_param_sql_types():
     assert _column_param_sql("owner_user_id") == "%s::text"
     assert _column_param_sql("sort_order") == "%s::integer"
