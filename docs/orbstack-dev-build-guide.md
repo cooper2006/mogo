@@ -1,0 +1,361 @@
+# OrbStack 开发环境：离线加速构建与重启服务
+
+> 状态：已落地（2026-11-05 实测通过）
+> 版本基线：`8e17ab15`（`git rev-parse --short HEAD@{2}`，tag `v0.2.6`，含 `pg_compat.py` 时区修复）
+> 执行入口：`./mogo up --build`（需先切换 docker context 到 OrbStack）
+
+本文档记录 **OrbStack 本地开发栈**的"离线加速构建 → 重启服务"完整流程与踩坑要点。面向在大陆内网/离线环境下跑 mogo 自托管开发环境的工程师。
+
+---
+
+## 1. 目标服务与架构
+
+| 类别 | 服务 | 镜像 | 端口/入口 |
+|---|---|---|---|
+| API | `admin-api` | `ghcr.io/mogoai/admin-api` | 内部 |
+| API | `chat-api` | `ghcr.io/mogoai/chat-api` | 内部 |
+| API | `document-api` / `document-worker` | `ghcr.io/mogoai/document-parser`（同镜像，不同 CMD） | 内部 |
+| Runtime | `dsh-runtime-host` | `ghcr.io/mogoai/dsh-runtime-host` | 内部 |
+| Web | `admin-web` | `ghcr.io/mogoai/admin-web` | 内部 |
+| Web | `user-web` | `ghcr.io/mogoai/user-web` | 内部 |
+| Gateway | `gateway` | `ghcr.io/mogoai/gateway` | `localhost:3000` |
+| DB | `mongo` | `mongo:8.3.13` | 栈内 |
+| Cache | `redis` | `redis:7.4.2-alpine` | 栈内 |
+| Vector | `weaviate` | `semitechnologies/weaviate:1.25.7` | 栈内 |
+
+所有业务镜像以短哈希为 tag（`ghcr.io/mogoai/<svc>:<commit>`），**与 git HEAD 绑定**。
+
+---
+
+## 2. Profile 体系（关键前置）
+
+`deploy/cli/env-profiles.sh` 维护三套 profile，由 `./mogo --profile <name>` 或 `MOGO_DATA_BACKEND` 触发。
+
+| Profile | `MOGO_DATA_BACKEND` | `MOGO_PLATFORM` | 数据后端 | 用途 |
+|---|---|---|---|---|
+| `dev` | `mongo` | `linux/arm64` | 栈内 mongo | 本地开发 |
+| `test` | `panweidb` | `linux/arm64` | 栈内 panweidb（arm64 openEuler） | 本地演练 |
+| `prod` | `panweidb`（外部） | `linux/amd64` | 外部 PanWeiDB | 生产部署 |
+
+**推断优先级**（无 `--profile` 时）：
+1. `MOGO_USE_EXTERNAL_DB=1` → prod
+2. `MOGO_DATA_BACKEND=panweidb` → test
+3. 其余 → dev
+
+**⚠️ 默认 .env 是 `MOGO_DATA_BACKEND=panweidb`（test profile）**，但本地 `base-images/images/arm64/panweidb_3.2.0.tar` 通常未加载。**跑 dev 时必须显式覆盖**（见 §5）。
+
+---
+
+## 3. 前置检查清单
+
+```bash
+cd /path/to/mogo
+
+# 1) docker context 必须是 OrbStack（本脚本走 unix socket，不是 ssh）
+docker context show          # 期望：orbstack
+docker context ls            # 看到 * 在 orbstack 行
+
+# 2) MOGO_VERSION 默认会读 git short hash（mogo_default_version），
+#    可显式覆盖：export MOGO_VERSION=<hash>
+git log -1 --format='%h %s'  # 确认 HEAD
+
+# 3) 离线 bundle 必须存在（base-images/images/arm64/*.tar）
+ls base-images/images/arm64/ | wc -l   # 期望 7 个
+```
+
+常见 context 陷阱：
+
+```bash
+# 错误示例（mogo-remote 是 ssh://bonc@172.17.5.96 远端，非本地）
+docker context show
+# → mogo-remote   ⚠️ 这是另一套部署的主机
+
+# 切回 OrbStack
+docker context use orbstack
+docker context show   # → orbstack  ✓
+```
+
+---
+
+## 4. 基础镜像管理（离线关键）
+
+### 4.1 参与构建的基础镜像
+
+```
+python:3.13-slim-bookworm       # admin-api / chat-api / document-parser 公共
+node:24-bookworm-slim           # user-web / admin-web / dsh-runtime-host
+nginx:1.31.5-alpine3.24-slim    # gateway
+```
+
+### 4.2 本地已有的镜像源名称（1panel 代理）
+
+```bash
+docker images | grep -E 'python|node:24|nginx:1.31.5'
+# 可能只看到：
+# docker.1panel.live/library/python:3.13-slim-bookworm
+# docker.1panel.live/library/node:24-bookworm-slim
+# docker.1panel.live/library/nginx:1.31.5-alpine3.24-slim
+```
+
+### 4.3 离线 tar 来源（权威）
+
+```bash
+base-images/images/arm64/
+├── python_3.13-slim-bookworm.tar      (46M)
+├── node_24-bookworm-slim.tar          (79M)
+├── nginx_1.31.5-alpine3.24-slim.tar   (9M)
+├── redis_7.4.2-alpine.tar             (17M)
+├── semitechnologies_weaviate_1.25.7.tar (65M)
+├── alpine_3.21.tar                    (3.9M)
+└── panweidb_3.2.0.tar                 (1.4G)   # 仅 test/prod
+```
+
+### 4.4 BuildKit 元数据坑（踩过的最贵一笔）
+
+直接用 tar 加载的镜像 **会触发 BuildKit 联网重解析 manifest** → 外网被拦 → 构建失败：
+
+```bash
+# ❌ 错误：从 tar 直接加载（缺 pull-through 元数据）
+docker load -i base-images/images/arm64/python_3.13-slim-bookworm.tar
+docker images | grep python        # ID 不同于镜像源
+```
+
+正确做法——**用镜像源 ID 补规范名 tag**（保留完整 manifest 元数据）：
+
+```bash
+# ✅ 正确：把带元数据的镜像源 ID 挂到规范名上
+docker tag docker.1panel.live/library/python:3.13-slim-bookworm python:3.13-slim-bookworm
+docker tag docker.1panel.live/library/node:24-bookworm-slim     node:24-bookworm-slim
+docker tag docker.1panel.live/library/nginx:1.31.5-alpine3.24-slim nginx:1.31.5-alpine3.24-slim
+# 同时挂 docker.io/library/ 前缀（部分 build 场景需要）
+docker tag docker.1panel.live/library/python:3.13-slim-bookworm docker.io/library/python:3.13-slim-bookworm
+docker tag docker.1panel.live/library/node:24-bookworm-slim     docker.io/library/node:24-bookworm-slim
+docker tag docker.1panel.live/library/nginx:1.31.5-alpine3.24-slim docker.io/library/nginx:1.31.5-alpine3.24-slim
+```
+
+验证：
+
+```bash
+for img in python:3.13-slim-bookworm node:24-bookworm-slim nginx:1.31.5-alpine3.24-slim; do
+  echo -n "$img -> "; docker image inspect "$img" --format '{{.Id}}' 2>/dev/null || echo MISSING
+done
+# 全部应输出相同 ID（即 docker.1panel.live 源的那份）
+```
+
+### 4.5 MOGO_BASE_IMAGE_MIRROR 未设时的回退
+
+未设时 CLI 回退 Docker Hub 直连，中国大陆普遍被拦。两种解法：
+1. 补规范名 tag（本文推荐的 4.4 做法）；
+2. 或 `export MOGO_BASE_IMAGE_MIRROR=docker.m.daocloud.io`（走另一缓存）。
+
+---
+
+## 5. 构建命令
+
+### 5.1 标准流程（dev profile / mongo）
+
+```bash
+cd /path/to/mogo
+docker context use orbstack                              # 切回本地
+MOGO_VERSION="$(git rev-parse --short HEAD)"             # 显式固化（也可不写，由 CLI 自动取 short hash）
+MOGO_DATA_BACKEND=mongo                                  # 覆盖 .env 的 panweidb，强制走 dev profile
+./mogo up --build                                        # 离线构建 + 启动
+```
+
+**等价单行**：
+
+```bash
+cd /Users/cooper/mogo && MOGO_VERSION=8e17ab15 MOGO_DATA_BACKEND=mongo ./mogo up --build
+```
+
+### 5.2 MOGO_VERSION 来源
+
+```bash
+# mogo_default_version() 的逻辑
+git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || printf 'latest'
+# 未设置时默认 = HEAD 短 hash（8 位）
+# 显式 env 覆盖优先级最高
+```
+
+### 5.3 构建产物大小参考
+
+| 镜像 | 大小 | 备注 |
+|---|---|---|
+| `admin-api` | 445 MB | |
+| `admin-web` | 46 MB | |
+| `user-web` | 47 MB | |
+| `chat-api` | 4.33 GB | playwright 浏览器 ~622MB + pip-wheels 315MB |
+| `document-parser` | 5.30 GB | torch + docling 模型 ~496MB + pip 858MB + apt 506MB |
+| `dsh-runtime-host` | 1.27 GB | node pnpm 安装耗时 ~6 min |
+| `gateway` | 31 MB | |
+
+---
+
+## 6. 构建过程与耗时
+
+### 6.1 关键步骤（后台输出顺序）
+
+```
+[1/5] 下载 APT 离线包   ... (apt 镜像)
+[2/5] 下载 npm 离线包   ... (node_modules)
+[3/5] 下载 pip 离线包   ... (pip wheel 闭包)
+[4/5] 下载 playwright   ... (~622MB)
+[5/5] 下载测试闭包      ... (pytest 等，B 方案)
+基础镜像本地命中...     (0 联网)
+=> 依次构建：admin-web → chat-api → document-api → gateway → admin-api → user-web → dsh-runtime-host
+```
+
+### 6.2 耗时分布（arm64 Mac）
+
+| 阶段 | 典型耗时 |
+|---|---|
+| APT/npm/pip/playwright 传输 | 视上下文大小，chat ~30 min、docparser ~45 min |
+| chat-api 实际构建 | ~20 min |
+| document-parser 实际构建 | ~30 min（torch + docling 解包最重） |
+| 其他服务 | 5–15 min |
+| **全量合计** | **约 1.5–2 小时** |
+
+### 6.3 后台运行建议
+
+```bash
+# 用 nohup 或 tmux/screen，避免终端断开导致 SIGTERM
+MOGO_VERSION=$(git rev-parse --short HEAD) MOGO_DATA_BACKEND=mongo ./mogo up --build > /tmp/mogo-up-build.log 2>&1 &
+# 查看进度
+tail -f /tmp/mogo-up-build.log
+```
+
+---
+
+## 7. 旧镜像清理
+
+`./mogo up --build` 在**启动成功后**自动调用 `prune_previous_release_images` + `prune_dangling_images`，把未引用的旧镜像层一并清理。这是"构建完成后"才做的，**构建失败不会触发**——因为要保回滚能力。
+
+手动清理残留（如 `:latest`）：
+
+```bash
+docker --context orbstack ps -a --filter "ancestor=ghcr.io/mogoai/admin-api:latest" --format '{{.Names}} {{.Image}} {{.Status}}'
+# 确认无容器引用后
+for img in admin-api admin-web chat-api document-parser dsh-runtime-host gateway user-web; do
+  docker --context orbstack rmi "ghcr.io/mogoai/${img}:latest"
+done
+```
+
+---
+
+## 8. 健康确认
+
+```bash
+docker --context orbstack ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' | grep -E 'mogo-'
+```
+
+期望输出（8 个业务服务 + 3 个依赖，共 11 容器，全部 healthy）：
+
+```
+mogo-admin-api-1          ghcr.io/mogoai/admin-api:8e17ab15   Up 17 hours (healthy)
+mogo-admin-web-1          ghcr.io/mogoai/admin-web:8e17ab15   Up 17 hours (healthy)
+mogo-chat-api-1           ghcr.io/mogoai/chat-api:8e17ab15    Up 17 hours (healthy)
+mogo-document-api-1       ghcr.io/mogoai/document-parser:8e17ab15   Up 17 hours (healthy)
+mogo-document-worker-1    ghcr.io/mogoai/document-parser:8e17ab15   Up 17 hours (healthy)
+mogo-dsh-runtime-host-1   ghcr.io/mogoai/dsh-runtime-host:8e17ab15  Up 17 hours (healthy)
+mogo-gateway-1            ghcr.io/mogoai/gateway:8e17ab15     Up 17 hours (healthy)
+mogo-user-web-1           ghcr.io/mogoai/user-web:8e17ab15    Up 17 hours (healthy)
+mogo-mongo-1              mongo:8.3.13                        Up 43 hours (healthy)
+mogo-redis-1              <sha>                                Up 43 hours (healthy)
+mogo-weaviate-1           <sha>                                Up 43 hours (healthy)
+```
+
+入口：`http://localhost:3000/admin/setup`
+
+---
+
+## 9. 故障排查速查
+
+### 9.1 admin-api 启动即 crash：`got '%+'`
+
+**症状**：日志出现 `got '%+'`，SQL 里 `LIKE '%+00:00'` 裸 `%` 被 psycopg 当占位符。
+
+**根因**：旧镜像 `pg_compat.py` 里的 `right(col, position(col, '+') - 1)` 写法未替换掉 `LIKE '%+00:00'`。
+
+**解决**：重建镜像即可（工作区代码已改为 `right(col, position(col, '+') - 1)`），`./mogo up --build` 自动带入新代码。
+
+### 9.2 BuildKit 仍尝试联网拉取基础镜像
+
+**症状**：即便本地有镜像，build log 仍出现 `pulling from docker.io/library/python...` 并超时。
+
+**原因**：本地只有镜像源 tag（`docker.1panel.live/...`），缺规范名 tag（`python:3.13-slim-bookworm`）。
+
+**解决**：按 §4.4 补 tag，并确认规范名指向带完整 manifest 元数据的镜像源 ID。
+
+### 9.3 `MOGO_DATA_BACKEND=panweidb` 提示镜像缺失
+
+**症状**：
+```
+Error: MOGO_DATA_BACKEND=panweidb enables the PanWeiDB backend, but image panweidb:3.2.0 is not present locally.
+```
+
+**解决**：
+```bash
+# 加载离线 bundle
+docker load -i base-images/images/arm64/panweidb_3.2.0.tar
+# 或改用 dev profile
+MOGO_DATA_BACKEND=mongo ./mogo up --build
+```
+
+### 9.4 构建发到远端而非 OrbStack
+
+**症状**：上下文传输速率只有 ~0.8 MB/s（走 SSH），日志里出现 `ssh -l bonc -p 22 -- 172.17.5.96`。
+
+**原因**：当前 docker context 是 `mogo-remote`（远端 172.17.5.96），不是 OrbStack。
+
+**解决**：
+```bash
+docker context use orbstack
+docker context show    # 确认返回 orbstack
+```
+
+---
+
+## 10. 常见问题 FAQ
+
+**Q：能否跳过离线 bundle 直接联网构建？**
+A：可以，但国内连 Docker Hub / PyPI / npm 都很慢且不稳定。建议始终准备 `base-images/` 离线 bundle，设置 `APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true`。
+
+**Q：`MOGO_VERSION` 不传会怎样？**
+A：CLI 会自动取 `git rev-parse --short HEAD`（8 位）。显式传则优先使用。不传时 tag 可能是 `latest`（旧行为，已废弃）。
+
+**Q：构建中途失败会回滚吗？**
+A：`./mogo up --build` 失败时**不会**删除旧镜像（保留回滚能力）。手动 `prune_dangling_images` 才会清理未引用层。
+
+**Q：`docker compose build` vs `./mogo up --build` 差异？**
+A：CLI 额外做了：① 自动 pre-resolve 基础镜像；② 自动 prune；③ 自动 health check + 打印初始化地址。不建议直接跑 `docker compose build`。
+
+---
+
+## 11. 附录：关键 CLI 入口
+
+```bash
+# 查看 profile
+./mogo --help | head -30
+
+# 强制 dev（mongo）
+./mogo --profile dev up --build
+
+# 强制 test（panweidb）
+./mogo --profile test up --build
+
+# 指定版本标签
+MOGO_VERSION=v0.2.6 ./mogo --profile dev up --build
+
+# 查看已建镜像
+docker --context orbstack images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | grep mogoai
+
+# 重启服务（不重建）
+./mogo restart
+
+# 查看服务日志
+./mogo logs admin-api -f
+```
+
+---
+
+*最后更新：2026-11-05*
