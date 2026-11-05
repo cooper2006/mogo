@@ -32,7 +32,7 @@ from .constants import (
     AUDIT_TABLE,
     DEFAULT_SYS_CONFIG,
     DETAIL_TABLE,
-    ENTITY_INDEX_TABLE,
+    CATALOG_TABLE,
     GRANT_TABLE,
     SYS_CONFIG_KEY,
     SYS_CONFIG_TABLE,
@@ -562,48 +562,51 @@ class OntologyPermissionRepository:
     # ------------------------------------------------------------------ 本体清单
 
     async def list_catalog(self, tenant_id: str) -> list[dict[str, Any]]:
-        """聚合既有业务实体索引里的 ``ontology_id``，形成 MOGO 侧只读本体清单。
+        """聚合 ``mesc_ontology_class_detail`` 里的 ``ontology_uri``，形成 MOGO 侧只读本体清单。
 
-        设计 §5.4：本体定义与数据都在业务系统，MOGO 只做展示。当前唯一可用的
-        MOGO 侧来源是 ``business_entity_index``（通用壳表，字段在 ``doc`` 里）。
+        设计：本体定义与数据由业务系统维护，MOGO 侧按 ``mesc_ontology_class_detail``
+        聚合出唯一本体列表（按 ``ontology_uri`` 去重，附类标签集合）。
         """
         if self._pg():
-            # A 模式：jsonb 路径必须 #>>；空串等价 NULL，故只需 IS NOT NULL。
             sql = (
-                "SELECT doc #>> '{ontology_id}' AS ontology_id, "
-                "count(*) AS entity_count, "
-                "array_agg(DISTINCT doc #>> '{entity_type}') AS entity_types "
-                f"FROM {_tbl(ENTITY_INDEX_TABLE)} "
-                "WHERE tenant_id = %s AND (doc #>> '{ontology_id}') IS NOT NULL "
-                "GROUP BY doc #>> '{ontology_id}' ORDER BY 1"
+                "SELECT DISTINCT ON (ontology_uri) ontology_uri, class_name "
+                f"FROM {_tbl(CATALOG_TABLE)} "
+                "WHERE tenant_id = %s AND enabled = 1 "
+                "ORDER BY ontology_uri, priority DESC"
             )
             rows = await self._fetch(sql, [str(tenant_id)])
+            # 按 ontology_uri 聚合 class_name
+            from collections import defaultdict
+            catalog: dict[str, list[str]] = defaultdict(list)
+            for row in rows:
+                uri = str(row.get("ontology_uri") or "")
+                cls = str(row.get("class_name") or "")
+                if uri and cls:
+                    catalog[uri].append(cls)
             return [
                 {
-                    "ontology_id": str(row.get("ontology_id") or ""),
-                    "entity_count": int(row.get("entity_count") or 0),
-                    "entity_types": sorted(str(t) for t in (row.get("entity_types") or []) if t),
+                    "ontology_id": uri,
+                    "entity_count": len(classes),
+                    "entity_types": sorted(set(classes)),
                 }
-                for row in rows
+                for uri, classes in sorted(catalog.items())
             ]
+        # mongo: 按 ontology_uri 聚合
         pipeline = [
-            {"$match": {"tenant_id": str(tenant_id), "ontology_id": {"$nin": [None, ""]}}},
-            {
-                "$group": {
-                    "_id": "$ontology_id",
-                    "entity_count": {"$sum": 1},
-                    "entity_types": {"$addToSet": "$entity_type"},
-                }
-            },
+            {"$match": {"tenant_id": str(tenant_id), "enabled": True}},
+            {"$group": {
+                "_id": "$ontology_uri",
+                "class_names": {"$addToSet": "$class_name"},
+            }},
             {"$sort": {"_id": 1}},
         ]
-        cursor = self._db()[ENTITY_INDEX_TABLE].aggregate(pipeline)
+        cursor = self._db()[CATALOG_TABLE].aggregate(pipeline)
         rows = [doc async for doc in cursor]
         return [
             {
                 "ontology_id": str(row.get("_id") or ""),
-                "entity_count": int(row.get("entity_count") or 0),
-                "entity_types": sorted(str(t) for t in (row.get("entity_types") or []) if t),
+                "entity_count": len(row.get("class_names", [])),
+                "entity_types": sorted(str(t) for t in (row.get("class_names") or []) if t),
             }
             for row in rows
         ]

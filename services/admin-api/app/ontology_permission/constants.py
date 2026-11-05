@@ -20,10 +20,8 @@ DETAIL_TABLE = "mesc_ontology_class_detail"
 AUDIT_TABLE = "mesc_ontology_perm_audit"
 SYS_CONFIG_TABLE = "sys_config"
 
-#: 只读副本的现有来源：业务实体索引（``business_entity_index``，通用壳表）。
-#: 设计 §5.4 建议的独立副本集合 ``ontologies`` 属阶段 4（业务系统对接）范畴，
-#: 本阶段「本体清单」直接聚合既有索引里的 ``ontology_id``，不新增表。
-ENTITY_INDEX_TABLE = "business_entity_index"
+#: 本体清单数据来源：类明细表（按 ontology_uri 聚合）。
+CATALOG_TABLE = "mesc_ontology_class_detail"
 
 # ── 全局开关 ───────────────────────────────────────────────────────────────
 SYS_CONFIG_KEY = "ontology-permission"
@@ -101,7 +99,7 @@ __all__ = [
     "DEFAULT_SYS_CONFIG",
     "DETAIL_ACCESS_MODES",
     "DETAIL_TABLE",
-    "ENTITY_INDEX_TABLE",
+    "CATALOG_TABLE",
     "GRANT_TABLE",
     "SYS_CONFIG_KEY",
     "SYS_CONFIG_TABLE",
