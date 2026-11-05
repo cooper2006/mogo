@@ -1,7 +1,7 @@
 # OrbStack 开发环境：离线加速构建与重启服务
 
 > 状态：已落地（2026-11-05 实测通过）
-> 版本基线：`8e17ab15`（tag `v0.2.6`，含 `pg_compat.py` 时区修复）
+> 版本基线：`5b039422`（含 test profile 外部 PanWeiDB 支持、check_external_db.sh 修复）
 > 执行入口：`./mogo up --build`（需先切换 docker context 到 OrbStack）
 
 本文档记录 **OrbStack 本地开发栈**的"离线加速构建 → 重启服务"完整流程与踩坑要点。面向在大陆内网/离线环境下跑 mogo 自托管开发环境的工程师。
@@ -19,7 +19,8 @@
 | Web | `admin-web` | `ghcr.io/mogoai/admin-web` | 内部 |
 | Web | `user-web` | `ghcr.io/mogoai/user-web` | 内部 |
 | Gateway | `gateway` | `ghcr.io/mogoai/gateway` | `localhost:3000` |
-| DB | `mongo` | `mongo:8.3.13` | 栈内 |
+| DB (dev) | `mongo` | `mongo:8.3.13` | 栈内 |
+| DB (test) | `panweidb` | `panweidb:3.2.0` | 栈内（需 docker load） |
 | Cache | `redis` | `redis:7.4.2-alpine` | 栈内 |
 | Vector | `weaviate` | `semitechnologies/weaviate:1.25.7` | 栈内 |
 
@@ -34,7 +35,7 @@
 | Profile | `MOGO_DATA_BACKEND` | `MOGO_PLATFORM` | 数据后端 | 用途 |
 |---|---|---|---|---|
 | `dev` | `mongo` | `linux/arm64` | 栈内 mongo | 本地开发 |
-| `test` | `panweidb` | `linux/arm64` | 栈内 panweidb（arm64 openEuler） | 本地演练 |
+| `test` | `panweidb` | `linux/arm64` | 栈内/外部 panweidb | 本地演练（外部 PanWeiDB 需 MOGO_USE_EXTERNAL_DB=1） |
 | `prod` | `panweidb`（外部） | `linux/amd64` | 外部 PanWeiDB | 生产部署 |
 
 **推断优先级**（无 `--profile` 时）：
@@ -393,6 +394,36 @@ git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || printf 'latest'
 
 ---
 
+
+### 6.4 使用外部 PanWeiDB（test profile）
+
+当 `.env` 已配置外部 PanWeiDB（`PANWEIDB_HOST=172.17.5.145`），可通过设置 `MOGO_USE_EXTERNAL_DB=1` 停用栈内数据库容器：
+
+```bash
+# .env 配置（已注释 MongoDB URI）
+MOGO_DATA_BACKEND=panweidb
+MOGO_USE_EXTERNAL_DB=1
+PANWEIDB_HOST=172.17.5.145
+PANWEIDB_PORT=17700
+PANWEIDB_USER=boncuser
+PANWEIDB_PASSWORD=...
+PANWEIDB_DB=mogo
+PANWEIDB_SCHEMA=public
+
+# 启动（自动使用 test profile）
+./mogo --profile test up --build
+```
+
+**注意**：`check_external_db.sh` 会根据 `MOGO_DATA_BACKEND` 选择检查：
+- `panweidb` 后端 → 只检查 `PANWEIDB_HOST`，跳过 MongoDB 检查
+- `mongo` 后端 → 只检查 `MOGO_MONGODB_URI`
+
+服务状态：
+- 应用服务（8个）+ redis + weaviate = 10 个 healthy
+- 若使用栈内 panweidb：+ panweidb 容器 = 11 个 healthy
+- 若使用外部 panweidb：- mongo/panweidb 容器（被 external compose 排除）
+
+
 ## 7. 构建过程与耗时
 
 ### 7.1 关键步骤（后台输出顺序）
@@ -503,7 +534,33 @@ docker load -i base-images/images/arm64/panweidb_3.2.0.tar
 MOGO_DATA_BACKEND=mongo ./mogo up --build
 ```
 
-### 10.4 构建发到远端而非 OrbStack
+### 10.4 外部 PanWeiDB 连接检查失败（MongoDB URI 未配置）
+
+**症状**：
+```
+[FAIL] MongoDB(MOGO_MONGODB_URI): 连接信息未配置
+```
+
+**原因**：使用 PanWeiDB 后端时，`.env` 中 `MOGO_MONGODB_URI` 被注释掉，但 check 脚本仍尝试检查。
+
+**解决**：脚本已修复（`5b039422`），根据 `MOGO_DATA_BACKEND` 智能选择检查项。若使用旧版本，手动注释 `.env` 中的 MongoDB URI。
+
+### 10.5 构建发到远端而非 OrbStack
+
+**症状**：
+```
+Error: MOGO_DATA_BACKEND=panweidb enables the PanWeiDB backend, but image panweidb:3.2.0 is not present locally.
+```
+
+**解决**：
+```bash
+# 加载离线 bundle
+docker load -i base-images/images/arm64/panweidb_3.2.0.tar
+# 或改用 dev profile
+MOGO_DATA_BACKEND=mongo ./mogo up --build
+```
+
+### 10.6 构建发到远端而非 OrbStack
 
 **症状**：上下文传输速率只有 ~0.8 MB/s（走 SSH），日志里出现 `ssh -l bonc -p 22 -- 172.17.5.96`。
 
