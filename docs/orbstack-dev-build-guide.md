@@ -1,7 +1,7 @@
 # OrbStack 开发环境：离线加速构建与重启服务
 
 > 状态：已落地（2026-11-05 实测通过）
-> 版本基线：`8e17ab15`（`git rev-parse --short HEAD@{2}`，tag `v0.2.6`，含 `pg_compat.py` 时区修复）
+> 版本基线：`8e17ab15`（tag `v0.2.6`，含 `pg_compat.py` 时区修复）
 > 执行入口：`./mogo up --build`（需先切换 docker context 到 OrbStack）
 
 本文档记录 **OrbStack 本地开发栈**的"离线加速构建 → 重启服务"完整流程与踩坑要点。面向在大陆内网/离线环境下跑 mogo 自托管开发环境的工程师。
@@ -77,9 +77,211 @@ docker context show   # → orbstack  ✓
 
 ---
 
-## 4. 基础镜像管理（离线关键）
+## 4. 从零开始：首次拉取 bundle → 加载基础镜像 → 构建
 
-### 4.1 参与构建的基础镜像
+以下面向**全新克隆仓库**或**`base-images/` 清空后**的完整链路。后续重建只需跳至 §6。
+
+### 4.1 前置：获取离线 bundle
+
+Bundle 来自仓库外的离线交付（U 盘、内网共享、CI 归档）。按来源分两类：
+
+#### A. 完整 bundle（含 base-images/images + apt/pip-wheels/playwright/docling cache）
+
+```bash
+# 假设 bundle 已解压到 ~/Downloads/mogo-bundle-arm64/
+# 1) 基础镜像 tar
+rsync -a --ignore-existing ~/Downloads/mogo-bundle-arm64/images/arm64/ \
+    base-images/images/arm64/
+
+# 2) APT 包缓存（document-parser 最大，chat-api 次之，dsh-runtime-host 最小）
+rsync -a --ignore-existing ~/Downloads/mogo-bundle-arm64/apt/ \
+    base-images/apt/
+
+# 3) pip wheel 缓存（document-parser 858MB，chat-api 315MB，admin-api 60MB）
+rsync -a --ignore-existing ~/Downloads/mogo-bundle-arm64/pip-wheels/ \
+    base-images/pip-wheels/
+
+# 4) Playwright 浏览器（仅 chat-api 用）
+rsync -a --ignore-existing ~/Downloads/mogo-bundle-arm64/playwright/ \
+    base-images/playwright/
+
+# 5) Docling 模型（仅 document-parser 用）
+rsync -a --ignore-existing ~/Downloads/mogo-bundle-arm64/docling-models/ \
+    base-images/docling-models/
+
+echo "=== bundle 完整性校验 ==="
+echo "base-images 总大小:" && du -sh base-images/
+echo "基础镜像数量:" && ls base-images/images/arm64/*.tar 2>/dev/null | wc -l
+echo "APT cache:" && ls base-images/apt/document-parser/arm64/*.deb 2>/dev/null | wc -l
+```
+
+#### B. 只有 base-images/images（无应用层包缓存）
+
+部分交付只包含基础 OS 镜像，应用层 bundle（apt/pip-wheels/playwright/docling）需从已构建镜像提取或在线下载。**先走 §4.2 加载基础镜像，再执行 §4.3 的 bundle 生成步骤。**
+
+### 4.2 加载基础镜像到 OrbStack
+
+**必须用 OrbStack context**（当前激活的可能是 `mogo-remote`）：
+
+```bash
+cd /path/to/mogo
+docker context use orbstack
+docker context show   # 确认返回 orbstack
+```
+
+**第一步：从 tar 加载原始镜像**（arm64 Mac 本地栈用 arm64）：
+
+```bash
+for tar in base-images/images/arm64/*.tar; do
+  echo ">>> docker load $tar"
+  docker load -i "$tar"
+done
+```
+
+**第二步：补规范名 tag（BuildKit 必须命中规范名，否则仍会联网重解析）**：
+
+```bash
+# 找出镜像源 ID（1panel 代理已拉过的那份，带完整 manifest 元数据）
+PY_ID=$(docker image inspect docker.1panel.live/library/python:3.13-slim-bookworm \
+          --format '{{.Id}}' 2>/dev/null | cut -c1-12)
+NODE_ID=$(docker image inspect docker.1panel.live/library/node:24-bookworm-slim \
+            --format '{{.Id}}' 2>/dev/null | cut -c1-12)
+NGINX_ID=$(docker image inspect docker.1panel.live/library/nginx:1.31.5-alpine3.24-slim \
+             --format '{{.Id}}' 2>/dev/null | cut -c1-12)
+
+[[ -n "$PY_ID" ]] || { echo "ERROR: python 镜像源不存在"; exit 1; }
+[[ -n "$NODE_ID" ]] || { echo "ERROR: node 镜像源不存在"; exit 1; }
+[[ -n "$NGINX_ID" ]] || { echo "ERROR: nginx 镜像源不存在"; exit 1; }
+
+echo "python -> $PY_ID"
+echo "node   -> $NODE_ID"
+echo "nginx  -> $NGINX_ID"
+
+# 挂规范名
+docker tag "docker.1panel.live/library/python:3.13-slim-bookworm" \
+           python:3.13-slim-bookworm
+docker tag "docker.1panel.live/library/python:3.13-slim-bookworm" \
+           docker.io/library/python:3.13-slim-bookworm
+docker tag "docker.1panel.live/library/node:24-bookworm-slim" \
+           node:24-bookworm-slim
+docker tag "docker.1panel.live/library/node:24-bookworm-slim" \
+           docker.io/library/node:24-bookworm-slim
+docker tag "docker.1panel.live/library/nginx:1.31.5-alpine3.24-slim" \
+           nginx:1.31.5-alpine3.24-slim
+docker tag "docker.1panel.live/library/nginx:1.31.5-alpine3.24-slim" \
+           docker.io/library/nginx:1.31.5-alpine3.24-slim
+
+# 验证：规范名必须指向镜像源 ID
+for img in python:3.13-slim-bookworm node:24-bookworm-slim nginx:1.31.5-alpine3.24-slim; do
+  got=$(docker image inspect "$img" --format '{{.Id}}' 2>/dev/null | cut -c1-12)
+  case "$img" in
+    python*) expected="$PY_ID" ;;
+    node*)   expected="$NODE_ID" ;;
+    nginx*)  expected="$NGINX_ID" ;;
+  esac
+  if [[ "$got" == "$expected" ]]; then
+    echo "✓ $img -> $got"
+  else
+    echo "✗ $img -> $got (期望 $expected)"
+    exit 1
+  fi
+done
+echo "基础镜像补 tag 完成"
+```
+
+**附加依赖镜像**（mongo/redis/weaviate 通常由 compose pull 自动拉；离线交付有 tar 时手动加载）：
+
+```bash
+# 若 bundle 包含这三者
+[ -f base-images/images/arm64/mongo_8.3.13.tar ] && docker load -i base-images/images/arm64/mongo_8.3.13.tar
+[ -f base-images/images/arm64/redis_7.4.2-alpine.tar ] && docker load -i base-images/images/arm64/redis_7.4.2-alpine.tar
+[ -f base-images/images/arm64/semitechnologies_weaviate_1.25.7.tar ] && docker load -i base-images/images/arm64/semitechnologies_weaviate_1.25.7.tar
+```
+
+### 4.3 生成服务层 bundle（仅缺时执行）
+
+下面脚本把"base-images/ 的原始缓存"打包到各服务的 build context，供 Dockerfile 的 `COPY` 层使用。**首次运行 + bundle 丢失时需执行；已有 bundle 可跳过。**
+
+#### 4.3.1 APT 包 bundle（每个服务独立）
+
+```bash
+# 用法：
+scripts/apt_packages_bundle.sh save document-parser chat-api dsh-runtime-host
+# 等价于先 fetch（从 base-images/apt/ 读 .deb）再 pack（产出 apt-packages-bundle.tar.gz 到各服务 build context）
+# 仅 arm64：ARCH_LIST=arm64 scripts/apt_packages_bundle.sh save document-parser chat-api dsh-runtime-host
+```
+
+#### 4.3.2 pip wheel bundle（每个服务独立）
+
+```bash
+scripts/pip_wheels_bundle.sh save document-parser chat-api admin-api
+# 等价于 fetch（从 base-images/pip-wheels/ 读 .whl）+ pack（产出 pip-wheels-bundle.tar.gz 到各服务 build context）
+```
+
+#### 4.3.3 Playwright 浏览器 bundle（仅 chat-api）
+
+```bash
+# playwright 是从已构建镜像提取（base-images/playwright/ 已存在时直接 pack；否则需先构建 chat-api）
+scripts/playwright_browsers_bundle.sh list   # 看 base-images/playwright/ 缓存状态
+scripts/playwright_browsers_bundle.sh pack   # 从缓存打包（若缓存存在）
+# 若无缓存，需先构建一次 chat-api，再：
+scripts/playwright_browsers_bundle.sh save ghcr.io/mogoai/chat-api:<version>
+```
+
+#### 4.3.4 Docling 模型 bundle（仅 document-parser）
+
+```bash
+scripts/docling_models_bundle.sh list   # 看 base-images/docling-models/ 缓存状态
+scripts/docling_models_bundle.sh pack   # 从缓存打包
+# 若无缓存，需先构建一次 document-parser，再：
+scripts/docling_models_bundle.sh save ghcr.io/mogoai/document-parser:<version>
+```
+
+### 4.4 验证 bundle 就绪
+
+```bash
+echo "=== 基础镜像 ==="
+for img in python:3.13-slim-bookworm node:24-bookworm-slim nginx:1.31.5-alpine3.24-slim; do
+  echo -n "$img -> "; docker image inspect "$img" --format '{{.Id}}' 2>/dev/null | cut -c1-12 || echo MISSING
+done
+
+echo "=== 服务层 bundle ==="
+for f in \
+  services/admin-api/pip-wheels-bundle.tar.gz \
+  services/chat-api/pip-wheels-bundle.tar.gz \
+  services/chat-api/apt-packages-bundle.tar.gz \
+  services/chat-api/dsh/runtime-host/apt-packages-bundle.tar.gz \
+  services/chat-api/playwright-browsers-bundle.tar.gz \
+  services/document-parser/pip-wheels-bundle.tar.gz \
+  services/document-parser/apt-packages-bundle.tar.gz \
+  services/document-parser/docling-models-bundle.tar.gz; do
+  if [[ -f "$f" ]]; then
+    echo "✓ $f ($(du -sh "$f" | cut -f1))"
+  else
+    echo "✗ MISSING: $f"
+  fi
+done
+```
+
+预期全部 ✓，无 MISSING。
+
+### 4.5 执行构建
+
+```bash
+export MOGO_VERSION="$(git rev-parse --short HEAD)"
+export MOGO_DATA_BACKEND=mongo           # dev profile（覆盖 .env 的 panweidb）
+nohup ./mogo up --build > /tmp/mogo-up-build.log 2>&1 &
+echo "PID=$!"
+tail -f /tmp/mogo-up-build.log           # 实时查看进度
+```
+
+构建成功后自动 prune 旧镜像并打印健康状态。详见 §6。
+
+---
+
+## 5. 基础镜像管理（离线关键）
+
+### 5.1 参与构建的基础镜像
 
 ```
 python:3.13-slim-bookworm       # admin-api / chat-api / document-parser 公共
@@ -87,7 +289,7 @@ node:24-bookworm-slim           # user-web / admin-web / dsh-runtime-host
 nginx:1.31.5-alpine3.24-slim    # gateway
 ```
 
-### 4.2 本地已有的镜像源名称（1panel 代理）
+### 5.2 本地已有的镜像源名称（1panel 代理）
 
 ```bash
 docker images | grep -E 'python|node:24|nginx:1.31.5'
@@ -97,7 +299,7 @@ docker images | grep -E 'python|node:24|nginx:1.31.5'
 # docker.1panel.live/library/nginx:1.31.5-alpine3.24-slim
 ```
 
-### 4.3 离线 tar 来源（权威）
+### 5.3 离线 tar 来源（权威）
 
 ```bash
 base-images/images/arm64/
@@ -110,7 +312,7 @@ base-images/images/arm64/
 └── panweidb_3.2.0.tar                 (1.4G)   # 仅 test/prod
 ```
 
-### 4.4 BuildKit 元数据坑（踩过的最贵一笔）
+### 5.4 BuildKit 元数据坑（踩过的最贵一笔）
 
 直接用 tar 加载的镜像 **会触发 BuildKit 联网重解析 manifest** → 外网被拦 → 构建失败：
 
@@ -142,17 +344,17 @@ done
 # 全部应输出相同 ID（即 docker.1panel.live 源的那份）
 ```
 
-### 4.5 MOGO_BASE_IMAGE_MIRROR 未设时的回退
+### 5.5 MOGO_BASE_IMAGE_MIRROR 未设时的回退
 
 未设时 CLI 回退 Docker Hub 直连，中国大陆普遍被拦。两种解法：
-1. 补规范名 tag（本文推荐的 4.4 做法）；
+1. 补规范名 tag（本文推荐的 §5.4 做法）；
 2. 或 `export MOGO_BASE_IMAGE_MIRROR=docker.m.daocloud.io`（走另一缓存）。
 
 ---
 
-## 5. 构建命令
+## 6. 构建命令
 
-### 5.1 标准流程（dev profile / mongo）
+### 6.1 标准流程（dev profile / mongo）
 
 ```bash
 cd /path/to/mogo
@@ -168,7 +370,7 @@ MOGO_DATA_BACKEND=mongo                                  # 覆盖 .env 的 panwe
 cd /Users/cooper/mogo && MOGO_VERSION=8e17ab15 MOGO_DATA_BACKEND=mongo ./mogo up --build
 ```
 
-### 5.2 MOGO_VERSION 来源
+### 6.2 MOGO_VERSION 来源
 
 ```bash
 # mogo_default_version() 的逻辑
@@ -177,7 +379,7 @@ git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || printf 'latest'
 # 显式 env 覆盖优先级最高
 ```
 
-### 5.3 构建产物大小参考
+### 6.3 构建产物大小参考
 
 | 镜像 | 大小 | 备注 |
 |---|---|---|
@@ -191,9 +393,9 @@ git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || printf 'latest'
 
 ---
 
-## 6. 构建过程与耗时
+## 7. 构建过程与耗时
 
-### 6.1 关键步骤（后台输出顺序）
+### 7.1 关键步骤（后台输出顺序）
 
 ```
 [1/5] 下载 APT 离线包   ... (apt 镜像)
@@ -205,7 +407,7 @@ git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || printf 'latest'
 => 依次构建：admin-web → chat-api → document-api → gateway → admin-api → user-web → dsh-runtime-host
 ```
 
-### 6.2 耗时分布（arm64 Mac）
+### 7.2 耗时分布（arm64 Mac）
 
 | 阶段 | 典型耗时 |
 |---|---|
@@ -215,7 +417,7 @@ git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || printf 'latest'
 | 其他服务 | 5–15 min |
 | **全量合计** | **约 1.5–2 小时** |
 
-### 6.3 后台运行建议
+### 7.3 后台运行建议
 
 ```bash
 # 用 nohup 或 tmux/screen，避免终端断开导致 SIGTERM
@@ -226,7 +428,7 @@ tail -f /tmp/mogo-up-build.log
 
 ---
 
-## 7. 旧镜像清理
+## 8. 旧镜像清理
 
 `./mogo up --build` 在**启动成功后**自动调用 `prune_previous_release_images` + `prune_dangling_images`，把未引用的旧镜像层一并清理。这是"构建完成后"才做的，**构建失败不会触发**——因为要保回滚能力。
 
@@ -242,7 +444,7 @@ done
 
 ---
 
-## 8. 健康确认
+## 9. 健康确认
 
 ```bash
 docker --context orbstack ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' | grep -E 'mogo-'
@@ -268,25 +470,25 @@ mogo-weaviate-1           <sha>                                Up 43 hours (heal
 
 ---
 
-## 9. 故障排查速查
+## 10. 故障排查速查
 
-### 9.1 admin-api 启动即 crash：`got '%+'`
+### 10.1 admin-api 启动即 crash：`got '%+'`
 
 **症状**：日志出现 `got '%+'`，SQL 里 `LIKE '%+00:00'` 裸 `%` 被 psycopg 当占位符。
 
-**根因**：旧镜像 `pg_compat.py` 里的 `right(col, position(col, '+') - 1)` 写法未替换掉 `LIKE '%+00:00'`。
+**根因**：旧镜像 `pg_compat.py` 里的写法未替换掉 `LIKE '%+00:00'`。
 
-**解决**：重建镜像即可（工作区代码已改为 `right(col, position(col, '+') - 1)`），`./mogo up --build` 自动带入新代码。
+**解决**：重建镜像即可（工作区代码已改为 `right(...)`），`./mogo up --build` 自动带入新代码。
 
-### 9.2 BuildKit 仍尝试联网拉取基础镜像
+### 10.2 BuildKit 仍尝试联网拉取基础镜像
 
 **症状**：即便本地有镜像，build log 仍出现 `pulling from docker.io/library/python...` 并超时。
 
 **原因**：本地只有镜像源 tag（`docker.1panel.live/...`），缺规范名 tag（`python:3.13-slim-bookworm`）。
 
-**解决**：按 §4.4 补 tag，并确认规范名指向带完整 manifest 元数据的镜像源 ID。
+**解决**：按 §5.4 补 tag，并确认规范名指向带完整 manifest 元数据的镜像源 ID。
 
-### 9.3 `MOGO_DATA_BACKEND=panweidb` 提示镜像缺失
+### 10.3 `MOGO_DATA_BACKEND=panweidb` 提示镜像缺失
 
 **症状**：
 ```
@@ -301,7 +503,7 @@ docker load -i base-images/images/arm64/panweidb_3.2.0.tar
 MOGO_DATA_BACKEND=mongo ./mogo up --build
 ```
 
-### 9.4 构建发到远端而非 OrbStack
+### 10.4 构建发到远端而非 OrbStack
 
 **症状**：上下文传输速率只有 ~0.8 MB/s（走 SSH），日志里出现 `ssh -l bonc -p 22 -- 172.17.5.96`。
 
@@ -315,7 +517,7 @@ docker context show    # 确认返回 orbstack
 
 ---
 
-## 10. 常见问题 FAQ
+## 11. 常见问题 FAQ
 
 **Q：能否跳过离线 bundle 直接联网构建？**
 A：可以，但国内连 Docker Hub / PyPI / npm 都很慢且不稳定。建议始终准备 `base-images/` 离线 bundle，设置 `APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true`。
@@ -331,7 +533,7 @@ A：CLI 额外做了：① 自动 pre-resolve 基础镜像；② 自动 prune；
 
 ---
 
-## 11. 附录：关键 CLI 入口
+## 12. 附录：关键 CLI 入口
 
 ```bash
 # 查看 profile
