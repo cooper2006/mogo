@@ -2,11 +2,15 @@
 # 环境 profile：把 dev / test / prod 三个运行环境固化成 compose profile 组合。
 # 由 mogo CLI source，在命令分发前调用 mogo_apply_profile。
 #
-# 语义（2026-10-28 用户确认）：
+# 语义（2026-11-05 更新）：
 #   dev   arm64  + 栈内 mongo 容器
 #   test  arm64  + 栈内 panweidb 容器
 #   prod  amd64  + 外部 panweidb（栈内不启动任何数据库容器；redis/weaviate 仍在栈内，
 #                  与 deploy/production 的 x86 交付模板保持一致）
+#
+# MOGO_USE_EXTERNAL_DB=1 的含义：仅把栈内数据库容器（mongo / panweidb）排除出拓扑，
+# 让应用连 .env 里配的外部实例；redis 和 weaviate 仍在栈内启动。该开关不与
+# profile 推断绑定——它只是一个 compose overlay 开关，配合任意 profile 使用。
 #
 # 架构（2026-10-28 用户确认）：目标架构必须在启动前就确定，不在宿主架构上
 # 静默降级。未显式指定 MOGO_PLATFORM 且宿主架构与 profile 目标不一致时，本模块
@@ -123,16 +127,13 @@ mogo_profile_backend_label() {
 }
 
 # 未显式给 --profile 时的推断规则（保持既有部署行为不变）：
-#   MOGO_USE_EXTERNAL_DB=1     -> prod（外部数据库，栈内不跑 DB 容器）
 #   MOGO_DATA_BACKEND=panweidb -> test（栈内 panweidb）
 #   其余                       -> dev（栈内 mongo，历史默认）
+#
+# 注意：MOGO_USE_EXTERNAL_DB=1 不再参与推断——它只是一个 overlay 开关，可与
+# 任意 profile 组合使用（dev+外部mongo、test+外部panweidb 都合法）。
 mogo_profile_infer() {
-  local external backend
-  external="$(mogo_profile_env_value MOGO_USE_EXTERNAL_DB)"
-  if [[ "${external}" == "1" ]]; then
-    printf 'prod'
-    return 0
-  fi
+  local backend
   backend="$(mogo_profile_env_value MOGO_DATA_BACKEND)"
   backend="$(printf '%s' "${backend}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
   if [[ "${backend}" == "panweidb" ]]; then
@@ -200,17 +201,9 @@ mogo_apply_profile() {
         mogo_msg profile_dev_backend_conflict >&2
         return 2
       fi
-      if [[ "${external}" == "1" ]]; then
-        mogo_msg profile_dev_external_conflict >&2
-        return 2
-      fi
       export MOGO_DATA_BACKEND=mongo
       ;;
     test)
-      if [[ "${external}" == "1" ]]; then
-        mogo_msg profile_test_external_conflict >&2
-        return 2
-      fi
       export MOGO_DATA_BACKEND=panweidb
       ;;
     prod)

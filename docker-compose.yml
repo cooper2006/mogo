@@ -223,8 +223,8 @@ services:
     # 连接信息是 `MOGO_MONGODB_URI` / `MOGO_MONGODB_DB`（见 .env.example），
     # 默认指向本服务名 `mongo`；要用外部已有的 MongoDB，只需在 .env 里改这两个
     # 变量，应用会改连外部实例（不需要这个容器）。生产环境再配合
-    # `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml）把栈内 mongo / redis /
-    # panweidb 一起排除出拓扑。
+    # `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml）把栈内 mongo / panweidb
+    # 排除出拓扑，redis / weaviate 保留在栈内。
     image: ${MOGO_MONGO_IMAGE:-mongo:8.3.13}
     restart: unless-stopped
     # T011：MongoDB 所有持久化写都落在命名卷 /data/db（mongod 的 dbpath 与 journal）
@@ -979,8 +979,8 @@ services:
         condition: service_healthy
         required: false
       # redis 无 profile（三个环境都在栈内），但保留 `required: false`
-      # 让 `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml 把 redis 设为
-      # profiles: [never]）时依赖不阻塞解析。
+      # 让 `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml 把 mongo/panweidb 设为
+      # profiles: [never]）时依赖不阻塞解析。redis 本身仍在栈内启动。
       redis:
         condition: service_healthy
         required: false
@@ -1031,8 +1031,8 @@ services:
         condition: service_healthy
         required: false
       # redis 无 profile（三个环境都在栈内），但保留 `required: false`
-      # 让 `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml 把 redis 设为
-      # profiles: [never]）时依赖不阻塞解析。
+      # 让 `MOGO_USE_EXTERNAL_DB=1`（docker-compose.external.yml 把 mongo/panweidb 设为
+      # profiles: [never]）时依赖不阻塞解析。redis 本身仍在栈内启动。
       redis:
         condition: service_healthy
         required: false

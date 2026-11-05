@@ -23,9 +23,7 @@ redis、weaviate）三个环境都一样。
 
 `prod` 只要求**数据库在外部**：`redis` 与 `weaviate` 仍在栈内，与
 `deploy/production/docker-compose.portainer-external-panweidb.yml.tpl` 这份 x86 交付
-模板保持一致。要让 redis 也走外部实例，再叠加旧的
-`MOGO_USE_EXTERNAL_DB=1`（`docker-compose.external.yml` 会把 mongo / redis /
-panweidb 三个容器一起排除出拓扑）。
+模板保持一致。
 
 ## 2. 不指定 `--profile` 时的推断
 
@@ -33,9 +31,9 @@ panweidb 三个容器一起排除出拓扑）。
 
 | `.env` 状态 | 推断结果 |
 |-------------|----------|
-| `MOGO_USE_EXTERNAL_DB=1` | `prod` |
 | `MOGO_DATA_BACKEND=panweidb`（未开外部模式） | `test` |
 | 其余（默认 `MOGO_DATA_BACKEND=mongo`） | `dev` |
+| `MOGO_USE_EXTERNAL_DB=1` | 不参与推断，仅叠加外部数据库 overlay（可与任意 profile 组合） |
 
 推断结果会打印一行 `环境 profile：<名称>（数据库：…）`，不含猜的成分：命令行
 `--profile` 与环境变量 `MOGO_PROFILE` 始终优先。
@@ -47,7 +45,6 @@ panweidb 三个容器一起排除出拓扑）。
 | 情形 | 提示 | 处理 |
 |------|------|------|
 | `--profile dev` 且 `MOGO_DATA_BACKEND=panweidb` | `dev profile 固定使用栈内 mongo…` | 改用 `--profile test`，或把后端改回 mongo |
-| `--profile dev` 或 `--profile test` 且 `MOGO_USE_EXTERNAL_DB=1` | `…与 MOGO_USE_EXTERNAL_DB=1 冲突` | 外部数据库模式用 `--profile prod` |
 | `--profile prod` 但 `PANWEIDB_HOST` 为空 | `prod profile 要求外部 PanWeiDB…` | 在 `.env` 填外部实例地址 |
 | `--profile prod` 但 `PANWEIDB_HOST` 仍是 `panweidb`/`mongo`/`redis` | `…仍是栈内服务名` | 改成外部实例地址 |
 | profile 名不认识 | `未知环境 profile「…」` | 只能是 `dev` / `test` / `prod` |
@@ -172,7 +169,7 @@ chat-api / admin-api / document-api / document-worker / mongo-backup 对 `mongo`
 |------|------|
 | `MOGO_DATA_BACKEND` | 仍有效，用来表达「意图」；带 `--profile dev/test/prod` 时由 profile 统一改写（dev→mongo，test/prod→panweidb） |
 | `--profile panweidb` | 仍有效（`deploy/cli/images.sh` 会按后端自动附加），`panweidb` 与 `test` 是同一组 |
-| `MOGO_USE_EXTERNAL_DB=1` | 仍有效，语义是「三个数据库容器都不在栈内」；推断为 `prod` |
+| `MOGO_USE_EXTERNAL_DB=1` | 仍有效，语义更新为「仅外置数据库容器（mongo/panweidb），保留 redis/weaviate 在栈内」；不再参与 profile 推断，可与任意 profile 组合使用 |
 | `deploy/production/` x86 模板 | 不变：显式 `platform: linux/amd64` + 外部 panweidb，与 `--profile prod` 语义一致 |
 
 ### 6.1 profile 只有一个投递通道：`COMPOSE_PROFILES`

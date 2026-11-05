@@ -1,0 +1,7 @@
+[
+  {
+    "session_id": "s-missing",
+    "project_id": "proj-x",
+    "reason": "no matching chat_session"
+  }
+]

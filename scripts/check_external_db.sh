@@ -87,18 +87,14 @@ fi
 echo "[check-external-db] MOGO_USE_EXTERNAL_DB=1，体检外部数据库连接信息" >&2
 
 MONGO_URI="$(env_value MOGO_MONGODB_URI)"
-REDIS_URL="$(env_value MOGO_REDIS_URL)"
-KERNEL_URL="$(env_value MOGO_KERNEL_REDIS_URL)"
 PWDB_HOST="$(env_value PANWEIDB_HOST)"
 
 check_host "MongoDB(MOGO_MONGODB_URI)"    "$(uri_host "${MONGO_URI}")" \
   "默认指向栈内 mongo；外部 MongoDB 在 .env 里给 MOGO_MONGODB_URI"
-check_host "Redis(MOGO_REDIS_URL)"        "$(uri_host "${REDIS_URL}")" \
-  "默认指向栈内 redis；外部 Redis 在 .env 里给 MOGO_REDIS_URL"
-check_host "Kernel Redis(MOGO_KERNEL_REDIS_URL)" "$(uri_host "${KERNEL_URL}")" \
-  "默认指向栈内 redis；DSH 锁/归属缓存请单独给 MOGO_KERNEL_REDIS_URL（独立 DB）"
 check_host "PanWeiDB(PANWEIDB_HOST)"      "${PWDB_HOST}" \
   "PanWeiDB 后端时把 PANWEIDB_HOST 指到外部实例"
+# 注意：MOGO_USE_EXTERNAL_DB=1 只外置数据库，redis/weaviate 仍在栈内。
+# 因此不再检查 MOGO_REDIS_URL / MOGO_KERNEL_REDIS_URL，它们保持默认指向栈内 redis。
 
 if [[ "${FATAL}" != "0" ]]; then
   echo "[check-external-db] 连接信息有硬伤，请先修 .env 再 ./mogo up" >&2

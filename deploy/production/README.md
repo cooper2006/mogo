@@ -117,10 +117,9 @@ nohup ./prepare-release.sh > /tmp/prepare-release.log 2>&1 &   # 建议后台跑
 MOGO_USE_EXTERNAL_DB=1
 ```
 
-`./mogo` 会自动追加 `docker-compose.external.yml`，把 `mongo` / `redis` / `panweidb`
-三个服务从拓扑里排除（`up --dry-run` 不会拉它们的镜像），应用仍按上面的连接信息连
-外部实例。**只改连接信息、不开这个开关也完全可用**——内部容器会照常跑，应用连的
-是外部库。
+`./mogo` 会自动追加 `docker-compose.external.yml`，把 `mongo` / `panweidb`
+两个服务从拓扑里排除（`up --dry-run` 不会拉它们的镜像），应用仍按上面的连接信息连
+外部实例。**redis 和 weaviate 仍在栈内启动**，只改连接信息、不开这个开关也完全可用——内部容器会照常跑，应用连的是外部库。
 
 起栈前 `./mogo up` 还会跑一次体检（`scripts/check_external_db.sh`）：连接信息缺失或
 仍指向栈内服务名会直接报错拦下（避免整栈起来才发现连不上），并顺手探测外部

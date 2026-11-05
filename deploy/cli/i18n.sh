@@ -20,7 +20,7 @@ mogo_usage() {
     printf '      --profile dev   开发环境：arm64 + 栈内 mongo 容器\n'
     printf '      --profile test  测试环境：arm64 + 栈内 panweidb 容器\n'
     printf '      --profile prod  生产环境：amd64 + 外部 panweidb（.env 里的 PANWEIDB_HOST）\n'
-    printf '      不指定 --profile 时按 .env 推断：MOGO_USE_EXTERNAL_DB=1 -> prod，MOGO_DATA_BACKEND=panweidb -> test，否则 dev\n'
+    printf '      不指定 --profile 时按 .env 推断：MOGO_DATA_BACKEND=panweidb -> test，否则 dev；MOGO_USE_EXTERNAL_DB=1 仅叠加外部数据库 overlay，不影响推断\n'
     printf '      目标架构：dev/test=linux/arm64、prod=linux/amd64；宿主架构与之不符时必须显式给 MOGO_PLATFORM\n'
     printf '  ./mogo build                          从源码构建 MOGO 镜像\n'
     printf '  ./mogo update                         拉取当前版本镜像并更新服务\n'
@@ -49,7 +49,7 @@ mogo_usage() {
     printf '      --profile dev   Development: arm64 + in-stack mongo container\n'
     printf '      --profile test  Test: arm64 + in-stack panweidb container\n'
     printf '      --profile prod  Production: amd64 + external panweidb (PANWEIDB_HOST in .env)\n'
-    printf '      Without --profile it is inferred from .env: MOGO_USE_EXTERNAL_DB=1 -> prod, MOGO_DATA_BACKEND=panweidb -> test, else dev\n'
+    printf '      Without --profile it is inferred from .env: MOGO_DATA_BACKEND=panweidb -> test, else dev; MOGO_USE_EXTERNAL_DB=1 only adds external DB overlay, does not affect inference\n'
     printf '      Target architecture: dev/test=linux/arm64, prod=linux/amd64; set MOGO_PLATFORM when the host differs\n'
     printf '  ./mogo build                           Build MOGO images from source\n'
     printf '  ./mogo update                          Pull current images and update services\n'
@@ -187,10 +187,6 @@ mogo_msg() {
     en:profile_invalid) printf 'Error: unknown environment profile "%s". Choose one of: %s.\n' "$1" "$2" ;;
     zh:profile_dev_backend_conflict) printf '错误：dev profile 固定使用栈内 mongo，但 MOGO_DATA_BACKEND=panweidb。请改用 ./mogo --profile test up，或把 MOGO_DATA_BACKEND 改回 mongo。\n' ;;
     en:profile_dev_backend_conflict) printf 'Error: the dev profile always uses the in-stack mongo, but MOGO_DATA_BACKEND=panweidb. Use ./mogo --profile test up, or set MOGO_DATA_BACKEND=mongo.\n' ;;
-    zh:profile_dev_external_conflict) printf '错误：dev profile 需要栈内 mongo，与 MOGO_USE_EXTERNAL_DB=1（外部数据库模式）冲突。请改用 ./mogo --profile prod up，或去掉 .env 里的 MOGO_USE_EXTERNAL_DB。\n' ;;
-    en:profile_dev_external_conflict) printf 'Error: the dev profile needs the in-stack mongo and conflicts with MOGO_USE_EXTERNAL_DB=1. Use ./mogo --profile prod up, or drop MOGO_USE_EXTERNAL_DB from .env.\n' ;;
-    zh:profile_test_external_conflict) printf '错误：test profile 需要栈内 panweidb 容器，与 MOGO_USE_EXTERNAL_DB=1（外部数据库模式）冲突。请改用 ./mogo --profile prod up，或去掉 .env 里的 MOGO_USE_EXTERNAL_DB。\n' ;;
-    en:profile_test_external_conflict) printf 'Error: the test profile needs the in-stack panweidb container and conflicts with MOGO_USE_EXTERNAL_DB=1. Use ./mogo --profile prod up, or drop MOGO_USE_EXTERNAL_DB from .env.\n' ;;
     zh:profile_prod_panweidb_missing) printf '错误：prod profile 要求外部 PanWeiDB，但 .env 里没有 PANWEIDB_HOST。请填入外部实例地址后再启动。\n' ;;
     en:profile_prod_panweidb_missing) printf 'Error: the prod profile requires an external PanWeiDB, but .env has no PANWEIDB_HOST. Set the external address first.\n' ;;
     zh:profile_prod_panweidb_internal) printf '错误：prod profile 需要外部 PanWeiDB，而 PANWEIDB_HOST=%s 仍是栈内服务名（prod 不启动该容器）。请改成外部实例地址。\n' "$1" ;;
