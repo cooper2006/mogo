@@ -11,6 +11,13 @@ the HTTP contract (``/projects`` path, ``workspace_id`` / ``title`` /
 A default project (``_id = "default"``) is provisioned on first list access
 (046 FR-003 / D2) and reused as the fallback for sessions without a binding
 (046 FR-004).
+
+049-project-members: projects carry ``member_user_ids`` (creator stays in
+``user_id``). ``GET /projects`` returns 「我的 ∪ 我作为成员的 ∪ 本租户默认项目」;
+``PATCH /projects/{id}`` lets only the creator change members. The member
+picker reads ``GET /projects/departments`` (active org_units) and
+``GET /projects/member-candidates`` (active end_users, filtered by department
+subtree through ``end_user_org_relations``).
 """
 
 from __future__ import annotations
@@ -29,6 +36,14 @@ from app.core.tenant import resolve_tenant_id
 router = APIRouter(tags=["projects"])
 
 DEFAULT_PROJECT_ID = "default"
+
+# 049 FR-004: 成员候选的数据源（与 admin 用户管理同源）。
+DEPARTMENT_COLLECTION = "org_units"
+USER_COLLECTION = "end_users"
+USER_ORG_REL_COLLECTION = "end_user_org_relations"
+
+#: 049 FR-001: 单个项目的成员上限（spec 规定 500；官方 UI 不会一次选这么多）。
+MAX_PROJECT_MEMBERS = 500
 
 
 class DesktopProjectCreate(BaseModel):
@@ -51,6 +66,9 @@ class ProjectPatch(BaseModel):
     """
     status: Optional[str] = Field(None, description="active | archived")
     title: Optional[str] = Field(None, min_length=1, max_length=200, description="项目标题（重命名）")
+    member_user_ids: Optional[list[str]] = Field(
+        None, description="049 FR-001: 项目成员（仅创建者可改；创建者不落此字段）"
+    )
 
 
 def _serialize_project(doc: dict) -> dict:
@@ -62,6 +80,7 @@ def _serialize_project(doc: dict) -> dict:
         "title": str(doc.get("title") or ""),
         "worktree": bool(doc.get("worktree")),
         "status": str(doc.get("status") or "active"),
+        "member_user_ids": [str(item) for item in (doc.get("member_user_ids") or []) if str(item)],
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
     }
@@ -131,7 +150,18 @@ async def list_desktop_projects(authorization: str | None = Header(default=None)
     tenant_id, user_id = await _identity(authorization)
     # 046 FR-003: 首次访问的 (tenant, user) 立刻能看到默认项目分组。
     await _ensure_default_project(tenant_id, user_id)
-    cursor = get_db().projects.find({"tenant_id": tenant_id, "user_id": user_id}).sort("updated_at", -1)
+    # 049 FR-002: 可见性从「我的」扩展为「我的 ∪ 我作为成员的 ∪ 本租户默认项目」。
+    # 默认项目 `_id = "default"` 在存储层全局唯一（pg_compat 表主键 id），因此它是
+    # 本租户的共享兜底项——所有租户内用户都能看到（046 FR-003/FR-004 的兜底语义）。
+    visible = {
+        "tenant_id": tenant_id,
+        "$or": [
+            {"user_id": user_id},
+            {"member_user_ids": user_id},
+            {"_id": DEFAULT_PROJECT_ID},
+        ],
+    }
+    cursor = get_db().projects.find(visible).sort("updated_at", -1)
     return ApiResponse(data=[_serialize_project(item) async for item in cursor])
 
 
@@ -141,24 +171,136 @@ async def patch_project(
     payload: ProjectPatch,
     authorization: str | None = Header(default=None),
 ):
-    """接受 `status` 与 `title` 变更；`_id = "default"` 返回 400（046 Edge Case 3）。"""
+    """更新 `status` / `title` / `member_user_ids`。
+
+    046 Edge Case 3：默认项目（``_id = "default"``）返回 400。
+    049 FR-003：只有项目创建者（``doc.user_id``）可修改；其他成员 403。
+    """
     tenant_id, user_id = await _identity(authorization)
     if project_id == DEFAULT_PROJECT_ID:
         return ApiResponse(code=400, message="默认项目不可归档或删除")
+    db = get_db()
+    scope = {"tenant_id": tenant_id, "_id": project_id}
+    existing = await db.projects.find_one(scope)
+    if not existing:
+        return ApiResponse(code=404, message="项目不存在")
+    if str(existing.get("user_id") or "") != user_id:
+        return ApiResponse(code=403, message="只有项目创建者可以修改项目")
+
     now = datetime.now(tz=timezone.utc)
-    scope = {"tenant_id": tenant_id, "user_id": user_id, "_id": project_id}
     set_value: Dict[str, Any] = {"updated_at": now}
     if payload.status is not None:
+        if payload.status not in ("active", "archived"):
+            return ApiResponse(code=400, message="项目状态只能是 active 或 archived")
         set_value["status"] = payload.status
     if payload.title is not None:
         title = str(payload.title).strip()
         if not title:
             return ApiResponse(code=400, message="项目标题不能为空")
         set_value["title"] = title[:200]
+    if payload.member_user_ids is not None:
+        # 049 FR-001：去空、去重保序；创建者不落 member_user_ids（计算时并入 user_id）。
+        members: list[str] = []
+        for item in payload.member_user_ids:
+            member_id = str(item or "").strip()
+            if member_id and member_id != user_id and member_id not in members:
+                members.append(member_id)
+        if len(members) > MAX_PROJECT_MEMBERS:
+            return ApiResponse(code=400, message="项目成员数量超出上限")
+        set_value["member_user_ids"] = members
     if set(set_value) == {"updated_at"}:
         return ApiResponse(code=400, message="无可更新字段")
-    outcome = await get_db().projects.update_one(scope, {"$set": set_value})
+    outcome = await db.projects.update_one(scope, {"$set": set_value})
     if outcome.matched_count == 0:
         return ApiResponse(code=404, message="项目不存在")
-    project = await get_db().projects.find_one(scope)
+    project = await db.projects.find_one(scope)
     return ApiResponse(data=_serialize_project(project))
+
+
+@router.get("/projects/departments", response_model=ApiResponse)
+async def list_project_departments(authorization: str | None = Header(default=None)):
+    """049 FR-004: 成员弹窗左侧部门树（本租户 active 部门，扁平表 + parentId）。"""
+    tenant_id, _user_id = await _identity(authorization)
+    rows = await get_db()[DEPARTMENT_COLLECTION].find(
+        {"tenant_id": tenant_id, "status": "active"},
+        {"_id": 1, "name": 1, "parent_id": 1, "path_ids": 1},
+    ).to_list(length=2000)
+    departments = [
+        {
+            "id": str(row.get("_id") or ""),
+            "name": str(row.get("name") or ""),
+            "parentId": str(row.get("parent_id") or ""),
+            "depth": len(row.get("path_ids") or []),
+        }
+        for row in rows
+    ]
+    departments.sort(key=lambda item: (item.get("depth", 0), item.get("name", "")))
+    return ApiResponse(data={"departments": departments})
+
+
+@router.get("/projects/member-candidates", response_model=ApiResponse)
+async def list_project_member_candidates(
+    department_id: str = "",
+    keyword: str = "",
+    authorization: str | None = Header(default=None),
+):
+    """049 FR-004: 项目成员候选（active end_users，可按部门子树过滤）。
+
+    ``department_id`` 非空时按 ``org_units.path_ids`` 取该部门及下级子树，
+    再经 ``end_user_org_relations`` 关联到人（与 admin 用户管理同款实现）。
+    """
+    tenant_id, _user_id = await _identity(authorization)
+    db = get_db()
+    query: Dict[str, Any] = {"tenant_id": tenant_id, "status": "active"}
+    if keyword.strip():
+        pattern = {"$regex": keyword.strip(), "$options": "i"}
+        query["$or"] = [
+            {"name": pattern},
+            {"login_name": pattern},
+            {"mobile": pattern},
+            {"email": pattern},
+        ]
+    if department_id:
+        children = await db[DEPARTMENT_COLLECTION].find(
+            {"tenant_id": tenant_id, "path_ids": department_id},
+            {"_id": 1},
+        ).to_list(length=5000)
+        department_ids = [department_id] + [str(row.get("_id") or "") for row in children]
+        relation_rows = await db[USER_ORG_REL_COLLECTION].find(
+            {"tenant_id": tenant_id, "org_id": {"$in": department_ids}},
+        ).to_list(length=20000)
+        candidate_ids = [str(row.get("user_id") or "") for row in relation_rows if row.get("user_id")]
+        if not candidate_ids:
+            return ApiResponse(data={"items": [], "total": 0})
+        query["_id"] = {"$in": candidate_ids}
+    users = await db[USER_COLLECTION].find(query).sort("updated_at", -1).to_list(length=5000)
+
+    # 部门名：优先 is_primary 关系，回退 primary_org_id。
+    primary_rows = await db[USER_ORG_REL_COLLECTION].find(
+        {"tenant_id": tenant_id, "is_primary": True},
+    ).to_list(length=20000)
+    primary_map = {
+        str(row.get("user_id") or ""): str(row.get("org_id") or "")
+        for row in primary_rows
+        if row.get("user_id")
+    }
+    department_rows = await db[DEPARTMENT_COLLECTION].find(
+        {"tenant_id": tenant_id},
+        {"_id": 1, "name": 1},
+    ).to_list(length=5000)
+    department_name_map = {str(row.get("_id") or ""): str(row.get("name") or "") for row in department_rows}
+
+    items = []
+    for user in users:
+        uid = str(user.get("_id") or "")
+        dept_id = primary_map.get(uid) or str(user.get("primary_org_id") or "")
+        items.append({
+            "id": uid,
+            "name": str(user.get("name") or ""),
+            "loginName": str(user.get("login_name") or user.get("username") or ""),
+            "mobile": str(user.get("mobile") or ""),
+            "email": str(user.get("email") or ""),
+            "departmentId": dept_id,
+            "departmentName": department_name_map.get(dept_id, ""),
+        })
+    return ApiResponse(data={"items": items, "total": len(items)})

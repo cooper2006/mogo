@@ -148,48 +148,74 @@ def db(monkeypatch) -> _Db:
 
 
 @async_test
-async def test_create_list_update_delete_project(db):
-    created = await projects.create_project(
-        TENANT, name="专项A", note="跨部门", member_user_ids=["u1", "u2", "u1"]
-    )
-    assert created["name"] == "专项A"
-    assert created["member_user_ids"] == ["u1", "u2"]  # 去重保序
-    assert created["status"] == "active"
-
+async def test_list_projects_reads_projects_collection(db):
+    """049 T004：项目读路径切到 046 的 projects 表（name ← title）。"""
+    db[projects.PROJECT_COLLECTION].rows.extend([
+        {"_id": "proj-a", "tenant_id": TENANT, "user_id": "u9", "title": "专项A",
+         "status": "active", "member_user_ids": ["u1", "u2"]},
+        {"_id": "proj-b", "tenant_id": TENANT, "user_id": "u9", "title": "专项B",
+         "status": "archived", "member_user_ids": []},
+        {"_id": "proj-x", "tenant_id": "other", "user_id": "u9", "title": "别的租户",
+         "status": "active", "member_user_ids": []},
+    ])
     listed = await projects.list_projects(TENANT)
-    assert [item["name"] for item in listed] == ["专项A"]
-    assert listed[0]["memberCount"] == 2
-
-    updated = await projects.update_project(
-        TENANT, created["_id"], name="专项B", member_user_ids=["u2"]
-    )
-    assert updated["name"] == "专项B"
-    assert updated["member_user_ids"] == ["u2"]
-
-    assert await projects.delete_project(TENANT, created["_id"]) is True
-    assert await projects.list_projects(TENANT) == []
-    # 软删除后仍可取到文档，但状态已变（策略行保留可回溯）
-    raw = await projects.get_project(TENANT, created["_id"])
-    assert raw["status"] == "deleted"
+    assert {item["name"] for item in listed} == {"专项A", "专项B"}  # archived 也返回给前端分组
+    active = next(item for item in listed if item["id"] == "proj-a")
+    assert active["memberCount"] == 2
+    assert active["memberUserIds"] == ["u1", "u2"]
+    assert active["status"] == "active"
+    assert next(item for item in listed if item["id"] == "proj-b")["status"] == "archived"
 
 
 @async_test
-async def test_project_name_unique_per_tenant(db):
-    await projects.create_project(TENANT, name="专项A")
-    with pytest.raises(FileExistsError):
+async def test_project_writes_are_retired(db):
+    """049 FR-007：写路径退役——服务层 RuntimeError + 三个写路由不再注册。"""
+    with pytest.raises(RuntimeError):
         await projects.create_project(TENANT, name="专项A")
-    # 软删除不占用名称（应用层唯一性口径，spec R-4）
-    listed = await projects.list_projects(TENANT)
-    await projects.delete_project(TENANT, listed[0]["id"])
-    again = await projects.create_project(TENANT, name="专项A")
-    assert again["name"] == "专项A"
+    with pytest.raises(RuntimeError):
+        await projects.update_project(TENANT, "proj-a", name="专项B")
+    with pytest.raises(RuntimeError):
+        await projects.delete_project(TENANT, "proj-a")
+
+    registered = {
+        (method, route.path)
+        for route in routes.router.routes
+        for method in (getattr(route, "methods", None) or ())
+    }
+    retired = {
+        ("POST", "/projects"),
+        ("PUT", "/projects/{project_id}"),
+        ("DELETE", "/projects/{project_id}"),
+    }
+    assert retired.isdisjoint(registered), f"049 后项目写端点应下线，仍注册: {retired & registered}"
+    assert not any(
+        hasattr(routes, name)
+        for name in (
+            "create_quota_project_gone",
+            "update_quota_project_gone",
+            "delete_quota_project_gone",
+        )
+    )
+
+
+@async_test
+async def test_archived_project_policy_endpoint_404(db):
+    """049 FR-008：已归档项目不再接受配额策略写入（404）。"""
+    db[projects.PROJECT_COLLECTION].rows.append(
+        {"_id": "proj-old", "tenant_id": TENANT, "user_id": "u9", "title": "旧项目",
+         "status": "archived", "member_user_ids": []}
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        await routes.update_project_quota_policy(
+            "proj-old", routes.ProjectPolicyPayload(quotaTokens=100), current_user=ADMIN
+        )
+    assert excinfo.value.status_code == 404
 
 
 @async_test
 async def test_project_members_truncate_and_validate(db):
     assert projects.normalize_members(["a", "", "a", None, "b"]) == ["a", "b"]
-    with pytest.raises(ValueError):
-        await projects.create_project(TENANT, name="   ")
+    assert projects.normalize_members("not-a-list") == []
 
 
 # --------------------------------------------------------------------------
@@ -230,10 +256,11 @@ async def test_team_policy_unknown_department_404(db):
 
 @async_test
 async def test_project_policy_endpoint_writes_policy_and_log(db):
-    created = await routes.create_quota_project(
-        routes.ProjectPayload(name="专项A", memberUserIds=["u1"]), current_user=ADMIN
+    db[projects.PROJECT_COLLECTION].rows.append(
+        {"_id": "proj-1", "tenant_id": TENANT, "user_id": "u9", "title": "专项A",
+         "status": "active", "member_user_ids": ["u1"]}
     )
-    project_id = created["id"]
+    project_id = "proj-1"
     payload = routes.ProjectPolicyPayload(quotaTokens=2000)
     result = await routes.update_project_quota_policy(project_id, payload, current_user=ADMIN)
     assert result["scopeType"] == "project"

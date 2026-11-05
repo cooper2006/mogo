@@ -12,7 +12,7 @@ import pytest
 
 from app.core.quota_policy import (
     CHAT_SESSIONS_COLLECTION,
-    QUOTA_PROJECT_COLLECTION,
+    PROJECT_COLLECTION,
     _project_scope_ids,
     _scope_members,
 )
@@ -40,9 +40,12 @@ class _FakeCollection:
             matched = [{k: d.get(k) for k in keys if k in d} | {"_id": d.get("_id")} for d in matched]
         return _Cursor(matched)
 
-    async def find_one(self, query: dict) -> dict | None:
+    async def find_one(self, query: dict, projection: dict | None = None, sort=None) -> dict | None:
         for doc in self.docs:
             if _matches(doc, query):
+                if projection:
+                    keys = [k for k, v in projection.items() if v]
+                    return {k: doc.get(k) for k in keys if k in doc} | {"_id": doc.get("_id")}
                 return doc
         return None
 
@@ -86,12 +89,22 @@ def _add_session(db: _Db, *, user_id: str, project_id: str) -> None:
     })
 
 
-def _add_project(db: _Db, *, project_id: str, status: str = "active") -> None:
-    db[QUOTA_PROJECT_COLLECTION].docs.append({
+def _add_project(
+    db: _Db,
+    *,
+    project_id: str,
+    status: str = "active",
+    creator: str = "",
+    members: list[str] | None = None,
+) -> None:
+    """049：项目实体在 projects 表；成员 = member_user_ids ∪ 创建者 user_id。"""
+    db[PROJECT_COLLECTION].docs.append({
         "_id": project_id,
         "tenant_id": TENANT,
-        "name": f"Project {project_id}",
+        "user_id": creator,
+        "title": f"Project {project_id}",
         "status": status,
+        "member_user_ids": list(members or []),
     })
 
 
@@ -110,7 +123,7 @@ async def test_project_scope_ids_from_chat_sessions(db: _Db) -> None:
 
 @pytest.mark.asyncio
 async def test_scope_members_from_chat_sessions(db: _Db) -> None:
-    """FR-012: 项目成员列表从 chat_sessions 反查。"""
+    """049 FR-006：projects 行缺失/成员为空时回退 046 语义（chat_sessions 反查）。"""
     _add_session(db, user_id="u1", project_id="p1")
     _add_session(db, user_id="u2", project_id="p1")
     _add_session(db, user_id="u3", project_id="p2")
@@ -123,19 +136,31 @@ async def test_scope_members_from_chat_sessions(db: _Db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_scope_members_from_project_member_field(db: _Db) -> None:
+    """049 FR-006：项目成员 = member_user_ids ∪ 创建者（创建者不落 member_user_ids）。"""
+    _add_project(db, project_id="p1", creator="owner-1", members=["u1", "u2"])
+    # 即使成员里有会话，也以 member_user_ids ∪ 创建者 为准。
+    _add_session(db, user_id="outsider", project_id="p1")
+
+    members = await _scope_members(db, TENANT, "project", "p1")
+    assert set(members) == {"u1", "u2", "owner-1"}
+    assert "outsider" not in members
+
+
+@pytest.mark.asyncio
 async def test_archived_project_preserves_session_data(db: _Db) -> None:
     """归档不删除会话数据——chat_sessions 中的 project_id 归属保留。"""
     _add_session(db, user_id=USER_ID, project_id="p1")
     _add_project(db, project_id="p1", status="active")
 
-    # 归档项目（quota_projects 侧）
-    await db[QUOTA_PROJECT_COLLECTION].update_one(
+    # 归档项目（projects 侧）
+    await db[PROJECT_COLLECTION].update_one(
         {"_id": "p1", "tenant_id": TENANT},
         {"$set": {"status": "archived"}},
     )
 
     # 会话数据保留
-    doc = await db[QUOTA_PROJECT_COLLECTION].find_one({"_id": "p1"})
+    doc = await db[PROJECT_COLLECTION].find_one({"_id": "p1"})
     assert doc is not None
     assert doc["status"] == "archived"
 
@@ -155,10 +180,10 @@ async def test_restore_active_immediately_rejoins(db: _Db) -> None:
     assert "p1" in ids
 
     # 恢复
-    await db[QUOTA_PROJECT_COLLECTION].update_one(
+    await db[PROJECT_COLLECTION].update_one(
         {"_id": "p1", "tenant_id": TENANT},
         {"$set": {"status": "active"}},
     )
 
-    doc = await db[QUOTA_PROJECT_COLLECTION].find_one({"_id": "p1"})
+    doc = await db[PROJECT_COLLECTION].find_one({"_id": "p1"})
     assert doc["status"] == "active"

@@ -11,6 +11,27 @@ import pytest
 from app.api.endpoints import projects
 
 
+def _match(document: dict, scope: dict) -> bool:
+    """049：fake 集合的最小过滤语义（等值 / $in / 数组包含 / $or）。"""
+    for key, value in scope.items():
+        if key == "$or":
+            if not any(_match(document, branch) for branch in value):
+                return False
+            continue
+        if isinstance(value, dict) and "$in" in value:
+            if document.get(key) not in value["$in"]:
+                return False
+            continue
+        actual = document.get(key)
+        if isinstance(actual, list) and not isinstance(value, list):
+            if value not in actual:
+                return False
+            continue
+        if actual != value:
+            return False
+    return True
+
+
 class _Cursor:
     def __init__(self, documents: list[dict]) -> None:
         self._documents = documents
@@ -38,12 +59,15 @@ class _ProjectCollection:
     async def update_one(self, scope: dict, update: dict, upsert: bool = False):
         self.last_update_one_scope = scope
         self.last_update_one_update = update
-        document = next((item for item in self.documents if all(item.get(key) == value for key, value in scope.items())), None)
+        document = next((item for item in self.documents if _match(item, scope)), None)
         if document is None:
             if not upsert:
                 return _UpdateResult(None)
             document = dict(scope)
             document.update(update.get("$setOnInsert", {}))
+            # pg_compat 的 INSERT ... ON CONFLICT (id) DO NOTHING：id 全局唯一。
+            if any(item.get("_id") == document.get("_id") for item in self.documents):
+                return _UpdateResult(None)
             self.documents.append(document)
         document.update(update.get("$set", {}))
         return _UpdateResult(document)
@@ -52,13 +76,10 @@ class _ProjectCollection:
         return _UpdateResult(None)
 
     async def find_one(self, scope: dict):
-        return next((item for item in self.documents if all(item.get(key) == value for key, value in scope.items())), None)
+        return next((item for item in self.documents if _match(item, scope)), None)
 
     def find(self, scope: dict) -> _Cursor:
-        return _Cursor([
-            item for item in self.documents
-            if all(item.get(key) == value for key, value in scope.items())
-        ])
+        return _Cursor([item for item in self.documents if _match(item, scope)])
 
 
 class _UpdateResult:
@@ -136,12 +157,18 @@ async def test_default_project_is_idempotent(db):
     assert defaults[0]["tenant_id"] == "tenant"
     assert defaults[0]["user_id"] == "alice"
 
-    # 另一个租户拿到自己的默认项目，互不可见（046 US1 场景 4）。
+    # 049：存储层 id 全局唯一（pg_compat 表主键 id），同租户第二个用户的默认项目
+    # 不会新建第二行；`_id = "default"` 作为租户共享兜底项对所有同租户用户可见。
     await projects.list_desktop_projects(authorization="tenant:bob")
+    defaults = [d for d in db.projects.documents if d["_id"] == projects.DEFAULT_PROJECT_ID]
+    assert len(defaults) == 1
     alice_docs = {d["_id"] for d in db.projects.documents if d["user_id"] == "alice"}
     bob_docs = {d["_id"] for d in db.projects.documents if d["user_id"] == "bob"}
     assert alice_docs == {"default", "alice-workspace"}
-    assert bob_docs == {"default"}
+    assert bob_docs == set()
+    bob_visible = await projects.list_desktop_projects(authorization="tenant:bob")
+    bob_ids = {item["_id"] for item in bob_visible.data}
+    assert bob_ids == {"default"}  # 看不到 alice 的真实项目，但能看到租户默认项目
 
 
 @pytest.mark.asyncio
@@ -200,5 +227,6 @@ async def test_create_and_list_serialize_all_fields(db):
     serialized = projects._serialize_project(item)
     assert set(serialized) == {
         "_id", "tenant_id", "user_id", "workspace_id", "title", "worktree",
-        "status", "created_at", "updated_at",
+        "status", "member_user_ids", "created_at", "updated_at",
     }
+    assert serialized["member_user_ids"] == []

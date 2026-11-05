@@ -53,13 +53,7 @@ class TeamPolicyPayload(BaseModel):
     name: str = Field(default="", max_length=64)
 
 
-class ProjectPayload(BaseModel):
-    name: str = Field(min_length=1, max_length=64)
-    note: str = Field(default="", max_length=200)
-    memberUserIds: list[str] = Field(default_factory=list)
-    status: str = Field(default="active", pattern=r"^(active|disabled)$")
-
-
+# 049 FR-007: ProjectPayload 随三个项目写端点一并下线（写路由已删，无引用方）。
 class ProjectPolicyPayload(BaseModel):
     quotaTokens: int = Field(default=0, ge=0)
     period: str = Field(default="monthly")
@@ -470,9 +464,13 @@ async def _require_org_unit(tenant_id: str, org_unit_id: str) -> dict[str, Any]:
 
 
 async def _require_project(tenant_id: str, project_id: str) -> dict[str, Any]:
+    """049 FR-008：项目实体在 046 统一到 ``projects`` 表（chat-api 写入）。
+
+    不存在或已归档（``status = "archived"``，046 US2 语义）→ 404。
+    """
     project = await projects_service.get_project(tenant_id, project_id)
-    if not project or str(project.get("status") or "") == "deleted":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目分组不存在")
+    if not project or str(project.get("status") or "active") == "archived":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在或已归档")
     return project
 
 
@@ -666,99 +664,9 @@ async def list_projects_with_usage(current_user: dict[str, Any] = Depends(get_cu
     return {"items": items, "total": len(items)}
 
 
-@router.post("/projects", status_code=status.HTTP_201_CREATED)
-async def create_quota_project(
-    payload: ProjectPayload,
-    current_user: dict[str, Any] = Depends(get_current_admin_user),
-) -> dict[str, Any]:
-    tenant_id = _tenant_id(current_user)
-    try:
-        document = await projects_service.create_project(
-            tenant_id,
-            name=payload.name,
-            note=payload.note,
-            member_user_ids=payload.memberUserIds,
-            actor=str(current_user.get("username") or ""),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except FileExistsError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    db = get_db()
-    await _write_quota_log(
-        db,
-        tenant_id,
-        scope_key=f"project:{document.get('_id')}",
-        action="setup_project",
-        before_tokens=0,
-        after_tokens=0,
-        reason="新建项目分组",
-        operator=str(current_user.get("username") or ""),
-    )
-    return projects_service.project_view(document)
-
-
-@router.put("/projects/{project_id}")
-async def update_quota_project(
-    project_id: str,
-    payload: ProjectPayload,
-    current_user: dict[str, Any] = Depends(get_current_admin_user),
-) -> dict[str, Any]:
-    tenant_id = _tenant_id(current_user)
-    await _require_project(tenant_id, project_id)
-    try:
-        document = await projects_service.update_project(
-            tenant_id,
-            project_id,
-            name=payload.name,
-            note=payload.note,
-            member_user_ids=payload.memberUserIds,
-            status=payload.status,
-            actor=str(current_user.get("username") or ""),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except FileExistsError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目分组不存在")
-    db = get_db()
-    await _write_quota_log(
-        db,
-        tenant_id,
-        scope_key=f"project:{project_id}",
-        action="update_project",
-        before_tokens=0,
-        after_tokens=0,
-        reason="修改项目分组",
-        operator=str(current_user.get("username") or ""),
-    )
-    return projects_service.project_view(document)
-
-
-@router.delete("/projects/{project_id}")
-async def delete_quota_project(
-    project_id: str,
-    current_user: dict[str, Any] = Depends(get_current_admin_user),
-) -> dict[str, bool]:
-    tenant_id = _tenant_id(current_user)
-    deleted = await projects_service.delete_project(
-        tenant_id, project_id, actor=str(current_user.get("username") or "")
-    )
-    if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目分组不存在")
-    db = get_db()
-    await _write_quota_log(
-        db,
-        tenant_id,
-        scope_key=f"project:{project_id}",
-        action="delete_project",
-        before_tokens=0,
-        after_tokens=0,
-        reason="删除项目分组",
-        operator=str(current_user.get("username") or ""),
-    )
-    return {"success": True}
+# 049 FR-007：POST / PUT / DELETE /projects 三个写端点已下线（不保留 410 壳）。
+# 项目只能由 user-web 经 chat-api 的 POST / PATCH /projects 创建与维护；
+# 配额策略写入仍走下方 PUT/DELETE /projects/{id}/policy（FR-008）。
 
 
 @router.put("/projects/{project_id}/policy")
@@ -776,7 +684,8 @@ async def update_project_quota_policy(
         scope_type="project",
         scope_id=project_id,
         payload=payload,
-        name=str(project.get("name") or ""),
+        # 049：projects 表的显示名是 title（name 仅旧数据兜底）。
+        name=str(project.get("title") or project.get("name") or ""),
         operator=str(current_user.get("username") or ""),
     )
 

@@ -109,13 +109,39 @@ function authHeaders(authToken?: string | null) {
 }
 
 export type DesktopProject = {
+  /** 服务端文档 _id（= workspace_id；默认项目为 "default"）。 */
+  _id?: string
   workspace_id: string
+  tenant_id?: string
+  /** 049 FR-003: 创建者 id；成员管理权归创建者。 */
+  user_id?: string
+  /** 049 FR-001: 项目成员（创建者不在此数组里）。 */
+  member_user_ids?: string[]
   title: string
   worktree: boolean
   /** 046 FR-009: 项目状态；目录不存在 → archived，恢复 → active。 */
   status?: 'active' | 'archived'
   created_at: string
   updated_at: string
+}
+
+/** 049 FR-004: 项目成员候选（来自 end_users，可按部门子树过滤）。 */
+export type ProjectMemberCandidate = {
+  id: string
+  name: string
+  loginName: string
+  mobile: string
+  email: string
+  departmentId: string
+  departmentName: string
+}
+
+/** 049 FR-004: 成员弹窗左侧部门树节点（org_units 扁平表）。 */
+export type ProjectDepartmentNode = {
+  id: string
+  name: string
+  parentId: string
+  depth: number
 }
 
 export async function createDesktopProject(
@@ -152,6 +178,39 @@ export async function updateDesktopProjectTitle(
     { headers: authHeaders(authToken) },
   )
   return response.data?.data
+}
+
+/** 049 FR-001/FR-003: 保存项目成员（仅创建者；memberUserIds 为全量集合）。 */
+export async function updateDesktopProjectMembers(
+  projectId: string,
+  memberUserIds: string[],
+  authToken?: string | null,
+): Promise<DesktopProject> {
+  const response = await client.patch(
+    `/askai-api/api/projects/${encodeURIComponent(projectId)}`,
+    { member_user_ids: memberUserIds },
+    { headers: authHeaders(authToken) },
+  )
+  return response.data?.data
+}
+
+/** 049 FR-004: 成员候选列表（departmentId 非空时按部门及下级过滤）。 */
+export async function listProjectMemberCandidates(
+  departmentId: string | null | undefined,
+  keyword: string,
+  authToken?: string | null,
+): Promise<ProjectMemberCandidate[]> {
+  const response = await client.get('/askai-api/api/projects/member-candidates', {
+    params: { department_id: departmentId || '', keyword: keyword || '' },
+    headers: authHeaders(authToken),
+  })
+  return Array.isArray(response.data?.data?.items) ? response.data.data.items : []
+}
+
+/** 049 FR-004: 成员弹窗部门树（本租户 active 部门）。 */
+export async function listProjectDepartments(authToken?: string | null): Promise<ProjectDepartmentNode[]> {
+  const response = await client.get('/askai-api/api/projects/departments', { headers: authHeaders(authToken) })
+  return Array.isArray(response.data?.data?.departments) ? response.data.data.departments : []
 }
 
 /** 侧边栏扩展项：置顶 / 取消置顶会话。 */

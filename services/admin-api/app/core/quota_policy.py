@@ -18,8 +18,8 @@ USER_QUOTA_OVERRIDE_COLLECTION = "user_quota_overrides"
 USER_QUOTA_LOG_COLLECTION = "user_token_allocation_logs"
 # 042-three-level-quota: 团队/项目层策略仍存 user_quota_policies（scope_type 区分）。
 # 046 FR-012: 项目层 scope_id = project_id（= 会话的 project_id / workspace_id），
-# 成员发现从 quota_projects.member_user_ids 改为 chat_sessions.project_id 关联。
-QUOTA_PROJECT_COLLECTION = "quota_projects"
+# 成员发现从 projects（049：quota_projects 退役）.member_user_ids 改为 chat_sessions.project_id 关联。
+PROJECT_COLLECTION = "projects"  # 049 FR-006: 项目实体统一在 046 的 projects 表（chat-api 写入）
 CHAT_SESSIONS_COLLECTION = "chat_sessions"
 QUOTA_ALERT_COLLECTION = "quota_alert_events"
 QUOTA_ALERT_KINDS = ("exceeded", "approaching", "layer_unreadable")
@@ -216,7 +216,9 @@ async def _project_scope_ids(db, tenant_id: str, user_id: str) -> list[str]:
     """046 FR-012: 项目成员 = 该项目下产生过会话的用户（按当前归属聚合）。
 
     从 chat_sessions 反查该用户有会话的 distinct project_id，
-    不再依赖 quota_projects.member_user_ids 内嵌数组。
+    049 FR-006: 项目层成员口径改为 projects.member_user_ids ∪ 创建者；
+    本函数（用户→项目方向）沿用 046 语义：从 chat_sessions 反查该用户产生过会话的项目。
+    （049 前：不再依赖 quota_projects.member_user_ids 内嵌数组。）
     """
     rows = await db[CHAT_SESSIONS_COLLECTION].find(
         {"tenant_id": tenant_id, "user_id": user_id},
@@ -236,14 +238,28 @@ async def _scope_members(db, tenant_id: str, scope_type: str, scope_id: str) -> 
             {"tenant_id": tenant_id, "org_id": scope_id}
         ).to_list(length=MAX_LAYER_MEMBERS)
         return [str(row.get("user_id") or "") for row in rows if row.get("user_id")]
-    # 046 FR-012: 项目成员 = 该项目下产生过会话的用户（从 chat_sessions 反查）。
-    rows = await db[CHAT_SESSIONS_COLLECTION].find(
-        {"tenant_id": tenant_id, "project_id": scope_id},
-        {"user_id": 1},
-    ).to_list(length=MAX_LAYER_MEMBERS)
+    # 049 FR-006: 项目成员 = projects.member_user_ids ∪ 创建者（user_id）。
+    # member_user_ids 缺失（迁移期/046 时代数据）时回退 046 语义：
+    # chat_sessions.project_id 反查产生过会话的用户（046 FR-012 现状），创建者兜底。
+    project = await db[PROJECT_COLLECTION].find_one(
+        {"tenant_id": tenant_id, "_id": scope_id}, {"user_id": 1, "member_user_ids": 1}
+    )
+    fallback_members: list[str] = []
+    if not project or not (project.get("member_user_ids") or []):
+        rows = await db[CHAT_SESSIONS_COLLECTION].find(
+            {"tenant_id": tenant_id, "project_id": scope_id},
+            {"user_id": 1},
+        ).to_list(length=MAX_LAYER_MEMBERS)
+        fallback_members = [str(row.get("user_id") or "") for row in rows if row.get("user_id")]
+    members = [str(item) for item in ((project or {}).get("member_user_ids") or [])]
+    for uid in fallback_members:
+        if uid not in members:
+            members.append(uid)
+    creator = str((project or {}).get("user_id") or "")
+    if creator and creator not in members:
+        members.append(creator)
     seen: list[str] = []
-    for row in rows:
-        uid = str(row.get("user_id") or "")
+    for uid in members:
         if uid and uid not in seen:
             seen.append(uid)
     return seen
@@ -252,7 +268,7 @@ async def _scope_members(db, tenant_id: str, scope_type: str, scope_id: str) -> 
 async def _layer_state(db, tenant_id: str, *, scope_type: str, scope_id: str, tz_name: str) -> dict[str, Any] | None:
     """单个团队/项目层的当前状态；策略缺失或非 active 视为无该层（R-7）。
 
-    046 FR-012: 项目层额外检查 quota_projects 的 status——deleted 项目不参与取小。
+    049 FR-006: 项目层检查 projects.status——archived 项目不参与取小（046 US2）。
     """
 
     policy = await db[USER_QUOTA_POLICY_COLLECTION].find_one(
@@ -262,10 +278,10 @@ async def _layer_state(db, tenant_id: str, *, scope_type: str, scope_id: str, tz
     if not policy:
         return None
     if scope_type == PROJECT_SCOPE:
-        project_doc = await db[QUOTA_PROJECT_COLLECTION].find_one(
+        project_doc = await db[PROJECT_COLLECTION].find_one(
             {"tenant_id": tenant_id, "_id": scope_id}
         )
-        if project_doc and str(project_doc.get("status") or "active") == "deleted":
+        if project_doc and str(project_doc.get("status") or "active") == "archived":
             return None
     members = await _scope_members(db, tenant_id, scope_type, scope_id)
     period = normalize_period(policy.get("period") or "monthly")

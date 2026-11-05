@@ -224,23 +224,17 @@ import { NButton, NPagination, NProgress, NSpace, NSpin, NTimeline, NTimelineIte
 import { t } from '@/composables/i18n';
 import { formatAdminShortDateTime } from '@/composables/adminTimezone';
 import {
-  createQuotaProject,
-  deleteQuotaProject,
   deleteTeamQuotaPolicy,
   fetchAllocationLogs,
-  fetchQuotaProjects,
   fetchTeamQuotaPolicies,
   fetchTrafficAllocationOverview,
   fetchUserAllocations,
   updateDefaultQuotaPolicy,
   updateOrgQuotaPolicy,
-  updateProjectQuotaPolicy,
-  updateQuotaProject,
   updateTeamQuotaPolicy,
   updateUserQuotaPolicy,
   type AllocationLogItem,
   type QuotaPeriod,
-  type QuotaProject,
   type QuotaStatus,
   type ScopedQuotaPolicy,
   type TrafficAllocationOverview,
@@ -270,7 +264,6 @@ const scopeVisible = ref(false);
 const scopeTab = ref<'team' | 'project'>('team');
 const savingScope = ref(false);
 const teamPolicies = ref<ScopedQuotaPolicy[]>([]);
-const projects = ref<QuotaProject[]>([]);
 const departments = ref<DepartmentNode[]>([]);
 
 const filters = reactive({ keyword: '' });
@@ -287,8 +280,6 @@ const alertThresholdPercent = ref(20);
 const defaultForm = reactive({ quotaTokens: 0, unlimited: false, period: 'monthly' as QuotaPeriod, status: 'active' as QuotaStatus });
 const userForm = reactive({ quotaTokens: 0, unlimited: false, period: 'monthly' as QuotaPeriod, reason: '' });
 const teamForm = reactive({ orgUnitId: '', quotaTokens: 0, period: 'monthly' as QuotaPeriod });
-const projectForm = reactive({ name: '', note: '', memberUserIds: [] as string[] });
-const projectPolicy = reactive({ projectId: '', quotaTokens: 0, period: 'monthly' as QuotaPeriod });
 
 function flattenDepartments(nodes: DepartmentNode[], out: DepartmentNode[] = []): DepartmentNode[] {
   for (const node of nodes) {
@@ -301,15 +292,9 @@ function flattenDepartments(nodes: DepartmentNode[], out: DepartmentNode[] = [])
 const departmentOptions = computed(() =>
   flattenDepartments(departments.value).map(node => ({ label: node.name, value: node.id })),
 );
-const projectOptions = computed(() => projects.value.map(item => ({ label: item.name, value: item.id })));
-const memberOptions = computed(() =>
-  users.value.map(item => ({ label: item.name || item.loginName || item.userId, value: item.userId })),
-);
 
-function projectPolicyText(project: QuotaProject) {
-  if (!project.quotaTokens) return t('未设置额度');
-  return `${formatQuota(project.quotaTokens)} · ${periodLabel(project.period || 'monthly')}`;
-}
+
+
 
 // T038 / 决策 12：``unlimited`` 为真时额度不做限制，前端不得对额度做算术运算。
 function formatQuota(value: number, unlimited?: boolean) {
@@ -551,14 +536,12 @@ function consumeOpenQuotaQuery() {
 }
 
 async function loadScopes() {
-  const [departmentsTree, teamResult, projectResult] = await Promise.all([
+  const [departmentsTree, teamResult] = await Promise.all([
     fetchDepartmentTree(),
     fetchTeamQuotaPolicies(),
-    fetchQuotaProjects(),
   ]);
   departments.value = departmentsTree;
   teamPolicies.value = teamResult.items;
-  projects.value = projectResult.items;
 }
 
 async function openScopes() {
@@ -605,74 +588,6 @@ async function removeTeamPolicy(orgUnitId: string) {
     await loadScopes();
   } catch (error) {
     message.error((error as Error).message || t('清除失败'));
-  } finally {
-    savingScope.value = false;
-  }
-}
-
-async function createProject() {
-  if (!projectForm.name.trim()) {
-    message.warning(t('请填写项目名称'));
-    return;
-  }
-  savingScope.value = true;
-  try {
-    const created = await createQuotaProject({
-      name: projectForm.name.trim(),
-      note: projectForm.note,
-      memberUserIds: projectForm.memberUserIds,
-    });
-    message.success(t('项目已创建'));
-    projectForm.name = '';
-    projectForm.note = '';
-    projectForm.memberUserIds = [];
-    projectPolicy.projectId = created.id;
-    await loadScopes();
-  } catch (error) {
-    message.error((error as Error).message || t('创建失败'));
-  } finally {
-    savingScope.value = false;
-  }
-}
-
-function editProject(item: QuotaProject) {
-  projectPolicy.projectId = item.id;
-  projectPolicy.quotaTokens = Number(item.quotaTokens || 0);
-  projectPolicy.period = item.period || 'monthly';
-  projectForm.name = item.name;
-  projectForm.note = item.note;
-  projectForm.memberUserIds = [...item.memberUserIds];
-}
-
-async function saveProjectPolicy() {
-  if (!projectPolicy.projectId) {
-    message.warning(t('请选择项目'));
-    return;
-  }
-  savingScope.value = true;
-  try {
-    await updateProjectQuotaPolicy(projectPolicy.projectId, {
-      quotaTokens: Number(projectPolicy.quotaTokens || 0),
-      period: projectPolicy.period,
-      status: 'active',
-    });
-    message.success(t('保存成功'));
-    await loadScopes();
-  } catch (error) {
-    message.error((error as Error).message || t('保存失败'));
-  } finally {
-    savingScope.value = false;
-  }
-}
-
-async function removeProject(projectId: string) {
-  savingScope.value = true;
-  try {
-    await deleteQuotaProject(projectId);
-    message.success(t('项目已删除'));
-    await loadScopes();
-  } catch (error) {
-    message.error((error as Error).message || t('删除失败'));
   } finally {
     savingScope.value = false;
   }

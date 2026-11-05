@@ -191,8 +191,8 @@ def _add_team(db: _Db, *, tokens: int, members: list[str], used: int, status: st
 def _add_project(db: _Db, *, project_id: str, tokens: int, members: list[str], used: int, status: str = "active", project_status: str = "active", name: str = "专项") -> None:
     _seed(
         db,
-        quota_policy.QUOTA_PROJECT_COLLECTION,
-        [{"_id": project_id, "tenant_id": TENANT, "name": name, "status": project_status}],
+        quota_policy.PROJECT_COLLECTION,
+        [{"_id": project_id, "tenant_id": TENANT, "name": name, "user_id": "creator-1", "status": project_status}],
     )
     # 046 FR-012: 成员从 chat_sessions.project_id 聚合（不再用 member_user_ids）。
     for member in members:
@@ -259,8 +259,9 @@ async def test_disabled_team_layer_ignored(db):
 
 
 @async_test
-async def test_deleted_project_layer_ignored(db):
-    _add_project(db, project_id="p1", tokens=100, members=[USER_ID], used=100, project_status="deleted")
+async def test_archived_project_layer_ignored(db):
+    # 049 FR-006: 项目层 archived（046 US2）不参与取小；原 042 语义 deleted。
+    _add_project(db, project_id="p1", tokens=100, members=[USER_ID], used=100, project_status="archived")
     _seed(db, quota_policy.USER_QUOTA_POLICY_COLLECTION, [_policy("user", USER_ID, 3000)])
     summary = await quota_policy.get_quota_summary(TENANT, _user())
     assert "projectRemainingPoints" not in summary

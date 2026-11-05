@@ -259,6 +259,8 @@
 | 驾驶舱配额异常 | `apps/admin-web/src/views/dashboard/DashboardPage.vue` | `quotaAnomalies` 卡片 |
 | 一致性测试 | `services/admin-api/tests/test_quota_consistency.py` | 两侧 key/语义/文案静态比对 |
 
+> **049 收口（2026-11-05）**：`quota_projects` 表于 049 退役——读路径切到 046 统一后的 `projects` 表（admin-api 项目管理页恒空即 042 读路径残留，见 049 US3）；`quota_projects` 的成员内嵌数组语义由 `projects.member_user_ids`（ADR-9）接替。旧表 0 行、不迁移、不删表壳（AGENTS.md 禁删）。
+
 > **注意**：`93428a82` 提交信息误标为 032-033-034，实际内容为 042 三层配额引擎。
 
 ## 项目概念声明（047 T028）

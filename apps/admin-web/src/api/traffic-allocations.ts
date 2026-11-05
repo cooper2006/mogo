@@ -177,36 +177,8 @@ export async function fetchQuotaProjects() {
   return data;
 }
 
-export async function createQuotaProject(payload: {
-  name: string;
-  note?: string;
-  memberUserIds?: string[];
-  status?: 'active' | 'disabled';
-}) {
-  const { data } = await apiClient.post<QuotaProject>('/api/v1/traffic-allocations/projects', payload);
-  return data;
-}
-
-export async function updateQuotaProject(projectId: string, payload: {
-  name?: string;
-  note?: string;
-  memberUserIds?: string[];
-  status?: 'active' | 'disabled';
-}) {
-  const { data } = await apiClient.put<QuotaProject>(
-    `/api/v1/traffic-allocations/projects/${projectId}`,
-    payload,
-  );
-  return data;
-}
-
-export async function deleteQuotaProject(projectId: string) {
-  const { data } = await apiClient.delete<{ success: boolean }>(
-    `/api/v1/traffic-allocations/projects/${projectId}`,
-  );
-  return data;
-}
-
+// 049-project-members FR-007: createQuotaProject / updateQuotaProject / deleteQuotaProject 已退役——
+// 项目由 user-web 创建（chat-api POST /projects），admin 只读 + 配额（/projects/{id}/policy）。
 export async function updateProjectQuotaPolicy(projectId: string, payload: {
   quotaTokens: number;
   period: QuotaPeriod;

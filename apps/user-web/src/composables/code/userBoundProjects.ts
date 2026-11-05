@@ -61,6 +61,16 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
     titles.value = { ...titles.value, [workspaceId]: title }
   }
 
+  /** 049 FR-001: 成员保存成功后同步本地绑定（避免整页刷新）。 */
+  function setMembers(workspaceId: string, members: string[]): void {
+    if (!workspaceId) return
+    bindings.value = bindings.value.map(item =>
+      item.workspace_id === workspaceId || item._id === workspaceId
+        ? { ...item, member_user_ids: [...members] }
+        : item,
+    )
+  }
+
   /** Local workspace dirs decide archive state: missing → archived, present → active. */
   function syncArchiveState(nextBindings: DesktopProject[], localWorkspaces: DshWorkspace[], token: string): void {
     const localIds = new Set(localWorkspaces.map(w => w.workspace_id))
@@ -113,5 +123,5 @@ export function useUserBoundProjects(options: UserBoundProjectOptions) {
     }
   }
 
-  return { bindings, workspaces, titles, loading, identity: options.identity, clear, add, remove, rename, refresh }
+  return { bindings, workspaces, titles, loading, identity: options.identity, clear, add, remove, rename, setMembers, refresh }
 }

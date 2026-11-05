@@ -199,9 +199,9 @@ TENANT_GOVERNANCE_COLLECTIONS: list[str] = [
     # enterprise tool-call audit stream.
     "egress_allowlist",
     "enterprise_tool_audit",
-    # 042 three-level quota: per-project buckets and alert events, both
-    # partitioned by tenant_id (see ``quota_counters`` above).
-    "quota_projects",
+    # 042 three-level quota: alert events, partitioned by tenant_id
+    # (see ``quota_counters`` above). 049 起旧表 quota_projects 退役（0 行、
+    # 读写方均下线），不再列入清理清单；表壳保留不删，见 049 ADR-9。
     "quota_alert_events",
 ]
 

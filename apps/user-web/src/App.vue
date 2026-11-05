@@ -11,6 +11,7 @@ import DesktopWindowChrome from './components/desktop/DesktopWindowChrome.vue'
 import DesktopServerSetup from './components/desktop/DesktopServerSetup.vue'
 import type { DesktopToolLauncherKind } from './components/desktop/desktopToolTabs'
 import CreateProjectDialog from './components/code/CreateProjectDialog.vue'
+import MemberPicker from './components/project/MemberPicker.vue'
 import { exchangePortalTicket, fetchOrgBilling, fetchUserProfile, getAdminSSOToken, logoutWithToken, switchTenant, type TenantCandidate, type UserProfile } from './api/auth'
 import { AUTH_EXPIRED_EVENT } from './api/authExpiry'
 import { activateEmbeddedBrowserSession, capabilities, deleteDshWorkspace, getDshWorkspaceSummary, getSettings, updateSettings, startAgent, stopAgent, getAgentStatus, openResource, selectEmbeddedBrowserSession, selectDshWorkspace, isFileSystemAccessSupported, renameDshWorkspace } from './platform'
@@ -26,6 +27,7 @@ import {
   updateDesktopProjectStatus,
   updateDesktopProjectTitle,
   updateSessionTitle,
+  type DesktopProject,
   type SessionSearchResult,
   type SessionSummary,
 } from './api/sessions'
@@ -671,6 +673,27 @@ async function handleDeleteProject(workspaceId: string): Promise<void> {
 function toggleProjectMenu(workspaceId: string): void {
   projectMenuOpenFor.value = projectMenuOpenFor.value === workspaceId ? null : workspaceId
   sessionMenuOpenFor.value = null
+}
+
+// 049 US1：项目「…」菜单 →「成员」弹窗（仅创建者可改；默认项目不出菜单）。
+const memberPickerOpen = ref(false)
+const memberPickerProject = ref<DesktopProject | null>(null)
+
+function openProjectMembers(workspaceId: string): void {
+  projectMenuOpenFor.value = null
+  const binding = userBoundProjects.bindings.value.find(
+    item => item.workspace_id === workspaceId || item._id === workspaceId,
+  )
+  if (!binding) return
+  memberPickerProject.value = binding
+  memberPickerOpen.value = true
+}
+
+function handleProjectMembersSaved(members: string[]): void {
+  const current = memberPickerProject.value
+  if (!current) return
+  userBoundProjects.setMembers(current.workspace_id || current._id || '', members)
+  memberPickerProject.value = { ...current, member_user_ids: [...members] }
 }
 
 function startEditProjectTitle(workspaceId: string, title: string): void {
@@ -2585,6 +2608,17 @@ onBeforeUnmount(() => {
       @create="commitProjectCreate"
       @close="closeProjectCreate"
     />
+    <MemberPicker
+      v-if="canUseCode"
+      v-model:show="memberPickerOpen"
+      :auth-token="authToken"
+      :project-id="memberPickerProject?.workspace_id || memberPickerProject?._id || ''"
+      :project-title="memberPickerProject?.title || ''"
+      :current-user-id="getUserId() || ''"
+      :creator-user-id="memberPickerProject?.user_id || ''"
+      :initial-members="memberPickerProject?.member_user_ids || []"
+      @saved="handleProjectMembersSaved"
+    />
     <div
       v-if="manualPathOpen"
       class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]"
@@ -2795,6 +2829,10 @@ onBeforeUnmount(() => {
                   <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="startEditProjectTitle(group.id, group.title)">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M11.5 2.5 13.5 4.5 6 12l-2.5.5L4 10z"/></svg>
                     <span>{{ locale === 'en' ? 'Rename' : '重命名' }}</span>
+                  </button>
+                  <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-100" @click="openProjectMembers(group.id)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><circle cx="6" cy="5.5" r="2.2"/><path d="M2 13c0-2 1.8-3.5 4-3.5s4 1.5 4 3.5"/><path d="M11 4.5a2 2 0 1 1 0 4M12 13c0-1.6-.7-2.8-1.8-3.4"/></svg>
+                    <span>{{ locale === 'en' ? 'Members' : '成员' }}</span>
                   </button>
                   <button type="button" class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-red-600 hover:bg-red-50" @click="handleDeleteProject(group.id)">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true" class="h-3.5 w-3.5"><path d="M3 4h10M6 4V3h4v1M5 4v9h6V4"/></svg>
