@@ -564,7 +564,7 @@ docker --context orbstack images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' 
 
 ---
 
-## 附录 B：架构说明
+## 附录 B：架构说明 (arm64 vs amd64)
 
 ### 当前环境架构
 
@@ -597,3 +597,39 @@ docker --context orbstack images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' 
 4. **文档对应**：
    - `docs/orbstack-dev-build-guide.md` → arm64 架构操作指南
    - `docs/REMOTE-PUSH-DEPLOY.md` → amd64 架构部署指南
+
+---
+
+## 附录 A：架构说明 (arm64 vs amd64)
+
+### 当前环境架构
+
+| 环境 | 架构 | Docker Context | 用途 |
+|------|------|----------------|------|
+| **OrbStack** (本地开发) | arm64 | `orbstack` | 本地开发、测试 |
+| **172.17.5.96** (远程生产) | amd64 | `mogo-remote` | 生产部署 |
+
+### 关键注意
+
+1. **基础镜像必须匹配架构**：
+   - arm64 使用 `base-images/images/arm64/` 下的 tar
+   - amd64 使用 `base-images/images/amd64/` 下的 tar
+   - 加载命令：`docker load -i base-images/images/<arch>/python_3.13-slim-bookworm.tar`
+
+2. **Bundle 架构**：
+   - `pip-wheels-bundle.tar.gz` 包含 `arm64/` 和 `amd64/` 两个目录
+   - 构建时通过 `TARGETARCH` 自动选择对应架构
+   - 确认 bundle 与目标架构一致
+
+3. **Context 切换**：
+   ```bash
+   # 切换到 arm64 本地开发
+   docker context use orbstack
+   
+   # 切换到 amd64 远程生产
+   docker context use mogo-remote
+   ```
+
+4. **文档对应**：
+   - `docs/orbstack-dev-build-guide.md` → arm64 架构操作指南
+   - `deploy/production/REMOTE-PUSH-DEPLOY.md` → amd64 架构部署指南

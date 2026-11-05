@@ -309,3 +309,43 @@ bash deploy/production/prune-old-app-images.sh --local
 - 远端是离线环境，所有镜像必须来自本地推送；不要指望 `up -d` 时联网拉取。
 - 本机 OrbStack 作为构建源，可能同时跑着 dev 栈（用旧 commit tag）。清理本机旧镜像前先确认不影响本地开发（见步骤 D 注意）。
 - Docker daemon 访问等同于宿主机 root，远端 `bonc` 用户需有 docker 执行权限。
+
+---
+
+## 附录 A：架构说明 (amd64 vs arm64)
+
+### 当前环境架构
+
+| 环境 | 架构 | Docker Context | 用途 |
+|------|------|----------------|------|
+| **OrbStack** (本地开发) | arm64 | `orbstack` | 本地开发、测试 |
+| **172.17.5.96** (远程生产) | amd64 | `mogo-remote` | 生产部署 |
+
+### 关键注意
+
+1. **本指南针对 amd64 架构**：
+   - 远端服务器 172.17.5.96 是 x86_64/amd64 平台
+   - 本地构建时需使用 `--platform linux/amd64` 或在 amd64 宿主机上构建
+   - 镜像会推送到远端并在那里运行
+
+2. **基础镜像**：
+   - amd64 使用 `base-images/images/amd64/` 下的 tar
+   - 加载命令：`docker load -i base-images/images/amd64/python_3.13-slim-bookworm.tar`
+
+3. **Bundle 架构**：
+   - `pip-wheels-bundle.tar.gz` 包含 `arm64/` 和 `amd64/` 两个目录
+   - 生产构建必须使用 amd64 bundle
+   - 确认 bundle 与目标架构一致
+
+4. **Context 切换**：
+   ```bash
+   # 切换到 arm64 本地开发
+   docker context use orbstack
+   
+   # 切换到 amd64 远程生产
+   docker context use mogo-remote
+   ```
+
+5. **文档对应**：
+   - `docs/orbstack-dev-build-guide.md` → arm64 架构操作指南
+   - `deploy/production/REMOTE-PUSH-DEPLOY.md` → amd64 架构部署指南（本文档）
