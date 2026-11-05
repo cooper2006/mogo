@@ -1,5 +1,10 @@
 # 生产部署（Portainer Stack，无外网）
 
+> **路线选择**：
+> - 本文件 = **Portainer Stack + 离线 tar 导入** 路线（`prepare-release.sh` 打包，运维手动导入）。
+> - **另一条路线**（本机已构建镜像 → 远端 docker context 推送）见 **[`REMOTE-PUSH-DEPLOY.md`](./REMOTE-PUSH-DEPLOY.md)**，
+>   适用于「镜像在本地 OrbStack 已构建、直接 push 到离线远端并 `up -d`」的场景。
+
 面向**无外网的生产环境**：镜像靠离线导入，栈用 Portainer 的 Stack 拉起。
 目标主机为「无外网 + x86_64 + Docker 26.1.3」的 Linux 服务器（部署时替换为实际主机名），
 Portainer CE 2.21.0 位于 `http://<PORTAINER_HOST>:<PORTAINER_PORT>`。

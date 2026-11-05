@@ -446,3 +446,6 @@ deploy/.failover-state.json
 # 本地临时目录（不入库）
 .dsh-tmp/
 amd64/
+
+# 远程部署连接信息（含明文 SSH 密码，禁止入库）
+deploy/production/remote.env

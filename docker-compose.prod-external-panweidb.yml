@@ -1,0 +1,47 @@
+# 离线生产覆盖文件：AMD64 + 外部 PanWeiDB + 栈内 Redis/Weaviate
+# （停用 mongo 与 panweidb 容器，应用改连外部 PanWeiDB；redis 仍由本栈拉起）
+#
+# 与 docker-compose.external.yml 的区别：
+#   docker-compose.external.yml 把 mongo / redis / panweidb 三个容器一起排除
+#   （用于「全部数据库都放外部」的场景）。本文件**只关 mongo 和 panweidb**，
+#   保留栈内 redis（与 env-profiles.sh 里 prod profile 的语义一致：
+#   amd64 + 外部 PanWeiDB + 栈内 redis/weaviate）。
+#
+# 用法（配合 deploy/production/deploy-offline.sh）：
+#   docker compose -f docker-compose.yml -f docker-compose.prod-external-panweidb.yml up -d
+#
+# 应用连外部 PanWeiDB 的连接信息由 .env 的 PANWEIDB_* / MOGO_DATA_BACKEND 提供；
+# 本文件只负责「结构层面」——把两个数据库容器显式钉死到永不被启用的 profile
+# （profiles: [never]），并给保留下来的数据库/引导容器钉死 platform 与 pull_policy，
+# 以便离线导入的镜像能确定性地启动（pull_policy: never 让 compose 不再去 registry 拉取）。
+#
+# 离线前提：所有镜像已离线导入（见 deploy/production/deploy-offline.sh 的镜像策略：
+# ① 先从 base-images/images/amd64/*.tar 导入；② 仍缺失的应用镜像从国内镜像站拉取，
+# 失败再回退上游官方源）。应用服务的 platform / pull_policy 由部署脚本通过
+# MOGO_PLATFORM / MOGO_PULL_POLICY 环境变量注入（基础 docker-compose.yml 已支持）。
+
+services:
+  # 停用 mongo 容器。prod profile 本就不启用它（基础文件里 mongo 是 profiles: [dev]），
+  # 这里显式钉死 [never]，避免任何「误带 mongo profile」导致栈内 mongo 被拉起。
+  mongo:
+    profiles: [never]
+
+  # 停用 panweidb 容器：外部 PanWeiDB 实例由 .env 的 PANWEIDB_HOST 等变量指向。
+  # 应用侧对 panweidb 的 depends_on 已标 required: false，关掉不会报 undefined service。
+  panweidb:
+    profiles: [never]
+
+  # 保留栈内 redis（内部 Redis）。钉死架构与离线拉取策略。
+  redis:
+    platform: linux/amd64
+    pull_policy: never
+
+  # 保留栈内 weaviate（向量库）。钉死架构与离线拉取策略。
+  weaviate:
+    platform: linux/amd64
+    pull_policy: never
+
+  # 引导容器（alpine:3.21）也钉死架构与离线拉取策略（基础文件未设这两项）。
+  bootstrap:
+    platform: linux/amd64
+    pull_policy: never
