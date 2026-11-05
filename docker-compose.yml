@@ -579,6 +579,8 @@ services:
     # dsh-runtime-data volume would let two replicas write the same kernel
     # state files at once, so each replica mounts its own volume here.
     volumes:
+      - ./services/admin-api/app/ontology_permission/constants.py:/app/app/ontology_permission/constants.py:ro
+      - ./services/admin-api/app/ontology_permission/repository.py:/app/app/ontology_permission/repository.py:ro
       - deployment-secrets:/run/askai-secrets:ro
       - dsh-runtime-data-1:/data/dsh-runtime
 
@@ -646,7 +648,6 @@ services:
 
   chat-api: &chat-api-def
     image: ${MOGO_CHAT_API_IMAGE:-ghcr.io/mogoai/chat-api:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -767,7 +768,6 @@ services:
   # ---------------------------------------------------------------------------
   sandbox-egress:
     image: ${MOGO_SANDBOX_EGRESS_IMAGE:-ghcr.io/mogoai/sandbox-egress:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     profiles: ["sandbox"]
     restart: unless-stopped
     read_only: true
@@ -783,13 +783,11 @@ services:
 
   sandbox-script:
     image: ${MOGO_SANDBOX_SCRIPT_IMAGE:-ghcr.io/mogoai/sandbox-script:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     profiles: ["sandbox-image"]
     entrypoint: ["true"]
 
   sandbox-manager:
     image: ${MOGO_SANDBOX_MANAGER_IMAGE:-ghcr.io/mogoai/sandbox-manager:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     profiles: ["sandbox"]
     restart: unless-stopped
     read_only: true
@@ -839,7 +837,6 @@ services:
 
   admin-api: &admin-api-def
     image: ${MOGO_ADMIN_API_IMAGE:-ghcr.io/mogoai/admin-api:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -920,7 +917,6 @@ services:
 
   document-api: &document-api-def
     image: ${MOGO_DOCUMENT_API_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["api"]
@@ -997,7 +993,6 @@ services:
 
   document-worker:
     image: ${MOGO_DOCUMENT_WORKER_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["worker"]
@@ -1059,7 +1054,6 @@ services:
 
   user-web:
     image: ${MOGO_USER_WEB_IMAGE:-ghcr.io/mogoai/user-web:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -1097,7 +1091,6 @@ services:
 
   admin-web:
     image: ${MOGO_ADMIN_WEB_IMAGE:-ghcr.io/mogoai/admin-web:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -1136,7 +1129,6 @@ services:
 
   gateway:
     image: ${MOGO_GATEWAY_IMAGE:-ghcr.io/mogoai/gateway:${MOGO_VERSION:-latest}}
-    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): gateway 是 nginx，同样加固。它还要做 TLS 终结并绑定低
