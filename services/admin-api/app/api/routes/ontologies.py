@@ -23,7 +23,7 @@ from app.api.routes.knowledge_documents import validate_batch_size
 from app.ontology_permission.constants import (
     ACCESS_MODES,
     DEFAULT_PRIORITY,
-    ENTITY_INDEX_TABLE,
+    CATALOG_TABLE,
     SUBJECT_TYPES,
 )
 from app.ontology_permission.service import OntologyPermissionService
@@ -135,7 +135,7 @@ async def sync_ontologies(
     catalog = await OntologyPermissionService().list_catalog(_tenant_id(current_user))
     pushed = len(payload.ontologies) if payload and payload.ontologies else 0
     return {
-        "source": ENTITY_INDEX_TABLE,
+        "source": CATALOG_TABLE,
         "synced": len(catalog),
         "pushed": pushed,
         "ontologies": catalog,
