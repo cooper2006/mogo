@@ -1,43 +1,60 @@
-"""Memory scope model + visibility (017 FR-1 / FR-2 / FR-3 / FR-4).
+"""Memory scope model + visibility (017 v3 / D4 目标态).
 
 Scopes
 ------
-* ``personal``  — visible only to its owner;
-* ``workspace`` — visible to members of that workspace;
-* ``org``       — visible to the whole organization.
+* ``personal``   — visible only to its owner;
+* ``project``    — visible to the project owner and 049 ``member_user_ids``;
+* ``department`` — visible to the owner's department and **all descendants**.
 
-Default scope is chosen by session type (clarify OQ-1): a single-user session
-defaults to ``personal``; a multi-user (co-presence) session defaults to
-``workspace``. Promotion to ``org`` requires authorization (FR-4).
+D4 (user decision 2026-11-06): ``workspace`` / ``org`` were renamed in a single
+atomic switch. There is deliberately **no** alias, ``normalize_scope``, dual
+write, or field-level fallback here. Old values are converted only by the
+offline migration script (``scripts/migrate_017_scopes.py``); at runtime they
+are rejected / fail closed.
+
+Security invariants
+-------------------
+* N1: a ``project`` memory carries ``project_owner_id``. ``projects._id`` is
+  *not* unique inside a tenant (unique index is
+  ``{tenant_id, user_id, workspace_id}``), so visibility must compare the
+  ``(project_id, project_owner_id)`` pair.
+* N2: the 049 tenant-wide fallback row ``_id="default"`` must never carry a
+  project memory; 049's product exemption is intentionally not inherited.
+* B-7: unknown scope, cross-tenant, missing owner id and archived records are
+  all invisible.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Mapping
 
 from app.memory.tiering import SUMMARY_REFRESH_DAYS_DEFAULT
 
-# Role allowed to authorize promotion to the org scope (006 full-access admin).
-ORG_PROMOTION_ROLES = frozenset({"full_access_admin"})
+# Role allowed to authorize promotion to the department scope (006 admin).
+DEPARTMENT_PROMOTION_ROLES = frozenset({"full_access_admin"})
+
+#: 049 tenant-wide fallback project (N2). Never a valid memory scope target.
+DEFAULT_PROJECT_ID = "default"
 
 
 class MemoryScope(str, Enum):
     PERSONAL = "personal"
-    WORKSPACE = "workspace"
-    ORG = "org"
+    PROJECT = "project"
+    DEPARTMENT = "department"
 
 
 class Visibility(str, Enum):
-    OWNER = "owner"          # personal: only the owner
-    MEMBERS = "members"      # workspace: its members
-    ORGANIZATION = "organization"  # org: everyone in the org
+    OWNER = "owner"                          # personal: only the owner
+    PROJECT_MEMBERS = "project_members"      # project: owner + member_user_ids
+    DEPARTMENT_SUBTREE = "department_subtree"  # department: self + descendants
 
 
 SCOPE_VISIBILITY: dict[str, str] = {
     MemoryScope.PERSONAL.value: Visibility.OWNER.value,
-    MemoryScope.WORKSPACE.value: Visibility.MEMBERS.value,
-    MemoryScope.ORG.value: Visibility.ORGANIZATION.value,
+    MemoryScope.PROJECT.value: Visibility.PROJECT_MEMBERS.value,
+    MemoryScope.DEPARTMENT.value: Visibility.DEPARTMENT_SUBTREE.value,
 }
 
 
@@ -47,14 +64,18 @@ class MemoryAccessError(PermissionError):
 
 @dataclass
 class Memory:
-    """A single memory record at one scope."""
+    """A single memory record at one scope.
+
+    ``project_owner_id`` is appended (rather than inserted) so existing
+    positional constructors keep working through the D4 rename.
+    """
 
     content: str = ""
     scope: str = MemoryScope.PERSONAL.value
     owner_id: str = ""
-    workspace_id: str = ""
+    project_id: str = ""            # was workspace_id
     tenant_id: str = "default"
-    org_id: str = ""           # R-04: organization id for org-scoped memories
+    department_id: str = ""         # was org_id
     created_at: float = 0.0
     last_accessed_at: float = 0.0
     memory_id: str = ""
@@ -69,6 +90,8 @@ class Memory:
     # --- 017 FR-19 provenance (session sedimentation) ---
     source_session_id: str = ""
     source_type: str = ""      # "" | "session"
+    # --- N1: disambiguates duplicate projects._id values within a tenant ---
+    project_owner_id: str = ""
 
     def __post_init__(self) -> None:
         if self.scope not in SCOPE_VISIBILITY:
@@ -86,68 +109,115 @@ class Memory:
         ).uri()
 
 
-def resolve_default_scope(*, multi_user_session: bool) -> str:
-    """Default scope for a session: multi-user -> workspace, else personal."""
-    return MemoryScope.WORKSPACE.value if multi_user_session else MemoryScope.PERSONAL.value
+def resolve_default_scope(
+    *, multi_user_session: bool = False, has_project_context: bool = False
+) -> str:
+    """D2: a usable project context yields ``project``; otherwise ``personal``.
 
-
-def visible_to(
-    memory: Memory,
-    *,
-    viewer_id: str,
-    viewer_role: str = "",
-    is_workspace_member: bool = False,
-    viewer_org_id: str = "",
-) -> bool:
-    """Whether ``viewer_id`` may read ``memory`` (FR-2, no privilege escalation).
-
-    * full-access admins may read any scope within the tenant;
-    * otherwise visibility follows the scope: owner / member / org.
-
-    R-04 fix: the ``org`` scope used to check ``viewer_id != ""`` — any
-    authenticated user in the tenant could read any org-scoped memory. It
-    now requires ``viewer_org_id == memory.org_id``, so an org-scoped memory
-    is visible only to members of the organization that owns it.
+    ``multi_user_session`` is kept in the signature because the 009 sediment
+    seam passes it; without a real (non-``default``, resolvable) project context
+    even a co-presence session falls back to ``personal`` (N2 / E-4).
     """
-    # B1 / P0: fail closed on an unresolved identity.  The endpoints used to
-    # pass viewer_id="" and owner_id="" for personal memories, so "" == ""
-    # granted every logged-in user of the tenant read access.  Keep both
-    # guards even now that the endpoints resolve a real viewer: this is the
-    # last line of defence against a future caller skipping the auth layer.
-    if not viewer_id:
+    return (
+        MemoryScope.PROJECT.value
+        if has_project_context
+        else MemoryScope.PERSONAL.value
+    )
+
+
+def _field(memory: Memory | Mapping[str, Any], name: str) -> Any:
+    if isinstance(memory, Mapping):
+        return memory.get(name)
+    return getattr(memory, name, None)
+
+
+def visible_to(memory: Memory | Mapping[str, Any], viewer: Any) -> bool:
+    """The **single** visibility predicate for 017 (B-4 / T013).
+
+    ``viewer`` must be a server-built :class:`app.memory.viewer.MemoryViewerContext`.
+    The old scattered keyword arguments (``viewer_id`` / ``viewer_role`` /
+    ``is_workspace_member`` / ``viewer_org_id``) are gone with D4: accepting them
+    again would re-open the P0 identity hole B1 closed.
+    """
+    from app.memory.viewer import MemoryViewerContext
+
+    if not isinstance(viewer, MemoryViewerContext) or not viewer.is_valid:
         return False
-    if viewer_role in ORG_PROMOTION_ROLES:
+
+    # Cross-tenant fail-closed (B-7).
+    if str(_field(memory, "tenant_id") or "") != viewer.tenant_id:
+        return False
+    if bool(_field(memory, "archived")):
+        return False
+
+    scope = str(_field(memory, "scope") or "")
+    if scope not in SCOPE_VISIBILITY:
+        return False
+
+    # B-7 / N1 / N2: structural integrity is checked **before** the admin
+    # shortcut. A malformed record (missing owner, missing project_owner_id,
+    # the tenant-wide "default" row, or a missing department id) stays
+    # invisible even to a full-access admin; the migration archives it and the
+    # governance surface reads it through a separate, audited path.
+    if scope == MemoryScope.PERSONAL.value:
+        if not str(_field(memory, "owner_id") or ""):
+            return False
+    elif scope == MemoryScope.PROJECT.value:
+        project_id = str(_field(memory, "project_id") or "")
+        project_owner_id = str(_field(memory, "project_owner_id") or "")
+        if not project_id or not project_owner_id:
+            return False
+        if project_id == DEFAULT_PROJECT_ID:
+            return False
+    elif scope == MemoryScope.DEPARTMENT.value:
+        if not str(_field(memory, "department_id") or ""):
+            return False
+
+    # 006 full-access admins govern every *valid, well-formed, unarchived*
+    # scope inside their own tenant.
+    if viewer.is_full_access_admin:
         return True
-    if memory.scope == MemoryScope.PERSONAL.value:
-        return bool(memory.owner_id) and viewer_id == memory.owner_id
-    if memory.scope == MemoryScope.WORKSPACE.value:
-        return is_workspace_member and viewer_id != ""
-    if memory.scope == MemoryScope.ORG.value:
-        # R-04: org scope must be bounded by the organization, not the tenant.
-        return bool(memory.org_id) and viewer_org_id == memory.org_id
+
+    if scope == MemoryScope.PERSONAL.value:
+        return str(_field(memory, "owner_id") or "") == viewer.user_id
+
+    if scope == MemoryScope.PROJECT.value:
+        project_id = str(_field(memory, "project_id") or "")
+        project_owner_id = str(_field(memory, "project_owner_id") or "")
+        return (project_id, project_owner_id) in viewer.visible_project_keys
+
+    if scope == MemoryScope.DEPARTMENT.value:
+        department_id = str(_field(memory, "department_id") or "")
+        return department_id in viewer.visible_department_ids
+
     return False
 
 
-def can_promote_to_org(*, role: str) -> bool:
-    """Whether ``role`` may authorize promotion of a memory to the org scope (FR-4)."""
-    return role in ORG_PROMOTION_ROLES
+def can_promote_to_department(viewer: Any) -> bool:
+    """G-1: only a 006 full-access admin may promote to ``department``."""
+    return bool(getattr(viewer, "is_full_access_admin", False))
 
 
-def promote_to_org(memory: Memory, *, role: str) -> Memory:
-    """Promote a memory to the org scope, requiring an authorized role (FR-4).
+def promote_to_department(memory: Memory, *, viewer: Any, department_id: str) -> Memory:
+    """Promote a memory to ``department`` (G-1 / G-2).
 
-    The promotion is audited by the caller (the authorization decision is made
-    here; the audit record is written at the integration layer).
+    The target department must be inside the viewer's visible department set,
+    so an admin cannot inject a memory into an unrelated department.
     """
-    if not can_promote_to_org(role=role):
-        raise MemoryAccessError(f"role {role!r} may not promote memory to the org scope")
-    memory.scope = MemoryScope.ORG.value
-    # T999: memory promotion → 001 audit stream (017 memory.promoted).
-    _audit_memory_promoted(memory, role)
+    if not can_promote_to_department(viewer):
+        raise MemoryAccessError("full_access_admin required to promote to department")
+    visible_departments = getattr(viewer, "visible_department_ids", frozenset())
+    if not department_id or department_id not in visible_departments:
+        raise MemoryAccessError(
+            f"department {department_id!r} is not visible to the caller"
+        )
+    memory.scope = MemoryScope.DEPARTMENT.value
+    memory.department_id = department_id
+    _audit_memory_promoted(memory, viewer)
     return memory
 
 
-def _audit_memory_promoted(memory: Memory, role: str) -> None:
+def _audit_memory_promoted(memory: Memory, viewer: Any) -> None:
     try:
         from app.services.feature_audit_bridge import emit_feature_event
 
@@ -157,12 +227,15 @@ def _audit_memory_promoted(memory: Memory, role: str) -> None:
             {
                 "memory_id": getattr(memory, "memory_id", None),
                 "scope": memory.scope,
-                "role": role,
+                "department_id": memory.department_id,
+                "role_keys": sorted(getattr(viewer, "role_keys", ()) or ()),
             },
+            tenant_id=getattr(viewer, "tenant_id", ""),
+            actor=getattr(viewer, "user_id", ""),
         )
     except Exception as exc:
-        # 审计失败绝不影响主流程，但必须留痕：静默吞掉会让"审计桥未接线"
-        # 与"审计已通过"在日志上无法区分。
+        # 审计失败绝不影响主流程，但必须留痕：静默吞掉会让「审计桥未接线」
+        # 与「审计已通过」在日志上无法区分。
         from app.infrastructure.observability.config import log_print
 
         log_print(
@@ -170,4 +243,18 @@ def _audit_memory_promoted(memory: Memory, role: str) -> None:
             f"(memory_id={getattr(memory, 'memory_id', None)}): {exc}",
             flush=True,
         )
-        pass
+
+
+__all__ = [
+    "DEFAULT_PROJECT_ID",
+    "DEPARTMENT_PROMOTION_ROLES",
+    "Memory",
+    "MemoryAccessError",
+    "MemoryScope",
+    "SCOPE_VISIBILITY",
+    "Visibility",
+    "can_promote_to_department",
+    "promote_to_department",
+    "resolve_default_scope",
+    "visible_to",
+]

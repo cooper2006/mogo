@@ -542,12 +542,27 @@ async def startup_event() -> None:
     # Best-effort: a DB error must never take the app down with it.
     from app.memory.lifecycle import clean_decayed_memories, MemoryLifecycle
 
+    def _memory_lifecycle() -> MemoryLifecycle:
+        """H-1 / T036: read the decay policy from configuration, not a constant."""
+        try:
+            cfg = get_settings()
+            days = int(getattr(cfg, "MEMORY_DECAY_DAYS", 30))
+            cleanup = str(
+                getattr(cfg, "MEMORY_DECAY_CLEANUP", "archive") or "archive"
+            )
+        except Exception as exc:  # config unavailable → safe built-in default
+            logger.warning("memory decay config unavailable, using defaults: %s", exc)
+            days, cleanup = 30, "archive"
+        return MemoryLifecycle(decay_days=max(1, days), cleanup=cleanup)
+
     async def _memory_decay_loop() -> None:
         while True:
             try:
                 db_now = get_db()
                 if db_now is not None:
-                    outcome = clean_decayed_memories(db=db_now, lifecycle=MemoryLifecycle())
+                    outcome = clean_decayed_memories(
+                        db=db_now, lifecycle=_memory_lifecycle()
+                    )
                     pending = outcome.get("_pending")
                     if pending is not None:
                         outcome = await pending

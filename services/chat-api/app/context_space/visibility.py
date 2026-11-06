@@ -3,7 +3,8 @@
 The address layer does **not** re-implement authorization. For each tenant it
 delegates the visibility decision to the backend's *existing* check:
 
-* ``memory``  → 017 ``visible_to`` (personal/workspace/org)
+* ``memory``  → 017 ``visible_to(memory, MemoryViewerContext)`` (D4: the only
+  predicate; the address layer merely forwards ``ViewerContext.memory_viewer``)
 * ``resource`` → 005 / 014 / 015 tenant isolation (the backend query already
   scopes by ``tenant_id``; this is the address-layer coarse guard)
 * ``skill``   → 004 / 018 org-scoped ownership (+ ``a2a_exposed`` left to backend)
@@ -17,7 +18,7 @@ Invisible candidates are silently trimmed (never error), preserving 017's
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from app.context_space.address import (
     ASSET,
@@ -27,6 +28,9 @@ from app.context_space.address import (
 )
 from app.infrastructure.observability.config import log_print
 from app.memory.address import MemoryAddress
+
+if TYPE_CHECKING:
+    from app.memory.viewer import MemoryViewerContext
 
 
 class ContextVisibilityError(PermissionError):
@@ -39,13 +43,17 @@ class ContextNotFoundError(LookupError):
 
 @dataclass
 class ViewerContext:
-    """Who is asking to resolve an address (021)."""
+    """Who is asking to resolve an address (021).
 
-    viewer_id: str
-    viewer_role: str = ""
-    is_workspace_member: bool = False
+    ``tenant_id`` / ``viewer_id`` are retained for the non-memory roots'
+    coarse guards. Memory authorization is *never* decided here: it is
+    delegated via ``memory_viewer`` to 017's ``visible_to``. A missing
+    ``memory_viewer`` fails closed.
+    """
+
+    viewer_id: str = ""
     tenant_id: str = ""
-    viewer_org_id: str = ""   # R-04: organization id for org-scoped visibility
+    memory_viewer: Optional["MemoryViewerContext"] = None
 
 
 def check_memory_visibility(
@@ -54,7 +62,7 @@ def check_memory_visibility(
     ctx: ViewerContext,
     memory: Optional[Any] = None,
 ) -> bool:
-    """Delegate visibility to 017 ``visible_to`` (FR-2, no escalation).
+    """Delegate memory visibility to 017 ``visible_to`` (FR-2, no escalation).
 
     The address is a **locator, not a credential**. ``scope`` / ``owner_id`` in
     the URI are supplied by the caller and must never decide authorization:
@@ -62,47 +70,34 @@ def check_memory_visibility(
     forging ``mogo://memory/personal/<self>/<victim_id>`` (R3 audit, 2026-10-06).
 
     Authorization therefore runs against the **stored record** loaded by the
-    adapter. When no record is supplied we fail closed — the URI alone cannot
-    prove ownership.
+    adapter and the server-built ``MemoryViewerContext``. Missing record or
+    missing viewer → fail closed (B-4).
     """
     from app.memory.scope import visible_to
 
-    if memory is None:
+    if memory is None or ctx.memory_viewer is None:
         log_print(
-            f"[context_space.visibility] deny {addr.uri()}: no stored record "
-            f"supplied; URI identity is not a credential",
+            f"[context_space.visibility] deny {addr.uri()}: missing stored "
+            f"record or memory_viewer; URI identity is not a credential",
             flush=True,
         )
         return False
-    return visible_to(
-        memory,
-        viewer_id=ctx.viewer_id,
-        viewer_role=ctx.viewer_role,
-        is_workspace_member=ctx.is_workspace_member,
-        viewer_org_id=ctx.viewer_org_id,
-    )
+    return visible_to(memory, ctx.memory_viewer)
 
 
 def check_resource_visibility(*, addr: ResourceAddress, ctx: ViewerContext) -> bool:
     """Delegate to 005/014/015 tenant isolation (021).
 
     The backends already scope every query by ``tenant_id``; this guard verifies
-    the requesting viewer's tenant matches the resource's owning tenant. Org-wide
-    resources (``tenant_id`` shared) pass; a mismatch is silently rejected.
+    the requesting viewer's tenant matches the resource's owning tenant.
     """
     if not ctx.tenant_id:
-        # No tenant context → treat as the owning tenant (best-effort, non-fatal).
         return True
     return addr.tenant_id == ctx.tenant_id
 
 
 def check_skill_visibility(*, addr: SkillAddress, ctx: ViewerContext) -> bool:
-    """Delegate to 004/018 org-scoped ownership (021).
-
-    For a 004 Skill, ``identifiers[0]`` is the owning org/tenant. For a 018 asset
-    the address carries no tenant, so exposure is deferred to the asset's own
-    governance (``a2a_exposed`` / status) — the address layer does not block it.
-    """
+    """Delegate to 004/018 org-scoped ownership (021)."""
     if addr.subtype == ASSET:
         return True
     if not ctx.tenant_id:
@@ -111,23 +106,37 @@ def check_skill_visibility(*, addr: SkillAddress, ctx: ViewerContext) -> bool:
 
 
 def check_session_visibility(*, addr: SessionAddress, ctx: ViewerContext) -> bool:
-    """Delegate to 002 participant set (021).
-
-    The coarse guard is tenant match; the backend load further restricts personal
-    sessions to their owner and co-presence sessions to participants.
-    """
+    """Delegate to 002 participant set (021)."""
     if not ctx.tenant_id:
         return True
     return addr.tenant_id == ctx.tenant_id
 
 
-def check_visibility(*, addr, ctx: ViewerContext, memory: Optional[Any] = None) -> bool:
+def check_visibility(
+    *,
+    addr,
+    ctx: Optional[ViewerContext] = None,
+    viewer: Optional["MemoryViewerContext"] = None,
+    memory: Optional[Any] = None,
+) -> bool:
     """Dispatch delegated visibility by the address root (FR-18/021).
+
+    Accepts either the router-built ``ctx: ViewerContext`` (which carries
+    ``memory_viewer`` plus the coarse ``tenant_id`` / ``viewer_id``) or a
+    server-built ``viewer: MemoryViewerContext`` directly, in which case a
+    matching ``ViewerContext`` is constructed here. Memory authorization is
+    always delegated via ``memory_viewer`` — never re-implemented.
 
     ``memory`` carries the **stored** 017 record for ``MemoryAddress``; it is
     required there so authorization never falls back to caller-supplied URI
     identity (see :func:`check_memory_visibility`).
     """
+    if ctx is None:
+        ctx = ViewerContext(
+            viewer_id=str(getattr(viewer, "user_id", "") or ""),
+            tenant_id=str(getattr(viewer, "tenant_id", "") or ""),
+            memory_viewer=viewer,
+        )
     if isinstance(addr, MemoryAddress):
         return check_memory_visibility(addr=addr, ctx=ctx, memory=memory)
     if isinstance(addr, ResourceAddress):

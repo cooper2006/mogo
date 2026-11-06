@@ -5,6 +5,9 @@ pydantic ``CapabilityExecutionContext`` that has no ``get`` method.  The
 resulting ``AttributeError`` was swallowed by a blanket ``except Exception``,
 so every existing knowledge_search test passed while the whole 017 RAG path
 was dead.  ``memory_candidates`` were also computed but never consumed.
+
+D4: identity is a single ``MemoryViewerContext`` passed through as ``viewer=``
+— ``as_visibility_kwargs()`` and the scattered viewer_* kwargs are gone.
 """
 
 from __future__ import annotations
@@ -57,8 +60,8 @@ async def test_knowledge_search_surfaces_memory_candidates(monkeypatch):
     viewer = MemoryViewerContext(
         tenant_id="t1",
         user_id="u1",
-        viewer_org_id="org1",
-        visible_workspace_ids=frozenset({"p1"}),
+        visible_project_keys=frozenset({("p1", "ownerA")}),
+        visible_department_ids=frozenset({"d1"}),
     )
 
     async def _resolve_viewer(**kwargs):
@@ -107,8 +110,11 @@ async def test_knowledge_search_surfaces_memory_candidates(monkeypatch):
     assert payload["memory_retrieval_trace"]
 
     # Identity comes from trusted ids + server-side lookups, never from the
-    # model or from a client-supplied dict; viewer_org_id is no longer omitted.
+    # model or from a client-supplied dict.
     assert captured["trusted_ids"] == {"tenant_id": "t1", "user_id": "u1"}
-    assert captured["list_kwargs"]["viewer_id"] == "u1"
-    assert captured["list_kwargs"]["viewer_org_id"] == "org1"
-    assert captured["list_kwargs"]["is_workspace_member"] is True
+    # D4: a single ``viewer=`` object is threaded through, not the old
+    # ``as_visibility_kwargs()`` expansion (viewer_id / viewer_role /
+    # is_workspace_member / viewer_org_id).
+    assert captured["list_kwargs"]["viewer"] is viewer
+    for retired in ("viewer_id", "viewer_role", "is_workspace_member", "viewer_org_id"):
+        assert retired not in captured["list_kwargs"]

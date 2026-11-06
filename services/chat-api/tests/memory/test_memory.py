@@ -1,4 +1,9 @@
-"""Tests for three-scope memory core (feature 017): scope / visibility / lifecycle."""
+"""Tests for three-scope memory core (feature 017): scope / visibility / lifecycle.
+
+D4 target state: ``personal`` / ``project`` / ``department``. Every visibility
+decision goes through a server-built ``MemoryViewerContext`` supplied as
+``viewer=``; the old scattered identity kwargs are gone with no compat layer.
+"""
 
 from __future__ import annotations
 
@@ -14,24 +19,59 @@ from app.memory.lifecycle import (
     touch,
 )
 from app.memory.scope import (
+    DEPARTMENT_PROMOTION_ROLES,
     Memory,
     MemoryAccessError,
     MemoryScope,
-    can_promote_to_org,
-    promote_to_org,
+    can_promote_to_department,
+    promote_to_department,
     resolve_default_scope,
     visible_to,
 )
+from app.memory.viewer import FULL_ACCESS_ROLE_KEY, MemoryViewerContext
+
+TENANT = "t1"
+
+
+def _viewer(
+    user_id: str = "u1",
+    *,
+    tenant_id: str = TENANT,
+    role_keys=(),
+    project_keys=(),
+    department_ids=(),
+) -> MemoryViewerContext:
+    return MemoryViewerContext(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        role_keys=frozenset(role_keys),
+        visible_project_keys=frozenset(project_keys),
+        visible_department_ids=frozenset(department_ids),
+    )
 
 
 # --- scope / default ---------------------------------------------------------
+
 
 def test_default_scope_single_user_is_personal() -> None:
     assert resolve_default_scope(multi_user_session=False) == MemoryScope.PERSONAL.value
 
 
-def test_default_scope_multi_user_is_workspace() -> None:
-    assert resolve_default_scope(multi_user_session=True) == MemoryScope.WORKSPACE.value
+def test_default_scope_multi_user_without_project_is_personal() -> None:
+    """D2/N2: co-presence alone never promotes a memory to ``project``."""
+    assert resolve_default_scope(multi_user_session=True) == MemoryScope.PERSONAL.value
+    assert (
+        resolve_default_scope(multi_user_session=True, has_project_context=False)
+        == MemoryScope.PERSONAL.value
+    )
+
+
+def test_default_scope_with_project_context_is_project() -> None:
+    assert resolve_default_scope(has_project_context=True) == MemoryScope.PROJECT.value
+    assert (
+        resolve_default_scope(multi_user_session=False, has_project_context=True)
+        == MemoryScope.PROJECT.value
+    )
 
 
 def test_memory_rejects_unknown_scope() -> None:
@@ -41,63 +81,102 @@ def test_memory_rejects_unknown_scope() -> None:
 
 # --- visibility --------------------------------------------------------------
 
+
 def test_personal_visible_only_to_owner() -> None:
-    memory = Memory(scope="personal", owner_id="u1")
-    assert visible_to(memory, viewer_id="u1") is True
-    assert visible_to(memory, viewer_id="u2") is False
+    memory = Memory(scope="personal", owner_id="u1", tenant_id=TENANT)
+    assert visible_to(memory, viewer=_viewer("u1")) is True
+    assert visible_to(memory, viewer=_viewer("u2")) is False
 
 
-def test_workspace_visible_to_members() -> None:
-    memory = Memory(scope="workspace", workspace_id="w1")
-    assert visible_to(memory, viewer_id="u2", is_workspace_member=True) is True
-    assert visible_to(memory, viewer_id="u3", is_workspace_member=False) is False
+def test_project_visible_to_member_of_matching_project_key() -> None:
+    memory = Memory(
+        scope="project",
+        owner_id="u1",
+        tenant_id=TENANT,
+        project_id="p1",
+        project_owner_id="ownerA",
+    )
+    member = _viewer("u2", project_keys=[("p1", "ownerA")])
+    outsider = _viewer("u3", project_keys=[("p1", "ownerB")])
+    assert visible_to(memory, viewer=member) is True
+    assert visible_to(memory, viewer=outsider) is False
 
 
-def test_org_visible_to_member_of_own_org() -> None:
-    """R-04: an org-scoped memory is visible only to members of the organization
-    that owns it — not to any authenticated user in the tenant."""
-    memory = Memory(scope="org", org_id="org1")
-    assert visible_to(memory, viewer_id="u9", viewer_org_id="org1") is True
-    assert visible_to(memory, viewer_id="u9", viewer_org_id="org2") is False
+def test_department_visible_to_member_of_own_department() -> None:
+    memory = Memory(scope="department", owner_id="u1", tenant_id=TENANT, department_id="d1")
+    assert visible_to(memory, viewer=_viewer("u9", department_ids={"d1"})) is True
+    assert visible_to(memory, viewer=_viewer("u9", department_ids={"d2"})) is False
 
 
-def test_org_memory_without_org_id_is_invisible() -> None:
-    """Safe fail-closed: an org-scoped memory that was never tagged with an
-    org_id (legacy data, or written before the R-04 fix) is invisible to
-    everyone — including full-access admins, who are handled earlier in
-    visible_to but still require a real org_id for the org branch."""
-    memory = Memory(scope="org")
-    assert visible_to(memory, viewer_id="u9", viewer_org_id="org1") is False
-    assert visible_to(memory, viewer_id="u9", viewer_org_id="") is False
+def test_department_memory_without_department_id_is_invisible() -> None:
+    """Fail closed: a department memory with no department_id reads as nobody's."""
+    memory = Memory(scope="department", owner_id="u1", tenant_id=TENANT)
+    assert visible_to(memory, viewer=_viewer("u9", department_ids={"d1"})) is False
+    assert visible_to(memory, viewer=_viewer("u9")) is False
 
 
-def test_full_access_admin_sees_every_scope() -> None:
-    for scope in ("personal", "workspace", "org"):
-        memory = Memory(scope=scope, owner_id="someone")
-        assert visible_to(memory, viewer_id="admin", viewer_role="full_access_admin") is True
+def test_full_access_admin_sees_every_valid_scope_in_own_tenant() -> None:
+    admin = _viewer("admin", role_keys=(FULL_ACCESS_ROLE_KEY,))
+    memories = [
+        Memory(scope="personal", owner_id="someone", tenant_id=TENANT),
+        Memory(
+            scope="project", owner_id="someone", tenant_id=TENANT,
+            project_id="p1", project_owner_id="ownerA",
+        ),
+        Memory(scope="department", owner_id="someone", tenant_id=TENANT, department_id="d1"),
+    ]
+    for memory in memories:
+        assert visible_to(memory, viewer=admin) is True
+
+
+def test_full_access_admin_still_fails_closed_on_invalid_records() -> None:
+    """Admin widens scope only inside its own tenant, for valid, live records."""
+    admin = _viewer("admin", role_keys=(FULL_ACCESS_ROLE_KEY,))
+    assert visible_to(
+        Memory(scope="personal", owner_id="x", tenant_id="t2"), viewer=admin
+    ) is False
+    assert visible_to(
+        Memory(scope="personal", owner_id="x", tenant_id=TENANT, archived=True),
+        viewer=admin,
+    ) is False
+    # ``Memory`` rejects unknown scopes at construction, so use a raw row.
+    assert visible_to({"scope": "galaxy", "tenant_id": TENANT}, viewer=admin) is False
 
 
 # --- promotion ---------------------------------------------------------------
 
+
 def test_only_full_access_admin_can_promote() -> None:
-    assert can_promote_to_org(role="full_access_admin") is True
-    assert can_promote_to_org(role="member") is False
+    assert can_promote_to_department(_viewer(role_keys=(FULL_ACCESS_ROLE_KEY,))) is True
+    assert can_promote_to_department(_viewer()) is False
+    assert DEPARTMENT_PROMOTION_ROLES == frozenset({FULL_ACCESS_ROLE_KEY})
 
 
-def test_promote_to_org_requires_authorized_role() -> None:
-    memory = Memory(scope="personal", owner_id="u1")
+def test_promote_to_department_requires_authorized_role() -> None:
+    memory = Memory(scope="personal", owner_id="u1", tenant_id=TENANT)
     with pytest.raises(MemoryAccessError):
-        promote_to_org(memory, role="member")
+        promote_to_department(memory, viewer=_viewer(), department_id="d1")
 
 
-def test_promote_to_org_succeeds_for_admin() -> None:
-    memory = Memory(scope="personal", owner_id="u1")
-    promoted = promote_to_org(memory, role="full_access_admin")
-    assert promoted.scope == MemoryScope.ORG.value
-    assert promoted.visibility() == "organization"
+def test_promote_to_department_succeeds_for_admin() -> None:
+    viewer = _viewer(role_keys=(FULL_ACCESS_ROLE_KEY,), department_ids={"d1"})
+    memory = Memory(scope="personal", owner_id="u1", tenant_id=TENANT)
+    promoted = promote_to_department(memory, viewer=viewer, department_id="d1")
+    assert promoted.scope == MemoryScope.DEPARTMENT.value
+    assert promoted.department_id == "d1"
+    assert promoted.visibility() == "department_subtree"
+
+
+def test_promote_to_department_rejects_invisible_target() -> None:
+    """G-2: even an admin cannot inject a memory into an unrelated department."""
+    viewer = _viewer(role_keys=(FULL_ACCESS_ROLE_KEY,), department_ids={"d1"})
+    memory = Memory(scope="personal", owner_id="u1", tenant_id=TENANT)
+    with pytest.raises(MemoryAccessError):
+        promote_to_department(memory, viewer=viewer, department_id="d2")
 
 
 # --- lifecycle ---------------------------------------------------------------
+
 
 def test_default_decay_is_thirty_days() -> None:
     assert DEFAULT_DECAY_DAYS == 30
@@ -231,8 +310,15 @@ def test_clean_decayed_delete_disposition() -> None:
 
 def test_scope_filter_excludes_archived_memories() -> None:
     from app.memory.retrieval import scope_filter
-    live = _Mem(content="live", scope="org", owner_id="u1", memory_id="m1", org_id="org1")
-    gone = _Mem(content="archived", scope="org", owner_id="u2", memory_id="m2", org_id="org1")
-    gone.archived = True
-    survivors = scope_filter([live, gone], viewer_id="viewer", viewer_org_id="org1")
+    live = _Mem(
+        content="live", scope="department", owner_id="u1", memory_id="m1",
+        tenant_id=TENANT, department_id="d1",
+    )
+    gone = _Mem(
+        content="archived", scope="department", owner_id="u2", memory_id="m2",
+        tenant_id=TENANT, department_id="d1", archived=True,
+    )
+    survivors = scope_filter(
+        [live, gone], viewer=_viewer("viewer", department_ids={"d1"})
+    )
     assert [m.memory_id for m in survivors] == ["m1"]

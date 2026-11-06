@@ -11,6 +11,27 @@ import pytest
 
 from app.context_space.router import ContextVisibilityError, resolve_memory
 from app.memory.address import MemoryAddress
+from app.memory.viewer import build_viewer_context
+
+
+def _auth_payload(*, user_id="u1", tenant_id="t1", org_id=""):
+    """Real ``resolve_session_user`` shape (B1 / DEP-1, no invented keys)."""
+    return {
+        "session": {"_id": "s1", "user_id": user_id, "tenant_id": tenant_id},
+        "user": {
+            "_id": user_id,
+            "tenant_id": tenant_id,
+            "status": "active",
+            "primary_org_id": org_id,
+        },
+        "tenant_id": tenant_id,
+        "org_id": org_id,
+    }
+
+
+def _viewer(user_id="u1", *, tenant_id="t1"):
+    """D4: a server-built MemoryViewerContext, never scattered identity kwargs."""
+    return build_viewer_context(_auth_payload(user_id=user_id, tenant_id=tenant_id))
 
 
 # --- fake mongo -------------------------------------------------------------
@@ -133,6 +154,7 @@ class _FakeMemoryStore:
             content=row["content"],
             scope=row["scope"],
             owner_id=row["owner_id"],
+            tenant_id=tenant_id,
             l0_summary=row["l0"],
             l1_overview=row["l1"],
             source_session_id=row.get("source_session_id", ""),
@@ -267,8 +289,7 @@ async def test_resolve_memory_root(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
         "mogo://memory/personal/u1/m-1/L0",
-        tenant_id="t1",
-        viewer_id="u1",
+        viewer=_viewer("u1"),
     )
     assert out["resolved"]["content"] == "one-line summary"
     assert out["trace"]["candidates"][0]["uri"].startswith("mogo://memory/")
@@ -277,7 +298,7 @@ async def test_resolve_memory_root(fake_db, memory_store) -> None:
 async def test_resolve_resource_doc(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://resource/doc/t1/doc-1/c1/L0", tenant_id="t1", viewer_id="u1"
+        "mogo://resource/doc/t1/doc-1/c1/L0", viewer=_viewer("u1")
     )
     assert "Chapter 1" in out["resolved"]["content"]
     assert out["resolved"]["meta"]["subtype"] == "doc"
@@ -286,7 +307,7 @@ async def test_resolve_resource_doc(fake_db, memory_store) -> None:
 async def test_resolve_resource_doc_l2(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://resource/doc/t1/doc-1/c1/L2", tenant_id="t1", viewer_id="u1"
+        "mogo://resource/doc/t1/doc-1/c1/L2", viewer=_viewer("u1")
     )
     assert out["resolved"]["content"] == "the full chunk text body"
 
@@ -294,7 +315,7 @@ async def test_resolve_resource_doc_l2(fake_db, memory_store) -> None:
 async def test_resolve_resource_biz(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://resource/biz/t1/crm/customer/rec-7", tenant_id="t1", viewer_id="u1"
+        "mogo://resource/biz/t1/crm/customer/rec-7", viewer=_viewer("u1")
     )
     assert out["resolved"]["content"].startswith("Acme Corp")
     assert out["resolved"]["meta"]["entity_type"] == "customer"
@@ -303,7 +324,7 @@ async def test_resolve_resource_biz(fake_db, memory_store) -> None:
 async def test_resolve_resource_kg(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://resource/kg/t1/n-42", tenant_id="t1", viewer_id="u1"
+        "mogo://resource/kg/t1/n-42", viewer=_viewer("u1")
     )
     assert out["resolved"]["content"] == "Alice"
     assert out["resolved"]["meta"]["neighbour_count"] == 0
@@ -319,7 +340,7 @@ async def test_resolve_resource_kg_l1_lists_neighbours(fake_db, memory_store) ->
         ]
     )
     out = await resolve_memory(
-        "mogo://resource/kg/t1/n-42/L1", tenant_id="t1", viewer_id="u1"
+        "mogo://resource/kg/t1/n-42/L1", viewer=_viewer("u1")
     )
     content = out["resolved"]["content"]
     assert "type=person" in content
@@ -347,7 +368,7 @@ async def test_resolve_resource_kg_does_not_load_whole_graph(fake_db, memory_sto
     try:
         _seed(fake_db)
         out = await resolve_memory(
-            "mogo://resource/kg/t1/n-42", tenant_id="t1", viewer_id="u1"
+            "mogo://resource/kg/t1/n-42", viewer=_viewer("u1")
         )
     finally:
         kg_mod.TenantKgStore._ensure_loaded = original
@@ -360,7 +381,7 @@ async def test_resolve_skill_defaults_to_l0(fake_db, memory_store) -> None:
     """No tier segment → L0 (one-line capability description, no contract)."""
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://skill/t1/sk-1", tenant_id="t1", viewer_id="u1"
+        "mogo://skill/t1/sk-1", viewer=_viewer("u1")
     )
     resolved = out["resolved"]
     assert resolved["tier_used"] == "L0"
@@ -373,7 +394,7 @@ async def test_resolve_skill_l1_contract(fake_db, memory_store) -> None:
     """L1 carries the contract summary (in/out/when); meta stays structured."""
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://skill/t1/sk-1/L1", tenant_id="t1", viewer_id="u1"
+        "mogo://skill/t1/sk-1/L1", viewer=_viewer("u1")
     )
     resolved = out["resolved"]
     assert resolved["tier_used"] == "L1"
@@ -395,7 +416,7 @@ async def test_resolve_skill_l1_contract(fake_db, memory_store) -> None:
 async def test_resolve_skill_asset(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://skill/asset/asset-9", tenant_id="t1", viewer_id="u1"
+        "mogo://skill/asset/asset-9", viewer=_viewer("u1")
     )
     assert out["resolved"]["content"] == "Search Tool"
     assert out["resolved"]["meta"]["a2a_exposed"] is True
@@ -461,15 +482,14 @@ async def test_skill_no_tenant_agnostic_fallback(fake_db, memory_store, monkeypa
     with pytest.raises(ContextNotFoundError, match="skill not found"):
         await resolve_memory(
             "mogo://skill/org-B/sk-cross-org",
-            tenant_id="org-B",
-            viewer_id="u1",
+            viewer=_viewer("u1", tenant_id="org-B"),
         )
 
 
 async def test_resolve_session_l0(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://session/t1/507f1f77bcf86cd799439011/L0", tenant_id="t1", viewer_id="u1"
+        "mogo://session/t1/507f1f77bcf86cd799439011/L0", viewer=_viewer("u1")
     )
     assert "Planning" in out["resolved"]["content"]
 
@@ -477,7 +497,7 @@ async def test_resolve_session_l0(fake_db, memory_store) -> None:
 async def test_resolve_session_l2_transcript(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://session/t1/507f1f77bcf86cd799439011/L2", tenant_id="t1", viewer_id="u1"
+        "mogo://session/t1/507f1f77bcf86cd799439011/L2", viewer=_viewer("u1")
     )
     assert "hello" in out["resolved"]["content"]
     assert "hi there" in out["resolved"]["content"]
@@ -487,14 +507,15 @@ async def test_resolve_resource_visibility_denied(fake_db, memory_store) -> None
     _seed(fake_db)
     with pytest.raises(Exception):
         await resolve_memory(
-            "mogo://resource/doc/t1/doc-1/c1", tenant_id="OTHER", viewer_id="u1"
+            "mogo://resource/doc/t1/doc-1/c1",
+            viewer=_viewer("u1", tenant_id="OTHER"),
         )
 
 
 async def test_resolve_unknown_root(fake_db, memory_store) -> None:
     with pytest.raises(ValueError):
         await resolve_memory(
-            "mogo://nope/x", tenant_id="t1", viewer_id="u1"
+            "mogo://nope/x", viewer=_viewer("u1")
         )
 
 
@@ -508,16 +529,16 @@ async def test_resolve_memory_forged_owner_is_denied(fake_db, memory_store) -> N
     _seed(fake_db)
     with pytest.raises(ContextVisibilityError):
         await resolve_memory(
-            "mogo://memory/personal/u2/m-1/L2", tenant_id="t1", viewer_id="u2"
+            "mogo://memory/personal/u2/m-1/L2", viewer=_viewer("u2")
         )
 
 
-async def test_resolve_memory_forged_org_scope_is_denied(fake_db, memory_store) -> None:
-    """R3 P0: re-labelling a personal record as ``org`` must not widen it."""
+async def test_resolve_memory_forged_department_scope_is_denied(fake_db, memory_store) -> None:
+    """R3 P0: re-labelling a personal record as ``department`` must not widen it."""
     _seed(fake_db)
     with pytest.raises(ContextVisibilityError):
         await resolve_memory(
-            "mogo://memory/org/u1/m-1/L2", tenant_id="t1", viewer_id="u2"
+            "mogo://memory/department/u1/m-1/L2", viewer=_viewer("u2")
         )
 
 
@@ -525,7 +546,7 @@ async def test_resolve_memory_owner_still_reads_own(fake_db, memory_store) -> No
     """The fix must not break the legitimate owner path."""
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://memory/personal/u1/m-1/L2", tenant_id="t1", viewer_id="u1"
+        "mogo://memory/personal/u1/m-1/L2", viewer=_viewer("u1")
     )
     assert out["resolved"]["content"] == "raw body"
 
@@ -537,8 +558,7 @@ async def test_resolve_session_other_user_is_denied(fake_db, memory_store) -> No
     with pytest.raises(Exception):
         await resolve_memory(
             "mogo://session/t1/507f1f77bcf86cd799439011/L2",
-            tenant_id="t1",
-            viewer_id="u2",
+            viewer=_viewer("u2"),
         )
 
 
@@ -546,7 +566,6 @@ async def test_resolve_session_owner_still_reads_own(fake_db, memory_store) -> N
     _seed(fake_db)
     out = await resolve_memory(
         "mogo://session/t1/507f1f77bcf86cd799439011/L2",
-        tenant_id="t1",
-        viewer_id="u1",
+        viewer=_viewer("u1"),
     )
     assert "hello" in out["resolved"]["content"]

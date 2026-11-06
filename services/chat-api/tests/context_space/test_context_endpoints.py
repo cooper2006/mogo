@@ -4,6 +4,9 @@ QA finding: ``app.context_space.router`` had **zero** production imports — the
 whole 021 layer (router + four tenant adapters + delegated visibility + trace)
 existed and was green in tests but nothing in the running service could reach
 it. These tests pin the HTTP surface that closes that gap.
+
+D4: the endpoint resolves one server-built ``MemoryViewerContext`` and threads
+it through as ``viewer=``; retired address segments must not leak content.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.endpoints import context_space
+from app.memory.viewer import MemoryViewerContext
 
 
 def _auth_payload(*, user_id="u1", tenant_id="t1", org_id=""):
@@ -41,19 +45,20 @@ def client(monkeypatch):
 
     monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _fake_resolve)
 
-    # Identity lookups are pinned so these HTTP tests never need a live Mongo.
+    # Identity lookups are pinned on the D4 load_* seam so these HTTP tests
+    # never need a live Mongo. No fabricated auth keys are injected.
     async def _no_roles(db, tenant_id, user_id):
         return frozenset()
 
     async def _no_projects(db, tenant_id, user_id):
         return frozenset()
 
-    async def _no_org(db, tenant_id, user_id):
-        return ""
+    async def _no_departments(db, tenant_id, user_id, *, fallback_primary_org_id=""):
+        return frozenset(), fallback_primary_org_id
 
     monkeypatch.setattr("app.memory.viewer.load_role_keys", _no_roles)
-    monkeypatch.setattr("app.memory.viewer.load_visible_workspace_ids", _no_projects)
-    monkeypatch.setattr("app.memory.viewer.load_primary_org_id", _no_org)
+    monkeypatch.setattr("app.memory.viewer.load_visible_project_keys", _no_projects)
+    monkeypatch.setattr("app.memory.viewer.load_visible_department_ids", _no_departments)
     return TestClient(app)
 
 
@@ -99,6 +104,27 @@ def test_resolve_missing_address_reports_per_item(client):
     assert r == "visibility_denied" or r.startswith("unresolved:") or not r.startswith("internal_error"), (
         f"unexpected reason: {r!r}"
     )
+
+
+@pytest.mark.parametrize("legacy_scope", ["workspace", "org"])
+def test_resolve_legacy_scope_address_does_not_leak_content(client, legacy_scope):
+    """D4: retired segments are rejected (400) or reported as a failed item;
+    under no circumstance may stored memory content be returned."""
+    r = client.post(
+        "/api/v1/context/resolve",
+        json={"uri": f"mogo://memory/{legacy_scope}/u1/m-1/L0"},
+    )
+    body = r.text
+    assert "raw body" not in body
+    assert "one-line summary" not in body
+    if r.status_code == 200:
+        item = r.json()["data"]["items"][0]
+        assert item["ok"] is False
+        assert item["resolved"] is None
+    else:
+        # D4: a retired memory address is not found (404) / rejected (400),
+        # never resolved and never leaked.
+        assert r.status_code in (400, 404)
 
 
 def test_resolve_tenant_mismatch_reports_visibility_denied(client):
@@ -180,7 +206,8 @@ def test_trace_readback_is_tenant_scoped(client, monkeypatch):
 
 
 def test_resolve_passes_server_resolved_viewer(client, monkeypatch):
-    """B1 / DEP-1: the 021 endpoint must not pass an empty viewer_id."""
+    """B1 / DEP-1 / D4: the 021 endpoint must pass one real viewer context,
+    never an empty viewer_id or a fabricated identity dict."""
     captured: dict = {}
 
     async def _fake_resolve_memory(uri, **kwargs):
@@ -193,10 +220,14 @@ def test_resolve_passes_server_resolved_viewer(client, monkeypatch):
     monkeypatch.setattr("app.api.endpoints.context_space.resolve_memory", _fake_resolve_memory)
     r = client.post("/api/v1/context/resolve", json={"uri": "mogo://memory/personal/u1/m-1/L0"})
     assert r.status_code == 200
-    assert captured["tenant_id"] == "t1"
-    assert captured["viewer_id"] == "u1"          # was "" before B1
-    assert captured["viewer_role"] == ""
-    assert "viewer_org_id" in captured           # never omitted again
+
+    viewer = captured["viewer"]
+    assert isinstance(viewer, MemoryViewerContext)
+    assert viewer.user_id == "u1"          # was "" before B1
+    assert viewer.tenant_id == "t1"
+    # D4: the scattered B1 kwargs are gone.
+    for retired in ("viewer_id", "viewer_role", "is_workspace_member", "viewer_org_id"):
+        assert retired not in captured
 
 
 def test_router_is_registered_in_main():

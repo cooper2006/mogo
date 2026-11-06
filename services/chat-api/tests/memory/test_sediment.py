@@ -1,25 +1,31 @@
-"""Tests for 017 session → memory sedimentation (FR-5 upgrade + FR-19)."""
+"""Tests for 017 session → memory sedimentation (FR-5 upgrade + FR-19).
+
+D4: ``workspace`` scope is gone; a co-presence session without real project
+context falls back to ``personal`` (``resolve_default_scope`` / N2).
+"""
 
 from __future__ import annotations
 
+from app.memory.scope import Memory, resolve_default_scope
 from app.memory.sediment import (
     NoopSessionSummarizer,
     build_session_memory,
     on_session_end,
     sediment_session_end,
 )
-from app.memory.scope import Memory
 
 
 def test_build_session_memory_fields() -> None:
     f = build_session_memory(
-        session_id="s1", content="c", scope="workspace", owner_id="u1", tenant_id="t1"
+        session_id="s1", content="c", scope="project", owner_id="u1", tenant_id="t1"
     )
     assert f["source_session_id"] == "s1"
     assert f["source_type"] == "session"
     assert f["tierable"] is True
     assert f["content"] == "c"
-    assert f["scope"] == "workspace"
+    assert f["scope"] == "project"
+    # N1: a project memory must carry the owner-disambiguating field.
+    assert f["project_owner_id"] == ""
 
 
 def test_build_session_memory_l0_from_snapshot() -> None:
@@ -35,6 +41,13 @@ def test_build_session_memory_l0_from_snapshot() -> None:
     )
     # NoopSessionSummarizer lifts the snapshot "summary"/content as L0.
     assert f["l0_summary"] != ""
+
+
+def test_resolve_default_scope_multi_user_without_project_is_personal() -> None:
+    """D2: co-presence alone never yields ``project`` without project context."""
+    assert resolve_default_scope(multi_user_session=True) == "personal"
+    assert resolve_default_scope(multi_user_session=True, has_project_context=False) == "personal"
+    assert resolve_default_scope(has_project_context=True) == "project"
 
 
 async def test_on_session_end_empty_snapshot_returns_none() -> None:
@@ -94,7 +107,8 @@ async def test_sediment_session_end_saves_from_doc() -> None:
     assert saved["scope"] == "personal"  # single-user → personal (FR-3/FR-5)
 
 
-async def test_sediment_session_end_group_session_scopes_workspace() -> None:
+async def test_sediment_session_end_group_session_falls_back_to_personal() -> None:
+    """multi_user_session=True but no resolvable project context → personal."""
     saved: dict = {}
 
     class FakeStore:
@@ -111,7 +125,7 @@ async def test_sediment_session_end_group_session_scopes_workspace() -> None:
         tenant_id="t1",
         emit_hook=False,
     )
-    assert saved["scope"] == "workspace"
+    assert saved["scope"] == "personal"
 
 
 async def test_sediment_session_end_empty_doc_returns_none() -> None:

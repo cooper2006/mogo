@@ -89,20 +89,17 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
         # B1 / DEP-1: CapabilityExecutionContext is a frozen pydantic model
         # with NO .get() method -- context.get("role") raised AttributeError,
         # and the blanket except below silently swallowed the entire 017 RAG
-        # path. tenant_id/user_id are trusted (from ToolGatewayClaims), so
-        # resolve everything else server-side, incl. viewer_org_id (G2).
+        # path. tenant_id/user_id are trusted (from ToolGatewayClaims), so the
+        # full MemoryViewerContext (roles / visible_project_keys /
+        # visible_department_ids) is resolved server-side here (B1 / D4).
         viewer = await resolve_viewer_from_identity(
             tenant_id=context.tenant_id, user_id=context.user_id
         )
-        visibility = viewer.as_visibility_kwargs()
         mem_store = MemoryStore()
-        raw_memories = await mem_store.list_for_viewer(
-            tenant_id=context.tenant_id,
-            **visibility,
-        )
+        raw_memories = await mem_store.list_for_viewer(viewer=viewer)
         memory_candidates, memory_trace = progressive_memory_retrieval(
             raw_memories,
-            **visibility,
+            viewer=viewer,
             include_tier="L1",
             top_n=int(arguments.get("top_n") or 8),
             session_id=context.conversation_id,

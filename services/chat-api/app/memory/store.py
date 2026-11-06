@@ -1,9 +1,14 @@
 """In-memory + MongoDB-backed memory store (017 US1 / FR-5).
 
 Memories are keyed by ``(tenant_id, memory_id)`` and tagged with a scope
-(``personal`` / ``workspace`` / ``org``). The store itself is intentionally
+(``personal`` / ``project`` / ``department``). The store itself is intentionally
 simple — the scope/visibility logic lives in ``scope.py`` and the RAG
 integration in ``retrieval.py``.
+
+D4: ``workspace_id`` / ``org_id`` are gone. A project memory carries
+``project_id`` + ``project_owner_id`` (N1), a department memory carries
+``department_id``. There is no runtime alias or field-level fallback; old rows
+are converted offline by ``scripts/migrate_017_scopes.py``.
 """
 
 from __future__ import annotations
@@ -15,8 +20,10 @@ from typing import Any, Optional
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.tenant import resolve_tenant_id
-from app.memory.scope import Memory, MemoryScope, visible_to
-from app.memory.tiering import SUMMARY_REFRESH_DAYS_DEFAULT
+from app.memory.lifecycle import touch
+from app.memory.scope import Memory, MemoryScope
+from app.memory.tiering import SUMMARY_REFRESH_DAYS_DEFAULT, tier_content
+from app.memory.viewer import MemoryViewerContext
 
 COLLECTION = "memories"
 
@@ -51,9 +58,9 @@ def _row_to_memory(row: dict[str, Any]) -> Memory:
         content=str(row.get("content") or ""),
         scope=str(row.get("scope") or MemoryScope.PERSONAL.value),
         owner_id=str(row.get("owner_id") or ""),
-        workspace_id=str(row.get("workspace_id") or ""),
+        project_id=str(row.get("project_id") or ""),
         tenant_id=str(row.get("tenant_id") or "default"),
-        org_id=str(row.get("org_id") or ""),
+        department_id=str(row.get("department_id") or ""),
         created_at=float(row.get("created_at") or 0.0),
         last_accessed_at=float(row.get("last_accessed_at") or 0.0),
         l0_summary=str(row.get("l0_summary") or ""),
@@ -64,9 +71,35 @@ def _row_to_memory(row: dict[str, Any]) -> Memory:
         summary_refresh_days=int(row.get("summary_refresh_days") or _configured_refresh_days()),
         source_session_id=str(row.get("source_session_id") or ""),
         source_type=str(row.get("source_type") or ""),
+        project_owner_id=str(row.get("project_owner_id") or ""),
     )
     memory.archived = bool(row.get("archived") or False)
     return memory
+
+
+def _lazy_complete_tiers(memory: Memory) -> None:
+    """T022 read-time lazy fallback slot (FR-15).
+
+    No production LLM summarizer is injected at this layer, so ``tier_content``
+    is invoked with ``summarizer=None`` (a safe no-op that keeps the read-time
+    path wired and observable). Write-time ``NoopSessionSummarizer`` already
+    guarantees L0 is non-empty for sedimented memories; a real summarizer can
+    be threaded in here without changing the call sites.
+    """
+    result = tier_content(
+        memory.content,
+        None,
+        l0_summary=memory.l0_summary,
+        l1_overview=memory.l1_overview,
+        tierable=memory.tierable,
+        summary_generated_at=memory.summary_generated_at,
+        refresh_days=memory.summary_refresh_days,
+    )
+    memory.l0_summary = result.l0_summary
+    memory.l1_overview = result.l1_overview
+    memory.l2_raw = result.l2_raw
+    memory.tierable = result.tierable
+    memory.summary_generated_at = result.summary_generated_at
 
 
 class MemoryStore:
@@ -78,7 +111,9 @@ class MemoryStore:
         content: str,
         owner_id: str,
         tenant_id: str,
-        workspace_id: str = "",
+        project_id: str = "",
+        project_owner_id: str = "",
+        department_id: str = "",
         scope: str = MemoryScope.PERSONAL.value,
         memory_id: str = "",
         l0_summary: str = "",
@@ -89,25 +124,20 @@ class MemoryStore:
         summary_refresh_days: int = 0,
         source_session_id: str = "",
         source_type: str = "",
-        org_id: str = "",
     ) -> Memory:
-        """Upsert a memory record. Returns the saved ``Memory``.
+        """Upsert a memory record (create path). Returns the saved ``Memory``.
 
         Density tiers (FR-13) are persisted alongside the raw content. Non-
         tierable content that exceeds the FR-16 hard limit is rejected rather
         than silently truncated.
 
-        Async because the backing store is ``AsyncIOMotorDatabase`` — the write
-        must be awaited or the coroutine is discarded and nothing is persisted.
+        This is the **create** path only: ``replace_one(..., upsert=True)``
+        replaces the whole document. Incremental promotion / edits must use
+        :meth:`update_fields` instead (D-6).
         """
         mem_id = str(memory_id or uuid.uuid4().hex)
         now = _now_seconds()
-        # 0 / unset means "use the configured FR-15 window".
         summary_refresh_days = summary_refresh_days or _configured_refresh_days()
-        # FR-16: layered-first, reject-only-as-fallback.
-        # The limit is named ``..._BYTES`` and is compared against the *encoded*
-        # size: ``len()`` counts characters, so CJK content (3 bytes/char) would
-        # otherwise slip through at up to 3x the configured ceiling.
         hard_max = int(get_settings().MEMORY_L2_HARD_MAX_BYTES)
         content_bytes = len(content.encode("utf-8", errors="replace"))
         if not tierable and content_bytes > hard_max:
@@ -122,9 +152,9 @@ class MemoryStore:
                 content=content,
                 scope=scope,
                 owner_id=owner_id,
-                workspace_id=workspace_id,
+                project_id=project_id,
                 tenant_id=tenant_id,
-                org_id=org_id,
+                department_id=department_id,
                 created_at=now,
                 last_accessed_at=now,
                 l0_summary=l0_summary,
@@ -135,6 +165,7 @@ class MemoryStore:
                 summary_refresh_days=summary_refresh_days,
                 source_session_id=source_session_id,
                 source_type=source_type,
+                project_owner_id=project_owner_id,
             )
         tenant_id = resolve_tenant_id(tenant_id)
         doc: dict[str, Any] = {
@@ -142,9 +173,10 @@ class MemoryStore:
             "content": content,
             "scope": scope,
             "owner_id": owner_id,
-            "workspace_id": workspace_id,
+            "project_id": project_id,
+            "project_owner_id": project_owner_id,
             "tenant_id": tenant_id,
-            "org_id": org_id,
+            "department_id": department_id,
             "created_at": now,
             "last_accessed_at": now,
             "l0_summary": l0_summary,
@@ -163,44 +195,92 @@ class MemoryStore:
         )
         return _row_to_memory(doc)
 
-    async def list_for_viewer(
-        self,
-        *,
-        tenant_id: str,
-        viewer_id: str,
-        viewer_role: str = "",
-        is_workspace_member: bool = False,
-        viewer_org_id: str = "",
-        top_n: int = 20,
-    ) -> list[Memory]:
-        """Return memories visible to ``viewer_id`` within ``tenant_id``."""
+    async def update_fields(
+        self, *, tenant_id: str, memory_id: str, **fields: Any
+    ) -> bool:
+        """D-6: incremental ``$set`` update, never a full-document replace.
+
+        Used by promote (and any partial edit) so L0/L1/L2, provenance,
+        ``archived`` and ``project_owner_id`` survive. The query is always
+        tenant-scoped. Returns True when a document was matched.
+        """
+        if not fields:
+            return False
         tenant_id = resolve_tenant_id(tenant_id)
         db = get_db()
         if db is None:
-            return []
-        # Pull all memories for the tenant; visibility is enforced in Python so
-        # we do not leak org-scoped data across tenants.
-        rows = await db[COLLECTION].find({"tenant_id": tenant_id}).to_list(length=500)
-        from app.memory.retrieval import scope_filter
-        memories = [_row_to_memory(r) for r in rows]
-        filtered = scope_filter(
-            memories,
-            viewer_id=viewer_id,
-            viewer_role=viewer_role,
-            is_workspace_member=is_workspace_member,
-            viewer_org_id=viewer_org_id,
+            return False
+        result = await db[COLLECTION].update_one(
+            {"memory_id": memory_id, "tenant_id": tenant_id},
+            {"$set": fields},
         )
-        # Sort: org > workspace > personal, then recency.
+        return bool(getattr(result, "matched_count", 0))
+
+    async def list_for_viewer(
+        self,
+        *,
+        viewer: MemoryViewerContext,
+        top_n: int = 20,
+    ) -> list[Memory]:
+        """Return memories visible to ``viewer`` (tenant-bounded, FR-2).
+
+        Visibility is delegated to ``scope_filter``/``visible_to`` with the
+        server-built ``MemoryViewerContext``; no scattered identity kwargs.
+        """
+        from app.memory.retrieval import scope_filter
+
+        tenant_id = resolve_tenant_id(viewer.tenant_id)
+        db = get_db()
+        if db is None or not viewer.is_valid:
+            return []
+        rows = await db[COLLECTION].find({"tenant_id": tenant_id}).to_list(length=500)
+        memories = [_row_to_memory(r) for r in rows]
+        filtered = scope_filter(memories, viewer=viewer)
+        # Sort: department > project > personal, then recency.
         weight = {
-            MemoryScope.ORG.value: 3,
-            MemoryScope.WORKSPACE.value: 2,
+            MemoryScope.DEPARTMENT.value: 3,
+            MemoryScope.PROJECT.value: 2,
             MemoryScope.PERSONAL.value: 1,
         }
         filtered.sort(
             key=lambda m: (weight.get(m.scope, 0), m.last_accessed_at or 0),
             reverse=True,
         )
-        return filtered[:top_n]
+        result = filtered[:top_n]
+
+        # H-2: accessing a memory resets its decay timer. lifecycle exposes
+        # ``touch(last_accessed_at, now)`` as a module function (MemoryLifecycle
+        # is a policy dataclass, not a touch() owner). Best effort: a failure
+        # here is logged only and must not block the read.
+        if result:
+            now = _now_seconds()
+            for memory in result:
+                try:
+                    memory.last_accessed_at = touch(memory.last_accessed_at, now)
+                    await self.update_fields(
+                        tenant_id=tenant_id,
+                        memory_id=memory.memory_id,
+                        last_accessed_at=memory.last_accessed_at,
+                    )
+                except Exception as exc:
+                    log_print(
+                        f"[memory.store] H-2 touch failed "
+                        f"(memory_id={memory.memory_id}): {exc}",
+                        flush=True,
+                    )
+
+        # T022: read-time lazy tier fallback slot for records missing L0.
+        missing_l0 = [m for m in result if not m.l0_summary and m.tierable]
+        if missing_l0:
+            log_print(
+                f"[memory.store] T022 lazy tier backfill: {len(missing_l0)} "
+                f"memories missing L0 (read-time summarizer not injected; "
+                f"tier_content slot invoked)",
+                flush=True,
+            )
+            for memory in missing_l0:
+                _lazy_complete_tiers(memory)
+        return result
 
     async def get(self, *, tenant_id: str, memory_id: str) -> Optional[Memory]:
         """Fetch a single memory by id within a tenant. Returns None if absent."""

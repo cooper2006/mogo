@@ -618,9 +618,16 @@ class SessionPersistenceService:
         # failure here must not undo the state change, so it is logged only.
         try:
             from app.dsh_runtime.hooks.dispatcher import dispatch_session_end
+            from app.memory.project_context import resolve_project_context
             from app.memory.sediment import ensure_registered
             from app.memory.store import MemoryStore
 
+            # E-2 / N1: the memory needs the project creator as well as the id.
+            # Ambiguous / "default" / archived projects resolve to empty, so
+            # sedimentation falls back to personal instead of leaking.
+            project_id, project_owner_id = await resolve_project_context(
+                db, tenant_id=mid, session_doc=session_doc
+            )
             ensure_registered()
             failures = await dispatch_session_end(
                 str(oid),
@@ -630,6 +637,10 @@ class SessionPersistenceService:
                     "store": MemoryStore(),
                     "owner_id": str(user_id),
                     "tenant_id": mid,
+                    "project_id": project_id,
+                    "project_owner_id": project_owner_id,
+                    # 046 legacy session value source (sediment keeps it only as
+                    # a fallback source, never as a memory field).
                     "workspace_id": str(session_doc.get("workspace_id") or ""),
                     "reason": str(reason or "user_ended"),
                 },

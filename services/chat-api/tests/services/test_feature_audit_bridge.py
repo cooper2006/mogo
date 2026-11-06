@@ -104,11 +104,19 @@ def test_015_kg_mutation_emits_event() -> None:
 
 
 def test_017_memory_promotion_emits_event() -> None:
-    from app.memory.scope import Memory, MemoryScope, promote_to_org
+    from app.memory.scope import Memory, MemoryScope, promote_to_department
+    from app.memory.viewer import FULL_ACCESS_ROLE_KEY, MemoryViewerContext
 
+    # D4: promotion is department-scoped, authorized by a server-built viewer.
+    viewer = MemoryViewerContext(
+        tenant_id="t1",
+        user_id="u1",
+        role_keys=frozenset({FULL_ACCESS_ROLE_KEY}),
+        visible_department_ids=frozenset({"d1"}),
+    )
     memory = Memory(memory_id="m-1", scope=MemoryScope.PERSONAL.value)
-    promoted = promote_to_org(memory, role="full_access_admin")
-    assert promoted.scope == "org"
+    promoted = promote_to_department(memory, viewer=viewer, department_id="d1")
+    assert promoted.scope == "department"
     # The promotion must have attempted a T999 audit emission (buffered or scheduled).
 
 

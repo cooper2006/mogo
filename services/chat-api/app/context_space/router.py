@@ -7,6 +7,10 @@ addresses raise rather than leaking data.
 
 All four roots are wired here — the address space is storage-free: routing +
 adapters + delegated visibility, no new database.
+
+D4: memory authorization takes a single server-built ``MemoryViewerContext``
+and is forwarded to 017 ``visible_to`` via ``ViewerContext.memory_viewer``;
+the address layer never re-implements it.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from app.context_space.visibility import (
     ContextVisibilityError,
     ViewerContext,
 )
+from app.memory.viewer import MemoryViewerContext
 
 # Tenant → adapter. Every root from spec 021 is wired:
 #   memory  (017) · resource (005/014/015) · skill (004/018) · session (002).
@@ -45,11 +50,8 @@ __all__ = [
 async def resolve_memory(
     uri: str,
     *,
-    tenant_id: str,
-    viewer_id: str,
-    viewer_role: str = "",
-    is_workspace_member: bool = False,
-    viewer_org_id: str = "",
+    viewer: MemoryViewerContext,
+    tenant_id: str = "",
     tier: Optional[str] = None,
     session_id: str = "",
     turn_id: str = "",
@@ -57,9 +59,12 @@ async def resolve_memory(
     """Resolve a ``mogo://`` URI into tiered content + a retrieval trace (021).
 
     The name is retained for backward compatibility; the resolver now routes all
-    four roots. Returns ``{"resolved": {...}, "trace": {...}}``. Raises
-    :class:`ContextVisibilityError` for invisible addresses and
-    :class:`ValueError` for unknown roots / malformed URIs.
+    four roots. ``viewer`` is the single server-built identity (no scattered
+    ``viewer_id`` / ``viewer_role`` / ``is_workspace_member`` / ``viewer_org_id``
+    kwargs). ``tenant_id`` is kept for the non-memory roots' coarse guard and
+    defaults to ``viewer.tenant_id``. Returns ``{"resolved": {...}, "trace":
+    {...}}``. Raises :class:`ContextVisibilityError` for invisible addresses and
+    :class:`ValueError` for unknown roots / malformed / legacy URIs.
     """
     if not uri.startswith("mogo://"):
         raise ValueError(f"not a mogo:// uri: {uri!r}")
@@ -71,18 +76,17 @@ async def resolve_memory(
     # Validate the URI shape up front (parse_context_uri raises ValueError).
     parse_context_uri(uri)
 
-    viewer = ViewerContext(
-        viewer_id=viewer_id,
-        viewer_role=viewer_role,
-        is_workspace_member=is_workspace_member,
+    tenant_id = tenant_id or viewer.tenant_id
+    ctx = ViewerContext(
+        viewer_id=viewer.user_id,
         tenant_id=tenant_id,
-        viewer_org_id=viewer_org_id,
+        memory_viewer=viewer,
     )
 
     skipped: list[dict] = []
     try:
         resolved: ResolvedTier = await adapter.resolve(
-            uri=uri, tier=tier, tenant_id=tenant_id, viewer=viewer
+            uri=uri, tier=tier, tenant_id=tenant_id, viewer=ctx
         )
     except ContextVisibilityError:
         skipped.append(skipped_entry(uri=uri, reason="visibility_denied"))

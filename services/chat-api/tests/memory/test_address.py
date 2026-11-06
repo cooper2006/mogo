@@ -1,4 +1,8 @@
-"""Tests for 017 memory address space (FR-18)."""
+"""Tests for 017 memory address space (FR-18).
+
+D4: only ``personal`` / ``project`` / ``department`` are legal scope segments;
+the retired ``workspace`` / ``org`` segments must be rejected.
+"""
 
 from __future__ import annotations
 
@@ -18,9 +22,27 @@ def test_uri_default_tier() -> None:
 
 
 def test_with_tier() -> None:
-    a = MemoryAddress("org", "u2", "m3").with_tier("L2")
+    a = MemoryAddress("department", "u2", "m3").with_tier("L2")
     assert a.tier == "L2"
     assert a.uri().endswith("/L2")
+
+
+def test_project_and_department_addresses_are_legal() -> None:
+    project = parse_memory_uri("mogo://memory/project/u1/m1/L1")
+    assert project.scope == "project"
+    assert parse_memory_uri(project.uri()) == project
+    department = parse_memory_uri("mogo://memory/department/u2/m2/L2")
+    assert department.scope == "department"
+    assert parse_memory_uri(department.uri()) == department
+
+
+@pytest.mark.parametrize("legacy_scope", ["workspace", "org"])
+def test_legacy_scope_segments_are_rejected(legacy_scope: str) -> None:
+    with pytest.raises(ValueError):
+        parse_memory_uri(f"mogo://memory/{legacy_scope}/u1/m1/L0")
+    # ``MemoryAddress.uri()`` does not validate, but parsing it back must.
+    with pytest.raises(ValueError):
+        parse_memory_uri(MemoryAddress(legacy_scope, "u1", "m1").uri())
 
 
 def test_invalid_scheme() -> None:

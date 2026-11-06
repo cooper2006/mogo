@@ -1359,16 +1359,24 @@ async def delete_session(
     # still does not silently lose the memory. The ledger keeps this from
     # double-sedimenting a session that was already ended.
     try:
+        from app.memory.project_context import resolve_project_context
         from app.memory.sediment import mark_sedimented, sediment_session_end
         from app.memory.store import MemoryStore
 
         if mark_sedimented(str(oid)):
+            # E-2 / N1: resolve (project_id, project_owner_id) from the session;
+            # an unusable project makes sediment fall back to personal (N2).
+            project_id, project_owner_id = await resolve_project_context(
+                db, tenant_id=tenant_id, session_doc=session_doc
+            )
             await sediment_session_end(
                 session_id=str(oid),
                 session_doc=session_doc,
                 store=MemoryStore(),
                 owner_id=str(user_id),
                 tenant_id=tenant_id,
+                project_id=project_id,
+                project_owner_id=project_owner_id,
                 workspace_id=str(session_doc.get("workspace_id") or ""),
             )
     except Exception as exc:  # noqa: BLE001 — sedimentation is non-fatal

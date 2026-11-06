@@ -65,6 +65,15 @@ class ResolveResponse(BaseModel):
 
 # --- in-memory trace ring (observability channel, not the 001 audit stream) ---
 
+
+def _is_legacy_memory_uri(uri: str) -> bool:
+    """D4: retired ``workspace`` / ``org`` memory segments → 404 (not 400)."""
+    prefix = "mogo://memory/"
+    if not uri.startswith(prefix):
+        return False
+    return uri[len(prefix):].split("/", 1)[0] in ("workspace", "org")
+
+
 _TRACE_RING_SIZE = 200
 # trace_id -> (tenant_id, trace). Traces are tenant-scoped: the ring is process
 # wide, so without the tenant guard any authenticated user could read back any
@@ -114,8 +123,8 @@ async def resolve_context(
         try:
             out = await resolve_memory(
                 uri,
+                viewer=viewer,
                 tenant_id=tenant_id,
-                **viewer.as_visibility_kwargs(),
                 tier=payload.tier,
                 session_id=payload.session_id,
                 turn_id=payload.turn_id,
@@ -132,6 +141,11 @@ async def resolve_context(
             )
             continue
         except ValueError as exc:
+            # D4: a retired ``workspace`` / ``org`` memory address maps to 404
+            # (never leaked). Other malformed / unknown roots stay a 400 client
+            # error, matching the 021 HTTP contract.
+            if _is_legacy_memory_uri(uri):
+                raise HTTPException(status_code=404, detail=str(exc))
             raise HTTPException(status_code=400, detail=str(exc))
         except Exception as exc:  # noqa: BLE001 — never leak internals
             log_print(f"[api.endpoints.context_space] silent exception caught: {exc}", flush=True)

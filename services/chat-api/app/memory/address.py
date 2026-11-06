@@ -7,6 +7,10 @@ context-address convention defined in spec 021::
 
 Only the ``memory`` root lives here; ``resource`` / ``skill`` / ``session``
 roots are owned by their respective specs and resolved by the 021 router.
+
+D4: the scope segment is exactly ``personal`` / ``project`` / ``department``.
+Old ``workspace`` / ``org`` segments are rejected with ``ValueError`` (the HTTP
+layer maps that to 404); there is no runtime alias or normalization.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from urllib.parse import quote, unquote
 SCHEME = "mogo"
 ROOT = "memory"
 VALID_TIERS: Tuple[str, ...] = ("L0", "L1", "L2")
-VALID_SCOPES: Tuple[str, ...] = ("personal", "workspace", "org")
+VALID_SCOPES: Tuple[str, ...] = ("personal", "project", "department")
 
 
 @dataclass

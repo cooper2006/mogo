@@ -301,6 +301,10 @@ class Settings(BaseSettings):
     # 30-day decay default); and the hard cap on non-tierable content.
     MEMORY_SUMMARY_REFRESH_DAYS: int = 30
     MEMORY_L2_HARD_MAX_BYTES: int = 1_000_000
+    # 017 FR-8 / H-1: the startup decay sweep used to hard-code 30 days.
+    # ``cleanup`` accepts ``archive`` (default, non-destructive) or ``delete``.
+    MEMORY_DECAY_DAYS: int = 30
+    MEMORY_DECAY_CLEANUP: str = "archive"
 
     # Object storage. STORAGE_BACKEND=oss preserves the existing enterprise
     # Aliyun OSS behavior; STORAGE_BACKEND=local stores artifacts on disk and

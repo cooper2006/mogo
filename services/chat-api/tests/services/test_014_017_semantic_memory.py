@@ -1,4 +1,8 @@
-"""014 T007 semantic search (005 client reuse + citation anchor) + 017 T010-T011 memory-in-RAG tests."""
+"""014 T007 semantic search (005 client reuse + citation anchor) + 017 T010-T011 memory-in-RAG tests.
+
+D4: memory scopes are ``personal`` / ``project`` / ``department`` and every
+visibility / retrieval entry point takes one ``viewer=`` MemoryViewerContext.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,27 @@ import pytest
 
 from app.memory.retrieval import memory_rag_candidates, promoted_memories_retrievable, scope_filter
 from app.memory.scope import Memory, MemoryScope
+from app.memory.viewer import FULL_ACCESS_ROLE_KEY, MemoryViewerContext
 from app.services.business_semantic_index import BusinessSemanticIndex, EntityRecord
+
+TENANT = "t1"
+
+
+def _viewer(
+    user_id: str = "u1",
+    *,
+    tenant_id: str = TENANT,
+    role_keys=(),
+    project_keys=(),
+    department_ids=(),
+) -> MemoryViewerContext:
+    return MemoryViewerContext(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        role_keys=frozenset(role_keys),
+        visible_project_keys=frozenset(project_keys),
+        visible_department_ids=frozenset(department_ids),
+    )
 
 
 # --- 014 T007: entity index + semantic search with source ---------------------
@@ -98,52 +122,55 @@ def test_semantic_search_empty_query_honest_empty():
 
 def _memories() -> list[Memory]:
     return [
-        Memory(content="personal note", scope="personal", owner_id="u1", memory_id="m-personal"),
-        Memory(content="workspace plan", scope="workspace", workspace_id="w1", owner_id="u1", memory_id="m-workspace"),
-        Memory(content="org policy", scope="org", tenant_id="t1", owner_id="admin", org_id="t1", memory_id="m-org"),
-        Memory(content="other tenant org", scope="org", tenant_id="t2", owner_id="admin", org_id="t2", memory_id="m-other"),
+        Memory(content="personal note", scope="personal", owner_id="u1",
+               tenant_id=TENANT, memory_id="m-personal"),
+        Memory(content="project plan", scope="project", owner_id="u1", tenant_id=TENANT,
+               project_id="p1", project_owner_id="ownerA", memory_id="m-project"),
+        Memory(content="department policy", scope="department", owner_id="admin",
+               tenant_id=TENANT, department_id="d1", memory_id="m-department"),
+        Memory(content="other tenant department", scope="department", owner_id="admin",
+               tenant_id="t2", department_id="d1", memory_id="m-other"),
     ]
 
 
 def test_scope_filter_personal_only_owner():
     memories = _memories()
-    # u1 owns the personal memory, is a workspace member, and belongs to org t1
-    filtered = scope_filter(memories, viewer_id="u1", is_workspace_member=True, viewer_org_id="t1")
+    # u1 owns the personal memory, holds the (p1, ownerA) project key and the
+    # d1 department set.
+    viewer = _viewer("u1", project_keys=[("p1", "ownerA")], department_ids={"d1"})
+    filtered = scope_filter(memories, viewer=viewer)
     ids = {m.memory_id for m in filtered}
-    # personal (owner) + workspace (member) + org t1 (matching org_id) visible;
-    # org t2 is a different organization and must NOT be visible (R-04).
     assert "m-personal" in ids
-    assert "m-workspace" in ids
-    assert "m-org" in ids
-    assert "m-other" not in ids
+    assert "m-project" in ids
+    assert "m-department" in ids
+    assert "m-other" not in ids  # cross-tenant record must never surface
 
 
 def test_scope_filter_non_owner_cannot_read_personal():
     memories = _memories()
-    filtered = scope_filter(memories, viewer_id="u2", is_workspace_member=False)
+    filtered = scope_filter(memories, viewer=_viewer("u2"))
     ids = {m.memory_id for m in filtered}
     assert "m-personal" not in ids  # u2 is not the owner
-    # u2 is not a workspace member and not a tenant member with a viewer role:
-    # org-scope memories require a non-empty viewer; without membership the
-    # workspace memory is hidden.
-    assert "m-workspace" not in ids
+    assert "m-project" not in ids   # no matching (project_id, project_owner_id) key
+    assert "m-department" not in ids  # u2 has no visible departments
+    assert "m-other" not in ids
 
 
 def test_memory_rag_candidates_ranked_by_scope_then_recency():
     memories = [
-        Memory(content="org rule", scope="org", owner_id="a", org_id="t1", last_accessed_at=10.0, memory_id="m-org"),
-        Memory(content="ws plan", scope="workspace", owner_id="u1", last_accessed_at=20.0, memory_id="m-ws"),
-        Memory(content="my note", scope="personal", owner_id="u1", last_accessed_at=30.0, memory_id="m-p"),
+        Memory(content="department rule", scope="department", owner_id="a",
+               tenant_id=TENANT, department_id="d1", last_accessed_at=10.0,
+               memory_id="m-department"),
+        Memory(content="project plan", scope="project", owner_id="u1", tenant_id=TENANT,
+               project_id="p1", project_owner_id="ownerA", last_accessed_at=20.0,
+               memory_id="m-project"),
+        Memory(content="my note", scope="personal", owner_id="u1", tenant_id=TENANT,
+               last_accessed_at=30.0, memory_id="m-personal"),
     ]
-    candidates = memory_rag_candidates(
-        memories,
-        viewer_id="u1",
-        is_workspace_member=True,
-        viewer_org_id="t1",
-        top_n=3,
-    )
-    # org (weight 3) > workspace (2) > personal (1)
-    assert [c["memory_id"] for c in candidates] == ["m-org", "m-ws", "m-p"]
+    viewer = _viewer("u1", project_keys=[("p1", "ownerA")], department_ids={"d1"})
+    candidates = memory_rag_candidates(memories, viewer=viewer, top_n=3)
+    # department (weight 3) > project (2) > personal (1)
+    assert [c["memory_id"] for c in candidates] == ["m-department", "m-project", "m-personal"]
     assert candidates[0]["score"] > candidates[1]["score"] > candidates[2]["score"]
     for candidate in candidates:
         assert "content" in candidate
@@ -152,10 +179,12 @@ def test_memory_rag_candidates_ranked_by_scope_then_recency():
 
 def test_memory_rag_candidates_excludes_invisible():
     memories = [
-        Memory(content="someone else personal", scope="personal", owner_id="u9", memory_id="m-other"),
-        Memory(content="mine", scope="personal", owner_id="u1", memory_id="m-mine"),
+        Memory(content="someone else personal", scope="personal", owner_id="u9",
+               tenant_id=TENANT, memory_id="m-other"),
+        Memory(content="mine", scope="personal", owner_id="u1", tenant_id=TENANT,
+               memory_id="m-mine"),
     ]
-    candidates = memory_rag_candidates(memories, viewer_id="u1", top_n=5)
+    candidates = memory_rag_candidates(memories, viewer=_viewer("u1"), top_n=5)
     ids = [c["memory_id"] for c in candidates]
     assert "m-mine" in ids
     assert "m-other" not in ids
@@ -164,54 +193,56 @@ def test_memory_rag_candidates_excludes_invisible():
 # --- 017 T011 US2: promotion + decay + retrieval filter ----------------------
 
 
-def test_promoted_org_memory_retrievable_by_member():
+def test_promoted_department_memory_retrievable_by_member():
     promoted = Memory(
         content="shared guideline",
-        scope="org",
+        scope="department",
         owner_id="u1",
-        tenant_id="t1",
-        org_id="t1",
+        tenant_id=TENANT,
+        department_id="d1",
         memory_id="m-promoted",
     )
-    retrievable = promoted_memories_retrievable([promoted], viewer_id="u1", viewer_role="", viewer_org_id="t1")
+    retrievable = promoted_memories_retrievable(
+        [promoted], viewer=_viewer("u1", department_ids={"d1"})
+    )
     assert "m-promoted" in retrievable
 
 
-def test_promoted_org_memory_not_retrievable_for_other_org():
-    """R-04: a member of a different organization cannot read an org-scoped
-    memory even if it has been promoted."""
+def test_promoted_department_memory_not_retrievable_for_other_department():
     promoted = Memory(
         content="shared guideline",
-        scope="org",
+        scope="department",
         owner_id="u1",
-        tenant_id="t1",
-        org_id="t1",
+        tenant_id=TENANT,
+        department_id="d1",
         memory_id="m-promoted",
     )
-    retrievable = promoted_memories_retrievable([promoted], viewer_id="u2", viewer_role="", viewer_org_id="t2")
+    retrievable = promoted_memories_retrievable(
+        [promoted], viewer=_viewer("u2", department_ids={"d2"})
+    )
     assert "m-promoted" not in retrievable
 
 
 def test_unpromoted_memory_not_in_retrieval():
     personal = Memory(
-        content="private",
-        scope="personal",
-        owner_id="u1",
-        memory_id="m-priv",
+        content="private", scope="personal", owner_id="u1",
+        tenant_id=TENANT, memory_id="m-priv",
     )
-    # T011 US2: only org-scope promoted memories enter the shared retrieval pool
-    assert promoted_memories_retrievable([personal], viewer_id="u1") == []
+    # T011 US2: only department-scope promoted memories enter the shared pool.
+    assert promoted_memories_retrievable([personal], viewer=_viewer("u1")) == []
 
 
 def test_promotion_requires_authorized_role():
-    from app.memory.scope import MemoryAccessError, promote_to_org
+    from app.memory.scope import MemoryAccessError, promote_to_department
 
-    memory = Memory(content="note", scope="personal", owner_id="u1", memory_id="m-x")
+    memory = Memory(
+        content="note", scope="personal", owner_id="u1", tenant_id=TENANT, memory_id="m-x"
+    )
     with pytest.raises(MemoryAccessError):
-        promote_to_org(memory, role="viewer")
-    memory.scope = "personal"
-    promoted = promote_to_org(memory, role="full_access_admin")
-    assert promoted.scope == "org"
+        promote_to_department(memory, viewer=_viewer(), department_id="d1")
+    admin = _viewer(role_keys=(FULL_ACCESS_ROLE_KEY,), department_ids={"d1"})
+    promoted = promote_to_department(memory, viewer=admin, department_id="d1")
+    assert promoted.scope == MemoryScope.DEPARTMENT.value
 
 
 def test_memory_decay_and_touch():

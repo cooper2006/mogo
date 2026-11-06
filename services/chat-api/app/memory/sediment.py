@@ -13,9 +13,13 @@ exposed under ``mogo://session/...`` by the 021 address space.
 
 Integration seam
 ----------------
-``on_session_end`` is the function the 009 ``SessionEnd`` consumer should call.
-It is intentionally decoupled from the hook engine so the wire-up can land in a
-follow-up change without blocking the 017 layer itself.
+009 is wired in production: ``register_sedimentation_subscriber`` registers
+``_on_session_end_event`` at startup and ``sediment_session_end`` is the direct
+002 end-of-session / delete-fallback path. No follow-up hook-up is pending.
+
+D4: the sedimented memory carries ``project_id`` / ``project_owner_id`` /
+``department_id``. ``workspace_id`` appears **only** as a 046 session-document
+*value source* (migration-period chat_sessions field), never as a 017 field.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ import time
 from typing import TYPE_CHECKING, Optional, Protocol, Tuple
 
 from app.infrastructure.observability.config import log_print
-from app.memory.scope import resolve_default_scope
+from app.memory.scope import DEFAULT_PROJECT_ID, MemoryScope, resolve_default_scope
 
 if TYPE_CHECKING:  # avoid import-time cycle with store / scope dataclass
     from app.memory.scope import Memory
@@ -39,11 +43,19 @@ class SessionSummarizer(Protocol):
 
 
 class NoopSessionSummarizer:
-    """Default summarizer: lift the title/summary, leave L1 empty."""
+    """Write-time default: lift the title/summary into L0, leave L1 empty.
+
+    T022: guaranteed non-empty L0 (falls back to ``summary`` → ``content``),
+    so a sedimented memory is never L0-less even without an LLM summarizer.
+    """
 
     def session_tiers(self, snapshot: dict) -> Tuple[str, str]:
         title = str(snapshot.get("title") or snapshot.get("summary") or "")
         return (title, "")
+
+
+#: Stateless production default (T022: never ``None`` on the write path).
+_DEFAULT_SUMMARIZER = NoopSessionSummarizer()
 
 
 def _snapshot_raw_content(snapshot: dict) -> str:
@@ -55,6 +67,30 @@ def _snapshot_raw_content(snapshot: dict) -> str:
     return ""
 
 
+def _project_context(
+    session_doc: dict, *, project_id: str = "", workspace_id: str = ""
+) -> str:
+    """046 session value-source priority (NOT a 017 field fallback).
+
+    ``explicit project_id`` → ``session_doc.project_id`` →
+    ``session_doc.workspace_id`` (046 migration-period *session* field) →
+    ``workspace_id`` (payload-carried session value) → empty.
+
+    This resolves where the project context is *read from*; it never reads a
+    legacy field off a 017 memory document (D4 forbids that).
+    """
+    for candidate in (
+        project_id,
+        session_doc.get("project_id"),
+        session_doc.get("workspace_id"),
+        workspace_id,
+    ):
+        value = str(candidate or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def build_session_memory(
     *,
     session_id: str,
@@ -62,18 +98,21 @@ def build_session_memory(
     scope: str,
     owner_id: str,
     tenant_id: str,
-    workspace_id: str = "",
+    project_id: str = "",
+    project_owner_id: str = "",
     l0_summary: str = "",
     l1_overview: str = "",
-    summarizer: Optional[SessionSummarizer] = None,
+    summarizer: Optional[SessionSummarizer] = _DEFAULT_SUMMARIZER,
     # 0 → let MemoryStore apply the configured MEMORY_SUMMARY_REFRESH_DAYS.
     summary_refresh_days: int = 0,
 ) -> dict:
     """Build the persisted field set of a session-sedimented memory (FR-5/FR-19).
 
-    Returns a kwargs dict ready for :meth:`MemoryStore.save`.
+    Returns a kwargs dict ready for :meth:`MemoryStore.save`. T022: a write-time
+    summarizer is always injected, so ``l0_summary`` is generated when missing.
     """
-    if not l0_summary and summarizer is not None:
+    summarizer = summarizer or _DEFAULT_SUMMARIZER
+    if not l0_summary:
         l0_summary, l1_overview = summarizer.session_tiers(
             {"content": content, "title": "", "summary": l0_summary or content}
         )
@@ -82,7 +121,8 @@ def build_session_memory(
         "scope": scope,
         "owner_id": owner_id,
         "tenant_id": tenant_id,
-        "workspace_id": workspace_id,
+        "project_id": project_id,
+        "project_owner_id": project_owner_id,
         "l0_summary": l0_summary,
         "l1_overview": l1_overview,
         "tierable": True,
@@ -98,31 +138,39 @@ async def on_session_end(
     session_id: str,
     snapshot: dict,
     store: "MemoryStore",
-    summarizer: Optional[SessionSummarizer] = None,
+    summarizer: Optional[SessionSummarizer] = _DEFAULT_SUMMARIZER,
     multi_user_session: bool = False,
     owner_id: str = "",
     tenant_id: str = "",
-    workspace_id: str = "",
+    project_id: str = "",
+    project_owner_id: str = "",
 ) -> Optional["Memory"]:
     """Sediment a 002 session into a 017 tiered memory on ``SessionEnd``.
 
     Returns the saved :class:`Memory`, or ``None`` when sedimentation is skipped
-    (empty snapshot with no usable title/content). This is the seam the 009
-    ``SessionEnd`` consumer invokes.
-
-    Async because :meth:`MemoryStore.save` is async (motor write must be awaited).
+    (empty snapshot with no usable title/content). Async because
+    :meth:`MemoryStore.save` is async (motor write must be awaited).
     """
     content = _snapshot_raw_content(snapshot)
     if not content:
         return None
-    scope = str(snapshot.get("scope") or resolve_default_scope(multi_user_session=multi_user_session))
+    # N2/E-4: the 049 tenant-wide "default" row is not a usable project context.
+    has_project_context = bool(project_id and project_id != DEFAULT_PROJECT_ID)
+    default_scope = resolve_default_scope(
+        multi_user_session=multi_user_session,
+        has_project_context=has_project_context,
+    )
+    scope = str(snapshot.get("scope") or default_scope)
+    if scope == MemoryScope.PROJECT.value and not has_project_context:
+        scope = MemoryScope.PERSONAL.value
     fields = build_session_memory(
         session_id=session_id,
         content=content,
         scope=scope,
         owner_id=owner_id,
         tenant_id=tenant_id,
-        workspace_id=workspace_id,
+        project_id=project_id,
+        project_owner_id=project_owner_id,
         summarizer=summarizer,
     )
     return await store.save(**fields)
@@ -148,22 +196,26 @@ async def sediment_session_end(
     store: "MemoryStore",
     owner_id: str,
     tenant_id: str,
-    workspace_id: str = "",
-    summarizer: Optional[SessionSummarizer] = None,
+    project_id: str = "",
+    project_owner_id: str = "",
+    summarizer: Optional[SessionSummarizer] = _DEFAULT_SUMMARIZER,
     emit_hook: bool = False,
+    # 046 session value source only (NOT a 017 field, never persisted as one).
+    # Range-outside callers (app/api/endpoints/sessions.py) still pass the
+    # 046 chat_sessions.workspace_id value under this key.
+    workspace_id: str = "",
 ) -> Optional["Memory"]:
     """Wire 009 ``SessionEnd`` → 017 tiered memory (FR-5/FR-20 + 002 binding).
 
-    ``session_doc`` is a ``chat_sessions`` document; we derive the snapshot and
-    call :func:`on_session_end` to sediment a layered memory.
+    ``session_doc`` is a ``chat_sessions`` document; the project context is
+    resolved with the 046 value-source priority in :func:`_project_context`.
 
-    ``emit_hook`` is now **off by default**: this function *is* the ``SessionEnd``
-    consumer, so emitting the event here would re-enter the sedimentation loop.
-    It stays available for callers that legitimately want to notify other 009
-    subscribers, but the 002 end-of-session path should call this directly (or
-    rely on :func:`app.dsh_runtime.hooks.dispatcher.dispatch_session_end`, which
-    reaches this function through the subscriber registry).
+    ``emit_hook`` is off by default: this function *is* the ``SessionEnd``
+    consumer, so emitting the event here would re-enter the loop.
     """
+    resolved_project_id = _project_context(
+        session_doc, project_id=project_id, workspace_id=workspace_id
+    )
     snapshot = {
         "title": str(session_doc.get("title") or ""),
         "summary": str(session_doc.get("summary") or ""),
@@ -186,10 +238,10 @@ async def sediment_session_end(
         multi_user_session=multi_user,
         owner_id=owner_id,
         tenant_id=tenant_id,
-        workspace_id=workspace_id,
+        project_id=resolved_project_id,
+        project_owner_id=project_owner_id,
     )
     if emit_hook and result is not None:
-        # Notify other 009 subscribers (this function is *not* one of them).
         try:
             from app.dsh_runtime.hooks.dispatcher import dispatch_session_end
 
@@ -203,10 +255,6 @@ async def sediment_session_end(
                 },
             )
         except Exception as exc:
-            # Notification is best-effort; sedimentation already succeeded. Log it
-            # anyway — a swallowed trace here is indistinguishable from "no
-            # subscriber was registered", which is exactly the failure mode that
-            # made the 009 seam look wired while doing nothing.
             log_print(
                 f"[memory.sediment] SessionEnd notification failed "
                 f"(session_id={session_id}, memory_id={result.memory_id}): {exc}",
@@ -218,20 +266,20 @@ async def sediment_session_end(
 # --- 009 subscriber registration ------------------------------------------
 #
 # Registering here (module import side effect) is what makes the 009 → 017
-# seam real: ``dispatch_session_end(...)`` now reaches this sedimentation, where
-# before the emitted payload had no consumer at all. The handler rehydrates the
-# session snapshot from the payload, so subscribers only need to send ids.
+# seam real: ``dispatch_session_end(...)`` reaches this sedimentation. The
+# handler rehydrates the session snapshot from the payload, so subscribers
+# only need to send ids.
 
 #: Sessions already sedimented, so a repeated SessionEnd (e.g. delete after end)
 #: does not create a duplicate memory.
 #:
 #: Accepted risk (2026-10-06 R2 遗留建议 #3): this ledger is in-process memory.
 #: In a multi-replica deployment, replicas cannot see each other's claims, so a
-#: SessionEnd delivered to two replicas could each create a memory.  The risk is
+#: SessionEnd delivered to two replicas could each create a memory. The risk is
 #: mitigated by the second line of defence — ``end_session`` itself is idempotent
 #: (it checks ``ended_at`` before acting) — so the duplicate memory is a
-#: cosmetic duplication, not a data-loss or corruption.  If the hook consumer
-#: ever scales to multiple replicas, migrate this ledger to Redis/DB.
+#: cosmetic duplication, not data loss. If the hook consumer ever scales to
+#: multiple replicas, migrate this ledger to Redis/DB.
 _SEDIMENTED: set[str] = set()
 
 
@@ -252,8 +300,11 @@ async def _on_session_end_event(payload) -> None:
     """009 ``SessionEnd`` subscriber → sediment the session (FR-5/FR-20).
 
     Expected payload keys: ``session_id`` (required), ``session_doc``,
-    ``store``, ``owner_id``, ``tenant_id``, ``workspace_id``, ``summarizer``.
-    Missing ``store`` means the emitter wanted notification only, so we skip.
+    ``store``, ``owner_id``, ``tenant_id``, ``project_id`` /
+    ``project_owner_id``, ``summarizer``. ``workspace_id`` is accepted as a 046
+    session value source for range-outside emitters. Missing ``store`` means
+    notification only, so we skip. Sedimentation failure is logged, never
+    allowed to block the session end.
     """
     data = getattr(payload, "payload", None) or {}
     session_id = str(data.get("session_id") or "").strip()
@@ -262,15 +313,24 @@ async def _on_session_end_event(payload) -> None:
         return
     if not mark_sedimented(session_id):
         return
-    await sediment_session_end(
-        session_id=session_id,
-        session_doc=dict(data.get("session_doc") or {}),
-        store=store,
-        owner_id=str(data.get("owner_id") or getattr(payload, "actor", "") or ""),
-        tenant_id=str(data.get("tenant_id") or ""),
-        workspace_id=str(data.get("workspace_id") or ""),
-        summarizer=data.get("summarizer"),
-    )
+    try:
+        await sediment_session_end(
+            session_id=session_id,
+            session_doc=dict(data.get("session_doc") or {}),
+            store=store,
+            owner_id=str(data.get("owner_id") or getattr(payload, "actor", "") or ""),
+            tenant_id=str(data.get("tenant_id") or ""),
+            project_id=str(data.get("project_id") or ""),
+            project_owner_id=str(data.get("project_owner_id") or ""),
+            workspace_id=str(data.get("workspace_id") or ""),
+            summarizer=data.get("summarizer") or _DEFAULT_SUMMARIZER,
+        )
+    except Exception as exc:
+        log_print(
+            f"[memory.sediment] SessionEnd sedimentation failed "
+            f"(session_id={session_id}): {exc}",
+            flush=True,
+        )
 
 
 def register_sedimentation_subscriber() -> bool:
@@ -297,8 +357,6 @@ def ensure_registered() -> None:
     try:
         register_sedimentation_subscriber()
     except Exception as exc:
-        # 009 runtime absent — sedimentation stays callable directly. Logged so a
-        # missing dispatch loop is diagnosable rather than silent.
         log_print(
             f"[memory.sediment] 009 subscriber registration skipped "
             f"(runtime unavailable): {exc}",
