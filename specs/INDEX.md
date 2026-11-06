@@ -6,6 +6,7 @@
 > **017（three-scope-memory）与 021（unified-context-address）** 在 2026-10-05 优化轮完整实现：
 > 密度轴 L0/L1/L2、渐进检索、`mogo://` 统一地址空间、四根适配器（memory/resource/skill/session）、
 > 会话沉淀接线 —— 均已通过测试（2146 + 433 + 22 = 2601 项全绿，2026-10-05 基线）并具备生产接线。
+> **📌 当前状态说明（2026-11-06，v3 / D4）**：上面三行的「完整实现 / 具备生产接线」为 **2026-10-05 历史快照**，仅指当时的文档与优化轮代码，不代表当前验收状态。按 v3 当前口径，**017 为 B0 / B1 已落地、B2–B7 进行中（尚未全部验收）**；范围轴已由 `workspace/org` **直接改名**为 `project/department`、**无运行时兼容层**（D4）。021 生产入口以 `POST /api/v1/context/resolve` 为准。详见下方 017 行、`specs/017-three-scope-memory/` 与 `contracts/memory-context-contract.md`。
 > **2026-10-11 补充**：QualityForge 审计修复新增 022–026 共 5 个质量加固特性（安全/可观测性/部署/API/性能），
 > 各含 spec + plan + tasks + quickstart 四件套（共 20 份文档，5530 行），覆盖 283 个 P0/P1 缺陷。
 > 本文件下方的 spec/plan/checklist/tasks 计数已同步至该口径。
@@ -65,7 +66,7 @@
 | 014 | business-semantic-index | 清单 10 | P2 | ✅ | ✅ |
 | 015 | knowledge-graph-layer | 清单 11 | P2 | ✅ | ✅ |
 | 016 | skill-market-hardening | 清单 12（市场强化部分） | P2 | ✅ | ✅ |
-| 017 | three-scope-memory（叠加密度轴 L0/L1/L2 + 检索轨迹 + 会话结合，详见 021） | 清单 13 | P2 | ✅ | ✅ |
+| 017 | three-scope-memory（叠加密度轴 L0/L1/L2 + 检索轨迹 + 会话结合，详见 021）。**依赖 049 项目成员 + ADR-9**；**状态：B0/B1 已落地，B2–B7 进行中**。目标态 `workspace/org → project/department` 直接改名、无运行时兼容层（D4），部门可见性含后代不含祖先（D3）、`default` 项目隔离（N2）、`project_owner_id` 消歧（N1）、C-7 成员变更审计首期必做；项目成员与管理端项目管理由 049 提供、017 只消费。**v3 设计文档**：[`design-2026-11-05-project-department-scopes.md`](./017-three-scope-memory/design-2026-11-05-project-department-scopes.md)；**发布手册**：[`rollout-017-d4-cutover.md`](./017-three-scope-memory/rollout-017-d4-cutover.md)；规格与验收：[`spec.md`](./017-three-scope-memory/spec.md) | 清单 13 | P2 | ✅ | ✅ |
 | 021 | unified-context-address（统一上下文地址空间：memory/resource/skill/session 四根 + 检索轨迹 + 委托式鉴权） | 优化 017 引出（OpenViking 思路） | P2 | ✅ | ✅ |
 | 018 | capability-asset-registration | 清单 14 | P2 | ✅ | ✅ |
 | 019 | harness-elastic-config | 清单 15 | P2 | ✅ | ✅ |
@@ -286,7 +287,7 @@
 | 014 business-semantic-index | 12/15 | 4 类实体+schema 可配、定时拉取、联查键、来源三级、首期 CRM、PII 走 001、数据源不可用、全量首刷、对齐失败降级、副本延迟标注 | 014↔005/015/001 |
 | 015 knowledge-graph-layer | 12/15 | 实体/关系类型、跳语义+3 跳、三类约束、查询入口、迁移阈值、断裂判定、合并策略、防环、低置信门槛、矛盾不阻断、融合裁决 | 015↔005/014/001 |
 | 016 skill-market-hardening | 13/15 | 异常口径、打分权重、租户灰度、降权行为、效果分口径、20% 回滚、0.4/7天、数据源、最小样本、稳定版本、恢复路径、多版本归集 | 016↔004/011 |
-| 017 three-scope-memory | 12/15 | Workspace 粒度、默认策略、授权角色、衰减口径、三级可见性、001 治理点、离职处置、超限拒绝、多范围各存、检索过滤；**2026-10-05 优化轮新增密度轴（L0/L1/L2）+ 渐进检索 + mogo:// 地址 + 会话分层沉淀**，接 021 | 017↔005/002/006/021 |
+| 017 three-scope-memory | 12/15 | Workspace 粒度、默认策略、授权角色、衰减口径、三级可见性、001 治理点、离职处置、超限拒绝（旧版口径，v3 已改为超长优先分层）、多范围各存、检索过滤；**2026-10-05 优化轮新增密度轴（L0/L1/L2）+ 渐进检索 + mogo:// 地址 + 会话分层沉淀**，接 021 | 017↔005/002/006/021 |
 | 018 capability-asset-registration | 12/15 | 契约四段、扫描目标、3 态、owner 粒度、自动/人工分工、多对多 skill_refs、下线审批、旧版可查、去重键、视图下钻、owner 转移 | 018↔004/012/001 |
 | 019 harness-elastic-config | 13/15 | 厚/薄层集合、三维 profile、审计粒度+超时、默认厚、优先级、可省/不可省、最小审计四元组、工具调用级生效、配置权、过渡挂载、中途切换 | 019↔001/009 |
 | 021 unified-context-address | 4/4 | 统一 mogo:// 寻址、TierAdapter 接口、委托式可见性、统一检索轨迹；首期 tenant=memory（接 017），resource/skill/session 按节奏接入 | 021↔017/002/009/005/014/015/004/018 |

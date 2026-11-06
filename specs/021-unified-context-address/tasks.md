@@ -11,7 +11,7 @@
 - [x] T001 实现 URI 路由器（mogo:// 解析 + 未知根报错 + 路由到适配器）—— `router.py` 已实现并通过 `test_context_space.py`。
 - [x] T002 定义 TierAdapter 接口（base.py: `ResolvedTier` + `resolve`）—— 已实现。
 - [x] T003 实现统一检索轨迹（trace.py：schema + 绑定 session/turn）—— 已实现，并接入 `adapters.knowledge_search` 真实 RAG 路径（`memory_retrieval_trace`）。
-- [x] T004 实现委托式可见性解析（visibility.py：调各后端检查，静默裁剪）—— 已实现 `check_visibility` 委托 017 `visible_to`。
+- [x] T004 实现委托式可见性解析（visibility.py：调各后端检查，静默裁剪）—— 已实现 `check_visibility` 委托 017 `visible_to(memory, MemoryViewerContext)`（v3 唯一判据：`ViewerContext.memory_viewer` 原样转发服务端上下文，缺 `memory` / 缺 `memory_viewer` fail-closed；地址层只委托不重写）。scope 段为 `personal/project/department`，旧 `workspace` / `org` 段运行时 404。
 
 ## Phase 2: 首期 tenant（memory，接 017）
 

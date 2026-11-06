@@ -163,6 +163,8 @@ analytics 的 token 用量下钻（`groupBy=user_request|session` 列表与 `GET
 - **与 042（三级配额，已实现/整合方案 §4.11）**：042 的项目级配额消耗计量与本特性**共用同一数据源**（`token_usage_logs` + 归属链路）。本特性只做关系声明——**不在本特性实现配额**（Non-Goals）；反向声明：042 的"项目"直接复用本特性的 `project_id` 埋点与五段归集，不再维护独立的 `quota_projects` 成员语义（按 ADR-8 D0 收敛）。
 - **与 ADR-8（项目概念的唯一依据）**：项目 = 工作目录（`workspace_id`），默认项目 `"default"`，`desktop_projects` 改名 `projects`。~~原"空间维度与 017 记忆 scope / 021 `mogo://` 语义同源"的说法作废~~：017 的 workspace scope 声明存在但空转，021 的 `mogo://` 是上下文地址而非归集主体，二者都不能作为项目维度的语义依据。
 
+> **历史作废记录注（2026-11-06）**：上文本节与「已定决策」表第 2 项关于「017 的 workspace scope 空转」为历史作废记录；017 v3 已改名 `project/department`，但「不作成本归集依据」结论仍成立。
+
 ## 判定口径补充（2026-10-23，/speckit-checklist 回填；2026-10-30 修订）
 
 - ~~**R-1 业务线标记的维护**~~ **（已作废，2026-10-30）**：`org_units.is_business_line` 从未有写入路径，业务线维度取消。原 R-1 声称"经既有组织单元写入路径维护"与代码不符（`column_map.py`、`directory.py` payload、`ensure_root_department` 均无该字段）。**后续不得重新引入该字段。**

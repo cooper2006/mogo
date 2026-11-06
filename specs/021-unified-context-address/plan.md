@@ -37,8 +37,9 @@ services/chat-api/app/context_space/
 
 ## 现有挂载点依据
 
-- memory 根：017 `app.memory.address`（FR-17/FR-18），首期唯一接入
-- 委托可见性：017 `visible_to` / 005 `retrieval_access_policy` / 014 `bizdata:read` / 015 `kg:read` / 004 角色授权 / 002 会话参与者
+- memory 根：017 `app.memory.address`（FR-17/FR-18），首期唯一接入；`mogo://memory/<personal|project|department>/...` 的 scope 段仅三新值（D4 直接改名，旧 `workspace` / `org` 段运行时 404）
+- 委托可见性：**memory → 017 `visible_to(memory, MemoryViewerContext)`（唯一判据，地址层只委托不重写）** / 005 `retrieval_access_policy` / 014 `bizdata:read` / 015 `kg:read` / 004 角色授权 / 002 会话参与者
+- `ViewerContext.memory_viewer` 原样转发服务端构造的 `MemoryViewerContext`（`tenant_id` / `user_id` / `role_keys` / `primary_department_id` / `visible_department_ids` / `visible_project_keys` / `active_project_id` / `session_participants`）；缺 `memory` 或缺 `memory_viewer` fail-closed，不从请求体自报身份
 - 轨迹落点：复用 chat-api 既有 observability（具体通道由 008 ops-dashboard 承接可视化）
 - 会话生命周期：009 `SessionStart`/`SessionEnd` 钩子
 

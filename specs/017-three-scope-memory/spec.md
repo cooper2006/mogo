@@ -6,7 +6,7 @@
 
 **Status**: **Design Baseline — 决策已闭环**（v3 修订稿，2026-11-06）
 
-**B1 落地状态**: ✅ 已完成并通过回归（见 §9）。本轮同时落地了 P0 身份解析修复；范围改名（D4）尚未执行，仍在维护窗口内一次性切换。
+**落地状态**: ✅ B0/B1 已推送；B2–B4 代码已落地并通过本地回归（**尚未发布**）；B5 部分、B6 仅产出脚本/手册、B7 文档已同步。范围改名（D4）的代码替换已完成，但**必须与数据迁移在同一维护窗口原子切换**后才能上线，见 §9 与 `rollout-017-d4-cutover.md`。
 
 **权威设计来源**: [`design-2026-11-05-project-department-scopes.md`](./design-2026-11-05-project-department-scopes.md)（v3，含数据流 §5、业务流 §6、双端功能 §7、可见性算法 §4、迁移 §10、验收 §11）。本文件是**规格与验收口径**；详细算法、字段、接口载荷以设计文档为准，冲突时以设计文档 v3 为准。
 
@@ -252,9 +252,19 @@ P0 = 前置 / 不修不可用；P1 = 目标态核心；P2 = 治理增强。标�
 | **SC-14** | **（C-7）** 成员变更事件在 `/audit` 两个 module 可查、payload 含 diff 与 actor；只改 `title`/`status` 或 diff 为空不发；审计桥异常时 PATCH 仍成功且响应码不变；049 既有语义回归全绿 |
 | **SC-15** | **（D4）** 全仓旧字面量仅残留在迁移脚本与历史说明；`memories` 中旧 scope / 旧字段 0 条；写入旧 scope、请求旧字段、解析旧地址分别 400 / 400 / 404；M1 与 M2 在同一维护窗口完成，`--reverse` 演练通过 |
 
-## 9. 落地状态（2026-11-06，B1 已完成）
+## 9. 落地状态（2026-11-06）
 
-**已落地（本轮）** — 对应 `tasks.md` B1：
+> 详细的逐任务勾选、证据与未执行原因见 `tasks.md`。本节只记录规格级结论。
+
+**B2–B4 代码已落地（本轮，尚未发布）**：范围模型改为 `personal / project / department`，`MemoryViewerContext` 补齐 A-1 目标态字段，`visible_to(memory, viewer)` 成为唯一判据；N1 的 `(project_id, project_owner_id)` 二元组与 N2 的 `default` 隔离已强制，且**结构性不完整记录对 admin 也不可见**；D3 部门后代展开、写时摘要注入、promote 增量 `$set`、检索 `skipped` 归因、地址新段与旧段 404 均已接线；新增 `app/memory/project_context.py` 让两处会话沉淀调用点反查项目创建者。admin `/memories` 治理页 + admin-api 治理端点 + user「我的记忆」双 Tab 均已落地，跨端分页/错误语义/PATCH/promote 四处硬伤已修复，两端 `vue-tsc` 0 错误。
+
+**B5 / B6 / B7 部分落地**：C-7 成员变更审计（049 钩子 + 白名单 + 规格同步 + 13 例回归）、`MEMORY_DECAY_DAYS` 配置注入与 `touch` 接线、迁移脚本（S1–S7、dry-run/`--apply`/`--reverse`/`--self-test`）与发布/回滚手册、周边 SDD 全量同步均已完成。**未执行**：普通用户提升审批状态机（T035）、离职/删号的显式失效逻辑（T037 部分）、D4 切换演练与 `--reverse` 对账（T042）、049 手工回归（T043）、M4 清理（T045）、双端真实 E2E 与全链路集成用例（T031/T025/T046）。
+
+**⚠️ 发布闸门（D4 / J-6 / R15）**：上述 B2–B4 代码**不得单独发布**，必须与 `scripts/migrate_017_scopes.py --apply` 在同一维护窗口原子切换，切换期间冻结写入、不得新旧实例并存；回滚必须「代码回退 + `--reverse`」成对执行。详见 `rollout-017-d4-cutover.md`。
+
+**实测基线**：chat-api 相关 275 passed、admin-api 治理端点 35 passed、双端 `vue-tsc` exit 0、迁移脚本 `--self-test` 通过、两服务 `compileall` 通过。
+
+**已落地（B1，已随提交 `91bf82d8` 推送 `mogo/main`）**：
 
 - 新增 `app/memory/viewer.py`：`MemoryViewerContext` + `build_viewer_context()` + `resolve_viewer_context()` + `resolve_viewer_from_identity()` + 三个 fail-closed 查询（006 角色 / 049 项目成员 / `end_users.primary_org_id`）。**B1 版本字段**：`tenant_id` / `user_id` / `role_keys` / `viewer_org_id` / `visible_workspace_ids`；A-1 的 `visible_department_ids` / `visible_project_keys` / `active_project_id` / `session_participants` 由 B2 补齐。
 - 修复 §7 A-2 / A-3 / A-6 的生产路径：`api/endpoints/memory.py` 四个端点、`api/endpoints/context_space.py` 两个端点全部改走统一上下文；不再读取 auth 字典里不存在的 `user_id` / `role` / `is_workspace_member`。
@@ -263,7 +273,7 @@ P0 = 前置 / 不修不可用；P1 = 目标态核心；P2 = 治理增强。标�
 - 回归测试：`test_memory_endpoints.py` 改为**真实 auth 契约**夹具并新增 7 个越权 / 角色 / 成员用例；新增 `test_memory_viewer.py`（15 例）与 `test_rag_viewer_wiring.py`（2 例）；`test_context_endpoints.py` 同步改契约并新增透传断言。
 - 实测：`tests/memory` + `tests/context_space` + 两个 `knowledge_search` 用例文件 **171 passed**；交叉回归 `tests/enterprise_capabilities/runtime` + `test_knowledge_graph.py` + `test_a2a.py` **81 passed**；`compileall` 通过。
 
-**未落地**（B2 起，见 `tasks.md`）：D4 范围改名与迁移（必须与数据迁移在同一维护窗口原子切换）、`visible_project_keys` 二元组与 N1/N2、部门集合展开（D3）、双端页面、C-7 审计钩子、生命周期与离职处置、promote 增量 `$set`、写时摘要注入。
+> 上列 B1 条目记录的是**当时的过渡形态**：`viewer_org_id` / `visible_workspace_ids` 与 `visible_to` 的散参数签名均已在 B2 按 D4 全量替换，现状以本节开头与 `app/memory/{scope,viewer}.py` 为准。
 
 ## 10. Non-Goals
 

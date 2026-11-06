@@ -104,6 +104,7 @@
 - **FR-008**: `PUT /projects/{id}/policy` / `DELETE /projects/{id}/policy` MUST 对真实项目 id 生效（`_require_project` 改查 `projects`）；404 语义：项目不存在或已 archived。
 - **FR-009**: 用量/成本段（admin「项目管理」的 `projects-with-usage`）MUST 按项目聚合 `token_usage_logs`（`project_id = 项目 id`，现有实现），口径不变；新增"成员数"列。
 - **FR-010**: 迁移期读兼容（046 FR-011 延续）：`member_user_ids` 缺失时按"仅创建者"处理（现状），**MUST NOT** 把缺失解释为"所有人"。
+- **FR-011（成员变更审计）**：`PATCH /api/v1/projects/{id}` 在 `member_user_ids` 发生 diff 后 MUST 落 001 审计：新增成员 → `project.member.granted`、移除成员 → `project.member.revoked`，`feature="049"`，一次 PATCH 最多两条；document 至少含 `project_id` / `project_owner_id` / `added` / `removed` / `resulting_member_count` / `occurred_at`，并以 `emit_feature_event(..., tenant_id=, actor=)` 带上操作者与租户；只改 `title` / `status` 或 diff 为空不发事件；审计桥异常只留观测日志、**绝不阻断 PATCH、不改变响应码/响应结构**。**归属与约束**：本 FR **由 017 C-7 引入**（见 `specs/017-three-scope-memory/design-2026-11-05-project-department-scopes.md` §9.4 事件契约 / R16 / SC-14），钩子落在 049 的 `patch_project` 端点上；**后续 049 迭代重构 `patch_project` 时不得覆盖或删除该钩子**，也不得漏改 `FEATURE_AUDIT_EVENTS` 的 `"049"` 白名单分组（否则 `record_feature_event` 会抛 `ValueError`）。本 FR 不改变 FR-001/FR-002 的创建者鉴权、去空去重、500 上限、`default` 400 与响应结构。
 
 ### Non-Goals
 

@@ -33,6 +33,8 @@
 >
 > 详细依据与整改批次见 `specs/035-cost-attribution/review-2026-10-30-dimension-source-audit.md` §6/§7.2/§9。
 >
+> **与 017 的口径分界（v3，2026-11-06）**：042 的「直接成员」是**计量口径**（部门/项目层用量按 `end_user_org_relations` 直接成员聚合、不做子树聚合，见 FR-002 / R-3 / R-5），017 的部门可见性是**授权口径**（D3：所在部门 + 全部后代、不含祖先）。两者用途不同，**不得互相替代**——017 的 `visible_department_ids` 不得复用 042 `_scope_members`，042 的限额也不得据 017 的可见集合反推。
+>
 > **背景事实（代码级核实）**：`services/chat-api/app/core/quota_policy.py`（`services/admin-api/app/core/quota_policy.py` 为同名副本）现有集合 `org_quota_policies` / `user_quota_policies` / `user_quota_overrides` / `user_token_allocation_logs`（L11-18）；`scope_type` 现仅 org/user（`resolve_user_policy` L137-149、`sum_active_overrides` L152-168）；双层扣减取最小 `remaining = max(0, min(user_total - user_used, org_total - org_used))`（L266）；`grep scope_type.*(team|project|space)` 全仓无匹配；001 配额层复用该体系（`services/admin-api/app/governance/layers/quota.py` docstring L1-16 明示"001 配额层复用 020 配额体系"，`default_credit_checker` L31-54 调 `get_quota_summary`）；默认不限额为 020 decision 12（`services/admin-api/app/services/setup_quota.py` L37-47 `unlimited` 语义 + `quota_policy.py` L183-197 / L245-265 短路）。
 
 ## 定位（一句话）

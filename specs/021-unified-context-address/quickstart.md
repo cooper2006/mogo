@@ -25,13 +25,13 @@ from app.context_address.address_space import ContextAddressSpace
 addr = ContextAddressSpace()
 
 # 解析任一 mogo:// URI
-result = await addr.resolve("mogo://memory/workspace/u1/mem-123/L1")
+result = await addr.resolve("mogo://memory/project/u1/mem-123/L1")
 # result.backend → "017-three-scope-memory"
 # result.payload → (l0, l1, l2, tierable, provenance)
 
 # 各类型根
 uris = [
-    "mogo://memory/<scope>/<owner_id>/<memory_id>/[L0|L1|L2]",      # 017
+    "mogo://memory/<personal|project|department>/<owner_id>/<memory_id>/[L0|L1|L2]",  # 017
     "mogo://resource/doc/<tenant_id>/<document_id>/<chunk_id>",     # 005
     "mogo://resource/biz/<system>/<entity_type>/<record_id>",       # 014
     "mogo://resource/kg/<node_id>",                                  # 015
@@ -46,6 +46,8 @@ try:
 except AddressError:
     pass
 ```
+
+> **D4 地址段口径（v3，2026-11-06）**：017 `memory` 根的地址段值域仅 `personal | project | department`；旧 `workspace` / `org` 段由 `parse_memory_uri()` 抛 `ValueError`，HTTP 端点映射 **404**（视为不存在、不泄露，见 `contracts/memory-context-contract.md` 与 `services/chat-api/app/api/endpoints/context_space.py`）。上表 `mogo://skill/<org_id>/...` 的 `org_id` 是 004/018 skill 根的**租户标识**（与部门无关），不属于 017 范围轴，按原样保留。
 
 **验证**：给定 URI→路由到对应后端并解析；未知根→报错不静默；解析不触发数据复制（虚拟路由）。
 
@@ -65,7 +67,7 @@ candidates = await addr.retrieve(
 
 # 显式请求 L2
 detail = await addr.detail(
-    uri="mogo://memory/workspace/u1/mem-123/L2",
+    uri="mogo://memory/project/u1/mem-123/L2",
     layer="L2",
 )
 # detail.content → L2 详细内容
@@ -85,7 +87,7 @@ results = await addr.retrieve(
 )
 
 # 各后端可见性：
-# memory → 017 visible_to（personal/workspace/org）
+# memory → 017 visible_to(memory, MemoryViewerContext)（记忆 scope 值域：personal / project / department）
 # doc → 005 retrieval_access_policy（租户/组织隔离）
 # biz → 014 bizdata:read（001 权限码）
 # kg → 015 kg:read（001 权限码）

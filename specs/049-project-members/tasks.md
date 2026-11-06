@@ -83,6 +83,27 @@
 
 ---
 
+## 017 C-7 增量（跨特性，归属 017，2026-11-06）
+
+> **由 017 C-7 引入，后续 049 迭代不得覆盖钩子**：本节的成员变更审计钩子落在 049 的
+> `patch_project` 端点上、事件走 `feature="049"`，但需求与实现归属 017（见
+> `specs/017-three-scope-memory/design-2026-11-05-project-department-scopes.md` §9.4 / R16 /
+> SC-14，及 017 tasks T032/T033/T034/T038）。**后续 049 迭代重构 `patch_project` 时不得
+> 覆盖或删除该审计钩子**，也不得漏改 `FEATURE_AUDIT_EVENTS` 的 `"049"` 白名单分组。
+> 对应 spec FR-011。
+
+- [ ] T025 [P] 成员变更审计回归用例（017 C-7 / SC-14 口径）：
+  - 覆盖 `project.member.granted`（新增）/ `project.member.revoked`（移除）/ 一次 PATCH 同时增删最多两条；
+  - 「空 diff 不发」「只改 `title` / `status` 不发」；
+  - **审计桥抛异常时 PATCH 仍返回成功且响应码 / 响应结构不变**（失败只留观测日志、不阻断）；
+  - 049 既有语义回归不退化：非创建者 403、`default` 400、去重去空、500 上限、`member_user_ids` 响应结构。
+  - 打桩口径：审计桥与 `get_db` 用 monkeypatch 打桩；auth 夹具照抄
+    `tests/memory/test_memory_endpoints.py` 的**真实契约** `{session, user, tenant_id, org_id}`，
+    不伪造 `user_id` / `role` / `is_workspace_member` 字段。
+  - 落点：`services/chat-api/tests/memory/test_project_member_audit.py`（017 T038）。
+
+---
+
 ## 落地证据
 
 **严格收口后验收命令（2026-11-05 22:10）**

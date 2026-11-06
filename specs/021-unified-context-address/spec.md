@@ -14,7 +14,7 @@
 
 MOGO 的四类上下文各有规范地址根，且均可解析回溯到各后端真实存储，不在地址层重复建库：
 
-- `mogo://memory/<scope>/<owner_id>/<memory_id>/[L0|L1|L2]`（017）
+- `mogo://memory/<personal|project|department>/<owner_id>/<memory_id>/[L0|L1|L2]`（017；scope 段仅三新值，`project_owner_id` 不进地址）
 - `mogo://resource/doc/<tenant_id>/<document_id>/<chunk_id>`（005，citation 锚点 documentId:chunkId 即 L2 地址）
 - `mogo://resource/biz/<system>/<entity_type>/<record_id>`（014，biz_entities.source_ref）
 - `mogo://resource/kg/<node_id>`（015，kg_nodes，可反链 014/005）
@@ -40,12 +40,14 @@ MOGO 的四类上下文各有规范地址根，且均可解析回溯到各后端
 
 地址层不新建统一权限模型，把可见性判定**委托给各后端既有检查**，自身只做组合与静默裁剪：
 
-- memory → 017 `visible_to`（personal/workspace/org）
+- memory → 委托 017 `visible_to(memory, MemoryViewerContext)`（**唯一判据**；personal 仅 owner / project 比对 `(project_id, project_owner_id)` / department 比对 `visible_department_ids`；地址层**只委托不重写**）
 - doc → 005 `retrieval_access_policy`（租户/组织隔离）
 - biz → 014 `bizdata:read`（001 权限码）
 - kg → 015 `kg:read`（001 权限码）
 - skill → 004 角色授权（006）+ 018 `a2a_exposed`
 - session → 002 会话参与者集合 + share 可见范围
+
+`ViewerContext.memory_viewer` 原样转发服务端构造的 `app.memory.viewer.MemoryViewerContext`；缺 `memory` 或缺 `memory_viewer` 一律 fail-closed，绝不从请求体自报身份。`MemoryViewerContext` 目标态字段：`tenant_id` / `user_id` / `role_keys` / `primary_department_id` / `visible_department_ids` / `visible_project_keys` / `active_project_id` / `session_participants`（入口 `resolve_viewer_context()` HTTP / `resolve_viewer_from_identity()` RAG）。旧 `workspace` / `org` 段地址由 D4 迁移脚本改写持久化引用，运行时返回 404。
 
 **Acceptance Scenarios:**
 - 跨范围/无权限 URI → 在候选中被静默剔除（不报错，与 017 "不越权"一致）

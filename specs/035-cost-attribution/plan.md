@@ -46,6 +46,8 @@
 - **IV. Cross-Platform and i18n**: ✅ 无新增用户可见文案刚需（维度段结构字段与 `reason` 为运营向说明，中文口径随 008 既有 i18n 机制）；项目口径以 `Decisions/ADR-8-统一项目概念-项目即工作目录.md` 为唯一依据（~~原"与 017/021 空间语义同源"作废~~：017 的 workspace scope 空转、021 的 `mogo://` 是上下文地址，均不能作为归集语义依据）。
 - **V. Observability and Simplicity**: ✅ 不新增架构复杂度：三个字段 + 一处记录构造读取 + 一处聚合改造 + 一处下钻透出；库函数是既有 pure 函数的接线（YAGNI——不建新聚合框架、不做实时流、不实现配额）。
 
+> **历史作废记录注（2026-11-06）**：上方 Constitution Check 第 IV 项关于「017 的 workspace scope 空转」为历史作废记录；017 v3 已改名 `project/department`，但「不作成本归集依据」结论仍成立。
+
 ## Project Structure
 
 ### Documentation (this feature)
