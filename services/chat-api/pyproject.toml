@@ -52,7 +52,7 @@ pytest-cov = "^7.0.0"
 # pytest-asyncio must run in auto mode; ``addopts`` already passes --timeout.
 pytest-asyncio = ">=0.23.0"
 pytest-timeout = ">=2.3.0"
-black = "^24.1.0"
+black = ">=24.1,<27.0"
 isort = "^5.13.0"
 
 [tool.pytest.ini_options]
