@@ -334,6 +334,54 @@ async def patch_project(
         after=set_value.get("member_user_ids"),
         occurred_at=now,
     )
+    # H-6 (017 T037): 项目归档时，其 project 记忆显式置 invalidated，退出 RAG 默认
+    # 检索与活跃可见性（scope.visible_to 对 invalidated fail-closed）。与 admin-api
+    # /governance/project-archive 口径一致。不改动 049 既有鉴权 / 响应 / 语义；失效
+    # 或审计失败只留观测日志，绝不阻断 PATCH、不改变响应码 / 响应结构。
+    if payload.status == "archived":
+        try:
+            from app.memory.offboarding import invalidate_project_memories
+
+            invalidated_count = await invalidate_project_memories(
+                tenant_id,
+                project_id,
+                str(existing.get("user_id") or ""),
+                reason="project_archived",
+                db=db,
+            )
+            if invalidated_count:
+                logger.info(
+                    "[projects] archived project %s -> invalidated %d project memories",
+                    project_id,
+                    invalidated_count,
+                )
+            try:
+                from app.services.feature_audit_bridge import emit_feature_event
+
+                emit_feature_event(
+                    "017",
+                    "memory.archived",
+                    {
+                        "project_id": project_id,
+                        "project_owner_id": str(existing.get("user_id") or ""),
+                        "invalidated_count": invalidated_count,
+                        "occurred_at": now.isoformat(),
+                    },
+                    tenant_id=tenant_id,
+                    actor=user_id,
+                )
+            except Exception as audit_exc:  # noqa: BLE001 - 审计绝不阻断 PATCH
+                logger.warning(
+                    "[projects] memory.archived audit emit failed (project_id=%s): %s",
+                    project_id,
+                    audit_exc,
+                )
+        except Exception as exc:  # noqa: BLE001 - H-6 失败绝不阻断 PATCH
+            logger.warning(
+                "[projects] invalidate_project_memories failed (project_id=%s): %s",
+                project_id,
+                exc,
+            )
     project = await db.projects.find_one(scope)
     return ApiResponse(data=_serialize_project(project))
 
