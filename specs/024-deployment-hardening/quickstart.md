@@ -67,7 +67,7 @@ jq -e '.items | all(.status == "pass")' /tmp/baseline.json
 bash deploy/cli/config-lint.sh --env prod
 
 # 漂移检测（T025）
-bash deploy/cli/drift-check.sh
+./mogo drift
 ```
 
 ---

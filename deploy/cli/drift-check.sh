@@ -42,7 +42,8 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 export ROOT_DIR COMPOSE_FILE OUTPUT_JSON
-export SERVICE_LIST="${SERVICES[*]}"
+# bash 3.2 下空数组在 `set -u` 里用 "${SERVICES[*]}" 会报 unbound variable，用 :- 兜底。
+export SERVICE_LIST="${SERVICES[*]:-}"
 python3 - <<'PY'
 import json, os, subprocess, sys
 from pathlib import Path

@@ -5,7 +5,7 @@
 > 构建入口：`docs/orbstack-dev-build-guide.md` §6.1 `./mogo --profile dev up --build`
 > 回归范围：A 组黑盒契约 + 健康回归（A1–A6）；DR 演练 / 压测扩容 / 017 切换演练未纳入本轮
 > 结论：**A1/A2/A3/A5/A6 全绿**；A4 `331 passed / 9 skipped`（23:20 首跑，同夜 D-4 解除后复跑同样通过，见 §10.4）。
-> 另计 5 项缺陷：D-1 应用代码 P1、D-4 在途 compose P1（阻塞 CLI）**两项已修复并复验（见 §10）**；D-2/D-3/D-5 工具链与文档口径未修。
+> 另计 5 项缺陷：D-1 应用代码 P1、D-4 在途 compose P1（阻塞 CLI）、D-2 工具链口径 P2 **三项已修复并复验（见 §10）**；D-3 文档口径部分修复（024 已改，025 第 13–15 项未改）、D-5 未修。
 
 ---
 
@@ -131,7 +131,7 @@ docker exec -i mogo-admin-api-1 sh -c '. /run/askai-secrets/runtime.env; export 
 | ID | 级别 | 标题 | 位置 | 现状 |
 |---|---|---|---|---|
 | D-1 | **P1** | `/ready` 在 admin-api/document-parser 两服务恒 503（就绪探针恒失败） | `services/admin-api/app/observability/health.py:41`、`services/document-parser/app/observability/health.py:24-25`、`app/core/resilience.py:253`（两处） | **已修**，见 §10；根因比原判断更深 |
-| D-2 | P2 | CLI 检查脚本不解析构建期版本，恒按 `:latest` / release-train 比对 | `deploy/cli/drift-check.sh`、`deploy/cli/verify-artifact.sh`、`deploy/cli/baseline-check.sh` | **部分已修**（见 §10.6：baseline/drift/verify 三条命令已对齐镜像解析，63 pass/0 fail + 零漂移）；剩 `drift-check.sh:45` bash 3.2 空数组崩溃 |
+| D-2 | P2 | CLI 检查脚本不解析构建期版本，恒按 `:latest` / release-train 比对 | `deploy/cli/drift-check.sh`、`deploy/cli/verify-artifact.sh`、`deploy/cli/baseline-check.sh` | **已修（两笔）**：§10.6 baseline/drift/verify 镜像解析对齐；§10.7 `drift-check.sh:45` bash 3.2 空数组崩溃 + 024 quickstart 裸调口径 |
 | D-3 | P2 | 025 quickstart 第 13–15 项命令与工具现状不符 | `specs/025-api-contract-hardening/quickstart.md` | 未修 |
 | D-4 | **P1（环境阻塞）** | 并行会话给 `docker-compose.yml` 加了 compose 不支持的服务级键 `no_new_privileges`，`docker compose config` 校验失败，`./mogo status/up/down` 全线不可用 | `docker-compose.yml`（未提交，23:22 起） | **已修**（经用户确认后删掉 4 行非法键，改用 compose 认可的 `security_opt`），见 §10 |
 | D-5 | P3 | admin-api 启动日志 `Instrumentor init failed`（镜像未装 `opentelemetry-instrumentation-*`），追踪降级关闭 | `app/common/observability_base.py:275/295` + `requirements.txt` | 记录，非阻断 |
@@ -306,19 +306,40 @@ deploy/tests     → 331 passed / 9 skipped（A4 复跑已解锁）
 deploy/tests                                       → 331 passed / 9 skipped
 ```
 
-> **注意**：`specs/024-deployment-hardening/quickstart.md:70` 教的是
-> `bash deploy/cli/drift-check.sh` 裸调 —— 这条路径绕开了 CLI 的镜像导出，仍会报那处 dsh
-> 假漂移；文档口径应改为 `./mogo drift`（属 D-3 一族，未改）。
-> 裸调 `./mogo drift`（不带 `--service`）仍崩在 `drift-check.sh:45` 的 bash 3.2 空数组，
-> 这是 D-2 剩下的第二笔，未包含在本次两笔里。
+> **注意**：`specs/024-deployment-hardening/quickstart.md:70` 教的 `bash deploy/cli/drift-check.sh`
+> 裸调绕开了 CLI 的镜像导出，仍会报那处 dsh 假漂移；文档口径已在 §10.7 改为 `./mogo drift`。
+> 裸调 `./mogo drift`（不带 `--service`）崩在 `drift-check.sh:45` 的 bash 3.2 空数组，
+> 即 D-2 的第二笔，同样见 §10.7。
+
+### 10.7 D-2 第二笔 + 文档口径（HEAD `d4c8fbc2` 之后）
+
+两件事一起修：
+
+| 文件 | 改动 | 原因 |
+|---|---|---|
+| `deploy/cli/drift-check.sh:45` | `export SERVICE_LIST="${SERVICES[*]}"` → `"${SERVICES[*]:-}"` | macOS 自带 bash 3.2 在 `set -u` 下把空数组的 `${arr[*]}` 当未绑定变量直接退出；`:-` 兜底后空数组导出空串，Python 侧 `if os.environ.get("SERVICE_LIST")` 自然走全服务比对，语义不变 |
+| `specs/024-deployment-hardening/quickstart.md:70` | `bash deploy/cli/drift-check.sh` → `./mogo drift` | 裸调子脚本不经过 `mogo_configure_check_images`（§10.6），compose 里的 dsh 钉版声明会与运行态比对出假漂移；文档教什么用户就跑什么，口径必须指向 CLI |
+
+复验：
+
+```
+./mogo --profile dev drift                         → 55 项比对 / 12 服务，不再崩（此前 unbound variable 直接退出）
+MOGO_VERSION=8d135867 ./mogo --profile dev drift    → OK，零漂移
+MOGO_VERSION=8d135867 ./mogo --profile dev drift --service gateway --service dsh-runtime-host → 10 项 / OK
+deploy/tests                                        → 无引用 drift-check，未受影响
+```
+
+> 第一次裸跑报 8 处「镜像漂移 声明=`:d4c8fbc2` 实测=`:8d135867`」是**真漂移**：检查命令现在会把
+> `MOGO_VERSION` 默认成 `git rev-parse --short HEAD`，而运行中的 7 个镜像是提交前在 `8d135867`
+> 上构建的。带上构建期版本即一致；重跑 `./mogo up` 建新 tag 镜像后裸跑也会归零。
 
 ### 10.5 仍待处理
 
-- D-2 剩余：`drift-check.sh:45` 在 bash 3.2 + `set -u` 下空数组崩（`./mogo drift` 不带 `--service`）。
-- D-3：025 quickstart 第 13–15 项命令口径，以及 024 quickstart `bash deploy/cli/drift-check.sh`
-  应改为 `./mogo drift`（见 §10.6 注）。
+- D-2：**两笔均已完成**（§10.6 镜像解析对齐 + §10.7 空数组与文档口径）。
+- D-3：025 quickstart 第 13–15 项命令口径未修；024 quickstart `bash deploy/cli/drift-check.sh`
+  已于 §10.7 改为 `./mogo drift`。
 - D-5：OTel instrumentation 依赖缺失。
-- `services/chat-api/backups/` 等 16 个在途未提交文件仍不属本轮，未动。
+- `services/chat-api/backups/`（046 回填运行产物）仍不入库，未动。
 
 ---
 
