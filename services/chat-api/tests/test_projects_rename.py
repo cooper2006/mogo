@@ -145,30 +145,47 @@ async def test_crud_survives_collection_rename(db):
 
 @pytest.mark.asyncio
 async def test_default_project_is_idempotent(db):
-    """046 FR-003/D2：重复 list 只产生一条 `_id = "default"` 的默认项目。"""
+    """046 FR-003/D2 + 多租户：每个租户各有一份默认项目，对外都是 ``"default"``。
+
+    Mongo ``_id`` 是集合级全局唯一，所以物理主键按租户分片为
+    ``default:<tenant_id>``；早期用裸 ``"default"`` 当物理主键会让第二个租户
+    upsert 撞 E11000。同租户第二个用户复用同一份，不新建第二行。
+    """
     await _create("Alice", "alice-workspace")
+    doc_id = projects._default_project_doc_id("tenant")
     for _ in range(3):
         await projects.list_desktop_projects(authorization="tenant:alice")
 
-    defaults = [d for d in db.projects.documents if d["_id"] == projects.DEFAULT_PROJECT_ID]
+    defaults = [d for d in db.projects.documents if d.get("is_default")]
     assert len(defaults) == 1
+    assert defaults[0]["_id"] == doc_id
     assert defaults[0]["title"] == "默认项目"
     assert defaults[0]["status"] == "active"
     assert defaults[0]["tenant_id"] == "tenant"
     assert defaults[0]["user_id"] == "alice"
 
-    # 049：存储层 id 全局唯一（pg_compat 表主键 id），同租户第二个用户的默认项目
-    # 不会新建第二行；`_id = "default"` 作为租户共享兜底项对所有同租户用户可见。
+    # 同租户第二个用户复用同一份默认项目，且看不到 alice 的真实项目。
     await projects.list_desktop_projects(authorization="tenant:bob")
-    defaults = [d for d in db.projects.documents if d["_id"] == projects.DEFAULT_PROJECT_ID]
+    defaults = [d for d in db.projects.documents if d.get("is_default")]
     assert len(defaults) == 1
     alice_docs = {d["_id"] for d in db.projects.documents if d["user_id"] == "alice"}
     bob_docs = {d["_id"] for d in db.projects.documents if d["user_id"] == "bob"}
-    assert alice_docs == {"default", "alice-workspace"}
+    assert alice_docs == {doc_id, "alice-workspace"}
     assert bob_docs == set()
     bob_visible = await projects.list_desktop_projects(authorization="tenant:bob")
-    bob_ids = {item["_id"] for item in bob_visible.data}
-    assert bob_ids == {"default"}  # 看不到 alice 的真实项目，但能看到租户默认项目
+    assert {item["_id"] for item in bob_visible.data} == {"default"}
+
+    # 跨租户：另一个租户生成自己的一份，物理主键不冲突、数据不串。
+    await projects.list_desktop_projects(authorization="other-tenant:carol")
+    defaults = [d for d in db.projects.documents if d.get("is_default")]
+    assert len(defaults) == 2
+    assert {d["_id"] for d in defaults} == {
+        doc_id,
+        projects._default_project_doc_id("other-tenant"),
+    }
+    carol_visible = await projects.list_desktop_projects(authorization="other-tenant:carol")
+    assert {item["_id"] for item in carol_visible.data} == {"default"}
+    assert all(item["tenant_id"] == "other-tenant" for item in carol_visible.data)
 
 
 @pytest.mark.asyncio
@@ -178,8 +195,13 @@ async def test_default_project_cannot_be_archived(db):
     response = await _patch(projects.DEFAULT_PROJECT_ID, "archived")
     assert response.code == 400
     assert response.message == "默认项目不可归档或删除"
-    # 状态未被篡改。
-    item = await projects.get_db().projects.find_one({"tenant_id": "tenant", "user_id": "alice", "_id": projects.DEFAULT_PROJECT_ID})
+    # 物理分片 id 也不能绕过 046 Edge Case 3。
+    physical = await _patch(projects._default_project_doc_id("tenant"), "archived")
+    assert physical.code == 400
+    # 状态未被篡改（按物理主键查询）。
+    item = await projects.get_db().projects.find_one(
+        {"tenant_id": "tenant", "user_id": "alice", "_id": projects._default_project_doc_id("tenant")}
+    )
     assert item["status"] == "active"
 
 

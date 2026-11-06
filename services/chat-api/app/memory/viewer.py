@@ -201,8 +201,11 @@ async def load_visible_project_keys(
     """C-1 / N1: projects I own or was invited to, as ``(_id, owner)`` pairs.
 
     Only ``projects.member_user_ids`` + ``projects.user_id`` are consulted
-    (049 contract). ``"default"`` and archived rows are excluded; rows without
-    an owner cannot be disambiguated and are dropped fail-closed.
+    (049 contract). Default rows and archived rows are excluded; rows without
+    an owner cannot be disambiguated and are dropped fail-closed. Default rows
+    are matched both by the historical ``_id="default"`` and by the ``is_default``
+    marker on tenant-sharded default projects (N2 must survive the primary-key
+    change in ``projects._ensure_default_project``).
     """
     if db is None or not tenant_id or not user_id:
         return frozenset()
@@ -215,13 +218,14 @@ async def load_visible_project_keys(
             }
         )
         rows = await db[PROJECT_COLLECTION].find(
-            query, {"_id": 1, "user_id": 1}
+            query, {"_id": 1, "user_id": 1, "is_default": 1}
         ).to_list(length=500)
         return frozenset(
             (str(row["_id"]), str(row.get("user_id") or ""))
             for row in rows
             if row.get("_id")
             and row.get("user_id")
+            and not row.get("is_default")
             and str(row["_id"]) != DEFAULT_PROJECT_ID
         )
     except Exception as exc:

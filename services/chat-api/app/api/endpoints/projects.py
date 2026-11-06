@@ -8,9 +8,11 @@ The collection was renamed from ``desktop_projects`` to ``projects`` (046 D6);
 the HTTP contract (``/projects`` path, ``workspace_id`` / ``title`` /
 ``worktree`` response fields) is deliberately unchanged.
 
-A default project (``_id = "default"``) is provisioned on first list access
-(046 FR-003 / D2) and reused as the fallback for sessions without a binding
-(046 FR-004).
+A default project (externally ``_id = "default"``) is provisioned **per tenant**
+on first list access (046 FR-003 / D2) and reused as the fallback for sessions
+without a binding (046 FR-004). Mongo ``_id`` is collection-wide unique, so the
+storage primary key is tenant-scoped (``default:<tenant_id>``) while the HTTP
+contract keeps the stable ``"default"`` id; see ``_serialize_project``.
 
 049-project-members: projects carry ``member_user_ids`` (creator stays in
 ``user_id``). ``GET /projects`` returns 「我的 ∪ 我作为成员的 ∪ 本租户默认项目」;
@@ -38,7 +40,19 @@ router = APIRouter(tags=["projects"])
 
 logger = logging.getLogger(__name__)
 
+#: 对外契约 id：HTTP 响应、session.project_id、前端虚拟分组键都用这个值。
 DEFAULT_PROJECT_ID = "default"
+
+#: Mongo 的 `_id` 是集合级全局唯一，而默认项目按租户各有一份，因此物理主键
+#: 按租户分片；对外仍固定暴露 ``DEFAULT_PROJECT_ID``。早期实现直接用
+#: ``"default"`` 当物理主键，第二个租户访问时 upsert 匹配不到却试图 INSERT
+#: 同 _id 文档，触发 E11000 → GET /projects 500。
+DEFAULT_PROJECT_DOC_PREFIX = "default:"
+
+
+def _default_project_doc_id(tenant_id: str) -> str:
+    return f"{DEFAULT_PROJECT_DOC_PREFIX}{tenant_id}"
+
 
 # 049 FR-004: 成员候选的数据源（与 admin 用户管理同源）。
 DEPARTMENT_COLLECTION = "org_units"
@@ -75,8 +89,17 @@ class ProjectPatch(BaseModel):
 
 
 def _serialize_project(doc: dict) -> dict:
+    raw_id = str(doc.get("_id") or "")
+    # 默认项目物理主键按租户分片（或历史裸 "default"），对外统一暴露 "default"，
+    # 保证 046/049 的 HTTP、session.project_id 与前端虚拟分组键契约不变。
+    if (
+        doc.get("is_default")
+        or raw_id == DEFAULT_PROJECT_ID
+        or raw_id.startswith(DEFAULT_PROJECT_DOC_PREFIX)
+    ):
+        raw_id = DEFAULT_PROJECT_ID
     return {
-        "_id": str(doc.get("_id") or ""),
+        "_id": raw_id,
         "tenant_id": str(doc.get("tenant_id") or ""),
         "user_id": str(doc.get("user_id") or ""),
         "workspace_id": str(doc.get("workspace_id") or ""),
@@ -156,36 +179,43 @@ def _emit_member_change_audit(
 
 
 async def _ensure_default_project(tenant_id: str, user_id: str) -> None:
-    """幂等生成 `_id = "default"` 的默认项目（046 FR-003 / D2）。
+    """幂等生成**本租户**的默认项目（046 FR-003 / D2）。
 
     仿 `directory_repository.ensure_root_department` 的写法：`$setOnInsert` 保
     首次创建、`$set` 保更新时间、`upsert=True` 保重复调用不产生第二条。
 
-    `_id = "default"` 的项目不可归档、不可删除（046 Edge Case 3）—— 这份约束
-    由 `PATCH /projects/{id}` 在服务端校验（046 T025），此处只做生成。
+    多租户是这里的根本约束：Mongo 的 `_id` 是集合级全局唯一，而默认项目按
+    租户各有一份，所以物理主键必须带租户维度（`default:<tenant_id>`）。早期
+    实现直接用裸 `"default"` 当物理主键，第二个租户访问时无论 filter 带不带
+    (tenant_id, user_id) 都会撞同一个主键：带 scope 则 upsert 匹配不到却试图
+    INSERT 触发 E11000 → GET /projects 500；不带 scope 则全库只剩一份，第二个
+    租户根本看不到默认项目。两种写法都没有真正考虑多租户。
+
+    对外契约不变：`_serialize_project` 仍把默认项目输出成 `_id="default"`，
+    session.project_id / 前端虚拟分组键 / PATCH 校验都基于这个值。
     """
     now = datetime.now(tz=timezone.utc)
-    # `_id = "default"` 是 Mongo 集合的全局唯一主键，整库只能有一条。早期实现把
-    # (tenant_id, user_id) 也放进 upsert filter：当别的租户/用户已创建了 default
-    # 文档时，本次查询匹配不到任何文档，MongoDB 便尝试 INSERT 一条同样 _id 的记录，
-    # 触发 E11000 DuplicateKeyError → GET /projects 500。
-    #
-    # 收敛为只按 _id 幂等：已存在则复用（仅刷新 updated_at），不存在才以当前访问者
-    # 身份创建。这样不改变默认项目对外的 _id/PATCH 契约，也不放宽跨租户可见性
-    # （list 的 visible 仍按 tenant_id 过滤），只消除多租户切换时的写冲突。
-    scope = {"_id": DEFAULT_PROJECT_ID}
+    doc_id = _default_project_doc_id(tenant_id)
+    # 同时兼容历史库里那条裸 `_id="default"` 文档：它属于最初创建它的租户，
+    # 命中时只补 is_default 标记，不做数据迁移（sessions 不按该物理 id 引用）。
+    # filter 不带 user_id —— 同租户第二个用户访问时应复用已有默认项目，而不是
+    # 再插一份；外层 tenant_id 保证跨租户不可互见。
+    scope = {
+        "tenant_id": tenant_id,
+        "_id": {"$in": [doc_id, DEFAULT_PROJECT_ID]},
+    }
     await get_db().projects.update_one(
         scope,
         {
             "$setOnInsert": {
-                "_id": DEFAULT_PROJECT_ID,
+                "_id": doc_id,
                 "tenant_id": tenant_id,
                 "user_id": user_id,
                 "title": "默认项目",
                 "status": "active",
                 "created_at": now,
             },
-            "$set": {"updated_at": now},
+            "$set": {"updated_at": now, "is_default": True},
         },
         upsert=True,
     )
@@ -197,6 +227,11 @@ async def create_desktop_project(
     authorization: str | None = Header(default=None),
 ):
     tenant_id, user_id = await _identity(authorization)
+    if payload.workspace_id == DEFAULT_PROJECT_ID or payload.workspace_id.startswith(
+        DEFAULT_PROJECT_DOC_PREFIX
+    ):
+        # 保留 id：否则 $setOnInsert._id 会去撞默认项目的物理主键。
+        return ApiResponse(code=400, message="workspace_id 不能使用保留的默认项目标识")
     now = datetime.now(tz=timezone.utc)
     scope = {"tenant_id": tenant_id, "user_id": user_id, "workspace_id": payload.workspace_id}
     await get_db().projects.update_one(
@@ -220,16 +255,18 @@ async def create_desktop_project(
 @router.get("/projects", response_model=ApiResponse)
 async def list_desktop_projects(authorization: str | None = Header(default=None)):
     tenant_id, user_id = await _identity(authorization)
-    # 046 FR-003: 首次访问的 (tenant, user) 立刻能看到默认项目分组。
+    # 046 FR-003: 首次访问的租户立刻能看到自己的默认项目分组。
     await _ensure_default_project(tenant_id, user_id)
-    # 049 FR-002: 可见性从「我的」扩展为「我的 ∪ 我作为成员的 ∪ 本租户默认项目」。
-    # 默认项目 `_id = "default"` 在存储层全局唯一（pg_compat 表主键 id），因此它是
-    # 本租户的共享兜底项——所有租户内用户都能看到（046 FR-003/FR-004 的兜底语义）。
+    # 049 FR-002: 可见性 = 「我的 ∪ 我作为成员的 ∪ 本租户默认项目」。
+    # 外层 tenant_id 是硬边界：默认项目物理主键按租户分片，is_default 行只会在
+    # 当前租户内命中，不会把别的租户的默认项目泄露过来。
+    # 同时保留裸 _id="default" 兼容分支，覆盖尚未打标的历史文档。
     visible = {
         "tenant_id": tenant_id,
         "$or": [
             {"user_id": user_id},
             {"member_user_ids": user_id},
+            {"is_default": True},
             {"_id": DEFAULT_PROJECT_ID},
         ],
     }
@@ -249,7 +286,8 @@ async def patch_project(
     049 FR-003：只有项目创建者（``doc.user_id``）可修改；其他成员 403。
     """
     tenant_id, user_id = await _identity(authorization)
-    if project_id == DEFAULT_PROJECT_ID:
+    if project_id == DEFAULT_PROJECT_ID or project_id.startswith(DEFAULT_PROJECT_DOC_PREFIX):
+        # 对外 id 与物理分片 id 都不可改，防止绕过 046 Edge Case 3。
         return ApiResponse(code=400, message="默认项目不可归档或删除")
     db = get_db()
     scope = {"tenant_id": tenant_id, "_id": project_id}
