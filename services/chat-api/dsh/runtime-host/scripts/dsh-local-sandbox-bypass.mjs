@@ -17,7 +17,7 @@
 // Usage:
 //   npm run test:local
 // which runs: node --import ./scripts/dsh-local-sandbox-bypass.mjs --test tests/*.test.mjs
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 // Locate the package root. npm run executes with cwd at the package root, so
@@ -31,21 +31,68 @@ while (root !== dirname(root)) {
 }
 const pnpmDir = join(root, "node_modules", ".pnpm");
 
-const versionPrefix = "@deepseek-ai+dsh-sandbox-local@0.2.1-rc.3";
-const cand = readdirSync(pnpmDir).find(
-  (d) => d === versionPrefix || d.startsWith(versionPrefix + "_")
-);
-if (!cand) {
-  throw new Error(`local bypass: cannot find ${versionPrefix} under node_modules/.pnpm`);
+// Resolve the active DSH release train from the INSTALLED @deepseek-ai/dsh
+// package rather than hard-coding a version.  A pinned version silently breaks
+// `npm run test:local` on every release-train upgrade (this was pinned to
+// 0.2.1-rc.3 while the 0.2.1-rc.5 train shipped 0.2.1-rc.5, and then broke
+// again on 0.2.2-rc.1).  Deriving it keeps the helper working across upgrades
+// and rollbacks without editing this file.
+const activeTrain = (() => {
+  try {
+    return JSON.parse(
+      readFileSync(join(root, "node_modules", "@deepseek-ai", "dsh", "package.json"), "utf8")
+    ).version;
+  } catch {
+    return null;
+  }
+})();
+
+const prefix = "@deepseek-ai+dsh-sandbox-local@";
+const exactPrefix = activeTrain ? `${prefix}${activeTrain}` : null;
+const versionOf = (dir) => dir.slice(prefix.length).split(/[_(@]/)[0];
+
+// Prefer the directory matching the active train; fall back to any other
+// installed copy (e.g. a rollback train) so the helper never hard-fails.
+const candidates = readdirSync(pnpmDir)
+  .filter((d) => d.startsWith(prefix))
+  .sort((a, b) => {
+    const aMatch = exactPrefix && versionOf(a) === activeTrain;
+    const bMatch = exactPrefix && versionOf(b) === activeTrain;
+    return Number(bMatch) - Number(aMatch);
+  });
+
+let LocalSandboxProvider;
+let resolvedFrom;
+for (const cand of candidates) {
+  const entry = join(
+    pnpmDir,
+    cand,
+    "node_modules",
+    "@deepseek-ai",
+    "dsh-sandbox-local",
+    "lib",
+    "index.js"
+  );
+  if (!existsSync(entry)) continue;
+  const mod = await import(entry);
+  if (mod.LocalSandboxProvider && typeof mod.LocalSandboxProvider.prototype.confine === "function") {
+    LocalSandboxProvider = mod.LocalSandboxProvider;
+    resolvedFrom = cand;
+    break;
+  }
 }
 
-const mod = await import(
-  join(pnpmDir, cand, "node_modules", "@deepseek-ai", "dsh-sandbox-local", "lib", "index.js")
-);
-const { LocalSandboxProvider } = mod;
-
-if (!LocalSandboxProvider || typeof LocalSandboxProvider.prototype.confine !== "function") {
-  throw new Error("local bypass: LocalSandboxProvider.confine not found");
+if (!LocalSandboxProvider) {
+  throw new Error(
+    `local bypass: cannot find a usable @deepseek-ai/dsh-sandbox-local under node_modules/.pnpm` +
+      (activeTrain ? ` (active train ${activeTrain})` : "")
+  );
+}
+if (exactPrefix && versionOf(resolvedFrom) !== activeTrain) {
+  process.emitWarning(
+    `local bypass: using ${versionOf(resolvedFrom)} but active DSH train is ${activeTrain}; ` +
+      `run pnpm install to sync the dependency graph`
+  );
 }
 
 LocalSandboxProvider.prototype.confine = function (argv, policy, signal) {
