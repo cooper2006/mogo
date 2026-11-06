@@ -1054,6 +1054,9 @@ services:
 
   user-web:
     image: ${MOGO_USER_WEB_IMAGE:-ghcr.io/mogoai/user-web:${MOGO_VERSION:-latest}}
+    # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
+    # linux/arm64，prod 为 linux/amd64。变量为空时回到宿主原生架构。
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -1091,6 +1094,9 @@ services:
 
   admin-web:
     image: ${MOGO_ADMIN_WEB_IMAGE:-ghcr.io/mogoai/admin-web:${MOGO_VERSION:-latest}}
+    # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
+    # linux/arm64，prod 为 linux/amd64。变量为空时回到宿主原生架构。
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -1129,6 +1135,9 @@ services:
 
   gateway:
     image: ${MOGO_GATEWAY_IMAGE:-ghcr.io/mogoai/gateway:${MOGO_VERSION:-latest}}
+    # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
+    # linux/arm64，prod 为 linux/amd64。变量为空时回到宿主原生架构。
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): gateway 是 nginx，同样加固。它还要做 TLS 终结并绑定低
