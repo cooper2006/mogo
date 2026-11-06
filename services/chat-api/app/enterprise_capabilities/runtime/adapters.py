@@ -84,18 +84,25 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
     try:
         from app.memory.store import MemoryStore
         from app.memory.retrieval import progressive_memory_retrieval
+        from app.memory.viewer import resolve_viewer_from_identity
+
+        # B1 / DEP-1: CapabilityExecutionContext is a frozen pydantic model
+        # with NO .get() method -- context.get("role") raised AttributeError,
+        # and the blanket except below silently swallowed the entire 017 RAG
+        # path. tenant_id/user_id are trusted (from ToolGatewayClaims), so
+        # resolve everything else server-side, incl. viewer_org_id (G2).
+        viewer = await resolve_viewer_from_identity(
+            tenant_id=context.tenant_id, user_id=context.user_id
+        )
+        visibility = viewer.as_visibility_kwargs()
         mem_store = MemoryStore()
         raw_memories = await mem_store.list_for_viewer(
             tenant_id=context.tenant_id,
-            viewer_id=context.user_id,
-            viewer_role=str(context.get("role") or ""),
-            is_workspace_member=bool(context.get("is_workspace_member") or False),
+            **visibility,
         )
         memory_candidates, memory_trace = progressive_memory_retrieval(
             raw_memories,
-            viewer_id=context.user_id,
-            viewer_role=str(context.get("role") or ""),
-            is_workspace_member=bool(context.get("is_workspace_member") or False),
+            **visibility,
             include_tier="L1",
             top_n=int(arguments.get("top_n") or 8),
             session_id=context.conversation_id,
@@ -161,6 +168,11 @@ async def knowledge_search(arguments: dict[str, Any], context: CapabilityExecuti
         payload["_execution_evidence_bundle"] = bundle
     # 017 FR-17: replayable memory retrieval trace (observability, not audit).
     payload["memory_retrieval_trace"] = memory_trace
+    if memory_candidates:
+        # B1: candidates were computed but never consumed, so the 017 RAG path
+        # stayed hollow even when retrieval succeeded. B3 wires them into QA
+        # grounding; surfacing them here makes the path verifiable meanwhile.
+        payload["memory_candidates"] = memory_candidates
     return payload
 
 

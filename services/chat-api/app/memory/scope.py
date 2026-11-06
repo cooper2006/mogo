@@ -109,10 +109,17 @@ def visible_to(
     now requires ``viewer_org_id == memory.org_id``, so an org-scoped memory
     is visible only to members of the organization that owns it.
     """
+    # B1 / P0: fail closed on an unresolved identity.  The endpoints used to
+    # pass viewer_id="" and owner_id="" for personal memories, so "" == ""
+    # granted every logged-in user of the tenant read access.  Keep both
+    # guards even now that the endpoints resolve a real viewer: this is the
+    # last line of defence against a future caller skipping the auth layer.
+    if not viewer_id:
+        return False
     if viewer_role in ORG_PROMOTION_ROLES:
         return True
     if memory.scope == MemoryScope.PERSONAL.value:
-        return viewer_id == memory.owner_id
+        return bool(memory.owner_id) and viewer_id == memory.owner_id
     if memory.scope == MemoryScope.WORKSPACE.value:
         return is_workspace_member and viewer_id != ""
     if memory.scope == MemoryScope.ORG.value:

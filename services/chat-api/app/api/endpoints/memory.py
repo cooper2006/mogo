@@ -27,14 +27,17 @@ async def create_memory(
     """Create a memory (FR-5). Scope defaults to ``personal``; promotion to
     ``org`` requires a ``full_access_admin`` role (FR-4).
     """
-    from app.api.endpoints.auth import _resolve_session_user
+    # B1 / DEP-1: identity is resolved server-side from the *real* auth
+    # contract. Reading user_id/role/is_workspace_member off the auth dict is
+    # forbidden -- those keys do not exist (see app/memory/viewer.py).
+    from app.memory.viewer import resolve_viewer_context
     from app.memory.store import MemoryStore
 
-    resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("tenant_id") or "")
-    user_id = str(resolved.get("user_id") or "")
-    role = str(resolved.get("role") or "")
-    org_id = str(resolved.get("org_id") or "")
+    viewer = await resolve_viewer_context(authorization)
+    tenant_id = viewer.tenant_id
+    user_id = viewer.user_id
+    role = viewer.role
+    org_id = viewer.viewer_org_id
 
     content = str(payload.get("content") or "").strip()
     if not content:
@@ -111,22 +114,15 @@ async def list_memories(
     scope: str = "",
 ) -> dict[str, Any]:
     """List memories visible to the current viewer (FR-2)."""
-    from app.api.endpoints.auth import _resolve_session_user
+    from app.memory.viewer import resolve_viewer_context
     from app.memory.store import MemoryStore
 
-    resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("tenant_id") or "")
-    viewer_id = str(resolved.get("user_id") or "")
-    viewer_role = str(resolved.get("role") or "")
-    viewer_org_id = str(resolved.get("org_id") or "")
+    viewer = await resolve_viewer_context(authorization)
 
     store = MemoryStore()
     memories = await store.list_for_viewer(
-        tenant_id=tenant_id,
-        viewer_id=viewer_id,
-        viewer_role=viewer_role,
-        viewer_org_id=viewer_org_id,
-        is_workspace_member=bool(resolved.get("is_workspace_member") or False),
+        tenant_id=viewer.tenant_id,
+        **viewer.as_visibility_kwargs(),
     )
     # Client-side scope filter when requested.
     if scope:
@@ -163,15 +159,15 @@ async def delete_memory(
     authorization: str = Header(default=""),
 ) -> dict[str, Any]:
     """Delete the caller's own memory (FR-5 ownership check)."""
-    from app.api.endpoints.auth import _resolve_session_user
+    from app.memory.viewer import resolve_viewer_context
     from app.memory.store import MemoryStore
 
-    resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("tenant_id") or "")
-    user_id = str(resolved.get("user_id") or "")
+    viewer = await resolve_viewer_context(authorization)
 
     store = MemoryStore()
-    ok = await store.delete(tenant_id=tenant_id, memory_id=memory_id, owner_id=user_id)
+    ok = await store.delete(
+        tenant_id=viewer.tenant_id, memory_id=memory_id, owner_id=viewer.user_id
+    )
     if not ok:
         raise HTTPException(status_code=404, detail="memory_not_found_or_not_owner")
     return {"code": 0, "message": "deleted"}
@@ -187,15 +183,15 @@ async def promote_memory(
     Requires a ``full_access_admin`` role. The promotion is audited via the
     001 audit stream (``memory.promoted``).
     """
-    from app.api.endpoints.auth import _resolve_session_user
+    from app.memory.viewer import resolve_viewer_context
     from app.memory.scope import promote_to_org, MemoryAccessError
     from app.memory.store import MemoryStore
 
-    resolved = await _resolve_session_user(authorization)
-    tenant_id = str(resolved.get("tenant_id") or "")
-    user_id = str(resolved.get("user_id") or "")
-    role = str(resolved.get("role") or "")
-    org_id = str(resolved.get("org_id") or "")
+    viewer = await resolve_viewer_context(authorization)
+    tenant_id = viewer.tenant_id
+    user_id = viewer.user_id
+    role = viewer.role
+    org_id = viewer.viewer_org_id
 
     store = MemoryStore()
     memory = await store.get(tenant_id=tenant_id, memory_id=memory_id)

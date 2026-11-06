@@ -15,6 +15,21 @@ from fastapi.testclient import TestClient
 from app.api.endpoints import context_space
 
 
+def _auth_payload(*, user_id="u1", tenant_id="t1", org_id=""):
+    """Real ``resolve_session_user`` shape (B1 / DEP-1, no invented keys)."""
+    return {
+        "session": {"_id": "s1", "user_id": user_id, "tenant_id": tenant_id},
+        "user": {
+            "_id": user_id,
+            "tenant_id": tenant_id,
+            "status": "active",
+            "primary_org_id": org_id,
+        },
+        "tenant_id": tenant_id,
+        "org_id": org_id,
+    }
+
+
 @pytest.fixture
 def client(monkeypatch):
     """A minimal app with only the 021 router, plus a stubbed auth resolver."""
@@ -22,15 +37,23 @@ def client(monkeypatch):
     app.include_router(context_space.router)
 
     async def _fake_resolve(authorization: str):
-        return {
-            "user_id": "u1",
-            "tenant_id": "t1",
-            "role": "",
-            "is_workspace_member": False,
-            "org_id": "",
-        }
+        return _auth_payload()
 
     monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _fake_resolve)
+
+    # Identity lookups are pinned so these HTTP tests never need a live Mongo.
+    async def _no_roles(db, tenant_id, user_id):
+        return frozenset()
+
+    async def _no_projects(db, tenant_id, user_id):
+        return frozenset()
+
+    async def _no_org(db, tenant_id, user_id):
+        return ""
+
+    monkeypatch.setattr("app.memory.viewer.load_role_keys", _no_roles)
+    monkeypatch.setattr("app.memory.viewer.load_visible_workspace_ids", _no_projects)
+    monkeypatch.setattr("app.memory.viewer.load_primary_org_id", _no_org)
     return TestClient(app)
 
 
@@ -148,12 +171,32 @@ def test_trace_readback_is_tenant_scoped(client, monkeypatch):
     assert client.get("/api/v1/context/trace/trace-t1").status_code == 200
 
     async def _other_tenant(authorization: str):
-        return {"user_id": "u9", "tenant_id": "t2", "role": "", "is_workspace_member": False, "org_id": ""}
+        return _auth_payload(user_id="u9", tenant_id="t2")
 
     monkeypatch.setattr("app.api.endpoints.auth._resolve_session_user", _other_tenant)
     # 404 (not 403) so the trace's existence is not disclosed.
     assert client.get("/api/v1/context/trace/trace-t1").status_code == 404
     context_space._TRACE_RING.clear()
+
+
+def test_resolve_passes_server_resolved_viewer(client, monkeypatch):
+    """B1 / DEP-1: the 021 endpoint must not pass an empty viewer_id."""
+    captured: dict = {}
+
+    async def _fake_resolve_memory(uri, **kwargs):
+        captured.update(kwargs)
+        return {
+            "resolved": {"uri": uri, "tier_used": "L0", "content": "x", "meta": {}},
+            "trace": {},
+        }
+
+    monkeypatch.setattr("app.api.endpoints.context_space.resolve_memory", _fake_resolve_memory)
+    r = client.post("/api/v1/context/resolve", json={"uri": "mogo://memory/personal/u1/m-1/L0"})
+    assert r.status_code == 200
+    assert captured["tenant_id"] == "t1"
+    assert captured["viewer_id"] == "u1"          # was "" before B1
+    assert captured["viewer_role"] == ""
+    assert "viewer_org_id" in captured           # never omitted again
 
 
 def test_router_is_registered_in_main():

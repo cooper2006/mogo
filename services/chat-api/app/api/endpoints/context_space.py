@@ -94,14 +94,13 @@ async def resolve_context(
     :func:`app.context_space.router.resolve_memory`, which routes to the owning
     tenant adapter and enforces backend-specific visibility.
     """
-    from app.api.endpoints.auth import _resolve_session_user
+    # B1 / DEP-1: use the single server-side viewer context instead of reading
+    # keys that resolve_session_user never returns (which silently produced an
+    # empty viewer_id and made every visibility check degenerate).
+    from app.memory.viewer import resolve_viewer_context
 
-    resolved_auth = await _resolve_session_user(authorization)
-    tenant_id = str(resolved_auth.get("tenant_id") or "")
-    viewer_id = str(resolved_auth.get("user_id") or "")
-    viewer_role = str(resolved_auth.get("role") or "")
-    is_workspace_member = bool(resolved_auth.get("is_workspace_member") or False)
-    viewer_org_id = str(resolved_auth.get("org_id") or "")
+    viewer = await resolve_viewer_context(authorization)
+    tenant_id = viewer.tenant_id
 
     uris = [u for u in ([payload.uri] if payload.uri else []) + list(payload.uris or []) if u]
     if not uris:
@@ -116,10 +115,7 @@ async def resolve_context(
             out = await resolve_memory(
                 uri,
                 tenant_id=tenant_id,
-                viewer_id=viewer_id,
-                viewer_role=viewer_role,
-                is_workspace_member=is_workspace_member,
-                viewer_org_id=viewer_org_id,
+                **viewer.as_visibility_kwargs(),
                 tier=payload.tier,
                 session_id=payload.session_id,
                 turn_id=payload.turn_id,
@@ -168,10 +164,10 @@ async def get_context_trace(
     authorization: str = Header(default=""),
 ) -> ResolveResponse:
     """Read back a unified retrieval trace by id (017 FR-17 replay)."""
-    from app.api.endpoints.auth import _resolve_session_user
+    from app.memory.viewer import resolve_viewer_context
 
-    resolved_auth = await _resolve_session_user(authorization)
-    tenant_id = str(resolved_auth.get("tenant_id") or "")
+    viewer = await resolve_viewer_context(authorization)
+    tenant_id = viewer.tenant_id
     entry = _TRACE_RING.get(str(trace_id))
     # 404 (not 403) for a foreign trace so its existence is not disclosed.
     if entry is None or entry[0] != tenant_id:
