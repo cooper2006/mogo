@@ -68,6 +68,10 @@ export interface MemoryItem {
   source_type?: string;
   status?: MemoryStatus;
   archived?: boolean;
+  promotion_status?: string;
+  pending_department_id?: string;
+  invalidated?: boolean;
+  invalidated_reason?: string;
   created_at?: string;
   updated_at?: string;
   last_accessed_at?: string;
@@ -205,6 +209,52 @@ export interface MemoryApprovalPayload {
 export async function submitMemoryApproval(payload: MemoryApprovalPayload): Promise<MemoryItem> {
   const { data } = await apiClient.post(`${ADMIN_BASE}/approvals`, payload);
   return dataOf<MemoryItem>(data);
+}
+
+// ── T035 提升审批状态机（pending 队列 + 通过 / 驳回）──────────────────
+export interface PromotionResolution {
+  department_id?: string;
+  reason?: string;
+}
+/** 待审批队列：promotion_status == "pending" 的记忆列表。 */
+export async function fetchAdminPendingApprovals(params: AdminPageParams): Promise<AdminPageResult<MemoryItem>> {
+  const { data } = await apiClient.get(`${ADMIN_BASE}/approvals`, { params });
+  const d = dataOf<any>(data);
+  return {
+    items: d?.items ?? d?.memories ?? [],
+    total: Number(d?.total ?? 0),
+    page: Number(d?.page ?? params.page),
+    page_size: Number(d?.page_size ?? params.page_size),
+  };
+}
+/** 通过：promotion_status pending → approved 并提升为 department。 */
+export async function approveMemoryPromotion(id: string, payload: PromotionResolution): Promise<MemoryItem> {
+  const { data } = await apiClient.post(`${ADMIN_BASE}/${encodeURIComponent(id)}/approve`, payload);
+  return dataOf<MemoryItem>(data);
+}
+/** 驳回：promotion_status pending → rejected（scope 不变）。 */
+export async function rejectMemoryPromotion(id: string, payload: PromotionResolution): Promise<MemoryItem> {
+  const { data } = await apiClient.post(`${ADMIN_BASE}/${encodeURIComponent(id)}/reject`, payload);
+  return dataOf<MemoryItem>(data);
+}
+
+// ── T037 离职 / 删号显式失效 治理端点 ────────────────────────────────
+export interface OffboardPayload {
+  user_id: string;
+  reason?: string;
+}
+export async function offboardUserMemories(payload: OffboardPayload): Promise<{ success: boolean; invalidated_count: number }> {
+  const { data } = await apiClient.post(`${ADMIN_BASE}/governance/offboard`, payload);
+  return dataOf<{ success: boolean; invalidated_count: number }>(data);
+}
+export interface ProjectArchiveInvalidationPayload {
+  project_id: string;
+  project_owner_id: string;
+  reason?: string;
+}
+export async function archiveProjectMemories(payload: ProjectArchiveInvalidationPayload): Promise<{ success: boolean; invalidated_count: number }> {
+  const { data } = await apiClient.post(`${ADMIN_BASE}/governance/project-archive`, payload);
+  return dataOf<{ success: boolean; invalidated_count: number }>(data);
 }
 
 // ── T027 可见范围 / 策略 / 配额（§9.5 配置 + §7.2）───────────────────

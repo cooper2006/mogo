@@ -85,6 +85,10 @@ export interface MemoryItem {
   source_type?: string;
   status?: MemoryStatus;
   archived?: boolean;
+  promotion_status?: string;
+  pending_department_id?: string;
+  invalidated?: boolean;
+  invalidated_reason?: string;
   created_at?: string;
   updated_at?: string;
   last_accessed_at?: string;
@@ -229,6 +233,20 @@ export async function promoteMemory(id: string, payload: PromotePayload): Promis
     payload,
     { params: { department_id: payload.department_id } },
   );
+  return dataOf<MemoryItem>(data);
+}
+
+/**
+ * T035 普通用户「申请提升为部门记忆」：POST /api/v1/memories/{id}/promote/request。
+ * 仅记忆 owner 可发起；目标部门须对自身可见。落 pending 队列，由 full_access_admin
+ * 在治理端通过 / 驳回。与 promoteMemory 不同——后者是 admin 直接提升（G-1）。
+ */
+export interface PromoteRequestPayload {
+  department_id: string;
+  reason?: string;
+}
+export async function requestPromoteMemory(id: string, payload: PromoteRequestPayload): Promise<MemoryItem> {
+  const { data } = await api.post(`${BASE}/${encodeURIComponent(id)}/promote/request`, payload);
   return dataOf<MemoryItem>(data);
 }
 

@@ -234,6 +234,10 @@ def _serialize(doc: dict[str, Any], project_name: str | None = None) -> dict[str
         "source_type": str(doc.get("source_type") or ""),
         "status": _status_of(doc),
         "archived": bool(doc.get("archived")),
+        "promotion_status": str(doc.get("promotion_status") or "none"),
+        "pending_department_id": str(doc.get("pending_department_id") or ""),
+        "invalidated": bool(doc.get("invalidated")),
+        "invalidated_reason": str(doc.get("invalidated_reason") or ""),
         "created_at": _fmt_time(doc.get("created_at")),
         "updated_at": _fmt_time(doc.get("updated_at")),
         "last_accessed_at": _fmt_time(doc.get("last_accessed_at")),
@@ -505,9 +509,12 @@ async def get_admin_memory_stats(
     cutoff = time.time() - RECENT_WINDOW_DAYS * 86400
     recent_added = sum(1 for row in visible if _as_epoch(row.get("created_at")) >= cutoff)
 
-    # admin 审批端点是「直接提升」（submitMemoryApproval 返回 MemoryItem），
-    # 没有独立的待审批队列，故恒为 0；若后续落 portal_requests 状态机再接。
-    pending_approval = 0
+    # T035: 待审批 = promotion_status == "pending" 的记忆数（真实队列，不再是恒 0）。
+    pending_approval = sum(
+        1
+        for row in visible
+        if str(row.get("promotion_status") or "none") == "pending"
+    )
     # 覆盖部门数：department 记忆涉及的独立 department_id 数量。
     department_coverage = len(
         {
@@ -614,6 +621,10 @@ async def submit_memory_approval(
             "$set": {
                 "scope": "department",
                 "department_id": payload.department_id,
+                # T035: 管理端直接提升亦记为「approved」，与待审批队列共用状态机。
+                "promotion_status": "approved",
+                "promotion_resolved_by": _actor(current_user),
+                "promotion_resolved_at": _now(),
                 "updated_at": _now(),
             }
         },
@@ -629,10 +640,255 @@ async def submit_memory_approval(
             "department_id": payload.department_id,
             "from_scope": str(doc.get("scope") or ""),
             "reason": payload.reason,
+            "via": "admin_direct",
         },
     )
-    doc.update({"scope": "department", "department_id": payload.department_id})
+    doc.update({
+        "scope": "department",
+        "department_id": payload.department_id,
+        "promotion_status": "approved",
+        "promotion_resolved_by": _actor(current_user),
+    })
     return _serialize(doc)
+
+
+class PromotionApprovalResolution(BaseModel):
+    """Admin 审批决议：approve / reject 共用。reject 仅需 reason；approve 可用
+    payload 覆盖 pending 时登记的 department_id。"""
+    department_id: str = ""
+    reason: str = Field(default="", max_length=500)
+
+
+@router.get("/approvals")
+async def list_pending_approvals(
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    """T035 待审批队列：promotion_status == "pending" 的记忆列表。"""
+    _require(current_user, MEMORY_READ)
+    tenant = _tenant_id(current_user)
+    db = get_db()
+    rows = await db[MEMORIES_COLLECTION].find({"tenant_id": tenant}).to_list(length=None)
+    pending = [
+        row for row in rows
+        if str(row.get("promotion_status") or "none") == "pending"
+        and _governance_visible(row, tenant)
+    ]
+    pending.sort(key=lambda r: _as_epoch(r.get("promotion_requested_at") or r.get("created_at")), reverse=True)
+    total = len(pending)
+    skip = (page - 1) * page_size
+    page_rows = pending[skip : skip + page_size]
+    proj_map = await _project_names(db, tenant)
+    items = []
+    for row in page_rows:
+        project_name = None
+        if str(row.get("scope") or "") == "project" and str(row.get("project_id") or ""):
+            key = (str(row.get("project_id") or ""), str(row.get("project_owner_id") or ""))
+            project_name = proj_map.get(key) or ARCHIVED_PROJECT_LABEL
+        items.append(_serialize(row, project_name=project_name))
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.post("/{memory_id}/approve")
+async def approve_memory_promotion(
+    memory_id: str,
+    payload: PromotionApprovalResolution | None = None,
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """T035 通过待审批的提升请求：promotion_status pending → approved 并提升为
+    department。需 full_access_admin。"""
+    _require(current_user, MEMORY_APPROVE)
+    _require_full_access_admin(current_user)
+    tenant = _tenant_id(current_user)
+    db = get_db()
+    doc = await _load_visible(db, tenant, memory_id)
+    if str(doc.get("promotion_status") or "none") != "pending":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="promotion_not_pending")
+    dept = (payload.department_id if payload else "") or str(doc.get("pending_department_id") or "")
+    if not dept:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="missing department_id")
+    target = await db["org_units"].find_one({"tenant_id": tenant, "_id": dept})
+    if not target:
+        raise _not_found()
+
+    await db[MEMORIES_COLLECTION].update_one(
+        {"memory_id": memory_id, "tenant_id": tenant},
+        {
+            "$set": {
+                "scope": "department",
+                "department_id": dept,
+                "promotion_status": "approved",
+                "promotion_resolved_by": _actor(current_user),
+                "promotion_resolved_at": _now(),
+                "updated_at": _now(),
+            }
+        },
+    )
+    await _emit_001_audit(
+        db,
+        tenant_id=tenant,
+        actor=_actor(current_user),
+        event="memory.promotion.approved",
+        document={
+            "memory_id": memory_id,
+            "department_id": dept,
+            "from_scope": str(doc.get("scope") or ""),
+            "reason": (payload.reason if payload else ""),
+            "via": "approval_queue",
+        },
+    )
+    doc.update({
+        "scope": "department",
+        "department_id": dept,
+        "promotion_status": "approved",
+        "promotion_resolved_by": _actor(current_user),
+    })
+    return _serialize(doc)
+
+
+@router.post("/{memory_id}/reject")
+async def reject_memory_promotion(
+    memory_id: str,
+    payload: PromotionApprovalResolution | None = None,
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """T035 驳回待审批的提升请求：promotion_status pending → rejected（scope 不变）。"""
+    _require(current_user, MEMORY_APPROVE)
+    _require_full_access_admin(current_user)
+    tenant = _tenant_id(current_user)
+    db = get_db()
+    doc = await _load_visible(db, tenant, memory_id)
+    if str(doc.get("promotion_status") or "none") != "pending":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="promotion_not_pending")
+    reason = (payload.reason if payload else "") or ""
+    await db[MEMORIES_COLLECTION].update_one(
+        {"memory_id": memory_id, "tenant_id": tenant},
+        {
+            "$set": {
+                "promotion_status": "rejected",
+                "promotion_resolved_by": _actor(current_user),
+                "promotion_resolved_at": _now(),
+                "promotion_reason": reason,
+                "updated_at": _now(),
+            }
+        },
+    )
+    await _emit_001_audit(
+        db,
+        tenant_id=tenant,
+        actor=_actor(current_user),
+        event="memory.promotion.rejected",
+        document={"memory_id": memory_id, "reason": reason, "via": "approval_queue"},
+    )
+    doc.update({
+        "promotion_status": "rejected",
+        "promotion_resolved_by": _actor(current_user),
+        "promotion_reason": reason,
+    })
+    return _serialize(doc)
+
+
+class OffboardPayload(BaseModel):
+    user_id: str = Field(min_length=1)
+    reason: str = Field(default="", max_length=500)
+
+
+@router.post("/governance/offboard")
+async def offboard_user_memories(
+    payload: OffboardPayload,
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """T037 离职 / 删号显式失效：将目标用户的 personal 与本主 project 记忆置为
+    invalidated，退出活跃检索与管理端默认可见。需 full_access_admin。
+
+    与 chat-api 不复用代码、不跨服务 import（design §7.4）；直接操作 ``memories``
+    集合，逻辑与 chat-api ``app.memory.offboarding`` 保持一致（owner_id +
+    project_owner_id 消歧，N1）。
+    """
+    _require_full_access_admin(current_user)
+    tenant = _tenant_id(current_user)
+    db = get_db()
+    now = _now()
+    result = await db[MEMORIES_COLLECTION].update_many(
+        {
+            "tenant_id": tenant,
+            "archived": {"$ne": True},
+            "invalidated": {"$ne": True},
+            "$or": [
+                {"scope": "personal", "owner_id": payload.user_id},
+                {"scope": "project", "project_owner_id": payload.user_id},
+            ],
+        },
+        {
+            "$set": {
+                "invalidated": True,
+                "invalidated_at": now,
+                "invalidated_reason": payload.reason or "owner_offboarded",
+            }
+        },
+    )
+    count = int(getattr(result, "modified_count", 0) or 0)
+    await _emit_001_audit(
+        db,
+        tenant_id=tenant,
+        actor=_actor(current_user),
+        event="memory.offboarded",
+        document={"target_user_id": payload.user_id, "invalidated_count": count, "reason": payload.reason},
+    )
+    return {"success": True, "invalidated_count": count}
+
+
+class ProjectArchivePayload(BaseModel):
+    project_id: str = Field(min_length=1)
+    project_owner_id: str = Field(min_length=1)
+    reason: str = Field(default="", max_length=500)
+
+
+@router.post("/governance/project-archive")
+async def archive_project_memories(
+    payload: ProjectArchivePayload,
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """T037 (H-6)：项目归档时其记忆退出 RAG 默认检索 — 显式置 invalidated。
+    需 full_access_admin。仅作用于 (project_id, project_owner_id) 的 project 记忆。
+    与 chat-api ``app.memory.offboarding.invalidate_project_memories`` 口径一致。
+    """
+    _require_full_access_admin(current_user)
+    tenant = _tenant_id(current_user)
+    db = get_db()
+    now = _now()
+    result = await db[MEMORIES_COLLECTION].update_many(
+        {
+            "tenant_id": tenant,
+            "scope": "project",
+            "project_id": payload.project_id,
+            "project_owner_id": payload.project_owner_id,
+            "archived": {"$ne": True},
+            "invalidated": {"$ne": True},
+        },
+        {
+            "$set": {
+                "invalidated": True,
+                "invalidated_at": now,
+                "invalidated_reason": payload.reason or "project_archived",
+            }
+        },
+    )
+    count = int(getattr(result, "modified_count", 0) or 0)
+    await _emit_001_audit(
+        db,
+        tenant_id=tenant,
+        actor=_actor(current_user),
+        event="memory.project_archived",
+        document={
+            "project_id": payload.project_id,
+            "project_owner_id": payload.project_owner_id,
+            "invalidated_count": count,
+            "reason": payload.reason,
+        },
+    )
+    return {"success": True, "invalidated_count": count}
 
 
 # ===========================================================================
