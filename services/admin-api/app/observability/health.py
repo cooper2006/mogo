@@ -38,14 +38,14 @@ async def _check_mongodb() -> dict[str, Any]:
 
     payload: dict[str, Any] = {"backend": "mongo"}
     try:
-        client = db.get_admin_db()
+        database = db.get_db()
     except Exception as exc:
         payload["reachable"] = False
         payload["reason"] = resilience.PROBE_ERROR
         payload["error"] = type(exc).__name__
         return payload
 
-    result = await resilience.probe_mongo(client)
+    result = await resilience.probe_mongo(database)
     payload["reachable"] = result["ok"]
     payload["reason"] = result["reason"]
     if result.get("error"):

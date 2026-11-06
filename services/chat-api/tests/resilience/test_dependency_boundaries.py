@@ -26,21 +26,16 @@ def _isolate_breakers():
     default_breaker_registry.reset()
 
 
-class _FakeAdmin:
+class _FakeDatabase:
+    """最小 motor Database 形状：真实 motor 只有 `Database.command('ping')`。"""
+
     def __init__(self, behaviour):
         self._behaviour = behaviour
         self.calls = 0
 
-    async def command(self, name):  # noqa: D401 - 模拟 motor admin
+    async def command(self, name):  # noqa: D401 - 模拟 motor Database.command
         self.calls += 1
         return await self._behaviour()
-
-
-class _FakeDatabase:
-    """最小 motor Database 形状：只需要 `.admin.command('ping')`。"""
-
-    def __init__(self, behaviour):
-        self.admin = _FakeAdmin(behaviour)
 
 
 class _FakePoolOptions:
@@ -129,11 +124,11 @@ async def test_probe_reports_circuit_open_without_calling_dependency():
     database = _FakeDatabase(_boom)
     for _ in range(resilience.mongo_breaker().fail_max):
         assert (await resilience.probe_mongo(database))["ok"] is False
-    calls_before = database.admin.calls
+    calls_before = database.calls
 
     result = await resilience.probe_mongo(database)
     assert result == {"ok": False, "reason": resilience.PROBE_CIRCUIT_OPEN}
-    assert database.admin.calls == calls_before  # 熔断打开时不再打到坏依赖
+    assert database.calls == calls_before  # 熔断打开时不再打到坏依赖
 
 
 @pytest.mark.asyncio

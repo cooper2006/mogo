@@ -47,6 +47,12 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
   #   * scratch -> tmpfs /tmp
   # so `read_only` is safe. tmpfs entries must state mode explicitly: Docker's
   # default is 0755, which the non-root user cannot write to.
+  #
+  # 024 US3 (T029): declare `user` explicitly so the deployment guard's
+  # "未声明非 root user" check passes. no-new-privileges is expressed by
+  # `security_opt` below — compose has no `no_new_privileges` service key,
+  # and an unknown key fails `docker compose config` for the whole file.
+  user: "node"
   security_opt:
     - "no-new-privileges:true"
   cap_drop:
@@ -118,6 +124,13 @@ services:
     # 022 US3 (T027): the bootstrap container generates secrets into a
     # named volume and fixes the ownership of the writable app volumes, so it
     # needs no privileges other than CHOWN/FOWNER for that last step.
+    #
+    # 024 US3 (T029): container hardening. `read_only` is intentionally
+    # omitted here — bootstrap writes secrets and chowns writable volumes at
+    # startup. no-new-privileges and cap_drop ALL are declared below; `user`
+    # is intentionally NOT pinned: Docker does not put cap_add into the
+    # ambient set for a non-root uid, so a `user: "10001"` bootstrap loses
+    # CAP_CHOWN and the volume chown below fails with EPERM.
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
@@ -143,6 +156,10 @@ services:
       - knowledge-storage:/storage/knowledge
       - admin-static:/storage/admin-static
       - askai-storage:/storage/askai
+      # 024 T029 配套：weaviate 现在声明 user "1000:1000"，而 weaviate 镜像
+      # 以 root 构建、已有卷属主 root:root，不预先 chown 会写不进
+      # PERSISTENCE_DATA_PATH。
+      - weaviate-data:/storage/weaviate
     command:
       - /bin/sh
       - -ec
@@ -213,6 +230,7 @@ services:
         # 镜像的 /data 路径在 rootfs 上（read_only 且与卷挂载点同名易混淆），
         # bootstrap 只用 alpine，挂载点只在本容器内有效。
         chown -R 10001:10001 /storage/knowledge /storage/admin-static /storage/askai
+        chown -R 1000:1000 /storage/weaviate
         echo "MOGO deployment secrets are ready."
         echo "After services become healthy, open http://localhost:$${MOGO_PORT:-3000}/admin/setup"
 
@@ -494,6 +512,19 @@ services:
     # T011：AOF 与 RDB 全部落在命名卷 /data 内；根文件系统只读安全。
     # redis 自身无 /tmp 依赖，但 `redis-server` 的信号/pid 文件在编译期指向 /tmp，
     # 显式给 tmpfs 兜底，避免只读根下 pidfile 写失败。
+    #
+    # 024 US3 (T029)：容器加固。`redis:7.4.2-alpine` 内置 `redis` 用户
+    # （UID 999），显式声明非 root user + cap_drop ALL + no-new-privileges，
+    # 与应用服务保持同一加固基线。声明 cap_drop ALL 是必要的：docker
+    # compose 只保留源文件中显式写出的键，不声明时 compose config 输出
+    # 里就没有 cap_drop 字段，门禁的 `cap_drop 缺 ALL` 会误判。
+    # no-new-privileges 只能用 security_opt 表达：compose 没有
+    # `no_new_privileges` 服务键，写了会让整个文件 config 校验失败。
+    security_opt:
+      - "no-new-privileges:true"
+    user: "999:999"
+    cap_drop:
+      - ALL
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
@@ -512,6 +543,11 @@ services:
     # 自己的镜像（例如 registry 内网镜像 semitechnologies/weaviate:1.25.7）。
     image: ${MOGO_WEAVIATE_IMAGE:-semitechnologies/weaviate:1.25.7}
     restart: unless-stopped
+    # 下方 user "1000:1000" 生效的前提：bootstrap 已把 weaviate-data chown 到
+    # 1000（首次加固时该卷属主还是 root:root）。
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
     environment:
       QUERY_DEFAULTS_LIMIT: "25"
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
@@ -521,6 +557,18 @@ services:
       DISABLE_TELEMETRY: "true"
     # T011：Weaviate 持久化全部落在命名卷 /var/lib/weaviate（PERSISTENCE_DATA_PATH）；
     # 根文件系统只读安全。`tmpfs /tmp` 兜底索引/导入的临时写入。
+    #
+    # 024 US3 (T029)：容器加固。Weaviate 官方镜像以 `weaviate` 用户（UID 1000）
+    # 运行，声明非 root user + cap_drop ALL + no-new-privileges，与应用服务
+    # 同一加固基线。显式写出 cap_drop 是必要的：docker compose 只保留源文件
+    # 中显式写出的键，不声明时 compose config 输出里就没有 cap_drop 字段，
+    # 门禁的 `cap_drop 缺 ALL` 会误判。no-new-privileges 同理只能用
+    # security_opt 表达，compose 没有 `no_new_privileges` 服务键。
+    security_opt:
+      - "no-new-privileges:true"
+    user: "1000:1000"
+    cap_drop:
+      - ALL
     read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777
@@ -655,6 +703,9 @@ services:
 
   chat-api: &chat-api-def
     image: ${MOGO_CHAT_API_IMAGE:-ghcr.io/mogoai/chat-api:${MOGO_VERSION:-latest}}
+    # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
+    # linux/arm64，prod 为 linux/amd64。变量为空时回到宿主原生架构。
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -844,6 +895,9 @@ services:
 
   admin-api: &admin-api-def
     image: ${MOGO_ADMIN_API_IMAGE:-ghcr.io/mogoai/admin-api:${MOGO_VERSION:-latest}}
+    # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
+    # linux/arm64，prod 为 linux/amd64。变量为空时回到宿主原生架构。
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     # 022 US3 (T027): container hardening.
@@ -924,6 +978,9 @@ services:
 
   document-api: &document-api-def
     image: ${MOGO_DOCUMENT_API_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
+    # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
+    # linux/arm64，prod 为 linux/amd64。变量为空时回到宿主原生架构。
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["api"]
@@ -1000,6 +1057,9 @@ services:
 
   document-worker:
     image: ${MOGO_DOCUMENT_WORKER_IMAGE:-ghcr.io/mogoai/document-parser:${MOGO_VERSION:-latest}}
+    # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
+    # linux/arm64，prod 为 linux/amd64。变量为空时回到宿主原生架构。
+    platform: ${MOGO_PLATFORM:-}
     pull_policy: ${MOGO_PULL_POLICY:-missing}
     restart: unless-stopped
     command: ["worker"]

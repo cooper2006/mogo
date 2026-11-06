@@ -114,9 +114,13 @@ for svc in target_services:
     if decl_ro != actual_ro:
         drift.append(f"{svc}: read_only 声明={decl_ro} 实测={actual_ro}")
 
-    # no-new-privileges
-    decl_nnp = bool(d.get("no_new_privileges", False))
-    actual_nnp = bool(info.get("HostConfig", {}).get("NoNewPrivileges", False))
+    # no-new-privileges（compose 无 no_new_privileges 服务键，声明只可能来自 security_opt）
+    decl_nnp = any(str(x).startswith("no-new-privileges:true") for x in (d.get("security_opt") or []))
+    # Docker 把 security_opt 记在 HostConfig.SecurityOpt；HostConfig.NoNewPrivileges
+    # 为 false 时整个键会被 omitempty 省略，只看布尔字段会漏判。
+    actual_sec = [str(x) for x in (info.get("HostConfig", {}).get("SecurityOpt") or [])]
+    actual_nnp = bool(info.get("HostConfig", {}).get("NoNewPrivileges", False)) or any(
+        x.startswith("no-new-privileges:true") for x in actual_sec)
     checked += 1
     if decl_nnp != actual_nnp:
         drift.append(f"{svc}: no-new-privileges 声明={decl_nnp} 实测={actual_nnp}")

@@ -80,8 +80,13 @@ try:
 except Exception:
     dc = {}
 
+# document-parser 是共享镜像：compose 里没有同名服务，只有 document-api /
+# document-worker（见 images.sh 的 mogo_export_shared_document_image），
+# 镜像引用取 document-api。
+SERVICE_FOR_IMAGE = {"document-parser": "document-api"}
+
 for name in services:
-    svc = dc.get("services", {}).get(name, {})
+    svc = dc.get("services", {}).get(SERVICE_FOR_IMAGE.get(name, name), {})
     image = svc.get("image", "")
 
     # 若 compose 给的镜像名在本地不存在，尝试本地已有 tag
@@ -90,9 +95,11 @@ for name in services:
             ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"],
             capture_output=True, text=True
         ).stdout.splitlines()
-        local = [i for i in imgs if i.startswith(name + ":")]
+        # 统一命名后本地 tag 是 <registry>/<service>:<ver>，只按 `name + ":"`
+        # 前缀匹配会漏掉它（document-parser 那处 fail 就是这么来的）。
+        local = [i for i in imgs if i.startswith(name + ":") or i.split(":")[0].endswith("/" + name)]
         if local:
-            image = local[0]
+            image = sorted(local)[-1]
 
     if not image:
         print(f"fail\t{name}\timage-present\tno local image")

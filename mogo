@@ -764,12 +764,21 @@ command_check() {
   mogo_check_external_db
 }
 
+# 只读检查命令（baseline / drift / verify）也要走和 command_up 完全相同的镜像
+# 解析。不导出时，子脚本的 `docker compose config` 读到的声明永远是 .env 默认值
+# （dsh 钉在 release-train tag），和运行态的版本 tag 一比就是假漂移、假 image-present。
+mogo_configure_check_images() {
+  export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"
+  mogo_configure_images true
+}
+
 command_baseline() {
   local baseline_script="${ROOT_DIR}/deploy/cli/baseline-check.sh"
   if [[ ! -x "${baseline_script}" ]]; then
     mogo_msg baseline_script_missing >&2
     exit 2
   fi
+  mogo_configure_check_images
   bash "${baseline_script}" "$@"
 }
 
@@ -799,6 +808,7 @@ command_drift() {
     mogo_msg drift_script_missing >&2
     exit 2
   fi
+  mogo_configure_check_images
   bash "${drift_script}" "$@"
 }
 
@@ -818,6 +828,7 @@ command_verify() {
     mogo_msg verify_script_missing >&2
     exit 2
   fi
+  mogo_configure_check_images
   bash "${script}" "$@"
 }
 

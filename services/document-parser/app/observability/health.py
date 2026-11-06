@@ -16,15 +16,20 @@ router = APIRouter(tags=["system"])
 
 
 async def _check_mongodb() -> dict[str, Any]:
+    """本服务 `get_db()` 返回**同步**句柄（pymongo Database / PanWeiDB 兼容门面），
+    两者都有同步 `command`，因此 ping 放线程池执行，避免阻塞事件循环。"""
+    import asyncio
+
     from app.core.db import get_db
 
     payload: dict[str, Any] = {"backend": "mongo"}
     try:
-        client = get_db()
-        await client.admin.command("ping")
+        database = get_db()
+        await asyncio.to_thread(database.command, "ping")
         payload["reachable"] = True
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - 探测失败一律转成不可达，不向上抛
         payload["reachable"] = False
+        payload["error"] = type(exc).__name__
     return payload
 
 

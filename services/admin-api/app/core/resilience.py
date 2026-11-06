@@ -247,10 +247,14 @@ def _probe_payload(reason: str, **extra: Any) -> dict[str, Any]:
 
 
 async def probe_mongo(database: Any, *, timeout: float | None = None) -> dict[str, Any]:
-    """`/ready` 的 Mongo 探针：`database.admin.command('ping')` 走熔断 + 超时。"""
+    """`/ready` 的 Mongo 探针：`database.command('ping')` 走熔断 + 超时。
+
+    用 Database 自身的 `command`：motor 把 `Database.admin` 解析成名为 "admin"
+    的集合（无 `command`），`database.admin.command` 只在假对象测试里能过。
+    """
 
     async def _ping() -> Any:
-        return await database.admin.command("ping")
+        return await database.command("ping")
 
     try:
         await guarded_mongo_call(_ping, timeout=timeout)
