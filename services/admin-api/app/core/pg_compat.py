@@ -743,8 +743,9 @@ class _FilterCompiler:
                 if column_type(col) == "JSONB":
                     # openGauss A 模式缺陷：NOT (jsonb @> ...) 求值错误（实测），
                     # 改用 IS NOT TRUE 谓词正确表达「不等于/不含」。
+                    quoted_col = '"' + col + '"'
                     return (
-                        f"({self._jsonb_eq_or_contains(f'\"{col}\"', operand)}) "
+                        f"({self._jsonb_eq_or_contains(quoted_col, operand)}) "
                         f"IS NOT TRUE"
                     )
                 return (

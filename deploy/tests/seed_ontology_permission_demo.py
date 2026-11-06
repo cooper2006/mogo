@@ -35,7 +35,8 @@ import sys
 
 import pytest
 
-BASE = "http://127.0.0.1:8100/api"
+# 025 T045（FR-27）：admin-api 主版本路径为 /api/v1，旧 /api/* 只做 301/308 重定向。
+BASE = "http://127.0.0.1:8100/api/v1"
 _RUNTIME_ENV = "/run/askai-secrets/runtime.env"
 
 TENANT_ID = "bonc-2331b8a0ecdbd2ebcbf253c4"

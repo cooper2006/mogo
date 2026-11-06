@@ -161,7 +161,7 @@ export interface MemoryStats {
 const ADMIN_BASE = '/api/v1/memories/admin';
 
 export async function fetchAdminMemories(params: AdminPageParams): Promise<AdminPageResult<MemoryItem>> {
-  const { data } = await apiClient.get(`${ADMIN_BASE}/list`, { params });
+  const { data } = await apiClient.get(ADMIN_BASE, { params });
   const d = dataOf<any>(data);
   return {
     items: d?.items ?? d?.memories ?? [],
@@ -189,7 +189,7 @@ export async function restoreAdminMemory(id: string, reason: string): Promise<vo
 }
 /** 删除需 full_access_admin + 审计（§7.2）。 */
 export async function deleteAdminMemory(id: string, reason: string): Promise<void> {
-  await apiClient.post(`${ADMIN_BASE}/${encodeURIComponent(id)}/delete`, { reason });
+  await apiClient.delete(`${ADMIN_BASE}/${encodeURIComponent(id)}`, { data: { reason } });
 }
 /**
  * 批量归档（§7.2 新增能力）。§9.1 未列批量端点，不编造路径：以单条 archive

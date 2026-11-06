@@ -95,7 +95,9 @@ err()  { printf '\033[0;31m[error]\033[0m %s\n' "$*" >&2; }
 run()  { if [[ "${DRY_RUN}" -eq 1 ]]; then log "(dry-run) $*"; else eval "$@"; fi; }
 
 if [[ -z "${MOGO_VERSION:-}" && -f "${ENV_FILE}" ]]; then
-  MOGO_VERSION="$(grep -E '^[[:space:]]*MOGO_VERSION=' "${ENV_FILE}" | tail -n1 | cut -d= -f2- | tr -d '\r')"
+  # 注意：`set -o pipefail` 下 grep 无匹配会返回 1，令整个赋值失败并以 1 退出
+  # （脚本静默终止、不打印任何错误）。.env 里 MOGO_VERSION 常被注释掉，故用 `|| true` 兜底。
+  MOGO_VERSION="$(grep -E '^[[:space:]]*MOGO_VERSION=' "${ENV_FILE}" | tail -n1 | cut -d= -f2- | tr -d '\r' || true)"
 fi
 MOGO_VERSION="${MOGO_VERSION:-latest}"
 

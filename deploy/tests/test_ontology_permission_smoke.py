@@ -39,7 +39,9 @@ import sys
 
 import pytest
 
-BASE = "http://127.0.0.1:8100/api"
+# 025 T045（FR-27）：admin-api 主版本路径为 /api/v1，旧 /api/* 由
+# LegacyApiRedirectMiddleware 301/308 重定向，httpx 默认不跟随 → 必须直写 /api/v1。
+BASE = "http://127.0.0.1:8100/api/v1"
 SMOKE_USER = "smoke-030-user"
 SMOKE_ROLE = "smoke-030-role"
 ONTOLOGIES = ("material", "customer")

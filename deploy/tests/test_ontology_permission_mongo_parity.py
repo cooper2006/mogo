@@ -36,9 +36,27 @@ SMOKE_USER = "parity-user-030"
 GRANT_TABLE = "mesc_ontology_grant"
 DETAIL_TABLE = "mesc_ontology_class_detail"
 
-_NETWORK_OK = os.path.exists("/proc/net/route") and bool(
-    __import__("socket").gethostbyname_ex("mogo-mongo-1")[2]
-) if os.environ.get("MOGO_DATA_BACKEND") == "mongo" else False
+
+def _container_network_ready() -> bool:
+    """是否处在能解析 ``mogo-mongo-1`` 的 docker 内网（宿主机上必然为 False）。
+
+    mongo 未映射宿主机端口，本文件只能在 ``--network mogo_backend`` 的容器里跑。
+    宿主上直接 `pytest deploy/tests` 时必须 skip，而不是以 ConfigurationError
+    （``Empty host``——MONGODB_URI 为空）的形式报一次假失败。
+    """
+    try:
+        __import__("socket").gethostbyname_ex("mogo-mongo-1")
+    except OSError:
+        return False
+    return True
+
+
+_SKIP_REASON = (
+    "需在 mogo_backend 容器网络内运行（mongo 未映射宿主机端口）；"
+    "见本文件 docstring 的 docker run 用法"
+)
+
+pytestmark = pytest.mark.skipif(not _container_network_ready(), reason=_SKIP_REASON)
 
 
 def test_mongo_backend_selected() -> None:

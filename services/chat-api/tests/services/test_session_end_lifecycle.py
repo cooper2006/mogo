@@ -55,6 +55,18 @@ class _FakeCollection:
         self.inserts.append(doc)
         return type("R", (), {"inserted_id": "x"})()
 
+    async def replace_one(self, query: dict, doc: dict, upsert: bool = False):
+        """P2-2: ``MemoryStore.save`` upserts via ``replace_one``."""
+        self.updates.append((query, {"$set": doc}))
+        for d in self._docs:
+            if _match(d, query):
+                d.update(doc)
+                return
+        if upsert:
+            merged = {**query, **doc}
+            self._docs.append(merged)
+        return type("R", (), {"matched_count": 1, "modified_count": 1})()
+
     async def delete_one(self, q):
         return type("R", (), {"deleted_count": 1})()
 
@@ -103,6 +115,14 @@ class _FakeDb(dict):
 def fake_db(monkeypatch):
     db = _FakeDb()
     monkeypatch.setattr(sps, "get_db", lambda: db)
+    # P2-2: end_session dispatches a 009 SessionEnd with a *new* MemoryStore in
+    # the payload; the 017 sedimentation subscriber's store.save() reads
+    # app.memory.store.get_db, which is NOT covered by patching sps.get_db.
+    # Without this the real development MongoDB would receive writes during the
+    # tests (confirmed by 2 stray rows in mogo_dev.memories on 2026-11-06).
+    # Patch the store module's get_db to route all memory writes to the fake db.
+    import app.memory.store as store_mod
+    monkeypatch.setattr(store_mod, "get_db", lambda: db)
     monkeypatch.setattr("app.core.tenant.add_tenant_scope", lambda q, _m=None: q)
     monkeypatch.setattr("app.core.tenant.resolve_tenant_id", lambda t: t)
     return db

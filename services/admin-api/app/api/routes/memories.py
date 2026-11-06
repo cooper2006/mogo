@@ -430,7 +430,9 @@ def _default_policies() -> dict[str, Any]:
 # ===========================================================================
 # 静态路由先注册，避免被 /{id} 抢占匹配。
 # ===========================================================================
-@router.get("/list")
+# 025 FR-1 路径资源化：列表挂在集合根（同 skills.py / knowledge_documents.py
+# 的约定），不以动词段 ``/list`` 暴露 —— 避免违反全局路径命名契约。
+@router.get("")
 async def list_admin_memories(
     current_user: dict[str, Any] = Depends(get_current_admin_user),
     page: int = Query(default=1, ge=1),
@@ -980,7 +982,7 @@ async def restore_admin_memory(
     )
 
 
-@router.post("/{memory_id}/delete")
+@router.delete("/{memory_id}")
 async def delete_admin_memory(
     memory_id: str,
     payload: ReasonPayload,

@@ -214,7 +214,7 @@ def api(monkeypatch):
 # ---------------------------------------------------------------------------
 def test_list_pagination_and_scope_filter(api):
     client, _db = api
-    resp = client.get(f"{BASE}/list", params={"page": 1, "page_size": 2})
+    resp = client.get(BASE, params={"page": 1, "page_size": 2})
     assert resp.status_code == 200
     body = resp.json()
     assert set(body) >= {"items", "total", "page", "page_size"}
@@ -223,24 +223,24 @@ def test_list_pagination_and_scope_filter(api):
     # 8 条治理可见（5 personal + 1 project + 1 department + 1 archived）
     assert body["total"] == 8
 
-    page2 = client.get(f"{BASE}/list", params={"page": 2, "page_size": 2}).json()
+    page2 = client.get(BASE, params={"page": 2, "page_size": 2}).json()
     assert len(page2["items"]) == 2
     assert page2["items"][0]["memory_id"] != body["items"][0]["memory_id"]
 
-    proj = client.get(f"{BASE}/list", params={"scope": "project"}).json()
+    proj = client.get(BASE, params={"scope": "project"}).json()
     assert proj["total"] == 1
     assert proj["items"][0]["memory_id"] == "proj1"
     assert proj["items"][0]["project_name"] == "项目一"
 
-    dep = client.get(f"{BASE}/list", params={"scope": "department"}).json()
+    dep = client.get(BASE, params={"scope": "department"}).json()
     assert dep["total"] == 1
     assert dep["items"][0]["memory_id"] == "dep1"
 
-    archived = client.get(f"{BASE}/list", params={"status": "archived"}).json()
+    archived = client.get(BASE, params={"status": "archived"}).json()
     assert archived["total"] == 1
     assert archived["items"][0]["memory_id"] == "arch1"
 
-    keyword = client.get(f"{BASE}/list", params={"keyword": "周报-3"}).json()
+    keyword = client.get(BASE, params={"keyword": "周报-3"}).json()
     assert keyword["total"] == 1
     assert keyword["items"][0]["memory_id"] == "p3"
 
@@ -248,10 +248,10 @@ def test_list_pagination_and_scope_filter(api):
 def test_list_cross_tenant_filter_returns_empty(api):
     client, _db = api
     # 客户端自报其它租户 → 空结果，不泄露其它租户是否存在
-    body = client.get(f"{BASE}/list", params={"tenant_id": OTHER_TENANT}).json()
+    body = client.get(BASE, params={"tenant_id": OTHER_TENANT}).json()
     assert body == {"items": [], "total": 0, "page": 1, "page_size": 20}
     # 同租户筛选正常
-    assert client.get(f"{BASE}/list", params={"tenant_id": TENANT}).json()["total"] == 8
+    assert client.get(BASE, params={"tenant_id": TENANT}).json()["total"] == 8
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +260,7 @@ def test_list_cross_tenant_filter_returns_empty(api):
 @pytest.mark.parametrize("bad", ["workspace", "org", "whatever", "WORKSPACE"])
 def test_legacy_scope_returns_400(api, bad):
     client, _db = api
-    resp = client.get(f"{BASE}/list", params={"scope": bad})
+    resp = client.get(BASE, params={"scope": bad})
     assert resp.status_code == 400
     assert resp.json()["detail"] == "scope_invalid"
 
@@ -268,7 +268,7 @@ def test_legacy_scope_returns_400(api, bad):
 def test_valid_scope_values_pass(api):
     client, _db = api
     for value in ("personal", "project", "department"):
-        assert client.get(f"{BASE}/list", params={"scope": value}).status_code == 200
+        assert client.get(BASE, params={"scope": value}).status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +297,7 @@ def test_invisible_detail_returns_404(api, memory_id):
 
 def test_invisible_records_absent_from_list(api):
     client, _db = api
-    ids = {item["memory_id"] for item in client.get(f"{BASE}/list").json()["items"]}
+    ids = {item["memory_id"] for item in client.get(BASE).json()["items"]}
     assert {
         "legacy_workspace", "legacy_org", "default_proj", "cross_tenant",
         "no_project_owner", "no_department", "no_owner",
@@ -343,7 +343,7 @@ def test_archive_restore_delete_write_audit(api):
     client, db = api
     assert client.post(f"{BASE}/p0/archive", json={"reason": "过期"}).status_code == 200
     assert client.post(f"{BASE}/p0/restore", json={"reason": "误操作"}).status_code == 200
-    assert client.post(f"{BASE}/p0/delete", json={"reason": "合规"}).status_code == 200
+    assert client.request("DELETE", f"{BASE}/p0", json={"reason": "合规"}).status_code == 200
 
     assert _audit_events(db) == ["memory.archived", "memory.restored", "memory.deleted"]
     for row in db["position_role_audit_logs"].docs:
@@ -407,7 +407,7 @@ def test_policies_put_writes_audit_and_roundtrip(api):
 def test_governance_action_on_invisible_is_404_without_audit(api):
     client, db = api
     assert client.post(f"{BASE}/default_proj/archive", json={"reason": "r"}).status_code == 404
-    assert client.post(f"{BASE}/cross_tenant/delete", json={"reason": "r"}).status_code == 404
+    assert client.request("DELETE", f"{BASE}/cross_tenant", json={"reason": "r"}).status_code == 404
     assert db["position_role_audit_logs"].docs == []
 
 
@@ -416,7 +416,7 @@ def test_governance_action_on_invisible_is_404_without_audit(api):
 # ---------------------------------------------------------------------------
 def test_default_project_excluded(api):
     client, db = api
-    body = client.get(f"{BASE}/list", params={"scope": "project"}).json()
+    body = client.get(BASE, params={"scope": "project"}).json()
     assert body["total"] == 1
     assert body["items"][0]["memory_id"] == "proj1"
     assert client.get(f"{BASE}/default_proj").status_code == 404
@@ -448,7 +448,7 @@ def test_stats_structure(api):
 def test_manage_requires_permission(api):
     client, _db = api
     client.holder["user"] = _user(role="组织管理员")  # 只有 memory:read 基线
-    assert client.get(f"{BASE}/list").status_code == 200
+    assert client.get(BASE).status_code == 200
     assert client.post(f"{BASE}/p0/archive", json={"reason": "r"}).status_code == 403
 
 
@@ -507,7 +507,7 @@ def test_serialize_actual_scope_is_computed_not_from_db():
 def test_list_and_detail_echo_resolved_from_actual_scope(api):
     """治理端列表 / 详情逐条恒回显 actual_scope / resolved_from（此前恒缺）。"""
     client, _db = api
-    body = client.get(f"{BASE}/list").json()
+    body = client.get(BASE).json()
     assert body["items"]
     for item in body["items"]:
         assert item["actual_scope"] == item["scope"]

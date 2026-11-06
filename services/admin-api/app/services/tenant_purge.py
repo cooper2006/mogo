@@ -87,6 +87,12 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "position_role_migrations",
     "position_role_audit_logs",
     "project_memories",
+    # 046 FR-001/FR-013 + 049: Code project metadata (``projects``), keyed by
+    # scalar ``tenant_id`` (physical key ``default:<tenant_id>`` for the default
+    # project). Project docs carry ``member_user_ids`` + ``user_id`` (creator);
+    # a leftover row after tenant purge would leak project membership to a
+    # re-created tenant. Note: chat-api writes it via projects.py.
+    "projects",
     "resource_comment_reactions",
     "resource_comments",
     "resource_feedback_notifications",
@@ -109,6 +115,11 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "mfa_used_steps",
     # 017: three-scope memory records (tenant-partitioned, scope-filtered reads).
     "memories",
+    # 017 §9.1: per-tenant memory policy/cleanup config (one doc per tenant,
+    # keyed by scalar ``tenant_id``; GET /policies falls back to a default
+    # contract when absent). Leaking it across a purge would let a re-created
+    # tenant inherit a stale cleanup policy.
+    "memory_policies",
     # 019: harness thickness profiles (tenant-partitioned via tenant_id).
     "harness_profiles",
     "site_profiles",

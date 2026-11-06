@@ -288,15 +288,19 @@ async def test_resolve_session_user_slides_expires_at(fake_db) -> None:
     没有滑动续期时 ``expires_at`` 只在登录时写一次（TTL 1h），持续活跃的用户
     也会到点被强制重登；Console 表现为一堆 401 + 弹出登录框。
     """
+    # NOW_DT 在模块导入时捕获；全量套件要跑约 5 分钟，若沿用导入时刻的
+    # NOW_DT + 5min 作 expires_at，执行时早已过期 → 401，测不出续期。
+    # 这里在执行时刻取一次 fresh now，保证断言针对的是「真实当前时间」。
+    now = dt.datetime.now(dt.timezone.utc)
     fake_db["end_user_sessions"].docs.append(
-        _session_doc(expires_at=NOW_DT + dt.timedelta(minutes=5))
+        _session_doc(expires_at=now + dt.timedelta(minutes=5))
     )
     fake_db["end_users"].docs.append(_user_doc())
 
     result = await end_user_session.resolve_session_user(f"Bearer {_token()}")
 
     renewed = result["session"]["expires_at"]
-    assert renewed > NOW_DT + dt.timedelta(minutes=30)
+    assert renewed > now + dt.timedelta(minutes=30)
     # 返回值与落库值保持一致，避免调用方拿到旧有效期。
     assert fake_db["end_user_sessions"].docs[0]["expires_at"] == renewed
 
@@ -304,9 +308,10 @@ async def test_resolve_session_user_slides_expires_at(fake_db) -> None:
 @pytest.mark.asyncio
 async def test_resolve_session_user_renewal_capped_by_absolute_deadline(fake_db) -> None:
     """续期不能突破 24h 绝对窗口，否则等于取消了绝对超时。"""
-    created = NOW_DT - dt.timedelta(seconds=ABSOLUTE_TIMEOUT_SECONDS - 600)
+    now = dt.datetime.now(dt.timezone.utc)
+    created = now - dt.timedelta(seconds=ABSOLUTE_TIMEOUT_SECONDS - 600)
     fake_db["end_user_sessions"].docs.append(
-        _session_doc(created_at=created, expires_at=NOW_DT + dt.timedelta(minutes=5))
+        _session_doc(created_at=created, expires_at=now + dt.timedelta(minutes=5))
     )
     fake_db["end_users"].docs.append(_user_doc())
 
@@ -320,8 +325,9 @@ async def test_resolve_session_user_renewal_capped_by_absolute_deadline(fake_db)
 @pytest.mark.asyncio
 async def test_resolve_session_user_slides_naive_expires_at(fake_db) -> None:
     """Mongo/PanWeiDB 读出的 datetime 是 naive UTC，续期逻辑必须照样生效。"""
+    now = dt.datetime.now(dt.timezone.utc)
     fake_db["end_user_sessions"].docs.append(
-        _session_doc(expires_at=(NOW_DT + dt.timedelta(minutes=5)).replace(tzinfo=None))
+        _session_doc(expires_at=(now + dt.timedelta(minutes=5)).replace(tzinfo=None))
     )
     fake_db["end_users"].docs.append(_user_doc())
 
@@ -329,7 +335,7 @@ async def test_resolve_session_user_slides_naive_expires_at(fake_db) -> None:
 
     renewed = result["session"]["expires_at"]
     assert renewed.tzinfo is not None
-    assert renewed > NOW_DT + dt.timedelta(minutes=30)
+    assert renewed > now + dt.timedelta(minutes=30)
 
 
 @pytest.mark.asyncio
