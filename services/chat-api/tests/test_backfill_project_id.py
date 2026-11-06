@@ -199,9 +199,11 @@ def test_backfill_handles_archived_project_binding() -> None:
     assert sessions[0]["project_id"] == "proj-archived"
 
 
-def test_backfill_missing_session_records_failure() -> None:
+def test_backfill_missing_session_records_failure(tmp_path, monkeypatch) -> None:
     """binding 指向的 session 不存在：记为 failure 但不中断。"""
     migration = _import_migration()
+    # 失败清单默认写相对路径 backups/，会把夹具产物落进源码树；重定向到 tmp_path。
+    monkeypatch.setattr(migration, "BACKUP_DIR", str(tmp_path))
 
     bindings = [
         {"_id": "b1", "kernel_session_id": "s-missing", "source_workspace_id": "proj-x"},
