@@ -72,6 +72,16 @@ def _row_to_memory(row: dict[str, Any]) -> Memory:
         source_session_id=str(row.get("source_session_id") or ""),
         source_type=str(row.get("source_type") or ""),
         project_owner_id=str(row.get("project_owner_id") or ""),
+        promotion_status=str(row.get("promotion_status") or "none"),
+        pending_department_id=str(row.get("pending_department_id") or ""),
+        promotion_requested_by=str(row.get("promotion_requested_by") or ""),
+        promotion_requested_at=float(row.get("promotion_requested_at") or 0.0),
+        promotion_reason=str(row.get("promotion_reason") or ""),
+        promotion_resolved_by=str(row.get("promotion_resolved_by") or ""),
+        promotion_resolved_at=float(row.get("promotion_resolved_at") or 0.0),
+        invalidated=bool(row.get("invalidated") or False),
+        invalidated_at=float(row.get("invalidated_at") or 0.0),
+        invalidated_reason=str(row.get("invalidated_reason") or ""),
     )
     memory.archived = bool(row.get("archived") or False)
     return memory
@@ -166,6 +176,16 @@ class MemoryStore:
                 source_session_id=source_session_id,
                 source_type=source_type,
                 project_owner_id=project_owner_id,
+                promotion_status="none",
+                pending_department_id="",
+                promotion_requested_by="",
+                promotion_requested_at=0.0,
+                promotion_reason="",
+                promotion_resolved_by="",
+                promotion_resolved_at=0.0,
+                invalidated=False,
+                invalidated_at=0.0,
+                invalidated_reason="",
             )
         tenant_id = resolve_tenant_id(tenant_id)
         doc: dict[str, Any] = {
@@ -187,6 +207,16 @@ class MemoryStore:
             "summary_refresh_days": summary_refresh_days,
             "source_session_id": source_session_id,
             "source_type": source_type,
+            "promotion_status": "none",
+            "pending_department_id": "",
+            "promotion_requested_by": "",
+            "promotion_requested_at": 0.0,
+            "promotion_reason": "",
+            "promotion_resolved_by": "",
+            "promotion_resolved_at": 0.0,
+            "invalidated": False,
+            "invalidated_at": 0.0,
+            "invalidated_reason": "",
         }
         await db[COLLECTION].replace_one(
             {"memory_id": mem_id, "tenant_id": tenant_id},

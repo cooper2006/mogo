@@ -23,9 +23,11 @@ from app.memory.scope import (
     DEFAULT_PROJECT_ID,
     MemoryAccessError,
     MemoryScope,
+    PROMOTION_STATUS_APPROVED,
     promote_to_department,
     visible_to,
 )
+from app.memory import promotion as promotion_sm
 from app.memory.store import MemoryTooLargeError
 from app.memory.tiering import NoopSummarizer, tier_content
 
@@ -52,6 +54,19 @@ class MemoryPromotePayload(BaseModel):
     """
 
     target_scope: str = ""
+    department_id: str = ""
+    reason: str = ""
+
+
+class MemoryPromoteRequestPayload(BaseModel):
+    """Body form of ``POST /{memory_id}/promote/request`` (T035 user flow).
+
+    A non-admin owner requests promotion of their memory to ``department``. The
+    request enters ``pending`` and an admin later approves/rejects it. Only
+    ``department_id`` (target) and an optional ``reason`` are accepted; the
+    scope is always ``department`` and the requester's identity is server-derived.
+    """
+
     department_id: str = ""
     reason: str = ""
 
@@ -103,6 +118,8 @@ def _memory_response(memory: Any) -> dict[str, Any]:
         "owner_id": memory.owner_id,
         "created_at": memory.created_at,
         "last_accessed_at": memory.last_accessed_at,
+        "promotion_status": str(getattr(memory, "promotion_status", "none") or "none"),
+        "invalidated": bool(getattr(memory, "invalidated", False)),
         **_scope_echo(memory),
     }
 
@@ -443,6 +460,9 @@ async def promote_memory(
         memory_id=promoted.memory_id,
         scope=promoted.scope,
         department_id=promoted.department_id,
+        promotion_status=PROMOTION_STATUS_APPROVED,
+        promotion_resolved_by=viewer.user_id,
+        promotion_resolved_at=time.time(),
         updated_at=time.time(),
     )
     if not updated:
@@ -451,7 +471,91 @@ async def promote_memory(
         "memory_id": promoted.memory_id,
         "scope": promoted.scope,
         "department_id": promoted.department_id,
+        "promotion_status": PROMOTION_STATUS_APPROVED,
         "promoted_by": viewer.user_id,
+    }}
+
+
+@router.post("/{memory_id}/promote/request")
+async def request_promote_memory(
+    memory_id: str,
+    payload: MemoryPromoteRequestPayload | None = None,
+    authorization: str = Header(default=""),
+) -> dict[str, Any]:
+    """T035: a normal user requests promotion to ``department`` (→ ``pending``).
+
+    The caller must own the memory and the target department must be visible to
+    them. This does **not** promote immediately — it only opens a ``pending``
+    request that a full-access admin approves/rejects via the admin surface. A
+    non-admin calling the direct ``/promote`` endpoint still gets 403 (G-1).
+    """
+    from app.services.feature_audit_bridge import emit_feature_event
+    from app.memory.store import MemoryStore
+    from app.memory.viewer import resolve_viewer_context
+
+    viewer = await resolve_viewer_context(authorization)
+    store = MemoryStore()
+    memory = await store.get(tenant_id=viewer.tenant_id, memory_id=memory_id)
+    if memory is None or not visible_to(memory, viewer):
+        raise HTTPException(status_code=404, detail="memory_not_found")
+    if memory.owner_id != viewer.user_id:
+        raise HTTPException(status_code=403, detail="not_owner")
+
+    target_department = (
+        _promote_field(payload, "department_id")
+        or viewer.primary_department_id
+    )
+    if not viewer.department_is_visible(target_department):
+        raise HTTPException(status_code=403, detail="department_not_visible")
+
+    reason = _promote_field(payload, "reason")
+    try:
+        promotion_sm.request_promotion(
+            memory, viewer=viewer, department_id=target_department, reason=reason
+        )
+    except MemoryAccessError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    updated = await store.update_fields(
+        tenant_id=viewer.tenant_id,
+        memory_id=memory.memory_id,
+        promotion_status=memory.promotion_status,
+        pending_department_id=memory.pending_department_id,
+        promotion_requested_by=memory.promotion_requested_by,
+        promotion_requested_at=memory.promotion_requested_at,
+        promotion_reason=memory.promotion_reason,
+        updated_at=time.time(),
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="memory_not_found")
+
+    try:
+        emit_feature_event(
+            "017",
+            "memory.promotion.requested",
+            {
+                "memory_id": memory.memory_id,
+                "scope": memory.scope,
+                "pending_department_id": memory.pending_department_id,
+                "reason": reason,
+            },
+            tenant_id=viewer.tenant_id,
+            actor=viewer.user_id,
+        )
+    except Exception as exc:  # 审计失败不阻断主流程
+        from app.infrastructure.observability.config import log_print
+
+        log_print(
+            f"[memory.endpoint] promotion.requested audit emit failed "
+            f"(memory_id={memory.memory_id}): {exc}",
+            flush=True,
+        )
+
+    return {"code": 0, "message": "promotion_requested", "data": {
+        "memory_id": memory.memory_id,
+        "promotion_status": memory.promotion_status,
+        "pending_department_id": memory.pending_department_id,
+        "requested_by": memory.promotion_requested_by,
     }}
 
 

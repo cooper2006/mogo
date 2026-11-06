@@ -38,6 +38,18 @@ DEPARTMENT_PROMOTION_ROLES = frozenset({"full_access_admin"})
 #: 049 tenant-wide fallback project (N2). Never a valid memory scope target.
 DEFAULT_PROJECT_ID = "default"
 
+# ── Promotion approval state machine (T035) ───────────────────────────────
+# A normal user *requests* promotion of their memory to ``department``; it
+# enters ``pending`` and a full-access admin *approves* (promotes) or *rejects*.
+# ``none`` is the default (no request ever made / direct admin promote).
+PROMOTION_STATUS_NONE = "none"
+PROMOTION_STATUS_PENDING = "pending"
+PROMOTION_STATUS_APPROVED = "approved"
+PROMOTION_STATUS_REJECTED = "rejected"
+PROMOTION_STATUSES = frozenset(
+    {PROMOTION_STATUS_NONE, PROMOTION_STATUS_PENDING, PROMOTION_STATUS_APPROVED, PROMOTION_STATUS_REJECTED}
+)
+
 
 class MemoryScope(str, Enum):
     PERSONAL = "personal"
@@ -92,6 +104,21 @@ class Memory:
     source_type: str = ""      # "" | "session"
     # --- N1: disambiguates duplicate projects._id values within a tenant ---
     project_owner_id: str = ""
+    # --- Promotion approval state machine (T035) ---
+    promotion_status: str = PROMOTION_STATUS_NONE
+    pending_department_id: str = ""
+    promotion_requested_by: str = ""
+    promotion_requested_at: float = 0.0
+    promotion_reason: str = ""
+    promotion_resolved_by: str = ""
+    promotion_resolved_at: float = 0.0
+    # --- T037 offboarding / deletion explicit invalidation (H-3 / H-6) ---
+    # When True the memory is explicitly taken out of active retrieval: a normal
+    # viewer can no longer see it, and it exits RAG default retrieval. Admin
+    # governance may still list it (flagged) for audit / restore.
+    invalidated: bool = False
+    invalidated_at: float = 0.0
+    invalidated_reason: str = ""
 
     def __post_init__(self) -> None:
         if self.scope not in SCOPE_VISIBILITY:
@@ -148,6 +175,10 @@ def visible_to(memory: Memory | Mapping[str, Any], viewer: Any) -> bool:
     if str(_field(memory, "tenant_id") or "") != viewer.tenant_id:
         return False
     if bool(_field(memory, "archived")):
+        return False
+    # T037 (H-3): explicitly invalidated memories (offboarding / deletion) are
+    # invisible to every normal viewer — they exit active RAG retrieval too.
+    if bool(_field(memory, "invalidated")):
         return False
 
     scope = str(_field(memory, "scope") or "")
