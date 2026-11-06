@@ -56,13 +56,21 @@ function close(): void {
   emit('update:show', false)
 }
 
+/** 接口失败不再静默伪装成「暂无数据」：控制台留栈、界面给可见提示。 */
+function reportLoadError(scope: string, err: unknown): void {
+  const status = (err as { response?: { status?: number } })?.response?.status
+  console.error(`[MemberPicker] ${scope}加载失败`, err)
+  message.error(`${scope}加载失败${status ? `（HTTP ${status}）` : ''}，请稍后重试`)
+}
+
 async function loadDepartments(): Promise<void> {
   if (!props.authToken) return
   departmentsLoading.value = true
   try {
     departments.value = await listProjectDepartments(props.authToken)
-  } catch {
+  } catch (err) {
     departments.value = []
+    reportLoadError('部门列表', err)
   } finally {
     departmentsLoading.value = false
   }
@@ -77,8 +85,9 @@ async function loadCandidates(): Promise<void> {
     for (const item of items) {
       if (selected.value.includes(item.id)) selectedInfo.value = { ...selectedInfo.value, [item.id]: item }
     }
-  } catch {
+  } catch (err) {
     candidates.value = []
+    reportLoadError('成员列表', err)
   } finally {
     candidatesLoading.value = false
   }

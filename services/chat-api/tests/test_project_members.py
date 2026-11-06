@@ -23,6 +23,14 @@ def _match(document: dict, scope: dict) -> bool:
             if not any(_match(document, branch) for branch in value):
                 return False
             continue
+        if key == "$and":
+            if not all(_match(document, branch) for branch in value):
+                return False
+            continue
+        if isinstance(value, dict) and "$exists" in value:
+            if (key in document) != bool(value["$exists"]):
+                return False
+            continue
         if isinstance(value, dict) and "$regex" in value:
             import re
             actual = document.get(key)
@@ -250,3 +258,44 @@ async def test_departments_endpoint_returns_active_only(db):
     assert {item["id"] for item in departments} == {"root", "dev"}
     assert departments[0]["id"] == "root"  # depth 0 在前
     assert departments[1]["depth"] == 1
+
+
+@pytest.mark.asyncio
+async def test_member_candidates_default_tenant_legacy_rows(db):
+    """默认租户兼容无 tenant_id / 空值的历史行，且仍隔离其他租户。
+
+    与 ``end_user_session.resolve_session_user`` 的 ``add_tenant_scope`` 同口径：
+    严格 ``tenant_id == "default"`` 会让这批历史数据静默查空。
+    """
+    db["org_units"].documents.extend([
+        {"_id": "legacy-dept", "name": "历史部门", "status": "active", "path_ids": []},
+        {"_id": "other-dept", "tenant_id": "tenant-x", "name": "别家部门", "status": "active", "path_ids": []},
+    ])
+    db["end_users"].documents.extend([
+        {"_id": "legacy-user", "name": "历史用户", "login_name": "legacy", "status": "active"},
+        {"_id": "blank-user", "tenant_id": "", "name": "空租户用户", "login_name": "blank", "status": "active"},
+        {"_id": "other-user", "tenant_id": "tenant-x", "name": "别家用户", "login_name": "other", "status": "active"},
+    ])
+    db["end_user_org_relations"].documents.append(
+        {"user_id": "legacy-user", "org_id": "legacy-dept", "is_primary": True},
+    )
+
+    departments = await projects.list_project_departments(authorization="default:alice")
+    assert {item["id"] for item in departments.data["departments"]} == {"legacy-dept"}
+
+    all_visible = await projects.list_project_member_candidates(
+        department_id="", keyword="", authorization="default:alice",
+    )
+    assert {item["id"] for item in all_visible.data["items"]} == {"legacy-user", "blank-user"}
+    assert next(item for item in all_visible.data["items"] if item["id"] == "legacy-user")["departmentName"] == "历史部门"
+
+    # $and（租户 scope）与业务 $or / 部门过滤叠加时仍正确。
+    searched = await projects.list_project_member_candidates(
+        department_id="", keyword="legacy", authorization="default:alice",
+    )
+    assert {item["id"] for item in searched.data["items"]} == {"legacy-user"}
+
+    filtered = await projects.list_project_member_candidates(
+        department_id="legacy-dept", keyword="", authorization="default:alice",
+    )
+    assert {item["id"] for item in filtered.data["items"]} == {"legacy-user"}

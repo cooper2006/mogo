@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.db import get_db
-from app.core.tenant import resolve_tenant_id
+from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 router = APIRouter(tags=["projects"])
@@ -219,10 +219,14 @@ async def patch_project(
 
 @router.get("/projects/departments", response_model=ApiResponse)
 async def list_project_departments(authorization: str | None = Header(default=None)):
-    """049 FR-004: 成员弹窗左侧部门树（本租户 active 部门，扁平表 + parentId）。"""
+    """049 FR-004: 成员弹窗左侧部门树（本租户 active 部门，扁平表 + parentId）。
+
+    租户口径与 ``end_user_session.resolve_session_user`` 保持一致：默认租户
+    额外兼容早期未带 ``tenant_id`` / 空值的历史行（严格相等会静默查空）。
+    """
     tenant_id, _user_id = await _identity(authorization)
     rows = await get_db()[DEPARTMENT_COLLECTION].find(
-        {"tenant_id": tenant_id, "status": "active"},
+        add_tenant_scope({"status": "active"}, tenant_id),
         {"_id": 1, "name": 1, "parent_id": 1, "path_ids": 1},
     ).to_list(length=2000)
     departments = [
@@ -248,10 +252,14 @@ async def list_project_member_candidates(
 
     ``department_id`` 非空时按 ``org_units.path_ids`` 取该部门及下级子树，
     再经 ``end_user_org_relations`` 关联到人（与 admin 用户管理同款实现）。
+
+    租户不用请求参数传：由 ``_identity`` 从会话解析，所有查询统一走
+    ``add_tenant_scope``（与登录会话校验同口径，兼容无租户标记的历史行）。
+    业务条件先攒齐、最后统一套租户 scope，避免 ``$and`` 与顶层条件混用。
     """
     tenant_id, _user_id = await _identity(authorization)
     db = get_db()
-    query: Dict[str, Any] = {"tenant_id": tenant_id, "status": "active"}
+    query: Dict[str, Any] = {"status": "active"}
     if keyword.strip():
         pattern = {"$regex": keyword.strip(), "$options": "i"}
         query["$or"] = [
@@ -262,22 +270,24 @@ async def list_project_member_candidates(
         ]
     if department_id:
         children = await db[DEPARTMENT_COLLECTION].find(
-            {"tenant_id": tenant_id, "path_ids": department_id},
+            add_tenant_scope({"path_ids": department_id}, tenant_id),
             {"_id": 1},
         ).to_list(length=5000)
         department_ids = [department_id] + [str(row.get("_id") or "") for row in children]
         relation_rows = await db[USER_ORG_REL_COLLECTION].find(
-            {"tenant_id": tenant_id, "org_id": {"$in": department_ids}},
+            add_tenant_scope({"org_id": {"$in": department_ids}}, tenant_id),
         ).to_list(length=20000)
         candidate_ids = [str(row.get("user_id") or "") for row in relation_rows if row.get("user_id")]
         if not candidate_ids:
             return ApiResponse(data={"items": [], "total": 0})
         query["_id"] = {"$in": candidate_ids}
-    users = await db[USER_COLLECTION].find(query).sort("updated_at", -1).to_list(length=5000)
+    users = await db[USER_COLLECTION].find(
+        add_tenant_scope(query, tenant_id)
+    ).sort("updated_at", -1).to_list(length=5000)
 
     # 部门名：优先 is_primary 关系，回退 primary_org_id。
     primary_rows = await db[USER_ORG_REL_COLLECTION].find(
-        {"tenant_id": tenant_id, "is_primary": True},
+        add_tenant_scope({"is_primary": True}, tenant_id),
     ).to_list(length=20000)
     primary_map = {
         str(row.get("user_id") or ""): str(row.get("org_id") or "")
@@ -285,7 +295,7 @@ async def list_project_member_candidates(
         if row.get("user_id")
     }
     department_rows = await db[DEPARTMENT_COLLECTION].find(
-        {"tenant_id": tenant_id},
+        add_tenant_scope({}, tenant_id),
         {"_id": 1, "name": 1},
     ).to_list(length=5000)
     department_name_map = {str(row.get("_id") or ""): str(row.get("name") or "") for row in department_rows}
