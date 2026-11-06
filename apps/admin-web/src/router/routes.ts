@@ -118,6 +118,14 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '连接器市场', icon: ToolsMcpIcon },
       },
       {
+        // 017: 记忆管理（三范围治理）一级菜单。参考 Skill 管理范式（§7.2），
+        // 不挂 /assets（045 排除项），独立一级路由。
+        path: '/memories',
+        name: 'Memories',
+        component: () => import('@/views/memories/MemoriesPage.vue'),
+        meta: { title: '记忆管理', icon: SkillsManagerIcon },
+      },
+      {
         path: '/tools/new',
         name: 'ToolCreate',
         component: () => import('@/views/tools/ToolEditPage.vue'),

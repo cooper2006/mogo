@@ -66,6 +66,8 @@ const SkillsPage = defineAsyncComponent(() => import('./components/MySkillsPage.
 const ToolsPage = defineAsyncComponent(() => import('./components/MyToolsPage.vue'))
 const PluginsPage = defineAsyncComponent(() => import('./components/MyPluginsPage.vue'))
 const KnowledgePage = defineAsyncComponent(() => import('./components/MyKnowledgePage.vue'))
+// 017 T029：我的记忆（三范围使用端；项目成员编辑仍归 049 MemberPicker，此处零改动）。
+const MyMemoriesPage = defineAsyncComponent(() => import('./components/MyMemoriesPage.vue'))
 // 030: 终端用户侧本体授权自查（admin-web 本体页的 user-web 迁移；只读展示）。
 const MyOntologyPage = defineAsyncComponent(() => import('./components/MyOntologyPage.vue'))
 // 039: 可视化编排画布 —— 节点-连线图编辑 DAG 工作流（画布为投影、文档为权威）。
@@ -157,7 +159,7 @@ const projectMenuOpenFor = ref<string | null>(null)
 const editingProjectId = ref<string | null>(null)
 const editingProjectTitle = ref('')
 const renamingProjectId = ref<string | null>(null)
-const currentView = ref<'chat' | 'skills' | 'tools' | 'plugins' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'portal'>('chat')
+const currentView = ref<'chat' | 'skills' | 'tools' | 'plugins' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'portal' | 'memories'>('chat')
 const scheduledTaskInitialPrompt = ref('')
 const scheduledTaskInitialSessionId = ref<string | null>(null)
 const scheduledTaskCreateRequestKey = ref(0)
@@ -1259,6 +1261,7 @@ function resolveViewFromPath(pathname: string) {
   if (path === '/ontology-grants') return 'ontology-grants'
   if (path === '/orchestration') return 'orchestration'
   if (path === '/portal') return 'portal'
+  if (path === '/memories') return 'memories'
   return 'chat'
 }
 
@@ -1271,6 +1274,7 @@ function routePathForView(view: typeof currentView.value) {
   if (view === 'ontology-grants') return '/ontology-grants'
   if (view === 'orchestration') return '/orchestration'
   if (view === 'portal') return '/portal'
+  if (view === 'memories') return '/memories'
   if (view === 'skills' || view === 'skill-config' || view === 'composite-editor') return '/skills'
   return '/'
 }
@@ -3125,6 +3129,18 @@ onBeforeUnmount(() => {
           </span>
           <span>{{ locale === 'zh' ? '资产门户' : 'Asset portal' }}</span>
         </button>
+        <!-- 017 T029：侧栏「我的记忆」入口（最小改动，仅新增本菜单项；不动 049 项目「成员」菜单项）。 -->
+        <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'memories' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="navigateTo('memories')"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M9 7h7M9 11h7"/></svg>
+          </span>
+          <span>{{ locale === 'zh' ? '我的记忆' : 'My memories' }}</span>
+        </button>
         </div>
       </div>
 
@@ -3389,6 +3405,9 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="currentView === 'portal'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
           <PortalCatalogPage @back="closePortalPage" />
+        </div>
+        <div v-else-if="currentView === 'memories'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <MyMemoriesPage :userId="getUserId()" />
         </div>
         <template v-else>
           <div class="flex-1 relative overflow-hidden min-h-0">

@@ -24,8 +24,22 @@ FEATURE_AUDIT_EVENTS: dict[str, tuple[str, ...]] = {
     "014": ("entity.indexed", "entity.searched"),
     "015": ("kg.mutated", "kg.conflict.resolved", "kg.audited"),
     "016": ("skill.quality.marked", "skill.quality.restored"),
-    "017": ("memory.promoted", "memory.decayed", "memory.restored"),
+    # 017 三范围记忆：保留既有 3 个事件（memory.decayed / memory.restored 仍被
+    # 现有调用点与测试使用），并按 design §9.4 事件契约扩充治理动作事件。
+    "017": (
+        "memory.promoted",
+        "memory.decayed",
+        "memory.restored",
+        "memory.department_write",
+        "memory.scope_demoted",
+        "memory.archived",
+        "memory.deleted",
+        "memory.policy.updated",
+    ),
     "018": ("asset.registered", "asset.status.changed", "asset.a2a.marked"),
+    # 049 C-7 成员变更审计（017 design §9.4）：必须与 projects.patch_project 的
+    # 钩子同批上线，否则 record_feature_event 会因未知 feature/event 抛 ValueError。
+    "049": ("project.member.granted", "project.member.revoked"),
     # 010 DAG orchestration: competitor deep-dive graph run events (FR-7).
     "010": (
         "dag.run_started",

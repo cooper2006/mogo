@@ -22,6 +22,7 @@ subtree through ``end_user_org_relations``).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -34,6 +35,8 @@ from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 
 router = APIRouter(tags=["projects"])
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PROJECT_ID = "default"
 
@@ -91,6 +94,67 @@ async def _identity(authorization: str | None) -> tuple[str, str]:
     return resolve_tenant_id(resolved["tenant_id"]), str(resolved["user"].get("_id") or "")
 
 
+def _emit_member_change_audit(
+    *,
+    project_id: str,
+    tenant_id: str,
+    actor: str,
+    owner_id: str,
+    before: list[str],
+    after: list[str] | None,
+    occurred_at: datetime,
+) -> None:
+    """C-7（017 design §9.4）：成员 diff → 001 审计（``feature="049"``）。
+
+    ``after is None`` 表示本次 PATCH 未携带 ``member_user_ids``（只改
+    title/status）；diff 为空同样不发事件。审计调用失败只留观测日志，绝不
+    阻断主流程、不改变响应码/响应结构，也不触碰 049 既有写入语义。
+    """
+    if after is None:
+        return
+    before_set, after_set = set(before), set(after)
+    added = [m for m in after if m not in before_set]
+    removed = [m for m in before if m not in after_set]
+    if not added and not removed:
+        return
+
+    document = {
+        "project_id": project_id,
+        "project_owner_id": owner_id,
+        "added": added,
+        "removed": removed,
+        "previous_member_count": len(before),
+        "resulting_member_count": len(after),
+        "occurred_at": occurred_at.isoformat(),
+    }
+    events: list[str] = []
+    if added:
+        events.append("project.member.granted")
+    if removed:
+        events.append("project.member.revoked")
+
+    try:
+        # 与 memory/scope.py 同款纪律：延迟导入，审计桥未接线也不影响导入期。
+        from app.services.feature_audit_bridge import emit_feature_event
+
+        for event in events:
+            emit_feature_event(
+                "049",
+                event,
+                document,
+                tenant_id=tenant_id,
+                actor=actor,
+            )
+    except Exception as exc:  # noqa: BLE001 - 审计绝不阻断 PATCH
+        logger.warning(
+            "[projects] project.member.* audit emit failed "
+            "(project_id=%s, events=%s): %s",
+            project_id,
+            events,
+            exc,
+        )
+
+
 async def _ensure_default_project(tenant_id: str, user_id: str) -> None:
     """幂等生成 `_id = "default"` 的默认项目（046 FR-003 / D2）。
 
@@ -101,7 +165,15 @@ async def _ensure_default_project(tenant_id: str, user_id: str) -> None:
     由 `PATCH /projects/{id}` 在服务端校验（046 T025），此处只做生成。
     """
     now = datetime.now(tz=timezone.utc)
-    scope = {"tenant_id": tenant_id, "user_id": user_id, "_id": DEFAULT_PROJECT_ID}
+    # `_id = "default"` 是 Mongo 集合的全局唯一主键，整库只能有一条。早期实现把
+    # (tenant_id, user_id) 也放进 upsert filter：当别的租户/用户已创建了 default
+    # 文档时，本次查询匹配不到任何文档，MongoDB 便尝试 INSERT 一条同样 _id 的记录，
+    # 触发 E11000 DuplicateKeyError → GET /projects 500。
+    #
+    # 收敛为只按 _id 幂等：已存在则复用（仅刷新 updated_at），不存在才以当前访问者
+    # 身份创建。这样不改变默认项目对外的 _id/PATCH 契约，也不放宽跨租户可见性
+    # （list 的 visible 仍按 tenant_id 过滤），只消除多租户切换时的写冲突。
+    scope = {"_id": DEFAULT_PROJECT_ID}
     await get_db().projects.update_one(
         scope,
         {
@@ -213,6 +285,17 @@ async def patch_project(
     outcome = await db.projects.update_one(scope, {"$set": set_value})
     if outcome.matched_count == 0:
         return ApiResponse(code=404, message="项目不存在")
+    # C-7（017 design §9.4）：仅在 update_one 成功之后、返回响应之前按成员 diff
+    # 落审计；只改 title/status 或 diff 为空不发，失败只留观测日志不阻断 PATCH。
+    _emit_member_change_audit(
+        project_id=project_id,
+        tenant_id=tenant_id,
+        actor=user_id,
+        owner_id=str(existing.get("user_id") or ""),
+        before=list(existing.get("member_user_ids") or []),
+        after=set_value.get("member_user_ids"),
+        occurred_at=now,
+    )
     project = await db.projects.find_one(scope)
     return ApiResponse(data=_serialize_project(project))
 

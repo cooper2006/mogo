@@ -36,6 +36,10 @@ const moduleOptions = [
   { label: t('流量分配'), value: 'traffic-allocations' },
   { label: t('系统设置'), value: 'settings' },
   { label: t('账号组与账号'), value: 'organizations' },
+  // 017 T028（§7.2 / §9.4）：记忆管理 module，纳入 feature="017" 的 memory.* 与
+  // feature="049" 的 project.member.granted/revoked 事件；value 需与后端
+  // feature_audit_bridge 写入审计的 module 字段对齐。仅新增过滤项，不重写页面。
+  { label: t('记忆管理'), value: 'memories' },
 ];
 const actionLabels: Record<string, string> = {
   create_or_execute: t('新增 / 执行'), update: t('修改'), delete: t('删除'),
