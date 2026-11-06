@@ -64,6 +64,25 @@ scripts/apt_packages_bundle.sh pack <service>                   # 仅重新打�
 
    > 注：`.env` 里**不要**再硬编码 `MOGO_PLATFORM=linux/amd64`——它会作为"显式值"原样覆盖 profile 推导（见 `mogo_profile_configure_platform`）。dev 开发机直接让它从 profile 推导（或显式写 `linux/arm64`）即可。
 
+6. **基础镜像 tar 必须是「干净名」**：`base-images/images/<arch>/*.tar` 导出时镜像内的 `repo:tag` 必须是规范干净名（如 `nginx:1.31.5-alpine3.24-slim`），不能是镜像站别名（如 `docker.m.daocloud.io/library/nginx`）。否则 `docker load` 不会覆盖干净名标签，导致离线构建/切换时架构对不上。`nginx` 的 amd64 tar 早期曾带镜像站别名，已重新 `save` 为干净名修正；若其他 tar 也出现非干净名，先 `docker tag` 改成干净名再 `save` 覆盖即可。基础镜像干净名在 arm64(dev) 与 amd64(推远端) 之间的切换见文末脚本。
+
+## 基础镜像干净名：arm64(dev) ↔ amd64(推离线远端) 一键切换
+
+同一个 `repo:tag` 在同一 docker daemon 里不能同时是 arm64 又是 amd64。本地 dev 全 arm64 原生，而 `deploy/production/deploy-remote-push.sh` 要求 `BASE_IMAGES`（alpine:3.21 / nginx:1.31.5-alpine3.24-slim / redis:7.4.2-alpine / semitechnologies/weaviate:1.25.7）是 amd64 才能推送离线 amd64 远端（其第 328–334 行有架构安全网，非 amd64 会被拦截）。
+
+为免去手工 retag，提供一键脚本：
+
+```bash
+deploy/production/switch-base-image-arch.sh amd64   # 干净名切到 amd64（推远端前执行）
+deploy/production/switch-base-image-arch.sh arm64   # 恢复 arm64（本地 dev 原生运行）
+deploy/production/switch-base-image-arch.sh status  # 查看 4 个干净名当前架构
+```
+
+- **amd64 来源**：优先用离线 bundle 刻意保留的 `mogo-staging/<suffix>:amd64` 标签直接 `tag`；nginx 没有该 staging 标签，故从其 `base-images/images/amd64/nginx_*.tar`（已修正为干净名）`load` 后 retag。
+- **arm64 来源**：统一从 `base-images/images/arm64/*.tar` `load`（arm64 无 staging 标签）。
+- 脚本只改 `repo:tag` 指向的镜像 ID，被运行中容器引用的原镜像层不受影响，**对运行中的 dev 栈安全**；但切到 amd64 后请勿执行 `mogo up --build`（否则 dev 会构建出 amd64 应用），应直接跑 `deploy-remote-push.sh`。
+- 切换产生的冗余镜像站别名会被脚本自动清理，`mogo-staging/*:amd64` bundle 标签始终保留（给 CI/远端用）。
+
 ## 在当前 Apple Silicon 机器上把业务镜像重建为 arm64 的步骤
 
 （gateway / admin-web / user-web / dsh-runtime-host 原本是 amd64）：
