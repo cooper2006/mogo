@@ -79,7 +79,7 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 48 feature specifications (001–048), each with a complete chain
+specs/                    # 49 feature specifications (001–049), each with a complete chain
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -99,10 +99,11 @@ specs/                    # 48 feature specifications (001–048), each with a c
   046-project-dimension/                     # 035/042 dimension convergence batch (046–048, 2026-10-31)
   047-quota-discoverability/
   048-business-line-removal/
+  049-project-members/                     # project members + project-layer quota convergence (2026-11-05)
   INDEX.md                # specification index
 ```
 
-Each of the 48 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Six of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
+Each of the 49 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Six of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
 
 They fall into seven groups:
 
@@ -117,7 +118,7 @@ They fall into seven groups:
 
 Interface contracts live in two places: the 6 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`, `memory-context-contract`), plus 5 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)).
 
-[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 48 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027), the user-web / data-permission / model-discover experience set (028–031), the AgentOS integration batch (032–044), the asset-center hub (045) and the dimension-convergence batch (046–048), and records the clarify decisions behind each threshold.
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 49 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027), the user-web / data-permission / model-discover experience set (028–031), the AgentOS integration batch (032–044), the asset-center hub (045), the dimension-convergence batch (046–048) and the project-members convergence (049), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -232,6 +233,14 @@ Three features close the gap left by 035 (cost attribution) and 042 (three-level
 | 36 | **Project dimension unified** | Collapses the three same-named "project" concepts (user-web working directory / chat-api `desktop_projects` / 042 `quota_projects`) into one — project = working directory: `desktop_projects` → `projects` collection, a default `"default"` project, `chat_sessions.project_id`, gateway binding back-reference, full backfill, sidebar + dashboard read-switch and 042 project-layer `scope_id = project_id`. Tasks 34/35 (one manual browser acceptance left) | [046](specs/046-project-dimension/) |
 | 37 | **Quota discoverability** | Makes 042's implemented three-level quota actually findable: a dedicated 项目管理 menu, a fixed `?open=quota` deep link, a "配额异常" dashboard card, "团队" → "部门" copy (identifier kept) and cross-service consistency tests + tz unification. Tasks 30/31 | [047](specs/047-quota-discoverability/) |
 | 38 | **Business-line removal** | Deletes the business-line dimension (no write-side producer, guaranteed single-bucket fake data): backend `_resolve_business_line` + `businessLineAttribution`, front-end labels/types, test assertions; the cost section goes from 6 segments to 5. Tasks 13/13 | [048](specs/048-business-line-removal/) |
+
+### Project-members convergence: 049
+
+One read-path fix plus one capability extension, closing the leftovers of 042/046 and adding members to `projects` (ADR-9):
+
+| # | Capability | What it delivers | Spec |
+| :-: | --- | --- | :-: |
+| 39 | **Project members + project-layer quota convergence** | Admin "project management" read path switched from the retired `quota_projects` (0 rows) to the 046 `projects` table; `projects` gains `member_user_ids` (user-web "…" member picker, department-filtered multi-select from `end_users`); visibility becomes "mine ∪ I'm a member"; project-layer quota = sum of members' (incl. creator) cycle token usage, in sync across both `quota_policy.py` services; `quota_projects` retired. Tasks 23/25 | [049](specs/049-project-members/) |
 
 ## Line three: multi-instance Agent runtime
 
@@ -608,7 +617,7 @@ See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (48 features, plus `INDEX.md`) |
+| `specs/` | spec-kit SDD specification assets (49 features, plus `INDEX.md`) |
 | `contracts/` | the 6 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway, memory-context) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |

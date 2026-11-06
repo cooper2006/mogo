@@ -21,6 +21,60 @@ image.
   - **测试运行器离线 bundle 落地（B 方案，2026-11-04）**：为 docparser/chat 补入测试运行器，使镜像内可直接 `python -m pytest`，消除「跨镜像抽包 + PYTHONPATH 注入 + py shim」脏活。新增 `requirements-test.{in,txt}`（6 个纯 py 包：pytest 9.1.1 / pytest-asyncio 1.4.0 / pluggy 1.6.0 / iniconfig 2.3.0 / packaging 26.3 / pygments 2.21.0，与 admin 镜像对齐）；扩展 `scripts/pip_wheels_bundle.sh` 的 test 闭包下载腿（`pip download --only-binary=:all: --no-deps`），与生产 wheel 共用同一 per-arch 离线缓存；两 Dockerfile 各加 `INSTALL_TEST_DEPS_AT_BUILD` 门控层（默认 false 生产镜像不变）。**build 回归全绿**：门控测试层已前移至 `pip uninstall` 之前（pip 还活着时装测试闭包，无需 ensurepip 自举），docparser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（均 0 failed），import pytest 9.1.1 / pytest-asyncio 1.4.0 校验通过。
   - **test_prepare_skill.py 路径固化（2026-11-04）**：新增 `services/chat-api/tests/sandbox_script/conftest.py`，pytest 自动把 `sandbox_script/` 注入 `sys.path`，根治「顶层 import prepare_skill 找不到模块」的收集错误，任何环境（镜像/CI/宿主）无需再传 PYTHONPATH。
 
+## v0.2.7 - 2026-11-06
+
+### Added
+
+- **049 项目成员与项目层配额收口（2026-11-05，SPEC 049）**：一处读路径修复 + 一个能力扩展，
+  收口 042/046 的读路径残留并给 `projects` 加成员（ADR-9），把 046 D1 的纯个人语义扩展为
+  「个人 + 可协作」：
+  - **读路径切 `projects`**：`services/admin-api/app/services/quota_projects.py` 的
+    `PROJECT_COLLECTION` 从退役的 `quota_projects`（0 行）切到 046 统一后的 `projects`；
+    `quota_policy.py` 的 `QUOTA_PROJECT_COLLECTION` 同步迁移。admin-web「项目管理」从恒空列表
+    变为返回真实项目（2 active: 默认项目 + test，8 archived 折叠进「已归档」），
+    给真实项目 id 配额度不再 404。
+  - **项目加成员**：`projects` 新增 `member_user_ids`；user-web 侧边栏非默认项目「…」菜单
+    新增「成员」弹窗（左侧租户 `org_units` 部门树、右侧 `end_users` 按部门及其下级过滤的多选
+    列表，保存走 `PATCH /projects/{id}` 全量集合）；成员管理权归创建者、非成员 PATCH 403；
+    默认项目不出「…」菜单。
+  - **可见性扩展**：`GET /projects` 从「我的」改为「我的 ∪ 我作为成员的」
+    （`user_id = me OR member_user_ids ⊇ me OR _id = "default"`），成员可在侧边栏看到项目。
+  - **配额口径同步**：项目层配额 = 项目成员（含创建者）的 `token_usage_logs` 周期用量合计，
+    参与 042 四层取小；`member_user_ids` 为空时按创建者兜底；archived 项目不参与取小。
+    双服务 `quota_policy.py` 同口径，消除 042 项目层白做风险。
+  - **`quota_projects` 退役**：写端点下线、读路径 0 命中、`tenant_purge` 旧表清理项移除；
+    新成员语义落在 `projects.member_user_ids`，与旧表无关（046 FR-012 继续成立）。
+  - 治理：spec/plan/tasks/checklist/quickstart 四件套齐备 + ADR-9，
+    tasks 23/25（余 T022 全链路手工验证需 admin 会话与 A/B/C 三账号、T025 成员变更审计回归用例）；
+    前端双端 SFC 编译 4/4 + 双端 `vue-tsc` 0 错误；后端 chat-api 27 用例、admin-api 51 用例全绿。
+
+- **017 三范围记忆：核心模型与链路（B2/B3，D4 直接改名）**：
+  - 记忆范围从 `workspace/org` 直接改名为 `personal/project/department`，落到 spec/design v3 目标态；
+    **无运行时兼容层**（D4），与 049 的 `projects` 表在同一维护窗口原子切换。
+  - `app/memory/scope.py`：新 `MemoryScope{PROJECT, DEPARTMENT}`、`Memory` 字段
+    `project_id`/`project_owner_id`/`department_id`；`visible_to(memory, viewer)` 成为唯一可见性判据。
+  - `app/memory/viewer.py`：`MemoryViewerContext` 补齐 A-1 字段；`visible_project_keys` 改为
+    `(project_id, project_owner_id)` 二元组消歧（N1）；部门集合展开含后代不含祖先（D3）；
+    `default` 项目隔离（N2）；解析失败 fail-closed。
+  - store / retrieval / address / sediment 三条链路同步目标态；`promote` 与通用 PATCH 走增量
+    `$set`，不再清空分层与 provenance。
+  - 新增 `project_context.py`：046 会话取值 + 反查项目创建者，`default`/缺行/歧义回落 personal，
+    接通两处会话沉淀调用点；`MEMORY_DECAY_DAYS` 配置注入 + `MemoryLifecycle.touch` 接线。
+  - adapters.py RAG 检索改传 viewer、旧地址段 404；测试适配目标态 + 新增
+    `test_scope_visibility_v3` 可见性矩阵、收紧空归属 fail-closed 回归。
+  - 验证：相关测试 275 passed，`compileall` 通过。tasks 41/46（余 T031 真实浏览器 E2E 待执行、
+    T042/T043/T045 切换演练与对账需维护窗口 + 凭据、T046 真实构建 + 全量回归待维护窗口；
+    手册已产出 `cutover-drill-runbook.md` 与 `rollout-017-d4-cutover.md`）。
+
+### Fixed
+
+- **多租户下 `GET /projects` 500（049 衍生）**：默认项目按租户分片，修复多租户查询 500。
+- **dsh-runtime-host 本地 sandbox bypass 动态读取已安装的 DSH release train**：不再硬编码
+  镜像标签，按宿主实际安装版本推导。
+- **dsh-runtime-host 默认镜像固化**为 `dsh-0.2.2-rc.1`；晋升 dsh-runtime-host 到 0.2.2-rc.1
+  并修复插件安装 `pnpm ENOENT`。
+- **部署脚本按镜像 ID 比对内容并支持 `--force-push`**；新增 arm64/amd64 基础镜像干净名一键切换脚本。
+
 ## v0.2.6 - 2026-11-03
 
 ### Added

@@ -3,7 +3,7 @@
   "info": {
     "title": "MOGO Document Processing Service",
     "description": "Async document preview conversion, parsing, chunking and indexing service for MOGO.",
-    "version": "0.2.6"
+    "version": "0.2.7"
   },
   "paths": {
     "/api/v1/health": {

@@ -3,7 +3,7 @@
   "info": {
     "title": "MOGO Backend",
     "description": "API for Multi-Agent Platform",
-    "version": "0.2.6"
+    "version": "0.2.7"
   },
   "paths": {
     "/api/v1/chat/completions": {

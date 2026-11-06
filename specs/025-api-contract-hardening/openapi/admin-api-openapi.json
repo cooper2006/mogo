@@ -3,7 +3,7 @@
   "info": {
     "title": "MOGO Admin API",
     "description": "Control plane API for MOGO admin backend",
-    "version": "0.2.6"
+    "version": "0.2.7"
   },
   "paths": {
     "/health": {

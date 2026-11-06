@@ -59,7 +59,7 @@ app = FastAPI(
     # Keep in sync with pyproject.toml / CHANGELOG: this is the value
     # published in /openapi.json info.version, i.e. an externally visible
     # contract, not a private cosmetic string.
-    version="0.2.6"
+    version="0.2.7"
 )
 _receipt_gc_task: asyncio.Task | None = None
 _memory_decay_task: asyncio.Task | None = None
