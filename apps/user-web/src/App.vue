@@ -2693,25 +2693,26 @@ onBeforeUnmount(() => {
         <span>{{ locale === 'en' ? 'Project' : '项目' }}</span>
         <!-- 搜索会话 -->
         <span
-          class="ml-auto flex h-5 w-5 cursor-pointer items-center justify-center rounded text-gray-400 hover:bg-gray-200/60 hover:text-gray-700"
+          class="ml-auto flex h-6 w-6 cursor-pointer items-center justify-center rounded text-slate-600 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           role="button" tabindex="0"
           :aria-label="locale === 'en' ? 'Search conversations' : '搜索会话'"
           :title="locale === 'en' ? 'Search conversations' : '搜索会话'"
           @click.stop="openSessionSearch"
+          @keydown.enter.stop="openSessionSearch"
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="h-4 w-4"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
         </span>
         <!-- 展示偏好（分组/排序/筛选） -->
         <span
           v-if="canUseCode"
-          class="relative flex h-5 w-5 cursor-pointer items-center justify-center rounded text-gray-400 hover:bg-gray-200/60 hover:text-gray-700"
+          class="relative flex h-6 w-6 cursor-pointer items-center justify-center rounded text-slate-600 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           role="button" tabindex="0"
           :aria-label="locale === 'en' ? 'Display options' : '展示选项'"
           :title="locale === 'en' ? 'Display options' : '展示选项'"
           @click.stop="projectDisplayMenuOpen = !projectDisplayMenuOpen"
           @keydown.enter.stop="projectDisplayMenuOpen = !projectDisplayMenuOpen"
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/><circle cx="5.5" cy="4.5" r="1.4" fill="#f8fafc"/><circle cx="10.5" cy="8" r="1.4" fill="#f8fafc"/><circle cx="6.5" cy="11.5" r="1.4" fill="#f8fafc"/></svg>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="h-4 w-4"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/><circle cx="5.5" cy="4.5" r="1.4" fill="#f8fafc"/><circle cx="10.5" cy="8" r="1.4" fill="#f8fafc"/><circle cx="6.5" cy="11.5" r="1.4" fill="#f8fafc"/></svg>
           <!-- 下拉菜单 -->
           <div
             v-if="projectDisplayMenuOpen"
@@ -2761,13 +2762,14 @@ onBeforeUnmount(() => {
         </span>
         <span
           v-if="canUseCode && capabilities.localWorkspacePicker"
-          class="flex h-5 w-5 cursor-pointer items-center justify-center rounded text-blue-600 hover:bg-blue-50"
+          class="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-blue-600 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           role="button" tabindex="0"
           :aria-label="locale === 'en' ? 'New project' : '新建项目'"
           :title="locale === 'en' ? 'New project' : '新建项目'"
           @click.stop="createProject"
+          @keydown.enter.stop="createProject"
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="h-4 w-4"><path d="M8 3v10M3 8h10"/></svg>
         </span>
       </div>
       <div class="flex-1 overflow-y-auto px-3 space-y-1 custom-scrollbar history-scrollbar">
@@ -2804,21 +2806,21 @@ onBeforeUnmount(() => {
               @keydown.esc.prevent="cancelProjectTitleEdit"
             />
             <span v-else class="truncate" @dblclick.stop="startEditProjectTitle(group.id, group.title)">{{ group.title }}</span>
-            <span class="ml-auto text-[10px] font-normal text-slate-400">{{ group.sessions.length }}</span>
+            <span class="ml-auto text-[10px] font-normal text-slate-600">{{ group.sessions.length }}</span>
             <!-- 右侧操作：默认项目不可重命名/删除；非默认显示「+ 新增会话」与「…」上下文菜单 -->
             <template v-if="group.id !== DEFAULT_PROJECT_ID">
               <button
                 type="button"
-                class="ml-1 shrink-0 rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-blue-600 group-hover:opacity-100"
+                class="ml-1 shrink-0 rounded p-0.5 text-slate-600 hover:bg-slate-100 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                 :title="locale === 'en' ? 'Add session' : '增加会话'"
                 @click.stop="handleAddSessionToProject(group.id)"
               >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="h-3.5 w-3.5"><path d="M8 3v10M3 8h10"/></svg>
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="h-3.5 w-3.5"><path d="M8 3v10M3 8h10"/></svg>
               </button>
               <div class="relative shrink-0">
                 <button
                   type="button"
-                  class="rounded p-0.5 text-gray-400 opacity-0 transition-all hover:bg-gray-200 hover:text-gray-700 group-hover:opacity-100"
+                  class="rounded p-0.5 text-slate-600 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                   :title="locale === 'en' ? 'Project actions' : '项目操作'"
                   @click.stop="toggleProjectMenu(group.id)"
                 >
