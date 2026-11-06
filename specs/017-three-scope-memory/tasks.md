@@ -81,7 +81,7 @@
 - [x] T022 **D-5**：`sediment.py` 四个函数默认注入 `NoopSessionSummarizer()`（原恒不传 summarizer 导致 L0/L1 恒空）；读时 `tier_content` 惰性补全在 store 侧接线并留观测日志
 - [x] T023 检索 F-1~F-4：所有调用点传 `viewer=viewer`；`skipped` 非空且原因归类 `archived / unknown_scope / default_project_excluded / missing_project_owner / scope_invisible`；trace 随 payload 返回
 - [x] T024 地址 F-5：`mogo://memory/project|department/...` 新段；旧段解析层 `ValueError`、HTTP 层 404；`uri()` 往返一致
-- [ ] T025 [P] **部分**：写入 / 沉淀 / RAG / 地址 / 提升各段均有单测与端点集成用例（218 项 `tests/memory` + `tests/context_space`），但**尚无单文件「写入→沉淀→RAG→地址→提升」端到端串联用例**（SC-5/6/7 靠分段覆盖）。补一条全链路集成测试后再勾选
+- [x] T025 [P] 已落地：新增 `tests/memory/test_full_chain_integration.py` 单文件全链路用例，串联 **写入(create) → 沉淀(sediment) → RAG 检索 → 地址(mogo://memory 解析往返) → 提升申请(request) → admin 审批(approve) → 可见性复核**，并附「invalidated 记忆退出 RAG」分支（SC-5/6/7 由分段 + 该串联用例共同覆盖）。
 
 ## Phase B4 — 双端功能 ✅ 代码已落地（E2E 待补）
 
@@ -90,16 +90,16 @@
 - [x] T028 `SystemAuditPage.vue` 增加「记忆管理」module 过滤，纳入 `memory.*` 与 `project.member.*`（I-3）
 - [x] T029 user 侧栏「我的记忆」：`MyMemoriesPage.vue` + `MemoryViewTabs.vue` + `MemoryDetailDialog.vue`，双 Tab / 搜索 / 增删改 / 提升申请（I-4，**不含成员编辑**）
 - [x] T030 两端共用响应契约、分页（`page/page_size`）、错误语义、审计桥；不可见即 404；admin `get_current_admin_user` + 权限码 / user `require_end_user_principal`。**已修复 4 处运行时硬伤**：通用 `PATCH /{id}` 404、promote body/query 错位、user 端分页参数被忽略、admin `resolved_from` 恒缺
-- [ ] T031 [P] **部分**：双端 `vue-tsc --noEmit` 均 0 错误、admin 治理端点 35 项单测通过；**尚未执行真实浏览器 E2E**（SC-11 的用户侧交互未验证）
+- [ ] T031 [P] **部分**：双端 `vue-tsc --noEmit` 均 0 错误、admin 治理端点 35 项单测通过；**真实浏览器 E2E 用例已落地**（`apps/user-web/e2e/memory-promote.spec.ts`、`apps/admin-web/e2e/memories-governance.spec.ts` + 各自 README），但**尚未执行**（需浏览器 + A/B/C/admin 凭据 + 起服，SC-11 用户侧交互待维护窗口验证）。
 
 ## Phase B5 — 治理 / 生命周期 / 组织变更 + C-7（部分）
 
 - [x] T032 **C-7（必做）**：在 049 `patch_project` 按 `member_user_ids` diff 挂 `project.member.granted` / `project.member.revoked`；`emit_feature_event("049", ...)`，`update_one` 成功后发；失败只留观测日志不阻断 PATCH；未改 049 鉴权 / 去重 / 500 上限 / `default` 400 / 响应结构
 - [x] T033 `feature_audit.py` 白名单：新增 `"049": ("project.member.granted", "project.member.revoked")` 分组 + 扩充 `"017"` 分组；与 T032 同批
 - [x] T034 同步 `specs/049-project-members/{spec,tasks}.md`：新增 FR-011 与「017 C-7 增量」节（R16 防覆盖）
-- [ ] T035 **未落地**：普通用户提升审批（`portal_requests` 状态机）与待审批队列。当前 promote 为 `full_access_admin` 直接提升，admin `pending_approval` 恒 0
+- [x] T035 已落地：新增 `app/memory/promotion.py` 状态机（`none→pending→approved|rejected`，owner 申请 / full_access_admin 通过·驳回）；chat-api `POST /{memory_id}/promote/request`（owner 发起，落 pending）；admin-api `GET /approvals`（待审批队列）、`POST /{memory_id}/approve`、`POST /{memory_id}/reject`；`stats.pending_approval` 改计真实 pending 数；前端契约补齐 `requestPromoteMemory` / `fetchAdminPendingApprovals` / `approveMemoryPromotion` / `rejectMemoryPromotion`。单测 `tests/memory/test_promotion_state_machine.py` + 端点用例 `test_promote_request_endpoint.py` 已绿。
 - [x] T036 生命周期 H-1：`config.py` 新增 `MEMORY_DECAY_DAYS` / `MEMORY_DECAY_CLEANUP`，`main.py` 衰减循环注入；H-2：`store.list_for_viewer` 命中后按 `lifecycle.touch()` 语义持久化 `last_accessed_at`（失败只留日志）
-- [ ] T037 **部分**：部门移动 / 049 成员移除后集合动态重算已由 `viewer.py` 每次解析保证（H-4/H-5）；**离职 / 删号后 personal 与 project 记忆显式失效逻辑、项目归档退出 RAG 默认检索（H-3/H-6）未单独接线**
+- [x] T037 已落地：新增 `app/memory/offboarding.py`（`invalidate_user_memories` / `invalidate_project_memories` / `restore_user_memories`，按 N1 口径：`personal` 取 `owner_id`、`project` 取 `project_owner_id`，成员仅贡献的记忆不误伤）；`Memory` 增 `invalidated/invalidated_at/invalidated_reason` 三字段，`visible_to` / `scope_filter` 对 `invalidated` 记忆 fail-closed（退出活跃检索与 RAG）；admin-api 新增 `POST /governance/offboard`、`POST /governance/project-archive`（直接操作 `memories` 集合，不跨服务 import chat-api）。单测 `test_promotion_state_machine.py` 已覆盖失效可见性与 offboarding 计数。H-6 的 049 项目归档调用点需在 049 归档路径显式触发（跨特性，本文档已留集成点说明，未改 049 代码）。
 - [x] T038 [P] C-7 审计回归 13 例（含审计桥异常不阻断、空 diff 不发、049 既有语义回归）；SC-8 相关用例由可见性矩阵覆盖
 
 ## Phase B6 — D4 迁移与原子切换（**维护窗口，未执行**）
@@ -109,14 +109,14 @@
 - [x] T039 新建 `scripts/migrate_017_scopes.py`：默认 dry-run、`--apply` 才落盘、可重入、`--reverse`；S1 scope 值 / S2 `$rename`+`$unset` / S3 `project_owner_id` 回填（多行或零行归档）/ S4 `default` 归档 / S5 部门节点校验 / S6 旧地址三清单 / S7 孤儿归档；`--self-test` 通过
 - [x] T040 脚本不写 `projects` / `org_units` / `end_user_org_relations` / `chat_sessions`（`_assert_writable` 硬拦截）；`--reverse` 不撤销 S4/S7 的 `archived` 标记并打印 WARN
 - [x] T041 新建 `rollout-017-d4-cutover.md`：M0–M4 全流程、成对回滚 SOP、三条铁律（不得新旧实例并存 / 回滚成对 / B2 代码与迁移同窗口）
-- [ ] T042 **未执行**：切换演练、`--reverse` 演练与旧 scope / 旧字段 0 条对账（需维护窗口 + 真实数据库 + 写入冻结，SC-10 / SC-15 的后半）
+- [ ] T042 **未执行**：切换演练、`--reverse` 演练与旧 scope / 旧字段 0 条对账（需维护窗口 + 真实数据库 + 写入冻结，SC-10 / SC-15 后半）。**手册已产出**：`cutover-drill-runbook.md` §T042 给出 dry-run/--apply/--reverse 四步 + 旧字面量 0 条对账清单。
 
 ## Phase B7 — 回归 / 文档同步 / 对账清理（部分）
 
-- [ ] T043 **未执行**：049 回归 SC-9 的手工全链路步骤（配额 / 成员用量 / 归档），需 admin 会话与 A/B/C 账号凭据；自动侧 049 既有测试未在本轮重跑
+- [ ] T043 **未执行**：049 回归 SC-9 的手工全链路步骤（配额 / 成员用量 / 归档），需 admin 会话与 A/B/C 账号凭据；自动侧 049 既有测试未在本轮重跑。**手册已产出**：`cutover-drill-runbook.md` §T043 给出配额/成员(C-7)/归档(H-3·H-6) 三步手工清单。
 - [x] T044 [P] 文档同步（J-4）：`plan.md` / `quickstart.md` / `checklists/requirements.md`（重写为 Gate）/ `contracts/memory-context-contract.md` / `specs/INDEX.md` / 021 spec+plan+tasks+quickstart / 046 / 042 / 035；SC-15 旧字面量全局扫描收口
-- [ ] T045 **未执行**：M4 对账清理（备份保留、旧字段残留移除、监控告警阈值、SC-15 签收表）——依赖 T042 切换完成
-- [ ] T046 [P] **部分**：本地全量回归 310 项全绿 + 双端类型检查 + 迁移自检 + 两服务 `compileall`；**049 全量回归与双端真实构建/E2E 未跑**
+- [ ] T045 **未执行**：M4 对账清理（备份保留、旧字段残留移除、监控告警阈值、SC-15 签收表）——依赖 T042 切换完成。**手册已产出**：`cutover-drill-runbook.md` §T045 给出四项清理清单与双签口径。
+- [ ] T046 [P] **部分**：本地全量回归（chat-api 记忆 275+ / admin-api 治理 35 / 双端 `vue-tsc` 0 错误 / 迁移 `--self-test` / 两服务 `compileall`）**已绿**；真实构建 + 双端真实浏览器 E2E（T031）+ 049 全量回归 + 切换演练（T042/T043/T045）**待维护窗口与凭据**。**清单已产出**：`cutover-drill-runbook.md` §T046 拆 A(本地可核验,已勾)/B(真实构建+E2E)/C(049回归+演练) 三组。
 
 ---
 
