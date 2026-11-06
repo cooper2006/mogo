@@ -138,6 +138,11 @@ services:
     cap_add:
       - CHOWN
       - FOWNER
+      # cap_drop: ALL 也摘掉了 CAP_DAC_OVERRIDE，于是 uid 0 失去「root 忽略文件权限」
+      # 的默认能力：递归 chown 一遇到 mode 0700 且属主是别人的目录就 EACCES 中止。
+      # Weaviate 在 PERSISTENCE_DATA_PATH/<collection>/*/lsm 下正好就是这种目录
+      # （实测 /storage/weaviate/askaiknowledgechunks/<uuid>/lsm = 1000:1000 700）。
+      - DAC_OVERRIDE
     environment:
       MOGO_PORT: ${MOGO_PORT:-3000}
     volumes:

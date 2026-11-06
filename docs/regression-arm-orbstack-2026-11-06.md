@@ -5,7 +5,7 @@
 > 构建入口：`docs/orbstack-dev-build-guide.md` §6.1 `./mogo --profile dev up --build`
 > 回归范围：A 组黑盒契约 + 健康回归（A1–A6）；DR 演练 / 压测扩容 / 017 切换演练未纳入本轮
 > 结论：**A1/A2/A3/A5/A6 全绿**；A4 `331 passed / 9 skipped`（23:20 首跑，同夜 D-4 解除后复跑同样通过，见 §10.4）。
-> 另计 5 项缺陷：D-1 应用代码 P1、D-4 在途 compose P1（阻塞 CLI）、D-2 工具链口径 P2 **三项已修复并复验（见 §10）**；D-3 文档口径部分修复（024 已改，025 第 13–15 项未改）、D-5 未修。
+> 另计 6 项缺陷：D-1 应用代码 P1、D-4 在途 compose P1（阻塞 CLI）、D-2 工具链口径 P2、D-6 bootstrap chown P1（阻塞启动，D-4 修复引入）**四项已修复并复验（见 §10）**；D-3 文档口径部分修复（024 已改，025 第 13–15 项未改）、D-5 未修。
 
 ---
 
@@ -135,6 +135,7 @@ docker exec -i mogo-admin-api-1 sh -c '. /run/askai-secrets/runtime.env; export 
 | D-3 | P2 | 025 quickstart 第 13–15 项命令与工具现状不符 | `specs/025-api-contract-hardening/quickstart.md` | 未修 |
 | D-4 | **P1（环境阻塞）** | 并行会话给 `docker-compose.yml` 加了 compose 不支持的服务级键 `no_new_privileges`，`docker compose config` 校验失败，`./mogo status/up/down` 全线不可用 | `docker-compose.yml`（未提交，23:22 起） | **已修**（经用户确认后删掉 4 行非法键，改用 compose 认可的 `security_opt`），见 §10 |
 | D-5 | P3 | admin-api 启动日志 `Instrumentor init failed`（镜像未装 `opentelemetry-instrumentation-*`），追踪降级关闭 | `app/common/observability_base.py:275/295` + `requirements.txt` | 记录，非阻断 |
+| D-6 | **P1（环境阻塞）** | 重建 `60e8e90d` 时 `bootstrap` 退出 1（`chown: /storage/weaviate/askaiknowledgechunks/*/lsm: Permission denied`），所有依赖它的应用服务不起 | `docker-compose.yml` bootstrap 的 `cap_add: [CHOWN, FOWNER]` + 递归 chown（D-4 修复引入） | **已修**，见 §10.8：`cap_add` 补 `DAC_OVERRIDE` |
 
 ### D-1 细节
 
@@ -333,9 +334,42 @@ deploy/tests                                        → 无引用 drift-check，
 > `MOGO_VERSION` 默认成 `git rev-parse --short HEAD`，而运行中的 7 个镜像是提交前在 `8d135867`
 > 上构建的。带上构建期版本即一致；重跑 `./mogo up` 建新 tag 镜像后裸跑也会归零。
 
+### 10.8 D-6：bootstrap 递归 chown 在 cap_drop ALL 下 EACCES（重建 `60e8e90d` 时暴露）
+
+`./mogo --profile dev up --build` 7 个镜像全部构建成功，但卡在启动：
+`Container mogo-bootstrap-1 Error service "bootstrap" didn't complete successfully: exit 1`，
+容器日志只有一行 `chown: /storage/weaviate/askaiknowledgechunks/E96OBDOxkzRl/lsm: Permission denied`，
+连带 admin-api / chat-api / document-api / dsh-runtime-host / gateway 全部不起。
+
+根因是 **D-4 修复自己引入的**：`cap_drop: [ALL]` 把 `CAP_DAC_OVERRIDE` 也摘了，uid 0 于是失去
+「root 无视文件权限」的默认能力；而 weaviate（uid 1000）在 `PERSISTENCE_DATA_PATH` 下建的目录是
+
+```
+/d                                     1000:1000 755
+/d/askaiknowledgechunks                1000:1000 755
+/d/askaiknowledgechunks/<uuid>         1000:1000 755
+/d/askaiknowledgechunks/<uuid>/lsm     1000:1000 700   ← chown -R 在这里中止
+```
+
+`CHOWN`/`FOWNER` 只保证「能改属主」，不保证「能进入目录」。前三个卷（knowledge/admin-static/askai）
+没有这种 0700 子目录所以通过，属主兜底看上去有效，实际是**幂等语义不成立**：卷一旦运行过一段时间，
+bootstrap 就会永久失败。这是那笔修复的隐藏前提错误，不是 024 T029 加固方向的问题。
+
+修法：bootstrap 的 `cap_add` 补 `DAC_OVERRIDE`（一次性 root helper，只挂 4 个数据卷，
+`no-new-privileges` 与 `cap_drop ALL` 保持不变；长期运行的服务侧加固项一个都没动）。
+
+复验（`./mogo --profile dev up`，镜像不重建）：bootstrap 正常退出，11 容器全 healthy，
+7 镜像 tag `:60e8e90d`，三服务容器内 `/ready` 均 200（端口 8100/8200/8000，不是我先前猜的 8000 通用），
+gateway `http://localhost:3000/admin/setup` 与 `/ready` 均 200；
+`baseline` **63 pass / 0 fail**、`drift` **55 项 / 零漂移**、`verify` **11 服务 OK**。
+
+> 旧 `:8d135867` 7 个 tag 仍在（`up --build` 失败路径不触发 prune，保留回滚能力），
+> 与新镜像共享层、体积无增量；清理需用户确认。
+
 ### 10.5 仍待处理
 
 - D-2：**两笔均已完成**（§10.6 镜像解析对齐 + §10.7 空数组与文档口径）。
+- D-6：**已修**（§10.8，`docker-compose.yml` bootstrap 补 `DAC_OVERRIDE`），但该改动**未提交**，需与后续 compose 变更一起收口。
 - D-3：025 quickstart 第 13–15 项命令口径未修；024 quickstart `bash deploy/cli/drift-check.sh`
   已于 §10.7 改为 `./mogo drift`。
 - D-5：OTel instrumentation 依赖缺失。
