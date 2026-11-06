@@ -23,18 +23,31 @@ def executable(value: str) -> str:
 
 
 def configured_rollback_release(chat_api_root: Path) -> tuple[str, str]:
+    """Resolve the immediate rollback target declared by the active release.
+
+    The matrix deliberately keeps a multi-level rollback chain, so several rows
+    carry ``status: rollback``. The resume probe must use the one the active
+    production release points at via ``rollback``, not an arbitrary row (and it
+    must not require the chain to contain exactly one rollback release).
+    """
     matrix_path = chat_api_root / "dsh" / "compatibility-matrix.yaml"
     matrix = yaml.safe_load(matrix_path.read_text(encoding="utf-8"))
-    releases = [
-        (str(row["dsh_release_train"]), str(row.get("source_ref") or ""))
+    rows = {
+        str(row["dsh_release_train"]): row
         for row in matrix.get("supported_releases", [])
-        if row.get("status") == "rollback"
-    ]
-    if len(releases) != 1:
-        raise ValueError("compatibility matrix must declare exactly one rollback release")
-    if not releases[0][1]:
+    }
+    active_train = str(matrix["active_release"]["dsh_release_train"])
+    active_row = rows.get(active_train)
+    if active_row is None or active_row.get("status") != "production":
+        raise ValueError("active release must be declared as a production supported release")
+    target = str(active_row.get("rollback") or "")
+    rollback_row = rows.get(target)
+    if rollback_row is None or rollback_row.get("status") != "rollback":
+        raise ValueError(f"active release must point at a declared rollback release: {target!r}")
+    source_ref = str(rollback_row.get("source_ref") or "")
+    if not source_ref:
         raise ValueError("rollback release must declare its immutable source_ref")
-    return releases[0]
+    return target, source_ref
 
 
 def main() -> int:

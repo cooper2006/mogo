@@ -119,9 +119,9 @@ RUN chmod -R a+rX /app \
     && chown -R node:node /data/dsh-runtime \
     # 官方 dsh web 模式（DSH_WEB_MODE=1 时由 entrypoint.sh 启用）依赖
     # @deepseek-ai/dsh-web-frontend 的构建产物；它只在 pnpm 虚拟仓库里，
-    # 不在顶层 node_modules，按目录名（带版本后缀）直接探测，避免依赖
-    # 作用域解析路径变化。
-    && node -e "const fs=require('fs'),path=require('path');const store=path.join(process.cwd(),'node_modules','.pnpm');const d=path.join(store,'@deepseek-ai+dsh-web-frontend@0.2.1-rc.5','node_modules','@deepseek-ai','dsh-web-frontend');if(!fs.existsSync(path.join(d,'dist','index.html')))throw new Error('dsh-web-frontend dist/index.html not found under '+d);console.log('DSH web frontend dist verified at '+d);const dshBin=path.join(store,'.bin','dsh');if(!fs.existsSync(path.join(process.cwd(),'node_modules','.bin','dsh')))throw new Error('dsh CLI binary not linked in node_modules/.bin');console.log('dsh CLI verified in node_modules/.bin');"
+    # 不在顶层 node_modules。按「包名@版本」前缀探测：0.2.2-rc.1 起该包
+    # 带 cordis peer，pnpm 会在目录名后追加 peer 后缀，精确目录名会失效。
+    && node -e "const fs=require('fs'),path=require('path');const store=path.join(process.cwd(),'node_modules','.pnpm');const prefix='@deepseek-ai+dsh-web-frontend@0.2.2-rc.1';const hit=fs.readdirSync(store).filter(d=>d.startsWith(prefix)).find(d=>fs.existsSync(path.join(store,d,'node_modules','@deepseek-ai','dsh-web-frontend','dist','index.html')));if(!hit)throw new Error('dsh-web-frontend dist/index.html not found under '+prefix+'*');console.log('DSH web frontend dist verified at '+path.join(store,hit));const dshBin=path.join(store,'.bin','dsh');if(!fs.existsSync(path.join(process.cwd(),'node_modules','.bin','dsh')))throw new Error('dsh CLI binary not linked in node_modules/.bin');console.log('dsh CLI verified in node_modules/.bin');"
 
 # 022 US3 (T027): container hardening, same shape as the other app images.
 #
@@ -145,6 +145,13 @@ RUN chmod -R a+rX /app \
 # inside the writable (and per-replica isolated) data volume makes that identity
 # survive restarts without adding another volume per replica.
 ENV HOME=/data/dsh-runtime/home
+
+# @deepseek-ai/dsh-plugin-manager 在查询 registry / 安装插件时按名字 spawn
+# `pnpm`（execa(options.command ?? "pnpm", ...)）。dependencies 阶段的全局
+# pnpm 装在 /pnpm，不会进入 runtime 阶段；runtime 里只剩
+# /app/node_modules/.bin/pnpm，若不在 PATH 会报 "spawn pnpm ENOENT"。
+# 追加到末尾，系统命令优先，避免 node_modules/.bin 下的 shim 遮蔽。
+ENV PATH=$PATH:/app/node_modules/.bin
 
 USER node
 

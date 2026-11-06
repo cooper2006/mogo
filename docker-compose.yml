@@ -64,6 +64,13 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
     - "host.docker.internal:host-gateway"
   environment:
     DSH_INSTANCE_ID: dsh-runtime-host
+    # dsh-web 装插件时 @deepseek-ai/dsh-plugin-manager 会按名字 spawn `pnpm`
+    # （execa(options.command ?? "pnpm", ...)）来跑 `pnpm view` / `pnpm add`。
+    # 镜像 runtime 阶段没有把 dependencies 阶段的全局 pnpm 带过来，
+    # /app/node_modules/.bin/pnpm 也不在 PATH，因此报 "spawn pnpm ENOENT"。
+    # 把 .bin 追加到 PATH 末尾即可（系统命令仍优先，避免 shim 遮蔽）。
+    # 镜像侧根治见 services/chat-api/dsh/runtime-host/Dockerfile 的 ENV PATH。
+    PATH: /usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/app/node_modules/.bin
     # 官方 dsh web 模式开关（可选，默认关闭）：
     #   DSH_WEB_MODE=1           额外启动 `dsh --profile web`，把官方 Web GUI 暴露出来
     #   DSH_WEB_HOST=127.0.0.1   web 绑定地址（默认 127.0.0.1；dsh 有意拒绝

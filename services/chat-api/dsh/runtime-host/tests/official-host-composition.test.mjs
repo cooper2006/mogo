@@ -300,8 +300,17 @@ test('ordinary and code sessions use isolated official preset capability surface
         PLATFORM_SHELL_MODULE,
         '@deepseek-ai/dsh-tool-jobs',
         '@deepseek-ai/dsh-skill-filesystem',
-        '@deepseek-ai/dsh-agent-tool-presentation',
       ]) assert.ok(mountedModules.has(moduleName), moduleName)
+
+      // 工具呈现/执行层的模块名随上游列车变化：0.2.1-rc.5 及更早由
+      // `@deepseek-ai/dsh-agent-tool-presentation` 单独挂载；0.2.2-rc.1 起
+      // 上游把它拆成 native + ptc 两个 executor，host composition 不再挂载
+      // presentation 本身。契约意图是「Code preset 必须有工具呈现/执行层」，
+      // 因此按实际列车形态二选一校验，而不是放行「两层都缺失」。
+      const presentationLayer = mountedModules.has('@deepseek-ai/dsh-agent-tool-presentation')
+        ? ['@deepseek-ai/dsh-agent-tool-presentation']
+        : ['@deepseek-ai/dsh-tool-executor-native', '@deepseek-ai/dsh-tool-executor-ptc']
+      for (const moduleName of presentationLayer) assert.ok(mountedModules.has(moduleName), moduleName)
 
       assert.ok((await runtime.describeLiveSession('ordinary')).capabilityTools.includes('ask_user_question'))
     } finally {

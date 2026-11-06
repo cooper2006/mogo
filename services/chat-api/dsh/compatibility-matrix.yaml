@@ -1,6 +1,6 @@
 schema_version: mogo.dsh-compatibility-matrix.v1
 active_release:
-  dsh_release_train: 0.2.1-rc.5
+  dsh_release_train: 0.2.2-rc.1
   node_runtime: "^22.19.0 || >=24.0.0"
   host_protocol: askai.dsh-host.v1
   host_overlay: askai-dsh-host-v1
@@ -15,7 +15,7 @@ active_release:
   # `@deepseek-ai/dsh-agent-preset-registry` 提供。required_presets 保留
   # askai-enterprise + code 两个 ASKAI 直接消费预设；standard/ptc/minimal/cordis
   # 为 registry train 下的上游内置 preset，无需 ASKAI 在 required_presets 中声明。
-  # 0.2.1-rc.5 train 沿用同一 preset 机制，未再变更。
+  # 0.2.2-rc.1 train 沿用同一 preset 机制，未再变更。
   required_presets: [askai-enterprise, code]
   code_model_tools: [read, write, edit, glob, grep, bash, skill, todo_write, subagent]
   code_capabilities:
@@ -51,15 +51,29 @@ active_release:
     - "@deepseek-ai/dsh-host-plugin-inventory"
 
 supported_releases:
-  - dsh_release_train: 0.2.1-rc.5
-    source_ref: pre-release (npm dist-tags.next)
+  - dsh_release_train: 0.2.2-rc.1
+    source_ref: npm dist-tags.latest / next
     node_runtime: "^22.19.0 || >=24.0.0"
     host_protocol: askai.dsh-host.v1
     host_overlay: askai-dsh-host-v1
     old_session_resume: verified
-    # 0.2.1-rc.5 train 全项目多轮回归通过后晋升为 production（active_release）；
-    # 回滚目标为 0.1.7-rc.2。回归证据见 docs/regression-report-2026-10-01.md。
+    # 0.2.2-rc.1 通过发布准入门禁（单一列车、供应链哈希、内核握手、
+    # SBOM 一致性）后晋升为 production（active_release）；回滚目标为 0.2.1-rc.5。
     status: production
+    rollback: 0.2.1-rc.5
+  - dsh_release_train: 0.2.1-rc.5
+    # 直接回滚目标必须给出 immutable MOGO ref：verify_dsh_rollback_resume.py
+    # 用 git archive 从该 ref 还原发布态 Runtime Host，再验证老会话在
+    # active train 上恢复。c91dd348 即承载 0.2.1-rc.5 列车的已发布 commit，
+    # 对应镜像 ghcr.io/mogoai/dsh-runtime-host:c91dd348。
+    source_ref: c91dd348fded8a712ec22bb79cbccb37b79fe266
+    node_runtime: "^22.19.0 || >=24.0.0"
+    host_protocol: askai.dsh-host.v1
+    host_overlay: askai-dsh-host-v1
+    old_session_resume: verified
+    # 0.2.2-rc.1 晋升 active 后，0.2.1-rc.5 降级为 approved_rollback_target。
+    # 其 production 期回归证据见 docs/regression-report-2026-10-01.md。
+    status: rollback
     rollback: 0.1.7-rc.2
   - dsh_release_train: 0.1.7-rc.2
     source_ref: pre-release (npm dist-tags.next)
@@ -67,7 +81,7 @@ supported_releases:
     host_protocol: askai.dsh-host.v1
     host_overlay: askai-dsh-host-v1
     old_session_resume: verified
-    # 0.2.1-rc.5 升级为 active 后，0.1.7-rc.2 降级为 approved_rollback_target。
+    # 0.2.1-rc.5 晋升后降级为 approved_rollback_target，保留更早期回滚链。
     status: rollback
   - dsh_release_train: 0.1.2-alpha.2
     source_ref: 62e054f09aef9e052d424cd904c00a5fd05ea0d6
