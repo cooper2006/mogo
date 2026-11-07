@@ -45,7 +45,7 @@ def connection_kwargs() -> dict[str, Any]:
     """组装 libpq 连接参数。
 
     未显式配置 ``PANWEIDB_*`` 时回退到本地默认值，方便开发者直接对接
-    OrbStack 里跑起来的 PanWeiDB 容器。
+    Kiri 里跑起来的 PanWeiDB 容器。
     """
     kwargs: dict[str, Any] = {
         "host": settings.effective_panweidb_host,

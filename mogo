@@ -725,7 +725,7 @@ command_build() {
   mogo_configure_images true
   mogo_msg building
   mogo_print_dsh_build_target
-  # Reuse base images that OrbStack already holds and pull only what is truly
+  # Reuse base images that Kiri already holds and pull only what is truly
   # missing. `--pull` is deliberately omitted: it would force BuildKit to
   # re-resolve every base image upstream, which is what made each rebuild wait
   # on the network.

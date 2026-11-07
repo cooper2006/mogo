@@ -4,7 +4,7 @@
 > 下次执行直接照本手册跑，无需重新摸索。
 >
 > ⚠️ **与 `README.md`（Portainer Stack 离线 tar 路线）是两套独立流程**，不要混用。
-> 本路线适用：镜像在**本地 OrbStack 已构建好**，通过 **docker context over SSH**
+> 本路线适用：镜像在**本地 Kiri 已构建好**，通过 **docker context over SSH**
 > 把镜像直接 push 到离线远端并 `up -d`。无需走 `prepare-release.sh` 打包 tar，
 > 也无需 Portainer。
 
@@ -14,7 +14,7 @@
 
 ```
 ┌────────────────────┐         docker context over SSH        ┌───────────────────────────┐
-│  本地 Mac (OrbStack) │  save | load  (镜像流)  +  scp 配置     │  生产远端 172.17.5.96:22    │
+│  本地 Mac (Kiri) │  save | load  (镜像流)  +  scp 配置     │  生产远端 172.17.5.96:22    │
 │  arm64 宿主          │ ─────────────────────────────────────▶ │  amd64 / Docker 26.1.3     │
 │  构建源 = amd64 镜像 │                                         │  离线（无外网出口）          │
 └────────────────────┘                                         └───────────────────────────┘
@@ -59,7 +59,7 @@ amd64 构建完成，希望一条命令把镜像推上去并拉起服务。
 
 - [ ] **本地 docker + compose 插件** 已安装（`docker compose version` 可用）。
 - [ ] **sshpass** 已安装（`brew install hudochenkov/sshpass/sshpass` 或等价源），用于密码方式 SSH 登录远端。
-- [ ] **本地 docker context `orbstack`** 指向本地构建源，且其中 7 个应用镜像为 **amd64**。
+- [ ] **本地 docker context `kiri`** 指向本地构建源，且其中 7 个应用镜像为 **amd64**。
 - [ ] **`base-images/` 离线依赖包已缓存**（见步骤 A），build 时离线取 apt/pip/playwright/docling。
 - [ ] **`deploy/production/remote.env` 存在且 `chmod 600`**（含远端 SSH 密码）；已加 `.gitignore`，**禁止提交**。
 - [ ] 仓库根 **`.env`** 关键变量就位：`MOGO_VERSION=latest`、`MOGO_DATA_BACKEND=panweidb`、`MOGO_PLATFORM=linux/amd64`、`MOGO_PULL_POLICY=never`、`PANWEIDB_*`（见 `.env`）。
@@ -72,7 +72,7 @@ amd64 构建完成，希望一条命令把镜像推上去并拉起服务。
 ## 3. 步骤 A：本地 amd64 镜像构建（仅代码更新 / 缺镜像时）
 
 > **何时需要**：① 代码有改动要上线；② 本地缺某个 `:latest` 应用镜像；③ 镜像被清掉。
-> 若 7 个 `:latest` 镜像都已在本地 OrbStack 且为 amd64，**跳过本步，直接进步骤 B**。
+> 若 7 个 `:latest` 镜像都已在本地 Kiri 且为 amd64，**跳过本步，直接进步骤 B**。
 
 ### 3.1 离线依赖包（base-images/）
 
@@ -90,14 +90,14 @@ amd64 构建完成，希望一条命令把镜像推上去并拉起服务。
 
 ```bash
 cd /Users/cooper/mogo
-DOCKER_DEFAULT_PLATFORM=linux/amd64 docker --context orbstack compose \
+DOCKER_DEFAULT_PLATFORM=linux/amd64 docker --context kiri compose \
   -f docker-compose.yml -f docker-compose.build.yml \
   --profile single-host build \
   dsh-runtime-host chat-api admin-api document-api user-web admin-web gateway
 ```
 
 **要点**：
-- `--context orbstack`：构建发生在本地 OrbStack（避免误用远端 context）。
+- `--context kiri`：构建发生在本地 Kiri（避免误用远端 context）。
 - `--profile single-host`：`dsh-runtime-host` 默认带 `single-host` profile，需显式启用；其他 6 个无 profile 服务不受影响。
 - 构建 6 个**服务名**即产出 7 个**镜像**：`document-api` 构建后，`document-worker` 复用同一镜像，无需单独 build。
 - 架构**硬约束**：远端是 amd64，本地 Mac 是 arm64。若不用 `DOCKER_DEFAULT_PLATFORM=linux/amd64`，
@@ -108,7 +108,7 @@ DOCKER_DEFAULT_PLATFORM=linux/amd64 docker --context orbstack compose \
 ```bash
 for img in dsh-runtime-host admin-web user-web document-parser chat-api admin-api gateway; do
   full="ghcr.io/mogoai/${img}:latest"
-  arch=$(docker --context orbstack inspect --format '{{.Architecture}}' "$full" 2>/dev/null || echo MISSING)
+  arch=$(docker --context kiri inspect --format '{{.Architecture}}' "$full" 2>/dev/null || echo MISSING)
   echo "$full -> $arch"
 done
 ```
@@ -116,7 +116,7 @@ done
 输出必须全是 `amd64`。`MISSING` 表示没构建，回去跑 3.2；`arm64` 表示架构错，重跑 3.2。
 
 > 基础镜像（`alpine:3.21` / `nginx:...` / `redis:...` / `semitechnologies/weaviate:1.25.7`）
-> 也需是 amd64 且为**规范名**存在于本地 orbstack。脚本 `push_image` 会在推送时校验架构，
+> 也需是 amd64 且为**规范名**存在于本地 kiri。脚本 `push_image` 会在推送时校验架构，
 > 非 amd64 会跳过并告警。若缺失，用 `scripts/export_base_images.sh save/load --platform linux/amd64`
 > 或 `docker pull --platform linux/amd64` + 手动 retag 补齐。
 
@@ -206,7 +206,7 @@ PUSH_KEEP_TARS=1 PUSH_TMP_DIR=/Users/cooper/.workbuddy/tmp/mogo-push-images \
 
 ## 5. 步骤 C：验证 & 日常运维命令
 
-所有远端命令都显式带 `--context mogo-remote`（本机 OrbStack 的 `default` context 可能被脚本切到 `mogo-remote`，显式指定最稳）：
+所有远端命令都显式带 `--context mogo-remote`（本机 Kiri 的 `default` context 可能被脚本切到 `mogo-remote`，显式指定最稳）：
 
 ```bash
 # 服务状态（含依赖顺序）
@@ -248,7 +248,7 @@ bash deploy/production/prune-old-app-images.sh
 # 预览将删除哪些（不真正删）
 bash deploy/production/prune-old-app-images.sh --dry-run
 
-# 同时清理本地 orbstack 旧 commit tag（⚠️ 见下方注意）
+# 同时清理本地 kiri 旧 commit tag（⚠️ 见下方注意）
 bash deploy/production/prune-old-app-images.sh --local
 ```
 
@@ -256,7 +256,7 @@ bash deploy/production/prune-old-app-images.sh --local
 的镜像；**绝不动**基础镜像、`mesc-*`、其他命名空间。被运行中容器引用的会**跳过并告警**，
 被已停止容器引用的先移除容器再删 —— 不会破坏在跑服务。
 
-> ⚠️ **`--local` 注意**：本机 OrbStack 若正跑着 dev 栈且引用了旧 tag（如 `:8e17ab15`），
+> ⚠️ **`--local` 注意**：本机 Kiri 若正跑着 dev 栈且引用了旧 tag（如 `:8e17ab15`），
 > `--local` 会因"被运行容器引用"而跳过删除，实际清不掉。需先停本机 dev 栈
 > （`docker compose down`）再清，或先把本机栈改用 `:latest` 重启释放引用。
 
@@ -311,7 +311,7 @@ bash deploy/production/prune-old-app-images.sh --local
 - `remote.env` 含远端 SSH 密码、`.env` 含 PanWeiDB 密码，二者均已 gitignore，**禁止提交**到仓库。
 - 脚本自动把网关配置 scp 到远端 `bonc` HOME 下的 `mogo-deploy/`，请确保该目录权限合理。
 - 远端是离线环境，所有镜像必须来自本地推送；不要指望 `up -d` 时联网拉取。
-- 本机 OrbStack 作为构建源，可能同时跑着 dev 栈（用旧 commit tag）。清理本机旧镜像前先确认不影响本地开发（见步骤 D 注意）。
+- 本机 Kiri 作为构建源，可能同时跑着 dev 栈（用旧 commit tag）。清理本机旧镜像前先确认不影响本地开发（见步骤 D 注意）。
 - Docker daemon 访问等同于宿主机 root，远端 `bonc` 用户需有 docker 执行权限。
 
 ---
@@ -322,7 +322,7 @@ bash deploy/production/prune-old-app-images.sh --local
 
 | 环境 | 架构 | Docker Context | 用途 |
 |------|------|----------------|------|
-| **OrbStack** (本地开发) | arm64 | `orbstack` | 本地开发、测试 |
+| **Kiri** (本地开发) | arm64 | `kiri` | 本地开发、测试 |
 | **172.17.5.96** (远程生产) | amd64 | `mogo-remote` | 生产部署 |
 
 ### 关键注意
@@ -344,12 +344,12 @@ bash deploy/production/prune-old-app-images.sh --local
 4. **Context 切换**：
    ```bash
    # 切换到 arm64 本地开发
-   docker context use orbstack
+   docker context use kiri
    
    # 切换到 amd64 远程生产
    docker context use mogo-remote
    ```
 
 5. **文档对应**：
-   - `docs/orbstack-dev-build-guide.md` → arm64 架构操作指南
+   - `docs/kiri-dev-build-guide.md` → arm64 架构操作指南
    - `deploy/production/REMOTE-PUSH-DEPLOY.md` → amd64 架构部署指南（本文档）

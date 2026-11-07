@@ -2,7 +2,7 @@
 # =============================================================================
 # mogo 远程部署 —— 推送「本地已构建镜像」到离线远端 daemon
 # -----------------------------------------------------------------------------
-# 前置：应用镜像已在本机 OrbStack（docker context=orbstack）按 AMD64 + 当前代码
+# 前置：应用镜像已在本机 Kiri（docker context=kiri）按 AMD64 + 当前代码
 #       离线构建完成（见 docker-compose.build.yml + base-images/ 离线依赖包）。
 # 本脚本只负责：
 #   1. 建立/复用 docker context（ssh://bonc@172.17.5.96:22）；
@@ -40,7 +40,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${ROOT_DIR}"
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-LOCAL_CONTEXT="${LOCAL_CONTEXT:-orbstack}"
+LOCAL_CONTEXT="${LOCAL_CONTEXT:-kiri}"
 OVERRIDE="docker-compose.prod-external-panweidb.yml"
 ENV_FILE="${ROOT_DIR}/.env"
 PLATFORM="linux/amd64"
@@ -216,16 +216,16 @@ run "set_env_key PANWEIDB_SCHEMA ${PANWEIDB_SCHEMA}"
 run "set_env_key MOGO_REDIS_URL ${MOGO_REDIS_URL}"
 run "set_env_key MOGO_KERNEL_REDIS_URL ${MOGO_KERNEL_REDIS_URL}"
 
-# ── 镜像清单：应用（本地 orbstack 已构建） + 运行时基础镜像（规范名）────────
+# ── 镜像清单：应用（本地 kiri 已构建） + 运行时基础镜像（规范名）────────
 # 应用镜像（ghcr.io/mogoai/*:${MOGO_VERSION}）
 APP_IMAGES=(chat-api document-parser dsh-runtime-host gateway admin-api admin-web user-web)
-# 运行时基础镜像（compose 默认规范名；已在 orbstack retag 为 amd64）
+# 运行时基础镜像（compose 默认规范名；已在 kiri retag 为 amd64）
 BASE_IMAGES=(alpine:3.21 nginx:1.31.5-alpine3.24-slim redis:7.4.2-alpine semitechnologies/weaviate:1.25.7)
 
 # ── 推送：内容感知 + 稳定传输（2026-11-05 事故后加固）─────────────────────
 # 旧逻辑只看「远端有没有同名 tag」，:latest 一动不动就永远跳过，导致代码更新后
 # 脚本显示成功、线上仍是旧镜像。现在改为比较内容指纹。
-# 指纹用 RootFS.Layers 而不是 .Id：本地 OrbStack 是 containerd/OCI image store，
+# 指纹用 RootFS.Layers 而不是 .Id：本地 Kiri 是 containerd/OCI image store，
 # 远端 Docker Engine 是 classic graph driver，同一份内容两边 .Id 不同，只比 .Id
 # 会让每次 amd64 部署都误报「内容不同/推送失败」，并诱发重复全量传输。
 # [push-image-guard:begin] 本段可被 deploy/tests/test_deploy_push_guard.py 独立提取单测
@@ -365,7 +365,7 @@ push_image() {
       UNVERIFIED_IMAGES+=("${imgref}")
       return 0
     fi
-    warn "  ✗ 本地 orbstack 缺失: ${imgref}（请先在本地构建）；远端将尝试 fallback"
+    warn "  ✗ 本地 kiri 缺失: ${imgref}（请先在本地构建）；远端将尝试 fallback"
     return 1
   fi
   if [[ -n "${remote_fp}" && "${remote_fp}" == "${local_fp}" ]]; then

@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # 取值 "panweidb" 时走 openGauss 内核 / PostgreSQL 兼容线协议。
     # 规范环境变量是 MOGO_DATA_BACKEND（不带服务前缀，便于三服务统一切换）。
     data_backend: str = ""
-    # PanWeiDB 连接参数。留空时按 127.0.0.1:5432 回退，方便对接本地 OrbStack。
+    # PanWeiDB 连接参数。留空时按 127.0.0.1:5432 回退，方便对接本地 Kiri。
     panweidb_host: str = ""
     panweidb_port: int = 0
     panweidb_user: str = ""

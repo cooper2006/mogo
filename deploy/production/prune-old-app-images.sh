@@ -3,7 +3,7 @@
 # mogo 应用镜像旧版本清理 —— 仅保留当前部署版本（默认 :latest）
 # -----------------------------------------------------------------------------
 # 远端 daemon（默认 docker context=mogo-remote）必清；
-# 加 --local 额外清理本地 orbstack 的构建缓存旧 commit tag。
+# 加 --local 额外清理本地 kiri 的构建缓存旧 commit tag。
 #
 # 清理范围：仅 ghcr.io/mogoai/<7个应用> 命名空间下、tag 不等于当前
 #           MOGO_VERSION（默认 latest）的镜像。基础镜像（alpine/nginx/redis/
@@ -29,7 +29,7 @@ REMOTE_PORT="${REMOTE_PORT:-22}"
 REMOTE_USER="${REMOTE_USER:-bonc}"
 REMOTE_PASSWORD="${REMOTE_PASSWORD:-}"
 DOCKER_CONTEXT="${DOCKER_CONTEXT:-mogo-remote}"
-LOCAL_CONTEXT="${LOCAL_CONTEXT:-orbstack}"
+LOCAL_CONTEXT="${LOCAL_CONTEXT:-kiri}"
 MOGO_VERSION="${MOGO_VERSION:-latest}"
 DO_LOCAL=0
 DRY_RUN=0
@@ -119,6 +119,6 @@ prune_one_context() {
 }
 
 prune_one_context "远端 daemon (${DOCKER_CONTEXT})" docker --context "${DOCKER_CONTEXT}"
-[[ "${DO_LOCAL}" -eq 1 ]] && prune_one_context "本地 orbstack (${LOCAL_CONTEXT})" docker --context "${LOCAL_CONTEXT}"
+[[ "${DO_LOCAL}" -eq 1 ]] && prune_one_context "本地 kiri (${LOCAL_CONTEXT})" docker --context "${LOCAL_CONTEXT}"
 
 log "清理完成。"

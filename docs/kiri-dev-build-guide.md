@@ -1,10 +1,10 @@
-# OrbStack 开发环境：离线加速构建与重启服务
+# Kiri 开发环境：离线加速构建与重启服务
 
 > 状态：已落地（2026-11-05 实测通过）
 > 版本基线：`5b039422`（含 test profile 外部 PanWeiDB 支持、check_external_db.sh 修复）
-> 执行入口：`./mogo up --build`（需先切换 docker context 到 OrbStack）
+> 执行入口：`./mogo up --build`（需先切换 docker context 到 Kiri）
 
-本文档记录 **OrbStack 本地开发栈**的"离线加速构建 → 重启服务"完整流程与踩坑要点。面向在大陆内网/离线环境下跑 mogo 自托管开发环境的工程师。
+本文档记录 **Kiri 本地开发栈**的"离线加速构建 → 重启服务"完整流程与踩坑要点。面向在大陆内网/离线环境下跑 mogo 自托管开发环境的工程师。
 
 ---
 
@@ -52,9 +52,9 @@
 ```bash
 cd /path/to/mogo
 
-# 1) docker context 必须是 OrbStack（本脚本走 unix socket，不是 ssh）
-docker context show          # 期望：orbstack
-docker context ls            # 看到 * 在 orbstack 行
+# 1) docker context 必须是 Kiri（本脚本走 unix socket，不是 ssh）
+docker context show          # 期望：kiri
+docker context ls            # 看到 * 在 kiri 行
 
 # 2) MOGO_VERSION 默认会读 git short hash（mogo_default_version），
 #    可显式覆盖：export MOGO_VERSION=<hash>
@@ -71,9 +71,9 @@ ls base-images/images/arm64/ | wc -l   # 期望 7 个
 docker context show
 # → mogo-remote   ⚠️ 这是另一套部署的主机
 
-# 切回 OrbStack
-docker context use orbstack
-docker context show   # → orbstack  ✓
+# 切回 Kiri
+docker context use kiri
+docker context show   # → kiri  ✓
 ```
 
 ---
@@ -120,14 +120,14 @@ echo "APT cache:" && ls base-images/apt/document-parser/arm64/*.deb 2>/dev/null 
 
 部分交付只包含基础 OS 镜像，应用层 bundle（apt/pip-wheels/playwright/docling）需从已构建镜像提取或在线下载。**先走 §4.2 加载基础镜像，再执行 §4.3 的 bundle 生成步骤。**
 
-### 4.2 加载基础镜像到 OrbStack
+### 4.2 加载基础镜像到 Kiri
 
-**必须用 OrbStack context**（当前激活的可能是 `mogo-remote`）：
+**必须用 Kiri context**（当前激活的可能是 `mogo-remote`）：
 
 ```bash
 cd /path/to/mogo
-docker context use orbstack
-docker context show   # 确认返回 orbstack
+docker context use kiri
+docker context show   # 确认返回 kiri
 ```
 
 **第一步：从 tar 加载原始镜像**（arm64 Mac 本地栈用 arm64）：
@@ -359,7 +359,7 @@ done
 
 ```bash
 cd /path/to/mogo
-docker context use orbstack                              # 切回本地
+docker context use kiri                              # 切回本地
 MOGO_VERSION="$(git rev-parse --short HEAD)"             # 显式固化（也可不写，由 CLI 自动取 short hash）
 MOGO_DATA_BACKEND=mongo                                  # 覆盖 .env 的 panweidb，强制走 dev profile
 ./mogo up --build                                        # 离线构建 + 启动
@@ -466,10 +466,10 @@ tail -f /tmp/mogo-up-build.log
 手动清理残留（如 `:latest`）：
 
 ```bash
-docker --context orbstack ps -a --filter "ancestor=ghcr.io/mogoai/admin-api:latest" --format '{{.Names}} {{.Image}} {{.Status}}'
+docker --context kiri ps -a --filter "ancestor=ghcr.io/mogoai/admin-api:latest" --format '{{.Names}} {{.Image}} {{.Status}}'
 # 确认无容器引用后
 for img in admin-api admin-web chat-api document-parser dsh-runtime-host gateway user-web; do
-  docker --context orbstack rmi "ghcr.io/mogoai/${img}:latest"
+  docker --context kiri rmi "ghcr.io/mogoai/${img}:latest"
 done
 ```
 
@@ -478,7 +478,7 @@ done
 ## 9. 健康确认
 
 ```bash
-docker --context orbstack ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' | grep -E 'mogo-'
+docker --context kiri ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' | grep -E 'mogo-'
 ```
 
 期望输出（8 个业务服务 + 3 个依赖，共 11 容器，全部 healthy）：
@@ -545,7 +545,7 @@ MOGO_DATA_BACKEND=mongo ./mogo up --build
 
 **解决**：脚本已修复（`5b039422`），根据 `MOGO_DATA_BACKEND` 智能选择检查项。若使用旧版本，手动注释 `.env` 中的 MongoDB URI。
 
-### 10.5 构建发到远端而非 OrbStack
+### 10.5 构建发到远端而非 Kiri
 
 **症状**：
 ```
@@ -560,16 +560,16 @@ docker load -i base-images/images/arm64/panweidb_3.2.0.tar
 MOGO_DATA_BACKEND=mongo ./mogo up --build
 ```
 
-### 10.6 构建发到远端而非 OrbStack
+### 10.6 构建发到远端而非 Kiri
 
 **症状**：上下文传输速率只有 ~0.8 MB/s（走 SSH），日志里出现 `ssh -l bonc -p 22 -- 172.17.5.96`。
 
-**原因**：当前 docker context 是 `mogo-remote`（远端 172.17.5.96），不是 OrbStack。
+**原因**：当前 docker context 是 `mogo-remote`（远端 172.17.5.96），不是 Kiri。
 
 **解决**：
 ```bash
-docker context use orbstack
-docker context show    # 确认返回 orbstack
+docker context use kiri
+docker context show    # 确认返回 kiri
 ```
 
 ---
@@ -606,7 +606,7 @@ A：CLI 额外做了：① 自动 pre-resolve 基础镜像；② 自动 prune；
 MOGO_VERSION=v0.2.6 ./mogo --profile dev up --build
 
 # 查看已建镜像
-docker --context orbstack images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | grep mogoai
+docker --context kiri images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | grep mogoai
 
 # 重启服务（不重建）
 ./mogo restart
@@ -627,7 +627,7 @@ docker --context orbstack images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' 
 
 | 环境 | 架构 | Docker Context | 用途 |
 |------|------|----------------|------|
-| **OrbStack** (本地开发) | arm64 | `orbstack` | 本地开发、测试 |
+| **Kiri** (本地开发) | arm64 | `kiri` | 本地开发、测试 |
 | **172.17.5.96** (远程生产) | amd64 | `mogo-remote` | 生产部署 |
 
 ### 关键注意
@@ -645,14 +645,14 @@ docker --context orbstack images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' 
 3. **Context 切换**：
    ```bash
    # 切换到 arm64 本地开发
-   docker context use orbstack
+   docker context use kiri
    
    # 切换到 amd64 远程生产
    docker context use mogo-remote
    ```
 
 4. **文档对应**：
-   - `docs/orbstack-dev-build-guide.md` → arm64 架构操作指南
+   - `docs/kiri-dev-build-guide.md` → arm64 架构操作指南
    - `docs/REMOTE-PUSH-DEPLOY.md` → amd64 架构部署指南
 
 ---
@@ -663,7 +663,7 @@ docker --context orbstack images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' 
 
 | 环境 | 架构 | Docker Context | 用途 |
 |------|------|----------------|------|
-| **OrbStack** (本地开发) | arm64 | `orbstack` | 本地开发、测试 |
+| **Kiri** (本地开发) | arm64 | `kiri` | 本地开发、测试 |
 | **172.17.5.96** (远程生产) | amd64 | `mogo-remote` | 生产部署 |
 
 ### 关键注意
@@ -681,12 +681,12 @@ docker --context orbstack images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' 
 3. **Context 切换**：
    ```bash
    # 切换到 arm64 本地开发
-   docker context use orbstack
+   docker context use kiri
    
    # 切换到 amd64 远程生产
    docker context use mogo-remote
    ```
 
 4. **文档对应**：
-   - `docs/orbstack-dev-build-guide.md` → arm64 架构操作指南
+   - `docs/kiri-dev-build-guide.md` → arm64 架构操作指南
    - `deploy/production/REMOTE-PUSH-DEPLOY.md` → amd64 架构部署指南

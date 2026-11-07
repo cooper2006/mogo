@@ -34,12 +34,12 @@
 #   ./switch-base-image-arch.sh -h      帮助
 #
 # 环境变量：
-#   MOGO_DOCKER_CONTEXT   docker context 名（默认 orbstack）
+#   MOGO_DOCKER_CONTEXT   docker context 名（默认 kiri）
 # ============================================================================
 set -euo pipefail
 
 # ── docker context ──────────────────────────────────────────────────────────
-CTX="${MOGO_DOCKER_CONTEXT:-orbstack}"
+CTX="${MOGO_DOCKER_CONTEXT:-kiri}"
 DC=(docker -c "$CTX")
 
 # ── 路径 ────────────────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ usage() {
   switch-base-image-arch.sh -h      本帮助
 
 环境变量:
-  MOGO_DOCKER_CONTEXT   docker context（默认 orbstack）
+  MOGO_DOCKER_CONTEXT   docker context（默认 kiri）
 EOF
 }
 

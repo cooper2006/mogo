@@ -384,7 +384,7 @@ Windows 用户请使用 Docker Desktop 配合 WSL 2 与 Ubuntu。可以先用 `w
 nginx: [emerg] cannot load certificate key "/etc/nginx/certs/privkey.pem" (13: Permission denied)
 ```
 
-`openssl req -newkey` 生成的私钥默认是 `0600`，`cp` 也会保留源模式，所以**每次放完证书都要显式 `chmod`**。macOS/OrbStack 会把 bind mount 的属主映射成容器运行用户，所以 `0600` 本地看着没事，生产 Linux 照样挂。若要求私钥不 world-readable，改为交给容器 uid：
+`openssl req -newkey` 生成的私钥默认是 `0600`，`cp` 也会保留源模式，所以**每次放完证书都要显式 `chmod`**。macOS/Kiri 会把 bind mount 的属主映射成容器运行用户，所以 `0600` 本地看着没事，生产 Linux 照样挂。若要求私钥不 world-readable，改为交给容器 uid：
 
 ```bash
 sudo chown 10001:10001 deploy/tls/privkey.pem && chmod 0600 deploy/tls/privkey.pem

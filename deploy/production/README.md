@@ -3,7 +3,7 @@
 > **路线选择**：
 > - 本文件 = **Portainer Stack + 离线 tar 导入** 路线（`prepare-release.sh` 打包，运维手动导入）。
 > - **另一条路线**（本机已构建镜像 → 远端 docker context 推送）见 **[`REMOTE-PUSH-DEPLOY.md`](./REMOTE-PUSH-DEPLOY.md)**，
->   适用于「镜像在本地 OrbStack 已构建、直接 push 到离线远端并 `up -d`」的场景。
+>   适用于「镜像在本地 Kiri 已构建、直接 push 到离线远端并 `up -d`」的场景。
 
 面向**无外网的生产环境**：镜像靠离线导入，栈用 Portainer 的 Stack 拉起。
 目标主机为「无外网 + x86_64 + Docker 26.1.3」的 Linux 服务器（部署时替换为实际主机名），
@@ -144,7 +144,7 @@ MongoDB 的版本（低于 7.0 会提醒需逐级升级）。不启动栈单独�
 （实测踩过）。脚本的做法是显式导出 `MOGO_*_IMAGE`——shell 环境优先于 `.env`，
 所以无需你去改 `.env`。
 
-**2. `docker pull --platform` / `docker save --platform` 在 OrbStack 上不可靠。**
+**2. `docker pull --platform` / `docker save --platform` 在 Kiri 上不可靠。**
 前者对平台选择是**空操作**（拉下来仍是宿主平台）；后者在本地只有 arm64 内容时会报
 `no suitable export target found`。可靠路径是 **buildx staging 构建**
 （`FROM <镜像站>/<image>` + `--platform linux/amd64 --load`），脚本里已封装。

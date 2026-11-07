@@ -18,7 +18,7 @@ uid，0600 的私钥归宿主用户所有 → 容器内 uid 10001 读不到，ng
 nginx: [emerg] cannot load certificate key "/etc/nginx/certs/privkey.pem" (13: Permission denied)
 ```
 
-> macOS / OrbStack 的 bind mount 会把文件属主映射成容器运行用户，所以 0600
+> macOS / Kiri 的 bind mount 会把文件属主映射成容器运行用户，所以 0600
 > 在本地也能跑 —— 不要因为本机跑得通就认为权限没问题，生产 Linux 会挂。
 
 `openssl req -newkey` 生成的私钥默认就是 0600，`cp` 也会保留源模式，所以
@@ -107,7 +107,7 @@ openssl s_client -connect localhost:443 -servername localhost </dev/null 2>/dev/
 |------|------|
 | HTTP（宿主 `MOGO_PORT`，默认 3000）非 `/healthz` 请求全部 301 | 规则是 `return 301 https://$host$request_uri`；nginx 的 `$host` **不含端口**，所以 `http://localhost:3000/x` 会跳到 `https://localhost/x`（即 443），这是期望行为 |
 | `/healthz` 不跳转，HTTP 200 | 刻意豁免，供负载均衡与容器健康检查使用 |
-| 宿主 443 被别的进程占用 | 实测本机 IPv4 443 被第三方代理（Steam++ / Watt Toolkit）占用，OrbStack 只拿到 IPv6，于是 `https://127.0.0.1/` 打到别人身上（404），而 `https://localhost/`、`https://[::1]/` 正常。**释放 443 或统一用 `https://localhost/`** |
+| 宿主 443 被别的进程占用 | 实测本机 IPv4 443 被第三方代理（Steam++ / Watt Toolkit）占用，Kiri 只拿到 IPv6，于是 `https://127.0.0.1/` 打到别人身上（404），而 `https://localhost/`、`https://[::1]/` 正常。**释放 443 或统一用 `https://localhost/`** |
 | 自定义 `MOGO_HTTPS_PORT`（非 443） | 跳转目标仍固定指向 443：配置是静态文件，拿不到宿主端口。需要同时改 `deploy/nginx/nginx.conf` 里的 `return 301` 行 |
 | `./mogo up` 报 "Services did not become ready in time" | 就绪探针已适配 TLS：会跟随 301、跳过自签名校验，并在宿主端口被占用时回退到容器内直连 admin-api |
 

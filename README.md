@@ -426,7 +426,7 @@ Place them either directly in `deploy/tls/`, or as `server.crt` / `server.key` i
 nginx: [emerg] cannot load certificate key "/etc/nginx/certs/privkey.pem" (13: Permission denied)
 ```
 
-`openssl req -newkey` writes `0600` and `cp` preserves the source mode, so always `chmod` after installing certificates. macOS/OrbStack maps bind-mount ownership to the container user, so `0600` looks fine locally while still breaking on production Linux. To keep the key out of world-readable territory, hand it to the container uid instead:
+`openssl req -newkey` writes `0600` and `cp` preserves the source mode, so always `chmod` after installing certificates. macOS/Kiri maps bind-mount ownership to the container user, so `0600` looks fine locally while still breaking on production Linux. To keep the key out of world-readable territory, hand it to the container uid instead:
 
 ```bash
 sudo chown 10001:10001 deploy/tls/privkey.pem && chmod 0600 deploy/tls/privkey.pem

@@ -71,7 +71,7 @@ fi
 #                  (13: Permission denied)
 # 随后进入 crash-loop。
 #
-# ⚠️ macOS / OrbStack 的 bind mount 会把文件属主映射成容器运行用户，所以 0600
+# ⚠️ macOS / Kiri 的 bind mount 会把文件属主映射成容器运行用户，所以 0600
 # 在本地也能跑。不要因为本机跑得通就认为权限没问题 —— 生产 Linux 会挂。
 #
 # 0644 = 容器内任意 uid 都能读，与 docker-compose.yml 里 gateway 的注释一致。

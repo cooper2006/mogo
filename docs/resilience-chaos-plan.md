@@ -1,13 +1,13 @@
 # 韧性 / 混沌工程演练计划（Resilience & Chaos Plan）
 
 > 对应审计项：QF-505（故障注入清单 + 稳态假设）、QF-506（中止条件）、QF-507（演练报告结构）。
-> 本文档列出 mogo 后端（admin-api / chat-api / document-parser）的**故障注入清单、稳态假设与中止条件**，作为生产环境演练的基线。本地离线环境（ServBay/OrbStack 提供的 MongoDB，redis/weaviate 为可选降级依赖）无法完成全部真实注入，需在具备完整运行时与生产级数据量的环境执行注入演练。
+> 本文档列出 mogo 后端（admin-api / chat-api / document-parser）的**故障注入清单、稳态假设与中止条件**，作为生产环境演练的基线。本地离线环境（ServBay/Kiri 提供的 MongoDB，redis/weaviate 为可选降级依赖）无法完成全部真实注入，需在具备完整运行时与生产级数据量的环境执行注入演练。
 
 ## 1. 依赖与故障域（真实依赖拓扑）
 
 | 依赖 | 角色 | 本地状态 | 故障模式 |
 | --- | --- | --- | --- |
-| MongoDB (`MONGODB_URI`, 默认 127.0.0.1:27017) | 主数据存储（租户、会话、技能、反馈） | 已起（ServBay/OrbStack） | 连接断开、主从切换、慢查询、磁盘满 |
+| MongoDB (`MONGODB_URI`, 默认 127.0.0.1:27017) | 主数据存储（租户、会话、技能、反馈） | 已起（ServBay/Kiri） | 连接断开、主从切换、慢查询、磁盘满 |
 | Redis (`DSH_KERNEL_REDIS_URL`) | 多副本 kernel state 共享（可选） | 默认空，功能降级 | 不可用 → kernel 无法跨副本 fork |
 | Weaviate (`WEAVIATE_*`) | 向量检索（可选） | 未配置则降级 | 不可用 → 检索类接口降级 |
 | LLM 网关（dashscope / openai / qwen） | 对话与推理 | 需 API key | 限流 429、5xx、超时、DNS 失败 |

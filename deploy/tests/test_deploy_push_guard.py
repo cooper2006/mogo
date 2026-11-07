@@ -6,7 +6,7 @@
 
 现在改为按**内容指纹**比对：指纹优先取 ``RootFS.Layers``（层摘要序列），取不到层列表时
 才退回镜像 ID。ID 一致才跳过；不一致默认告警并记入 ``STALE_IMAGES``，加 ``--force-push``
-才覆盖。之所以不能只用 ``.Id``：本地 OrbStack 是 containerd/OCI image store，远端 Docker
+才覆盖。之所以不能只用 ``.Id``：本地 Kiri 是 containerd/OCI image store，远端 Docker
 Engine 是 classic graph driver，同一份内容两边 ``.Id`` 不同，只比 ID 会让每次 amd64 部署
 都误报失败并诱发重复全量传输。
 大镜像另走 tar + scp + 远端本地 load，避免慢速 VPN 上 ``save|load`` 长管道断裂。
@@ -272,7 +272,7 @@ def test_missing_local_image_keeps_remote_without_push() -> None:
 
 def test_both_missing_reports_local_build_required() -> None:
     out = _run_scenario(local_id="", remote_id="")
-    assert "本地 orbstack 缺失" in out
+    assert "本地 kiri 缺失" in out
     assert "[RC] push_image=1" in out
     assert "[TRANSFER]" not in out
 

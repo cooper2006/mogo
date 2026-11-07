@@ -64,7 +64,7 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
     # needs writable space but no persistence.
     - /app/host-profile-home:rw,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0755
   # Linux 可移植性：让容器经 host.docker.internal 访问宿主机服务（如本机模型网关）。
-  # Docker Desktop / OrbStack 已内置该域名（此条为幂等覆盖，实测仍解析到 OrbStack 的
+  # Docker Desktop / Kiri 已内置该域名（此条为幂等覆盖，实测仍解析到 Kiri 的
   # 0.250.250.254）；Linux Docker 20.10+ 必须靠 host-gateway 才能解析。
   extra_hosts:
     - "host.docker.internal:host-gateway"

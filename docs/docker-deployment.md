@@ -75,7 +75,7 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml \
 > `unknown flag: --profile` because the flag is forwarded after `build`.
 
 Both build paths reuse the base images already present in the local Docker
-store (for example the ones OrbStack has cached) and reach the registry only
+store (for example the ones Kiri has cached) and reach the registry only
 for base images that are genuinely missing. This keeps a rebuild that changed
 only application code off the network. `MOGO_BASE_IMAGE_POLICY` changes that
 behaviour:

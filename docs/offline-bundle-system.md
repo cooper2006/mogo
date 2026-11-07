@@ -60,7 +60,7 @@ scripts/apt_packages_bundle.sh pack <service>                   # 仅重新打�
 
 4. **`.env` 的 `MOGO_PLATFORM` 必须是 `linux/arm64`**：原 `.env` 残留 `linux/amd64`，会让带 `platform:` 字段的服务（`dsh-runtime-host`，来自 `x-dsh-runtime-host-template`）被强制 amd64 仿真。在 Apple Silicon 上做 dev 应设为 `linux/arm64`。
 
-5. **gateway / admin-web / user-web 的 `platform:` 字段已补到 `docker-compose.yml`**：此前这三个服务没有 `platform:` 字段，会按 daemon 默认架构构建（OrbStack 下曾被当成 amd64），必须用临时 override 才能强制 arm64。现已为它们加上 `platform: ${MOGO_PLATFORM:-}`（与 `dsh-runtime-host` 模板一致），由 `deploy/cli/env-profiles.sh` 按 profile 推导：dev/test → `linux/arm64`，prod → `linux/amd64`。**因此不再需要 `/tmp/platform-override.yml`，未来 `build` 会确定性地走正确架构。**
+5. **gateway / admin-web / user-web 的 `platform:` 字段已补到 `docker-compose.yml`**：此前这三个服务没有 `platform:` 字段，会按 daemon 默认架构构建（Kiri 下曾被当成 amd64），必须用临时 override 才能强制 arm64。现已为它们加上 `platform: ${MOGO_PLATFORM:-}`（与 `dsh-runtime-host` 模板一致），由 `deploy/cli/env-profiles.sh` 按 profile 推导：dev/test → `linux/arm64`，prod → `linux/amd64`。**因此不再需要 `/tmp/platform-override.yml`，未来 `build` 会确定性地走正确架构。**
 
    > 注：`.env` 里**不要**再硬编码 `MOGO_PLATFORM=linux/amd64`——它会作为"显式值"原样覆盖 profile 推导（见 `mogo_profile_configure_platform`）。dev 开发机直接让它从 profile 推导（或显式写 `linux/arm64`）即可。
 

@@ -374,7 +374,7 @@ else
     stage="mogo-staging/${safe}:amd64"
     printf 'FROM %s\nLABEL mogo.export.platform=linux/amd64\n' "$src" > "$STAGE_CTX/Dockerfile"
 
-    # 必须走 buildx：docker pull --platform 在 OrbStack 上是空操作，
+    # 必须走 buildx：docker pull --platform 在 Kiri 上是空操作，
     # 而本地只有 arm64 内容时 docker save --platform 会报 no suitable export target found。
     if ! docker buildx build --platform linux/amd64 --load \
           -f "$STAGE_CTX/Dockerfile" -t "$stage" "$STAGE_CTX" >"$STAGE_CTX/build.log" 2>&1; then

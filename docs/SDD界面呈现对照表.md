@@ -145,9 +145,9 @@ T998 契约见 `contracts/{orchestration,self-evolution,session-versioning-contr
 - 002：**`session_versioning` 包已接 HTTP 端点（`/api/sessions/{id}/commit|versions|share|redeem|revoke|co-presence`，生产生效）；share 一次性核销 TTL 默认 300s，过期/失效返回空态；co-presence 无 Redis（Mongo + 短轮询）**；**user-web 会话版本化 UI 已落地**（`SessionVersioningDrawer.vue` 侧边抽屉 + `api/sessionVersioning.ts`，含版本历史/分享/在线成员 + 5s 心跳，接入 `ChatWindow.vue`，typecheck 通过）；新增 5 项单测。
 - T999 审计：**`feature_audit_bridge` 已把 012/014/015/016/017/018 特性事件路由到 001 `position_role_audit_logs`（生产生效），未知 feature/event 抛错 fail-closed；无 DB 时 buffer 不丢事件**；**各特性关键事件点已接 `emit_feature_event`**——015 KG `add_node`/`add_edge`→`kg.mutated`、`check_all`→`kg.audited`；017 `promote_to_org`→`memory.promoted`；018 `register`→`asset.registered`/`set_status`→`asset.status.changed`；012 `A2AClient.send`→`a2a.outbound`/`a2a.denied`；014 `BizEntity` 构造→`entity.indexed`；016 admin-api `mark_low_quality`→`skill.quality.marked`（静默降级）；新增 6 项集成测试。
 
-## 5. 构建与启动（OrbStack buildx 受限时的经典 builder 路径）
+## 5. 构建与启动（Kiri buildx 受限时的经典 builder 路径）
 
-OrbStack 的 buildx 在 `~/.docker/buildx/` 被 macOS provenance 锁定时，`./mogo build`
+Kiri 的 buildx 在 `~/.docker/buildx/` 被 macOS provenance 锁定时，`./mogo build`
 会报 `failed to update builder last activity time ... operation not permitted`。
 绕过方式：用经典 builder 逐镜像构建，并打运行时前缀标签：
 
