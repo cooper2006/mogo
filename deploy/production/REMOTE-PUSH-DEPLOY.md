@@ -134,9 +134,9 @@ bash deploy/production/deploy-remote-push.sh --force-push --check
 ```
 
 > ⚠️ **代码更新只跑不带 `--force-push` 的命令，代码不会上线**：用 `MOGO_VERSION=latest`
-> 时远端早就存在同名 tag，旧版脚本直接跳过；现在改为按**镜像 ID** 比对后**只告警不推送**，
-> 并打印「远端与本地内容不同但本次未推送」的镜像清单。看到该告警必须重跑 `--force-push`，
-> 或改用版本化 tag（见 4.2）。2026-11-05 的时区修复部署就踩过这个坑。
+> 时远端早就存在同名 tag，旧版脚本直接跳过；现在改为按**内容指纹（`RootFS.Layers` 层摘要序列）**
+> 比对后**只告警不推送**，并打印「远端与本地内容不同但本次未推送」的镜像清单。看到该告警必须
+> 重跑 `--force-push`，或改用版本化 tag（见 4.2）。2026-11-05 的时区修复部署就踩过这个坑。
 
 ### 脚本内部做了什么（按顺序）
 
@@ -146,6 +146,10 @@ bash deploy/production/deploy-remote-push.sh --force-push --check
 4. **注入 `.env` 部署变量**：`MOGO_PROFILE=prod`、`MOGO_PLATFORM=linux/amd64`、
    `MOGO_PULL_POLICY=never`、`MOGO_DATA_BACKEND=panweidb`、`MOGO_VERSION`、`PANWEIDB_*`、
    `MOGO_REDIS_URL` 等。这样 `up -d` 不会去 registry 拉取（离线安全）。
+   另有两类变量**只对本次 compose 调用 export、不写回 `.env`**：远端绝对路径的网关配置
+   （`MOGO_NGINX_CONF` 等）与 `MOGO_DSH_RUNTIME_HOST_IMAGE=ghcr.io/mogoai/dsh-runtime-host:${MOGO_VERSION}`
+   ——后者必须跟随本次推送的版本，`.env` 里那个 dev 固定 tag（如 `dsh-0.2.2-rc.1`）会被 compose
+   原样带到远端，daemon 里没有该 tag，`up -d` 直接 `No such image`（2026-11-07 踩过）。
 5. **推送镜像**（按镜像 ID 比对，不再只看 tag 是否存在）：
    - 基础镜像 4 个（alpine/nginx/redis/weaviate）、应用镜像 7 个 `:${MOGO_VERSION}`，均带**架构安全网**（非 amd64 跳过）。
    - `本地 ID == 远端 ID` → 跳过；`本地无镜像` → 告警并保留远端；`仅远端缺失` → 直接推送。

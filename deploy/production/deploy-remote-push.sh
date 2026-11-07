@@ -6,7 +6,7 @@
 #       离线构建完成（见 docker-compose.build.yml + base-images/ 离线依赖包）。
 # 本脚本只负责：
 #   1. 建立/复用 docker context（ssh://bonc@172.17.5.96:22）；
-#   2. 按镜像 ID 比对后推送应用/基础镜像（小镜像 save|load，大镜像 tar+scp+load）；
+#   2. 按内容指纹（RootFS.Layers）比对后推送应用/基础镜像（小镜像 save|load，大镜像 tar+scp+load）；
 #   3. 用 docker-compose.prod-external-panweidb.yml 覆盖在远端 up -d
 #      （停用 mongo / panweidb，保留栈内 redis / weaviate，连外部 PanWeiDB）。
 #
@@ -15,15 +15,18 @@
 #
 # 用法：
 #   bash deploy/production/deploy-remote-push.sh [--check] [--dry-run] [--force-push]
-#                                               [--remote-env <file>]
+#                                               [--images-only] [--remote-env <file>]
 #
 # 开关：
-#   --check       启动后等待就绪、打印状态，并校验运行容器是否用的是当前 tag 镜像
-#   --force-push  远端同名 tag 与本地内容不一致时强制覆盖（默认只告警并跳过）
-#   --dry-run     只打印将执行的操作，不推送 / 不 scp / 不启动 / 不清理
-#   --remote-env  指定连接信息文件（默认 deploy/production/remote.env）
+#   --check        启动后等待就绪、打印状态，并校验运行容器是否用的是当前 tag 镜像
+#   --force-push   远端同名 tag 与本地内容不一致时强制覆盖（默认只告警并跳过）
+#   --images-only  只推镜像：不 scp 网关配置、不改写 .env、不 up、不 check、不清理
+#                  （远端有手工维护的 compose 补丁、不希望被 up 覆盖时用这一档）
+#   --dry-run      只打印将执行的操作，不推送 / 不 scp / 不启动 / 不清理
+#   --remote-env   指定连接信息文件（默认 deploy/production/remote.env）
 #
-# 注意：脚本按镜像 ID（内容）判断是否需要推送，不再只看远端有没有同名 tag。
+# 注意：脚本按内容指纹（RootFS.Layers，取不到层时退回镜像 ID）判断是否需要推送，
+#       不再只看远端有没有同名 tag，也不用跨 image store 不可比的 .Id 直接判等。
 #       `:latest` 已存在但内容不同 = 代码没上线，必须加 --force-push 或换版本化 tag。
 #       大于 PUSH_STREAM_MAX_MB（默认 200）的镜像自动改用 tar + scp + 远端 docker load，
 #       避免 save|load 长管道在慢速/不稳链路上 broken pipe。
@@ -77,12 +80,14 @@ MOGO_KERNEL_REDIS_URL="${MOGO_KERNEL_REDIS_URL:-redis://redis:6379/1}"
 DO_CHECK=0
 DRY_RUN=0
 FORCE_PUSH=0
+IMAGES_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --remote-env) REMOTE_ENV="$2"; shift 2 ;;
     --check)      DO_CHECK=1; shift ;;
     --dry-run)    DRY_RUN=1; shift ;;
     --force-push) FORCE_PUSH=1; shift ;;
+    --images-only) IMAGES_ONLY=1; shift ;;
     -h|--help)    sed -n '1,40p' "${BASH_SOURCE[0]}" | grep -E '^#' | sed 's/^#\{1,2\} //'; exit 0 ;;
     *) echo "未知参数: $1" >&2; exit 2 ;;
   esac
@@ -180,6 +185,9 @@ log "远端 Docker 主机: ${ENDPOINT}（context=${DOCKER_CONTEXT}）"
 
 set_env_key() {
   local key="${1:-}" value="${2:-}" file="${ENV_FILE}"
+  # --images-only 不执行 up，无需把部署变量写进本地 .env；否则会把 dev 的
+  # MOGO_PLATFORM / MOGO_DATA_BACKEND 悄悄翻成生产口径，影响本地 arm64 栈。
+  if [[ "${IMAGES_ONLY}" -eq 1 ]]; then return 0; fi
   touch "${file}"
   if grep -q "^[[:space:]]*${key}=" "${file}"; then
     sed -i.bak -E "s|^[[:space:]]*${key}=.*|${key}=${value}|" "${file}" && rm -f "${file}.bak"
@@ -216,7 +224,10 @@ BASE_IMAGES=(alpine:3.21 nginx:1.31.5-alpine3.24-slim redis:7.4.2-alpine semitec
 
 # ── 推送：内容感知 + 稳定传输（2026-11-05 事故后加固）─────────────────────
 # 旧逻辑只看「远端有没有同名 tag」，:latest 一动不动就永远跳过，导致代码更新后
-# 脚本显示成功、线上仍是旧镜像。现在改为比较镜像 ID（内容寻址，跨 daemon 一致）。
+# 脚本显示成功、线上仍是旧镜像。现在改为比较内容指纹。
+# 指纹用 RootFS.Layers 而不是 .Id：本地 OrbStack 是 containerd/OCI image store，
+# 远端 Docker Engine 是 classic graph driver，同一份内容两边 .Id 不同，只比 .Id
+# 会让每次 amd64 部署都误报「内容不同/推送失败」，并诱发重复全量传输。
 # [push-image-guard:begin] 本段可被 deploy/tests/test_deploy_push_guard.py 独立提取单测
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
 REMOTE_SSH_TARGET="${REMOTE_USER}@${REMOTE_HOST}"
@@ -245,6 +256,30 @@ scp_run() {
 
 image_id_local()  { "${LOCAL_DC[@]}" image inspect "${1:-}" --format '{{.Id}}' 2>/dev/null || true; }
 image_id_remote() { "${DC[@]}" image inspect "${1:-}" --format '{{.Id}}' 2>/dev/null || true; }
+image_layers_local()  { "${LOCAL_DC[@]}" image inspect "${1:-}" --format '{{.RootFS.Layers}}' 2>/dev/null || true; }
+image_layers_remote() { "${DC[@]}" image inspect "${1:-}" --format '{{.RootFS.Layers}}' 2>/dev/null || true; }
+
+# 层列表可能带方括号、换行或多余空白，统一成逗号分隔的摘要串再比较。
+normalize_fingerprint() {
+  printf '%s' "${1:-}" | tr -d '[]()' | tr -s '[:space:]' ',' | sed 's/^,//; s/,$//'
+}
+
+# 内容指纹 = RootFS.Layers；两端都能给出层列表时比层，否则一起退回 .Id。
+# 必须「同一口径同时用于两端」：一边比层、一边比 ID 必然判成不一致，
+# 会造成和旧版按 .Id 判等同样的假失败（误报 + 无谓的全量重传）。
+# 结果写入 FP_LOCAL / FP_REMOTE / FP_KIND（layers|id）。
+resolve_fingerprints() {
+  local imgref="${1:-}" ll="" rl=""
+  ll="$(normalize_fingerprint "$(image_layers_local "${imgref}")")"
+  rl="$(normalize_fingerprint "$(image_layers_remote "${imgref}")")"
+  if [[ -n "${ll}" && -n "${rl}" ]]; then
+    FP_KIND="layers"; FP_LOCAL="${ll}"; FP_REMOTE="${rl}"
+    return 0
+  fi
+  FP_KIND="id"
+  FP_LOCAL="$(image_id_local "${imgref}")"
+  FP_REMOTE="$(image_id_remote "${imgref}")"
+}
 
 # 小镜像走 save|load 管道；超过阈值改走「本地 tar → scp → 远端本地 docker load」。
 # 实测 VPN 链路约 0.8MB/s，4GB 镜像经 SSH 管道 2 分钟即 broken pipe，还会打断 VPN。
@@ -287,15 +322,25 @@ transfer_image_via_tar() {
   log "     传输完成（${elapsed}s），远端 docker load 中 ..."
   ssh_run "${REMOTE_SSH_TARGET}" "${SUDO_PREFIX}docker load -i ${remote_tar}" \
     || { warn "  ✗ 远端 docker load 失败: ${imgref}"; return 1; }
-  want="$(image_id_local "${imgref}")"
-  got="$(ssh_run "${REMOTE_SSH_TARGET}" \
-    "${SUDO_PREFIX}docker image inspect ${imgref} --format '{{.Id}}'" 2>/dev/null \
-    | grep -oE 'sha256:[0-9a-f]+' | tail -n 1 || true)"
+  local ll="" rl=""
+  ll="$(normalize_fingerprint "$(image_layers_local "${imgref}")")"
+  rl="$(normalize_fingerprint "$(ssh_run "${REMOTE_SSH_TARGET}" \
+      "${SUDO_PREFIX}docker image inspect ${imgref} --format '{{.RootFS.Layers}}'" 2>/dev/null \
+      | grep -oE 'sha256:[0-9a-f]+' || true)")"
+  if [[ -n "${ll}" && -n "${rl}" ]]; then
+    want="${ll}"; got="${rl}"
+  else
+    # 任一端拿不到层列表时两端一起退回镜像 ID，避免混口径造成假不一致。
+    want="$(image_id_local "${imgref}")"
+    got="$(ssh_run "${REMOTE_SSH_TARGET}" \
+      "${SUDO_PREFIX}docker image inspect ${imgref} --format '{{.Id}}'" 2>/dev/null \
+      | grep -oE 'sha256:[0-9a-f]+' | tail -n 1 || true)"
+  fi
   if [[ -z "${got}" || "${got}" != "${want}" ]]; then
-    warn "  ✗ 推送后远端镜像 ID 不一致（remote=${got:-空}, local=${want:-空}）: ${imgref}"
+    warn "  ✗ 推送后远端内容指纹不一致（remote=${got:0:19}… , local=${want:0:19}…）: ${imgref}"
     return 1
   fi
-  log "     ✓ 远端镜像 ID 校验通过（${got:0:19}…）"
+  log "     ✓ 远端内容指纹校验通过（${got:0:19}…）"
 }
 
 STALE_IMAGES=()
@@ -304,17 +349,18 @@ FAILED_IMAGES=()
 UNVERIFIED_IMAGES=()
 
 push_image() {
-  local imgref="${1:-}" local_id="" remote_id="" arch=""
+  local imgref="${1:-}" local_fp="" remote_fp="" arch=""
   if [[ -z "${imgref}" ]]; then warn "push_image 收到空引用，跳过。"; return 1; fi
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    log "  (dry-run) 将按镜像 ID 校验并按需推送: ${imgref}"
+    log "  (dry-run) 将按内容指纹校验并按需推送: ${imgref}"
     return 0
   fi
-  local_id="$(image_id_local "${imgref}")"
-  remote_id="$(image_id_remote "${imgref}")"
+  resolve_fingerprints "${imgref}"
+  local_fp="${FP_LOCAL}"
+  remote_fp="${FP_REMOTE}"
 
-  if [[ -z "${local_id}" ]]; then
-    if [[ -n "${remote_id}" ]]; then
+  if [[ -z "${local_fp}" ]]; then
+    if [[ -n "${remote_fp}" ]]; then
       warn "  ⚠ 本地缺失、远端存在，无法校验内容（保留远端）: ${imgref}"
       UNVERIFIED_IMAGES+=("${imgref}")
       return 0
@@ -322,8 +368,8 @@ push_image() {
     warn "  ✗ 本地 orbstack 缺失: ${imgref}（请先在本地构建）；远端将尝试 fallback"
     return 1
   fi
-  if [[ -n "${remote_id}" && "${remote_id}" == "${local_id}" ]]; then
-    log "  ✓ 内容一致（${local_id:0:19}…）: ${imgref}"
+  if [[ -n "${remote_fp}" && "${remote_fp}" == "${local_fp}" ]]; then
+    log "  ✓ 内容一致（${local_fp:0:19}…）: ${imgref}"
     return 0
   fi
 
@@ -335,13 +381,13 @@ push_image() {
     return 1
   fi
 
-  if [[ -n "${remote_id}" && "${FORCE_PUSH}" -ne 1 ]]; then
-    warn "  ⚠ 远端同名 tag 内容不同（本地 ${local_id:0:19}… ≠ 远端 ${remote_id:0:19}…）: ${imgref}"
+  if [[ -n "${remote_fp}" && "${FORCE_PUSH}" -ne 1 ]]; then
+    warn "  ⚠ 远端同名 tag 内容不同（本地 ${local_fp:0:19}… ≠ 远端 ${remote_fp:0:19}…）: ${imgref}"
     warn "    默认跳过，本次部署【不会】更新该镜像的代码；加 --force-push 或换版本化 tag。"
     STALE_IMAGES+=("${imgref}")
     return 0
   fi
-  if [[ -n "${remote_id}" ]]; then
+  if [[ -n "${remote_fp}" ]]; then
     log "  ↳ --force-push：覆盖远端同名 tag: ${imgref}"
   else
     log "  ↳ 远端缺失，推送: ${imgref}"
@@ -427,6 +473,18 @@ for svc in "${APP_IMAGES[@]:-}"; do
 done
 report_push_summary
 
+# ── --images-only：只推镜像，远端服务保持现状 ──────────────────────────────
+# 用途：远端有手工维护的 compose 补丁（如 MESC 侧 override）时，up -d 会按本仓库
+# 的 compose 文件重建容器、丢掉那些补丁。此档只把镜像灌进远端 daemon，
+# 启动时机与方式交给远端维护者。
+if [[ "${IMAGES_ONLY}" -eq 1 ]]; then
+  log "--images-only：跳过网关配置 scp / 远端 up -d / 就绪与镜像 ID 校验 / 旧镜像清理。"
+  if [[ "${DRY_RUN}" -eq 0 && "${FORCE_PUSH}" -ne 1 && ${#STALE_IMAGES[@]} -gt 0 ]]; then
+    warn "有 ${#STALE_IMAGES[@]} 个镜像因内容不同且未加 --force-push 而未推送（见上方告警）。"
+  fi
+  exit 0
+fi
+
 # ── 同步网关配置文件到远端宿主机 ──────────────────────────────────────────
 # 关键：gateway 的 nginx/canary/tls 配置通过「宿主 bind mount」挂载，而远程部署时
 # 本机相对路径会被解析为本机 Mac 路径、远端不存在 -> docker 自动建为目录 -> 挂载失败
@@ -454,6 +512,12 @@ sync_gateway_config
 export MOGO_NGINX_CONF="${REMOTE_DEPLOY_DIR}/docker/nginx.conf"
 export MOGO_CANARY_NGINX_CONF="${REMOTE_DEPLOY_DIR}/canary/nginx-canary.conf"
 export MOGO_TLS_CERTS_DIR="${REMOTE_DEPLOY_DIR}/tls"
+
+# dsh-runtime-host 在 compose 里写的是 ${MOGO_DSH_RUNTIME_HOST_IMAGE:-…:固定 rc tag}，
+# .env 里那个 dev 固定 tag 会被带到远端：远端 daemon 只有 :${MOGO_VERSION}，up 直接
+# "No such image"。这里把它对齐到本次推送的同一版本（只对本次 compose 调用生效）。
+export MOGO_DSH_RUNTIME_HOST_IMAGE="${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/dsh-runtime-host:${MOGO_VERSION}}"
+log "dsh-runtime-host 镜像引用: ${MOGO_DSH_RUNTIME_HOST_IMAGE}"
 
 # ── 远端启动 ───────────────────────────────────────────────────────────────
 log "远端启动服务（up -d，覆盖=${OVERRIDE}）..."
