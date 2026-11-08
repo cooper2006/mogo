@@ -1,6 +1,8 @@
 # 离线构建 Bundle 体系说明
 
 > 目的：把构建时"需要从互联网（尽量国内源）下载的文件"缓存到 `base-images/` 目录，**按 `amd64` / `arm64` 分架构保存**，再按架构生成 tar 文件，构建时离线使用，避免重复下载、加速本地/CI 构建。
+>
+> 环境说明（2026-11-08 09:45）：本地开发栈当日曾迁到 `dory`，随后**切回 `kiri` 运行**；**全局默认 docker context 已改回 `kiri`**，**dory 引擎已下线**（`dorydctl engine stop` / `dory mode manual` / socket 消失，卷与镜像保留）。本文的 bundle 路径是宿主机共享文件，**两端通用、不需要迁移**；当前裸 `docker load` / `docker compose build` 走 kiri，无需 context 参数；若要用 dory，须先 `~/.dory/bin/dorydctl engine start` 再显式 `--context dory`。完整流程见 **`docs/dory-dev-build-guide.md`**，其中 §7.1 / §10.8 专讲 kiri 构建必须固定 `BUILDX_BUILDER=kiri` 的坑。
 
 ## 目录结构
 
@@ -102,9 +104,10 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml \
   build gateway admin-web user-web dsh-runtime-host
 
 # 4) 重启 dev 栈（--no-build 复用镜像；镜像 digest 变化会自动重建对应容器）
-#    .env 现已固定 MOGO_VERSION=acefd46c / MOGO_PLATFORM=linux/arm64，
-#    直接 up 即可，不必再在命令行前缀版本号。
-./mogo --profile dev up --no-build
+#    .env 的 MOGO_VERSION 需与本地镜像 tag 一致。当前 .env=60e8e90d，
+#    而 git HEAD 与两端镜像 tag 均为 9a916043，故必须显式覆盖。
+#    DOCKER_CONTEXT 按当前运行端选择；上一步 build 也要带同一个 context。
+DOCKER_CONTEXT=kiri MOGO_VERSION=9a916043 ./mogo --profile dev up --no-build
 ```
 
 > 注：依赖镜像 `weaviate` / `redis`（非项目构建）同样用 `base-images/images/arm64/` 下的 tar `docker load` 后重启即可切到 arm64；`mongo` 本地已是 arm64。

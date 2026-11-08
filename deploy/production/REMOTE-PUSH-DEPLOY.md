@@ -351,5 +351,7 @@ bash deploy/production/prune-old-app-images.sh --local
    ```
 
 5. **文档对应**：
-   - `docs/kiri-dev-build-guide.md` → arm64 架构操作指南
+   - `docs/dory-dev-build-guide.md` → arm64 本地开发**现行**指南（2026-11-08 起；当前运行端为 `kiri`，dory 引擎已下线，操作 dory 须先恢复引擎）
+   - `docs/kiri-dev-build-guide.md` → Kiri 时代 arm64 指南（已停用，仅历史）
    - `deploy/production/REMOTE-PUSH-DEPLOY.md` → amd64 架构部署指南（本文档）
+   - 注：本文 §构建命令仍显式使用 `--context kiri`，因为 Kiri 侧保留了 buildx 缓存与 `mogo-local-reg`；该生产推送路径始终固定在 kiri，未随本地开发栈的临时迁移变动，如需调整请单独评估。
