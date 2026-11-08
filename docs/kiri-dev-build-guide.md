@@ -2,7 +2,7 @@
 
 > **已停用 / 仅作历史（2026-11-08 起）**
 > 2026-11-08 曾迁移到 **Dory** context（9 个 `mogo_*` 数据卷 + 14 个镜像），当天 09:33 又按「复用 16.9 GB 暖 buildx 缓存 + 镜像代理」的判断**切回 kiri 运行**；dory 的容器与卷保留可回滚。两端都能用同一套离线 bundle 完成全量构建。
-> 现行指南仍是 **[`docs/dory-dev-build-guide.md`](dory-dev-build-guide.md)**：kiri 上的构建见其 §7.1（必须固定 `BUILDX_BUILDER=kiri`）、对应排障见 §10.8。本文件仅保留 Kiri 时代的踩坑记录，命令与版本基线已过时，不要照抄。
+> 现行指南仍是 **[`docs/dev-build-guide.md`](dev-build-guide.md)**：kiri 上的构建见其 §7.1（必须固定 `BUILDX_BUILDER=kiri`）、对应排障见 §10.8。本文件仅保留 Kiri 时代的踩坑记录，命令与版本基线已过时，不要照抄。
 > 离线 bundle 体系另见 [`docs/offline-bundle-system.md`](offline-bundle-system.md)。
 > 本文件保留 Kiri 时代的构建踩坑记录（1panel 镜像源补 tag、BuildKit 元数据、context 误用等），但其中的命令**不要在 dory 上照抄**。当前全局默认 context 已改回 `kiri`（裸 `docker` / `./mogo` 直接可用）；dory 引擎已下线，要操作 dory 须先 `~/.dory/bin/dorydctl engine start` 并显式 `--context dory`。
 > 迁移明细：`backups/kiri-to-dory-20261108/manifest.json`。

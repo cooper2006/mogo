@@ -1,6 +1,7 @@
-# Dory 开发环境：离线加速构建与重启服务
+# 本地开发环境：离线加速构建与重启服务
 
 > 状态：**现行指南**（2026-11-08 从 Kiri 迁移后生效）
+> 文件名沿革：原名 `docs/dory-dev-build-guide.md`（迁移到 Dory 引擎时命名）；2026-11-08 运行端切回 kiri 后更名为 `docs/dev-build-guide.md`，内容仍为同一份指南。
 > 版本基线：**由 `./mogo` CLI 自动取 `git rev-parse --short HEAD`，不需要显式传 `MOGO_VERSION`**（2026-11-08 11:00 重建时 HEAD = `17f3348b`；之后每次提交都会变，请以命令实际输出为准，见 §3 / §11）
 > 前代文档：`docs/kiri-dev-build-guide.md`（Kiri 时代，**已停用**，仅作历史）
 > 离线 bundle 体系：`docs/offline-bundle-system.md`（权威）
@@ -15,7 +16,7 @@
 > ```
 > dory 的 12 个容器 / 10 个卷 / 14 个镜像**全部保留**（清单见 `backups/kiri-to-dory-20261108/dory-*-at-offline.txt`），恢复后数据原样可用。日常开发请直接用 kiri，构建须固定 `BUILDX_BUILDER=kiri`，见 §7.1 / §10.8。本文其余章节（bundle、基础镜像、离线开关、排障、CLI 速查）两端都适用。
 
-本文档记录**本地开发栈**的「离线 bundle → 加载基础镜像 → 启动 / 离线构建 → 健康确认」完整流程，面向大陆内网 / 离线环境下跑 mogo 自托管开发环境的工程师。文件名为 Dory 版是迁移时的历史命名；两端流程已实测等价，差异集中在 context 与 buildx builder，见 §0 / §7.1。
+本文档记录**本地开发栈**的「离线 bundle → 加载基础镜像 → 启动 / 离线构建 → 健康确认」完整流程，面向大陆内网 / 离线环境下跑 mogo 自托管开发环境的工程师。本指南不绑定具体 docker 引擎（原名带 Dory 是迁移期的历史命名，现已更名）；两端流程已实测等价，差异集中在 context 与 buildx builder，见 §0 / §7.1。
 
 **已实测**（2026-11-08）：
 - dory：① `./mogo up`（不构建）11 容器 healthy / HTTP 200；② `./mogo up --build` 离线全量重建 7 个业务镜像 **3 分 09 秒**，四类 bundle 全命中、零联网回退（§7）。
@@ -439,7 +440,7 @@ DOCKER_CONTEXT=kiri "$D" buildx use kiri          # 固定 current（一次即�
 ## 11. FAQ
 
 **Q：两份 dev 指南看哪个？**
-A：都以 `docs/dory-dev-build-guide.md`（本文件）为准，**服务跑在 kiri 也一样**：bundle、离线开关、基础镜像、排障、CLI 速查两端通用，kiri 特有的 builder 坑在 §7.1 / §10.8。`docs/kiri-dev-build-guide.md` 已停用，仅保留 Kiri 时代踩坑历史（版本号、profile 等已过时）。
+A：都以 `docs/dev-build-guide.md`（本文件，原名 `docs/dory-dev-build-guide.md`）为准，**服务跑在 kiri 也一样**：bundle、离线开关、基础镜像、排障、CLI 速查两端通用，kiri 特有的 builder 坑在 §7.1 / §10.8。`docs/kiri-dev-build-guide.md` 已停用，仅保留 Kiri 时代踩坑历史（版本号、profile 等已过时）。
 
 **Q：基础镜像为什么不从 kiri `save` 了？**
 A：`base-images/images/arm64/*.tar` 就是同一批干净名镜像，直接 `docker load` 更省事，也不依赖 kiri 还在。本轮迁移时从 kiri 导过 `build-bases.tar`，结果等价。

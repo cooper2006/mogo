@@ -2,7 +2,7 @@
 
 > 被测环境：OrbStack `linux/arm64` dev profile 栈（mongo 后端），12 容器 + bootstrap
 > 被测构建：`ghcr.io/mogoai/<svc>:ab0f7369` ×7（离线 bundle 重建）
-> 构建入口（当时）：`docs/kiri-dev-build-guide.md` §6.1 `./mogo --profile dev up --build`（该指南已于 2026-11-08 停用；现行入口见 `docs/dory-dev-build-guide.md` §7）
+> 构建入口（当时）：`docs/kiri-dev-build-guide.md` §6.1 `./mogo --profile dev up --build`（该指南已于 2026-11-08 停用；现行入口见 `docs/dev-build-guide.md` §7）
 > 回归范围：A 组黑盒契约 + 健康回归（A1–A6）；DR 演练 / 压测扩容 / 017 切换演练未纳入本轮
 > 结论：**A1/A2/A3/A5/A6 全绿**；A4 `331 passed / 9 skipped`（23:20 首跑，同夜 D-4 解除后复跑同样通过，见 §10.4）。
 > 另计 6 项缺陷：D-1 应用代码 P1、D-4 在途 compose P1（阻塞 CLI）、D-2 工具链口径 P2、D-6 bootstrap chown P1（阻塞启动，D-4 修复引入）**四项已修复并复验（见 §10）**；D-3 文档口径部分修复（024 已改，025 第 13–15 项未改）、D-5 未修。
