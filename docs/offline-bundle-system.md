@@ -104,10 +104,10 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml \
   build gateway admin-web user-web dsh-runtime-host
 
 # 4) 重启 dev 栈（--no-build 复用镜像；镜像 digest 变化会自动重建对应容器）
-#    .env 的 MOGO_VERSION 需与本地镜像 tag 一致。当前 .env=60e8e90d，
-#    而 git HEAD 与两端镜像 tag 均为 9a916043，故必须显式覆盖。
+#    ./mogo CLI 会自动把 MOGO_VERSION 注入为 git HEAD 短哈希，不用显式传；
+#    .env 里残留的 60e8e90d 不参与 CLI 路径（见 dory-dev-build-guide.md §11）。
 #    DOCKER_CONTEXT 按当前运行端选择；上一步 build 也要带同一个 context。
-DOCKER_CONTEXT=kiri MOGO_VERSION=9a916043 ./mogo --profile dev up --no-build
+DOCKER_CONTEXT=kiri ./mogo --profile dev up --no-build
 ```
 
 > 注：依赖镜像 `weaviate` / `redis`（非项目构建）同样用 `base-images/images/arm64/` 下的 tar `docker load` 后重启即可切到 arm64；`mongo` 本地已是 arm64。

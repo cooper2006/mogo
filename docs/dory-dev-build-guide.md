@@ -1,11 +1,11 @@
 # Dory 开发环境：离线加速构建与重启服务
 
 > 状态：**现行指南**（2026-11-08 从 Kiri 迁移后生效）
-> 版本基线：`9a916043`（等于当前 `git rev-parse --short HEAD`）
+> 版本基线：**由 `./mogo` CLI 自动取 `git rev-parse --short HEAD`，不需要显式传 `MOGO_VERSION`**（2026-11-08 11:00 重建时 HEAD = `17f3348b`；之后每次提交都会变，请以命令实际输出为准，见 §3 / §11）
 > 前代文档：`docs/kiri-dev-build-guide.md`（Kiri 时代，**已停用**，仅作历史）
 > 离线 bundle 体系：`docs/offline-bundle-system.md`（权威）
 >
-> **当前运行状态（2026-11-08 09:45）**：服务跑在 **kiri**（11 个业务容器 healthy、HTTP 200），**全局默认 docker context 已切回 `kiri`**；**dory 引擎已下线**（`dorydctl engine stop` → `stopped`，`dory mode manual`，`~/.dory/dory.sock` 已消失）。
+> **当前运行状态（2026-11-08 11:00）**：服务跑在 **kiri**（11 个业务容器 healthy、HTTP 200），已在 kiri 用离线 bundle 增量重建 `17f3348b` 镜像并重启；**全局默认 docker context 为 `kiri`**；**dory 引擎已下线**（`dorydctl engine stop` → `stopped`，`dory mode manual`，`~/.dory/dory.sock` 已消失）。
 >
 > ⚠️ **本文档中所有 `--context dory` / `DOCKER_CONTEXT=dory` 命令当前都会失败**（`connect: no such file or directory`）。要按 dory 流程操作，先恢复引擎：
 > ```bash
@@ -55,18 +55,18 @@
 
 | 类别 | 服务 | 镜像 | 端口 / 入口 |
 |---|---|---|---|
-| API | `admin-api` | `ghcr.io/mogoai/admin-api:9a916043` | 内部 |
-| API | `chat-api` | `ghcr.io/mogoai/chat-api:9a916043` | 内部 |
-| API | `document-api` / `document-worker` | `ghcr.io/mogoai/document-parser:9a916043`（同镜像，不同 CMD） | 内部 |
-| Runtime | `dsh-runtime-host` | `ghcr.io/mogoai/dsh-runtime-host:9a916043` | 内部 |
-| Web | `admin-web` / `user-web` | `ghcr.io/mogoai/{admin-web,user-web}:9a916043` | 内部 |
-| Gateway | `gateway` | `ghcr.io/mogoai/gateway:9a916043` | `localhost:3000` / `8443` |
+| API | `admin-api` | `ghcr.io/mogoai/admin-api:<HEAD 短哈希>` | 内部 |
+| API | `chat-api` | `ghcr.io/mogoai/chat-api:<HEAD 短哈希>` | 内部 |
+| API | `document-api` / `document-worker` | `ghcr.io/mogoai/document-parser:<HEAD 短哈希>`（同镜像，不同 CMD） | 内部 |
+| Runtime | `dsh-runtime-host` | `ghcr.io/mogoai/dsh-runtime-host:<HEAD 短哈希>` | 内部 |
+| Web | `admin-web` / `user-web` | `ghcr.io/mogoai/{admin-web,user-web}:<HEAD 短哈希>` | 内部 |
+| Gateway | `gateway` | `ghcr.io/mogoai/gateway:<HEAD 短哈希>` | `localhost:3000` / `8443` |
 | DB (dev) | `mongo` | `mongo:8.3.13` | 栈内 |
 | DB (test) | `panweidb` | `panweidb:3.2.0` | 栈内（需 `docker load`） |
 | Cache | `redis` | `redis:7.4.2-alpine` | 栈内 |
 | Vector | `weaviate` | `semitechnologies/weaviate:1.25.7` | 栈内 |
 
-业务镜像以 git 短哈希为 tag，与 HEAD 绑定。当前 HEAD `9a916043`。
+业务镜像以 git 短哈希为 tag，与 HEAD 绑定，由 `./mogo` CLI 在每次 `up` / `build` 时自动注入（`mogo_default_version()` → `git rev-parse --short HEAD`），**命令行不用显式带 `MOGO_VERSION`**。2026-11-08 11:00 的 HEAD 为 `17f3348b`；要固定到某个 tag（复现旧版本、发布）时，显式 `MOGO_VERSION=<tag>` 仍然优先。本文 §0 / §7 中出现的 `9a916043` 是 11-08 上午迁移与两端全量构建时的**历史 tag**，不是当前值。
 
 ---
 
@@ -106,9 +106,13 @@ cd /Users/cooper/mogo
 "$D" --context dory info --format '{{.ServerVersion}} {{.Architecture}}'
 #   → 当前报 "no such file or directory"（引擎已停，属预期）；恢复命令见本节末尾
 
-# 2) 版本基线：.env 的 60e8e90d 已过时，git HEAD = 9a916043
-git rev-parse --short HEAD               # → 9a916043
-grep '^MOGO_VERSION=' .env               # → 60e8e90d（必须显式覆盖，见 §6）
+# 2) 版本基线：./mogo 自动注入 git HEAD 短哈希，无需显式带 MOGO_VERSION
+git rev-parse --short HEAD               # 例：17f3348b（每次提交都会变）
+"$D" images --format '{{.Repository}}:{{.Tag}}' | grep 'ghcr.io/mogoai/admin-api' | head
+#   → 应能看到与上面同 tag 的镜像；不一致就先 ./mogo up --build
+# 注：.env 里残留的 MOGO_VERSION=60e8e90d 不参与 CLI 路径（CLI 先 export
+#     git HEAD，mogo_configure_images 的 ${MOGO_VERSION:-...} 短路，不读 .env）。
+#     只有绕过 CLI 直接 `docker compose` 时才会用到那个旧值，见 §10.2 / §11。
 
 # 3) 离线 bundle 就绪
 ls base-images/images/arm64/*.tar | wc -l    # 期望 7
@@ -204,16 +208,17 @@ D=/opt/homebrew/bin/docker
 cd /Users/cooper/mogo
 DOCKER_BIN=/opt/homebrew/bin/docker \
 DOCKER_CONTEXT=dory \
-MOGO_VERSION=9a916043 \
 MOGO_BASE_IMAGE_POLICY=local \
   ./mogo up
 ```
 
-前两个是必需的，第三个是离线环境下的推荐加固：
+参数说明：
 
-1. `DOCKER_CONTEXT=dory` — **必需**。默认 context 是 kiri，不指定就在 kiri 上重建服务。
-2. `MOGO_VERSION=9a916043` — **必需**。`.env` 里是过时的 `60e8e90d`，而 dory 上镜像 tag 是 `9a916043`。`command_up()` 用的是 `export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"`，`.env` 加载后的值已存在，默认值逻辑不会生效，所以必须在命令行显式覆盖。当前 git HEAD 恰好也是 `9a916043`，两者一致。
-3. `MOGO_BASE_IMAGE_POLICY=local` — **推荐**。彻底禁用联网拉基础镜像，缺任一个会在创建容器**之前**直接失败并报出镜像名（本轮首次启动就是这样暴露出缺 3 个构建基础镜像的）。不设则用默认 `reuse`：本地有就复用，缺了会尝试联网，国内网络下容易挂住。
+1. `DOCKER_CONTEXT=dory` — **必需**（仅当要在 dory 上跑）。默认 context 已是 kiri，不指定就在 kiri 上重建服务；当前 dory 引擎已下线，用之前先按 §3 恢复。
+2. `MOGO_BASE_IMAGE_POLICY=local` — **推荐**。彻底禁用联网拉基础镜像，缺任一个会在创建容器**之前**直接失败并报出镜像名（本轮首次启动就是这样暴露出缺 3 个构建基础镜像的）。不设则用默认 `reuse`：本地有就复用，缺了会尝试联网，国内网络下容易挂住。
+3. **`MOGO_VERSION` 不用传**。`command_up()` 先 `export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"`，`mogo_default_version()` 就是 `git rev-parse --short HEAD`；随后 `mogo_configure_images` 里的 `${MOGO_VERSION:-$(dotenv_value MOGO_VERSION)}` 因变量已非空而短路，**不会读 `.env` 的 `60e8e90d`**。2026-11-08 11:00 实测裸 `./mogo drift` 的 `bash -x` 跟踪为 `export MOGO_VERSION=17f3348b`，与运行中容器镜像 tag 一致（drift-check「零漂移」）。只有需要固定到某个 tag 时才显式传，且显式值优先级最高。
+
+> 早期版本的本节曾写「必须显式覆盖 `MOGO_VERSION`，因为 `.env` 已加载」，该论断已被上述实测证伪，已更正。`9a916043` 只是 11-08 上午那次构建的历史 tag。
 
 启动后的完整性确认：
 
@@ -246,10 +251,10 @@ set -o pipefail
 DOCKER_BIN=/opt/homebrew/bin/docker \
 DOCKER_CONTEXT=dory \
 MOGO_BASE_IMAGE_POLICY=local \
-MOGO_VERSION="$(git rev-parse --short HEAD)" \
 MOGO_DATA_BACKEND=mongo \
 APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true \
   ./mogo up --build 2>&1 | tee backups/kiri-to-dory-20261108/dory-up-build.log
+# MOGO_VERSION 由 CLI 自动取 git HEAD 短哈希；要固定 tag 时才加 MOGO_VERSION=<tag>
 ```
 
 耗时较长时可用 `nohup ... &` 或 tmux 放后台，但**务必保留 `set -o pipefail`**：否则管道的退出码会被 `tee` / `tail` 掩盖，构建失败也会返回 0。
@@ -259,7 +264,7 @@ APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true \
 - §5 的 3 个构建基础镜像必须已在 dory 本地，否则 `mogo_prepare_base_images` 在 `policy=local` 下直接返回失败，容器都还没创建。
 - **四类 bundle 实测全部命中**（见 `dory-up-build.log`）：apt `7 / 124 / 205` 个 deb、pip `71 / 144 / 177` 个 wheel、playwright `652,696,636 B`、docling `Docling offline runtime ready`；`Base images already exist locally; skipping remote downloads (reused 3)`，真实执行输出里联网回退 0 处。注意 buildkit 会回显整段 RUN 脚本，其中包含 `using the network` / `falling back to the network` 字样，**那是脚本文本不是执行结果**，别据此误判为联网。
 - **pnpm / npm 依赖不在这套离线 bundle 体系内**：日志仍有 `Downloading <pkg>: ... MB` 进度行（naive-ui、sherpa-onnx 等）。apt / pip / playwright / docling 是纯离线，Node 侧仍可能访问 registry 或本机 pnpm store。
-- `MOGO_VERSION` 取 git HEAD；当前 HEAD `9a916043` 与已迁镜像**同名**，重建会覆盖这个 tag。**回滚不要靠 `docker tag` 打备份**：实测构建成功后 CLI 的 `prune_previous_release_images` 会把旧镜像连同额外 tag 一起清掉（`Pruned 7 image(s) ... reclaimed about 10977 MB`）。要留锚点，构建前先 `docker --context dory save ... -o <file>` 导出，或依赖已有的 `backups/kiri-to-dory-20261108/images.tar` 重新 `load`。
+- `MOGO_VERSION` 由 CLI 取 git HEAD 短哈希，每次提交后 tag 随之变化；重建会覆盖「当前 HEAD 同名」的 tag。**回滚不要靠 `docker tag` 打备份**：实测构建成功后 CLI 的 `prune_previous_release_images` 会把旧镜像连同额外 tag 一起清掉（11-08 上午那次是 `Pruned 7 image(s) ... reclaimed about 10977 MB`；11:00 增量构建只 prune 了 1 个）。要留锚点，构建前先 `docker --context dory save ... -o <file>` 导出，或依赖已有的 `backups/kiri-to-dory-20261108/images.tar` 重新 `load`。
 - 本次只用了 3 分 09 秒而非 §8 估计的 1.5–2 小时：dory 是经典 Docker image store，迁进来的 14 个镜像的全部层都在同一 store 里，内置 `docker` driver buildkit 可直接复用，绝大多数步骤命中缓存。**这是「已有层可复用」的红利**；清空 image store 或从零克隆构建仍需按 §8 估时。
 - 两端 builder 架构差异：kiri 当前是 `docker-container` driver（BuildKit v0.34.2，独立 buildkit 容器 + 3 个缓存卷 + `mogo-local-reg` mirror），dory 是内置 `docker` driver（v0.31.1，无独立缓存卷、无 registry）。前者链路更长、故障点更多，但两者当前都能构建。
 - `docker-compose.build.yml` 通过 `APT_OFFLINE_INSTALL` / `PIP_OFFLINE_INSTALL`（默认 `true`）把 `*-bundle.tar.gz` 挂进构建层；bundle 缺失时 Dockerfile 会回退联网。
@@ -285,10 +290,10 @@ DOCKER_BIN=/opt/homebrew/bin/docker \
 DOCKER_CONTEXT=kiri \
 BUILDX_BUILDER=kiri \
 MOGO_BASE_IMAGE_POLICY=local \
-MOGO_VERSION="$(git rev-parse --short HEAD)" \
 MOGO_DATA_BACKEND=mongo \
 APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true \
   ./mogo up --build 2>&1 | tee backups/kiri-to-dory-20261108/kiri-up-build-2.log
+# 版本由 CLI 自动注入 git HEAD；上面的 BUILDX_BUILDER=kiri 才是必须固定的那一个
 ```
 
 - **为什么必须固定 builder**：`~/.docker/buildx/current` 在 kiri endpoint 下 `Name` 为空时，compose bake 会回退到 `default` builder，日志表现为 `booting buildkit → starting container buildx_buildkit_default`。该容器 `/etc/buildkit/` 里没有任何 mirror，于是 `FROM nginx:1.31.5-alpine3.24-slim` 去 `registry-1.docker.io` 校验 manifest → `dial tcp ... i/o timeout`，构建 32 秒失败。
@@ -340,8 +345,19 @@ done
 解决：确认确实要回 dory 时再执行 `~/.dory/bin/dorydctl engine start`（如需「始终在线」再 `dory mode always-on`）。日常开发留在 kiri：默认 context 已是 `kiri`，裸 `docker` / `./mogo` 无需任何 context 参数。
 
 **10.2 `manifest unknown` / 本地找不到业务镜像**
-原因：`.env` 的 `MOGO_VERSION=60e8e90d` 生效了，`mogo_configure_images` 按这个 tag 找镜像。
-解决：显式 `MOGO_VERSION=9a916043`，或把 `.env` 对齐到 git HEAD。
+原因：请求的 tag 与本地实际镜像 tag 对不上。常见于两种情形：① 新提交后还没重建镜像（CLI 已自动把 tag 切到新 HEAD）；② **绕过 CLI 直接用 `docker compose`**，此时 compose 会读 `.env` 里残留的 `MOGO_VERSION=60e8e90d`，而本地只有按 git HEAD 命名的镜像。走 `./mogo` CLI 时 `.env` 的旧值不生效（见 §6 / §11）。
+
+排查与解决：
+
+```bash
+git rev-parse --short HEAD                 # 期望的 tag
+docker images --format '{{.Repository}}:{{.Tag}}' | grep 'ghcr.io/mogoai/admin-api'   # 实际存在的 tag
+# 缺哪个 tag 就重建：./mogo up --build（§7 / §7.1）
+# 若必须用 docker compose：export MOGO_VERSION="$(git rev-parse --short HEAD)"
+# 要固定到旧 tag：MOGO_VERSION=<tag> ./mogo up（显式值优先级最高）
+```
+
+长期看，`.env` 里那行 `MOGO_VERSION=60e8e90d` 与 `MOGO_DSH_RUNTIME_HOST_IMAGE=...:60e8e90d` 是开发期的固定值残留，直接 `docker compose` 的用户可考虑注释掉或改为随 CLI 注入（`.env` 是本机文件，不进版本库）。
 
 **10.3 `base_image_missing: python:3.13-slim-bookworm`**
 原因：`MOGO_BASE_IMAGE_POLICY=local` 下基础镜像不在 dory image store。
@@ -386,7 +402,7 @@ done
 
 ```bash
 DOCKER_BIN=/opt/homebrew/bin/docker DOCKER_CONTEXT=kiri \
-MOGO_VERSION=9a916043 MOGO_BASE_IMAGE_POLICY=local ./mogo up
+MOGO_BASE_IMAGE_POLICY=local ./mogo up
 ```
 
 **10.7 `MOGO_DATA_BACKEND=panweidb` 提示镜像缺失**
@@ -437,8 +453,12 @@ A：**都验证过**（2026-11-08）：dory 3 分 09 秒、kiri 3 分 46 秒，�
 **Q：全局默认 context 现在是什么？dory 还能用吗？**
 A：2026-11-08 09:45 起默认是 **`kiri`**（服务也在 kiri），裸 `docker` / `./mogo` 直接打到 kiri，不用加参数。dory 引擎已下线、socket 消失，`--context dory` 会连接失败；需要时 `~/.dory/bin/dorydctl engine start`（可选 `dory mode always-on`）即可恢复，容器 / 卷 / 镜像全在。恢复后要在 dory 起服务，仍按命令注入 `DOCKER_CONTEXT=dory`，**不要改全局默认值**（会影响其他会话与 `deploy/production/*` 里显式 `--context kiri` 的脚本）。
 
-**Q：`.env` 要改吗？**
-A：本轮迁移与启动都**没有改 `.env`**，用环境变量覆盖即可。若希望简化日常命令，可把 `MOGO_VERSION` 对齐到当前 HEAD，但注意每次发版都要同步。
+**Q：每次 `./mogo up` 都要显式带 `MOGO_VERSION="$(git rev-parse --short HEAD)"` 吗？`.env` 要改吗？**
+A：**不用带**。`mogo` CLI 的 `mogo_default_version()` 就是 `git rev-parse --short HEAD`，`command_up()` / `command_build()` / 只读检查命令都会先 `export MOGO_VERSION="${MOGO_VERSION:-$(mogo_default_version)}"`；之后 `mogo_configure_images` 里的 `MOGO_VERSION="${MOGO_VERSION:-$(dotenv_value MOGO_VERSION)}"` 因变量已非空而短路，**不会读 `.env`**。2026-11-08 11:00 实测：不带任何版本参数跑 `bash -x ./mogo drift` 得到 `export MOGO_VERSION=17f3348b`，`drift-check` 报「实际环境与 compose 声明一致」。
+因此 **`.env` 里的 `MOGO_VERSION=60e8e90d` 不必随每次提交同步**，本轮迁移、重建都没有改 `.env`。它只在「绕过 CLI 直接 `docker compose`」时生效（见 §10.2）；`MOGO_DSH_RUNTIME_HOST_IMAGE=...:60e8e90d` 同理，走 CLI 时会被导出的变量覆盖（实测运行中 `dsh-runtime-host` 用的是 `:17f3348b`）。
+显式传 `MOGO_VERSION` 仍然有效且优先级最高——用于固定发布 tag 或复现某个 ref，但日常开发不必写，写了也不会错。
+
+> ⚠️ **但提交代码后 HEAD 会变**：裸 `./mogo up`（不带 `--build`）会去找**新 HEAD** 对应的 tag，而本地只有旧 tag 的镜像，于是表现为「本地找不到业务镜像」（§10.2）。这是 tag 与 HEAD 绑定的设计使然，不是配置错：要么 `./mogo up --build` 重建当前 HEAD 的镜像，要么显式 `MOGO_VERSION=<已有 tag> ./mogo up` 复用现有镜像。一句话：**不用每次手工同步 `.env`，但每次新提交后要重建一次**（或固定旧 tag 启动）。
 
 ---
 
@@ -448,7 +468,7 @@ A：本轮迁移与启动都**没有改 `.env`**，用环境变量覆盖即可�
 D=/opt/homebrew/bin/docker
 # ⚠️ 当前默认 context 已是 kiri、dory 引擎已下线。
 #    要跑下面这组 dory 命令，先 ~/.dory/bin/dorydctl engine start
-export DOCKER_CONTEXT=dory DOCKER_BIN="$D" MOGO_VERSION=9a916043
+export DOCKER_CONTEXT=dory DOCKER_BIN="$D"   # 版本由 CLI 自动取 git HEAD，不用设 MOGO_VERSION
 
 ./mogo up                          # 启动（不构建）
 ./mogo up --build                  # 离线构建 + 启动（§7）
@@ -476,6 +496,7 @@ export DOCKER_CONTEXT=dory DOCKER_BIN="$D" MOGO_VERSION=9a916043
 | `backups/kiri-to-dory-20261108/dory-up-build.log` | 2026-11-08 dory 全量离线构建日志（3589 行，含四类 bundle 命中证据） |
 | `backups/kiri-to-dory-20261108/kiri-up-build.log` | kiri 首次构建**失败**日志（default builder 无 mirror，见 §10.8） |
 | `backups/kiri-to-dory-20261108/kiri-up-build-2.log` | kiri 全量离线构建**成功**日志（3692 行，3 分 46 秒，§7.1） |
+| `backups/kiri-to-dory-20261108/kiri-up-build-17f3348b.log` | 2026-11-08 11:00 kiri 增量重建日志（51 秒，71 步 `CACHED`，仅 `admin-api` 代码层重跑，7 个 `17f3348b` tag 全 Built） |
 | `backups/kiri-to-dory-20261108/dory-volumes-at-switchback/` | 切回 kiri 前 dory 停服时刻的 9 卷快照（44 MB + SHA256SUMS） |
 
 *最后更新：2026-11-08*
