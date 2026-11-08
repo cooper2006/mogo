@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -38,6 +39,7 @@ from app.services.employee_tenant_identity import employee_tenant_fields
 from app.services.tenant_registry import is_tenant_active
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -451,7 +453,26 @@ async def list_users(
         dept_filter_ids.extend(str(row["_id"]) for row in child_rows)
         rel_rows = await db[USER_ORG_REL_COLLECTION].find({"tenant_id": tenant_id, "org_id": {"$in": dept_filter_ids}}).to_list(length=20000)
         user_ids = [row.get("user_id") for row in rel_rows]
-        query["_id"] = {"$in": [to_backend_id(uid) for uid in user_ids if is_valid_backend_id(uid)]} if user_ids else {"$in": []}
+        valid_ids = [to_backend_id(uid) for uid in user_ids if is_valid_backend_id(uid)]
+        if valid_ids:
+            query["_id"] = {"$in": valid_ids}
+        else:
+            # 外部导入若只写 end_users、漏写 end_user_org_relations，按部门反查必然
+            # 得到空集；直接下推 _id $in [] 会让该租户全部用户从「用户管理」里消失。
+            # 仅当整个租户都没有部门关联时才退回「不加 _id 过滤」（仍受 tenant_id
+            # 约束）；若关联表另有数据，说明只是当前部门确实无人，保持 0 条，避免
+            # 把别的部门的人错误展示出来。
+            any_rel = await db[USER_ORG_REL_COLLECTION].find(
+                {"tenant_id": tenant_id}, {"_id": 1}
+            ).to_list(length=1)
+            if any_rel:
+                query["_id"] = {"$in": []}
+            else:
+                logger.warning(
+                    "directory: tenant %s has no org relations, fallback to unfiltered user list (departmentId=%s)",
+                    tenant_id,
+                    departmentId,
+                )
     users = await db[USER_COLLECTION].find(query).sort("updated_at", -1).to_list(length=5000)
     deps = await db[DEPARTMENT_COLLECTION].find({"tenant_id": tenant_id}).to_list(length=5000)
     dep_map = {str(item["_id"]): item.get("name", "") for item in deps}
