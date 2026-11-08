@@ -270,6 +270,9 @@ RUN --mount=type=bind,source=docling-models-bundle.tar.gz,target=/tmp/docling-mo
             echo "Installing Docling models from offline bundle" \
             && mkdir -p "${DOCLING_ARTIFACTS_PATH}" \
             && tar -xzf /tmp/docling-models-bundle.tar.gz -C "${DOCLING_ARTIFACTS_PATH}" \
+            # bundle 顶层目录带 0700 root 权限位，运行时 uid 10001 读不到会让
+            # docling_runtime_status 恒报 assets missing（D-8）；统一放开读/进入位。
+            && chmod -R a+rX "${DOCLING_ARTIFACTS_PATH}" \
             && HF_HUB_OFFLINE=1 python /tmp/document-parser-scripts/verify_docling_runtime.py; \
         else \
             echo "Skip offline bundle (placeholder); downloading Docling models from HuggingFace."; \
