@@ -93,6 +93,10 @@ x-dsh-runtime-host-template: &dsh-runtime-host-template
     # 不直接映射 3080 到宿主机——那种映射转发到的是容器网桥 IP 而非容器内
     # loopback，对 127.0.0.1 绑定无效（已实测确认）。
     DSH_WEB_MODE: ${DSH_WEB_MODE:-0}
+    # 非 loopback 主机名（如 gateway.mogo.kiri.local）访问 /dsh-web/ 时，dsh 的
+    # /api browser-trust fence 会对所有 /api/* 与 /api/remote.mux 返回 403
+    # forbidden，前端 boot 里依赖 API 的插件随之激活失败。逗号分隔，可带端口。
+    DSH_WEB_TRUSTED_HOST: ${DSH_WEB_TRUSTED_HOST:-}
     # /tmp 在容器内是 noexec tmpfs，native cache 把 .node 二进制拷到
     # /tmp 后加载会失败（failed to map segment from shared object）。
     # 禁用 native cache，直接从原始路径加载。

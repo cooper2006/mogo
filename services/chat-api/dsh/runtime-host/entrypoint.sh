@@ -55,11 +55,19 @@ if [ "${DSH_WEB_MODE:-0}" = "1" ]; then
   # trusted-host 列表按空格转 CLI 参数（sh 没有 IFS 词分割的简单数组写法）
   trusted_args=""
   if [ -n "${DSH_WEB_TRUSTED_HOST:-}" ]; then
-    old_ifs="$IFS"; IFS=","; set -- ${DSH_WEB_TRUSTED_HOST}; IFS="$old_ifs"
-    for h in "$@"; do
+    # 不能用 `set --` 拆分：它会覆盖位置参数，末尾 `exec "$@"` 就会把
+    # trusted host 当成 Dockerfile 的 CMD 来执行，容器直接起不来。
+    # 只临时改 IFS 做逗号分词，位置参数保持不变。
+    old_ifs="$IFS"
+    IFS=","
+    # shellcheck disable=SC2086
+    for h in ${DSH_WEB_TRUSTED_HOST}; do
       h="$(printf '%s' "$h" | tr -d ' ')"
-      [ -n "$h" ] && trusted_args="$trusted_args --trusted-host $h"
+      if [ -n "$h" ]; then
+        trusted_args="$trusted_args --trusted-host $h"
+      fi
     done
+    IFS="$old_ifs"
   fi
   # shellcheck disable=SC2086
   node_modules/.bin/dsh --profile web --host "${web_host}" --port "${web_internal_port}" --no-open ${trusted_args} > /tmp/dsh-web.log 2>&1 &
