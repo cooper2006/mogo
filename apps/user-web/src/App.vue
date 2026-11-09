@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect } from 'naive-ui'
+import { darkTheme, NButton, NConfigProvider, NDialogProvider, NInput, NMessageProvider, NNotificationProvider, NSelect, zhCN, enUS, dateZhCN, dateEnUS } from 'naive-ui'
 import { createNaiveThemeOverrides } from './theme/naive'
 import TokenInput from './components/TokenInput.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
@@ -1126,6 +1126,14 @@ function closePersonalization() {
  * 所以在主题 class 切换后重建一次；令牌仍是唯一颜色来源。
  */
 const naiveThemeOverrides = ref(createNaiveThemeOverrides())
+
+/**
+ * naive-ui 内置文案（输入框占位符、确认框、日期选择器等）跟随应用语言：
+ * 默认中文（zhCN），用户切到 English 时同步切到 enUS。此前未配置 locale，
+ * naive-ui 会回退到英文默认（如输入框占位符 "Please Input"）。
+ */
+const naiveLocale = computed(() => (locale.value === 'en' ? enUS : zhCN))
+const naiveDateLocale = computed(() => (locale.value === 'en' ? dateEnUS : dateZhCN))
 
 function applyThemeMode() {
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -2577,7 +2585,7 @@ onBeforeUnmount(() => {
     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
     网络已断开，部分功能可能不可用
   </div>
-  <n-config-provider :theme="isDarkTheme ? darkTheme : null" :theme-overrides="naiveThemeOverrides">
+  <n-config-provider :theme="isDarkTheme ? darkTheme : null" :theme-overrides="naiveThemeOverrides" :locale="naiveLocale" :date-locale="naiveDateLocale">
   <n-message-provider>
   <AppMessageBridge />
   <n-notification-provider>

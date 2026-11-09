@@ -19,6 +19,7 @@ export const orchestrationMessages = {
   'orchestration.save': { zh: '保存草稿', en: 'Save Draft' },
   'orchestration.publish': { zh: '发布', en: 'Publish' },
   'orchestration.preview': { zh: '预览 / 试运行', en: 'Preview / Dry Run' },
+  'orchestration.release_notes': { zh: '发布说明', en: 'Release Notes' },
   'orchestration.load_yaml': { zh: '打开现有编排', en: 'Open Existing' },
   'orchestration.saved': { zh: '已保存（版本 {version}）', en: 'Saved (version {version})' },
   'orchestration.published': { zh: '已发布（版本 {version}）', en: 'Published (version {version})' },
@@ -72,6 +73,12 @@ export const orchestrationMessages = {
   'orchestration.prop.unknown_payload': {
     zh: '该节点来自手工 YAML，含无法识别的属性；编辑时保留原值。',
     en: 'This node came from hand-written YAML and carries properties the canvas does not understand; they are preserved on save.',
+  },
+  // 属性面板占位符（此前直接写英文 "node_id" 等，未跟随语言）
+  'orchestration.prop.node_id_placeholder': { zh: '请输入节点 ID', en: 'Node ID' },
+  'orchestration.prop.condition_placeholder': {
+    zh: '如 completed_children_count < 3',
+    en: 'e.g. completed_children_count < 3',
   },
 
   // 校验

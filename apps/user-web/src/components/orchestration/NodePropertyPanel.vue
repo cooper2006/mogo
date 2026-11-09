@@ -92,7 +92,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
           :options="skillOptions"
           clearable
           size="small"
-          placeholder="skill"
+          :placeholder="t('orchestration.prop.skill')"
           @update:value="(v: string | null) => apply({ skill: v || undefined })"
         />
       </div>
@@ -103,7 +103,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
           :options="multiAgentOptions"
           clearable
           size="small"
-          placeholder="—"
+          :placeholder="t('orchestration.prop.multi_agent_mode')"
           @update:value="(v: MultiAgentMode | null) => apply({ multiAgentMode: v || undefined })"
         />
       </div>
@@ -116,7 +116,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
         <n-input
           :value="node.data.pro"
           size="small"
-          placeholder="node_id"
+          :placeholder="t('orchestration.prop.node_id_placeholder')"
           @update:value="(v: string) => apply({ pro: v || undefined })"
         />
       </div>
@@ -125,7 +125,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
         <n-input
           :value="node.data.con"
           size="small"
-          placeholder="node_id"
+          :placeholder="t('orchestration.prop.node_id_placeholder')"
           @update:value="(v: string) => apply({ con: v || undefined })"
         />
       </div>
@@ -134,7 +134,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
         <n-input
           :value="node.data.arbiter"
           size="small"
-          placeholder="node_id"
+          :placeholder="t('orchestration.prop.node_id_placeholder')"
           @update:value="(v: string) => apply({ arbiter: v || undefined })"
         />
       </div>
@@ -153,15 +153,15 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
     <!-- 工具节点：工具选择 -->
     <div v-if="node.kind === 'tool'" class="field">
       <span class="label">{{ t('orchestration.prop.tools') }}</span>
-      <n-select
-        :value="node.data.tools?.[0]"
-        :options="toolOptions"
-        clearable
-        multiple
-        size="small"
-        placeholder="tools"
-        @update:value="(v: (string | number)[] | null) => apply({ tools: (v || []).map(String) })"
-      />
+        <n-select
+          :value="node.data.tools?.[0]"
+          :options="toolOptions"
+          clearable
+          multiple
+          size="small"
+          :placeholder="t('orchestration.prop.tools')"
+          @update:value="(v: (string | number)[] | null) => apply({ tools: (v || []).map(String) })"
+        />
     </div>
 
     <!-- 条件节点 -->
@@ -173,7 +173,7 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
           size="small"
           type="textarea"
           :autosize="{ minRows: 2, maxRows: 4 }"
-          placeholder="completed_children_count < 3"
+          :placeholder="t('orchestration.prop.condition_placeholder')"
           @update:value="(v: string) => apply({ conditionExpr: v })"
         />
       </div>
