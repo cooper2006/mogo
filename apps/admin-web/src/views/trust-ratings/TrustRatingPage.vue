@@ -55,6 +55,7 @@
             :bordered="false"
             :pagination="pagination"
             :row-key="rowKey"
+            :scroll-x="trustTableScrollX"
           />
         </n-spin>
       </div>
@@ -301,11 +302,15 @@ const columns: DataTableColumns<TrustRating> = [
   {
     title: t('资产 Key'),
     key: 'asset_key',
+    width: 240,
+    ellipsis: { tooltip: true },
     render: (row) => h('span', { class: 'key-cell', title: row.asset_key }, row.asset_key),
   },
   {
     title: t('名称'),
     key: 'name',
+    width: 220,
+    ellipsis: { tooltip: true },
     render: (row) => assetDisplayName(row),
   },
   {
@@ -376,6 +381,10 @@ const columns: DataTableColumns<TrustRating> = [
 ];
 
 const pagination = { pageSize: 12 };
+
+// 045：表格列较多，设定最小总宽；窄视口下横向滚动（滚动条由 naive 主题统一为
+// #8e8e93 / 8px），避免无宽列被挤成竖向逐字排列。数值 = 各列 width 之和。
+const trustTableScrollX = 1600;
 
 /** 「管理」入口：技能跳技能配置页，其余跳资产中心。 */
 function manageAsset(row: TrustRating): void {
