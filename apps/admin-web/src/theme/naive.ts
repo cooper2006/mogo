@@ -63,6 +63,7 @@ const FALLBACK: Record<string, string> = {
 
   '--mg-scrollbar-thumb': '#b3c1d8',
   '--mg-scrollbar-thumb-hover': '#9fb0cd',
+  '--mg-scrollbar-size': '8px',
 };
 
 /**
@@ -356,6 +357,9 @@ export function createNaiveThemeOverrides(): GlobalThemeOverrides {
     Scrollbar: {
       color: c('--mg-scrollbar-thumb'),
       colorHover: c('--mg-scrollbar-thumb-hover'),
+      // 厚度统一为 8px（与全局原生滚动条一致）：width=竖向轨道厚，height=横向轨道厚
+      width: c('--mg-scrollbar-size'),
+      height: c('--mg-scrollbar-size'),
     },
   };
 }

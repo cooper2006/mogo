@@ -67,6 +67,7 @@
   --mg-dot-grid: #d1d5db;
   --mg-scrollbar-thumb: #b3c1d8;
   --mg-scrollbar-thumb-hover: #9fb0cd;
+  --mg-scrollbar-size: 8px;
   --mg-canvas-mask: rgba(240, 240, 240, 0.6);
 
   /* ---------- L2 semantic：文本（三级层次） ---------- */
@@ -214,6 +215,7 @@ html.theme-dark {
   --mg-dot-grid: rgba(148, 163, 184, 0.22);
   --mg-scrollbar-thumb: #8e8e93;
   --mg-scrollbar-thumb-hover: #a5a5ab;
+  --mg-scrollbar-size: 8px;
   --mg-canvas-mask: rgba(4, 8, 16, 0.62);
 
   --mg-text-1: #e8edf7;

@@ -397,8 +397,8 @@ html.theme-dark textarea {
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: var(--mg-scrollbar-size);
+  height: var(--mg-scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
