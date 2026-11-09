@@ -14,18 +14,68 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-RUN npm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
-    && npm install --global pnpm@12.14.0
+# Offline pnpm CLI (see scripts/pnpm_store_bundle.sh). pnpm >=11 is a
+# platform-specific @pnpm/exe native binary, so the bundle ships one per
+# TARGETARCH. The same bundle carries the content-addressable store used by
+# the install step below; a missing or placeholder bundle keeps the original
+# online path working.
+ARG PNPM_OFFLINE_INSTALL=true
+ARG TARGETARCH
+RUN --mount=type=bind,source=pnpm-store-bundle.tar.gz,target=/tmp/pnpm-store-bundle.tar.gz \
+    set -eux; \
+    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "${arch}" in x86_64) arch=amd64;; aarch64) arch=arm64;; esac; \
+    cli_restored=""; \
+    if [ "${PNPM_OFFLINE_INSTALL}" = "true" ] \
+       && [ "$(du -sb /tmp/pnpm-store-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
+        rm -rf /tmp/pnpm-offline; mkdir -p /tmp/pnpm-offline; \
+        tar -xzf /tmp/pnpm-store-bundle.tar.gz -C /tmp/pnpm-offline; \
+        if [ -s "/tmp/pnpm-offline/pnpm-cli/${arch}/pnpm" ]; then \
+            install -m 0755 "/tmp/pnpm-offline/pnpm-cli/${arch}/pnpm" /usr/local/bin/pnpm; \
+            echo "pnpm CLI restored from offline bundle (${arch})"; \
+            cli_restored="yes"; \
+        fi; \
+    fi; \
+    if [ -z "${cli_restored}" ]; then \
+        npm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}"; \
+        npm install --global pnpm@12.14.0; \
+    fi
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # The pnpm store is mounted so it outlives lockfile changes (which invalidate
 # this layer) and is reused across builds. This install measured ~6 minutes;
 # note that `npm config set registry` above does reach pnpm (it reads the same
 # user-level .npmrc), so the registry itself is already domestic.
+# Offline installs also pass --trust-lockfile: pnpm >=12 otherwise verifies
+# the lockfile against supply-chain policies and demands registry metadata
+# (ERR_PNPM_NO_OFFLINE_META), which --offline cannot fetch.
 RUN --mount=type=cache,target=/pnpm-store,sharing=locked \
-    pnpm config set store-dir /pnpm-store \
-    && pnpm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
-    && pnpm install --frozen-lockfile --prod
+    --mount=type=bind,source=pnpm-store-bundle.tar.gz,target=/tmp/pnpm-store-bundle.tar.gz \
+    set -eux; \
+    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "${arch}" in x86_64) arch=amd64;; aarch64) arch=arm64;; esac; \
+    offline=""; \
+    if [ "${PNPM_OFFLINE_INSTALL}" = "true" ] \
+       && [ "$(du -sb /tmp/pnpm-store-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
+        rm -rf /tmp/pnpm-offline; mkdir -p /tmp/pnpm-offline /pnpm-store; \
+        tar -xzf /tmp/pnpm-store-bundle.tar.gz -C /tmp/pnpm-offline; \
+        if [ -d /tmp/pnpm-offline/store ]; then \
+            cp -a /tmp/pnpm-offline/store/. /pnpm-store/; \
+            echo "Using offline pnpm store from bundle (${arch})"; \
+            offline="--offline"; \
+        fi; \
+    fi; \
+    pnpm config set store-dir /pnpm-store; \
+    pnpm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}"; \
+    trust=""; if [ -n "${offline}" ]; then trust="--trust-lockfile"; fi; \
+    if ! pnpm install ${offline} --frozen-lockfile --prod ${trust}; then \
+        if [ -n "${offline}" ]; then \
+            echo "Offline install incomplete; retrying against the registry"; \
+            pnpm install --frozen-lockfile --prod; \
+        else \
+            exit 1; \
+        fi; \
+    fi
 RUN node -e "const declared=require('./package.json').dependencies['@deepseek-ai/dsh']; const installed=require('@deepseek-ai/dsh/package.json').version; if (declared !== installed) throw new Error('DSH version mismatch: declared='+declared+' installed='+installed); console.log('DSH Runtime installed version: '+installed)"
 
 FROM ${BASE_IMAGE}

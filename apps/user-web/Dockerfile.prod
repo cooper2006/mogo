@@ -19,14 +19,71 @@ COPY package.json pnpm*.yaml* ./
 # pnpm's store is a BuildKit cache mount rather than a layer: it survives a
 # change to package.json (which invalidates this layer) so a rebuild reuses the
 # tarballs instead of re-downloading them.
+# Offline pnpm bundle (see scripts/pnpm_store_bundle.sh): carries BOTH the
+# content-addressable store (project tarballs) and the pnpm native CLI per
+# TARGETARCH. pnpm >=11 is a platform-specific @pnpm/exe binary, so a
+# store-only bundle would still need `npm install -g pnpm` (722s under QEMU).
+# A missing/placeholder bundle, or an incomplete store, falls back online.
+# pnpm >=12 verifies the lockfile against supply-chain policies and needs
+# registry metadata for it; --offline cannot fetch that
+# (ERR_PNPM_NO_OFFLINE_META), so offline installs pass --trust-lockfile. The
+# lockfile is committed and reviewed, and the online fallback keeps pnpm's
+# default verification.
+ARG PNPM_OFFLINE_INSTALL=true
+ARG TARGETARCH
 RUN --mount=type=cache,target=/pnpm-store,sharing=locked \
-    npm install --global "pnpm@${PNPM_VERSION}" --registry="${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
-    && pnpm config set store-dir /pnpm-store \
-    && pnpm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}" \
-    && pnpm install --frozen-lockfile
+    --mount=type=bind,source=pnpm-store-bundle.tar.gz,target=/tmp/pnpm-store-bundle.tar.gz \
+    set -eux; \
+    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "${arch}" in x86_64) arch=amd64;; aarch64) arch=arm64;; esac; \
+    offline=""; cli_restored=""; \
+    if [ "${PNPM_OFFLINE_INSTALL}" = "true" ] \
+       && [ "$(du -sb /tmp/pnpm-store-bundle.tar.gz | cut -f1)" -gt 1024 ]; then \
+        rm -rf /tmp/pnpm-offline; mkdir -p /tmp/pnpm-offline /pnpm-store; \
+        tar -xzf /tmp/pnpm-store-bundle.tar.gz -C /tmp/pnpm-offline; \
+        if [ -d /tmp/pnpm-offline/store ]; then \
+            cp -a /tmp/pnpm-offline/store/. /pnpm-store/; \
+            offline="--offline"; \
+            echo "Using offline pnpm store from bundle (${arch})"; \
+            if [ -s "/tmp/pnpm-offline/pnpm-cli/${arch}/pnpm" ]; then \
+                install -m 0755 "/tmp/pnpm-offline/pnpm-cli/${arch}/pnpm" /usr/local/bin/pnpm; \
+                echo "pnpm CLI restored from offline bundle (${arch})"; \
+                cli_restored="yes"; \
+            fi; \
+        fi; \
+    fi; \
+    if [ -z "${cli_restored}" ]; then \
+        npm install --global "pnpm@${PNPM_VERSION}" --registry="${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}"; \
+    fi; \
+    pnpm config set store-dir /pnpm-store; \
+    pnpm config set registry "${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}"; \
+    trust=""; if [ -n "${offline}" ]; then trust="--trust-lockfile"; fi; \
+    if ! pnpm install ${offline} --frozen-lockfile ${trust}; then \
+        if [ -n "${offline}" ]; then \
+            echo "Offline install incomplete; retrying against the registry"; \
+            pnpm install --frozen-lockfile; \
+        else \
+            exit 1; \
+        fi; \
+    fi
 
 COPY . .
-RUN pnpm run build
+# Cross-arch linux/amd64 builds on Apple Silicon run through QEMU, where
+# esbuild's Go runtime dies in runtime/lfstack.go with
+# `fatal error: lfstack.push` (a tagged pointer is sign-extended incorrectly
+# by binfmt). GOMAXPROCS=1 / GODEBUG=asyncpreemptoff=1 were measured NOT to
+# fix it. The reliable path is to build `dist` natively on the host and let
+# the image just COPY it -- dist is plain HTML/JS/CSS, architecture-neutral.
+# Opt in with MOGO_PREBUILT_DIST=true (see docs/offline-bundle-system.md).
+# The default keeps the normal in-container `vite build` unchanged.
+ARG MOGO_PREBUILT_DIST=false
+RUN if [ "${MOGO_PREBUILT_DIST}" = "true" ]; then \
+        test -f /app/dist/index.html || { echo "MOGO_PREBUILT_DIST=true but /app/dist/index.html is missing" >&2; exit 1; }; \
+        echo "Using host-built dist (native build, no vite/esbuild under QEMU)"; \
+    else \
+        rm -rf /app/dist; \
+        pnpm run build; \
+    fi
 
 FROM nginx:1.31.5-alpine3.24-slim
 

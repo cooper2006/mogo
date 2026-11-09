@@ -77,26 +77,53 @@ amd64 构建完成，希望一条命令把镜像推上去并拉起服务。
 ### 3.1 离线依赖包（base-images/）
 
 `base-images/` 里缓存的是**构建用离线包**（不是成品镜像）：
-`apt/`（.deb + 索引）、`pip-wheels/`（wheel）、`playwright/`（chromium）、`docling-models/`（模型）。
-由 `scripts/*_bundle.sh` 生成，build 时通过 `APT_OFFLINE_INSTALL=true` / `PIP_OFFLINE_INSTALL=true`
-（默认开）引用，fallback 到国内镜像站。
+`apt/`（.deb + 索引）、`pip-wheels/`（wheel）、`playwright/`（chromium）、`docling-models/`（模型）、
+`pnpm-store/`（三个 Node 服务的 pnpm store + 各架构 pnpm 原生 CLI）。
+由 `scripts/*_bundle.sh` 生成，build 时通过 `APT_OFFLINE_INSTALL=true` / `PIP_OFFLINE_INSTALL=true` /
+`PNPM_OFFLINE_INSTALL=true`（默认开）引用，fallback 到国内镜像站。
+
+> ⚠️ **pnpm bundle 不入库**：`apps/admin-web/`、`apps/user-web/`、
+> `services/chat-api/dsh/runtime-host/` 三个目录里的 `pnpm-store-bundle.tar.gz` 被 Dockerfile
+> 用 bind mount 直接引用，文件缺失会在计算缓存键时报 "not found"。构建前先跑
+> `scripts/pnpm_store_bundle.sh save && scripts/pnpm_store_bundle.sh pack`（详见
+> `docs/offline-bundle-system.md` 的「pnpm bundle」一节）。
 
 > ⚠️ **易错点**：`base-images/` 不是现成镜像，应用镜像必须**从源码 build** 生成。
 > 之前踩过坑：误以为 base-images 里是成品镜像直接 load 即可，结果缺失应用层、跑不起来。
 
 ### 3.2 构建命令（必须 amd64）
 
-`docker compose build` **不支持 `--platform`** 参数，改用环境变量强制架构：
+**前置（缺一不可）**：
+
+1. 基础镜像干净名切到 amd64：`bash deploy/production/switch-base-image-arch.sh amd64`。
+   否则 QEMU 构建会报 `InvalidBaseImagePlatform: node:24-bookworm-slim was pulled with platform "linux/arm64"`。
+   构建完成后本地 dev 需切回 `... arm64`。
+2. 生成 pnpm 离线包（见 3.1），否则三个 Node 服务的 bind mount 会报 "not found"。
+3. **在宿主机原生预构建两个前端 `dist`**。QEMU 下 vite/esbuild 的 Go runtime 会崩在
+   `runtime/lfstack.go`（`fatal error: lfstack.push` / `The service was stopped`），
+   `GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1` 实测无效。`dist` 是架构无关的纯静态产物，
+   因此在宿主机 arm64 上构建、镜像只负责 COPY：
+
+```bash
+(cd apps/admin-web && VITE_BASE_PATH=/admin/ VITE_ADMIN_API_BASE_URL=/admin-api pnpm run build)
+(cd apps/user-web  && VITE_ADMIN_WEB_URL=/admin/ pnpm run build)
+```
+
+`docker compose build` **不支持 `--platform`** 参数，改用环境变量强制架构；跨架构构建
+必须带 `MOGO_PREBUILT_DIST=true`：
 
 ```bash
 cd /Users/cooper/mogo
-DOCKER_DEFAULT_PLATFORM=linux/amd64 docker --context kiri compose \
+DOCKER_DEFAULT_PLATFORM=linux/amd64 MOGO_PREBUILT_DIST=true \
+  docker --context kiri compose \
   -f docker-compose.yml -f docker-compose.build.yml \
   --profile single-host build \
   dsh-runtime-host chat-api admin-api document-api user-web admin-web gateway
 ```
 
 **要点**：
+- `MOGO_PREBUILT_DIST=true`：两个前端跳过容器内 `pnpm run build`，直接使用宿主机 `dist`
+  （`apps/*/.dockerignore` 已放开 `dist/`）。默认 `false`，本地 arm64 dev 行为完全不变。
 - `--context kiri`：构建发生在本地 Kiri（避免误用远端 context）。
 - `--profile single-host`：`dsh-runtime-host` 默认带 `single-host` profile，需显式启用；其他 6 个无 profile 服务不受影响。
 - 构建 6 个**服务名**即产出 7 个**镜像**：`document-api` 构建后，`document-worker` 复用同一镜像，无需单独 build。

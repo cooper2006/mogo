@@ -5,6 +5,7 @@ services:
       context: ./services/chat-api/dsh/runtime-host
       dockerfile: Dockerfile
       args:
+        PNPM_OFFLINE_INSTALL: ${PNPM_OFFLINE_INSTALL:-true}
         MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-}
 
   chat-api:
@@ -66,6 +67,8 @@ services:
       dockerfile: Dockerfile.prod
       args:
         VITE_ADMIN_WEB_URL: /admin/
+        MOGO_PREBUILT_DIST: ${MOGO_PREBUILT_DIST:-false}
+        PNPM_OFFLINE_INSTALL: ${PNPM_OFFLINE_INSTALL:-true}
         MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-}
 
   admin-web:
@@ -76,6 +79,8 @@ services:
       args:
         VITE_BASE_PATH: /admin/
         VITE_ADMIN_API_BASE_URL: /admin-api
+        MOGO_PREBUILT_DIST: ${MOGO_PREBUILT_DIST:-false}
+        PNPM_OFFLINE_INSTALL: ${PNPM_OFFLINE_INSTALL:-true}
         MOGO_SECURITY_REFRESH: ${MOGO_SECURITY_REFRESH:-}
 
   gateway:

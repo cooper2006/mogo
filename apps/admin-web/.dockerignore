@@ -3,6 +3,8 @@
 .env*
 *.log
 node_modules/
-dist/
+# dist/ is intentionally NOT ignored: cross-arch builds pass in a host-built
+# dist (MOGO_PREBUILT_DIST=true) to avoid running esbuild under QEMU. Normal
+# builds delete it before `pnpm run build`, so a stale dist can never leak in.
 .vite/
 coverage/

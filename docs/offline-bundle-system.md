@@ -12,7 +12,11 @@ base-images/
 ├── apt/<service>/<arch>/         # 各服务 apt 离线包（.deb + Packages 索引 + manifest.txt）
 ├── pip-wheels/<service>/<arch>/  # pip 离线 wheel 缓存
 ├── playwright/<arch>/            # playwright 浏览器
-└── docling-models/               # docling 模型（刻意不分架构）
+├── docling-models/               # docling 模型（刻意不分架构）
+└── pnpm-store/                   # pnpm v11 内容寻址 store + 各架构 pnpm CLI
+    ├── store/v11/files/...
+    ├── pnpm-cli/<arch>/pnpm      # @pnpm/exe.<platform-arch> 原生二进制
+    └── manifest.txt
 ```
 
 - `docling-models` **不分架构**：模型目录只有 `safetensors`/`onnx`/`json`，没有 `.so`、没有可执行文件，纯数据跨架构通用。
@@ -40,6 +44,7 @@ docker load -i base-images/images/arm64/semitechnologies_weaviate_1.25.7.tar
 | `pip_wheels_bundle.sh` | pip wheel 离线缓存 |
 | `playwright_browsers_bundle.sh` | playwright 浏览器 |
 | `docling_models_bundle.sh` | docling 模型（不分架构） |
+| `pnpm_store_bundle.sh` | pnpm store + 各架构 pnpm 原生 CLI |
 | `export_base_images.sh` | 导出基础镜像 tar |
 
 通用子命令（以 apt 为例）：
@@ -51,6 +56,76 @@ scripts/apt_packages_bundle.sh pack <service>                   # 仅重新打�
 ```
 
 **fetch 原理**：在"目标架构的基础镜像容器"里在线 `apt-get update`（国内镜像）+ `--reinstall --download-only` 把 `.deb` 抓到 `base-images/apt/<svc>/<arch>/`，并拷贝 apt 索引（`Packages.lz4` + `InRelease`）。`pack` 再把该目录打成 `services/<svc>/apt-packages-bundle.tar.gz` 供 Dockerfile 挂载后离线安装（`apt-get install --no-download`）。
+
+## pnpm bundle（第五类 bundle）
+
+覆盖 `admin-web` / `user-web` / `dsh-runtime-host` 三个 Node 服务。此前它们每次构建都要从 `registry.npmmirror.com` 拉 600–1000 个包；在 Apple Silicon 上用 QEMU 仿真构建 linux/amd64 时实测 `npm install -g pnpm` **722.6s**、`admin-web` 整段安装 **1081.2s**（`backups/amd64-push-20261108/amd64-build.log` #49 / #50）。
+
+**必须离线化的有两样，只做 store 不够：**
+
+| 内容 | 来源 | 说明 |
+|---|---|---|
+| `store/v11/files/...` | BuildKit cache mount `/pnpm-store` | 项目依赖的内容寻址包，跨架构混存无副作用 |
+| `pnpm-cli/<arch>/pnpm` | `@pnpm/exe.linux-x64` / `linux-arm64` | pnpm ≥ 11 的 CLI 是 **平台原生二进制**，不是 JS；`npm install -g pnpm` 本身就要下 ~24MB |
+
+CLI 默认只打 `amd64`（QEMU 仿真目标，慢的就是它）；arm64 在 Apple Silicon 上是原生构建，`npm install -g pnpm` 秒级完成，缺 CLI 时自动走联网路径，但**离线 store 仍然生效**。需要给 amd64 宿主机打 arm64 镜像时用 `ARCH_LIST="amd64 arm64"` 覆盖。
+
+```bash
+# 一次性：从已有 BuildKit cache 导出 store + 拉 amd64 CLI（CLI 下载发生在宿主机，无 QEMU）
+DOCKER_BIN=/opt/homebrew/bin/docker BUILDX_BUILDER=kiri MOGO_DOCKER_CONTEXT=kiri \
+  scripts/pnpm_store_bundle.sh save
+DOCKER_BIN=/opt/homebrew/bin/docker scripts/pnpm_store_bundle.sh pack
+scripts/pnpm_store_bundle.sh status
+
+# 可选：从 lockfile 在目标架构容器里重建 store（用于 CI / 换机）
+ARCH_LIST=amd64 scripts/pnpm_store_bundle.sh fetch
+```
+
+`pack` 会写出三个同内容的构建上下文包（其内容指纹相同则跳过重打，复用 `scripts/bundle_pack_lib.sh` 的可复现打包）：
+
+```
+apps/admin-web/pnpm-store-bundle.tar.gz
+apps/user-web/pnpm-store-bundle.tar.gz
+services/chat-api/dsh/runtime-host/pnpm-store-bundle.tar.gz
+```
+
+Dockerfile 契约（`ARG PNPM_OFFLINE_INSTALL=true`，由 `docker-compose.build.yml` 显式传入）：
+
+1. 通过 `--mount=type=bind,source=pnpm-store-bundle.tar.gz` 挂载，不产生镜像层；
+2. 解出 `store/` 后 `cp -a` 进 cache mount `/pnpm-store`，`pnpm install --offline --frozen-lockfile --trust-lockfile`；`--trust-lockfile` 不可省——pnpm ≥ 12 默认会做 supply-chain 策略校验并索要 registry 元数据，纯离线时会报 `ERR_PNPM_NO_OFFLINE_META` 而退化成联网（实测每个元数据请求 10–47s）。联网回退分支不加该参数，保留 pnpm 默认校验；
+3. 按 `TARGETARCH` 取 `pnpm-cli/${arch}/pnpm` 装到 `/usr/local/bin/pnpm`，命中即完全不联网；
+4. 包缺失/占位（<1KB）、CLI 缺失或 `--offline` 安装失败时**自动回退联网**，不会把构建直接搞挂。
+
+> **构建前必须先 `pack`**：与 pip/apt bundle 一样，这些 tar.gz 不入库（`.gitignore` 已列），而 Dockerfile 用 bind mount 引用它们，文件不存在会在计算缓存键时直接报 "not found"。
+
+### QEMU 下的 vite / esbuild 崩溃（与 bundle 无关，但同属 amd64 离线构建）
+
+即便依赖全离线，`pnpm run build` 仍可能在 QEMU 下 9 秒内崩掉：
+
+```
+fatal error: lfstack.push
+Error: The service was stopped
+```
+
+根因是 Go runtime 的 `runtime/lfstack.go`：把指针与计数打包进一个 uint64 时，QEMU/binfmt 会把地址高位错误地符号扩展（实测 `0xffff6e99f240` → `0xffffffff6e99f240`），于是 `lfstack.push` 直接 fatal。这是**仿真层的硬缺陷，不是资源或并发问题**。
+
+> 已验证无效：`GOMAXPROCS=1 GODEBUG=asyncpreemptoff=1 pnpm run build` 仍在 10.6s 崩在 `lfstack.push`、19.9s 报 `The service was stopped`（`backups/amd64-push-20261108/amd64-build-retry2.log` #36）。环境变量绕不过去。
+
+**现行解法：前端产物预置（opt-in `MOGO_PREBUILT_DIST`）**。前端 `dist` 是纯 HTML/JS/CSS，与架构无关，因此在宿主机原生 arm64 上构建，镜像只负责 COPY，彻底不在 QEMU 下跑 vite/esbuild：
+
+```bash
+# 1) 宿主机原生产出 dist（必须与 Dockerfile 的 Vite 变量一致）
+(cd apps/admin-web && VITE_BASE_PATH=/admin/ VITE_ADMIN_API_BASE_URL=/admin-api pnpm run build)
+(cd apps/user-web  && VITE_ADMIN_WEB_URL=/admin/ pnpm run build)
+
+# 2) 跨架构构建时显式开启；.dockerignore 已放开 dist/ 让产物进入 context
+MOGO_PREBUILT_DIST=true MOGO_VERSION=latest MOGO_PLATFORM=linux/amd64 \
+  ./mogo build admin-web user-web
+```
+
+- `apps/admin-web/Dockerfile`、`apps/user-web/Dockerfile.prod` 的 build 阶段：开启时校验 `dist/index.html` 存在并直接使用；关闭时先 `rm -rf dist` 再照常 `pnpm run build`，所以本地残留 dist 不会影响常规构建。
+- `docker-compose.build.yml` 把 `MOGO_PREBUILT_DIST` 透传给两个前端服务，默认 `false`（本地 arm64 dev 行为完全不变）。
+- 宿主机需要 pnpm 12.14.0 与已安装的 `node_modules`；Vite 变量漏设会导致产物里的 API base 路径错误，务必按上面命令注入。
 
 ## 已踩坑（务必注意）
 
