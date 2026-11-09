@@ -554,5 +554,5 @@ function requestRemove() {
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--mg-bg-inset); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--mg-scrollbar-thumb); border-radius: 10px; }
 </style>

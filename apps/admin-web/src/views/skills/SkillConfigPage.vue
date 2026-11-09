@@ -2983,7 +2983,7 @@ onUnmounted(() => {
   padding: 20px;
   overflow: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--mg-brand-soft-border) transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .style-panel::-webkit-scrollbar,
@@ -2993,7 +2993,7 @@ onUnmounted(() => {
 
 .style-panel::-webkit-scrollbar-thumb,
 .style-preview-panel::-webkit-scrollbar-thumb {
-  background: var(--mg-brand-soft);
+  background: var(--mg-scrollbar-thumb);
   border-radius: 999px;
 }
 
@@ -3057,7 +3057,7 @@ onUnmounted(() => {
   padding-right: 6px;
   padding-bottom: 10px;
   scrollbar-width: thin;
-  scrollbar-color: var(--mg-brand-soft-border) transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .step-list::-webkit-scrollbar {
@@ -3065,7 +3065,7 @@ onUnmounted(() => {
 }
 
 .step-list::-webkit-scrollbar-thumb {
-  background: var(--mg-brand-soft);
+  background: var(--mg-scrollbar-thumb);
   border-radius: 999px;
 }
 
@@ -4018,7 +4018,7 @@ onUnmounted(() => {
   max-height: 100%;
   overflow: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--mg-brand-soft-border) transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .test-panel::-webkit-scrollbar {
@@ -4026,7 +4026,7 @@ onUnmounted(() => {
 }
 
 .test-panel::-webkit-scrollbar-thumb {
-  background: var(--mg-brand-soft);
+  background: var(--mg-scrollbar-thumb);
   border-radius: 999px;
 }
 

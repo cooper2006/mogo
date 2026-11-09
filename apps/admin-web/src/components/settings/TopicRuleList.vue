@@ -120,8 +120,8 @@ watch([query, status], () => {
 <style scoped>
 .rule-browser { display: grid; gap: 10px; min-width: 0; }
 .rule-filters { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; }
-.rule-scroll { box-sizing: border-box; height: min(52vh, 480px); min-height: 100px; margin-top: 6px; overflow-y: scroll; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: var(--mg-border-strong) var(--mg-bg-subtle); scrollbar-width: thin; padding: 2px 4px 2px 2px; }
-.rule-scroll::-webkit-scrollbar { width: 8px; }.rule-scroll::-webkit-scrollbar-track { background: var(--mg-bg-subtle); border-radius: 8px; }.rule-scroll::-webkit-scrollbar-thumb { background: var(--mg-border-strong); border-radius: 8px; }
+.rule-scroll { box-sizing: border-box; height: min(52vh, 480px); min-height: 100px; margin-top: 6px; overflow-y: scroll; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: var(--mg-scrollbar-thumb) transparent; scrollbar-width: thin; padding: 2px 4px 2px 2px; }
+.rule-scroll::-webkit-scrollbar { width: 8px; }.rule-scroll::-webkit-scrollbar-track { background: transparent; border-radius: 8px; }.rule-scroll::-webkit-scrollbar-thumb { background: var(--mg-scrollbar-thumb); border-radius: 8px; }
 .rule-shell + .rule-shell { margin-top: 6px; }
 .rule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 49px; padding: 7px 10px; border: 1px solid var(--mg-border); border-radius: 8px; color: var(--mg-text-1); background: var(--mg-bg-surface); text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
 .rule-row:hover { border-color: var(--mg-brand-soft-border); background: var(--mg-bg-surface-hover); }

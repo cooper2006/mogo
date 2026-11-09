@@ -2513,9 +2513,9 @@ function applySpacingSnaps(
 .pe-slide-list::-webkit-scrollbar { width: 5px; }
 .pe-slide-list::-webkit-scrollbar-track { background: transparent; }
 .pe-slide-list::-webkit-scrollbar-thumb {
-  background: var(--mg-border-strong); border-radius: 10px;
+  background: var(--mg-scrollbar-thumb); border-radius: 10px;
 }
-.pe-slide-list::-webkit-scrollbar-thumb:hover { background: var(--mg-border-strong); }
+.pe-slide-list::-webkit-scrollbar-thumb:hover { background: var(--mg-scrollbar-thumb-hover); }
 
 /* ── Fullscreen preview ────────────────────────── */
 .pe-fs-overlay {

@@ -48,6 +48,24 @@ html.theme-dark .bg-\[\#fdfdfd\] {
   background-color: var(--mg-bg-surface) !important;
 }
 
+/* 会话轨迹（028/043）用的浅色半透明表面。Tailwind 只按实际出现的变体生成类，
+   兼容层必须逐个补齐：/40 漏补会把整片主区染成灰，/95 漏补会留下白色时间轴卡片。 */
+html.theme-dark .bg-gray-50\/40 {
+  background-color: var(--mg-bg-app) !important;
+}
+
+html.theme-dark .bg-gray-50\/70 {
+  background-color: var(--mg-bg-subtle) !important;
+}
+
+html.theme-dark .bg-gray-50\/95 {
+  background-color: var(--mg-bg-glass-strong) !important;
+}
+
+html.theme-dark .hover\:bg-gray-200\/70:hover {
+  background-color: var(--mg-bg-surface-hover) !important;
+}
+
 html.theme-dark .bg-gray-50,
 html.theme-dark .bg-slate-50,
 html.theme-dark .bg-zinc-50,

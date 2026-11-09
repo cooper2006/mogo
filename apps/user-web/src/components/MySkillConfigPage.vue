@@ -2833,7 +2833,7 @@ watch(() => [props.userId, props.tenantId], () => {
   padding: 20px;
   overflow: auto;
   scrollbar-width: thin;
-  scrollbar-color: #c0d1fb transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .style-panel::-webkit-scrollbar,
@@ -2843,7 +2843,7 @@ watch(() => [props.userId, props.tenantId], () => {
 
 .style-panel::-webkit-scrollbar-thumb,
 .style-preview-panel::-webkit-scrollbar-thumb {
-  background: var(--mg-brand-soft);
+  background: var(--mg-scrollbar-thumb);
   border-radius: 999px;
 }
 
@@ -2907,7 +2907,7 @@ watch(() => [props.userId, props.tenantId], () => {
   padding-right: 6px;
   padding-bottom: 10px;
   scrollbar-width: thin;
-  scrollbar-color: #c0d1fb transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .step-list::-webkit-scrollbar {
@@ -2915,7 +2915,7 @@ watch(() => [props.userId, props.tenantId], () => {
 }
 
 .step-list::-webkit-scrollbar-thumb {
-  background: var(--mg-brand-soft);
+  background: var(--mg-scrollbar-thumb);
   border-radius: 999px;
 }
 
@@ -3849,7 +3849,7 @@ watch(() => [props.userId, props.tenantId], () => {
   flex-direction: column;
   overflow: hidden;
   scrollbar-width: thin;
-  scrollbar-color: #c0d1fb transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .test-panel::-webkit-scrollbar {
@@ -3857,7 +3857,7 @@ watch(() => [props.userId, props.tenantId], () => {
 }
 
 .test-panel::-webkit-scrollbar-thumb {
-  background: var(--mg-brand-soft);
+  background: var(--mg-scrollbar-thumb);
   border-radius: 999px;
 }
 
@@ -3922,7 +3922,7 @@ watch(() => [props.userId, props.tenantId], () => {
   border-radius: 10px;
   background: var(--mg-bg-surface);
   scrollbar-width: thin;
-  scrollbar-color: #c0d1fb transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .result-block::-webkit-scrollbar {
@@ -3930,7 +3930,7 @@ watch(() => [props.userId, props.tenantId], () => {
 }
 
 .result-block::-webkit-scrollbar-thumb {
-  background: var(--mg-brand-soft);
+  background: var(--mg-scrollbar-thumb);
   border-radius: 999px;
 }
 

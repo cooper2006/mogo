@@ -92,7 +92,7 @@ const suggestionsToShow = computed(() =>
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--mg-border-strong);
+  background: var(--mg-scrollbar-thumb);
   border-radius: 999px;
 }
 </style>

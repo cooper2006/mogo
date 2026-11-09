@@ -4087,27 +4087,27 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: var(--mg-scrollbar-thumb);
   border-radius: 10px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--mg-scrollbar-thumb-hover);
 }
 
 .history-scrollbar::-webkit-scrollbar {
   width: 8px;
 }
 .history-scrollbar::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.04);
+  background: transparent;
   border-radius: 999px;
 }
 .history-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.18);
+  background-color: var(--mg-scrollbar-thumb);
   border-radius: 999px;
-  border: 2px solid rgba(0, 0, 0, 0.04);
+  border: 2px solid transparent;
 }
 .history-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.28);
+  background-color: var(--mg-scrollbar-thumb-hover);
 }
 
 </style>

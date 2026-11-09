@@ -1927,7 +1927,7 @@ watch(documents, syncProcessingPoll, { deep: true });
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
-  scrollbar-color: #c8d3e5 transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .list-filter-row::-webkit-scrollbar {
@@ -2190,7 +2190,7 @@ watch(documents, syncProcessingPoll, { deep: true });
   padding: 8px;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: #c9d3e4 transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .upload-queue-list::-webkit-scrollbar {
@@ -2208,7 +2208,7 @@ watch(documents, syncProcessingPoll, { deep: true });
 }
 
 .upload-queue-list::-webkit-scrollbar-thumb:hover {
-  background: #9eadc4;
+  background: var(--mg-scrollbar-thumb-hover);
 }
 
 .upload-queue-item {
@@ -2411,7 +2411,7 @@ watch(documents, syncProcessingPoll, { deep: true });
   border-radius: 3px;
 }
 .upload-progress-list::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--mg-scrollbar-thumb-hover);
 }
 
 .upload-progress-item {
