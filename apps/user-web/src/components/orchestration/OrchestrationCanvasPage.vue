@@ -570,7 +570,8 @@ onMounted(async () => {
 
 .palette {
   padding: var(--mg-space-3);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .canvas-host {
@@ -616,6 +617,8 @@ onMounted(async () => {
   font-size: var(--mg-font-size-xs);
   line-height: var(--mg-line-relaxed);
   color: var(--mg-text-3);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .canvas-flow {

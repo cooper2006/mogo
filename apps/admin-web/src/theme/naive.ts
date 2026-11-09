@@ -60,6 +60,9 @@ const FALLBACK: Record<string, string> = {
   '--mg-shadow-md': '0 6px 20px rgba(16, 38, 84, 0.07)',
   '--mg-shadow-lg': '0 16px 40px rgba(16, 38, 84, 0.1)',
   '--mg-shadow-card': '0 6px 20px rgba(16, 38, 84, 0.07)',
+
+  '--mg-scrollbar-thumb': '#b3c1d8',
+  '--mg-scrollbar-thumb-hover': '#9fb0cd',
 };
 
 /**
@@ -344,6 +347,15 @@ export function createNaiveThemeOverrides(): GlobalThemeOverrides {
       itemTextColorActive: c('--mg-brand-text'),
       itemColorActive: c('--mg-brand-soft'),
       itemColorHover: c('--mg-bg-surface-hover'),
+    },
+
+    // 滚动条：naive-ui 的 NScrollbar 是 div 式自定义滚动条，不走原生
+    // ::-webkit-scrollbar，故必须在此桥接到 --mg-scrollbar-thumb，否则表格等
+    // 处的滚动条会回退到 naive 默认灰（深色下约 rgba(0,0,0,0.2)），与全局
+    // 原生滚动条的 #8e8e93 不一致。注：seemly 要求实际色值，不能用 var()。
+    Scrollbar: {
+      color: c('--mg-scrollbar-thumb'),
+      colorHover: c('--mg-scrollbar-thumb-hover'),
     },
   };
 }

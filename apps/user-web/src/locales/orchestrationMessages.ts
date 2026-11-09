@@ -33,6 +33,11 @@ export const orchestrationMessages = {
   'orchestration.node.aggregate': { zh: '聚合', en: 'Aggregate' },
   'orchestration.node.roundRobin': { zh: '轮询模式', en: 'Round Robin' },
   'orchestration.node.debate': { zh: '辩论模式', en: 'Debate' },
+  // 侧栏节点列表下方的操作提示（缺失会导致 t() 回退成原始 key 字符串并撑出横向滚动条）
+  'orchestration.node.title_hint': {
+    zh: '拖拽节点到画布，或双击快速添加。',
+    en: 'Drag a node onto the canvas, or double-click to add.',
+  },
 
   // 模式
   'orchestration.mode.sequential': { zh: '串行（sequential）', en: 'Sequential' },

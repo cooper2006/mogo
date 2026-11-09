@@ -381,3 +381,35 @@ html.theme-dark textarea {
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
 }
+
+/* =============================================================================
+ * 滚动条兜底（全局）
+ * -----------------------------------------------------------------------------
+ * 说明：Vue SFC scoped 样式会丢弃 ::-webkit-scrollbar 伪元素规则（编译后不保留），
+ * 导致未单独定制的可滚动容器（编排页侧栏、会话历史等）走系统 overlay 滚动条、灰度
+ * 不一致。全局 ::-webkit-scrollbar 定制统一使用 --mg-scrollbar-thumb，与 admin-web
+ * 保持同一套深色滚动条观感。已用 .custom-scrollbar 或局部 ::-webkit-scrollbar 的
+ * 组件按特异性覆盖，本规则不受影响；.tab-scroll 等 display:none 的隐藏滚动条同理保留。
+ * ========================================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--mg-scrollbar-thumb);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mg-scrollbar-thumb-hover);
+}
