@@ -21,7 +21,7 @@ image.
   - **测试运行器离线 bundle 落地（B 方案，2026-11-04）**：为 docparser/chat 补入测试运行器，使镜像内可直接 `python -m pytest`，消除「跨镜像抽包 + PYTHONPATH 注入 + py shim」脏活。新增 `requirements-test.{in,txt}`（6 个纯 py 包：pytest 9.1.1 / pytest-asyncio 1.4.0 / pluggy 1.6.0 / iniconfig 2.3.0 / packaging 26.3 / pygments 2.21.0，与 admin 镜像对齐）；扩展 `scripts/pip_wheels_bundle.sh` 的 test 闭包下载腿（`pip download --only-binary=:all: --no-deps`），与生产 wheel 共用同一 per-arch 离线缓存；两 Dockerfile 各加 `INSTALL_TEST_DEPS_AT_BUILD` 门控层（默认 false 生产镜像不变）。**build 回归全绿**：门控测试层已前移至 `pip uninstall` 之前（pip 还活着时装测试闭包，无需 ensurepip 自举），docparser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（均 0 failed），import pytest 9.1.1 / pytest-asyncio 1.4.0 校验通过。
   - **test_prepare_skill.py 路径固化（2026-11-04）**：新增 `services/chat-api/tests/sandbox_script/conftest.py`，pytest 自动把 `sandbox_script/` 注入 `sys.path`，根治「顶层 import prepare_skill 找不到模块」的收集错误，任何环境（镜像/CI/宿主）无需再传 PYTHONPATH。
 
-## v0.2.7 - 2026-11-06
+## v0.2.7 - 2026-11-08
 
 ### Added
 
