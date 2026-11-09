@@ -86,7 +86,7 @@ specs/                    # 49 个特性规格（001–049），每个含完整�
   INDEX.md                # 规格索引
 ```
 
-49 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分），每份均配有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 5 个（001、007、008、009、020）另附 `contracts/` 目录。
+49 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分），每份均配有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 8 个（001、007、008、009、010、020、025、026）另附 `contracts/` 目录（025 为 yaml 契约与校验规则，其余为 .md 契约）。
 
 它们分为七组：
 
@@ -140,7 +140,7 @@ specs/                    # 49 个特性规格（001–049），每个含完整�
 | 4 | **业务系统语义索引** | 实体指针索引（不写业务库）+ 复用检索客户端，命中带 citation 锚点 | [014](specs/014-business-semantic-index/) |
 | 5 | **知识图谱层** | 节点 / 边 + 多跳遍历（CycleGuard）+ 互斥 / 传递 / 基数约束（标记不阻断） | [015](specs/015-knowledge-graph-layer/) |
 | 6 | **Skill 市场强化 + 沉淀闭环** | 质量打分 / 回滚 / 低质标记；沉淀闭环打通"会话 → 经验 → Skill 草稿" | [016](specs/016-skill-market-hardening/) |
-| 7 | **三范围 Memory** | personal / workspace / org 三级可见性 + 升级授权 + 30 天衰减 + RAG 按 scope 过滤排序，并叠加 L0 / L1 / L2 密度轴与渐进检索 | [017](specs/017-three-scope-memory/) |
+| 7 | **三范围 Memory** | personal / project / department 三级可见性（v0.2.7 起 D4 直接改名，无运行时兼容层）+ 升级授权 + 30 天衰减 + RAG 按 scope 过滤排序，并叠加 L0 / L1 / L2 密度轴与渐进检索 | [017](specs/017-three-scope-memory/) |
 | 8 | **能力资产化"发现→注册"** | 契约四段 + 扫描去重 + 治理视图 + 状态审批 + `a2a_exposed` 标记 | [018](specs/018-capability-asset-registration/) |
 | 9 | **厚/薄 Harness 弹性配置** | profile 三层覆盖链 + 层开关 + 合规底线（R4 恒 deny）+ 与 Gatekeeper 对接 | [019](specs/019-harness-elastic-config/) |
 

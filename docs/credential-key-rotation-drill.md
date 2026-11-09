@@ -9,7 +9,7 @@
 
 - 已完成 022 密钥配置：`MOGO_KMS_MASTER_KEY`（或 `MOGO_KMS_MASTER_KEY_FILE`，
   本地开发可用 `MOGO_ALLOW_INSECURE_DEV_KEY=1`）。
-- 已完成 [Feature 034 凭证加密迁移](migrate_tool_credentials_encryption.py)：
+- 已完成 [Feature 034 凭证加密迁移](../scripts/migrate_tool_credentials_encryption.py)：
   存量明文凭证已加密。若尚未迁移，轮换脚本会顺带把明文加密，但建议先跑迁移。
 - 轮换前对 MongoDB 做一次 `mongodump` 备份。
 - 新主密钥已生成并写入部署环境（生产环境建议通过 Vault / KMS 注入，

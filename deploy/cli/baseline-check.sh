@@ -33,6 +33,29 @@ COMPOSE_SERVICES=(chat-api admin-api document-api document-worker user-web admin
 
 BASELINE_FILE="${ROOT_DIR}/deploy/config/image-baseline.yml"
 
+# 基线扫描用 PyYAML 解析 image-baseline.yml / docker-compose.yml。宿主默认
+# python3 未必装有 PyYAML（系统 Python、IDE 内置解释器等），此前会直接退化成
+# "0 pass / 1 fail — PyYAML not available"，守卫形同虚设。这里优先选用可用的
+# 解释器：显式 MOGO_PYTHON_BIN > 宿主 python3 > 项目三服务 venv（与服务镜像
+# 同源的 pin 版本）> 最后回退 python3 由脚本内原有兜底报错。
+PYTHON_BIN="${MOGO_PYTHON_BIN:-}"
+if [[ -z "${PYTHON_BIN}" ]]; then
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  else
+    for candidate in \
+      "${ROOT_DIR}/services/admin-api/.venv/bin/python" \
+      "${ROOT_DIR}/services/chat-api/.venv/bin/python" \
+      "${ROOT_DIR}/services/document-parser/.venv/bin/python"; do
+      if [[ -x "${candidate}" ]] && "${candidate}" -c 'import yaml' >/dev/null 2>&1; then
+        PYTHON_BIN="${candidate}"
+        break
+      fi
+    done
+  fi
+fi
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+
 # --- 收集结果 ---
 declare -a ITEMS=()
 PASS_COUNT=0
@@ -50,9 +73,9 @@ add_item() {
 }
 
 # --- 镜像级检查（非 root + 体积基线 + 运行层清理）---
-# 用单个 python3 调用完成全部镜像检查，避免多次 docker inspect。
+# 用单个 Python 调用完成全部镜像检查，避免多次 docker inspect。
 check_images() {
-  python3 - "${ROOT_DIR}" "${BASELINE_FILE}" "${IMAGE_SERVICES[@]}" <<'PYEOF'
+  "${PYTHON_BIN}" - "${ROOT_DIR}" "${BASELINE_FILE}" "${IMAGE_SERVICES[@]}" <<'PYEOF'
 import json, os, subprocess, sys
 
 root = sys.argv[1]
@@ -167,7 +190,7 @@ PYEOF
 
 # --- compose 级检查（read_only + cap_drop + no-new-privileges + user）---
 check_compose() {
-  python3 - "${ROOT_DIR}/docker-compose.yml" "${COMPOSE_SERVICES[@]}" <<'PYEOF'
+  "${PYTHON_BIN}" - "${ROOT_DIR}/docker-compose.yml" "${COMPOSE_SERVICES[@]}" <<'PYEOF'
 import sys, yaml
 
 path = sys.argv[1]
@@ -221,7 +244,7 @@ done < <(check_compose)
 
 # --- 输出 ---
 if [[ "${JSON_OUTPUT}" == "true" ]]; then
-  python3 - "${PASS_COUNT}" "${FAIL_COUNT}" "${ITEMS[@]}" <<'PYEOF'
+  "${PYTHON_BIN}" - "${PASS_COUNT}" "${FAIL_COUNT}" "${ITEMS[@]}" <<'PYEOF'
 import json, sys
 pass_count = int(sys.argv[1])
 fail_count = int(sys.argv[2])

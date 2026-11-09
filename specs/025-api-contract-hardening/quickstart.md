@@ -11,10 +11,13 @@
 - 三个 FastAPI 服务：`services/admin-api`、`services/chat-api`、`services/document-parser`
 - Python 3.13 + FastAPI + Pydantic v2（既有栈）
 - Redis（限流 + 幂等键缓存）：`docker compose up -d redis`
-- 依赖安装：
+- 依赖安装（工具链为仓库内 Python 脚本；`spectral-cli` 是 npm 包，不是 pip 包）：
   ```bash
-  pip install openapi-spec-validator spectral-cli redis-py httpx
+  pip install openapi-spec-validator pyyaml redis httpx
+  # 可选：规则级 lint 需 spectral CLI；未安装时校验脚本自动回退内置 lint
+  npm i -g @stoplight/spectral-cli
   ```
+  若宿主 `python3` 未装上述依赖，可用项目 venv 执行：`services/admin-api/.venv/bin/python tools/...`。
 - 契约文件已生成：`specs/025-api-contract-hardening/contracts/*.yaml`
 
 ---
@@ -24,12 +27,11 @@
 ### 2.1 路径命名检查
 
 ```bash
-python tools/api_check/path_naming.py \
-  --services services/admin-api,~chat-api,~document-parser \
-  --output path_naming_report.md
+python tools/api_check/path_naming.py --root .
+# 可选：--json 输出给 CI 聚合；--strict 追加 add/remove/fetch/set/save/destroy 动词段
 ```
 
-期望：报告列出所有动词段路径（`getXxx`/`listXxx`/`doXxx`），整改后报告为空。
+期望：`path-naming OK — no verb segments found`（退出码 0）；存在动词段时列出明细并返回 1。
 
 ### 2.2 载荷限制
 
@@ -92,38 +94,38 @@ dimensions:
 ### 4.1 生成契约文件
 
 ```bash
-# 从 OpenAPI 生成初始契约
-python tools/openapi/generate.py \
-  --services services/admin-api,~chat-api,~document-parser \
-  --output specs/025-api-contract-hardening/contracts/
+# 生成三服务 OpenAPI 3.1 artifact（契约 yaml 为人工维护，不由本命令生成）
+python tools/openapi/generate.py --all
+# 单服务：python tools/openapi/generate.py --service admin-api
+# artifact 输出：specs/025-api-contract-hardening/openapi/{admin-api,chat-api,document-parser}-openapi.json
+# --check：与已提交 artifact 比对，不一致则失败（CI 用）
 ```
 
 ### 4.2 执行契约验证
 
 ```bash
-# 提供方侧验证
-python tools/contract/validate.py \
-  --contract specs/025-api-contract-hardening/contracts/admin-api.yaml \
-  --provider-url http://localhost:8000 \
-  --side provider
+# 契约结构 + 错误码注册表一致性（无参数 = 三份契约；--service 只验一个，参数非 append）
+python tools/contract/validate.py
+python tools/contract/validate.py --service admin-api
 
-# 消费方侧验证
-python tools/contract/validate.py \
-  --contract specs/025-api-contract-hardening/contracts/admin-api.yaml \
-  --consumer-url http://localhost:5173 \
-  --side consumer
+# 消费方源码证据（FR-16 / FR-17 静态扫描，即"消费方侧"验证）
+python tools/contract/consumer_refs.py --all
 ```
+
+期望：三份契约分别输出 `contract OK — 46 / 63 / 10 interactions`；`consumer_refs` 无缺失 path 证据、notes 文件均存在。
 
 ### 4.3 兼容性 diff
 
 ```bash
+# 单契约对比（--old / --new；工具无 --fail-on-breaking，靠退出码判定）
 python tools/contract/diff.py \
-  --base specs/025-api-contract-hardening/contracts/admin-api.yaml \
-  --head openapi.json \
-  --fail-on-breaking
+  --old /tmp/old-admin-api.yaml \
+  --new specs/025-api-contract-hardening/contracts/admin-api.yaml
+
+# 整目录对比：--old-contracts-dir A --new-contracts-dir B
 ```
 
-期望：不兼容变更返回非零退出码（CI 阻断）。
+期望：`rc=0` 无破坏性变更；`rc=1` 存在破坏性变更（CI 阻断）。CI 逐服务取 `HEAD~1` 契约的写法见 §9。
 
 ---
 
@@ -170,13 +172,13 @@ python tools/openapi/validate.py --all
 | 10 | 不泄漏内部信息 | `pytest services/admin-api/tests/api/test_errors.py -k no_leak` | 错误信息无内部组件/版本 |
 | 11 | 限流 | `pytest services/admin-api/tests/api/test_errors.py -k rate_limit` | 超配额返回 429 + Retry-After |
 | 12 | 批量语义 | `pytest services/admin-api/tests/api/test_errors.py -k batch` | 逐项结果 + partial 字段 |
-| 13 | 契约测试（提供方） | `python tools/contract/validate.py --side provider` | 所有契约用例通过 |
-| 14 | 契约测试（消费方） | `python tools/contract/validate.py --side consumer` | 所有契约用例通过 |
-| 15 | 兼容性 diff | `python tools/contract/diff.py --fail-on-breaking` | 无不兼容变更 |
-| 16 | OpenAPI 校验 | `python tools/openapi/validate.py` | 校验通过 |
+| 13 | 契约结构 + 错误码一致性（提供方口径） | `python tools/contract/validate.py --service admin-api` | `contract OK — 46 interactions` |
+| 14 | 消费方源码证据（消费方口径） | `python tools/contract/consumer_refs.py --all` | 每条 interaction 有 path 证据、notes 文件存在 |
+| 15 | 兼容性 diff | `python tools/contract/diff.py --old <old.yaml> --new <new.yaml>` | 无不兼容变更（rc=0；破坏性 rc=1） |
+| 16 | OpenAPI 校验 | `python tools/openapi/validate.py --all` | 校验通过（结构级 + 内置 lint 阻断项） |
 | 17 | 错误码重名 | `python tools/api_check/error_codes_uniqueness.py` | 无跨服务重名 |
 | 18 | 弃用字段观察期 | `python tools/contract/deprecation_check.py` | 无超期未移除字段 |
-| 19 | 契约结构校验（三服务） | `python tools/contract/validate.py --all` | admin-api 46 / chat-api 63 / document-parser 10 interactions 全部合规 |
+| 19 | 契约结构校验（三服务） | `python tools/contract/validate.py` | admin-api 46 / chat-api 63 / document-parser 10 interactions 全部合规 |
 | 20 | 消费方源码证据 | `python tools/contract/consumer_refs.py --all` | 每条 interaction 在消费方源码有调用证据；仅契约已标注零消费方项 warn |
 | 21 | 错误码映射稳定性 | `python tools/api_check/error_code_mapping.py` | 与基线快照一致；映射变更提示需 major 升级（FR-31） |
 | 22 | OpenAPI 与实测一致性 | `python tools/openapi/probe.py --all` | 探针端点的路径/响应字段与 OpenAPI 一致 |
@@ -199,24 +201,22 @@ PYTHONPATH=. python -m pytest tests/api/test_semantics.py tests/api/test_errors.
 ## 8. 契约测试执行命令
 
 ```bash
-# 全量契约测试（CI 执行）
-python tools/contract/validate.py \
-  --contract-dir specs/025-api-contract-hardening/contracts/ \
-  --provider-url http://localhost:8000 \
-  --consumer-url http://localhost:5173 \
-  --fail-on-error
+# 全量契约测试（CI 执行；无参数即校验三份契约）
+python tools/contract/validate.py
 
-# 仅提供方侧
-python tools/contract/validate.py \
-  --contract-dir specs/025-api-contract-hardening/contracts/ \
-  --provider-url http://localhost:8000 \
-  --side provider
+# 仅单服务
+python tools/contract/validate.py --service admin-api
 
-# 兼容性 diff（PR CI 阻断）
-python tools/contract/diff.py \
-  --base specs/025-api-contract-hardening/contracts/ \
-  --head build/openapi/ \
-  --fail-on-breaking
+# 消费方源码证据（消费方侧）
+python tools/contract/consumer_refs.py --all
+
+# 兼容性 diff（PR CI 阻断，逐服务取 HEAD~1 契约）
+for svc in admin-api chat-api document-parser; do
+  rel="specs/025-api-contract-hardening/contracts/$svc.yaml"
+  if git show "HEAD~1:$rel" > "/tmp/old-$svc.yaml" 2>/dev/null; then
+    python tools/contract/diff.py --old "/tmp/old-$svc.yaml" --new "$rel"
+  fi
+done
 ```
 
 ---
