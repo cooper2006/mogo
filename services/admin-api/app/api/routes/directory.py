@@ -185,18 +185,23 @@ class UserCreatePayload(BaseModel):
 
 
 class UserUpdatePayload(BaseModel):
+    """编辑用户。自助注册 / 迁移来的历史用户可能缺手机号、邮箱或岗位角色，
+    因此除 name / primaryDepartmentId 外均允许留空；可选字段留空的语义是
+    「保持库中原值」，不会覆盖联系方式、清空角色或清除登录凭据（见 update_user）。
+    """
+
     name: str = Field(min_length=1, max_length=64)
-    mobile: str = Field(min_length=1, max_length=32)
-    email: str = Field(min_length=1, max_length=128)
+    mobile: str = Field(default="", max_length=32)
+    email: str = Field(default="", max_length=128)
     status: str = Field(default="active", pattern=r"^(active|disabled)$")
-    source: str = Field(default="local", pattern=r"^(local|dingtalk|wecom|feishu)$")
+    source: str = Field(default="local", pattern=r"^(local|self_register|dingtalk|wecom|feishu)$")
     sourceUserId: str = Field(default="", max_length=128)
     primaryDepartmentId: str = Field(min_length=1)
     departmentIds: list[str] = Field(default_factory=list)
     loginName: str = Field(default="", max_length=64)
     resetPassword: str = Field(default="", max_length=128)
-    primaryRoleId: str = Field(min_length=1)
-    roleIds: list[str] = Field(min_length=1)
+    primaryRoleId: str = Field(default="")
+    roleIds: list[str] = Field(default_factory=list)
 
 
 class UserFieldDefPayload(BaseModel):
@@ -645,18 +650,21 @@ async def update_user(user_id: str, payload: UserUpdatePayload, current_user: di
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     department_ids = payload.departmentIds or [payload.primaryDepartmentId]
     await _validate_departments(tenant_id, [payload.primaryDepartmentId, *department_ids])
-    role_service = PositionRoleService()
-    await role_service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
+    # 空 roleIds / primaryRoleId 表示「不改动岗位角色」：历史自助注册用户和
+    # 停用兜底请求都可能不带角色，不能把它当成「清空该用户全部角色」。
+    roles_to_apply = bool(payload.roleIds and payload.primaryRoleId)
+    if roles_to_apply:
+        role_service = PositionRoleService()
+        await role_service.validate_roles(tenant_id, payload.roleIds, payload.primaryRoleId)
     mobile = payload.mobile.strip()
     email = payload.email.strip()
-    if not mobile:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写手机号")
-    if not email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请填写邮箱")
 
     try:
+        # self_register 是本地账号（有 login_name / password_hash），不能按
+        # 「外部身份用户」处理，否则一次编辑保存就会清掉它的登录凭据。
+        credential_source = "local" if payload.source == "self_register" else payload.source
         login_name, reset_password = normalize_employee_credentials(  # pragma: allowlist secret
-            source=payload.source,
+            source=credential_source,
             login_name=payload.loginName,
             password=payload.resetPassword,
             creating=False,
@@ -666,14 +674,17 @@ async def update_user(user_id: str, payload: UserUpdatePayload, current_user: di
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     update_doc: dict[str, Any] = {
         "name": payload.name.strip(),
-        "mobile": mobile,
-        "email": email,
         "status": payload.status,
         "source": payload.source,
         "source_user_id": payload.sourceUserId.strip(),
         "primary_org_id": payload.primaryDepartmentId,
         "updated_at": _now(),
     }
+    # 留空表示「保持库中原值」：历史用户可能根本没有 mobile / email 字段。
+    if mobile:
+        update_doc["mobile"] = mobile
+    if email:
+        update_doc["email"] = email
     update_ops: dict[str, Any] = {"$set": update_doc}
     if login_name:
         update_doc["login_name"] = login_name
@@ -695,15 +706,16 @@ async def update_user(user_id: str, payload: UserUpdatePayload, current_user: di
         else:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="登录名已存在") from exc
     await _upsert_user_relations(tenant_id, user_id, payload.primaryDepartmentId, department_ids)
-    await role_service.repository.replace_user_roles(tenant_id, user_id, payload.roleIds, payload.primaryRoleId, actor=str(current_user.get("username", "")))
-    await role_service.repository.audit(
-        tenant_id,
-        str(current_user.get("username", "")),
-        "assign",
-        "employee_position_roles",
-        user_id,
-        {"primaryRoleId": payload.primaryRoleId, "roleIds": payload.roleIds},
-    )
+    if roles_to_apply:
+        await role_service.repository.replace_user_roles(tenant_id, user_id, payload.roleIds, payload.primaryRoleId, actor=str(current_user.get("username", "")))
+        await role_service.repository.audit(
+            tenant_id,
+            str(current_user.get("username", "")),
+            "assign",
+            "employee_position_roles",
+            user_id,
+            {"primaryRoleId": payload.primaryRoleId, "roleIds": payload.roleIds},
+        )
     await _write_audit(
         tenant_id,
         str(current_user.get("username", "")),

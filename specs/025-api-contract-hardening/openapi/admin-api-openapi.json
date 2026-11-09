@@ -54093,14 +54093,14 @@
           "mobile": {
             "type": "string",
             "maxLength": 32,
-            "minLength": 1,
-            "title": "Mobile"
+            "title": "Mobile",
+            "default": ""
           },
           "email": {
             "type": "string",
             "maxLength": 128,
-            "minLength": 1,
-            "title": "Email"
+            "title": "Email",
+            "default": ""
           },
           "status": {
             "type": "string",
@@ -54110,7 +54110,7 @@
           },
           "source": {
             "type": "string",
-            "pattern": "^(local|dingtalk|wecom|feishu)$",
+            "pattern": "^(local|self_register|dingtalk|wecom|feishu)$",
             "title": "Source",
             "default": "local"
           },
@@ -54146,28 +54146,24 @@
           },
           "primaryRoleId": {
             "type": "string",
-            "minLength": 1,
-            "title": "Primaryroleid"
+            "title": "Primaryroleid",
+            "default": ""
           },
           "roleIds": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "minItems": 1,
             "title": "Roleids"
           }
         },
         "type": "object",
         "required": [
           "name",
-          "mobile",
-          "email",
-          "primaryDepartmentId",
-          "primaryRoleId",
-          "roleIds"
+          "primaryDepartmentId"
         ],
-        "title": "UserUpdatePayload"
+        "title": "UserUpdatePayload",
+        "description": "编辑用户。自助注册 / 迁移来的历史用户可能缺手机号、邮箱或岗位角色，\n因此除 name / primaryDepartmentId 外均允许留空；可选字段留空的语义是\n「保持库中原值」，不会覆盖联系方式、清空角色或清除登录凭据（见 update_user）。"
       },
       "ValidationError": {
         "properties": {

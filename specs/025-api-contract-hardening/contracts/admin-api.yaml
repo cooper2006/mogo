@@ -724,7 +724,13 @@ interactions:
         error_codes: [api.not_found]
       - status: 422
         error_codes: [api.validation_error]
-    notes: 编辑用户（400/422 消费方统一提示「请求参数有误」，见 G2）
+    notes: >-
+      编辑用户（400/422 消费方统一提示「请求参数有误」，见 G2）。
+      请求体仅 name / primaryDepartmentId 必填；mobile / email / primaryRoleId 可空、
+      roleIds 可为空数组、source 额外兼容 self_register（自助注册 / 迁移来的历史用户）。
+      可选字段留空的语义是「保持库中原值」：不覆盖手机号 / 邮箱、不清空已有岗位角色，
+      且 self_register 按本地账号处理，不清除 login_name 与密码。
+      self_register 用户仍需带 loginName（其注册邮箱即登录名）。
 
   - id: directory_user_delete
     method: DELETE

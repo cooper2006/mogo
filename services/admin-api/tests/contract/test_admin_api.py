@@ -251,5 +251,21 @@ def test_error_responses_reference_error_response_schema() -> None:
     assert checked > 0, "服务端 4xx/5xx 响应未引用 ErrorResponse schema"
 
 
+def test_user_update_payload_allows_incomplete_legacy_users() -> None:
+    """用户更新请求体必须容纳自助注册 / 迁移来的历史用户（025 契约）。
+
+    旧模型把 mobile / email / primaryRoleId / roleIds 全列为必填、source 只放行
+    4 种，这类用户在请求体校验阶段就返回 422，根本到不了数据库层。
+    """
+    schema = _openapi()["components"]["schemas"]["UserUpdatePayload"]
+    props = schema["properties"]
+    assert set(schema["required"]) == {"name", "primaryDepartmentId"}
+    assert "minLength" not in props["mobile"]
+    assert "minLength" not in props["email"]
+    assert "minLength" not in props["primaryRoleId"]
+    assert "minItems" not in props["roleIds"]
+    assert "self_register" in props["source"]["pattern"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
