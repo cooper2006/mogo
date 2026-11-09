@@ -65,23 +65,47 @@ scripts/apt_packages_bundle.sh pack <service>                   # 仅重新打�
 
 | 内容 | 来源 | 说明 |
 |---|---|---|
-| `store/v11/files/...` | BuildKit cache mount `/pnpm-store` | 项目依赖的内容寻址包，跨架构混存无副作用 |
+| `store/v11/files/...` + `v11/index.db` | 宿主机 `pnpm fetch` + `supportedArchitectures` | 三个服务全量依赖，一次覆盖 linux/amd64 + linux/arm64 |
 | `pnpm-cli/<arch>/pnpm` | `@pnpm/exe.linux-x64` / `linux-arm64` | pnpm ≥ 11 的 CLI 是 **平台原生二进制**，不是 JS；`npm install -g pnpm` 本身就要下 ~24MB |
 
-CLI 默认只打 `amd64`（QEMU 仿真目标，慢的就是它）；arm64 在 Apple Silicon 上是原生构建，`npm install -g pnpm` 秒级完成，缺 CLI 时自动走联网路径，但**离线 store 仍然生效**。需要给 amd64 宿主机打 arm64 镜像时用 `ARCH_LIST="amd64 arm64"` 覆盖。
+`ARCH_LIST` 默认 **`amd64 arm64`，两种架构的 CLI 都必须进包**：
+
+- `amd64` 是 QEMU 仿真目标，`npm install -g pnpm` 实测 722s；
+- `arm64` 是本地 dev 目标（`.env` 为 `MOGO_PLATFORM=linux/arm64`）。原生架构下联网安装确实很快，**但离线／受限网络的构建环境里这一步会直接 `ETIMEDOUT`**——2026-11-09 本地重建就卡在 `services/chat-api/dsh/runtime-host/Dockerfile:24` 的回退分支，`connect ETIMEDOUT 220.181.166.14:443` 耗时 495s。
+
+> ⚠️ **store 内容寻址虽与架构无关，但「需要哪些包」与架构有关**：`optionalDependencies` 会按 `os`/`cpu`/`libc` 选包（`@koromix/koffi-linux-arm64`、`@img/sharp-linux-arm64`、`sherpa-onnx-linux-arm64` …）。从一次 amd64 构建导出的 cache mount 里没有这些包，arm64 `pnpm install --offline` 会报 `ERR_PNPM_NO_OFFLINE_TARBALL` 并回退联网（2026-11-09 实测缺 385 个包）。因此**必须用 `fetch` 显式生成多架构 store**，不能只靠 `save` 复用某次构建的 cache。
+
+若手头已有运行中的目标架构容器，可以零网络拿到 CLI（脚本会直接复用已存在的二进制，跳过下载）：
 
 ```bash
-# 一次性：从已有 BuildKit cache 导出 store + 拉 amd64 CLI（CLI 下载发生在宿主机，无 QEMU）
-DOCKER_BIN=/opt/homebrew/bin/docker BUILDX_BUILDER=kiri MOGO_DOCKER_CONTEXT=kiri \
-  scripts/pnpm_store_bundle.sh save
-DOCKER_BIN=/opt/homebrew/bin/docker scripts/pnpm_store_bundle.sh pack
-scripts/pnpm_store_bundle.sh status
-
-# 可选：从 lockfile 在目标架构容器里重建 store（用于 CI / 换机）
-ARCH_LIST=amd64 scripts/pnpm_store_bundle.sh fetch
+mkdir -p base-images/pnpm-store/pnpm-cli/arm64
+docker --context kiri cp \
+  'mogo-dsh-runtime-host-1:/app/node_modules/.pnpm/@pnpm+exe.linux-arm64@12.14.0/node_modules/@pnpm/exe.linux-arm64/pnpm' \
+  base-images/pnpm-store/pnpm-cli/arm64/pnpm
+chmod 0755 base-images/pnpm-store/pnpm-cli/arm64/pnpm
+scripts/pnpm_store_bundle.sh pack
 ```
 
-`pack` 会写出三个同内容的构建上下文包（其内容指纹相同则跳过重打，复用 `scripts/bundle_pack_lib.sh` 的可复现打包）：
+> 排查口径：构建日志里出现 `npm install --global pnpm@12.14.0` 就说明**该架构的 CLI 没命中 bundle**，先跑 `scripts/pnpm_store_bundle.sh status` 看 `cli/<arch>` 是否 MISSING。
+
+```bash
+# 推荐：宿主机从 committed lockfile 生成完备多架构 store（宿主机需可联网；
+# fetch 会为每个服务准备临时 stage 并追加 supportedArchitectures，一次覆盖
+# linux/amd64 + linux/arm64，不依赖构建容器出网）
+scripts/pnpm_store_bundle.sh fetch
+scripts/pnpm_store_bundle.sh cli     # 可选：只刷新 CLI 二进制，不动 store
+scripts/pnpm_store_bundle.sh pack
+scripts/pnpm_store_bundle.sh status
+
+# 备选：从 BuildKit cache mount 导出 store。注意这会覆盖 fetch 的结果，
+# 且 cache 只含「那一次构建实际装过的包」，通常不完整。
+DOCKER_BIN=/opt/homebrew/bin/docker BUILDX_BUILDER=kiri MOGO_DOCKER_CONTEXT=kiri \
+  scripts/pnpm_store_bundle.sh save
+```
+
+`pack` 只把 `v11/files/` + `v11/index.db` + 各架构 CLI 打进包：宿主机 store 里的
+`v11/links/`（硬链接缓存，可达 2GB）和 `v11/projects/` 会被排除，pnpm 在容器内自行重建。
+写出三个同内容的构建上下文包（内容指纹相同则跳过重打，复用 `scripts/bundle_pack_lib.sh` 的可复现打包）：
 
 ```
 apps/admin-web/pnpm-store-bundle.tar.gz
@@ -94,7 +118,7 @@ Dockerfile 契约（`ARG PNPM_OFFLINE_INSTALL=true`，由 `docker-compose.build.
 1. 通过 `--mount=type=bind,source=pnpm-store-bundle.tar.gz` 挂载，不产生镜像层；
 2. 解出 `store/` 后 `cp -a` 进 cache mount `/pnpm-store`，`pnpm install --offline --frozen-lockfile --trust-lockfile`；`--trust-lockfile` 不可省——pnpm ≥ 12 默认会做 supply-chain 策略校验并索要 registry 元数据，纯离线时会报 `ERR_PNPM_NO_OFFLINE_META` 而退化成联网（实测每个元数据请求 10–47s）。联网回退分支不加该参数，保留 pnpm 默认校验；
 3. 按 `TARGETARCH` 取 `pnpm-cli/${arch}/pnpm` 装到 `/usr/local/bin/pnpm`，命中即完全不联网；
-4. 包缺失/占位（<1KB）、CLI 缺失或 `--offline` 安装失败时**自动回退联网**，不会把构建直接搞挂。
+4. 包缺失/占位（<1KB）、CLI 缺失或 `--offline` 安装失败时**自动回退联网**，不会把构建直接搞挂；但若构建容器本身无外网（例如代理只配在宿主机、Kiri 容器直连 registry 超时），这一步会卡到 npm 超时（实测 `ETIMEDOUT` 495s）才失败。所以 **bundle 必须完备**，回退只能当安全网。
 
 > **构建前必须先 `pack`**：与 pip/apt bundle 一样，这些 tar.gz 不入库（`.gitignore` 已列），而 Dockerfile 用 bind mount 引用它们，文件不存在会在计算缓存键时直接报 "not found"。
 
