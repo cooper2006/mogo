@@ -290,15 +290,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.electron-browser { display: flex; height: 100%; min-width: 0; flex-direction: column; background: white; color: var(--mg-text-1); container-type: inline-size; }
-.browser-toolbar { display: flex; min-height: 48px; align-items: center; gap: 7px; border-bottom: 1px solid var(--mg-border); padding: 7px 9px; background: white; }
+.electron-browser { display: flex; height: 100%; min-width: 0; flex-direction: column; background: var(--mg-bg-surface); color: var(--mg-text-1); container-type: inline-size; }
+.browser-toolbar { display: flex; min-height: 48px; align-items: center; gap: 7px; border-bottom: 1px solid var(--mg-border); padding: 7px 9px; background: var(--mg-bg-surface); }
 .navigation-controls { display: flex; gap: 4px; }
 .address-container { min-width: 0; flex: 1; }
 .status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #22c55e; }
 .status-dot.loading { background: #f59e0b; }
 .owner-label { display: inline-flex; height: 26px; align-items: center; gap: 5px; border: 1px solid var(--mg-border); border-radius: 6px; padding: 0 7px; color: var(--mg-text-3); font-size: 10px; }
 .resume-command, .panel-close, .icon-command { display: inline-flex; width: 32px; height: 32px; flex: none; align-items: center; justify-content: center; border: 0; border-radius: 7px; background: transparent; padding: 0; color: var(--mg-text-3); cursor: pointer; }
-.record-command { display: inline-flex; min-height: 32px; align-items: center; gap: 5px; border: 1px solid var(--mg-border); border-radius: 7px; background: white; padding: 0 9px; color: var(--mg-text-2); font-size: 11px; cursor: pointer; }
+.record-command { display: inline-flex; min-height: 32px; align-items: center; gap: 5px; border: 1px solid var(--mg-border); border-radius: 7px; background: var(--mg-bg-surface); padding: 0 9px; color: var(--mg-text-2); font-size: 11px; cursor: pointer; }
 .record-command:hover { border-color: var(--mg-brand-soft-border); background: var(--mg-bg-subtle); color: var(--mg-text-1); }
 .record-command.active { border-color: var(--mg-danger-border); background: var(--mg-danger-bg); color: var(--mg-danger-text); }
 .record-command:focus-visible { outline: 2px solid #93c5fd; outline-offset: 1px; }
@@ -312,7 +312,7 @@ onBeforeUnmount(() => {
 .resume-command:focus-visible, .panel-close:focus-visible, .icon-command:focus-visible { outline: 2px solid #bfdbfe; outline-offset: 1px; }
 .resume-command svg, .panel-close svg, .icon-command svg { width: 17px; height: 17px; }
 .icon-command:disabled { cursor: default; opacity: .35; }
-.browser-surface { min-height: 0; flex: 1; background: white; }
+.browser-surface { min-height: 0; flex: 1; background: var(--mg-bg-surface); }
 @media (max-width: 620px) { .owner-label { display: none; } .navigation-controls { gap: 1px; } .browser-toolbar { padding-inline: 5px; } }
 @container (max-width: 420px) { .owner-label { display: none; } }
 </style>

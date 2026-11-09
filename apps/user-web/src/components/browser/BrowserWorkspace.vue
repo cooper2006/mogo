@@ -119,7 +119,7 @@ function closeMiniView() {
 </template>
 
 <style scoped>
-.browser-workspace { position: relative; display: flex; width: 100%; height: 100%; min-width: 0; overflow: hidden; background: white; }
+.browser-workspace { position: relative; display: flex; width: 100%; height: 100%; min-width: 0; overflow: hidden; background: var(--mg-bg-surface); }
 .browser-workspace.dragging { user-select: none; cursor: col-resize; }
 .chat-pane, .browser-pane { height: 100%; min-width: 0; }
 .chat-pane { flex:1; }

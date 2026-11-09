@@ -52,7 +52,7 @@ body,
  * ========================================================================== */
 .list-body {
   scrollbar-width: thin;
-  scrollbar-color: #b3c1d8 transparent;
+  scrollbar-color: var(--mg-scrollbar-thumb) transparent;
 }
 
 .list-body::-webkit-scrollbar {
@@ -66,9 +66,9 @@ body,
 
 .list-body::-webkit-scrollbar-thumb {
   border-radius: 4px;
-  background: #b3c1d8;
+  background: var(--mg-scrollbar-thumb);
 }
 
 .list-body::-webkit-scrollbar-thumb:hover {
-  background: #9fb0cd;
+  background: var(--mg-scrollbar-thumb-hover);
 }

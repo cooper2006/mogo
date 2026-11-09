@@ -51,5 +51,5 @@ function focusAddress(event: FocusEvent) {
 .address-form { min-width: 0; width: 100%; }
 .address-input { box-sizing: border-box; width: 100%; height: 32px; border: 1px solid transparent; border-radius: 7px; outline: none; background: var(--mg-bg-subtle); padding: 0 11px; color: var(--mg-text-1); font-size: 12px; letter-spacing: 0; }
 .address-input:hover { background: var(--mg-bg-subtle); }
-.address-input:focus { border-color: var(--mg-brand-soft-border); background: white; box-shadow: 0 0 0 1px #bfdbfe; }
+.address-input:focus { border-color: var(--mg-brand-soft-border); background: var(--mg-bg-surface); box-shadow: 0 0 0 1px var(--mg-brand-soft-border); }
 </style>

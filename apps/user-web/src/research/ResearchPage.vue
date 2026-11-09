@@ -147,7 +147,7 @@ async function regenerate() {
 .rp-error { color: #d83931; font-size: 13px; margin-top: 8px; }
 .rp-mock-badge {
     display: inline-block; margin-top: 8px; padding: 2px 10px; font-size: 12px;
-    background: var(--mg-warning-bg); color: #ad6800; border: 1px solid #ffd591; border-radius: 999px;
+    background: var(--mg-warning-bg); color: var(--mg-warning-text); border: 1px solid var(--mg-warning-border); border-radius: 999px;
 }
 .rp-judgment {
     margin-top: 28px; padding: 20px 24px; border-radius: 12px;

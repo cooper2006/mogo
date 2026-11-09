@@ -189,7 +189,7 @@ onMounted(async () => {
 <style scoped>
 .invite-page {
   min-height: 100vh;
-  background: linear-gradient(160deg, #edf2ff 0%, #f5f8ff 48%, #eef8ff 100%);
+  background: var(--mg-gradient-invite);
   padding: 44px 24px 64px;
 }
 

@@ -612,7 +612,7 @@ onMounted(loadRows);
   justify-content: center;
   gap: 12px;
   text-align: center;
-  background: linear-gradient(180deg, #fbfdff, #fff);
+  background: var(--mg-gradient-empty);
 }
 
 .empty-visual {

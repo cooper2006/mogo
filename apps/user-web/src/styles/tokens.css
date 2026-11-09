@@ -49,6 +49,26 @@
   --mg-bg-overlay: rgba(16, 28, 61, 0.42);
   --mg-bg-inverse: var(--mg-palette-slate-900);
 
+  /* ---------- L2 semantic：装饰性表面（渐变 / 玻璃态 / 虚线卡片 / 第三方画布） ----------
+     页面曾把这些值写死为白色字面量，深色主题下无法被兼容层覆盖（兼容层只改
+     background-color，改不掉 background-image）。统一上收到令牌层，组件只引用变量。 */
+  --mg-gradient-page: linear-gradient(180deg, #fbfcfe 0%, #f6f8fc 100%);
+  --mg-gradient-empty: linear-gradient(180deg, #fbfdff 0%, #ffffff 100%);
+  --mg-gradient-accent: linear-gradient(135deg, #ffffff 0%, #f5f8ff 100%);
+  --mg-gradient-invite: linear-gradient(160deg, #edf2ff 0%, #f5f8ff 48%, #eef8ff 100%);
+  --mg-gradient-glow:
+    radial-gradient(80% 52% at 50% 0%, rgba(219, 234, 254, 0.58) 0%, rgba(219, 234, 254, 0) 70%),
+    radial-gradient(75% 55% at 50% 120%, rgba(226, 232, 240, 0.42) 0%, rgba(226, 232, 240, 0) 68%);
+  --mg-bg-dashed: rgba(247, 250, 255, 0.8);
+  --mg-bg-glass: rgba(255, 255, 255, 0.92);
+  --mg-bg-glass-strong: rgba(255, 255, 255, 0.96);
+  --mg-bg-glass-soft: rgba(255, 255, 255, 0.82);
+  --mg-bg-glass-muted: rgba(248, 250, 252, 0.92);
+  --mg-dot-grid: #d1d5db;
+  --mg-scrollbar-thumb: #b3c1d8;
+  --mg-scrollbar-thumb-hover: #9fb0cd;
+  --mg-canvas-mask: rgba(240, 240, 240, 0.6);
+
   /* ---------- L2 semantic：文本（三级层次） ---------- */
   --mg-text-1: var(--mg-palette-slate-900); /* 标题 / 主内容 */
   --mg-text-2: var(--mg-palette-slate-700); /* 正文 / 次要信息 */
@@ -113,6 +133,7 @@
   --mg-shadow-md: 0 6px 20px rgba(16, 38, 84, 0.07);
   --mg-shadow-lg: 0 16px 40px rgba(16, 38, 84, 0.1);
   --mg-shadow-card: var(--mg-shadow-md);
+  --mg-shadow-card-glow: 0 20px 46px rgba(15, 23, 42, 0.11), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
 
   /* ---------- L3 component：圆角 ---------- */
   --mg-radius-xs: 4px;
@@ -178,6 +199,23 @@ html.theme-dark {
   --mg-bg-overlay: rgba(4, 8, 16, 0.62);
   --mg-bg-inverse: #f5f7fc;
 
+  --mg-gradient-page: linear-gradient(180deg, #1b2436 0%, #0e1420 100%);
+  --mg-gradient-empty: linear-gradient(180deg, #1b2436 0%, #161e2e 100%);
+  --mg-gradient-accent: linear-gradient(135deg, #1b2436 0%, #161e2e 100%);
+  --mg-gradient-invite: linear-gradient(160deg, #161e2e 0%, #111926 48%, #0e1420 100%);
+  --mg-gradient-glow:
+    radial-gradient(80% 52% at 50% 0%, rgba(107, 147, 255, 0.14) 0%, rgba(107, 147, 255, 0) 70%),
+    radial-gradient(75% 55% at 50% 120%, rgba(148, 163, 184, 0.1) 0%, rgba(148, 163, 184, 0) 68%);
+  --mg-bg-dashed: rgba(107, 147, 255, 0.07);
+  --mg-bg-glass: rgba(22, 30, 46, 0.92);
+  --mg-bg-glass-strong: rgba(22, 30, 46, 0.96);
+  --mg-bg-glass-soft: rgba(22, 30, 46, 0.82);
+  --mg-bg-glass-muted: rgba(26, 34, 49, 0.92);
+  --mg-dot-grid: rgba(148, 163, 184, 0.22);
+  --mg-scrollbar-thumb: #35415a;
+  --mg-scrollbar-thumb-hover: #47577a;
+  --mg-canvas-mask: rgba(4, 8, 16, 0.62);
+
   --mg-text-1: #e8edf7;
   --mg-text-2: #b3bed2;
   --mg-text-3: #7c879b;
@@ -235,6 +273,7 @@ html.theme-dark {
   --mg-shadow-md: 0 6px 20px rgba(0, 0, 0, 0.46);
   --mg-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
   --mg-shadow-card: none;
+  --mg-shadow-card-glow: 0 20px 46px rgba(0, 0, 0, 0.46), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
 
   color-scheme: dark;
 }

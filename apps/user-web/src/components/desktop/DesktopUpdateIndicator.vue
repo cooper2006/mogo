@@ -80,7 +80,7 @@ async function primaryAction() {
 .desktop-update-trigger:focus-visible { outline:2px solid #93c5fd; outline-offset:1px; }
 .desktop-update-trigger:disabled { cursor:default; opacity:.8; }
 .desktop-update-trigger svg { width:16px; height:16px; }
-.desktop-update-popover { position:fixed; z-index:90; top:60px; right:16px; width:min(340px,calc(100vw - 32px)); border: 1px solid var(--mg-border); border-radius:16px; background:rgba(255,255,255,.98); padding:16px; color: var(--mg-text-1); box-shadow:0 16px 48px rgba(15,23,42,.18); -webkit-app-region:no-drag; }
+.desktop-update-popover { position:fixed; z-index:90; top:60px; right:16px; width:min(340px,calc(100vw - 32px)); border: 1px solid var(--mg-border); border-radius:16px; background:var(--mg-bg-glass-strong); padding:16px; color: var(--mg-text-1); box-shadow:0 16px 48px rgba(15,23,42,.18); -webkit-app-region:no-drag; }
 .desktop-update-popover__heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .desktop-update-popover__heading strong { color: var(--mg-text-1); font-size:14px; }
 .desktop-update-popover__heading p { margin:4px 0 0; color: var(--mg-text-3); font-size:12px; }

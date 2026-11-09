@@ -113,6 +113,7 @@ const icons: Record<SetupOptionalModelForm['capability'], string> = {
 </script>
 
 <style scoped>
+/* design-token-ignore: 首装引导页（SetupPage.vue）的品牌模型图标，刻意保持浅色不随主题变化 */
 .step-content { display: grid; gap: 16px; }
 .step-heading { margin-bottom: 2px; }
 .step-kicker { color: var(--mg-brand); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }

@@ -637,8 +637,8 @@ watch(
 }
 
 .task-card-disabled {
-  background: linear-gradient(180deg, #fbfcfe, #f6f8fc);
-  border-color: rgba(28, 45, 82, 0.06);
+  background: var(--mg-gradient-page);
+  border-color: var(--mg-border-subtle);
 }
 
 .task-card-disabled .card-title,
@@ -657,7 +657,7 @@ watch(
   justify-content: center;
   gap: 12px;
   text-align: center;
-  background: linear-gradient(180deg, #fbfdff, #fff);
+  background: var(--mg-gradient-empty);
   margin: 20px 0;
 }
 

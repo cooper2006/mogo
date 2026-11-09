@@ -1936,7 +1936,7 @@ watch(documents, syncProcessingPoll, { deep: true });
 
 .list-filter-row::-webkit-scrollbar-thumb {
   border-radius: 3px;
-  background: #c8d3e5;
+  background: var(--mg-scrollbar-thumb);
 }
 
 .list-body {
@@ -2086,7 +2086,7 @@ watch(documents, syncProcessingPoll, { deep: true });
 
 .upload-drop:hover {
   border-color: var(--mg-brand);
-  background: #f3f7ff;
+  background: var(--mg-brand-soft);
 }
 
 .upload-picker.is-dragging .upload-drop {
@@ -2174,7 +2174,7 @@ watch(documents, syncProcessingPoll, { deep: true });
 
 .upload-queue-clear:hover,
 .upload-queue-remove:hover {
-  color: #e5484d;
+  color: var(--mg-danger-text);
 }
 
 .upload-queue-clear:disabled,
@@ -2202,9 +2202,9 @@ watch(documents, syncProcessingPoll, { deep: true });
 }
 
 .upload-queue-list::-webkit-scrollbar-thumb {
-  border: 2px solid #fff;
+  border: 2px solid var(--mg-bg-surface);
   border-radius: 999px;
-  background: #c9d3e4;
+  background: var(--mg-scrollbar-thumb);
 }
 
 .upload-queue-list::-webkit-scrollbar-thumb:hover {
@@ -2407,7 +2407,7 @@ watch(documents, syncProcessingPoll, { deep: true });
   background: transparent;
 }
 .upload-progress-list::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--mg-scrollbar-thumb);
   border-radius: 3px;
 }
 .upload-progress-list::-webkit-scrollbar-thumb:hover {
@@ -2473,7 +2473,7 @@ watch(documents, syncProcessingPoll, { deep: true });
 }
 
 .status-failed {
-  color: #ef4444;
+  color: var(--mg-danger-text);
 }
 
 .status-uploading {
@@ -2508,7 +2508,7 @@ watch(documents, syncProcessingPoll, { deep: true });
 }
 
 .error-icon {
-  color: #ef4444;
+  color: var(--mg-danger-text);
 }
 
 .spinning-icon {

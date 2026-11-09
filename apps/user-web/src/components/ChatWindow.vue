@@ -2711,7 +2711,7 @@ function formatErrorMessage(raw: string): string {
   gap: 7px;
   border-radius: 999px;
   border: 1px solid var(--mg-border);
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--mg-bg-glass);
   padding: 0 12px;
   color: var(--mg-text-2);
   font-size: 13px;
@@ -2765,7 +2765,7 @@ function formatErrorMessage(raw: string): string {
   border: 1px solid var(--mg-info-border);
   border-bottom: 0;
   border-radius: 18px 18px 0 0;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--mg-bg-glass-strong);
   box-shadow: 0 -4px 12px rgba(37, 99, 235, 0.04);
 }
 .prompt-guide-arc {
@@ -2778,18 +2778,16 @@ function formatErrorMessage(raw: string): string {
   border: 1px solid var(--mg-border);
   border-radius: 22px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.98) 100%);
+    var(--mg-gradient-empty);
   padding: 16px 18px 18px;
-  box-shadow: 0 20px 46px rgba(15, 23, 42, 0.11), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  box-shadow: var(--mg-shadow-card-glow);
 }
 .prompt-guide-arc::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background:
-    radial-gradient(80% 52% at 50% 0%, rgba(219, 234, 254, 0.58) 0%, rgba(219, 234, 254, 0) 70%),
-    radial-gradient(75% 55% at 50% 120%, rgba(226, 232, 240, 0.42) 0%, rgba(226, 232, 240, 0) 68%);
+  background: var(--mg-gradient-glow);
   pointer-events: none;
 }
 .prompt-guide-arc::after {
@@ -2813,7 +2811,7 @@ function formatErrorMessage(raw: string): string {
   gap: 7px;
   border-radius: 999px;
   border: 1px solid var(--mg-border);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--mg-bg-glass-soft);
   padding: 0 12px;
   color: var(--mg-text-1);
   font-size: 13px;
@@ -2831,7 +2829,7 @@ function formatErrorMessage(raw: string): string {
 }
 .prompt-guide-item.is-locked {
   color: var(--mg-text-3);
-  background: rgba(248, 250, 252, 0.92);
+  background: var(--mg-bg-glass-muted);
 }
 .prompt-guide-item.is-locked:hover,
 .prompt-guide-item.is-locked:focus-visible {

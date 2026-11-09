@@ -1255,8 +1255,8 @@ onMounted(() => {
   padding: 14px 16px;
   border: 1px solid var(--mg-border);
   border-radius: 12px;
-  background: linear-gradient(135deg, #ffffff 0%, #f5f8ff 100%);
-  box-shadow: 0 8px 22px rgba(28, 55, 104, 0.06);
+  background: var(--mg-gradient-accent);
+  box-shadow: var(--mg-shadow-sm);
 }
 
 .deployment-head,
@@ -1428,7 +1428,7 @@ onMounted(() => {
 
 .panel-card {
   border-radius: 12px;
-  box-shadow: 0 8px 22px rgba(28, 55, 104, 0.06);
+  box-shadow: var(--mg-shadow-sm);
 }
 
 .panel-header {

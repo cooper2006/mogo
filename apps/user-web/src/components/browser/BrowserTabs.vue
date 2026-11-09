@@ -54,7 +54,7 @@ function label(tab: BrowserTabState): string {
 .tab-scroll::-webkit-scrollbar { display: none; }
 .browser-tab { display: flex; width: 150px; min-width: 88px; max-width: 180px; height: 32px; flex: none; align-items: center; gap: 5px; border-radius: 7px 7px 0 0; outline: none; background: transparent; padding: 0 6px 0 10px; color: var(--mg-text-3); cursor: pointer; }
 .browser-tab:hover { background: var(--mg-bg-subtle); color: var(--mg-text-1); }
-.browser-tab.active { background: white; color: var(--mg-text-1); box-shadow: inset 0 0 0 1px #e2e8f0; }
+.browser-tab.active { background: var(--mg-bg-surface); color: var(--mg-text-1); box-shadow: inset 0 0 0 1px var(--mg-border); }
 .browser-tab:focus-visible { box-shadow: inset 0 0 0 2px #93c5fd; }
 .tab-label { min-width: 0; flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .tab-close, .new-tab { display: inline-flex; width: 26px; height: 26px; flex: none; align-items: center; justify-content: center; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }

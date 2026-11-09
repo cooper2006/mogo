@@ -37,6 +37,17 @@ html.theme-dark .app-main {
   background-color: var(--mg-bg-surface) !important;
 }
 
+/* 半透明遮罩与任意色值类：Tailwind 只按实际用到的变体生成类，需逐个补齐。
+   bg-white/10 是品牌色块上的高光，属于刻意保留，不在此覆盖。 */
+html.theme-dark .bg-white\/45 {
+  background-color: var(--mg-bg-overlay) !important;
+}
+
+html.theme-dark .bg-white\/70,
+html.theme-dark .bg-\[\#fdfdfd\] {
+  background-color: var(--mg-bg-surface) !important;
+}
+
 html.theme-dark .bg-gray-50,
 html.theme-dark .bg-slate-50,
 html.theme-dark .bg-zinc-50,
@@ -281,6 +292,58 @@ html.theme-dark .prose {
   --tw-prose-pre-bg: var(--mg-bg-inset);
   --tw-prose-th-borders: var(--mg-border-strong);
   --tw-prose-td-borders: var(--mg-border);
+}
+
+/* ---------- @vue-flow 画布：第三方默认白底接管 ----------
+   theme-default.css 把 --vf-node-bg 写成 #fff；minimap/dist/style.css 把缩略图
+   写成 #fff；controls/dist/style.css 把按钮写成 #fefefe。这些默认值不认识设计令牌，
+   深色主题下会形成白色方块与白色工具条。此处用更高优先级的选择器接到 --mg-*，
+   两套主题自动跟随，组件侧无须再写 html.theme-dark 覆盖块。
+   优先级说明：html:root (0,1,1) > :root (0,1,0)；.vue-flow .xxx (0,2,0) > .xxx (0,1,0)。 */
+html:root {
+  --vf-node-bg: var(--mg-bg-surface);
+  --vf-node-text: var(--mg-text-1);
+  --vf-connection-path: var(--mg-border-strong);
+  --vf-handle: var(--mg-text-3);
+}
+
+.vue-flow .vue-flow__minimap {
+  background-color: var(--mg-bg-surface);
+  border: 1px solid var(--mg-border);
+}
+
+.vue-flow .vue-flow__minimap-node {
+  fill: var(--mg-brand-soft-border);
+}
+
+.vue-flow .vue-flow__minimap-mask {
+  fill: var(--mg-canvas-mask);
+}
+
+.vue-flow .vue-flow__controls {
+  box-shadow: var(--mg-shadow-sm);
+}
+
+.vue-flow .vue-flow__controls-button {
+  background: var(--mg-bg-surface);
+  border-bottom: 1px solid var(--mg-border);
+  fill: var(--mg-text-1);
+}
+
+.vue-flow .vue-flow__controls-button:hover {
+  background: var(--mg-bg-surface-hover);
+}
+
+.vue-flow .vue-flow__controls-button svg {
+  fill: var(--mg-text-1);
+}
+
+.vue-flow .vue-flow__edge-textbg {
+  fill: var(--mg-bg-surface);
+}
+
+.vue-flow .vue-flow__handle {
+  border-color: var(--mg-bg-surface);
 }
 
 html.theme-dark input,

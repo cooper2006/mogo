@@ -1113,8 +1113,8 @@ watch(documentId, (next, previous) => {
   padding: 12px;
   border: 1px solid var(--mg-brand-soft-border);
   border-radius: 8px;
-  background: linear-gradient(180deg, #f7faff 0%, #ffffff 100%);
-  box-shadow: 0 8px 20px rgba(54, 106, 255, 0.08);
+  background: var(--mg-gradient-empty);
+  box-shadow: var(--mg-shadow-sm);
 }
 
 .source-target-head {
@@ -1363,7 +1363,7 @@ watch(documentId, (next, previous) => {
   max-height: 220px;
   margin: 9px 0 0;
   overflow: auto;
-  color: #25324a;
+  color: var(--mg-text-2);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.65;
@@ -1610,7 +1610,7 @@ watch(documentId, (next, previous) => {
 .header-doc-title {
   font-size: 14px;
   font-weight: 700;
-  color: #1f2d3d;
+  color: var(--mg-text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1619,8 +1619,8 @@ watch(documentId, (next, previous) => {
 
 .header-doc-meta {
   font-size: 11px;
-  color: #8892a0;
-  background: #f1f3f6;
+  color: var(--mg-text-3);
+  background: var(--mg-bg-subtle);
   padding: 2px 6px;
   border-radius: 4px;
   white-space: nowrap;

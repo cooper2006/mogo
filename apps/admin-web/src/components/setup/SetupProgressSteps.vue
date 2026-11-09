@@ -35,6 +35,7 @@ const steps = computed(() => [
 </template>
 
 <style scoped>
+/* design-token-ignore: 首装引导页（SetupPage.vue）的品牌步骤条，刻意保持浅色不随主题变化 */
 .progress-card {
   padding: 16px 24px;
   border: 1px solid var(--mg-border);

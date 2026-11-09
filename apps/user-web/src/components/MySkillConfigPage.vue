@@ -2663,8 +2663,8 @@ watch(() => [props.userId, props.tenantId], () => {
   padding: 12px 14px;
   border: 1px solid var(--mg-border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 24px rgba(16, 38, 84, 0.05);
+  background: var(--mg-bg-glass);
+  box-shadow: var(--mg-shadow-sm);
 }
 
 .toolbar-copy {
@@ -2945,7 +2945,7 @@ watch(() => [props.userId, props.tenantId], () => {
   padding: 18px 16px 16px 14px;
   border: 1px solid var(--mg-border);
   border-radius: 8px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+  background: var(--mg-gradient-empty);
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
 }

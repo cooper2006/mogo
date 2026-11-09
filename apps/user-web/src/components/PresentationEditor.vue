@@ -2499,7 +2499,7 @@ function applySpacingSnaps(
   flex: 1; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   background: var(--mg-bg-inset);
-  background-image: radial-gradient(#d1d5db 1px, transparent 1px);
+  background-image: radial-gradient(var(--mg-dot-grid) 1px, transparent 1px);
   background-size: 20px 20px;
 }
 .pe-canvas-frame {

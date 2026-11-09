@@ -24,7 +24,7 @@
         style="margin-bottom: 16px;"
       >
         {{ t('当前企业本周期总额度为 0，所有模型将无法被调用。请先前往') }}
-        <router-link to="/organizations/traffic?open=tenant" class="alert-link" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
+        <router-link to="/organizations/traffic?open=tenant" class="alert-link" style="color: var(--mg-brand-text); font-weight: 600; text-decoration: underline;">
           {{ t('流量分配') }}
         </router-link>
         {{ t('配置企业总额度与成员额度。') }}
@@ -1256,7 +1256,7 @@ onMounted(reload);
   place-content: center;
   justify-items: center;
   border-style: dashed;
-  background: rgba(247, 250, 255, 0.8);
+  background: var(--mg-bg-dashed);
   text-align: center;
 }
 

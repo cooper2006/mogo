@@ -179,7 +179,7 @@ const emit = defineEmits<{
 
 .desktop-window-chrome__content {
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--mg-bg-glass-strong);
   padding: 0 14px 0 12px;
 }
 
