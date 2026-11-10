@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import pytest
 
 from app.services.templates import (
@@ -215,7 +216,7 @@ def test_clone_deep_copies_and_records_ref(fake_db) -> None:
     template.content["nodes"][0]["payload"]["skill"] = "orig_v1"
     original_digest = template.digest()
 
-    clone, target_doc = __import__("asyncio").get_event_loop().run_until_complete(
+    clone, target_doc = asyncio.run(
         clone_template(template, cloner_id="cloner-1", repo=repo)
     )
 
@@ -239,7 +240,7 @@ def test_clone_rejects_offline_template(fake_db) -> None:
     template.publish()
     template.unpublish()  # offline
     with pytest.raises(CloneError):
-        __import__("asyncio").get_event_loop().run_until_complete(
+        asyncio.run(
             clone_template(template, cloner_id="cloner-1", repo=repo)
         )
 
@@ -248,9 +249,8 @@ def test_clone_same_name_dedupes(fake_db) -> None:
     repo = TemplateRepository()
     template = _make_sop_template()
     template.publish()
-    loop = __import__("asyncio").get_event_loop()
-    clone1, doc1 = loop.run_until_complete(clone_template(template, cloner_id="c1", name="同名", repo=repo))
-    clone2, doc2 = loop.run_until_complete(clone_template(template, cloner_id="c2", name="同名", repo=repo))
+    clone1, doc1 = asyncio.run(clone_template(template, cloner_id="c1", name="同名", repo=repo))
+    clone2, doc2 = asyncio.run(clone_template(template, cloner_id="c2", name="同名", repo=repo))
     assert doc1["orchestration"]["id"] != doc2["orchestration"]["id"]
 
 
@@ -272,8 +272,7 @@ def test_clone_editable_independent_of_original(fake_db) -> None:
     repo = TemplateRepository()
     template = _make_sop_template()
     template.publish()
-    loop = __import__("asyncio").get_event_loop()
-    clone, target_doc = loop.run_until_complete(clone_template(template, cloner_id="c1", repo=repo))
+    clone, target_doc = asyncio.run(clone_template(template, cloner_id="c1", repo=repo))
     # 克隆者编辑副本：改副本内容不影响原件。
     target_doc["nodes"][0]["payload"]["skill"] = "edited"
     assert template.content["nodes"][0]["payload"]["skill"] != "edited"
@@ -316,8 +315,7 @@ def test_clone_strips_credentials(fake_db) -> None:
         "payload": {"tools": ["http_tool"], "config": {"authToken": "sk-test-123"}},
     })
     template.publish()
-    loop = __import__("asyncio").get_event_loop()
-    _, target_doc = loop.run_until_complete(clone_template(template, cloner_id="c1", repo=repo))
+    _, target_doc = asyncio.run(clone_template(template, cloner_id="c1", repo=repo))
     assert "sk-test-123" not in str(target_doc)
 
 
@@ -336,7 +334,7 @@ def test_sop_publish_gate_rejects_no_test_set(fake_db, monkeypatch) -> None:
 
     monkeypatch.setattr("app.services.eval_gate.test_sets.count_cases", _zero_cases)
     with pytest.raises(Exception) as exc_info:
-        __import__("asyncio").get_event_loop().run_until_complete(run_publish_gate(template))
+        asyncio.run(run_publish_gate(template))
     assert "测试集" in str(exc_info.value) or "no_test_set" in str(exc_info.value)
 
 
@@ -366,8 +364,7 @@ def test_upgrade_replaces_and_keeps_snapshot(fake_db) -> None:
         "document": {"orchestration": {"id": "contract_review", "version": "1"}},
         "updated_at": utcnow(),
     })
-    loop = __import__("asyncio").get_event_loop()
-    record = loop.run_until_complete(
+    record = asyncio.run(
         upgrade_clone(
             tenant_id="default",
             template=template,
@@ -421,8 +418,7 @@ def test_unpublish_marks_offline(fake_db) -> None:
     repo = TemplateRepository()
     template = _make_sop_template()
     template.publish()
-    loop = __import__("asyncio").get_event_loop()
-    loop.run_until_complete(unpublish_template(template, actor="op-1", repo=repo))
+    asyncio.run(unpublish_template(template, actor="op-1", repo=repo))
     assert template.state == "offline"
 
 
