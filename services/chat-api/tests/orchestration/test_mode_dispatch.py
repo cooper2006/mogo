@@ -118,6 +118,58 @@ def test_load_unknown_node_mode_fails_closed() -> None:
         )
 
 
+# --- team takeover declaration gates (052 T015) ------------------------------
+
+def test_load_team_takeover_valid() -> None:
+    loaded = load_orchestration_document(
+        _doc(
+            "team",
+            nodes=[
+                {"id": "a", "mode": "team", "payload": {"members": ["m1"], "takeover": {"trigger": "manual", "approver": "reviewer"}}},
+                {"id": "m1"},
+            ],
+            header={"members": ["m1"]},
+        )
+    )
+    assert loaded.mode == "team"
+
+
+def test_load_team_takeover_rejects_non_mapping() -> None:
+    with pytest.raises(OrchestrationLoadError, match="takeover.*mapping"):
+        load_orchestration_document(
+            _doc(
+                "team",
+                nodes=[{"id": "a", "mode": "team", "payload": {"members": ["m1"], "takeover": "manual"}}, {"id": "m1"}],
+            )
+        )
+
+
+def test_load_team_takeover_rejects_bad_trigger() -> None:
+    with pytest.raises(OrchestrationLoadError, match="takeover.trigger"):
+        load_orchestration_document(
+            _doc(
+                "team",
+                nodes=[
+                    {"id": "a", "mode": "team", "payload": {"members": ["m1"], "takeover": {"trigger": "sometimes", "approver": "r"}}},
+                    {"id": "m1"},
+                ],
+            )
+        )
+
+
+def test_load_team_takeover_requires_approver() -> None:
+    with pytest.raises(OrchestrationLoadError, match="approver"):
+        load_orchestration_document(
+            _doc(
+                "team",
+                nodes=[
+                    {"id": "a", "mode": "team", "payload": {"members": ["m1"], "takeover": {"trigger": "manual", "approver": ""}}},
+                    {"id": "m1"},
+                ],
+            )
+        )
+
+
 # --- document-level execution ------------------------------------------------
 
 @pytest.mark.asyncio

@@ -53,10 +53,12 @@ from .round_robin import (
     select_candidate,
 )
 from .supervisor import Supervisor, run_hybrid
+from .team import NODE_MODE_TEAM, TeamError, TeamResult, run_team
 
 MODE_ROUND_ROBIN = "round_robin"
 MODE_DEBATE = "debate"
-NEW_MODES = (MODE_ROUND_ROBIN, MODE_DEBATE)
+MODE_TEAM = "team"
+NEW_MODES = (MODE_ROUND_ROBIN, MODE_DEBATE, MODE_TEAM)
 
 ROLE_PRO = "pro"
 ROLE_CON = "con"
@@ -125,6 +127,9 @@ async def execute_orchestration(
 
     if mode == MODE_DEBATE:
         return await _run_debate_document(loaded, runner, context=ctx)
+
+    if mode == MODE_TEAM:
+        return await _run_team_document(loaded, runner, context=ctx)
 
     raise OrchestrationLoadError(f"未知编排模式：{mode!r}（允许 {', '.join(_all_modes())}）")
 
@@ -218,6 +223,51 @@ async def _run_debate_document(
     return result
 
 
+async def _run_team_document(
+    loaded: LoadedOrchestration,
+    runner: Callable[[Node, dict[str, Any]], Awaitable[Any]],
+    *,
+    context: dict[str, Any],
+) -> TeamResult:
+    """Document-level team: leader node decomposes, member nodes execute."""
+    graph = loaded.definition.to_graph()
+    nodes = list(graph.nodes.values())
+    if not nodes:
+        raise TeamError("team 模式需要至少一个节点")
+    # Leader defaults to the first node; ``orchestration.leader`` may name another.
+    leader_id = str(_header_value(loaded, "leader") or nodes[0].id)
+    leader = graph.nodes.get(leader_id)
+    if leader is None:
+        raise TeamError(f"team 领导节点不存在：{leader_id!r}")
+    # Members = all nodes except the leader; ``members:`` may narrow the set.
+    declared_members = _header_value(loaded, "members")
+    if declared_members:
+        member_ids = [
+            str(m.get("id") or m) if isinstance(m, dict) else str(m)
+            for m in declared_members
+        ]
+        member_nodes = [graph.nodes[mid] for mid in member_ids if mid in graph.nodes]
+    else:
+        member_nodes = [node for node_id, node in graph.nodes.items() if node_id != leader_id]
+    if not member_nodes:
+        raise TeamError("team 模式需要至少一个成员节点")
+
+    host = Node(id=loaded.orchestration_id or "__team__", mode=MODE_TEAM, payload={})
+    result = await run_team(
+        host,
+        runner,
+        context=context,
+        member_nodes=member_nodes,
+        leader_node=leader,
+        max_review_rounds=_header_value(loaded, "max_review_rounds"),
+        max_reassign=_header_value(loaded, "max_reassign"),
+        max_concurrency=loaded.max_concurrency or DEFAULT_MAX_CONCURRENCY,
+        takeover=_header_value(loaded, "takeover"),
+    )
+    context[host.id] = result.as_payload()
+    return result
+
+
 def _role_node(graph: Graph, role: str) -> Node | None:
     for node in graph.nodes.values():
         if str((node.payload or {}).get("role") or "") == role:
@@ -273,6 +323,30 @@ def wrap_node_runner(
                 max_rounds=node.payload.get("max_rounds"),
                 convergence_threshold=float(node.payload.get("convergence_threshold") or 0.8),
                 similarity_threshold=float(node.payload.get("similarity_threshold") or 0.9),
+            )
+            return result.as_payload()
+
+        if node.mode == MODE_TEAM:
+            # Node-level team: members come from the node's ``members`` payload,
+            # each materialized as a lightweight Node (the graph is not available
+            # here, so members are declared by id on the payload).
+            raw_members = (node.payload or {}).get("members") or []
+            member_nodes = [
+                Node(id=str(m.get("id") or m) if isinstance(m, dict) else str(m), mode=NODE_MODE_TEAM)
+                for m in raw_members
+            ]
+            if not member_nodes:
+                raise TeamError(f"节点 {node.id} 的 team 需要声明 members")
+            result = await run_team(
+                node,
+                runner,
+                context=ctx,
+                member_nodes=member_nodes,
+                leader_node=None,
+                max_review_rounds=(node.payload or {}).get("max_review_rounds"),
+                max_reassign=(node.payload or {}).get("max_reassign"),
+                max_concurrency=int((node.payload or {}).get("max_concurrency") or max_concurrency),
+                takeover=(node.payload or {}).get("takeover"),
             )
             return result.as_payload()
 

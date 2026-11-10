@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-VALID_MODES = ("sequential", "supervisor", "hybrid", "graph", "round_robin", "debate")
+VALID_MODES = ("sequential", "supervisor", "hybrid", "graph", "round_robin", "debate", "team")
 
 
 class GraphError(ValueError):
