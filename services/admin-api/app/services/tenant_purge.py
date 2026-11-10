@@ -77,6 +77,9 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "knowledge_document_settings",
     "knowledge_resources",
     "organization_skill_releases",
+    # 055 菜单管理：租户级默认方案覆盖层，漏掉会让被删租户的菜单配置
+    # 残留并被同 ID 重建的租户读到（与 shortcut_schemes 同理）。
+    "organization_menu_schemes",
     "organization_shortcut_schemes",
     "organizations",
     "org_quota_policies",

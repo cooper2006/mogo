@@ -22,6 +22,8 @@
 >
 > **2026-10-31 补充（035/042 口径收敛落地）**：依据 `specs/035-cost-attribution/review-2026-10-30-dimension-source-audit.md`（业务线取消、空间→项目、企业→租户、042 整改批次 A/B/C）新增 **046–048 三个特性**（项目维度统一 / 配额可发现性 / 业务线维度删除），各含 spec + plan + tasks + checklist 四件套。**代码已落地（2026-11-01）**。046 34/34、047 30/30、048 13/13（tasks 全勾，与 CHANGELOG 一致）。详见「四（补 7）」。
 >
+> **2026-11-10 补充（055 菜单管理）**：新增 `specs/055-menu-management/`（spec / plan / tasks / checklist 四件套，tasks 25/25 全勾）。**代码同轮落地**：admin-api `app/menu_settings/` + `GET|PUT|DELETE /api/v1/settings/menus`（租户级覆盖层）、admin-web `menuCatalog.ts` / `menuConfig.ts` / `useMenuOptions.ts` / `views/settings/MenuManagePage.vue`；入口挂在「组织与用户」下。验收：admin-api 新增 27 项单测全通过、前端 `vue-tsc` + `vite build` 通过、路由/合并层 14 项断言 + 构建产物 15 项浏览器场景通过。**注**：054（资源中心）由其它会话在途，本条不重扫目录计数，待 054 落地后按发布流程统一重扫 specs 计数与 tasks 勾选数。
+>
 > **2026-11-04 三服务全量实测（OrbStack，镜像 `4abce5be`）**：admin-api 1519 passed / 1 skipped、
 > document-parser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（marker 过滤
 > `not dsh_host_e2e and not network`，27 deselected；`MONGODB_URI=mongodb://mongo:27017`）；

@@ -77,12 +77,8 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '个人中心', hideInMenu: true },
       },
       {
-        path: '/skills',
-        name: 'Skills',
-        component: () => import('@/views/skills/SkillsPage.vue'),
-        meta: { title: 'Skill管理', icon: SkillsManagerIcon },
-      },
-      {
+        // 技能列表已归入「资产中心」二级菜单（见下方 /assets children）；
+        // 详情页继续保留 /skills/:id/... 的既有 URL。
         path: '/skills/:id/config',
         name: 'SkillConfig',
         component: () => import('@/views/skills/SkillConfigPage.vue'),
@@ -105,22 +101,14 @@ export const appRoutes: RouteRecordRaw[] = [
         redirect: '/resources/dsh-plugins',
         meta: { hideInMenu: true },
       },
-      {
-        path: '/tools',
-        name: 'Tools',
-        component: () => import('@/views/tools/ToolsPage.vue'),
-        meta: { title: '工具与 MCP', icon: ToolsMcpIcon },
-      },
-      {
-        path: '/connectors',
-        name: 'ConnectorMarket',
-        component: () => import('@/views/connectors/ConnectorMarketPage.vue'),
-        meta: { title: '连接器市场', icon: ToolsMcpIcon },
-      },
+      // 「工具与 MCP」「连接器市场」已归入「资产中心」二级菜单（见下方 /assets children）；
+      // 工具编辑页继续保留 /tools/new、/tools/:id/edit 的既有 URL。
       {
         // 054: 资源中心 —— 插件/记忆/模型/知识/本体 的统一一级入口
-        // 父路由不设 component，子页面直接渲染到 BasicLayout 的 router-view
+        // 父路由不设 component，子页面直接渲染到 BasicLayout 的 router-view；
+        // 资源中心没有独立概览页，一级菜单点击时跳到「模型中心」。
         path: '/resources',
+        redirect: '/resources/models',
         meta: { title: '资源中心', icon: ResourceCenterIcon },
         children: [
           {
@@ -158,6 +146,13 @@ export const appRoutes: RouteRecordRaw[] = [
             name: 'ResourceOntologies',
             component: () => import('@/views/ontologies/OntologyCatalogPage.vue'),
             meta: { title: '本体授权', icon: OntologyIcon },
+          },
+          {
+            // 009: 钩子规则归入「资源中心」二级菜单，绝对路径保留 /hooks/rules 既有 URL
+            path: '/hooks/rules',
+            name: 'HookRules',
+            component: () => import('@/views/hooks/HookRulesPage.vue'),
+            meta: { title: '钩子规则', icon: HookRulesIcon },
           },
         ],
       },
@@ -210,12 +205,6 @@ export const appRoutes: RouteRecordRaw[] = [
         path: '/knowledge/documents/:id',
         redirect: '/resources/knowledge/documents/:id',
         meta: { hideInMenu: true },
-      },
-      {
-        path: '/token-stats',
-        name: 'TokenStats',
-        component: () => import('@/views/analytics/AnalyticsPage.vue'),
-        meta: { title: 'Token 统计', icon: TokenStatsIcon },
       },
       {
         path: '/analytics',
@@ -278,6 +267,9 @@ export const appRoutes: RouteRecordRaw[] = [
         // 045: 资产中心 —— 资产相关页面的统一入口（一级菜单 + 二级子页）
         // 父路由不设 component，二级页面直接渲染到 BasicLayout 的 router-view；
         // path '' 的子路由是「资产中心」自身的概览页。
+        // 技能 / 工具与 MCP / 连接器市场三类一等资产的管理页作为二级菜单归入此处，
+        // 子路由用绝对路径，保留 /skills、/tools、/connectors 的既有 URL 与书签，
+        // 只调整菜单层级；详情页（/skills/:id/...、/tools/:id/edit）仍在根层级。
         path: '/assets',
         meta: { title: '资产中心', icon: SkillsManagerIcon },
         children: [
@@ -286,6 +278,24 @@ export const appRoutes: RouteRecordRaw[] = [
             name: 'Assets',
             component: () => import('@/views/AssetsPage.vue'),
             meta: { title: '资产中心', hideInMenu: true },
+          },
+          {
+            path: '/skills',
+            name: 'Skills',
+            component: () => import('@/views/skills/SkillsPage.vue'),
+            meta: { title: '技能管理', icon: SkillsManagerIcon },
+          },
+          {
+            path: '/tools',
+            name: 'Tools',
+            component: () => import('@/views/tools/ToolsPage.vue'),
+            meta: { title: '工具与 MCP', icon: ToolsMcpIcon },
+          },
+          {
+            path: '/connectors',
+            name: 'ConnectorMarket',
+            component: () => import('@/views/connectors/ConnectorMarketPage.vue'),
+            meta: { title: '连接器市场', icon: ToolsMcpIcon },
           },
           {
             // 036: L1–L4 评级与变更管理
@@ -329,12 +339,6 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { hideInMenu: true },
       },
       {
-        path: '/hooks/rules',
-        name: 'HookRules',
-        component: () => import('@/views/hooks/HookRulesPage.vue'),
-        meta: { title: '钩子规则', icon: HookRulesIcon },
-      },
-      {
         // 045: 系统审计 —— 审计相关页面统一入口（一级菜单 + 二级子页）
         // 父路由不设 component，二级页面直接渲染到 BasicLayout 的 router-view；
         // path '' 的子路由是「系统审计」自身的概览页。
@@ -361,6 +365,13 @@ export const appRoutes: RouteRecordRaw[] = [
             component: () => import('@/views/egress/EgressLogsPage.vue'),
             meta: { title: '出站审计日志' },
           },
+          {
+            // Token 统计归入「系统审计」二级菜单，绝对路径保留 /token-stats 既有 URL
+            path: '/token-stats',
+            name: 'TokenStats',
+            component: () => import('@/views/analytics/AnalyticsPage.vue'),
+            meta: { title: 'Token 统计', icon: TokenStatsIcon },
+          },
         ],
       },
       // 旧路径保留重定向（书签兼容）
@@ -384,6 +395,14 @@ export const appRoutes: RouteRecordRaw[] = [
         name: 'Settings',
         component: () => import('@/views/settings/ExternalSearchSettingsPage.vue'),
         meta: { title: '设置', icon: SettingsIcon },
+      },
+      {
+        // 055: 菜单管理归入「组织与用户」分组（硬编码分组由 menuGroup 合并），
+        // 页面本身仍用 /settings/menus 路径，与设置类页面保持一致的 URL 命名空间。
+        path: '/settings/menus',
+        name: 'MenuManagement',
+        component: () => import('@/views/settings/MenuManagePage.vue'),
+        meta: { title: '菜单管理', icon: SettingsIcon, menuGroup: 'organizations' },
       },
       {
         path: '/settings/shortcuts',

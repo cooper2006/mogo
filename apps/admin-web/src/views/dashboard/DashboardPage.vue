@@ -639,7 +639,7 @@ const assetCards = computed(() => {
     },
     {
       key: 'skills',
-      title: t('Skill管理'),
+      title: t('技能管理'),
       value: current ? formatNumber(current.skills.total) : '0',
       lines: current
         ? [t('启用') + ' ' + current.skills.enabled, t('工作流') + ' ' + current.skills.workflow, t('写作规范') + ' ' + current.skills.writingStyle]

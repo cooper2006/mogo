@@ -131,7 +131,7 @@ async function waitPort(port, timeoutMs = 60000) {
 //   知识文档为「左目录面板 + 右内容区」结构，横线在右面板内，仅与其内容区对齐，
 //   不与全宽统计卡行对照（否则误报左差 -264px）。
 const PAGES = [
-  { name: 'Skill管理', path: '/skills', card: '.list-card', content: '.list-body', table: '.skill-grid', metricsCheck: true },
+  { name: '技能管理', path: '/skills', card: '.list-card', content: '.list-body', table: '.skill-grid', metricsCheck: true },
   { name: '工具与MCP', path: '/tools', card: '.list-card', content: '.list-body', table: '.n-data-table', metricsCheck: true },
   { name: '模型中心', path: '/models', card: '.list-card', content: '.list-body', table: '.n-data-table', metricsCheck: true },
   { name: '知识文档', path: '/knowledge/documents', card: null, content: '.list-body', table: '.n-data-table', metricsCheck: false },
