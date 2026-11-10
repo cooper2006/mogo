@@ -2,7 +2,7 @@
 
 > 目的：把构建时"需要从互联网（尽量国内源）下载的文件"缓存到 `base-images/` 目录，**按 `amd64` / `arm64` 分架构保存**，再按架构生成 tar 文件，构建时离线使用，避免重复下载、加速本地/CI 构建。
 >
-> 环境说明（2026-11-08 09:45）：本地开发栈当日曾迁到 `dory`，随后**切回 `kiri` 运行**；**全局默认 docker context 已改回 `kiri`**，**dory 引擎已下线**（`dorydctl engine stop` / `dory mode manual` / socket 消失，卷与镜像保留）。本文的 bundle 路径是宿主机共享文件，**两端通用、不需要迁移**；当前裸 `docker load` / `docker compose build` 走 kiri，无需 context 参数；若要用 dory，须先 `~/.dory/bin/dorydctl engine start` 再显式 `--context dory`。完整流程见 **`docs/dev-build-guide.md`**，其中 §7.1 / §10.8 专讲 kiri 构建必须固定 `BUILDX_BUILDER=kiri` 的坑。
+> 环境说明（2026-11-08 09:45）：本地开发栈当日曾迁到 `dory`，随后**切回 `kiri` 运行**；**全局默认 docker context 已改回 `kiri`**，**dory 引擎已下线**（`dorydctl engine stop` / `dory mode manual` / socket 消失，卷与镜像保留）。本文的 bundle 路径是宿主机共享文件，**两端通用、不需要迁移**；当前裸 `docker load` / `docker compose build` 走 kiri，无需 context 参数；若要用 dory，须先 `~/.dory/bin/dorydctl engine start` 再显式 `--context dory`。完整流程见 **`docs/dev-build-guide.md`**，其中 §7.1 / §10.8 专讲 kiri 构建必须固定 `BUILDX_BUILDER=kiri-bk2` 的坑（2026-11-10 起；旧文档写的 `kiri` builder 已停用）。
 
 ## 目录结构
 
@@ -99,7 +99,7 @@ scripts/pnpm_store_bundle.sh status
 
 # 备选：从 BuildKit cache mount 导出 store。注意这会覆盖 fetch 的结果，
 # 且 cache 只含「那一次构建实际装过的包」，通常不完整。
-DOCKER_BIN=/opt/homebrew/bin/docker BUILDX_BUILDER=kiri MOGO_DOCKER_CONTEXT=kiri \
+DOCKER_BIN=/opt/homebrew/bin/docker BUILDX_BUILDER=kiri-bk2 MOGO_DOCKER_CONTEXT=kiri \
   scripts/pnpm_store_bundle.sh save
 ```
 

@@ -14,7 +14,7 @@
 > ~/.dory/bin/dory mode always-on          # 可选：恢复原来的「始终在线」模式
 > /opt/homebrew/bin/docker --context dory info   # 验证 29.6.1 / aarch64
 > ```
-> dory 的 12 个容器 / 10 个卷 / 14 个镜像**全部保留**（清单见 `backups/kiri-to-dory-20261108/dory-*-at-offline.txt`），恢复后数据原样可用。日常开发请直接用 kiri，构建须固定 `BUILDX_BUILDER=kiri`，见 §7.1 / §10.8。本文其余章节（bundle、基础镜像、离线开关、排障、CLI 速查）两端都适用。
+> dory 的 12 个容器 / 10 个卷 / 14 个镜像**全部保留**（清单见 `backups/kiri-to-dory-20261108/dory-*-at-offline.txt`），恢复后数据原样可用。日常开发请直接用 kiri，构建须固定 `BUILDX_BUILDER=kiri-bk2`（2026-11-10 起唯一可用 builder；旧文档写的 `kiri` 已停用），见 §7.1 / §10.8。本文其余章节（bundle、基础镜像、离线开关、排障、CLI 速查）两端都适用。
 
 本文档记录**本地开发栈**的「离线 bundle → 加载基础镜像 → 启动 / 离线构建 → 健康确认」完整流程，面向大陆内网 / 离线环境下跑 mogo 自托管开发环境的工程师。本指南不绑定具体 docker 引擎（原名带 Dory 是迁移期的历史命名，现已更名）；两端流程已实测等价，差异集中在 context 与 buildx builder，见 §0 / §7.1。
 
@@ -28,13 +28,15 @@
 
 2026-11-08 把 kiri 上的 9 个 `mogo_*` 数据卷与 14 个镜像迁到 dory，服务随之切换。迁移与校验明细见 `backups/kiri-to-dory-20261108/manifest.json`。
 
+> 下表整体是 **2026-11-08 迁移时刻快照**；其中 `buildx builder` / `buildx 缓存卷` 两行已按 **2026-11-10 现状** 更新（旧值及变迁见 §7.1），因为照旧值操作现在已经跑不通。
+
 | 项 | Kiri（当前运行） | Dory（迁移目标 / 已停服） |
 |---|---|---|
 | Docker context | `kiri`（**当前全局默认**，也是服务运行端） | `dory`（**引擎已下线**，须先 `dorydctl engine start` 才可用） |
 | 引擎 | Kiri 0.1.18，OCI image store | Docker 29.6.1，经典 image store |
 | socket | `~/.kiri/run/docker.sock` | `~/.dory/dory.sock` |
-| buildx builder | `kiri` / `kiri-build`（docker-container, v0.34.2） | `dory`（docker driver, v0.31.1） |
-| buildx 缓存卷 | `buildx_buildkit_kiri-cn0_state` ≈ 16.9 GB | **无**，首次全量构建需重新暖缓存 |
+| buildx builder | **`kiri-bk2`**（docker-container, v0.34.2，**当前唯一可用**；`kiri` / `kiri-build` 已停用） | `dory`（docker driver, v0.31.1） |
+| buildx 缓存卷 | `buildx_buildkit_kiri-bk20_state` ≈ 5.0 GB（11-08 的 `kiri-cn0` 16.9 GB 已清空并清理） | **无**，首次全量构建需重新暖缓存 |
 | local registry | `mogo-local-reg` 容器 | **无**（CLI 并不硬依赖它） |
 | 基础镜像来源 | 镜像站别名需手工补规范名 tag（旧文档 §5.4） | `base-images/images/arm64/*.tar` **已是干净名**，直接 `docker load` |
 | 业务镜像来源 | 2026-11-08 09:33 已在 kiri 用离线 bundle 重建（tag 不变） | 先由 kiri `save/load` 迁入 `9a916043`；09:05 已在 dory 用离线 bundle 重建（tag 不变） |
@@ -48,7 +50,7 @@
 
 > **2026-11-08 09:33 切回 kiri**：按「kiri 有 16.9 GB 暖 buildx 缓存 + 本地 registry mirror，更省资源」的判断，已停 dory、在 kiri 用同一套离线 bundle 重建并起服务。切回前把 dory 停服时刻的 9 个卷导到 `backups/kiri-to-dory-20261108/dory-volumes-at-switchback/`（44 MB，带 SHA256）；kiri 用迁移时刻的卷，两者只差 1 条 `position_role_audit_logs` 运行期审计日志，需要时用该快照补齐。
 >
-> **但 kiri 首次构建失败过一次**：compose bake 回退到 `default` builder（无 mirror、空缓存），解析 `FROM nginx` 直连 `registry-1.docker.io` 超时；固定 `BUILDX_BUILDER=kiri` 后成功。所以「kiri 更省资源」的前提是 **builder 选对**，否则反而会卡在联网解析上。见 §7.1 / §10.8。
+> **但 kiri 首次构建失败过一次**：compose bake 回退到 `default` builder（无 mirror、空缓存），解析 `FROM nginx` 直连 `registry-1.docker.io` 超时；当时固定 `BUILDX_BUILDER=kiri` 后成功（该 builder 现已停用，当前须用 `kiri-bk2`）。所以「kiri 更省资源」的前提是 **builder 选对**，否则反而会卡在联网解析上。见 §7.1 / §10.8。
 
 ---
 
@@ -267,21 +269,38 @@ APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true \
 - **pnpm / npm 依赖不在这套离线 bundle 体系内**：日志仍有 `Downloading <pkg>: ... MB` 进度行（naive-ui、sherpa-onnx 等）。apt / pip / playwright / docling 是纯离线，Node 侧仍可能访问 registry 或本机 pnpm store。
 - `MOGO_VERSION` 由 CLI 取 git HEAD 短哈希，每次提交后 tag 随之变化；重建会覆盖「当前 HEAD 同名」的 tag。**回滚不要靠 `docker tag` 打备份**：实测构建成功后 CLI 的 `prune_previous_release_images` 会把旧镜像连同额外 tag 一起清掉（11-08 上午那次是 `Pruned 7 image(s) ... reclaimed about 10977 MB`；11:00 增量构建只 prune 了 1 个）。要留锚点，构建前先 `docker --context dory save ... -o <file>` 导出，或依赖已有的 `backups/kiri-to-dory-20261108/images.tar` 重新 `load`。
 - 本次只用了 3 分 09 秒而非 §8 估计的 1.5–2 小时：dory 是经典 Docker image store，迁进来的 14 个镜像的全部层都在同一 store 里，内置 `docker` driver buildkit 可直接复用，绝大多数步骤命中缓存。**这是「已有层可复用」的红利**；清空 image store 或从零克隆构建仍需按 §8 估时。
-- 两端 builder 架构差异：kiri 当前是 `docker-container` driver（BuildKit v0.34.2，独立 buildkit 容器 + 3 个缓存卷 + `mogo-local-reg` mirror），dory 是内置 `docker` driver（v0.31.1，无独立缓存卷、无 registry）。前者链路更长、故障点更多，但两者当前都能构建。
+- 两端 builder 架构差异（2026-11-10 现状）：kiri 是 `docker-container` driver（BuildKit v0.34.2，独立 buildkit 容器 + **1 个**缓存卷 `buildx_buildkit_kiri-bk20_state` + `mogo-local-reg:5000` mirror；11-08 时的 3 个缓存卷 / 2 个孤儿 buildkit 容器已清理），dory 是内置 `docker` driver（v0.31.1，无独立缓存卷、无 registry）。前者链路更长、故障点更多，但两者当前都能构建。
 - `docker-compose.build.yml` 通过 `APT_OFFLINE_INSTALL` / `PIP_OFFLINE_INSTALL`（默认 `true`）把 `*-bundle.tar.gz` 挂进构建层；bundle 缺失时 Dockerfile 会回退联网。
 - 构建**成功后** CLI 才执行 `prune_previous_release_images` + `prune_dangling_images`；失败保留旧镜像，可回滚。
 - 只想重建单个服务时可用 `docker compose build <svc>`，但它绕过 CLI 的基础镜像预解析、自动 prune 和健康检查，不作为常规路径。
 
-### 7.1 在 kiri 上构建（2026-11-08 09:29 实测）
+### 7.1 在 kiri 上构建（2026-11-08 09:29 实测，命令已按 2026-11-10 现状修订）
+
+> ⚠️ **builder 变更（2026-11-10 核实，务必先读）**
+>
+> 11-08 实测时用的是 `kiri` builder（节点 `kiri-build0`、16.9 GB 暖缓存、Kiri 自动写入的 4 组代理 mirror）。该 builder 现已 **inactive 且无容器**，`buildx use kiri` 只会指向一个空壳；`kiri-cn0` / `default` 两个孤儿 buildkit 容器及各自 `_state` 卷也已于 11-10 删除。当前 kiri endpoint 下**唯一可用**的是：
+>
+> | 项 | 当前值 |
+> |---|---|
+> | builder / 节点 | `kiri-bk2` / `kiri-bk20`（`docker-container`，BuildKit **v0.34.2**，`linux/arm64`，`running`） |
+> | `~/.docker/buildx/current` | `{"Key":"kiri","Name":"kiri-bk2","Global":false}` — `Name` 非空，一般无需再 `use` |
+> | `~/.docker/buildx/instances/` | 仅 `kiri-bk2` 一个实例 |
+> | mirror | `/etc/buildkit/buildkitd.toml` 只配 `[registry.'docker.io'] mirrors = ['http://mogo-local-reg:5000']`，并声明该 registry `http = true` / `insecure = true` |
+> | 缓存 | `buildx_buildkit_kiri-bk20_state`，容器内 `/var/lib/buildkit` ≈ **5.0 GB** |
+> | `default` builder | 仍为 `error`（连不上 `/var/run/docker.sock`），不能作为回退目标 |
+>
+> **本节命令已全部改为 `kiri-bk2`，可直接复制执行。** 注意 `DOCKER_CONTEXT=kiri` 是 docker **context 名**、保持不变，只有 builder 名要改。其它文档若仍写 `BUILDX_BUILDER=kiri` / `buildx use kiri`，一律按 `kiri-bk2` 理解。`scripts/pnpm_store_bundle.sh` 的默认值已同步为 `kiri-bk2`（仍可用 `BUILDX_BUILDER` 覆盖）。
+>
+> 校验命令：`docker --context kiri buildx ls` 应显示 `kiri-bk2*` 且节点 `kiri-bk20` 为 `running`；`docker --context kiri buildx inspect kiri-bk2` 应显示 `BuildKit version: v0.34.2`。`scripts/k3s-rebuild-deploy.sh` 与 `docs/k3s-local-dev-deploy.md` 用的也是这个默认值，但注意 `builder-clean` 只删冗余 builder、`step_builder_ensure` 只做 `buildx use`，**都不会创建 builder**；若 `kiri-bk2` 丢失，需手工 `docker buildx create --driver docker-container --config <buildkitd.toml>` 恢复上表的 mirror 配置（并保证 buildkit 容器能访问 `mogo-local-reg:5000`），再重新暖缓存——仓库内目前没有自动创建 builder 的脚本。
 
 kiri 同样跑通了全量离线构建：**3 分 46 秒**，7 个业务镜像 Image ID 全变，四类 bundle 全命中，真实执行输出零联网回退，基础镜像 `resolve ... CACHED`。但**必须先固定 builder**，否则第一次必然失败。
 
 ```bash
 D=/opt/homebrew/bin/docker
-# 一次即可：把 kiri endpoint 的 current builder 从空值固定为 kiri
-DOCKER_CONTEXT=kiri "$D" buildx use kiri
-# 原值备份：backups/kiri-to-dory-20261108/buildx-current-before.txt
-# 验证：DOCKER_CONTEXT=kiri "$D" buildx ls  ->  kiri*
+# 一般无需执行：current 已指向 kiri-bk2。若被改回空值 / 其它 builder，重设一次：
+DOCKER_CONTEXT=kiri "$D" buildx use kiri-bk2
+# 原值备份（11-08 当时）：backups/kiri-to-dory-20261108/buildx-current-before.txt
+# 验证：DOCKER_CONTEXT=kiri "$D" buildx ls  ->  kiri-bk2*（节点 kiri-bk20 running）
 ```
 
 ```bash
@@ -289,16 +308,16 @@ cd /Users/cooper/mogo
 set -o pipefail
 DOCKER_BIN=/opt/homebrew/bin/docker \
 DOCKER_CONTEXT=kiri \
-BUILDX_BUILDER=kiri \
+BUILDX_BUILDER=kiri-bk2 \
 MOGO_BASE_IMAGE_POLICY=local \
 MOGO_DATA_BACKEND=mongo \
 APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true \
   ./mogo up --build 2>&1 | tee backups/kiri-to-dory-20261108/kiri-up-build-2.log
-# 版本由 CLI 自动注入 git HEAD；上面的 BUILDX_BUILDER=kiri 才是必须固定的那一个
+# 版本由 CLI 自动注入 git HEAD；上面的 BUILDX_BUILDER=kiri-bk2 才是必须固定的那一个
 ```
 
-- **为什么必须固定 builder**：`~/.docker/buildx/current` 在 kiri endpoint 下 `Name` 为空时，compose bake 会回退到 `default` builder，日志表现为 `booting buildkit → starting container buildx_buildkit_default`。该容器 `/etc/buildkit/` 里没有任何 mirror，于是 `FROM nginx:1.31.5-alpine3.24-slim` 去 `registry-1.docker.io` 校验 manifest → `dial tcp ... i/o timeout`，构建 32 秒失败。
-- `kiri` builder 的 buildkit 容器 `buildx_buildkit_kiri-build0` 由 Kiri 自动写入 `/etc/buildkit/buildkitd.toml`，含 `docker.io` / `ghcr.io` / `docker.1ms.run` / `docker.1panel.live` 的代理 mirror，并挂 16.9 GB 暖缓存；另有一个 `kiri-cn0` builder 配 `mogo-local-reg:5000` mirror。
+- **为什么必须固定 builder**：`~/.docker/buildx/current` 在 kiri endpoint 下 `Name` 为空时，compose bake 会回退到 `default` builder，日志表现为 `booting buildkit → starting container buildx_buildkit_default`。该容器 `/etc/buildkit/` 里没有任何 mirror，于是 `FROM nginx:1.31.5-alpine3.24-slim` 去 `registry-1.docker.io` 校验 manifest → `dial tcp ... i/o timeout`，构建 32 秒失败。（2026-11-10 补：`buildx_buildkit_default` 容器已删除、`default` builder 现为 `error`；现在若回退会直接失败而非超时，因此更要固定 `kiri-bk2`。）
+- **当前** `kiri-bk2` 的 buildkit 容器是 `buildx_buildkit_kiri-bk20`，`/etc/buildkit/buildkitd.toml` 只配 `docker.io` → `http://mogo-local-reg:5000` mirror（并声明该 registry `http` / `insecure`），挂 `buildx_buildkit_kiri-bk20_state` 卷、`/var/lib/buildkit` 约 5.0 GB；**11-08 的** `kiri` builder（`kiri-build0`，4 组代理 mirror + 16.9 GB 暖缓存）与 `kiri-cn0` builder 均已不存在。
 - **代价对比**：dory 内置 `docker` driver 直接读 daemon image store，天然不需要解析 registry manifest；kiri 是 `docker-container` driver，buildkit 有独立 content store，更依赖 mirror 与已缓存的 manifest。kiri 的「省资源」体现在暖缓存与镜像代理，**不是更少的前置条件**。
 - 回滚锚点：kiri 原始 7 个业务镜像存于 `backups/kiri-to-dory-20261108/images.tar`（3.2 GB，迁移时从 kiri 导出）；构建成功后的自动 prune 会清掉额外 tag，可从该包重新 `load`。
 - 数据：切回前 dory 卷快照在 `backups/kiri-to-dory-20261108/dory-volumes-at-switchback/`；kiri 用迁移时刻卷，实测 `mogo_dev` 152 集合 / 140503 文档，比 dory 切回前少 1 条 `position_role_audit_logs` 审计日志。
@@ -318,7 +337,7 @@ APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true \
 
 典型耗时（arm64 Mac，Kiri 全量冷构建实测）：chat-api ~20 min、document-parser ~30 min、其他服务 5–15 min，全量约 **1.5–2 小时**；前段主要耗在构建上下文传输（chat ~30 min、docparser ~45 min）。
 
-**2026-11-08 两端实测**：dory 全量 `up --build` **3 分 09 秒**（迁进来的 14 个镜像层都在同一 image store）、kiri 全量 `up --build` **3 分 46 秒**（`kiri` builder 的 16.9 GB 暖缓存 + 镜像代理，基础镜像解析全部 `CACHED`）。两个数字都依赖「已有层可复用」；清空 image store / 缓存卷或从零克隆构建，仍按上表 1.5–2 小时估时。
+**2026-11-08 两端实测**：dory 全量 `up --build` **3 分 09 秒**（迁进来的 14 个镜像层都在同一 image store）、kiri 全量 `up --build` **3 分 46 秒**（当时 `kiri` builder 的 16.9 GB 暖缓存 + 镜像代理，基础镜像解析全部 `CACHED`；现 `kiri-bk2` 缓存约 5.0 GB，冷启动耗时会更长）。两个数字都依赖「已有层可复用」；清空 image store / 缓存卷或从零克隆构建，仍按上表 1.5–2 小时估时。
 
 ---
 
@@ -423,17 +442,17 @@ MOGO_DATA_BACKEND=mongo ./mogo up
 target gateway: failed to solve: DeadlineExceeded
 ```
 
-原因：不是基础镜像缺失，而是 **compose bake 用错了 builder**。`~/.docker/buildx/current` 在 kiri endpoint 下 `Name` 为空时回退到 `default` builder，其 `buildx_buildkit_default` 容器无 mirror、content store 为空，只能直连 docker.io 校验 manifest。`kiri` builder 才有 Kiri 写入的 mirror 配置和暖缓存。
+原因：不是基础镜像缺失，而是 **compose bake 用错了 builder**。`~/.docker/buildx/current` 在 kiri endpoint 下 `Name` 为空时回退到 `default` builder，其 `buildx_buildkit_default` 容器无 mirror、content store 为空，只能直连 docker.io 校验 manifest。现在只有 `kiri-bk2` builder 有 mirror 配置和暖缓存（11-08 当时是 `kiri` builder）。
 
 解决：
 
 ```bash
 D=/opt/homebrew/bin/docker
-DOCKER_CONTEXT=kiri "$D" buildx use kiri          # 固定 current（一次即可）
-# 并在构建命令里加 BUILDX_BUILDER=kiri，双保险；完整命令见 §7.1
+DOCKER_CONTEXT=kiri "$D" buildx use kiri-bk2      # 固定 current（一般已指向它，无需重复）
+# 并在构建命令里加 BUILDX_BUILDER=kiri-bk2，双保险；完整命令见 §7.1
 ```
 
-排查手法：`docker --context kiri exec buildx_buildkit_kiri-build0 cat /etc/buildkit/buildkitd.toml` 应能看到 `[registry."docker.io"] mirrors = [...]`；`buildx_buildkit_default` 里该文件不存在。注意 `docker buildx build` 单镜像探针可能照样成功（本地 content store 已有 manifest），**不能据此判断 compose bake 没问题**。
+排查手法：`docker --context kiri exec buildx_buildkit_kiri-bk20 cat /etc/buildkit/buildkitd.toml` 应能看到 `[registry.'docker.io'] mirrors = ['http://mogo-local-reg:5000']`；`buildx_buildkit_default` 容器已于 2026-11-10 删除、`default` builder 现为 `error`。注意 `docker buildx build` 单镜像探针可能照样成功（本地 content store 已有 manifest），**不能据此判断 compose bake 没问题**。
 
 ---
 
@@ -449,7 +468,7 @@ A：`base-images/images/arm64/*.tar` 就是同一批干净名镜像，直接 `do
 A：不需要。`base-images/` 和服务目录下的 `*-bundle.tar.gz` 都是宿主机工作区文件，两个 daemon 通过 CLI 读取同一份；只有镜像需要 load 到目标 daemon。
 
 **Q：`./mogo up --build` 两端都验证过吗？**
-A：**都验证过**（2026-11-08）：dory 3 分 09 秒、kiri 3 分 46 秒，各自 7 个镜像全部重打、四类 bundle 全命中、零联网回退。`./mogo up`（不构建）也验证过。差别只在 kiri 需要固定 `BUILDX_BUILDER=kiri`（§7.1）；今早出现过沙箱层卡死，属会话相关，见 §7。
+A：**都验证过**（2026-11-08）：dory 3 分 09 秒、kiri 3 分 46 秒，各自 7 个镜像全部重打、四类 bundle 全命中、零联网回退。`./mogo up`（不构建）也验证过。差别只在 kiri 需要固定 `BUILDX_BUILDER=kiri-bk2`（§7.1；11-08 当时是 `kiri`）；今早出现过沙箱层卡死，属会话相关，见 §7。
 
 **Q：全局默认 context 现在是什么？dory 还能用吗？**
 A：2026-11-08 09:45 起默认是 **`kiri`**（服务也在 kiri），裸 `docker` / `./mogo` 直接打到 kiri，不用加参数。dory 引擎已下线、socket 消失，`--context dory` 会连接失败；需要时 `~/.dory/bin/dorydctl engine start`（可选 `dory mode always-on`）即可恢复，容器 / 卷 / 镜像全在。恢复后要在 dory 起服务，仍按命令注入 `DOCKER_CONTEXT=dory`，**不要改全局默认值**（会影响其他会话与 `deploy/production/*` 里显式 `--context kiri` 的脚本）。
@@ -500,4 +519,4 @@ export DOCKER_CONTEXT=dory DOCKER_BIN="$D"   # 版本由 CLI 自动取 git HEAD�
 | `backups/kiri-to-dory-20261108/kiri-up-build-17f3348b.log` | 2026-11-08 11:00 kiri 增量重建日志（51 秒，71 步 `CACHED`，仅 `admin-api` 代码层重跑，7 个 `17f3348b` tag 全 Built） |
 | `backups/kiri-to-dory-20261108/dory-volumes-at-switchback/` | 切回 kiri 前 dory 停服时刻的 9 卷快照（44 MB + SHA256SUMS） |
 
-*最后更新：2026-11-08*
+*最后更新：2026-11-10（§0 / §7.1 / §8 / §10.8 / §11 的 builder 相关内容按 `kiri-bk2` 现状修订；11-08 实测数据保留）*

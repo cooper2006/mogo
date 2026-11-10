@@ -2,7 +2,7 @@
 
 > 被测环境：**kiri** 引擎（Kiri 0.1.18，OCI image store），`linux/arm64` dev profile 栈（mongo 后端），全局默认 docker context = `kiri`
 > 被测构建：`ghcr.io/mogoai/<svc>:8ae25759` ×7（= 当前 HEAD，运行镜像与 HEAD 零漂移）
-> 构建入口：`docs/dev-build-guide.md` §7.1（kiri 构建须固定 `BUILDX_BUILDER=kiri`）
+> 构建入口：`docs/dev-build-guide.md` §7.1（本轮 11-08 时 kiri 构建须固定 `BUILDX_BUILDER=kiri`；**该 builder 已停用**，2026-11-10 起改为 `kiri-bk2`，现行命令以 §7.1 为准）
 > 回归范围：沿用 2026-11-06 OrbStack 轮的 A 组口径（A1–A6）；DR 演练 / 压测扩容 / 017 切换演练仍未纳入
 > 结论：**A1–A6 全绿**（A6 合计 4828 passed / 2 环境性 skipped / 0 failed）。
 > 本轮新发现缺陷 **D-7 / D-8 两项，均已修复并复验**（用户确认后执行，见 §8）；上轮遗留 D-3 / D-5 仍在。
@@ -150,7 +150,7 @@ deploy/tests（修复后复跑）        339 passed / 9 skipped
 
 - 同上轮：024 DR 演练 / 压测扩容 / B004 全链路重启 / B005 备份恢复真实模式 / 017 切换演练 / 需真实账号凭据的项。
 - alertmanager e2e ×6（A4 的 skip 大头）仍属可补项。
-- D-7 / D-8 修复已提交推送（`17a35da3`）；测试产物（`-test` 镜像、`mogo-node-bin` volume、`/tmp/mogo-regtest-20261108/`、隔离库）经用户确认已清理。遗留 `buildx_buildkit_kiri-cn0` 容器与 `buildx_buildkit_default_state` 卷未动，待后续决定。
+- D-7 / D-8 修复已提交推送（`17a35da3`）；测试产物（`-test` 镜像、`mogo-node-bin` volume、`/tmp/mogo-regtest-20261108/`、隔离库）经用户确认已清理。遗留 `buildx_buildkit_kiri-cn0` 容器与 `buildx_buildkit_default_state` 卷未动，待后续决定（**后续 2026-11-10 已处置**：两个孤儿容器 `kiri-cn0` / `default` 及各自 `_state` 卷已删除，只保留 `kiri-bk20` 一套 builder）。
 - 建议把本轮 A6 口径（kiri 网段宿主不可达 → 门控镜像 + 同路径挂载 + linux node_modules 覆盖）补进 `docs/dev-build-guide.md`，避免下轮重踩 r1/r2 两个坑。
 
 ---

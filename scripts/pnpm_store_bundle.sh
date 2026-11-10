@@ -60,7 +60,7 @@ CACHE_DIR="base-images/pnpm-store"
 PNPM_VERSION="${PNPM_VERSION:-12.14.0}"
 NPM_REGISTRY="${MOGO_NPM_REGISTRY:-https://registry.npmmirror.com}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-BUILDX_BUILDER="${BUILDX_BUILDER:-kiri}"
+BUILDX_BUILDER="${BUILDX_BUILDER:-kiri-bk2}"
 DOCKER_CONTEXT="${MOGO_DOCKER_CONTEXT:-kiri}"
 # Ship both by default: dropping either one makes that architecture fall back
 # to `npm install -g pnpm`, which hangs on an offline build network.
