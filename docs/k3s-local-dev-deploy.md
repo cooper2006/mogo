@@ -26,7 +26,7 @@ k3s 用 **containerd** 管镜像，和 Kiri 的 Docker daemon 是两套 image st
 本地 Mac (docker context = kiri)
   │
   ├─ ① ./mogo up --build            构建 7 个业务镜像（tag = git short HEAD）
-  ├─ ② docker save → *.tar          导出 7 个业务镜像 + 3 个基础镜像
+  ├─ ② docker save → *.tar          导出 7 个业务镜像 + 4 个基础镜像
   ├─ ③ docker cp → kiri-k8s         传 tar 进 k3s 节点容器（无需 SSH）
   ├─ ④ ctr --namespace k8s.io import 导入 containerd（边导边删 tar 降峰值）
   └─ ⑤ kubectl apply -f - + rollout restart（经 docker exec -i，走 stdin）
@@ -52,7 +52,10 @@ k3s 节点 (kiri-k8s)                │
 | 基础 | `mongo:8.3.13` | `base-mongo.tar` | ~275 MB |
 | 基础 | `redis:7.4.2-alpine` | `base-redis.tar` | ~17 MB |
 | 基础 | `semitechnologies/weaviate:1.25.7` | `base-weaviate.tar` | ~65 MB |
-| **合计** | | **10 个 tar** | **~3.3 GB** |
+| 基础 | `alpine:3.21` | `base-alpine.tar` | ~15 MB |
+| **合计** | | **11 个 tar** | **~3.3 GB** |
+
+> `alpine:3.21` 是 `04-bootstrap-job.yaml` 里迁移 Job 的镜像，漏导会导致 bootstrap Pod `ErrImagePull`。脚本已把它纳入基础镜像清单，离线包 `BASE_BUNDLE` 里也有，会自动切出 `base-alpine.tar`。
 
 基础镜像由 compose 拉取而非构建；本机 Docker 里没有时，脚本会自动从离线包
 `backups/kiri-to-dory-20261108/images.tar` 切出 `base-*.tar`（`BASE_BUNDLE` 可覆盖）。
@@ -159,7 +162,7 @@ docker --context kiri restart buildx_buildkit_kiri-bk20
 ### preflight — 环境自检
 
 检查节点容器状态、节点 Ready、可用磁盘（< 6 GiB 直接失败；重复导入同名 tag 会复用已有 blob，稳态 6–7 GiB 可用即够）、DiskPressure、
-pause 镜像、10 个 tar 是否齐备。磁盘不足先清：
+pause 镜像、11 个 tar 是否齐备。磁盘不足先清：
 
 ```bash
 docker --context kiri builder prune --force     # 构建缓存，本次释放 5.3 GB
@@ -232,9 +235,9 @@ Deployment 执行 `rollout restart`。
 |---|---|
 | 磁盘压力 | 节点是 63 GB 的 Kiri 虚拟盘，导入全量镜像后约 90% 占用。先 `builder prune` 腾空间，否则会被 kubelet 打上 `DiskPressure` 污点并驱逐 Pod |
 | pause 镜像 | containerd 缺 `rancher/mirrored-pause:3.10.2` 时所有 Pod 无法创建沙箱；当前用本地替代镜像，preflight 会告警 |
-| 镜像源 403 | `ghcr.m.daocloud.io` 拒绝 `mogoai/*`，`docker.io` 也不通；**必须全量导入 10 个镜像**，缺一个对应 Pod 就 `ImagePullBackOff` |
-| 基础镜像易漏 | 只导入 7 个业务镜像时，mongo/redis/weaviate 三个 Pod 必然起不来；脚本已把它们纳入清单 |
-| 首次部署 secrets | `03-secrets.yaml` 引用的 Secret 需提前创建，否则 Pod 起不来 |
+| 镜像源 403 | `ghcr.m.daocloud.io` 拒绝 `mogoai/*`，`docker.io` 也不通；**必须全量导入 11 个镜像**（7 业务 + 4 基础），缺一个对应 Pod 就 `ImagePullBackOff` |
+| 基础镜像易漏 | 只导入 7 个业务镜像时，mongo/redis/weaviate 三个 Pod 必然起不来；脚本已把它们 + `alpine:3.21` 纳入清单 |
+| 首次部署 secrets | `03-secrets.yaml` 是未跟踪的本地产物，引用的 Secret 需提前创建，否则 Pod 起不来。脚本现已容错：本地缺文件但集群已有 secret 时，自动从集群 re-export 并 apply；集群也无才报错 |
 | PVC 数据 | `01-pvc.yaml` 用 `local-path` storageClass，数据在节点本地磁盘 |
 | hostPort 端口冲突 | gateway 用 hostPort 3000/8443，节点上已有服务占用需先停 |
 | bootstrap job | 是 Job，`apply` 对已完成的 job 显示 unchanged，不会重跑；需要重跑得先 delete |
@@ -251,7 +254,7 @@ Deployment 执行 `rollout restart`。
 |---|---|---|
 | `./mogo up --build` 报 `lookup mogo-local-reg ... no such host` | 新建 buildkit 容器没接 `mogo-build-net` / DNS 不对 | 见第 3 节 builder 修复命令 |
 | `buildx history` 记录重复 | 多个 builder 指向同一 buildkit daemon | `scripts/k3s-rebuild-deploy.sh builder-clean` |
-| Pod `ImagePullBackOff` + 403 白名单 | 镜像没导入 containerd | `ctr --namespace k8s.io image ls` 核对 10 个镜像；重跑 `import` + `apply` |
+| Pod `ImagePullBackOff` + 403 白名单 | 镜像没导入 containerd | `ctr --namespace k8s.io image ls` 核对 11 个镜像（含 `docker.io/library/alpine:3.21`）；重跑 `import` + `apply` |
 | Pod `Pending` / `Evicted` | 节点 DiskPressure | `df -h` / `kubectl describe node`；清 tar、prune 构建缓存，再 `kubectl delete pods --field-selector status.phase=Evicted` |
 | Pod 卡在 `ContainerCreating` | pause 镜像缺失 | 确认 `rancher/mirrored-pause:3.10.2` 在 containerd 中 |
 | apply 后镜像没更新 | 同名同 tag 不触发滚动 | 脚本已自动 `rollout restart`；手动可 `kubectl rollout restart deployment/<name> -n mogo` |
@@ -285,6 +288,14 @@ Deployment 执行 `rollout restart`。
   属既有状态，非本次引入；已在配置注释和「已知问题」中标注。
 - 脚本补强：`preflight` 检查 relay 是否在 `mogo-build-net`（缺失打印修复命令），
   `verify` 增加宿主入口探测（仅告警，不影响退出码）。
+
+**同日追加：修复脚本三处「干净重跑必卡」缺陷（已写入 `scripts/k3s-rebuild-deploy.sh`）**
+
+1. **bootstrap 镜像漏处理**：原 10 镜像清单只含 mongo/redis/weaviate，漏了 `04-bootstrap-job.yaml` 用的 `alpine:3.21` → bootstrap Pod `ErrImagePull`。已把 `alpine:3.21` 加入 `BASE_IMAGES`/`BASE_NAMES`，`split_base_bundle` 的 `WANTED` 表同步加入，离线包里已有，自动切 `base-alpine.tar` 并导入。全部计数改为 `${#TAR_SPECS[@]}` 动态，不再写死 10。
+2. **SKIP_BUILD=1 的 tag 不一致**：`IMAGE_TAG` 原永远取 git HEAD，但离线重部署复用的是旧 commit 打的 tar → apply 用新 tag、containerd 只有旧 tag → `ImagePullBackOff`。现逻辑：未显式指定 `IMAGE_TAG` 且 `SKIP_BUILD=1` 时，从 `06-deployments.yaml` 现有 tag 反推，保证 apply/import 与磁盘 tar 一致；显式传 `IMAGE_TAG=xxx` 仍优先。
+3. **`03-secrets.yaml` 硬依赖**：脚本原对该文件 `die` 中断。现逻辑：本地缺失但集群已有 secret → 自动从集群 re-export 写回本地并 apply（幂等）；集群也无 → 才报错指引创建。
+
+> 修复后一条 `SKIP_BUILD=1 scripts/k3s-rebuild-deploy.sh all`（含缺 `03-secrets.yaml`、镜像 tag 与 tar 不一致场景）可干净跑过，无需手动补丁。
 
 ---
 

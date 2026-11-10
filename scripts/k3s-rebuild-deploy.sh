@@ -14,11 +14,13 @@ set -Eeuo pipefail
 #   3. k3s 节点上 secrets / PVC 已就位（首次需手动确认）
 #   4. k3s containerd 内已有 pause 镜像（缺失会导致所有 Pod 起不来，preflight 会告警）
 #
-# 镜像清单：
+# 镜像清单（共 11 个 tar）：
 #   - 7 个业务镜像  ghcr.io/mogoai/<svc>:<IMAGE_TAG>
-#   - 3 个基础镜像  mongo:8.3.13 / redis:7.4.2-alpine / semitechnologies/weaviate:1.25.7
-#   基础镜像同样必须导入，否则 mongo/redis/weaviate 三个 Pod 会 ImagePullBackOff
-#   （k3s 的 registries.yaml 只代理 ghcr.io/quay.io/registry.k8s.io，docker.io 拉取不通）。
+#   - 4 个基础镜像  mongo:8.3.13 / redis:7.4.2-alpine /
+#                    semitechnologies/weaviate:1.25.7 / alpine:3.21
+#   基础镜像同样必须导入，否则 mongo/redis/weaviate 三个 Pod 会 ImagePullBackOff；
+#   alpine:3.21 是 04-bootstrap-job 用的迁移 Job 镜像，漏导会导致 bootstrap 卡 ErrImagePull。
+#   （k3s 的 registries.yaml 只代理 ghcr.io/quay.io/registry.k8s.io，docker.io 拉取不通。）
 #   基础镜像 tar 名 base-<short>.tar；可预先用离线包切分好放进 OUTDIR，export 会直接复用。
 #
 # ⚠️  builder 重复问题：kiri context 下曾存在 kiri 和 kiri-build 两个 builder
@@ -52,6 +54,8 @@ set -Eeuo pipefail
 #   BASE_BUNDLE    (default: backups/kiri-to-dory-20261108/images.tar)
 #                  基础镜像离线包；本机 Docker 里没有基础镜像时自动切出 base-*.tar
 #   SKIP_BUILD     (default: 0)    all 流程跳过 build，复用已有镜像/tar（离线重部署）
+#                                  离线重部署且未显式指定 IMAGE_TAG 时，脚本从
+#                                  06-deployments.yaml 反推 tag，避免与磁盘 tar 不一致
 #   FORCE_EXPORT   (default: 0)    强制重新 docker save，覆盖已有 tar
 #   KEEP_TARS      (default: 0)    import 后保留节点上的 tar（默认边导边删，降低磁盘峰值）
 #   VERIFY_TIMEOUT (default: 120)  每个 deployment 的 rollout 等待秒数
@@ -66,6 +70,12 @@ K3S_CTX="${K3S_CTX:-kiri-k8s}"
 K3S_NODE="${K3S_NODE:-kiri-k8s}"
 OUTDIR="${OUTDIR:-/tmp/mogo-k3s-images}"
 REMOTE_DIR="${REMOTE_DIR:-/tmp/mogo-k3s-images}"
+# Record whether IMAGE_TAG was supplied explicitly; SKIP_BUILD offline redeploy
+# may override it (see init block right after log/die are defined).
+IMAGE_TAG_WAS_SET=0
+if [[ -n "${IMAGE_TAG:-}" ]]; then
+  IMAGE_TAG_WAS_SET=1
+fi
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
 BUILDX_BUILDER="${BUILDX_BUILDER:-kiri-bk2}"
 BASE_BUNDLE="${BASE_BUNDLE:-${ROOT_DIR}/backups/kiri-to-dory-20261108/images.tar}"
@@ -75,8 +85,8 @@ KEEP_TARS="${KEEP_TARS:-0}"
 VERIFY_TIMEOUT="${VERIFY_TIMEOUT:-120}"
 
 SERVICES=(admin-api chat-api document-parser dsh-runtime-host user-web admin-web gateway)
-BASE_IMAGES=(mongo:8.3.13 redis:7.4.2-alpine semitechnologies/weaviate:1.25.7)
-BASE_NAMES=(mongo redis weaviate)
+BASE_IMAGES=(mongo:8.3.13 redis:7.4.2-alpine semitechnologies/weaviate:1.25.7 alpine:3.21)
+BASE_NAMES=(mongo redis weaviate alpine)
 TAR_SPECS=()
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -100,6 +110,26 @@ docker_exec_i() {
   # Run a command inside the k3s node container with stdin attached
   docker_cli exec -i "${K3S_NODE}" "$@"
 }
+
+# Offline redeploy (SKIP_BUILD=1) reuses tars produced from a *previous* commit,
+# while the live cluster still runs that previous tag. Defaulting IMAGE_TAG to the
+# current git HEAD would make apply reference a tag containerd does not have
+# (ImagePullBackOff). When the user did not pin IMAGE_TAG, derive it from the
+# existing 06-deployments.yaml so apply/import stay consistent with the tars.
+if [[ "${SKIP_BUILD}" == "1" && "${IMAGE_TAG_WAS_SET}" == "0" ]]; then
+  derived_tag=""
+  if [[ -f "${ROOT_DIR}/deploy/k8s/generated/06-deployments.yaml" ]]; then
+    derived_tag=$(grep -oE 'ghcr\.io/mogoai/[^:"]+:[a-f0-9]{7,}' \
+      "${ROOT_DIR}/deploy/k8s/generated/06-deployments.yaml" \
+      | head -1 | awk -F: '{print $NF}' || true)
+  fi
+  if [[ -n "${derived_tag}" ]]; then
+    log "  SKIP_BUILD: derived IMAGE_TAG=${derived_tag} from 06-deployments.yaml"
+    IMAGE_TAG="${derived_tag}"
+  else
+    log "  WARNING: SKIP_BUILD=1 but 06-deployments.yaml missing/no tag; using git HEAD (${IMAGE_TAG}) — tars may not match"
+  fi
+fi
 
 # TAR_SPECS entries: "<tar filename>|<docker image ref>"
 build_specs() {
@@ -138,6 +168,7 @@ WANTED = {
     "mongo:8.3.13": "mongo",
     "redis:7.4.2-alpine": "redis",
     "semitechnologies/weaviate:1.25.7": "weaviate",
+    "alpine:3.21": "alpine",
 }
 bundle, outdir = sys.argv[1], sys.argv[2]
 os.makedirs(outdir, exist_ok=True)
@@ -229,7 +260,7 @@ step_preflight() {
     log "  tar files not yet present (${#missing[@]}): ${missing[*]}"
     log "  -> will be produced by 'build' + 'export'"
   else
-    log "  all 10 tar files present in ${OUTDIR}"
+    log "  all ${#TAR_SPECS[@]} tar files present in ${OUTDIR}"
   fi
 }
 
@@ -384,7 +415,7 @@ step_import() {
 
   log "import complete, relevant images in containerd:"
   docker_exec ctr --namespace k8s.io image ls 2>&1 \
-    | grep -E 'mogoai|mongo:|redis:|weaviate' || true
+    | grep -E 'mogoai|mongo:|redis:|weaviate|alpine:' || true
 }
 
 step_apply() {
@@ -411,7 +442,28 @@ step_apply() {
   local f file
   for f in 00-namespace 01-pvc 02-configmaps 03-secrets 04-bootstrap-job 05-services 06-deployments; do
     file="${gen_dir}/${f}.yaml"
-    [[ -f "${file}" ]] || die "missing manifest ${file}"
+    if [[ "${f}" == "03-secrets" && ! -f "${file}" ]]; then
+      # 03-secrets.yaml is an untracked local artifact. If it is missing but the
+      # cluster already holds the secrets, re-export them (idempotent) and
+      # continue. If the cluster has no secrets either, fail loudly with guidance.
+      local existing
+      existing=$(docker_exec kubectl get secrets -n "${K3S_NS}" \
+        -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+      if [[ -n "${existing}" ]]; then
+        log "  ${f}.yaml missing locally; re-exporting existing secrets from cluster"
+        : > "${file}.tmp"
+        for sname in ${existing}; do
+          docker_exec kubectl get secret "${sname}" -n "${K3S_NS}" -o yaml \
+            >> "${file}.tmp" 2>/dev/null || true
+          printf '%s\n' '---' >> "${file}.tmp"
+        done
+        mv "${file}.tmp" "${file}"
+      else
+        die "missing ${file} and no secrets in cluster '${K3S_NS}'; create secrets first (kubectl create secret ... or restore ${file})"
+      fi
+    else
+      [[ -f "${file}" ]] || die "missing manifest ${file}"
+    fi
     log "  applying ${f}.yaml ..."
     docker_exec_i kubectl apply -f - < "${file}" || die "kubectl apply failed for ${f}.yaml"
   done
