@@ -145,6 +145,14 @@ const selectedNode = computed(() => {
   return found ? fromVueNode(found) : null
 })
 
+/** 050 转人工节点：驳回分支下拉候选 = 本编排其它节点（id + 标签）。 */
+const nodeOptions = computed<Array<{ label: string; value: string }>>(() =>
+  (nodes.value as unknown as CanvasFlowNode[]).map(fromVueNode).map((node) => ({
+    label: node.data.label || node.id,
+    value: node.id,
+  })),
+)
+
 // ------------------------------------------------------------------ palette
 const palette: Array<{ kind: CanvasNodeKind; label: string }> = [
   { kind: 'start', label: t('orchestration.node.start') },
@@ -156,6 +164,7 @@ const palette: Array<{ kind: CanvasNodeKind; label: string }> = [
   { kind: 'aggregate', label: t('orchestration.node.aggregate') },
   { kind: 'roundRobin', label: t('orchestration.node.roundRobin') },
   { kind: 'debate', label: t('orchestration.node.debate') },
+  { kind: 'humanApproval', label: t('orchestration.node.humanApproval') },
 ]
 
 function addNode(kind: CanvasNodeKind, position?: { x: number; y: number }) {
@@ -505,6 +514,7 @@ onMounted(async () => {
           :node="selectedNode"
           :skill-options="skillOptions"
           :tool-options="toolOptions"
+          :node-options="nodeOptions"
           @patch="applyPatch"
           @close="selectedNodeId = null"
         />
@@ -681,6 +691,10 @@ onMounted(async () => {
 .flow-node--parallel,
 .flow-node--aggregate {
   border-left-color: var(--mg-accent-violet-text);
+}
+
+.flow-node--humanApproval {
+  border-left-color: var(--mg-warning-text);
 }
 
 .flow-node__label {

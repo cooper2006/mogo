@@ -39,6 +39,27 @@ from .registry import (
 )
 from .supervisor import Supervisor, SupervisorResult, run_hybrid
 from .topo import CycleError, topological_order
+from .human_approval import (
+    ApprovalError,
+    ApprovalNodeConfig,
+    DecisionOutcome,
+    NODE_TYPE_HUMAN_APPROVAL,
+    PausableDagEngine,
+    RunDriver,
+    RunSuspended,
+    approval_node_ids,
+    is_approval_node,
+    make_approval_runner,
+)
+from .run_store import ORCHESTRATION_RUNS_COLLECTION, RunStore, RunStoreError
+from .team import (
+    NODE_MODE_TEAM,
+    TeamError,
+    TeamPlan,
+    TeamResult,
+    clamp_review_rounds,
+    run_team,
+)
 
 __all__ = [
     "VALID_MODES",
@@ -75,4 +96,23 @@ __all__ = [
     "RoundRobinError",
     "DebateResult",
     "DebateError",
+    "NODE_TYPE_HUMAN_APPROVAL",
+    "ApprovalError",
+    "ApprovalNodeConfig",
+    "DecisionOutcome",
+    "PausableDagEngine",
+    "RunDriver",
+    "RunSuspended",
+    "approval_node_ids",
+    "is_approval_node",
+    "make_approval_runner",
+    "RunStore",
+    "RunStoreError",
+    "ORCHESTRATION_RUNS_COLLECTION",
+    "NODE_MODE_TEAM",
+    "TeamError",
+    "TeamPlan",
+    "TeamResult",
+    "clamp_review_rounds",
+    "run_team",
 ]

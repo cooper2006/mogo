@@ -34,6 +34,7 @@ export const orchestrationMessages = {
   'orchestration.node.aggregate': { zh: '聚合', en: 'Aggregate' },
   'orchestration.node.roundRobin': { zh: '轮询模式', en: 'Round Robin' },
   'orchestration.node.debate': { zh: '辩论模式', en: 'Debate' },
+  'orchestration.node.humanApproval': { zh: '转人工节点', en: 'Human Approval' },
   // 侧栏节点列表下方的操作提示（缺失会导致 t() 回退成原始 key 字符串并撑出横向滚动条）
   'orchestration.node.title_hint': {
     zh: '拖拽节点到画布，或双击快速添加。',
@@ -66,6 +67,10 @@ export const orchestrationMessages = {
   'orchestration.prop.debate_pro': { zh: '正方节点（pro）', en: 'Pro node' },
   'orchestration.prop.debate_con': { zh: '反方节点（con）', en: 'Con node' },
   'orchestration.prop.debate_arbiter': { zh: '裁决节点（可选）', en: 'Arbiter node (optional)' },
+  'orchestration.prop.approver': { zh: '审批人', en: 'Approver' },
+  'orchestration.prop.approver_placeholder': { zh: '请输入审批人 user_id（必填）', en: 'Approver user_id (required)' },
+  'orchestration.prop.on_reject': { zh: '驳回分支节点', en: 'Reject Branch Node' },
+  'orchestration.prop.prompt': { zh: '审批说明', en: 'Approval Prompt' },
   'orchestration.prop.round_robin_instances': {
     zh: '该节点声明了 {count} 个候选实例（来自手工 YAML，画布暂不提供编辑，保存时原样保留）。',
     en: 'This node declares {count} candidate instances (from hand-written YAML; preserved as-is on save).',

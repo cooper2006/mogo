@@ -37,6 +37,8 @@ class NodeState(str, Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     BLOCKED = "blocked"
+    # 050：仅 PausableDagEngine 产出；既有六模式路径不使用该状态。
+    AWAITING = "awaiting_approval"
 
 
 @dataclass

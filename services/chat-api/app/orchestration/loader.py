@@ -131,6 +131,17 @@ _PAYLOAD_KEYS = (
     "max_rounds",
     "convergence_threshold",
     "similarity_threshold",
+    # 050 human approval node: declarative payload (node *type*, not a mode).
+    "type",
+    "approver",
+    "on_reject",
+    "prompt",
+    # 052 team mode: declarative payload for team nodes / document-level team.
+    "members",
+    "leader",
+    "max_review_rounds",
+    "max_reassign",
+    "takeover",
 )
 
 
@@ -335,6 +346,134 @@ def _validate_044_shapes(
             )
 
 
+def _validate_050_shapes(
+    entries: list[dict[str, Any]],
+    raw_nodes: list[Mapping[str, Any]],
+    edges: list[dict[str, str]],
+) -> None:
+    """Load-time fail-closed checks for ``type: human_approval`` nodes (050 FR-001).
+
+    ``approver`` is required; ``on_reject`` must name an existing node that is a
+    *direct dependent* of the approval node (otherwise the branch could run
+    before the rejection happened); ``timeout`` is clamped to 60s..30d.
+    """
+    node_ids = {str(entry.get("id")) for entry in entries}
+    dependents: dict[str, set[str]] = {}
+    for edge in edges:
+        dependents.setdefault(str(edge.get("source")), set()).add(str(edge.get("target")))
+    for raw in raw_nodes:
+        target = str(raw.get("id") or "")
+        deps = raw.get("depends_on") or []
+        if isinstance(deps, str):
+            deps = [deps]
+        for dep in deps:
+            dependents.setdefault(str(dep), set()).add(target)
+
+    for entry in entries:
+        payload = entry.get("payload") or {}
+        if str(payload.get("type") or "") != "human_approval":
+            continue
+        node_id = str(entry.get("id"))
+        approver = str(payload.get("approver") or "").strip()
+        if not approver:
+            raise OrchestrationLoadError(f"node {node_id}: human_approval requires an 'approver' (fail-closed)")
+        on_reject = str(payload.get("on_reject") or "").strip()
+        if on_reject:
+            if on_reject not in node_ids:
+                raise OrchestrationLoadError(
+                    f"node {node_id}: on_reject target {on_reject!r} does not exist (fail-closed)"
+                )
+            if on_reject not in dependents.get(node_id, set()):
+                raise OrchestrationLoadError(
+                    f"node {node_id}: on_reject target {on_reject!r} must depend on the approval node"
+                )
+        if payload.get("timeout") is not None:
+            try:
+                seconds = int(payload["timeout"])
+            except (TypeError, ValueError) as error:
+                raise OrchestrationLoadError(
+                    f"node {node_id}: human_approval timeout must be seconds, got {payload['timeout']!r}"
+                ) from error
+            # 钳制口径与 human_approval.clamp_timeout 一致（60s..30d，默认 24h）。
+            payload["timeout"] = max(60, min(30 * 24 * 3600, seconds))
+
+
+def _validate_052_shapes(
+    mode: str,
+    entries: list[dict[str, Any]],
+    raw_nodes: list[Mapping[str, Any]],
+    header: Mapping[str, Any],
+) -> None:
+    """Load-time fail-closed checks for the 052 ``team`` mode (FR-002 / FR-004).
+
+    * document-level ``team`` requires member nodes (``members:`` naming the
+      member node ids); a member reference to a non-existent node fails closed;
+    * ``max_review_rounds`` / ``max_reassign`` are clamped (1..5 / 1..10) with
+      the same clamp the runtime applies (044-style clamp-and-record);
+    * a node that *declares* ``mode: team`` inside a graph is validated for its
+      ``members`` payload the same way.
+    """
+    from .team import MAX_MAX_REVIEW_ROUNDS, MAX_MAX_REASSIGN, MIN_MAX_REVIEW_ROUNDS
+
+    node_ids = {str(entry.get("id")) for entry in entries}
+
+    def _check_team_payload(node_id: str, payload: Mapping[str, Any]) -> None:
+        members = payload.get("members")
+        if members is not None:
+            if not isinstance(members, (list, tuple)) or not members:
+                raise OrchestrationLoadError(
+                    f"node {node_id}: team 'members' must be a non-empty list"
+                )
+            for member in members:
+                member_id = str(member.get("id") or member) if isinstance(member, Mapping) else str(member)
+                if member_id not in node_ids:
+                    raise OrchestrationLoadError(
+                        f"node {node_id}: team member {member_id!r} is not a node of this orchestration (fail-closed)"
+                    )
+        if payload.get("max_review_rounds") is not None:
+            try:
+                value = int(payload["max_review_rounds"])
+            except (TypeError, ValueError) as error:
+                raise OrchestrationLoadError(
+                    f"node {node_id}: max_review_rounds must be an integer, got {payload['max_review_rounds']!r}"
+                ) from error
+            payload["max_review_rounds"] = max(MIN_MAX_REVIEW_ROUNDS, min(MAX_MAX_REVIEW_ROUNDS, value))
+        if payload.get("max_reassign") is not None:
+            try:
+                value = int(payload["max_reassign"])
+            except (TypeError, ValueError) as error:
+                raise OrchestrationLoadError(
+                    f"node {node_id}: max_reassign must be an integer, got {payload['max_reassign']!r}"
+                ) from error
+            payload["max_reassign"] = max(1, min(MAX_MAX_REASSIGN, value))
+        takeover = payload.get("takeover")
+        if takeover is not None:
+            if not isinstance(takeover, Mapping):
+                raise OrchestrationLoadError(
+                    f"node {node_id}: team 'takeover' must be a mapping (trigger/approver)"
+                )
+            trigger = takeover.get("trigger")
+            if trigger is not None and str(trigger) not in ("on_rework", "on_round_cap", "manual"):
+                raise OrchestrationLoadError(
+                    f"node {node_id}: team takeover.trigger must be one of on_rework/on_round_cap/manual, got {trigger!r}"
+                )
+            if not str(takeover.get("approver") or "").strip():
+                raise OrchestrationLoadError(
+                    f"node {node_id}: team takeover requires a non-empty 'approver'"
+                )
+
+    for entry, raw in zip(entries, raw_nodes):
+        declared_mode = entry.get("mode")
+        node_mode = declared_mode or mode
+        if node_mode == "team":
+            _check_team_payload(str(entry.get("id")), entry.get("payload") or {})
+
+    if mode == "team":
+        header_members = header.get("members")
+        if header_members is not None:
+            _check_team_payload("__orchestration__", {"members": header_members})
+
+
 def load_orchestration_document(document: Mapping[str, Any]) -> LoadedOrchestration:
     """Build a :class:`LoadedOrchestration` from a parsed YAML mapping."""
     doc = _require_mapping(document, what="orchestration document")
@@ -375,6 +514,8 @@ def load_orchestration_document(document: Mapping[str, Any]) -> LoadedOrchestrat
             f"(allowed: {', '.join(VALID_MODES)}; an undeclared mode still defaults to graph)"
         )
     _validate_044_shapes(mode, nodes, raw_nodes, header)
+    _validate_050_shapes(nodes, raw_nodes, edges)
+    _validate_052_shapes(mode, nodes, raw_nodes, header)
     definition = OrchestrationDefinition(
         orchestration_id=orchestration_id,
         mode=mode,

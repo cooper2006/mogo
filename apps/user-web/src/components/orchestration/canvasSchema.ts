@@ -24,7 +24,8 @@ export type CanvasNodeKind =
   | 'parallel'
   | 'aggregate'
   | 'roundRobin'
-  | 'debate';
+  | 'debate'
+  | 'humanApproval';
 
 /** 首期画布明示支持的模式（FR-006：supervisor/hybrid 暂不支持，UI 明示）。 */
 export type SupportedMode = 'sequential' | 'graph';
@@ -77,6 +78,12 @@ export interface CanvasNodeData {
   description?: string;
   /** 输出到后续节点的上下文键。 */
   outputKey?: string;
+  /** 050 转人工节点：审批人 user_id（必填，loader 加载期 fail-closed 校验存在）。 */
+  approver?: string;
+  /** 050 转人工节点：审批说明（进待办与审计，可选）。 */
+  prompt?: string;
+  /** 050 转人工节点：驳回分支节点 id（可选，须为本节点的直接依赖）。 */
+  onReject?: string;
 }
 
 /** 画布节点（投影侧表示）。 */
@@ -147,6 +154,8 @@ export function engineTypeForKind(kind: CanvasNodeKind): string {
     case 'roundRobin':
     case 'debate':
       return 'llm';
+    case 'humanApproval':
+      return 'human_approval';
     default:
       return kind;
   }
@@ -157,6 +166,7 @@ export function kindForEngineType(type: string): CanvasNodeKind {
   if (type === 'start' || type === 'tool' || type === 'condition' || type === 'end' || type === 'parallel' || type === 'aggregate') {
     return type;
   }
+  if (type === 'human_approval') return 'humanApproval';
   return 'llm';
 }
 
@@ -172,6 +182,7 @@ export function defaultLabel(kind: CanvasNodeKind): string {
     aggregate: '聚合',
     roundRobin: '轮询模式',
     debate: '辩论模式',
+    humanApproval: '转人工节点',
   };
   return labels[kind];
 }
@@ -193,6 +204,12 @@ export function createCanvasNode(kind: CanvasNodeKind, id: string, position: Can
   const data: CanvasNodeData = { label: defaultLabel(kind) };
   if (kind === 'roundRobin') data.multiAgentMode = 'round_robin';
   if (kind === 'debate') data.multiAgentMode = 'debate';
+  if (kind === 'humanApproval') {
+    // 050：转人工节点默认字段（approver 留空由属性面板填写；timeout 由后端钳制 60s..30d，默认 24h）。
+    data.approver = '';
+    data.prompt = '';
+    data.onReject = '';
+  }
   return { id, kind, position, data };
 }
 
@@ -233,6 +250,12 @@ function enginePayload(node: CanvasNode): Record<string, unknown> {
   if (node.kind === 'condition' && data.conditionExpr) {
     // 自然语言面：引擎侧装载时会用 not 包装成 condition（loader 行为，不在此透出极性）。
     payload['condition_expr'] = data.conditionExpr;
+  }
+  // 050 转人工节点：声明进 payload（`type` 在节点顶层，由 engineTypeForKind 给出）。
+  if (node.kind === 'humanApproval') {
+    if (data.approver) payload['approver'] = data.approver;
+    if (data.prompt) payload['prompt'] = data.prompt;
+    if (data.onReject) payload['on_reject'] = data.onReject;
   }
   return { ...payload, ...protocolPayload(node) };
 }
@@ -389,6 +412,9 @@ function nodeDataFrom(
     pro: pickString('pro'),
     con: pickString('con'),
     arbiter: pickString('arbiter'),
+    approver: pickString('approver'),
+    prompt: pickString('prompt'),
+    onReject: pickString('on_reject'),
   };
 }
 

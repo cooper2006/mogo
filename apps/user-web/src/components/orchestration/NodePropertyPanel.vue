@@ -19,6 +19,8 @@ const props = defineProps({
   node: { type: Object as PropType<CanvasNode | null>, default: null },
   skillOptions: { type: Array as PropType<Array<{ label: string; value: string }>>, default: () => [] },
   toolOptions: { type: Array as PropType<Array<{ label: string; value: string }>>, default: () => [] },
+  // 050 转人工节点：驳回分支引用本编排内节点（画布其它节点 id + 标签）。
+  nodeOptions: { type: Array as PropType<Array<{ label: string; value: string }>>, default: () => [] },
 })
 const emit = defineEmits<{ (e: 'patch', patch: Record<string, unknown>): void; (e: 'close'): void }>()
 
@@ -39,6 +41,9 @@ const KNOWN_FIELDS = new Set([
   'pro',
   'con',
   'arbiter',
+  'approver',
+  'prompt',
+  'onReject',
 ])
 
 /** 当前节点声明的 044 协议（kind 优先，其次 llm 节点上的显式选择）。 */
@@ -183,6 +188,40 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
           :value="node.data.falseBranchReason"
           size="small"
           @update:value="(v: string) => apply({ falseBranchReason: v })"
+        />
+      </div>
+    </template>
+
+    <!-- 050 转人工节点：审批人 / 审批说明 / 驳回分支（type 落节点顶层，payload 键由 loader 接收） -->
+    <template v-if="node.kind === 'humanApproval'">
+      <div class="field">
+        <span class="label">{{ t('orchestration.prop.approver') }}</span>
+        <n-input
+          :value="node.data.approver"
+          size="small"
+          :placeholder="t('orchestration.prop.approver_placeholder')"
+          @update:value="(v: string) => apply({ approver: v || undefined })"
+        />
+      </div>
+      <div class="field">
+        <span class="label">{{ t('orchestration.prop.prompt') }}</span>
+        <n-input
+          :value="node.data.prompt"
+          size="small"
+          type="textarea"
+          :autosize="{ minRows: 2, maxRows: 4 }"
+          @update:value="(v: string) => apply({ prompt: v || undefined })"
+        />
+      </div>
+      <div class="field">
+        <span class="label">{{ t('orchestration.prop.on_reject') }}</span>
+        <n-select
+          :value="node.data.onReject || null"
+          :options="nodeOptions"
+          clearable
+          size="small"
+          :placeholder="t('orchestration.prop.on_reject')"
+          @update:value="(v: string | null) => apply({ onReject: v || undefined })"
         />
       </div>
     </template>
