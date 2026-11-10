@@ -5,29 +5,31 @@ import os
 from pathlib import Path
 
 
-def _read_secret_file() -> str:
-    """Read backend service token from exported secret file.
+def _read_secret_file() -> dict[str, str]:
+    """Read all secret key-value pairs from exported secret files.
 
     Docker security profiles may filter os.environ and clear /proc/1/environ,
-    so we write secrets to /tmp in the entrypoint and read from there.
+    so we read secrets directly from the source file as a fallback.
+    Returns a dict of {key: value} for all lines matching KEY=VALUE pattern.
     """
     secret_paths = [
         Path("/tmp/mogo-secrets.env"),
         Path("/run/askai-secrets/runtime.env"),
     ]
+    result = {}
     for path in secret_paths:
         try:
             if path.exists() and path.stat().st_size > 0:
                 content = path.read_text(encoding="utf-8", errors="replace")
                 for line in content.splitlines():
                     line = line.strip()
-                    if line.startswith("ADMIN_BACKEND_SERVICE_TOKEN="):
-                        return line.split("=", 1)[1].strip()
-                    if line.startswith("ASKAI_ADMIN_BACKEND_SERVICE_TOKEN="):
-                        return line.split("=", 1)[1].strip()
+                    if "=" in line and not line.startswith("#"):
+                        key, _, value = line.partition("=")
+                        if key and value:
+                            result[key] = value.strip()
         except Exception:
             continue
-    return ""
+    return result
 
 _FEATURE_FLAG_RESOLVER = None
 
@@ -426,11 +428,14 @@ def get_settings():
     """返回进程级单例配置；首次调用即启动校验（超过 1h TTL 告警）。"""
     s = Settings()
     # Fix for Docker seccomp filtering environment variables
-    # If ADMIN_BACKEND_SERVICE_TOKEN is empty, try reading from secret file
-    if not s.ADMIN_BACKEND_SERVICE_TOKEN:
+    # Read all secrets from file as fallback when env vars are unavailable
+    if not s.ADMIN_BACKEND_SERVICE_TOKEN or not s.END_USER_AUTH_SECRET:
         from_file = _read_secret_file()
         if from_file:
-            s.ADMIN_BACKEND_SERVICE_TOKEN = from_file
+            if not s.ADMIN_BACKEND_SERVICE_TOKEN:
+                s.ADMIN_BACKEND_SERVICE_TOKEN = from_file.get("ADMIN_BACKEND_SERVICE_TOKEN", "")
+            if not s.END_USER_AUTH_SECRET:
+                s.END_USER_AUTH_SECRET = from_file.get("END_USER_AUTH_SECRET", "")
     if s.END_USER_AUTH_TOKEN_TTL_SECONDS > MAX_END_USER_TOKEN_TTL_SECONDS:
         import logging
 
