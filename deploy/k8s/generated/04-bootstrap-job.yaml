@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap
+  namespace: mogo
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+      - name: vol-deployment-secrets
+        persistentVolumeClaim:
+          claimName: deployment-secrets
+      - name: vol-knowledge-storage
+        persistentVolumeClaim:
+          claimName: knowledge-storage
+      - name: vol-admin-static
+        persistentVolumeClaim:
+          claimName: admin-static
+      - name: vol-askai-storage
+        persistentVolumeClaim:
+          claimName: askai-storage
+      - name: vol-weaviate-data
+        persistentVolumeClaim:
+          claimName: weaviate-data
+      containers:
+      - name: bootstrap
+        image: alpine:3.21
+        command:
+        - /bin/sh
+        - -ec
+        - "# 022 US3 (T027): runtime.env 必须 0644。应用容器内的进程以非 root\n# 用户 appuser (UID\
+          \ 10001) 运行（见各 Dockerfile），0600 会让它们\n# 读不到自己的密钥。卷本身只在 docker 网络内以 :ro 挂载，不会暴露到宿主机。\n\
+          umask 022\nsecret_file=/run/askai-secrets/runtime.env\nrandom_hex() { head\
+          \ -c 48 /dev/urandom | od -An -tx1 | tr -d ' \\n'; }\nif [ ! -s \"$secret_file\"\
+          \ ]; then\n  admin_secret=\"$(random_hex)\"\n  admin_backend_service_token=\"\
+          $(random_hex)\"\n  document_service_token=\"$(random_hex)\"\n  document_callback_token=\"\
+          $(random_hex)\"\n  temp_file=\"${secret_file}.tmp\"\n  {\n    echo \"END_USER_AUTH_SECRET=$(random_hex)\"\
+          \n    echo \"ASKAI_ADMIN_JWT_SECRET=$admin_secret\"\n    echo \"ADMIN_BACKEND_SERVICE_TOKEN=$admin_backend_service_token\"\
+          \n    echo \"ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=$admin_backend_service_token\"\
+          \n    echo \"MODEL_CONFIG_SECRET=$admin_secret\"\n    echo \"DSH_MODEL_GATEWAY_SIGNING_SECRET=$(random_hex)\"\
+          \n    echo \"DSH_RUNTIME_HOST_TOKEN=$(random_hex)\"\n    echo \"DOCUMENT_PROCESSING_SERVICE_TOKEN=$document_service_token\"\
+          \n    echo \"ASKAI_ADMIN_DOCUMENT_PROCESSING_SERVICE_TOKEN=$document_service_token\"\
+          \n    echo \"MOGO_DOC_PROCESSING_SERVICE_TOKEN=$document_service_token\"\
+          \n    echo \"ASKAI_ADMIN_DOCUMENT_PROCESSING_CALLBACK_TOKEN=$document_callback_token\"\
+          \n    echo \"MOGO_DOC_PROCESSING_CALLBACK_TOKEN=$document_callback_token\"\
+          \n    echo \"MOGO_DOC_PROCESSING_ADMIN_JWT_SECRET=$admin_secret\"\n  } >\
+          \ \"$temp_file\"\n  mv \"$temp_file\" \"$secret_file\"\nfi\nif ! grep -q\
+          \ '^DSH_RUNTIME_HOST_TOKEN=' \"$secret_file\"; then\n  temp_file=\"${secret_file}.tmp\"\
+          \n  cp \"$secret_file\" \"$temp_file\"\n  echo \"DSH_RUNTIME_HOST_TOKEN=$(random_hex)\"\
+          \ >> \"$temp_file\"\n  mv \"$temp_file\" \"$secret_file\"\nfi\n# sandbox（P1\
+          \ 移植）：sandbox-manager 与 chat-api 共享的 Bearer token。\n# 仅当 sandbox profile\
+          \ 启用时才真正被消费；默认空 URL 下不影响既有路径。\nif ! grep -q '^MOGO_SANDBOX_MANAGER_TOKEN='\
+          \ \"$secret_file\"; then\n  temp_file=\"${secret_file}.tmp\"\n  cp \"$secret_file\"\
+          \ \"$temp_file\"\n  echo \"MOGO_SANDBOX_MANAGER_TOKEN=$(random_hex)\" >>\
+          \ \"$temp_file\"\n  mv \"$temp_file\" \"$secret_file\"\nfi\nadmin_backend_service_token=\"\
+          $(sed -n 's/^ADMIN_BACKEND_SERVICE_TOKEN=//p' \"$secret_file\" | head -n\
+          \ 1)\"\nif [ -z \"$admin_backend_service_token\" ]; then\n  admin_backend_service_token=\"\
+          $(sed -n 's/^ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=//p' \"$secret_file\" | head\
+          \ -n 1)\"\nfi\nif [ -z \"$admin_backend_service_token\" ]; then\n  admin_backend_service_token=\"\
+          $(random_hex)\"\nfi\ntemp_file=\"${secret_file}.tmp\"\nsed '/^ADMIN_BACKEND_SERVICE_TOKEN=/d;\
+          \ /^ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=/d' \"$secret_file\" > \"$temp_file\"\
+          \n{\n  echo \"ADMIN_BACKEND_SERVICE_TOKEN=$admin_backend_service_token\"\
+          \n  echo \"ASKAI_ADMIN_BACKEND_SERVICE_TOKEN=$admin_backend_service_token\"\
+          \n} >> \"$temp_file\"\nmv \"$temp_file\" \"$secret_file\"\n# 027 P2 修复（2026-10-20）：可写卷的属主兜底。\n\
+          # 当前默认卷名为 mogo_knowledge-storage、mogo_admin-static、\n# mogo_askai-storage，属主\
+          \ 10001:10001；升级自更早部署的卷可能仍是\n# root:root 0755，应用容器以\n# appuser (UID 10001)\
+          \ 运行无法写入。这里在启动前做一次幂等 chown；\n# 卷已属 10001 时无副作用。挂载到 /storage/* 而非 /data/*\
+          \ 是因为\n# 镜像的 /data 路径在 rootfs 上（read_only 且与卷挂载点同名易混淆），\n# bootstrap 只用\
+          \ alpine，挂载点只在本容器内有效。\nchown -R 10001:10001 /storage/knowledge /storage/admin-static\
+          \ /storage/askai\nchown -R 1000:1000 /storage/weaviate\necho \"MOGO deployment\
+          \ secrets are ready.\"\necho \"After services become healthy, open http://localhost:${MOGO_PORT:-3000}/admin/setup\"\
+          \n"
+        volumeMounts:
+        - name: vol-deployment-secrets
+          mountPath: /run/askai-secrets
+        - name: vol-knowledge-storage
+          mountPath: /storage/knowledge
+        - name: vol-admin-static
+          mountPath: /storage/admin-static
+        - name: vol-askai-storage
+          mountPath: /storage/askai
+        - name: vol-weaviate-data
+          mountPath: /storage/weaviate
+        env:
+        - name: MOGO_PORT
+          value: '3000'
