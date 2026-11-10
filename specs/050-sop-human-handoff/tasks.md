@@ -45,7 +45,7 @@
 
 ### US4 - 画布与契约（P2）
 
-- [x] T018 [P] user-web 039 画布：human_approval 节点卡片 + 属性面板（审批人/超时/驳回分支）+ 中英 i18n；画布 ↔ YAML 往返含新字段
+- [x] T018 [P] user-web 039 画布：human_approval 节点卡片 + 属性面板（审批人/超时/驳回分支）+ 中英 i18n；画布 ↔ YAML 往返含新字段。审批人属性面板已落地为「本租户部门树 + end_users 候选」单选选择器（`ApproverPicker.vue`，复用项目成员选择器数据层 `listProjectDepartments` / `listProjectMemberCandidates`，支持按部门筛选与关键字搜索），替代原自由文本 user_id 输入框；写入值仍为 `approver` user_id 字符串，与 YAML 序列化及 loader 存在性校验向后兼容（2026-11-10 实现）。
 - [x] T019 [P] 010 `contracts/orchestration.md`：审批节点 YAML 形态 + 状态机语义（示例可被 loader 加载）
 
 ## Phase 3: 验证与接线

@@ -120,7 +120,7 @@
 - **FR-007**: 审批待办与决策结果 MUST 通知审批人/发起人：首期站内审批入口 + 审计事件；IM 触达按 013 既有能力渲染，主动推送缺口以应答式触达回落（决策 #5）。
 - **FR-008**: 节点挂起、批准、驳回、超时、改派、取消 MUST 全部落审计（001 审计流，含运行 ID/节点 ID/决策人/理由）。
 - **FR-009**: 既有六模式（sequential/supervisor/hybrid/graph/round_robin/debate）的执行路径与语义 MUST 零改动；不含审批节点的既有工作流行为不变（既有测试零修改全绿）。
-- **FR-010**: 039 画布 MUST 支持审批节点卡片与属性面板，画布 ↔ YAML 往返无损；`contracts/orchestration.md`（010 目录下）MUST 补充审批节点 YAML 形态。
+- **FR-010**: 039 画布 MUST 支持审批节点卡片与属性面板，画布 ↔ YAML 往返无损；`contracts/orchestration.md`（010 目录下）MUST 补充审批节点 YAML 形态。审批人属性面板 MUST 提供「基于本租户部门树 + end_users 候选」的用户选择器（参照项目成员选择器交互，支持按部门过滤与关键字搜索），MUST NOT 暴露为自由文本 user_id 输入框；选中后写入的 `approver` 仍为 user_id 字符串，与 YAML 序列化及 loader 存在性校验向后兼容。
 - **FR-011**: 运行持久化 MUST 双后端兼容（MongoDB 默认 / PanWeiDB 经 027 兼容门面），不新增后端分叉代码。
 
 ### Key Entities

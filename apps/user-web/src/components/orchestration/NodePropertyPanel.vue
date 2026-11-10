@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { PropType } from 'vue'
-import { NInput, NInputNumber, NSelect, NDivider, NTag, NAlert } from 'naive-ui'
+import { NInput, NInputNumber, NSelect, NDivider, NTag, NAlert, NButton } from 'naive-ui'
 import { t } from '../../composables/i18n'
 import { declaredMultiAgentMode, type CanvasNode, type MultiAgentMode } from './canvasSchema'
+import ApproverPicker from './ApproverPicker.vue'
 
 /**
  * 节点属性面板（特性 039 FR-009）：编辑被选中节点的参数。
@@ -58,6 +59,37 @@ const unknownKeys = computed(() => {
 
 function apply(patch: Record<string, unknown>) {
   emit('patch', patch)
+}
+
+// 050 转人工节点：审批人由选择器写入（不再手输 user_id），仅 UI 态保留展示名。
+const showApproverPicker = ref(false)
+const selectedApproverName = ref('')
+
+const approverId = computed<string>(() => props.node?.data.approver || '')
+const approverDisplay = computed<string>(() => {
+  if (!approverId.value) return ''
+  return selectedApproverName.value || approverId.value
+})
+
+watch(
+  () => props.node?.id,
+  () => {
+    selectedApproverName.value = ''
+  },
+)
+
+function openApproverPicker(): void {
+  showApproverPicker.value = true
+}
+
+function onApproverSelected(payload: { id: string; name: string }): void {
+  apply({ approver: payload.id })
+  selectedApproverName.value = payload.name
+}
+
+function clearApprover(): void {
+  apply({ approver: undefined })
+  selectedApproverName.value = ''
 }
 
 const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
@@ -196,11 +228,29 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
     <template v-if="node.kind === 'humanApproval'">
       <div class="field">
         <span class="label">{{ t('orchestration.prop.approver') }}</span>
-        <n-input
-          :value="node.data.approver"
-          size="small"
-          :placeholder="t('orchestration.prop.approver_placeholder')"
-          @update:value="(v: string) => apply({ approver: v || undefined })"
+        <div class="approver-select-row">
+          <n-input
+            :value="approverDisplay"
+            size="small"
+            readonly
+            :placeholder="t('orchestration.prop.approver_placeholder')"
+          />
+          <n-button size="small" @click="openApproverPicker">
+            {{ t('orchestration.prop.approver_select') }}
+          </n-button>
+          <n-button
+            v-if="approverId"
+            size="small"
+            quaternary
+            type="error"
+            @click="clearApprover"
+          >×</n-button>
+        </div>
+        <ApproverPicker
+          :show="showApproverPicker"
+          :initial-approver-id="approverId"
+          @update:show="(v: boolean) => (showApproverPicker = v)"
+          @select="onApproverSelected"
         />
       </div>
       <div class="field">
@@ -289,6 +339,11 @@ const multiAgentOptions: Array<{ label: string; value: MultiAgentMode }> = [
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.approver-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .label {
   font-size: 12px;
