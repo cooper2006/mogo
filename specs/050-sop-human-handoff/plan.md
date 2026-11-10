@@ -10,7 +10,7 @@
 
 在 010 DAG 引擎（`services/chat-api/app/orchestration/`）新增 `human_approval` 节点与编排运行持久化：
 
-- **`human_approval.py`**（新模块）：节点执行器——挂起时经 `ApprovalRuntime.issue` 发票据、写快照、产出待办；决策回调经 `validate_and_consume` 消费后续跑或驳回（`on_reject` 分支 / 默认终止）；超时 fail-closed。
+- **`human_approval.py`**（新模块）：节点执行器——挂起写快照 + 持久化长效待办；决策时经 `ApprovalRuntime.issue` 即时签发并 `validate_and_consume` 消费短 TTL 票据，随后续跑或驳回（`on_reject` 分支 / 默认终止）；超时 fail-closed。
 - **`run_store.py`**（新模块）：`orchestration_runs` 集合的运行仓库——创建锁定定义版本、节点级 checkpoint、挂起/恢复/终态状态机、恢复扫描（单活租约，参照 `scheduled_tasks` 恢复范式）。
 - **引擎接线**：`dispatch.py` / `engine.py` 在节点完成与挂起点写 checkpoint；含审批节点的运行经 run_store 驱动，不含审批节点的既有路径行为不变（FR-009）。
 - **通知与入口**：站内审批待办（复用既有审批页数据面）+ 013 `render_reply` 渲染的应答式触达；主动推送边界待 OQ-2 clarify。
@@ -41,7 +41,7 @@
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - **I. Specification-First**: ✅ 三件套先于代码；七个决策点已拍板，四个 OQ 显式登记为 clarify 门禁。
-- **II. Enterprise Production Readiness**: ✅ 失败路径全显式：超时/自审/重复票据/无效审批人/快照写失败均 fail-closed；重启恢复有测试范式（`test_scheduler_recovery.py`）；无不可观测挂起（待办 + 审计 + 运行状态可查）。
+- **II. Enterprise Production Readiness**: ✅ 失败路径全显式：超时/自审/已消费待办重复提交决策/无效审批人/快照写失败均 fail-closed；重启恢复有测试范式（`test_scheduler_recovery.py`）；无不可观测挂起（待办 + 审计 + 运行状态可查）。
 - **III. Security and Data Protection**: ✅ 审批复用 `ApprovalRuntime`（审批与消费分离）；决策全审计（001 审计流）；待办 API 走既有鉴权与租户隔离；无新凭据面。
 - **IV. Cross-Platform and i18n**: ✅ 画布节点文案中英双语（039 既有 i18n 口径）；后端错误信息沿用既有风格。
 - **V. Observability and Simplicity**: ✅ 复用而非另起：票据/审计/渠道渲染全部委托既有实现；运行持久化是 052 共用的地基（一次投入两处受益）；不做分布式调度（单活租约恢复）。
@@ -82,13 +82,13 @@ specs/010-dag-orchestration-engine/contracts/
 └── orchestration.md       # 【修改】补审批节点 YAML 形态与运行状态机语义
 
 services/chat-api/tests/orchestration/
-├── test_human_approval.py # 【新增】挂起/批准/驳回/超时/自审/重复票据
+├── test_human_approval.py # 【新增】挂起/批准/驳回/超时/自审/重复决策
 ├── test_run_store.py      # 【新增】checkpoint/定义版本锁定/双后端口径
 └── test_run_recovery.py   # 【新增】重启恢复/零重跑/并发恢复租约
 # 【零修改】既有编排测试（回归门禁）
 ```
 
-**Structure Decision**: 审批是**节点类型**而非文档级模式——`VALID_MODES` 不扩展（避免与 044 的模式语义混淆：模式描述"整图如何协作"，审批节点描述"单节点等人"），任何模式的图中均可嵌入审批节点。运行持久化独立成 `run_store.py` 模块，052 直接消费，不内嵌进审批逻辑。
+**Structure Decision**: 审批是**节点类型**而非文档级模式——`VALID_MODES` 不扩展（避免与 044 的模式语义混淆：模式描述"整图如何协作"，审批节点描述"单节点等人"），首期仅 graph 模式的图中可嵌入审批节点（其它模式声明→加载期 fail-closed，见 R-9）。运行持久化独立成 `run_store.py` 模块，052 直接消费，不内嵌进审批逻辑。
 
 ## Complexity Tracking
 

@@ -159,7 +159,7 @@
 > - **OQ-4**: 黑板首期**运行内**（存 050 `orchestration_runs` 快照），尺寸上限
 >   与 050 checkpoint 大上下文口径联动；项目级持久黑板为二期（决策 #3）。
 
-- **OQ-1**: 验收判定的结构化形态（领导 LLM 输出 JSON schema：verdict/opinion/target_member，解析失败 fail-closed 还是重试）。
+- **OQ-1**（已消解，见「判定口径补充」R-2）：验收判定的结构化形态——领导 LLM 输出 JSON schema：verdict/opinion/target_member；解析失败 **fail-closed、首期不重试**（不静默回退 accept，避免治理旁路），定值以 R-2 为准。
 - **OQ-2**: 重指派次数上限默认值与失败阈值的关系（supervisor 现阈值 1.0）。
 - **OQ-3**: 接管触发条件的表达（仅验收分歧？达上限前自动触发？人工主动触发？）。
 - **OQ-4**: 黑板尺寸上限与运行快照的尺寸约束（050 checkpoint 大上下文口径联动）。

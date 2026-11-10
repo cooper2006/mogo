@@ -22,7 +22,7 @@
 
 | # | 决策点 | 结论 | 落点 |
 | --- | --- | --- | --- |
-| 1 | 节点审批机制 | 复用 `ApprovalRuntime`：节点挂起时 `issue` 票据，审批决策经 `validate_and_consume` 消费；**不另造审批状态机**；审批与消费分离（发起人不可自审）沿用 001 语义 | `orchestration/human_approval.py` |
+| 1 | 节点审批机制 | 复用 `ApprovalRuntime`，两段式：挂起只持久化长效待办，决策瞬间 `issue` 签发 300s 票据并立即 `validate_and_consume` 消费（R-2）；**不另造审批状态机**；审批与消费分离（发起人不可自审）沿用 001 语义 | `orchestration/human_approval.py` |
 | 2 | 运行持久化 | 新增 `orchestration_runs` 集合：运行快照（定义版本 + 节点状态 + 共享上下文 + 挂起点）；节点完成即写快照（checkpoint），挂起时持久化后释放执行协程；恢复 = 读快照重建执行。**这是本特性最大工作量，也是 052 的地基** | `orchestration/run_store.py` |
 | 3 | 挂起中定义变更 | 运行创建时锁定定义版本（快照含定义全文或版本引用）；挂起期间原定义被修改不影响在途运行（延续 002 版本化语义） | `run_store.py` + loader |
 | 4 | 超时策略 | 默认 fail-closed：超时未决策 → 节点失败、下游阻塞（010 FR-6 语义）；超时时长节点可配（默认值待 clarify，建议 24h）；**不做"超时自动批准"** | 节点 payload `timeout` |
@@ -38,12 +38,12 @@
 
 **Why this priority**: 这是 StaffDeck 合同审查多环节审批的核心形态，也是 mogo 审批能力从工具层到流程层的最小完整闭环；单独交付即有业务价值。
 
-**Independent Test**: 定义三节点工作流（mock runner → human_approval → mock runner），执行后断言运行挂起且票据生成；模拟批准 → 断言第三节点执行、运行完成；另一运行模拟驳回（带理由）→ 断言运行终止且理由可查。
+**Independent Test**: 定义三节点工作流（mock runner → human_approval → mock runner），执行后断言运行挂起且长效待办生成；模拟批准 → 断言第三节点执行、运行完成；另一运行模拟驳回（带理由）→ 断言运行终止且理由可查。
 
 **Acceptance Scenarios**:
 
-1. **Given** 工作流含 `human_approval` 节点且指定审批人，**When** 执行到该节点，**Then** 运行状态置 `awaiting_approval`、快照持久化、审批票据生成、待办对审批人可见。
-2. **Given** 运行挂起中，**When** 审批人批准，**Then** 票据被消费、运行从挂起点续跑、后续节点正常执行、运行最终 `completed`。
+1. **Given** 工作流含 `human_approval` 节点且指定审批人，**When** 执行到该节点，**Then** 运行状态置 `awaiting_approval`、快照持久化、长效待办生成（票据在决策时签发）、待办对审批人可见。
+2. **Given** 运行挂起中，**When** 审批人批准，**Then** 长效待办被原子消费、决策瞬间票据签发并即时消费、运行从挂起点续跑、后续节点正常执行、运行最终 `completed`。
 3. **Given** 运行挂起中且节点未声明 `on_reject`，**When** 审批人驳回（附理由），**Then** 运行终止为 `rejected`，理由进运行记录与审计。
 4. **Given** 节点声明 `on_reject: <node_id>`，**When** 驳回，**Then** 流程跳转到驳回分支节点继续执行。
 5. **Given** 发起人试图审批自己发起的运行，**When** 提交决策，**Then** 拒绝（审批与消费分离，沿用 001 语义）。
@@ -60,7 +60,7 @@
 
 **Acceptance Scenarios**:
 
-1. **Given** 运行挂起且快照已持久化，**When** 服务重启后触发恢复扫描，**Then** 挂起运行重新可见、待办不丢、票据仍有效。
+1. **Given** 运行挂起且快照已持久化，**When** 服务重启后触发恢复扫描，**Then** 挂起运行重新可见、长效待办不丢、重启后仍可决策。
 2. **Given** 恢复后的挂起运行，**When** 审批人批准，**Then** 从挂起点续跑，已完成节点不重复执行。
 3. **Given** 运行在节点执行中（非挂起）进程崩溃，**When** 恢复扫描，**Then** 按快照从最后 checkpoint 重建；运行中节点的副作用重放策略按节点幂等声明处理（无幂等声明的节点标记 `needs_review`，不静默重跑）。
 4. **Given** 挂起期间原编排定义被修改，**When** 运行续跑，**Then** 仍按运行锁定的定义版本执行（决策 #3）。
@@ -69,16 +69,16 @@
 
 ### User Story 3 - 超时与异常 fail-closed (Priority: P1)
 
-审批超时、审批人不存在、票据重复消费等异常路径全部显式失败，不静默放行。
+审批超时、审批人不存在、已消费待办重复提交决策等异常路径全部显式失败，不静默放行。
 
 **Why this priority**: 审批节点是治理触点，任何"异常时默认放行"都是治理旁路（宪法 II/III）；异常语义必须与节点同批交付。
 
-**Independent Test**: 配置短超时执行挂起运行，等待超时 → 断言节点失败、下游阻塞、审计事件；对已消费票据再次提交决策 → 断言拒绝；加载 `approver` 指向不存在用户的定义 → 断言加载期报错。
+**Independent Test**: 配置短超时执行挂起运行，等待超时 → 断言节点失败、下游阻塞、审计事件；对已消费长效待办再次提交决策 → 断言拒绝；加载 `approver` 指向不存在用户的定义 → 断言加载期报错。
 
 **Acceptance Scenarios**:
 
 1. **Given** 节点配置超时时长，**When** 超时内无决策，**Then** 节点失败（`timeout`）、下游按 010 FR-6 阻塞、审计记录超时事件。
-2. **Given** 票据已被消费，**When** 再次提交同票据决策，**Then** 拒绝（一次性语义，`ApprovalRuntime` 既有行为）。
+2. **Given** 长效待办已被消费，**When** 再次提交同一待办的决策，**Then** 拒绝（一次性语义；票据在每次决策时即时签发并消费，`ApprovalRuntime` 既有行为）。
 3. **Given** YAML 的 `approver` 指向不存在用户/岗位角色，或 `on_reject` 指向不存在节点，**When** 加载定义，**Then** 加载期 fail-closed 报错（与 044 arbiter 校验同风格）。
 
 ---
@@ -100,11 +100,11 @@
 
 ### Edge Cases
 
-- **多审批节点串联**：每个节点独立票据与挂起快照；前一节点批准后续跑至下一审批节点再次挂起（合同审查多环节形态）。
+- **多审批节点串联**：每个节点独立长效待办与挂起快照；前一节点批准后续跑至下一审批节点再次挂起（合同审查多环节形态）。
 - **并行分支中的审批节点**：graph 模式并行分支各自挂起，运行级状态为 `awaiting_approval` 当且仅当存在挂起节点；任一分支驳回终止按 `on_reject`/默认语义处理，不阻塞其他分支的快照记录。
 - **审批人离职/停用**：决策时校验审批人有效性，无效 → 运行转 `needs_review` 由管理员改派（改派进审计），不静默超时放行。
 - **恢复扫描与在途执行并发**：同一运行不得被两个进程同时恢复（租约/乐观锁，参照 `scheduled_tasks` 恢复范式）。
-- **挂起运行被管理员取消**：运行置 `cancelled`，票据作废，审计记录。
+- **挂起运行被管理员取消**：运行置 `cancelled`，长效待办作废，审计记录。
 - **快照写入失败**：节点挂起前快照写失败 → 节点失败 fail-closed，不进入"内存挂起"（避免重启即丢）。
 
 ## Requirements *(mandatory)*
@@ -112,10 +112,10 @@
 ### Functional Requirements
 
 - **FR-001**: 编排引擎 MUST 支持 `human_approval` 节点类型（节点 payload 声明 `approver`、可选 `timeout`、可选 `on_reject`、可选 `prompt` 审批说明）；加载期 MUST 校验 approver 与 on_reject 目标存在（fail-closed）。
-- **FR-002**: 执行到 `human_approval` 节点 MUST 挂起运行：持久化快照、经 `ApprovalRuntime.issue` 生成票据、运行状态置 `awaiting_approval`；MUST NOT 在进程内无限等待。
-- **FR-003**: 审批决策 MUST 经 `ApprovalRuntime.validate_and_consume` 消费票据；批准续跑、驳回按 `on_reject` 分支或终止（附理由）；发起人自审 MUST 拒绝。
+- **FR-002**: 执行到 `human_approval` 节点 MUST 挂起运行：持久化快照、持久化长效待办（短 TTL 票据在决策时签发）、运行状态置 `awaiting_approval`；MUST NOT 在进程内无限等待。
+- **FR-003**: 审批决策 MUST 在决策瞬间经 `ApprovalRuntime.issue` 签发短 TTL 票据并立即 `validate_and_consume` 消费（决策时签发并即时消费）；批准续跑、驳回按 `on_reject` 分支或终止（附理由）；发起人自审 MUST 拒绝。
 - **FR-004**: 系统 MUST 新增编排运行持久化（`orchestration_runs`）：运行创建锁定定义版本、节点完成写 checkpoint、挂起/恢复/终态全程可查；恢复 MUST 保证已完成节点不重复执行。
-- **FR-005**: 服务重启后恢复扫描 MUST 重建挂起运行（待办与票据不丢）；同一运行 MUST NOT 被并发恢复（租约或乐观锁）。
+- **FR-005**: 服务重启后恢复扫描 MUST 重建挂起运行（长效待办不丢，票据在决策时即时签发）；同一运行 MUST NOT 被并发恢复（租约或乐观锁）。
 - **FR-006**: 超时 MUST fail-closed（节点失败 + 下游阻塞 + 审计）；MUST NOT 提供"超时自动批准"。
 - **FR-007**: 审批待办与决策结果 MUST 通知审批人/发起人：首期站内审批入口 + 审计事件；IM 触达按 013 既有能力渲染，主动推送缺口以应答式触达回落（决策 #5）。
 - **FR-008**: 节点挂起、批准、驳回、超时、改派、取消 MUST 全部落审计（001 审计流，含运行 ID/节点 ID/决策人/理由）。
@@ -125,10 +125,10 @@
 
 ### Key Entities
 
-- **OrchestrationRun**: 一次编排运行（运行 ID / 租户 / 定义版本快照 / 状态 / 共享上下文 / checkpoint 序列 / 发起人），状态机 `running → awaiting_approval → running → completed | rejected | timeout | cancelled | needs_review`。
+- **OrchestrationRun**: 一次编排运行（运行 ID / 租户 / 定义版本快照 / 状态 / 共享上下文 / checkpoint 序列 / 发起人），状态机：非终态 `running | awaiting_approval | needs_review`，终态 `completed | rejected | timeout | cancelled | failed`（`needs_review` 经 POST /runs/{id}/review 的 skip/terminate/reassign 处置，非终态）。
 - **ApprovalNodeConfig**: 审批节点声明（approver / timeout / on_reject / prompt），物化自节点 payload。
 - **RunCheckpoint**: 节点级快照（节点状态 + 输出 + 上下文增量），恢复与"不重跑"的依据。
-- **ApprovalTodo**: 审批待办（运行 ID / 节点 ID / 审批人 / 票据引用 / 创建时间 / 超时时刻），站内入口与 IM 触达的数据源。
+- **ApprovalTodo**: 审批待办（运行 ID / 节点 ID / 审批人 / 长效待办 / resume_token 等 claims / 创建时间 / 超时时刻），站内入口与 IM 触达的数据源。
 
 ## Success Criteria *(mandatory)*
 
@@ -136,7 +136,7 @@
 
 - **SC-001**: 含两个审批节点的工作流 E2E 跑通：挂起 → 批准 → 再挂起 → 批准 → 完成；驳回与超时路径各有契约测试。
 - **SC-002**: 挂起运行经服务重启后可恢复续跑，已完成节点零重跑（runner 调用计数断言）。
-- **SC-003**: 异常路径全部 fail-closed：自审、重复票据、无效审批人、超时、快照写失败均有拒绝/失败断言，无静默放行。
+- **SC-003**: 异常路径全部 fail-closed：自审、已消费待办重复提交决策、无效审批人、超时、快照写失败均有拒绝/失败断言，无静默放行。
 - **SC-004**: 既有编排测试（`tests/orchestration/` 全量）零修改全绿；不含审批节点的工作流行为不变。
 - **SC-005**: 审计链可从运行 ID 还原完整决策序列（挂起/决策人/理由/时刻）。
 

@@ -74,16 +74,20 @@
 
 ## Notes
 
-- 审批是节点类型不是文档模式：`VALID_MODES` 不扩展，任何模式的图可嵌入审批节点（plan Structure Decision）。
+- 审批是节点类型不是文档模式：`VALID_MODES` 不扩展，首期仅 graph 模式的图可嵌入审批节点（其它模式声明→加载期 fail-closed，见 R-9 / plan Structure Decision）。
 - 票据 TTL 与长时挂起的匹配是最大实现风险（T003）：若 `ApprovalRuntime` 票据短 TTL 不适配，采用"待办长效 + 决策时即时发票据"两段式，不改 ApprovalRuntime 本体语义。
 - 超时判定由恢复扫描驱动而非进程内定时器——挂起运行不占协程，进程重启不丢超时判定。
 - 不拷贝 StaffDeck（AGPL-3.0）任何代码；设计借鉴已在整合方案 §6 声明。
 
-## 代审附注（2026-11-10，reviewer agent 复核发现，待实现侧核对）
+## 代审附注（2026-11-10，reviewer agent 复核发现，已核实并消解）
 
-以下 4 项为 050 需求质量代审时发现的「文档/契约 ↔ 实现」不一致，**仅登记、不在本轮改动范围内**；判定口径已由 spec「判定口径补充」R 条在需求层精确化，实现层需另行复核：
+以下 4 项为 050 需求质量代审时发现的「文档/契约 ↔ 实现」不一致，已于 2026-11-10 复核并消解（本轮仅改文档、不动运行时代码）；判定口径由 spec「判定口径补充」R 条在需求层精确化。原始 4 条全文保留供追溯，逐条附处置结论：
 
 1. `plan.md` Structure Decision 称「任何模式可嵌审批节点」，与契约 §6 / R-9「仅 graph 支持」冲突；`_validate_050_shapes` 缺相应校验。
+   - 处置：文案已修正（plan.md:91 / tasks.md:77 改为「首期仅 graph」）；实现侧无需改动。R-9 中「实现侧须在 `_validate_050_shapes` 补该限制校验」仍未兑现——补它会把拒绝点从 start 提前到 load，属改运行时行为，本轮不做；功能由 human_approval.py:302-305 的 RunDriver.start fail-closed 兜底，留作后续。
 2. 状态机遗漏 `failed` 状态，且把 `needs_review` 误列为终态。
+   - 处置：状态机文案已修正（spec.md:128 与 010 契约 §6 L150 统一为「非终态/终态」两分）；实现侧无需改动（run_store.py:38-39 的 TERMINAL_STATES / ACTIVE_STATES 已正确）。
 3. 决策 #1「挂起时发票据」与两段式（决策时即时签发 5min 票据）冲突；**R-2 已在需求层精确化**，实现与契约文案需同步。
+   - 处置：spec.md / plan.md 旧一段式票据表述已全文改为两段式口径；实现侧无需改动（human_approval.py:120-143 挂起不 issue、:356-375 决策时签发并即时消费、TICKET_TTL=300）。R-1~R-15 原文未改。
 4. 契约称票据「不依赖进程内存」不准确：`ApprovalRuntime` 实为进程内字典，靠单次请求闭环；应改为如实描述或补持久化。
+   - 处置：契约 §6 L164-165 已改为如实描述（票据存 ApprovalRuntime 进程内字典、单次决策请求内闭环、不依赖跨进程票据持久化）；实现侧无需改动，不补持久化（plan.md:76 标注 approval_runtime.py 零改动）。

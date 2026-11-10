@@ -1,4 +1,4 @@
-# Orchestration 契约（六模式）
+# Orchestration 契约（七模式）
 
 > 本文档是 `specs/010-dag-orchestration-engine/quickstart.md` §5 引用的权威形态说明，
 > 由 `specs/044-multi-agent-modes` 在实现期补建：010 原本把模式清单写在 quickstart §5，
@@ -14,7 +14,7 @@
 orchestration:
   id: competitor_deep_dive
   version: 1.0.0
-  mode: graph            # 六选一，缺省 graph（044 R-11）
+  mode: graph            # 七选一，缺省 graph（044 R-11；052 扩 team 见 §7）
   max_concurrency: 4     # 010 既有；round_robin 复用为候选并发上限
   timeout: 1800
   retry: {max_attempts: 2, backoff: exponential, base_seconds: 5}
@@ -146,9 +146,7 @@ nodes:
 
 **运行状态机**（`orchestration_runs` 集合，050 run_store）：
 
-```
-running → awaiting_approval → running → completed | rejected | timeout | cancelled | failed | needs_review
-```
+非终态 `running | awaiting_approval | needs_review`，终态 `completed | rejected | timeout | cancelled | failed`（`needs_review` 经 POST /runs/{id}/review 的 skip/terminate/reassign 处置，非终态）。
 
 * 执行到审批节点：写运行快照（checkpoint）→ 持久化待办 → 运行置
   `awaiting_approval` → 释放协程（**不在进程内等待**，重启不丢）。
@@ -159,10 +157,10 @@ running → awaiting_approval → running → completed | rejected | timeout | c
 * 超时：恢复扫描把过期待办置 `timeout`，审批节点 `failed`，下游按 010 FR-6
   阻塞（**fail-closed，无超时自动批准**）。
 * 恢复：单活租约（`lease_owner` / `lease_until`），运行中 worker 崩溃 →
-  `needs_review` 由管理员 skip/terminate，不静默重跑。
+  `needs_review` 由管理员经 POST /runs/{id}/review 的 skip/terminate/reassign 处置，不静默重跑（非终态，见状态机）。
 * 定义版本锁定：运行创建时内嵌定义全文，挂起期间改定义不影响在途运行。
-* 票据两段式：持久化待办在 DB，决策瞬间经 `ApprovalRuntime` 签发并消费短
-  TTL（5min）票据——001 的一次性/审批分离语义不变，票据不依赖进程内存。
+* 票据两段式：持久化待办在 DB，决策瞬间经 `ApprovalRuntime` 签发并即时消费短
+  TTL（5min）票据——001 的一次性/审批分离语义不变。票据存 `ApprovalRuntime` 进程内字典，签发与消费在同一次决策请求内闭环，故不依赖跨进程票据持久化（重启不丢待办、不遗留未消费票据）。
 * 审批与决策全审计（挂起/批准/驳回/超时/改派/取消，含运行 ID/节点/决策人/
   理由），可从运行 ID 还原决策序列。
 
