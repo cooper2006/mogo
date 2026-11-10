@@ -14,6 +14,7 @@ import { PositionRolesIcon } from '@/icons/PositionRolesIcon';
 import { SystemAuditIcon } from '@/icons/SystemAuditIcon';
 import { HookRulesIcon } from '@/icons/HookRulesIcon';
 import { OntologyIcon } from '@/icons/OntologyIcon';
+import { ResourceCenterIcon } from '@/icons/ResourceCenterIcon';
 
 export const appRoutes: RouteRecordRaw[] = [
   {
@@ -101,9 +102,8 @@ export const appRoutes: RouteRecordRaw[] = [
       },
       {
         path: '/dsh-plugins',
-        name: 'DshPlugins',
-        component: () => import('@/views/dsh-plugins/DshPluginsPage.vue'),
-        meta: { title: 'dshPlugins.title', icon: DshPluginsIcon },
+        redirect: '/resources/dsh-plugins',
+        meta: { hideInMenu: true },
       },
       {
         path: '/tools',
@@ -118,12 +118,53 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '连接器市场', icon: ToolsMcpIcon },
       },
       {
-        // 017: 记忆管理（三范围治理）一级菜单。参考 Skill 管理范式（§7.2），
-        // 不挂 /assets（045 排除项），独立一级路由。
+        // 054: 资源中心 —— 插件/记忆/模型/知识/本体 的统一一级入口
+        // 父路由不设 component，子页面直接渲染到 BasicLayout 的 router-view
+        path: '/resources',
+        meta: { title: '资源中心', icon: ResourceCenterIcon },
+        children: [
+          {
+            path: 'dsh-plugins',
+            name: 'ResourceDshPlugins',
+            component: () => import('@/views/dsh-plugins/DshPluginsPage.vue'),
+            meta: { title: 'dshPlugins.title', icon: DshPluginsIcon },
+          },
+          {
+            path: 'memories',
+            name: 'ResourceMemories',
+            component: () => import('@/views/memories/MemoriesPage.vue'),
+            meta: { title: '记忆管理', icon: SkillsManagerIcon },
+          },
+          {
+            path: 'models',
+            name: 'ResourceModels',
+            component: () => import('@/views/models/ModelsPage.vue'),
+            meta: { title: '模型中心', icon: ModelsCenterIcon },
+          },
+          {
+            path: 'knowledge/documents',
+            name: 'ResourceKnowledgeDocuments',
+            component: () => import('@/views/knowledge/KnowledgeDocumentsPage.vue'),
+            meta: { title: '知识文档', icon: KnowledgeDocumentsIcon },
+          },
+          {
+            path: 'knowledge/documents/:id',
+            name: 'ResourceKnowledgeDocumentDetail',
+            component: () => import('@/views/knowledge/KnowledgeDocumentPreviewPage.vue'),
+            meta: { title: '文档详情', hideInMenu: true },
+          },
+          {
+            path: 'ontologies',
+            name: 'ResourceOntologies',
+            component: () => import('@/views/ontologies/OntologyCatalogPage.vue'),
+            meta: { title: '本体授权', icon: OntologyIcon },
+          },
+        ],
+      },
+      {
         path: '/memories',
-        name: 'Memories',
-        component: () => import('@/views/memories/MemoriesPage.vue'),
-        meta: { title: '记忆管理', icon: SkillsManagerIcon },
+        redirect: '/resources/memories',
+        meta: { hideInMenu: true },
       },
       {
         path: '/tools/new',
@@ -138,22 +179,37 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '编辑工具连接', hideInMenu: true },
       },
       {
+        path: '/employees',
+        name: 'Employees',
+        component: () => import('@/views/employees/EmployeeManagePage.vue'),
+        meta: { title: '数字员工', icon: SkillsManagerIcon },
+      },
+      {
+        path: '/employees/create',
+        name: 'EmployeeCreate',
+        component: () => import('@/views/employees/EmployeeEditPage.vue'),
+        meta: { title: '新建数字员工', hideInMenu: true },
+      },
+      {
+        path: '/employees/edit/:id',
+        name: 'EmployeeEdit',
+        component: () => import('@/views/employees/EmployeeEditPage.vue'),
+        meta: { title: '编辑数字员工', hideInMenu: true },
+      },
+      {
         path: '/models',
-        name: 'Models',
-        component: () => import('@/views/models/ModelsPage.vue'),
-        meta: { title: '模型中心', icon: ModelsCenterIcon },
+        redirect: '/resources/models',
+        meta: { hideInMenu: true },
       },
       {
         path: '/knowledge/documents',
-        name: 'KnowledgeDocuments',
-        component: () => import('@/views/knowledge/KnowledgeDocumentsPage.vue'),
-        meta: { title: '知识文档', icon: KnowledgeDocumentsIcon },
+        redirect: '/resources/knowledge/documents',
+        meta: { hideInMenu: true },
       },
       {
         path: '/knowledge/documents/:id',
-        name: 'KnowledgeDocumentDetail',
-        component: () => import('@/views/knowledge/KnowledgeDocumentPreviewPage.vue'),
-        meta: { title: '文档详情', hideInMenu: true },
+        redirect: '/resources/knowledge/documents/:id',
+        meta: { hideInMenu: true },
       },
       {
         path: '/token-stats',
@@ -215,9 +271,8 @@ export const appRoutes: RouteRecordRaw[] = [
       },
       {
         path: '/ontologies',
-        name: 'Ontologies',
-        component: () => import('@/views/ontologies/OntologyCatalogPage.vue'),
-        meta: { title: '本体授权', icon: OntologyIcon },
+        redirect: '/resources/ontologies',
+        meta: { hideInMenu: true },
       },
       {
         // 045: 资产中心 —— 资产相关页面的统一入口（一级菜单 + 二级子页）
@@ -252,6 +307,13 @@ export const appRoutes: RouteRecordRaw[] = [
             name: 'AssetApprovals',
             component: () => import('@/views/portal/PortalApprovalPage.vue'),
             meta: { title: '资产审批' },
+          },
+          {
+            // 053: 广场模板分发（员工/SOP 模板上架、克隆、版本升级）
+            path: 'templates',
+            name: 'AssetTemplates',
+            component: () => import('@/views/templates/TemplateManagePage.vue'),
+            meta: { title: '模板管理' },
           },
         ],
       },
