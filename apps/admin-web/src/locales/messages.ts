@@ -24,6 +24,7 @@ export const messages = {
   '仅看已修改': { 'zh-CN': '仅看已修改', 'en-US': 'Modified Only' },
   '只读路由': { 'zh-CN': '只读路由', 'en-US': 'Read-only Routes' },
   '菜单显示': { 'zh-CN': '菜单显示', 'en-US': 'Show in Menu' },
+  '权限中心': { 'zh-CN': '权限中心', 'en-US': 'Permission Center' },
   '组织与用户': { 'zh-CN': '组织与用户', 'en-US': 'Organizations & Users' },
   '账号组与账号': { 'zh-CN': '账号组与账号', 'en-US': 'Accounts & Org Groups' },
   '用户管理': { 'zh-CN': '用户管理', 'en-US': 'Users' },

@@ -69,7 +69,7 @@ export interface MenuNodeDef {
   icon: unknown;
   iconKey: string | null;
   isGroup: boolean;
-  /** 硬编码分组（组织与用户）没有对应页面，点击只展开、不跳转。 */
+  /** 硬编码分组（权限中心）没有对应页面，点击只展开、不跳转。 */
   virtual?: boolean;
   platformOnly: boolean;
   locked: boolean;
@@ -222,7 +222,7 @@ function buildMenuCatalog(): MenuCatalog {
         addNode({
           key: ORGANIZATION_GROUP_KEY,
           parentKey: null,
-          title: '组织与用户',
+          title: '权限中心',
           icon: OrganizationUsersIcon,
           isGroup: true,
           virtual: true,

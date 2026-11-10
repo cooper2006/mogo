@@ -84,7 +84,7 @@ export function buildOptions(
     options.push({
       key: node.key,
       // 一级项本身也是页面：点文字直接跳转，点箭头才展开二级（阻止冒泡避免只展开）。
-      // 硬编码分组（组织与用户）没有对应页面，点文字只展开。
+      // 硬编码分组（权限中心）没有对应页面，点文字只展开。
       label: node.virtual
         ? effectiveLabel(node, override, locale)
         : () =>

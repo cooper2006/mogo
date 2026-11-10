@@ -154,6 +154,14 @@ export const appRoutes: RouteRecordRaw[] = [
             component: () => import('@/views/hooks/HookRulesPage.vue'),
             meta: { title: '钩子规则', icon: HookRulesIcon },
           },
+          {
+            // 053: 广场模板分发现归入「资源中心」二级菜单（原在资产中心）。
+            // 用绝对路径保留 /assets/templates 既有 URL、书签，以及 055 菜单配置里的节点 key。
+            path: '/assets/templates',
+            name: 'AssetTemplates',
+            component: () => import('@/views/templates/TemplateManagePage.vue'),
+            meta: { title: '模板管理' },
+          },
         ],
       },
       {
@@ -318,13 +326,6 @@ export const appRoutes: RouteRecordRaw[] = [
             component: () => import('@/views/portal/PortalApprovalPage.vue'),
             meta: { title: '资产审批' },
           },
-          {
-            // 053: 广场模板分发（员工/SOP 模板上架、克隆、版本升级）
-            path: 'templates',
-            name: 'AssetTemplates',
-            component: () => import('@/views/templates/TemplateManagePage.vue'),
-            meta: { title: '模板管理' },
-          },
         ],
       },
       // 037: 门户上架 / 审批已并入「资产中心」二级菜单，旧路径保留重定向（书签兼容）
@@ -397,7 +398,7 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '设置', icon: SettingsIcon },
       },
       {
-        // 055: 菜单管理归入「组织与用户」分组（硬编码分组由 menuGroup 合并），
+        // 055: 菜单管理归入「权限中心」分组（硬编码分组由 menuGroup 合并），
         // 页面本身仍用 /settings/menus 路径，与设置类页面保持一致的 URL 命名空间。
         path: '/settings/menus',
         name: 'MenuManagement',
