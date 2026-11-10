@@ -13,8 +13,9 @@ def _read_secret_file() -> dict[str, str]:
     Returns a dict of {key: value} for all lines matching KEY=VALUE pattern.
     """
     secret_paths = [
-        Path("/tmp/mogo-secrets.env"),
-        Path("/run/askai-secrets/runtime.env"),
+        Path("/tmp/mogo-secrets-full.env"),  # Full secrets (preferred)
+        Path("/tmp/mogo-secrets.env"),       # Filtered subset (legacy)
+        Path("/run/askai-secrets/runtime.env"),  # Original mount
     ]
     result = {}
     for path in secret_paths:

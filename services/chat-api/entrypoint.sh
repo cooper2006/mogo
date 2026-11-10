@@ -12,7 +12,12 @@ load_runtime_secrets() {
     # Write critical tokens to a readable temp file for Python processes.
     # Docker security profiles may filter os.environ and clear /proc/1/environ,
     # so we write secrets to /tmp where the process has write access.
-    if command -v grep >/dev/null 2>&1; then
+    # Write ALL secrets to a temp file for Python processes that can't read from os.environ
+    # due to Docker security profiles filtering /proc/1/environ
+    if command -v cat >/dev/null 2>&1; then
+      cp "${secret_file}" "/tmp/mogo-secrets-full.env" 2>/dev/null || true
+      chmod 644 "/tmp/mogo-secrets-full.env" 2>/dev/null || true
+      # Also write the filtered subset for backwards compatibility
       grep -E "^(ADMIN_BACKEND_SERVICE_TOKEN|ASKAI_ADMIN_BACKEND_SERVICE_TOKEN)=" "${secret_file}" > "/tmp/mogo-secrets.env" 2>/dev/null || true
       chmod 644 "/tmp/mogo-secrets.env" 2>/dev/null || true
     fi
