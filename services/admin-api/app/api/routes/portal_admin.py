@@ -63,7 +63,7 @@ PORTAL_STATUSES = (STATUS_APPLIED, STATUS_APPROVED, STATUS_REJECTED, STATUS_GRAN
 #: 审批队列里可见的状态（待办）。
 QUEUE_STATUSES = (STATUS_APPLIED, STATUS_APPROVED)
 
-CATALOG_ASSET_TYPES = ("skill", "capability_asset")
+CATALOG_ASSET_TYPES = ("skill", "capability_asset", "employee", "dag_definition")
 
 PORTAL_READ = "portal:read"
 PORTAL_MANAGE = "portal:manage"
@@ -123,6 +123,10 @@ async def _asset_row(db: Any, tenant_id: str, asset_type: str, asset_key: str) -
     """读取资产文档（跨租户一律不可见）。"""
     if asset_type == "capability_asset":
         row = await db["capability_assets"].find_one({"asset_id": asset_key})
+    elif asset_type == "employee":
+        row = await db["employees"].find_one({"_id": asset_key, "tenant_id": tenant_id})
+    elif asset_type == "dag_definition":
+        row = await db["dag_definitions"].find_one({"orchestration_id": asset_key, "tenant_id": tenant_id})
     elif asset_type == "skill":
         row = await db.skills.find_one({"_id": asset_key, "tenant_id": tenant_id})
     else:
@@ -141,6 +145,10 @@ def _is_active_asset(row: dict[str, Any], asset_type: str) -> bool:
         return False
     if asset_type == "capability_asset":
         return str(row.get("state") or "") == "active"
+    if asset_type == "employee":
+        return str(row.get("status") or "") == "active" and not row.get("deleted_at")
+    if asset_type == "dag_definition":
+        return str(row.get("status") or "") == "published"
     if asset_type == "skill":
         if str(row.get("authoring_mode") or "") == "platform":
             return str(row.get("publication_status") or "") == "published"

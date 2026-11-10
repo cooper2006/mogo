@@ -36,6 +36,7 @@ from app.services.portal import (
     list_catalog,
     list_categories,
     list_my_requests,
+    require_asset_use,
     resolve_approver,
     revoke_grant,
     decide_request,
@@ -690,3 +691,22 @@ async def test_full_chain_browse_apply_approve_grant_revoke():
     assert db["permission_grants"].docs == []
     mine_after = await list_my_requests(db, tenant_id=TENANT, requester_id=REQUESTER)
     assert mine_after["items"][0]["status"] == "revoked"
+
+
+# --- T019：副本使用检查点（FR-007 fail-closed） ------------------------------
+
+
+async def test_require_asset_use_fail_closed_without_grant():
+    """副本未开通（无 permission_grants）→ 使用被拒（fail-closed）。"""
+    db = FakeDB()
+    with pytest.raises(portal_requests.PortalRequestError) as exc_info:
+        await require_asset_use(db, tenant_id=TENANT, user_id=REQUESTER, asset_key="dag-1")
+    assert exc_info.value.reason == "asset_use_not_granted"
+
+
+async def test_require_asset_use_ok_after_grant():
+    """申领审批通过（写授权）→ 使用检查点通过。"""
+    db = FakeDB()
+    await portal_requests.grant_asset_use(db, tenant_id=TENANT, user_id=REQUESTER, asset_key="dag-1", granted_by=OWNER)
+    row = await require_asset_use(db, tenant_id=TENANT, user_id=REQUESTER, asset_key="dag-1")
+    assert row["code"] == "asset:use:dag-1"

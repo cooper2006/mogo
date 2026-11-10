@@ -55,7 +55,7 @@
                 <div class="card-head">
                   <strong>{{ item.name }}</strong>
                   <n-tag size="tiny" :bordered="false">
-                    {{ item.asset_type === 'skill' ? t('portal.type.skill') : t('portal.type.capability') }}
+                    {{ item.asset_type === 'skill' ? t('portal.type.skill') : item.asset_type === 'employee' ? t('portal.type.employee') : t('portal.type.capability') }}
                   </n-tag>
                 </div>
                 <p class="card-desc mg-text-3">{{ item.description || t('portal.no_description') }}</p>
@@ -140,6 +140,7 @@ const categoryOptions = computed(() =>
 const assetTypeOptions = [
   { label: t('portal.type.skill'), value: 'skill' },
   { label: t('portal.type.capability'), value: 'capability_asset' },
+  { label: t('portal.type.employee'), value: 'employee' },
 ]
 
 /** 类型是本页面前端筛选（后端目录接口按资产类型混合返回）。 */

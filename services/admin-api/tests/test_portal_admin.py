@@ -530,7 +530,8 @@ def test_collection_and_status_constants_match_chat_api():
     assert portal_admin.PORTAL_REQUESTS_COLLECTION == "portal_requests"
     assert portal_admin.PERMISSION_GRANTS_COLLECTION == "permission_grants"
     assert portal_admin.GATE_EVENTS_COLLECTION == "gate_events"
-    assert portal_admin.CATALOG_ASSET_TYPES == ("skill", "capability_asset")
+    # 051 决策 #2：资产坐标扩 employee（数字员工档案）；053 US3 扩 dag_definition（SOP 模板副本）。
+    assert portal_admin.CATALOG_ASSET_TYPES == ("skill", "capability_asset", "employee", "dag_definition")
     assert portal_admin.PORTAL_STATUSES == (
         "applied",
         "approved",

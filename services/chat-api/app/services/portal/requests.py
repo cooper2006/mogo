@@ -179,11 +179,15 @@ async def _asset_owner(db: Any, tenant_id: str, asset_type: str, asset_key: str)
     """资产 owner 的**用户标识**（解析不到用户返回空串，回落管理员）。"""
     if asset_type == "capability_asset":
         row = await db["capability_assets"].find_one({"asset_id": asset_key})
+    elif asset_type == "employee":
+        row = await db["employees"].find_one({"_id": asset_key, "tenant_id": tenant_id})
+    elif asset_type == "dag_definition":
+        row = await db["dag_definitions"].find_one({"orchestration_id": asset_key, "tenant_id": tenant_id})
     else:
         row = await db.skills.find_one({"_id": asset_key, "tenant_id": tenant_id})
     if not row:
         return ""
-    for field in ("created_by", "owner_id", "owner"):
+    for field in ("created_by", "owner_id", "owner", "creator_id"):
         value = str(row.get(field) or "").strip()
         if value:
             return value
@@ -284,6 +288,25 @@ async def revoke_asset_use(db: Any = None, *, tenant_id: str, user_id: str, asse
         }
     )
     return bool(getattr(result, "deleted_count", 0))
+
+
+async def require_asset_use(db: Any = None, *, tenant_id: str, user_id: str, asset_key: str) -> dict[str, Any]:
+    """使用检查点：用户必须已开通 ``asset:use:<asset_key>`` 授权（FR-007 fail-closed）。
+
+    未开通 / 已过期 → 抛 :class:`PortalRequestError`（``asset_use_not_granted``）。
+    这是 053 副本使用的前置门禁：克隆产物默认未开通（克隆只登记 listing、
+    不写授权），用户须走 037 申领审批开通后方可使用。
+    """
+    db = _get_db(db)
+    code = build_asset_use_code(asset_key)
+    row = await db[PERMISSION_GRANTS_COLLECTION].find_one(
+        {"tenant_id": tenant_id, "level": "user", "org_id": "", "user_id": user_id, "code": code}
+    )
+    if not row:
+        raise PortalRequestError("asset_use_not_granted", f"asset use not granted: {asset_key!r} (fail-closed)")
+    if _is_expired(row, _now()):
+        raise PortalRequestError("asset_use_expired", f"asset use grant expired: {asset_key!r}")
+    return row
 
 
 # --- 租户设置 ---------------------------------------------------------------

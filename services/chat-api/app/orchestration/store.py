@@ -114,3 +114,81 @@ def _utcnow() -> Any:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# 053-plaza-template-distribution：SOP 模板克隆消费侧（T016）
+# ---------------------------------------------------------------------------
+#
+# SOP 模板经 admin-api 克隆后副本落 ``dag_definitions``（克隆者名下，010 集合）。
+# 本模块提供两个消费侧辅助：
+#
+# * ``register_cloned_definition`` —— 将克隆副本文档写入 dag_definitions（克隆者
+#   名下），保持"副本即普通实体"（plan Structure Decision），后续走一切编排既有路径；
+# * ``reparse_approver_for_tenant`` —— 050 联动点：含 ``human_approval`` 节点的
+#   SOP 克隆后审批人按克隆者租户重新解析（原审批人引用不跨租户携带）。
+
+NODE_TYPE_HUMAN_APPROVAL = "human_approval"
+
+
+def reparse_approver_for_tenant(node_payload: dict[str, Any], *, tenant_id: str) -> dict[str, Any]:
+    """050 联动：human_approval 节点审批人按克隆者租户重解析.
+
+    原审批人引用不跨租户携带；克隆侧改挂克隆者租户并打 ``approver_pending``
+    标记（副本保存时由克隆者租户显式指定，fail-closed 不静默沿用跨租户审批人）。
+    """
+    if not isinstance(node_payload, dict):
+        return node_payload
+    if str(node_payload.get("type") or "") != NODE_TYPE_HUMAN_APPROVAL:
+        return node_payload
+    result = dict(node_payload)
+    result.pop("approver", None)
+    result["approver_tenant_id"] = str(tenant_id)
+    result["approver_pending"] = True
+    return result
+
+
+async def register_cloned_definition(
+    *,
+    orchestration_id: str,
+    tenant_id: str,
+    user_id: str,
+    document: dict[str, Any],
+    template_ref: dict[str, Any] | None = None,
+) -> None:
+    """将克隆 SOP 副本写入 dag_definitions（克隆者名下，010 集合）。
+
+    ``document`` 为克隆后的权威定义（引擎可装载）；``template_ref`` 记录模板
+    坐标 + 版本（053 已定决策 #2）。
+    """
+    from app.core.db import get_db
+
+    db = get_db()
+    if db is None:
+        return
+    header = document.get("orchestration") if isinstance(document, dict) else None
+    if isinstance(header, dict):
+        header = dict(header)
+        header["id"] = orchestration_id
+        header["version"] = str(header.get("version") or "1")
+        if template_ref is not None:
+            header["template_ref"] = dict(template_ref)
+        document = {**document, "orchestration": header}
+    now = _utcnow()
+    await db[DAG_DEFINITIONS_COLLECTION].update_one(
+        {"tenant_id": tenant_id, "orchestration_id": orchestration_id},
+        {
+            "$set": {
+                "orchestration_id": orchestration_id,
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "version": str(header.get("version") or "1") if isinstance(header, dict) else "1",
+                "status": "published",
+                "document": document,
+                "template_ref": dict(template_ref or {}),
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )

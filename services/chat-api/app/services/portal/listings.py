@@ -21,8 +21,8 @@ from typing import Any
 
 from app.core.db import get_db
 
-#: 目录支持的资产类型（首期两类）。
-CATALOG_ASSET_TYPES: tuple[str, ...] = ("skill", "capability_asset")
+#: 目录支持的资产类型（051 起含 employee；053 起含 dag_definition：SOP 模板副本）。
+CATALOG_ASSET_TYPES: tuple[str, ...] = ("skill", "capability_asset", "employee", "dag_definition")
 
 PORTAL_LISTINGS_COLLECTION = "portal_listings"
 
@@ -55,12 +55,18 @@ def is_active_asset(row: dict[str, Any], asset_type: str) -> bool:
 
     * ``skill``：文档存在；platform 治理的技能要求 ``publication_status == published``
       （016/018 治理后的 active 资产口径），用户自有技能按存在即视为可用；
-    * ``capability_asset``：``state == "active"``（018 FR-6）。
+    * ``capability_asset``：``state == "active"``（018 FR-6）；
+    * ``employee``（051）：``status == "active"`` 且未软删除；
+    * ``dag_definition``（053）：``status == "published"``（010 集合可装载口径）。
     """
     if not row:
         return False
     if asset_type == "capability_asset":
         return str(row.get("state") or "") == "active"
+    if asset_type == "employee":
+        return str(row.get("status") or "") == "active" and not row.get("deleted_at")
+    if asset_type == "dag_definition":
+        return str(row.get("status") or "") == "published"
     if asset_type == "skill":
         if str(row.get("authoring_mode") or "") == "platform":
             return str(row.get("publication_status") or "") == "published"
@@ -213,6 +219,10 @@ async def get_asset_basics(
     db = _get_db(db)
     if asset_type == "capability_asset":
         row = await db["capability_assets"].find_one({"asset_id": asset_key})
+    elif asset_type == "employee":
+        row = await db["employees"].find_one({"_id": asset_key, "tenant_id": tenant_id})
+    elif asset_type == "dag_definition":
+        row = await db["dag_definitions"].find_one({"orchestration_id": asset_key, "tenant_id": tenant_id})
     else:
         row = await db.skills.find_one({"_id": asset_key, "tenant_id": tenant_id})
 
@@ -271,8 +281,12 @@ async def list_catalog(
     # 批量取资产 / 评级 / 效果分，避免 N+1。
     skill_keys = [l["asset_key"] for l in listings if l.get("asset_type") == "skill"]
     cap_keys = [l["asset_key"] for l in listings if l.get("asset_type") == "capability_asset"]
+    employee_keys = [l["asset_key"] for l in listings if l.get("asset_type") == "employee"]
+    dag_keys = [l["asset_key"] for l in listings if l.get("asset_type") == "dag_definition"]
     skills: dict[str, dict[str, Any]] = {}
     caps: dict[str, dict[str, Any]] = {}
+    employees: dict[str, dict[str, Any]] = {}
+    dags: dict[str, dict[str, Any]] = {}
     if skill_keys:
         for row in await db.skills.find(
             {"_id": {"$in": skill_keys}, "tenant_id": tenant_id}
@@ -283,11 +297,26 @@ async def list_catalog(
             {"asset_id": {"$in": cap_keys}}
         ).to_list(length=10_000):
             caps[str(row.get("asset_id"))] = row
+    if employee_keys:
+        for row in await db["employees"].find(
+            {"_id": {"$in": employee_keys}, "tenant_id": tenant_id}
+        ).to_list(length=10_000):
+            employees[str(row.get("_id"))] = row
+    if dag_keys:
+        for row in await db["dag_definitions"].find(
+            {"orchestration_id": {"$in": dag_keys}, "tenant_id": tenant_id}
+        ).to_list(length=10_000):
+            dags[str(row.get("orchestration_id"))] = row
 
     effects = await _effect_summaries(db, tenant_id, skill_keys)
     # 评级按 (asset_type, asset_key) 维度区分（同一 key 可能同时是 skill 与能力资产）。
     ratings_by_type: dict[tuple[str, str], dict[str, Any]] = {}
-    for asset_type, keys in (("skill", skill_keys), ("capability_asset", cap_keys)):
+    for asset_type, keys in (
+        ("skill", skill_keys),
+        ("capability_asset", cap_keys),
+        ("employee", employee_keys),
+        ("dag_definition", dag_keys),
+    ):
         ratings_by_type.update(
             {(asset_type, key): doc for key, doc in (await _rating_docs(db, tenant_id, asset_type, keys)).items()}
         )
@@ -296,7 +325,11 @@ async def list_catalog(
     for listing in listings:
         asset_type = listing.get("asset_type")
         asset_key = listing.get("asset_key")
-        row = skills.get(asset_key) if asset_type == "skill" else caps.get(asset_key)
+        row = skills.get(asset_key) if asset_type == "skill" else (
+            employees.get(asset_key) if asset_type == "employee" else (
+                dags.get(asset_key) if asset_type == "dag_definition" else caps.get(asset_key)
+            )
+        )
         if not row or not is_active_asset(row, asset_type):
             continue
         basic = _project_asset(

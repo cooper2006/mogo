@@ -27,6 +27,11 @@ WIRING_REQUIRED: list[tuple[str, str]] = [
     ("app.memory.sediment", "sediment_session_end"),
     ("app.memory.tiering", "tier_content"),
     ("app.memory.address", "MemoryAddress"),
+    # 051 T021/T030：员工模块必须有生产调用方（端点消费 / 认证注入）。
+    ("app.employees.repository", "EmployeeRepository"),
+    ("app.employees.api_keys", "EmployeeApiKeyRepository"),
+    ("app.employees.api_key_auth", "require_scope"),
+    ("app.im_gateway.routing", "resolve_employee"),
 ]
 
 # Modules that are intentionally entry-point-only (routers included by main.py)

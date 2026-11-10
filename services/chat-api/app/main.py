@@ -268,6 +268,7 @@ from app.api.endpoints import (
     memory,
     models,
     orchestrations,
+    orchestration_runs,
     projects,
     product,
     quota,
@@ -290,6 +291,7 @@ from app.api.endpoints import (
     token_usage,
     ontology_grants,
     portal,
+    plaza_templates,
     user_questions,
 )
 from app.scheduled_tasks import scheduled_task_scheduler
@@ -351,14 +353,21 @@ app.include_router(business_index.router)
 app.include_router(ontology_grants.router)
 # 037: 统一门户 —— 目录 / 详情 / 自助申领（end_user 会话，租户隔离）。
 app.include_router(portal.router)
+# 053: 广场模板分发 —— 模板广场查询（end_user 会话，租户内已上架模板，只读）。
+app.include_router(plaza_templates.router)
 # 039: 可视化编排画布 —— 端用户侧编排草稿保存 / 发布门禁（画布为投影，文档为权威）。
 app.include_router(orchestrations.router)
+app.include_router(orchestration_runs.router)
 # 015: knowledge graph query surface (FR-2 / FR-10 minimal wiring).
 app.include_router(knowledge_graph.router)
 # 019: harness elastic-config CRUD (FR-7 / FR-9 — admin-only writes).
 app.include_router(harness_profiles.router)
 # 046: DSH 人类问题桥 —— 待答问题读取与回答回执（end_user 会话，仅运行发起者）。
 app.include_router(user_questions.router, prefix="/api/v1")
+# 051: 数字员工档案 —— 用户侧可用员工列表 / 详情（end_user 会话，租户隔离）。
+from app.api.endpoints import employees as employee_endpoints
+
+app.include_router(employee_endpoints.router, prefix="/api/v1")
 
 from app.product.extensions import get_product_extension
 
@@ -522,8 +531,13 @@ async def startup_event() -> None:
     await action_receipt_store.reconcile_abandoned()
     await token_usage_dispatcher.start()
     await scheduled_task_scheduler.start()
+    await orchestration_runs.startup_recovery()
     await dream_cycle_runtime.ensure_indexes(db)
     await dream_cycle_runtime.dream_cycle_scanner.start()
+    # 051: 数字员工集合索引（会话注入 / 用户列表读路径依赖 tenant+status+creator）。
+    from app.employees.repository import EmployeeRepository
+
+    await EmployeeRepository().ensure_indexes()
     for callback in product_extension.startup:
         result = callback()
         if asyncio.iscoroutine(result):

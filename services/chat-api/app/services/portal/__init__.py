@@ -26,6 +26,7 @@ from .requests import (
     expire_stale_grants,
     issue_request,
     list_my_requests,
+    require_asset_use,
     resolve_approver,
     revoke_grant,
     decide_request,
@@ -45,6 +46,7 @@ __all__ = [
     "list_catalog",
     "list_categories",
     "list_my_requests",
+    "require_asset_use",
     "resolve_approver",
     "revoke_grant",
 ]

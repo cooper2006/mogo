@@ -20,6 +20,16 @@ from .contract import AssetContract, contract_diff, normalize_contract
 # Asset lifecycle states (FR-6).
 ASSET_STATES: tuple[str, ...] = ("active", "deprecated", "offline")
 
+# 053-plaza-template-distribution FR-001：资产中心 asset_type 扩展两类模板。
+# 区别于 051 的 ``employee``（运行时实体）：**模板是定义，员工/编排是实例**。
+TEMPLATE_ASSET_TYPES: tuple[str, ...] = ("employee_template", "sop_template")
+
+# 051-digital-employee-profile 决策 #2：员工纳入 045 资产中心。
+EMPLOYEE_ASSET_TYPE = "employee"
+
+# 045 四徽标语义沿用的资产类型全集（含模板 + 员工运行时实体）。
+ALL_ASSET_TYPES: tuple[str, ...] = TEMPLATE_ASSET_TYPES + (EMPLOYEE_ASSET_TYPE,)
+
 # Role allowed to approve taking an asset offline (clarify OQ-4).
 OFFLINE_APPROVER_ROLES = frozenset({"full_access_admin"})
 
@@ -368,6 +378,9 @@ __all__ = [
     "COLLECTION",
     "OFFLINE_APPROVER_ROLES",
     "AUTO_DISCOVERABLE_KINDS",
+    "TEMPLATE_ASSET_TYPES",
+    "ALL_ASSET_TYPES",
+    "EMPLOYEE_ASSET_TYPE",
     "AssetError",
     "CapabilityAsset",
     "CapabilityAssetRegistry",

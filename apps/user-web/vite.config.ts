@@ -84,6 +84,10 @@ export default defineConfig({
                 target: 'http://localhost:8000',
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/askai-api/, ''),
+                // 与 deploy/nginx/nginx.conf 对齐：chat-api 的旧 /api/* → /api/v1/*
+                // 301 会把 X-Forwarded-Prefix 拼回 Location，否则浏览器跟随后落到
+                // 本站 /api/v1/*，vite 再 strip /api → chat-api /v1/* → 404。
+                headers: { 'X-Forwarded-Prefix': '/askai-api' },
                 ws: true,
             },
             '/admin-api': {

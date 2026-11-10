@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, capability_assets, connector_market, dashboard, directory, dsh_plugins, egress, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, memories, menu_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, tools, topic_admission, traffic_allocations, trust_ratings
+from app.api.routes import analytics, auth, capability_assets, connector_market, dashboard, directory, dsh_plugins, egress, employees, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, memories, menu_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, templates, tools, topic_admission, traffic_allocations, trust_ratings
 from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
@@ -12,6 +12,7 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])
 api_router.include_router(directory.router, prefix="/directory", tags=["directory"])
 api_router.include_router(position_roles.router, prefix="/position-roles", tags=["position-roles"])
+api_router.include_router(employees.router, prefix="/employees", tags=["employees"])
 api_router.include_router(ontologies.router, prefix="/ontologies", tags=["ontologies"])
 api_router.include_router(
     ontology_permission_internal.router,
@@ -48,4 +49,5 @@ api_router.include_router(presentation_settings.router, prefix="/settings/presen
 api_router.include_router(shortcut_settings.router, prefix="/settings/shortcuts", tags=["shortcut-settings"])
 api_router.include_router(menu_settings.router, prefix="/settings/menus", tags=["menu-settings"])  # 055 菜单管理
 api_router.include_router(connector_market.router, prefix="/connectors", tags=["connectors"])
+api_router.include_router(templates.router, prefix="/templates", tags=["templates"])  # 053-plaza-template-distribution
 api_router.include_router(memories.router, prefix="/memories/admin", tags=["memories-admin"])  # 017 §9.1 治理端点

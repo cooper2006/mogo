@@ -120,9 +120,11 @@ const resultHint = ref('')
 const resultHintType = ref<'success' | 'info' | 'warning'>('info')
 
 const myRequest = computed(() => detail.value?.my_request || null)
-const assetTypeLabel = computed(() =>
-  props.assetType === 'skill' ? t('portal.type.skill') : t('portal.type.capability'),
-)
+const assetTypeLabel = computed(() => {
+  if (props.assetType === 'skill') return t('portal.type.skill')
+  if (props.assetType === 'employee') return t('portal.type.employee')
+  return t('portal.type.capability')
+})
 const effectScoreText = computed(() => {
   const score = detail.value?.item.effect?.effect_score
   return typeof score === 'number' ? score.toFixed(2) : t('portal.d.missing')

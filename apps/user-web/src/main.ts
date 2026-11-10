@@ -9,6 +9,8 @@ import './styles/base.css'
 // /research 子路由（竞品深度调研，产品经理拍板的接入形态）：无 vue-router，按路径分流；
 // nginx try_files 对 /research 回 index.html，由这里挂载对应页面。
 const isResearch = /^\/research(\/|$)/.test(window.location.pathname)
+// /plaza 模板广场（053-plaza-template-distribution，user-web 门户侧）——同口径路径分流。
+const isPlaza = /^\/plaza(\/|$)/.test(window.location.pathname)
 
 const storedThemeMode = localStorage.getItem('askai.theme-mode') || 'system'
 const startsDark = storedThemeMode === 'dark'
@@ -26,6 +28,8 @@ if (vitalsReportUrl) initVitals({ reportUrl: vitalsReportUrl })
 
 if (isResearch) {
     void import('./research/ResearchPage.vue').then((m) => createApp(m.default).mount('#app'))
+} else if (isPlaza) {
+    void import('./plaza/PlazaPage.vue').then((m) => createApp(m.default).mount('#app'))
 } else {
     createApp(App).mount('#app')
 }
