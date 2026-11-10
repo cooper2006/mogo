@@ -325,6 +325,17 @@ async def admit_skill_selection(
     selected = str(selected_skill_id or "").strip()
     if not selected:
         return TurnSkillSelection(redacted_request=redacted_request)
+    # 051 FR-002：员工边界与 006 岗位策略取交集——员工白名单外 Skill 拒绝（取交集，
+    # 任一拒绝即拒绝；不实现为「员工白名单绕过岗位门禁」）。
+    from app.employees.boundary import enforce_employee_skill_boundary
+
+    if not await enforce_employee_skill_boundary(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        session_id=session_id,
+        selected_skill_id=selected,
+    ):
+        raise PermissionError("该员工未开通此 Skill")
     policy = await MongoEmployeePolicyResolver().resolve(tenant_id, user_id)
     if not policy.allows_skill(selected):
         await record_position_policy_event(

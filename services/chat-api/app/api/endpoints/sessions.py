@@ -69,6 +69,9 @@ class SessionCreate(BaseModel):
     tenant_id: Optional[str] = Field(None, validation_alias=AliasChoices("tenantId", "tenant_id"), description="Tenant / main account ID")
     title: Optional[str] = Field(None, description="Session title")
     messages: Optional[List[MessageIn]] = Field(default_factory=list)
+    # 051 FR-003: 会话创建可选 employee_id；声明后档案注入（边界/知识库/记忆/模型）。
+    # 未声明员工的会话行为零改动（零回归硬约束）。
+    employee_id: Optional[str] = Field(None, validation_alias=AliasChoices("employeeId", "employee_id"), description="Digital employee id to bind")
 
 
 class SessionSummary(BaseModel):
@@ -618,6 +621,67 @@ async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: 
     )
 
 
+async def _bind_session_employee(
+    session_doc: dict,
+    *,
+    user_id: str,
+    tenant_id: str,
+    employee_id: str,
+) -> dict:
+    """051 FR-003：会话创建时物化员工档案快照并内嵌会话文档。
+
+    员工不可用（不存在 / 软删 / 非 active / 引用失效 / 跨租户 / 不可见）一律
+    fail-closed 拒绝并落 001 审计。
+    """
+    from app.employees.profile import materialize_employee_profile, EmployeeReferenceError
+    from app.employees.injection import merge_employee_into_session
+    from app.employees.repository import EmployeeRepository
+
+    repo = EmployeeRepository()
+    row = await repo.get(tenant_id, employee_id)
+    if not row:
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "not_found"})
+        raise HTTPException(status_code=404, detail="员工不存在或不可用")
+    # 可见性 fail-closed（FR-005）：创建者 / 成员才可绑定。
+    if not repo._visible(row, user_id):
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "not_visible"})
+        raise HTTPException(status_code=404, detail="员工不存在或不可用")
+    if str(row.get("status") or "") != "active":
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "not_active"})
+        raise HTTPException(status_code=409, detail="员工未开通或已停用")
+
+    try:
+        profile = await materialize_employee_profile(tenant_id, employee_id)
+    except EmployeeReferenceError as exc:
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "reference_invalid", "detail": str(exc)})
+        raise HTTPException(status_code=422, detail=f"员工档案引用失效：{exc}") from exc
+    if profile is None:
+        await _audit_employee_bind(tenant_id, user_id, employee_id, "denied", {"reason": "unavailable"})
+        raise HTTPException(status_code=404, detail="员工不存在或不可用")
+
+    merged = merge_employee_into_session(session_doc, profile)
+    db = get_db()
+    await db.chat_sessions.update_one(
+        add_tenant_scope({"_id": session_doc["_id"], "user_id": str(user_id)}, tenant_id),
+        {"$set": {
+            "employee_id": merged.get("employee_id"),
+            "employee_profile": merged.get("employee_profile"),
+            "employee_model_config": merged.get("employee_model_config"),
+            "employee_memory_scope": merged.get("employee_memory_scope"),
+            "knowledge_base_ids": merged.get("knowledge_base_ids"),
+        }},
+    )
+    await _audit_employee_bind(tenant_id, user_id, employee_id, "granted", {"session_id": str(session_doc["_id"])})
+    merged["_id"] = session_doc["_id"]
+    return merged
+
+
+async def _audit_employee_bind(tenant_id: str, user_id: str, employee_id: str, action: str, detail: dict) -> None:
+    from app.employees.repository import EmployeeRepository
+
+    await EmployeeRepository().audit(tenant_id, user_id, f"session.{action}", employee_id, detail)
+
+
 @router.post("/sessions", response_model=ApiResponse)
 async def create_session(
     payload: SessionCreate,
@@ -632,6 +696,15 @@ async def create_session(
         title=payload.title or "New Chat",
         messages=payload.messages or [],
     )
+    # 051 FR-003: 声明 employee_id 时物化档案快照注入会话（边界/知识库/记忆/模型）。
+    # 未声明路径零改动；员工不可用（不存在/软删/非 active/引用失效/跨租户）fail-closed。
+    if payload.employee_id:
+        session_doc = await _bind_session_employee(
+            session_doc,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            employee_id=str(payload.employee_id),
+        )
     return ApiResponse(code=0, message="success", data=_serialize_session(session_doc))
 
 

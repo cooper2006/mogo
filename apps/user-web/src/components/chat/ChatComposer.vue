@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatModelOption } from '../../api/models'
 import { fetchSelectableSkills, type SelectableSkillItem, type SelectableSkillPage } from '../../api/skills'
+import { fetchPortalEmployees, type PortalEmployeeItem } from '../../api/employees'
 import { t, useLocale } from '../../composables/i18n'
 import type { ChatDocumentKind, PendingDocument } from './types'
 import { NModal } from 'naive-ui'
@@ -29,7 +30,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'send', payload: { text: string; images: File[]; documents: PendingDocument[]; knowledgeQaEnabled: boolean; selectedSkillId?: string; modelId?: string }): void
+  (e: 'send', payload: { text: string; images: File[]; documents: PendingDocument[]; knowledgeQaEnabled: boolean; selectedSkillId?: string; modelId?: string; employeeId?: string }): void
   (e: 'stop'): void
   (e: 'select-model', modelId: string): void
   (e: 'image-preview', payload: { src: string; alt: string }): void
@@ -68,6 +69,49 @@ const skillTriggerRange = ref<{ start: number; end: number } | null>(null)
 const isComposingText = ref(false)
 let skillPickerRequestSeq = 0
 let skillPickerSearchTimer: ReturnType<typeof setTimeout> | null = null
+
+// 051 FR-003：员工选择器（仅新会话可见；数据源 GET /api/employees 可用项）。
+const employeeOptions = ref<PortalEmployeeItem[]>([])
+const employeeLoading = ref(false)
+const selectedEmployeeId = ref<string | null>(null)
+const employeePickerOpen = ref(false)
+const employeePickerRef = ref<HTMLElement | null>(null)
+let employeeLoadSeq = 0
+
+async function loadEmployeeOptions() {
+  if (!props.userId || !props.isNewSessionView) return
+  const seq = ++employeeLoadSeq
+  employeeLoading.value = true
+  try {
+    const page = await fetchPortalEmployees()
+    if (seq !== employeeLoadSeq) return
+    employeeOptions.value = page.items.filter((item) => item.available === true)
+  } catch {
+    if (seq === employeeLoadSeq) employeeOptions.value = []
+  } finally {
+    if (seq === employeeLoadSeq) employeeLoading.value = false
+  }
+}
+
+function toggleEmployeePicker() {
+  if (props.running) return
+  employeePickerOpen.value = !employeePickerOpen.value
+  if (employeePickerOpen.value && !employeeOptions.value.length) void loadEmployeeOptions()
+}
+
+function selectEmployee(id: string | null) {
+  selectedEmployeeId.value = id
+  employeePickerOpen.value = false
+}
+
+function clearSelectedEmployee() {
+  selectedEmployeeId.value = null
+}
+
+const selectedEmployeeName = computed(() => {
+  const item = employeeOptions.value.find((entry) => entry.id === selectedEmployeeId.value)
+  return item ? item.name : t('chat.employee.none')
+})
 
 const skillScopeOptions = computed<Array<{ key: 'all' | 'user' | 'organization'; label: string }>>(() => [
   { key: 'all', label: locale.value === 'zh' ? '全部' : 'All' },
@@ -266,6 +310,10 @@ function onGlobalPointerDown(event: Event) {
     !inputRoot.contains(target)
   ) {
     closeSkillPicker()
+  }
+  const employeeRoot = employeePickerRef.value
+  if (employeePickerOpen.value && employeeRoot && !employeeRoot.contains(target)) {
+    employeePickerOpen.value = false
   }
 }
 
@@ -512,8 +560,10 @@ async function sendMessage() {
     knowledgeQaEnabled: knowledgeQaEnabled.value,
     selectedSkillId: selectedSkill.value?.id || undefined,
     modelId: props.selectedModelId || undefined,
+    employeeId: selectedEmployeeId.value || undefined,
   })
   selectedSkill.value = null
+  selectedEmployeeId.value = null
 }
 
 function openPendingImagePreview(src: string, alt: string) {
@@ -573,6 +623,17 @@ watch(() => props.userId, () => {
   closeSkillPicker()
   selectedSkill.value = null
   skillPickerItems.value = []
+  selectedEmployeeId.value = null
+  employeeOptions.value = []
+})
+
+watch(() => props.isNewSessionView, (isNew) => {
+  if (isNew) {
+    void loadEmployeeOptions()
+  } else {
+    employeePickerOpen.value = false
+    selectedEmployeeId.value = null
+  }
 })
 
 watch(() => props.allowKnowledge, (allowed) => {
@@ -693,6 +754,57 @@ watch(() => props.allowSkills, (allowed) => {
         <button v-if="selectedSkill.sourceScope === 'organization'" type="button" class="inline-flex min-h-9 items-center rounded-full border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50" @click="organizationFeedbackVisible = true">
           {{ t('skills.feedback.title') }}
         </button>
+      </div>
+      <div v-if="isNewSessionView" class="composer-employee-row">
+        <div ref="employeePickerRef" class="relative">
+          <button
+            type="button"
+            class="inline-flex min-h-9 max-w-full items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-100"
+            :disabled="running"
+            :title="t('chat.employee.picker_title')"
+            @click="toggleEmployeePicker"
+          >
+            <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+              <circle cx="10" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <span class="shrink-0">{{ t('chat.employee.label') }}</span>
+            <span v-if="selectedEmployeeId" class="min-w-0 truncate">{{ selectedEmployeeName }}</span>
+            <span v-else class="text-emerald-500">{{ t('chat.employee.none') }}</span>
+            <svg v-if="selectedEmployeeId" class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" @click.stop="clearSelectedEmployee">
+              <path d="M18 6 6 18"></path>
+              <path d="m6 6 12 12"></path>
+            </svg>
+          </button>
+          <div
+            v-if="employeePickerOpen"
+            class="absolute bottom-[calc(100%+10px)] left-0 z-30 w-[320px] max-w-[calc(100vw-40px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/12"
+          >
+            <div class="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">{{ t('chat.employee.picker_title') }}</div>
+            <div v-if="employeeLoading" class="px-4 py-8 text-center text-sm text-slate-400">{{ t('chat.employee.loading') }}</div>
+            <template v-else>
+              <button
+                v-for="item in employeeOptions"
+                :key="item.id"
+                type="button"
+                class="flex w-full items-center gap-2 px-3 py-2.5 text-left transition hover:bg-slate-50"
+                :class="selectedEmployeeId === item.id ? 'bg-emerald-50/70' : ''"
+                @click="selectEmployee(item.id)"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-medium text-slate-800">{{ item.name }}</span>
+                  <span v-if="item.description" class="block truncate text-xs text-slate-500">{{ item.description }}</span>
+                </span>
+                <svg v-if="selectedEmployeeId === item.id" class="h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M5 10.5l3 3L15 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <div v-if="!employeeOptions.length" class="px-4 py-6 text-center text-sm text-slate-400">{{ t('chat.employee.empty') }}</div>
+            </template>
+          </div>
+        </div>
       </div>
       <div class="composer-context-slot"><slot name="context" /></div>
       <div class="composer-card relative flex w-full flex-col border border-gray-200 bg-white px-3 pb-1.5 pt-2.5 rounded-2xl shadow-xl focus-within:ring-1 focus-within:ring-black/5 focus-within:border-gray-300 transition-all duration-300">
@@ -919,6 +1031,13 @@ watch(() => props.allowSkills, (allowed) => {
 <style scoped>
 .composer-context-slot:empty {
   display: none;
+}
+
+.composer-employee-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .composer-context-slot:not(:empty) + .composer-card {

@@ -10,7 +10,7 @@ import { createApiClient } from './client'
 
 const api = createApiClient({ baseURL: '/askai-api/api', timeout: 30000 })
 
-export type PortalAssetType = 'skill' | 'capability_asset'
+export type PortalAssetType = 'skill' | 'capability_asset' | 'employee'
 
 /** 016 效果分摘要（无数据时后端返回 null，前端隐藏）。 */
 export interface PortalEffect {

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-IM_AUDIT_EVENTS = ("im.enter", "im.leave", "im.deliver", "im.fail")
+#: 013 既有四事件 + 051 B2 路由决策事件（FR-007 路由进审计）。
+IM_AUDIT_EVENTS = ("im.enter", "im.leave", "im.deliver", "im.fail", "im.employee.route")
 
 # The 001 audit sink signature (kept generic so tests can inject a fake).
 AuditSink = Callable[..., Any]

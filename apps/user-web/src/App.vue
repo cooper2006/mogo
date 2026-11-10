@@ -2414,6 +2414,7 @@ async function handlePaneSend(
     knowledgeQaEnabled: boolean
     selectedSkillId?: string
     modelId?: string
+    employeeId?: string
   },
 ) {
   const codeState = codeRuntime.stateFor(key)

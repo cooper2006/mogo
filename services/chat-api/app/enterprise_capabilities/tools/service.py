@@ -524,6 +524,28 @@ class EnterpriseToolService:
             str(binding.get("profile_version")) != profile_version,
         )):
             raise ToolPolicyDenied("Kernel Session scope mismatch")
+        # 051 FR-002：员工边界与 001/006 取交集——员工白名单外工具拒绝（任一拒绝
+        # 即拒绝；不实现为「员工白名单绕过门禁」）。经 binding.conversation_id 读取
+        # 会话内员工档案快照（热路径零额外员工表查询）。
+        from app.employees.boundary import enforce_employee_tool_boundary
+
+        employee_ok = await enforce_employee_tool_boundary(
+            tenant_id=claims.tenant_id,
+            user_id=claims.user_id,
+            session_id=str(binding.get("conversation_id") or ""),
+            tool_name=tool_name,
+            capability_ref=str(tool.capability_ref or ""),
+            external_tool_id=str(tool.external_tool_id or ""),
+        )
+        if not employee_ok:
+            await self._repository.audit(
+                tenant_id=claims.tenant_id,
+                user_id=claims.user_id,
+                action_id="employee-denied",
+                event="employee.denied",
+                details={"tool_name": tool.name, "reason": "employee_whitelist"},
+            )
+            raise ToolPolicyDenied("该员工未开通此工具能力，本次任务未执行")
         return tool, binding
 
     async def _enforce_pre_tool_use(

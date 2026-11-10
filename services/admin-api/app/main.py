@@ -251,6 +251,10 @@ def create_app() -> FastAPI:
         await ensure_knowledge_directory_indexes()
         await ensure_tenant_indexes()
         await ensure_portal_indexes()
+        # 051: 数字员工集合索引（双服务共用集合；管理端读路径依赖 tenant+status）。
+        from app.employees.repository import EmployeeRepository
+
+        await EmployeeRepository().ensure_indexes()
         await backfill_tenants_from_accounts()
         await bootstrap_platform_admin()
         await cleanup_expired_tombstones()  # T052: reap tombstones older than 1 month

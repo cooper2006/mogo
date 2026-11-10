@@ -231,4 +231,39 @@ async def list_capabilities_admin(
     return {"code": 0, "message": "ok", "data": {"items": rows, "total": len(rows)}}
 
 
+@admin_router.get("/list/employee")
+async def list_employee_assets_admin(
+    state: Optional[str] = None,
+    current_user: dict[str, Any] = Depends(get_current_admin_user),
+) -> dict[str, Any]:
+    """045 资产中心：数字员工资产列表（051 决策 #2，asset_type=employee）。
+
+    与 ``GET /capabilities/list`` 同口径返回 ``(asset_type=employee, asset_key=employees._id)``
+    坐标行，供资产中心前端按统一坐标 join（四徽标语义沿用：评级 / 上架 / 申领 / 在用）。
+    """
+    from app.employees.repository import EmployeeRepository
+
+    db = get_db()
+    tenant_id = str(current_user.get("tenant_id") or "default")
+    query: dict[str, Any] = {"tenant_id": tenant_id}
+    if state:
+        query["status"] = state
+    rows = await db["employees"].find(query).sort("created_at", 1).to_list(length=1000)
+    items = []
+    for row in rows:
+        items.append({
+            "asset_type": "employee",
+            "asset_key": str(row.get("_id") or ""),
+            "name": str(row.get("name") or ""),
+            "state": str(row.get("status") or "active"),
+            "kind": "employee",
+            "owner_role": str(row.get("creator_id") or ""),
+            "owner": str(row.get("creator_id") or ""),
+            "created_by": str(row.get("created_by") or row.get("creator_id") or ""),
+            "updated_at": row.get("updated_at"),
+            "deleted_at": row.get("deleted_at"),
+        })
+    return {"code": 0, "message": "ok", "data": {"items": items, "total": len(items)}}
+
+
 __all__ = ["router", "admin_router"]

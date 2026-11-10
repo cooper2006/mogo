@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.endpoints.auth import _resolve_session_user
 from app.core.config import get_settings
+from app.core.db import get_db
 from app.core.quota_policy import QuotaExceededError, assert_quota_available
 from app.core.tenant import resolve_tenant_id
 from app.dsh_runtime.application import dsh_runtime_application
@@ -229,6 +230,36 @@ async def _start_chat_completions(
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     conversation_id = str(output_spec.get("task_id") or output_spec.get("session_id") or "").strip() or None
+    # 051 FR-003：员工档案注入（知识库挂载 / 模型配置）在会话级生效——从会话快照读取，
+    # 与调用方显式参数取并集（知识库）或优先员工模型配置（模型）。未声明员工路径不变。
+    employee_kb_ids: list[str] = []
+    employee_model_id: str | None = None
+    if conversation_id:
+        try:
+            from app.employees.injection import employee_profile_from_session
+            from app.core.ids import to_backend_id
+
+            session_row = await get_db().chat_sessions.find_one(
+                {"_id": to_backend_id(conversation_id), "user_id": str(user_id)},
+                {"employee_profile": 1},
+            )
+            emp_profile = employee_profile_from_session(session_row or {})
+            if emp_profile is not None:
+                employee_kb_ids = list(dict.fromkeys(str(x) for x in (emp_profile.knowledge_base_ids or []) if str(x)))
+                model_cfg = dict(emp_profile.model_config or {})
+                if str(model_cfg.get("model_instance_id") or ""):
+                    employee_model_id = str(model_cfg["model_instance_id"])
+                # 051 FR-006 / T017：员工维度成本经 035 agent_id 链路承接。
+                # employee_id 作为 agent 归属链路，仅在无显式 agent_id（能力级
+                # 归因优先）时注入，不新建计量体系。
+                output_spec.setdefault("agent_id", emp_profile.employee_id or "")
+        except Exception:
+            employee_kb_ids = []
+            employee_model_id = None
+    effective_kb_ids = list(dict.fromkeys(
+        [str(x) for x in (request.knowledge_base_ids or []) if str(x)] + employee_kb_ids
+    ))
+    effective_model_id = employee_model_id or str(request.model_id or output_spec.get("model_id") or "").strip() or None
     # 会话归属项目（工作区）：新建会话时写入 session.project_id；未指定保持
     # 'default'（repository.create 默认值）。桌面端 Code 会话不走此字段。
     project_id = str(output_spec.get("project_id") or "").strip() or "default"
@@ -244,12 +275,12 @@ async def _start_chat_completions(
             user_id=user_id,
             conversation_id=conversation_id,
             text=safe_text,
-            model_instance_id=str(request.model_id or output_spec.get("model_id") or "").strip() or None,
+            model_instance_id=effective_model_id,
             timezone_name=request.timezone,
             images=[item.model_dump(mode="json") for item in list(latest.images or [])],
             documents=[item.model_dump(mode="json") for item in list(latest.documents or [])],
             knowledge_qa_enabled=request.knowledge_qa_enabled,
-            knowledge_base_ids=request.knowledge_base_ids,
+            knowledge_base_ids=effective_kb_ids,
             trusted_turn_context=trusted_turn_context,
             language_name=str(output_spec.get("language") or output_spec.get("locale") or "") or None,
             selected_writing_skill_id=skill_selection.selected_writing_skill_id,

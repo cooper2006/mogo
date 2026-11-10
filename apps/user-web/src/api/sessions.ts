@@ -333,12 +333,14 @@ export async function createSession(
   title?: string,
   messages?: ChatMessage[],
   authToken?: string | null,
+  employeeId?: string,
 ): Promise<SessionSummary> {
   const response = await client.post('/askai-api/api/sessions', {
     user_id: userId,
     tenant_id: tenantId,
     title: title || 'New Chat',
     messages: messages || [],
+    employeeId: employeeId || undefined,
   }, { headers: authHeaders(authToken) })
   return response.data?.data
 }

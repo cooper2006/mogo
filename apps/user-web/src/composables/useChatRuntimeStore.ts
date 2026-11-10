@@ -123,6 +123,8 @@ type SendInput = {
   modelId?: string
   /** 会话归属的项目 ID；新建会话时由后端写入 session.project_id。 */
   projectId?: string
+  /** 051 FR-003：新建会话时绑定的数字员工；已存在会话不可重绑。 */
+  employeeId?: string
   authToken: string | null
   userId: string | null
   tenantId: string | null
@@ -455,6 +457,8 @@ function buildChatStreamRequest(pane: ChatRuntimePane, input: SendInput) {
       manual_skill_selected: Boolean(input.selectedSkillId) || undefined,
       // 会话归属项目：新建会话时后端写入 session.project_id（默认 'default'）。
       project_id: input.projectId || undefined,
+      // 051 FR-003：新建会话绑定的数字员工（backend SessionCreate 校验别名 employeeId/employee_id）。
+      employee_id: input.employeeId || undefined,
     },
   }
 }

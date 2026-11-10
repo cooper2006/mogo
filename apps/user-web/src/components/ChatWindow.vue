@@ -124,7 +124,7 @@ const emit = defineEmits<{
   (e: 'open-skills'): void
   (e: 'open-tools'): void
   (e: 'open-knowledge'): void
-  (e: 'send', payload: { text: string; images: File[]; documents: PendingDocument[]; knowledgeQaEnabled: boolean; selectedSkillId?: string; modelId?: string }): void
+  (e: 'send', payload: { text: string; images: File[]; documents: PendingDocument[]; knowledgeQaEnabled: boolean; selectedSkillId?: string; modelId?: string; employeeId?: string }): void
   (e: 'stop'): void
   (e: 'clear-intervention'): void
   (e: 'approval-decided'): void

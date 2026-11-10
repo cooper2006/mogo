@@ -42,8 +42,8 @@ TRUST_LEVELS: tuple[str, ...] = ("L1", "L2", "L3", "L4")
 #: An asset with no rating yet starts here (已定决策 #1).
 DEFAULT_TRUST_LEVEL = "L1"
 
-#: Asset kinds a rating can be attached to (已定决策 #5).
-ASSET_TYPES: tuple[str, ...] = ("skill", "agent", "workflow")
+#: Asset kinds a rating can be attached to (已定决策 #5; 051 决策 #2 起含 employee)。
+ASSET_TYPES: tuple[str, ...] = ("skill", "agent", "workflow", "employee")
 
 #: Autonomy levels the gate recognizes (001) — needed for ``min``.
 _AUTONOMY_ORDER: tuple[str, ...] = ("L1", "L2", "L3", "L4", "L5")

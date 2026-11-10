@@ -12,6 +12,12 @@ from typing import Any
 
 from .adapter_base import ChannelAdapter, ChannelError, ChannelMessage, build_adapter
 from .bindings import SessionBindingRegistry
+from .routing import (
+    ChannelEmployeeBinding,
+    RoutingRuleError,
+    resolve_employee,
+    validate_bindings,
+)
 
 
 class RoutingError(ValueError):
@@ -82,3 +88,22 @@ class ChannelRouter:
             tenant_id=tenant_id,
             initiator=initiator,
         )
+
+    # -- 051 B2：渠道-员工意图路由（T008 / FR-007，OQ-4 确定性） --------------
+
+    def resolve_employee(
+        self,
+        bindings: list[ChannelEmployeeBinding],
+        text: str,
+    ) -> tuple[str | None, str]:
+        """对给定绑定集合做确定性路由（DB-free，纯求值）。
+
+        Returns ``(employee_id, route_kind)``；无默认员工时 ``(None, fallback)``，
+        调用方回落既有无员工会话行为（FR-007 不拒绝消息）。
+        """
+        return resolve_employee(bindings, text)
+
+    @staticmethod
+    def validate_bindings(bindings: list[ChannelEmployeeBinding]) -> None:
+        """规则集合校验（同渠道至多一条默认绑定，fail-closed）。"""
+        validate_bindings(bindings)
