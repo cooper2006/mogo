@@ -42,7 +42,7 @@
 
 ### US3 - 人工接管（P2）
 
-- [x] T015 接管点接线：触发条件命中 → 050 human_approval 挂起 → 人工决策覆盖领导判定 + 审计
+- [x] T015 接管点接线（首期软依赖，R-4 口径）：YAML `takeover` 声明 → `_should_take_over` 命中 → 经 `approval_hook` 内联取人工决策（`accept|rework|terminate`）覆盖领导判定 + `team.takeover` 事件全审计（`chat-api/orchestration/team.py:346-388`）；**非** 050 `awaiting_approval` 跨进程挂起（050 `RunDriver.start` 首期仅 graph，team 加载期 fail-closed），真挂起/checkpoint 恢复按用户口径「接管 = 050 跨模式挂起，P2 预留」留二期。生产 `dispatch.py:256-266` / `:340-350` 两处 `run_team` 未注入 `approval_hook`，声明的接管点默认被忽略（仅测试注入 mock，属首期软依赖既定行为）；`loader.py` 校验 `trigger` 与 R-4 `points` 口径、`team.py` docstring 残留 `RunSuspended`、自动触发 `on_rework`/`on_round_cap` 与「仅人工主动」的偏差，一并登记见下方复核附注，二期收口。**勾选保持 [x]**：R-4 已定首期软依赖不改变勾选判断，内联决策 + 审计已实现且有 `tests/orchestration/test_team.py:316-406` 覆盖。
 
 ### US4 - 契约（P2）
 
@@ -73,3 +73,10 @@
 - 黑板键含作者前缀做命名空间隔离，跨成员同键不覆盖（Edge Cases 口径）。
 - 领导判定解析失败不得静默回退 accept（治理旁路）；OQ-1 定 fail-closed 或有限重试。
 - 不拷贝 StaffDeck（AGPL-3.0）代码；竞标二期另立澄清。
+
+## 2026-11-10 复核附注（代码级核实，仅登记不改实现）
+
+- **T015 描述如实化**：原写「050 human_approval 挂起」为夸大。实测 `chat-api/orchestration/team.py:346-388` 无 `RunSuspended` / `awaiting_approval` / 票据 / checkpoint，是内联 `approval_hook` 取决策 + `team.takeover` 审计，符合 spec R-4「首期 P2 预留软依赖」。任务行已改写，勾选保留（R-4 明文不改变勾选判断）。
+- **生产接线缺口（二期收口）**：`chat-api/orchestration/dispatch.py:256-266` 与 `:340-350` 的 `run_team` 只传 `takeover`、不传 `approval_hook`；全库唯一注入点是 `tests/orchestration/test_team.py:344/380` 的 mock，测试 `:391-406` 明注「无 hook → 忽略接管点（soft dependency）」。声明的接管点在生产默认不激活，属首期预留的既定行为而非回归缺陷；`dispatch.py:131-132` team 直路由 `_run_team_document`，不经 `RunDriver`。
+- **文案/口径残留**：`loader.py:449-462` 校验 `trigger` 而非 R-4 的 `points`；`team.py:13-14` docstring 仍写 `RunSuspended 挂起`；`team.py:431-453` 谓词含 `on_rework` / `on_round_cap` 自动触发，与 R-4「首期仅人工主动 `takeover:`」有偏差。三者随二期真跨模式挂起一并收口。
+- **050 侧事实**：`chat-api/orchestration/human_approval.py:302-305` 的 `RunDriver.start` 非 graph 即 fail-closed，挂起/checkpoint 只在 `PausableDagEngine`（`run_graph` 子类）——team 作为文档级第七模式首期无法复用跨进程挂起，这是 R-4 定软依赖的根本原因。

@@ -148,6 +148,26 @@
 - **与 051（本批次）**：员工模板克隆依赖 051 B1 员工实体（OQ-3 定顺序）；**SOP 模板不依赖 051，可先行**。
 - **与 050（本批次）**：含转人工节点的 SOP 模板克隆后审批人按克隆者租户重新解析（原审批人引用不跨租户携带）。
 
+## 判定口径补充（2026-11-10，`/speckit-checklist` 回填）
+
+以下 15 条补齐 checklist 识别出的需求缺口，作为实现与验收的一等口径（与 FR 同效力）；并消解「待澄清」节 OQ-1~OQ-4 的定值（OQ-1→R-3、OQ-2→R-14、OQ-3→R-4、OQ-4→R-7）。本节只把悬空的需求口径冻结为可验收契约，不改变 053 的已实现事实，也不因代码是否实现而影响勾选判断。
+
+- **R-1 模板定义存储形态与生命周期**：`AssetTemplate` / `TemplateVersion` 的版本内容 MUST 为**内嵌的不可变定义快照**（SOP 为编排 YAML 全文，员工为字段子集 `{name, role/persona, model_config, capability_whitelist, memory_scope, prompt}`），MUST NOT 仅引用 `dag_definitions` / 051 `employees` 的活动实体 ID——发布即做快照，源实体后续编辑/下架/删除 MUST NOT 反向影响已上架模板。会话态、运行态、实例 ID 等字段不入库模板；`TemplateVersion` 按 002 版本化口径只读追加。克隆时把该快照落为副本实体（`dag_definitions` 新定义 / 051 `employees`）。
+- **R-2 克隆深拷贝范围与凭证剥离键表**：深拷贝 MUST 覆盖定义全部可配置结构——SOP 含条件/分支/重试/超时/工具绑定/提示词/**审批节点配置**，员工含 R-1 的六字段子集；节点运行态、实例 ID、审计流水、源实体的 `template_ref` MUST NOT 被复制（副本 `template_ref` 由 clone 重新写入、指向源模板坐标 + 版本，不继承"副本的副本"血缘）。凭证剥离键表：键名命中 `credentials` / `credential_ref` / `*_credential_ref` / `api_key` / `secret` / `*_secret_ref` / `token` / `access_token` / `service_token` / `connection_id` / `oauth_*` 的条目 MUST 一律不复制并置空，副本需自行配置（FR-004）；SC-004 扫描断言 MUST 对「键名 + 值形态」双向校验且同样适用于克隆产物。
+- **R-3 调试试跑副作用边界与调试记录（消解 OQ-1）**：OQ-1 定值取「**显式调试标记 + 只读/沙箱白名单子集**」——沿用既有会话 + `debug=true` 标记、不新建隔离环境（决策 #7）；写类工具 MUST NOT 产生生产副作用（禁调用或强制 dry-run），仅允许只读类工具白名单子集；全沙箱隔离首期不采纳（Non-Goals）。调试 LLM 成本 MUST 计入调试发起租户的既有配额、不单列调试配额。调试记录 MUST 独立可查，字段固定为 `{debug_id, tenant_id, template_ref, operator, started_at, finished_at, side_effect_mode, tool_calls[], cost_tokens, quota_charged}`，MUST NOT 混入生产 `gate_events` 审计（FR-009）。
+- **R-4 员工模板与 051 落地顺序（消解 OQ-3）**：OQ-3 定值：051 B1 未落地时，`employee_template` 坐标、上架（门禁校验通过）、广场展示 MUST 可用；克隆端点对该类型 MUST 返回明确的「依赖未就绪」拒绝，不静默生成半成品副本、不另建通道（Assumptions 口径）。051 B1 落地后自动放开克隆，无需改本 spec。SOP 模板链路不依赖 051、可先行。
+- **R-5 原件只读权限判定主体**：已上架模板文档（含版本快照）的写/下架/删除权限 MUST 仅归 `publisher` 本人或租户管理员；`publisher` 离职/停用后写权归租户管理员代管，MUST NOT 落到克隆者或普通成员；非上述主体一律只读、越权修改 MUST 返回 403（FR-003）。对原件的「修改」实质是发新版本（R-8），不原地篡改已上架版本快照。
+- **R-6 版本提示触达与判定时机**：版本提示 MUST 同时在广场详情页与「我的副本」列表页展示；判定为副本 `template_ref.version` 与模板「最新已上架版本」（R-8）在客户端打开时比对、不落库；`template_ref` 已指向最新已上架版本的副本 MUST 消除提示；模板连发多版时 MUST 只提示「最新已上架版本」一个，不逐版累积、不提示未过门禁的草稿版本（FR-005）。
+- **R-7 升级整份替换与旧快照结构（消解 OQ-4）**：OQ-4 定值：覆盖前 MUST 二次确认，文案口径固定为「升级将用新版本整份替换当前副本，副本上的本地编辑将由旧快照保留但不再生效，是否继续」；首期 MUST NOT 交付 diff 展示与旧快照一键恢复入口（Non-Goals：不做三方合并），仅保证快照可查与审计。`UpgradeRecord` / 旧快照结构 MUST 为 `{upgrade_id, clone_ref, old_snapshot: 完整定义内容, old_version, new_version, operator, at}`，按 002 口径存档、内容不可变、可查。升级 MUST 整份替换副本内容、更新 `template_ref` 至新版本、落审计（FR-005）；升级 MUST NOT 自动重跑申领审批（副本申领态沿用，037 口径）。
+- **R-8 模板版本序列只计已上架版本**：版本序列 MUST 仅对「通过 032 门禁 + 001 审批且成功上架」的版本递增；v2 评估未过 / 审批驳回 / 未上架的草稿版本 MUST NOT 计入序列，也 MUST NOT 触发副本侧版本提示（副本仍以当前最新已上架版本 v1 为基准，CHK014）。门禁报告引用随已上架版本存档，草稿版本的门禁失败报告仅供管理端回看。
+- **R-9 克隆命名冲突规则**：同名克隆 MUST 自动追加后缀，格式固定为 `<原名>-copy-<n>`，`n` 从 1 起取当前 `(tenant_id, owner, entity_type)` 下同名副本的最大 n+1；MUST NOT 覆盖既有资产（Edge Case）；冲突重试上限 100，超限 MUST 返回 409 提示手动改名。名称唯一性在 `(tenant_id, owner, entity_type, name)` 维度判定。
+- **R-10 032 门禁复用面与 SOP 测试集维度**：SOP 模板上架 MUST 复用 032 的判定口径（三项指标、fail-closed、无测试集/样本不足拒绝、审计事件、`min_cases=5`），但判定对象为 `sop_template`、测试集按 **`sop_template` 模板坐标维度**维护（与 032 的 `skill_id` 维度并列，复用 `skill_eval_cases` / `skill_eval_policies` 数据模型但以 `(tenant_id, asset_type, asset_key)` 为作用域键）。032 卡点挂在 `skill_lifecycle.publish()` 的 Skill 版本快照链路，编排定义不走该链路——故 053 MUST **复用判定器口径、不复用 `publish()` 挂载函数**，由 `templates/publish.py` 独立接线；本特性中「复用 032」一律指判定语义而非挂载点（FR-002）。
+- **R-11 审批人跨租户重解析（与 050 契约）**：含转人工/审批节点的 SOP 模板，定义中审批人 MUST 以**岗位角色标识（role key）**存储，MUST NOT 存具体用户 ID（原用户 ID 引用一律在克隆时剥离、不跨租户携带）。克隆时 MUST 按克隆者租户的「岗位角色 → 成员」映射重新解析为具体审批人；映射不到（该租户无对应岗位成员）时 MUST 报错并拒绝生成可用副本（fail-closed，不允许空审批人副本）。与 050 的联动契约：050 侧 MUST 以 role key 形态提供审批人引用，050 形态冻结后按本契约对齐；053 不假设 050 的用户 ID 形态（跨特性关系节、plan Structure Decision）。
+- **R-12 克隆数进 016 监控桶与 adopted 语义**：016 既有监控面 MUST 扩展接受 `employee_template` / `sop_template` 两类非 Skill `asset_type`（FR-011），按 `(tenant_id, asset_type, asset_key)` 维度写入既有监控桶、不新建评分体系。计数语义固定：克隆成功记 `clone_count`；副本经申领审批通过、进入在用状态记 `adopted`（仅克隆未申领不计 adopted）。低质标记对模板的行为 MUST 为「标记 + 广场降权/隐藏候选」，首期 MUST NOT 自动下架（下架须运营审批），以免误伤已克隆副本（FR-006 下架不伤副本）。
+- **R-13 克隆并发与配额**：克隆为一次性深拷贝、MUST NOT 引入分布式锁或去重合并（与 032 并发取舍同构，正确性由 R-9 命名唯一性兜底）；首期 MUST NOT 对同一用户短时间大量克隆做硬限流。但副本作为实体 MUST 计入 042 三级配额的**租户级资产数**配额；配额耗尽时克隆 MUST 按 042 口径返回拒绝并提示清理，MUST NOT 静默生成超限副本。
+- **R-14 副本再分发执行点与血缘重置（消解 OQ-2）**：OQ-2 定值：首期默认禁止副本再上架为模板（Non-Goals）。执行点 MUST 为**后端强校验**——「发布为模板」端点对 `template_ref` 非空的实体一律拒绝；前端隐藏入口仅为可选体验，后端 MUST NOT 依赖隐藏作为唯一拦截（Edge Case）。若后续显式开放「发布为模板」，MUST 重置血缘：生成全新 `(asset_type, asset_key)` 坐标、清空并新建根血缘（不继承副本旧 `template_ref`），且 MUST 重新过 032 门禁 + 001 审批、不豁免（与 FR-002 一致）。
+- **R-15 员工模板白名单引用失效处置**：克隆时能力白名单引用 MUST 按克隆者租户解析；跨租户引用一律失效 → MUST 校验报错、拒绝克隆（Edge Case，fail-closed）。同租户内被引资产已下架时 MUST 同样报错拒绝克隆，MUST NOT 静默剥离降级（避免生成引用悬空的半成品副本）；该判定与 051 OQ-2 的失效引用口径一致。上架校验（决策 #4 档案引用有效性）MUST 采用同一失效判定函数，保证上架与克隆两处口径一致。
+
 ## Non-Goals
 
 - 不承诺模板数量（首批 2–3 个演示，运营目标不写对外承诺）。
