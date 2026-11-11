@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
-from bson import ObjectId
 
 from app.core.db import get_db
 from app.core.config import get_settings

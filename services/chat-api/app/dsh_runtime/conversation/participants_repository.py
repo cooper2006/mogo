@@ -4,7 +4,7 @@ Rows in ``session_participants``: one per (conversation, user), soft-removed
 on leave and reactivated on re-join. Owner membership lives on the session
 document, not here; every method is scoped by tenant (``tenant_id``) and never
 filters by a viewer identity beyond that. The unique index omits
-``tenant_id`` because ``conversation_id`` is the session ``_id`` (ObjectId),
+``tenant_id`` because ``conversation_id`` is the session ``_id`` (32-hex),
 which is globally unique across tenants.
 """
 

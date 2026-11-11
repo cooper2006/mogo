@@ -124,7 +124,10 @@ def get_db() -> Any:
         init_db()
     if _db is None:
         raise RuntimeError("MongoDB is not initialized")
-    return _db
+    # 阶段 2 终态：mongo 驱动默认补 ObjectId，这里统一注入 32-hex 主键。
+    from app.core.hex32_db import AsyncHex32Collection, Hex32Database
+
+    return Hex32Database(_db, AsyncHex32Collection)
 
 
 def get_audit_db() -> Any:
@@ -155,4 +158,6 @@ def get_audit_db() -> Any:
         if _client is None:
             raise RuntimeError("MongoDB is not initialized")
         _audit_db = _client[settings.effective_audit_db or settings.effective_mongodb_db]
-    return _audit_db
+    from app.core.hex32_db import AsyncHex32Collection, Hex32Database
+
+    return Hex32Database(_audit_db, AsyncHex32Collection)

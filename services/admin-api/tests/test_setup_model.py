@@ -10,7 +10,7 @@ from app.services.setup_model_probe import SetupKnowledgeProbeResult
 class SetupModelValidationTests(IsolatedAsyncioTestCase):
     def test_normalizes_openai_compatible_payload(self) -> None:
         provider = {
-            "_id": "507f1f77bcf86cd799439011",
+            "_id": "507f1f77bcf86cd799439011a1b2c3d4",
             "provider_type": "openai_compatible",
             "default_base_url": "https://api.example.com/v1",
         }
@@ -30,7 +30,7 @@ class SetupModelValidationTests(IsolatedAsyncioTestCase):
 
     def test_requires_azure_api_version(self) -> None:
         provider = {
-            "_id": "507f1f77bcf86cd799439011",
+            "_id": "507f1f77bcf86cd799439011a1b2c3d4",
             "provider_type": "azure_openai",
             "default_base_url": "https://example.openai.azure.com",
         }
@@ -48,7 +48,7 @@ class SetupModelValidationTests(IsolatedAsyncioTestCase):
 
     def test_normalizes_optional_embedding_without_making_it_default(self) -> None:
         provider = {
-            "_id": "507f1f77bcf86cd799439011",
+            "_id": "507f1f77bcf86cd799439011a1b2c3d4",
             "provider_type": "openai_compatible",
             "default_base_url": "https://api.example.com/v1",
         }
@@ -68,7 +68,7 @@ class SetupModelValidationTests(IsolatedAsyncioTestCase):
 
     def test_normalizes_optional_rerank_without_making_it_default(self) -> None:
         provider = {
-            "_id": "507f1f77bcf86cd799439011",
+            "_id": "507f1f77bcf86cd799439011a1b2c3d4",
             "provider_type": "openai_compatible",
             "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         }
@@ -88,7 +88,7 @@ class SetupModelValidationTests(IsolatedAsyncioTestCase):
 
     def test_rejects_unsupported_capability(self) -> None:
         provider = {
-            "_id": "507f1f77bcf86cd799439011",
+            "_id": "507f1f77bcf86cd799439011a1b2c3d4",
             "provider_type": "openai_compatible",
             "default_base_url": "https://api.example.com/v1",
         }
@@ -104,7 +104,7 @@ class SetupModelValidationTests(IsolatedAsyncioTestCase):
 
     async def test_embedding_inspection_preserves_detected_dimension(self) -> None:
         provider = {
-            "_id": "507f1f77bcf86cd799439011",
+            "_id": "507f1f77bcf86cd799439011a1b2c3d4",
             "status": "active",
             "provider_type": "openai_compatible",
             "default_base_url": "https://api.example.com/v1",
@@ -130,7 +130,7 @@ class SetupModelValidationTests(IsolatedAsyncioTestCase):
 
     async def test_temporary_model_is_deleted_after_failed_test(self) -> None:
         provider = {
-            "_id": "507f1f77bcf86cd799439011",
+            "_id": "507f1f77bcf86cd799439011a1b2c3d4",
             "status": "active",
             "provider_type": "openai_compatible",
             "default_base_url": "https://api.example.com/v1",
@@ -146,7 +146,7 @@ class SetupModelValidationTests(IsolatedAsyncioTestCase):
         cleanup = AsyncMock(return_value=None)
         with (
             patch("app.services.setup_model.find_provider_by_id", AsyncMock(return_value=provider)),
-            patch("app.services.setup_model.create_instance", AsyncMock(return_value="507f1f77bcf86cd799439012")),
+            patch("app.services.setup_model.create_instance", AsyncMock(return_value="507f1f77bcf86cd799439012a1b2c3d4")),
             patch("app.services.setup_model.run_saved_model_test", AsyncMock(return_value=(False, "connection failed"))),
             patch("app.services.setup_model.delete_instance", delete),
             # The probe also sweeps the whole throwaway tenant (organizations,

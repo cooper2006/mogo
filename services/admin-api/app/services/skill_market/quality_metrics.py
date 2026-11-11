@@ -215,7 +215,7 @@ async def collect_edit_events(db: Any, *, limit: int = 5000) -> dict[str, Any]:
 
     chat-api records one event per ``POST /documents/save-blueprint`` (an edited
     product artifact). Each event increments that tenant/skill/day bucket's
-    ``corrected_calls``. ``_id`` (ObjectId, monotonic) is the high-water mark, so
+    ``corrected_calls``. ``_id`` (time-ordered 32-hex) is the high-water mark, so
     the pass is idempotent across restarts.
     """
     if db is None:

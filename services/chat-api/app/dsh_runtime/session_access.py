@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id
 
 from app.dsh_runtime.conversation.participants_repository import (
     SessionParticipantsRepository,
@@ -53,10 +53,10 @@ class SessionReadAuthorizer:
         self, session_id: str, *, tenant_id: str
     ) -> Mapping[str, Any] | None:
         """Tenant-scoped session read; None for missing/invalid ids."""
-        if not ObjectId.is_valid(session_id):
+        if not is_valid_backend_id(session_id):
             return None
         return await self._sessions.find_one(
-            {"_id": ObjectId(session_id), "tenant_id": tenant_id}
+            {"_id": session_id, "tenant_id": tenant_id}
         )
 
     async def authorize_read(

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
-from bson import ObjectId
 
 from app.core.db import get_db
 from app.llm.configured_models import INSTANCE_COLLECTION, PROVIDER_COLLECTION

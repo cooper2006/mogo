@@ -102,8 +102,8 @@ def _use_panwei_ids(monkeypatch) -> None:
     monkeypatch.setattr(db, "is_panweidb_backend", lambda: True)
 
 
-DEPT_ENG = "507f1f77bcf86cd799439011"
-DEPT_HQ = "507f1f77bcf86cd799439012"
+DEPT_ENG = "507f1f77bcf86cd799439011a1b2c3d4"
+DEPT_HQ = "507f1f77bcf86cd799439012a1b2c3d4"
 
 
 def _raw_rows(*rows: dict[str, Any]) -> list[dict[str, Any]]:

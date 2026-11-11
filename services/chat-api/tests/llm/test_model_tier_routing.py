@@ -23,8 +23,8 @@ from app.llm.complexity import (
 from app.llm.model_router import ModelRouter, ModelSelection, is_model_config_id
 
 
-MID_ID = "0123456789abcdef01234567"
-HIGH_ID = "76543210fedcba9876543210"
+MID_ID = "0123456789abcdef0123456789abcdef"
+HIGH_ID = "76543210fedcba9876543210fedcba98"
 
 
 def _write_router(tmp_path, *, tiers: str, tenants: str = "  {}", static: str = "") -> ModelRouter:

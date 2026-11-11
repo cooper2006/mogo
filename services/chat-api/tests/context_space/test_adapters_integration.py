@@ -263,7 +263,7 @@ def _seed(db: _FakeDb) -> None:
     db["chat_sessions"] = _Collection(
         [
             {
-                "_id": "507f1f77bcf86cd799439011",
+                "_id": "507f1f77bcf86cd799439011a1b2c3d4",
                 # 002 ownership: sessions are read with a ``user_id`` filter
                 # everywhere else in the app; the 021 adapter must match.
                 "user_id": "u1",
@@ -277,8 +277,8 @@ def _seed(db: _FakeDb) -> None:
     )
     db["chat_messages"] = _Collection(
         [
-            {"session_id": "507f1f77bcf86cd799439011", "role": "user", "content": "hello"},
-            {"session_id": "507f1f77bcf86cd799439011", "role": "assistant", "content": "hi there"},
+            {"session_id": "507f1f77bcf86cd799439011a1b2c3d4", "role": "user", "content": "hello"},
+            {"session_id": "507f1f77bcf86cd799439011a1b2c3d4", "role": "assistant", "content": "hi there"},
         ]
     )
 
@@ -489,7 +489,7 @@ async def test_skill_no_tenant_agnostic_fallback(fake_db, memory_store, monkeypa
 async def test_resolve_session_l0(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://session/t1/507f1f77bcf86cd799439011/L0", viewer=_viewer("u1")
+        "mogo://session/t1/507f1f77bcf86cd799439011a1b2c3d4/L0", viewer=_viewer("u1")
     )
     assert "Planning" in out["resolved"]["content"]
 
@@ -497,7 +497,7 @@ async def test_resolve_session_l0(fake_db, memory_store) -> None:
 async def test_resolve_session_l2_transcript(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://session/t1/507f1f77bcf86cd799439011/L2", viewer=_viewer("u1")
+        "mogo://session/t1/507f1f77bcf86cd799439011a1b2c3d4/L2", viewer=_viewer("u1")
     )
     assert "hello" in out["resolved"]["content"]
     assert "hi there" in out["resolved"]["content"]
@@ -557,7 +557,7 @@ async def test_resolve_session_other_user_is_denied(fake_db, memory_store) -> No
     _seed(fake_db)
     with pytest.raises(Exception):
         await resolve_memory(
-            "mogo://session/t1/507f1f77bcf86cd799439011/L2",
+            "mogo://session/t1/507f1f77bcf86cd799439011a1b2c3d4/L2",
             viewer=_viewer("u2"),
         )
 
@@ -565,7 +565,7 @@ async def test_resolve_session_other_user_is_denied(fake_db, memory_store) -> No
 async def test_resolve_session_owner_still_reads_own(fake_db, memory_store) -> None:
     _seed(fake_db)
     out = await resolve_memory(
-        "mogo://session/t1/507f1f77bcf86cd799439011/L2",
+        "mogo://session/t1/507f1f77bcf86cd799439011a1b2c3d4/L2",
         viewer=_viewer("u1"),
     )
     assert "hello" in out["resolved"]["content"]

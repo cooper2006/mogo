@@ -81,7 +81,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from bson import ObjectId
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Iterable, Iterator, Mapping, Sequence
@@ -92,14 +91,16 @@ logger = logging.getLogger(__name__)
 
 
 def new_backend_id() -> str:
-    """生成新记录主键：``str(ObjectId())``（24-hex）。
+    """生成新记录主键：时间有序 32-hex（阶段 2 终态）。
 
-    迁移计划 §2.9/§4 约定 PanWeiDB 主键统一落成 ``str(ObjectId)``；
-    0f13656 曾在此用 ``uuid4().hex``（32-hex），导致 ``is_valid_backend_id``
-    （仅认 24-hex）守卫误杀全部新建记录，详见 docs/mongo-to-panweidb-
-    migration-plan.md §2.9。
+    历史上这里先用 ``uuid4().hex``（32-hex，0f13656），后按迁移计划 §2.9
+    改成 ``str(ObjectId())``（24-hex）。2026-11-10 全库归一后统一为 32-hex，
+    实现集中在 :func:`app.core.ids.new_backend_id`，见
+    ``docs/id-unification-hex32-runbook.md``。
     """
-    return str(ObjectId())
+    from app.core.ids import new_backend_id as _new_hex32
+
+    return _new_hex32()
 
 
 class PgCompatUnsupported(NotImplementedError):

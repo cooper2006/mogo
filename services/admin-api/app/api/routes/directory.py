@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.core.db import is_panweidb_backend
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
-from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
@@ -58,14 +56,24 @@ def _is_login_name_duplicate(error: DuplicateKeyError) -> bool:
     return "login_name" in str(error) or "user_main_login_name_unique" in str(error)
 
 
+#: 已淘汰的 ObjectId / 24-hex 主键形态：终态明确 400，不再静默放行。
+_LEGACY_HEX24 = re.compile(r"^[0-9a-fA-F]{24}$")
+
+
 def _safe_oid(value: str, detail: str) -> Any:
-    if is_panweidb_backend():
-        # PanWeiDB 主键即字符串，任意非空串都是合法主键，无需 ObjectId 规范化。
-        return str(value)
-    try:
-        return ObjectId(value)
-    except InvalidId as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+    """终态主键校验：32-hex 直接返回；业务自然键原样返回；24-hex 明确拒绝。
+
+    阶段 2 之前这里在 mongo 模式用 ``ObjectId(value)`` 规范化，导致 32-hex
+    部门 / 用户 ID（含 PanWeiDB 遗留主键）抛 InvalidId → 400。全库归一后实体
+    主键只认 32-hex；组织编码 ``"13000"`` 之类的业务自然键不是实体 ID，保持
+    原样由查询自行处理。见 docs/id-unification-hex32-runbook.md。
+    """
+    text = str(value or "").strip()
+    if not text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    if _LEGACY_HEX24.match(text):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    return text
 
 
 def _tenant_id(current_user: dict) -> str:

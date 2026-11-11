@@ -8,7 +8,6 @@ from collections.abc import Callable
 from typing import Any
 
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
 
 from app.core.config import get_settings
 from app.core.db import get_db

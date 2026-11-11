@@ -100,4 +100,7 @@ def get_db() -> Any:
         init_db()
     if _db is None:
         raise RuntimeError("MongoDB is not initialized")
-    return _db
+    # 阶段 2 终态：pymongo 默认补 ObjectId，这里统一注入 32-hex 主键。
+    from app.core.hex32_db import Hex32Database, SyncHex32Collection
+
+    return Hex32Database(_db, SyncHex32Collection)

@@ -14,8 +14,8 @@ from app.infrastructure.observability.execution_trace import ensure_trace_id, lo
 from app.llm.complexity import DEFAULT_TIER, TaskComplexityFeatures, evaluate_tier
 
 
-#: 031 模型实例 ID 的形态（MongoDB ObjectId 字符串），见 spec R-2。
-_MODEL_CONFIG_ID_RE = re.compile(r"^[0-9a-f]{24}$")
+#: 031 模型实例 ID 的形态（统一 32-hex 字符串），见 docs/id-unification-hex32-runbook.md。
+_MODEL_CONFIG_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
 
 def is_model_config_id(value: Any) -> bool:

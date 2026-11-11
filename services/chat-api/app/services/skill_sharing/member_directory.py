@@ -4,8 +4,6 @@ import re
 from typing import Any
 
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
-
 from app.core.db import get_db
 from app.core.tenant import add_tenant_scope, resolve_tenant_id
 from app.services.member_identity import masked_account_identifier, public_display_name
@@ -13,15 +11,15 @@ from app.services.member_identity import masked_account_identifier, public_displ
 from .service import SkillShareError
 
 
-def _id_after(value: str) -> ObjectId | str | None:
+def _id_after(value: str) -> str | None:
     token = str(value or "").strip()
     if not token:
         return None
     return to_backend_id(token) if is_valid_backend_id(token) else token
 
 
-def member_id_candidates(values: list[str]) -> list[ObjectId | str]:
-    candidates: list[ObjectId | str] = []
+def member_id_candidates(values: list[str]) -> list[str]:
+    candidates: list[str] = []
     for value in values:
         normalized = str(value or "").strip()
         if not normalized:
@@ -106,7 +104,6 @@ class SkillShareMemberDirectory:
         so callers can still render the raw identifier.
         """
         from app.core.ids import is_valid_backend_id, to_backend_id
-        from bson import ObjectId
 
         def _norm(value: str) -> str:
             token = str(value or "").strip()

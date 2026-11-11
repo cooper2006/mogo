@@ -1,86 +1,73 @@
-"""后端感知的主键归一化（MongoDB → PanWeiDB 迁移，T085）。
+"""统一 32-hex 字符串主键（阶段 2/3 终态）。
 
-Mongo 的 ``_id`` 是 ``ObjectId``；PanWeiDB 侧落成 ``str(_id)`` 字符串（见
-``docs/mongo-to-panweidb-migration-plan.md`` §4）。业务代码里 ``ObjectId(x)`` 的
-构造与 ``ObjectId.is_valid`` 校验必须随之切换，否则 PanWeiDB 模式下用 ObjectId
-查询会与字符串主键不匹配（``isinstance(_, ObjectId)`` 更是恒为 False）。
+历史背景：Mongo 侧 ``_id`` 曾是 ``ObjectId``（24-hex），PanWeiDB 迁移期
+``pg_compat.insert_one`` 曾用 ``uuid4().hex``（32-hex）补齐缺失主键，两套形态
+长期并存，导致 ``_safe_oid`` / ``ObjectId.is_valid`` 守卫对 32-hex 主键抛 400。
+2026-11-10 的阶段 2 全库归一（``scripts/migrate_ids_to_hex32.py``，见
+``docs/id-unification-hex32-runbook.md``）之后，终态约定为：
 
-用 :func:`to_backend_id` / :func:`is_valid_backend_id` 取代直接 ``ObjectId(...)``
-与 ``ObjectId.is_valid(...)``：
+* 所有**系统生成的实体主键**一律是 32 位十六进制字符串；
+* ``is_valid_backend_id`` / ``to_backend_id_strict`` **只认 32-hex**，不再接受
+  ``ObjectId`` 实例或 24-hex 字符串；
+* ``to_backend_id`` 只做字符串化（``ObjectId`` → ``str``），不再把 24-hex 转成
+  ``ObjectId`` 用于查询；旧格式传入后查不到数据，等同于被拒绝；
+* **业务自然键**（组织编码 ``"13000"``、状态单例 ``"singleton"``、复合键
+  ``"<doc_id>:raw:raw_000001"`` 等）不是实体 ID，不经过本模块守卫，由各自
+  调用点处理，白名单见迁移脚本的 ``NATURAL_KEY_COLLECTIONS``。
 
-* mongo 模式行为与改造前**完全一致**（合法 24-hex → ObjectId）；
-* panwei 模式一律用字符串（主键在库中即字符串）。
-
-panwei 模式下的**存量兼容**：027 R1（commit 0f13656，2026-10-13）起
-``pg_compat.insert_one`` 曾用 ``uuid4().hex``（32 位 hex）生成缺失的 ``_id``，
-迁移期已产生一批 32-hex 主键（``end_users`` / ``end_user_sessions`` /
-``chat_messages``）。迁移计划 §2.9/§4 约定主键统一为 ``str(ObjectId)``
-（24-hex），故新 id 一律 24-hex；但存量的 32-hex 记录不能因此被守卫误杀
-（否则新注册用户在 PanWeiDB 下完全无法登录），``is_valid_backend_id`` /
-``to_backend_id_strict`` 在 panwei 模式下因此同时接受 24-hex 与 32-hex，
-mongo 模式维持原语义（仅 24-hex 合法）。
+新 ID 形如 ``12-hex 毫秒时间戳 + 20-hex 随机数``：字典序≈创建时间序，保留
+``_id`` 作为高水位游标（skill quality collector）与分页游标（member directory）
+的既有语义，避免 ``uuid4().hex`` 导致的顺序倒退。
 """
 
 from __future__ import annotations
 
 import re
+import secrets
+import time
 from typing import Any
 
 from bson import ObjectId
 
-# 存量 PanWeiDB 32-hex 主键（commit 0f13656 的 uuid4().hex 遗留）。
-_HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
+#: 终态唯一合法的实体主键形态。
+HEX32_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+
+_TIMESTAMP_HEX_LEN = 12
+_RANDOM_HEX_LEN = 20
 
 
-def _is_panweidb() -> bool:
-    # 延迟导入：避免 ids ← db ← ... 的导入环，并让测试可 patch 后端开关。
-    from app.core.db import is_panweidb_backend
+def new_backend_id() -> str:
+    """生成时间有序的 32-hex 主键。
 
-    return is_panweidb_backend()
+    12 位 hex 毫秒时间戳（48 bit，可用到公元 10889 年）+ 20 位 hex 随机数。
+    写入路径由 :mod:`app.core.hex32_db` 统一注入，业务代码无需自己生成。
+    """
+    ms = int(time.time() * 1000) & ((1 << 48) - 1)
+    return f"{ms:0{_TIMESTAMP_HEX_LEN}x}{secrets.token_hex(_RANDOM_HEX_LEN // 2)}"
 
 
-def to_backend_id(value: Any) -> Any:
-    """把 id 值转成当前后端用于查询 / 存储的形式。
+def to_backend_id(value: Any) -> str | None:
+    """把 id 值转成字符串形式用于查询 / 存储（**不校验**）。
 
-    * mongo：合法 24 位十六进制字符串 → ``ObjectId``，否则原样返回；
-    * panwei：一律 ``str``（主键在库中是字符串）。
+    终态库里主键就是字符串，因此这里只做 ``str()``。传入 ``ObjectId`` 会得到
+    24-hex 字符串，在终态库中查不到任何记录——即旧格式被静默拒绝，而不会像
+    ``ObjectId(...)`` 那样抛异常打断调用链。需要显式拒绝时请用
+    :func:`is_valid_backend_id` 或 :func:`to_backend_id_strict`。
     """
     if value is None:
         return None
-    if isinstance(value, ObjectId):
-        return str(value) if _is_panweidb() else value
-    if _is_panweidb():
-        return str(value)
-    text = str(value)
-    return ObjectId(text) if ObjectId.is_valid(text) else value
+    return str(value)
 
 
 def is_valid_backend_id(value: Any) -> bool:
-    """当前后端下该值是否为可安全用于 ``_id`` 查询的合法主键。"""
-    if value is None:
+    """终态守卫：只有 32-hex 字符串是合法实体主键。"""
+    if value is None or isinstance(value, ObjectId):
         return False
-    if isinstance(value, ObjectId):
-        return True
-    text = str(value)
-    if ObjectId.is_valid(text):
-        return True
-    # 存量兼容：panwei 下迁移期 uuid4().hex 生成的 32-hex 主键仍需可查（见模块
-    # docstring）；mongo 模式不接受 32-hex（其主键恒为 24-hex ObjectId）。
-    return _is_panweidb() and bool(_HEX32.match(text))
+    return bool(HEX32_RE.match(str(value)))
 
 
-def to_backend_id_strict(value: Any) -> Any:
-    """同 :func:`to_backend_id`，但非法 id 抛 ``ValueError``。
-
-    用于原先依赖 ``ObjectId(...)`` 构造抛错的调用点，保持其校验语义：
-    mongo 下非法 24-hex 会抛错，panwei 下接受 24-hex（新建）与 32-hex
-    （0f13656 存量）字符串主键，其余拒绝。
-    """
-    if value is None:
-        raise ValueError("id 不能为空")
-    if isinstance(value, ObjectId):
-        return str(value) if _is_panweidb() else value
-    text = str(value)
-    if not is_valid_backend_id(text):
-        raise ValueError(f"非法 id: {value!r}")
-    return text if _is_panweidb() else ObjectId(text)
+def to_backend_id_strict(value: Any) -> str:
+    """同 :func:`to_backend_id`，但非 32-hex 一律抛 ``ValueError``。"""
+    if not is_valid_backend_id(value):
+        raise ValueError(f"非法 id（终态只接受 32-hex）: {value!r}")
+    return str(value)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id
 
 from app.core.db import get_db
 
@@ -65,7 +65,7 @@ class PluginInstallationRepository:
         self, *, tenant_id: str, user_id: str, plugin_id: str,
         availability: dict[str, Any], tool_names: list[str], registry: str = "",
     ) -> dict[str, Any] | None:
-        if not ObjectId.is_valid(plugin_id):
+        if not is_valid_backend_id(plugin_id):
             return None
         current = await self.get(tenant_id=tenant_id, user_id=user_id, plugin_id=plugin_id)
         if current is None:
@@ -84,7 +84,7 @@ class PluginInstallationRepository:
                 "last_invocation": previous.get("last_invocation"),
             }
         row = await get_db().dsh_plugin_installations.find_one_and_update(
-            {"_id": ObjectId(plugin_id), "tenant_id": tenant_id, "owner_user_id": user_id, "engine": "dsh"},
+            {"_id": plugin_id, "tenant_id": tenant_id, "owner_user_id": user_id, "engine": "dsh"},
             {"$set": {"availability": availability, "tool_names": tool_names, "registry": registry, "updated_at": datetime.now(timezone.utc)}},
             return_document=True,
         )
@@ -115,27 +115,27 @@ class PluginInstallationRepository:
         )
 
     async def get(self, *, tenant_id: str, user_id: str, plugin_id: str) -> dict[str, Any] | None:
-        if not ObjectId.is_valid(plugin_id):
+        if not is_valid_backend_id(plugin_id):
             return None
         return await get_db().dsh_plugin_installations.find_one({
-            "_id": ObjectId(plugin_id), "tenant_id": tenant_id, "owner_user_id": user_id, "engine": "dsh",
+            "_id": plugin_id, "tenant_id": tenant_id, "owner_user_id": user_id, "engine": "dsh",
         })
 
     async def set_enabled(self, *, tenant_id: str, user_id: str, plugin_id: str, enabled: bool) -> dict[str, Any] | None:
-        if not ObjectId.is_valid(plugin_id):
+        if not is_valid_backend_id(plugin_id):
             return None
         row = await get_db().dsh_plugin_installations.find_one_and_update(
-            {"_id": ObjectId(plugin_id), "tenant_id": tenant_id, "owner_user_id": user_id, "engine": "dsh"},
+            {"_id": plugin_id, "tenant_id": tenant_id, "owner_user_id": user_id, "engine": "dsh"},
             {"$set": {"enabled": enabled, "updated_at": datetime.now(timezone.utc)}},
             return_document=True,
         )
         return _public(row) if row else None
 
     async def remove(self, *, tenant_id: str, user_id: str, plugin_id: str) -> bool:
-        if not ObjectId.is_valid(plugin_id):
+        if not is_valid_backend_id(plugin_id):
             return False
         result = await get_db().dsh_plugin_installations.delete_one({
-            "_id": ObjectId(plugin_id), "tenant_id": tenant_id,
+            "_id": plugin_id, "tenant_id": tenant_id,
             "owner_user_id": user_id, "engine": "dsh",
         })
         return result.deleted_count > 0

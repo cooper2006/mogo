@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -253,7 +252,7 @@ async def _serialize_shared_sessions(
         pipeline = [
             {"$match": {
                 "tenant_id": resolve_tenant_id(tenant_id),
-                "session_id": {"$in": [ObjectId(doc_id) for doc_id in legacy_ids]},
+                "session_id": {"$in": [to_backend_id(doc_id) for doc_id in legacy_ids]},
             }},
             {"$group": {"_id": "$session_id", "max_seq": {"$max": "$seq"}}},
         ]
@@ -321,7 +320,7 @@ def _build_match_snippet(text: str, query: str, radius: int = 72) -> str:
     return f"{prefix}{source[start:end].strip()}{suffix}"
 
 
-async def _next_seq(db, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> int:
+async def _next_seq(db, session_id: str, user_id: str, tenant_id: str = "default") -> int:
     last = await db.chat_messages.find_one(
         add_tenant_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
@@ -437,7 +436,7 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
     }
 
 
-async def _latest_user_request_from_db(db, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> str:
+async def _latest_user_request_from_db(db, session_id: str, user_id: str, tenant_id: str = "default") -> str:
     row = await db.chat_messages.find_one(
         add_tenant_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
@@ -557,7 +556,7 @@ def _build_context_summary_from_messages(rows: List[Dict[str, Any]]) -> str:
     return context_compactor.heuristic_summary(rows)
 
 
-async def _maybe_compact_session_messages(db, *, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> None:
+async def _maybe_compact_session_messages(db, *, session_id: str, user_id: str, tenant_id: str = "default") -> None:
     cursor = db.chat_messages.find(
         add_tenant_scope({
             "session_id": session_id,
@@ -783,7 +782,7 @@ async def list_sessions(
             batch_offset += batch_size
         base_cursor = (
             db.chat_sessions.find(
-                add_tenant_scope({"_id": {"$in": [ObjectId(str(cid)) for cid in conversation_ids]}}, tenant_id),
+                add_tenant_scope({"_id": {"$in": [to_backend_id(cid) for cid in conversation_ids]}}, tenant_id),
                 {**projection, "next_message_seq": 1},
             )
             .sort([("updated_at", -1), ("_id", -1)])

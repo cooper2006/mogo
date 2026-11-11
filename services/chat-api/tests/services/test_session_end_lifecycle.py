@@ -144,7 +144,7 @@ def _seed_session(db) -> None:
     db["chat_sessions"] = _FakeCollection(
         [
             {
-                "_id": "507f1f77bcf86cd799439011",
+                "_id": "507f1f77bcf86cd799439011a1b2c3d4",
                 "user_id": "u1",
                 "tenant_id": "t1",
                 "title": "Planning",
@@ -160,7 +160,7 @@ def _seed_session(db) -> None:
 async def test_end_session_persists_ended_at(fake_db) -> None:
     _seed_session(fake_db)
     doc = await sps.session_persistence_service.end_session(
-        session_id="507f1f77bcf86cd799439011", user_id="u1", tenant_id="t1", reason="user_ended"
+        session_id="507f1f77bcf86cd799439011a1b2c3d4", user_id="u1", tenant_id="t1", reason="user_ended"
     )
     assert doc["ended_at"] is not None
     assert doc["end_reason"] == "user_ended"
@@ -185,12 +185,12 @@ async def test_end_session_sediments_via_dispatcher(fake_db) -> None:
     store_mod.MemoryStore = _Store
     try:
         await sps.session_persistence_service.end_session(
-            session_id="507f1f77bcf86cd799439011", user_id="u1", tenant_id="t1"
+            session_id="507f1f77bcf86cd799439011a1b2c3d4", user_id="u1", tenant_id="t1"
         )
     finally:
         store_mod.MemoryStore = orig
 
-    assert written.get("source_session_id") == "507f1f77bcf86cd799439011"
+    assert written.get("source_session_id") == "507f1f77bcf86cd799439011a1b2c3d4"
     assert written.get("source_type") == "session"
     assert written.get("content") == "the full transcript"
 
@@ -198,8 +198,8 @@ async def test_end_session_sediments_via_dispatcher(fake_db) -> None:
 async def test_end_session_is_idempotent(fake_db) -> None:
     _seed_session(fake_db)
     svc = sps.session_persistence_service
-    first = await svc.end_session(session_id="507f1f77bcf86cd799439011", user_id="u1", tenant_id="t1")
-    second = await svc.end_session(session_id="507f1f77bcf86cd799439011", user_id="u1", tenant_id="t1")
+    first = await svc.end_session(session_id="507f1f77bcf86cd799439011a1b2c3d4", user_id="u1", tenant_id="t1")
+    second = await svc.end_session(session_id="507f1f77bcf86cd799439011a1b2c3d4", user_id="u1", tenant_id="t1")
     assert first["ended_at"] == second["ended_at"]
     # Only one update should have been issued (the second call short-circuits).
     assert len(fake_db["chat_sessions"].updates) == 1
@@ -209,7 +209,7 @@ async def test_end_session_missing_raises_lookup(fake_db) -> None:
     fake_db["chat_sessions"] = _FakeCollection([])
     with pytest.raises(LookupError):
         await sps.session_persistence_service.end_session(
-            session_id="507f1f77bcf86cd799439011", user_id="u1", tenant_id="t1"
+            session_id="507f1f77bcf86cd799439011a1b2c3d4", user_id="u1", tenant_id="t1"
         )
 
 
@@ -232,6 +232,6 @@ async def test_end_session_survives_subscriber_failure(fake_db) -> None:
 
     subscribe(SESSION_END, boom)
     doc = await sps.session_persistence_service.end_session(
-        session_id="507f1f77bcf86cd799439011", user_id="u1", tenant_id="t1"
+        session_id="507f1f77bcf86cd799439011a1b2c3d4", user_id="u1", tenant_id="t1"
     )
     assert doc["ended_at"] is not None

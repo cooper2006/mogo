@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
-from bson import ObjectId
 
 from app.core.db import get_db
 from app.core.tenant import add_tenant_scope
@@ -120,7 +119,7 @@ class LocalKnowledgeRAGService:
             try:
                 msg_filter["session_id"] = to_backend_id_strict(sid)
             except Exception as exc:
-                log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
+                log_print(f"[rag_service] invalid 32-hex id for session_id={sid}: {exc}", flush=True)
         rows = (
             await db.chat_messages.find(add_tenant_scope(msg_filter, tenant_id))
             .sort("created_at", -1)
@@ -191,7 +190,7 @@ class LocalKnowledgeRAGService:
             try:
                 sess_filter["_id"] = to_backend_id_strict(sid)
             except Exception as exc:
-                log_print(f"[rag_service] ObjectId parse failed for session_id={sid}: {exc}", flush=True)
+                log_print(f"[rag_service] invalid 32-hex id for session_id={sid}: {exc}", flush=True)
         sessions = (
             await db.chat_sessions.find(add_tenant_scope(sess_filter, tenant_id))
             .sort("updated_at", -1)

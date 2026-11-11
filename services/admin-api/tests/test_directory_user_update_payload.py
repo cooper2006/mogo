@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from app.api.routes import directory
 
-USER_ID = "6af1225fbc3a012bdd8548f5"
+USER_ID = "6af1225fbc3a012bdd8548f5a1b2c3d4"
 DEPT_ID = "4beeb6e255694db49d15fe6d7d67121f"
 TENANT = "org-50563e3a01257774635747c2"
 LOGIN_NAME = "liujingyu@bonc.com.cn"

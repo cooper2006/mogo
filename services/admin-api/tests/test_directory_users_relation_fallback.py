@@ -24,9 +24,9 @@ ROOT = "root-dept"
 CHILD = "child-dept"
 OTHER = "other-dept"
 
-U1 = "a" * 24
-U2 = "b" * 24
-U3 = "c" * 24
+U1 = "a" * 32
+U2 = "b" * 32
+U3 = "c" * 32
 
 
 def _match(doc: dict, flt: dict) -> bool:

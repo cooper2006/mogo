@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
 
 from app.core.db import get_db
 from app.repositories.model_repository import encrypt_secret, mask_secret
@@ -26,9 +26,9 @@ async def list_groups(tenant_id: str) -> list[dict[str, Any]]:
 
 
 async def find_group(group_id: str, tenant_id: str) -> dict[str, Any] | None:
-    if not ObjectId.is_valid(group_id):
+    if not is_valid_backend_id(group_id):
         return None
-    return await get_db()[COLLECTION].find_one({"_id": ObjectId(group_id), "tenant_id": tenant_id})
+    return await get_db()[COLLECTION].find_one({"_id": to_backend_id_strict(group_id), "tenant_id": tenant_id})
 
 
 async def create_group(tenant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -36,7 +36,7 @@ async def create_group(tenant_id: str, payload: dict[str, Any]) -> dict[str, Any
     doc = {
         "tenant_id": tenant_id,
         "name": payload["name"],
-        "provider_id": ObjectId(payload["provider_id"]),
+        "provider_id": to_backend_id(payload["provider_id"]),
         "base_url": payload["base_url"],
         "api_version": payload.get("api_version", ""),
         "api_key_encrypted": encrypt_secret(payload["api_key"]),
@@ -53,7 +53,7 @@ async def create_group(tenant_id: str, payload: dict[str, Any]) -> dict[str, Any
 async def update_group(group_id: str, tenant_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
     update = {
         "name": payload["name"],
-        "provider_id": ObjectId(payload["provider_id"]),
+        "provider_id": to_backend_id(payload["provider_id"]),
         "base_url": payload["base_url"],
         "api_version": payload.get("api_version", ""),
         "status": payload.get("status", "active"),
@@ -63,7 +63,7 @@ async def update_group(group_id: str, tenant_id: str, payload: dict[str, Any]) -
         update["api_key_encrypted"] = encrypt_secret(payload["api_key"])
         update["api_key_masked"] = mask_secret(payload["api_key"])
     result = await get_db()[COLLECTION].update_one(
-        {"_id": ObjectId(group_id), "tenant_id": tenant_id}, {"$set": update}
+        {"_id": to_backend_id_strict(group_id), "tenant_id": tenant_id}, {"$set": update}
     )
     return await find_group(group_id, tenant_id) if result.matched_count else None
 
@@ -72,5 +72,5 @@ async def delete_empty_group(group_id: str, tenant_id: str) -> bool:
     db = get_db()
     if await db[INSTANCE_COLLECTION].find_one({"tenant_id": tenant_id, "group_id": group_id}, {"_id": 1}):
         raise ValueError("model_group_has_models")
-    result = await db[COLLECTION].delete_one({"_id": ObjectId(group_id), "tenant_id": tenant_id})
+    result = await db[COLLECTION].delete_one({"_id": to_backend_id_strict(group_id), "tenant_id": tenant_id})
     return result.deleted_count > 0

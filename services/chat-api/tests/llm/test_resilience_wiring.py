@@ -14,13 +14,12 @@ import asyncio
 from app.llm import configured_models
 from app.llm.configured_models import ModelConfigError
 from app.llm.types import LLMResponse, Message, Role
-from app.core.ids import to_backend_id
-from bson import ObjectId
+from app.core.ids import new_backend_id, to_backend_id
 
 
 def _new_id():
-    """后端无关的新 id（mongo→ObjectId，panwei→str），与生产代码一致。"""
-    return to_backend_id(ObjectId())
+    """终态：与生产写入路径一致的时间有序 32-hex 主键。"""
+    return new_backend_id()
 
 
 class _EchoClient:

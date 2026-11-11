@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id
 
 from app.core.tenant import add_tenant_scope
 from app.services.member_identity import public_display_name
@@ -126,10 +126,7 @@ async def resolve_author_projections(
     requested = {str(value) for value in user_ids if str(value or "")}
     if not requested:
         return {}
-    candidates = [
-        ObjectId(value) if ObjectId.is_valid(value) else value
-        for value in sorted(requested)
-    ]
+    candidates = [value for value in sorted(requested) if is_valid_backend_id(value)]
     rows = db.end_users.find(
         add_tenant_scope({"_id": {"$in": candidates}}, tenant_id),
         _AUTHOR_FIELDS,

@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any
 
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
 
 from app.core.db import get_db
 from app.core.quota_policy import assert_quota_available

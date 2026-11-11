@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 

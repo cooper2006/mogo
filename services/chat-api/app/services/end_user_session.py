@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
 from fastapi import HTTPException
 
 from app.core.config import get_settings

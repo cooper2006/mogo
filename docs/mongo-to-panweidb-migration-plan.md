@@ -7,6 +7,11 @@
 | 回滚方式 | 环境变量开关 `MOGO_DATA_BACKEND=mongo`（默认），**不需要回滚代码** |
 | 目标库 | PanWeiDB 3.2.0（openGauss 内核），OrbStack 容器 `panweidb`，端口 5432 |
 
+> ⚠️ **主键约定已废弃**：本文 §2.9 / §4 中「`_id` 统一为 `str(ObjectId)`（24-hex）」
+> 以及 `docs/data-dictionary.md` 的相关描述，已被 2026-11-10 的阶段 2 全库归一
+> 取代：现行终态是 **32-hex 字符串主键**，代码只认 32-hex。请以
+> `docs/id-unification-hex32-runbook.md` 为准；本文仅作为 R1–R3 兼容层历史记录保留。
+
 ---
 
 ## 1. 结论摘要

@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
-from bson import ObjectId
 
 from app.context_engine.compactor import context_compactor
 from app.context_engine.project_memory import project_memory_service
@@ -56,7 +55,7 @@ def _normalize_message(message: Any) -> Dict[str, Any]:
     return out
 
 
-async def _next_seq(db: Any, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> int:
+async def _next_seq(db: Any, session_id: str, user_id: str, tenant_id: str = "default") -> int:
     last = await db.chat_messages.find_one(
         add_tenant_scope({"session_id": session_id, "user_id": str(user_id)}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
@@ -172,7 +171,7 @@ def _make_version_entry(doc: Dict[str, Any], version: int) -> Dict[str, Any]:
     }
 
 
-async def _latest_user_request_from_db(db: Any, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> str:
+async def _latest_user_request_from_db(db: Any, session_id: str, user_id: str, tenant_id: str = "default") -> str:
     row = await db.chat_messages.find_one(
         add_tenant_scope({"session_id": session_id, "user_id": str(user_id), "role": "user"}, tenant_id),
         sort=[("seq", -1), ("created_at", -1)],
@@ -289,7 +288,7 @@ def _build_context_summary_from_messages(rows: List[Dict[str, Any]]) -> str:
     return context_compactor.heuristic_summary(rows)
 
 
-async def maybe_compact_session_messages(db: Any, *, session_id: ObjectId, user_id: str, tenant_id: str = "default") -> None:
+async def maybe_compact_session_messages(db: Any, *, session_id: str, user_id: str, tenant_id: str = "default") -> None:
     cursor = db.chat_messages.find(
         add_tenant_scope({
             "session_id": session_id,
@@ -522,7 +521,7 @@ class SessionPersistenceService:
     @staticmethod
     def _message_doc(
         *,
-        session_id: ObjectId,
+        session_id: str,
         user_id: str,
         tenant_id: str,
         message: Dict[str, Any],
@@ -551,7 +550,7 @@ class SessionPersistenceService:
             "scheduled_run_id": str(message.get("scheduled_run_id") or "").strip() or None,
         }
 
-    async def _rekey_execution_logs(self, *, session_id: ObjectId, tenant_id: str, messages: List[Dict[str, Any]]) -> None:
+    async def _rekey_execution_logs(self, *, session_id: str, tenant_id: str, messages: List[Dict[str, Any]]) -> None:
         message_ids = [str(m.get("message_id") or "").strip() for m in messages if str(m.get("message_id") or "").strip()]
         if not message_ids:
             return

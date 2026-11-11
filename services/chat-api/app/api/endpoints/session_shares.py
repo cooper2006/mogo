@@ -12,12 +12,12 @@ from __future__ import annotations
 import datetime
 from typing import Any, Literal
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.principal import ApiPrincipal, require_end_user_principal
 from app.core.db import get_db
+from app.core.ids import is_valid_backend_id
 from app.core.tenant import add_tenant_scope
 from app.dsh_runtime.bindings.repository import KernelBindingRepository
 from app.dsh_runtime.conversation.participants_repository import SessionParticipantsRepository
@@ -47,17 +47,17 @@ def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def _session_oid(session_id: str) -> ObjectId:
-    if not ObjectId.is_valid(session_id):
+def _session_id(session_id: str) -> str:
+    if not is_valid_backend_id(session_id):
         raise HTTPException(
             status_code=404,
             detail={"code": "session_not_found", "message": "Session not found"},
         )
-    return ObjectId(session_id)
+    return session_id
 
 
 async def _resolve_viewer_session(
-    oid: ObjectId,
+    session_id: str,
     *,
     principal: ApiPrincipal,
     participants: SessionParticipantsRepository,
@@ -69,12 +69,12 @@ async def _resolve_viewer_session(
     ``user_id``; the participant branch is an active-row check (removed rows
     grant no visibility).
     """
-    session_doc = await get_db().chat_sessions.find_one(add_tenant_scope({"_id": oid}, principal.tenant_id))
+    session_doc = await get_db().chat_sessions.find_one(add_tenant_scope({"_id": session_id}, principal.tenant_id))
     role: str | None = None
     if session_doc is not None:
         if str(session_doc.get("user_id") or "") == principal.user_id:
             role = "owner"
-        elif await participants.is_member(str(oid), tenant_id=principal.tenant_id, user_id=principal.user_id):
+        elif await participants.is_member(session_id, tenant_id=principal.tenant_id, user_id=principal.user_id):
             role = "participant"
     if session_doc is None or role is None:
         raise HTTPException(
@@ -94,7 +94,7 @@ async def create_session_share(
     db = get_db()
     participants = SessionParticipantsRepository(db)
     session_doc, role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     if role != "owner":
         raise HTTPException(
@@ -169,7 +169,7 @@ async def revoke_session_share(
     db = get_db()
     participants = SessionParticipantsRepository(db)
     session_doc, role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     if role != "owner":
         raise HTTPException(
@@ -190,7 +190,7 @@ async def list_participants(
 ) -> dict[str, object]:
     participants = SessionParticipantsRepository(get_db())
     session_doc, _role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     rows = await participants.list(str(session_doc["_id"]), tenant_id=principal.tenant_id)
     member_ids = [str(session_doc.get("user_id") or "")]
@@ -225,7 +225,7 @@ async def leave_session(
 ) -> dict[str, object]:
     participants = SessionParticipantsRepository(get_db())
     session_doc, role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     if role != "participant":
         raise HTTPException(
@@ -246,7 +246,7 @@ async def remove_participant(
 ) -> dict[str, object]:
     participants = SessionParticipantsRepository(get_db())
     session_doc, role = await _resolve_viewer_session(
-        _session_oid(session_id), principal=principal, participants=participants,
+        _session_id(session_id), principal=principal, participants=participants,
     )
     if role != "owner":
         raise HTTPException(

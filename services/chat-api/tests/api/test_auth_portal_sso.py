@@ -26,7 +26,7 @@ from app.api.endpoints import auth as auth_module
 from app.core.ids import to_backend_id
 
 PORTAL_SECRET = "portal-sso-secret-0123456789abcdef"
-USER_ID = "665f1c0c0b1e2a3f4a5b6c7d"
+USER_ID = "665f1c0c0b1e2a3f4a5b6c7d0e0f1011"
 TENANT_ID = "tenant-0001"
 USERNAME = "portal-user"
 
@@ -275,7 +275,7 @@ async def test_portal_exchange_multi_tenant_returns_challenge(env, monkeypatch) 
 async def test_portal_ticket_rejects_unknown_user(env) -> None:
     with pytest.raises(HTTPException) as exc:
         await auth_module.portal_ticket(
-            auth_module.PortalTicketRequest(**_portal_ticket_body(user_id="665f1c0c0b1e2a3f4a5b6c99")),
+            auth_module.PortalTicketRequest(**_portal_ticket_body(user_id="665f1c0c0b1e2a3f4a5b6c990e0f1011")),
             service_token="svc",
         )
     assert exc.value.status_code in (401, 404)

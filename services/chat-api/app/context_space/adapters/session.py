@@ -76,7 +76,6 @@ async def _load(
     if db is None:
         return None, {}
     from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
-    from bson import ObjectId
 
     try:
         oid = to_backend_id_strict(addr.session_id)

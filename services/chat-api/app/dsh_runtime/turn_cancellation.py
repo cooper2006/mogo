@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from bson import ObjectId
+from app.core.ids import is_valid_backend_id
 from collections.abc import Callable
 from typing import Any
 
@@ -171,10 +171,10 @@ async def member_conversation(
     -> CancelNotAllowedError (403, the membership gate denies them even for
     their own in-flight run).
     """
-    if not ObjectId.is_valid(conversation_id):
+    if not is_valid_backend_id(conversation_id):
         raise LookupError("conversation_not_found")
     session = await db.chat_sessions.find_one(
-        {"_id": ObjectId(conversation_id), "tenant_id": tenant_id}
+        {"_id": conversation_id, "tenant_id": tenant_id}
     )
     if session is None:
         raise LookupError("conversation_not_found")

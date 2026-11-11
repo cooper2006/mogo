@@ -40,7 +40,7 @@ from app.services import end_user_session
 
 SECRET = "test-end-user-secret"
 TENANT = "tenant-0001"
-USER_ID = "665f1c0c0b1e2a3f4a5b6c7d"
+USER_ID = "665f1c0c0b1e2a3f4a5b6c7d0e0f1011"
 def _now_dt() -> dt.datetime:
     """测试内统一取一次"当前时间"，所有文档相对它构造。"""
     return dt.datetime.now(dt.timezone.utc)

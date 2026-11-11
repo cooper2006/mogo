@@ -5,7 +5,6 @@ import logging
 from typing import Any, Dict, List
 
 from app.core.ids import is_valid_backend_id, to_backend_id, to_backend_id_strict
-from bson import ObjectId
 from pydantic import BaseModel, Field
 
 from app.core.db import get_db

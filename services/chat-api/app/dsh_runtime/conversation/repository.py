@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.ids import is_valid_backend_id, to_backend_id
-from bson import ObjectId
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 

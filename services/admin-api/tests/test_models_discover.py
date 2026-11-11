@@ -197,7 +197,7 @@ def test_discover_reuses_stored_key_for_existing_instance(monkeypatch) -> None:
             "providerType": "openai_compatible",
             "baseUrl": "https://api.openai.com/v1",
             "apiKey": "",
-            "instanceId": "507f1f77bcf86cd799439011",
+            "instanceId": "507f1f77bcf86cd799439011a1b2c3d4",
         },
     )
     assert resp.status_code == 200
@@ -222,7 +222,7 @@ def test_discover_stored_key_instance_not_found_returns_400(monkeypatch) -> None
             "providerType": "openai_compatible",
             "baseUrl": "https://api.openai.com/v1",
             "apiKey": "",
-            "instanceId": "507f1f77bcf86cd799439011",
+            "instanceId": "507f1f77bcf86cd799439011a1b2c3d4",
         },
     )
     assert resp.status_code == 400
@@ -250,7 +250,7 @@ def test_discover_prefers_provided_key_over_stored(monkeypatch) -> None:
             "providerType": "openai_compatible",
             "baseUrl": "https://api.openai.com/v1",
             "apiKey": "sk-new",
-            "instanceId": "507f1f77bcf86cd799439011",
+            "instanceId": "507f1f77bcf86cd799439011a1b2c3d4",
         },
     )
     assert resp.status_code == 200
@@ -278,7 +278,7 @@ def test_discover_ollama_skips_stored_key_lookup(monkeypatch) -> None:
             "providerType": "ollama",
             "baseUrl": "http://localhost:11434",
             "apiKey": "",
-            "instanceId": "507f1f77bcf86cd799439011",
+            "instanceId": "507f1f77bcf86cd799439011a1b2c3d4",
         },
     )
     assert resp.status_code == 200

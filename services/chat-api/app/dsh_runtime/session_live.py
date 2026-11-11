@@ -704,7 +704,7 @@ class SessionLiveService:
         self, session_id: str, tenant_id: str
     ) -> tuple[Mapping[str, Any], Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
         session = await self._conversations._sessions.find_one(
-            {"_id": __import__("bson").ObjectId(session_id), "tenant_id": tenant_id}
+            {"_id": session_id, "tenant_id": tenant_id}
         )
         participants = await self._participants.list(
             session_id, tenant_id=tenant_id
