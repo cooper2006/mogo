@@ -12,6 +12,7 @@ image.
 
 - **admin-web 菜单方案（`GET /api/v1/settings/menus`）未认证时序 401 修复**：`useMenuOptions` 在布局 `onMounted` 时即调用 `menuStore.load()` → `fetchMenuPlan()`，请求头 token 取自 `authStore.token`；若此刻会话尚未初始化（SSO 换票/校验窗口）或 token 已过期，请求无 `Authorization` 头 → 服务端返回 401，且全局响应拦截器对任意 401 触发 `clearSession()` + 跳转登录页，存在把已登录用户弹出的风险。改为 `onMounted` 与 `watch(tenantKey)` 均仅在 `authStore.isAuthenticated` 时拉取菜单方案；会话初始化完成后 `tenantKey` 由 `''` 变为真实租户 ID，自然触发首次加载，从源头杜绝无 token 的 401 与误跳转。
 - **演示数据校准（运行态，非代码发布项）**：修复 v0.2.8 演示播种中 `asset_templates` 等 13 个集合的 `created_at`/`updated_at` 被写成字符串（应为 BSON `datetime`），导致 `GET /api/v1/templates` 列表接口 `updated_at.isoformat()` 抛 `AttributeError` → 500；已将全部种子文档时间戳转为 `datetime`。
+- **user-web 会话列表相对时间「8 小时前」时区偏差修复**：后端（mongo 存 naive UTC）返回的 `created_at`/`updated_at`/`last_message_at` 可能为无时区后缀的 ISO 字符串，`formatRelativeTime` 原直接 `new Date(iso)` 被浏览器按本地时区解析，导致 UTC+8 用户把刚发生的会话显示为「8 小时前」。检测 naive ISO（无 `Z` 且无 `±HH:MM` 偏移）补 `Z` 按 UTC 解析后再转本地显示。该修复此前仅存在于本地 dev 的 `fix-tz` 镜像工作树中，现随 `d02e4a42` 提交入库。
 
 ### QA / 发布就绪
 
