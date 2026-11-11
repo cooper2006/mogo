@@ -131,13 +131,21 @@ export function useMenuOptions() {
 
   const tenantKey = computed(() => authStore.profile?.tenantId || '');
 
-  onMounted(() => {
+  // 仅在已认证后拉取菜单覆盖层：avoid 在 token 尚未就绪（SSO 换票 / 会话校验
+  // 进行中）或会话已过期时，向后端发无 Authorization 头的请求，
+  // 否则 /settings/menus 返回 401，并触发全局拦截器把已登录用户弹回登录页。
+  function loadMenuPlanIfAuthenticated() {
+    if (!authStore.isAuthenticated) return;
     void menuStore.load(tenantKey.value);
-  });
+  }
+
+  onMounted(loadMenuPlanIfAuthenticated);
 
   // 切租户 / 重新登录后配置必须失效重载，避免沿用上个租户的菜单。
-  watch(tenantKey, (key) => {
-    void menuStore.load(key, true);
+  // tenantKey 在会话初始化完成后由 '' 变为真实租户ID，故此处会在认证就绪后
+  // 自然触发首次加载（即使 onMounted 时尚未认证）。
+  watch(tenantKey, () => {
+    void loadMenuPlanIfAuthenticated();
   });
 
   const menuOptions = computed(() => {

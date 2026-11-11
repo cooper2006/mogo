@@ -349,6 +349,6 @@
 - 五件套：`spec.md` / `plan.md` / `tasks.md` / `checklists/requirements.md` **54/54 齐备**；`quickstart.md` 修前 **49/54**（050/051/052/053/055 缺），本轮补齐后 **54/54**。
 - `tasks.md` 勾选 **1681/1696 = 99.12%**；100% 勾选 **50** 个特性，部分勾选 **4** 个（017 / 024 / 049 / 051，共余 15 项，均为环境 / 维护窗口 / 人工凭据类保留）。
 - 门禁清单：严格口径 **49 份 100% 勾选**；003–006 四份既有回溯未审（0 勾）；017 为 v3 Gate 四态表、无 checkbox。
-- 版本口径：7 处版本来源 + `MCP_CLIENT_VERSION` + 3 份 OpenAPI `info.version` 全部 **0.2.8**，与 `git tag v0.2.8` 对齐；运行栈为 **k3s**（10 Pod，镜像 tag `e883aab5` 为本轮 QA 修复构建，v0.2.8 容器镜像标签由发布流水线补打）。
+- 版本口径：7 处版本来源 + `MCP_CLIENT_VERSION` + 3 份 OpenAPI `info.version` 全部 **0.2.8**，与 `git tag v0.2.8` 对齐；运行栈为 **k3s**（7 个业务 Pod 镜像均为 `v0.2.8`，其中 `admin-web` 于本轮 2026-11-11 重建含菜单方案未认证时序 401 修复）。
 - 主键终态：2026-11-11 停机窗口完成全库归一，**只认 32-hex**（`docs/id-unification-hex32-runbook.md`）；040 的 spec / checklist 已同步去掉 24-hex 旧口径。
 - 本轮修复：`tenant_purge` 补齐 050–053 引入的 7 个租户集合、051 新增审计事件断言、5 份 quickstart、README / INDEX / PPT / CHANGELOG 计数、`drift` / `verify` 在 k3s 栈下的假阳性守卫。

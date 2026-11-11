@@ -8,6 +8,13 @@ image.
 
 ## v0.2.8 - 2026-11-11
 
+### Fixed
+
+- **admin-web 菜单方案（`GET /api/v1/settings/menus`）未认证时序 401 修复**：`useMenuOptions` 在布局 `onMounted` 时即调用 `menuStore.load()` → `fetchMenuPlan()`，请求头 token 取自 `authStore.token`；若此刻会话尚未初始化（SSO 换票/校验窗口）或 token 已过期，请求无 `Authorization` 头 → 服务端返回 401，且全局响应拦截器对任意 401 触发 `clearSession()` + 跳转登录页，存在把已登录用户弹出的风险。改为 `onMounted` 与 `watch(tenantKey)` 均仅在 `authStore.isAuthenticated` 时拉取菜单方案；会话初始化完成后 `tenantKey` 由 `''` 变为真实租户 ID，自然触发首次加载，从源头杜绝无 token 的 401 与误跳转。
+- **演示数据校准（运行态，非代码发布项）**：修复 v0.2.8 演示播种中 `asset_templates` 等 13 个集合的 `created_at`/`updated_at` 被写成字符串（应为 BSON `datetime`），导致 `GET /api/v1/templates` 列表接口 `updated_at.isoformat()` 抛 `AttributeError` → 500；已将全部种子文档时间戳转为 `datetime`。
+
+### QA / 发布就绪
+
 ### QA / 发布就绪
 
 - **standard 深度全量 QA 审计（2026-11-11，覆盖磁盘 54 个特性）**：
