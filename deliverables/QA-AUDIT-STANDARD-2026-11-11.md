@@ -14,7 +14,7 @@
 
 - [x] **文档层 / 代码层 / 测试层 / 生产接线层：发布就绪**。kiri 三轮回归中 R2/R3 全绿且**测试计数零偏差**：A6 三服务每轮 **5088 passed / 8 skipped / 0 failed**，A4 **339 passed / 9 skipped**，A1–A5、A7 除两个预期 SKIP（`drift` / `verify` rc=2）外全部 rc=0。唯一非测试计数差异是生产库文档数每轮 +14~16（A5 HTTP 冒烟落库副作用，已按 §4.3 逐集合归因，**非回归漂移**）。
 - [x] 本轮共发现 **11 项问题**，**已修复 9 项**（含 1 项 P1 数据隔离缺陷、1 项 P1 守卫假通过、4 项 P2 文档/契约/测试一致性、3 项 P3 口径与遗留），**如实登记未修 2 项**（均 P3、需补依赖/按规约不动历史存档）。
-- [ ] **唯一发布前动作**：本轮修复已于审计收尾后单独提交并推送 `mogo/main`（QA 提交，**非版本发布**）；k3s Pod 仍跑修复前构建的 `83bd0973`，运行态尚未包含本轮修复。**发布前须重建镜像 + 部署**（或明确接受该口径并在发布说明标注）。提交后 HEAD 前进、镜像 tag 暂不等于 HEAD，属预期状态（修复未部署），重建镜像后恢复一致。
+- [x] **发布收口已完成**：本轮修复提交 `e883aab5` 并推送 `mogo/main`，随后重建 7 个业务镜像（tag `e883aab5`）、导入 k3s containerd、部署 8 个业务 Deployment，运行态镜像 tag **8/8 = HEAD**，`tag_mismatch=0`；并补跑 A1/A2/A4/A6 全绿、与 R3 计数零偏差。详见 §12。
 
 ---
 
@@ -53,7 +53,7 @@
 - [x] 原 QualityForge 964 项逐条判定文本未入库、工具不可用，本轮按文档化 `standard` 方法论对仓库内**可核验证据重新执行**，不逐字复刻。
 - [x] `standard` 深度**不要求 54 特性逐文件行级穿透**；D4 采用「声明 + 抽样 + 防回归 + 全树扫描守卫」。
 - [x] **以 kiri 为准**：A6 在 kiri docker daemon 的 `83bd0973` 生产镜像内跑，源码经 `-v /Users/cooper/mogo:/Users/cooper/mogo` 同路径挂载（覆盖工作区最新改动）；A1/A5 直接打 k3s Pod / 网关；A2/A3/A4 用宿主 venv + `docker context = kiri`（静态仓库守卫与契约工具，不依赖容器内 python 包）。
-- [x] **三层口径分开记账（审计执行时点）**：① 审计执行时的已提交 HEAD `83bd0973`；② k3s 运行镜像 `83bd0973`（= 当时 HEAD，但不含本轮 QA 修复）；③ pytest 收集的是**工作区源码**（含本轮修复）。三者差异在 §5.4 / §11 单列，不混为一谈。**审计收尾后的状态变化**：修复单独提交使 HEAD 前进，k3s 镜像仍是 `83bd0973`，故 `A1_k3s` 的「8/8 tag = HEAD」是审计时点结论；提交后暂不等号是「修复未部署」的预期状态，不是 N-1 那类镜像漂移，发布前重建镜像即恢复一致。
+- [x] **三层口径分开记账（审计执行时点）**：① 审计执行时的已提交 HEAD `83bd0973`；② k3s 运行镜像 `83bd0973`（= 当时 HEAD，但不含本轮 QA 修复）；③ pytest 收集的是**工作区源码**（含本轮修复）。三者差异在 §5.4 / §11 单列，不混为一谈。**审计收尾后的状态变化**：修复单独提交使 HEAD 前进到 `e883aab5`，当时 k3s 镜像仍是 `83bd0973`，故 `A1_k3s` 的「8/8 tag = HEAD」为审计时点结论；短暂的 tag 不等号属「修复未部署」，不是 N-1 那类镜像漂移。**2026-11-11 11:23–11:32 部署收口后已恢复一致**：k3s 8 个业务镜像 tag 全为 `e883aab5` = HEAD，`tag_mismatch=0`（见 §12）。
 - [x] 测试写入**隔离库** `mogo_regtest_20261111`（三轮复用同一库，验证自清理与幂等）；A5 HTTP 冒烟走运行中的 k3s admin-api，**连的是生产库 `mogo_dev`**：自建业务数据用完即删，但按审计合规保留的审计 / 会话 / 配置变更记录不删，故每轮生产库文档数 +14~16。三轮后业务集合仍 155 个、无结构污染、`verify` 三轮 PASS（见 §4.3 与 `docs/regression-arm-kiri-2026-11-11.md` §6）。
 
 ---
@@ -246,7 +246,7 @@
 
 ### 7.2 本轮新增保留 / 阻断（逐条勾）
 
-- [ ] **P1 发布前动作**：本轮 9 项修复已单独提交并推送 `mogo/main`，但 k3s Pod 仍跑 `83bd0973`（修复前构建）。发布前须**重建镜像 + 部署**，或明确接受「运行态不含本轮修复」并在发布说明标注。
+- [x] **P1 发布前动作已完成**：本轮 9 项修复提交 `e883aab5`，7 个业务镜像重建为 `e883aab5` 并部署到 k3s，8/8 tag = HEAD；生产 Pod 内 `tenant_purge.TENANT_SCOPED_COLLECTIONS` 实测 95 项、050–053 的 7 个新集合全部在场，修复已真正进入运行态。详见 §12。
 - [ ] **054 在途**：资源中心目录未落地，待其完成后按发布流程重扫 specs 计数与 tasks 勾选数。
 - [ ] **N-8 / N-10 / N-14** 三项 P3 未修，须在发布说明标注。
 - [ ] **F-12 残留（P3）**：`A5_smoke` 仍指向生产库 `mogo_dev`，多轮回归会让审计 / 会话 / 配置变更记录线性增长（实测 +14~16/轮）。文档口径已修，但「切隔离库」需改 k3s Pod 的 DB 配置（会动生产栈），超出本轮最小改动边界；已累积的审计日志按合规不直接删除，需人工评估。**不阻断发布**。
@@ -307,11 +307,11 @@
 - [x] 生产库副作用已逐集合归因：155 live + 155 backup 集合不变，`verify` 三轮 PASS，增量全为 32-hex 主键（§4.3）
 - [x] 文档一致性错误（README 中英 / INDEX / PPT / CHANGELOG / 040 契约）已修
 - [x] 11-09 的 N-1 镜像漂移已消除（k3s tag = HEAD），N-11 / N-12 遗留已闭合
-- [ ] **发布前须处理**：重建部署镜像并部署（本轮修复已提交，但当前 k3s 运行态仍不含修复）
+- [x] **发布前动作已完成**：重建 7 个业务镜像 → 导入 k3s containerd → 部署 8 个 Deployment → 补跑 A1/A2/A4/A6 全绿（§12）
 - [ ] **N-8 CHANGELOG 收归**、**N-10 OTel**、**N-14 历史断链** 三项 P3、**F-12 A5_smoke 仍写生产库** 一项 P3，与 15 项环境类保留，须在发布说明如实标注
 - [ ] 054 落地后须重扫 specs 计数与 tasks 勾选数
 
-**结论**：在 `standard` 深度下，**代码冻结与 PR 评审可进入**——文档层、代码层、测试层（kiri 三轮真实全量实跑）、生产接线层（k3s + 治理守卫有效性）均达标，本轮修复无回归，且已随本次 QA 提交入库。**版本发布前**仍需一次「重建镜像 → 部署 → 复跑 A1/A2/A4/A6」的收口动作（修复已提交，缺的只是运行态），并标注上述保留项。
+**结论**：在 `standard` 深度下，**代码冻结与 PR 评审可进入，版本发布的技术收口已完成**——文档层、代码层、测试层（kiri 审计三轮 + 部署后完整复跑）、生产接线层（k3s 镜像 tag = HEAD、治理守卫有效性、网关 200/200/200/200/401）均达标，本轮修复已进入运行态且无回归。仅剩两类非阻塞事项：① 仓库 `deploy/k8s/generated/06-deployments.yaml`（其它会话在途）仍写 `83bd0973` 且 `mongo.replicas=1`，须由其所属会话同步；② N-8 / N-10 / N-14 / F-12 与 15 项环境类保留项，须在发布说明标注。
 
 ---
 
@@ -319,7 +319,7 @@
 
 | 项 | 为什么没修 | 建议动作 |
 |---|---|---|
-| **运行态不含本轮修复** | 重建 7 个业务镜像 + k3s 部署耗时约 10 分钟且改动生产栈；用户本轮只要求审计 / 修复 / 回归 / 提交，未要求发布 | **请用户决定**：① 按 `scripts/k3s-rebuild-deploy.sh` 重建并部署，再补一轮 A1/A2/A4/A6；或 ② 明确接受「运行态 `83bd0973` + 源码级修复回归」口径并在发布说明标注 |
+| **运行态与清单一致性（部署收口后）** | 已重建镜像并部署、运行态 8/8 tag = `e883aab5`；但仓库 `deploy/k8s/generated/06-deployments.yaml` 属其它会话在途改动，仍是 `83bd0973` + `mongo.replicas=1` | **待该会话同步**：把 tag 改为 `e883aab5`、`mongo.replicas` 改回 `0`；在此之前勿直接 apply 仓库清单，否则会回退 tag 并误启内部 Mongo。部署实际用的是临时清单 `/tmp/06-deployments.e883aab5.yaml`，回滚清单 `/tmp/06-deployments.rollback-83bd0973.yaml` |
 | **N-10 OTel 插桩** | 离线 bundle 无 instrumentation wheel，补依赖需下载 + 改 requirements + 重建镜像，超出最小改动边界；本轮日志未复现降级 | 单独排期，当前不阻断 |
 | **N-14 历史存档断链** | `docs/WORK_LOG.md` 自 2026-10-17 停更、仅作历史存档，按 AGENTS.md 规约不动 | 保持原样，报告已登记 |
 | **N-8 CHANGELOG 收归** | v0.2.7 已发布，本轮未发版；把未发布内容写进已发布节不合口径 | 下次发版时按发布流程收归入新 `## vX.Y.Z` 节 |
@@ -328,4 +328,42 @@
 
 ---
 
-*审计数据落点：`/tmp/qa-d1d3-20261111.log`（54 特性重扫）、`/tmp/qa-regress-20261111-R{1,2,3}.log`（三轮 A1–A7）、`/tmp/qa-R{1,2,3}-*.out`（逐步原始输出）、`docs/regression-arm-kiri-2026-11-11.md`（多轮回归明细）。*
+## 12. 发布收口记录（2026-11-11 11:14–11:38）
+
+用户要求执行「重建 7 个业务镜像 → 部署 → 补一轮 A1/A2/A4/A6」。全部完成，逐条勾如下。
+
+### 12.1 构建链故障与绕行（如实记录）
+
+- [ ] **原标准入口 `./mogo build` 不可用**：kiri 的 `kiri-bk2`（docker-container driver）依赖 `mogo-local-reg:5000` mirror 解析 `FROM` 的 manifest；该 registry **容器与镜像均已不存在**（kiri 全部 context / `kiri raw images` / k3s containerd / VM 进程均未找到，只剩 `mogo-local-reg:5000/pause:3.10.2` 这个历史推送 tag），公网与国内镜像源均不可达。gateway 探针报 `dial tcp 172.21.0.5:5000: no route to host`；去掉 mirror 后改报 `registry-1.docker.io i/o timeout`。
+- [x] **绕行方案**：改用 **daemon 内置 builder**（`DOCKER_BUILDKIT=0 docker --context kiri build`），它直接读 kiri daemon 的本地基础镜像，不解析 registry manifest。构建参数从 `docker compose -f docker-compose.yml -f docker-compose.build.yml config --format json` 解析（context / dockerfile / 全部 build args），逐镜像手工传入，未改任何 Dockerfile 或 compose 文件。
+- [x] 构建前把 `kiri-bk2` 的 `/etc/buildkit/buildkitd.toml` 临时改为无 mirror 做验证，**收尾已还原原配置**（备份 `/tmp/buildkitd.toml.bak-20261111`）；`buildx prune -a -f --builder kiri-bk2` 回收 22.71 GiB 缓存，磁盘从 6.7 GiB 回升到 28.7 GiB。
+- [ ] **后续建议**：恢复 `mogo-local-reg` 容器后再用标准 `./mogo build`；本绕行路径可复用（脚本 `/tmp/qa_rebuild_20261111.sh`）。
+
+### 12.2 镜像重建与导入（逐条勾）
+
+- [x] 7 个业务镜像全部重建，tag `e883aab5`，耗时 8m29s：`gateway` 8.9MB、`admin-web` 12.8MB、`user-web` 13MB、`admin-api` 101MB、`dsh-runtime-host` 284MB、`chat-api` 1.12GB、`document-parser` 1.66GB。
+- [x] `export` / `scp` / `import` 三步 rc 全为 0（`IMAGE_TAG=e883aab5 scripts/k3s-rebuild-deploy.sh {export,scp,import}`）；containerd 中 7 个 `e883aab5` 镜像齐全，旧 `83bd0973` 保留作回滚。
+
+### 12.3 部署与运行态验收（逐条勾）
+
+- [x] **未使用脚本的 `apply` 步骤**（它会 sed 改其它会话在途的 `06-deployments.yaml`，且其 `mongo.replicas=1` 会误启内部 Mongo、还会重复 apply secrets）。改用临时清单 `/tmp/06-deployments.e883aab5.yaml`：8 处 tag → `e883aab5`，`mongo.replicas=0`；`kubectl apply --dry-run=client` 预检通过（8 个业务 Deployment configured、mongo/redis/weaviate unchanged）。
+- [x] 8 个 Deployment 全部 `successfully rolled out`；10 个 Pod Running；`HEAD=e883aab5`，8/8 业务镜像 tag = HEAD，`tag_mismatch=0`；`mongo.replicas=0` 保持；relay Up。
+- [x] 网关 `200 / 200 / 200 / 200 / 401`（`/`、`/admin/setup`、`/admin-api/health`、`setup/status`、`auth/me`）。
+- [x] **修复真正进入运行态**：在运行中的 `admin-api` Pod 内导入 `TENANT_SCOPED_COLLECTIONS`，实测 95 项，050–053 的 7 个新集合 `missing=[]`、`all_present=True`。
+- [x] 回滚清单已备：`/tmp/06-deployments.rollback-83bd0973.yaml`（tag 回 `83bd0973`，mongo 保持 0）。
+
+### 12.4 部署后补跑 A1/A2/A4/A6（逐条勾）
+
+- [ ] **首轮 POSTDEPLOY 的载体疏漏（已修正，不掩盖）**：精简回归脚本漏了原脚本的 `-e MOGO_E2E_MONGO_URI`，导致 `test_orchestration_canvas_mongo_e2e.py` 的 3 个用例被 skip，chat 变成 `3375 passed / 4 skipped`。补齐环境变量后**完整重跑 POSTDEPLOY2**，与 R3 计数完全一致。
+- [x] **POSTDEPLOY2 最终结果**：A1（pods / images / http / k3s / drift / verify）rc 符合预期（`drift` / `verify` 为预期 rc=2 SKIP），`tag_mismatch=0`；A2 `63 pass / 0 fail`；A4 `339 passed / 9 skipped`；A6 admin `1638 passed / 1 skipped`、chat `3378 passed / 1 skipped`、doc `72 passed / 6 skipped`，合计 **5088 passed / 8 skipped / 0 failed**，与 R2/R3 **逐服务零偏差**。
+- [x] 日志：`/tmp/qa-postdeploy-POSTDEPLOY2.log`、`/tmp/qa-POSTDEPLOY2-*.out`；脚本 `/tmp/qa_regress_postdeploy_20261111.sh`。精简回归不含 A5，未再写生产库。
+
+### 12.5 剩余非阻塞事项
+
+- [ ] 仓库 `deploy/k8s/generated/06-deployments.yaml`（其它会话在途）仍是 `83bd0973` + `mongo.replicas=1`，与运行态不一致；须由该会话同步，**在此之前勿直接 apply 仓库清单**（会回退 tag 并误启内部 Mongo）。
+- [ ] 本 §12 及 §0/§1.3/§7.2/§10/§11 的口径更新为**工作区未提交改动**，如需入库须另行提交。
+- [ ] N-8 / N-10 / N-14 / F-12 与 15 项环境类保留项，发布说明仍需标注。
+
+---
+
+*审计数据落点：`/tmp/qa-d1d3-20261111.log`（54 特性重扫）、`/tmp/qa-regress-20261111-R{1,2,3}.log`（三轮 A1–A7）、`/tmp/qa-R{1,2,3}-*.out`（逐步原始输出）、`docs/regression-arm-kiri-2026-11-11.md`（多轮回归明细）、`/tmp/qa-postdeploy-POSTDEPLOY2.log`（部署后回归）。*

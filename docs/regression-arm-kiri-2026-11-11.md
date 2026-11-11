@@ -2,7 +2,7 @@
 
 - **所属审计**：`deliverables/QA-AUDIT-STANDARD-2026-11-11.md`（standard 深度全量 QA 审计）
 - **权威环境**：`docker context show = kiri`；生产栈 = **k3s**（10 Pod Running），数据后端 = **ServeBay Mongo**（`host.docker.internal:27017` / `mogo_dev`，已归一「只认 32-hex」）
-- **运行镜像 / HEAD（审计时点）**：`83bd0973`（8 个业务 Deployment 全部一致，`tag_mismatch=0`）。审计收尾后 QA 修复单独提交使 HEAD 前进，k3s 镜像仍是 `83bd0973`；该「tag ≠ HEAD」是**修复未部署**的预期状态，不是镜像漂移，发布前重建镜像即恢复一致。
+- **运行镜像 / HEAD**：审计时点为 `83bd0973`；修复提交 `e883aab5` 后镜像 tag 曾短暂落后，属「修复未部署」的预期状态，**不是镜像漂移**。**2026-11-11 11:23–11:32 部署收口后已恢复一致**：8 个业务镜像 tag 全为 `e883aab5` = HEAD，`tag_mismatch=0`（见 §9）。
 - **轮次设计**：R1 修前基线 / 载体校准 / 缺陷发现 → R2 修复后全量复验 → R3 稳定性 / 幂等复跑
 - **隔离测试库**：`mogo_regtest_20261111`（三轮复用同一库，专测自清理与幂等）
 - **逐条勾说明**：每项带 `[ ]`，reviewer 可逐项勾选；未验证项一律留空并写明原因。
@@ -176,7 +176,7 @@ A7 `verify` 的生产库 `mogo_dev` 文档数三轮递增，R2/R3 并非「零�
 - [x] **k3s 运行态稳定**：三轮 10 Pod Running、8/8 镜像 tag = HEAD、网关 5 个探测全部符合预期、内部 mongo 保持 0 副本。
 - [x] **32-hex 终态稳定**：三轮 `objectid_ids=0 / hex24_ids=0 / residual_hex24_values=0 / event_docs=0`，集合结构 155 live + 155 backup 不变。
 - [x] **差异已全部归因**：R2↔R3 的 4 处输出差异 = ① Pod AGE 时间戳（54m→61m）；② A4 pytest 耗时（38.60s→33.47s）；③ A5 parity 的 `created_at` 与 `audit n=2→3`（隔离库累积审计，测试断言为可读写而非精确计数，不属失败）；④ 生产库 `docs 3947→3961`（§6 已归因）。**无一项是产品回归或未解释漂移。**
-- [ ] **运行态不含本轮修复**：k3s Pod 仍跑修复前构建的 `83bd0973`；A6 通过 workspace 同路径挂载覆盖的是**源码**，不是运行镜像。本轮修复已单独提交并推送 `mogo/main`（非发版），发布前仍须「重建镜像 → 部署 → 补一轮 A1/A2/A4/A6」。
+- [x] **运行态已包含本轮修复**：7 个业务镜像重建为 `e883aab5` 并部署到 k3s，8/8 tag = HEAD；运行中的 admin-api Pod 内 `TENANT_SCOPED_COLLECTIONS` 实测 95 项、050–053 的 7 个新集合全部在场。部署后 A1/A2/A4/A6 完整复跑且与 R2/R3 计数零偏差，见 §9。
 
 ---
 
@@ -191,7 +191,40 @@ A7 `verify` 的生产库 `mogo_dev` 文档数三轮递增，R2/R3 并非「零�
 | k3s 镜像 tag 快照 | `/tmp/qa-R{1,2,3}-k3s-images.txt`（R1 无此步） |
 | D1–D3 54 特性重扫 | `/tmp/qa-d1d3-20261111.log` / `.json` |
 | 主审计报告 | `deliverables/QA-AUDIT-STANDARD-2026-11-11.md` |
+| 部署后回归日志 / 原始输出 | `/tmp/qa-postdeploy-POSTDEPLOY2.log`、`/tmp/qa-POSTDEPLOY2-*.out` |
+| 部署后回归脚本（A1/A2/A4/A6 精简版） | `/tmp/qa_regress_postdeploy_20261111.sh` |
+| 镜像重建脚本 / 日志 | `/tmp/qa_rebuild_20261111.sh`、`/tmp/qa-rebuild-20261111.log` |
+| 部署临时清单 / 回滚清单 | `/tmp/06-deployments.e883aab5.yaml`、`/tmp/06-deployments.rollback-83bd0973.yaml` |
 
 ---
 
-*本明细与 `standard` 深度主报告配套；所有数字来自三轮实跑原始输出，未沿用 11-06 / 11-09 旧口径。*
+## 9. 部署后补跑（POSTDEPLOY / POSTDEPLOY2 · 2026-11-11 11:26–11:38）
+
+发布收口：重建 7 个业务镜像 `e883aab5` → 导入 k3s containerd → 部署 8 个 Deployment → 补跑 A1/A2/A4/A6。构建链细节见主报告 §12，本节只记回归。
+
+### 9.1 载体疏漏与修正（不掩盖）
+
+- [ ] **POSTDEPLOY 首轮**：精简回归脚本漏了原脚本 A6_chat 的 `-e MOGO_E2E_MONGO_URI`，`test_orchestration_canvas_mongo_e2e.py` 的 3 个用例因容器内 `127.0.0.1:27017` 不可达被 skip，chat 变成 `3375 passed / 4 skipped`（总收集数不变）。这是**回归载体疏漏，不是产品回归**。
+- [x] 补齐 `-e MOGO_E2E_MONGO_URI=${MONGO}` 后**完整重跑 POSTDEPLOY2**，chat 恢复 `3378 passed / 1 skipped`。脚本已修正，可复现。
+
+### 9.2 POSTDEPLOY2 最终结果（逐条勾）
+
+| 步骤 | 结果 | 与 R3 对比 |
+|---|---|---|
+| A1_pods / images / http | 10 Pod Running；8/8 tag `e883aab5`；`200/200/200/200/401` | 一致（tag 换为新 HEAD） |
+| A1_k3s | `HEAD=e883aab5`，`tag_mismatch=0`，rc=0 | 一致 |
+| A1_drift / A1_verify | rc=2（预期 SKIP，输出提示改用 kubectl） | 一致 |
+| A2_baseline | `63 pass / 0 fail` | 一致 |
+| A4_deploy_tests | `339 passed / 9 skipped` | 一致 |
+| A6_admin | `1638 passed / 1 skipped` | 一致 |
+| A6_chat | `3378 passed / 1 skipped` | 一致 |
+| A6_doc | `72 passed / 6 skipped` | 一致 |
+| **A6 合计** | **5088 passed / 8 skipped / 0 failed** | **逐服务零偏差** |
+
+- [x] 部署后回归**只跑 A1/A2/A4/A6**，不含 A5，未再写生产库（§6 的 `docs 3961` 不因本轮变化）。
+- [x] 运行态修复落地：admin-api Pod 内 `TENANT_SCOPED_COLLECTIONS` 95 项，050–053 的 7 个集合 `missing=[]`。
+- [ ] 仓库 `deploy/k8s/generated/06-deployments.yaml`（其它会话在途）仍为 `83bd0973` + `mongo.replicas=1`，与运行态不一致；须由其所属会话同步，**同步前勿直接 apply 仓库清单**。
+
+---
+
+*本明细与 `standard` 深度主报告配套；所有数字来自实跑原始输出，未沿用 11-06 / 11-09 旧口径。§9 为部署收口后追加，POSTDEPLOY 首轮的载体疏漏已如实登记并复跑闭合。*
