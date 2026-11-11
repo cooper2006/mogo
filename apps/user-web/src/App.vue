@@ -760,10 +760,15 @@ function sessionLastActiveAt(session: SessionSummary): string {
   return session.last_message_at || session.updated_at || session.created_at || ''
 }
 
-/** 相对时间显示（对应 DSH 参考「21小时」样式）：刚刚 / N 分钟前 / N 小时前 / N 天前 / 月日。 */
+/** 相对时间显示（对应 DSH 参考「21小时」样式）：刚刚 / N 分钟前 / N 小时前 / N 天前 / 月日。
+ * 后端（mongo 存 naive UTC）可能返回无时区后缀的 ISO 字符串；若直接 new Date(str) 会被
+ * 浏览器按本地时区解析，造成 8 小时偏差（UTC+8 用户看到"8 小时前"而非"几分钟前"）。
+ * 这里检测 naive ISO 并显式补 Z，确保按 UTC 解析后再转本地。 */
 function formatRelativeTime(iso?: string | null): string {
   if (!iso) return ''
-  const then = new Date(iso).getTime()
+  // naive ISO（无 Z 且末尾无 ±HH:MM 偏移）补 Z，按 UTC 解析
+  const normalized = /Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z'
+  const then = new Date(normalized).getTime()
   if (Number.isNaN(then)) return ''
   const diffMinutes = Math.floor((Date.now() - then) / 60000)
   if (diffMinutes < 1) return '刚刚'
@@ -772,7 +777,7 @@ function formatRelativeTime(iso?: string | null): string {
   if (hours < 24) return `${hours} 小时前`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days} 天前`
-  return new Date(iso).toLocaleDateString(locale.value === 'en' ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric' })
+  return new Date(normalized).toLocaleDateString(locale.value === 'en' ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric' })
 }
 
 function currentProjectIdentity(): string {
