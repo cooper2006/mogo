@@ -28,7 +28,7 @@ def create_app() -> FastAPI:
         # Keep in sync with the release version recorded in CHANGELOG.md: this
         # is the value published in /openapi.json info.version, i.e. an
         # externally visible contract, not a private cosmetic string.
-        version="0.2.7",
+        version="0.2.8",
         description="Async document preview conversion, parsing, chunking and indexing service for MOGO.",
     )
     # 023 T021：接入 structlog 结构化日志
