@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: gateway
-        image: ghcr.io/mogoai/gateway:c3d39a34
+        image: ghcr.io/mogoai/gateway:v0.2.8
         ports:
         - containerPort: 80
           hostPort: 3000
@@ -88,7 +88,7 @@ spec:
     spec:
       containers:
       - name: admin-api
-        image: ghcr.io/mogoai/admin-api:c3d39a34
+        image: ghcr.io/mogoai/admin-api:v0.2.8
         ports:
         - containerPort: 8100
           protocol: TCP
@@ -153,7 +153,7 @@ spec:
     spec:
       containers:
       - name: admin-web
-        image: ghcr.io/mogoai/admin-web:c3d39a34
+        image: ghcr.io/mogoai/admin-web:v0.2.8
         ports:
         - containerPort: 80
           protocol: TCP
@@ -197,7 +197,7 @@ spec:
     spec:
       containers:
       - name: chat-api
-        image: ghcr.io/mogoai/chat-api:c3d39a34
+        image: ghcr.io/mogoai/chat-api:v0.2.8
         ports:
         - containerPort: 8000
           protocol: TCP
@@ -262,7 +262,7 @@ spec:
     spec:
       containers:
       - name: user-web
-        image: ghcr.io/mogoai/user-web:c3d39a34
+        image: ghcr.io/mogoai/user-web:v0.2.8
         ports:
         - containerPort: 80
           protocol: TCP
@@ -306,7 +306,7 @@ spec:
     spec:
       containers:
       - name: dsh-runtime-host
-        image: ghcr.io/mogoai/dsh-runtime-host:c3d39a34
+        image: ghcr.io/mogoai/dsh-runtime-host:v0.2.8
         ports:
         - containerPort: 3080
           protocol: TCP
@@ -372,7 +372,7 @@ spec:
     spec:
       containers:
       - name: document-api
-        image: ghcr.io/mogoai/document-parser:c3d39a34
+        image: ghcr.io/mogoai/document-parser:v0.2.8
         args:
         - api
         ports:
@@ -434,7 +434,7 @@ spec:
     spec:
       containers:
       - name: document-worker
-        image: ghcr.io/mogoai/document-parser:c3d39a34
+        image: ghcr.io/mogoai/document-parser:v0.2.8
         args:
         - worker
         envFrom:
@@ -483,7 +483,7 @@ metadata:
   name: mongo
   namespace: mogo
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:

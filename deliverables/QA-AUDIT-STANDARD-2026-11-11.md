@@ -311,7 +311,7 @@
 - [ ] **N-8 CHANGELOG 收归**、**N-10 OTel**、**N-14 历史断链** 三项 P3、**F-12 A5_smoke 仍写生产库** 一项 P3，与 15 项环境类保留，须在发布说明如实标注
 - [ ] 054 落地后须重扫 specs 计数与 tasks 勾选数
 
-**结论**：在 `standard` 深度下，**代码冻结与 PR 评审可进入，版本发布的技术收口已完成**——文档层、代码层、测试层（kiri 审计三轮 + 部署后完整复跑）、生产接线层（k3s 镜像 tag = HEAD、治理守卫有效性、网关 200/200/200/200/401）均达标，本轮修复已进入运行态且无回归。仅剩两类非阻塞事项：① 仓库 `deploy/k8s/generated/06-deployments.yaml`（其它会话在途）仍写 `83bd0973` 且 `mongo.replicas=1`，须由其所属会话同步；② N-8 / N-10 / N-14 / F-12 与 15 项环境类保留项，须在发布说明标注。
+**结论**：在 `standard` 深度下，**代码冻结与 PR 评审可进入，版本发布的技术收口已完成**——文档层、代码层、测试层（kiri 审计三轮 + 部署后完整复跑）、生产接线层（k3s 镜像 tag = HEAD、治理守卫有效性、网关 200/200/200/200/401）均达标，本轮修复已进入运行态且无回归。仅剩一类非阻塞事项：② N-8 / N-10 / N-14 / F-12 与 15 项环境类保留项，须在发布说明标注。原 ①（仓库 `deploy/k8s/generated/06-deployments.yaml` 清单与运行态一致性）已于 2026-11-11 由 v0.2.8 发布收口会话同步：全部 7 业务镜像 tag 改为 `v0.2.8`、`mongo.replicas` 改回 `0`，与运行态一致，已提交推送 `mogo/main`；apply 仓库清单不再回退 tag 或误启内部 Mongo。
 
 ---
 
@@ -319,7 +319,7 @@
 
 | 项 | 为什么没修 | 建议动作 |
 |---|---|---|
-| **运行态与清单一致性（部署收口后）** | 已重建镜像并部署、运行态 8/8 tag = `e883aab5`；但仓库 `deploy/k8s/generated/06-deployments.yaml` 属其它会话在途改动，仍是 `83bd0973` + `mongo.replicas=1` | **待该会话同步**：把 tag 改为 `e883aab5`、`mongo.replicas` 改回 `0`；在此之前勿直接 apply 仓库清单，否则会回退 tag 并误启内部 Mongo。部署实际用的是临时清单 `/tmp/06-deployments.e883aab5.yaml`，回滚清单 `/tmp/06-deployments.rollback-83bd0973.yaml` |
+| **运行态与清单一致性（部署收口后）** | v0.2.8 发布后运行态 7 业务镜像全部为 `v0.2.8`、`mongo` 0 副本；此前仓库 `deploy/k8s/generated/06-deployments.yaml` 属其它会话在途改动，写 `83bd0973` + `mongo.replicas=1` | **已于 2026-11-11 解决**：v0.2.8 发布收口会话将 06-deployments.yaml 全部 7 业务镜像 tag 改为 `v0.2.8`、`mongo.replicas` 改回 `0`，与运行态一致，已提交推送 `mogo/main`；apply 仓库清单不再回退 tag 或误启内部 Mongo |
 | **N-10 OTel 插桩** | 离线 bundle 无 instrumentation wheel，补依赖需下载 + 改 requirements + 重建镜像，超出最小改动边界；本轮日志未复现降级 | 单独排期，当前不阻断 |
 | **N-14 历史存档断链** | `docs/WORK_LOG.md` 自 2026-10-17 停更、仅作历史存档，按 AGENTS.md 规约不动 | 保持原样，报告已登记 |
 | **N-8 CHANGELOG 收归** | v0.2.7 已发布，本轮未发版；把未发布内容写进已发布节不合口径 | 下次发版时按发布流程收归入新 `## vX.Y.Z` 节 |
