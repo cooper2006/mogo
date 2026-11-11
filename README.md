@@ -79,7 +79,7 @@ The `.specify/` and `specs/` directories carry that contract:
   scripts/bash/           #   create-new-feature, setup-plan and friends
   workflows/speckit/      #   workflow registry
 
-specs/                    # 49 feature specifications (001–049), each with a complete chain
+specs/                    # 54 feature specifications (001–053, 055; 054 in progress), each with a complete chain
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -103,7 +103,7 @@ specs/                    # 49 feature specifications (001–049), each with a c
   INDEX.md                # specification index
 ```
 
-Each of the 49 feature directories holds `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Six of them (001, 007, 008, 009, 020) additionally carry a `contracts/` directory.
+All 54 feature directories hold `spec.md` (requirements and acceptance), `plan.md` (technical approach) and `tasks.md` (the executable breakdown); all carry `checklists/requirements.md` (quality checklist) and `quickstart.md`. Eight of them (001, 007, 008, 009, 010, 020, 025, 026) additionally carry a `contracts/` directory.
 
 They fall into seven groups:
 
@@ -118,7 +118,7 @@ They fall into seven groups:
 
 Interface contracts live in two places: the 6 T998 contracts in the top-level [`contracts/`](contracts/) (`orchestration`, `self-evolution`, `session-versioning-contract`, `harness-config`, `a2a-gateway`, `memory-context-contract`), plus 8 per-feature `contracts/` directories inside `specs/` ([`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md), [`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md), [`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md), [`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md), [`010/contracts/orchestration.md`](specs/010-dag-orchestration-engine/contracts/orchestration.md), [`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md), [`025/contracts/`](specs/025-api-contract-hardening/contracts/) — yaml contracts + validation rules, [`026/contracts/performance.md`](specs/026-performance-scalability/contracts/performance.md)).
 
-[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 49 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027), the user-web / data-permission / model-discover experience set (028–031), the AgentOS integration batch (032–044), the asset-center hub (045), the dimension-convergence batch (046–048) and the project-members convergence (049), and records the clarify decisions behind each threshold.
+[`specs/INDEX.md`](specs/INDEX.md) is the authoritative inventory: it groups the 54 features into retrospective (003–006), gap-closing (001/002/007–019 and 021), newly-added platform scope (020), the quality-hardening set (022–026), the data-backend migration (027), the user-web / data-permission / model-discover experience set (028–031), the AgentOS integration batch (032–044), the asset-center hub (045), the dimension-convergence batch (046–048), the project-members convergence (049), the StaffDeck integration batch (050–053) and menu management (055; 054 is in progress and not yet on disk), and records the clarify decisions behind each threshold.
 
 The payoff is that every enterprise capability has a documented requirement source, acceptance criteria and test evidence. The mapping from specifications to UI touch points is recorded in [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md).
 
@@ -617,7 +617,7 @@ See [docs/docker-deployment.md](docs/docker-deployment.md) for details.
 
 | Path | Component |
 | --- | --- |
-| `specs/` | spec-kit SDD specification assets (49 features, plus `INDEX.md`) |
+| `specs/` | spec-kit SDD specification assets (54 features, plus `INDEX.md`) |
 | `contracts/` | the 6 T998 interface contracts (orchestration, self-evolution, session versioning, harness config, A2A gateway, memory-context) |
 | `.specify/` | spec-kit workflows, templates and project constitution |
 | `apps/user-web/` | Vue 3 user workspace |

@@ -99,8 +99,11 @@ for svc in target_services:
         problems.append(f"{svc}: 镜像不一致 预期={expected} 实测={actual_img}")
 
 if output_json:
-    print(json.dumps({"source": source, "checked": checked,
-                      "problems": problems, "notes": notes}, ensure_ascii=False, indent=2))
+    print(json.dumps({"source": source, "status": "skipped" if checked == 0 else "checked",
+                      "checked": checked, "problems": problems,
+                      "notes": notes}, ensure_ascii=False, indent=2))
+    if checked == 0:
+        sys.exit(2)
 else:
     print(f"verify-artifact: 比对 {checked} 个服务（依据 {source}）")
     for n in notes:
@@ -110,6 +113,11 @@ else:
     if problems:
         print(f"verify-artifact: FAIL — {len(problems)} 处不一致（建议 drift-check.sh 复核运行态漂移）")
         sys.exit(1)
+    if checked == 0:
+        print("verify-artifact: SKIP — 未发现任何运行中的 compose 服务，本次未执行比对")
+        print("  当前生产栈若由 k3s 承载，请用 kubectl 核对镜像 tag 与源码 HEAD；"
+              "本工具只覆盖 compose 运行态，不报 OK 以免误导发布门禁")
+        sys.exit(2)
     print("verify-artifact: OK — 运行镜像与预期产物一致")
 PY
 exit $?

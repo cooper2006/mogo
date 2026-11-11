@@ -7,7 +7,11 @@ import pytest
 from app.im_gateway.audit import IM_AUDIT_EVENTS, im_audit_document, record_im_event
 from app.services.feature_audit import FEATURE_AUDIT_EVENTS, audit_document, record_feature_event
 def test_im_audit_events():
-    assert set(IM_AUDIT_EVENTS) == {"im.enter", "im.leave", "im.deliver", "im.fail"}
+    # 051 digital-employee-profile 新增「IM 通道按员工路由」事件；审计枚举随
+    # 特性扩展，此断言同步更新，避免新增合法事件被陈旧白名单误杀。
+    assert set(IM_AUDIT_EVENTS) == {
+        "im.enter", "im.leave", "im.deliver", "im.fail", "im.employee.route",
+    }
     captured: list[dict] = []
 
     def fake_sink(**kwargs):

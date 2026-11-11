@@ -226,7 +226,7 @@ mogo_apply_profile() {
   if [[ "${pin_platform}" != "false" ]]; then
     mogo_profile_configure_platform "${profile}" || return $?
   fi
-  if [[ "${announce}" != "false" ]]; then
+  if [[ "${announce}" != "false" && "${MOGO_SUPPRESS_PROFILE_BANNER:-}" != "1" ]]; then
     mogo_msg profile_selected "${profile}" "$(mogo_profile_backend_label "${profile}")"
   fi
 }

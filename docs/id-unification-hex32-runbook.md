@@ -1,6 +1,6 @@
 # 主键统一 32-hex：阶段 2 执行手册（停机窗口）
 
-> 状态：**方案已定，待窗口执行**。
+> 状态：**已于 2026-11-11 停机窗口执行完成**（代码提交 `83bd0973`，k3s 镜像 tag 同）。
 > 决策（2026-11-10）：做阶段 2；事件流两集合**截断重建**；终态**只认 32-hex**；提供停机窗口。
 > 相关资产：`scripts/migrate_ids_to_hex32.py`、`app/core/ids.py`、`app/core/hex32_db.py`、
 > `app/core/db.py`（三服务）、`app/core/pg_compat.py`（三服务）。
@@ -264,10 +264,36 @@ PY
 
 ---
 
-## 8. 本次交付边界
+## 8. 执行记录（2026-11-11，UTC+8）
 
-已完成：全库只读扫描、迁移脚本、临时库全流程演练、代码终态改造、写入门面
-真实驱动烟测、定向与全量回归测试、本手册。
+代码改动已提交并推送到 `mogo/main`（`83bd0973 refactor(ids): 统一实体 ID 为 32-hex 字符串（阶段 2）`）。
 
-**尚未执行**：正式库 `mogo_dev` 的 `apply`（需停机窗口）、业务镜像重建与 k3s 部署。
-代码改动目前仅在工作区，未提交 / 推送。
+| 时刻 | 动作 | 结果 |
+|---|---|---|
+| 08:50–08:58 | 预窗口：离线串行构建 7 个业务镜像 `83bd0973`，export → scp → 导入 k3s containerd | 7m49s，7/7 成功；服务仍在线（旧 tag `e5a5f447`） |
+| 09:02 | T0：8 个业务 Deployment scale 0 | 16s 内业务 Pod 全部退出，仅剩 redis / weaviate |
+| 09:02 | `plan` | 155 集合 / 140,707 文档；映射 2,731、ids 2,479、refs 7,802、事件流丢弃 136,802、兜底 0；备份 473 MB |
+| 09:02 | `apply --confirm-stopped` + 独立 `verify` | 12.24s；双 PASS：`objectid_ids=0, hex24_ids=0, hex32_ids=3591, natural_key_ids=314, residual_hex24_values=0, event_docs=0` |
+| 09:04 | `kubectl apply` 新清单（临时清单把 `mongo.replicas` 保持 0） | 8 个 rollout 23s 全部成功，全部切到 `83bd0973` |
+| 09:05–09:12 | 验收 | 见下 |
+
+**数据层验收**：155 个集合索引与 `manifest.json` 逐一比对，缺失 0；`end_users` / `chat_sessions` / `admin_accounts` / `admin_model_instances` 抽查全为 32-hex 字符串（`org_units` 中 9 个为白名单自然键）；事件流两集合 0 文档且索引已恢复；`chat_sessions.user_id → end_users._id` 的 8 个未命中在迁移前后完全一致（24-hex → 32-hex 对应），属既有数据状态。
+
+**代码/服务层验收**：新镜像内 `is_valid_backend_id(32hex)=True` / `(24hex)=False`、`to_backend_id_strict(24hex)` 抛 `ValueError`、`new_backend_id()` 输出 32-hex；`_validate_departments()` 对真实 32-hex 部门 ID 不再抛 400（原 400 根因消除）；`get_db()` 门面在 `insert_one` / `insert_many` / `bulk_write` / `update_one(upsert)` 四条路径全部注入 32-hex（6/6 文档）；真实登录失败请求触发 `admin_login_challenges` / `admin_sessions` 新文档，均为 32-hex；8 个 Deployment 全 Ready；`localhost:3000/admin/setup` 与 `/admin-api/health` 均 200；近 3 分钟 admin-api / chat-api / document-api 日志无 `InvalidId` / `illegal id` / Traceback / 5xx。
+
+**窗口期插曲**：`mogo-gateway-relay` 容器在部署期间消失（不是退出，是容器被删），host 3000 一度 502。按 `deploy/k8s/relay/nginx-stream.conf` 重建（create → cp 配置 → start，接入 `mogo-build-net`）后恢复 200。与 ID 迁移无关。kiri 上 5 个 dev 容器（`mogo-chat-api-1` / `admin-api-1` / `user-web-1` / `mongo-1` / `redis-1`）已 `docker stop`（未删，可恢复）；它们连独立 `mongo:27017`，不是本次迁移的库。
+
+**备份与回滚（观察 1 天后再清理）**：
+
+```
+备份目录   backups/id-hex32-20261111T0102Z/   （473 MB，BSON 快照 + manifest + id_map）
+库内备份   155 个集合，后缀 __hex32_bak_20261111T010214Z
+旧清单     /tmp/06-deployments.before-hex32.yaml   （tag e5a5f447）
+数据回滚   python3 scripts/migrate_ids_to_hex32.py --db mogo_dev \
+             --out backups/id-hex32-20261111T0102Z --confirm-stopped rollback
+镜像回滚   kubectl apply -f /tmp/06-deployments.before-hex32.yaml（代码与数据必须一起回退）
+```
+
+**仍需人工/业务触发的验收项**：浏览器真实登录态下「编辑用户并保存」的完整 PUT 200；登录 → 新建会话 → 发消息 → 文档上传全链路；事件流新文档 `_id`（当前两集合仍为 0，未产生业务事件，`bulk_write` 注入已在真实镜像烟测通过）；恢复流量后 30 分钟观察。
+
+> 注：`deploy/k8s/generated/06-deployments.yaml` 镜像 tag 已改为 `83bd0973`，但仓库清单里 `mongo.replicas` 仍为 1；本次 apply 用的是临时清单把它压到 0，后续若要直接 apply 仓库清单，需先把 mongo 副本数改为 0。

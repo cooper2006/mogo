@@ -48,7 +48,7 @@
 16 条全部达标，均经 `../spec.md` 新增的「判定口径补充（R-1~R-16）」消解：
 
 - CHK001（特征输入契约）→ R-1：`TaskComplexityFeatures` 六字段 + `features_supplied` 标志，`resolve()`/`get_llm_client()` 各新增三个关键字参数（缺省 0/0/0）。
-- CHK002（tiers 标识与 client 路径）→ R-2：取值 = `admin_model_instances._id`（24-hex），`ModelSelection` 新增 `model_config_id`，走 `build_llm_client_from_config`，禁止把 ObjectId 当 `model_name` 下发。
+- CHK002（tiers 标识与 client 路径）→ R-2：取值 = `admin_model_instances._id`（32-hex 字符串，2026-11-11 全库归一后的唯一主键形态），`ModelSelection` 新增 `model_config_id`，走 `build_llm_client_from_config`，禁止把实例 ID 当 `model_name` 下发。
 - CHK003（tenant_id 来源）→ R-3：`output_spec["tenant_id"]` → `["tenantId"]` → `"default"`；`tenants.<tid>.tiers` 未命中回落全局 `tiers`。
 - CHK004（thresholds 段）→ R-4：`tiering.thresholds` 属 040 交付物，常量 `DEFAULT_PROMPT_CHARS_HIGH=4000`/`DEFAULT_TOOL_COUNT_HIGH=8`/`DEFAULT_MULTI_TURN_HIGH=4`，yaml 逐键浅合并覆盖。
 - CHK005（告警可检索）→ R-5：告警 code 闭集 6 个，`log_print` + `log_trace(event="tier_routing_fallback")` 双落，不进 `token_usage_logs`。

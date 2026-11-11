@@ -19,15 +19,33 @@
    提供 ``ASKAI_ADMIN_JWT_SECRET``，才能与运行中的服务同密钥签票；
 2. 业务库可达且存在至少一个 ``status = active`` 的管理员账号。脚本**借用**该
    账号身份签一次性会话（不触碰口令），结束即 ``revoke_session``；
-3. 写路径会真的落库，故对自建的冒烟数据**用完即删**。
+3. 写路径会真的落库：自建的授权 / 明细数据**用完即删**，但按审计合规
+   **保留**的写入不会删除 —— 每轮约 7 条 ``mesc_ontology_perm_audit``、
+   1 条签票会话（``admin_sessions``，已 revoke 但记录留存）、1 条
+   ``sys_config`` 的 enforce 开关变更，以及少量工具 / 网关审计。
+
+**对多轮回归的影响（2026-11-11 standard 深度全量 QA 审计确认）**：本脚本在
+真实 k3s 生产 Pod 内跑 HTTP 端到端，连的是**生产业务库**。重复执行会让生产库
+文档数线性增长（实测 R1→R2 ``3931→3947``、R2→R3 ``3947→3961``，约 +14~16/轮），
+新增文档全部是新生成的 32-hex 主键，``natural_key_ids`` 与事件流不变，
+``objectid_ids`` / ``hex24_ids`` 始终为 0 —— 这是**设计内落库副作用，不是回归漂移，
+也不破坏 ID 归一终态**。若要求生产库零污染，应在隔离库执行本冒烟，或在回归后
+按时间窗评估清理；审计日志不建议直接删除。
 
 **为什么全部塞进一个协程**：``asyncio.run`` 每调一次就新建事件循环，而
 ``app.core.db`` 的异步连接池会绑定首次使用的 loop。分多个 ``asyncio.run``
 会让后续调用在已关闭的 loop 上用池并报错，因此一次性跑完最稳妥。
 
-用法（容器内，把本文件经 stdin 喂给 python）::
+用法（compose 容器内，把本文件经 stdin 喂给 python）::
 
     docker exec -i mogo-admin-api-1 sh -c \\
+      '. /run/askai-secrets/runtime.env; export ASKAI_ADMIN_JWT_SECRET; python -' \\
+      < deploy/tests/test_ontology_permission_smoke.py
+
+用法（k3s 生产栈，``kubectl exec`` 进 Deployment，注意 Pod 名不是 compose 名）::
+
+    docker --context kiri exec -i kiri-k8s kubectl exec -i -n mogo \\
+      deployment/admin-api -- sh -c \\
       '. /run/askai-secrets/runtime.env; export ASKAI_ADMIN_JWT_SECRET; python -' \\
       < deploy/tests/test_ontology_permission_smoke.py
 """

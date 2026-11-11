@@ -6,6 +6,16 @@ image.
 
 ## Unreleased
 
+### QA / 发布就绪
+
+- **standard 深度全量 QA 审计（2026-11-11，覆盖磁盘 54 个特性）**：
+  - 审计产物：`deliverables/QA-AUDIT-STANDARD-2026-11-11.md`（逐条可勾）、`docs/regression-arm-kiri-2026-11-11.md`（kiri 三轮回归明细）。
+  - 全量重扫：54 特性（001–053 + 055；054 在途），五件套修前 49/54 `quickstart.md` → 修后 54/54；`tasks.md` 1681/1696（99.12%），50 份 100% 勾选，4 份部分勾选（017/024/049/051 共余 15 项环境类保留）。
+  - 真实缺陷修复：① `tenant_purge.TENANT_SCOPED_COLLECTIONS` 补齐 050–053 引入的 7 个租户集合（`asset_templates` / `template_clones` / `template_upgrades` / `employees` / `employee_api_keys` / `channel_employee_bindings` / `orchestration_runs`），消除租户删除后跨服务数据残留；② `test_t999_audit_t998_docs.py` 同步 051 新增 `im.employee.route` 审计事件；③ `drift-check.sh` / `verify-artifact.sh` 在 compose 栈停机（生产由 k3s 承载）时不再「比对 0 项报 OK」，改为显式 SKIP + rc=2。
+  - 文档一致性：README 中英 / INDEX / PPT / CHANGELOG 特性数与 tasks 计数由 49（或 53）对齐到磁盘实测 54 / 1696；040 spec + checklist 的 `admin_model_instances._id` 由 24-hex 改为 32-hex 终态口径。
+  - 生产环境：以 **kiri** 为准，运行栈为 k3s（10 Pod，镜像 `83bd0973` = HEAD），数据后端为 ServeBay Mongo；三轮回归 A1–A7 逐项记录。
+- **实体 ID 归一阶段 2 落地（2026-11-11 停机窗口）**：全库主键统一为「只认 32-hex」，事件流两集合截断重建；迁移脚本 `scripts/migrate_ids_to_hex32.py` 与执行手册 `docs/id-unification-hex32-runbook.md` 已入库；`verify` PASS（0 个 ObjectId / 24-hex 残留）。
+
 ### QA
 
 - **standard 深度全量 QA 审计（2026-11-04，覆盖 001–048 共 48 特性）**：

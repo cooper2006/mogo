@@ -39,6 +39,12 @@ if [[ $# -gt 0 ]]; then
         MOGO_PROFILE="${1#*=}"
         shift
         ;;
+      --json)
+        # JSON 输出模式：抑制人读的 profile 诊断行，保证 stdout 是纯 JSON。
+        MOGO_SUPPRESS_PROFILE_BANNER=1
+        profile_args+=("${1}")
+        shift
+        ;;
       *)
         profile_args+=("${1}")
         shift
@@ -48,6 +54,7 @@ if [[ $# -gt 0 ]]; then
   set -- ${profile_args[@]+"${profile_args[@]}"}
 fi
 export MOGO_PROFILE="${MOGO_PROFILE:-}"
+export MOGO_SUPPRESS_PROFILE_BANNER="${MOGO_SUPPRESS_PROFILE_BANNER:-}"
 
 # shellcheck source=deploy/cli/i18n.sh
 source "${ROOT_DIR}/deploy/cli/i18n.sh"

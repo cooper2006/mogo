@@ -11,7 +11,9 @@
 #
 # 用法：
 #   deploy/cli/drift-check.sh [--service NAME]... [--json]
-# 退出码：0 = 无漂移；1 = 发现漂移；2 = 用法/前置错误（docker 不可用）。
+# 退出码：0 = 无漂移；1 = 发现漂移；2 = 用法/前置错误，或**未执行任何比对**。
+# 注意：compose 栈整体停机（例如生产改由 k3s 承载）时不能报 OK，否则守卫
+# 会给出误导性绿灯；此时按 SKIP 处理并以 rc=2 提醒调用方改用 k3s 侧核对。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -185,7 +187,10 @@ for svc in target_services:
         checked += 1
 
 if output_json:
-    print(json.dumps({"checked": checked, "drift": drift}, ensure_ascii=False, indent=2))
+    print(json.dumps({"status": "skipped" if checked == 0 else "checked",
+                      "checked": checked, "drift": drift}, ensure_ascii=False, indent=2))
+    if checked == 0:
+        sys.exit(2)
 else:
     print(f"drift-check: 比对 {checked} 项 / 运行服务 {len(target_services)}")
     for d in drift:
@@ -193,6 +198,11 @@ else:
     if drift:
         print(f"drift-check: FAIL — {len(drift)} 处漂移")
         sys.exit(1)
+    if checked == 0:
+        print("drift-check: SKIP — 未发现任何运行中的 compose 服务，本次未执行比对")
+        print("  当前生产栈若由 k3s 承载，请用 kubectl 核对镜像 tag 与源码 HEAD；"
+              "本工具只覆盖 compose 运行态，不报 OK 以免误导发布门禁")
+        sys.exit(2)
     print("drift-check: OK — 实际环境与 compose 声明一致")
 PY
 exit $?

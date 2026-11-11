@@ -33,9 +33,10 @@ logger = logging.getLogger(__name__)
 #
 # NOTE: this list must cover *both* admin-api and chat-api collections — a
 # tenant's data lives in both services, and purge is executed by admin-api
-# only. Cross-check it against the collection constants used by
+# only. Cross-check it against
 # ``app.services.setup_cleanup.SETUP_SCOPED_COLLECTIONS``
-# (``services/chat-api/app/**``) before adding a collection to either service,
+# (``services/admin-api/app/services/setup_cleanup.py`` — setup 管道实际写入的
+# 集合子集，刻意小于本清单) before adding a collection to either service,
 # otherwise tenant data survives a purge (SC-005).
 TENANT_SCOPED_COLLECTIONS: list[str] = [
     "admin_account_groups",
@@ -168,6 +169,17 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "skill_eval_runs",
     # 041 connector market: install counters per (tenant_id, template_id).
     "connector_installs",
+    # 050–053 StaffDeck 整合批次：四个新特性引入的集合均带标量 ``tenant_id``。
+    # 漏掉会让被删租户的转人工编排记录 / 数字员工档案与 API Key / IM 通道-员工
+    # 绑定 / 广场模板资产残留，并被同 ID 重建的租户读到（与 11-06 F-2 同类）。
+    # 2026-11-11 standard 深度全量 QA 审计由 test_tenant_purge 全树扫描发现。
+    "asset_templates",
+    "template_clones",
+    "template_upgrades",
+    "employees",
+    "employee_api_keys",
+    "channel_employee_bindings",
+    "orchestration_runs",
 ]
 
 # Governance-layer collections partitioned by ``tenant_id`` (= tenant_id).

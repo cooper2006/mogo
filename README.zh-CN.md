@@ -62,7 +62,7 @@
   scripts/bash/           #   create-new-feature、setup-plan 等脚本
   workflows/speckit/      #   工作流注册表
 
-specs/                    # 49 个特性规格（001–049），每个含完整规格链路
+specs/                    # 54 个特性规格（001–053、055；054 在途），每个含完整规格链路
   001-gatekeeper-governance/
   ...
   020-platform-multi-tenancy/
@@ -86,7 +86,7 @@ specs/                    # 49 个特性规格（001–049），每个含完整�
   INDEX.md                # 规格索引
 ```
 
-49 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分），每份均配有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 8 个（001、007、008、009、010、020、025、026）另附 `contracts/` 目录（025 为 yaml 契约与校验规则，其余为 .md 契约）。
+54 个特性目录都包含 `spec.md`（需求与验收）、`plan.md`（技术方案）与 `tasks.md`（可执行任务拆分），每份均配有 `checklists/requirements.md`（质量清单）与 `quickstart.md`。其中 8 个（001、007、008、009、010、020、025、026）另附 `contracts/` 目录（025 为 yaml 契约与校验规则，其余为 .md 契约）。
 
 它们分为七组：
 
@@ -101,7 +101,7 @@ specs/                    # 49 个特性规格（001–049），每个含完整�
 
 接口契约分布在两处：顶层 [`contracts/`](contracts/) 下 6 份 T998 契约（`orchestration`、`self-evolution`、`session-versioning-contract`、`harness-config`、`a2a-gateway`、`memory-context-contract`），加上 `specs/` 内 5 个按特性划分的 `contracts/` 目录（[`001/contracts/gatekeeper.md`](specs/001-gatekeeper-governance/contracts/gatekeeper.md)、[`007/contracts/resilience.md`](specs/007-llm-gateway-resilience/contracts/resilience.md)、[`008/contracts/dashboard.md`](specs/008-ops-dashboard/contracts/dashboard.md)、[`009/contracts/hooks.md`](specs/009-hooks-interception/contracts/hooks.md)、[`020/contracts/tenants.md`](specs/020-platform-multi-tenancy/contracts/tenants.md)）。
 
-[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 49 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）、质量加固（022–026）、数据后端迁移（027）、user-web / 本体权限 / 模型发现体验（028–031）、AgentOS 整合批次（032–044）、资产中心枢纽（045）、口径收敛批次（046–048）与项目成员收口（049），并记录每条阈值的 clarify 决策依据。
+[`specs/INDEX.md`](specs/INDEX.md) 是权威清单：它把 54 个特性分为既有回溯（003–006）、缺口新特性（001/002/007–019 与 021）、新增平台范围（020）、质量加固（022–026）、数据后端迁移（027）、user-web / 本体权限 / 模型发现体验（028–031）、AgentOS 整合批次（032–044）、资产中心枢纽（045）、口径收敛批次（046–048）、项目成员收口（049）、StaffDeck 整合批次（050–053）与菜单管理（055；054 由其它会话在途，磁盘尚未落地），并记录每条阈值的 clarify 决策依据。
 
 这样做的收益是：每一条企业能力都有对应的需求来源、验收标准与测试证据，界面触点与规格的映射关系记录在 [`docs/SDD界面呈现对照表.md`](docs/SDD界面呈现对照表.md)。
 
@@ -559,7 +559,7 @@ PUBLIC_BASE_URL=https://mogo.example.com
 
 | 路径 | 组件 |
 | --- | --- |
-| `specs/` | spec-kit SDD 规格资产（49 个特性 + `INDEX.md`） |
+| `specs/` | spec-kit SDD 规格资产（54 个特性 + `INDEX.md`） |
 | `contracts/` | 6 份 T998 接口契约（编排、自进化、会话版本化、Harness 配置、A2A 网关、memory-context） |
 | `.specify/` | spec-kit 工作流、模板与项目宪法 |
 | `apps/user-web/` | Vue 3 用户工作台 |
