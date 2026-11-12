@@ -392,6 +392,13 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { hideInMenu: true },
       },
       {
+        // 056: 统一审批中心（tool/portal/sop 三来源待办聚合视图）
+        path: '/approvals-center',
+        name: 'ApprovalCenter',
+        component: () => import('@/views/approvals/ApprovalCenterPage.vue'),
+        meta: { title: '审批中心', icon: SystemAuditIcon },
+      },
+      {
         path: '/settings',
         name: 'Settings',
         component: () => import('@/views/settings/ExternalSearchSettingsPage.vue'),

@@ -26,6 +26,8 @@
 >
 > **2026-11-10 补充（055 菜单管理）**：新增 `specs/055-menu-management/`（spec / plan / tasks / checklist 四件套，tasks 25/25 全勾）。**代码同轮落地**：admin-api `app/menu_settings/` + `GET|PUT|DELETE /api/v1/settings/menus`（租户级覆盖层）、admin-web `menuCatalog.ts` / `menuConfig.ts` / `useMenuOptions.ts` / `views/settings/MenuManagePage.vue`；入口挂在「权限中心」下。验收：admin-api 新增 27 项单测全通过、前端 `vue-tsc` + `vite build` 通过、路由/合并层 14 项断言 + 构建产物 15 项浏览器场景通过。**注**：054（资源中心）由其它会话在途，本条不重扫目录计数，待 054 落地后按发布流程统一重扫 specs 计数与 tasks 勾选数。
 >
+> **2026-11-12 补充（056-059 治理批次落地）**：056（审批单一内核）/057（pg_compat 能力清单与静态扫描）/058（身份·价格·配额单一来源收敛）/059（跨服务 fail-closed 可机检约束）四个 spec 的**后端代码已随多个提交落地**（`approval_kernel` / `pg_compat` / `shared_constants`+`quota_policy` / `fail_open_guard` 等）。本轮收尾：① 四个 `tasks.md` 全量勾选（共 115 项）且 `spec.md` Status 由 Draft 改为 Implemented；② 056 新增管理端「审批中心」统一待办页面（admin-web 路由 `/approvals-center` + 后端 `GET /api/v1/admin/approvals/todos/admin` 用管理员 JWT 鉴权，复用 `ApprovalKernel.list_todos`）；③ kiri 上开启 `APPROVAL_KERNEL_ENABLED=true`，端点返回 `kernelEnabled:true`（影子票据为空，属 R-7 旁路双写灰度期预期）。文档计数重扫同按发布流程统一处理。
+>
 > **2026-11-04 三服务全量实测（OrbStack，镜像 `4abce5be`）**：admin-api 1519 passed / 1 skipped、
 > document-parser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（marker 过滤
 > `not dsh_host_e2e and not network`，27 deselected；`MONGODB_URI=mongodb://mongo:27017`）；

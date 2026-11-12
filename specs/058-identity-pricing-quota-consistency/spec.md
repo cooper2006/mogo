@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-12
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: 通用设计复审报告 §整改路线第 5 项："统一 ID 生成器（禁业务层直接写 uuid4().hex）与用量日志失败可观测性（重试/死信/对账指标）" + 第 6 项："合并配额、价格、常量的双/多副本到单一模块，双服务以 import 而非复制共享；统一 tenant_id 缺省为拒绝而非 default 放行"
 

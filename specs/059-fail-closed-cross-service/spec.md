@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-12
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: 通用设计复审报告 §整改路线第 7 项："把「异常/未知/未配置一律拒绝」写成跨三服务可机检约束（CI 静态门禁 + 统一缺省常量），并同步修订两份 API 权威文档、补 API-Version 中间件到另两个服务"
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-12
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: 通用设计复审报告 §整改路线第 4 项前半："给 pg_compat 建可枚举能力清单 + CI 静态扫描 aggregate 管道阶段，禁止调用点逐个绕开继续扩散"；以及 P1-10「兼容层能力缺口靠调用点逐个绕开、无清单无静态守卫」的问题描述。
 

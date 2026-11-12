@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-12
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: 通用设计复审报告 §整改路线第 3 项："把审批收敛为一个内核：统一票据/待办查询/审计出口（gate_events）/审批人解析；补 revision 原子条件更新仲裁（取消、决策、超时、驳回优先）；补 reassign 到 resolve_review"
 
