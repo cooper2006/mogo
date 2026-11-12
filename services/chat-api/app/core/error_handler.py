@@ -40,6 +40,13 @@ def _validation_fields(exc: RequestValidationError) -> list[dict]:
     return items
 
 
+def _tenant_id_required_exc() -> type:
+    """惰性导入 ``TenantIdRequiredError``，避免与 billing 初始化顺序耦合。"""
+    from app.core.billing import TenantIdRequiredError
+
+    return TenantIdRequiredError
+
+
 def register_error_handlers(app: FastAPI, *, is_prod: bool) -> None:
     @app.exception_handler(RequestValidationError)
     async def _validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -62,6 +69,26 @@ def register_error_handlers(app: FastAPI, *, is_prod: bool) -> None:
                 fields=fields,
                 field=first["field"] if first else None,
                 path=first["path"] if first else None,
+            ),
+        )
+
+    # 058 T021/T022：tenant_id 缺省必须映射为 400，而非落入通用 Exception handler
+    # 返回 500（或更早的 200 兜底）。此处用惰性导入避免与 billing 模块的初始化顺序耦合。
+    @app.exception_handler(_tenant_id_required_exc())
+    async def _tenant_id_required_handler(request: Request, exc: Exception) -> JSONResponse:
+        trace_id = get_trace_id(request)
+        logger.warning(
+            "tenant_id required path=%s code=tenant_id_required trace_id=%s",
+            request.url.path,
+            trace_id,
+        )
+        return JSONResponse(
+            status_code=400,
+            content=build_error_payload(
+                code=getattr(exc, "code", "tenant_id_required"),
+                message=str(exc) or "tenant_id is required",
+                http_status=400,
+                trace_id=trace_id,
             ),
         )
 

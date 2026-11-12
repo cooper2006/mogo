@@ -64,7 +64,7 @@
 **Acceptance Scenarios**:
 
 1. **Given** `risk.py:_canon()` 收到未知 cell（既不在 allow 也不在 deny 表中），**When** 求值，**Then** 返回 `denied`（原 `allow` 改为 `denied`），并写 warning 日志提示规则表缺少该 cell 的配置。
-2. **Given** `topic_admission.service` 的 mode 配置为 `off`，**When** 评估请求，**Then** 返回 `allowed=False`（原 `allowed=True` 改为 `allowed=False`），日志记录 "topic admission disabled → deny by default"。
+2. **Given** `admin-api/topic_admission/service.py` 的 `preview()` 的 mode 配置为 `off`，**When** 评估请求，**Then** 返回 `allowed=False`（原 `allowed=True` 改为 `allowed=False`），日志记录 "topic admission disabled → deny by default"。**注**：chat-api 侧 `governance/topic_admission.py` 的 `evaluate()` 因 `mode=off` 为功能开关语义，保留 `return True` 并加 `# fail-open-exempt:` 豁免（详见 R-5）。
 3. **Given** `ontology_permission.service.enforce=False`（未启用权限检查），**When** 查询有效权限，**Then** 返回空集（原 `effectiveDefault=allow` 改为 `effectiveDefault=deny`）。
 4. **Given** `im_gateway.bindings` 的 db 连接不可用或返回行不存在，**When** 鉴权，**Then** 返回 `allowed=False`（原 `return True` 改为 `return False`），记录 error 日志便于排查。
 
@@ -178,9 +178,11 @@ Pattern 4: mode == \"off\" → allowed = True
 | 文件 | 原态 | 修复后 |
 |---|---|---|
 | `admin-api/governance/risk.py:141-143` | `return "allow"` for unknown cell | `return "deny"` + warning log |
-| `admin-api/topic_admission/service.py:17-18,55` | `mode=off → allowed=True` | `mode=off → allowed=False` |
+| `admin-api/topic_admission/service.py:17-18,55` | `mode=off → allowed=True` | `mode=off → allowed=False`（`preview()` 中 `allowed = mode != "off" and ...`） |
 | `admin-api/ontology_permission/service.py:103,107` | `effectiveDefault=allow` | `effectiveDefault=deny` |
 | `chat-api/im_gateway/bindings.py:269-273` | `db is None/row is None → return True` | `return False` + error log |
+
+**chat-api 侧 topic_admission 的豁免**：`chat-api/app/governance/topic_admission.py:38-39` 的 `evaluate()` 中 `mode=off → return True` 予以保留，并加 `# fail-open-exempt:` 注释豁免。理由：该处 `mode=off` 是管理员**显式关闭准入功能的功能开关**，而非「异常/未知状态的兜底放行」；若改为 deny，「关闭功能」将变成「拒绝全部请求」，与功能开关语义相悖。此豁免经 CODEOWNERS review，由 `check_fail_open_patterns.py` 识别豁免标记后放行，并有 `test_topic_admission_mode_off.py` 覆盖。
 
 每处修复后补单测（回归当前行为 + 断言修复后的 fail-closed 语义）。
 
@@ -191,14 +193,15 @@ Pattern 4: mode == \"off\" → allowed = True
 | D1 | fail-open 豁免是否需要架构委员会审批流程 | 否；仅需要 `# fail-open-exempt: <作者>/<理由>` 注释，接受 CODEOWNERS review | 否 |
 | D2 | `docs/api-specification.md` 是否整体删除还是仅裁撤错误码章节 | 仅裁撤 §51-80 错误码部分，其余保留（路由概览、版本历史等仍有用） | 否 |
 | D3 | `info.version: 0.2.8` 的 OpenAPI 字段是否本轮同步改掉 | 不改（影响面广，需配合开放 API 消费者的协议变更），仅在 error-codes.md 中标注「当前版本号差异系历史遗留，运行时请以 API-Version 响应头为准」 | 否 |
+| D4 | `chat-api/governance/topic_admission.py` 的 `mode=off` 是否与 admin-api 侧同步改为 deny | 不改；该处 `mode=off` 为管理员显式关闭准入功能的**功能开关**，非异常/未知状态兜底，改为 deny 会让「关闭功能」变成「拒绝全部请求」，语义相悖；保留 `return True` 并加 `# fail-open-exempt:` 豁免，由 CODEOWNERS review + 单测覆盖 | 否 |
 
 ## 验收标准
 
-- [ ] `scripts/check_fail_open_patterns.py` 对已知四处漏洞点能检出违规（修复前测试）
-- [ ] 四处漏洞修复后，对应单测全部通过（包括新增的 fail-closed 断言用例）
-- [ ] 修复后，`check_fail_open_patterns.py --full` 在 clean main 分支上 exit 0
-- [ ] `docs/error-codes.md` 成为唯一错误码权威源，其余文档中的错误码描述被标记为 deprecated
-- [ ] chat-api 与 document-parser 的健康检查响应头含 `API-Version: 1.0.0`
+- [x] `scripts/check_fail_open_patterns.py` 对已知四处漏洞点能检出违规（修复前测试）
+- [x] 四处漏洞修复后，对应单测全部通过（包括新增的 fail-closed 断言用例：`test_risk_canon_fail_closed.py`、`test_topic_admission_mode_off.py`、`test_ontology_enforcement.py`、`test_im_gateway_bindings_fail_closed.py`）
+- [x] 修复后，`check_fail_open_patterns.py --full` 在 clean main 分支上 exit 0（✅ No fail-open anti-patterns detected.）
+- [x] `docs/error-codes.md` 成为唯一错误码权威源（Schema v2 声明；`docs/api-specification.md` 不再维护错误码枚举，仅保留响应 envelope 结构说明）
+- [x] chat-api 与 document-parser 的健康检查响应头含 `API-Version: 1.0.0`（`test_api_version_header.py` 3 项全绿）
 - [ ] `specs/INDEX.md` 的 025 tasks 勾选状态反映本轮变更（若有新增 task）
 
 ## 风险与回滚

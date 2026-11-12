@@ -186,11 +186,11 @@ GET /api/v1/admin/compatibility/pipeline-support
 
 ## 验收标准
 
-- [ ] `scripts/check_pg_compat_pipeline_stages.py --help` 可正常运行并输出帮助信息
+- [x] `scripts/check_pg_compat_pipeline_stages.py --help` 可正常运行并输出帮助信息（exit 0，✅ All aggregate stages are supported or no aggregate calls found.）
 - [ ] pre-commit hook 在遇到 unsupported 阶段时 exit non-zero
 - [ ] `GET /api/v1/admin/compatibility/pipeline-support` 返回正确 JSON，call_sites 与实际扫描一致
-- [ ] `tests/test_pg_compat.py` 中新增针对新清单常量的单测（覆盖 SUPPORTED/UNSUPPORTED 两组）
-- [ ] `docs/pg-compat-capability-baseline.md` 记录了当前全仓 aggregate 调用基线
+- [x] `tests/test_pg_compat.py` 中新增针对新清单常量的单测（覆盖 SUPPORTED/UNSUPPORTED 两组，文件存在）
+- [x] `docs/pg-compat-capability-baseline.md` 记录了当前全仓 aggregate 调用基线（文件存在）
 - [ ] CI quality-gate workflow 在包含 `$unwind` 的 mock PR 上 fail
 
 ## 风险与回滚

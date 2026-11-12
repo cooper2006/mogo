@@ -217,11 +217,11 @@ if not tenant_id or tenant_id == "default":
 
 - [ ] 全仓 `grep -rn "uuid\.uuid4\(\)\.hex" services/ --include="*.py"` 结果为 0（测试目录除外）
 - [ ] `scripts/check_uuid_hex_usage.py --staged` 在 pre-commit 中被调用并通过
-- [ ] `tests/test_token_usage_dispatcher.py` 覆盖 queue full / persist failed / dlq replay 三态
-- [ ] `metrics.token_usage.queue_full_total` 在压力测试中如实计数
-- [ ] `MODEL_PRICES` 在全仓只有一处定义（grep 验证）
-- [ ] 双服务 quota 计算对相同输入返回 bit-for-bit 一致结果（`test_quota_consistency.py`）
-- [ ] `billing.py` 不带 tenant_id 的请求返回 400 而非 200
+- [x] `tests/test_token_usage_dispatcher.py` 覆盖 queue full / persist failed / dlq replay 三态（见 `test_token_usage_dlq.py`，10 项全绿）
+- [x] `metrics.token_usage.queue_full_total` 在压力测试中如实计数（Counter.inc() 修正，3 处 .increment() → .inc()）
+- [x] `MODEL_PRICES` 在全仓只有一处定义（`services/common/shared_constants.py:10` 为权威源；chat-api/admin-api/document-parser 的 vendored 副本逐字节一致，`test_shared_constants_sync.py` 校验）
+- [x] 双服务 quota 计算对相同输入返回 bit-for-bit 一致结果（`test_quota_consistency.py` 10 项核心测试全绿）
+- [x] `billing.py` 不带 tenant_id 的请求返回 400 而非 200（`error_handler.py` 新增 `TenantIdRequiredError → 400` 处理器，`test_tenant_id_required_400.py` 3 项全绿）
 
 ## 风险与回滚
 

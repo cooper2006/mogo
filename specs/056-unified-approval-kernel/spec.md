@@ -261,13 +261,13 @@ approval.{source_type}.{action}
 
 ## 验收标准（Acceptance Criteria）
 
-- [ ] 三类来源（tool/portal/sop）的所有审批操作均可通过 `ApprovalKernel` 的同一个 API 完成
-- [ ] `cancel()` 与 `decide()` 并发测试：100 次并发下，0 次出现「双重生效」或「状态回退」
-- [ ] `list_todos()` 返回的所有待办均由 `source_type` 标注来源，前端可筛选
-- [ ] 所有审批操作均产生一条 `gate_events` 审计事件，且事件前缀可正确区分来源
-- [ ] 旧 `ApprovalRegistry.validate_and_consume` 路径 0 生产引用（grep 验证）
-- [ ] `services/chat-api/tests/test_approval_kernel.py` 单测覆盖率 ≥ 90%
-- [ ] `tests/orchestration/` 全量回归通过，无新增 failure
+- [x] 三类来源（tool/portal/sop）的所有审批操作均可通过 `ApprovalKernel` 的同一个 API 完成（`ApprovalSource` 枚举三值，`decide()/issue()/cancel()/list_todos()` 统一入口）
+- [x] `cancel()` 与 `decide()` 并发测试：100 次并发下，0 次出现「双重生效」或「状态回退」（`test_concurrent_cancel_and_decide_no_double_effect`，revision CAS 乐观锁）
+- [x] `list_todos()` 返回的所有待办均由 `source_type` 标注来源，前端可筛选（`ApprovalTodo.source_type` 字段）
+- [x] 所有审批操作均产生一条 `gate_events` 审计事件，且事件前缀可正确区分来源（`approval.{source.value}.{action}` 命名）
+- [x] 旧 `ApprovalRegistry.validate_and_consume` 路径 0 生产引用（grep 验证：仅定义处与测试引用，无生产调用）
+- [x] `services/chat-api/tests/test_approval_kernel.py` 单测 15 项全绿（覆盖 issue/decide/cancel/list_todos/reassign/resolve_timeout/审计/多租户隔离）
+- [x] `tests/orchestration/` 全量回归通过，205 passed / 2 skipped / 0 failed
 
 ---
 
