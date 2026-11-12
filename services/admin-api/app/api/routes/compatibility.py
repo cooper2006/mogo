@@ -61,10 +61,11 @@ async def get_pipeline_support(
     Scans all Python files (excluding tests/) for aggregate() calls and reports
     which stages are supported by the pg_compat layer and which are unsupported.
     """
-    # 收集所有 aggregate 调用点的阶段信息
-    from scripts.check_pg_compat_pipeline_stages import find_aggregate_calls
+    # 收集所有 aggregate 调用点的阶段信息。扫描运行时真实代码根 /app
+    # （仓库级 scripts/ 包不在 admin-api 镜像内，已移植到 app.core.pg_compat_scan）。
+    from ...core.pg_compat_scan import find_aggregate_calls
 
-    violations = find_aggregate_calls("services/admin-api")
+    violations = find_aggregate_calls("/app")
 
     # 构建 call_sites 列表
     call_sites = []
