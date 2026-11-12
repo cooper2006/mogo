@@ -347,6 +347,7 @@ def _validate_044_shapes(
 
 
 def _validate_050_shapes(
+    mode: str,
     entries: list[dict[str, Any]],
     raw_nodes: list[Mapping[str, Any]],
     edges: list[dict[str, str]],
@@ -356,7 +357,26 @@ def _validate_050_shapes(
     ``approver`` is required; ``on_reject`` must name an existing node that is a
     *direct dependent* of the approval node (otherwise the branch could run
     before the rejection happened); ``timeout`` is clamped to 60s..30d.
+
+    Per 050 FR-001 / R-9, the first release only supports ``human_approval``
+    nodes in ``graph`` mode: any other document mode declaring an approval node
+    fails closed here at load time. A document with no approval node may use any
+    mode (FR-009 keeps the existing non-graph paths untouched).
     """
+    # R-9 graph-only restriction. ``_node_to_definition_entry`` folds both the
+    # top-level and the nested ``payload:`` spellings of ``type`` into
+    # ``entry["payload"]``, so reuse the same probe as the per-entry loop below.
+    # The condition is deliberately an AND: only "has approval node AND non-graph"
+    # is rejected, so approval-free non-graph documents still load unchanged.
+    has_approval_node = any(
+        str((entry.get("payload") or {}).get("type") or "") == "human_approval"
+        for entry in entries
+    )
+    if has_approval_node and mode != "graph":
+        raise OrchestrationLoadError(
+            f"050 首期仅 graph 模式支持 human_approval 节点（当前 {mode!r}，fail-closed）"
+        )
+
     node_ids = {str(entry.get("id")) for entry in entries}
     dependents: dict[str, set[str]] = {}
     for edge in edges:
@@ -514,7 +534,7 @@ def load_orchestration_document(document: Mapping[str, Any]) -> LoadedOrchestrat
             f"(allowed: {', '.join(VALID_MODES)}; an undeclared mode still defaults to graph)"
         )
     _validate_044_shapes(mode, nodes, raw_nodes, header)
-    _validate_050_shapes(nodes, raw_nodes, edges)
+    _validate_050_shapes(mode, nodes, raw_nodes, edges)
     _validate_052_shapes(mode, nodes, raw_nodes, header)
     definition = OrchestrationDefinition(
         orchestration_id=orchestration_id,

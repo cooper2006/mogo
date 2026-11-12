@@ -307,4 +307,33 @@ def test_two_approvals_in_sequence_suspend_approve_suspend_approve_complete() ->
 
     asyncio.run(scenario())
 
-    asyncio.run(scenario())
+# --- 050 R-9 graph-only 加载期校验（_validate_050_shapes） -------------------
+
+def test_050_approval_node_rejected_in_non_graph_mode() -> None:
+    """非 graph 模式声明 human_approval 节点 → 加载期 fail-closed（R-9）。"""
+    doc = _doc()
+    doc["orchestration"]["mode"] = "sequential"  # VALID_MODES 中的合法非 graph 模式
+    with pytest.raises(OrchestrationLoadError) as exc:
+        load_orchestration_document(doc)
+    msg = str(exc.value)
+    assert "graph" in msg
+    assert "human_approval" in msg
+
+
+def test_050_approval_free_non_graph_document_still_loads() -> None:
+    """无审批节点的非 graph 文档不受 R-9 影响，仍正常加载（AND 条件边界）。"""
+    doc = _doc()
+    doc["orchestration"]["mode"] = "sequential"
+    doc["nodes"] = [n for n in doc["nodes"] if n.get("type") != "human_approval"]
+    doc["nodes"].append({"id": "work", "depends_on": ["start"], "payload": {"skill": "w"}})
+    doc["edges"] = [{"source": "start", "target": "work"}]
+    definition = load_orchestration_document(doc)  # 不应抛
+    assert definition.mode == "sequential"
+
+
+def test_050_undeclared_mode_defaults_to_graph_and_allows_approval() -> None:
+    """缺省 mode（不声明）→ 默认 graph，含审批节点可正常加载。"""
+    doc = _doc()
+    del doc["orchestration"]["mode"]
+    definition = load_orchestration_document(doc)  # 不应抛
+    assert definition.mode == "graph"
