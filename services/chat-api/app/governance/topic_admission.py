@@ -31,6 +31,10 @@ class TopicAdmissionService:
     async def evaluate(self, *, tenant_id: str, user_id: str, text: str) -> tuple[bool, str | None]:
         policy = await self._policies.find_one({"tenant_id": tenant_id}, {"mode": 1, "rules": 1})
         mode = str((policy or {}).get("mode") or "off")
+        # fail-open-exempt: mode="off" 是管理员显式关闭该租户的准入功能（功能开关），
+        # 不是异常/未知状态的兜底放行；059 P1-16 针对的四处是「未知 cell / db=None /
+        # enforce=false」，与此处语义不同。此处改 deny 会让「关闭功能」变成「拒绝全部请求」。
+        # 注：本模块当前零生产引用；admin-api 侧的 preview() 已按 T008 用 mode!=off 判定。
         if mode == "off":
             return True, None
         rules = [rule for rule in (policy or {}).get("rules") or [] if rule.get("enabled", True)]

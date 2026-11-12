@@ -244,6 +244,16 @@ async def submit_decision(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except RunStoreError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # 056 R-7：SOP 审批决策旁路镜像到统一内核（补 P1-3 审计链缺口）。
+    # 开关默认关闭、失败不阻断；RunStore 仍是 run 文档的唯一仲裁源。
+    from app.common.approval_mirror import mirror_decision
+
+    await mirror_decision(
+        source="sop", source_id=f"{run_id}:{payload.node_id}",
+        tenant_id=principal.tenant_id, actor_id=principal.user_id,
+        approved=outcome.decision == "approve", reason=str(payload.reason or ""),
+    )
     return ApiResponse(data={
         "runId": outcome.run_id, "nodeId": outcome.node_id,
         "decision": outcome.decision, "status": outcome.run_status,

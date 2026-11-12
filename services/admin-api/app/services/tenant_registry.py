@@ -13,12 +13,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Any
-from uuid import uuid4
 
 from pymongo import ReturnDocument
 
 from app.core.db import get_db
 from app.core.tenant_identity import DEFAULT_TENANT_ID, PLATFORM_TENANT_ID
+from app.core.ids import generate_hex32_id
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ async def ensure_tenant_record(
                 "updated_at": now,
             },
             "$setOnInsert": {
-                "_id": uuid4().hex,
+                "_id": generate_hex32_id(),
                 "status": "active",
                 "created_by": created_by,
                 "created_at": now,

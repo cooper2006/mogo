@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 from .contract import AssetContract, contract_diff, normalize_contract
+from app.core.ids import generate_hex32_id
 
 # Asset lifecycle states (FR-6).
 ASSET_STATES: tuple[str, ...] = ("active", "deprecated", "offline")
@@ -349,11 +350,10 @@ class PersistedCapabilityRegistry:
         """
         from app.core.db import get_db
         from app.position_roles.constants import AUDIT_COLLECTION
-        import uuid
         try:
             db = get_db()
             await db[AUDIT_COLLECTION].insert_one({
-                "_id": uuid.uuid4().hex,
+                "_id": generate_hex32_id(),
                 "tenant_id": "default",
                 "actor": "service",
                 "action": f"capability.{action}",

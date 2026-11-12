@@ -11,12 +11,12 @@ and offers a dry-run trigger.  Test sets are maintained over this API.
 from __future__ import annotations
 
 import datetime
-import uuid
 from typing import Any
 
 from app.core.db import get_db
 
 from .models import CASES_COLLECTION, DEFAULT_MAX_CASES, DEFAULT_MIN_CASES
+from app.core.ids import generate_hex32_id
 
 
 def now() -> datetime.datetime:
@@ -71,7 +71,7 @@ async def create_case(*, tenant_id: str, skill_id: str, payload: dict[str, Any],
     data = _validate(payload)
     if await count_cases(tenant_id=tenant_id, skill_id=skill_id) >= int(max_cases or DEFAULT_MAX_CASES):
         raise EvalCaseLimitError(f"测试集用例数已达上限 {int(max_cases or DEFAULT_MAX_CASES)}，请先删除或调整", limit=int(max_cases or DEFAULT_MAX_CASES))
-    row = {"_id": uuid.uuid4().hex, "tenant_id": tenant_id, "skill_id": skill_id, **data, "created_at": now(), "updated_at": now()}
+    row = {"_id": generate_hex32_id(), "tenant_id": tenant_id, "skill_id": skill_id, **data, "created_at": now(), "updated_at": now()}
     await get_db()[CASES_COLLECTION].insert_one(row)
     return view(row)
 

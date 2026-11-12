@@ -450,6 +450,14 @@ async def issue_request(
             "approver_id": approver_id,
         },
     )
+    # 056 R-7：签发侧旁路镜像（开关默认关闭、失败不阻断）。
+    # 决策端在 admin-api，但两端连同一 Mongo 业务库，影子票据可跨服务共享。
+    from app.common.approval_mirror import mirror_issue
+
+    await mirror_issue(
+        source="portal", source_id=document["request_id"], tenant_id=tenant_id,
+        actor_id=requester_id, approver_id=str(approver_id or ""),
+    )
     return {"status": STATUS_APPLIED, "request": document, "created": True}
 
 

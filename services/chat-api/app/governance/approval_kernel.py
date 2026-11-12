@@ -559,6 +559,104 @@ class ApprovalKernel:
             )
         return expired
 
+    # ── R-7 迁移期旁路双写（影子镜像，不参与判权） ─────────────────────
+    # 三套旧状态机仍是唯一仲裁源；Kernel 在此只镜像 pending/终态票据 +
+    # 统一 gate_events 审计，供统一待办视图与跨能力对账。所有写入都应由
+    # approval_mirror 包在 try/except 中调用，失败不阻断业务（fail-open 降级）。
+    async def mirror_issue(
+        self,
+        *,
+        source: ApprovalSource,
+        source_id: str,
+        tenant_id: str,
+        actor_id: str,
+        approver_id: str,
+        deadline: datetime,
+        run_id: str = "",
+        node_id: str = "",
+    ) -> None:
+        """镜像一条 pending 影子票据（按 source+source_id 幂等）。"""
+        collection = self._tickets()
+        key = {"source": source.value, "source_id": str(source_id), "shadow": True}
+        if await collection.find_one(key) is not None:
+            return
+        now = self._clock()
+        await collection.insert_one({
+            **key,
+            "ticket_id": uuid.uuid4().hex,
+            "tenant_id": str(tenant_id),
+            "actor_id": str(actor_id),
+            "approver_id": str(approver_id),
+            "token_hash": "",  # 影子票据不可被 Kernel.decide 消费
+            "deadline": deadline,
+            "run_id": str(run_id or ""),
+            "node_id": str(node_id or ""),
+            "state": ApprovalState.PENDING.value,
+            "revision": 0,
+            "created_at": now,
+            "updated_at": now,
+        })
+        await self._audit(
+            source=source, action="issued", tenant_id=str(tenant_id), actor_id=str(actor_id),
+            detail={
+                "source_id": str(source_id), "run_id": str(run_id or ""),
+                "node_id": str(node_id or ""), "previous_state": None,
+                "new_state": ApprovalState.PENDING.value, "actor_id": str(actor_id),
+                "shadow": True,
+            },
+        )
+
+    async def mirror_decision(
+        self,
+        *,
+        source: ApprovalSource,
+        source_id: str,
+        tenant_id: str,
+        actor_id: str,
+        approved: bool,
+        reason: str = "",
+    ) -> bool:
+        """把影子票据推进终态并写审计；返回是否确实镜像到一条票据。
+
+        找不到影子票（例如签发时开关未打开）时静默跳过，绝不抛异常——
+        旁路写入不能改变旧状态机的结果与 HTTP 契约。
+        """
+        collection = self._tickets()
+        state = ApprovalState.APPROVED if approved else ApprovalState.DENIED
+        # tenant_id 可为空：admin gatekeeper 的 /decide 端点只有 actionId，
+        # 拿不到租户；此时按 (source, source_id, shadow) 定位，避免漏镜像。
+        # 影子票据不参与判权，跨租户误匹配不会造成放行。
+        key: dict[str, Any] = {
+            "source": source.value, "source_id": str(source_id),
+            "shadow": True, "state": {"$in": _DECIDABLE_STATES},
+        }
+        if tenant_id:
+            key["tenant_id"] = str(tenant_id)
+        result = await collection.update_one(
+            key,
+            {
+                "$set": {
+                    "state": state.value, "resolved_at": self._clock(),
+                    "updated_at": self._clock(), "decided_by": str(actor_id),
+                    "reason": str(reason or ""),
+                },
+                "$inc": {"revision": 1},
+            },
+        )
+        if result.modified_count != 1:
+            return False
+        await self._audit(
+            source=source, action="decided" if approved else "denied",
+            tenant_id=str(tenant_id), actor_id=str(actor_id),
+            decision="allow" if approved else "deny",
+            detail={
+                "source_id": str(source_id), "run_id": "", "node_id": "",
+                "previous_state": ApprovalState.PENDING.value,
+                "new_state": state.value, "actor_id": str(actor_id), "shadow": True,
+            },
+        )
+        return True
+
     async def _expire(self, doc: dict[str, Any], *, reason: str) -> None:
         """decide 发现票据已过期时的原子过期处置（fail-closed）。"""
         await self._tickets().update_one(

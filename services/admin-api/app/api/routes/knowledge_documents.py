@@ -5,7 +5,6 @@ import json
 import mimetypes
 import re
 import tempfile
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Sequence
@@ -25,6 +24,7 @@ from app.api.time_utils import utc_iso
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.errors import ApiErrorCode
+from app.core.ids import generate_hex32_id
 from app.core.security import constant_time_equals
 from app.api.routes.knowledge_settings import get_effective_knowledge_settings, get_effective_parse_settings
 from app.repositories.org_user_repository import find_account_by_username
@@ -807,7 +807,7 @@ async def upload_document(
         if header_bytes and not _validate_content_type(header_bytes, file_ext):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件内容与扩展名不匹配")
 
-        document_id = uuid.uuid4().hex
+        document_id = generate_hex32_id()
         storage_prefix = settings.knowledge_oss_prefix.strip().strip("/") or "knowledge-documents"
         storage_key = f"{storage_prefix}/{tenant_id}/{document_id}/{original_filename}"
         storage = get_storage_service()

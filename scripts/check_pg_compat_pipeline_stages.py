@@ -2,20 +2,25 @@
 """扫描仓库内所有 aggregate( 调用点的管道阶段，报告 unsupported。
 
 行为：
-- 遍历所有 .py 文件（排除 tests/、__pycache__、.venv）
+- 遍历所有 .py 文件（剪枝排除 tests/、__pycache__、所有 .venv* 虚拟环境）
 - 用正则查找 aggregate([...]) 语法
 - 提取管道中的每个阶段 key（$match → match，$unwind → unwind 等）
 - 若阶段不在 SUPPORTED_AGGREGATION_STAGES 中，记录违规行
 - 输出：JSON 格式违规清单 + 人类可读摘要
 - Exit code：0 = 全绿，1 = 有违规
+
+用法：
+    python3 scripts/check_pg_compat_pipeline_stages.py                  # 全量扫 services/
+    python3 scripts/check_pg_compat_pipeline_stages.py services/admin-api
+    python3 scripts/check_pg_compat_pipeline_stages.py --staged          # 只扫暂存的 .py
 """
 
 import ast
 import json
-import os
 import re
 import sys
-from pathlib import Path
+
+from _scan_common import iter_python_files, parse_scan_args
 
 
 # 支持的聚合阶段清单 - 必须与 pg_compat.py 中 SUPPORTED_AGGREGATION_STAGES 保持同步
@@ -24,17 +29,11 @@ SUPPORTED_AGGREGATION_STAGES = frozenset({
 })
 
 
-def find_aggregate_calls(root_dir: str) -> list[dict]:
-    """扫描目录下所有 Python 文件中的 aggregate() 调用。"""
+def find_aggregate_calls(root_dir: str, *, staged: bool = False) -> list[dict]:
+    """扫描 Python 文件中的 aggregate() 调用（staged=True 只扫暂存文件）。"""
     violations = []
-    root_path = Path(root_dir)
 
-    for py_file in root_path.rglob("*.py"):
-        # 排除测试目录和虚拟环境
-        skip_parts = ["tests", ".venv", "__pycache__", ".git"]
-        if any(skip in py_file.parts for skip in skip_parts):
-            continue
-
+    for py_file in iter_python_files(root_dir, staged=staged):
         try:
             with open(py_file, "r", encoding="utf-8") as f:
                 source = f.read()
@@ -174,9 +173,9 @@ def get_call_context(source: str, position: int) -> str:
 
 
 def main():
-    root_dir = sys.argv[1] if len(sys.argv) > 1 else "services/admin-api"
+    root_dir, staged = parse_scan_args(sys.argv[1:], default_root="services")
 
-    violations = find_aggregate_calls(root_dir)
+    violations = find_aggregate_calls(root_dir, staged=staged)
 
     if not violations:
         print("✅ All aggregate stages are supported or no aggregate calls found.")

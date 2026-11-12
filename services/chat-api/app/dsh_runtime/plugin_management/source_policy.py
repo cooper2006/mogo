@@ -32,6 +32,8 @@ def is_safe_personal_source(spec: str) -> bool:
     host = parsed.hostname.lower()
     if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
         return False
+    # fail-open-exempt: 解析失败表示 host 是域名而非 IP 字面量，是正常的允许路径，
+    # 不是异常兜底放行；上方已拒绝 localhost/.local/.internal、内嵌凭据/query 且强制 https。
     try:
         address = ipaddress.ip_address(host)
     except ValueError:

@@ -29,6 +29,8 @@ _ALLOWED_SCHEMES = {"http", "https"}
 
 def _is_private_address(address: str) -> bool:
     """Return True if the IP address falls in a blocked private/special range."""
+    # fail-open-exempt: 本函数 True 表示「判定为危险、应阻断」（fail-closed 方向），
+    # 解析失败的 True 是把无法解析的 host 一律视作不安全，不是放行。
     try:
         ip = ipaddress.ip_address(address)
     except ValueError:

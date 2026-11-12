@@ -37,4 +37,25 @@ while IFS= read -r f; do
 done <<< "$files"
 
 echo "✓ 密钥检查通过"
+
+# ── 治理门禁：只检查本次暂存的 .py（--staged），纯 stdlib、毫秒级 ──────────
+# 057 T013：pg_compat 聚合管道阶段白名单（防止写入 PanWeiDB 不支持的 $unwind 等）
+# 059 T013：fail-open 反模式扫描（except→return True / db is None→allow / mode=off→allow）
+# 两者均支持 `# fail-open-exempt: <理由>` 行内豁免；CI 里跑全量版本。
+SCAN_DIR="$SCRIPT_DIR/scripts"
+if [[ -f "$SCAN_DIR/check_pg_compat_pipeline_stages.py" ]]; then
+  echo "→ 检查暂存文件中的聚合管道阶段（057）..."
+  (cd "$SCRIPT_DIR" && python3 "$SCAN_DIR/check_pg_compat_pipeline_stages.py" --staged) || exit 1
+fi
+if [[ -f "$SCAN_DIR/check_fail_open_patterns.py" ]]; then
+  echo "→ 检查暂存文件中的 fail-open 反模式（059）..."
+  (cd "$SCRIPT_DIR" && python3 "$SCAN_DIR/check_fail_open_patterns.py" --staged) || exit 1
+fi
+# 058 T009：拦截新增的 uuid4().hex 实体主键（存量走基线，替换后 --update-baseline）
+if [[ -f "$SCAN_DIR/check_uuid_hex_usage.py" ]]; then
+  echo "→ 检查暂存文件中的无序主键用法（058）..."
+  (cd "$SCRIPT_DIR" && python3 "$SCAN_DIR/check_uuid_hex_usage.py" --staged) || exit 1
+fi
+
+echo "✓ 治理门禁检查通过"
 exit 0

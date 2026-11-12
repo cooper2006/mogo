@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import datetime
 import time
-import uuid
 from typing import Any
 
 from app.core.db import get_db
@@ -30,6 +29,7 @@ from .models import (
 )
 from .policies import get_policy
 from .test_sets import count_cases
+from app.core.ids import generate_hex32_id
 
 
 def now() -> datetime.datetime:
@@ -60,7 +60,7 @@ class EvalGateBlocked(RuntimeError):
 async def _write_audit(*, event_type: str, tenant_id: str, skill_id: str,
                        version: str, metrics: dict[str, float], thresholds: dict[str, Any],
                        verdict: str, detail: dict[str, Any]) -> str:
-    event_id = uuid.uuid4().hex
+    event_id = generate_hex32_id()
     doc = {
         "event_id": event_id,
         "occurred_at": now(),
@@ -92,7 +92,7 @@ async def _store_run(*, tenant_id: str, skill_id: str, version: str, dry_run: bo
                      blocked_reason: str, duration_ms: int,
                      thresholds: dict[str, Any]) -> dict[str, Any]:
     run = {
-        "_id": uuid.uuid4().hex,
+        "_id": generate_hex32_id(),
         "tenant_id": tenant_id,
         "skill_id": skill_id,
         "version": version,

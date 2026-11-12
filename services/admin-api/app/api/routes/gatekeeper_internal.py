@@ -210,6 +210,14 @@ async def decide_gate_approval(
     )
     if not ok:
         raise HTTPException(status_code=404, detail="approval_ticket_not_pending_or_expired")
+
+    # 056 R-7：迁移期旁路双写（开关默认关闭；失败不阻断旧状态机）。
+    from app.common.approval_mirror import mirror_decision
+
+    await mirror_decision(
+        source="tool", source_id=str(payload.actionId or ""), tenant_id="",
+        actor_id=str(payload.actor or ""), approved=bool(payload.approved),
+    )
     return {
         "code": 0,
         "message": "success",

@@ -140,6 +140,20 @@ def make_approval_runner(
             run_id,
             {"event": "approval.suspended", "node": node.id, "approver": config.approver, "at": now.isoformat()},
         )
+
+        # 056 R-7：签发侧旁路镜像（deadline 直接用已计算的 aware datetime）。
+        # wrapped 作用域里没有 run 文档，身份/租户只从 ctx 尽力解析；
+        # 影子票据不参与判权，缺失不影响旧状态机。
+        from app.common.approval_mirror import mirror_issue
+
+        await mirror_issue(
+            source="sop", source_id=f"{run_id}:{node.id}",
+            tenant_id=str(ctx.get("tenant_id") or ""),
+            actor_id=str(ctx.get("initiator_id") or ctx.get("user_id") or ""),
+            approver_id=config.approver,
+            deadline=now + timedelta(seconds=config.timeout_seconds),
+            run_id=run_id, node_id=node.id,
+        )
         raise RunSuspended(node.id)
 
     return wrapped

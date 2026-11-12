@@ -297,6 +297,18 @@ class ApprovalLayer:
             trust_level=str(trust_level or ""),
         )
         ctx.annotations["approval"] = {"action_id": action_id, "result": "pending", "token": token}
+
+        # 056 R-7：签发侧旁路镜像（开关默认关闭、失败不阻断）。
+        from app.common.approval_mirror import mirror_issue
+
+        await mirror_issue(
+            source="tool", source_id=action_id, tenant_id=ctx.tenant_id,
+            actor_id=ctx.user_id,
+            # 工具审批的审批人由 /decide 端的 RBAC 决定，签发期未知；影子票据
+            # 不做身份判权，故留空由 mirror_decision 的 actor_id 记录实际决策人。
+            approver_id="",
+            deadline=utc_now() + timedelta(minutes=APPROVAL_TTL_MINUTES),
+        )
         return GateVerdict(
             decision=GateDecision.REQUIRE_APPROVAL,
             layer=self.name,

@@ -12,14 +12,19 @@ Pattern 4: mode == "off" → allowed = True
 - 支持 # fail-open-exempt: <理由> 注释豁免
 - 输出 JSON 清单 + 人类可读摘要
 - Exit code 0 = 全绿，1 = 发现违规
+
+用法：
+    python3 scripts/check_fail_open_patterns.py            # 全量扫 services/
+    python3 scripts/check_fail_open_patterns.py services/admin-api
+    python3 scripts/check_fail_open_patterns.py --staged  # 只扫暂存的 .py（pre-commit）
 """
 
 import ast
 import json
-import os
-import re
 import sys
 from pathlib import Path
+
+from _scan_common import iter_python_files, parse_scan_args
 
 
 # 豁免注释标记（与 fail_open_guard.py 保持一致）
@@ -27,30 +32,26 @@ FAIL_OPEN_EXEMPT_COMMENT = "fail-open-exempt:"
 
 
 def is_exempt(node: ast.AST, source: str) -> bool:
-    """检查节点是否被 # fail-open-exempt: 注释豁免。"""
-    # 获取节点所在的行号
+    """检查节点是否被 ``# fail-open-exempt:`` 注释豁免。
+
+    覆盖命中行本身（行内注释）与其上方 4 行（多行理由说明）。
+    修正了原实现的 off-by-one：``lineno`` 是 1-based，而 ``lines[i]`` 是
+    0-based，原实现 range 上界取 ``line_num`` 会把注释窗口整体偏移一行，
+    导致紧邻节点上方的豁免注释识别不到。
+    """
+    lines = source.split("\n")
     line_num = getattr(node, "lineno", 1)
-    # 向上查找最多 3 行查找注释
-    for i in range(max(0, line_num - 3), line_num):
-        if i >= len(source.split("\n")):
-            break
-        line = source.split("\n")[i]
-        if FAIL_OPEN_EXEMPT_COMMENT in line:
+    for i in range(max(0, line_num - 5), min(line_num, len(lines))):
+        if FAIL_OPEN_EXEMPT_COMMENT in lines[i]:
             return True
     return False
 
 
-def find_fail_open_patterns(root_dir: str) -> list[dict]:
-    """扫描目录下所有 Python 文件中的 fail-open 模式。"""
+def find_fail_open_patterns(root_dir: str, *, staged: bool = False) -> list[dict]:
+    """扫描 Python 文件中的 fail-open 模式（staged=True 只扫暂存文件）。"""
     violations = []
-    root_path = Path(root_dir)
 
-    for py_file in root_path.rglob("*.py"):
-        # 排除测试目录和虚拟环境
-        skip_parts = ["tests", ".venv", "__pycache__", ".git"]
-        if any(skip in py_file.parts for skip in skip_parts):
-            continue
-
+    for py_file in iter_python_files(root_dir, staged=staged):
         try:
             with open(py_file, "r", encoding="utf-8") as f:
                 source = f.read()
@@ -152,9 +153,8 @@ def find_fail_open_patterns(root_dir: str) -> list[dict]:
 
 
 def main():
-    root_dir = sys.argv[1] if len(sys.argv) > 1 else "services"
-
-    violations = find_fail_open_patterns(root_dir)
+    root_dir, staged = parse_scan_args(sys.argv[1:], default_root="services")
+    violations = find_fail_open_patterns(root_dir, staged=staged)
 
     if not violations:
         print("✅ No fail-open anti-patterns detected.")

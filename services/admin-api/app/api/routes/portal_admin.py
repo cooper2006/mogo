@@ -475,7 +475,30 @@ async def decide_approval(
     payload: DecidePayload,
     user: dict[str, Any] = Depends(get_current_admin_user),
 ) -> dict[str, Any]:
-    """批准（→ 开通，写用户级 ``asset:use:<key>``）/ 拒绝。"""
+    """批准（→ 开通）/ 拒绝；成功后旁路镜像到 056 审批内核。
+
+    镜像只用于统一待办/审计，开关默认关闭且失败不阻断（056 R-7）。
+    """
+    result = await _decide_approval_impl(request_id, payload, user)
+    if result.get("changed"):
+        from app.common.approval_mirror import mirror_decision
+
+        status = str(result.get("status") or "")
+        approved = status == STATUS_GRANTED or (status != STATUS_REJECTED and bool(payload.approved))
+        await mirror_decision(
+            source="portal", source_id=str(request_id or ""),
+            tenant_id=_tenant_id(user), actor_id=_actor(user),
+            approved=approved, reason=str(payload.reason or ""),
+        )
+    return result
+
+
+async def _decide_approval_impl(
+    request_id: str,
+    payload: DecidePayload,
+    user: dict[str, Any],
+) -> dict[str, Any]:
+    """原 decide_approval 实现（056 R-7 抽出以便外层统一旁路镜像）。"""
     _require(user, PORTAL_APPROVE)
     db = _db()
     tenant_id = _tenant_id(user)

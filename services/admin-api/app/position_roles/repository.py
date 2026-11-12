@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
-import uuid
 
 from app.core.db import get_db
+from app.core.ids import generate_hex32_id
 from .constants import (
     AGENT_CAPABILITY_KEYS,
     AUDIT_COLLECTION,
@@ -167,7 +167,7 @@ class PositionRoleRepository:
 
     async def audit(self, tenant_id: str, actor: str, action: str, target_type: str, target_id: str, details: dict[str, Any]) -> None:
         await self.db[AUDIT_COLLECTION].insert_one({
-            "_id": uuid.uuid4().hex,
+            "_id": generate_hex32_id(),
             "tenant_id": tenant_id,
             "actor": actor,
             "action": action,

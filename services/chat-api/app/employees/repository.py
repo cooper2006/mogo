@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
-import uuid
 
 from app.core.db import get_db
 from app.core.tenant import add_tenant_scope, resolve_tenant_id
 
 from .model import EMPLOYEE_COLLECTION, EMPLOYEE_STATUSES, Employee, utcnow
+from app.core.ids import generate_hex32_id
 
 #: 001 单一审计汇（gate_events），管理端操作另经 system_audit（宪法 III）。
 AUDIT_COLLECTION = "gate_events"
@@ -80,7 +80,7 @@ class EmployeeRepository:
             status=str(payload.get("status") or "active"),
             creator_id=str(actor or ""),
             member_user_ids=list(payload.get("member_user_ids") or []),
-            employee_id=uuid.uuid4().hex,
+            employee_id=generate_hex32_id(),
         )
         doc = employee.to_document()
         doc["_id"] = employee.employee_id
@@ -164,7 +164,7 @@ class EmployeeRepository:
         try:
             await self.db[AUDIT_COLLECTION].insert_one(
                 {
-                    "event_id": uuid.uuid4().hex,
+                    "event_id": generate_hex32_id(),
                     "occurred_at": utcnow(),
                     "tenant_id": tenant_id,
                     "user_id": str(actor or ""),

@@ -17,6 +17,21 @@ class ModelConfigError(ValueError):
     pass
 
 
+class TenantIdRequiredError(ValueError):
+    """058 T021：缺省租户 fail-closed。
+
+    ``tenant_id`` 缺失/为 "default" 时不再短路放行。携带稳定的 ``code``
+    （登记在 docs/error-codes.md §3），便于上层映射为 400 而不泄漏内部信息。
+    不使用 ``QuotaExceededError``：后者签名只接受 layer/scope_id/kind，
+    传 ``code=`` 会抛 TypeError，且语义上「入参缺失」≠「配额超限」。
+    """
+
+    code = "tenant_id_required"
+
+    def __init__(self, message: str = "tenant_id is required") -> None:
+        super().__init__(message)
+
+
 def _now() -> datetime:
     return datetime.now(tz=timezone.utc)
 
@@ -50,8 +65,10 @@ async def check_quota_before_request(tenant_id: str, config: Dict[str, Any]) -> 
     若模型配置中 tenant_id 是 'default' (使用的是平台默认提供的共享模型)，才需要强制进行点数扣减检验。
     若当前组织已升级并启用了自有模型 (is_own_model = True)，或模型属于用户自有，不予拦截。
     """
-    if not tenant_id or tenant_id == "default":
-        raise QuotaExceededError("tenant_id is required", code="tenant_id_required")
+    # 058 T021 fail-closed：空/缺省/纯空白 tenant_id 一律拒绝，且必须在任何 DB
+    # 访问之前生效（否则共享模型额度会被算到 "default" 或空白租户名下）。
+    if not str(tenant_id or "").strip() or str(tenant_id).strip() == "default":
+        raise TenantIdRequiredError()
 
     # 只有当使用的是平台默认提供的共享模型时，才受平台额度限制
     config_tenant_id = config.get("tenant_id") or "default"
@@ -75,8 +92,10 @@ async def deduct_points_after_request(tenant_id: str, total_tokens: int) -> None
     当请求产生 Token 消费后，异步将其累计扣减。
     如果该组织是免费版（或者未开启 is_own_model），就计入系统账单；
     """
-    if not tenant_id or tenant_id == "default":
-        raise QuotaExceededError("tenant_id is required", code="tenant_id_required")
+    # 058 T021 fail-closed：空/缺省/纯空白 tenant_id 一律拒绝，且必须在任何 DB
+    # 访问之前生效（否则共享模型额度会被算到 "default" 或空白租户名下）。
+    if not str(tenant_id or "").strip() or str(tenant_id).strip() == "default":
+        raise TenantIdRequiredError()
 
     db = get_db()
     org = await get_or_create_organization(tenant_id)

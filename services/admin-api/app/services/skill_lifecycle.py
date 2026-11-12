@@ -4,12 +4,12 @@ import datetime
 import hashlib
 import json
 import re
-import uuid
 from typing import Any
 
 from app.core.db import get_db
 # 032-eval-gate: 阻断异常只此一处定义（gate.py），路由层捕获的也是它。
 from app.services.eval_gate.gate import EvalGateBlocked
+from app.core.ids import generate_hex32_id
 
 
 RELEASE_COLLECTION = "organization_skill_releases"
@@ -55,7 +55,7 @@ class OrganizationSkillLifecycle:
             skill_draft=draft,
             dry_run=False,
         )
-        stamp = now(); release = {"_id": uuid.uuid4().hex, "tenant_id": tenant_id, "skill_id": skill_id,
+        stamp = now(); release = {"_id": generate_hex32_id(), "tenant_id": tenant_id, "skill_id": skill_id,
             "version": next_version, "digest": digest(draft), "snapshot": draft, "release_notes": notes.strip()[:2000], "created_at": stamp}
         await db[RELEASE_COLLECTION].insert_one(release)
         await db.skills.update_one(query, {"$set": {**draft, "publication_status": "published", "published_version": next_version,
@@ -90,7 +90,7 @@ class OrganizationSkillLifecycle:
     async def _baseline(self, row: dict[str, Any]) -> dict[str, Any]:
         if row.get("publication_status") == "draft" and not row.get("published_version"): return {}
         if row.get("published_version") and row.get("published_digest"): return {}
-        db = get_db(); data = snapshot(row); release = {"_id": uuid.uuid4().hex, "tenant_id": row["tenant_id"], "skill_id": row["_id"],
+        db = get_db(); data = snapshot(row); release = {"_id": generate_hex32_id(), "tenant_id": row["tenant_id"], "skill_id": row["_id"],
             "version": "1.0.0", "digest": digest(data), "snapshot": data, "release_notes": "", "created_at": row.get("created_at") or now(), "migrated": True}
         existing = await db[RELEASE_COLLECTION].find_one({"tenant_id": row["tenant_id"], "skill_id": row["_id"], "version": "1.0.0"})
         if existing: release = existing

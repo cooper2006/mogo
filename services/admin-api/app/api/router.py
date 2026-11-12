@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, capability_assets, connector_market, dashboard, directory, dsh_plugins, egress, employees, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, memories, menu_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, templates, tools, topic_admission, traffic_allocations, trust_ratings, compatibility
+from app.api.routes import analytics, auth, approval_todos, capability_assets, connector_market, dashboard, directory, dsh_plugins, egress, employees, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, memories, menu_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, templates, tools, topic_admission, traffic_allocations, trust_ratings, compatibility
 from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
@@ -28,6 +28,8 @@ api_router.include_router(knowledge_documents.router, prefix="/knowledge/documen
 api_router.include_router(knowledge_settings.router, prefix="/settings/knowledge", tags=["knowledge-settings"])
 api_router.include_router(personal_knowledge_internal.router, prefix="/internal/personal-knowledge", tags=["personal-knowledge-internal"])
 api_router.include_router(gatekeeper_internal.router, prefix="/internal/gatekeeper", tags=["gatekeeper-internal"])
+# 056 US1：统一审批待办（跨 tool/portal/sop 三来源的只读聚合视图）。
+api_router.include_router(approval_todos.router, prefix="/admin/approvals", tags=["approval-todos"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(traffic_allocations.router, prefix="/traffic-allocations", tags=["traffic-allocations"])
 api_router.include_router(skills.router, prefix="/skills", tags=["skills"])

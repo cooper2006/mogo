@@ -265,6 +265,28 @@ jobs:
         if: matrix.service == 'admin-api'
         run: python3 tools/api_check/status_code_semantics.py
 
+      # 057 T014：pg_compat 聚合管道阶段白名单。PanWeiDB 兼容层只实现了
+      # SUPPORTED_AGGREGATION_STAGES 里的阶段；新增 $unwind/$lookup 等会在
+      # Mongo 下正常、切 PG 后静默失败。跨服务视角只跑一次；纯 stdlib。
+      - name: pg_compat pipeline stages (057 T014)
+        if: matrix.service == 'admin-api'
+        run: python3 scripts/check_pg_compat_pipeline_stages.py services
+
+      # 059 T014：fail-open 反模式扫描。四类模式（except→return True、
+      # db/row is None→allow、default="allow"、mode=="off"→allow）。
+      # 支持 `# fail-open-exempt: <理由>` 行内豁免；本地 pre-commit 跑 --staged，
+      # 这里跑全量，保证没有漏网。跨服务视角只跑一次；纯 stdlib。
+      - name: Fail-open anti-pattern scan (059 T014)
+        if: matrix.service == 'admin-api'
+        run: python3 scripts/check_fail_open_patterns.py services
+
+      # 058 T007：拦截新增的 uuid4().hex 实体主键。存量登记在
+      # scripts/uuid_hex_baseline.json（渐进收口，替换一批后重建基线），
+      # 只有基线之外的新增才失败。跨服务视角只跑一次；纯 stdlib。
+      - name: Unordered primary-key scan (058 T007)
+        if: matrix.service == 'admin-api'
+        run: python3 scripts/check_uuid_hex_usage.py --full
+
       - name: Create venv and install
         working-directory: services/${{ matrix.service }}
         run: |
