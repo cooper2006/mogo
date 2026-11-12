@@ -10,7 +10,11 @@
 
 > **设计来源**：本规约来自 `docs/MOGO-StaffDeck整合方案.md` §4.3（2026-11-09 代码级勘察结论）。StaffDeck 为 AGPL-3.0，**仅借鉴产品设计，不拷贝代码**。
 >
-> **性质说明**：**已实现（2026-11-09，tasks 22/22）**——`team` 第七模式：拆解/分派 + 黑板 + 验收循环 + 失败传播 + 接管（T015，`_should_take_over` 人工主动触发 + 决策覆盖领导判定）落地；OQ-1~OQ-4 已按 spec 已定默认值消解并回填。
+> **性质说明（2026-11-12 口径修订）**：**引擎能力已实现，跨模式挂起未交付**。`team` 第七模式的拆解/分派、运行级黑板、验收循环、失败传播与首期主动接管（T015，`_should_take_over` + 决策覆盖领导判定）于 2026-11-09 落地（历史 `tasks 22/22` 仅指该范围）；OQ-1~OQ-4 已按 spec 已定默认值消解并回填。
+>
+> **与 050 关系的口径更正**：本 spec 多处写「复用 050 运行持久化与审批节点」，但代码实况为 `RunDriver.start` 硬限 `mode == "graph"`、加载期拒绝非 graph 的审批节点，且 `run_team` 两处调用均不传 `approval_hook`（默认旁路）。因此「team 经 050 审批节点跨模式挂起」的宣称**在代码上不成立**；真挂起按既定「接管 = 050 跨模式挂起，P2 预留」口径留二期。050 自身的**生产接线最小闭环**已于 2026-11-12 由并行会话补齐（见 `specs/050-sop-human-handoff/spec.md` 性质说明 ⑤），但这不改变 052 跨模式挂起未在代码上成立的事实。
+>
+> **跨模式挂起另立二期；本特性对外口径统一为「引擎能力已实现，跨模式挂起未交付」。** 证据见 `deliverables/DESIGN-REVIEW-2026-11-12.md`。
 >
 > **背景事实（代码级核实，2026-11-09）**：编排六模式 `services/chat-api/app/orchestration/graph.py:13`（`VALID_MODES`）；`supervisor.py`（分派 + 聚合 + 失败阈值传播，`DEFAULT_CHILD_FAILURE_THRESHOLD = 1.0`）；044 已落地 `round_robin.py` / `debate.py` / `dispatch.py:66`（统一分发入口 `execute_orchestration`）；节点级 mode 形状校验先例 `loader.py:282-309`；046 统一后的 `projects` 集合与项目共享上下文（021 `mogo://` 可寻址）；050（本批次，未落地）提供 `orchestration_runs` 运行持久化与 `human_approval` 节点。
 

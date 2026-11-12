@@ -10,7 +10,20 @@
 
 > **设计来源**：本规约来自 `docs/MOGO-StaffDeck整合方案.md` §4.1（2026-11-09 代码级勘察结论）。StaffDeck 为 AGPL-3.0，**仅借鉴产品设计，不拷贝代码**。
 >
-> **性质说明**：**已实现（2026-11-09，tasks 27/27）**——`human_approval` 节点 + 运行持久化 + 挂起/恢复落地；OQ 已按 spec 已定默认值消解并回填。
+> **性质说明（2026-11-12 口径修订，同日接线后更新）**：**引擎能力已实现，生产接线最小闭环已交付**。`human_approval` 节点、运行持久化（`orchestration_runs`）、挂起/恢复、超时判定等**引擎与数据面能力**于 2026-11-09 落地（历史 `tasks 27/27` 仅指该范围）；2026-11-12 上午复审曾将口径修订为「引擎能力已实现，生产接线未交付」，同日下午按最小接线方案补齐三头断链（见下方 ⑤）。OQ 已按 spec 已定默认值消解并回填。
+>
+> **生产接线缺口（2026-11-12 通用设计复审，证据见 `deliverables/DESIGN-REVIEW-2026-11-12.md`）**：
+> ① 双前端 `apps/` 全量检索 `orchestration-runs` / `/todos` 零匹配，审批人无站内待办与决策页 —— R-4 所称「复用既有审批页数据面」并不存在（唯一审批页是 037 的 `/api/v1/portal/approvals`）；
+> ② `app/api/endpoints/orchestration_runs.py` 的 `set_run_runner()` 无生产调用方，`effective_runner()` 恒返回声明式回显，节点不执行真实技能；
+> ③ `app/main.py` 仅在启动时执行一次 `startup_recovery()`，`recovery_sweep` 只有外部 POST 触发、无常驻定时器 —— 默认部署下超时 fail-closed 与崩溃 `needs_review` 不生效；
+> ④ 2026-11-12 已修 `run_store.claim_pending` 的 `return_document` 语义缺陷（复审 P0-1），并补充真实 motor + 真实 pg_compat 回归用例；
+> ⑤ **2026-11-12 P0-2 整改：①-③ 三头断链已按「最小接线」方案落地（同日用户拍板）**——
+>   - **站内待办页**：user-web 侧栏「审批待办」入口（`apps/user-web/src/components/orchestration/ApprovalTodosPage.vue` + `src/api/orchestrationRuns.ts`），批准/驳回决策弹层、驳回理由必填、提交后刷新；决策 body 用 camelCase `nodeId`、不携带身份字段（会话鉴权）；
+>   - **真实 runner**：`services/chat-api/app/orchestration/production_runner.py` 经 LocalBridge 把节点技能派给已连接的浏览器 agent（`browser_execute_workflow` skill fast-path；goal 提取通用化 `payload.goal → context.goal`）；无会话/未连接时诚实降级 `unavailable`，**不伪造输出**；`app/main.py` 启动时 `set_run_runner` 注入，`start_run` 端点自动补 `context.user_id`；
+>   - **常驻恢复扫描**：`app/main.py` 的 `_orchestration_recovery_loop`（60s，压在 R-7「扫描周期 ≤ 租约 TTL 一半」上限），调 `orchestration_runs.periodic_recovery_sweep()`，失败记日志不静默；shutdown 取消；
+>   - 验收：`tests/orchestration/` 206 passed（新增 `test_production_runner.py` 覆盖降级三态/注入缝复位/周期扫描 db-None）；user-web `vue-tsc` 0 错误、新文件 prettier 达标；发起运行的**前端入口**（画布「运行」按钮）仍缺，运行经 API 发起，列为后续项。
+>
+> **本特性对外口径更新为「引擎能力已实现，生产接线最小闭环已交付（2026-11-12）」。** tasks / checklist 的历史勾选作为引擎范围完成度记录保留，不回改；生产链路验收以 ⑤ 的落地记录与回归用例为准。
 >
 > **背景事实（代码级核实，2026-11-09）**：编排六模式枚举 `services/chat-api/app/orchestration/graph.py:13`（`VALID_MODES`，无 human 节点）；`Node` 为 payload 字典（`graph.py:21`），节点级 mode 形状校验有先例（`loader.py:282-309` 的 round_robin/debate 检查）；引擎 `run_graph`（`engine.py:84`）为进程内异步执行，**无 checkpoint/resume/persist**；统一分发入口 `dispatch.py:66`（`execute_orchestration`）；编排定义已有持久化集合 `dag_definitions`（`store.py:30`）；审批票据机制 `governance/approval_runtime.py:25,32,56`（`ApprovalRuntime.issue / validate_and_consume`，一次性票据、审批与消费分离）；IM 五渠道（`im_gateway/adapter_base.py:18`）出站为应答式渲染（`:96` `render_reply`，**无主动推送 send**）；运行恢复测试范式 `tests/scheduled_tasks/test_scheduler_recovery.py`、`app/dsh_runtime/turn_recovery.py`。
 

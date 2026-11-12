@@ -352,3 +352,18 @@
 - 版本口径：7 处版本来源 + `MCP_CLIENT_VERSION` + 3 份 OpenAPI `info.version` 全部 **0.2.8**，与 `git tag v0.2.8` 对齐；运行栈为 **k3s**（7 个业务 Pod 镜像均为 `v0.2.8`，其中 `admin-web` 于本轮 2026-11-11 重建含菜单方案未认证时序 401 修复）。
 - 主键终态：2026-11-11 停机窗口完成全库归一，**只认 32-hex**（`docs/id-unification-hex32-runbook.md`）；040 的 spec / checklist 已同步去掉 24-hex 旧口径。
 - 本轮修复：`tenant_purge` 补齐 050–053 引入的 7 个租户集合、051 新增审计事件断言、5 份 quickstart、README / INDEX / PPT / CHANGELOG 计数、`drift` / `verify` 在 k3s 栈下的假阳性守卫。
+
+---
+
+## 2026-11-12 口径修订与接线交付（通用设计复审 · 050/052 权威口径）
+
+> 来源：`deliverables/DESIGN-REVIEW-2026-11-12.md`。上午按**通用设计**（业务流 / 数据流 / 审批流）复审，
+> 核的是**链路闭合性**；与本文档历轮的「文档齐备度 + tasks 勾选率」统计互不替代。
+> **本节覆盖上方所有历史快照中 050 / 052 的「已实现」表述**，历史勾选与快照不回改、仅作留档。
+
+- **复审发现（上午）**：050 原标注「已实现 27/27」，但审批链路端到端不可达 —— ① 双前端无待办/决策页 ② `set_run_runner()` 无生产调用方、节点恒回显 ③ 无常驻恢复扫描；另有 P0-1 `claim_pending` 的 `return_document` 语义缺陷（AFTER 会先删待办再读，造成僵尸运行）。
+- **P0-1 已修**：`run_store.claim_pending` 改为 BEFORE；假集合改为忠实实现 BEFORE/AFTER；新增真实 motor + 真实 pg_compat 回归用例 `tests/orchestration/test_run_store_real_backends.py`（上午 `tests/orchestration/` 全量 **201 passed**）。
+- **P0-2 处置（同日更新）**：用户后续改选「补齐生产接线」而非仅改宣称，由并行会话交付最小闭环 —— user-web 站内审批待办页（`ApprovalTodosPage.vue` + `api/orchestrationRuns.ts`）、`orchestration/production_runner.py` 经 LocalBridge 派发节点技能（无会话/未连接时诚实降级、不伪造输出）、`app/main.py` 启动时注入 runner + 60s 常驻恢复扫描。验收 `tests/orchestration/` **206 passed**（接线会话）/ 提交前真实双后端复核 **207 passed**、user-web `vue-tsc` 0 错误。**画布「运行」按钮仍缺，运行经 API 发起，列为后续项**。
+- **050 最终口径**：**「引擎能力已实现，生产接线最小闭环已交付（2026-11-12）」**，逐项证据见 `specs/050-sop-human-handoff/spec.md` 性质说明 ⑤。
+- **052 口径**：`team` 第七模式能力已落地，但「复用 050 审批节点跨模式挂起」在代码上不成立（`RunDriver.start` 硬限 graph、加载期拒绝非 graph 审批节点、`run_team` 不传 `approval_hook`）；真挂起仍为二期，对外口径 **「引擎能力已实现，跨模式挂起未交付」**。
+- **勾选率说明**：050 `27/27`、052 `22/22` 与 11-11 审计 `1681/1696 = 99.12%` 均为 **tasks / 文档完成度**记录，**不作为「生产链路可交付」的证据** —— 本次复审正是因此发现断链。
