@@ -56,10 +56,21 @@ class SessionTimeoutVerdict:
 
 
 def epoch_seconds(value: Any) -> int:
-    """把 ``datetime`` / epoch int / epoch float 统一成 Unix 秒。"""
+    """把 ``datetime`` / epoch int / epoch float 统一成 Unix 秒。
+
+    ``naive`` datetime 一律按 **UTC 墙钟**解释，不是主机本地时区：
+
+    pymongo 以 tz-aware 关闭方式读取，MongoDB 里存的是 UTC 值，读回得到的
+    正是「UTC 墙钟的 naive datetime」（写入方也恒为 ``datetime.now(timezone.utc)``）。
+    若直接 ``.timestamp()``，Python 会按**主机本地时区**解释 naive 值 —— 时区偏移
+    会被当成时间差。UTC+8 上会话写入 8 小时前的 UTC 值，判定就变成「空闲 8 小时」，
+    超过 30min 空闲窗后第二个请求必 401（2026-11-12 手工链路验收实测复现）。
+    """
     if value is None:
         return 0
     if isinstance(value, _dt.datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=_dt.timezone.utc)
         return int(value.timestamp())
     try:
         return int(value)

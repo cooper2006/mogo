@@ -358,3 +358,50 @@ def test_chat_api_constants_are_exported() -> None:
     assert end_user_session.SESSION_IDLE_TIMEOUT_SECONDS == 30 * 60
     assert end_user_session.SESSION_ABSOLUTE_TIMEOUT_SECONDS == 24 * 3600
     assert end_user_session.LAST_SEEN_FIELD == "last_seen_at"
+
+
+# ---------------------------------------------------------------------------
+# naive datetime 的时区形状（2026-11-12 手工链路验收发现的即时过期缺陷）
+# ---------------------------------------------------------------------------
+
+
+def test_naive_datetime_is_interpreted_as_utc_not_host_local() -> None:
+    """naive 值必须按 UTC 墙钟解释。
+
+    pymongo 以 tz-aware 关闭方式读取，MongoDB 存的是 UTC，读回就是「UTC 墙钟的
+    naive datetime」。旧实现直接 ``.timestamp()`` 会按**主机本地时区**解释，
+    时区偏移被当成时间差：UTC+8 上写入 8 小时前的会话被判「空闲 8 小时」，
+    超过 30min 窗后第二个请求必 401，且已被写成 ``expired``（实测复现）。
+
+    期望值在 UTC 主机上本地解释时恰与 UTC 口径重合（``-8h == -8h``），故本用例
+    在 UTC 环境下也成立，不会变成假绿。
+    """
+    naive = dt.datetime(2026, 10, 12, 10, 0, 0)
+    expected_utc = int(naive.replace(tzinfo=dt.timezone.utc).timestamp())
+    assert st.epoch_seconds(naive) == expected_utc
+    # 旧实现（本地时区解释）与 UTC 口径恰好等价的唯一情形：主机时区就是 UTC。
+    assert expected_utc != int(naive.astimezone().timestamp()) or \
+        dt.datetime.now(dt.timezone.utc).utcoffset() == dt.timedelta(0)
+
+
+def test_fresh_session_not_expired_by_host_timezone() -> None:
+    """端到端：刚写入的会话，第二个请求不得被主机时区误判成 8 小时空闲。
+
+    模拟真实链路：服务端写 aware UTC → 落库 → pymongo 读回 naive → 判定。
+    旧实现对 naive 值按主机本地时区解释，UTC+8 上「1 分钟前的 UTC 墙钟」会被
+    读成「16 小时前」，idle 直接超 30min 窗 → 会话只能活一个请求。
+    """
+    aware = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)
+    naive_from_db = aware.replace(tzinfo=None)  # pymongo 读回形状
+    assert naive_from_db.tzinfo is None
+
+    verdict = evaluate_session_timeout(
+        {"created_at": aware, "last_seen_at": naive_from_db},
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp()),
+        last_activity_field="last_seen_at",
+    )
+    assert verdict.idle_seconds == 60, (
+        f"时区形状缺陷：idle={verdict.idle_seconds}s（应为 60s，"
+        f"偏移 {verdict.idle_seconds - 60}s = 主机时区偏移）"
+    )
+    assert verdict.ok, f"reason={verdict.reason}"

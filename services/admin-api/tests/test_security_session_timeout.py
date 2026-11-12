@@ -62,9 +62,16 @@ def test_epoch_seconds_handles_int_float_and_datetime() -> None:
 
 
 def test_epoch_seconds_naive_datetime_is_converted() -> None:
-    """历史写入可能是 naive datetime；.timestamp() 按本机时区解释，结果可用。"""
+    """历史写入可能是 naive datetime；按 **UTC 墙钟**解释（pymongo 读回的正是 UTC 墙钟）。
+
+    不得按主机本地时区解释，否则时区偏移会被当成时间差（见
+    ``app/security/session_timeout.py`` 的 ``epoch_seconds`` 说明）。
+    """
     naive = dt.datetime(2026, 10, 12, 0, 0, 0)
     assert isinstance(epoch_seconds(naive), int)
+    assert epoch_seconds(naive) == int(
+        naive.replace(tzinfo=dt.timezone.utc).timestamp()
+    )
 
 
 def test_epoch_seconds_none_and_garbage_are_zero() -> None:

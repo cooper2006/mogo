@@ -56,10 +56,21 @@ class SessionTimeoutVerdict:
 
 
 def epoch_seconds(value: Any) -> int:
-    """把 ``datetime`` / epoch int / epoch float 统一成 Unix 秒。"""
+    """把 ``datetime`` / epoch int / epoch float 统一成 Unix 秒。
+
+    ``naive`` datetime 一律按 **UTC 墙钟**解释，不是主机本地时区：
+
+    pymongo 以 tz-aware 关闭方式读取，MongoDB 里存的是 UTC 值，读回得到的
+    正是「UTC 墙钟的 naive datetime」。若直接 ``.timestamp()``，Python 会按
+    **主机本地时区**解释 naive 值，时区偏移会被当成时间差（UTC+8 上 8 小时前
+    的 UTC 值会被判成「空闲 8 小时」）。本服务的 admin 会话字段是 epoch 秒
+    （``last_activity_at``），此处统一口径是为保持双服务同语义。
+    """
     if value is None:
         return 0
     if isinstance(value, _dt.datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=_dt.timezone.utc)
         return int(value.timestamp())
     try:
         return int(value)
