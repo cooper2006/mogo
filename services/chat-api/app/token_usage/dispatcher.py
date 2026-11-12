@@ -77,6 +77,7 @@ class TokenUsageDispatcher:
                     "reason": reason,
                     "trace_id": record.trace_id,
                     "user_id": record.user_id,
+                    "processed": False,
                 }
             )
             metric_dlq_total.increment()

@@ -24,6 +24,7 @@ suspended call, i.e. no human approval happened at all (001 audit, 2026-10-03).
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from typing import Any, Optional
 
 from ..gatekeeper import GateContext, GateDecision, GateVerdict
@@ -86,8 +87,8 @@ class ApprovalRegistry:
             "required_approvals": max(1, int(required_approvals)),
             "trust_level": str(trust_level or ""),
             "approvals": [],
-            "created_at": _utcnow(),
-            "expires_at": _utcnow() + timedelta(minutes=ttl_minutes),
+            "created_at": utc_now(),
+            "expires_at": utc_now() + timedelta(minutes=ttl_minutes),
             "resolved_at": None,
         }
         await self._collection().insert_one(document)
@@ -112,9 +113,9 @@ class ApprovalRegistry:
         )
         if document is None:
             return False
-        if document.get("expires_at") and document["expires_at"] < _utcnow():
+        if document.get("expires_at") and document["expires_at"] < utc_now():
             await collection.update_one(
-                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": _utcnow()}}
+                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": utc_now()}}
             )
             return False
         actor_id = str(actor or "")
@@ -122,13 +123,13 @@ class ApprovalRegistry:
         if approved:
             if any(item.get("decided_by") == actor_id for item in approvals):
                 return False  # this approver already voted
-            approvals = approvals + [{"decided_by": actor_id, "decided_at": _utcnow()}]
+            approvals = approvals + [{"decided_by": actor_id, "decided_at": utc_now()}]
             required = max(1, int(document.get("required_approvals") or 1))
             status = "approved" if len(approvals) >= required else "pending"
-            resolved_at = _utcnow() if status == "approved" else None
+            resolved_at = utc_now() if status == "approved" else None
         else:
             status = "denied"
-            resolved_at = _utcnow()
+            resolved_at = utc_now()
         result = await collection.update_one(
             {"_id": document["_id"], "status": "pending"},
             {
@@ -153,16 +154,16 @@ class ApprovalRegistry:
         )
         if document is None:
             return False
-        if document.get("expires_at") and document["expires_at"] < _utcnow():
+        if document.get("expires_at") and document["expires_at"] < utc_now():
             await collection.update_one(
-                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": _utcnow()}}
+                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": utc_now()}}
             )
             return False
         if actor and document.get("user_id") and actor != document["user_id"]:
             return False
         result = await collection.update_one(
             {"_id": document["_id"], "status": "approved"},
-            {"$set": {"status": "consumed", "consumed_at": _utcnow()}},
+            {"$set": {"status": "consumed", "consumed_at": utc_now()}},
         )
         return result.modified_count == 1
 
@@ -181,16 +182,16 @@ class ApprovalRegistry:
         )
         if document is None:
             return False
-        if document.get("expires_at") and document["expires_at"] < _utcnow():
+        if document.get("expires_at") and document["expires_at"] < utc_now():
             await collection.update_one(
-                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": _utcnow()}}
+                {"_id": document["_id"]}, {"$set": {"status": "expired", "resolved_at": utc_now()}}
             )
             return False
         if actor and document.get("user_id") and actor != document["user_id"]:
             return False
         result = await collection.update_one(
             {"_id": document["_id"], "status": "pending"},
-            {"$set": {"status": "approved", "resolved_at": _utcnow()}},
+            {"$set": {"status": "approved", "resolved_at": utc_now()}},
         )
         return result.modified_count == 1
 
@@ -205,7 +206,7 @@ class ApprovalRegistry:
             return False
         result = await collection.update_one(
             {"_id": document["_id"], "status": "pending"},
-            {"$set": {"status": "denied", "resolved_at": _utcnow()}},
+            {"$set": {"status": "denied", "resolved_at": utc_now()}},
         )
         return result.modified_count == 1
 
