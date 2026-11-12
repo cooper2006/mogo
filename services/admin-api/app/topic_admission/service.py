@@ -52,7 +52,7 @@ def preview(text: str, payload: TopicPolicyPayload) -> dict[str, Any]:
                    for entry in rule.terms for token in [entry.keyword, *entry.synonyms]):
                 matched = {"id": rule.id, "keyword": rule.terms[0].keyword}
                 break
-    allowed = payload.mode == "off" or (matched is None if payload.mode == "denylist" else matched is not None)
+    allowed = payload.mode != "off" and ((matched is None if payload.mode == "denylist" else matched is not None))
     return {"allowed": allowed, "matchedRule": matched, "mode": payload.mode}
 
 

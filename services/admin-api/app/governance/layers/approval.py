@@ -24,17 +24,13 @@ suspended call, i.e. no human approval happened at all (001 audit, 2026-10-03).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from ..gatekeeper import GateContext, GateDecision, GateVerdict
+from app.core.shared_constants import utc_now
 
 GATE_APPROVALS_COLLECTION = "gate_approvals"
 APPROVAL_TTL_MINUTES = 5
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _get_db() -> Any:

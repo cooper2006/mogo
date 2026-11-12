@@ -61,24 +61,6 @@ Content-Type: application/json
 }
 ```
 
-### 2.2 错误码字典
-
-| 错误码 | HTTP 状态码 | 说明 |
-|--------|-------------|------|
-| `VALIDATION_ERROR` | 422 | 请求验证失败 |
-| `UNAUTHORIZED` | 401 | 未认证或 token 无效 |
-| `FORBIDDEN` | 403 | 权限不足 |
-| `NOT_FOUND` | 404 | 资源不存在 |
-| `CONFLICT` | 409 | 资源冲突 |
-| `PRECONDITION_FAILED` | 412 | 前置条件失败 |
-| `UNPROCESSABLE_ENTITY` | 422 | 请求语义错误 |
-| `UNSUPPORTED_MEDIA_TYPE` | 415 | 不支持的媒体类型 |
-| `NOT_ACCEPTABLE` | 406 | 不支持的响应格式 |
-| `TOO_MANY_REQUESTS` | 429 | 请求过多（限流） |
-| `PAYMENT_REQUIRED` | 402 | 配额已用尽 |
-| `INTERNAL_ERROR` | 500 | 服务器内部错误 |
-| `SERVICE_UNAVAILABLE` | 503 | 服务不可用 |
-
 ### 2.3 错误信息不暴露内部组件
 
 **QF-234 要求**：

@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.db import get_db
+from app.core.shared_constants import utc_now
 from app.core.product_edition import product_edition_fields
 
 ORG_COLLECTION = "organizations"
@@ -21,8 +22,6 @@ USER_QUOTA_LOG_COLLECTION = "user_token_allocation_logs"
 # 042-three-level-quota: 团队/项目层策略仍存 user_quota_policies（scope_type 区分），
 # 项目分组是新建的轻量实体（与桌面 Code 的 projects 端点语义无关）。
 PROJECT_COLLECTION = "projects"  # 049 FR-006: 项目实体统一在 046 的 projects 表（chat-api 写入）
-# 049 FR-006: 项目层成员口径 = projects.member_user_ids ∪ 创建者（user_id），
-# 双副本必须同口径（047 T022 一致性测试锁死）。
 CHAT_SESSIONS_COLLECTION = "chat_sessions"
 QUOTA_ALERT_COLLECTION = "quota_alert_events"
 QUOTA_ALERT_KINDS = ("exceeded", "approaching", "layer_unreadable")
@@ -52,6 +51,10 @@ class QuotaExceededError(ValueError):
         self.layer = layer
         self.scope_id = scope_id
         self.kind = kind
+
+
+VALID_PERIODS = {"monthly", "daily", "hourly"}
+DEFAULT_TIMEZONE = "Asia/Shanghai"
 
 
 def utc_now() -> datetime:
@@ -114,16 +117,18 @@ async def ensure_org_quota_policy(tenant_id: str, *, org_total_points: int = 0) 
     now = utc_now()
     total = max(int(org_total_points or 0), 0)
     policy = {
+        # Phase 1 dual-write: canonical tenant_id + legacy tenant_id.
         "tenant_id": tenant_id,
         "total_tokens": total,
+        "unlimited": True,
         "period": "monthly",
         "timezone": DEFAULT_TIMEZONE,
         "status": "active",
         "created_at": now,
         "updated_at": now,
     }
-    await db[ORG_QUOTA_POLICY_COLLECTION].update_one(match_scope, {"$setOnInsert": policy}, upsert=True)
-    return await db[ORG_QUOTA_POLICY_COLLECTION].find_one(match_scope) or policy
+    await db[ORG_QUOTA_POLICY_COLLECTION].update_one({"tenant_id": tenant_id}, {"$setOnInsert": policy}, upsert=True)
+    return await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id}) or policy
 
 
 async def ensure_default_user_policy(tenant_id: str, *, period: str = "monthly") -> dict[str, Any]:
@@ -134,9 +139,9 @@ async def ensure_default_user_policy(tenant_id: str, *, period: str = "monthly")
         return policy
     now = utc_now()
     policy = {
+        **query,
+        # Phase 1 dual-write: canonical tenant_id (tenant_id already in query).
         "tenant_id": tenant_id,
-        "scope_type": "all",
-        "scope_id": "",
         "quota_tokens": 0,
         "period": normalize_period(period),
         "priority": 10,
@@ -474,9 +479,9 @@ async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, A
             "remainingPoints": -1,
             "resetAt": "",
             "status": "active",
-            "orgTotalPoints": org_total,
+            "orgTotalPoints": -1,
             "orgUsedPoints": org_used,
-            "orgRemainingPoints": max(0, org_total - org_used),
+            "orgRemainingPoints": -1,
         }
     remaining = max(0, min(user_total - user_used, org_total - org_used))
     limiting_scope = "user" if (user_total - user_used) <= (org_total - org_used) else "org"
@@ -532,6 +537,7 @@ async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, A
         "period": normalize_period(user_policy.get("period") or org_policy.get("period")),
         "totalPoints": user_total,
         "usedPoints": user_used,
+        "unlimited": False,
         "remainingPoints": remaining,
         "resetAt": user_end.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z"),
         "status": "active" if org_policy.get("status") == "active" and user_policy.get("status") == "active" else "disabled",

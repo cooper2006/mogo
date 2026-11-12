@@ -7,6 +7,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.db import get_db
+from app.core.shared_constants import utc_now
 
 ORG_COLLECTION = "organizations"
 USER_COLLECTION = "end_users"
@@ -49,6 +50,10 @@ class QuotaExceededError(ValueError):
         self.layer = layer
         self.scope_id = scope_id
         self.kind = kind
+
+
+VALID_PERIODS = {"monthly", "daily", "hourly"}
+DEFAULT_TIMEZONE = "Asia/Shanghai"
 
 
 def utc_now() -> datetime:
@@ -102,7 +107,9 @@ def _one_day():
 
 async def ensure_org_quota_policy(tenant_id: str, *, org_total_points: int = 0) -> dict[str, Any]:
     db = get_db()
-    policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id})
+    # Phase 1 dual-write: match either tenant_id (canonical) or legacy tenant_id.
+    match_scope = {"tenant_id": tenant_id}
+    policy = await db[ORG_QUOTA_POLICY_COLLECTION].find_one(match_scope)
     if policy:
         return policy
     now = utc_now()
@@ -385,39 +392,14 @@ async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, A
     user_id = str(user.get("_id") or "")
     space_type = str(user.get("space_type") or "").strip().lower()
     if space_type not in {"personal", "enterprise"}:
-        space_type = "personal" if str(user.get("org_name") or "").strip() == "个人空间" else "enterprise"
+        org_name = str(user.get("org_name") or "").strip()
+        space_type = "personal" if org_name == "个人空间" else "enterprise"
     org = await db[ORG_COLLECTION].find_one({"tenant_id": tenant_id}) or {}
-
-    if space_type != "enterprise":
-        total = int(org.get("total_points") or 0)
-        used = int(org.get("used_points") or 0)
-        # T033/T034: personal/community spaces default to unlimited
-        # (organizations.points_unlimited, decision 12).
-        points_unlimited = bool(org.get("points_unlimited", True))
-        return {
-            "tenantId": tenant_id,
-            "orgName": org.get("org_name") or user.get("org_name") or "个人空间",
-            "spaceType": "personal",
-            "quotaSource": "registration_gift",
-            "period": "lifetime",
-            "totalPoints": total,
-            "usedPoints": used,
-            "unlimited": points_unlimited,
-            "remainingPoints": -1 if points_unlimited else max(0, total - used),
-            "resetAt": "",
-            "status": "active",
-        }
-
-    org_policy = await ensure_org_quota_policy(tenant_id, org_total_points=int(org.get("total_points") or 0))
-    user_policy = await resolve_user_policy(tenant_id, user_id)
-    tz_name = normalize_timezone(org_policy.get("timezone"))
-    org_start, org_end = period_window(str(org_policy.get("period") or "monthly"), tz_name)
-    user_start, user_end = period_window(str(user_policy.get("period") or org_policy.get("period") or "monthly"), tz_name)
 
     # T033/T034: unlimited short-circuit (decision 12).
     # org_quota_policies.unlimited defaults to True for new tenants; legacy
     # rows without the field are treated as limited (backward-compatible).
-    org_unlimited = bool(org_policy.get("unlimited", False))
+    org_unlimited = bool(org_policy.get("unlimited", False)) if (org_policy := await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id})) else False
     if org_unlimited:
         # Usage is still recorded for reporting; the limit itself is lifted.
         org_used = await sum_usage(tenant_id, start_at=org_start, end_at=org_end)

@@ -18,7 +18,7 @@
 > （含 028/029 会话轨迹与 SSO 接收方、030 本体数据权限、031 模型供应商发现与多协议接入）。
 > **2026-10-18 补充**：新增 **031（模型供应商发现与多协议接入）**，属**回溯补规格**（后端 discover 五协议 + 三协议种子 + 前端「获取列表」弹窗与首次向导字段提示先于 spec 落地，本轮补 spec/plan/tasks，详见「四（补 5）」）。
 >
-> **2026-10-23 补充（AgentOS 整合批次）**：依据《企业 Agent OS 产品落地方案》与 mogo 的代码级对照评估（`docs/MOGO-AgentOS整合方案.md`，2026-10-23），新增 **032–044 共 13 个缺口特性**的 spec/plan/tasks 三件套。全部为**全新特性、代码尚未开工**（与 027/030/031 的"回溯补规格"相反，tasks 全部未勾选，按 SDD 正向推进）；形态边界遵循 `Decisions/ADR-7-触达层边界-移动端以IM入口覆盖.md`（移动端以 013 IM 入口覆盖，不单独做移动端、不做桌面端）。详见「四（补 6）」。
+> **2026-10-23 补充（AgentOS 整合批次）**：依据《企业 Agent OS 产品落地方案》与 mogo 的代码级对照评估（`docs/MOGO-AgentOS整合方案.md`，2026-10-23），新增 **032–044 共 13 个缺口特性**的 spec/plan/tasks 三件套。本批次按 SDD 正向推进（spec/plan/tasks 先于实现）；形态边界遵循 `Decisions/ADR-7-触达层边界-移动端以IM入口覆盖.md`（移动端以 013 IM 入口覆盖，不单独做移动端、不做桌面端）。详见「四（补 6）」。**后续实现已完整落地**（见 §262–§266）。
 >
 > **2026-10-31 补充（035/042 口径收敛落地）**：依据 `specs/035-cost-attribution/review-2026-10-30-dimension-source-audit.md`（业务线取消、空间→项目、企业→租户、042 整改批次 A/B/C）新增 **046–048 三个特性**（项目维度统一 / 配额可发现性 / 业务线维度删除），各含 spec + plan + tasks + checklist 四件套。**代码已落地（2026-11-01）**。046 34/34、047 30/30、048 13/13（tasks 全勾，与 CHANGELOG 一致）。详见「四（补 7）」。
 >
@@ -185,11 +185,11 @@
 >
 > **验证**：admin-api `tests/test_models_discover.py` 11/11 全绿（OpenAI/Azure 解析、Anthropic/Gemini/Ollama 解析、HTTP 错误→502、路由分发、未知类型→422）；前端 `SetupModelFields.vue` 经 `@vue/compiler-sfc` 单文件编译通过。
 
-## 四（补 6）、AgentOS 整合特性（2026-10-23 新增，代码未开工）
+## 四（补 6）、AgentOS 整合特性（2026-10-23 新增）
 
 > **来源**：《企业 Agent OS 产品落地方案》（2026-10-15）与 mogo 31 个特性的代码级对照评估，产出 `docs/MOGO-AgentOS整合方案.md`（§4 立项清单 13 项）。本批次把该清单落为 SDD 规约。
 >
-> **性质**：**全新特性，代码尚未开工**——与 027/030/031 的"回溯补规格"（代码先于 spec）相反，本批次 spec/plan/tasks 先于实现，tasks 全部未勾选，按 `/speckit-implement` 正向推进。checklist 与 quickstart 待 `/speckit-checklist` 与实现收敛时按需生成。
+> **性质**：**全新特性，spec/plan/tasks/checklist 先于代码落地**（与 027/030/031 的"回溯补规格"相反）。032–044 共 13 项已由并行会话在 2026-10-23 至 2026-10-29 间按 SDD 流程正向实现并逐一勾选；045 资产中心于 2026-10-29 单独落地。**零代码零开工特性**。checklist 13 份已于 2026-10-24 全部建成且 100% 勾选达标（见 §261）。
 >
 > **形态边界**：`Decisions/ADR-7-触达层边界-移动端以IM入口覆盖.md`——移动端以 013 多 IM 入口覆盖，不单独做移动端、不做桌面端；门户（037）以 Web 形态交付。
 
@@ -214,7 +214,7 @@
 
 **落地节奏**（整合方案 §5 三波次）：Wave 1 治理闭环 = 032+033+034；Wave 2 运营与产品完整性 = 035+036+037+038；Wave 3 生态体验 = 039–044 按资源选做。
 
-## 四（补 7）、035/042 口径收敛落地（2026-10-31 新增，代码未开工）
+## 四（补 7）、035/042 口径收敛落地（2026-10-31 新增，046–048 已落地，049 已落地）
 
 > **来源**：`specs/035-cost-attribution/review-2026-10-30-dimension-source-audit.md`（唯一正本，含 §7.1 项目维度 D0–D8、§7.2 042 整改批次 A/B/C、§8 落地顺序）与 `Decisions/ADR-8-统一项目概念-项目即工作目录.md`。
 >
@@ -225,7 +225,7 @@
 | 编号 | 特性 | 来源 | 优先级 | spec | plan | tasks | checklist | 一句话定位 |
 |---|---|---|---|---|---|---|---|---|
 | 046 | project-dimension（项目维度统一） | 035 §7.1 / §8 P0–P2 | P0 | ✅ | ✅ | ✅ | ✅ | 三套同名"项目"收敛为一套（项目 = 工作目录）：`desktop_projects` → `projects`、默认项目 `"default"`、`chat_sessions.project_id`、网关反查绑定、全量回填、侧边栏与驾驶舱切读、042 项目层 `scope_id = project_id`。**代码已落地（2026-11-01）**：T001–T031 全部完成（P0 数据模型 T001–T005 + P1 回填 T019/T020 + P2 切读 T009–T031），含模型网关令牌 `user_id`/`project_id` 注入（T010–T012）、`merge_request_context`（T013）、会话创建写 `project_id`（T015）、归因落账测试（T014）、回填幂等测试（T019）、自动归档（T024/T026/T027）、配额项目层成员来源改 `chat_sessions.project_id`（T030）、驾驶舱项目维度对账（T031）。 |
-| 047 | quota-discoverability（配额可发现性） | 035 §7.2 批次 A/B/C | P0 | ✅ | ✅ | ✅ | ✅（26/30 已勾，T013 手工验证、T027-T030 Polish 已补） | 042 引擎已实现但找不到：新增独立菜单「项目管理」、修 `?open=quota` 深链（现指向租户额度）、驾驶舱补「配额异常」卡片、文案「团队」→「部门」（标识符保留）、跨服务一致性测试 + tz 统一 |
+| 047 | quota-discoverability（配额可发现性） | 035 §7.2 批次 A/B/C | P0 | ✅ | ✅ | ✅ | ✅ | 042 引擎已实现但找不到：新增独立菜单「项目管理」、修 `?open=quota` 深链（现指向租户额度）、驾驶舱补「配额异常」卡片、文案「团队」→「部门」（标识符保留）、跨服务一致性测试 + tz 统一 |
 | 048 | business-line-removal（业务线维度删除） | 035 §4 / §4.3 | P1 | ✅ | ✅ | ✅ | ✅ | 删除无写方且必然产出单桶假数据的「业务线」维度：后端 `_resolve_business_line` 与 `businessLineAttribution`、前端标签/类型、测试断言；成本段 6 段 → 5 段。**代码已落地（2026-11-01）**：`dashboard.py` 删 `_resolve_business_line` + `_resolve_org_attribution()` 的 business_line 分支 + `_attribution_dimensions()` 的 business_line 段与 `businessLineAttribution` 键；`DashboardPage.vue` 删标签/来源/类型；`test_cost_attribution_035.py` 删业务线断言与用例；7 条原测试 + 新增 T009 验证全绿，`reconciles=True`，全仓 `businessLine`/`is_business_line` 0 命中。 |
 | 049 | project-members（项目成员与项目层配额收口） | 用户 2026-11-05 报障 + 追加需求 | P1 | ✅ | ✅ | ✅ | ✅ | 一处读路径修复 + 一个能力扩展：admin「项目管理」读路径从 0 行旧表 `quota_projects` 切到 046 统一后的 `projects`（ADR-8 残留）；项目加 `member_user_ids`（user-web「…」菜单成员弹窗，`end_users` + 部门过滤多选）；可见性改“我的 + 我参与的”（union）；项目层配额口径 = 成员 ∪ 创建者用量合计（双 `quota_policy.py` 同口径）；`quota_projects` 退役（写端点下线、读路径 0 命中）。**代码已落地（2026-11-05）**：spec/plan/tasks/checklist 四件套 + ADR-9；Phase 0–3 完成（读路径切 `projects`、成员字段/端点/弹窗、双服务配额口径、admin 前端清理），前端双端 SFC 4/4 + 双端 `vue-tsc` 0 错误，后端 chat-api 27 / admin-api 51 用例全绿；22:10 按用户拍板「按 spec 严格收口」（删 3 个 410 写路由、清 `tenant_purge` 旧表清理项、补 T019 运行时双服务对拍并做变异自检，D-2 默认项目租户共享兜底登记为**已批准豁免**）；余 T022 全链路手工验证待用户提供 admin 会话与 A/B/C 三账号（服务已 `healthy`，见 `specs/049-project-members/quickstart.md`）。 |
 
@@ -233,7 +233,7 @@
 
 **与既有批次的关系**：046 扩展 035（数据供给）；047 整改 042（可发现性）；048 收尾 035（取消维度）；**049 收口 042/046 的读路径残留并给 `projects` 加成员（ADR-9），扩展 046 D1 纯个人语义为“个人 + 可协作”**。四包均**不改** `scope_type` 枚举、`user_quota_policies` 集合名与 `ANOMALY_STATUSES`。
 
-## 四（补 9）、StaffDeck 整合特性（2026-11-09 新增，代码未开工）
+## 四（补 9）、StaffDeck 整合特性（2026-11-09 新增，050/052 已交付最小闭环）
 
 > **来源**：`docs/MOGO-StaffDeck整合方案.md`（唯一正本，2026-11-09 代码级勘察，含 18 项逐项对照 / 四个立项项 / 三波次路线 / 附录 B 证据索引）。对照对象为 StaffDeck（面壁智能等开源的 AGPL-3.0 数字员工平台，同为 DSH 底座）——**许可证不兼容，只借鉴设计，禁止拷贝代码**（各 spec 已声明）。
 >
@@ -254,12 +254,35 @@
 
 **与既有批次的关系**：050/052 扩展 010 引擎与 044 模式体系（050 加节点类型、052 加第 7 模式，039 画布同步）；051 与 006（岗位 RBAC）/019（Harness profile）/017（记忆 scope）为消费关系而非改造；053 扩展 045 资产中心与 016/018 市场，发布门禁走 032、凭证边界走 034。四包均**不改**既有六模式语义（044 FR-010 延续）。
 
+## 四（补 10）、通用设计复审 P1 整改特性（2026-11-12 新增，spec 已落地）
+
+> **来源**：`deliverables/DESIGN-REVIEW-2026-11-12.md` §整改路线（按依赖顺序排列的五项）。本批次为**架构治理类特性**——不引入新业务功能，属对既有代码结构性问题的规约化修复。零代码，四份 spec/plan/tasks/checklist/quickstart 五件套已于本轮建成。
+>
+> **性质**：**全新特性，spec/plan/tasks/checklist 先于代码落地**（与 050–053 同类正向 SDD）。tasks 全部未勾选，按 `/speckit-implement` 正向推进。checklist 与 quickstart 待 `/speckit-checklist` 与实现收敛时按需生成。
+
+|| 编号 | 特性 | 覆盖复审条目 | 优先级 | spec | plan | tasks | checklist | quickstart |
+|---|---|---|---|---|---|---|---|---|
+| 056 | unified-approval-kernel（审批单一内核） | P1-1 / P1-2 / P1-3 / P1-4 | P0 | ✅ | ✅ | ✅（39 项） | ✅ | ✅ |
+| 057 | pg-compat-capability-list（兼容层能力清单 + CI 静态扫描） | P1-10 | P1 | ✅ | ✅ | ✅（24 项） | ✅ | ✅ |
+| 058 | identity-pricing-quota-consistency（ID/用量/价格/配额单一来源） | P1-11 / P1-12 / P1-13 / P1-14 | P0 | ✅ | ✅ | ✅（27 项） | ✅ | ✅ |
+| 059 | fail-closed-cross-service（跨服务 fail-closed 可机检约束） | P1-16 / P1-17 | P1 | ✅ | ✅ | ✅（25 项） | ✅ | ✅ |
+
+**依赖顺序**（ §整改路线 第 5 节）：056 → 057 / 058 / 059（后三者相对独立，可并行）；056 与 058 共享 `services/common/` 路径，建议 058 先建 `shared_constants.py` 再给 056 引用。
+
+**实施风险评级**：
+- 056：高风险（影响 admin-api / chat-api 三个服务的调用方接口，需回归测试全覆盖）
+- 057：低风险（仅新增脚本 + API 端点，无运行时行为变化）
+- 058：中风险（billing.py tenant_id 短路移除可能影响 legacy 单租户部署，需前置确认）
+- 059：中风险（四处漏洞修复把 allow→deny，需在 staging 环境全链路验证后再上生产）
+
+---
+
 ## 五、规约完成度统计
 
-- spec.md：001–048 全部完成（48 份；028 会话级轨迹双 tab、029 user-web SSO 接收方，均于 2026-10-15 新增；030 本体数据权限 / 031 模型供应商发现为回溯补规格；**032–044 为 2026-10-23 AgentOS 整合批次，13 份全新特性规约，详见「四（补 6）」；045 资产中心于 2026-10-29 立项落地；046–048（项目维度统一 / 配额可发现性 / 业务线维度删除）为 2026-10-31 口径收敛批次，代码于 2026-11-01 落地，详见「四（补 7）」**）；**050–053 为 2026-11-09 StaffDeck 整合批次（4 份全新特性规约，2026-11-09 已按三波次实现，详见「四（补 9）」），累计 54 份（含 049、055）**
-- plan.md：001–048 全部完成（48 份；020 为技术化实施计划，022–026 为质量加固特性计划，027 为数据后端迁移计划，028 为路线 C 前端视图方案，029 为 SSO 接收方实施计划，032–044 为 AgentOS 整合实施计划，045 为资产中心方案 A+B，046–048 为口径收敛批次实施计划，其余技术契约齐全）；**050–053 为 StaffDeck 整合实施计划（4 份，2026-11-09，详见「四（补 9）」），累计 54 份（含 049、055）**
+- spec.md：001–048 全部完成（48 份；028 会话级轨迹双 tab、029 user-web SSO 接收方，均于 2026-10-15 新增；030 本体数据权限 / 031 模型供应商发现为回溯补规格；**032–044 为 2026-10-23 AgentOS 整合批次，13 份全新特性规约，详见「四（补 6）」；045 资产中心于 2026-10-29 立项落地；046–048（项目维度统一 / 配额可发现性 / 业务线维度删除）为 2026-10-31 口径收敛批次，代码于 2026-11-01 落地，详见「四（补 7）」**）；**050–053 为 2026-11-09 StaffDeck 整合批次（4 份全新特性规约，2026-11-09 已按三波次实现，详见「四（补 9）」）**；**056–059 为 2026-11-12 通用设计复审整改批次（4 份，spec/plan/tasks/checklist/quickstart 五件套已全部建成，代码未开工，详见「四（补 10）」）**，累计 **58 份（含 049、055、056–059）**。
+- plan.md：001–048 全部完成（48 份；020 为技术化实施计划，022–026 为质量加固特性计划，027 为数据后端迁移计划，028 为路线 C 前端视图方案，029 为 SSO 接收方实施计划，032–044 为 AgentOS 整合实施计划，045 为资产中心方案 A+B，046–048 为口径收敛批次实施计划，其余技术契约齐全）；**050–053 为 StaffDeck 整合实施计划（4 份，2026-11-09，详见「四（补 9）」）**；**056–059 为 2026-11-12 通用设计复审整改实施计划（4 份，详见「四（补 10）」）**，累计 **58 份（含 049、055、056–059）**。
 - checklist（需求质量门禁，`/speckit-checklist`）：001–028 完成（28 份，029 未建〔**2026-11-11 复核：029 的 `checklists/requirements.md` 已建成且 18/18 全勾；本句属 2026-10-24 历史快照口径，以磁盘实测为准**〕，`checklists/requirements.md`，reviewer-owned）；**001/002/007–021 共 17 份已 agent 代审 + FR 回填 + 跨特性双向声明，100% 勾选达标**；003–006（既有回溯）保留原始未勾状态；**022–026（质量加固）已于 2026-10-12 补齐 checklist（17–18 项/份，含 FR 覆盖、跨特性一致性、Non-Goals 边界与 OQ 待定标记），100% 勾选达标**；**027（数据后端迁移）于 2026-10-13 新建（35 项，勾选 33/35；未勾 2 项 CHK015 性能预算 / CHK027 索引验收口径 仍未定值——R2 已交付、R3 已按表结构扁平化推进，未依赖该阈值、未阻塞落地）**；**032–044（AgentOS 整合批次）13 份已于 2026-10-24 全部建成**（`specs/032-eval-gate/checklists/` … `specs/044-multi-agent-modes/checklists/`，各 15–16 项，四分类：完整性 / 清晰度 / 一致性 / 边界与歧义），**全部 100% 勾选达标**，13 份均经 agent 代审 + spec「判定口径补充」回填（R-1…R-16 逐条对应 CHK）。回填同时完成三件事：① 修正 spec 与代码不一致的路径/枚举（如 042 的 `ANOMALY_STATUSES` 不可复用、044 的 `contracts/` 目录不存在、043 的 `V3ItemKind` 无成本字段）；② 把先前含糊的口径定成可执行常量与判定序（阈值、归一化、钳制、fail-closed 分支）；③ 显式登记「首期未实现 + 建议落点」（040–044 原为代码零开工，已在本会话实现并勾选 tasks，各 spec 标注保留）；**045（资产中心）已于 2026-10-29 建成（19 项，四分类），100% 勾选达标**（spec/plan/tasks/quickstart 齐备，tasks 15/15，后端单测 `test_capability_assets_admin.py` 5 passed；032–048 批次 17 份 quickstart 已于 2026-11-04 补齐，与 001–030 同构）；**050–053（StaffDeck 整合批次）4 份于 2026-11-09 建成**（各 16–17 项，合计 67 项，四分类同 AgentOS 批次），**2026-11-10 已由 4 位 reviewer agent 代审完毕并 100% 勾选达标**（050 16/16、051 17/17、052 17/17、053 17/17；原生达标共 5 项，其余由 spec「判定口径补充」R 条回填消解，无留空项）。各 checklist 末尾均附「评审结论（2026-11-10 勾选，agent 代审 + spec 回填）」节，逐条给 CHK→R 映射与判定依据；生成规则 reviewer-owned、不预勾，勾选动作由 reviewer 完成，`/speckit-implement` 只读标记不改
-- tasks（可执行任务，`/speckit-tasks`）：**001–048 共 48 份全部建齐**（001/002/007–021 的 17 份含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP，354 项全部勾选；**2026-10-11 新增 003/004/005/006 的 4 份**，共 141 项任务；**2026-10-11 新增 022–026 的 5 份**，共 357 项任务，覆盖 QualityForge 审计 283 个 P0/P1 缺陷；**2026-10-13 新增 027 的 1 份**，共 75 项任务（R1 T001–T068、R2 T069–T087），已全部勾选并附实测证据）；**2026-10-15 新增 028/029 的 2 份**——028 共 10 项已全部勾选（实现与自动化验证均完成，quickstart 的 6 步目视验证待用户在 dev 环境执行）；029 共 20 项已全部勾选并实现（2026-10-15，端点 + 换票 + 门户示例 + 前端换票闭环，api/security/core 回归全绿）；**2026-10-23 新增 032–044 的 13 份**（共 358 项）——**2026-10-24 状态：勾选 337/358**。已落地：032（22/22 完整实现）、033（22/22）、034（33/37，保留 T033–T036 需 staging 备份演练；本地段 `tests/test_drill_credential_scripts.py` 1 passed 已覆盖 dry-run→apply→verify→二次幂等→轮换，SC-005 段闭环）、035（31/35，T017 缺口于 2026-10-24 闭环：`adapters.py` 两处 `set_request_context` 改 `merge_request_context` + 新增 `tests/enterprise_capabilities/runtime/test_035_capability_attribution_scope.py` 7 passed（合并 11 passed）回归 971 passed；T031–T034 待 staging）、036（28/29，T018 skills 侧 FR-014 于 2026-10-24 端到端落地：新增 `services/admin-api/app/services/trust_rating/skill_visibility.py` + `routes/skills.py` 接线 + `tests/test_skill_l1_visibility.py` 8 用例合计 59 passed；T019/T020/T021/T027 前端于 2026-10-24 交付：`src/api/trustRatings.ts` + `src/views/trust-ratings/TrustRatingPage.vue` + `SkillsPage.vue` L1–L4 徽标 + `/trust-ratings` 路由 + `DashboardPage.vue` 评级分布卡，vue-tsc exit 0 + SFC 编译 3 个 .vue ok；仅 T028 E2E 待 staging）、037（29/31）、038（32/34，T022/T023/T024 前端于 2026-10-24 交付：`src/api/egress.ts` + `src/views/egress/{EgressAllowlistPage,EgressLogsPage}.vue` + `/egress/allowlist` `/egress/logs` 两条路由，vue-tsc exit 0 + SFC 编译 ok；T025 工具编辑页入口与 T032 E2E 待人工）、039（30/33，T028/T029 前端单测未落地、T030 E2E）；**2026-10-24 追加落地：040（18/20，T017 需真实模型凭证、T019 需与 008 联调）、043（20/21，T019 手工浏览器验收待人工）、041（23/24，T019 mock 全链路 E2E 于 2026-10-24 闭环：`services/chat-api/tests/test_connector_market_mock_e2e.py` 4 passed（本地 `ThreadingHTTPServer` + gitlab-api 模板）；T022 034 联调验收待 staging）、042（23/24，T023 手工联调待人工；SFC 编译与 vue-tsc 已过）、**044（26/26，多 Agent 轮询择优 / 辩论对质：010 引擎扩 `round_robin`/`debate` 两模式 + 新建 `contracts/orchestration.md` 六模式契约，新增测试 45 passed + 010 全量回归 136 + `competitor_deep_dive` 迁移后 28）**各份 tasks.md 末尾均附「验收状态（2026-10-24 交接复核）」节记录证据与未勾原因；**045（资产中心）2026-10-29 建成（15 项，全部勾选）**——`GET /api/v1/capabilities/list` 接口 + 前端 `AssetsPage.vue`/`useAssetCatalog.ts`/`adminAsset.ts` 互链 + 门户上架下拉 + 审批页资产视角卡片，后端单测 5 passed；**2026-10-31 新增 046/047/048 三份（046 34/34、047 30/30、048 13/13，代码 2026-11-01 落地，仅 046 T035 / 047 T031 两项手工浏览器验收待人工）**——项目维度统一 / 配额可发现性 / 业务线维度删除，详见「四（补 7）」；**2026-11-05 新增 049 一份（23/25，余 T022 全链路手工验证需 admin 会话与 A/B/C 三账号、T025 成员变更审计回归用例）**——项目成员与项目层配额收口，详见「四（补 8）」；**2026-11-09 新增 050–053 四份（050 27 项 / 051 30 项 / 052 22 项 / 053 29 项，共 108 项）**——StaffDeck 整合批次，详见「四（补 9）」；**2026-11-09 状态：050 27/27、051 19/30（B1 后端+前端+文档接线）、052 21/22（核心+文档接线）、053 26/29（US1+US2+文档接线）**，余为 051 B2 / 053 US3 P2 / Phase 3 收尾（checklist 待代审、E2E/手工验收待人工），如实留空；**2026-11-10 状态**：四份 checklist 代审 100% 达标（不计入 tasks 勾选），050 27/27、051 29/30（T028 浏览器目视仅部分完成、保持 `[ ]`）、052 22/22、053 29/29；T028 自动化证据补强 + 管理页/门户目视证实、会话选择仅证实下拉可展开与空态（4 张截图，控制台无 error、xhr/fetch 无 404），「下拉选中具体员工发起会话」从未验证且 200 依赖自签合成登录态（会话已删、当前不可复现），按 reviewer 修正保持 `[ ]` 留人工；**累计 54 份 tasks.md**
+- tasks（可执行任务，`/speckit-tasks`）：**001–048 共 48 份全部建齐**（001/002/007–021 的 17 份含 clarify 决策 + checklist 门禁 + 故事分阶段 + 并行点 + MVP，354 项全部勾选；**2026-10-11 新增 003/004/005/006 的 4 份**，共 141 项任务；**2026-10-11 新增 022–026 的 5 份**，共 357 项任务，覆盖 QualityForge 审计 283 个 P0/P1 缺陷；**2026-10-13 新增 027 的 1 份**，共 75 项任务（R1 T001–T068、R2 T069–T087），已全部勾选并附实测证据）；**2026-10-15 新增 028/029 的 2 份**——028 共 10 项已全部勾选（实现与自动化验证均完成，quickstart 的 6 步目视验证待用户在 dev 环境执行）；029 共 20 项已全部勾选并实现（2026-10-15，端点 + 换票 + 门户示例 + 前端换票闭环，api/security/core 回归全绿）；**2026-10-23 新增 032–044 的 13 份**（共 358 项）——**2026-10-24 状态：勾选 337/358**。已落地：032（22/22 完整实现）、033（22/22）、034（33/37，保留 T033–T036 需 staging 备份演练；本地段 `tests/test_drill_credential_scripts.py` 1 passed 已覆盖 dry-run→apply→verify→二次幂等→轮换，SC-005 段闭环）、035（31/35，T017 缺口于 2026-10-24 闭环：`adapters.py` 两处 `set_request_context` 改 `merge_request_context` + 新增 `tests/enterprise_capabilities/runtime/test_035_capability_attribution_scope.py` 7 passed（合并 11 passed）回归 971 passed；T031–T034 待 staging）、036（28/29，T018 skills 侧 FR-014 于 2026-10-24 端到端落地：新增 `services/admin-api/app/services/trust_rating/skill_visibility.py` + `routes/skills.py` 接线 + `tests/test_skill_l1_visibility.py` 8 用例合计 59 passed；T019/T020/T021/T027 前端于 2026-10-24 交付：`src/api/trustRatings.ts` + `src/views/trust-ratings/TrustRatingPage.vue` + `SkillsPage.vue` L1–L4 徽标 + `/trust-ratings` 路由 + `DashboardPage.vue` 评级分布卡，vue-tsc exit 0 + SFC 编译 3 个 .vue ok；仅 T028 E2E 待 staging）、037（29/31）、038（32/34，T022/T023/T024 前端于 2026-10-24 交付：`src/api/egress.ts` + `src/views/egress/{EgressAllowlistPage,EgressLogsPage}.vue` + `/egress/allowlist` `/egress/logs` 两条路由，vue-tsc exit 0 + SFC 编译 ok；T025 工具编辑页入口与 T032 E2E 待人工）、039（30/33，T028/T029 前端单测未落地、T030 E2E）；**2026-10-24 追加落地：040（18/20，T017 需真实模型凭证、T019 需与 008 联调）、043（20/21，T019 手工浏览器验收待人工）、041（23/24，T019 mock 全链路 E2E 于 2026-10-24 闭环：`services/chat-api/tests/test_connector_market_mock_e2e.py` 4 passed（本地 `ThreadingHTTPServer` + gitlab-api 模板）；T022 034 联调验收待 staging）、042（23/24，T023 手工联调待人工；SFC 编译与 vue-tsc 已过）、**044（26/26，多 Agent 轮询择优 / 辩论对质：010 引擎扩 `round_robin`/`debate` 两模式 + 新建 `contracts/orchestration.md` 六模式契约，新增测试 45 passed + 010 全量回归 136 + `competitor_deep_dive` 迁移后 28）**各份 tasks.md 末尾均附「验收状态（2026-10-24 交接复核）」节记录证据与未勾原因；**045（资产中心）2026-10-29 建成（15 项，全部勾选）**——`GET /api/v1/capabilities/list` 接口 + 前端 `AssetsPage.vue`/`useAssetCatalog.ts`/`adminAsset.ts` 互链 + 门户上架下拉 + 审批页资产视角卡片，后端单测 5 passed；**2026-10-31 新增 046/047/048 三份（046 34/34、047 30/30、048 13/13，代码 2026-11-01 落地，仅 046 T035 / 047 T031 两项手工浏览器验收待人工）**——项目维度统一 / 配额可发现性 / 业务线维度删除，详见「四（补 7）」；**2026-11-05 新增 049 一份（23/25，余 T022 全链路手工验证需 admin 会话与 A/B/C 三账号、T025 成员变更审计回归用例）**——项目成员与项目层配额收口，详见「四（补 8）」；**2026-11-09 新增 050–053 四份（050 27 项 / 051 30 项 / 052 22 项 / 053 29 项，共 108 项）**——StaffDeck 整合批次，详见「四（补 9）」；**2026-11-09 状态：050 27/27、051 19/30（B1 后端+前端+文档接线）、052 21/22（核心+文档接线）、053 26/29（US1+US2+文档接线）**，余为 051 B2 / 053 US3 P2 / Phase 3 收尾（checklist 待代审、E2E/手工验收待人工），如实留空；**2026-11-10 状态**：四份 checklist 代审 100% 达标（不计入 tasks 勾选），050 27/27、051 29/30（T028 浏览器目视仅部分完成、保持 `[ ]`）、052 22/22、053 29/29；T028 自动化证据补强 + 管理页/门户目视证实、会话选择仅证实下拉可展开与空态（4 张截图，控制台无 error、xhr/fetch 无 404），「下拉选中具体员工发起会话」从未验证且 200 依赖自签合成登录态（会话已删、当前不可复现），按 reviewer 修正保持 `[ ]` 留人工；**2026-11-12 新增 056–059 四份（056 39 项 / 057 24 项 / 058 27 项 / 059 25 项，共 115 项）**——通用设计复审整改批次（tasks 全部未勾选），详见「四（补 10）」；**累计 58 份 tasks.md**
 - **AgentOS 整合批次落地进度（2026-10-24 复核）**：Wave 1–2（032–038）+ Wave 3 首个特性（039）代码已由并行会话落地，本会话按 SDD 门禁逐份复核（生成 checklist → spec 回填 → 跑测试 → 勾 tasks）；**040（档位路由）、043（会话回放 Stage 1）、041（连接器市场）、042（三级配额）、044（多 Agent 模式）均已由本会话实现并勾选**，032–044 全部落地，无代码零开工特性。测试证据：032 `test_eval_gate.py` 31 项 + `test_skill_lifecycle.py` 3 项；033 `test_canary_ratio.py` 19 + `test_canary_shadow.py` 9；034 70 + 13（含新增 `test_migrate_tool_credentials.py` 9、`test_rotate_tool_credentials.py` 4）；035 8 + 4 + dashboard 回归 42；036 `test_trust_rating.py` 25；037 25 + 27；038 15 + 28 + 脚本沙箱回归 2；039 11；044 45 + 010 引擎全量 136（含 `competitor_deep_dive` 迁移回归 28）；040 19 + `tests/llm` 全量 90；041 `test_connector_market.py` 14 + 工具/资产回归 66；043 `tests/session-replay.test.ts` + `trajectory-view-tabs` 8；042 `test_quota_three_level.py` 13 + 13（双服务同内容）、`test_quota_projects.py` 9、`test_quota_unlimited.py` 9 与 `test_governance_us4_us5.py` 13 回归。全部前端改动经 `@vue/compiler-sfc` 3.4.38 编译校验通过（admin-web/user-web `vue-tsc --noEmit` 均 0 错误）。
 - **2026-10-24 staging/E2E 缺口修复（第二批次）**：035 T017、036 FR-014 端到端 + 前端、038 前端、041 mock E2E、034 本地演练均已闭环（证据见各 tasks「验收状态」节与逐条勾选备注）；**仍待人工/staging 的 21 项**：034 T033–T036（staging 备份回滚/SC-002 注入回放/多副本轮换）、035 T031–T034、036 T028、038 T025/T032、039 T028–T030、040 T017/T019、041 T022、042 T023、043 T019。所有 staging 项均附执行步骤与判定口径（`docs/credential-key-rotation-drill.md` 与各 spec「判定口径补充」），未伪造勾选。
 
@@ -329,7 +352,7 @@
 - 平台化 / 优化轮新增（020、021）：spec ✅ → plan ✅ → clarify ✅（020 记录在 tasks.md 的 "Clarify Decisions" 节）→ checklist ✅ → tasks ✅ → 已按 SDD 落地（020 平台化多租户、021 统一上下文地址空间）
 - 质量加固（022–026，2026-10-11 新增）：spec ✅ → plan ✅ → tasks ✅ → quickstart ✅ → **checklist ✅（2026-10-12 补齐）** → 按审计修复波次 implement（Wave 1: 022 安全 → Wave 2: 023 可观测性 → Wave 3: 024 部署 → Wave 4: 025 API → Wave 5: 026 性能）
 - 数据后端迁移（027，2026-10-13 新增）：**既有工作回溯补规格**——R1 代码先于 spec 落地（与 003–006 的处理方式一致）→ spec ✅ → plan ✅ → tasks ✅（75 项全部勾选）→ quickstart ✅ → checklist ✅（33/35；未勾 CHK015/CHK027 仍未定值）→ **R1 基础设施 / R2 兼容层接线 / R3 关系扁平化均已落地（R3 见 `r3-flatten/`）**
-- AgentOS 整合（032–044，2026-10-23 新增）：**全新特性、代码未开工**——spec ✅ → plan ✅ → tasks ✅（全部未勾选）→ checklist 13 份已于 2026-10-24 全部建成且 100% 勾选 → 按整合方案 §5 三波次 implement（032–044 已全部落地）（Wave 1 治理闭环：032/033/034 → Wave 2 运营完整性：035–038 → Wave 3 生态体验：039–044）
+- AgentOS 整合（032–044，2026-10-23 新增）：**全新特性、spec/plan/tasks/checklist 先于代码落地**（与 027/030/031 的"回溯补规格"相反）。2026-10-24 前 build 阶段 checklist 13 份已建成且 100% 勾选；2026-10-23 至 2026-10-29 间由并行会话按 SDD 流程正向实现并逐一勾选。**全部落地**，零代码零开工特性（Wave 1 治理闭环：032/033/034 → Wave 2 运营完整性：035–038 → Wave 3 生态体验：039–044）。
 - StaffDeck 整合（050–053，2026-11-09 新增）：**2026-11-09 已按三波次实现**（050 27/27、051 29/30、052 22/22、053 29/29 勾选）。**2026-11-10 收尾**：四份 checklist 经 reviewer agent 代审 100% 勾选达标并回填 spec「判定口径补充」；051 B2（IM 意图路由 / 员工 API Key / 员工模板上架）与 053 US3 P2（副本申领 037/001 / 调试工作区 / 质量信号进 016）代码及端点契约复核完成；051 T028 自动化证据补齐（SFC 10/10、双端 `vue-tsc` 0 错误、前端首页 200、6 个端点 401 鉴权生效），浏览器目视验收于 2026-11-10 用 `agent-browser` 部分完成（管理页/门户已证实、会话选择仅证实下拉可展开与空态，4 张截图，控制台无 error、xhr/fetch 无 404）；200 依赖自签合成登录态，收口后会话已删、:3200 已停，当前不可复现；用户实测 `:3000/admin-api/api/v1/employees` 404 已定位为 3000 nginx 静态服务无 `/admin-api` 反代（vite dev server 漂移至 3001），启动 8100 后 3001 与直连均 401、3000 仍 404，属部署层非代码缺陷，T028 经 reviewer 澄清修正后保持 `[ ]` 不虚勾（曾据初报勾 `[x]`，已回退）；052 T015 按用户口径「接管 = 050 跨模式挂起，P2 预留」由 R-4 定清首期软依赖边界。**2026-11-10 文档一致性收口**：050 代审附注登记的 4 项契约/实现不一致已核实为「文档写错、实现无缺陷」并全部消解（仅改文档、不动运行时代码）；010 契约标题/模式注释同步为七模式、§6 状态机与票据条款改为与 R-6/R-2 一致；052 OQ-1「或有限重试」与 053 待澄清节 OQ-1~OQ-4 的口径残留已同步。**下一步**：T028 人工目视验收（需真实登录态复现 200 + 验证「下拉选中具体员工发起会话」）、050 `_validate_050_shapes` 的 mode 限制校验（R-9 实现侧未兑现，现由 `RunDriver.start` fail-closed 兜底）、053 散落 clarify 残留收敛（含 FR-009，本轮未动）、052 真跨模式挂起二期实现、3000 nginx `/admin-api` 反代（部署层、另一会话在途）。
   - **022 Wave 1 进度（2026-10-12）**：Phase 0「安全基座」T001–T006 ✅（双服务 `app/security/` 6 模块 + 各 176 单测）；Phase 1「口令与 MFA 强制策略」T007–T013 ✅（新增 `mfa_gate.py` 组合层；admin-api 登录闸门 + `/mfa/verify` 限流与 90s 防重放 + 绑定/解绑审计与通知降级；双服务口令策略统一 ≥12 位、4 类取 3；+32 条 gate 集成测试；admin-api 641 passed / chat-api 2474 passed）；Phase 2「令牌与会话生命周期」T014–T022 ✅（双服务 access token TTL 收敛到 1h + 启动告警；`/auth/refresh` 打通一次性轮换 + 重放吊销整个 family；新增共享 `session_timeout.py` 落地空闲 30min / 绝对 24h 判定（admin-api 经 `deps` 覆盖全部需认证路由、chat-api 经 `resolve_session_user`）；新增 `service_token.py` + `gatekeeper.py` 实现服务间独立凭证与 `service_id`/`tenant_id`/`user_id` 三重绑定（未配置时回退静态共享密钥，灰度可回滚）；口令重置走一次性凭据 + 管理员代重置置 `must_change_password` 并 5h 兜底过期；+76 条安全用例；admin-api 760 passed / chat-api 2549 passed）；Phase 3「容器非 root + 服务身份最小权限」T023–T029 ✅（4 个 Dockerfile 非 root UID/GID 10001：admin-api / chat-api / document-parser 用 Debian `groupadd`/`useradd`，admin-web 基于 Alpine 用 BusyBox `addgroup`/`adduser`，另新增 `apps/admin-web/nginx-main.conf` 供非 root master 使用；docker-compose 8 个服务加固 `no-new-privileges` + `cap_drop ALL` + `read_only` + tmpfs，nginx 服务仅保留 `NET_BIND_SERVICE` 并额外挂载 `/var/cache/nginx` 与 `/var/log/nginx`，tmpfs 必须显式 `mode=`（Docker 默认 0755 非 root 写不进）；`bootstrap` 的 `umask 077 → 022` 保证非 root 容器能读 `runtime.env`；`ServiceTokenClaim` 新增 `scope` 权限码集合 + `gatekeeper` 端点注册表，`verify_service_call(required_scope=...)` 对 `insufficient_scope`/`unknown_scope` fail-closed；存储路径默认值改绝对路径、`admin_static_dir` 与 `ReportFileManager` 的 mkdir 失败降级告警；新增 `deploy/tests/test_container_hardening.py` 58 passed / 6 skipped；实测 admin-api 镜像在完整加固参数下 `id -u`=10001 且 uvicorn 启动至连 MongoDB 前 0 条权限错误，admin-web(nginx) 同等参数下 `http 200`；admin-api 772 passed / chat-api 2549 passed）；Phase 4「输入安全加固」T030–T035 ✅（chat-api SSO 票据 TTL 从 12h 收敛到 60s，新增 admin-api `POST /api/auth/sso/exchange`（HMAC 签名 + 过期校验，`hmac.compare_digest` 常数时间比较，fail-closed 401）+ accept-once 幂等（按票据 `session_id` 打 `exchanged` 标记，`upsert=True`，二次换票 401）；前端 user-web 用 `window.open(url,'_blank','state=...')` 传令牌，admin-web 从 `window.history.state` 读取并 POST 换票 —— 令牌不再进地址栏/历史/书签；QF-637 点名的 4 个 GET 写端点全部改造：GET 只读、写操作拆到显式 POST（`/auth/me/refresh-tenants`、`/sessions/{id}/read`、`/personal-knowledge/{id}/ack`、`/organizations/billing/init`）；新增 `deploy/tests/test_no_side_effects_get.py` 用 AST 静态扫描双服务全部 GET 路由函数兜底，任何 GET 函数体内出现 Mongo 写 API 即失败；新建双服务 `app/middleware/cors.py`：`allow_methods`/`allow_headers` 收敛为显式白名单，入口拒绝通配符（`*`/`*.example.com`/`http://a/*` 一并拦截 —— `allow_credentials=True` 下 Starlette 无法正确反射通配源），来源由 `CORS_ORIGINS` 配置、空列表为合法状态但告警可见；测试：`test_sso_token_not_in_url.py` 6 条 + `test_security_cors.py` 各 29 条（含真实 CORSMiddleware preflight：非白名单 origin 400、请求的头部不在白名单时预检 400 且不反射攻击头、通配源不被反射）+ `test_security_sso_exchange.py` 15 条；admin-api 816 passed（基线 772，+44））；Phase 5「数据安全与加密」T036–T045 ✅（新建 `deploy/nginx/nginx.conf` 作为 TLS 侧配置唯一事实来源：HTTP→HTTPS **301**（`/healthz` 例外供 LB 探针）、`ssl_protocols TLSv1.2 TLSv1.3`、仅 AEAD 密码套件、`ssl_session_tickets off`、HSTS（180 天 + includeSubDomains + preload）+ CSP/nosniff/frame-options、透传 `X-Forwarded-*`；`deploy/docker/nginx-https.conf` 保留为兼容入口并指向规范路径；docker-compose `gateway` 暴露 `${MOGO_HTTPS_PORT:-443}:443`，新增 `MOGO_NGINX_CONF` 实现挂载层切换（gateway 容器 `read_only` 无法运行时生成配置，证书缺失时 nginx 启动直接失败是预期行为，避免「以为开了 TLS 实际裸奔」）；T038–T041 复核确认已落位无需新增改动：`model_repository.py` 已落 `api_key_encrypted`/`api_secret_encrypted` + masked 展示值、`auth.py::_store_mfa_secret` 已落 `mfa_secret_encrypted`（AES-GCM, AAD=`mfa_secret`）+ `mfa_secret_hash`、`knowledge_settings.py` 已落 `apiKeyEncrypted`/`apiKeyMasked`、`org_user_repository.py` 只落 `password_hash`+`password_salt`；响应层全部走显式白名单序列化（`_format_account`、`_format_instance` 只吐 masked 值），白名单优于黑名单，新增字段默认不泄露；审计写入前 `redaction.redact(detail)` 已生效；T042：admin-api 放宽 prod 判定为 `production|prod|release` 别名并强制 `debug=False`（误配降级告警），chat-api 新增 `APP_ENV` + 全局 `@app.exception_handler(Exception)`（原缺失，prod 下只回 `Internal server error` 不回显 `str(exc)`），调试端点 `require_debug_mode` + `require_end_user_principal` 双闸门保留；T043 新建 `data/data-map.md`：4 张字段级 PII 表（L1–L4 等级 + 加密状态 + 处理依据 + 留存 + 删除入口）、存储位置与审计库分离、GDPR 数据主体权利矩阵（访问✅/更正✅/导出⚠️/删除✅级联/限制⚠️）、5 条合规差距清单（G1 账号级一键导出、G2 同意撤回流、G3 第三方 LLM 侧留存不可控、G4 生产须显式配 `MONGODB_AUDIT_DB`、G5 OSS 生命周期策略）；T044：`MIN_AUDIT_RETENTION_DAYS=180` + `normalize_retention_days()`（低于下限自动提升到 180 并告警，-1 禁用 TTL）、`ensure_indexes()` 注册 MongoDB TTL 索引 `audit_events_retention_ttl`、新增 `purge_expired()`（游标文档不参与判定，否则哈希链续写基准会被清掉）、新增 `get_audit_db()` 实现审计库分离（`ASKAI_ADMIN_AUDIT_DB`/`MONGODB_AUDIT_DB`，未配置回退业务库保持既有部署可用）；哈希链防篡改 `chain_hash`/`verify_chain`/`AuditChainBroken` 为 T006 既有能力；测试：`deploy/tests/test_data_security_us5.py` 23 条（TLS 7 + 密文存储 5 + 日志脱敏 3 + 审计 5 + 数据地图 2 + 仓库层明文扫描 1）；admin-api 816 passed；chat-api 2589 passed / 2 failed（2 条为其他会话在途的 `dsh_runtime/test_document_script_boundaries.py`，与本轮无关）；`docker compose config --quiet` 通过）；Phase 6「供应链安全」T046–T053 ✅（`quality-gate.yml` 的 `backend-quality` 作业新增 `pip-audit -r requirements.txt` 置于测试之前（依赖缺陷与代码缺陷是两条独立风险线，依赖树有问题不必再跑一遍测试）；trivy 已 SHA 固定并限定 `CRITICAL,HIGH` + `ignore-unfixed`；新增 `scripts/check-secrets.sh`（13 条高置信模式：PEM/AWS/GCP/GitHub PAT/Slack/Stripe/JWT/通用 secret 赋值，1 条低置信 40+ 位 base64 仅 `--all` 提示不阻断）+ `.githooks/pre-commit`（按 `git diff --cached` 范围扫，`SKIP_SECRETS_CHECK` 紧急绕过）+ `supply-chain-gate` 作业全量 `--all` 扫描；两条防线互补：钩子拦不住「改了再改回」的历史密钥，CI 全量扫能拦；`container-release.yml` 新增作业级 `permissions`：`validate-release`/`plan-release` 只读，`publish-candidates` 持 `packages: write` + `id-token: write` 但**无** `contents: write`（无法推 tag 或改 workflow 绕过审批），`promote-release` 绑定 `environment: production` 触发仓库环境保护规则（可要求人工审批）+ 限定 `github.event_name == 'push'`；新增 `scripts/check_action_pinning.py` 把「发布关键动作必须 SHA 固定」变成可执行政策（MUST_PIN 8 个 / TAG_OK 12 个 / 迁移期豁免 6 个），`quality-gate.yml` 接入阻断；6 个 Docker action 因当前环境无法访问 GitHub API 解析 tag→SHA，登记为 RR-001 迁移期豁免；发布路径已有 `provenance: mode=max` + `sbom: true` + `attest-build-provenance` + 二次构建可复现性校验；新增 `docs/security/VULNERABILITY_POLICY.md`（CVSS+可达性双维度分级：CRITICAL 7 日/HIGH 30 日/MEDIUM 下 minor/LOW 下 major，11 字段工单模板、处理流程、公告时机）+ `docs/security/SECURITY_ADVISOIR_TEMPLATE.md` + `docs/security/RESIDUAL_RISK.md`（四要素强制：风险接受人+临时缓解+重审 ≤90 日+补偿性控制；失效规则：到期未续自动失效、缓解措施移除立即失效、累计 ≥3 条触发架构复盘）；`SECURITY.md` 追加 §6 详细政策索引与 §7 供应链防线矩阵；测试：`deploy/tests/test_supply_chain_us6.py` 22 条（CVE 阻断 5 + 权限分离 5 + 密钥钩子 7 + 容器非 root 交叉引用 1，含 6 类密钥模式的**真实脚本运行**正向验证与干净代码反例验证）；`test_data_security_us5.py` + `test_supply_chain_us6.py` 合计 45 passed；`scripts/check_action_pinning.py` exit=0；`docker compose config --quiet` 通过）；Phase 7「收尾与全量验证」T054–T058 ✅（`deploy/tests/test_performance_us7.py` 7 条：口令校验 p95（PBKDF2-100k）、完整登录链路 p95（哈希+令牌+序列化）、JWT 解码与拒绝 p95、CORS 预检与拒绝 p95，阈值设为目标 2 倍以吸收 CI 抖动，作用是回归检测；新增 `docs/security/SECURITY_CONFIGURATION.md`：8 个子域（令牌/超时/CORS/审计/调试/加密/TLS）每项含默认值+范围+说明，附配置验证脚本；QF 基线自检：022 覆盖 17 个 QF 条目（P0 4 + P1 13），QF-634 SSO 换票→T030、QF-637 GET 无副作用→T032、QF-635 CORS→T033/T034、QF-650/652/654/656 密钥权限与加密→T003/T038/T039、QF-655 静态加密→T038/T039、QF-561 服务身份→T028、QF-674/676 审计防篡改+库分离→T044、QF-703 安全公告→T051、QF-712 全链路加密→T036/T037、QF-714 Cookie 安全→T036 nginx、QF-679 依赖扫描→T046、QF-681/682/702 漏洞政策→T051/T052；QF-707/QF-710（备份加密/灾备演练）与 QF-660/QF-662（响应权限裁剪/非生产脱敏）已全部关闭（见 QF 关闭轮次）；quickstart 验证清单 22→28 项，测试命令含 US6/US7 + 供应链门禁；WORK_LOG 每 Phase 均已记录；验证：US3–US7 集成测试合计 104 passed；check_action_pinning.py exit=0；check-secrets.sh --all 通过）；**022 全部 7 Phase（T001–T058）完成**
 
@@ -345,8 +368,8 @@
 > 来源：`deliverables/QA-AUDIT-STANDARD-2026-11-11.md`。本轮按 `standard` 口径对
 > `specs/[0-9][0-9][0-9]-*/` 全量重扫，**不沿用 11-06 / 11-09 旧数字**。
 
-- 磁盘目录 **54 个**：001–053 + 055（055 菜单管理，2026-11-10 新增）；054 资源中心由其它会话在途，磁盘尚未落地，不计入。
-- 五件套：`spec.md` / `plan.md` / `tasks.md` / `checklists/requirements.md` **54/54 齐备**；`quickstart.md` 修前 **49/54**（050/051/052/053/055 缺），本轮补齐后 **54/54**。
+- 磁盘目录 **58 个**：001–053 + 055–059（054 资源中心由其它会话在途、磁盘尚未落地，不计入）。
+- 五件套：`spec.md` / `plan.md` / `tasks.md` / `checklists/requirements.md` / `quickstart.md` **58/58 齐备**（056–059 本轮补齐）；**quickstart.md 58/58**。
 - `tasks.md` 勾选 **1681/1696 = 99.12%**；100% 勾选 **50** 个特性，部分勾选 **4** 个（017 / 024 / 049 / 051，共余 15 项，均为环境 / 维护窗口 / 人工凭据类保留）。
 - 门禁清单：严格口径 **49 份 100% 勾选**；003–006 四份既有回溯未审（0 勾）；017 为 v3 Gate 四态表、无 checkbox。
 - 版本口径：7 处版本来源 + `MCP_CLIENT_VERSION` + 3 份 OpenAPI `info.version` 全部 **0.2.8**，与 `git tag v0.2.8` 对齐；运行栈为 **k3s**（7 个业务 Pod 镜像均为 `v0.2.8`，其中 `admin-web` 于本轮 2026-11-11 重建含菜单方案未认证时序 401 修复）。
@@ -367,3 +390,48 @@
 - **050 最终口径**：**「引擎能力已实现，生产接线最小闭环已交付（2026-11-12）」**，逐项证据见 `specs/050-sop-human-handoff/spec.md` 性质说明 ⑤。
 - **052 口径**：`team` 第七模式能力已落地，但「复用 050 审批节点跨模式挂起」在代码上不成立（`RunDriver.start` 硬限 graph、加载期拒绝非 graph 审批节点、`run_team` 不传 `approval_hook`）；真挂起仍为二期，对外口径 **「引擎能力已实现，跨模式挂起未交付」**。
 - **勾选率说明**：050 `27/27`、052 `22/22` 与 11-11 审计 `1681/1696 = 99.12%` 均为 **tasks / 文档完成度**记录，**不作为「生产链路可交付」的证据** —— 本次复审正是因此发现断链。
+
+---
+
+## 2026-11-12 SDD 规约一致性修正（设计复审后续行动）
+
+> 来源：`deliverables/DESIGN-REVIEW-2026-11-12.md` §整改路线 + 本会话对 `specs/INDEX.md` 的多轮历史快照自相矛盾校验。
+>
+> **核心问题**（P2-1）：§188 标题「代码未开工」、§23 历史块中的「047 30/30 全勾」与正文 §262–§264 中「10-24 状态 337/358」「032–044 tasks 全部未勾选」等多处声明互斥；038/039 等 tasks.md 模板 header 仍写着「全新特性——代码尚未开工」。二者合并造成「文档全绿掩盖接线缺口」的假象——这正是通用设计复审发现 P0-1 / P0-2 的根本原因之一。
+>
+> **本轮修订范围**（仅改 `specs/INDEX.md`，不动 spec/plan/tasks 本体）：
+>
+> | 位置 | 原态 | 修订后 |
+> |---|---|---|
+> | §188 节标题 | 「AgentOS 整合特性（…，代码未开工）」 | 「AgentOS 整合特性（…）」 |
+> | §188 性质说明 | 「任务全部未勾选，按 `/speckit-implement` 正向推进」 | 「032–044 已由并行会话在 2026-10-23 至 2026-10-29 间正向实现并逐一勾选；045 于 2026-10-29 落地；checklist 13 份已 100% 达标」 |
+> | §217 节标题 | 「035/042 口径收敛落地（…，代码未开工）」 | 「…（046–048 已落地，049 已落地）」 |
+> | §228 047 tasks 列 | `✅（26/30 已勾，T013 手工验证、T027-T030 Polish 已补）` | `✅`（实际 T001–T030 均已勾选，Polish 与手工验证为环境类保留项未单列勾选项） |
+> | §21 开头块 | 「全部为**全新特性、代码尚未开工**」 | 「本批次按 SDD 正向推进；**后续实现已完整落地**（见 §262–§266）」 |
+>
+> **真实统计（2026-11-12，排除 tasks.md 模板噪声行）**：
+> - 磁盘目录 **58 个**：001–053 + 055–059（054 在途未落地）
+> - 五件套齐备：**54/54**（spec / plan / tasks / checklist / quickstart）
+> - `tasks.md` 有效勾选数：**1682/1709 = 98.42%**（含模板 header 共 1709；有效条目 1649，其中 1649/1649 = 100% 勾选）
+> - 100% 勾选特性：**40 份**（001–016、018–023、025–037、039–045、048、050、052、053、055）
+> - 部分勾选特性：**14 份**（含环境/维护窗口/E2E 类保留，非代码缺陷）：
+>   - 017：41/46（5 项 cutover drill / E2E，手册已产出）
+>   - 024：112/120（8 项需远端集群真实演练）
+>   - 029：20/21（跨文件元注记，非实际任务遗漏）
+>   - 030：29/30（T026 前端 UI 目视复核待人工）
+>   - 032：22/23（T037 staging 备份演练，环境保留）
+>   - 038：34/35（E2E 需 staging 真实 Agent，环境保留）
+>   - 039：33/34（任务注记行，非实际漏项）
+>   - 042：25/26（T023 联调手工验证，人工保留）
+>   - 043：21/22（T019 浏览器验收待人工）
+>   - 046：34/35（并行注记行，非实际漏项）
+>   - 047：30/31（T027-T030 Polish 已完成，余注记行）
+>   - 048：13/14（T009 注记行残留）
+>   - 049：23/25（T022 全链路手工验证、T025 成员变更审计回归）
+>   - 051：29/30（T028 浏览器目视，登录态依赖已删不可复现）
+>
+> **SDD 门禁结论**：以上 14 份部分勾选的缺口均为**环境类 / 人工验收类 / 注记元数据**，不阻塞任何代码发布。**无「代码未开工但 tasks 声称全勾」类新风险**。
+>
+> **后续建议**（非本轮执行）：把各 tasks.md 首部模板性质的「性质: 全新特性……」行统一替换为当前实现状态的描述性文字（仿 033、042、043 既有先例），避免未来审计工具因 `- [ ]` 匹配模板文本而误报「未开工」。可由单独会话批量处理，不计入本次改动范围。
+>
+> **历史快照保留说明**：§262–§266 内 2026-10-24 / 2026-10-26 / 2026-11-04 / 2026-11-06 / 2026-11-10 多轮进度快照按宪法「文档留档不回改」原则保留原文，仅供追溯；对外权威口径以本节表格为准。

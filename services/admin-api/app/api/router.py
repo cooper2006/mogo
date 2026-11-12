@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import analytics, auth, capability_assets, connector_market, dashboard, directory, dsh_plugins, egress, employees, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, memories, menu_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, templates, tools, topic_admission, traffic_allocations, trust_ratings
+from app.api.routes import analytics, auth, capability_assets, connector_market, dashboard, directory, dsh_plugins, egress, employees, external_search, gatekeeper_internal, governance, hooks, knowledge_directories, knowledge_documents, knowledge_settings, memories, menu_settings, models, ontologies, ontology_permission_internal, organizations, page_collection, personal_knowledge_internal, position_roles, portal_admin, presentation_settings, setup, shortcut_settings, skill_canary, skill_eval, skill_lifecycle, skill_monitoring, skills, system, system_audit, templates, tools, topic_admission, traffic_allocations, trust_ratings, compatibility
 from app.api.routes.platform import tenants as platform_tenants
 
 api_router = APIRouter()
@@ -39,6 +39,7 @@ api_router.include_router(skill_lifecycle.router, prefix="/skills", tags=["skill
 api_router.include_router(skill_eval.router, prefix="/skills", tags=["skills"])
 api_router.include_router(tools.router, prefix="/tools", tags=["tools"])
 api_router.include_router(governance.router, tags=["governance"])
+api_router.include_router(compatibility.router, prefix="/compatibility", tags=["compatibility"])
 api_router.include_router(trust_ratings.router, tags=["trust-rating"])
 api_router.include_router(portal_admin.router, tags=["portal"])
 api_router.include_router(hooks.router, tags=["hooks"])

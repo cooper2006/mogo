@@ -267,10 +267,18 @@ class PersistedSessionBindingRegistry:
     async def is_channel_enabled(self, channel: str, tenant_id: str = "default") -> bool:
         db = await self._db()
         if db is None:
-            return True
+            import logging
+            logging.getLogger(__name__).warning(
+                "im_gateway.is_channel_enabled: db is None → deny (fail-closed)"
+            )
+            return False
         row = await db[CHANNEL_COLLECTION].find_one(_channel_key(tenant_id, channel))
         if row is None:
-            return True
+            import logging
+            logging.getLogger(__name__).warning(
+                "im_gateway.is_channel_enabled: row is None → deny (fail-closed)"
+            )
+            return False
         return not bool(row.get("disabled") or False)
 
 

@@ -99,14 +99,17 @@ class OntologyPermissionService:
 
     async def get_config(self) -> dict[str, Any]:
         value = await self.repo.get_sys_config(SYS_CONFIG_KEY)
+        enforce = bool(value.get("enforce", False))
+        # enforce=true 时强制 enforce 模式；enforce=false 时回退到默认 deny
+        # (constitution III：fail-closed，未启用权限检查时视为 deny)
+        default_mode = str(value.get("defaultMode") or DEFAULT_SYS_CONFIG["defaultMode"])
         return {
-            "enforce": bool(value.get("enforce", False)),
-            # enforce=true 时缺省判定固定为 deny（决策③）；defaultMode 仅作预演口径展示。
-            "defaultMode": str(value.get("defaultMode") or DEFAULT_SYS_CONFIG["defaultMode"]),
+            "enforce": enforce,
+            # enforce=true 时缺省判定固定为 deny（决策③）；
+            # enforce=false 时回退到默认 deny，不再是 allow
+            "defaultMode": default_mode,
             "rev": int(value.get("rev") or 0),
-            "effectiveDefault": "deny" if value.get("enforce") else str(
-                value.get("defaultMode") or DEFAULT_SYS_CONFIG["defaultMode"]
-            ),
+            "effectiveDefault": "deny" if not enforce else default_mode,
         }
 
     async def set_enforce(

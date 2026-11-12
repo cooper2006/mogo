@@ -71,3 +71,12 @@ def to_backend_id_strict(value: Any) -> str:
     if not is_valid_backend_id(value):
         raise ValueError(f"非法 id（终态只接受 32-hex）: {value!r}")
     return str(value)
+
+
+#: 32-hex 主键生成器的公共别名。
+#: 业务代码统一调用此函数而非直接使用 `uuid.uuid4().hex`。
+#: 生成时间有序的 32-hex 主键：12位毫秒时间戳 + 20位随机数。
+generate_hex32_id = new_backend_id
+
+# 公共别名，供外部 import
+generate_id = generate_hex32_id

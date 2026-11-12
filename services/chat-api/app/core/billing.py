@@ -51,7 +51,7 @@ async def check_quota_before_request(tenant_id: str, config: Dict[str, Any]) -> 
     若当前组织已升级并启用了自有模型 (is_own_model = True)，或模型属于用户自有，不予拦截。
     """
     if not tenant_id or tenant_id == "default":
-        return
+        raise QuotaExceededError("tenant_id is required", code="tenant_id_required")
 
     # 只有当使用的是平台默认提供的共享模型时，才受平台额度限制
     config_tenant_id = config.get("tenant_id") or "default"
@@ -75,8 +75,8 @@ async def deduct_points_after_request(tenant_id: str, total_tokens: int) -> None
     当请求产生 Token 消费后，异步将其累计扣减。
     如果该组织是免费版（或者未开启 is_own_model），就计入系统账单；
     """
-    if not tenant_id or tenant_id == "default" or total_tokens <= 0:
-        return
+    if not tenant_id or tenant_id == "default":
+        raise QuotaExceededError("tenant_id is required", code="tenant_id_required")
 
     db = get_db()
     org = await get_or_create_organization(tenant_id)

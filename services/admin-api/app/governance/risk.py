@@ -138,9 +138,17 @@ def _canon(level: Optional[str], risk: Optional[str]) -> str:
         row = AUTONOMY_MATRIX.get(lvl)
         if row and risk in row:
             return row[risk]
-    # Unknown cell -> the most permissive *read-only* default, never deny-by-default
-    # for unknowns (mirrors the R0 default above).
-    return "allow"
+    # Unknown cell -> deny-by-default per Constitution III (security-first).
+    # Warning: rule table missing this cell; configure AUTONOMY_MATRIX or
+    # raise to surface the gap rather than silently allow.
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "risk._canon: unknown cell (%s, %s) → deny (rule table gap)",
+        level,
+        risk,
+    )
+    return "deny"
 
 
 async def audit_matrix_change(*, actor: str, level: str, risk: str, decision: str, previous: str = "") -> None:
