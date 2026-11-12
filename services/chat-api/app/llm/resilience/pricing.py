@@ -1,27 +1,14 @@
 """Model unit-price table (007 T019 / FR-5).
 
-The single source of truth for per-model token pricing, shared by 007
-metering (cost estimation at call time) and 008 dashboard (reconciliation /
-aggregation). The table is *mirrored* from ``admin-api``'s
-``api/routes/dashboard.py`` MODEL_PRICES so the two services stay aligned
-(same prices, same default) without a cross-service import. When a model is
-absent the documented default applies (US4: no call is silently un-costed).
+Per-model token pricing, sourced from the shared single source of truth
+``app.common.shared_constants`` (058 T015) so chat-api, admin-api dashboard and
+analytics stay aligned on one editable table. When a model is absent the
+documented default applies (US4: no call is silently un-costed).
 """
 
 from __future__ import annotations
 
-from typing import Tuple
-
-# model -> (input price, output price) per 1M tokens (USD)
-MODEL_PRICES: dict[str, Tuple[float, float]] = {
-    "deepseek-v4-flash": (0.5, 1.5),
-    "gpt-5.2-chat": (35.0, 110.0),
-    "gpt-5.2": (35.0, 110.0),
-    "gpt-5.4": (100.0, 300.0),
-    "qwen3-vl-plus": (10.0, 10.0),
-}
-
-DEFAULT_PRICE: Tuple[float, float] = (10.0, 30.0)
+from app.common.shared_constants import DEFAULT_PRICE, MODEL_PRICES
 
 
 def estimate_cost(

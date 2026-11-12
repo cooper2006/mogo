@@ -64,6 +64,12 @@ def create_app() -> FastAPI:
     app.mount("/metrics", metrics_asgi_app("mogo-document-parser"), name="metrics")
     app.add_middleware(RequestBodyLimitMiddleware)
 
+    # 059 T019（FR-27）：API-Version 响应头注入——最后 add 即最外层，保证所有经过
+    # 中间件链的响应都带 API-Version（契约版本 1.0.0，与 admin-api 一致）。
+    from app.common.api_version import ApiVersionMiddleware
+
+    app.add_middleware(ApiVersionMiddleware, version="1.0.0")
+
     @app.exception_handler(StarletteHTTPException)
     async def localized_http_error(request: Request, exc: StarletteHTTPException):
         detail = localize_detail(exc.detail, exc.status_code, request.headers.get("accept-language"))

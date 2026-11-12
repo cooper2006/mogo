@@ -19,16 +19,8 @@ from app.services.token_usage_status import REQUEST_STATUS_VALUES, normalize_req
 
 router = APIRouter()
 
-# 007 pricing table, shared by the cost fallback and the drilldown (035 T013).
-# Kept in module scope so list rows and the single-call detail use the same table.
-MODEL_PRICES = {
-    "deepseek-v4-flash": (0.5, 1.5),
-    "gpt-5.2-chat": (35.0, 110.0),
-    "gpt-5.2": (35.0, 110.0),
-    "gpt-5.4": (100.0, 300.0),
-    "qwen3-vl-plus": (10.0, 10.0),
-}
-DEFAULT_PRICE = (10.0, 30.0)
+# 007 pricing table（058 T015 收敛为单一来源，见 app.common.shared_constants）。
+from app.common.shared_constants import MODEL_PRICES, DEFAULT_PRICE
 
 
 def _cost_usd(row: dict[str, Any]) -> float:

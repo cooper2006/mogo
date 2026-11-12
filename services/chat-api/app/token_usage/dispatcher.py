@@ -13,21 +13,40 @@ from app.token_usage.push import TokenUsagePushService
 
 
 # ── Prometheus 指标 ──────────────────────────────────────────────────────
+# registry=None：本模块在 import 期即构造 Counter，而服务专属 CollectorRegistry
+# 要到 main.py 的 init_metrics() 才建立；早期版本误用 get_settings().prometheus_registry
+# （Settings 并无该属性）会让整个 chat-api 导入即崩。改为先不注册，再由
+# register_token_usage_metrics() 在 init_metrics 之后挂到服务 registry，指标才会
+# 出现在 /metrics。
 metric_queue_full = Counter(
     "mogo_token_usage_queue_full_total",
     "Token usage queue full total count",
-    registry=get_settings().prometheus_registry,
+    registry=None,
 )
 metric_persist_failed = Counter(
     "mogo_token_usage_persist_failed_total",
     "Token usage persist failed total count",
-    registry=get_settings().prometheus_registry,
+    registry=None,
 )
 metric_dlq_total = Counter(
     "mogo_token_usage_dlq_total",
     "Token usage dead-letter queue total count",
-    registry=get_settings().prometheus_registry,
+    registry=None,
 )
+
+
+def register_token_usage_metrics(registry) -> None:
+    """把用量指标挂到服务专属 CollectorRegistry（须在 init_metrics 之后调用）。
+
+    幂等：重复注册同一同名指标时 prometheus_client 会抛 Duplicated timeseries，
+    这里吞掉该异常，保证重复调用/热重载不炸。
+    """
+    for metric in (metric_queue_full, metric_persist_failed, metric_dlq_total):
+        try:
+            registry.register(metric)
+        except ValueError:
+            # 已注册（同名 timeseries）→ 幂等跳过
+            pass
 
 
 logger = logging.getLogger(__name__)
@@ -158,8 +177,19 @@ async def _reconcile_token_usage():
     repo = TokenUsageRepository(get_db())
     for record in dlq_records:
         try:
-            # 重新插入原始记录
-            await repo.insert(record)
+            # DLQ 存的是扁平子集，重建为 TokenUsageRecord 再落 token_usage_logs
+            # （repo.insert 内部调用 record.model_dump()，不能直接传 dict）。
+            record_model = TokenUsageRecord(
+                request_id=str(record.get("request_id") or ""),
+                tenant_id=str(record.get("tenant_id") or "default"),
+                user_id=str(record.get("user_id") or ""),
+                session_id=str(record.get("session_id") or ""),
+                trace_id=str(record.get("trace_id") or ""),
+                stage=str(record.get("stage") or ""),
+                model_name=str(record.get("model_name") or ""),
+                total_tokens=int(record.get("total_tokens") or 0),
+            )
+            await repo.insert(record_model)
             # 标记已处理
             await db[DLQ_COLLECTION].update_one(
                 {"request_id": record["request_id"]}, {"$set": {"processed": True}}

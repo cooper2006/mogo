@@ -44,6 +44,8 @@ Content-Type: application/json
 
 ## 2. 错误响应规范
 
+> **DEPRECATED · 错误码双权威已裁撤（059 T016，2026-11-12）**：本节及后续小节**只描述响应 envelope 结构与安全约束**，不再维护错误码枚举、HTTP 映射及 `fields[]` / `error_detail` / 配额 429 的统一结构——这些内容的**唯一权威**是 [`docs/error-codes.md`](./error-codes.md)（Schema v2）。原 T016 计划裁撤的「§51-80 错误码重复表」在本版本实际并不存在（该区间为 envelope 示例与 QF-234/QF-235 安全规范），故保留其有效内容，仅在此登记权威指针，避免误删。历史快照见 [`docs/error-codes-v2.md`](./error-codes-v2.md)。
+
 ### 2.1 错误响应结构（RFC 9457 problem+json）
 
 所有错误响应使用统一的 envelope 结构：

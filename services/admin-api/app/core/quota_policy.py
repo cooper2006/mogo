@@ -7,7 +7,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.db import get_db
-from app.core.shared_constants import utc_now
+from app.common.shared_constants import utc_now
 
 ORG_COLLECTION = "organizations"
 USER_COLLECTION = "end_users"
@@ -396,10 +396,40 @@ async def get_quota_summary(tenant_id: str, user: dict[str, Any]) -> dict[str, A
         space_type = "personal" if org_name == "个人空间" else "enterprise"
     org = await db[ORG_COLLECTION].find_one({"tenant_id": tenant_id}) or {}
 
+    # T033/T034: personal/community 空间沿用 organizations.points_unlimited，
+    # 默认不限额（058 T019：显式 True；与 shared_constants.points_unlimited_default
+    # 及 chat-api 侧同名字面保持一致）。
+    if space_type != "enterprise":
+        total = int(org.get("total_points") or 0)
+        used = int(org.get("used_points") or 0)
+        points_unlimited = bool(org.get("points_unlimited", True))
+        return {
+            "tenantId": tenant_id,
+            "orgName": org.get("org_name") or user.get("org_name") or "个人空间",
+            "spaceType": "personal",
+            "quotaSource": "registration_gift",
+            "period": "lifetime",
+            "totalPoints": total,
+            "usedPoints": used,
+            "unlimited": points_unlimited,
+            "remainingPoints": -1 if points_unlimited else max(0, total - used),
+            "resetAt": "",
+            "status": "active",
+        }
+
+    # org 策略 / 周期窗口：unlimited short-circuit 分支与常规分支都依赖这些变量。
+    # da0c4b8a（057-059）曾误删本段及上面的 personal 分支，导致 get_quota_summary
+    # 抛 NameError 且 zero-config 租户不再默认不限额，此处按 09f6f527 原实现恢复。
+    org_policy = await ensure_org_quota_policy(tenant_id, org_total_points=int(org.get("total_points") or 0))
+    user_policy = await resolve_user_policy(tenant_id, user_id)
+    tz_name = normalize_timezone(org_policy.get("timezone"))
+    org_start, org_end = period_window(str(org_policy.get("period") or "monthly"), tz_name)
+    user_start, user_end = period_window(str(user_policy.get("period") or org_policy.get("period") or "monthly"), tz_name)
+
     # T033/T034: unlimited short-circuit (decision 12).
     # org_quota_policies.unlimited defaults to True for new tenants; legacy
     # rows without the field are treated as limited (backward-compatible).
-    org_unlimited = bool(org_policy.get("unlimited", False)) if (org_policy := await db[ORG_QUOTA_POLICY_COLLECTION].find_one({"tenant_id": tenant_id})) else False
+    org_unlimited = bool(org_policy.get("unlimited", False))
     if org_unlimited:
         # Usage is still recorded for reporting; the limit itself is lifted.
         org_used = await sum_usage(tenant_id, start_at=org_start, end_at=org_end)

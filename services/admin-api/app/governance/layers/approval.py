@@ -28,7 +28,7 @@ from datetime import timedelta
 from typing import Any, Optional
 
 from ..gatekeeper import GateContext, GateDecision, GateVerdict
-from app.core.shared_constants import utc_now
+from app.common.shared_constants import utc_now
 
 GATE_APPROVALS_COLLECTION = "gate_approvals"
 APPROVAL_TTL_MINUTES = 5

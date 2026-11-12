@@ -1,6 +1,8 @@
-# 错误码字典（025 契约硬化 · FR-30 / FR-31 / FR-11）
+# 唯一权威错误码字典 · Schema v2 · 2026-11-12
 
-> 本文档是全仓库错误码的**唯一权威字典**，对应 FR-30（错误码字典含触发条件与处理建议）、FR-31（错误码映射稳定性）、FR-11（稳定错误码）与 QF-269 / QF-270。文档按服务分节，跨服务汇总。
+> **Schema v2**（059 T015 升级）：自 2026-11-12 起，本文档是全仓库错误码 / HTTP 映射 / 响应结构的**唯一权威源**；`docs/api-specification.md` 不再维护错误码枚举（仅保留响应 envelope 结构说明，见其 §2 的权威指针）。历史 v1 快照见 `docs/error-codes-v2.md`（归档存根）。
+>
+> 原始出处：025 契约硬化（FR-30 错误码字典含触发条件与处理建议 / FR-31 映射稳定性 / FR-11 稳定错误码），对应 QF-269 / QF-270。文档按服务分节，跨服务汇总。
 >
 > 机器校验配套：`tools/api_check/error_codes_uniqueness.py`（CI 校验错误码跨服务全局唯一）。
 
@@ -45,8 +47,13 @@
 | `version_metadata_mismatch` | `chat-api` | 提示（不阻断） | `_meta.json` 与 `SKILL.md` 的 `version` 不一致，使用包版本 | 统一版本字段 | 同上 `:222` |
 | `skill_share_token_required` | `chat-api` | 由 handler 决定（常见 `400`/`403`） | Skill 分享缺少 token | 提供分享 token | `services/chat-api/app/services/skill_sharing/service.py:269` |
 | `requested_slide_count_mismatch` | `chat-api` | `400` | 演示生成请求的幻灯片数量与素材不符 | 修正幻灯片数量 | `services/chat-api/app/enterprise_capabilities/presentation/service.py:177` |
+| `tenant_id_required` | `chat-api` | `400` | 计费/配额扣减请求缺少 `tenant_id`（058 T021 fail-closed，缺省租户不再短路放行） | 请求显式携带有效 `tenant_id` | `services/chat-api/app/core/billing.py:54,79` |
+| `approval.actor_mismatch` | `chat-api`（056 契约预定） | `403` | 审批决策人 `actor_id` 与票据 `approver_id` 不匹配（056 R-5） | 由票据登记的审批人提交决策；或经改派后再决策 | 056 spec R-5 / `services/chat-api/app/governance/approval_kernel.py`（**代码尚未实现，仅登记契约**） |
+| `approval.conflict` | `chat-api`（056 契约预定） | `409` | 审批状态转换的 `revision` 前置条件失配（并发取消/决策/改派，056 R-1/R-2） | 幂等返回一致结论，或刷新票据后重试 | 056 spec R-1 / `ApprovalConflictError`（**代码尚未实现，仅登记契约**） |
 
 > `metadata_mismatch` / `skill_share_token_required` / `requested_slide_count_mismatch` 等经业务异常（`SkillPackageError` / `SkillShareError`）抛出，最终 HTTP 状态码由上层 handler 决定，本表按其常见映射登记；如某路由显式改映射，以路由为准并回写本表。
+>
+> `approval.actor_mismatch` / `approval.conflict` 两行是 056 `ApprovalKernel` 的**契约预定码**：截至本版本仅为字典登记（避免 056 落地时临时造码、与既有码冲突），尚无生产引用；实现时须同步补齐来源列并接入 `tools/contract/validate.py` 注册表校验。
 
 ## 4. 稳定性与变更流程（FR-31）
 
@@ -63,6 +70,14 @@
 - 字段：`code` / `message` / `http_status` / `trace_id` / `fields[]`（`field`/`path`/`message`）/ `detail` / `error_detail` / `docs_url`
 - RFC 9457 映射：`type` ← `docs_url`（缺省 `about:blank`），`title` ← `code`，`status` ← `http_status`，`instance` ← `docs_url`
 - **兼容层**（US2 收敛前不能移除）：`detail` 与 `message` 同时保留（FastAPI 既有消费方读 `data.detail`，chat-api envelope 消费方读 `message`）
+
+### 5.1 字段结构统一口径（Schema v2）
+
+`fields[]`、`error_detail` 与配额 `429` 的响应结构在此明确，跨三服务一致，避免各服务各自扩展：
+
+- **`fields[]`**：仅用于 `api.validation_error`（422）等参数校验类错误；元素固定为 `{field, path, message}` 三键，`path` 采用 JSON Pointer 风格定位嵌套字段。非校验类错误**不得**携带 `fields[]`。
+- **`error_detail`**：可选的机器可读补充对象（`{code, reason, meta}`），承载业务上下文；不得用于替代 `message`（人类可读）或塞入堆栈/内部路径（FR-12 / QF-234）。
+- **配额 `429`**（`api.rate_limited`，FR-13）：统一响应为 `ErrorResponse` 标准 envelope，`code=api.rate_limited`、`http_status=429`，并**必须**带 `Retry-After` 响应头；重试窗口与限额明细放 `error_detail.meta`（`limit` / `window_seconds` / `retry_after_seconds`），不另起顶层字段。业务侧 `tenant_id_required`（400）属入参缺失，与 `429` 配额耗尽语义不同，不复用此结构。
 
 ## 6. 待补与已知不一致
 

@@ -18,6 +18,7 @@ from app.observability.logging import init_chat_logging
 from app.observability.health import router as health_router
 from app.infrastructure.request_context import merge_request_context, reset_request_context
 from app.infrastructure.runtime_services import action_receipt_store, token_usage_dispatcher
+from app.token_usage.dispatcher import token_usage_reconciliation_loop
 from pymongo.errors import OperationFailure
 
 
@@ -50,6 +51,9 @@ register_chat_metrics(get_registry("mogo-chat-api"))
 # 023 T088: 熔断器/限流/背压指标
 from app.middleware.resilience import ResilienceMiddleware, bind_metrics, middleware_kwargs
 bind_metrics(circuit_breaker_metrics(get_registry("mogo-chat-api"), "mogo-chat-api"))
+# 058: 用量日志 queue_full / persist_failed / dlq 指标挂到 /metrics 的服务 registry。
+from app.token_usage.dispatcher import register_token_usage_metrics
+register_token_usage_metrics(get_registry("mogo-chat-api"))
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,7 @@ app = FastAPI(
 _receipt_gc_task: asyncio.Task | None = None
 _memory_decay_task: asyncio.Task | None = None
 _orchestration_recovery_task: asyncio.Task | None = None
+_token_usage_reconcile_task: asyncio.Task | None = None
 
 origins = settings.allowed_origins_list()
 
@@ -87,6 +92,12 @@ from app.common.perf_kpi import PerfMiddleware
 from app.infrastructure.runtime_services import runtime_kpi_store
 
 app.add_middleware(PerfMiddleware, store=runtime_kpi_store)
+
+# 059 T018（FR-27）：API-Version 响应头注入——最后 add 即最外层，保证所有经过
+# 中间件链的响应都带 API-Version（契约版本 1.0.0，与 admin-api 一致）。
+from app.common.api_version import ApiVersionMiddleware
+
+app.add_middleware(ApiVersionMiddleware, version="1.0.0")
 
 # 023 T034: FastAPI 自动插桩（HTTP server span）
 instrument_fastapi(app)
@@ -429,7 +440,7 @@ async def startup_event() -> None:
     # Both background tasks are assigned below and cancelled in shutdown_event;
     # without the module-level binding those assignments would create locals and
     # shutdown would see None (or, before the declaration existed, NameError).
-    global _receipt_gc_task, _memory_decay_task, _orchestration_recovery_task
+    global _receipt_gc_task, _memory_decay_task, _orchestration_recovery_task, _token_usage_reconcile_task
     await init_backend()
     db = get_db()
     # Keep session history list query fast: find by user_id and sort by updated_at desc.
@@ -531,6 +542,8 @@ async def startup_event() -> None:
     await action_receipt_store.recover_stale_running()
     await action_receipt_store.reconcile_abandoned()
     await token_usage_dispatcher.start()
+    # 058 T012：用量日志 DLQ 对账定时器（每小时重放一次积压记录到 token_usage_logs）。
+    _token_usage_reconcile_task = asyncio.create_task(token_usage_reconciliation_loop())
     await scheduled_task_scheduler.start()
     await orchestration_runs.startup_recovery()
     await dream_cycle_runtime.ensure_indexes(db)
@@ -645,6 +658,9 @@ async def shutdown_event() -> None:
     if _orchestration_recovery_task is not None:
         _orchestration_recovery_task.cancel()
         _orchestration_recovery_task = None
+    if _token_usage_reconcile_task is not None:
+        _token_usage_reconcile_task.cancel()
+        _token_usage_reconcile_task = None
     from app.core.ttl_purge import ttl_purge_loop
 
     await ttl_purge_loop.stop()

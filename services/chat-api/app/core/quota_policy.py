@@ -8,7 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.db import get_db
-from app.core.shared_constants import utc_now
+from app.common.shared_constants import utc_now
 from app.core.product_edition import product_edition_fields
 
 ORG_COLLECTION = "organizations"
