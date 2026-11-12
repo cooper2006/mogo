@@ -22,6 +22,7 @@
 >   - **真实 runner**：`services/chat-api/app/orchestration/production_runner.py` 经 LocalBridge 把节点技能派给已连接的浏览器 agent（`browser_execute_workflow` skill fast-path；goal 提取通用化 `payload.goal → context.goal`）；无会话/未连接时诚实降级 `unavailable`，**不伪造输出**；`app/main.py` 启动时 `set_run_runner` 注入，`start_run` 端点自动补 `context.user_id`；
 >   - **常驻恢复扫描**：`app/main.py` 的 `_orchestration_recovery_loop`（60s，压在 R-7「扫描周期 ≤ 租约 TTL 一半」上限），调 `orchestration_runs.periodic_recovery_sweep()`，失败记日志不静默；shutdown 取消；
 >   - 验收：`tests/orchestration/` 206 passed（新增 `test_production_runner.py` 覆盖降级三态/注入缝复位/周期扫描 db-None）；user-web `vue-tsc` 0 错误、新文件 prettier 达标；发起运行的**前端入口**（画布「运行」按钮）仍缺，运行经 API 发起，列为后续项。
+>   - **2026-11-12 手工链路端到端验收已通过**（真实起服 + 浏览器操作，证据见 `.workbuddy-ai/memory/2026-11-12.md`）：站内待办页可见并渲染待办；缺理由驳回被前端拦截；带理由驳回 → `rejected` + 审计留痕 + 下游不执行；批准 → `completed` + 下游节点经真实 runner 续跑（无 echo 回显）；deadline 到期后 **60s 扫描循环自动置 `timeout`、下游 `blocked`**，无人工干预 —— ①②③ 三头断链逐条实证闭合。验收同时发现前端事件名缺陷（naive-ui 2.45 为 `positive-click`/`negative-click`，误写 `positive` 会静默失效）已修。
 >
 > **本特性对外口径更新为「引擎能力已实现，生产接线最小闭环已交付（2026-11-12）」。** tasks / checklist 的历史勾选作为引擎范围完成度记录保留，不回改；生产链路验收以 ⑤ 的落地记录与回归用例为准。
 >
