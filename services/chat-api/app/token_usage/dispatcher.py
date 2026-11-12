@@ -99,7 +99,7 @@ class TokenUsageDispatcher:
                     "processed": False,
                 }
             )
-            metric_dlq_total.increment()
+            metric_dlq_total.inc()
         except Exception as exc:
             logger.error(
                 f"Failed to write record to DLQ: {record.request_id}, error: {exc}"
@@ -113,7 +113,7 @@ class TokenUsageDispatcher:
             queue.put_nowait(record)
             return True
         except asyncio.QueueFull:
-            metric_queue_full.increment()
+            metric_queue_full.inc()
             await self._try_dlq_append(record, reason="queue_full")
             return False
 
@@ -148,7 +148,7 @@ class TokenUsageDispatcher:
                     status = "success" if push_result.pushed else "failed"
                     await repo.mark_push_result(record.request_id, status=status, error=push_result.error)
             except Exception as exc:
-                metric_persist_failed.increment()
+                metric_persist_failed.inc()
                 await self._try_dlq_append(record, reason=f"persist_error:{type(exc).__name__}")
                 # NOTE: do NOT call task_done() here — will be called on successful replay
                 continue
@@ -168,6 +168,7 @@ async def token_usage_reconciliation_loop():
 async def _reconcile_token_usage():
     """从 DLQ 重放记录到 token_usage_logs。"""
     from app.core.db import get_db
+    from app.token_usage.repository import TokenUsageRepository
 
     db = get_db()
     dlq_records = await db[DLQ_COLLECTION].find({"processed": False}).to_list(length=100)

@@ -28,6 +28,8 @@
 >
 > **2026-11-12 补充（056-059 治理批次落地）**：056（审批单一内核）/057（pg_compat 能力清单与静态扫描）/058（身份·价格·配额单一来源收敛）/059（跨服务 fail-closed 可机检约束）四个 spec 的**后端代码已随多个提交落地**（`approval_kernel` / `pg_compat` / `shared_constants`+`quota_policy` / `fail_open_guard` 等）。本轮收尾：① 四个 `tasks.md` 全量勾选（共 115 项）且 `spec.md` Status 由 Draft 改为 Implemented；② 056 新增管理端「审批中心」统一待办页面（admin-web 路由 `/approvals-center` + 后端 `GET /api/v1/admin/approvals/todos/admin` 用管理员 JWT 鉴权，复用 `ApprovalKernel.list_todos`）；③ kiri 上开启 `APPROVAL_KERNEL_ENABLED=true`，端点返回 `kernelEnabled:true`（影子票据为空，属 R-7 旁路双写灰度期预期）。文档计数重扫同按发布流程统一处理。
 >
+> **2026-11-12 补充二（058/059 测试缺口补齐）**：058/059 的 `tasks.md` 虽已勾选，但 spec 点名的 10 个测试文件此前**并不存在**（文档勾选无实证）。本轮补齐：`test_generate_hex32_id.py`、`test_uuid_hex_usage_scan.py`、`test_token_usage_dlq.py`、`test_shared_constants_sync.py`、`test_quota_tenant_id_required.py`（chat-api）、`test_fail_open_guard.py`、`test_risk_canon_fail_closed.py`、`test_topic_admission_mode_off.py`、`test_ontology_enforcement.py`（admin-api）、`test_im_gateway_bindings_fail_closed.py`、`test_api_version_header.py`（chat-api，因 `app.im_gateway` / `app.common.api_version` 只在 chat-api 有 vendored 副本），共 **46 项用例全绿**。**同时暴露并修复 2 处源码缺陷**（均在 `services/chat-api/app/token_usage/dispatcher.py`）：① `_reconcile_token_usage` 作用域内缺 `TokenUsageRepository` 导入 → NameError，每次对账都会崩、DLQ 永久无法重放；② `metric_*` 用 `.increment()` 而 prometheus_client `Counter` 只有 `.inc()` → 队列满/持久化异常即 AttributeError。两处均已修复并由上述单测覆盖。文档计数重扫同按发布流程统一处理。
+>
 > **2026-11-04 三服务全量实测（OrbStack，镜像 `4abce5be`）**：admin-api 1519 passed / 1 skipped、
 > document-parser 72 passed / 6 skipped、chat-api 3103 passed / 3 skipped（marker 过滤
 > `not dsh_host_e2e and not network`，27 deselected；`MONGODB_URI=mongodb://mongo:27017`）；
