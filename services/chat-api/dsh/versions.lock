@@ -1,12 +1,12 @@
 # MOGO DSH dependency lock policy (format 1)
-# Updated for the admitted DSH 0.2.2-rc.1 train on 2026-11-06.
+# Updated for the admitted DSH 0.2.2-rc.2 train on 2026-11-12.
 # This file records approved direct artifacts; pnpm-lock.yaml and the SBOM pin
 # the resolved graph, and the release gate rejects a mixed DSH release train.
 
 [upstream]
 repository = "https://github.com/deepseek-ai/deepseek-harness"
 # 0a15e36e... 是 0.2.1-rc.5 列车时审查过的源码 commit。上游至今未发布
-# 「可安装列车 -> 源码 commit」映射，0.2.2-rc.1 没有新的 reviewed commit，
+# 「可安装列车 -> 源码 commit」映射，0.2.2-rc.2 没有新的 reviewed commit，
 # 故此处保留历史值仅作溯源记录，source_mapping 继续标记为 unverified。
 reviewed_commit = "0a15e36e7f82b6ed45af6fa9759f29b40dcd965d"
 reviewed_commit_root_version = "0.2.1-rc.5"
@@ -18,10 +18,10 @@ allow_floating_versions = false
 # installable release train, so source-to-package provenance remains explicitly
 # unverified until DeepSeek publishes that mapping.
 [release_train]
-version = "0.2.2-rc.1"
+version = "0.2.2-rc.2"
 source_mapping = "unverified-by-upstream"
-policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.2.2-rc.1"
-# 0.2.2-rc.1 的依赖图里不再出现 @deepseek-ai/dsh-invariants（上游顶版仍是
+policy = "all @deepseek-ai/dsh and @deepseek-ai/dsh-* packages must resolve exactly to 0.2.2-rc.2"
+# 0.2.2-rc.2 的依赖图里不再出现 @deepseek-ai/dsh-invariants（上游顶版仍是
 # 0.2.0-rc.2，但该 peer 已不再被解析进图），原 0.2.1-rc.5 列车的混用白名单
 # 因此清空。机器可读白名单：release gate 只认这一行，格式为
 # "<包名>@<版本>"，逐字匹配；条目一旦不再被依赖图或 SBOM 观测到就必须删除，
@@ -31,13 +31,13 @@ allowed_mixed_exceptions = []
 
 [[artifact]]
 name = "@deepseek-ai/dsh"
-version = "0.2.2-rc.1"
+version = "0.2.2-rc.2"
 registry = "https://registry.npmjs.org"
-tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.2-rc.1.tgz"
-integrity = "sha512-ijR9UEVYkG15Q/Q79JzvzLBzQOQfc63VLr9n6flpwHPhr5IKn2UxthnSoto/P9l7qGd7pPvI1Ra6TW7LH3oKpg=="
-shasum = "95d1cf510061a57c97b4a68d43336658bcec6af1"
+tarball = "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.2-rc.2.tgz"
+integrity = "sha512-J727r2C471x2cYXGjqZ0D9T1ZyaYQDFH/Ynx8iq+85oslM4nky5YTBnbAuTtxMhW7nhY8wuAEfjjFCQ+K6Swgw=="
+shasum = "ff003ca75f37975c40b800fb925df70b38841fd4"
 
-# 0.2.2-rc.1 train：cordis 对齐到 4.1.0（pnpm-workspace.yaml 的 override 同步），
+# 0.2.2-rc.2 train：cordis 对齐到 4.1.0（pnpm-workspace.yaml 的 override 同步），
 # plugin-loader / include / timer 解析到该列车依赖图中实际钉死版本（见
 # pnpm-lock.yaml）。cordis-plugin-hmr 在依赖图中已不再被引用。
 [[artifact]]

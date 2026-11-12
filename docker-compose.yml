@@ -26,7 +26,7 @@ x-python-healthcheck: &python-healthcheck
 # that inherits it (a YAML merge key copies the whole mapping), so the
 # single-host service must stay profile-free to remain the default.
 x-dsh-runtime-host-template: &dsh-runtime-host-template
-  image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/dsh-runtime-host:dsh-0.2.2-rc.1}
+  image: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/dsh-runtime-host:dsh-0.2.2-rc.2}
   # 平台由环境 profile 决定（见 deploy/cli/env-profiles.sh）：dev/test 为
   # linux/arm64，prod 为 linux/amd64。变量为空时该键整行消失，compose 回到
   # 宿主原生架构，所以不走 CLI 直接 `docker compose up` 也不会被钉死。
@@ -869,7 +869,7 @@ services:
       MOGO_SANDBOX_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-mogo}
       MOGO_SANDBOX_MAX_CONCURRENT: ${MOGO_SANDBOX_MAX_CONCURRENT:-2}
       MOGO_SANDBOX_MAX_PENDING: ${MOGO_SANDBOX_MAX_PENDING:-8}
-      MOGO_SANDBOX_RUNTIME_IMAGE: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/dsh-runtime-host:dsh-0.2.2-rc.1}
+      MOGO_SANDBOX_RUNTIME_IMAGE: ${MOGO_DSH_RUNTIME_HOST_IMAGE:-ghcr.io/mogoai/dsh-runtime-host:dsh-0.2.2-rc.2}
       MOGO_SANDBOX_RUNTIME_VOLUME: ${MOGO_VOLUME_PREFIX:-mogo}_dsh-runtime-data
       MOGO_SANDBOX_RUNTIME_ROOT: /runtime-data
       MOGO_PIP_INDEX_URL: ${MOGO_PIP_INDEX_URL:-}
