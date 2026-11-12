@@ -28,6 +28,8 @@
       </n-spin>
     </n-card>
 
+    <!-- naive-ui 2.45 的事件名是 positive-click / negative-click（不是 positive/negative）；
+         写错只会静默关闭弹层而不执行回调。onPositiveClick 同步返回 false 可保持弹层打开。 -->
     <n-modal
       v-model:show="modalOpen"
       preset="dialog"
@@ -44,8 +46,8 @@
       :negative-text="t('orchestration.todos.cancel')"
       :loading="submitting"
       :positive-button-props="modalDecision === 'reject' ? { type: 'error' } : undefined"
-      @positive="submit"
-      @negative="modalOpen = false"
+      @positive-click="submit"
+      @negative-click="modalOpen = false"
     >
       <p class="todo-context">
         {{
@@ -186,15 +188,25 @@ function openModal(todo: OrchestrationTodo, decision: ApprovalDecision) {
   modalOpen.value = true
 }
 
-async function submit() {
+/**
+ * positive-click 回调。naive-ui 的语义：`onPositiveClick` **同步**返回 false 时
+ * 弹层保持打开，返回 Promise/true 则视为已处理并关闭。因此守卫必须是同步函数
+ * （async 函数一律返回 Promise，守卫会被绕过），校验通过后才把异步提交接出来。
+ */
+function submit(): boolean {
   const todo = activeTodo.value
-  if (!todo) return
+  if (!todo) return false
   // 驳回理由必填：与后端 human_approval.decide 的 403 fail-closed 口径一致，
   // 前端先拦一道，避免提交后才收到错误。
   if (modalDecision.value === 'reject' && !reason.value.trim()) {
     message.warning(t('orchestration.todos.reject_reason_required'))
-    return
+    return false
   }
+  void submitDecision(todo)
+  return true
+}
+
+async function submitDecision(todo: OrchestrationTodo): Promise<void> {
   submitting.value = true
   try {
     const outcome = await decideApproval(todo.run_id, {
