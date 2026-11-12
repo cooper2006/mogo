@@ -128,15 +128,22 @@ class FakeCollection:
             _unset_path(doc, key)
         return SimpleNamespace(matched_count=1)
 
-    async def find_one_and_update(self, scope: dict, update: dict, return_document: bool = True):
+    async def find_one_and_update(self, scope: dict, update: dict, return_document: bool = False):
+        """Mirror pymongo/motor: False (default) = BEFORE, True = AFTER.
+
+        The old fake always returned the pre-update snapshot regardless of the
+        flag, which masked the 050 bug where ``claim_pending`` requested AFTER
+        and could not read the ``$unset``-ed todo. See
+        ``test_run_store_real_backends.py`` for real-backend coverage.
+        """
         import copy
 
         doc = next((d for d in self._find(scope)), None)
         if doc is None:
             return None
-        snapshot = copy.deepcopy(doc)
+        before = copy.deepcopy(doc)
         await self.update_one(scope, update)
-        return snapshot
+        return copy.deepcopy(doc) if return_document else before
 
     async def delete_many(self, scope: dict):
         before = len(self.docs)

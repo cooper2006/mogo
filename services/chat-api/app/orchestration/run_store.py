@@ -183,6 +183,13 @@ class RunStore:
 
         Survives restarts because the guard lives in the document, not in the
         in-process ``ApprovalRuntime`` dict (T003 two-stage design).
+
+        MUST request the **pre-update** document: the update ``$unset``s the
+        todo, so ``return_document=True`` (ReturnDocument.AFTER) yields a doc
+        without the field and would raise after the todo has already been
+        consumed — leaving the run stuck in ``awaiting_approval`` with no todo
+        visible to ``list_todos`` / ``scan_timeouts``. Both motor and the 027
+        pg_compat facade treat ``True`` as AFTER.
         """
         doc = await self._col.find_one_and_update(
             {"run_id": run_id, f"pending_approvals.{node_id}": {"$exists": True}},
@@ -191,7 +198,7 @@ class RunStore:
                 "$set": {"updated_at": utcnow()},
                 "$inc": {"revision": 1},
             },
-            return_document=True,
+            return_document=False,
         )
         if doc is None:
             raise RunStoreError(f"待办不存在或已被消费：{run_id}/{node_id}")
@@ -234,8 +241,9 @@ class RunStore:
         )
         if found is None:
             raise RunStoreError(f"运行不可恢复（状态不符或租约被占用）：{run_id}")
-        # ``find_one_and_update`` returns the *pre-update* document on motor, so
-        # re-read to surface the acquired lease/status to the driver.
+        # Do not rely on the BEFORE/AFTER semantics of the returned document:
+        # re-read so the lease/status surfaced to the driver is the persisted one.
+        # (motor and pg_compat both treat ``return_document=True`` as AFTER.)
         doc = await self._col.find_one({"run_id": run_id})
         if doc is None:
             raise RunStoreError(f"运行不存在：{run_id}")
