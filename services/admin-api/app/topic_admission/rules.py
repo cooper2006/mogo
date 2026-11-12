@@ -28,32 +28,44 @@ async def get_summary(tenant_id: str) -> dict[str, Any]:
     }
 
 
-async def search_rules(tenant_id: str, query: str, status: str, page: int, page_size: int, offset: int | None = None) -> dict[str, Any]:
-    match: dict[str, Any] = {}
+def _rule_matches(rule: dict[str, Any], status: str, pattern: re.Pattern[str] | None) -> bool:
+    """复现原 ``$unwind`` + ``$match`` 的过滤语义，不依赖聚合管道。
+
+    该集合是「每租户一个文档」（见 ``service.get_policy``），规则存在 ``rules``
+    数组里。PanWeiDB 兼容层 ``pg_compat`` 未实现 ``$unwind`` / ``$facet``，
+    原来走 ``aggregate`` 会在 panweidb 后端抛 ``PgCompatUnsupported`` → 500。
+    改为在 ``find_one`` 取回单文档后于 Python 侧展开，两个后端行为一致。
+    """
     if status in ("enabled", "disabled"):
-        match["rules.enabled"] = status == "enabled"
-    if query.strip():
-        needle = re.escape(query.strip())
-        match["$or"] = [
-            {"rules.name": {"$regex": needle, "$options": "i"}},
-            {"rules.terms.keyword": {"$regex": needle, "$options": "i"}},
-            {"rules.terms.synonyms": {"$regex": needle, "$options": "i"}},
-        ]
-    pipeline: list[dict[str, Any]] = [
-        {"$match": {"tenant_id": tenant_id}},
-        {"$unwind": {"path": "$rules", "includeArrayIndex": "position"}},
-    ]
-    if match:
-        pipeline.append({"$match": match})
-    pipeline.append({"$facet": {
-        "items": [{"$sort": {"position": 1}}, {"$skip": offset if offset is not None else (page - 1) * page_size},
-                  {"$limit": page_size}, {"$replaceRoot": {"newRoot": "$rules"}}],
-        "count": [{"$count": "value"}],
-    }})
-    rows = await get_db()[COLLECTION].aggregate(pipeline).to_list(length=1)
-    result = rows[0] if rows else {"items": [], "count": []}
-    return {"items": result["items"], "total": result["count"][0]["value"] if result["count"] else 0,
-            "page": page, "pageSize": page_size}
+        # 与 TopicRule.enabled 默认值、get_summary 的 enabledRuleCount 口径一致：
+        # 历史数据缺字段时按「启用」处理，避免列表可见却筛不出来。
+        if bool(rule.get("enabled", True)) != (status == "enabled"):
+            return False
+    if pattern is None:
+        return True
+    haystacks = [str(rule.get("name") or "")]
+    for term in rule.get("terms") or []:
+        if not isinstance(term, dict):
+            continue
+        haystacks.append(str(term.get("keyword") or ""))
+        synonyms = term.get("synonyms") or []
+        if isinstance(synonyms, (list, tuple)):
+            haystacks.extend(str(value) for value in synonyms)
+        else:
+            haystacks.append(str(synonyms))
+    # Mongo 的 $regex 对数组字段匹配任一元素；这里等价地逐项 search。
+    return any(pattern.search(text) for text in haystacks)
+
+
+async def search_rules(tenant_id: str, query: str, status: str, page: int, page_size: int, offset: int | None = None) -> dict[str, Any]:
+    row = await get_db()[COLLECTION].find_one({"tenant_id": tenant_id})
+    rules: list[dict[str, Any]] = list((row or {}).get("rules") or [])
+    needle = query.strip()
+    pattern = re.compile(re.escape(needle), re.IGNORECASE) if needle else None
+    matched = [rule for rule in rules if _rule_matches(rule, status, pattern)]
+    start = offset if offset is not None else (page - 1) * page_size
+    items = matched[start:start + page_size]
+    return {"items": items, "total": len(matched), "page": page, "pageSize": page_size}
 
 
 def merge_rules(existing: list[dict[str, Any]], changes: TopicChangesPayload) -> list[dict[str, Any]]:

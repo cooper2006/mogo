@@ -38,37 +38,69 @@ def test_partial_save_keeps_rules_that_were_not_loaded() -> None:
     assert merged[1] == existing[2]
 
 
-def test_search_uses_server_side_filter_and_page(monkeypatch) -> None:
-    class Cursor:
-        async def to_list(self, *, length):
-            assert length == 1
-            return [{"items": [_rule("b", "基金")], "count": [{"value": 21}]}]
-
+def _policy(rules: list[dict], monkeypatch) -> None:
+    """用 find_one 返回单文档；断言查询条件仍是 tenant_id 精确匹配。"""
     class Collection:
-        def aggregate(self, pipeline):
-            assert pipeline[0] == {"$match": {"tenant_id": "org"}}
-            assert pipeline[2]["$match"]["rules.enabled"] is True
-            search = pipeline[2]["$match"]["$or"]
-            assert search[0]["rules.name"]["$regex"] == r"基金\."
-            assert search[1]["rules.terms.keyword"]["$regex"] == r"基金\."
-            assert pipeline[3]["$facet"]["items"][1] == {"$skip": 10}
-            assert pipeline[3]["$facet"]["items"][2] == {"$limit": 10}
-            return Cursor()
+        async def find_one(self, flt):
+            assert flt == {"tenant_id": "org"}
+            return {"tenant_id": "org", "rules": rules}
 
     monkeypatch.setattr(topic_rules, "get_db", lambda: {topic_rules.COLLECTION: Collection()})
+
+
+def test_search_filters_by_keyword_and_status_and_pages(monkeypatch) -> None:
+    rules = [
+        {"id": f"r{i}", "name": "基金.", "enabled": True,
+         "terms": [{"keyword": "基金.", "synonyms": []}]}
+        for i in range(21)
+    ]
+    # 这两条不应进入 enabled + 关键字过滤后的结果集
+    rules.append({"id": "off", "name": "基金.", "enabled": False,
+                  "terms": [{"keyword": "基金.", "synonyms": []}]})
+    rules.append({"id": "other", "name": "无关", "enabled": True,
+                  "terms": [{"keyword": "股票", "synonyms": []}]})
+    _policy(rules, monkeypatch)
+
     result = asyncio.run(topic_rules.search_rules("org", "基金.", "enabled", 2, 10))
-    assert result == {"items": [_rule("b", "基金")], "total": 21, "page": 2, "pageSize": 10}
+    assert result["total"] == 21
+    assert result["page"] == 2 and result["pageSize"] == 10
+    assert [row["id"] for row in result["items"]] == [f"r{i}" for i in range(10, 20)]
+
+    disabled = asyncio.run(topic_rules.search_rules("org", "基金.", "disabled", 1, 10))
+    assert [row["id"] for row in disabled["items"]] == ["off"]
+
+
+def test_search_matches_synonyms_and_regex_is_escaped(monkeypatch) -> None:
+    rules = [
+        {"id": "a", "name": "", "enabled": True,
+         "terms": [{"keyword": "报销", "synonyms": ["费用报销"]}]},
+        {"id": "b", "name": "", "enabled": True,
+         "terms": [{"keyword": "预算X", "synonyms": []}]},
+    ]
+    _policy(rules, monkeypatch)
+    hit = asyncio.run(topic_rules.search_rules("org", "费用报销", "all", 1, 10))
+    assert hit["total"] == 1 and hit["items"][0]["id"] == "a"
+    # 正则元字符被转义：字面量 "报销." 不应匹配 "报销"
+    escaped = asyncio.run(topic_rules.search_rules("org", "报销.", "all", 1, 10))
+    assert escaped["total"] == 0
 
 
 def test_search_supports_offset_for_unsaved_new_rules(monkeypatch) -> None:
-    class Cursor:
-        async def to_list(self, *, length):
-            return [{"items": [], "count": [{"value": 20}]}]
+    rules = [{"id": f"r{i}", "enabled": True,
+              "terms": [{"keyword": f"k{i}", "synonyms": []}]} for i in range(20)]
+    _policy(rules, monkeypatch)
+    result = asyncio.run(topic_rules.search_rules("org", "", "all", 2, 10, offset=9))
+    assert result["total"] == 20
+    assert len(result["items"]) == 10
+    assert result["items"][0]["id"] == "r9"
 
+
+def test_search_without_policy_returns_empty(monkeypatch) -> None:
     class Collection:
-        def aggregate(self, pipeline):
-            assert pipeline[2]["$facet"]["items"][1] == {"$skip": 9}
-            return Cursor()
+        async def find_one(self, flt):
+            return None
 
     monkeypatch.setattr(topic_rules, "get_db", lambda: {topic_rules.COLLECTION: Collection()})
-    asyncio.run(topic_rules.search_rules("org", "", "all", 2, 10, offset=9))
+    assert asyncio.run(topic_rules.search_rules("org", "", "all", 1, 10)) == {
+        "items": [], "total": 0, "page": 1, "pageSize": 10,
+    }
