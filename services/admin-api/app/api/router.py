@@ -41,7 +41,9 @@ api_router.include_router(skill_lifecycle.router, prefix="/skills", tags=["skill
 api_router.include_router(skill_eval.router, prefix="/skills", tags=["skills"])
 api_router.include_router(tools.router, prefix="/tools", tags=["tools"])
 api_router.include_router(governance.router, tags=["governance"])
-api_router.include_router(compatibility.router, prefix="/compatibility", tags=["compatibility"])
+# 057: pg_compat 管线兼容端点。模块自身已带 prefix="/admin/compatibility"，
+# 此处不再叠加 prefix，否则会拼成 /compatibility/admin/compatibility。
+api_router.include_router(compatibility.api_router, tags=["compatibility"])
 api_router.include_router(trust_ratings.router, tags=["trust-rating"])
 api_router.include_router(portal_admin.router, tags=["portal"])
 api_router.include_router(hooks.router, tags=["hooks"])
