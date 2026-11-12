@@ -63,6 +63,7 @@ app = FastAPI(
 )
 _receipt_gc_task: asyncio.Task | None = None
 _memory_decay_task: asyncio.Task | None = None
+_orchestration_recovery_task: asyncio.Task | None = None
 
 origins = settings.allowed_origins_list()
 
@@ -428,7 +429,7 @@ async def startup_event() -> None:
     # Both background tasks are assigned below and cancelled in shutdown_event;
     # without the module-level binding those assignments would create locals and
     # shutdown would see None (or, before the declaration existed, NameError).
-    global _receipt_gc_task, _memory_decay_task
+    global _receipt_gc_task, _memory_decay_task, _orchestration_recovery_task
     await init_backend()
     db = get_db()
     # Keep session history list query fast: find by user_id and sort by updated_at desc.
@@ -552,6 +553,25 @@ async def startup_event() -> None:
             await asyncio.sleep(60)
     _receipt_gc_task = asyncio.create_task(_receipt_gc_loop())
 
+    # 050 FR-006 / R-15：恢复扫描常驻化——挂起运行的 24h 超时判定与中断运行的
+    # needs_review 标记不依赖部署侧外部定时器。间隔 60s 压在 R-7「扫描周期 ≤
+    # 租约 TTL（2min）一半」上限；扫描失败记日志（不静默，FR-006 fail-closed
+    # 依赖这轮扫描可观测）。
+    async def _orchestration_recovery_loop() -> None:
+        while True:
+            try:
+                await orchestration_runs.periodic_recovery_sweep()
+            except Exception:
+                logger.exception("orchestration recovery sweep failed")
+            await asyncio.sleep(60)
+
+    _orchestration_recovery_task = asyncio.create_task(_orchestration_recovery_loop())
+    # 050 生产 runner 注入：节点技能经 LocalBridge 派给已连接的浏览器 agent
+    # （无会话时诚实降级 unavailable，见 production_runner 模块说明）。
+    from app.orchestration.production_runner import production_node_runner
+
+    orchestration_runs.set_run_runner(production_node_runner)
+
     # 017 FR-8: periodic memory decay sweep (archival / deletion by policy).
     # Best-effort: a DB error must never take the app down with it.
     from app.memory.lifecycle import clean_decayed_memories, MemoryLifecycle
@@ -611,7 +631,7 @@ async def startup_event() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
-    global _receipt_gc_task, _memory_decay_task
+    global _receipt_gc_task, _memory_decay_task, _orchestration_recovery_task
     for callback in reversed(product_extension.shutdown):
         result = callback()
         if asyncio.iscoroutine(result):
@@ -622,6 +642,9 @@ async def shutdown_event() -> None:
     if _memory_decay_task is not None:
         _memory_decay_task.cancel()
         _memory_decay_task = None
+    if _orchestration_recovery_task is not None:
+        _orchestration_recovery_task.cancel()
+        _orchestration_recovery_task = None
     from app.core.ttl_purge import ttl_purge_loop
 
     await ttl_purge_loop.stop()

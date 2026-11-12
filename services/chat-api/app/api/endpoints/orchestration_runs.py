@@ -9,8 +9,9 @@
 runner 为**声明式回显**（输出节点 payload 的 inputs/skill 声明），真实技能执行
 由调用方经 ``set_run_runner`` 注入（生产接线点，与 010 runner 注入同构）。
 
-恢复扫描：``POST /api/v1/orchestration-runs/recovery-sweep`` 供部署侧定时触发；``app/main.py``
-启动时也执行一次（重启后挂起运行/超时判定不丢，FR-005/FR-006）。
+恢复扫描：``POST /api/v1/orchestration-runs/recovery-sweep`` 供部署侧手动触发；``app/main.py``
+启动时执行一次，且常驻 ``_orchestration_recovery_loop``（60s）持续扫描（重启后挂起
+运行/超时判定不丢，FR-005/FR-006；扫描周期压在 R-7「≤ 租约 TTL 一半」上限）。
 """
 
 from __future__ import annotations
@@ -173,6 +174,9 @@ async def start_run(
     run_context = dict(payload.context or {})
     if payload.debug:
         run_context["debug"] = True
+    # 生产 runner（LocalBridge）按 user_id 绑定浏览器 agent 会话，缺省补发起人
+    # 身份，调用方不必每次手传（session_id 无法代补，仍由 payload.context 提供）。
+    run_context.setdefault("user_id", principal.user_id)
     driver = await _driver(principal)
     try:
         run = await driver.start(
@@ -334,3 +338,17 @@ async def startup_recovery() -> None:
         await driver.recovery_sweep()
     except Exception:  # noqa: BLE001 - 启动扫描失败不阻断服务，定时器会再扫
         pass
+
+
+async def periodic_recovery_sweep() -> dict[str, Any] | None:
+    """常驻循环入口：与 ``startup_recovery`` 同一扫描体，但**异常上抛**。
+
+    调用方（main.py 的 60s 循环）负责记录失败——扫描静默失败会让
+    「超时 fail-closed」退化为不可观测的空转（FR-006）。db 未就绪返回
+    ``None``（与端点层 503 口径不同：循环里重试下一轮即可，不该崩）。
+    """
+    db = get_db()
+    if db is None:
+        return None
+    driver = RunDriver(RunStore(db), approval_runtime=_approval_runtime)
+    return await driver.recovery_sweep()

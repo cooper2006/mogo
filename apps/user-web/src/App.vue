@@ -72,6 +72,8 @@ const MyMemoriesPage = defineAsyncComponent(() => import('./components/MyMemorie
 const MyOntologyPage = defineAsyncComponent(() => import('./components/MyOntologyPage.vue'))
 // 039: 可视化编排画布 —— 节点-连线图编辑 DAG 工作流（画布为投影、文档为权威）。
 const OrchestrationCanvasPage = defineAsyncComponent(() => import('./components/orchestration/OrchestrationCanvasPage.vue'))
+// 050: 编排审批待办 —— 站内待办入口（R-4），批准/驳回挂起中的 human_approval 节点。
+const ApprovalTodosPage = defineAsyncComponent(() => import('./components/orchestration/ApprovalTodosPage.vue'))
 // 037: 统一门户 —— 目录浏览 + 自助申领（管理侧上架 / 审批在 admin-web）。
 const PortalCatalogPage = defineAsyncComponent(() => import('./components/portal/PortalCatalog.vue'))
 const SkillConfigPage = defineAsyncComponent(() => import('./components/MySkillConfigPage.vue'))
@@ -159,7 +161,7 @@ const projectMenuOpenFor = ref<string | null>(null)
 const editingProjectId = ref<string | null>(null)
 const editingProjectTitle = ref('')
 const renamingProjectId = ref<string | null>(null)
-const currentView = ref<'chat' | 'skills' | 'tools' | 'plugins' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'portal' | 'memories'>('chat')
+const currentView = ref<'chat' | 'skills' | 'tools' | 'plugins' | 'knowledge' | 'skill-config' | 'composite-editor' | 'token-usage' | 'scheduled-tasks' | 'ontology-grants' | 'orchestration' | 'approval-todos' | 'portal' | 'memories'>('chat')
 const scheduledTaskInitialPrompt = ref('')
 const scheduledTaskInitialSessionId = ref<string | null>(null)
 const scheduledTaskCreateRequestKey = ref(0)
@@ -500,6 +502,7 @@ const desktopWindowStaticTitles: Record<string, () => string> = {
   knowledge: () => t('knowledge.sidebar'),
   'ontology-grants': () => t('ontology_grant.title'),
   orchestration: () => t('orchestration.title'),
+  'approval-todos': () => t('orchestration.todos.title'),
   'token-usage': () => t('app.account.usage'),
 }
 
@@ -1273,6 +1276,7 @@ function resolveViewFromPath(pathname: string) {
   if (path === '/scheduled-tasks') return 'scheduled-tasks'
   if (path === '/ontology-grants') return 'ontology-grants'
   if (path === '/orchestration') return 'orchestration'
+  if (path === '/approval-todos') return 'approval-todos'
   if (path === '/portal') return 'portal'
   if (path === '/memories') return 'memories'
   return 'chat'
@@ -1286,6 +1290,7 @@ function routePathForView(view: typeof currentView.value) {
   if (view === 'scheduled-tasks') return '/scheduled-tasks'
   if (view === 'ontology-grants') return '/ontology-grants'
   if (view === 'orchestration') return '/orchestration'
+  if (view === 'approval-todos') return '/approval-todos'
   if (view === 'portal') return '/portal'
   if (view === 'memories') return '/memories'
   if (view === 'skills' || view === 'skill-config' || view === 'composite-editor') return '/skills'
@@ -1435,6 +1440,14 @@ function openOrchestrationPage() {
 }
 
 function closeOrchestrationPage() {
+  navigateTo('chat')
+}
+
+function openApprovalTodosPage() {
+  navigateTo('approval-todos')
+}
+
+function closeApprovalTodosPage() {
   navigateTo('chat')
 }
 
@@ -3125,6 +3138,17 @@ onBeforeUnmount(() => {
           <span>{{ t('orchestration.sidebar') }}</span>
         </button>
         <button
+          v-if="isLoggedIn"
+          class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
+          :class="currentView === 'approval-todos' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
+          @click="openApprovalTodosPage"
+        >
+          <span class="text-gray-500">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </span>
+          <span>{{ t('orchestration.todos.sidebar') }}</span>
+        </button>
+        <button
           class="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition-all active:scale-95"
           :class="currentView === 'scheduled-tasks' ? 'bg-white text-blue-700 shadow-sm border-gray-200 font-semibold' : 'text-gray-700 hover:bg-gray-200/50'"
           @click="openScheduledTasks()"
@@ -3418,6 +3442,9 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="currentView === 'orchestration'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
           <OrchestrationCanvasPage :userId="getUserId() ?? undefined" :tenantId="getTenantId() ?? undefined" @back="closeOrchestrationPage" />
+        </div>
+        <div v-else-if="currentView === 'approval-todos'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
+          <ApprovalTodosPage @back="closeApprovalTodosPage" />
         </div>
         <div v-else-if="currentView === 'portal'" class="flex-1 min-w-0 min-h-0 overflow-hidden">
           <PortalCatalogPage @back="closePortalPage" />
