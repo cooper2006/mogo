@@ -456,3 +456,12 @@ amd64/
 
 # 远程部署连接信息（含明文 SSH 密码，禁止入库）
 deploy/production/remote.env
+
+# k8s 生成物中的 Secret 清单（base64 编码的真实凭据，禁止入库）
+# 与 deploy/k8s/generated/ 下其它可提交的 yaml 不同，本文件含
+# PANWEIDB_PASSWORD / OPENAI_API_KEY / Azure embedding key 等实际值。
+deploy/k8s/generated/03-secrets.yaml
+
+# 待确认清单中的明文密钥与离线构建中间物（不入库）
+docs/pending-review/*.real-secrets
+docs/pending-review/amd64-build-*/
