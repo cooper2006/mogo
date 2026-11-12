@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import socket
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,8 @@ from pathlib import Path
 import httpx
 
 from .errors import DshRuntimeError
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -19,7 +22,12 @@ class DshHostConfig:
     storage_root: Path
     log_path: Path
     bind_host: str = "127.0.0.1"
-    startup_timeout_seconds: float = 20.0
+    # Cold-start of the kernel + plugins routinely needs ~30-35s on local SSD;
+    # CI runners (ARM / slower disk) can be even longer. Bumping from the old
+    # 20 s keeps flaky timeouts away while still surfacing true hangs via the
+    # explicit timeout. Do not silently raise this further without a profiling
+    # pass — the measurement log in _wait_until_ready() is the guard.
+    startup_timeout_seconds: float = 45.0
 
 
 class DshRuntimeHostManager:
@@ -79,7 +87,8 @@ class DshRuntimeHostManager:
     async def _wait_until_ready(self) -> None:
         assert self.base_url is not None
         assert self._process is not None
-        deadline = asyncio.get_running_loop().time() + self._config.startup_timeout_seconds
+        started_at = asyncio.get_running_loop().time()
+        deadline = started_at + self._config.startup_timeout_seconds
         # trust_env=False: this probes a loopback address we just spawned. Honouring
         # HTTP_PROXY/HTTPS_PROXY here makes the health check fail whenever the
         # developer environment exports a proxy without a matching NO_PROXY entry
@@ -94,11 +103,21 @@ class DshRuntimeHostManager:
                 try:
                     response = await client.get(f"{self.base_url}/health")
                     if response.status_code == 200 and response.json().get("ok") is True:
+                        elapsed = asyncio.get_running_loop().time() - started_at
+                        _logger.info(
+                            "DSH Runtime Host became ready in %.1fs (timeout=%.1f)",
+                            elapsed,
+                            self._config.startup_timeout_seconds,
+                        )
                         return
                 except (httpx.HTTPError, ValueError):
                     pass
                 await asyncio.sleep(0.05)
-        raise DshRuntimeError("DSH Runtime Host did not become healthy before the startup deadline")
+        elapsed = asyncio.get_running_loop().time() - started_at
+        raise DshRuntimeError(
+            f"DSH Runtime Host did not become healthy before the startup deadline "
+            f"(probed for {elapsed:.1f}s / timeout={self._config.startup_timeout_seconds:.1f}s)"
+        )
 
     def _reserve_port(self) -> int:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:

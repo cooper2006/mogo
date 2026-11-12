@@ -199,7 +199,7 @@ class HttpKernelHostTransport:
         *,
         base_urls: Sequence[str] | None = None,
         replica_urls: Sequence[str] | None = None,
-        timeout_seconds: float = 10.0,
+        timeout_seconds: float = 120.0,
         access_token: str = "",
         transport_factory: "Callable[[str], httpx.AsyncBaseTransport] | None" = None,
     ) -> None:
