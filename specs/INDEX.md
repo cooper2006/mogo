@@ -459,3 +459,15 @@
 > **后续建议**（非本轮执行）：把各 tasks.md 首部模板性质的「性质: 全新特性……」行统一替换为当前实现状态的描述性文字（仿 033、042、043 既有先例），避免未来审计工具因 `- [ ]` 匹配模板文本而误报「未开工」。可由单独会话批量处理，不计入本次改动范围。
 >
 > **历史快照保留说明**：§262–§266 内 2026-10-24 / 2026-10-26 / 2026-11-04 / 2026-11-06 / 2026-11-10 多轮进度快照按宪法「文档留档不回改」原则保留原文，仅供追溯；对外权威口径以本节表格为准。
+>
+> **2026-11-13 补充五（057 遗留三项收口）**：处理 2026-11-13 机检复核遗留的三项（上轮登记，本轮全部处置）。
+>
+> | # | 遗留项 | 处置 | 证据 |
+> |---|---|---|---|
+> | ① | 057 `tasks.md` T007/T015 已勾但测试文件不存在（假勾） | 新建 `tests/test_pg_compat_manifest.py`（10 项）与 `tests/test_pg_compat_runtime_guard.py`（2 项），断言常量 frozenset、恰为 7 个 `_stage_*` 处理器对应阶段名、与处理器数量一致、每阶段有非空 explanation、两集合不相交、unsupported 阶段经 `compile()` 均抛 `PgCompatUnsupported`、`$unwind` warning 含推荐替代 | 12 项全绿 |
+> | ② | `core.hooksPath` 未启用（钩子文件就位但未激活） | 一次性 `git config core.hooksPath .githooks`，`git config --get core.hooksPath` → `.githooks`，干净暂存实测钩子 exit 0 | 本地配置（不入版本库） |
+> | ③ | 端点 `GET /pipeline-support` call_sites 验收留白（本地无 `/app`） | 新建 `tests/test_compatibility_pipeline_support.py`（2 项），mini app 挂载路由 + override admin 依赖，monkeypatch `find_aggregate_calls` 指向本地临时目录（违规 `$unwind` + 合规 `$match` + 无关文件），断言 `call_sites` file/line/stages/status 与真实扫描一致、summary 正确；无 admin 依赖被 401/403 拒绝 | 2 项全绿，057 验收 `[ ]`→`[x]` |
+>
+> **顺带修复 T014 缺陷**（`services/admin-api/app/core/pg_compat.py:1147`）：`compile()` 的 `allowed_alternative` 用 `UNSUPPORTED_STAGE_EXPLANATIONS.get(name, "")`，而 `name` 带 `$` 前缀（如 `$unwind`），字典 key 不带 → 恒为空串；已改 `name.lstrip("$")`，由 `test_pg_compat_runtime_guard.py` 固化。
+>
+> **057 验收勾选状态**：由 3/6 → **5/6**。仅「CI quality-gate workflow 在含 `$unwind` 的 mock PR 上 fail」一项仍保留 `[ ]`（需真 CI 环境构造 mock PR，本地无法端到端实证）。

@@ -1144,7 +1144,10 @@ class _AggregationCompiler:
                     extra={
                         "stage": name,
                         "collection": getattr(self, "_src", "unknown"),
-                        "allowed_alternative": UNSUPPORTED_STAGE_EXPLANATIONS.get(name, ""),
+                        # 057 T014/T015：name 带 ``$`` 前缀（如 ``$unwind``），
+                        # 而 UNSUPPORTED_STAGE_EXPLANATIONS 的 key 不带（如 ``unwind``），
+                        # 必须 lstrip 才能命中推荐替代方案，否则恒为空串。
+                        "allowed_alternative": UNSUPPORTED_STAGE_EXPLANATIONS.get(name.lstrip("$"), ""),
                         "source_file": str(getattr(self, "_collection", "unknown")),
                     },
                 )
