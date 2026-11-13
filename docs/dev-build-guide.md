@@ -78,8 +78,8 @@
 
 推断优先级（无 `--profile`）：`MOGO_USE_EXTERNAL_DB=1` → prod；`MOGO_DATA_BACKEND=panweidb` → test；其余 → dev。
 
-当前 `.env` 实际值（2026-11-13 复核）：`MOGO_USE_EXTERNAL_DB=1`、`MOGO_DATA_BACKEND=panweidb`、`MOGO_MONGODB_URI=mongodb://mongo:27017`、`MOGO_PLATFORM=linux/arm64`、`MOGO_PULL_POLICY=missing`、`MOGO_IMAGE_REGISTRY=ghcr.io/mogoai`。
-**注意 `.env` 里的 `MOGO_USE_EXTERNAL_DB=1` 会把 profile 推断成 prod（外部 PanWeiDB）**，而本机既无 `panweidb:3.2.0` 镜像也无外部库实例。跑 dev 栈必须显式覆盖：`MOGO_USE_EXTERNAL_DB=0 MOGO_DATA_BACKEND=mongo`（§7.1 命令已带上）。旧 Kiri 文档 §2 说「.env 默认 panweidb」已过时——现在是**需要显式覆盖回 dev**。
+当前 `.env` 实际值（2026-11-13 20:50 改回 dev）：`MOGO_USE_EXTERNAL_DB=0`、`MOGO_DATA_BACKEND=mongo`、`MOGO_MONGODB_URI=mongodb://mongo:27017`、`MOGO_PLATFORM=linux/arm64`、`MOGO_PULL_POLICY=missing`、`MOGO_IMAGE_REGISTRY=ghcr.io/mogoai`。按上面的推断优先级，不带 `--profile` 即为 **dev**（栈内 mongo），`./mogo up --build` 不再需要显式覆盖。
+**历史坑（改回 dev 之前）**：`.env` 曾是 `MOGO_USE_EXTERNAL_DB=1` + `MOGO_DATA_BACKEND=panweidb`，会把 profile 推断成 prod（外部 PanWeiDB，本机无镜像无实例），界面表现为「数据全没了」；当时跑 dev 栈必须显式 `MOGO_USE_EXTERNAL_DB=0 MOGO_DATA_BACKEND=mongo`。另注意 `MOGO_MONGODB_URI` 不能写 `host.docker.internal:27017`——Kiri VM 内该地址实测 `Network is unreachable`，dev 必须用服务名 `mongo:27017`。
 
 切到 test 前需先加载 PanWeiDB 镜像：
 
@@ -325,7 +325,7 @@ APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true \
 ```
 
 - **为什么必须固定 builder**：`~/.docker/buildx/current` 在 kiri endpoint 下 `Name` 为空时，compose bake 会回退到 `default` builder，日志表现为 `booting buildkit → starting container buildx_buildkit_default`。该容器 `/etc/buildkit/` 里没有任何 mirror，于是 `FROM nginx:1.31.5-alpine3.24-slim` 去 `registry-1.docker.io` 校验 manifest → `dial tcp ... i/o timeout`（2026-11-13 实测：`kiri-bk2` 实例已不存在、`~/.docker/buildx/instances/` 为空、`current` 的 `Name` 为空 → 回退 `default` → 32 秒超时）。
-- **必须显式传 `MOGO_USE_EXTERNAL_DB=0`**：本机 `.env` 里是 `MOGO_USE_EXTERNAL_DB=1` + `MOGO_DATA_BACKEND=panweidb`，按 §2 的推断优先级会选 **prod/test profile**（外部 PanWeiDB），而本机既没有 `panweidb:3.2.0` 镜像也没有外部库。dev 栈必须显式 `MOGO_USE_EXTERNAL_DB=0 MOGO_DATA_BACKEND=mongo`。
+- **`.env` 已改回 dev（2026-11-13 20:50）**：`MOGO_USE_EXTERNAL_DB=0` + `MOGO_DATA_BACKEND=mongo`，不带 `--profile` 即 dev，上面命令里的显式覆盖现在属于冗余但无害的双保险（保留以防 `.env` 被其它会话改回 prod）。若哪天 `.env` 又被改成 `MOGO_USE_EXTERNAL_DB=1` + `panweidb`，按 §2 优先级会选 prod/test（外部 PanWeiDB，本机无镜像无实例），必须重新显式覆盖。
 - **当前** `mogo-kiri` 的 buildkit 容器是 `buildx_buildkit_mogo-kiri0`，`/etc/buildkit/buildkitd.toml` 配 Kiri 自动写入的代理 mirror（`docker.io` → `198.19.248.254:47391/<token>/docker.io`，并声明该 registry `http = true`），挂 `buildx_buildkit_mogo-kiri0_state` 卷、`/var/lib/buildkit` 约 20 GB。
 - **磁盘红线**：Kiri VM 磁盘只有 63 G。缓存卷已经 20 GB，再 `cp -a` 一份暖缓存会双份占空间 → 构建报 `no space left on device`，并把 `mogo-mongo-1` 打成反复重启（`exit_code=14`）。复用缓存前**先删旧卷**；构建前用 `docker --context kiri run --rm mongo:8.3.13 df -h /` 确认可用空间 ≥ 20 G。
 - **代价对比**：dory 内置 `docker` driver 直接读 daemon image store，天然不需要解析 registry manifest；kiri 是 `docker-container` driver，buildkit 有独立 content store，更依赖 mirror 与已缓存的 manifest。kiri 的「省资源」体现在暖缓存与镜像代理，**不是更少的前置条件**。
@@ -535,4 +535,4 @@ export DOCKER_CONTEXT=dory DOCKER_BIN="$D"   # 版本由 CLI 自动取 git HEAD�
 | `backups/kiri-to-dory-20261108/kiri-up-build-17f3348b.log` | 2026-11-08 11:00 kiri 增量重建日志（51 秒，71 步 `CACHED`，仅 `admin-api` 代码层重跑，7 个 `17f3348b` tag 全 Built） |
 | `backups/kiri-to-dory-20261108/dory-volumes-at-switchback/` | 切回 kiri 前 dory 停服时刻的 9 卷快照（44 MB + SHA256SUMS） |
 
-*最后更新：2026-11-13（§7.1 / §10.8 builder 恢复流程按实测重写：实例元数据丢失 → 回退 `default` builder → docker.io 超时；新增 `mogo-kiri` 实例的创建步骤、`COMPOSE_BUILDER` 必传、Kiri VM 63 G 磁盘红线；§2 补 `.env` 现状与 `MOGO_USE_EXTERNAL_DB=0` 覆盖要求）；顶栏状态块：k3s 标注为「可选备用」、dory 收敛为历史说明*
+*最后更新：2026-11-13（§2 / §7.1 按 20:50「.env 改回 dev」修订：`USE_EXTERNAL_DB=0` + `mongo` + 栈内 `mongo:27017`，无需再显式覆盖；补 `host.docker.internal` 在 Kiri 不可达的坑）；（§7.1 / §10.8 builder 恢复流程按实测重写：实例元数据丢失 → 回退 `default` builder → docker.io 超时；新增 `mogo-kiri` 实例的创建步骤、`COMPOSE_BUILDER` 必传、Kiri VM 63 G 磁盘红线）；顶栏状态块：k3s 标注为「可选备用」、dory 收敛为历史说明*
