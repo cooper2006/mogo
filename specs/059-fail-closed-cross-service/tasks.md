@@ -62,7 +62,7 @@
   - 顶部加声明 `# 唯一权威错误码字典 · Schema v2 · 2026-11-12`
   - 补充缺失的错误码：`approval.actor_mismatch`、`approval.conflict`、`tenant_id_required`
   - 明确 `fields[]`、`error_detail`、配额 429 的统一结构
-- [x] T016 [P] 修改 `docs/api-specification.md` 第 51-80 行：替换为指向 error-codes.md 的链接 + deprecated 说明（其余章节保留）
+- [x] T016 [P] 修改 `docs/api-specification.md` 第 51-80 行：替换为指向 error-codes.md 的链接 + deprecated 说明（其余章节保留）**〔2026-11-13 落地口径更正〕** 实际未替换/删除任何内容：复核发现该区间并非错误码表（是 §2 envelope 示例与 QF-234/235 安全规范），故在 `:47` 登记 DEPRECATED 权威指针、保留全部 361 行 / 14 章节。任务目标「确立唯一权威」已达成，执行方式与原文描述不同，以 `spec.md` R-3 落地口径更正为准。
 - [x] T017 [P] 新建 `docs/error-codes-v2.md`：承载 v1 内容作历史归档
 - [x] T018 [P] 在 `services/chat-api/app/main.py` 注册 `ApiVersionMiddleware(version="1.0.0")`
 - [x] T019 [P] 在 `services/document-parser/app/main.py` 注册同样中间件

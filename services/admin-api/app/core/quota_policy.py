@@ -56,8 +56,9 @@ VALID_PERIODS = {"monthly", "daily", "hourly"}
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+# 058 R-3：utc_now 单一来源，统一使用
+# ``from app.common.shared_constants import utc_now``（文件顶部 :10）。
+# 不得在此重新定义本地版本——本地定义会覆盖 import，使权威源失效。
 
 
 def normalize_period(value: Any) -> str:

@@ -94,7 +94,7 @@
 
 1. **Given** `MODEL_PRICES` 定义于 `services/common/shared_constants.py`，**When** `chat-api` 和 `admin-api` 均 from 此处 import，**Then** 修改一份即全局生效，三份手写副本的 drift 不复存在。
 2. **Given** `DEFAULT_TTL_SECONDS` 同理统一到 `shared_constants.py:23`，**When** grep 全仓 `DEFAULT_TTL_SECONDS\s*=`，**Then** 只匹配到一处定义（import 语句不计入）。
-3. **Given** `chat-api/core/quota_policy.py` 的 `utc_now()` 改为 `from app.core.shared_constants import utc_now`，**Then** 两处（admin-api / chat-api）返回同为 timezone-aware UTC，不再有 naive/datetime 混用。
+3. **Given** `chat-api/core/quota_policy.py` 的 `utc_now()` 改为 `from app.common.shared_constants import utc_now`（**2026-11-13 口径更正**：实现采用 `services/common` 权威源 + 各服务 `app/common/` vendored 逐字节一致副本，路径是 `app.common.*` 而非 `app.core.*`），**Then** 两处（admin-api / chat-api）返回同为 timezone-aware UTC，不再有 naive/datetime 混用。该场景已于 2026-11-13 删除两个本地 `def utc_now()` 后达成——此前虽有 import 语句，但被同文件本地定义覆盖，属「假导入」。
 4. **Given** `billing.py:53,78` 的 `tenant_id == 'default'` 短路分支删除，**When** 请求不带 tenant_id，**Then** 走统一配额校验路径（fail-closed，返回 400 `tenant_id_required`）。
 
 ---
@@ -215,13 +215,16 @@ if not tenant_id or tenant_id == "default":
 
 ## 验收标准
 
-- [ ] 全仓 `grep -rn "uuid\.uuid4\(\)\.hex" services/ --include="*.py"` 结果为 0（测试目录除外）
-- [ ] `scripts/check_uuid_hex_usage.py --staged` 在 pre-commit 中被调用并通过
+> **2026-11-13 机检复核口径**：逐条按磁盘与命令实测处置。上一轮把 `--staged` pre-commit 门禁误判为「待后续阶段」，实际 `.githooks/pre-commit` 已包含该调用，本轮补勾；「全仓清零」确未达成，如实保留 `[ ]` 并写明渐进收口策略。
+
+- [ ] 全仓 `grep -rn "uuid\.uuid4\(\)\.hex" services/ --include="*.py"` 结果为 0（测试目录除外）：**未达成，且按当前策略不打算一次性达成**。`scripts/check_uuid_hex_usage.py --full` 输出「✅ 无新增 uuid4().hex 实体主键用法（存量主键 **91 处**已在基线，允许场景 **52 处**）」exit 0；存量登记在 `scripts/uuid_hex_baseline.json`（15.5 KB），CI（`.github/workflows/quality-gate.yml` 的 `Unordered primary-key scan (058 T007)`）只拦**基线外新增**，属渐进收口而非全量替换。保留 `[ ]`，不假勾。
+- [x] `scripts/check_uuid_hex_usage.py --staged` 在 pre-commit 中被调用并通过：`.githooks/pre-commit` 末段调用 `--staged` 且 `|| exit 1`；空暂存实测 exit 0（「✅ 无新增 uuid4().hex 实体主键用法」）。**前提同 057**：钩子文件已就位，`core.hooksPath` 需一次性 `git config core.hooksPath .githooks` 启用（当前仓库未设置），属本地启用步骤，不计入代码交付缺口。
 - [x] `tests/test_token_usage_dispatcher.py` 覆盖 queue full / persist failed / dlq replay 三态（见 `test_token_usage_dlq.py`，10 项全绿）
 - [x] `metrics.token_usage.queue_full_total` 在压力测试中如实计数（Counter.inc() 修正，3 处 .increment() → .inc()）
 - [x] `MODEL_PRICES` 在全仓只有一处定义（`services/common/shared_constants.py:10` 为权威源；chat-api/admin-api/document-parser 的 vendored 副本逐字节一致，`test_shared_constants_sync.py` 校验）
 - [x] 双服务 quota 计算对相同输入返回 bit-for-bit 一致结果（`test_quota_consistency.py` 10 项核心测试全绿）
 - [x] `billing.py` 不带 tenant_id 的请求返回 400 而非 200（`error_handler.py` 新增 `TenantIdRequiredError → 400` 处理器，`test_tenant_id_required_400.py` 3 项全绿）
+- [x] 双服务 `quota_policy.utc_now` 运行时指向单一权威源且返回 timezone-aware UTC（2026-11-13 修复「假导入」：删除两个本地 `def utc_now()`；`test_shared_constants_sync.py` 改为运行时对象身份断言，4 项全绿；chat-api quota 回归 26 项、admin-api quota 回归 36 项全绿）
 
 ## 风险与回滚
 

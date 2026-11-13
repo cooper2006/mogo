@@ -9,6 +9,8 @@
 **Input**: 通用设计复审报告 §整改路线第 4 项前半："给 pg_compat 建可枚举能力清单 + CI 静态扫描 aggregate 管道阶段，禁止调用点逐个绕开继续扩散"；以及 P1-10「兼容层能力缺口靠调用点逐个绕开、无清单无静态守卫」的问题描述。
 
 > **来源说明**：本特性不引入新业务功能，是对既有 `services/admin-api/app/core/pg_compat.py` 的治理能力补齐。027 已落 `PgCompatUnsupported` 异常类型，本特性在此基础上建立可机检的能力矩阵。
+>
+> **归属澄清（2026-11-13）**：本特性**不包含**「四处 fail-open 漏洞修复」——那是 **059**（`specs/059-fail-closed-cross-service/spec.md` 的修复表：`risk.py` / `topic_admission/service.py` / `ontology_permission/service.py` / `im_gateway/bindings.py`）。曾有交付清单把该批改动挂在 057 名下并在 059 重复计一次，属归类错位 + 重复计数。057 的范围仅为能力清单常量、静态扫描脚本/门禁、Admin 端点与运行时 warning；本 spec 与 `tasks.md` 中 `fail-open` 相关内容为零（`plan.md:91` 那句仅说明扫描器不把 `dynamic_pipeline` 计入 exit 1，不属修复任务）。
 
 ## 背景与问题
 
@@ -186,12 +188,14 @@ GET /api/v1/admin/compatibility/pipeline-support
 
 ## 验收标准
 
-- [x] `scripts/check_pg_compat_pipeline_stages.py --help` 可正常运行并输出帮助信息（exit 0，✅ All aggregate stages are supported or no aggregate calls found.）
-- [ ] pre-commit hook 在遇到 unsupported 阶段时 exit non-zero
-- [ ] `GET /api/v1/admin/compatibility/pipeline-support` 返回正确 JSON，call_sites 与实际扫描一致
-- [x] `tests/test_pg_compat.py` 中新增针对新清单常量的单测（覆盖 SUPPORTED/UNSUPPORTED 两组，文件存在）
-- [x] `docs/pg-compat-capability-baseline.md` 记录了当前全仓 aggregate 调用基线（文件存在）
-- [ ] CI quality-gate workflow 在包含 `$unwind` 的 mock PR 上 fail
+> **2026-11-13 机检复核口径**：以下逐条按磁盘与命令实测结果处置。凡未取得实证的保持 `[ ]` 并写明原因，不因「文件存在」或 tasks 勾选而代勾。
+
+- [x] `scripts/check_pg_compat_pipeline_stages.py` 可正常运行：`--full` exit 0（输出「✅ All aggregate stages are supported or no aggregate calls found.」）；对含 `$unwind` 的临时文件实测 **exit 1** 并输出违规 JSON。注：脚本为纯位置参数扫描器，**未实现 `--help`**，原验收项「输出帮助信息」的表述不准，已按实际行为改写。
+- [x] pre-commit hook 在遇到 unsupported 阶段时 exit non-zero：`.githooks/pre-commit` 含 057 `--staged` 门禁且以 `|| exit 1` 串联，三个门禁（057/058/059）齐全；`--staged` 空暂存实测 exit 0，违规文件实测脚本 exit 1。**前提**：钩子文件已就位，但 `core.hooksPath` 需一次性 `git config core.hooksPath .githooks` 才生效（当前仓库未设置，`.git/hooks/pre-commit` 不存在）——属开发者本地启用步骤，不计入代码交付缺口。
+- [ ] `GET /api/v1/admin/compatibility/pipeline-support` 返回正确 JSON、call_sites 与实际扫描一致：端点已落地（`compatibility.py:49-95`，`response_model=PipelineSupportResponse`），`tests/test_compatibility_router_registration.py` **2 项全绿**验证路由注册与路径 `/admin/compatibility/pipeline-support`；但端点内部扫描运行时代码根 `/app`（容器内路径），本地无 `/app` 挂载，响应体与 call_sites 一致性**未在实机验证** → 如实保留 `[ ]`。
+- [ ] `tests/test_pg_compat.py` 新增针对新清单常量的单测（覆盖 SUPPORTED/UNSUPPORTED 两组）：**纠正上一轮的假勾选**——`tests/test_pg_compat.py` 实跑 91 项全绿，但全文**不含** `SUPPORTED_AGGREGATION_STAGES` / `UNSUPPORTED_STAGE_EXPLANATIONS` 任何断言；`tasks.md` T007 声称的 `tests/test_pg_compat_manifest.py` 与 `test_pg_compat_runtime_guard.py` **在磁盘上不存在**（`services/admin-api/tests/` 下仅 `test_pg_compat.py`）。本项未达成，保留 `[ ]`；补测属下一轮范围。
+- [x] `docs/pg-compat-capability-baseline.md` 记录了当前全仓 aggregate 调用基线（166 行，含常量出处、阶段清单、调用点扫描结果与验收进度）。
+- [ ] CI quality-gate workflow 在包含 `$unwind` 的 mock PR 上 fail：`.github/workflows/quality-gate.yml:273` 的 `pg_compat pipeline stages (057 T014)` job 已落地并调用 `check_pg_compat_pipeline_stages.py services`，脚本违规 exit 1 已实测；但**未构造 mock PR 实跑 CI**，端到端 fail 链条无实证 → 如实保留 `[ ]`。
 
 ## 风险与回滚
 

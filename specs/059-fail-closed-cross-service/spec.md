@@ -158,9 +158,11 @@ Pattern 4: mode == \"off\" → allowed = True
 
 ### R-3 错误码权威文档合并
 
-- **删除** `docs/api-specification.md` 中 §51-80（错误码部分），保留其他有用章节（路由概览等）
-- **强化** `docs/error-codes.md`，明确声明其为**唯一权威错误码字典**，并注明 schema version
-- 新增 `docs/error-codes-v2.md` 作为过渡引用（指向 v1 权威版），原 v1 内容移入 archive
+> **落地口径更正（2026-11-13）**：下面的「删除 §51-80」是**规划意图**，实际执行与之不同。复核 `docs/api-specification.md` 发现 **该区间并不存在错误码重复表**（51-80 行实为 §2 的 envelope 示例与 QF-234/QF-235 安全规范），因此**没有裁撤任何章节**——文件仍 361 行 / 14 个 `##` 章节。实际做法是在 `:47` 登记 DEPRECATED 权威指针，声明错误码枚举/HTTP 映射的唯一权威为 `docs/error-codes.md`（Schema v2），并说明为何不误删有效内容。目标「双权威收敛为单一权威」已达成，但动作是**登记指针**而非裁撤。`plan.md` / `quickstart.md` / `tasks.md` 中「替换/裁撤 §51-80」的措辞同为历史规划，以本节口径为准。
+
+- ~~**删除** `docs/api-specification.md` 中 §51-80（错误码部分）~~ → 实际：在 `docs/api-specification.md:47` 登记 DEPRECATED 权威指针，保留全部章节（该区间本就不是错误码表）
+- **强化** `docs/error-codes.md`，明确声明其为**唯一权威错误码字典**，并注明 schema version ✅（已落地：Schema v2 声明见 `:1-3`）
+- 新增 `docs/error-codes-v2.md` 作为过渡引用（指向 v1 权威版），原 v1 内容移入 archive ✅（文件已存在，为归档存根）
 - 在 `specs/025-api-contract-hardening/spec.md` 中追加 R-18：「消费方必须按 error-codes.md 解析响应，不允许假设 `VALIDATION_ERROR` 等历史大写变体仍存在」
 
 ### R-4 API-Version 中间件补装
@@ -191,18 +193,20 @@ Pattern 4: mode == \"off\" → allowed = True
 | # | 决策点 | 建议默认值 | 阻塞 implement？ |
 |---|---|---|---|
 | D1 | fail-open 豁免是否需要架构委员会审批流程 | 否；仅需要 `# fail-open-exempt: <作者>/<理由>` 注释，接受 CODEOWNERS review | 否 |
-| D2 | `docs/api-specification.md` 是否整体删除还是仅裁撤错误码章节 | 仅裁撤 §51-80 错误码部分，其余保留（路由概览、版本历史等仍有用） | 否 |
+| D2 | `docs/api-specification.md` 是否整体删除还是仅裁撤错误码章节 | **原决策**：仅裁撤 §51-80 错误码部分，其余保留。**实际落地（2026-11-13 复核）**：该区间并无可裁撤的错误码表（实为 envelope 示例与安全规范），故未删除任何章节，仅在 `:47` 登记 DEPRECATED 权威指针；「其余保留」的决策结论不变 | 否 |
 | D3 | `info.version: 0.2.8` 的 OpenAPI 字段是否本轮同步改掉 | 不改（影响面广，需配合开放 API 消费者的协议变更），仅在 error-codes.md 中标注「当前版本号差异系历史遗留，运行时请以 API-Version 响应头为准」 | 否 |
 | D4 | `chat-api/governance/topic_admission.py` 的 `mode=off` 是否与 admin-api 侧同步改为 deny | 不改；该处 `mode=off` 为管理员显式关闭准入功能的**功能开关**，非异常/未知状态兜底，改为 deny 会让「关闭功能」变成「拒绝全部请求」，语义相悖；保留 `return True` 并加 `# fail-open-exempt:` 豁免，由 CODEOWNERS review + 单测覆盖 | 否 |
 
 ## 验收标准
 
+> **2026-11-13 机检复核口径**：逐条按磁盘与命令实测处置。末项原为条件式（「若有新增 task」），经核实本轮未新增 025 task，属条件不适用，按「原生达标」勾选并写明理由，不作模糊留白。
+
 - [x] `scripts/check_fail_open_patterns.py` 对已知四处漏洞点能检出违规（修复前测试）
 - [x] 四处漏洞修复后，对应单测全部通过（包括新增的 fail-closed 断言用例：`test_risk_canon_fail_closed.py`、`test_topic_admission_mode_off.py`、`test_ontology_enforcement.py`、`test_im_gateway_bindings_fail_closed.py`）
 - [x] 修复后，`check_fail_open_patterns.py --full` 在 clean main 分支上 exit 0（✅ No fail-open anti-patterns detected.）
-- [x] `docs/error-codes.md` 成为唯一错误码权威源（Schema v2 声明；`docs/api-specification.md` 不再维护错误码枚举，仅保留响应 envelope 结构说明）
-- [x] chat-api 与 document-parser 的健康检查响应头含 `API-Version: 1.0.0`（`test_api_version_header.py` 3 项全绿）
-- [ ] `specs/INDEX.md` 的 025 tasks 勾选状态反映本轮变更（若有新增 task）
+- [x] `docs/error-codes.md` 成为唯一错误码权威源（Schema v2 声明见 `:1-3`；`docs/api-specification.md` 不再维护错误码枚举，仅保留响应 envelope 结构说明，并在 `:47` 登记 DEPRECATED 权威指针——**未裁撤章节**，详见 R-3 落地口径更正）
+- [x] chat-api 与 document-parser 的健康检查响应头含 `API-Version: 1.0.0`（`test_api_version_header.py` 3 项全绿；三服务均 `add_middleware`，含 admin-api）
+- [x] `specs/INDEX.md` 的 025 tasks 勾选状态反映本轮变更（若有新增 task）：**条件不成立**——059 未新增任何 025 task，025 行维持 `52/52`（`specs/INDEX.md:107`），无需同步；059 自身的落地记录以本文件「补充四」段为准。按条件式「无新增即无需动作」判定原生达标，非缺口。
 
 ## 风险与回滚
 
