@@ -178,6 +178,9 @@ class ModelDiscoverPayload(BaseModel):
     apiVersion: str = Field(default="", max_length=40)
     # 编辑已保存配置时前端拿不到已加密 Key（字段留空=保留），传实例 ID 让后端取已存密钥解密
     instanceId: str = Field(default="", max_length=64)
+    # 组内成员共用模型组的连接凭据；前端只有 apiKeyMasked，传 groupId 让后端
+    # 解密组里已存的 Key 复用（与 instanceId 互斥，instanceId 优先）。
+    groupId: str = Field(default="", max_length=64)
 
 
 @router.get("/providers")
@@ -245,13 +248,20 @@ async def discover_provider_models(
     编辑已保存配置时，前端刻意将 API Key 字段置空（占位提示“留空则保留当前 Key”，已加密
     Key 不可回显）。此时 payload 会带上 ``instanceId``，本端点从库中取出该实例已加密的
     Key 解密复用，免去每次「获取模型列表」都要重新输入。Ollama 无需 Key，跳过此逻辑。
+    组内成员同理：模型组的 Key 也只以密文存储，payload 带 ``groupId`` 时从组里解密复用。
     """
     tenant_id = str(current_user.get("tenant_id", "default"))
     base_url = payload.baseUrl.strip().rstrip("/")
     api_key = payload.apiKey.strip()
     instance_id = payload.instanceId.strip()
+    group_id = payload.groupId.strip()
     if not api_key and instance_id and payload.providerType != "ollama":
         resolved_key, key_error = await _resolve_stored_api_key(instance_id, tenant_id)
+        if key_error:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=key_error)
+        api_key = resolved_key
+    elif not api_key and group_id and payload.providerType != "ollama":
+        resolved_key, key_error = await _resolve_group_api_key(group_id, tenant_id)
         if key_error:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=key_error)
         api_key = resolved_key
@@ -735,6 +745,21 @@ async def _resolve_stored_api_key(instance_id: str, tenant_id: str) -> tuple[str
     if instance is None:
         return "", "未找到对应模型配置，请改为手动输入 API Key"
     return _decrypt_api_key(instance)
+
+
+async def _resolve_group_api_key(group_id: str, tenant_id: str) -> tuple[str, str]:
+    """组内成员「获取模型列表」时，解密复用模型组共享的已存 Key。
+
+    组内实例本身不存凭据（base_url / api_key 都留空，由组提供），前端也拿不到
+    组的明文 Key（只回 apiKeyMasked），只能由后端按 groupId + tenant_id 取组解密。
+    """
+    try:
+        group = await find_group(group_id, tenant_id)
+    except (InvalidId, ValueError):
+        return "", "模型组ID无效，请改为手动输入 API Key"
+    if group is None:
+        return "", "未找到对应模型组，请改为手动输入 API Key"
+    return _decrypt_api_key(group)
 
 
 def _azure_openai_test_events(

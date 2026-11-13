@@ -314,3 +314,83 @@ def test_discover_loopback_base_url_includes_hint(monkeypatch) -> None:
     )
     assert resp.status_code == 502
     assert "host.docker.internal" in resp.json()["detail"]
+
+
+def test_discover_with_group_id_reuses_group_key(monkeypatch) -> None:
+    """组内成员拿不到明文 Key，discover 要按 groupId 解密复用组的共享凭据。"""
+    captured: dict[str, str] = {}
+    group_id = "01a1d46f5294db764394442fef548426"
+
+    async def fake_find_group(gid, tenant_id):
+        assert gid == group_id
+        assert tenant_id == "default"
+        return {"_id": gid, "api_key_encrypted": "group-cipher", "base_url": "http://upstream/v1"}
+
+    def fake_decrypt(cipher):
+        assert cipher == "group-cipher"
+        return "group-secret"
+
+    def fake_discover(base_url, api_key):
+        captured["base_url"] = base_url
+        captured["api_key"] = api_key
+        return [{"id": "model-a", "name": "model-a"}]
+
+    monkeypatch.setattr(models_route, "find_group", fake_find_group)
+    monkeypatch.setattr(models_route, "decrypt_secret", fake_decrypt)
+    monkeypatch.setattr(models_route, "_discover_openai_compatible_models", fake_discover)
+
+    resp = _mount_app().post(
+        "/discover",
+        json={
+            "providerType": "openai_compatible",
+            "baseUrl": "http://upstream/v1",
+            "apiKey": "",
+            "groupId": group_id,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert captured["api_key"] == "group-secret"
+    assert resp.json()["models"][0]["id"] == "model-a"
+
+
+def test_discover_group_not_found_returns_400(monkeypatch) -> None:
+    async def fake_find_group(_gid, _tenant_id):
+        return None
+
+    monkeypatch.setattr(models_route, "find_group", fake_find_group)
+    resp = _mount_app().post(
+        "/discover",
+        json={
+            "providerType": "openai_compatible",
+            "baseUrl": "http://upstream/v1",
+            "apiKey": "",
+            "groupId": "01a1d46f5294db764394442fef548426",
+        },
+    )
+    assert resp.status_code == 400
+    assert "未找到对应模型组" in resp.json()["detail"]
+
+
+def test_discover_ollama_group_skips_key_resolution(monkeypatch) -> None:
+    """Ollama 本地部署无凭据，带 groupId 也不应触发组密钥解密。"""
+    calls: list[object] = []
+
+    async def fake_find_group(*args):
+        calls.append(args)
+        return None
+
+    monkeypatch.setattr(models_route, "find_group", fake_find_group)
+    monkeypatch.setattr(
+        models_route, "_discover_ollama_models",
+        lambda _base_url, _api_key: [{"id": "llama3", "name": "llama3"}],
+    )
+    resp = _mount_app().post(
+        "/discover",
+        json={
+            "providerType": "ollama",
+            "baseUrl": "http://ollama:11434",
+            "groupId": "01a1d46f5294db764394442fef548426",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert calls == []
