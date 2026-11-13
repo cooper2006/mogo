@@ -89,6 +89,17 @@ from app.core.column_map import column_type, mapped_columns
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_AGGREGATION_STAGES: frozenset[str] = frozenset({
+    "match", "sort", "limit", "skip", "count", "group", "project",
+})
+
+UNSUPPORTED_STAGE_EXPLANATIONS: dict[str, str] = {
+    "unwind": "PanWeiDB SQL 语义无法表达数组展开；请改用 find_one + Python list comprehension",
+    "facet": "PanWeiDB 暂不支持多路聚合；请拆分为多次独立查询后在应用层合并",
+    "lookup": "PanWeiDB 无 JOIN 语义；请改用两次 find + 内存 merge",
+    "replaceRoot": "PanWeiDB 无此阶段；请改用 project 重命名字段",
+}
+
 
 def new_backend_id() -> str:
     """生成新记录主键：时间有序 32-hex（阶段 2 终态）。
@@ -1128,6 +1139,18 @@ class _AggregationCompiler:
             ((name, spec),) = stage.items()
             handler = getattr(self, f"_stage_{name.lstrip('$')}", None)
             if handler is None:
+                logger.warning(
+                    "aggregation stage not supported in pg_compat",
+                    extra={
+                        "stage": name,
+                        "collection": getattr(self, "_src", "unknown"),
+                        # 057 T014/T015：name 带 ``$`` 前缀（如 ``$unwind``），
+                        # 而 UNSUPPORTED_STAGE_EXPLANATIONS 的 key 不带（如 ``unwind``），
+                        # 必须 lstrip 才能命中推荐替代方案，否则恒为空串。
+                        "allowed_alternative": UNSUPPORTED_STAGE_EXPLANATIONS.get(name.lstrip("$"), ""),
+                        "source_file": str(getattr(self, "_collection", "unknown")),
+                    },
+                )
                 raise PgCompatUnsupported(
                     f"聚合阶段 {name}。R2 只实现了代码实际用到的阶段；"
                     "若确需该阶段，请先扩展 app/core/pg_compat.py 并补充用例。"
