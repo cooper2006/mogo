@@ -229,6 +229,8 @@ export async function discoverProviderModels(payload: {
   apiVersion?: string;
   // 编辑已保存配置且未重填 Key 时带上实例 ID，后端复用已存密钥解密，免去每次重输
   instanceId?: string;
+  // 组内成员共用模型组的凭据，前端只有 apiKeyMasked；带 groupId 让后端解密组的 Key
+  groupId?: string;
 }): Promise<DiscoveredModel[]> {
   const { data } = await apiClient.post<{ models: DiscoveredModel[] }>('/api/v1/models/discover', payload);
   return data?.models ?? [];

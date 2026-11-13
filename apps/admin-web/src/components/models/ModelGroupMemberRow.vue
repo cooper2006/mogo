@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useMessage } from 'naive-ui';
 import { t } from '@/composables/i18n';
-import { createModelInstance, deleteModelInstance, updateModelInstance, type ImageModelSettings, type ImageRuntimeKind, type ModelGroupItem, type ModelInstanceItem, type ModelInstancePayload, type ModelProviderItem, type ModelStatus, type ModelPricing } from '@/api/models';
+import { createModelInstance, deleteModelInstance, discoverProviderModels, updateModelInstance, type DiscoveredModel, type ImageModelSettings, type ImageRuntimeKind, type ModelGroupItem, type ModelInstanceItem, type ModelInstancePayload, type ModelProviderItem, type ModelStatus, type ModelPricing } from '@/api/models';
 import adminProductUiExtension from '@mogo-admin-product-extension';
 import ImageModelRuntimeFields from './ImageModelRuntimeFields.vue';
 import ModelPricingFields from './ModelPricingFields.vue';
@@ -24,6 +24,11 @@ const open = ref(Boolean(props.expanded || !props.model));
 const saving = ref(false);
 const accessLoading = ref(false);
 const access = ref<unknown>(extension?.createValue(true));
+const pickerVisible = ref(false);
+const discoveredModels = ref<DiscoveredModel[]>([]);
+const pickedModelIds = ref<string[]>([]);
+const discoverLoading = ref(false);
+const bulkSaving = ref(false);
 const form = ref({ displayName: '', modelName: '', capabilities: ['chat'] as string[], status: 'active' as ModelStatus, runtimeKind: '' as ImageRuntimeKind | '', imageSettings: {} as ImageModelSettings, pricing: null as ModelPricing | null });
 const imageModel = computed(() => form.value.capabilities.includes('image_generation'));
 const selectable = computed(() => form.value.capabilities.some((item) => ['chat', 'text', 'image_generation'].includes(item)));
@@ -102,6 +107,91 @@ async function remove() {
   catch (error) { message.error(modelApiErrorText(error)); }
   finally { saving.value = false; }
 }
+
+/** 组内实例自己没有 Base URL / Key，用模型组的共享凭据拉上游模型列表。 */
+async function openModelPicker() {
+  if (!props.group.baseUrl.trim()) {
+    message.warning(t('请先保存模型组的 Base URL'));
+    return;
+  }
+  discoverLoading.value = true;
+  pickerVisible.value = true;
+  pickedModelIds.value = [];
+  try {
+    discoveredModels.value = await discoverProviderModels({
+      providerType: props.provider?.providerType || 'openai_compatible',
+      baseUrl: props.group.baseUrl,
+      apiVersion: props.group.apiVersion,
+      apiKey: '',
+      groupId: props.group.id,
+    });
+    if (!discoveredModels.value.length) message.warning(t('未获取到模型列表，请检查模型组连接配置'));
+  } catch (error) {
+    message.error(modelApiErrorText(error));
+  } finally {
+    discoverLoading.value = false;
+  }
+}
+
+function togglePickModel(id: string) {
+  const idx = pickedModelIds.value.indexOf(id);
+  if (idx >= 0) pickedModelIds.value.splice(idx, 1);
+  else pickedModelIds.value.push(id);
+}
+
+/** 确定：单选填入表单；新增态多选批量建组内成员；编辑态多选只替换当前模型 ID。 */
+async function confirmPickModels() {
+  const picked = pickedModelIds.value;
+  if (!picked.length) {
+    message.warning(t('请先选择模型'));
+    return;
+  }
+  if (picked.length === 1) {
+    form.value.modelName = picked[0];
+    pickerVisible.value = false;
+    return;
+  }
+  // 编辑已有成员时不能批量创建：组内实例没有独立凭据，逐个 POST 会全部失败。
+  if (props.model) {
+    form.value.modelName = picked[0];
+    pickerVisible.value = false;
+    message.warning(t('编辑已有模型时只能替换为单个模型，已填入 {name}；如需新增多个模型请点「添加模型」逐个添加', { name: picked[0] }));
+    return;
+  }
+  bulkSaving.value = true;
+  const baseDisplay = form.value.displayName.trim();
+  try {
+    let created = 0;
+    let lastSaved: ModelInstanceItem | null = null;
+    const failures: string[] = [];
+    for (const modelId of picked) {
+      const payload = buildPayload();
+      payload.modelName = modelId;
+      payload.displayName = baseDisplay ? `${baseDisplay} · ${modelId}` : modelId;
+      try {
+        const saved = await createModelInstance(payload);
+        await saveAccess(saved);
+        lastSaved = saved;
+        created += 1;
+      } catch (error) {
+        failures.push(`${modelId}: ${modelApiErrorText(error)}`);
+      }
+    }
+    // 只通知一次：父组件刷新列表并关闭草稿行，已创建的所有成员都会出现
+    if (created && lastSaved) emit('saved', lastSaved);
+    if (created === picked.length) {
+      message.success(t('已批量创建 {n} 个模型', { n: created }));
+    } else if (created > 0) {
+      message.warning(t('批量创建完成：成功 {ok} 个，失败 {fail} 个', { ok: created, fail: failures.length }));
+    } else {
+      message.error(t('批量创建失败：{msg}', { msg: failures[0] || '未知错误' }));
+    }
+  } finally {
+    bulkSaving.value = false;
+    pickerVisible.value = false;
+    pickedModelIds.value = [];
+  }
+}
 </script>
 
 <template>
@@ -117,7 +207,12 @@ async function remove() {
     <div v-if="open" class="member-fields">
       <n-form label-placement="top">
         <div class="field-grid">
-          <n-form-item :label="t('legacy.model_id')"><n-input v-model:value="form.modelName" :placeholder="t('modelGroup.modelIdPlaceholder')" /></n-form-item>
+          <n-form-item :label="t('legacy.model_id')">
+            <div class="model-id-field">
+              <n-input v-model:value="form.modelName" :placeholder="t('modelGroup.modelIdPlaceholder')" />
+              <n-button :loading="discoverLoading" @click="openModelPicker">{{ t('获取列表') }}</n-button>
+            </div>
+          </n-form-item>
           <n-form-item :label="t('legacy.display_name')"><n-input v-model:value="form.displayName" :placeholder="t('modelGroup.nameDefaultsToId')" /></n-form-item>
           <n-form-item :label="t('legacy.capabilities')"><n-select v-model:value="form.capabilities" multiple :options="capabilityOptions" /></n-form-item>
           <n-form-item :label="t('legacy.status')"><n-select v-model:value="form.status" :options="[{ label: t('modelGroup.active'), value: 'active' }, { label: t('modelGroup.disabled'), value: 'disabled' }]" /></n-form-item>
@@ -133,6 +228,37 @@ async function remove() {
       </div>
     </div>
   </section>
+
+  <n-modal v-model:show="pickerVisible" preset="card" :title="t('选择模型')" style="width: 640px">
+    <n-spin :show="discoverLoading">
+      <div v-if="discoveredModels.length" class="mg-picker-list">
+        <button
+          v-for="row in discoveredModels"
+          :key="row.id"
+          type="button"
+          class="mg-picker-item"
+          :class="{ 'is-selected': pickedModelIds.includes(row.id) }"
+          @click="togglePickModel(row.id)"
+        >
+          <span class="mg-picker-check" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="mg-picker-id">{{ row.id }}</span>
+          <span v-if="row.ownedBy" class="mg-picker-owner">{{ row.ownedBy }}</span>
+        </button>
+      </div>
+      <n-empty v-else :description="discoverLoading ? t('正在获取模型列表...') : t('暂无可选项，请检查模型组连接配置')" />
+    </n-spin>
+    <template #footer>
+      <n-space justify="end" align="center">
+        <span class="mg-picker-hint">{{ pickedModelIds.length ? t('已选 {n} 个', { n: pickedModelIds.length }) : '' }}</span>
+        <n-button @click="pickerVisible = false">{{ t('取消') }}</n-button>
+        <n-button type="primary" :loading="bulkSaving" :disabled="!pickedModelIds.length" @click="confirmPickModels">{{ t('确定') }}</n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>
 
 <style scoped>
@@ -146,5 +272,17 @@ async function remove() {
 .member-fields { padding: 4px 14px 14px; border-top: 1px solid var(--mg-border-subtle); }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
 .member-actions { justify-content: flex-end; padding: 8px 0 0; }
-@media (max-width: 720px) { .field-grid { grid-template-columns: 1fr; } }
+.model-id-field { display: flex; gap: 8px; width: 100%; }
+.model-id-field > :first-child { flex: 1; min-width: 0; }
+.mg-picker-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-height: 420px; overflow: auto; padding: 2px; }
+.mg-picker-item { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 10px 34px 10px 12px; border: 1px solid rgba(28, 45, 82, 0.12); border-radius: 8px; background: var(--mg-bg-surface); color: inherit; text-align: left; cursor: pointer; }
+.mg-picker-item:hover { border-color: rgba(54, 106, 255, 0.4); background: var(--mg-bg-surface-hover); }
+.mg-picker-item.is-selected { border-color: #366aff; background: rgba(54, 106, 255, 0.06); }
+.mg-picker-check { position: absolute; top: 10px; right: 10px; width: 16px; height: 16px; display: grid; place-items: center; border: 1px solid rgba(28, 45, 82, 0.2); border-radius: 4px; color: #fff; opacity: 0; }
+.mg-picker-item.is-selected .mg-picker-check { opacity: 1; background: #366aff; border-color: #366aff; }
+.mg-picker-check svg { width: 14px; height: 14px; }
+.mg-picker-id { font-size: 13px; font-weight: 600; word-break: break-all; }
+.mg-picker-owner { font-size: 11px; color: var(--mg-text-3); }
+.mg-picker-hint { font-size: 12px; color: var(--mg-text-3); margin-right: auto; }
+@media (max-width: 720px) { .field-grid { grid-template-columns: 1fr; } .mg-picker-list { grid-template-columns: 1fr; } }
 </style>
