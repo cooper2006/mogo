@@ -23,7 +23,14 @@
 #   - numpy 放宽至 >=1.24.0,<3.0.0（docling 本身要求 <3.0.0,>=1.24.0）
 #   - 追加 rapidocr==3.8.4（3.9.0+ 默认切 PP-OCRv6，现有 bundle 为 v4）
 #   - 文件头原注释保留（QA-R5-B7 原因）。
+#   - 显式追加 pypdfium2==5.14.0（QA-AUDIT-STANDARD-2026-11-13 发现：代码
+#     app/services/pdf_page_ocr.py 直接 `from pypdfium2 import PdfDocument`，
+#     但 pypdfium2 是 docling 的 optional extra（docling_slim METADATA 仅
+#     extra=='format-pdf'/'all'/'standard' 才 Requires-Dist），裸 docling 不带
+#     extra 不会拉入。此前靠传递侥幸带上，一旦 docling extra 调整，OCR PDF
+#     路径会静默失效。）
 numpy>=1.24.0,<3.0.0
+pypdfium2==5.14.0
 docling==2.108.0
 docling-core==2.99.0
 docling-ibm-models==3.15.0
