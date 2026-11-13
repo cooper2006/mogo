@@ -171,7 +171,9 @@ RUN chmod -R a+rX /app \
     # @deepseek-ai/dsh-web-frontend 的构建产物；它只在 pnpm 虚拟仓库里，
     # 不在顶层 node_modules。按「包名@版本」前缀探测：0.2.2-rc.1 起该包
     # 带 cordis peer，pnpm 会在目录名后追加 peer 后缀，精确目录名会失效。
-    && node -e "const fs=require('fs'),path=require('path');const store=path.join(process.cwd(),'node_modules','.pnpm');const prefix='@deepseek-ai+dsh-web-frontend@0.2.2-rc.1';const hit=fs.readdirSync(store).filter(d=>d.startsWith(prefix)).find(d=>fs.existsSync(path.join(store,d,'node_modules','@deepseek-ai','dsh-web-frontend','dist','index.html')));if(!hit)throw new Error('dsh-web-frontend dist/index.html not found under '+prefix+'*');console.log('DSH web frontend dist verified at '+path.join(store,hit));const dshBin=path.join(store,'.bin','dsh');if(!fs.existsSync(path.join(process.cwd(),'node_modules','.bin','dsh')))throw new Error('dsh CLI binary not linked in node_modules/.bin');console.log('dsh CLI verified in node_modules/.bin');"
+    # 注意：版本号须与 pnpm-lock.yaml 解析结果保持一致（当前为 0.2.2-rc.2），
+    # 否则 lockfile 只装 rc.2、校验却找 rc.1 会误报 dist/index.html 缺失。
+    && node -e "const fs=require('fs'),path=require('path');const store=path.join(process.cwd(),'node_modules','.pnpm');const prefix='@deepseek-ai+dsh-web-frontend@0.2.2-rc.2';const hit=fs.readdirSync(store).filter(d=>d.startsWith(prefix)).find(d=>fs.existsSync(path.join(store,d,'node_modules','@deepseek-ai','dsh-web-frontend','dist','index.html')));if(!hit)throw new Error('dsh-web-frontend dist/index.html not found under '+prefix+'*');console.log('DSH web frontend dist verified at '+path.join(store,hit));const dshBin=path.join(store,'.bin','dsh');if(!fs.existsSync(path.join(process.cwd(),'node_modules','.bin','dsh')))throw new Error('dsh CLI binary not linked in node_modules/.bin');console.log('dsh CLI verified in node_modules/.bin');"
 
 # 022 US3 (T027): container hardening, same shape as the other app images.
 #
