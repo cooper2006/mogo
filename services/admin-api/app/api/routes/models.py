@@ -300,7 +300,10 @@ async def post_model_instance(
     group = await find_group(payload.groupId, tenant_id) if payload.groupId else None
     if payload.groupId and (group is None or str(group.get("provider_id")) != payload.providerId):
         raise HTTPException(status_code=400, detail="model_group_invalid")
-    if not group and not payload.apiKey.strip():
+    # Ollama 本地部署没有凭据：前端「获取模型列表」已按同一口径豁免 Ollama，
+    # 这里再无条件校验会把所有 ollama 实例挡在门外（永远 400「API Key 不能为空」）。
+    provider_requires_key = str(provider.get("provider_type") or "") != "ollama"
+    if not group and provider_requires_key and not payload.apiKey.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API Key 不能为空")
 
     capabilities = normalize_capabilities(payload.capabilities)
