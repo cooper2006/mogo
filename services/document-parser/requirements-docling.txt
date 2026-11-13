@@ -33,7 +33,7 @@ numpy>=1.24.0,<3.0.0
 pypdfium2==5.14.0
 docling==2.108.0
 docling-core==2.99.0
-docling-ibm-models==3.15.0
+docling-ibm-models==4.0.4
 docling-parse==7.22.2
 transformers==5.10.0
 onnxruntime==1.22.1
