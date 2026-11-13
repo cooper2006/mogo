@@ -22,6 +22,7 @@ class _StubGateway:
         self.discovered = None
         self.resume_error: Exception | None = None
         self.export_result: dict | None = None
+        self.create_error: Exception | None = None
         self.created: list[dict] = []
 
     async def discover_runtime(self, **kwargs):
@@ -41,11 +42,16 @@ class _StubGateway:
         return self.export_result
 
     async def create_session(self, request, *, sealed_seed: dict | None = None):
+        # Record the attempt before a scripted failure, so retry assertions can
+        # see both the seeded request and the unseeded retry.
+        self.created.append({"request": request, "sealed_seed": sealed_seed})
+        if self.create_error is not None:
+            error, self.create_error = self.create_error, None
+            raise error
         class _Handle:
             session_id = "dsh-new"
             status = "active"
         handle = _Handle()
-        self.created.append({"request": request, "sealed_seed": sealed_seed})
         return handle
 
     async def create_runtime(self, request):
@@ -157,6 +163,38 @@ async def test_restore_falls_back_to_unseeded_successor_when_no_seed_exists():
     # session so the lineage is recorded where the kernel can use it.
     spec = created["request"].session_spec
     assert spec.seed_session_id == "sess-old"
+
+
+@pytest.mark.asyncio
+async def test_create_binding_retries_unseeded_when_dead_seed_is_rejected():
+    """旧 session 已被 host 丢弃时，拿它做种子会被拒；必须去掉种子重试。
+
+    否则 create_binding 抛异常被 prepare_turn 吞掉，继续用旧 binding 发消息，
+    用户端就只看到 503。
+    """
+    from app.dsh_runtime.errors import DshAffinityError
+
+    coordinator, gateway, bindings = _coordinator()
+    gateway.discovered = _Runtime()
+    gateway.create_error = DshAffinityError("session is not live: sess-old")
+
+    result = await coordinator.create_binding(
+        tenant_id="t1",
+        user_id="u1",
+        conversation_id="conv-1",
+        profile_version="v1",
+        model_instance_id="m1",
+        seed_runtime_id="runtime-target",
+        seed_session_id="sess-old",
+    )
+
+    assert result["kernel_session_id"] == "dsh-new"
+    assert len(gateway.created) == 2
+    assert gateway.created[0]["request"].session_spec.seed_session_id == "sess-old"
+    retry_spec = gateway.created[1]["request"].session_spec
+    assert retry_spec.seed_session_id is None
+    assert retry_spec.seed_runtime_id is None
+    assert gateway.created[1]["sealed_seed"] is None
 
 
 @pytest.mark.asyncio

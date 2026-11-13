@@ -163,3 +163,61 @@ def test_affinity_cache_ignores_empty_values():
     cache.set("sess-1", "")
     assert cache.get("") is None
     assert cache.get("sess-1") is None
+
+
+@pytest.mark.asyncio
+async def test_session_not_found_without_error_code_is_recoverable():
+    """Host 回 'session ... not found' 但没带 code=not_found 时也必须可恢复。
+
+    老会话的 kernel session 过期后，resume 会得到这类响应。早期只认
+    ``code == "not_found"``，于是被归成 DshTransportError，restore() 直接
+    raise，最终冒泡成 503，老会话永远发不出消息。
+    """
+    from app.dsh_runtime.errors import DshAffinityError
+
+    class _MissingSession(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"error": {"message": 'session "dsh-abc" not found'}})
+
+    transport = HttpKernelHostTransport(
+        base_url="http://host:8101",
+        transport_factory=lambda _url: _MissingSession(),
+    )
+    with pytest.raises(DshAffinityError):
+        await transport.request("POST", "/v1/runtimes/rt-1/sessions/dsh-abc/resume")
+
+
+@pytest.mark.asyncio
+async def test_unrelated_host_error_stays_transport_error():
+    """非 session 丢失的 host 错误仍不可恢复，避免误触发 binding 重建。"""
+    from app.dsh_runtime.errors import DshTransportError
+
+    class _Boom(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, json={"error": {"message": "internal error"}})
+
+    transport = HttpKernelHostTransport(
+        base_url="http://host:8101",
+        transport_factory=lambda _url: _Boom(),
+    )
+    with pytest.raises(DshTransportError):
+        await transport.request("POST", "/v1/runtimes/rt-1/sessions/dsh-abc/resume")
+
+
+@pytest.mark.asyncio
+async def test_session_not_live_is_recoverable_too():
+    """create_session 拿失效 session 做种子时 host 回 'session is not live'。"""
+    from app.dsh_runtime.errors import DshAffinityError
+
+    class _NotLive(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(409, json={
+                "error": {"message": "session is not live: dsh-abc"}
+            })
+
+    transport = HttpKernelHostTransport(
+        base_url="http://host:8101",
+        transport_factory=lambda _url: _NotLive(),
+    )
+    with pytest.raises(DshAffinityError):
+        await transport.request("POST", "/v1/runtimes/rt-1/sessions/dsh-abc/resume")

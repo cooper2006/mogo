@@ -7,7 +7,7 @@ from typing import Any
 
 from app.dsh_runtime.bindings import KernelBindingRepository
 from app.dsh_runtime.contracts import CreateRuntimeRequest, CreateSessionRequest, SessionSpec
-from app.dsh_runtime.errors import DshRuntimeError, DshTransportError
+from app.dsh_runtime.errors import DshAffinityError, DshRuntimeError, DshTransportError
 from app.dsh_runtime.gateway import DshAgentKernelGateway
 from app.dsh_runtime.runtime_lock import RuntimeLock
 from app.dsh_runtime.session_affinity import SessionAffinityCache
@@ -57,27 +57,50 @@ class RuntimeCoordinator:
         sealed_seed: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         runtime = await self._runtime(tenant_id=tenant_id, profile_version=profile_version)
-        session = await self._gateway.create_session(
-            CreateSessionRequest(
-                runtime_id=runtime.runtime_id,
-                session_spec=SessionSpec(
-                    conversation_id=conversation_id,
-                    tenant_id=tenant_id,
-                    user_id=user_id,
-                    profile_version=profile_version,
-                    preset_id=preset_id,
-                    execution_location=execution_location,
-                    workspace_id=workspace_id,
-                    seed_runtime_id=seed_runtime_id,
-                    seed_session_id=seed_session_id,
-                ),
+        session_request = CreateSessionRequest(
+            runtime_id=runtime.runtime_id,
+            session_spec=SessionSpec(
+                conversation_id=conversation_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                profile_version=profile_version,
+                preset_id=preset_id,
+                execution_location=execution_location,
+                workspace_id=workspace_id,
+                seed_runtime_id=seed_runtime_id,
+                seed_session_id=seed_session_id,
             ),
-            # Cross-replica rebuild (§12.4 option A): when the session's owning
-            # replica has lost it (restart, ring reshuffle) and no replica can
-            # answer a local seed reference, the caller ships the event log the
-            # source exported, MAC-sealed, and the target rehydrates from it.
-            sealed_seed=sealed_seed,
         )
+        # Cross-replica rebuild (§12.4 option A): when the session's owning
+        # replica has lost it (restart, ring reshuffle) and no replica can
+        # answer a local seed reference, the caller ships the event log the
+        # source exported, MAC-sealed, and the target rehydrates from it.
+        try:
+            session = await self._gateway.create_session(session_request, sealed_seed=sealed_seed)
+        except DshAffinityError:
+            # The referenced seed session is already gone from the host. Its id
+            # was carried over from a stale binding, so host rejects
+            # create_session with "session is not live / not found". Retrying
+            # with the same seed fails identically; letting the error escape
+            # makes prepare_turn swallow it and keep the stale binding, which
+            # ends the turn in 503. Drop all seeds and start a fresh session.
+            if seed_session_id is None and sealed_seed is None:
+                raise
+            logger.warning(
+                "seed session no longer live; retrying create_session unseeded",
+                extra={
+                    "event": "dsh.session_rebuild.unseeded_retry",
+                    "seed_session_id": seed_session_id,
+                    "runtime_id": runtime.runtime_id,
+                },
+            )
+            fresh_request = CreateSessionRequest(
+                runtime_id=session_request.runtime_id,
+                session_spec=session_request.session_spec.model_copy(
+                    update={"seed_runtime_id": None, "seed_session_id": None}
+                ),
+            )
+            session = await self._gateway.create_session(fresh_request, sealed_seed=None)
         try:
             return await self._bindings.create(
                 tenant_id=tenant_id,
@@ -308,6 +331,8 @@ class RuntimeCoordinator:
             # The new session may live on a different replica than the old one,
             # so prefer the sealed seed (works cross-replica) over the local
             # runtime/session reference (works only on the owning replica).
+            # If the host has already dropped that session, create_binding
+            # catches DshAffinityError below and retries without any seed.
             seed_runtime_id=None if seeded else runtime.runtime_id,
             seed_session_id=None if seeded else session_id,
             sealed_seed=sealed_seed,

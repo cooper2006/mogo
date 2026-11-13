@@ -459,12 +459,23 @@ class HttpKernelHostTransport:
             error = payload.get("error") if isinstance(payload, dict) else None
             message = error.get("message") if isinstance(error, dict) else response.reason_phrase
             code = error.get("code") if isinstance(error, dict) else None
-            if path.startswith("/v1/runtimes/") and code == "not_found":
-                # The host owns no such runtime/session: an affinity/routing
-                # failure (the chat-api-side binding still exists). Surface it as
-                # a recoverable, explicitly classifiable error.
-                raise DshAffinityError(f"DSH Runtime Host has no such runtime/session: {message}")
-            raise DshTransportError(f"DSH Runtime Host rejected the request: {message}")
+            message_text = str(message or "")
+            lowered = message_text.lower()
+            # Host 可达但明确回 "session ... not found" 时，是 kernel session
+            # 已丢失（副本重启 / 过期 / pending 占位从未建成），与 affinity
+            # 失效同属可恢复场景：必须归为 DshAffinityError，restore() 才会
+            # 走 _rebuild_binding_from_seed 重建 binding。早期只认 code ==
+            # "not_found"，而 host 这类响应没带该 code，于是冒泡成 503，
+            # 老会话永远发不出消息（新会话不受影响）。
+            session_missing = code == "not_found" or (
+                "session" in lowered
+                and ("not found" in lowered or "not live" in lowered)
+            )
+            if path.startswith("/v1/runtimes/") and session_missing:
+                raise DshAffinityError(
+                    f"DSH Runtime Host has no such runtime/session: {message_text}"
+                )
+            raise DshTransportError(f"DSH Runtime Host rejected the request: {message_text}")
         return payload
 
     async def stream(
