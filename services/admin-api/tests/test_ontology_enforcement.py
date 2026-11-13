@@ -55,9 +55,11 @@ async def test_enforce_false_effective_default_deny() -> None:
 
 @pytest.mark.asyncio
 async def test_enforce_true_effective_default_follows_mode() -> None:
+    # 059 T009（tasks.md:39）：effectiveDefault 无论 enforce 开关一律 deny。
+    # enforce=true 时为运行时白名单 fail-closed（030 决策③），不是跟随 defaultMode。
     svc = OntologyPermissionService(
         repository=_FakeRepo({"enforce": True, "defaultMode": "allow"})
     )
     cfg = await svc.get_config()
     assert cfg["enforce"] is True
-    assert cfg["effectiveDefault"] == "allow"
+    assert cfg["effectiveDefault"] == "deny"

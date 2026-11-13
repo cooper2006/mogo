@@ -109,7 +109,11 @@ class OntologyPermissionService:
             # enforce=false 时回退到默认 deny，不再是 allow
             "defaultMode": default_mode,
             "rev": int(value.get("rev") or 0),
-            "effectiveDefault": "deny" if not enforce else default_mode,
+            # 059 T009（fail-closed 治理）：effectiveDefault 无论 enforce 开关
+            # 一律 deny（原 allow→deny）。enforce=true 为运行时白名单 fail-closed
+            # （030 决策③）；enforce=false 为「未启用权限检查」的展示口径，
+            # 059 修订后也统一 deny，不再按 defaultMode 预演。
+            "effectiveDefault": "deny",
         }
 
     async def set_enforce(

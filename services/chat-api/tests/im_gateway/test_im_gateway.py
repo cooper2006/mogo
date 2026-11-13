@@ -363,7 +363,12 @@ def test_persisted_registry_disable_enable_channel(monkeypatch):
     reg = PersistedSessionBindingRegistry()
     asyncio.run(reg.bind(channel="feishu", conversation_id="c-1",
                          mogo_session_id="s-1", tenant_id="t-1"))
-    disabled_rows = colls.get("im_channels", [])
+    # 059 T010 fail-closed：无渠道行时 is_channel_enabled 默认 deny。bind 不写
+    # im_channels 行，故先建立渠道行（disabled=False）作为「已启用」初态，
+    # 再验证 disable/enable 生命周期。
+    colls.setdefault("im_channels", []).append({
+        "tenant_id": "t-1", "channel": "feishu", "disabled": False,
+    })
     assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is True
     affected = asyncio.run(reg.disable_channel("feishu", tenant_id="t-1"))
     assert affected == 1
@@ -391,7 +396,9 @@ def test_persisted_registry_degrades_without_db(monkeypatch):
     assert binding.mogo_session_id == "s-1"
     assert asyncio.run(reg.get("feishu", "c-1", tenant_id="t-1")) is None
     assert asyncio.run(reg.disable_channel("feishu", tenant_id="t-1")) == 0
-    assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is True
+    # 059 T010 fail-closed：DB 不可用（_db 返回 None）时 is_channel_enabled
+    # 一律 deny，不再依赖内存默认启用。
+    assert asyncio.run(reg.is_channel_enabled("feishu", tenant_id="t-1")) is False
 
 
 # --- 013 P1 残项：DingTalk / WeCom / Slack / Teams adapters (续五十五) ---

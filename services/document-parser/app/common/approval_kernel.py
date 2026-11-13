@@ -498,8 +498,14 @@ class ApprovalKernel:
         approver_id: str,
         status: Literal["pending", "all"] = "pending",
     ) -> list[ApprovalTodo]:
-        """查询审批人待办列表（统一视图，056 R-1 / US1）。"""
-        query: dict[str, Any] = {"tenant_id": str(tenant_id), "approver_id": str(approver_id)}
+        """查询审批人待办列表（统一视图，056 R-1 / US1）。
+
+        ``approver_id=""`` 时按 ``tenant_id`` 返回全量待办（059 全量视图），
+        否则精确匹配该审批人的待办。
+        """
+        query: dict[str, Any] = {"tenant_id": str(tenant_id)}
+        if approver_id:
+            query["approver_id"] = str(approver_id)
         if status == "pending":
             query["state"] = {"$in": [ApprovalState.PENDING.value, ApprovalState.REASSIGNED.value]}
         rows = await self._tickets().find(query).to_list(length=500)

@@ -253,7 +253,8 @@ async def test_get_config_defaults_to_not_enforcing() -> None:
     config = await service.get_config()
     assert config["enforce"] is False
     assert config["defaultMode"] == "allow"
-    assert config["effectiveDefault"] == "allow"
+    # 059 T009（fail-closed）：effectiveDefault 无论 enforce 开关一律 deny。
+    assert config["effectiveDefault"] == "deny"
 
 
 @pytest.mark.asyncio
@@ -261,7 +262,7 @@ async def test_set_enforce_makes_effective_default_deny() -> None:
     service, repo = _service()
     config = await service.set_enforce(tenant_id="t1", actor="admin", enforce=True)
     assert config["enforce"] is True
-    # 决策③：enforce=true 时缺省判定固定为 deny，defaultMode 仅作预演口径。
+    # 059 T009：enforce=true 时缺省判定固定为 deny（fail-closed 白名单）。
     assert config["effectiveDefault"] == "deny"
     assert repo.audits[-1]["action"] == "enforce_toggle"
 
