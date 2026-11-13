@@ -167,6 +167,10 @@ async def create_instance(payload: dict[str, Any]) -> str:
     doc = {
         "tenant_id": payload["tenant_id"],
         "provider_id": to_backend_id(payload["provider_id"]),
+        # 模型组共享连接：group_id 必须落库，否则组内成员虽然创建成功，
+        # 前端按 instance.groupId 过滤看不到成员，chat-api 的
+        # load_model_group(instance) 也找不到组里的 base_url / api_key。
+        "group_id": str(payload.get("group_id") or ""),
         "org_id": payload.get("org_id") or "",
         "display_name": payload["display_name"],
         "model_name": payload["model_name"],

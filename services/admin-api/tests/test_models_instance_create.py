@@ -14,6 +14,68 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from app.api.routes import models
+from app.repositories import model_repository
+
+
+class _FakeCollection:
+    def __init__(self) -> None:
+        self.doc: dict | None = None
+
+    async def insert_one(self, doc):
+        self.doc = doc
+        return SimpleNamespace(inserted_id="01a1d46f5292742358543be5fee51be4")
+
+
+class _FakeDB:
+    def __init__(self) -> None:
+        self.collection = _FakeCollection()
+
+    def __getitem__(self, _name):
+        return self.collection
+
+
+def _instance_payload(**overrides):
+    payload = {
+        "tenant_id": "tenant",
+        "provider_id": "01a0e2d92dd8366db4feaa06e9afd35b",
+        "group_id": "",
+        "display_name": "组内成员",
+        "model_name": "gpt-example",
+        "api_key": "",
+        "api_secret": "",
+        "base_url": "",
+        "api_version": "",
+        "capabilities": ["chat"],
+        "max_context_tokens": 0,
+        "status": "active",
+        "is_default": False,
+        "priority": 100,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_create_instance_persists_group_id(monkeypatch) -> None:
+    fake = _FakeDB()
+    monkeypatch.setattr(model_repository, "get_db", lambda: fake)
+    group_id = "01a1d46f5294db764394442fef548426"
+
+    asyncio.run(model_repository.create_instance(_instance_payload(group_id=group_id)))
+
+    assert fake.collection.doc is not None
+    assert fake.collection.doc["group_id"] == group_id
+    assert fake.collection.doc["base_url"] == ""
+    assert fake.collection.doc["api_key_encrypted"] == ""
+
+
+def test_create_instance_without_group_stores_empty_group_id(monkeypatch) -> None:
+    fake = _FakeDB()
+    monkeypatch.setattr(model_repository, "get_db", lambda: fake)
+
+    asyncio.run(model_repository.create_instance(_instance_payload()))
+
+    assert fake.collection.doc is not None
+    assert fake.collection.doc["group_id"] == ""
 
 
 def _patch_common(monkeypatch, provider_lookup, provider: dict) -> None:
