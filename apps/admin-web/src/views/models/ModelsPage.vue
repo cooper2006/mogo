@@ -587,7 +587,7 @@ function togglePickModel(id: string) {
   }
 }
 
-/** 弹窗「确定」：单选填入表单；多选基于当前配置批量创建实例。 */
+/** 弹窗「确定」：单选填入表单；新增态多选基于当前配置批量创建实例（编辑态多选只填首个模型）。 */
 async function confirmPickModels() {
   const picked = pickedModelIds.value;
   if (!picked.length) {
@@ -601,8 +601,22 @@ async function confirmPickModels() {
     message.success(t('已选择模型：{name}', { name: picked[0] }));
     return;
   }
+  // 编辑已有配置时，表单里的 API Key 是留空的（密钥已加密保存、不回显），
+  // 此时若继续走「批量创建」，每个模型都会因缺 Key 被后端以 400 拒绝。
+  // 编辑模式只把第一个模型填入当前表单，其余需保存后再逐个添加。
+  if (form.value.id) {
+    form.value.modelName = picked[0];
+    modelPickerVisible.value = false;
+    message.warning(t('编辑已有配置时只能替换为单个模型，已填入 {name}；如需新增多个模型，请先保存当前配置再逐个添加', { name: picked[0] }));
+    return;
+  }
   if (!form.value.providerId) {
     message.warning(t('请先选择供应商'));
+    return;
+  }
+  // 批量创建前先校验凭据（Ollama 本地部署无需 Key），避免逐个模型各报一次 400
+  if (currentProvider.value?.providerType !== 'ollama' && !form.value.apiKey.trim()) {
+    message.warning(t('请先填写 API Key 再批量创建模型'));
     return;
   }
   const baseDisplay = form.value.displayName.trim();
