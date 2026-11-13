@@ -6,6 +6,14 @@ image.
 
 ## Unreleased
 
+### Fixed
+
+- **dsh-runtime-host 构建校验版本对齐 rc.2（commit `c5a4b936`）**：`services/chat-api/dsh/runtime-host/Dockerfile` 第 174 行硬编码 `@deepseek-ai/dsh-web-frontend@0.2.2-rc.1`，但 `pnpm-lock.yaml` 已解析 `rc.2`，导致离线构建只装 rc.2、校验却找 rc.1 误报 `dist/index.html not found`。改为 `rc.2` 并补注释说明须与 lockfile 保持一致。
+
+### Changed
+
+- **本地开发环境文档口径同步（k3s → 可选备用）**：本地开发默认栈明确为 `docker --context kiri` 的 Docker Compose（`docs/dev-build-guide.md`）；k3s 本地开发路径降级为「可选备用」——仅当改动需要真实集群验证时临时 `kiri k8s start`、用完 `kiri k8s stop` 收掉，不常驻（`docs/k3s-local-dev-deploy.md` 已加状态标注）。Dory 引擎维持已停服的历史状态。
+
 ## v0.2.8 - 2026-11-11
 
 ### Fixed

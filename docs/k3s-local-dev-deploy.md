@@ -1,5 +1,7 @@
 # k3s 本地开发部署指南
 
+> **状态：可选备用（非默认本地开发栈）**。本地开发默认走 `docker --context kiri` 的 Docker Compose 栈（见 `docs/dev-build-guide.md`）。本指南仅在「改动需要真实 k8s 集群验证」时使用：k8s manifest / 网络策略 / PVC / hostPort 等只能在 k3s 里看效果，或回归测试 A5（本体权限容器内 e2e）。用完即走——`kiri k8s start` 临时拉起、验证完 `kiri k8s stop` 收掉，**不常驻**。
+>
 > 目的：把代码改动推到 Kiri 上的 k3s 集群（节点容器 `kiri-k8s`）跑起来做本地验证。
 > **不涉及生产部署逻辑** —— `deploy/production/*` 完全不动。
 > 配套脚本：`scripts/k3s-rebuild-deploy.sh`

@@ -1,20 +1,13 @@
 # 本地开发环境：离线加速构建与重启服务
 
-> 状态：**现行指南**（2026-11-08 从 Kiri 迁移后生效）
-> 文件名沿革：原名 `docs/dory-dev-build-guide.md`（迁移到 Dory 引擎时命名）；2026-11-08 运行端切回 kiri 后更名为 `docs/dev-build-guide.md`，内容仍为同一份指南。
-> 版本基线：**由 `./mogo` CLI 自动取 `git rev-parse --short HEAD`，不需要显式传 `MOGO_VERSION`**（2026-11-08 11:00 重建时 HEAD = `17f3348b`；之后每次提交都会变，请以命令实际输出为准，见 §3 / §11）
-> 前代文档：`docs/kiri-dev-build-guide.md`（Kiri 时代，**已停用**，仅作历史）
+> 状态：**现行指南**（本地开发默认栈 = `docker --context kiri` 的 Docker Compose）
+> 文件名沿革：原名 `docs/dory-dev-build-guide.md`（Dory 引擎时代命名）；2026-11-08 运行端切回 kiri 后更名为 `docs/dev-build-guide.md`。
+> 版本基线：**由 `./mogo` CLI 自动取 `git rev-parse --short HEAD`，不需要显式传 `MOGO_VERSION`**（见 §3 / §11）
 > 离线 bundle 体系：`docs/offline-bundle-system.md`（权威）
 >
-> **当前运行状态（2026-11-08 11:00）**：服务跑在 **kiri**（11 个业务容器 healthy、HTTP 200），已在 kiri 用离线 bundle 增量重建 `17f3348b` 镜像并重启；**全局默认 docker context 为 `kiri`**；**dory 引擎已下线**（`dorydctl engine stop` → `stopped`，`dory mode manual`，`~/.dory/dory.sock` 已消失）。
->
-> ⚠️ **本文档中所有 `--context dory` / `DOCKER_CONTEXT=dory` 命令当前都会失败**（`connect: no such file or directory`）。要按 dory 流程操作，先恢复引擎：
-> ```bash
-> ~/.dory/bin/dorydctl engine start        # 或 ~/.dory/bin/dory engine wake
-> ~/.dory/bin/dory mode always-on          # 可选：恢复原来的「始终在线」模式
-> /opt/homebrew/bin/docker --context dory info   # 验证 29.6.1 / aarch64
-> ```
-> dory 的 12 个容器 / 10 个卷 / 14 个镜像**全部保留**（清单见 `backups/kiri-to-dory-20261108/dory-*-at-offline.txt`），恢复后数据原样可用。日常开发请直接用 kiri，构建须固定 `BUILDX_BUILDER=kiri-bk2`（2026-11-10 起唯一可用 builder；旧文档写的 `kiri` 已停用），见 §7.1 / §10.8。本文其余章节（bundle、基础镜像、离线开关、排障、CLI 速查）两端都适用。
+> **本地开发栈（默认）**：`docker --context kiri` 上的 Compose 栈（11 个业务容器 healthy、HTTP 200），全局默认 docker context 即为 `kiri`，裸 `docker` / `./mogo` 无需任何 context 参数。
+> **k3s = 可选备用（非默认）**：仅当改动需要真实集群验证（k8s manifest / 网络策略 / PVC / A5 容器内 e2e）时，用 `kiri k8s start` 临时拉起 k3s、验证完 `kiri k8s stop` 收掉，**不常驻**。详见 `docs/k3s-local-dev-deploy.md`（已标注「可选备用」）。
+> **Dory 引擎（历史，已停服）**：`~/.dory/dory.sock` 已消失、引擎 `manual/sleeping`，`--context dory` 当前会连接失败；其 12 容器 / 10 卷 / 14 镜像全部保留，需时 `~/.dory/bin/dorydctl engine start` 可恢复。日常开发请用 kiri。
 
 本文档记录**本地开发栈**的「离线 bundle → 加载基础镜像 → 启动 / 离线构建 → 健康确认」完整流程，面向大陆内网 / 离线环境下跑 mogo 自托管开发环境的工程师。本指南不绑定具体 docker 引擎（原名带 Dory 是迁移期的历史命名，现已更名）；两端流程已实测等价，差异集中在 context 与 buildx builder，见 §0 / §7.1。
 
@@ -291,7 +284,7 @@ APT_OFFLINE_INSTALL=true PIP_OFFLINE_INSTALL=true \
 >
 > **本节命令已全部改为 `kiri-bk2`，可直接复制执行。** 注意 `DOCKER_CONTEXT=kiri` 是 docker **context 名**、保持不变，只有 builder 名要改。其它文档若仍写 `BUILDX_BUILDER=kiri` / `buildx use kiri`，一律按 `kiri-bk2` 理解。`scripts/pnpm_store_bundle.sh` 的默认值已同步为 `kiri-bk2`（仍可用 `BUILDX_BUILDER` 覆盖）。
 >
-> 校验命令：`docker --context kiri buildx ls` 应显示 `kiri-bk2*` 且节点 `kiri-bk20` 为 `running`；`docker --context kiri buildx inspect kiri-bk2` 应显示 `BuildKit version: v0.34.2`。`scripts/k3s-rebuild-deploy.sh` 与 `docs/k3s-local-dev-deploy.md` 用的也是这个默认值，但注意 `builder-clean` 只删冗余 builder、`step_builder_ensure` 只做 `buildx use`，**都不会创建 builder**；若 `kiri-bk2` 丢失，需手工 `docker buildx create --driver docker-container --config <buildkitd.toml>` 恢复上表的 mirror 配置（并保证 buildkit 容器能访问 `mogo-local-reg:5000`），再重新暖缓存——仓库内目前没有自动创建 builder 的脚本。
+> 校验命令：`docker --context kiri buildx ls` 应显示 `kiri-bk2*` 且节点 `kiri-bk20` 为 `running`；`docker --context kiri buildx inspect kiri-bk2` 应显示 `BuildKit version: v0.34.2`。**k3s 本地开发路径（可选备用，非默认）** 的 `scripts/k3s-rebuild-deploy.sh` 与 `docs/k3s-local-dev-deploy.md` 用的也是这个默认 builder，但注意 `builder-clean` 只删冗余 builder、`step_builder_ensure` 只做 `buildx use`，**都不会创建 builder**；若 `kiri-bk2` 丢失，需手工 `docker buildx create --driver docker-container --config <buildkitd.toml>` 恢复上表的 mirror 配置（并保证 buildkit 容器能访问 `mogo-local-reg:5000`），再重新暖缓存——仓库内目前没有自动创建 builder 的脚本。
 
 kiri 同样跑通了全量离线构建：**3 分 46 秒**，7 个业务镜像 Image ID 全变，四类 bundle 全命中，真实执行输出零联网回退，基础镜像 `resolve ... CACHED`。但**必须先固定 builder**，否则第一次必然失败。
 
@@ -519,4 +512,4 @@ export DOCKER_CONTEXT=dory DOCKER_BIN="$D"   # 版本由 CLI 自动取 git HEAD�
 | `backups/kiri-to-dory-20261108/kiri-up-build-17f3348b.log` | 2026-11-08 11:00 kiri 增量重建日志（51 秒，71 步 `CACHED`，仅 `admin-api` 代码层重跑，7 个 `17f3348b` tag 全 Built） |
 | `backups/kiri-to-dory-20261108/dory-volumes-at-switchback/` | 切回 kiri 前 dory 停服时刻的 9 卷快照（44 MB + SHA256SUMS） |
 
-*最后更新：2026-11-10（§0 / §7.1 / §8 / §10.8 / §11 的 builder 相关内容按 `kiri-bk2` 现状修订；11-08 实测数据保留）*
+*最后更新：2026-11-13（顶栏状态块更新：k3s 标注为「可选备用」、dory 收敛为历史说明；§7.1 k3s 交叉引用同步标注可选备用）；2026-11-10 的 `kiri-bk2` builder 修订与 11-08 实测数据保留*
