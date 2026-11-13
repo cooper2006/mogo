@@ -237,7 +237,11 @@ class WeaviateVectorStore:
             method=method,
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            # Weaviate 是内网服务（docker 内网名 weaviate 或本机 127.0.0.1），
+            # 生产从不走 HTTP 代理。macOS 系统代理（如 Steam++ 127.0.0.1:26561）
+            # 可能把内网地址也路由到代理 → 连接失败/404。这里显式绕过系统代理。
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(request, timeout=30) as response:
                 raw = response.read().decode("utf-8")
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:

@@ -35,8 +35,11 @@ import urllib.error
 import urllib.request
 
 url = sys.argv[1]
+# 同 liveness.sh：探针只打本机端点，显式绕过 macOS 系统代理，避免本机
+# 健康检查被代理（如 Steam++ 127.0.0.1:26561）拦截返回 404。
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 try:
-    with urllib.request.urlopen(url, timeout=3) as response:
+    with opener.open(url, timeout=3) as response:
         body = response.read(4096).decode("utf-8", "replace")
         status = response.status
 except urllib.error.HTTPError as exc:

@@ -31,8 +31,13 @@ import urllib.request
 import json
 
 url = sys.argv[1]
+# 探针只打本机健康端点（127.0.0.1 / localhost）。macOS 系统代理可能把
+# localhost 也路由到代理（如 Steam++ 的 127.0.0.1:26561），导致本机健康
+# 检查被代理拦截返回 404 → 实例被误判死。这里显式绕过系统代理，保证
+# 本机请求始终直连（代理只应服务 GitHub 等外网域名）。
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 try:
-    with urllib.request.urlopen(url, timeout=3) as response:
+    with opener.open(url, timeout=3) as response:
         body = response.read(4096).decode("utf-8", "replace")
         status = response.status
 except urllib.error.HTTPError as exc:

@@ -61,8 +61,17 @@ class _MockHandler(http.server.BaseHTTPRequestHandler):
 
 
 @pytest.fixture()
-def mock_upstream() -> tuple[str, int]:
-    """起本地 mock 上游，返回 (base_url_without_scheme, port)。"""
+def mock_upstream(monkeypatch: pytest.MonkeyPatch) -> tuple[str, int]:
+    """起本地 mock 上游，返回 (base_url_without_scheme, port)。
+
+    产品 external_tools.py 用 ``httpx.AsyncClient(trust_env=True)`` 打连接器
+    上游——对**真实外部上游**遵循代理是正确行为。但本测试的上游是
+    ``127.0.0.1`` 本地 mock，若宿主系统代理（如 macOS Steam++）未豁免
+    localhost，httpx 会把请求路由到代理返 404，导致 mock 从未收到请求
+    （11-13 QA 发现 E1/E2 失败）。故在此豁免 localhost 代理。
+    """
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
     _MockHandler.seen = []
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _MockHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
