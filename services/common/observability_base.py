@@ -276,6 +276,15 @@ def instrument_fastapi(app: Any) -> bool:
         FastAPIInstrumentor.instrument_app(app)
         _instrumentor_holder[id(app)] = True
         return True
+    except ModuleNotFoundError as exc:
+        # instrumentation-* 是可选依赖，requirements.txt 未包含。缺包属于
+        # 预期内的降级路径（FR-13），一行 WARNING 足够，不要打 ERROR +
+        # traceback 把启动日志刷屏。其余异常仍按下方 ERROR 处理。
+        logging.getLogger(__name__).warning(
+            "FastAPIInstrumentor 可选依赖缺失（%s），HTTP server tracing 已跳过",
+            getattr(exc, "name", None) or str(exc),
+        )
+        return False
     except Exception:
         logging.getLogger(__name__).exception(
             "FastAPIInstrumentor init failed; app runs without tracing"
@@ -296,6 +305,13 @@ def instrument_httpx() -> bool:
         HTTPXInstrumentor().instrument()
         _instrumentor_holder["httpx"] = True
         return True
+    except ModuleNotFoundError as exc:
+        # 同 instrument_fastapi：可选插桩包缺失属预期降级，不刷 ERROR 堆栈。
+        logging.getLogger(__name__).warning(
+            "HTTPXInstrumentor 可选依赖缺失（%s），HTTP client tracing 已跳过",
+            getattr(exc, "name", None) or str(exc),
+        )
+        return False
     except Exception:
         logging.getLogger(__name__).exception(
             "HTTPXInstrumentor init failed; downstream calls without tracing"
