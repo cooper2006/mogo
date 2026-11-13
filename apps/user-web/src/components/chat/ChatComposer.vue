@@ -984,28 +984,28 @@ watch(() => props.allowSkills, (allowed) => {
             <div
               v-if="modelDropdownOpen"
               ref="modelDropdownPanelRef"
-              class="fixed z-[100] w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10"
+              class="mg-model-dropdown fixed z-[100] w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border shadow-xl"
               :style="modelDropdownPanelStyle"
             >
               <div class="max-h-[min(60vh,420px)] overflow-y-auto py-1.5">
-                <button v-if="chatModels.length === 0" type="button" class="flex w-full items-center gap-3 px-3 py-2.5 text-left" @click="selectChatModel('')">
-                  <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-slate-800">{{ modelSelectorLabel }}</span></span>
+                <button v-if="chatModels.length === 0" type="button" class="mg-model-option flex w-full items-center gap-3 px-3 py-2.5 text-left" @click="selectChatModel('')">
+                  <span class="min-w-0 flex-1"><span class="mg-model-option-title block truncate text-sm font-medium">{{ modelSelectorLabel }}</span></span>
                 </button>
                 <button
                   v-for="model in chatModels"
                   :key="model.id"
                   type="button"
-                  class="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
-                  :class="model.id === selectedModelId ? 'bg-blue-50/80' : ''"
+                  class="mg-model-option flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors"
+                  :class="model.id === selectedModelId ? 'is-selected' : ''"
                   @click="selectChatModel(model.id)"
                 >
                   <span class="min-w-0 flex-1">
                     <span class="flex min-w-0 items-center gap-2">
-                      <span class="truncate text-sm font-medium text-slate-900">{{ model.displayName || model.modelName }}</span>
+                      <span class="mg-model-option-title truncate text-sm font-medium">{{ model.displayName || model.modelName }}</span>
                     </span>
-                    <span class="block truncate text-xs text-slate-500">{{ model.providerName }} · {{ model.modelName }}</span>
+                    <span class="mg-model-option-sub block truncate text-xs">{{ model.providerName }} · {{ model.modelName }}</span>
                   </span>
-                  <svg v-if="model.id === selectedModelId" class="h-4 w-4 shrink-0 text-blue-600" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 10.5l3 3L15 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                  <svg v-if="model.id === selectedModelId" class="mg-model-option-check h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 10.5l3 3L15 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                 </button>
               </div>
             </div>
@@ -1043,6 +1043,34 @@ watch(() => props.allowSkills, (allowed) => {
 .composer-context-slot:not(:empty) + .composer-card {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
+}
+
+/* 模型下拉 Teleport 到 body，不能依赖浅色 Tailwind 类或写死色值：
+   统一走设计令牌，深色/浅色主题自动切换（tokens.css 定义两套 --mg-*）。 */
+.mg-model-dropdown {
+  background-color: var(--mg-bg-surface);
+  border-color: var(--mg-border);
+  box-shadow: 0 12px 36px rgba(4, 8, 16, 0.28);
+}
+
+.mg-model-option:hover {
+  background-color: var(--mg-bg-surface-hover);
+}
+
+.mg-model-option.is-selected {
+  background-color: var(--mg-brand-soft);
+}
+
+.mg-model-option-title {
+  color: var(--mg-text-1);
+}
+
+.mg-model-option-sub {
+  color: var(--mg-text-3);
+}
+
+.mg-model-option-check {
+  color: var(--mg-brand);
 }
 
 </style>
