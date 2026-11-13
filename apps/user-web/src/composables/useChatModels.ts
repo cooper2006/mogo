@@ -23,10 +23,14 @@ export function useChatModels(options: {
   })
 
   async function loadChatModels() {
+    // 首屏 onMounted 时登录态/租户可能还没就绪，此时发 tenant_id=default 会
+    // 带不上有效 token 而 401。直接跳过，等 watch(() => props.tenantId) 重试。
+    const tenantId = options.getTenantId()
+    if (!tenantId) return
     try {
       modelsLoading.value = true
       modelLoadError.value = ''
-      const items = await fetchChatModels(options.getTenantId() || 'default')
+      const items = await fetchChatModels(tenantId)
       chatModels.value = items
       const preferredModelId = options.getPreferredModelId?.() || ''
       if (preferredModelId && items.some((item) => item.id === preferredModelId)) {

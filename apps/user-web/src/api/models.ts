@@ -17,7 +17,7 @@ export interface ChatModelOption {
   healthStatus: string
 }
 
-export async function fetchChatModels(tenantId = 'default'): Promise<ChatModelOption[]> {
+export async function fetchChatModels(tenantId: string): Promise<ChatModelOption[]> {
   const response = await client.get('/api/models/available', { params: { tenant_id: tenantId, capability: 'chat' } })
   return Array.isArray(response.data) ? response.data : response.data?.data || []
 }

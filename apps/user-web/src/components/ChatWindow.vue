@@ -346,7 +346,7 @@ const {
   loadChatModels,
   selectChatModel,
 } = useChatModels({
-  getTenantId: () => props.tenantId || 'default',
+  getTenantId: () => props.tenantId || '',
   getLocale: () => locale.value,
   getPreferredModelId: () => props.modelInstanceId || '',
 })
