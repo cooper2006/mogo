@@ -85,6 +85,11 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "organizations",
     "org_quota_policies",
     "org_units",
+    # 056 approval_kernel（specs 056-059，2026-11-12）：审批票据内核集合，
+    # 每条文档带标量 ``tenant_id``（approval_kernel.py:227）。漏掉会让被删
+    # 租户的审批单残留，并被同 ID 重建的租户读到（与 11-13 QA 全树扫描
+    # test_tenant_purge 发现同类）。
+    "approval_tickets",
     "page_collection_settings",
     "personal_knowledge_directories",
     "position_roles",
@@ -144,6 +149,10 @@ TENANT_SCOPED_COLLECTIONS: list[str] = [
     "skill_update_notifications",
     "skills",
     "token_usage_logs",
+    # 058 token_usage dispatcher dead-letter queue（specs 058，2026-11-12）：
+    # 写入时带 ``tenant_id``（dispatcher.py:91）。漏掉会让被删租户的 token
+    # 用量 DLQ 记录残留（11-13 QA test_tenant_purge 全树扫描发现）。
+    "token_usage_dlq",
     # 话题准入策略：tenant-scoped（topic_admission/service.COLLECTION）。策略里
     # 含租户自定的话题/关键词与受众配置，属租户私有数据，必须随租户清除。
     "topic_admission_policies",
