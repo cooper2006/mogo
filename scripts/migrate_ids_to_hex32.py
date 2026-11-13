@@ -67,7 +67,14 @@ NATURAL_KEY_COLLECTIONS = frozenset({
     "skill_quality_metrics",
 })
 
-_HEX24_IN_TEXT = re.compile(r"(?<![0-9a-fA-F])([0-9a-fA-F]{24})(?![0-9a-fA-F])")
+# 匹配文档文本内嵌的 24-hex ObjectId 子串。
+# lookbehind 必须排除「前缀 + hex」的业务自然键（如 tenant_id 的
+# `org-<hex>` / `bonc-<hex>` 这类「前缀-dash-hex」复合键）：其 hex 段
+# 左侧是字母或 `-`（如 `org-` 结尾是 g，dash 紧贴 hex），不能当作
+# ObjectId 替换，否则会把多租户逻辑隔离键改坏。
+# 排除左侧为 hex / 字母 / `-` 的情形，只保留「裸 24-hex」(左侧是串首、
+# 空白、引号、逗号、冒号等分隔符) 的匹配；lookahead 同理排除右侧 hex。
+_HEX24_IN_TEXT = re.compile(r"(?<![0-9a-zA-Z-])([0-9a-fA-F]{24})(?![0-9a-fA-F])")
 _HEX24_FULL = re.compile(r"^[0-9a-fA-F]{24}$")
 _HEX32_FULL = re.compile(r"^[0-9a-fA-F]{32}$")
 

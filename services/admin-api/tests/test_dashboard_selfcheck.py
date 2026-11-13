@@ -29,9 +29,15 @@ from app.api.dashboard_usage import (
 )
 
 
-def _rows():
-    """Three usage rows spanning the same tenant, two models, two users."""
-    base = window_start(DEFAULT_PERIOD_DAYS)
+def _rows(*, now: datetime | None = None):
+    """Three usage rows spanning the same tenant, two models, two users.
+
+    ``now`` 固定为 UTC 正午，避免 `window_start` 用真实 ``utcnow()`` 时在
+    UTC 21-22 点（北京时间次日凌晨）跨 UTC 午夜，使 base+1h..3h 落入两个
+    日 bucket 导致 ``len(series)==1`` 断言间歇失败（11-13 QA 发现）。
+    """
+    reference = now or datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    base = window_start(DEFAULT_PERIOD_DAYS, now=reference)
     return [
         {"created_at": base + timedelta(hours=1), "user_id": "u1", "model_name": "gpt-5.2", "total_tokens": 100, "cost_estimate_usd": 0.001},
         {"created_at": base + timedelta(hours=2), "user_id": "u2", "model_name": "gpt-5.2", "total_tokens": 100, "cost_estimate_usd": 0.001, "skill_name": "writer", "retrieval_type": "web"},

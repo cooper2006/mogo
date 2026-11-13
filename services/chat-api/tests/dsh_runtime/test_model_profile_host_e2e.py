@@ -67,6 +67,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 for block in message["content"]
                 if block["type"] == "text"
                 and not str(block["text"]).startswith("Current runtime context.")
+                and not str(block["text"]).startswith("<system-reminder>")
             )
             if user_text == "[auth-fail]":
                 body = {
@@ -221,11 +222,13 @@ async def _test_real_dsh_uses_default_and_explicit_immutable_model_profiles(tmp_
         assert all("LONG-LIVED" not in json.dumps(call) for call in _GatewayHandler.calls)
         for call in _GatewayHandler.calls:
             model_messages = call["payload"]["messages"]
+            # DSH 0.2.2-rc.2：受信时间上下文由 <system-reminder> 块承载
+            # （原先以 "Current runtime context." 开头的独立块已合并）。
             snapshots = [
                 block["text"]
                 for message in model_messages
                 for block in message["content"]
-                if block["type"] == "text" and str(block["text"]).startswith("Current runtime context.")
+                if block["type"] == "text" and str(block["text"]).startswith("<system-reminder>")
             ]
             assert snapshots
             assert "Trusted time context supplied by MOGO" in snapshots[-1]

@@ -33,7 +33,10 @@ SCENARIOS = (
         prompt="搜索一个当前公开事实。",
         model_tool_name="web_search",
         gateway_tool_name="external_search",
-        arguments={"queries": ["DSH regression current fact"], "max_results_per_query": 8},
+        # native web_search（DSH dsh-tool-web）的 schema 只接受 queries，
+        # max_results_per_query 由 DSH searchMaxResults 配置注入（默认 10），
+        # 而非 model tool-call 里的值（askai-web-search-provider.mjs 注入）。
+        arguments={"queries": ["DSH regression current fact"], "max_results_per_query": 10},
     ),
     ConversationScenario(
         id="progressive_research",
